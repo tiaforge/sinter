@@ -214,8 +214,6 @@ export interface App {
       /** `upsert(c.replies, x)`: `owner` (from `names`) gets its list `field` with `item` in it */
       upsert(res: (n: string) => Resource, names: string[], owner: any, field: string, item: unknown): void;
     };
-    /** cached lets (lets.ts): once per flush round, with what reaches a list of dependencies */
-    lets?: (hit: (deps: PathRef[] | undefined) => boolean, round: number) => void;
     /** components with a script (components.ts): a root's `cmp` binding, `v` its class module, props and class name */
     components?: (rb: BoundBinding, v: unknown) => void;
     fields?: { sent(el: Element, a: ActionDef): ((error: SinterError, request: { url: string; method: string }) => boolean) | undefined };
@@ -260,12 +258,6 @@ export interface App {
    * in a text field, so a resource URL it changes waits for a pause
    */
   mark(path: number | string, scope?: any, typing?: boolean): void;
-  /** the number of paths marked so far: a value computed from state is current while it has not changed */
-  marks: number;
-  /** handlers running (`exec`): their writes are marked before they happen */
-  handling: number;
-  /** whether a path marked since the last flush reaches a dependency of `deps`, as the next flush will decide */
-  pending(deps: PathRef[] | undefined): boolean;
   flush(): void;
   /**
    * Runs `fn`, a server event's changes: what it marks is rendered before the next frame is painted
@@ -278,7 +270,7 @@ export interface App {
   record(change: () => void): (ok?: boolean) => void;
   storeFns(el: Element | null): Record<string, (...a: any[]) => unknown>;
   serverEvent(name: string, payload: unknown): void;
-  /** runs handler `f` in `scope`, its paths invalidated first; `o`: the binding it runs for (dev builds name its place) */
+  /** runs handler `f` in `scope` and invalidates the paths it writes; `o`: the binding it runs for (dev builds name its place) */
   exec(f: number, scope: any, writes?: PathRef[], o?: { at?: Record<number, string> }): void;
   addCleanup(fn: () => void): void;
   /** runs `fn` now, or, on a page the browser prerenders (Speculation Rules), once it is shown */
@@ -691,25 +683,15 @@ export function mount(root: Document | Element, o: MountOptions): App {
     },
     scopeOf: (i) => (i < 0 ? app.page : rootScopes[i] ?? app.page),
     url: (tpl, s) => expand(tpl, s, fns),
-    marks: 0,
-    handling: 0,
     mark(path, s, typing) {
       const d = dirtyOf(path, s);
       dirty.push(d);
-      app.marks++;
       if (typing) typed.add(d);
       if (scheduled || flushing) return;
       if (streaming && env.frame && !env.hidden?.()) {
         // a frame flush only runs when no microtask flush took these changes first
         if (!framed) { framed = true; env.frame(() => { framed = false; if (!scheduled && dirty.length) app.flush(); }); }
       } else { scheduled = true; env.queueMicrotask(app.flush); }
-    },
-    // straight from the marks, never the flush's index: a check in the middle of a flush (a handler an island's
-    // event runs mid-walk) must not restamp what the running walk reads
-    pending(deps) {
-      const want = ids(deps);
-      for (const d of dirty) if (d.w >= 0) for (const e of entries(d.w)) if (want.includes(e.d) && (!e.conds.length || (passes(e, d.v) && level(e, d)))) return true;
-      return false;
     },
     streamed(fn) {
       streaming++;
@@ -728,7 +710,6 @@ export function mount(root: Document | Element, o: MountOptions): App {
           rowHits = new Map();
           rowSel = new Map();
           index(cur);
-          app.ext.lets?.(hit, round);
           for (const l of loaders) { const k = hits(l.def.deps); if (k) l.changed(k == 1); }
           walk(rootRbs, 0);
           syncSelects();
@@ -787,11 +768,8 @@ export function mount(root: Document | Element, o: MountOptions): App {
       for (const fn of listeners.get(name) ?? []) try { fn(payload); } catch (e) { console.error(e); }
     },
     exec(f, s, writes, o) {
-      // marked first, and counted while it runs: what the handler reads after its own writes (a cached let) sees
-      // them as changed, whether the read comes before or after them
+      try { fns[f]!(s); } catch (err) { warn(24, o, f, err) ?? console.error(err); }
       for (const w of writes ?? []) app.mark(w, s);
-      app.handling++;
-      try { fns[f]!(s); } catch (err) { warn(24, o, f, err) ?? console.error(err); } finally { app.handling--; }
     },
     // after destroy(), nothing waits for the next one: run it now
     addCleanup: (fn) => void (destroyed ? fn() : cleanups.push(fn)),

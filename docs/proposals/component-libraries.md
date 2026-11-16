@@ -23,7 +23,7 @@ together.
 | 9, constant trees | done | see below |
 | 11, libraries ship source | done | see below |
 | 12, the markdown library | done | see below |
-| 10, lets over helpers | done | see below |
+| 10, lets over helpers | built, then taken out: lets stay inlined, `memo()` instead; the lazy wait stays | see below |
 
 Step 3, as built:
 - New codes: `SN331` (an invalid slot: a placement, a fill or a declaration that breaks a rule of
@@ -38,7 +38,26 @@ Step 3, as built:
 - Two bugs on `main` were fixed on the way: plain slot content at the top of a component's unrolled
   row failed with `SN201`, and a `<slot>` inside another slot's fallback was never filled.
 
-Step 10, as built:
+Step 10, as built, then taken out (2026-11-16): the let cache below was built and reviewed, and is not
+in the framework. Lets and props are their expression, evaluated at every read, as on `main`; an app keeps an
+expensive helper's results with `memo()` (`@tiaforge-ui/sinter/memo`), `export const parse = memo(parseImpl)`.
+What stays of step 10 is the lazy wait (a let that calls a helper of a lazy module, `$.$w`) and the positional
+adoption of unkeyed rows at the page module's first flush. Why:
+- Five review rounds and an external review each found another way for a cached value to differ from the
+  expression it stands for, and each fix added a mechanism: writes marked before a handler runs, a mark
+  count and a pending check for reads after store functions, `emit()`, nested and mid-flush handlers, a
+  handler counter, the locale, results that hold their arguments, aliased state. Every one was fixed and
+  fuzzed, but the cost of being right kept growing, and the last open questions (a let's result shared and
+  changed through state, `d = D; d.title = …`) had no complete fix at build time.
+- The measurement: with the cache inside the library instead (the markdown package's `md.parse` through
+  `memo()`), the same pages make the same real parses, and their timing is within noise of the framework's
+  cache; the framework is smaller without it: the `lets` feature 925 → 600 B gzip (now only the lazy wait),
+  the minimal page 15,208 → 15,115 B, each RealWorld page about 1.07 kB gzip smaller (article 24,754 →
+  23,689). `memo()` is 1,005 B gzip, in the bundle of an app that imports it.
+- A memoized helper's contract is one the author can state and test (its arguments are everything it reads;
+  its results are frozen and shared), where the framework's cache had to guess what a page's state could do.
+
+The notes below describe the cache as it was built.
 - Measured with step 1's spike against the build: the article with embedded data reaches LCP at
   392 ms instead of 1,164, parses once early and once in the page module instead of 2 and 4 times,
   and keeps all 2,831 early elements at takeover instead of 1. A re-render with the same source
@@ -1076,6 +1095,9 @@ computed from data, so the parse goes there, with two rules.
 
 #### A let over a helper is cached
 
+As built: taken out again; lets are inlined at every read and an expensive helper uses `memo()` (see Step
+10, as built, in the implementation status).
+
 Measured in step 1: with today's inlined lets, `md.parse` runs once per read of `doc` (the prop
 and the list both read it), so 4 times when the article loads and 100 times for 50 comments, and the
 parse is about half the time from the response to the rendered article (188 of 363 ms).
@@ -1564,7 +1586,7 @@ Settled in the fourth review, from the code and the reasoning recorded there:
 | Helpers at build time | No marker; an allowlist of ECMAScript globals, reachability per exported function, production conditions in dev and build | [6](#6-helpers-over-constants-run-at-build-time) |
 | Files from the repo | `file` as a built-in name beside `site`, reserved; what does not fold becomes embedded data | [7](#7-files-the-file-source) |
 | Base paths | A project-root path, for `file:` sources only; the image pipeline writes the built URL | [7](#7-files-the-file-source) |
-| The let cache | Invalidated by dependencies, skipped when the arguments are equal primitives | [8](#a-let-over-a-helper-is-cached) |
+| The let cache | None in the framework (as built, after review): lets are inlined at every read; `memo()` for an expensive helper, the app's or a library's | [8](#a-let-over-a-helper-is-cached) |
 | A lazy parser | Only the app's `lazy`; a let that waits has no `$meta`; a failed load takes the unhandled-error path | [8](#a-let-may-wait-for-a-lazy-helper-module) |
 | How a library ships | As source, named in the config, an app-shaped folder with `components/internal/` | [9](#9-libraries-ship-source) |
 | What content may contain | Parse options; raw HTML shown as text by default; `'allow'` is a fixed set | [10](#10-parse-options-what-content-may-contain) |
@@ -1575,7 +1597,7 @@ Settled by the step 1 measurements:
 | Question | Decision | Section |
 | --- | --- | --- |
 | A parser in the early file | No: it is four times the early budget and makes LCP worse; markdown from an API is in the first frame only as a tree | [8](#a-let-may-wait-for-a-lazy-helper-module) |
-| Handing cached lets from the early script | Not needed | [8](#a-let-may-wait-for-a-lazy-helper-module) |
+| Handing cached lets from the early script | Not needed (and no cache since: each bundle's `memo()` keeps its own) | [8](#a-let-may-wait-for-a-lazy-helper-module) |
 | The takeover over an early let | Unkeyed rows are adopted by position at takeover, so the takeover changes nothing | [8](#a-let-may-wait-for-a-lazy-helper-module) |
 | The cost of finding comment anchors | Negligible: 0.5 ms on 20,000 nodes | [1](#finding-anchors) |
 | The early renderer's size | Templates written once into a table, not inlined per use | [1](#what-else-changes) |

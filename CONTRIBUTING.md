@@ -23,7 +23,7 @@ Link the issue from the pull request.
 
 ## Fuzz tests
 
-Three seeded fuzz tests generate random pages and check that every way of rendering them agrees. They
+Three seeded fuzz tests generate random pages, or random calls, and check that every way of computing them agrees. They
 found bugs that hand-written tests missed: wrong output where features meet, over constants only,
 or only after the page module takes over.
 
@@ -31,17 +31,19 @@ or only after the page module takes over.
   another component's tag, a slot, a choice, a list), with fills, slot content,
   `<sn-component use>`, loops, branches and texts.
 - `test/behaviour/anchor-fuzz.test.ts` nests lists, branches, texts and elements inside a row.
-- `test/behaviour/let-fuzz.test.ts` runs random handlers over cached lets (`data-sn-let` over helpers):
-  writes in place and reassigned, keyed rows moved (and moved then written), store functions,
-  `refresh()`, `page()` on a paginated resource and an `each` resource, `emit()` with listeners that
-  write and that read, a synchronous click, an island whose prop setter fires an event mid-flush,
-  `<sn-sync>` upserts, refetch events and a dropped stream, an optimistic action, actions whose `then`
-  and `catch` read lets, a component with lets of its own and a `data-sn-persist` scope, with reads of
-  lets stored between them. It compares
-  every read and the page with the same page whose lets call no helper (inlined, as without the
-  cache), also after the early takeover. `SN_FUZZ_DEPTH` makes the handlers and click scripts longer.
+- `test/memo-fuzz.test.ts` calls `memo()` with random argument lists: primitives that look alike (`0` and
+  `-0`, `NaN`, `''` and `undefined`, strings that run into each other), plain objects and arrays of them in
+  other orders, with holes or a null prototype, look-alikes of each list, and arguments that call through.
+  Each call is compared by value with calling the function directly, equal arguments must give the same
+  object, the caller's objects must be neither kept in a result nor frozen, every kept result must be
+  frozen, and a small cache must drop its least recently used key and keep one just used.
+  `SN_MEMO_SEEDS` sets the seeds (default 200). Mutants it catches at the default seeds: `-0` keyed as
+  `0`, strings keyed without their length, a hole keyed as `undefined`, object keys sorted, a null
+  prototype keyed as a plain object, no copy of the arguments, no freeze, no eviction, eviction in
+  order of insertion rather than use. (The array's length in its key is redundant with its holes: that
+  mutant is equivalent.)
 
-Each case compares the page after a state change with a fresh render of the new state, with the
+Each page case compares the page after a state change with a fresh render of the new state, with the
 build over constants (state nothing writes), and (component fuzz) with the early script's first
 paint taken over by the page module.
 

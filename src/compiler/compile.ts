@@ -12,7 +12,7 @@ import { parse as parseProgram, parseExpressionAt } from 'acorn';
 import { fullAncestor } from 'acorn-walk';
 import type { DefaultTreeAdapterMap } from 'parse5';
 import { type Code, type Diagnostic, didYouMean, severityOf } from './diagnostics.js';
-import { analyze, literalNames, STORE_FNS, throughField, wild, type SlotScope, type ComponentScope, type ExprOptions, type ExprResult, type LetEntry, type LoopEntry, type PageInfo, type Read, type ResourceInfo, type Scope } from './expr.js';
+import { analyze, literalNames, STORE_FNS, throughField, type SlotScope, type ComponentScope, type ExprOptions, type ExprResult, type LetEntry, type LoopEntry, type PageInfo, type Read, type ResourceInfo, type Scope } from './expr.js';
 import { callerAttribute, COMPONENT_NAME, DOM_EVENTS, LIBRARY_LAYER, rootCss, scopeCss, SLOT_TYPE, typeMembers, withoutSlots, type Member } from './components.js';
 import type { Node } from 'acorn';
 import type * as acorn from 'acorn';
@@ -1104,8 +1104,6 @@ class Compiler {
 
   /** the helper modules that reach lazy packages (`page.lazy` indexes them) */
   readonly lazyMods: Array<{ module: string; local: string; lazy: string[] }> = [];
-  /** the page's cached lets (`data-sn-let` over a helper): their dependencies, by id (`ir.lt`) */
-  readonly cachedLets: Array<{ d: string[] }> = [];
 
   run(html: string): CompiledParts & { canonicalOnly?: boolean } {
     let doc = parseDocument(html);
@@ -1156,7 +1154,6 @@ class Compiler {
     this.finishChoices();
     this.resolveSources();
     this.fileUses();
-    this.applyAliases();
     this.reportIncludes();
     // the component's name on its root: in dev builds for devtools, and on pages with scoped styles,
     // which start at the roots and stop at other components' roots and at slot content (`data-sn-s`)
@@ -1224,12 +1221,11 @@ class Compiler {
     else this.injectScript(doc, early !== undefined && (early !== null || !!this.opts.early!.module) ? this.opts.early!.src ?? null : null);
     const ir: IR = { v: 2, resources: this.resources, syncs: this.syncs, roots: this.roots, templates: this.templates, actions: this.actions };
     if (this.page.usesNow) ir.now = true;
-    // cached lets (lets.ts), and the lazy helper modules the page's lets call, each loaded by a function of the table
+    // lets that wait for a lazy helper module (lets.ts), each module loaded by a function of the table
     const lazyHelpers = this.lazyMods.filter((_, i) => this.fns.some((c) => c.includes(`$.$z(${i}, `)));
-    if (this.cachedLets.length && this.fns.some((c) => c.includes('$.$c($, '))) {
-      ir.lt = this.cachedLets;
+    if (lazyHelpers.length) {
       this.features.add('lets');
-      if (lazyHelpers.length) ir.lm = this.lazyMods.map((m) => this.fn(lazyHelpers.includes(m) ? `() => ${m.local}()` : '() => null', null));
+      ir.lm = this.lazyMods.map((m) => this.fn(lazyHelpers.includes(m) ? `() => ${m.local}()` : '() => null', null));
     }
     if (paths.length) ir.path = paths;
     const arrays = this.urlArrays();
@@ -3029,11 +3025,6 @@ class Compiler {
         this.features.add('persist');
       }
       this.stateInits.push({ sid, fields: r.entries!.map((e) => ({ key: e.key, code: e.code, deps: e.deps })), persist: node.persist ?? null });
-      // a field initialized with one of the page's objects (a prop, a resource's item) is an alias of it
-      for (const e of r.entries!) {
-        for (const p of e.pieces ?? []) (this.page.aliases ??= []).push({ t: wild([`$s${sid}`, e.key, ...p.sub]), s: p.src && wild(p.src) });
-        if (!e.prim) (this.page.objectFields ??= new Set()).add(`$s${sid}.${e.key}`);
-      }
       const site: Site = { el, attr: 'data-sn-state', shift: 0 };
       this.stateAt.set(sid, { site, fields: new Map(r.entries!.map((e) => [e.key, { ...site, shift: e.offset }])) });
     }
@@ -3067,7 +3058,7 @@ class Compiler {
         const v = entryValue(r, e);
         const q = v ? analyze(src.slice(v.start, v.end), caller, this.page, { mode: 'value', waits: true, report: () => {} }) : null;
         // a prop is a let: over a helper, cached
-        const cached = q?.ok ? this.cacheLet(q.inner, q.deps) : null;
+        const cached = q?.ok ? this.lazyLet(q.inner, q.deps) : null;
         lets.push({ name: e.key, code: cached?.code ?? (q?.ok ? q.inner : 'undefined'), deps: cached?.deps ?? q?.deps ?? [], usesEl: q?.usesEl ?? false, usesIndex: q?.usesIndex ?? false, resource: q?.resource ?? null, prop: true, src: q?.itemOf ?? null, list: q?.listOf ?? null });
       }
     }
@@ -4163,8 +4154,7 @@ class Compiler {
       // is a choice, a new history entry (4), decided here, so it holds for untrusted events too (Playwright's
       // selectOption() dispatches them). A handler higher up hears both: there `input` replaces.
       const choice = (event === 'input' || event === 'change') && (el.tagName === 'select' || (el.tagName === 'input' && /^(checkbox|radio)$/i.test(attr(el, 'type') ?? '')));
-      // sinter's own events (`sn-error`) carry a detail it made: none of the page's objects
-      const r = this.expr(el, a.name, scope, { mode: 'handler', magic: ['$event'], ...(choice ? { urlKind: 4 } : {}), ...(SINTER_EVENTS.includes(event) ? { freshDetail: true } : {}) });
+      const r = this.expr(el, a.name, scope, { mode: 'handler', magic: ['$event'], ...(choice ? { urlKind: 4 } : {}) });
       const own = get(`debounce-${event}`), ms = own !== undefined ? Number(own) || 0 : handlerDebounce;
       if (ms > 0) this.features.add('debounce');
       if (r.ok) node.b.push(this.binding({ k: 'on', n: kf ? kf[1]! : event, f: this.fn(r.code), w: r.writes, ...filter, ...(ms > 0 ? { ms } : {}) }));
@@ -4592,7 +4582,7 @@ class Compiler {
       if (!this.checkNames(el, 'data-sn-let', scope, [name], p.key.start)) continue;
       const v = p.value as import('acorn').Expression & { start: number; end: number };
       const r = this.expr(el, 'data-sn-let', scope, { mode: 'value', waits: true }, src.slice(v.start, v.end), v.start);
-      const cached = r.ok ? this.cacheLet(r.inner, r.deps) : null;
+      const cached = r.ok ? this.lazyLet(r.inner, r.deps) : null;
       const entry: LetEntry = { name, code: cached?.code ?? r.inner, deps: cached?.deps ?? r.deps, usesEl: r.usesEl, usesIndex: r.usesIndex, resource: r.resource, src: r.itemOf ?? null, list: r.listOf ?? null };
       // the resource names it can be, for store calls and `$meta[…]` that read it as one
       if (r.ok) {
@@ -4610,51 +4600,37 @@ class Compiler {
   }
 
   /**
-   * A let (or a prop) over an app helper: its code as a cached value, or null for a let that stays inlined. A
-   * let calls a helper when its expression does outside an arrow function, or calls a helper of a module that
-   * reaches a lazy package anywhere. The value is computed once per scope instance, again when its
-   * dependencies change; each such call (`$.$h`) returns its last result when every argument is a primitive,
-   * or a plain object of primitives, equal to the last call's. A call of a lazy module's helper (`$.$z`)
-   * waits for the module: the let is `undefined` until it has arrived, which is one more dependency
-   * (`$lz.<i>`). Owner names: what the code reads of the scope, so the runtime finds the instance the
-   * value belongs to (the scope that holds the innermost of them). `$c`, `$h` and `$z`: lets.ts, early.ts.
+   * A let (or a prop) that calls a helper of a module reaching a lazy package (anywhere in it): its code wrapped
+   * to wait for the module, or null for a let that stays as it is (inlined at every read, docs/spec.md, Derived
+   * names). Each such helper reads `$.$z(i, name)`, which throws while the module loads; `$.$w` makes the value
+   * `undefined` until then, and the module's arrival (`$lz.<i>`) is one more dependency. lets.ts.
    */
-  cacheLet(code: string, deps: string[]): { code: string; deps: string[]; waits: boolean } | null {
+  lazyLet(code: string, deps: string[]): { code: string; deps: string[]; waits: boolean } | null {
+    const lazy = this.page.lazy;
+    if (!lazy?.size) return null;
     let ast: acorn.Node;
     try { ast = parseExpressionAt(code, 0, { ecmaVersion: 'latest' }); } catch { return null; }
-    const lazy = this.page.lazy, messages = this.page.locale?.messages;
-    const isHelper = (n: string) => this.page.helpers.has(n) || (/^[A-Za-z_][\w]*\$[\w$]+$/.test(n) && this.page.namespaces.has(n.slice(0, n.indexOf('$'))) && n.slice(0, n.indexOf('$')) !== messages
-      && this.opts.helpers.namespaces[n.slice(0, n.indexOf('$'))]?.module !== '@tiaforge-ui/sinter/messages');
-    const calls: any[] = [], waits: any[] = [];
-    const visit = (n: any, inFn: boolean) => {
+    const waits: any[] = [];
+    const visit = (n: any) => {
       if (!n || typeof n.type !== 'string') return;
-      if (n.type === 'ArrowFunctionExpression' || n.type === 'FunctionExpression') inFn = true;
-      if (n.type === 'Identifier' && lazy?.has(n.name)) waits.push(n);
-      if (!inFn && n.type === 'CallExpression' && !n.optional && n.callee.type === 'Identifier' && isHelper(n.callee.name)) calls.push(n);
+      if (n.type === 'Identifier' && lazy.has(n.name)) waits.push(n);
       for (const k of Object.keys(n)) {
         if (k === 'start' || k === 'end' || k === 'type') continue;
         const v = n[k];
-        if (Array.isArray(v)) for (const c of v) visit(c, inFn);
-        else if (v && typeof v === 'object') visit(v, inFn);
+        if (Array.isArray(v)) for (const c of v) visit(c);
+        else if (v && typeof v === 'object') visit(v);
       }
     };
-    visit(ast, false);
-    if (!calls.length && !waits.length) return null;
-    // `f(a, b)` → `$.$h(k, f, [a, b])`; a lazy helper `ns$parse` → `$.$z(i, "parse")`
-    const edits: Array<[number, number, string]> = [];
-    calls.forEach((c, k) => {
-      const open = code.indexOf('(', c.callee.end);
-      edits.push([c.start, c.start, `$.$h(${k}, `], [open, open + 1, ', ['], [c.end - 1, c.end, '])']);
-    });
+    visit(ast);
+    if (!waits.length) return null;
     const mods = new Set<number>();
-    for (const w of waits) { const z = lazy!.get(w.name)!; mods.add(z.i); edits.push([w.start, w.end, `$.$z(${z.i}, ${JSON.stringify(z.name)})`]); }
     let out = code;
-    for (const [a, b, t] of edits.sort((x, y) => y[0] - x[0] || y[1] - x[1])) out = out.slice(0, a) + t + out.slice(b);
-    const ROOT = new Set(['$r', '$meta', '$url', '$now', '$locale', '$f', '$m', '$u', '$c', '$h', '$z']);
-    const names = [...new Set([...out.matchAll(/\$\.([A-Za-z_$][\w$]*)/g)].map((m) => m[1]!))].filter((n) => !ROOT.has(n));
-    const all = [...new Set([...deps, ...[...mods].map((i) => `$lz.${i}`)])].sort();
-    const id = this.cachedLets.push({ d: all }) - 1;
-    return { code: `$.$c($, ${id}, ${JSON.stringify(names.join(' '))}, ($) => (${out}))`, deps: all, waits: waits.length > 0 };
+    for (const w of waits.sort((x, y) => y.start - x.start)) {
+      const z = lazy.get(w.name)!;
+      mods.add(z.i);
+      out = out.slice(0, w.start) + `$.$z(${z.i}, ${JSON.stringify(z.name)})` + out.slice(w.end);
+    }
+    return { code: `$.$w(() => (${out}))`, deps: [...new Set([...deps, ...[...mods].map((i) => `$lz.${i}`)])].sort(), waits: true };
   }
 
   /** A name declared here must not hide a let, or be hidden by one (SN209); false on a conflict. */
@@ -4982,8 +4958,6 @@ class Compiler {
       setter = this.fn(`($, v) => (${h.code})(Object.assign(Object.create($), { $event: v }))`);
     } else setter = this.fn(`($, v) => { ${r.code.slice('($) => ('.length, -1)} = v; }`);
     const b = this.binding({ k: 'model', n: kind, f: this.fn(r.code), a: setter, d: r.deps, w: [r.path.join('.')], ...usesEl(r) });
-    // a model that binds a list writes one (a fresh array): its field holds an object
-    if (kind === 'multi' || (kind === 'checkbox' && attr(el, 'value') !== undefined) || r.path.length > 2) (this.page.objectFields ??= new Set()).add(r.path.slice(0, 2).join('.'));
     if (persist !== undefined) {
       b.p = persist;
       this.persisted.add(r.path.slice(0, 2).join('.'));
@@ -5951,11 +5925,10 @@ class Compiler {
       get: (_, k) => {
         const m = typeof k === 'string' ? /^\$s(\d+)$/.exec(k) : null;
         if (m && states.has(Number(m[1]))) return states.get(Number(m[1]));
-        // `file:` resources: their values and constant status; a cached let computes its value (lets.ts), a lazy helper is not here
+        // `file:` resources: their values and constant status; a waiting let's wrapper lets its helper decide
         if (k === '$r') return files.r;
         if (k === '$meta') return files.meta;
-        if (k === '$c') return (_s: unknown, _j: number, _n: string, f: ($: unknown) => unknown) => f(_s);
-        if (k === '$h') return (_k: number, f: (...a: unknown[]) => unknown, a: unknown[]) => f(...a);
+        if (k === '$w') return (f: () => unknown) => f();
         // a waiting let's helper (its module reaches a lazy package): never at build time, and SN322 says so
         if (k === '$z') return (_i: number, name: string) => folding.lazy(name);
         throw NOT;
@@ -7038,7 +7011,6 @@ class Compiler {
     const nodes = [...this.roots, ...this.templates.flatMap((t) => t.nodes)];
     for (const n of nodes) for (const b of n.b) if (b.d) b.d = strip(b.d)!;
     for (const r of this.resources) if (r.deps) r.deps = strip(r.deps);
-    for (const l of this.cachedLets) l.d = strip(l.d)! as string[];
     // a state field nothing writes and no function reads anymore (its readers were written into the markup): out of the state
     const code = this.fns.filter((c) => c !== '0');
     const emptied = new Set<NodeDef>();
@@ -7137,85 +7109,6 @@ class Compiler {
       if (key) for (const f of at.fields.keys()) if (sites.has(`${key}#${f}`)) out.add(`$s${sid}.${f}`);
     }
     return [...out].sort();
-  }
-
-  /**
-   * Writes through an alias (docs/spec.md, Aliases): a compiled write also marks the paths whose objects it may
-   * change through an alias the page's handlers and state initializers made (`sel = y`, `box.a = y`,
-   * `list.push(y)`), in both directions and through chains of them; one the compiler cannot trace (a helper's
-   * result, a let, an event's detail) marks every state scope and resource, and any change inside an object
-   * marks everything under it. Before anything reads the writes (`writtenState`, folding, the IR).
-   */
-  applyAliases() {
-    // a component's script assigns its state's fields anything, a prop's object included
-    for (const us of this.uses.values()) for (const u of us) if (u.sid !== undefined && this.componentFiles.get(u.name)?.script) {
-      (this.page.aliases ??= []).push({ t: [`$s${u.sid}`, '*'], s: null });
-      (this.page.objectFields ??= new Set()).add(`$s${u.sid}.*`);
-    }
-    // a field only ever given primitives (its initializer and every assignment) holds none of the page's objects
-    const objects = this.page.objectFields ?? new Set<string>();
-    const fields = new Set(this.stateInits.flatMap((x) => x.fields.map((f) => `$s${x.sid}.${f.key}`)));
-    const prim = (p: string[] | null) => !!p && p.length >= 2 && fields.has(`${p[0]}.${p[1]}`) && !objects.has(`${p[0]}.${p[1]}`) && !objects.has(`${p[0]}.*`);
-    const seen = new Set<string>();
-    const list = (this.page.aliases ?? []).filter((a) => {
-      const k = `${a.t.join('.')}\0${a.s?.join('.') ?? '?'}`;
-      if (seen.has(k) || (a.s && a.s.join('.') === a.t.join('.')) || prim(a.t) || prim(a.s)) return false;
-      seen.add(k);
-      return true;
-    });
-    if (!list.length) return;
-    const mutated = this.page.mutated ?? new Set<string>();
-    const sids = [...new Set(this.stateInits.map((x) => x.sid))].sort((a, b) => a - b);
-    const ALL = [...sids.map((x) => `$s${x}.**`), ...this.resources.map((r) => `$r.${r.name}.**`)];
-    // a segment of `p` stands for one of `x`: equal, or either is any key or row; a list's structure (`#`) only for itself
-    const seg = (a: string, b: string) => a === b || (a !== '#' && b !== '#' && (a === '*' || b === '*' || b[0] === '{' || b === '~' || a[0] === '{' || a === '~'));
-    // `**`: anything below, at any depth
-    const under = (p: string[], x: string[]) => { const k = p.indexOf('**'), q = k < 0 ? p : p.slice(0, k); return q.length <= x.length && q.every((y, i) => seg(y, x[i]!)); };
-    const deep = (p: string[]) => { const k = p.indexOf('**'); return k < 0 ? p : p.slice(0, k + 1); };
-    const extend = (ws: string[]): string[] => {
-      // each path with the alias it came through, which it does not go back through
-      const out = new Set(ws), queue: Array<[string, number]> = ws.map((w) => [w, -1]);
-      while (queue.length) {
-        if (out.size > 400) { for (const a of ALL) out.add(a); break; }
-        const [w, from] = queue.shift()!, W = w.split('.'), end = W[W.length - 1]!;
-        // the object the write changes: the one holding the field it assigns, or the one a method changes
-        const whole = (mutated.has(w) && end !== '#') || end === '**', O = end === '#' || end === '**' ? W.slice(0, -1) : whole ? W : W.slice(0, -1);
-        let via = -1;
-        const add = (p: string[]) => { const k = p.join('.'); if (!out.has(k)) { out.add(k); queue.push([k, via]); } };
-        const changes = (t: string[], s: string[] | null) => {
-          if (under(t, O)) {
-            if (!s) return ALL.forEach((a) => add([a]));
-            const out = t.includes('**') ? [...s, '**'] : [...s, ...W.slice(t.length)];
-            // the object written is a marked row element (`~`, by identity): the rows that hold it, not all of them
-            if (!t.includes('**') && O[t.length - 1] === '~' && out[s.length - 1] === '*') out[s.length - 1] = '~';
-            add(deep(out));
-          } else if (whole && O.length < t.length && under(O, t)) {
-            // a change of everything inside an object that holds the alias (a list's order, `#`, changes no object in it)
-            if (s) add(deep([...s, '**'])); else ALL.forEach((a) => add([a]));
-          }
-        };
-        for (const [i, a] of list.entries()) {
-          if (i === from) continue;
-          via = i;
-          changes(a.t, a.s);
-          if (a.s) changes(a.s, a.t);
-          // an untraceable object may be any of the page's: a change inside one may be inside it
-          else if (O.length >= 2) add([...a.t, '**']);
-        }
-      }
-      return [...out];
-    };
-    const done = new WeakSet<PathRef[]>();
-    const fix = (ws: PathRef[] | undefined) => {
-      if (!ws?.length || done.has(ws)) return;
-      done.add(ws);
-      const next = extend(strs(ws));
-      if (next.length !== ws.length) ws.splice(0, ws.length, ...next);
-    };
-    for (const n of [...this.roots, ...this.templates.flatMap((t) => t.nodes)]) for (const b of n.b) fix(b.w);
-    for (const a of this.actions) fix(a.w);
-    for (const r of this.resources) fix(r.w);
-    for (const x of this.syncs) for (const e of x.events) fix(e.w);
   }
 
   writtenState(): Set<string> {

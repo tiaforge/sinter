@@ -134,15 +134,6 @@ export interface PageInfo {
   /** a handler or model writes `$url` (the `location` feature) */
   writesUrl?: boolean;
   /**
-   * Aliases (docs/spec.md, Aliases): the object at path `t` may be the one at `s` (null: one the compiler
-   * cannot trace), from every handler and state initializer of the page; `*` stands for any key or row
-   */
-  aliases?: Array<{ t: string[]; s: string[] | null }>;
-  /** written paths that change the object at the path (a method, `Object.assign`), not the field holding it */
-  mutated?: Set<string>;
-  /** state fields (`$s0.x`) that may hold an object: one assigned or initialized with something not surely a primitive, or written below */
-  objectFields?: Set<string>;
-  /**
    * uses of a `$url` parameter checked once every array parameter is known: a list literal written
    * to it (`list`), or the bare parameter tested as a condition (`test`)
    */
@@ -179,8 +170,6 @@ export interface ExprOptions {
   cond?: boolean;
   /** the history entry a `$url` write asks for, fixed at build time: a model's setter (2 typing, 3 a number field's burst, 4 push), a choice's `input` handler (4); location.ts */
   urlKind?: number;
-  /** `$event.detail` is one sinter made (`sn-error`): it holds none of the page's objects (docs/spec.md, Aliases) */
-  freshDetail?: boolean;
   /** where `$event.detail` comes from (a component's event: `@ev:<use>:<event>`) */
   detailSource?: string;
   /** a `data-sn-let` entry or a prop: it may call a helper of a module that reaches a lazy package (else SN324) */
@@ -188,14 +177,7 @@ export interface ExprOptions {
   report: (code: Code, message: string, offset: number, hint?: string) => void;
 }
 
-export interface ObjectEntry { key: string; code: string; deps: string[]; offset: number; literal: boolean; pieces?: Piece[]; prim?: boolean }
-
-/**
- * Where the objects in a value may come from: the object under `sub` of the value (`[]` the value itself,
- * `['*']` any element or key) may be the one at path `src`, or one the compiler cannot trace (null). A value
- * with no pieces holds no object of the page's (a primitive, a fresh copy).
- */
-export interface Piece { sub: string[]; src: string[] | null }
+export interface ObjectEntry { key: string; code: string; deps: string[]; offset: number; literal: boolean }
 
 export interface ExprResult {
   ok: boolean;
@@ -327,30 +309,6 @@ export function throughField(src: string, field: string): string {
   return `${src.slice(0, at)}>${[...fields].join(',')}`;
 }
 
-/** methods whose result is a primitive or a fresh value, whatever the receiver */
-const FRESH_METHODS = new Set(['includes', 'indexOf', 'lastIndexOf', 'findIndex', 'findLastIndex', 'some', 'every', 'join', 'keys',
-  'toString', 'toLocaleString', 'has', 'startsWith', 'endsWith', 'trim', 'trimStart', 'trimEnd', 'toLowerCase', 'toUpperCase',
-  'toLocaleLowerCase', 'toLocaleUpperCase', 'split', 'substring', 'substr', 'charAt', 'charCodeAt', 'codePointAt', 'padStart', 'padEnd',
-  'repeat', 'replace', 'replaceAll', 'match', 'matchAll', 'search', 'localeCompare', 'normalize', 'toFixed', 'toPrecision', 'getTime',
-  'toISOString', 'toJSON', 'getFullYear', 'getMonth', 'getDate', 'getDay', 'getHours', 'getMinutes', 'getSeconds', 'test', 'exec']);
-/** methods whose result is the receiver itself */
-const SELF_METHODS = new Set(['sort', 'reverse', 'fill', 'copyWithin']);
-/** methods whose result is one of the receiver's elements, or a list of them */
-const ELEMENT_METHODS = new Set(['find', 'findLast', 'at', 'pop', 'shift', 'get']);
-const ELEMENTS_METHODS = new Set(['filter', 'slice', 'toSorted', 'toReversed', 'splice', 'values', 'entries', 'toSpliced', 'with', 'concat']);
-/** globals whose result is a primitive or a fresh value */
-const FRESH_CALLS = new Set(['String', 'Number', 'Boolean', 'parseInt', 'parseFloat', 'isNaN', 'isFinite', 'encodeURIComponent', 'decodeURIComponent',
-  'encodeURI', 'decodeURI', 'structuredClone', 'BigInt', 'Symbol']);
-const FRESH_STATICS = new Set(['Math', 'Number', 'Date', 'JSON', 'Array.isArray', 'Object.keys', 'Intl']);
-/** `$event` members a handler reads from a native event: a primitive or a DOM node, never the page's state */
-const EVENT_NATIVE = new Set(['target', 'currentTarget', 'key', 'code', 'type', 'button', 'buttons', 'clientX', 'clientY', 'pageX', 'pageY',
-  'offsetX', 'offsetY', 'deltaX', 'deltaY', 'altKey', 'ctrlKey', 'metaKey', 'shiftKey', 'repeat', 'isComposing', 'data', 'inputType',
-  'timeStamp', 'submitter', 'newState', 'oldState', 'relatedTarget', 'dataTransfer', 'clipboardData', 'touches', 'changedTouches', 'state', 'origin']);
-/** the pieces of a value spread or copied into another (`[...x]`, `{ ...x }`, `Object.assign(t, x)`): the value's own contents */
-const contentsOf = (ps: Piece[]): Piece[] => ps.map((p) => (p.sub.length ? p : { sub: ['*'], src: p.src && [...p.src, '*'] }));
-/** a path with its row segments (`{$i3}`, `{i}`, `~`) as `*`: an alias holds whichever row it was */
-export const wild = (segs: string[]): string[] => segs.map((x) => (x[0] === '{' || x === '~' ? '*' : x));
-
 /** list methods whose result holds the list's own items */
 const LIST_KEEP = new Set(['filter', 'slice', 'toSorted', 'toReversed']);
 /** list methods that return one of its items */
@@ -375,8 +333,7 @@ type Resolved =
   | { kind: 'global' }
   | { kind: 'payload' };
 
-/** a callback's parameter: the path of the element it stands for; `prim`: an index, never an object */
-interface LocalInfo { alias: string[] | null; resource: string | null; prim?: true }
+interface LocalInfo { alias: string[] | null; resource: string | null }
 type Locals = Map<string, LocalInfo>;
 
 interface Edit { start: number; end: number; text: string }
@@ -642,147 +599,6 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
     });
     return { root: name, res, segs, resource: base.resource, props };
   }
-
-  /**
-   * The pieces of a value (`Piece`): which of the page's objects it may hold, and where. Primitives, fresh values
-   * and DOM nodes hold none; a path holds the object there; anything the compiler cannot follow (a helper's result,
-   * a let, a component event's detail, a function) holds an untraceable one.
-   */
-  function classify(e: Node, locals: Locals): Piece[] {
-    const ANY: Piece[] = [{ sub: [], src: null }];
-    const union = (...xs: Node[]) => xs.flatMap((x) => classify(x, locals));
-    // a helper only reads its arguments (docs/spec.md): its result holds fresh values, or objects found in them, at any depth
-    const helperResult = (args: Node[]): Piece[] => args.flatMap((a) => (a.type === 'SpreadElement' ? contentsOf(classify(a.argument as Node, locals)) : a.type === 'ArrowFunctionExpression' ? returned(a, ANY) : classify(a, locals))
-      .map((p) => ({ sub: ['**'], src: p.src && [...p.src, '**'] })));
-    /** what a callback returns, its first parameter standing for an element of `recv`, the second for its index */
-    const returned = (fn: Node | undefined, recv: Piece[]): Piece[] => {
-      if (!fn || fn.type !== 'ArrowFunctionExpression' || fn.body.type === 'BlockStatement') return ANY;
-      const one = recv.length === 1 && !recv[0]!.sub.length ? recv[0]!.src : null;
-      const inner = new Map(locals);
-      for (const [i, x] of (fn.params as Node[]).entries()) {
-        if (x.type !== 'Identifier') return ANY;
-        inner.set(x.name, i === 0 ? { alias: one && [...one, '*'], resource: null } : i === 1 ? { alias: null, resource: null, prim: true } : { alias: one, resource: null });
-      }
-      return classify(fn.body as Node, inner);
-    };
-    switch (e.type) {
-      case 'Literal': case 'TemplateLiteral': case 'BinaryExpression': case 'UnaryExpression': case 'UpdateExpression': return [];
-      case 'ParenthesizedExpression': return classify(e.expression as Node, locals);
-      case 'ChainExpression': return classify(e.expression as Node, locals);
-      case 'SequenceExpression': return classify((e.expressions as Node[]).at(-1)!, locals);
-      case 'AssignmentExpression': return classify(e.right as Node, locals);
-      case 'ConditionalExpression': return union(e.consequent as Node, e.alternate as Node);
-      case 'LogicalExpression': return union(e.left as Node, e.right as Node);
-      case 'ArrayExpression': return (e.elements as Array<Node | null>).flatMap((x) => (!x ? [] : x.type === 'SpreadElement'
-        ? contentsOf(classify(x.argument as Node, locals)).map((p) => ({ sub: ['*', ...p.sub.slice(1)], src: p.src }))
-        : classify(x, locals).map((p) => ({ sub: ['*', ...p.sub], src: p.src }))));
-      case 'ObjectExpression': return (e.properties as any[]).flatMap((x): Piece[] => {
-        if (x.type === 'SpreadElement') return contentsOf(classify(x.argument as Node, locals));
-        const key = !x.computed && x.key.type === 'Identifier' ? x.key.name : !x.computed && x.key.type === 'Literal' ? String(x.key.value) : '*';
-        return x.kind !== 'init' || x.method ? ANY.map((p) => ({ sub: [key], src: p.src })) : classify(x.value as Node, locals).map((p) => ({ sub: [key, ...p.sub], src: p.src }));
-      });
-      case 'NewExpression': return e.callee.type === 'Identifier' && /^(Date|URL|URLSearchParams|RegExp|Error|TypeError|RangeError)$/.test(e.callee.name) ? [] : ANY;
-      case 'Identifier': case 'MemberExpression': {
-        const cp = chainPath(e, locals);
-        if (cp?.segs && (cp.res.kind === 'state' || cp.res.kind === 'loop' || cp.res.kind === 'local' || cp.res.kind === 'resource' || cp.res.kind === 'magic')) return [{ sub: [], src: cp.segs }];
-        if (cp?.res.kind === 'magic') {
-          if (cp.root === '$event') return cp.props[0] && (EVENT_NATIVE.has(cp.props[0]) || (cp.props[0] === 'detail' && opts.freshDetail)) ? [] : ANY;
-          // the action's response, an error, the element: never the page's state
-          return [];
-        }
-        if (e.type === 'Identifier' && /^(undefined|NaN|Infinity)$/.test(e.name) && !locals.has(e.name)) return [];
-        if (cp?.res.kind === 'local' && cp.res.info.prim) return [];
-        // a global, a constant (inlined, a new value at each evaluation), the server's payload: none of the page's objects
-        if (cp && (cp.res.kind === 'global' || cp.res.kind === 'const' || cp.res.kind === 'payload')) return [];
-        if (e.type === 'MemberExpression' && !cp) {
-          // a member of a value that is no path (`find(xs, id).items`): the pieces under that member
-          const prop = !e.computed && e.property.type === 'Identifier' ? e.property.name : e.computed && e.property.type === 'Literal' ? String(e.property.value) : '*';
-          return classify(e.object as Node, locals).flatMap((p) => (!p.sub.length ? [{ sub: [], src: p.src && [...p.src, prop] }]
-            : p.sub[0] === '*' || prop === '*' || p.sub[0] === prop ? [{ sub: p.sub.slice(1), src: p.src }] : []));
-        }
-        return ANY;
-      }
-      case 'CallExpression': {
-        const callee = (e.callee.type === 'ChainExpression' ? e.callee.expression : e.callee) as Node;
-        const args = e.arguments as Node[];
-        if (callee.type === 'Identifier' && !locals.has(callee.name)) {
-          if (FRESH_CALLS.has(callee.name) || BUILTIN_HELPERS.includes(callee.name) || STORE_FNS.includes(callee.name)) return [];
-          return resolveQuiet(callee.name, locals)?.kind === 'helper' ? helperResult(args) : ANY;
-        }
-        if (callee.type === 'MemberExpression') {
-          const m = callee as acorn.MemberExpression & Node;
-          const method = !m.computed && m.property.type === 'Identifier' ? m.property.name : null;
-          if (m.object.type === 'Identifier' && page.namespaces.has(m.object.name) && !locals.has(m.object.name)) return helperResult(args);
-          if (m.object.type === 'Identifier' && !locals.has(m.object.name) && (resolveQuiet(m.object.name, locals)?.kind ?? 'global') === 'global') {
-            const o = m.object.name;
-            if (FRESH_STATICS.has(o) && !(o === 'JSON' && method !== 'parse' && method !== 'stringify') || FRESH_STATICS.has(`${o}.${method}`)) return o === 'Number' || o === 'Math' || o === 'JSON' || o === 'Date' || o === 'Intl' || method === 'isArray' || method === 'keys' ? [] : ANY;
-            if (o === 'Object' && (method === 'values' || method === 'entries') && args[0]) return contentsOf(classify(args[0], locals)).map((p) => ({ sub: method === 'entries' ? ['*', '*', ...p.sub.slice(1)] : p.sub, src: p.src }));
-            if (o === 'Array' && method === 'from' && args[0] && args.length === 1) return contentsOf(classify(args[0], locals));
-            if (o === 'Array' && method === 'from' && args[0] && args.length === 2) return returned(args[1], classify(args[0], locals)).map((p) => ({ sub: ['*', ...p.sub], src: p.src }));
-            if (o === 'Array' && method === 'of') return args.flatMap((a) => classify(a, locals).map((p) => ({ sub: ['*', ...p.sub], src: p.src })));
-            return ANY;
-          }
-          if (method && FRESH_METHODS.has(method)) return [];
-          const recv = method ? classify(m.object as Node, locals) : ANY;
-          if (method && SELF_METHODS.has(method)) return recv;
-          if (method && ELEMENT_METHODS.has(method)) return recv.flatMap((p) => (!p.sub.length ? [{ sub: [], src: p.src && [...p.src, '*'] }] : [{ sub: p.sub.slice(1), src: p.src }]));
-          if (method && ELEMENTS_METHODS.has(method)) {
-            const extra = method === 'concat' ? args.flatMap((a) => contentsOf(classify(a, locals)).concat(classify(a, locals).map((p) => ({ sub: ['*', ...p.sub], src: p.src }))))
-              : method === 'with' && args[1] ? classify(args[1], locals).map((p) => ({ sub: ['*', ...p.sub], src: p.src })) : [];
-            return [...contentsOf(recv), ...extra];
-          }
-          if (method === 'map' || method === 'flatMap') {
-            const out = returned(args[0], recv);
-            return [...out.map((p) => ({ sub: ['*', ...p.sub], src: p.src })), ...(method === 'flatMap' ? out : [])];
-          }
-          // `reduce`, an unknown method: anything
-          return ANY;
-        }
-        return ANY;
-      }
-      default: return ANY;
-    }
-  }
-
-  /** whether a value is surely a primitive (a number, a string, a boolean, null): a field only ever given those holds no object */
-  function isPrim(e: Node): boolean {
-    switch (e.type) {
-      case 'Literal': return !('regex' in e && e.regex);
-      case 'TemplateLiteral': case 'BinaryExpression': case 'UnaryExpression': case 'UpdateExpression': return true;
-      case 'ParenthesizedExpression': case 'ChainExpression': return isPrim(e.expression as Node);
-      case 'SequenceExpression': return isPrim((e.expressions as Node[]).at(-1)!);
-      case 'AssignmentExpression': return e.operator === '=' || e.operator === '||=' || e.operator === '&&=' || e.operator === '??=' ? isPrim(e.right as Node) : true;
-      case 'ConditionalExpression': return isPrim(e.consequent as Node) && isPrim(e.alternate as Node);
-      case 'LogicalExpression': return isPrim(e.left as Node) && isPrim(e.right as Node);
-      case 'Identifier': return /^(undefined|NaN|Infinity)$/.test(e.name);
-      case 'MemberExpression': {
-        const prop = !e.computed && e.property.type === 'Identifier' ? e.property.name : null;
-        if (prop === 'length') return true;
-        const cp = chainPath(e, new Map());
-        return cp?.root === '$event' && cp.res.kind === 'magic' && /^(value|checked|valueAsNumber|selectedIndex|key|code|type|clientX|clientY|pageX|pageY|deltaX|deltaY|altKey|ctrlKey|metaKey|shiftKey)$/.test(cp.props.at(-1) ?? '');
-      }
-      case 'CallExpression': {
-        const c = (e.callee.type === 'ChainExpression' ? e.callee.expression : e.callee) as Node;
-        if (c.type === 'Identifier') return /^(String|Number|Boolean|parseInt|parseFloat|isNaN|isFinite|encodeURIComponent|decodeURIComponent|encodeURI|decodeURI)$/.test(c.name) || BUILTIN_HELPERS.includes(c.name);
-        if (c.type !== 'MemberExpression' || c.computed || c.property.type !== 'Identifier') return false;
-        const m = c.property.name, o = c.object.type === 'Identifier' ? c.object.name : null;
-        if (o === 'Math' || (o === 'Date' && m === 'now') || (o === 'JSON' && m === 'stringify') || (o === 'Number' && m !== 'prototype') || (o === 'Array' && m === 'isArray')) return true;
-        return FRESH_METHODS.has(m) && !/^(split|match|matchAll|keys|exec)$/.test(m);
-      }
-      default: return false;
-    }
-  }
-  /** the state field a path is in (`$s0.x`), when it is in one */
-  const fieldOf = (segs: string[] | null) => (segs && /^\$s\d+$/.test(segs[0]!) && segs.length >= 2 ? `${segs[0]}.${segs[1]}` : null);
-  const holdsObject = (segs: string[] | null) => { const f = fieldOf(segs); if (f) (page.objectFields ??= new Set()).add(f); };
-
-  /** records that the object at each of `t`'s pieces may be the one at its source (docs/spec.md, Aliases) */
-  function alias(t: string[] | null, ps: Piece[]) {
-    if (!t || !ps.length) return;
-    const list = (page.aliases ??= []);
-    for (const p of ps) list.push({ t: wild([...t, ...p.sub]), s: p.src && wild(p.src) });
-  }
-  const mutation = (w: string) => { (page.mutated ??= new Set()).add(w); return w; };
 
   /** Resolution without diagnostics, for chains already resolved by the walker. */
   function resolveQuiet(name: string, locals: Locals): Resolved | null {
@@ -1107,15 +923,7 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
               report('SN203', `value expressions cannot change state; move \`${method}()\` to \`data-sn-on-*\``, n.start);
             } else if (mode === 'handler' && recv.segs && recv.res.kind !== 'magic' && !recv.resource) {
               // a known mutator changes the list structure (`#`), not the elements; unknown methods may change anything
-              writes.add(mutation(track(recv, recv.segs, n).join('.') + (MUTATORS.has(method) ? '.#' : '')));
-              holdsObject(recv.segs);
-              // what it stores becomes one of the receiver's elements: an unknown method may keep it anywhere in it
-              const stored = method === 'push' || method === 'unshift' || method === 'fill' || method === 'add' ? n.arguments
-                : method === 'splice' ? n.arguments.slice(2) : method === 'set' ? n.arguments.slice(1) : MUTATORS.has(method) ? [] : n.arguments;
-              for (const a of stored as Node[]) {
-                const ps = a.type === 'SpreadElement' ? contentsOf(classify(a.argument as Node, locals)) : classify(a, locals);
-                alias([...recv.segs, '*'], MUTATORS.has(method) ? ps : ps.map(() => ({ sub: [], src: null })));
-              }
+              writes.add(track(recv, recv.segs, n).join('.') + (MUTATORS.has(method) ? '.#' : ''));
             } else if (mode === 'handler' && recv.segs && recv.root === '$url') {
               writes.add(recv.segs.slice(0, 2).join('.'));
               if (recv.segs[1]) urlWrite(recv.segs[1], n);
@@ -1134,12 +942,7 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
             if (cp.resource) report('SN205', `\`Object.${method}(${src.slice(target!.start, target!.end)}, …)\` mutates a resource. Use \`patch(item, …)\` or copy with structuredClone()`, n.start);
             else if (cp.segs && cp.res.kind === 'state') {
               if (mode === 'value') report('SN203', `value expressions cannot change state; move \`Object.${method}()\` to \`data-sn-on-*\``, n.start);
-              else if (mode === 'handler') {
-                writes.add(mutation(track(cp, cp.segs, n).join('.')));
-                holdsObject(cp.segs);
-                if (method === 'assign') for (const a of n.arguments.slice(1) as Node[]) alias(cp.segs, contentsOf(classify(a, locals)));
-                else for (const a of n.arguments.slice(1) as Node[]) alias([...cp.segs, '*'], classify(a, locals).map(() => ({ sub: [], src: null })));
-              }
+              else if (mode === 'handler') writes.add(track(cp, cp.segs, n).join('.'));
             }
           }
         }
@@ -1162,7 +965,6 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
         else if (mode === 'handler') {
           for (const a of n.arguments) {
             const cp = a.type === 'Identifier' || a.type === 'MemberExpression' ? chainPath(a as Node, locals) : null;
-            // (a helper only reads its arguments: no change to the objects in them, for aliases)
             if (cp?.segs && cp.res.kind === 'state') writes.add(cp.segs.slice(0, 2).join('.'));
           }
         }
@@ -1190,13 +992,6 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
     if (name === 'run') {
       runCall(first, n);
       return;
-    }
-    // what a patch or an upsert keeps of its argument: the item's fields may be the page's objects (docs/spec.md, Aliases)
-    const value = n.arguments[1] as Node | undefined;
-    if ((name === 'patch' || name === 'upsert') && first && value && value.type !== 'SpreadElement') {
-      const at = first.type === 'Literal' ? ['$r', String((first as acorn.Literal).value), '*'] : chainPath(first as Node, locals)?.segs;
-      const t = at ? (name === 'upsert' && first.type !== 'Literal' ? [...at, '*'] : at) : ['$r', '*', '*'];
-      alias(t, name === 'patch' ? contentsOf(classify(value, locals)) : classify(value, locals));
     }
     if (name === 'patch' || name === 'remove') {
       itemCall(name, n, locals);
@@ -1477,16 +1272,6 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
           return;
         }
         writePath(n.left as Node, locals, n.start, n);
-        // the object assigned may be one of the page's: the target is an alias of it from now on
-        if (n.operator === '=' || n.operator === '||=' || n.operator === '&&=' || n.operator === '??=') {
-          const cp = n.left.type === 'Identifier' || n.left.type === 'MemberExpression' ? chainPath(n.left as Node, locals) : null;
-          if (cp?.segs && !cp.resource && (cp.res.kind === 'state' || cp.res.kind === 'loop' || cp.res.kind === 'local')) alias(cp.segs, classify(n.right as Node, locals));
-        }
-        {
-          // a field given something that may be an object, or written below, holds one
-          const cp = n.left.type === 'Identifier' || n.left.type === 'MemberExpression' ? chainPath(n.left as Node, locals) : null;
-          if (cp?.segs && (cp.segs.length > 2 || ((n.operator === '=' || n.operator === '||=' || n.operator === '&&=' || n.operator === '??=') && !isPrim(n.right as Node)))) holdsObject(cp.segs);
-        }
         visitMemberParts(n.left as Node, locals);
         visit(n.right as Node, locals);
         // a list literal written to a `$url` parameter: an error unless it is an array parameter; an
@@ -1509,14 +1294,12 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
       case 'UpdateExpression':
         if (mode !== 'handler') { report('SN203', 'value expressions cannot use `++`/`--`; move this to `data-sn-on-*`', n.start); return; }
         writePath(n.argument as Node, locals, n.start, n);
-        if (n.argument.type === 'MemberExpression') holdsObject(chainPath(n.argument as Node, locals)?.segs ?? null);
         visitMemberParts(n.argument as Node, locals);
         return;
       case 'UnaryExpression':
         if (n.operator === 'delete') {
           if (mode !== 'handler') { report('SN203', 'value expressions cannot use `delete`', n.start); return; }
           writePath(n.argument as Node, locals, n.start, n);
-          if (n.argument.type === 'MemberExpression') holdsObject(chainPath(n.argument as Node, locals)?.segs ?? null);
           visitMemberParts(n.argument as Node, locals);
           return;
         }
@@ -1609,7 +1392,7 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
       } else visit(p.value as Node, root);
       const own = [...deps];
       for (const d of depsBefore) deps.add(d);
-      entries.push({ key, code: '', deps: own, offset: p.start, literal: p.value.type === 'Literal', ...(opts.object === 'state' ? { pieces: classify(p.value as Node, root), prim: isPrim(p.value as Node) } : {}) });
+      entries.push({ key, code: '', deps: own, offset: p.start, literal: p.value.type === 'Literal' });
     }
   } else {
     if (opts.cond && body.length === 1) urlTest(body[0]!, root);
