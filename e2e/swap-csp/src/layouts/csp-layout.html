@@ -1,0 +1,14 @@
+<!-- Both pages: the title and the links from the app's messages, a kept notes field. -->
+<!doctype html>
+<html lang="en" data-sn-layout="{ title: string }">
+<head>
+  <meta charset="utf-8">
+  <title data-sn-text="title"></title>
+  <slot name="head"></slot>
+</head>
+<body>
+  <nav><a id="to-a" href="/" data-sn-text="m.to_a()"></a> <a id="to-b" href="/b/" data-sn-text="m.to_b()"></a></nav>
+  <aside data-sn-permanent="notes"><textarea aria-label="Notes"></textarea></aside>
+  <main><slot></slot></main>
+</body>
+</html>

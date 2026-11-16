@@ -159,3 +159,6 @@ jobs:
       # swaps and kept elements (sinter({ swap: true }))
       - run: npm ci --prefix e2e/permanent
       - run: node e2e/permanent/run.mjs
+      # swaps under a nonce CSP, with built-in messages (a dictionary per page)
+      - run: npm ci --prefix e2e/swap-csp
+      - run: node e2e/swap-csp/run.mjs

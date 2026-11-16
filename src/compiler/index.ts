@@ -245,7 +245,7 @@ function pageLines(parts: CompiledParts, options: Pick<CompileOptions, 'helpers'
     // build keeps no exports of a page's entry), for the swap to call when it swaps this page in (the module
     // imported once, the mount run per visit), with the names the page keeps; the module mounts itself only
     // on a load, not when the swap imports it
-    const body = `${cookie ? `${cookie} ` : ''}${messages ? '$use(); await $ready(); return $use(mount(document, $page));' : 'return mount(document, $page);'}`;
+    const body = `${cookie ? `${cookie} ` : ''}${messages ? '$use(); await $ready(); const a = mount(document, $page); $use(a); return a;' : 'return mount(document, $page);'}`;
     lines.push(`const $page = ${opts};`, `const $boot = ${messages ? 'async ' : ''}() => { ${body} };`);
     lines.push(`(globalThis[Symbol.for('sinter.pages')] ??= {})[import.meta.url] = { boot: $boot, kept: ${JSON.stringify(parts.permanent ?? [])} };`);
     lines.push(`if (!globalThis[Symbol.for('sinter.swapping')]) { ${wait} await $boot(); }`);

@@ -26,6 +26,8 @@ record is the browsers' behaviour, not sinter's.
   page without the API: headless browsers keep nothing in the back/forward cache).
 - `parse.cjs`: which parser keeps sinter's anchor comments and attaches declarative shadow DOM
   (`parseHTMLUnsafe` drops comments in Chromium unless it is given `{ sanitizer: {} }`).
+- `parse-csp.cjs`: whether parsing a fetched page reports its inline styles against the document's CSP
+  (Chromium does, with any parser; not with the document's nonce on them; Firefox and WebKit never).
 - `kept-media.cjs`: a playing `<audio>` and `<video>` in a kept element, named for a same-document
   transition and moved into a new body in its update (they play on and the transition runs, in all three).
 

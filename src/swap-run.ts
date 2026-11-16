@@ -86,8 +86,28 @@ const sheets = (els: Iterable<Element>, base: URL) => new Map([...els].flatMap((
 export const fixed = (d: Document, base: URL) => JSON.stringify([
   [...d.querySelectorAll('head meta[http-equiv]')].map((m) => [m.getAttribute('http-equiv')!.toLowerCase(), m.getAttribute('content')]),
   [...d.querySelectorAll('head base[href]')].map((b) => new URL(b.getAttribute('href')!, base).href),
-  [...d.querySelectorAll('script[data-sn-i18n]')].map((x) => x.getAttribute('data-sn-i18n')),
+  // the language picker's settings, not its files: each page has its own dictionary files (loaded by `language`)
+  [...d.querySelectorAll('script[data-sn-i18n]')].map((x) => { try { const { files: _, ...c } = JSON.parse(x.getAttribute('data-sn-i18n')!); return c; } catch { return x.getAttribute('data-sn-i18n'); } }),
 ]);
+
+/** the built-in messages' state the picker, the language files and the messages module share (messages.ts) */
+interface I18n { locale?: string; files?: Record<string, string>; dicts?: Record<string, Record<string, string>> }
+
+/**
+ * Built-in messages: the next page's dictionary for the current language (its language file holds that page's
+ * keys) is loaded before it mounts, merged with what the page shown reads until the swap, and its files become
+ * the ones `setLocale()` loads.
+ */
+async function language(doc: Document, base: URL) {
+  const tag = doc.querySelector('script[data-sn-i18n]'), g = (globalThis as unknown as Record<symbol, I18n | undefined>)[Symbol.for('sinter.i18n')];
+  if (!tag || !g?.locale) return;
+  const files: Record<string, string> = {};
+  for (const [l, f] of Object.entries((JSON.parse(tag.getAttribute('data-sn-i18n')!) as { files?: Record<string, string> }).files ?? {})) files[l] = new URL(f, base).href;
+  const was = g.dicts?.[g.locale], file = files[g.locale];
+  if (file) await import(/* @vite-ignore */ file);
+  if (g.dicts) g.dicts[g.locale] = { ...was, ...g.dicts[g.locale] };
+  g.files = files;
+}
 
 /**
  * The head: the title and sinter's own nodes are the new page's; its stylesheets that the page shown lacks go
@@ -186,11 +206,18 @@ export async function prepare(s: SwapState, i: Intent, signal?: AbortSignal): Pr
   // plan: declarative shadow DOM attached where the parser can (Chromium's drops comments, sinter's anchors,
   // unless it is given a configuration: e2e/permanent/navigation-api/parse.cjs); `<noscript>` would be live
   // (the parse runs without scripting)
+  // under a nonce policy, the page's own nonces become the document's before the parse: Chromium reports the
+  // parsed page's inline styles against the document's policy (navigation-api/parse-csp.cjs), and they are
+  // inserted with the document's nonce anyway
+  const nonce = document.querySelector<HTMLMetaElement>('meta[name=csp-nonce]')?.content;
+  if (nonce) html = html.replace(/(<(?:style|script|link)\b[^>]*?\snonce=)("[^"]*"|'[^']*'|[^\s>]+)/gi, (_, a: string) => `${a}"${nonce.replace(/"/g, '&quot;')}"`);
   const P = Document as unknown as { parseHTMLUnsafe?: (h: string, o: object) => Document };
   const doc = P.parseHTMLUnsafe ? P.parseHTMLUnsafe(html, { sanitizer: {} }) : new DOMParser().parseFromString(html, 'text/html');
   if (doc.body.hasAttribute('data-sn-failed') || doc.documentElement.getAttribute('data-sn-swap') == 'off') return false;
   for (const n of doc.querySelectorAll('noscript')) n.remove();
-  // the page module (with the app's other modules: each runs once per document), imported without mounting
+  // the next page's dictionary, then its page module (with the app's other modules: each runs once per
+  // document), imported without mounting
+  try { await language(doc, final); } catch { return no(); }
   const g = globalThis as unknown as Record<symbol, number>;
   let page: PageModule | undefined;
   g[SWAPPING] = (g[SWAPPING] ?? 0) + 1;

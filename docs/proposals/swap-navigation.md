@@ -719,6 +719,16 @@ manifest, the stub and the exported mount together: they are the unproven half.
    - Checked: `e2e/permanent` (a kept section in the layout with state, a text that follows the page, a
      keyed list and a branch: the same nodes after the swap, and its button works on the next page);
      `test/compiler/permanent.test.ts`, `test/vite/swap.test.ts`.
+   - **The nonce and built-in messages** (after step 7, `e2e/swap-csp`, in CI): pages served with a fresh
+     nonce per response (on every inline style and script, in the policy, in `<meta name="csp-nonce">`) and
+     the app's messages in English and German. It found three bugs, fixed: the language picker's
+     `data-sn-i18n` lists each page's own dictionary files, so comparing it whole made every swap a load
+     (the swap compares its settings, and loads the next page's dictionary for the current language
+     before it mounts, merged with the one the page shown reads); the page module of an app with messages
+     returned `undefined` from its mount, which the swap took for a failure and reloaded; Chromium reports
+     a parsed page's inline styles against the document's policy whatever the parser
+     (`navigation-api/parse-csp.cjs`), so the swap puts the document's nonce on the page's styles and
+     scripts before the parse.
    - **Left:** a `data-sn-model` field inside shows its state's value again (the state starts again);
      rows over data that is not there at mount (no `cache`) are built again; a stream both pages use
      reconnects.
