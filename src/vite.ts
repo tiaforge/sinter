@@ -4,7 +4,7 @@
 // head (one shared by every page, one of the page's own) that render what needs no
 // data as the parser inserts it, before the first paint, with nothing render-blocking.
 import { createHash } from 'node:crypto';
-import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
+import { appendFileSync, existsSync, readdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { dirname, join, posix, relative, resolve, sep } from 'node:path';
 import { gzipSync } from 'node:zlib';
 import { createRequire } from 'node:module';
@@ -40,6 +40,7 @@ import { crossCheck, crossMessage, hashOf, type FoldCall } from './fold-cross.js
 import { apiOrigins } from './compiler/apis.js';
 import { loadHelpers, loadingHelpers, unloadedMessage, type NodeHelpers } from './helpers-node.js';
 import { FoldCache } from './fold-check.js';
+import { CompilePool, type Job, type JobResult, type Rebuilt } from './compile-pool.js';
 
 export interface SinterOptions extends ProjectOptions {
   /** run `sinter check` at the end of `vite build` and fail it on type errors (needs TypeScript) */
@@ -157,6 +158,11 @@ export interface SinterOptions extends ProjectOptions {
    * competes with what the first paint needs, and when the font is slow it can hold the first paint).
    */
   fonts?: { inline?: boolean; preload?: FontPreload[] };
+  /**
+   * Spike (docs/proposals/parallel-build.md): builds compile the pages in this many worker threads (default 0: on the
+   * main thread, as before; `SINTER_WORKERS` in the environment sets it too). The output is the same, byte for byte.
+   */
+  workers?: number;
 }
 
 type SinterPlugins = [Plugin & { api: { options: SinterOptions; source(file: string): string } }, Plugin, Plugin, Plugin, Plugin, Plugin];
@@ -485,13 +491,18 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     const remote = options.fonts?.inline === false || dev ? undefined : (url: string) => (fontCss ??= fontDownloader(resolve(root, 'node_modules/.cache/sinter/fonts')))(url);
     return pageStyles(html, file, { root, publicDir: resolved!.publicDir || null, modules, resolve: (id, importer) => r(id, importer), compile: compileCss, engines, warn: (m) => warnOnce(coded('SN527', m)), ...(remote ? { remote } : {}) });
   };
-  const imageHost = (rel: string, styles?: StyleSheet[]): ImageHost | undefined => {
-    if (!images) return undefined;
-    const img = images, base = resolved?.base ?? '/';
+  /** the image host's data, without its functions (a compile worker adds its own: compile-pool.ts) */
+  const imageWire = (rel: string, styles?: StyleSheet[]) => {
+    const base = resolved?.base ?? '/';
     // a relative base (`./`, ''): URLs relative to the page, as Vite writes its own (`../assets/…` from `blog/post.html`)
     const prefix = dev ? `${base}${IMG.slice(1)}` : `${pageBase(base, rel)}${resolved!.build.assetsDir}/`;
     const widths = options.images ? options.images.widths : undefined;
-    return { info: (f) => img.info(f), url: (v) => prefix + img.fileName(v), ignore: true, stylesheet: `${IMG_CSS}${rel}.css`, ...(widths ? { widths } : {}), ...(styles?.length ? { styles } : {}) };
+    return { prefix, ignore: true, stylesheet: `${IMG_CSS}${rel}.css`, ...(widths ? { widths } : {}), ...(styles?.length ? { styles } : {}) };
+  };
+  const imageHost = (rel: string, styles?: StyleSheet[]): ImageHost | undefined => {
+    if (!images) return undefined;
+    const img = images, { prefix, ...rest } = imageWire(rel, styles);
+    return { info: (f) => img.info(f), url: (v) => prefix + img.fileName(v), ...rest };
   };
   /** next-page data: each page's description, by file (null: nothing to prefetch), and the pages compiled so far */
   const described = new Map<string, { parts: PrefetchParts | null; path: string[]; off: boolean }>();
@@ -672,14 +683,16 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   };
   /** every page with the paths it answers at, and what another page can request ahead for it */
   /** a page's description (its patterns, what can be requested ahead), compiled once; a page in a language, under its prefix */
+  const describeOptions = (file: string): Parameters<typeof compile>[1] => {
+    const p = proj(), v = virtual.get(file);
+    // with the APIs and specs: what is requested ahead is the page's own request (its base, its configured shape)
+    return { file: v?.source ?? file, root, dev, helpers: p.helpers, actions: p.actions, readFile: readVia(p), listFiles: p.listFiles, ...(dev ? {} : { globCache }), ...contentOpts(v?.locale), lazy: p.lazy, openapi: p.openapi, apis: p.apis, ...(v?.page ? { page: v.page } : {}), describeOnly: true, ...(v?.locale ? { locale: { name: v.locale, urls: null, base: resolved?.base ?? '/' } } : {}) };
+  };
+  const describedOf = (r: CompileResult) => ({ parts: r.prefetch, path: r.path, off: !!r.prefetchOff });
   const describe = (file: string) => {
     if (!described.has(file)) {
-      const p = proj(), v = virtual.get(file);
-      try {
-        // with the APIs and specs: what is requested ahead is the page's own request (its base, its configured shape)
-        const r = compile(readPage(file), { file: v?.source ?? file, root, dev, helpers: p.helpers, actions: p.actions, readFile: readVia(p), listFiles: p.listFiles, ...(dev ? {} : { globCache }), ...contentOpts(v?.locale), lazy: p.lazy, openapi: p.openapi, apis: p.apis, ...(v?.page ? { page: v.page } : {}), describeOnly: true, ...(v?.locale ? { locale: { name: v.locale, urls: null, base: resolved?.base ?? '/' } } : {}) });
-        described.set(file, { parts: r.prefetch, path: r.path, off: !!r.prefetchOff });
-      } catch { described.set(file, { parts: null, path: [], off: false }); }
+      try { described.set(file, describedOf(compile(readPage(file), describeOptions(file)))); }
+      catch { described.set(file, { parts: null, path: [], off: false }); }
     }
     return described.get(file)!;
   };
@@ -829,6 +842,45 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   });
   /** the build's helper calls that folded, by page and call, for the cross-check at its end */
   const foldCalls = new Map<string, FoldCall[]>();
+  /** spike: the build's compile workers (compile-pool.ts), from `buildStart` to `buildEnd` */
+  const workerCount = Math.max(0, Math.floor(options.workers ?? Number(process.env.SINTER_WORKERS ?? 0)) || 0);
+  let pool: CompilePool | null = null;
+  /** spike: `SINTER_WORKERS_STATS=1` prints the pool's timings, `=<file>` appends them to that file */
+  const stat = (line: string) => {
+    const to = process.env.SINTER_WORKERS_STATS;
+    if (!to) return;
+    if (to === '1') console.error(line); else appendFileSync(to, line + '\n');
+  };
+  const closePool = async () => {
+    if (!pool) return;
+    const p = pool;
+    pool = null;
+    stat(`sinter: compile workers: ${JSON.stringify(p.stats.map((x) => ({ jobs: x.jobs, ms: Math.round(x.ms), initMs: Math.round(x.initMs) })))}`);
+    await p.close();
+  };
+  const startPool = async (p: ReturnType<typeof project>) => {
+    const r = resolved!;
+    const own: Array<keyof ProjectOptions> = ['helpers', 'actions', 'content', 'config', 'early', 'messages', 'types', 'openapi', 'apis', 'defaultApi', 'complexity', 'expansionLimit', 'checkCycles', 'static', 'lazy', 'components', 'strict'];
+    const init = {
+      root, project: Object.fromEntries(own.filter((k) => options[k] !== undefined).map((k) => [k, options[k]])) as ProjectOptions,
+      helpers: p.helpersFile ? { configFile: (r.configFile ?? false) as string | false, mode: r.mode, ...(r.configFile ? {} : { alias: r.resolve.alias }) } : null,
+      content: content ? { collections: content.collections, perLocale: content.perLocale, error: content.error } : null,
+      images: images ? { cacheDir: resolve(root, 'node_modules/.cache/sinter/images') } : null,
+      lazy: lazyPkgs,
+    };
+    // what cannot cross to a worker (a function in the options): the pages compile here, as without workers
+    try { structuredClone(init); } catch (e) { stat(`sinter: no workers: ${(e as Error).message}`); r.logger.warn(`sinter({ workers }): the pages compile on the main thread: ${(e as Error).message}`); return; }
+    if (remoteConfig) try { structuredClone(remoteConfig); } catch { r.logger.warn('sinter({ workers }): the pages compile on the main thread: images.remote cannot be sent to a worker'); return; }
+    const t = performance.now();
+    pool = new CompilePool(workerCount, init);
+    await pool.started();
+    const t1 = performance.now();
+    // every page's description, before any page compiles (each page's prefetch, its URL and the Speculation Rules read them all)
+    const files = entries();
+    const done = await Promise.all(files.map((f) => pool!.run(jobOf(readPage(f), describeOptions(f), virtual.get(f)?.locale)).then((x) => describedOf(x.out), () => ({ parts: null, path: [], off: false }))));
+    files.forEach((f, i) => described.set(f, done[i]!));
+    stat(`sinter: ${workerCount} compile worker(s) started in ${Math.round(t1 - t)} ms; ${files.length} pages described in ${Math.round(performance.now() - t1)} ms`);
+  };
   const logFold = (page: string, key: string, args: FoldArg[], result: string, id: number) => {
     // ids count from 0 when the page's calls start afresh: what an earlier run logged is replaced
     const calls = id === 0 || !foldCalls.has(page) ? foldCalls.set(page, []).get(page)! : foldCalls.get(page)!;
@@ -837,6 +889,41 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
 
   /** compiles one page; `earlySrc`: where the page loads its early chunk (dev), else the build injects the tag */
   const build = (html: string, file: string, earlySrc: string | null, styles?: StyleSheet[], lineHeights?: Map<string, number>, zeros?: Map<string, number | null>, minifyStyles?: StyleSheet[], url?: string): { out: CompileResult; p: ReturnType<typeof project> } => {
+    const { options: o, finish } = prepare(html, file, earlySrc, styles, lineHeights, zeros, minifyStyles, url);
+    return finish(compile(html, o));
+  };
+  /**
+   * Spike: the same compile in the pool (compile-pool.ts). The options' data goes to a worker, which rebuilds their
+   * functions; what the compile did through them (folded calls, lazy lookups) is replayed here, in order.
+   */
+  const buildIn = async (pool: CompilePool, html: string, file: string, earlySrc: string | null, styles?: StyleSheet[], lineHeights?: Map<string, number>, zeros?: Map<string, number | null>, minifyStyles?: StyleSheet[], url?: string): Promise<{ out: CompileResult; p: ReturnType<typeof project> }> => {
+    const { options: o, finish } = prepare(html, file, earlySrc, styles, lineHeights, zeros, minifyStyles, url);
+    const v = virtual.get(file);
+    const r = await pool.run({ ...jobOf(html, o, v?.locale), ...(images ? { images: imageWire(relOf(file), styles) } : {}), ...(lineHeights?.size ? { lineHeights: [...lineHeights] } : {}), ...(zeros?.size ? { zeros: [...zeros] } : {}) });
+    replay(r, o);
+    return finish(r.out);
+  };
+  /** a job for the pool: compile()'s options without their functions and caches, which the worker rebuilds */
+  const jobOf = (html: string, o: Parameters<typeof compile>[1], locale?: string): Job => {
+    const { readFile: _r, listFiles, globCache: gc, collections, collectionsError: _ce, helperValues, helperFold: _hf, foldLog, componentCss: cc, lazyScript: ls, lazyModule: lm, images: _i, normalLineHeight: _n, zeroWidth: _z, ...rest } = o;
+    const rebuild: Rebuilt[] = ['readFile'];
+    if (listFiles) rebuild.push('listFiles');
+    if (gc) rebuild.push('globCache');
+    if (collections) rebuild.push('collections');
+    if (helperValues !== undefined) rebuild.push('helpers');
+    if (foldLog) rebuild.push('foldLog');
+    if (cc) rebuild.push('componentCss');
+    if (ls) rebuild.push('lazyScript');
+    if (lm) rebuild.push('lazyModule');
+    return { html, options: rest, rebuild, ...(locale ? { locale } : {}) };
+  };
+  /** what a worker's compile did through the options' functions, done here */
+  const replay = (r: JobResult, o: Parameters<typeof compile>[1]) => {
+    for (const [key, args, result, id] of r.folds) o.foldLog?.(key, args, result, id);
+    for (const m of r.lazyAsked) o.lazyScript?.(m);
+  };
+  /** the compile's options, and what the plugin keeps of its result */
+  const prepare = (html: string, file: string, earlySrc: string | null, styles?: StyleSheet[], lineHeights?: Map<string, number>, zeros?: Map<string, number | null>, minifyStyles?: StyleSheet[], url?: string) => {
     const rel = relOf(file);
     const p = proj();
     // a page in a language: compiled from its source (diagnostics, components, layouts as written), in that language
@@ -851,7 +938,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     // a page not seen before may be a new one (dev); a build's pages per entry are all known from the start
     if (!seen.has(file)) { seen.add(file); if (dev || !pageInputs) pagesCache = null; }
     const prefetch = options.prefetch !== false && prefetchPages().length ? PREFETCH : null;
-    const out = compile(html, {
+    const compileOptions: Parameters<typeof compile>[1] = {
       file: src, root, dev, sourcemap: dev || !!resolved?.build.sourcemap, helpers: p.helpers, actions: p.actions, moduleSrc: `${PREFIX}${rel}.js`, config: p.config, readFile: readVia(p), listFiles: p.listFiles, ...(dev ? {} : { globCache }), ...contentOpts(v?.locale), prefetch,
       ...(page ? { page } : {}),
       check: !!options.typecheck && !dev, openapi: p.openapi, apis: p.apis, complexity: p.complexity, ...(p.expansionLimit ? { expansionLimit: p.expansionLimit } : {}), componentNames: p.componentNames, libraries: p.libraries, checkCycles: p.checkCycles, lazy: p.lazy,
@@ -879,7 +966,10 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       ...(p.isStatic(src) ? { static: true } : {}),
       ...(resolved?.base?.startsWith('/') ? { base: resolved.base } : {}),
       ...(siteOrigin ? { urls: urlsOf(rel, out0Path(file)) } : {}),
-    });
+    };
+    return { options: compileOptions, finish: (out: CompileResult) => finishPage(out, file, rel, src, v, p) };
+  };
+  const finishPage = (out: CompileResult, file: string, rel: string, src: string, v: ReturnType<typeof virtual.get>, p: ReturnType<typeof project>) => {
     // a page in a language is written into its language's folder: its relative URLs follow
     if (v) out.html = rebaseHtml(out.html, '/' + posix.dirname(relOf(src)).replace(/^\.$/, ''), '/' + posix.dirname(rel));
     runtimeOf.set(rel, out.runtime);
@@ -1093,6 +1183,9 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
           if (missing.length) this.warn(coded('SN522', `${missing.length} message(s) not translated to \`${l}\` (the ${messages.base} text is used): ${missing.slice(0, 10).join(', ')}${missing.length > 10 ? ', …' : ''}`));
         }
       }
+      // spike: the compile workers, and every page's description from them (else the first page describes all, here)
+      await closePool();
+      if (workerCount > 0 && isClient(this)) await startPool(p);
       // Each page is compiled once, by its `transformIndexHtml`: that compile writes the page, its early file and every
       // per-page fact the bundle reads (all read in `generateBundle` or by the page itself). A compile of every page here,
       // before them, was overwritten by it, and doubled the build's compile time.
@@ -1290,11 +1383,12 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       }
       // inline rules: name what a CSP must allow; header: what the server must send. Once per build
       // pages with a CSP <meta> got the hash: nothing to say. The rest may have a CSP header the build cannot see
-      if (speculationHash && unhashedPages) resolved?.logger.info(`sinter: Speculation Rules are inline in the pages: nothing to do without a CSP; a CSP sent as a response header must allow them: add 'inline-speculation-rules' to its script-src (or ${[...speculationHashes].map((h) => `'${h}'`).join(' and ')}, which change${speculationHashes.size > 1 ? '' : 's'} with the pages). docs/navigation.md`);
+      if (speculationHash && unhashedPages) resolved?.logger.info(`sinter: Speculation Rules are inline in the pages: nothing to do without a CSP; a CSP sent as a response header must allow them: add 'inline-speculation-rules' to its script-src (or ${[...speculationHashes].sort().map((h) => `'${h}'`).join(' and ')}, which change${speculationHashes.size > 1 ? '' : 's'} with the pages). docs/navigation.md`);
       if (rulesWritten) resolved?.logger.info(`sinter: Speculation Rules in ${RULES_FILE}: send \`Speculation-Rules: "${rulesUrl()}"\` with every page and serve the file as application/speculationrules+json (docs/navigation.md)`);
     },
 
     async buildEnd(error) {
+      await closePool();
       // a `static` pattern that matches no page: a renamed page would drop out of the check unnoticed
       const missing = !error && !dev && Array.isArray(options.static) ? staticPages(root, options.static).unmatched([...seen].map((f) => virtual.get(f)?.source ?? f)) : [];
       if (missing.length) this.error(`sinter({ static }): no page matches ${missing.map((m) => `\`${m}\``).join(', ')} (paths relative to the root, such as \`about.html\` or \`docs/**\`)`);
@@ -1335,9 +1429,10 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
         await helpersReady();
         // the minifier reads every page's cascade (builds)
         const minifyStyles = options.minifyHtml !== false && !dev ? styles ?? await stylesOf(html, virtual.get(file)?.source ?? file, proj()) : undefined;
-        let { out, p } = build(html, file, earlySrc, styles, lineHeights, zeros, minifyStyles, ctx.originalUrl);
+        // spike: in a compile worker, which analyses the images itself (compile-pool.ts)
+        let { out, p } = pool ? await buildIn(pool, html, file, earlySrc, styles, lineHeights, zeros, minifyStyles, ctx.originalUrl) : build(html, file, earlySrc, styles, lineHeights, zeros, minifyStyles, ctx.originalUrl);
         // images the compiler did not know yet: analysed, then the page is compiled again with them
-        if (images && out.images?.pending.length) {
+        if (!pool && images && out.images?.pending.length) {
           await images.analyze(out.images.pending);
           ({ out, p } = build(html, file, earlySrc, styles, lineHeights, zeros, minifyStyles, ctx.originalUrl));
         }
