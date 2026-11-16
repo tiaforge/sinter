@@ -82,8 +82,10 @@ for (const name of browsers) {
     if (new URL(r.url()).pathname === '/pixel.gif') loads.push('pixel');
   });
   page.on('console', (m) => {
-    // WebKit refuses Speculation Rules prefetches over http; the 404 page is the one the last step loads
-    if (/Prefetch request denied/.test(m.text()) || new URL(m.location().url || base).pathname === '/nope/') return;
+    // WebKit refuses Speculation Rules prefetches over http; the 404 page is the one the last step loads.
+    // WebKit does not match the build's `<link rel="preload" as="fetch">` to the page's request (it requests
+    // twice on a page load, swaps or not) and says so a few seconds after the load: not the swap's
+    if (/Prefetch request denied|was preloaded using link preload but not used/.test(m.text()) || new URL(m.location().url || base).pathname === '/nope/') return;
     if (['error', 'warning'].includes(m.type())) errors.push(m.text());
   });
   const steps = [];
