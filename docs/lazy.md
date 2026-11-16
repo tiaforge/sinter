@@ -160,6 +160,9 @@ export * as toc from './lib/toc.ts';    // reads a parsed tree, imports no parse
   module, so one such module does not hold the others back.
 - The module loads with its packages when the first let that calls it is read, and its arrival computes
   the let again. A page whose main content needs it adds `data-sn-preload` for the package: measure first.
+- A let that only a handler reads starts the load at that read: on the first click it is still
+  `undefined` (the handler goes on with that), and from the module's arrival on it has its value. Read
+  it in a binding too, or preload the package, when the first click needs it.
 - A failed load leaves the let `undefined` and takes the unhandled-error path (`sn-error`, `onError`),
   once.
 - A let that waits is not early. The rest of the page (the item's author, its date) still renders in the

@@ -24,7 +24,7 @@ function show(v: unknown, seen = new Set<object>()): string {
   if (seen.has(v)) return '<cycle>';
   seen.add(v);
   if (v instanceof Map) return `Map(${[...v].map(([k, x]) => show(k, seen) + '=>' + show(x, seen)).join(',')})`;
-  if (Array.isArray(v)) return `[${Array.from({ length: v.length }, (_, i) => (Object.hasOwn(v, i) ? show(v[i], seen) : '<hole>')).join(',')}]`;
+  if (Array.isArray(v)) return `[${Array.from({ length: v.length }, (_, i) => (Object.hasOwn(v, i) ? show(v[i], seen) : '<hole>')).join(',')}${Object.keys(v).filter((k) => String(+k >>> 0) !== k).map((k) => `,${JSON.stringify(k)}:${show((v as unknown as Record<string, unknown>)[k], seen)}`).join('')}]`;
   return `${Object.getPrototypeOf(v) === null ? 'null-proto' : ''}{${Object.keys(v).map((k) => `${JSON.stringify(k)}:${show((v as Record<string, unknown>)[k], seen)}`).join(',')}}`;
 }
 
@@ -40,13 +40,16 @@ function value(r: () => number): unknown {
     const n = Math.floor(r() * 4);
     for (let i = 0; i < n; i++) if (r() < 0.85) a[i] = pick(PRIMS);
     a.length = n;
+    // now and then a property besides its elements (holes or not): it calls through
+    if (r() < 0.1) (a as unknown as Record<string, unknown>).tag = pick(PRIMS);
     return a;
   }
   if (x < 0.92) {
-    const keys = ['a', 'b', 'a1:b', '', 'length'].filter(() => r() < 0.5);
+    const keys = ['a', 'b', 'a1:b', '', 'length', '__proto__'].filter(() => r() < 0.5);
     if (r() < 0.5) keys.reverse();
     const o = r() < 0.15 ? Object.create(null) : {};
-    for (const k of keys) o[k] = pick(PRIMS);
+    // (defined, not assigned: an own `__proto__` key, as JSON.parse makes one)
+    for (const k of keys) Object.defineProperty(o, k, { value: pick(PRIMS), enumerable: true, writable: true, configurable: true });
     return o;
   }
   // calls through: a nested object, a Map
@@ -55,8 +58,9 @@ function value(r: () => number): unknown {
 /** an equal argument list, made anew (equal contents, other objects) */
 const again = (args: unknown[]): unknown[] => args.map((a) => {
   if (a instanceof Map) return new Map(a);
-  if (Array.isArray(a)) { const b: unknown[] = []; for (let i = 0; i < a.length; i++) if (Object.hasOwn(a, i)) b[i] = a[i]; b.length = a.length; return b; }
-  if (a && typeof a === 'object') return Object.assign(Object.create(Object.getPrototypeOf(a)), a);
+  const props = (from: object, to: object) => { for (const k of Object.keys(from)) if (!Array.isArray(from) || String(+k >>> 0) !== k) Object.defineProperty(to, k, { value: (from as Record<string, unknown>)[k], enumerable: true, writable: true, configurable: true }); return to; };
+  if (Array.isArray(a)) { const b: unknown[] = []; for (let i = 0; i < a.length; i++) if (Object.hasOwn(a, i)) b[i] = a[i]; b.length = a.length; return props(a, b); }
+  if (a && typeof a === 'object') return props(a, Object.create(Object.getPrototypeOf(a)));
   return a;
 });
 /** a look-alike of an argument list, which must not share its key: one detail changed, as a careless key would lose it */
@@ -93,7 +97,7 @@ function lookalike(args: unknown[], r: () => number): unknown[] {
 const keyable = (a: unknown): boolean => {
   if (a === null || typeof a !== 'object') return typeof a !== 'symbol' && typeof a !== 'function';
   const p = Object.getPrototypeOf(a);
-  if (Array.isArray(a)) return p === Array.prototype && Array.from({ length: a.length }, (_, i) => i).every((i) => !Object.hasOwn(a, i) || (a[i] === null || typeof a[i] !== 'object'));
+  if (Array.isArray(a)) return p === Array.prototype && Object.keys(a).every((k) => String(+k >>> 0) === k) && Array.from({ length: a.length }, (_, i) => i).every((i) => !Object.hasOwn(a, i) || (a[i] === null || typeof a[i] !== 'object'));
   return (p === Object.prototype || p === null) && Object.values(a).every((x) => x === null || typeof x !== 'object');
 };
 
@@ -137,7 +141,7 @@ test('memo() gives what the function gives, the same object for equal arguments,
     }
   }
   expect(failures).toEqual([]);
-});
+}, Math.max(30_000, SEEDS * 50));
 
 test('a small cache: an old key is computed again, a key just used is not', () => {
   const failures: string[] = [];
@@ -159,4 +163,4 @@ test('a small cache: an old key is computed again, a key just used is not', () =
     if (calls === before) failures.push(`seed ${seed}: '${keys[1]}' was kept although ${keys.length - 2} keys came after it, in a cache for three`);
   }
   expect(failures).toEqual([]);
-});
+}, Math.max(30_000, SEEDS * 50));
