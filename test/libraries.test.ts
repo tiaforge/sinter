@@ -289,7 +289,12 @@ test('a package imports itself by its name through its own `exports` (Node\'s se
 });
 
 describe('the library author\'s check', () => {
-  const cli = (root: string) => spawnSync(process.execPath, [resolve(__dirname, '../node_modules/jiti/lib/jiti-cli.mjs'), resolve(__dirname, '../src/cli.ts'), 'check', '--root', root], { encoding: 'utf8', env: { ...process.env, SINTER_STRICT: '' } });
+  // a library's repository has TypeScript among its own devDependencies: the copy in the OS temp folder gets this repository's
+  const cli = (root: string) => (linkTypescript(root), spawnSync(process.execPath, [resolve(__dirname, '../node_modules/jiti/lib/jiti-cli.mjs'), resolve(__dirname, '../src/cli.ts'), 'check', '--root', root], { encoding: 'utf8', env: { ...process.env, SINTER_STRICT: '' } }));
+  const linkTypescript = (root: string) => {
+    mkdirSync(join(root, 'node_modules'), { recursive: true });
+    try { symlinkSync(resolve(__dirname, '../node_modules/typescript'), join(root, 'node_modules/typescript'), 'dir'); } catch { /* already linked */ }
+  };
 
   test('in the library\'s repository, its fixture pages are the pages, and the library is configured', async () => {
     const lib = join(tmp, `repo-${n++}`);
