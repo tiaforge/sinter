@@ -1114,6 +1114,8 @@ export function mount(root: Document | Element, o: MountOptions): App {
       const item = items[i];
       if (x.item !== item) { setRow(x.s, t, (x.item = item), (x.i = i)); x.f = 2; }
       else if (x.i != i) { setRow(x.s, t, item, (x.i = i)); if (moved) x.f ||= 1; }
+      // a computed list's row (`dv`): its item may have changed in place, which only the list depends on
+      if (t.dv) x.f = 2;
       rows[i] = x;
     };
     // rows with the same keys at the start and the end stay where they are

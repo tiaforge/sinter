@@ -712,6 +712,18 @@ test('marked rows: a scan the first time after a render, the rows by key after t
   }
 });
 
+test('a computed list renders a change to its items in place: forEach, an index, a helper over the list', async () => {
+  for (const list of ['xs.slice()', 'xs.filter((y) => y.t)', 'xs.concat([])', 'visible(xs)', 'xs.length ? xs : []']) {
+    for (const w of ["xs.forEach((x) => x.t = x.t + '!')", "xs[0].t = xs[0].t + '!'; xs[1].t = xs[1].t + '!'"]) {
+      const { root, flush } = await render(`<div data-sn-state="{ xs: [{t: 'a'}, {t: 'b'}] }"><template data-sn-for="x in ${list}"><i data-sn-text="x.t"></i></template><button data-sn-on-click="${w}"></button></div>`,
+        { helpers: { visible: (xs: Array<{ t: string }>) => xs.filter((x) => x.t) } });
+      root.querySelector('button')!.click();
+      await flush();
+      expect([...root.querySelectorAll('i')].map((e) => e.textContent), `${list} | ${w}`).toEqual(['a!', 'b!']);
+    }
+  }
+});
+
 test('marked outer elements update inner rows that read them', async () => {
   const { root, flush } = await render(`
     <div data-sn-state="{ xs: [{t: 'a', ys: [{v: 1}, {v: 2}]}, {t: 'b', ys: [{v: 3}]}] }">
