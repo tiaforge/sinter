@@ -3,7 +3,7 @@
   "tags": [
     {
       "name": "sn-resource",
-      "description": "a named, page-wide cache of server data; `cache` (or `cache=\"10m\"`) shows the data from the last page load at once, then revalidates. `refresh=\"30s\"` reloads it once that long has passed since its last load, whatever caused that load (server events, `refresh()`, a reconnect), in the background: `$meta.loading` stays false, and paused while the tab is hidden. `early=\"off\"`: never preloaded or requested before the page module (for a resource a request middleware answers itself; one whose request a middleware changes, such as a token, needs nothing: the build and runtime handle it). `then` is a handler run after each successful load (`$result`: what it loaded; the state around the resource in scope). With `sinter({ apis })`, `src` is a path relative to an API (`/articles`, `billing:/invoices`); `method=\"POST\"` with `body` loads with a POST of that value. `src=\"file:./intro.txt\"` (or `file:/…` from the project root) reads the project at build time: a file's text, a `.json` file's value, a markdown file's frontmatter and `body`; a glob is a list of them, with `slug`, `dir`, `path`. A constant, never loaded; `order` sorts it once, `drafts` drops entries from builds. Loading needs no attributes: concurrent loads of one URL share a request, a `src` change aborts the running one (latest wins), a change typed into a text field waits 250 ms for the next keystroke, a resource only dialogs read is requested with low priority, and a bfcache restore or going back online refetches. `page-model=\"$url.page\"` (offset lists) keeps the page in the URL: read at load, written back by page() (a history entry), followed when the URL changes",
+      "description": "a named, page-wide cache of server data; `cache` (or `cache=\"10m\"`) shows the data from the last page load at once, then revalidates. `refresh=\"30s\"` reloads it once that long has passed since its last load, whatever caused that load (server events, `refresh()`, a reconnect), in the background: `$meta.loading` stays false, and paused while the tab is hidden. `early=\"off\"`: never preloaded or requested before the page module (for a resource a request middleware answers itself; one whose request a middleware changes, such as a token, needs nothing: the build and runtime handle it). `then` is a handler run after each successful load (`$result`: what it loaded; the state around the resource in scope). With `sinter({ apis })`, `src` is a path relative to an API (`/articles`, `billing:/invoices`); `method=\"POST\"` with `body` loads with a POST of that value. `src=\"file:./intro.txt\"` (`file:/…` from the root) reads the project at build time (text, JSON, markdown's frontmatter and `body`; a glob: a list with `slug`, `dir`, `path`), a constant (`order`, `drafts`). Loading needs no attributes: concurrent loads of one URL share a request, a `src` change aborts the running one (latest wins), a change typed into a text field waits 250 ms for the next keystroke, a resource only dialogs read is requested with low priority, and a bfcache restore or going back online refetches. `page-model=\"$url.page\"` (offset lists) keeps the page in the URL: read at load, written back by page() (a history entry), followed when the URL changes",
       "attributes": [
         {
           "name": "name"
@@ -316,6 +316,10 @@
     {
       "name": "data-sn-path",
       "description": "on <html>: the path shapes this page is served for; `:name` segments appear read-only in $url (URL patterns /a/:b …)"
+    },
+    {
+      "name": "data-sn-pages",
+      "description": "on <html>: the page once per entry of a `file:` list, at `data-sn-path` filled from it (entry in list)"
     },
     {
       "name": "data-sn-data",
