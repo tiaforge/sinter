@@ -7,8 +7,8 @@
 // that read, a synchronous click on another element, an island whose prop setter fires an event in the middle
 // of a flush, `<sn-sync>` upserts, refetches and a dropped stream, an optimistic action, actions whose then and
 // catch read lets, a component's own let and a persisted scope, a plain object of primitives changed in place and
-// replaced by an equal copy, rows keyed by index that a reorder gives other items, a row's own handler, an alias
-// to a row's item, the locale under a namespace helper that reads it, and handlers that read after a nested one
+// replaced by an equal copy, rows keyed by index that a reorder gives other items, a row's own handler, aliases
+// to a row's item (direct, inside another object, in another list, a helper's element, from reduce()) written through, the locale under a namespace helper that reads it, and handlers that read after a nested one
 // returns, with reads of lets stored into state between all of them (objects too: compared by structure, and
 // by identity where the written-out let is an object of the page's own). The buttons are clicked in a random
 // order, with and without a flush between. Every stored read and the page must agree, also after the early
@@ -22,12 +22,6 @@ import { mockRequests, mockStream, render } from '../../src/testing/index.js';
 
 /** how long the handlers and the click scripts get (`SN_FUZZ_DEPTH`, default 1) */
 const DEPTH = Number(process.env.SN_FUZZ_DEPTH ?? 1);
-/**
- * `SN_FUZZ_HELD=1` adds writes through an alias to a row's item (`sel = y`, then `sel.n = …`): the write marks
- * `sel.n`, not the row's, so a cached let over the row's item keeps its value until something it reads is
- * marked, where the written-out let is computed again whenever its binding runs (known, held: aliased state)
- */
-const HELD = !!process.env.SN_FUZZ_HELD;
 
 /** a small seeded PRNG, so a failure names its case */
 function rng(seed: number) {
@@ -48,6 +42,8 @@ const HELPERS = {
   area: (q: { w: number; h: number }) => q.w * q.h,
   // its argument, as it is: the written-out let is the state object itself
   same: (q: object) => q,
+  // an element of its argument: an alias the compiler follows only as "anything under the list"
+  at: (xs: unknown[], i: number) => xs[i],
   tr: { word: (n: number) => (loc === 'de' ? 'zwei' : 'two') + n },
 };
 const LETS: Array<[string, string, string]> = [
@@ -68,8 +64,14 @@ const LETS: Array<[string, string, string]> = [
   ['YS', 'sum(ys.map((y) => y.n))', 'ys.map((y) => y.n).reduce((p, z) => p + z, 0)'],
   // a namespace helper that reads the locale
   ['L', 'tr.word(a)', "($locale === 'de' ? 'zwei' : 'two') + a"],
+  // over what each alias holds: kept until a write marks it, through whichever name
+  ['SL', 'twice(sel ? sel.n : 0)', '(sel ? sel.n : 0) * 2'],
+  ['BL', 'twice(box ? box.it.n : 0)', '(box ? box.it.n : 0) * 2'],
+  ['AL', 'sum(arr.map((x) => x.n))', 'arr.map((x) => x.n).reduce((p, z) => p + z, 0)'],
+  ['HL', 'twice(h ? h.n : 0)', '(h ? h.n : 0) * 2'],
+  ['UL', 'twice(u ? u.n : 0)', '(u ? u.n : 0) * 2'],
 ];
-const READS = ['T', 'P.v', 'N', 'TT', 'TS', 'T + N', 'P.v + TT', 'KS', 'PG', 'EV', 'KS + PG + EV',
+const READS = ['T', 'P.v', 'N', 'TT', 'TS', 'T + N', 'P.v + TT', 'KS', 'PG', 'EV', 'KS + PG + EV', 'YS + SL', 'BL + YS', 'AL + YS', 'HL + UL + YS',
   // an object stored as it is (compared by structure), and its identity where the written-out let is the state object
   'Q', 'F', 'F === q', 'F.w + Q', 'YS', 'L', 'L + Q'];
 const OPS = [
@@ -88,10 +90,23 @@ const OPS = [
 ];
 /** what a row's own handler does: through its item, the list it is in, an alias to its item */
 const ROW_OPS = ['y.n = y.n + 1', 'sel = y', 'ys = [...ys].reverse()', 'ys.length > 1 && ys.shift()', 'q.w = q.w + 1', 'y.n = y.n + 1; ys = [...ys].reverse()',
-  ...(HELD ? ['sel = y; sel.n = sel.n + 10'] : [])];
+  // aliases to the row's item: a write through one in the same handler, stored inside another object, pushed to another list
+  'sel = y; sel.n = sel.n + 10', 'box = { it: y }', 'arr.push(y)'];
 const ROW_READS = ['YR.v', 'YR.v + YS', 'YR.v + Q', 'YS + T'];
-/** a write through the alias (`HELD` only) */
-const ALIAS = 'sel && (sel.n = sel.n + 10)';
+/**
+ * Aliases made from the page (a helper's element, `reduce()`, which the compiler does not follow), and writes through
+ * each kind (docs/spec.md, Aliases)
+ */
+const ALIAS = ['sel && (sel.n = sel.n + 10)', 'box && (box.it.n = box.it.n + 3)', 'arr.length && (arr[arr.length - 1].n = arr[arr.length - 1].n + 4)',
+  'box = ys.length ? { it: ys[ys.length - 1] } : null',
+  // one field per kind, so that each rule is what keeps it right: `h` a helper's element, `u` one from reduce()
+  // writes through the list itself, which reach every alias of its rows the other way round
+  'ys.length && (ys[0].n = ys[0].n + 2)', 'ys.forEach((y) => (y.n = y.n + 1))', 'sel = ys.length ? ys[ys.length - 1] : null',
+  'h = at(ys, 1) ?? null', 'h && (h.n = h.n + 5)',
+  'u = ys.length ? ys.reduce((p, y) => (y.n > p.n ? y : p), ys[0]) : null', 'u && (u.n = u.n + 7)',
+  'u = ys.length ? ys.reduce((p, y) => (y.n > p.n ? y : p), ys[0]) : null; u && (u.n = u.n + 7)', 'h = at(ys, 0) ?? null; h && (h.n = h.n + 5)',
+  // an untraceable alias, then a change through another name: what reads it must see it
+  'u = ys.length ? ys.reduce((p, y) => (y.n > p.n ? y : p), ys[0]) : null; ys.forEach((y) => (y.n = y.n + 1))', 'sel && (sel.n = sel.n + 1); h && (h.n = h.n + 1)'];
 
 const ISLAND = 'x-pinger';
 if (!customElements.get(ISLAND)) {
@@ -111,13 +126,17 @@ function page(r: () => number, oracle: boolean) {
   const handlers = Array.from({ length: 3 }, () => {
     const ops: string[] = [];
     for (let i = 0, n = 2 + Math.floor(r() * (3 * DEPTH + 2)); i < n; i++) ops.push(r() < 0.4 ? `r${reads++} = ${pick(READS)}` : op(pick(OPS)));
-    if (HELD && r() < 0.25) ops.push(ALIAS);
+    if (r() < 0.35) ops.push(pick(ALIAS));
     return ops.join('; ');
   });
+  // a handler of aliases only: made, written through either name, read
+  const aliasOps: string[] = [];
+  for (let i = 0, n = 3 + Math.floor(r() * (2 * DEPTH + 2)); i < n; i++) aliasOps.push(r() < 0.3 ? `r${reads++} = ${pick(READS.slice(-4))}` : pick(ALIAS));
+  handlers.push(aliasOps.join('; '));
   const rowOps: string[] = [];
   for (let i = 0, n = 2 + Math.floor(r() * (2 * DEPTH + 1)); i < n; i++) rowOps.push(r() < 0.45 ? `r${reads++} = ${pick(ROW_READS)}` : pick(ROW_OPS));
   const rowHandler = rowOps.join('; ');
-  const state = `{ a: 1, xs: [1, 2], o: { items: [1] }, ks: [{ id: 1, n: 1 }, { id: 2, n: 2 }, { id: 3, n: 3 }], go: 0, pk: null, th: null, ct: null, q: { w: 2, h: 3 }, ys: [{ n: 1 }, { n: 2 }, { n: 3 }], sel: null, k2: 0, ${Array.from({ length: reads }, (_, i) => `r${i}: null`).join(', ')} }`;
+  const state = `{ a: 1, xs: [1, 2], o: { items: [1] }, ks: [{ id: 1, n: 1 }, { id: 2, n: 2 }, { id: 3, n: 3 }], go: 0, pk: null, th: null, ct: null, q: { w: 2, h: 3 }, ys: [{ n: 1 }, { n: 2 }, { n: 3 }], sel: null, box: null, arr: [], h: null, u: null, k2: 0, ${Array.from({ length: reads }, (_, i) => `r${i}: null`).join(', ')} }`;
   const html = `<sn-resource name="todos" src="/api/todos" key="id"></sn-resource>
 <sn-resource name="pg" src="/api/pg" items="items" total="total" key="id" paginate="offset" page-size="2"></sn-resource>
 <sn-resource name="ev" each="t in todos" src="/api/ev?id={t.id}" key="id"></sn-resource>
@@ -126,6 +145,7 @@ function page(r: () => number, oracle: boolean) {
   <${ISLAND} data-sn-prop="{ n: go }"></${ISLAND}>
   <p class="v" data-sn-text="[T, P.v, N, TT, TS].join(' ')"></p>
   <p class="f" data-sn-text="(F === q) + ' ' + F.w + ' ' + YS + ' ' + L"></p>
+  <p class="al"><i data-sn-text="SL"></i> <i data-sn-text="BL"></i> <i data-sn-text="AL"></i> <i data-sn-text="HL"></i> <i data-sn-text="UL"></i> <i data-sn-text="YS"></i></p>
   <ul><template data-sn-for="x in xs"><li data-sn-let="{ R: ${call('inc(x)', 'x + 1')} }" data-sn-text="R + T"></li></template></ul>
   <c-v data-sn-prop="{ v: ${call('sum(xs)', 'xs.reduce((p, z) => p + z, 0)')} }"></c-v>
   <c-l data-sn-prop="{ xs }"></c-l>
@@ -135,7 +155,7 @@ function page(r: () => number, oracle: boolean) {
   <button id="bad" data-sn-post="/api/bad" data-sn-body="{}" data-sn-catch="ct = T + P.v + EV"></button>
   <button id="x" data-sn-on-click="a = a + 100"></button>
   <button id="y" data-sn-on-click="k2 = k2 + 1"></button>
-  <button id="unalias" data-sn-on-click="sel = null"></button>
+  <button id="unalias" data-sn-on-click="sel = null; box = null; arr = []; h = null; u = null"></button>
   <ol class="ys"><template data-sn-for="(y, i) in ys" data-sn-key="i"><li class="y" data-sn-let="{ YR: ${call('pair(y.n, i)', '({ v: y.n * 10 + i })')} }"><span data-sn-text="YR.v + ':' + Q + ':' + L"></span><button class="yb" data-sn-on-click="${rowHandler}"></button></li></template></ol>
   <template data-sn-for="t in todos" data-sn-key="t.id"><button class="opt" data-sn-patch="/api/t" data-sn-body="{ id: t.id }" data-sn-optimistic="patch(t, { n: 50 })"></button></template>
   ${handlers.map((h, i) => `<button id="h${i}" data-sn-on-click="${h}"></button>`).join('\n  ')}
@@ -171,7 +191,7 @@ function memoryStorage(): Storage {
 function seen(v: Awaited<ReturnType<typeof render>>, storage: Storage) {
   const main = v.root.querySelector('main')!, sec = main.querySelector('section')!;
   const text = (sel: string) => [...main.querySelectorAll(sel)].map((x) => x.textContent).join(',');
-  return `${text('p.v')} | ${text('p.f')} | ${text('ul li')} | ${text('li.y span')} | ${text('li.k')} | ${text('b.cv')} | ${text('b.cl')} | ${text('b.ps')} | ${JSON.stringify(v.state(main).get())} | ${JSON.stringify(v.state(sec).get())} | ${storage.getItem('sn:fz')}`;
+  return `${text('p.v')} | ${text('p.f')} | ${text('p.al')} | ${text('ul li')} | ${text('li.y span')} | ${text('li.k')} | ${text('b.cv')} | ${text('b.cl')} | ${text('b.ps')} | ${JSON.stringify(v.state(main).get())} | ${JSON.stringify(v.state(sec).get())} | ${storage.getItem('sn:fz')}`;
 }
 
 const SEEDS = Number(process.env.SN_FUZZ_SEEDS ?? 150);
@@ -201,8 +221,9 @@ test('random handlers over cached lets: every read and the page agree with the l
       const sr = rng(seed * 7919);
       // b: a handler (0-2), the optimistic action (3), the action that succeeds (4) or fails (5), the persisted scope's (6),
       // a row's own handler (7, the row `row`); msg: an upsert (0-2), a refetch (3), the stream dropped and reconnected (4)
-      const steps = Array.from({ length: 3 + Math.floor(sr() * (3 * DEPTH + 1)) }, () => ({ b: Math.floor(sr() * 8), row: Math.floor(sr() * 3), flush: sr() < 0.6, msg: sr() < 0.3 ? Math.floor(sr() * 5) : -1 }));
+      const steps = Array.from({ length: 3 + Math.floor(sr() * (3 * DEPTH + 1)) }, () => ({ b: Math.floor(sr() * 10), row: Math.floor(sr() * 3), flush: sr() < 0.6, msg: sr() < 0.3 ? Math.floor(sr() * 5) : -1 }));
       const early = seed % 3 === 0;
+      const stale: string[] = [];
       const run = async (oracle: boolean, after = false, apart = false) => {
         loc = 'en';
         const { html } = page(rng(seed), oracle);
@@ -213,15 +234,26 @@ test('random handlers over cached lets: every read and the page agree with the l
         await v.settle();
         const main = v.root.querySelector('main')!;
         const out: string[] = [seen(v, storage)];
+        // the truth, whatever the oracle shares with the cached page: every scope marked whole changes nothing on the page
+        // (what the page shows: marking the persisted scope saves it, which is no binding)
+        const blank = memoryStorage();
+        const fresh = async () => {
+          const was = seen(v, blank);
+          for (const el of [main, main.querySelector('section')!]) v.state(el).update(() => {});
+          await v.settle();
+          const now = seen(v, blank);
+          if (now !== was) stale.push(`${oracle ? 'inlined' : 'cached'} page, after step ${out.length - 1}: a binding missed a change\n    shown ${was}\n    fresh ${now}`);
+        };
         for (const s of steps) {
           if (s.msg === 4) { stream.drop(); await v.settle(); }
           else if (s.msg >= 0 && stream.connected) s.msg === 3 ? stream.emit('re', null) : stream.emit('upd', { id: 1 + s.msg, n: 10 * (s.msg + 1) });
           if (s.b === 7) main.querySelectorAll<HTMLElement>('.yb')[s.row]?.click();
-          else main.querySelector<HTMLElement>(['#h0', '#h1', '#h2', '.opt', '#ok', '#bad', '#pp'][s.b]!)?.click();
-          if (s.flush) { await v.settle(); out.push(seen(v, storage)); }
+          else main.querySelector<HTMLElement>(['#h0', '#h1', '#h2', '.opt', '#ok', '#bad', '#pp', '', '#h3', '#h3'][s.b]!)?.click();
+          if (s.flush) { await v.settle(); out.push(seen(v, storage)); await fresh(); }
         }
         await v.settle();
         out.push(seen(v, storage));
+        await fresh();
         return { out, handlers: page(rng(seed), oracle).handlers };
       };
       try {
@@ -231,6 +263,7 @@ test('random handlers over cached lets: every read and the page agree with the l
         if (at >= 0) failures.push(`seed ${seed} depth ${DEPTH}${early ? ' (early takeover)' : ''}: step ${at} of ${JSON.stringify(steps)}\n  handlers ${JSON.stringify(got.handlers)}\n  cached  ${got.out[at]}\n  inlined ${want.out[at]}`);
         // settled, the first render does not depend on when the responses came
         if (first.out[0] !== want.out[0]) failures.push(`seed ${seed}: the first render with the responses apart\n  ${first.out[0]}\n  ${want.out[0]}`);
+        if (stale.length) failures.push(`seed ${seed} depth ${DEPTH}${early ? ' (early takeover)' : ''} of ${JSON.stringify(steps)}\n  handlers ${JSON.stringify(got.handlers)}\n  ${stale[0]}`);
         const am = first.out.findIndex((x, i) => x !== main.out[i]);
         if (am >= 0) failures.push(`seed ${seed} depth ${DEPTH}: the written-out page, writes marked first and after (main), step ${am} of ${JSON.stringify(steps)}\n  handlers ${JSON.stringify(got.handlers)}\n  first ${first.out[am]}\n  after ${main.out[am]}`);
       } catch (e) {

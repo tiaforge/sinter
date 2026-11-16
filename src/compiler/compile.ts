@@ -12,7 +12,7 @@ import { parse as parseProgram, parseExpressionAt } from 'acorn';
 import { fullAncestor } from 'acorn-walk';
 import type { DefaultTreeAdapterMap } from 'parse5';
 import { type Code, type Diagnostic, didYouMean, severityOf } from './diagnostics.js';
-import { analyze, literalNames, STORE_FNS, throughField, type SlotScope, type ComponentScope, type ExprOptions, type ExprResult, type LetEntry, type LoopEntry, type PageInfo, type Read, type ResourceInfo, type Scope } from './expr.js';
+import { analyze, literalNames, STORE_FNS, throughField, wild, type SlotScope, type ComponentScope, type ExprOptions, type ExprResult, type LetEntry, type LoopEntry, type PageInfo, type Read, type ResourceInfo, type Scope } from './expr.js';
 import { callerAttribute, COMPONENT_NAME, DOM_EVENTS, LIBRARY_LAYER, rootCss, scopeCss, SLOT_TYPE, typeMembers, withoutSlots, type Member } from './components.js';
 import type { Node } from 'acorn';
 import type * as acorn from 'acorn';
@@ -1156,6 +1156,7 @@ class Compiler {
     this.finishChoices();
     this.resolveSources();
     this.fileUses();
+    this.applyAliases();
     this.reportIncludes();
     // the component's name on its root: in dev builds for devtools, and on pages with scoped styles,
     // which start at the roots and stop at other components' roots and at slot content (`data-sn-s`)
@@ -3028,6 +3029,11 @@ class Compiler {
         this.features.add('persist');
       }
       this.stateInits.push({ sid, fields: r.entries!.map((e) => ({ key: e.key, code: e.code, deps: e.deps })), persist: node.persist ?? null });
+      // a field initialized with one of the page's objects (a prop, a resource's item) is an alias of it
+      for (const e of r.entries!) {
+        for (const p of e.pieces ?? []) (this.page.aliases ??= []).push({ t: wild([`$s${sid}`, e.key, ...p.sub]), s: p.src && wild(p.src) });
+        if (!e.prim) (this.page.objectFields ??= new Set()).add(`$s${sid}.${e.key}`);
+      }
       const site: Site = { el, attr: 'data-sn-state', shift: 0 };
       this.stateAt.set(sid, { site, fields: new Map(r.entries!.map((e) => [e.key, { ...site, shift: e.offset }])) });
     }
@@ -4157,7 +4163,8 @@ class Compiler {
       // is a choice, a new history entry (4), decided here, so it holds for untrusted events too (Playwright's
       // selectOption() dispatches them). A handler higher up hears both: there `input` replaces.
       const choice = (event === 'input' || event === 'change') && (el.tagName === 'select' || (el.tagName === 'input' && /^(checkbox|radio)$/i.test(attr(el, 'type') ?? '')));
-      const r = this.expr(el, a.name, scope, { mode: 'handler', magic: ['$event'], ...(choice ? { urlKind: 4 } : {}) });
+      // sinter's own events (`sn-error`) carry a detail it made: none of the page's objects
+      const r = this.expr(el, a.name, scope, { mode: 'handler', magic: ['$event'], ...(choice ? { urlKind: 4 } : {}), ...(SINTER_EVENTS.includes(event) ? { freshDetail: true } : {}) });
       const own = get(`debounce-${event}`), ms = own !== undefined ? Number(own) || 0 : handlerDebounce;
       if (ms > 0) this.features.add('debounce');
       if (r.ok) node.b.push(this.binding({ k: 'on', n: kf ? kf[1]! : event, f: this.fn(r.code), w: r.writes, ...filter, ...(ms > 0 ? { ms } : {}) }));
@@ -4975,6 +4982,8 @@ class Compiler {
       setter = this.fn(`($, v) => (${h.code})(Object.assign(Object.create($), { $event: v }))`);
     } else setter = this.fn(`($, v) => { ${r.code.slice('($) => ('.length, -1)} = v; }`);
     const b = this.binding({ k: 'model', n: kind, f: this.fn(r.code), a: setter, d: r.deps, w: [r.path.join('.')], ...usesEl(r) });
+    // a model that binds a list writes one (a fresh array): its field holds an object
+    if (kind === 'multi' || (kind === 'checkbox' && attr(el, 'value') !== undefined) || r.path.length > 2) (this.page.objectFields ??= new Set()).add(r.path.slice(0, 2).join('.'));
     if (persist !== undefined) {
       b.p = persist;
       this.persisted.add(r.path.slice(0, 2).join('.'));
@@ -7128,6 +7137,85 @@ class Compiler {
       if (key) for (const f of at.fields.keys()) if (sites.has(`${key}#${f}`)) out.add(`$s${sid}.${f}`);
     }
     return [...out].sort();
+  }
+
+  /**
+   * Writes through an alias (docs/spec.md, Aliases): a compiled write also marks the paths whose objects it may
+   * change through an alias the page's handlers and state initializers made (`sel = y`, `box.a = y`,
+   * `list.push(y)`), in both directions and through chains of them; one the compiler cannot trace (a helper's
+   * result, a let, an event's detail) marks every state scope and resource, and any change inside an object
+   * marks everything under it. Before anything reads the writes (`writtenState`, folding, the IR).
+   */
+  applyAliases() {
+    // a component's script assigns its state's fields anything, a prop's object included
+    for (const us of this.uses.values()) for (const u of us) if (u.sid !== undefined && this.componentFiles.get(u.name)?.script) {
+      (this.page.aliases ??= []).push({ t: [`$s${u.sid}`, '*'], s: null });
+      (this.page.objectFields ??= new Set()).add(`$s${u.sid}.*`);
+    }
+    // a field only ever given primitives (its initializer and every assignment) holds none of the page's objects
+    const objects = this.page.objectFields ?? new Set<string>();
+    const fields = new Set(this.stateInits.flatMap((x) => x.fields.map((f) => `$s${x.sid}.${f.key}`)));
+    const prim = (p: string[] | null) => !!p && p.length >= 2 && fields.has(`${p[0]}.${p[1]}`) && !objects.has(`${p[0]}.${p[1]}`) && !objects.has(`${p[0]}.*`);
+    const seen = new Set<string>();
+    const list = (this.page.aliases ?? []).filter((a) => {
+      const k = `${a.t.join('.')}\0${a.s?.join('.') ?? '?'}`;
+      if (seen.has(k) || (a.s && a.s.join('.') === a.t.join('.')) || prim(a.t) || prim(a.s)) return false;
+      seen.add(k);
+      return true;
+    });
+    if (!list.length) return;
+    const mutated = this.page.mutated ?? new Set<string>();
+    const sids = [...new Set(this.stateInits.map((x) => x.sid))].sort((a, b) => a - b);
+    const ALL = [...sids.map((x) => `$s${x}.**`), ...this.resources.map((r) => `$r.${r.name}.**`)];
+    // a segment of `p` stands for one of `x`: equal, or either is any key or row; a list's structure (`#`) only for itself
+    const seg = (a: string, b: string) => a === b || (a !== '#' && b !== '#' && (a === '*' || b === '*' || b[0] === '{' || b === '~' || a[0] === '{' || a === '~'));
+    // `**`: anything below, at any depth
+    const under = (p: string[], x: string[]) => { const k = p.indexOf('**'), q = k < 0 ? p : p.slice(0, k); return q.length <= x.length && q.every((y, i) => seg(y, x[i]!)); };
+    const deep = (p: string[]) => { const k = p.indexOf('**'); return k < 0 ? p : p.slice(0, k + 1); };
+    const extend = (ws: string[]): string[] => {
+      // each path with the alias it came through, which it does not go back through
+      const out = new Set(ws), queue: Array<[string, number]> = ws.map((w) => [w, -1]);
+      while (queue.length) {
+        if (out.size > 400) { for (const a of ALL) out.add(a); break; }
+        const [w, from] = queue.shift()!, W = w.split('.'), end = W[W.length - 1]!;
+        // the object the write changes: the one holding the field it assigns, or the one a method changes
+        const whole = (mutated.has(w) && end !== '#') || end === '**', O = end === '#' || end === '**' ? W.slice(0, -1) : whole ? W : W.slice(0, -1);
+        let via = -1;
+        const add = (p: string[]) => { const k = p.join('.'); if (!out.has(k)) { out.add(k); queue.push([k, via]); } };
+        const changes = (t: string[], s: string[] | null) => {
+          if (under(t, O)) {
+            if (!s) return ALL.forEach((a) => add([a]));
+            const out = t.includes('**') ? [...s, '**'] : [...s, ...W.slice(t.length)];
+            // the object written is a marked row element (`~`, by identity): the rows that hold it, not all of them
+            if (!t.includes('**') && O[t.length - 1] === '~' && out[s.length - 1] === '*') out[s.length - 1] = '~';
+            add(deep(out));
+          } else if (whole && O.length < t.length && under(O, t)) {
+            // a change of everything inside an object that holds the alias (a list's order, `#`, changes no object in it)
+            if (s) add(deep([...s, '**'])); else ALL.forEach((a) => add([a]));
+          }
+        };
+        for (const [i, a] of list.entries()) {
+          if (i === from) continue;
+          via = i;
+          changes(a.t, a.s);
+          if (a.s) changes(a.s, a.t);
+          // an untraceable object may be any of the page's: a change inside one may be inside it
+          else if (O.length >= 2) add([...a.t, '**']);
+        }
+      }
+      return [...out];
+    };
+    const done = new WeakSet<PathRef[]>();
+    const fix = (ws: PathRef[] | undefined) => {
+      if (!ws?.length || done.has(ws)) return;
+      done.add(ws);
+      const next = extend(strs(ws));
+      if (next.length !== ws.length) ws.splice(0, ws.length, ...next);
+    };
+    for (const n of [...this.roots, ...this.templates.flatMap((t) => t.nodes)]) for (const b of n.b) fix(b.w);
+    for (const a of this.actions) fix(a.w);
+    for (const r of this.resources) fix(r.w);
+    for (const x of this.syncs) for (const e of x.events) fix(e.w);
   }
 
   writtenState(): Set<string> {
