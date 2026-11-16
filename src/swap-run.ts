@@ -4,7 +4,7 @@
 // elements, the head's own nodes exchanged, the new page mounted. Anything unexpected is a load instead.
 import type { App, Intent } from './runtime/app.js';
 import { instance } from './runtime/app.js';
-import { vtTypes } from './links.js';
+import { vtTypes } from './vt-types.js';
 import { KEPT, type Prepared, type SwapState, entry, track } from './swap.js';
 import { ident } from './transition.js';
 

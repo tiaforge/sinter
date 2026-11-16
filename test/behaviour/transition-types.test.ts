@@ -2,7 +2,7 @@
 // load, so one stylesheet rule (`:root:active-view-transition-type(sn-back)`) styles both: the navigation's
 // kind, and a traversal's direction from the entries' indexes.
 import { afterEach, expect, test } from 'vitest';
-import { vtTypes } from '../../src/links.js';
+import { vtTypes } from '../../src/vt-types.js';
 import { render } from '../../src/testing/index.js';
 
 test('the kind, and a traversal\'s direction', () => {

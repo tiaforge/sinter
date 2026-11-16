@@ -32,10 +32,14 @@ interface NavigateLike extends Event {
 }
 type Nav = EventTarget & { currentEntry: { key: string } | null; navigate(url: string, o: { history: 'push' | 'replace'; info: unknown }): unknown };
 const api = (): Nav | undefined => (globalThis as { navigation?: Nav }).navigation;
+const none = () => {};
 /** what a `navigate()` call hands its event: the element of its handler */
 const INFO = Symbol('sinter.trigger');
-/** a link to another site whose click the guards were asked about already (navigate.ts): its event asks none */
-export const asked: { to: string | null } = { to: null };
+/**
+ * `to`: a link to another site whose click the guards were asked about already (navigate.ts): its event asks
+ * none; `last`: the latest `navigate` event (the swap tells a history write from a navigation by it)
+ */
+export const asked: { to: string | null; last?: Event } = { to: null };
 
 /** What the apps of one document share: one ordered chain, one `navigate` listener, one claim on a traversal. */
 interface Shared {
@@ -71,7 +75,7 @@ export function chain(app: App): Chain {
   c.decide = (i) => {
     let d: Decision | void | undefined;
     for (const [, h] of sh.nav) { const r = h(i); d ||= r; }
-    return d || undefined;
+    return d as Decision | undefined;
   };
   const all = <T>(k: 'onGo' | 'guards') => [...sh.apps].flatMap((a) => a[k] as T[]);
   /** whether a guard of any app refuses `i` (every guard runs: each may note the navigation) */
@@ -83,12 +87,12 @@ export function chain(app: App): Chain {
       for (const f of all<(i: Intent) => void>('onGo')) f(i);
       // its promises reject when a guard refuses it or a newer navigation replaces it: expected, not an error
       const r = N.navigate(i.to, { history: i.kind == 'replace' ? 'replace' : 'push', info: { [INFO]: i.trigger } }) as { committed?: Promise<unknown>; finished?: Promise<unknown> } | undefined;
-      r?.committed?.catch(() => {});
-      r?.finished?.catch(() => {});
+      r?.committed?.catch(none);
+      r?.finished?.catch(none);
       return;
     }
     if (N && i.source == 'popstate') {
-      if (sh.took == null || sh.took !== N.currentEntry?.key) return;
+      if (!sh.took || sh.took != N.currentEntry?.key) return;
       sh.took = null;
       return { name: 'taken' };
     }
@@ -117,7 +121,7 @@ export function chain(app: App): Chain {
   // one `navigate` listener for the document, whichever app installed it: it goes with the last app
   if (N && !sh.off) {
     const on = (ev: Event) => {
-      const e = ev as NavigateLike;
+      const e = (asked.last = ev) as NavigateLike;
       if (e.hashChange || e.downloadRequest != null || e.formData || e.navigationType == 'reload') return;
       // `history.pushState` (a `$url` write) fires it too: no navigation to decide on
       if (e.destination.sameDocument && e.navigationType != 'traverse') return;
@@ -131,7 +135,7 @@ export function chain(app: App): Chain {
         return;
       }
       const info = e.info as { [INFO]?: Element | null } | undefined;
-      [...sh.apps][0]?.go({ to: e.destination.url, kind: e.navigationType, source: 'event', trigger: from ?? info?.[INFO] ?? null, index: e.destination.index, signal: e.signal, event: e });
+      [...sh.apps][0]?.go({ to: e.destination.url, kind: e.navigationType, source: 'event', trigger: from ?? info?.[INFO] ?? null, index: e.destination.index, event: e });
     };
     N.addEventListener('navigate', on);
     sh.off = () => N.removeEventListener('navigate', on);
@@ -165,33 +169,4 @@ export function links(app: App): void {
   };
   app.root.addEventListener('click', click);
   app.addCleanup(() => { app.root.removeEventListener('click', click); delete app.ext.links; });
-}
-
-/** an entry and the navigation's type, as `NavigationActivation` and a `pageswap` event's `activation` give them */
-interface Activation { navigationType: string; from?: { index: number } | null; entry?: { index: number } | null }
-interface Typed { viewTransition?: { types?: Set<string> } | null; activation?: Activation | null }
-
-/**
- * The types of a view transition for a navigation (docs/proposals/swap-navigation.md §8), the same for a
- * swap and a page load, for `:active-view-transition-type()`: `sn-push`, `sn-replace` or `sn-traverse`,
- * and on a traversal `sn-back` or `sn-forward`, from the entries' indexes.
- */
-export const vtTypes = (kind: string, from?: number, to?: number) =>
-  ['sn-' + kind, ...(kind == 'traverse' && from != null && to != null && from != to ? [to < from ? 'sn-back' : 'sn-forward'] : [])];
-
-/** page loads: the same types on the browser's transition (`pageswap` on the page left, `pagereveal` on the next), once per app */
-export function loadTypes(app: App): void {
-  if (app.ext.types) return;
-  app.ext.types = true;
-  const add = (e: Event, a?: Activation | null) => {
-    const t = (e as Typed).viewTransition?.types;
-    if (t && a) for (const x of vtTypes(a.navigationType, a.from?.index, a.entry?.index)) t.add(x);
-  };
-  const N = (globalThis as { navigation?: { activation?: Activation | null } }).navigation;
-  app.addCleanup(app.env.listen('pageswap', (e) => {
-    // (the page left is the current entry; `activation` is a platform object: its fields, not a copy)
-    const a = (e as Typed).activation;
-    add(e, a && { navigationType: a.navigationType, entry: a.entry, from: (N as { currentEntry?: { index: number } } | undefined)?.currentEntry });
-  }));
-  app.addCleanup(app.env.listen('pagereveal', (e) => add(e, N?.activation)));
 }

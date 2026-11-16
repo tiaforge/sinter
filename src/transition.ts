@@ -6,7 +6,8 @@
 // works the same way from the one named element of a detail page. A swap (swap-run.ts) fires the
 // same two moments as `sn-pageswap` and `sn-pagereveal`, around its same-document transition.
 // Page loads get sinter's transition types (`loadTypes`).
-import { chain, links, loadTypes } from './links.js';
+import { chain, links } from './links.js';
+import { loadTypes } from './vt-types.js';
 import type { App, Feature } from './runtime/app.js';
 
 const KEY = 'sn:vt';

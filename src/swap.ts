@@ -4,7 +4,7 @@
 // same step. This is the stub every page that swaps carries: it decides, intercepts the browser's
 // `navigate` event, and loads the rest (swap-run.ts) when a navigation needs it. Where the browser has no
 // Navigation API it does nothing: every navigation stays a page load.
-import { RANK, chain } from './links.js';
+import { RANK, asked, chain } from './links.js';
 import type { App, Feature, Intent } from './runtime/app.js';
 
 /** one page of the build's list (swap-build.ts): the paths it answers at, the names it keeps */
@@ -29,8 +29,6 @@ export interface SwapState {
   live?: HTMLElement;
   /** the index of the entry the navigation in progress leaves (a traversal's direction) */
   at?: number;
-  /** the latest `navigate` event: whether a swap's navigation was aborted by a history write or a navigation */
-  last?: Event;
   /** the swap in progress (a newer one replaces it) */
   run?: object;
 }
@@ -69,7 +67,6 @@ function state(list: SwapPage[]): SwapState {
     // Vite's dev styles come from modules, not from the page
     sheets: new Set(document.head.querySelectorAll('link[rel~=stylesheet],style:not([data-vite-dev-id])')),
   });
-  nav()!.addEventListener('navigate', (e) => { s.last = e; });
   // per-page app code listens for `sn-page`: after each mount, the first one included
   queueMicrotask(() => document.dispatchEvent(new CustomEvent('sn-page', { detail: { to: location.href, kind: 'load' } })));
   return s;
@@ -100,7 +97,7 @@ export function swap(list: SwapPage[]): Feature {
             // aborted by a history write (a `$url` write, a script's `replaceState`), not by another navigation: the
             // swap goes on, as a page load would; before the URL committed, the navigation again, after (Back) a load
             e.signal.addEventListener('abort', () => setTimeout(() => {
-              const l = s.last as NavigateLike & { navigationType?: string; destination: { sameDocument?: boolean } } | undefined;
+              const l = asked.last as NavigateLike & { navigationType?: string; destination: { sameDocument?: boolean } } | undefined;
               if (s.run !== me || !l?.destination.sameDocument || l.navigationType == 'traverse') return;
               if (location.pathname != s.shown) location.reload();
               else (nav() as unknown as { navigate(u: string, o: object): { finished?: Promise<unknown> } }).navigate(i.to, { history: i.kind == 'replace' ? 'replace' : 'push' }).finished?.catch(() => {});
