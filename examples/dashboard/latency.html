@@ -1,0 +1,27 @@
+<!-- A second page, for the kept player and notes in the layout (data-sn-permanent): following the header's link
+     replaces this page's content and keeps them. -->
+<app-layout data-sn-prop="{ title: 'Latency' }">
+  <sn-resource name="services" src="/services" key="id" order="name"></sn-resource>
+  <sn-resource name="samples" src="/samples" key="slot" order="at"></sn-resource>
+  <sn-sync src="/events">
+    <sn-event name="sample" resource="samples" op="upsert"></sn-event>
+    <sn-event name="service_updated" resource="services" op="upsert" item="service" type="ServiceEvent"></sn-event>
+  </sn-sync>
+
+  <span slot="status" data-badge data-sn-text="{ connecting: 'Connecting…', open: 'Live', retrying: 'Reconnecting…' }[$meta.samples.live]"
+        data-sn-attr="{ 'data-tone': $meta.samples.live === 'open' ? 'success' : 'warning' }"></span>
+
+  <h1>Latency</h1>
+  <table class="num">
+    <thead><tr><th>Service</th><th>Median latency</th><th>Error rate</th></tr></thead>
+    <tbody>
+      <template data-sn-for="s in services">
+        <tr data-sn-let="{ t: totals([s], of(samples, s.id)) }">
+          <td data-sn-text="s.name"></td>
+          <td data-sn-text="t.latencyMs + ' ms'"></td>
+          <td data-sn-text="percent(t.errorRate)"></td>
+        </tr>
+      </template>
+    </tbody>
+  </table>
+</app-layout>

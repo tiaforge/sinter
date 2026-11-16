@@ -175,6 +175,10 @@
       "description": "the same thing on two pages: following a link from the element (or its row) to a page with an element of the same name morphs one into the other (view transitions; back too) (value expression (a name))"
     },
     {
+      "name": "data-sn-permanent",
+      "description": "kept as is across a link to a page with the same name; no bindings inside (name)"
+    },
+    {
       "name": "data-sn-prop",
       "description": "sets JS properties; custom elements only (one defined later gets them again through its setters). On a component's tag: its props, live and read-only. On a <slot> declared Slot<T>: the values its fill reads as $slot; on a named <slot> its component does not declare, a tree placement, filled by the nearest enclosing component declaring the name (object literal)"
     },

@@ -14,12 +14,25 @@
   <header data-theme="dark" data-pad="sm">
     <div data-layout="center" style="--tm-measure: 60rem">
       <div data-layout="row" data-gap="sm">
-        <strong data-grow>Services</strong>
+        <strong>Services</strong>
+        <nav data-layout="row" data-gap="sm" data-grow>
+          <a href="/">Overview</a>
+          <a href="/latency/">Latency</a>
+        </nav>
         <slot name="status"></slot>
       </div>
     </div>
   </header>
   <main data-layout="center" data-gap="lg" data-pad="lg" style="--tm-measure: 60rem">
+    <!-- Kept across pages: a link to the other page replaces everything around it, so the sound plays on, the
+         drawer stays open and the notes keep their text and scroll position. It holds no bindings. -->
+    <details class="dock" data-sn-permanent="dock">
+      <summary>Player and notes</summary>
+      <div data-layout="stack" data-gap="sm">
+        <audio controls loop preload="none" src="/api/tone.wav"></audio>
+        <textarea rows="4" aria-label="Notes" placeholder="Notes stay while you move between pages"></textarea>
+      </div>
+    </details>
     <slot></slot>
   </main>
 </body>

@@ -946,6 +946,8 @@ class Compiler {
   readonly stateInits: Array<{ sid: number; fields: Array<{ key: string; code: string; deps: string[] }>; persist: string | null }> = [];
   /** `<html data-sn-prefetch="off">`: other pages do not prefetch or prerender this one */
   prefetchOff = false;
+  /** `data-sn-permanent` names on this page, each once */
+  permanentNames = new Set<string>();
   /** `data-sn-path` patterns (for `$url` in the early file's requests) */
   pathList: string[] = [];
   /** `$s<sid>.<name>` paths a persisted model writes at mount */
@@ -1266,7 +1268,7 @@ class Compiler {
       ir, fns: this.fns,
       ...(this.opts.prerender ? { fixedState: this.fixedState() } : {}),
       ...(this.opts.sourcemap ? { sources: this.sourcesOf(this.fns) } : {}),
-      features: [...(this.opts.dev ? ['dev'] : []), ...['sse', 'optimistic', 'paginate', 'persist', 'cache', 'versions', 'refresh', 'each', 'listbox', 'keys', 'apply', 'fields', 'form', 'select', 'location', 'typing', 'query-links', 'call', 'debounce', 'confirm', 'models', 'transition', 'components', 'nested', 'lets'].filter((f) => this.features.has(f))],
+      features: [...(this.opts.dev ? ['dev'] : []), ...['sse', 'optimistic', 'paginate', 'persist', 'cache', 'versions', 'refresh', 'each', 'listbox', 'keys', 'apply', 'fields', 'form', 'select', 'location', 'typing', 'query-links', 'call', 'debounce', 'confirm', 'models', 'transition', 'permanent', 'components', 'nested', 'lets'].filter((f) => this.features.has(f))],
       helpers: { user, builtin }, namespaces, calls: [...this.calls].sort(),
       diagnostics: this.diagnostics, files: [...this.files].sort(),
       ...(this.check ? { check: this.check } : {}),
@@ -3883,6 +3885,27 @@ class Compiler {
       if (el.tagName !== 'html') this.report(el, 'data-sn-prefetch', 'SN102', '`data-sn-prefetch` belongs on `<html>`: it keeps other pages from prefetching or prerendering this one', 0);
       else if (get('prefetch')!.trim() !== 'off') this.report(el, 'data-sn-prefetch', 'SN401', '`data-sn-prefetch` takes `off`; prefetching is on without the attribute', 0);
       else this.prefetchOff = true;
+    }
+
+    // an element kept across navigations to pages with the same name (permanent.ts): the name stays in the HTML.
+    // It holds no bindings: the next page's compiled code finds only its own nodes
+    if (has('permanent')) {
+      const name = get('permanent')!.trim();
+      const inside = (n: P5Node): string | null => {
+        for (const c of [...((n as P5Element).childNodes ?? []), ...(((n as any).content?.childNodes) ?? [])] as P5Node[]) {
+          const a = (c as P5Element).attrs?.find((x) => x.name.startsWith('data-sn-'));
+          if (a) return a.name;
+          const d = inside(c);
+          if (d) return d;
+        }
+        return null;
+      };
+      const own = sn.find((a) => a.name !== 'data-sn-permanent');
+      if (!/^[A-Za-z][\w-]*$/.test(name)) this.report(el, 'data-sn-permanent', 'SN401', '`data-sn-permanent` takes a name (letters, digits, `-` and `_`), the same on each page that keeps the element', 0);
+      else if (ctx.tid >= 0) this.report(el, 'data-sn-permanent', 'SN102', '`data-sn-permanent` cannot be inside a `<template>`: a kept element is one element of the page', 0);
+      else if (own || inside(el)) this.report(el, 'data-sn-permanent', 'SN102', `a kept element holds no bindings (\`${(own?.name ?? inside(el))}\`): the next page's code would not find it`, 0);
+      else if (this.permanentNames.has(name)) this.report(el, 'data-sn-permanent', 'SN102', `\`data-sn-permanent="${name}"\` is on two elements of this page`, 0);
+      else { this.permanentNames.add(name); this.features.add('permanent'); }
     }
 
     // embedded data
@@ -8196,7 +8219,8 @@ function setAttr(el: P5Element, name: string, value: string) {
 }
 
 function stripSn(el: P5Element) {
-  el.attrs = el.attrs.filter((a) => !a.name.startsWith('data-sn-'));
+  // `data-sn-permanent` stays: the page it names an element of is fetched as HTML (permanent.ts)
+  el.attrs = el.attrs.filter((a) => !a.name.startsWith('data-sn-') || a.name === 'data-sn-permanent');
 }
 
 /** Whether a form's markup reads `$error` (outside `data-sn-catch`, where `$error` is the action's own). */
