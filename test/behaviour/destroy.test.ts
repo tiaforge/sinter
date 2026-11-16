@@ -79,3 +79,17 @@ test('its streams close and its timers stop', async () => {
   await r.advance(60_000);
   expect(gets()).toBe(before);
 });
+
+test('a flush scheduled before destroy() does nothing after it (a stream\'s frame flush on the page swapped out)', async () => {
+  const r = await render('<div data-sn-state="{ n: 0 }"><button data-sn-on-click="n = n + 1"></button><b data-sn-text="n"></b></div>');
+  await r.settle();
+  let flushed = 0;
+  r.app.afterFlush.push(() => { flushed++; });
+  // a change whose flush is scheduled, then the app goes before it runs
+  (r.root.querySelector('button') as HTMLElement).click();
+  r.app.destroy();
+  await new Promise((res) => setTimeout(res, 0));
+  r.app.flush();
+  expect(flushed).toBe(0);
+  expect(r.root.querySelector('b')!.textContent).toBe('0');
+});

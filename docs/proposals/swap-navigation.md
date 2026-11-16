@@ -667,5 +667,29 @@ manifest, the stub and the exported mount together: they are the unproven half.
 6. **Examples and docs:** the dashboard (its check committed) and RealWorld (swaps by default instead of
    the kept footer, the suite against a local backend), a headed-browser run, the docs above, sizes before
    and after.
+   **Done** on `swap-navigation`:
+   - **The dashboard** (`sinter({ swap: true })`, a latency page, the layout's kept player and notes) and its
+     check, `examples/dashboard/e2e-swap.mjs`, in CI in Chromium, Firefox and WebKit: one page load across a
+     link and Back, the sound playing on, notes and drawer kept, one event stream open at a time. It found
+     a core bug: a flush scheduled before `destroy()` (a stream's frame flush) ran after it, on elements
+     `destroy()` had released (WebKit, a component's state); `flush()` now does nothing on a destroyed app
+     (`destroy.test.ts`).
+   - **RealWorld** with `swap: true` instead of the kept footer, the settings form's `upsert` and
+     `navigate()`, the islands' `navigate()`: 140 of 140 against a local backend (realworld-django-ninja),
+     the base 136.
+   - **Headed browsers** (`HEADED=1 xvfb-run node e2e/permanent/run.mjs`): Chromium and Firefox pass every
+     step; neither restored the swapped document from the back/forward cache after a load out of the app
+     (it is loaded again, which is right too). Headed WebKit under xvfb crashes on any same-document view
+     transition, with or without sinter: not testable here. The browser's own Back without activation
+     needs a person at the keyboard: still to do.
+   - **Docs:** `docs/navigation.md` (Swaps, Refusing a navigation, swaps and types in Page transitions),
+     `docs/configuration.md` (`swap`), `docs/security.md` (the trust model), the RealWorld and dashboard
+     READMEs; `llms.txt` 24,998 of its 25,000 B.
+   - **Sizes** (gzip, `scripts/size.mjs`, the base `aca5a78` and this branch): core 14,946 → 15,048 (+102:
+     destroy, the attribute writer, `navigate()` and `popstate` asking the chain, the flush guard); minimal
+     page 15,148 → 15,252 of its 15,360 B; with swaps on 16,901 B (the budget decision is open);
+     query-links 828 → 1,663 and transition 802 → 1,895 (the chain, step 2); navigate 1,231, the stub 1,908,
+     the rest 3,072 (loaded by the first swap); RealWorld pages +3.3 to +3.5 KB with swaps on (the article
+     23,761 → 27,235 of its 27,648 B budget).
 7. **Kept elements with bindings** ([3](#3-kept-elements)), after a spike of its own: reserved numbering,
    the one-markup check, the takeover (rows and branches adopted), the playback-property warning.

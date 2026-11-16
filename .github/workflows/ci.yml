@@ -118,6 +118,10 @@ jobs:
         working-directory: examples/dashboard
       - run: timeout 300 npx vite build
         working-directory: examples/dashboard
+      # with swaps on: the player plays on across a link and Back, in Chromium, Firefox and WebKit
+      - run: npx playwright install --with-deps chromium firefox webkit
+      - run: node e2e-swap.mjs
+        working-directory: examples/dashboard
 
   # sinter across page loads in a real browser: next-page data, Speculation Rules, morphs
   # (e2e/navigation/README.md); the runner's Chrome

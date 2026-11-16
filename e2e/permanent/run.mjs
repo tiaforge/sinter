@@ -3,6 +3,9 @@
 // each. A browser that does not start is a failure under CI (`CI` set), else reported as skipped. Exits
 // non-zero on any failure.
 //   node run.mjs [chromium|firefox|webkit ...]
+//   HEADED=1 xvfb-run node run.mjs     headed browsers (a display, or xvfb on Linux): adds the back/forward
+//                                      cache, which headless browsers do not keep (headed WebKit under xvfb
+//                                      crashes on any view transition, sinter or not)
 import { spawnSync } from 'node:child_process';
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
@@ -66,7 +69,7 @@ let failed = 0;
 const browsers = process.argv.slice(2).length ? process.argv.slice(2) : ['chromium', 'firefox', 'webkit'];
 for (const name of browsers) {
   let browser;
-  try { browser = await pw[name].launch(); } catch (e) {
+  try { browser = await pw[name].launch({ headless: !process.env.HEADED }); } catch (e) {
     console.log(`${name}: ${process.env.CI ? '✗ did not start' : 'skipped'} (${e.message.split('\n')[0]})`);
     if (process.env.CI) failed++;
     continue;
@@ -85,7 +88,8 @@ for (const name of browsers) {
     // WebKit refuses Speculation Rules prefetches over http; the 404 page is the one the last step loads.
     // WebKit does not match the build's `<link rel="preload" as="fetch">` to the page's request (it requests
     // twice on a page load, swaps or not) and says so a few seconds after the load: not the swap's
-    if (/Prefetch request denied|was preloaded using link preload but not used/.test(m.text()) || new URL(m.location().url || base).pathname === '/nope/') return;
+    // (headed browsers also ask for /favicon.ico, which this app has not)
+    if (/Prefetch request denied|was preloaded using link preload but not used/.test(m.text()) || ['/nope/', '/favicon.ico'].includes(new URL(m.location().url || base).pathname)) return;
     if (['error', 'warning'].includes(m.type())) errors.push(m.text());
   });
   const steps = [];
@@ -383,6 +387,25 @@ for (const name of browsers) {
     if (readable) check('a swap transitions as the stylesheet asks, not under reduced motion', { withRule, reduced }, { withRule: 1, reduced: 0 });
     else check('no page transitions in this browser: a swap starts none', { withRule, reduced }, { withRule: 0, reduced: 0 });
   } catch (e) { steps.push(`✗ ${e.message.split('\n')[0]}`); failed++; }
+  // headed: a load out of the app (a page that opts out), then Back: the swapped document from the
+  // back/forward cache, as it was, or a load of that entry; either is right, which one is reported
+  if (process.env.HEADED) {
+    const p4 = await browser.newPage();
+    p4.on('pageerror', (e) => errors.push(e.message));
+    try {
+      await p4.goto(base + '/');
+      await p4.waitForFunction(() => document.title === 'A: Alpha', null, { timeout: 5000 });
+      await p4.evaluate(() => { window.__marker = 10; document.getElementById('to-b').click(); });
+      await p4.waitForFunction(() => document.title === 'B: Beta', null, { timeout: 5000 });
+      await Promise.all([p4.waitForEvent('load', { timeout: 5000 }), p4.click('#to-off')]);
+      await p4.goBack();
+      await p4.waitForFunction(() => location.pathname === '/b/' && document.title === 'B: Beta', null, { timeout: 5000 });
+      await p4.waitForTimeout(300);
+      const got = await p4.evaluate(() => ({ marker: window.__marker ?? null, items: document.querySelectorAll('#items li').length, ids: [...document.querySelectorAll('[data-sn]')].map((x) => x.getAttribute('data-sn')) }));
+      check('Back into the app after a load out of it: B as it was', { items: got.items, duplicateIds: got.ids.filter((x, i) => got.ids.indexOf(x) !== i) }, { items: 3, duplicateIds: [] });
+      steps.push(`- ${got.marker === 10 ? 'from the back/forward cache (the swapped document)' : 'loaded again (no back/forward cache)'}`);
+    } catch (e) { steps.push(`✗ ${e.message.split('\n')[0]}`); failed++; }
+  }
   if (errors.length) { steps.push(`✗ errors: ${JSON.stringify(errors)}`); failed++; }
   console.log(`${name}:\n  ${steps.join('\n  ')}`);
   await browser.close();

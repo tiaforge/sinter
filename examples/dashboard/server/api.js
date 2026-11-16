@@ -9,6 +9,7 @@
 //   GET    /api/events         sample { slot, service, tick, at, status, rps, latencyMs, errorRate }, 4 times a second per
 //                              running service: it replaces the oldest sample in the ring (its slot)
 //                              service_updated { service }, when a service is paused or resumed
+//   GET    /api/tone.wav       a made-up 8-second chord, for the player the layout keeps across pages
 
 import { readFileSync } from 'node:fs';
 
@@ -62,6 +63,19 @@ export default function api() {
     for (const res of streams) res.write(text);
   };
 
+  // the player's sound, made here so the example has no binary file: 8 s of a soft chord, 16-bit mono at 16 kHz
+  const tone = (() => {
+    const rate = 16000, n = rate * 8, b = Buffer.alloc(44 + n * 2);
+    b.write('RIFF', 0); b.writeUInt32LE(36 + n * 2, 4); b.write('WAVEfmt ', 8); b.writeUInt32LE(16, 16);
+    b.writeUInt16LE(1, 20); b.writeUInt16LE(1, 22); b.writeUInt32LE(rate, 24); b.writeUInt32LE(rate * 2, 28);
+    b.writeUInt16LE(2, 32); b.writeUInt16LE(16, 34); b.write('data', 36); b.writeUInt32LE(n * 2, 40);
+    for (let i = 0; i < n; i++) {
+      const t = i / rate, v = [220, 277.18, 329.63].reduce((a, f) => a + Math.sin(2 * Math.PI * f * t), 0) / 3;
+      b.writeInt16LE(Math.round(v * 6000 * (0.6 + 0.4 * Math.sin(Math.PI * t / 4))), 44 + i * 2);
+    }
+    return b;
+  })();
+
   let timer;
   const step = () => {
     tick++;
@@ -94,6 +108,10 @@ export default function api() {
       streams.add(res);
       req.on('close', () => streams.delete(res));
       return;
+    }
+    if (url.pathname === '/api/tone.wav') {
+      res.setHeader('content-type', 'audio/wav');
+      return res.end(tone);
     }
     if (url.pathname === '/api/services' && req.method === 'GET') return send(200, [...services.values()]);
     if (url.pathname === '/api/samples' && req.method === 'GET') return send(200, [...samples.values()]);

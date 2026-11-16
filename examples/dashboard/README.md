@@ -2,7 +2,7 @@
 
 [![Open in StackBlitz](https://developer.stackblitz.com/img/open_in_stackblitz.svg)](https://stackblitz.com/github/tiaforge/sinter/tree/main/examples/dashboard)
 
-Four services with made-up metrics, live. One HTML page, no framework, no store:
+Four services with made-up metrics, live. Two HTML pages, no framework, no store:
 
 - **The backend describes itself.** `server/openapi.yml` is the API's OpenAPI file; `server/api.js`
   serves it at `/api/openapi.yml` and implements it. The frontend reads the same file at build
@@ -31,6 +31,11 @@ Four services with made-up metrics, live. One HTML page, no framework, no store:
 - **The badge tells the truth.** `$meta.samples.live` is the state of the stream that feeds the
   resource: `connecting`, `open` or `retrying`. Stop the server and the badge says "Reconnecting…"; start
   it again and it is "Live". The layout's `status` slot holds the badge.
+- **The player and the notes stay.** With `sinter({ swap: true })`, a link to another page of the app
+  fetches that page and swaps it in instead of loading it. The layout's `<details data-sn-permanent="dock">`
+  holds an `<audio>` (a chord `server/api.js` makes up, `/api/tone.wav`) and a `<textarea>`: follow the
+  header's link to the latency page and the sound plays on, the notes keep their text and scroll position
+  and the drawer stays open. Back and Forward do the same.
 - **Pause** is an optimistic `PATCH`: the card dims at once, and is restored if the server fails.
 - **Busy states wait.** While the `PATCH` is out, sinter marks the button `aria-busy`, and while the page
   loads it shows a `Loading…` line marked the same. temper shows the spinner only after

@@ -767,7 +767,8 @@ export function mount(root: Document | Element, o: MountOptions): App {
     },
     flush() {
       scheduled = false;
-      if (flushing) return;
+      // a flush scheduled before `destroy()` (a frame's, a microtask's) finds nothing to update
+      if (flushing || destroyed) return;
       flushing = true;
       try {
         for (let pass = 0; dirty.length && pass < 100; pass++) {
