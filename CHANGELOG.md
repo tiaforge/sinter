@@ -55,6 +55,8 @@ Attribute names, function names and diagnostic codes are public API. Before
 
 ### Changed
 
+- The first change of only marked rows after a list renders, and its first selection change, find their rows by a scan instead of building a map or index of every row (built from the second change on): js-framework-benchmark's update every 10th and select row, measured cold after creating 1,000 rows, 875 → 800 µs and 550 → 515 µs (ivi 5.1: 795 and 490). A list with explicit keys takes the scan too, where it walked every row.
+
 - Flat anchors: on the 300-block markdown article (`@tiaforge-ui/sinter-markdown`, headless Chromium, median of 21) comments 11,784 → 3,090 and template clones 6,597 → 1,523; script time 92 → 62 ms with md.parse in one pass; LCP level with marked + DOMPurify into `innerHTML`, from 8 ms behind. Core +242 B gzip.
 - A wrapper's or a text run's head template is left out of the page unless the early file renders it (the page module never clones one): the markdown article's HTML 1,240 → 961 B gzip.
 - `@tiaforge-ui/sinter-markdown`: `md.parse` builds its tree from markdown-it's tokens in one pass (no mdast between, no walk for definitions markdown-it resolved): the same trees, 38 ms cold instead of 47 on that article in Node. Its `./parser` export returns markdown-it's tokens.
@@ -107,6 +109,8 @@ Attribute names, function names and diagnostic codes are public API. Before
 - **HTML comments must reach the browser**: a minifier or CDN that strips them breaks lists and branches. Dev builds warn for a missing or duplicate anchor (codes 1–3) and for one without its end comment (31).
 
 ### Fixed
+
+- A list computed from others (`data-sn-for="x in xs.slice()"`, `xs.filter(…)`, a helper over a list) renders a change to an item in place (`xs[0].t = …`, a `forEach` write): its rows did not, as what they read of the item had no dependency. When such a list is evaluated again, the rows it keeps render again.
 
 - A component whose root is its slot, with a named fill (an element, a chain or a component tag), in a loop or a branch of another component's slot content failed the build over constants (`SN201`): its scope now starts in the slot content's writer's scope and rows.
 - A component whose root is an if/else chain or another component's tag, used inside a component with a plain root, resolved its names in that outer component: over the outer's constant props its branch was decided by them and its text was theirs (`<button>OUTER</button>` for a link), at run time too.

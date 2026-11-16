@@ -26,7 +26,15 @@ const feature: Feature = {
         const cur = (x: any) => (meta ? x.v![j] : x.rbs!.find((y: any) => y.b == b)?.v);
         const run = (x: any) => { if (meta) walkSimple(x, t, meta, 2, j); else { const y = x.rbs!.find((y: any) => y.b == b); if (y) process(y, 2); } };
         const safe = (i: number, sc: any) => { try { return fns[i]!(sc); } catch { return undefined; } };
-        let e: { m: Map<unknown, any[]>; on: Set<any> } | undefined = rb.sx?.get(b);
+        let e: { m: Map<unknown, any[]>; on: Set<any> } | null | undefined = rb.sx?.get(b);
+        // the first time since the rows rendered: a scan (an index over every row would cost more than it saves once),
+        // and the index the next time (`null`: scanned once)
+        if (e === undefined) {
+          const o = safe(s.o, rb.s);
+          for (const x of rb.rows!) { const k = safe(s.r, x.s); if (+!!cur(x) == f || k === o || (k !== k && o !== o)) run(x); }
+          (rb.sx ??= new Map()).set(b, null);
+          return;
+        }
         if (!e) {
           const m = new Map<unknown, any[]>(), on = new Set<any>();
           for (const x of rb.rows!) {

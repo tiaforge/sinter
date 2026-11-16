@@ -5230,6 +5230,9 @@ class Compiler {
     t.item = item;
     t.index = index;
     t.ii = ii;
+    // a list computed from others (`xs.slice()`, `visible(tasks, q)`): its rows' reads of the item have no path, so a
+    // change to an item in place reaches the list only, and the rows it keeps render again
+    if (!list.path) t.dv = 1;
     const resInfo = list.resource ? this.page.resources.get(list.resource) : undefined;
     const alias = list.path && list.path[0]!.startsWith('$s') ? [...list.path, `{${ii}}`] : null;
     // in a component, the runtime names are the template's own, so a prop read in a row cannot resolve to a row of the component's
