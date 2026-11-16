@@ -6,7 +6,7 @@
 /** one page of the list: `m`, the paths it answers at; `k`, the names it keeps (`data-sn-permanent`) */
 export interface SwapPage { m: string[]; k: string[] }
 
-/** the virtual module the swap imports: the list as its default export */
+/** the virtual module every page that swaps imports: the swap's stub with the list, as its default export (a feature) */
 export function swapModule(pages: SwapPage[]): string {
-  return `export default ${JSON.stringify(pages.map((p) => (p.k.length ? { m: p.m, k: p.k } : { m: p.m })))};\n`;
+  return `import { swap } from '@tiaforge-ui/sinter/swap';\nexport default swap(${JSON.stringify(pages.map((p) => (p.k.length ? { m: p.m, k: p.k } : { m: p.m })))});\n`;
 }

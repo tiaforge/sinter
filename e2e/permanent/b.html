@@ -1,0 +1,14 @@
+<two-layout data-sn-prop="{ title: info ? 'B: ' + info.name : 'B', description: info?.about ?? '' }">
+  <sn-resource name="info" src="/api/b.json" items="info"></sn-resource>
+  <sn-resource name="items" src="/api/items.json" key="id"></sn-resource>
+  <!-- the page's own head: a stylesheet only this page has, and a meta that renders once the data is there -->
+  <link slot="head" rel="stylesheet" href="./b.css">
+  <template slot="head" data-sn-if="info">
+    <meta name="robots" content="noindex">
+  </template>
+  <h1 id="heading" data-sn-text="info?.name"></h1>
+  <!-- a parse without scripting would make this live: the swap removes it -->
+  <noscript><img id="pixel" src="/pixel.gif" alt=""></noscript>
+  <ul id="items"><template data-sn-for="i in items"><li data-sn-text="i.title"></li></template></ul>
+  <p id="count" data-sn-state="{ n: 0 }"><button id="inc" data-sn-on-click="n = n + 2">+</button> <span data-sn-text="'B ' + n"></span></p>
+</two-layout>

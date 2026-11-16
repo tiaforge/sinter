@@ -620,6 +620,34 @@ manifest, the stub and the exported mount together: they are the unproven half.
    needed: the sequence with its named steps, verification, the head and what a swap skips (`<noscript>`,
    run-time styles, `parseHTMLUnsafe`, the header rule), kept elements without bindings, scroll, focus and
    the live region, `sn-page`; unit tests; `e2e/permanent`.
+   **Done** on `swap-navigation`: `src/swap.ts`, the stub (the decision for URLs the build lists, the
+   `intercept()` with `precommitHandler`, the leaving entry's position on every navigation through the chain's
+   `onGo`, no scroll listener) and `src/swap-run.ts`, loaded by the first swap (fetch, plan, head, commit,
+   mount, `sn-page`, the announcement in a `role="status"` region, the traversal's second scroll). What
+   changed from the design above, found on the way:
+   - **The page module registers its mount instead of exporting it:** an app build keeps no exports of a
+     page's entry (Vite's HTML entries), so the module puts `{ boot, kept }` on
+     `globalThis[Symbol.for('sinter.pages')]` under `import.meta.url`, which the swap looks up by the
+     script's URL. The swap imports the next page's module scripts once each (with the flag set, they do
+     not mount) and calls `boot()` inside `commit`, after `destroy()` of the old app: no `leaving` hand-off
+     is needed in the core.
+   - **Chromium's `parseHTMLUnsafe(html)` drops comments**, sinter's anchors (a list rendered nothing);
+     with a configuration, `{ sanitizer: {} }`, it keeps them in all three engines and attaches declarative
+     shadow DOM (`e2e/permanent/navigation-api/parse.cjs`). `DOMParser` where it is missing.
+   - **A swap needs no kept element:** every page of the list swaps; a page module that lists a name the
+     fetched HTML does not have once is a load, and only names both page modules list are kept (injected
+     markers keep nothing).
+   - **A link to the URL shown swaps the page in again** (a `replace`, as the browser makes it).
+   - **Speculation Rules** leave out the pages that swap (the swap's `fetch()` does not use the prefetch
+     cache); only pages with `data-sn-swap="off"` stay in them.
+   - **A page with `<html data-sn-swap="off">` carries no stub:** links from it are page loads, as links to it.
+   Checked: `e2e/permanent` (in CI with `e2e/links`) in Chromium, Firefox and WebKit, with new steps for
+   `data-sn-swap="off"` on a link and on a page, `<noscript>`, `sn-page` and the announcement; a swap
+   under `vite dev` in Chromium; unit tests of the plan (`test/behaviour/swap-plan.test.ts`) and of the
+   page module (`swap-boot.test.ts`). Sizes (gzip): the stub 1,699 B (the chain about 1,050 of it), the
+   rest 2,734 B, loaded by the first swap; the minimal page with swaps on 16,702 B, over its 15,360 B
+   budget (15,247 B without swaps). Not yet: the nonce stamp and a page with built-in messages in an
+   e2e; the next-page data handoff; one chain per document.
 5. **Transitions:** the types on swaps and on loads (from the stub), each kept element's own name, the
    `data-sn-transition` pair at `commit`; a probe of named kept media; an e2e of a morph across a swap.
 6. **Examples and docs:** the dashboard (its check committed) and RealWorld (swaps by default instead of

@@ -158,11 +158,11 @@ function earlyLines(early: EarlyParts | null, options: Pick<CompileOptions, 'hel
   return lines;
 }
 
-export function pageModule(parts: CompiledParts, options: Pick<CompileOptions, 'helpers' | 'dev' | 'config' | 'actions' | 'prefetch' | 'origins' | 'locale' | 'apis' | 'swap'> & Partial<Pick<CompileOptions, 'root'>>): string {
+export function pageModule(parts: CompiledParts, options: Pick<CompileOptions, 'helpers' | 'dev' | 'config' | 'actions' | 'prefetch' | 'origins' | 'locale' | 'apis' | 'swap' | 'swapList'> & Partial<Pick<CompileOptions, 'root'>>): string {
   return pageLines(parts, options).text();
 }
 
-function pageLines(parts: CompiledParts, options: Pick<CompileOptions, 'helpers' | 'dev' | 'config' | 'actions' | 'prefetch' | 'origins' | 'locale' | 'apis' | 'swap'> & Partial<Pick<CompileOptions, 'root'>>): MappedLines {
+function pageLines(parts: CompiledParts, options: Pick<CompileOptions, 'helpers' | 'dev' | 'config' | 'actions' | 'prefetch' | 'origins' | 'locale' | 'apis' | 'swap' | 'swapList'> & Partial<Pick<CompileOptions, 'root'>>): MappedLines {
   const lines = new MappedLines();
   // the page module is `async`: it waits for the parse, and for the early file if the page has one
   const core = ['mount', '$k', parts.early ? 'rendered' : 'parsed', ...parts.helpers.builtin];
@@ -171,8 +171,11 @@ function pageLines(parts: CompiledParts, options: Pick<CompileOptions, 'helpers'
   const local = (f: string) => `sn$${f.replace(/-/g, '_')}`;
   for (const f of parts.features) lines.push(`import ${local(f)} from '${PACKAGE}/${f}';`);
   // next-page data: the app's pages, described in one module every page shares
-  const features = [...parts.features.map(local), ...(options.prefetch ? ['$prefetch'] : [])];
+  // swaps: the stub with the build's list, on every page that swaps (not one that opts out)
+  const swaps = !!options.swap && !parts.swapOff;
+  const features = [...parts.features.map(local), ...(options.prefetch ? ['$prefetch'] : []), ...(swaps && options.swapList ? ['$swap'] : [])];
   if (options.prefetch) lines.push(`import $prefetch from ${JSON.stringify(options.prefetch)};`);
+  if (swaps && options.swapList) lines.push(`import $swap from ${JSON.stringify(options.swapList)};`);
   // each helper from the module that declares it, as the early file imports them: past the helpers module and
   // barrels, so a module that reaches a lazy package loads only when a let needs it (docs/lazy.md)
   let messages = false;
@@ -237,14 +240,15 @@ function pageLines(parts: CompiledParts, options: Pick<CompileOptions, 'helpers'
   const opts = `{ ir, fns, features: [${features.join(', ')}] }`;
   // the early file renders part of this page: mount once it has (they meet through a global)
   const wait = parts.early ? 'await rendered();' : 'await parsed();';
-  if (options.swap) {
-    // swaps on (docs/proposals/swap-navigation.md §6): the mount is exported, for the swap to call when it
-    // swaps this page in (the module imported once, the mount run per visit), with the names the page keeps;
-    // the module mounts itself only on a load, not when the swap imports it
+  if (swaps) {
+    // swaps on (docs/proposals/swap-navigation.md §6): the mount is registered under the module's URL (an app
+    // build keeps no exports of a page's entry), for the swap to call when it swaps this page in (the module
+    // imported once, the mount run per visit), with the names the page keeps; the module mounts itself only
+    // on a load, not when the swap imports it
     const body = `${cookie ? `${cookie} ` : ''}${messages ? '$use(); await $ready(); return $use(mount(document, $page));' : 'return mount(document, $page);'}`;
-    lines.push(`const $page = ${opts};`, `export const kept = ${JSON.stringify(parts.permanent ?? [])};`);
-    lines.push(`export const boot = ${messages ? 'async ' : ''}() => { ${body} };`);
-    lines.push(`if (!globalThis[Symbol.for('sinter.swapping')]) { ${wait} await boot(); }`);
+    lines.push(`const $page = ${opts};`, `const $boot = ${messages ? 'async ' : ''}() => { ${body} };`);
+    lines.push(`(globalThis[Symbol.for('sinter.pages')] ??= {})[import.meta.url] = { boot: $boot, kept: ${JSON.stringify(parts.permanent ?? [])} };`);
+    lines.push(`if (!globalThis[Symbol.for('sinter.swapping')]) { ${wait} await $boot(); }`);
     return lines;
   }
   if (cookie) lines.push(cookie);

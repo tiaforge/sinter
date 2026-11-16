@@ -27,8 +27,16 @@ const minimal = compile('<html><body><sn-resource name="user" src="/api/user"></
   file: '/min/index.html', root: '/min', dev: false, helpers: { module: null, names: [], namespaces: {} }, readFile: () => '', moduleSrc: '/m.js',
 }).module.replace(/'@tiaforge-ui\/sinter(\/[a-z]+)?'/g, (_, sub) => `'${dist}${sub ?? '/index'}.js'`);
 
+/** The same page in an app with swaps on: the stub and the build's list (`sinter({ swap: true })`) */
+const swapList = join(dir, 'swap-list.js');
+writeFileSync(swapList, `import { swap } from '${dist}/swap.js';\nexport default swap([{ m: ['/'] }, { m: ['/about'] }]);\n`);
+const minimalSwap = compile('<html><body><sn-resource name="user" src="/api/user"></sn-resource><p data-sn-text="user.name"></p></body></html>', {
+  file: '/min/index.html', root: '/min', dev: false, helpers: { module: null, names: [], namespaces: {} }, readFile: () => '', moduleSrc: '/m.js', swap: true, swapList,
+}).module.replace(/'@tiaforge-ui\/sinter(\/[a-z]+)?'/g, (_, sub) => `'${dist}${sub ?? '/index'}.js'`);
+
 const entries = {
   minimal,
+  'minimal, swaps': minimalSwap,
   core: `export { mount, $k } from '${dist}/index.js';`,
   sse: `export { default } from '${dist}/sse.js';`,
   ws: `export { webSocketTransport } from '${dist}/ws.js';`,
@@ -50,6 +58,9 @@ const entries = {
   typing: `export { default } from '${dist}/typing.js';`,
   'query-links': `export { default } from '${dist}/query-links.js';`,
   navigate: `export { default } from '${dist}/navigate.js';`,
+  // the stub every page that swaps carries; the rest, loaded when a navigation needs it
+  swap: `export { swap } from '${dist}/swap.js';`,
+  'swap, the rest': `export { prepare } from '${dist}/swap-run.js';`,
   call: `export { default } from '${dist}/call.js';`,
   debounce: `export { default } from '${dist}/debounce.js';`,
   confirm: `export { default } from '${dist}/confirm.js';`,
@@ -78,14 +89,25 @@ try {
   for (const [name, code] of Object.entries(entries)) {
     const entry = join(dir, `${name}.js`);
     writeFileSync(entry, code);
-    const external = name === 'core' || name === 'page' || name === 'minimal' ? [] : [/\/runtime\//];
+    const external = name === 'core' || name === 'page' || name.startsWith('minimal') ? [] : [/\/runtime\//];
     await build({
       logLevel: 'silent', configFile: false,
       build: { outDir: join(dir, 'out', name), lib: { entry, formats: ['es'], fileName: name }, minify: false, rollupOptions: { external } },
     });
-    // lib mode keeps whitespace in ES output; minify fully, as an app build would
-    const out = await minify(`${name}.js`, readFileSync(join(dir, 'out', name, `${name}.js`), 'utf8'), { compress: true, mangle: true });
-    const js = Buffer.from(out.code);
+    // lib mode keeps whitespace in ES output; minify fully, as an app build would. A module with an
+    // `import()` (the swap's rest) is split: what the entry imports statically is counted, the rest is not
+    const files = [], seen = new Set();
+    const walk = (f) => {
+      if (seen.has(f)) return;
+      seen.add(f);
+      const text = readFileSync(join(dir, 'out', name, f), 'utf8');
+      files.push([f, text]);
+      for (const m of text.matchAll(/(?:\bfrom\s*|\bimport\s*)["']\.\/([^"']+\.js)["']/g)) if (existsSync(join(dir, 'out', name, m[1]))) walk(m[1]);
+    };
+    walk(`${name}.js`);
+    const parts = [];
+    for (const [f, text] of files) parts.push((await minify(f, text, { compress: true, mangle: true })).code);
+    const js = Buffer.from(parts.join('\n'));
     report(name, js.length, gz(js));
   }
 

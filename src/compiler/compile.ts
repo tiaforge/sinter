@@ -232,6 +232,8 @@ export interface CompileOptions {
    * docs/proposals/swap-navigation.md): a kept element (`data-sn-permanent`) is then a reason to ship JavaScript
    */
   swap?: boolean;
+  /** with `swap`: the module of the swap's stub and the build's list of pages (swap-build.ts), which a page that swaps imports */
+  swapList?: string | null;
   /** every component of the app: the candidates of `<sn-component use>` a helper chooses (default: the components the page names) */
   componentNames?: string[];
   /** the module the page module imports for a component's scoped styles (`CompiledParts.styles`), so the bundler puts them in the page's stylesheet */

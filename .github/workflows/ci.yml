@@ -136,8 +136,9 @@ jobs:
         env:
           CHROME: google-chrome
 
-  # same-page links, navigate() and data-sn-on-navigate through the navigation chain, in Chromium, Firefox and
-  # WebKit: the Navigation API's navigate event, where each browser has it (e2e/links)
+  # same-page links, navigate() and data-sn-on-navigate through the navigation chain (e2e/links), and swaps with
+  # kept elements (e2e/permanent), in Chromium, Firefox and WebKit: the Navigation API's navigate event, where
+  # each browser has it
   e2e-links:
     runs-on: ubuntu-latest
     steps:
@@ -151,3 +152,6 @@ jobs:
       - run: npx playwright install --with-deps chromium firefox webkit
       - run: npm ci --prefix e2e/links
       - run: node e2e/links/run.mjs
+      # swaps and kept elements (sinter({ swap: true }))
+      - run: npm ci --prefix e2e/permanent
+      - run: node e2e/permanent/run.mjs

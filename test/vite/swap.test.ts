@@ -37,7 +37,9 @@ test('the list of pages that swap: their paths and kept names; a page that opts 
   const server = await createServer({ root, logLevel: 'silent', resolve: { alias }, server: { middlewareMode: true, hmr: false, ws: false }, appType: 'custom', plugins: [sinter({ swap: true })] });
   try {
     const js = (await server.transformRequest('/@sinter/swap.js'))!.code;
-    const list = JSON.parse(/export default (.*);/.exec(js)![1]!) as Array<{ m: string[]; k?: string[] }>;
+    // the stub with the list: `export default swap([...])`
+    expect(js).toMatch(/^import \{ swap \} from "[^"]*\/swap\.ts";$/m);
+    const list = JSON.parse(/export default swap\((.*)\);/.exec(js)![1]!) as Array<{ m: string[]; k?: string[] }>;
     const byPath = Object.fromEntries(list.map((x) => [x.m[0], x.k ?? []]));
     // (a page moves to a folder of its name: `/about/`)
     expect(byPath).toEqual({ '/': ['player'], '/about/': ['player', 'menu'], '/post/:slug': [] });
@@ -67,6 +69,9 @@ test('a build: a kept element ships the module only with swaps on; SN540 names t
   const on = await run({ swap: true });
   expect(on.html('index.html')).toContain('<script type="module"');
   expect(on.html('index.html')).toContain('<aside data-sn-permanent="player">');
+  // the swap fetches the next page itself: no Speculation Rules for pages that swap (here, every page)
+  expect(off.html('index.html')).toContain('<script type="speculationrules">');
+  expect(on.html('index.html')).not.toContain('speculationrules');
   expect(on.logs).toContain('SN540');
   expect(on.logs).toContain('an inline script in the body does not run when a link swaps this page in');
 });

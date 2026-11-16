@@ -518,7 +518,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   const sourceDescribed = new Map<string, string[]>();
   /** build: why each page needs the runtime, by its path relative to the root (empty: it ships none) */
   const runtimeOf = new Map<string, RuntimeReason[]>();
-  let pagesCache: Array<{ paths: string[]; parts: PrefetchParts | null }> | null = null;
+  let pagesCache: Array<{ paths: string[]; parts: PrefetchParts | null; swaps: boolean }> | null = null;
   const attr = (v: string) => v.replace(/[&"<>]/g, (c) => `&#${c.charCodeAt(0)};`);
   /** the tag of the script that starts with the picker: it picks the locale and starts the page's language file */
   const pickerTag = (src: string, files: Record<string, string>, locale?: string) => `<script src="${attr(src)}" data-sn-i18n="${attr(JSON.stringify({ base: locale ?? messages!.base, locales: locale ? [locale] : messages!.locales, storage: 'locale', files: locale ? { [locale]: files[locale]! } : files }))}"></script>`;
@@ -699,12 +699,12 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   const pageEntries = (): PageEntry[] => entries().map((file) => ({ rel: relOf(file), patterns: describe(file).path }));
   const appPages = () => {
     if (pagesCache) return pagesCache;
-    const out: Array<{ paths: string[]; parts: PrefetchParts | null }> = [];
+    const out: Array<{ paths: string[]; parts: PrefetchParts | null; swaps: boolean }> = [];
     for (const file of entries()) {
       const d = describe(file);
       // `<html data-sn-prefetch="off">`: neither described nor in the rules
       if (d.off) continue;
-      out.push({ paths: pagePaths(relOf(file), resolved?.base ?? '/', d.path), parts: d.parts });
+      out.push({ paths: pagePaths(relOf(file), resolved?.base ?? '/', d.path), parts: d.parts, swaps: !!options.swap && !d.swapOff });
     }
     return (pagesCache = out);
   };
@@ -713,7 +713,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     const d = describe(file);
     return d.swapOff ? [] : [{ m: pagePaths(relOf(file), resolved?.base ?? '/', d.path), k: d.keep }];
   });
-  const prefetchPages = () => appPages().filter((x): x is { paths: string[]; parts: PrefetchParts } => !!x.parts);
+  const prefetchPages = () => appPages().filter((x): x is { paths: string[]; parts: PrefetchParts; swaps: boolean } => !!x.parts);
   /** how the Speculation Rules are delivered, or null for none */
   const spec = () => {
     // inline by default: it works with no server setup (a CSP in the page gets the rules' hash, see withRulesHash)
@@ -736,10 +736,12 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     rulesKept.same.set(samePage, json);
     return json;
   };
+  // with swaps on, a link to a page that swaps is fetched by the swap, which the browser's prefetch cache does
+  // not serve: only the pages that opt out are in the rules
   const rulesOf = (mode: 'prefetch' | 'prerender', samePage: boolean) => {
-    const entry = new Set<string>(), patterns = new Set<string>();
-    for (const v of virtual.values()) if (v.page) { entry.add(v.page.path); patterns.add(templatePattern(v.source)); }
-    return speculationRules(mode, [...appPages().flatMap((x) => x.paths).filter((x) => !entry.has(x)), ...patterns], samePage);
+    const entry = new Set<string>(), patterns = new Set<string>(), pages = appPages().filter((x) => !x.swaps);
+    for (const v of virtual.values()) if (v.page) { entry.add(v.page.path); if (pages.some((x) => x.paths.includes(v.page!.path))) patterns.add(templatePattern(v.source)); }
+    return speculationRules(mode, [...pages.flatMap((x) => x.paths).filter((x) => !entry.has(x)), ...patterns], samePage);
   };
   /**
    * builds: a link in a finished page to a path a `data-sn-pages` pattern matches, but no entry was written at, fails
@@ -885,7 +887,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       ...(options.embed && !dev ? { embed: true } : {}),
       componentCss: (name) => `${COMPONENT_CSS}${name}.css`,
       ...(p.isStatic(src) ? { static: true } : {}),
-      ...(p.swap ? { swap: true } : {}),
+      ...(p.swap ? { swap: true, swapList: SWAP } : {}),
       ...(resolved?.base?.startsWith('/') ? { base: resolved.base } : {}),
       ...(siteOrigin ? { urls: urlsOf(rel, out0Path(file)) } : {}),
     });

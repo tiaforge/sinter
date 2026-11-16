@@ -1,0 +1,18 @@
+<!-- A page with nothing bound and no layout: only the kept element. Without it as a reason, the build
+     would ship this page with no script, and links from it would be page loads. -->
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Plain</title>
+</head>
+<body>
+  <nav><a id="to-a" href="/">A</a> <a id="to-b" href="/b/">B</a></nav>
+  <aside id="keep" data-sn-permanent="keep">
+    <textarea rows="2" aria-label="Notes"></textarea>
+    <div id="scroller" style="block-size: 3rem; overflow: auto"><div style="block-size: 20rem">tall</div></div>
+  </aside>
+  <main><h1 id="heading">Plain</h1></main>
+</body>
+</html>
