@@ -4,21 +4,33 @@
 // components that render nothing.
 //
 // Pure: the same source and options give the same tree, with no globals beyond the language's and
-// `URL`. So sinter runs it at build time over a `file:` resource, and caches it in a let otherwise.
+// `URL`. So sinter runs it at build time over a `file:` resource. In the browser a let or a prop is
+// evaluated at every read, and md-doc's components read their `doc` at every node, so md.parse keeps
+// its trees itself, with sinter's memo(): one parse per source and options, the tree frozen and shared
+// (README.md, "md.parse keeps its trees").
 // The parser by the package's own name, not `./parser.js`: an app makes it load on demand by listing
 // this package in `sinter({ lazy })`, and lazy packages are matched by import specifier.
 import { tokenize, type MdastNode } from '@tiaforge-ui/sinter-markdown/parser';
+import { memo } from '@tiaforge-ui/sinter/memo';
 import { slug, text } from './tree.js';
 import type { Align, Block, Details, Heading, Inline, ListItem, ParseOptions, Root, TableCell, TableRow } from './sinter.types.js';
 
-/** The tree of `source` (CommonMark, and GFM tables, task lists, strikethrough and autolinks), under `options`. */
+/**
+ * The tree of `source` (CommonMark, and GFM tables, task lists, strikethrough and autolinks), under
+ * `options`. The same source and options give the same tree, frozen: change a copy.
+ */
 export function parse(source: string | null | undefined, options?: ParseOptions): Root {
-  const o = optionsOf(options);
-  const tree = tokenize(typeof source === 'string' ? source : '');
+  // the options normalized to a plain object of primitives, so equal policies share one tree
+  return parseTree(typeof source === 'string' ? source : '', optionsOf(options));
+}
+
+/** the parse itself, kept by its arguments (the least recently used trees go first, past 8 MiB) */
+const parseTree = memo((source: string, o: Options): Root => {
+  const tree = tokenize(source);
   const cx: Context = { o, ids: new Set(), defs: new Map() };
   collect(tree, cx.defs);
   return { type: 'root', children: blocks(tree.children ?? [], cx) };
-}
+}, { maxSize: 8 * 1024 * 1024 });
 
 interface Options {
   base: string | null;

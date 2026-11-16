@@ -46,7 +46,7 @@ export type { Root, Heading, Link, TocEntry } from '@tiaforge-ui/sinter-markdown
 | Markdown | Where it is parsed | What the page ships |
 | --- | --- | --- |
 | A file: `src="file:./post.md"` | at build time | the article as plain HTML, no JavaScript ([static pages](https://github.com/tiaforge/sinter/blob/main/docs/static-pages.md)) |
-| A string from an API, in a `data-sn-let` | in the browser, once per source (the let is cached) | the parser with the page |
+| A string from an API, in a `data-sn-let` | in the browser, once per source and options (md.parse keeps its trees) | the parser with the page |
 | The same, with the parser lazy | in the browser, once the parser has loaded | the parser in a chunk of its own, loaded when a let first needs it |
 
 To make the parser lazy, list the package in `lazy`:
@@ -110,7 +110,16 @@ An unknown value is an error that lists the values (`md.parse: \`html\` is 'drop
   together, blocks separated by a blank line, an image as its alt text. For a description or a reading
   time.
 
-Both are pure: over a file they run at build time.
+Both are pure: over a file they run at build time. In the browser they walk the tree at each read,
+which is cheap (about 0.1–0.2 ms on a 47.5 kB article).
+
+### The tree is kept and frozen
+
+A let or a prop is evaluated where it is read, and `<md-doc>` reads its `doc` at every node, so
+`md.parse` keeps the trees it returns: the same source and options give the same tree, parsed once,
+whichever let, prop or row asks. Equal options are one policy (`{}` and `{ html: 'text' }`). The tree
+is frozen, at every depth, and shared: to change one, change a copy (`structuredClone(doc)`). About
+8 MiB of trees are kept, the least recently used dropped first.
 
 ## `<md-doc>` and `<md-inline>`
 

@@ -143,7 +143,31 @@ docs/                     the docs page and the recipe
   and folds at build time. `sinter.helpers.ts` re-exports both, and the entry re-exports it.
 - **Pure.** A helper over constants (a `file:` resource) runs at build time, if everything it reaches
   uses only the language's own globals and `URL`, `URLSearchParams`, `structuredClone`, `TextEncoder`
-  and `TextDecoder`. `parse.ts` and `tree.ts` are written that way, and so is the parser.
+  and `TextDecoder`. `parse.ts` and `tree.ts` are written that way, and so is the parser; sinter's check
+  reads a top-level `const x = memo(…)` as a unit of its own, so the memo's cache does not stop
+  md.parse from folding.
+- **md.parse keeps its trees.** In the browser a let or a prop is its expression, evaluated at every
+  read, and md-doc's components read their `doc` at every node: an article's let is read hundreds of
+  times per render. So `parse.ts` wraps the parse in sinter's `memo()`
+  (`@tiaforge-ui/sinter/memo`), and the contract is:
+  - the same source and the same options give the same tree object, parsed once. The options are
+    normalized first (defaults filled in, `base` with its trailing `/`), so `{}` and
+    `{ html: 'text' }` share a tree;
+  - the tree is deep-frozen and shared by every caller, in production too: change a copy
+    (`structuredClone(doc)`);
+  - the cache holds about 8 MiB of trees, the least recently used going first; a source whose tree was
+    dropped is parsed again, into a new tree;
+  - an invalid option throws at each call, and nothing is kept.
+
+  Measured in Node on the spike's 47.5 kB article: a parse takes about 67 ms, a read of a kept tree
+  about 0.01 ms. On its recipe page, the browser parses each distinct source once
+  (`test/parses.test.ts`); without the memo it parsed 16 times for 6 sources. Each bundle keeps its own
+  trees (the page module, the early file) and the build its own, at build time.
+- **md.headings and md.text walk the tree at each read**, with no cache: they take a tree, an object,
+  which `memo()` would call through anyway. On the 47.5 kB article they take about 0.09 and 0.2 ms, on
+  50 comments about 0.01 and 0.05 ms together; a page reads them a few times per render, not per node.
+- **Nothing per node is kept in the components.** None has state, a script or a handler, so two
+  comments with the same body share one frozen tree and render it twice, each in its own rows.
 - **The library's components cannot call its helpers.** In markup, helpers are called through the
   namespace the app chose (`md.` here, but the app could write `export * as markdown from …`). What a
   component needs is computed into the data instead: `md.parse` writes each heading's `slug`.
@@ -203,6 +227,8 @@ build` at the root first. CI runs the package's tests in a job of its own, after
 | `test/parse.test.ts` | `md.parse` and its options, `md.headings`, `md.text`; that `tree.ts` imports no parser; that `parser.js` is up to date and decodes entities with its table |
 | `test/check.test.ts` | `sinter check` over the fixture pages: no error, no warning |
 | `test/static.test.ts` | a page with `<sn-resource src="file:./post.md">` built with `sinter({ static })`: no JavaScript, every node type as plain HTML, `html: 'allow'`, the table of contents, a local image optimized |
+| `test/parses.test.ts` | the recipe in Chromium with the parser counting what it tokenizes: one parse per distinct source, none after a change elsewhere on the page or for a new comment with a body already parsed |
+| `test/components.test.ts` | the dispatch maps against the `Block` and `Inline` unions and the component files, and the form of every loop over phrasing content |
 | `test/api.test.ts` | the recipe built as an app, served with an API, in Chromium under `script-src 'self'; style-src 'self'; require-trusted-types-for 'script'`, failing on any violation or console error: entities, the user-content policy, the link fill, unsafe URLs, images; with the parser loaded with the page and with it lazy |
 
 `test/app.ts` makes a throwaway app with the package linked into its `node_modules`, as a workspace or
