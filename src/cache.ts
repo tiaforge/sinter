@@ -2,7 +2,7 @@
 // on the last page load at once and revalidates as usual. Entries live in
 // sessionStorage (one tab's lifetime) under `sn:c:`, keyed by the request URL and
 // the `items`/`total` paths, so pages that load the same thing share them. Written
-// after every load and on `pagehide` (confirmed data only, never optimistic layers);
+// after every load, on `pagehide` and when the app is destroyed (confirmed data only, never optimistic layers);
 // removed on any 401 and by `clearPersisted()`.
 import type { ResourceDef } from './ir.js';
 import type { App, Feature } from './runtime/app.js';
@@ -81,14 +81,17 @@ const cache: Feature = {
       },
     };
 
-    app.addCleanup(app.env.listen('pagehide', () => {
+    const flush = () => {
       for (const t of tracked.values()) {
         if (!t.dirty || t.off || t.appended || t.def.paginate?.mode == 'append') continue;
         const b = t.r.base();
         write(t.def, t.url, b.items, b.total);
         t.dirty = false;
       }
-    }));
+    };
+    app.addCleanup(app.env.listen('pagehide', flush));
+    // an app destroyed with the document staying (the next page swapped in) has no pagehide
+    app.addCleanup(flush);
   },
 };
 

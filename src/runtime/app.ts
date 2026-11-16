@@ -530,7 +530,9 @@ export function mount(root: Document | Element, o: MountOptions): App {
       if (/^(checked|selected|indeterminate|value)$/.test(n) && n in el) (el as any)[n] = n == 'value' ? (v == null || v === false || v === true ? '' : v) : v != null && v !== false;
       if (v == null || v === false) el.removeAttribute(n);
       // relative URLs by the base of the document rows go into (a clone's own is its template's, about:blank)
-      else if (urlAllowed(el, n, (v = v === true ? '' : '' + v), doc.baseURI, schemes)) el.setAttribute(n, v);
+      // an unchanged value is not written again: a playing <audio>'s `src` set to the same value restarts it,
+      // an <iframe>'s reloads it
+      else if (urlAllowed(el, n, (v = v === true ? '' : '' + v), doc.baseURI, schemes)) { if (el.getAttribute(n) !== v) el.setAttribute(n, v); }
       else { el.removeAttribute(n); warn(7, n, el.localName, v); }
     },
     s(el: HTMLElement, n: string, v: any) {
@@ -691,6 +693,13 @@ export function mount(root: Document | Element, o: MountOptions): App {
     destroy() {
       destroyed = true;
       for (const c of cleanups.splice(0)) c();
+      // what it set on elements (handlers, models, state, rows) goes with it: elements that stay (the
+      // document's <html> and <body>, after a swap) keep nothing of an app that is gone
+      const tw = doc.createTreeWalker(root, 1);
+      for (let n: Node | null = root.nodeType == 1 ? root : tw.nextNode(); n; n = tw.nextNode()) {
+        const e = n as Tagged & RowNode;
+        delete e[HANDLERS]; delete e[MODEL]; delete e[STATE]; delete e[ROW];
+      }
       instances.delete(root);
     },
     scopeOf: (i) => (i < 0 ? app.page : rootScopes[i] ?? app.page),
