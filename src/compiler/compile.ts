@@ -9,7 +9,7 @@ import { minifyMarkup } from './minify.js';
 import type { RemoteConfig } from '../remote.js';
 import { AUTO_FIT_HINT, AUTO_FIT_ROWS, FLUID_WIDTHS } from './images.js';
 import * as parse5 from 'parse5';
-import { parse as parseProgram, parseExpressionAt } from 'acorn';
+import { parseExpression, parseProgram } from './parse.js';
 import { fullAncestor } from 'acorn-walk';
 import type { DefaultTreeAdapterMap } from 'parse5';
 import { type Code, type Diagnostic, didYouMean, severityOf } from './diagnostics.js';
@@ -657,7 +657,7 @@ function paginateParams(p: Paginate, cursor: string | undefined): string[] {
     if (p.offsetParam) out.push(p.offsetParam);
     if (cursor) {
       try {
-        const ast = parseExpressionAt(cursor, 0, { ecmaVersion: 'latest' }) as acorn.Expression;
+        const ast = parseExpression(cursor) as acorn.Expression;
         if (ast.type === 'ObjectExpression') for (const x of ast.properties) {
           if (x.type === 'Property' && !x.computed) out.push(x.key.type === 'Identifier' ? x.key.name : String((x.key as acorn.Literal).value));
         }
@@ -673,7 +673,7 @@ function constantProps(src: string | undefined, props: Member[] | null): Map<str
   const given = new Set<string>();
   if (src !== undefined && src.trim()) {
     let ast: acorn.Expression | null = null;
-    try { ast = parseExpressionAt(src, 0, { ecmaVersion: 'latest' }) as acorn.Expression; } catch { ast = null; }
+    try { ast = parseExpression(src) as acorn.Expression; } catch { ast = null; }
     if (!ast || ast.type !== 'ObjectExpression') return out;
     for (const p of ast.properties) {
       if (p.type !== 'Property' || p.computed) return new Map();
@@ -1363,9 +1363,9 @@ class Compiler {
   callExpr(el: P5Element, attrName: string, scope: Scope, deps?: Set<string>, magic?: string[]): { args: number; run: number; name: string } | null {
     const text = attr(el, attrName) ?? '';
     const shape = `\`${attrName}\` is one call of an action, e.g. \`pgp.decrypt(msg)\``;
-    let ast: ReturnType<typeof parseExpressionAt>;
+    let ast: acorn.Expression;
     try {
-      ast = parseExpressionAt(text, 0, { ecmaVersion: 'latest' });
+      ast = parseExpression(text);
     } catch (e) {
       this.report(el, attrName, 'SN401', `\`${attrName}\`: ${(e as Error).message.replace(/ \(\d+:\d+\)$/, '')}`, (e as { pos?: number }).pos ?? 0);
       return null;
@@ -1412,9 +1412,9 @@ class Compiler {
     const text = attr(el, 'direction-values')!;
     const DIRS = ['first', 'prev', 'next', 'last'] as const;
     const fail = (message: string, offset = 0) => { this.report(el, 'direction-values', 'SN401', message, offset); return null; };
-    let ast: ReturnType<typeof parseExpressionAt>;
+    let ast: acorn.Expression;
     try {
-      ast = parseExpressionAt(text, 0, { ecmaVersion: 'latest' });
+      ast = parseExpression(text);
     } catch (e) {
       return fail(`\`direction-values\`: ${(e as Error).message.replace(/ \(\d+:\d+\)$/, '')}`, (e as { pos?: number }).pos ?? 0);
     }
@@ -1923,8 +1923,8 @@ class Compiler {
     for (const a of el.attrs) {
       if (a.name !== 'use' && a.name !== 'data-sn-prop' && a.name !== 'data-sn-early') this.report(el, a.name, 'SN101', `\`${a.name}\` is not an attribute of \`<sn-component>\`; it takes \`use\`, \`data-sn-prop\` and \`data-sn-early\``, 0);
     }
-    let ast: ReturnType<typeof parseExpressionAt> | null = null;
-    try { ast = use ? parseExpressionAt(use, 0, { ecmaVersion: 'latest' }) : null; } catch { ast = null; }
+    let ast: acorn.Expression | null = null;
+    try { ast = use ? parseExpression(use) : null; } catch { ast = null; }
     if (!ast || ast.end !== use!.trimEnd().length) {
       return fail('`<sn-component>` takes `use`, an expression naming the component: ``use="`${b.type}-block`"``, `use="{ hero: \'hero-block\' }[b.type]"` or `use="blockComponent(b)"`');
     }
@@ -3433,7 +3433,7 @@ class Compiler {
         if (c.tagName === 'sn-component') {
           const u = attr(c, 'use') ?? '';
           let ast: acorn.Expression | null = null;
-          try { ast = parseExpressionAt(u, 0, { ecmaVersion: 'latest' }) as acorn.Expression; } catch { ast = null; }
+          try { ast = parseExpression(u) as acorn.Expression; } catch { ast = null; }
           if (ast?.type === 'TemplateLiteral' && ast.quasis.length === 2) {
             const pre = ast.quasis[0]!.value.cooked ?? '', post = ast.quasis[1]!.value.cooked ?? '';
             for (const n2 of all()) if (n2.startsWith(pre) && n2.endsWith(post)) out.uses.add(n2);
@@ -4579,7 +4579,7 @@ class Compiler {
     const src = attr(el, 'data-sn-let') ?? '';
     let obj: import('acorn').Node & { type: string; properties?: Array<import('acorn').Property | import('acorn').SpreadElement> };
     try {
-      obj = parseExpressionAt(src, 0, { ecmaVersion: 'latest' }) as typeof obj;
+      obj = parseExpression(src) as typeof obj;
     } catch (e) {
       this.report(el, 'data-sn-let', 'SN401', (e as Error).message.replace(/ \(\d+:\d+\)$/, ''), (e as { pos?: number }).pos ?? 0);
       return scope;
@@ -4625,7 +4625,7 @@ class Compiler {
     const lazy = this.page.lazy;
     if (!lazy?.size) return null;
     let ast: acorn.Node;
-    try { ast = parseExpressionAt(code, 0, { ecmaVersion: 'latest' }); } catch { return null; }
+    try { ast = parseExpression(code); } catch { return null; }
     // references to a lazy helper only: not a member's name (`post.title`), an object key (`{ title: s }`; a
     // shorthand `{ title }` is a reference, written out), nor a name a function in the let binds (`(title) => …`)
     const waits: Array<{ n: any; key?: true }> = [];
@@ -7308,7 +7308,7 @@ class Compiler {
      */
     const status = (code: string): string => {
       let ast: acorn.Node;
-      try { ast = parseExpressionAt(code, 0, { ecmaVersion: 'latest' }); } catch { return code; }
+      try { ast = parseExpression(code); } catch { return code; }
       const edits: Array<[number, number, string]> = [];
       const checks = new Set<number>();
       const name = (m: any): string | null => (m.computed ? (m.property.type === 'Literal' && typeof m.property.value === 'string' ? m.property.value : null) : m.property.name);
@@ -8201,7 +8201,7 @@ function stateKeys(src: string | undefined): Set<string> {
   const out = new Set<string>();
   if (!src) return out;
   try {
-    const o = parseExpressionAt(src, 0, { ecmaVersion: 'latest' });
+    const o = parseExpression(src);
     if (o.type === 'ObjectExpression') for (const p of o.properties) if (p.type === 'Property' && !p.computed && p.key.type === 'Identifier') out.add(p.key.name);
   } catch { /* reported where the state is compiled */ }
   return out;
@@ -8223,8 +8223,8 @@ function reads(nodes: P5Node[], name: string): boolean {
   const inValue = (v: string): boolean => {
     if (!re.test(v)) return false;
     let ast: acorn.Node;
-    try { ast = parseExpressionAt(v, 0, { ecmaVersion: 'latest' }); } catch {
-      try { ast = parseProgram(v, { ecmaVersion: 'latest' }); } catch { return true; }
+    try { ast = parseExpression(v); } catch {
+      try { ast = parseProgram(v); } catch { return true; }
     }
     let found = false;
     fullAncestor(ast, (n, _state, ancestors) => {
@@ -8408,7 +8408,7 @@ const fixedRequest = (r: ResourceDef) => !r.call && !r.each && r.data == null &&
 /** a compiled `when` as a condition a server can evaluate (see EmbedCond), or null */
 function condOf(code: string): EmbedCond | null {
   let fn: acorn.Expression;
-  try { fn = parseExpressionAt(code, 0, { ecmaVersion: 'latest' }) as acorn.Expression; } catch { return null; }
+  try { fn = parseExpression(code) as acorn.Expression; } catch { return null; }
   if (fn.type !== 'ArrowFunctionExpression' || fn.body.type === 'BlockStatement') return null;
   const urlName = (n: acorn.Node): string | null => {
     const m = n as acorn.MemberExpression;

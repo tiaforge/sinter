@@ -1,10 +1,10 @@
 # A page per entry, prototyped
 
-Part 0 of [the collections proposal](../../docs/proposals/collections.md#prototype). `sinter({ prototypePages })`
-(on this branch only) builds a template page once per entry, as virtual inputs at its `data-sn-path` filled
-from the entry: the source's `{=field}` is replaced by the entry's field and the pattern by the filled path,
-a stand-in for `data-sn-pages` and the implicit entry resource. The app is a blog: `n` markdown posts of
-about 600 words rendered with sinter-markdown, an index, and with `live` a comments resource on each post.
+Part 0 of [the collections proposal](../../docs/proposals/collections.md#prototype), and the benchmark for
+the build's compile cost. The app is a blog: `n` markdown posts of about 600 words rendered with
+sinter-markdown, one page per post, an index, and with `live` a comments resource on each post. The
+prototype built the posts from one template page with an option that is gone since; the app now writes
+each post as a page of its own, which compiles the same way.
 
 ```sh
 npm run build                                   # this checkout's dist/
@@ -43,4 +43,20 @@ Experiments at 100 entries: `firstPaint: false` (which skips the first compile) 
 with that, caching file reads across compiles (`SN_PROTO_READ_CACHE=1`) takes 10.6 s.
 
 The 10,000-entry run was stopped after the 1,000 results showed linear scaling: about 30 minutes as the
-compiler is, and worth running after the compile work the proposal lists, as its check.
+compiler was.
+
+## After the compile work
+
+One compile per page, expressions parsed once per text, and the project and its files read once per build
+(CHANGELOG, Unreleased). The app now writes each post as a page of its own (the prototype's option is gone),
+which compiles the same way; 100 posts, the same machine:
+
+| | Static | Live |
+| --- | ---: | ---: |
+| before | 21.2 s | 20.9 s |
+| one compile per page | 11.9 s | 12.0 s |
+| and expressions parsed once, files read once per build | 7.0 s | 7.5 s |
+| and the project read once per build | 6.5 s | 6.9 s |
+
+The output is the same, byte for byte, at each step, and so is every example app's (`examples/*`, built with
+`main` and with the change).

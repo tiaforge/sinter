@@ -5,7 +5,8 @@
 // with no attribute binding carries no URL check). Same order and same failures as the interpreter
 // had: every scope (persisted values applied) before any write; a binding that throws is left to the
 // page module; an element that is missing is skipped.
-import * as acorn from 'acorn';
+import type * as acorn from 'acorn';
+import { parseExpression } from './parse.js';
 import type { EarlyIR, NodeDef } from '../ir.js';
 import { URL_ATTR } from '../runtime/security.js';
 
@@ -25,7 +26,7 @@ const SAFE_START = /^(\/[^/\\]|\.\.?[/\\]|\?|#|https?:\/\/|mailto:|tel:)/i;
 export function fixedScheme(code: string): boolean {
   // (a value whose scheme the literal fixes; the origin is the page's, or the literal's own absolute URL)
   let e: any;
-  try { e = (acorn.parseExpressionAt(code, 0, { ecmaVersion: 'latest' }) as any).body; } catch { return false; }
+  try { e = (parseExpression(code) as any).body; } catch { return false; }
   const str = (x: any): string | null => x.type == 'Literal' && typeof x.value == 'string' ? x.value
     : x.type == 'TemplateLiteral' ? x.quasis[0].value.cooked ?? null
     : x.type == 'BinaryExpression' && x.operator == '+' ? str(x.left)

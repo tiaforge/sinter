@@ -1,7 +1,8 @@
 // Expression analysis: parses one attribute value, resolves every identifier
 // against the lexical scope, enforces the sandbox, extracts dependency paths
 // (value expressions) and written paths (handlers), and emits a function.
-import * as acorn from 'acorn';
+import type * as acorn from 'acorn';
+import { parseExpression, parseProgram } from './parse.js';
 import { type Code, didYouMean } from './diagnostics.js';
 
 type Node = acorn.AnyNode & { start: number; end: number };
@@ -382,9 +383,9 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
   const parseOpts: acorn.Options = { ecmaVersion: 'latest', sourceType: 'module', allowAwaitOutsideFunction: false };
   try {
     if (mode === 'value' || opts.object) {
-      ast = acorn.parseExpressionAt(src, 0, parseOpts) as Node;
+      ast = parseExpression(src, parseOpts) as Node;
       // without preserveParens, `(a ? b : c)` ends inside its parentheses; find the real end
-      const end = (acorn.parseExpressionAt(src, 0, { ...parseOpts, preserveParens: true }) as Node).end;
+      const end = (parseExpression(src, { ...parseOpts, preserveParens: true }) as Node).end;
       const rest = src.slice(end).trim();
       if (rest) {
         const at = src.indexOf(rest, end);
@@ -393,7 +394,7 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
       }
       body = [ast];
     } else {
-      const prog = acorn.parse(src, parseOpts) as acorn.Program;
+      const prog = parseProgram(src, parseOpts) as acorn.Program;
       ast = prog as Node;
       for (const st of prog.body) {
         if (st.type === 'EmptyStatement') continue;

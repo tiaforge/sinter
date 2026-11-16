@@ -535,7 +535,13 @@ entries is the compiler's, and it helps every page:
    synchronous and single-threaded today.
 
 The 10,000-entry run was stopped: linear scaling from 100 to 1,000 says it would take about 30 minutes as
-is, and it is worth running after 1 and 2, as the check that they worked. Memory grows about 0.3 MB per
+it was. Items 1 and 2 are done (see [Plan](#plan)): 100 posts build in 6.5 s instead of 21.2 s, so 10,000
+would take about 11 minutes, before workers.
+
+The Speculation Rules' list of every page is also quadratic for a site of many fixed pages today, not only
+for pages per entry: a site of 10,000 hand-written pages writes every URL into every page. Part B names a
+`data-sn-pages` page by its pattern; a site of that many fixed pages would need the rules to stop listing
+pages (a pattern for the site, with exclusions), which is a separate change. Memory grows about 0.3 MB per
 entry static and 0.7 MB with a live resource (a module per entry), so roughly 3 GB and 7 GB at 10,000:
 the same run checks that too.
 
@@ -587,9 +593,11 @@ A prototype first, then three pull requests, each followed by a review of where 
 
 - **0, prototype**: done ([Prototype](#prototype)): the pre-pass in `configResolved`, virtual pages
   without `localePrefix`, the Speculation Rules by pattern, and the measurements.
-- **Compile cost, before B**: one compile per page and the caches across compiles
-  ([Prototype](#prototype), items 1 and 2), measured with `bench/collections` and the existing benches;
-  then the 10,000-entry run. Useful to every page, so it can land on its own.
+- **Compile cost, before B**: done, on its own ([Prototype](#prototype), items 1 and 2): one compile per
+  page, expressions parsed once per text, the project and its files read once per build. 100 markdown
+  posts build in 6.5 s instead of 21.2 s, with the same output. The 10,000-entry run waits for part B: as
+  files, 10,000 pages would hit the Speculation Rules' quadratic (below), which exists today for any site
+  with that many fixed pages, and which part B fixes for `data-sn-pages` pages by naming the pattern.
 - **A, build-time resources**: `file:` as in §2 (a `.md` file is an entry, globs, `drafts`, `{$locale}`),
   `order`, `fields`, `MAX_UNROLL` removed and `expansionLimit` public (§4), `content:` and the content module (§3), types checked against
   the files, the snapshot and the editor's watchers (§6, §8), dev reload, SN332's rename. Part A also

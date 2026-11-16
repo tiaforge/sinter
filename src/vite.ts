@@ -253,6 +253,13 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   // the Vite server sinter starts to load the helpers module in Node (helpers-node.ts): nothing of sinter runs in it
   if (loadingHelpers()) return [{ name: 'sinter', api: { options, source: (f: string) => f } }, { name: 'sinter:post' }, { name: 'sinter:css-images' }, { name: 'sinter:fonts' }, { name: 'sinter:font-check' }, { name: 'sinter:pages' }];
   let root = process.cwd();
+  /**
+   * The project (its helpers, components, libraries, specs) as a build sees it: read once per build, from its start, where
+   * every page asked again (`project()` scans the components and libraries and reads the helpers' manifest). Before a build
+   * starts and in dev, read afresh, as files change.
+   */
+  let buildProject: ReturnType<typeof project> | null = null;
+  const proj = () => buildProject ?? project(root, options);
   let dev = false;
   let server: ViteDevServer | null = null;
   let resolved: ResolvedConfig | null = null;
@@ -338,7 +345,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   /** the lazy packages a component script reaches (`/src/components/x.ts`); a build logs why it loads with them */
   const lazyScript = (module: string): string[] => {
     const file = resolve(root, '.' + module);
-    const r = reachLazy(file, lazyPkgs, root, undefined, undefined, false, project(root, options).libraries);
+    const r = reachLazy(file, lazyPkgs, root, undefined, undefined, false, proj().libraries);
     if (r.length && !dev && !loggedScripts.has(module)) {
       loggedScripts.add(module);
       resolved?.logger.info(`sinter: ${relOf(file)} loads with ${r.map((x) => x.spec).join(', ')}, when its component first renders: ${r.map((x) => chainText(root, x)).join('; ')}`);
@@ -421,7 +428,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   let nodeHelpers: Promise<NodeHelpers> | null = null, helpersNow: NodeHelpers | null = null, warnedHelpers = false;
   const foldCache = new FoldCache();
   const helpersReady = async () => {
-    const p = project(root, options);
+    const p = proj();
     const h = await (nodeHelpers ??= loadHelpers({ root, helpersFile: p.helpersFile, manifest: p.helpers, server: dev ? server : null, ...(resolved ? { configFile: resolved.configFile ?? false, mode: resolved.mode, ...(resolved.configFile ? {} : { alias: resolved.resolve.alias }) } : {}), cache: foldCache }));
     if (h.error && p.helpersFile && !warnedHelpers) { warnedHelpers = true; resolved?.logger.warn(coded('SN533', unloadedMessage(root, p.helpersFile, h.error))); }
     return (helpersNow = h);
@@ -570,10 +577,10 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   /** a page's description (its patterns, what can be requested ahead), compiled once; a page in a language, under its prefix */
   const describe = (file: string) => {
     if (!described.has(file)) {
-      const p = project(root, options), v = virtual.get(file);
+      const p = proj(), v = virtual.get(file);
       try {
         // with the APIs and specs: what is requested ahead is the page's own request (its base, its configured shape)
-        const r = compile(readPage(file), { file: v?.source ?? file, root, dev, helpers: p.helpers, actions: p.actions, readFile: p.readFile, lazy: p.lazy, openapi: p.openapi, apis: p.apis, ...(v ? { locale: { name: v.locale, urls: null, base: resolved?.base ?? '/' } } : {}) });
+        const r = compile(readPage(file), { file: v?.source ?? file, root, dev, helpers: p.helpers, actions: p.actions, readFile: readVia(p), lazy: p.lazy, openapi: p.openapi, apis: p.apis, ...(v ? { locale: { name: v.locale, urls: null, base: resolved?.base ?? '/' } } : {}) });
         described.set(file, { parts: r.prefetch, path: r.path, off: !!r.prefetchOff });
       } catch { described.set(file, { parts: null, path: [], off: false }); }
     }
@@ -582,8 +589,8 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   /** a source page's description, as written (no language's prefix) */
   const describeSource = (source: string) => {
     if (!sourceDescribed.has(source)) {
-      const p = project(root, options);
-      try { sourceDescribed.set(source, compile(readFileSync(source, 'utf8'), { file: source, root, dev, helpers: p.helpers, actions: p.actions, readFile: p.readFile, lazy: p.lazy, openapi: p.openapi, apis: p.apis }).path); }
+      const p = proj();
+      try { sourceDescribed.set(source, compile(readFileSync(source, 'utf8'), { file: source, root, dev, helpers: p.helpers, actions: p.actions, readFile: readVia(p), lazy: p.lazy, openapi: p.openapi, apis: p.apis }).path); }
       catch { sourceDescribed.set(source, []); }
     }
     return { path: sourceDescribed.get(source)! };
@@ -639,6 +646,18 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
 
   /** whether a hook runs for the client environment (or a Vite without environments) */
   const isClient = (ctx: unknown) => { const env = (ctx as { environment?: { config?: { consumer?: string } } }).environment; return !env?.config?.consumer || env.config.consumer === 'client'; };
+  /**
+   * The project's files a build's compiles read (components, layouts, `file:` sources), read once per build: every page
+   * reads the same components, each instance looked up again (and its script beside it, which is usually missing).
+   * Cleared at each build's start, so a rebuild under `--watch` sees edits; dev reads afresh, as files change under it.
+   */
+  const buildReads = new Map<string, { text: string } | { error: unknown }>();
+  const readVia = (p: ReturnType<typeof project>) => (dev ? p.readFile : (path: string) => {
+    let r = buildReads.get(path);
+    if (!r) { try { r = { text: p.readFile(path) }; } catch (error) { r = { error }; } buildReads.set(path, r); }
+    if ('error' in r) throw r.error;
+    return r.text;
+  });
   /** the build's helper calls that folded, by page and call, for the cross-check at its end */
   const foldCalls = new Map<string, FoldCall[]>();
   const logFold = (page: string, key: string, args: FoldArg[], result: string, id: number) => {
@@ -650,7 +669,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   /** compiles one page; `earlySrc`: where the page loads its early chunk (dev), else the build injects the tag */
   const build = (html: string, file: string, earlySrc: string | null, styles?: StyleSheet[], lineHeights?: Map<string, number>, zeros?: Map<string, number | null>, minifyStyles?: StyleSheet[]): { out: CompileResult; p: ReturnType<typeof project> } => {
     const rel = relOf(file);
-    const p = project(root, options);
+    const p = proj();
     // a page in a language: compiled from its source (diagnostics, components, layouts as written), in that language
     const v = virtual.get(file), src = v?.source ?? file;
     const lang = v && p.messages ? { ...p.messages.dicts[p.messages.base], ...p.messages.dicts[v.locale] } : null;
@@ -661,7 +680,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     if (!seen.has(file)) { seen.add(file); pagesCache = null; }
     const prefetch = options.prefetch !== false && prefetchPages().length ? PREFETCH : null;
     const out = compile(html, {
-      file: src, root, dev, sourcemap: dev || !!resolved?.build.sourcemap, helpers: p.helpers, actions: p.actions, moduleSrc: `${PREFIX}${rel}.js`, config: p.config, readFile: p.readFile, prefetch,
+      file: src, root, dev, sourcemap: dev || !!resolved?.build.sourcemap, helpers: p.helpers, actions: p.actions, moduleSrc: `${PREFIX}${rel}.js`, config: p.config, readFile: readVia(p), prefetch,
       check: !!options.typecheck && !dev, openapi: p.openapi, apis: p.apis, complexity: p.complexity, componentNames: p.componentNames, libraries: p.libraries, checkCycles: p.checkCycles, lazy: p.lazy,
       ...(lazyPkgs.length ? { lazyScript, lazyModule: (m: string) => lazyHelpers(root, lazyPkgs, undefined, p.libraries).reach(m) } : {}),
       ...(helpersNow ? { helperValues: helpersNow.module, helperFold: helpersNow.fold } : {}),
@@ -720,14 +739,14 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     if (!lazyPkgs.length || id.startsWith('\0') || !/\.[cm]?[jt]sx?(\?|$)/.test(id)) return null;
     const file = id.replace(/[?#].*$/, '');
     // packages are not the app's modules, except the component libraries
-    const libs = options.components?.length ? project(root, options).libraries : [];
+    const libs = options.components?.length ? proj().libraries : [];
     if (id.includes('/node_modules/') && !libraryOf(libs, file)) return null;
     if (!mentions(code, lazyPkgs)) return null;
     const s = scanLazy(code, file, lazyPkgs);
     if (!s.lazy.length && !s.problems.length) return null;
     if (isComponentScript(root, file, libs)) return null;
     // a helper module that reaches the package, and the modules between: they load whole with it, when a let first needs them
-    if (lazyHelpers(root, lazyPkgs, undefined, libs).whole(project(root, options).helpers).has(file)) return null;
+    if (lazyHelpers(root, lazyPkgs, undefined, libs).whole(proj().helpers).has(file)) return null;
     if (s.problems.length) {
       const at = lineCol(code, s.problems[0]!.offset);
       ctx.error({ message: `sinter: ${s.problems.map((p) => { const l = lineCol(code, p.offset); return `SN324 ${relOf(file)}:${l.line}:${l.col} ${p.message}`; }).join('\n')}`, id: file, loc: { line: at.line, column: at.col - 1 } });
@@ -764,7 +783,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       // dev: a component library's files are served wherever they really are (a workspace link outside the root)
       if (dev && options.components?.length) {
         const allow = (config.server.fs as { allow?: string[] }).allow;
-        if (Array.isArray(allow)) for (const l of project(root, options).libraries) if (!allow.includes(l.real)) allow.push(l.real);
+        if (Array.isArray(allow)) for (const l of proj().libraries) if (!allow.includes(l.real)) allow.push(l.real);
       }
       if (options.localePrefix) {
         if (options.messages === false) throw new Error('sinter({ localePrefix }): the languages come from the built-in messages, which `messages: false` turns off');
@@ -823,7 +842,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       // an HTML, component or helpers change triggers a full reload in v0.1
       s.watcher.on('change', (file) => {
         // the helpers module, or a file it reaches: loaded again before the next page compiles
-        if (helpersNow?.files.includes(file) || file === project(root, options).helpersFile) nodeHelpers = null;
+        if (helpersNow?.files.includes(file) || file === proj().helpersFile) nodeHelpers = null;
         // a page's resources may have changed: the next-page module is described again
         if (file.endsWith('.html') || watched.has(file)) { described.clear(); pagesCache = null; invalidate(PREFETCH); devEarly.clear(); }
         if (watched.has(file)) s.ws.send({ type: 'full-reload' });
@@ -831,7 +850,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     },
 
     /** build: the pages that have something to run early (bundled into one file each in generateBundle) */
-    async buildStart(input) {
+    async buildStart() {
       unhashedPages = 0;
       // the pages are the client environment's (an SSR environment building beside it compiles none): its calls only
       if (isClient(this)) foldCalls.clear();
@@ -845,12 +864,14 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       pageMessages.clear();
       described.clear();
       pagesCache = null;
+      buildReads.clear();
+      buildProject = null;
       if (dev) return;
       // a fresh instance each build: under `--watch`, edits to the helpers count, and nothing a helper kept from the
       // last build (or the memo, by the instance) carries over into this one
       nodeHelpers = null;
       await helpersReady();
-      const p = project(root, options);
+      const p = buildProject = project(root, options);
       messages = p.messages;
       appEarly = p.early;
       // a missing translation falls back to the base language: reported once per locale
@@ -861,17 +882,9 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
           if (missing.length) this.warn(coded('SN522', `${missing.length} message(s) not translated to \`${l}\` (the ${messages.base} text is used): ${missing.slice(0, 10).join(', ')}${missing.length > 10 ? ', …' : ''}`));
         }
       }
-      if (!firstPaint && !messages) return;
-      const list = typeof input.input === 'string' ? [input.input] : Array.isArray(input.input) ? input.input : Object.values(input.input ?? {});
-      for (const entry of list) {
-        if (!entry.endsWith('.html')) continue;
-        const file = resolve(root, entry);
-        try {
-          const { out } = build(readPage(file), file, null);
-          if (out.early && firstPaint) earlyPages.set(relOf(file), out.early);
-          for (const o of out.unlistedOrigins ?? []) unlisted.add(o);
-        } catch { /* reported when the page itself is compiled */ }
-      }
+      // Each page is compiled once, by its `transformIndexHtml`: that compile writes the page, its early file and every
+      // per-page fact the bundle reads (all read in `generateBundle` or by the page itself). A compile of every page here,
+      // before them, was overwritten by it, and doubled the build's compile time.
     },
 
     /**
@@ -1002,7 +1015,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       if (importer && id.endsWith('.html') && !importer.endsWith('.html')) {
         const file = resolve(dirname(importer.replace(/[?#].*$/, '')), id);
         const name = file.slice(0, -5).split(sep).pop()!;
-        if (COMPONENT_NAME.test(name) && (dirname(file) === resolve(root, 'src/components') || (options.components?.length && isComponentScript(root, file.slice(0, -5) + '.ts', project(root, options).libraries)))) return `\0${COMPONENT_BASE}${name}.js`;
+        if (COMPONENT_NAME.test(name) && (dirname(file) === resolve(root, 'src/components') || (options.components?.length && isComponentScript(root, file.slice(0, -5) + '.ts', proj().libraries)))) return `\0${COMPONENT_BASE}${name}.js`;
       }
       // a build with source maps: page modules keep a plain id, as Rolldown drops the map of a `\0` module
       if (id.startsWith(PREFIX) && !dev && maps.has(id)) return id;
@@ -1027,7 +1040,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
         // resolved from the library, and imported by that path
         const own = await this.resolve(lz.spec, resolve(root, 'index.html'));
         let r = own, spec = lz.spec;
-        if (!r) for (const l of options.components?.length ? project(root, options).libraries : []) {
+        if (!r) for (const l of options.components?.length ? proj().libraries : []) {
           r = await this.resolve(lz.spec, join(l.folder, 'index.js'));
           if (r) { spec = r.id; break; }
         }
@@ -1039,7 +1052,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       if (id === `\0${PREFIX}i18n.js`) return I18N_PICKER;
       if (id === `\0${PREFIX}img-check.js`) return IMAGE_CHECK;
       if (id === `\0${PREFIX}warn-relay.js`) return WARN_RELAY;
-      if (id === `\0${PREFETCH}`) return prefetchModule(prefetchPages(), project(root, options).helpers);
+      if (id === `\0${PREFETCH}`) return prefetchModule(prefetchPages(), proj().helpers);
       const lang = id.startsWith(`\0${PREFIX}messages/`) && messages ? id.slice(`\0${PREFIX}messages/`.length, -3) : null;
       if (lang && messages?.dicts[lang]) return languageFile(lang, { ...messages.dicts[messages.base], ...messages.dicts[lang] });
       const key = id.startsWith('\0' + PREFIX) ? id.slice(1) : !dev && maps.has(id) ? id : null;
@@ -1078,7 +1091,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       if (!error && !dev && foldCalls.size && isClient(this)) {
         const pages = [...foldCalls];
         foldCalls.clear();
-        const p = project(root, options);
+        const p = proj();
         const fresh = await loadHelpers({ root, helpersFile: p.helpersFile, manifest: p.helpers, fresh: true, ...(resolved ? { configFile: resolved.configFile ?? false, mode: resolved.mode, ...(resolved.configFile ? {} : { alias: resolved.resolve.alias }) } : {}), cache: foldCache });
         if (!fresh.module) resolved?.logger.warn(coded('SN534', `the helper calls that ran at build time could not be checked again in a fresh copy of the helpers module (${fresh.error?.split('\n')[0] ?? 'it did not load'}): a helper that keeps state between calls would go unnoticed`));
         else {
@@ -1088,7 +1101,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       }
       if (error || !options.typecheck || dev || !units.size) return;
       const { check } = await import('./check/index.js');
-      const p = project(root, options);
+      const p = proj();
       const r = check({ root, units: [...units.values()], helpers: p.helpers, actions: p.actions, types: p.types, openapi: p.openapi, messagesTypes: p.messagesTypes });
       units.clear();
       if (r.diagnostics.length) this.error(`sinter check: ${r.diagnostics.length} type error(s)\n${r.diagnostics.map(formatDiagnostic).join('\n')}`);
@@ -1103,14 +1116,14 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
         // dev: the tag goes in with the page; a build adds it after bundling (see the post plugin)
         const earlySrc = dev ? `${resolved?.base ?? '/'}${EARLY.slice(1)}${rel}.js` : null;
         // the cascade, for images and for the space of lists (in the page or in its components)
-        const styles = (images && /<img\b|<[a-z][a-z0-9]*-/i.test(html)) || (firstPaint && /data-sn-for|<[a-z][a-z0-9]*-/i.test(html)) ? await stylesOf(html, virtual.get(file)?.source ?? file, project(root, options)) : undefined;
+        const styles = (images && /<img\b|<[a-z][a-z0-9]*-/i.test(html)) || (firstPaint && /data-sn-for|<[a-z][a-z0-9]*-/i.test(html)) ? await stylesOf(html, virtual.get(file)?.source ?? file, proj()) : undefined;
         // the fonts' `line-height: normal`, for the space of lists (builds)
         const lineHeights = styles?.length && firstPaint && !dev && /data-sn-for|<[a-z][a-z0-9]*-/i.test(html) ? await lineHeightsOf(styles) : undefined;
         // the fonts' `0`, for images in a box sized in ch
         const zeros = images && styles?.some((s) => /\dch\b/i.test(s.css)) && styles.some((s) => /@font-face/i.test(s.css)) ? await zeroWidthsOf(styles) : undefined;
         await helpersReady();
         // the minifier reads every page's cascade (builds)
-        const minifyStyles = options.minifyHtml !== false && !dev ? styles ?? await stylesOf(html, virtual.get(file)?.source ?? file, project(root, options)) : undefined;
+        const minifyStyles = options.minifyHtml !== false && !dev ? styles ?? await stylesOf(html, virtual.get(file)?.source ?? file, proj()) : undefined;
         let { out, p } = build(html, file, earlySrc, styles, lineHeights, zeros, minifyStyles);
         // images the compiler did not know yet: analysed, then the page is compiled again with them
         if (images && out.images?.pending.length) {
@@ -1120,6 +1133,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
         for (const w of out.remoteWidths ?? []) remoteWidths.add(w);
         // the page's early file from this compile (with the stylesheets), which wrote the page: its ids are the page's
         if (!dev && firstPaint) { if (out.early) earlyPages.set(rel, out.early); else earlyPages.delete(rel); }
+        if (!dev) for (const o of out.unlistedOrigins ?? []) unlisted.add(o);
         // the build says which paginated lists hold no space before their data, and why
         if (!dev) for (const u of out.waits ?? []) resolved?.logger.info(`sinter: ${relOf(u.file)}:${u.line}: what follows <${u.what}> stays hidden while this list's first rows load: its width follows its content (${u.widths}), so they would move it; data-sn-wait="off" on it keeps it shown (docs/first-paint.md#a-box-whose-width-follows-the-list)`);
         if (!dev) for (const u of out.unheld ?? []) resolved?.logger.info(`sinter: ${relOf(u.file)}:${u.line}: no space held for this list's rows before its data: ${u.why} (docs/first-paint.md#reserved-space)`);
