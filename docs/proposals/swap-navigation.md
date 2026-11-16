@@ -97,11 +97,17 @@ Questions the default raises, to settle in step 3:
   module on the page a link leaves. Proposed: such pages stay without JavaScript and their links are page
   loads (the page they lead to may still be swapped to from elsewhere); a kept element is a runtime reason,
   as now.
-- **Size on every page that ships JavaScript**: the swap module, the chain and the link listener on every
-  such page, not only on pages with a kept element. Measured on RealWorld, which loads them on every page
+- **Size on every page that ships JavaScript**: the swap must be on the page a link *leaves* (the
+  `navigate` event is intercepted synchronously, as it fires), so with the default every page that ships
+  JavaScript carries it, not only pages with a kept element. Proposed, to keep that small: a **stub** on
+  every such page (the `navigate` listener, the build's list of pages that swap, the `intercept()` call)
+  and the rest of the swap (fetch, plan, head, commit, scroll) loaded when needed: inside the
+  `precommitHandler`, which may wait, or earlier when a link is hovered or the page is idle, so it is
+  there before the click. Where the `navigate` event is missing, the stub does nothing and loads nothing.
+  The stub's size is to be measured; the whole module today: Measured on RealWorld, which loads them on every page
   through its kept footer: the article page 23,470 → 26,518 B gzip, the index 25,239 → 28,118 B (about
   +3 KB a page; `scripts/size.mjs` before the spike and now). The article page stays inside its 27 KB
-  budget by about 1 KB.
+  budget by about 1 KB. With the stub, a page pays the stub, and the rest on its first swap.
 - **A breaking change** for apps whose pages rely on loads: called out in the CHANGELOG, with the opt-outs.
 
 **The decision comes from the build, not from a fetch.** The build knows which pages opt in and which
@@ -561,7 +567,8 @@ One commit each:
    by default and `data-sn-swap="off"` for pages and links; the checks and their codes; reserved numbering
    for kept elements with bindings, with the one-markup check and the playback-property warning
    ([3](#3-kept-elements)).
-4. **The module** on that: a decision in the chain, the sequence with its named steps, verification, the
+4. **The module** on that, split into the stub every page that swaps carries and the part loaded when needed
+   ([1](#1-opting-in)): a decision in the chain, the sequence with its named steps, verification, the
    head and what a swap skips, kept elements (and the takeover of bound ones: their lists and branches
    adopted, not rendered again), history and scroll, focus and the live region, `sn-page`;
    unit tests; `e2e/permanent`.
