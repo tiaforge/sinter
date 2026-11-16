@@ -6,7 +6,7 @@
 </head>
 <body>
   <!-- Markdown written by readers: no headings, no images, raw HTML as text, links marked as user content -->
-  <sn-resource name="comments" src="/api/comments" type="Comment[]"></sn-resource>
+  <sn-resource name="comments" src="/api/comments" key="id" type="Comment[]"></sn-resource>
   <section>
     <template data-sn-for="c in comments" data-sn-key="c.id">
       <article class="comment" data-sn-let="{ doc: md.parse(c.body, { headings: 'strong', images: 'link', html: 'text' }) }">
