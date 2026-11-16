@@ -1,6 +1,6 @@
 # Proposal: build-time data, collections and a page per entry
 
-Status: draft, revised three times (see [Decisions](#decisions)): after a first review, to fold the
+Status: draft, revised three times and prototyped (see [Decisions](#decisions)): after a first review, to fold the
 unreleased `file:` source into this design (so that sinter has one concept for data the build reads, not
 two), and after a second review. sinter is pre-1.0 with no users and every piece touched here is
 unreleased, so compatibility is not a constraint anywhere in this proposal: what exists changes freely. It
@@ -241,13 +241,14 @@ and compiling is synchronous. Today the only way to learn a page's `data-sn-path
   `compile()` asserts that it agrees with what the compile found, so the two cannot drift silently.
   Resources inside components and layouts need no pre-pass: they are read during the compile, as `file:`
   is today, synchronously, from values loaded before it.
-- **In the build**, the pre-pass runs in Rollup's `options` hook, which may be async and returns the
-  inputs: run the extractor over the pages, load the content module, run the loaders the pages' resources
-  name (concurrently, dependencies through `get`), read the globs, and return one input per entry (and
-  language). `content:` resources that only components read are loaded in `buildStart`, before any
-  compile. Any failure stops the build before an input exists, with the export's or file's name. Whether
-  Vite's HTML entries accept inputs added in `options` is the first thing the prototype checks
-  ([Plan](#plan)); the fallback is `configResolved` with the content module loaded through its own runner.
+- **In the build**, the pre-pass runs in sinter's `configResolved`, which is already async and already
+  replaces the inputs for `localePrefix` (`vite.ts:762`): run the extractor over the pages, load the content
+  module through its own runner, run the loaders the pages' resources name (concurrently, dependencies
+  through `get`), read the globs, and set one input per entry (and language). The prototype does exactly
+  this, without languages, and Vite's HTML entries, the canonical links, the sitemap and the redirect
+  rules take the virtual inputs as they are ([Prototype](#prototype)); Rollup's `options` hook is not
+  needed. `content:` resources that only components read are loaded in `buildStart`, before any compile.
+  Any failure stops the build before an input exists, with the export's or file's name.
 - **Virtual inputs without languages.** Today inputs are rewritten, and `resolveId` resolves virtual
   pages, only with `localePrefix` (`vite.ts:762`, `993`). The virtual page becomes `{ source, locale?,
   entry? }`, used with either or both.
@@ -486,18 +487,57 @@ Two ways to have a page per entry, documented side by side:
 The rule of thumb: content people edit (posts, docs, product pages) is a build-time resource; data that
 changes on its own (prices, stock, comments) is a live one. A `data-sn-pages` page can have both.
 
-## Build time
+## Prototype
 
-Not yet measured; [the plan](#plan) prototypes it before part B. What is known:
+Part 0 is done: `sinter({ prototypePages })` on the branch builds a template page once per entry, as
+virtual inputs at the filled `data-sn-path`, and `bench/collections/` builds a markdown blog with
+sinter-markdown at several sizes, static and with a live resource ([its README](../../bench/collections/README.md)).
 
-- each entry is a compile of the page, a few milliseconds for a static page plus what folds (`md.parse` of
-  a long post is tens of ms);
-- a production build re-runs the folded calls at its end in a fresh module (`src/fold-cross.ts:5`), once
-  per entry once it is keyed per entry ([§5](#5-a-page-per-entry-data-sn-pages));
-- each entry with something to run is a page module of its own;
-- every entry is a Rollup input, and the plugin keeps every page's HTML (`built`) until `generateBundle`.
+**What works as designed, with no code beyond the virtual inputs.** Each entry is written at its exact path
+(`blog/post-3.html` at `/blog/post-3`), its canonical link is written at build time, the sitemap lists every
+entry without `sitemap.paths`, `_redirects` needs no rule, a static post ships no JavaScript, and a post
+with a live resource gets a module of its own. The pre-pass fits in `configResolved` (above).
 
-The prototype is 10,000 entries of a markdown post page; the proposal's numbers and any cap come from it.
+**One quadratic, found and fixed.** The Speculation Rules list every page's URL, in every page's head: at
+1,000 entries 23 kB of each post's 26 kB was the list, so 10,000 entries would have written about 2.3 GB.
+A `data-sn-pages` page is named in the rules once, by its pattern (`/blog/:slug` as `/blog/*`), as a
+pattern page is today; the prototype does this, and each post is 3.2 kB at any size.
+
+**Build time is linear, and it is the compiler's, not this feature's** (4 cores, Node 22, posts of about
+600 words, the median of one run each):
+
+| Entries | Static | With a live resource | Peak memory, static / live |
+| ---: | ---: | ---: | ---: |
+| 100 | 18 s (181 ms each) | 21 s (215 ms each) | 0.5 / 0.5 GB |
+| 1,000 | 176 s (176 ms each) | 195 s (195 ms each) | 0.7 / 1.2 GB |
+
+The profile of the static build (100 entries) says where the time goes:
+
+- **Every page is compiled twice**: once in `buildStart`, which collects the early scripts (`vite.ts:876`,
+  44% of the time), and again in `transformIndexHtml` (`vite.ts:1201`, 40%). With `firstPaint: false`,
+  which skips the first, the same build takes 12 s instead of 22.
+- **One compile of a markdown post is about 90 ms**, nearly all of it expanding `<md-doc>`'s tree: acorn
+  re-parses the same expressions at every node (25%), and component files are read again, with
+  `realpath` and `lstat`, at every instance (13%). Caching file reads across compiles saves about 15 ms
+  per entry.
+- `describe` (each page's paths, for links and prefetch) is about 5 ms per page, and the per-page lists
+  (`pageEntries`, the rules) are negligible.
+
+None of this is specific to a page per entry: a hand-written page over one markdown file costs the same
+today. A page per entry multiplies it. So the work that makes this feature practical at thousands of
+entries is the compiler's, and it helps every page:
+
+1. **One compile per page**: the early-script pass reuses the page's compile instead of compiling it again
+   (half of the time);
+2. **Caches across compiles within a build**: component files read and parsed once, and expressions
+   parsed once per source text (together, most of what is left);
+3. **Compiles in workers**, when the first two are not enough: pages are independent, and the compile is
+   synchronous and single-threaded today.
+
+The 10,000-entry run was stopped: linear scaling from 100 to 1,000 says it would take about 30 minutes as
+is, and it is worth running after 1 and 2, as the check that they worked. Memory grows about 0.3 MB per
+entry static and 0.7 MB with a live resource (a module per entry), so roughly 3 GB and 7 GB at 10,000:
+the same run checks that too.
 
 ## Diagnostics
 
@@ -545,11 +585,11 @@ SN536 is an error on a `data-sn-pages` page.
 
 A prototype first, then three pull requests, each followed by a review of where it departed from this text:
 
-- **0, prototype**: the build's pre-pass in Rollup's `options` hook with Vite's HTML entries (or the
-  `configResolved` fallback), virtual pages `{ source, locale?, entry }` without `localePrefix`, and
-  10,000 entries of a markdown post page, static and with a live resource (a module per entry): build
-  time, memory and output size. The [Build time](#build-time) section's numbers, any cap, and whether a
-  shared module per page is needed in the first version, come from it.
+- **0, prototype**: done ([Prototype](#prototype)): the pre-pass in `configResolved`, virtual pages
+  without `localePrefix`, the Speculation Rules by pattern, and the measurements.
+- **Compile cost, before B**: one compile per page and the caches across compiles
+  ([Prototype](#prototype), items 1 and 2), measured with `bench/collections` and the existing benches;
+  then the 10,000-entry run. Useful to every page, so it can land on its own.
 - **A, build-time resources**: `file:` as in §2 (a `.md` file is an entry, globs, `drafts`, `{$locale}`),
   `order`, `fields`, `MAX_UNROLL` removed and `expansionLimit` public (§4), `content:` and the content module (§3), types checked against
   the files, the snapshot and the editor's watchers (§6, §8), dev reload, SN332's rename. Part A also
@@ -567,9 +607,9 @@ A prototype first, then three pull requests, each followed by a review of where 
 
 ## Open questions
 
-- **The pre-pass's hook**: Rollup's `options` or `configResolved`, decided by the prototype.
-- **A module per entry**: acceptable at 10,000 entries with a live resource, or does the first version
-  need the shared module? Decided by the prototype.
+- **A module per entry at 10,000**: at 1,000 entries a module per post costs 10% more time and 0.5 GB
+  more memory than none. Whether that holds at 10,000, or the first version needs the shared module, is
+  the 10,000-entry run after the compile work.
 
 ## Future work
 
@@ -594,7 +634,7 @@ Settled in review, against `main` at 2b33230, in the order they were discussed:
 
 | Question | Decision | Section |
 | --- | --- | --- |
-| When loaders run | Before any input exists; `sitemap.paths` runs in `generateBundle` and is no precedent for timing. Revised in the second review: an extractor in `src/compiler/`, asserted by `compile()`, finds what the pre-pass needs without compiling; the build's pre-pass runs in Rollup's `options` hook (or `configResolved`, by the prototype), with the helpers loader's re-entry guard; dev loads on first request | [§3](#when-loaders-and-globs-run-a-pre-pass) |
+| When loaders run | Before any input exists; `sitemap.paths` runs in `generateBundle` and is no precedent for timing. Revised in the second review: an extractor in `src/compiler/`, asserted by `compile()`, finds what the pre-pass needs without compiling; the build's pre-pass runs in `configResolved` (the prototype confirmed it; no `options` hook), with the helpers loader's re-entry guard; dev loads on first request | [§3](#when-loaders-and-globs-run-a-pre-pass) |
 | How a collection is declared | `collection({ key, load, perLocale })` with a context (`files`, `get`, `env`, `command`, `locale`), not any exported function: `get` memoizes and orders loaders, `files` is watched in dev | [§3](#3-content-code-at-build-time) |
 | Secrets | Loaders read `.env` through `ctx.env` (Vite's `loadEnv`, every prefix), since nothing loads `.env` today; browser code gets only the fields `fields` names (explicit in the first version, since nothing tracks field reads today), and its type is narrowed to them; the dev overlay's messages are scrubbed | [§3](#3-content-code-at-build-time), [§4](#4-what-a-page-gets), [§8](#8-dev-sinter-check-and-the-editor) |
 | An entry's URL | An exact path, as every `data-sn-path` page's: `blog/hello.html` at `/blog/hello`, canonical without a trailing slash; the template's file is not written (`movesToDirectory` is false for these pages, so there is no redirect file to keep) | [§5](#5-a-page-per-entry-data-sn-pages) |
@@ -614,4 +654,6 @@ Settled in review, against `main` at 2b33230, in the order they were discussed:
 | Drafts | Explicit, `drafts="field"` (and `ctx.files(glob, { drafts })`): left out by `vite build`, kept by `vite dev`, as the build in `check`; no field is read by name without it |
 | Compatibility | None needed: pre-1.0, no users, every piece unreleased. `content` is reserved as a source name although `apis` shipped; `file:` changes in place |
 | A page module per entry | Yes in the first version, since the second pass writes modules from constants; the prototype measures it, a shared module is future work |
+| Speculation Rules | A `data-sn-pages` page is named once, by its pattern: listing every entry in every page was quadratic (found by the prototype) | [Prototype](#prototype) |
+| Compile cost | The prototype measured 180 ms per markdown entry, linear, the compiler's own cost (two compiles per page, re-parsing per node). One compile per page and caches across compiles come before part B | [Prototype](#prototype) |
 | Entry URLs | Encoded with the sitemap's encoder; a URL another entry, page or `public/` file has fails the build | [§2](#a-glob-is-a-list) |
