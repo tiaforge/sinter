@@ -31,7 +31,12 @@ let failed = 0;
 const browsers = process.argv.slice(2).length ? process.argv.slice(2) : ['chromium', 'firefox', 'webkit'];
 for (const name of browsers) {
   let browser;
-  try { browser = await pw[name].launch(); } catch (e) { console.log(`${name}: skipped (${e.message.split('\n')[0]})`); continue; }
+  // a browser that does not start: skipped here, a failure in CI (where all three are installed)
+  try { browser = await pw[name].launch(); } catch (e) {
+    console.log(`${name}: ${process.env.CI ? '✗ did not start' : 'skipped'} (${e.message.split('\n')[0]})`);
+    if (process.env.CI) failed++;
+    continue;
+  }
   const page = await browser.newPage();
   const errors = [], loads = [], steps = [];
   page.on('pageerror', (e) => errors.push(e.message));

@@ -108,9 +108,9 @@ its layout's) `<html>` takes the page out, on a link takes the link out (a page 
 `data-sn-permanent="name"` keeps an element across swaps. Reasons a page or link opts out: a page with
 classic or inline scripts that expect a load (analytics, a chat widget, ads, a legacy page), a page served
 with another CSP or other headers, a page that relies on `load` or `DOMContentLoaded`, a long-lived
-document that should start fresh. Proposed (to decide before step 3): with swaps something an app turns on,
-a build warning naming the page and the script may be enough; the stricter option is that the build opts
-such a page out by itself and says so (analytics would otherwise silently stop counting).
+document that should start fresh. Decided: in an app that turns swaps on, the build **warns** for a page
+or layout with an inline or classic script in its body, naming the page and the script; it does not opt
+the page out by itself (swaps are the app's choice, and the warning says how: `data-sn-swap="off"`).
 
 - **Pages without JavaScript** (`static`, and pages of constants) ship no script today. Decided: they get
   the stub only when they keep an element (it is a runtime reason, as now); others stay without
@@ -531,6 +531,8 @@ re-import and preload code; the live region and the head records add some.
   reload before and after a swap; a link's `#hash`; a traversal that cannot swap; Back after a swapped
   Back; a GET form and `rel="external"`; the transition with the stylesheet's rule and none under reduced
   motion. Each fix of the reviews has a step that fails without it.
+- **CI:** `e2e/links` runs in its own job in Chromium, Firefox and WebKit (a browser that does not start
+  fails it there); the swap's `e2e/permanent` joins it in step 4.
 - **A headed-browser run** (to add): the browser's own Back without activation (`cancelable` false), the
   back/forward cache, WebKit's reload; headless browsers cannot show them.
 - **The dashboard check** (a scratch script; to be committed as a test): the audio playing on, the
@@ -599,14 +601,13 @@ One commit each:
    prefetch on it with no change in behaviour; the second review's fixes with their `e2e/permanent` steps.
    Sizes before and after. Ready to start.
 
-**Before step 3, decide:** a warning or an opt-out for pages with inline or classic scripts
-([1](#1-turning-swaps-on)); the budget for the pages of apps that turn swaps on, once the stub is
-optimized. Then spike the
+**Before step 3, decide:** the budget for the pages of apps that turn swaps on, once the stub is optimized
+(deferred until the numbers are there). Then spike the
 manifest, the stub and the exported mount together: they are the unproven half.
 
 3. **The compiler:** the manifest of pages that swap and the names they keep ([1](#1-turning-swaps-on));
    the page module marked, its mount exported with the kept ids ([6](#6-the-pages-code)); `sinter({ swap })`
-   off by default, `data-sn-swap="off"` for pages and links, the script warning or opt-out; pages without JavaScript
+   off by default, `data-sn-swap="off"` for pages and links, the warning for pages with inline or classic scripts; pages without JavaScript
    (the stub only with a kept element); the checks and their codes.
 4. **The module** on that, split into the stub every page that swaps carries and the part loaded when
    needed: the sequence with its named steps, verification, the head and what a swap skips (`<noscript>`,
