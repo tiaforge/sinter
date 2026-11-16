@@ -331,6 +331,51 @@ for (const name of browsers) {
       await at('/b/', 'B: Beta');
       return p3.evaluate(() => window.__vt);
     };
+    // a morph across a swap, the kept element held still, and the types: what each transition names and is typed
+    await p3.emulateMedia({ reducedMotion: 'no-preference' });
+    if (await p3.evaluate(() => typeof CSSViewTransitionRule != 'undefined')) {
+      await p3.goto(base + '/');
+      await at('/', 'A: Alpha');
+      const watch = () => {
+        window.__vts = [];
+        const start = document.startViewTransition;
+        document.startViewTransition = function (o) {
+          const t = start.call(document, o), rec = { types: [], names: [] };
+          window.__vts.push(rec);
+          // the types once the swap set them; the names as they are set, before each snapshot
+          t.ready.then(() => { rec.types = [...(t.types ?? [])]; }, () => {});
+          new MutationObserver((ms) => {
+            for (const m of ms) {
+              const n = m.target.style?.viewTransitionName;
+              if (n && n !== 'none') rec.names.push(`${m.target.id || m.target.localName}:${n}:${m.target.style.getPropertyValue('view-transition-class')}`);
+            }
+          }).observe(document, { attributes: true, attributeFilter: ['style'], subtree: true });
+          return t;
+        };
+      };
+      await p3.evaluate(watch);
+      await p3.evaluate(() => document.getElementById('to-b-morph').click());
+      await at('/b/', 'B: Beta');
+      await p3.waitForTimeout(400);
+      const there = await p3.evaluate(() => window.__vts);
+      await p3.evaluate(watch);
+      await p3.goBack();
+      await at('/', 'A: Alpha');
+      await p3.waitForTimeout(400);
+      const back = await p3.evaluate(() => window.__vts);
+      // the pair's names are equal on both elements, the kept element's is its own
+      const names = (r) => {
+        const got = Object.fromEntries((r?.names ?? []).map((x) => x.split(':')).map(([id, n, c]) => [id, [n, c]]));
+        return [...Object.keys(got)].sort().map((id) => `${id}:${got[id][0] === got.morph?.[0] ? 'pair' : got[id][0] === got.keep?.[0] ? 'own' : '?'}:${got[id][1]}`);
+      };
+      check('a morph across a swap; the kept element held still; the types', {
+        there: there.length, types: there[0]?.types, names: names(there[0]),
+        backTypes: back[0]?.types, backNames: names(back[0]),
+      }, {
+        there: 1, types: ['sn-push'], names: ['heading:pair:sn-transition', 'keep:own:sn-keep', 'morph:pair:sn-transition'],
+        backTypes: ['sn-traverse', 'sn-back'], backNames: ['heading:pair:sn-transition', 'keep:own:sn-keep', 'morph:pair:sn-transition'],
+      });
+    } else steps.push('- a morph across a swap: no page transitions in this browser');
     const readable = await p3.evaluate(() => typeof CSSViewTransitionRule != 'undefined');
     const withRule = await counted(false), reduced = await counted(true);
     if (readable) check('a swap transitions as the stylesheet asks, not under reduced motion', { withRule, reduced }, { withRule: 1, reduced: 0 });

@@ -4,7 +4,9 @@
 // elements, the head's own nodes exchanged, the new page mounted. Anything unexpected is a load instead.
 import type { App, Intent } from './runtime/app.js';
 import { instance } from './runtime/app.js';
+import { vtTypes } from './links.js';
 import { KEPT, type Prepared, type SwapState, entry, track } from './swap.js';
+import { ident } from './transition.js';
 
 /** a page module with swaps on, as it registers itself (compiler/index.ts): its mount, and the names it keeps */
 interface PageModule { boot(): App | Promise<App>; kept: string[] }
@@ -225,11 +227,23 @@ export async function prepare(s: SwapState, i: Intent, signal?: AbortSignal): Pr
       return booted;
     };
     type VT = { updateCallbackDone: Promise<void>; ready: Promise<void>; finished: Promise<void> };
-    const vt = wanted() ? (document as Document & { startViewTransition?: (f: () => unknown) => VT }).startViewTransition : undefined;
+    const vt = wanted() ? (document as Document & { startViewTransition?: (o: { update: () => unknown; types: string[] }) => VT }).startViewTransition : undefined;
     if (vt) {
+      // the moments of a load's transition, for morphs (transition.ts): the page left before its snapshot,
+      // the next once it is mounted; each kept element named, so it stays still while the page changes
+      const activation = { navigationType: i.kind, entry: { url: final.href, index: i.index } }, none = () => {};
+      const moment = (n: string) => dispatchEvent(Object.assign(new Event(n), { viewTransition: t, activation }));
       // a transition another navigation skips rejects all three: nothing to report
-      const t = vt.call(document, commit), none = () => {};
-      t.ready.catch(none); t.finished.catch(none);
+      const t: VT = vt.call(document, { update: async () => { commit(); if (committed) { await Promise.resolve(booted).catch(none); moment('sn-pagereveal'); } }, types: vtTypes(i.kind, s.at, i.index) });
+      t.ready.catch(none);
+      const named = kept.map(([o]) => o as HTMLElement);
+      for (const el of named) {
+        el.style.viewTransitionName = ident('keep ' + el.getAttribute(KEPT));
+        el.style.setProperty('view-transition-class', 'sn-keep');
+      }
+      const off = () => { for (const el of named) { el.style.viewTransitionName = ''; el.style.removeProperty('view-transition-class'); } };
+      t.finished.then(off, off);
+      moment('sn-pageswap');
       await t.updateCallbackDone.catch(none);
     } else commit();
     if (!committed) { head.undo(); return; }

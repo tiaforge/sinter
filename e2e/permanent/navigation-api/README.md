@@ -24,6 +24,10 @@ record is the browsers' behaviour, not sinter's.
   then removed, then a looser one (it cannot: added policies only tighten, in all three).
 - `focus-bfcache.cjs`: `focusReset`, and Back into the app from a page load out of it (with a control
   page without the API: headless browsers keep nothing in the back/forward cache).
+- `parse.cjs`: which parser keeps sinter's anchor comments and attaches declarative shadow DOM
+  (`parseHTMLUnsafe` drops comments in Chromium unless it is given `{ sanitizer: {} }`).
+- `kept-media.cjs`: a playing `<audio>` and `<video>` in a kept element, named for a same-document
+  transition and moved into a new body in its update (they play on and the transition runs, in all three).
 
 ```sh
 node features.cjs   # and the others; Firefox and WebKit: npx playwright install firefox webkit

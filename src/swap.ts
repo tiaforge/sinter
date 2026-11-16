@@ -4,7 +4,7 @@
 // same step. This is the stub every page that swaps carries: it decides, intercepts the browser's
 // `navigate` event, and loads the rest (swap-run.ts) when a navigation needs it. Where the browser has no
 // Navigation API it does nothing: every navigation stays a page load.
-import { RANK, chain } from './links.js';
+import { RANK, chain, loadTypes } from './links.js';
 import type { App, Feature, Intent } from './runtime/app.js';
 
 /** one page of the build's list (swap-build.ts): the paths it answers at, the names it keeps */
@@ -27,6 +27,8 @@ export interface SwapState {
   sheets: Set<Element>;
   /** the live region that announces each page's title */
   live?: HTMLElement;
+  /** the index of the entry the navigation in progress leaves (a traversal's direction) */
+  at?: number;
 }
 
 /** what the stub reads of a `navigate` event */
@@ -41,7 +43,7 @@ export type Prepared = false | null | (() => Promise<void>);
 
 const STATE = Symbol.for('sinter.swap');
 export const KEPT = 'data-sn-permanent';
-type Nav = EventTarget & { currentEntry: { key: string } | null };
+type Nav = EventTarget & { currentEntry: { key: string; index: number } | null };
 const nav = () => (globalThis as { navigation?: Nav }).navigation;
 /** the current entry's key */
 export const entry = () => nav()?.currentEntry?.key ?? '';
@@ -79,7 +81,9 @@ export function swap(list: SwapPage[]): Feature {
       const s = state(list), c = chain(app);
       // the position of the entry each navigation leaves (a swap's, a same-page link's, Back's), before
       // another entry is current
-      c.onGo.push(() => track(s));
+      c.onGo.push(() => { track(s); s.at = nav()?.currentEntry?.index; });
+      // page loads: the same transition types as swaps
+      loadTypes(app);
       c.add((i: Intent) => {
         if (i.source != 'event') return;
         const e = i.event as NavigateLike, u = new URL(i.to);

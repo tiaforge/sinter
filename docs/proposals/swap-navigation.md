@@ -650,6 +650,20 @@ manifest, the stub and the exported mount together: they are the unproven half.
    e2e; the next-page data handoff; one chain per document.
 5. **Transitions:** the types on swaps and on loads (from the stub), each kept element's own name, the
    `data-sn-transition` pair at `commit`; a probe of named kept media; an e2e of a morph across a swap.
+   **Done** on `swap-navigation`: the swap starts `startViewTransition({ update, types })` with
+   `vtTypes` (links.ts: `sn-push`, `sn-replace`, `sn-traverse`, and `sn-back`/`sn-forward` from the entry
+   the navigation leaves, recorded at `onGo`, and the destination's index); it fires `sn-pageswap` on the
+   page left right after the transition starts and `sn-pagereveal` once the next page is mounted, with
+   `viewTransition` and `activation` shaped like the browser's, so `transition.ts` names the pair with the
+   handlers it has for loads; each kept element is named for the transition's duration (`sn-` and a hash
+   of `keep <name>`, class `sn-keep`). Page loads get the same types (`loadTypes`: `pageswap` and
+   `pagereveal`) from the stub and from `transition.ts`; on a page without the hold script the module can
+   run after `pagereveal`, so the next page's types are best-effort there. Checked: `e2e/permanent` (the
+   pair named alike on both pages, the kept element its own, `sn-push` on a link and `sn-traverse sn-back`
+   on Back, in Chromium and WebKit; Firefox runs no page transitions); `kept-media.cjs` (a playing `<audio>`
+   and `<video>` named and moved in the update play on, in all three); unit tests
+   (`transition-types.test.ts`). Sizes (gzip): the stub 1,908 B (+209), the rest 3,072 B (+338), transition
+   1,895 B (+184); the minimal page with swaps 16,894 B.
 6. **Examples and docs:** the dashboard (its check committed) and RealWorld (swaps by default instead of
    the kept footer, the suite against a local backend), a headed-browser run, the docs above, sizes before
    and after.

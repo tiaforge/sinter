@@ -3,8 +3,10 @@
 // temper's). Only the pair is named, at the last moment: the element of the followed link's row on
 // the old page (`pageswap`), the element with the same name on the new one (`pagereveal`), so a
 // list of a thousand rows asks the browser to capture one element, not a thousand. Going back
-// works the same way from the one named element of a detail page.
-import { chain, links } from './links.js';
+// works the same way from the one named element of a detail page. A swap (swap-run.ts) fires the
+// same two moments as `sn-pageswap` and `sn-pagereveal`, around its same-document transition.
+// Page loads get sinter's transition types (`loadTypes`).
+import { chain, links, loadTypes } from './links.js';
 import type { App, Feature } from './runtime/app.js';
 
 const KEY = 'sn:vt';
@@ -81,8 +83,11 @@ const transition: Feature = {
       const el = v ? named().find((x) => x.getAttribute(ATTR) == v) : undefined;
       if (vt && el) name(el, v!, vt);
     };
-    app.addCleanup(env.listen('pageswap', swap));
-    app.addCleanup(env.listen('pagereveal', reveal));
+    for (const p of ['', 'sn-']) {
+      app.addCleanup(env.listen(p + 'pageswap', swap));
+      app.addCleanup(env.listen(p + 'pagereveal', reveal));
+    }
+    loadTypes(app);
   },
 };
 

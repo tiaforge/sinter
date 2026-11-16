@@ -219,6 +219,8 @@ export interface App {
     typing?: { flush(kind: number): void; waits(): boolean; stop(): void; finish(): void };
     /** the shared link listener is installed (links.ts) */
     links?: true;
+    /** page loads' transitions get sinter's types (links.ts `loadTypes`) */
+    types?: true;
     /** a form action's body (form.ts): the form's fields without `data-sn-body`, and `data-sn-encoding="form"` */
     form?: (el: Element, a: ActionDef, body: unknown) => unknown;
     /**

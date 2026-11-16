@@ -6,7 +6,7 @@
   <template slot="head" data-sn-if="info">
     <meta name="robots" content="noindex">
   </template>
-  <h1 id="heading" data-sn-text="info?.name"></h1>
+  <h1 id="heading" data-sn-text="info?.name" data-sn-transition="'hero'"></h1>
   <!-- a parse without scripting would make this live: the swap removes it -->
   <noscript><img id="pixel" src="/pixel.gif" alt=""></noscript>
   <ul id="items"><template data-sn-for="i in items"><li data-sn-text="i.title"></li></template></ul>
