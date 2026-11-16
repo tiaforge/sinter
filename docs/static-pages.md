@@ -240,6 +240,13 @@ dist/blog/recap.html      /blog/recap
   and the sitemap lists every entry (no `sitemap.paths` for the pattern). The template (`blog/post.html`) is
   not written: nothing answers at it. A path another page or a file in `public/` has fails the build.
 - **Speculation Rules** name the pattern once (`/blog/:slug`), not each entry.
+- **The pattern's parameters are the entry's.** `$url.slug` on such a page is
+  [SN345](diagnostics.md#sn345-url-param-pages): read `post.slug`, known at build time (a query parameter, `$url.tab`,
+  is fine). A list or tree on it too long to write at build time ([SN536](diagnostics.md#sn536)) is an error here,
+  not a warning: one long entry would ship its content and the runtime.
+- **An index in pages** is a collection of pages, built with `chunks()`
+  ([collections](resources.md#collections)), and a `data-sn-pages` page at `/blog/page/:n`; the front page
+  (`/blog/`) is a page of its own.
 - **Links to entries are checked**: a link in a built page to a path the pattern matches but no entry has
   (`/blog/helo`) fails the build with the entry it was likely meant for
   ([SN343](diagnostics.md#sn343-broken-entry-link)). The links are the built HTML's, so those from markdown and

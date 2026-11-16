@@ -73,6 +73,7 @@ export const CODES = {
   SN342: 'unknown-collection',
   SN343: 'broken-entry-link',
   SN344: 'content-fields',
+  SN345: 'url-param-pages',
   SN401: 'parse-error',
   SN501: 'unused-resource',
   SN502: 'non-reactive-value',

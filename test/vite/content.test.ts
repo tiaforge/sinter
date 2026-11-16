@@ -16,12 +16,12 @@ const tmp = mkdtempSync(join(tmpdir(), 'sinter-content-'));
 afterAll(() => rmSync(tmp, { recursive: true, force: true }));
 
 let n = 0;
-async function run(files: Record<string, string>, input: string[]) {
+async function run(files: Record<string, string>, input: string[], o: Parameters<typeof sinter>[0] = { static: true }) {
   const root = join(tmp, `app-${n++}`);
   for (const [f, s] of Object.entries(files)) { mkdirSync(join(root, f, '..'), { recursive: true }); writeFileSync(join(root, f), s); }
   let error: string | null = null;
   try {
-    await build({ root, logLevel: 'silent', plugins: [sinter({ static: true })], resolve: { alias }, build: { outDir: join(root, 'dist'), emptyOutDir: true, rollupOptions: { input: Object.fromEntries(input.map((f) => [f.replace(/\.html$/, ''), join(root, f)])) } } });
+    await build({ root, logLevel: 'silent', plugins: [sinter(o)], resolve: { alias }, build: { outDir: join(root, 'dist'), emptyOutDir: true, rollupOptions: { input: Object.fromEntries(input.map((f) => [f.replace(/\.html$/, ''), join(root, f)])) } } });
   } catch (e) { error = String((e as Error).message); }
   return { root, error, read: (f: string) => readFileSync(join(root, 'dist', f), 'utf8'), has: (f: string) => existsSync(join(root, 'dist', f)) };
 }
@@ -88,6 +88,39 @@ export const helper = (x) => x;
     const { utimesSync } = await import('node:fs');
     utimesSync(join(r.root, 'src/sinter.content.ts'), later, later);
     expect(readSnapshot(r.root, join(r.root, 'src/sinter.content.ts'))!.stale).toBe(true);
+  }, 60_000);
+
+  test('perLocale: a collection loaded once per language, each language\'s pages reading its own', async () => {
+    const lang = { 'project.inlang/settings.json': JSON.stringify({ baseLocale: 'en', locales: ['en', 'de'] }), 'messages/en.json': '{}', 'messages/de.json': '{}' };
+    const content = `import { collection } from '@tiaforge-ui/sinter/content';
+const names = { en: ['Bolt', 'Anchor'], de: ['Bolzen', 'Anker'] };
+export const products = collection({ key: 'sku', perLocale: true, load: ({ locale }) => names[locale].map((name, i) => ({ sku: 'p' + i, name })) });
+`;
+    const page = '<!doctype html><html><head><title>x</title></head><body><sn-resource name="products" src="content:products"></sn-resource><p data-sn-text="products.map((p) => p.name).join(\', \')"></p></body></html>';
+    const r = await run({ ...lang, 'src/sinter.content.ts': content, 'index.html': page }, ['index.html'], { localePrefix: true });
+    expect(r.error).toBe(null);
+    expect(r.read('en/index.html')).toContain('<p>Bolt, Anchor</p>');
+    expect(r.read('de/index.html')).toContain('<p>Bolzen, Anker</p>');
+    // `sinter check` and the editor see the base language's
+    expect((readSnapshot(r.root, join(r.root, 'src/sinter.content.ts'))!.collections.get('products')!.value[0] as { name: string }).name).toBe('Bolt');
+    // a shared collection built from a per-language one, and perLocale without languages: errors
+    const shared = content + "export const all = collection({ key: 'sku', load: ({ get }) => get(products) });\n";
+    expect((await run({ ...lang, 'src/sinter.content.ts': shared, 'index.html': page }, ['index.html'], { localePrefix: true })).error).toMatch(/collection `all`: it gets `products`, which is loaded per language \(`perLocale`\): make it `perLocale: true` too/);
+    expect((await run({ 'src/sinter.content.ts': content, 'index.html': page }, ['index.html'])).error).toMatch(/collection `products`: it is loaded per language .* needs `sinter\(\{ localePrefix \}\)`/);
+  }, 120_000);
+
+  test('chunks(): an index in pages, as a collection and a data-sn-pages page', async () => {
+    const content = `import { collection, chunks } from '@tiaforge-ui/sinter/content';
+export const posts = collection({ key: 'slug', load: ({ files }) => files('content/posts/*.md') });
+export const postPages = collection({ key: 'n', load: async ({ get }) => chunks(await get(posts), 2) });
+`;
+    const files: Record<string, string> = { 'src/sinter.content.ts': content };
+    for (const t of ['a', 'b', 'c', 'd', 'e']) files[`content/posts/${t}.md`] = `---\ntitle: ${t.toUpperCase()}\n---\n`;
+    files['archive.html'] = '<!doctype html><html data-sn-path="/blog/page/:n" data-sn-pages="p in postPages"><head><title data-sn-text="\'Page \' + p.n"></title></head><body><sn-resource name="postPages" src="content:postPages"></sn-resource><ul><template data-sn-for="post in p.items"><li data-sn-text="post.title"></li></template></ul><i data-sn-text="p.n + \'/\' + p.count"></i></body></html>';
+    const r = await run(files, ['archive.html']);
+    expect(r.error).toBe(null);
+    expect(r.read('blog/page/1.html')).toMatch(/<li>A<\/li><li>B<\/li><\/ul><i>1\/3<\/i>/);
+    expect(r.read('blog/page/3.html')).toMatch(/<li>E<\/li><\/ul><i>3\/3<\/i>/);
   }, 60_000);
 });
 

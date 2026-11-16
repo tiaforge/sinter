@@ -287,6 +287,11 @@ export const DIAGNOSTIC_DOCS: Record<Code, DiagnosticDoc> = {
     means: 'A collection (`content:`) holds what a loader returned, which can be more than a page shows: a CMS\'s internal fields, drafts\' notes, prices for another market. What bindings read is written into the HTML at build time and ships nothing; but when code in the browser reads the collection (a filter as you type, a handler), the list is embedded in the page, and a collection is embedded only with `fields`: the fields of each entry it ships. A `data-sn-pages` page built from a collection follows its list\'s `fields`.',
     fix: 'Add `fields="sku,name,price"` with what the browser code reads, or keep the reads at build time (bindings over constants fold). Fields left out are `undefined` in the browser.',
   },
+  SN345: {
+    example: '`$url.slug` on a `data-sn-pages` page: each entry\'s page is written at its own path, so `:slug` is the entry\'s field, `post.slug`',
+    means: 'A `data-sn-pages` page is written once per entry, each at its pattern filled from the entry, as a page with a fixed path. Its pattern\'s parameters are the entry\'s fields, known at build time; read through `$url` they would be read in the browser, and keep the page from being written at build time.',
+    fix: 'Read the entry\'s field: `post.slug` for `:slug`, where `post` is the name in `data-sn-pages="post in posts"`. A query parameter (`$url.tab`) is fine.',
+  },
   SN333: {
     example: '`data-sn-text` and `data-sn-if` on one `<template>`: a text node is one binding; the condition or the loop goes on a template around it',
     means: 'A `<template data-sn-text>` renders a text node and nothing else: it takes no other attribute (`data-sn-if` and `data-sn-for` go on a template around it, anything else on an element around the text), and content inside it is dropped.',
