@@ -245,7 +245,12 @@ dist/blog/recap.html      /blog/recap
   ([SN343](diagnostics.md#sn343-broken-entry-link)). The links are the built HTML's, so those from markdown and
   folded expressions count; a link built in the browser at run time does not.
 - **The dev server** serves each entry at its URL, from the template, compiled with that entry.
-- Not yet with [`localePrefix`](#languages): the build says so.
+- **With [`localePrefix`](#languages)**, each language builds its own entries: a list with `{$locale}` in its
+  path (`file:/content/{$locale}/posts/*.md`) reads each language's folder, at that language's prefix
+  (`/de/blog/hallo`). Entries are translations of each other when their key is equal (`key="id"` with an `id` in
+  the frontmatter, since slugs may be translated): `localeUrl('de')` and the `hreflang` alternates name the German
+  one, and an entry one language does not have has no page there and no alternate. Each entry's unprefixed path
+  (the base language's) is a language chooser, to the visitor's language's translation, else the base's.
 
 A page per entry is for content the repository holds; data that changes on its own stays a pattern page with a
 live resource (one file for every slug, its data loaded in the browser or embedded by the

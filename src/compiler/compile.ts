@@ -67,7 +67,7 @@ export interface CompileOptions {
    * at (the page's pattern filled from it). Without it, a page with `data-sn-pages` is compiled as its template, its
    * entry the list's first (`sinter check`, the editor, and the build's look at it, which lists its entries: `pages`).
    */
-  page?: { value: unknown; path: string };
+  page?: { value: unknown; path: string; key?: string };
   /**
    * The content module's collections (docs/resources.md#collections), loaded before the compile: each list and its key,
    * by name. Absent: none loaded (`sinter check` and the editor read them from the build's snapshot). `collectionsError`:
@@ -286,7 +286,7 @@ export interface CompileResult {
    * `data-sn-pages`: the variable, the list, the pattern, and each entry with the path it fills (compiled as the
    * template: no `page` option). A build writes one page per entry.
    */
-  pages?: { name: string; of: string; pattern: string; entries: Array<{ value: unknown; path: string }> };
+  pages?: { name: string; of: string; pattern: string; entries: Array<{ value: unknown; path: string; key: string }> };
   /** @internal the embedded values, by id, whose JSON `compileParts` writes into the page */
   json?: Map<number, unknown>;
   /** @internal a first pass's diagnostics about the page as it ends, for when no second pass follows */
@@ -413,7 +413,7 @@ export interface CompiledParts {
    * `data-sn-pages`: the variable, the list, the pattern, and each entry with the path it fills (compiled as the
    * template: no `page` option). A build writes one page per entry.
    */
-  pages?: { name: string; of: string; pattern: string; entries: Array<{ value: unknown; path: string }> };
+  pages?: { name: string; of: string; pattern: string; entries: Array<{ value: unknown; path: string; key: string }> };
   /** @internal the embedded values, by id, whose JSON `compileParts` writes into the page */
   json?: Map<number, unknown>;
   /** @internal a first pass's diagnostics about the page as it ends, for when no second pass follows */
@@ -5854,7 +5854,9 @@ class Compiler {
     const entries = Array.isArray(list) ? list : [];
     if (!this.opts.page) {
       // each entry's path: every `:param` from the entry's field of that name, one path segment (as the sitemap encodes it)
-      const out: Array<{ value: unknown; path: string }> = [];
+      const out: Array<{ value: unknown; path: string; key: string }> = [];
+      // its key: what pairs an entry with its translation in another language's list (`localePrefix`)
+      const keyOf = this.page.resources.get(d.of)?.key ?? ['slug'];
       const seen = new Map<string, string>();
       for (const e of entries) {
         const rec = (e ?? {}) as Record<string, unknown>;
@@ -5871,7 +5873,7 @@ class Compiler {
         const prev = seen.get(path);
         if (prev) { this.report(d.html, 'data-sn-pages', 'SN341', `${what} and ${prev} would both be \`${path}\``, 0); continue; }
         seen.set(path, what);
-        out.push({ value: e, path });
+        out.push({ value: e, path, key: keyOf.map((k) => String(rec[k])).join('\u001f') });
       }
       this.pagesOut = { name: d.name, of: d.of, pattern: d.pattern, entries: out };
     }
