@@ -234,3 +234,19 @@ describe('round 6: copies, depth, arrays, the function itself', () => {
     expect(o.f.call({ k: 10 }, 3)).toBe(6);
   });
 });
+
+test('a result array with a property besides its elements: a Map there is not kept nor frozen; plain data there is', () => {
+  let calls = 0;
+  const m = memo((n: number) => { calls++; return Object.assign([n], { extra: new Map([[n, n]]) }); });
+  const a = m(1), b = m(1);
+  expect(calls).toBe(2);
+  expect(a).not.toBe(b);
+  expect(Object.isFrozen(a)).toBe(false);
+  const p = memo((n: number) => { calls++; return Object.assign([n], { meta: { n } }); });
+  const c = p(1);
+  expect(p(1)).toBe(c);
+  expect(Object.isFrozen(c.meta)).toBe(true);
+  // a symbol-keyed property too: not kept
+  const s = memo((n: number) => { calls++; return Object.assign([n], { [Symbol('s')]: 1 }); });
+  expect(s(1)).not.toBe(s(1));
+});

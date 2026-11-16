@@ -106,7 +106,18 @@ const FNS: Array<(...a: unknown[]) => unknown> = [
   (...a) => ({ shown: a.map((x) => show(x)), n: a.length, parts: a.map((x) => ({ s: show(x) })) }),
   (...a) => ({ args: a }),
   (...a) => a.map((x) => show(x)).join('|'),
+  // an array with a property besides its elements: plain data (kept), or a Map (returned as it is, not kept)
+  (...a) => Object.assign(a.map((x) => show(x)), a.length % 2 ? { extra: new Map([[1, a.length]]) } : { tag: `n${a.length}` }),
 ];
+/** a result of plain data at every depth, properties of arrays included (what memo() keeps and freezes) */
+const plain = (x: unknown, seen = new Set<unknown>()): boolean => {
+  if (x === null || typeof x !== 'object') return typeof x !== 'function' && typeof x !== 'symbol';
+  if (seen.has(x)) return true;
+  seen.add(x);
+  const p = Object.getPrototypeOf(x);
+  if (Array.isArray(x) ? p !== Array.prototype : p !== Object.prototype && p !== null) return false;
+  return Object.values(x).every((y) => plain(y, seen));
+};
 
 test('memo() gives what the function gives, the same object for equal arguments, and never keeps or freezes the caller\'s objects', () => {
   const failures: string[] = [];
@@ -127,7 +138,10 @@ test('memo() gives what the function gives, the same object for equal arguments,
       if (show(got) !== want) failures.push(`${at}: ${show(got)} where the function gives ${want}`);
       for (const a of args) if (a && typeof a === 'object' && Object.isFrozen(a)) failures.push(`${at}: the caller's argument was frozen`);
       if (args.every(keyable)) {
-        if (got && typeof got === 'object') {
+        if (got && typeof got === 'object' && !plain(got)) {
+          if (Object.isFrozen(got)) failures.push(`${at}: a result that holds other than plain data was frozen`);
+          if (last.has(key) && last.get(key) === got) failures.push(`${at}: a result that holds other than plain data was kept`);
+        } else if (got && typeof got === 'object') {
           if (!Object.isFrozen(got)) failures.push(`${at}: a kept result is not frozen`);
           if (last.has(key) && last.get(key) !== got) failures.push(`${at}: another object for equal arguments`);
           // the result holds none of the caller's objects

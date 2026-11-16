@@ -96,7 +96,8 @@ const copy = (v: unknown): unknown => {
 /**
  * Freezes a result of plain data, at every depth (without recursion: a deep tree does not overflow the stack), and
  * returns its approximate size; -1 (nothing frozen) for one that holds anything else. An array's elements are read
- * by index (a million-element array is not listed key by key)
+ * by index (a million-element array is not listed key by key); its other properties, enumerable or symbols, are
+ * checked as an object's are (a non-enumerable one is frozen with it, not looked into)
  */
 function freeze(v: unknown): number {
   const objects: object[] = [], seen = new Set<object>(), todo: unknown[] = [v];
@@ -112,7 +113,19 @@ function freeze(v: unknown): number {
     size += 16;
     if (Array.isArray(x)) {
       if (proto !== Array.prototype) return -1;
-      for (let i = 0; i < x.length; i++) if (i in x) todo.push(x[i]);
+      let present = 0;
+      for (let i = 0; i < x.length; i++) if (i in x) { present++; todo.push(x[i]); }
+      // a property besides its elements (counted, not listed: a dense array costs no key list), or a symbol: checked as an object's are
+      if (Object.keys(x).length !== present || Object.getOwnPropertySymbols(x).length) {
+        for (const k of Reflect.ownKeys(x)) {
+          if (typeof k === 'symbol') return -1;
+          if (k === 'length' || String(+k >>> 0) === k) continue;
+          const d = Object.getOwnPropertyDescriptor(x, k)!;
+          if (!('value' in d)) return -1;
+          size += 8 + 2 * k.length;
+          todo.push(d.value);
+        }
+      }
     } else {
       if (proto !== Object.prototype && proto !== null) return -1;
       for (const k of Reflect.ownKeys(x)) {
