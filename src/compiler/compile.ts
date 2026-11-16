@@ -692,7 +692,7 @@ function onceKey(el: P5Element): { id: string; label: string } | null {
 }
 
 /** the events the runtime itself sends, which bubble up the page */
-const SINTER_EVENTS = ['sn-error', 'dismiss'];
+const SINTER_EVENTS = ['sn-error', 'dismiss', 'navigate'];
 
 /** a prop's value that is a build-time constant, and those of them that are falsy */
 const CONST_PROP = /^(true|false|null|undefined|-?\d+(\.\d+)?|'[^'\\]*'|"[^"\\]*")$/;
@@ -1342,7 +1342,7 @@ class Compiler {
       ir, fns: this.fns,
       ...(this.opts.prerender ? { fixedState: this.fixedState() } : {}),
       ...(this.opts.sourcemap ? { sources: this.sourcesOf(this.fns) } : {}),
-      features: [...(this.opts.dev ? ['dev'] : []), ...['sse', 'optimistic', 'paginate', 'persist', 'cache', 'versions', 'refresh', 'each', 'listbox', 'keys', 'apply', 'fields', 'form', 'select', 'location', 'typing', 'query-links', 'call', 'debounce', 'confirm', 'models', 'transition', 'components', 'nested', 'lets'].filter((f) => this.features.has(f))],
+      features: [...(this.opts.dev ? ['dev'] : []), ...['sse', 'optimistic', 'paginate', 'persist', 'cache', 'versions', 'refresh', 'each', 'listbox', 'keys', 'apply', 'fields', 'form', 'select', 'location', 'typing', 'query-links', 'navigate', 'call', 'debounce', 'confirm', 'models', 'transition', 'components', 'nested', 'lets'].filter((f) => this.features.has(f))],
       helpers: { user, builtin }, namespaces, calls: [...this.calls].sort(),
       diagnostics: this.diagnostics, files: [...this.files].sort(), ...(this.fileGlobs.length ? { globs: this.fileGlobs } : {}), ...(this.pagesOut ? { pages: this.pagesOut } : {}),
       ...(this.check ? { check: this.check } : {}),
@@ -4221,6 +4221,9 @@ class Compiler {
       const filter = kf ? this.keyFilter(el, a.name, kf[2]!) : undefined;
       if (filter === null) continue;
       if (filter) this.features.add('keys');
+      // `navigate`: sinter's, for every navigation while the element is on the page (navigate.ts finds the
+      // element by this mark, which stays in the HTML)
+      if (event === 'navigate') { this.features.add('navigate'); setAttr(el, 'data-sn-navigate', ''); }
       if (!kf && !/^[a-z][a-z0-9]*(-[a-z0-9]+)*$/.test(event)) {
         this.report(el, a.name, 'SN101', `event names are lowercase kebab-case: \`${a.name}\``, 0);
         continue;
@@ -8611,7 +8614,8 @@ function setAttr(el: P5Element, name: string, value: string) {
 }
 
 function stripSn(el: P5Element) {
-  el.attrs = el.attrs.filter((a) => !a.name.startsWith('data-sn-'));
+  // `data-sn-navigate` stays: the mark of an element with a `navigate` handler (navigate.ts)
+  el.attrs = el.attrs.filter((a) => !a.name.startsWith('data-sn-') || a.name === 'data-sn-navigate');
 }
 
 /** Whether a form's markup reads `$error` (outside `data-sn-catch`, where `$error` is the action's own). */

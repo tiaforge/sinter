@@ -94,6 +94,32 @@ for (const name of browsers) {
     await page.goForward();
     await until(() => document.getElementById('page').textContent === '2');
 
+    // the guard: while dirty, a same-page link, navigate() and Back are refused; resting on a link (next-page
+    // data asks the chain) runs no guard; once clean, they go
+    await page.evaluate(() => scrollTo(0, 0));
+    const guarded = () => page.evaluate(() => +document.getElementById('seen').textContent);
+    const before = await guarded();
+    await page.hover('#p3');
+    await page.waitForTimeout(200);
+    const s0 = await guarded();
+    check('resting on a link runs no guard', { runs: s0 - before }, { runs: 0 });
+    await click('dirty');
+    const g0 = await read();
+    await click('p3');
+    await page.waitForTimeout(200);
+    await click('go4');
+    await page.waitForTimeout(200);
+    check('while dirty: a same-page link and navigate() are refused', await read(), { url: g0.url, page: g0.page, entries: g0.entries, marker: 1 });
+    // (history.back(), not page.goBack(), which waits for a navigation the guard prevents)
+    await page.evaluate(() => history.back());
+    await page.waitForTimeout(400);
+    check('while dirty: Back is refused', await read(), { url: g0.url, page: g0.page, marker: 1 });
+    check('the guard ran for each', { more: (await guarded()) - s0 >= 3 }, { more: true });
+    await click('clean');
+    await click('p3');
+    await until(() => document.getElementById('page').textContent === '3');
+    check('once clean: the link goes', await read(), { page: '3', marker: 1 });
+
     await Promise.all([page.waitForURL(base + '/other/', { timeout: 5000 }), click('other')]);
     check('a link to another page: a page load', { marker: await page.evaluate(() => window.__marker ?? null), loads: [...loads] }, { marker: null, loads: ['/', '/other/'] });
   } catch (e) { steps.push(`✗ ${e.message.split('\n')[0]}`); failed++; }

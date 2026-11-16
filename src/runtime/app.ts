@@ -97,11 +97,7 @@ export interface Intent {
  * every handler was asked. `run` returning false: it could not (the core loads the page). No `run`: it is
  * done elsewhere (the swap, for the `popstate` of a traversal it intercepted).
  */
-export interface Decision {
-  name: string; run?(): boolean | void | Promise<boolean | void>;
-  /** the navigation does not happen (a guard: unsaved changes): it beats every other decision */
-  refuse?: true;
-}
+export interface Decision { name: string; run?(): boolean | void | Promise<boolean | void> }
 /** A navigation handler (`App.nav`): its decision, or nothing when the intent is not its. It acts only in `run`. */
 export type Navigator = (i: Intent) => Decision | void | undefined;
 

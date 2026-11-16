@@ -190,18 +190,23 @@ handlers decide on; the core runs the decision.
   untouched), `e2e/navigation` in Chrome, `e2e/permanent` in three browsers, the chain's tests
   (`test/behaviour/navigation-chain.test.ts`), RealWorld 140 of 140 against a local backend.
 
-**What step 2 still has to change** (second review):
-- **One intent per navigation.** Where the Navigation API exists, the `navigate` event is the only source:
-  today a link gives a `link` intent and then an `event` intent, and an intercepted traversal an `event`
-  and then a `popstate` intent, which a veto handler would see twice. Same-page links then intercept their
-  `navigate` event instead of the click; `links.ts` and the core's `popstate` stay for browsers without it.
-- **A veto and a redirect**, as part of the decision (the view module's contract): every handler is asked;
-  one may refuse the navigation or point it elsewhere, before any `run`.
-- **One chain per document**, in an explicit order (same-page links, then the swap, then a module's), not
-  the compiler's feature list (`compile.ts:1273`) and not one per mount root.
-- **Fallbacks through `env`**: the event's `load` calls `location.*` itself; it goes through the
-  environment the tests replace.
-- **A redirect under `precommitHandler`** uses the controller's `redirect()`, not `replaceState`.
+**Step 2 since the second review** (on branch `swap-navigation`):
+- **One intent per navigation** (done): where the browser has the Navigation API, its `navigate` event is
+  the one source; a `navigate()` call is handed to the browser (`navigation.navigate`, its trigger in
+  `info`); same-page links intercept their event; the click listener and the core's `popstate` only where
+  the API is missing. `e2e/links` checks it in Chromium, Firefox and WebKit (the same checks pass on the
+  click path).
+- **Ranks** (done): handlers are added with a rank (`views`, `same`, `swap`), not in the compiler's order.
+- **Refusal** (done, decided): **`data-sn-on-navigate`**, a handler for every navigation while its element
+  is on the page, before anything acts; `$event` has `to`, `from`, `kind` and `trigger` (typed by the
+  checker); `$event.preventDefault()` refuses it. Guards run when a navigation goes, never when the chain is
+  only asked (next-page data on hover runs none), and not for what can no longer be refused (Back without
+  the API, the browser's own Back without activation, a reload: `beforeunload` stays for those). A
+  `navigate` module of its own (1,231 B gzip with the chain); the core is unchanged. No `redirect`
+  (decided).
+- **Still to do:** one chain per document for pages with several mounted apps (today one per app, which
+  covers a page mounted on the document); the event fallbacks through `env` and a redirect under
+  `precommitHandler` come with the swap (step 4).
 
 Every way in is then one of: a link (the shared listener), `navigate()` (handlers and app code), a
 traversal (the core's `popstate`), and the browser's own (a new tab, a modifier, a link the chain does not
@@ -587,7 +592,7 @@ One commit each:
    `cache` writes on destroy; the attribute writer writes only changed values ([3](#3-kept-elements));
    tests of destroy with each feature. **Done** on branch `swap-nav-step-1` (`bc44a26`): core 14,946 →
    14,985 B gzip on current `main`, `test/behaviour/destroy.test.ts`.
-2. **One way in** (spiked; to finish, [2](#2-one-way-in-navigate)): the chain with decisions the core
+2. **One way in** (done on `swap-navigation` but for one chain per document, [2](#2-one-way-in-navigate)): the chain with decisions the core
    runs and the full intent; one intent per navigation where the Navigation API exists (same-page links on
    the `navigate` event), `links.ts` and the core's `popstate` where it does not; the veto and redirect
    shape; one ordered chain per document; fallbacks through `env`; `query-links`, `transition` and

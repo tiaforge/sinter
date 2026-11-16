@@ -120,11 +120,16 @@ test('handlers are asked in their rank, not in the order they were added', async
   expect(p.seen).toHaveLength(1);
 });
 
-test('a refusal beats every other decision: nothing runs, nothing loads', async () => {
+test('a guard refuses when the navigation goes: nothing runs, nothing loads; deciding asks no guard', async () => {
   const p = await setup(() => ({ name: 'mine', run: () => { p.ran.push('run'); } }));
-  p.c.add(() => ({ name: 'guard', refuse: true }), RANK.swap);
-  expect(p.c.go({ to: 'http://localhost/next', kind: 'push', source: 'call' })?.name).toBe('guard');
+  const asked: string[] = [];
+  p.c.guards.push((i) => { asked.push(i.to); return true; });
+  // asked (next-page data): no guard
+  p.c.decide({ to: 'http://localhost/a', kind: 'push', source: 'link' });
+  expect(asked).toEqual([]);
+  expect(p.c.go({ to: 'http://localhost/next', kind: 'push', source: 'call' })?.name).toBe('refused');
   await p.settle();
+  expect(asked).toEqual(['http://localhost/next']);
   expect(p.ran).toEqual([]);
   expect(p.navigations).toEqual([]);
   // a refused link: its default prevented

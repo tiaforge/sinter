@@ -12,7 +12,16 @@ import type { App, Decision, Intent, Navigator } from './runtime/app.js';
 /** The order handlers are asked in (lower first): a module that takes navigations itself, then same-page links, then the swap. */
 export const RANK = { views: 10, same: 20, swap: 30 } as const;
 
-type Chain = App & Required<Pick<App, 'nav' | 'onGo' | 'decide' | 'go'>> & { add(h: Navigator, rank: number): void };
+type Chain = App & Required<Pick<App, 'nav' | 'onGo' | 'decide' | 'go'>> & {
+  add(h: Navigator, rank: number): void;
+  /**
+   * Guards, run when a navigation goes (never when the chain is only asked, as next-page data does): one
+   * that returns true refuses it (`data-sn-on-navigate` and `$event.preventDefault()`, navigate.ts). Not run
+   * for what cannot be refused any more: a traversal without the Navigation API, or an event that cannot
+   * be canceled (the browser's own Back without activation).
+   */
+  guards: Array<(i: Intent) => boolean>;
+};
 
 /** what the chain reads of a `navigate` event (the Navigation API) */
 interface NavigateLike extends Event {
@@ -37,25 +46,41 @@ export function chain(app: App): Chain {
     ranks.splice(i, 0, r);
   };
   c.onGo = [];
+  c.guards = [];
   c.decide = (i) => {
-    let d: Decision | void | undefined, no: Decision | undefined;
-    for (const h of nav) { const r = h(i); d ||= r; if (r && r.refuse) no ||= r; }
-    return no || d || undefined;
+    let d: Decision | void | undefined;
+    for (const h of nav) { const r = h(i); d ||= r; }
+    return d || undefined;
+  };
+  /** whether a guard refuses `i` (every guard runs: each may note the navigation) */
+  const refused = (i: Intent) => {
+    let no = false;
+    for (const g of c.guards) no = g(i) || no;
+    return no;
   };
   /** the entry of a traversal a handler took from its event: its `popstate` is decided, once */
   let took: string | null = null;
   c.go = (i) => {
     i.from ||= env.href();
-    // with the Navigation API, a call is the browser's navigation, whose event is the intent
+    // with the Navigation API, a call is the browser's navigation, whose event is the intent (and its guards)
     if (N && i.source == 'call') {
       for (const f of c.onGo) f(i);
-      N.navigate(i.to, { history: i.kind == 'replace' ? 'replace' : 'push', info: { [INFO]: i.trigger } });
+      // its promises reject when a guard refuses it or a newer navigation replaces it: expected, not an error
+      const r = N.navigate(i.to, { history: i.kind == 'replace' ? 'replace' : 'push', info: { [INFO]: i.trigger } }) as { committed?: Promise<unknown>; finished?: Promise<unknown> } | undefined;
+      r?.committed?.catch(() => {});
+      r?.finished?.catch(() => {});
       return;
     }
     if (N && i.source == 'popstate') {
       if (took == null || took !== N.currentEntry?.key) return;
       took = null;
       return { name: 'taken' };
+    }
+    const e = i.event as NavigateLike | undefined;
+    // refused: a link's default is prevented (a decision without `run`), an event cancelled, a call does nothing
+    if (i.source != 'popstate' && (!e || e.cancelable) && refused(i)) {
+      e?.preventDefault();
+      return { name: 'refused' };
     }
     for (const f of c.onGo) f(i);
     const d = c.decide(i);
@@ -64,12 +89,7 @@ export function chain(app: App): Chain {
       : i.kind == 'replace' ? (env.replace ?? ((u: string) => location.replace(u)))(i.to) : env.navigate(i.to));
     // no decision: a call loads; a link is the browser's to follow, an event the browser's to go on with
     if (!d) i.source == 'call' && load();
-    else if (d.refuse) {
-      // refused: a link's default is prevented (the listener does it), an event cancelled where it can be
-      // (the browser's own Back without activation cannot), a call does nothing
-      const e = i.event as NavigateLike | undefined;
-      if (e?.cancelable) e.preventDefault();
-    } else {
+    else {
       if (i.source == 'event' && i.kind == 'traverse' && d.run) took = (i.event as NavigateLike).destination.key;
       const r = d.run?.();
       if (r === false) load();
