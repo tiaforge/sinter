@@ -50,6 +50,7 @@ Each option names a file relative to the project root. Leave it out and sinter l
 | `strict` | `false` | warnings fail `sinter check`, `vite build`, pages in the dev server and `render()`; runtime warnings show in the dev server's terminal and overlay. `{ allow: { SN504: 'reason' } }` keeps codes warnings. `SINTER_STRICT=1`/`0` overrides it ([docs/strict.md](strict.md)) |
 | `checkCycles` | `false` | report `then`/`catch` handlers that start each other through `run()` (`SN509`) |
 | `site` | none | the site's origin (`'https://example.com'`, no path): every page whose URL is known gets a canonical link, and expressions get `$site` and `$canonical` ([docs/static-pages.md](static-pages.md#canonical-urls)) |
+| `sitemap` | on with `site` | `sitemap.xml` with every page that may be indexed; `{ paths: { '/article/:slug': () => slugs() } }` gives the values of pages whose path has parameters; `false` leaves it out ([docs/static-pages.md](static-pages.md#sitemap)) |
 | `localePrefix` | `false` | each page once per language of the [messages](#messages), under its prefix (`/de/about/`), its text in the HTML; unprefixed URLs choose a language ([docs/static-pages.md](static-pages.md#languages)) |
 | `redirects` | `true` | write `_redirects` (Netlify, Cloudflare Pages) with the pages' URLs ([docs/static-pages.md](static-pages.md#redirects-and-rewrites)) |
 | `static` | none | pages that must ship no JavaScript, by path from the root (`['about.html', 'docs/**']`), or `true` for all: one that needs the runtime is `SN322` ([docs/static-pages.md](static-pages.md)) |
@@ -59,6 +60,7 @@ Each option names a file relative to the project root. Leave it out and sinter l
 | Option | Default | Purpose |
 | --- | --- | --- |
 | `firstPaint` | `true` | write build-time values into the HTML and render what needs no data as the page loads. `false` waits for the page module ([docs/first-paint.md](first-paint.md)) |
+| `minifyHtml` | `true` | builds: remove your comments, and the white space your stylesheets show to render nothing, from every page's HTML. Dev never minifies ([docs/minify.md](minify.md)) |
 | `earlyBudget` | `10000` | an early script above this many gzipped bytes is a build warning |
 | `embed` | `false` | for a server that writes each page's data into the HTML: pages get placeholders instead of early requests, and the build writes `sinter-embed.json` listing them. `vite dev` is unaffected |
 | `lazy` | `[]` | packages loaded on first call instead of with the page (`['openpgp']`): your imports of one become stubs that share one `import()`, so it is a chunk of its own. Only awaited calls of its exports work (`SN324`); `data-sn-import` and `data-sn-preload` load it sooner ([docs/lazy.md](lazy.md)) |

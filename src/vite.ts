@@ -27,6 +27,7 @@ import type { EmbedSlot, ImageHost, ImageVariant, PrefetchParts, RuntimeReason, 
 import { hasCspMeta, movesToDirectory, pageFile, pagePaths, pageUrl, prefetchModule, speculationRules, withRulesHash } from './prefetch-build.js';
 import { pageRoutes, rebaseHtml, redirectHtml, redirectsFile, relocateHtml, type PageEntry, type Route } from './page-urls.js';
 import { chooserHtml, hreflangTags, readLocales, type Locales } from './locales-build.js';
+import { canonicalOf, fillPattern, noindex, sitemapFiles, sitemapOf, type SitemapOptions, type SitemapUrl } from './sitemap-build.js';
 import { familyLineHeights, familyZeroWidths } from './font-metrics.js';
 import { faceName, faceOf, fontDownloader, fontFileDownloader, inlineFonts, preloadFonts, preloadLocalFonts, usesFamily, type FontFaceRef, type FontPreload } from './fonts-build.js';
 import { componentBase } from './components-build.js';
@@ -50,6 +51,12 @@ export interface SinterOptions extends ProjectOptions {
    * into the HTML either way, and a page with nothing to run ships no JavaScript either way.
    */
   firstPaint?: boolean;
+  /**
+   * builds: minify each page's HTML (default true; never in dev): the author's comments out, and the
+   * white space the page's stylesheets show to render nothing (docs/minify.md). Before the page is compiled, so
+   * sinter's own comments and node paths are counted on the minified markup.
+   */
+  minifyHtml?: boolean;
   /** an early file above this many bytes gzip is a build warning (default 10000) */
   earlyBudget?: number;
   /**
@@ -92,6 +99,13 @@ export interface SinterOptions extends ProjectOptions {
    * (docs/static-pages.md#canonical-urls)
    */
   site?: string;
+  /**
+   * `sitemap.xml` in the build, with `site` (docs/static-pages.md#sitemap): every page with a fixed URL that may be
+   * indexed (not `noindex`, its canonical link its own URL), with its languages as alternates. `paths` gives the
+   * values of pages whose path has parameters, by pattern (`{ '/article/:slug': () => slugs() }`); a page without
+   * them is left out, and the build says so. `false` leaves the file out; an app's own `public/sitemap.xml` is kept.
+   */
+  sitemap?: false | SitemapOptions;
   /**
    * Languages in the URL (docs/static-pages.md#languages): each page is built once per language of the inlang
    * project, under its prefix (`about.html` as `/en/about/` and `/de/about/`), with that language's text in the
@@ -339,6 +353,8 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     if (!/^https?:$/.test(u.protocol) || u.pathname !== '/' || u.search || u.hash) throw new Error(`sinter({ site }): \`${options.site}\` is not an origin; write it without a path (a site served under a path sets Vite's \`base\`), e.g. '${u.origin}'`);
     return u.origin;
   })();
+  /** `sitemap`, checked */
+  const sitemapOptions = sitemapOf(options.sitemap, siteOrigin);
   /** the page's `$site`, `$canonical` (null for a page whose paths all have parameters) and origin */
   const urlsOf = (rel: string, patterns: string[]) => {
     const b = resolved?.base?.startsWith('/') ? resolved.base : '/';
@@ -632,7 +648,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   };
 
   /** compiles one page; `earlySrc`: where the page loads its early chunk (dev), else the build injects the tag */
-  const build = (html: string, file: string, earlySrc: string | null, styles?: StyleSheet[], lineHeights?: Map<string, number>, zeros?: Map<string, number | null>): { out: CompileResult; p: ReturnType<typeof project> } => {
+  const build = (html: string, file: string, earlySrc: string | null, styles?: StyleSheet[], lineHeights?: Map<string, number>, zeros?: Map<string, number | null>, minifyStyles?: StyleSheet[]): { out: CompileResult; p: ReturnType<typeof project> } => {
     const rel = relOf(file);
     const p = project(root, options);
     // a page in a language: compiled from its source (diagnostics, components, layouts as written), in that language
@@ -653,6 +669,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       ...(helpersNow?.module && !dev ? { foldLog: (key: string, args: FoldArg[], result: string, id: number) => logFold(relOf(src), key, args, result, id) } : {}),
       ...(images ? { images: imageHost(rel, styles)! } : {}),
       ...(styles?.length ? { styles } : {}),
+      ...(minifyStyles ? { minify: { styles: minifyStyles } } : {}),
       ...(lineHeights?.size ? { normalLineHeight: (f: string) => lineHeights.get(f) ?? null } : {}),
       ...(zeros?.size ? { zeroWidth: (f: string) => zeros.get(f) ?? null } : {}),
       ...(firstPaint && !dev ? { paintCss: `${PAINT_CSS}${rel}.css` } : {}),
@@ -1092,11 +1109,13 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
         // the fonts' `0`, for images in a box sized in ch
         const zeros = images && styles?.some((s) => /\dch\b/i.test(s.css)) && styles.some((s) => /@font-face/i.test(s.css)) ? await zeroWidthsOf(styles) : undefined;
         await helpersReady();
-        let { out, p } = build(html, file, earlySrc, styles, lineHeights, zeros);
+        // the minifier reads every page's cascade (builds)
+        const minifyStyles = options.minifyHtml !== false && !dev ? styles ?? await stylesOf(html, virtual.get(file)?.source ?? file, project(root, options)) : undefined;
+        let { out, p } = build(html, file, earlySrc, styles, lineHeights, zeros, minifyStyles);
         // images the compiler did not know yet: analysed, then the page is compiled again with them
         if (images && out.images?.pending.length) {
           await images.analyze(out.images.pending);
-          ({ out, p } = build(html, file, earlySrc, styles, lineHeights, zeros));
+          ({ out, p } = build(html, file, earlySrc, styles, lineHeights, zeros, minifyStyles));
         }
         for (const w of out.remoteWidths ?? []) remoteWidths.add(w);
         // the page's early file from this compile (with the stylesheets), which wrote the page: its ids are the page's
@@ -1612,6 +1631,89 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     }
     next();
   };
+  /**
+   * builds with `site`: the sitemap's files (sitemap-build.ts), from each page's finished HTML (`built`, by its file):
+   * a page's URL as its canonical link names it, each language's with the others and the chooser as alternates, and
+   * a pattern's URLs from `sitemap.paths`. 404.html, 200.html, `noindex` pages, pages whose canonical link names
+   * another URL and patterns without values are left out, and the build's line names them.
+   */
+  const sitemap = async (fail: (m: string) => never, all: PageEntry[], built: Map<string, string>): Promise<Array<{ fileName: string; source: string }>> => {
+    if (!siteOrigin || sitemapOptions === false) return [];
+    const info = (m: string) => resolved?.logger.info(`sinter: ${m}`);
+    if (relativeBase(base())) { info('no sitemap.xml with a relative base: the build does not know the URLs the site is served at'); return []; }
+    const own = resolved?.publicDir ? resolve(resolved.publicDir, 'sitemap.xml') : null;
+    if (own && existsSync(own)) { info(`sitemap.xml: the app's own (${relOf(own)}) is kept`); return []; }
+    const b = base().replace(/\/?$/, '/'), given = sitemapOptions.paths ?? {}, used = new Set<string>();
+    const urls: SitemapUrl[] = [], seen = new Set<string>(), left: string[] = [], known = new Set<string>();
+    const add = (u: SitemapUrl) => { if (!seen.has(u.loc)) { seen.add(u.loc); urls.push(u); } };
+    // the pages of each source page: one, or one per language
+    const groups = new Map<string, Array<{ page: PageEntry; locale: string | null; html: string }>>();
+    for (const page of all) {
+      const html = built.get(page.rel), v = virtual.get(resolve(root, page.rel));
+      if (html === undefined) continue;
+      const src = v ? relOf(v.source) : page.rel;
+      if (!groups.has(src)) groups.set(src, []);
+      groups.get(src)!.push({ page, locale: v?.locale ?? null, html });
+    }
+    const valuesOf = async (pattern: string) => {
+      const v = given[pattern]!;
+      let list: unknown;
+      try { list = typeof v === 'function' ? await v() : v; } catch (e) { fail(`sinter({ sitemap: { paths } }): \`${pattern}\` threw: ${e instanceof Error ? e.message : String(e)}`); }
+      if (!Array.isArray(list)) fail(`sinter({ sitemap: { paths } }): \`${pattern}\` returned ${JSON.stringify(list)}, not a list of values`);
+      return list as unknown[];
+    };
+    const fill = (pattern: string, value: unknown, src: string) => {
+      const r = fillPattern(pattern, value);
+      if (typeof r !== 'string') fail(`sinter({ sitemap: { paths } }): ${src}: ${r.error}`);
+      return r;
+    };
+    for (const [src, list] of [...groups].sort(([x], [y]) => x.localeCompare(y))) {
+      if (/(^|\/)(404|200)\.html?$/.test(src)) continue;
+      const source = resolve(root, src);
+      // each language's page that may be indexed, with its URL when it has a fixed one
+      const pages = list.filter((x) => {
+        if (!noindex(x.html)) return true;
+        left.push(`${x.page.rel} (noindex)`);
+        return false;
+      });
+      const fixed: Array<{ locale: string | null; loc: string }> = [];
+      for (const x of pages) {
+        const url = pageUrl(x.page.rel, base(), x.page.patterns);
+        if (url === null) continue;
+        const loc = siteOrigin + url, canonical = canonicalOf(x.html);
+        if (canonical !== null && canonical !== loc) { left.push(`${x.page.rel} (its canonical link names ${canonical})`); continue; }
+        fixed.push({ locale: x.locale, loc });
+      }
+      const alternates = (locs: Array<{ locale: string | null; loc: string }>, unprefixed: string) =>
+        locales && locs.length ? { ...Object.fromEntries(locs.map((l) => [l.locale!, l.loc])), 'x-default': siteOrigin + unprefixed } : undefined;
+      const alt = alternates(fixed, locales ? chooserUrl(source) : '');
+      for (const f of fixed) add({ loc: f.loc, ...(alt ? { alternates: alt } : {}) });
+      // the patterns with parameters, as the page writes them (without a language's prefix)
+      const patterns = (locales ? describeSource(source).path : list[0]!.page.patterns).filter((p) => p.includes(':'));
+      for (const pattern of patterns) {
+        const has = pattern in given;
+        known.add(pattern);
+        if (has) used.add(pattern);
+        if (!pages.length) continue;
+        // a page with a fixed URL too: its canonical link names that URL at every path it answers at
+        const fixedUrl = pageUrl(pages[0]!.page.rel, base(), pages[0]!.page.patterns);
+        if (fixedUrl !== null) { left.push(`${src} ${pattern} (its canonical link names ${siteOrigin + fixedUrl})`); continue; }
+        const own = pages.map((x) => canonicalOf(x.html)).find((c) => c !== null);
+        if (own) { left.push(`${src} ${pattern} (its canonical link names ${own})`); continue; }
+        if (!has) { left.push(`${src} ${pattern} (no values in sitemap.paths)`); continue; }
+        for (const value of await valuesOf(pattern)) {
+          const locs = pages.map((x) => ({ locale: x.locale, loc: siteOrigin + fill(x.locale ? prefixed([pattern], x.locale)[0]! : pattern, value, src) }));
+          const a = alternates(locs, locales ? fill(pattern, value, src) : '');
+          for (const l of locs) add({ loc: l.loc, ...(a ? { alternates: a } : {}) });
+        }
+      }
+    }
+    const unknown = Object.keys(given).filter((k) => !used.has(k));
+    if (unknown.length) fail(`sinter({ sitemap: { paths } }): no page has the pattern \`${unknown[0]}\`; ${known.size ? `the patterns with parameters are ${[...known].map((p) => `\`${p}\``).join(', ')}` : 'no page has a pattern with parameters'}`);
+    const files = sitemapFiles(urls, siteOrigin + b);
+    info(`sitemap.xml: ${urls.length} URL${urls.length === 1 ? '' : 's'}${files.length > 1 ? ` in ${files.length - 1} files` : ''}${left.length ? `; left out: ${left.slice(0, 10).join(', ')}${left.length > 10 ? `, and ${left.length - 10} more` : ''}` : ''}`);
+    return files;
+  };
   const pages: Plugin = {
     name: 'sinter:pages',
     enforce: 'post',
@@ -1647,9 +1749,9 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
      * builds: each page's finished HTML gets its links and, for a page with a fixed path, its relative URLs
      * for its new place; it moves into its directory, and a redirect file takes its old place
      */
-    generateBundle(_, bundle) {
+    async generateBundle(_, bundle) {
       if (dev) return;
-      const all = pageEntries(), by = new Map<string, string>();
+      const all = pageEntries(), by = new Map<string, string>(), built = new Map<string, string>();
       for (const page of all) {
         const to = pageFile(page.rel, base(), page.patterns), a = bundle[page.rel];
         if (a?.type !== 'asset') continue;
@@ -1658,6 +1760,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
         const v = virtual.get(resolve(root, page.rel)), urls = v && siteOrigin ? localeUrls(v.source) : null;
         if (v && urls) html = html.replace('</head>', `  ${hreflangTags(siteOrigin!, urls, chooserUrl(v.source))}\n</head>`);
         const source = relocateHtml(html, page, all, base(), locales?.list);
+        built.set(page.rel, source);
         if (to === page.rel) { a.source = source; continue; }
         if (bundle[to]) this.error(`sinter: ${page.rel} is written as ${to}, its URL ${pageUrl(page.rel, base(), page.patterns)}, and ${by.get(to) ?? to} is there too: rename one of them`);
         by.set(to, page.rel);
@@ -1690,6 +1793,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
           if (file !== rel) this.emitFile({ type: 'asset', fileName: rel, source: chooserFor(src, script) });
         }
       }
+      for (const f of await sitemap((m) => this.error(m), all, built)) this.emitFile({ type: 'asset', ...f });
       // _redirects: the same rules for hosts that read them (Netlify, Cloudflare Pages), after the app's own
       if (options.redirects === false) return;
       if (relativeBase(base())) { resolved?.logger.info('sinter: no _redirects with a relative base: the build does not know the paths the site is served at'); return; }

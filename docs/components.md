@@ -525,8 +525,8 @@ Comments are not elements, so CSS sees the rows as a plain list: `li:first-child
 list matches `ul:empty`. A script that counts `childNodes` sees the comments. A comment of yours whose
 text is exactly one of those forms (`sn`, `sn 4`, `/sn`, or empty) is an error (`SN105`); `<!--snippet-->`
 and any other comment are yours. `$el` in an `if`, `for` or `use` expression has no element
-to name (`SN213`). Keep HTML comments in sinter's pages: a minifier or CDN that strips them breaks
-lists and branches (dev builds warn).
+to name (`SN213`). Builds minify the HTML themselves ([docs/minify.md](minify.md)); keep other minifiers and CDN
+optimizers off sinter's pages: one that strips comments breaks lists and branches (dev builds warn).
 
 ## Types
 

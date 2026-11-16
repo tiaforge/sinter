@@ -299,6 +299,70 @@ A server never fills it: sinter's middlewares route and serve files, they do not
 `site` is an origin only: a site served under a path sets Vite's `base`. Without `site`, reading
 `$site` or `$canonical` is [SN323](diagnostics.md#sn323-needs-site), and no canonical link is written.
 
+## Sitemap
+
+With `site`, the build writes `sitemap.xml` at the root of the output. Nothing else is needed:
+
+```
+sinter: sitemap.xml: 7 URLs; left out: secret.html (noindex), article.html /article/:slug (no values in sitemap.paths)
+```
+
+It holds every page a search engine should index, at the URL its canonical link names, the same URL
+`$canonical` is:
+
+- **Each page with a fixed URL**: `/about/` for `about.html`, `/login` for `data-sn-path="/login"`, under
+  Vite's `base`.
+- **Not** `404.html` or `200.html`, a page whose head has `<meta name="robots" content="noindex">` (or
+  `none`, from the page, its layout or a head component), or a page whose own canonical link names
+  another URL.
+- **With [languages](#languages)**, each language's URL, with every language and the chooser as
+  alternates (`<xhtml:link rel="alternate" hreflang>`, the same links the pages' heads have). The choosers
+  are `noindex` and not in it.
+
+The XML has `<loc>` and the alternates only. Search engines ignore `priority` and `changefreq`, and a
+`lastmod` the build would guess would be wrong.
+
+### Pages whose path has parameters
+
+The build does not know the slugs of `/article/:slug`: they are your data. Give them by pattern, as the
+page's `data-sn-path` writes it, with a list or a function the build calls once (it may be async, and ask
+your API):
+
+```js
+sinter({
+  site: 'https://example.com',
+  sitemap: {
+    paths: {
+      '/article/:slug': async () => (await fetch('https://api.example.com/articles?fields=slug').then((r) => r.json())).map((a) => a.slug),
+      '/blog/:year/:slug': [{ year: '2026', slug: 'hello' }],
+    },
+  },
+})
+```
+
+A value is a string for a pattern with one parameter, or an object with every parameter by name. Each is
+encoded as a path segment (`a b` is `a%20b`). With languages, a pattern is written without the prefix,
+as in `data-sn-path`, and each value gives a URL in every language.
+
+- A pattern without values is left out, and the build's line names it.
+- A pattern on a page that also has a fixed path (`data-sn-path="/editor /editor/:slug"`) is left out:
+  the page's canonical link names its fixed URL at every path it answers at.
+- A pattern no page has, a value that does not fill its pattern, or a function that throws or returns
+  no list, fails the build.
+
+### Turning it off, or writing your own
+
+`sitemap: false` leaves the file out. A `public/sitemap.xml` of your own is kept, and the build writes
+none. With a relative `base` (`'./'`) the build does not know the URLs the site is served at, and writes
+none. Past 50,000 URLs, the protocol's limit for one file, `sitemap.xml` is a sitemap index, and the URLs
+are in `sitemap-1.xml`, `sitemap-2.xml`, ….
+
+Tell search engines where it is in `robots.txt` (in `public/`, which sinter leaves to you):
+
+```
+Sitemap: https://example.com/sitemap.xml
+```
+
 ## Languages
 
 With [messages](configuration.md#messages) in more than one language, `localePrefix` builds each page once
