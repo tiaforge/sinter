@@ -71,6 +71,8 @@ export interface ProjectOptions {
   strict?: boolean | { allow?: Record<string, string> };
 }
 
+const READ_CACHE = new Map<string, string>();
+
 export { strictEnv, strictOf, type Strict } from './compiler/diagnostics.js';
 
 /** A path pattern of `static`: `**` any folders, `*` within one name, `?` one character. */
@@ -167,6 +169,13 @@ export function project(root: string, options: ProjectOptions = {}): Project {
   const appComponents = componentNames(root);
   const libs = findLibraries(root, componentsOf(options.components), appComponents, configFile);
   const readFile = (path: string): string => {
+    // EXPERIMENT (collections prototype): reads cached across compiles, no invalidation
+    if (process.env.SN_PROTO_READ_CACHE && READ_CACHE.has(path)) return READ_CACHE.get(path)!;
+    const text = readFileUncached(path);
+    if (process.env.SN_PROTO_READ_CACHE) READ_CACHE.set(path, text);
+    return text;
+  };
+  const readFileUncached = (path: string): string => {
     const real = realpathSync(path);
     const realRoot = realpathSync(root);
     if (real !== realRoot && !real.startsWith(realRoot + sep) && !libraryOf(libs.libraries, real)) throw new Error(`outside the project root: ${path}`);
