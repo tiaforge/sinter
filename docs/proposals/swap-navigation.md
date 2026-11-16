@@ -12,13 +12,17 @@ Decisions:
   load; nothing changes on the server, in embed or in the page's HTML. The client replaces the page in the
   document it has instead of the browser loading a new one. There is no route table and no view in the
   client, and every URL still loads on its own.
-- **On by default, per app** (decided 2026-11-16): swap navigation is a `sinter()` option that is on
-  unless an app turns it off; a page or a link opts out with `data-sn-swap="off"`. Anything unexpected is
-  a page load. Being the default makes [what a swap skips](#4-the-head) and the cost on every page
-  ([12](#12-size)) part of every app ([1](#1-swaps-on-by-default), [Breaking changes](#breaking-changes)).
+- **Off by default, turned on per app** (decided 2026-11-16, replacing the earlier "on by default"): an app
+  turns swaps on with `sinter({ swap: true })`; a page or a link of such an app opts out with
+  `data-sn-swap="off"`. Anything unexpected is a page load. An app that does not turn them on gets none of
+  the stub, the breaking changes or the cost ([1](#1-turning-swaps-on), [Breaking changes](#breaking-changes));
+  only the core's share of the one way in (+80 B gzip) reaches every app.
 - **Pages without JavaScript** get the swap's stub only when they keep an element (audio and the like);
   others stay without JavaScript and their links are page loads (decided).
-- **Size:** the stub is optimized first; the budget is raised if that is not enough (decided).
+- **Size:** the stub is optimized first; the budget is raised if that is not enough (decided). With swaps
+  off by default, the budget in question is that of the pages of apps that turn them on.
+- **The new page's response-header CSP is applied, not only its title** (decided): a swapped page runs
+  under its own policy, or is loaded ([4](#4-the-head)).
 - **The fade follows the standard opt-in:** a swap transitions when the app's CSS asks for page
   transitions with `@view-transition { navigation: auto }` (temper's rule, inside its reduced-motion
   media), as a page load does ([8](#8-transitions); decided).
@@ -45,9 +49,9 @@ Decisions:
    This is what RealWorld's suite assumes after a form's redirect (below).
 3. **Nothing to write beyond marking what to keep.** App code redirects with the `navigate()` that
    handlers already have, exported.
-4. **What swaps cost is measured and bounded.** A page that opts out (`data-sn-swap="off"`), an app
-   that turns swaps off, and a page without JavaScript that keeps nothing behave as today; every other
-   page pays the stub and the core's share ([12](#12-size)), within the page budgets.
+4. **An app that does not turn swaps on behaves as today**, its pages larger only by the core's share of
+   the one way in ([12](#12-size)). In an app that does, a page that opts out and a page without
+   JavaScript that keeps nothing behave as today; the others pay the stub, within the page budgets.
 5. **A base for view navigations:** one sequence with named steps that a later module can observe and
    drive.
 
@@ -82,28 +86,28 @@ Decisions:
 | The old app's handlers and state stay on `<html>` and `<body>`, which the document keeps; the spike deletes `sinter.*` symbols from outside. | [7](#7-what-the-core-and-the-features-need) |
 | `cache` writes confirmed changes on `pagehide`, which a swap never fires. | [7](#7-what-the-core-and-the-features-need) |
 | Between the URL change and the new mount the page had no app: a read of the app right after the URL changed saw `null`. The spike preloads the modules and changes URL, app and body in one step; the export of [6](#6-the-pages-code) makes it one synchronous step. | [5](#5-the-sequence) |
-| **The build dropped the feature** (external review): a page whose only runtime need was a kept element built as "no JavaScript". Fixed: a kept element is a runtime reason, `sinter({ static })` reports `SN322` for it, and `e2e/permanent` swaps to and from a page with nothing bound. Such a page now ships the shared runtime (17.1 KB gzip). | [1](#1-swaps-on-by-default) |
+| **The build dropped the feature** (external review): a page whose only runtime need was a kept element built as "no JavaScript". Fixed: a kept element is a runtime reason, `sinter({ static })` reports `SN322` for it, and `e2e/permanent` swaps to and from a page with nothing bound. Such a page now ships the shared runtime (17.1 KB gzip). | [1](#1-turning-swaps-on) |
 | **Scroll** (maintainer review, reproduced, fixed in the spike, each with an `e2e/permanent` step that fails without its fix): Back restored the position of the page being left; opting in turned off the browser's restoration on every reload; a link's `#hash` was dropped (a `Response.url` has no fragment). Restoring the position at the swap is too early: what the new page renders above it moves the content, so it is set again after the page's first loads. | [11](#11-accessibility-history-scroll) |
 | **A second navigation during the transition** (maintainer review, reproduced, fixed): the commit did not check that it was still current, so the first page's content committed too. Now only the last navigation's page commits; the first one's entry stays (its URL had committed, as a page load's would). A second click while the page is still fetched leaves no entry (`precommitHandler`). | [5](#5-the-sequence) |
 | **Second review, fixed in the spike, each with an `e2e/permanent` step that fails without its fix** (three browsers): a traversal that could not swap became a new entry (now it reloads that entry: no precommit step for a traversal); after a swapped Back, the next Back within the page did not read `$url` (the traversal's marker is now cleared when used, and deciding changes nothing); a GET form and a same-origin `rel="external"` link were swapped (now the browser's, from `sourceElement`, with `download`, `target` and `data-sn-swap="off"`); the swap started a transition the stylesheet never asked for (now only with `@view-transition { navigation: auto }`, so not under temper's reduced motion). A module that fails to mount reloads the page. | [2](#2-one-way-in-navigate), [8](#8-transitions) |
 | **Second review, open:** the header rule cannot work as written (script cannot read its own document's headers; a nonce CSP differs on every response); two intents per navigation where one would do (a link and its event, an event and its `popstate`); no veto contract; the chain per app, not per document; the event fallback calls `location.*` past `env`; `precommitHandler` on a navigation that cannot be canceled (guarded in the spike, untested headed). | [2](#2-one-way-in-navigate), [4](#4-the-head), [Plan](#plan) |
-| **A page the swap cannot take is requested twice**, once by the swap and once by the load, and asking (`peek`) answered `swap` for any same-origin path, so prefetching HTML would request `/logout` or a one-time callback on hover (maintainer review, reproduced: two GETs). | [1](#1-swaps-on-by-default) |
+| **A page the swap cannot take is requested twice**, once by the swap and once by the load, and asking (`peek`) answered `swap` for any same-origin path, so prefetching HTML would request `/logout` or a one-time callback on hover (maintainer review, reproduced: two GETs). | [1](#1-turning-swaps-on) |
 | What a load does and a swap does not: inline and classic scripts, `<noscript>` (live after `DOMParser`), styles added to the head at run time, the new page's response-header policies, declarative shadow DOM (maintainer review, partly reproduced). | [4](#4-the-head) |
 | `data-sn-transition` relies on `pageswap`/`pagereveal`, which a swap does not fire: its morphs are lost on a swap (read from `transition.ts`). | [8](#8-transitions) |
 | WebKit refuses Speculation Rules prefetches over plain HTTP, and headless WebKit restores no scroll position on a reload, with or without sinter: noise in local tests. | — |
 
 ## Design
 
-### 1. Swaps on by default
+### 1. Turning swaps on
 
-Decided: **`sinter({ swap })`, on unless set to `false`**; `data-sn-swap="off"` on a page's (or its
-layout's) `<html>` takes the page out, on a link takes the link out (a page load, always);
+Decided: **`sinter({ swap: true })`; off unless an app sets it**; then `data-sn-swap="off"` on a page's (or
+its layout's) `<html>` takes the page out, on a link takes the link out (a page load, always);
 `data-sn-permanent="name"` keeps an element across swaps. Reasons a page or link opts out: a page with
 classic or inline scripts that expect a load (analytics, a chat widget, ads, a legacy page), a page served
 with another CSP or other headers, a page that relies on `load` or `DOMContentLoaded`, a long-lived
-document that should start fresh. Proposed (to decide before step 3): the build opts out a page or layout
-with an inline or classic script in its body by itself, and says so; a warning alone is too little for a
-default, since analytics would silently stop counting.
+document that should start fresh. Proposed (to decide before step 3): with swaps something an app turns on,
+a build warning naming the page and the script may be enough; the stricter option is that the build opts
+such a page out by itself and says so (analytics would otherwise silently stop counting).
 
 - **Pages without JavaScript** (`static`, and pages of constants) ship no script today. Decided: they get
   the stub only when they keep an element (it is a runtime reason, as now); others stay without
@@ -124,7 +128,8 @@ default, since analytics would silently stop counting.
   (387 B left), so the stub does not fit it as is; decided: optimize the stub first (for example the
   scroll listener can live in the part loaded later, since the stub records the leaving position at the
   navigation), then raise the budget if needed.
-- **A breaking change** for apps whose pages rely on loads ([Breaking changes](#breaking-changes)).
+- **No breaking change for apps that leave swaps off**; for an app that turns them on, what changes is
+  listed in [Breaking changes](#breaking-changes).
 
 **The decision comes from the build, not from a fetch.** The build knows which pages opt in and which
 names each keeps; it writes them into the manifest next-page data already uses (`prefetch.ts`: the app's
@@ -200,11 +205,11 @@ traversal (the core's `popstate`), and the browser's own (a new tab, a modifier,
 take). `location.ts`'s `popstate` stays an observer: it drops what waited to be written and decides nothing.
 
 A swap is tried for links, `navigate()` calls and traversals across entries a swap made, to pages that opt
-in ([1](#1-swaps-on-by-default)). Everything else is the browser's: the same URL, a `#hash` on the same page, a new
+in ([1](#1-turning-swaps-on)). Everything else is the browser's: the same URL, a `#hash` on the same page, a new
 tab, form submissions without a sinter action. A click the browser follows cancels a pending swap.
 
 Falls back to a page load: a fetch error; a non-HTML, non-2xx or cross-origin (after redirects) response;
-`data-sn-failed`; the fetched page does not verify ([1](#1-swaps-on-by-default)); a name on two elements of either
+`data-sn-failed`; the fetched page does not verify ([1](#1-turning-swaps-on)); a name on two elements of either
 page; heads that differ in what only a load applies ([4](#4-the-head)). A traversal that cannot swap
 reloads, once: a second failure for the same entry is left to the browser (a reload loop otherwise).
 
@@ -319,13 +324,23 @@ Everything else stays as the first page loaded it. Pages whose CSP `<meta>`, `<b
 - **Styles added to the head at run time** (CSS-in-JS, widgets, Vite's dev styles): the spike removed
   every `<style>` the new page lacks (reproduced). Only stylesheets the old page's *HTML* had are to
   leave; the module records them when the page loads or is swapped in (not in the spike).
-- **The new page's response headers**: a header CSP, Referrer-Policy and Permissions-Policy apply to the
-  document as first loaded. **Open** (to decide before step 4): script cannot read its own document's
-  headers, so "a response that sets one is a page load" either turns swaps off wherever a CSP header is
-  sent on every page, or compares against nothing; a nonce CSP differs on every response, and the first
-  page's nonce would block styles swapped in. Options: compare with the first response the swap fetched; a
-  policy group the build or the server declares in the manifest (pages in one group swap among
-  themselves); a header `Sinter-Navigation: load` a page sends to be loaded.
+- **The new page's response-header CSP is applied** (decided: not only the title). What the platform
+  allows: a document's policy can only be *added to* (a `<meta http-equiv="Content-Security-Policy">`
+  inserted later is enforced on top of what is there), never replaced or loosened, and script cannot read
+  the current document's own response headers. So, proposed:
+  - the swap reads the new page's `Content-Security-Policy` header from the response it fetched, and knows
+    the current document's: for a page it swapped in, from that response; for the first page, from a
+    `HEAD` of its URL at the first swap (or the server mirrors it, to decide);
+  - the same policy: the swap goes on; a stricter one (only directives added or narrowed, all of them ones
+    a `<meta>` can carry): the swap adds it as a `<meta>` and goes on; anything else (a looser policy,
+    `frame-ancestors`, `sandbox`, `report-to`/`report-uri`, which a `<meta>` cannot set): a page load;
+  - a nonce policy differs on every response, and the document keeps the first page's nonce (the new
+    page's nonced styles would be blocked), so a page with one is loaded, unless its nonce is the same
+    for the session; hash policies swap;
+  - Referrer-Policy and Permissions-Policy: the same rule (the same: swap; else a page load; a referrer
+    policy can also be set by `<meta name="referrer">`).
+  To decide before step 4: how the first page's policy is known (the `HEAD`, or the server mirroring it),
+  and whether "stricter" is worth its parser or "the same, else a page load" is enough.
 - **Declarative shadow DOM**: `parseFromString` does not attach it; `Document.parseHTMLUnsafe` does, and
   all three engines have it (step 0's probe), so it is to be the parser for the fetched page (the spike
   still uses `DOMParser`).
@@ -339,7 +354,7 @@ The swap is one function with named steps. They are internal at first and become
 
 1. **`intent`**: from the chain ([2](#2-one-way-in-navigate)). A newer intent aborts this one.
 2. **`fetch`**: the page's HTML, the same request a load sends (`Accept: text/html`, cookies), for a URL
-   the build lists as opted in ([1](#1-swaps-on-by-default)).
+   the build lists as opted in ([1](#1-turning-swaps-on)).
 3. **`plan`**: parse it, verify the markers, pair the kept elements, plan the head, find the page module.
 4. **`prepare`**: insert the head's new elements and load their stylesheets; preload the page module.
    Aborted: undone.
@@ -455,7 +470,7 @@ names are the contract; until the module exists they stay internal and undocumen
   followed). Prefetching the HTML for a swap is not in this proposal.
 - **Next-page data** (`$prefetch`) must reach the swapped page's requests: the `Prefetched` handoff is the
   place (a page without the early file consumes nothing today). Prefetch asks the chain before it
-  requests anything ([2](#2-one-way-in-navigate)), and only for URLs the build lists ([1](#1-swaps-on-by-default)).
+  requests anything ([2](#2-one-way-in-navigate)), and only for URLs the build lists ([1](#1-turning-swaps-on)).
 - **The early script** does not run on a swap: what it renders before the module (persisted values,
   embedded data, `$url` bindings in the first frame) appears at mount; with the mount inside the
   transition's update, the snapshot is taken after it.
@@ -522,14 +537,15 @@ re-import and preload code; the live region and the head records add some.
 
 ## Breaking changes
 
-With swaps on by default, a link or `navigate()` to another page of the app is no page load:
+None for an app that leaves swaps off, apart from its core growing by 80 B gzip. In an app that turns
+them on, a link or `navigate()` to another page of the app is no page load:
 - inline and classic scripts on the next page do not run, `load` and `DOMContentLoaded` do not fire again,
-  and analytics that count loads count only the first (the build's opt-out for such pages, [1](#1-swaps-on-by-default));
+  and analytics that count loads count only the first (the build's opt-out for such pages, [1](#1-turning-swaps-on));
 - the next page runs under the first page's response-header policies ([4](#4-the-head), open);
 - app modules run once per document, not per page; per-page work goes to `sn-page`;
 - pages whose stylesheet asks for page transitions get them on swaps too, as on loads.
 
-And: every page's core grows by 80 B gzip; a page that swaps carries the stub (about 1.25 KB today, to be
+And: every page's core grows by 80 B gzip; in an app that turns swaps on, a page that swaps carries the stub (about 1.25 KB today, to be
 optimized); pages with morphs or same-page links carry the chain and the link listener. `cache` writes on
 destroy (for an app that calls `destroy()`, tests do: later, with the same data). `ext.sameLink` and
 `ext.follow` are gone (internal).
@@ -564,7 +580,8 @@ One commit each:
 
 1. **The core and features for a page that goes without a page load:** `destroy()` releases its elements;
    `cache` writes on destroy; the attribute writer writes only changed values ([3](#3-kept-elements));
-   tests of destroy with each feature. Ready to start.
+   tests of destroy with each feature. **Done** on branch `swap-nav-step-1` (`bc44a26`): core 14,946 →
+   14,985 B gzip on current `main`, `test/behaviour/destroy.test.ts`.
 2. **One way in** (spiked; to finish, [2](#2-one-way-in-navigate)): the chain with decisions the core
    runs and the full intent; one intent per navigation where the Navigation API exists (same-page links on
    the `navigate` event), `links.ts` and the core's `popstate` where it does not; the veto and redirect
@@ -572,13 +589,15 @@ One commit each:
    prefetch on it with no change in behaviour; the second review's fixes with their `e2e/permanent` steps.
    Sizes before and after. Ready to start.
 
-**Before step 3, decide:** the header rule ([4](#4-the-head)); the build's opt-out for pages with inline
-or classic scripts ([1](#1-swaps-on-by-default)); the budget, once the stub is optimized. Then spike the
+**Before step 3, decide:** how the first page's response-header CSP is known and how far "stricter" goes
+([4](#4-the-head)); a warning or an opt-out for pages with inline or classic scripts
+([1](#1-turning-swaps-on)); the budget for the pages of apps that turn swaps on, once the stub is
+optimized. Then spike the
 manifest, the stub and the exported mount together: they are the unproven half.
 
-3. **The compiler:** the manifest of pages that swap and the names they keep ([1](#1-swaps-on-by-default));
+3. **The compiler:** the manifest of pages that swap and the names they keep ([1](#1-turning-swaps-on));
    the page module marked, its mount exported with the kept ids ([6](#6-the-pages-code)); `sinter({ swap })`
-   on by default, `data-sn-swap="off"` for pages and links, the script opt-out; pages without JavaScript
+   off by default, `data-sn-swap="off"` for pages and links, the script warning or opt-out; pages without JavaScript
    (the stub only with a kept element); the checks and their codes.
 4. **The module** on that, split into the stub every page that swaps carries and the part loaded when
    needed: the sequence with its named steps, verification, the head and what a swap skips (`<noscript>`,
