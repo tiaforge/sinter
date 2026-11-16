@@ -1,5 +1,5 @@
 // Islands: browser work that sinter expressions cannot do (the token's storage, a redirect from a branch); Markdown is src/markdown.js.
-import { clearPersisted, instance } from '@tiaforge-ui/sinter';
+import { clearPersisted, instance, navigate } from '@tiaforge-ui/sinter';
 import { token } from './session.js';
 
 // Events emitted from the pages with `emit(name, detail)`.
@@ -7,19 +7,19 @@ import { token } from './session.js';
 document.addEventListener('signed-in', (e) => {
   clearPersisted();
   token.set(e.detail.user.token);
-  location.assign(e.detail.to ?? '/');
+  navigate(e.detail.to ?? '/');
 });
 // the same account with new settings: the token may be new, the cached data is still this account's
 document.addEventListener('settings-saved', (e) => { token.set(e.detail.token); });
 document.addEventListener('signed-out', () => {
   clearPersisted();
   token.clear();
-  location.assign('/');
+  navigate('/');
 });
 
-/** `<conduit-redirect to="/login">`: replaces the location once rendered (e.g. inside a `data-sn-if`). */
+/** `<conduit-redirect to="/login">`: replaces the current entry once rendered (a swap where the pages allow it) (e.g. inside a `data-sn-if`). */
 customElements.define('conduit-redirect', class extends HTMLElement {
-  connectedCallback() { location.replace(this.getAttribute('to') ?? '/'); }
+  connectedCallback() { navigate(this.getAttribute('to') ?? '/', { replace: true }); }
 });
 
 /** The debug interface the RealWorld e2e suite reads. */

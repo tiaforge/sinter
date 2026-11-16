@@ -142,8 +142,31 @@ Falls back to a page load: a fetch error; a non-HTML, non-2xx or cross-origin (a
 with the attribute); no module to run; heads that differ in what only a load applies ([4](#4-the-head)).
 A traversal that cannot swap reloads.
 
-Cost: the core gains the handler list and the traversal hand-off (to be measured; the core is shared by
-every page). The click checks exist twice today (`query-links`, the spike) and become one.
+**Spiked** (2026-11-16, step 2 of the plan):
+- The core: `Intent` (`to`, `kind`: `push`, `replace`, `traverse`; `trigger`; `peek`), `app.nav` (the
+  handlers, in the order features registered them), `app.take(intent)`, `app.navigate(url, { replace,
+  trigger })`, and `navigate` exported. The handler `navigate()` is `app.navigate` with its element as the
+  trigger; the core's `popstate` asks the chain before it reads `$url`.
+- `src/links.ts`: the one link listener, installed once per app by whichever link feature loads it.
+- `query-links` is a handler (the same rules; `ext.sameLink` and `ext.follow` are gone); `transition`
+  notes the trigger from a handler that never takes and lost its capturing click listener; prefetch asks
+  with `peek` and skips what the chain calls `same`; the swap is one handler for links, `navigate()`
+  (`replace` too, which it did not do) and traversals, with no listener of its own and no `visit()`.
+- Behaviour unchanged where it was not meant to change: the whole unit suite (2014 tests, the
+  query-links, transition, prefetch, speculation and navigate suites untouched), `e2e/navigation` in
+  Chrome (next-page data, Speculation Rules, the list-to-detail morph and back), `e2e/permanent` in three
+  browsers. Five tests of the chain itself (`test/behaviour/navigation-chain.test.ts`).
+- RealWorld goes through it everywhere: the islands call the exported `navigate` for signing in and out,
+  and `<conduit-redirect>` uses `navigate(to, { replace: true })`; the full suite passes, 140 of 140.
+- Sizes (gzip, `scripts/size.mjs`, each module with `links.ts` bundled in): core 14,682 → 14,761 B (+79);
+  query-links 770 → 816 (+46); transition 802 → 1,017 (+215: a page with only morphs now carries the
+  link listener instead of a 20-byte capturing one); prefetch 1,457 → 1,474 (+17); the swap 2,705 →
+  2,761 (+56, lost its listeners, gained `replace`). `links.ts` alone is about 350 B; a page with
+  several link features pays for it once.
+- Not done: the core's `onUnauthorized` redirect (`config.ts:187`) still calls `env.navigate`. It runs in
+  request middleware, which has no app; how it finds the page's app (the one mounted on `document`, or the
+  request's) is to decide. `location.ts` keeps its own `popstate` listener: it only resets what waited to
+  be written and owns no decision, so it stays an observer.
 
 **To decide:** the [Navigation API](https://developer.mozilla.org/docs/Web/API/Navigation_API)
 (`navigation.addEventListener('navigate')` with `intercept()`) as the source of intents: one event for
@@ -365,9 +388,9 @@ One commit each:
 
 1. **The core and features for a page that goes without a page load:** `destroy()` releases its elements;
    `cache` writes on destroy; tests of destroy with each feature.
-2. **One way in:** the handler chain behind `navigate()`, the shared link listener, the traversal hand-off,
-   `navigate` exported; `query-links` and `transition` moved onto it with no change in behaviour (their
-   tests as they are), `onUnauthorized` through it. Sizes of the core and the two modules before and after.
+2. **One way in** (spiked, see [2](#2-one-way-in-navigate)): the handler chain behind `navigate()`, the
+   shared link listener, the traversal hand-off, `navigate` exported; `query-links`, `transition` and
+   prefetch moved onto it with no change in behaviour, `onUnauthorized` through it once decided.
 3. **The compiler change of [6](#6-the-pages-code):** pages that opt in export their mount and kept ids;
    `data-sn-navigation`, the checks and their codes.
 4. **The module** on that: a handler in the chain, the sequence with its named steps, the head, kept

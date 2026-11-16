@@ -9,7 +9,8 @@
 //
 // The kept element holds no bindings (the build checks it): the new page's compiled code finds only
 // its own nodes, none of them inside a kept element.
-import type { App, Feature } from './runtime/app.js';
+import { links } from './links.js';
+import type { App, Feature, Intent } from './runtime/app.js';
 import { instance } from './runtime/app.js';
 
 const ATTR = 'data-sn-permanent';
@@ -125,10 +126,11 @@ function heads(doc: Document, base: URL): { ready: Promise<unknown>; done(): voi
 }
 
 /**
- * Swaps the body for the page at `url`; false when it cannot (the caller loads the page). `push`: a
- * new history entry (a click); else the entry is already current (a traversal).
+ * Swaps the body for the page at `url`; false when it cannot (the caller loads the page). `kind`: a new
+ * history entry, the current one replaced, or a traversal (the entry is already current).
  */
-async function go(s: State, url: URL, push: boolean): Promise<boolean> {
+async function go(s: State, url: URL, kind: Intent['kind']): Promise<boolean> {
+  const push = kind != 'traverse';
   s.busy?.abort();
   const c = (s.busy = new AbortController());
   let res: Response;
@@ -180,7 +182,8 @@ async function go(s: State, url: URL, push: boolean): Promise<boolean> {
     // the old page: its scroll position on its entry, its app gone (its listeners, streams and timers), and
     // what it left on the <html> and <body> this document keeps (its handlers and state, `sinter.*`)
     try { history.replaceState({ ...(history.state ?? {}), snY: scrollY }, ''); } catch { /* ignored */ }
-    if (push) history.pushState({ snY: 0 }, '', final.href);
+    if (kind == 'push') history.pushState({ snY: 0 }, '', final.href);
+    else if (kind == 'replace') history.replaceState({ snY: 0 }, '', final.href);
     else if (final.href != location.href) history.replaceState(history.state, '', final.href);
     s.shown = final.pathname;
     try { instance(document).destroy(); } catch { /* not mounted */ }
@@ -246,31 +249,9 @@ async function go(s: State, url: URL, push: boolean): Promise<boolean> {
 
 function state(): State {
   const g = globalThis as Record<symbol, State | undefined>;
-  if (g[STATE]) return g[STATE]!;
-  const s: State = (g[STATE] = { shown: location.pathname, n: 0, busy: null, app: null, modules: [...document.querySelectorAll('script[type="module"][src]')].map((x) => (x as HTMLScriptElement).src) });
-  // Back and Forward across the entries this module made are traversals within the document: the body
-  // shown must follow the path. Registered once, before any app's own listener (which reads $url)
-  addEventListener('popstate', (e) => {
-    if (location.pathname == s.shown) return;
-    e.stopImmediatePropagation();
-    const to = new URL(location.href);
-    go(s, to, false).then((ok) => { if (!ok) location.reload(); }, () => location.reload());
-  });
   // the scroll position of a traversal is restored once the body is there
-  try { history.scrollRestoration = 'manual'; } catch { /* ignored */ }
-  return s;
-}
-
-/** A plain click on a link to another page of this origin, which nothing else took. */
-function followed(e: MouseEvent): URL | null {
-  if (e.defaultPrevented || e.button != 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return null;
-  const a = (e.target as Element | null)?.closest?.('a[href]') as HTMLAnchorElement | null;
-  if (!a || a.hasAttribute('download') || (a.target && a.target != '_self') || /\bexternal\b/.test(a.rel)) return null;
-  const u = new URL(a.href);
-  if (u.origin != location.origin || !/^https?:$/.test(u.protocol)) return null;
-  // the same document (a #hash, or the same URL): the browser's
-  if (pathOf(u) == pathOf(new URL(location.href))) return null;
-  return u;
+  if (!g[STATE]) try { history.scrollRestoration = 'manual'; } catch { /* ignored */ }
+  return (g[STATE] ??= { shown: location.pathname, n: 0, busy: null, app: null, modules: [...document.querySelectorAll('script[type="module"][src]')].map((x) => (x as HTMLScriptElement).src) });
 }
 
 const permanent: Feature = {
@@ -279,35 +260,20 @@ const permanent: Feature = {
     const s = state();
     s.app = app;
     s.shown = location.pathname;
-    // on window, in the bubble phase: after every handler of the page (same-page links, actions)
-    const click = (e: Event) => {
-      const u = followed(e as MouseEvent);
-      // a link the browser follows (the same page, a new tab is not one): the last click wins over a pending swap
-      if (!u) { if (!(e as MouseEvent).defaultPrevented && !(e as MouseEvent).metaKey && !(e as MouseEvent).ctrlKey && !(e as MouseEvent).shiftKey && (e.target as Element)?.closest?.('a[href]')) s.busy?.abort(); return; }
-      e.preventDefault();
-      go(s, u, true).then((ok) => { if (!ok) location.assign(u.href); }, () => location.assign(u.href));
-    };
-    addEventListener('click', click);
-    app.addCleanup(() => removeEventListener('click', click));
-    // `navigate(url)` in a handler: after a same-page link's turn (query-links), another page is a visit
-    const before = app.ext.follow;
-    app.ext.follow = (to, replace) => {
-      if (before?.(to, replace)) return true;
-      const u = new URL(to);
-      if (replace || u.origin != location.origin || pathOf(u) == pathOf(new URL(location.href))) return false;
-      visit(u.href);
-      return true;
-    };
+    // the swap's place among the navigation handlers (after same-page links): another path of this origin,
+    // from a link, `navigate()` or Back and Forward across the entries a swap made (the path changed)
+    app.nav.push((i) => {
+      const u = new URL(i.to), here = new URL(location.href);
+      const other = u.origin == here.origin && /^https?:$/.test(u.protocol) && (i.kind == 'traverse' ? u.pathname != s.shown : pathOf(u) != pathOf(here));
+      if (i.peek) return other && 'swap';
+      // the browser follows this one (the same page, the last handler passed): it wins over a pending swap
+      if (!other) { if (i.kind != 'traverse') s.busy?.abort(); return; }
+      const load = () => (i.kind == 'traverse' ? location.reload() : i.kind == 'replace' ? location.replace(u.href) : location.assign(u.href));
+      go(s, u, i.kind).then((ok) => { if (!ok) load(); }, load);
+      return 'swap';
+    });
+    links(app);
   },
 };
 
 export default permanent;
-
-/**
- * Goes to `href` as a link to it would, for app code (a redirect after a form): the body is swapped when
- * both pages keep an element, else the page is loaded.
- */
-export function visit(href: string): void {
-  const s = state(), u = new URL(href, location.href);
-  go(s, u, true).then((ok) => { if (!ok) location.assign(u.href); }, () => location.assign(u.href));
-}

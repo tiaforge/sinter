@@ -84,6 +84,8 @@ rest of `ssr` is skipped by the suite. The failures were assumptions in the suit
   writes the saved user into `user` (`upsert`), stores the token (`settings-saved` in `src/islands.js`,
   which keeps the cache: the account is the same) and calls `navigate()`; the profile page shows the
   cached user at once and revalidates. With a page load in their place (before), the four fail.
+  Every redirect goes the one way in: the islands call `navigate` from `@tiaforge-ui/sinter` for signing in
+  and out, and `<conduit-redirect>` calls it with `replace: true` (a swap where both pages allow it).
   Against the shared public API, a run now and then shows another account right after registering
   (`pw` and the time in base 36, `John Doe`, `www.google.com:80/`: other clients' accounts): 5 of 140
   settings runs in two runs, and 3 of 140 tests in a full run (two settings tests and `social`'s "should

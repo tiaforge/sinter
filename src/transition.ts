@@ -4,6 +4,7 @@
 // the old page (`pageswap`), the element with the same name on the new one (`pagereveal`), so a
 // list of a thousand rows asks the browser to capture one element, not a thousand. Going back
 // works the same way from the one named element of a detail page.
+import { links } from './links.js';
 import type { App, Feature } from './runtime/app.js';
 
 const KEY = 'sn:vt';
@@ -48,8 +49,10 @@ const transition: Feature = {
       const off = () => { el.style.viewTransitionName = ''; el.style.removeProperty('view-transition-class'); };
       vt.finished.then(off, off);
     };
-    const click = (e: Event) => { last = e.target as Element; };
-    root.addEventListener('click', click, true);
+    // what started a navigation (a link, the element of a `navigate()` handler): noted, never taken, so the
+    // handlers after this one and the browser go on as without it
+    app.nav.push((i) => { if (!i.peek) last = i.trigger ?? null; });
+    links(app);
 
     const swap = (e: Event) => {
       const { viewTransition: vt, activation } = e as SwapEvent;
@@ -80,7 +83,6 @@ const transition: Feature = {
     };
     app.addCleanup(env.listen('pageswap', swap));
     app.addCleanup(env.listen('pagereveal', reveal));
-    app.addCleanup(() => root.removeEventListener('click', click, true));
   },
 };
 
