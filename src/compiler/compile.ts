@@ -7416,16 +7416,20 @@ class Compiler {
     for (const n of nodes) for (const b of n.b) if (b.d) b.d = strip(b.d)!;
     for (const r of this.resources) if (r.deps) r.deps = strip(r.deps);
     // a state field nothing writes and no function reads anymore (its readers were written into the markup): out of the state
-    const code = this.fns.filter((c) => c !== '0');
+    // which functions read each state object whole (`$s0`, not followed by `.`) or a field of it (`$s0.k`):
+    // one scan of the functions, instead of a regular expression per field over every function
+    const readers = stateReaders(this.fns);
+    const byOther = (key: string, own: string) => { const r = readers.get(key); return !!r && (r.size > 1 || !r.has(own)); };
+    const inits = new Map(this.stateInits.map((x) => [x.sid, x] as const).reverse());
     const emptied = new Set<NodeDef>();
     for (const n of nodes) {
       if (n.sid === undefined || n.state === undefined) continue;
-      const st = this.stateInits.find((x) => x.sid === n.sid);
+      const st = inits.get(n.sid);
       if (!st || st.persist) continue;
       const sid = n.sid, own = this.fns[n.state]!;
       // the whole object read (`$s0[k]`, passed on): every field stays
-      if (code.some((c) => c !== own && new RegExp(`\\$s${sid}(?![\\w$.])`).test(c))) continue;
-      const unread = (k: string) => !written.has(`$s${sid}.${k}`) && !code.some((c) => c !== own && new RegExp(`\\$s${sid}\\.${k.replace(/\$/g, '\\$')}(?![\\w$])`).test(c));
+      if (byOther(`$s${sid}`, own)) continue;
+      const unread = (k: string) => !written.has(`$s${sid}.${k}`) && !byOther(`$s${sid}.${k}`, own);
       const keep = st.fields.filter((x) => !unread(x.key));
       if (keep.length === st.fields.length || !keep.every((x) => x.code.startsWith('($) => ('))) continue;
       this.fnUses[n.state]!--;
@@ -8391,6 +8395,28 @@ class Compiler {
 // ---- helpers
 
 /** Whether the document has a `<base href>` (links then resolve against it). */
+/**
+ * For each state object (`$s3`) and field (`$s3.k`) the functions read, the distinct function sources
+ * that read it; the object itself only where it is not followed by `.`, `$` or a word character, a
+ * field only where it is not followed by `$` or a word character. Functions that are `'0'` are gone.
+ */
+function stateReaders(fns: readonly string[]): Map<string, Set<string>> {
+  const out = new Map<string, Set<string>>();
+  const add = (key: string, c: string) => { let r = out.get(key); if (!r) out.set(key, (r = new Set())); r.add(c); };
+  const word = /[\w$]/, re = /\$s(\d+)/g, field = /^\.([\w$]+)/;
+  for (const c of new Set(fns)) {
+    if (c === '0') continue;
+    for (const m of c.matchAll(re)) {
+      const end = m.index + m[0].length, next = c[end];
+      if (next !== undefined && word.test(next)) continue;
+      if (next !== '.') { add(`$s${m[1]}`, c); continue; }
+      const f = field.exec(c.slice(end, end + 200));
+      if (f) add(`$s${m[1]}.${f[1]}`, c);
+    }
+  }
+  return out;
+}
+
 function hasBase(n: P5Parent): boolean {
   return n.childNodes.some((c) => isElement(c) && ((c.tagName === 'base' && attr(c, 'href') != null) || hasBase(c.tagName === 'template' ? (c as any).content : c)));
 }

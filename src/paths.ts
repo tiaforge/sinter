@@ -120,9 +120,22 @@ export function numberPaths(ir: IR): PathTable {
   // the reach table: for each written node, the dependency nodes it can touch, with what remains to check
   const reach: Array<Entry[] | 0> = parents.map(() => 0);
   const depList = [...deps].sort((a, b) => idOf(a) - idOf(b));
+  // a write whose first segment is a plain name reaches only the dependencies that start with that
+  // name or with a pattern (`*`, `#`, `{…}`), which staticReach decides at the first segment: grouped
+  // once, so each write is checked against its group rather than every dependency
+  const head = (p: string) => { const i = p.indexOf('.'); return i < 0 ? p : p.slice(0, i); };
+  const open = (seg: string) => seg == '*' || seg == '#' || seg[0] == '{';
+  const byHead = new Map<string, string[]>(), anyHead: string[] = [];
+  for (const d of depList) { const h = head(d); if (open(h)) anyHead.push(d); else { let g = byHead.get(h); if (!g) byHead.set(h, (g = [])); g.push(d); } }
+  const candidates = (w: string): string[] => {
+    const h = head(w);
+    if (special(h)) return depList;
+    const own = byHead.get(h) ?? [];
+    return anyHead.length ? [...own, ...anyHead].sort((a, b) => idOf(a) - idOf(b)) : own;
+  };
   for (const w of [...writes].sort((a, b) => idOf(a) - idOf(b))) {
     const out: Entry[] = [];
-    for (const d of depList) {
+    for (const d of candidates(w)) {
       const r = staticReach(w, d);
       // without checks left, whether a `**` ended the match changes nothing
       if (r) out.push(r.conds.length ? [idOf(d), r.all ? 1 : 0, ...r.conds] : idOf(d));
