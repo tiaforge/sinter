@@ -43,6 +43,105 @@ const marked = (root: ParentNode) => {
 const pathOf = (u: URL) => u.pathname + u.search;
 
 /**
+ * A head's elements, each with what decides its fate: `null`, bound (a `data-sn` node, an anchor's range, a
+ * template the page's code finds by id, the messages): always the new page's; `skip`, meaningful only as the
+ * document loads (classic and module scripts, preloads, preconnects, `<meta charset>`, a CSP, `<base>`): the
+ * old page's stay, the new page's are left out; else a key: the same key on both pages, the element stays.
+ */
+interface Unit { nodes: Node[]; key: string | null }
+const LOAD_ONLY = /(^|\s)(preload|modulepreload|preconnect|dns-prefetch|prefetch)(\s|$)/i;
+
+function units(head: HTMLHeadElement, base: URL): Unit[] {
+  const out: Unit[] = [];
+  const kids = [...head.childNodes];
+  for (let i = 0; i < kids.length; i++) {
+    const n = kids[i]!;
+    if (n.nodeType == 8) {
+      // an anchor: its start comment, what was rendered in it, its end (nested anchors inside)
+      if (!/^sn \d+$/.test((n as Comment).data)) continue;
+      const nodes: Node[] = [n];
+      for (let depth = 1; depth && ++i < kids.length;) {
+        const k = kids[i]!;
+        nodes.push(k);
+        if (k.nodeType == 8) depth += /^sn \d+$/.test((k as Comment).data) ? 1 : (k as Comment).data == '/sn' ? -1 : 0;
+      }
+      out.push({ nodes, key: null });
+      continue;
+    }
+    if (n.nodeType != 1) continue;
+    const el = n as Element, tag = el.localName, type = (el.getAttribute('type') ?? '').toLowerCase();
+    let key: string | null;
+    if (el.hasAttribute('data-sn') || el.hasAttribute('data-sn-messages') || (tag == 'template' && /^sn-t-/.test(el.id))) key = null;
+    else if (tag == 'script') key = type == 'application/json' || type == 'speculationrules' ? el.outerHTML : 'skip';
+    else if (tag == 'base' || (tag == 'meta' && (el.hasAttribute('charset') || el.hasAttribute('http-equiv')))) key = 'skip';
+    else if (tag == 'link' && LOAD_ONLY.test(el.getAttribute('rel') ?? '')) key = 'skip';
+    else if (tag == 'link' && el.hasAttribute('href')) {
+      // the same file, whatever relative URL each page writes for it
+      const x = el.cloneNode() as Element;
+      x.setAttribute('href', new URL(el.getAttribute('href')!, base).href);
+      key = x.outerHTML;
+    } else key = el.outerHTML;
+    out.push({ nodes: [el], key });
+  }
+  return out;
+}
+
+/** What only a page load can change: a page that differs here is loaded. */
+const fixed = (d: Document, base: URL) => JSON.stringify([
+  [...d.querySelectorAll('head meta[http-equiv]')].map((m) => [m.getAttribute('http-equiv')!.toLowerCase(), m.getAttribute('content')]),
+  [...d.querySelectorAll('head base[href]')].map((b) => new URL(b.getAttribute('href')!, base).href),
+  [...d.querySelectorAll('script[data-sn-i18n]')].map((x) => x.getAttribute('data-sn-i18n')),
+]);
+
+/** A node of the fetched document, for this one: scripts made anew (a parsed one never runs), URLs resolved. */
+function adopt(n: Node, base: URL): Node {
+  if (n.nodeType == 1 && (n as Element).localName == 'script') {
+    const x = document.createElement('script');
+    for (const a of (n as Element).attributes) x.setAttribute(a.name, a.value);
+    x.textContent = n.textContent;
+    return x;
+  }
+  const x = document.adoptNode(n);
+  if (x.nodeType == 1 && (x as Element).localName == 'link' && (x as Element).hasAttribute('href')) {
+    (x as Element).setAttribute('href', new URL((x as Element).getAttribute('href')!, base).href);
+  }
+  return x;
+}
+
+/**
+ * Puts the new page's head elements in (each after the element it follows there, so the cascade keeps its
+ * order) and, at `done()`, takes out the old page's that the new one does not have. null: the pages differ in
+ * what only a load can change.
+ */
+function heads(doc: Document, base: URL): { ready: Promise<unknown>; done(): void; undo(): void } | null {
+  if (fixed(document, new URL(location.href)) != fixed(doc, base)) return null;
+  const olds = units(document.head, new URL(location.href)), news = units(doc.head, base);
+  const free = new Map<string, Unit[]>();
+  for (const u of olds) if (u.key && u.key != 'skip') free.set(u.key, [...(free.get(u.key) ?? []), u]);
+  const stay = new Set<Unit>(), added: Node[] = [], loads: Promise<unknown>[] = [];
+  let after: Node | null = null;
+  for (const u of news) {
+    if (u.key == 'skip') continue;
+    const same = u.key ? free.get(u.key)?.shift() : undefined;
+    if (same) { stay.add(same); after = same.nodes[same.nodes.length - 1]!; continue; }
+    for (const n of u.nodes) {
+      const x = adopt(n, base);
+      document.head.insertBefore(x, after ? after.nextSibling : null);
+      after = x;
+      added.push(x);
+      if (x.nodeType == 1 && (x as Element).localName == 'link' && /(^|\s)stylesheet(\s|$)/i.test((x as Element).getAttribute('rel') ?? '')) {
+        loads.push(new Promise((r) => { (x as HTMLLinkElement).onload = (x as HTMLLinkElement).onerror = r; }));
+      }
+    }
+  }
+  return {
+    ready: Promise.all(loads),
+    done: () => { for (const u of olds) if (u.key != 'skip' && !stay.has(u)) for (const n of u.nodes) (n as ChildNode).remove(); },
+    undo: () => { for (const n of added) (n as ChildNode).remove(); },
+  };
+}
+
+/**
  * Swaps the body for the page at `url`; false when it cannot (the caller loads the page). `push`: a
  * new history entry (a click); else the entry is already current (a traversal).
  */
@@ -76,19 +175,11 @@ async function go(s: State, url: URL, push: boolean): Promise<boolean> {
   const modules = all.filter((m) => !s.modules.includes(m));
   if (!modules.length) return false;
 
-  // the new page's stylesheets the document does not have yet, loaded before the swap
-  const have = new Set([...document.querySelectorAll('link[rel="stylesheet"]')].map((l) => (l as HTMLLinkElement).href));
-  const styles = [...doc.querySelectorAll('head link[rel="stylesheet"]')]
-    .filter((l) => !have.has(new URL(l.getAttribute('href')!, final).href))
-    .map((l) => {
-      const link = document.createElement('link');
-      for (const a of l.attributes) link.setAttribute(a.name, a.value);
-      link.href = new URL(l.getAttribute('href')!, final).href;
-      document.head.append(link);
-      return new Promise((r) => { link.onload = link.onerror = r; });
-    });
-  await Promise.all(styles);
-  if (c.signal.aborted) return true;
+  // the head: the new page's own elements in, before the swap (its stylesheets loaded), the old page's out in it
+  const head = heads(doc, final);
+  if (!head) return false;
+  await head.ready;
+  if (c.signal.aborted) { head.undo(); return true; }
 
   // the old page: its scroll position on its entry, its app gone (its listeners, streams and timers)
   try { history.replaceState({ ...(history.state ?? {}), snY: scrollY }, ''); } catch { /* ignored */ }
@@ -108,16 +199,28 @@ async function go(s: State, url: URL, push: boolean): Promise<boolean> {
     body.append(...add);
     for (const [o, n] of pairs) {
       const p = n.parentNode as Element & { moveBefore?: (a: Node, b: Node | null) => void };
-      if (p.moveBefore && p.isConnected && o.isConnected) p.moveBefore(o, n); else p.insertBefore(o, n);
+      if (p.moveBefore && p.isConnected && o.isConnected) p.moveBefore(o, n);
+      else {
+        // without moveBefore (WebKit), a move resets scroll positions and drops focus: put them back
+        const scrolled = [o, ...o.querySelectorAll('*')].filter((x) => x.scrollTop || x.scrollLeft).map((x) => [x, x.scrollTop, x.scrollLeft] as const);
+        const f = document.activeElement as (HTMLElement & Partial<HTMLInputElement>) | null, inside = !!f && o.contains(f);
+        const sel = inside && typeof f!.selectionStart == 'number' ? [f!.selectionStart!, f!.selectionEnd ?? null, f!.selectionDirection] as const : null;
+        p.insertBefore(o, n);
+        for (const [x, t, l] of scrolled) { x.scrollTop = t; x.scrollLeft = l; }
+        if (inside) {
+          f!.focus({ preventScroll: true });
+          try { if (sel) f!.setSelectionRange!(sel[0], sel[1], sel[2] ?? undefined); } catch { /* not a text control */ }
+        }
+      }
       n.remove();
     }
     for (const n of old) if (!kept.has(n as Element)) n.remove();
-    // the body's and <html>'s own attributes, and the title
+    head.done();
+    // the body's and <html>'s own attributes
     for (const [from, to] of [[doc.body, body], [doc.documentElement, document.documentElement]] as const) {
       for (const a of [...to.attributes]) if (!from.hasAttribute(a.name)) to.removeAttribute(a.name);
       for (const a of from.attributes) to.setAttribute(a.name, a.value);
     }
-    document.title = doc.title;
     const y = push ? 0 : (history.state?.snY ?? 0);
     if (push && final.hash) document.getElementById(decodeURIComponent(final.hash.slice(1)))?.scrollIntoView();
     else scrollTo(0, y);
@@ -183,7 +286,8 @@ const permanent: Feature = {
     // on window, in the bubble phase: after every handler of the page (same-page links, actions)
     const click = (e: Event) => {
       const u = followed(e as MouseEvent);
-      if (!u) return;
+      // a link the browser follows (the same page, a new tab is not one): the last click wins over a pending swap
+      if (!u) { if (!(e as MouseEvent).defaultPrevented && !(e as MouseEvent).metaKey && !(e as MouseEvent).ctrlKey && !(e as MouseEvent).shiftKey && (e.target as Element)?.closest?.('a[href]')) s.busy?.abort(); return; }
       e.preventDefault();
       go(s, u, true).then((ok) => { if (!ok) location.assign(u.href); }, () => location.assign(u.href));
     };

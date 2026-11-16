@@ -1,0 +1,19 @@
+<!-- Both pages: a head that binds (title, a description meta, the page's head slot) and the kept element. -->
+<!doctype html>
+<html lang="en" data-sn-layout="{ title: string; description: string }">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title data-sn-text="title"></title>
+  <meta name="description" data-sn-attr="{ content: description }">
+  <slot name="head"></slot>
+</head>
+<body>
+  <nav><a id="to-a" href="/">A</a> <a id="to-b" href="/b/">B</a></nav>
+  <aside id="keep" data-sn-permanent="keep">
+    <textarea rows="2" aria-label="Notes"></textarea>
+    <div id="scroller" style="block-size: 3rem; overflow: auto"><div style="block-size: 20rem">tall</div></div>
+  </aside>
+  <main><slot></slot></main>
+</body>
+</html>
