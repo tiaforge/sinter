@@ -57,6 +57,7 @@ const entries = {
   components: `export { default, Component } from '${dist}/components.js';`,
   nested: `export { default } from '${dist}/nested.js';`,
   lets: `export { default } from '${dist}/lets.js';`,
+  memo: `export { memo } from '${dist}/memo.js';`,
   remote: `export { remote } from '${dist}/remote.js';`,
   dev: `export { default } from '${dist}/dev.js';`,
   // what the contacts example loads: core + sse + optimistic + persist

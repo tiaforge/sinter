@@ -26,7 +26,7 @@ Local state next to the markup that uses it.
 | Attribute | Value | Meaning |
 | --- | --- | --- |
 | `data-sn-state` | object literal | declares local reactive state for the element and its subtree |
-| `data-sn-let` | object literal {name: expression} | derived names for the element and its subtree; later names may use earlier ones. A name is inlined where it is read, unless its expression calls a helper: then it is computed once per scope instance and again when what it reads changes (a call whose arguments are equal primitives returns its last result) |
+| `data-sn-let` | object literal {name: expression} | derived names for the element and its subtree, computed where they are read (a helper call included: keep an expensive one's results with `memo()`, configuration.md); later names may use earlier ones |
 | `data-sn-model` | state path \| $url.&lt;param&gt; | two-way binding for form controls; on $url, the URL follows (a history entry; typing at each pause), and a &lt;select multiple&gt; or a checkbox with a value makes the parameter a list |
 | `data-sn-persist` | storage key | persists the model or state in localStorage under sn: |
 

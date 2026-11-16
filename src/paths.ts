@@ -75,7 +75,6 @@ export function eachPath(ir: IR, dep: (p: any, set: (n: number) => void) => void
   for (const r of ir.resources as ResourceDef[]) { list(r, 'deps', dep); list(r, 'w', write); }
   for (const s of ir.syncs ?? []) for (const e of s.events) list(e, 'w', write);
   for (const a of ir.actions as ActionDef[]) list(a, 'w', write);
-  for (const l of ir.lt ?? []) list(l, 'd', dep);
 }
 
 /** The paths the runtime marks by itself, by name in the table's `x`: the page's fixed inputs, each resource, each state scope. */
