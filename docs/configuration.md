@@ -205,7 +205,7 @@ export * as fmt from './format.js';
 
 - Exported names become functions. Type-only exports are skipped.
 - `export * as ns from './module.js'` makes a namespace. The compiler reads its members, so `fmt.pirce(...)` is `SN206` with a suggestion. Members must be named literally: `fmt[key]` is refused. Only the members a page uses reach its bundle: the page module and the early file import each helper from the module that declares it, not through the helpers module.
-- A `data-sn-let` (or a prop) that calls a helper is computed once per scope instance, and again when what it reads changes; a call whose arguments are equal primitives returns its last result ([spec.md](spec.md#derived-names)). So a helper must keep the purity contract: one that reads something else gets no new value at every read.
+- A `data-sn-let` (or a prop) is its expression, evaluated at every read, a helper call included ([spec.md](spec.md#derived-names)): a parse that three bindings read runs three times. Keep an expensive helper's results with `memo()` (below).
 - A helper module that reaches a package of `lazy` loads only when a let first needs it ([lazy.md](lazy.md#helpers-that-wait)).
 - The helpers module also runs in Node: the build, the dev server, `sinter check` and the language server
   load it before compiling, through Vite with your config (aliases and plugins apply), and a call over
@@ -221,6 +221,34 @@ export * as fmt from './format.js';
   data; a call that throws or returns anything else stays in the browser (`SN534` in dev builds, which
   also run each call twice: a helper that returns another result the second time is not pure).
 - Re-exports follow relative paths only.
+
+### Memoized helpers
+
+A helper that does real work (a document parse, a search index, a layout) can keep its results with `memo()`:
+
+```ts
+// src/sinter.helpers.ts
+import { memo } from '@tiaforge-ui/sinter/memo';
+import { parseDocument } from './parser.ts';
+
+export const parse = memo(parseDocument);
+export const toc = memo((body: string, depth: number) => headings(parseDocument(body), depth), { maxSize: 2 * 1024 * 1024 });
+```
+
+- It keeps a result by its arguments when each is a primitive, or a plain object or array of primitives
+  (`{ strict: true }`, `['a', 'b']`), compared by content: equal arguments return the same result. Any
+  other argument (a nested object, a `Map`, a class instance, a function) calls through every time.
+- **It takes everything it depends on as arguments.** A memoized function must not read anything that
+  changes (the locale, the time, a global, another module's state): pass it in (`parse(body, $locale)`).
+- An object argument is copied before the call, so a result never holds your object (state you change
+  later). The result is deep-frozen, in production too, and shared by every caller: change a copy
+  (`structuredClone(doc)`). A result that holds anything but plain data (a `Map`, a `Set`, a `Date`, a typed
+  array, a class instance, a function) is returned as it is and not kept.
+- The cache is bounded by an approximate size (`maxSize`, in bytes; 4 MiB by default): the least
+  recently used results go first. `parse.clear()` forgets them all. A call that throws keeps nothing.
+- It works in the page module, the early file and in Node: a memoized helper's calls over build-time
+  values run at build time as the function it calls would (its cache is the memo's own state, which the
+  build's checks allow). Each bundle has its own cache: the early file and the page module each parse once.
 
 ### Built-in formatters
 

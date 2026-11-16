@@ -325,11 +325,6 @@ export interface IR {
   /** the path table (page module only); without it, paths are strings */
   ps?: PathTable;
   /**
-   * cached lets (`data-sn-let` over a helper, `lets.ts`), by the id their code passes to `$.$c`: the paths
-   * whose change computes them again; absent for none
-   */
-  lt?: Array<{ d: PathRef[] }>;
-  /**
    * helper modules that reach lazy packages, by the index a waiting let passes to `$.$z`: the function that
    * loads each one (its arrival is the path `$lz.<index>`); absent for none
    */
@@ -438,7 +433,6 @@ export function validateIR(ir: unknown, fnCount: number): string[] {
     fn(t.find, `templates[${i}].find`);
     fn(t.make, `templates[${i}].make`);
   });
-  (o.lt ?? []).forEach((l, i) => { for (const d of l.d) if (bad(d)) errs.push(`lt[${i}]: bad path`); });
   (o.lm ?? []).forEach((f, i) => fn(f, `lm[${i}]`, false));
   o.actions.forEach((a, i) => {
     const at = `actions[${i}]`;

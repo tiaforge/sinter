@@ -104,9 +104,7 @@ export function earlyPage(early: EarlyParts): { code: string; uses: string[] } {
   // `$locale` read early: the page passes the configured locale source (else the early file carries no config)
   const lc = early.fns.some((x) => /\$\.\$locale\b/.test(x)), ls = !!early.ir.urlArrays;
   // array parameters: the page passes `lists` (else the early file carries none of it)
-  // cached lets: the early file's own cache (else it carries none of it)
-  const cl = early.fns.some((x) => x.includes('$.$c($, '));
-  const extra = [...(lc ? ['locale'] : []), ...(ls ? ['lists'] : []), ...(cl ? ['lets'] : [])];
+  const extra = [...(lc ? ['locale'] : []), ...(ls ? ['lists'] : [])];
   return { code: `{ ir: ${JSON.stringify(ir)}, fns: f, scopes: ${r.scopes}, render: ${r.render}${extra.map((x) => ', ' + x).join('')} }`, uses: extra.length ? [...r.uses, ...extra].sort() : r.uses };
 }
 

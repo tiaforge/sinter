@@ -1,33 +1,32 @@
-// Lets over helpers (docs/spec.md, Derived names): a `data-sn-let` entry, or a prop, that calls a
-// helper is computed once per scope instance and again only when its dependencies change, unless
-// every argument is an equal primitive (or a plain object of primitives); a let may wait for a helper
-// module that reaches a lazy package; and the takeover of an early render changes nothing.
+// Lets over helpers (docs/spec.md, Derived names): a `data-sn-let` entry, or a prop, is its expression,
+// inlined at every read, a helper call included (an expensive helper is the app's to memoize, `memo()`).
+// What a binding, a handler and a listener read is what the expression gives then: after the handler's own
+// writes, store functions, emit(), nested events, in the middle of a flush, after the takeover of an early
+// render; a let may wait for a helper module that reaches a lazy package.
 import { describe, expect, test } from 'vitest';
 import { compile } from '../../src/compiler/index.js';
 import { firstPaint, mockRequests, mockStream, render } from '../../src/testing/index.js';
 import { configure } from '../../src/index.js';
+import { memo } from '../../src/memo.js';
 
-/** a helper that counts its calls and returns new objects each time, as a parser does */
+/** a helper that records its calls and returns new objects each time, as a parser does */
 const counting = () => {
   const calls: string[] = [];
   const parse = (s: string, o?: { upper?: boolean }) => { calls.push(s); return { words: String(s).split(' ').filter(Boolean).map((w) => ({ w: o?.upper ? w.toUpperCase() : w })) }; };
   return { calls, parse };
 };
 
-describe('a let over a helper is cached', () => {
-  test('computed once per scope instance, however many bindings and handlers read it', async () => {
-    const { calls, parse } = counting();
+describe('a let over a helper: its expression, at every read', () => {
+  test('bindings and a handler read it', async () => {
+    const { parse } = counting();
     const r = await render(`<main data-sn-state="{ src: 'a b', n: 0, seen: 0 }" data-sn-let="{ doc: parse(src) }">
       <p data-sn-text="doc.words.length"></p><ul><template data-sn-for="x in doc.words"><li data-sn-text="x.w"></li></template></ul>
       <button data-sn-on-click="seen = doc.words.length; n++" data-sn-text="n"></button></main>`, { helpers: { parse } });
-    expect(calls).toEqual(['a b']);
     expect(r.root.querySelector('p')!.textContent).toBe('2');
-    // a change it does not depend on, and a handler that reads it: no new call
     r.root.querySelector('button')!.click();
     await r.flush();
     expect(r.root.querySelector('button')!.textContent).toBe('1');
     expect(r.state(r.root.querySelector('main')!).get().seen).toBe(2);
-    expect(calls).toEqual(['a b']);
   });
 
   // a handler's writes are marked when it returns: a read later in the same handler must see them
@@ -37,9 +36,8 @@ describe('a let over a helper is cached', () => {
     ['an object changed in place, read through a member', '{ o: { xs: [1] }, seen: 0 }', '{ n: len(o) }', 'o.xs.push(1); seen = n', 2],
   ] as const) {
     test(`a handler that changes a let's inputs and then reads it sees the new value (${what})`, async () => {
-      let calls = 0;
-      const sum = (xs: number[]) => { calls++; return xs.reduce((a, b) => a + b, 0); };
-      const len = (o: { xs: unknown[] }) => { calls++; return o.xs.length; };
+      const sum = (xs: number[]) => xs.reduce((a, b) => a + b, 0);
+      const len = (o: { xs: unknown[] }) => o.xs.length;
       const name = let_.slice(2, let_.indexOf(':'));
       const r = await render(`<main data-sn-state="${state}" data-sn-let="${let_}"><p data-sn-text="${name}"></p><b data-sn-text="seen"></b>
         <button data-sn-on-click="${handler}"></button></main>`, { helpers: { sum, len } });
@@ -47,42 +45,24 @@ describe('a let over a helper is cached', () => {
       r.root.querySelector('button')!.click();
       await r.flush();
       expect(r.root.querySelector('b')!.textContent).toBe(String(seen));
-      // the binding agrees, and the page did not compute it for every read: once at mount, once in the handler, once after
+      // the binding agrees
       expect(r.root.querySelector('p')!.textContent).toBe(String(seen));
       expect(before).not.toBe(String(seen));
-      expect(calls).toBeLessThanOrEqual(3);
     });
   }
 
-  test('a handler whose writes do not reach a let keeps its value and its objects: rows compared by identity still match', async () => {
-    let calls = 0;
-    const decorate = (xs: Array<{ n: number }>) => { calls++; return xs.map((x) => ({ ...x })); };
-    const count = (v: unknown[]) => v.length;
-    const r = await render(`<main data-sn-state="{ xs: [{ n: 1 }, { n: 2 }, { n: 3 }], picked: null }" data-sn-let="{ view: decorate(xs), total: count(view) }">
-      <ul><template data-sn-for="r in view"><li data-sn-class="{ on: picked === r }" data-sn-text="r.n"></li></template></ul>
-      <b data-sn-text="total"></b><button data-sn-on-click="picked = view[1]"></button></main>`, { helpers: { decorate, count } });
-    expect(calls).toBe(1);
-    r.root.querySelector('button')!.click();
-    await r.flush();
-    expect([...r.root.querySelectorAll('li')].map((x) => (x.classList.contains('on') ? 'on' : '-')).join(',')).toBe('-,on,-');
-    expect(calls).toBe(1);
-  });
-
-  test('handlers that write nothing a let reads never compute it: 100 mousemoves reading it three times each', async () => {
-    let calls = 0;
-    const decorate = (xs: Array<{ n: number }>) => { calls++; return xs.map((x) => ({ ...x })); };
+  test('100 mousemoves whose handler writes something else and reads the let three times', async () => {
+    const decorate = (xs: Array<{ n: number }>) => xs.map((x) => ({ ...x }));
     const count = (v: unknown[]) => v.length;
     const r = await render(`<main data-sn-state="{ xs: [{ n: 1 }, { n: 2 }], hover: 0, seen: 0 }" data-sn-let="{ view: decorate(xs), total: count(view) }"
       data-sn-on-mousemove="hover = $event.clientX; seen = total + view.length + total"><i data-sn-text="total"></i><b data-sn-text="seen"></b></main>`, { helpers: { decorate, count } });
-    calls = 0;
     const main = r.root.querySelector('main')!;
     for (let i = 0; i < 100; i++) main.dispatchEvent(new MouseEvent('mousemove', { clientX: i, bubbles: true }));
     await r.flush();
-    expect(calls).toBe(0);
     expect(r.root.querySelector('b')!.textContent).toBe('6');
   });
 
-  // what changes a let's dependencies outside the handler's own writes: every path ends in a mark, which a read checks against
+  // what changes a let's inputs outside the handler's own writes
   describe('a let read in a handler after something else changed what it reads', () => {
     const sum = (xs: number[]) => xs.reduce((a, b) => a + b, 0);
     const dbl = (a: number) => ({ v: a * 2 });
@@ -148,7 +128,7 @@ describe('a let over a helper is cached', () => {
       expect(r.root.querySelector('b')!.textContent).toBe('10');
     });
 
-    // a read before the handler's own write: the write is marked before the handler runs, and the read must not settle it
+    // a read before the handler's own write, and after it
     for (const [what, state, let_, handler, want] of [
       ['read, write, read', '{ a: 1, r: 0, r2: 0 }', '{ L: dbl(a) }', 'r = L.v; a = 5; r2 = L.v', 'r=2 r2=10'],
       ['a total before and after a push', '{ xs: [1, 2], before: 0, added: 0 }', '{ total: sum(xs) }', 'before = total; xs.push(4); added = total - before', 'before=3 added=4'],
@@ -170,7 +150,6 @@ describe('a let over a helper is cached', () => {
         set n(v: number) { if (v > 0) this.dispatchEvent(new CustomEvent('ping', { bubbles: true })); }
       }
       if (!customElements.get('x-ping')) customElements.define('x-ping', XPing);
-      // U reads nothing the click wrote: after the island's handler marked, its read checks what is pending
       const r = await render(`<main data-sn-state="{ go: 0, k: 1, xs: [{ s: 0 }, { s: 2 }, { s: 0 }] }" data-sn-let="{ T: sum(xs.map((x) => x.s)), U: dbl(k) }" data-sn-on-ping="xs[1].s = 2">
         <x-ping data-sn-prop="{ n: go }"></x-ping><b data-sn-text="U.v + go"></b><p data-sn-text="T"></p>
         <ul><template data-sn-for="x in xs"><li data-sn-text="x.s"></li></template></ul><i data-sn-text="T + go"></i>
@@ -182,29 +161,10 @@ describe('a let over a helper is cached', () => {
       expect(r.root.querySelector('i')!.textContent).toBe('19');
     });
 
-    test('the check runs once per mark, not once per read: a handler that writes 400 bound fields and reads a let 20,000 times', async () => {
-      const fields = Array.from({ length: 400 }, (_, i) => `f${i}: 0`).join(', ');
-      let calls = 0;
-      const total = (xs: number[]) => { calls++; return xs.length; };
-      const r = await render(`<main data-sn-state="{ big: { ${fields} }, xs: [1, 2], o: 0 }" data-sn-let="{ T: total(xs) }"><p data-sn-text="T"></p>
-        ${Array.from({ length: 400 }, (_, i) => `<i data-sn-text="big.f${i}"></i>`).join('')}
-        <button data-sn-on-click="Object.assign(big, { f0: 1, f399: 2 }); o = reps(20000).reduce((n) => n + T, 0)"></button><b data-sn-text="o"></b></main>`,
-      { helpers: { total, reps: (n: number) => Array.from({ length: n }) }, strict: false });
-      const app = r.app as unknown as { pending: (d: unknown) => boolean };
-      const pending = app.pending;
-      let checks = 0;
-      app.pending = (d) => { checks++; return pending(d); };
-      calls = 0;
-      r.root.querySelector('button')!.click();
-      await r.flush();
-      expect(r.root.querySelector('b')!.textContent).toBe('40000');
-      expect(calls).toBe(0);
-      expect(checks).toBeLessThanOrEqual(2);
-    });
   });
 
-  test('a dependency changes: computed again; equal primitive arguments return the last result', async () => {
-    const { calls, parse } = counting();
+  test('a dependency changes: the rows show the new value; an object literal argument that changed', async () => {
+    const { parse } = counting();
     const r = await render(`<main data-sn-state="{ post: { body: 'a b', likes: 0 }, upper: false }" data-sn-let="{ doc: parse(post.body, { upper }) }">
       <ul><template data-sn-for="x in doc.words"><li data-sn-text="x.w"></li></template></ul>
       <span data-sn-text="post.likes"></span>
@@ -212,64 +172,51 @@ describe('a let over a helper is cached', () => {
       <button id="edit" data-sn-on-click="post.body = 'c d e'"></button>
       <button id="up" data-sn-on-click="upper = true"></button></main>`, { helpers: { parse } });
     const li = () => [...r.root.querySelectorAll('li')];
-    const first = li();
-    // a new `post` object whose body is the same string: no parse, the same tree, the same rows
     r.root.querySelector<HTMLElement>('#like')!.click();
     await r.flush();
     expect(r.root.querySelector('span')!.textContent).toBe('1');
-    expect(calls).toEqual(['a b']);
-    expect(li()).toEqual(first);
-    expect(li().every((x, i) => x === first[i])).toBe(true);
-    // the body changes in place: parsed again
+    expect(li().map((x) => x.textContent)).toEqual(['a', 'b']);
+    // the body changes in place
     r.root.querySelector<HTMLElement>('#edit')!.click();
     await r.flush();
-    expect(calls).toEqual(['a b', 'c d e']);
     expect(li().map((x) => x.textContent)).toEqual(['c', 'd', 'e']);
     // an object literal of primitives that changed
     r.root.querySelector<HTMLElement>('#up')!.click();
     await r.flush();
-    expect(calls).toEqual(['a b', 'c d e', 'c d e']);
     expect(li().map((x) => x.textContent)).toEqual(['C', 'D', 'E']);
   });
 
-  test('an argument changed in place is not equal: computed again (state may be changed in place)', async () => {
-    let calls = 0;
-    const visible = (tasks: Array<{ t: string; done: boolean }>, q: string) => { calls++; return tasks.filter((x) => !x.done && x.t.includes(q)); };
+  test('an argument changed in place: the new value', async () => {
+    const visible = (tasks: Array<{ t: string; done: boolean }>, q: string) => tasks.filter((x) => !x.done && x.t.includes(q));
     const r = await render(`<main data-sn-state="{ tasks: [{ t: 'a', done: false }], q: '' }" data-sn-let="{ shown: visible(tasks, q) }">
       <ul><template data-sn-for="x in shown"><li data-sn-text="x.t"></li></template></ul><b data-sn-text="shown.length"></b>
       <button id="add" data-sn-on-click="tasks.push({ t: 'ab', done: false })"></button>
       <button id="done" data-sn-on-click="tasks[0].done = true"></button></main>`, { helpers: { visible } });
-    expect(calls).toBe(1);
     r.root.querySelector<HTMLElement>('#add')!.click();
     await r.flush();
-    expect(calls).toBe(2);
     expect([...r.root.querySelectorAll('li')].map((x) => x.textContent)).toEqual(['a', 'ab']);
     r.root.querySelector<HTMLElement>('#done')!.click();
     await r.flush();
-    expect(calls).toBe(3);
     expect(r.root.querySelector('b')!.textContent).toBe('1');
   });
 
-  test('per row: each row computes its own, once; a new row computes only its own', async () => {
-    const { calls, parse } = counting();
+  test('per row: each row its own value; a new row, a row replaced', async () => {
+    const { parse } = counting();
     const r = await render(`<main data-sn-state="{ items: [{ id: 1, body: 'a' }, { id: 2, body: 'b c' }] }">
       <template data-sn-for="c in items" data-sn-key="c.id"><article data-sn-let="{ doc: parse(c.body) }"><b data-sn-text="doc.words.length"></b><i data-sn-text="doc.words[0].w"></i></article></template>
       <button id="add" data-sn-on-click="items.push({ id: 3, body: 'd e f' })"></button>
       <button id="like" data-sn-on-click="items[0] = { ...items[0], likes: 2 }"></button></main>`, { helpers: { parse } });
-    expect(calls).toEqual(['a', 'b c']);
     expect([...r.root.querySelectorAll('b')].map((x) => x.textContent)).toEqual(['1', '2']);
     r.root.querySelector<HTMLElement>('#add')!.click();
     await r.flush();
-    expect(calls).toEqual(['a', 'b c', 'd e f']);
     expect([...r.root.querySelectorAll('b')].map((x) => x.textContent)).toEqual(['1', '2', '3']);
-    // a row's item replaced by a new object with the same body: computed again, the parse's last result
     r.root.querySelector<HTMLElement>('#like')!.click();
     await r.flush();
-    expect(calls).toEqual(['a', 'b c', 'd e f']);
+    expect([...r.root.querySelectorAll('i')].map((x) => x.textContent)).toEqual(['a', 'b', 'd']);
   });
 
-  test('an <sn-sync> mapping reads the cached value', async () => {
-    const { calls, parse } = counting();
+  test('an <sn-sync> mapping reads the let', async () => {
+    const { parse } = counting();
     const stream = mockStream();
     const r = await render(`<main data-sn-state="{ src: 'a b', got: '' }" data-sn-let="{ doc: parse(src) }">
       <sn-sync src="/s"><sn-event name="ping" when="doc.words.length > 1" then="got = got + doc.words[0].w + n"></sn-event></sn-sync>
@@ -280,29 +227,27 @@ describe('a let over a helper is cached', () => {
     stream.emit('ping', { n: 2 });
     await r.settle();
     expect(r.root.querySelector('p')!.textContent).toBe('a1a22');
-    expect(calls).toEqual(['a b']);
   });
 
-  test('a prop is a let: a prop over a helper is computed once for the component', async () => {
-    const { calls, parse } = counting();
+  test('a prop is a let: a prop over a helper', async () => {
+    const { parse } = counting();
     const doc = '<template data-sn-component="{ doc: any }"><div><p data-sn-text="doc.words.length"></p><template data-sn-for="x in doc.words"><span data-sn-text="x.w"></span></template></div></template>';
     const r = await render(`<main data-sn-state="{ src: 'a b c', n: 0 }"><x-doc data-sn-prop="{ doc: parse(src) }"></x-doc><button data-sn-on-click="n++" data-sn-text="n"></button></main>`, { helpers: { parse }, components: { 'x-doc': doc } });
-    expect(calls).toEqual(['a b c']);
     expect(r.root.querySelector('p')!.textContent).toBe('3');
     r.root.querySelector('button')!.click();
     await r.flush();
-    expect(calls).toEqual(['a b c']);
+    expect(r.root.querySelector('p')!.textContent).toBe('3');
   });
 
-  test('a namespace member is a helper too; a let without a helper call stays inlined', () => {
+  test('a let over a helper compiles inlined, as any let: no cache, no feature module', () => {
     const helpers = { module: '/src/sinter.helpers.ts', names: ['fmt'], namespaces: { crunch: { module: '/src/crunch.ts', members: ['parse'] } } };
     const out = compile(`<main data-sn-state="{ s: 'x' }" data-sn-let="{ a: crunch.parse(s), b: s.length, c: [s].map((v) => fmt(v)) }"><i data-sn-text="a"></i><i data-sn-text="b"></i><i data-sn-text="c"></i></main>`,
       { file: '/p/index.html', root: '/p', dev: false, helpers, readFile: () => { throw new Error('none'); } });
-    expect(out.module).toContain('$.$c($, 0, "$s0", ($) => ($.$h(0, crunch$parse, [$.$s0.s])))');
-    // `b` reads no helper; `c` calls one only inside an arrow function: both inlined, as before
+    expect(out.module).toContain('crunch$parse($.$s0.s)');
     expect(out.module).toContain('($) => ($.$s0.s.length)');
     expect(out.module).toContain('($) => (([$.$s0.s].map((v) => fmt(v))))');
-    expect(out.module).toContain("import sn$lets from '@tiaforge-ui/sinter/lets';");
+    expect(out.module).not.toContain('$.$c(');
+    expect(out.module).not.toContain('sinter/lets');
   });
 });
 
@@ -311,23 +256,20 @@ describe('first paint and takeover', () => {
     <sn-resource name="post" src="/api/post"></sn-resource>
     <main data-sn-state="{ rev: 0 }" data-sn-let="{ doc: ${let_} }"><button data-sn-on-click="rev++"></button><ul><template data-sn-for="x in doc.words"><li data-sn-text="x.w"></li></template></ul><p data-sn-text="doc.words.length"></p></main></body></html>`;
 
-  test('the early script caches in its own copy: once per scope, however many bindings read it', async () => {
-    const { calls, parse } = counting();
+  test('the early script renders a let over a helper', async () => {
+    const { parse } = counting();
     await firstPaint(page("parse(post ? post.body : '')"), { helpers: { parse } });
-    expect(calls).toEqual(['a b c']);
     expect([...document.querySelectorAll('li')].map((x) => x.textContent)).toEqual(['a', 'b', 'c']);
     expect(document.querySelector('p')!.textContent).toBe('3');
   });
 
-  test('the early cache: a let computed once, and a handler after the takeover that changes its input and reads it sees the new value', async () => {
-    let calls = 0;
-    const sum = (xs: number[]) => { calls++; return xs.reduce((a, b) => a + b, 0); };
+  test('early, then a handler after the takeover that changes its input and reads it sees the new value', async () => {
+    const sum = (xs: number[]) => xs.reduce((a, b) => a + b, 0);
     const html = `<!doctype html><html><head></head><body><main data-sn-state="{ xs: [1, 2], seen: 0 }" data-sn-let="{ total: sum(xs) }">
       <p data-sn-text="total"></p><i data-sn-text="total + 1"></i><b data-sn-text="seen"></b><button data-sn-on-click="xs.push(10); seen = total"></button></main></body></html>`;
     await firstPaint(html, { helpers: { sum } });
     expect(document.querySelector('p')!.textContent).toBe('3');
     expect(document.querySelector('i')!.textContent).toBe('4');
-    expect(calls).toBe(1);
     const r = await render(html, { helpers: { sum }, firstPaint: {} });
     document.querySelector('button')!.click();
     await r.flush();
@@ -335,14 +277,13 @@ describe('first paint and takeover', () => {
     expect(document.querySelector('p')!.textContent).toBe('13');
   });
 
-  for (const [what, expr, parses] of [
-    ['equal primitive arguments: the page module parses once', "parse(post ? post.body : '', { rev })", 1],
-    // the argument is the resource's object, which holds a list: computed again when the embedded data is
-    // stored, new objects, adopted rows matched by position
-    ['an object argument, new objects at every call: rows adopted by position', "parse(post ? post.body : '', { rev }, post)", 2],
+  for (const [what, expr] of [
+    ['primitive arguments', "parse(post ? post.body : '', { rev })"],
+    // new objects at every call: adopted rows matched by position
+    ['an object argument, new objects at every call: rows adopted by position', "parse(post ? post.body : '', { rev }, post)"],
   ] as const) {
     test(`the takeover changes nothing (${what})`, async () => {
-      const { calls, parse } = counting();
+      const { parse } = counting();
       const changes: string[] = [];
       let early: Element[] = [];
       const watch = new MutationObserver((records) => {
@@ -353,7 +294,7 @@ describe('first paint and takeover', () => {
       });
       const r = await render(page(expr), {
         helpers: { parse }, requests: mockRequests({ 'GET /api/post': { body: 'a b c', tags: ['x'] } }),
-        firstPaint: { afterEarly: () => { early = [...document.querySelectorAll('li')]; calls.length = 0; watch.observe(document.body, { subtree: true, childList: true, characterData: true, characterDataOldValue: true }); } },
+        firstPaint: { afterEarly: () => { early = [...document.querySelectorAll('li')]; watch.observe(document.body, { subtree: true, childList: true, characterData: true, characterDataOldValue: true }); } },
       });
       await r.settle();
       watch.disconnect();
@@ -361,11 +302,8 @@ describe('first paint and takeover', () => {
       expect(changes).toEqual([]);
       const now = [...document.querySelectorAll('li')];
       expect(now.every((x, i) => x === early[i])).toBe(true);
-      expect(calls.length).toBe(parses);
-      // after the takeover, lists behave as today: new objects are new rows
       document.querySelector('button')!.click();
       await r.flush();
-      if (parses === 2) expect([...document.querySelectorAll('li')][0]).not.toBe(early[0]);
       expect([...document.querySelectorAll('li')].map((x) => x.textContent)).toEqual(['a', 'b', 'c']);
     });
   }
@@ -396,7 +334,8 @@ describe('a let may wait for a lazy helper module', () => {
     r.root.querySelector('button')!.click();
     await r.flush();
     expect([...r.root.querySelectorAll('li')].map((x) => x.textContent)).toEqual(['c', 'd', 'e']);
-    expect(m.calls).toEqual(['a b', 'c d e']);
+    // (each read calls it: two bindings read the let)
+    expect([...new Set(m.calls)]).toEqual(['a b', 'c d e']);
   });
 
   test('a failed load takes the unhandled-error path, once; the let stays undefined', async () => {
@@ -448,7 +387,7 @@ describe('a let may wait for a lazy helper module', () => {
   });
 });
 
-describe('the locale, and results that hold their arguments', () => {
+describe('the locale, and results that are their arguments', () => {
   // an i18n library's messages as a namespace of the app's helpers, with the locale connected to it (docs/configuration.md)
   const setup = () => {
     let loc = 'en';
@@ -462,7 +401,7 @@ describe('the locale, and results that hold their arguments', () => {
   const PAGE = `<!doctype html><html><head></head><body><main data-sn-state="{ n: 3 }" data-sn-let="{ title: m.inbox_title(), count: m.items_count({ count: n }), T: upper(m.inbox_title()) }">
     <p data-sn-text="title + ' | ' + count + ' | ' + T"></p><button id="de" data-sn-on-click="$locale = 'de'"></button><button id="n" data-sn-on-click="n = n + 1"></button></main></body></html>`;
 
-  test('a locale that changes between the early file and the takeover: the early memo is not reused', async () => {
+  test('a locale that changes between the early file and the takeover', async () => {
     const helpers = setup();
     try {
       const text = () => document.querySelector('p')!.textContent;
@@ -474,7 +413,7 @@ describe('the locale, and results that hold their arguments', () => {
     } finally { configure({ locale: null }); }
   });
 
-  test('a let over a namespace helper that reads the locale itself: computed again in the new language', async () => {
+  test('a let over a namespace helper that reads the locale itself: the new language', async () => {
     const helpers = setup();
     try {
       const r = await render(PAGE, { helpers });
@@ -506,7 +445,7 @@ describe('the locale, and results that hold their arguments', () => {
     } finally { configure({ locale: null }); }
   });
 
-  test('the built-in messages in a let are not memoized, as in a build: render() switches them', async () => {
+  test('the built-in messages in a let: render() switches them, as a build does', async () => {
     const r = await render(`<main data-sn-let="{ K: fmt.plain(1) + m.hi() }"><p data-sn-text="K"></p><button data-sn-on-click="$locale = 'de'"></button></main>`, {
       helpers: { fmt: { plain: (n: number) => n + 1 } }, messages: { en: { hi: 'Hello' }, de: { hi: 'Hallo' } },
     });
@@ -516,7 +455,7 @@ describe('the locale, and results that hold their arguments', () => {
     expect(r.root.querySelector('p')!.textContent).toBe('2Hallo');
   });
 
-  test('a result that is its argument, or holds it, is not returned for an equal copy: the new object is', async () => {
+  test('a result that is its argument, or holds it, is the new object after an equal copy', async () => {
     const same = (o: { n: number }) => o;
     const wrap = (o: { n: number }) => ({ o });
     const r = await render(`<main data-sn-state="{ o: { n: 1 }, r: null, w: null }" data-sn-let="{ F: same(o), W: wrap(o) }"><p data-sn-text="F.n"></p><i data-sn-text="W.o.n"></i>
@@ -526,14 +465,32 @@ describe('the locale, and results that hold their arguments', () => {
     expect(r.root.querySelector('b')!.textContent).toBe('true true');
   });
 
-  test('a result that holds nothing of its arguments is still returned for an equal copy (an object literal each evaluation)', async () => {
-    let calls = 0;
-    const words = (s: string, o: { upper: boolean }) => { calls++; return s.split(' ').map((w) => (o.upper ? w.toUpperCase() : w)); };
+  test('an object literal argument, a new one at each evaluation', async () => {
+    const words = (s: string, o: { upper: boolean }) => s.split(' ').map((w) => (o.upper ? w.toUpperCase() : w));
     const r = await render(`<main data-sn-state="{ s: 'a b', upper: false, k: 0 }" data-sn-let="{ ws: words(s, { upper }) }"><p data-sn-text="ws.join() + k"></p>
       <button data-sn-on-click="k = k + 1; upper = false"></button></main>`, { helpers: { words } });
     r.root.querySelector('button')!.click();
     await r.flush();
     expect(r.root.querySelector('p')!.textContent).toBe('a,b1');
-    expect(calls).toBe(1);
+  });
+});
+
+describe('memo(): the app\'s way to keep an expensive helper\'s result', () => {
+  test('a memoized helper in a let: parsed once for each body, early and after the takeover; its result frozen and shared', async () => {
+    const calls: string[] = [];
+    const parse = memo((s: string) => { calls.push(s); return { words: s.split(' ').map((w) => ({ w })) }; });
+    const html = `<!doctype html><html><head></head><body><main data-sn-state="{ src: 'a b', n: 0, frozen: null }" data-sn-let="{ doc: parse(src) }">
+      <p data-sn-text="doc.words.length"></p><ul><template data-sn-for="x in doc.words"><li data-sn-text="x.w"></li></template></ul>
+      <button id="n" data-sn-on-click="n++; frozen = Object.isFrozen(doc.words)"></button><button id="s" data-sn-on-click="src = 'c d e'"></button><b data-sn-text="n + ' ' + frozen"></b></main></body></html>`;
+    let early = '';
+    const r = await render(html, { helpers: { parse }, firstPaint: { afterEarly: () => { early = document.querySelector('p')!.textContent!; } } });
+    expect(early).toBe('2');
+    document.querySelector<HTMLElement>('#n')!.click();
+    await r.flush();
+    expect(document.querySelector('b')!.textContent).toBe('1 true');
+    document.querySelector<HTMLElement>('#s')!.click();
+    await r.flush();
+    expect([...document.querySelectorAll('li')].map((x) => x.textContent)).toEqual(['c', 'd', 'e']);
+    expect(calls).toEqual(['a b', 'c d e']);
   });
 });

@@ -57,6 +57,12 @@ events and fills as for the app's own:
   the module that declares each helper: the page imports a helper from that module, and what folds
   at build time and what waits for a [lazy package](lazy.md#helpers-that-wait) is decided per
   module, as for the app's own helpers.
+- **Helpers that feed components run at every read.** A prop is its expression, evaluated wherever the
+  component reads it, at every read; in a recursive component (a tree that renders its children with
+  itself) a helper in a prop runs again on each level and each render. Make such a helper cheap on repeat
+  calls with `memo()` ([configuration.md](configuration.md#memoized-helpers)): `export const parse =
+  memo(parseImpl)`. Its results are frozen and shared by every caller, so a component that needs to change
+  one works on a copy.
 - **Types.** A library's props, slot data and helper results are typed by the library's own types
   module. The app names a library's types by re-exporting them from `src/sinter.types.ts`:
 
