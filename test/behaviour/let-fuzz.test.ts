@@ -175,6 +175,8 @@ function seen(v: Awaited<ReturnType<typeof render>>, storage: Storage) {
 }
 
 const SEEDS = Number(process.env.SN_FUZZ_SEEDS ?? 150);
+/** the first seed (`SN_FUZZ_FIRST`, default 1): a long sweep runs in chunks, side by side */
+const FIRST = Number(process.env.SN_FUZZ_FIRST ?? 1);
 
 /** the written-out page with the handlers' writes marked after they run, as main's `exec` marks them (this branch marks them first) */
 function markAfter(app: App) {
@@ -194,7 +196,7 @@ test('random handlers over cached lets: every read and the page agree with the l
   const failures: string[] = [];
   configure({ locale: { get: () => loc, set: (l) => { loc = l; } } });
   try {
-    for (let seed = 1; seed <= SEEDS; seed++) {
+    for (let seed = FIRST; seed < FIRST + SEEDS; seed++) {
       // one script of steps for both pages: which button, whether to flush, whether a server message arrives
       const sr = rng(seed * 7919);
       // b: a handler (0-2), the optimistic action (3), the action that succeeds (4) or fails (5), the persisted scope's (6),
