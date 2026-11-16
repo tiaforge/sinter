@@ -125,10 +125,26 @@ export function minifyMarkup(doc: P5Parent, hooks: MinifyHooks): { comments: num
         if (n.nodeName === '#comment' || (isText(n) && ALL_SPACE.test(n.value))) continue;
         if (!isEl(n) || n.namespaceURI !== HTML_NS || hooks.opaque(n)) return 'other';
         if (hooks.removed(n)) continue;
-        if (isSinterTemplate(n)) { if (rendersBlocks(n, l)) continue; return 'other'; }
+        if (n.tagName === 'template') { if (isSinterTemplate(n) && rendersBlocks(n, l)) continue; return 'other'; }
         return l.blockLevel(n) ? 'block' : 'other';
       }
       return edges ? 'edge' : 'other';
+    };
+    /**
+     * In a flex, grid or table container: whether the text at `i` meets the end of its item in direction `d` (an
+     * element that is an item, the container's edge), through comments, the elements the compiler removes, white
+     * space and templates that render such elements or nothing.
+     */
+    const item = (i: number, d: -1 | 1): 'block' | 'other' => {
+      for (let j = i + d; j >= 0 && j < kids.length; j += d) {
+        const n = kids[j]!;
+        if (n.nodeName === '#comment' || (isText(n) && ALL_SPACE.test(n.value))) continue;
+        if (!isEl(n) || n.namespaceURI !== HTML_NS || hooks.opaque(n)) return 'other';
+        if (hooks.removed(n)) continue;
+        if (n.tagName === 'template') { if (isSinterTemplate(n) && rendersBlocks(n, l)) continue; return 'other'; }
+        return l.isItem(n) ? 'block' : 'other';
+      }
+      return isEl(p as P5Node) ? 'block' : 'other';
     };
     // a neighbour through the elements the compiler removes, or null at the edge of `p`
     const near = (i: number, d: -1 | 1): P5Node | null => {
@@ -150,12 +166,10 @@ export function minifyMarkup(doc: P5Parent, hooks: MinifyHooks): { comments: num
         stats.bytes += was.length;
         continue;
       }
-      if (kind === 'items') {
-        // in a flex or grid container and the table boxes, a text is its own box: white space alone renders nothing
-        v = v.trim() === '' ? '' : v;
-        v = v.replace(/^[\t\n\f\r ]+|[\t\n\f\r ]+$/g, '');
-      } else if (kind === 'block') {
-        const left = side(i, -1), right = side(i, 1);
+      if (kind !== null) {
+        // in a flex or grid container and the table boxes, a run of text is an item of its own, which ends at an
+        // element that is an item and at the container's edges (a `::before` is an item there too)
+        const left = kind === 'items' ? item(i, -1) : side(i, -1), right = kind === 'items' ? item(i, 1) : side(i, 1);
         if (ALL_SPACE.test(v)) { if (left !== 'other' || right !== 'other') v = ''; }
         else {
           if (left !== 'other') v = v.replace(/^[\t\n\f\r ]+/, '');

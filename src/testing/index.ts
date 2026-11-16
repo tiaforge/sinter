@@ -278,6 +278,11 @@ export interface RenderOptions {
   /** the page's stylesheets, for the boxes of its images and the space of its lists (as the Vite plugin reads them from the page) */
   css?: string;
   /**
+   * minify the page's HTML as a build does (default false here; builds do it unless `sinter({ minifyHtml: false })`):
+   * the author's comments out, and white space `css` shows to render nothing (docs/minify.md)
+   */
+  minify?: boolean;
+  /**
    * strict mode (docs/strict.md), as `sinter({ strict })` takes it (default: `SINTER_STRICT`; `false` wins over it, for a test that expects warnings): the page's
    * warnings throw like its errors, except the codes in `allow`, and a runtime warning makes the call
    * that ran it (`render`, `flush`, `settle`, `advance`, …) reject. Runtime warnings that depend on the
@@ -474,6 +479,8 @@ function compilePage(html: string, options: RenderOptions, strict: Strict = { on
     ...(options.css ? { images: { info: () => null, url: () => '', styles: [{ file: 'test.css', css: options.css }] } } : {}),
     // and hold the space of lists whose data comes later (the rules are the build's; the test reads the placeholder)
     ...(options.css ? { styles: [{ file: 'test.css', css: options.css }], paintCss: 'paint.css' } : {}),
+    // as a build does (`sinter({ minifyHtml })`, on by default there): the page's markup minified against `css`
+    ...(options.minify ? { minify: { styles: options.css ? [{ file: 'test.css', css: options.css }] : [] } } : {}),
   });
   const diagnostics = strict.on ? applyStrict(parts.diagnostics, new Set(strict.allow.keys())) : parts.diagnostics;
   const errors = diagnostics.filter((d) => d.severity === 'error');

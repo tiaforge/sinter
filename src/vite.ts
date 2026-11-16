@@ -51,7 +51,7 @@ export interface SinterOptions extends ProjectOptions {
    */
   firstPaint?: boolean;
   /**
-   * builds: minify each page's HTML (default false while it is a prototype): the author's comments out, and the
+   * builds: minify each page's HTML (default true; never in dev): the author's comments out, and the
    * white space the page's stylesheets show to render nothing (docs/minify.md). Before the page is compiled, so
    * sinter's own comments and node paths are counted on the minified markup.
    */
@@ -1100,7 +1100,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
         const zeros = images && styles?.some((s) => /\dch\b/i.test(s.css)) && styles.some((s) => /@font-face/i.test(s.css)) ? await zeroWidthsOf(styles) : undefined;
         await helpersReady();
         // the minifier reads every page's cascade (builds)
-        const minifyStyles = (options.minifyHtml) && !dev ? styles ?? await stylesOf(html, virtual.get(file)?.source ?? file, project(root, options)) : undefined;
+        const minifyStyles = options.minifyHtml !== false && !dev ? styles ?? await stylesOf(html, virtual.get(file)?.source ?? file, project(root, options)) : undefined;
         let { out, p } = build(html, file, earlySrc, styles, lineHeights, zeros, minifyStyles);
         // images the compiler did not know yet: analysed, then the page is compiled again with them
         if (images && out.images?.pending.length) {

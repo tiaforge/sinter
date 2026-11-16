@@ -1697,6 +1697,22 @@ export class Layout {
   }
 
   /**
+   * Whether `el` is a box of its own in its flex, grid or table container at every viewport width (an item: not
+   * `display: none` or `contents`, not out of flow, not hidden by a binding): text on either side of it is in
+   * another item than text on the other.
+   */
+  isItem(el: P5Element): boolean {
+    if (el.attrs.some((a) => a.name === 'data-sn-show') || mayChange(el, 'hidden') || mayChange(el, 'style')) return false;
+    return this.everyView((l) => {
+      const d = l.boxDisplay(el);
+      if (d === null || /^(none|contents)$/.test(d)) return false;
+      if (l.declsOf(el).has('\0dynamic')) return false;
+      const c = l.cascaded(el, ['position']);
+      return !c.ambiguous && (c.value === null || /^\s*(static|relative|sticky)\s*$/i.test(c.value));
+    });
+  }
+
+  /**
    * How `el` lays out its children, at every viewport width: `items` for a flex or grid container and the table
    * boxes that hold rows and cells (white space alone between their children shows nothing), `block` for a block
    * container (block, list-item, flow-root, inline-block, a cell, a caption), null for anything else or unknown.
