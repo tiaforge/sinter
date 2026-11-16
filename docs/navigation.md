@@ -313,8 +313,9 @@ with `@view-transition { navigation: auto }` (and its `@media` holds), so reduce
 setting apply. Morphs work across a swap, and each kept element is named for the transition (class
 `sn-keep`), so it stays still while the page changes around it.
 
-**Types** tell a stylesheet what kind of navigation runs, the same on a swap and on a page load:
-`sn-push`, `sn-replace` or `sn-traverse`, and on Back or Forward also `sn-back` or `sn-forward`:
+**Types** tell a stylesheet what kind of navigation runs: `sn-push`, `sn-replace` or `sn-traverse`, and on
+Back or Forward also `sn-back` or `sn-forward`. Every swap has them; a page load has them on pages with a
+morph (`data-sn-transition`), where sinter's code is there for the browser's `pageswap` and `pagereveal`:
 
 ```css
 :root:active-view-transition-type(sn-back)::view-transition-old(root) { animation-name: slide-to-right; }

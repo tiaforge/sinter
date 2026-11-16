@@ -76,7 +76,9 @@ const entries = {
   page: `export { mount, $k } from '${dist}/index.js'; export { default as a } from '${dist}/sse.js'; export { default as b } from '${dist}/optimistic.js'; export { default as c } from '${dist}/persist.js';`,
 };
 // bytes, gzip -9; article: what the page loads, its page module and the app's own code included
-const BUDGET = { minimal: 15 * 1024, 'realworld article': 27 * 1024 };
+// the minimal page in an app with swaps on (2026-11-16): the stub every page that swaps carries (1.7 KB, the
+// navigation chain 0.9 KB of it) does not fit 15 KB after trimming, so these pages have a budget of their own
+const BUDGET = { minimal: 15 * 1024, 'minimal, swaps': 17 * 1024, 'realworld article': 27 * 1024 };
 let failed = false;
 const gz = (b) => gzipSync(b, { level: 9 }).length;
 function report(name, min, size) {

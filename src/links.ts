@@ -52,12 +52,6 @@ export function chain(app: App): Chain {
     for (const h of nav) { const r = h(i); d ||= r; }
     return d || undefined;
   };
-  /** whether a guard refuses `i` (every guard runs: each may note the navigation) */
-  const refused = (i: Intent) => {
-    let no = false;
-    for (const g of c.guards) no = g(i) || no;
-    return no;
-  };
   /** the entry of a traversal a handler took from its event: its `popstate` is decided, once */
   let took: string | null = null;
   c.go = (i) => {
@@ -78,7 +72,8 @@ export function chain(app: App): Chain {
     }
     const e = i.event as NavigateLike | undefined;
     // refused: a link's default is prevented (a decision without `run`), an event cancelled, a call does nothing
-    if (i.source != 'popstate' && (!e || e.cancelable) && refused(i)) {
+    // every guard runs (each may note the navigation)
+    if (i.source != 'popstate' && (!e || e.cancelable) && c.guards.reduce((no, g) => g(i) || no, false)) {
       e?.preventDefault();
       return { name: 'refused' };
     }

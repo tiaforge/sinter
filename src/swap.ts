@@ -4,7 +4,7 @@
 // same step. This is the stub every page that swaps carries: it decides, intercepts the browser's
 // `navigate` event, and loads the rest (swap-run.ts) when a navigation needs it. Where the browser has no
 // Navigation API it does nothing: every navigation stays a page load.
-import { RANK, chain, loadTypes } from './links.js';
+import { RANK, chain } from './links.js';
 import type { App, Feature, Intent } from './runtime/app.js';
 
 /** one page of the build's list (swap-build.ts): the paths it answers at, the names it keeps */
@@ -70,9 +70,6 @@ function state(list: SwapPage[]): SwapState {
   return s;
 }
 
-/** whether `intercept()` takes a `precommitHandler` (it holds the URL until the page is ready) */
-const PRECOMMIT = typeof (globalThis as { NavigationPrecommitController?: unknown }).NavigationPrecommitController != 'undefined';
-
 export function swap(list: SwapPage[]): Feature {
   return {
     name: 'swap',
@@ -82,8 +79,6 @@ export function swap(list: SwapPage[]): Feature {
       // the position of the entry each navigation leaves (a swap's, a same-page link's, Back's), before
       // another entry is current
       c.onGo.push(() => { track(s); s.at = nav()?.currentEntry?.index; });
-      // page loads: the same transition types as swaps
-      loadTypes(app);
       c.add((i: Intent) => {
         if (i.source != 'event') return;
         const e = i.event as NavigateLike, u = new URL(i.to);
@@ -110,9 +105,10 @@ export function swap(list: SwapPage[]): Feature {
               scroll: 'manual',
               // focus in a kept element stays there; else the browser resets it, as after a load
               focusReset: document.activeElement?.closest(`[${KEPT}]`) ? 'manual' : 'after-transition',
-              // none for a traversal (one that cannot swap must not become a new entry), nor for a navigation that
-              // cannot be canceled (the browser's own Back without activation)
-              ...(PRECOMMIT && i.kind != 'traverse' && e.cancelable ? { async precommitHandler() { if ((await ready()) === false) fail(); } } : {}),
+              // the URL held until the page is ready, where the browser can (one without it ignores the option); none
+              // for a traversal (one that cannot swap must not become a new entry), nor for a navigation that cannot
+              // be canceled (the browser's own Back without activation)
+              ...(i.kind != 'traverse' && e.cancelable ? { async precommitHandler() { if ((await ready()) === false) fail(); } } : {}),
               async handler() {
                 const commit = await ready();
                 if (commit === false) fail();

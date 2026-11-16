@@ -657,8 +657,8 @@ manifest, the stub and the exported mount together: they are the unproven half.
    `viewTransition` and `activation` shaped like the browser's, so `transition.ts` names the pair with the
    handlers it has for loads; each kept element is named for the transition's duration (`sn-` and a hash
    of `keep <name>`, class `sn-keep`). Page loads get the same types (`loadTypes`: `pageswap` and
-   `pagereveal`) from the stub and from `transition.ts`; on a page without the hold script the module can
-   run after `pagereveal`, so the next page's types are best-effort there. Checked: `e2e/permanent` (the
+   `pagereveal`) from `transition.ts`, on pages with a morph; the stub had them too, and left them out to
+   fit (207 B: in an app that swaps, a load between its pages is the exception). Checked: `e2e/permanent` (the
    pair named alike on both pages, the kept element its own, `sn-push` on a link and `sn-traverse sn-back`
    on Back, in Chromium and WebKit; Firefox runs no page transitions); `kept-media.cjs` (a playing `<audio>`
    and `<video>` named and moved in the update play on, in all three); unit tests
@@ -685,6 +685,11 @@ manifest, the stub and the exported mount together: they are the unproven half.
    - **Docs:** `docs/navigation.md` (Swaps, Refusing a navigation, swaps and types in Page transitions),
      `docs/configuration.md` (`swap`), `docs/security.md` (the trust model), the RealWorld and dashboard
      READMEs; `llms.txt` 24,998 of its 25,000 B.
+   - **The budget** (decided: trim first, then raise): the stub went from 1,908 to 1,732 B (the page-load
+     types left to `transition.ts`, `precommitHandler` passed without detecting it: a browser without it
+     ignores the option); the chain's own code did not get smaller by rewriting it. The minimal page with
+     swaps on is then 16,747 B: it has a budget of its own, 17 KB (`scripts/size.mjs`); the minimal page
+     without swaps keeps 15 KB.
    - **Sizes** (gzip, `scripts/size.mjs`, the base `aca5a78` and this branch): core 14,946 → 15,048 (+102:
      destroy, the attribute writer, `navigate()` and `popstate` asking the chain, the flush guard); minimal
      page 15,148 → 15,252 of its 15,360 B; with swaps on 16,901 B (the budget decision is open);
