@@ -246,8 +246,8 @@ Everything else stays as the first page loaded it. Pages whose CSP `<meta>`, `<b
 - **The new page's response headers**: a header CSP, Referrer-Policy and Permissions-Policy apply to the
   document as first loaded. A response that sets one (or a header `Sinter-Navigation: load`, proposed)
   is a page load; the module reads the headers it fetched.
-- **Declarative shadow DOM**: `parseFromString` does not attach it; `Document.parseHTMLUnsafe` does where
-  the browser has it (to check), else such a page is a load.
+- **Declarative shadow DOM**: `parseFromString` does not attach it; `Document.parseHTMLUnsafe` does, and
+  all three engines have it (step 0's probe), so it is the parser for the fetched page.
 - **The early script** does not run; what it renders before the module appears at mount
   ([10](#10-prefetch-speculation-rules-the-early-script-and-embed)).
 
