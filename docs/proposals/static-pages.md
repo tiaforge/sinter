@@ -698,7 +698,9 @@ None at the moment.
   written. Not an external file: that would add a blocking request to the first paint of a first
   visit. Decided in the review of part A to leave it out of that pull request.
 - **A sitemap**: with `site` and every page and language known, the build could write `sitemap.xml`,
-  with each page's languages as alternates. Not part of this proposal.
+  with each page's languages as alternates. Not part of this proposal; added since, in the build rather
+  than a separate plugin, since only the build knows the pages' URLs, languages and canonical links
+  ([static-pages.md](../static-pages.md#sitemap)).
 - **A default language other than the base**: a site whose texts are written in English but whose
   visitors are mostly German would want the fallback for missing translations and the default for
   visitors to differ. That would be one option (`localePrefix: { default: 'de' }`), added when a site
