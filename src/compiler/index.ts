@@ -37,7 +37,7 @@ export function compile(html: string, options: CompileOptions): CompileResult {
   const page = pageLines(parts, options);
   const out: CompileResult = {
     html: parts.html, module: css + page.text(), runtime: parts.runtime, preload: parts.preload, ...(parts.static ? { static: true as const } : {}),
-    diagnostics: parts.diagnostics, files: parts.files, styles: parts.styles, prefetch: parts.prefetch, embed: parts.embed, path: parts.ir.path ?? [], ...(parts.ir.urlArrays ? { urlArrays: parts.ir.urlArrays } : {}), ...(parts.prefetchOff ? { prefetchOff: true as const } : {}),
+    diagnostics: parts.diagnostics, files: parts.files, ...(parts.globs ? { globs: parts.globs } : {}), styles: parts.styles, prefetch: parts.prefetch, embed: parts.embed, path: parts.ir.path ?? [], ...(parts.ir.urlArrays ? { urlArrays: parts.ir.urlArrays } : {}), ...(parts.prefetchOff ? { prefetchOff: true as const } : {}),
     ...(parts.ir.urlReads ? { sameLinks: true as const } : {}),
   };
   if (parts.check) out.check = parts.check;

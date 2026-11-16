@@ -524,6 +524,19 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     if (r.keys.length) moduleMessages.set(id.replace(/\?.*$/, ''), r.keys); else moduleMessages.delete(id.replace(/\?.*$/, ''));
   };
 
+  /** dev: the folders `file:` globs list; a file added or removed there that the glob matches reloads the pages */
+  const globs = new Map<string, { dir: string; match: RegExp }>();
+  const watchGlob = (g: { dir: string; match: string }) => {
+    const k = `${g.dir}\0${g.match}`;
+    if (globs.has(k)) return;
+    globs.set(k, { dir: g.dir.replace(/\/$/, ''), match: new RegExp(g.match) });
+    server?.watcher.add(g.dir);
+  };
+  const inGlob = (file: string) => {
+    const f = file.split(sep).join('/');
+    for (const g of globs.values()) if (f.startsWith(g.dir + '/') && g.match.test(f.slice(g.dir.length + 1))) return true;
+    return false;
+  };
   const watch = (file: string) => {
     if (watched.has(file)) return;
     watched.add(file);
@@ -580,7 +593,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       const p = proj(), v = virtual.get(file);
       try {
         // with the APIs and specs: what is requested ahead is the page's own request (its base, its configured shape)
-        const r = compile(readPage(file), { file: v?.source ?? file, root, dev, helpers: p.helpers, actions: p.actions, readFile: readVia(p), lazy: p.lazy, openapi: p.openapi, apis: p.apis, ...(v ? { locale: { name: v.locale, urls: null, base: resolved?.base ?? '/' } } : {}) });
+        const r = compile(readPage(file), { file: v?.source ?? file, root, dev, helpers: p.helpers, actions: p.actions, readFile: readVia(p), listFiles: p.listFiles, lazy: p.lazy, openapi: p.openapi, apis: p.apis, ...(v ? { locale: { name: v.locale, urls: null, base: resolved?.base ?? '/' } } : {}) });
         described.set(file, { parts: r.prefetch, path: r.path, off: !!r.prefetchOff });
       } catch { described.set(file, { parts: null, path: [], off: false }); }
     }
@@ -590,7 +603,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   const describeSource = (source: string) => {
     if (!sourceDescribed.has(source)) {
       const p = proj();
-      try { sourceDescribed.set(source, compile(readFileSync(source, 'utf8'), { file: source, root, dev, helpers: p.helpers, actions: p.actions, readFile: readVia(p), lazy: p.lazy, openapi: p.openapi, apis: p.apis }).path); }
+      try { sourceDescribed.set(source, compile(readFileSync(source, 'utf8'), { file: source, root, dev, helpers: p.helpers, actions: p.actions, readFile: readVia(p), listFiles: p.listFiles, lazy: p.lazy, openapi: p.openapi, apis: p.apis }).path); }
       catch { sourceDescribed.set(source, []); }
     }
     return { path: sourceDescribed.get(source)! };
@@ -680,7 +693,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     if (!seen.has(file)) { seen.add(file); pagesCache = null; }
     const prefetch = options.prefetch !== false && prefetchPages().length ? PREFETCH : null;
     const out = compile(html, {
-      file: src, root, dev, sourcemap: dev || !!resolved?.build.sourcemap, helpers: p.helpers, actions: p.actions, moduleSrc: `${PREFIX}${rel}.js`, config: p.config, readFile: readVia(p), prefetch,
+      file: src, root, dev, sourcemap: dev || !!resolved?.build.sourcemap, helpers: p.helpers, actions: p.actions, moduleSrc: `${PREFIX}${rel}.js`, config: p.config, readFile: readVia(p), listFiles: p.listFiles, prefetch,
       check: !!options.typecheck && !dev, openapi: p.openapi, apis: p.apis, complexity: p.complexity, componentNames: p.componentNames, libraries: p.libraries, checkCycles: p.checkCycles, lazy: p.lazy,
       ...(lazyPkgs.length ? { lazyScript, lazyModule: (m: string) => lazyHelpers(root, lazyPkgs, undefined, p.libraries).reach(m) } : {}),
       ...(helpersNow ? { helperValues: helpersNow.module, helperFold: helpersNow.fold } : {}),
@@ -846,6 +859,12 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
         // a page's resources may have changed: the next-page module is described again
         if (file.endsWith('.html') || watched.has(file)) { described.clear(); pagesCache = null; invalidate(PREFETCH); devEarly.clear(); }
         if (watched.has(file)) s.ws.send({ type: 'full-reload' });
+      });
+      // a `file:` glob's list changes when a file it matches is added or removed
+      for (const ev of ['add', 'unlink'] as const) s.watcher.on(ev, (file) => {
+        if (!inGlob(file)) return;
+        described.clear(); pagesCache = null; invalidate(PREFETCH); devEarly.clear();
+        s.ws.send({ type: 'full-reload' });
       });
     },
 
@@ -1151,6 +1170,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
         }
         if (out.check) units.set(file, out.check);
         for (const f of out.files) watch(f);
+        for (const g of out.globs ?? []) watchGlob(g);
         for (const f of [p.helpersFile, p.actionsFile]) if (f) watch(f);
         const diagnostics = strictly(out.diagnostics);
         const errors = diagnostics.filter((d) => d.severity === 'error');

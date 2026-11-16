@@ -8,10 +8,14 @@ changed with slots.
 
 ```html
 <sn-resource name="post" src="file:./post.md"></sn-resource>
-<main data-sn-let="{ doc: md.parse(post) }">
+<main data-sn-let="{ doc: md.parse(post.body) }">
   <md-doc data-sn-prop="{ doc }"></md-doc>
 </main>
 ```
+
+A markdown file's value is its frontmatter's fields and `body`, the markdown after the frontmatter
+(`post.title`, `post.body`), and a glob is a list of them, one per file
+([files](https://github.com/tiaforge/sinter/blob/main/docs/resources.md#files)).
 
 The [recipe](recipes/article-with-comments.html) puts an article and its comments on one page.
 

@@ -270,11 +270,10 @@ list and sort or filter copies (each resource has its own `order`, `items` and `
 </ul>
 ```
 
-- **`order`** sorts a list once, at build time, with the syntax a live resource's `order` has (`-date`,
-  `name,-date`). A live resource compares strings in the visitor's language (`docs/resources.md:37`); at
-  build time they are compared in the page's language with `localePrefix`, and in the base language
-  without it (`sourceLanguageTag` of the inlang project, else `en`); `sinter check` and the editor, which
-  compile a page without a language (`lsp/workspace.ts:214`), use the base language. `order` on a value
+- **`order`** sorts a list once, at build time, with the syntax a live resource's `order` has (one field,
+  `-date` descending). A live resource compares strings in the visitor's language (`docs/resources.md:37`); at
+  build time they are compared in the page's language: its `<html lang>` (the layout's included), which with
+  `localePrefix` is each language's, else `en`. `order` on a value
   that is not a list is SN332.
 - **`type`** names the type of one entry for a glob (`type="Post"`, the frontmatter's fields), and sinter
   adds `slug`, `dir`, `path` and `body`: so the type a page reads is `(Post & FileEntry)[]`. For one `.md`
@@ -598,7 +597,12 @@ A prototype first, then three pull requests, each followed by a review of where 
   posts build in 6.5 s instead of 21.2 s, with the same output. The 10,000-entry run waits for part B: as
   files, 10,000 pages would hit the Speculation Rules' quadratic (below), which exists today for any site
   with that many fixed pages, and which part B fixes for `data-sn-pages` pages by naming the pattern.
-- **A, build-time resources**: `file:` as in §2 (a `.md` file is an entry, globs, `drafts`, `{$locale}`),
+- **A, build-time resources**, in four pull requests: (1) `file:` for the repository: a markdown file as an
+  entry, globs, `key` and `slug`, `drafts`, `order`, SN332's rename and SN539, and what already used `file:`
+  (sinter-markdown's `md.parse(post.body)`); (2) the limits: `MAX_UNROLL` removed, `expansionLimit` public;
+  (3) `{$locale}`, `fields`, `type` checked against the files, the editor's glob cache and watchers; (4)
+  `content:` and the content module. The first is done; in it, `order` compares in the page's `<html lang>`.
+  The whole part, as planned: `file:` as in §2 (a `.md` file is an entry, globs, `drafts`, `{$locale}`),
   `order`, `fields`, `MAX_UNROLL` removed and `expansionLimit` public (§4), `content:` and the content module (§3), types checked against
   the files, the snapshot and the editor's watchers (§6, §8), dev reload, SN332's rename. Part A also
   changes what already uses `file:`, and the docs of the limit: `docs/static-pages.md` ("a list over 1,000

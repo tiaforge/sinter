@@ -1,6 +1,6 @@
 // The app's conventional files (helpers, config, early and types modules), found the same
 // way by the Vite plugin and by `sinter check`.
-import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, relative, resolve, sep } from 'node:path';
 import { readHelperManifest, type Diagnostic, type HelperManifest } from './compiler/index.js';
@@ -125,6 +125,8 @@ export interface Project {
   types: string | null;
   /** reads a file only if it resolves inside the root, symlinks included */
   readFile: (path: string) => string;
+  /** the files below a folder inside the root, at any depth (a `file:` glob): not `node_modules`, not dot-folders */
+  listFiles: (dir: string) => string[];
   openapi: OpenApiSpec[];
   /** `apis`, resolved (their specs are in `openapi`), or null without `apis` */
   apis: ApisDef | null;
@@ -172,6 +174,29 @@ export function project(root: string, options: ProjectOptions = {}): Project {
     realRoot ??= realpathSync(root);
     if (real !== realRoot && !real.startsWith(realRoot + sep) && !libraryOf(libs.libraries, real)) throw new Error(`outside the project root: ${path}`);
     return readFileSync(real, 'utf8');
+  };
+  /** below `dir`, inside the root: no `node_modules`, no folder whose name starts with a dot, no link out of the root */
+  const listFiles = (dir: string): string[] => {
+    realRoot ??= realpathSync(root);
+    const out: string[] = [];
+    const walk = (d: string) => {
+      for (const e of readdirSync(d, { withFileTypes: true })) {
+        if (e.name === 'node_modules' || e.name.startsWith('.')) continue;
+        const f = `${d.replace(/[\\/]$/, '')}/${e.name}`;
+        if (e.isDirectory()) { walk(f); continue; }
+        if (e.isFile()) { out.push(f.split(sep).join('/')); continue; }
+        // a link: listed when it resolves to a file inside the root (reading it checks again)
+        if (e.isSymbolicLink()) {
+          let real: string;
+          try { real = realpathSync(f); } catch { continue; }
+          if (real === realRoot || real.startsWith(realRoot + sep)) out.push(f.split(sep).join('/'));
+        }
+      }
+    };
+    const real = realpathSync(dir);
+    if (real !== realRoot && !real.startsWith(realRoot + sep)) throw new Error(`outside the project root: ${dir}`);
+    walk(dir);
+    return out;
   };
   const url = (rel: string) => '/' + rel.split(sep).join('/');
 
@@ -255,7 +280,7 @@ export function project(root: string, options: ProjectOptions = {}): Project {
     if (exported.includes('Slot')) diagnostics.push({ severity: 'error', code: 'SN331', message: 'the types module exports a type named `Slot`, which is sinter\'s: `Slot<T>` in a component\'s props declares a slot that passes `T` to its fill', file, line: 1, col: 1, hint: 'rename the type (`TimeSlot`, `SlotInfo`)' });
   }
   return {
-    root, helpers, helpersFile, actions, actionsFile, readFile, openapi, apis, diagnostics, complexity: complexityOf(options.complexity), checkCycles: !!options.checkCycles,
+    root, helpers, helpersFile, actions, actionsFile, readFile, listFiles, openapi, apis, diagnostics, complexity: complexityOf(options.complexity), checkCycles: !!options.checkCycles,
     isStatic: staticPages(root, options.static).has,
     lazy: lazyOf(options.lazy), strict: strictOf(options.strict),
     componentNames: components, libraries: libs.libraries,

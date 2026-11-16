@@ -215,7 +215,7 @@ export class Workspace {
           // helper modules that reach a lazy package: their helpers outside a let are SN324, as in the build
           ...(p.lazy.length ? { lazyModule: (lh ??= lazyHelpers(state.root, p.lazy, undefined, p.libraries)).reach } : {}),
           helperValues: state.helpers.module, helperFold: state.helpers.fold,
-          file: component ? join(state.root, `.sinter-use-${component}.html`) : page, root: state.root, dev: false, helpers: p.helpers, actions: p.actions, config: p.config, readFile, check: true, openapi: p.openapi, apis: p.apis, complexity: p.complexity, componentNames: p.componentNames, libraries: p.libraries, checkCycles: p.checkCycles, lazy: p.lazy,
+          file: component ? join(state.root, `.sinter-use-${component}.html`) : page, root: state.root, dev: false, helpers: p.helpers, actions: p.actions, config: p.config, readFile, listFiles: p.listFiles, check: true, openapi: p.openapi, apis: p.apis, complexity: p.complexity, componentNames: p.componentNames, libraries: p.libraries, checkCycles: p.checkCycles, lazy: p.lazy,
           ...(!component && p.isStatic(page) ? { static: true, prerender: true } : {}),
         });
         state.includes.set(page, out.files.map((f) => resolve(f)).filter((f) => f !== page));
@@ -248,7 +248,7 @@ export class Workspace {
       let html: string;
       try { html = page === file ? text : this.read(page); } catch { continue; }
       try {
-        const r = compile(html, { file: page, root: state.root, dev: false, helpers, actions, config: p.config, readFile, check: true, openapi: p.openapi, apis: p.apis });
+        const r = compile(html, { file: page, root: state.root, dev: false, helpers, actions, config: p.config, readFile, listFiles: p.listFiles, check: true, openapi: p.openapi, apis: p.apis });
         out.push(...r.diagnostics.filter((d) => d.severity === 'error' && d.file === file));
       } catch (e) {
         out.push({ severity: 'error', code: 'SN401', message: (e as Error).message, file, line: 1, col: 1 });

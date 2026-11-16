@@ -62,7 +62,7 @@ export const CODES = {
   SN329: 'api-config',
   SN330: 'configured-shape',
   SN331: 'invalid-slot',
-  SN332: 'file-source',
+  SN332: 'build-time-source',
   SN333: 'invalid-text',
   SN334: 'empty-root',
   SN337: 'library-package',
@@ -106,6 +106,7 @@ export const CODES = {
   SN536: 'expansion-limit',
   SN537: 'library-version',
   SN538: 'unreachable-candidate',
+  SN539: 'empty-glob',
 } as const;
 
 export type Code = keyof typeof CODES;

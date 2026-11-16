@@ -648,7 +648,7 @@ export async function renderPage(a: RenderArgs): Promise<RenderReport> {
       ...(messages ? { messages } : {}),
       ...(a.now !== null ? { now: a.now } : {}),
       ...(a.locale ? { locale: a.locale } : {}),
-      project: { root: a.root, file: a.page, readFile: p.readFile, componentNames: p.componentNames, libraries: p.libraries, openapi: p.openapi, apis: p.apis, helpers: p.helpers, ...(p.lazy.length ? { lazyModule: lazyHelpers(a.root, p.lazy, undefined, p.libraries).reach } : {}) },
+      project: { root: a.root, file: a.page, readFile: p.readFile, listFiles: p.listFiles, componentNames: p.componentNames, libraries: p.libraries, openapi: p.openapi, apis: p.apis, helpers: p.helpers, ...(p.lazy.length ? { lazyModule: lazyHelpers(a.root, p.lazy, undefined, p.libraries).reach } : {}) },
     });
     let error: string | undefined;
     try { await r.settle(); } catch (e) { error = (e as Error).message; }
