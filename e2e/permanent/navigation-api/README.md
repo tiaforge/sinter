@@ -18,6 +18,8 @@ record is the browsers' behaviour, not sinter's.
   trusted).
 - `view-transitions.cjs`: transition types and their selector, `view-transition-class`, and whether the
   stylesheet's `@view-transition` rule is readable from script.
+- `media-src.cjs`: whether setting a playing `<audio>`'s `src` to the same value restarts it (it does,
+  in all three: what a takeover of a bound kept player must not do).
 - `focus-bfcache.cjs`: `focusReset`, and Back into the app from a page load out of it (with a control
   page without the API: headless browsers keep nothing in the back/forward cache).
 

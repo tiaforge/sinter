@@ -16,6 +16,10 @@ Decisions:
   ([12](#12-size)) part of every app: the questions this raises are in [1](#1-opting-in).
 - **Kept elements** (`data-sn-permanent="name"`) are the first use: an audio player, an open drawer, a
   scroll container stay untouched across a link to a page with an element of the same name.
+- **Kept elements may hold bindings, through reserved numbering** (decided 2026-11-16): the nodes inside a
+  kept element are numbered in a range of their own, the same on every page, so the next page's code takes
+  them over and the element (a playing player included) stays ([3](#3-kept-elements)). Separate apps per
+  region are not needed for this and are not part of the proposal.
 - **Navigation has one way in: `navigate()`.** Four parts of the runtime decided parts of a navigation and
   the first spike added a fifth; the chain behind `navigate()` is the one decision ([2](#2-one-way-in-navigate)).
 - **The head is kept simple:** the title, sinter's own nodes and the stylesheets; the rest is for crawlers
@@ -113,7 +117,8 @@ the chain safely ([2](#2-one-way-in-navigate)). The spike decides from the fetch
 so a page of constants still ships its module.
 
 Build checks (`data-sn-permanent`, in the spike): a static name (`SN401`), once per page, not inside a
-`<template>`, no bindings on or inside the element (`SN102`). Proposed: dedicated codes, and a warning
+`<template>`, no bindings on or inside the element (`SN102`; lifted once kept elements are numbered
+apart, [3](#3-kept-elements)). Proposed: dedicated codes, and a warning
 when a name is on one page only.
 
 `rel="external"` stays what it means: another site.
@@ -258,9 +263,32 @@ focus, animations, scroll survive; else `insertBefore`, and the module restores 
 descendants' scroll positions, focus and selection), and the old content is removed. A playing media
 element moved within a task does not pause (all three browsers in the spike).
 
-Kept elements hold no bindings, so nothing of the old app is inside them. A kept element's position in the
-cascade can change (another parent on the new page); that is the author's to arrange, as in Turbo. Kept
-elements in components are allowed when the component's markup has no bindings.
+A kept element's position in the cascade can change (another parent on the new page); that is the
+author's to arrange, as in Turbo.
+
+**Kept elements with bindings** (decided; the first version keeps them binding-free, as the spike). A
+page's code finds its nodes by number (`data-sn="5"`) and every page numbers from 0, so a kept element with
+bindings would collide with the next page's numbers. Instead, the compiler numbers the nodes inside a kept
+element in a range of their own, derived from its name (`header:0`, `header:1`, …). A kept element comes
+from the layout or a component, so it is the same source on every page; the build checks it: one name,
+one markup, on every page that has it, else an error. On a swap the old app goes and the new page's code
+takes the element's nodes over:
+- **What stays:** the element and everything in it (identity, scroll positions, focus, a playing
+  `<audio>` or `<video>`, CSS animations), and it follows the new page: a bound "active" link, a prop the
+  page passes.
+- **What starts again:** what the old app held for it. Its `data-sn-state` starts from its initial value
+  (an open menu closes) unless persisted; its resources load again (with `cache`, the last data shows at
+  once); its streams reconnect.
+- **Requirements for media to play on** (measured: setting a playing `<audio>`'s `src` to the *same*
+  value restarts it at 0 and pauses it, in Chromium, Firefox and WebKit,
+  `e2e/permanent/navigation-api/media-src.cjs`):
+  - the core's attribute writer writes only a value that changed (today it calls `setAttribute` on every
+    write; the text writer already skips equal text);
+  - media is not rebuilt: lists and branches inside a kept element are adopted by the new page's code
+    (their rendered rows kept, matched by key), not rendered again;
+  - no bindings to playback properties (`currentTime`, `paused`, `volume`): a build warning on a kept
+    element, since the new page's code would write them again. A bound `src` that really changes (the
+    next track) starts it, as it should.
 
 **Injected markup** (security.md: the runtime never acts on injected directives). An injected
 `data-sn-permanent` next to the real one makes a name appear twice, which is a page load. An injected one
@@ -405,7 +433,7 @@ each choice is checked against it:
 | to veto or redirect a navigation (an unsaved form) | every handler asked before any acts ([2](#2-one-way-in-navigate)) | not in the spike, where the first handler that takes it acts at once |
 | to run the DOM update inside its own transition, with types | `commit` is one function the module can call | the spike's swap is already a callback |
 | the new page painted with its data in the new snapshot | the mount inside `commit` | needs [6](#6-the-pages-code) |
-| to replace less than the body (a region both pages share stays, only `<main>` changes) | kept elements are the general case | **not yet:** kept elements hold no bindings, and a region the new page binds collides with ids numbered across the whole document. Whether ids get a namespace per region is decided with the compiler change of step 3, before the module, so that the door stays open |
+| to replace less than the body (a region both pages share stays, only `<main>` changes) | kept elements, with bindings through reserved numbering ([3](#3-kept-elements)) | a shared bound region is a kept element the next page takes over; what the old app held for it (state, streams) starts again |
 | shared elements across the swap | `data-sn-transition` naming at `commit` | one name in sessionStorage today; a list of pairs is needed |
 | progress UI while fetching | the intent → `mount` | none in the spike |
 | to stay optional | the swap works without it | the dashboard and RealWorld need nothing of it |
@@ -495,7 +523,9 @@ re-import and preload code; the live region and the head records add some.
 ## Not in this proposal
 
 - The view-navigation module ([9](#9-room-for-view-navigations)).
-- Bound regions that stay (a region whose nodes the new page's code takes over).
+- State that lives on across a swap inside a kept element (its `data-sn-state`, open streams): it starts
+  again with the new page's code. A region running as an app of its own would keep it; nothing needs
+  that now.
 - Streams and data handed from one page to the next.
 - Prefetching the HTML for a swap.
 - A cancelable "leaving the page" event (the veto of [9](#9-room-for-view-navigations) comes with the
@@ -518,7 +548,8 @@ shortened), spec.md, security.md (the trust model, injected markers), CHANGELOG;
 One commit each:
 
 1. **The core and features for a page that goes without a page load:** `destroy()` releases its elements;
-   `cache` writes on destroy; tests of destroy with each feature.
+   `cache` writes on destroy; the attribute writer writes only changed values ([3](#3-kept-elements));
+   tests of destroy with each feature.
 2. **One way in** (spiked): intents from the `navigate` event where it exists, else from `links.ts` and
    the core's `popstate` (same-page links and transitions only); the chain behind them with decisions
    the core runs, the full intent,
@@ -527,10 +558,12 @@ One commit each:
    and prefetch on it with no change in behaviour. Sizes before and after.
 3. **The compiler:** the manifest of pages that opt in and the names they keep ([1](#1-opting-in)); the
    page module marked, its mount exported with the kept ids ([6](#6-the-pages-code)); `sinter({ swap })` on
-   by default and `data-sn-swap="off"` for pages and links; the checks and their codes; the decision on ids per region
-   ([9](#9-room-for-view-navigations)).
+   by default and `data-sn-swap="off"` for pages and links; the checks and their codes; reserved numbering
+   for kept elements with bindings, with the one-markup check and the playback-property warning
+   ([3](#3-kept-elements)).
 4. **The module** on that: a decision in the chain, the sequence with its named steps, verification, the
-   head and what a swap skips, kept elements, history and scroll, focus and the live region, `sn-page`;
+   head and what a swap skips, kept elements (and the takeover of bound ones: their lists and branches
+   adopted, not rendered again), history and scroll, focus and the live region, `sn-page`;
    unit tests; `e2e/permanent`.
 5. **Transitions:** the fade, reduced motion, `data-sn-transition` at `commit`; e2e of a
    morph across a swap.
