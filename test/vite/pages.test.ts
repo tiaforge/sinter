@@ -118,6 +118,16 @@ describe('data-sn-pages in a build', () => {
     expect(chooser).toContain('noindex');
   }, 60_000);
 
+  test('next-page data: each entry at its own path, with what it requests ahead (one description for all)', async () => {
+    const root = app({ ...blog, 'blog/post.html': blog['blog/post.html'].replace('</article>', `</article>
+  <sn-resource name="related" src="/api/related?tag={$url.tag}" key="id" items="posts"></sn-resource>
+  <ul><template data-sn-for="p in related"><li data-sn-text="p.title"></li></template></ul>`) });
+    await run(root, ['index.html', 'blog/post.html'], { prefetch: true });
+    const js = readdirSync(join(root, 'dist/assets')).filter((f) => f.endsWith('.js')).map((f) => readFileSync(join(root, 'dist/assets', f), 'utf8')).join('\n').replace(/\s+/g, '');
+    // (minified: either quote)
+    for (const slug of ['hello', 'recap']) expect(js).toMatch(new RegExp(`m:\\[["\`]/blog/${slug}["\`]\\],r:\\[\\{s:\\[["\`]/api/related\\?tag=["\`],0\\]`));
+  }, 60_000);
+
   test('the dev server: an entry\'s URL is its page', async () => {
     const root = app(blog);
     const server = await createServer({ root, logLevel: 'silent', resolve: { alias }, plugins: [sinter({ site: 'https://example.com' })], server: { port: 0 } });

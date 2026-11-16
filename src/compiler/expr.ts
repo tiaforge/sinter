@@ -123,7 +123,12 @@ export interface PageInfo {
    * `localePrefix`: the page is built in one language (docs/static-pages.md#languages): `$locale` is `name`, the
    * built-in messages (namespace `messages`) are that language's text, and `localeUrl` compiles to `localeUrl`
    */
-  locale?: { name: string; messages: string | null; localeUrl: string };
+  locale?: { name: string; messages: string | null; localeUrl: string; ownUrls?: boolean };
+  /**
+   * Set when an expression compiled the page's own URL into its code: `$canonical` of a page at a fixed path, or
+   * `localeUrl()` from the page's translations (`ownUrls`). A `data-sn-pages` template doing so has a program per entry
+   */
+  readsUrl?: boolean;
   helpers: Set<string>;
   /** action functions and namespaces: only `data-sn-call` and `<sn-resource call>` may name them */
   actions?: Set<string>;
@@ -421,7 +426,7 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
     const local = locals.get(name);
     if (local) return { kind: 'local', info: local };
     if (page.locale && name === '$locale') return { kind: 'const', code: JSON.stringify(page.locale.name) };
-    if (page.locale && name === 'localeUrl') return { kind: 'const', code: page.locale.localeUrl };
+    if (page.locale && name === 'localeUrl') { if (page.locale.ownUrls) page.readsUrl = true; return { kind: 'const', code: page.locale.localeUrl }; }
     if (name === '$site' || name === '$canonical') {
       const u = page.urls;
       if (!u) {
@@ -430,6 +435,7 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
       }
       if (name === '$site') return { kind: 'const', code: JSON.stringify(u.site) };
       // a page whose path is a pattern: the origin and the browser's path, without a trailing slash (the early script renders it)
+      if (u.canonical !== null) page.readsUrl = true;
       return { kind: 'const', code: u.canonical !== null ? JSON.stringify(u.canonical) : `(${JSON.stringify(u.origin)} + location.pathname.replace(/\\/+$/, ''))` };
     }
     if (name === '$slot') {

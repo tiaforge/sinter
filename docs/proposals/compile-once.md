@@ -1,32 +1,27 @@
 # Spike: less compiling, not more threads
 
-Status: spike (2026-11-16), uncommitted prototype on this branch. Builds on [parallel-page-compile.md](parallel-page-compile.md),
-which removed the all-pairs loops inside one compile. This one asks which compiles a build runs at all, and which of
-them repeat work that does not change. No threads.
+Status: (1), (2) and (3) landed (2026-11-16) with tests (`test/compiler/template-pass.test.ts`, the next-page test in
+`test/vite/pages.test.ts`); (4) and the rarer re-runs are open. Builds on
+[parallel-page-compile.md](parallel-page-compile.md), which removed the all-pairs loops inside one compile. This one asks
+which compiles a build runs at all, and which of them repeat work that does not change. No threads.
 
-Recommendation: take up **(1) compile a `data-sn-pages` template's first pass once** and **(2) parse component files once
-per process**. Both are prototyped here, output byte-identical, all tests pass. Together a post's compile goes from 30 ms
-to 8.5 ms, and the 1,000-post build from 38 s to 17 s. Then consider (3) dropping the per-entry describe compile, and,
-as the larger redesign, (4) a single pass for pages whose decisions read only build-time data.
+As landed, the 100-post blog builds in 2.4 s instead of 4.7 s, and the 1,000-post one in 14.1 s instead of 37.9 s. Next:
+(4), a single pass for pages whose decisions read only build-time data.
 
 ## Measured
 
-`bench/collections`, static posts, 4 cores, Node 22. "Compile" is every entry's `compile()` replayed in-process after a
-build (median of the later repetitions); "build" is `bench/collections/run.mjs`, one process each.
+`bench/collections`, 4 cores, Node 22. Each build in its own process, `main`'s `dist` and this branch's swapped in turn:
 
-| | compile per entry | 100 posts, build | 1,000 posts, build |
-| --- | ---: | ---: | ---: |
-| main | 30.2 ms | 4.8 s | 38.4 s |
-| (2) parse once | 25.1 ms | | |
-| (1) first pass once | 10.9 ms | 2.6 s | 17.1 s |
-| (1) + (2) | **8.5 ms** | | |
+| | main | as landed |
+| --- | ---: | ---: |
+| 100 static posts | 4.7 s | 2.4 s |
+| 100 posts with a live resource (a module per page) | 6.6 s | 4.2 s |
+| 1,000 static posts | 37.9 s | 14.1 s |
 
-The live variant (each post with a comments resource, so a module per page): compile 32 → 10.5 ms per entry with (1),
-build 6.5 → 4.3 s (the rest is Rolldown bundling 101 modules). Peak memory goes down too (100 static posts: 460 → 360 MB).
-
-Checked: for every entry of the static and the live app at 100 posts, the page's HTML, module, early script, runtime
-reasons and diagnostics are byte-identical with and without each change (`SN_NO_SHARE=1`, `SN_NO_PARSE_CACHE=1` switch
-them off in the prototype). `vitest run`: 2,115 passed, 1 skipped.
+The output is byte for byte `main`'s: every file of each build above, and of every example app (`examples/*`) built
+with each `dist`. Per entry, replayed in-process: 30.2 ms on `main`, 25.1 ms with (2) alone, 8.5 ms with (1) and (2)
+in the prototype; a build now runs one `describeOnly` compile per template instead of one per entry. The live build's
+rest is Rolldown bundling 101 modules. Peak memory goes down too (100 static posts: 460 → 360 MB).
 
 ## Which compiles a build runs
 
@@ -45,7 +40,7 @@ Of pass 1's 22 ms, the walk takes 16, and 13 of that compiles the markdown libra
 "shared definitions" (`definition`, `runtimePlacement`) that the finished, static page never ships. Only the
 evaluation (`prerender`, about 2 ms) depends on the entry.
 
-## (1) A template's first pass, once per build
+## (1) A template's first pass, once per build (landed)
 
 The first pass of two entries of one template is the same program: the 136 compiled functions are identical, and the IR
 and the template HTML differ only in values (title, path, canonical URL). The entry is a constant resource (`fx`) whose
@@ -53,39 +48,42 @@ value the walk never reads. Only `prerender()` reads it, through `fileConstants`
 and bindings, never the DOM, so the decisions (`decided`, `unrolls`, `foldReads`, `overLimit`) are a function of the
 program and the values alone, and they are keyed by source position (`instKey`), not by anything per-entry.
 
-Prototype (`src/compiler/compile.ts`, `sharedAnalysis`, `Compiler.redecide`, `run(html, analysisOnly)`):
+As landed (`fromTemplate` in `src/compiler/compile.ts`, compile's `templates` option, which the Vite plugin passes in
+builds and clears with the build's reads):
 
-- The first entry of a template runs pass 1 up to just before `prerender()` and the `Compiler` is kept, per build (keyed
-  by `globCache`, file, locale and HTML).
-- Each entry swaps its value into the entry's `fileData`, clears the decision maps, truncates the diagnostics to the
-  analysis's, runs `prerender()` again, and goes to pass 2 with the result.
-- It falls back to today's path when the pass would need pass 1's own output (nothing decided), its `constants` (the
-  layout's dry run), a type check, or when pass 1 is not clean.
+- `run()` is `walkPage()` (parse, expand, walk: the program) and `finishPage()`. A template's first entry is walked and
+  the `Compiler` kept, by file, language and HTML.
+- Each entry swaps its value into the entry's `fileData`, clears what the evaluation writes, and runs
+  `prerender(true)`: it evaluates as before, records what it would paint, and writes nothing into the markup, so every
+  entry starts from the same walk. Then `collectConstants` (the constants of rows come from the evaluation) and pass 2.
+- Not shared, known from the walk: a page that compiles its own URL into its program (`$canonical` at a fixed path,
+  `localeUrl()` from its translations; `PageInfo.readsUrl`). As a backstop, the first other entry is walked too, once,
+  and its program must be the kept one (the functions, in order), or the template is not shared.
+- Compiled the usual way, per entry: nothing to decide (the first pass is the page), a constant the layout or the images
+  read that the first pass writes into its own markup and drops (a top-level class), the dry run, errors (in either
+  pass), a type check, the canonical-link re-run. A template whose first two entries gain nothing is not evaluated for
+  the next ones.
+- The fold log: each entry logs the helper calls it would on its own.
 
-What a real version needs:
+Each guard has a test that fails without it. Dev is unchanged: the dev server compiles one entry per request. The
+template compile in `templatePages` (once per build, ~50 ms) still runs on its own.
 
-- `prerender()` split into *decide* (pure: values in, decisions out) and *write first paint* (DOM). The prototype
-  re-runs the whole thing on the kept DOM, which works only because a pass 2 discards that DOM.
-- The per-entry options the analysis bakes in, made parameters like the entry value: `urls` (the canonical link) and
-  `foldLog`'s page (swapped in the prototype). A test that every per-entry option is one of these.
-- `collectConstants` re-run per entry, so pages with constant classes or styles (Tailwind) share too.
-- The template compile in `templatePages` can be that analysis, which removes it.
-- Dev: the dev server compiles one entry per request, so this does not help there.
-
-## (2) Component files parsed once per process
+## (2) Component files parsed once per process (landed)
 
 `parsedFiles` is a field of `Compiler`, so each compile (each pass, each entry, each page) parses every component it
 uses again. `fileGraph` and `dataSlotsOf` parse the same text once more without caching. A component's parsed tree is
-a function of its text, and every use already takes a `freshCopy`. The prototype keys one module-level map by text and
-uses it read-only in all three places: 17% of a post's compile, and it applies to every page with components, in dev too.
-A real version needs a bound (the editor and the dev server see every edit's text): an LRU, or clearing per build.
+a function of its text, and every use already takes a `freshCopy`. One module-level map, by text, now
+serves all three places, read-only: 17% of a post's compile, and it applies to every page with components, in dev too.
+Landed with a bound: the map is cleared when it holds 2,000 texts (the editor and the dev server see one per edit).
 
-## (3) The per-entry `describeOnly` compile
+## (3) The per-entry `describeOnly` compile (landed)
 
-`describe()` compiles each entry in full (without prerender) to learn its `path`, which is the entry's own
-`page.path`, and its prefetch parts, which differ between entries only in the entry's values. One description of the
-template, with each entry's path and values substituted, would replace N compiles. That's 1.8 ms per entry, about 7%
-of the 100-post build after (1).
+`describe()` compiled each entry in full (without prerender) to learn its `path`, which is the entry's own `page.path`,
+and what it requests ahead. That reads only `$url`, never the entry (a request over the entry is not prefetchable), so
+entries' descriptions differ only in their path. The Vite plugin now describes one entry per template and language and
+gives every other entry that description at its own path (`entryDescription`): 100 compiles become one. A compiler test
+checks the invariant (a `$url` request, one over the entry, a language prefix), and a build test that the next-page
+module lists each entry at its own path with its request.
 
 ## (4) Do we need two passes at all?
 
