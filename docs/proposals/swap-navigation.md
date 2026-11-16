@@ -168,12 +168,37 @@ Falls back to a page load: a fetch error; a non-HTML, non-2xx or cross-origin (a
 page; heads that differ in what only a load applies ([4](#4-the-head)). A traversal that cannot swap
 reloads, once: a second failure for the same entry is left to the browser (a reload loop otherwise).
 
-**The Navigation API** (`navigation.addEventListener('navigate')` with `intercept()`) would be the source
-of intents for links, forms, `location.assign` from app code and traversals, with scroll, focus and the
-entry index handled by the browser: it would replace `links.ts`, the scroll code of [11](#11-accessibility-history-scroll)
-and most of what the maintainer review found in it. **This is the first decision of the plan**: its
-support in Chromium, Firefox and WebKit is to be checked before step 2 is finished, and the click
-listener and `popstate` stay as the fallback where it is missing.
+**Where intents come from: the Navigation API** (step 0, decided 2026-11-16). The `navigate` event of
+the [Navigation API](https://developer.mozilla.org/docs/Web/API/Navigation_API) is the source of intents
+for the swap, with `intercept()` in place of the swap's own history writes. Swaps happen only where it
+exists; elsewhere every navigation stays a page load (the opt-in's fallback). Same-page links and
+transitions keep working where it is missing, through `links.ts` and the core's `popstate`, as today.
+
+Support: Baseline Newly Available since January 2026, in Chrome 102, Safari 26.2 (December 2025) and
+Firefox 147 (January 2026) ([web.dev](https://web.dev/blog/baseline-navigation-api),
+[caniuse](https://caniuse.com/wf-navigation)). Measured with the engines Playwright installs here
+(Chromium 153, Firefox 155, WebKit 26.6) by the probes in `e2e/permanent/navigation-api/`:
+
+| | Chromium | Firefox | WebKit | So |
+| --- | --- | --- | --- | --- |
+| a link, `location.assign`, `navigation.navigate()` give an interceptable `push`; Back a `traverse` with the destination's `index` | yes | yes | yes | one source for links, app code and Back; the direction for view navigations |
+| `sourceElement` is the clicked link; `navigate(url, { info })` carries a trigger | yes | yes | yes | the intent's `trigger` (MDN still calls `sourceElement` experimental: `info` for `navigate()`, `null` when missing) |
+| a `#hash` (`hashChange`), a download (`downloadRequest`), a reload: flagged | yes | yes | yes | left to the browser without checks of our own; a new tab or a modifier fires no event |
+| a second navigation aborts the first (`signal`) | yes | yes | yes | the last click wins, from the browser |
+| `precommitHandler` keeps the old URL until the new page is ready | yes | yes | **no** (the URL commits at once) | used where it works; the design must allow the URL to change before the content, as in WebKit |
+| `scroll: 'after-transition'` restores each entry's position | only the first page's | none | traversals yes, a reload stale | **not used**: the swap keeps positions itself (`scroll: 'manual'`), keyed by `navigation.currentEntry.key` |
+| `userInitiated` | right | right | inverted | not used |
+| `history.pushState` fires `navigate` (`sameDocument`) | yes | yes | yes | ignored: `$url` writes and same-page links stay what they are |
+| an intercepted traversal also fires `popstate` | yes | yes | yes | the core's `popstate` must not ask the chain again for a traversal the `navigate` event gave it |
+| `moveBefore` | yes | yes | no | as before ([3](#3-kept-elements)) |
+| `Document.parseHTMLUnsafe` (declarative shadow DOM) | yes | yes | yes | the parser for the fetched page ([4](#4-the-head)) |
+
+What it replaces in the spike: the swap's link handling (the shared listener stays only for same-page
+links and transitions where the API is missing), its `popstate` path, its hash, download and abort
+handling, its history writes, and the entry keys in `history.state` (so `location.ts`'s `null` state no
+longer matters to it); `location.assign` from app code is intercepted, so app code needs no `navigate()`
+to swap (it keeps working). What it does not replace: the scroll positions, the commit and the mount,
+focus and the announcement (`focusReset` is to be checked like scroll was).
 
 ### 3. Kept elements
 
@@ -301,7 +326,7 @@ each choice is checked against it:
 
 | It needs | Provided by | Checked |
 | --- | --- | --- |
-| to know where a navigation goes and why, before anything happens | the intent every navigation passes through `navigate()` ([2](#2-one-way-in-navigate)) | the spike's intent lacks `from`, `index` and `signal`: settled in step 2. The spike's entries carry a key (`snK` in `history.state`), the place for the index |
+| to know where a navigation goes and why, before anything happens | the intent every navigation passes through `navigate()` ([2](#2-one-way-in-navigate)) | the spike's intent lacks `from`, `index` and `signal`: the `navigate` event has all three (`destination.index`, `signal`), settled in step 2 |
 | to take a navigation itself (a pane that changes in place) | a decision in the chain, ahead of the swap | needs the explicit order of [2](#2-one-way-in-navigate) |
 | to veto or redirect a navigation (an unsaved form) | every handler asked before any acts ([2](#2-one-way-in-navigate)) | not in the spike, where the first handler that takes it acts at once |
 | to run the DOM update inside its own transition, with types | `commit` is one function the module can call | the spike's swap is already a callback |
@@ -333,8 +358,10 @@ names are the contract; until the module exists they stay internal and undocumen
   region, and focus moves to the start of the new page (the `<body>`, or the `<main>` with `tabindex="-1"`),
   as after a load; focus inside a kept element stays there (in the spike). The spike only blurs.
 - **Scroll** (in the spike, each with an `e2e/permanent` step):
-  - Each entry a swap shows has a key (`snK` in `history.state`); the page's position is recorded per key
-    as it scrolls, so Back restores the position of the entry it arrives at.
+  - Each entry a swap shows has a key (`snK` in `history.state` in the spike; `navigation.currentEntry.key`
+    with the Navigation API, which the browser's own restoration under `intercept()` does not make
+    unnecessary: see [2](#2-one-way-in-navigate)); the page's position is recorded per key as it scrolls,
+    so Back restores the position of the entry it arrives at.
   - The position is set at the swap and again once the new page's first loads are done (at most a second
     later): what the page renders above it moves the content, and scroll anchoring then keeps the wrong
     part in view (measured: 859 instead of 800 in all three browsers before the second set).
@@ -410,14 +437,16 @@ shortened), spec.md, security.md (the trust model, injected markers), CHANGELOG;
 
 ## Plan
 
-0. **Decide the source of intents:** the Navigation API where browsers have it, or the click listener and
-   `popstate` ([2](#2-one-way-in-navigate)). It decides how much of steps 2 and 4 is written.
+0. **The source of intents** (decided): the Navigation API's `navigate` event; swaps only where it
+   exists ([2](#2-one-way-in-navigate)). The probes are in `e2e/permanent/navigation-api/`.
 
 One commit each:
 
 1. **The core and features for a page that goes without a page load:** `destroy()` releases its elements;
    `cache` writes on destroy; tests of destroy with each feature.
-2. **One way in** (spiked): the chain behind `navigate()` with decisions the core runs, the full intent,
+2. **One way in** (spiked): intents from the `navigate` event where it exists, else from `links.ts` and
+   the core's `popstate` (same-page links and transitions only); the chain behind them with decisions
+   the core runs, the full intent,
    one ordered chain per document, history writes in one place, the exported `navigate()` queued while no
    app is mounted, `onUnauthorized` through it; the shared link listener; `query-links`, `transition`
    and prefetch on it with no change in behaviour. Sizes before and after.
