@@ -3057,9 +3057,9 @@ class Compiler {
         passed.add(e.key);
         const v = entryValue(r, e);
         const q = v ? analyze(src.slice(v.start, v.end), caller, this.page, { mode: 'value', waits: true, report: () => {} }) : null;
-        // a prop is a let: over a helper, cached
-        const cached = q?.ok ? this.lazyLet(q.inner, q.deps) : null;
-        lets.push({ name: e.key, code: cached?.code ?? (q?.ok ? q.inner : 'undefined'), deps: cached?.deps ?? q?.deps ?? [], usesEl: q?.usesEl ?? false, usesIndex: q?.usesIndex ?? false, resource: q?.resource ?? null, prop: true, src: q?.itemOf ?? null, list: q?.listOf ?? null });
+        // a prop is a let: inlined, or waiting for a lazy helper module
+        const waiting = q?.ok ? this.lazyLet(q.inner, q.deps) : null;
+        lets.push({ name: e.key, code: waiting?.code ?? (q?.ok ? q.inner : 'undefined'), deps: waiting?.deps ?? q?.deps ?? [], usesEl: q?.usesEl ?? false, usesIndex: q?.usesIndex ?? false, resource: q?.resource ?? null, prop: true, src: q?.itemOf ?? null, list: q?.listOf ?? null });
       }
     }
     // `data-sn-model`: the `value` prop (and the `change` handler, with the other bindings)
@@ -4582,8 +4582,8 @@ class Compiler {
       if (!this.checkNames(el, 'data-sn-let', scope, [name], p.key.start)) continue;
       const v = p.value as import('acorn').Expression & { start: number; end: number };
       const r = this.expr(el, 'data-sn-let', scope, { mode: 'value', waits: true }, src.slice(v.start, v.end), v.start);
-      const cached = r.ok ? this.lazyLet(r.inner, r.deps) : null;
-      const entry: LetEntry = { name, code: cached?.code ?? r.inner, deps: cached?.deps ?? r.deps, usesEl: r.usesEl, usesIndex: r.usesIndex, resource: r.resource, src: r.itemOf ?? null, list: r.listOf ?? null };
+      const waiting = r.ok ? this.lazyLet(r.inner, r.deps) : null;
+      const entry: LetEntry = { name, code: waiting?.code ?? r.inner, deps: waiting?.deps ?? r.deps, usesEl: r.usesEl, usesIndex: r.usesIndex, resource: r.resource, src: r.itemOf ?? null, list: r.listOf ?? null };
       // the resource names it can be, for store calls and `$meta[…]` that read it as one
       if (r.ok) {
         const lets = scope.lets ?? [], from: LetEntry[] = [];
@@ -4592,7 +4592,7 @@ class Compiler {
       }
       if (this.check) {
         this.frameOf.set(entry, this.check.frames.length);
-        this.check.frames.push({ kind: 'let', name, init: r.ok ? this.lastExpr : null, loc: this.locOf(el, 'data-sn-let', p.key.start), ...(cached?.waits ? { waits: true as const } : {}) });
+        this.check.frames.push({ kind: 'let', name, init: r.ok ? this.lastExpr : null, loc: this.locOf(el, 'data-sn-let', p.key.start), ...(waiting?.waits ? { waits: true as const } : {}) });
       }
       scope = { ...scope, lets: [...(scope.lets ?? []), entry] };
     }
@@ -4610,25 +4610,60 @@ class Compiler {
     if (!lazy?.size) return null;
     let ast: acorn.Node;
     try { ast = parseExpressionAt(code, 0, { ecmaVersion: 'latest' }); } catch { return null; }
-    const waits: any[] = [];
-    const visit = (n: any) => {
+    // references to a lazy helper only: not a member's name (`post.title`), an object key (`{ title: s }`; a
+    // shorthand `{ title }` is a reference, written out), nor a name a function in the let binds (`(title) => …`)
+    const waits: Array<{ n: any; key?: true }> = [];
+    const names = (p: any, out: Set<string>): Set<string> => {
+      if (!p) return out;
+      if (p.type === 'Identifier') out.add(p.name);
+      else if (p.type === 'ObjectPattern') for (const x of p.properties) names(x.type === 'RestElement' ? x.argument : x.value, out);
+      else if (p.type === 'ArrayPattern') for (const x of p.elements) names(x, out);
+      else if (p.type === 'RestElement') names(p.argument, out);
+      else if (p.type === 'AssignmentPattern') names(p.left, out);
+      return out;
+    };
+    const visit = (n: any, bound: Set<string>) => {
       if (!n || typeof n.type !== 'string') return;
-      if (n.type === 'Identifier' && lazy.has(n.name)) waits.push(n);
+      if (n.type === 'Identifier') { if (lazy.has(n.name) && !bound.has(n.name)) waits.push({ n }); return; }
+      if (n.type === 'MemberExpression') { visit(n.object, bound); if (n.computed) visit(n.property, bound); return; }
+      if (n.type === 'Property') {
+        if (n.computed) visit(n.key, bound);
+        if (n.shorthand && n.value.type === 'Identifier') { if (lazy.has(n.value.name) && !bound.has(n.value.name)) waits.push({ n: n.value, key: true }); return; }
+        visit(n.value, bound);
+        return;
+      }
+      if (n.type === 'ArrowFunctionExpression' || n.type === 'FunctionExpression') {
+        const inner = new Set(bound);
+        if (n.id) inner.add(n.id.name);
+        for (const p of n.params) names(p, inner);
+        // defaults are evaluated in the function's scope
+        for (const p of n.params) visit(p, inner);
+        visit(n.body, inner);
+        return;
+      }
+      if (n.type === 'AssignmentPattern') { visit(n.right, bound); return; }
+      if (n.type === 'ObjectPattern' || n.type === 'ArrayPattern' || n.type === 'RestElement') {
+        for (const x of n.type === 'ObjectPattern' ? n.properties : n.type === 'ArrayPattern' ? n.elements : [n.argument]) {
+          if (!x) continue;
+          if (x.type === 'Property') { if (x.computed) visit(x.key, bound); visit(x.value, bound); } else visit(x, bound);
+        }
+        return;
+      }
       for (const k of Object.keys(n)) {
         if (k === 'start' || k === 'end' || k === 'type') continue;
         const v = n[k];
-        if (Array.isArray(v)) for (const c of v) visit(c);
-        else if (v && typeof v === 'object') visit(v);
+        if (Array.isArray(v)) for (const c of v) visit(c, bound);
+        else if (v && typeof v === 'object') visit(v, bound);
       }
     };
-    visit(ast);
+    visit(ast, new Set());
     if (!waits.length) return null;
     const mods = new Set<number>();
     let out = code;
-    for (const w of waits.sort((x, y) => y.start - x.start)) {
+    for (const { n: w, key } of waits.sort((x, y) => y.n.start - x.n.start)) {
       const z = lazy.get(w.name)!;
       mods.add(z.i);
-      out = out.slice(0, w.start) + `$.$z(${z.i}, ${JSON.stringify(z.name)})` + out.slice(w.end);
+      out = out.slice(0, w.start) + (key ? `${w.name}: ` : '') + `$.$z(${z.i}, ${JSON.stringify(z.name)})` + out.slice(w.end);
     }
     return { code: `$.$w(() => (${out}))`, deps: [...new Set([...deps, ...[...mods].map((i) => `$lz.${i}`)])].sort(), waits: true };
   }

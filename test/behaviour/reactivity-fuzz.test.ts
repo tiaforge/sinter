@@ -46,6 +46,8 @@ const HELPERS = {
   wrap: (q: { w: number; h: number }) => ({ q, a: q.w * q.h }),
   // an element of its argument (an object list: memo() calls through)
   at: (xs: unknown[], i: number) => xs[i],
+  // a list of objects: memo() calls through, every time
+  big: (ys: Array<{ n: number }>) => ys.filter((y) => y.n > 1).length,
   // the locale is an argument, as a memoized function's must be
   tr: { word: (n: number, l: string) => (l === 'de' ? 'zwei' : 'two') + n },
 };
@@ -63,6 +65,8 @@ const LETS: Array<[string, string]> = [
   ['Q', 'area(q)'], ['W', 'wrap(q)'],
   // rows that a row handler and a reorder change
   ['YS', 'sum(ys.map((y) => y.n))'],
+  // memo()'s call-through path (an argument it does not key)
+  ['BG', 'big(ys)'],
   ['L', 'tr.word(a, $locale)'],
   // over what each alias holds (`SN_FUZZ_ALIAS`)
   ['SL', 'twice(sel ? sel.n : 0)'], ['BL', 'twice(box ? box.it.n : 0)'], ['AL', 'sum(arr.map((x) => x.n))'], ['HL', 'twice(h ? h.n : 0)'], ['UL', 'twice(u ? u.n : 0)'],
@@ -70,6 +74,8 @@ const LETS: Array<[string, string]> = [
 const READS = ['T', 'P.v', 'N', 'TT', 'TS', 'T + N', 'P.v + TT', 'KS', 'PG', 'EV', 'KS + PG + EV', 'YS + SL', 'BL + YS', 'AL + YS', 'HL + UL + YS',
   'Q', 'W.a + W.q.w', 'YS', 'L', 'L + Q'];
 const OPS = [
+  // a memoized result is frozen and shared: a handler keeps a copy of one and changes the copy
+  'cw = structuredClone(W); cw.a = cw.a + 1; cw.q.w = cw.q.w + 5', 'cp = structuredClone(P); cp.v = cp.v * 2',
   'a = a + 1', 'a = 7', 'xs.push(3)', 'xs = [...xs, 4]', 'xs.length && (xs[0] = xs[0] + 2)', 'xs.length > 1 && xs.pop()',
   'o.items.push(1)', 'o = { items: [...o.items, 2] }',
   'todos.length && patch(todos[0], { n: todos[0].n + 3 })', 'todos.length > 1 && remove(todos[todos.length - 1])', "upsert('todos', { id: 9, n: 90 })",
@@ -127,7 +133,7 @@ function page(r: () => number) {
   const rowOps: string[] = [];
   for (let i = 0, n = 2 + Math.floor(r() * (2 * DEPTH + 1)); i < n; i++) rowOps.push(r() < 0.45 ? `r${reads++} = ${pick(ROW_READS)}` : pick(ROW_OPS));
   const rowHandler = rowOps.join('; ');
-  const state = `{ a: 1, xs: [1, 2], o: { items: [1] }, ks: [{ id: 1, n: 1 }, { id: 2, n: 2 }, { id: 3, n: 3 }], go: 0, pk: null, th: null, ct: null, q: { w: 2, h: 3 }, ys: [{ n: 1 }, { n: 2 }, { n: 3 }], sel: null, box: null, arr: [], h: null, u: null, k2: 0, ${Array.from({ length: reads }, (_, i) => `r${i}: null`).join(', ')} }`;
+  const state = `{ a: 1, xs: [1, 2], o: { items: [1] }, ks: [{ id: 1, n: 1 }, { id: 2, n: 2 }, { id: 3, n: 3 }], go: 0, pk: null, th: null, ct: null, q: { w: 2, h: 3 }, ys: [{ n: 1 }, { n: 2 }, { n: 3 }], sel: null, box: null, arr: [], h: null, u: null, k2: 0, cw: null, cp: null, ${Array.from({ length: reads }, (_, i) => `r${i}: null`).join(', ')} }`;
   const html = `<sn-resource name="todos" src="/api/todos" key="id"></sn-resource>
 <sn-resource name="pg" src="/api/pg" items="items" total="total" key="id" paginate="offset" page-size="2"></sn-resource>
 <sn-resource name="ev" each="t in todos" src="/api/ev?id={t.id}" key="id"></sn-resource>
@@ -135,7 +141,7 @@ function page(r: () => number) {
 <main data-sn-state="${state}" data-sn-let="{ ${lets} }" data-sn-on-bump="a = a + 10" data-sn-on-peek="pk = T + P.v" data-sn-on-ping="xs.length && (xs[0] = xs[0] + 5)">
   <${ISLAND} data-sn-prop="{ n: go }"></${ISLAND}>
   <p class="v" data-sn-text="[T, P.v, N, TT, TS].join(' ')"></p>
-  <p class="f" data-sn-text="W.q.w + ' ' + W.a + ' ' + YS + ' ' + L"></p>
+  <p class="f" data-sn-text="W.q.w + ' ' + W.a + ' ' + YS + ' ' + L + ' ' + BG + ' ' + (cw ? cw.a + cw.q.w : '-') + ' ' + (cp ? cp.v : '-')"></p>
   <p class="al"><i data-sn-text="SL"></i> <i data-sn-text="BL"></i> <i data-sn-text="AL"></i> <i data-sn-text="HL"></i> <i data-sn-text="UL"></i> <i data-sn-text="YS"></i></p>
   <ul><template data-sn-for="x in xs"><li data-sn-let="{ R: inc(x) }" data-sn-text="R + T"></li></template></ul>
   <c-v data-sn-prop="{ v: sum(xs) }"></c-v>

@@ -38,7 +38,7 @@ describe('a helper call over constants runs at build time', () => {
     expect(out.module).not.toContain('upper');
   });
 
-  test('in a state initializer, a namespace member, a cached let, and the list of a loop that unrolls', () => {
+  test('in a state initializer, a namespace member, a let over a helper, and the list of a loop that unrolls', () => {
     const split = (s: string) => s.split(' ').map((w) => ({ w }));
     const out = build(`<main data-sn-state="{ title: fmt.title('hello world') }" data-sn-let="{ words: split(title) }">
       <h1 data-sn-text="title"></h1><ul><template data-sn-for="x in words"><li data-sn-text="x.w"></li></template></ul></main>`,

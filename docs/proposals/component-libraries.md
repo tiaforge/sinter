@@ -466,7 +466,7 @@ cells, a tree view: a library that turns a value into a tree, and components tha
 | Constant trees folded into HTML | unrolling, literal props | a constant pre-pass, nested loops, decisions per instance, a worklist |
 | Helpers run at build time | the purity contract, the evaluator, messages at build time | a rule, with a static check of what each helper may reach |
 | A file from the repo | `<sn-resource src>`, `site`, embedded data | the `file:` source |
-| Parse once per value, with a package loaded on demand | `data-sn-let`, lazy component scripts | two rules: a let over a helper is cached; it may wait for a lazy helper module |
+| Parse once per value, with a package loaded on demand | `data-sn-let`, lazy component scripts | a let may wait for a lazy helper module; an expensive helper keeps its results with `memo()` (as built: the let cache this proposal had was taken out, see step 10) |
 | Components from a package | `src/components/`, helper namespaces, the `lazy` option | `sinter({ components })`, the `"sinter"` field, `components/internal/`, `@layer sinter-lib` |
 
 The behaviour of existing pages that changes is listed in [Breaking changes](#breaking-changes).
@@ -1299,7 +1299,7 @@ data-sn-let="{ doc: md.parse(c.body, { headings: 'strong', images: 'link', html:
   result baked in; the dev check warns where two runs differ.
 - **Every let over a helper is cached**, which changes when the helper runs and what is kept in
   memory, for every app that has one. A helper that breaks the purity contract no longer gives a new
-  value at every read.
+  value at every read. (As built: taken out again; lets stay inlined and `memo()` is the app's, see step 10.)
 - **A `<slot>` that no component or fill encloses** is an error; today it is left in the HTML.
 - **`file` is a reserved API name.** An app with an API named `file` renames it.
 - **`Slot` is a reserved type name** in component declarations.

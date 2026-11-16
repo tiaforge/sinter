@@ -140,10 +140,21 @@ describe('size, eviction, clear, errors', () => {
     expect(calls.length).toBe(6);
   });
 
-  test('an entry larger than the whole cache is not kept', () => {
+  test('an entry larger than the whole cache is kept, alone, until the next result', () => {
     const { m, calls } = counted((s: string) => s.repeat(100), { maxSize: 100 });
-    m('x'); m('x');
-    expect(calls.length).toBe(2);
+    m('x'); m('x'); m('x');
+    expect(calls.length).toBe(1);
+    // the next result takes its place
+    m('y'); m('x');
+    expect(calls.length).toBe(3);
+  });
+
+  test('a result far larger than the cache, read at every node of a page, is computed once', () => {
+    let calls = 0;
+    const parse = memo((s: string) => { calls++; return { text: s, words: s.split(' ') }; }, { maxSize: 1024 });
+    const big = 'w '.repeat(200_000);
+    for (let i = 0; i < 1000; i++) parse(big);
+    expect(calls).toBe(1);
   });
 
   test('clear() forgets every result', () => {
@@ -168,5 +179,58 @@ describe('size, eviction, clear, errors', () => {
     expect(fib(80)).toBe(23416728348467685);
     const o = { k: 2, f: memo(function (this: { k: number }, x: number) { return x * this.k; }) };
     expect(o.f(3)).toBe(6);
+  });
+});
+
+describe('round 6: copies, depth, arrays, the function itself', () => {
+  test('an own `__proto__` key is copied as a key, not as the prototype', () => {
+    const got: unknown[] = [];
+    const m = memo((o: Record<string, unknown>) => { got.push(o); return Object.keys(o).join(); });
+    expect(m(JSON.parse('{"__proto__":1,"a":2}'))).toBe('__proto__,a');
+    const n = JSON.parse('{"__proto__":null,"a":2}');
+    expect(m(n)).toBe('__proto__,a');
+    expect(Object.getPrototypeOf(got[1])).toBe(Object.prototype);
+    // and a `__proto__` key is not the same argument as none
+    expect(m({ a: 2 })).toBe('a');
+  });
+
+  test('a result 50,000 levels deep is frozen without overflowing the stack', () => {
+    const deep = memo((n: number) => { let o: Record<string, unknown> = { leaf: true }; for (let i = 0; i < n; i++) o = { o }; return o; });
+    const r = deep(50_000) as Record<string, unknown>;
+    expect(Object.isFrozen(r)).toBe(true);
+    let x = r, d = 0;
+    while (x.o) { x = x.o as Record<string, unknown>; d++; }
+    expect(d).toBe(50_000);
+    expect(Object.isFrozen(x)).toBe(true);
+  });
+
+  test('a million-element array is frozen in a few hundred milliseconds at most, its elements read by index', () => {
+    const rows = memo((n: number) => Array.from({ length: n }, (_, i) => i));
+    const t0 = performance.now();
+    const r = rows(1_000_000);
+    expect(Object.isFrozen(r)).toBe(true);
+    expect(performance.now() - t0).toBeLessThan(400);
+  });
+
+  test('a sparse array with an extra property calls through, uncached', () => {
+    const { m, calls } = counted();
+    const a = Object.assign([1, , 3], { tag: 'x' });
+    m(a); m(a);
+    expect(calls.length).toBe(2);
+    // what it got is the caller's own array, its property included
+    expect((calls[0]![0] as { tag: string }).tag).toBe('x');
+    m([1, , 3]); m([1, , 3]);
+    expect(calls.length).toBe(3);
+  });
+
+  test('the memoized function has the original\'s name and length; `this` is passed on, not keyed', () => {
+    function parseDoc(_s: string, _o?: object) { return 1; }
+    const m = memo(parseDoc);
+    expect(m.name).toBe('parseDoc');
+    expect(m.length).toBe(parseDoc.length);
+    const o = { k: 2, f: memo(function (this: { k: number }, x: number) { return x * this.k; }) };
+    expect(o.f(3)).toBe(6);
+    // another `this`, the same arguments: the kept result
+    expect(o.f.call({ k: 10 }, 3)).toBe(6);
   });
 });
