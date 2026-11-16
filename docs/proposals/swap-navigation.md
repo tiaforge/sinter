@@ -332,20 +332,19 @@ Everything else stays as the first page loaded it. Pages whose CSP `<meta>`, `<b
   policy can only be *added to*. A `<meta http-equiv="Content-Security-Policy">` inserted later is enforced
   on top of the header's; removing it does not lift it; a looser one does not loosen anything. So a policy
   cannot be replaced on a swap, and script cannot read the current document's own response headers.
-  Proposed:
-  - the swap reads the new page's `Content-Security-Policy` header from the response it fetched, and knows
-    the current document's: for a page it swapped in, from that response; for the first page, from a
-    `HEAD` of its URL at the first swap (or the server mirrors it, to decide);
-  - the same policy: the swap goes on; a stricter one (only directives added or narrowed, all of them ones
-    a `<meta>` can carry): the swap adds it as a `<meta>` and goes on; anything else (a looser policy,
-    `frame-ancestors`, `sandbox`, `report-to`/`report-uri`, which a `<meta>` cannot set): a page load;
-  - a nonce policy differs on every response, and the document keeps the first page's nonce (the new
-    page's nonced styles would be blocked), so a page with one is loaded, unless its nonce is the same
-    for the session; hash policies swap;
-  - Referrer-Policy and Permissions-Policy: the same rule (the same: swap; else a page load; a referrer
-    policy can also be set by `<meta name="referrer">`).
-  To decide before step 4: how the first page's policy is known (the `HEAD`, or the server mirroring it),
-  and whether "stricter" is worth its parser or "the same, else a page load" is enough.
+  Decided (option A), as SPAs and Turbo do it: **one policy per app, the first document's.** An SPA has
+  one document, so the policy of its first response governs the session; Turbo, which also swaps whole
+  pages, keeps the first page's policy and stamps the document's nonce (from `<meta name="csp-nonce">`) on
+  the scripts and styles it inserts. So:
+  - the pages of an app that swaps share one policy (the app's); a page with another one opts out with
+    `data-sn-swap="off"` and is loaded;
+  - the swap stamps the document's nonce, read from `<meta name="csp-nonce">`, on the styles and scripts it
+    inserts, so pages with a nonce policy swap too (the fetched page's own inline styles and scripts are
+    trusted as a load of that page would trust them: the server's own HTML, the trust model of
+    [3](#3-kept-elements));
+  - no automatic detection of a differing policy (it would need the first page's headers, which script
+    cannot read); kept as a later option (a `HEAD` of the first page's URL, compared with each response).
+  Referrer-Policy and Permissions-Policy follow the same rule: one per app, else the page opts out.
 - **Declarative shadow DOM**: `parseFromString` does not attach it; `Document.parseHTMLUnsafe` does, and
   all three engines have it (step 0's probe), so it is to be the parser for the fetched page (the spike
   still uses `DOMParser`).
@@ -546,7 +545,8 @@ None for an app that leaves swaps off, apart from its core growing by 80 B gzip.
 them on, a link or `navigate()` to another page of the app is no page load:
 - inline and classic scripts on the next page do not run, `load` and `DOMContentLoaded` do not fire again,
   and analytics that count loads count only the first (the build's opt-out for such pages, [1](#1-turning-swaps-on));
-- the next page runs under the first page's response-header policies ([4](#4-the-head), open);
+- every page that swaps runs under the first page's response-header policies: one policy per app
+  ([4](#4-the-head));
 - app modules run once per document, not per page; per-page work goes to `sn-page`;
 - pages whose stylesheet asks for page transitions get them on swaps too, as on loads.
 
@@ -594,8 +594,7 @@ One commit each:
    prefetch on it with no change in behaviour; the second review's fixes with their `e2e/permanent` steps.
    Sizes before and after. Ready to start.
 
-**Before step 3, decide:** how the first page's response-header CSP is known and how far "stricter" goes
-([4](#4-the-head)); a warning or an opt-out for pages with inline or classic scripts
+**Before step 3, decide:** a warning or an opt-out for pages with inline or classic scripts
 ([1](#1-turning-swaps-on)); the budget for the pages of apps that turn swaps on, once the stub is
 optimized. Then spike the
 manifest, the stub and the exported mount together: they are the unproven half.
