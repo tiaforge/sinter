@@ -1562,6 +1562,9 @@ To discuss after this lands:
 - **Automatic caching of lets over helpers** was built, hardened over five review rounds and taken
   out (step 10, as built). It stays on the same parked branch with its fuzz and tests, in case a
   measured need (helpers over state lists, such as a dashboard's totals) brings it back.
+- **A text slot inside an element of a choice's case** (`<span><template data-sn-text>…</template></span>`
+  in a `<sn-component use>` case) is not written by the early script, only at takeover, so the first
+  paint lacks it. Found by the size re-check of PR #51; it predates that change.
 - **A keyless resource upserted as a list.** Without `key`, a resource is one object, so
   `upsert('comments', c)` replaces the whole list. Nothing warns. A dev warning when a keyless
   resource whose value is an array is upserted or patched, or a check for a keyless resource typed
