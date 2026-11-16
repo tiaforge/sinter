@@ -1033,6 +1033,14 @@ class Compiler {
   /** the kept elements (`data-sn-permanent`) and their names */
   readonly permanentEls: P5Element[] = [];
   readonly permanentNames: string[] = [];
+  /** how many kept elements the walk is inside (a kept element in another is SN346) */
+  private keptDepth = 0;
+  /** with swaps on, whether `n` is a kept element or inside one */
+  inKept(n: P5Node): boolean {
+    if (!this.opts.swap) return false;
+    for (let p: P5Node | null = n; p; p = (p as P5Element).parentNode as P5Node | null) if (this.permanentEls.includes(p as P5Element)) return true;
+    return false;
+  }
   /** the kept elements that bind (their ids from their range), and where each kept element was written */
   readonly keptBound = new Set<string>();
   readonly keptSource = new Map<string, string>();
@@ -3899,7 +3907,9 @@ class Compiler {
       const kept = ctx.tid < 0 ? attr(child, 'data-sn-permanent')?.trim() : undefined;
       const saved = this.nextId;
       if (kept && /^[A-Za-z][\w-]*$/.test(kept)) this.nextId = keptBase(kept);
+      if (kept) this.keptDepth++;
       const res = this.element(child, ctx, i, lastIf);
+      if (kept) this.keptDepth--;
       if (kept && this.nextId !== saved) {
         if (this.nextId - keptBase(kept) > KEPT_IDS) this.report(child, 'data-sn-permanent', 'SN346', `a kept element binds at most ${KEPT_IDS} nodes (\`${kept}\` binds ${this.nextId - keptBase(kept)})`, 0);
         if (this.nextId > keptBase(kept)) this.keptBound.add(kept);
@@ -4037,6 +4047,7 @@ class Compiler {
       const name = get('permanent')!.trim(), clash = this.permanentNames.find((n) => n !== name && keptBase(n) === keptBase(name));
       if (!/^[A-Za-z][\w-]*$/.test(name)) this.report(el, 'data-sn-permanent', 'SN346', '`data-sn-permanent` takes a name (letters, digits, `-` and `_`), the same on each page that keeps the element', 0);
       else if (ctx.tid >= 0) this.report(el, 'data-sn-permanent', 'SN346', '`data-sn-permanent` cannot be inside a `<template>`: a kept element is one element of the page', 0);
+      else if (this.keptDepth > 1) this.report(el, 'data-sn-permanent', 'SN346', '`data-sn-permanent` cannot be inside another kept element: the outer one is kept with everything in it', 0);
       else if (this.permanentNames.includes(name)) this.report(el, 'data-sn-permanent', 'SN346', `\`data-sn-permanent="${name}"\` is on two elements of this page`, 0);
       else if (clash) this.report(el, 'data-sn-permanent', 'SN346', `\`${name}\` and \`${clash}\` get the same range of ids: rename one`, 0);
       else {
@@ -4410,6 +4421,8 @@ class Compiler {
         const c = parent.childNodes[i]!;
         // (another component's markup: its root, or where a root that is not one plain element starts)
         if (!isElement(c) || this.slotOf.has(c) || (this.useOf.has(c) && c !== use.root) || this.points.has(c) || this.scopeStart.get(c)?.some((u) => u !== use)) continue;
+        // with swaps on, a kept element is numbered alike on every page that keeps it, whatever each passes it (§3)
+        if (this.opts.swap && attr(c, 'data-sn-permanent') !== undefined) continue;
         const cond = c.tagName === 'template' ? attr(c, 'data-sn-if')?.trim() : undefined;
         if (cond !== undefined && value.has(cond)) {
           const j = parent.childNodes.findIndex((x, k) => k > i && real(x));
@@ -6317,7 +6330,9 @@ class Compiler {
       if (!this.templates[b.x!]) return;
       cands.push({ el, b, f: b.f, for: true });
     };
-    for (const { el, node } of this.paints) for (const b of node.b) { value(el, b, false); decide(el, b); unroll(el, b); }
+    // in a kept element nothing is decided or unrolled at build time: its nodes are numbered alike on every page that
+    // keeps it, whatever each page passes it, and the next page's code takes them over (swaps, §3)
+    for (const { el, node } of this.paints) for (const b of node.b) { value(el, b, false); if (!this.inKept(el)) { decide(el, b); unroll(el, b); } }
     for (const [node, el] of this.tplEls) for (const b of node.b) { value(el, b, true); decide(el, b); }
     const choosing = this.collecting() && [...this.pointOf.values()].some((p) => p.pick);
     if (!cands.length && !choosing && !this.textRoots.length) return;
@@ -6361,7 +6376,7 @@ class Compiler {
       ...[...this.pointOf.values()].flatMap((p) => p.group?.cases.map((c) => `($) => (${c.props})`) ?? []),
       ...this.runtimePlacements.flatMap((P) => (P.node.b[0]?.f !== undefined ? [this.fns[P.node.b[0].f]!] : [])),
     ] : [];
-    const texts = this.textRoots.filter((t) => !t.b.e && t.b.f !== undefined && fixed(t.b.d));
+    const texts = this.textRoots.filter((t) => !t.b.e && t.b.f !== undefined && fixed(t.b.d) && !this.inKept(t.parent as P5Node));
     const used = [...new Set([...this.stateInits.flatMap((st) => st.fields.map((x) => x.code)), ...cands.map((c) => this.fns[c.f]!), ...rowCodes, ...texts.map((t) => this.fns[t.b.f!]!)])];
     let table: Array<($: unknown) => unknown>;
     try {
@@ -7464,6 +7479,8 @@ class Compiler {
       gone.add(node);
     }
     for (const { el, node } of this.paints) {
+      // a kept element's bindings stay, constants too: the next page passes it other values (swaps, §3)
+      if (this.inKept(el)) continue;
       const keep = node.b.filter((b) => !drop(b));
       if (keep.length === node.b.length) continue;
       for (const b of node.b) if (drop(b)) { if (b.f !== undefined) this.fnUses[b.f]!--; this.freeze(b.d); this.dropped.add(b); }

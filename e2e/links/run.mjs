@@ -119,6 +119,17 @@ for (const name of browsers) {
     await page.evaluate(() => history.back());
     await page.waitForTimeout(400);
     check('while dirty: Back is refused', await read(), { url: g0.url, page: g0.page, marker: 1 });
+    // a link to another site (another origin here) and one with rel="external": the browser's, but refused too
+    await page.evaluate((port) => {
+      for (const [id, href, rel] of [['away', `http://localhost:${port}/other.html`, ''], ['ext', '/other.html', 'external']]) {
+        const a = Object.assign(document.createElement('a'), { id, href, textContent: id });
+        if (rel) a.rel = rel;
+        document.body.append(a);
+      }
+    }, new URL(base).port);
+    await page.evaluate(() => { document.getElementById('away').click(); document.getElementById('ext').click(); });
+    await page.waitForTimeout(500);
+    check('while dirty: a link to another site and rel="external" are refused', await read(), { url: g0.url, page: g0.page, marker: 1 });
     check('the guard ran for each', { more: (await guarded()) - s0 >= 3 }, { more: true });
     await click('clean');
     await click('p3');

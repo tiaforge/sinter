@@ -582,10 +582,10 @@ destroy (for an app that calls `destroy()`, tests do: later, with the same data)
 
 ## Docs
 
-navigation.md: "Between pages" gets a section "Swap navigation and kept elements" (when a link swaps,
-what is kept, what a swap skips, what falls back, app code and `sn-page`, transitions); the opening
-sentence says pages swap by default and how one opts out. attributes.md, llms.txt (its budget has 9 bytes left: something must be
-shortened), spec.md, security.md (the trust model, injected markers), CHANGELOG; RealWorld's README.
+Done in step 6: navigation.md ("Swaps", "Refusing a navigation", swaps and types in "Page transitions"; swaps
+are off by default, `sinter({ swap: true })` turns them on), configuration.md, attributes.md and llms.txt
+(from the vocabulary), security.md (the trust model, injected markers), the RealWorld and dashboard
+READMEs. Not yet: spec.md and the CHANGELOG.
 
 ## Plan
 
@@ -729,6 +729,29 @@ manifest, the stub and the exported mount together: they are the unproven half.
      a parsed page's inline styles against the document's policy whatever the parser
      (`navigation-api/parse-csp.cjs`), so the swap puts the document's nonce on the page's styles and
      scripts before the parse.
+   - **The second review** (a Fable agent, of `563f0af`; each finding reproduced in the browsers, each fix with
+     a step that failed before it):
+     - constant props shaped a kept element (a branch decided, bindings dropped at build time), so its ids
+       and bindings differed between pages and the next page bound the wrong nodes or none: with swaps on,
+       nothing inside a kept element is folded, decided or unrolled (`test/compiler/permanent.test.ts`, the
+       `kind` constant in `e2e/permanent`);
+     - a history write while the swap fetched (a `$url` write, a script's `replaceState`) aborted it and the
+       link was lost, or after Back the address was A's and the page B's: the stub sees the abort, and when
+       the latest `navigate` event was a same-document write, navigates again (before the URL committed) or
+       loads the entry (after);
+     - a link to a page that ships no JavaScript was requested twice (the swap found no page module and
+       loaded it): such a page is swapped in with nothing to mount;
+     - an error in the commit (a malformed `#hash`) left a half-swapped, unbound page: the commit reloads
+       on any error; an error while preparing is a load;
+     - a kept element inside another was removed from the page: `SN346`, and the swap keeps only the outer;
+     - a link to another site asked no guard where the Navigation API exists: its event asks them while it
+       can be refused, and since WebKit fires no `navigate` event for such a link, `navigate.ts` asks them
+       on its click;
+     - a `#hash` with no target kept the old page's scroll position: the page starts at the top first.
+     Not changed (low, or kept for later): stylesheet order in the head after a swap, apps mounted on
+     elements not destroyed by a swap, the guards and `onGo` running twice for nested mounts without the
+     API, a traversal between two entries of one path the swap made, a bound head stylesheet both pages
+     have, `rel="alternate stylesheet"` never loading.
    - **Left:** a `data-sn-model` field inside shows its state's value again (the state starts again);
      rows over data that is not there at mount (no `cache`) are built again; a stream both pages use
      reconnects.

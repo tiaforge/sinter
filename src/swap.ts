@@ -29,6 +29,10 @@ export interface SwapState {
   live?: HTMLElement;
   /** the index of the entry the navigation in progress leaves (a traversal's direction) */
   at?: number;
+  /** the latest `navigate` event: whether a swap's navigation was aborted by a history write or a navigation */
+  last?: Event;
+  /** the swap in progress (a newer one replaces it) */
+  run?: object;
 }
 
 /** what the stub reads of a `navigate` event */
@@ -65,6 +69,7 @@ function state(list: SwapPage[]): SwapState {
     // Vite's dev styles come from modules, not from the page
     sheets: new Set(document.head.querySelectorAll('link[rel~=stylesheet],style:not([data-vite-dev-id])')),
   });
+  nav()!.addEventListener('navigate', (e) => { s.last = e; });
   // per-page app code listens for `sn-page`: after each mount, the first one included
   queueMicrotask(() => document.dispatchEvent(new CustomEvent('sn-page', { detail: { to: location.href, kind: 'load' } })));
   return s;
@@ -91,6 +96,15 @@ export function swap(list: SwapPage[]): Feature {
         return {
           name: 'swap',
           run: () => {
+            const me = (s.run = {});
+            // aborted by a history write (a `$url` write, a script's `replaceState`), not by another navigation: the
+            // swap goes on, as a page load would; before the URL committed, the navigation again, after (Back) a load
+            e.signal.addEventListener('abort', () => setTimeout(() => {
+              const l = s.last as NavigateLike & { navigationType?: string; destination: { sameDocument?: boolean } } | undefined;
+              if (s.run !== me || !l?.destination.sameDocument || l.navigationType == 'traverse') return;
+              if (location.pathname != s.shown) location.reload();
+              else (nav() as unknown as { navigate(u: string, o: object): { finished?: Promise<unknown> } }).navigate(i.to, { history: i.kind == 'replace' ? 'replace' : 'push' }).finished?.catch(() => {});
+            }));
             // a load instead, once: before the URL committed, of the URL; after, a reload
             const fail = () => {
               s.skip = u.href;
@@ -100,7 +114,7 @@ export function swap(list: SwapPage[]): Feature {
             let p: Promise<Prepared> | undefined;
             // the fetch and the plan before the URL changes where the browser waits (a second click before the page
             // is ready replaces this navigation, as with loads); else in the handler, after it changed
-            const ready = () => (p ??= import('./swap-run.js').then((m) => m.prepare(s, i, e.signal), () => false as const));
+            const ready = () => (p ??= import('./swap-run.js').then((m) => m.prepare(s, i, e.signal)).catch(() => false as const));
             // false: a load instead; null: a newer navigation has the page
             e.intercept({
               scroll: 'manual',

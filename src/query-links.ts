@@ -76,7 +76,7 @@ const feature: Feature = {
     // next-page data asks too. Where the browser should follow (a parameter the page does not read, a
     // `#hash` with the same query) there is no decision
     chain(app).add((i) => {
-      if (i.kind == 'traverse') return;
+      if (i.kind == 'traverse' || i.trigger?.matches?.('[rel~=external]')) return;
       const at = here(), to = new URL(i.to, at);
       if (to.origin != at.origin || to.pathname != at.pathname) return;
       const d = differs(to);

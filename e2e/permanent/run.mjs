@@ -19,17 +19,20 @@ if (spawnSync('npx', ['vite', 'build', '--logLevel', 'warn'], { cwd: here, stdio
 
 const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json' };
 let slow = false, plainA = false;
+/** every path the server was asked for (a page the swap cannot take would be asked for twice) */
+const requested = [];
 const server = createServer(async (req, res) => {
   const path = new URL(req.url, 'http://x').pathname;
-  // `/control/plain-a`: the next request for `/` answers a page without sinter's module (it cannot swap)
+  requested.push(path);
+  // `/control/plain-a`: the next request for `/` answers an error (it cannot swap; the load after it is answered)
   if (path === '/control/plain-a') { plainA = true; res.writeHead(204); return res.end(); }
-  if (plainA && path === '/') { plainA = false; res.writeHead(200, { 'Content-Type': 'text/html' }); return res.end('<!doctype html><title>no kept element</title><p>none</p>'); }
+  if (plainA && path === '/') { plainA = false; res.writeHead(500, { 'Content-Type': 'text/html' }); return res.end('<!doctype html><title>error</title><p>error</p>'); }
   // `/control/slow`: the next page answers 600 ms late (a second click while the swap fetches)
   if (path === '/control/slow') { slow = true; res.writeHead(204); return res.end(); }
   if (slow && extname(path) === '' && path !== '/control/') { slow = false; await new Promise((r) => setTimeout(r, 600)); }
   // a page without sinter: what the browser itself does on a reload
   if (path === '/control/') { res.writeHead(200, { 'Content-Type': 'text/html' }); return res.end('<!doctype html><title>control</title><div style="block-size: 5000px"></div>'); }
-  const file = path === '/' ? 'index.html' : /^\/(b|plain|off)\/$/.test(path) ? `${path.slice(1)}index.html` : normalize(path).replace(/^\/+/, '');
+  const file = path === '/' ? 'index.html' : /^\/(b|plain|off|nojs)\/$/.test(path) ? `${path.slice(1)}index.html` : normalize(path).replace(/^\/+/, '');
   try {
     const body = await readFile(join(here, 'dist', file));
     res.writeHead(200, { 'Content-Type': TYPES[extname(file)] ?? 'application/octet-stream', 'Cache-Control': 'no-store' });
@@ -124,11 +127,12 @@ for (const name of browsers) {
     const bound = await page.evaluate(() => ({
       same: window.__bound === document.getElementById('bound') && window.__li === document.querySelector('#kept-list li') && window.__branch === document.getElementById('branch'),
       where: document.getElementById('where').textContent, rows: document.querySelectorAll('#kept-list li').length,
+      kind: document.getElementById('kind').textContent, onlyB: !!document.getElementById('only-b'),
     }));
     await page.click('#more');
     await settle(() => document.querySelectorAll('#kept-list li').length === 4);
     check('a kept element that binds: the same nodes, taken over by the next page', { ...bound, after: await page.evaluate(() => [...document.querySelectorAll('#kept-list li')].map((x) => x.textContent)) }, {
-      same: true, where: 'B: Beta', rows: 3, after: ['row 1', 'row 2', 'row 3', 'row 4'],
+      same: true, where: 'B: Beta', rows: 3, after: ['row 1', 'row 2', 'row 3', 'row 4'], kind: 'b', onlyB: true,
     });
     await settle(() => document.querySelector('body > [role=status]')?.textContent === 'B: Beta');
     check('the new title is announced', await page.evaluate(read), { announced: 'B: Beta' });
@@ -348,6 +352,47 @@ for (const name of browsers) {
       await at('/b/', 'B: Beta');
       return p3.evaluate(() => window.__vt);
     };
+    // the second review's findings (each as found): a page of constants is swapped in, requested once
+    await p3.goto(base + '/');
+    await at('/', 'A: Alpha');
+    await p3.evaluate(() => { window.__marker = 11; });
+    requested.length = 0;
+    await p3.evaluate(() => document.getElementById('to-nojs').click());
+    await at('/nojs/', 'No JS');
+    await p3.waitForTimeout(200);
+    check('a page that ships no JavaScript: swapped in, requested once', { marker: (await view()).marker, requests: requested.filter((x) => x === '/nojs/').length, kept: await p3.evaluate(() => !!document.getElementById('keep')) }, { marker: 11, requests: 1, kept: false });
+    // a link from it is a page load
+    await Promise.all([p3.waitForEvent('load', { timeout: 5000 }), p3.evaluate(() => document.getElementById('to-a').click())]);
+    await at('/', 'A: Alpha');
+    // a `#hash` with no target: the next page starts at the top; a malformed one: the page still works
+    await p3.evaluate(() => { window.__marker = 12; scrollTo(0, 2000); });
+    await p3.waitForTimeout(150);
+    await p3.evaluate(() => document.getElementById('to-b-missing').click());
+    await at('/b/', 'B: Beta');
+    await p3.waitForTimeout(200);
+    check('a #hash with no target starts the next page at the top', { y: await p3.evaluate(() => Math.round(scrollY)), marker: (await view()).marker }, { y: 0, marker: 12 });
+    await p3.evaluate(() => document.getElementById('to-a').click());
+    await at('/', 'A: Alpha');
+    await p3.evaluate(() => document.getElementById('to-b-pct').click());
+    await at('/b/', 'B: Beta');
+    await p3.waitForFunction(() => document.querySelectorAll('#items li').length === 3, null, { timeout: 5000 }).catch(() => {});
+    await p3.click('#inc');
+    check('a malformed #hash: the page is swapped in and works', { marker: (await view()).marker, count: await p3.evaluate(() => document.querySelector('#count span')?.textContent) }, { marker: 12, count: 'B 2' });
+    // a history write while the swap fetches (a `$url` write, a script's replaceState) does not lose the click
+    await p3.evaluate(() => document.getElementById('to-a').click());
+    await at('/', 'A: Alpha');
+    await p3.request.post(base + '/control/slow');
+    await p3.evaluate(() => { document.getElementById('to-b').click(); setTimeout(() => history.replaceState(null, '', location.pathname + '?z=1'), 150); });
+    await at('/b/', 'B: Beta');
+    await p3.waitForTimeout(800);
+    check('a history write while the swap fetches: the link still goes', { path: (await view()).path, marker: (await view()).marker, title: await p3.title() }, { path: '/b/', marker: 12, title: 'B: Beta' });
+    // during Back: the address is the entry Back went to, so is the page
+    await p3.request.post(base + '/control/slow');
+    await p3.evaluate(() => { history.back(); setTimeout(() => history.replaceState(null, '', location.pathname + '?z=1'), 150); });
+    await p3.waitForFunction(() => location.pathname === '/' && document.title === 'A: Alpha', null, { timeout: 5000 }).catch(() => {});
+    await p3.waitForTimeout(800);
+    check('a history write during Back: the page is the entry\'s', await p3.evaluate(() => ({ path: location.pathname, title: document.title, heading: document.getElementById('heading')?.textContent })), { path: '/', title: 'A: Alpha', heading: 'Alpha' });
+
     // a morph across a swap, the kept element held still, and the types: what each transition names and is typed
     await p3.emulateMedia({ reducedMotion: 'no-preference' });
     if (await p3.evaluate(() => typeof CSSViewTransitionRule != 'undefined')) {

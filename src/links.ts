@@ -34,6 +34,8 @@ type Nav = EventTarget & { currentEntry: { key: string } | null; navigate(url: s
 const api = (): Nav | undefined => (globalThis as { navigation?: Nav }).navigation;
 /** what a `navigate()` call hands its event: the element of its handler */
 const INFO = Symbol('sinter.trigger');
+/** a link to another site whose click the guards were asked about already (navigate.ts): its event asks none */
+export const asked: { to: string | null } = { to: null };
 
 /** What the apps of one document share: one ordered chain, one `navigate` listener, one claim on a traversal. */
 interface Shared {
@@ -72,6 +74,8 @@ export function chain(app: App): Chain {
     return d || undefined;
   };
   const all = <T>(k: 'onGo' | 'guards') => [...sh.apps].flatMap((a) => a[k] as T[]);
+  /** whether a guard of any app refuses `i` (every guard runs: each may note the navigation) */
+  const refuses = (i: Intent) => all<(i: Intent) => boolean>('guards').reduce((no, g) => g(i) || no, false);
   c.go = (i) => {
     i.from ||= env.href();
     // with the Navigation API, a call is the browser's navigation, whose event is the intent (and its guards)
@@ -91,7 +95,7 @@ export function chain(app: App): Chain {
     const e = i.event as NavigateLike | undefined;
     // refused: a link's default is prevented (a decision without `run`), an event cancelled, a call does nothing;
     // every guard runs (each may note the navigation)
-    if (i.source != 'popstate' && (!e || e.cancelable) && all<(i: Intent) => boolean>('guards').reduce((no, g) => g(i) || no, false)) {
+    if (i.source != 'popstate' && (!e || e.cancelable) && refuses(i)) {
       e?.preventDefault();
       return { name: 'refused' };
     }
@@ -114,13 +118,18 @@ export function chain(app: App): Chain {
   if (N && !sh.off) {
     const on = (ev: Event) => {
       const e = ev as NavigateLike;
-      if (!e.canIntercept || e.hashChange || e.downloadRequest != null || e.formData || e.navigationType == 'reload') return;
+      if (e.hashChange || e.downloadRequest != null || e.formData || e.navigationType == 'reload') return;
       // `history.pushState` (a `$url` write) fires it too: no navigation to decide on
       if (e.destination.sameDocument && e.navigationType != 'traverse') return;
-      // what the browser keeps: a form's navigation (its submitter is the source), a link to another site, a
-      // download, another target
+      // a form's navigation (its submitter is the source), a download, another target: the browser's
       const from = e.sourceElement;
-      if (from && (from.localName == 'form' || (from as HTMLButtonElement).form || from.matches('[rel~=external],[download],[target]:not([target=_self])'))) return;
+      if (from && (from.localName == 'form' || (from as HTMLButtonElement).form || from.matches('[download],[target]:not([target=_self])'))) return;
+      // another site (or `rel="external"`): the browser's too, but the page's guards are asked while it can be refused
+      if (!e.canIntercept || from?.matches('[rel~=external]')) {
+        if (asked.to == e.destination.url) asked.to = null;
+        else if (e.cancelable && refuses({ to: e.destination.url, from: env.href(), kind: e.navigationType, source: 'event', trigger: from ?? null, event: e })) e.preventDefault();
+        return;
+      }
       const info = e.info as { [INFO]?: Element | null } | undefined;
       [...sh.apps][0]?.go({ to: e.destination.url, kind: e.navigationType, source: 'event', trigger: from ?? info?.[INFO] ?? null, index: e.destination.index, signal: e.signal, event: e });
     };
@@ -139,7 +148,7 @@ export function chain(app: App): Chain {
  * Links as intents where there is no `navigate` event (the chain gets links from it otherwise): plain clicks,
  * the primary button, no modifier, no default prevented by the page's handlers (they run first: the core
  * listens in the capture phase, this in the bubble phase), on an `<a href>` or `<area href>` without
- * `download`, a `target` other than `_self` or `rel="external"`.
+ * `download` or a `target` other than `_self`.
  */
 export function links(app: App): void {
   const c = chain(app);
@@ -148,7 +157,8 @@ export function links(app: App): void {
   const click = (e: Event) => {
     const m = e as MouseEvent, a = (e.target as Element | null)?.closest?.('a[href],area[href]');
     if (!a || m.defaultPrevented || m.button || m.ctrlKey || m.metaKey || m.shiftKey || m.altKey) return;
-    if (a.matches('[download],[target]:not([target=_self]),[rel~=external]')) return;
+    // (`rel="external"` and other sites go on: no handler takes them, the guards are asked)
+    if (a.matches('[download],[target]:not([target=_self])')) return;
     let to: string;
     try { to = new URL(a.getAttribute('href')!, app.env.href()).href; } catch { return; }
     if (c.go({ to, kind: 'push', source: 'link', trigger: a })) e.preventDefault();

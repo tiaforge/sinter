@@ -259,13 +259,18 @@ page out with `<html data-sn-swap="off">` (links to it load it, and links from i
 single link with `<a data-sn-swap="off">`. The build lists the pages that swap: any other URL, such as an
 API's logout link, is the browser's.
 
-Pages that ship no JavaScript stay without it unless they keep an element. Speculation Rules leave out
-the pages that swap: the swap requests the next page itself.
+Pages that ship no JavaScript stay without it unless they keep an element: a link to one swaps it in
+(requested once, nothing to mount), and links from it are page loads. Speculation Rules leave out the
+pages that swap: the swap requests the next page itself. A history write while the next page is fetched
+(a `$url` field typed in, a script's `replaceState`) does not lose the link. A kept element may not be
+inside another (`SN346`); inside one, constants a page passes stay bindings, so the next page's values
+apply.
 
 ## Refusing a navigation
 
 `data-sn-on-navigate` runs before any navigation away from the page while its element is on it (a link,
-`navigate()`, Back where the browser can still refuse it), and `$event.preventDefault()` refuses it.
+one to another site or with `rel="external"` too, `navigate()`, Back where the browser can still refuse
+it), and `$event.preventDefault()` refuses it.
 `$event` has `to`, `from`, `kind` (`push`, `replace`, `traverse`) and `trigger` (the link or the element
 whose handler called `navigate()`):
 

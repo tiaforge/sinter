@@ -8,8 +8,8 @@ import { vtTypes } from './links.js';
 import { KEPT, type Prepared, type SwapState, entry, track } from './swap.js';
 import { ident } from './transition.js';
 
-/** a page module with swaps on, as it registers itself (compiler/index.ts): its mount, and the names it keeps */
-interface PageModule { boot(): App | Promise<App>; kept: string[] }
+/** a page module with swaps on, as it registers itself (compiler/index.ts): its mount, and the names it keeps; a page with nothing to run has neither */
+interface PageModule { boot?(): App | Promise<App>; kept: string[] }
 /** set while the swap imports page modules: they do not mount themselves */
 const SWAPPING = Symbol.for('sinter.swapping');
 /** where each page module registers itself, by its URL (compiler/index.ts) */
@@ -49,7 +49,8 @@ export function pairs(cur: ParentNode, next: ParentNode, was: string[], now: str
     if (a.length > 1 || b.length != 1) return null;
     if (a[0]?.localName == b[0]!.localName) out.push([a[0]!, b[0]!]);
   }
-  return out;
+  // a kept element inside another goes with the outer one (the build reports it: SN346)
+  return out.filter(([o]) => !out.some(([x]) => x !== o && x.contains(o)));
 }
 
 /**
@@ -225,7 +226,9 @@ export async function prepare(s: SwapState, i: Intent, signal?: AbortSignal): Pr
     const urls = [...doc.querySelectorAll('script[type=module][src]')].map((x) => new URL(x.getAttribute('src')!, final).href);
     await Promise.all(urls.map((u) => import(/* @vite-ignore */ u)));
     const pages = (globalThis as unknown as Record<symbol, Record<string, PageModule> | undefined>)[PAGES] ?? {};
-    page = urls.map((u) => pages[u]).find(Boolean);
+    // a page with no module script ships no JavaScript (a page of constants): swapped in with nothing to mount, so
+    // it is requested once; links from it are page loads
+    page = urls.length ? urls.map((u) => pages[u]).find(Boolean) : { kept: [] };
   } catch { return no(); }
   finally { g[SWAPPING]--; }
   if (!page || c.signal.aborted) return no();
@@ -243,6 +246,11 @@ export async function prepare(s: SwapState, i: Intent, signal?: AbortSignal): Pr
       // a newer navigation came while the transition waited for this callback: it has the page
       if (c.signal.aborted) return;
       committed = true;
+      // anything that throws past this point leaves a page half swapped: it is loaded instead (below)
+      try { swap(); } catch { failed = true; }
+      return booted;
+    };
+    const swap = () => {
       // the browser made the entry (`intercept()`); a redirect gives it another URL
       if (final.href != location.href) history.replaceState(history.state, '', final.href);
       try {
@@ -264,8 +272,12 @@ export async function prepare(s: SwapState, i: Intent, signal?: AbortSignal): Pr
       }
       s.shown = final.pathname;
       s.kept = page!.kept;
-      if (i.kind != 'traverse' && final.hash) document.getElementById(decodeURIComponent(final.hash.slice(1)))?.scrollIntoView();
-      else scrollTo(0, i.kind == 'traverse' ? s.y.get(entry()) ?? 0 : 0);
+      // the top, as after a load, or the entry's position; then a link's `#hash` target, if the page has it
+      scrollTo(0, i.kind == 'traverse' ? s.y.get(entry()) ?? 0 : 0);
+      const h = final.hash.slice(1);
+      let target: Element | null = null;
+      if (i.kind != 'traverse' && h) { try { target = document.getElementById(decodeURIComponent(h)); } catch { target = document.getElementById(h); } }
+      target?.scrollIntoView();
       track(s);
       // the title, announced as a load would
       const live = (s.live ??= document.createElement('div'));
@@ -274,9 +286,8 @@ export async function prepare(s: SwapState, i: Intent, signal?: AbortSignal): Pr
       live.textContent = '';
       body.append(live);
       setTimeout(() => { live.textContent = document.title; }, 100);
-      // mount: the new page's code, in the same step
-      try { booted = page!.boot(); } catch { failed = true; }
-      return booted;
+      // mount: the new page's code, in the same step (a page with nothing to run has none)
+      booted = page!.boot?.();
     };
     type VT = { updateCallbackDone: Promise<void>; ready: Promise<void>; finished: Promise<void> };
     const vt = wanted() ? (document as Document & { startViewTransition?: (o: { update: () => unknown; types: string[] }) => VT }).startViewTransition : undefined;
@@ -302,13 +313,13 @@ export async function prepare(s: SwapState, i: Intent, signal?: AbortSignal): Pr
     // a page that did not mount is loaded, rather than left unbound
     let app: App | undefined;
     try { app = await booted; } catch { failed = true; }
-    if (failed || !app) { location.reload(); return; }
+    if (failed || (page.boot && !app)) { location.reload(); return; }
     document.dispatchEvent(new CustomEvent('sn-page', { detail: { from: i.from, to: final.href, kind: i.kind } }));
     // Back and Forward: what renders above the position once the page's first data is there moves the content
     // (scroll anchoring keeps the wrong part in view): set again then, at most a second later
     if (i.kind == 'traverse') {
       const key = entry(), y = s.y.get(key);
-      for (let t = 0; t < 40 && app.ir.resources.some((r) => app!.resource(r.name).meta.loading); t++) await new Promise((r) => setTimeout(r, 25));
+      for (let t = 0; t < 40 && app?.ir.resources.some((r) => app!.resource(r.name).meta.loading); t++) await new Promise((r) => setTimeout(r, 25));
       if (y != null && !c.signal.aborted && entry() === key) scrollTo(0, y);
     }
   };

@@ -102,3 +102,28 @@ test('data-sn-swap on a layout\'s tag goes onto <html>, as data-sn-prefetch does
   expect(out.diagnostics).toEqual([]);
   expect(out.swapOff).toBe(true);
 });
+
+test('SN346: a kept element inside another', () => {
+  expect(problems(build('<div data-sn-permanent="outer"><aside data-sn-permanent="inner"></aside></div>'))).toEqual(['SN346 `data-sn-permanent` cannot be inside another kept element: the outer one is kept with everything in it']);
+});
+
+test('with swaps on, constant props do not shape a kept element: the same ids and bindings on every page, whatever each passes', () => {
+  const layout = `<!doctype html><html data-sn-layout="{ title: string; fancy: boolean }"><head><title data-sn-text="title"></title></head><body>
+<aside data-sn-permanent="p" data-sn-state="{ n: 0 }"><a href="/k1/" data-sn-class="{ active: title == 'K1' }">K1</a><template data-sn-if="fancy"><em data-sn-text="'fancy ' + n"></em></template><b data-sn-text="title + ' ' + n"></b><button data-sn-on-click="n = n + 1">+</button></aside>
+<main><slot></slot></main></body></html>`;
+  const page = (props: string, swap: boolean) => compile(`<site-layout data-sn-prop="${props}"><p>x</p></site-layout>`, {
+    file: '/p/k.html', root: '/p', dev: false, prerender: true, moduleSrc: '/@sinter/k.html.js', swap,
+    helpers: { module: null, names: [], namespaces: {} },
+    readFile: (p: string) => { if (p === '/p/src/layouts/site-layout.html') return layout; throw new Error('missing'); },
+  });
+  const kept = (html: string) => /<aside[^>]*data-sn-permanent="p"[^>]*>[\s\S]*?<\/aside>/.exec(html)![0]!;
+  const shape = (html: string) => [...kept(html).matchAll(/<(\w+)[^>]*data-sn="(\d+)"|<!--sn (\d+)-->/g)].map((m) => (m[3] ? `anchor ${m[3]}` : `${m[1]} ${m[2]}`));
+  const k1 = page("{ title: 'K1', fancy: true }", true), k2 = page("{ title: 'K2', fancy: false }", true);
+  expect(k1.diagnostics).toEqual([]);
+  expect(shape(k1.html)).toEqual(shape(k2.html));
+  // the branch stays a branch, the class and the text stay bound
+  expect(shape(k1.html).some((x) => x.startsWith('anchor'))).toBe(true);
+  expect(shape(k1.html).filter((x) => /^(a|b) /.test(x))).toHaveLength(2);
+  // without swaps the constants fold as before: k2's branch is decided, and the shapes differ
+  expect(shape(page("{ title: 'K1', fancy: true }", false).html)).not.toEqual(shape(page("{ title: 'K2', fancy: false }", false).html));
+});

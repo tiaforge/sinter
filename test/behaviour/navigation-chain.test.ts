@@ -83,14 +83,16 @@ test('links: a plain click is an intent; a decision prevents the default, none l
   // no decision for a link: the browser follows it, the core loads nothing itself
   p.c.go({ from: 'http://localhost/', to: 'http://localhost/elsewhere', kind: 'push', source: 'link' });
   expect(p.navigations).toEqual([]);
-  // a modifier, another target, a download, rel="external", a default the page prevented: no intent
+  // a modifier, another target, a download, a default the page prevented: no intent
   const before = p.seen.length;
   expect(await p.click('a', { ctrlKey: true })).toBe(false);
   expect(await p.click('tab')).toBe(false);
   expect(await p.click('dl')).toBe(false);
-  expect(await p.click('ext')).toBe(false);
   expect(await p.click('stop')).toBe(true);
   expect(p.seen.length).toBe(before);
+  // rel="external": an intent (the guards are asked), the browser's to follow
+  expect(await p.click('ext')).toBe(false);
+  expect(p.seen.slice(before).map((i) => (i.trigger as Element | undefined)?.id)).toEqual(['ext']);
 });
 
 test('Back and Forward: a traversal intent first; decided, `$url` is not read again', async () => {
