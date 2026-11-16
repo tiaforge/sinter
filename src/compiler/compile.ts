@@ -750,7 +750,38 @@ export function compileParts(html: string, options: CompileOptions): CompiledPar
   return out;
 }
 
+/**
+ * Spike (docs/proposals/compile-once.md): a `data-sn-pages` template's first pass, analyzed once per build. Its walk does
+ * not depend on the entry (the entry is a constant resource read only when the program is evaluated), so each entry
+ * evaluates the kept program again (`redecide`) and goes straight to the second pass.
+ */
+/** spike: a component file's text, parsed with locations, shared by every compile (read-only) */
+const PARSED = new Map<string, DefaultTreeAdapterMap['documentFragment']>();
+const parsedText = (text: string) => PARSED.get(text) ?? PARSED.set(text, parse5.parseFragment(text, { sourceCodeLocationInfo: true })).get(text)!;
+const ANALYSES = new WeakMap<object, Map<string, Compiler | null>>();
+const sharedAnalysis = (html: string, options: CompileOptions): Compiler | null => {
+  if (process.env.SN_NO_SHARE || !options.page || !options.globCache || !options.prerender || options.check || options.decided || options.unrolled || options.constants || options.describeOnly) return null;
+  let m = ANALYSES.get(options.globCache);
+  if (!m) ANALYSES.set(options.globCache, (m = new Map()));
+  const key = `${options.file}\0${options.locale?.name ?? ''}\0${html}`;
+  if (!m.has(key)) {
+    const c = new Compiler(options);
+    c.run(html, true);
+    m.set(key, c.analysisDiagnostics !== null ? c : null);
+  }
+  return m.get(key) ?? null;
+};
+
 function compilePasses(html: string, options: CompileOptions): CompiledParts & { canonicalOnly?: boolean } {
+  const shared = sharedAnalysis(html, options);
+  if (shared) {
+    shared.redecide(options);
+    const clean = !shared.diagnostics.some((d) => d.severity === 'error' && d.code !== 'SN322');
+    // what needs the first pass's own output (nothing to decide), or its constants (a dry run of the layout): the usual way
+    if (clean && !shared.constants.size && (shared.decided.size || shared.unrolls.size)) {
+      return new Compiler({ ...options, decided: shared.decided, ...(shared.unrolls.size ? { unrolled: shared.unrolls } : {}), ...(shared.overLimit.size ? { overLimit: shared.overLimit } : {}), frozen: shared.foldedState() }).run(html);
+    }
+  }
   const first = new Compiler(options);
   const out = first.run(html);
   // `data-sn-if` templates over state nothing writes: decided now, the page compiled again with their branches in place
@@ -827,7 +858,8 @@ class Compiler {
   /** the second pass: the top nodes of an expanded instance (a recursion point, a choice's case), with the instance path of what is in it */
   private readonly instAt = new WeakMap<P5Node, string>();
   /** each component file's markup, parsed once (`expandUse` copies it per use) */
-  private readonly parsedFiles = new Map<string, DefaultTreeAdapterMap['documentFragment']>();
+  /** spike: component texts parsed once per process (by text, never mutated: each use takes a `freshCopy`) */
+  private readonly parsedFiles = process.env.SN_NO_PARSE_CACHE ? new Map<string, DefaultTreeAdapterMap['documentFragment']>() : PARSED;
   /** the scope a use's markup starts, per row or instance it is copied into (`markupOf`) */
   private readonly markups = new WeakMap<Use, Map<string, Scope>>();
   /** a layout's `<body>`, which takes the handlers of the page's tag */
@@ -1165,7 +1197,7 @@ class Compiler {
   /** the helper modules that reach lazy packages (`page.lazy` indexes them) */
   readonly lazyMods: Array<{ module: string; local: string; lazy: string[] }> = [];
 
-  run(html: string): CompiledParts & { canonicalOnly?: boolean } {
+  run(html: string, analysisOnly = false): CompiledParts & { canonicalOnly?: boolean } {
     let doc = parseDocument(html);
     this.tag(doc, { file: this.opts.file, src: html, chain: [] });
     if (this.isLayoutFile(this.opts.file)) this.diagnostics.push({ severity: 'error', code: 'SN318', message: 'a layout is not a page: a page uses it by its tag. Leave `src/layouts/` out of the build\'s inputs', file: this.opts.file, line: 1, col: 1 });
@@ -1253,6 +1285,7 @@ class Compiler {
     if (this.opts.checkCycles) this.runCycles();
     for (const el of this.remove) detach(el);
     this.markLowPriority();
+    if (analysisOnly) { this.analysisDiagnostics = this.diagnostics.length; return null as never; }
     if (this.opts.prerender) { this.prerender(); this.embedFolded(); this.dropConstants(); this.dropFiles(); this.foldScriptsOut(); if (this.collecting()) this.collectConstants(); }
     this.anchors();
     let early = this.opts.early ? this.earlyParts() : undefined;
@@ -1368,6 +1401,19 @@ class Compiler {
       lazyHelpers,
       preload: [...this.preloads].sort(),
     };
+  }
+
+  /** spike: the first pass's diagnostics up to its evaluation, when it stopped there (`run(html, true)`) */
+  analysisDiagnostics: number | null = null;
+
+  /** spike: the analysis evaluated again for another entry of its template: its decisions afresh, from the entry's value */
+  redecide(options: CompileOptions) {
+    (this as { opts: CompileOptions }).opts = { ...this.opts, page: options.page, ...(options.foldLog ? { foldLog: options.foldLog } : {}) };
+    this.fileData.get(this.pagesDecl!.name)!.value = options.page!.value;
+    this.diagnostics.length = this.analysisDiagnostics!;
+    this.decided.clear(); this.undecided.clear(); this.unrolls.clear(); this.foldReads.clear(); this.overLimit.clear();
+    this.constants.clear(); this.constantSites.clear(); this.rowPaint.clear(); this.foldedFields.length = 0; this.foldWhy.clear();
+    this.prerender();
   }
 
   // ---- positions and diagnostics
@@ -2829,7 +2875,7 @@ class Compiler {
     if (!def.dataSlots) {
       def.dataSlots = new Set();
       try {
-        const frag = parse5.parseFragment(def.text);
+        const frag = process.env.SN_NO_PARSE_CACHE ? parse5.parseFragment(def.text) : parsedText(def.text);
         const t = frag.childNodes.find((c): c is P5Element => isElement(c) && c.tagName === 'template' && attr(c, 'data-sn-component') !== undefined);
         const text = t ? attr(t, 'data-sn-component')! : '';
         for (const m of typeMembers(text.trim() === '' ? '{}' : text) ?? []) if (m.slot !== undefined) def.dataSlots.add(m.name);
@@ -3484,7 +3530,7 @@ class Compiler {
     const f = this.componentFile(name);
     if (!f || f.head) return out;
     let frag: P5Parent;
-    try { frag = parse5.parseFragment(f.text); } catch { return out; }
+    try { frag = process.env.SN_NO_PARSE_CACHE ? parse5.parseFragment(f.text) : parsedText(f.text); } catch { return out; }
     const all = () => [...new Set([...(this.opts.componentNames ?? []), ...this.componentFiles.keys()])].filter((n) => this.componentFile(n) && !this.componentFile(n)!.head);
     const walk = (n: P5Parent) => {
       for (const c of n.childNodes) {
