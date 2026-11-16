@@ -62,6 +62,27 @@ describe('the tree', () => {
     for (const s of [undefined, null, '', '   \n']) expect(parse(s)).toEqual({ type: 'root', children: [] });
   });
 
+  test('kept: the same source and options give the same frozen tree, whatever the options look like', () => {
+    const a = parse('# a\n\n*b*');
+    expect(parse('# a\n\n*b*')).toBe(a);
+    // the options are normalized before the tree is looked up: these policies are all the default
+    expect(parse('# a\n\n*b*', {})).toBe(a);
+    expect(parse('# a\n\n*b*', { html: 'text', headings: 'keep', images: 'keep' })).toBe(a);
+    expect(parse('# a\n\n*b*', { base: '/x' })).toBe(parse('# a\n\n*b*', { base: '/x/' }));
+    // another policy or another source is another tree
+    expect(parse('# a\n\n*b*', { headings: 'strong' })).not.toBe(a);
+    expect(parse('# a\n\n*c*')).not.toBe(a);
+    expect(parse(null)).toBe(parse(''));
+    // frozen at every depth: a caller cannot change the tree another one reads
+    expect(Object.isFrozen(a) && Object.isFrozen(a.children) && Object.isFrozen(a.children[1]) && Object.isFrozen((a.children[1] as { children: object[] }).children[0])).toBe(true);
+    expect(() => { (a.children as unknown[]).push(1); }).toThrow(TypeError);
+  });
+
+  test('an invalid option throws every time, and keeps nothing', () => {
+    expect(() => parse('x', { html: 'raw' as never })).toThrow(TypeError);
+    expect(() => parse('x', { html: 'raw' as never })).toThrow(TypeError);
+  });
+
   test('pure: the same source gives an equal tree, and parsing changes nothing it is given', () => {
     const o = { headings: 'strong' as const };
     expect(parse('# a\n\n*b*', o)).toEqual(parse('# a\n\n*b*', o));

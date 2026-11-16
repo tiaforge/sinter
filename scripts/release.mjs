@@ -12,6 +12,9 @@
 //   the same versions as the starter, so the link in the README runs the sinter just released.
 // - sinter-axum and sinter-axum-macros (packages/sinter-axum, the middleware crates).
 // - Sinter.AspNetCore (packages/sinter-aspnetcore, the ASP.NET Core middleware, on NuGet).
+// - @tiaforge-ui/sinter-markdown (packages/sinter-markdown, the markdown component library): its
+//   peer range starts at this version, since the library compiles in the app's sinter and uses
+//   what this version ships (memo(), library components).
 //
 // `--dry-run` prints the edits without writing; `--no-check` skips the typecheck and the tests
 // (npm, cargo and dotnet) that run before the commit.
@@ -89,6 +92,12 @@ const edits = [
   ['examples/dashboard/package.json', (s) => s.replace(/("@tiaforge-ui\/sinter": )"[^"]*"/, `$1"^${version}"`)
     .replace(/("@tiaforge-ui\/temper": )"[^"]*"/, `$1"^${temper}"`)
     .replace(/("@tiaforge-ui\/temper-inspect": )"[^"]*"/, `$1"^${inspect}"`)],
+  // The markdown library: released with sinter, and it supports sinter from this version on
+  ['packages/sinter-markdown/package.json', (s) => s.replace(/("version": )"[^"]*"/, `$1"${version}"`)
+    .replace(/("peerDependencies": \{\s*"@tiaforge-ui\/sinter": )"[^"]*"/, `$1">=${version} <1"`)],
+  ['packages/sinter-markdown/package-lock.json', (s) => s.replace(/^(  "version": )"[^"]*"/m, `$1"${version}"`)
+    .replace(/(\n    "": \{\n      "name": "[^"]*",\n      "version": )"[^"]*"/, `$1"${version}"`)
+    .replace(/("peerDependencies": \{\s*"@tiaforge-ui\/sinter": )"[^"]*"/, `$1">=${version} <1"`)],
   ['bench/js-framework-benchmark/package.json', (s) => s.replace(/("frameworkVersion": )"[^"]*"/, `$1"${version}"`)],
   ['README.md', (s) => s.replace(/sinter is at v\d+\.\d+/, `sinter is at v${major}.${minor}`)],
   // The middleware crates: both packages, the dependency between them, and the lockfile.
@@ -155,6 +164,7 @@ const dryRuns = [
     execFileSync('npm', ['publish', '--dry-run', '--ignore-scripts'], { cwd: root, stdio: 'inherit' });
   }],
   ['create-sinter', () => execFileSync('npm', ['publish', '--dry-run'], { cwd: resolve(root, 'packages/create'), stdio: 'inherit' })],
+  ['@tiaforge-ui/sinter-markdown', () => execFileSync('npm', ['publish', '--dry-run'], { cwd: resolve(root, 'packages/sinter-markdown'), stdio: 'inherit' })],
   ['sinter-axum and sinter-axum-macros', () => cargo(['publish', '--workspace', '--dry-run'])],
   ['Sinter.AspNetCore', () => dotnet(['pack', 'src/Sinter.AspNetCore', '-c', 'Release', '-o', 'artifacts'])],
 ];
@@ -172,7 +182,8 @@ for (const [name, run] of dryRuns) {
 console.log(`
 Released: commit "Release ${version}", tag ${tag}. The publish dry runs passed.
 All at ${version}: @tiaforge-ui/sinter, create-sinter (new apps get @tiaforge-ui/sinter ^${version}
-and @tiaforge-ui/temper ^${temper}), sinter-axum and sinter-axum-macros, Sinter.AspNetCore.
+and @tiaforge-ui/temper ^${temper}), @tiaforge-ui/sinter-markdown (for sinter >=${version} <1),
+sinter-axum and sinter-axum-macros, Sinter.AspNetCore.
 
 Push:
   git push origin HEAD ${tag}
@@ -180,5 +191,6 @@ Push:
 Publish, in this order (the starter needs sinter ${version} on npm, sinter-axum needs its macros on crates.io):
   npm publish
   (cd packages/create && npm publish)
+  (cd packages/sinter-markdown && npm publish)
   (cd packages/sinter-axum && cargo publish --workspace)
   dotnet nuget push packages/sinter-aspnetcore/artifacts/Sinter.AspNetCore.${version}.nupkg --source https://api.nuget.org/v3/index.json --api-key <key>`);

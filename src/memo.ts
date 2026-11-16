@@ -1,4 +1,4 @@
-// memo() (docs/helpers.md, Memoized helpers): an app's expensive pure function, kept by its arguments. Lets and
+// memo() (docs/configuration.md, Memoized helpers): an app's expensive pure function, kept by its arguments. Lets and
 // props are their expression, evaluated at every read; a parse a page reads in many places is the app's to
 // memoize, `export const parse = memo(parseDocument)` in the helpers module. It runs in the browser (the page
 // module, the early file) and in Node (helper calls folded at build time), and passes the build's fold check:
@@ -14,14 +14,16 @@
 //   too, and the same object is returned for equal arguments: change a copy. A result that holds anything
 //   else (a Map, a Set, a Date, a typed array, a class instance, a function) is returned as it is, uncached.
 // - The cache is bounded by an approximate size (strings at 2 bytes a character, a constant per value and per
-//   entry), `maxSize` bytes, 4 MiB by default; the least recently used entries go first.
-// - A call that throws caches nothing.
+//   entry), `maxSize` bytes, 4 MiB by default; the least recently used entries go first. The last result is
+//   always kept, even one larger than `maxSize` (then alone): a page that reads a huge parse at every node must
+//   not parse it again at every read.
+// - A call that throws caches nothing. `this` is passed on and is not part of the key.
 //
 // The rule: a memoized function takes everything its result depends on as arguments (the locale, an option),
 // and reads nothing else that changes.
 
 export interface MemoOptions {
-  /** the cache's approximate size, in bytes (default 4 MiB); an entry larger than it is not kept */
+  /** the cache's approximate size, in bytes (default 4 MiB); an entry larger than it is kept alone, until the next */
   maxSize?: number;
 }
 
@@ -60,8 +62,8 @@ function keyOf(v: unknown): string | null {
   const keys = Reflect.ownKeys(v);
   if (Array.isArray(v)) {
     if (proto !== Array.prototype) return null;
-    // indexes and `length` only: an array with other properties calls through
-    if (keys.length > v.length + 1) return null;
+    // indexes and `length` only: an array with other properties (holes or not) calls through
+    for (const k of keys) if (k !== 'length' && (typeof k !== 'string' || String(+k >>> 0) !== k || +k >= v.length)) return null;
     let out = `[${v.length}:`;
     for (let i = 0; i < v.length; i++) {
       if (!Object.hasOwn(v, i)) { out += 'h'; continue; }
@@ -82,41 +84,47 @@ function keyOf(v: unknown): string | null {
   return out + '}';
 }
 
-/** a copy of a keyed argument (it holds only primitives) */
+/** a copy of a keyed argument (it holds only primitives); own keys defined one by one, `__proto__` included */
 const copy = (v: unknown): unknown => {
   if (v === null || typeof v !== 'object') return v;
   if (Array.isArray(v)) return v.slice();
-  return Object.assign(Object.create(Object.getPrototypeOf(v)), v);
+  const o = Object.create(Object.getPrototypeOf(v));
+  for (const k of Object.keys(v)) Object.defineProperty(o, k, { value: (v as Record<string, unknown>)[k], enumerable: true, writable: true, configurable: true });
+  return o;
 };
 
 /**
- * Freezes a result of plain data, at every depth, and returns its approximate size; -1 (nothing frozen) for one
- * that holds anything else
+ * Freezes a result of plain data, at every depth (without recursion: a deep tree does not overflow the stack), and
+ * returns its approximate size; -1 (nothing frozen) for one that holds anything else. An array's elements are read
+ * by index (a million-element array is not listed key by key)
  */
 function freeze(v: unknown): number {
-  const objects: object[] = [], seen = new Set<object>();
+  const objects: object[] = [], seen = new Set<object>(), todo: unknown[] = [v];
   let size = 0;
-  const walk = (x: unknown): boolean => {
-    if (typeof x === 'string') { size += 8 + 2 * x.length; return true; }
-    if (x === null || (typeof x !== 'object' && typeof x !== 'function')) { size += 8; return typeof x !== 'symbol'; }
-    if (typeof x === 'function') return false;
-    if (seen.has(x)) return true;
+  while (todo.length) {
+    const x = todo.pop();
+    if (typeof x === 'string') { size += 8 + 2 * x.length; continue; }
+    if (typeof x === 'function' || typeof x === 'symbol') return -1;
+    if (x === null || typeof x !== 'object') { size += 8; continue; }
+    if (seen.has(x)) continue;
     seen.add(x);
     const proto = Object.getPrototypeOf(x);
-    if (Array.isArray(x) ? proto !== Array.prototype : proto !== Object.prototype && proto !== null) return false;
     size += 16;
-    for (const k of Reflect.ownKeys(x)) {
-      if (typeof k === 'symbol') return false;
-      const d = Object.getOwnPropertyDescriptor(x, k)!;
-      if (!('value' in d)) return false;
-      if (Array.isArray(x) && k === 'length') continue;
-      size += 8 + 2 * k.length;
-      if (!walk(d.value)) return false;
+    if (Array.isArray(x)) {
+      if (proto !== Array.prototype) return -1;
+      for (let i = 0; i < x.length; i++) if (i in x) todo.push(x[i]);
+    } else {
+      if (proto !== Object.prototype && proto !== null) return -1;
+      for (const k of Reflect.ownKeys(x)) {
+        if (typeof k === 'symbol') return -1;
+        const d = Object.getOwnPropertyDescriptor(x, k)!;
+        if (!('value' in d)) return -1;
+        size += 8 + 2 * k.length;
+        todo.push(d.value);
+      }
     }
     objects.push(x);
-    return true;
-  };
-  if (!walk(v)) return -1;
+  }
   for (const o of objects) Object.freeze(o);
   return size;
 }
@@ -144,11 +152,11 @@ export function memo<F extends (...args: any[]) => any>(fn: F, options: MemoOpti
     const size = freeze(v);
     if (size < 0) return v;
     const entry = { v, size: size + 2 * key.length + 64 };
-    if (entry.size > max) return v;
     cache.set(key, entry);
     state.total += entry.size;
+    // the least recently used go first; the result just computed stays, alone if it is larger than the cache
     for (const [k, e] of cache) {
-      if (state.total <= max) break;
+      if (state.total <= max || k === key) break;
       cache.delete(k);
       state.total -= e.size;
     }
@@ -156,5 +164,7 @@ export function memo<F extends (...args: any[]) => any>(fn: F, options: MemoOpti
   } as Memoized<F>;
   m.clear = () => { cache.clear(); state.total = 0; };
   Object.defineProperty(m, MEMO_OF, { value: fn });
+  Object.defineProperty(m, 'name', { value: fn.name, configurable: true });
+  Object.defineProperty(m, 'length', { value: fn.length, configurable: true });
   return m;
 }

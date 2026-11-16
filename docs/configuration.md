@@ -236,16 +236,25 @@ export const toc = memo((body: string, depth: number) => headings(parseDocument(
 ```
 
 - It keeps a result by its arguments when each is a primitive, or a plain object or array of primitives
-  (`{ strict: true }`, `['a', 'b']`), compared by content: equal arguments return the same result. Any
-  other argument (a nested object, a `Map`, a class instance, a function) calls through every time.
+  (`{ strict: true }`, `['a', 'b']`), compared by content: equal arguments return the same result. The
+  order of an object's keys is part of the key (`{ a, b }` and `{ b, a }` are two calls), and so are an
+  array's holes and an object's null prototype. Anything else calls through every time, uncached: a
+  nested object, a `Map`, a class instance, a function, a symbol, an object with a symbol key, a getter
+  or a non-enumerable property, an array with properties besides its elements. Such a call gets your
+  arguments as they are, and its result is neither copied nor frozen. `this` is passed on and is not part
+  of the key.
 - **It takes everything it depends on as arguments.** A memoized function must not read anything that
   changes (the locale, the time, a global, another module's state): pass it in (`parse(body, $locale)`).
-- An object argument is copied before the call, so a result never holds your object (state you change
-  later). The result is deep-frozen, in production too, and shared by every caller: change a copy
-  (`structuredClone(doc)`). A result that holds anything but plain data (a `Map`, a `Set`, a `Date`, a typed
-  array, a class instance, a function) is returned as it is and not kept.
-- The cache is bounded by an approximate size (`maxSize`, in bytes; 4 MiB by default): the least
-  recently used results go first. `parse.clear()` forgets them all. A call that throws keeps nothing.
+- A kept call's object arguments are copied before the call (each own key, `__proto__` included), so its
+  result never holds your object (state you change later). Its result is then frozen in place, at every
+  depth, in production too, and shared by every caller: change a copy (`structuredClone(doc)`). A result
+  that holds anything but plain data (a `Map`, a `Set`, a `Date`, a typed array, a class instance, a
+  function) is returned as it is: not frozen, not kept.
+- The cache is bounded by an approximate size (`maxSize`, in bytes, 4 MiB by default: a string counts
+  2 bytes a character, every value and entry a few more): the least recently used results go first. The
+  most recent result is always kept, even one larger than `maxSize`, alone then, so a page that reads a
+  huge parse at every node does not parse it again at every read; the next result takes its place.
+  `parse.clear()` forgets them all. A call that throws keeps nothing.
 - It works in the page module, the early file and in Node: a memoized helper's calls over build-time
   values run at build time as the function it calls would (its cache is the memo's own state, which the
   build's checks allow). Each bundle has its own cache: the early file and the page module each parse once.
