@@ -845,6 +845,8 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   /** spike: the build's compile workers (compile-pool.ts), from `buildStart` to `buildEnd` */
   const workerCount = Math.max(0, Math.floor(options.workers ?? Number(process.env.SINTER_WORKERS ?? 0)) || 0);
   let pool: CompilePool | null = null;
+  /** spike: how many pages' compiles were queued or running at once (Rolldown runs the HTML modules' transforms concurrently) */
+  const inFlight = { now: 0, max: 0 };
   /** spike: `SINTER_WORKERS_STATS=1` prints the pool's timings, `=<file>` appends them to that file */
   const stat = (line: string) => {
     const to = process.env.SINTER_WORKERS_STATS;
@@ -855,7 +857,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     if (!pool) return;
     const p = pool;
     pool = null;
-    stat(`sinter: compile workers: ${JSON.stringify(p.stats.map((x) => ({ jobs: x.jobs, ms: Math.round(x.ms), initMs: Math.round(x.initMs) })))}`);
+    stat(`sinter: compile workers (at most ${inFlight.max} pages in flight): ${JSON.stringify(p.stats.map((x) => ({ jobs: x.jobs, ms: Math.round(x.ms), initMs: Math.round(x.initMs) })))}`);
     await p.close();
   };
   const startPool = async (p: ReturnType<typeof project>) => {
@@ -872,6 +874,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     try { structuredClone(init); } catch (e) { stat(`sinter: no workers: ${(e as Error).message}`); r.logger.warn(`sinter({ workers }): the pages compile on the main thread: ${(e as Error).message}`); return; }
     if (remoteConfig) try { structuredClone(remoteConfig); } catch { r.logger.warn('sinter({ workers }): the pages compile on the main thread: images.remote cannot be sent to a worker'); return; }
     const t = performance.now();
+    inFlight.max = 0;
     pool = new CompilePool(workerCount, init);
     await pool.started();
     const t1 = performance.now();
@@ -899,7 +902,9 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   const buildIn = async (pool: CompilePool, html: string, file: string, earlySrc: string | null, styles?: StyleSheet[], lineHeights?: Map<string, number>, zeros?: Map<string, number | null>, minifyStyles?: StyleSheet[], url?: string): Promise<{ out: CompileResult; p: ReturnType<typeof project> }> => {
     const { options: o, finish } = prepare(html, file, earlySrc, styles, lineHeights, zeros, minifyStyles, url);
     const v = virtual.get(file);
+    inFlight.max = Math.max(inFlight.max, ++inFlight.now);
     const r = await pool.run({ ...jobOf(html, o, v?.locale), ...(images ? { images: imageWire(relOf(file), styles) } : {}), ...(lineHeights?.size ? { lineHeights: [...lineHeights] } : {}), ...(zeros?.size ? { zeros: [...zeros] } : {}) });
+    inFlight.now--;
     replay(r, o);
     return finish(r.out);
   };
