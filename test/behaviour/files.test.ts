@@ -16,8 +16,21 @@ const files = {
 const build = (html: string, more: Record<string, string> = {}, o: Record<string, unknown> = {}) => compile(html, {
   file: '/p/index.html', root: '/p', dev: false, helpers: { module: null, names: [], namespaces: {} }, componentNames: ['x-note'],
   readFile: (f) => { const t = { ...files, ...more }[f.replace(/^\/p\//, '')]; if (t === undefined) throw new Error(`no such file: ${f}`); return t; },
+  listFiles: (dir) => { const d = dir.replace(/\/$/, '') + '/'; const all = Object.keys({ ...files, ...more }).map((f) => `/p/${f}`).filter((f) => f.startsWith(d)); if (!all.length && !Object.keys({ ...files, ...more }).some((f) => `/p/${f}`.startsWith(d))) throw new Error(`no such folder: ${dir}`); return all; },
   ...o,
 });
+const warnings = (out: ReturnType<typeof build>) => out.diagnostics.filter((d) => d.severity === 'warning').map((d) => `${d.code} ${d.message}`);
+/** the value a `file:` resource embeds in the page's head (its first, by id) */
+const embedded = (out: ReturnType<typeof build>) => JSON.parse(/<script type="application\/json" data-sn="\d+">([\s\S]*?)<\/script>/.exec(out.html)![1]!.replace(/\\u003c/g, '<'));
+/** a page whose browser code reads the resource `r` (so its value is embedded): a handler writes the state the text reads */
+const reads = (res: string, expr = 'r') => `<!doctype html><html lang="en"><head></head><body>${res}<div data-sn-state="{ n: 0 }"><button data-sn-on-click="n++"></button><p data-sn-text="n + JSON.stringify(${expr})"></p></div></body></html>`;
+
+const posts = {
+  'content/posts/hello.md': '---\ntitle: Hello\ndate: 2026-11-02\ntags: [a, b]\n---\n# Hello\n\nText.\n',
+  'content/posts/2026/recap.md': '---\ntitle: Recap\ndate: 2026-12-30\ndraft: true\n---\nThe year.\n',
+  'content/posts/zebra.md': '---\ntitle: Zebra\ndate: 2026-01-15\nslug: the-zebra\n---\nStripes.\n',
+  'content/posts/notes.txt': 'not markdown',
+};
 const errors = (out: ReturnType<typeof build>) => out.diagnostics.filter((d) => d.severity === 'error').map((d) => `${d.code} ${d.message}`);
 
 describe('a file: resource', () => {
@@ -92,3 +105,98 @@ describe('a file: resource', () => {
     expect(bad.diagnostics.map((d) => `${d.code} ${d.message}`)).toEqual([expect.stringMatching(/^SN329 sinter\(\{ apis \}\): `file` is the built-in source of the project's own files/)]);
   });
 });
+
+describe('a markdown file is an entry: its frontmatter and its body', () => {
+  test('frontmatter fields and `body`; YAML\'s core schema (dates stay strings); a file without frontmatter is `{ body }`', () => {
+    const out = build(reads('<sn-resource name="r" src="file:/content/posts/hello.md" type="any"></sn-resource>'), posts);
+    expect(errors(out)).toEqual([]);
+    expect(embedded(out)).toEqual({ title: 'Hello', date: '2026-11-02', tags: ['a', 'b'], body: '# Hello\n\nText.\n' });
+    const plain = build(reads('<sn-resource name="r" src="file:./plain.md"></sn-resource>'), { 'plain.md': '# Just text\n' });
+    expect(errors(plain)).toEqual([]);
+    expect(embedded(plain)).toEqual({ body: '# Just text\n' });
+  });
+
+  test('folds into the page: a title from the frontmatter, no script', () => {
+    const out = build('<!doctype html><html><head></head><body><sn-resource name="post" src="file:/content/posts/hello.md"></sn-resource><h1 data-sn-text="post.body.length > 0 ? \'yes\' : \'no\'"></h1></body></html>', posts, { prerender: true });
+    expect(errors(out)).toEqual([]);
+    expect(out.html).toContain('<h1>yes</h1>');
+  });
+
+  test('SN332: invalid YAML, anchors and aliases, tags, a field sinter writes, a list as frontmatter, `items`', () => {
+    const one = (md: string, extra = '') => errors(build(`<sn-resource name="r" src="file:./x.md"${extra}></sn-resource><p data-sn-text="r.body"></p>`, { 'x.md': md }));
+    expect(one('---\ntitle: [unclosed\n---\nx')).toEqual([expect.stringMatching(/^SN332 `x\.md`: its frontmatter is not valid YAML/)]);
+    expect(one('---\na: &x 1\nb: *x\n---\nx')).toEqual([expect.stringMatching(/^SN332 `x\.md`: its frontmatter uses an (alias|anchor)/)]);
+    expect(one('---\na: !custom 1\n---\nx')).toEqual([expect.stringMatching(/^SN332 `x\.md`: its frontmatter is not valid YAML|uses a tag/)]);
+    expect(one('---\nbody: mine\n---\nx')).toEqual([expect.stringMatching(/^SN332 `x\.md`: its frontmatter has a field `body`, which sinter writes/)]);
+    expect(one('---\n- a\n- b\n---\nx')).toEqual([expect.stringMatching(/^SN332 `x\.md`: its frontmatter is not a set of fields/)]);
+    expect(one('# x', ' items="a"')).toEqual([expect.stringMatching(/^SN332 `items` picks a list out of a JSON file; a markdown file is one entry/)]);
+  });
+});
+
+describe('a glob is a list: one entry per file', () => {
+  test('entries with `slug`, `dir` and `path`, sorted by path; a text file is `{ body }`; `key` is `slug`', () => {
+    const out = build(reads('<sn-resource name="r" src="file:/content/posts/**/*" type="any"></sn-resource>'), posts, { dev: true });
+    expect(errors(out)).toEqual([]);
+    const list = embedded(out) as Array<Record<string, unknown>>;
+    expect(list.map((e) => [e.slug, e.dir, e.path])).toEqual([
+      ['recap', '2026', '/content/posts/2026/recap.md'],
+      ['hello', '', '/content/posts/hello.md'],
+      ['notes', '', '/content/posts/notes.txt'],
+      ['the-zebra', '', '/content/posts/zebra.md'],
+    ]);
+    expect(list[2]).toEqual({ body: 'not markdown', slug: 'notes', dir: '', path: '/content/posts/notes.txt' });
+    expect(out.globs).toEqual([{ dir: '/p/content/posts', match: expect.any(String) }]);
+    expect(out.files).toContain('/p/content/posts/hello.md');
+  });
+
+  test('`*` stays in its folder, `**` crosses folders, `{a,b}` alternates', () => {
+    const slugs = (glob: string) => (embedded(build(reads(`<sn-resource name="r" src="file:${glob}" type="any"></sn-resource>`), posts, { dev: true })) as Array<{ slug: string }>).map((e) => e.slug);
+    expect(slugs('/content/posts/*.md')).toEqual(['hello', 'the-zebra']);
+    expect(slugs('/content/posts/**/*.md')).toEqual(['recap', 'hello', 'the-zebra']);
+    expect(slugs('/content/posts/{hello,zebra}.md')).toEqual(['hello', 'the-zebra']);
+    expect(slugs('/content/*/h?llo.md')).toEqual(['hello']);
+  });
+
+  test('`order` sorts once, at build time, descending with `-`; `drafts` leaves entries out of a build and keeps them in dev', () => {
+    const list = (o: Record<string, unknown>) => (embedded(build(reads('<sn-resource name="r" src="file:/content/posts/**/*.md" type="any" order="-date" drafts="draft"></sn-resource>'), posts, o)) as Array<{ slug: string }>).map((e) => e.slug);
+    expect(list({ dev: true })).toEqual(['recap', 'hello', 'the-zebra']);
+    expect(list({ dev: false })).toEqual(['hello', 'the-zebra']);
+    // strings in the page's language, numbers by value, a missing value last
+    const people = { 'people/a.json': '{"name":"Ödön","n":10}', 'people/b.json': '{"name":"Zed","n":9}', 'people/c.json': '{"name":"Abe"}' };
+    const by = (order: string, lang: string) => (embedded(build(reads(`<sn-resource name="r" src="file:/people/*.json" type="any" order="${order}"></sn-resource>`).replace('lang="en"', `lang="${lang}"`), people)) as Array<{ name: string }>).map((e) => e.name);
+    expect(by('name', 'de')).toEqual(['Abe', 'Ödön', 'Zed']);
+    expect(by('name', 'sv')).toEqual(['Abe', 'Zed', 'Ödön']);
+    expect(by('n', 'en')).toEqual(['Zed', 'Ödön', 'Abe']);
+  });
+
+  test('the list renders, at build time, in order', () => {
+    const out = build('<!doctype html><html lang="en"><head></head><body><sn-resource name="posts" src="file:/content/posts/*.md" order="slug"></sn-resource><ul><template data-sn-for="p in posts"><li data-sn-text="p.slug"></li></template></ul></body></html>', posts, { prerender: true });
+    expect(errors(out)).toEqual([]);
+    expect(out.html).toMatch(/<li>hello<\/li>.*<li>the-zebra<\/li>/s);
+  });
+
+  test('SN332: a JSON file that is not an object, a field sinter writes, two entries with one slug, `items`, `drafts` on one file; SN539: no match', () => {
+    const one = (glob: string, more: Record<string, string>, extra = '') => errors(build(reads(`<sn-resource name="r" src="file:${glob}" type="any"${extra}></sn-resource>`), more));
+    expect(one('/d/*.json', { 'd/a.json': '[1, 2]' })).toEqual([expect.stringMatching(/^SN332 `a\.json` is not an object: each file of a glob is one entry/)]);
+    expect(one('/d/*.json', { 'd/a.json': '{"path":"x"}' })).toEqual([expect.stringMatching(/^SN332 `a\.json` has a field `path`, which sinter writes/)]);
+    expect(one('/d/**/*.md', { 'd/x/a.md': 'a', 'd/y/a.md': 'b' })).toEqual([expect.stringMatching(/^SN332 two files have the slug `a`: `d\/x\/a\.md` and `d\/y\/a\.md`; give one of them a `slug` of its own/)]);
+    expect(one('/d/*.md', { 'd/a.md': 'a' }, ' items="x"')).toEqual([expect.stringMatching(/^SN332 `items` picks a list out of a JSON file; a glob is a list already/)]);
+    expect(one('/content/posts/hello.md', posts, ' drafts="draft"')).toEqual([expect.stringMatching(/^SN332 `drafts` leaves entries out of a list; this `file:` source is one file/)]);
+    const none = build(reads('<sn-resource name="r" src="file:/content/posts/*.mdx" type="any"></sn-resource>'), posts);
+    expect(errors(none)).toEqual([]);
+    expect(warnings(none)).toContainEqual(expect.stringMatching(/^SN539 `file:\/content\/posts\/\*\.mdx` matches no file/));
+    // an interpolation is still not a path
+    expect(one('/content/{x}/*.md', posts)).toEqual([expect.stringMatching(/^SN332 a `file:` path is a literal/)]);
+  });
+
+  test('types for `sinter check`: a glob of markdown needs no `type`; `type` names one entry, sinter adds its fields', () => {
+    const types = (res: string) => build(reads(res), posts, { check: true }).check!.resources.map((r) => r.type);
+    expect(types('<sn-resource name="r" src="file:/content/posts/*.md"></sn-resource>')).toEqual(['({ slug: string; dir: string; path: string } & { body: string })[]']);
+    expect(types('<sn-resource name="r" src="file:/content/posts/*.md" type="Post"></sn-resource>')).toEqual(['((Post) & { slug: string; dir: string; path: string } & { body: string })[]']);
+    expect(types('<sn-resource name="r" src="file:/content/posts/hello.md" type="Post"></sn-resource>')).toEqual(['(Post) & { body: string }']);
+    expect(types('<sn-resource name="r" src="file:/content/posts/hello.md"></sn-resource>')).toEqual(['{ body: string }']);
+    const untypedJson = build(reads('<sn-resource name="r" src="file:/people/*.json"></sn-resource>'), { 'people/a.json': '{}' }, { check: true });
+    expect(warnings(untypedJson)).toContainEqual(expect.stringMatching(/^SN504 resource `r` has no type/));
+  });
+});
+

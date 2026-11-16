@@ -47,6 +47,7 @@ Each option names a file relative to the project root. Leave it out and sinter l
 | --- | --- | --- |
 | `typecheck` | `false` | run `sinter check` at the end of `vite build` and fail the build on type errors. Needs TypeScript |
 | `complexity` | see [below](#what-belongs-in-markup) | limits for the `SN507` warning, and its level |
+| `expansionLimit` | `10000` | the most rows and component instances a page expands at build time; past it the list or tree renders in the browser, with `SN536` ([docs/static-pages.md](static-pages.md#what-is-static)) |
 | `strict` | `false` | warnings fail `sinter check`, `vite build`, pages in the dev server and `render()`; runtime warnings show in the dev server's terminal and overlay. `{ allow: { SN504: 'reason' } }` keeps codes warnings. `SINTER_STRICT=1`/`0` overrides it ([docs/strict.md](strict.md)) |
 | `checkCycles` | `false` | report `then`/`catch` handlers that start each other through `run()` (`SN509`) |
 | `site` | none | the site's origin (`'https://example.com'`, no path): every page whose URL is known gets a canonical link, and expressions get `$site` and `$canonical` ([docs/static-pages.md](static-pages.md#canonical-urls)) |

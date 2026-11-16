@@ -301,6 +301,7 @@ export interface RenderProject {
   root: string;
   file: string;
   readFile: (path: string) => string;
+  listFiles?: (dir: string) => string[];
   componentNames: string[];
   /** the component libraries (`sinter({ components })`) */
   libraries?: readonly CompileLibrary[];
@@ -470,6 +471,12 @@ function compilePage(html: string, options: RenderOptions, strict: Strict = { on
       const hit = files[rel] ?? files[`./${rel}`] ?? files[p];
       if (hit === undefined) throw new Error(`no such file: ${p}`);
       return hit;
+    }),
+    // a glob lists the test's files below a folder (paths as the test wrote them, under the root `/test`)
+    listFiles: proj?.listFiles ?? ((dir) => {
+      const d = dir.replace(/\/$/, '') + '/';
+      const all = Object.keys(files).map((f) => (f.startsWith('/') ? f : `/test/${f.replace(/^\.\//, '')}`));
+      return all.filter((f) => f.startsWith(d));
     }),
     // compiled as a build does (both passes: build-time constants, decided branches, unrolled loops); `firstPaint` runs the early chunk
     prerender: true, ...(options.firstPaint ? { early: { module: null } } : {}),

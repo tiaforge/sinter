@@ -162,31 +162,61 @@ the results into one collection:
 
 ## Files
 
-`src="file:…"` reads a file of the project at build time: a text file's value is its text, a `.json`
-file's its parsed value.
+`src="file:…"` reads the project at build time: one file, or with a glob a list of them.
 
 ```html
 <sn-resource name="intro" src="file:./intro.txt"></sn-resource>
 <sn-resource name="team" src="file:/content/team.json" items="people" key="id" type="Person[]"></sn-resource>
+<sn-resource name="post" src="file:./hello.md" type="Post"></sn-resource>
+<sn-resource name="posts" src="file:/content/posts/*.md" type="Post" order="-date" drafts="draft"></sn-resource>
+
 <p data-sn-text="intro"></p>
-<ul><template data-sn-for="p in team"><li data-sn-text="p.name"></li></template></ul>
+<h1 data-sn-text="post.title"></h1>
+<ul><template data-sn-for="p in posts"><li><a data-sn-attr="{ href: '/blog/' + p.slug + '/' }" data-sn-text="p.title"></a></li></template></ul>
 ```
 
-- The path is a literal: relative to the file that writes it (a page, a layout or a component), or
-  `/…` from the project root. It must stay inside the project root (a symlink to a file outside it is
-  refused too) and exist; an interpolation
-  (`{…}`) is an error (`SN332`). With `sinter({ apis })` it is read the same way, and `file` cannot be
-  an API's name (`SN329`).
+| File | Value |
+| --- | --- |
+| `.md`, `.markdown` | its frontmatter's fields and `body`, the markdown after the frontmatter (`{ body }` without frontmatter) |
+| `.json` | its parsed value |
+| any other | its text |
+
+- **Frontmatter** is YAML between `---` lines at the start of the file, read with YAML's core schema: a date
+  stays a string (`date: 2026-11-16` is `'2026-11-16'`, which `date()` formats as a calendar date), and `yes`
+  is a string. Anchors, aliases and tags are refused, and so are fields named `body`, `dir` or `path`, which
+  sinter writes. For the markdown itself, see [sinter-markdown](../packages/sinter-markdown/docs/markdown.md):
+  `md.parse(post.body)`.
+- **A glob** (`*` within a folder, `**` across folders, `?` one character, `{a,b}` either) is a list with one
+  entry per file, sorted by path. Each entry is the file's value, a text file's as `{ body }` and a `.json`
+  file's an object, with `slug` (the file's name without its extension, unless the file gives a `slug`),
+  `dir` (its folder below the glob's fixed part: `2026` for `content/posts/2026/recap.md`, or `''`) and
+  `path` (from the project root). `key` is `slug` unless given; two entries with one key are an error, so in
+  nested folders give the files distinct names or their own `slug`. Folders named `node_modules` or starting
+  with a dot are skipped. A glob that matches nothing is warning `SN539`.
+- **`order`** sorts the list once, at build time: `-date` descending, a missing value last, strings in the
+  page's language (its `<html lang>`), as a live resource sorts in the visitor's.
+- **`drafts="draft"`** names a field: an entry where it is `true` is left out by `vite build` and by
+  `sinter check`, and kept by `vite dev`.
+- **Types**: a markdown file is `{ body: string }`, and with `type="Post"` it is `Post & { body: string }`.
+  On a glob, `type` names one entry: the list is `(Post & { slug: string; dir: string; path: string; body:
+  string })[]` (`body` for markdown and text files). A markdown file or glob needs no `type`; a `.json` file
+  or glob without one is `SN504`.
+- The path is a literal: relative to the file that writes it (a page, a layout or a component), or `/…` from
+  the project root. It must stay inside the project root (a symlink to a file outside it is refused too)
+  and a single file must exist; an interpolation (`{…}`, other than a glob's `{a,b}`) is an error (`SN332`).
+  With `sinter({ apis })` it is read the same way, and `file` cannot be an API's name (`SN329`).
 - It is a constant: nothing loads, refreshes or changes it. `$meta.<name>.loading` is `false` and the
-  other status fields are `null`. It takes only `name`, `type`, `items` and `key`; anything that would
-  load or change it is `SN332`: `refresh`, `cache`, `paginate`, `each`, `call`, `when`, `then`, `early`,
-  store functions that name it or change one of its items, write-through, and `<sn-event>`s.
+  other status fields are `null`. It takes only `name`, `src`, `type`, `items`, `key`, `order` and `drafts`;
+  anything that would load or change it is `SN332`: `refresh`, `cache`, `paginate`, `each`, `call`, `when`,
+  `then`, `early`, store functions that name it or change one of its items, write-through, and
+  `<sn-event>`s. `items` picks a list out of one JSON file.
 - Bindings over it are written into the page at build time, and so are helper calls over it (when the
   helper can run at build time: [static pages](static-pages.md#helpers-and-files-at-build-time)). What
   still runs in the browser reads it from embedded data in the page's head, so the first frame has it
   and no request is made; a file nothing in the browser reads is not in the page at all. It is not a
   placeholder for a server to fill (not in `sinter-embed.json`).
-- The dev server reloads the page when the file changes.
+- The dev server reloads the page when a file it read changes, and when a file a glob matches is added or
+  removed.
 - `file:` is only for `<sn-resource src>`: an action or a stream sends a request.
 - Any file inside the project root can be read this way, and what a page reads is written into the
   page it ships: keep secrets (`.env` files, keys) out of `file:` paths, as out of the page itself.

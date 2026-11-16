@@ -1,6 +1,6 @@
 // The app's conventional files (helpers, config, early and types modules), found the same
 // way by the Vite plugin and by `sinter check`.
-import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, relative, resolve, sep } from 'node:path';
 import { readHelperManifest, type Diagnostic, type HelperManifest } from './compiler/index.js';
@@ -42,6 +42,12 @@ export interface ProjectOptions {
   defaultApi?: string;
   /** SN507: limits for expressions too complex for markup (`statements`, `sequences`, `guarded`, `ternaries`, `arrow`, `operations`) and `level`: `warn` (default), `error` or `off` */
   complexity?: ComplexityOptions;
+  /**
+   * The most rows and component instances a page expands at build time, in all (default 10,000: each costs about
+   * 0.2 ms of compile, in the build and in the editor, which compiles on every edit). A list or tree that would cross
+   * it renders in the browser, with warning SN536 at it.
+   */
+  expansionLimit?: number;
   /** SN509: report `then`/`catch` handlers that start each other again through `run()`, in the build, `sinter check` and `sinter lsp` (default off; `sinter check --check-cycles` for one run) */
   checkCycles?: boolean;
   /**
@@ -125,6 +131,8 @@ export interface Project {
   types: string | null;
   /** reads a file only if it resolves inside the root, symlinks included */
   readFile: (path: string) => string;
+  /** the files below a folder inside the root, at any depth (a `file:` glob): not `node_modules`, not dot-folders */
+  listFiles: (dir: string) => string[];
   openapi: OpenApiSpec[];
   /** `apis`, resolved (their specs are in `openapi`), or null without `apis` */
   apis: ApisDef | null;
@@ -136,6 +144,8 @@ export interface Project {
   libraries: Library[];
   /** the `complexity` option, checked */
   complexity: ComplexityOptions;
+  /** `expansionLimit`, checked, or undefined for the default */
+  expansionLimit: number | undefined;
   checkCycles: boolean;
   /** `static`: the pages that must ship no JavaScript (SN322) */
   isStatic: (file: string) => boolean;
@@ -172,6 +182,29 @@ export function project(root: string, options: ProjectOptions = {}): Project {
     realRoot ??= realpathSync(root);
     if (real !== realRoot && !real.startsWith(realRoot + sep) && !libraryOf(libs.libraries, real)) throw new Error(`outside the project root: ${path}`);
     return readFileSync(real, 'utf8');
+  };
+  /** below `dir`, inside the root: no `node_modules`, no folder whose name starts with a dot, no link out of the root */
+  const listFiles = (dir: string): string[] => {
+    realRoot ??= realpathSync(root);
+    const out: string[] = [];
+    const walk = (d: string) => {
+      for (const e of readdirSync(d, { withFileTypes: true })) {
+        if (e.name === 'node_modules' || e.name.startsWith('.')) continue;
+        const f = `${d.replace(/[\\/]$/, '')}/${e.name}`;
+        if (e.isDirectory()) { walk(f); continue; }
+        if (e.isFile()) { out.push(f.split(sep).join('/')); continue; }
+        // a link: listed when it resolves to a file inside the root (reading it checks again)
+        if (e.isSymbolicLink()) {
+          let real: string;
+          try { real = realpathSync(f); } catch { continue; }
+          if (real === realRoot || real.startsWith(realRoot + sep)) out.push(f.split(sep).join('/'));
+        }
+      }
+    };
+    const real = realpathSync(dir);
+    if (real !== realRoot && !real.startsWith(realRoot + sep)) throw new Error(`outside the project root: ${dir}`);
+    walk(dir);
+    return out;
   };
   const url = (rel: string) => '/' + rel.split(sep).join('/');
 
@@ -255,7 +288,7 @@ export function project(root: string, options: ProjectOptions = {}): Project {
     if (exported.includes('Slot')) diagnostics.push({ severity: 'error', code: 'SN331', message: 'the types module exports a type named `Slot`, which is sinter\'s: `Slot<T>` in a component\'s props declares a slot that passes `T` to its fill', file, line: 1, col: 1, hint: 'rename the type (`TimeSlot`, `SlotInfo`)' });
   }
   return {
-    root, helpers, helpersFile, actions, actionsFile, readFile, openapi, apis, diagnostics, complexity: complexityOf(options.complexity), checkCycles: !!options.checkCycles,
+    root, helpers, helpersFile, actions, actionsFile, readFile, listFiles, openapi, apis, diagnostics, complexity: complexityOf(options.complexity), expansionLimit: expansionLimitOf(options.expansionLimit), checkCycles: !!options.checkCycles,
     isStatic: staticPages(root, options.static).has,
     lazy: lazyOf(options.lazy), strict: strictOf(options.strict),
     componentNames: components, libraries: libs.libraries,
@@ -300,6 +333,13 @@ function withOwnLibrary(root: string, p: { pages: string[]; options: ProjectOpti
   const options = { ...p.options, components: [...new Set([...(p.options.components ?? []), own.name])] };
   const onlyIndex = p.pages.length === 1 && p.pages[0] === resolve(root, 'index.html') && own.pages.length;
   return { pages: p.pages.length && !onlyIndex ? p.pages : own.pages, options };
+}
+
+/** `expansionLimit`: a whole number of 1 or more */
+export function expansionLimitOf(n: number | undefined): number | undefined {
+  if (n === undefined) return undefined;
+  if (typeof n !== 'number' || !Number.isInteger(n) || n < 1) throw new Error(`sinter: expansionLimit: \`${String(n)}\` is not a whole number of 1 or more (the most rows and component instances a page expands at build time; default 10000)`);
+  return n;
 }
 
 /** The `complexity` option, refused when it names an unknown limit or level, or a limit is not a number of 0 or more. */

@@ -30,6 +30,7 @@ function diags(html: string, o: Opts = {}) {
   return compile(html, {
     file: '/p/page.html', root: '/p', dev: false, check: o.check, openapi: o.openapi ? [SPEC] : undefined, complexity: o.complexity, checkCycles: o.checkCycles,
     readFile: (p) => { if (!(p in files)) throw new Error('missing'); return files[p]!; },
+    listFiles: (d) => Object.keys(files).filter((f) => f.startsWith(d.replace(/\/$/, '') + '/')),
     helpers: { module: '/h.js', names: ['fmt'], namespaces: { m: { module: '/m.js', members: ['inbox_title'] } } },
   }).diagnostics;
 }
@@ -91,6 +92,7 @@ const cases: Array<[string, string, RegExp, Opts?]> = [
   ['SN535', '<x-close></x-close>', /`<slot name="cel">` in `<x-close>` is a tree placement.*Did you mean `cell`/],
   ['SN331', '<div><slot></slot></div>', /this `<slot>` is not in a component or a fill, so nothing fills it/],
   ['SN332', '<button data-sn-post="file:./post.txt"></button>', /`file:` is a source for `<sn-resource src>`/],
+  ['SN539', '<sn-resource name="r" src="file:/content/posts/*.md"></sn-resource><p data-sn-text="r.length"></p>', /`file:\/content\/posts\/\*\.md` matches no file/],
   ['SN532', '<div data-sn-state="{ xs: [1] }"><template data-sn-for="x in xs"><p id="row" data-sn-text="x"></p></template></div>', /`id="row"` is in markup that renders more than once \(a `data-sn-for` row\)/],
   ['SN531', '<div data-sn-state="{ u: \'a\' }"><button data-sn-post="/api/login" data-sn-body="JSON.stringify({ username: u })"></button></div>', /`data-sn-body` is already JSON text \(`JSON\.stringify\(…\)`\): sinter encodes the body, so the server would get a JSON string, not the object/],
   ['SN509', `<button id="save" data-sn-post="/x" data-sn-catch="run('save')"></button>`, /`run\(\)` cycle: `#save` `data-sn-catch` \(page.html:1\) runs `#save`, which starts the first step again/, { checkCycles: true }],

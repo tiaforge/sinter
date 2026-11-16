@@ -7,7 +7,7 @@
 <body>
   <!-- A markdown file in the repo: md.parse runs at build time, the page is plain HTML -->
   <sn-resource name="post" src="file:./article.md"></sn-resource>
-  <main data-sn-let="{ doc: md.parse(post, { base: '/fixtures/' }) }">
+  <main data-sn-let="{ doc: md.parse(post.body, { base: '/fixtures/' }) }">
     <nav>
       <ul>
         <template data-sn-for="h in md.headings(doc)"><li><a data-sn-attr="{ href: '#' + h.id }" data-sn-text="h.text"></a></li></template>

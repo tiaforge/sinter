@@ -7,7 +7,7 @@ with slots.
 
 ```html
 <sn-resource name="post" src="file:./post.md"></sn-resource>
-<main data-sn-let="{ doc: md.parse(post) }">
+<main data-sn-let="{ doc: md.parse(post.body) }">
   <md-doc data-sn-prop="{ doc }"></md-doc>
 </main>
 ```

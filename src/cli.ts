@@ -66,7 +66,7 @@ async function main(argv: string[]): Promise<number> {
   const nh = await loadHelpers({ root, helpersFile: p.helpersFile, manifest: p.helpers });
   if (nh.error && p.helpersFile) diagnostics.push({ severity: 'warning', code: 'SN533', message: unloadedMessage(root, p.helpersFile, nh.error), file: p.helpersFile, line: 1, col: 1 });
   for (const file of files) {
-    const out = compile(readFileSync(file, 'utf8'), { ...(lh ? { lazyModule: lh.reach } : {}), helperValues: nh.module, helperFold: nh.fold, file, root, dev: false, helpers: p.helpers, actions: p.actions, config: p.config, readFile: p.readFile, check: true, openapi: p.openapi, apis: p.apis, complexity: p.complexity, componentNames: p.componentNames, libraries: p.libraries, checkCycles: p.checkCycles || cycles, lazy: p.lazy, ...(p.isStatic(file) ? { static: true, prerender: true } : {}), ...(locale ? { locale } : {}) });
+    const out = compile(readFileSync(file, 'utf8'), { ...(lh ? { lazyModule: lh.reach } : {}), helperValues: nh.module, helperFold: nh.fold, file, root, dev: false, helpers: p.helpers, actions: p.actions, config: p.config, readFile: p.readFile, listFiles: p.listFiles, check: true, openapi: p.openapi, apis: p.apis, complexity: p.complexity, ...(p.expansionLimit ? { expansionLimit: p.expansionLimit } : {}), componentNames: p.componentNames, libraries: p.libraries, checkCycles: p.checkCycles || cycles, lazy: p.lazy, ...(p.isStatic(file) ? { static: true, prerender: true } : {}), ...(locale ? { locale } : {}) });
     diagnostics.push(...out.diagnostics);
     if (out.check) units.push(out.check);
   }
@@ -154,7 +154,7 @@ async function migrate(args: string[]): Promise<number> {
   }
   // 2. the migrated pages, compiled: the query parameters to declare, the attributes the config makes redundant
   const read = (f: string) => texts.get(f) ?? p.readFile(f);
-  const diagnostics = pages.flatMap((file) => compile(read(file), { file, root, dev: false, helpers: p.helpers, actions: p.actions, config: p.config, readFile: read, openapi: p.openapi, apis: p.apis, componentNames: p.componentNames, libraries: p.libraries, lazy: p.lazy }).diagnostics);
+  const diagnostics = pages.flatMap((file) => compile(read(file), { file, root, dev: false, helpers: p.helpers, actions: p.actions, config: p.config, readFile: read, listFiles: p.listFiles, openapi: p.openapi, apis: p.apis, componentNames: p.componentNames, libraries: p.libraries, lazy: p.lazy }).diagnostics);
   const fu = followUp(diagnostics);
   const report = configReport(uses, p.apis, p.openapi);
   addQuery(report, fu.query, p.apis, p.openapi);

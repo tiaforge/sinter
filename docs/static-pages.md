@@ -39,8 +39,8 @@ browser ([build-time constants](first-paint.md#build-time-constants)):
   is `<ul><li><a href="/">Home</a></li><li><a href="/about.html">About</a></li></ul>` in the built page.
   Loops inside the rows are unrolled the same way, at any depth (a list of sections, each with its
   links), and a `data-sn-if` in a row is decided per row. A row with a handler that writes state, a
-  model or its own state, a nested loop that is not constant, and a list over 1,000 items, stay a
-  template that the runtime renders.
+  model or its own state, and a nested loop that is not constant, stay a template that the runtime
+  renders. A list has no length limit of its own: its rows count against the page's (below).
 - trees over constants: a component used inside itself, and the component an `<sn-component use>`
   renders, given constant props (a `file:./doc.json` content tree, each node dispatched to its
   component) are expanded at build time, per node, and a link fill is written into every node that
@@ -52,8 +52,10 @@ browser ([build-time constants](first-paint.md#build-time-constants)):
 - a handler that reads only constants, `$el` and `$event` (a copy button) does not stop any of it:
   the page ships that handler and the runtime it needs, nothing else.
 
-At most 10,000 rows and components are expanded per page; the one that would cross it is rendered in
-the browser, with warning [SN536](diagnostics.md#sn536).
+At most 10,000 rows and components are expanded per page, a list's rows included; the list or tree that
+would cross it is rendered in the browser, with warning [SN536](diagnostics.md#sn536). Each costs about
+0.2 ms of compile, in the build and in the editor, which compiles a page on every edit; a site that
+measures a bigger page as fast enough sets its own limit with `sinter({ expansionLimit: 25000 })`.
 
 ## Helpers and files at build time
 

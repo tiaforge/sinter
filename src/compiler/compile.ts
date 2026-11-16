@@ -22,7 +22,7 @@ import { ATTRIBUTES, CHAR_KEYS, ELEMENTS, KEY_ALIASES, LOOSE_SHIFT, MODIFIERS, N
 import type { CheckExpr, CheckFrame, CheckLoc, CheckResource, CheckUnit, TypeRef } from './check-unit.js';
 import { apiOf, shapeTemplate, type ApiDef, type ApisDef, type OperationShape } from './apis.js';
 import { foldReason, type FoldVerdict } from '../fold-check.js';
-import { FILE_ATTRS, fileAttrProblem, filePath, fileValue, isFileSource, scriptJson } from './files.js';
+import { FILE_ATTRS, FILE_ENTRY, fileAttrProblem, fileEntry, filePath, fileValue, isFileSource, scriptJson, setPath, sortList } from './files.js';
 import { deref, matchOperation, matchResource, type Method, type OpenApiMatch, type Auth, namedAt, namedSchema, properties, propertyNames, queryNames, responseEntities, walk, wrapperKey, type OpenApiSpec } from './openapi.js';
 import type { ActionDef, ApplyDef, Binding, EarlyIR, EventDef, IR, NodeDef, Paginate, PathRef, ResourceDef, SyncDef, TemplateDef, UrlTemplate } from '../ir.js';
 import { $k, schemesOf, STYLE_BAD, urlAllowed } from '../runtime/security.js';
@@ -56,6 +56,12 @@ export interface CompileOptions {
   file: string;
   root: string;
   readFile: (path: string) => string;
+  /**
+   * The files below a folder, at any depth, as absolute `/`-separated paths, for a `file:` glob. The project's skips
+   * `node_modules` and folders whose name starts with a dot, and lists nothing outside the root. Throws when the folder
+   * does not exist.
+   */
+  listFiles?: (dir: string) => string[];
   helpers: HelperManifest;
   dev: boolean;
   /** URL the injected `<script type="module">` loads the page module from */
@@ -190,7 +196,7 @@ export interface CompileOptions {
    * each writes. The second pass writes them into the markup before the layout and the images (`prefold`)
    */
   constants?: Map<string, ConstantWrite[]>;
-  /** the most rows and component instances a page expands at build time, in all (default `EXPANSION_LIMIT`; tests and measurements) */
+  /** the most rows and component instances a page expands at build time, in all (default `EXPANSION_LIMIT`; `sinter({ expansionLimit })`) */
   expansionLimit?: number;
   /** internal, set by `compileParts` for its second pass: the trees the first found over the limit (`SN536` again, there) */
   overLimit?: Map<string, number>;
@@ -256,6 +262,8 @@ export interface CompileResult {
   earlyMap?: SourceMap;
   diagnostics: Diagnostic[];
   files: string[];
+  /** the folders `file:` globs list, and the pattern below each their files match (dev: an added or removed file reloads the page) */
+  globs?: Array<{ dir: string; match: string }>;
   /** with `check: true` */
   check?: CheckUnit;
   /** with `early`: the page's early module, or null when the page has nothing to run early */
@@ -372,6 +380,8 @@ export interface CompiledParts {
   calls: string[];
   diagnostics: Diagnostic[];
   files: string[];
+  /** the folders `file:` globs list, and the pattern below each their files match (dev: an added or removed file reloads the page) */
+  globs?: Array<{ dir: string; match: string }>;
   /** with `check: true` */
   check?: CheckUnit;
   /** with `early`: the early chunk's bindings, or null when none can run early */
@@ -1127,6 +1137,8 @@ class Compiler {
     if (this.opts.urls) this.canonical(doc);
     // a page in one language says which: `<html lang="de">`
     if (this.opts.locale) { const h = doc.childNodes.find((n): n is P5Element => isElement(n) && n.tagName === 'html'); if (h) setAttr(h, 'lang', this.opts.locale.name); }
+    // the page's language, for what the build sorts (`order` on a `file:` list): its `<html lang>`, the layout's included
+    { const h = doc.childNodes.find((n): n is P5Element => isElement(n) && n.tagName === 'html'); this.pageLang = (h && attr(h, 'lang')) || undefined; }
     this.checkHead();
     const twice = this.componentIds();
     for (const { el, why } of this.repeatedIds) {
@@ -1278,7 +1290,7 @@ class Compiler {
       ...(this.opts.sourcemap ? { sources: this.sourcesOf(this.fns) } : {}),
       features: [...(this.opts.dev ? ['dev'] : []), ...['sse', 'optimistic', 'paginate', 'persist', 'cache', 'versions', 'refresh', 'each', 'listbox', 'keys', 'apply', 'fields', 'form', 'select', 'location', 'typing', 'query-links', 'call', 'debounce', 'confirm', 'models', 'transition', 'components', 'nested', 'lets'].filter((f) => this.features.has(f))],
       helpers: { user, builtin }, namespaces, calls: [...this.calls].sort(),
-      diagnostics: this.diagnostics, files: [...this.files].sort(),
+      diagnostics: this.diagnostics, files: [...this.files].sort(), ...(this.fileGlobs.length ? { globs: this.fileGlobs } : {}),
       ...(this.check ? { check: this.check } : {}),
       ...(early !== undefined ? { early } : {}),
       ...(images ? { images } : {}),
@@ -5685,40 +5697,103 @@ class Compiler {
 
   /** `file:` resources by name: their value is in the head (`data-sn` id), written there by `run()` */
   readonly fileData = new Map<string, { id: number; json: string; value: unknown; el?: P5Element }>();
+  /** the folders `file:` globs listed, and what their files match: the dev server reloads the page when one is added or removed */
+  readonly fileGlobs: Array<{ dir: string; match: string }> = [];
+  /** the page's `<html lang>`, once the layout is merged */
+  private pageLang: string | undefined;
 
   /**
-   * `<sn-resource src="file:./post.txt">` (files.ts): the file read at build time, its value embedded in the
-   * head, a resource that never loads (`fx`). Only `name`, `type`, `items` and `key` apply (SN332).
+   * `<sn-resource src="file:./post.md">` (files.ts): the file read at build time, or with a glob every file it matches as
+   * a list, sorted by `order` and without drafts in a build; its value embedded in the head, a resource that never loads
+   * (`fx`). Only `name`, `src`, `type`, `items`, `key`, `order` and `drafts` apply (SN332).
    */
   fileResource(el: P5Element, name: string, scope: number) {
     const info = this.page.resources.get(name)!;
     for (const a of el.attrs) if (!FILE_ATTRS.includes(a.name)) this.report(el, a.name, a.name === 'start-page' || RESOURCE_ATTRS.includes(a.name) ? 'SN332' : 'SN101', fileAttrProblem(a.name), 0);
     const src = attr(el, 'src')!, at = src.indexOf('file:');
     const where = filePath(src, this.origins.get(el)?.file ?? this.opts.file, this.opts.root);
-    let value: unknown;
-    if ('error' in where) { this.report(el, 'src', 'SN332', where.error, at); value = null; }
-    else {
+    const top = normalize(this.opts.root).replace(/\/$/, '');
+    const relOf = (f: string) => f.slice(top.length + 1);
+    /** one file's text, or the problem (SN332) */
+    const read = (path: string): string | null => {
       let text: string | null = null, outside = false;
       // the project's readFile refuses a path whose real place (a symlink) is outside the root
-      try { text = this.opts.readFile(where.path); } catch (e) { outside = /outside the project root/.test(String((e as Error)?.message)); }
-      this.files.add(where.path);
-      const rel = where.path.slice(normalize(this.opts.root).replace(/\/$/, '').length + 1);
-      if (text == null) { this.report(el, 'src', 'SN332', outside ? `\`${src.trim()}\` is a link to a file outside the project root (\`${rel}\`): a \`file:\` source reads the project's own files` : `\`${src.trim()}\`: no such file in the project (\`${rel}\`)`, at); value = null; }
-      else {
+      try { text = this.opts.readFile(path); } catch (e) { outside = /outside the project root/.test(String((e as Error)?.message)); }
+      this.files.add(path);
+      if (text == null) this.report(el, 'src', 'SN332', outside ? `\`${src.trim()}\` is a link to a file outside the project root (\`${relOf(path)}\`): a \`file:\` source reads the project's own files` : `\`${src.trim()}\`: no such file in the project (\`${relOf(path)}\`)`, at);
+      return text;
+    };
+    let value: unknown = null, list = false;
+    if ('error' in where) this.report(el, 'src', 'SN332', where.error, at);
+    else if (!where.glob) {
+      const text = read(where.path);
+      if (text != null) {
         const v = fileValue(text, where.path);
         if ('error' in v) this.report(el, 'src', 'SN332', v.error, at);
-        value = 'error' in v ? null : v.value;
+        else value = v.value;
+      }
+    } else {
+      list = true;
+      const { dir, match } = where.glob;
+      let found: string[] = [];
+      try { found = this.opts.listFiles ? this.opts.listFiles(dir) : []; } catch { found = []; }
+      this.fileGlobs.push({ dir, match: match.source });
+      const files = found.filter((f) => f.startsWith(dir.replace(/\/$/, '') + '/') && match.test(f.slice(dir.replace(/\/$/, '').length + 1))).sort();
+      if (!this.opts.listFiles) this.report(el, 'src', 'SN332', 'a `file:` glob needs the project\'s files listed; this compile has none (`listFiles`)', at);
+      else if (!files.length) this.report(el, 'src', 'SN539', `\`${src.trim()}\` matches no file (\`${relOf(dir) || '.'}\` has none that match): the list is empty`, at);
+      const entries: unknown[] = [];
+      for (const f of files) {
+        const text = read(f);
+        if (text == null) continue;
+        const e = fileEntry(text, f, dir, this.opts.root);
+        if ('error' in e) { this.report(el, 'src', 'SN332', e.error, at); continue; }
+        entries.push(e.value);
+      }
+      value = entries;
+    }
+    const isMd = !('error' in where) && !where.glob && /\.(md|markdown)$/i.test(where.path);
+    // drafts: an entry whose named field is `true` is left out of a build, and kept in dev (as written, by command)
+    const drafts = attr(el, 'drafts')?.trim() || null;
+    if (drafts && !list) this.report(el, 'drafts', 'SN332', '`drafts` leaves entries out of a list; this `file:` source is one file (a glob gives a list: `file:./posts/*.md`)', 0);
+    if (drafts && list && !this.opts.dev) value = (value as Record<string, unknown>[]).filter((e) => e?.[drafts] !== true);
+    const order = attr(el, 'order')?.trim() || null;
+    if (order && !Array.isArray(value) && value !== null && !(attr(el, 'items'))) this.report(el, 'order', 'SN332', '`order` sorts a list; this value is not one (a glob gives a list, and `items` picks one out of a JSON file)', 0);
+    if (list && attr(el, 'items')) this.report(el, 'items', 'SN332', '`items` picks a list out of a JSON file; a glob is a list already', 0);
+    if (isMd && attr(el, 'items')) this.report(el, 'items', 'SN332', '`items` picks a list out of a JSON file; a markdown file is one entry', 0);
+    // the key: a glob's entries have a `slug` each, which is unique (two entries with one key are an error)
+    const keyAttr = attr(el, 'key')?.trim() || null;
+    const key = info.key ?? (list ? ['slug'] : null);
+    if (!info.key && key) info.key = key;
+    if (list && key) {
+      const seen = new Map<string, string>();
+      for (const e of value as Record<string, unknown>[]) {
+        const k = key.map((f) => String(e[f])).join(', ');
+        const prev = seen.get(k);
+        if (prev !== undefined) this.report(el, keyAttr ? 'key' : 'src', 'SN332', `two files have the ${keyAttr ? `key \`${k}\`` : `slug \`${k}\``}: \`${prev}\` and \`${String(e.path).slice(1)}\`${keyAttr ? '' : '; give one of them a `slug` of its own, or a `key` that tells them apart'}`, 0);
+        else seen.set(k, String(e.path).slice(1));
       }
     }
     const items = attr(el, 'items')?.trim() || null;
     if (items && typeof value === 'string') this.report(el, 'items', 'SN332', '`items` picks a list out of a JSON file; this file is text', 0);
+    // sorted once, here: the page's language decides how strings compare, as the visitor's does for a live resource
+    if (order && Array.isArray(value)) value = sortList(value, order, this.opts.locale?.name ?? this.pageLang);
+    else if (order && items && value && typeof value === 'object') {
+      const at = items.split('.').reduce<unknown>((o, k) => (o as Record<string, unknown> | null)?.[k], value);
+      if (Array.isArray(at)) value = setPath(value, items.split('.'), sortList(at, order, this.opts.locale?.name ?? this.pageLang));
+    }
     const id = this.nextId++;
     this.fileData.set(name, { id, json: scriptJson(value), value });
     this.embedded.set(name, id);
     if (this.check) {
       const type = attr(el, 'type')?.trim() || null;
-      this.check.resources.push({ name, type: type ?? (typeof value === 'string' ? 'string' : null), loc: this.locOf(el, type ? 'type' : null), nameLoc: this.locOf(el, 'name') });
-      if (!type && typeof value !== 'string') this.report(el, null, 'SN504', `resource \`${name}\` has no type: expressions using it are not checked`, 0, 'add `type="…"` with a type from the types module, or `type="any"` to leave it unchecked');
+      // a markdown file: its frontmatter's type (`type`) and the `body` sinter writes; a glob: one entry's, and the fields
+      // sinter writes beside it (`slug`, `dir`, `path`, and `body` of a markdown or text file); JSON entries need `type`
+      const bodied = list ? !/\.json\b/i.test(src) : isMd;
+      const entry = [type ? `(${type})` : null, list ? FILE_ENTRY : null, bodied ? '{ body: string }' : null].filter(Boolean).join(' & ');
+      const full = list ? (type || bodied ? `(${entry})[]` : null) : isMd ? entry : type ?? (typeof value === 'string' ? 'string' : null);
+      this.check.resources.push({ name, type: full, loc: this.locOf(el, type ? 'type' : null), nameLoc: this.locOf(el, 'name') });
+      const md = bodied;
+      if (!type && typeof value !== 'string' && !md) this.report(el, null, 'SN504', `resource \`${name}\` has no type: expressions using it are not checked`, 0, 'add `type="…"` with a type from the types module, or `type="any"` to leave it unchecked');
     }
     this.resources.push({ name, src: [], key: info.key, items, total: null, order: null, when: null, paginate: null, deps: [], scope, data: null, fx: 1 });
     this.declAt.set(this.resources[this.resources.length - 1]!, el);
@@ -6241,7 +6316,7 @@ class Compiler {
   expansionWarning(el: P5Element, limit: number, list: boolean) {
     const what = list ? 'this list\'s rows' : 'this component\'s tree';
     this.report(el, null, 'SN536', `${what} would take the page past ${limit.toLocaleString('en')} rows and components expanded at build time, so it is rendered in the browser`, 0,
-      'a page that long builds and lays out slowly: split the content over pages, or keep a long list of it a list the browser renders');
+      'a page that long builds and lays out slowly: split the content over pages, keep a long list of it a list the browser renders, or raise `sinter({ expansionLimit })` if the page is measured fast enough');
   }
 
   /** The first pass of a prerendered page, which may compile it again: it records what folds (`collectConstants`). */
@@ -6258,8 +6333,8 @@ class Compiler {
    * loop in it unrolled the same, and each `<sn-component use>` in it rendering none of its candidates (one it
    * renders comes from its shared definition at run time). What a row decides is kept only when the whole loop
    * is unrolled. Keys are instance paths: `<loop>#<k>/` per level before the template's own key (`instKey`).
-   * Two instances with one key (no way to tell them apart) leave it. At most `MAX_UNROLL` items per list and
-   * `EXPANSION_LIMIT` rows and component instances per page (`SN536` past it).
+   * Two instances with one key (no way to tell them apart) leave it. At most `EXPANSION_LIMIT` rows and component
+   * instances per page, any list's rows counted (`SN536` past it, at the loop or the tree that crosses it).
    */
   worklist(fnOf: Map<string, ($: unknown) => unknown>, known: (deps: string[]) => boolean, fixed: (ds: PathRef[] | undefined) => boolean, schemes: Set<string>, usedMessage: () => boolean, reset: () => void, ROW: Set<string>) {
     type Found = { unrolls: Array<[string, unknown[], PathRef[] | undefined]>; decided: Array<[string, boolean, PathRef[] | undefined]>; paints: Array<[Binding, string, ConstantWrite | null]>; rows: number; over?: true };
@@ -6287,7 +6362,7 @@ class Compiler {
       this.folding?.start(code);
       try { const v = f(sc); return usedMessage() && !this.opts.locale ? FAIL : v; } catch { return FAIL; } finally { this.folding?.end(); }
     };
-    const listOf = (v: unknown): unknown[] | null => (Array.isArray(v) && v.length <= MAX_UNROLL && v.every((x) => plainData(x)) ? v : null);
+    const listOf = (v: unknown): unknown[] | null => (Array.isArray(v) && v.every((x) => plainData(x)) ? v : null);
     // (a placement's element is its `<slot>`; an anchor's, its template)
     const elOf = (n: NodeDef) => this.tplEls.get(n) ?? this.pointOf.get(n)?.el ?? this.paints.find((x) => x.node === n)?.el ?? this.textMarks.get(n) ?? placementOf.get(n)?.el ?? this.anchorEls.get(n);
     const rowScope = (sc: object, t: TemplateDef, item: unknown, k: number) => new Proxy({}, {
@@ -8506,8 +8581,6 @@ function deepFreeze<T extends object>(v: T): T {
 
 /** a binding that cannot be written ahead */
 const FAIL: unique symbol = Symbol('first paint: runtime-only');
-/** the most rows a constant loop is unrolled into at build time; a longer list stays a template */
-const MAX_UNROLL = 1000;
 /**
  * the most rows and component instances a page expands at build time, at every depth: compiling the expanded page
  * takes about 0.2 ms each (measured on a generic tree of paragraphs, links and images, in the build and the LSP alike,

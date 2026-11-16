@@ -9,7 +9,7 @@ import sinter from '@tiaforge-ui/sinter/vite';
 import { app, page, PKG } from './app.js';
 
 const PAGE = page(`<sn-resource name="post" src="file:./post.md"></sn-resource>
-<main data-sn-let="{ doc: md.parse(post, { base: '/' }) }">
+<main data-sn-let="{ doc: md.parse(post.body, { base: '/' }) }">
   <nav><template data-sn-for="h in md.headings(doc)"><a data-sn-attr="{ href: '#' + h.id }" data-sn-text="h.text"></a></template></nav>
   <p class="summary" data-sn-text="md.text(doc).slice(0, 40)"></p>
   <md-doc id="article" data-sn-prop="{ doc }"></md-doc>
@@ -19,7 +19,7 @@ const ARTICLE = readFileSync(join(PKG, 'fixtures/article.md'), 'utf8');
 const FLAT = ARTICLE.replace('  - nested\n', '');
 // raw HTML under html: 'allow'
 const ALLOW = page(`<sn-resource name="post" src="file:./post.md"></sn-resource>
-<main data-sn-let="{ doc: md.parse(post, { html: 'allow' }) }"><md-doc id="article" data-sn-prop="{ doc }"></md-doc></main>`);
+<main data-sn-let="{ doc: md.parse(post.body, { html: 'allow' }) }"><md-doc id="article" data-sn-prop="{ doc }"></md-doc></main>`);
 const HTML = `Press <kbd>Ctrl</kbd>+<kbd>C</kbd>: H<sub>2</sub>O, x<sup>2</sup>, <mark>marked</mark>, <b>not kept</b>.
 
 <details open>
@@ -31,7 +31,7 @@ Hidden **text**.
 `;
 // one line inside a paragraph, a heading and a label: md-inline's root is a <span> with phrasing content
 const INLINE = page(`<sn-resource name="post" src="file:./post.md"></sn-resource>
-<main data-sn-let="{ line: md.parse(post) }">
+<main data-sn-let="{ line: md.parse(post.body) }">
   <p id="in-p">Title: <md-inline data-sn-prop="{ doc: line }"></md-inline>, and after.</p>
   <h2 id="in-h"><md-inline data-sn-prop="{ doc: line }"></md-inline></h2>
   <label id="in-label"><input type="checkbox"> <md-inline data-sn-prop="{ doc: line }"></md-inline></label>
@@ -39,7 +39,7 @@ const INLINE = page(`<sn-resource name="post" src="file:./post.md"></sn-resource
 </main>`);
 // the fills of docs/markdown.md: a link and a heading chain that place their children, a table's wrapper, a code block
 const FILLS = page(`<sn-resource name="post" src="file:./post.md"></sn-resource>
-<main data-sn-let="{ doc: md.parse(post, { base: '/' }) }"><md-doc id="article" data-sn-prop="{ doc }">
+<main data-sn-let="{ doc: md.parse(post.body, { base: '/' }) }"><md-doc id="article" data-sn-prop="{ doc }">
   <a slot="link" rel="nofollow ugc" data-sn-attr="{ href: $slot.node.url }"><slot></slot></a>
   <template slot="heading" data-sn-if="$slot.node.depth === 1"><h1 data-sn-attr="{ id: 'md-' + $slot.node.slug }"><slot></slot></h1></template>
   <template data-sn-else><h2 data-sn-attr="{ id: 'md-' + $slot.node.slug }"><slot></slot> <a data-sn-attr="{ href: '#md-' + $slot.node.slug }">#</a></h2></template>

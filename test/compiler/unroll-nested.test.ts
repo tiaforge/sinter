@@ -127,11 +127,10 @@ describe('limits', () => {
   const kept = (body: string) => irOf(build(body).module).templates.length;
   const list = (n: number, of: string) => `[${Array.from({ length: n }, () => of).join(', ')}]`;
 
-  test('at most 1,000 items per list, at every level', () => {
-    expect(kept(`<template data-sn-for="x in ${list(1000, '1')}" data-sn-key="x"><b data-sn-text="x"></b></template>`)).toBe(0);
-    expect(kept(`<template data-sn-for="x in ${list(1001, '1')}" data-sn-key="x"><b data-sn-text="x"></b></template>`)).toBe(1);
-    // an inner list over the limit keeps the outer loop a template too
-    expect(kept(`<template data-sn-for="g in [${list(1001, '1')}]"><p><template data-sn-for="x in g" data-sn-key="x"><b data-sn-text="x"></b></template></p></template>`)).toBe(2);
+  test('no limit per list: 1,001 items unroll, at every level (the page\'s limit counts them, below)', () => {
+    expect(kept(`<template data-sn-for="x in ${list(1001, '1')}" data-sn-key="x"><b data-sn-text="x"></b></template>`)).toBe(0);
+    expect(kept(`<template data-sn-for="g in [${list(1001, '1')}]"><p><template data-sn-for="x in g" data-sn-key="x"><b data-sn-text="x"></b></template></p></template>`)).toBe(0);
+    expect(build(`<template data-sn-for="x in ${list(5000, '1')}" data-sn-key="x"><b data-sn-text="x"></b></template>`).diagnostics).toEqual([]);
   });
 
   test('at most 10,000 rows and components per page, at every depth: a loop that would cross it stays a template, with SN536 at it', () => {

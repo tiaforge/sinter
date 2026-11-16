@@ -258,9 +258,9 @@ export const DIAGNOSTIC_DOCS: Record<Code, DiagnosticDoc> = {
     fix: 'Write the slot as `cell: Slot<{ row: Row }>` in the props type literal, place it with `data-sn-prop`, give the placement one element as default, and move names the children read onto the `<slot>`\'s `data-sn-prop` or inside the element. Remove a `<slot>` from a page.',
   },
   SN332: {
-    example: '`refresh` reloads, and a `file:` resource is a constant: it is read at build time and never loads or changes; it takes only `name`, `type`, `items` and `key`',
-    means: 'A `file:` source (`<sn-resource src="file:./post.txt">`) reads a file of the project at build time: its text, or for `.json` its parsed value. The path is a literal, relative to the file that writes it (a page, a layout, a component) or `/…` from the project root, and inside the root; the file must exist, and a `.json` file must parse. The resource is a constant: what would load, page, refresh, cache or change it is refused (`refresh`, `cache`, `paginate`, `each`, `call`, `when`, `then`, `early`, `method`, store functions that name it or change one of its items, write-through, `<sn-event>`s). `file:` is a source of `<sn-resource src>` only, not of an action or `<sn-sync>`.',
-    fix: 'Write a literal path to a file in the project, or fix the JSON. Leave out the attribute that would load or change it; for data that changes, serve it from an API and use a URL. To change the values a page shows, keep them in `data-sn-state`, initialized from the resource.',
+    example: '`refresh` reloads, and a `file:` resource is a constant: it is read at build time and never loads or changes; it takes only `name`, `src`, `type`, `items`, `key`, `order` and `drafts`',
+    means: 'A `file:` source (`<sn-resource src="file:./post.md">`) reads the project at build time: one file (its text, a `.json` file\'s parsed value, a markdown file\'s frontmatter and `body`), or with a glob (`file:/content/posts/*.md`) a list with one entry per file, each with its `slug`, `dir` and `path`. The path is a literal, relative to the file that writes it (a page, a layout, a component) or `/…` from the project root, and inside the root; the file must exist, a `.json` file must parse, frontmatter must be YAML fields without anchors, aliases or tags, and must not name `body`, `dir` or `path`, which sinter writes. In a glob each `.json` file is one object, and two entries may not share a key (`slug` by default). `order` sorts a list and `drafts` names a field that leaves an entry out of a build; `items` picks a list out of one JSON file. The resource is a constant: what would load, page, refresh, cache or change it is refused (`refresh`, `cache`, `paginate`, `each`, `call`, `when`, `then`, `early`, `method`, store functions that name it or change one of its items, write-through, `<sn-event>`s). `file:` is a source of `<sn-resource src>` only, not of an action or `<sn-sync>`.',
+    fix: 'Write a literal path or glob in the project, or fix the file it names. Give two files with one name a `slug` of their own in their frontmatter (or a `key` that tells them apart). Leave out the attribute that would load or change it; for data that changes, serve it from an API and use a URL. To change the values a page shows, keep them in `data-sn-state`, initialized from the resource.',
   },
   SN333: {
     example: '`data-sn-text` and `data-sn-if` on one `<template>`: a text node is one binding; the condition or the loop goes on a template around it',
@@ -475,5 +475,10 @@ export const DIAGNOSTIC_DOCS: Record<Code, DiagnosticDoc> = {
     example: '`x-para` can never be chosen here: `b.type` cannot be `"paragraph"` where this `<sn-component>` is (a branch around it rules it out)',
     means: '`sinter check` checks each candidate of a `<sn-component use>` (a template string or a map) with the data narrowed to its key, and the branches around it (`data-sn-if`, `data-sn-else`) narrow the data too. When they leave no value for a candidate\'s key, TypeScript finds the comparison can never hold: that component is never rendered there. A warning, since the page still works.',
     fix: 'Remove the candidate from `use`, or move the `<sn-component>` out of the branch that excludes it.',
+  },
+  SN539: {
+    example: '`file:/content/posts/*.md` matches no file (`content/posts` has none that match): the list is empty',
+    means: 'A `file:` glob found no file. The page builds with an empty list, which is usually a typo in a folder or extension rather than an empty blog.',
+    fix: 'Check the folder and the pattern (`*` stays within a folder, `**` crosses folders). A list that is empty on purpose can stay: this is a warning.',
   },
 };
