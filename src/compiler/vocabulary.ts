@@ -48,6 +48,7 @@ export const ATTRIBUTES: AttrDoc[] = [
   { name: 'retry', value: 'retry policy name', doc: 'mutations only: sends the request again as that policy of configure({ retry }) says (after a network error, a 5xx, a 429), with an Idempotency-Key; without it a write is sent once' },
   { name: 'apply', value: 'off', doc: 'turns write-through off for this mutation: its response is not applied to the resources it is about' },
   { name: 'path', value: 'URL patterns /a/:b …', doc: 'on <html>: the path shapes this page is served for; `:name` segments appear read-only in $url' },
+  { name: 'pages', value: 'entry in list', doc: 'on <html>: the page once per entry of a `file:` glob it declares, each written at its `data-sn-path` pattern filled from the entry (`post in posts` at `/blog/:slug`); the entry is a constant in the whole page' },
   { name: 'data', value: 'resource name', doc: 'on <script type="application/json"> in <head>: initial data for a resource' },
 ];
 

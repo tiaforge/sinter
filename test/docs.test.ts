@@ -263,7 +263,7 @@ const ATTRIBUTE_GROUPS: Array<[string, string, string[]]> = [
   ['After a request', 'What happens on screen around a response. Details: [optimistic updates](actions.md#optimistic-updates).', ['optimistic', 'then', 'catch']],
   ['React to events', 'Handlers without a request. Details: [events](actions.md), [key filters](actions.md).', ['on-<event>', 'debounce-<event>', 'listbox']],
   ['Components', 'In a component file in `src/components/`, and on a component\'s tag (`early`). Details: [components](components.md).', ['component', 'head', 'emits', 'early', 'ref', 'layout']],
-  ['Pages and navigation', 'Set on `<html>` or on shared elements; `wait` on a box around a list. Details: [navigation](navigation.md), [first paint](first-paint.md).', ['path', 'prefetch', 'transition', 'data', 'wait']],
+  ['Pages and navigation', 'Set on `<html>` or on shared elements; `wait` on a box around a list. Details: [navigation](navigation.md), [first paint](first-paint.md).', ['path', 'pages', 'prefetch', 'transition', 'data', 'wait']],
   ['Lazy packages', 'When a package of `sinter({ lazy })` loads, on any element of a page, a layout or a component. Without either, on first call. Details: [lazy packages](lazy.md).', ['import', 'preload']],
 ];
 const RESOURCE_GROUPS: Array<[string, string[]]> = [

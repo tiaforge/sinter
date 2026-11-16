@@ -31,6 +31,9 @@ export function fileAttrProblem(name: string): string {
     : `\`${name}\` is not an attribute of a \`file:\` resource, which takes only \`name\`, \`type\`, \`items\` and \`key\``;
 }
 
+/** the attribute of the internal resource that holds a `data-sn-pages` entry (never written by a page) */
+export const PAGE_ENTRY = 'data-sn-page-entry';
+
 /** whether a `file:` path is a glob: `*`, `**`, `?`, or `{a,b}` alternation */
 export const isGlob = (rel: string) => /[*?]|\{[^{}]*,[^{}]*\}/.test(rel);
 

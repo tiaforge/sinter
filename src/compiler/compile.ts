@@ -22,7 +22,7 @@ import { ATTRIBUTES, CHAR_KEYS, ELEMENTS, KEY_ALIASES, LOOSE_SHIFT, MODIFIERS, N
 import type { CheckExpr, CheckFrame, CheckLoc, CheckResource, CheckUnit, TypeRef } from './check-unit.js';
 import { apiOf, shapeTemplate, type ApiDef, type ApisDef, type OperationShape } from './apis.js';
 import { foldReason, type FoldVerdict } from '../fold-check.js';
-import { FILE_ATTRS, FILE_ENTRY, fileAttrProblem, fileEntry, filePath, fileValue, isFileSource, scriptJson, setPath, sortList } from './files.js';
+import { FILE_ATTRS, FILE_ENTRY, fileAttrProblem, fileEntry, filePath, fileValue, isFileSource, isGlob, PAGE_ENTRY, scriptJson, setPath, sortList } from './files.js';
 import { deref, matchOperation, matchResource, type Method, type OpenApiMatch, type Auth, namedAt, namedSchema, properties, propertyNames, queryNames, responseEntities, walk, wrapperKey, type OpenApiSpec } from './openapi.js';
 import type { ActionDef, ApplyDef, Binding, EarlyIR, EventDef, IR, NodeDef, Paginate, PathRef, ResourceDef, SyncDef, TemplateDef, UrlTemplate } from '../ir.js';
 import { $k, schemesOf, STYLE_BAD, urlAllowed } from '../runtime/security.js';
@@ -62,6 +62,12 @@ export interface CompileOptions {
    * does not exist.
    */
   listFiles?: (dir: string) => string[];
+  /**
+   * `data-sn-pages` (docs/static-pages.md#a-page-per-entry): the entry this compile writes, and the path it is written
+   * at (the page's pattern filled from it). Without it, a page with `data-sn-pages` is compiled as its template, its
+   * entry the list's first (`sinter check`, the editor, and the build's look at it, which lists its entries: `pages`).
+   */
+  page?: { value: unknown; path: string };
   helpers: HelperManifest;
   dev: boolean;
   /** URL the injected `<script type="module">` loads the page module from */
@@ -262,6 +268,11 @@ export interface CompileResult {
   earlyMap?: SourceMap;
   diagnostics: Diagnostic[];
   files: string[];
+  /**
+   * `data-sn-pages`: the variable, the list, the pattern, and each entry with the path it fills (compiled as the
+   * template: no `page` option). A build writes one page per entry.
+   */
+  pages?: { name: string; of: string; pattern: string; entries: Array<{ value: unknown; path: string }> };
   /** the folders `file:` globs list, and the pattern below each their files match (dev: an added or removed file reloads the page) */
   globs?: Array<{ dir: string; match: string }>;
   /** with `check: true` */
@@ -380,6 +391,11 @@ export interface CompiledParts {
   calls: string[];
   diagnostics: Diagnostic[];
   files: string[];
+  /**
+   * `data-sn-pages`: the variable, the list, the pattern, and each entry with the path it fills (compiled as the
+   * template: no `page` option). A build writes one page per entry.
+   */
+  pages?: { name: string; of: string; pattern: string; entries: Array<{ value: unknown; path: string }> };
   /** the folders `file:` globs list, and the pattern below each their files match (dev: an added or removed file reloads the page) */
   globs?: Array<{ dir: string; match: string }>;
   /** with `check: true` */
@@ -1128,6 +1144,7 @@ class Compiler {
     if (this.isLayoutFile(this.opts.file)) this.diagnostics.push({ severity: 'error', code: 'SN318', message: 'a layout is not a page: a page uses it by its tag. Leave `src/layouts/` out of the build\'s inputs', file: this.opts.file, line: 1, col: 1 });
     else doc = this.mergeLayout(doc) ?? doc;
     this.expandIncludes(doc, [this.opts.file]);
+    this.pagesOf(doc);
     this.head = findHead(doc);
     this.expandComponents(doc, []);
     this.strayAndRepeated(doc);
@@ -1290,7 +1307,7 @@ class Compiler {
       ...(this.opts.sourcemap ? { sources: this.sourcesOf(this.fns) } : {}),
       features: [...(this.opts.dev ? ['dev'] : []), ...['sse', 'optimistic', 'paginate', 'persist', 'cache', 'versions', 'refresh', 'each', 'listbox', 'keys', 'apply', 'fields', 'form', 'select', 'location', 'typing', 'query-links', 'call', 'debounce', 'confirm', 'models', 'transition', 'components', 'nested', 'lets'].filter((f) => this.features.has(f))],
       helpers: { user, builtin }, namespaces, calls: [...this.calls].sort(),
-      diagnostics: this.diagnostics, files: [...this.files].sort(), ...(this.fileGlobs.length ? { globs: this.fileGlobs } : {}),
+      diagnostics: this.diagnostics, files: [...this.files].sort(), ...(this.fileGlobs.length ? { globs: this.fileGlobs } : {}), ...(this.pagesOut ? { pages: this.pagesOut } : {}),
       ...(this.check ? { check: this.check } : {}),
       ...(early !== undefined ? { early } : {}),
       ...(images ? { images } : {}),
@@ -1769,10 +1786,10 @@ class Compiler {
     // the tag's attributes: plain ones replace the layout's on `<html>` (its defaults), `class` is joined
     for (const a of host.attrs) {
       if (a.name === 'data-sn-prop' || a.name === 'data-sn-state') continue;
-      if (a.name === 'data-sn-path' || a.name === 'data-sn-prefetch') { setAttr(lhtml, a.name, a.value); continue; }
+      if (a.name === 'data-sn-path' || a.name === 'data-sn-prefetch' || a.name === 'data-sn-pages') { setAttr(lhtml, a.name, a.value); continue; }
       if (a.name === 'data-sn-early') { this.report(host, a.name, 'SN319', '`data-sn-early` cannot be on a layout\'s tag: the layout is the whole page', 0, 'leave parts out of the early script on their own tags: `<tag-cloud data-sn-early="off">`'); continue; }
       if (a.name.startsWith('data-sn-')) {
-        if (!callerAttribute(a.name) || a.name === 'data-sn-model' || a.name === 'data-sn-persist') this.report(host, a.name, 'SN102', `\`${a.name}\` cannot be on a layout's tag`, 0, 'a layout\'s tag takes `data-sn-prop`, `data-sn-state`, handlers, `data-sn-class`, `-attr` and `-style`, `data-sn-path` and `data-sn-prefetch`, and the attributes of `<html>`');
+        if (!callerAttribute(a.name) || a.name === 'data-sn-model' || a.name === 'data-sn-persist') this.report(host, a.name, 'SN102', `\`${a.name}\` cannot be on a layout's tag`, 0, 'a layout\'s tag takes `data-sn-prop`, `data-sn-state`, handlers, `data-sn-class`, `-attr` and `-style`, `data-sn-path`, `data-sn-pages` and `data-sn-prefetch`, and the attributes of `<html>`');
         continue;
       }
       if (a.name === 'class') { const own = attr(lhtml, 'class'); setAttr(lhtml, 'class', own ? `${own} ${a.value}` : a.value); }
@@ -3901,6 +3918,7 @@ class Compiler {
     }
     if (has('early') && !this.useOf.get(el)) this.report(el, 'data-sn-early', 'SN102', '`data-sn-early` goes on a component\'s tag, `<tag-cloud data-sn-early="off">`', 0);
     if (has('path') && el.tagName !== 'html') this.report(el, 'data-sn-path', 'SN102', '`data-sn-path` belongs on `<html>`', 0);
+    if (has('pages') && el.tagName !== 'html') this.report(el, 'data-sn-pages', 'SN102', '`data-sn-pages` belongs on `<html>` (or a layout\'s tag), beside `data-sn-path`', 0);
     if (has('prefetch')) {
       if (el.tagName !== 'html') this.report(el, 'data-sn-prefetch', 'SN102', '`data-sn-prefetch` belongs on `<html>`: it keeps other pages from prefetching or prerendering this one', 0);
       else if (get('prefetch')!.trim() !== 'off') this.report(el, 'data-sn-prefetch', 'SN401', '`data-sn-prefetch` takes `off`; prefetching is on without the attribute', 0);
@@ -5459,6 +5477,7 @@ class Compiler {
     const name = attr(el, 'name');
     if (!name || !this.page.resources.has(name) || this.resourceEls.get(name) !== el) return;
     if (ctx.tid >= 0) return;
+    if (attr(el, PAGE_ENTRY) !== undefined && el === this.pagesDecl?.entry) return this.entryResource(el, name, ctx.stateIdx);
     if (isFileSource(attr(el, 'src'))) return this.fileResource(el, name, ctx.stateIdx);
     for (const a of el.attrs) {
       if (a.name === 'start-page') this.report(el, a.name, 'SN401', '`start-page` is renamed to `page-model` (offset lists, a query parameter), which also writes the page back', 0);
@@ -5699,8 +5718,91 @@ class Compiler {
   readonly fileData = new Map<string, { id: number; json: string; value: unknown; el?: P5Element }>();
   /** the folders `file:` globs listed, and what their files match: the dev server reloads the page when one is added or removed */
   readonly fileGlobs: Array<{ dir: string; match: string }> = [];
+  /** `data-sn-pages`: the variable, its list, the pattern as written, and the internal resource that holds the entry */
+  private pagesDecl: { name: string; of: string; pattern: string; html: P5Element; entry: P5Element } | null = null;
+  /** `data-sn-pages`, compiled as the template: the entries and their paths */
+  private pagesOut: CompiledParts['pages'] | undefined;
   /** the page's `<html lang>`, once the layout is merged */
   private pageLang: string | undefined;
+
+  /**
+   * `<html data-sn-pages="post in posts">` (on the page's `<html>`, or its layout's tag): the page once per entry of a
+   * build-time list the page declares, at its `data-sn-path` pattern filled from the entry. The entry is an internal
+   * resource beside the list, so it is page scope, folds and is typed as any resource. With `page` the compile writes
+   * that entry at its path; without it, the template, with the list's first entry.
+   */
+  pagesOf(doc: DefaultTreeAdapterMap['document']) {
+    const html = doc.childNodes.find((n): n is P5Element => isElement(n) && n.tagName === 'html');
+    const v = html && attr(html, 'data-sn-pages');
+    if (!html || v === undefined) return;
+    html.attrs = html.attrs.filter((a) => a.name !== 'data-sn-pages');
+    const m = /^\s*([A-Za-z_$][\w$]*)\s+in\s+([A-Za-z_$][\w$]*)\s*$/.exec(v);
+    if (!m) { this.report(html, 'data-sn-pages', 'SN340', '`data-sn-pages` takes `<name> in <list>`, e.g. `post in posts`, where `posts` is a `file:` resource of this page', 0); return; }
+    const [, name, of] = m as unknown as [string, string, string];
+    if (STORE_FNS.includes(name) || name.startsWith('$')) { this.report(html, 'data-sn-pages', 'SN340', `\`${name}\` cannot name the entry: it is ${name.startsWith('$') ? 'a magic name' : 'a store function'}`, v.indexOf(name)); return; }
+    const pattern = (attr(html, 'data-sn-path') ?? '').trim();
+    const pats = pattern.split(/\s+/).filter(Boolean);
+    if (pats.length !== 1 || !/\/:/.test(pats[0]!)) { this.report(html, 'data-sn-pages', 'SN340', `\`data-sn-pages\` needs \`data-sn-path\` with exactly one pattern to fill from each entry, e.g. \`data-sn-path="/blog/:slug"\`${pattern ? ` (it is \`${pattern}\`)` : ''}`, 0); return; }
+    // the list: a top-level `<sn-resource>` of the page with a `file:` glob (not inside a template or a component)
+    let list: P5Element | null = null;
+    const find = (p: P5Parent) => { for (const c of p.childNodes) { if (!isElement(c) || list) continue; if (c.tagName === 'template') continue; if (c.tagName === 'sn-resource' && attr(c, 'name') === of) { list = c; return; } find(c); } };
+    find(doc);
+    const el = list as P5Element | null;
+    if (!el) { this.report(html, 'data-sn-pages', 'SN340', `\`${of}\` is not a resource of this page: \`data-sn-pages\` takes a list the page declares, outside any template (\`<sn-resource name="${of}" src="file:/content/posts/*.md">\`)`, v.indexOf(of)); return; }
+    const src = attr(el, 'src') ?? '';
+    if (!isFileSource(src) || !isGlob(src.trim().slice('file:'.length))) { this.report(html, 'data-sn-pages', 'SN340', `\`${of}\` is not a build-time list: \`data-sn-pages\` takes a \`file:\` glob (\`file:/content/posts/*.md\`), whose entries the build knows`, v.indexOf(of)); return; }
+    // the entry: an internal resource right after the list, so the list is read first
+    const entry = parse5.defaultTreeAdapter.createElement('sn-resource', parse5.html.NS.HTML, [{ name: 'name', value: name }, { name: PAGE_ENTRY, value: of }]);
+    const parent = el.parentNode as P5Parent;
+    parent.childNodes.splice(parent.childNodes.indexOf(el) + 1, 0, entry);
+    (entry as { parentNode: P5Parent }).parentNode = parent;
+    const o = this.origins.get(el);
+    if (o) this.origins.set(entry, o);
+    // a page per entry is written at its own path: a fixed one, as any page with an exact `data-sn-path`
+    if (this.opts.page) setAttr(html, 'data-sn-path', this.opts.page.path);
+    this.pagesDecl = { name, of, pattern: pats[0]!, html, entry };
+  }
+
+  /** `data-sn-pages`: the entry, a constant (`fx`) beside its list; as the template, the list's entries and their paths */
+  entryResource(el: P5Element, name: string, scope: number) {
+    const d = this.pagesDecl!;
+    const list = this.fileData.get(d.of)?.value;
+    const entries = Array.isArray(list) ? list : [];
+    if (!this.opts.page) {
+      // each entry's path: every `:param` from the entry's field of that name, one path segment (as the sitemap encodes it)
+      const out: Array<{ value: unknown; path: string }> = [];
+      const seen = new Map<string, string>();
+      for (const e of entries) {
+        const rec = (e ?? {}) as Record<string, unknown>;
+        const what = typeof rec.path === 'string' ? `\`${rec.path.slice(1)}\`` : 'an entry';
+        let bad: string | null = null;
+        const path = d.pattern.replace(/:([A-Za-z_$][\w$]*)/g, (_, k: string) => {
+          const x = rec[k];
+          if (typeof x !== 'string' && typeof x !== 'number') bad ??= `has no \`${k}\` to fill \`:${k}\` (a string or a number)`;
+          const t = String(x ?? '');
+          if (!bad && (t === '' || t === '.' || t === '..' || t.includes('/'))) bad = `has \`${k}\` \`${t}\`, which is not one path segment`;
+          return encodeURIComponent(t);
+        });
+        if (bad) { this.report(d.html, 'data-sn-pages', 'SN341', `${what} ${bad}: each entry fills \`${d.pattern}\``, 0); continue; }
+        const prev = seen.get(path);
+        if (prev) { this.report(d.html, 'data-sn-pages', 'SN341', `${what} and ${prev} would both be \`${path}\``, 0); continue; }
+        seen.set(path, what);
+        out.push({ value: e, path });
+      }
+      this.pagesOut = { name: d.name, of: d.of, pattern: d.pattern, entries: out };
+    }
+    const value = this.opts.page ? this.opts.page.value : entries[0] ?? null;
+    const id = this.nextId++;
+    this.fileData.set(name, { id, json: scriptJson(value), value });
+    this.embedded.set(name, id);
+    this.page.resources.get(name)!.used = true;
+    // the list is read: by the build, for its entries, whatever the page reads of it
+    const listInfo = this.page.resources.get(d.of);
+    if (listInfo) listInfo.used = true;
+    if (this.check) this.check.resources.push({ name, type: null, loc: this.locOf(el, null), nameLoc: this.locOf(d.html, 'data-sn-pages'), item: d.of });
+    this.resources.push({ name, src: [], key: null, items: null, total: null, order: null, when: null, paginate: null, deps: [], scope, data: null, fx: 1 });
+    this.declAt.set(this.resources[this.resources.length - 1]!, el);
+  }
 
   /**
    * `<sn-resource src="file:./post.md">` (files.ts): the file read at build time, or with a glob every file it matches as
