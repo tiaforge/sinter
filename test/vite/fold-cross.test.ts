@@ -65,8 +65,10 @@ export function viaNamespace(s: string) { if (!U.other.has(s)) U.other.set(s, U.
     const { error } = await buildApp(helpers, all);
     expect(error).toMatch(/error SN534 helper-not-folded: .* gave other results when the build's calls ran again in a fresh copy of the helpers module, the pages in reverse order/);
     for (const h of all) expect(error, h).toContain(`${h}()`);
-    // each page alone gives 1 in the browser; the build gave the last page 3, the fresh copy (last page first) gives it 1
-    expect(error).toMatch(/idOf\("c"\) on p2\.html: another result than in the build \(1\) in a fresh copy of the helpers module/);
+    // each page alone gives 1 in the browser; the build's pages compile in the order their HTML loads, which is not fixed,
+    // and the fresh copy runs them in reverse: the first and the last page differ, whichever they are. The message names
+    // the call, its own page (each page calls `idOf` over its own argument) and the build's result
+    expect(error).toMatch(/idOf\((?:"home"\) on p0|"about"\) on p1|"c"\) on p2)\.html: another result than in the build \(\d\) in a fresh copy of the helpers module/);
   }, 120_000);
 });
 

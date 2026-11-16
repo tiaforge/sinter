@@ -166,9 +166,10 @@ export function project(root: string, options: ProjectOptions = {}): Project {
   const configFile = resolve(root, VITE_CONFIGS.find((f) => existsSync(resolve(root, f))) ?? 'vite.config.js');
   const appComponents = componentNames(root);
   const libs = findLibraries(root, componentsOf(options.components), appComponents, configFile);
+  let realRoot: string | undefined;
   const readFile = (path: string): string => {
     const real = realpathSync(path);
-    const realRoot = realpathSync(root);
+    realRoot ??= realpathSync(root);
     if (real !== realRoot && !real.startsWith(realRoot + sep) && !libraryOf(libs.libraries, real)) throw new Error(`outside the project root: ${path}`);
     return readFileSync(real, 'utf8');
   };

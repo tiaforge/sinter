@@ -2,7 +2,7 @@
 // tree, for the build to tell which branches show while a list is loading with no rows (reserved space,
 // compile.ts). It runs nothing: what it does not know (the URL, state, a helper, any other value) is
 // UNKNOWN, and so is a result that depends on it. Status fields and rows are the only inputs.
-import { parseExpressionAt } from 'acorn';
+import { parseExpression } from './parse.js';
 
 const UNKNOWN = Symbol('unknown');
 type V = unknown;
@@ -14,7 +14,7 @@ type V = unknown;
  */
 export function shows(code: string, names: string[], status: { loading: boolean }, rows: unknown[], data: Record<string, unknown> = {}): boolean | null {
   let fn: any;
-  try { fn = parseExpressionAt(code, 0, { ecmaVersion: 'latest' }); } catch { return null; }
+  try { fn = parseExpression(code); } catch { return null; }
   if (fn.type !== 'ArrowFunctionExpression' || fn.params.length !== 1 || fn.params[0].type !== 'Identifier') return null;
   const self = fn.params[0].name as string, set = new Set(names);
   const meta = { ...status, error: null, loadedAt: null, pending: 0 };
