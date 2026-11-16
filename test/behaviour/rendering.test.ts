@@ -567,6 +567,42 @@ test('showModal(id) opens a dialog anywhere on the page; close(id) closes it fro
   expect(dialog.open).toBe(false);
 });
 
+test('a dialog an event is closing keeps its content while it closes; it renders if the close was prevented', async () => {
+  const { root, flush, advance } = await render(`
+    <div data-sn-state="{ draft: {name: 'Ada'} }">
+      <dialog id="edit" open>
+        <h2 data-sn-text="draft?.name"></h2>
+        <button class="cancel" data-sn-on-click="draft = null" commandfor="edit" command="close">Cancel</button>
+        <button class="keep" data-sn-on-click="draft = {name: 'Bo'}; $event.preventDefault()" commandfor="edit" command="close">Keep</button>
+        <form method="dialog"><button class="done" data-sn-on-click="draft = null">Done</button></form>
+      </dialog>
+    </div>`);
+  const dialog = root.querySelector('dialog')!, h2 = root.querySelector('h2')!;
+  expect(h2.textContent).toBe('Ada');
+  // the handler's flush runs before the browser's close command: the heading stays as it was
+  root.querySelector<HTMLButtonElement>('.cancel')!.click();
+  await flush();
+  expect(h2.textContent).toBe('Ada');
+  dialog.close();
+  await advance(0);
+  expect(h2.textContent).toBe('Ada');
+  // opened again: the bindings that waited render
+  dialog.show();
+  dialog.dispatchEvent(new Event('toggle'));
+  await flush();
+  expect(h2.textContent).toBe('');
+  // a handler prevented the close: the dialog stayed open and renders a task later
+  root.querySelector<HTMLButtonElement>('.keep')!.click();
+  await flush();
+  await advance(0);
+  expect(dialog.open).toBe(true);
+  expect(h2.textContent).toBe('Bo');
+  // a submit button of a method="dialog" form
+  root.querySelector<HTMLButtonElement>('.done')!.click();
+  await flush();
+  expect(h2.textContent).toBe('Bo');
+});
+
 test('showModal() and close() check the dialog id at build time', async () => {
   await expect(render(`<dialog id="a"></dialog><button data-sn-on-click="showModal('b')"></button>`)).rejects.toThrow(/SN309/);
   await expect(render(`<div data-sn-state="{ id: 'a' }"><dialog id="a"></dialog><button data-sn-on-click="close(id)"></button></div>`)).rejects.toThrow(/SN309/);
