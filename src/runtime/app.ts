@@ -77,6 +77,30 @@ export interface Pager {
   received(items: unknown[], total: number | null, move: unknown): void;
 }
 
+/**
+ * A navigation, as every way in describes it: where from and to, how (`kind`), what started it (`trigger`:
+ * the link, the element of a `navigate()` handler), the destination's history index on a traversal, the
+ * signal that aborts it when a newer one comes, and its `source`: a click on a link (`link`), `navigate()`
+ * (`call`), the core's `popstate` (`popstate`), or the browser's `navigate` event (`event`, which carries
+ * the event, for the handler that intercepts it).
+ */
+export interface Intent {
+  /** where from: the page's URL, set by `go` when the source leaves it out */
+  from?: string; to: string; kind: 'push' | 'replace' | 'traverse';
+  source: 'link' | 'call' | 'popstate' | 'event';
+  trigger?: Element | null; index?: number; signal?: AbortSignal; event?: Event;
+  /** what the source does when no handler can (the core runs it): a call loads `to`; an event says its own */
+  load?(): void;
+}
+/**
+ * What a handler decides for an intent: its name (`same`, `swap`) and what it does, run by the core once
+ * every handler was asked. `run` returning false: it could not (the core loads the page). No `run`: it is
+ * done elsewhere (the swap, for the `popstate` of a traversal it intercepted).
+ */
+export interface Decision { name: string; run?(): boolean | void | Promise<boolean | void> }
+/** A navigation handler (`App.nav`): its decision, or nothing when the intent is not its. It acts only in `run`. */
+export type Navigator = (i: Intent) => Decision | void | undefined;
+
 /** The last argument of an action function (`data-sn-call`, `<sn-resource call>`). */
 export interface CallContext {
   /** aborts when the page is hidden (pagehide) or, for a resource, when its inputs change */
@@ -193,10 +217,8 @@ export interface App {
      * `waits` whether a commit waits for its pause, `stop` drops it and ends the run
      */
     typing?: { flush(kind: number): void; waits(): boolean; stop(): void; finish(): void };
-    /** whether a plain click on this link stays in the page (query-links.ts); next-page data leaves it alone */
-    sameLink?: (a: Element) => unknown;
-    /** `navigate(url)` to this page with only parameters it reads changed (query-links.ts): followed in the page, true; else false */
-    follow?: (url: string, replace?: boolean) => boolean;
+    /** the shared link listener is installed (links.ts) */
+    links?: true;
     /** a form action's body (form.ts): the form's fields without `data-sn-body`, and `data-sn-encoding="form"` */
     form?: (el: Element, a: ActionDef, body: unknown) => unknown;
     /**
@@ -273,6 +295,17 @@ export interface App {
   /** runs handler `f` in `scope` and invalidates the paths it writes; `o`: the binding it runs for (dev builds name its place) */
   exec(f: number, scope: any, writes?: PathRef[], o?: { at?: Record<number, string> }): void;
   addCleanup(fn: () => void): void;
+  /**
+   * The navigation chain (links.ts: `chain(app)`), on pages with a feature that decides on navigations
+   * (same-page links, transitions, the swap): the handlers in the order features registered them, the
+   * observers of what goes, `decide` (asks every handler, runs nothing) and `go` (runs the first decision,
+   * else the source's fallback). Absent: `navigate()` loads the page and Back reads `$url`, as before.
+   */
+  nav?: Navigator[];
+  onGo?: Array<(i: Intent) => void>;
+  decide?(i: Intent): Decision | undefined;
+  go?(i: Intent): Decision | undefined;
+
   /** runs `fn` now, or, on a page the browser prerenders (Speculation Rules), once it is shown */
   shown(fn: () => void): void;
 }
@@ -424,6 +457,16 @@ const simple = new WeakMap<TemplateDef, Simple | null>();
 const ROW = Symbol('sinter.row');
 type RowNode = Node & { [ROW]?: Inst };
 const rowNodes = (x: Inst) => x.nodes ?? [x.first!];
+
+/**
+ * Goes to `url` as `navigate(url)` in a handler does, for app code (a redirect after a form, an island): the
+ * page's navigation handlers first (a same-page link, a swap), else the page loads. Nothing mounted: it loads.
+ */
+export function navigate(url: string, o?: { replace?: boolean }): void {
+  const app = instances.get(document);
+  if (app) app.storeFns(null).navigate(url, o);
+  else if (o?.replace) location.replace(url); else location.assign(url);
+}
 
 /** The instance mount() created on `root`; throws if none. */
 export function instance(root: Document | Element): App {
@@ -771,10 +814,11 @@ export function mount(root: Document | Element, o: MountOptions): App {
       },
       emit: (n: string, detail?: unknown) => el?.dispatchEvent(new CustomEvent(n, { detail, bubbles: true, cancelable: true })),
       // to this page with only parameters it reads changed: as a same-page link (no load); else the browser navigates
+      // the navigation chain where a feature installed one (links.ts), else the page loads
       navigate: (url: string, o?: { replace?: boolean }) => {
         const to = new URL(url, app.env.href()).href;
-        if (app.ext.follow?.(to, o?.replace)) return;
-        if (o?.replace) (app.env.replace ?? ((u: string) => location.replace(u)))(to);
+        if (app.go) app.go({ to, kind: o?.replace ? 'replace' : 'push', source: 'call', trigger: el });
+        else if (o?.replace) (app.env.replace ?? ((u: string) => location.replace(u)))(to);
         else app.env.navigate(to);
       },
       // the element's action, as if its trigger fired (a form is submitted); disabled or inert: nothing
@@ -850,6 +894,8 @@ export function mount(root: Document | Element, o: MountOptions): App {
     return null;
   }), app.page, rootRbs);
   cleanups.push(env.listen('popstate', () => {
+    // a handler may take Back or Forward (the swap, to another path); else the page reads `$url` again
+    if (app.go?.({ to: env.href(), kind: 'traverse', source: 'popstate' })) return;
     const u = app.page.$url;
     for (const k in u) delete u[k];
     Object.assign(u, readUrl());
