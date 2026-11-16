@@ -23,6 +23,15 @@ export function readLocales(root: string, project = 'project.inlang'): Locales {
   return { base: s.baseLocale, list };
 }
 
+/**
+ * The language `sinter check` and the editor compile a page in: with `localePrefix` the build compiles each page once
+ * per language, and the check uses the base one (`$locale`, `{$locale}` in a `file:` path); without it, none.
+ */
+export function checkLocale(root: string, options: { localePrefix?: boolean; messages?: unknown }): { name: string; urls: null; base: string } | null {
+  if (!options.localePrefix || options.messages === false) return null;
+  return { name: readLocales(root, typeof options.messages === 'string' ? options.messages : 'project.inlang').base, urls: null, base: '/' };
+}
+
 const esc = (v: string) => v.replace(/[&"<>]/g, (c) => `&#${c.charCodeAt(0)};`);
 
 /**

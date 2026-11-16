@@ -601,7 +601,10 @@ A prototype first, then three pull requests, each followed by a review of where 
   entry, globs, `key` and `slug`, `drafts`, `order`, SN332's rename and SN539, and what already used `file:`
   (sinter-markdown's `md.parse(post.body)`); (2) the limits: `MAX_UNROLL` removed, `expansionLimit` public;
   (3) `{$locale}`, `fields`, `type` checked against the files, the editor's glob cache and watchers; (4)
-  `content:` and the content module. The first two are done; in it, `order` compares in the page's `<html lang>`.
+  `content:` and the content module. The first three are done, except `fields`, which moves to (4): its check, a
+  browser read outside `fields`, needs to tell build-time reads from browser reads of one resource, since `sinter
+  check` types a resource once and a post's `body` is read at build time by the same page whose browser code reads
+  its title; that is the field tracking listed as future work, and it matters most for a CMS's data; in it, `order` compares in the page's `<html lang>`.
   The whole part, as planned: `file:` as in §2 (a `.md` file is an entry, globs, `drafts`, `{$locale}`),
   `order`, `fields`, `MAX_UNROLL` removed and `expansionLimit` public (§4), `content:` and the content module (§3), types checked against
   the files, the snapshot and the editor's watchers (§6, §8), dev reload, SN332's rename. Part A also

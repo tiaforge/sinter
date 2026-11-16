@@ -1,7 +1,7 @@
 // What the language server knows: the projects under the editor's folders, their
 // pages and partials, open buffers, and the diagnostics of each file. Independent of
 // LSP itself, so tests drive it directly.
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, statSync } from 'node:fs';
 import { basename, dirname, join, resolve, sep } from 'node:path';
 import type { CheckUnit } from '../compiler/check-unit.js';
 import { compile, type Diagnostic, type HelperManifest } from '../compiler/index.js';
@@ -10,12 +10,15 @@ import { lazyHelpers } from '../lazy-build.js';
 import { loadHelpers, unloadedMessage, type NodeHelpers } from '../helpers-node.js';
 import { FoldCache } from '../fold-check.js';
 import { HEAD_DECL, writeComponentTypes } from '../components-build.js';
+import { checkLocale } from '../locales-build.js';
 
 const VITE_CONFIGS = ['vite.config.ts', 'vite.config.js', 'vite.config.mts', 'vite.config.mjs', 'vite.config.cts', 'vite.config.cjs'];
 
 export interface ProjectState {
   root: string;
   options: ProjectOptions;
+  /** with `localePrefix`, the base language, which pages are checked in (as `sinter check` does) */
+  locale: { name: string; urls: null; base: string } | null;
   project: Project;
   /** HTML entries from the Vite config */
   entries: Set<string>;
@@ -23,6 +26,11 @@ export interface ProjectState {
   pages: Set<string>;
   /** per page: the files it includes */
   includes: Map<string, string[]>;
+  /** per page: the folders its `file:` globs list, and what their files match (an added or removed file recompiles it) */
+  globs: Map<string, Array<{ dir: string; match: RegExp }>>;
+  /** files read for `file:` sources, by modification time, and folders listed for globs (until a file event) */
+  reads: Map<string, { mtimeMs: number; text: string }>;
+  listings: Map<string, string[]>;
   /** per page: its last compile's diagnostics */
   diagnostics: Map<string, Diagnostic[]>;
   /** per page: its last compile's check unit */
@@ -104,9 +112,13 @@ export class Workspace {
     const helpers = await loadHelpers({ root, helpersFile: p.helpersFile, manifest: p.helpers, cache: this.foldCache });
     for (const f of helpers.files) inputs.add(f);
     if (helpers.error && p.helpersFile) p.diagnostics.push({ severity: 'warning', code: 'SN533', message: unloadedMessage(root, p.helpersFile, helpers.error), file: p.helpersFile, line: 1, col: 1 });
+    let locale: ProjectState['locale'] = null;
+    try { locale = checkLocale(root, options as ProjectOptions & { localePrefix?: boolean }); } catch (e) {
+      process.stderr.write(`sinter lsp: ${(e as Error).message}\n`);
+    }
     const state: ProjectState = {
-      root, options, project: p, entries: new Set(pages), pages: new Set(pages),
-      includes: new Map(), diagnostics: new Map(), units: new Map(), types: new Map(), inputs, helpers,
+      root, options, locale, project: p, entries: new Set(pages), pages: new Set(pages),
+      includes: new Map(), globs: new Map(), reads: new Map(), listings: new Map(), diagnostics: new Map(), units: new Map(), types: new Map(), inputs, helpers,
     };
     for (const [file] of this.docs) if (file.endsWith('.html') && this.rootOf(file) === root) state.pages.add(file);
     this.compilePages(state, [...state.pages]);
@@ -150,11 +162,20 @@ export class Workspace {
     await this.otherChanged(file);
   }
 
-  /** a non-HTML file: reload projects that read it */
+  /** a non-HTML file: reload projects that read it (their config, helpers, types), else recompile the pages that read it */
   private async otherChanged(file: string): Promise<void> {
     for (const [root, p] of this.projects) {
       const state = await p;
-      if (!state.inputs.has(file)) continue;
+      if (!state.inputs.has(file)) {
+        // a `file:` source: the pages that read it, and the pages whose glob it matches (it may be new, or gone)
+        state.listings.clear();
+        state.reads.delete(file);
+        const f = file.split(sep).join('/');
+        const pages = new Set([...state.includes].filter(([, files]) => files.includes(file)).map(([page]) => page));
+        for (const [page, globs] of state.globs) if (globs.some((g) => f.startsWith(g.dir + '/') && g.match.test(f.slice(g.dir.length + 1)))) pages.add(page);
+        if (pages.size) this.compilePages(state, [...pages]);
+        continue;
+      }
       const next = this.load(root);
       this.projects.set(root, next);
       const fresh = await next;
@@ -186,11 +207,27 @@ export class Workspace {
     return this.docs.get(file) ?? readFileSync(file, 'utf8');
   }
 
+  /** the project's listing of a folder for `file:` globs, kept until a file event (`otherChanged`) */
+  private lister(state: ProjectState): (dir: string) => string[] {
+    return (dir) => {
+      let l = state.listings.get(dir);
+      if (!l) { l = state.project.listFiles(dir); state.listings.set(dir, l); }
+      return l;
+    };
+  }
+
   private compilePages(state: ProjectState, pages: string[]): void {
     const p = state.project;
     const readFile = (path: string): string => {
+      const open = this.docs.get(resolve(path));
+      // a file read before and unchanged on disk: kept (a glob's thousand posts are not read again at each keystroke)
+      let mtimeMs = -1;
+      try { mtimeMs = statSync(path).mtimeMs; } catch { /* missing: p.readFile reports it */ }
+      const kept = state.reads.get(path);
+      if (open === undefined && kept && kept.mtimeMs === mtimeMs) return kept.text;
       const disk = p.readFile(path); // refuses files outside the root
-      return this.docs.get(resolve(path)) ?? disk;
+      if (mtimeMs >= 0 && !path.endsWith('.html')) state.reads.set(path, { mtimeMs, text: disk });
+      return open ?? disk;
     };
     let lh: ReturnType<typeof lazyHelpers> | undefined;
     for (const page of pages) {
@@ -215,10 +252,11 @@ export class Workspace {
           // helper modules that reach a lazy package: their helpers outside a let are SN324, as in the build
           ...(p.lazy.length ? { lazyModule: (lh ??= lazyHelpers(state.root, p.lazy, undefined, p.libraries)).reach } : {}),
           helperValues: state.helpers.module, helperFold: state.helpers.fold,
-          file: component ? join(state.root, `.sinter-use-${component}.html`) : page, root: state.root, dev: false, helpers: p.helpers, actions: p.actions, config: p.config, readFile, listFiles: p.listFiles, check: true, openapi: p.openapi, apis: p.apis, complexity: p.complexity, ...(p.expansionLimit ? { expansionLimit: p.expansionLimit } : {}), componentNames: p.componentNames, libraries: p.libraries, checkCycles: p.checkCycles, lazy: p.lazy,
+          file: component ? join(state.root, `.sinter-use-${component}.html`) : page, root: state.root, dev: false, helpers: p.helpers, actions: p.actions, config: p.config, readFile, listFiles: this.lister(state), ...(state.locale ? { locale: state.locale } : {}), check: true, openapi: p.openapi, apis: p.apis, complexity: p.complexity, ...(p.expansionLimit ? { expansionLimit: p.expansionLimit } : {}), componentNames: p.componentNames, libraries: p.libraries, checkCycles: p.checkCycles, lazy: p.lazy,
           ...(!component && p.isStatic(page) ? { static: true, prerender: true } : {}),
         });
         state.includes.set(page, out.files.map((f) => resolve(f)).filter((f) => f !== page));
+        if (out.globs?.length) state.globs.set(page, out.globs.map((g) => ({ dir: g.dir.replace(/\/$/, ''), match: new RegExp(g.match) }))); else state.globs.delete(page);
         // the use is not in any file, nor are the props it leaves out
         state.diagnostics.set(page, component ? out.diagnostics.filter((d) => resolve(d.file) !== resolve(state.root, `.sinter-use-${component}.html`)) : out.diagnostics);
         if (out.check) state.units.set(page, out.check);
@@ -248,7 +286,7 @@ export class Workspace {
       let html: string;
       try { html = page === file ? text : this.read(page); } catch { continue; }
       try {
-        const r = compile(html, { file: page, root: state.root, dev: false, helpers, actions, config: p.config, readFile, listFiles: p.listFiles, check: true, openapi: p.openapi, apis: p.apis });
+        const r = compile(html, { file: page, root: state.root, dev: false, helpers, actions, config: p.config, readFile, listFiles: this.lister(state), ...(state.locale ? { locale: state.locale } : {}), check: true, openapi: p.openapi, apis: p.apis });
         out.push(...r.diagnostics.filter((d) => d.severity === 'error' && d.file === file));
       } catch (e) {
         out.push({ severity: 'error', code: 'SN401', message: (e as Error).message, file, line: 1, col: 1 });

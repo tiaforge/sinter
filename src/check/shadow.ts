@@ -59,6 +59,13 @@ const LIB_TYPES = new Set(['Partial', 'Required', 'Readonly', 'Record', 'Pick', 
   'Awaited', 'InstanceType', 'Array', 'ReadonlyArray', 'Promise', 'Map', 'Set', 'ReadonlyMap', 'ReadonlySet', 'Date', 'String', 'Number', 'Boolean',
   'Object', 'Function', 'RegExp', 'Error', 'Element', 'HTMLElement', 'Event', 'CustomEvent', 'Uppercase', 'Lowercase', 'Capitalize', 'Uncapitalize', 'CustomEvent', 'File', 'Blob', 'URL']);
 
+/** A value as a JavaScript literal, keys bare where they can be, so TypeScript names a field as `titel`, not `"titel"`. */
+function jsLiteral(v: unknown): string {
+  if (Array.isArray(v)) return `[${v.map(jsLiteral).join(', ')}]`;
+  if (v && typeof v === 'object') return `{ ${Object.entries(v).map(([k, x]) => `${/^[A-Za-z_$][\w$]*$/.test(k) ? k : JSON.stringify(k)}: ${jsLiteral(x)}`).join(', ')} }`;
+  return JSON.stringify(v).replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029');
+}
+
 export function shadow(o: ShadowOptions): Shadow {
   const { unit } = o;
   const out: string[] = [];
@@ -127,9 +134,35 @@ export function shadow(o: ShadowOptions): Shadow {
     `Awaited<ReturnType<typeof $A.${c.name}>>${(c.items ? c.items.split('.') : []).map((k) => `[${JSON.stringify(k)}]`).join('')}`;
 
   const types: string[] = [];
+  let fileTypes = 0;
   for (const r of unit.resources) {
     const t = r.type ?? 'any';
     types.push(`${JSON.stringify(r.name)}: ${t}`);
+    if (r.file) {
+      // a `file:` resource: `type` as written (one entry's, for a glob), named, and the fields sinter writes beside it
+      let own: string | null = null;
+      if (r.type) {
+        own = `$F${fileTypes++}`;
+        line('/**');
+        line(' * @typedef {');
+        verbatim(r.type, r.loc);
+        regions[regions.length - 1]!.fixed = true;
+        line(` * } ${own}`);
+        line(' */');
+      }
+      const entry = [own, r.file.adds].filter(Boolean).join(' & ') || 'any';
+      const full = r.file.list ? `(${entry})[]` : entry;
+      types[types.length - 1] = `${JSON.stringify(r.name)}: ${full}`;
+      // each file's value fits the entry's type: an unknown field (a typo) or a missing one is an error at that file
+      for (const [i, v] of r.file.values.entries()) {
+        regions.push({ start: out.length + 1, lines: 1, loc: { file: v.file, line: 1, col: 1, chain: [] }, fixed: true });
+        out.push(`/** @type {${entry}} */ const $fv${fileTypes}_${i} = ${jsLiteral(JSON.parse(v.json))}; void $fv${fileTypes}_${i};`);
+      }
+      line(`/** @type {${full}} */`);
+      regions.push({ start: out.length + 1, lines: 1, loc: r.nameLoc ?? r.loc, fixed: true });
+      line(`const ${r.name} = $any;`);
+      continue;
+    }
     if (r.type) {
       line('/**');
       line(' * @type {');

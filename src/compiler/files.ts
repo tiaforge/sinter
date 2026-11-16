@@ -95,8 +95,25 @@ export function frontmatter(text: string): { value: Record<string, unknown> } | 
   return { value: { ...fields, body: text.slice(m[0].length) } };
 }
 
+/**
+ * Values parsed, by file and text: a build compiles many pages over one glob, and the editor compiles a page at each
+ * keystroke, so a file whose text is unchanged is not parsed again. Values are shared, never changed in place (the
+ * compiler copies what it sorts or filters, and freezes what it folds).
+ */
+const parsed = new Map<string, { text: string; out: { value: unknown } | { error: string } }>();
+const PARSED_LIMIT = 20_000;
+
 /** The value of one file: a markdown file's frontmatter and `body`, a `.json` file's parsed value, else its text. */
 export function fileValue(text: string, path: string): { value: unknown } | { error: string } {
+  const kept = parsed.get(path);
+  if (kept && kept.text === text) return kept.out;
+  const out = parseValue(text, path);
+  if (parsed.size >= PARSED_LIMIT) parsed.clear();
+  parsed.set(path, { text, out });
+  return out;
+}
+
+function parseValue(text: string, path: string): { value: unknown } | { error: string } {
   const name = path.replace(/^.*\//, '');
   if (isMarkdown(path)) { const f = frontmatter(text); return 'error' in f ? { error: `\`${name}\`: ${f.error}` } : f; }
   if (!/\.json$/i.test(path)) return { value: text };

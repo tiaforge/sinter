@@ -5710,8 +5710,12 @@ class Compiler {
   fileResource(el: P5Element, name: string, scope: number) {
     const info = this.page.resources.get(name)!;
     for (const a of el.attrs) if (!FILE_ATTRS.includes(a.name)) this.report(el, a.name, a.name === 'start-page' || RESOURCE_ATTRS.includes(a.name) ? 'SN332' : 'SN101', fileAttrProblem(a.name), 0);
-    const src = attr(el, 'src')!, at = src.indexOf('file:');
-    const where = filePath(src, this.origins.get(el)?.file ?? this.opts.file, this.opts.root);
+    const written = attr(el, 'src')!, at = written.indexOf('file:');
+    // `{$locale}`: each language's build reads its own folder (`localePrefix`); `sinter check` and the editor, the base one
+    const lang = /\{\s*\$locale\s*\}/;
+    if (lang.test(written) && !this.opts.locale) this.report(el, 'src', 'SN332', '`{$locale}` in a `file:` path needs `sinter({ localePrefix })`: each language\'s build reads its own folder there; without it, the language is the visitor\'s, picked in the browser', written.search(lang));
+    const src = this.opts.locale ? written.replace(new RegExp(lang.source, 'g'), this.opts.locale.name) : written;
+    const where = lang.test(src) ? { error: '' } : filePath(src, this.origins.get(el)?.file ?? this.opts.file, this.opts.root);
     const top = normalize(this.opts.root).replace(/\/$/, '');
     const relOf = (f: string) => f.slice(top.length + 1);
     /** one file's text, or the problem (SN332) */
@@ -5724,7 +5728,7 @@ class Compiler {
       return text;
     };
     let value: unknown = null, list = false;
-    if ('error' in where) this.report(el, 'src', 'SN332', where.error, at);
+    if ('error' in where) { if (where.error) this.report(el, 'src', 'SN332', where.error, at); }
     else if (!where.glob) {
       const text = read(where.path);
       if (text != null) {
@@ -5789,9 +5793,17 @@ class Compiler {
       // a markdown file: its frontmatter's type (`type`) and the `body` sinter writes; a glob: one entry's, and the fields
       // sinter writes beside it (`slug`, `dir`, `path`, and `body` of a markdown or text file); JSON entries need `type`
       const bodied = list ? !/\.json\b/i.test(src) : isMd;
-      const entry = [type ? `(${type})` : null, list ? FILE_ENTRY : null, bodied ? '{ body: string }' : null].filter(Boolean).join(' & ');
-      const full = list ? (type || bodied ? `(${entry})[]` : null) : isMd ? entry : type ?? (typeof value === 'string' ? 'string' : null);
-      this.check.resources.push({ name, type: full, loc: this.locOf(el, type ? 'type' : null), nameLoc: this.locOf(el, 'name') });
+      const adds = [list ? FILE_ENTRY : null, bodied ? '{ body: string }' : null].filter(Boolean).join(' & ') || null;
+      // with `type`, each file's own value must fit it: written into the check at that file (a body as `""`: its text is no type)
+      const values: Array<{ file: string; json: string }> = [];
+      const blank = (v: unknown) => (bodied && v && typeof v === 'object' && !Array.isArray(v) && 'body' in v ? { ...v, body: '' } : v);
+      if (type && list) for (const e of value as Array<Record<string, unknown>>) values.push({ file: `${top}${String(e.path)}`, json: JSON.stringify(blank(e)) });
+      else if (type && !('error' in where) && !list && value !== null && typeof value === 'object') {
+        const picked = items ? items.split('.').reduce<unknown>((o, k) => (o as Record<string, unknown> | null)?.[k], value) : value;
+        if (picked !== undefined) values.push({ file: where.path, json: JSON.stringify(blank(picked)) });
+      }
+      const fileInfo = list || isMd || values.length ? { file: { list, adds, values } } : {};
+      this.check.resources.push({ name, type: type ?? (!list && !isMd && typeof value === 'string' ? 'string' : null), loc: this.locOf(el, type ? 'type' : null), nameLoc: this.locOf(el, 'name'), ...fileInfo });
       const md = bodied;
       if (!type && typeof value !== 'string' && !md) this.report(el, null, 'SN504', `resource \`${name}\` has no type: expressions using it are not checked`, 0, 'add `type="…"` with a type from the types module, or `type="any"` to leave it unchecked');
     }
