@@ -1104,8 +1104,6 @@ class Compiler {
 
   /** the helper modules that reach lazy packages (`page.lazy` indexes them) */
   readonly lazyMods: Array<{ module: string; local: string; lazy: string[] }> = [];
-  /** the page's cached lets (`data-sn-let` over a helper): their dependencies, by id (`ir.lt`) */
-  readonly cachedLets: Array<{ d: string[] }> = [];
 
   run(html: string): CompiledParts & { canonicalOnly?: boolean } {
     let doc = parseDocument(html);
@@ -1223,12 +1221,11 @@ class Compiler {
     else this.injectScript(doc, early !== undefined && (early !== null || !!this.opts.early!.module) ? this.opts.early!.src ?? null : null);
     const ir: IR = { v: 2, resources: this.resources, syncs: this.syncs, roots: this.roots, templates: this.templates, actions: this.actions };
     if (this.page.usesNow) ir.now = true;
-    // cached lets (lets.ts), and the lazy helper modules the page's lets call, each loaded by a function of the table
+    // lets that wait for a lazy helper module (lets.ts), each module loaded by a function of the table
     const lazyHelpers = this.lazyMods.filter((_, i) => this.fns.some((c) => c.includes(`$.$z(${i}, `)));
-    if (this.cachedLets.length && this.fns.some((c) => c.includes('$.$c($, '))) {
-      ir.lt = this.cachedLets;
+    if (lazyHelpers.length) {
       this.features.add('lets');
-      if (lazyHelpers.length) ir.lm = this.lazyMods.map((m) => this.fn(lazyHelpers.includes(m) ? `() => ${m.local}()` : '() => null', null));
+      ir.lm = this.lazyMods.map((m) => this.fn(lazyHelpers.includes(m) ? `() => ${m.local}()` : '() => null', null));
     }
     if (paths.length) ir.path = paths;
     const arrays = this.urlArrays();
@@ -3061,7 +3058,7 @@ class Compiler {
         const v = entryValue(r, e);
         const q = v ? analyze(src.slice(v.start, v.end), caller, this.page, { mode: 'value', waits: true, report: () => {} }) : null;
         // a prop is a let: over a helper, cached
-        const cached = q?.ok ? this.cacheLet(q.inner, q.deps) : null;
+        const cached = q?.ok ? this.lazyLet(q.inner, q.deps) : null;
         lets.push({ name: e.key, code: cached?.code ?? (q?.ok ? q.inner : 'undefined'), deps: cached?.deps ?? q?.deps ?? [], usesEl: q?.usesEl ?? false, usesIndex: q?.usesIndex ?? false, resource: q?.resource ?? null, prop: true, src: q?.itemOf ?? null, list: q?.listOf ?? null });
       }
     }
@@ -4585,7 +4582,7 @@ class Compiler {
       if (!this.checkNames(el, 'data-sn-let', scope, [name], p.key.start)) continue;
       const v = p.value as import('acorn').Expression & { start: number; end: number };
       const r = this.expr(el, 'data-sn-let', scope, { mode: 'value', waits: true }, src.slice(v.start, v.end), v.start);
-      const cached = r.ok ? this.cacheLet(r.inner, r.deps) : null;
+      const cached = r.ok ? this.lazyLet(r.inner, r.deps) : null;
       const entry: LetEntry = { name, code: cached?.code ?? r.inner, deps: cached?.deps ?? r.deps, usesEl: r.usesEl, usesIndex: r.usesIndex, resource: r.resource, src: r.itemOf ?? null, list: r.listOf ?? null };
       // the resource names it can be, for store calls and `$meta[…]` that read it as one
       if (r.ok) {
@@ -4603,51 +4600,37 @@ class Compiler {
   }
 
   /**
-   * A let (or a prop) over an app helper: its code as a cached value, or null for a let that stays inlined. A
-   * let calls a helper when its expression does outside an arrow function, or calls a helper of a module that
-   * reaches a lazy package anywhere. The value is computed once per scope instance, again when its
-   * dependencies change; each such call (`$.$h`) returns its last result when every argument is a primitive,
-   * or a plain object of primitives, equal to the last call's. A call of a lazy module's helper (`$.$z`)
-   * waits for the module: the let is `undefined` until it has arrived, which is one more dependency
-   * (`$lz.<i>`). Owner names: what the code reads of the scope, so the runtime finds the instance the
-   * value belongs to (the scope that holds the innermost of them). `$c`, `$h` and `$z`: lets.ts, early.ts.
+   * A let (or a prop) that calls a helper of a module reaching a lazy package (anywhere in it): its code wrapped
+   * to wait for the module, or null for a let that stays as it is (inlined at every read, docs/spec.md, Derived
+   * names). Each such helper reads `$.$z(i, name)`, which throws while the module loads; `$.$w` makes the value
+   * `undefined` until then, and the module's arrival (`$lz.<i>`) is one more dependency. lets.ts.
    */
-  cacheLet(code: string, deps: string[]): { code: string; deps: string[]; waits: boolean } | null {
+  lazyLet(code: string, deps: string[]): { code: string; deps: string[]; waits: boolean } | null {
+    const lazy = this.page.lazy;
+    if (!lazy?.size) return null;
     let ast: acorn.Node;
     try { ast = parseExpressionAt(code, 0, { ecmaVersion: 'latest' }); } catch { return null; }
-    const lazy = this.page.lazy, messages = this.page.locale?.messages;
-    const isHelper = (n: string) => this.page.helpers.has(n) || (/^[A-Za-z_][\w]*\$[\w$]+$/.test(n) && this.page.namespaces.has(n.slice(0, n.indexOf('$'))) && n.slice(0, n.indexOf('$')) !== messages
-      && this.opts.helpers.namespaces[n.slice(0, n.indexOf('$'))]?.module !== '@tiaforge-ui/sinter/messages');
-    const calls: any[] = [], waits: any[] = [];
-    const visit = (n: any, inFn: boolean) => {
+    const waits: any[] = [];
+    const visit = (n: any) => {
       if (!n || typeof n.type !== 'string') return;
-      if (n.type === 'ArrowFunctionExpression' || n.type === 'FunctionExpression') inFn = true;
-      if (n.type === 'Identifier' && lazy?.has(n.name)) waits.push(n);
-      if (!inFn && n.type === 'CallExpression' && !n.optional && n.callee.type === 'Identifier' && isHelper(n.callee.name)) calls.push(n);
+      if (n.type === 'Identifier' && lazy.has(n.name)) waits.push(n);
       for (const k of Object.keys(n)) {
         if (k === 'start' || k === 'end' || k === 'type') continue;
         const v = n[k];
-        if (Array.isArray(v)) for (const c of v) visit(c, inFn);
-        else if (v && typeof v === 'object') visit(v, inFn);
+        if (Array.isArray(v)) for (const c of v) visit(c);
+        else if (v && typeof v === 'object') visit(v);
       }
     };
-    visit(ast, false);
-    if (!calls.length && !waits.length) return null;
-    // `f(a, b)` → `$.$h(k, f, [a, b])`; a lazy helper `ns$parse` → `$.$z(i, "parse")`
-    const edits: Array<[number, number, string]> = [];
-    calls.forEach((c, k) => {
-      const open = code.indexOf('(', c.callee.end);
-      edits.push([c.start, c.start, `$.$h(${k}, `], [open, open + 1, ', ['], [c.end - 1, c.end, '])']);
-    });
+    visit(ast);
+    if (!waits.length) return null;
     const mods = new Set<number>();
-    for (const w of waits) { const z = lazy!.get(w.name)!; mods.add(z.i); edits.push([w.start, w.end, `$.$z(${z.i}, ${JSON.stringify(z.name)})`]); }
     let out = code;
-    for (const [a, b, t] of edits.sort((x, y) => y[0] - x[0] || y[1] - x[1])) out = out.slice(0, a) + t + out.slice(b);
-    const ROOT = new Set(['$r', '$meta', '$url', '$now', '$locale', '$f', '$m', '$u', '$c', '$h', '$z']);
-    const names = [...new Set([...out.matchAll(/\$\.([A-Za-z_$][\w$]*)/g)].map((m) => m[1]!))].filter((n) => !ROOT.has(n));
-    const all = [...new Set([...deps, ...[...mods].map((i) => `$lz.${i}`)])].sort();
-    const id = this.cachedLets.push({ d: all }) - 1;
-    return { code: `$.$c($, ${id}, ${JSON.stringify(names.join(' '))}, ($) => (${out}))`, deps: all, waits: waits.length > 0 };
+    for (const w of waits.sort((x, y) => y.start - x.start)) {
+      const z = lazy.get(w.name)!;
+      mods.add(z.i);
+      out = out.slice(0, w.start) + `$.$z(${z.i}, ${JSON.stringify(z.name)})` + out.slice(w.end);
+    }
+    return { code: `$.$w(() => (${out}))`, deps: [...new Set([...deps, ...[...mods].map((i) => `$lz.${i}`)])].sort(), waits: true };
   }
 
   /** A name declared here must not hide a let, or be hidden by one (SN209); false on a conflict. */
@@ -5942,11 +5925,10 @@ class Compiler {
       get: (_, k) => {
         const m = typeof k === 'string' ? /^\$s(\d+)$/.exec(k) : null;
         if (m && states.has(Number(m[1]))) return states.get(Number(m[1]));
-        // `file:` resources: their values and constant status; a cached let computes its value (lets.ts), a lazy helper is not here
+        // `file:` resources: their values and constant status; a waiting let's wrapper lets its helper decide
         if (k === '$r') return files.r;
         if (k === '$meta') return files.meta;
-        if (k === '$c') return (_s: unknown, _j: number, _n: string, f: ($: unknown) => unknown) => f(_s);
-        if (k === '$h') return (_k: number, f: (...a: unknown[]) => unknown, a: unknown[]) => f(...a);
+        if (k === '$w') return (f: () => unknown) => f();
         // a waiting let's helper (its module reaches a lazy package): never at build time, and SN322 says so
         if (k === '$z') return (_i: number, name: string) => folding.lazy(name);
         throw NOT;
@@ -7029,7 +7011,6 @@ class Compiler {
     const nodes = [...this.roots, ...this.templates.flatMap((t) => t.nodes)];
     for (const n of nodes) for (const b of n.b) if (b.d) b.d = strip(b.d)!;
     for (const r of this.resources) if (r.deps) r.deps = strip(r.deps);
-    for (const l of this.cachedLets) l.d = strip(l.d)! as string[];
     // a state field nothing writes and no function reads anymore (its readers were written into the markup): out of the state
     const code = this.fns.filter((c) => c !== '0');
     const emptied = new Set<NodeDef>();

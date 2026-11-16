@@ -16,7 +16,6 @@ import type { lists } from './runtime/lists.js';
 export { lists } from './runtime/lists.js';
 import { toPage } from './runtime/pages.js';
 import type { EarlyIR } from './ir.js';
-import { call, owner, type Entry } from './runtime/memo.js';
 
 /** What the early requests read from the outside world: the clock, the location, fetch. */
 type EarlyEnv = Pick<Env, 'now' | 'href' | 'fetch'>;
@@ -82,35 +81,10 @@ type Fn = (...a: any[]) => any;
  * function table, and its compiled renderer (compiler/early-render.ts): `scopes` over the base
  * scope, then `render` with them.
  */
-export type EarlyPage = () => { ir: Pick<EarlyIR, 'res' | 'path' | 'urlArrays' | 'emb'>; fns: Fn[]; scopes(base: any): any[]; render(doc: Document, scopes: any[], base: any): void; locale?: typeof locale; lists?: typeof lists; lets?: typeof lets };
+export type EarlyPage = () => { ir: Pick<EarlyIR, 'res' | 'path' | 'urlArrays' | 'emb'>; fns: Fn[]; scopes(base: any): any[]; render(doc: Document, scopes: any[], base: any): void; locale?: typeof locale; lists?: typeof lists };
 
 /** the configured locale source, for a page whose early functions read `$locale` (others carry no config) */
 export const locale = () => config.locale;
-
-/**
- * Cached lets, for a page whose early functions have one (others carry none of it): the early file's own
- * copy of the page module's cache (lets.ts), with no dependencies to watch: each let is computed once per
- * scope instance, and a helper call again only for other arguments (runtime/memo.ts)
- */
-export function lets(): { $c: Fn; $h: Fn } {
-  const caches = new WeakMap<object, Array<Entry | undefined>>();
-  let cur: Entry | null = null;
-  return {
-    $c(s: any, j: number, n: string, f: Fn) {
-      const ns = n ? n.split(' ') : [], o = owner(s, ns);
-      let all = caches.get(o);
-      if (!all) caches.set(o, (all = []));
-      const e = all[j];
-      if (e && ns.every((x, i) => o[x] === e.n[i])) return e.v;
-      const x: Entry = { v: undefined, n: ns.map((k) => o[k]), m: e?.m ?? [], r: 0, q: 0 }, prev = cur;
-      cur = x;
-      try { x.v = f(o); } finally { cur = prev; }
-      all[j] = x;
-      return x.v;
-    },
-    $h: (k: number, f: Fn, a: unknown[]) => call(cur, k, f, a),
-  };
-}
 
 /**
  * The dev server's early module (builds use `observe`): renders the page's early part once the
@@ -279,11 +253,8 @@ function scope(o: ReturnType<EarlyPage>, req: EarlyRequests | null): any {
   let emb: any = null, url: any = null;
   // array parameters as lists: only a page that has them passes `lists` (and carries it)
   const more = (h: string, u: any) => (o.lists ? o.lists(h, o.ir.urlArrays!, u) : u);
-  const lc = o.lets?.();
   return new Proxy(Object.create(null), {
     get(_, k) {
-      // cached lets: the early file's own cache
-      if (lc && (k == '$c' || k == '$h')) return lc[k];
       // a state field the build computed, embedded in the head (parsed when the early script runs: the head is there)
       if (k == '$d') return (id: number) => JSON.parse(document.querySelector(`head > script[data-sn="${id}"]`)!.textContent!);
       // `$locale`: `configure({ locale })` from the app's early module, on pages whose early functions read it

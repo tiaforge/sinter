@@ -170,13 +170,16 @@ function analyze(file: string, code: string): ModuleInfo {
   const topNames = new Map<string, string>();
   const typeOnly = (n: N) => n.importKind === 'type' || n.exportKind === 'type';
   const fnLike = (n: N | null | undefined) => !!n && (n.type === 'FunctionDeclaration' || n.type === 'FunctionExpression' || n.type === 'ArrowFunctionExpression');
+  // `const parse = memo(parseDocument)` (memo.ts): a function of its own, as foldable as what it calls; memo() only wraps it
+  const memoOf = (n: N | null | undefined) => !!n && n.type === 'CallExpression' && n.callee.type === 'Identifier'
+    && imports.get(n.callee.name)?.name === 'memo' && /(^|\/)sinter\/memo(\.[jt]s)?$|^@tiaforge-ui\/sinter\/memo$/.test(imports.get(n.callee.name)!.spec);
   const unitBodies: Array<{ name: string; node: N }> = [];
   const topRest: N[] = [];
   const declare = (d: N, exported: string | null) => {
     if (d.type === 'FunctionDeclaration' && d.id) { topNames.set(d.id.name, d.id.name); unitBodies.push({ name: d.id.name, node: d }); if (exported) info.exports.set(exported === '*' ? d.id.name : exported, { local: d.id.name }); return; }
     if (d.type === 'VariableDeclaration') {
       for (const v of d.declarations as N[]) {
-        if (v.id.type === 'Identifier' && fnLike(v.init)) { topNames.set(v.id.name, v.id.name); unitBodies.push({ name: v.id.name, node: v.init }); }
+        if (v.id.type === 'Identifier' && (fnLike(v.init) || memoOf(v.init))) { topNames.set(v.id.name, v.id.name); unitBodies.push({ name: v.id.name, node: v.init }); }
         else { for (const n of patternNames(v.id)) topNames.set(n, '<top>'); topRest.push(v); }
         if (exported) for (const n of patternNames(v.id)) info.exports.set(n, { local: topNames.get(n)! });
       }
@@ -570,6 +573,9 @@ export function foldVerdicts(manifest: HelperManifest, root: string, helpersFile
 export function functionVerdict(fn: unknown, name: string): FoldVerdict {
   const no = (reason: string): FoldVerdict => ({ fold: false, reason, file: `<${name}>`, line: 1, col: 1, chain: [name] });
   if (typeof fn !== 'function') return no('not a function');
+  // a memoized function (memo.ts): as foldable as the one it calls, its cache being the memo's own
+  const inner = (fn as unknown as Record<symbol, unknown>)[Symbol.for('sinter.memo')];
+  if (typeof inner === 'function') return functionVerdict(inner, name);
   const src = Function.prototype.toString.call(fn);
   if (/\{\s*\[native code\]\s*\}\s*$/.test(src)) return no('a built-in or bound function, whose source cannot be read');
   const cache = new FoldCache();
