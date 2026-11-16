@@ -66,7 +66,7 @@ sinter/                   the library's source, laid out like an app's src/
   sinter.types.ts         the tree's types: what the components and apps name
   index.ts                the package's entry: the helpers and the types
 scripts/
-  parser-entry.js         what parser.js bundles: markdown-it, its tokens turned into mdast
+  parser-entry.js         what parser.js bundles: markdown-it, configured; it returns tokens
   build-parser.mjs        builds parser.js; --check fails when it is out of date
 fixtures/                 pages that use the public components, for the library's own check
   index.html …            an article from a file, every slot filled, comments from an API
@@ -175,8 +175,9 @@ docs/                     the docs page and the recipe
 ### The parser: one prebundled module
 
 `parser.js` is markdown-it (CommonMark, GFM tables and `~~strikethrough~~`, autolinks through its
-linkify) with task lists added, its tokens turned into the mdast `parse.ts` reduces, bundled into one file
-by `scripts/build-parser.mjs`:
+linkify), configured for `md.parse` and bundled into one file by `scripts/build-parser.mjs`. It returns
+markdown-it's tokens, and `parse.ts` builds the tree from them in one pass, task lists and the options
+included: there is no intermediate tree (an mdast before the library's own, and a walk over it).
 
 - **markdown-it, not micromark**, for speed: on a 47.5 kB article it parses in 23 ms on a cold start
   where micromark took 160 ms, which was most of an API article's time to first render. GFM is what
@@ -186,7 +187,7 @@ by `scripts/build-parser.mjs`:
 - **Entities decode from a table** (`character-entities`, through `scripts/entities.js`), never through
   the DOM, so the parser works under Trusted Types (`require-trusted-types-for 'script'`). It is the
   table micromark used; markdown-it's own (`entities`) is a packed trie twice its size gzipped.
-- **punycode is left out** (`scripts/punycode.js`): mdast keeps a link's destination as written, so
+- **punycode is left out** (`scripts/punycode.js`): the tree keeps a link's destination as written, so
   the parser normalizes no URL.
 - sinter's build-time check follows one module that uses no browser global, so `md.parse` folds over
   a `file:` resource.
@@ -272,7 +273,7 @@ What writing this library taught, beyond [the library docs](https://github.com/t
 
 1. Its interface in `sinter/sinter.types.ts`, with its `type` literal, and the interface in the `Block`
    or `Inline` union.
-2. Its conversion from mdast in `sinter/parse.ts` (`block()` or `inline()`), and its text in `md.text`
+2. Its conversion from markdown-it's tokens in `sinter/parse.ts` (`blocks()` or `inlines()`), and its text in `md.text`
    (`sinter/tree.ts`) if it has no `children` or `value`.
 3. Its component in `sinter/components/internal/`, named with the `md-` prefix.
 4. One entry in the map of `md-block.html` or `md-phrasing.html`. `test/components.test.ts` fails until
