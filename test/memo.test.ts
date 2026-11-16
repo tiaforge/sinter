@@ -204,12 +204,20 @@ describe('round 6: copies, depth, arrays, the function itself', () => {
     expect(Object.isFrozen(x)).toBe(true);
   });
 
-  test('a million-element array is frozen in a few hundred milliseconds at most, its elements read by index', () => {
-    const rows = memo((n: number) => Array.from({ length: n }, (_, i) => i));
+  test('a million-element array is frozen in a small multiple of the time it takes to build, its elements read by index', () => {
+    // relative to this machine's speed, not a fixed time (CI runners vary): reading each element's own keys
+    // took about 13 times the build, reading by index about 2 to 3 times
+    const build = (n: number) => Array.from({ length: n }, (_, i) => i);
+    build(1_000_000);
     const t0 = performance.now();
+    build(1_000_000);
+    const plain = performance.now() - t0;
+    const rows = memo(build);
+    const t1 = performance.now();
     const r = rows(1_000_000);
+    const memoized = performance.now() - t1;
     expect(Object.isFrozen(r)).toBe(true);
-    expect(performance.now() - t0).toBeLessThan(400);
+    expect(memoized).toBeLessThan(8 * plain + 50);
   });
 
   test('a sparse array with an extra property calls through, uncached', () => {
