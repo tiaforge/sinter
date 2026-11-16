@@ -313,6 +313,12 @@ interface RB extends BoundBinding {
   ad?: number;
   /** if: rendered branch (0 none, 1 if, 2 else); choice: the rendered case + 1 (0 none) */
   br?: number;
+  /**
+   * the anchor of a wrapper's row or branch (`TemplateDef.a`), which has no comments: the anchor whose row or branch it is
+   * (`u`) and that row or branch (`x`), whose first node is this anchor's branch's (or an empty comment while it has none)
+   */
+  u?: RB;
+  x?: Inst;
 }
 
 /** A selection binding's index over one list's rows: rows by row-side value, and the rows the comparison holds for. */
@@ -486,6 +492,8 @@ export function mount(root: Document | Element, o: MountOptions): App {
     x(el: HTMLElement, _n: string, v: any) {
       const s = el.nextSibling as CharacterData | null;
       v = '' + (v ?? '');
+      // a text run's own node (`TemplateDef.tx`)
+      if (el.nodeType == 3) return void ((el as unknown as Text).data = v);
       if (s?.nodeType == 3) { if (s.data !== v) s.data = v; } else if (v) s?.nodeType == 8 && !s.data ? s.replaceWith(v) : el.after(v);
     },
     t(el: HTMLElement, _n: string, v: any) {
@@ -966,8 +974,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
     if (deferred.size) deferred.delete(rb);
     const v = evaluate(rb), k = rb.b.k;
     if (k == 'for') reconcile(rb, v);
-    else if (k == 'if') toggle(rb, v ? 1 : rb.b.z != null ? 2 : 0);
-    else if (k == 'ch') toggle(rb, v ? v[0] + 1 : 0, v?.[1]);
+    else if (k == 'if' || k == 'ch') toggle(rb, pick(rb.b, v), v?.[1]);
     else if (k == 'model') writeModel(rb, v);
     else if (k == 'cmp') app.ext.components!(rb, v);
     else if (!Object.is(v, rb.v)) { write(rb.b, rb.el, v, rb.v == UNSET ? undefined : rb.v, rb.v == UNSET); rb.v = v; }
@@ -1131,7 +1138,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
     for (let i = a; i < ne; i++) {
       const o = byKey.get(keys[i]);
       if (o != null && !used[o - a]) { used[o - a] = 1; seq.push(o); reuse(old[o]!, i); }
-      else { seq.push(-1); rows[i] = instantiate(tpl, t, scopes?.[i] ?? setRow(Object.create(rb.s), t, items[i], i), keys[i], items[i], i, undefined, inPlace); }
+      else { seq.push(-1); rows[i] = instantiate(tpl, t, scopes?.[i] ?? setRow(Object.create(rb.s), t, items[i], i), keys[i], items[i], i, undefined, inPlace, rb); }
     }
     // collect the nodes of rows that go or move before the DOM changes
     const keep = lis(seq), moving = new Map<Inst, Node[]>(), gone: number[] = [];
@@ -1175,18 +1182,12 @@ export function mount(root: Document | Element, o: MountOptions): App {
    */
   function toggle(rb: RB, br: number, item?: unknown) {
     const ch = rb.b.k == 'ch', pre: { br: number; nodes: Node[]; end: Comment } | undefined = (rb.el as any)[EARLY];
-    const make = (nodes?: Node[], at?: Node) => {
-      // an if's branch adds no names to the scope (a choice's case adds its props): it reads its anchor's own
-      const t = ir.templates[ch ? rb.b.c![br - 1]! : br == 1 ? rb.b.x! : rb.b.z!]!, s = ch ? Object.create(rb.s) : rb.s;
-      if (ch) setRow(s, (rb.t = t), item, 0);
-      return (rb.rows = [instantiate(tplOf(t.id), t, s, ch ? keyOf(t, item, s) : '', ch ? item : null, 0, nodes, at)])[0]!;
-    };
     if (pre) {
       delete (rb.el as any)[EARLY];
       rb.end = pre.end;
       if (pre.br == br) {
         rb.br = br;
-        make(pre.nodes);
+        make(rb, br, item, pre.nodes);
         return;
       }
       cut(rb.el, pre.end);
@@ -1196,27 +1197,48 @@ export function mount(root: Document | Element, o: MountOptions): App {
       if (ch && x && x.item !== item) { setRow(x.s, rb.t!, (x.item = item), 0); walkRow(x, rb.t!, 2); }
       return;
     }
-    const end = rb.end ?? endFor(rb);
+    // a wrapper's anchor has no end comment: its branch ends where its row or branch does
+    const end: ChildNode = rb.u ? after(rb) : rb.end ?? endFor(rb);
     // same id, same control: the focused element of an if's old branch goes with it, its twin in the new one takes focus
     const f = doc.activeElement;
-    clear(rb, end);
+    // what is between the start and the end (a wrapper's anchor: from its row's first node), its bindings forgotten
+    for (const n of range(rb.u ? rb.x!.first : rb.el.nextSibling, end)) (n as ChildNode).remove();
+    forget([rb]);
+    rb.rows = [];
     rb.br = br;
     rb.t = undefined;
-    if (!br) return;
     // in a branch or row still being built, the new branch renders in place; on the page, it is built apart and
     // inserted at once
-    end.isConnected ? end.before(...rowNodes(make())) : make(undefined, end);
+    if (br) end.isConnected ? end.before(...rowNodes(make(rb, br, item))) : make(rb, br, item, undefined, end);
+    if (rb.u) {
+      // the wrapper's row (and the wrappers it is the branch of) starts with the new branch, or an empty comment
+      let n = rb.rows[0]?.first;
+      if (!n) end.before((n = new Comment()));
+      for (let q: RB | undefined = rb; q?.x; q = q.u) q.x.first = n;
+    }
     if (!ch && f?.id && !f.isConnected) (doc.getElementById(f.id) as HTMLElement | null)?.focus();
   }
 
-  /** An if's or choice's rendered branch out of the page, its bindings forgotten. */
-  function clear(rb: RB, end: Comment) {
-    const [old] = rb.rows ?? [];
-    if (old) {
-      for (const n of range(old.first, end)) (n as ChildNode).remove();
-      if (old.rbs) forget(old.rbs);
-    }
-    rb.rows = [];
+  /** The branch an if's or choice's value names: an if's 1, its else 2; a choice's case + 1; 0 none. */
+  function pick(b: Binding, v: any): number {
+    return b.k == 'ch' ? (v ? v[0] + 1 : 0) : v ? 1 : b.z != null ? 2 : 0;
+  }
+
+  /** The branch `br` of an if or choice (`item`: the case's props): an instance of its template, its only row. */
+  function make(rb: RB, br: number, item: unknown, nodes?: Node[], at?: Node): Inst {
+    // an if's branch adds no names to the scope (a choice's case adds its props): it reads its anchor's own
+    const ch = rb.b.k == 'ch', t = ir.templates[ch ? rb.b.c![br - 1]! : br == 1 ? rb.b.x! : rb.b.z!]!, s = ch ? Object.create(rb.s) : rb.s;
+    if (ch) setRow(s, (rb.t = t), item, 0);
+    return (rb.rows = [instantiate(tplOf(t.id), t, s, ch ? keyOf(t, item, s) : '', ch ? item : null, 0, nodes, at, rb)])[0]!;
+  }
+
+  /**
+   * The node after a wrapper's row or branch: the next row's first node in a list, else what follows the anchor it is the
+   * branch of (an if's or choice's one row has no next)
+   */
+  function after(rb: RB): ChildNode {
+    const u = rb.u!;
+    return u.u ? after(u) : (u.rows![rb.x!.i + 1]?.first as ChildNode) ?? u.end!;
   }
 
   /**
@@ -1247,7 +1269,25 @@ export function mount(root: Document | Element, o: MountOptions): App {
    * the page (in a branch or row still being built) to put the clone before, ahead of its bindings, so its nested
    * anchors render in place: each node is moved once, not once per level of anchors around it.
    */
-  function instantiate(tpl: HTMLTemplateElement, t: TemplateDef, s: any, key: unknown, item: unknown, i: number, pre?: Node[], at?: Node): Inst {
+  function instantiate(tpl: HTMLTemplateElement, t: TemplateDef, s: any, key: unknown, item: unknown, i: number, pre?: Node[], at?: Node, u?: RB): Inst {
+    if (!pre && (t.a || t.tx)) {
+      // a text run (`tx`): one text node, its binding's own. A wrapper (`a`): no clone and no comments; its anchor is
+      // bound without a start or end comment, and its branch, rendered where the row would go (in place before `at`,
+      // else apart), is the row's nodes; an empty comment stands in while there is none, so that the row has a first node
+      const b = t.nodes[0]!.b[0]!, x: Inst = { first: null, nodes: null, rbs: null, v: null, s, key, item, i, f: 0, r: round };
+      const rb: RB = { b, el: t.a ? u!.el : (x.first = new Text()) as unknown as Element, s, v: UNSET, u, x };
+      x.rbs = [rb];
+      if (t.tx) {
+        if (at) (at as ChildNode).before(x.first!);
+        process(rb, 2);
+        return x;
+      }
+      const v = evaluate(rb);
+      if ((rb.br = pick(b, v))) x.nodes = rowNodes(make(rb, rb.br, v?.[1], undefined, at));
+      if (!x.nodes?.length) { x.nodes = [new Comment()]; if (at) (at as ChildNode).before(x.nodes[0]!); }
+      x.first = x.nodes[0]!;
+      return x;
+    }
     // foreign content (`w`): the rows are the children of the `<svg>` or `<math>` the head template holds (a clone of
     // that element holds a row's nodes as a fragment would, until they are inserted)
     const content: Node = t.w ? tpl.content.firstChild! : tpl.content, one = t.o;

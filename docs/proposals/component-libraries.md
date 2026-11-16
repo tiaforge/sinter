@@ -24,6 +24,7 @@ together.
 | 11, libraries ship source | done | see below |
 | 12, the markdown library | done | see below |
 | 10, lets over helpers | built, then taken out: lets stay inlined, `memo()` instead; the lazy wait stays | see below |
+| after 12, flat anchors | done | [flat-anchors.md](flat-anchors.md): a row or branch whose content is one anchor, or one text, has no comments of its own in a fresh render |
 
 Step 3, as built:
 - New codes: `SN331` (an invalid slot: a placement, a fill or a declaration that breaks a rule of

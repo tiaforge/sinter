@@ -1207,7 +1207,8 @@ class Compiler {
     const rowTemplates = new Set([...this.roots, ...this.templates.flatMap((t) => t.nodes)].flatMap((n) => n.b.filter((b) => b.k === 'for').map((b) => b.x!)));
     this.at = null;
     for (const t of this.templates) {
-      if (!t.nodes.length || !rowTemplates.has(t.id)) continue;
+      // (a wrapper's rows are not cloned: nothing to look up)
+      if (!t.nodes.length || !rowTemplates.has(t.id) || t.a) continue;
       const at = this.templateAt.get(t.id) ?? null;
       t.find = this.fn(findCode(t.nodes), at);
       const make = makeCode(t.nodes, this.fns);
@@ -6969,6 +6970,16 @@ class Compiler {
         for (let n = target as { parentNode: P5Parent | null }; n.parentNode && n !== (root as unknown); n = n.parentNode as unknown as { parentNode: P5Parent | null }) path.unshift(n.parentNode.childNodes.indexOf(n as never));
         nd.path = path;
       }
+      // a wrapper: its content is one `if` or choice anchor and nothing else (a row whose only content is a branch, a
+      // branch whose only content is a choice). The runtime renders it without nodes of its own: no clone, no comments,
+      // its anchor's branch stands for it (docs/proposals/flat-anchors.md)
+      const [nd] = t.nodes, b = nd?.b[0];
+      if (!t.w && t.nodes.length === 1 && nd!.b.length === 1 && (b!.k === 'if' || b!.k === 'ch') && nd!.state === undefined && !nd!.dl && !b!.e
+        && root.childNodes.length === 2 && this.anchorStart.get(nd!) === root.childNodes[0]) t.a = 1;
+      // a text run: its content is one `<template data-sn-text>` and nothing else (its mark and its place, two empty
+      // comments). The runtime renders it as a text node, bound itself: no clone, no comments
+      if (!t.w && t.nodes.length === 1 && nd!.tag === '#' && nd!.b.length === 1 && b!.k === 'text' && b!.n === '+' && nd!.state === undefined && !nd!.dl
+        && root.childNodes.length === 2 && this.textAt.get(nd!) === root.childNodes[0] && root.childNodes[1]!.nodeName === '#comment') t.tx = 1;
     }
   }
 

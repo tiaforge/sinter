@@ -95,12 +95,17 @@ describe('the runtime', () => {
     const sec = root.querySelector('section')!, ol = root.querySelector('ol')!;
     const id = (el: Element) => shape(el)[0];
     expect(shape(sec)).toEqual([id(sec), 'b', '<!--/sn-->']);
-    // each row: its own if anchor, empty
-    expect(shape(ol)).toEqual([id(ol), '<!--sn-->', '<!--/sn-->', '<!--sn-->', '<!--/sn-->', '<!--/sn-->']);
+    // each row is a wrapper (its content is one if): no comments of its own; an empty comment holds its place while
+    // its branch renders nothing
+    expect(shape(ol)).toEqual([id(ol), '<!---->', '<!---->', '<!--/sn-->']);
     toggle(root, 't');
     await Promise.resolve();
     expect(shape(sec)).toEqual([id(sec), 'i', '<!--/sn-->']);
-    expect(shape(ol)).toEqual([id(ol), '<!--sn-->', 'li', '<!--/sn-->', '<!--sn-->', 'li', '<!--/sn-->', '<!--/sn-->']);
+    expect(shape(ol)).toEqual([id(ol), 'li', 'li', '<!--/sn-->']);
+    // and back: the placeholders again, the list's own rows kept
+    toggle(root, 't');
+    await Promise.resolve();
+    expect(shape(ol)).toEqual([id(ol), '<!---->', '<!---->', '<!--/sn-->']);
   });
 
   test('table rows and cells, options of a <select>, and SVG elements render as the parser would', async () => {
