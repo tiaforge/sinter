@@ -77,6 +77,8 @@ export interface CompileOptions {
   collectionsError?: string;
   /** the content module, absolute: `sinter check` types a `content:` resource without `type` from its loader */
   contentModule?: string;
+  /** the result's HTML is not read (a page's description: its paths, what it requests ahead): embedded values are not serialized into it */
+  describeOnly?: boolean;
   /**
    * builds: the `file:` lists already built, by their glob, key, order, drafts, mode and language, with what they reported
    * (their files do not change during a build); every page that reads one gets it and its diagnostics from here
@@ -744,7 +746,7 @@ export function compileParts(html: string, options: CompileOptions): CompiledPar
   // a page whose path is a pattern gets its canonical link from the early script: only when it runs something anyway
   if (out.canonicalOnly) out = compilePasses(html, { ...options, canonicalLink: false });
   // the embedded values' JSON, into the page that is kept
-  if (out.json) { const json = out.json; out = { ...out, html: out.html.replace(/\u0001sn-json:(\d+)\u0001/g, (_, id: string) => scriptJson(json.get(+id))) }; delete out.json; }
+  if (out.json && !options.describeOnly) { const json = out.json; out = { ...out, html: out.html.replace(/\u0001sn-json:(\d+)\u0001/g, (_, id: string) => scriptJson(json.get(+id))) }; delete out.json; }
   return out;
 }
 

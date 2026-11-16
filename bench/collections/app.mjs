@@ -11,9 +11,9 @@ const sentence = (i, j) => Array.from({ length: 12 }, (_, k) => words[(i * 7 + j
 const para = (i, j) => Array.from({ length: 5 }, (_, k) => sentence(i, j * 5 + k)).join(' ');
 
 /** a post of about 600 words: headings, paragraphs, a list, a code block, links */
-export const post = (i) => `## Introduction
+export const post = (i, n) => `## Introduction
 
-${para(i, 0)} See [the next post](/blog/post-${(i + 1)}) and *emphasis* with \`code\`.
+${para(i, 0)} See [the next post](/blog/post-${(i + 1) % n}) and *emphasis* with \`code\`.
 
 ${para(i, 1)}
 
@@ -90,7 +90,7 @@ export default defineConfig({
   else for (let i = 0; i < n; i++) files[`blog/post-${i}.html`] = PAGE(live, `<sn-resource name="post" src="file:/content/posts/post-${i}.md"></sn-resource>`, '', `'post-${i}'`);
   for (const [f, s] of Object.entries(files)) { mkdirSync(dirname(join(root, f)), { recursive: true }); writeFileSync(join(root, f), s); }
   mkdirSync(join(root, 'content/posts'), { recursive: true });
-  for (let i = 0; i < n; i++) writeFileSync(join(root, `content/posts/post-${i}.md`), `---\ntitle: Post ${i}\n---\n` + post(i));
+  for (let i = 0; i < n; i++) writeFileSync(join(root, `content/posts/post-${i}.md`), `---\ntitle: Post ${i}\n---\n` + post(i, n));
   mkdirSync(join(root, 'node_modules/@tiaforge-ui'), { recursive: true });
   symlinkSync(REPO, join(root, 'node_modules/@tiaforge-ui/sinter'), 'dir');
   symlinkSync(join(REPO, 'packages/sinter-markdown'), join(root, 'node_modules/@tiaforge-ui/sinter-markdown'), 'dir');
