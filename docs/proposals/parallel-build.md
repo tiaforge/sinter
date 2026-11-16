@@ -10,9 +10,13 @@ calls `compile()` (`src/vite.ts:854`), synchronously. Pages are independent once
 site is bound by one core. [The collections benchmark](../../bench/collections/README.md) (a blog of markdown posts
 from one `data-sn-pages` template) builds 1,000 posts in 39 s on a 4-core machine, nearly all of it on one core.
 
-**Result: three workers build the 1,000-post blog in 19.6 s instead of 38.9 s (2.0×), and the 4,000-post one in
-RESULT_4K. It stops scaling at about two workers, and the reason is not serialization or sinter's design but V8's
-garbage collector: an allocation-heavy loop alone scales the same way on this machine.**
+**Result: three workers build the 1,000-post blog in 19.6 s instead of 38.9 s (2.0×), 4,000 posts in 77 s instead
+of 147 s (1.9×), and 10,000 in 265 s instead of 437 s (1.65×), byte for byte the same. Two things stop it scaling.
+Per page, V8's garbage collector: the same compiles cost 50% more CPU in three threads at once, and an
+allocation-heavy loop alone does the same on this machine; serialization is negligible. Per build, a serial tail
+after the compiles that grows with the square of the pages, mostly Vite's HTML plugin looking up each page's chunk in
+the whole bundle: 1 s at 1,000 pages, 11 s at 4,000. At 10,000 pages, 119 of the 265 s are spent outside the
+workers.**
 
 ## Where the time goes
 
@@ -41,14 +45,30 @@ current build, compiles on the main thread) and with 1, 2 and 3, each build in a
 with the first one's (`diff -r`). 4 cores (Xeon, 2.3 GHz, one thread per core), 16 GB, Node 22.23, Vite 8.3.5,
 Rolldown 1.2.16, static posts, one run each:
 
-RESULTS_TABLE
+| Posts | Workers | Time | Speed-up | Per core | Peak RSS | `dist/` | Outside the workers |
+| ---: | ---: | ---: | ---: | ---: | ---: | --- | ---: |
+| 1,000 | 0 (today) | 38.9 s | 1.00× | 1.00 | 0.69 GB | | |
+| 1,000 | 1 | 35.6 s | 1.09× | 1.09 | 0.77 GB | identical | 5.9 s |
+| 1,000 | 2 | 21.0 s | 1.85× | 0.93 | 1.08 GB | identical | 4.6 s |
+| 1,000 | 3 | 19.6 s | 1.98× | 0.66 | 1.37 GB | identical | 4.8 s |
+| 4,000 | 0 (today) | 146.9 s | 1.00× | 1.00 | 1.29 GB | | |
+| 4,000 | 1 | 141.9 s | 1.04× | 1.04 | 1.44 GB | identical | 23.0 s |
+| 4,000 | 2 | 88.1 s | 1.67× | 0.84 | 1.75 GB | identical | 22.6 s |
+| 4,000 | 3 | 77.1 s | 1.91× | 0.64 | 2.02 GB | identical | 24.7 s |
+| 10,000 | 0 (today) | 437.1 s | 1.00× | 1.00 | 2.12 GB | | |
+| 10,000 | 2 | 286.7 s | 1.52× | 0.76 | 2.79 GB | identical | 113.1 s |
+| 10,000 | 3 | 265.1 s | 1.65× | 0.55 | 3.27 GB | identical | 118.6 s |
+
+"Per core" is the speed-up divided by the number of threads compiling (the workers; the main thread for 0).
+"Outside the workers" is the wall time minus a worker's busy time (the describe pass and the compiles): what runs
+on the main thread alone. The 10,000-post run with one worker was lost to a container restart and not repeated.
 
 Peak RSS is the process's, workers included (they are threads of it). Each worker's job count and busy time
 (`SINTER_WORKERS_STATS=1`) shows the pool is balanced (at 1,000 posts, three workers ran 676, 642 and 684 jobs, each
 busy 14.8 s) and that the main thread is not what they wait for: its profile with three workers is 90% idle while the
 pages compile.
 
-**What one worker buys: nothing but a separate heap.** One worker is 8% faster than the main thread doing the
+**What one worker buys: nothing but a separate heap.** One worker is 9% faster than the main thread (4% at 4,000 posts) doing the
 same compiles, because the compiles' garbage no longer shares a heap with Vite's and Rolldown's, and the main thread
 does the bundling while the worker compiles.
 
@@ -75,12 +95,25 @@ do it at once. The candidates, in order of what they cost:
   and module, about 4 kB here).
 - **Rolldown: not here.** The main thread is idle while the pages compile; Rolldown's work is a few seconds in all.
 
+**The serial tail grows with the square of the pages.** Outside the workers, the build spends 5 s at 1,000 posts,
+25 s at 4,000 and 119 s at 10,000. The main thread's profile at 4,000 posts with three workers: Vite's start and the
+pool's (10 s, the describe pass included), then the main thread 77% idle for 55 s while the pages compile, then 14 s
+of `generateBundle` with the workers done, 10.6 s of it Vite's HTML plugin (`node.js:32040`), which finds each page's
+entry chunk with `Object.values(bundle).find(…)` (`node.js:32094`): a scan of the whole bundle, through Rolldown's
+bundle proxy, per page. At 1,000 posts the same hook is 0.7 s. It is the same in today's build; with the compiles
+three times faster it is what is left. It is Vite's, to fix upstream (a map from facade id to chunk), and no number
+of workers shortens it. Sinter has a smaller one of its own: `watch()` (`src/vite.ts:545`) runs in builds too, for
+every file of every page, and each post's files include every file of the `file:` glob: 2.8 s of the main thread at
+4,000 posts. It is only needed in dev.
+
 So past two workers this machine has little to give: the third worker takes 1,000 posts from 21.0 s to 19.6 s. A
 machine with more cores and memory bandwidth per core would scale further; the young-generation size is the one
 setting that helped here.
 
 **Memory.** Each worker holds its own project, caches and module copies, and its own heap's slack: peak RSS goes from
-0.69 GB to 1.37 GB at 1,000 posts with three workers, about 230 MB per worker. RSS_NOTE
+0.69 GB to 1.37 GB at 1,000 posts with three workers, about 230 MB per worker. At 10,000 posts, three workers add 1.15 GB to 2.12 GB. Part of it is the queue: Rolldown starts nearly every
+page's hook at once (at most 9,983 of 10,001 were waiting for a worker), so every page's HTML and options are held
+until its turn; a bounded queue would need the hook itself to wait.
 
 ## What a compile needs, and what it does
 
@@ -148,7 +181,7 @@ written in input order; the examples and the test suite found nothing else.
 
 No compile-ahead is needed. Vite's HTML plugin runs the `pre` `transformIndexHtml` hooks inside each HTML module's
 `transform` (`node_modules/vite/dist/node/chunks/node.js:31880` in Vite 8.3.5), and Rolldown runs the modules'
-transforms concurrently: with the hook awaiting its page's compile, IN_FLIGHT pages were in flight at once, more than
+transforms concurrently: with the hook awaiting its page's compile, every page was in flight at once (up to 9,983 of 10,001 waiting for a worker), more than
 enough to keep three workers busy. The hook keeps its shape; only the compile inside it is awaited instead of called.
 
 Compiling every page ahead, in `buildStart`, would also be wrong in general: the HTML the hook gets is not the file.
@@ -178,14 +211,14 @@ On the branch, about 250 lines:
   `workers` (or `SINTER_WORKERS`) turns it on; with `SINTER_WORKERS_STATS=1` the build prints each worker's jobs and
   busy time.
 
-Corners cut: no fallback when a worker dies (the build fails); options that cannot be cloned turn the pool off with a
+Corners cut: no fallback when a worker dies (the build fails); the queue is unbounded (every page's job waits in it); options that cannot be cloned turn the pool off with a
 warning rather than an error; the per-page stylesheets are sent with every job instead of once; the worker resolves
 its own file next to the module, or the built one from the sources (the test suite runs `src/` and needs `npm run
 build` first).
 
 How it was checked:
 
-- the benchmark's `dist/` with and without workers, at every size above: identical;
+- the benchmark's `dist/` with and without workers, at every size and count above: identical;
 - each example (`examples/*`, realworld also with `SINTER_EMBED=1`, dashboard with `typecheck`), built with and
   without three workers: identical `dist/`, and the same build log except the hashes' order (now sorted);
 - the whole test suite with `SINTER_WORKERS=3`: 2,108 tests pass, 122 of its builds through the pool (images, the
@@ -217,17 +250,21 @@ compile's inputs are made explicit. In order:
 **Cost.** Item 1 is the work: a few hundred lines across `vite.ts`, `project.ts` and the compiler's options, and
 tests that build each fixture both ways (the prototype's trick, the suite under `SINTER_WORKERS=3`, as a CI job).
 The pool itself is about 100 lines. The ongoing cost is a rule for every new compile option: data, or something the
-host gives. The gain on this machine is 2× at 1,000 pages and up; a hand-written site of 20 pages gains nothing and
-stays at 0 workers.
+host gives. The gain on this machine is 2× at 1,000 to 4,000 pages and 1.65× at 10,000, where Vite's serial tail takes over;
+a hand-written site of 20 pages gains nothing and stays at 0 workers.
 
 ## Open questions
+
+- **The serial tail**: Vite's per-page bundle scan in its HTML plugin is quadratic and serial; at 10,000 pages it
+  is a large part of what workers leave. Report it upstream (or work around it), and skip `watch()` in builds; both
+  help today's build too.
 
 - **Is 2× on 4 cores the ceiling, or this machine's?** The allocation test says the limit is the collector and the
   memory system; a machine with more cores, or a compile that allocates less, would say more. The compile's
   allocation (16% of a single-threaded build is collection) is worth a profile of its own: less garbage helps the
   single-threaded build and the workers both.
 - **The default.** On above a page count, or opt-in until it has run on more apps (Windows, CI runners with 2 cores)?
-- **`cores − 1` or `cores`**, and what to do on a 2-core CI runner, where one worker is only 8% faster.
+- **`cores − 1` or `cores`**, and what to do on a 2-core CI runner, where one worker is only 4–9% faster.
 - **Memory**: about 230 MB per worker at 1,000 posts. A CI runner with little memory may want fewer workers than
   cores; a cap by `os.freemem()`?
 - **Helpers with state or side effects at import** run once per worker: document it next to the cross-check, or
