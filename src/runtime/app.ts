@@ -302,13 +302,16 @@ interface RB extends BoundBinding {
   t?: TemplateDef;
   /** the anchor's end comment (`<!--/sn-->`), after its rows or branch */
   end?: Comment;
-  /** for: rows by key, built on demand (null: keys are explicit or not unique), and the round of the last reconcile */
+  /**
+   * for: rows by key, built on the second change of only marked rows since the rows rendered (null: scanned once, or
+   * keys are explicit; a list whose keys repeat scans every time), and the round of the last reconcile
+   */
   keys?: Map<unknown, Inst> | null;
   rr?: number;
   /** for: some rows wait for a re-evaluation (`Inst.f`) since the last walk over all of them */
   pf?: boolean;
-  /** for: selection indexes of its rows (by binding), built on demand, dropped when the rows are rendered */
-  sx?: Map<Binding, Sel>;
+  /** for: selection indexes of its rows (by binding), built on their second use (null: scanned once), dropped when the rows are rendered */
+  sx?: Map<Binding, Sel | null>;
   /** for, unkeyed: the round its rows were adopted from the early script; until the next flush, rows match by position */
   ad?: number;
   /** if: rendered branch (0 none, 1 if, 2 else); choice: the rendered case + 1 (0 none) */
@@ -918,16 +921,22 @@ export function mount(root: Document | Element, o: MountOptions): App {
       // just reconciled (some re-rendered, the index stale) or wait in a closed dialog render as usual
       if (!r && sel && (r = sel(rb, rb.rr != round && !deferred.size)) == 1) continue;
       rb.sx = undefined;
-      // only marked elements changed and the list did not move: visit their rows directly
+      // only marked elements changed and the list did not move: visit their rows directly. The first time since the
+      // rows rendered, a scan finds them (an index over every row would cost more than it saves once); after that, the
+      // rows by key, kept while no row is rendered (`null`: scanned once; a list with explicit or repeated keys scans)
       if (r == 1 && rb.rr != round) {
-        const keys = rb.keys === undefined ? (rb.keys = t!.key != null ? null : new Map(rb.rows.map((x) => [x.key, x]))) : rb.keys;
+        let keys = rb.keys;
+        if (keys === null && t!.key == null) keys = rb.keys = new Map(rb.rows.map((x) => [x.key, x]));
         if (keys && keys.size == rb.rows.length) {
           for (const item of marked) {
             const x = Object(item) === item ? keys.get(keyOf(t!, item, null)) : null;
             if (x && x.item === item) walkRow(x, t!, 0);
           }
-          continue;
+        } else {
+          for (const x of rb.rows) if (marked.has(x.item)) walkRow(x, t!, 0);
+          rb.keys ??= null;
         }
+        continue;
       }
       // changes written through a row index (`rows[i].v = …`) reach the rows at those indexes only, when
       // no row waits for a re-evaluation (the list was not reconciled since the last full walk)
@@ -1105,6 +1114,8 @@ export function mount(root: Document | Element, o: MountOptions): App {
       const item = items[i];
       if (x.item !== item) { setRow(x.s, t, (x.item = item), (x.i = i)); x.f = 2; }
       else if (x.i != i) { setRow(x.s, t, item, (x.i = i)); if (moved) x.f ||= 1; }
+      // a computed list's row (`dv`): its item may have changed in place, which only the list depends on
+      if (t.dv) x.f = 2;
       rows[i] = x;
     };
     // rows with the same keys at the start and the end stay where they are

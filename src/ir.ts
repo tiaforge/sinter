@@ -234,6 +234,11 @@ export interface TemplateDef {
    * node, which its binding writes itself (no marks); rows the early script rendered keep their comments.
    */
   tx?: 1;
+  /**
+   * for: the list is computed (not a path), so what its rows read of the item has no dependency: when the list is
+   * evaluated again, the rows it keeps render again (an item may have changed in place)
+   */
+  dv?: 1;
   /** for: loop variable, index variable, internal index name */
   item?: string;
   index?: string | null;
