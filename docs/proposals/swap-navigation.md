@@ -12,6 +12,11 @@ Decided with the user:
   today. A page that does falls back to a page load whenever anything is unexpected.
 - **Kept elements** (`data-sn-permanent="name"`) are the first use: an audio player, an open drawer, a
   scroll container stay untouched across a link to a page with an element of the same name.
+- **Navigation has one way in: `navigate()`** (review, 2026-11-16). Four parts of the runtime decide
+  parts of a navigation today and the spike added a fifth; this proposal trims them to one decision that
+  the rest plug into ([2](#2-one-way-in-navigate)).
+- **The head is kept simple** (review, 2026-11-16): the title, sinter's own nodes and the stylesheets;
+  the rest is for crawlers and link previews, which load each page ([4](#4-the-head)).
 - **A later module builds on it:** richer view navigations (directional and nested transitions, shared
   elements, list-to-detail panes). This proposal does not build them, but every choice below is checked
   against them ([Room for view navigations](#9-room-for-view-navigations)).
@@ -22,7 +27,8 @@ Decided with the user:
    scroll container keeps its position, focus and selection in a kept element stay.
 2. **A navigation is not an unload:** JavaScript context, open responses and app code's state survive.
    This is what RealWorld's suite assumes after a form's redirect (below).
-3. **Nothing to write beyond marking what to keep**, plus one call for redirects from app code.
+3. **Nothing to write beyond marking what to keep.** App code redirects with the `navigate()` that
+   handlers already have, exported.
 4. **A page that does not use it is byte-for-byte what it is today**, and so is the core.
 5. **A base for view navigations:** one well-defined sequence with named steps that a later module
    can observe and drive.
@@ -57,10 +63,11 @@ Decided with the user:
 | `cache` writes confirmed changes on `pagehide`, which a swap never fires: RealWorld's profile showed the user from before the save. | [7](#7-what-the-core-and-the-features-need) |
 | Between the URL change and the new mount the page had no app (`instance(document)` threw): a test that reads the app right after the URL changes saw `null`. Fixed by preloading the modules and changing URL, app and body in one step. | [5](#5-the-sequence) |
 | A view transition skipped by a page load rejects `ready` and `finished`: unhandled rejections. | [8](#8-transitions) |
-| A click on a link the browser follows (the page shown) during a pending swap must cancel it: the last click wins. | [2](#2-which-navigations) |
+| A click on a link the browser follows (the page shown) during a pending swap must cancel it: the last click wins. | [2](#2-one-way-in-navigate) |
+| **The build dropped the feature** (external review): a page whose only runtime need was a kept element built as "no JavaScript", so the marker stayed in the HTML and nothing read it. Dev always ships a module, so only builds broke; every page the spike tested also loaded data. Fixed: a kept element is a runtime reason (`runtimeReasons`), and `sinter({ static })` reports `SN322` for it; `e2e/permanent` swaps to and from a page with nothing bound. A page that keeps an element and runs nothing else now ships the shared runtime (17.1 KB gzip). | [1](#1-opting-in), [12](#12-size) |
 | `data-sn-transition` relies on `pageswap`/`pagereveal`, which a swap does not fire: its morphs are lost (read from `transition.ts`, not measured). The CSS fade (`@view-transition { navigation: auto }`) does not apply either. | [8](#8-transitions) |
 | WebKit refuses Speculation Rules prefetches over plain HTTP (console errors, with or without swaps): noise in local tests, not this feature. | — |
-| The module is 2.9 KB gzip (min 7.3 KB): head handling about 1 KB of it. My first estimate was "a few hundred bytes", the second 2–3 KB. | [12](#12-size) |
+| The module is 2.7 KB gzip (min 6.7 KB) with the simpler head (2.9 KB with the first one). My first estimate was "a few hundred bytes", the second 2–3 KB. | [12](#12-size) |
 
 ## Design
 
@@ -78,35 +85,72 @@ A swap happens when **both** pages opt in, read from the fetched HTML; otherwise
 discarded and the page loads (the one request is not wasted for long: the browser has it in its HTTP
 cache only if the server allows it, see [10](#10-prefetch-speculation-rules-the-early-script-and-embed)).
 
+**Both markers must survive the build.** The compiler strips every `data-sn-*` attribute from the HTML;
+`data-sn-permanent` is exempt, and `data-sn-navigation` must be too, since the next page's fetched HTML is
+where the swap reads them. Each is also a runtime reason, so a page of constants still ships its module
+(the external review's blocker, fixed for `data-sn-permanent` in the spike).
+
 Build checks (`data-sn-permanent`, in the spike): a static name (`SN401`), once per page, not inside a
 `<template>`, no bindings on or inside the element (`SN102`; the next page's code would not find nodes it
 did not number). Proposed: a warning when a name is on one page only; dedicated codes instead of `SN102`.
 
-### 2. Which navigations
+### 2. One way in: `navigate()`
 
-A swap is tried for:
-- a plain click (primary button, no modifier, default not prevented after every page handler, so same-page
-  links and actions go first) on an `<a href>` to another path of the origin without `download`, a
-  `target` or `rel="external"`;
-- `navigate(url)` in a handler, after same-page links had their turn (`ext.follow`, no core change);
-- **`visit(url)`**, exported by the module, for app code (a redirect after a form, from an island);
-- Back and Forward across entries a swap made (`popstate`, path changed).
+Today, each of these decides part of a navigation, with its own listener:
 
-Everything else is the browser's: the same URL, a `#hash`, a new tab, `replace` navigations (proposed:
-`navigate(url, { replace: true })` swaps too, with `replaceState`), form submissions without a sinter
-action. A click the browser follows cancels a pending swap.
+| Owner | Links | `navigate()` | Back/Forward | History |
+| --- | --- | --- | --- | --- |
+| core (`app.ts`) | — | `navigate()`: `ext.follow`, else `env.navigate` (`app.ts:748`); `onUnauthorized` calls `env.navigate` itself (`config.ts:187`) | re-reads `$url` (`app.ts:826`) | — |
+| `location.ts` | — | — | its own `popstate` (`:106`) | `pushState`/`replaceState` for `$url` writes |
+| `query-links.ts` | its own click listener (`:68`), `ext.sameLink` | replaces `ext.follow` (`:58`) | — | through `location` |
+| `transition.ts` | its own capturing click listener (`:52`), to remember the link | — | `pageswap`/`pagereveal` | — |
+| `permanent.ts` (spike) | another click listener | replaces `ext.follow` again | another `popstate`, which must run first and stop the others | its own |
+
+and `prefetch.ts` watches links too (pointer events) and has to guess what a click would do
+(`ext.sameLink`). Each new navigation feature adds a listener, and their order decides the outcome.
+
+`navigate(url, { replace })` already has the right shape: it is the one entry point with a URL, and
+`ext.follow` already makes it a chain, built by replacing a function. It becomes the only decision:
+
+- **`navigate(url, { replace, trigger })`** asks the handlers features register with the core, in order
+  (same-page links, then swap), and loads the page (`env.navigate`) when none takes it. Registering
+  replaces patching `ext.follow`.
+- **Links are calls to it.** One click listener, in a small module the link features share, turns a plain
+  click (primary button, no modifier, default not prevented after the page's handlers, an `<a href>` or
+  `<area href>` without `download`, a `target` or `rel="external"`) into `navigate(href, { trigger: a })`.
+  `query-links` and the swap stop listening; `transition` reads the link from `trigger` instead of
+  capturing clicks.
+- **One `popstate`.** The core's listener hands a traversal to the same handlers (`kind: 'traverse'`)
+  before it reads `$url` again: the swap takes it when the path changed, else the core does what it does
+  today. No listener has to run first.
+- **Asking without going.** Prefetch asks the chain what a URL would become (`same-page`, `swap`,
+  `load`) instead of guessing; it requests the next page's data for `swap` and `load`, and its HTML too
+  for `swap` ([10](#10-prefetch-speculation-rules-the-early-script-and-embed)).
+- **App code** imports `navigate` from `@tiaforge-ui/sinter` (the page's instance's): RealWorld's islands
+  call it instead of `location.assign`, and the core's own `onUnauthorized` redirect goes through it. The
+  spike's `visit()` is gone.
+
+The handlers see one **intent** (from, to, kind, trigger, signal: [5](#5-the-sequence)), which is also what a
+view-navigation module needs first ([9](#9-room-for-view-navigations)).
+
+A swap is tried for links, `navigate()` calls (with `replace: true`, it replaces the entry) and
+traversals across entries a swap made. Everything else is the browser's: the same URL, a `#hash`, a new
+tab, form submissions without a sinter action. A click the browser follows cancels a pending swap.
 
 Falls back to a page load: a fetch error; a non-HTML, non-2xx or cross-origin (after redirects) response;
 `data-sn-failed`; the other page not opted in; a name on two elements of either page (markup injected
 with the attribute); no module to run; heads that differ in what only a load applies ([4](#4-the-head)).
 A traversal that cannot swap reloads.
 
+Cost: the core gains the handler list and the traversal hand-off (to be measured; the core is shared by
+every page). The click checks exist twice today (`query-links`, the spike) and become one.
+
 **To decide:** the [Navigation API](https://developer.mozilla.org/docs/Web/API/Navigation_API)
-(`navigation.addEventListener('navigate')` with `intercept()`) instead of click and `popstate` handling:
-one hook for links, forms, `location.assign` from app code and traversals, with scroll and focus handled by
-the browser and `navigation.transition` for progress. It would make `visit()` unnecessary for app code that
-already calls `location.assign`. Its support across Chromium, Firefox and WebKit must be checked first; the
-click path stays as the fallback either way.
+(`navigation.addEventListener('navigate')` with `intercept()`) as the source of intents: one event for
+links, forms, `location.assign` from app code and traversals, with scroll and focus handled by the
+browser. It would feed the same chain, so the choice changes where intents come from, not who decides.
+Its support across Chromium, Firefox and WebKit must be checked first; the click listener stays as the
+fallback either way.
 
 ### 3. Kept elements
 
@@ -128,17 +172,23 @@ those ids. That needs the compiler change in [6](#6-the-pages-code) first.
 
 ### 4. The head
 
-Each head child is one of three kinds:
+What a person sees of the head is the title and the styles; the rest (description, Open Graph, canonical,
+alternates, Speculation Rules) is for crawlers and link previews, which load each page and never swap. So
+the swap changes only:
 
-| Kind | Elements | What happens |
+| What | Why | How |
 | --- | --- | --- |
-| **Bound** | anything with `data-sn`, `<!--sn N-->` anchors with what they rendered, `<template id="sn-t-N">`, `script[data-sn-messages]` | always the new page's: the old page's go, the new page's come in |
-| **The page's** | `<title>`, `<meta>` (name, property), `<link>` (stylesheet, canonical, alternate, icon), `<style>`, `<script type="application/json">`, Speculation Rules, `<noscript>` | compared (a link by its resolved URL): what both pages have stays untouched; the new page's are inserted after the element they follow there (the cascade keeps its order) before the swap, stylesheets loaded; the old page's go with the swap |
-| **Load-only** | classic and module scripts, `preload`/`modulepreload`/`preconnect`/`dns-prefetch`/`prefetch` links, `<meta charset>` | the old page's stay, the new page's are left out |
+| `<title>` | the person sees it (tab, history, the announcement in [11](#11-accessibility-history-scroll)) | always the new page's |
+| sinter's own head nodes: `data-sn` elements (a bound title or meta), `<!--sn N-->` anchors with what they rendered, `<template id="sn-t-N">`, embedded data (`script[type="application/json"][data-sn]`), `script[data-sn-messages]` | not for crawlers: the page's code finds them by number in the whole document, and every page numbers from 0. Left in place, the new page binds the old page's nodes, or renders the old page's template for a row | the old page's removed, the new page's appended, no comparison |
+| stylesheets (`<link rel="stylesheet">`, `<style>`) | a page's own CSS (component styles, a page's `<link slot="head">`) must come with it and go with it (`e2e/permanent` caught B's stylesheet staying on A) | by resolved URL (a `<style>` by its text): the new page's that the document lacks are appended and loaded before the swap, the old page's that the new one lacks go with it. Appended, not placed: two pages whose sheets depend on their order between them is a case to report (none in the examples) |
 
+Everything else stays as the first page loaded it, including metas the new page has and the old one
+lacks; a page that relies on another head element at run time is a page load (not detected: documented).
 Pages whose CSP `<meta>`, `<base>` or language picker (`data-sn-i18n`) differ are loaded: only a load
-applies them. Inserted scripts are created anew (a parsed `<script>` never runs; Speculation Rules must
-be inserted this way to be read again). The early script does not run on a swap ([10](#10-prefetch-speculation-rules-the-early-script-and-embed)).
+applies them. The early script does not run on a swap ([10](#10-prefetch-speculation-rules-the-early-script-and-embed)).
+
+The first spike compared every head element and inserted the new page's in its order; this table is what
+the review kept of it. Both pass `e2e/permanent` in three browsers; the module is 212 B smaller.
 
 ### 5. The sequence
 
@@ -223,7 +273,8 @@ proposal, and how each choice above is checked against it:
 
 | It needs | Provided by | Checked |
 | --- | --- | --- |
-| to know where a navigation goes and why, before anything happens | `intent` (from, to, kind, direction, trigger, signal) | traversal direction: the spike only knows "traverse"; entries need an index (in `history.state`) |
+| to know where a navigation goes and why, before anything happens | the intent every navigation now passes through `navigate()` ([2](#2-one-way-in-navigate)): from, to, kind, direction, trigger, signal | one chain makes this one hook instead of five listeners; traversal direction: the spike only knows "traverse", entries need an index (in `history.state`) |
+| to take a navigation itself (a pane that changes in place) | a handler in the chain, ahead of the swap | the chain is ordered by registration; the module needs a place in it |
 | to run the DOM update inside its own transition, with types (`startViewTransition({ update, types })`) | `commit` is one function the module can call; the swap's own transition is the default caller | the spike's swap was already a callback; making it a parameter costs nothing |
 | the new page painted with its data in the new snapshot | `mount` resolves after the first flush; `commit` can await it inside the update | needs [6](#6-the-pages-code) (mount in the update, not a module run after it) |
 | to replace less than the body (a region both pages share stays, only `<main>` changes) | kept elements are the general case: a shared region is a kept element whose content is the new page's | **not yet:** kept elements hold no bindings. A region the new page binds needs the new page's code to take over the region's nodes, the takeover rejected for this proposal. Left open: the module could keep the region *element* and replace its content, which needs no takeover |
@@ -263,7 +314,7 @@ internal and undocumented, so they can change.
 
 ### 12. Size
 
-Measured with `scripts/size.mjs`: the module is 2.9 KB gzip (7.3 KB min); the core is unchanged
+Measured with `scripts/size.mjs`: the module is 2.7 KB gzip (6.7 KB min); the core is unchanged
 (14.7 KB); `cache` is unchanged (790 B). Expected changes: the compiler change of [6](#6-the-pages-code)
 removes the re-import code and the modulepreload step; the live region, `sn-page` events and the
 transition naming add some; the target is under 3 KB.
@@ -281,11 +332,12 @@ transition naming add some; the target is under 3 KB.
 - **RealWorld's suite** in `spa` mode, all 140, as the integration test.
 - **Unit tests** for the plan (pairs, head kinds, fallbacks) on parsed documents, and for each feature's
   destroy.
-- Still open from the spike: against the public RealWorld API, 5 of 140 settings runs showed another
-  account right after registering (a username `pw` + the time in base 36, created by another client at
-  that moment), before any swap; none in 112 other runs or in 28 runs with page loads. Each fresh browser
-  context had only its own token. To settle against a local backend (`e2e-local.sh`) before the suite is
-  called green.
+- Against the public RealWorld API, runs now and then show another account right after registering
+  (`pw` + the time in base 36, `John Doe`, `www.google.com:80/`): 5 of 140 settings runs in two runs; 3
+  of 140 tests in a full run with the simpler head, one of them `social`'s "should view own profile",
+  whose path has no swap and no change of this proposal (registering redirects with `location.assign`,
+  the home page loads). The shared API answers a new token with another account. The suite is to be
+  run against a local backend (`e2e-local.sh`) for the record.
 
 ## Breaking changes
 
@@ -313,15 +365,19 @@ One commit each:
 
 1. **The core and features for a page that goes without a page load:** `destroy()` releases its elements;
    `cache` writes on destroy; tests of destroy with each feature.
-2. **The compiler change of [6](#6-the-pages-code):** pages that opt in export their mount and kept ids;
+2. **One way in:** the handler chain behind `navigate()`, the shared link listener, the traversal hand-off,
+   `navigate` exported; `query-links` and `transition` moved onto it with no change in behaviour (their
+   tests as they are), `onUnauthorized` through it. Sizes of the core and the two modules before and after.
+3. **The compiler change of [6](#6-the-pages-code):** pages that opt in export their mount and kept ids;
    `data-sn-navigation`, the checks and their codes.
-3. **The module** on that: the sequence with its named steps, the head plan, kept elements, history,
-   scroll, focus, the live region, `visit()`, `sn-page` and `sn-pageleave`; unit tests; `e2e/permanent`.
-4. **Transitions:** the fade and its opt-out, `data-sn-transition` at `commit`; e2e of a morph.
-5. **Prefetch:** the HTML with next-page data, Speculation Rules on opted-in pages, the `Prefetched`
+4. **The module** on that: a handler in the chain, the sequence with its named steps, the head, kept
+   elements, history, scroll, focus, the live region, `sn-page` and `sn-pageleave`; unit tests;
+   `e2e/permanent`.
+5. **Transitions:** the fade and its opt-out, `data-sn-transition` at `commit`; e2e of a morph.
+6. **Prefetch:** the HTML with next-page data, Speculation Rules on opted-in pages, the `Prefetched`
    handoff.
-6. **Examples and docs:** the dashboard and RealWorld (`data-sn-navigation="swap"` instead of the kept
+7. **Examples and docs:** the dashboard and RealWorld (`data-sn-navigation="swap"` instead of the kept
    footer), the docs above, sizes before and after.
 
-Decide before step 2: the Navigation API or clicks and `popstate` ([2](#2-which-navigations)); the opt-out
+Decide before step 2: the Navigation API or clicks and `popstate` as the source of intents ([2](#2-one-way-in-navigate)); the opt-out
 of the fade ([8](#8-transitions)).

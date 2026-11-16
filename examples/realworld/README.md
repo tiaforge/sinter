@@ -85,9 +85,11 @@ rest of `ssr` is skipped by the suite. The failures were assumptions in the suit
   which keeps the cache: the account is the same) and calls `navigate()`; the profile page shows the
   cached user at once and revalidates. With a page load in their place (before), the four fail.
   Against the shared public API, a run now and then shows another account right after registering
-  (a username of `pw` and the time in base 36, made by some other client at that moment) before any
-  swap: 5 of 140 settings runs over two runs, none in the other 112 or in 28 runs with page loads.
-  The API answered each of six registrations correctly when checked by hand; not traced yet.
+  (`pw` and the time in base 36, `John Doe`, `www.google.com:80/`: other clients' accounts): 5 of 140
+  settings runs in two runs, and 3 of 140 tests in a full run (two settings tests and `social`'s "should
+  view own profile"). The `social` one has no swap and none of these changes on its path (registering
+  redirects with `location.assign`, the home page loads): the API answers a new account's token with
+  another account. Run against a local backend (`e2e-local.sh`) for a clean result.
 - **Null/Empty Image and Bio Handling, "author avatars should render on other user articles in
   feed":** it reads the author of every `.article-preview`, the "Loading articles..." line included.
   That line now shows only while there is nothing to show (with cached articles, loading means

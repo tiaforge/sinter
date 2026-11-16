@@ -43,48 +43,35 @@ const marked = (root: ParentNode) => {
 const pathOf = (u: URL) => u.pathname + u.search;
 
 /**
- * A head's elements, each with what decides its fate: `null`, bound (a `data-sn` node, an anchor's range, a
- * template the page's code finds by id, the messages): always the new page's; `skip`, meaningful only as the
- * document loads (classic and module scripts, preloads, preconnects, `<meta charset>`, a CSP, `<base>`): the
- * old page's stay, the new page's are left out; else a key: the same key on both pages, the element stays.
+ * The head nodes that belong to the page shown, grouped (an anchor with what it rendered is one group):
+ * what the page's code finds there, numbered from 0 on every page (a `data-sn` element, an anchor,
+ * a `sn-t-N` template, embedded data, the messages), and the title. Always the new page's.
  */
-interface Unit { nodes: Node[]; key: string | null }
-const LOAD_ONLY = /(^|\s)(preload|modulepreload|preconnect|dns-prefetch|prefetch)(\s|$)/i;
-
-function units(head: HTMLHeadElement, base: URL): Unit[] {
-  const out: Unit[] = [];
-  const kids = [...head.childNodes];
+function owned(head: HTMLHeadElement): Node[][] {
+  const out: Node[][] = [], kids = [...head.childNodes];
   for (let i = 0; i < kids.length; i++) {
     const n = kids[i]!;
-    if (n.nodeType == 8) {
-      // an anchor: its start comment, what was rendered in it, its end (nested anchors inside)
-      if (!/^sn \d+$/.test((n as Comment).data)) continue;
+    if (n.nodeType == 8 && /^sn \d+$/.test((n as Comment).data)) {
       const nodes: Node[] = [n];
       for (let depth = 1; depth && ++i < kids.length;) {
         const k = kids[i]!;
         nodes.push(k);
         if (k.nodeType == 8) depth += /^sn \d+$/.test((k as Comment).data) ? 1 : (k as Comment).data == '/sn' ? -1 : 0;
       }
-      out.push({ nodes, key: null });
-      continue;
+      out.push(nodes);
+    } else if (n.nodeType == 1) {
+      const el = n as Element;
+      if (el.localName == 'title' || el.hasAttribute('data-sn') || el.hasAttribute('data-sn-messages') || (el.localName == 'template' && /^sn-t-/.test(el.id))) out.push([el]);
     }
-    if (n.nodeType != 1) continue;
-    const el = n as Element, tag = el.localName, type = (el.getAttribute('type') ?? '').toLowerCase();
-    let key: string | null;
-    if (el.hasAttribute('data-sn') || el.hasAttribute('data-sn-messages') || (tag == 'template' && /^sn-t-/.test(el.id))) key = null;
-    else if (tag == 'script') key = type == 'application/json' || type == 'speculationrules' ? el.outerHTML : 'skip';
-    else if (tag == 'base' || (tag == 'meta' && (el.hasAttribute('charset') || el.hasAttribute('http-equiv')))) key = 'skip';
-    else if (tag == 'link' && LOAD_ONLY.test(el.getAttribute('rel') ?? '')) key = 'skip';
-    else if (tag == 'link' && el.hasAttribute('href')) {
-      // the same file, whatever relative URL each page writes for it
-      const x = el.cloneNode() as Element;
-      x.setAttribute('href', new URL(el.getAttribute('href')!, base).href);
-      key = x.outerHTML;
-    } else key = el.outerHTML;
-    out.push({ nodes: [el], key });
   }
   return out;
 }
+
+/** A stylesheet of the head, by what it is: a link's resolved URL, a `<style>`'s text. */
+const sheets = (head: HTMLHeadElement, base: URL) => new Map([...head.children].flatMap((el): Array<[string, Element]> =>
+  el.localName == 'style' ? [['style:' + el.textContent, el]]
+  : el.localName == 'link' && /(^|\s)stylesheet(\s|$)/i.test(el.getAttribute('rel') ?? '') && el.hasAttribute('href') ? [[new URL(el.getAttribute('href')!, base).href, el]]
+  : []));
 
 /** What only a page load can change: a page that differs here is loaded. */
 const fixed = (d: Document, base: URL) => JSON.stringify([
@@ -93,50 +80,46 @@ const fixed = (d: Document, base: URL) => JSON.stringify([
   [...d.querySelectorAll('script[data-sn-i18n]')].map((x) => x.getAttribute('data-sn-i18n')),
 ]);
 
-/** A node of the fetched document, for this one: scripts made anew (a parsed one never runs), URLs resolved. */
-function adopt(n: Node, base: URL): Node {
-  if (n.nodeType == 1 && (n as Element).localName == 'script') {
-    const x = document.createElement('script');
-    for (const a of (n as Element).attributes) x.setAttribute(a.name, a.value);
-    x.textContent = n.textContent;
-    return x;
-  }
-  const x = document.adoptNode(n);
-  if (x.nodeType == 1 && (x as Element).localName == 'link' && (x as Element).hasAttribute('href')) {
-    (x as Element).setAttribute('href', new URL((x as Element).getAttribute('href')!, base).href);
-  }
-  return x;
-}
-
 /**
- * Puts the new page's head elements in (each after the element it follows there, so the cascade keeps its
- * order) and, at `done()`, takes out the old page's that the new one does not have. null: the pages differ in
- * what only a load can change.
+ * The head, kept simple: the new page's own nodes (above) and the stylesheets it has and the page shown
+ * lacks go in before the swap, the stylesheets loaded; at `done()`, the old page's own nodes and the
+ * stylesheets only it had go. Everything else (metas, links, scripts) stays as the first page had it:
+ * it is for crawlers and link previews, which load each page. null: what only a load can change differs.
  */
 function heads(doc: Document, base: URL): { ready: Promise<unknown>; done(): void; undo(): void } | null {
-  if (fixed(document, new URL(location.href)) != fixed(doc, base)) return null;
-  const olds = units(document.head, new URL(location.href)), news = units(doc.head, base);
-  const free = new Map<string, Unit[]>();
-  for (const u of olds) if (u.key && u.key != 'skip') free.set(u.key, [...(free.get(u.key) ?? []), u]);
-  const stay = new Set<Unit>(), added: Node[] = [], loads: Promise<unknown>[] = [];
-  let after: Node | null = null;
-  for (const u of news) {
-    if (u.key == 'skip') continue;
-    const same = u.key ? free.get(u.key)?.shift() : undefined;
-    if (same) { stay.add(same); after = same.nodes[same.nodes.length - 1]!; continue; }
-    for (const n of u.nodes) {
-      const x = adopt(n, base);
-      document.head.insertBefore(x, after ? after.nextSibling : null);
-      after = x;
-      added.push(x);
-      if (x.nodeType == 1 && (x as Element).localName == 'link' && /(^|\s)stylesheet(\s|$)/i.test((x as Element).getAttribute('rel') ?? '')) {
-        loads.push(new Promise((r) => { (x as HTMLLinkElement).onload = (x as HTMLLinkElement).onerror = r; }));
-      }
+  const here = new URL(location.href);
+  if (fixed(document, here) != fixed(doc, base)) return null;
+  const old = owned(document.head).flat(), have = sheets(document.head, here), keep = new Set<Element>();
+  const added: Node[] = [], loads: Promise<unknown>[] = [];
+  const add = (n: Node) => {
+    // a parsed script never runs, and a link's URL is the fetched page's
+    let x: Node;
+    if (n.nodeType == 1 && (n as Element).localName == 'script') {
+      const s = document.createElement('script');
+      for (const a of (n as Element).attributes) s.setAttribute(a.name, a.value);
+      s.textContent = n.textContent;
+      x = s;
+    } else {
+      x = document.adoptNode(n);
+      if ((x as Element).localName == 'link') (x as Element).setAttribute('href', new URL((x as Element).getAttribute('href')!, base).href);
     }
+    document.head.append(x);
+    added.push(x);
+    return x;
+  };
+  for (const [k, el] of sheets(doc.head, base)) {
+    const same = have.get(k);
+    if (same) { keep.add(same); continue; }
+    const x = add(el) as HTMLLinkElement;
+    if (x.localName == 'link') loads.push(new Promise((r) => { x.onload = x.onerror = r; }));
   }
+  for (const group of owned(doc.head)) for (const n of group) add(n);
   return {
     ready: Promise.all(loads),
-    done: () => { for (const u of olds) if (u.key != 'skip' && !stay.has(u)) for (const n of u.nodes) (n as ChildNode).remove(); },
+    done: () => {
+      for (const n of old) (n as ChildNode).remove();
+      for (const el of have.values()) if (!keep.has(el)) el.remove();
+    },
     undo: () => { for (const n of added) (n as ChildNode).remove(); },
   };
 }
