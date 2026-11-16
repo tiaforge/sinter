@@ -118,6 +118,7 @@ Attribute names, function names and diagnostic codes are public API. Before
 
 ### Fixed
 
+- A dialog closed by the browser after a handler changed its state no longer empties while it fades out: a `command="close"` or `request-close` button (`data-sn-on-click="draft = null" commandfor="edit" command="close"`), a submit of a `method="dialog"` form, or Escape in a modal dialog. The handler's changes rendered before the close, so the dialog's text and fields vanished during its exit transition; its bindings now wait as in a closed dialog, and render a task later if a handler prevented the close.
 - A list computed from others (`data-sn-for="x in xs.slice()"`, `xs.filter(…)`, a helper over a list) renders a change to an item in place (`xs[0].t = …`, a `forEach` write): its rows did not, as what they read of the item had no dependency. When such a list is evaluated again, the rows it keeps render again.
 
 - A component whose root is its slot, with a named fill (an element, a chain or a component tag), in a loop or a branch of another component's slot content failed the build over constants (`SN201`): its scope now starts in the slot content's writer's scope and rows.

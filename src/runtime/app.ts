@@ -444,6 +444,12 @@ export function mount(root: Document | Element, o: MountOptions): App {
   /** props set on custom elements not defined yet, by element: the latest value of each */
   const early = new WeakMap<Element, Map<string, unknown>>();
   const deferred = new Set<RB>();
+  /**
+   * Open dialogs the event being handled is about to close (its default action, which runs after the
+   * handlers and their flush): their bindings wait as in a closed dialog, so what a handler clears
+   * (`draft = null` on a Cancel button) is not painted while the dialog is still showing.
+   */
+  const closing = new Set<Element>();
   const listeners = new Map<string, Set<(p: unknown) => void>>(), cleanups: Array<() => void> = [];
   const shared = new Map<string, { n: number; c: AbortController; p: Promise<Got> }>();
   /** `showModal(id)`, `close(id)`: the dialog of this mount root with that id; `run(id)`: any element */
@@ -979,7 +985,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
     const force = level == 2 || (level == 1 && !!rb.b.i);
     if (!force && !(deferred.size && deferred.has(rb)) && !(rb.b.d && hit(rb.b.d, rb.s))) return true;
     // (an anchor's start comment is in its parent element, which a dialog's check reads)
-    if (rb.c && (rb.el.nodeType == 1 ? rb.el : rb.el.parentElement)?.closest('dialog:not([open])')) { deferred.add(rb); return false; }
+    if (rb.c && waits(rb.el.nodeType == 1 ? rb.el as Element : rb.el.parentElement)) { deferred.add(rb); return false; }
     if (deferred.size) deferred.delete(rb);
     const v = evaluate(rb), k = rb.b.k;
     if (k == 'for') reconcile(rb, v);
@@ -988,6 +994,46 @@ export function mount(root: Document | Element, o: MountOptions): App {
     else if (k == 'cmp') app.ext.components!(rb, v);
     else if (!Object.is(v, rb.v)) { write(rb.b, rb.el, v, rb.v == UNSET ? undefined : rb.v, rb.v == UNSET); rb.v = v; }
     return true;
+  }
+
+  /** In a closed dialog, or one the current event closes: a binding there waits until it opens. */
+  function waits(el: Element | null): boolean {
+    if (!el) return false;
+    if (el.closest('dialog:not([open])')) return true;
+    for (const d of closing) if (d.contains(el)) return true;
+    return false;
+  }
+
+  /** Writes the bindings that wait in a dialog that is open (it opened, or an expected close did not happen). */
+  function reveal(d: Element) {
+    for (const rb of [...deferred]) if (deferred.has(rb) && d.contains(rb.el)) { cur = []; walk([rb], 2); }
+    // a select's options inside the dialog render after its model: set its value again
+    syncSelects();
+  }
+
+  /**
+   * The open dialog the default action of `e` closes, before the handlers run: a `close` or
+   * `request-close` command button, a submit of a `method="dialog"` form, Escape in a dialog that
+   * closes on it. A handler may still prevent it: a task later the dialog renders if it stayed open.
+   */
+  function closes(e: Event, el: Element): Element | null {
+    let d: Element | null | undefined = null;
+    if (e.type == 'click') {
+      const b = el.closest('button');
+      if (!b || b.disabled) return null;
+      const c = b.getAttribute('command'), t = b.getAttribute('commandfor');
+      if (t && (c == 'close' || c == 'request-close')) d = (b as any).commandForElement ?? dialog(t);
+      else if (b.type == 'submit' && b.form && (b.getAttribute('formmethod') ?? b.form.getAttribute('method'))?.toLowerCase() == 'dialog') d = b.form.closest('dialog');
+    } else if (e.type == 'submit') {
+      const s = (e as SubmitEvent).submitter, f = el as HTMLFormElement;
+      if ((s?.getAttribute('formmethod') ?? f.getAttribute('method'))?.toLowerCase() == 'dialog') d = f.closest('dialog');
+    } else if (e.type == 'keydown' && (e as KeyboardEvent).key == 'Escape' && !e.defaultPrevented) {
+      d = el.closest('dialog[open]');
+      let modal = false;
+      try { modal = !!d?.matches(':modal'); } catch { /* no :modal */ }
+      if (d && !modal && !/^(any|closerequest)$/.test(d.getAttribute('closedby') ?? '')) d = null;
+    }
+    return d?.localName == 'dialog' && d.hasAttribute('open') ? d : null;
   }
 
   /**
@@ -1414,10 +1460,12 @@ export function mount(root: Document | Element, o: MountOptions): App {
     const was = ev;
     if (!synth) ev ??= e;
     try {
-      if (e.type == 'toggle' && el.localName == 'dialog' && el.hasAttribute('open')) {
-        for (const rb of [...deferred]) if (deferred.has(rb) && el.contains(rb.el)) { cur = []; walk([rb], 2); }
-        // a select's options inside the dialog render after its model: set its value again
-        syncSelects();
+      if (e.type == 'toggle' && el.localName == 'dialog' && el.hasAttribute('open') && !closing.has(el)) reveal(el);
+      const d = closes(e, el);
+      if (d && !closing.has(d)) {
+        closing.add(d);
+        // the close runs after this event's handlers, in the same task; if it did not (prevented), render now
+        env.setTimeout(() => { closing.delete(d); if (!destroyed && d.hasAttribute('open')) reveal(d); }, 0);
       }
       // models update state before other handlers on the same event
       const m = (el as Tagged)[MODEL];
