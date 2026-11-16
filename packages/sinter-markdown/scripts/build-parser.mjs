@@ -3,12 +3,9 @@
 //   npm run build:parser            write sinter/parser.js
 //   npm run build:parser -- --check fail if sinter/parser.js is not what this script writes
 //
-// Why one prebundled module (README.md, "The parser"): the app's bundler would resolve micromark's
-// dependencies with the app's conditions. With `browser`, decode-named-character-reference decodes
-// entities through `innerHTML`, which throws under Trusted Types; with `development`, micromark
-// bundles `debug`. Here they resolve with production, non-browser conditions, once, so every app
-// gets the table-based decoder, and sinter's build-time check sees one module that uses no browser
-// global.
+// Why one prebundled module (README.md, "The parser"): every app gets the same parser, with entities
+// decoded from a table (scripts/entities.js) and no punycode (scripts/punycode.js), whatever its
+// bundler's conditions, and sinter's build-time check sees one module that uses no browser global.
 import { readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { rolldown } from 'rolldown';
@@ -16,13 +13,15 @@ import { rolldown } from 'rolldown';
 const here = (p) => fileURLToPath(new URL(p, import.meta.url));
 const OUT = here('../sinter/parser.js');
 const pkg = (name) => JSON.parse(readFileSync(here(`../node_modules/${name}/package.json`), 'utf8')).version;
-const VERSIONS = ['mdast-util-from-markdown', 'micromark', 'decode-named-character-reference'].map((n) => `${n} ${pkg(n)}`).join(', ');
+const VERSIONS = ['markdown-it', 'linkify-it', 'character-entities'].map((n) => `${n} ${pkg(n)}`).join(', ');
 
 const bundle = await rolldown({
   input: here('./parser-entry.js'),
   platform: 'neutral',
-  // never `browser` (the innerHTML decoder) and never `development` (micromark/dev and debug)
-  resolve: { conditionNames: ['production', 'import', 'module', 'default'], mainFields: ['module', 'main'] },
+  resolve: {
+    conditionNames: ['production', 'import', 'module', 'default'], mainFields: ['module', 'main'],
+    alias: { entities: here('./entities.js'), 'punycode.js': here('./punycode.js') },
+  },
   transform: { define: { 'process.env.NODE_ENV': '"production"' } },
   treeshake: true,
 });

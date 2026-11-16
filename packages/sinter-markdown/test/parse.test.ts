@@ -39,6 +39,19 @@ describe('the tree', () => {
     expect(text(doc.children[3]!)).toBe('[^1]');
   });
 
+  // where markdown-it's tokens differ from mdast, parser-entry.js gives mdast's answer
+  test('mdast from markdown-it: a fence info string decoded, an image alt as text, looseness by the items own paragraphs', () => {
+    expect(parse('``` f&ouml;\\+o bar\nx\n```').children[0]).toEqual({ type: 'code', lang: 'fö+o', meta: 'bar', value: 'x' });
+    expect(parse('![foo *bar* [baz](/u)](/i.png)', { images: 'keep' }).children[0]).toEqual(para({ type: 'image', url: '/i.png', title: null, alt: 'foo bar baz' }));
+    // a paragraph inside a quote in an item does not make the list loose
+    expect(parse('- a\n  > b\n- c').children[0]).toMatchObject({ type: 'list', spread: false });
+    expect(parse('- a\n\n- c').children[0]).toMatchObject({ type: 'list', spread: true });
+    // a task item's marker leaves its text; with nothing after it, or another letter in it, it is not a task
+    expect(parse('- [x] a\n- [ ] \n- [y] b').children[0]).toMatchObject({ children: [
+      { checked: true, children: [para(t('a'))] }, { checked: null }, { checked: null, children: [para(t('[y] b'))] },
+    ] });
+  });
+
   test('entities are decoded by the table, never by the DOM', () => {
     expect(parse('Fish &amp; chips &copy; &#x41; &unknown;')).toEqual({ type: 'root', children: [para(t('Fish & chips © A &unknown;'))] });
   });
@@ -206,5 +219,6 @@ describe('the modules', () => {
     const src = readFileSync(join(PKG, 'sinter/parser.js'), 'utf8');
     expect(src).not.toMatch(/innerHTML|document\.createElement|createDebug|localStorage|navigator/);
     expect(src).toMatch(/const characterEntities = \{/);
+    expect(src).not.toMatch(/decode_data_html|Uint16Array/);
   });
 });
