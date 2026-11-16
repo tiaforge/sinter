@@ -4,6 +4,7 @@
 import { describe, expect, test } from 'vitest';
 import { compile } from '../../src/compiler/index.js';
 import { scrub } from '../../src/content-node.js';
+import { chunks } from '../../src/content.js';
 
 const collections = new Map<string, { key: string; value: readonly unknown[] }>([
   ['products', { key: 'sku', value: [{ sku: 'b-2', name: 'Bolt', price: 2 }, { sku: 'a-1', name: 'Anchor', price: 10 }] }],
@@ -88,3 +89,12 @@ describe('scrubbing a loader\'s error', () => {
     expect(scrub('401 with key sk-live-0123456789', { CMS_TOKEN: 'sk-live-0123456789', SHORT: 'abc' })).toBe('401 with key ***');
   });
 });
+
+describe('chunks()', () => {
+  test('pages of a size, numbered from 1, each with the count; an empty list is one empty page; a size below 1 throws', () => {
+    expect(chunks([1, 2, 3], 2)).toEqual([{ n: 1, items: [1, 2], count: 2 }, { n: 2, items: [3], count: 2 }]);
+    expect(chunks([], 10)).toEqual([{ n: 1, items: [], count: 1 }]);
+    expect(() => chunks([1], 0)).toThrow(/`size` is a whole number of 1 or more/);
+  });
+});
+

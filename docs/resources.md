@@ -291,6 +291,12 @@ export const tags = collection({
   type, so `p.nmae` is an error with `collection<Product>({ … })`; its values come from the snapshot each build and
   dev server writes (`node_modules/.cache/sinter/content.json`), and `sinter check` says when there is none yet, or
   when the content module changed since.
+- **Per language**: with [`localePrefix`](static-pages.md#languages), `collection({ key, perLocale: true, load })`
+  runs once per language with `ctx.locale` (`load: ({ locale }) => cms.products({ locale })`), and each language's
+  pages read its own list; `sinter check` and the editor see the base language's. A collection every language
+  shares cannot `get` one that differs per language. Without `localePrefix`, `perLocale` is an error.
+- **An index in pages**: `chunks(list, size)` from `@tiaforge-ui/sinter/content` gives `{ n, items, count }` per page,
+  `n` from 1: a collection of pages for a [page per entry](static-pages.md#a-page-per-entry) at `/blog/page/:n`.
 - `sinter({ content: 'src/data.ts' })` moves the module; `content: false` turns it off. `content` cannot be an
   API's name (SN329).
 

@@ -74,6 +74,21 @@ describe('data-sn-pages', () => {
     expect(build(`<!doctype html><html data-sn-path="/blog/:title" data-sn-pages="post in posts"><head></head><body><sn-resource name="posts" src="file:/d/*.md"></sn-resource></body></html>`, {}, { 'd/a.md': '---\ntitle: A b\n---\n' }).pages!.entries[0]!.path).toBe('/blog/A%20b');
   });
 
+  test('SN345: `$url.<param>` of the pattern reads the entry\'s field through the URL; a query parameter is fine', () => {
+    const page = (expr: string) => `<!doctype html><html data-sn-path="/blog/:slug" data-sn-pages="post in posts"><head></head><body><sn-resource name="posts" src="file:/content/posts/*.md"></sn-resource><p data-sn-text="${expr}"></p></body></html>`;
+    expect(errors(build(page('$url.slug')))).toEqual([expect.stringMatching(/^SN345 `\$url\.slug` on a `data-sn-pages` page: .* `:slug` is the entry's field, `post\.slug`/)]);
+    expect(errors(build(page('$url.tab ?? post.slug')))).toEqual([]);
+  });
+
+  test('SN536 is an error on a `data-sn-pages` page: one long entry would ship its body and the runtime', () => {
+    const page = '<!doctype html><html data-sn-path="/blog/:slug" data-sn-pages="post in posts"><head></head><body><sn-resource name="posts" src="file:/content/posts/*.md"></sn-resource><ul><template data-sn-for="w in post.body.split(\'\')"><li data-sn-text="w"></li></template></ul></body></html>';
+    const out = build(page, { expansionLimit: 3 });
+    expect(out.diagnostics.filter((d) => d.code === 'SN536').map((d) => d.severity)).toEqual(['error']);
+    // elsewhere, a warning as before
+    const plain = build('<!doctype html><html><head></head><body><ul><template data-sn-for="w in \'abcdef\'.split(\'\')"><li data-sn-text="w"></li></template></ul></body></html>', { expansionLimit: 3 });
+    expect(plain.diagnostics.filter((d) => d.code === 'SN536').map((d) => d.severity)).toEqual(['warning']);
+  });
+
   test('typed for `sinter check` as one item of its list', () => {
     const r = build(PAGE, { check: true }).check!.resources.find((x) => x.name === 'post')!;
     expect(r.item).toBe('posts');

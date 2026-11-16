@@ -687,3 +687,5 @@ Settled in review, against `main` at 2b33230, in the order they were discussed:
 | Speculation Rules | A `data-sn-pages` page is named once, by its pattern: listing every entry in every page was quadratic (found by the prototype) | [Prototype](#prototype) |
 | Compile cost | The prototype measured 180 ms per markdown entry, linear, the compiler's own cost (two compiles per page, re-parsing per node). One compile per page and caches across compiles come before part B | [Prototype](#prototype) |
 | Entry URLs | Encoded with the sitemap's encoder; a URL another entry, page or `public/` file has fails the build | [§2](#a-glob-is-a-list) |
+
+Later (after #64): `perLocale`, `chunks`, SN345 for `$url.<param>` on a `data-sn-pages` page, and SN536 as an error there.

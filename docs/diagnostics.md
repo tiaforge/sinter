@@ -602,6 +602,16 @@ A collection (`content:`) holds what a loader returned, which can be more than a
 
 **Fix:** Add `fields="sku,name,price"` with what the browser code reads, or keep the reads at build time (bindings over constants fold). Fields left out are `undefined` in the browser.
 
+## SN345 url-param-pages
+
+Error, for example:
+
+> `$url.slug` on a `data-sn-pages` page: each entry's page is written at its own path, so `:slug` is the entry's field, `post.slug`
+
+A `data-sn-pages` page is written once per entry, each at its pattern filled from the entry, as a page with a fixed path. Its pattern's parameters are the entry's fields, known at build time; read through `$url` they would be read in the browser, and keep the page from being written at build time.
+
+**Fix:** Read the entry's field: `post.slug` for `:slug`, where `post` is the name in `data-sn-pages="post in posts"`. A query parameter (`$url.tab`) is fine.
+
 ## SN401 parse-error
 
 Error, for example:

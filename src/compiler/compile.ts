@@ -1321,6 +1321,13 @@ class Compiler {
     if (this.page.writesUrl) this.features.add('location');
     // same-page links: the module, and location.ts for the history, on pages with one the build can see.
     // Not with `<base href>`: links resolve against it, not the page's URL
+    // a page per entry is written at a fixed path: what its pattern's parameters were is the entry's, not the URL's
+    if (this.pagesDecl) {
+      const params = new Set(this.pagesDecl.pattern.split('/').filter((x) => x[0] === ':').map((x) => x.slice(1)));
+      const read = new Set<string>();
+      eachPath(ir, (p) => { if (typeof p === 'string' && p.startsWith('$url.')) { const n = p.slice(5).split('.')[0]!; if (params.has(n)) read.add(n); } }, () => {});
+      for (const n of [...read].sort()) this.report(this.pagesDecl.html, 'data-sn-pages', 'SN345', `\`$url.${n}\` on a \`data-sn-pages\` page: each entry's page is written at its own path, so \`:${n}\` is the entry's field, \`${this.pagesDecl.name}.${n}\``, 0);
+    }
     const reads = this.urlReads(ir, paths), own = this.ownPaths(paths);
     if (reads) this.checkDroppedQuery(reads, paths);
     // `navigate()` may go to this page with another query too: the build cannot see where, so it loads the module
@@ -6535,8 +6542,11 @@ class Compiler {
   /** `SN536` at a constant tree left to the browser, as it would take the page past the expansion limit. */
   expansionWarning(el: P5Element, limit: number, list: boolean) {
     const what = list ? 'this list\'s rows' : 'this component\'s tree';
-    this.report(el, null, 'SN536', `${what} would take the page past ${limit.toLocaleString('en')} rows and components expanded at build time, so it is rendered in the browser`, 0,
+    const n = this.diagnostics.length;
+    this.report(el, null, 'SN536', `${what} would take the page past ${limit.toLocaleString('en')} rows and components expanded at build time, so it is rendered in the browser${this.pagesDecl ? ': on a `data-sn-pages` page, where every entry\'s page would ship its content and the runtime, that is an error' : ''}`, 0,
       'a page that long builds and lays out slowly: split the content over pages, keep a long list of it a list the browser renders, or raise `sinter({ expansionLimit })` if the page is measured fast enough');
+    // a page per entry: one long entry would quietly ship its body and the runtime, on that page only
+    if (this.pagesDecl) for (const d of this.diagnostics.slice(n)) d.severity = 'error';
   }
 
   /** The first pass of a prerendered page, which may compile it again: it records what folds (`collectConstants`). */

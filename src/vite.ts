@@ -10,7 +10,7 @@ import { gzipSync } from 'node:zlib';
 import { createRequire } from 'node:module';
 import { pathToFileURL } from 'node:url';
 import { loadEnv, type Plugin, type ResolvedConfig, type ViteDevServer } from 'vite';
-import { loadContent, writeSnapshot, type LoadedContent } from './content-node.js';
+import { collectionsIn, loadContent, writeSnapshot, type LoadedContent } from './content-node.js';
 import { applyStrict, CODES, compile, formatDiagnostic, formatWarning, strictPromotes, suggest, type Code, type CheckUnit, type Diagnostic, type CompileResult, type SourceMap } from './compiler/index.js';
 import { lazyOf, project, staticPages, strictOf, type ProjectOptions } from './project.js';
 import { CHUNK_MARK, chainText, isComponentScript, LAZY, lazyHelpers, lazyPackage, lineCol, loaderModule, mentions, parseLazyId, reachLazy, rewriteLazy, scanLazy, stubModule } from './lazy-build.js';
@@ -586,7 +586,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     if (!/data-sn-pages\b/.test(html)) { templatesKept.set(k, null); return null; }
     const p = proj();
     // in a language: its entries (a `{$locale}` path reads that language's files)
-    const out = compile(html, { file, root, dev, helpers: p.helpers, actions: p.actions, readFile: readVia(p), listFiles: p.listFiles, ...(dev ? {} : { globCache }), ...contentOpts(), lazy: p.lazy, openapi: p.openapi, apis: p.apis, prerender: true, ...(locale ? { locale: { name: locale, urls: null, base: resolved?.base ?? '/' } } : {}) });
+    const out = compile(html, { file, root, dev, helpers: p.helpers, actions: p.actions, readFile: readVia(p), listFiles: p.listFiles, ...(dev ? {} : { globCache }), ...contentOpts(locale), lazy: p.lazy, openapi: p.openapi, apis: p.apis, prerender: true, ...(locale ? { locale: { name: locale, urls: null, base: resolved?.base ?? '/' } } : {}) });
     const fatal = out.diagnostics.filter((d) => d.severity === 'error' && /^SN34[01]$/.test(d.code));
     if (fatal.length) throw new Error(`sinter: ${fatal.map(formatDiagnostic).join('\n')}`);
     if (!dev) templatesKept.set(k, out.pages ?? null);
@@ -677,7 +677,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       const p = proj(), v = virtual.get(file);
       try {
         // with the APIs and specs: what is requested ahead is the page's own request (its base, its configured shape)
-        const r = compile(readPage(file), { file: v?.source ?? file, root, dev, helpers: p.helpers, actions: p.actions, readFile: readVia(p), listFiles: p.listFiles, ...(dev ? {} : { globCache }), ...contentOpts(), lazy: p.lazy, openapi: p.openapi, apis: p.apis, ...(v?.page ? { page: v.page } : {}), describeOnly: true, ...(v?.locale ? { locale: { name: v.locale, urls: null, base: resolved?.base ?? '/' } } : {}) });
+        const r = compile(readPage(file), { file: v?.source ?? file, root, dev, helpers: p.helpers, actions: p.actions, readFile: readVia(p), listFiles: p.listFiles, ...(dev ? {} : { globCache }), ...contentOpts(v?.locale), lazy: p.lazy, openapi: p.openapi, apis: p.apis, ...(v?.page ? { page: v.page } : {}), describeOnly: true, ...(v?.locale ? { locale: { name: v.locale, urls: null, base: resolved?.base ?? '/' } } : {}) });
         described.set(file, { parts: r.prefetch, path: r.path, off: !!r.prefetchOff });
       } catch { described.set(file, { parts: null, path: [], off: false }); }
     }
@@ -811,13 +811,14 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       root, file: p.contentFile, command: dev ? 'serve' : 'build', readFile: p.readFile, listFiles: p.listFiles,
       env: loadEnv(resolved.mode, resolved.envDir === false ? root : resolved.envDir ?? root, ''),
       configFile: resolved.configFile ?? false, mode: resolved.mode, ...(resolved.configFile ? {} : { alias: resolved.resolve.alias }),
+      ...(locales ? { locales: locales.list } : {}),
     });
-    // what `sinter check` and the editor compile against (the last load that worked)
-    if (!c.error) writeSnapshot(root, p.contentFile, c);
+    // what `sinter check` and the editor compile against (the last load that worked; with languages, the base one's)
+    if (!c.error) writeSnapshot(root, p.contentFile, c, locales?.base);
     return c;
   };
   /** what every compile gets of the collections */
-  const contentOpts = () => (content ? { collections: content.collections, ...(content.error ? { collectionsError: content.error } : {}) } : {});
+  const contentOpts = (locale?: string) => (content ? { collections: collectionsIn(content, locale), ...(content.error ? { collectionsError: content.error } : {}) } : {});
   /** builds: the `file:` lists already built (compile's `globCache`), cleared with the reads */
   const globCache: NonNullable<Parameters<typeof compile>[1]['globCache']> = new Map();
   const readVia = (p: ReturnType<typeof project>) => (dev ? p.readFile : (path: string) => {
@@ -851,7 +852,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     if (!seen.has(file)) { seen.add(file); if (dev || !pageInputs) pagesCache = null; }
     const prefetch = options.prefetch !== false && prefetchPages().length ? PREFETCH : null;
     const out = compile(html, {
-      file: src, root, dev, sourcemap: dev || !!resolved?.build.sourcemap, helpers: p.helpers, actions: p.actions, moduleSrc: `${PREFIX}${rel}.js`, config: p.config, readFile: readVia(p), listFiles: p.listFiles, ...(dev ? {} : { globCache }), ...contentOpts(), prefetch,
+      file: src, root, dev, sourcemap: dev || !!resolved?.build.sourcemap, helpers: p.helpers, actions: p.actions, moduleSrc: `${PREFIX}${rel}.js`, config: p.config, readFile: readVia(p), listFiles: p.listFiles, ...(dev ? {} : { globCache }), ...contentOpts(v?.locale), prefetch,
       ...(page ? { page } : {}),
       check: !!options.typecheck && !dev, openapi: p.openapi, apis: p.apis, complexity: p.complexity, ...(p.expansionLimit ? { expansionLimit: p.expansionLimit } : {}), componentNames: p.componentNames, libraries: p.libraries, checkCycles: p.checkCycles, lazy: p.lazy,
       ...(lazyPkgs.length ? { lazyScript, lazyModule: (m: string) => lazyHelpers(root, lazyPkgs, undefined, p.libraries).reach(m) } : {}),

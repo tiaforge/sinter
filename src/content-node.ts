@@ -13,7 +13,10 @@ import { importModule, type LoadOptions } from './helpers-node.js';
 export type Collections = Map<string, { key: string; value: readonly unknown[] }>;
 
 export interface LoadedContent {
+  /** the collections every language shares */
   collections: Collections;
+  /** with languages: each language's `perLocale` collections */
+  perLocale: Map<string, Collections>;
   /** why the module or a collection failed (each line one problem), or null */
   error: string | null;
   /** the files the loaders read through `ctx.files`: a change in one runs them again (dev) */
@@ -29,15 +32,23 @@ export interface ContentOptions extends Omit<LoadOptions, 'helpersFile' | 'manif
   listFiles: (dir: string) => string[];
   /** the variables loaders get as `ctx.env` (Vite's `loadEnv`) */
   env: Record<string, string>;
+  /** with `localePrefix`: the languages a `perLocale` collection is loaded for */
+  locales?: readonly string[];
+}
+
+/** a compile's collections in a language: the shared ones, and that language's own */
+export function collectionsIn(c: LoadedContent, locale: string | undefined): Collections {
+  const own = locale ? c.perLocale.get(locale) : undefined;
+  return own?.size ? new Map([...c.collections, ...own]) : c.collections;
 }
 
 /** Loads the content module and runs its collections. Never throws: a failure is `error`. */
 export async function loadContent(o: ContentOptions): Promise<LoadedContent> {
-  const collections: Collections = new Map(), files = new Set<string>();
+  const collections: Collections = new Map(), perLocale = new Map<string, Collections>(), files = new Set<string>();
   const rel = (f: string) => relative(o.root, f).split(sep).join('/');
   let mod: Record<string, unknown>;
   try { mod = await importModule(o, o.file); } catch (e) {
-    return { collections, error: scrub(`the content module could not be loaded (${rel(o.file)}): ${String((e as Error)?.message ?? e).split('\n')[0]}`, o.env), files: [] };
+    return { collections, perLocale, error: scrub(`the content module could not be loaded (${rel(o.file)}): ${String((e as Error)?.message ?? e).split('\n')[0]}`, o.env), files: [] };
   }
   const problems: string[] = [];
   const names = new Map<Collection, string>();
@@ -46,29 +57,47 @@ export async function loadContent(o: ContentOptions): Promise<LoadedContent> {
     if (!isCollection(v)) { problems.push(`${rel(o.file)}: \`${name}\` is exported but not a collection; the content module exports only collections (\`collection({ key, load })\`), and helpers go in the helpers module`); continue; }
     names.set(v, name);
   }
-  const running = new Map<Collection, Promise<unknown[]>>();
-  const run = (c: Collection, chain: string[]): Promise<unknown[]> => {
+  // one run per collection, and per language for a `perLocale` one: `get` shares it, whoever asks
+  const running = new Map<string, Promise<unknown[]>>();
+  const run = (c: Collection, chain: string[], locale: string | undefined): Promise<unknown[]> => {
     const name = names.get(c) ?? '(a collection the content module does not export)';
     if (chain.includes(name)) return Promise.reject(new Error(`collections get each other in a cycle: ${[...chain, name].join(' → ')}`));
-    let p = running.get(c);
+    const at = c.perLocale ? locale : undefined;
+    const k = `${name}\0${at ?? ''}`;
+    let p = running.get(k);
     if (!p) {
       const ctx: CollectionContext = {
         files: (async (glob: string, opts?: { drafts?: string }) => readGlob(o, glob, opts?.drafts ?? null, files)) as CollectionContext['files'],
-        get: (other) => run(other as Collection, [...chain, name]) as never,
+        get: (other) => {
+          const oc = other as Collection;
+          // a list every language shares cannot be built from one that differs per language
+          if (oc.perLocale && !c.perLocale) return Promise.reject(new Error(`it gets \`${names.get(oc) ?? 'a collection'}\`, which is loaded per language (\`perLocale\`): make it \`perLocale: true\` too`)) as never;
+          return run(oc, [...chain, name], at) as never;
+        },
         env: o.env,
         command: o.command,
+        locale: at,
       };
       p = Promise.resolve().then(() => c.load(ctx)).then((v) => checked(v, name, c.key));
-      running.set(c, p);
+      running.set(k, p);
     }
     return p;
   };
+  const langs = o.locales ?? [];
   await Promise.all([...names].map(async ([c, name]) => {
-    try { collections.set(name, { key: c.key, value: await run(c, []) }); } catch (e) {
+    try {
+      if (!c.perLocale) { collections.set(name, { key: c.key, value: await run(c, [], undefined) }); return; }
+      if (!langs.length) throw new Error('it is loaded per language (`perLocale: true`), and the site has none: `perLocale` needs `sinter({ localePrefix })`');
+      for (const l of langs) {
+        const value = await run(c, [], l);
+        if (!perLocale.has(l)) perLocale.set(l, new Map());
+        perLocale.get(l)!.set(name, { key: c.key, value });
+      }
+    } catch (e) {
       problems.push(`collection \`${name}\`: ${String((e as Error)?.message ?? e).split('\n')[0]}`);
     }
   }));
-  return { collections, error: problems.length ? scrub(problems.join('\n'), o.env) : null, files: [...files].sort() };
+  return { collections, perLocale, error: problems.length ? scrub(problems.join('\n'), o.env) : null, files: [...files].sort() };
 }
 
 /**
@@ -143,11 +172,11 @@ function freeze<T>(v: T): T {
  */
 export const snapshotFile = (root: string) => join(root, 'node_modules/.cache/sinter/content.json');
 
-export function writeSnapshot(root: string, file: string, c: LoadedContent): void {
+export function writeSnapshot(root: string, file: string, c: LoadedContent, baseLocale?: string): void {
   try {
     const out = snapshotFile(root);
     mkdirSync(dirname(out), { recursive: true });
-    writeFileSync(out, JSON.stringify({ version: 1, module: relative(root, file).split(sep).join('/'), mtimeMs: statSync(file).mtimeMs, collections: Object.fromEntries(c.collections) }));
+    writeFileSync(out, JSON.stringify({ version: 1, module: relative(root, file).split(sep).join('/'), mtimeMs: statSync(file).mtimeMs, collections: Object.fromEntries(collectionsIn(c, baseLocale)) }));
   } catch { /* a cache: the check goes without it */ }
 }
 

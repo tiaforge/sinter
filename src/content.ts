@@ -23,6 +23,8 @@ export interface CollectionContext {
   env: Record<string, string>;
   /** `'build'` in `vite build`, `'serve'` in `vite dev` */
   command: 'build' | 'serve';
+  /** with `perLocale: true` (and `localePrefix`): the language this run loads for; else undefined */
+  locale: string | undefined;
 }
 
 export interface Collection<T = unknown> {
@@ -30,19 +32,31 @@ export interface Collection<T = unknown> {
   /** the field that tells entries apart: the resource's `key`, unique in the list */
   readonly key: string;
   readonly load: (ctx: CollectionContext) => T[] | Promise<T[]>;
+  /** loaded once per language (`ctx.locale`), each language's pages reading its own list */
+  readonly perLocale?: true;
 }
 
 /**
  * A collection: `key` names the field that tells entries apart, and `load` returns the list, a list of plain data
  * (arrays, objects, strings, numbers, booleans, `null`).
  */
-export function collection<T>(o: { key: keyof T & string; load: (ctx: CollectionContext) => T[] | Promise<T[]> }): Collection<T> {
+export function collection<T>(o: { key: keyof T & string; load: (ctx: CollectionContext) => T[] | Promise<T[]>; perLocale?: boolean }): Collection<T> {
   if (!o || typeof o.key !== 'string' || !o.key) throw new Error('collection(): `key` names the field that tells entries apart, e.g. `collection({ key: \'slug\', load })`');
   if (typeof o.load !== 'function') throw new Error('collection(): `load` is a function that returns the list, e.g. `load: async () => (await fetch(url)).json()`');
-  return { [COLLECTION]: true, key: o.key, load: o.load };
+  return { [COLLECTION]: true, key: o.key, load: o.load, ...(o.perLocale ? { perLocale: true as const } : {}) };
 }
 
 /** whether a value is a collection (of any instance of this module) */
 export function isCollection(v: unknown): v is Collection {
   return !!v && typeof v === 'object' && (v as Record<symbol, unknown>)[COLLECTION] === true;
+}
+
+/**
+ * A list in pages of `size` entries, for an index in pages (`data-sn-pages="p in postPages"` at `/blog/page/:n`):
+ * each page's number `n` (from 1), its `items`, and the number of pages, `count`.
+ */
+export function chunks<T>(list: readonly T[], size: number): Array<{ n: number; items: T[]; count: number }> {
+  if (!Number.isInteger(size) || size < 1) throw new Error(`chunks(): \`size\` is a whole number of 1 or more (it is ${String(size)})`);
+  const count = Math.max(1, Math.ceil(list.length / size));
+  return Array.from({ length: count }, (_, i) => ({ n: i + 1, items: list.slice(i * size, (i + 1) * size), count }));
 }
