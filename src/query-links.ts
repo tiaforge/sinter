@@ -5,7 +5,7 @@
 // origin, `download`, a `target`, `rel="external"`, a modifier key, a prevented default, or a
 // parameter the page does not read. Loaded only by pages with a link the build sees goes to the page
 // (its list of read parameters is `IR.urlReads`).
-import { chain, links } from './links.js';
+import { RANK, chain, links } from './links.js';
 import type { App, Feature } from './runtime/app.js';
 import { readUrl } from './runtime/url.js';
 
@@ -34,30 +34,56 @@ const feature: Feature = {
       // the same query: a `#hash` (the link's or the address bar's) is the browser's; else nothing changes
       if (!d && (to.hash || here().hash)) return false;
       if (!d) return true;
-      const loc = app.ext.location!, u = app.page.$url, href = to.href.replace(/#.*/, '');
+      const href = to.href.replace(/#.*/, '');
       // a history call the browser refuses (Safari, too often): false, and the core loads the URL
       // as the link wrote it (`?` stays), without its hash
-      try { replace ? app.env.replaceState(href) : loc.push(href); } catch { return false; }
+      try { replace ? app.env.replaceState(href) : app.ext.location!.push(href); } catch { return false; }
+      arrive(to);
+      return true;
+    };
+    /** the new entry is there (written, or the browser's): `$url` read again, the flush as after Back */
+    const arrive = (to: URL) => {
+      const u = app.page.$url;
       for (const k in u) delete u[k];
       Object.assign(u, readUrl(app.env.href(), app.ir.path));
-      loc.arrive();
+      app.ext.location!.arrive();
       app.mark('$url');
       // a native fragment navigation in the new entry: `:target`, `scroll-margin` and focus as in any page
       if (to.hash) (app.env.fragment ?? ((h) => location.replace(h)))(to.hash);
-      return true;
     };
-    // a link or `navigate()` to this page (the same origin and path) is the page's when it may; Back and
-    // Forward are the core's, the browser's `navigate` event the swap's. Deciding changes nothing: next-page
-    // data asks too. Where the browser should follow (a parameter the page does not read, a `#hash` with
-    // the same query) there is no decision
-    chain(app).nav.push((i) => {
-      if (i.kind == 'traverse' || i.source == 'event') return;
+    /**
+     * The same, from the browser's `navigate` event (the Navigation API): the browser makes the entry
+     * (`intercept()`), the scroll position and focus stay. False: the browser goes on with it.
+     */
+    const take = (e: Event & { intercept(o: object): void; preventDefault(): void }, to: URL, replace: boolean): boolean | void => {
+      const typing = app.ext.typing;
+      // what typing waits to commit goes into its own entry first, which a history call inside this event
+      // would abort: this one is cancelled, typing commits, and the link is followed again
+      if (typing?.waits()) {
+        e.preventDefault();
+        typing.finish();
+        (globalThis as { navigation?: { navigate(u: string, o: object): void } }).navigation?.navigate(to.href, { history: replace ? 'replace' : 'push' });
+        return;
+      }
+      const d = differs(to);
+      if (d == null || (!d && (to.hash || here().hash))) return false;
+      // the same query: nothing changes
+      if (!d) { e.preventDefault(); return; }
+      e.intercept({ scroll: 'manual', focusReset: 'manual', handler: async () => arrive(to) });
+    };
+    // a link or `navigate()` to this page (the same origin and path) is the page's when it may, from a click
+    // or from the browser's `navigate` event; Back and Forward are the core's. Deciding changes nothing:
+    // next-page data asks too. Where the browser should follow (a parameter the page does not read, a
+    // `#hash` with the same query) there is no decision
+    chain(app).add((i) => {
+      if (i.kind == 'traverse') return;
       const at = here(), to = new URL(i.to, at);
       if (to.origin != at.origin || to.pathname != at.pathname) return;
       const d = differs(to);
       if (d == null || (!d && (to.hash || at.hash))) return;
-      return { name: 'same', run: () => follow(to, i.kind == 'replace') };
-    });
+      const e = i.event as Parameters<typeof take>[0] | undefined;
+      return { name: 'same', run: () => (e ? take(e, to, i.kind == 'replace') : follow(to, i.kind == 'replace')) };
+    }, RANK.same);
     links(app);
   },
 };

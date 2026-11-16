@@ -3,7 +3,7 @@
 // one (or when it cannot run) is the core's alone, by the intent's source. Links become intents through
 // one shared listener (links.ts).
 import { expect, test } from 'vitest';
-import { chain, links } from '../../src/links.js';
+import { RANK, chain, links } from '../../src/links.js';
 import type { Decision, Intent } from '../../src/runtime/app.js';
 import { render } from '../../src/testing/index.js';
 
@@ -22,7 +22,7 @@ async function setup(decide: (i: Intent) => Decision | undefined = () => undefin
   await r.settle();
   const seen: Intent[] = [], ran: string[] = [];
   const c = chain(r.app);
-  c.nav.push((i) => { seen.push(i); return decide(i); });
+  c.add((i) => { seen.push(i); return decide(i); }, RANK.same);
   const click = async (id: string, o: MouseEventInit = {}) => {
     const ev = new MouseEvent('click', { bubbles: true, cancelable: true, ...o });
     r.root.querySelector(`#${id}`)!.dispatchEvent(ev);
@@ -57,7 +57,7 @@ test('a decision runs, once, and nothing loads; a run that cannot (false) is a l
 test('every handler is asked; the first decision is the one that runs', async () => {
   const p = await setup(() => ({ name: 'first', run: () => { p.ran.push('first'); } }));
   const after: Intent[] = [];
-  p.c.nav.push((i) => { after.push(i); return { name: 'second', run: () => { p.ran.push('second'); } }; });
+  p.c.add((i) => { after.push(i); return { name: 'second', run: () => { p.ran.push('second'); } }; }, RANK.swap);
   expect(p.c.go({ from: 'http://localhost/', to: 'http://localhost/x', kind: 'push', source: 'call' })?.name).toBe('first');
   expect(after).toHaveLength(1);
   expect(p.ran).toEqual(['first']);
@@ -107,4 +107,27 @@ test('Back and Forward: a traversal intent first; decided, `$url` is not read ag
   expect(p.url()).toBe('http://localhost/');
   expect(p.root.querySelector('span')!.textContent).toBe('1');
   expect(p.seen.filter((i) => i.kind == 'traverse').map((i) => [i.to, i.source])).toEqual([['http://localhost/?q=1', 'popstate'], ['http://localhost/', 'popstate']]);
+});
+
+test('handlers are asked in their rank, not in the order they were added', async () => {
+  const p = await setup(() => undefined);
+  const order: string[] = [];
+  p.c.add(() => { order.push('swap'); }, RANK.swap);
+  p.c.add(() => { order.push('views'); }, RANK.views);
+  p.c.decide({ to: 'http://localhost/x', kind: 'push', source: 'link' });
+  // the setup's handler has the rank of same-page links
+  expect(order).toEqual(['views', 'swap']);
+  expect(p.seen).toHaveLength(1);
+});
+
+test('a refusal beats every other decision: nothing runs, nothing loads', async () => {
+  const p = await setup(() => ({ name: 'mine', run: () => { p.ran.push('run'); } }));
+  p.c.add(() => ({ name: 'guard', refuse: true }), RANK.swap);
+  expect(p.c.go({ to: 'http://localhost/next', kind: 'push', source: 'call' })?.name).toBe('guard');
+  await p.settle();
+  expect(p.ran).toEqual([]);
+  expect(p.navigations).toEqual([]);
+  // a refused link: its default prevented
+  links(p.app);
+  expect(await p.click('a')).toBe(true);
 });
