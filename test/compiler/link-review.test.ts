@@ -39,6 +39,7 @@ function linked(pages: Page[], more: Record<string, string> = {}) {
     expect(() => { got = build(p, components, definitions); }, `${p.name}, round ${round}: linking threw`).not.toThrow();
     expect(text(got!), `${p.name}, round ${round}`).toEqual(text(build(p, components)));
   }
+  return definitions;
 }
 
 test('a feature the recording page had already (a checkbox model): the linked page has it too', () => {
@@ -111,9 +112,9 @@ test('a choice among many components: the cache keys stay short', () => {
   const many: Record<string, string> = {};
   for (const n of names) many[n] = `<template data-sn-component="{ node: any }"><b><i data-sn-text="node.value"></i><sn-component use="${JSON.stringify(Object.fromEntries(names.map((m) => [m, m]))).replace(/"/g, "'")}[node.type]" data-sn-prop="{ node: node.next }"></sn-component></b></template>`;
   const body = `<template data-sn-for="n in doc.children"><sn-component use="${JSON.stringify(Object.fromEntries(names.map((m) => [m, m]))).replace(/"/g, "'")}[n.type]" data-sn-prop="{ node: n }"></sn-component></template>`;
-  const t0 = performance.now();
-  linked([{ name: 'a', body }, { name: 'b', body }, { name: 'c', body }], many);
-  expect(performance.now() - t0).toBeLessThan(20_000);
+  const definitions = linked([{ name: 'a', body }, { name: 'b', body }, { name: 'c', body }], many);
+  // (a key names the definitions before it by their short ids: nested, 30 of them would be megabytes)
+  expect(Math.max(...[...definitions.keys()].map((k) => k.length))).toBeLessThan(2_000);
 }, 60_000);
 
 test('a diagnostic in a definition names the page it is reported on', () => {
