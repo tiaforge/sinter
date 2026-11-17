@@ -26,6 +26,12 @@ export const STYLE = true;
 /** `<sn-resource>`: loaders, the shared GET, the store */
 export const RESOURCE = true;
 /**
+ * Not a part of the core: a helper module a page shares with its early file (docs/first-paint.md#own-copies), whose own
+ * copy a swap imports beside the page module (it runs no early file). A build decides it from its early files
+ * (`flagsModule`), so a site that shares nothing ships none of it.
+ */
+export const SHARED = true;
+/**
  * Called with each page's IR as it mounts; nothing here, nor in a build. The test suite's flags (test/core-flags.ts)
  * turn on the parts the mounted pages use and no others, so every test runs on the smallest core for its pages.
  */

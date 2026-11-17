@@ -96,15 +96,44 @@ import { configure } from '@tiaforge-ui/sinter';
 configure({ env: { apiVersion: '2' } });
 ```
 
+Because the early files block the parser, keep them small. The build prints each page's early size
+(gzip, the page's script and the shared one together) and warns above `sinter({ earlyBudget })`
+(default 10000 bytes), naming the largest modules. A heavy import in the early module, or in a
+helper an early binding calls, shows up there.
+
+### Own copies
+
 Early code is bundled apart from the page script, so any module both use exists twice, as separate
 instances. State you set early is not seen by the page script; set it again there, for example by
 calling the same function from `src/sinter.config.ts`. sinter's own state (rendered values,
 messages) is handed over for you. Don't configure the locale: sinter owns it.
 
-Because the early files block the parser, keep them small. The build prints each page's early size
-(gzip, the page's script and the shared one together) and warns above `sinter({ earlyBudget })`
-(default 10000 bytes), naming the largest modules. A heavy import in the early module, or in a
-helper an early binding calls, shows up there.
+Helper modules are the exception. When an early binding calls a helper (`md.parse(article.body)` with
+[embedded data](#embedded-data)), the module that declares it is in the page's early file. If the page
+script uses that module too, it uses the early file's instance instead of downloading a copy of its own.
+The module's state (`md.parse`'s cache of trees) is then one for both, so the page script does not
+parse the article again. This happens when:
+
+- every early file that imports the module imports all of its exports (otherwise the early file would
+  grow by the rest), and
+- the build target supports top-level `await` (Vite's default does).
+
+When the early file has not run (a [swap](navigation.md#swaps) runs no head script, or the script
+failed to load), the page script imports the module's own copy, a chunk of its own, and waits for it
+before it runs. On the pages whose early file has the module, the page names that chunk for the swap
+(`<link data-sn-shared>`, which fetches nothing on a load), so it loads beside the page script. A page
+that uses the module but has no early copy of it fetches the chunk with the page (`modulepreload`).
+A build in which no early file calls a helper module (no embedded data, nothing early that calls
+one) is unchanged.
+
+The build's line for each page names the modules of 4 kB or more that are still in both files, and
+why a helper module was not shared:
+
+```text
+sinter: early script of index.html: … gzip; in the page bundle too: src/format.ts 6.2 kB (src/format.ts is not shared: the early file of index.html uses 2 of its 9 exports)
+```
+
+Split such a module (the helpers early bindings call in a module of their own), or accept the copy.
 
 ### The page script is `async`
 

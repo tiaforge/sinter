@@ -17,6 +17,7 @@ import { lazyOf, project, staticPages, strictOf, type ProjectOptions } from './p
 import { CHUNK_MARK, chainText, isComponentScript, LAZY, lazyHelpers, lazyPackage, lineCol, loaderModule, mentions, parseLazyId, reachLazy, rewriteLazy, scanLazy, stubModule } from './lazy-build.js';
 import { I18N_PICKER, languageFile, moduleKeys, type MessagesProject } from './i18n-build.js';
 import { HOLD_SCRIPT } from './paint-build.js';
+import { earlyImports, OWN, registration, SHARED_MARKS, sharedKey, sharedMark, stubModule as sharedStub, topLevelAwait } from './shared-build.js';
 import { loadImages, MIME, type Images } from './images.js';
 import { pageStyles } from './styles.js';
 import { detectEngines, type StyleEngine } from './engines.js';
@@ -288,13 +289,6 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
    * module's own (dev), carried into the script's (the entry then has a plain id: Rolldown drops a `\0` module's map).
    */
   const earlyScript = async (code: string, keys: Set<string>, rt: string[] | null, what: string, runtimeId: string | null = null, map?: SourceMap) => {
-        // PROTOTYPE (SN_SHARE): the early file leaves the modules it shares with the page bundle on a global
-        if (rt && process.env.SN_SHARE) {
-          const re = new RegExp(process.env.SN_SHARE);
-          const real = (x: string) => { try { return realpathSync(resolve(root, '.' + x)); } catch { return x; } };
-          const specs = [...code.matchAll(/^import [^;]* from "([^"]+)";$/gm)].map((m) => m[1]!).filter((x) => re.test(real(x)));
-          code += specs.map((x, i) => `import * as $sh${i} from ${JSON.stringify(x)};\n(globalThis[Symbol.for('sinter.shared')] ??= {})[${JSON.stringify(createHash('sha256').update(real(x)).digest('base64url').slice(0, 8))}] = $sh${i};\n`).join('');
-        }
         const r = resolved!, ENTRY = `${PREFIX}early-entry.js`, entryId = map ? ENTRY : '\0' + ENTRY;
         const vite = await appVite(), rolldown = 'rolldownVersion' in vite;
         const out = await vite.build({
@@ -414,6 +408,53 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   /** origins of resources that could have been requested early, not listed in `origins` (reported once per build) */
   const unlisted = new Set<string>();
   const earlyFiles = new Map<string, { code: string; modules: Record<string, { renderedLength: number }> }>();
+  /**
+   * build: shared helper modules (shared-build.ts). `helperFiles`: the modules that declare helpers (real paths), the
+   * only ones a load waits for; `compiled`: the pages compiled so far, and `pagesDone` once all are (the early modules
+   * are then known); `shared`: each module the page bundle takes from the early files, with its exports; `unshared`:
+   * why a module an early file imports stays a copy of its own; `registered`: by page, the modules its early file shares
+   */
+  let helperFiles = new Set<string>();
+  const compiled = new Set<string>();
+  let pagesDone: Promise<void> = Promise.resolve();
+  let pagesReady: () => void = () => {};
+  const decisions = new Map<string, Promise<boolean>>();
+  const shared = new Map<string, string[]>();
+  const unshared = new Map<string, string>();
+  const registered = new Map<string, Set<string>>();
+  /** a file's real path (a library linked into node_modules is its target), or the path as given */
+  const realOf = (f: string) => { try { return realpathSync(f); } catch { return f; } };
+  /** the helper modules' import specifiers (as the compiler writes them in early modules) and the files they resolve to */
+  const specFiles = new Map<string, string>();
+  /** an early module's import specifier as a file, when it names a helper module */
+  const specFile = (spec: string) => specFiles.get(spec) ?? null;
+  /**
+   * Whether the page bundle takes helper module `f` from the early files: once every page is compiled, when an early
+   * file imports it, every early file that does imports all of its exports (so its namespace adds nothing to the early
+   * file), and the build target has top-level `await` (the stub waits for its own copy). Else why not, in `unshared`.
+   */
+  const decideShared = (ctx: { load(o: { id: string }): Promise<{ exports?: string[] | null }> }, f: string) => {
+    let d = decisions.get(f);
+    if (!d) decisions.set(f, (d = (async () => {
+      await everyPage(pagesDone, compiled, 'sharing helper modules with the early files');
+      const pages = [...earlyPages].map(([rel, code]) => ({ rel, names: [...earlyImports(code)].filter(([spec]) => specFile(spec) === f).flatMap(([, n]) => n) })).filter((x) => x.names.length);
+      if (!pages.length) return false;
+      if (!topLevelAwait(resolved?.build.target)) { unshared.set(f, `the build target (${[resolved?.build.target].flat().join(', ')}) has no top-level await`); return false; }
+      const exports = (await ctx.load({ id: f + OWN })).exports ?? [];
+      for (const p of pages) {
+        const left = exports.filter((e) => !p.names.includes(e));
+        if (left.length) { unshared.set(f, `the early file of ${p.rel} uses ${p.names.length} of its ${exports.length} exports`); return false; }
+      }
+      shared.set(f, exports);
+      return true;
+    })()));
+    return d;
+  };
+  /** a page compiled (or failed): once every entry is, the shared modules can be decided */
+  const pageDone = (file: string) => {
+    compiled.add(file);
+    if (entries().every((e) => compiled.has(e))) pagesReady();
+  };
   /** the app's early module (`src/sinter.early.ts`), which the shared head script runs */
   let appEarly: string | null = null;
   const budget = options.earlyBudget ?? 10_000;
@@ -896,6 +937,20 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   let coreReady: { promise: Promise<void>; resolve(): void } | null = null;
   const coreWait = () => (coreReady ??= (() => { let resolve!: () => void; const promise = new Promise<void>((r) => (resolve = r)); return { promise, resolve }; })());
   const coreCheck = () => { if (entries().every((f) => coreDone.has(f))) coreWait().resolve(); };
+  /**
+   * Until `ready` (every page of the build is in `done`). A page that never compiles would hold the wait forever: no page
+   * compiled for 30 s is an error naming the pages left.
+   */
+  const everyPage = async (ready: Promise<void>, done: ReadonlySet<string>, what: string) => {
+    for (let n = -1; ;) {
+      let t: ReturnType<typeof setTimeout> | undefined;
+      const waited = await Promise.race([ready.then(() => true), new Promise<false>((r) => (t = setTimeout(() => r(false), 30_000)))]);
+      clearTimeout(t);
+      if (waited) return;
+      if (done.size === n) throw new Error(`sinter: ${what} waits for every page to compile, and these did not: ${entries().filter((f) => !done.has(f)).map(relOf).join(', ')}`);
+      n = done.size;
+    }
+  };
   /** the core's flags module, as this build resolves it: next to this file (dist/runtime/flags.js; src/runtime/flags.ts when run from source, as the tests do) */
   const FLAGS = (() => { for (const f of ['./runtime/flags.js', './runtime/flags.ts']) try { return realpathSync(fileURLToPath(new URL(f, import.meta.url))); } catch { /* the other */ } return null; })();
   const logFold = (page: string, key: string, args: FoldArg[], result: string, id: number) => {
@@ -1166,6 +1221,24 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       nodeHelpers = null;
       await helpersReady();
       const p = buildProject = project(root, options);
+      // the modules that declare helpers: one an early binding calls may be shared with the page bundle (shared-build.ts)
+      compiled.clear(); decisions.clear(); shared.clear(); unshared.clear(); registered.clear(); specFiles.clear();
+      helperFiles = new Set();
+      if (firstPaint && isClient(this)) {
+        const h = p.helpers, mods = [h.module, ...Object.values(h.from ?? {}).map((o) => o.module), ...Object.values(h.namespaces).flatMap((n) => [n.module, ...Object.values(n.from ?? {}).map((o) => o.module)])];
+        // resolved as the build resolves them (extensions, aliases, packages), to the files the page bundle loads
+        for (const m of new Set(mods)) {
+          if (!m) continue;
+          const r = await this.resolve(m, resolve(root, 'index.html'));
+          if (!r || r.external || !isAbsolute(r.id)) continue;
+          const f = realOf(r.id.replace(/[?#].*$/, ''));
+          if (p.helpersFile && sameFile(f, p.helpersFile)) continue;
+          specFiles.set(m, f);
+          helperFiles.add(f);
+        }
+      }
+      pagesDone = new Promise((ok) => { pagesReady = ok; });
+      if (!helperFiles.size || !entries().length) pagesReady();
       messages = p.messages;
       appEarly = p.early;
       // a missing translation falls back to the base language: reported once per locale
@@ -1226,8 +1299,24 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
         for (const [rel, code] of pages) {
           const keys = new Set(sharedKeys);
           earlyKeys.set(rel, keys);
-          earlyFiles.set(rel, await bundleEarly(code, keys, runtimeNames(code), rel));
+          // the shared modules this early file imports and the page's bundle reaches: their namespaces on the global
+          const reach = shared.size ? pageModules(bundle, rel) : new Set<string>();
+          const regs = [...earlyImports(code).keys()].map((spec) => ({ spec, file: specFile(spec) })).filter((x): x is { spec: string; file: string } => !!x.file && shared.has(x.file) && reach.has(x.file));
+          if (regs.length) registered.set(rel, new Set(regs.map((x) => x.file)));
+          earlyFiles.set(rel, await bundleEarly(registration(regs) + code, keys, runtimeNames(code), rel));
         }
+      }
+      // each shared module's key, from its own copy's chunk: in the stubs and in the early files that register it
+      if (shared.size) {
+        const chunks = Object.values(bundle).filter((c): c is Extract<typeof c, { type: 'chunk' }> => c.type === 'chunk');
+        const keys = new Map<string, string>();
+        for (const f of shared.keys()) {
+          const own = chunks.find((c) => c.facadeModuleId === f + OWN) ?? chunks.find((c) => c.moduleIds.includes(f + OWN));
+          keys.set(sharedMark(f), sharedKey(own?.fileName ?? f));
+        }
+        const fill = (code: string) => code.replace(SHARED_MARKS, (m) => keys.get(m) ?? m);
+        for (const c of chunks) if (c.code.includes('__SN_SHARED__')) c.code = fill(c.code);
+        for (const f of earlyFiles.values()) f.code = fill(f.code);
       }
       if (unlisted.size) resolved?.logger.info(`sinter: resources on ${[...unlisted].join(', ')} are requested when the page module runs; list ${unlisted.size > 1 ? 'these origins' : 'the origin'} in sinter({ origins: [...] }) (instead of configure({ origins }): every page adds them) to request them before it`);
       // Speculation Rules for a response header: one file at the site root, under a fixed name
@@ -1322,17 +1411,17 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       // the site's core (docs/proposals/site-core.md), once every page has said what it uses
       if (!dev && id === FLAGS) {
         coreCheck();
-        // a page of the build that never compiles would hold the core forever: no page compiled for 30 s is an error
-        for (let n = -1; ;) {
-          let t: ReturnType<typeof setTimeout> | undefined;
-          const waited = await Promise.race([coreWait().promise.then(() => true), new Promise<false>((r) => (t = setTimeout(() => r(false), 30_000)))]);
-          clearTimeout(t);
-          if (waited) break;
-          if (coreDone.size === n) throw new Error(`sinter: the core waits for every page to compile, and these did not: ${entries().filter((f) => !coreDone.has(f)).map(relOf).join(', ')}`);
-          n = coreDone.size;
-        }
+        await everyPage(coreWait().promise, coreDone, 'the core');
         resolved?.logger.info(`sinter: the site's core keeps ${[...coreUsed].sort().join(', ') || 'nothing optional'}`);
-        return flagsModule(coreUsed);
+        // a helper module an early file may share (shared-build.ts): the swap's code for its own copy stays
+        await everyPage(pagesDone, compiled, 'the core');
+        const share = topLevelAwait(resolved?.build.target) && [...earlyPages.values()].some((code) => [...earlyImports(code).keys()].some((spec) => { const f = specFile(spec); return !!f && helperFiles.has(f); }));
+        return flagsModule(coreUsed, share);
+      }
+      // a helper module the early files share: the stub, which takes their instance (shared-build.ts)
+      if (!dev && helperFiles.size && !id.startsWith('\0') && !/[?#]/.test(id) && isAbsolute(id)) {
+        const f = realOf(id);
+        if (helperFiles.has(f) && await decideShared(this, f)) return sharedStub(f, shared.get(f)!);
       }
       // a stylesheet a page links (one with nothing to run) comes with a query in dev (`?direct`)
       const css = id.replace(/\?.*$/, '');
@@ -1419,7 +1508,10 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
 
     transformIndexHtml: {
       order: 'pre',
+      // builds: every page compiled (or failed) counts toward deciding the shared modules
       async handler(html, ctx) {
+        try { return await compileHtml(); } finally { if (!dev) pageDone(ctx.filename); }
+        async function compileHtml() {
         const file = ctx.filename;
         const rel = relOf(file);
         const moduleSrc = `${PREFIX}${rel}.js`;
@@ -1499,6 +1591,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
           return page.replace(/<head[^>]*>/, (h) => h + tag);
         }
         return page;
+        }
       },
     },
   };
@@ -1604,6 +1697,8 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
         // `data-sn-preload`: the lazy packages' chunks, fetched with the page
         const pre = preloadOf.get(rel);
         if (pre && ctx.bundle) html = withPreloads(html, rel, pre, ctx.bundle, base);
+        // shared helper modules the page's bundle reaches: their own copies, for a swap or fetched with the page
+        if (shared.size && ctx.bundle) html = withShared(html, rel, ctx.bundle, base);
         const inline = pageMessages.get(rel);
         if (!early && !langs && !own && !inline) return html;
         // a page in one language: the messages its app modules call, before any script that reads them
@@ -1613,7 +1708,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
           tags.push(langs ? pickerTag(base + sharedHead.fileName, Object.fromEntries(Object.entries(langs).map(([l, f]) => [l, base + f.fileName])), virtual.get(resolve(root, rel))?.locale) : `<script src="${attr(base + sharedHead.fileName)}"></script>`);
         }
         if (own) tags.push(`<script src="${attr(base + own)}"></script>`);
-        if (early || langs) report(rel, early ? { fileName: own!, ...early } : null, langs ?? null);
+        if (early || langs) report(rel, early ? { fileName: own!, ...early } : null, langs ?? null, ctx.bundle ? pageModules(ctx.bundle, rel) : null);
         // first in the head, before the stylesheets (a classic script waits for the stylesheets before it) and the page
         // module (which the hold script changes as the parser inserts it): the early requests leave at once
         const at = html.search(/<link\b[^>]*\brel=["']?(stylesheet|modulepreload)|<script\b/i);
@@ -1622,6 +1717,23 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       },
     },
   };
+
+  /** builds: the real paths of the modules a page's bundle loads with it (its entry chunk and their static imports) */
+  function pageModules(bundle: Record<string, unknown>, rel: string): Set<string> {
+    const chunks = Object.values(bundle) as Array<{ type: string; fileName: string; isEntry?: boolean; facadeModuleId?: string | null; imports?: string[]; moduleIds?: string[] }>;
+    const entry = chunks.find((c) => c.type === 'chunk' && c.isEntry && c.facadeModuleId === resolve(root, rel));
+    const out = new Set<string>(), seen = new Set<string>(), todo = entry ? [entry.fileName] : [];
+    while (todo.length) {
+      const f = todo.pop()!;
+      if (seen.has(f)) continue;
+      seen.add(f);
+      const c = bundle[f] as (typeof chunks)[number] | undefined;
+      if (c?.type !== 'chunk') continue;
+      for (const id of c.moduleIds ?? []) if (!id.startsWith('\0') && isAbsolute(id)) out.add(realOf(id));
+      todo.push(...(c.imports ?? []));
+    }
+    return out;
+  }
 
   /** whether a module id is (in) a lazy package, as Rolldown resolved it */
   const isLazyModule = (id: string) => lazyPkgs.some((p) => id.includes(`/node_modules/${p}/`));
@@ -1692,6 +1804,32 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       }
     }
     const tags = files.filter((f) => !html.includes(`"${base}${f}"`)).map((f) => `<link rel="modulepreload" crossorigin href="${attr(base + f)}">`);
+    return tags.length ? html.replace('</head>', `  ${tags.join('\n  ')}\n</head>`) : html;
+  }
+
+  /**
+   * Builds, shared helper modules (shared-build.ts) the page's bundle reaches: where its early file has the module, the
+   * own copy is named for a swap (`<link data-sn-shared>`, inert: a swap runs no head script, so it imports the copy
+   * beside the page module); where it does not, the copy and the chunks it imports are fetched with the page
+   * (modulepreload), as the module would have been.
+   */
+  function withShared(html: string, rel: string, bundle: Record<string, unknown>, base: string): string {
+    type C = { type: string; fileName: string; facadeModuleId?: string | null; imports?: string[]; moduleIds?: string[] };
+    const chunks = Object.values(bundle).filter((c): c is C => (c as C).type === 'chunk') as C[];
+    const reach = pageModules(bundle, rel), own = registered.get(rel), tags: string[] = [];
+    for (const f of shared.keys()) {
+      if (!reach.has(f)) continue;
+      const c = chunks.find((x) => x.facadeModuleId === f + OWN) ?? chunks.find((x) => x.moduleIds?.includes(f + OWN));
+      if (!c) continue;
+      if (own?.has(f)) { tags.push(`<link data-sn-shared href="${attr(base + c.fileName)}">`); continue; }
+      for (const todo = [c.fileName], seen = new Set<string>(); todo.length;) {
+        const n = todo.shift()!;
+        if (seen.has(n)) continue;
+        seen.add(n);
+        if (!html.includes(`"${base}${n}"`) && !tags.some((t) => t.includes(`"${base}${n}"`))) tags.push(`<link rel="modulepreload" crossorigin href="${attr(base + n)}">`);
+        todo.push(...((bundle[n] as C | undefined)?.imports ?? []));
+      }
+    }
     return tags.length ? html.replace('</head>', `  ${tags.join('\n  ')}\n</head>`) : html;
   }
 
@@ -1780,13 +1918,28 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     return out.length ? `; lazy: ${out.join(', ')}` : '';
   }
 
+  /**
+   * The modules of 4 kB or more (before gzip) that a page downloads twice, in its early file and in its page bundle
+   * (docs/first-paint.md#own-copies), and why the helper modules its early file imports were not shared.
+   */
+  function twice(rel: string, modules: Record<string, { renderedLength: number }>, reach: Set<string>): string {
+    // a module the early file shares is a stub in the page bundle, under the module's own id
+    const own = registered.get(rel);
+    const big = Object.entries(modules).filter(([id, m]) => { const f = realOf(id.replace(/[?#].*$/, '')); return m.renderedLength >= 4000 && !id.startsWith('\0') && isAbsolute(id) && reach.has(f) && !own?.has(f); })
+      .sort((a, b) => b[1].renderedLength - a[1].renderedLength);
+    if (!big.length) return '';
+    const why = [...earlyImports(earlyPages.get(rel) ?? '').keys()].map(specFile).filter((f): f is string => !!f && unshared.has(f) && reach.has(f))
+      .map((f) => `${relOf(f)} is not shared: ${unshared.get(f)}`);
+    return `; in the page bundle too: ${big.map(([id, m]) => `${relOf(realOf(id.replace(/[?#].*$/, '')))} ${(m.renderedLength / 1000).toFixed(1)} kB`).join(', ')}${why.length ? ` (${why.join('; ')})` : ''}`;
+  }
+
   /** One line per page: the early file's size (gzip) and its language files'; over the budget a warning naming the largest modules. */
-  function report(rel: string, early: { fileName: string; code: string; modules: Record<string, { renderedLength: number }> } | null, langs: Record<string, { code: string }> | null) {
+  function report(rel: string, early: { fileName: string; code: string; modules: Record<string, { renderedLength: number }> } | null, langs: Record<string, { code: string }> | null, reach: Set<string> | null = null) {
     const kb = (n: number) => `${(n / 1000).toFixed(1)} kB`;
     // the shared head script is on the first paint's path too: it counts toward the budget
     const own = early ? gzipSync(early.code).length : 0, common = early && sharedHead ? gzipSync(sharedHead.code).length : 0, gz = own + common;
     const files = langs ? `, messages ${Object.entries(langs).map(([l, f]) => `${l} ${kb(gzipSync(f.code).length)}`).join(', ')} gzip` : '';
-    const line = `sinter: early script of ${rel}: ${early ? `${early.fileName} ${kb(own)} gzip${common ? ` + ${sharedHead!.fileName} ${kb(common)} gzip (shared)` : ''}` : 'none'}${files}`;
+    const line = `sinter: early script of ${rel}: ${early ? `${early.fileName} ${kb(own)} gzip${common ? ` + ${sharedHead!.fileName} ${kb(common)} gzip (shared)` : ''}` : 'none'}${files}${early && reach ? twice(rel, early.modules, reach) : ''}`;
     const logger = resolved?.logger;
     if (!early || gz <= budget) { logger?.info(line); return; }
     const top = Object.entries({ ...sharedHead?.modules, ...early.modules }).sort((a, b) => b[1].renderedLength - a[1].renderedLength).slice(0, 5)
@@ -2152,25 +2305,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       this.emitFile({ type: 'asset', fileName: '_redirects', source: redirectsFile(routes, own) });
     },
   };
-  // PROTOTYPE (SN_SHARE): the page bundle takes a shared module from the early file's global, else imports its own copy
-  const SHARED = '\0sinter-shared:';
-  const share: Plugin = {
-    name: 'sinter:share', enforce: 'pre',
-    async resolveId(id, importer, o) {
-      if (!process.env.SN_SHARE || dev || id.endsWith('?sn-own') || id.startsWith('\0') || !importer || importer.startsWith(SHARED)) return null;
-      const res = await this.resolve(id, importer, { ...o, skipSelf: true });
-      if (!res || res.external || res.id.startsWith('\0') || !isAbsolute(res.id)) return null;
-      let real: string; try { real = realpathSync(res.id.replace(/[?#].*$/, '')); } catch { return null; }
-      return new RegExp(process.env.SN_SHARE).test(real) ? SHARED + real : null;
-    },
-    load(id) {
-      if (!id.startsWith(SHARED)) return null;
-      const file = id.slice(SHARED.length), src = readFileSync(file, 'utf8'), key = createHash('sha256').update(file).digest('base64url').slice(0, 8);
-      const names = [...src.matchAll(/^export (?:async )?(?:function\*?|const|let|class) ([\w$]+)/gm)].map((m) => m[1]!);
-      return `const g = globalThis[Symbol.for('sinter.shared')]?.[${JSON.stringify(key)}];\nconst m = g ?? await import(${JSON.stringify(file + '?sn-own')});\nexport const { ${names.join(', ')} } = m;\n`;
-    },
-  };
-  return [share, main, post, cssImages, fonts, fontCheck, pages] as unknown as SinterPlugins;
+  return [main, post, cssImages, fonts, fontCheck, pages];
 }
 
 /**

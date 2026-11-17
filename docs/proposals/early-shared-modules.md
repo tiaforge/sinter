@@ -1,6 +1,24 @@
 # Proposal: early helper modules shared with the page bundle
 
-Status: evaluated (2026-11-17), option 1 prototyped behind an environment variable; nothing decided yet.
+Status: option 1 implemented (2026-11-17), with option 3's report for what is not shared; the guide is
+[first-paint.md](../first-paint.md#own-copies), the design in [spec.md](../spec.md) ("Own copies"). Where the
+implementation departs from this text:
+- The stub waits for its own copy with a top-level `await` (item 4 proposed delegating functions and a wait in the
+  mount). The `import()` of a page module then resolves only once the module is there, which covers the swap and an
+  app module that calls a helper at its top level, and needs no runtime code. A build target without top-level
+  `await` shares nothing, and the build says so.
+- The wait for every page reuses the core's (`everyPage`, from #73), on the page handlers' own count: the early
+  module of the last page is known only once its handler has finished.
+- The swap's code for the own copy is behind a core flag, `SHARED`, so a site in which no early file calls a helper
+  module is byte-identical to a build without this (checked on RealWorld's static build).
+- The key is a hash of the own copy's chunk name (item 5); the report's threshold is 4 kB before gzip.
+
+Measured on the implementation, on main with the site core (#73), against main (`ab.mjs --a-axum --b-axum`): the
+article page's scripts 78.9 → 56.9 kB brotli (91.8 → 67.2 kB transferred), mobile TBT 70 → 49 ms (median of 9) and
+43 → 0 ms after `/` (median of 7), LCP the same (1,354 / 1,388 ms, within the runs' spread); a swap into the article
+958 → 857 ms; the body's DOM the same on a load, with the early file blocked and after a swap; RealWorld's static
+build byte-identical to main's. CLS 0.384 shows on some runs of both (cold mobile: 4 of 9 on main, 2 of 9 here; after
+`/`: 7 of 9 and 6 of 9): not this change (below).
 
 ## The case
 
@@ -129,8 +147,8 @@ into the article faster than today. Static builds stay byte-identical.
 
 ## Found on the way (not part of this)
 
-- Mobile, article after `/` (Lighthouse's warm run): CLS 0.384 with or without this change; the cold run is
-  0.001.
+- Mobile, the article through sinter-axum: CLS 0.384 on some Lighthouse runs and 0.001 on the others, with or
+  without this change, cold and after `/` (per run, `ab.mjs` now prints each run's CLS).
 - Under `require-trusted-types-for 'script'` a swap is refused (`This document requires 'TrustedHTML'
   assignment`) and the navigation falls back to a page load: the right page, but no swap. security.md says
   the core needs no policy of its own; the swap's HTML parse is a TrustedHTML sink.

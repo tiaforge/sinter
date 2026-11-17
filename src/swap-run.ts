@@ -7,6 +7,7 @@ import { instance } from './runtime/app.js';
 import { vtTypes } from './vt-types.js';
 import { KEPT, type Prepared, type SwapState, entry, track } from './swap.js';
 import { ident } from './transition.js';
+import { SHARED } from './runtime/flags.js';
 
 /** a page module with swaps on, as it registers itself (compiler/index.ts): its mount, and the names it keeps; a page with nothing to run has neither */
 interface PageModule { boot?(): App | Promise<App>; kept: string[] }
@@ -240,6 +241,12 @@ export async function prepare(s: SwapState, i: Intent, signal?: AbortSignal): Pr
   g[SWAPPING] = (g[SWAPPING] ?? 0) + 1;
   try {
     const urls = [...doc.querySelectorAll('script[type=module][src]')].filter(trusted).map((x) => new URL(x.getAttribute('src')!, final).href);
+    // a helper module the page shares with its early file, which a swap does not run: the page module waits for the
+    // module's own copy, so it loads beside it (docs/first-paint.md#own-copies); the page module reports a failure
+    if (SHARED) for (const l of doc.querySelectorAll('link[data-sn-shared][href]')) {
+      const u = new URL(l.getAttribute('href')!, final);
+      if (u.origin == location.origin) import(/* @vite-ignore */ u.href).catch(() => {});
+    }
     await Promise.all(urls.map((u) => import(/* @vite-ignore */ u)));
     const pages = (globalThis as unknown as Record<symbol, Record<string, PageModule> | undefined>)[PAGES] ?? {};
     // a page with no module script ships no JavaScript (a page of constants): swapped in with nothing to mount, so
