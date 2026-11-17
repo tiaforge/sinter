@@ -63,11 +63,11 @@ sinter({ components: ['@tiaforge-ui/sinter-markdown'], lazy: ['@tiaforge-ui/sint
 A let that calls `md.parse` is then `undefined` until the parser has arrived, and its arrival renders
 what reads the let; `<md-doc>` with no `doc` renders an empty `<div class="md">`. `md.headings` and
 `md.text` live in a module that does not import the parser, so they stay ordinary helpers either way.
-Measure first: the parser is about 36 kB gzip, and a page whose main content is markdown may reach
+Measure first: the parser is about 22 kB gzip, and a page whose main content is markdown may reach
 its LCP sooner with the parser loaded with the page (or with `data-sn-preload`).
 
 A parser in the early script is not worth it: with embedded data, a let over `md.parse` puts the
-parser into the early file, four times sinter's early budget (`SN523`). Markdown from an API is in the
+parser into the early file, over twice sinter's early budget (`SN523`). Markdown from an API is in the
 first frame only when the API sends the tree (`md.parse` run on the server), which `<md-doc>` renders
 like any other data.
 
@@ -75,7 +75,8 @@ like any other data.
 
 `source` is the markdown (`null` and `undefined` are an empty document). The result is a tree of
 plain data, typed by the package (`Root`): CommonMark, and GFM tables, task lists, strikethrough and
-autolinks. Footnotes are not supported. Positions are left out, and so are definitions: references
+autolinks (`www.example.com`, `https://…`, `foo@bar.baz`, as github.com links them; a bare
+`example.com` is text). Footnotes are not supported. Positions are left out, and so are definitions: references
 (`[text][ref]`) come back as links and images. Entities are decoded (`&amp;` is `&`).
 
 The options are the policy for one use. What a document may not contain is taken out of the tree, so
