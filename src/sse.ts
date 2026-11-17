@@ -54,7 +54,10 @@ class Connection {
   /** each mapped event with the scope its expressions are evaluated in: its `<sn-sync>`'s state, or the page */
   readonly subs: Array<[EventDef, any]> = [];
 
-  constructor(private readonly app: App, private readonly url: string, private readonly changed: () => void) {}
+  /** `heard`: the names the app's islands and component scripts listen to (`app.on`), the feature's since install */
+  constructor(private readonly app: App, private readonly url: string, private readonly changed: () => void, private readonly heard: Set<string>) {}
+
+  listen(name: string): void { this.t?.listen?.(name); }
 
   private set(state: Live): void {
     if (this.state === state) return;
@@ -72,7 +75,6 @@ class Connection {
       this.set('connecting');
       void this.probe();
     }));
-    this.app.onListen.push((name) => this.t?.listen?.(name));
     this.app.addCleanup(() => { this.closed = true; this.stop(); });
     this.open();
   }
@@ -100,7 +102,9 @@ class Connection {
         this.set('retrying');
         void this.probe();
       }
-    }, [...new Set(subs.map((e) => e.name))]);
+      // every connect (the first, a reconnect, after the back/forward cache) subscribes the mapped names and
+      // those `app.on` listens to, whenever its listener came
+    }, [...new Set([...subs.map((e) => e.name), ...this.heard])]);
   }
 
   private stop(): void {
@@ -197,10 +201,15 @@ const sse: Feature = {
     // connect after mount has created resources and loaders, unless the app is gone by then
     let alive = true;
     app.addCleanup(() => { alive = false; });
+    // names `app.on` listens to, from install on: a component script's `connected()` in the mount, an island
+    // before the stream starts or while it retries; each connect subscribes them all
+    const heard = new Set<string>();
+    let conns: Map<string, Connection> | undefined;
+    app.onListen.push((name) => { heard.add(name); for (const c of conns?.values() ?? []) c.listen(name); });
     app.env.queueMicrotask(() => {
       if (!alive) return;
       // one connection per resolved stream URL, however many <sn-sync> elements use it
-      const conns = new Map<string, Connection>();
+      conns = new Map<string, Connection>();
       /** the connections feeding each resource: its `$meta.live` is the worst of their states */
       const feeders = new Map<string, Set<Connection>>();
       const publish = () => {
@@ -210,18 +219,19 @@ const sse: Feature = {
           if (r.meta.live !== live) { r.meta.live = live; r.onDirty?.('meta'); }
         }
       };
+      const cs = conns;
       for (const def of app.ir.syncs ?? []) {
         const base = app.scopeOf(def.scope ?? -1);
         const url = app.url(def.src, base);
-        let c = conns.get(url);
-        if (!c) conns.set(url, c = new Connection(app, url, publish));
+        let c = cs.get(url);
+        if (!c) cs.set(url, c = new Connection(app, url, publish, heard));
         for (const e of def.events) {
           c.subs.push([e, base]);
           if (e.resource) (feeders.get(e.resource) ?? feeders.set(e.resource, new Set()).get(e.resource)!).add(c);
         }
       }
       // a prerendered page connects once it is shown: no stream for a page nobody may ever see
-      app.shown(() => { if (alive) for (const c of conns.values()) c.start(); });
+      app.shown(() => { if (alive) for (const c of cs.values()) c.start(); });
     });
   },
 };

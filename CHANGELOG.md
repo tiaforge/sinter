@@ -129,6 +129,7 @@ Attribute names, function names and diagnostic codes are public API. Before
 
 ### Fixed
 
+- A server event that only an island or a component script listens to (`app.on`, no `<sn-event>` maps it) is delivered after the stream reconnects, and when its listener came while the stream was retrying: each connect subscribes the names `app.on` listens to, not only the mapped ones. Found in caley, whose new-mail notifications stopped after the backend restarted.
 - Swaps with `localePrefix`: a page in another language (`/en/settings/` → `/de/settings/`) is a page load, as documented, not a swap that kept the old language's links in a `data-sn-permanent` element (`<html lang>` of pages without the language picker is now part of what only a load applies). The messages a page's modules call (its `data-sn-messages`) join the dictionary when it is swapped in, so a helper's `m.key()` no longer returns the key when the first page shown lacked it.
 
 - Testing: `settle()` did not run the task that releases a dialog a close button (`command="close"`, a `method="dialog"` submit, Escape) closed, so after the dialog opened again its bindings stayed as they were until a test called `advance(0)`. `settle()` runs it now. Browsers were not affected.

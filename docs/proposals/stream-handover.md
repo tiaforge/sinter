@@ -159,12 +159,12 @@ so this covers the names the old page didn't need. Call `changed()` once, so `$m
 state before the first paint. `start()` doesn't call `open()` for a claimed connection. The buffer stays:
 it is replayed when the window closes (§5), and events that arrive until then join it, so the order holds.
 
-**Names from `app.on` during the mount** don't reach the transport. The app's listener map is private to
-the core (app.ts), and `onListen` only reports later calls. This is today's behaviour too: `connect` gets
-the mapped names only, and the `sse` feature registers `onListen` after the mount. Exposing the map would
-add bytes to the shared core of every app, against §8. So a component script that listens to a name no
-`<sn-event>` on the page maps gets nothing from `EventSource`, claimed or not. Map the name with an
-`<sn-event>` (without `resource`) to receive it. The docs say so.
+**Names from `app.on`.** The `sse` feature collects the names `app.on` listens to from its install on
+(`heard`, through `onListen`, which it registers at install, before the mount's walk), so it also sees a
+component script's `connected()` in the mount. Every connect subscribes the mapped names and `heard`. This
+was fixed on its own before the handover (a name `app.on` listened to was lost after a reconnect, found in
+caley's `<mail-notifier>`). At the claim, the connection calls `t.listen` for the next app's `heard` names
+too.
 
 Two details in today's `open()` have to change for this to be correct:
 - The `reconnect` flag and the `subs` list are closure captures taken when the connection opened. After a
@@ -232,8 +232,7 @@ Each event is applied once, by the next page only:
   window's close. That covers component scripts, whose `connected()` runs in the mount, and code in an
   `sn-page` listener. It does not cover a component script loaded with lazy packages: that one connects
   once its import resolves, which can be later. It misses the gap's events as it misses events before it
-  connects on a page load. The names are subject to §3: a listened name needs an `<sn-event>` on the
-  page.
+  connects on a page load.
 - **Resources:** the next page's resources start their fetches at the mount, after the gap's events were
   sent. Mostly the response already contains those changes. Replaying them is harmless, because
   `upsert`, `patch` and `remove` are idempotent and `refetch`es coalesce. It is also what a live event
@@ -359,8 +358,7 @@ export const SWAP = true;
 
 - `docs/sync.md`, Connection rules: "**Swaps keep a stream open.** With swaps on, a stream whose URL the
   next page also declares stays connected; events in between are delivered to the next page. Any other
-  stream closes." Plus the notes on event names: names sent in the gap (§5), and a name a script listens
-  to needing an `<sn-event>` (§3).
+  stream closes." Plus the note on names sent in the gap (§5).
 - `docs/navigation.md`, Swaps: "its resources and streams" becomes "its resources, and its streams unless
   the next page declares the same URL".
 - swap-navigation.md: link this proposal from §7 and from Not in this proposal.
@@ -388,5 +386,3 @@ One commit each:
 - **A `refetch` replayed while the next page's first fetch is in flight**: whether it coalesces with that
   fetch or sends a second request. The behaviour tests should pin it down. Today the same happens with a
   live event during a first load.
-- **caley's `new_email`**: whether an `<sn-event name="new_email">` is on every page (the rail). If
-  `<mail-notifier>` only listens through `app.on`, §3's limit applies today as well as after this change.

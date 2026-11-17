@@ -50,6 +50,35 @@ test('fallback refetch when the event has no body; refetches coalesce', async ()
   expect(requests.calls.filter((c) => c.path === '/api/contacts')).toHaveLength(2);
 });
 
+test('names islands listen to are subscribed on every connect: while open, while retrying, after a reconnect', async () => {
+  // Caley: a component script's app.on('new_email') was lost after a reconnect, the transport given only the mapped names
+  const stream = mockStream();
+  const connects: string[][] = [], listened: string[] = [];
+  configure({
+    transport: (url) => {
+      if (url !== '/api/events/stream') return undefined;
+      const t = stream.transport();
+      return { connect(u, ev, st, initial) { connects.push([...initial].sort()); t.connect(u, ev, st, initial); }, listen: (n) => { listened.push(n); t.listen?.(n); }, close: () => t.close() };
+    },
+    sessionProbe: '/api/user',
+  });
+  const requests = mockRequests({ 'GET /api/contacts': { contacts: [] }, 'GET /api/user': { id: 'me' } });
+  const { app, settle } = await render(PAGE, { requests });
+  await settle();
+  const mapped = ['contact_patched', 'contact_removed', 'contact_updated', 'contacts_refetch'];
+  expect(connects).toEqual([mapped]);
+  // while open: subscribed at once
+  app.on('new_email', () => {});
+  expect(listened).toEqual(['new_email']);
+  // while retrying (no transport): kept for the reconnect, which subscribes both
+  stream.drop();
+  app.on('late', () => {});
+  await settle();
+  expect(connects).toHaveLength(2);
+  expect(connects[1]).toEqual([...mapped, 'late', 'new_email'].sort());
+  app.destroy();
+});
+
 test('islands receive every server event, mapped or not', async () => {
   const { stream, app } = await setup();
   const got: unknown[] = [];
