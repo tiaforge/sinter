@@ -8003,10 +8003,14 @@ class Compiler {
         const r = at(n, '$r'), mt = at(n, '$meta'), def = pre.get((r ?? mt)!);
         if (def && (r !== null || mt !== null)) {
           // cached or prefetched rows would be there at mount: this resource's entries (its URL's literal start, its items
-          // and total paths, as the cache and next-page data key them), checked once per binding (below)
+          // and total paths, as the cache and next-page data key them), checked once per binding (below). An entry without
+          // data (no rows, a null object: a signed-out visitor's `{user: null}`) fills the resource with what is written in
+          // here, and `loadedAt` stays null at mount, so it changes nothing: the binding stays early (otherwise a branch over
+          // it renders at mount, after the first paint, in every tab that opened another page first)
           if (def.cache != null || (this.opts.prefetch && !def.paginate && def.body == null)) {
             const start = JSON.stringify(typeof def.src[0] === 'string' ? def.src[0] : '').slice(1, -1), end = `,${JSON.stringify(def.items ?? null)},${JSON.stringify(def.total ?? null)}]`;
-            checks.add(fn(`() => { for (const k of Object.keys(sessionStorage)) if (/^sn:[cp]:\\[/.test(k) && k.includes(${JSON.stringify(start)}) && k.endsWith(${JSON.stringify(end)})) throw 0; }`));
+            const none = JSON.stringify(def.key ? '[]' : 'null');
+            checks.add(fn(`() => { for (const k of Object.keys(sessionStorage)) if (/^sn:[cp]:\\[/.test(k) && k.includes(${JSON.stringify(start)}) && k.endsWith(${JSON.stringify(end)})) { let e; try { e = JSON.parse(sessionStorage.getItem(k)); } catch { throw 0; } if (!e || JSON.stringify(e.items) !== ${none} || e.total != null) throw 0; } }`));
           }
           const when = def.when != null ? `!!f[${fn(this.fns[def.when]!)}]($)` : 'true';
           if (r !== null) { edits.push([n.start, n.end, def.key ? '[]' : 'null']); return; }
