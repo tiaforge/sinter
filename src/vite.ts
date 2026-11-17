@@ -5,7 +5,7 @@
 // data as the parser inserts it, before the first paint, with nothing render-blocking.
 import { createHash } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
-import { dirname, join, posix, relative, resolve, sep } from 'node:path';
+import { dirname, isAbsolute, join, posix, relative, resolve, sep } from 'node:path';
 import { gzipSync } from 'node:zlib';
 import { createRequire } from 'node:module';
 import { pathToFileURL } from 'node:url';
@@ -287,6 +287,13 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
    * module's own (dev), carried into the script's (the entry then has a plain id: Rolldown drops a `\0` module's map).
    */
   const earlyScript = async (code: string, keys: Set<string>, rt: string[] | null, what: string, runtimeId: string | null = null, map?: SourceMap) => {
+        // PROTOTYPE (SN_SHARE): the early file leaves the modules it shares with the page bundle on a global
+        if (rt && process.env.SN_SHARE) {
+          const re = new RegExp(process.env.SN_SHARE);
+          const real = (x: string) => { try { return realpathSync(resolve(root, '.' + x)); } catch { return x; } };
+          const specs = [...code.matchAll(/^import [^;]* from "([^"]+)";$/gm)].map((m) => m[1]!).filter((x) => re.test(real(x)));
+          code += specs.map((x, i) => `import * as $sh${i} from ${JSON.stringify(x)};\n(globalThis[Symbol.for('sinter.shared')] ??= {})[${JSON.stringify(createHash('sha256').update(real(x)).digest('base64url').slice(0, 8))}] = $sh${i};\n`).join('');
+        }
         const r = resolved!, ENTRY = `${PREFIX}early-entry.js`, entryId = map ? ENTRY : '\0' + ENTRY;
         const vite = await appVite(), rolldown = 'rolldownVersion' in vite;
         const out = await vite.build({
@@ -2117,7 +2124,25 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       this.emitFile({ type: 'asset', fileName: '_redirects', source: redirectsFile(routes, own) });
     },
   };
-  return [main, post, cssImages, fonts, fontCheck, pages];
+  // PROTOTYPE (SN_SHARE): the page bundle takes a shared module from the early file's global, else imports its own copy
+  const SHARED = '\0sinter-shared:';
+  const share: Plugin = {
+    name: 'sinter:share', enforce: 'pre',
+    async resolveId(id, importer, o) {
+      if (!process.env.SN_SHARE || dev || id.endsWith('?sn-own') || id.startsWith('\0') || !importer || importer.startsWith(SHARED)) return null;
+      const res = await this.resolve(id, importer, { ...o, skipSelf: true });
+      if (!res || res.external || res.id.startsWith('\0') || !isAbsolute(res.id)) return null;
+      let real: string; try { real = realpathSync(res.id.replace(/[?#].*$/, '')); } catch { return null; }
+      return new RegExp(process.env.SN_SHARE).test(real) ? SHARED + real : null;
+    },
+    load(id) {
+      if (!id.startsWith(SHARED)) return null;
+      const file = id.slice(SHARED.length), src = readFileSync(file, 'utf8'), key = createHash('sha256').update(file).digest('base64url').slice(0, 8);
+      const names = [...src.matchAll(/^export (?:async )?(?:function\*?|const|let|class) ([\w$]+)/gm)].map((m) => m[1]!);
+      return `const g = globalThis[Symbol.for('sinter.shared')]?.[${JSON.stringify(key)}];\nconst m = g ?? await import(${JSON.stringify(file + '?sn-own')});\nexport const { ${names.join(', ')} } = m;\n`;
+    },
+  };
+  return [share, main, post, cssImages, fonts, fontCheck, pages] as unknown as SinterPlugins;
 }
 
 /**
