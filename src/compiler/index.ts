@@ -214,6 +214,9 @@ function earlyLines(early: EarlyParts | null, options: Pick<CompileOptions, 'hel
   // an app with built-in messages: the first paint waits for the dictionary (helpers may call `m` too)
   if (!messages && Object.values(options.helpers.namespaces).some((n) => n.module === MESSAGES)) messages = fixed ? fixedMessages('m', [], options) : messagesImport('m', []);
   for (const [mod, specs] of byModule) lines.push(`import { ${specs.join(', ')} } from ${JSON.stringify(mod)};`);
+  // the built-in formatters the early bindings call, from the package (not the early runtime, which the build shares
+  // between pages): each early file bundles only those it calls, beside the messages module that sets its locale
+  if (early?.formatters?.length) lines.push(`import { ${early.formatters.join(', ')} } from '${PACKAGE}';`);
   // observe: the early script reads the dictionary's state (has it arrived?) from the messages module
   if (messages) lines.push(observe && !fixed ? messages.replace('ready as $ready }', 'ready as $ready, state as $state }') : messages);
   // a page in one language: its text is compiled in, nothing to wait for

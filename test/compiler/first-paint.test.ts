@@ -67,6 +67,18 @@ test('the early module: the app\'s early module first, then the bindings that ne
   expect(html).toContain('<script type="module" src="/@sinter/early/index.html.js" blocking="render"></script><script type="module" src="/page.js"></script>');
 });
 
+test('built-in formatters: early, each imported only by an early file whose bindings call it; `relative` (the clock) and an app helper of the same name as before', () => {
+  const html = (body: string) => `<!doctype html><html><head></head><body data-sn-state="{ d: '2026-01-26T00:00:00Z', n: 1234.5 }">${body}</body></html>`;
+  const { early } = build(html('<span data-sn-text="date(d, \'long\')"></span><span data-sn-text="number(n)"></span><span data-sn-text="relative(d)"></span>'));
+  expect(early).toMatch(/^import \{ run, \$k, byId, st, text, w \} from '@tiaforge-ui\/sinter\/early';\nimport \{ date, number \} from '@tiaforge-ui\/sinter';\n/);
+  expect(early).toContain('date(');
+  expect(early).not.toContain('relative(');
+  // none called early: none imported
+  expect(build(html('<span data-sn-text="relative(d)"></span><span data-sn-text="d"></span>')).early ?? '').not.toMatch(/\b(date|time|datetime|number|bytes)\b/);
+  // the app's own `date`: imported from its helpers module, not the early module
+  expect(build(html('<span data-sn-text="date(d)"></span>'), {}, ['date']).early).toMatch(/import \{ run, \$k, byId, st, text, w \} from '@tiaforge-ui\/sinter\/early';\nimport \{ date \} from "\/h\.js";/);
+});
+
 test('early state: fields that need no data, persisted values, and the branch of a data-sn-if that reads them', () => {
   const { early, ir } = build(`<!doctype html><html data-sn-state="{ view: 'week' }" data-sn-persist="view"><head></head>
     <body data-sn-state="{ here: '/c/', week: monday($now), q: $url.q }" data-sn-on-dblclick="here = '/d/'">

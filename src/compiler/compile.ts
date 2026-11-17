@@ -360,7 +360,16 @@ export interface EarlyParts {
   /** helper names and namespace members the early bindings call */
   helpers: string[];
   namespaces: Record<string, string[]>;
+  /** the built-in formatters the early bindings call (EARLY_FORMATTERS), imported from the package */
+  formatters?: string[];
 }
+
+/**
+ * The built-in formatters an early binding may call: each gives, before the first paint, the text the page module
+ * writes at mount (the runtime's own functions, bundled into the page's early file beside the messages module that
+ * sets their locale). Not `relative`: it reads the clock.
+ */
+export const EARLY_FORMATTERS = ['date', 'time', 'datetime', 'number', 'bytes'];
 
 /**
  * What another page needs to request this page's data ahead (the `prefetch` feature): its
@@ -7923,7 +7932,11 @@ class Compiler {
   earlyParts(): EarlyParts | null {
     const userHelpers = new Set(this.opts.helpers.names);
     const BUILTIN = /(?<![\w$.])(date|time|datetime|relative|number|bytes)\(/g;
+    // for requests: no formatter (their URLs and `when`s stay as before)
     const builtin = (code: string) => [...code.matchAll(BUILTIN)].some((m) => !userHelpers.has(m[1]!));
+    // for bindings and state fields: the formatters the early file carries (EARLY_FORMATTERS) give the text the page module
+    // writes at mount (the same functions over the same locale); `relative` reads the clock, which the early file has not
+    const late = (code: string) => [...code.matchAll(BUILTIN)].some((m) => !userHelpers.has(m[1]!) && !EARLY_FORMATTERS.includes(m[1]!));
     // state fields known before data, by scope
     const fields = new Map<number, Map<string, string>>();
     // a resource with embedded data: its data is in the page, so bindings over it render early (rows too)
@@ -7959,7 +7972,7 @@ class Compiler {
       const f = new Map<string, string>();
       for (const x of st.fields) {
         // (a field over a resource's status is not: one that throws early takes its state's other fields with it)
-        if (known(x.deps, false) && !builtin(x.code) && x.code.startsWith('($) => (')) f.set(x.key, x.code.slice('($) => ('.length, -1));
+        if (known(x.deps, false) && !late(x.code) && x.code.startsWith('($) => (')) f.set(x.key, x.code.slice('($) => ('.length, -1));
         else f.delete(x.key);
       }
       fields.set(st.sid, f);
@@ -8047,7 +8060,7 @@ class Compiler {
     // `$url.feed ? feed : articles`)
     const statusOnly = (deps: string[]) => embedded.size > 0 || !deps.some((d) => { const r = /^\$r\.([^.]+)/.exec(d); return r && !embedded.has(r[1]!); })
       || deps.some((d) => { const m = /^\$meta\.([^.]+)/.exec(d); return !!m && pre.has(m[1]!); });
-    const eligible = (b: Binding) => ['text', 'attr', 'class', 'style', 'show', 'model', 'if', ...(embedded.size ? ['for', 'ch'] : [])].includes(b.k) && !b.e && b.f !== undefined && statusOnly(strs(b.d)) && known(strs(b.d)) && !builtin(this.fns[b.f]!) && !this.painted.has(b)
+    const eligible = (b: Binding) => ['text', 'attr', 'class', 'style', 'show', 'model', 'if', ...(embedded.size ? ['for', 'ch'] : [])].includes(b.k) && !b.e && b.f !== undefined && statusOnly(strs(b.d)) && known(strs(b.d)) && !late(this.fns[b.f]!) && !this.painted.has(b)
       // a let that waits for a lazy helper module is not early
       && !this.fns[b.f]!.includes('$.$z(');
     /**
@@ -8161,6 +8174,8 @@ class Compiler {
     const all = fns.join('\n');
     const calls = (name: string) => new RegExp(`(?<![\\w$.])${name.replace(/\$/g, '\\$')}(?![\\w$])`).test(all);
     const helpers = this.opts.helpers.names.filter(calls);
+    // the built-in formatters the early functions call, and only those: the page's early file bundles each
+    const formatters = EARLY_FORMATTERS.filter((n) => !userHelpers.has(n) && calls(n));
     const namespaces: Record<string, string[]> = {};
     for (const [ns, { members }] of Object.entries(this.opts.helpers.namespaces)) {
       const used = members.filter((m) => calls(`${ns}$${m}`));
@@ -8172,7 +8187,7 @@ class Compiler {
     if ((url || readsUrl) && this.pathList.length) ir.path = this.pathList;
     const arrays = this.urlArrays();
     if ((url || readsUrl) && arrays.length) ir.urlArrays = arrays;
-    return { ir, fns, helpers, namespaces };
+    return { ir, fns, helpers, namespaces, ...(formatters.length ? { formatters } : {}) };
   }
 
   /**
