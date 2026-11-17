@@ -1,6 +1,7 @@
 // destroy(): an app that goes while its document stays (the next page swapped in,
-// docs/proposals/swap-navigation.md, step 1) leaves nothing behind on the elements it bound, writes what
-// it would write on pagehide, and stops its timers and streams.
+// docs/proposals/swap-navigation.md, step 1): its handlers go, it writes what it would write on pagehide, and
+// it stops its timers and streams. The marks it set on elements that stay (`<html>`, `<body>`, kept elements)
+// are cleared by the swap (swap-run.ts), not by the core.
 import { expect, test } from 'vitest';
 import { memoryStorage, mockRequests, mockStream, render } from '../../src/testing/index.js';
 
@@ -8,7 +9,7 @@ import { memoryStorage, mockRequests, mockStream, render } from '../../src/testi
 const marks = (el: Element) => Object.getOwnPropertySymbols(el).map((s) => s.description).filter((d) => d?.startsWith('sinter.'));
 const marked = (root: Element) => [root, ...root.querySelectorAll('*')].filter((el) => marks(el).length);
 
-test('what it set on elements is released: handlers, models, state, rows', async () => {
+test('its handlers go with it: a click changes nothing (the marks on elements that stay are the swap\'s to clear)', async () => {
   const r = await render(`
     <section data-sn-state="{ n: 0, q: '', rows: [{ id: 1 }, { id: 2 }] }">
       <button id="inc" data-sn-on-click="n = n + 1"></button><b data-sn-text="n"></b>
@@ -18,10 +19,8 @@ test('what it set on elements is released: handlers, models, state, rows', async
   await r.settle();
   expect(marked(r.root).length).toBeGreaterThan(0);
   r.app.destroy();
-  expect(marked(r.root)).toEqual([]);
-  // and its handlers are gone with them: a click changes nothing
   (r.root.querySelector('#inc') as HTMLElement).click();
-  await r.settle();
+  await new Promise((res) => setTimeout(res, 0));
   expect(r.root.querySelector('b')!.textContent).toBe('0');
 });
 

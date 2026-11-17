@@ -277,6 +277,11 @@ export async function prepare(s: SwapState, i: Intent, signal?: AbortSignal): Pr
         const old = instance(document);
         handOver(old.rbs, kept.map(([o]) => o));
         old.destroy();
+        // what the old app set on the elements that stay (`<html>`, `<body>`, the kept elements): gone with it
+        // (a destroyed app no longer reads them; the next page's code sets its own)
+        for (const el of [document.documentElement, document.body, ...kept.flatMap(([o]) => [o, ...o.querySelectorAll('*')])] as Array<Element & Record<symbol, unknown>>) {
+          for (const k of Object.getOwnPropertySymbols(el)) if (k.description?.startsWith('sinter.')) delete el[k];
+        }
       } catch { /* not mounted */ }
       // the new content goes in after the old, in this one task: nothing is painted in between, and a playing
       // media element moved within a task does not pause

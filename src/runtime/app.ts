@@ -739,14 +739,6 @@ export function mount(root: Document | Element, o: MountOptions): App {
     destroy() {
       destroyed = true;
       for (const c of cleanups.splice(0)) c();
-      // what it set on elements (handlers, models, state, rows) goes with it: elements that stay (the
-      // document's <html> and <body>, after a swap) keep nothing of an app that is gone
-      // (another app mounted inside it keeps its own: its subtree is skipped)
-      const tw = doc.createTreeWalker(root, 1, (n) => (n != root && instances.has(n as Element) ? 2 : 1));
-      for (let n: Node | null = root.nodeType == 1 ? root : tw.nextNode(); n; n = tw.nextNode()) {
-        const e = n as Tagged & RowNode;
-        delete e[HANDLERS]; delete e[MODEL]; delete e[STATE]; delete e[ROW];
-      }
       instances.delete(root);
     },
     scopeOf: (i) => (i < 0 ? app.page : rootScopes[i] ?? app.page),
