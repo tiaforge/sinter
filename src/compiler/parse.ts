@@ -10,10 +10,15 @@ type Kept = { ast: acorn.AnyNode } | { error: unknown };
 
 /** the most trees kept; past it the cache starts over (source texts are short, and a site has a few thousand) */
 const LIMIT = 50_000;
-const kept = new Map<string, Kept>();
+/**
+ * By kind and options, then by the text itself: the text is the attribute's own string, whose hash the engine keeps,
+ * where one key made of both was a new string to hash at every lookup (7% of a component tree's compile)
+ */
+const kept = new Map<string, Map<string, Kept>>();
+let count = 0;
 
-const keyOf = (kind: string, src: string, o: Options) =>
-  `${kind}\0${o.ecmaVersion ?? ''}\0${o.sourceType ?? ''}\0${o.allowAwaitOutsideFunction ? 1 : 0}\0${o.preserveParens ? 1 : 0}\0${src}`;
+const optionsKey = (kind: string, o: Options) =>
+  `${kind}\0${o.ecmaVersion ?? ''}\0${o.sourceType ?? ''}\0${o.allowAwaitOutsideFunction ? 1 : 0}\0${o.preserveParens ? 1 : 0}`;
 
 function freeze<T>(v: T): T {
   if (v && typeof v === 'object' && !Object.isFrozen(v)) {
@@ -23,12 +28,15 @@ function freeze<T>(v: T): T {
   return v;
 }
 
-function cached<T extends acorn.AnyNode>(key: string, parse: () => T): T {
-  let k = kept.get(key);
+function cached<T extends acorn.AnyNode>(kind: string, src: string, o: Options, parse: () => T): T {
+  const outer = optionsKey(kind, o);
+  let texts = kept.get(outer);
+  if (!texts) kept.set(outer, (texts = new Map()));
+  let k = texts.get(src);
   if (!k) {
     try { k = { ast: freeze(parse()) }; } catch (error) { k = { error }; }
-    if (kept.size >= LIMIT) kept.clear();
-    kept.set(key, k);
+    if (++count > LIMIT) { kept.clear(); count = 1; kept.set(outer, (texts = new Map())); }
+    texts.set(src, k);
   }
   if ('error' in k) throw k.error;
   return k.ast as T;
@@ -36,10 +44,10 @@ function cached<T extends acorn.AnyNode>(key: string, parse: () => T): T {
 
 /** `acorn.parseExpressionAt(src, 0, options)`, parsed once per text and options; the tree is frozen */
 export function parseExpression(src: string, options: Options = { ecmaVersion: 'latest' }): acorn.Expression {
-  return cached(keyOf('e', src, options), () => acorn.parseExpressionAt(src, 0, options as acorn.Options));
+  return cached('e', src, options, () => acorn.parseExpressionAt(src, 0, options as acorn.Options));
 }
 
 /** `acorn.parse(src, options)`, parsed once per text and options; the tree is frozen */
 export function parseProgram(src: string, options: Options = { ecmaVersion: 'latest' }): acorn.Program {
-  return cached(keyOf('p', src, options), () => acorn.parse(src, options as acorn.Options));
+  return cached('p', src, options, () => acorn.parse(src, options as acorn.Options));
 }

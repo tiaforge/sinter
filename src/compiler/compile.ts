@@ -69,6 +69,12 @@ export interface CompileOptions {
    */
   page?: { value: unknown; path: string; key?: string };
   /**
+   * Builds: where a `data-sn-pages` template's first pass is kept, so its other entries are not walked again
+   * (`fromTemplate`). The compiles that share one must differ only in what each entry changes: `page`, `foldLog`,
+   * `urls`, `moduleSrc`, `paintCss`, `images` and `locale.urls`. Cleared with the build's reads.
+   */
+  templates?: Map<string, unknown>;
+  /**
    * The content module's collections (docs/resources.md#collections), loaded before the compile: each list and its key,
    * by name. Absent: none loaded (`sinter check` and the editor read them from the build's snapshot). `collectionsError`:
    * why loading failed (dev), reported where a page reads a collection.
@@ -772,7 +778,81 @@ export function compileParts(html: string, options: CompileOptions): CompiledPar
   return out;
 }
 
+/**
+ * Component files' markup, parsed once per process and shared by every compile: by text (an edited file is another
+ * key), and only read (each use takes a `freshCopy`). Cleared when it holds many texts: the editor and the dev
+ * server see one per edit.
+ */
+const PARSED = new Map<string, DefaultTreeAdapterMap['documentFragment']>();
+function parsedText(text: string): DefaultTreeAdapterMap['documentFragment'] {
+  let f = PARSED.get(text);
+  if (!f) {
+    if (PARSED.size >= 2000) PARSED.clear();
+    PARSED.set(text, (f = parse5.parseFragment(text, { sourceCodeLocationInfo: true })));
+  }
+  return f;
+}
+
+/** a `data-sn-pages` template walked once (`fromTemplate`): its first pass, kept for each entry's evaluation */
+type KeptTemplate = { c: Compiler; path: string; checked: boolean; hits: number; misses: number };
+
+/** the template walked as one entry's first pass, up to its evaluation; null when its entries cannot share it */
+function keepTemplate(html: string, options: CompileOptions): KeptTemplate | null {
+  const c = new Compiler(options);
+  c.walkPage(html);
+  // an entry's own URL compiled into the program (`$canonical`, `localeUrl()`): each entry has a program of its own
+  if (!c.entryProgram()) return null;
+  return { c, path: options.page!.path, checked: false, hits: 0, misses: 0 };
+}
+
+/**
+ * `data-sn-pages` in a build (`templates`): an entry's page from its template's first pass, kept for every entry.
+ * Each entry's first pass is the same program: the entry is a constant resource only the evaluation reads
+ * (`prerender`, through `fileConstants`), and what it decides is keyed by place (`instKey`). So the template is
+ * walked once, each entry is only evaluated again (`decideFor`) and compiled with what it decided: one walk per
+ * entry, not two. Null: the entry is compiled the usual way, when there is nothing to decide (the first pass is the
+ * page), a constant the layout or the images read is one the first pass writes into its own markup, or the page has
+ * errors.
+ */
+function fromTemplate(html: string, options: CompileOptions): CompiledParts | null {
+  const cache = options.templates as Map<string, KeptTemplate | null> | undefined;
+  if (!cache || !options.page || !options.prerender || options.check || options.describeOnly || options.canonicalLink === false
+    || options.decided || options.unrolled || options.constants) return null;
+  const key = [options.file, options.locale?.name ?? '', html].join('\0');
+  let t = cache.get(key);
+  if (t === undefined) cache.set(key, (t = keepTemplate(html, options)));
+  if (!t) return null;
+  // the first other entry: walked as well, once. Its program must be the kept one, or nothing is shared
+  if (!t.checked && options.page.path !== t.path) {
+    const other = keepTemplate(html, options);
+    if (!other || !t.c.sameProgram(other.c)) { cache.set(key, null); return null; }
+    t.checked = true;
+  }
+  const c = t.c;
+  c.decideFor(options);
+  const clean = !c.diagnostics.some((d) => d.severity === 'error' && d.code !== 'SN322');
+  if (!clean || c.needsMarkup || !(c.decided.size || c.unrolls.size)) {
+    // a template none of whose entries gains: no longer evaluated for the next ones
+    if (++t.misses >= 2 && !t.hits) cache.set(key, null);
+    return null;
+  }
+  // (as `compilePasses` hands the first pass's decisions to the second)
+  const frozen = c.foldedState();
+  if (c.constants.size) for (const x of c.constantSites) frozen.add(x);
+  const out = new Compiler({
+    ...options, decided: new Map(c.decided), ...(c.unrolls.size ? { unrolled: new Map(c.unrolls) } : {}),
+    ...(c.constants.size ? { constants: new Map(c.constants) as Map<string, ConstantWrite[]> } : {}),
+    ...(c.overLimit.size ? { overLimit: new Map(c.overLimit) } : {}), frozen,
+  }).run(html);
+  // a page with errors: the usual way, which reports them as it always does
+  if (out.diagnostics.some((d) => d.severity === 'error')) return null;
+  t.hits++;
+  return out;
+}
+
 function compilePasses(html: string, options: CompileOptions): CompiledParts & { canonicalOnly?: boolean } {
+  const kept = fromTemplate(html, options);
+  if (kept) return kept;
   const first = new Compiler(options);
   const out = first.run(html);
   // `data-sn-if` templates over state nothing writes: decided now, the page compiled again with their branches in place
@@ -848,8 +928,6 @@ class Compiler {
   private readonly pointCtx = new WeakMap<P5Element, { ch: string[]; en: Use | null }>();
   /** the second pass: the top nodes of an expanded instance (a recursion point, a choice's case), with the instance path of what is in it */
   private readonly instAt = new WeakMap<P5Node, string>();
-  /** each component file's markup, parsed once (`expandUse` copies it per use) */
-  private readonly parsedFiles = new Map<string, DefaultTreeAdapterMap['documentFragment']>();
   /** the scope a use's markup starts, per row or instance it is copied into (`markupOf`) */
   private readonly markups = new WeakMap<Use, Map<string, Scope>>();
   /** a layout's `<body>`, which takes the handlers of the page's tag */
@@ -1176,7 +1254,7 @@ class Compiler {
       const b = l.base.startsWith('/') ? l.base.replace(/\/?$/, '/') : '/';
       // a page whose paths have parameters: its path in another language is the browser's, with that language's prefix
       const localeUrl = l.urls ? `((l) => (${JSON.stringify(l.urls)})[l])` : `((l) => ${JSON.stringify(b)} + l + location.pathname.slice(${b.length + l.name.length}))`;
-      this.page.locale = { name: l.name, messages: Object.entries(opts.helpers.namespaces).find(([, v]) => v.module === '@tiaforge-ui/sinter/messages')?.[0] ?? null, localeUrl };
+      this.page.locale = { name: l.name, messages: Object.entries(opts.helpers.namespaces).find(([, v]) => v.module === '@tiaforge-ui/sinter/messages')?.[0] ?? null, localeUrl, ...(l.urls ? { ownUrls: true } : {}) };
     }
     // helpers whose declaring module reaches a lazy package: each module loads whole, when a let first needs it
     const reach = opts.lazyModule;
@@ -1205,6 +1283,16 @@ class Compiler {
   readonly lazyMods: Array<{ module: string; local: string; lazy: string[] }> = [];
 
   run(html: string): CompiledParts & { canonicalOnly?: boolean } {
+    return this.finishPage(this.walkPage(html));
+  }
+
+  /** the diagnostics `walkPage` reported, before anything evaluated the page (`decideFor` keeps these) */
+  private walked = 0;
+  /** what `finishPage` takes over from the walk */
+  private walk: { doc: DefaultTreeAdapterMap['document']; images: ReturnType<typeof rewriteImages> | undefined; paths: string[] } | null = null;
+
+  /** The page parsed, expanded and walked: its program, up to evaluating it (`prerender`). */
+  walkPage(html: string): NonNullable<Compiler['walk']> {
     let doc = parseDocument(html);
     this.tag(doc, { file: this.opts.file, src: html, chain: [] });
     if (this.isLayoutFile(this.opts.file)) this.diagnostics.push({ severity: 'error', code: 'SN318', message: 'a layout is not a page: a page uses it by its tag. Leave `src/layouts/` out of the build\'s inputs', file: this.opts.file, line: 1, col: 1 });
@@ -1293,6 +1381,12 @@ class Compiler {
     if (this.opts.checkCycles) this.runCycles();
     for (const el of this.remove) detach(el);
     this.markLowPriority();
+    this.walked = this.diagnostics.length;
+    return (this.walk = { doc, images, paths });
+  }
+
+  /** The walked page evaluated, its constants written and dropped, and its HTML, IR and module parts. */
+  finishPage({ doc, images, paths }: NonNullable<Compiler['walk']>): CompiledParts & { canonicalOnly?: boolean } {
     if (this.opts.prerender) { this.prerender(); this.embedFolded(); this.dropConstants(); this.dropFiles(); this.foldScriptsOut(); if (this.collecting()) this.collectConstants(); }
     this.anchors();
     let early = this.opts.early ? this.earlyParts() : undefined;
@@ -1411,6 +1505,38 @@ class Compiler {
       preload: [...this.preloads].sort(),
     };
   }
+
+  /** A kept template (`fromTemplate`): whether its program is the same for every entry (no entry's URL in it). */
+  entryProgram(): boolean {
+    return !!this.pagesDecl && this.fileData.has(this.pagesDecl.name) && !this.page.readsUrl;
+  }
+
+  /** Two walks of one template, for two entries: the same program (the functions they compiled, in order). */
+  sameProgram(other: Compiler): boolean {
+    return this.fns.length === other.fns.length && this.fns.every((f, i) => f === other.fns[i])
+      && this.templates.length === other.templates.length && this.paints.length === other.paints.length;
+  }
+
+  /**
+   * A kept template evaluated for one of its entries (`fromTemplate`): the entry's value in place of the one walked,
+   * and what the evaluation decides, afresh. Nothing is written into the markup (`prerender(true)`), so each entry
+   * starts from the same walk.
+   */
+  decideFor(options: CompileOptions) {
+    (this as { opts: CompileOptions }).opts = { ...this.opts, page: options.page, foldLog: options.foldLog };
+    this.fileData.get(this.pagesDecl!.name)!.value = options.page!.value;
+    this.diagnostics.length = this.walked;
+    for (const m of [this.decided, this.undecided, this.unrolls, this.foldReads, this.overLimit, this.constants, this.constantSites, this.rowPaint, this.foldWhy, this.painted, this.tplPainted, this.paintValue, this.textFolded]) m.clear();
+    this.foldedFields.length = 0;
+    this.prerender(true);
+    // the constants the layout and the images read: those of rows come from the evaluation (`rowPaint`); one written into
+    // the first pass's own markup and dropped from it (`dropConstants`) needs that pass, so this entry is compiled the usual way
+    this.needsMarkup = this.collecting() && this.constantSources().some(({ s }) => !s.bindings.every((b) => this.rowPaint.has(b)) && s.bindings.every((b) => this.paintValue.has(b)));
+    if (this.collecting() && !this.needsMarkup) this.collectConstants(true);
+  }
+
+  /** `decideFor`: a constant the layout or the images read is one the first pass writes into its own markup */
+  needsMarkup = false;
 
   // ---- positions and diagnostics
 
@@ -2141,7 +2267,7 @@ class Compiler {
     const name = host.tagName;
     const hostOrigin = this.origins.get(host) ?? { file: this.opts.file, src: '', chain: [] };
     // parsed once per file: each use takes a copy (a constant tree expands a component once per node)
-    const frag = freshCopy(this.parsedFiles.get(def.text) ?? this.parsedFiles.set(def.text, parse5.parseFragment(def.text, { sourceCodeLocationInfo: true })).get(def.text)!, null) as DefaultTreeAdapterMap['documentFragment'];
+    const frag = freshCopy(parsedText(def.text), null) as DefaultTreeAdapterMap['documentFragment'];
     const loc = host.sourceCodeLocation ? this.lineCol(hostOrigin.src, host.sourceCodeLocation.startOffset) : { line: 1, col: 1 };
     // a library's file: its diagnostics say where the app uses it, the first use from the app's markup
     const usedAt = hostOrigin.usedAt ?? (def.lib && !this.libOfFile(hostOrigin.file) ? `${this.rootRel(hostOrigin.file)}:${loc.line}` : undefined);
@@ -2902,7 +3028,7 @@ class Compiler {
     if (!def.dataSlots) {
       def.dataSlots = new Set();
       try {
-        const frag = parse5.parseFragment(def.text);
+        const frag = parsedText(def.text);
         const t = frag.childNodes.find((c): c is P5Element => isElement(c) && c.tagName === 'template' && attr(c, 'data-sn-component') !== undefined);
         const text = t ? attr(t, 'data-sn-component')! : '';
         for (const m of typeMembers(text.trim() === '' ? '{}' : text) ?? []) if (m.slot !== undefined) def.dataSlots.add(m.name);
@@ -3557,7 +3683,7 @@ class Compiler {
     const f = this.componentFile(name);
     if (!f || f.head) return out;
     let frag: P5Parent;
-    try { frag = parse5.parseFragment(f.text); } catch { return out; }
+    try { frag = parsedText(f.text); } catch { return out; }
     const all = () => [...new Set([...(this.opts.componentNames ?? []), ...this.componentFiles.keys()])].filter((n) => this.componentFile(n) && !this.componentFile(n)!.head);
     const walk = (n: P5Parent) => {
       for (const c of n.childNodes) {
@@ -6309,7 +6435,8 @@ class Compiler {
    * runtime would write as is. Helpers that may not fold (`helperCalls`), `$locale`, resources but `file:` ones, the
    * clock and the URL are not constant: those bindings render in the browser (early chunk or page module).
    */
-  prerender() {
+  /** `decideOnly`: what it decides and would write, with nothing written into the markup (a kept template's entries, `decideFor`) */
+  prerender(decideOnly = false) {
     /** `tpl`: in a template's content, written there only when it can never change; `if`: a condition decided for a second pass; `for`: a loop unrolled in it */
     type Cand = { el: P5Element; b: Binding; f: number; tpl?: true; if?: true; for?: true };
     const cands: Cand[] = [];
@@ -6467,9 +6594,10 @@ class Compiler {
       if (msg && c.b.k !== 'text') continue;
       const w = v === FAIL ? FAIL : firstPaintValue(c.el, c.b, v, schemes);
       if (w === FAIL) continue;
-      writeFirstPaint(c.el, w[0], c.b.n ?? null, w[1]);
+      // (deciding only: what would be written is recorded, for `collectConstants`, and the markup left as walked)
+      if (!decideOnly) writeFirstPaint(c.el, w[0], c.b.n ?? null, w[1]);
       if (c.tpl) { this.tplPainted.add(c.b); this.paintValue.set(c.b, { k: w[0], n: c.b.n ?? null, v: w[1] }); continue; }
-      if (msg) { setAttr(c.el, 'data-sn-m', ''); continue; }
+      if (msg) { if (!decideOnly) setAttr(c.el, 'data-sn-m', ''); continue; }
       // a persisted model's written value is the fallback: the early chunk still applies the stored one
       if (own === null) { this.painted.add(c.b); this.paintValue.set(c.b, { k: w[0], n: c.b.n ?? null, v: w[1] }); }
     }
@@ -6477,7 +6605,7 @@ class Compiler {
     for (const t of texts) {
       usedMessage = false;
       const v = known(strs(t.b.d)) ? run(this.fns[t.b.f!]!) : FAIL;
-      if (v === FAIL || usedMessage || (v !== null && v !== undefined && typeof v === 'object')) continue;
+      if (decideOnly || v === FAIL || usedMessage || (v !== null && v !== undefined && typeof v === 'object')) continue;
       const text = '' + (v ?? '');
       const at = t.parent.childNodes.indexOf(t.nodes[0] as never);
       if (at < 0) continue;
@@ -6919,10 +7047,14 @@ class Compiler {
    * disagree (a component's markup on one line, used twice) leave it. An attribute reported on (`SN513` aside,
    * which a written image no longer has) stays, so the second pass reports it again.
    */
-  collectConstants() {
+  /**
+   * The attributes `collectConstants` may write for the second pass, before the layout and the images read them: an
+   * image's own (with `images`), a class some selector names or a style (with a layout). Which they are is the walk's:
+   * a page with none collects no constants, whatever its values.
+   */
+  constantSources(): Array<{ s: Compiler['attrSources'][number]; key: string; layoutFold: boolean }> {
     const els = new Map<NodeDef, P5Element>([...this.paints.map((x) => [x.node, x.el] as const), ...this.tplEls]);
     const sheets = (this.opts.styles ?? this.opts.images?.styles ?? []).map((x) => x.css).join('\n');
-    // the selectors of the stylesheets' rules (at-rules' preludes too, which name no class)
     // the selectors of the stylesheets' rules (at-rules' preludes too, which name no class)
     const selectors = [...sheets.replace(/\/\*[\s\S]*?\*\//g, '').matchAll(/([^{}]*)\{/g)].flatMap((m) => m[1]!.split(',').map((x) => x.trim()));
     /** whether some selector names the class (as the stylesheet writes it: `.md\:w-1\/2` for `md:w-1/2`): one none names changes nothing */
@@ -6930,6 +7062,21 @@ class Compiler {
       const token = new RegExp(`\\.${name.replace(/[^\w-]/g, (c) => `\\\\?\\${c}`)}(?![\\w-])`);
       return selectors.some((x) => token.test(x));
     };
+    const out: ReturnType<Compiler['constantSources']> = [];
+    for (const s of this.attrSources) {
+      const key = s.bindings.length && !s.noted ? this.constKey(s.src, s.attr) : null;
+      const target = els.get(s.node);
+      // an image's own attributes: always; a class some selector names, or a style: when the dry run finds that the
+      // layout's answers change (`collectConstants`)
+      const img = target?.tagName === 'img' && !!this.opts.images;
+      const layoutFold = !img && !!this.layout && !!target && (s.attr === 'data-sn-style' || (s.attr === 'data-sn-class' && s.bindings.some((b) => !!b.n && named(b.n))));
+      if (key && (img || layoutFold)) out.push({ s, key, layoutFold });
+    }
+    return out;
+  }
+
+  /** `kept`: on a kept template's walk (`decideFor`), which the dry run must not change: the entry is compiled the usual way instead */
+  collectConstants(kept = false) {
     /** the keys of constant classes and styles, which the dry run decides */
     const layoutKeys = new Set<string>();
     const put = (key: string, writes: ConstantWrite[], sites: PathRef[]) => {
@@ -6939,14 +7086,7 @@ class Compiler {
       this.constants.set(key, writes);
       for (const s of this.stateSites(sites)) this.constantSites.add(s);
     };
-    for (const s of this.attrSources) {
-      const key = s.bindings.length && !s.noted ? this.constKey(s.src, s.attr) : null;
-      const target = els.get(s.node);
-      // an image's own attributes: always; a class some selector names, or a style: when the dry run finds that the
-      // layout's answers change (below)
-      const img = target?.tagName === 'img' && !!this.opts.images;
-      const layoutFold = !img && !!this.layout && !!target && (s.attr === 'data-sn-style' || (s.attr === 'data-sn-class' && s.bindings.some((b) => !!b.n && named(b.n))));
-      if (!key || (!img && !layoutFold)) continue;
+    for (const { s, key, layoutFold } of this.constantSources()) {
       const before = new Set(this.constants.keys());
       const deps = s.bindings.flatMap((b) => b.d ?? []);
       const rows = s.bindings.map((b) => this.rowPaint.get(b));
@@ -6965,6 +7105,7 @@ class Compiler {
     const clean = !this.diagnostics.some((d) => d.severity === 'error' && d.code !== 'SN322');
     if (this.constants.size > folds.length || this.decided.size || (this.unrolls.size && clean)) return;
     // else only when the dry run finds a difference (no copy: the page has no image or list for them to change)
+    if (kept) { this.needsMarkup = true; return; }
     if (this.dry && this.dryRun(new Map(folds.map((k) => [k, this.constants.get(k)!])))) return;
     for (const k of folds) this.constants.delete(k);
   }

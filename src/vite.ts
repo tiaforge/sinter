@@ -497,7 +497,24 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     return { info: (f) => img.info(f), url: (v) => prefix + img.fileName(v), ignore: true, stylesheet: `${IMG_CSS}${rel}.css`, ...(widths ? { widths } : {}), ...(styles?.length ? { styles } : {}) };
   };
   /** next-page data: each page's description, by file (null: nothing to prefetch), and the pages compiled so far */
-  const described = new Map<string, { parts: PrefetchParts | null; path: string[]; off: boolean; keep: string[]; swapOff: boolean; keptSource: Record<string, string>; keptBound: string[] }>();
+  type Described = { parts: PrefetchParts | null; path: string[]; off: boolean; keep: string[]; swapOff: boolean; keptSource: Record<string, string>; keptBound: string[] };
+  const described = new Map<string, Described>();
+  /**
+   * `data-sn-pages`: each template's description (by source and language), from the first of its entries described.
+   * Another entry's is that one at its own path: what an entry can request ahead reads only the URL (`$url`), never
+   * the entry, so it is the same for every entry, as what a swap keeps is. Cleared with `described`.
+   */
+  const entriesDescribed = new Map<string, { page: string; d: Described }>();
+  /** an entry's description from its template's, or null to compile it */
+  const entryDescription = (v: { source: string; locale?: string; page?: { path: string } } | undefined): Described | null => {
+    if (!v?.page) return null;
+    const k = entriesDescribed.get(`${v.source}\0${v.locale ?? ''}`);
+    // (the one path a `data-sn-pages` page has: the entry's, under its language's prefix)
+    if (!k || k.d.path.length !== 1 || !k.d.path[0]!.endsWith(k.page)) return null;
+    const own = k.d.path[0]!.slice(0, k.d.path[0]!.length - k.page.length) + v.page.path;
+    const at = (ps: string[]) => ps.map((x) => (x === k.d.path[0] ? own : x));
+    return { ...k.d, parts: k.d.parts && { ...k.d.parts, path: at(k.d.parts.path) }, path: at(k.d.path) };
+  };
   let speculationHash: string | null = null, rulesWritten = false;
   /** every inline rule set's hash (pages with same-page links have their own) */
   const speculationHashes = new Set<string>();
@@ -678,10 +695,13 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   const describe = (file: string) => {
     if (!described.has(file)) {
       const p = proj(), v = virtual.get(file);
+      const kept = entryDescription(v);
+      if (kept) { described.set(file, kept); return kept; }
       try {
         // with the APIs and specs: what is requested ahead is the page's own request (its base, its configured shape)
         const r = compile(readPage(file), { file: v?.source ?? file, root, dev, helpers: p.helpers, actions: p.actions, readFile: readVia(p), listFiles: p.listFiles, ...(dev ? {} : { globCache }), ...contentOpts(v?.locale), lazy: p.lazy, openapi: p.openapi, apis: p.apis, ...(v?.page ? { page: v.page } : {}), describeOnly: true, ...(v?.locale ? { locale: { name: v.locale, urls: null, base: resolved?.base ?? '/' } } : {}) });
         described.set(file, { parts: r.prefetch, path: r.path, off: !!r.prefetchOff, keep: r.permanent ?? [], swapOff: !!r.swapOff, keptSource: r.keptSource ?? {}, keptBound: r.keptBound ?? [] });
+        if (v?.page) entriesDescribed.set(`${v.source}\0${v.locale ?? ''}`, { page: v.page.path, d: described.get(file)! });
       } catch { described.set(file, { parts: null, path: [], off: false, keep: [], swapOff: true, keptSource: {}, keptBound: [] }); }
     }
     return described.get(file)!;
@@ -831,6 +851,8 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   const contentOpts = (locale?: string) => (content ? { collections: collectionsIn(content, locale), ...(content.error ? { collectionsError: content.error } : {}) } : {});
   /** builds: the `file:` lists already built (compile's `globCache`), cleared with the reads */
   const globCache: NonNullable<Parameters<typeof compile>[1]['globCache']> = new Map();
+  /** builds: each `data-sn-pages` template's first pass, walked once for all its entries (compile's `templates`), cleared with the reads */
+  const templates = new Map<string, unknown>();
   const readVia = (p: ReturnType<typeof project>) => (dev ? p.readFile : (path: string) => {
     let r = buildReads.get(path);
     if (!r) { try { r = { text: p.readFile(path) }; } catch (error) { r = { error }; } buildReads.set(path, r); }
@@ -862,7 +884,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     if (!seen.has(file)) { seen.add(file); if (dev || !pageInputs) pagesCache = null; }
     const prefetch = options.prefetch !== false && prefetchPages().length ? PREFETCH : null;
     const out = compile(html, {
-      file: src, root, dev, sourcemap: dev || !!resolved?.build.sourcemap, helpers: p.helpers, actions: p.actions, moduleSrc: `${PREFIX}${rel}.js`, config: p.config, readFile: readVia(p), listFiles: p.listFiles, ...(dev ? {} : { globCache }), ...contentOpts(v?.locale), prefetch,
+      file: src, root, dev, sourcemap: dev || !!resolved?.build.sourcemap, helpers: p.helpers, actions: p.actions, moduleSrc: `${PREFIX}${rel}.js`, config: p.config, readFile: readVia(p), listFiles: p.listFiles, ...(dev ? {} : { globCache, templates }), ...contentOpts(v?.locale), prefetch,
       ...(page ? { page } : {}),
       check: !!options.typecheck && !dev, openapi: p.openapi, apis: p.apis, complexity: p.complexity, ...(p.expansionLimit ? { expansionLimit: p.expansionLimit } : {}), componentNames: p.componentNames, libraries: p.libraries, checkCycles: p.checkCycles, lazy: p.lazy,
       ...(lazyPkgs.length ? { lazyScript, lazyModule: (m: string) => lazyHelpers(root, lazyPkgs, undefined, p.libraries).reach(m) } : {}),
@@ -1052,7 +1074,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
         // the helpers module, or a file it reaches: loaded again before the next page compiles
         if (helpersNow?.files.includes(file) || file === proj().helpersFile) nodeHelpers = null;
         // a page's resources may have changed: the next-page module is described again
-        if (file.endsWith('.html') || watched.has(file)) { described.clear(); pagesCache = null; invalidate(PREFETCH); invalidate(SWAP); devEarly.clear(); }
+        if (file.endsWith('.html') || watched.has(file)) { described.clear(); entriesDescribed.clear(); pagesCache = null; invalidate(PREFETCH); invalidate(SWAP); devEarly.clear(); }
         if (watched.has(file)) s.ws.send({ type: 'full-reload' });
       });
       // the content module, or a file its loaders read: the collections are loaded again, and the pages reload
@@ -1064,14 +1086,14 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
           content = c;
           if (c?.error) s.config.logger.error(`sinter: ${c.error}`);
           for (const f of c?.files ?? []) s.watcher.add(f);
-          described.clear(); pagesCache = null; invalidate(PREFETCH); devEarly.clear();
+          described.clear(); entriesDescribed.clear(); pagesCache = null; invalidate(PREFETCH); devEarly.clear();
           s.ws.send({ type: 'full-reload' });
         }, (e) => s.config.logger.error(`sinter: ${(e as Error).message}`));
       });
       // a `file:` glob's list changes when a file it matches is added or removed
       for (const ev of ['add', 'unlink'] as const) s.watcher.on(ev, (file) => {
         if (!inGlob(file)) return;
-        described.clear(); pagesCache = null; invalidate(PREFETCH); invalidate(SWAP); devEarly.clear();
+        described.clear(); entriesDescribed.clear(); pagesCache = null; invalidate(PREFETCH); invalidate(SWAP); devEarly.clear();
         s.ws.send({ type: 'full-reload' });
       });
     },
@@ -1089,10 +1111,11 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       earlyFiles.clear();
       languageFiles.clear();
       pageMessages.clear();
-      described.clear();
+      described.clear(); entriesDescribed.clear();
       pagesCache = null;
       buildReads.clear();
       globCache.clear();
+      templates.clear();
       templatesKept.clear();
       buildProject = null;
       if (dev) return;
