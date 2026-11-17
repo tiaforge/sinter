@@ -298,6 +298,32 @@ definitions with 4 recordings and no refusal: a page compiles in 22.1–22.5 ms 
 of 7, two runs). A variant where a third of the posts have one more bound element before the article and a third one
 more loop links 376 definitions with 12 recordings (four per kind of page): 24.3–24.5 ms instead of 35.1–36.5.
 
+**The fourth review (2026-11-17).** It found two differences and two places linking never happened, each a scenario in
+`test/compiler/link-review-4.test.ts`, and a cost:
+
+- A library's definition recorded on a page at the root and linked into one in a folder said where the app uses it as
+  `c.html:1`, not `blog/c.html:1`: at the root, the page's name and its path under the root are one string. A place is
+  now told by where it is held: an origin's `usedAt` is the path under the root, any other the name.
+- With a source map, a function whose code the page had written before the definition took the definition's site, the
+  recording page's too. With `sourcemap`, the unit now reads the page's `codeAt` through, and what it looks up is a
+  precondition. Without one a site shows nowhere, and the unit keeps its own.
+- Localized pages linked nothing: every unit read the page's locale whole, and with it the page's own URLs. Objects of
+  the page info are now read property by property.
+- A warning before the tree stopped linking: the first pass reads the diagnostics added since a point
+  (`slice(d0)`), which read the whole list, and a diagnostic names its file. Such a `slice` now reads the length only.
+- Recording walked and copied the whole page for each unit, so a page was quadratic in its definitions: 100 small ones,
+  61 ms compiled alone and 1.1 s where recorded. A unit now copies the page's objects as it is handed them (`Rec.hand`:
+  by a table, the page info, a field), with their paths: about two per definition here, whatever the page's size, and
+  150–270 ms where recorded. A wrapper a unit keeps in an object of its own is put back as the page's object.
+- The audit compiled only pages that did not link, so a build's pages were never audited. Under `SN_LINK_AUDIT`, a
+  compile that links is now compiled alone beside it and compared.
+
+Suite: 2,234 tests, plain and audited; of 1,931 audited compiles, 549 recorded a plan and all linked it into the page
+again. Every build is byte-identical to `main`'s, three variants of `--files` included. A page of `--files` compiles in
+21.2–21.3 ms instead of 33.8–35.7; the variant with three kinds of post in 22.5–25.0 ms instead of 33.5–37.6; a
+localized one (`localePrefix`, two languages, 605 files) links 792 definitions with 4 recordings, and builds in 7.9–8.7 s
+instead of 10.3.
+
 Found on the way and landed: the expression parse cache keyed its trees by one string of the kind, the options and the
 text, a new string hashed at every lookup (7% of the definitions' time). Keyed by the options, then by the text (the
 attribute's own string, whose hash the engine keeps): 6–9% off a page's compile, output unchanged. Memoizing

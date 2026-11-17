@@ -26,8 +26,25 @@ export const MESSAGES = `${PACKAGE}/messages`;
 /** Compiles annotated HTML into a rewritten page and its page module. Pure and deterministic. */
 export function compile(html: string, options: CompileOptions): CompileResult {
   // (docs/proposals/compile-once.md, (5)): every compile checked against itself linked, to find what linking misses
-  if (env('SN_LINK_AUDIT') && !options.definitions && !options.dev && !options.check) return audited(html, options);
+  if (env('SN_LINK_AUDIT') && !options.dev && !options.check) return options.definitions ? auditedLink(html, options) : audited(html, options);
   return compileOne(html, options);
+}
+
+/** a compile that links (a build's, `definitions`): the same page compiled on its own beside it, which it must be */
+function auditedLink(html: string, options: CompileOptions): CompileResult {
+  const alone = compileOne(html, { ...options, definitions: undefined }), linked = compileOne(html, options);
+  differs('linked in its build', options.file, alone, linked);
+  return linked;
+}
+
+/** the first place two results differ, thrown */
+function differs(what: string, file: string, x: CompileResult, y: CompileResult) {
+  const text = (r: CompileResult) => JSON.stringify(r, (_, v) => (typeof v === 'function' ? '[fn]' : v instanceof Map ? [...v] : v instanceof Set ? [...v] : v));
+  const a = text(x), b = text(y);
+  if (a === b) return;
+  let i = 0;
+  while (a[i] === b[i]) i++;
+  throw new Error(`sinter link audit: ${file}: ${what} differs at ${i}:\n  compiled ${a.slice(Math.max(0, i - 120), i + 120)}\n  linked   ${b.slice(Math.max(0, i - 120), i + 120)}`);
 }
 
 /** an environment variable, where there is one (the compiler has no Node imports of its own) */
@@ -72,14 +89,7 @@ function audited(html: string, options: CompileOptions): CompileResult {
   // something (and a check that links nothing checks nothing)
   if (st.missed) throw new Error(`sinter link audit: ${options.file}: a plan recorded on this page does not link into it again`);
   if (st.recorded && !last.hits) throw new Error(`sinter link audit: ${options.file}: ${st.recorded} definitions recorded, none linked in the third round`);
-  const text = (r: CompileResult) => JSON.stringify(r, (_, v) => (typeof v === 'function' ? '[fn]' : v instanceof Map ? [...v] : v instanceof Set ? [...v] : v));
-  for (const [what, x, y] of [['compiled where first seen', plain, linked[0]!], ['recorded', plain, linked[1]!], ['linked', plain, linked[2]!], ...others] as const) {
-    const a = text(x), b = text(y);
-    if (a === b) continue;
-    let i = 0;
-    while (a[i] === b[i]) i++;
-    throw new Error(`sinter link audit: ${options.file}: ${what} differs at ${i}:\n  compiled ${a.slice(Math.max(0, i - 120), i + 120)}\n  linked   ${b.slice(Math.max(0, i - 120), i + 120)}`);
-  }
+  for (const [what, x, y] of [['compiled where first seen', plain, linked[0]!], ['recorded', plain, linked[1]!], ['linked', plain, linked[2]!], ...others] as const) differs(what, options.file, x, y);
   return plain;
 }
 

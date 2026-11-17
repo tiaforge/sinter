@@ -218,8 +218,6 @@ export const LINK_FIELDS: Record<string, { kinds: string[]; how: 'table' | 'weak
   writtenIn: { kinds: ['WeakMap'], how: 'weak' },
 };
 
-/** fields replayed by `fn()` itself, or kept as they are */
-const SKIP = new Set(['fns', 'fnIndex', 'fnUses', 'fnAt', 'callAt', 'inDef', 'at', 'lineStarts', 'templates', 'defLink', 'graphs']);
 /** a unit's numbering (`Compiler.unitChild`): copied from its page, taken back after; renumbered when it is linked */
 export const UNIT_NUMBERING = new Set(['fns', 'fnIndex', 'fnUses', 'fnAt', 'callAt', 'templates', 'codeAt', 'useIds', 'nextSid', 'nextId', 'actions']);
 const container = (v: unknown) => v instanceof Map || v instanceof Set || Array.isArray(v);
@@ -227,47 +225,8 @@ const container = (v: unknown) => v instanceof Map || v instanceof Set || Array.
 const shared = (o: object) => Object.isFrozen(o) || ('startOffset' in o && 'endOffset' in o);
 
 
-/** everything reachable from the values, as a set (no WeakMaps: they cannot be walked) */
-function reach(roots: unknown[], into = new Set<object>(), stop?: (o: object) => boolean) {
-  const todo = [...roots];
-  while (todo.length) {
-    const v = todo.pop();
-    if (!v || typeof v !== 'object' || into.has(v)) continue;
-    if (stop?.(v)) continue;
-    into.add(v);
-    if (v instanceof Map) for (const [k, x] of v) { todo.push(k, x); }
-    else if (v instanceof Set) for (const x of v) todo.push(x);
-    else if (Array.isArray(v)) for (const x of v) todo.push(x);
-    else if (!(v instanceof WeakMap) && !(v instanceof WeakSet)) for (const k of Object.keys(v)) todo.push((v as any)[k]);
-  }
-  return into;
-}
-
 /** a step from a compiler field to an old object: a property, a map's key, a list's index */
 type Step = { p: string } | { k: unknown } | { i: number };
-
-/**
- * a path to each old object, from the compiler's fields: through properties and map keys first, through a list's
- * position only where no other path leads (a position says nothing of what is there: it is pinned, `runUnit`)
- */
-function paths(c: any, old: Set<object>): Map<object, Step[]> {
-  const out = new Map<object, Step[]>();
-  let todo: Array<[unknown, Step[]]> = [], later: Array<[unknown, Step[]]> = [];
-  for (const k of Object.keys(c)) if (!SKIP.has(k)) todo.push([c[k], [{ p: k }]]);
-  while (todo.length) {
-    for (let n = 0; n < todo.length; n++) {
-      const [v, path] = todo[n]!;
-      if (!v || typeof v !== 'object' || out.has(v) || !old.has(v) || Object.isFrozen(v)) continue;
-      out.set(v, path);
-      if ('nodeName' in (v as object)) continue;
-      if (v instanceof Map) { for (const [k, x] of v) if (k === null || typeof k !== 'object') todo.push([x, [...path, { k }]]); }
-      else if (Array.isArray(v)) v.forEach((x, i) => later.push([x, [...path, { i }]]));
-      else if (!(v instanceof Set) && !(v instanceof WeakMap) && !(v instanceof WeakSet)) for (const k of Object.keys(v)) todo.push([(v as any)[k], [...path, { p: k }]]);
-    }
-    [todo, later] = [later, []];
-  }
-  return out;
-}
 
 const follow = (c: any, path: Step[]) => path.reduce((o: any, s) => (o == null ? undefined : 'p' in s ? o[s.p] : 'k' in s ? o.get(s.k) : o[s.i]), c);
 
@@ -303,6 +262,32 @@ class Rec {
   }
   refuse(why: string) { this.bad ??= why; }
   write(path: Step[], change: Change) { this.ops.push({ op: 'old', target: { path }, change }); }
+  /** the page's objects the unit was handed, and what they reach; a copy of each plain one as it was; a path to each */
+  readonly old = new Set<object>();
+  readonly before = new Map<object, any>();
+  readonly paths = new Map<object, Step[]>();
+  /** what is not the page's to hand out: shared as it is, or the options */
+  stop: (o: object) => boolean = shared;
+  /**
+   * An object of the page the unit is handed (by a table, the page info, a field), with its path when it has one: it and
+   * what it reaches are the page's (`old`), each plain one copied as it is now, before the unit can change it (what it
+   * changes is diffed against the copy, `runUnit`). What is under an element is the page's, and not walked.
+   */
+  hand(v: unknown, path: Step[] | null) {
+    if (!v || typeof v !== 'object' || this.old.has(v)) return;
+    const todo: Array<[unknown, Step[] | null]> = [[v, path]];
+    for (let n = 0; n < todo.length; n++) {
+      const [o, p] = todo[n]!;
+      if (!o || typeof o !== 'object' || this.old.has(o) || this.stop(o)) continue;
+      this.old.add(o);
+      if (p && !this.paths.has(o)) this.paths.set(o, p);
+      if ('nodeName' in o || o instanceof WeakMap || o instanceof WeakSet) continue;
+      if (o instanceof Map) { for (const [k, x] of o) { todo.push([k, null], [x, p && (k === null || typeof k !== 'object') ? [...p, { k }] : null]); } }
+      else if (o instanceof Set) { for (const x of o) todo.push([x, null]); }
+      else if (Array.isArray(o)) o.forEach((x, i) => todo.push([x, p && [...p, { i }]]));
+      else { this.before.set(o, shallow(o)); for (const k of Object.keys(o)) todo.push([(o as any)[k], p && [...p, { p: k }]]); }
+    }
+  }
 }
 
 const pathText = (path: Step[]) => path.map((s) => ('p' in s ? s.p : 'k' in s ? `[${String(s.k)}]` : `[${s.i}]`)).join('.');
@@ -375,7 +360,9 @@ class LoggedMap extends Map<unknown, unknown> {
       if (!w) this.wraps.set(k, (w = wrap(v, [...this.path, { k }], this.rec)));
       return w;
     }
-    if (!this.cache && (k === null || typeof k !== 'object')) readValue(this.rec, [...this.path, { k }], v);
+    const prim = k === null || typeof k !== 'object';
+    this.rec.hand(v, prim ? [...this.path, { k }] : null);
+    if (!this.cache && prim) readValue(this.rec, [...this.path, { k }], v);
     return v;
   }
   override get(k: unknown) { this.look(k); return this.value(k, super.get(k)); }
@@ -391,9 +378,9 @@ class LoggedMap extends Map<unknown, unknown> {
   override clear() { this.rec.refuse(`clears ${pathText(this.path)}`); super.clear(); }
   override get size() { this.whole(); return super.size; }
   override forEach(f: (v: unknown, k: unknown, m: Map<unknown, unknown>) => void, self?: unknown) { for (const [k, v] of this) f.call(self, v, k, this); }
-  override *entries(): MapIterator<[unknown, unknown]> { this.whole(); for (const [k, v] of super.entries()) yield [k, this.value(k, v)]; }
+  override *entries(): MapIterator<[unknown, unknown]> { this.whole(); for (const [k, v] of super.entries()) { if (!this.mine.has(k)) this.rec.hand(k, null); yield [k, this.value(k, v)]; } }
   override *values(): MapIterator<unknown> { for (const [, v] of this.entries()) yield v; }
-  override keys(): MapIterator<unknown> { this.whole(); return super.keys(); }
+  override *keys(): MapIterator<unknown> { this.whole(); for (const k of super.keys()) { if (!this.mine.has(k)) this.rec.hand(k, null); yield k; } }
   override [Symbol.iterator]() { return this.entries(); }
 }
 
@@ -410,10 +397,10 @@ class LoggedSet extends Set<unknown> {
   override clear() { this.rec.refuse(`clears ${pathText(this.path)}`); super.clear(); }
   private whole() { this.rec.read({ at: this.path, size: this.base.size, keys: keysOf(this.base) }); }
   override get size() { this.whole(); return super.size; }
-  override forEach(f: (v: unknown, k: unknown, s: Set<unknown>) => void, self?: unknown) { this.whole(); super.forEach((v) => f.call(self, v, v, this)); }
-  override values(): SetIterator<unknown> { this.whole(); return super.values(); }
+  override forEach(f: (v: unknown, k: unknown, s: Set<unknown>) => void, self?: unknown) { for (const v of this) f.call(self, v, v, this); }
+  override *values(): SetIterator<unknown> { this.whole(); for (const x of super.values()) { if (!this.mine.has(x)) this.rec.hand(x, null); yield x; } }
   override keys(): SetIterator<unknown> { return this.values(); }
-  override entries(): SetIterator<[unknown, unknown]> { this.whole(); return super.entries(); }
+  override *entries(): SetIterator<[unknown, unknown]> { for (const x of this.values()) yield [x, x]; }
   override [Symbol.iterator]() { return this.values(); }
 }
 
@@ -426,8 +413,10 @@ function loggedList(base: unknown[], path: Step[], rec: Rec): unknown[] {
   const p: unknown[] = new Proxy(copy, {
     get(t, k, r) {
       if (k === 'push') return (...xs: unknown[]) => { for (const x of xs) rec.write(path, { kind: 'push', value: x }); return t.push(...xs); };
+      // (what was added since a length it read: the length; `diagnostics.slice(d0)`)
+      if (k === 'slice') return (a?: number, b?: number) => { if (b === undefined && a !== undefined && a >= n) rec.read({ at: path, size: n, keys: null }); else readValue(rec, path, base); return t.slice(a, b); };
       if (k === 'length') rec.read({ at: path, size: n, keys: null });
-      else if (typeof k === 'string' && /^\d+$/.test(k)) { if (+k < n) readValue(rec, [...path, { i: +k }], base[+k]); }
+      else if (typeof k === 'string' && /^\d+$/.test(k)) { if (+k < n) { rec.hand(base[+k], [...path, { i: +k }]); readValue(rec, [...path, { i: +k }], base[+k]); } }
       else if (k === Symbol.iterator || (typeof k === 'string' && k !== 'constructor' && typeof (Array.prototype as any)[k] === 'function')) readValue(rec, path, base);
       const v = Reflect.get(t, k, r);
       return typeof v === 'function' && k !== 'constructor' ? v.bind(p) : v;
@@ -449,7 +438,13 @@ class LoggedWeak {
   private readonly gone = new Set<object>();
   constructor(private readonly base: WeakMap<object, unknown> | WeakSet<object>, private readonly field: string, private readonly rec: Rec, private readonly view = (v: unknown) => v) { this.own = base instanceof WeakSet ? new Set() : new Map(); }
   has(k: object) { return !this.gone.has(k) && (this.own.has(k) || this.base.has(k)); }
-  get(k: object) { return this.gone.has(k) ? undefined : this.own instanceof Map && this.own.has(k) ? this.own.get(k) : this.view((this.base as WeakMap<object, unknown>).get(k)); }
+  get(k: object) {
+    if (this.gone.has(k)) return undefined;
+    if (this.own instanceof Map && this.own.has(k)) return this.own.get(k);
+    const v = (this.base as WeakMap<object, unknown>).get(k);
+    this.rec.hand(v, null);
+    return this.view(v);
+  }
   set(k: object, v: unknown) { this.rec.ops.push({ op: 'weak', field: this.field, key: k, value: v }); this.gone.delete(k); (this.own as Map<object, unknown>).set(k, v); return this; }
   add(k: object) { this.rec.ops.push({ op: 'weakAdd', field: this.field, key: k }); this.gone.delete(k); (this.own as Set<object>).add(k); return this; }
   delete(k: object) { this.rec.ops.push({ op: 'weakDel', field: this.field, key: k }); const had = this.has(k); this.own.delete(k); if (this.base.has(k)) this.gone.add(k); return had; }
@@ -475,6 +470,9 @@ const BUILD_OPTIONS = new Set(['root', 'dev', 'sourcemap', 'helpers', 'actions',
 export function recordChild<T>(c: any, name: string, compile: (child: any) => T, prior: Map<object, { u: number; i: number }>): { result: T; unit: Plan | Refused } {
   for (const k of Object.keys(c)) if (!(k in LINK_FIELDS)) return { result: compile(c), unit: { refused: `\`${k}\` is not in LINK_FIELDS` } };
   const run = runUnit(c, name, compile, prior);
+  // (for the tests: how many of the page's objects recording copied, which grows with what the unit touches, not the page)
+  const stats = (globalThis as { __snLink?: { copied?: number } }).__snLink;
+  if (stats && 'unit' in run) stats.copied = (stats.copied ?? 0) + run.copied;
   if ('refused' in run) return { result: run.result as T, unit: { refused: run.refused } };
   const plan = keep(run.unit);
   if ('refused' in plan.plan) return { result: run.result as T, unit: plan.plan };
@@ -482,43 +480,57 @@ export function recordChild<T>(c: any, name: string, compile: (child: any) => T,
   return { result: run.result as T, unit: plan.plan };
 }
 
-type Run = { result: unknown; unit: Unit } | { result: unknown; refused: string };
+type Run = { result: unknown; unit: Unit; copied: number } | { result: unknown; refused: string };
 
 /** the unit compiled, its view of its page logging what it reads and writes; its writes applied to the page */
 function runUnit(c: any, name: string, compile: (child: any) => unknown, prior: Map<object, { u: number; i: number }>): Run {
   const rec = new Rec();
   const u = c.unitChild(), child = u.child;
   const T0 = c.templates.length, f0 = c.fns.length, u0 = c.useIds, s0 = c.nextSid, n0 = c.nextId, a0 = c.actions.length, atBefore = c.at;
-  const defKeys = new Set(c.defs.keys()), pageCodeAt: Map<string, unknown> = c.codeAt, hadCode = new Set(pageCodeAt.keys());
-  // the page as it is before the unit: its objects, and a copy of each plain one, to see what the unit changed in it
-  const old = new Set<object>();
+  const defKeys = new Set(c.defs.keys());
+  // the page's objects are those the unit is handed (`Rec.hand`), and the elements of the page it is compiled in
+  rec.stop = (o) => shared(o) || o === c.opts || o === c || o === c.page;
+  rec.hand(atBefore, null);
   let top = atBefore?.el;
   while (top?.parentNode) top = top.parentNode;
-  reach([...Object.keys(c).filter((k) => !SKIP.has(k)).map((k) => c[k]), top, atBefore], old, (o) => shared(o) || o === c.opts);
-  const before = new Map<object, any>();
-  for (const o of old) if (!container(o) && !(o instanceof WeakMap) && !(o instanceof WeakSet) && !('nodeName' in o)) before.set(o, shallow(o));
+  const old = rec.old, before = rec.before;
+  const pageNode = (v: any) => { if (!('nodeName' in v)) return false; let r = v; while (r.parentNode) r = r.parentNode; return r === top; };
   // the unit's view of its page: its own tables, the page info and the component files log; so do its own fields
   for (const k of u.own) child[k] = LINK_FIELDS[k]!.how === 'weak' ? new LoggedWeak(c[k], k, rec) : wrap(c[k], [{ p: k }], rec);
   child.componentFiles = wrap(c.componentFiles, [{ p: 'componentFiles' }], rec, true);
   const info: Record<string, unknown> = {};
   for (const k of Object.keys(c.page)) info[k] = container(c.page[k]) ? wrap(c.page[k], [{ p: 'page' }, { p: k }], rec) : c.page[k];
+  // (an object of the page info, as the locale: read property by property, so what the unit does not use does not count)
+  const views = new WeakMap<object, unknown>();
+  const viewOf = (o: any, path: Step[]): unknown => {
+    if (!o || typeof o !== 'object' || container(o) || 'nodeName' in o || Object.getPrototypeOf(o) !== Object.prototype) { readValue(rec, path, o); return o; }
+    let w = views.get(o);
+    if (!w) {
+      rec.hand(o, path);
+      views.set(o, (w = new Proxy(o, { get(t, k) { return typeof k === 'string' ? viewOf(t[k], [...path, { p: k }]) : t[k]; }, ownKeys(t) { readValue(rec, path, Object.keys(t)); return Reflect.ownKeys(t); } })));
+      rec.page.set(w as object, o);
+    }
+    return w;
+  };
   child.page = new Proxy(info, {
-    get(t, k) { if (typeof k === 'string' && !container(t[k]) && !rec.page.has(t[k] as object)) readValue(rec, [{ p: 'page' }, { p: k }], t[k]); return t[k as string]; },
+    get(t, k) { if (typeof k === 'string' && !container(t[k]) && !rec.page.has(t[k] as object)) return viewOf(t[k], [{ p: 'page' }, { p: k }]); return t[k as string]; },
     set(t, k, v) { rec.write([{ p: 'page' }], { kind: 'prop', key: k as string, value: v }); t[k as string] = v; return true; },
   });
   rec.page.set(child.page, c.page);
   const optRead = new Set<string>();
   child.opts = new Proxy(c.opts, { get(t, k) { if (typeof k === 'string') optRead.add(k); return t[k]; } });
   rec.page.set(child.opts, c.opts);
-  // where its functions were written: its own (a page's own the page puts first when it links them, as `fn()` does)
-  child.codeAt = new Map();
+  // where its functions were written, which only a source map shows: with one, the page's, read through (what it looks
+  // up is a precondition), its own logged; without, its own (a page that had the code keeps its own, `ifAbsent`)
+  const sites = !!c.opts.sourcemap;
+  child.codeAt = sites ? wrap(c.codeAt, [{ p: 'codeAt' }], rec) : new Map();
   for (const [k, f] of Object.entries(LINK_FIELDS)) {
     if (!(k in child) || (f.how !== 'fixed' && f.how !== 'restored') || k === 'page' || k === 'opts' || k === 'componentFiles') continue;
     let v = child[k], mine = false;
     Object.defineProperty(child, k, {
       configurable: true, enumerable: true,
       // (what it reads after writing it is its own)
-      get() { if (!mine) readValue(rec, [{ p: k }], v); return v; },
+      get() { if (!mine) { rec.hand(v, [{ p: k }]); readValue(rec, [{ p: k }], v); } return v; },
       set(x) { rec.write([], { kind: 'prop', key: k, value: x }); v = x; mine = true; },
     });
   }
@@ -533,11 +545,11 @@ function runUnit(c: any, name: string, compile: (child: any) => unknown, prior: 
   let result: unknown;
   try { result = compile(child); } finally { delete child.fn; }
   const ops = rec.ops;
-  for (const [x, y] of child.codeAt) ops.push({ op: 'old', target: { path: [{ p: 'codeAt' }] }, change: { kind: 'set', key: x, value: y, ifAbsent: true } as Change });
+  if (!sites) for (const [x, y] of child.codeAt) ops.push({ op: 'old', target: { path: [{ p: 'codeAt' }] }, change: { kind: 'set', key: x, value: y, ifAbsent: true } as Change });
   for (const [x, y] of child.defs) if (!defKeys.has(x)) ops.push({ op: 'old', target: { path: [{ p: 'defs' }] }, change: { kind: 'set', key: x, value: y } });
   // what it changed of the page's plain objects (a use's list, a resource's `used`), against their path from the page's
   // fields: before its writes are applied (what it changed itself, not what they change)
-  const where = paths(c, old);
+  const where = rec.paths;
   for (const [o, b] of before as Map<any, any>) {
     const keys = new Set([...Object.keys(b), ...Object.keys(o)]);
     for (const k of keys) {
@@ -552,9 +564,6 @@ function runUnit(c: any, name: string, compile: (child: any) => unknown, prior: 
   const unwrap = (v: unknown) => (v && typeof v === 'object' ? rec.page.get(v) ?? v : v);
   applyOps(c, ops, unwrap);
   for (const k of UNIT_NUMBERING) if (k in c && k !== 'codeAt') c[k] = child[k];
-  // (a function new to the page whose code the page had written before the unit: there, as `fn()` puts it; the unit's own
-  // writes of `codeAt` are applied with the others)
-  for (let i = f0; i < c.fns.length; i++) if (hadCode.has(c.fns[i])) c.fnAt[i] = pageCodeAt.get(c.fns[i]);
   c.at = child.at;
   // a check the unit left for the end of the page (a closure over its compiler): it reports to the page
   for (const k of Object.keys(c)) Object.defineProperty(child, k, { value: c[k], writable: true, configurable: true, enumerable: true });
@@ -582,7 +591,7 @@ function runUnit(c: any, name: string, compile: (child: any) => unknown, prior: 
   while (todo.length) {
     const v = unwrap(todo.pop());
     if (!v || typeof v !== 'object' || seenObj.has(v) || shared(v) || refs.has(v)) continue;
-    if (old.has(v) || prior.has(v)) {
+    if (old.has(v) || prior.has(v) || pageNode(v)) {
       if (prior.has(v)) { refs.set(v, { prior: prior.get(v)! }); continue; }
       const path = where.get(v) ?? rec.where.get(v);
       if (!path) return refuse(`refers to an object of the page that has no key (${(v as any).constructor?.name ?? 'object'}: ${(v as any).nodeName ?? Object.keys(v).slice(0, 6).join(', ')})`);
@@ -594,10 +603,16 @@ function runUnit(c: any, name: string, compile: (child: any) => unknown, prior: 
     if (typeof v === 'function') return refuse('holds a function');
     const proto = Object.getPrototypeOf(v);
     if (proto !== Object.prototype && proto !== Array.prototype && proto !== Map.prototype && proto !== Set.prototype && proto !== null) return refuse(`holds a ${(v as any).constructor?.name}`);
-    if (v instanceof Map) for (const [k, x] of v) todo.push(k, x);
-    else if (v instanceof Set) for (const x of v) todo.push(x);
-    else if (Array.isArray(v)) for (const x of v) todo.push(x);
-    else for (const k of Object.keys(v)) { if (typeof (v as any)[k] === 'function') return refuse(`holds a function (\`${k}\`)`); todo.push((v as any)[k]); }
+    // (a wrapper the unit kept in an object of its own: the page's object it stands for, there and in the plan)
+    const real = (x: unknown) => (x && typeof x === 'object' && rec.page.has(x) ? rec.page.get(x) : x);
+    if (v instanceof Map) {
+      if ([...v].some(([k, x]) => real(k) !== k || real(x) !== x)) { const es = [...v]; v.clear(); for (const [k, x] of es) v.set(real(k), real(x)); }
+      for (const [k, x] of v) todo.push(k, x);
+    } else if (v instanceof Set) {
+      if ([...v].some((x) => real(x) !== x)) { const es = [...v]; v.clear(); for (const x of es) v.add(real(x)); }
+      for (const x of v) todo.push(x);
+    } else if (Array.isArray(v)) { for (let i = 0; i < v.length; i++) { if (real(v[i]) !== v[i]) v[i] = real(v[i]); todo.push(v[i]); } }
+    else for (const k of Object.keys(v)) { const x = (v as any)[k]; if (typeof x === 'function') return refuse(`holds a function (\`${k}\`)`); if (real(x) !== x) (v as any)[k] = real(x); todo.push((v as any)[k]); }
   }
   // an object found again by its position in a list: the one there must be alike (its own plain values, as they were)
   for (const o of ops) if (o.op === 'old' && 'path' in o.target) pinned.push(o.target.path);
@@ -608,7 +623,7 @@ function runUnit(c: any, name: string, compile: (child: any) => unknown, prior: 
     rec.read({ at, flat: flat(b) });
   }
   const unit: Unit = { name, file: c.opts.file, root: c.opts.root, ops: ops.map((o) => unwrapOp(o, unwrap)), reads: rec.reads, calls, templates, t0: T0, u0, uses, s0, sids, atAfter, refs };
-  return { result, unit };
+  return { result, unit, copied: before.size };
 }
 
 /** a value with each wrapper replaced by the page's table it stands for (one level: what a write hands over) */
@@ -671,11 +686,13 @@ function keep(u: Unit): { plan: Plan | Refused; index: Map<object, number> } {
   const base = u.file.slice(u.file.lastIndexOf('/') + 1), rel = relOf(u.root, u.file);
   let why: string | null = null;
   const uses = { rel: false };
-  const enc = (v: any): unknown => {
+  // (`key`: the property it is held at; an origin's `usedAt` names the page by its path under the root, any other place
+  // by its name, which are one string on a page at the root)
+  const enc = (v: any, key?: string): unknown => {
     if (typeof v === 'string') {
       if (v === u.file) return FILE;
-      if (v.startsWith(base + ':') && /^\d+$/.test(v.slice(base.length + 1))) return new Line(v.slice(base.length + 1), false);
-      if (rel && v.startsWith(rel + ':') && /^\d+$/.test(v.slice(rel.length + 1))) { uses.rel = true; return new Line(v.slice(rel.length + 1), true); }
+      if (key === 'usedAt') { if (rel && v.startsWith(rel + ':') && /^\d+$/.test(v.slice(rel.length + 1))) { uses.rel = true; return new Line(v.slice(rel.length + 1), true); } }
+      else if (v.startsWith(base + ':') && /^\d+$/.test(v.slice(base.length + 1))) return new Line(v.slice(base.length + 1), false);
       if (v.includes(base)) why ??= `names its page's file (${JSON.stringify(v.slice(0, 60))})`;
       return v;
     }
@@ -701,7 +718,7 @@ function keep(u: Unit): { plan: Plan | Refused; index: Map<object, number> } {
     if (v instanceof Map) { const vals: unknown[] = []; for (const [k, x] of v) vals.push(enc(k), enc(x)); objs[n] = { t: 2, proto: null, vals }; }
     else if (v instanceof Set) objs[n] = { t: 3, proto: null, vals: [...v].map((x) => enc(x)) };
     else if (Array.isArray(v)) objs[n] = { t: 1, proto: null, vals: v.map((x: unknown) => enc(x)) };
-    else { const keys = Object.keys(v); objs[n] = { t: 0, proto: Object.getPrototypeOf(v), keys, vals: keys.map((k) => enc(v[k])) }; }
+    else { const keys = Object.keys(v); objs[n] = { t: 0, proto: Object.getPrototypeOf(v), keys, vals: keys.map((k) => enc(v[k], k)) }; }
   }
   if (why) return { plan: { refused: why }, index };
   return { plan: { id: units++, name: u.name, file: u.file, rel: uses.rel, objs, ext, ops, reads: u.reads, calls, templates, atAfter, uses: u.uses, sids: u.sids }, index };
