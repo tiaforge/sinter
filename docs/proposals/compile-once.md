@@ -209,9 +209,11 @@ numbering offset (CI job `link-audit`). Found by them and fixed: weak sets not s
 comparison sides and loop names not renumbered, a component's `uses` overwritten. Every build of the benchmark and the
 examples is byte-identical to `main`'s.
 
-Left: the audit's offset page does not reach every definition (some never get recorded there, for reasons not yet
-traced), so a numbering a unit could miss is covered by the tests that link across pages (`test/compiler/link.test.ts`),
-not by the audit alone. Actions in a definition are refused, not renumbered.
+Traced: the audit reaches every definition the suite compiles. Of the suite's 1,382 audited compiles, the 81 that
+compile shared definitions all link them (6 also refuse one), and none compiles one it does not link or refuse. The page
+that seemed to escape it had no shared definition at all: its tree is a build-time constant, which the compiler expands
+per instance as it goes. What the audit cannot check is what no fixture holds: no audited page has an action inside a
+definition, which `test/compiler/link.test.ts` covers across pages (actions in a definition are refused, not renumbered).
 
 Found on the way and landed: the expression parse cache keyed its trees by one string of the kind, the options and the
 text, a new string hashed at every lookup (7% of the definitions' time). Keyed by the options, then by the text (the
