@@ -105,6 +105,10 @@ on logout. The page-load cache and next-page data entries (in `sessionStorage`) 
   page again sends `Cache-Control: no-store`.
 - Expressions are code you wrote. Their sandbox is a guardrail against mistakes, not a security
   boundary.
+- With swaps on (`sinter({ swap: true })`), the next page's HTML is fetched and swapped in: it is
+  trusted as a load of it would be (your server's own HTML), but it runs under the first page's response
+  headers, so all pages that swap need one policy. Only the names the page modules list are kept, so a
+  `data-sn-permanent` injected into either page keeps nothing ([navigation.md](navigation.md#swaps)).
 
 ## CSP and Trusted Types
 

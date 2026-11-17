@@ -185,10 +185,12 @@ describe('what is compiled the usual way', () => {
 describe('an entry\'s description is its template\'s, at the entry\'s path', () => {
   const describeAll = (html: string, o: Partial<Options> = {}) => {
     const entries = compile(html, base(o)).pages!.entries;
-    return entries.map((e) => { const r = compile(html, base({ ...o, page: e, describeOnly: true })); return { page: e.path, path: r.path, parts: r.prefetch, off: !!r.prefetchOff }; });
+    return entries.map((e) => { const r = compile(html, base({ ...o, page: e, describeOnly: true })); return { page: e.path, path: r.path, parts: r.prefetch, off: !!r.prefetchOff, keep: r.permanent ?? [], swapOff: !!r.swapOff, keptSource: r.keptSource ?? {}, keptBound: r.keptBound ?? [] }; });
   };
   const swapped = (d: ReturnType<typeof describeAll>) => d.map((x) => JSON.stringify({ ...x, page: 0, path: x.path.map((p) => (p.endsWith(x.page) ? p.slice(0, -x.page.length) + '<entry>' : p)), parts: x.parts && { ...x.parts, path: x.parts.path.map((p) => (p.endsWith(x.page) ? p.slice(0, -x.page.length) + '<entry>' : p)) } }));
-  const BODY = `<sn-resource name="c" src="/api/comments?tag={$url.tag}" key="id" items="comments"></sn-resource>
+  // (with what a page swap keeps: an element as it is, and one that binds the entry)
+  const BODY = `<nav data-sn-permanent="menu"><a href="/">home</a></nav><aside data-sn-permanent="side"><b data-sn-text="post.title"></b></aside>
+<sn-resource name="c" src="/api/comments?tag={$url.tag}" key="id" items="comments"></sn-resource>
 <sn-resource name="mine" src="/api/comments?post={post.slug}" key="id" items="comments"></sn-resource>
 <template data-sn-if="post.draft"><p>Draft</p></template><ul><template data-sn-for="x in c"><li data-sn-text="x.id"></li></template><template data-sn-for="x in mine"><li data-sn-text="x.id"></li></template></ul>`;
 
@@ -198,6 +200,7 @@ describe('an entry\'s description is its template\'s, at the entry\'s path', () 
     expect(d[1]!.path).toEqual(['/blog/b']);
     expect(d[1]!.parts!.res.length).toBe(1);
     expect(d[1]!.parts!.path).toEqual(['/blog/b']);
+    expect(d[1]!.keep).toEqual(['menu', 'side']);
   });
 
   test('in one language: under its prefix', () => {

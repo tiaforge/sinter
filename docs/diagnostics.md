@@ -612,6 +612,16 @@ A `data-sn-pages` page is written once per entry, each at its pattern filled fro
 
 **Fix:** Read the entry's field: `post.slug` for `:slug`, where `post` is the name in `data-sn-pages="post in posts"`. A query parameter (`$url.tab`) is fine.
 
+## SN346 kept-element
+
+Error, for example:
+
+> `data-sn-permanent="player"` binds, and about.html has another element of that name: a kept element that binds is one markup, from one place (a layout or a component), on every page that keeps it
+
+An element with `data-sn-permanent` is kept as it is when a link swaps the next page in (`sinter({ swap: true })`): the same element, playing or scrolled, moves into the next page where it has an element of the same name, and the next page's code takes over its bindings. So it is one element of the page, named with letters, digits, `-` and `_`, outside any `<template>`, once per page; its nodes are numbered in a range of their own, from its name (two names that get the same range, or more than 1000 bound nodes, are reported); and when it binds, every page that keeps it has the same markup, written in one place.
+
+**Fix:** Give the element a plain name; write a kept element that binds once, in the layout or a component every page uses; rename one of two names that clash.
+
 ## SN401 parse-error
 
 Error, for example:
@@ -1001,3 +1011,23 @@ Warning, for example:
 A `file:` glob found no file. The page builds with an empty list, which is usually a typo in a folder or extension rather than an empty blog.
 
 **Fix:** Check the folder and the pattern (`*` stays within a folder, `**` crosses folders). A list that is empty on purpose can stay: this is a warning.
+
+## SN540 swap-script
+
+Warning, for example:
+
+> an inline script in the body does not run when a link swaps this page in (`sinter({ swap: true })`), only on a page load
+
+With swaps on, a link to another page of the app fetches it and swaps its body in: the new page's module runs, its inline and classic scripts do not (and `load` and `DOMContentLoaded` do not fire again). A script in the body that expects a load, analytics, a chat widget, ads, misses each page reached by a link.
+
+**Fix:** Move what it does into the page's code (a component script, the actions module), load it once as `<script type="module" src>` in the head, or take the page out with `<html data-sn-swap="off">` (links to it load it). A script that must run once per app can stay: this is a warning.
+
+## SN541 kept-playback
+
+Warning, for example:
+
+> `muted` of a `<audio>` in a kept element is bound: the next page's code sets it again when a link swaps it in, which interrupts playback
+
+A kept element (`data-sn-permanent`) moves into the next page as it is, and the next page's code takes over its bindings: each binding is written once when it mounts. For `currentTime`, `paused`, `volume`, `muted` or `playbackRate` of a playing `<audio>` or `<video>`, that write is a jump, a pause or a change of volume in the middle of playback.
+
+**Fix:** Leave playback to the element: its controls, or a handler that calls `play()` and `pause()`. Bind `src`, which the next page writes only when it changes (another track starts, as it should).

@@ -13,11 +13,11 @@ Bind values to the page.
 | `data-sn-class` | object literal {unread: …} | toggles each class |
 | `data-sn-style` | object literal {'--color': …} | sets each property with style.setProperty |
 | `data-sn-show` | value expression | toggles the hidden attribute |
-| `data-sn-prop` | object literal | sets JS properties; custom elements only (one defined later gets them again through its setters). On a component's tag: its props, live and read-only. On a &lt;slot&gt; declared Slot&lt;T&gt;: the values its fill reads as $slot; on a named &lt;slot&gt; its component does not declare, a tree placement, filled by the nearest enclosing component declaring the name |
+| `data-sn-prop` | object literal | sets JS properties; custom elements only (also one defined later). On a component's tag: its props, live and read-only. On a &lt;slot&gt; declared Slot&lt;T&gt;: the values its fill reads as $slot; on a named &lt;slot&gt; its component does not declare, a tree placement, filled by the nearest enclosing component declaring the name |
 | `data-sn-for` | item in list \| (item, i) in list | repeats a &lt;template&gt; per item |
 | `data-sn-key` | value expression | row identity; defaults to the resource key or object identity |
-| `data-sn-if` | value expression | renders a &lt;template&gt; while truthy. Same id, same control: when a change swaps the branch the focused element is in, the element with its id in the new branch takes focus (a toggle's two buttons: &lt;button id="follow" data-sn-delete=…&gt; and &lt;button id="follow" data-sn-post=…&gt;) |
-| `data-sn-else` |  | on a &lt;template&gt; directly after an if template. Lists, branches and chosen components render between two comments (`<ul><!--sn 4--><li>a</li><!--/sn--></ul>`), so CSS sees plain children. Comments that are exactly `<!--sn-->`, `<!--sn 4-->`, `<!--/sn-->` or `<!---->` are reserved (SN105); `$el` in an if, for or use is SN213; keep HTML comments |
+| `data-sn-if` | value expression | renders a &lt;template&gt; while truthy. Same id, same control: when the branch with focus is swapped, the element with its id in the new one takes focus (a toggle's two buttons: &lt;button id="follow" data-sn-delete=…&gt; and &lt;button id="follow" data-sn-post=…&gt;) |
+| `data-sn-else` |  | on a &lt;template&gt; directly after an if template. Lists, branches and chosen components render between two comments (`<ul><!--sn 4--><li>a</li><!--/sn--></ul>`): CSS sees plain children. Comments that are exactly `<!--sn-->`, `<!--sn 4-->`, `<!--/sn-->` or `<!---->` are reserved (SN105); `$el` in an if, for or use is SN213; keep HTML comments |
 
 ## Keep state
 
@@ -41,7 +41,7 @@ Turn an element into a request. Details: [actions](actions.md).
 | `data-sn-put` | URL template | PUT action |
 | `data-sn-patch` | URL template | PATCH action |
 | `data-sn-delete` | URL template | DELETE action |
-| `data-sn-call` | action call | local action: calls a function from the actions module, e.g. pgp.decrypt(msg); a handler starts it with run('id'). The function gets a trailing context; its `ctx.request(url, { method, body })` encodes `body` as JSON: pass the object, not `JSON.stringify(…)`, which arrives as a string |
+| `data-sn-call` | action call | local action: a function of the actions module, e.g. pgp.decrypt(msg); a handler starts it with run('id'). The function gets a trailing context; its `ctx.request(url, { method, body })` encodes `body` as JSON: pass the object, not `JSON.stringify(…)` (a string) |
 | `data-sn-body` | value expression | JSON request body; overrides form serialization |
 | `data-sn-trigger` | DOM event name | overrides the default trigger |
 | `data-sn-debounce` | milliseconds | delays the trigger, resets on each event; without a method, delays the element's data-sn-on-* handlers |
@@ -69,7 +69,7 @@ Handlers without a request. Details: [events](actions.md), [key filters](actions
 | --- | --- | --- |
 | `data-sn-on-<event>` | handler expression | plain event handler, no request; e.g. data-sn-on-click |
 | `data-sn-debounce-<event>` | milliseconds | delays only that event's data-sn-on-&lt;event&gt; handler (it runs with the last event); e.g. data-sn-debounce-input |
-| `data-sn-listbox` | id of the suggestion list, or empty | on a text input: arrow keys mark a [role=option] of that list (empty: the nearest [role=listbox] around the input), Enter or Tab clicks it, Escape fires `dismiss` |
+| `data-sn-listbox` | id of the suggestion list, or empty | on a text input: arrow keys mark a [role=option] of that list (empty: the nearest [role=listbox]), Enter or Tab clicks it, Escape fires `dismiss` |
 
 ## Components
 
@@ -77,10 +77,10 @@ In a component file in `src/components/`, and on a component's tag (`early`). De
 
 | Attribute | Value | Meaning |
 | --- | --- | --- |
-| `data-sn-component` | props type | on the &lt;template&gt; of a component file (src/components/&lt;name&gt;.html, or a component library's components/): the props it takes, a TypeScript type literal such as { article: Article; compact?: boolean }; a member cell: Slot&lt;{ row: Row }&gt; is a slot that passes data to its fill. Its root renders at most one element: one element, a data-sn-if/data-sn-else chain of them, a component, &lt;sn-component use&gt; or a &lt;slot&gt; |
+| `data-sn-component` | props type | on the &lt;template&gt; of a component file (src/components/&lt;name&gt;.html, or a component library's components/): the props it takes, a TypeScript type literal, { article: Article; compact?: boolean }; a member cell: Slot&lt;{ row: Row }&gt; is a slot that passes data to its fill. Its root renders at most one element: one element, a data-sn-if/data-sn-else chain of them, a component, &lt;sn-component use&gt; or a &lt;slot&gt; |
 | `data-sn-head` | props type | on the &lt;template&gt; of a head component (src/components/&lt;name&gt;.html): its props, as data-sn-component; it holds any number of head elements (&lt;title&gt;, &lt;meta&gt;, &lt;link&gt;, …), inlined at its use in a head |
 | `data-sn-emits` | events type | on the &lt;template data-sn-component&gt;: the events emit() sends and their detail types, e.g. { select: Article } |
-| `data-sn-early` | off | on a component's tag (a use): this use is left out of the early script and renders when the page module runs (build-time constants are still in the HTML); for uses that may shift the layout when they render, to keep the early script small |
+| `data-sn-early` | off | on a component's tag (a use): this use is left out of the early script and renders when the page module runs (build-time constants stay in the HTML); keeps the early script small |
 | `data-sn-ref` | name | in a component's markup: the element its script reads as this.refs.&lt;name&gt;, typed by its tag |
 | `data-sn-layout` | props type | on the &lt;html&gt; of a layout file (src/layouts/&lt;name&gt;.html): the props it takes; a page that is only the layout's tag fills its slots, in the head and the body |
 
@@ -93,9 +93,11 @@ Set on `<html>` or on shared elements; `wait` on a box around a list. Details: [
 | `data-sn-path` | URL patterns /a/:b … | on &lt;html&gt;: the path shapes this page is served for; `:name` segments appear read-only in $url |
 | `data-sn-pages` | entry in list | on &lt;html&gt;: the page once per entry of a `file:` list, at `data-sn-path` filled from it |
 | `data-sn-prefetch` | off | on &lt;html&gt;: no other page prefetches this one's data or the page itself (Speculation Rules), and none prerenders it; for pages that do something when they load |
+| `data-sn-swap` | off | on &lt;html&gt;: links here load it; on a link: it loads its page |
+| `data-sn-permanent` | name | with sinter({ swap }): kept as is (playing, scrolled) across a link to a page with the name; its bindings go on |
 | `data-sn-transition` | value expression (a name) | the same thing on two pages: following a link from the element (or its row) to a page with an element of the same name morphs one into the other (view transitions; back too) |
 | `data-sn-data` | resource name | on &lt;script type="application/json"&gt; in &lt;head&gt;: initial data for a resource |
-| `data-sn-wait` | off | on a box whose width follows its content (a flex item without a basis or width, a float) around a list over late data: by default what follows the box stays invisible while the list's first rows load, for at most 3 s, so nothing that is shown moves when they widen the box (builds; at the screen widths where it is so); off keeps it shown, and SN529 says it moves |
+| `data-sn-wait` | off | on a box whose width follows its content (a flex item without a basis or width, a float) around a list over late data: what follows the box stays invisible while the list's first rows load (at most 3 s), so nothing shown moves when they widen it (builds, at the widths where it is so); off shows it, and SN529 says it moves |
 
 ## Lazy packages
 
@@ -104,7 +106,7 @@ When a package of `sinter({ lazy })` loads, on any element of a page, a layout o
 | Attribute | Value | Meaning |
 | --- | --- | --- |
 | `data-sn-import` | lazy packages, comma-separated | loads packages of sinter({ lazy }) when the element is rendered (at takeover outside templates, when its branch or row first renders inside one), instead of on first call |
-| `data-sn-preload` | lazy packages, comma-separated | the build preloads packages of sinter({ lazy }) with the page (&lt;link rel="modulepreload"&gt; in its head): fetched in parallel with the page bundle, run on first call or by data-sn-import |
+| `data-sn-preload` | lazy packages, comma-separated | the build preloads packages of sinter({ lazy }) with the page (&lt;link rel="modulepreload"&gt;): fetched with the page bundle, run on first call or by data-sn-import |
 
 ## Elements
 

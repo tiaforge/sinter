@@ -99,6 +99,8 @@ const cases: Array<[string, string, RegExp, Opts?]> = [
   ['SN342', '<sn-resource name="p" src="content:posts"></sn-resource><p data-sn-text="p.length"></p>', /`posts` is not a collection of the content module/, { collections: true }],
   ['SN344', '<sn-resource name="p" src="content:posts"></sn-resource><div data-sn-state="{ n: 0 }"><button data-sn-on-click="n++"></button><b data-sn-text="n + p.length"></b></div>', /browser code reads `p`, a collection/, { collections: true }],
   ['SN345', '<!doctype html><html data-sn-path="/blog/:slug" data-sn-pages="post in posts"><head></head><body><sn-resource name="posts" src="file:/content/posts/*.md"></sn-resource><p data-sn-text="$url.slug"></p></body></html>', /`\$url\.slug` on a `data-sn-pages` page/],
+  ['SN346', '<aside data-sn-permanent="p"></aside><nav data-sn-permanent="p"></nav>', /is on two elements of this page/],
+  ['SN541', '<aside data-sn-permanent="p" data-sn-state="{ t: 0 }"><audio data-sn-attr="{ muted: t }"></audio></aside>', /in a kept element is bound/],
   ['SN539', '<sn-resource name="r" src="file:/content/none/*.md"></sn-resource><p data-sn-text="r.length"></p>', /`file:\/content\/none\/\*\.md` matches no file/],
   ['SN532', '<div data-sn-state="{ xs: [1] }"><template data-sn-for="x in xs"><p id="row" data-sn-text="x"></p></template></div>', /`id="row"` is in markup that renders more than once \(a `data-sn-for` row\)/],
   ['SN531', '<div data-sn-state="{ u: \'a\' }"><button data-sn-post="/api/login" data-sn-body="JSON.stringify({ username: u })"></button></div>', /`data-sn-body` is already JSON text \(`JSON\.stringify\(…\)`\): sinter encodes the body, so the server would get a JSON string, not the object/],
@@ -131,10 +133,12 @@ const BUILD_ONLY = ['SN343', 'SN534', 'SN533', 'SN520', 'SN521', 'SN522', 'SN523
 const LIBRARY_ONLY = ['SN337', 'SN338', 'SN339', 'SN537'];
 /** Codes of build-time expansion, which needs `prerender`: SN536 (the expansion limit) in test/compiler/unroll-nested.test.ts and test/compiler/constant-trees.test.ts. */
 const PRERENDER_ONLY = ['SN536'];
+/** With `sinter({ swap: true })` only: fixtures in test/compiler/permanent.test.ts. */
+const SWAP_ONLY = ['SN540'];
 
 describe('every diagnostic code has a failing fixture', () => {
   test('all codes covered', () => {
-    expect(new Set([...cases.map((c) => c[0]), ...CHECK_ONLY, ...IMAGES_ONLY, ...STATIC_ONLY, ...LAZY_ONLY, ...APIS_ONLY, ...BUILD_ONLY, ...STYLES_ONLY, ...PRERENDER_ONLY, ...LIBRARY_ONLY])).toEqual(new Set(Object.keys(CODES)));
+    expect(new Set([...cases.map((c) => c[0]), ...CHECK_ONLY, ...IMAGES_ONLY, ...STATIC_ONLY, ...LAZY_ONLY, ...APIS_ONLY, ...BUILD_ONLY, ...STYLES_ONLY, ...PRERENDER_ONLY, ...LIBRARY_ONLY, ...SWAP_ONLY])).toEqual(new Set(Object.keys(CODES)));
   });
   for (const [code, html, message, check] of cases) {
     test(code, () => {

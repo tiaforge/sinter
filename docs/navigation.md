@@ -1,4 +1,4 @@
-# Between pages: next-page data, Speculation Rules, page transitions
+# Between pages: next-page data, Speculation Rules, swaps, page transitions
 
 A sinter app is multi-page: every navigation to another page is a page load. Three things make that
 load feel instant, and none needs code in the pages:
@@ -7,6 +7,7 @@ load feel instant, and none needs code in the pages:
 | --- | --- | --- |
 | [Next-page data](#next-page-data) | The next page's data is requested while the pointer rests on its link, and the page shows it at first paint. sinter does this. | all |
 | [Speculation Rules](#speculation-rules) | The browser fetches the next page's HTML, or prerenders the whole page. sinter generates the rules and [handles your CSP](#speculation-rules-and-a-content-security-policy). | Chromium |
+| [Swaps](#swaps) (opt-in) | A link fetches the next page and swaps it in instead of loading it, so marked elements stay: an audio player plays on, a drawer stays open, a scroll position is kept. | Chromium, Firefox 147+, Safari 26.2+ (the Navigation API) |
 | [Page transitions](#page-transitions) | Pages cross-fade (a CSS rule that temper enables). `data-sn-transition` morphs a list row into its detail page. Both use the browser's view transitions. | Chromium, Safari 18.2+ |
 
 Where a browser lacks a feature, navigation is a normal page load.
@@ -209,6 +210,84 @@ For a pager, links are the recommended form: crawlable, a new tab, copy link, an
 this. `page('next')` stays for relative moves and buttons. A pager link should carry
 `aria-current="page"` for the active page.
 
+## Swaps
+
+Turned on for the whole app with `sinter({ swap: true })`. A link, `navigate()`, `location.assign()`, Back
+or Forward to another page of the app then fetches that page's HTML (the same request a page load sends:
+nothing changes on the server) and swaps it in: the body is replaced, the title and sinter's own head
+nodes are the new page's, its stylesheets come and the old page's go, and the new page's code mounts in
+the same step. Elements both pages mark with the same `data-sn-permanent` name are moved into the new
+page as they are:
+
+```html
+<!-- in a layout or component every page uses -->
+<details data-sn-permanent="dock">
+  <summary>Player</summary>
+  <audio controls src="/tone.wav"></audio>
+  <textarea aria-label="Notes"></textarea>
+</details>
+```
+
+The sound plays on, the notes keep their text and the drawer stays open. A kept element may bind: the
+next page's code takes it over, so its bindings follow the new page (a prop the page passes, an active
+link), and its rendered rows and branches are adopted, not built again. What the old page's code held for
+it starts again: its `data-sn-state` from its initial value (unless persisted), its resources and streams.
+Write such an element once, in the layout or a component every page uses: the build checks that every
+page that keeps it writes it in that one place (`SN346`), and that it holds no `<slot>` (each page would fill
+it with its own content). Constants a page passes it, and components in it, stay bindings, so the next
+page's values apply. Leave playback to the media (`SN541` for a bound `muted`):
+the next page writes each binding once when it mounts. A `data-sn-model` field inside it shows its state's
+value again (persist it to keep what was typed). Focus inside a kept element stays; otherwise focus goes to
+the document, as after a load. Each history entry keeps its scroll position, a
+link's `#hash` is scrolled to, and the new title is announced to screen readers.
+
+**What a swap does not do that a load does,** and which to check before turning swaps on:
+- The next page's inline and classic scripts do not run, and `load` and `DOMContentLoaded` do not fire
+  again (analytics that count loads count only the first). The build warns for such scripts in a
+  page's body (`SN540`). App modules run once per document: per-page work goes in a listener for
+  `sn-page`, which `document` gets after each page mounts, the first one included
+  (`e.detail.kind` is `load`, `push`, `replace` or `traverse`).
+- Every page runs under the first page's response headers, its Content-Security-Policy included: one
+  policy for the app. With a nonce policy, put each response's nonce in `<meta name="csp-nonce"
+  content="…">` too: the swap trusts what the server gave the next page's nonce (its styles, its module
+  scripts, its language file) and gives it the document's; markup with any other nonce stays blocked, as
+  on a load.
+- The attributes of `<html>` and `<body>` are the next page's: one that a script set at run time (a theme
+  class) is set again in `sn-page`.
+- Head elements other than the title, sinter's and the stylesheets (descriptions, Open Graph,
+  canonical links) stay as the first page had them: they are for crawlers and link previews, which load
+  each page.
+
+**What stays a page load:** a page that answers with an error or something other than HTML, a page with
+another CSP `<meta>`, `<base>` or language, a form's navigation, a link with `rel="external"`,
+`download` or another `target`, a reload, and anything where the browser has no Navigation API. Take a
+page out with `<html data-sn-swap="off">` (links to it load it, and links from it are page loads), and a
+single link with `<a data-sn-swap="off">`. The build lists the pages that swap: any other URL, such as an
+API's logout link, is the browser's.
+
+Pages that ship no JavaScript stay without it unless they keep an element: a link to one swaps it in
+(requested once, nothing to mount); links from it, and Back and Forward from it, are page loads.
+Speculation Rules leave out the pages that swap: the swap requests the next page itself. A link the server
+redirects shows the redirect's address. A history write while the next page is fetched (a `$url` field
+typed in, a script's `replaceState`) does not lose the link. A kept element may not be inside another, nor
+be `<html>`, `<head>`, `<body>` or in the head (`SN346`).
+
+## Refusing a navigation
+
+`data-sn-on-navigate` runs before any navigation away from the page while its element is on it (a link,
+one to another site or with `rel="external"` too, `navigate()`, Back where the browser can still refuse
+it), and `$event.preventDefault()` refuses it.
+`$event` has `to`, `from`, `kind` (`push`, `replace`, `traverse`) and `trigger` (the link or the element
+whose handler called `navigate()`):
+
+```html
+<form data-sn-state="{ dirty: false }" data-sn-on-input="dirty = true"
+      data-sn-on-navigate="dirty && $event.preventDefault()">
+  <p data-sn-show="dirty">Save or discard your changes before you leave.</p>
+```
+
+It does not run on hover (next-page data asks no guard) or for a reload, which stays `beforeunload`'s.
+
 ## Opting a page out
 
 `<html data-sn-prefetch="off">`: no other page prefetches this page's data or HTML, or prerenders
@@ -245,3 +324,16 @@ element it becomes on the detail page:
   responses arrive. Render the element from `$url`, `cache`, prefetched or embedded data. A list
   you morph back into needs `cache` on its resource, or its rows arrive too late and it only fades.
 - One morph per navigation. Navigations sinter starts itself (a redirect) do not morph.
+
+**Swaps** follow the same rule as loads: a swap fades only where the stylesheet asks for page transitions
+with `@view-transition { navigation: auto }` (and its `@media` holds), so reduced motion and temper's
+setting apply. Morphs work across a swap, and each kept element is named for the transition (class
+`sn-keep`), so it stays still while the page changes around it.
+
+**Types** tell a stylesheet what kind of navigation runs: `sn-push`, `sn-replace` or `sn-traverse`, and on
+Back or Forward also `sn-back` or `sn-forward`. Every swap has them; a page load has them on pages with a
+morph (`data-sn-transition`), where sinter's code is there for the browser's `pageswap` and `pagereveal`:
+
+```css
+:root:active-view-transition-type(sn-back)::view-transition-old(root) { animation-name: slide-to-right; }
+```

@@ -13,7 +13,7 @@
           <form data-sn-state="{ s: {image: user.image ?? '', username: user.username, bio: user.bio ?? '', email: user.email, password: ''} }"
                 data-sn-put="/user"
                 data-sn-body="{user: {image: s.image, username: s.username, bio: s.bio, email: s.email, password: s.password || undefined}}"
-                data-sn-then="emit('signed-in', {user: $result.user, to: '/profile/' + encodeURIComponent($result.user.username)})">
+                data-sn-then="upsert('user', $result.user); emit('settings-saved', $result.user); navigate('/profile/' + encodeURIComponent($result.user.username))">
             <error-list data-sn-prop="{ error: $error }"></error-list>
             <fieldset>
               <fieldset class="form-group"><input class="form-control" type="text" name="image" placeholder="URL of profile picture" data-sn-model="s.image"></fieldset>

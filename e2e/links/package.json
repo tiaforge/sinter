@@ -1,0 +1,16 @@
+{
+  "name": "sinter-e2e-links",
+  "private": true,
+  "type": "module",
+  "description": "Same-page links and navigate() through the navigation chain in Chromium, Firefox and WebKit: the Navigation API's navigate event where the browser has it",
+  "scripts": {
+    "build": "vite build --logLevel warn",
+    "test": "node run.mjs"
+  },
+  "dependencies": {
+    "@tiaforge-ui/sinter": "file:../.."
+  },
+  "devDependencies": {
+    "vite": "8.3.5"
+  }
+}

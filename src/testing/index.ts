@@ -38,6 +38,7 @@ import select from '../select.js';
 import location from '../location.js';
 import typing from '../typing.js';
 import queryLinks from '../query-links.js';
+import navigate from '../navigate.js';
 import call from '../call.js';
 import debounce from '../debounce.js';
 import components from '../components.js';
@@ -49,7 +50,7 @@ import sse from '../sse.js';
 import { lists, prefetch, type PrefetchPage } from '../prefetch.js';
 import { pagePaths } from '../prefetch-build.js';
 
-const FEATURES: Record<string, Feature> = { components, nested, lets, dev, sse, optimistic, paginate, persist, cache, versions, refresh, each, listbox, keys, apply, fields, form, select, location, typing, 'query-links': queryLinks, call, debounce, confirm, models, transition };
+const FEATURES: Record<string, Feature> = { components, nested, lets, dev, sse, optimistic, paginate, persist, cache, versions, refresh, each, listbox, keys, apply, fields, form, select, location, typing, 'query-links': queryLinks, navigate, call, debounce, confirm, models, transition };
 
 // ---- requests
 
