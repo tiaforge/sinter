@@ -1049,7 +1049,7 @@ class Compiler {
   /** components used inside themselves: their tags (recursion points), and the definition each compiles to */
   private readonly points = new WeakMap<P5Element, string>();
   /** `<sn-component use>`: one point per candidate, rendered when `use` is its name; `key`: the value of the data that names it, for narrowing */
-  private readonly choices = new WeakMap<P5Element, { name: string; key: string | null; keySrc: string | null; names: string[]; pool?: string[]; first: boolean; keys?: string[]; hasElse?: boolean; group: ChoiceGroup; keyAt?: number }>();
+  private readonly choices = new WeakMap<P5Element, { name: string; key: string | null; keySrc: string | null; names: string[]; pool?: string[]; first: boolean; keys?: string[]; also?: string[]; hasElse?: boolean; group: ChoiceGroup; keyAt?: number }>();
   /** `<sn-component use>`: one choice anchor per use, its candidates gathered as the walk reaches them (`finishChoices`) */
   private readonly choiceGroups: ChoiceGroup[] = [];
   /** the `<template>` of each `if`, `for`, `else` and recursion point node, which `anchors()` turns into a pair of comments */
@@ -2280,7 +2280,8 @@ class Compiler {
     const all = this.choicePool(this.origins.get(el)?.file);
     const lib = this.libOfFile(this.origins.get(el)?.file);
     // each candidate, and the value of the data that names it (convention, map), for narrowing
-    let cands: Array<{ name: string; key: string | null; at?: number }>;
+    // `also`: a map's other keys for the same component (one candidate per component, as the browser picks one)
+    let cands: Array<{ name: string; key: string | null; at?: number; also?: string[] }>;
     let keySrc: string | null = null, map = false;
     if (ast.type === 'TemplateLiteral' && ast.expressions.length === 1) {
       const pre = ast.quasis[0]!.value.cooked ?? '', post = ast.quasis[1]!.value.cooked ?? '';
@@ -2318,6 +2319,14 @@ class Compiler {
     } else {
       return fail('`use` names the component by a template string (``use="`${b.type}-block`"``), a map (`use="{ hero: \'hero-block\' }[b.type]"`) or a helper (`use="blockComponent(b)"`)');
     }
+    // every key of the map: what `use`'s key may be, and what the else is not
+    const allKeys = cands.flatMap((c) => (c.key === null ? [] : [c.key]));
+    if (map) {
+      // a component named under two keys is one candidate with both: rendered once, as the browser's choice renders it
+      const byName = new Map<string, { name: string; key: string | null; at?: number; also: string[] }>();
+      for (const c of cands) { const f = byName.get(c.name); if (f) f.also.push(c.key!); else byName.set(c.name, { ...c, also: [] }); }
+      cands = [...byName.values()];
+    }
     const names = cands.map((c) => c.name);
     const parent = el.parentNode!;
     const at = parent.childNodes.indexOf(el as never);
@@ -2333,7 +2342,7 @@ class Compiler {
       for (const map of [this.slotOf, this.fillOf, this.defaultOf, this.childrenOf] as Array<WeakMap<object, unknown>>) if (map.has(el)) map.set(x, map.get(el));
       this.points.set(x, c.name);
       if (this.pointCtx.has(el)) this.pointCtx.set(x, this.pointCtx.get(el)!);
-      this.choices.set(x, { name: c.name, key: c.key, keySrc, names, ...(lib ? { pool: [...lib.public, ...lib.internal] } : {}), first: !clones.length, group, ...(map ? { keys: cands.map((y) => y.key!) } : {}), ...(c.at !== undefined ? { keyAt: c.at } : keySrc !== null ? { keyAt: use!.indexOf(keySrc) } : {}) });
+      this.choices.set(x, { name: c.name, key: c.key, keySrc, names, ...(lib ? { pool: [...lib.public, ...lib.internal] } : {}), first: !clones.length, group, ...(map ? { keys: allKeys } : {}), ...(c.also?.length ? { also: c.also } : {}), ...(c.at !== undefined ? { keyAt: c.at } : keySrc !== null ? { keyAt: use!.indexOf(keySrc) } : {}) });
       clones.push(x);
     }
     if (!clones.length) this.report(el, 'use', 'SN312', '`use` names no component of the app', 0);
@@ -2344,7 +2353,7 @@ class Compiler {
       next.attrs = next.attrs.filter((a) => a.name !== 'data-sn-else');
       next.attrs.push({ name: 'data-sn-if', value: `!${JSON.stringify(names)}.includes(${use})` });
       // checked where the key names no candidate, so the data narrows (`n.value` of the union's other members)
-      if (keySrc !== null && cands.length && cands.every((c) => c.key !== null)) this.branchGuard.set(next, `!(${cands.map((c) => `(${keySrc}) === ${JSON.stringify(c.key)}`).join(' || ')})`);
+      if (keySrc !== null && cands.length && cands.every((c) => c.key !== null)) this.branchGuard.set(next, `!(${(map ? allKeys : cands.map((c) => c.key!)).map((k) => `(${keySrc}) === ${JSON.stringify(k)}`).join(' || ')})`);
       for (const c of clones) this.choices.get(c)!.hasElse = true;
     }
   }
@@ -3487,7 +3496,8 @@ class Compiler {
     // each candidate's props, checked with the data narrowed to its value (convention, map; a helper hides the link)
     if (choice?.key != null && this.check && this.lastExpr !== null && attr(host, 'data-sn-prop') !== undefined) {
       const e = this.check.exprs[this.lastExpr]!;
-      e.guard = `(${choice.keySrc}) === ${JSON.stringify(choice.key)}`;
+      // (in parentheses when there are several keys: the guard is joined with others)
+      e.guard = choice.also?.length ? `(${[choice.key, ...choice.also].map((k) => `(${choice.keySrc}) === ${JSON.stringify(k)}`).join(' || ')})` : `(${choice.keySrc}) === ${JSON.stringify(choice.key)}`;
       e.guardAt = { name: choice.name, key: choice.key, loc: this.locOf(host, 'use', choice.keyAt ?? 0) };
     }
     for (const l of lets) if (l.src?.length) this.addSources(`@def:${name}:${l.name}`, l.src);

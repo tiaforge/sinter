@@ -37,6 +37,12 @@ describe('a choice among many candidates', () => {
     expect(shape(root)).toEqual(['9:x', '2:y']);
   });
 
+  test('a component under two keys renders once at build time too', async () => {
+    const html = page(`[{ type: 'again', text: 'a' }, { type: 'c0', text: 'b' }]`, false);
+    const early = await firstPaint(html, { components });
+    expect(shape(early.root)).toEqual(['0:a', '0:b']);
+  });
+
   test('the first paint renders what the page module renders', async () => {
     // state nothing writes: a constant, written into the HTML at build time
     const html = page(`[{ type: 'c4', text: 'a' }, { type: 'nope', text: 'b' }, { type: 'c9', text: 'c' }]`, false);
