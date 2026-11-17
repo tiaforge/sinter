@@ -593,7 +593,40 @@ export function applyOps(c: any, ops: Op[], unwrap: (v: unknown) => unknown = (v
 class R { constructor(readonly i: number) {} }
 class X { constructor(readonly j: number) {} }
 /** a string to renumber: in code (`code`), or in markup, where only the names nothing else writes are renumbered */
-class S { constructor(readonly s: string, readonly code: boolean) {} }
+class S { constructor(readonly s: string, readonly parts: Parts | null, readonly named: boolean) {} }
+/**
+ * a string to renumber, split once when the plan is kept: its text, and holes, each a template id (`[0, n]`) or a state id
+ * (`[1, n]`); null for code the tokenizer cannot read (the plan does not link)
+ */
+type Parts = Array<string | [0 | 1, number]>;
+/** in markup and in code's strings: a slot's or a prop's root, a template's id, a fill's case, a state */
+const MARKUP = /(\$(?:p|sl))(\d+)|(sn-t-)(\d+)|(#case)(\d+)(?=\/)|(\$s)(\d+)/g;
+function markupParts(s: string, out: Parts) {
+  let last = 0;
+  for (const m of s.matchAll(MARKUP)) {
+    const at = m.findIndex((x, i) => i > 0 && i % 2 === 1 && x !== undefined);
+    out.push(s.slice(last, m.index) + m[at]!, [at === 7 ? 1 : 0, +m[at + 1]!]);
+    last = m.index + m[0].length;
+  }
+  out.push(s.slice(last));
+}
+/** (in code, also a loop's index and a clashing loop variable, named by their template: in a name, not in a string) */
+function splitString(s: string, code: boolean): Parts | null {
+  const out: Parts = [];
+  if (!code || !NEEDS_CODE.test(s)) { markupParts(s, out); return out; }
+  const toks = codeTokens(s);
+  if (!toks) return null;
+  let last = 0;
+  for (const t of toks) {
+    out.push(s.slice(last, t.start));
+    const x = s.slice(t.start, t.end), m = t.ident ? /^(\$i)(\d+)$|^([\w$]*\w\$)(\d+)$/.exec(x) : null;
+    if (m) out.push(m[1] ?? m[3]!, [0, +(m[2] ?? m[4]!)]);
+    else markupParts(x, out);
+    last = t.end;
+  }
+  out.push(s.slice(last));
+  return out;
+}
 type Fix = [number, 'fn' | 'tid' | 'tids' | 'use' | 'sid'];
 type Entry = { t: 0 | 1 | 2 | 3; proto: object | null; keys?: string[]; vals: unknown[]; fix?: Fix[] };
 type PlanOp =
@@ -601,7 +634,7 @@ type PlanOp =
   | { op: 'weakAdd' | 'weakDel'; field: string; key: unknown }
   | { op: 'old'; target: { path: Step[] } | { prior: { u: number; i: number } }; kind: Change['kind']; key?: unknown; value?: unknown; ifAbsent?: true };
 export type Plan = {
-  id: number; name: string; file: string; objs: Entry[]; ext: Ref[]; ops: PlanOp[]; reads: Read[]; strings: S[]; calls: Unit['calls'];
+  id: number; name: string; file: string; objs: Entry[]; ext: Ref[]; ops: PlanOp[]; reads: Read[]; strings: S[]; calls: Array<{ rec: number; code: S }>;
   fnAt: Array<[number, unknown]>; templates: unknown[]; t0: number; u0: number; uses: number; s0: number; sids: number; atAfter: unknown;
 };
 let units = 0;
@@ -642,7 +675,7 @@ function keep(u: Unit, prior: Map<object, { u: number; i: number }>): Plan {
   const enc = (v: any, markup = false): unknown => {
     if (typeof v === 'string') {
       if (!(v.includes(base) || (markup ? NEEDS : NEEDS_CODE).test(v))) return v;
-      const x = new S(v, !markup);
+      const x = new S(v, splitString(v, !markup), v.includes(base));
       strings.push(x);
       return x;
     }
@@ -675,11 +708,12 @@ function keep(u: Unit, prior: Map<object, { u: number; i: number }>): Plan {
     }
   }
   for (const [o, i] of index) prior.set(o, { u: id, i });
-  return { id, name: u.name, file: u.file, objs, ext, ops, reads: u.reads, strings, calls: u.calls, fnAt, templates, t0: u.t0, u0: u.u0, uses: u.uses, s0: u.s0, sids: u.sids, atAfter };
+  const calls = u.calls.map((x) => ({ rec: x.rec, code: new S(x.code, splitString(x.code, true), x.code.includes(base)) }));
+  return { id, name: u.name, file: u.file, objs, ext, ops, reads: u.reads, strings, calls, fnAt, templates, t0: u.t0, u0: u.u0, uses: u.uses, s0: u.s0, sids: u.sids, atAfter };
 }
 
 /** per page: how the units linked into it renumber what they recorded, and the objects each made here */
-type PageMaps = { tid: Map<number, number>; fn: Map<number, number>; use: Map<number, number>; sid: Map<number, number>; outs: Map<number, unknown[]>; strs: Map<string, string> };
+type PageMaps = { tid: Map<number, number>; fn: Map<number, number>; use: Map<number, number>; sid: Map<number, number>; outs: Map<number, unknown[]> };
 
 /** whether the page `c` reads as the recording page did, everywhere the unit looked */
 function readsHold(c: any, reads: Read[]): boolean {
@@ -731,35 +765,20 @@ export function replay(c: any, u: Plan, maps: PageMaps): boolean {
   const tid = new Map(maps.tid), sid = new Map(maps.sid);
   for (let i = 0; i < u.templates.length; i++) tid.set(u.t0 + i, T0 + i);
   for (let i = 0; i < u.sids; i++) sid.set(u.s0 + i, S0 + i);
-  const file = c.opts.file, base = u.file.slice(u.file.lastIndexOf('/') + 1), mine = file.slice(file.lastIndexOf('/') + 1), strs = maps.strs;
-  const tidOf = (n: string) => tid.get(+n) ?? n;
-  const markup = (s: string) => s.replace(/\$(p|sl)(\d+)/g, (_, k, n) => `$${k}${tidOf(n)}`).replace(/sn-t-(\d+)/g, (_, n) => `sn-t-${tidOf(n)}`).replace(/#case(\d+)\//g, (_, n) => `#case${tidOf(n)}/`).replace(/\$s(\d+)/g, (_, n) => `$s${sid.get(+n) ?? n}`);
-  // (in code, also a loop's index and a clashing loop variable, named by their template: only in a name, not in a string)
-  const ident = (s: string) => markup(s).replace(/^\$i(\d+)$/, (_, n) => `$i${tidOf(n)}`).replace(/^([\w$]*\w)\$(\d+)$/, (_, a, n) => `${a}$${tidOf(n)}`);
+  const file = c.opts.file, base = u.file.slice(u.file.lastIndexOf('/') + 1), mine = file.slice(file.lastIndexOf('/') + 1);
   // the page's file: a string that is it, or names it by its base name (a diagnostic, a module's source)
   const named = (s: string) => (s === u.file ? file : base !== mine && s.includes(base) ? s.split(u.file).join(file).split(base).join(mine) : s);
-  const str = (s: string, code: boolean): string | null => {
-    const key = code ? s : `\u0000${s}`;
-    const had = strs.get(key);
-    if (had !== undefined) return had;
-    let o: string;
-    if (!code) o = markup(named(s));
-    else if (!NEEDS_CODE.test(s)) o = named(s);
-    else {
-      const toks = codeTokens(s);
-      if (!toks) return null;
-      let out = '', last = 0;
-      for (const t of toks) { out += s.slice(last, t.start) + (t.ident ? ident(s.slice(t.start, t.end)) : markup(s.slice(t.start, t.end))); last = t.end; }
-      o = named(out + s.slice(last));
-    }
-    strs.set(key, o);
-    return o;
+  const str = (x: S): string | null => {
+    if (!x.parts) return null;
+    let o = '';
+    for (const p of x.parts) o += typeof p === 'string' ? p : p[0] === 0 ? (tid.get(p[1]) ?? p[1]) : (sid.get(p[1]) ?? p[1]);
+    return x.named ? named(o) : o;
   };
   // every string renamed first (code the tokenizer cannot read is not linked)
   const done = new Map<S, string>();
-  for (const x of u.strings) { const o = str(x.s, x.code); if (o === null) return false; done.set(x, o); }
+  for (const x of u.strings) { const o = str(x); if (o === null) return false; done.set(x, o); }
   const codes: string[] = [];
-  for (const x of u.calls) { const o = str(x.code, true); if (o === null) return false; codes.push(o); }
+  for (const x of u.calls) { const o = str(x.code); if (o === null) return false; codes.push(o); }
   // from here on, the page changes
   for (const [k, v] of tid) maps.tid.set(k, v);
   for (const [k, v] of sid) maps.sid.set(k, v);

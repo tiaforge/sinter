@@ -248,7 +248,10 @@ The audit now also links every compile from the offset page back into the plain 
 file name (not where helpers fold: their calls are kept per file). Suite: 2,201 tests, plain and audited; 1,526 audited
 compiles, 225 of them linking 1,368 definitions, refused only for actions. Every build of the benchmark and the examples
 is byte-identical to `main`'s. `--files` (the target: its pages are not `data-sn-pages`) links 392 definitions with 4
-recordings and no refusal, about 6% off the whole build.
+recordings and no refusal: a page compiles in 25.0–25.9 ms instead of 38.0–38.2 (in-process, median of 7, two runs).
+That needed one more change: renaming went through regular expressions and the tokenizer on every page (a sixth of
+a linked page's time). Each string is now split once when its plan is kept, into text and numbered holes (`Parts`),
+and a page only fills the holes in.
 
 Found on the way and landed: the expression parse cache keyed its trees by one string of the kind, the options and the
 text, a new string hashed at every lookup (7% of the definitions' time). Keyed by the options, then by the text (the
