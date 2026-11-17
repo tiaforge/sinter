@@ -42,7 +42,8 @@ jobs:
       - run: npm ci
       - run: npm run build
       - run: npx playwright install --with-deps chromium firefox webkit
-      - run: npm test
+      # (each compile runs six times: the largest pages' tests need longer than the default 5 s)
+      - run: npm test -- --testTimeout=60000
         env:
           SN_LINK_AUDIT: '1'
           SN_LINK_AUDIT_LOG: ${{ runner.temp }}/link-audit.jsonl

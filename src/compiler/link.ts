@@ -446,7 +446,8 @@ export function record<T>(c: any, name: string, call: () => T, prior: Map<object
 // the plan `R`, an object of the page `X`, a string to renumber `S`), and the numbers to renumber in each.
 class R { constructor(readonly i: number) {} }
 class X { constructor(readonly j: number) {} }
-class S { constructor(readonly s: string) {} }
+/** a string to renumber: in code (`code`), or in markup, where only the names nothing else writes are renumbered */
+class S { constructor(readonly s: string, readonly code: boolean) {} }
 type Fix = [number, 'fn' | 'tid' | 'tids' | 'use' | 'sid'];
 type Entry = { t: 0 | 1 | 2 | 3; proto: object | null; keys?: string[]; vals: unknown[]; fix?: Fix[] };
 type PlanOp =
@@ -459,6 +460,8 @@ type PlanOp =
 export type Plan = { id: number; name: string; file: string; objs: Entry[]; ext: Ref[]; ops: PlanOp[]; calls: Unit['calls']; fnAt: Array<[number, unknown]>; templates: unknown[]; t0: number; u0: number; uses: number; s0: number; sids: number; atAfter: unknown };
 let units = 0;
 const NEEDS = /\$p\d|\$sl\d|\$s\d|sn-t-\d|#case\d/;
+/** code also names a loop's index by its template (`$i<tid>`) and a loop variable that would clash in a component (`n$<tid>`) */
+const NEEDS_CODE = /\$p\d|\$sl\d|\$s\d|\$i\d|\w\$\d|sn-t-\d|#case\d/;
 
 /** which of an object's numbers are template ids, function indices or use ids (as `copy` did, decided once) */
 function fixesOf(o: any, keys: string[]): Fix[] | undefined {
@@ -488,8 +491,9 @@ function keep(u: Unit, prior: Map<object, { u: number; i: number }>): Plan {
   const id = units++;
   const objs: Entry[] = [], index = new Map<object, number>(), ext: Ref[] = [], extIndex = new Map<object, number>();
   const live: object[] = [];
-  const enc = (v: any): unknown => {
-    if (typeof v === 'string') return v === u.file || NEEDS.test(v) ? new S(v) : v;
+  // (`markup`: a string of a node or of an attribute, text the page wrote, where `US$5` is not a loop variable)
+  const enc = (v: any, markup = false): unknown => {
+    if (typeof v === 'string') return v === u.file || (markup ? NEEDS : NEEDS_CODE).test(v) ? new S(v, !markup) : v;
     if (!v || typeof v !== 'object') return v;
     if (shared(v)) return v;
     const r = u.refs.get(v);
@@ -508,14 +512,17 @@ function keep(u: Unit, prior: Map<object, { u: number; i: number }>): Plan {
     if (o.op === 'mapSet') return { op: 'mapSet', path: o.path, key: enc(o.key), value: enc(o.value) };
     return { op: o.op as 'setAdd' | 'push', path: (o as any).path, value: enc((o as any).value) };
   });
-  const templates = u.templates.map(enc), fnAt: Array<[number, unknown]> = [...u.fnAt].map(([k, v]) => [k, enc(v)]), atAfter = enc(u.atAfter);
+  const templates = u.templates.map((x) => enc(x)), fnAt: Array<[number, unknown]> = [...u.fnAt].map(([k, v]) => [k, enc(v)]), atAfter = enc(u.atAfter);
   // each object once, its values classified (the list grows as they reach further)
   for (let n = 0; n < live.length; n++) {
     const v: any = live[n];
     if (v instanceof Map) { const vals: unknown[] = []; for (const [k, x] of v) vals.push(enc(k), enc(x)); objs[n] = { t: 2, proto: null, vals }; }
-    else if (v instanceof Set) objs[n] = { t: 3, proto: null, vals: [...v].map(enc) };
-    else if (Array.isArray(v)) objs[n] = { t: 1, proto: null, vals: v.map(enc) };
-    else { const keys = Object.keys(v); objs[n] = { t: 0, proto: Object.getPrototypeOf(v), keys, vals: keys.map((k) => enc(v[k])), ...(fixesOf(v, keys) ? { fix: fixesOf(v, keys) } : {}) }; }
+    else if (v instanceof Set) objs[n] = { t: 3, proto: null, vals: [...v].map((x) => enc(x)) };
+    else if (Array.isArray(v)) objs[n] = { t: 1, proto: null, vals: v.map((x: unknown) => enc(x)) };
+    else {
+      const keys = Object.keys(v), markup = 'nodeName' in v || keys.every((k) => k === 'name' || k === 'value' || k === 'namespace' || k === 'prefix');
+      objs[n] = { t: 0, proto: Object.getPrototypeOf(v), keys, vals: keys.map((k) => enc(v[k], markup)), ...(fixesOf(v, keys) ? { fix: fixesOf(v, keys) } : {}) };
+    }
   }
   for (const [o, i] of index) prior.set(o, { u: id, i });
   return { id, name: u.name, file: u.file, objs, ext, ops, calls: u.calls, fnAt, templates, t0: u.t0, u0: u.u0, uses: u.uses, s0: u.s0, sids: u.sids, atAfter };
@@ -538,11 +545,15 @@ export function replay(c: any, u: Plan, maps: PageMaps): boolean {
   for (let i = 0; i < u.uses; i++) maps.use.set(u.u0 + i, U0 + i);
   for (let i = 0; i < u.sids; i++) maps.sid.set(u.s0 + i, S0 + i);
   const file = c.opts.file, strs = maps.strs;
-  const str = (s: string) => {
-    let o = strs.get(s);
+  const tidOf = (n: string) => maps.tid.get(+n) ?? n;
+  // (in code, also a loop's index and a clashing loop variable, named by their template: only for this unit's and earlier ones')
+  const str = (s: string, code = true) => {
+    const key = code ? s : `\u0000${s}`;
+    let o = strs.get(key);
     if (o === undefined) {
-      o = s === u.file ? file : s.replace(/\$(p|sl)(\d+)/g, (_, k, n) => `$${k}${maps.tid.get(+n) ?? n}`).replace(/sn-t-(\d+)/g, (_, n) => `sn-t-${maps.tid.get(+n) ?? n}`).replace(/#case(\d+)\//g, (_, n) => `#case${maps.tid.get(+n) ?? n}/`).replace(/\$s(\d+)/g, (_, n) => `$s${maps.sid.get(+n) ?? n}`);
-      strs.set(s, o!);
+      o = s === u.file ? file : s.replace(/\$(p|sl)(\d+)/g, (_, k, n) => `$${k}${tidOf(n)}`).replace(/sn-t-(\d+)/g, (_, n) => `sn-t-${tidOf(n)}`).replace(/#case(\d+)\//g, (_, n) => `#case${tidOf(n)}/`).replace(/\$s(\d+)/g, (_, n) => `$s${maps.sid.get(+n) ?? n}`);
+      if (code && s !== u.file) o = o!.replace(/\$i(\d+)(?!\d)/g, (_, n) => `$i${tidOf(n)}`).replace(/(\w)\$(\d+)(?!\d)/g, (_, a, n) => `${a}$${tidOf(n)}`);
+      strs.set(key, o!);
     }
     return o!;
   };
@@ -553,7 +564,7 @@ export function replay(c: any, u: Plan, maps: PageMaps): boolean {
   // the objects: made, then filled
   const out: any[] = new Array(u.objs.length);
   for (let i = 0; i < u.objs.length; i++) { const e = u.objs[i]!; out[i] = e.t === 0 ? (e.proto === Object.prototype ? {} : Object.create(e.proto)) : e.t === 1 ? [] : e.t === 2 ? new Map() : new Set(); }
-  const dec = (v: unknown): any => (v instanceof R ? out[v.i] : v instanceof X ? ext[v.j] : v instanceof S ? str(v.s) : v);
+  const dec = (v: unknown): any => (v instanceof R ? out[v.i] : v instanceof X ? ext[v.j] : v instanceof S ? str(v.s, v.code) : v);
   for (let i = 0; i < u.objs.length; i++) {
     const e = u.objs[i]!, o = out[i], vals = e.vals;
     if (e.t === 0) {

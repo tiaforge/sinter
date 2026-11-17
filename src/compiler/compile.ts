@@ -77,6 +77,8 @@ export interface CompileOptions {
   templates?: Map<string, unknown>;
   /** spike (docs/proposals/compile-once.md, (5)): a build's shared definitions, recorded on one page and linked into the next */
   definitions?: Map<string, unknown>;
+  /** the link audit (`SN_LINK_AUDIT`): every numbering of the page starts further on, so an index linking does not renumber shows */
+  shift?: boolean;
   /**
    * The content module's collections (docs/resources.md#collections), loaded before the compile: each list and its key,
    * by name. Absent: none loaded (`sinter check` and the editor read them from the build's snapshot). `collectionsError`:
@@ -1301,6 +1303,15 @@ class Compiler {
         for (const m of v.members) { const o = v.from?.[m]; add(`${k}$${m}`, o?.module ?? v.module, o?.name ?? m); }
       }
       if (lazy.size) this.page.lazy = lazy;
+    }
+    // the link audit's offset page: every numbering starts further on, each by its own amount, with entries nothing uses
+    if (opts.shift) {
+      for (let i = 0; i < 3; i++) this.templates.push({ id: this.templates.length, nodes: [] });
+      for (let i = 0; i < 5; i++) this.fn(`() => ${JSON.stringify(`shift ${i}`)}`, null);
+      for (let i = 0; i < 2; i++) this.actions.push({ method: 'GET', url: ['/__shift'], concurrency: 'block' });
+      this.useIds += 7;
+      this.nextSid += 11;
+      this.nextId += 13;
     }
   }
 

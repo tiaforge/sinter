@@ -40,24 +40,31 @@ const env = (k: string) => node?.env[k];
  */
 function audited(html: string, options: CompileOptions): CompileResult {
   const plain = compileOne(html, options);
+  // linked into the page as it is, and into the same page with every numbering offset (`shift`), against that page compiled:
+  // on its own page a unit's indices happen to be the page's, offset they are not
+  const shifted = compileOne(html, { ...options, templates: undefined, shift: true });
   const definitions = new Map<string, unknown>();
-  let linked: CompileResult | null = null;
+  let linked: CompileResult | null = null, linkedShifted: CompileResult | null = null;
   // what linking did, for the log (`SN_LINK_AUDIT_LOG=<file>`: one line per page)
   const g = globalThis as { __snLink?: { hits: number; recorded: number; refused: string[] } };
   const was = g.__snLink;
   g.__snLink = { hits: 0, recorded: 0, refused: [] };
   // (not the caller's kept templates: what the caller counts of them is its own compile's; a kept walk gives the same page)
-  try { for (let i = 0; i < 3; i++) linked = compileOne(html, { ...options, templates: undefined, definitions }); } finally {
+  try {
+    for (let i = 0; i < 3; i++) linked = compileOne(html, { ...options, templates: undefined, definitions });
+    linkedShifted = compileOne(html, { ...options, templates: undefined, shift: true, definitions });
+  } finally {
     const log = env('SN_LINK_AUDIT_LOG'), st = g.__snLink!;
     g.__snLink = was;
     if (log) (node?.getBuiltinModule?.('node:fs') as { appendFileSync(f: string, s: string): void } | undefined)?.appendFileSync(log, JSON.stringify({ file: options.file, linked: st.hits, recorded: st.recorded, refused: st.refused }) + '\n');
   }
   const text = (r: CompileResult) => JSON.stringify(r, (_, v) => (typeof v === 'function' ? '[fn]' : v instanceof Map ? [...v] : v instanceof Set ? [...v] : v));
-  const a = text(plain), b = text(linked!);
-  if (a !== b) {
+  for (const [what, x, y] of [['linked', plain, linked!], ['linked into the offset page', shifted, linkedShifted!]] as const) {
+    const a = text(x), b = text(y);
+    if (a === b) continue;
     let i = 0;
     while (a[i] === b[i]) i++;
-    throw new Error(`sinter link audit: ${options.file}: linked differs at ${i}:\n  compiled ${a.slice(Math.max(0, i - 120), i + 120)}\n  linked   ${b.slice(Math.max(0, i - 120), i + 120)}`);
+    throw new Error(`sinter link audit: ${options.file}: ${what} differs at ${i}:\n  compiled ${a.slice(Math.max(0, i - 120), i + 120)}\n  linked   ${b.slice(Math.max(0, i - 120), i + 120)}`);
   }
   return plain;
 }
