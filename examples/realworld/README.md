@@ -15,7 +15,7 @@ CHROME=/path/to/chrome npm run e2e   # the official e2e suite (e2e/, unchanged)
 | File | Page | Paths (`data-sn-path`) |
 | --- | --- | --- |
 | `index.html` | home: global feed, your feed, tag filter, pagination, popular tags | `/`, `/tag/:tag` |
-| `article.html` | article, Markdown body, comments | `/article/:slug` |
+| `article.html` | article, Markdown body (`<md-doc>` over `md.parse(article.body)`, [@tiaforge-ui/sinter-markdown](../../packages/sinter-markdown)), comments | `/article/:slug` |
 | `profile.html` | profile, follow, my/favorited articles | `/profile/:username`, `/profile/:username/:tab` |
 | `editor.html` | new / edit article | `/editor`, `/editor/:slug` |
 | `settings.html` | user settings, logout | `/settings` |
@@ -24,13 +24,36 @@ CHROME=/path/to/chrome npm run e2e   # the official e2e suite (e2e/, unchanged)
 | `src/components/` | header, footer, `conduit-seo` (the head component for the title and description), article meta, byline, preview, error list, favorite button (each page declares the `user` resource the header reads); `patch(article, …)` in the favorite button acts on the article where each use got it | |
 | `src/sinter.config.js` | JWT middleware (`localStorage.jwtToken`), current-user error handling | |
 | `src/islands.js` | sign-in/out (clearing the page-load cache) and navigation events, `<conduit-redirect>`, `window.__conduit_debug__` | |
-| `src/markdown.js` | `<conduit-markdown>` (marked + DOMPurify, requested when the module runs; `rendered` once the body is in, and `public/styles.css` keeps what follows it out of the layout until then: no shift), loaded by `article.html` only, through the layout's head slot | |
 | `vite.config.js` | page entries, the dev/preview rewrites for the path patterns, `sinter({ apis })` | |
 | `apis.js` | the API (`sinter({ apis })`): its spec and what each endpoint returns; pages write paths (`src="/articles"`), its origin is allowed on every page and its requests start before the stylesheets | |
 | `openapi.yml` | the Conduit API spec ([realworld-apps/realworld](https://github.com/realworld-apps/realworld), MIT), which types every resource for `npx sinter check` | |
 
-Everything the pages' expressions cannot do (storage, navigation, HTML rendering) lives in the
-config module and the islands (`src/markdown.js` too); the pages are declarative.
+Everything the pages' expressions cannot do (storage, navigation) lives in the config module and the
+islands; the pages are declarative.
+
+The article's body is Markdown, rendered by the markdown library: `src/sinter.helpers.js` re-exports it as
+`md`, `vite.config.js` lists it in `components`, and `article.html` writes
+`<md-doc data-sn-prop="{ doc: md.parse(article.body) }">`. It renders with the article, in the same frame,
+so nothing after the body moves when it comes in. Raw HTML in a body shows as text (`md.parse`'s default,
+`html: 'text'`), and sinter refuses a link's or an image's `javascript:` URL (it renders without it): the XSS
+suite's payloads stay inert. Until 2026-11-17 the body was marked and DOMPurify in an island,
+`<conduit-markdown>`; the comparison is in the [markdown library's docs](../../packages/sinter-markdown/docs/markdown.md#performance).
+The parser loads with the article page. With embedded data (`SINTER_EMBED`), the body renders in the early script
+like the rest of the article, so the parser is in the article's early file (30.5 kB gzip, `earlyBudget` raised to
+40 KB in `vite.config.js`) as well as in its page module. Measured on the article page (Lighthouse mobile, a local
+API, median of 5):
+
+| | static | sinter-axum: first paint / LCP |
+| --- | ---: | ---: |
+| marked + DOMPurify, before | 2,412 ms | 1,410 / 2,129 ms |
+| sinter-markdown, the body in the early script | 2,389 ms | 1,359 / **1,359** ms |
+| sinter-markdown, the body at mount (`<md-doc data-sn-early="off">`) | | 1,354 / 2,127 ms |
+| sinter-markdown, the parser lazy | 2,566 ms | 1,440 / 2,266 ms |
+
+The body in the first frame costs the parser twice: 92.4 kB of scripts transferred (brotli) instead of 63.4.
+At mount, what follows the body needed CSS to hold it back (CLS 0.452 without); in the first frame it needs none.
+The library is linked from `packages/` (`file:`), so `resolve.dedupe` in `vite.config.js` points its imports
+of sinter at the app's.
 
 The article lists keep their page in the URL with `page-model="$url.page"`: `?page=3` (or a reload,
 or Back) loads the third page, in the early request and the embedded data too. The pager's links

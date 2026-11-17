@@ -1,6 +1,9 @@
 // Helpers used in the pages' expressions.
 import { getToken } from './session.js';
 
+/** Markdown: `md.parse(article.body)`, the tree `<md-doc>` renders (@tiaforge-ui/sinter-markdown) */
+export * as md from '@tiaforge-ui/sinter-markdown';
+
 /**
  * Whether no session token is stored: the signed-out state, known before the first paint (the
  * pages' `guest`), so the banner and the Sign in / Sign up links render with the page.

@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="script-src 'self'; style-src 'self'">
+  <title>Island</title>
+  <script type="module" src="/src/island.js"></script>
+</head>
+<!-- The same markdown as RealWorld rendered its body before it used sinter-markdown: marked + DOMPurify into
+     innerHTML, in an island loaded with the page (no Trusted Types: innerHTML with a string needs a policy) -->
+<body>
+<sn-resource name="article" src="/api/article"></sn-resource>
+<main>
+  <template data-sn-if="article"><island-markdown id="article" class="md" data-sn-prop="{ source: article.body }"></island-markdown></template>
+</main>
+</body>
+</html>

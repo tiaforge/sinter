@@ -54,7 +54,8 @@ stylesheets and scripts load while the API answers.
   `joma1021/realworld-qwik` (same markup and CSS, `useResource$` rendered on the server, cookie auth), in
   `bench/first-paint/qwik`. Running the reference app itself was not possible in the measuring environment.
 - **The same work.** Both render the article body as plain text: the reference Qwik app does not render
-  Markdown, while sinter's RealWorld does (in the browser, with marked and DOMPurify). With Markdown,
+  Markdown, while sinter's RealWorld does (in the browser, with marked and DOMPurify when this was measured,
+  `@tiaforge-ui/sinter-markdown` since). With Markdown,
   sinter's article page LCP is about 400 ms later on slow 4G; that is the library's download and run, not
   the first-paint mechanism.
 - **The same fonts:** none. sinter's build serves Google Fonts itself (`@font-face`), Qwik links them;
@@ -165,7 +166,8 @@ sit in the `<head>` (the runtime ignores them anywhere else).
   the API at 300 ms, home LCP was 712 ms buffered and 536 ms streamed, and on a fast network the first
   paint moved from about 65 ms (static) to the API's time.
 - **The article page's LCP is its Markdown body.** RealWorld renders it in the browser (marked and
-  DOMPurify), after the page module, so data in the page moves it little. The comparison above rendered
+  DOMPurify when this was measured, `@tiaforge-ui/sinter-markdown` since), with the page module, so data in
+  the page moves it little. The comparison above rendered
   the body as plain text, for both apps.
 
 ### With `sinter({ embed: true })` and native pagination
@@ -185,6 +187,23 @@ page that comes later, so the server made the article slower. Imported staticall
 they download with the page and the article is faster with the server than without. They are
 RealWorld's own libraries, not sinter: the size check (`scripts/size.mjs`) reports them apart from the
 page budgets (marked 13.2 kB, DOMPurify 9.2 kB gzip); the article page is 22.3 kB of its 27 kB budget.
+
+Since 2026-11-17 the example renders the body with `@tiaforge-ui/sinter-markdown`, the parser loaded with the
+page. With embedded data the body renders in the early script with the rest of the article, so the parser is in
+the article's early file too (30.5 kB gzip; [examples/realworld](../examples/realworld/README.md)). Measured
+again that day with Lighthouse (`bench/realworld/ab.mjs`: its fixed local API, mobile, median of 5), which is not
+the slow-4G script above:
+
+| Article page | static: LCP | sinter-axum: first paint / LCP |
+| --- | --- | --- |
+| marked and DOMPurify with the page | 2,412 ms | 1,410 / 2,129 ms |
+| sinter-markdown, the body in the early script | 2,389 ms | 1,359 / **1,359** ms |
+| sinter-markdown, the body at mount (`data-sn-early="off"`) | | 1,354 / 2,127 ms |
+| sinter-markdown lazy | 2,566 ms | 1,440 / 2,266 ms |
+
+With the body in the early script the article's LCP is its first paint, which the larger early file did not
+move; the page transfers 92.4 kB of scripts (brotli) instead of 63.4, the parser twice.
+The article's scripts are 59.8 kB gzip instead of 31.1 kB plus marked and DOMPurify's 22.4 kB.
 
 ### Throughput (`oha`, 15 s, 32 connections, gzip)
 

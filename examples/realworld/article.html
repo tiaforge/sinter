@@ -1,8 +1,6 @@
 <conduit-layout data-sn-path="/article/:slug"
   data-sn-state="{ nav: '', commentError: null }"
   data-sn-prop="{ nav, title: 'Article', description: 'An article on Conduit, with its comments.' }">
-<!-- <conduit-markdown>: only this page renders Markdown -->
-<script slot="head" type="module" src="/src/markdown.js"></script>
 <sn-resource cache name="article" src="/articles/{$url.slug}"></sn-resource>
 <sn-resource cache name="comments" src="/articles/{$url.slug}/comments" order="-createdAt"></sn-resource>
 
@@ -23,7 +21,7 @@
     <div class="container page">
       <div class="row article-content">
         <div class="col-md-12">
-          <conduit-markdown data-sn-prop="{source: article.body}"></conduit-markdown>
+          <md-doc data-sn-prop="{ doc: md.parse(article.body) }"></md-doc>
           <ul class="tag-list">
             <template data-sn-for="t in article.tagList" data-sn-key="t"><li class="tag-default tag-pill tag-outline" data-sn-text="t"></li></template>
           </ul>

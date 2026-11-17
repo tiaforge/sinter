@@ -63,19 +63,27 @@ sinter({ components: ['@tiaforge-ui/sinter-markdown'], lazy: ['@tiaforge-ui/sint
 A let that calls `md.parse` is then `undefined` until the parser has arrived, and its arrival renders
 what reads the let; `<md-doc>` with no `doc` renders an empty `<div class="md">`. `md.headings` and
 `md.text` live in a module that does not import the parser, so they stay ordinary helpers either way.
-Measure first: the parser is about 36 kB gzip, and a page whose main content is markdown may reach
+Measure first: the parser is about 22 kB gzip, and a page whose main content is markdown may reach
 its LCP sooner with the parser loaded with the page (or with `data-sn-preload`).
 
-A parser in the early script is not worth it: with embedded data, a let over `md.parse` puts the
-parser into the early file, four times sinter's early budget (`SN523`). Markdown from an API is in the
-first frame only when the API sends the tree (`md.parse` run on the server), which `<md-doc>` renders
-like any other data.
+With embedded data, a binding over `md.parse` renders in the early script, so the parser is in the page's early
+file: over twice sinter's early budget (`SN523`). For a page whose main content is the markdown, that can be the
+better trade: on RealWorld's article through sinter-axum (Lighthouse mobile), the early file was 30.5 kB gzip, the
+first paint did not move, and the LCP was the first paint, 1,359 ms, against 2,127 ms with the body rendered when
+the page module mounts. The parser is then downloaded twice (the early file and the page module). Raise the
+budget for it (`sinter({ earlyBudget })`), as the RealWorld example does ([its
+README](https://github.com/tiaforge/sinter/blob/main/examples/realworld/README.md)); or keep the body out with
+`data-sn-early="off"` on the `<md-doc>`, and keep what follows the body out of the layout until it renders.
+Measure first: a page whose markdown is not its main content pays the early file for nothing. Markdown from an
+API is in the first frame without a parser when the API sends the tree (`md.parse` run on the server), which
+`<md-doc>` renders like any other data.
 
 ## `md.parse(source, options)`
 
 `source` is the markdown (`null` and `undefined` are an empty document). The result is a tree of
 plain data, typed by the package (`Root`): CommonMark, and GFM tables, task lists, strikethrough and
-autolinks. Footnotes are not supported. Positions are left out, and so are definitions: references
+autolinks (`www.example.com`, `https://…`, `foo@bar.baz`, as github.com links them; a bare
+`example.com` is text). Footnotes are not supported. Positions are left out, and so are definitions: references
 (`[text][ref]`) come back as links and images. Entities are decoded (`&amp;` is `&`).
 
 The options are the policy for one use. What a document may not contain is taken out of the tree, so
@@ -208,25 +216,32 @@ The components carry no CSS. Style the tree under `.md`, which both roots have:
 
 ## Performance
 
-The 300-block article of sinter's markdown measurements (47.5 kB of markdown, every node type) in headless
-Chromium on one machine over loopback, served gzipped, median of 21 runs, the three pages interleaved in one
-session (2026-11-16). The comparison is the RealWorld example's article body: the same API response (the
-markdown) through marked and DOMPurify into `innerHTML`, without Trusted Types (`innerHTML` with a string needs a
-policy). The first two rows read the same response; the third reads another one, the tree, which only an API you
-control can send.
+The 300-block article of sinter's markdown measurements (47.5 kB of markdown, every node type) from an API, in
+headless Chromium on one machine, served gzipped, one fresh context per run, the three pages interleaved
+(2026-11-17, [bench/markdown](https://github.com/tiaforge/sinter/tree/main/bench/markdown)). Over loopback, median of
+21; on slow 4G (150 ms round trip, 1.6 Mbit/s) with the CPU 4× slower, the medians of two sets of 7. The comparison is
+the same markdown through marked and DOMPurify into `innerHTML`, without Trusted Types (`innerHTML` with a string
+needs a policy), as the RealWorld example rendered its article body until it used this library. The first two rows
+read the same response; the third reads another one, the tree, which only an API you control can send.
 
-| Page | API response | LCP | Script | Page module (gzip) | Response (gzip) | Comments |
-| --- | --- | ---: | ---: | ---: | ---: | ---: |
-| markdown from the API, `md.parse` in the page | the markdown | 156 ms | 63 ms | 42.8 kB | 11.3 kB | 3,090 |
-| RealWorld's island (marked + DOMPurify) | the markdown | 160 ms | 8 ms | (marked and DOMPurify) | 11.3 kB | 2 |
-| tree from the API | the tree (`md.parse` run beforehand, in Node) | 120 ms | 36 ms | 4.4 kB | 14.0 kB | 3,090 |
+| Page | API response | LCP, loopback | LCP, slow 4G | Script | Scripts (gzip) | Response (gzip) | Comments |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| markdown from the API, `md.parse` in the page | the markdown | 164 ms | 1,160–1,180 ms | 73 ms | 45.8 kB | 11.3 kB | 3,088 |
+| marked + DOMPurify | the markdown | 172 ms | 1,208–1,220 ms | 60 ms | 36.9 kB | 11.3 kB | 2 |
+| tree from the API | the tree (`md.parse` run beforehand, in Node) | 128 ms | 908–928 ms | 39 ms | 20.8 kB | 14.0 kB | 3,088 |
 
-- Every page renders the same 1,365 elements (the island 1,370: marked writes newlines between blocks as text).
-- For the same API, sinter-markdown and the island are level on LCP.
+- Every page renders the same 1,365 elements (marked + DOMPurify 1,370: marked writes newlines between blocks as
+  text).
+- For the same API, sinter-markdown and marked + DOMPurify are level on LCP over loopback, and sinter-markdown is
+  about 40 ms ahead on slow 4G.
+- Before the parser was trimmed (the same day: markdown-it whole, linkify-it, the entity table unpacked), the first
+  row loaded 58.6 kB of scripts and reached LCP at 164 ms over loopback and 1,224–1,276 ms on slow 4G.
+- Scripts are every script the page loads, sinter's runtime included; script time is Chromium's for the whole page
+  load (`ScriptDuration`). marked + DOMPurify's leaves out the browser's own parsing of the HTML string, which is in
+  its LCP.
 - The tree row is not that comparison: its parse ran before the measurement (as for an API that stores the tree),
   and its cost on a server that parses per request is not measured. What it shows is what the parse costs the
-  page: markdown-it run cold, then the tree. The tree is about 25 % larger on the wire than its markdown.
-- The island's script time leaves out the browser's own parsing of the HTML string, which is in its LCP.
+  page: the parser's download and run, then the tree. The tree is about 25 % larger on the wire than its markdown.
 - The comments are the anchors of lists and branches, which keep the page live: a change to the source renders
   again what changed. A row or branch that is only another branch, or only a text, has none of its own.
 - From a file (`file:`), the article is HTML at build time and ships no JavaScript: LCP 56–60 ms in an earlier

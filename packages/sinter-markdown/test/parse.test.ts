@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { describe, expect, test } from 'vitest';
+import { characterEntities } from 'character-entities';
 import { parse } from '../sinter/parse.js';
 import { headings, text } from '../sinter/tree.js';
 import { PKG } from './app.js';
@@ -39,6 +40,51 @@ describe('the tree', () => {
     expect(text(doc.children[3]!)).toBe('[^1]');
   });
 
+  // scripts/autolink.js: GFM's autolink literals (the spec's examples), and what GFM leaves as text
+  test('GFM autolinks: www., http(s)://, ftp:// and emails, as github.com links them', () => {
+    const links = (s: string) => {
+      const out: Array<[string, string]> = [];
+      const walk = (n: any) => { if (n.type === 'link') out.push([n.url, text(n.children)]); n.children?.forEach(walk); };
+      walk(parse(s));
+      return out;
+    };
+    expect(links('www.commonmark.org/help, and (www.google.com/search?q=Markup+(business))')).toEqual([
+      ['http://www.commonmark.org/help', 'www.commonmark.org/help'],
+      ['http://www.google.com/search?q=Markup+(business)', 'www.google.com/search?q=Markup+(business)'],
+    ]);
+    expect(links('www.google.com/search?q=(business))+ok')).toEqual([['http://www.google.com/search?q=(business))+ok', 'www.google.com/search?q=(business))+ok']]);
+    expect(links('www.google.com/search?q=commonmark&hl;')).toEqual([['http://www.google.com/search?q=commonmark', 'www.google.com/search?q=commonmark']]);
+    expect(links('www.commonmark.org/he<lp')).toEqual([['http://www.commonmark.org/he', 'www.commonmark.org/he']]);
+    expect(links('(Visit https://encrypted.google.com/search?q=Markup+(business)) or ftp://foo.bar.baz.')).toEqual([
+      ['https://encrypted.google.com/search?q=Markup+(business)', 'https://encrypted.google.com/search?q=Markup+(business)'],
+      ['ftp://foo.bar.baz', 'ftp://foo.bar.baz'],
+    ]);
+    expect(links('"http://google.com" ~~http://x.org~~ **http://inlines**')).toEqual([['http://google.com', 'http://google.com'], ['http://x.org', 'http://x.org'], ['http://inlines', 'http://inlines']]);
+    expect(links('foo@bar.baz, hello+xyz@mail.example. a.b-c_d@a.b- mailto:x@y.zz xmpp:x@y.zz/home.')).toEqual([
+      ['mailto:foo@bar.baz', 'foo@bar.baz'], ['mailto:hello+xyz@mail.example', 'hello+xyz@mail.example'],
+      ['mailto:x@y.zz', 'mailto:x@y.zz'], ['xmpp:x@y.zz/home', 'xmpp:x@y.zz/home'],
+    ]);
+    // the last two segments of a domain have no underscore; www. needs a domain; a bare domain is text
+    expect(links('www.xxx._yyy.zzz www._xxx.yyy.zzz www. www.x example.com config.md ASP.NET')).toEqual([['http://www._xxx.yyy.zzz', 'www._xxx.yyy.zzz']]);
+    // a link's text, code and raw HTML are not searched
+    expect(links('[see www.a.com](/u) `www.b.com` <a href="/v">www.c.com</a>')).toEqual([['/u', 'see www.a.com']]);
+    // only these schemes come out
+    expect(links('javascript:alert(1)//x.com data:text/html,www.a.com')).toEqual([]);
+  });
+
+  test('autolinks stay linear: long runs a scan could revisit parse in well under a second', () => {
+    const hostile = [
+      'a.'.repeat(1e5), 'a.'.repeat(1e5) + '@', 'a@'.repeat(5e4), '_'.repeat(1e5) + '@a.b', 'www.' + 'a.'.repeat(1e5),
+      'x '.repeat(5e4) + 'www.a.b' + ')'.repeat(5e4), 'http://' + '('.repeat(1e5) + ')'.repeat(1e5),
+      'www.a.b/' + '&a;'.repeat(3e4), 'www.a.b/' + '?'.repeat(1e5), 'www.a.b '.repeat(3e4), 'x@a.b '.repeat(3e4),
+    ];
+    for (const s of hostile) {
+      const start = performance.now();
+      parse(s);
+      expect(performance.now() - start, JSON.stringify(s.slice(0, 12))).toBeLessThan(1000);
+    }
+  });
+
   // where markdown-it's tokens differ from mdast, parser-entry.js gives mdast's answer
   test('mdast from markdown-it: a fence info string decoded, an image alt as text, looseness by the items own paragraphs', () => {
     expect(parse('``` f&ouml;\\+o bar\nx\n```').children[0]).toEqual({ type: 'code', lang: 'fö+o', meta: 'bar', value: 'x' });
@@ -54,6 +100,10 @@ describe('the tree', () => {
 
   test('entities are decoded by the table, never by the DOM', () => {
     expect(parse('Fish &amp; chips &copy; &#x41; &unknown;')).toEqual({ type: 'root', children: [para(t('Fish & chips © A &unknown;'))] });
+    // the packed table has every entry of character-entities: two code points, astral ones, names that differ by case
+    expect(parse('&ThickSpace;&nvlt;&Afr;&fjlig;&AMP;&amp;').children).toEqual([para(t('\u205F\u200A<\u20D2\u{1D504}fj&&'))]);
+    const wrong = Object.entries(characterEntities).filter(([name, value]) => text(parse(`x&${name};x`)) !== `x${value}x`);
+    expect(wrong).toEqual([]);
   });
 
   test('references are resolved, definitions leave the tree; text runs are merged', () => {
@@ -215,10 +265,18 @@ describe('the modules', () => {
     expect(r.status).toBe(0);
   });
 
-  test('the parser decodes entities with its table: no DOM, no innerHTML, no debug', () => {
+  test('the parser decodes entities with its packed table: no DOM, no innerHTML, no debug', () => {
     const src = readFileSync(join(PKG, 'sinter/parser.js'), 'utf8');
     expect(src).not.toMatch(/innerHTML|document\.createElement|createDebug|localStorage|navigator/);
-    expect(src).toMatch(/const characterEntities = \{/);
-    expect(src).not.toMatch(/decode_data_html|Uint16Array/);
+    expect(src).toMatch(/var _packed_entities_default = "9 Tab 1 NewLine /);
+    expect(src).not.toMatch(/decode_data_html|Uint16Array|const characterEntities = \{/);
+  });
+
+  test('the parser leaves out what md.parse never runs: linkify-it, the renderer, the typographer, mdurl, punycode', () => {
+    const src = readFileSync(join(PKG, 'sinter/parser.js'), 'utf8');
+    const modules = [...src.matchAll(/^\/\/ (node_modules\/\S+)$/gm)].map((m) => m[1]);
+    expect(modules.length).toBeGreaterThan(40);
+    expect(modules.filter((m) => !m.startsWith('node_modules/markdown-it/lib/'))).toEqual([]);
+    expect(modules.filter((m) => /renderer|linkify|smartquotes|replacements/.test(m))).toEqual([]);
   });
 });

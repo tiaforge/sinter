@@ -67,6 +67,8 @@ sinter/                   the library's source, laid out like an app's src/
   index.ts                the package's entry: the helpers and the types
 scripts/
   parser-entry.js         what parser.js bundles: markdown-it, configured; it returns tokens
+  autolink.js             GFM's autolinks, a rule parser-entry.js adds to markdown-it
+  entities.js …           what the parser bundles in place of markdown-it's dependencies (README, "The parser")
   build-parser.mjs        builds parser.js; --check fails when it is out of date
 fixtures/                 pages that use the public components, for the library's own check
   index.html …            an article from a file, every slot filled, comments from an API
@@ -174,21 +176,39 @@ docs/                     the docs page and the recipe
 
 ### The parser: one prebundled module
 
-`parser.js` is markdown-it (CommonMark, GFM tables and `~~strikethrough~~`, autolinks through its
-linkify), configured for `md.parse` and bundled into one file by `scripts/build-parser.mjs`. It returns
-markdown-it's tokens, and `parse.ts` builds the tree from them in one pass, task lists and the options
-included: there is no intermediate tree (an mdast before the library's own, and a walk over it).
+`parser.js` is markdown-it (CommonMark, GFM tables and `~~strikethrough~~`) with GFM's autolinks
+(`scripts/autolink.js`), configured for `md.parse` and bundled into one file by `scripts/build-parser.mjs`:
+21.8 kB minified and gzipped (19.5 kB brotli). It returns markdown-it's tokens, and `parse.ts` builds the
+tree from them in one pass, task lists and the options included: there is no intermediate tree (an mdast
+before the library's own, and a walk over it).
 
 - **markdown-it, not micromark**, for speed: on a 47.5 kB article it parses in 23 ms on a cold start
   where micromark took 160 ms, which was most of an API article's time to first render. GFM is what
-  markdown-it gives: `~one tilde~` is not strikethrough, and autolinks follow linkify-it (`example.com`
-  is a link; some bare emails are not). Everything CommonMark specifies gives the same tree as
-  micromark did, except a code span's line endings, which are spaces, as CommonMark renders them.
+  markdown-it gives, and GFM's autolinks: `~one tilde~` is not strikethrough. Everything CommonMark
+  specifies gives the same tree as micromark did, except a code span's line endings, which are spaces,
+  as CommonMark renders them.
+- **What `md.parse` never runs is left out**, so the bundle holds markdown-it's parsers and rules and
+  no more: its renderer, the typographer's rules (`typographer` is off) and its linkify are
+  `scripts/unused.js`; mdurl (`scripts/mdurl.js`) and punycode (`scripts/punycode.js`) are left out
+  because the tree keeps a link's destination as written, so the parser normalizes no URL; uc.micro's
+  tables are two regexes (`scripts/uc-micro.js`: emphasis needs Unicode punctuation and symbols, `\p{P}`
+  and `\p{S}`). The parser was 34.5 kB with them. `test/parse.test.ts` checks which of markdown-it's
+  modules are in it.
+- **Autolinks are GFM's** (`scripts/autolink.js`, a core rule run after markdown-it's): `www.`,
+  `http(s)://` and `ftp://` URLs, emails, and `mailto:` and `xmpp:` emails, as github.com finds them.
+  A bare domain is not a link (`example.com`, `config.md`), a bare email is
+  (`foo@bar.baz`, to `mailto:foo@bar.baz`), and the end of a link is trimmed as GFM specifies: trailing punctuation, a
+  `)` with no `(`, an entity-like `&hl;`. It passes the GFM spec's and cmark-gfm's autolink examples,
+  which markdown-it's linkify (linkify-it) got about half of, and is about 1 kB where linkify-it and its
+  Unicode tables were about 5.7 kB. Only those schemes come out. It is linear in the text: every match
+  moves the scan forward and a link's end is trimmed by an index; `test/parse.test.ts` parses long runs
+  that a backtracking scan revisits (`a.a.a.…`, `www.a.b)))…`, `&a;&a;…`) within a second each (each
+  takes under 0.1 s).
 - **Entities decode from a table** (`character-entities`, through `scripts/entities.js`), never through
   the DOM, so the parser works under Trusted Types (`require-trusted-types-for 'script'`). It is the
-  table micromark used; markdown-it's own (`entities`) is a packed trie twice its size gzipped.
-- **punycode is left out** (`scripts/punycode.js`): the tree keeps a link's destination as written, so
-  the parser normalizes no URL.
+  table micromark used, packed by `scripts/build-parser.mjs`: sorted by code point, each entry its
+  distance from the one before, about 7.5 kB gzip where the table as an object is 11.5 and
+  markdown-it's own (`entities`, a packed trie) 21. It is unpacked once, when the parser loads.
 - sinter's build-time check follows one module that uses no browser global, so `md.parse` folds over
   a `file:` resource.
 

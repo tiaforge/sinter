@@ -1,0 +1,19 @@
+{
+  "name": "sinter-bench-markdown",
+  "private": true,
+  "type": "module",
+  "description": "@tiaforge-ui/sinter-markdown measured: a 300-block article from an API, parsed in the page, rendered from a tree, and through marked + DOMPurify (measure.mjs)",
+  "scripts": {
+    "build": "vite build",
+    "measure": "node measure.mjs"
+  },
+  "dependencies": {
+    "@tiaforge-ui/sinter": "file:../..",
+    "@tiaforge-ui/sinter-markdown": "file:../../packages/sinter-markdown",
+    "dompurify": "3.3.0",
+    "marked": "16.4.1"
+  },
+  "devDependencies": {
+    "vite": "8.3.5"
+  }
+}

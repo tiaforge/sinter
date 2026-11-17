@@ -291,7 +291,8 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
         const vite = await appVite(), rolldown = 'rolldownVersion' in vite;
         const out = await vite.build({
           configFile: false, root, base: r.base, mode: dev ? 'development' : r.mode, logLevel: 'silent', publicDir: false, define: r.define,
-          resolve: { alias: r.resolve.alias, conditions: r.resolve.conditions },
+          // the app's resolution: a library linked from outside the root (`file:`, `npm link`) finds the app's sinter through `dedupe`
+          resolve: { alias: r.resolve.alias, conditions: r.resolve.conditions, dedupe: r.resolve.dedupe, preserveSymlinks: r.resolve.preserveSymlinks },
           plugins: [{
             name: 'sinter:early-entry', enforce: 'pre',
             async resolveId(id, importer, o) {
@@ -1634,7 +1635,11 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     const chunks = Object.values(bundle) as C[];
     const files: string[] = [];
     // the packages, and the page's component scripts that load with them
-    const ids = specs.map((spec) => ({ spec, id: lazyIds.get(spec) }));
+    // a package and the subpaths imported from it (`@tiaforge-ui/sinter-markdown` is `…/parser`), as `lazy` names them
+    const ids = specs.flatMap((spec) => {
+      const hits = [...lazyIds].filter(([s]) => s === spec || s.startsWith(spec + '/')).map(([, id]) => ({ spec, id: id as string | undefined }));
+      return hits.length ? hits : [{ spec, id: undefined as string | undefined }];
+    });
     for (const x of lazyScriptsOf.get(rel) ?? []) if (x.lazy.some((s) => specs.includes(s))) ids.push({ spec: x.module, id: resolve(root, '.' + x.module) });
     for (const { spec, id } of ids) {
       const c = id ? chunks.find((x) => x.type === 'chunk' && x.facadeModuleId === id) : undefined;

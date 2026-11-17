@@ -4,24 +4,56 @@
 //   npm run build:parser -- --check fail if sinter/parser.js is not what this script writes
 //
 // Why one prebundled module (README.md, "The parser"): every app gets the same parser, with entities
-// decoded from a table (scripts/entities.js) and no punycode (scripts/punycode.js), whatever its
-// bundler's conditions, and sinter's build-time check sees one module that uses no browser global.
+// decoded from a packed table (scripts/entities.js), and without what md.parse never runs: punycode, mdurl,
+// linkify-it, uc.micro's tables (scripts/punycode.js, mdurl.js, uc-micro.js), the renderer and the
+// typographer's and linkify's rules (scripts/unused.js), whatever the app's bundler's conditions; and sinter's
+// build-time check sees one module that uses no browser global.
 import { readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { rolldown } from 'rolldown';
+import { characterEntities } from 'character-entities';
 
 const here = (p) => fileURLToPath(new URL(p, import.meta.url));
 const OUT = here('../sinter/parser.js');
 const pkg = (name) => JSON.parse(readFileSync(here(`../node_modules/${name}/package.json`), 'utf8')).version;
-const VERSIONS = ['markdown-it', 'linkify-it', 'character-entities'].map((n) => `${n} ${pkg(n)}`).join(', ');
+const VERSIONS = ['markdown-it', 'character-entities'].map((n) => `${n} ${pkg(n)}`).join(', ');
+
+// character-entities packed (scripts/entities.js unpacks it): sorted by code point, each entry its first code
+// point's distance from the one before in base 36, `+` and its second in base 36 if it has one, then its name
+let last = 0;
+const PACKED = Object.entries(characterEntities)
+  .map(([name, value]) => [name, [...value].map((c) => c.codePointAt(0))])
+  .sort(([an, a], [bn, b]) => a[0] - b[0] || (a[1] ?? -1) - (b[1] ?? -1) || (an < bn ? -1 : 1))
+  .map(([name, [first, second, more]]) => {
+    if (more !== undefined || !/^[a-z\d]+$/i.test(name)) throw new Error(`character-entities: cannot pack ${name}`);
+    const delta = first - last;
+    last = first;
+    return `${delta.toString(36)}${second === undefined ? '' : '+' + second.toString(36)} ${name}`;
+  }).join(' ');
+
+// markdown-it's modules that md.parse never runs, by their path inside markdown-it
+const UNUSED = /\/markdown-it\/lib\/(?:renderer|rules_core\/(?:linkify|replacements|smartquotes)|rules_inline\/linkify)\.mjs$/;
 
 const bundle = await rolldown({
   input: here('./parser-entry.js'),
   platform: 'neutral',
   resolve: {
     conditionNames: ['production', 'import', 'module', 'default'], mainFields: ['module', 'main'],
-    alias: { entities: here('./entities.js'), 'punycode.js': here('./punycode.js') },
+    alias: {
+      entities: here('./entities.js'), 'punycode.js': here('./punycode.js'), mdurl: here('./mdurl.js'),
+      'uc.micro': here('./uc-micro.js'), 'linkify-it': here('./unused.js'),
+    },
   },
+  plugins: [{
+    name: 'sinter-markdown-parser',
+    async resolveId(source, importer, options) {
+      if (source === 'packed-entities') return '\0packed-entities';
+      if (!importer?.includes('/markdown-it/lib/') || !source.startsWith('.')) return null;
+      const r = await this.resolve(source, importer, { ...options, skipSelf: true });
+      return r && UNUSED.test(r.id.replaceAll('\\', '/')) ? here('./unused.js') : null;
+    },
+    load(id) { return id === '\0packed-entities' ? `export default ${JSON.stringify(PACKED)};` : null; },
+  }],
   transform: { define: { 'process.env.NODE_ENV': '"production"' } },
   treeshake: true,
 });
