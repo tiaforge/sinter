@@ -23,7 +23,7 @@ Decisions proposed:
 - **Without a swap, nothing changes:** `destroy()` closes the app's streams as today (embed, tests, an app
   mounted on an element). Only the document's app parks or claims.
 - **Only apps with swaps on pay for it** (decided 2026-11-17): the handover sits behind a build flag, so the
-  `sse` code of an app without `swap: true` stays byte for byte what it is today ([8](#8-size-only-with-swaps-on)).
+  `sse` code of an app without `swap: true` is byte for byte the same as after the step-1 refactor ([8](#8-size-only-with-swaps-on)).
 
 ## The case
 
