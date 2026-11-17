@@ -8,12 +8,12 @@ implementation is built from source and served under the same conditions, the be
 
 | implementation | source lines | JS, home + article (gz KB) | Lighthouse mobile perf, same conditions |
 | --- | ---: | ---: | ---: |
-| **sinter** | **670** | **35.7** | **100** |
+| **sinter** | **670** | **59.6** | **100** |
 | SvelteKit | 1153 | - | 93 |
 | Solid | 1281 | - | 90 |
-| Vue 3 | 1848 | 63.7 | 86 |
+| Vue 3 | 1848 | 63.9 | 86 |
 | React + Redux | 2087 | - | - |
-| Angular | 2210 | 123.0 | 88 |
+| Angular | 2210 | 110.9 | 88 |
 
 A dash means the number could not be measured (see the notes under each table below). Lighthouse: the
 median of 5 runs on 2026-11-14 with every implementation built from its latest commit, served by one local
@@ -59,20 +59,22 @@ deduplicate saves.
 Headless Chrome loads the home page, then opens the first article. Every JS and CSS response is
 gzipped at level 9 by the script, so different CDN compression does not skew the numbers. The others
 are measured on their live demos (which may be built from other commits than the ones above); sinter
-on `vite preview` of its production build.
+on `vite preview` of its production build, against the live API. Measured on 2026-11-17.
 
 | implementation | JS, home (gz KB) | JS, home + article (gz KB) | JS, home + article (raw KB) | CSS (gz KB) | note |
 | --- | ---: | ---: | ---: | ---: | --- |
-| **sinter** | **13.8** | **35.7** | 108.4 | 14.4 | Markdown renderer (21.5 KB) loads with the first article |
-| Angular | 98.4 | 123.0 | 392.0 | 11.9 | |
-| Vue 3 | 46.7 | 63.7 | 171.9 | 14.4 | |
-| SvelteKit | 42.8 | - | 105.9 | 14.8 | the article did not open in the script |
-| Solid | 11.7 | - | 31.8 | 9.3 | demo shows no articles (backend gone); lazy route code not loaded |
+| **sinter** | **32.5** | **59.6** | 160.2 | 13.3 | Markdown renderer (marked and DOMPurify, 22.3 KB) loads with the first article |
+| Angular | 98.4 | 110.9 | 351.6 | 11.9 | |
+| Vue 3 | 46.8 | 63.9 | 171.9 | 14.4 | |
+| SvelteKit | 42.9 | - | 105.9 | 14.8 | the article did not open in the script |
+| Solid | 11.5 | - | 30.4 | 9.2 | demo shows no articles (backend gone); lazy route code not loaded |
 | React + Redux | - | - | - | - | demo no longer online |
 
-Every sinter page loads 14.0-15.7 KB of JS when opened (its page module plus the shared chunk: core,
-config, islands; `npm run size`). As a multi-page app, each navigation is a page load; the shared chunk
-comes from the browser cache.
+Every sinter page loads 27.1-33.3 KB of JS when opened (`npm run size`): 21.7-24.4 KB of it is sinter
+(the core, the early script, the swap stub and the features the page uses), the rest the app's page
+module, config and helpers. RealWorld runs with [swaps](navigation.md#swaps) on, so opening the article
+fetches its HTML and only the scripts the home page did not load (the article's page module, the rest of
+the swap code and the markdown renderer); the shared chunks come from the browser cache.
 
 ## Lighthouse
 
@@ -182,7 +184,7 @@ versions their layouts load, gzipped at level 9.
 
 | implementation | commit | UI layer lines | data layer lines | client JS (gz) |
 | --- | --- | ---: | ---: | ---: |
-| **sinter** | | **735** | - (uses the API) | 14.0-15.7 KB per page |
+| **sinter** | | **735** | - (uses the API) | 27.1-33.3 KB per page |
 | Go + templ + htmx (BerkeleyTrue/conduit-go-htmx) | 4c0990a | 2031 | 2529 | 39.9 KB (htmx 1.9.5 14.7 + hyperscript 25.1) |
 | Clojure + hiccup + htmx (BerkeleyTrue/conduit-clj-htmx) | c46a814 | 1351 | 1525 | 39.9 KB |
 | Go + templ + Datastar (delaneyj/realworld-datastar) | 410de63 | 1949 | 488 | 14.7 KB (Datastar 0.18.9) |
@@ -249,7 +251,7 @@ by `bench/realworld/serve.mjs` against the live API:
 Components cost 0.2 KB of JS (gz) on these pages (download sizes measured again after the size work
 below; Lighthouse on the build before it, 0.1 KB larger), and the scores do not move. Mobile FCP is 0.19 s
 earlier and LCP 0.15 s later; with three runs each, neither is read as a change here. (Both builds load
-more JS than the 13.8 KB in the tables above, which were measured on an earlier version of the app.) 
+less JS than the 32.5 KB in the tables above, which were measured again on 2026-11-17, after swaps and next-page data.) 
 
 Where the bytes go, per file, gzip, `main` against components (after moving nested items and shared
 definitions out of the core into modules only the pages that use them load):
