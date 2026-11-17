@@ -72,7 +72,7 @@ the pages.
   came from, so a favorite button inside it updates the right list with no store code.
 - **Great ergonomics.** One way to do each thing, all of it visible on the element. 670 lines for
   the RealWorld app, against 2,210 for the official Angular one. LLM-friendly: `llms.txt` ships with the package, and the small, uniform syntax is easy for a model to get right.
-- **Small and safe.** About 16 KB of JavaScript (gzipped) for a simple page, 25-30 KB for RealWorld's pages with the app's
+- **Small and safe.** About 16 KB of JavaScript (gzipped) for a simple page, under 35 KB for RealWorld's pages with the app's
   own code, and none on a page with nothing to run. No `eval`, no `unsafe-eval` in your Content
   Security Policy, and markup injected at runtime stays inert.
 

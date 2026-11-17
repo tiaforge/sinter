@@ -81,8 +81,10 @@ const entries = {
 // Raised on 2026-11-17, after trimming the core: the minimal page to 16 KB (main was at 15,492 B on its own,
 // swap navigation adds 74 B to the core: the chain's hooks in navigate() and popstate, the flush guard, the
 // attribute writer leaving unchanged values); the article to 28.5 KB (RealWorld runs with swaps on: the stub,
-// the chain shared by same-page links, morphs and the swap)
-const BUDGET = { minimal: 16 * 1024, 'minimal, swaps': 17 * 1024, 'realworld article': 28.5 * 1024 };
+// the chain shared by same-page links, morphs and the swap). The article to 35 KB the same day, when the
+// count took in the classic head scripts it had left out (sinter's early script and the page's early chunk,
+// about 3 KB per page), with room for the next features
+const BUDGET = { minimal: 16 * 1024, 'minimal, swaps': 17 * 1024, 'realworld article': 35 * 1024 };
 let failed = false;
 const gz = (b) => gzipSync(b, { level: 9 }).length;
 function report(name, min, size) {
@@ -124,8 +126,9 @@ try {
   await build({ root: realworld, configFile: join(realworld, 'vite.config.js'), logLevel: 'silent', build: { outDir: out, emptyOutDir: true, rollupOptions: { external: libs } } });
   for (const f of readdirSync(out).filter((f) => f.endsWith('.html')).sort()) {
     const html = readFileSync(join(out, f), 'utf8');
-    // each file once: the early file's shared chunk is preloaded with it and for the page bundle
-    const srcs = [...new Set([...html.matchAll(/<script type="module"[^>]* src="([^"]+)"|<link rel="modulepreload"[^>]* href="([^"]+)"/g)].map((m) => m[1] ?? m[2]))];
+    // each file once: the early file's shared chunk is preloaded with it and for the page bundle; the
+    // classic head scripts (sinter's early script, the page's early chunk) count too
+    const srcs = [...new Set([...html.matchAll(/<script\b[^>]* src="([^"]+)"|<link rel="modulepreload"[^>]* href="([^"]+)"/g)].map((m) => m[1] ?? m[2]))];
     let raw = 0, size = 0;
     for (const s of srcs) {
       const code = readFileSync(join(out, s));
