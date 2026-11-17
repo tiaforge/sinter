@@ -188,18 +188,21 @@ they download with the page and the article is faster with the server than witho
 RealWorld's own libraries, not sinter: the size check (`scripts/size.mjs`) reports them apart from the
 page budgets (marked 13.2 kB, DOMPurify 9.2 kB gzip); the article page is 22.3 kB of its 27 kB budget.
 
-Since 2026-11-17 the example renders the body with `@tiaforge-ui/sinter-markdown`: the parser loads with the
-page, and `<md-doc data-sn-early="off">` keeps it out of the early script (with embedded data the body renders
-when the page module mounts, and what follows it waits; [examples/realworld](../examples/realworld/README.md)).
-Measured again that day with Lighthouse (`bench/realworld/ab.mjs`: its fixed local API, mobile, median of 5),
-which is not the slow-4G script above:
+Since 2026-11-17 the example renders the body with `@tiaforge-ui/sinter-markdown`, the parser loaded with the
+page. With embedded data the body renders in the early script with the rest of the article, so the parser is in
+the article's early file too (30.5 kB gzip; [examples/realworld](../examples/realworld/README.md)). Measured
+again that day with Lighthouse (`bench/realworld/ab.mjs`: its fixed local API, mobile, median of 5), which is not
+the slow-4G script above:
 
-| Article page | static: LCP / CLS | sinter-axum: LCP / CLS |
+| Article page | static: LCP | sinter-axum: first paint / LCP |
 | --- | --- | --- |
-| marked and DOMPurify with the page | 2,412 ms / 0 | 2,129 ms / 0.001 |
-| sinter-markdown with the page | 2,389 ms / 0 | 2,130 ms / 0.001 |
-| sinter-markdown lazy (preloaded when static) | 2,566 ms / 0.415, without the CSS that holds back what follows the body | 2,266 ms / 0.001 |
+| marked and DOMPurify with the page | 2,412 ms | 1,410 / 2,129 ms |
+| sinter-markdown, the body in the early script | 2,389 ms | 1,359 / **1,359** ms |
+| sinter-markdown, the body at mount (`data-sn-early="off"`) | | 1,354 / 2,127 ms |
+| sinter-markdown lazy | 2,566 ms | 1,440 / 2,266 ms |
 
+With the body in the early script the article's LCP is its first paint, which the larger early file did not
+move; the page transfers 92.4 kB of scripts (brotli) instead of 63.4, the parser twice.
 The article's scripts are 59.8 kB gzip instead of 31.1 kB plus marked and DOMPurify's 22.4 kB.
 
 ### Throughput (`oha`, 15 s, 32 connections, gzip)

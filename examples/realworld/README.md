@@ -38,19 +38,20 @@ so nothing after the body moves when it comes in. Raw HTML in a body shows as te
 `html: 'text'`), and sinter refuses a link's or an image's `javascript:` URL (it renders without it): the XSS
 suite's payloads stay inert. Until 2026-11-17 the body was marked and DOMPurify in an island,
 `<conduit-markdown>`; the comparison is in the [markdown library's docs](../../packages/sinter-markdown/docs/markdown.md#performance).
-The parser loads with the article page. `<md-doc>` has `data-sn-early="off"`: with embedded data (`SINTER_EMBED`)
-a binding over `md.parse` would otherwise render in the early script, the parser in front of the first paint
-(`SN523`). So with embedded data the first frame has the title and the byline, the body renders when the page
-module mounts, and `src/styles.css` keeps what follows the body out of the layout until then (`data-mounted`, set
-by `src/islands.js`). Measured on the article page (Lighthouse mobile, a local API, median of 5):
+The parser loads with the article page. With embedded data (`SINTER_EMBED`), the body renders in the early script
+like the rest of the article, so the parser is in the article's early file (30.5 kB gzip, `earlyBudget` raised to
+40 KB in `vite.config.js`) as well as in its page module. Measured on the article page (Lighthouse mobile, a local
+API, median of 5):
 
-| | static | sinter-axum |
+| | static | sinter-axum: first paint / LCP |
 | --- | ---: | ---: |
-| marked + DOMPurify, before | 2,412 ms, CLS 0 | 2,129 ms, CLS 0.001 |
-| sinter-markdown, the parser with the page | 2,389 ms, CLS 0 | 2,130 ms, CLS 0.001 |
-| the same without the CSS | | 2,125 ms, CLS 0.452 |
-| the parser lazy (preloaded when static) | 2,566 ms | 2,266 ms, CLS 0.001 |
+| marked + DOMPurify, before | 2,412 ms | 1,410 / 2,129 ms |
+| sinter-markdown, the body in the early script | 2,389 ms | 1,359 / **1,359** ms |
+| sinter-markdown, the body at mount (`<md-doc data-sn-early="off">`) | | 1,354 / 2,127 ms |
+| sinter-markdown, the parser lazy | 2,566 ms | 1,440 / 2,266 ms |
 
+The body in the first frame costs the parser twice: 92.4 kB of scripts transferred (brotli) instead of 63.4.
+At mount, what follows the body needed CSS to hold it back (CLS 0.452 without); in the first frame it needs none.
 The library is linked from `packages/` (`file:`), so `resolve.dedupe` in `vite.config.js` points its imports
 of sinter at the app's.
 

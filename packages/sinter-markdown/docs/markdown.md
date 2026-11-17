@@ -66,14 +66,17 @@ what reads the let; `<md-doc>` with no `doc` renders an empty `<div class="md">`
 Measure first: the parser is about 22 kB gzip, and a page whose main content is markdown may reach
 its LCP sooner with the parser loaded with the page (or with `data-sn-preload`).
 
-A parser in the early script is not worth it: with embedded data, a binding over `md.parse` puts the
-parser into the early file, over twice sinter's early budget (`SN523`). Put `data-sn-early="off"` on the
-`<md-doc>` instead: the rest of the page renders before the first paint, the body when the page module mounts,
-with the parser loaded with the page. Keep what follows the body out of the layout until then, or it is pushed
-down when the body comes in; the RealWorld example does both ([its README](https://github.com/tiaforge/sinter/blob/main/examples/realworld/README.md)),
-and through sinter-axum reaches the article's LCP as it did with marked and DOMPurify. Making the parser lazy
-instead was about 150 ms later there. Markdown from an API is in the first frame only when the API sends the tree
-(`md.parse` run on the server), which `<md-doc>` renders like any other data.
+With embedded data, a binding over `md.parse` renders in the early script, so the parser is in the page's early
+file: over twice sinter's early budget (`SN523`). For a page whose main content is the markdown, that can be the
+better trade: on RealWorld's article through sinter-axum (Lighthouse mobile), the early file was 30.5 kB gzip, the
+first paint did not move, and the LCP was the first paint, 1,359 ms, against 2,127 ms with the body rendered when
+the page module mounts. The parser is then downloaded twice (the early file and the page module). Raise the
+budget for it (`sinter({ earlyBudget })`), as the RealWorld example does ([its
+README](https://github.com/tiaforge/sinter/blob/main/examples/realworld/README.md)); or keep the body out with
+`data-sn-early="off"` on the `<md-doc>`, and keep what follows the body out of the layout until it renders.
+Measure first: a page whose markdown is not its main content pays the early file for nothing. Markdown from an
+API is in the first frame without a parser when the API sends the tree (`md.parse` run on the server), which
+`<md-doc>` renders like any other data.
 
 ## `md.parse(source, options)`
 
