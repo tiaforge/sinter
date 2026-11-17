@@ -442,6 +442,193 @@ export function record<T>(c: any, name: string, call: () => T, prior: Map<object
   return { result, unit: keep(unit, prior) };
 }
 
+/**
+ * A unit's weak table: its page's, read through, with the unit's own writes kept apart (`own`, `gone`), so what it wrote
+ * can be read back. A weak map's API, or a weak set's (`set` false).
+ */
+export class Overlay {
+  readonly own: Map<object, unknown> | Set<object>;
+  readonly gone = new Set<object>();
+  constructor(readonly base: WeakMap<object, unknown> | WeakSet<object>, set: boolean) { this.own = set ? new Set() : new Map(); }
+  has(k: object) { return !this.gone.has(k) && (this.own.has(k) || this.base.has(k)); }
+  get(k: object) { return this.gone.has(k) ? undefined : this.own instanceof Map && this.own.has(k) ? this.own.get(k) : (this.base as WeakMap<object, unknown>).get(k); }
+  set(k: object, v: unknown) { this.gone.delete(k); (this.own as Map<object, unknown>).set(k, v); return this; }
+  add(k: object) { this.gone.delete(k); (this.own as Set<object>).add(k); return this; }
+  delete(k: object) { const had = this.has(k); this.own.delete(k); if (this.base.has(k)) this.gone.add(k); return had; }
+}
+
+/** a unit's copy of one of its page's tables, one level deep (a list or a set in a map is copied too), and what it copied */
+export function fork(v: Map<unknown, unknown> | Set<unknown> | unknown[], copies: Map<object, object>): Map<unknown, unknown> | Set<unknown> | unknown[] {
+  const one = (x: unknown) => { if (!x || typeof x !== 'object' || !container(x)) return x; const y = x instanceof Map ? new Map(x) : x instanceof Set ? new Set(x) : (x as unknown[]).slice(); copies.set(y, x as object); return y; };
+  return v instanceof Map ? new Map([...v].map(([k, x]) => [k, one(x)])) : v instanceof Set ? new Set(v) : v.slice();
+}
+
+/**
+ * What a unit wrote in its own tables, as operations on its page's: against the copies it started from (`fork`), new
+ * entries and items, and what it added to a list, a set or a map the page had (by its key); its weak tables' own entries.
+ */
+export function unitDelta(c: any, u: { child: any; own: string[]; copies: Map<object, object> }): Op[] | string {
+  const ops: Op[] = [];
+  for (const k of u.own) {
+    const v = u.child[k], b = c[k];
+    if (v instanceof Overlay) {
+      if (v.own instanceof Map) for (const [x, y] of v.own) ops.push({ op: 'weak', field: k, key: x, value: y });
+      else for (const x of v.own) ops.push({ op: 'weakAdd', field: k, key: x });
+      for (const x of v.gone) ops.push({ op: 'weakDel', field: k, key: x });
+    } else if (v instanceof Map) {
+      for (const x of b.keys()) if (!v.has(x)) return `${k}: a key deleted`;
+      for (const [x, y] of v) {
+        if (!b.has(x)) { ops.push({ op: 'mapSet', path: [k], key: x, value: y }); continue; }
+        const was = b.get(x);
+        if (u.copies.get(y as object) !== was) { if (y !== was) ops.push({ op: 'mapSet', path: [k], key: x, value: y }); continue; }
+        // the page's own list, set or map at this key, which the unit added to
+        if (x !== null && typeof x === 'object') return `${k}: added to the value of an object key`;
+        const target = { path: [{ p: k }, { k: x }] as Step[] };
+        if (y instanceof Map) { for (const [p, q] of y) if (!was.has(p) || was.get(p) !== q) ops.push({ op: 'old', target, change: { kind: 'set', key: p, value: q } }); }
+        else if (y instanceof Set) { for (const p of y) if (!was.has(p)) ops.push({ op: 'old', target, change: { kind: 'add', value: p } }); }
+        else {
+          for (let i = 0; i < was.length; i++) if ((y as unknown[])[i] !== was[i]) return `${k}: a list changed in place`;
+          for (const p of (y as unknown[]).slice(was.length)) ops.push({ op: 'old', target, change: { kind: 'push', value: p } });
+        }
+      }
+    } else if (v instanceof Set) {
+      for (const x of b) if (!v.has(x)) return `${k}: an item deleted`;
+      for (const x of v) if (!b.has(x)) ops.push({ op: 'setAdd', path: [k], value: x });
+    } else {
+      for (let i = 0; i < b.length; i++) if (v[i] !== b[i]) return `${k}[${i}] changed in place`;
+      for (const x of v.slice(b.length)) ops.push({ op: 'push', path: [k], value: x });
+    }
+  }
+  return ops;
+}
+
+/** Operations applied to the page as they are (the objects themselves: the page that compiled them goes on with them). */
+export function applyDelta(c: any, ops: Op[]) {
+  for (const o of ops) {
+    if (o.op === 'weak') c[o.field].set(o.key, o.value);
+    else if (o.op === 'weakAdd') c[o.field].add(o.key);
+    else if (o.op === 'weakDel') c[o.field].delete(o.key);
+    else if (o.op === 'old') {
+      const t: any = follow(c, (o.target as { path: Step[] }).path), ch = o.change;
+      if (ch.kind === 'set') t.set(ch.key, ch.value); else if (ch.kind === 'add') t.add(ch.value); else if (ch.kind === 'push') t.push(ch.value); else t[ch.key] = ch.value;
+    } else {
+      const t = at(c, o.path);
+      if (o.op === 'mapSet') t.set(o.key, o.value); else if (o.op === 'setAdd') t.add(o.value); else if (o.op === 'push') t.push(o.value);
+    }
+  }
+}
+
+/**
+ * Refactor, step 2: a top-level definition compiled as a unit of its own (`unitChild`), recorded from what the unit holds.
+ * Its own tables are what it wrote (no diff, no interception); its numbering is what it added to the page's copy; what it
+ * changed of the page's shared objects (the page info, the component files, earlier definitions) is diffed from those
+ * alone. Then it is merged into the page (`mergeUnit`), and kept as a plan like a recorded one.
+ */
+export function recordChild<T>(c: any, name: string, compile: (child: any) => T, prior: Map<object, { u: number; i: number }>): { result: T; unit: Plan | Refused } {
+  for (const k of Object.keys(c)) if (!(k in LINK_FIELDS)) return { result: compile(c), unit: { refused: `\`${k}\` is not in LINK_FIELDS` } };
+  const u = c.unitChild(), child = u.child;
+  const t0 = c.templates.length, f0 = c.fns.length, u0 = c.useIds, s0 = c.nextSid, n0 = c.nextId, a0 = c.actions.length, atBefore = c.at;
+  const codeKeys = new Set(c.codeAt.keys()), defKeys = new Set(c.defs.keys());
+  // what the unit can reach of the page: its shared fields, the definitions before it, and the page's markup
+  const old = new Set<object>();
+  let top = atBefore?.el;
+  while (top?.parentNode) top = top.parentNode;
+  reach([...u.shared.map((k: string) => c[k]), [...c.defs.values()], top, atBefore], old, (o) => shared(o));
+  // the shared fields' tables (`componentFiles`, `page`'s), diffed as tables; the compiler's own tables are no old objects
+  const pre = snapshot(c);
+  for (const key of [...pre.out.keys()]) if (!u.shared.includes(pre.out.get(key)!.path[0])) pre.out.delete(key);
+  const boxes = new Set<object>(Object.keys(c).map((k) => c[k]).filter((v) => container(v) || v instanceof WeakMap || v instanceof WeakSet));
+  for (const s of pre.out.values()) boxes.add(at(c, s.path));
+  const before = new Map<object, any>();
+  for (const o of old) if (!boxes.has(o) && !(o instanceof WeakMap) && !(o instanceof WeakSet)) before.set(o, shallow(o));
+  // the unit's hand-outs of functions, in order (its own method: nothing global)
+  const calls: Array<{ code: string; rec: number }> = [];
+  const fn0 = child.fn;
+  child.fn = function (code: string, site?: unknown) { const i = fn0.call(child, code, site); calls.push({ code, rec: i }); return i; };
+  let result: T;
+  try { result = compile(child); } finally { delete child.fn; }
+  const refuse = (why: string) => { c.mergeUnit(u); return { result, unit: { refused: why } as Refused }; };
+  if (child.nextId !== n0) return refuse('`nextId` changed (node ids are not renumbered)');
+  if (child.actions.length !== a0) return refuse('adds an action (`actions` is not renumbered)');
+  // what it wrote: every entry of its own tables, the definitions and source sites it added
+  const delta = unitDelta(c, u);
+  if (typeof delta === 'string') return refuse(delta);
+  const ops: Op[] = [...delta];
+  for (const [key, s] of pre.out) {
+    const now = at(c, s.path);
+    if (s.kind === 'map') {
+      for (const k of s.copy.keys()) if (!now.has(k)) return refuse(`${key}: a key deleted`);
+      for (const [k, v] of now) if (!s.copy.has(k) || s.copy.get(k) !== v) ops.push({ op: 'mapSet', path: s.path, key: k, value: v });
+    } else if (s.kind === 'set') {
+      for (const x of s.copy) if (!now.has(x)) return refuse(`${key}: an item deleted`);
+      for (const x of now) if (!s.copy.has(x)) ops.push({ op: 'setAdd', path: s.path, value: x });
+    } else {
+      if (now.length < s.copy.length) return refuse(`${key}: shrank`);
+      for (let i = 0; i < s.copy.length; i++) if (now[i] !== s.copy[i]) return refuse(`${key}[${i}] changed in place`);
+      for (const x of now.slice(s.copy.length)) ops.push({ op: 'push', path: s.path, value: x });
+    }
+  }
+  for (const [x, y] of child.codeAt) if (!codeKeys.has(x)) ops.push({ op: 'mapSet', path: ['codeAt'], key: x, value: y });
+  for (const [x, y] of child.defs) if (!defKeys.has(x)) ops.push({ op: 'mapSet', path: ['defs'], key: x, value: y });
+  // what it changed of the page's shared objects, against their path from the page's fields
+  const where = paths(c, old);
+  for (const [o, b] of before as Map<any, any>) {
+    const changes: Change[] = [];
+    if (o instanceof Map) {
+      for (const k of b.keys()) if (!o.has(k)) return refuse('a shared map lost a key');
+      for (const [k, v] of o) if (!b.has(k) || b.get(k) !== v) changes.push({ kind: 'set', key: k, value: v });
+    } else if (o instanceof Set) {
+      for (const x of b) if (!o.has(x)) return refuse('a shared set lost an item');
+      for (const x of o) if (!b.has(x)) changes.push({ kind: 'add', value: x });
+    } else if (Array.isArray(o)) {
+      if (o.length < b.length) return refuse('a shared list shrank');
+      for (let i = 0; i < b.length; i++) if (o[i] !== b[i]) changes.push({ kind: 'prop', key: i, value: o[i] });
+      for (const x of o.slice(b.length)) changes.push({ kind: 'push', value: x });
+    } else {
+      for (const k of Object.keys(b)) if (!(k in o)) return refuse(`\`${k}\` deleted from a shared object`);
+      for (const k of Object.keys(o)) if (o[k] !== b[k]) changes.push({ kind: 'prop', key: k, value: o[k] });
+    }
+    if (!changes.length) continue;
+    const target = prior.has(o) ? { prior: prior.get(o)! } : where.has(o) ? { path: where.get(o)! } : null;
+    if (!target) return refuse(`changes a shared object that has no key (${o.constructor?.name ?? 'object'}: ${o.nodeName ?? Object.keys(o).slice(0, 6).join(', ')})`);
+    for (const change of changes) ops.push({ op: 'old', target, change });
+  }
+  const atAfter = child.at;
+  const templates = child.templates.slice(t0);
+  const fnAt = new Map<number, unknown>();
+  for (let i = f0; i < child.fns.length; i++) fnAt.set(i, child.fnAt[i]);
+  const uses = child.useIds - u0, sids = child.nextSid - s0;
+  // the page goes on with the unit merged in, as compiled in place
+  c.mergeUnit(u);
+  // the objects of the page it refers to: by their path, made by an earlier unit, the element being compiled, or shared
+  const refs = new Map<object, Ref>([[c.opts, { self: 'opts' }], [c.page, { self: 'page' }], [c, { self: 'compiler' }]]);
+  if (atBefore) refs.set(atBefore, { at: 'site' });
+  if (atBefore?.el) refs.set(atBefore.el, { at: 'el' });
+  const todo: unknown[] = [ops.map((o) => ('change' in o ? o.change : o)), templates, [...fnAt.values()], atAfter];
+  const seen = new Set<object>();
+  while (todo.length) {
+    const v = todo.pop();
+    if (!v || typeof v !== 'object' || seen.has(v) || shared(v) || refs.has(v)) continue;
+    if (old.has(v) || prior.has(v)) {
+      if (prior.has(v)) { refs.set(v, { prior: prior.get(v)! }); continue; }
+      const path = where.get(v);
+      if (!path) return { result, unit: { refused: `refers to a shared object that has no key (${(v as any).constructor?.name ?? 'object'}: ${(v as any).nodeName ?? Object.keys(v).slice(0, 6).join(', ')})` } };
+      refs.set(v, { path });
+      continue;
+    }
+    seen.add(v);
+    if (typeof v === 'function') return { result, unit: { refused: 'holds a function' } };
+    const proto = Object.getPrototypeOf(v);
+    if (proto !== Object.prototype && proto !== Array.prototype && proto !== Map.prototype && proto !== Set.prototype && proto !== null) return { result, unit: { refused: `holds a ${(v as any).constructor?.name}` } };
+    if (v instanceof Map) for (const [k, x] of v) todo.push(k, x);
+    else if (v instanceof Set) for (const x of v) todo.push(x);
+    else if (Array.isArray(v)) for (const x of v) todo.push(x);
+    else for (const k of Object.keys(v)) { if (typeof (v as any)[k] === 'function') return { result, unit: { refused: `holds a function (\`${k}\`)` } }; todo.push((v as any)[k]); }
+  }
+  const unit: Unit = { name, file: c.opts.file, ops, calls, fnAt, templates, t0, u0, uses, s0, sids, at: atBefore, atAfter, refs };
+  return { result, unit: keep(unit, prior) };
+}
+
 // A unit as a plan: the objects it created as a flat list, their values classified once (a plain value, another object of
 // the plan `R`, an object of the page `X`, a string to renumber `S`), and the numbers to renumber in each.
 class R { constructor(readonly i: number) {} }

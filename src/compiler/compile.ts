@@ -4,7 +4,7 @@ import type { SourceMap } from './sourcemap.js';
 import { rewriteImages, sourceFile, type ImageHost, type ImageResult } from './images.js';
 import { boxSizesCss, type ReserveTrace, Layout, PLACEHOLDER_BASE, type Affine, type Reserved, type StyleSheet } from './layout.js';
 import { shows } from './status-eval.js';
-import { record as recordUnit, replay as replayUnit, LINK_FIELDS, type Plan, type Refused } from './link.js';
+import { record as recordUnit, recordChild, replay as replayUnit, LINK_FIELDS, Overlay, fork, unitDelta, applyDelta, type Plan, type Refused } from './link.js';
 import { HEAD_ELEMENTS, parseDocument } from './head.js';
 import { minifyMarkup } from './minify.js';
 import type { RemoteConfig } from '../remote.js';
@@ -818,6 +818,10 @@ export function compilerFields(html: string, options: CompileOptions): Array<[st
 
 /** spike (`definitions`): a definition one page compiled, to record when another needs it */
 const SEEN = { seen: true } as const;
+
+/** a unit's numbering (`unitChild`): copied from its page, taken back after; and what it shares of the page as it is */
+const UNIT_NUMBERING = new Set(['fns', 'fnIndex', 'fnUses', 'fnAt', 'callAt', 'templates', 'codeAt', 'useIds', 'nextSid', 'nextId', 'actions']);
+const UNIT_SHARED = new Set(['page', 'componentFiles']);
 
 /** a `data-sn-pages` template walked once (`fromTemplate`): its first pass, kept for each entry's evaluation */
 type KeptTemplate = { c: Compiler; path: string; checked: boolean; hits: number; misses: number };
@@ -3888,7 +3892,10 @@ class Compiler {
     }
     L.depth++;
     try {
-      const r = recordUnit(this, name, () => this.compileDefinition(name), L.prior);
+      // (the generic recorder, `SN_LINK_RECORDER=generic`, for comparison while the unit path replaces it)
+      const r = (globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env.SN_LINK_RECORDER === 'generic'
+        ? recordUnit(this, name, () => this.compileDefinition(name), L.prior)
+        : recordChild(this, name, (child: Compiler) => child.compileDefinition(name), L.prior);
       cache.set(key, r.unit);
       if ('refused' in r.unit) { L.off = true; if (stats) stats.refused.push(`${name}: ${r.unit.refused}`); }
       else { L.chain.push(key); if (stats) stats.recorded++; }
@@ -3903,30 +3910,50 @@ class Compiler {
    * what the refactor has to pass in.
    */
   unitDefinition(name: string): { tid: number; id: string; use: Use } | null {
+    const u = this.unitChild();
+    const out = u.child.compileDefinition(name);
+    this.mergeUnit(u);
+    return out;
+  }
+
+  /**
+   * A compiler for one definition (a unit): this page's numbering copied (function and template tables, `codeAt`,
+   * counters, actions), its context and caches shared (`shared`), the definitions before it importable, and every other
+   * table its own (`own`): a copy of this page's (`fork`, what it copied in `copies`), a weak one an `Overlay` over it,
+   * so it reads what it would here and what it wrote can be read back.
+   */
+  unitChild(): { child: Compiler; own: string[]; shared: string[]; copies: Map<object, object> } {
     const me = this as unknown as Record<string, any>, child = new Compiler(this.opts) as unknown as Record<string, any>;
-    const NUMBERING = new Set(['fns', 'fnIndex', 'fnUses', 'fnAt', 'callAt', 'templates', 'codeAt', 'useIds', 'nextSid', 'nextId', 'actions']);
-    const SHARED = new Set(['page', 'componentFiles']);
-    const own: string[] = [];
+    const own: string[] = [], shared: string[] = [], copies = new Map<object, object>();
     for (const [k, f] of Object.entries(LINK_FIELDS)) {
       if (!(k in me)) continue;
       const v = me[k];
-      if (NUMBERING.has(k)) child[k] = v instanceof Map ? new Map(v) : Array.isArray(v) ? v.slice() : v;
+      if (UNIT_NUMBERING.has(k)) child[k] = v instanceof Map ? new Map(v) : Array.isArray(v) ? v.slice() : v;
       else if (k === 'defs') child[k] = new Map(v);
-      else if (SHARED.has(k) || f.how !== 'table' && f.how !== 'weak') child[k] = v;
-      else { child[k] = f.how === 'weak' ? (v instanceof WeakSet ? new Set() : new Map()) : v instanceof Map ? new Map() : v instanceof Set ? new Set() : []; own.push(k); }
+      else if (UNIT_SHARED.has(k) || f.how !== 'table' && f.how !== 'weak') { child[k] = v; shared.push(k); }
+      else { child[k] = f.how === 'weak' ? new Overlay(v, v instanceof WeakSet) : fork(v, copies); own.push(k); }
     }
     child.defLink = { ...this.defLink, depth: 1, off: true };
-    const out = (child as unknown as Compiler).compileDefinition(name);
-    for (const k of NUMBERING) if (k in me) me[k] = child[k];
-    me.at = child.at;
-    for (const [k, v] of child.defs as Map<string, unknown>) if (!this.defs.has(k)) this.defs.set(k, v as never);
-    for (const k of own) {
-      const from = child[k], to = me[k];
-      if (from instanceof Map) for (const [x, y] of from) to.set(x, y);
-      else if (from instanceof Set) for (const x of from) to.add(x);
-      else for (const x of from) to.push(x);
+    return { child: child as unknown as Compiler, own, shared, copies };
+  }
+
+  /**
+   * A unit's tables merged into this page's: its numbering taken over, and what it wrote applied to this page's own tables
+   * (`unitDelta`). A change no operation says (a list changed in place): its copies taken over as they are.
+   */
+  mergeUnit(u: { child: Compiler; own: string[]; copies: Map<object, object> }) {
+    const me = this as unknown as Record<string, any>, ch = u.child as unknown as Record<string, any>;
+    const delta = unitDelta(this, u);
+    for (const k of UNIT_NUMBERING) if (k in me) me[k] = ch[k];
+    me.at = ch.at;
+    for (const [k, v] of u.child.defs) if (!this.defs.has(k)) this.defs.set(k, v);
+    if (typeof delta !== 'string') { applyDelta(this, delta); return; }
+    for (const k of u.own) {
+      const v = ch[k];
+      if (!(v instanceof Overlay)) { me[k] = v; continue; }
+      if (v.own instanceof Map) for (const [x, y] of v.own) me[k].set(x, y); else for (const x of v.own) me[k].add(x);
+      for (const x of v.gone) me[k].delete(x);
     }
-    return out;
   }
 
   /** The shared definition of a component used inside itself, compiled on its first such use. */
