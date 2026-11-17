@@ -26,9 +26,13 @@ export const MESSAGES = `${PACKAGE}/messages`;
 /** Compiles annotated HTML into a rewritten page and its page module. Pure and deterministic. */
 export function compile(html: string, options: CompileOptions): CompileResult {
   // spike (docs/proposals/compile-once.md, (5)): every compile checked against itself linked, to find what linking misses
-  if (process.env.SN_LINK_AUDIT && !options.definitions && !options.dev && !options.check) return audited(html, options);
+  if (env('SN_LINK_AUDIT') && !options.definitions && !options.dev && !options.check) return audited(html, options);
   return compileOne(html, options);
 }
+
+/** an environment variable, where there is one (the compiler has no Node imports of its own) */
+const node = (globalThis as { process?: { env: Record<string, string | undefined>; getBuiltinModule?: (m: string) => unknown } }).process;
+const env = (k: string) => node?.env[k];
 
 /**
  * `SN_LINK_AUDIT=1`: the page compiled as always, and again through a cache of shared definitions (seen, then recorded,
@@ -38,7 +42,16 @@ function audited(html: string, options: CompileOptions): CompileResult {
   const plain = compileOne(html, options);
   const definitions = new Map<string, unknown>();
   let linked: CompileResult | null = null;
-  for (let i = 0; i < 3; i++) linked = compileOne(html, { ...options, definitions });
+  // what linking did, for the log (`SN_LINK_AUDIT_LOG=<file>`: one line per page)
+  const g = globalThis as { __snLink?: { hits: number; recorded: number; refused: string[] } };
+  const was = g.__snLink;
+  g.__snLink = { hits: 0, recorded: 0, refused: [] };
+  // (not the caller's kept templates: what the caller counts of them is its own compile's; a kept walk gives the same page)
+  try { for (let i = 0; i < 3; i++) linked = compileOne(html, { ...options, templates: undefined, definitions }); } finally {
+    const log = env('SN_LINK_AUDIT_LOG'), st = g.__snLink!;
+    g.__snLink = was;
+    if (log) (node?.getBuiltinModule?.('node:fs') as { appendFileSync(f: string, s: string): void } | undefined)?.appendFileSync(log, JSON.stringify({ file: options.file, linked: st.hits, recorded: st.recorded, refused: st.refused }) + '\n');
+  }
   const text = (r: CompileResult) => JSON.stringify(r, (_, v) => (typeof v === 'function' ? '[fn]' : v instanceof Map ? [...v] : v instanceof Set ? [...v] : v));
   const a = text(plain), b = text(linked!);
   if (a !== b) {

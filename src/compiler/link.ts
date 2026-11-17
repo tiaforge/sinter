@@ -16,6 +16,8 @@ type Op =
   | { op: 'intoSet'; path: string[]; key: unknown; values: unknown[] }
   | { op: 'intoMap'; path: string[]; key: unknown; entries: Array<[unknown, unknown]> }
   | { op: 'weak'; field: string; key: unknown; value: unknown }
+  | { op: 'weakAdd'; field: string; key: unknown }
+  | { op: 'weakDel'; field: string; key: unknown }
   | { op: 'old'; target: { path: Step[] } | { prior: { u: number; i: number } }; change: Change };
 export type Unit = {
   name: string;
@@ -27,16 +29,202 @@ export type Unit = {
   t0: number;
   u0: number;
   uses: number;
+  s0: number;
+  sids: number;
   at: any;
   atAfter: any;
   refs: Map<object, Ref>;
 };
 export type Refused = { refused: string };
 
+/**
+ * Every field of the `Compiler`, what it may hold (`fieldKind`), and how linking treats it: `table` diffed (a map, a
+ * set, a list; `page` one level in), `weak` intercepted, `replayed` by `fn()` and the template list, `renumbered` (a
+ * counter of ids), `at` recorded, `cache` never linked, `fixed` that a definition must not change (a unit that changes
+ * it is refused), `restored` as it was, `linker` linking's own. A field not listed makes every unit unlinkable, and
+ * `test/compiler/link-fields.test.ts` fails: a new field is classified here before it can be linked past.
+ */
+export const LINK_FIELDS: Record<string, { kinds: string[]; how: 'table' | 'weak' | 'replayed' | 'renumbered' | 'at' | 'cache' | 'fixed' | 'restored' | 'linker' }> = {
+  actions: { kinds: ['Array'], how: 'table' },
+  anchorEls: { kinds: ['Map'], how: 'table' },
+  anchorStart: { kinds: ['Map'], how: 'table' },
+  apiOfResource: { kinds: ['Map'], how: 'table' },
+  at: { kinds: ['empty', 'object'], how: 'at' },
+  attrSources: { kinds: ['Array'], how: 'table' },
+  authOf: { kinds: ['Map'], how: 'table' },
+  boundHrefs: { kinds: ['Set'], how: 'table' },
+  branchGuard: { kinds: ['WeakMap'], how: 'weak' },
+  callAt: { kinds: ['Map'], how: 'replayed' },
+  calls: { kinds: ['Set'], how: 'table' },
+  canonicalLink: { kinds: ['empty', 'object'], how: 'fixed' },
+  caseFill: { kinds: ['Map'], how: 'table' },
+  caseInst: { kinds: ['WeakMap'], how: 'weak' },
+  caseScopes: { kinds: ['WeakMap'], how: 'weak' },
+  chainCopyOf: { kinds: ['WeakMap'], how: 'weak' },
+  check: { kinds: ['empty', 'object'], how: 'fixed' },
+  childrenOf: { kinds: ['WeakMap'], how: 'weak' },
+  choiceGroups: { kinds: ['Array'], how: 'table' },
+  choices: { kinds: ['WeakMap'], how: 'weak' },
+  codeAt: { kinds: ['Map'], how: 'table' },
+  componentFiles: { kinds: ['Map'], how: 'table' },
+  constants: { kinds: ['Map'], how: 'table' },
+  constantSites: { kinds: ['Set'], how: 'table' },
+  decided: { kinds: ['Map'], how: 'table' },
+  declAt: { kinds: ['WeakMap'], how: 'weak' },
+  defAttrs: { kinds: ['Map'], how: 'table' },
+  defaultOf: { kinds: ['WeakMap'], how: 'weak' },
+  defHosts: { kinds: ['WeakMap'], how: 'weak' },
+  defLink: { kinds: ['object'], how: 'linker' },
+  defRoots: { kinds: ['Map'], how: 'table' },
+  defs: { kinds: ['Map'], how: 'table' },
+  diagnostics: { kinds: ['Array'], how: 'table' },
+  dlTemplates: { kinds: ['Set'], how: 'table' },
+  dropped: { kinds: ['Set'], how: 'table' },
+  dry: { kinds: ['empty', 'object'], how: 'fixed' },
+  earlySites: { kinds: ['Map'], how: 'table' },
+  embedded: { kinds: ['Map'], how: 'table' },
+  emptyDefaults: { kinds: ['WeakMap'], how: 'weak' },
+  enclosing: { kinds: ['WeakMap'], how: 'weak' },
+  exprsOf: { kinds: ['Map'], how: 'table' },
+  features: { kinds: ['Set'], how: 'table' },
+  fileData: { kinds: ['Map'], how: 'table' },
+  fileGlobs: { kinds: ['Array'], how: 'table' },
+  files: { kinds: ['Set'], how: 'table' },
+  fillDefs: { kinds: ['Array'], how: 'table' },
+  fillOf: { kinds: ['WeakMap'], how: 'weak' },
+  fillScopes: { kinds: ['WeakMap'], how: 'weak' },
+  flows: { kinds: ['Array'], how: 'table' },
+  fnAt: { kinds: ['Array'], how: 'replayed' },
+  fnIndex: { kinds: ['Map'], how: 'replayed' },
+  fns: { kinds: ['Array'], how: 'replayed' },
+  fnUses: { kinds: ['Array'], how: 'replayed' },
+  foldedFields: { kinds: ['Array'], how: 'table' },
+  foldedUrl: { kinds: ['WeakSet'], how: 'weak' },
+  folding: { kinds: ['object', 'empty'], how: 'fixed' },
+  foldReads: { kinds: ['Map'], how: 'table' },
+  foldScripts: { kinds: ['Map'], how: 'table' },
+  foldWhy: { kinds: ['Map'], how: 'table' },
+  forwarded: { kinds: ['WeakMap'], how: 'weak' },
+  frameOf: { kinds: ['Map'], how: 'table' },
+  frozen: { kinds: ['Set'], how: 'table' },
+  graphs: { kinds: ['empty', 'Map'], how: 'cache' },
+  head: { kinds: ['object', 'empty'], how: 'fixed' },
+  headEl: { kinds: ['object', 'empty'], how: 'fixed' },
+  headTemplates: { kinds: ['Map'], how: 'table' },
+  hostUse: { kinds: ['WeakMap'], how: 'weak' },
+  hrefs: { kinds: ['Array'], how: 'table' },
+  idEls: { kinds: ['Map'], how: 'table' },
+  includeOf: { kinds: ['WeakMap'], how: 'weak' },
+  includes: { kinds: ['Array'], how: 'table' },
+  includeTop: { kinds: ['WeakMap'], how: 'weak' },
+  inDef: { kinds: ['number'], how: 'restored' },
+  instAt: { kinds: ['WeakMap'], how: 'weak' },
+  itemSchema: { kinds: ['Map'], how: 'table' },
+  jsonOut: { kinds: ['Map'], how: 'table' },
+  keptBound: { kinds: ['Set'], how: 'table' },
+  keptDepth: { kinds: ['number'], how: 'fixed' },
+  keptSlot: { kinds: ['Set'], how: 'table' },
+  keptSource: { kinds: ['Map'], how: 'table' },
+  landing: { kinds: ['WeakMap'], how: 'weak' },
+  lastExpr: { kinds: ['empty', 'number'], how: 'fixed' },
+  lastPath: { kinds: ['Array'], how: 'table' },
+  lateDiags: { kinds: ['Array'], how: 'table' },
+  lateNodes: { kinds: ['WeakSet'], how: 'weak' },
+  layout: { kinds: ['empty', 'Layout'], how: 'fixed' },
+  layoutBody: { kinds: ['WeakMap'], how: 'weak' },
+  layoutFiles: { kinds: ['Map'], how: 'table' },
+  lazyLoads: { kinds: ['Map'], how: 'table' },
+  lazyMods: { kinds: ['Array'], how: 'table' },
+  lineStarts: { kinds: ['Map'], how: 'cache' },
+  listCompiled: { kinds: ['WeakSet'], how: 'weak' },
+  markups: { kinds: ['WeakMap'], how: 'weak' },
+  measured: { kinds: ['WeakMap'], how: 'weak' },
+  needsMarkup: { kinds: ['boolean'], how: 'fixed' },
+  nextId: { kinds: ['number'], how: 'fixed' },
+  nextSid: { kinds: ['number'], how: 'renumbered' },
+  noEarly: { kinds: ['Set'], how: 'table' },
+  notUnrolled: { kinds: ['Set'], how: 'table' },
+  opts: { kinds: ['object'], how: 'fixed' },
+  origins: { kinds: ['WeakMap'], how: 'weak' },
+  overLimit: { kinds: ['Map'], how: 'table' },
+  page: { kinds: ['object'], how: 'table' },
+  pageLang: { kinds: ['empty', 'string'], how: 'fixed' },
+  pageModels: { kinds: ['Array'], how: 'table' },
+  pagesDecl: { kinds: ['empty', 'object'], how: 'fixed' },
+  pagesOut: { kinds: ['empty', 'object'], how: 'fixed' },
+  painted: { kinds: ['Set'], how: 'table' },
+  paintRules: { kinds: ['Array'], how: 'table' },
+  paints: { kinds: ['Array'], how: 'table' },
+  paintValue: { kinds: ['Map'], how: 'table' },
+  passOn: { kinds: ['WeakMap'], how: 'weak' },
+  pathList: { kinds: ['Array'], how: 'table' },
+  pendingSpace: { kinds: ['Array'], how: 'table' },
+  pendingTargets: { kinds: ['Array'], how: 'table' },
+  permanentEls: { kinds: ['Array'], how: 'table' },
+  permanentNames: { kinds: ['Array'], how: 'table' },
+  persisted: { kinds: ['Set'], how: 'table' },
+  pointCtx: { kinds: ['WeakMap'], how: 'weak' },
+  pointOf: { kinds: ['Map'], how: 'table' },
+  points: { kinds: ['WeakMap'], how: 'weak' },
+  prefetchOff: { kinds: ['boolean'], how: 'fixed' },
+  preloads: { kinds: ['Set'], how: 'table' },
+  remoteUsed: { kinds: ['boolean'], how: 'fixed' },
+  remoteWidths: { kinds: ['Set'], how: 'table' },
+  remove: { kinds: ['Array'], how: 'table' },
+  repeatedFills: { kinds: ['WeakSet'], how: 'weak' },
+  repeatedIds: { kinds: ['Array'], how: 'table' },
+  reportedOnce: { kinds: ['Set'], how: 'table' },
+  resourceEls: { kinds: ['Map'], how: 'table' },
+  resources: { kinds: ['Array'], how: 'table' },
+  roots: { kinds: ['Array'], how: 'table' },
+  rootStyled: { kinds: ['Set'], how: 'table' },
+  rowOf: { kinds: ['WeakMap'], how: 'weak' },
+  rowPaint: { kinds: ['Map'], how: 'table' },
+  runtimePlacements: { kinds: ['Array'], how: 'table' },
+  runtimeSlots: { kinds: ['WeakSet'], how: 'weak' },
+  scopeStart: { kinds: ['WeakMap'], how: 'weak' },
+  scripts: { kinds: ['Map'], how: 'table' },
+  slotEls: { kinds: ['Array'], how: 'table' },
+  slotOf: { kinds: ['WeakMap'], how: 'weak' },
+  spaceN: { kinds: ['number'], how: 'fixed' },
+  spacePlan: { kinds: ['Map'], how: 'table' },
+  spaces: { kinds: ['Array'], how: 'table' },
+  srcCalls: { kinds: ['Array'], how: 'table' },
+  srcOf: { kinds: ['Map'], how: 'table' },
+  stateAt: { kinds: ['Map'], how: 'table' },
+  stateInits: { kinds: ['Array'], how: 'table' },
+  swapOff: { kinds: ['boolean'], how: 'fixed' },
+  syncs: { kinds: ['Array'], how: 'table' },
+  tagIds: { kinds: ['WeakSet'], how: 'weak' },
+  templateAt: { kinds: ['Map'], how: 'table' },
+  templates: { kinds: ['Array'], how: 'replayed' },
+  textAt: { kinds: ['Map'], how: 'table' },
+  textFolded: { kinds: ['Set'], how: 'table' },
+  textMarks: { kinds: ['Map'], how: 'table' },
+  textRoots: { kinds: ['Array'], how: 'table' },
+  tplEls: { kinds: ['Map'], how: 'table' },
+  tplPainted: { kinds: ['Set'], how: 'table' },
+  undecided: { kinds: ['Set'], how: 'table' },
+  unheld: { kinds: ['Array'], how: 'table' },
+  unlisted: { kinds: ['Set'], how: 'table' },
+  unrolls: { kinds: ['Map'], how: 'table' },
+  urlBinds: { kinds: ['Array'], how: 'table' },
+  useById: { kinds: ['Map'], how: 'table' },
+  useIds: { kinds: ['number'], how: 'renumbered' },
+  useOf: { kinds: ['WeakMap'], how: 'weak' },
+  uses: { kinds: ['Map'], how: 'table' },
+  waitRules: { kinds: ['Array'], how: 'table' },
+  waits: { kinds: ['Array'], how: 'table' },
+  walk: { kinds: ['object', 'empty'], how: 'fixed' },
+  walked: { kinds: ['number'], how: 'fixed' },
+  writtenIn: { kinds: ['WeakMap'], how: 'weak' },
+};
+
 /** fields replayed by `fn()` itself, or kept as they are */
 const SKIP = new Set(['fns', 'fnIndex', 'fnUses', 'fnAt', 'callAt', 'inDef', 'at', 'lineStarts', 'templates', 'defLink', 'graphs']);
 const TID_KEYED = new Set(['headTemplates', 'templateAt', 'caseFill']);
 const USE_KEYED = new Set(['useById']);
+const SID_KEYED = new Set(['stateAt']);
 const container = (v: unknown) => v instanceof Map || v instanceof Set || Array.isArray(v);
 /** shared as it is, never copied: frozen, or a parse5 source location (the parse cache's, which every copy of a node shares) */
 const shared = (o: object) => Object.isFrozen(o) || ('startOffset' in o && 'endOffset' in o);
@@ -121,8 +309,9 @@ const shallow = (o: any) => (o instanceof Map ? new Map(o) : o instanceof Set ? 
  * created, so the page that recorded it may go on changing its own.
  */
 export function record<T>(c: any, name: string, call: () => T, prior: Map<object, { u: number; i: number }>): { result: T; unit: Plan | Refused } {
+  for (const k of Object.keys(c)) if (!(k in LINK_FIELDS)) return { result: call(), unit: { refused: `\`${k}\` is not in LINK_FIELDS` } };
   const pre = snapshot(c);
-  const t0 = c.templates.length, u0 = c.useIds, atBefore = c.at;
+  const t0 = c.templates.length, u0 = c.useIds, s0 = c.nextSid, atBefore = c.at;
   // what exists before the call: the compiler's state and the page's markup (from the element being compiled)
   const old = new Set<object>();
   let top = atBefore?.el;
@@ -133,21 +322,37 @@ export function record<T>(c: any, name: string, call: () => T, prior: Map<object
   for (const k of Object.keys(c)) if (c[k] && typeof c[k] === 'object' && (container(c[k]) || SKIP.has(k))) fieldBoxes.add(c[k]);
   const before = new Map<object, any>();
   for (const o of old) if (o !== c && !fieldBoxes.has(o) && !(o instanceof WeakMap) && !(o instanceof WeakSet)) before.set(o, shallow(o));
-  const weakNames = new Map<WeakMap<object, unknown>, string>();
-  for (const k of Object.keys(c)) if (c[k] instanceof WeakMap) weakNames.set(c[k], k);
+  // the compiler's weak maps and sets: what the call writes to them, intercepted (they cannot be walked or diffed)
+  const weakNames = new Map<object, string>();
+  for (const k of Object.keys(c)) if (c[k] instanceof WeakMap || c[k] instanceof WeakSet) weakNames.set(c[k], k);
   const weak: Op[] = [];
-  const set0 = WeakMap.prototype.set;
+  const set0 = WeakMap.prototype.set, mdel0 = WeakMap.prototype.delete, add0 = WeakSet.prototype.add, sdel0 = WeakSet.prototype.delete;
   WeakMap.prototype.set = function (this: WeakMap<object, unknown>, k: object, v: unknown) {
     const f = weakNames.get(this);
     if (f) weak.push({ op: 'weak', field: f, key: k, value: v });
     return set0.call(this, k, v) as never;
+  };
+  WeakMap.prototype.delete = function (this: WeakMap<object, unknown>, k: object) {
+    const f = weakNames.get(this);
+    if (f) weak.push({ op: 'weakDel', field: f, key: k });
+    return mdel0.call(this, k);
+  };
+  WeakSet.prototype.add = function (this: WeakSet<object>, k: object) {
+    const f = weakNames.get(this);
+    if (f) weak.push({ op: 'weakAdd', field: f, key: k });
+    return add0.call(this, k) as never;
+  };
+  WeakSet.prototype.delete = function (this: WeakSet<object>, k: object) {
+    const f = weakNames.get(this);
+    if (f) weak.push({ op: 'weakDel', field: f, key: k });
+    return sdel0.call(this, k);
   };
   const calls: Array<{ code: string; rec: number }> = [];
   const fn0 = c.fn;
   c.fn = function (code: string, site?: unknown) { const i = fn0.call(c, code, site); calls.push({ code, rec: i }); return i; };
   const f0 = c.fns.length;
   let result: T;
-  try { result = call(); } finally { WeakMap.prototype.set = set0; delete c.fn; }
+  try { result = call(); } finally { WeakMap.prototype.set = set0; WeakMap.prototype.delete = mdel0; WeakSet.prototype.add = add0; WeakSet.prototype.delete = sdel0; delete c.fn; }
   const refuse = (why: string) => ({ result, unit: { refused: why } as Refused });
   // (the element compiled last: the page goes on with it as the site of what it compiles next)
   const atAfter = c.at;
@@ -167,7 +372,7 @@ export function record<T>(c: any, name: string, call: () => T, prior: Map<object
       for (const x of now.slice(s.copy.length)) ops.push({ op: 'push', path: s.path, value: x });
     }
   }
-  for (const [k, v] of pre.scalars) if (c[k] !== v && k !== 'useIds') return refuse(`\`${k}\` changed (${String(v)} → ${String(c[k])})`);
+  for (const [k, v] of pre.scalars) if (c[k] !== v && k !== 'useIds' && k !== 'nextSid') return refuse(`\`${k}\` changed (${String(v)} → ${String(c[k])})`);
   for (const k of Object.keys(c)) if (!pre.scalars.has(k) && !pre.out.has(k) && !SKIP.has(k) && !(c[k] instanceof WeakMap) && !(c[k] instanceof WeakSet)) return refuse(`\`${k}\` added`);
   // what changed in the objects from before: each against its path from the compiler
   const where = paths(c, old);
@@ -231,7 +436,7 @@ export function record<T>(c: any, name: string, call: () => T, prior: Map<object
     const proto = Object.getPrototypeOf(o);
     if (proto !== Object.prototype && proto !== Array.prototype && proto !== Map.prototype && proto !== Set.prototype && proto !== null) return refuse(`holds a ${o.constructor?.name}`);
   }
-  const unit: Unit = { name, file: c.opts.file, ops, calls, fnAt, templates, t0, u0, uses: c.useIds - u0, at: atBefore, atAfter, refs };
+  const unit: Unit = { name, file: c.opts.file, ops, calls, fnAt, templates, t0, u0, uses: c.useIds - u0, s0, sids: c.nextSid - s0, at: atBefore, atAfter, refs };
   return { result, unit: keep(unit, prior) };
 }
 
@@ -240,16 +445,18 @@ export function record<T>(c: any, name: string, call: () => T, prior: Map<object
 class R { constructor(readonly i: number) {} }
 class X { constructor(readonly j: number) {} }
 class S { constructor(readonly s: string) {} }
-type Fix = [number, 'fn' | 'tid' | 'tids' | 'use'];
+type Fix = [number, 'fn' | 'tid' | 'tids' | 'use' | 'sid'];
 type Entry = { t: 0 | 1 | 2 | 3; proto: object | null; keys?: string[]; vals: unknown[]; fix?: Fix[] };
 type PlanOp =
   | { op: 'mapSet'; path: string[]; key: unknown; value: unknown }
   | { op: 'setAdd' | 'push'; path: string[]; value: unknown }
   | { op: 'weak'; field: string; key: unknown; value: unknown }
+  | { op: 'weakAdd'; field: string; key: unknown }
+  | { op: 'weakDel'; field: string; key: unknown }
   | { op: 'old'; target: { path: Step[] } | { prior: { u: number; i: number } }; kind: Change['kind']; key?: unknown; value: unknown };
-export type Plan = { id: number; name: string; file: string; objs: Entry[]; ext: Ref[]; ops: PlanOp[]; calls: Unit['calls']; fnAt: Array<[number, unknown]>; templates: unknown[]; t0: number; u0: number; uses: number; atAfter: unknown };
+export type Plan = { id: number; name: string; file: string; objs: Entry[]; ext: Ref[]; ops: PlanOp[]; calls: Unit['calls']; fnAt: Array<[number, unknown]>; templates: unknown[]; t0: number; u0: number; uses: number; s0: number; sids: number; atAfter: unknown };
 let units = 0;
-const NEEDS = /\$p\d|\$sl\d|sn-t-\d|#case\d/;
+const NEEDS = /\$p\d|\$sl\d|\$s\d|sn-t-\d|#case\d/;
 
 /** which of an object's numbers are template ids, function indices or use ids (as `copy` did, decided once) */
 function fixesOf(o: any, keys: string[]): Fix[] | undefined {
@@ -266,6 +473,9 @@ function fixesOf(o: any, keys: string[]): Fix[] | undefined {
   if (typeof o.tid === 'number') at('tid', 'tid');
   if (Array.isArray(o.cases) && o.cases.every((x: unknown) => typeof x === 'number')) at('cases', 'tids');
   if (typeof o.id === 'number' && 'runtime' in o && 'outer' in o) at('id', 'use');
+  // a node with state: its initializer's function; anything with a state id (a node, a state's init, a scope's entry, a use)
+  if (typeof o.tag === 'string' && Array.isArray(o.b) && typeof o.state === 'number') at('state', 'fn');
+  if (typeof o.sid === 'number') at('sid', 'sid');
   return out.length ? out : undefined;
 }
 
@@ -290,6 +500,7 @@ function keep(u: Unit, prior: Map<object, { u: number; i: number }>): Plan {
       return { op: 'old', target: o.target as never, kind: ch.kind, ...('key' in ch ? { key: enc(ch.key) } : {}), value: enc(ch.value) };
     }
     if (o.op === 'weak') return { op: 'weak', field: o.field, key: enc(o.key), value: enc(o.value) };
+    if (o.op === 'weakAdd' || o.op === 'weakDel') return { op: o.op, field: o.field, key: enc(o.key) };
     if (o.op === 'mapSet') return { op: 'mapSet', path: o.path, key: enc(o.key), value: enc(o.value) };
     return { op: o.op as 'setAdd' | 'push', path: (o as any).path, value: enc((o as any).value) };
   });
@@ -303,11 +514,11 @@ function keep(u: Unit, prior: Map<object, { u: number; i: number }>): Plan {
     else { const keys = Object.keys(v); objs[n] = { t: 0, proto: Object.getPrototypeOf(v), keys, vals: keys.map((k) => enc(v[k])), ...(fixesOf(v, keys) ? { fix: fixesOf(v, keys) } : {}) }; }
   }
   for (const [o, i] of index) prior.set(o, { u: id, i });
-  return { id, name: u.name, file: u.file, objs, ext, ops, calls: u.calls, fnAt, templates, t0: u.t0, u0: u.u0, uses: u.uses, atAfter };
+  return { id, name: u.name, file: u.file, objs, ext, ops, calls: u.calls, fnAt, templates, t0: u.t0, u0: u.u0, uses: u.uses, s0: u.s0, sids: u.sids, atAfter };
 }
 
 /** per page: how the units linked into it renumber what they recorded, and the objects each made here */
-type PageMaps = { tid: Map<number, number>; fn: Map<number, number>; use: Map<number, number>; outs: Map<number, unknown[]>; strs: Map<string, string> };
+type PageMaps = { tid: Map<number, number>; fn: Map<number, number>; use: Map<number, number>; sid: Map<number, number>; outs: Map<number, unknown[]>; strs: Map<string, string> };
 
 /** The unit linked into the page `c`; false when it cannot be (nothing changed then). */
 export function replay(c: any, u: Plan, maps: PageMaps): boolean {
@@ -318,14 +529,15 @@ export function replay(c: any, u: Plan, maps: PageMaps): boolean {
     if (v === undefined) return false;
     ext.push(v);
   }
-  const T0 = c.templates.length, U0 = c.useIds;
+  const T0 = c.templates.length, U0 = c.useIds, S0 = c.nextSid;
   for (let i = 0; i < u.templates.length; i++) maps.tid.set(u.t0 + i, T0 + i);
   for (let i = 0; i < u.uses; i++) maps.use.set(u.u0 + i, U0 + i);
+  for (let i = 0; i < u.sids; i++) maps.sid.set(u.s0 + i, S0 + i);
   const file = c.opts.file, strs = maps.strs;
   const str = (s: string) => {
     let o = strs.get(s);
     if (o === undefined) {
-      o = s === u.file ? file : s.replace(/\$(p|sl)(\d+)/g, (_, k, n) => `$${k}${maps.tid.get(+n) ?? n}`).replace(/sn-t-(\d+)/g, (_, n) => `sn-t-${maps.tid.get(+n) ?? n}`).replace(/#case(\d+)\//g, (_, n) => `#case${maps.tid.get(+n) ?? n}/`);
+      o = s === u.file ? file : s.replace(/\$(p|sl)(\d+)/g, (_, k, n) => `$${k}${maps.tid.get(+n) ?? n}`).replace(/sn-t-(\d+)/g, (_, n) => `sn-t-${maps.tid.get(+n) ?? n}`).replace(/#case(\d+)\//g, (_, n) => `#case${maps.tid.get(+n) ?? n}/`).replace(/\$s(\d+)/g, (_, n) => `$s${maps.sid.get(+n) ?? n}`);
       strs.set(s, o!);
     }
     return o!;
@@ -333,7 +545,7 @@ export function replay(c: any, u: Plan, maps: PageMaps): boolean {
   // the function table: each hand-out again, in order
   const f0 = c.fns.length;
   for (const x of u.calls) maps.fn.set(x.rec, c.fn(str(x.code), null));
-  const fix = { fn: (n: number) => maps.fn.get(n) ?? n, tid: (n: number) => maps.tid.get(n) ?? n, use: (n: number) => maps.use.get(n) ?? n };
+  const fix = { fn: (n: number) => maps.fn.get(n) ?? n, tid: (n: number) => maps.tid.get(n) ?? n, use: (n: number) => maps.use.get(n) ?? n, sid: (n: number) => maps.sid.get(n) ?? n };
   // the objects: made, then filled
   const out: any[] = new Array(u.objs.length);
   for (let i = 0; i < u.objs.length; i++) { const e = u.objs[i]!; out[i] = e.t === 0 ? (e.proto === Object.prototype ? {} : Object.create(e.proto)) : e.t === 1 ? [] : e.t === 2 ? new Map() : new Set(); }
@@ -359,6 +571,7 @@ export function replay(c: any, u: Plan, maps: PageMaps): boolean {
   for (const t of u.templates) c.templates.push(dec(t));
   for (const o of u.ops) {
     if (o.op === 'weak') { c[o.field].set(dec(o.key), dec(o.value)); continue; }
+    if (o.op === 'weakAdd' || o.op === 'weakDel') { if (o.op === 'weakAdd') c[o.field].add(dec(o.key)); else c[o.field].delete(dec(o.key)); continue; }
     if (o.op === 'old') {
       const t: any = 'prior' in o.target ? maps.outs.get(o.target.prior.u)?.[o.target.prior.i] : follow(c, o.target.path);
       if (o.kind === 'set') t.set(dec(o.key), dec(o.value));
@@ -369,12 +582,13 @@ export function replay(c: any, u: Plan, maps: PageMaps): boolean {
     }
     const target = at(c, o.path), field = o.path.join('.');
     if (o.op === 'mapSet') {
-      const k = o.key, key = typeof k === 'number' && TID_KEYED.has(field) ? fix.tid(k) : typeof k === 'number' && USE_KEYED.has(field) ? fix.use(k) : dec(k);
+      const k = o.key, key = typeof k === 'number' && TID_KEYED.has(field) ? fix.tid(k) : typeof k === 'number' && USE_KEYED.has(field) ? fix.use(k) : typeof k === 'number' && SID_KEYED.has(field) ? fix.sid(k) : dec(k);
       target.set(key, dec(o.value));
     } else if (o.op === 'setAdd') target.add(dec(o.value));
     else target.push(dec(o.value));
   }
   c.useIds += u.uses;
+  c.nextSid += u.sids;
   c.at = dec(u.atAfter);
   return true;
 }

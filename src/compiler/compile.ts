@@ -799,6 +799,21 @@ function parsedText(text: string): DefaultTreeAdapterMap['documentFragment'] {
   return f;
 }
 
+/** what a field of the compiler holds: a container's type, a class's name, or a value's type (`compilerFields`) */
+export function fieldKind(v: unknown): string {
+  if (v === null || v === undefined) return 'empty';
+  if (typeof v !== 'object') return typeof v;
+  const proto = Object.getPrototypeOf(v);
+  return proto === Object.prototype || proto === null ? 'object' : (v as object).constructor?.name ?? 'object';
+}
+
+/** spike: the compiler's fields after compiling `html`, each with what it holds, for the linker's list of them (`LINK_FIELDS`) */
+export function compilerFields(html: string, options: CompileOptions): Array<[string, string]> {
+  const c = new Compiler(options);
+  c.run(html);
+  return Object.keys(c).map((k) => [k, fieldKind((c as unknown as Record<string, unknown>)[k])]);
+}
+
 /** spike (`definitions`): a definition one page compiled, to record when another needs it */
 const SEEN = { seen: true } as const;
 
@@ -3832,7 +3847,7 @@ class Compiler {
   }
 
   /** spike: this page's linking (`definitions`): the units linked or recorded so far, and how they renumber */
-  private defLink = { depth: 0, chain: [] as string[], replayed: false, off: false, maps: { tid: new Map<number, number>(), fn: new Map<number, number>(), use: new Map<number, number>(), outs: new Map<number, unknown[]>(), strs: new Map<string, string>() }, prior: new Map<object, { u: number; i: number }>() };
+  private defLink = { depth: 0, chain: [] as string[], replayed: false, off: false, maps: { tid: new Map<number, number>(), fn: new Map<number, number>(), use: new Map<number, number>(), sid: new Map<number, number>(), outs: new Map<number, unknown[]>(), strs: new Map<string, string>() }, prior: new Map<object, { u: number; i: number }>() };
 
   /** The shared definition of a component used inside itself: linked from the build's definitions, else compiled. */
   definition(name: string): { tid: number; id: string; use: Use } | null {

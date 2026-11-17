@@ -29,6 +29,29 @@ jobs:
       - run: npm ci --prefix examples/realworld
       - run: npm run size -- --check
 
+  # shared definitions linked into each page (docs/proposals/compile-once.md, (5)): every compile in the suite is also
+  # compiled through linking and must be the same (SN_LINK_AUDIT); the summary says how many pages linked something
+  link-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: npx playwright install --with-deps chromium firefox webkit
+      - run: npm test
+        env:
+          SN_LINK_AUDIT: '1'
+          SN_LINK_AUDIT_LOG: ${{ runner.temp }}/link-audit.jsonl
+      - if: always()
+        run: >-
+          node -e 'const l = require("fs").readFileSync(process.argv[1], "utf8").trim().split("\n").filter(Boolean).map(JSON.parse);
+          console.log(`link audit: ${l.length} compiles, ${l.filter((x) => x.linked).length} linked ${l.reduce((a, x) => a + x.linked, 0)} definitions, ${l.filter((x) => x.refused.length).length} refused one`);
+          for (const r of new Set(l.flatMap((x) => x.refused))) console.log("  refused:", r)' "$RUNNER_TEMP/link-audit.jsonl"
+
   # the Rust middleware that fills embedded data (packages/sinter-axum)
   sinter-axum:
     runs-on: ubuntu-latest
