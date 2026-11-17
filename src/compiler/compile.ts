@@ -280,6 +280,8 @@ export interface FnSources { fns: Array<FnSource | null>; content: Record<string
 
 export interface CompileResult {
   html: string;
+  /** the parts of the core its page module uses (`coreParts`, src/core-parts.ts); absent for a static page */
+  core?: string[];
   /** the page loads query-links: its Speculation Rules leave out its own URLs with another query */
   sameLinks?: true;
   /** the page module; with `static`, the HTML does not load it */

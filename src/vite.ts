@@ -8,7 +8,8 @@ import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from 'n
 import { dirname, join, posix, relative, resolve, sep } from 'node:path';
 import { gzipSync } from 'node:zlib';
 import { createRequire } from 'node:module';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { flagsModule } from './core-parts.js';
 import { loadEnv, type Plugin, type ResolvedConfig, type ViteDevServer } from 'vite';
 import { collectionsIn, loadContent, writeSnapshot, type LoadedContent } from './content-node.js';
 import { applyStrict, CODES, compile, formatDiagnostic, formatWarning, strictPromotes, suggest, type Code, type CheckUnit, type Diagnostic, type CompileResult, type SourceMap } from './compiler/index.js';
@@ -158,6 +159,11 @@ export interface SinterOptions extends ProjectOptions {
    * competes with what the first paint needs, and when the font is slow it can hold the first paint).
    */
   fonts?: { inline?: boolean; preload?: FontPreload[] };
+  /**
+   * Spike (docs/proposals/site-core.md): a build keeps only the parts of the core its pages use (the union of every
+   * page's, read from their IRs) and compiles the rest away. Off by default; `SINTER_SITE_CORE=1` turns it on too.
+   */
+  siteCore?: boolean;
 }
 
 type SinterPlugins = [Plugin & { api: { options: SinterOptions; source(file: string): string } }, Plugin, Plugin, Plugin, Plugin, Plugin];
@@ -879,6 +885,17 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   });
   /** the build's helper calls that folded, by page and call, for the cross-check at its end */
   const foldCalls = new Map<string, FoldCall[]>();
+  /**
+   * spike (docs/proposals/site-core.md): the parts of the core the build's pages use, and the pages compiled so far; the
+   * core's flags module is served once every page is in (`load` waits for it), with the parts no page uses off
+   */
+  const siteCore = !!(options.siteCore ?? process.env.SINTER_SITE_CORE === '1');
+  const coreUsed = new Set<string>(), coreDone = new Set<string>();
+  let coreReady: { promise: Promise<void>; resolve(): void } | null = null;
+  const coreWait = () => (coreReady ??= (() => { let resolve!: () => void; const promise = new Promise<void>((r) => (resolve = r)); return { promise, resolve }; })());
+  const coreCheck = () => { if (entries().every((f) => coreDone.has(f))) coreWait().resolve(); };
+  /** the core's flags module, as this build resolves it (dist/runtime/flags.js, next to this file) */
+  const FLAGS = (() => { try { return realpathSync(fileURLToPath(new URL('./runtime/flags.js', import.meta.url))); } catch { return null; } })();
   const logFold = (page: string, key: string, args: FoldArg[], result: string, id: number) => {
     // ids count from 0 when the page's calls start afresh: what an earlier run logged is replaced
     const calls = id === 0 || !foldCalls.has(page) ? foldCalls.set(page, []).get(page)! : foldCalls.get(page)!;
@@ -941,6 +958,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     // a page in a language is written into its language's folder: its relative URLs follow
     if (v) out.html = rebaseHtml(out.html, '/' + posix.dirname(relOf(src)).replace(/^\.$/, ''), '/' + posix.dirname(rel));
     runtimeOf.set(rel, out.runtime);
+    if (siteCore && !dev) { for (const c of out.core ?? []) coreUsed.add(c); coreDone.add(file); coreCheck(); }
     if (out.preload.length) preloadOf.set(rel, out.preload); else preloadOf.delete(rel);
     if (out.lazyScripts) lazyScriptsOf.set(rel, out.lazyScripts); else lazyScriptsOf.delete(rel);
     for (const x of out.styles) {
@@ -1299,6 +1317,13 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
 
     async load(id) {
       if (virtual.has(id)) return readPage(id);
+      // spike: the site's core (docs/proposals/site-core.md), once every page has said what it uses
+      if (siteCore && !dev && id === FLAGS) {
+        coreCheck();
+        await coreWait().promise;
+        resolved?.logger.info(`sinter: the site's core keeps ${[...coreUsed].sort().join(', ') || 'nothing optional'}`);
+        return flagsModule(coreUsed);
+      }
       // a stylesheet a page links (one with nothing to run) comes with a query in dev (`?direct`)
       const css = id.replace(/\?.*$/, '');
       if (css.startsWith(`\0${IMG_CSS}`)) return imageCss.get(css.slice(IMG_CSS.length + 1, -4)) ?? '';

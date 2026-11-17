@@ -11,6 +11,7 @@ import { join, resolve } from 'node:path';
 import { gzipSync } from 'node:zlib';
 import { build, minify } from 'vite';
 import { compile } from '../dist/compiler/index.js';
+import { flagsModule } from '../dist/core-parts.js';
 
 const dist = resolve(import.meta.dirname, '../dist');
 const realworld = resolve(import.meta.dirname, '../examples/realworld');
@@ -24,9 +25,10 @@ if (!existsSync(join(realworld, 'node_modules/@tiaforge-ui/sinter/package.json')
 }
 
 /** The page module the compiler emits for a minimal page, its imports pointed at dist/. */
-const minimal = compile('<html><body><sn-resource name="user" src="/api/user"></sn-resource><p data-sn-text="user.name"></p></body></html>', {
+const minimalOut = compile('<html><body><sn-resource name="user" src="/api/user"></sn-resource><p data-sn-text="user.name"></p></body></html>', {
   file: '/min/index.html', root: '/min', dev: false, helpers: { module: null, names: [], namespaces: {} }, readFile: () => '', moduleSrc: '/m.js',
-}).module.replace(/'@tiaforge-ui\/sinter(\/[a-z]+)?'/g, (_, sub) => `'${dist}${sub ?? '/index'}.js'`);
+});
+const minimal = minimalOut.module.replace(/'@tiaforge-ui\/sinter(\/[a-z]+)?'/g, (_, sub) => `'${dist}${sub ?? '/index'}.js'`);
 
 /** The same page in an app with swaps on: the stub and the build's list (`sinter({ swap: true })`) */
 const swapList = join(dir, 'swap-list.js');
@@ -35,10 +37,18 @@ const minimalSwap = compile('<html><body><sn-resource name="user" src="/api/user
   file: '/min/index.html', root: '/min', dev: false, helpers: { module: null, names: [], namespaces: {} }, readFile: () => '', moduleSrc: '/m.js', swap: true, swapList,
 }).module.replace(/'@tiaforge-ui\/sinter(\/[a-z]+)?'/g, (_, sub) => `'${dist}${sub ?? '/index'}.js'`);
 
+/**
+ * Spike (docs/proposals/site-core.md): the core as a site's build keeps it (`sinter({ siteCore: true })`), by entry:
+ * the parts that stay on (the minimal page's own, read from its IR; none for the bare core)
+ */
+const siteCore = { 'minimal, site core': minimalOut.core, 'core, site core (no parts)': [] };
+const flagsFile = resolve(dist, 'runtime/flags.js');
 const entries = {
   minimal,
+  'minimal, site core': minimal,
   'minimal, swaps': minimalSwap,
   core: `export { mount, $k } from '${dist}/index.js';`,
+  'core, site core (no parts)': `export { mount, $k } from '${dist}/index.js';`,
   sse: `export { default } from '${dist}/sse.js';`,
   ws: `export { webSocketTransport } from '${dist}/ws.js';`,
   optimistic: `export { default } from '${dist}/optimistic.js';`,
@@ -104,6 +114,7 @@ try {
     await build({
       logLevel: 'silent', configFile: false,
       build: { outDir: join(dir, 'out', name), lib: { entry, formats: ['es'], fileName: name }, minify: false, rollupOptions: { external } },
+      plugins: siteCore[name] ? [{ name: 'site-core', load: (id) => (id === flagsFile ? flagsModule(siteCore[name]) : null) }] : [],
     });
     // lib mode keeps whitespace in ES output; minify fully, as an app build would. A module with an
     // `import()` (the swap's rest) is split: what the entry imports statically is counted, the rest is not
