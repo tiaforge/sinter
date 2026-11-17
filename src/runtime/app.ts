@@ -1301,7 +1301,9 @@ export function mount(root: Document | Element, o: MountOptions): App {
       rb.end = pre.end;
       if (pre.br == br) {
         rb.br = br;
-        make(rb, br, item, pre.nodes);
+        // none on both sides (a kept element's branch the page before did not show): nothing to adopt
+        if (br) make(rb, br, item, pre.nodes);
+        else rb.rows = [];
         return;
       }
       cut(rb.el, pre.end);
