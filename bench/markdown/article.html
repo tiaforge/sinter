@@ -1,0 +1,15 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="script-src 'self'; style-src 'self'; require-trusted-types-for 'script'">
+  <title>Article</title>
+</head>
+<!-- The article's markdown from the API, parsed in the browser by md.parse (the parser loaded with the page) -->
+<body>
+<sn-resource name="article" src="/api/article"></sn-resource>
+<main>
+  <md-doc id="article" data-sn-prop="{ doc: md.parse(article?.body) }"></md-doc>
+</main>
+</body>
+</html>

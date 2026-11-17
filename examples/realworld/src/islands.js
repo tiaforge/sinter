@@ -1,4 +1,4 @@
-// Islands: browser work that sinter expressions cannot do (the token's storage, a redirect from a branch); Markdown is src/markdown.js.
+// Islands: browser work that sinter expressions cannot do (the token's storage, a redirect from a branch).
 import { clearPersisted, instance, navigate } from '@tiaforge-ui/sinter';
 import { token } from './session.js';
 

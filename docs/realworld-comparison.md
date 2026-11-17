@@ -2,13 +2,14 @@
 
 **How does a sinter app compare with the same app written with other tools?** RealWorld is a public
 spec for a blogging app (Conduit) that many frameworks implement against the same API. sinter's version
-has the fewest source lines and the least JavaScript of the apps that show articles, and when every
+has the fewest source lines and, of the apps that show articles, the least JavaScript on the home page (with
+the first article, Vue 3 loads 4.3 KB less: sinter's article page carries a Markdown parser), and when every
 implementation is built from source and served under the same conditions, the best Lighthouse score:
 100 on mobile and on desktop.
 
 | implementation | source lines | JS, home + article (gz KB) | Lighthouse mobile perf, same conditions |
 | --- | ---: | ---: | ---: |
-| **sinter** | **670** | **59.6** | **100** |
+| **sinter** | **670** | **68.2** | **100** |
 | SvelteKit | 1153 | - | 93 |
 | Solid | 1281 | - | 90 |
 | Vue 3 | 1848 | 63.9 | 86 |
@@ -63,18 +64,18 @@ on `vite preview` of its production build, against the live API. Measured on 202
 
 | implementation | JS, home (gz KB) | JS, home + article (gz KB) | JS, home + article (raw KB) | CSS (gz KB) | note |
 | --- | ---: | ---: | ---: | ---: | --- |
-| **sinter** | **32.5** | **59.6** | 160.2 | 13.3 | Markdown renderer (marked and DOMPurify, 22.3 KB) loads with the first article |
+| **sinter** | **32.6** | **68.2** | 205.9 | 13.3 | the Markdown parser (`@tiaforge-ui/sinter-markdown`, 21.8 KB) loads with the first article; measured again on 2026-11-17 after the article moved to it from marked and DOMPurify (59.6 KB, 160.2 raw, the same day) |
 | Angular | 98.4 | 110.9 | 351.6 | 11.9 | |
 | Vue 3 | 46.8 | 63.9 | 171.9 | 14.4 | |
 | SvelteKit | 42.9 | - | 105.9 | 14.8 | the article did not open in the script |
 | Solid | 11.5 | - | 30.4 | 9.2 | demo shows no articles (backend gone); lazy route code not loaded |
 | React + Redux | - | - | - | - | demo no longer online |
 
-Every sinter page loads 27.1-33.3 KB of JS when opened (`npm run size`): 21.7-24.4 KB of it is sinter
-(the core, the early script, the swap stub and the features the page uses), the rest the app's page
-module, config and helpers. RealWorld runs with [swaps](navigation.md#swaps) on, so opening the article
+Every sinter page loads 27.8-33.3 KB of JS when opened (`npm run size`), the article 59.8 KB with the Markdown
+library: 21.7-24.4 KB of it is sinter (the core, the early script, the swap stub and the features the page uses),
+the rest the app's page module, config and helpers, and on the article the parser and the md-* components. RealWorld runs with [swaps](navigation.md#swaps) on, so opening the article
 fetches its HTML and only the scripts the home page did not load (the article's page module, the rest of
-the swap code and the markdown renderer); the shared chunks come from the browser cache.
+the swap code and the Markdown parser); the shared chunks come from the browser cache.
 
 ## Lighthouse
 
@@ -184,7 +185,7 @@ versions their layouts load, gzipped at level 9.
 
 | implementation | commit | UI layer lines | data layer lines | client JS (gz) |
 | --- | --- | ---: | ---: | ---: |
-| **sinter** | | **735** | - (uses the API) | 27.1-33.3 KB per page |
+| **sinter** | | **735** | - (uses the API) | 27.8-33.3 KB per page, the article 59.8 KB |
 | Go + templ + htmx (BerkeleyTrue/conduit-go-htmx) | 4c0990a | 2031 | 2529 | 39.9 KB (htmx 1.9.5 14.7 + hyperscript 25.1) |
 | Clojure + hiccup + htmx (BerkeleyTrue/conduit-clj-htmx) | c46a814 | 1351 | 1525 | 39.9 KB |
 | Go + templ + Datastar (delaneyj/realworld-datastar) | 410de63 | 1949 | 488 | 14.7 KB (Datastar 0.18.9) |

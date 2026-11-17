@@ -11,8 +11,7 @@
   },
   "dependencies": {
     "@tiaforge-ui/sinter": "file:../..",
-    "dompurify": "3.3.0",
-    "marked": "16.4.1"
+    "@tiaforge-ui/sinter-markdown": "file:../../packages/sinter-markdown"
   },
   "devDependencies": {
     "@playwright/test": "1.61.1",
