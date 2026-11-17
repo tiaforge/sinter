@@ -38,8 +38,10 @@ so nothing after the body moves when it comes in. Raw HTML in a body shows as te
 `html: 'text'`), and sinter refuses a link's or an image's `javascript:` URL (it renders without it): the XSS
 suite's payloads stay inert. Until 2026-11-17 the body was marked and DOMPurify in an island,
 `<conduit-markdown>`; the comparison is in the [markdown library's docs](../../packages/sinter-markdown/docs/markdown.md#performance).
-The library is linked from `packages/` (`file:`), so `resolve.dedupe` in `vite.config.js` points its imports
-of sinter at the app's.
+The parser is lazy (`lazy` in `vite.config.js`) and preloaded with the article page (`data-sn-preload`), so it
+downloads with the page as before; with embedded data (`SINTER_EMBED`) a let over `md.parse` would otherwise
+run in the early script, the parser in front of the first paint (`SN523`). The library is linked from
+`packages/` (`file:`), so `resolve.dedupe` in `vite.config.js` points its imports of sinter at the app's.
 
 The article lists keep their page in the URL with `page-model="$url.page"`: `?page=3` (or a reload,
 or Back) loads the third page, in the early request and the embedded data too. The pager's links
