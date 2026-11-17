@@ -71,4 +71,38 @@ describe('style groups', () => {
     expect(p.style.color).toBe('red');
     expect(p.style.background).toBe('');
   });
+
+  test('a first write to a new row writes only the set entries: no removeProperty for the unset ones', async () => {
+    const proto = CSSStyleDeclaration.prototype;
+    const remove = proto.removeProperty;
+    let removed = 0;
+    proto.removeProperty = function (this: CSSStyleDeclaration, n: string) { removed++; return remove.call(this, n); };
+    try {
+      const { root, flush } = await render(`<div data-sn-state="{ rows: [{ id: 1, s: { color: 'red' } }, { id: 2, s: {} }] }">
+        <i id="add" data-sn-on-click="rows = [...rows, { id: 3, s: { 'font-size': '9px' } }, { id: 4, s: {} }]"></i>
+        <i id="edit" data-sn-on-click="rows = [{ id: 1, s: { 'font-size': '8px' } }, ...rows.slice(1)]"></i>
+        <ul><template data-sn-for="r in rows" data-sn-key="r.id"><li data-sn-style="{ color: r.s.color, 'font-size': r.s['font-size'], 'margin-top': r.s['margin-top'] }"></li></template></ul></div>`);
+      await flush();
+      (root.querySelector('#add') as HTMLElement).click();
+      await flush();
+      expect(removed).toBe(0);
+      const css = () => [...root.querySelectorAll('li')].map((li) => li.getAttribute('style'));
+      // a row with no entry set has no style attribute
+      expect(css()).toEqual(['color: red;', null, 'font-size: 9px;', null]);
+      // a later write still removes what is no longer set
+      (root.querySelector('#edit') as HTMLElement).click();
+      await flush();
+      expect(css()).toEqual(['font-size: 8px;', null, 'font-size: 9px;', null]);
+      expect(removed).toBeGreaterThan(0);
+    } finally {
+      proto.removeProperty = remove;
+    }
+  });
+
+  test('a first write to an element that has a style attribute removes what an unset entry names', async () => {
+    const { root, flush } = await render(`<div data-sn-state="{ s: { 'font-size': '9px' } }"><p id="p" style="color: green; margin-top: 2px" data-sn-style="${STYLES}"></p></div>`);
+    await flush();
+    const p = root.querySelector('#p') as HTMLElement;
+    expect([p.style.color, p.style.fontSize, p.style.marginTop]).toEqual(['', '9px', '']);
+  });
 });
