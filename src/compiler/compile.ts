@@ -4,7 +4,7 @@ import type { SourceMap } from './sourcemap.js';
 import { rewriteImages, sourceFile, type ImageHost, type ImageResult } from './images.js';
 import { boxSizesCss, type ReserveTrace, Layout, PLACEHOLDER_BASE, type Affine, type Reserved, type StyleSheet } from './layout.js';
 import { shows } from './status-eval.js';
-import { recordChild, replay as replayUnit, LINK_FIELDS, Overlay, fork, unitDelta, applyDelta, type Plan, type Refused } from './link.js';
+import { recordChild, replay as replayUnit, LINK_FIELDS, UNIT_NUMBERING, type Plan, type Refused } from './link.js';
 import { HEAD_ELEMENTS, parseDocument } from './head.js';
 import { minifyMarkup } from './minify.js';
 import type { RemoteConfig } from '../remote.js';
@@ -75,7 +75,7 @@ export interface CompileOptions {
    * `urls`, `moduleSrc`, `paintCss`, `images` and `locale.urls`. Cleared with the build's reads.
    */
   templates?: Map<string, unknown>;
-  /** spike (docs/proposals/compile-once.md, (5)): a build's shared definitions, recorded on one page and linked into the next */
+  /** (docs/proposals/compile-once.md, (5)): a build's shared definitions, recorded on one page and linked into the next */
   definitions?: Map<string, unknown>;
   /** the link audit (`SN_LINK_AUDIT`): every numbering of the page starts further on, so an index linking does not renumber shows */
   shift?: boolean;
@@ -809,18 +809,14 @@ export function fieldKind(v: unknown): string {
   return proto === Object.prototype || proto === null ? 'object' : (v as object).constructor?.name ?? 'object';
 }
 
-/** spike: the compiler's fields after compiling `html`, each with what it holds, for the linker's list of them (`LINK_FIELDS`) */
+/** the compiler's fields after compiling `html`, each with what it holds, for the linker's list of them (`LINK_FIELDS`) */
 export function compilerFields(html: string, options: CompileOptions): Array<[string, string]> {
   const c = new Compiler(options);
   c.run(html);
   return Object.keys(c).map((k) => [k, fieldKind((c as unknown as Record<string, unknown>)[k])]);
 }
 
-/** spike (`definitions`): a definition one page compiled, to record when another needs it */
-const SEEN = { seen: true } as const;
-
-/** a unit's numbering (`unitChild`): copied from its page, taken back after; and what it shares of the page as it is */
-const UNIT_NUMBERING = new Set(['fns', 'fnIndex', 'fnUses', 'fnAt', 'callAt', 'templates', 'codeAt', 'useIds', 'nextSid', 'nextId', 'actions']);
+/** what a unit shares of its page as it is (`unitChild`); its numbering (`UNIT_NUMBERING`) it copies */
 const UNIT_SHARED = new Set(['page', 'componentFiles']);
 
 /** a `data-sn-pages` template walked once (`fromTemplate`): its first pass, kept for each entry's evaluation */
@@ -3861,7 +3857,7 @@ class Compiler {
     }
   }
 
-  /** spike: this page's linking (`definitions`): the units linked or recorded so far, and how they renumber */
+  /** this page's linking (`definitions`): the units linked or recorded so far, and how they renumber */
   private defLink = { depth: 0, chain: [] as string[], replayed: false, off: false, maps: { tid: new Map<number, number>(), fn: new Map<number, number>(), use: new Map<number, number>(), sid: new Map<number, number>(), outs: new Map<number, unknown[]>(), strs: new Map<string, string>() }, prior: new Map<object, { u: number; i: number }>() };
 
   /** The shared definition of a component used inside itself: linked from the build's definitions, else compiled. */
@@ -3869,80 +3865,54 @@ class Compiler {
     const known = this.defs.get(name);
     if (known !== undefined) return known;
     const L = this.defLink;
-    // in a unit: the definitions it reaches are part of it
-    if (L.depth > 0) return this.compileDefinition(name);
-    const cache = this.opts.definitions as Map<string, Plan | Refused | typeof SEEN | null> | undefined;
+    const cache = this.opts.definitions as Map<string, (Plan | Refused) & { slot?: number } | { seen: number }> | undefined;
+    // compiled in place unless the build links (a unit compiles only to be recorded); in a unit, its definitions are its own
+    if (!cache || L.depth > 0 || L.off || this.check || this.opts.dev) return this.compileDefinition(name);
     const stats = (globalThis as { __snLink?: { hits: number; recorded: number; refused: string[] } }).__snLink;
-    if (!cache || L.off || this.check || this.opts.dev) return this.unitDefinition(name);
-    const key = [this.opts.decided || this.opts.unrolled || this.opts.constants ? 2 : 1, L.chain.join('\u0001'), name, [...this.defs.keys()].join(',')].join('\u0002');
+    // (the chain: the ids of the units before it on this page, short whatever their keys)
+    const key = [this.opts.decided || this.opts.unrolled || this.opts.constants ? 2 : 1, L.chain.join(','), name, [...this.defs.keys()].join(',')].join('\u0002');
     const u = cache.get(key);
-    if (u && u !== SEEN && 'ops' in u) {
-      if (replayUnit(this, u, L.maps)) { L.replayed = true; L.chain.push(key); if (stats) stats.hits++; return this.defs.get(name) ?? null; }
+    if (u && 'ops' in u) {
+      if (replayUnit(this, u, L.maps)) { L.replayed = true; L.chain.push(`${u.slot}`); if (stats) stats.hits++; return this.defs.get(name) ?? null; }
       L.off = true;
-      return this.unitDefinition(name);
+      return this.compileDefinition(name);
     }
     // what this page compiles from here on is its own numbering: a unit recorded after a linked one would mix two
-    if ((u && u !== SEEN) || L.replayed) { L.off = true; return this.unitDefinition(name); }
-    // recorded the second time a build needs it (recording walks what the unit can reach of the page): a definition only
-    // one page needs, as a `data-sn-pages` template's first entry, is compiled once. The chain goes on from either
-    if (u === undefined) { cache.set(key, SEEN); L.chain.push(key); return this.unitDefinition(name); }
+    if ((u && !('seen' in u)) || L.replayed) { L.off = true; return this.compileDefinition(name); }
+    // recorded the second time a build needs it (recording logs what the unit reads and writes): a definition only one
+    // page needs, as a `data-sn-pages` template's first entry, is compiled in place once. The chain goes on from either
+    if (u === undefined) {
+      const id = cache.size;
+      cache.set(key, { seen: id });
+      L.chain.push(`${id}`);
+      L.depth++;
+      try { return this.compileDefinition(name); } finally { L.depth--; }
+    }
     const r = recordChild(this, name, (child: Compiler) => child.compileDefinition(name), L.prior);
-    cache.set(key, r.unit);
+    cache.set(key, Object.assign(r.unit, { slot: u.seen }));
     if ('refused' in r.unit) { L.off = true; if (stats) stats.refused.push(`${name}: ${r.unit.refused}`); }
-    else { L.chain.push(key); if (stats) stats.recorded++; }
+    else { L.chain.push(`${u.seen}`); if (stats) stats.recorded++; }
     return r.result;
   }
 
   /**
-   * A definition compiled as a unit: in a compiler of its own (`unitChild`), from this page's numbering, with this page's
-   * context and caches shared and its tables forked, then merged into this page (`mergeUnit`). Linking keeps the same
-   * unit to link into later pages (`recordChild`).
+   * A compiler for one definition (a unit, `recordChild`): this page's numbering copied (`UNIT_NUMBERING`), its context and
+   * caches shared (`shared`), the definitions before it importable; its other tables (`own`) the recorder gives it, over
+   * this page's, as views that log what it reads and writes.
    */
-  unitDefinition(name: string): { tid: number; id: string; use: Use } | null {
-    const u = this.unitChild();
-    const out = u.child.compileDefinition(name);
-    this.mergeUnit(u);
-    return out;
-  }
-
-  /**
-   * A compiler for one definition (a unit): this page's numbering copied (function and template tables, `codeAt`,
-   * counters, actions), its context and caches shared (`shared`), the definitions before it importable, and every other
-   * table its own (`own`): a copy of this page's (`fork`, what it copied in `copies`), a weak one an `Overlay` over it,
-   * so it reads what it would here and what it wrote can be read back.
-   */
-  unitChild(): { child: Compiler; own: string[]; shared: string[]; copies: Map<object, object> } {
+  unitChild(): { child: Compiler; own: string[]; shared: string[] } {
     const me = this as unknown as Record<string, any>, child = new Compiler(this.opts) as unknown as Record<string, any>;
-    const own: string[] = [], shared: string[] = [], copies = new Map<object, object>();
+    const own: string[] = [], shared: string[] = [];
     for (const [k, f] of Object.entries(LINK_FIELDS)) {
       if (!(k in me)) continue;
       const v = me[k];
       if (UNIT_NUMBERING.has(k)) child[k] = v instanceof Map ? new Map(v) : Array.isArray(v) ? v.slice() : v;
       else if (k === 'defs') child[k] = new Map(v);
       else if (UNIT_SHARED.has(k) || f.how !== 'table' && f.how !== 'weak') { child[k] = v; shared.push(k); }
-      else { child[k] = f.how === 'weak' ? new Overlay(v, v instanceof WeakSet) : fork(v, copies); own.push(k); }
+      else { child[k] = v; own.push(k); }
     }
     child.defLink = { ...this.defLink, depth: 1, off: true };
-    return { child: child as unknown as Compiler, own, shared, copies };
-  }
-
-  /**
-   * A unit's tables merged into this page's: its numbering taken over, and what it wrote applied to this page's own tables
-   * (`unitDelta`). A change no operation says (a list changed in place): its copies taken over as they are.
-   */
-  mergeUnit(u: { child: Compiler; own: string[]; copies: Map<object, object> }) {
-    const me = this as unknown as Record<string, any>, ch = u.child as unknown as Record<string, any>;
-    const delta = unitDelta(this, u);
-    for (const k of UNIT_NUMBERING) if (k in me) me[k] = ch[k];
-    me.at = ch.at;
-    for (const [k, v] of u.child.defs) if (!this.defs.has(k)) this.defs.set(k, v);
-    if (typeof delta !== 'string') { applyDelta(this, delta); return; }
-    for (const k of u.own) {
-      const v = ch[k];
-      if (!(v instanceof Overlay)) { me[k] = v; continue; }
-      if (v.own instanceof Map) for (const [x, y] of v.own) me[k].set(x, y); else for (const x of v.own) me[k].add(x);
-      for (const x of v.gone) me[k].delete(x);
-    }
+    return { child: child as unknown as Compiler, own, shared };
   }
 
   /** The shared definition of a component used inside itself, compiled on its first such use. */

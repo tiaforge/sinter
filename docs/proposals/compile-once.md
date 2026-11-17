@@ -200,7 +200,8 @@ compiler's state (about 250 ms once per build). The describe compiles (`describe
 **The refactor, as done (2026-11-17).** A definition compiles as a unit of its own, always: a child `Compiler` with
 the page's numbering, its context and caches shared, its tables forks of the page's (`fork`; a weak table an `Overlay`
 over the page's), merged back as a delta (`unitDelta`, `applyDelta`). The suite passed with every definition compiled
-that way before it became the only way, so a definition reads nothing else of its page. Linking records that unit
+that way before it became the only way (which did not show that a definition reads nothing else of its page; see
+the review below). Linking records that unit
 (`recordChild`), not a diff of the whole compiler: the generic recorder and its patching of `WeakMap` and `WeakSet` are
 gone. What is still diffed is what a unit changes of the objects it shares with its page (the page info, the component
 files, earlier definitions). The safety net: `LINK_FIELDS` classifies every field (`test/compiler/link-fields.test.ts`),
@@ -214,6 +215,40 @@ compile shared definitions all link them (6 also refuse one), and none compiles 
 that seemed to escape it had no shared definition at all: its tree is a build-time constant, which the compiler expands
 per instance as it goes. What the audit cannot check is what no fixture holds: no audited page has an action inside a
 definition, which `test/compiler/link.test.ts` covers across pages (actions in a definition are refused, not renumbered).
+
+**The review, and what changed (2026-11-17).** An independent review of the branch found 12 ways a linked page could
+differ from the same page compiled in place, none of which a fixture held. Each is now a scenario in
+`test/compiler/link-review.test.ts` (pages compiled in order through one cache over three rounds, each compared with
+itself compiled alone):
+
+- The claim above, that a definition reads nothing else of its page, was wrong. A unit reads the page's flags and sets
+  (a feature the recording page had already was not recorded), per-page options (`$locale`, `localeUrl()`'s
+  translations, an image host), and what earlier compiles learned of a component file (found `bad`).
+- Writes the unit made to its own fields (`remoteImages`' helper, a definition's diagnostics) were not merged back. That
+  was a regression even with linking off.
+- Renaming in code went by regular expression: `x$1` in a string literal was taken for a loop variable.
+- Fill ids, the dialog templates' set (`dlTemplates`) and lazy imports were not renumbered.
+- `replay` could throw halfway through a page instead of refusing it.
+- Cache keys nested the whole chain of earlier keys, so they grew exponentially with the number of components in a choice.
+- A diagnostic in a definition named the recording page's file.
+- Every definition paid the unit's cost in dev and in the editor, where nothing links.
+
+The recorder is now a log, not a diff. A unit's view of its page is made of wrappers (`LoggedMap`, `LoggedSet`, a list
+proxy, `LoggedWeak`, a proxy over the page info and the options, accessors on its own fields). Each write is applied to
+the page as it happens and kept as an operation. Each read of what the unit did not write itself becomes a precondition
+(`Read`): a key present or not, a table's size and keys, a value as JSON, an option as JSON (an image host is not data:
+its answers change as the build analyses images, so a definition that reads it is refused). `replay` checks every precondition and resolves every target and every renamed string before it
+changes anything. A plan that does not hold changes nothing: the page compiles that definition, and the rest of the
+page, in place. Names in code are renamed token by token (acorn's tokenizer): identifiers as names, strings as markup.
+The recording page's file name, whole or as a base name, becomes the linking page's. Fill ids and lazy imports refuse the
+unit. A definition compiles in place unless the build links: the first time a build needs it, and always in dev, in
+`check` and inside another unit. Only the second sighting records. Chain keys are the short ids of the earlier units.
+
+The audit now also links every compile from the offset page back into the plain one, and into the page under another
+file name (not where helpers fold: their calls are kept per file). Suite: 2,201 tests, plain and audited; 1,526 audited
+compiles, 225 of them linking 1,368 definitions, refused only for actions. Every build of the benchmark and the examples
+is byte-identical to `main`'s. `--files` (the target: its pages are not `data-sn-pages`) links 392 definitions with 4
+recordings and no refusal, about 6% off the whole build.
 
 Found on the way and landed: the expression parse cache keyed its trees by one string of the kind, the options and the
 text, a new string hashed at every lookup (7% of the definitions' time). Keyed by the options, then by the text (the

@@ -25,7 +25,7 @@ export const MESSAGES = `${PACKAGE}/messages`;
 
 /** Compiles annotated HTML into a rewritten page and its page module. Pure and deterministic. */
 export function compile(html: string, options: CompileOptions): CompileResult {
-  // spike (docs/proposals/compile-once.md, (5)): every compile checked against itself linked, to find what linking misses
+  // (docs/proposals/compile-once.md, (5)): every compile checked against itself linked, to find what linking misses
   if (env('SN_LINK_AUDIT') && !options.definitions && !options.dev && !options.check) return audited(html, options);
   return compileOne(html, options);
 }
@@ -44,7 +44,10 @@ function audited(html: string, options: CompileOptions): CompileResult {
   // on its own page a unit's indices happen to be the page's, offset they are not
   const shifted = compileOne(html, { ...options, templates: undefined, shift: true });
   const definitions = new Map<string, unknown>();
-  let linked: CompileResult | null = null, linkedShifted: CompileResult | null = null;
+  let linked: CompileResult | null = null, linkedShifted: CompileResult | null = null, linkedBack: CompileResult | null = null;
+  let renamed: CompileResult | null = null, linkedRenamed: CompileResult | null = null;
+  // and recorded on the offset page, linked back into the page as it is; and linked into the page under another name
+  const file = options.file.replace(/([^/]*)$/, 'sn-audit-$1');
   // what linking did, for the log (`SN_LINK_AUDIT_LOG=<file>`: one line per page)
   const g = globalThis as { __snLink?: { hits: number; recorded: number; refused: string[] } };
   const was = g.__snLink;
@@ -53,13 +56,22 @@ function audited(html: string, options: CompileOptions): CompileResult {
   try {
     for (let i = 0; i < 3; i++) linked = compileOne(html, { ...options, templates: undefined, definitions });
     linkedShifted = compileOne(html, { ...options, templates: undefined, shift: true, definitions });
+    // (not where helpers fold: their calls are kept per file, and a caller counts them)
+    if (!options.helperValues) {
+      linkedRenamed = compileOne(html, { ...options, file, templates: undefined, definitions });
+      renamed = compileOne(html, { ...options, file, templates: undefined });
+    }
+    const back = new Map<string, unknown>();
+    for (let i = 0; i < 2; i++) compileOne(html, { ...options, templates: undefined, shift: true, definitions: back });
+    linkedBack = compileOne(html, { ...options, templates: undefined, definitions: back });
   } finally {
     const log = env('SN_LINK_AUDIT_LOG'), st = g.__snLink!;
     g.__snLink = was;
     if (log) (node?.getBuiltinModule?.('node:fs') as { appendFileSync(f: string, s: string): void } | undefined)?.appendFileSync(log, JSON.stringify({ file: options.file, linked: st.hits, recorded: st.recorded, refused: st.refused }) + '\n');
   }
   const text = (r: CompileResult) => JSON.stringify(r, (_, v) => (typeof v === 'function' ? '[fn]' : v instanceof Map ? [...v] : v instanceof Set ? [...v] : v));
-  for (const [what, x, y] of [['linked', plain, linked!], ['linked into the offset page', shifted, linkedShifted!]] as const) {
+  for (const [what, x, y] of [['linked', plain, linked!], ['linked into the offset page', shifted, linkedShifted!], ['linked from the offset page', plain, linkedBack!], ['linked into the page under another name', renamed, linkedRenamed]] as const) {
+    if (!x || !y) continue;
     const a = text(x), b = text(y);
     if (a === b) continue;
     let i = 0;

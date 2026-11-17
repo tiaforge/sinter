@@ -1,4 +1,4 @@
-// Spike (docs/proposals/compile-once.md, (5)): shared definitions recorded on one page and linked into the next
+// Linking (docs/proposals/compile-once.md, (5)): shared definitions recorded on one page and linked into the next
 // (compile's `definitions`). Every page must be what it is compiled on its own, whatever comes before its first
 // recursion point on the page: other components, templates, state, a fill of the tree's slot, a second tree.
 import { expect, test } from 'vitest';

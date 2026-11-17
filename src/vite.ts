@@ -868,7 +868,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   const globCache: NonNullable<Parameters<typeof compile>[1]['globCache']> = new Map();
   /** builds: each `data-sn-pages` template's first pass, walked once for all its entries (compile's `templates`), cleared with the reads */
   const templates = new Map<string, unknown>();
-  /** spike (docs/proposals/compile-once.md, (5)): builds: shared definitions, recorded on one page and linked into the next */
+  /** (docs/proposals/compile-once.md, (5)): builds: shared definitions, recorded on one page and linked into the next */
   const definitions = new Map<string, unknown>();
   const readVia = (p: ReturnType<typeof project>) => (dev ? p.readFile : (path: string) => {
     let r = buildReads.get(path);
