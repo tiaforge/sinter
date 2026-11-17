@@ -66,7 +66,7 @@ try {
     const med = (v) => Object.fromEntries(Object.keys(got[v][0]).map((k) => [k, median(got[v].map((m) => m[k]))]));
     const row = { ...c, A: med('A'), B: med('B') };
     rows.push(row);
-    console.error(`${c.form} ${c.page}${c.warm ? ' (after /)' : ''}: LCP ${Math.round(row.A.lcp)} → ${Math.round(row.B.lcp)} ms, FCP ${Math.round(row.A.fcp)} → ${Math.round(row.B.fcp)} ms`);
+    console.error(`${c.form} ${c.page}${c.warm ? ' (after /)' : ''}: LCP ${Math.round(row.A.lcp)} → ${Math.round(row.B.lcp)} ms, FCP ${Math.round(row.A.fcp)} → ${Math.round(row.B.fcp)} ms; CLS of each run: A ${got.A.map((m) => m.cls.toFixed(3)).join(' ')}, B ${got.B.map((m) => m.cls.toFixed(3)).join(' ')}`);
   }
 } finally {
   await servers.A.close(); await servers.B.close(); await api.close();
