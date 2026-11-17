@@ -1,6 +1,6 @@
-import { mkdtempSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { describe, expect, test } from 'vitest';
 import { compile, readHelperManifest } from '../../src/compiler/index.js';
 import { check, checkPage, findTsc, typeExports } from '../../src/check/index.js';
@@ -637,14 +637,20 @@ export type Also = '*/';`)).toEqual(['Also', 'H', 'Kept', 'Real']);
     // the example's config module (its Vite config imports it; CI does not install the example's dependencies)
     const config = '../../examples/realworld/apis.js';
     const { apis } = (await import(config)) as { apis: NonNullable<Parameters<typeof projectOf>[1]>['apis'] };
-    const p = projectOf(root, { apis });
+    // its component library, as its Vite config lists it: linked from packages/ (`file:`), the link `npm ci` makes
+    const lib = join(root, 'node_modules/@tiaforge-ui/sinter-markdown');
+    if (!existsSync(lib)) {
+      mkdirSync(dirname(lib), { recursive: true });
+      symlinkSync('../../../../packages/sinter-markdown', lib, 'dir');
+    }
+    const p = projectOf(root, { apis, components: ['@tiaforge-ui/sinter-markdown'] });
     expect(p.diagnostics).toEqual([]);
     const out = pages.map((f) => compile(p.readFile(join(root, f)), {
       file: join(root, f), root, dev: false, helpers: p.helpers, readFile: p.readFile, check: true, openapi: p.openapi, apis: p.apis,
     }));
     expect(out.flatMap((o) => o.diagnostics)).toEqual([]);
     const units = out.map((o) => o.check!);
-    const r = check({ root, units, helpers: p.helpers, types: null, tsc, outDir: mkdtempSync(join(tmpdir(), 'sinter-check-rw-')), openapi: p.openapi });
+    const r = check({ root, units, helpers: p.helpers, types: null, tsc, outDir: join(root, '.sinter/check-test'), openapi: p.openapi, libraries: p.libraries });
     expect(r.diagnostics).toEqual([]);
     expect(units.reduce((n, u) => n + u.exprs.length, 0)).toBeGreaterThan(300);
     expect([r.typed, r.openapi, r.resources]).toEqual([15, 15, 15]);
