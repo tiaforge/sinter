@@ -1,6 +1,6 @@
 # Proposal: streams that stay open across a swap
 
-Status: steps 1 to 4 of the [Plan](#plan) implemented 2026-11-17 (`src/sse-handover.ts`, `src/sse.ts`, the
+Status: steps 1 to 4 of the [Plan](#plan) implemented 2026-11-17, with [5a](#5a-events-while-the-next-pages-html-is-fetched) after caley's first run (`src/sse-handover.ts`, `src/sse.ts`, the
 window in `src/swap-run.ts`, `test/behaviour/stream-handover.test.ts`, `test/vite/stream-handover-size.test.ts`);
 step 5's browser runs in `e2e/permanent` are still to do. Proposed and revised the same day after a review against the code (the
 transport comparison, the listened names, when the buffer is replayed, a window per swap, parked state,
@@ -249,6 +249,26 @@ Event names the old page never listened to and the next page does: with `EventSo
 name sent during the gap are not delivered, because there was no listener. The next page gets them from
 the claim on. This is no worse than today, where every name is lost in the gap. A server that sends one
 event type (`message`) with a `type` field in the payload avoids it. The docs say so (§8).
+
+### 5a. Events while the next page's HTML is fetched
+
+Found in caley (2026-11-17, after steps 2 to 4): the gap that matters starts at the swap's fetch, not at its
+commit. The next page's embedded data is as old as its HTML response. Until the commit, the page shown is the
+live one and applies events only to its own resources. An event that only the next page maps reaches no page:
+a `contact_updated` on the settings page, with `EventSource` not even listening to its name there.
+
+So the swap marks its fetch's start in the registry (`at`, a number per swap; swap-run.ts `streamsFrom()`).
+From then on, a connection notes the names of the events it delivers live (`seen`). At the claim, a resource
+of the next page is **refetched** when an `<sn-event>` that feeds it either:
+- was seen since the fetch started, or
+- has a name the connection wasn't listening to (`names`, which `listen` keeps current), so its events could
+  not be delivered.
+
+A resource already loading at the claim was requested at the mount, after those events, so it isn't asked
+twice. This is the reconnect's catch-up, applied to the fetch's window. It costs a request on a swap from a page
+that doesn't listen to a name the next page maps, for each resource whose data came with the HTML. Events
+after the commit are held and replayed as in §5. `then` handlers and `app.on` listeners of the next page don't
+get the events of the fetch's window: those reached the page shown, or no page.
 
 ### 6. State, the probe, `$meta.live`
 

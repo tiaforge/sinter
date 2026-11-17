@@ -209,7 +209,9 @@ reads `'connecting'` until it is shown. A custom transport sets it through `onSt
   `<sn-event>`s take it over, and events that arrive during the swap are delivered to the next page once,
   in order, after it has mounted and its `sn-page` listeners have run. Other streams close. With
   `EventSource`, an event whose name the old page did not listen to is not delivered during the swap;
-  a server that sends one event name with the kind in the payload avoids that. Apps without swaps
+  a server that sends one event name with the kind in the payload avoids that. A resource of the next
+  page whose data came with its HTML is refetched when an event that feeds it may have arrived while
+  that HTML was fetched. Apps without swaps
   carry none of this.
 - **Streams aren't shared across tabs.** Each tab opens its own connection.
 

@@ -10,7 +10,7 @@ import type { Connection } from './sse.js';
 /** one swap's window: the connections parked, and those taken over waiting for the replay */
 export interface Window { parked: Map<string, Connection>; claimed: Connection[] }
 /** the document's registry, shared with swap-run.ts: the window of the swap in progress, and how one closes */
-interface Streams { w: Window | null; close?: (w: Window) => void }
+interface Streams { w: Window | null; close?: (w: Window) => void; at?: number }
 
 /** a held event, then a gap: past this many the oldest go, and the next page refetches what the stream feeds */
 const CAP = 1000;
@@ -41,9 +41,14 @@ export function park(c: Connection): boolean {
 export function claim(app: App, url: string, heard: Set<string>, changed: () => void): Connection | undefined {
   const w = streams()?.w, c = w?.parked.get(url), t = c?.t;
   if (!t || !page(app) || c.via !== config.transport || app.transport(url)) return;
-  // the names this page maps on the URL, and those `app.on` listens to
-  const names = new Set(heard);
-  for (const def of app.ir.syncs ?? []) if (app.url(def.src, app.scopeOf(def.scope ?? -1)) === url) for (const e of def.events) names.add(e.name);
+  // the names this page maps on the URL, and those `app.on` listens to. Its data came with its HTML: a resource
+  // is stale when, since the fetch started, an event that feeds it reached the page before (`seen`), or could
+  // not, the page before not listening to its name (an `EventSource` delivers no other)
+  const names = new Set(heard), stale = new Set<string>(), at = streams()!.at, since = at && c.at === at ? c.seen : undefined;
+  for (const def of app.ir.syncs ?? []) if (app.url(def.src, app.scopeOf(def.scope ?? -1)) === url) for (const e of def.events) {
+    names.add(e.name);
+    if (at && e.resource && (since?.has(e.name) || !c.names?.has(e.name))) stale.add(e.resource);
+  }
   if (!t.listen && [...names].some((n) => !c.names?.has(n))) return;
   w!.parked.delete(url);
   w!.claimed.push(c);
@@ -52,7 +57,22 @@ export function claim(app: App, url: string, heard: Set<string>, changed: () => 
   c.heard = heard;
   c.changed = changed;
   for (const n of names) t.listen?.(n);
+  c.names = new Set([...(c.names ?? []), ...names]);
+  c.seen = undefined;
+  // its data came with its HTML, older than those events: fetched again (one loading already asks the server now)
+  for (const r of stale) { const x = app.resource(r); if (!x.meta.loading) void x.refetch(); }
   return c;
+}
+
+/**
+ * An event the page shown applies while a swap fetches the next page's HTML: the next page's data is from that
+ * response, so the names are noted, for its claim to refetch what they feed.
+ */
+export function seen(c: Connection, name: string): void {
+  const at = streams()?.at;
+  if (!at) return;
+  if (c.at !== at) { c.at = at; c.seen = new Set(); }
+  c.seen!.add(name);
 }
 
 /** an event while the connection is parked or waits for its replay */

@@ -8,7 +8,7 @@ import type { App, Feature, Transport } from './runtime/app.js';
 import { clean } from './runtime/store.js';
 import { doubled, jittered } from './backoff.js';
 import { SWAP } from './runtime/flags.js';
-import { claim, forget, hold, park } from './sse-handover.js';
+import { claim, forget, hold, park, seen } from './sse-handover.js';
 
 const MIN_BACKOFF = 1000;
 
@@ -70,11 +70,14 @@ export class Connection {
   declare via?: unknown;
   /** the names the transport connected with */
   declare names?: Set<string>;
+  /** the names delivered while swap `at` fetched the next page's HTML */
+  declare seen?: Set<string>;
+  declare at?: number;
 
   /** `heard`: the names the app's islands and component scripts listen to (`app.on`), the feature's since install */
   constructor(public app: App, readonly url: string, public changed: () => void, public heard: Set<string>) {}
 
-  listen(name: string): void { this.t?.listen?.(name); }
+  listen(name: string): void { this.t?.listen?.(name); if (SWAP) this.names?.add(name); }
 
   private set(state: Live): void {
     if (this.state === state) return;
@@ -158,7 +161,7 @@ export class Connection {
   }
 
   event(name: string, payload: unknown): void {
-    if (SWAP && this.buf) return hold(this, name, payload);
+    if (SWAP) { if (this.buf) return hold(this, name, payload); seen(this, name); }
     // rendered with the next frame: a burst of events renders once
     this.app.streamed(() => { for (const [def, base] of this.subs) if (def.name === name) this.apply(def, base, payload); });
     this.app.serverEvent(name, payload);

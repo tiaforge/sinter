@@ -10,7 +10,7 @@ import { compactIR } from '../../src/ir.js';
 import { type App, instance, mount } from '../../src/runtime/app.js';
 import { defaultEnv } from '../../src/runtime/env.js';
 import sse from '../../src/sse.js';
-import { streamWindow } from '../../src/swap-run.js';
+import { streamWindow, streamsFrom } from '../../src/swap-run.js';
 import type { Transport } from '../../src/runtime/app.js';
 
 const STREAMS = Symbol.for('sinter.streams');
@@ -46,12 +46,12 @@ function transports(opts: { listen?: boolean } = {}) {
 }
 
 /** a page: a resource `items` fed by the stream, and its state `got` that the events' `then` append to */
-function compile(body: string) {
-  const parts = compileParts(`<html><head></head><body>${body}</body></html>`, {
+function compile(body: string, head = '') {
+  const parts = compileParts(`<html><head>${head}</head><body>${body}</body></html>`, {
     file: '/p/x.html', root: '/p', dev: false, readFile: () => '', helpers: { module: null, names: [], namespaces: {} },
   });
   const fns = new Function('$k', `return [${parts.fns.join(',')}]`)((x: unknown) => x);
-  return { ir: compactIR(parts.ir), fns, html: /<body>([\s\S]*)<\/body>/i.exec(parts.html)![1]! };
+  return { ir: compactIR(parts.ir), fns, html: /<body>([\s\S]*)<\/body>/i.exec(parts.html)![1]!, head: /<head>([\s\S]*)<\/head>/i.exec(parts.html)![1]!.replace(/<script type="module"[^>]*><\/script>/g, '') };
 }
 
 let fetched: string[] = [];
@@ -67,6 +67,7 @@ const env = {
 };
 
 function show(p: ReturnType<typeof compile>): App {
+  document.head.innerHTML = p.head;
   document.body.innerHTML = p.html;
   return mount(document, { ir: p.ir, fns: p.fns, env, features: [sse] });
 }
@@ -349,4 +350,58 @@ test('the page left while the window is open: what is parked closes', async () =
   expect(t.made[0]!.closed).toBe(false);
   dispatchEvent(new Event('pagehide'));
   expect(t.made[0]!.closed).toBe(true);
+});
+
+test('an event the page shown applies while the next page\'s HTML is fetched: the next page refetches what it feeds, if its data came with the HTML', async () => {
+  // caley: the contacts page's embedded list was older than a contact_updated sent while its HTML was in flight
+  const embedded = compile(`<div data-sn-state="{ got: [] }">
+    <sn-resource name="items" src="/api/other" items="items" key="id"></sn-resource>
+    ${sync('/events', '<sn-event name="item" resource="items" op="upsert"></sn-event>')}
+    <ul><template data-sn-for="x in items"><li data-sn-text="x.id"></li></template></ul></div>`,
+  '<script type="application/json" data-sn-data="items">{"items":[{"id":1}]}</script>');
+  const t = await onA();
+  const c = t.made[0]!;
+  // the swap's fetch starts; the page shown applies an event meanwhile
+  streamsFrom();
+  c.emit('item', { id: 7 });
+  c.emit('note', { text: 'n' });
+  await settle();
+  fetched = [];
+  await swapTo(embedded);
+  await settle();
+  expect(fetched).toEqual(['/api/other']);
+  // without such an event: no refetch
+  streamsFrom();
+  fetched = [];
+  await swapTo(embedded);
+  await settle();
+  expect(fetched).toEqual([]);
+});
+
+test('from a page that does not listen to an event the next page maps: its data from the HTML is refetched, events may have been missed', async () => {
+  // caley: settings maps no contact_updated, so EventSource never delivered the one sent during the fetch
+  const embedded = compile(`<sn-resource name="items" src="/api/other" items="items" key="id"></sn-resource>
+    ${sync('/events', '<sn-event name="item" resource="items" op="upsert"></sn-event>')}`,
+  '<script type="application/json" data-sn-data="items">{"items":[{"id":1}]}</script>');
+  const notes = compile(sync('/events', '<sn-event name="note" then="0"></sn-event>'));
+  const t = transports();
+  show(notes);
+  await settle();
+  t.made[0]!.open();
+  streamsFrom();
+  fetched = [];
+  await swapTo(embedded);
+  await settle();
+  expect(t.made).toHaveLength(1);
+  expect(fetched).toEqual(['/api/other']);
+});
+
+test('an event the page shown applied while the HTML was fetched: a resource the next page loads at mount is not asked twice', async () => {
+  const t = await onA();
+  streamsFrom();
+  t.made[0]!.emit('item', { id: 7 });
+  fetched = [];
+  await swapTo(B);
+  await settle();
+  expect(fetched).toEqual(['/api/other']);
 });

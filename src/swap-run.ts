@@ -99,8 +99,19 @@ export const fixed = (d: Document, base: URL) => JSON.stringify([
 
 /** one swap's window for the streams (sse-handover.ts): parked connections and those taken over, by the sse feature */
 interface StreamWindow { parked: Map<string, unknown>; claimed: unknown[] }
-/** the document's streams registry, shared with sse-handover.ts, which sets `close` when it first parks */
-interface Streams { w: StreamWindow | null; close?: (w: StreamWindow) => void }
+/**
+ * the document's streams registry, shared with sse-handover.ts, which sets `close` when it first parks; `at`: the
+ * swap whose HTML is being fetched or committed (its number), while the page shown still applies the events
+ */
+interface Streams { w: StreamWindow | null; close?: (w: StreamWindow) => void; at?: number }
+const streams = () => ((globalThis as unknown as Record<symbol, Streams | undefined>)[Symbol.for('sinter.streams')] ??= { w: null });
+let swaps = 0;
+
+/**
+ * The swap's fetch starts: the next page's data is as old as its HTML, so the streams note which events reach the
+ * page shown from now on; the next page refetches what those would have changed of its own (sse-handover.ts).
+ */
+export const streamsFrom = () => { streams().at = ++swaps; };
 
 /**
  * Opens a window for this swap's commit (docs/proposals/stream-handover.md §4): the old page's open streams
@@ -110,8 +121,7 @@ interface Streams { w: StreamWindow | null; close?: (w: StreamWindow) => void }
  * took over closes, the rest is replayed. Closed at the latest after 10 s, or when the page is left.
  */
 export function streamWindow(): () => void {
-  const g = globalThis as unknown as Record<symbol, Streams | undefined>, r = (g[Symbol.for('sinter.streams')] ??= { w: null });
-  const prev = r.w, w: StreamWindow = { parked: new Map(prev?.parked), claimed: [] };
+  const r = streams(), prev = r.w, w: StreamWindow = { parked: new Map(prev?.parked), claimed: [] };
   if (prev) { prev.parked.clear(); prev.claimed.length = 0; }
   r.w = w;
   let done = false;
@@ -120,7 +130,7 @@ export function streamWindow(): () => void {
     done = true;
     clearTimeout(cap);
     removeEventListener('pagehide', close);
-    if (r.w === w) r.w = null;
+    if (r.w === w) { r.w = null; r.at = undefined; }
     r.close?.(w);
   };
   const cap = setTimeout(close, 10_000);
@@ -252,6 +262,7 @@ export async function prepare(s: SwapState, i: Intent, signal?: AbortSignal): Pr
   const c = (s.busy = new AbortController()), no = () => (c.signal.aborted ? null : false);
   signal?.addEventListener('abort', () => c.abort());
   // fetch: the request a load sends
+  streamsFrom();
   let res: Response, html: string;
   try {
     res = await fetch(url, { headers: { accept: 'text/html' }, signal: c.signal, credentials: 'same-origin' });
