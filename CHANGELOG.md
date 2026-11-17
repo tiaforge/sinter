@@ -129,6 +129,8 @@ Attribute names, function names and diagnostic codes are public API. Before
 
 ### Fixed
 
+- Swaps with `localePrefix`: a page in another language (`/en/settings/` → `/de/settings/`) is a page load, as documented, not a swap that kept the old language's links in a `data-sn-permanent` element (`<html lang>` of pages without the language picker is now part of what only a load applies). The messages a page's modules call (its `data-sn-messages`) join the dictionary when it is swapped in, so a helper's `m.key()` no longer returns the key when the first page shown lacked it.
+
 - Testing: `settle()` did not run the task that releases a dialog a close button (`command="close"`, a `method="dialog"` submit, Escape) closed, so after the dialog opened again its bindings stayed as they were until a test called `advance(0)`. `settle()` runs it now. Browsers were not affected.
 - `data-sn-preload` with a lazy package that the app imports through a subpath (`lazy: ['@tiaforge-ui/sinter-markdown']`, whose `md.parse` imports `@tiaforge-ui/sinter-markdown/parser`) preloaded nothing and warned `SN520`: the package's name was matched against each import exactly. It matches the package's subpaths now, as `lazy` does.
 - A component library linked from outside the app's root (`file:`, `npm link`) whose helpers import sinter (`@tiaforge-ui/sinter/memo`) failed the build when its helper was in the early script: the early script's bundle took the app's `resolve.alias` and `resolve.conditions` only, so the app's `resolve.dedupe` (and `preserveSymlinks`) did not reach it and the import resolved from the library's real path. It takes both now.

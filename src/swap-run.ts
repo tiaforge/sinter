@@ -84,12 +84,17 @@ const sheets = (els: Iterable<Element>, base: URL) => new Map([...els].flatMap((
   : el.localName == 'link' && /(^|\s)stylesheet(\s|$)/i.test(el.getAttribute('rel') ?? '') && el.hasAttribute('href') ? [[new URL(el.getAttribute('href')!, base).href, el]]
   : []));
 
-/** what only a load applies (a CSP `<meta>`, `<base>`, the language picker): a page that differs here is loaded */
+/**
+ * what only a load applies (a CSP `<meta>`, `<base>`, the language picker, the language of a page without the
+ * picker: a page in another language, `localePrefix`'s `/de/` from `/en/`): a page that differs here is loaded
+ */
 export const fixed = (d: Document, base: URL) => JSON.stringify([
   [...d.querySelectorAll('head meta[http-equiv]')].map((m) => [m.getAttribute('http-equiv')!.toLowerCase(), m.getAttribute('content')]),
   [...d.querySelectorAll('head base[href]')].map((b) => new URL(b.getAttribute('href')!, base).href),
   // the language picker's settings, not its files: each page has its own dictionary files (loaded by `language`)
   [...d.querySelectorAll('script[data-sn-i18n]')].map((x) => { try { const { files: _, ...c } = JSON.parse(x.getAttribute('data-sn-i18n')!); return c; } catch { return x.getAttribute('data-sn-i18n'); } }),
+  // (the picker sets `<html lang>` to the visitor's language on every page: its settings above are the key there)
+  d.querySelector('script[data-sn-i18n]') ? null : d.documentElement.getAttribute('lang')?.toLowerCase() ?? '',
 ]);
 
 /** the built-in messages' state the picker, the language files and the messages module share (messages.ts) */
@@ -99,12 +104,26 @@ interface I18n { locale?: string; files?: Record<string, string>; dicts?: Record
 const i18n = () => (globalThis as unknown as Record<symbol, I18n | undefined>)[Symbol.for('sinter.i18n')];
 
 /**
+ * A page in one language (`localePrefix`): the messages its modules call are in the page (`data-sn-messages`,
+ * read once by the first page), merged into the dictionary before its code runs. Both pages are in the same
+ * language (`fixed`).
+ */
+export function inline(doc: Document) {
+  const el = doc.querySelector('script[data-sn-messages]'), g = i18n();
+  if (!el?.textContent || !g?.locale || !g.dicts) return;
+  let d: Record<string, string>;
+  try { d = JSON.parse(el.textContent); } catch { return; }
+  g.dicts[g.locale] = { ...g.dicts[g.locale], ...d };
+}
+
+/**
  * Built-in messages: the next page's dictionary for the current language (its language file holds that page's
  * keys) is loaded before it mounts, merged with what the page shown reads until the swap; its files, which
  * `setLocale()` loads, are given back for the commit. Under a nonce policy, only a picker the server gave the
  * page's nonce names files to load.
  */
 async function language(doc: Document, base: URL, trusted: (el: Element) => boolean) {
+  inline(doc);
   const tag = doc.querySelector('script[data-sn-i18n]'), g = i18n();
   if (!tag || !g?.locale || !trusted(tag)) return;
   const files: Record<string, string> = {};

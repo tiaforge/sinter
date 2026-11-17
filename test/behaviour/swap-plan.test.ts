@@ -1,7 +1,7 @@
 // The swap's plan on parsed documents (docs/proposals/swap-navigation.md §3, §4): which elements are kept,
 // which head nodes are the page's own, what only a load applies, and which URLs the build's list swaps to.
 import { expect, test } from 'vitest';
-import { fixed, owned, pairs } from '../../src/swap-run.js';
+import { fixed, inline, owned, pairs } from '../../src/swap-run.js';
 import { pageAt } from '../../src/swap.js';
 
 const parse = (body: string, head = '') => new DOMParser().parseFromString(`<!doctype html><html><head>${head}</head><body>${body}</body></html>`, 'text/html');
@@ -41,6 +41,24 @@ test('what only a load applies: a CSP <meta>, <base>, the language picker', () =
   expect(fixed(parse('', '<meta http-equiv="Content-Security-Policy" content="default-src \'self\'">'), base)).not.toBe(plain);
   expect(fixed(parse('', '<base href="/app/">'), base)).not.toBe(plain);
   expect(fixed(parse('<script data-sn-i18n="de"></script>'), base)).not.toBe(plain);
+  // a page in another language (`localePrefix`: /en/ → /de/); with the picker, `<html lang>` is the visitor's
+  const lang = (l: string, head = '') => { const d = parse('', head); d.documentElement.lang = l; return fixed(d, base); };
+  expect(lang('en')).not.toBe(lang('de'));
+  expect(lang('en')).toBe(lang('EN'));
+  const picker = '<script data-sn-i18n=\'{"base":"en","files":{}}\'></script>';
+  expect(lang('en', picker)).toBe(lang('de', picker));
+});
+
+test('a page in one language: the messages its modules call (data-sn-messages) join the dictionary', () => {
+  const K = Symbol.for('sinter.i18n'), g = globalThis as unknown as Record<symbol, unknown>, was = g[K];
+  g[K] = { locale: 'en', dicts: { en: { a: 'A' } } };
+  try {
+    inline(parse('', '<script type="application/json" data-sn-messages>{"b":"B"}</script>'));
+    expect((g[K] as { dicts: unknown }).dicts).toEqual({ en: { a: 'A', b: 'B' } });
+    // none, or unreadable: as it was
+    inline(parse('', '<script type="application/json" data-sn-messages>{</script>'));
+    expect((g[K] as { dicts: unknown }).dicts).toEqual({ en: { a: 'A', b: 'B' } });
+  } finally { g[K] = was; }
 });
 
 test('the build\'s list: a URL swaps only to a page that answers at its path', () => {
