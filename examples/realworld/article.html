@@ -20,8 +20,8 @@
     </div>
     <div class="container page">
       <div class="row article-content">
-        <div class="col-md-12" data-sn-preload="@tiaforge-ui/sinter-markdown">
-          <div data-sn-let="{ doc: md.parse(article.body) }" data-sn-class="{ 'md-pending': !doc }"><md-doc data-sn-prop="{ doc }"></md-doc></div>
+        <div class="col-md-12">
+          <md-doc data-sn-prop="{ doc: md.parse(article.body) }" data-sn-early="off"></md-doc>
           <ul class="tag-list">
             <template data-sn-for="t in article.tagList" data-sn-key="t"><li class="tag-default tag-pill tag-outline" data-sn-text="t"></li></template>
           </ul>

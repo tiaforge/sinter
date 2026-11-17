@@ -17,9 +17,6 @@ export default defineConfig({
       apis,
       // the article's body: <md-doc> renders the tree md.parse builds from its markdown (src/sinter.helpers.js)
       components: ['@tiaforge-ui/sinter-markdown'],
-      // its parser loads as a chunk of its own (article.html preloads it with the page): with embedded data
-      // (SINTER_EMBED), md.parse would otherwise run in the early script, the parser in front of the first paint
-      lazy: ['@tiaforge-ui/sinter-markdown'],
       // links and navigate() swap the next page in: the e2e suite's settings tests keep reading the page
       // after saving (docs/navigation.md#swaps)
       swap: true,

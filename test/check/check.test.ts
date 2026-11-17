@@ -644,8 +644,8 @@ export type Also = '*/';`)).toEqual(['Also', 'H', 'Kept', 'Real']);
       mkdirSync(dirname(lib), { recursive: true });
       symlinkSync('../../../../packages/sinter-markdown', lib, 'dir');
     }
-    // as its Vite config sets them: the library, its parser lazy
-    const p = projectOf(root, { apis, components: ['@tiaforge-ui/sinter-markdown'], lazy: ['@tiaforge-ui/sinter-markdown'] });
+    // as its Vite config sets them (without SINTER_EMBED): the library, loaded with the page
+    const p = projectOf(root, { apis, components: ['@tiaforge-ui/sinter-markdown'] });
     const lazyModule = lazyHelpers(root, p.lazy, undefined, p.libraries).reach;
     expect(p.diagnostics).toEqual([]);
     const out = pages.map((f) => compile(p.readFile(join(root, f)), {
