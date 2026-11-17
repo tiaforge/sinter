@@ -5,6 +5,7 @@
 // place) what the browser would show the same: they may differ only in white space that renders nothing.
 import { expect, test } from 'vitest';
 import { render } from '../../src/testing/index.js';
+import { reset as resetCore } from '../core-flags.js';
 
 function rng(seed: number) {
   let s = seed >>> 0;
@@ -97,6 +98,8 @@ const SHEETS = ['', '.row { display: flex; gap: 4px }', '.ib { display: inline-b
 test('minified random templates: a state change renders what a fresh render renders, and the constant build what shows the same', async () => {
   const failures: string[] = [];
   for (let seed = 1; seed <= 120; seed++) {
+    // each seed on the smallest core for its page (test/core-flags.ts)
+    resetCore();
     const r = rng(seed);
     const css = SHEETS[seed % SHEETS.length]!;
     const body = template(r, 'x', 3);

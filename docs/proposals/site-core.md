@@ -99,12 +99,13 @@ where every part is a switchable `let`, off at the start of each test (`test/cor
 `use(ir)` from the flags module, which is `undefined` in a build, so the call compiles away. In the tests, `use` turns
 on the parts that page's IR uses, joined with those of pages the test mounted before. The core reads the flags through
 its namespace import, so a change applies at once. Every test, then, runs its pages on the smallest core they could
-get, which is stricter than a site's union. The three fuzz tests reset the parts for each seed, since each runs all
-its seeds in one test. `test/core-flags.test.ts` checks that the core does read them: with lists off, a list stops
+get, which is stricter than a site's union. The page fuzz tests (component, anchor, reactivity, wrapper, minify) reset
+the parts for each seed, since each runs all its seeds in one test. `test/core-flags.test.ts` checks that the core does read them: with lists off, a list stops
 rendering.
 
-Results: the whole suite passes (2,195 tests), the three page fuzz tests at their default seeds included (a run at
-2,000 seeds is pending).
+Results: the whole suite passes (2,195 tests), the page fuzz tests at their default seeds included, as CI runs them.
+Once, as CONTRIBUTING asks before a pull request: component and reactivity fuzz at 2,000 seeds each (5 minutes),
+passed.
 `test/vite/site-core.test.ts` builds a two-page site and the same site with a third page (a dialog, an action, a custom
 element's property). It checks that the code of those parts is only in the second build, and runs both first pages in
 Chromium.
