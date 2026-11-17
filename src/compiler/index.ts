@@ -25,6 +25,31 @@ export const MESSAGES = `${PACKAGE}/messages`;
 
 /** Compiles annotated HTML into a rewritten page and its page module. Pure and deterministic. */
 export function compile(html: string, options: CompileOptions): CompileResult {
+  // spike (docs/proposals/compile-once.md, (5)): every compile checked against itself linked, to find what linking misses
+  if (process.env.SN_LINK_AUDIT && !options.definitions && !options.dev && !options.check) return audited(html, options);
+  return compileOne(html, options);
+}
+
+/**
+ * `SN_LINK_AUDIT=1`: the page compiled as always, and again through a cache of shared definitions (seen, then recorded,
+ * then linked). The two must be the same, every field; the first difference throws. The page compiled as always is returned.
+ */
+function audited(html: string, options: CompileOptions): CompileResult {
+  const plain = compileOne(html, options);
+  const definitions = new Map<string, unknown>();
+  let linked: CompileResult | null = null;
+  for (let i = 0; i < 3; i++) linked = compileOne(html, { ...options, definitions });
+  const text = (r: CompileResult) => JSON.stringify(r, (_, v) => (typeof v === 'function' ? '[fn]' : v instanceof Map ? [...v] : v instanceof Set ? [...v] : v));
+  const a = text(plain), b = text(linked!);
+  if (a !== b) {
+    let i = 0;
+    while (a[i] === b[i]) i++;
+    throw new Error(`sinter link audit: ${options.file}: linked differs at ${i}:\n  compiled ${a.slice(Math.max(0, i - 120), i + 120)}\n  linked   ${b.slice(Math.max(0, i - 120), i + 120)}`);
+  }
+  return plain;
+}
+
+function compileOne(html: string, options: CompileOptions): CompileResult {
   const parts = compileParts(html, options);
   // the images' rules: imported, so the bundler puts them in the page's stylesheet (no request, no inline style)
   // and the components' scoped styles, the same way
