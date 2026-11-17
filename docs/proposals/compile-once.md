@@ -324,6 +324,21 @@ again. Every build is byte-identical to `main`'s, three variants of `--files` in
 localized one (`localePrefix`, two languages, 605 files) links 792 definitions with 4 recordings, and builds in 7.9–8.7 s
 instead of 10.3.
 
+**The fifth review (2026-11-17)**, of `Rec.hand` only, compared it with the full copy it replaced over the whole suite
+(an instrumented copy of the linker): no page object a unit changed went uncopied, and no copy was taken late. It found
+two routes by which a page object reached a unit without being handed, each a scenario in
+`test/compiler/link-review-5.test.ts`:
+
+- A table inside a page table, as `defAttrs`' entry for a definition: the unit got it through a wrapper and wrote it back,
+  and the plan held a copy of the recording page's, not the linking page's. A page whose component got another class
+  before the tree linked the recording page's class. A table the unit saw through a wrapper is now the page's.
+- A site in the unit's copy of `fnAt` (a state wrapped for `$error` keeps its state's site): without a source map the
+  page's site was taken for the unit's own, and the unit refused, so such pages never linked. Its copy now hands a site
+  of the page's out as it reads it.
+
+None of the audit's comparisons could have shown the first: they link a page into itself, whose tables hold the same.
+Every build is byte-identical to `main`'s; the counts of linked definitions are as before (392, 376, 792).
+
 Found on the way and landed: the expression parse cache keyed its trees by one string of the kind, the options and the
 text, a new string hashed at every lookup (7% of the definitions' time). Keyed by the options, then by the text (the
 attribute's own string, whose hash the engine keeps): 6–9% off a page's compile, output unchanged. Memoizing

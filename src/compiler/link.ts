@@ -534,6 +534,13 @@ function runUnit(c: any, name: string, compile: (child: any) => unknown, prior: 
       set(x) { rec.write([], { kind: 'prop', key: k, value: x }); v = x; mine = true; },
     });
   }
+  // (a place the page wrote a function at, read from the unit's copy of `fnAt`: the page's, by its code)
+  const fnAtOwn: unknown[] = child.fnAt, pageFnAt: unknown[] = c.fnAt, pageFns: string[] = c.fns, pageCodeAt: Map<string, unknown> = c.codeAt;
+  child.fnAt = new Proxy(fnAtOwn, { get(t, k, r) {
+    const v = Reflect.get(t, k, r);
+    if (typeof k === 'string' && /^\d+$/.test(k) && +k < f0 && v && v === pageFnAt[+k]) rec.hand(v, pageCodeAt.get(pageFns[+k]!) === v ? [{ p: 'codeAt' }, { k: pageFns[+k] }] : null);
+    return v;
+  } });
   // its hand-outs of functions, in order, each with where it was written
   const calls: Unit['calls'] = [];
   const fn0 = child.fn;
@@ -564,6 +571,7 @@ function runUnit(c: any, name: string, compile: (child: any) => unknown, prior: 
   const unwrap = (v: unknown) => (v && typeof v === 'object' ? rec.page.get(v) ?? v : v);
   applyOps(c, ops, unwrap);
   for (const k of UNIT_NUMBERING) if (k in c && k !== 'codeAt') c[k] = child[k];
+  c.fnAt = fnAtOwn;
   c.at = child.at;
   // a check the unit left for the end of the page (a closure over its compiler): it reports to the page
   for (const k of Object.keys(c)) Object.defineProperty(child, k, { value: c[k], writable: true, configurable: true, enumerable: true });
@@ -591,7 +599,7 @@ function runUnit(c: any, name: string, compile: (child: any) => unknown, prior: 
   while (todo.length) {
     const v = unwrap(todo.pop());
     if (!v || typeof v !== 'object' || seenObj.has(v) || shared(v) || refs.has(v)) continue;
-    if (old.has(v) || prior.has(v) || pageNode(v)) {
+    if (old.has(v) || rec.where.has(v) || prior.has(v) || pageNode(v)) {
       if (prior.has(v)) { refs.set(v, { prior: prior.get(v)! }); continue; }
       const path = where.get(v) ?? rec.where.get(v);
       if (!path) return refuse(`refers to an object of the page that has no key (${(v as any).constructor?.name ?? 'object'}: ${(v as any).nodeName ?? Object.keys(v).slice(0, 6).join(', ')})`);
