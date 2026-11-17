@@ -1,7 +1,7 @@
 // @vitest-environment node
-// Spike (docs/proposals/site-core.md): with `sinter({ siteCore: true })` a build keeps the parts of the core its pages
-// use, their union, and compiles the rest away. The parts are read from each page's IR; the built core leaves out the
-// code of the parts no page uses, keeps that of the parts one page uses, and in Chromium every page still runs.
+// The site's core (docs/proposals/site-core.md): a build keeps the parts of the core its pages use, their union, and
+// compiles the rest away. The parts are read from each page's IR; the built core leaves out the code of the parts no
+// page uses, keeps that of the parts one page uses (a page more adds its own), and in Chromium every page still runs.
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -49,8 +49,8 @@ describe('the parts a page uses, from its IR', () => {
 /** the JavaScript a build wrote, all of it */
 const js = (out: string) => readdirSync(join(out, 'assets')).filter((f) => f.endsWith('.js')).map((f) => readFileSync(join(out, 'assets', f), 'utf8')).join('\n');
 
-describe('a site built with siteCore', () => {
-  const trimmed = join(root, 'dist'), full = join(root, 'dist-full');
+describe("a site's core", () => {
+  const trimmed = join(root, 'dist'), full = join(root, 'dist-more');
   beforeAll(async () => {
     // a page with state and a handler, and a page with a list from a resource: events, the list and the resource
     put('index.html', `<!doctype html><html><head><title>a</title></head><body>
@@ -61,15 +61,20 @@ describe('a site built with siteCore', () => {
 <ul id="items"><template data-sn-for="i in items"><li data-sn-text="i.name"></li></template></ul>
 </body></html>`);
     put('public/items.json', JSON.stringify([{ id: 1, name: 'one' }, { id: 2, name: 'two' }]));
-    const input = { index: join(root, 'index.html'), list: join(root, 'list.html') };
-    const run = (outDir: string, siteCore: boolean) => build({ root, logLevel: 'silent', plugins: [sinter({ siteCore })], resolve: { alias }, build: { outDir, emptyOutDir: true, rollupOptions: { input } } });
-    await run(trimmed, true);
-    await run(full, false);
+    // the same site with a page more: a dialog, an action and a custom element's property
+    put('more.html', `<!doctype html><html><head><title>c</title></head><body>
+<div data-sn-state="{ n: 0 }"><button data-sn-on-click="n++">+</button><dialog><span data-sn-text="n"></span></dialog>
+<form data-sn-post="/api/x"><button>send</button></form><x-y data-sn-prop="{ n: 1 }"></x-y></div>
+</body></html>`);
+    const two = { index: join(root, 'index.html'), list: join(root, 'list.html') };
+    const run = (outDir: string, input: Record<string, string>) => build({ root, logLevel: 'silent', plugins: [sinter()], resolve: { alias }, build: { outDir, emptyOutDir: true, rollupOptions: { input } } });
+    await run(trimmed, two);
+    await run(full, { ...two, more: join(root, 'more.html') });
   }, 120_000);
 
   test('the parts no page uses are compiled away, those one page uses are kept', () => {
     const a = js(trimmed), b = js(full);
-    // dialogs (waits()), actions (aria-busy while sent), props (customElements.whenDefined): in the full core only
+    // dialogs (waits()), actions (aria-busy while sent), props (customElements.whenDefined): with the page that uses them only
     for (const mark of ['dialog:not([open])', 'aria-busy', 'whenDefined']) {
       expect(b, mark).toContain(mark);
       expect(a, mark).not.toContain(mark);

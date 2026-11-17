@@ -1,6 +1,6 @@
 // Which parts of the core a site's pages use (docs/proposals/site-core.md). Every part is on here, so the
-// core works for any page: tests, dev, and an app that does not build with the Vite plugin. A build with
-// `sinter({ siteCore: true })` serves this module with the union of what its pages' IRs use (`coreParts`,
+// core works for any page: dev, and an app that does not build with the Vite plugin. A build (src/vite.ts)
+// serves this module with the union of what its pages' IRs use (`coreParts`,
 // src/core-parts.ts) and every other part `false`; the bundler inlines the constants and drops the code
 // they guard. One core per site: every page of a build shares the same chunk, so the next page's core is
 // already cached, and a swap can mount any page of the site with it.
@@ -25,3 +25,8 @@ export const PROP = true;
 export const STYLE = true;
 /** `<sn-resource>`: loaders, the shared GET, the store */
 export const RESOURCE = true;
+/**
+ * Called with each page's IR as it mounts; nothing here, nor in a build. The test suite's flags (test/core-flags.ts)
+ * turn on the parts the mounted pages use and no others, so every test runs on the smallest core for its pages.
+ */
+export const use: ((ir: import('../ir.js').IR) => void) | undefined = undefined;

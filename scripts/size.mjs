@@ -33,22 +33,23 @@ const minimal = minimalOut.module.replace(/'@tiaforge-ui\/sinter(\/[a-z]+)?'/g, 
 /** The same page in an app with swaps on: the stub and the build's list (`sinter({ swap: true })`) */
 const swapList = join(dir, 'swap-list.js');
 writeFileSync(swapList, `import { swap } from '${dist}/swap.js';\nexport default swap([{ m: ['/'] }, { m: ['/about'] }]);\n`);
-const minimalSwap = compile('<html><body><sn-resource name="user" src="/api/user"></sn-resource><p data-sn-text="user.name"></p></body></html>', {
+const minimalSwapOut = compile('<html><body><sn-resource name="user" src="/api/user"></sn-resource><p data-sn-text="user.name"></p></body></html>', {
   file: '/min/index.html', root: '/min', dev: false, helpers: { module: null, names: [], namespaces: {} }, readFile: () => '', moduleSrc: '/m.js', swap: true, swapList,
-}).module.replace(/'@tiaforge-ui\/sinter(\/[a-z]+)?'/g, (_, sub) => `'${dist}${sub ?? '/index'}.js'`);
+});
+const minimalSwap = minimalSwapOut.module.replace(/'@tiaforge-ui\/sinter(\/[a-z]+)?'/g, (_, sub) => `'${dist}${sub ?? '/index'}.js'`);
 
 /**
- * Spike (docs/proposals/site-core.md): the core as a site's build keeps it (`sinter({ siteCore: true })`), by entry:
- * the parts that stay on (the minimal page's own, read from its IR; none for the bare core)
+ * The core as a build keeps it (docs/proposals/site-core.md), by entry: the parts that stay on. A minimal page's are its
+ * own, read from its IR, as in an app whose only page it is; `core, no parts` is the floor every page loads. `core`
+ * is the core with every part on, for reference (what dev serves).
  */
-const siteCore = { 'minimal, site core': minimalOut.core, 'core, site core (no parts)': [] };
+const siteCore = { minimal: minimalOut.core, 'minimal, swaps': minimalSwapOut.core, 'core, no parts': [] };
 const flagsFile = resolve(dist, 'runtime/flags.js');
 const entries = {
   minimal,
-  'minimal, site core': minimal,
   'minimal, swaps': minimalSwap,
   core: `export { mount, $k } from '${dist}/index.js';`,
-  'core, site core (no parts)': `export { mount, $k } from '${dist}/index.js';`,
+  'core, no parts': `export { mount, $k } from '${dist}/index.js';`,
   sse: `export { default } from '${dist}/sse.js';`,
   ws: `export { webSocketTransport } from '${dist}/ws.js';`,
   optimistic: `export { default } from '${dist}/optimistic.js';`,
@@ -97,7 +98,10 @@ const entries = {
 // about 3 KB per page), with room for the next features. The article to 62 KB on 2026-11-17, when its body
 // moved from marked and DOMPurify (the example's own libraries, 22.4 KB, never counted here) to
 // @tiaforge-ui/sinter-markdown, which is counted: 31.1 → 59.8 KB, the parser 21.8 KB of it
-const BUDGET = { minimal: 16 * 1024, 'minimal, swaps': 17 * 1024, 'realworld article': 62 * 1024 };
+// Lowered on 2026-11-17 with the site's core (docs/proposals/site-core.md): a build keeps only the parts of the core its
+// pages use. The minimal page to 12 KB (11,046 B: the resource part alone over the 7.4 KB floor), with swaps to 13.5 KB
+// (12,860 B); the article stays at 62 KB (59,231 B: RealWorld keeps 7 of the 9 parts)
+const BUDGET = { minimal: 12 * 1024, 'minimal, swaps': 13.5 * 1024, 'realworld article': 62 * 1024 };
 let failed = false;
 const gz = (b) => gzipSync(b, { level: 9 }).length;
 function report(name, min, size) {

@@ -159,11 +159,6 @@ export interface SinterOptions extends ProjectOptions {
    * competes with what the first paint needs, and when the font is slow it can hold the first paint).
    */
   fonts?: { inline?: boolean; preload?: FontPreload[] };
-  /**
-   * Spike (docs/proposals/site-core.md): a build keeps only the parts of the core its pages use (the union of every
-   * page's, read from their IRs) and compiles the rest away. Off by default; `SINTER_SITE_CORE=1` turns it on too.
-   */
-  siteCore?: boolean;
 }
 
 type SinterPlugins = [Plugin & { api: { options: SinterOptions; source(file: string): string } }, Plugin, Plugin, Plugin, Plugin, Plugin];
@@ -886,10 +881,10 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   /** the build's helper calls that folded, by page and call, for the cross-check at its end */
   const foldCalls = new Map<string, FoldCall[]>();
   /**
-   * spike (docs/proposals/site-core.md): the parts of the core the build's pages use, and the pages compiled so far; the
-   * core's flags module is served once every page is in (`load` waits for it), with the parts no page uses off
+   * the site's core (docs/proposals/site-core.md): the parts of the core the build's pages use, and the pages compiled
+   * so far; a build serves the core's flags module once every page is in (`load` waits for it), with the parts no page
+   * uses off. Dev serves it as written, every part on.
    */
-  const siteCore = !!(options.siteCore ?? process.env.SINTER_SITE_CORE === '1');
   const coreUsed = new Set<string>(), coreDone = new Set<string>();
   let coreReady: { promise: Promise<void>; resolve(): void } | null = null;
   const coreWait = () => (coreReady ??= (() => { let resolve!: () => void; const promise = new Promise<void>((r) => (resolve = r)); return { promise, resolve }; })());
@@ -958,7 +953,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     // a page in a language is written into its language's folder: its relative URLs follow
     if (v) out.html = rebaseHtml(out.html, '/' + posix.dirname(relOf(src)).replace(/^\.$/, ''), '/' + posix.dirname(rel));
     runtimeOf.set(rel, out.runtime);
-    if (siteCore && !dev) { for (const c of out.core ?? []) coreUsed.add(c); coreDone.add(file); coreCheck(); }
+    if (!dev) { for (const c of out.core ?? []) coreUsed.add(c); coreDone.add(file); coreCheck(); }
     if (out.preload.length) preloadOf.set(rel, out.preload); else preloadOf.delete(rel);
     if (out.lazyScripts) lazyScriptsOf.set(rel, out.lazyScripts); else lazyScriptsOf.delete(rel);
     for (const x of out.styles) {
@@ -1317,10 +1312,18 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
 
     async load(id) {
       if (virtual.has(id)) return readPage(id);
-      // spike: the site's core (docs/proposals/site-core.md), once every page has said what it uses
-      if (siteCore && !dev && id === FLAGS) {
+      // the site's core (docs/proposals/site-core.md), once every page has said what it uses
+      if (!dev && id === FLAGS) {
         coreCheck();
-        await coreWait().promise;
+        // a page of the build that never compiles would hold the core forever: no page compiled for 30 s is an error
+        for (let n = -1; ;) {
+          let t: ReturnType<typeof setTimeout> | undefined;
+          const waited = await Promise.race([coreWait().promise.then(() => true), new Promise<false>((r) => (t = setTimeout(() => r(false), 30_000)))]);
+          clearTimeout(t);
+          if (waited) break;
+          if (coreDone.size === n) throw new Error(`sinter: the core waits for every page to compile, and these did not: ${entries().filter((f) => !coreDone.has(f)).map(relOf).join(', ')}`);
+          n = coreDone.size;
+        }
         resolved?.logger.info(`sinter: the site's core keeps ${[...coreUsed].sort().join(', ') || 'nothing optional'}`);
         return flagsModule(coreUsed);
       }

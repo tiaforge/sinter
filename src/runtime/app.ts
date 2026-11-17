@@ -484,6 +484,8 @@ export function mount(root: Document | Element, o: MountOptions): App {
   if (instances.has(root)) throw Error('sinter: already mounted');
   const { ir, fns } = o;
   if (ir?.v != 2 || !ir.ps) throw Error('sinter: unsupported IR');
+  // (the test suite's flags: the parts this page uses turn on; nothing in a build)
+  F.use?.(ir);
   const env = o.env ?? envOf(config);
   const req = createRequestLayer(env, o.request ?? config.request);
   const schemes = schemesOf(config.urlSchemes);

@@ -4,6 +4,7 @@
 // state, the build over constants, and the early script's first paint taken over by the page module.
 import { expect, test } from 'vitest';
 import { render } from '../../src/testing/index.js';
+import { reset as resetCore } from '../core-flags.js';
 
 /** a small seeded PRNG, so a failure names its case */
 function rng(seed: number) {
@@ -91,6 +92,8 @@ const SEEDS = Number(process.env.SN_FUZZ_SEEDS ?? 300), DEPTH = Number(process.e
 test('random nested components: a state change renders what a fresh render, the constant build and the early takeover render', async () => {
   const failures: string[] = [];
   for (let seed = 1; seed <= SEEDS; seed++) {
+    // each seed on the smallest core for its page (test/core-flags.ts)
+    resetCore();
     const r = rng(seed);
     const body = markup(r, 'x', DEPTH);
     const tpl = `<template data-sn-for="x in d">${body}</template>`;

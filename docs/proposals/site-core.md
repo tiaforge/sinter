@@ -1,10 +1,10 @@
 # Spike: a core per site, without the parts its pages do not use
 
-Status: spike (2026-11-17), on the branch `ccr-609d209b-vp07x6`, behind an option: `sinter({ siteCore: true })` (or
-`SINTER_SITE_CORE=1`). It builds on the linking work (`ccr-e552100a-ha1vsv`) and changes nothing in a build without
-the option. Recommendation: **take it, on by default for builds, after the tests below run the trimmed core.** It
-needs no new attribute and no app change. It takes a quarter off a content site's JavaScript and 0.5 KB off each
-RealWorld page.
+Status: spike (2026-11-17), on the branch `ccr-609d209b-vp07x6`, which builds on the linking work
+(`ccr-e552100a-ha1vsv`). **On in every build, with no option**: a build keeps the parts of the core its pages use and
+compiles away the rest. Dev serves the whole core. Nothing changes for an app's markup or code. It takes a quarter
+off a content site's JavaScript and 0.5 KB off each RealWorld page. The whole test suite, the fuzz tests included,
+runs every page on the smallest core for that page.
 
 ## The question
 
@@ -16,9 +16,9 @@ no page of the site uses?
 
 ## Measured
 
-Gzip -9 of minified code, as `scripts/size.mjs` counts it (`npm run size`; `SINTER_SITE_CORE=1` for RealWorld):
+Gzip -9 of minified code, as `scripts/size.mjs` counts it (`npm run size`), before this branch and with it:
 
-| | today | site core | |
+| | before | site core | |
 | --- | ---: | ---: | ---: |
 | the core alone, every part on | 15,361 B | | |
 | the core alone, every part off (the floor) | | 7,429 B | −52% |
@@ -78,15 +78,47 @@ would need the next page's core.
   event), and a model listens through the event dispatch.
 - **The wait in `load`.** The flags module loads only once every page has compiled. Rolldown transforms the HTML
   entries concurrently, so nothing waits on the core while pages are still compiling. A page whose compile fails
-  fails the build, and the wait goes with it. Dev serves the module as written, every part on.
-- **Tests run the full core.** The suite (2,186 tests) passes. It runs the core with every part on, so it shows that
-  nothing changed without the option. `test/vite/site-core.test.ts` builds a two-page site with the option and with
-  it off. It checks that the code of the unused parts is gone and that the used parts' code stays, and it runs both
-  pages in Chromium. Before this is on by default, the fuzz tests should also run against cores trimmed to their
-  pages' parts. Pages that use more than they declare would then fail there, not in an app.
+  fails the build, and the wait goes with it. A page of the build that never compiles would hold it forever: when no
+  page has compiled for 30 s, the build fails and names the pages it waited for.
+- **Dev and the build run different cores.** Dev serves the whole core (it compiles a page when it is requested and
+  never knows all of them). A part a page needs but its IR does not show would fail only in a build. The tests
+  cover this; see below.
+- **The core's hash follows the site.** A page that uses a part no other page did (the site's first `<dialog>`)
+  changes the core's chunk, and every page's visitors fetch it again after that deploy. Before, it changed with a
+  sinter upgrade. Deploys change chunks often anyway.
+- **No sharing between sites.** Browsers partition their HTTP cache by site, so a core is never shared between two
+  sites, trimmed or not. The gain is what each site ships, parses and compiles.
+- **An app that calls `mount` itself.** Only page modules mount, and the build sees all of them. An app's own module
+  that called `mount` with an IR of its own (not documented, and nothing in the repository does) would get the
+  site's core.
+
+## The tests run trimmed cores
+
+The test suite does not run the core as written. `vitest.config.ts` aliases its flags module to `test/core-flags.ts`,
+where every part is a switchable `let`, off at the start of each test (`test/core-flags-setup.ts`). `mount` calls
+`use(ir)` from the flags module, which is `undefined` in a build, so the call compiles away. In the tests, `use` turns
+on the parts that page's IR uses, joined with those of pages the test mounted before. The core reads the flags through
+its namespace import, so a change applies at once. Every test, then, runs its pages on the smallest core they could
+get, which is stricter than a site's union. The three fuzz tests reset the parts for each seed, since each runs all
+its seeds in one test. `test/core-flags.test.ts` checks that the core does read them: with lists off, a list stops
+rendering.
+
+Results: the whole suite passes (2,195 tests), the three page fuzz tests at their default seeds included (a run at
+2,000 seeds is pending).
+`test/vite/site-core.test.ts` builds a two-page site and the same site with a third page (a dialog, an action, a custom
+element's property). It checks that the code of those parts is only in the second build, and runs both first pages in
+Chromium.
 
 ## Next
 
+In order of what they save:
+
+- **A core in chunks, per page rather than per site.** The union makes every page pay for what any page uses:
+  RealWorld's login page carries the list and branch code its article needs. With the parts as modules of their own,
+  each page would import the parts it uses, and the bundler would share each part's chunk across the site. That is
+  the feature modules' design, and it would keep the per-site cache. It costs two things. The closure's private state
+  becomes an object the parts reach through, which minifies worse, and a page would load a few more small requests,
+  preloaded with it. This is the larger change; it should be measured first on RealWorld, whose pages differ most.
 - **The request layer as a part** (`createRequestLayer`, `request.js`: 2.9 KB minified, about 1.3 KB gzip of the
   floor). Only resources, actions and the feature modules that send requests use it, but `app.req`, `app.request` and
   `CallContext.request` reach it from code the IR does not show (helpers, actions, islands). It needs a decision on
@@ -95,5 +127,9 @@ would need the next page's core.
   (`record`), `then`. Within `LIST`: adopting the early script's rows, which only pages whose early script renders
   rows need. Within the floor: `storeFns` (`reset`, `run`, `emit`, `showModal`), which the compiled functions name.
   The compiler knows which of them a page calls.
-- **A budget for it** in `scripts/size.mjs`: the minimal page with its site core (11.0 KB now).
-- **On by default** in builds, once the fuzz tests run trimmed cores.
+- **Dev on the site's core.** Dev could serve the union of the pages it has compiled, so that a missing part fails
+  there too. But each newly visited page that adds a part would reload the core. Not worth it while the tests run
+  trimmed cores.
+
+The size budgets follow the site's core (`scripts/size.mjs`): the minimal page 12 KB (11.0 KB now), with swaps
+13.5 KB (12.9 KB), the RealWorld article 28 KB (27.4 KB).

@@ -33,5 +33,5 @@ export function coreParts(ir: Pick<IR, 'roots' | 'templates' | 'actions' | 'reso
 /** the flags module for a build whose pages use `parts` (src/runtime/flags.ts, with the other parts off) */
 export function flagsModule(parts: Iterable<string>): string {
   const on = new Set(parts);
-  return CORE_PARTS.map((p) => `export const ${p} = ${on.has(p)};`).join('\n') + '\n';
+  return CORE_PARTS.map((p) => `export const ${p} = ${on.has(p)};`).join('\n') + '\nexport const use = undefined;\n';
 }
