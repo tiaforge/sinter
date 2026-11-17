@@ -40,38 +40,40 @@ const env = (k: string) => node?.env[k];
  */
 function audited(html: string, options: CompileOptions): CompileResult {
   const plain = compileOne(html, options);
-  // linked into the page as it is, and into the same page with every numbering offset (`shift`), against that page compiled:
-  // on its own page a unit's indices happen to be the page's, offset they are not
-  const shifted = compileOne(html, { ...options, templates: undefined, shift: true });
+  // linked into the page as it is (three rounds: a definition seen, recorded, linked), and into the same page under another
+  // name and in another folder (the plans the first recorded: numbered alike, the file not), each against that page compiled
   const definitions = new Map<string, unknown>();
-  let linked: CompileResult | null = null, linkedShifted: CompileResult | null = null, linkedBack: CompileResult | null = null;
-  let renamed: CompileResult | null = null, linkedRenamed: CompileResult | null = null;
-  // and recorded on the offset page, linked back into the page as it is; and linked into the page under another name
-  const file = options.file.replace(/([^/]*)$/, 'sn-audit-$1');
+  const named = options.file.replace(/([^/]*)$/, 'sn-audit-$1'), moved = options.file.replace(/([^/]*)$/, 'sn-audit/$1');
+  const linked: CompileResult[] = [], others: Array<[string, CompileResult, CompileResult]> = [];
   // what linking did, for the log (`SN_LINK_AUDIT_LOG=<file>`: one line per page)
-  const g = globalThis as { __snLink?: { hits: number; recorded: number; refused: string[] } };
-  const was = g.__snLink;
-  g.__snLink = { hits: 0, recorded: 0, refused: [] };
+  type Stats = { hits: number; recorded: number; refused: string[]; missed?: number };
+  const g = globalThis as { __snLink?: Stats };
+  const was = g.__snLink, st: Stats = { hits: 0, recorded: 0, refused: [], missed: 0 };
+  let last: Stats = { hits: 0, recorded: 0, refused: [] };
   // (not the caller's kept templates: what the caller counts of them is its own compile's; a kept walk gives the same page)
   try {
-    for (let i = 0; i < 3; i++) linked = compileOne(html, { ...options, templates: undefined, definitions });
-    linkedShifted = compileOne(html, { ...options, templates: undefined, shift: true, definitions });
-    // (not where helpers fold: their calls are kept per file, and a caller counts them)
-    if (!options.helperValues) {
-      linkedRenamed = compileOne(html, { ...options, file, templates: undefined, definitions });
-      renamed = compileOne(html, { ...options, file, templates: undefined });
+    for (let i = 0; i < 3; i++) {
+      g.__snLink = { hits: 0, recorded: 0, refused: [], missed: 0 };
+      linked.push(compileOne(html, { ...options, templates: undefined, definitions }));
+      last = g.__snLink;
+      st.hits += last.hits; st.recorded += last.recorded; st.refused.push(...last.refused); st.missed! += last.missed ?? 0;
     }
-    const back = new Map<string, unknown>();
-    for (let i = 0; i < 2; i++) compileOne(html, { ...options, templates: undefined, shift: true, definitions: back });
-    linkedBack = compileOne(html, { ...options, templates: undefined, definitions: back });
+    // (not where helpers fold: their calls are kept per file, and a caller counts them)
+    if (!options.helperValues) for (const [what, file] of [['under another name', named], ['in another folder', moved]] as const) {
+      g.__snLink = { hits: 0, recorded: 0, refused: [] };
+      others.push([`linked into the page ${what}`, compileOne(html, { ...options, file, templates: undefined }), compileOne(html, { ...options, file, templates: undefined, definitions })]);
+    }
   } finally {
-    const log = env('SN_LINK_AUDIT_LOG'), st = g.__snLink!;
     g.__snLink = was;
-    if (log) (node?.getBuiltinModule?.('node:fs') as { appendFileSync(f: string, s: string): void } | undefined)?.appendFileSync(log, JSON.stringify({ file: options.file, linked: st.hits, recorded: st.recorded, refused: st.refused }) + '\n');
+    const log = env('SN_LINK_AUDIT_LOG');
+    if (log) (node?.getBuiltinModule?.('node:fs') as { appendFileSync(f: string, s: string): void } | undefined)?.appendFileSync(log, JSON.stringify({ file: options.file, linked: last.hits, recorded: st.recorded, refused: st.refused }) + '\n');
   }
+  // the same page again links what it recorded: a plan that does not hold on its own page is a recording that missed
+  // something (and a check that links nothing checks nothing)
+  if (st.missed) throw new Error(`sinter link audit: ${options.file}: a plan recorded on this page does not link into it again`);
+  if (st.recorded && !last.hits) throw new Error(`sinter link audit: ${options.file}: ${st.recorded} definitions recorded, none linked in the third round`);
   const text = (r: CompileResult) => JSON.stringify(r, (_, v) => (typeof v === 'function' ? '[fn]' : v instanceof Map ? [...v] : v instanceof Set ? [...v] : v));
-  for (const [what, x, y] of [['linked', plain, linked!], ['linked into the offset page', shifted, linkedShifted!], ['linked from the offset page', plain, linkedBack!], ['linked into the page under another name', renamed, linkedRenamed]] as const) {
-    if (!x || !y) continue;
+  for (const [what, x, y] of [['compiled where first seen', plain, linked[0]!], ['recorded', plain, linked[1]!], ['linked', plain, linked[2]!], ...others] as const) {
     const a = text(x), b = text(y);
     if (a === b) continue;
     let i = 0;

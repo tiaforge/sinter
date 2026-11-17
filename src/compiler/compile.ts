@@ -4,7 +4,7 @@ import type { SourceMap } from './sourcemap.js';
 import { rewriteImages, sourceFile, type ImageHost, type ImageResult } from './images.js';
 import { boxSizesCss, type ReserveTrace, Layout, PLACEHOLDER_BASE, type Affine, type Reserved, type StyleSheet } from './layout.js';
 import { shows } from './status-eval.js';
-import { recordChild, replay as replayUnit, LINK_FIELDS, UNIT_NUMBERING, type Plan, type Refused, type Span } from './link.js';
+import { recordChild, replay as replayUnit, LINK_FIELDS, UNIT_NUMBERING, type Plan, type Refused } from './link.js';
 import { HEAD_ELEMENTS, parseDocument } from './head.js';
 import { minifyMarkup } from './minify.js';
 import type { RemoteConfig } from '../remote.js';
@@ -77,8 +77,6 @@ export interface CompileOptions {
   templates?: Map<string, unknown>;
   /** (docs/proposals/compile-once.md, (5)): a build's shared definitions, recorded on one page and linked into the next */
   definitions?: Map<string, unknown>;
-  /** the link audit (`SN_LINK_AUDIT`): every numbering of the page starts further on, so an index linking does not renumber shows */
-  shift?: boolean;
   /**
    * The content module's collections (docs/resources.md#collections), loaded before the compile: each list and its key,
    * by name. Absent: none loaded (`sinter check` and the editor read them from the build's snapshot). `collectionsError`:
@@ -1303,15 +1301,6 @@ class Compiler {
         for (const m of v.members) { const o = v.from?.[m]; add(`${k}$${m}`, o?.module ?? v.module, o?.name ?? m); }
       }
       if (lazy.size) this.page.lazy = lazy;
-    }
-    // the link audit's offset page: every numbering starts further on, each by its own amount, with entries nothing uses
-    if (opts.shift) {
-      for (let i = 0; i < 3; i++) this.templates.push({ id: this.templates.length, nodes: [] });
-      for (let i = 0; i < 5; i++) this.fn(`() => ${JSON.stringify(`shift ${i}`)}`, null);
-      for (let i = 0; i < 2; i++) this.actions.push({ method: 'GET', url: ['/__shift'], concurrency: 'block' });
-      this.useIds += 7;
-      this.nextSid += 11;
-      this.nextId += 13;
     }
   }
 
@@ -3858,7 +3847,7 @@ class Compiler {
   }
 
   /** this page's linking (`definitions`): the units linked or recorded so far, and how they renumber */
-  private defLink = { depth: 0, chain: [] as string[], replayed: false, off: false, spans: [] as Span[], maps: { outs: new Map<number, unknown[]>() }, prior: new Map<object, { u: number; i: number }>() };
+  private defLink = { depth: 0, chain: [] as string[], off: false, maps: { outs: new Map<number, unknown[]>() }, prior: new Map<object, { u: number; i: number }>() };
 
   /** The shared definition of a component used inside itself: linked from the build's definitions, else compiled. */
   definition(name: string): { tid: number; id: string; use: Use } | null {
@@ -3868,20 +3857,20 @@ class Compiler {
     const cache = this.opts.definitions as Map<string, (Plan | Refused) & { slot?: number } | { seen: number }> | undefined;
     // compiled in place unless the build links (a unit compiles only to be recorded); in a unit, its definitions are its own
     if (!cache || L.depth > 0 || L.off || this.check || this.opts.dev) return this.compileDefinition(name);
-    // (each definition's span of ids on this page, whichever way it got here: what a later one names of it, renumbered)
-    const at = { t: this.templates.length, s: this.nextSid, u: this.useIds };
-    const span = () => L.spans.push({ ...at, n: this.templates.length - at.t, ns: this.nextSid - at.s, nu: this.useIds - at.u });
-    const stats = (globalThis as { __snLink?: { hits: number; recorded: number; refused: string[] } }).__snLink;
-    // (the chain: the ids of the units before it on this page, short whatever their keys)
-    const key = [this.opts.decided || this.opts.unrolled || this.opts.constants ? 2 : 1, L.chain.join(','), name, [...this.defs.keys()].join(',')].join('\u0002');
+    const stats = (globalThis as { __snLink?: { hits: number; recorded: number; refused: string[]; missed?: number } }).__snLink;
+    // (the chain: the ids of the units before it on this page, short whatever their keys; and how the page is numbered
+    // before it, which a plan is not renumbered for: a page numbered otherwise has a plan of its own)
+    const numbered = [this.templates.length, this.nextSid, this.useIds, this.nextId, this.fns.length, this.actions.length].join(',');
+    const key = [this.opts.decided || this.opts.unrolled || this.opts.constants ? 2 : 1, L.chain.join(','), name, [...this.defs.keys()].join(','), numbered].join('\u0002');
     const u = cache.get(key);
     if (u && 'ops' in u) {
-      if (replayUnit(this, u, L.maps, L.spans)) { L.replayed = true; L.chain.push(`${u.slot}`); span(); if (stats) stats.hits++; return this.defs.get(name) ?? null; }
+      if (replayUnit(this, u, L.maps)) { L.chain.push(`${u.slot}`); if (stats) stats.hits++; return this.defs.get(name) ?? null; }
+      // (what it read differs here: compiled in place, and so is the rest of the page, whose objects the plans after it name)
+      if (stats) stats.missed = (stats.missed ?? 0) + 1;
       L.off = true;
       return this.compileDefinition(name);
     }
-    // what this page compiles from here on is its own numbering: a unit recorded after a linked one would mix two
-    if ((u && !('seen' in u)) || L.replayed) { L.off = true; return this.compileDefinition(name); }
+    if (u && !('seen' in u)) { L.off = true; return this.compileDefinition(name); }
     // recorded the second time a build needs it (recording logs what the unit reads and writes): a definition only one
     // page needs, as a `data-sn-pages` template's first entry, is compiled in place once. The chain goes on from either
     if (u === undefined) {
@@ -3889,12 +3878,12 @@ class Compiler {
       cache.set(key, { seen: id });
       L.chain.push(`${id}`);
       L.depth++;
-      try { return this.compileDefinition(name); } finally { L.depth--; span(); }
+      try { return this.compileDefinition(name); } finally { L.depth--; }
     }
-    const r = recordChild(this, name, (child: Compiler) => child.compileDefinition(name), L.prior, L.spans.slice());
+    const r = recordChild(this, name, (child: Compiler) => child.compileDefinition(name), L.prior);
     cache.set(key, Object.assign(r.unit, { slot: u.seen }));
     if ('refused' in r.unit) { L.off = true; if (stats) stats.refused.push(`${name}: ${r.unit.refused}`); }
-    else { L.chain.push(`${u.seen}`); span(); if (stats) stats.recorded++; }
+    else { L.chain.push(`${u.seen}`); if (stats) stats.recorded++; }
     return r.result;
   }
 

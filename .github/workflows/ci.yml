@@ -30,7 +30,8 @@ jobs:
       - run: npm run size -- --check
 
   # shared definitions linked into each page (docs/proposals/compile-once.md, (5)): every compile in the suite is also
-  # compiled through linking and must be the same (SN_LINK_AUDIT); the summary says how many pages linked something
+  # compiled through linking, recorded and linked into itself, under another name and in another folder, and must be the
+  # same; what it records must link into it again (SN_LINK_AUDIT). The summary says how many pages linked something
   link-audit:
     runs-on: ubuntu-latest
     steps:
@@ -42,7 +43,7 @@ jobs:
       - run: npm ci
       - run: npm run build
       - run: npx playwright install --with-deps chromium firefox webkit
-      # (each compile runs eleven times: the largest pages' tests need longer than the default 5 s)
+      # (each compile runs eight times: the largest pages' tests need longer than the default 5 s)
       - run: npm test -- --testTimeout=60000
         env:
           SN_LINK_AUDIT: '1'
