@@ -7,7 +7,8 @@
 // `--warm`: also each page opened after the index page in the same profile, cache kept (the
 // index's audit is discarded): what a reader following a link downloads.
 // `--b-axum`: B is served by sinter-axum's RealWorld server (axum.mjs; build B with SINTER_EMBED=1),
-// which fetches each page's data from the same mock API and writes it into the page.
+// which fetches each page's data from the same mock API and writes it into the page. `--a-axum`: A too
+// (two embedded-data builds against each other).
 import { parseArgs } from 'node:util';
 import * as chromeLauncher from 'chrome-launcher';
 import lighthouse, { desktopConfig } from 'lighthouse';
@@ -18,11 +19,11 @@ import { serve } from './serve.mjs';
 const { values: opt } = parseArgs({ options: {
   a: { type: 'string' }, b: { type: 'string' }, runs: { type: 'string', default: '7' },
   pages: { type: 'string', default: '/,/article/article-25,/profile/author1,/login' }, warm: { type: 'boolean' },
-  'b-axum': { type: 'boolean' }, forms: { type: 'string', default: 'mobile,desktop' },
+  'a-axum': { type: 'boolean' }, 'b-axum': { type: 'boolean' }, forms: { type: 'string', default: 'mobile,desktop' },
 } });
 const runs = Number(opt.runs), pages = opt.pages.split(',');
 const api = await mockApi();
-const servers = { A: await serve({ dist: opt.a }), B: opt['b-axum'] ? await serveAxum({ dist: opt.b, api: api.http }) : await serve({ dist: opt.b }) };
+const servers = { A: opt['a-axum'] ? await serveAxum({ dist: opt.a, api: api.http }) : await serve({ dist: opt.a }), B: opt['b-axum'] ? await serveAxum({ dist: opt.b, api: api.http }) : await serve({ dist: opt.b }) };
 
 async function audit(urls, config) {
   const chrome = await chromeLauncher.launch({
@@ -65,7 +66,7 @@ try {
     const med = (v) => Object.fromEntries(Object.keys(got[v][0]).map((k) => [k, median(got[v].map((m) => m[k]))]));
     const row = { ...c, A: med('A'), B: med('B') };
     rows.push(row);
-    console.error(`${c.form} ${c.page}${c.warm ? ' (after /)' : ''}: LCP ${Math.round(row.A.lcp)} → ${Math.round(row.B.lcp)} ms, FCP ${Math.round(row.A.fcp)} → ${Math.round(row.B.fcp)} ms`);
+    console.error(`${c.form} ${c.page}${c.warm ? ' (after /)' : ''}: LCP ${Math.round(row.A.lcp)} → ${Math.round(row.B.lcp)} ms, FCP ${Math.round(row.A.fcp)} → ${Math.round(row.B.fcp)} ms; CLS of each run: A ${got.A.map((m) => m.cls.toFixed(3)).join(' ')}, B ${got.B.map((m) => m.cls.toFixed(3)).join(' ')}`);
   }
 } finally {
   await servers.A.close(); await servers.B.close(); await api.close();

@@ -40,7 +40,8 @@ suite's payloads stay inert. Until 2026-11-17 the body was marked and DOMPurify 
 `<conduit-markdown>`; the comparison is in the [markdown library's docs](../../packages/sinter-markdown/docs/markdown.md#performance).
 The parser loads with the article page. With embedded data (`SINTER_EMBED`), the body renders in the early script
 like the rest of the article, so the parser is in the article's early file (30.5 kB gzip, `earlyBudget` raised to
-40 KB in `vite.config.js`) as well as in its page module. Measured on the article page (Lighthouse mobile, a local
+40 KB in `vite.config.js`), and the page module takes that instance instead of a copy of its own
+([own copies](../../docs/first-paint.md#own-copies)). Measured on the article page (Lighthouse mobile, a local
 API, median of 5):
 
 | | static | sinter-axum: first paint / LCP |
@@ -50,7 +51,10 @@ API, median of 5):
 | sinter-markdown, the body at mount (`<md-doc data-sn-early="off">`) | | 1,354 / 2,127 ms |
 | sinter-markdown, the parser lazy | 2,566 ms | 1,440 / 2,266 ms |
 
-The body in the first frame costs the parser twice: 92.4 kB of scripts transferred (brotli) instead of 63.4.
+Until the page module shared the early file's parser (2026-11-17), the body in the first frame cost the parser twice:
+91.8 kB of scripts transferred (brotli); now 67.2 kB, with 49 ms of blocking time instead of 70 and the same LCP
+(Lighthouse mobile through sinter-axum, median of 9; a swap into the article, which runs no early file, loads the
+parser's own chunk beside the page module: 857 ms from the click to the body instead of 958 on slow 4G).
 At mount, what follows the body needed CSS to hold it back (CLS 0.452 without); in the first frame it needs none.
 The library is linked from `packages/` (`file:`), so `resolve.dedupe` in `vite.config.js` points its imports
 of sinter at the app's.

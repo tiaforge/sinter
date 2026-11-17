@@ -21,7 +21,8 @@ export default defineConfig({
       // after saving (docs/navigation.md#swaps)
       swap: true,
       // with embedded data (SINTER_EMBED), the article's body renders in the early script, its parser in the article's
-      // early file (30.5 kB gzip): its LCP is its first paint, 1,359 ms on Lighthouse mobile through sinter-axum,
+      // early file (30.5 kB gzip), and the page module takes that instance (docs/first-paint.md#own-copies): its LCP is its
+      // first paint, 1,359 ms on Lighthouse mobile through sinter-axum,
       // against 2,127 ms with the body rendered at mount (README.md). Without embedded data nothing of it is early
       earlyBudget: 40 * 1024,
       embed: !!process.env.SINTER_EMBED,
