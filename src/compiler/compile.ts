@@ -807,7 +807,8 @@ type KeptTemplate = { c: Compiler; path: string; checked: boolean; hits: number;
 
 /** the template walked as one entry's first pass, up to its evaluation; null when its entries cannot share it */
 function keepTemplate(html: string, options: CompileOptions): KeptTemplate | null {
-  const c = new Compiler(options);
+  // (not linked: the walk is kept for every entry already, and the one that checks it would only record what none replays)
+  const c = new Compiler({ ...options, definitions: undefined });
   c.walkPage(html);
   // an entry's own URL compiled into the program (`$canonical`, `localeUrl()`): each entry has a program of its own
   if (!c.entryProgram()) return null;
