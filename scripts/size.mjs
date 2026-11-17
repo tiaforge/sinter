@@ -100,7 +100,7 @@ const entries = {
 // @tiaforge-ui/sinter-markdown, which is counted: 31.1 → 59.8 KB, the parser 21.8 KB of it
 // Lowered on 2026-11-17 with the site's core (docs/proposals/site-core.md): a build keeps only the parts of the core its
 // pages use. The minimal page to 12 KB (11,046 B: the resource part alone over the 7.4 KB floor), with swaps to 13.5 KB
-// (12,860 B); the article stays at 62 KB (59,231 B: RealWorld keeps 7 of the 9 parts)
+// (12,860 B); the article stays at 62 KB (59,231 B: RealWorld keeps 6 of the 9 parts)
 const BUDGET = { minimal: 12 * 1024, 'minimal, swaps': 13.5 * 1024, 'realworld article': 62 * 1024 };
 let failed = false;
 const gz = (b) => gzipSync(b, { level: 9 }).length;

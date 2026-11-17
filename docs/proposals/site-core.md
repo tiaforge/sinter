@@ -1,9 +1,8 @@
 # Spike: a core per site, without the parts its pages do not use
 
-Status: spike (2026-11-17), on the branch `ccr-609d209b-vp07x6`, which builds on the linking work
-(#71, `ccr-e552100a-ha1vsv`). **On in every build, with no option**: a build keeps the parts of the core its pages use and
+Status: spike (2026-11-17), on the branch `ccr-609d209b-vp07x6`, on main after #71 and #72. **On in every build, with no option**: a build keeps the parts of the core its pages use and
 compiles away the rest. Dev serves the whole core. Nothing changes for an app's markup or code. It takes a quarter
-off a content site's JavaScript and 0.5 KB off each RealWorld page. The whole test suite, the fuzz tests included,
+off a content site's JavaScript and 0.6 KB off each RealWorld page. The whole test suite, the fuzz tests included,
 runs every page on the smallest core for that page.
 
 ## The question
@@ -23,13 +22,14 @@ Gzip -9 of minified code, as `scripts/size.mjs` counts it (`npm run size`), befo
 | the core alone, every part on | 15,361 B | | |
 | the core alone, every part off (the floor) | | 7,429 B | −52% |
 | the minimal page (one resource, one text binding) | 15,567 B | 11,046 B | −29% |
-| RealWorld, article | 31,107 B | 30,582 B | −525 B |
-| RealWorld, index | 33,316 B | 32,790 B | −526 B |
-| RealWorld, login | 27,769 B | 27,245 B | −524 B |
+| RealWorld, article | 59,838 B | 59,231 B | −607 B |
+| RealWorld, index | 33,323 B | 32,716 B | −607 B |
+| RealWorld, login | 27,800 B | 27,193 B | −607 B |
 | `examples/multilingual-site`, all its JavaScript | 17,591 B | 13,037 B | −26% |
 | `examples/static-site`, all its JavaScript | 17,197 B | 14,077 B | −18% |
 
-RealWorld uses 7 of the 9 parts (all but dialogs and styles), so it gains little. The content sites keep one or two
+RealWorld uses 6 of the 9 parts (all but dialogs, props and styles; props went with #72, which renders the article
+body with a component instead of a custom element), so it gains little. The content sites keep one or two
 (`RESOURCE`; `BRANCH, RESOURCE`). (`examples/dashboard` installs sinter from npm and does not build with this
 branch's markup.)
 
@@ -68,8 +68,8 @@ keeps that chunk shared: the next page's core is already cached, and a swap (`si
 page of the site with the core it has. A per-page core would cost a new chunk per combination of parts, and a swap
 would need the next page's core. Measured on RealWorld, a core per page would not pay
 either: every page uses the five large parts (lists, branches, actions, events, resources). They differ only by
-models (about 230 B: not on the index and profile pages) and props (about 100 B: the article page only). A page that
-loaded only its own parts would save at most about 330 B, once, on the first page of a visit. It would pay for that
+models (about 230 B: not on the index and profile pages). A page that loaded only its own parts would save at most
+about 230 B, once, on the first page of a visit. It would pay for that
 with more requests, weaker compression across small files, and a fetch before a swap to a page that needs a part not
 loaded yet.
 
@@ -132,5 +132,5 @@ In order of what they save:
   trimmed cores.
 
 The size budgets follow the site's core (`scripts/size.mjs`): the minimal page 12 KB (11.0 KB now), with swaps
-13.5 KB (12.9 KB). The RealWorld article keeps main's 35 KB (30.6 KB now, counted with its classic head scripts
-since #70).
+13.5 KB (12.9 KB). The RealWorld article keeps main's 62 KB (59.2 KB now: its head scripts counted since #70, the markdown
+parser since #72).
