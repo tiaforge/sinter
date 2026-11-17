@@ -868,6 +868,8 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   const globCache: NonNullable<Parameters<typeof compile>[1]['globCache']> = new Map();
   /** builds: each `data-sn-pages` template's first pass, walked once for all its entries (compile's `templates`), cleared with the reads */
   const templates = new Map<string, unknown>();
+  /** spike (docs/proposals/compile-once.md, (5)): builds: shared definitions, recorded on one page and linked into the next */
+  const definitions = new Map<string, unknown>();
   const readVia = (p: ReturnType<typeof project>) => (dev ? p.readFile : (path: string) => {
     let r = buildReads.get(path);
     if (!r) { try { r = { text: p.readFile(path) }; } catch (error) { r = { error }; } buildReads.set(path, r); }
@@ -899,7 +901,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     if (!seen.has(file)) { seen.add(file); if (dev || !pageInputs) pagesCache = null; }
     const prefetch = options.prefetch !== false && prefetchPages().length ? PREFETCH : null;
     const out = compile(html, {
-      file: src, root, dev, sourcemap: dev || !!resolved?.build.sourcemap, helpers: p.helpers, actions: p.actions, moduleSrc: `${PREFIX}${rel}.js`, config: p.config, readFile: readVia(p), listFiles: p.listFiles, ...(dev ? {} : { globCache, templates }), ...contentOpts(v?.locale), prefetch,
+      file: src, root, dev, sourcemap: dev || !!resolved?.build.sourcemap, helpers: p.helpers, actions: p.actions, moduleSrc: `${PREFIX}${rel}.js`, config: p.config, readFile: readVia(p), listFiles: p.listFiles, ...(dev ? {} : { globCache, templates, ...(process.env.SN_NO_LINK ? {} : { definitions }) }), ...contentOpts(v?.locale), prefetch,
       ...(page ? { page } : {}),
       check: !!options.typecheck && !dev, openapi: p.openapi, apis: p.apis, complexity: p.complexity, ...(p.expansionLimit ? { expansionLimit: p.expansionLimit } : {}), componentNames: p.componentNames, libraries: p.libraries, checkCycles: p.checkCycles, lazy: p.lazy,
       ...(lazyPkgs.length ? { lazyScript, lazyModule: (m: string) => lazyHelpers(root, lazyPkgs, undefined, p.libraries).reach(m) } : {}),
@@ -1134,6 +1136,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       buildReads.clear();
       globCache.clear();
       templates.clear();
+      definitions.clear();
       templatesKept.clear();
       buildProject = null;
       if (dev) return;

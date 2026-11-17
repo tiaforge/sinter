@@ -2,8 +2,8 @@
 
 Status: (1), (2) and (3) landed (2026-11-16) with tests (`test/compiler/template-pass.test.ts`, the next-page test in
 `test/vite/pages.test.ts`). (4), a single pass, was spiked: not as designed. (5), shared definitions linked into each
-page, was measured: about 35% of a non-template page's compile, behind a refactor that makes a definition a unit of its
-own. The expression parse cache's key, found on the way, landed. The rarer re-runs are open. Builds on
+page, was spiked as a generic record and replay: byte-identical, 31% off a non-template page's compile, 19% off that
+build; to production as a refactor, with the spike as its oracle. The expression parse cache's key, found on the way, landed. The rarer re-runs are open. Builds on
 [parallel-page-compile.md](parallel-page-compile.md), which removed the all-pairs loops inside one compile. This one asks
 which compiles a build runs at all, and which of them repeat work that does not change. No threads.
 
@@ -123,7 +123,7 @@ a partial oracle would not be byte-identical.
 - *Decisions cached across builds*, keyed by everything a page reads (its HTML, component files, data files, the
   helpers module): unchanged pages skip pass 1 on a rebuild. That's caching, not a faster cold build.
 
-## (5) Shared definitions, linked (spike: measured, not built)
+## (5) Shared definitions, linked (spiked: built, byte-identical, 31% of a non-template page)
 
 Measured on the blog of one page per post (`--files`), in-process, by instrumenting `definition()`:
 
@@ -153,6 +153,55 @@ into the page's tables. The way to build it is to make a definition a unit of it
 and side tables in one object, local numbering, with one explicit merge into the page), with byte-identical output at
 each step, and cache that unit per build. A large refactor of the compiler's front half, worth it if sites with many
 pages that are not `data-sn-pages` matter.
+
+### The linker, spiked (branch `link-spike`, local)
+
+Built as a generic record and replay (`src/compiler/link.ts`; compile's `definitions`, which the Vite plugin passes in
+builds, `SN_NO_LINK` switches it off), not as the refactor first:
+
+- **The unit** is a top-level `definition()` call with the definitions nested in it, keyed by the pass, the units
+  already linked on the page (the chain), its name and the definitions the page has. A build compiles it the first time
+  as before, records it the second time, and links it from the third.
+- **Recording** diffs the compiler's tables (its maps, sets and lists, one level into `page`), intercepts writes to its
+  weak maps, records each `fn()` hand-out, and diffs every object that existed before the call (a shallow copy each).
+  An object from before is referred to by its path from a compiler field (properties, map keys, list indices, never
+  markup children), by the earlier unit that made it, as the element being compiled, or shared (frozen, or a parse5
+  source location). Anything else, a function among what it made, or a class instance makes the unit unlinkable, and
+  the page compiles it.
+- **A plan.** The unit is kept as a flat list of the objects it made, each value classified once (a plain value, another
+  object of the plan, an object of the page, a string to renumber) with the numbers to renumber in each. Replaying it
+  makes the objects, fills them, renumbers template ids, use ids and function indices, replays `fn()` in order (the
+  table's dedupe and numbering are the page's own), applies the recorded changes, and sets `at`.
+- **Found on the way** and changed in the compiler: a placement's default shape was a closure over its elements; it is
+  data now (`DefaultShape`, `shapeChildren`). Units of one page share objects (one unit's `at` and source sites are the
+  next one's), so the page keeps one map of what its units made.
+
+Measured, every output byte-identical:
+
+| | not linked | linked |
+| --- | ---: | ---: |
+| a page of the one-page-per-post blog, compiled in-process (median of 7) | 24.8 ms | 17.0 ms |
+| that build (`--files`, 100 posts; two runs) | 4.7, 4.6 s | 3.9, 3.7 s |
+| the `data-sn-pages` blogs (static, live) | 2.5, 3.8 s | 2.5, 3.9 s |
+
+The template blogs do not change: each template's first entry is the only page that compiles the definitions, so they
+are seen once and never recorded. A unit replays in about 1.2 ms where compiling it takes about 3 (from the page totals: four units, 7.8 ms saved); the first deep-copy
+version took 6.5 ms per page, the plan removed most of it. Checked: the three benchmark builds and the four example
+apps, every file the same as without linking; `vitest run` 2,133 passed with linking on in every build;
+`test/compiler/link.test.ts` compiles six page shapes (the tree alone, a loop and a condition before it, another
+component before it, a fill of the tree's slot, state with a handler, two trees) in rounds through one cache: 34
+links, no refusal, each page as compiled alone. Breaking the `fn()` replay or the renumbering fails it.
+
+What it does not cover yet, and the risk: the recorder is generic, so what it diffs is what it can see. A change it
+cannot see (a property of an object no field reaches, a non-enumerable one, a write to a weak map that is not a field)
+would be linked as missing, silently. Builds with `typecheck` and dev builds do not link. Recording walks the
+compiler's state (about 250 ms once per build). The describe compiles (`describeOnly`) do not link.
+
+**Recommendation.** Take it to production as the refactor the doc first proposed, now that the spike has mapped what a
+definition writes: a definition writes its templates, functions and side tables into a unit of its own, and `link()`
+merges it, with the record-and-replay kept as the test oracle (a page linked must equal the page compiled, over the
+benchmark apps, the examples and the shapes above). Keeping the generic recorder as the mechanism is the faster
+path, but every compiler change could add a write it does not see.
 
 Found on the way and landed: the expression parse cache keyed its trees by one string of the kind, the options and the
 text, a new string hashed at every lookup (7% of the definitions' time). Keyed by the options, then by the text (the

@@ -4,6 +4,7 @@ import type { SourceMap } from './sourcemap.js';
 import { rewriteImages, sourceFile, type ImageHost, type ImageResult } from './images.js';
 import { boxSizesCss, type ReserveTrace, Layout, PLACEHOLDER_BASE, type Affine, type Reserved, type StyleSheet } from './layout.js';
 import { shows } from './status-eval.js';
+import { record as recordUnit, replay as replayUnit, type Plan, type Refused } from './link.js';
 import { HEAD_ELEMENTS, parseDocument } from './head.js';
 import { minifyMarkup } from './minify.js';
 import type { RemoteConfig } from '../remote.js';
@@ -74,6 +75,8 @@ export interface CompileOptions {
    * `urls`, `moduleSrc`, `paintCss`, `images` and `locale.urls`. Cleared with the build's reads.
    */
   templates?: Map<string, unknown>;
+  /** spike (docs/proposals/compile-once.md, (5)): a build's shared definitions, recorded on one page and linked into the next */
+  definitions?: Map<string, unknown>;
   /**
    * The content module's collections (docs/resources.md#collections), loaded before the compile: each list and its key,
    * by name. Absent: none loaded (`sinter check` and the editor read them from the build's snapshot). `collectionsError`:
@@ -629,6 +632,9 @@ interface Placement {
  * A component's root, which renders at most one element: one plain element (`el`), an if/else chain
  * of roots, a component tag, `<sn-component use>`. `empty`: it may render nothing.
  */
+/** a placement's default as a fill's `<slot>` takes it (`defaultShape`): data, its children from `shapeChildren` */
+type DefaultShape = { shape: RootShape; el: P5Element; what?: string };
+
 type RootShape =
   | { kind: 'el'; el: P5Element; empty: false }
   | { kind: 'chain'; templates: P5Element[]; branches: RootShape[]; empty: boolean }
@@ -792,6 +798,9 @@ function parsedText(text: string): DefaultTreeAdapterMap['documentFragment'] {
   }
   return f;
 }
+
+/** spike (`definitions`): a definition one page compiled, to record when another needs it */
+const SEEN = { seen: true } as const;
 
 /** a `data-sn-pages` template walked once (`fromTemplate`): its first pass, kept for each entry's evaluation */
 type KeptTemplate = { c: Compiler; path: string; checked: boolean; hits: number; misses: number };
@@ -966,7 +975,7 @@ class Compiler {
   private readonly caseFill = new Map<number, { id: number; use: Use; k: string; nodes: P5Node[] }>();
   /** component files read as a graph (`fileGraph`) */
   /** tree placements in shared definitions, made choice anchors by the walk; their fills' cases after it (`finishTreeFills`) */
-  private readonly runtimePlacements: Array<{ el: P5Element; node: NodeDef; k: string; at: Scope; data: string; deps: string[]; members: Map<string, LetEntry>; shape: { children: (copy: boolean) => P5Node[] | null; what?: string } | null; cases: number[]; map: Record<number, number> }> = [];
+  private readonly runtimePlacements: Array<{ el: P5Element; node: NodeDef; k: string; at: Scope; data: string; deps: string[]; members: Map<string, LetEntry>; shape: DefaultShape | null; cases: number[]; map: Record<number, number> }> = [];
   /** the top nodes of a fill's case template and the children it places: the scope each is walked in */
   private readonly caseScopes = new WeakMap<object, Scope>();
   private graphs?: Map<string, { uses: Set<string>; declares: Set<string>; places: Set<string>; data: Set<string>; helperChoice: boolean }>;
@@ -2898,7 +2907,7 @@ class Compiler {
         detach(s.el);
         return;
       }
-      const kids = def.children(i > 0);
+      const kids = this.shapeChildren(def, i > 0);
       if (!kids) {
         this.report(s.el, null, 'SN331', `the default of \`${p.name}\` in \`<${p.use.name}>\` renders a component (\`<${def.what}>\`), whose children are that component's markup: this \`<slot>\` has none to place`, 0,
           'leave the `<slot>` out of the fill, or give the placement a default element of its own');
@@ -2926,7 +2935,7 @@ class Compiler {
    * null when it renders no element (text, nothing). Anything broader follows the component root's
    * rules (rootShape).
    */
-  defaultShape(p: Placement): { children: (copy: boolean) => P5Node[] | null; what?: string } | null {
+  defaultShape(p: Placement): DefaultShape | null {
     const top = p.el.childNodes.filter(realNode);
     // text or nothing: no element
     if (!top.some(isElement)) return null;
@@ -2947,19 +2956,24 @@ class Compiler {
     // a component (or a choice) somewhere in the default: its element's children are that component's markup, not given to a fill
     const opaque = (sh: RootShape): string | null => sh.kind === 'tag' || sh.kind === 'choice' ? sh.el.tagName : sh.kind === 'chain' ? sh.branches.map(opaque).find((x) => x) ?? null : null;
     const what = opaque(shape) ?? undefined;
+    return { shape, el: p.el, ...(what ? { what } : {}) };
+  }
+
+  /** A placement's default's children, for a fill's `<slot>` (copies, with `copy`); null when the default is a component. */
+  shapeChildren(d: DefaultShape, copy: boolean): P5Node[] | null {
     const kids = (sh: RootShape, copy: boolean): P5Node[] => {
       if (sh.kind === 'el') return copy ? sh.el.childNodes.map((c) => this.cloneTree(c, sh.el)) : [...sh.el.childNodes];
       if (sh.kind !== 'chain') return [];
       // a chain: the same conditions, each branch its root's children
       return sh.templates.map((t, i) => {
-        const x = this.cloneTree(t, t.parentNode ?? p.el) as P5Template;
+        const x = this.cloneTree(t, t.parentNode ?? d.el) as P5Template;
         const inner = kids(sh.branches[i]!, copy);
         for (const k of inner) (k as { parentNode: P5Parent }).parentNode = x.content;
         x.content.childNodes = inner as never[];
         return x;
       });
     };
-    return { children: (copy) => (what ? null : kids(shape, copy)), ...(what ? { what } : {}) };
+    return d.what ? null : kids(d.shape, copy);
   }
 
 
@@ -3590,7 +3604,7 @@ class Compiler {
               continue;
             }
             accepted.push(s);
-            const kids = P.shape?.children(true) ?? null;
+            const kids = P.shape ? this.shapeChildren(P.shape, true) : null;
             if (!kids) { this.report(s.el, null, 'SN331', `the default of \`${P.k}\` renders ${P.shape?.what ? `a component (\`<${P.shape.what}>\`)` : 'no element'}, so this \`<slot>\` has no children to place`, 0); detach(s.el); continue; }
             for (const kid of kids) if (isElement(kid)) this.caseScopes.set(kid, P.at);
             this.freshChoices(kids);
@@ -3816,8 +3830,46 @@ class Compiler {
     }
   }
 
-  /** The shared definition of a component used inside itself, compiled on its first such use. */
+  /** spike: this page's linking (`definitions`): the units linked or recorded so far, and how they renumber */
+  private defLink = { depth: 0, chain: [] as string[], replayed: false, off: false, maps: { tid: new Map<number, number>(), fn: new Map<number, number>(), use: new Map<number, number>(), outs: new Map<number, unknown[]>(), strs: new Map<string, string>() }, prior: new Map<object, { u: number; i: number }>() };
+
+  /** The shared definition of a component used inside itself: linked from the build's definitions, else compiled. */
   definition(name: string): { tid: number; id: string; use: Use } | null {
+    const known = this.defs.get(name);
+    if (known !== undefined) return known;
+    const cache = this.opts.definitions as Map<string, Plan | Refused | typeof SEEN | null> | undefined, L = this.defLink;
+    const stats = (globalThis as { __snLink?: { hits: number; recorded: number; refused: string[] } }).__snLink;
+    if (!cache || L.off || L.depth > 0 || this.check || this.opts.dev) return this.compileDefinition(name);
+    const key = [this.opts.decided || this.opts.unrolled || this.opts.constants ? 2 : 1, L.chain.join('\u0001'), name, [...this.defs.keys()].join(',')].join('\u0002');
+    const u = cache.get(key);
+    if (u && u !== SEEN && 'ops' in u) {
+      if (replayUnit(this, u, L.maps)) { L.replayed = true; L.chain.push(key); if (stats) stats.hits++; return this.defs.get(name) ?? null; }
+      L.off = true;
+      return this.compileDefinition(name);
+    }
+    // what this page compiles from here on is its own numbering: a unit recorded after a linked one would mix two
+    if ((u && u !== SEEN) || L.replayed) { L.off = true; return this.compileDefinition(name); }
+    // recorded the second time a build needs it (recording costs a walk of the compiler's state): a definition only one
+    // page needs, as a `data-sn-pages` template's first entry, is compiled as before. The chain goes on from either
+    if (u === undefined) {
+      cache.set(key, SEEN);
+      L.chain.push(key);
+      // (its nested definitions are part of it, as when it is recorded)
+      L.depth++;
+      try { return this.compileDefinition(name); } finally { L.depth--; }
+    }
+    L.depth++;
+    try {
+      const r = recordUnit(this, name, () => this.compileDefinition(name), L.prior);
+      cache.set(key, r.unit);
+      if ('refused' in r.unit) { L.off = true; if (stats) stats.refused.push(`${name}: ${r.unit.refused}`); }
+      else { L.chain.push(key); if (stats) stats.recorded++; }
+      return r.result;
+    } finally { L.depth--; }
+  }
+
+  /** The shared definition of a component used inside itself, compiled on its first such use. */
+  compileDefinition(name: string): { tid: number; id: string; use: Use } | null {
     const known = this.defs.get(name);
     if (known !== undefined) return known;
     const file = this.componentFile(name);
