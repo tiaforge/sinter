@@ -66,7 +66,12 @@ code, so the two differ):
 **Why per site, not per page.** Every page of a build imports the core from one shared chunk. One core per site
 keeps that chunk shared: the next page's core is already cached, and a swap (`sinter({ swap: true })`) can mount any
 page of the site with the core it has. A per-page core would cost a new chunk per combination of parts, and a swap
-would need the next page's core.
+would need the next page's core. Measured on RealWorld, a core per page would not pay
+either: every page uses the five large parts (lists, branches, actions, events, resources). They differ only by
+models (about 230 B: not on the index and profile pages) and props (about 100 B: the article page only). A page that
+loaded only its own parts would save at most about 330 B, once, on the first page of a visit. It would pay for that
+with more requests, weaker compression across small files, and a fetch before a swap to a page that needs a part not
+loaded yet.
 
 ## What it risks
 
@@ -114,12 +119,6 @@ Chromium.
 
 In order of what they save:
 
-- **A core in chunks, per page rather than per site.** The union makes every page pay for what any page uses:
-  RealWorld's login page carries the list and branch code its article needs. With the parts as modules of their own,
-  each page would import the parts it uses, and the bundler would share each part's chunk across the site. That is
-  the feature modules' design, and it would keep the per-site cache. It costs two things. The closure's private state
-  becomes an object the parts reach through, which minifies worse, and a page would load a few more small requests,
-  preloaded with it. This is the larger change; it should be measured first on RealWorld, whose pages differ most.
 - **The request layer as a part** (`createRequestLayer`, `request.js`: 2.9 KB minified, about 1.3 KB gzip of the
   floor). Only resources, actions and the feature modules that send requests use it, but `app.req`, `app.request` and
   `CallContext.request` reach it from code the IR does not show (helpers, actions, islands). It needs a decision on
