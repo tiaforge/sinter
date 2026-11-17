@@ -235,23 +235,54 @@ itself compiled alone):
 
 The recorder is now a log, not a diff. A unit's view of its page is made of wrappers (`LoggedMap`, `LoggedSet`, a list
 proxy, `LoggedWeak`, a proxy over the page info and the options, accessors on its own fields). Each write is applied to
-the page as it happens and kept as an operation. Each read of what the unit did not write itself becomes a precondition
-(`Read`): a key present or not, a table's size and keys, a value as JSON, an option as JSON (an image host is not data:
-its answers change as the build analyses images, so a definition that reads it is refused). `replay` checks every precondition and resolves every target and every renamed string before it
-changes anything. A plan that does not hold changes nothing: the page compiles that definition, and the rest of the
-page, in place. Names in code are renamed token by token (acorn's tokenizer): identifiers as names, strings as markup.
-The recording page's file name, whole or as a base name, becomes the linking page's. Fill ids and lazy imports refuse the
-unit. A definition compiles in place unless the build links: the first time a build needs it, and always in dev, in
+the page and kept as an operation. Each read of what the unit did not write itself becomes a precondition (`Read`): a
+key present or not, a table's size and keys, a value by its shape (JSON, an element as `#node`), an option by its shape
+(an image host is not data: its answers change as the build analyses images, so a definition that reads it is refused).
+`replay` checks every precondition and resolves every target before it changes anything. A plan that does not hold
+changes nothing: the page compiles that definition, and the rest of the page, in place. Fill ids and lazy imports refuse
+the unit. A definition compiles in place unless the build links: the first time a build needs it, and always in dev, in
 `check` and inside another unit. Only the second sighting records. Chain keys are the short ids of the earlier units.
 
-The audit now also links every compile from the offset page back into the plain one, and into the page under another
-file name (not where helpers fold: their calls are kept per file). Suite: 2,201 tests, plain and audited; 1,526 audited
-compiles, 225 of them linking 1,368 definitions, refused only for actions. Every build of the benchmark and the examples
-is byte-identical to `main`'s. `--files` (the target: its pages are not `data-sn-pages`) links 392 definitions with 4
-recordings and no refusal: a page compiles in 25.0–25.9 ms instead of 38.0–38.2 (in-process, median of 7, two runs).
-That needed one more change: renaming went through regular expressions and the tokenizer on every page (a sixth of
-a linked page's time). Each string is now split once when its plan is kept, into text and numbered holes (`Parts`),
-and a page only fills the holes in.
+**The second review (2026-11-17).** Another independent review found 6 more ways, each now a scenario in
+`test/compiler/link-review-2.test.ts`. It also found that most of the first review's scenarios tested nothing: their
+`x-link` had two root elements, did not compile (SN312) on any page, and only part of the result was compared. They
+now put the extra markup inside the root, compare the whole result, and fail if a component does not compile. The six:
+
+- Replacing the recording page's file name by substring hit unrelated text: `club.html` became `cluc.html`, and a page
+  named `text.html` turned `x-text.html` into `x-about.html` in the build's files.
+- A value read from one of the page's tables (a resource's `key` or `offset-param`, whether `#save` has an action) was
+  a precondition by its key only, not by what is there.
+- An object of the page found again by its position in a list: with two resources declared in the other order, a loop
+  took the other one's key fields.
+- A function the recording page had already got no place in the source map where it was new.
+- A check a unit leaves for the end of its page (a closure over the unit's compiler: SN210, SN211) reported into the
+  unit's tables, gone by then; the recording page lost the error.
+- Renaming by pattern renamed the user's own names (`node.v$2`, a `$p2` in text), or left a unit unlinked by accident.
+
+What changed. **Renaming is by comparison, not by pattern.** A unit is recorded twice: first as a shadow, its templates
+and states numbered higher by an offset (`SHIFT_T`, `SHIFT_S`) and its page's file named with marks where its folder
+under the root and its name begin; nothing of the shadow is kept (the page's plain objects are put back as they were).
+Then it compiles as itself. Where the two differ is what a page linking it renumbers (`merge`): a number by an offset is
+a template or state id, a string where its digits differ by an offset or its text by a mark has holes there, and
+anything else that differs refuses the unit. A number's kind by what its object is (`fixesOf`) is now checked, too: a
+function index must be one the unit handed out. The user's text is alike in both compiles, so it is never renamed.
+Text alike that names an earlier definition's template is renumbered as that definition is; text that names one of the
+page's own before the definitions (`v$1` where template 1 is the page's) refuses the unit. **The definitions before a
+unit on its page are spans** (`Span`: their template, state and use ids, wherever they came from: linked, recorded or
+compiled in place), and a plan maps them onto the linking page's spans, which must be as long. **A value read from a
+table** is a precondition by its shape; a list read through any method, by the shape of all of it. **Paths go by keys
+first**; an object found by a list's position is pinned by its own plain values (`flat`). **Each hand-out of a function
+carries where it was written**, and `replay` passes it to `fn()`, which puts the page's own first. **After its writes
+are applied, the unit's compiler points at the page's objects**, so a check it left for the end reports to the page;
+such a unit holds a closure and is not linked. The before-and-after diff of the page's plain objects is taken before
+the unit's writes are applied, not after, so a write to the page info is not recorded twice.
+
+The audit also links every compile from the offset page back into the plain one, and into the page under another file
+name (not where helpers fold: their calls are kept per file). Suite: 2,212 tests, plain and audited; 1,707 audited
+compiles, 342 of them linking 1,228 definitions. Outside the review scenarios, which refuse on purpose, units are refused
+only for actions. Every build of the benchmark and the examples is byte-identical to `main`'s. `--files` (the target:
+its pages are not `data-sn-pages`) links 392 definitions with 4 recordings and no refusal: a page compiles in 23.9–24.6
+ms instead of 33.0–35.9 (in-process, median of 7, two runs).
 
 Found on the way and landed: the expression parse cache keyed its trees by one string of the kind, the options and the
 text, a new string hashed at every lookup (7% of the definitions' time). Keyed by the options, then by the text (the

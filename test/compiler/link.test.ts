@@ -44,7 +44,7 @@ test('pages of every shape, linked: each as compiled on its own', () => {
       expect(build(name, body, definitions), `${name}, round ${round}`).toEqual(build(name, body));
     }
   } finally { delete (globalThis as { __snLink?: unknown }).__snLink; }
-  expect(stats.refused).toEqual([]);
+  expect(stats.refused, JSON.stringify(stats.refused)).toEqual([]);
   expect(stats.recorded).toBeGreaterThan(0);
   expect(stats.hits).toBeGreaterThan(0);
 });

@@ -12,8 +12,8 @@ const BASE: Record<string, string> = {
   'x-text': '<template data-sn-component="{ node: any }"><span data-sn-text="node.value"></span></template>',
   'x-link': `<template data-sn-component="{ node: any }"><slot name="link" data-sn-prop="{ url: node.url }"><a data-sn-attr="{ href: node.url }"><template data-sn-for="n in node.children"><sn-component use="${INL}[n.type]" data-sn-prop="{ node: n }"></sn-component></template></a></slot></template>`,
 };
-/** `x-link` with `extra` before its link */
-const linkWith = (extra: string) => ({ 'x-link': BASE['x-link']!.replace('<slot name="link"', `${extra}<slot name="link"`) });
+/** `x-link` with `extra` in its link, inside its one root (beside the `<slot>` it would be two, and not compile: SN312) */
+const linkWith = (extra: string) => ({ 'x-link': BASE['x-link']!.replace('<a data-sn-attr="{ href: node.url }">', `<a data-sn-attr="{ href: node.url }">${extra}`) });
 const TREE = '<x-doc data-sn-prop="{ doc }"></x-doc>';
 
 type Page = { name: string; body: string; opts?: Record<string, unknown> };
@@ -25,15 +25,19 @@ function build(page: Page, components: Record<string, string>, definitions?: Map
     helpers: { module: null, names: [], namespaces: {} }, readFile: (p) => { if (p in files) return files[p]!; throw new Error(p); },
     ...page.opts, ...(definitions ? { definitions } : {}),
   });
-  return { html: out.html, module: out.module, early: out.early, runtime: out.runtime, diagnostics: out.diagnostics, features: out.runtime };
+  return out;
 }
+/** the whole result, as text (functions by name, maps and sets as lists) */
+const text = (r: unknown) => JSON.stringify(r, (_, v) => (typeof v === 'function' ? '[fn]' : v instanceof Map ? [...v] : v instanceof Set ? [...v] : v), 1);
 /** each page, in order, through one cache, three rounds: each must be what it is compiled on its own */
 function linked(pages: Page[], more: Record<string, string> = {}) {
   const components = { ...BASE, ...more }, definitions = new Map<string, unknown>();
+  // (the scenario's components compile: a test of nothing otherwise)
+  for (const p of pages) expect(build(p, components).diagnostics.filter((d) => d.code === 'SN312'), `${p.name}: its components compile`).toEqual([]);
   for (let round = 0; round < 3; round++) for (const p of pages) {
     let got: ReturnType<typeof build>;
     expect(() => { got = build(p, components, definitions); }, `${p.name}, round ${round}: linking threw`).not.toThrow();
-    expect(got!, `${p.name}, round ${round}`).toEqual(build(p, components));
+    expect(text(got!), `${p.name}, round ${round}`).toEqual(text(build(p, components)));
   }
 }
 
@@ -89,7 +93,7 @@ test('a fill in a component used inside itself, on a page with another filled tr
 });
 
 test('a component with scoped styles, used directly by the linked page and not by the recording one', () => {
-  const styled = { 'x-text': '<template data-sn-component="{ node: any }"><span data-sn-text="node.value"></span><style>span { color: red }</style></template>' };
+  const styled = { 'x-text': '<template data-sn-component="{ node: any }"><span data-sn-text="node.value"></span></template><style>span { color: red }</style>' };
   const direct = '<x-text data-sn-prop="{ node: { value: \'d\' } }"></x-text>';
   linked([{ name: 'a', body: TREE }, { name: 'b', body: TREE }, { name: 'c', body: direct + TREE }], styled);
   linked([{ name: 'a', body: direct + TREE }, { name: 'b', body: direct + TREE }, { name: 'c', body: TREE }], styled);
@@ -105,7 +109,7 @@ test('what the recording page had before the tree and the linked one has not: li
 test('a choice among many components: the cache keys stay short', () => {
   const names = Array.from({ length: 30 }, (_, i) => `x-k${i}`);
   const many: Record<string, string> = {};
-  for (const n of names) many[n] = `<template data-sn-component="{ node: any }"><i data-sn-text="node.value"></i><sn-component use="${JSON.stringify(Object.fromEntries(names.map((m) => [m, m]))).replace(/"/g, "'")}[node.type]" data-sn-prop="{ node: node.next }"></sn-component></template>`;
+  for (const n of names) many[n] = `<template data-sn-component="{ node: any }"><b><i data-sn-text="node.value"></i><sn-component use="${JSON.stringify(Object.fromEntries(names.map((m) => [m, m]))).replace(/"/g, "'")}[node.type]" data-sn-prop="{ node: node.next }"></sn-component></b></template>`;
   const body = `<template data-sn-for="n in doc.children"><sn-component use="${JSON.stringify(Object.fromEntries(names.map((m) => [m, m]))).replace(/"/g, "'")}[n.type]" data-sn-prop="{ node: n }"></sn-component></template>`;
   const t0 = performance.now();
   linked([{ name: 'a', body }, { name: 'b', body }, { name: 'c', body }], many);

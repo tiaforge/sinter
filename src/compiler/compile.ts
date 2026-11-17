@@ -4,7 +4,7 @@ import type { SourceMap } from './sourcemap.js';
 import { rewriteImages, sourceFile, type ImageHost, type ImageResult } from './images.js';
 import { boxSizesCss, type ReserveTrace, Layout, PLACEHOLDER_BASE, type Affine, type Reserved, type StyleSheet } from './layout.js';
 import { shows } from './status-eval.js';
-import { recordChild, replay as replayUnit, LINK_FIELDS, UNIT_NUMBERING, type Plan, type Refused } from './link.js';
+import { recordChild, replay as replayUnit, LINK_FIELDS, UNIT_NUMBERING, type Plan, type Refused, type Span } from './link.js';
 import { HEAD_ELEMENTS, parseDocument } from './head.js';
 import { minifyMarkup } from './minify.js';
 import type { RemoteConfig } from '../remote.js';
@@ -3858,7 +3858,7 @@ class Compiler {
   }
 
   /** this page's linking (`definitions`): the units linked or recorded so far, and how they renumber */
-  private defLink = { depth: 0, chain: [] as string[], replayed: false, off: false, maps: { tid: new Map<number, number>(), fn: new Map<number, number>(), use: new Map<number, number>(), sid: new Map<number, number>(), outs: new Map<number, unknown[]>() }, prior: new Map<object, { u: number; i: number }>() };
+  private defLink = { depth: 0, chain: [] as string[], replayed: false, off: false, spans: [] as Span[], maps: { outs: new Map<number, unknown[]>() }, prior: new Map<object, { u: number; i: number }>() };
 
   /** The shared definition of a component used inside itself: linked from the build's definitions, else compiled. */
   definition(name: string): { tid: number; id: string; use: Use } | null {
@@ -3868,12 +3868,15 @@ class Compiler {
     const cache = this.opts.definitions as Map<string, (Plan | Refused) & { slot?: number } | { seen: number }> | undefined;
     // compiled in place unless the build links (a unit compiles only to be recorded); in a unit, its definitions are its own
     if (!cache || L.depth > 0 || L.off || this.check || this.opts.dev) return this.compileDefinition(name);
+    // (each definition's span of ids on this page, whichever way it got here: what a later one names of it, renumbered)
+    const at = { t: this.templates.length, s: this.nextSid, u: this.useIds };
+    const span = () => L.spans.push({ ...at, n: this.templates.length - at.t, ns: this.nextSid - at.s, nu: this.useIds - at.u });
     const stats = (globalThis as { __snLink?: { hits: number; recorded: number; refused: string[] } }).__snLink;
     // (the chain: the ids of the units before it on this page, short whatever their keys)
     const key = [this.opts.decided || this.opts.unrolled || this.opts.constants ? 2 : 1, L.chain.join(','), name, [...this.defs.keys()].join(',')].join('\u0002');
     const u = cache.get(key);
     if (u && 'ops' in u) {
-      if (replayUnit(this, u, L.maps)) { L.replayed = true; L.chain.push(`${u.slot}`); if (stats) stats.hits++; return this.defs.get(name) ?? null; }
+      if (replayUnit(this, u, L.maps, L.spans)) { L.replayed = true; L.chain.push(`${u.slot}`); span(); if (stats) stats.hits++; return this.defs.get(name) ?? null; }
       L.off = true;
       return this.compileDefinition(name);
     }
@@ -3886,12 +3889,12 @@ class Compiler {
       cache.set(key, { seen: id });
       L.chain.push(`${id}`);
       L.depth++;
-      try { return this.compileDefinition(name); } finally { L.depth--; }
+      try { return this.compileDefinition(name); } finally { L.depth--; span(); }
     }
-    const r = recordChild(this, name, (child: Compiler) => child.compileDefinition(name), L.prior);
+    const r = recordChild(this, name, (child: Compiler) => child.compileDefinition(name), L.prior, L.spans.slice());
     cache.set(key, Object.assign(r.unit, { slot: u.seen }));
     if ('refused' in r.unit) { L.off = true; if (stats) stats.refused.push(`${name}: ${r.unit.refused}`); }
-    else { L.chain.push(`${u.seen}`); if (stats) stats.recorded++; }
+    else { L.chain.push(`${u.seen}`); span(); if (stats) stats.recorded++; }
     return r.result;
   }
 
