@@ -219,10 +219,14 @@ export async function prepare(s: SwapState, i: Intent, signal?: AbortSignal): Pr
   // injected `nonce="guess"`) keeps its own and stays blocked, as on a load. Chromium also reports the parsed
   // page's inline styles against the document's policy otherwise (navigation-api/parse-csp.cjs)
   const nonce = document.querySelector<HTMLMetaElement>('meta[name=csp-nonce]')?.content;
-  const own = /<meta\b(?=[^>]*\bname=["']?csp-nonce\b)[^>]*\bcontent=(?:"([^"]*)"|'([^']*)'|([^\s>]+))/i.exec(html), theirs = own && (own[1] ?? own[2] ?? own[3]);
+  // (the page's own meta: in its head, before anything injected into the body)
+  const top = html.slice(0, html.search(/<\/head\b|<body\b/i) >>> 0);
+  const own = /<meta\b(?=[^>]*\bname=["']?csp-nonce\b)[^>]*\bcontent=(?:"([^"]*)"|'([^']*)'|([^\s>]+))/i.exec(top), theirs = own && (own[1] ?? own[2] ?? own[3]);
+  // a nonce policy and a page that names no nonce of its own: nothing in it can be trusted, it is loaded
+  if (nonce && !theirs) return false;
   if (nonce && theirs) html = html.replace(/(<(?:style|script|link)\b[^>]*?\snonce=)(?:"([^"]*)"|'([^']*)'|([^\s>]+))/gi, (m, a: string, d?: string, q?: string, b?: string) => ((d ?? q ?? b) == theirs ? `${a}"${nonce.replace(/"/g, '&quot;')}"` : m));
   /** a script the swap may run: under a nonce policy, one the server gave the page's nonce */
-  const trusted = (el: Element) => !(nonce && theirs) || el.getAttribute('nonce') == nonce;
+  const trusted = (el: Element) => !nonce || el.getAttribute('nonce') == nonce;
   const P = Document as unknown as { parseHTMLUnsafe?: (h: string, o: object) => Document };
   const doc = P.parseHTMLUnsafe ? P.parseHTMLUnsafe(html, { sanitizer: {} }) : new DOMParser().parseFromString(html, 'text/html');
   if (doc.body.hasAttribute('data-sn-failed') || doc.documentElement.getAttribute('data-sn-swap') == 'off') return false;
@@ -295,6 +299,9 @@ export async function prepare(s: SwapState, i: Intent, signal?: AbortSignal): Pr
         for (const a of [...to.attributes]) if (!from.hasAttribute(a.name)) to.removeAttribute(a.name);
         for (const a of from.attributes) to.setAttribute(a.name, a.value);
       }
+      // the visitor's language, which the picker set on the first page, not the build's
+      const g2 = i18n();
+      if (g2?.locale && document.querySelector('script[data-sn-i18n]')) document.documentElement.lang = g2.locale;
       s.shown = final.pathname;
       s.kept = page!.kept;
       // the top, as after a load, or the entry's position; then a link's `#hash` target, if the page has it

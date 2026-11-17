@@ -167,3 +167,14 @@ describe('with swaps on, what each page passes does not shape a kept element (th
     expect(problems(build('<div data-sn-permanent="outer"><aside data-sn-permanent="inner"></aside></div>', { swap: true }))).toEqual(['SN346 `data-sn-permanent` cannot be inside another kept element: the outer one is kept with everything in it']);
   });
 });
+
+test('SN209: `navigate` is sinter\'s event, so a component cannot emit one of that name', () => {
+  const files: Record<string, string> = { '/p/src/components/nav-pick.html': '<template data-sn-component="{}" data-sn-emits="{ navigate: string }"><button>x</button></template>' };
+  const out = compile('<!doctype html><html><head><title>x</title></head><body><nav-pick></nav-pick></body></html>', {
+    file: '/p/a.html', root: '/p', dev: false, moduleSrc: '/m.js', helpers: { module: null, names: [], namespaces: {} },
+    readFile: (p: string) => { if (p in files) return files[p]!; throw new Error('missing'); },
+  });
+  expect(out.diagnostics.filter((d) => d.code === 'SN209').map((d) => d.message.replace(/ \(included from .*\)$| … used at .*$/, ''))).toEqual([
+    '`navigate` is sinter\'s event (`data-sn-on-navigate` runs before every navigation): name the component\'s event otherwise, e.g. `go`',
+  ]);
+});

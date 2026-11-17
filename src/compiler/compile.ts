@@ -2197,6 +2197,8 @@ class Compiler {
     const emitsText = attr(template, 'data-sn-emits') ?? null;
     const emits = emitsText === null ? [] : typeMembers(emitsText);
     if (emitsText !== null && !emits) this.report(template, 'data-sn-emits', 'SN401', '`data-sn-emits` takes a type literal of the events and their detail types: `{ select: Article; close: null }`', 0);
+    // `navigate` is sinter's: `data-sn-on-navigate` is the guard of every navigation (navigate.ts)
+    if (emits?.some((m) => m.name === 'navigate')) this.report(template, 'data-sn-emits', 'SN209', '`navigate` is sinter\'s event (`data-sn-on-navigate` runs before every navigation): name the component\'s event otherwise, e.g. `go`', 0);
     // a root is known once its slots are filled: a `<slot>` at the top is its fill, or its default
     const first = content.childNodes.find(isElement) ?? template;
     const use: Use = { name, file: def.file, host, root: first, template, props, propsText, emits, emitsText, chain, ...(slots.size ? { slots } : {}), ...(this.lateTag(host) ? { late: true } : {}) };
@@ -2462,6 +2464,8 @@ class Compiler {
     const emitsText = attr(template, 'data-sn-emits') ?? null;
     const emits = emitsText === null ? [] : typeMembers(emitsText);
     if (emitsText !== null && !emits) this.report(template, 'data-sn-emits', 'SN401', '`data-sn-emits` takes a type literal of the events and their detail types: `{ select: Article; close: null }`', 0);
+    // `navigate` is sinter's: `data-sn-on-navigate` is the guard of every navigation (navigate.ts)
+    if (emits?.some((m) => m.name === 'navigate')) this.report(template, 'data-sn-emits', 'SN209', '`navigate` is sinter\'s event (`data-sn-on-navigate` runs before every navigation): name the component\'s event otherwise, e.g. `go`', 0);
     const first = fragment.childNodes.find(isElement) ?? template;
     const use: Use = { name, file: def.file, host, root: first, template, props, propsText, emits, emitsText, chain, head: { roots: [], parent: null } };
     for (const a of host.attrs) {

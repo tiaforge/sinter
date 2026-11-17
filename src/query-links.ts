@@ -81,6 +81,9 @@ const feature: Feature = {
       if (to.origin != at.origin || to.pathname != at.pathname) return;
       const d = differs(to);
       if (d == null || (!d && (to.hash || at.hash))) return;
+      // the URL shown again: nothing changes for a link or `navigate()`; a script's `location.assign(location.href)`
+      // (no trigger) is a reload, the browser's
+      if (!d && !i.trigger) return;
       const e = i.event as Parameters<typeof take>[0] | undefined;
       return { name: 'same', run: () => (e ? take(e, to, i.kind == 'replace') : follow(to, i.kind == 'replace')) };
     }, RANK.same);

@@ -552,7 +552,11 @@ re-import and preload code; the live region and the head records add some.
 
 ## Breaking changes
 
-None for an app that leaves swaps off, apart from its core growing by 80 B gzip. In an app that turns
+For an app that leaves swaps off (found by the fourth review, and listed in the CHANGELOG): where the browser
+has the Navigation API, a script's `location.href = '?q=2'` to the page itself, with only parameters the page
+reads changed, stays on the page as such a link does (a script's `location.assign(location.href)` still
+reloads); a component cannot emit an event named `navigate` (SN209); `navigate(url)` to the URL shown replaces
+its entry. The core grows by about 74 B gzip. In an app that turns
 them on, a link or `navigate()` to another page of the app is no page load:
 - inline and classic scripts on the next page do not run, `load` and `DOMContentLoaded` do not fire again,
   and analytics that count loads count only the first (the build's opt-out for such pages, [1](#1-turning-swaps-on));
@@ -780,6 +784,21 @@ manifest, the stub and the exported mount together: they are the unproven half.
      Not changed: `s.skip` is now taken once; a theme class on `<html>` set at run time is replaced by the next
      page's attributes (documented); Speculation Rules hashes and a CSP `<meta>` between pages with and
      without same-page links (not verified).
+   - **The fourth review** (a Fable agent, of `7362a14`: "ready to merge after small fixes"; apps without swaps
+     built byte-identical HTML and behaved the same in Chromium and WebKit): fixed before merge, each with a
+     step that failed before it: a script's `location.assign(location.href)` was cancelled on pages with
+     same-page links (it reloads again: only a link or `navigate()` to the URL shown changes nothing);
+     `data-sn-on-navigate` captured a component's own `navigate` event (SN209 for `navigate` in
+     `data-sn-emits`); the nonce check trusted everything when the next page named no nonce of its own (it is
+     a load, and only the page's head names it); `<html lang>` was the build's language after a swap (the
+     visitor's). Follow-ups, not fixed: the build's placeholders for reserved space in a kept element are
+     numbered per page (a swap while that list loads breaks the next page's node of that id); with
+     `localePrefix`, a swap to the page in another language keeps the first page's locale for formatting (a
+     load, as documented, is the fix); the resume after a history write fetches again on every write, so a
+     write every 150 ms holds the swap back until the writes stop; the next page's stylesheets apply to the
+     page shown from the plan to the commit; browsers with the Navigation API but no `sourceElement`
+     (Chromium 102 to 134) have no trigger; `take()` asks the guards twice when typing waits; SN540 reports an
+     inline `<script type="text/plain">`.
    - **Left:** a `data-sn-model` field inside shows its state's value again (the state starts again);
      rows over data that is not there at mount (no `cache`) are built again; a stream both pages use
      reconnects.

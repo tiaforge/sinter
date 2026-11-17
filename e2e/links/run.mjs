@@ -136,8 +136,11 @@ for (const name of browsers) {
     await until(() => document.getElementById('page').textContent === '3');
     check('once clean: the link goes', await read(), { page: '3', marker: 1 });
 
+    // a script's reload by the URL shown (`location.assign(location.href)`): a page load, as before
+    await Promise.all([page.waitForEvent('load', { timeout: 5000 }), page.evaluate(() => location.assign(location.href))]);
+    check('a script assigning the URL shown reloads', await read(), { url: '/?page=3', page: '3', marker: null });
     await Promise.all([page.waitForURL(base + '/other/', { timeout: 5000 }), click('other')]);
-    check('a link to another page: a page load', { marker: await page.evaluate(() => window.__marker ?? null), loads: [...loads] }, { marker: null, loads: ['/', '/other/'] });
+    check('a link to another page: a page load', { marker: await page.evaluate(() => window.__marker ?? null), loads: [...loads] }, { marker: null, loads: ['/', '/?page=3', '/other/'] });
   } catch (e) { steps.push(`✗ ${e.message.split('\n')[0]}`); failed++; }
   if (errors.length) { steps.push(`✗ errors: ${JSON.stringify(errors)}`); failed++; }
   console.log(`${name}:\n  ${steps.join('\n  ')}`);
