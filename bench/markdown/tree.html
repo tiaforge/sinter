@@ -1,0 +1,15 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="script-src 'self'; style-src 'self'; require-trusted-types-for 'script'">
+  <title>Tree</title>
+</head>
+<!-- The same article, sent by the API as the tree (md.parse run in Node beforehand): no parser on the page -->
+<body>
+<sn-resource name="tree" src="/api/tree"></sn-resource>
+<main>
+  <md-doc id="article" data-sn-prop="{ doc: tree }"></md-doc>
+</main>
+</body>
+</html>

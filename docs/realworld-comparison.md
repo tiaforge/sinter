@@ -63,7 +63,7 @@ on `vite preview` of its production build, against the live API. Measured on 202
 
 | implementation | JS, home (gz KB) | JS, home + article (gz KB) | JS, home + article (raw KB) | CSS (gz KB) | note |
 | --- | ---: | ---: | ---: | ---: | --- |
-| **sinter** | **32.5** | **59.6** | 160.2 | 13.3 | Markdown renderer (marked and DOMPurify, 22.3 KB) loads with the first article |
+| **sinter** | **32.5** | **59.6** | 160.2 | 13.3 | Markdown renderer (marked and DOMPurify, 22.3 KB) loads with the first article; since this was measured, the article's body is `@tiaforge-ui/sinter-markdown` (its page 50.9 → 59.6 KB gzip in a local build, below) |
 | Angular | 98.4 | 110.9 | 351.6 | 11.9 | |
 | Vue 3 | 46.8 | 63.9 | 171.9 | 14.4 | |
 | SvelteKit | 42.9 | - | 105.9 | 14.8 | the article did not open in the script |

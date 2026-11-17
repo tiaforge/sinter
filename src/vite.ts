@@ -291,7 +291,8 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
         const vite = await appVite(), rolldown = 'rolldownVersion' in vite;
         const out = await vite.build({
           configFile: false, root, base: r.base, mode: dev ? 'development' : r.mode, logLevel: 'silent', publicDir: false, define: r.define,
-          resolve: { alias: r.resolve.alias, conditions: r.resolve.conditions },
+          // the app's resolution: a library linked from outside the root (`file:`, `npm link`) finds the app's sinter through `dedupe`
+          resolve: { alias: r.resolve.alias, conditions: r.resolve.conditions, dedupe: r.resolve.dedupe, preserveSymlinks: r.resolve.preserveSymlinks },
           plugins: [{
             name: 'sinter:early-entry', enforce: 'pre',
             async resolveId(id, importer, o) {

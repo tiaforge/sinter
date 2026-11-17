@@ -1,7 +1,8 @@
 // Size budgets, per page (decided for 0.2, raised to 15 KB and 20 KB on 2026-11-07, the article to 22 KB on 2026-11-09 for next-page data, to 24 KB the same day for its early chunk: the signed-out header rendered before the first paint, no layout shift, to 26 KB the same day for its early requests: the API on another origin, requested before the stylesheets, to 27 KB the same day for its comment form without `data-sn-catch`: the fields module, 1.2 KB, which shows the server's errors in the form's list): min+gzip
 // of a minimal page (one resource, one text binding) and of what each RealWorld page loads, without the
-// libraries the example itself depends on (marked, DOMPurify: reported apart, not budgeted, since
-// sinter does not choose them); the core and each feature module are reported for reference.
+// libraries the example itself depends on (reported apart, not budgeted, since sinter does not choose them;
+// sinter's own packages, such as @tiaforge-ui/sinter-markdown, are counted); the core and each feature
+// module are reported for reference.
 // `--check` fails on an overrun (CI runs it).
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
@@ -83,8 +84,10 @@ const entries = {
 // attribute writer leaving unchanged values); the article to 28.5 KB (RealWorld runs with swaps on: the stub,
 // the chain shared by same-page links, morphs and the swap). The article to 35 KB the same day, when the
 // count took in the classic head scripts it had left out (sinter's early script and the page's early chunk,
-// about 3 KB per page), with room for the next features
-const BUDGET = { minimal: 16 * 1024, 'minimal, swaps': 17 * 1024, 'realworld article': 35 * 1024 };
+// about 3 KB per page), with room for the next features. The article to 62 KB on 2026-11-17, when its body
+// moved from marked and DOMPurify (the example's own libraries, 22.4 KB, never counted here) to
+// @tiaforge-ui/sinter-markdown, which is counted: 31.1 → 59.8 KB, the parser 21.8 KB of it
+const BUDGET = { minimal: 16 * 1024, 'minimal, swaps': 17 * 1024, 'realworld article': 62 * 1024 };
 let failed = false;
 const gz = (b) => gzipSync(b, { level: 9 }).length;
 function report(name, min, size) {
@@ -120,8 +123,9 @@ try {
   }
 
   // RealWorld: a production build; per page, the gzip of every script it loads (entry + modulepreload),
-  // the example's own dependencies left out (external) and reported on their own
-  const libs = Object.keys(JSON.parse(readFileSync(join(realworld, 'package.json'), 'utf8')).dependencies ?? {}).filter((d) => d !== '@tiaforge-ui/sinter');
+  // the example's own dependencies left out (external) and reported on their own; sinter's own packages
+  // (@tiaforge-ui/sinter-markdown, the article's body) are counted with the page
+  const libs = Object.keys(JSON.parse(readFileSync(join(realworld, 'package.json'), 'utf8')).dependencies ?? {}).filter((d) => !d.startsWith('@tiaforge-ui/'));
   const out = join(dir, 'realworld');
   await build({ root: realworld, configFile: join(realworld, 'vite.config.js'), logLevel: 'silent', build: { outDir: out, emptyOutDir: true, rollupOptions: { external: libs } } });
   for (const f of readdirSync(out).filter((f) => f.endsWith('.html')).sort()) {

@@ -15,6 +15,8 @@ export default defineConfig({
     // deployment is static, so off by default
     sinter({
       apis,
+      // the article's body: <md-doc> renders the tree md.parse builds from its markdown (src/sinter.helpers.js)
+      components: ['@tiaforge-ui/sinter-markdown'],
       // links and navigate() swap the next page in: the e2e suite's settings tests keep reading the page
       // after saving (docs/navigation.md#swaps)
       swap: true,
@@ -25,6 +27,8 @@ export default defineConfig({
       strict: { allow: { SN529: 'the shared RealWorld theme sizes .col-md-3 by its content below 768 px; nothing follows it in its row' } },
     }),
   ],
+  // sinter-markdown is linked from packages/ (file:): its imports of sinter resolve to the app's
+  resolve: { dedupe: ['@tiaforge-ui/sinter'] },
   build: {
     rollupOptions: { input: Object.fromEntries(pages.map((p) => [p, resolve(import.meta.dirname, `${p}.html`)])) },
   },

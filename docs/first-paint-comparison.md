@@ -185,6 +185,8 @@ page that comes later, so the server made the article slower. Imported staticall
 they download with the page and the article is faster with the server than without. They are
 RealWorld's own libraries, not sinter: the size check (`scripts/size.mjs`) reports them apart from the
 page budgets (marked 13.2 kB, DOMPurify 9.2 kB gzip); the article page is 22.3 kB of its 27 kB budget.
+Since 2026-11-17 the example renders the body with `@tiaforge-ui/sinter-markdown` instead, loaded with the
+page and counted in the article's budget; this section was not measured again.
 
 ### Throughput (`oha`, 15 s, 32 connections, gzip)
 
