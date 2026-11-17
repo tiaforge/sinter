@@ -41,21 +41,25 @@ export function eventSourceTransport(): Transport {
   };
 }
 
-/** One stream URL's connection, shared by every `<sn-sync>` on the page that resolves to it. */
-class Connection {
-  private t: Transport | null = null;
+/**
+ * One stream URL's connection, shared by every `<sn-sync>` on the page that resolves to it. What it has of the
+ * page (`app`, `subs`, `changed`, `heard`) is set by each page that uses it: with swaps on, the next page takes
+ * an open connection over (sse-handover.ts, docs/proposals/stream-handover.md); the rest is the connection's.
+ */
+export class Connection {
+  t: Transport | null = null;
   private backoff = MIN_BACKOFF;
   private timer: unknown = null;
   private closed = false;
   private hidden = false;
-  private everOpen = false;
+  everOpen = false;
   /** `connecting` until the first open, `retrying` from a failure until it is open again */
   state: Live = 'connecting';
   /** each mapped event with the scope its expressions are evaluated in: its `<sn-sync>`'s state, or the page */
-  readonly subs: Array<[EventDef, any]> = [];
+  subs: Array<[EventDef, any]> = [];
 
   /** `heard`: the names the app's islands and component scripts listen to (`app.on`), the feature's since install */
-  constructor(private readonly app: App, private readonly url: string, private readonly changed: () => void, private readonly heard: Set<string>) {}
+  constructor(public app: App, readonly url: string, public changed: () => void, public heard: Set<string>) {}
 
   listen(name: string): void { this.t?.listen?.(name); }
 
@@ -85,17 +89,17 @@ class Connection {
     const custom = this.app.transport(this.url) ?? config.transport?.(this.url);
     const t = custom ?? eventSourceTransport();
     this.t = t;
-    const reconnect = this.everOpen;
-    const subs = this.subs.map(([e]) => e);
     t.connect(this.url, (name, data) => this.event(name, data), (state) => {
       if (this.t !== t) return;
       if (state === 'open') {
+        const reconnect = this.everOpen;
         this.backoff = MIN_BACKOFF;
         this.everOpen = true;
         this.set('open');
         if (!custom) this.app.streamOpened?.(this.url);
-        // events sent while disconnected are lost: refetch everything this stream feeds
-        if (reconnect) for (const name of new Set(subs.map((e) => e.resource))) if (name) void this.app.resource(name).refetch();
+        // events sent while disconnected are lost: refetch everything this stream feeds (the page's as it is
+        // now: a page that took the connection over refetches its own)
+        if (reconnect) for (const name of new Set(this.subs.map(([e]) => e.resource))) if (name) void this.app.resource(name).refetch();
       } else {
         t.close();
         this.t = null;
@@ -104,7 +108,7 @@ class Connection {
       }
       // every connect (the first, a reconnect, after the back/forward cache) subscribes the mapped names and
       // those `app.on` listens to, whenever its listener came
-    }, [...new Set([...subs.map((e) => e.name), ...this.heard])]);
+    }, [...new Set([...this.subs.map(([e]) => e.name), ...this.heard])]);
   }
 
   private stop(): void {
