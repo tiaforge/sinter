@@ -209,25 +209,32 @@ The components carry no CSS. Style the tree under `.md`, which both roots have:
 
 ## Performance
 
-The 300-block article of sinter's markdown measurements (47.5 kB of markdown, every node type) in headless
-Chromium on one machine over loopback, served gzipped, median of 21 runs, the three pages interleaved in one
-session (2026-11-16). The comparison is the RealWorld example's article body: the same API response (the
-markdown) through marked and DOMPurify into `innerHTML`, without Trusted Types (`innerHTML` with a string needs a
-policy). The first two rows read the same response; the third reads another one, the tree, which only an API you
-control can send.
+The 300-block article of sinter's markdown measurements (47.5 kB of markdown, every node type) from an API, in
+headless Chromium on one machine, served gzipped, one fresh context per run, the three pages interleaved
+(2026-11-17, [bench/markdown](https://github.com/tiaforge/sinter/tree/main/bench/markdown)). Over loopback, median of
+21; on slow 4G (150 ms round trip, 1.6 Mbit/s) with the CPU 4× slower, the medians of two sets of 7. The comparison is
+the same markdown through marked and DOMPurify into `innerHTML`, without Trusted Types (`innerHTML` with a string
+needs a policy), as the RealWorld example rendered its article body until it used this library. The first two rows
+read the same response; the third reads another one, the tree, which only an API you control can send.
 
-| Page | API response | LCP | Script | Page module (gzip) | Response (gzip) | Comments |
-| --- | --- | ---: | ---: | ---: | ---: | ---: |
-| markdown from the API, `md.parse` in the page | the markdown | 156 ms | 63 ms | 42.8 kB | 11.3 kB | 3,090 |
-| RealWorld's island (marked + DOMPurify) | the markdown | 160 ms | 8 ms | (marked and DOMPurify) | 11.3 kB | 2 |
-| tree from the API | the tree (`md.parse` run beforehand, in Node) | 120 ms | 36 ms | 4.4 kB | 14.0 kB | 3,090 |
+| Page | API response | LCP, loopback | LCP, slow 4G | Script | Scripts (gzip) | Response (gzip) | Comments |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| markdown from the API, `md.parse` in the page | the markdown | 164 ms | 1,160–1,180 ms | 73 ms | 45.8 kB | 11.3 kB | 3,088 |
+| marked + DOMPurify | the markdown | 172 ms | 1,208–1,220 ms | 60 ms | 36.9 kB | 11.3 kB | 2 |
+| tree from the API | the tree (`md.parse` run beforehand, in Node) | 128 ms | 908–928 ms | 39 ms | 20.8 kB | 14.0 kB | 3,088 |
 
-- Every page renders the same 1,365 elements (the island 1,370: marked writes newlines between blocks as text).
-- For the same API, sinter-markdown and the island are level on LCP.
+- Every page renders the same 1,365 elements (marked + DOMPurify 1,370: marked writes newlines between blocks as
+  text).
+- For the same API, sinter-markdown and marked + DOMPurify are level on LCP over loopback, and sinter-markdown is
+  about 40 ms ahead on slow 4G.
+- Before the parser was trimmed (the same day: markdown-it whole, linkify-it, the entity table unpacked), the first
+  row loaded 58.6 kB of scripts and reached LCP at 164 ms over loopback and 1,224–1,276 ms on slow 4G.
+- Scripts are every script the page loads, sinter's runtime included; script time is Chromium's for the whole page
+  load (`ScriptDuration`). marked + DOMPurify's leaves out the browser's own parsing of the HTML string, which is in
+  its LCP.
 - The tree row is not that comparison: its parse ran before the measurement (as for an API that stores the tree),
   and its cost on a server that parses per request is not measured. What it shows is what the parse costs the
-  page: markdown-it run cold, then the tree. The tree is about 25 % larger on the wire than its markdown.
-- The island's script time leaves out the browser's own parsing of the HTML string, which is in its LCP.
+  page: the parser's download and run, then the tree. The tree is about 25 % larger on the wire than its markdown.
 - The comments are the anchors of lists and branches, which keep the page live: a change to the source renders
   again what changed. A row or branch that is only another branch, or only a text, has none of its own.
 - From a file (`file:`), the article is HTML at build time and ships no JavaScript: LCP 56–60 ms in an earlier
