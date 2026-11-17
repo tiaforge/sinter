@@ -9,6 +9,8 @@ import { prefetched } from './handoff.js';
 import { createRequestLayer, isAbort, readBody, toError, type RequestLayer, type SendInit } from './request.js';
 import { schemesOf, STYLE_BAD, urlAllowed } from './security.js';
 import { expand, readUrl as readFrom, withParams } from './url.js';
+// the parts of the core this build's pages use (a site's build serves its own: src/core-parts.ts)
+import * as F from './flags.js';
 
 export { withParams };
 import { clean, createResource, type Resource } from './store.js';
@@ -482,6 +484,8 @@ export function mount(root: Document | Element, o: MountOptions): App {
   if (instances.has(root)) throw Error('sinter: already mounted');
   const { ir, fns } = o;
   if (ir?.v != 2 || !ir.ps) throw Error('sinter: unsupported IR');
+  // (the test suite's flags: the parts this page uses turn on; nothing in a build)
+  F.use?.(ir);
   const env = o.env ?? envOf(config);
   const req = createRequestLayer(env, o.request ?? config.request);
   const schemes = schemesOf(config.urlSchemes);
@@ -564,11 +568,11 @@ export function mount(root: Document | Element, o: MountOptions): App {
       else if (el.textContent !== v) el.textContent = v;
     },
     h(el: HTMLElement, _n: string, v: any) { el.hidden = !v; },
-    p(el: HTMLElement, n: string, v: any) {
+    p: F.PROP ? (el: HTMLElement, n: string, v: any) => {
       (el as any)[n] = v;
       // not defined yet, or defined but not upgraded yet (a row cloned from a template)
       if (early.has(el) || !(el instanceof (customElements.get(el.localName) ?? Boolean))) upgrade(el, n, v);
-    },
+    } : undefined,
     /** `has`: the element may have the class (it is not a new clone of an element without a `class` attribute) */
     c(el: HTMLElement, n: string, v: any, has: unknown) { if (v || has) el.classList.toggle(n, !!v); },
     a(el: HTMLElement, n: string, v: any) {
@@ -581,11 +585,11 @@ export function mount(root: Document | Element, o: MountOptions): App {
       else if (urlAllowed(el, n, (v = v === true ? '' : '' + v), doc.baseURI, schemes)) { if (el.getAttribute(n) !== v) el.setAttribute(n, v); }
       else { el.removeAttribute(n); warn(7, n, el.localName, v); }
     },
-    s(el: HTMLElement, n: string, v: any) {
+    s: F.STYLE ? (el: HTMLElement, n: string, v: any) => {
       if (v == null || v === false) el.style.removeProperty(n);
       else if (STYLE_BAD.test(v)) { el.style.removeProperty(n); warn(8, n, v); }
       else el.style.setProperty(n, v);
-    },
+    } : undefined,
   };
 
   /** Elements written through callbacks (`$.$m(row, …)`) since the last flush. */
@@ -808,7 +812,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
         const form = el?.closest('form');
         if (!form) return;
         form.reset();
-        for (const c of form.elements) { const rb = (c as Tagged)[MODEL]; if (rb) setModel(rb, readModel(rb)); }
+        if (F.MODEL) for (const c of form.elements) { const rb = (c as Tagged)[MODEL]; if (rb) setModel(rb, readModel(rb)); }
       },
       emit: (n: string, detail?: unknown) => el?.dispatchEvent(new CustomEvent(n, { detail, bubbles: true, cancelable: true })),
       // to this page with only parameters it reads changed: as a same-page link (no load); else the browser navigates
@@ -821,7 +825,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
       },
       // the element's action, as if its trigger fired (a form is submitted); disabled or inert: nothing
       run: (id: string) => {
-        const t = byId(id), h = t && handlersOf(t as Tagged), rb = h && (Array.isArray(h) ? h : [h]).find((x) => x.b.x != null);
+        const t = F.ACTION ? byId(id) : undefined, h = t && handlersOf(t as Tagged), rb = h && (Array.isArray(h) ? h : [h]).find((x) => x.b.x != null);
         if (!rb) return warn(20, id);
         if (t.matches(':disabled') || t.closest('[inert]')) return;
         if (t.localName != 'form') return trigger(rb, null);
@@ -846,7 +850,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
   /** controls other than text fields (models.ts), on pages with such a model */
   const models = app.ext.models?.({ evaluate, deferred });
   /** the selection index (select.ts), on pages with selection bindings */
-  const sel = app.ext.select?.({ hit, isSimple, walkSimple, process });
+  const sel = F.LIST || F.BRANCH ? app.ext.select?.({ hit, isSimple, walkSimple, process }) : undefined;
 
   // ---- mount: one walk over elements and comments (`data-sn` elements, anchors' start comments), ids checked against the IR's tags
   const bad = new Set<number>();
@@ -860,7 +864,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
     found.has(id) ? bad.add(id) : found.set(id, n as Element | Comment);
   }
   for (const id of bad) { found.delete(id); warn(1, id); }
-  for (const def of ir.resources) createLoader(def);
+  if (F.RESOURCE) for (const def of ir.resources) createLoader(def);
   // back from the bfcache, or online again: the data may have changed meanwhile. Resources a stream
   // feeds are refetched by the stream module when it reconnects.
   const again = () => { for (const l of loaders) if (!l.def.fed) void l.refetch(); };
@@ -881,7 +885,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
     app.addCleanup(() => doc.removeEventListener('prerenderingchange', on));
   }
   // one delegated capture listener per event type the page binds, rows included, at the mount root: the compiler listed them
-  for (const type of ir.ev ?? []) {
+  if (F.EVENTS) for (const type of ir.ev ?? []) {
     ET.addEventListener.call(root, type, dispatch, true);
     cleanups.push(() => ET.removeEventListener.call(root, type, dispatch, true));
   }
@@ -950,13 +954,13 @@ export function mount(root: Document | Element, o: MountOptions): App {
           el[HANDLERS] = h == null ? rb : Array.isArray(h) ? (h.push(rb), h) : [h, rb];
           continue;
         }
-        if (b.k == 'model') {
+        if (F.MODEL && b.k == 'model') {
           el[MODEL] = rb;
           models?.bound(rb);
           if (b.p != null) app.ext.persist?.model(rb, (v) => setModel(rb, v));
         }
-        if (b.k == 'for') { rb.rows = []; rb.t = ir.templates[b.x!]; }
-        if (b.k == 'if' || b.k == 'ch') rb.br = 0;
+        if (F.LIST && b.k == 'for') { rb.rows = []; rb.t = ir.templates[b.x!]; }
+        if (F.BRANCH && (b.k == 'if' || b.k == 'ch')) rb.br = 0;
         rbs.push(rb);
       }
     }
@@ -967,7 +971,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
   /** Walks bindings in document order; `force`: 0 dirty ones only, 1 also those reading a loop index, 2 all. */
   function walk(rbs: RB[], force: number) {
     for (const rb of rbs) {
-      if (!process(rb, force) || !rb.rows) continue;
+      if (!process(rb, force) || !(F.LIST || F.BRANCH) || !rb.rows) continue;
       const t = rb.t;
       let r = force || !t ? 2 : rowHits.get(t);
       if (r == null) {
@@ -1038,12 +1042,12 @@ export function mount(root: Document | Element, o: MountOptions): App {
     const force = level == 2 || (level == 1 && !!rb.b.i);
     if (!force && !(deferred.size && deferred.has(rb)) && !(rb.b.d && hit(rb.b.d, rb.s))) return true;
     // (an anchor's start comment is in its parent element, which a dialog's check reads)
-    if (rb.c && waits(rb.el.nodeType == 1 ? rb.el as Element : rb.el.parentElement)) { deferred.add(rb); return false; }
+    if (F.DIALOG && rb.c && waits(rb.el.nodeType == 1 ? rb.el as Element : rb.el.parentElement)) { deferred.add(rb); return false; }
     if (deferred.size) deferred.delete(rb);
     const v = evaluate(rb), k = rb.b.k;
-    if (k == 'for') reconcile(rb, v);
-    else if (k == 'if' || k == 'ch') toggle(rb, pick(rb.b, v), v?.[1]);
-    else if (k == 'model') writeModel(rb, v);
+    if (F.LIST && k == 'for') reconcile(rb, v);
+    else if (F.BRANCH && (k == 'if' || k == 'ch')) toggle(rb, pick(rb.b, v), v?.[1]);
+    else if (F.MODEL && k == 'model') writeModel(rb, v);
     else if (k == 'cmp') app.ext.components!(rb, v);
     else if (!Object.is(v, rb.v)) { write(rb.b, rb.el, v, rb.v == UNSET ? undefined : rb.v, rb.v == UNSET); rb.v = v; }
     return true;
@@ -1111,7 +1115,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
     switch (b.k) {
       case 'text': n ? W.x(el, n, v) : W.t(el, n, v); break;
       case 'show': W.h(el, n, v); break;
-      case 'prop': W.p(el, n, v); break;
+      case 'prop': if (F.PROP) W.p!(el, n, v); break;
       case 'class':
         // a new element without a class attribute cannot have the class: skip removing it
         if (n) W.c(el, n, v, !fresh || el.hasAttribute('class'));
@@ -1121,7 +1125,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
         }
         break;
       case 'attr': W.a(el, n, v); break;
-      case 'style': W.s(el, n, v);
+      case 'style': if (F.STYLE) W.s!(el, n, v);
     }
   }
 
@@ -1492,7 +1496,8 @@ export function mount(root: Document | Element, o: MountOptions): App {
    */
   function handlersOf(el: Tagged): RB | RB[] | undefined {
     const h = el[HANDLERS];
-    if (h != null) return h;
+    // (handlers bound on their first event are in the rows of a simple template: a list's or a branch's)
+    if (h != null || !(F.LIST || F.BRANCH)) return h;
     let a: Element | null = el, x: Inst | undefined;
     while (a && a != root && !(x = (a as RowNode)[ROW])) a = a.parentElement;
     if (!x) return undefined;
@@ -1513,22 +1518,24 @@ export function mount(root: Document | Element, o: MountOptions): App {
     const was = ev;
     if (!synth) ev ??= e;
     try {
-      if (e.type == 'toggle' && el.localName == 'dialog' && el.hasAttribute('open') && !closing.has(el)) reveal(el);
-      const d = closes(e, el);
-      if (d && !closing.has(d)) {
-        closing.add(d);
-        // the close runs after this event's handlers, in the same task; if it did not (prevented), render now
-        env.setTimeout(() => { closing.delete(d); if (!destroyed && d.hasAttribute('open')) reveal(d); }, 0);
+      if (F.DIALOG) {
+        if (e.type == 'toggle' && el.localName == 'dialog' && el.hasAttribute('open') && !closing.has(el)) reveal(el);
+        const d = closes(e, el);
+        if (d && !closing.has(d)) {
+          closing.add(d);
+          // the close runs after this event's handlers, in the same task; if it did not (prevented), render now
+          env.setTimeout(() => { closing.delete(d); if (!destroyed && d.hasAttribute('open')) reveal(d); }, 0);
+        }
       }
       // models update state before other handlers on the same event
-      const m = (el as Tagged)[MODEL];
+      const m = F.MODEL ? (el as Tagged)[MODEL] : undefined;
       if (m && /^(input|change)$/.test(e.type) && (e.type == 'input') == (m.b.n == 'text')) setModel(m, readModel(m), e.type == 'input' && !m.el.localName.includes('-'));
       for (; el; el = el.parentElement) {
         const h = handlersOf(el as Tagged), hs = h && (Array.isArray(h) ? h : [h]).filter((x) => x.b.n == e.type && (x.b.q == null || app.ext.keys!(x, e as KeyboardEvent)));
         if (hs?.length) {
           // a debounced handler (debounce.ts) runs once, with the last event, if its element is still on the page
           const u = ev;
-          for (const h of hs) h.b.x != null ? trigger(h, e) : h.b.ms ? app.ext.debounce!(h, h.b.ms, () => h.el.isConnected && as(u, () => handle(h, h.b.f!, e, h.b.w))) : handle(h, h.b.f!, e, h.b.w);
+          for (const h of hs) F.ACTION && h.b.x != null ? trigger(h, e) : h.b.ms ? app.ext.debounce!(h, h.b.ms, () => h.el.isConnected && as(u, () => handle(h, h.b.f!, e, h.b.w))) : handle(h, h.b.f!, e, h.b.w);
           // a bubbling custom event is a notification: it goes on up until a handler prevents it. Otherwise handled:
           // any handler or action ran; for keys, a filter matched (it prevents the default), an action or a
           // debounced handler ran, or a plain handler prevented the default. A key it did not prevent goes on up.

@@ -6,6 +6,7 @@
 // wrappers keep their comments until they render again).
 import { expect, test } from 'vitest';
 import { render } from '../../src/testing/index.js';
+import { reset as resetCore } from '../core-flags.js';
 
 /** a small seeded PRNG, so a failure names its case */
 function rng(seed: number) {
@@ -92,6 +93,8 @@ const ONLY = process.env.SN_FUZZ_ONLY ? Number(process.env.SN_FUZZ_ONLY) : undef
 test('random wrapper chains: each change in place renders what a fresh render of the same state renders, after the module or the early script', async () => {
   const failures: string[] = [];
   for (let seed = ONLY ?? 1; seed <= (ONLY ?? SEEDS); seed++) {
+    // each seed on the smallest core for its page (test/core-flags.ts)
+    resetCore();
     const r = rng(seed);
     const keyed = r() < 0.5;
     const tpl = `<template data-sn-for="x in d"${keyed ? ' data-sn-key="x.id"' : ''}>${chain(r, 'x', 3)}</template>`;

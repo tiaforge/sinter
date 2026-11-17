@@ -3,6 +3,7 @@
 // after a state change must equal a fresh render of the new state, and the build over constants.
 import { expect, test } from 'vitest';
 import { render } from '../../src/testing/index.js';
+import { reset as resetCore } from '../core-flags.js';
 
 /** a small seeded PRNG, so a failure names its case */
 function rng(seed: number) {
@@ -49,6 +50,8 @@ const lit = (x: unknown) => JSON.stringify(x).replace(/"/g, "'");
 test('random templates: a state change renders what a fresh render and the constant build render', async () => {
   const failures: string[] = [], constant = new Set<number>();
   for (let seed = 1; seed <= 120; seed++) {
+    // each seed on the smallest core for its page (test/core-flags.ts)
+    resetCore();
     const r = rng(seed);
     const wrap = r() < 0.5;
     const body = template(r, 'x', 3);

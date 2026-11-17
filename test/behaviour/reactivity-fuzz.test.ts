@@ -19,6 +19,7 @@ import { expect, test } from 'vitest';
 import { configure } from '../../src/index.js';
 import { memo } from '../../src/memo.js';
 import { mockRequests, mockStream, render } from '../../src/testing/index.js';
+import { reset as resetCore } from '../core-flags.js';
 
 /** how long the handlers and the click scripts get (`SN_FUZZ_DEPTH`, default 1) */
 const DEPTH = Number(process.env.SN_FUZZ_DEPTH ?? 1);
@@ -196,6 +197,8 @@ test('random handlers: the page with memoized helpers agrees with the plain one,
   configure({ locale: { get: () => loc, set: (l) => { loc = l; } } });
   try {
     for (let seed = FIRST; seed < FIRST + SEEDS; seed++) {
+      // each seed on the smallest core for its page (test/core-flags.ts)
+      resetCore();
       // one script of steps for both pages: which button, whether to flush, whether a server message arrives
       const sr = rng(seed * 7919);
       // b: a handler (0-2), the optimistic action (3), the action that succeeds (4) or fails (5), the persisted scope's (6),

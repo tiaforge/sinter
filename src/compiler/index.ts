@@ -2,6 +2,7 @@ import * as acorn from 'acorn';
 import { tsPlugin } from '@sveltejs/acorn-typescript';
 import { compileParts, type CompileOptions, type CompileResult, type CompiledParts, type EarlyParts, type FnSource, type FnSources, type HelperManifest, type HelperOrigin, type PrefetchParts, type EmbedSlot, type EmbedCond, type RuntimeReason } from './compile.js';
 import { compactIR } from '../ir.js';
+import { coreParts } from '../core-parts.js';
 import { MappedLines, type SourceMap } from './sourcemap.js';
 import { earlyRender } from './early-render.js';
 
@@ -108,6 +109,8 @@ function compileOne(html: string, options: CompileOptions): CompileResult {
     html: parts.html, module: css + page.text(), runtime: parts.runtime, preload: parts.preload, ...(parts.static ? { static: true as const } : {}),
     diagnostics: parts.diagnostics, files: parts.files, ...(parts.globs ? { globs: parts.globs } : {}), ...(parts.pages ? { pages: parts.pages } : {}), styles: parts.styles, prefetch: parts.prefetch, embed: parts.embed, path: parts.ir.path ?? [], ...(parts.ir.urlArrays ? { urlArrays: parts.ir.urlArrays } : {}), ...(parts.prefetchOff ? { prefetchOff: true as const } : {}), ...(parts.permanent ? { permanent: parts.permanent, ...(parts.keptSource ? { keptSource: parts.keptSource } : {}), ...(parts.keptBound ? { keptBound: parts.keptBound } : {}) } : {}), ...(parts.swapOff ? { swapOff: true as const } : {}),
     ...(parts.ir.urlReads ? { sameLinks: true as const } : {}),
+    // the parts of the core the page module uses (a site's core keeps their union: src/core-parts.ts)
+    ...(parts.static ? {} : { core: coreParts(parts.ir) }),
   };
   if (parts.check) out.check = parts.check;
   const lazy = parts.scripts.filter((x) => x.lazy);
