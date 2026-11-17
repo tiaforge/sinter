@@ -3848,8 +3848,26 @@ class Compiler {
   finishChoices() {
     for (const g of this.choiceGroups) {
       const b = g.node!.b[0]!;
-      const cases = g.cases.map((c, i) => `v === ${JSON.stringify(c.name)} ? [${i}, ${c.props}]`).join(' : ');
-      b.f = this.fn(`($) => { const v = (${g.pick}); ${g.warn}return ${cases} : null; }`, g.site);
+      // Many candidates that take a few distinct props (a library's dispatch: one prop, `{ node }`, the
+      // same for every candidate but those that also carry fills) are a lookup, not a chain: one entry per
+      // name, the first candidate of a name winning as in the chain, and each distinct props object written
+      // once. The table has no prototype and is read only for a string, so `use` matches exactly the names
+      // the chain would. A component used in many places repeats this per place, so it must stay small.
+      const variants = [...new Set(g.cases.map((c) => c.props))];
+      if (g.cases.length >= CHOICE_TABLE && variants.length <= 3) {
+        const entries = new Map<string, string>();
+        g.cases.forEach((c, i) => {
+          if (!entries.has(c.name)) entries.set(c.name, variants.length > 1 ? `[${i}, ${variants.indexOf(c.props)}]` : String(i));
+        });
+        const table = `{ __proto__: null, ${[...entries].map(([n, e]) => `${JSON.stringify(n)}: ${e}`).join(', ')} }`;
+        const pick = variants.length > 1
+          ? `const e = typeof v === 'string' ? ${table}[v] : undefined; return e === undefined ? null : [e[0], ${variants.map((p, k) => (k < variants.length - 1 ? `e[1] === ${k} ? ${p} : ` : p)).join('')}];`
+          : `const i = typeof v === 'string' ? ${table}[v] : undefined; return i === undefined ? null : [i, ${variants[0]}];`;
+        b.f = this.fn(`($) => { const v = (${g.pick}); ${g.warn}${pick} }`, g.site);
+      } else {
+        const cases = g.cases.map((c, i) => `v === ${JSON.stringify(c.name)} ? [${i}, ${c.props}]`).join(' : ');
+        b.f = this.fn(`($) => { const v = (${g.pick}); ${g.warn}return ${cases} : null; }`, g.site);
+      }
       b.c = g.cases.map((c) => c.tid);
       const d = [...new Set(g.cases.flatMap((c) => c.deps))].sort();
       if (d.length) b.d = d;
@@ -9247,6 +9265,9 @@ export function preconnects(resources: ResourceDef[], syncs: SyncDef[]): string[
   }
   return [...out];
 }
+
+/** From this many candidates, a `<sn-component use>` choice is a lookup table rather than a chain (`finishChoices`). */
+const CHOICE_TABLE = 8;
 
 /**
  * How deep plain data may nest. A constant tree a component library unrolls at build time is as deep as
