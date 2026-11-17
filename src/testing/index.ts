@@ -711,6 +711,8 @@ export async function render(html: string, options: RenderOptions = {}): Promise
       await flush();
       await tick();
       if (requests && requests.pending) { await requests.deliver(); continue; }
+      // a task the browser runs right after the event (a dialog's close releasing its bindings)
+      if (timers.some((t) => t.kind === 'task' && t.at <= now)) { runDue(now, new Set(['task'])); continue; }
       const debounce = timers.filter((t) => t.kind === 'debounce').sort((a, b) => a.at - b.at)[0];
       if (debounce) { runDue(debounce.at, new Set(['debounce'])); continue; }
       // a request waiting between retries runs again only when the clock moves (advance)

@@ -4,7 +4,7 @@ import { meeting } from './handoff.js';
 
 export interface Env {
   now(): number;
-  setTimeout(fn: () => void, ms: number, kind?: 'debounce' | 'timeout' | 'backoff' | 'clock'): unknown;
+  setTimeout(fn: () => void, ms: number, kind?: 'debounce' | 'timeout' | 'backoff' | 'clock' | 'task'): unknown;
   clearTimeout(handle: unknown): void;
   queueMicrotask(fn: () => void): void;
   /** the only way sinter navigates */

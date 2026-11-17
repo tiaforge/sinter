@@ -1524,7 +1524,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
         if (d && !closing.has(d)) {
           closing.add(d);
           // the close runs after this event's handlers, in the same task; if it did not (prevented), render now
-          env.setTimeout(() => { closing.delete(d); if (!destroyed && d.hasAttribute('open')) reveal(d); }, 0);
+          env.setTimeout(() => { closing.delete(d); if (!destroyed && d.hasAttribute('open')) reveal(d); }, 0, 'task');
         }
       }
       // models update state before other handlers on the same event

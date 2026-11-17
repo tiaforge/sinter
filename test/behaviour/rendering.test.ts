@@ -603,6 +603,30 @@ test('a dialog an event is closing keeps its content while it closes; it renders
   expect(h2.textContent).toBe('Bo');
 });
 
+test('settle() runs the task that releases a dialog a close button closed: reopened, it renders', async () => {
+  // Caley's import dialog: Cancel closes it, a new draft opens it again
+  const { root, settle } = await render(`
+    <div data-sn-state="{ imp: null }">
+      <button class="open" data-sn-on-click="imp = {name: 'b'}; showModal('imp')">open</button>
+      <dialog id="imp">
+        <h2 data-sn-text="imp?.name"></h2>
+        <button class="cancel" data-sn-on-click="imp = null" commandfor="imp" command="close">Cancel</button>
+      </dialog>
+    </div>`);
+  const dialog = root.querySelector('dialog')!, h2 = root.querySelector('h2')!;
+  dialog.showModal();
+  dialog.dispatchEvent(new Event('toggle'));
+  await settle();
+  root.querySelector<HTMLButtonElement>('.cancel')!.click();
+  dialog.close();
+  await settle();
+  root.querySelector<HTMLButtonElement>('.open')!.click();
+  dialog.dispatchEvent(new Event('toggle'));
+  await settle();
+  expect(dialog.open).toBe(true);
+  expect(h2.textContent).toBe('b');
+});
+
 test('showModal() and close() check the dialog id at build time', async () => {
   await expect(render(`<dialog id="a"></dialog><button data-sn-on-click="showModal('b')"></button>`)).rejects.toThrow(/SN309/);
   await expect(render(`<div data-sn-state="{ id: 'a' }"><dialog id="a"></dialog><button data-sn-on-click="close(id)"></button></div>`)).rejects.toThrow(/SN309/);
