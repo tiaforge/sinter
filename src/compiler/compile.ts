@@ -4,7 +4,7 @@ import type { SourceMap } from './sourcemap.js';
 import { rewriteImages, sourceFile, type ImageHost, type ImageResult } from './images.js';
 import { boxSizesCss, type ReserveTrace, Layout, PLACEHOLDER_BASE, type Affine, type Reserved, type StyleSheet } from './layout.js';
 import { shows } from './status-eval.js';
-import { record as recordUnit, recordChild, replay as replayUnit, LINK_FIELDS, Overlay, fork, unitDelta, applyDelta, type Plan, type Refused } from './link.js';
+import { recordChild, replay as replayUnit, LINK_FIELDS, Overlay, fork, unitDelta, applyDelta, type Plan, type Refused } from './link.js';
 import { HEAD_ELEMENTS, parseDocument } from './head.js';
 import { minifyMarkup } from './minify.js';
 import type { RemoteConfig } from '../remote.js';
@@ -3868,46 +3868,35 @@ class Compiler {
   definition(name: string): { tid: number; id: string; use: Use } | null {
     const known = this.defs.get(name);
     if (known !== undefined) return known;
-    if ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env.SN_UNIT && this.defLink.depth === 0) return this.unitDefinition(name);
-    const cache = this.opts.definitions as Map<string, Plan | Refused | typeof SEEN | null> | undefined, L = this.defLink;
+    const L = this.defLink;
+    // in a unit: the definitions it reaches are part of it
+    if (L.depth > 0) return this.compileDefinition(name);
+    const cache = this.opts.definitions as Map<string, Plan | Refused | typeof SEEN | null> | undefined;
     const stats = (globalThis as { __snLink?: { hits: number; recorded: number; refused: string[] } }).__snLink;
-    if (!cache || L.off || L.depth > 0 || this.check || this.opts.dev) return this.compileDefinition(name);
+    if (!cache || L.off || this.check || this.opts.dev) return this.unitDefinition(name);
     const key = [this.opts.decided || this.opts.unrolled || this.opts.constants ? 2 : 1, L.chain.join('\u0001'), name, [...this.defs.keys()].join(',')].join('\u0002');
     const u = cache.get(key);
     if (u && u !== SEEN && 'ops' in u) {
       if (replayUnit(this, u, L.maps)) { L.replayed = true; L.chain.push(key); if (stats) stats.hits++; return this.defs.get(name) ?? null; }
       L.off = true;
-      return this.compileDefinition(name);
+      return this.unitDefinition(name);
     }
     // what this page compiles from here on is its own numbering: a unit recorded after a linked one would mix two
-    if ((u && u !== SEEN) || L.replayed) { L.off = true; return this.compileDefinition(name); }
-    // recorded the second time a build needs it (recording costs a walk of the compiler's state): a definition only one
-    // page needs, as a `data-sn-pages` template's first entry, is compiled as before. The chain goes on from either
-    if (u === undefined) {
-      cache.set(key, SEEN);
-      L.chain.push(key);
-      // (its nested definitions are part of it, as when it is recorded)
-      L.depth++;
-      try { return this.compileDefinition(name); } finally { L.depth--; }
-    }
-    L.depth++;
-    try {
-      // (the generic recorder, `SN_LINK_RECORDER=generic`, for comparison while the unit path replaces it)
-      const r = (globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env.SN_LINK_RECORDER === 'generic'
-        ? recordUnit(this, name, () => this.compileDefinition(name), L.prior)
-        : recordChild(this, name, (child: Compiler) => child.compileDefinition(name), L.prior);
-      cache.set(key, r.unit);
-      if ('refused' in r.unit) { L.off = true; if (stats) stats.refused.push(`${name}: ${r.unit.refused}`); }
-      else { L.chain.push(key); if (stats) stats.recorded++; }
-      return r.result;
-    } finally { L.depth--; }
+    if ((u && u !== SEEN) || L.replayed) { L.off = true; return this.unitDefinition(name); }
+    // recorded the second time a build needs it (recording walks what the unit can reach of the page): a definition only
+    // one page needs, as a `data-sn-pages` template's first entry, is compiled once. The chain goes on from either
+    if (u === undefined) { cache.set(key, SEEN); L.chain.push(key); return this.unitDefinition(name); }
+    const r = recordChild(this, name, (child: Compiler) => child.compileDefinition(name), L.prior);
+    cache.set(key, r.unit);
+    if ('refused' in r.unit) { L.off = true; if (stats) stats.refused.push(`${name}: ${r.unit.refused}`); }
+    else { L.chain.push(key); if (stats) stats.recorded++; }
+    return r.result;
   }
 
   /**
-   * Refactor, step 1 (`SN_UNIT=1`): the definition compiled in a compiler of its own, from this page's numbering (its
-   * function and template tables, counters and `codeAt` copied), with this page's context and caches shared, and every
-   * other table its own and empty; then its tables merged into this page's. What it reads of this page beyond that is
-   * what the refactor has to pass in.
+   * A definition compiled as a unit: in a compiler of its own (`unitChild`), from this page's numbering, with this page's
+   * context and caches shared and its tables forked, then merged into this page (`mergeUnit`). Linking keeps the same
+   * unit to link into later pages (`recordChild`).
    */
   unitDefinition(name: string): { tid: number; id: string; use: Use } | null {
     const u = this.unitChild();

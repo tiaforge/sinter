@@ -45,11 +45,8 @@ test('pages of every shape, linked: each as compiled on its own', () => {
     }
   } finally { delete (globalThis as { __snLink?: unknown }).__snLink; }
   expect(stats.refused).toEqual([]);
-  // (with SN_UNIT, definitions are compiled in units of their own instead of linked)
-  if (!process.env.SN_UNIT) {
-    expect(stats.recorded).toBeGreaterThan(0);
-    expect(stats.hits).toBeGreaterThan(0);
-  }
+  expect(stats.recorded).toBeGreaterThan(0);
+  expect(stats.hits).toBeGreaterThan(0);
 });
 
 test('an action in a definition: refused (its index is not renumbered), and each page as compiled on its own', () => {
@@ -63,5 +60,5 @@ test('an action in a definition: refused (its index is not renumbered), and each
     const body = '<button data-sn-post="/api/page">page</button><x-doc data-sn-prop="{ doc }"></x-doc>';
     for (let round = 0; round < 3; round++) for (const name of ['first', 'second']) expect(build(name, body, definitions), `${name}, round ${round}`).toEqual(build(name, body));
   } finally { C['x-link'] = was; delete (globalThis as { __snLink?: unknown }).__snLink; }
-  if (!process.env.SN_UNIT) expect(stats.refused.some((r) => r.includes('adds an action'))).toBe(true);
+  expect(stats.refused.some((r) => r.includes('adds an action'))).toBe(true);
 });

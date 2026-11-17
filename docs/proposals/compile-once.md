@@ -197,11 +197,21 @@ cannot see (a property of an object no field reaches, a non-enumerable one, a wr
 would be linked as missing, silently. Builds with `typecheck` and dev builds do not link. Recording walks the
 compiler's state (about 250 ms once per build). The describe compiles (`describeOnly`) do not link.
 
-**Recommendation.** Take it to production as the refactor the doc first proposed, now that the spike has mapped what a
-definition writes: a definition writes its templates, functions and side tables into a unit of its own, and `link()`
-merges it, with the record-and-replay kept as the test oracle (a page linked must equal the page compiled, over the
-benchmark apps, the examples and the shapes above). Keeping the generic recorder as the mechanism is the faster
-path, but every compiler change could add a write it does not see.
+**The refactor, as done (2026-11-17).** A definition compiles as a unit of its own, always: a child `Compiler` with
+the page's numbering, its context and caches shared, its tables forks of the page's (`fork`; a weak table an `Overlay`
+over the page's), merged back as a delta (`unitDelta`, `applyDelta`). The suite passed with every definition compiled
+that way before it became the only way, so a definition reads nothing else of its page. Linking records that unit
+(`recordChild`), not a diff of the whole compiler: the generic recorder and its patching of `WeakMap` and `WeakSet` are
+gone. What is still diffed is what a unit changes of the objects it shares with its page (the page info, the component
+files, earlier definitions). The safety net: `LINK_FIELDS` classifies every field (`test/compiler/link-fields.test.ts`),
+and `SN_LINK_AUDIT` checks every compile in the suite against itself linked, on its own page and on one with every
+numbering offset (CI job `link-audit`). Found by them and fixed: weak sets not seen, state ids, actions (refused),
+comparison sides and loop names not renumbered, a component's `uses` overwritten. Every build of the benchmark and the
+examples is byte-identical to `main`'s.
+
+Left: the audit's offset page does not reach every definition (some never get recorded there, for reasons not yet
+traced), so a numbering a unit could miss is covered by the tests that link across pages (`test/compiler/link.test.ts`),
+not by the audit alone. Actions in a definition are refused, not renumbered.
 
 Found on the way and landed: the expression parse cache keyed its trees by one string of the kind, the options and the
 text, a new string hashed at every lookup (7% of the definitions' time). Keyed by the options, then by the text (the

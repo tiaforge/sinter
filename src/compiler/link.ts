@@ -1,9 +1,10 @@
-// Spike (docs/proposals/compile-once.md, (5)): shared definitions compiled once per build and linked into each page.
-// A top-level `definition()` call on one page is recorded as what it changed in the compiler (its *unit*); a later page
-// that reaches the same definition with the same definitions before it replays the unit instead of compiling it: the
-// objects the call created are copied, template ids, use ids and function indices are renumbered, and the function
-// table's hand-outs are replayed in order (so its dedupe and numbering are the page's own). Generic over the
-// `Compiler`'s fields; what it does not understand makes the unit unlinkable, and the page compiles it as before.
+// Shared definitions linked into each page (docs/proposals/compile-once.md, (5)). A top-level definition compiles as a unit
+// of its own (`Compiler.unitChild`): a compiler with its page's numbering, its context and caches shared, and its tables
+// forks of the page's (`fork`, `Overlay`), merged into the page after (`unitDelta`, `applyDelta`). The second time a build
+// needs it, the unit is recorded (`recordChild`): its delta, what it changed of the shared objects, and its hand-outs of
+// functions, kept as a flat plan (`keep`). A later page with the same definitions before it replays the plan (`replay`):
+// the objects copied, template ids, use ids, state ids and function indices renumbered, `fn()` replayed in order (so the
+// table's dedupe and numbering are the page's own). What it cannot account for makes a unit unlinkable: compiled as before.
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 type Ref = { path: Step[] } | { at: 'el' | 'site' } | { self: 'opts' | 'page' | 'compiler' } | { prior: { u: number; i: number } };
@@ -275,10 +276,6 @@ function reach(roots: unknown[], into = new Set<object>(), stop?: (o: object) =>
   return into;
 }
 
-/**
- * Runs `call` (a top-level `definition()`) and records what it changed. The unit holds a private copy of what the call
- * created, so the page that recorded it may go on changing its own.
- */
 /** a step from a compiler field to an old object: a property, a map's key, a list's index */
 type Step = { p: string } | { k: unknown } | { i: number };
 
@@ -303,144 +300,6 @@ const follow = (c: any, path: Step[]) => path.reduce((o: any, s) => (o == null ?
 
 /** a shallow copy of an object, to see what a call changed in it */
 const shallow = (o: any) => (o instanceof Map ? new Map(o) : o instanceof Set ? new Set(o) : Array.isArray(o) ? o.slice() : Object.assign(Object.create(null), o));
-
-/**
- * Runs `call` (a top-level `definition()`) and records what it changed. The unit holds a private copy of what the call
- * created, so the page that recorded it may go on changing its own.
- */
-export function record<T>(c: any, name: string, call: () => T, prior: Map<object, { u: number; i: number }>): { result: T; unit: Plan | Refused } {
-  for (const k of Object.keys(c)) if (!(k in LINK_FIELDS)) return { result: call(), unit: { refused: `\`${k}\` is not in LINK_FIELDS` } };
-  const pre = snapshot(c);
-  const t0 = c.templates.length, u0 = c.useIds, s0 = c.nextSid, atBefore = c.at;
-  // what exists before the call: the compiler's state and the page's markup (from the element being compiled)
-  const old = new Set<object>();
-  let top = atBefore?.el;
-  while (top?.parentNode) top = top.parentNode;
-  reach([...Object.keys(c).filter((k) => !SKIP.has(k) && !(c[k] instanceof WeakMap)).map((k) => c[k]), top, atBefore], old, (o) => Object.isFrozen(o));
-  // (the compiler's own tables: diffed as tables above, or replayed by `fn()`, or caches)
-  const fieldBoxes = new Set<object>([...pre.out.values()].map((x) => at(c, x.path)));
-  for (const k of Object.keys(c)) if (c[k] && typeof c[k] === 'object' && (container(c[k]) || SKIP.has(k))) fieldBoxes.add(c[k]);
-  const before = new Map<object, any>();
-  for (const o of old) if (o !== c && !fieldBoxes.has(o) && !(o instanceof WeakMap) && !(o instanceof WeakSet)) before.set(o, shallow(o));
-  // the compiler's weak maps and sets: what the call writes to them, intercepted (they cannot be walked or diffed)
-  const weakNames = new Map<object, string>();
-  for (const k of Object.keys(c)) if (c[k] instanceof WeakMap || c[k] instanceof WeakSet) weakNames.set(c[k], k);
-  const weak: Op[] = [];
-  const set0 = WeakMap.prototype.set, mdel0 = WeakMap.prototype.delete, add0 = WeakSet.prototype.add, sdel0 = WeakSet.prototype.delete;
-  WeakMap.prototype.set = function (this: WeakMap<object, unknown>, k: object, v: unknown) {
-    const f = weakNames.get(this);
-    if (f) weak.push({ op: 'weak', field: f, key: k, value: v });
-    return set0.call(this, k, v) as never;
-  };
-  WeakMap.prototype.delete = function (this: WeakMap<object, unknown>, k: object) {
-    const f = weakNames.get(this);
-    if (f) weak.push({ op: 'weakDel', field: f, key: k });
-    return mdel0.call(this, k);
-  };
-  WeakSet.prototype.add = function (this: WeakSet<object>, k: object) {
-    const f = weakNames.get(this);
-    if (f) weak.push({ op: 'weakAdd', field: f, key: k });
-    return add0.call(this, k) as never;
-  };
-  WeakSet.prototype.delete = function (this: WeakSet<object>, k: object) {
-    const f = weakNames.get(this);
-    if (f) weak.push({ op: 'weakDel', field: f, key: k });
-    return sdel0.call(this, k);
-  };
-  const calls: Array<{ code: string; rec: number }> = [];
-  const fn0 = c.fn;
-  c.fn = function (code: string, site?: unknown) { const i = fn0.call(c, code, site); calls.push({ code, rec: i }); return i; };
-  const f0 = c.fns.length;
-  let result: T;
-  try { result = call(); } finally { WeakMap.prototype.set = set0; WeakMap.prototype.delete = mdel0; WeakSet.prototype.add = add0; WeakSet.prototype.delete = sdel0; delete c.fn; }
-  const refuse = (why: string) => ({ result, unit: { refused: why } as Refused });
-  // (the element compiled last: the page goes on with it as the site of what it compiles next)
-  const atAfter = c.at;
-  // an action's entry holds function indices in shapes linking does not renumber, and a binding's `x` points at it
-  if (c.actions.length !== pre.out.get('actions')!.copy.length) return refuse('adds an action (`actions` is not renumbered)');
-  // what changed in the compiler's tables
-  const ops: Op[] = [];
-  for (const [key, s] of pre.out) {
-    const now = at(c, s.path);
-    if (s.kind === 'map') {
-      for (const k of s.copy.keys()) if (!now.has(k)) return refuse(`${key}: a key deleted`);
-      for (const [k, v] of now) if (!s.copy.has(k) || s.copy.get(k) !== v) ops.push({ op: 'mapSet', path: s.path, key: k, value: v });
-    } else if (s.kind === 'set') {
-      for (const x of s.copy) if (!now.has(x)) return refuse(`${key}: an item deleted`);
-      for (const x of now) if (!s.copy.has(x)) ops.push({ op: 'setAdd', path: s.path, value: x });
-    } else {
-      if (now.length < s.copy.length) return refuse(`${key}: shrank`);
-      for (let i = 0; i < s.copy.length; i++) if (now[i] !== s.copy[i]) return refuse(`${key}[${i}] changed in place`);
-      for (const x of now.slice(s.copy.length)) ops.push({ op: 'push', path: s.path, value: x });
-    }
-  }
-  for (const [k, v] of pre.scalars) if (c[k] !== v && k !== 'useIds' && k !== 'nextSid') return refuse(`\`${k}\` changed (${String(v)} → ${String(c[k])})`);
-  for (const k of Object.keys(c)) if (!pre.scalars.has(k) && !pre.out.has(k) && !SKIP.has(k) && !(c[k] instanceof WeakMap) && !(c[k] instanceof WeakSet)) return refuse(`\`${k}\` added`);
-  // what changed in the objects from before: each against its path from the compiler
-  const where = paths(c, old);
-  const changed: Array<{ target: object; change: Change }> = [];
-  for (const [o, b] of before as Map<any, any>) {
-    if (o instanceof Map) {
-      for (const k of b.keys()) if (!o.has(k)) return refuse('a map from before lost a key');
-      for (const [k, v] of o) if (!b.has(k) || b.get(k) !== v) changed.push({ target: o, change: { kind: 'set', key: k, value: v } });
-    } else if (o instanceof Set) {
-      for (const x of b) if (!o.has(x)) return refuse('a set from before lost an item');
-      for (const x of o) if (!b.has(x)) changed.push({ target: o, change: { kind: 'add', value: x } });
-    } else if (Array.isArray(o)) {
-      if (o.length < b.length) return refuse('a list from before shrank');
-      for (let i = 0; i < b.length; i++) if (o[i] !== b[i]) changed.push({ target: o, change: { kind: 'prop', key: i, value: o[i] } });
-      for (const x of o.slice(b.length)) changed.push({ target: o, change: { kind: 'push', value: x } });
-    } else {
-      for (const k of Object.keys(b)) if (!(k in o)) return refuse(`\`${k}\` deleted from an object from before`);
-      for (const k of Object.keys(o)) if (o[k] !== b[k]) changed.push({ target: o, change: { kind: 'prop', key: k, value: o[k] } });
-    }
-  }
-  for (const x of changed) {
-    const path = prior.has(x.target) ? null : where.get(x.target);
-    if (!prior.has(x.target) && !path) {
-      const t: any = x.target;
-      const inWeak = Object.keys(c).filter((k) => c[k] instanceof WeakMap).find((k) => { let hit = false; return hit; });
-      const sample = Array.isArray(t) ? t.slice(0, 2).map((e: any) => (e && typeof e === 'object' ? (e.nodeName ? '<' + e.tagName + '>' : '{' + Object.keys(e).slice(0, 5).join(',') + '}') : String(e))).join(' ') : '';
-      return refuse(`changes an object from before that has no key (${t.constructor?.name ?? 'object'}: ${t.nodeName ?? Object.keys(t).slice(0, 6).join(', ')}; ${(x.change as any).key ?? x.change.kind}; ${sample}${inWeak ?? ''})`);
-    }
-    ops.push({ op: 'old', target: prior.has(x.target) ? { prior: prior.get(x.target)! } : { path: path! }, change: x.change });
-  }
-  ops.push(...weak);
-  // an old object the unit refers to: by its path from the compiler, made by an earlier unit, the element being compiled, or shared
-  const refs = new Map<object, Ref>([[c.opts, { self: 'opts' }], [c.page, { self: 'page' }], [c, { self: 'compiler' }]]);
-  if (atBefore) refs.set(atBefore, { at: 'site' });
-  if (atBefore?.el) refs.set(atBefore.el, { at: 'el' });
-  const templates = c.templates.slice(t0);
-  const fnAt = new Map<number, unknown>();
-  for (let i = f0; i < c.fns.length; i++) fnAt.set(i, c.fnAt[i]);
-  // what the call created: everything reachable from what it wrote, up to the old objects at its edge
-  const created = new Set<object>();
-  const todo: unknown[] = [ops.map((o) => ('change' in o ? o.change : o)), templates, [...fnAt.values()], atAfter];
-  while (todo.length) {
-    const v = todo.pop();
-    if (!v || typeof v !== 'object' || created.has(v) || shared(v) || refs.has(v)) continue;
-    if (old.has(v) || prior.has(v)) {
-      if (prior.has(v)) { refs.set(v, { prior: prior.get(v)! }); continue; }
-      const path = where.get(v);
-      if (!path) return refuse(`refers to an object from before that has no key (${(v as any).constructor?.name ?? 'object'}: ${(v as any).nodeName ?? Object.keys(v).slice(0, 6).join(', ')})`);
-      refs.set(v, { path });
-      continue;
-    }
-    created.add(v);
-    if (v instanceof Map) for (const [k, x] of v) todo.push(k, x);
-    else if (v instanceof Set) for (const x of v) todo.push(x);
-    else if (Array.isArray(v)) for (const x of v) todo.push(x);
-    else for (const k of Object.keys(v)) todo.push((v as any)[k]);
-  }
-  for (const o of created) {
-    if (typeof o === 'function') return refuse('holds a function');
-    for (const k of Object.keys(o)) if (typeof (o as any)[k] === 'function') return refuse(`holds a function (\`${k}\` of ${Object.keys(o).slice(0, 5).join(', ')})`);
-    const proto = Object.getPrototypeOf(o);
-    if (proto !== Object.prototype && proto !== Array.prototype && proto !== Map.prototype && proto !== Set.prototype && proto !== null) return refuse(`holds a ${o.constructor?.name}`);
-  }
-  const unit: Unit = { name, file: c.opts.file, ops, calls, fnAt, templates, t0, u0, uses: c.useIds - u0, s0, sids: c.nextSid - s0, at: atBefore, atAfter, refs };
-  return { result, unit: keep(unit, prior) };
-}
 
 /**
  * A unit's weak table: its page's, read through, with the unit's own writes kept apart (`own`, `gone`), so what it wrote

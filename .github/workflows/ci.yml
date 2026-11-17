@@ -47,10 +47,6 @@ jobs:
         env:
           SN_LINK_AUDIT: '1'
           SN_LINK_AUDIT_LOG: ${{ runner.temp }}/link-audit.jsonl
-      # each definition compiled in a compiler of its own, its tables merged into the page's (the unit boundary)
-      - run: npm test
-        env:
-          SN_UNIT: '1'
       - if: always()
         run: >-
           node -e 'const l = require("fs").readFileSync(process.argv[1], "utf8").trim().split("\n").filter(Boolean).map(JSON.parse);
