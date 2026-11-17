@@ -1,6 +1,8 @@
 # Proposal: streams that stay open across a swap
 
-Status: proposed 2026-11-17, not implemented. It follows [swap-navigation.md](swap-navigation.md), whose
+Status: proposed 2026-11-17, not implemented; revised the same day after a review against the code (the
+transport comparison, the listened names, when the buffer is replayed, a window per swap, parked state,
+document apps only, the size baseline, the tests). It follows [swap-navigation.md](swap-navigation.md), whose
 [§7](swap-navigation.md#7-what-the-core-and-the-features-need) and
 [Not in this proposal](swap-navigation.md#not-in-this-proposal) left this for later ("a stream both pages
 use could be handed over instead of reconnecting"). Asked for by caley (sinter main `623c354`, `swap: true`,
@@ -14,11 +16,12 @@ Decisions proposed:
 - **Only the connection is handed over.** The transport, its state, its backoff and the "has it ever been
   open" flag carry over. The `<sn-event>` mappings, their scopes and the resources they feed are always the
   next page's. Nothing of the old page's code runs after its `destroy()`.
-- **Events in the gap are buffered and replayed** to the next page, in order, before any live event.
+- **Events in the gap are buffered and replayed** to the next page, in order, before any live event, once
+  the next page has mounted and its `sn-page` listeners have run.
 - **The swap closes what nobody claimed**, once the next page has mounted. A timer can't do it, because the
-  mount can be asynchronous.
+  mount can be asynchronous. Each swap has its own window, and a swap closes only its own.
 - **Without a swap, nothing changes:** `destroy()` closes the app's streams as today (embed, tests, an app
-  mounted on an element).
+  mounted on an element). Only the document's app parks or claims.
 - **Only apps with swaps on pay for it** (decided 2026-11-17): the handover sits behind a build flag, so the
   `sse` code of an app without `swap: true` stays byte for byte what it is today ([8](#8-size-only-with-swaps-on)).
 
@@ -54,10 +57,11 @@ gap runs from `old.destroy()` to that microtask.
 1. A connection whose URL both pages declare stays open through the swap: in caley, 5 swaps open 1
    `EventSource` and close none.
 2. No event is lost or applied twice across the swap. An event in the gap reaches the next page's
-   `<sn-event>`s, `then` handlers and `app.on` listeners once.
+   `<sn-event>`s and `then` handlers once, and the `app.on` listeners registered by then (§5 says which).
 3. A URL the next page doesn't declare is closed by the end of the swap, as today.
-4. `$meta.<resource>.live` on the next page starts at the handed-over connection's state (`'open'`), so an
-   indicator doesn't flash "connecting" on every click.
+4. `$meta.<resource>.live` on the next page is the handed-over connection's state (`'open'`) before the
+   first paint, so an indicator doesn't flash "connecting" on every click. The mount itself still sets
+   `'connecting'` (app.ts, `def.fed`); the claim, in the microtask after it, sets it again.
 5. Nothing changes for apps without swaps, for a `destroy()` that no swap follows, or for a load.
 
 ## Design
@@ -75,11 +79,23 @@ nobody claimed.
   `/rooms/a` and on `/rooms/b` gives two different URLs: the first is closed and the second opened. That is
   correct, because they are two different subscriptions. Two `<sn-sync>`s of the next page with one URL
   claim one connection, as they share one today.
-- **The same transport:** `app.transport(url) ?? config.transport?.(url)` names the factory. The
-  config module runs once per document under swaps
-  ([swap-navigation.md §6](swap-navigation.md#6-the-pages-code)), so its function is the same object on
-  both pages. A connection made by another factory, or by the default `EventSource` where the next page
-  would use a custom one, is not claimed. It is closed, and the next page opens its own.
+- **The same transport.** `app.transport(url) ?? config.transport?.(url)` returns a new `Transport` object
+  on every call (src/ws.ts, the SignalR recipe), so the transports can't be compared. What is compared is
+  where the transport came from, recorded when the connection opens: `via`, the `config.transport` function
+  it was made by, or `null` for the default `EventSource`. A connection whose transport came from an app's
+  mount-time `transport` option is never parked. A claim needs two things:
+  - The next app has no override for the URL. The install asks `app.transport(url)`, as `open()` does today.
+    If that returns a transport, the new connection uses it for its first open, so nothing is built and
+    thrown away. Page modules mount with `{ ir, fns, features }` and no `transport`, so swapped pages
+    never have an override.
+  - `config.transport` is the same reference as the parked connection's `via`. The config module runs once
+    per document under swaps ([swap-navigation.md §6](swap-navigation.md#6-the-pages-code)), so it stays the
+    same unless app code reassigns it.
+
+  Otherwise the parked connection is not claimed: it is closed, and the next page opens its own.
+- **The transport must be able to take the next page's names.** `listen` is optional on a `Transport`. A
+  parked connection whose transport has no `listen` is claimed only if every name the next page maps is
+  among those it connected with. Otherwise it is closed and reopened.
 - **Kept or not makes no difference.** The rail's `<sn-sync>` is in the next page's IR, because the
   layout writes it into every page and the next page's code takes the kept element over. The mail page's
   `<sn-sync>` is in the mail page's IR. Mail → settings keeps the connection: the settings page's rail
@@ -92,17 +108,25 @@ There is one registry per document, `globalThis[Symbol.for('sinter.streams')]`, 
 of `sinter.pages` and `sinter.swap`:
 
 ```ts
-interface Parked {
-  /** set by the swap from just before `old.destroy()` until it closes what is unclaimed */
-  open: boolean;
-  /** by resolved URL */
-  conns: Map<string, Connection>;
+/** one swap's window: from just before `old.destroy()` until the swap closes it (§4) */
+interface Window {
+  /** parked, not yet claimed, by resolved URL */
+  parked: Map<string, Connection>;
+  /** claimed by the next page, waiting for the replay (§5) */
+  claimed: Connection[];
 }
+interface Streams { window: Window | null }
 ```
 
-The swap opens the window in `swap()`, just before `old.destroy()`, and closes it (§4). The `sse` feature
-parks only while the window is open. Every other `destroy()` closes, as today. Without swaps the registry
-is never created, so a page whose `<sn-sync>` was never swapped behaves exactly as now.
+The swap creates a `Window` in `swap()`, sets it as `streams.window` just before `old.destroy()`, and keeps
+its own reference to close it (§4). The `sse` feature parks into `streams.window` while it is set. Every
+other `destroy()` closes, as today. Without swaps the registry is never created, so a page whose
+`<sn-sync>` was never swapped behaves exactly as now.
+
+**Only the document's app** parks or claims (`app.root === document`, the guard `swap.ts` already uses for
+the same reason). An app mounted on an element of the page and destroyed or mounted during the window
+closes and opens its streams as today. It can't take the page's connection, and the page's connection
+can't take its connection.
 
 ### 3. Parking and claiming
 
@@ -116,38 +140,73 @@ The `Connection` class is split into what belongs to the document and what belon
   page's `publish` of `$meta.live`), and the listeners `start()` registers through `app.addCleanup`
   (`pagehide`, `pageshow`, `onListen`).
 
-**Parking** (the old app's cleanup, window open): drop `app`, `subs` and `changed`, start a buffer, and put
-the connection in `conns` under its URL. Only a connection with a live transport is parked (`connecting`
-or `open`). One waiting in backoff (`retrying`, no transport, a timer) is stopped as today. The next page
-opens its own connection, through the probe on its first error as always.
+**Parking** (the old app's cleanup, window set): drop `app`, `subs` and `changed`, start a buffer, and put
+the connection in `window.parked` under its URL. The test is whether a transport exists (`this.t != null`),
+not the state. A connection waiting in backoff has no transport, and neither does one after `pageshow`,
+which shows `connecting` while its probe runs. Both are stopped as today. The next page opens its own
+connection, through the probe on its first error as always.
 
-**Claiming** (the next app's `sse` microtask): take the connection out of `conns`, set its `app`, `subs`
-and `changed`, register the next app's listeners, and call `t.listen(name)` for every event name the next
-page maps or listens to through `app.on`. That is the names the old page didn't need, since `EventSource`
-only delivers names it has a listener for. Then **replay the buffer** (§5) and call `changed()` once, so
-`$meta.live` shows the carried state. `start()` doesn't call `open()` for a claimed connection.
+**While parked, nothing reaches an app.** The transport may still report a state. `'open'` can arrive for a
+connection parked in `connecting`, and `'error'` can arrive in any state. `open()`'s `onState` callback
+records the state and goes no further: no `changed()`, no `streamOpened`, no refetch (§6 has the error
+case). `streamOpened` for an open that happened while parked runs at the claim, in the next app.
 
-Two details in today's `open()` have to move for this to be correct:
-- The reconnect refetch reads `subs` from a closure taken when the connection opened. After a claim, a
-  later reconnect would refetch the **old** page's resource names in the next app. It must read
-  `this.subs` when the `'open'` state arrives.
-- `this.app.streamOpened` (the dev HTTP/1.1 check) runs only on a real open, not on a claim, so a claimed
-  stream isn't counted twice.
+**Claiming** (the next app's `sse` microtask, with the §1 conditions): take the connection out of
+`window.parked` and add it to `window.claimed`. Set its `app`, `subs` and `changed`, and register the next
+app's listeners: `pagehide` and `pageshow`, and `onListen`, so later `app.on()` calls add their names. Call
+`t.listen(name)` for every name the next page maps. `EventSource` only delivers names it has a listener for,
+so this covers the names the old page didn't need. Call `changed()` once, so `$meta.live` shows the carried
+state before the first paint. `start()` doesn't call `open()` for a claimed connection. The buffer stays:
+it is replayed when the window closes (§5), and events that arrive until then join it, so the order holds.
+
+**Names from `app.on` during the mount** don't reach the transport. The app's listener map is private to
+the core (app.ts), and `onListen` only reports later calls. This is today's behaviour too: `connect` gets
+the mapped names only, and the `sse` feature registers `onListen` after the mount. Exposing the map would
+add bytes to the shared core of every app, against §8. So a component script that listens to a name no
+`<sn-event>` on the page maps gets nothing from `EventSource`, claimed or not. Map the name with an
+`<sn-event>` (without `resource`) to receive it. The docs say so.
+
+Two details in today's `open()` have to change for this to be correct:
+- The `reconnect` flag and the `subs` list are closure captures taken when the connection opened. After a
+  claim, a later reconnect would refetch the **old** page's resource names in the next app. Both must read
+  `this` (`this.everOpen`, `this.subs`) when the `'open'` state arrives.
+- `this.app.streamOpened` (the dev HTTP/1.1 check) runs once per real open, never for the claim itself,
+  so a claimed stream isn't counted twice.
 
 ### 4. Closing what nobody claimed
 
-The swap closes the window and the unclaimed connections **after `booted` has settled, at the next task**
-(a `setTimeout(0)` in swap-run.ts, after `await booted`). By then the next page's `sse` microtask has run,
-because microtasks finish before a task. It has to be the swap that does this, for three reasons:
+The swap closes its window **after `booted` has settled and `sn-page` has been dispatched, at the next
+task**. That is a `setTimeout(0)` in swap-run.ts, scheduled after the `sn-page` dispatch. By then the next
+page's `sse` microtask has run, because it is queued inside `mount()` and microtasks finish before a task.
+This holds for a sync and an async `$boot`, and inside the view transition's update callback. Closing does
+three things in order:
+
+1. If `streams.window` is still this window, set it to `null`. A newer swap may have replaced it already
+   (below).
+2. Close every connection in `window.parked`.
+3. Replay and stop buffering every connection in `window.claimed` (§5).
+
+It has to be the swap that does this, for three reasons:
 
 - `$boot` may be `async` (built-in messages), so a timer started at the commit could fire before the next
   page mounts, and the connection would be closed for nothing.
 - A next page without `<sn-sync>` has no `sse` feature, so nothing on that page could close the
   connections.
 - A swap that fails reloads the page (`location.reload()`), which ends the document and its connections.
-  A newer navigation that aborts the swap before the commit never opened the window. One that comes after
-  the commit finds this swap's window still open. It closes it first (closing what nobody claimed), then
-  opens its own.
+
+**A newer swap.** A navigation that aborts a swap before its commit never opened a window, because the
+commit returns before `swap()`. A swap B that commits while swap A's window is still open does two things:
+- It moves A's unclaimed `parked` connections into its own window, since B's page may declare their URLs.
+- It replays A's `claimed` connections before destroying A's app. They then park into B's window like any
+  other connection, with their order intact.
+
+A's close task then finds `streams.window` is no longer A's window, and both of A's lists are empty, so it
+does nothing. **A window per swap** is what makes this safe: with a shared flag, A's stale task would close
+the connections B parked before B's async boot claims them.
+
+**A cap on time.** A `booted` that never settles would leave the window, and its parked connections, open
+indefinitely. The swap closes the window after 10 s whatever happens. In practice a boot that slow is a
+boot that failed, and the reload follows.
 
 `pagehide` while the window is open (a load started before the swap finished) closes the parked
 connections. The registry listens once per document. That is the back/forward cache rule of
@@ -155,24 +214,33 @@ connections. The registry listens once per document. That is the back/forward ca
 
 ### 5. Events in the gap
 
-While parked, the delivery callback appends `[name, payload]` to the connection's buffer instead of
-calling `app.streamed` and `app.serverEvent`. At the claim, the buffer is replayed through the same path
-as a live event, in order, before the claim returns. Live events after the claim go straight through.
+From the park until its window closes, the delivery callback appends `[name, payload]` to the connection's
+buffer instead of calling `app.streamed` and `app.serverEvent`. This covers the claim too. At the window's
+close (§4), the buffer is replayed through the same path as a live event, in order, and live events go
+straight through from then on.
+
+The replay waits for the close, not the claim, so that listeners registered after the mount still get the
+gap's events: islands and per-page app code register in `sn-page`, which swap-run.ts dispatches after
+`await booted`, after the claim microtask. The cost is one task of delay for the events in the window.
+
 Each event is applied once, by the next page only:
 
 - **`<sn-event>` mappings and `then`** run in the next page's scopes against the next page's resources.
   Events the next page doesn't map are dropped, as they are on any page. A `then` that the old page's
   `<sn-event>` had and the next page's doesn't is not run: the handler belongs to the page that declares it.
-- **`app.on` listeners** (component scripts like `<mail-notifier>`, islands) get the replayed events
-  through `serverEvent`. They register during the mount, which comes before the `sse` microtask, so
-  they're there when the buffer is replayed.
+- **`app.on` listeners** get the replayed events through `serverEvent` if they're registered by the
+  window's close. That covers component scripts, whose `connected()` runs in the mount, and code in an
+  `sn-page` listener. It does not cover a component script loaded with lazy packages: that one connects
+  once its import resolves, which can be later. It misses the gap's events as it misses events before it
+  connects on a page load. The names are subject to §3: a listened name needs an `<sn-event>` on the
+  page.
 - **Resources:** the next page's resources start their fetches at the mount, after the gap's events were
   sent. Mostly the response already contains those changes. Replaying them is harmless, because
   `upsert`, `patch` and `remove` are idempotent and `refetch`es coalesce. It is also what a live event
   arriving during the first fetch does today. The replay does not refetch on its own: the connection never
   dropped.
-- **A cap:** at most 1000 events, or the window's close, whichever comes first. If the buffer overflows,
-  the connection keeps the newest 1000 and is marked lossy. At the claim it then refetches every resource
+- **A cap:** at most 1000 events, along with the 10 s cap on the window (§4). If the buffer overflows,
+  the connection keeps the newest 1000 and is marked lossy. At the replay it then refetches every resource
   it feeds once, through the existing catch-up path that `everOpen` uses after a reconnect.
 
 Event names the old page never listened to and the next page does: with `EventSource`, events of such a
@@ -182,13 +250,16 @@ event type (`message`) with a `type` field in the payload avoids it. The docs sa
 
 ### 6. State, the probe, `$meta.live`
 
-- **`$meta.<resource>.live`** on the next page starts at the claimed connection's state. The `feeders` map
-  is the next page's, built from its own `<sn-event>`s, so a resource the old page fed and the next doesn't
+- **`$meta.<resource>.live`** on the next page is `'connecting'` from the mount (as for any fed resource)
+  and the claimed connection's state from the claim microtask, before the first paint. The `feeders` map is
+  the next page's, built from its own `<sn-event>`s, so a resource the old page fed and the next doesn't
   shows `null` as on any page.
-- **An error while parked:** the transport reports `'error'`. With no app, the probe can't run (it uses
-  `app.req` for the session probe and the login redirect), so the parked connection closes its transport,
-  takes itself out of `conns`, and the next page opens its own. The gap's buffered events, if any, are
-  dropped with it. The next page fetches its resources, as a page does today.
+- **An error while parked** (before the claim): the transport reports `'error'`. With no app, the probe
+  can't run (it uses `app.req` for the session probe and the login redirect), so the parked connection
+  closes its transport, takes itself out of `window.parked`, and the next page opens its own. The gap's
+  buffered events, if any, are dropped with it. The next page fetches its resources, as a page does today.
+- **An error after the claim, before the replay:** the connection has its app again, so the error goes
+  through the probe and backoff as usual. The buffer is still replayed at the window's close.
 - **An error after the claim** goes through the probe and backoff as today, in the next app. `everOpen`
   is carried, so the reconnect refetches the next page's resources (§3).
 
@@ -197,9 +268,9 @@ event type (`message`) with a `type` field in the payload avoids it. The docs sa
 - `src/sse.ts`: the split, and the `if (SWAP)` calls into the handover.
 - `src/sse-handover.ts` (new): park, claim, buffer and replay; the registry type.
 - `src/runtime/flags.ts`, `src/core-parts.ts` (`flagsModule`): the `SWAP` flag, from the build's `swap` option.
-- `src/swap-run.ts`: in `swap()`, open the window before `old.destroy()`. After `await booted`, at the
-  next task, close the window and what is unclaimed. Close an open window before a newer swap's commit
-  (§4).
+- `src/swap-run.ts`: in `swap()`, take over an open window's parked connections and replay its claimed
+  ones, then set a new window before `old.destroy()`. After the `sn-page` dispatch, at the next task, close
+  its own window (§4), with a 10 s cap.
 - Nothing in the compiler, the IR, the transports or the server.
 
 ### 8. Size: only with swaps on
@@ -216,38 +287,58 @@ export const SWAP = true;
 - A build (src/vite.ts, `flagsModule` in src/core-parts.ts) serves it as `true` when the project has
   `swap: true` and as `false` otherwise. The bundler inlines the constant and drops what it guards, as it
   does for the core's parts.
-- The park, claim, buffer and replay live in their own module, `src/sse-handover.ts`. `sse.ts` reaches it
-  only through `if (SWAP)` branches: the cleanup parks only `if (SWAP && window open)`, and the install
-  claims only `if (SWAP)`. With `SWAP` false, the bundler drops the module's code along with those branches.
-  The `Connection` split of [Plan](#plan) step 1 has to cost nothing on its own: it rearranges fields and
-  adds no indirection the minifier can't remove. That is measured before step 2.
-- Dev and an app built without the Vite plugin have every flag on, as for the core's parts, so the
-  handover is in dev too: the same code path as a swap build.
-- The swap's share (opening and closing the window) goes in `swap-run.ts`, which only swap builds carry.
-- A size test pins it: the `sse` chunk of a build without swaps is byte-identical before and after the
-  change. With swaps, the estimate is +200 B gzip for the handover module and +60 B for swap-run, within
-  the swap pages' budgets.
+- `flagsModule(parts, shared)` (src/core-parts.ts) takes a third argument, `swap`. `options.swap` is in
+  scope where src/vite.ts serves the flags module. The mechanism is proven: `SHARED`, imported from the
+  flags module, is already dropped from another chunk (swap-run, `test/vite/early-shared.test.ts`).
+- The park, claim, buffer and replay live in their own module, `src/sse-handover.ts`. The package has
+  `sideEffects: false`, so with nothing referencing it the module is dropped. `sse.ts` reaches it only
+  through `if (SWAP && …)` branches. That means every parked-mode check (in the cleanup, the install,
+  `event()`, `set()` and `onState`) is written with `SWAP` first, so the bundler drops the whole branch.
+- **The baseline is the output after [Plan](#plan) step 1.** Step 1, the `Connection` split and the
+  `this.everOpen` and `this.subs` reads, changes the `sse` bytes of every app; it is a fix as much as a
+  refactor (§3). Its size delta is measured and reported on its own and kept to a minimum. From step 2 on,
+  a build without swaps is byte-identical to the step-1 output.
+- **There is no `sse` chunk to compare.** `sse` is a static import of the page modules and lands wherever
+  the bundler puts shared code. The size test builds a fixture without swaps and hashes all of its JS
+  output, against the hashes after step 1.
+- Dev, and an app built without the Vite plugin, have every flag on, as for the core's parts, so they carry
+  the handover module. In dev that is wanted: the same code path as a swap build. Without the plugin there
+  are no swaps (the page list is the build's), so the window never opens and the module is dead bytes.
+  That is the same trade the core's parts already make there.
+- The swap's share (the windows) goes in `swap-run.ts`, which only swap builds carry.
+- With swaps, the estimate is +250 B gzip for the handover module and +80 B for swap-run, within the swap
+  pages' budgets.
 
 ## Testing
 
 - **Behaviour (`test/behaviour/sync.test.ts`, `destroy.test.ts`)**, with a fake transport and a fake
   `env`:
   - park on destroy with the window open, claim by the next app: `connect` called once, `close` never;
-  - the next page with another URL, or the same URL with another transport: old closed at the window's
-    close, new opened;
+  - the next page with another URL: old closed at the window's close, new opened. The same URL with
+    another `config.transport`, or with an app override: not claimed. A transport without `listen` and a
+    new mapped name: closed and reopened;
   - interpolated `src` (`/rooms/{room}/events`), same and different values;
-  - events in the gap: applied once by the next page, in order, before a live event sent after the claim;
-    `app.on` listeners get them; the old page's `then` doesn't run;
-  - an async boot (a promise that resolves later): nothing is closed before it resolves;
+  - events in the gap and between claim and close: applied once by the next page, in order, before a live
+    event sent after the close. `app.on` listeners registered in the mount and in `sn-page` get them. The
+    old page's `then` doesn't run;
+  - an async boot (a promise that resolves later): nothing is closed before it resolves. A boot that never
+    resolves: closed at 10 s;
+  - swap B committing before A's close task: A's parked connections are claimed by B's page, A's task
+    closes nothing of B's;
+  - `'open'` arriving while parked: no app touched, `streamOpened` once at the claim;
+  - an element-mounted app destroyed and mounted during the window: neither parks nor claims;
   - buffer overflow: newest 1000 kept, fed resources refetched once;
-  - an error while parked: the next page connects anew; after the claim, a reconnect refetches the next
+  - an error while parked: the next page connects anew. After the claim, a reconnect refetches the next
     page's resources, not the old page's;
-  - `$meta.live` is `'open'` from the next page's first flush;
+  - `$meta.live`: `'connecting'` after the mount's walk, `'open'` after the claim microtask, before any frame;
   - `destroy()` with no window: closes as today (the existing destroy tests stay as they are).
-- **E2E (`e2e/permanent`):** the dashboard page's stream across five swaps, a page without `<sn-sync>` and
-  back. The `EventSource` count (opened and closed) is recorded the way swap-navigation's spike counted
-  them, and an event sent by the server during a delayed swap (the test server holds the next page's HTML)
-  arrives once on the next page. Chromium, Firefox and WebKit, as for the swap.
+- **Size (`test/vite`):** a fixture without swaps, all JS output hashed, unchanged from step 1 (§8).
+- **E2E (`e2e/permanent`):** it has no `<sn-sync>` today, so this needs a fixture: two pages with a stream
+  in a kept element, one page with a second `<sn-sync>` on the same URL, one without, and an SSE endpoint
+  in `run.mjs`'s server. Five swaps across them and back. The `EventSource` count (opened and closed) is
+  recorded with a wrapper installed before the page's scripts, and an event sent by the server during a
+  delayed swap (the server holds the next page's HTML) arrives once on the next page. Chromium, Firefox
+  and WebKit, as for the swap.
 - **caley:** the Playwright count from the case (5 swaps: 1 opened, 0 closed; mail → settings → mail keeps
   one), and a `new_email` sent during a swap shows one notification.
 
@@ -268,7 +359,8 @@ export const SWAP = true;
 
 - `docs/sync.md`, Connection rules: "**Swaps keep a stream open.** With swaps on, a stream whose URL the
   next page also declares stays connected; events in between are delivered to the next page. Any other
-  stream closes." Plus the note on event names (§5).
+  stream closes." Plus the notes on event names: names sent in the gap (§5), and a name a script listens
+  to needing an `<sn-event>` (§3).
 - `docs/navigation.md`, Swaps: "its resources and streams" becomes "its resources, and its streams unless
   the next page declares the same URL".
 - swap-navigation.md: link this proposal from §7 and from Not in this proposal.
@@ -278,13 +370,16 @@ export const SWAP = true;
 
 One commit each:
 
-1. The split of `Connection` (document part and app part) and the reconnect refetch reading
-   `this.subs`, with no behaviour change. The existing tests pass unchanged.
-2. The `SWAP` flag and its size test, then the registry, parking, claiming and the window in swap-run.ts, without the buffer: events in the gap
-   are dropped. Measured in caley: 1 opened per session.
-3. The buffer, the replay and the cap.
-4. Errors while parked, `pagehide` during the window, a newer swap after the commit.
-5. E2E in `e2e/permanent`, the size test (§8), docs.
+1. The split of `Connection` (document part and app part), and the reconnect reading `this.everOpen` and
+   `this.subs`. No behaviour change, the existing tests pass unchanged, and the size delta is reported. This
+   is the baseline for §8.
+2. The `SWAP` flag and the size test. Then the registry, windows per swap, parking, claiming (transport
+   origin, `listen`, document app only) and the close in swap-run.ts, without the buffer, so events in the
+   gap are dropped. Measured in caley: 1 opened per session.
+3. The buffer, the replay at the close, and the caps.
+4. Parked state (`onState` while parked, errors), `pagehide` during the window, a newer swap before the
+   close.
+5. E2E fixture and runs in `e2e/permanent`, docs.
 
 ## Open questions
 
@@ -293,3 +388,5 @@ One commit each:
 - **A `refetch` replayed while the next page's first fetch is in flight**: whether it coalesces with that
   fetch or sends a second request. The behaviour tests should pin it down. Today the same happens with a
   live event during a first load.
+- **caley's `new_email`**: whether an `<sn-event name="new_email">` is on every page (the rail). If
+  `<mail-notifier>` only listens through `app.on`, §3's limit applies today as well as after this change.
