@@ -407,7 +407,7 @@ for per-page app code.
   `sinter.*` symbols from `<html>` and `<body>` from outside, which only the core should do.
 - **`cache` writes confirmed changes when the app is destroyed**, as on `pagehide` (in the spike).
 - **Streams** close on destroy (the dashboard script: one open at the end); a stream both pages use could
-  be handed over instead of reconnecting. Not in this proposal.
+  be handed over instead of reconnecting. Not in this proposal: [stream-handover.md](stream-handover.md).
 - **`persist`, `versions`, `refresh` timers**: through destroy's cleanups; covered by tests of destroy
   with each feature.
 
@@ -577,7 +577,7 @@ destroy (for an app that calls `destroy()`, tests do: later, with the same data)
 - State that lives on across a swap inside a kept element (its `data-sn-state`, open streams): it starts
   again with the new page's code. A region running as an app of its own would keep it; nothing needs
   that now.
-- Streams and data handed from one page to the next.
+- Streams and data handed from one page to the next (streams: [stream-handover.md](stream-handover.md)).
 - Prefetching the HTML for a swap.
 - A cancelable "leaving the page" event (the veto of [9](#9-room-for-view-navigations) comes with the
   decision phase of step 2).

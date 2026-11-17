@@ -204,6 +204,13 @@ reads `'connecting'` until it is shown. A custom transport sets it through `onSt
   restored after logout is redirected to login.
 - **Refetches coalesce.** Several `refetch` messages for one resource in the same task cause one
   request.
+- **Swaps keep a stream open.** With [swaps](navigation.md#swaps) on, a stream whose URL the next
+  page also declares (the same resolved `src`, the same transport) stays connected: the next page's
+  `<sn-event>`s take it over, and events that arrive during the swap are delivered to the next page once,
+  in order, after it has mounted and its `sn-page` listeners have run. Other streams close. With
+  `EventSource`, an event whose name the old page did not listen to is not delivered during the swap;
+  a server that sends one event name with the kind in the payload avoids that. Apps without swaps
+  carry none of this.
 - **Streams aren't shared across tabs.** Each tab opens its own connection.
 
 ### Paginated resources

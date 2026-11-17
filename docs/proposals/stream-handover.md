@@ -1,6 +1,8 @@
 # Proposal: streams that stay open across a swap
 
-Status: proposed 2026-11-17, not implemented; revised the same day after a review against the code (the
+Status: steps 1 to 4 of the [Plan](#plan) implemented 2026-11-17 (`src/sse-handover.ts`, `src/sse.ts`, the
+window in `src/swap-run.ts`, `test/behaviour/stream-handover.test.ts`, `test/vite/stream-handover-size.test.ts`);
+step 5's browser runs in `e2e/permanent` are still to do. Proposed and revised the same day after a review against the code (the
 transport comparison, the listened names, when the buffer is replayed, a window per swap, parked state,
 document apps only, the size baseline, the tests). It follows [swap-navigation.md](swap-navigation.md), whose
 [§7](swap-navigation.md#7-what-the-core-and-the-features-need) and
@@ -149,7 +151,8 @@ connection, through the probe on its first error as always.
 **While parked, nothing reaches an app.** The transport may still report a state. `'open'` can arrive for a
 connection parked in `connecting`, and `'error'` can arrive in any state. `open()`'s `onState` callback
 records the state and goes no further: no `changed()`, no `streamOpened`, no refetch (§6 has the error
-case). `streamOpened` for an open that happened while parked runs at the claim, in the next app.
+case). `streamOpened` is not run for an open that happened while parked (implemented so: it is a dev
+warning about HTTP/1.1, which the old page's open already checked for the URL).
 
 **Claiming** (the next app's `sse` microtask, with the §1 conditions): take the connection out of
 `window.parked` and add it to `window.claimed`. Set its `app`, `subs` and `changed`, and register the next
@@ -298,14 +301,18 @@ export const SWAP = true;
   refactor (§3). Its size delta is measured and reported on its own and kept to a minimum. From step 2 on,
   a build without swaps is byte-identical to the step-1 output.
 - **There is no `sse` chunk to compare.** `sse` is a static import of the page modules and lands wherever
-  the bundler puts shared code. The size test builds a fixture without swaps and hashes all of its JS
-  output, against the hashes after step 1.
+  the bundler puts shared code. The size test (`test/vite/stream-handover-size.test.ts`) builds a fixture
+  with and without swaps and checks all of the JS output for what only the handover has (the registry's key,
+  its fields). The identity with step 1 was checked once by the chunks' hashes (the same file names).
 - Dev, and an app built without the Vite plugin, have every flag on, as for the core's parts, so they carry
   the handover module. In dev that is wanted: the same code path as a swap build. Without the plugin there
   are no swaps (the page list is the build's), so the window never opens and the module is dead bytes.
   That is the same trade the core's parts already make there.
 - The swap's share (the windows) goes in `swap-run.ts`, which only swap builds carry.
-- With swaps, the estimate is +250 B gzip for the handover module and +80 B for swap-run, within the swap
+- With swaps, the estimate was +250 B gzip for the handover module and +80 B for swap-run. Measured on a
+  two-page fixture with one `<sn-sync>`: the chunk with the stream feature +506 B gzip, swap-run +161 B
+  (minimal with swaps: 12869 B gzip, budget 13824). Without swaps: the same bytes as after step 1, which was
+  itself 2 B smaller than before. Within the swap
   pages' budgets.
 
 ## Testing

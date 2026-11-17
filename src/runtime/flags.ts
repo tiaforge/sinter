@@ -32,6 +32,12 @@ export const RESOURCE = true;
  */
 export const SHARED = true;
 /**
+ * Not a part of the core: `sinter({ swap: true })`. A stream whose URL the next page declares stays open across a
+ * swap (src/sse-handover.ts, docs/proposals/stream-handover.md). A build decides it from its `swap` option, so an
+ * app without swaps ships none of it.
+ */
+export const SWAP = true;
+/**
  * Called with each page's IR as it mounts; nothing here, nor in a build. The test suite's flags (test/core-flags.ts)
  * turn on the parts the mounted pages use and no others, so every test runs on the smallest core for its pages.
  */

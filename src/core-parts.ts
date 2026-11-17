@@ -32,9 +32,9 @@ export function coreParts(ir: Pick<IR, 'roots' | 'templates' | 'actions' | 'reso
 
 /**
  * the flags module for a build whose pages use `parts` (src/runtime/flags.ts, with the other parts off); `shared`: an early
- * file may share a helper module with its page bundle (`SHARED`)
+ * file may share a helper module with its page bundle (`SHARED`); `swap`: the build has swaps on (`SWAP`)
  */
-export function flagsModule(parts: Iterable<string>, shared = false): string {
+export function flagsModule(parts: Iterable<string>, shared = false, swap = false): string {
   const on = new Set(parts);
-  return CORE_PARTS.map((p) => `export const ${p} = ${on.has(p)};`).join('\n') + `\nexport const SHARED = ${shared};\nexport const use = undefined;\n`;
+  return CORE_PARTS.map((p) => `export const ${p} = ${on.has(p)};`).join('\n') + `\nexport const SHARED = ${shared};\nexport const SWAP = ${swap};\nexport const use = undefined;\n`;
 }

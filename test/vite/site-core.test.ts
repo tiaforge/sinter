@@ -43,6 +43,8 @@ describe('the parts a page uses, from its IR', () => {
   test('the flags module: every part named, those not used off', () => {
     expect(flagsModule(['LIST'])).toContain('export const LIST = true;');
     expect(flagsModule(['LIST'])).toContain('export const DIALOG = false;');
+    expect(flagsModule(['LIST'])).toContain('export const SWAP = false;');
+    expect(flagsModule(['LIST'], false, true)).toContain('export const SWAP = true;');
   });
 });
 

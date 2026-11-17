@@ -97,6 +97,37 @@ export const fixed = (d: Document, base: URL) => JSON.stringify([
   d.querySelector('script[data-sn-i18n]') ? null : d.documentElement.getAttribute('lang')?.toLowerCase() ?? '',
 ]);
 
+/** one swap's window for the streams (sse-handover.ts): parked connections and those taken over, by the sse feature */
+interface StreamWindow { parked: Map<string, unknown>; claimed: unknown[] }
+/** the document's streams registry, shared with sse-handover.ts, which sets `close` when it first parks */
+interface Streams { w: StreamWindow | null; close?: (w: StreamWindow) => void }
+
+/**
+ * Opens a window for this swap's commit (docs/proposals/stream-handover.md §4): the old page's open streams
+ * park in it as its app is destroyed, and the next page takes over those whose URL it declares. A window still
+ * open from a swap before (its next page has not had its replay) gives this one its parked connections; the
+ * ones that page took over park again, with what they held, as its app goes. Returns its close: what nobody
+ * took over closes, the rest is replayed. Closed at the latest after 10 s, or when the page is left.
+ */
+export function streamWindow(): () => void {
+  const g = globalThis as unknown as Record<symbol, Streams | undefined>, r = (g[Symbol.for('sinter.streams')] ??= { w: null });
+  const prev = r.w, w: StreamWindow = { parked: new Map(prev?.parked), claimed: [] };
+  if (prev) { prev.parked.clear(); prev.claimed.length = 0; }
+  r.w = w;
+  let done = false;
+  const close = () => {
+    if (done) return;
+    done = true;
+    clearTimeout(cap);
+    removeEventListener('pagehide', close);
+    if (r.w === w) r.w = null;
+    r.close?.(w);
+  };
+  const cap = setTimeout(close, 10_000);
+  addEventListener('pagehide', close);
+  return close;
+}
+
 /** the built-in messages' state the picker, the language files and the messages module share (messages.ts) */
 interface I18n { locale?: string; files?: Record<string, string>; dicts?: Record<string, Record<string, string>> }
 
@@ -286,7 +317,7 @@ export async function prepare(s: SwapState, i: Intent, signal?: AbortSignal): Pr
   if (c.signal.aborted) return null;
 
   return async () => {
-    let committed = false, booted: App | Promise<App> | undefined, failed = false;
+    let committed = false, booted: App | Promise<App> | undefined, failed = false, streams: (() => void) | undefined;
     const commit = () => {
       // a newer navigation came while the transition waited for this callback: it has the page
       if (c.signal.aborted) return;
@@ -303,6 +334,8 @@ export async function prepare(s: SwapState, i: Intent, signal?: AbortSignal): Pr
     const swap = () => {
       // the browser made the entry (`intercept()`); a redirect gives it another URL
       if (final.href != location.href) history.replaceState(history.state, '', final.href);
+      // the old page's open streams park instead of closing, for the next page to take over
+      streams = streamWindow();
       try {
         const old = instance(document);
         handOver(old.rbs, kept.map(([o]) => o));
@@ -374,6 +407,9 @@ export async function prepare(s: SwapState, i: Intent, signal?: AbortSignal): Pr
     try { app = await booted; } catch { failed = true; }
     if (failed || (page.boot && !app)) { location.reload(); return; }
     document.dispatchEvent(new CustomEvent('sn-page', { detail: { from: i.from, to: final.href, kind: i.kind } }));
+    // the next page has taken over the streams it declares (its sse feature, in a microtask of the mount), and
+    // what `sn-page` listens to is listening: the rest closes, the events held meanwhile are replayed
+    if (streams) setTimeout(streams, 0);
     // Back and Forward: what renders above the position once the page's first data is there moves the content
     // (scroll anchoring keeps the wrong part in view): set again then, at most a second later
     if (i.kind == 'traverse') {

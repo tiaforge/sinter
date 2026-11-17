@@ -7,6 +7,8 @@ import { config, SinterError } from './runtime/config.js';
 import type { App, Feature, Transport } from './runtime/app.js';
 import { clean } from './runtime/store.js';
 import { doubled, jittered } from './backoff.js';
+import { SWAP } from './runtime/flags.js';
+import { claim, forget, hold, park } from './sse-handover.js';
 
 const MIN_BACKOFF = 1000;
 
@@ -50,13 +52,24 @@ export class Connection {
   t: Transport | null = null;
   private backoff = MIN_BACKOFF;
   private timer: unknown = null;
-  private closed = false;
+  closed = false;
   private hidden = false;
   everOpen = false;
   /** `connecting` until the first open, `retrying` from a failure until it is open again */
   state: Live = 'connecting';
   /** each mapped event with the scope its expressions are evaluated in: its `<sn-sync>`'s state, or the page */
   subs: Array<[EventDef, any]> = [];
+  // with swaps on (sse-handover.ts; `declare`d: nothing of them in a build without swaps)
+  /** parked: the old page's app is gone, the next page has not taken it over */
+  declare parked?: boolean;
+  /** events held until the next page's replay */
+  declare buf?: Array<[string, unknown]> | null;
+  /** more were held than the cap: the replay refetches */
+  declare lossy?: boolean;
+  /** where the transport came from: `config.transport` as it was (undefined: the default), 1: the app's own option */
+  declare via?: unknown;
+  /** the names the transport connected with */
+  declare names?: Set<string>;
 
   /** `heard`: the names the app's islands and component scripts listen to (`app.on`), the feature's since install */
   constructor(public app: App, readonly url: string, public changed: () => void, public heard: Set<string>) {}
@@ -79,16 +92,19 @@ export class Connection {
       this.set('connecting');
       void this.probe();
     }));
-    this.app.addCleanup(() => { this.closed = true; this.stop(); });
-    this.open();
+    this.app.addCleanup(() => { if (SWAP && park(this)) return; this.closed = true; this.stop(); });
+    // taken over from the page before (a swap): open already; its state shows on this page's resources
+    if (SWAP && this.t) this.changed();
+    else this.open();
   }
 
 
   private open(): void {
     if (this.closed && !this.hidden) return;
-    const custom = this.app.transport(this.url) ?? config.transport?.(this.url);
+    const own = this.app.transport(this.url), custom = own ?? config.transport?.(this.url);
     const t = custom ?? eventSourceTransport();
     this.t = t;
+    if (SWAP) { this.via = own ? 1 : config.transport; this.names = new Set([...this.subs.map(([e]) => e.name), ...this.heard]); }
     t.connect(this.url, (name, data) => this.event(name, data), (state) => {
       if (this.t !== t) return;
       if (state === 'open') {
@@ -96,13 +112,15 @@ export class Connection {
         this.backoff = MIN_BACKOFF;
         this.everOpen = true;
         this.set('open');
-        if (!custom) this.app.streamOpened?.(this.url);
+        if (!custom && !(SWAP && this.parked)) this.app.streamOpened?.(this.url);
         // events sent while disconnected are lost: refetch everything this stream feeds (the page's as it is
         // now: a page that took the connection over refetches its own)
         if (reconnect) for (const name of new Set(this.subs.map(([e]) => e.resource))) if (name) void this.app.resource(name).refetch();
       } else {
         t.close();
         this.t = null;
+        // parked: no app to probe with; the next page connects anew
+        if (SWAP && this.parked) { this.closed = true; forget(this); return; }
         this.set('retrying');
         void this.probe();
       }
@@ -139,7 +157,8 @@ export class Connection {
     this.timer = this.app.env.setTimeout(() => { this.timer = null; fn(); }, delay, 'backoff');
   }
 
-  private event(name: string, payload: unknown): void {
+  event(name: string, payload: unknown): void {
+    if (SWAP && this.buf) return hold(this, name, payload);
     // rendered with the next frame: a burst of events renders once
     this.app.streamed(() => { for (const [def, base] of this.subs) if (def.name === name) this.apply(def, base, payload); });
     this.app.serverEvent(name, payload);
@@ -228,7 +247,8 @@ const sse: Feature = {
         const base = app.scopeOf(def.scope ?? -1);
         const url = app.url(def.src, base);
         let c = cs.get(url);
-        if (!c) cs.set(url, c = new Connection(app, url, publish, heard));
+        // with swaps on, the connection the page before had open for the URL, if this page can take it over
+        if (!c) cs.set(url, c = (SWAP && claim(app, url, heard, publish)) || new Connection(app, url, publish, heard));
         for (const e of def.events) {
           c.subs.push([e, base]);
           if (e.resource) (feeders.get(e.resource) ?? feeders.set(e.resource, new Set()).get(e.resource)!).add(c);

@@ -231,7 +231,8 @@ page as they are:
 The sound plays on, the notes keep their text and the drawer stays open. A kept element may bind: the
 next page's code takes it over, so its bindings follow the new page (a prop the page passes, an active
 link), and its rendered rows and branches are adopted, not built again. What the old page's code held for
-it starts again: its `data-sn-state` from its initial value (unless persisted), its resources and streams.
+it starts again: its `data-sn-state` from its initial value (unless persisted), its resources, and its streams unless the next
+page declares the same URL ([sync.md](sync.md#connection-rules)).
 Write such an element once, in the layout or a component every page uses: the build checks that every
 page that keeps it writes it in that one place (`SN346`), and that it holds no `<slot>` (each page would fill
 it with its own content). Constants a page passes it, and components in it, stay bindings, so the next
