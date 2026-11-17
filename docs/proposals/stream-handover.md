@@ -19,6 +19,8 @@ Decisions proposed:
   mount can be asynchronous.
 - **Without a swap, nothing changes:** `destroy()` closes the app's streams as today (embed, tests, an app
   mounted on an element).
+- **Only apps with swaps on pay for it** (decided 2026-11-17): the handover sits behind a build flag, so the
+  `sse` code of an app without `swap: true` stays byte for byte what it is today ([8](#8-size-only-with-swaps-on)).
 
 ## The case
 
@@ -192,19 +194,39 @@ event type (`message`) with a `type` field in the payload avoids it. The docs sa
 
 ### 7. Where the code goes
 
-- `src/sse.ts`: the split, park, claim, buffer and replay; the registry type.
+- `src/sse.ts`: the split, and the `if (SWAP)` calls into the handover.
+- `src/sse-handover.ts` (new): park, claim, buffer and replay; the registry type.
+- `src/runtime/flags.ts`, `src/core-parts.ts` (`flagsModule`): the `SWAP` flag, from the build's `swap` option.
 - `src/swap-run.ts`: in `swap()`, open the window before `old.destroy()`. After `await booted`, at the
   next task, close the window and what is unclaimed. Close an open window before a newer swap's commit
   (§4).
 - Nothing in the compiler, the IR, the transports or the server.
 
-### 8. Size
+### 8. Size: only with swaps on
 
-The handover costs bytes only on pages that use `sse`. The swap's share (opening and closing the window)
-goes in `swap-run.ts`, which is loaded when a swap happens. Estimate: +200 B gzip for the `sse` feature,
-+60 B for swap-run. If the `sse` share is measured over 150 B, it goes behind the build's `swap` option,
-the same way the page module's `$boot` registration is (compiler/index.ts), so apps without swaps don't pay
-it.
+The handover adds nothing to the `sse` code of an app that doesn't turn swaps on (decided 2026-11-17).
+It sits behind a build-time constant in the core's flags module, as `SHARED` does
+([runtime/flags.ts](../../src/runtime/flags.ts)):
+
+```ts
+/** `sinter({ swap: true })`: a stream whose URL the next page declares stays open across a swap */
+export const SWAP = true;
+```
+
+- A build (src/vite.ts, `flagsModule` in src/core-parts.ts) serves it as `true` when the project has
+  `swap: true` and as `false` otherwise. The bundler inlines the constant and drops what it guards, as it
+  does for the core's parts.
+- The park, claim, buffer and replay live in their own module, `src/sse-handover.ts`. `sse.ts` reaches it
+  only through `if (SWAP)` branches: the cleanup parks only `if (SWAP && window open)`, and the install
+  claims only `if (SWAP)`. With `SWAP` false, the bundler drops the module's code along with those branches.
+  The `Connection` split of [Plan](#plan) step 1 has to cost nothing on its own: it rearranges fields and
+  adds no indirection the minifier can't remove. That is measured before step 2.
+- Dev and an app built without the Vite plugin have every flag on, as for the core's parts, so the
+  handover is in dev too: the same code path as a swap build.
+- The swap's share (opening and closing the window) goes in `swap-run.ts`, which only swap builds carry.
+- A size test pins it: the `sse` chunk of a build without swaps is byte-identical before and after the
+  change. With swaps, the estimate is +200 B gzip for the handover module and +60 B for swap-run, within
+  the swap pages' budgets.
 
 ## Testing
 
@@ -258,11 +280,11 @@ One commit each:
 
 1. The split of `Connection` (document part and app part) and the reconnect refetch reading
    `this.subs`, with no behaviour change. The existing tests pass unchanged.
-2. The registry, parking, claiming and the window in swap-run.ts, without the buffer: events in the gap
+2. The `SWAP` flag and its size test, then the registry, parking, claiming and the window in swap-run.ts, without the buffer: events in the gap
    are dropped. Measured in caley: 1 opened per session.
 3. The buffer, the replay and the cap.
 4. Errors while parked, `pagehide` during the window, a newer swap after the commit.
-5. E2E in `e2e/permanent`, size measured, the gate if it's needed (§8), docs.
+5. E2E in `e2e/permanent`, the size test (§8), docs.
 
 ## Open questions
 
