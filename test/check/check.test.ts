@@ -7,6 +7,7 @@ import { check, checkPage, findTsc, typeExports } from '../../src/check/index.js
 import { schemaToTs, specDeclarations } from '../../src/check/openapi-types.js';
 import { shadow } from '../../src/check/shadow.js';
 import { project as projectOf } from '../../src/project.js';
+import { lazyHelpers } from '../../src/lazy-build.js';
 
 const tsc = findTsc(process.cwd());
 
@@ -643,10 +644,12 @@ export type Also = '*/';`)).toEqual(['Also', 'H', 'Kept', 'Real']);
       mkdirSync(dirname(lib), { recursive: true });
       symlinkSync('../../../../packages/sinter-markdown', lib, 'dir');
     }
-    const p = projectOf(root, { apis, components: ['@tiaforge-ui/sinter-markdown'] });
+    // as its Vite config sets them: the library, its parser lazy
+    const p = projectOf(root, { apis, components: ['@tiaforge-ui/sinter-markdown'], lazy: ['@tiaforge-ui/sinter-markdown'] });
+    const lazyModule = lazyHelpers(root, p.lazy, undefined, p.libraries).reach;
     expect(p.diagnostics).toEqual([]);
     const out = pages.map((f) => compile(p.readFile(join(root, f)), {
-      file: join(root, f), root, dev: false, helpers: p.helpers, readFile: p.readFile, check: true, openapi: p.openapi, apis: p.apis,
+      file: join(root, f), root, dev: false, helpers: p.helpers, readFile: p.readFile, check: true, openapi: p.openapi, apis: p.apis, lazyModule, lazy: p.lazy, componentNames: p.componentNames, libraries: p.libraries,
     }));
     expect(out.flatMap((o) => o.diagnostics)).toEqual([]);
     const units = out.map((o) => o.check!);
