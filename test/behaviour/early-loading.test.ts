@@ -39,12 +39,37 @@ test('with `cache`: only in a tab that has not cached this resource (its rows wo
   await firstPaint(PAGE('cache'));
   expect(loading()).not.toBeNull();
   // another resource's entry: not this one's rows
-  sessionStorage.setItem('sn:c:["/api/other","c",null]', JSON.stringify({ t: 0, v: [] }));
+  sessionStorage.setItem('sn:c:["/api/other","c",null]', JSON.stringify({ t: 0, items: [{ id: 1 }], total: null }));
   await firstPaint(PAGE('cache'));
   expect(loading()).not.toBeNull();
-  sessionStorage.setItem('sn:c:["http://localhost/api/c","c",null]', JSON.stringify({ t: 0, v: [] }));
+  sessionStorage.setItem('sn:c:["http://localhost/api/c","c",null]', JSON.stringify({ t: 0, items: [{ id: 1 }], total: null }));
   await firstPaint(PAGE('cache'));
   expect(loading()).toBeNull();
+});
+
+test('with `cache`: an entry without data is what the early file writes in, so the branch stays early', async () => {
+  // a list cached empty
+  sessionStorage.setItem('sn:c:["http://localhost/api/c","c",null]', JSON.stringify({ t: 0, items: [], total: null }));
+  await firstPaint(PAGE('cache'));
+  expect(loading()).not.toBeNull();
+  // an object cached as null (RealWorld's signed-out `{user: null}`): the signed-out branch is in the first paint
+  // with an embedded resource beside it, as RealWorld's article page served by sinter-axum
+  const page = `<!doctype html><html><head><script type="application/json" data-sn-data="a">{"a":{"title":"T"}}</script></head><body>
+  <sn-resource name="a" src="/api/a" items="a"></sn-resource>
+  <sn-resource cache name="user" src="/api/user" items="user"></sn-resource>
+  <template data-sn-if="user"><p id="in">Signed in</p></template><template data-sn-else><p id="out">Sign in</p></template>
+</body></html>`;
+  sessionStorage.setItem('sn:c:["http://localhost/api/user","user",null]', JSON.stringify({ t: 0, items: null, total: null }));
+  await firstPaint(page);
+  expect(document.getElementById('out')).not.toBeNull();
+  sessionStorage.clear();
+  await firstPaint(page);
+  expect(document.getElementById('out')).not.toBeNull();
+  // a signed-in user cached: left to the page module, which shows it at mount
+  sessionStorage.setItem('sn:c:["http://localhost/api/user","user",null]', JSON.stringify({ t: 0, items: { username: 'ada' }, total: null }));
+  await firstPaint(page);
+  expect(document.getElementById('out')).toBeNull();
+  expect(document.getElementById('in')).toBeNull();
 });
 
 test('a `when` over state, or a status field the early file does not know: left to the page module', async () => {

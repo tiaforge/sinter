@@ -415,6 +415,8 @@ function paint(parts: CompiledParts, helpers: Record<string, unknown>, app?: () 
   if (!parts.early) return;
   const names: string[] = ['$k'], values: unknown[] = [$k];
   for (const h of parts.early.helpers) { names.push(h); values.push(helpers[h]); }
+  // the built-in formatters the early bindings call, the package's, as a build imports them
+  for (const x of parts.early.formatters ?? []) { names.push(x); values.push((builtins as Record<string, unknown>)[x]); }
   for (const [ns, members] of Object.entries(parts.early.namespaces)) {
     for (const m of members) { names.push(`${ns}$${m}`); values.push((helpers[ns] as Record<string, unknown>)[m]); }
   }

@@ -82,8 +82,17 @@ the element exists; its content once the parser has closed it.
 The runtime then takes over: on mount it computes the same values, writes nothing new, and nothing
 flashes or resets. Early code runs once and keeps no listeners.
 
+The built-in formatters `date()`, `time()`, `datetime()`, `number()` and `bytes()` are early too: the early
+file carries the runtime's own, over the same locale, so a date under an article's title is in the first frame
+and the page script writes nothing new at mount. A page's early file includes only the formatters its early
+bindings call. `relative()` reads the clock and waits for the page script. The first formatter a document builds
+costs the browser 10–20 ms (its locale data, measured in Chromium; the ones after it a fraction of a millisecond),
+which the page script used to spend after the first paint and the early script now spends before it: on RealWorld's
+article page with embedded data, Lighthouse mobile's first paint is about 100 ms later (its CPU is 4× slower), and
+CLS went from 0.384 in about half the runs to 0.001 in every run.
+
 What waits for the page script: `$url`, `$now`, `$meta` (but a resource's status before its data, [below](#loading-branches)), `$el`, loop variables, store functions and
-the built-in formatters (`date()` and friends, which use the locale the runtime configures).
+`relative()`.
 
 ### Your own early code
 
