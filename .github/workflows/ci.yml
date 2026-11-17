@@ -118,6 +118,10 @@ jobs:
         working-directory: examples/dashboard
       - run: timeout 300 npx vite build
         working-directory: examples/dashboard
+      # with swaps on: the player plays on across a link and Back, in Chromium, Firefox and WebKit
+      - run: npx playwright install --with-deps chromium firefox webkit
+      - run: node e2e-swap.mjs
+        working-directory: examples/dashboard
 
   # sinter across page loads in a real browser: next-page data, Speculation Rules, morphs
   # (e2e/navigation/README.md); the runner's Chrome
@@ -135,3 +139,26 @@ jobs:
       - run: node e2e/navigation/run.mjs
         env:
           CHROME: google-chrome
+
+  # same-page links, navigate() and data-sn-on-navigate through the navigation chain (e2e/links), and swaps with
+  # kept elements (e2e/permanent), in Chromium, Firefox and WebKit: the Navigation API's navigate event, where
+  # each browser has it
+  e2e-links:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: npx playwright install --with-deps chromium firefox webkit
+      - run: npm ci --prefix e2e/links
+      - run: node e2e/links/run.mjs
+      # swaps and kept elements (sinter({ swap: true }))
+      - run: npm ci --prefix e2e/permanent
+      - run: node e2e/permanent/run.mjs
+      # swaps under a nonce CSP, with built-in messages (a dictionary per page)
+      - run: npm ci --prefix e2e/swap-csp
+      - run: node e2e/swap-csp/run.mjs

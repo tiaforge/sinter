@@ -227,6 +227,13 @@ export interface CompileOptions {
    * `SN322` where it was written. Needs `prerender`, which leaves out what can never change.
    */
   static?: boolean;
+  /**
+   * links swap the next page in around the elements both pages keep (`sinter({ swap: true })`,
+   * docs/proposals/swap-navigation.md): a kept element (`data-sn-permanent`) is then a reason to ship JavaScript
+   */
+  swap?: boolean;
+  /** with `swap`: the module of the swap's stub and the build's list of pages (swap-build.ts), which a page that swaps imports */
+  swapList?: string | null;
   /** every component of the app: the candidates of `<sn-component use>` a helper chooses (default: the components the page names) */
   componentNames?: string[];
   /** the module the page module imports for a component's scoped styles (`CompiledParts.styles`), so the bundler puts them in the page's stylesheet */
@@ -323,6 +330,14 @@ export interface CompileResult {
   /** origins of resources that could be requested early but are not in `origins` */
   unlistedOrigins?: string[];
   prefetchOff?: true;
+  /** the names of the page's kept elements (`data-sn-permanent`), in document order */
+  permanent?: string[];
+  /** where each kept element was written (file, offset, a hash of its source): one markup across the pages, for those that bind */
+  keptSource?: Record<string, string>;
+  /** the kept elements that bind */
+  keptBound?: string[];
+  /** `<html data-sn-swap="off">`: links to this page load it */
+  swapOff?: true;
 }
 
 /** What the early chunk runs: the bindings that can render before data, and what they import. */
@@ -444,6 +459,13 @@ export interface CompiledParts {
   embed: EmbedSlot[];
   /** `<html data-sn-prefetch="off">` */
   prefetchOff?: true;
+  /** the names of the page's kept elements (`data-sn-permanent`), in document order */
+  permanent?: string[];
+  /** where each kept element was written, and those that bind: one markup across the pages */
+  keptSource?: Record<string, string>;
+  keptBound?: string[];
+  /** `<html data-sn-swap="off">`: links to this page load it */
+  swapOff?: true;
   /** origins of resources that could be requested early but are not in `origins` */
   unlistedOrigins?: string[];
   /** the scoped styles of the components the page uses, by component */
@@ -692,7 +714,7 @@ function onceKey(el: P5Element): { id: string; label: string } | null {
 }
 
 /** the events the runtime itself sends, which bubble up the page */
-const SINTER_EVENTS = ['sn-error', 'dismiss'];
+const SINTER_EVENTS = ['sn-error', 'dismiss', 'navigate'];
 
 /** a prop's value that is a build-time constant, and those of them that are falsy */
 const CONST_PROP = /^(true|false|null|undefined|-?\d+(\.\d+)?|'[^'\\]*'|"[^"\\]*")$/;
@@ -1006,6 +1028,23 @@ class Compiler {
   readonly stateInits: Array<{ sid: number; fields: Array<{ key: string; code: string; deps: string[] }>; persist: string | null }> = [];
   /** `<html data-sn-prefetch="off">`: other pages do not prefetch or prerender this one */
   prefetchOff = false;
+  /** `<html data-sn-swap="off">`: links to this page load it */
+  swapOff = false;
+  /** the kept elements (`data-sn-permanent`) and their names */
+  readonly permanentEls: P5Element[] = [];
+  readonly permanentNames: string[] = [];
+  /** how many kept elements the walk is inside (a kept element in another is SN346) */
+  private keptDepth = 0;
+  /** with swaps on, whether `n` is a kept element or inside one */
+  inKept(n: P5Node): boolean {
+    if (!this.opts.swap) return false;
+    for (let p: P5Node | null = n; p; p = (p as P5Element).parentNode as P5Node | null) if (this.permanentEls.includes(p as P5Element)) return true;
+    return false;
+  }
+  /** the kept elements that bind (their ids from their range), and where each kept element was written */
+  readonly keptBound = new Set<string>();
+  readonly keptSource = new Map<string, string>();
+  private readonly keptSlot = new Set<string>();
   /** `data-sn-path` patterns (for `$url` in the early file's requests) */
   pathList: string[] = [];
   /** `$s<sid>.<name>` paths a persisted model writes at mount */
@@ -1250,6 +1289,7 @@ class Compiler {
       }
     }
     this.runTargets();
+    if (this.opts.swap && !this.swapOff) this.swapScripts(doc);
     if (this.opts.checkCycles) this.runCycles();
     for (const el of this.remove) detach(el);
     this.markLowPriority();
@@ -1342,7 +1382,7 @@ class Compiler {
       ir, fns: this.fns,
       ...(this.opts.prerender ? { fixedState: this.fixedState() } : {}),
       ...(this.opts.sourcemap ? { sources: this.sourcesOf(this.fns) } : {}),
-      features: [...(this.opts.dev ? ['dev'] : []), ...['sse', 'optimistic', 'paginate', 'persist', 'cache', 'versions', 'refresh', 'each', 'listbox', 'keys', 'apply', 'fields', 'form', 'select', 'location', 'typing', 'query-links', 'call', 'debounce', 'confirm', 'models', 'transition', 'components', 'nested', 'lets'].filter((f) => this.features.has(f))],
+      features: [...(this.opts.dev ? ['dev'] : []), ...['sse', 'optimistic', 'paginate', 'persist', 'cache', 'versions', 'refresh', 'each', 'listbox', 'keys', 'apply', 'fields', 'form', 'select', 'location', 'typing', 'query-links', 'navigate', 'call', 'debounce', 'confirm', 'models', 'transition', 'components', 'nested', 'lets'].filter((f) => this.features.has(f))],
       helpers: { user, builtin }, namespaces, calls: [...this.calls].sort(),
       diagnostics: this.diagnostics, files: [...this.files].sort(), ...(this.fileGlobs.length ? { globs: this.fileGlobs } : {}), ...(this.pagesOut ? { pages: this.pagesOut } : {}),
       ...(this.check ? { check: this.check } : {}),
@@ -1355,6 +1395,8 @@ class Compiler {
       prefetch: this.prefetchOff ? null : this.prefetchParts(),
       embed: this.embedSlots(),
       ...(this.prefetchOff ? { prefetchOff: true as const } : {}),
+      ...(this.permanentNames.length ? { permanent: [...this.permanentNames], keptSource: Object.fromEntries(this.keptSource), ...(this.keptBound.size ? { keptBound: [...this.keptBound] } : {}) } : {}),
+      ...(this.swapOff ? { swapOff: true as const } : {}),
       ...(this.unlisted.size ? { unlistedOrigins: [...this.unlisted].sort() } : {}),
       styles: [...this.uses.keys()].sort().flatMap((n) => {
         const f = this.componentFiles.get(n), css = f?.css;
@@ -1502,6 +1544,33 @@ class Compiler {
       out[key as typeof DIRS[number]] = p.value.value;
     }
     return out;
+  }
+
+  /**
+   * SN540: with swaps on, a script in the body that a swap would not run (inline or classic: the module
+   * of the next page is the only script a swap runs), on a page that does not opt out
+   */
+  private swapScripts(doc: P5Parent) {
+    const DATA = /^(application\/(ld\+)?json|speculationrules|importmap)$/i;
+    const visit = (n: P5Parent) => {
+      for (const c of n.childNodes) {
+        if (!isElement(c)) continue;
+        if (c.tagName === 'script') {
+          const type = (attr(c, 'type') ?? '').trim(), src = attr(c, 'src');
+          if (DATA.test(type)) continue;
+          if (src === undefined || !/^module$/i.test(type)) {
+            this.report(c, null, 'SN540', `${src === undefined ? 'an inline' : 'a classic'} script${src === undefined ? '' : ` (\`${src}\`)`} in the body does not run when a link swaps this page in (\`sinter({ swap: true })\`), only on a page load`, 0,
+              'move what it does into the page\'s code (a component script or the actions module), load it as `<script type="module" src>` in the head, or take the page out with `<html data-sn-swap="off">`');
+          }
+          continue;
+        }
+        visit(c);
+        const t = (c as P5Element & { content?: P5Parent }).content;
+        if (t) visit(t);
+      }
+    };
+    const body = findBody(doc);
+    if (body) visit(body);
   }
 
   report(el: P5Element | null, attr: string | null, code: Code, message: string, offset: number, hint?: string, inExpr = false) {
@@ -1823,10 +1892,10 @@ class Compiler {
     // the tag's attributes: plain ones replace the layout's on `<html>` (its defaults), `class` is joined
     for (const a of host.attrs) {
       if (a.name === 'data-sn-prop' || a.name === 'data-sn-state') continue;
-      if (a.name === 'data-sn-path' || a.name === 'data-sn-prefetch' || a.name === 'data-sn-pages') { setAttr(lhtml, a.name, a.value); continue; }
+      if (a.name === 'data-sn-path' || a.name === 'data-sn-prefetch' || a.name === 'data-sn-pages' || a.name === 'data-sn-swap') { setAttr(lhtml, a.name, a.value); continue; }
       if (a.name === 'data-sn-early') { this.report(host, a.name, 'SN319', '`data-sn-early` cannot be on a layout\'s tag: the layout is the whole page', 0, 'leave parts out of the early script on their own tags: `<tag-cloud data-sn-early="off">`'); continue; }
       if (a.name.startsWith('data-sn-')) {
-        if (!callerAttribute(a.name) || a.name === 'data-sn-model' || a.name === 'data-sn-persist') this.report(host, a.name, 'SN102', `\`${a.name}\` cannot be on a layout's tag`, 0, 'a layout\'s tag takes `data-sn-prop`, `data-sn-state`, handlers, `data-sn-class`, `-attr` and `-style`, `data-sn-path`, `data-sn-pages` and `data-sn-prefetch`, and the attributes of `<html>`');
+        if (!callerAttribute(a.name) || a.name === 'data-sn-model' || a.name === 'data-sn-persist') this.report(host, a.name, 'SN102', `\`${a.name}\` cannot be on a layout's tag`, 0, 'a layout\'s tag takes `data-sn-prop`, `data-sn-state`, handlers, `data-sn-class`, `-attr` and `-style`, `data-sn-path`, `data-sn-pages`, `data-sn-prefetch` and `data-sn-swap`, and the attributes of `<html>`');
         continue;
       }
       if (a.name === 'class') { const own = attr(lhtml, 'class'); setAttr(lhtml, 'class', own ? `${own} ${a.value}` : a.value); }
@@ -2128,6 +2197,8 @@ class Compiler {
     const emitsText = attr(template, 'data-sn-emits') ?? null;
     const emits = emitsText === null ? [] : typeMembers(emitsText);
     if (emitsText !== null && !emits) this.report(template, 'data-sn-emits', 'SN401', '`data-sn-emits` takes a type literal of the events and their detail types: `{ select: Article; close: null }`', 0);
+    // `navigate` is sinter's: `data-sn-on-navigate` is the guard of every navigation (navigate.ts)
+    if (emits?.some((m) => m.name === 'navigate')) this.report(template, 'data-sn-emits', 'SN209', '`navigate` is sinter\'s event (`data-sn-on-navigate` runs before every navigation): name the component\'s event otherwise, e.g. `go`', 0);
     // a root is known once its slots are filled: a `<slot>` at the top is its fill, or its default
     const first = content.childNodes.find(isElement) ?? template;
     const use: Use = { name, file: def.file, host, root: first, template, props, propsText, emits, emitsText, chain, ...(slots.size ? { slots } : {}), ...(this.lateTag(host) ? { late: true } : {}) };
@@ -2393,6 +2464,8 @@ class Compiler {
     const emitsText = attr(template, 'data-sn-emits') ?? null;
     const emits = emitsText === null ? [] : typeMembers(emitsText);
     if (emitsText !== null && !emits) this.report(template, 'data-sn-emits', 'SN401', '`data-sn-emits` takes a type literal of the events and their detail types: `{ select: Article; close: null }`', 0);
+    // `navigate` is sinter's: `data-sn-on-navigate` is the guard of every navigation (navigate.ts)
+    if (emits?.some((m) => m.name === 'navigate')) this.report(template, 'data-sn-emits', 'SN209', '`navigate` is sinter\'s event (`data-sn-on-navigate` runs before every navigation): name the component\'s event otherwise, e.g. `go`', 0);
     const first = fragment.childNodes.find(isElement) ?? template;
     const use: Use = { name, file: def.file, host, root: first, template, props, propsText, emits, emitsText, chain, head: { roots: [], parent: null } };
     for (const a of host.attrs) {
@@ -3834,7 +3907,22 @@ class Compiler {
         continue;
       }
       const before = kids.length;
+      // a kept element's nodes are numbered in a range of their own, from its name: the same ids on every page
+      // that keeps it, so the next page's code finds them in the element the swap keeps
+      const kept = ctx.tid < 0 ? attr(child, 'data-sn-permanent')?.trim() : undefined;
+      const saved = this.nextId;
+      if (kept && /^[A-Za-z][\w-]*$/.test(kept)) this.nextId = keptBase(kept);
+      if (kept) this.keptDepth++;
       const res = this.element(child, ctx, i, lastIf);
+      if (kept) this.keptDepth--;
+      if (kept && this.nextId !== saved) {
+        if (this.nextId - keptBase(kept) > KEPT_IDS) this.report(child, 'data-sn-permanent', 'SN346', `a kept element binds at most ${KEPT_IDS} nodes (\`${kept}\` binds ${this.nextId - keptBase(kept)})`, 0);
+        if (this.nextId > keptBase(kept)) {
+          this.keptBound.add(kept);
+          if (this.keptSlot.has(kept)) this.report(child, 'data-sn-permanent', 'SN346', `a kept element that binds holds a \`<slot>\` (\`${kept}\`): each page fills it with its own content, so the next page's code would not find its nodes`, 0, 'move the slot out of the kept element, or keep only what has no bindings');
+        }
+        this.nextId = saved;
+      }
       lastIf = res;
       // a literal text folded into the text before it (`mergeText`): the node that followed is at `i` now
       if (kids.length < before && kids[i] !== child) i -= before - kids.length;
@@ -3960,6 +4048,46 @@ class Compiler {
       if (el.tagName !== 'html') this.report(el, 'data-sn-prefetch', 'SN102', '`data-sn-prefetch` belongs on `<html>`: it keeps other pages from prefetching or prerendering this one', 0);
       else if (get('prefetch')!.trim() !== 'off') this.report(el, 'data-sn-prefetch', 'SN401', '`data-sn-prefetch` takes `off`; prefetching is on without the attribute', 0);
       else this.prefetchOff = true;
+    }
+    // kept across a swap (docs/proposals/swap-navigation.md §3): one element of the page; its nodes are numbered
+    // from its name (the children loop), and the next page's code takes them over; the marker stays in the HTML
+    if (has('permanent')) {
+      const name = get('permanent')!.trim(), clash = this.permanentNames.find((n) => n !== name && keptBase(n) === keptBase(name));
+      if (!/^[A-Za-z][\w-]*$/.test(name)) this.report(el, 'data-sn-permanent', 'SN346', '`data-sn-permanent` takes a name (letters, digits, `-` and `_`), the same on each page that keeps the element', 0);
+      else if (ctx.tid >= 0) this.report(el, 'data-sn-permanent', 'SN346', '`data-sn-permanent` cannot be inside a `<template>`: a kept element is one element of the page', 0);
+      else if (['html', 'head', 'body'].includes(el.tagName) || (() => { for (let p: P5Node | null = el; p; p = (p as P5Element).parentNode as P5Node | null) if (isElement(p) && p.tagName === 'head') return true; return false; })()) this.report(el, 'data-sn-permanent', 'SN346', `\`data-sn-permanent\` belongs on an element of the body: \`<${el.tagName}>\` is the page's own`, 0);
+      else if (this.keptDepth > 1) this.report(el, 'data-sn-permanent', 'SN346', '`data-sn-permanent` cannot be inside another kept element: the outer one is kept with everything in it', 0);
+      else if (this.permanentNames.includes(name)) this.report(el, 'data-sn-permanent', 'SN346', `\`data-sn-permanent="${name}"\` is on two elements of this page`, 0);
+      else if (clash) this.report(el, 'data-sn-permanent', 'SN346', `\`${name}\` and \`${clash}\` get the same range of ids: rename one`, 0);
+      else {
+        this.permanentNames.push(name);
+        this.permanentEls.push(el);
+        // SN541: media inside whose playback is bound: the next page's code writes it again (a jump, a pause)
+        const media = (n: P5Element) => {
+          for (const c of [...n.childNodes, ...((n as P5Element & { content?: P5Element }).content?.childNodes ?? [])]) {
+            if (!isElement(c)) continue;
+            if (c.tagName === 'audio' || c.tagName === 'video') {
+              for (const a of c.attrs) {
+                const m = a.name === 'data-sn-attr' && /\b(currentTime|paused|volume|muted|playbackRate)\s*:/.exec(a.value);
+                if (m) this.report(c, a.name, 'SN541', `\`${m[1]}\` of a \`<${c.tagName}>\` in a kept element is bound: the next page's code sets it again when a link swaps it in, which interrupts playback`, 0, 'leave playback to the element (its controls, or a handler that calls play() and pause()); bind its src, which changes only for another track');
+              }
+            }
+            media(c);
+          }
+        };
+        media(el);
+        // its source, where it was written: one markup on every page that keeps it (checked across the pages by the build)
+        const o = this.origins.get(el), loc = el.sourceCodeLocation, text = (o?.src ?? '').slice(loc?.startOffset ?? 0, loc?.endOffset ?? 0);
+        this.keptSource.set(name, `${o?.file ?? this.opts.file}:${loc?.startOffset ?? 0}:${hashText(text)}`);
+        // a slot in it: each page fills it, so its numbering would follow the page (reported if it binds)
+        if (/<slot\b/i.test(text)) this.keptSlot.add(name);
+      }
+    }
+    // a page or a link the swap leaves to the browser: on `<html>` the build records it, on a link it stays
+    if (has('swap')) {
+      if (el.tagName !== 'html' && el.tagName !== 'a' && el.tagName !== 'area') this.report(el, 'data-sn-swap', 'SN102', '`data-sn-swap` belongs on `<html>` (links to the page load it) or on a link (it loads its page)', 0);
+      else if (get('swap')!.trim() !== 'off') this.report(el, 'data-sn-swap', 'SN401', '`data-sn-swap` takes `off`; with `sinter({ swap: true })` links swap without the attribute', 0);
+      else if (el.tagName === 'html') this.swapOff = true;
     }
 
     // embedded data
@@ -4221,6 +4349,9 @@ class Compiler {
       const filter = kf ? this.keyFilter(el, a.name, kf[2]!) : undefined;
       if (filter === null) continue;
       if (filter) this.features.add('keys');
+      // `navigate`: sinter's, for every navigation while the element is on the page (navigate.ts finds the
+      // element by this mark, which stays in the HTML)
+      if (event === 'navigate') { this.features.add('navigate'); setAttr(el, 'data-sn-navigate', ''); }
       if (!kf && !/^[a-z][a-z0-9]*(-[a-z0-9]+)*$/.test(event)) {
         this.report(el, a.name, 'SN101', `event names are lowercase kebab-case: \`${a.name}\``, 0);
         continue;
@@ -4290,6 +4421,9 @@ class Compiler {
     // a shared definition (a component used inside itself, a candidate of `<sn-component use>`): its props are each
     // instance's, given at run time; its tag gives none, which must not read as "left out"
     if (!value.size || this.defHosts.has(use.host)) return;
+    // with swaps on, a kept element is numbered alike on every page that keeps it, whatever each passes it (§3): a
+    // component used in one, or one whose root is one, is not shaped by its constant props
+    if (this.opts.swap && [use.host, parent as P5Node].some((n) => { for (let p: P5Node | null = n; p; p = (p as P5Element).parentNode as P5Node | null) if (isElement(p) && attr(p, 'data-sn-permanent') !== undefined) return true; return false; })) return;
     const real = (c: P5Node) => isElement(c) || (c.nodeName === '#text' && (c as DefaultTreeAdapterMap['textNode']).value.trim() !== '');
     const contentOf = (t: P5Element) => (t as P5Template).content.childNodes;
     const place = (parent: P5Parent, at: number, count: number, nodes: P5Node[]) => {
@@ -4301,6 +4435,8 @@ class Compiler {
         const c = parent.childNodes[i]!;
         // (another component's markup: its root, or where a root that is not one plain element starts)
         if (!isElement(c) || this.slotOf.has(c) || (this.useOf.has(c) && c !== use.root) || this.points.has(c) || this.scopeStart.get(c)?.some((u) => u !== use)) continue;
+        // with swaps on, a kept element is numbered alike on every page that keeps it, whatever each passes it (§3)
+        if (this.opts.swap && attr(c, 'data-sn-permanent') !== undefined) continue;
         const cond = c.tagName === 'template' ? attr(c, 'data-sn-if')?.trim() : undefined;
         if (cond !== undefined && value.has(cond)) {
           const j = parent.childNodes.findIndex((x, k) => k > i && real(x));
@@ -6208,7 +6344,9 @@ class Compiler {
       if (!this.templates[b.x!]) return;
       cands.push({ el, b, f: b.f, for: true });
     };
-    for (const { el, node } of this.paints) for (const b of node.b) { value(el, b, false); decide(el, b); unroll(el, b); }
+    // in a kept element nothing is decided or unrolled at build time: its nodes are numbered alike on every page that
+    // keeps it, whatever each page passes it, and the next page's code takes them over (swaps, §3)
+    for (const { el, node } of this.paints) for (const b of node.b) { value(el, b, false); if (!this.inKept(el)) { decide(el, b); unroll(el, b); } }
     for (const [node, el] of this.tplEls) for (const b of node.b) { value(el, b, true); decide(el, b); }
     const choosing = this.collecting() && [...this.pointOf.values()].some((p) => p.pick);
     if (!cands.length && !choosing && !this.textRoots.length) return;
@@ -6252,7 +6390,7 @@ class Compiler {
       ...[...this.pointOf.values()].flatMap((p) => p.group?.cases.map((c) => `($) => (${c.props})`) ?? []),
       ...this.runtimePlacements.flatMap((P) => (P.node.b[0]?.f !== undefined ? [this.fns[P.node.b[0].f]!] : [])),
     ] : [];
-    const texts = this.textRoots.filter((t) => !t.b.e && t.b.f !== undefined && fixed(t.b.d));
+    const texts = this.textRoots.filter((t) => !t.b.e && t.b.f !== undefined && fixed(t.b.d) && !this.inKept(t.parent as P5Node));
     const used = [...new Set([...this.stateInits.flatMap((st) => st.fields.map((x) => x.code)), ...cands.map((c) => this.fns[c.f]!), ...rowCodes, ...texts.map((t) => this.fns[t.b.f!]!)])];
     let table: Array<($: unknown) => unknown>;
     try {
@@ -7355,6 +7493,8 @@ class Compiler {
       gone.add(node);
     }
     for (const { el, node } of this.paints) {
+      // a kept element's bindings stay, constants too: the next page passes it other values (swaps, §3)
+      if (this.inKept(el)) continue;
       const keep = node.b.filter((b) => !drop(b));
       if (keep.length === node.b.length) continue;
       for (const b of node.b) if (drop(b)) { if (b.f !== undefined) this.fnUses[b.f]!--; this.freeze(b.d); this.dropped.add(b); }
@@ -8314,6 +8454,8 @@ class Compiler {
       const el = this.declAt.get(x);
       out.push({ what: '`<sn-sync>`', ...(el ? at(el, null) : { file: this.opts.file, line: 1, col: 1, at: 0 }) });
     }
+    // a kept element needs the swap's code to be kept (with swaps on)
+    if (this.opts.swap) for (const el of this.permanentEls) out.push({ what: '`data-sn-permanent` (links swap the next page in around it)', ...at(el, 'data-sn-permanent') });
     const page = (r: RuntimeReason) => (r.file === this.opts.file ? 0 : 1);
     return out.sort((a, b) => page(a) - page(b) || (a.file === b.file ? a.at - b.at : 0)).map(({ at: _, ...r }) => r);
   }
@@ -8610,8 +8752,23 @@ function setAttr(el: P5Element, name: string, value: string) {
   if (a) a.value = value; else el.attrs.push({ name, value });
 }
 
+const KEPT_ATTRS = new Set(['data-sn-navigate', 'data-sn-permanent', 'data-sn-swap']);
+/** the ids of a kept element's nodes: a range of its own, from its name, past any page's own numbering */
+const KEPT_IDS = 1000;
+export const keptBase = (name: string) => {
+  let h = 2166136261;
+  for (let i = 0; i < name.length; i++) h = Math.imul(h ^ name.charCodeAt(i), 16777619);
+  return 1_000_000 + ((h >>> 0) % 1000) * KEPT_IDS;
+};
+const hashText = (t: string) => {
+  let h = 2166136261;
+  for (let i = 0; i < t.length; i++) h = Math.imul(h ^ t.charCodeAt(i), 16777619);
+  return (h >>> 0).toString(36);
+};
 function stripSn(el: P5Element) {
-  el.attrs = el.attrs.filter((a) => !a.name.startsWith('data-sn-'));
+  // what stays, for the runtime: `data-sn-navigate` marks an element with a `navigate` handler (navigate.ts),
+  // `data-sn-permanent` a kept element and `data-sn-swap` a link the swap leaves to the browser
+  el.attrs = el.attrs.filter((a) => !a.name.startsWith('data-sn-') || KEPT_ATTRS.has(a.name));
 }
 
 /** Whether a form's markup reads `$error` (outside `data-sn-catch`, where `$error` is the action's own). */

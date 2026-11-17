@@ -26,6 +26,7 @@ import { resolveRemote, type RemoteImages } from './remote.js';
 import { devRemote, remoteMiddleware } from './remote-dev.js';
 import type { EmbedSlot, ImageHost, ImageVariant, PrefetchParts, RuntimeReason, StyleSheet } from './compiler/index.js';
 import { hasCspMeta, movesToDirectory, pageFile, pagePaths, pageUrl, prefetchModule, speculationRules, withRulesHash } from './prefetch-build.js';
+import { type SwapPage, swapModule } from './swap-build.js';
 import { pageRoutes, rebaseHtml, redirectHtml, redirectsFile, relocateHtml, type PageEntry, type Route } from './page-urls.js';
 import { chooserHtml, hreflangTags, readLocales, type Locales } from './locales-build.js';
 import { canonicalOf, fillPattern, noindex, sitemapFiles, sitemapOf, type SitemapOptions, type SitemapUrl } from './sitemap-build.js';
@@ -229,6 +230,8 @@ const COMPONENT_BASE = `${PREFIX}component-base/`;
 /** dev: where the image variants are served */
 const IMG = `${PREFIX}img/`;
 const PREFETCH = `${PREFIX}prefetch.js`;
+/** with swaps on: the pages that swap (swap-build.ts) */
+const SWAP = `${PREFIX}swap.js`;
 /** `speculation: { delivery: 'header' }`: the rules file, at the site root */
 const RULES_FILE = 'speculation-rules.json';
 /** build: the pages' embedded-data placeholders, for a server that fills them per request (sinter-axum) */
@@ -494,7 +497,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     return { info: (f) => img.info(f), url: (v) => prefix + img.fileName(v), ignore: true, stylesheet: `${IMG_CSS}${rel}.css`, ...(widths ? { widths } : {}), ...(styles?.length ? { styles } : {}) };
   };
   /** next-page data: each page's description, by file (null: nothing to prefetch), and the pages compiled so far */
-  const described = new Map<string, { parts: PrefetchParts | null; path: string[]; off: boolean }>();
+  const described = new Map<string, { parts: PrefetchParts | null; path: string[]; off: boolean; keep: string[]; swapOff: boolean; keptSource: Record<string, string>; keptBound: string[] }>();
   let speculationHash: string | null = null, rulesWritten = false;
   /** every inline rule set's hash (pages with same-page links have their own) */
   const speculationHashes = new Set<string>();
@@ -515,7 +518,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   const sourceDescribed = new Map<string, string[]>();
   /** build: why each page needs the runtime, by its path relative to the root (empty: it ships none) */
   const runtimeOf = new Map<string, RuntimeReason[]>();
-  let pagesCache: Array<{ paths: string[]; parts: PrefetchParts | null }> | null = null;
+  let pagesCache: Array<{ paths: string[]; parts: PrefetchParts | null; swaps: boolean }> | null = null;
   const attr = (v: string) => v.replace(/[&"<>]/g, (c) => `&#${c.charCodeAt(0)};`);
   /** the tag of the script that starts with the picker: it picks the locale and starts the page's language file */
   const pickerTag = (src: string, files: Record<string, string>, locale?: string) => `<script src="${attr(src)}" data-sn-i18n="${attr(JSON.stringify({ base: locale ?? messages!.base, locales: locale ? [locale] : messages!.locales, storage: 'locale', files: locale ? { [locale]: files[locale]! } : files }))}"></script>`;
@@ -678,8 +681,8 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       try {
         // with the APIs and specs: what is requested ahead is the page's own request (its base, its configured shape)
         const r = compile(readPage(file), { file: v?.source ?? file, root, dev, helpers: p.helpers, actions: p.actions, readFile: readVia(p), listFiles: p.listFiles, ...(dev ? {} : { globCache }), ...contentOpts(v?.locale), lazy: p.lazy, openapi: p.openapi, apis: p.apis, ...(v?.page ? { page: v.page } : {}), describeOnly: true, ...(v?.locale ? { locale: { name: v.locale, urls: null, base: resolved?.base ?? '/' } } : {}) });
-        described.set(file, { parts: r.prefetch, path: r.path, off: !!r.prefetchOff });
-      } catch { described.set(file, { parts: null, path: [], off: false }); }
+        described.set(file, { parts: r.prefetch, path: r.path, off: !!r.prefetchOff, keep: r.permanent ?? [], swapOff: !!r.swapOff, keptSource: r.keptSource ?? {}, keptBound: r.keptBound ?? [] });
+      } catch { described.set(file, { parts: null, path: [], off: false, keep: [], swapOff: true, keptSource: {}, keptBound: [] }); }
     }
     return described.get(file)!;
   };
@@ -696,16 +699,21 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   const pageEntries = (): PageEntry[] => entries().map((file) => ({ rel: relOf(file), patterns: describe(file).path }));
   const appPages = () => {
     if (pagesCache) return pagesCache;
-    const out: Array<{ paths: string[]; parts: PrefetchParts | null }> = [];
+    const out: Array<{ paths: string[]; parts: PrefetchParts | null; swaps: boolean }> = [];
     for (const file of entries()) {
       const d = describe(file);
       // `<html data-sn-prefetch="off">`: neither described nor in the rules
       if (d.off) continue;
-      out.push({ paths: pagePaths(relOf(file), resolved?.base ?? '/', d.path), parts: d.parts });
+      out.push({ paths: pagePaths(relOf(file), resolved?.base ?? '/', d.path), parts: d.parts, swaps: !!options.swap && !d.swapOff });
     }
     return (pagesCache = out);
   };
-  const prefetchPages = () => appPages().filter((x): x is { paths: string[]; parts: PrefetchParts } => !!x.parts);
+  /** with swaps on: the pages that swap and the names each keeps (swap-build.ts); a page with `data-sn-swap="off"` is not one */
+  const swapPages = (): SwapPage[] => entries().flatMap((file) => {
+    const d = describe(file);
+    return d.swapOff ? [] : [{ m: pagePaths(relOf(file), resolved?.base ?? '/', d.path), k: d.keep }];
+  });
+  const prefetchPages = () => appPages().filter((x): x is { paths: string[]; parts: PrefetchParts; swaps: boolean } => !!x.parts);
   /** how the Speculation Rules are delivered, or null for none */
   const spec = () => {
     // inline by default: it works with no server setup (a CSP in the page gets the rules' hash, see withRulesHash)
@@ -728,10 +736,12 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     rulesKept.same.set(samePage, json);
     return json;
   };
+  // with swaps on, a link to a page that swaps is fetched by the swap, which the browser's prefetch cache does
+  // not serve: only the pages that opt out are in the rules
   const rulesOf = (mode: 'prefetch' | 'prerender', samePage: boolean) => {
-    const entry = new Set<string>(), patterns = new Set<string>();
-    for (const v of virtual.values()) if (v.page) { entry.add(v.page.path); patterns.add(templatePattern(v.source)); }
-    return speculationRules(mode, [...appPages().flatMap((x) => x.paths).filter((x) => !entry.has(x)), ...patterns], samePage);
+    const entry = new Set<string>(), patterns = new Set<string>(), pages = appPages().filter((x) => !x.swaps);
+    for (const v of virtual.values()) if (v.page) { entry.add(v.page.path); if (pages.some((x) => x.paths.includes(v.page!.path))) patterns.add(templatePattern(v.source)); }
+    return speculationRules(mode, [...pages.flatMap((x) => x.paths).filter((x) => !entry.has(x)), ...patterns], samePage);
   };
   /**
    * builds: a link in a finished page to a path a `data-sn-pages` pattern matches, but no entry was written at, fails
@@ -877,9 +887,17 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       ...(options.embed && !dev ? { embed: true } : {}),
       componentCss: (name) => `${COMPONENT_CSS}${name}.css`,
       ...(p.isStatic(src) ? { static: true } : {}),
+      ...(p.swap ? { swap: true, swapList: SWAP } : {}),
       ...(resolved?.base?.startsWith('/') ? { base: resolved.base } : {}),
       ...(siteOrigin ? { urls: urlsOf(rel, out0Path(file)) } : {}),
     });
+    // with swaps on, a kept element that binds is one markup on every page that keeps it: the next page's code
+    // takes over the element the swap keeps (docs/proposals/swap-navigation.md §3)
+    if (p.swap) for (const [name, at] of Object.entries(out.keptSource ?? {})) {
+      const binds = !!out.keptBound?.includes(name);
+      const other = entries().find((f) => { const d = describe(f), k = d.keptSource[name]; return k && k !== at && (binds || d.keptBound.includes(name)); });
+      if (other) out.diagnostics.push({ severity: 'error', code: 'SN346', message: `\`data-sn-permanent="${name}"\` binds, and ${relOf(other)} has another element of that name: a kept element that binds is one markup, from one place (a layout or a component), on every page that keeps it`, file: src, line: 1, col: 1 });
+    }
     // a page in a language is written into its language's folder: its relative URLs follow
     if (v) out.html = rebaseHtml(out.html, '/' + posix.dirname(relOf(src)).replace(/^\.$/, ''), '/' + posix.dirname(rel));
     runtimeOf.set(rel, out.runtime);
@@ -1034,7 +1052,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
         // the helpers module, or a file it reaches: loaded again before the next page compiles
         if (helpersNow?.files.includes(file) || file === proj().helpersFile) nodeHelpers = null;
         // a page's resources may have changed: the next-page module is described again
-        if (file.endsWith('.html') || watched.has(file)) { described.clear(); pagesCache = null; invalidate(PREFETCH); devEarly.clear(); }
+        if (file.endsWith('.html') || watched.has(file)) { described.clear(); pagesCache = null; invalidate(PREFETCH); invalidate(SWAP); devEarly.clear(); }
         if (watched.has(file)) s.ws.send({ type: 'full-reload' });
       });
       // the content module, or a file its loaders read: the collections are loaded again, and the pages reload
@@ -1053,7 +1071,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       // a `file:` glob's list changes when a file it matches is added or removed
       for (const ev of ['add', 'unlink'] as const) s.watcher.on(ev, (file) => {
         if (!inGlob(file)) return;
-        described.clear(); pagesCache = null; invalidate(PREFETCH); devEarly.clear();
+        described.clear(); pagesCache = null; invalidate(PREFETCH); invalidate(SWAP); devEarly.clear();
         s.ws.send({ type: 'full-reload' });
       });
     },
@@ -1264,6 +1282,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       if (id === `\0${PREFIX}img-check.js`) return IMAGE_CHECK;
       if (id === `\0${PREFIX}warn-relay.js`) return WARN_RELAY;
       if (id === `\0${PREFETCH}`) return prefetchModule(prefetchPages(), proj().helpers);
+      if (id === `\0${SWAP}`) return swapModule(swapPages());
       const lang = id.startsWith(`\0${PREFIX}messages/`) && messages ? id.slice(`\0${PREFIX}messages/`.length, -3) : null;
       if (lang && messages?.dicts[lang]) return languageFile(lang, { ...messages.dicts[messages.base], ...messages.dicts[lang] });
       const key = id.startsWith('\0' + PREFIX) ? id.slice(1) : !dev && maps.has(id) ? id : null;

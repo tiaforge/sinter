@@ -438,8 +438,17 @@ declare global {
    */
   interface SinterElementEvents {}
 }
+/** $event of \`data-sn-on-navigate\`: a navigation about to happen; \`preventDefault()\` refuses it */
+export interface SinterNavigate extends Event {
+  /** where to and where from (absolute URLs) */
+  readonly to: string; readonly from: string;
+  /** a new entry, the current one replaced, or Back and Forward */
+  readonly kind: 'push' | 'replace' | 'traverse';
+  /** the link, or the element of the \`navigate()\` handler; null for app code and Back */
+  readonly trigger: Element | null;
+}
 /** $event of a handler for event K on an element with tag T */
-export type Ev<K extends string, T extends string = string> = K extends keyof HTMLElementEventMap ? HTMLElementEventMap[K]
+export type Ev<K extends string, T extends string = string> = K extends 'navigate' ? SinterNavigate : K extends keyof HTMLElementEventMap ? HTMLElementEventMap[K]
   : T extends keyof SinterElementEvents ? (K extends keyof SinterElementEvents[T] ? CustomEvent<SinterElementEvents[T][K]> : CustomEvent) : CustomEvent;
 /** what data-sn-prop accepts on a custom element: its own properties when HTMLElementTagNameMap has it, anything otherwise */
 export type Props<K extends string> = K extends keyof HTMLElementTagNameMap ? { [P in keyof HTMLElementTagNameMap[K]]?: HTMLElementTagNameMap[K][P] } : Record<string, unknown>;

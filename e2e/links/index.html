@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>links</title></head>
+<body>
+  <!-- what the page reads of its query: `page` and `q`; links that change only them stay in the page -->
+  <p>page <b id="page" data-sn-text="$url.page ?? '1'"></b>, q <b id="q" data-sn-text="$url.q ?? '-'"></b></p>
+  <nav>
+    <a id="p2" href="?page=2">2</a> <a id="p3" href="?page=3">3</a> <a id="p3again" href="?page=3">3 again</a>
+    <a id="hash" href="?page=3#bottom">3, at the bottom</a> <a id="other" href="/other/">another page</a>
+    <button id="go4" data-sn-on-click="navigate('?page=4')">4</button>
+  </nav>
+  <input id="search" aria-label="search" data-sn-model="$url.q">
+  <!-- a guard: while `dirty`, every navigation is refused -->
+  <form id="draft" data-sn-state="{ dirty: false, seen: 0 }" data-sn-on-navigate="seen = seen + 1; dirty && $event.preventDefault()">
+    <button id="dirty" type="button" data-sn-on-click="dirty = true">dirty</button>
+    <button id="clean" type="button" data-sn-on-click="dirty = false">clean</button>
+    <b id="seen" data-sn-text="seen"></b>
+  </form>
+  <div style="block-size: 3000px"></div>
+  <p id="bottom">bottom</p>
+</body>
+</html>

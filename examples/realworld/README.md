@@ -36,7 +36,7 @@ The article lists keep their page in the URL with `page-model="$url.page"`: `?pa
 or Back) loads the third page, in the early request and the embedded data too. The pager's links
 and the home page's feed tabs are plain links that stay on the page when clicked
 ([same-page links](../../docs/navigation.md#same-page-links)): a new history entry and the list's
-next page, no reload. "Global Feed" from `/tag/go` is another path, a page load. The active page is
+next page, no reload. "Global Feed" from `/tag/go` is another path: the home page is swapped in ([swaps](../../docs/navigation.md#swaps)). The active page is
 `$meta.<name>.page`, the page shown.
 
 The build warns twice, `SN529`, and the warnings stay: below 768 px the Conduit theme gives its grid
@@ -71,15 +71,25 @@ Follow/unfollow and comment deletion wait for the server; favorites are optimist
 ## e2e suite
 
 The suite runs in `spa` mode by default (this app holds the token and calls the API from the
-browser). Against a local backend, `spa` passed all but five tests and `ssr` (`TEST_MODE=ssr`)
-all but one, before the fix below; the rest of `ssr` is skipped by the suite. The failures were
-assumptions in the suite, not app behavior:
+browser). Against a local backend (realworld-django-ninja, `e2e-local.sh`, 2026-11-16) `spa` passes all
+140 tests with swaps on; with page loads instead (before swaps) it passed 136, failing the four settings
+tests below, and `ssr` (`TEST_MODE=ssr`) all but one, before the fixes below; the rest of `ssr` is
+skipped by the suite. The failures were assumptions in the suite, not app behavior:
 
-- **Settings (4, `spa` only):** the `spa` branch keeps using the settings page after the PUT: three
-  tests read the response body over CDP, one calls `page.evaluate` right away. This app redirects to
-  the profile with a page load as soon as the PUT succeeds, which drops the body
-  (`Network.getResponseBody: No resource`) and the JS context (`Execution context was destroyed`).
-  The `ssr` branch of the same tests (wait for the profile, check the bio) passes.
+- **Settings (4, `spa` only), fixed by swaps:** the `spa` branch keeps using the settings page after the
+  PUT: three tests read the response body over CDP, one calls `page.evaluate` right away, and they read
+  the current user at once. A redirect to the profile with a page load drops the body
+  (`Network.getResponseBody: No resource`) and the JS context (`Execution context was destroyed`). With
+  `sinter({ swap: true })` (vite.config.js) a link or `navigate()` swaps the next page in, in the same
+  document ([docs/navigation.md](../../docs/navigation.md#swaps)). The settings form's `then` writes the
+  saved user into `user` (`upsert`), stores the token (`settings-saved` in `src/islands.js`, which keeps
+  the cache: the account is the same) and calls `navigate()`; the profile page shows the cached user at
+  once and revalidates. Every redirect goes the same way: the islands call `navigate` from
+  `@tiaforge-ui/sinter` for signing in and out, and `<conduit-redirect>` calls it with `replace: true`.
+  Against the shared public API, a run now and then shows another account right after registering
+  (`pw` and the time in base 36, `John Doe`, `www.google.com:80/`: other clients' accounts), on paths
+  with and without swaps: the API answers a new account's token with another account. Run against a
+  local backend (`e2e-local.sh`) for a clean result.
 - **Null/Empty Image and Bio Handling, "author avatars should render on other user articles in
   feed":** it reads the author of every `.article-preview`, the "Loading articles..." line included.
   That line now shows only while there is nothing to show (with cached articles, loading means

@@ -1,0 +1,34 @@
+<!-- Both pages: a head that binds (title, a description meta, the page's head slot) and the kept element. -->
+<!doctype html>
+<html lang="en" data-sn-layout="{ title: string; description: string; kind: string }">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title data-sn-text="title"></title>
+  <meta name="description" data-sn-attr="{ content: description }">
+  <slot name="head"></slot>
+  <!-- page transitions, as temper asks for them: swaps follow this rule (and leave it out under reduced motion) -->
+  <style>@media (prefers-reduced-motion: no-preference) { @view-transition { navigation: auto; } }</style>
+</head>
+<!-- the layout's state and a handler on <body>, which the swap keeps: the old page's must not stay on it -->
+<body data-sn-state="{ hits: 0 }" data-sn-on-click="hits = hits + 1">
+  <nav><a id="to-a" href="/">A</a> <a id="to-b" href="/b/">B</a> <a id="to-plain" href="/plain/">Plain</a> <a id="to-b-bottom" href="/b/#bottom">B, at the bottom</a> <a id="to-off" href="/off/">Off</a> <a id="to-b-load" href="/b/" data-sn-swap="off">B, loaded</a> <a id="to-nojs" href="/nojs/">No JS</a> <a id="to-b-missing" href="/b/#missing">B, no target</a> <a id="to-b-pct" href="/b/#50%">B, a malformed hash</a> <output id="hits" data-sn-text="hits"></output></nav>
+  <aside id="keep" data-sn-permanent="keep">
+    <textarea rows="2" aria-label="Notes"></textarea>
+    <div id="scroller" style="block-size: 3rem; overflow: auto"><div style="block-size: 20rem">tall</div></div>
+  </aside>
+  <!-- kept, and bound: the next page's code takes it over (its text follows the page; its rows and branch stay the same nodes) -->
+  <section id="bound" data-sn-permanent="bound" data-sn-state="{ ns: [1, 2, 3], open: true }">
+    <span id="where" data-sn-text="title"></span>
+    <button id="more" data-sn-on-click="ns = [...ns, ns.length + 1]">more</button>
+    <ul id="kept-list"><template data-sn-for="n in ns" data-sn-key="n"><li data-sn-text="'row ' + n"></li></template></ul>
+    <template data-sn-if="open"><p id="branch">open</p></template>
+    <!-- a constant each page passes: bound in a kept element all the same, so it follows the next page -->
+    <span id="kind" data-sn-text="kind"></span><template data-sn-if="kind == 'b'"><em id="only-b">only on B</em></template>
+  </section>
+  <main><slot></slot></main>
+  <!-- tall, so the page scrolls; a target for a link's #hash -->
+  <div style="block-size: 4000px"></div>
+  <p id="bottom">bottom</p>
+</body>
+</html>

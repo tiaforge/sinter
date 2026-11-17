@@ -74,6 +74,7 @@ export const CODES = {
   SN343: 'broken-entry-link',
   SN344: 'content-fields',
   SN345: 'url-param-pages',
+  SN346: 'kept-element',
   SN401: 'parse-error',
   SN501: 'unused-resource',
   SN502: 'non-reactive-value',
@@ -113,6 +114,8 @@ export const CODES = {
   SN537: 'library-version',
   SN538: 'unreachable-candidate',
   SN539: 'empty-glob',
+  SN540: 'swap-script',
+  SN541: 'kept-playback',
 } as const;
 
 export type Code = keyof typeof CODES;

@@ -1,0 +1,15 @@
+<!-- A page that takes itself out of swaps: links to it load it, and links from it are page loads. -->
+<!doctype html>
+<html lang="en" data-sn-swap="off">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Off</title>
+  <!-- the app's page transitions (else Chromium reports the transition it skips on the load to this page) -->
+  <style>@media (prefers-reduced-motion: no-preference) { @view-transition { navigation: auto; } }</style>
+</head>
+<body>
+  <nav><a id="to-a" href="/">A</a> <a id="to-b" href="/b/">B</a></nav>
+  <main><h1 id="heading">Off</h1></main>
+</body>
+</html>

@@ -15,6 +15,9 @@ export default defineConfig({
     // deployment is static, so off by default
     sinter({
       apis,
+      // links and navigate() swap the next page in: the e2e suite's settings tests keep reading the page
+      // after saving (docs/navigation.md#swaps)
+      swap: true,
       embed: !!process.env.SINTER_EMBED,
       // warnings fail the build, except SN529 for the tag list: the feed and the tag list sit in the RealWorld theme's
       // columns, which follow their content below 768 px. The build keeps the tag column hidden while the feed's first
