@@ -84,7 +84,7 @@ async function main(argv: string[]): Promise<number> {
     const mod = (url: string | null) => (url ? resolveFile(url, resolve(root, 'index.html'), root) : null);
     const scripts = [...p.componentNames.filter((n) => !p.libraries.some((l) => l.public.includes(n))).map((n) => resolveFile(`/src/components/${n}.ts`, root, root) ?? resolveFile(`/src/components/${n}.js`, root, root)),
       ...p.libraries.flatMap((l) => [...l.public.map((n) => join(l.folder, 'components', n)), ...l.internal.map((n) => join(l.folder, 'components', 'internal', n))]).map((b) => componentScript(b + '.html'))].filter((f): f is string => !!f);
-    diagnostics.push(...lazyDiagnostics(root, p.lazy, [p.helpersFile, p.actionsFile, mod(p.config), mod(p.early)], lh!.whole(p.helpers), scripts, p.libraries));
+    diagnostics.push(...lazyDiagnostics(root, p.lazy, [p.helpersFile, p.actionsFile, mod(p.config), mod(p.early)], lh!.whole(p.helpers), scripts, p.libraries, p.helpersFile));
   }
   const r = check({ root, units, helpers: p.helpers, actions: p.actions, types: p.types, openapi: p.openapi, messagesTypes: p.messagesTypes, libraries: p.libraries });
   diagnostics.push(...r.diagnostics);

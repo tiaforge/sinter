@@ -274,6 +274,12 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     modules.set(id, code);
     if (map) maps.set(id, map); else maps.delete(id);
   };
+  /** whether two paths name one file (a link and its target too) */
+  const sameFile = (a: string, b: string | null) => {
+    if (!b) return false;
+    if (resolve(a) === resolve(b)) return true;
+    try { return realpathSync(a) === realpathSync(b); } catch { return false; }
+  };
   /**
    * One classic script (IIFE) from an early module's `code`, with nothing imported: builds (the shared head script
    * and each page's) and the dev server (a page's whole early script). `rt`: the runtime's exports it takes from the
@@ -297,7 +303,16 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
               return res && runtimeId && res.id === runtimeId ? RT_ID : null;
             },
             load: (id) => (id === entryId ? (map ? { code, map } : code) : id === RT_ID ? `const R = globalThis[Symbol.for(${JSON.stringify(RT_KEY)})];\nexport const { ${rt!.join(', ')} } = R;\n` : null),
-            transform(src, id) { if (messages && !id.includes('/node_modules/') && /\.[cm]?[jt]sx?$/.test(id)) for (const k of moduleKeys(src, id).keys) keys.add(k); },
+            transform(src, id) {
+              if (messages && !id.includes('/node_modules/') && /\.[cm]?[jt]sx?$/.test(id)) for (const k of moduleKeys(src, id).keys) keys.add(k);
+              // the helpers module's re-exports of lazy packages: an early binding calls its own helpers, never
+              // the barrel's copy of a namespace, which would put the package in the early file (as lazyTransform)
+              if (lazyPkgs.length && sameFile(id.replace(/[?#].*$/, ''), proj().helpersFile) && mentions(src, lazyPkgs)) {
+                const s = scanLazy(src, id, lazyPkgs, true);
+                if (s.drop?.length) return { code: rewriteLazy(src, { ...s, lazy: [] }), map: null };
+              }
+              return null;
+            },
           }],
           build: {
             write: false, minify: dev ? false : r.build.minify, target: r.build.target, sourcemap: !!map, modulePreload: false, copyPublicDir: false, reportCompressedSize: false,
@@ -954,9 +969,12 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     // packages are not the app's modules, except the component libraries
     const libs = options.components?.length ? proj().libraries : [];
     if (id.includes('/node_modules/') && !libraryOf(libs, file)) return null;
+    // a module of a lazy package (a component library listed in `lazy`) is the package: it loads whole with it
+    const lib = libraryOf(libs, file);
+    if (lib && lazyPackage(lib.name, lazyPkgs)) return null;
     if (!mentions(code, lazyPkgs)) return null;
-    const s = scanLazy(code, file, lazyPkgs);
-    if (!s.lazy.length && !s.problems.length) return null;
+    const s = scanLazy(code, file, lazyPkgs, sameFile(file, proj().helpersFile));
+    if (!s.lazy.length && !s.problems.length && !s.drop?.length) return null;
     if (isComponentScript(root, file, libs)) return null;
     // a helper module that reaches the package, and the modules between: they load whole with it, when a let first needs them
     if (lazyHelpers(root, lazyPkgs, undefined, libs).whole(proj().helpers).has(file)) return null;

@@ -83,6 +83,12 @@ export interface LazyScan {
   imports: string[];
   /** those of `imports` that are re-exports only (`export … from`) */
   reexports?: string[];
+  /**
+   * re-exports of a lazy package in the app's helpers module (`export * as md from '@acme/md'`), removed:
+   * pages import each member from the module that declares it, a lazy one through its loader, so the
+   * barrel's copy is never read, and keeping it would load the package with the page
+   */
+  drop?: Array<{ start: number; end: number }>;
 }
 
 type N = { type: string; start: number; end: number; [k: string]: any };
@@ -157,7 +163,11 @@ function waited(parents: N[], at: number): boolean {
  * waited for (`await`, `return`, `.then`, `void`): a stub returns a Promise, also for a function that
  * is sync in the package. Type-only imports and uses are left alone.
  */
-export function scanLazy(code: string, file: string, pkgs: readonly string[]): LazyScan {
+/**
+ * `barrel`: the module is the app's helpers module, whose re-exports of lazy packages are dropped
+ * (`drop`) instead of refused.
+ */
+export function scanLazy(code: string, file: string, pkgs: readonly string[], barrel = false): LazyScan {
   const out: LazyScan = { lazy: [], problems: [], imports: [] };
   const ast = parseModule(code, file) as unknown as N;
   /** local name → the import it binds: a namespace, or one export */
@@ -185,7 +195,8 @@ export function scanLazy(code: string, file: string, pkgs: readonly string[]): L
       if (st.type === 'ExportNamedDeclaration' && (st.specifiers as N[]).every(typeOnly) && st.specifiers.length) continue;
       out.imports.push(spec);
       (out.reexports ??= []).push(spec);
-      if (lazyPackage(spec, pkgs)) out.problems.push({ message: `re-exporting \`${spec}\` hands out its values, which need it loaded at once; \`sinter({ lazy })\` loads ${spec} on first call. Import what you call where you call it`, offset: st.start });
+      if (lazyPackage(spec, pkgs) && barrel) (out.drop ??= []).push({ start: st.start, end: st.end });
+      else if (lazyPackage(spec, pkgs)) out.problems.push({ message: `re-exporting \`${spec}\` hands out its values, which need it loaded at once; \`sinter({ lazy })\` loads ${spec} on first call. Import what you call where you call it`, offset: st.start });
     }
   }
   if (!locals.size) return out;
@@ -219,7 +230,9 @@ export function scanLazy(code: string, file: string, pkgs: readonly string[]): L
 /** The module with each lazy import pointed at its stubs (only the specifiers change: the lines stay). */
 export function rewriteLazy(code: string, scan: LazyScan): string {
   let out = code;
-  for (const imp of [...scan.lazy].sort((a, b) => b.start - a.start)) out = out.slice(0, imp.start) + JSON.stringify(stubId(imp.spec, imp.names)) + out.slice(imp.end);
+  const edits = [...scan.lazy.map((imp) => ({ start: imp.start, end: imp.end, text: JSON.stringify(stubId(imp.spec, imp.names)) })),
+    ...(scan.drop ?? []).map((d) => ({ ...d, text: '' }))];
+  for (const e of edits.sort((a, b) => b.start - a.start)) out = out.slice(0, e.start) + e.text + out.slice(e.end);
   return out;
 }
 
@@ -308,18 +321,21 @@ function libraryFile(spec: string, from: string, root: string, libs: readonly Li
  * freely (it loads with the package), and so may a helper module that reaches one and the modules
  * between them (`whole`: they load with it; the page calls its helpers only in lets, which wait).
  */
-export function lazyDiagnostics(root: string, pkgs: readonly string[], starts: Array<string | null>, whole: ReadonlySet<string>, scripts: string[], libs: readonly Library[] = []): Diagnostic[] {
+export function lazyDiagnostics(root: string, pkgs: readonly string[], starts: Array<string | null>, whole: ReadonlySet<string>, scripts: string[], libs: readonly Library[] = [], helpersFile: string | null = null): Diagnostic[] {
   if (!pkgs.length) return [];
   const out: Diagnostic[] = [];
   const cache = new Map<string, LazyScan | null>();
   const seen = new Set<string>();
   const visit = (f: string) => {
     if (seen.has(f) || (f.includes(`${sep}node_modules${sep}`) && !libraryOf(libs, f))) return;
+    // a module of a lazy package (a component library listed in `lazy`) is the package: it loads whole with it
+    const lib = libraryOf(libs, f);
+    if (lib && lazyPackage(lib.name, pkgs)) return;
     seen.add(f);
     let code: string;
     try { code = readFileSync(f, 'utf8'); } catch { return; }
     let s: LazyScan;
-    try { s = scanLazy(code, f, pkgs); } catch (e) { out.push({ severity: 'error', code: 'SN324', message: `cannot read ${relative(root, f)} to check its imports of lazy packages: ${(e as Error).message}`, file: f, line: 1, col: 1 }); return; }
+    try { s = scanLazy(code, f, pkgs, f === helpersFile); } catch (e) { out.push({ severity: 'error', code: 'SN324', message: `cannot read ${relative(root, f)} to check its imports of lazy packages: ${(e as Error).message}`, file: f, line: 1, col: 1 }); return; }
     cache.set(f, s);
     if (!isComponentScript(root, f, libs) && !whole.has(f)) for (const p of s.problems) out.push({ severity: 'error', code: 'SN324', message: p.message, file: f, ...lineCol(code, p.offset) });
     for (const spec of s.imports) { const n = resolveFile(spec, f, root) ?? libraryFile(spec, f, root, libs); if (n) visit(n); }

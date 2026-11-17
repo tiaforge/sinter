@@ -82,6 +82,15 @@ describe('SN324: what a stub cannot serve', () => {
     expect(problems(code).join('\n')).toMatch(message);
   });
 
+  test('the app\'s helpers module: a re-export of a lazy package is dropped, not refused (pages import each member from its declaring module)', () => {
+    const code = `import { k } from './session.js';\nexport * as md from 'openpgp';\nexport { readKey } from 'openpgp/lightweight';\nexport const f = () => k();\n`;
+    const s = scanLazy(code, 'src/sinter.helpers.ts', ['openpgp'], true);
+    expect(s.problems).toEqual([]);
+    expect(rewriteLazy(code, s)).toBe(`import { k } from './session.js';\n\n\nexport const f = () => k();\n`);
+    // any other module still may not
+    expect(scanLazy(code, 'src/other.ts', ['openpgp']).problems.length).toBe(2);
+  });
+
   test('type re-exports are fine', () => {
     expect(problems(`export type { PrivateKey } from 'openpgp';\nexport type * from 'openpgp';`)).toEqual([]);
   });
