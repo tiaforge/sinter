@@ -40,7 +40,7 @@ const metric = (lhr) => {
   const a = lhr.audits, items = a['network-requests'].details.items, js = items.filter((i) => i.resourceType === 'Script');
   return {
     perf: lhr.categories.performance.score * 100, fcp: a['first-contentful-paint'].numericValue, lcp: a['largest-contentful-paint'].numericValue,
-    si: a['speed-index'].numericValue, tbt: a['total-blocking-time'].numericValue,
+    si: a['speed-index'].numericValue, tbt: a['total-blocking-time'].numericValue, cls: a['cumulative-layout-shift'].numericValue,
     js: js.reduce((s, i) => s + i.transferSize, 0) / 1024, jsReq: js.length, req: items.length,
   };
 };
@@ -73,8 +73,8 @@ try {
 
 const ms = (n) => `${Math.round(n)}`;
 console.log(`\nMedian of ${runs} runs each; A = ${opt.a}, B = ${opt.b}${opt['b-axum'] ? ' (sinter-axum)' : ''}. Times in ms, JS transferred in KB (brotli).\n`);
-console.log('| form | page | perf A/B | FCP A | FCP B | LCP A | LCP B | SI A | SI B | TBT A | TBT B | JS A | JS B | JS req A/B | req A/B |');
+console.log('| form | page | perf A/B | FCP A | FCP B | LCP A | LCP B | SI A | SI B | TBT A | TBT B | CLS A | CLS B | JS A | JS B | JS req A/B | req A/B |');
 console.log('| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |');
 for (const r of rows) {
-  console.log(`| ${r.form} | ${r.page}${r.warm ? ' (after /)' : ''} | ${Math.round(r.A.perf)}/${Math.round(r.B.perf)} | ${ms(r.A.fcp)} | ${ms(r.B.fcp)} | ${ms(r.A.lcp)} | ${ms(r.B.lcp)} | ${ms(r.A.si)} | ${ms(r.B.si)} | ${ms(r.A.tbt)} | ${ms(r.B.tbt)} | ${r.A.js.toFixed(1)} | ${r.B.js.toFixed(1)} | ${r.A.jsReq}/${r.B.jsReq} | ${r.A.req}/${r.B.req} |`);
+  console.log(`| ${r.form} | ${r.page}${r.warm ? ' (after /)' : ''} | ${Math.round(r.A.perf)}/${Math.round(r.B.perf)} | ${ms(r.A.fcp)} | ${ms(r.B.fcp)} | ${ms(r.A.lcp)} | ${ms(r.B.lcp)} | ${ms(r.A.si)} | ${ms(r.B.si)} | ${ms(r.A.tbt)} | ${ms(r.B.tbt)} | ${r.A.cls.toFixed(3)} | ${r.B.cls.toFixed(3)} | ${r.A.js.toFixed(1)} | ${r.B.js.toFixed(1)} | ${r.A.jsReq}/${r.B.jsReq} | ${r.A.req}/${r.B.req} |`);
 }
