@@ -4,7 +4,7 @@ import type { SourceMap } from './sourcemap.js';
 import { rewriteImages, sourceFile, type ImageHost, type ImageResult } from './images.js';
 import { boxSizesCss, type ReserveTrace, Layout, PLACEHOLDER_BASE, type Affine, type Reserved, type StyleSheet } from './layout.js';
 import { shows } from './status-eval.js';
-import { record as recordUnit, replay as replayUnit, type Plan, type Refused } from './link.js';
+import { record as recordUnit, replay as replayUnit, LINK_FIELDS, type Plan, type Refused } from './link.js';
 import { HEAD_ELEMENTS, parseDocument } from './head.js';
 import { minifyMarkup } from './minify.js';
 import type { RemoteConfig } from '../remote.js';
@@ -3853,6 +3853,7 @@ class Compiler {
   definition(name: string): { tid: number; id: string; use: Use } | null {
     const known = this.defs.get(name);
     if (known !== undefined) return known;
+    if ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env.SN_UNIT && this.defLink.depth === 0) return this.unitDefinition(name);
     const cache = this.opts.definitions as Map<string, Plan | Refused | typeof SEEN | null> | undefined, L = this.defLink;
     const stats = (globalThis as { __snLink?: { hits: number; recorded: number; refused: string[] } }).__snLink;
     if (!cache || L.off || L.depth > 0 || this.check || this.opts.dev) return this.compileDefinition(name);
@@ -3882,6 +3883,39 @@ class Compiler {
       else { L.chain.push(key); if (stats) stats.recorded++; }
       return r.result;
     } finally { L.depth--; }
+  }
+
+  /**
+   * Refactor, step 1 (`SN_UNIT=1`): the definition compiled in a compiler of its own, from this page's numbering (its
+   * function and template tables, counters and `codeAt` copied), with this page's context and caches shared, and every
+   * other table its own and empty; then its tables merged into this page's. What it reads of this page beyond that is
+   * what the refactor has to pass in.
+   */
+  unitDefinition(name: string): { tid: number; id: string; use: Use } | null {
+    const me = this as unknown as Record<string, any>, child = new Compiler(this.opts) as unknown as Record<string, any>;
+    const NUMBERING = new Set(['fns', 'fnIndex', 'fnUses', 'fnAt', 'callAt', 'templates', 'codeAt', 'useIds', 'nextSid', 'nextId', 'actions']);
+    const SHARED = new Set(['page', 'componentFiles']);
+    const own: string[] = [];
+    for (const [k, f] of Object.entries(LINK_FIELDS)) {
+      if (!(k in me)) continue;
+      const v = me[k];
+      if (NUMBERING.has(k)) child[k] = v instanceof Map ? new Map(v) : Array.isArray(v) ? v.slice() : v;
+      else if (k === 'defs') child[k] = new Map(v);
+      else if (SHARED.has(k) || f.how !== 'table' && f.how !== 'weak') child[k] = v;
+      else { child[k] = f.how === 'weak' ? (v instanceof WeakSet ? new Set() : new Map()) : v instanceof Map ? new Map() : v instanceof Set ? new Set() : []; own.push(k); }
+    }
+    child.defLink = { ...this.defLink, depth: 1, off: true };
+    const out = (child as unknown as Compiler).compileDefinition(name);
+    for (const k of NUMBERING) if (k in me) me[k] = child[k];
+    me.at = child.at;
+    for (const [k, v] of child.defs as Map<string, unknown>) if (!this.defs.has(k)) this.defs.set(k, v as never);
+    for (const k of own) {
+      const from = child[k], to = me[k];
+      if (from instanceof Map) for (const [x, y] of from) to.set(x, y);
+      else if (from instanceof Set) for (const x of from) to.add(x);
+      else for (const x of from) to.push(x);
+    }
+    return out;
   }
 
   /** The shared definition of a component used inside itself, compiled on its first such use. */

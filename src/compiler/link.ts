@@ -356,6 +356,8 @@ export function record<T>(c: any, name: string, call: () => T, prior: Map<object
   const refuse = (why: string) => ({ result, unit: { refused: why } as Refused });
   // (the element compiled last: the page goes on with it as the site of what it compiles next)
   const atAfter = c.at;
+  // an action's entry holds function indices in shapes linking does not renumber, and a binding's `x` points at it
+  if (c.actions.length !== pre.out.get('actions')!.copy.length) return refuse('adds an action (`actions` is not renumbered)');
   // what changed in the compiler's tables
   const ops: Op[] = [];
   for (const [key, s] of pre.out) {
@@ -475,6 +477,8 @@ function fixesOf(o: any, keys: string[]): Fix[] | undefined {
   if (typeof o.id === 'number' && 'runtime' in o && 'outer' in o) at('id', 'use');
   // a node with state: its initializer's function; anything with a state id (a node, a state's init, a scope's entry, a use)
   if (typeof o.tag === 'string' && Array.isArray(o.b) && typeof o.state === 'number') at('state', 'fn');
+  // a comparison's sides (a binding's `s`): their functions
+  if (typeof o.r === 'number' && typeof o.o === 'number' && Array.isArray(o.d) && Object.keys(o).every((k) => ['r', 'o', 'd', 'x'].includes(k))) { at('r', 'fn'); at('o', 'fn'); }
   if (typeof o.sid === 'number') at('sid', 'sid');
   return out.length ? out : undefined;
 }
