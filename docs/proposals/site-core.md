@@ -1,7 +1,7 @@
 # Spike: a core per site, without the parts its pages do not use
 
 Status: spike (2026-11-17), on the branch `ccr-609d209b-vp07x6`, which builds on the linking work
-(`ccr-e552100a-ha1vsv`). **On in every build, with no option**: a build keeps the parts of the core its pages use and
+(#71, `ccr-e552100a-ha1vsv`). **On in every build, with no option**: a build keeps the parts of the core its pages use and
 compiles away the rest. Dev serves the whole core. Nothing changes for an app's markup or code. It takes a quarter
 off a content site's JavaScript and 0.5 KB off each RealWorld page. The whole test suite, the fuzz tests included,
 runs every page on the smallest core for that page.
@@ -23,9 +23,9 @@ Gzip -9 of minified code, as `scripts/size.mjs` counts it (`npm run size`), befo
 | the core alone, every part on | 15,361 B | | |
 | the core alone, every part off (the floor) | | 7,429 B | −52% |
 | the minimal page (one resource, one text binding) | 15,567 B | 11,046 B | −29% |
-| RealWorld, article | 27,927 B | 27,393 B | −534 B |
-| RealWorld, index | 29,703 B | 29,167 B | −536 B |
-| RealWorld, login | 24,827 B | 24,296 B | −531 B |
+| RealWorld, article | 31,107 B | 30,582 B | −525 B |
+| RealWorld, index | 33,316 B | 32,790 B | −526 B |
+| RealWorld, login | 27,769 B | 27,245 B | −524 B |
 | `examples/multilingual-site`, all its JavaScript | 17,591 B | 13,037 B | −26% |
 | `examples/static-site`, all its JavaScript | 17,197 B | 14,077 B | −18% |
 
@@ -132,4 +132,5 @@ In order of what they save:
   trimmed cores.
 
 The size budgets follow the site's core (`scripts/size.mjs`): the minimal page 12 KB (11.0 KB now), with swaps
-13.5 KB (12.9 KB), the RealWorld article 28 KB (27.4 KB).
+13.5 KB (12.9 KB). The RealWorld article keeps main's 35 KB (30.6 KB now, counted with its classic head scripts
+since #70).
