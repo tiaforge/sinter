@@ -694,6 +694,10 @@ manifest, the stub and the exported mount together: they are the unproven half.
      ignores the option); the chain's own code did not get smaller by rewriting it. The minimal page with
      swaps on is then 16,747 B: it has a budget of its own, 17 KB (`scripts/size.mjs`); the minimal page
      without swaps keeps 15 KB.
+   - **The budgets after the rebase onto main of 2026-11-17** (decided: trim the core first, then raise): main was
+     at 15,492 B for the minimal page on its own; the swap's cleanup of marks moved out of `destroy()` (core
+     −44 B), then the minimal page to 16 KB (15,566 B) and RealWorld's article to 28.5 KB (27,922 B, swaps on);
+     the page with swaps on keeps 17 KB (17,389 B).
    - **Sizes** (gzip, `scripts/size.mjs`, the base `aca5a78` and this branch): core 14,946 → 15,048 (+102:
      destroy, the attribute writer, `navigate()` and `popstate` asking the chain, the flush guard); minimal
      page 15,148 → 15,252 of its 15,360 B; with swaps on 16,901 B (the budget decision is open);

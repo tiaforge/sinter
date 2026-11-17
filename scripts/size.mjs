@@ -77,8 +77,12 @@ const entries = {
 };
 // bytes, gzip -9; article: what the page loads, its page module and the app's own code included
 // the minimal page in an app with swaps on (2026-11-16): the stub every page that swaps carries (1.7 KB, the
-// navigation chain 0.9 KB of it) does not fit 15 KB after trimming, so these pages have a budget of their own
-const BUDGET = { minimal: 15 * 1024, 'minimal, swaps': 17 * 1024, 'realworld article': 27 * 1024 };
+// navigation chain 0.9 KB of it) does not fit 15 KB after trimming, so these pages have a budget of their own.
+// Raised on 2026-11-17, after trimming the core: the minimal page to 16 KB (main was at 15,492 B on its own,
+// swap navigation adds 74 B to the core: the chain's hooks in navigate() and popstate, the flush guard, the
+// attribute writer leaving unchanged values); the article to 28.5 KB (RealWorld runs with swaps on: the stub,
+// the chain shared by same-page links, morphs and the swap)
+const BUDGET = { minimal: 16 * 1024, 'minimal, swaps': 17 * 1024, 'realworld article': 28.5 * 1024 };
 let failed = false;
 const gz = (b) => gzipSync(b, { level: 9 }).length;
 function report(name, min, size) {
