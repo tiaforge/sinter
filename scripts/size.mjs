@@ -110,7 +110,7 @@ try {
   for (const [name, code] of Object.entries(entries)) {
     const entry = join(dir, `${name}.js`);
     writeFileSync(entry, code);
-    const external = name === 'core' || name === 'page' || name.startsWith('minimal') ? [] : [/\/runtime\//];
+    const external = name === 'core' || name === 'page' || name.startsWith('minimal') || siteCore[name] ? [] : [/\/runtime\//];
     await build({
       logLevel: 'silent', configFile: false,
       build: { outDir: join(dir, 'out', name), lib: { entry, formats: ['es'], fileName: name }, minify: false, rollupOptions: { external } },

@@ -894,8 +894,8 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   let coreReady: { promise: Promise<void>; resolve(): void } | null = null;
   const coreWait = () => (coreReady ??= (() => { let resolve!: () => void; const promise = new Promise<void>((r) => (resolve = r)); return { promise, resolve }; })());
   const coreCheck = () => { if (entries().every((f) => coreDone.has(f))) coreWait().resolve(); };
-  /** the core's flags module, as this build resolves it (dist/runtime/flags.js, next to this file) */
-  const FLAGS = (() => { try { return realpathSync(fileURLToPath(new URL('./runtime/flags.js', import.meta.url))); } catch { return null; } })();
+  /** the core's flags module, as this build resolves it: next to this file (dist/runtime/flags.js; src/runtime/flags.ts when run from source, as the tests do) */
+  const FLAGS = (() => { for (const f of ['./runtime/flags.js', './runtime/flags.ts']) try { return realpathSync(fileURLToPath(new URL(f, import.meta.url))); } catch { /* the other */ } return null; })();
   const logFold = (page: string, key: string, args: FoldArg[], result: string, id: number) => {
     // ids count from 0 when the page's calls start afresh: what an earlier run logged is replaced
     const calls = id === 0 || !foldCalls.has(page) ? foldCalls.set(page, []).get(page)! : foldCalls.get(page)!;
