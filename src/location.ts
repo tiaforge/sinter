@@ -80,6 +80,9 @@ const feature: Feature = {
         changed.clear();
         kind = 0;
         back = true;
+        // `$url` was read again (a same-page link): its array parameters are lists from now on, for what is
+        // evaluated before the next render too (a resource's `then` navigating during the mount)
+        lists(app.env.href(), arrays, $url);
       },
       set(name, value, k) {
         value == null ? delete $url[name] : ($url[name] = value);

@@ -1,7 +1,7 @@
 // @vitest-environment node
 // A page swapped in reads its array parameters (`$url.sender`, bound as a list) as lists from its first
 // evaluation, as on a load: in a let, in a resource the page before may prefetch. (caley saw `$url.sender`
-// undefined on a swap into its mail page; this setup does not show it.)
+// undefined on a swap into its mail page: a same-page navigate during the mount, test/behaviour/query-links.test.ts.)
 import { createServer, type Server } from 'node:http';
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';

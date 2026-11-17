@@ -225,3 +225,18 @@ test('a component\'s link counts on the page that uses it, by what that page rea
   expect(parts('<site-nav></site-nav><p data-sn-text="$url.feed"></p>').features).toContain('query-links');
   expect(parts('<site-nav></site-nav><p data-sn-text="$url.q"></p>').ir.urlReads).toEqual(['q']);
 });
+
+test('a list parameter is a list right after a same-page navigation, before the next render', async () => {
+  // caley: a resource's `then` called navigate(…, { replace: true }) during the mount of a swapped-in page, and the
+  // lets evaluated next read `$url.sender` as undefined (`[...sender]` threw) until the next flush
+  const r = await render(`<div data-sn-state="{ seen: '' }">
+    <label><input type="checkbox" value="a" data-sn-model="$url.sender"> a</label>
+    <a id="view" href="?view=2">view</a>
+    <button data-sn-on-click="navigate('?view=3', { replace: true }); seen = Array.isArray($url.sender) ? 'list ' + $url.sender.length : typeof $url.sender">go</button>
+    <p data-sn-text="seen"></p><i data-sn-text="$url.view"></i></div>`, { url: 'http://localhost/?view=1' });
+  await r.settle();
+  r.root.querySelector('button')!.click();
+  await r.settle();
+  expect(r.url()).toBe('http://localhost/?view=3');
+  expect(r.root.querySelector('p')!.textContent).toBe('list 0');
+});
