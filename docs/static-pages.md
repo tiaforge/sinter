@@ -53,7 +53,7 @@ browser ([build-time constants](first-paint.md#build-time-constants)):
   the page ships that handler and the runtime it needs, nothing else.
 
 At most 10,000 rows and components are expanded per page, a list's rows included; the list or tree that
-would cross it is rendered in the browser, with warning [SN536](diagnostics.md#sn536). Each costs about
+would cross it is rendered in the browser, with warning [SN536](diagnostics.md#sn536-expansion-limit). Each costs about
 0.2 ms of compile, in the build and in the editor, which compiles a page on every edit; a site that
 measures a bigger page as fast enough sets its own limit with `sinter({ expansionLimit: 25000 })`.
 
@@ -242,7 +242,7 @@ dist/blog/recap.html      /blog/recap
 - **Speculation Rules** name the pattern once (`/blog/:slug`), not each entry.
 - **The pattern's parameters are the entry's.** `$url.slug` on such a page is
   [SN345](diagnostics.md#sn345-url-param-pages): read `post.slug`, known at build time (a query parameter, `$url.tab`,
-  is fine). A list or tree on it too long to write at build time ([SN536](diagnostics.md#sn536)) is an error here,
+  is fine). A list or tree on it too long to write at build time ([SN536](diagnostics.md#sn536-expansion-limit)) is an error here,
   not a warning: one long entry would ship its content and the runtime.
 - **An index in pages** is a collection of pages, built with `chunks()`
   ([collections](resources.md#collections)), and a `data-sn-pages` page at `/blog/page/:n`; the front page

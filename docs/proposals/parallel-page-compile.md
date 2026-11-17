@@ -1,10 +1,10 @@
 # Spike: compiling one page in parallel
 
-Status: spike (2026-11-16); the two fixes are landing with tests (`test/compiler/state-readers.test.ts`, and the many-first-segments table test in `test/paths.test.ts`). Recommendation: **don't split one page's compile across threads.** Fix the
+Status: spike (2026-11-16); the two fixes have landed with tests (`test/compiler/state-readers.test.ts`, and the many-first-segments table test in `test/paths.test.ts`). Recommendation: **don't split one page's compile across threads.** Fix the
 two all-pairs loops this spike found instead (prototyped on this branch, output byte-identical, all tests
 pass). That makes a large page compile 2 to 5.6 times faster.
 
-This is not the [parallel build spike](parallel-build.md) (a separate session), which compiles
+This is not the parallel build spike (a separate session, not in this repository), which compiles
 *different pages* at the same time. This one asks whether *one* page's compile can be split up: a
 single large page, or the one page `vite dev` compiles again after a save. The two questions are
 independent. The findings below on worker cost and on what cannot cross a thread apply to both.
