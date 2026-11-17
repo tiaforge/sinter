@@ -8859,14 +8859,24 @@ const entryValue = (r: ExprResult, e: { offset: number }): Node | undefined => {
 };
 /**
  * Whether a value starts with a literal, non-empty string (`'contact-' + c.id`, `` `contact-${c.id}` ``):
- * data then cannot name a global another script reads, so `id`/`name` from it is not reported.
+ * data then cannot name a global another script reads, so `id`/`name` from it is not reported. A choice
+ * (`c.id ? 'contact-' + c.id : null`) is when each of its branches is, or sets no attribute (`null`,
+ * `false`, `undefined`): every value it can give still starts with the literal.
  */
 const literalPrefix = (n: Node | undefined): boolean => {
+  if (n?.type === 'ConditionalExpression') {
+    const c = n as import('acorn').ConditionalExpression;
+    return [c.consequent, c.alternate].every((b) => noAttribute(b as Node) || literalPrefix(b as Node));
+  }
   while (n?.type === 'BinaryExpression' && (n as import('acorn').BinaryExpression).operator === '+') n = (n as import('acorn').BinaryExpression).left as Node;
   if (n?.type === 'Literal') { const v = (n as import('acorn').Literal).value; return typeof v === 'string' && v !== ''; }
   if (n?.type === 'TemplateLiteral') return ((n as import('acorn').TemplateLiteral).quasis[0].value.cooked ?? '') !== '';
   return false;
 };
+/** `null`, `false` or `undefined`: a value that removes the attribute */
+const noAttribute = (n: Node): boolean =>
+  (n.type === 'Literal' && ((n as import('acorn').Literal).value === null || (n as import('acorn').Literal).value === false))
+  || (n.type === 'Identifier' && (n as import('acorn').Identifier).name === 'undefined');
 /**
  * The local image files an expression can only evaluate to (a literal path, or a choice between
  * literals: `dark ? './logo-dark.png' : './logo.png'`), or null when it can be anything else.
@@ -9238,13 +9248,37 @@ export function preconnects(resources: ResourceDef[], syncs: SyncDef[]): string[
   return [...out];
 }
 
-/** JSON-like data: what a literal state object holds. */
-function plainData(v: unknown, depth = 0): boolean {
-  if (v === null || ['string', 'number', 'boolean', 'undefined'].includes(typeof v)) return true;
-  if (depth > 20 || typeof v !== 'object') return false;
-  if (Array.isArray(v)) return v.every((x) => plainData(x, depth + 1));
-  const proto = Object.getPrototypeOf(v);
-  return (proto === Object.prototype || proto === null) && Object.values(v as object).every((x) => plainData(x, depth + 1));
+/**
+ * How deep plain data may nest. A constant tree a component library unrolls at build time is as deep as
+ * its content: an email's HTML, a document's sections (each element is two levels: the node and its
+ * children's array). The bound keeps a cycle, or a structure nothing renders, from being walked forever.
+ */
+const PLAIN_DEPTH = 1024;
+
+/**
+ * JSON-like data: what a literal state object holds. Walked with a stack, not recursion, so a deep
+ * tree does not exhaust the call stack; an object reached twice (a shared subtree) is walked once
+ * unless it is reached again less deep.
+ */
+function plainData(v: unknown): boolean {
+  const scalar = (x: unknown) => x === null || ['string', 'number', 'boolean', 'undefined'].includes(typeof x);
+  if (scalar(v)) return true;
+  const seen = new Map<object, number>();
+  const stack: [unknown, number][] = [[v, 0]];
+  while (stack.length) {
+    const [x, depth] = stack.pop()!;
+    if (scalar(x)) continue;
+    if (depth > PLAIN_DEPTH || typeof x !== 'object') return false;
+    const at = seen.get(x as object);
+    if (at !== undefined && at <= depth) continue;
+    seen.set(x as object, depth);
+    if (!Array.isArray(x)) {
+      const proto = Object.getPrototypeOf(x);
+      if (proto !== Object.prototype && proto !== null) return false;
+    }
+    for (const c of Array.isArray(x) ? x : Object.values(x as object)) stack.push([c, depth + 1]);
+  }
+  return true;
 }
 
 /** A copy of parsed markup as the parser made it (source locations shared), with nothing the compiler attached. */

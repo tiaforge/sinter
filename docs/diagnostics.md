@@ -660,7 +660,7 @@ Warning, for example:
 
 An `id` or `name` set from server data can create a global that overrides one another script relies on.
 
-**Fix:** Start the value with a literal string (`'contact-' + c.id` or `` `contact-${c.id}` ``) or use a `data-*` attribute instead.
+**Fix:** Start the value with a literal string (`'contact-' + c.id` or `` `contact-${c.id}` ``) or use a `data-*` attribute instead. A choice passes when each branch starts with one or sets no attribute: `c.id ? 'contact-' + c.id : null`.
 
 ## SN504 untyped-resource
 
