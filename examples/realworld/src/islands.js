@@ -2,6 +2,10 @@
 import { clearPersisted, instance, navigate } from '@tiaforge-ui/sinter';
 import { token } from './session.js';
 
+// the page module has mounted (the first page and each one swapped in): src/styles.css stops holding back what follows
+// the article's body, which renders at mount (<md-doc data-sn-early="off">)
+document.addEventListener('sn-page', () => document.documentElement.toggleAttribute('data-mounted', true));
+
 // Events emitted from the pages with `emit(name, detail)`.
 // signing in or out changes whose data this is: drop the page-load cache (`cache` resources)
 document.addEventListener('signed-in', (e) => {

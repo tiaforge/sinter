@@ -40,8 +40,17 @@ suite's payloads stay inert. Until 2026-11-17 the body was marked and DOMPurify 
 `<conduit-markdown>`; the comparison is in the [markdown library's docs](../../packages/sinter-markdown/docs/markdown.md#performance).
 The parser loads with the article page. `<md-doc>` has `data-sn-early="off"`: with embedded data (`SINTER_EMBED`)
 a binding over `md.parse` would otherwise render in the early script, the parser in front of the first paint
-(`SN523`), so the body renders when the page module mounts. Loading the parser lazily instead (preloaded) reached
-LCP about 150 ms later on the article page (Lighthouse mobile, a local API).
+(`SN523`). So with embedded data the first frame has the title and the byline, the body renders when the page
+module mounts, and `src/styles.css` keeps what follows the body out of the layout until then (`data-mounted`, set
+by `src/islands.js`). Measured on the article page (Lighthouse mobile, a local API, median of 5):
+
+| | static | sinter-axum |
+| --- | ---: | ---: |
+| marked + DOMPurify, before | 2,412 ms, CLS 0 | 2,129 ms, CLS 0.001 |
+| sinter-markdown, the parser with the page | 2,389 ms, CLS 0 | 2,130 ms, CLS 0.001 |
+| the same without the CSS | | 2,125 ms, CLS 0.452 |
+| the parser lazy (preloaded when static) | 2,566 ms | 2,266 ms, CLS 0.001 |
+
 The library is linked from `packages/` (`file:`), so `resolve.dedupe` in `vite.config.js` points its imports
 of sinter at the app's.
 

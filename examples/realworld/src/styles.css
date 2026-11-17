@@ -1545,3 +1545,13 @@ footer > .container {
 main {
   min-height: calc(100vh - 56px);
 }
+
+/* The article's body is Markdown, rendered when the page module mounts (<md-doc data-sn-early="off">: with
+ * embedded data, the rest of the article renders before the first paint, the parser does not). Until then the
+ * body is an empty `.md`, and what follows it (tags, actions, comments) takes no space: otherwise it is painted
+ * under the empty body and pushed down when the body comes in (Lighthouse mobile: CLS 0.452). It appears below the
+ * body instead, which is not a shift. `data-mounted` (src/islands.js) ends it, so an empty body hides nothing. */
+html:not([data-mounted]) .article-content .md:empty ~ *,
+html:not([data-mounted]) .article-page .page:has(.article-content .md:empty) > .article-content ~ * {
+  display: none;
+}
