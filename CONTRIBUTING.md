@@ -91,6 +91,10 @@ npm run release -- 0.3.0   # sinter, the create starter, sinter-markdown (its pe
                            # commands (nothing pushed or published)
 ```
 
+Internal docs: [`docs/spec.md`](docs/spec.md) is the design spec the source comments cite,
+[`docs/progress.md`](docs/progress.md) tracks what is built and where it departs from the spec, and
+[`docs/proposals/`](docs/proposals) holds the design proposals, each with its status on its first lines.
+
 ## Packages and imports
 
 | Import | Contents |

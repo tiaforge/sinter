@@ -115,6 +115,50 @@ test.skipIf(!chromium)('a package namespace by its declaring modules: the plain 
   }
 }, 120_000);
 
+test.skipIf(!chromium)('the library itself in `lazy`, and a page that calls another helper of the app at run time: the helpers module\'s re-export of the library is dropped, not refused', async () => {
+  // the markdown library's setup (`lazy: ['@tiaforge-ui/sinter-markdown']`) in an app whose pages also
+  // call its own helpers in the browser: the page module imports the helpers module, whose
+  // `export * as ui from '@fixture/ui'` re-exports a lazy package. Pages import each member from the
+  // module that declares it, so the barrel's copy goes, and with it the package's eager load.
+  const lroot = join(root, 'lazy-barrel-app');
+  cpSync(resolve(__dirname, '../fixtures/ui-app'), lroot, { recursive: true });
+  mkdirSync(join(lroot, 'node_modules/@fixture'), { recursive: true });
+  symlinkSync(UI, join(lroot, 'node_modules/@fixture/ui'), 'dir');
+  // a helper that reads the browser (RealWorld's signedOut): it runs on the page, never at build time
+  writeFileSync(join(lroot, 'src/sinter.helpers.ts'), `export * as ui from '@fixture/ui';\nexport const here = (): string => location.pathname;\n`);
+  writeFileSync(join(lroot, 'index.html'), `<!doctype html><html><head><title>words</title></head><body>
+<div data-sn-state="{ items: [{ id: 1, label: 'root', children: [] }], s: 'one two three' }">
+  <p id="s" data-sn-text="here()"></p>
+  <p id="o" data-sn-text="ui.outline(items).join(', ')"></p>
+  <p id="w" data-sn-let="{ w: ui.words(s) }" data-sn-text="w ? w.length : 'waiting'"></p>
+</div></body></html>`);
+  const lout = join(lroot, 'dist');
+  await build({ root: lroot, logLevel: 'silent', plugins: [sinter({ components: ['@fixture/ui'], lazy: ['@fixture/ui', '@fixture/heavy'] })], resolve: { alias }, build: { outDir: lout, emptyOutDir: true, minify: false } });
+  const html = readFileSync(join(lout, 'index.html'), 'utf8');
+  const entry = html.match(/<script type="module"[^>]*src="([^"]+)"/)![1]!;
+  const files = readdirSync(join(lout, 'assets')).filter((f) => f.endsWith('.js'));
+  const heavy = files.filter((f) => readFileSync(join(lout, 'assets', f), 'utf8').includes('FIXTURE_HEAVY_BODY'));
+  expect(heavy.length).toBe(1);
+  expect(readFileSync(join(lout, entry), 'utf8')).not.toContain('FIXTURE_HEAVY_BODY');
+  expect(html).not.toContain(heavy[0]!);
+  const browser = await chromium!.launch();
+  let server: PreviewServer | null = null;
+  try {
+    server = await preview({ root: lroot, logLevel: 'silent', build: { outDir: lout }, preview: { port: 0 } });
+    const tab = await browser.newPage();
+    const errors: string[] = [];
+    tab.on('pageerror', (e) => errors.push(e.message));
+    await tab.goto(server.resolvedUrls!.local[0]!);
+    await tab.waitForFunction(() => document.querySelector('#w')?.textContent === '3');
+    expect(await tab.textContent('#s')).toBe('/');
+    expect(await tab.textContent('#o')).toBe('root');
+    expect(errors).toEqual([]);
+  } finally {
+    await browser.close();
+    await new Promise<void>((r) => (server ? server.httpServer.close(() => r()) : r()));
+  }
+}, 120_000);
+
 test('dev: the library is left out of dependency pre-bundling, served through the link and watched', async () => {
   const server = await createServer({ root, logLevel: 'silent', plugins: plugins(), resolve: { alias }, server: { port: 0, hmr: false }, optimizeDeps: { noDiscovery: true } });
   try {

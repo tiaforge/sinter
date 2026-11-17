@@ -1,6 +1,7 @@
 # Proposal: build-time data, collections and a page per entry
 
-Status: draft, revised three times and prototyped (see [Decisions](#decisions)): after a first review, to fold the
+Status: implemented (Unreleased in the [changelog](../../CHANGELOG.md)); the guide is
+[resources.md](../resources.md#collections). The text below is the proposal as drafted, revised three times and prototyped (see [Decisions](#decisions)): after a first review, to fold the
 unreleased `file:` source into this design (so that sinter has one concept for data the build reads, not
 two), and after a second review. sinter is pre-1.0 with no users and every piece touched here is
 unreleased, so compatibility is not a constraint anywhere in this proposal: what exists changes freely. It

@@ -1,6 +1,7 @@
 # Proposal: pages without JavaScript
 
-Status: ready for implementation, in three pull requests (see [Plan](#plan)); each is followed by a
+Status: implemented; the guide is [static-pages.md](../static-pages.md). The text below is the proposal
+as drafted, ready for implementation in three pull requests (see [Plan](#plan)); each is followed by a
 review of where it departed from this text. It builds on
 [layouts](../layouts.md) and on constants left out of the page module, both merged in
 [#26](https://github.com/tiaforge/sinter/pull/26). Every measurement below is from `main` at 5e6c1c8.

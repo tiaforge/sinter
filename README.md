@@ -6,7 +6,7 @@
 have and get live data, instant updates and a first paint with no flicker. Typos fail the build, not
 the page. Reusable components are plain HTML files that render in the first frame and never hydrate.
 No router or store library to write, and no app JavaScript for typical pages: a small runtime ships with
-each page that needs one (currently under 20 KB), and a page with nothing to run [ships none](docs/static-pages.md).
+each page that needs one (about 16 KB gzipped for a simple page), and a page with nothing to run [ships none](docs/static-pages.md).
 
 ```html
 <sn-resource name="contacts" src="/api/contacts" items="contacts" key="id" order="name"></sn-resource>
@@ -65,20 +65,21 @@ the pages.
   does not have fails the build, and the editor completes them.
 - **Web performance by default.** Preloading, preconnecting, low-priority loading for data nobody
   needs yet, self-hosted fonts, optimized images and Speculation Rules are done by the build. You do
-  not configure them. RealWorld scores **94 on mobile and 99 on desktop** in Lighthouse, with the
-  least JavaScript of the apps that show articles ([comparison](docs/realworld-comparison.md#lighthouse)).
+  not configure them. RealWorld scores **100 on mobile and on desktop** in Lighthouse, served under the same
+  conditions as the other implementations, with the least JavaScript of the apps that show articles ([comparison](docs/realworld-comparison.md#lighthouse)).
 - **Components without hydration.** A component is an HTML file, expanded where it is used, so it is in
   the first frame with its data and costs nothing at runtime. Its props keep track of where their data
   came from, so a favorite button inside it updates the right list with no store code.
-- **Great ergonomics.** One way to do each thing, all of it visible on the element. 777 lines for
+- **Great ergonomics.** One way to do each thing, all of it visible on the element. 670 lines for
   the RealWorld app, against 2,210 for the official Angular one. LLM-friendly: `llms.txt` ships with the package, and the small, uniform syntax is easy for a model to get right.
-- **Small and safe.** Currently under 20 KB of JavaScript per page, and none on a page with nothing to run. No `eval`, no `unsafe-eval` in your Content
+- **Small and safe.** About 16 KB of JavaScript (gzipped) for a simple page, under 35 KB for RealWorld's pages with the app's
+  own code, and none on a page with nothing to run. No `eval`, no `unsafe-eval` in your Content
   Security Policy, and markup injected at runtime stays inert.
 
 ## Browser support
 
 Everything works in current Chromium, Firefox and Safari (WebKit); the test suite runs in all three.
-Two navigation extras depend on the browser and degrade to a normal page load:
+Three navigation extras depend on the browser and degrade to a normal page load:
 
 | | Chromium | Safari | Firefox |
 | --- | :---: | :---: | :---: |
@@ -86,6 +87,7 @@ Two navigation extras depend on the browser and degrade to a normal page load:
 | Next-page data on hover or press | yes | yes | yes |
 | Speculation Rules (HTML prefetch, prerender) | yes | no | no |
 | List-to-detail morph (browser view transitions) | yes | 18.2+ | no |
+| Swaps that keep marked elements (Navigation API, opt-in) | yes | 26.2+ | 147+ |
 
 ## Try it
 
@@ -218,6 +220,9 @@ A component is an HTML file in `src/components/`. Its file name is its tag:
 - **Instant navigation.** Next-page data (sinter, all browsers). Generated Speculation Rules and
   CSP handling for HTML prefetch or prerender (the browser fetches; Chromium). `data-sn-transition`
   wires a list-row-to-detail morph on top of the browser's view transitions (Chromium, Safari 18.2+).
+  Opt-in [swaps](docs/navigation.md#swaps) (`sinter({ swap: true })`) fetch the next page and swap it
+  in instead of loading it, so elements marked `data-sn-permanent` stay as they are: a player plays on,
+  a drawer stays open (the Navigation API: Chromium, Firefox 147+, Safari 26.2+).
   [Navigation](docs/navigation.md)
 - **Preloading done for you.** Preconnect to API origins, `preload` for requests known at build
   time, low priority for data behind dialogs, fonts bundled at build time.
@@ -252,7 +257,7 @@ A component is an HTML file in `src/components/`. Its file name is its tag:
   typed. [Components](docs/components.md)
 - **Scripts for the rest.** Canvases, editors and charts are a component's script, or plain custom
   elements that get data in and send events out. [Components with a script](docs/islands.md)
-- **LLM-ready.** [`llms.txt`](llms.txt) has the attribute reference and the rules in 23 KB, and an index of the rest; [`llms-full.txt`](llms-full.txt) has everything, recipes included, and `npx sinter docs <topic>` prints one part of it.
+- **LLM-ready.** [`llms.txt`](llms.txt) has the attribute reference and the rules in 25 KB, and an index of the rest; [`llms-full.txt`](llms-full.txt) has everything, recipes included, and `npx sinter docs <topic>` prints one part of it.
 
 ### Safety
 
@@ -266,7 +271,8 @@ A component is an HTML file in `src/components/`. Its file name is its tag:
 **Angular, React, Vue.** If your app mostly shows and edits API data, a SPA framework makes you build
 components, services, a store and a router to get there. sinter keeps the page as HTML and moves the
 data handling into attributes. The tradeoff is that sinter apps are multi-page: each navigation is a
-page load (the shared code comes from the browser cache).
+page load (the shared code comes from the browser cache), or, with [swaps](docs/navigation.md#swaps) on,
+the next page's HTML swapped in, keeping the elements both pages mark.
 
 **Next, Nuxt, SvelteKit, Qwik.** These render pages on the server for the first frame, which makes
 every visit cost server CPU. sinter reaches the same first frame by writing JSON into a static page.
@@ -287,7 +293,8 @@ Measurements and sources: [`docs/realworld-comparison.md`](docs/realworld-compar
 
 ## When not to use sinter
 
-- You want a SPA: client-side routing and a client-side component runtime.
+- You want a SPA: client-side routing and a client-side component runtime. (Swaps keep a player or a
+  drawer across pages, but each page is still its own HTML document.)
 - The UI is mostly client-side interaction (editors, canvas, drag and drop). sinter leaves that to
   the scripts of components, which do the browser work around markup sinter renders.
 - You can't have a build step.

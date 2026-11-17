@@ -1,6 +1,7 @@
 # Proposal: swap navigation and kept elements
 
-Status: draft (2026-11-16), implemented step by step on branch `swap-navigation` (one pull request for
+Status: implemented, merged in [#62](https://github.com/tiaforge/sinter/pull/62); the guide is
+[navigation.md](../navigation.md#swaps). Drafted 2026-11-16 and implemented step by step on branch `swap-navigation` (one pull request for
 the proposal and the feature; the spike the measurements come from, `src/permanent.ts`, `e2e/permanent`
 and the examples' changes, is on branch `ccr-f26a7473-xa5d6s` until the steps below bring each part
 over); reviewed three times (an external review, then two maintainer reviews; the
