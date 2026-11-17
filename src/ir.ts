@@ -167,6 +167,12 @@ export interface Binding {
    * the runtime re-evaluates the binding on the rows the comparison matched and matches, not on every row.
    */
   s?: { r: number; o: number; d: PathRef[]; x?: 1 };
+  /**
+   * style: a group of properties, by index into the IR's `sg` (its names); `f` returns their values in that
+   * order, and the runtime writes those that changed. The compiler groups an element's `data-sn-style`
+   * entries this way after the build-time passes, which see one binding per property (`groupStyles`).
+   */
+  g?: number;
 }
 
 export interface NodeDef {
@@ -347,6 +353,8 @@ export interface IR {
    * loads each one (its arrival is the path `$lz.<index>`); absent for none
    */
   lm?: number[];
+  /** the property names of grouped style bindings (`Binding.g`), each distinct list once */
+  sg?: string[][];
   /**
    * the event types the mount listens for at its root (page module only): each handler's, `input` and `change` with
    * a model, `toggle` where a dialog opening has something to render (an element in a dialog, a control that is not
@@ -435,6 +443,7 @@ export function validateIR(ir: unknown, fnCount: number): string[] {
         fn(b.f, `${ba}.f`, false);
         if (n.tag !== '#') errs.push(`${ba}: an anchor's tag is #`);
       } else fn(b.f, `${ba}.f`, false);
+      if (b.g !== undefined && (b.k !== 'style' || !o.sg?.[b.g]?.length || b.n !== undefined)) errs.push(`${ba}: a style group needs its names, and no name of its own`);
       if (b.k === 'model') fn(b.a, `${ba}.a`, false);
       if (b.s !== undefined) {
         if (!['text', 'attr', 'class', 'style', 'show', 'prop'].includes(b.k) || !inTemplate) errs.push(`${ba}: s belongs to a value binding in a template`);

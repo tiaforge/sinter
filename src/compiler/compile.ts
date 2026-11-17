@@ -1421,6 +1421,54 @@ class Compiler {
     return (this.walk = { doc, images, paths });
   }
 
+  /**
+   * An element's `data-sn-style` entries as one binding (`Binding.g`): its function returns the values in the
+   * order of its names, which are listed once per distinct list in the IR (`sg`), and the runtime writes those
+   * that changed. What a page with many styled elements ships (a component library that renders a tree, one
+   * element per node, each with the properties it may have) is then one function and one binding per element,
+   * not one of each per property. Entries that all read one object under their own key
+   * (`{ color: node.style.color, 'font-size': node.style['font-size'] }`) read it once. Only plain entries are
+   * grouped: not one that reads `$el` or compares a row with an outer value (`s`). The names stay the literal
+   * keys the compiler checked; the runtime sets only those.
+   */
+  groupStyles(): string[][] {
+    const lists: string[][] = [], byKey = new Map<string, number>();
+    const prefix = '($) => (';
+    const group = (node: NodeDef) => {
+      const st = node.b.filter((b) => b.k === 'style' && b.n !== undefined && b.f !== undefined && !b.e && !b.s);
+      if (st.length < 2) return;
+      const codes = st.map((b) => this.fns[b.f!]!);
+      if (!codes.every((c) => c.startsWith(prefix) && c.endsWith(')'))) return;
+      const exprs = codes.map((c) => c.slice(prefix.length, -1));
+      const names = st.map((b) => b.n!);
+      // one object read under each entry's own name: read it once
+      let object: string | null = null;
+      const reads = exprs.map((x) => {
+        let n: acorn.Expression;
+        try { n = parseExpression(x) as acorn.Expression; } catch { return null; }
+        if (n.type !== 'MemberExpression') return null;
+        const key = n.computed ? (n.property.type === 'Literal' && typeof n.property.value === 'string' ? n.property.value : null) : (n.property as acorn.Identifier).name;
+        return key === null ? null : { object: x.slice(n.object.start, n.object.end), key };
+      });
+      if (reads.every((r, i) => r && r.key === names[i] && r.object === reads[0]!.object)) object = reads[0]!.object;
+      const code = object !== null
+        ? `($) => (((o) => [${names.map((n) => (/^[A-Za-z_$][\w$]*$/.test(n) ? `o.${n}` : `o[${JSON.stringify(n)}]`)).join(', ')}])(${object}))`
+        : `($) => ([${exprs.map((x) => `(${x})`).join(', ')}])`;
+      const key = JSON.stringify(names);
+      let g = byKey.get(key);
+      if (g === undefined) byKey.set(key, (g = lists.push(names) - 1));
+      const d = new Map<string, PathRef>();
+      for (const b of st) for (const x of b.d ?? []) d.set(JSON.stringify(x), x);
+      const merged = this.binding({ k: 'style', f: this.fn(code, this.fnAt[st[0]!.f!] ?? null), g, ...(d.size ? { d: [...d.values()] } : {}), ...(st.some((b) => b.i) ? { i: 1 as const } : {}) });
+      for (const b of st) if (--this.fnUses[b.f!]! === 0) this.fns[b.f!] = '0';
+      const at = node.b.indexOf(st[0]!);
+      node.b = node.b.flatMap((b, i) => (i === at ? [merged] : st.includes(b) ? [] : [b]));
+    };
+    for (const n of this.roots) group(n);
+    for (const t of this.templates) for (const n of t.nodes) group(n);
+    return lists;
+  }
+
   /** The walked page evaluated, its constants written and dropped, and its HTML, IR and module parts. */
   finishPage({ doc, images, paths }: NonNullable<Compiler['walk']>): CompiledParts & { canonicalOnly?: boolean } {
     if (this.opts.prerender) { this.prerender(); this.embedFolded(); this.dropConstants(); this.dropFiles(); this.foldScriptsOut(); if (this.collecting()) this.collectConstants(); }
@@ -1428,6 +1476,8 @@ class Compiler {
     let early = this.opts.early ? this.earlyParts() : undefined;
     this.placeTemplates(doc, early);
     if (early && this.opts.sourcemap) early.sources = this.sourcesOf(early.fns, this.earlySites);
+    // (after the passes that read one binding per property: the constants written at build time, the early file)
+    const styleGroups = this.groupStyles();
     // row templates (data-sn-for) get a compiled element lookup; if/else branches render once per
     // toggle and use the generic path walk, which costs no code per template
     const rowTemplates = new Set([...this.roots, ...this.templates.flatMap((t) => t.nodes)].flatMap((n) => n.b.filter((b) => b.k === 'for').map((b) => b.x!)));
@@ -1462,6 +1512,7 @@ class Compiler {
       if (t && kids.length == 1 && 'tagName' in kids[0]!) t.o = 1;
     }
     const ir: IR = { v: 2, resources: this.resources, syncs: this.syncs, roots: this.roots, templates: this.templates, actions: this.actions };
+    if (styleGroups.length) ir.sg = styleGroups;
     if (this.page.usesNow) ir.now = true;
     // lets that wait for a lazy helper module (lets.ts), each module loaded by a function of the table
     const lazyHelpers = this.lazyMods.filter((_, i) => this.fns.some((c) => c.includes(`$.$z(${i}, `)));
@@ -8930,7 +8981,7 @@ const usesEl = (r: ExprResult): Pick<Binding, 'e' | 'i'> => ({ ...(r.usesEl ? { 
 
 function binding(b: Binding): Binding {
   const out: Binding = { k: b.k };
-  for (const key of ['f', 'd', 'n', 'q', 'm', 'x', 'a', 'y', 'z', 'c', 'w', 'p', 'e', 'i', 'ms', 's'] as const) {
+  for (const key of ['f', 'd', 'n', 'q', 'm', 'x', 'a', 'y', 'z', 'c', 'w', 'p', 'e', 'i', 'ms', 's', 'g'] as const) {
     const v = b[key];
     if (v === undefined || (Array.isArray(v) && v.length === 0 && key !== 'd')) continue;
     (out as unknown as Record<string, unknown>)[key] = v;
@@ -9188,6 +9239,8 @@ export function makeCode(nodes: NodeDef[], fns: string[]): string | null {
       const v = 'v' + names.length;
       names.push(v);
       vals.push(`${v} = ${e} ? (${code.slice('($) => ('.length, -1)}) : w.U`);
+      // a style group: its values in the order of its names (`groupStyles`)
+      if (b.g !== undefined) { writes.push(`${e} && w.g(${e}, ${b.g}, ${v})`); continue; }
       writes.push(`${e} && w.${b.k === 'text' && b.n ? 'x' : WRITER[b.k]}(${e}, ${JSON.stringify(b.n ?? '')}, ${v}${b.k === 'class' ? `, ${valued[k]!.cl ? 1 : 0}` : ''})`);
     }
   }
