@@ -2,8 +2,8 @@
 
 Status: (1), (2) and (3) landed (2026-11-16) with tests (`test/compiler/template-pass.test.ts`, the next-page test in
 `test/vite/pages.test.ts`). (4), a single pass, was spiked: not as designed. (5), shared definitions linked into each
-page, was measured: about 35% of a non-template page's compile, behind a refactor that makes a definition a unit of its
-own. The expression parse cache's key, found on the way, landed. The rarer re-runs are open. Builds on
+page, was spiked as a generic record and replay: byte-identical, 31% off a non-template page's compile, 19% off that
+build; to production as a refactor, with the spike as its oracle. The expression parse cache's key, found on the way, landed. The rarer re-runs are open. Builds on
 [parallel-page-compile.md](parallel-page-compile.md), which removed the all-pairs loops inside one compile. This one asks
 which compiles a build runs at all, and which of them repeat work that does not change. No threads.
 
@@ -123,7 +123,7 @@ a partial oracle would not be byte-identical.
 - *Decisions cached across builds*, keyed by everything a page reads (its HTML, component files, data files, the
   helpers module): unchanged pages skip pass 1 on a rebuild. That's caching, not a faster cold build.
 
-## (5) Shared definitions, linked (spike: measured, not built)
+## (5) Shared definitions, linked (spiked: built, byte-identical, 31% of a non-template page)
 
 Measured on the blog of one page per post (`--files`), in-process, by instrumenting `definition()`:
 
@@ -153,6 +153,191 @@ into the page's tables. The way to build it is to make a definition a unit of it
 and side tables in one object, local numbering, with one explicit merge into the page), with byte-identical output at
 each step, and cache that unit per build. A large refactor of the compiler's front half, worth it if sites with many
 pages that are not `data-sn-pages` matter.
+
+### The linker, spiked (branch `link-spike`, local)
+
+Built as a generic record and replay (`src/compiler/link.ts`; compile's `definitions`, which the Vite plugin passes in
+builds, `SN_NO_LINK` switches it off), not as the refactor first:
+
+- **The unit** is a top-level `definition()` call with the definitions nested in it, keyed by the pass, the units
+  already linked on the page (the chain), its name and the definitions the page has. A build compiles it the first time
+  as before, records it the second time, and links it from the third.
+- **Recording** diffs the compiler's tables (its maps, sets and lists, one level into `page`), intercepts writes to its
+  weak maps, records each `fn()` hand-out, and diffs every object that existed before the call (a shallow copy each).
+  An object from before is referred to by its path from a compiler field (properties, map keys, list indices, never
+  markup children), by the earlier unit that made it, as the element being compiled, or shared (frozen, or a parse5
+  source location). Anything else, a function among what it made, or a class instance makes the unit unlinkable, and
+  the page compiles it.
+- **A plan.** The unit is kept as a flat list of the objects it made, each value classified once (a plain value, another
+  object of the plan, an object of the page, a string to renumber) with the numbers to renumber in each. Replaying it
+  makes the objects, fills them, renumbers template ids, use ids and function indices, replays `fn()` in order (the
+  table's dedupe and numbering are the page's own), applies the recorded changes, and sets `at`.
+- **Found on the way** and changed in the compiler: a placement's default shape was a closure over its elements; it is
+  data now (`DefaultShape`, `shapeChildren`). Units of one page share objects (one unit's `at` and source sites are the
+  next one's), so the page keeps one map of what its units made.
+
+Measured, every output byte-identical:
+
+| | not linked | linked |
+| --- | ---: | ---: |
+| a page of the one-page-per-post blog, compiled in-process (median of 7) | 24.8 ms | 17.0 ms |
+| that build (`--files`, 100 posts; two runs) | 4.7, 4.6 s | 3.9, 3.7 s |
+| the `data-sn-pages` blogs (static, live) | 2.5, 3.8 s | 2.5, 3.9 s |
+
+The template blogs do not change: each template's first entry is the only page that compiles the definitions, so they
+are seen once and never recorded. A unit replays in about 1.2 ms where compiling it takes about 3 (from the page totals: four units, 7.8 ms saved); the first deep-copy
+version took 6.5 ms per page, the plan removed most of it. Checked: the three benchmark builds and the four example
+apps, every file the same as without linking; `vitest run` 2,133 passed with linking on in every build;
+`test/compiler/link.test.ts` compiles six page shapes (the tree alone, a loop and a condition before it, another
+component before it, a fill of the tree's slot, state with a handler, two trees) in rounds through one cache: 34
+links, no refusal, each page as compiled alone. Breaking the `fn()` replay or the renumbering fails it.
+
+What it does not cover yet, and the risk: the recorder is generic, so what it diffs is what it can see. A change it
+cannot see (a property of an object no field reaches, a non-enumerable one, a write to a weak map that is not a field)
+would be linked as missing, silently. Builds with `typecheck` and dev builds do not link. Recording walks the
+compiler's state (about 250 ms once per build). The describe compiles (`describeOnly`) do not link.
+
+**The refactor, as done (2026-11-17).** A definition compiles as a unit of its own, always: a child `Compiler` with
+the page's numbering, its context and caches shared, its tables forks of the page's (`fork`; a weak table an `Overlay`
+over the page's), merged back as a delta (`unitDelta`, `applyDelta`). The suite passed with every definition compiled
+that way before it became the only way (which did not show that a definition reads nothing else of its page; see
+the review below). Linking records that unit
+(`recordChild`), not a diff of the whole compiler: the generic recorder and its patching of `WeakMap` and `WeakSet` are
+gone. What is still diffed is what a unit changes of the objects it shares with its page (the page info, the component
+files, earlier definitions). The safety net: `LINK_FIELDS` classifies every field (`test/compiler/link-fields.test.ts`),
+and `SN_LINK_AUDIT` checks every compile in the suite against itself linked, on its own page and on one with every
+numbering offset (CI job `link-audit`). Found by them and fixed: weak sets not seen, state ids, actions (refused),
+comparison sides and loop names not renumbered, a component's `uses` overwritten. Every build of the benchmark and the
+examples is byte-identical to `main`'s.
+
+Traced: the audit reaches every definition the suite compiles. Of the suite's 1,382 audited compiles, the 81 that
+compile shared definitions all link them (6 also refuse one), and none compiles one it does not link or refuse. The page
+that seemed to escape it had no shared definition at all: its tree is a build-time constant, which the compiler expands
+per instance as it goes. What the audit cannot check is what no fixture holds: no audited page has an action inside a
+definition, which `test/compiler/link.test.ts` covers across pages (actions in a definition are refused, not renumbered).
+
+**The review, and what changed (2026-11-17).** An independent review of the branch found 12 ways a linked page could
+differ from the same page compiled in place, none of which a fixture held. Each is now a scenario in
+`test/compiler/link-review.test.ts` (pages compiled in order through one cache over three rounds, each compared with
+itself compiled alone):
+
+- The claim above, that a definition reads nothing else of its page, was wrong. A unit reads the page's flags and sets
+  (a feature the recording page had already was not recorded), per-page options (`$locale`, `localeUrl()`'s
+  translations, an image host), and what earlier compiles learned of a component file (found `bad`).
+- Writes the unit made to its own fields (`remoteImages`' helper, a definition's diagnostics) were not merged back. That
+  was a regression even with linking off.
+- Renaming in code went by regular expression: `x$1` in a string literal was taken for a loop variable.
+- Fill ids, the dialog templates' set (`dlTemplates`) and lazy imports were not renumbered.
+- `replay` could throw halfway through a page instead of refusing it.
+- Cache keys nested the whole chain of earlier keys, so they grew exponentially with the number of components in a choice.
+- A diagnostic in a definition named the recording page's file.
+- Every definition paid the unit's cost in dev and in the editor, where nothing links.
+
+The recorder is now a log, not a diff. A unit's view of its page is made of wrappers (`LoggedMap`, `LoggedSet`, a list
+proxy, `LoggedWeak`, a proxy over the page info and the options, accessors on its own fields). Each write is applied to
+the page and kept as an operation. Each read of what the unit did not write itself becomes a precondition (`Read`): a
+key present or not, a table's size and keys, a value by its shape (JSON, an element as `#node`), an option by its shape
+(an image host is not data: its answers change as the build analyses images, so a definition that reads it is refused).
+`replay` checks every precondition and resolves every target before it changes anything. A plan that does not hold
+changes nothing: the page compiles that definition, and the rest of the page, in place. Fill ids and lazy imports refuse
+the unit. A definition compiles in place unless the build links: the first time a build needs it, and always in dev, in
+`check` and inside another unit. Only the second sighting records. Chain keys are the short ids of the earlier units.
+
+**The second review (2026-11-17).** Another independent review found 6 more ways, each now a scenario in
+`test/compiler/link-review-2.test.ts`. It also found that most of the first review's scenarios tested nothing: their
+`x-link` had two root elements, did not compile (SN312) on any page, and only part of the result was compared. They
+now put the extra markup inside the root, compare the whole result, and fail if a component does not compile. The six:
+
+- Replacing the recording page's file name by substring hit unrelated text: `club.html` became `cluc.html`, and a page
+  named `text.html` turned `x-text.html` into `x-about.html` in the build's files.
+- A value read from one of the page's tables (a resource's `key` or `offset-param`, whether `#save` has an action) was
+  a precondition by its key only, not by what is there.
+- An object of the page found again by its position in a list: with two resources declared in the other order, a loop
+  took the other one's key fields.
+- A function the recording page had already got no place in the source map where it was new.
+- A check a unit leaves for the end of its page (a closure over the unit's compiler: SN210, SN211) reported into the
+  unit's tables, gone by then; the recording page lost the error.
+- Renaming by pattern renamed the user's own names (`node.v$2`, a `$p2` in text), or left a unit unlinked by accident.
+
+What changed after it, renaming by comparing the unit with a shadow compile of it numbered otherwise, did not last
+past the third review, below.
+
+**The third review (2026-11-17), and no renumbering.** A third review found 5 more differences, each a scenario in
+`test/compiler/link-review-3.test.ts`. Three were renumbering again: the user's text in a later definition taken for an
+earlier one's names (`US$2` became `US$4`), a use id inside a string (`@ev:<id>:<event>`), and keys naming an earlier
+definition's template in the paths a unit writes to and reads. It also found that the audit had never checked
+renumbering: every unit read `nextId`, which the audit's offset page shifts, so linking onto that page never happened,
+and the comparison was of a page with itself. Two more scenarios of the second review passed without linking anything
+(a read of a page resource after the unit changed it made two contradictory preconditions).
+
+Measured before deciding: of the 392 definitions the target benchmark links, none needed renumbering. Every page that
+linked was numbered as its recording page was. Renumbering was the part that kept breaking and bought nothing measured, so
+it is gone:
+
+- A plan is not renumbered. The cache key holds how the page is numbered before the definition (templates, states,
+  uses, nodes, functions, actions) besides the chain of definitions before it, so a page numbered otherwise has a plan
+  of its own, recorded on its second page. `replay` checks the reads, every target, and that each function it hands out
+  gets the index it had where recorded (the page's table shares code it has already); then it copies the objects as
+  they are.
+- The page's own file is the one thing a plan names that differs between pages: a string that is the file, or a place
+  on it (`<name>:<line>`, `<path under the root>:<line>`), becomes the linking page's. Any other text holding the page's
+  file name refuses the plan, so `club.html` on `b.html` is never touched. In practice that is a diagnostic in a
+  definition, which then compiles on each page.
+- The shadow compile, `merge`, the spans, the renaming of strings and `fixesOf` are removed, and so is the `shift`
+  option.
+- The first read of a place is the precondition; a later one may see what the unit wrote. A definition first seen on a
+  page that linked another one is recorded there. A function whose code the page had written before the unit takes the
+  page's site, but not one whose code only the unit wrote (the recording page's source map).
+- The audit compiles each page three times through one cache, and every round is compared with the page compiled
+  alone: where first seen, where recorded, where linked. A plan recorded on the page must link into it again. It then links
+  the page's plans into the page under another name and in another folder.
+
+Suite: 2,223 tests, plain and audited. Of 1,807 audited compiles, 425 recorded a plan and all 425 linked it into the
+page again. Every build of the benchmark and the examples is byte-identical to `main`'s. `--files` links 392
+definitions with 4 recordings and no refusal: a page compiles in 22.1–22.5 ms instead of 34.3–34.4 (in-process, median
+of 7, two runs). A variant where a third of the posts have one more bound element before the article and a third one
+more loop links 376 definitions with 12 recordings (four per kind of page): 24.3–24.5 ms instead of 35.1–36.5.
+
+**The fourth review (2026-11-17).** It found two differences and two places linking never happened, each a scenario in
+`test/compiler/link-review-4.test.ts`, and a cost:
+
+- A library's definition recorded on a page at the root and linked into one in a folder said where the app uses it as
+  `c.html:1`, not `blog/c.html:1`: at the root, the page's name and its path under the root are one string. A place is
+  now told by where it is held: an origin's `usedAt` is the path under the root, any other the name.
+- With a source map, a function whose code the page had written before the definition took the definition's site, the
+  recording page's too. With `sourcemap`, the unit now reads the page's `codeAt` through, and what it looks up is a
+  precondition. Without one a site shows nowhere, and the unit keeps its own.
+- Localized pages linked nothing: every unit read the page's locale whole, and with it the page's own URLs. Objects of
+  the page info are now read property by property.
+- A warning before the tree stopped linking: the first pass reads the diagnostics added since a point
+  (`slice(d0)`), which read the whole list, and a diagnostic names its file. Such a `slice` now reads the length only.
+- Recording walked and copied the whole page for each unit, so a page was quadratic in its definitions: 100 small ones,
+  61 ms compiled alone and 1.1 s where recorded. A unit now copies the page's objects as it is handed them (`Rec.hand`:
+  by a table, the page info, a field), with their paths: about two per definition here, whatever the page's size, and
+  150–270 ms where recorded. A wrapper a unit keeps in an object of its own is put back as the page's object.
+- The audit compiled only pages that did not link, so a build's pages were never audited. Under `SN_LINK_AUDIT`, a
+  compile that links is now compiled alone beside it and compared.
+
+Suite: 2,234 tests, plain and audited; of 1,931 audited compiles, 549 recorded a plan and all linked it into the page
+again. Every build is byte-identical to `main`'s, three variants of `--files` included. A page of `--files` compiles in
+21.2–21.3 ms instead of 33.8–35.7; the variant with three kinds of post in 22.5–25.0 ms instead of 33.5–37.6; a
+localized one (`localePrefix`, two languages, 605 files) links 792 definitions with 4 recordings, and builds in 7.9–8.7 s
+instead of 10.3.
+
+**The fifth review (2026-11-17)**, of `Rec.hand` only, compared it with the full copy it replaced over the whole suite
+(an instrumented copy of the linker): no page object a unit changed went uncopied, and no copy was taken late. It found
+two routes by which a page object reached a unit without being handed, each a scenario in
+`test/compiler/link-review-5.test.ts`:
+
+- A table inside a page table, as `defAttrs`' entry for a definition: the unit got it through a wrapper and wrote it back,
+  and the plan held a copy of the recording page's, not the linking page's. A page whose component got another class
+  before the tree linked the recording page's class. A table the unit saw through a wrapper is now the page's.
+- A site in the unit's copy of `fnAt` (a state wrapped for `$error` keeps its state's site): without a source map the
+  page's site was taken for the unit's own, and the unit refused, so such pages never linked. Its copy now hands a site
+  of the page's out as it reads it.
+
+None of the audit's comparisons could have shown the first: they link a page into itself, whose tables hold the same.
+Every build is byte-identical to `main`'s; the counts of linked definitions are as before (392, 376, 792).
 
 Found on the way and landed: the expression parse cache keyed its trees by one string of the kind, the options and the
 text, a new string hashed at every lookup (7% of the definitions' time). Keyed by the options, then by the text (the

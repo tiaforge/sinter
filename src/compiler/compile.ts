@@ -4,6 +4,7 @@ import type { SourceMap } from './sourcemap.js';
 import { rewriteImages, sourceFile, type ImageHost, type ImageResult } from './images.js';
 import { boxSizesCss, type ReserveTrace, Layout, PLACEHOLDER_BASE, type Affine, type Reserved, type StyleSheet } from './layout.js';
 import { shows } from './status-eval.js';
+import { recordChild, replay as replayUnit, LINK_FIELDS, UNIT_NUMBERING, type Plan, type Refused } from './link.js';
 import { HEAD_ELEMENTS, parseDocument } from './head.js';
 import { minifyMarkup } from './minify.js';
 import type { RemoteConfig } from '../remote.js';
@@ -74,6 +75,8 @@ export interface CompileOptions {
    * `urls`, `moduleSrc`, `paintCss`, `images` and `locale.urls`. Cleared with the build's reads.
    */
   templates?: Map<string, unknown>;
+  /** (docs/proposals/compile-once.md, (5)): a build's shared definitions, recorded on one page and linked into the next */
+  definitions?: Map<string, unknown>;
   /**
    * The content module's collections (docs/resources.md#collections), loaded before the compile: each list and its key,
    * by name. Absent: none loaded (`sinter check` and the editor read them from the build's snapshot). `collectionsError`:
@@ -629,6 +632,9 @@ interface Placement {
  * A component's root, which renders at most one element: one plain element (`el`), an if/else chain
  * of roots, a component tag, `<sn-component use>`. `empty`: it may render nothing.
  */
+/** a placement's default as a fill's `<slot>` takes it (`defaultShape`): data, its children from `shapeChildren` */
+type DefaultShape = { shape: RootShape; el: P5Element; what?: string };
+
 type RootShape =
   | { kind: 'el'; el: P5Element; empty: false }
   | { kind: 'chain'; templates: P5Element[]; branches: RootShape[]; empty: boolean }
@@ -793,12 +799,31 @@ function parsedText(text: string): DefaultTreeAdapterMap['documentFragment'] {
   return f;
 }
 
+/** what a field of the compiler holds: a container's type, a class's name, or a value's type (`compilerFields`) */
+export function fieldKind(v: unknown): string {
+  if (v === null || v === undefined) return 'empty';
+  if (typeof v !== 'object') return typeof v;
+  const proto = Object.getPrototypeOf(v);
+  return proto === Object.prototype || proto === null ? 'object' : (v as object).constructor?.name ?? 'object';
+}
+
+/** the compiler's fields after compiling `html`, each with what it holds, for the linker's list of them (`LINK_FIELDS`) */
+export function compilerFields(html: string, options: CompileOptions): Array<[string, string]> {
+  const c = new Compiler(options);
+  c.run(html);
+  return Object.keys(c).map((k) => [k, fieldKind((c as unknown as Record<string, unknown>)[k])]);
+}
+
+/** what a unit shares of its page as it is (`unitChild`); its numbering (`UNIT_NUMBERING`) it copies */
+const UNIT_SHARED = new Set(['page', 'componentFiles']);
+
 /** a `data-sn-pages` template walked once (`fromTemplate`): its first pass, kept for each entry's evaluation */
 type KeptTemplate = { c: Compiler; path: string; checked: boolean; hits: number; misses: number };
 
 /** the template walked as one entry's first pass, up to its evaluation; null when its entries cannot share it */
 function keepTemplate(html: string, options: CompileOptions): KeptTemplate | null {
-  const c = new Compiler(options);
+  // (not linked: the walk is kept for every entry already, and the one that checks it would only record what none replays)
+  const c = new Compiler({ ...options, definitions: undefined });
   c.walkPage(html);
   // an entry's own URL compiled into the program (`$canonical`, `localeUrl()`): each entry has a program of its own
   if (!c.entryProgram()) return null;
@@ -966,7 +991,7 @@ class Compiler {
   private readonly caseFill = new Map<number, { id: number; use: Use; k: string; nodes: P5Node[] }>();
   /** component files read as a graph (`fileGraph`) */
   /** tree placements in shared definitions, made choice anchors by the walk; their fills' cases after it (`finishTreeFills`) */
-  private readonly runtimePlacements: Array<{ el: P5Element; node: NodeDef; k: string; at: Scope; data: string; deps: string[]; members: Map<string, LetEntry>; shape: { children: (copy: boolean) => P5Node[] | null; what?: string } | null; cases: number[]; map: Record<number, number> }> = [];
+  private readonly runtimePlacements: Array<{ el: P5Element; node: NodeDef; k: string; at: Scope; data: string; deps: string[]; members: Map<string, LetEntry>; shape: DefaultShape | null; cases: number[]; map: Record<number, number> }> = [];
   /** the top nodes of a fill's case template and the children it places: the scope each is walked in */
   private readonly caseScopes = new WeakMap<object, Scope>();
   private graphs?: Map<string, { uses: Set<string>; declares: Set<string>; places: Set<string>; data: Set<string>; helperChoice: boolean }>;
@@ -2898,7 +2923,7 @@ class Compiler {
         detach(s.el);
         return;
       }
-      const kids = def.children(i > 0);
+      const kids = this.shapeChildren(def, i > 0);
       if (!kids) {
         this.report(s.el, null, 'SN331', `the default of \`${p.name}\` in \`<${p.use.name}>\` renders a component (\`<${def.what}>\`), whose children are that component's markup: this \`<slot>\` has none to place`, 0,
           'leave the `<slot>` out of the fill, or give the placement a default element of its own');
@@ -2926,7 +2951,7 @@ class Compiler {
    * null when it renders no element (text, nothing). Anything broader follows the component root's
    * rules (rootShape).
    */
-  defaultShape(p: Placement): { children: (copy: boolean) => P5Node[] | null; what?: string } | null {
+  defaultShape(p: Placement): DefaultShape | null {
     const top = p.el.childNodes.filter(realNode);
     // text or nothing: no element
     if (!top.some(isElement)) return null;
@@ -2947,19 +2972,24 @@ class Compiler {
     // a component (or a choice) somewhere in the default: its element's children are that component's markup, not given to a fill
     const opaque = (sh: RootShape): string | null => sh.kind === 'tag' || sh.kind === 'choice' ? sh.el.tagName : sh.kind === 'chain' ? sh.branches.map(opaque).find((x) => x) ?? null : null;
     const what = opaque(shape) ?? undefined;
+    return { shape, el: p.el, ...(what ? { what } : {}) };
+  }
+
+  /** A placement's default's children, for a fill's `<slot>` (copies, with `copy`); null when the default is a component. */
+  shapeChildren(d: DefaultShape, copy: boolean): P5Node[] | null {
     const kids = (sh: RootShape, copy: boolean): P5Node[] => {
       if (sh.kind === 'el') return copy ? sh.el.childNodes.map((c) => this.cloneTree(c, sh.el)) : [...sh.el.childNodes];
       if (sh.kind !== 'chain') return [];
       // a chain: the same conditions, each branch its root's children
       return sh.templates.map((t, i) => {
-        const x = this.cloneTree(t, t.parentNode ?? p.el) as P5Template;
+        const x = this.cloneTree(t, t.parentNode ?? d.el) as P5Template;
         const inner = kids(sh.branches[i]!, copy);
         for (const k of inner) (k as { parentNode: P5Parent }).parentNode = x.content;
         x.content.childNodes = inner as never[];
         return x;
       });
     };
-    return { children: (copy) => (what ? null : kids(shape, copy)), ...(what ? { what } : {}) };
+    return d.what ? null : kids(d.shape, copy);
   }
 
 
@@ -3590,7 +3620,7 @@ class Compiler {
               continue;
             }
             accepted.push(s);
-            const kids = P.shape?.children(true) ?? null;
+            const kids = P.shape ? this.shapeChildren(P.shape, true) : null;
             if (!kids) { this.report(s.el, null, 'SN331', `the default of \`${P.k}\` renders ${P.shape?.what ? `a component (\`<${P.shape.what}>\`)` : 'no element'}, so this \`<slot>\` has no children to place`, 0); detach(s.el); continue; }
             for (const kid of kids) if (isElement(kid)) this.caseScopes.set(kid, P.at);
             this.freshChoices(kids);
@@ -3816,8 +3846,69 @@ class Compiler {
     }
   }
 
-  /** The shared definition of a component used inside itself, compiled on its first such use. */
+  /** this page's linking (`definitions`): the units linked or recorded so far, and how they renumber */
+  private defLink = { depth: 0, chain: [] as string[], off: false, maps: { outs: new Map<number, unknown[]>() }, prior: new Map<object, { u: number; i: number }>() };
+
+  /** The shared definition of a component used inside itself: linked from the build's definitions, else compiled. */
   definition(name: string): { tid: number; id: string; use: Use } | null {
+    const known = this.defs.get(name);
+    if (known !== undefined) return known;
+    const L = this.defLink;
+    const cache = this.opts.definitions as Map<string, (Plan | Refused) & { slot?: number } | { seen: number }> | undefined;
+    // compiled in place unless the build links (a unit compiles only to be recorded); in a unit, its definitions are its own
+    if (!cache || L.depth > 0 || L.off || this.check || this.opts.dev) return this.compileDefinition(name);
+    const stats = (globalThis as { __snLink?: { hits: number; recorded: number; refused: string[]; missed?: number } }).__snLink;
+    // (the chain: the ids of the units before it on this page, short whatever their keys; and how the page is numbered
+    // before it, which a plan is not renumbered for: a page numbered otherwise has a plan of its own)
+    const numbered = [this.templates.length, this.nextSid, this.useIds, this.nextId, this.fns.length, this.actions.length].join(',');
+    const key = [this.opts.decided || this.opts.unrolled || this.opts.constants ? 2 : 1, L.chain.join(','), name, [...this.defs.keys()].join(','), numbered].join('\u0002');
+    const u = cache.get(key);
+    if (u && 'ops' in u) {
+      if (replayUnit(this, u, L.maps)) { L.chain.push(`${u.slot}`); if (stats) stats.hits++; return this.defs.get(name) ?? null; }
+      // (what it read differs here: compiled in place, and so is the rest of the page, whose objects the plans after it name)
+      if (stats) stats.missed = (stats.missed ?? 0) + 1;
+      L.off = true;
+      return this.compileDefinition(name);
+    }
+    if (u && !('seen' in u)) { L.off = true; return this.compileDefinition(name); }
+    // recorded the second time a build needs it (recording logs what the unit reads and writes): a definition only one
+    // page needs, as a `data-sn-pages` template's first entry, is compiled in place once. The chain goes on from either
+    if (u === undefined) {
+      const id = cache.size;
+      cache.set(key, { seen: id });
+      L.chain.push(`${id}`);
+      L.depth++;
+      try { return this.compileDefinition(name); } finally { L.depth--; }
+    }
+    const r = recordChild(this, name, (child: Compiler) => child.compileDefinition(name), L.prior);
+    cache.set(key, Object.assign(r.unit, { slot: u.seen }));
+    if ('refused' in r.unit) { L.off = true; if (stats) stats.refused.push(`${name}: ${r.unit.refused}`); }
+    else { L.chain.push(`${u.seen}`); if (stats) stats.recorded++; }
+    return r.result;
+  }
+
+  /**
+   * A compiler for one definition (a unit, `recordChild`): this page's numbering copied (`UNIT_NUMBERING`), its context and
+   * caches shared (`shared`), the definitions before it importable; its other tables (`own`) the recorder gives it, over
+   * this page's, as views that log what it reads and writes.
+   */
+  unitChild(): { child: Compiler; own: string[]; shared: string[] } {
+    const me = this as unknown as Record<string, any>, child = new Compiler(this.opts) as unknown as Record<string, any>;
+    const own: string[] = [], shared: string[] = [];
+    for (const [k, f] of Object.entries(LINK_FIELDS)) {
+      if (!(k in me)) continue;
+      const v = me[k];
+      if (UNIT_NUMBERING.has(k)) child[k] = v instanceof Map ? new Map(v) : Array.isArray(v) ? v.slice() : v;
+      else if (k === 'defs') child[k] = new Map(v);
+      else if (UNIT_SHARED.has(k) || f.how !== 'table' && f.how !== 'weak') { child[k] = v; shared.push(k); }
+      else { child[k] = v; own.push(k); }
+    }
+    child.defLink = { ...this.defLink, depth: 1, off: true };
+    return { child: child as unknown as Compiler, own, shared };
+  }
+
+  /** The shared definition of a component used inside itself, compiled on its first such use. */
+  compileDefinition(name: string): { tid: number; id: string; use: Use } | null {
     const known = this.defs.get(name);
     if (known !== undefined) return known;
     const file = this.componentFile(name);

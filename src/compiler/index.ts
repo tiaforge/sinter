@@ -25,6 +25,75 @@ export const MESSAGES = `${PACKAGE}/messages`;
 
 /** Compiles annotated HTML into a rewritten page and its page module. Pure and deterministic. */
 export function compile(html: string, options: CompileOptions): CompileResult {
+  // (docs/proposals/compile-once.md, (5)): every compile checked against itself linked, to find what linking misses
+  if (env('SN_LINK_AUDIT') && !options.dev && !options.check) return options.definitions ? auditedLink(html, options) : audited(html, options);
+  return compileOne(html, options);
+}
+
+/** a compile that links (a build's, `definitions`): the same page compiled on its own beside it, which it must be */
+function auditedLink(html: string, options: CompileOptions): CompileResult {
+  const alone = compileOne(html, { ...options, definitions: undefined }), linked = compileOne(html, options);
+  differs('linked in its build', options.file, alone, linked);
+  return linked;
+}
+
+/** the first place two results differ, thrown */
+function differs(what: string, file: string, x: CompileResult, y: CompileResult) {
+  const text = (r: CompileResult) => JSON.stringify(r, (_, v) => (typeof v === 'function' ? '[fn]' : v instanceof Map ? [...v] : v instanceof Set ? [...v] : v));
+  const a = text(x), b = text(y);
+  if (a === b) return;
+  let i = 0;
+  while (a[i] === b[i]) i++;
+  throw new Error(`sinter link audit: ${file}: ${what} differs at ${i}:\n  compiled ${a.slice(Math.max(0, i - 120), i + 120)}\n  linked   ${b.slice(Math.max(0, i - 120), i + 120)}`);
+}
+
+/** an environment variable, where there is one (the compiler has no Node imports of its own) */
+const node = (globalThis as { process?: { env: Record<string, string | undefined>; getBuiltinModule?: (m: string) => unknown } }).process;
+const env = (k: string) => node?.env[k];
+
+/**
+ * `SN_LINK_AUDIT=1`: the page compiled as always, and again through a cache of shared definitions (seen, then recorded,
+ * then linked). The two must be the same, every field; the first difference throws. The page compiled as always is returned.
+ */
+function audited(html: string, options: CompileOptions): CompileResult {
+  const plain = compileOne(html, options);
+  // linked into the page as it is (three rounds: a definition seen, recorded, linked), and into the same page under another
+  // name and in another folder (the plans the first recorded: numbered alike, the file not), each against that page compiled
+  const definitions = new Map<string, unknown>();
+  const named = options.file.replace(/([^/]*)$/, 'sn-audit-$1'), moved = options.file.replace(/([^/]*)$/, 'sn-audit/$1');
+  const linked: CompileResult[] = [], others: Array<[string, CompileResult, CompileResult]> = [];
+  // what linking did, for the log (`SN_LINK_AUDIT_LOG=<file>`: one line per page)
+  type Stats = { hits: number; recorded: number; refused: string[]; missed?: number };
+  const g = globalThis as { __snLink?: Stats };
+  const was = g.__snLink, st: Stats = { hits: 0, recorded: 0, refused: [], missed: 0 };
+  let last: Stats = { hits: 0, recorded: 0, refused: [] };
+  // (not the caller's kept templates: what the caller counts of them is its own compile's; a kept walk gives the same page)
+  try {
+    for (let i = 0; i < 3; i++) {
+      g.__snLink = { hits: 0, recorded: 0, refused: [], missed: 0 };
+      linked.push(compileOne(html, { ...options, templates: undefined, definitions }));
+      last = g.__snLink;
+      st.hits += last.hits; st.recorded += last.recorded; st.refused.push(...last.refused); st.missed! += last.missed ?? 0;
+    }
+    // (not where helpers fold: their calls are kept per file, and a caller counts them)
+    if (!options.helperValues) for (const [what, file] of [['under another name', named], ['in another folder', moved]] as const) {
+      g.__snLink = { hits: 0, recorded: 0, refused: [] };
+      others.push([`linked into the page ${what}`, compileOne(html, { ...options, file, templates: undefined }), compileOne(html, { ...options, file, templates: undefined, definitions })]);
+    }
+  } finally {
+    g.__snLink = was;
+    const log = env('SN_LINK_AUDIT_LOG');
+    if (log) (node?.getBuiltinModule?.('node:fs') as { appendFileSync(f: string, s: string): void } | undefined)?.appendFileSync(log, JSON.stringify({ file: options.file, linked: last.hits, recorded: st.recorded, refused: st.refused }) + '\n');
+  }
+  // the same page again links what it recorded: a plan that does not hold on its own page is a recording that missed
+  // something (and a check that links nothing checks nothing)
+  if (st.missed) throw new Error(`sinter link audit: ${options.file}: a plan recorded on this page does not link into it again`);
+  if (st.recorded && !last.hits) throw new Error(`sinter link audit: ${options.file}: ${st.recorded} definitions recorded, none linked in the third round`);
+  for (const [what, x, y] of [['compiled where first seen', plain, linked[0]!], ['recorded', plain, linked[1]!], ['linked', plain, linked[2]!], ...others] as const) differs(what, options.file, x, y);
+  return plain;
+}
+
+function compileOne(html: string, options: CompileOptions): CompileResult {
   const parts = compileParts(html, options);
   // the images' rules: imported, so the bundler puts them in the page's stylesheet (no request, no inline style)
   // and the components' scoped styles, the same way
