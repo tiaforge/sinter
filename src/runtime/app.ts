@@ -8,11 +8,26 @@ import { envOf, type Env } from './env.js';
 import { prefetched } from './handoff.js';
 import { createRequestLayer, isAbort, readBody, toError, type RequestLayer, type SendInit } from './request.js';
 import { schemesOf, STYLE_BAD, urlAllowed } from './security.js';
-/** Two props objects of a choice's case (`[name]: value`) with the same keys, each the same value (Object.is). */
+/** Two objects with the same keys, each the same value (Object.is). */
+const sameEntries = (a: any, b: any): boolean => {
+  let n = 0;
+  for (const k in a) { if (!Object.is(a[k], b[k])) return false; n++; }
+  for (const _ in b) n--;
+  return n == 0;
+};
+/**
+ * Two props objects of a component (`[name]: value`) with the same keys, each the same value (Object.is). The
+ * compiler's own entries (`$f`, the tree slots' fills a component passes down; `$a`, its tag's attributes) are objects
+ * it builds at each evaluation: those are the same when their entries are.
+ */
 const sameProps = (a: any, b: any): boolean => {
   if (!a || !b || typeof a != 'object' || typeof b != 'object') return false;
   let n = 0;
-  for (const k in a) { if (!Object.is(a[k], b[k])) return false; n++; }
+  for (const k in a) {
+    const x = a[k], y = b[k];
+    if (!Object.is(x, y) && !(k[0] == '$' && x && y && typeof x == 'object' && typeof y == 'object' && sameEntries(x, y))) return false;
+    n++;
+  }
   for (const _ in b) n--;
   return n == 0;
 };
@@ -1272,8 +1287,9 @@ export function mount(root: Document | Element, o: MountOptions): App {
       else if (x.i != i) { setRow(x.s, t, item, (x.i = i)); if (moved) x.f ||= 1; }
       // a computed list's row (`dv`): its item may have changed in place, which only the list depends on: the row renders
       // forced, to the bottom when the change is inside a value the list reads (`deep`), else to the components whose
-      // props changed
-      if (t.dv) x.f = x.f == 2 || deep() ? 2 : 3;
+      // props changed. Not a component's own row (a definition's list of its props): its item is the props, which
+      // `sameProps` and `deep` have judged above
+      if (t.dv && !props) x.f = x.f == 2 || deep() ? 2 : 3;
       rows[i] = x;
     };
     // rows with the same keys at the start and the end stay where they are
