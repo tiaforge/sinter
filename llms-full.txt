@@ -180,10 +180,13 @@ Each recipe has a test beside it (`docs/recipes/<name>.test.ts`).
   </ul>
 
   <dialog id="edit">
+    <!-- `upsert` puts the saved person into the list: a page without an OpenAPI spec has no write-through
+         for a POST. With one (`sinter({ apis })`), write-through inserts it by itself; leave `upsert` out (SN510).
+         No data-sn-catch: a failed save keeps the dialog open, with the server's messages on the fields. -->
     <form data-sn-post="/api/people" data-sn-body="draft"
-          data-sn-then="upsert('people', $result); draft = null; close()"
-          data-sn-catch="emit('toast', $error.message)">
-      <input data-sn-model="draft.name" required>
+          data-sn-then="upsert('people', $result); draft = null; close()">
+      <p data-tone="danger" data-sn-show="$error && !$error.body?.errors" data-sn-text="$error?.detail ?? $error?.message"></p>
+      <input name="name" data-sn-model="draft.name" required>
       <template data-sn-for="(e, i) in draft.emails">
         <input type="email" data-sn-model="draft.emails[i].value">
       </template>
@@ -251,18 +254,19 @@ Each recipe has a test beside it (`docs/recipes/<name>.test.ts`).
 ### Pagination in the URL: page-model, shared links and Back
 
 ```html
-<!-- The page lives in the URL: ?page=3 is read at load and written back on every move. -->
+<!-- The page lives in the URL: ?page=3 is read at load and written back on every move. Page numbers are
+     links (crawlable, a new tab, copy link); a click stays on the page and loads that page of the list. -->
 <sn-resource name="articles" src="/api/articles" items="articles" total="count" key="slug"
   paginate="offset" page-size="2" offset-param="offset" page-model="$url.page"></sn-resource>
 
 <ul>
   <template data-sn-for="a in articles"><li data-sn-text="a.title"></li></template>
 </ul>
-<nav>
+<nav aria-label="Pages">
   <button data-sn-on-click="page('articles', 'prev')" data-sn-attr="{disabled: !$meta.articles.hasPrev}">‹</button>
   <template data-sn-for="n in Array.from({ length: $meta.articles.pages ?? 0 }, (_, i) => i + 1)" data-sn-key="n">
-    <!-- the active link reads the page asked for ($url.page); the range below, the page shown ($meta) -->
-    <button data-sn-on-click="page('articles', n)" data-sn-class="{active: n == (+$url.page || 1)}" data-sn-text="n"></button>
+    <!-- the current link reads the page asked for ($url.page); the range below, the page shown ($meta) -->
+    <a data-sn-text="n" data-sn-attr="{ href: '?page=' + n, 'aria-current': n == (+$url.page || 1) ? 'page' : null }"></a>
   </template>
   <button data-sn-on-click="page('articles', 'next')" data-sn-attr="{disabled: !$meta.articles.hasNext}">›</button>
   <span data-sn-text="`${$meta.articles.from}–${$meta.articles.to} of ${$meta.articles.total}`"></span>

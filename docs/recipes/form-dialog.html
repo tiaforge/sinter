@@ -12,10 +12,13 @@
   </ul>
 
   <dialog id="edit">
+    <!-- `upsert` puts the saved person into the list: a page without an OpenAPI spec has no write-through
+         for a POST. With one (`sinter({ apis })`), write-through inserts it by itself; leave `upsert` out (SN510).
+         No data-sn-catch: a failed save keeps the dialog open, with the server's messages on the fields. -->
     <form data-sn-post="/api/people" data-sn-body="draft"
-          data-sn-then="upsert('people', $result); draft = null; close()"
-          data-sn-catch="emit('toast', $error.message)">
-      <input data-sn-model="draft.name" required>
+          data-sn-then="upsert('people', $result); draft = null; close()">
+      <p data-tone="danger" data-sn-show="$error && !$error.body?.errors" data-sn-text="$error?.detail ?? $error?.message"></p>
+      <input name="name" data-sn-model="draft.name" required>
       <template data-sn-for="(e, i) in draft.emails">
         <input type="email" data-sn-model="draft.emails[i].value">
       </template>

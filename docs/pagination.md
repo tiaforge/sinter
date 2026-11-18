@@ -73,7 +73,7 @@ written back on every move, so reload, Back and Forward and a shared link show t
 
 <template data-sn-for="n in [1, 2, 3]">
   <a data-sn-text="n" data-sn-attr="{ href: '?tag=' + encodeURIComponent($url.tag ?? '') + '&page=' + n,
-    'aria-current': n == $meta.articles.page ? 'page' : null }"></a>
+    'aria-current': n == (+$url.page || 1) ? 'page' : null }"></a>
 </template>
 <span data-sn-text="`${$meta.articles.from}–${$meta.articles.to} of ${$meta.articles.total}`"></span>
 ```
