@@ -1431,11 +1431,23 @@ class Compiler {
    * grouped: not one that reads `$el` or compares a row with an outer value (`s`). The names stay the literal
    * keys the compiler checked; the runtime sets only those.
    */
-  groupStyles(): string[][] {
+  groupStyles(): string[][] { return this.group('style'); }
+
+  /**
+   * An element's `data-sn-attr` entries as one binding, as `groupStyles` does for styles (`Binding.g`, the names in
+   * the IR's `ag`): a component that renders a tree binds a few attributes per element, mostly unset, and they
+   * cost one binding each. Each value is still written by the attribute writer, name by name (URL checks
+   * included). The form state attributes (`value`, `checked`, `selected`, `indeterminate`) are not grouped: their
+   * writes set a control's state too.
+   */
+  groupAttrs(): string[][] { return this.group('attr'); }
+
+  private group(kind: 'style' | 'attr'): string[][] {
     const lists: string[][] = [], byKey = new Map<string, number>();
     const prefix = '($) => (';
+    const FORM = new Set(['value', 'checked', 'selected', 'indeterminate']);
     const group = (node: NodeDef) => {
-      const st = node.b.filter((b) => b.k === 'style' && b.n !== undefined && b.f !== undefined && !b.e && !b.s);
+      const st = node.b.filter((b) => b.k === kind && b.n !== undefined && b.f !== undefined && !b.e && !b.s && !(kind === 'attr' && FORM.has(b.n)));
       if (st.length < 2) return;
       const codes = st.map((b) => this.fns[b.f!]!);
       if (!codes.every((c) => c.startsWith(prefix) && c.endsWith(')'))) return;
@@ -1451,15 +1463,14 @@ class Compiler {
         return key === null ? null : { object: x.slice(n.object.start, n.object.end), key };
       });
       if (reads.every((r, i) => r && r.key === names[i] && r.object === reads[0]!.object)) object = reads[0]!.object;
-      const code = object !== null
-        ? `($) => (((o) => [${names.map((n) => (/^[A-Za-z_$][\w$]*$/.test(n) ? `o.${n}` : `o[${JSON.stringify(n)}]`)).join(', ')}])(${object}))`
-        : `($) => ([${exprs.map((x) => `(${x})`).join(', ')}])`;
+      // one object: the function returns it, and the runtime takes the group's names from it (`Binding.o`, W.sn)
+      const code = object !== null ? `($) => (${object})` : `($) => ([${exprs.map((x) => `(${x})`).join(', ')}])`;
       const key = JSON.stringify(names);
       let g = byKey.get(key);
       if (g === undefined) byKey.set(key, (g = lists.push(names) - 1));
       const d = new Map<string, PathRef>();
       for (const b of st) for (const x of b.d ?? []) d.set(JSON.stringify(x), x);
-      const merged = this.binding({ k: 'style', f: this.fn(code, this.fnAt[st[0]!.f!] ?? null), g, ...(d.size ? { d: [...d.values()] } : {}), ...(st.some((b) => b.i) ? { i: 1 as const } : {}) });
+      const merged = this.binding({ k: kind, f: this.fn(code, this.fnAt[st[0]!.f!] ?? null), g, ...(object !== null ? { o: 1 as const } : {}), ...(d.size ? { d: [...d.values()] } : {}), ...(st.some((b) => b.i) ? { i: 1 as const } : {}) });
       for (const b of st) if (--this.fnUses[b.f!]! === 0) this.fns[b.f!] = '0';
       const at = node.b.indexOf(st[0]!);
       node.b = node.b.flatMap((b, i) => (i === at ? [merged] : st.includes(b) ? [] : [b]));
@@ -1477,7 +1488,7 @@ class Compiler {
     this.placeTemplates(doc, early);
     if (early && this.opts.sourcemap) early.sources = this.sourcesOf(early.fns, this.earlySites);
     // (after the passes that read one binding per property: the constants written at build time, the early file)
-    const styleGroups = this.groupStyles();
+    const styleGroups = this.groupStyles(), attrGroups = this.groupAttrs();
     // row templates (data-sn-for) get a compiled element lookup; if/else branches render once per
     // toggle and use the generic path walk, which costs no code per template
     const rowTemplates = new Set([...this.roots, ...this.templates.flatMap((t) => t.nodes)].flatMap((n) => n.b.filter((b) => b.k === 'for').map((b) => b.x!)));
@@ -1513,6 +1524,7 @@ class Compiler {
     }
     const ir: IR = { v: 2, resources: this.resources, syncs: this.syncs, roots: this.roots, templates: this.templates, actions: this.actions };
     if (styleGroups.length) ir.sg = styleGroups;
+    if (attrGroups.length) ir.ag = attrGroups;
     if (this.page.usesNow) ir.now = true;
     // lets that wait for a lazy helper module (lets.ts), each module loaded by a function of the table
     const lazyHelpers = this.lazyMods.filter((_, i) => this.fns.some((c) => c.includes(`$.$z(${i}, `)));
@@ -8991,7 +9003,7 @@ const usesEl = (r: ExprResult): Pick<Binding, 'e' | 'i'> => ({ ...(r.usesEl ? { 
 
 function binding(b: Binding): Binding {
   const out: Binding = { k: b.k };
-  for (const key of ['f', 'd', 'n', 'q', 'm', 'x', 'a', 'y', 'z', 'c', 'w', 'p', 'e', 'i', 'ms', 's', 'g'] as const) {
+  for (const key of ['f', 'd', 'n', 'q', 'm', 'x', 'a', 'y', 'z', 'c', 'w', 'p', 'e', 'i', 'ms', 's', 'g', 'o'] as const) {
     const v = b[key];
     if (v === undefined || (Array.isArray(v) && v.length === 0 && key !== 'd')) continue;
     (out as unknown as Record<string, unknown>)[key] = v;
@@ -9248,9 +9260,10 @@ export function makeCode(nodes: NodeDef[], fns: string[]): string | null {
       if (!code.startsWith('($) => (') || !code.endsWith(')')) return null;
       const v = 'v' + names.length;
       names.push(v);
-      vals.push(`${v} = ${e} ? (${code.slice('($) => ('.length, -1)}) : w.U`);
+      const value = code.slice('($) => ('.length, -1);
+      vals.push(`${v} = ${e} ? (${b.o ? `w.sn(${b.k === 'attr' ? 1 : 0}, ${b.g}, ${value})` : value}) : w.U`);
       // a style group: its values in the order of its names (`groupStyles`)
-      if (b.g !== undefined) { writes.push(`${e} && w.g(${e}, ${b.g}, ${v})`); continue; }
+      if (b.g !== undefined) { writes.push(`${e} && w.${b.k === 'attr' ? 'ag' : 'g'}(${e}, ${b.g}, ${v})`); continue; }
       writes.push(`${e} && w.${b.k === 'text' && b.n ? 'x' : WRITER[b.k]}(${e}, ${JSON.stringify(b.n ?? '')}, ${v}${b.k === 'class' ? `, ${valued[k]!.cl ? 1 : 0}` : ''})`);
     }
   }

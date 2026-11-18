@@ -171,8 +171,14 @@ export interface Binding {
    * style: a group of properties, by index into the IR's `sg` (its names); `f` returns their values in that
    * order, and the runtime writes those that changed. The compiler groups an element's `data-sn-style`
    * entries this way after the build-time passes, which see one binding per property (`groupStyles`).
+   * attr: the same for an element's `data-sn-attr` entries, by index into `ag` (`groupAttrs`).
    */
   g?: number;
+  /**
+   * a group whose entries all read one object under their own names: `f` returns the object, and the runtime
+   * reads the group's names from it (by the object's own names when it is plain data)
+   */
+  o?: 1;
 }
 
 export interface NodeDef {
@@ -355,6 +361,8 @@ export interface IR {
   lm?: number[];
   /** the property names of grouped style bindings (`Binding.g`), each distinct list once */
   sg?: string[][];
+  /** the attribute names of grouped attribute bindings (`Binding.g`), each distinct list once */
+  ag?: string[][];
   /**
    * the event types the mount listens for at its root (page module only): each handler's, `input` and `change` with
    * a model, `toggle` where a dialog opening has something to render (an element in a dialog, a control that is not
@@ -443,7 +451,8 @@ export function validateIR(ir: unknown, fnCount: number): string[] {
         fn(b.f, `${ba}.f`, false);
         if (n.tag !== '#') errs.push(`${ba}: an anchor's tag is #`);
       } else fn(b.f, `${ba}.f`, false);
-      if (b.g !== undefined && (b.k !== 'style' || !o.sg?.[b.g]?.length || b.n !== undefined)) errs.push(`${ba}: a style group needs its names, and no name of its own`);
+      if (b.o !== undefined && b.g === undefined) errs.push(`${ba}: o belongs to a group`);
+      if (b.g !== undefined && (b.n !== undefined || (b.k === 'style' ? !o.sg?.[b.g]?.length : b.k !== 'attr' || !o.ag?.[b.g]?.length))) errs.push(`${ba}: a style or attribute group needs its names, and no name of its own`);
       if (b.k === 'model') fn(b.a, `${ba}.a`, false);
       if (b.s !== undefined) {
         if (!['text', 'attr', 'class', 'style', 'show', 'prop'].includes(b.k) || !inTemplate) errs.push(`${ba}: s belongs to a value binding in a template`);

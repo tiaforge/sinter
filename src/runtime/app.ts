@@ -489,6 +489,8 @@ export function mount(root: Document | Element, o: MountOptions): App {
   const env = o.env ?? envOf(config);
   const req = createRequestLayer(env, o.request ?? config.request);
   const schemes = schemesOf(config.urlSchemes);
+  // the collection resources among them (`isCollection` is fixed at creation): a row's key looks through these only
+  const collections: Resource[] = [];
   const resources = new Map<string, Resource>(), loaders: Array<{ def: ResourceDef; changed(typing?: boolean): void; start(): void; refetch(): Promise<void> }> = [];
   const acts = new WeakMap<Element, ActState>();
   /** props set on custom elements not defined yet, by element: the latest value of each */
@@ -541,12 +543,35 @@ export function mount(root: Document | Element, o: MountOptions): App {
   const warn = (code: number | string, ...args: unknown[]) => app.warn(code, ...args);
   /** `rb`: keeps the `$el` scope of a bound binding; a simple row's binding makes one per evaluation */
   const evalB = (b: Binding, s: any, el: Element, rb: RB | null): any => {
-    try { return fns[b.f!]!(b.e ? (rb ? (rb.e ??= child(s, { $el: el })) : child(s, { $el: el })) : s); } catch (e) { warn(6, b, el, e); }
+    try {
+      const v = fns[b.f!]!(b.e ? (rb ? (rb.e ??= child(s, { $el: el })) : child(s, { $el: el })) : s);
+      return b.o ? W.sn(b.k == 'attr' ? 1 : 0, b.g!, v) : v;
+    } catch (e) { warn(6, b, el, e); }
   };
+  /** a group's names by index (`sn`), per kind (0 style, 1 attribute) and group */
+  const groupIndex: Array<Array<Map<string, number>>> = [[], []];
   const evaluate = (rb: RB): any => evalB(rb.b, rb.s, rb.el, rb);
   /** The writers, one per binding kind: `(element, name, value)`; a template's creation function calls them too. */
   const W = {
     U: UNSET,
+    /**
+     * A group that reads one object under its own names (`Binding.o`): its values, in the order of the
+     * group's names, from the object. A plain object (or one without a prototype) is read by its own property
+     * names: a style object sets a few of the fifty a component may bind, and a read of each listed name
+     * misses on most. Only the group's names are taken. Anything else is read name by name, as the compiled
+     * function would have.
+     */
+    sn(kind: number, g: number, o: any): unknown[] | null | undefined {
+      if (o == null) return o;
+      const names = (kind ? ir.ag : ir.sg)![g]!;
+      const proto = Object.getPrototypeOf(o);
+      if (proto !== Object.prototype && proto !== null) return names.map((n) => o[n]);
+      let index = groupIndex[kind]![g];
+      if (!index) groupIndex[kind]![g] = index = new Map(names.map((n, i) => [n, i]));
+      const v: unknown[] = new Array(names.length);
+      for (const k of Object.getOwnPropertyNames(o)) { const i = index.get(k); if (i !== undefined) v[i] = o[k]; }
+      return v;
+    },
     /** `<template data-sn-text>`: the text node after `el`, found from it at each write; an empty comment holds its place until it has text */
     x(el: HTMLElement, _n: string, v: any) {
       const s = el.nextSibling as CharacterData | null;
@@ -590,6 +615,17 @@ export function mount(root: Document | Element, o: MountOptions): App {
       else if (STYLE_BAD.test(v)) { el.style.removeProperty(n); warn(8, n, v); }
       else el.style.setProperty(n, v);
     } : undefined,
+    /**
+     * an attribute group (`Binding.g`, never form state): its values `v` in the order of its names; only those that
+     * differ from `prev` are written, and on the first write (no `prev`) an unset one only where the attribute is
+     */
+    ag(el: HTMLElement, g: number, v: any, prev?: any) {
+      const names = ir.ag![g]!;
+      for (let i = 0; i < names.length; i++) {
+        const x = v?.[i], n = names[i]!;
+        if (prev ? !Object.is(x, prev[i]) : x != null && x !== false || el.hasAttribute(n)) W.a(el, n, x);
+      }
+    },
     /** a style group (`Binding.g`): its values `v` in the order of its names; only those that differ from `prev` are written */
     // On the first write to an element with no inline style (a new clone of a template element without a
     // `style` attribute), an unset entry has nothing to remove: it is skipped, not a removeProperty call per
@@ -663,14 +699,44 @@ export function mount(root: Document | Element, o: MountOptions): App {
    * other (components used inside one another) are each visited once per call, and only a whole result is kept:
    * one kept while another was half done would miss what that one reads.
    */
-  const templateDeps = (t: TemplateDef, seen?: Set<TemplateDef>): number[] => {
-    if (!seen && allDeps.has(t)) return allDeps.get(t)!;
-    const s = seen ?? new Set<TemplateDef>();
-    if (s.has(t)) return [];
-    s.add(t);
-    const d = t.nodes.flatMap((nd) => nd.b.flatMap((b) => [...ids(b.d), ...templatesOf(b).flatMap((x) => templateDeps(ir.templates[x]!, s))]));
-    if (!seen) allDeps.set(t, d);
-    return d;
+  // Templates reach each other in cycles (a component library that renders a tree: each element's component
+  // chooses among all of them), so the reachable set is computed once per strongly connected group of
+  // templates (Tarjan's algorithm): every template of a group has the group's union, and the union of the
+  // groups it reaches, each id once. A walk from each template alone would visit the whole graph per template.
+  const templateDeps = (t: TemplateDef): number[] => {
+    const known = allDeps.get(t);
+    if (known) return known;
+    const index = new Map<TemplateDef, number>(), low = new Map<TemplateDef, number>(), stack: TemplateDef[] = [], on = new Set<TemplateDef>();
+    const reach = new Map<TemplateDef, Set<number>>();
+    let next = 0;
+    const visit = (v: TemplateDef) => {
+      index.set(v, next); low.set(v, next); next++;
+      stack.push(v); on.add(v);
+      const own = new Set<number>();
+      for (const nd of v.nodes) for (const b of nd.b) {
+        for (const d of ids(b.d)) own.add(d);
+        for (const x of templatesOf(b)) {
+          const w = ir.templates[x]!, done = allDeps.get(w);
+          if (done) { for (const d of done) own.add(d); continue; }
+          if (!index.has(w)) { visit(w); low.set(v, Math.min(low.get(v)!, low.get(w)!)); }
+          else if (on.has(w)) low.set(v, Math.min(low.get(v)!, index.get(w)!));
+          // a finished group's union (another group, reached before): its ids
+          if (!on.has(w)) for (const d of reach.get(w) ?? allDeps.get(w) ?? []) own.add(d);
+        }
+      }
+      reach.set(v, own);
+      if (low.get(v) !== index.get(v)) return;
+      // v is its group's root: the group is the stack down to v, and its members share one union
+      const group: TemplateDef[] = [];
+      let w: TemplateDef;
+      do { w = stack.pop()!; on.delete(w); group.push(w); } while (w !== v);
+      const all = new Set<number>();
+      for (const m of group) for (const d of reach.get(m)!) all.add(d);
+      const list = [...all];
+      for (const m of group) { reach.set(m, all); allDeps.set(m, list); }
+    };
+    visit(t);
+    return allDeps.get(t)!;
   };
 
   /**
@@ -1136,7 +1202,12 @@ export function mount(root: Document | Element, o: MountOptions): App {
           if (v?.[0]) el.classList.toggle(v[0], !!v[1]);
         }
         break;
-      case 'attr': W.a(el, n, v); break;
+      // a first write of no value to an element without the attribute has nothing to remove (the form state
+      // attributes excepted: writing one sets the control's state, which a user may have changed)
+      case 'attr':
+        if (b.g != null) W.ag(el, b.g, v, prev);
+        else if (!(fresh && (v == null || v === false) && n != 'value' && n != 'checked' && n != 'selected' && n != 'indeterminate' && !el.hasAttribute(n))) W.a(el, n, v);
+        break;
       case 'style': if (F.STYLE) b.g != null ? W.g!(el, b.g, v, prev) : W.s!(el, n, v);
     }
   }
@@ -1183,7 +1254,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
     if (t.key != null) return 'k' + fns[t.key]!(s);
     if (t.keyFields && item) return 'r' + t.keyFields.map((f) => item[f]).join('\x1f');
     if (Object(item) === item) {
-      for (const r of resources.values()) if (r.isCollection && keyed(r, item) && r.get(item) === item) return 'o' + r.name + '\x1f' + r.keyOf(item);
+      for (const r of collections) if (keyed(r, item) && r.get(item) === item) return 'o' + r.name + '\x1f' + r.keyOf(item);
       return item;
     }
     warn(10);
@@ -1220,6 +1291,21 @@ export function mount(root: Document | Element, o: MountOptions): App {
     const scopes = t.key != null ? items.map((item, i) => setRow(Object.create(rb.s), t, item, i)) : null;
     const keys = items.map((item, i) => keyOf(t, item, scopes?.[i]));
     app.dupes?.(keys);
+    // no rows yet (a list's first render): every item a new row, in order, with nothing to match, move or remove
+    if (!m) {
+      for (let i = 0; i < n; i++) rows[i] = instantiate(tpl, t, scopes?.[i] ?? setRow(Object.create(rb.s), t, items[i], i), keys[i], items[i], i, undefined, inPlace, rb);
+      if (!inPlace && n) {
+        const parent = end.parentNode!;
+        for (let i = 0; i < n; i++) for (const node of rowNodes(rows[i]!)) parent.insertBefore(node, end);
+      }
+      rb.ad = undefined;
+      rb.rows = rows;
+      rb.rr = round;
+      rb.pf = true;
+      rb.keys = undefined;
+      rb.sx = undefined;
+      return;
+    }
     // the takeover: the page module's items for an unkeyed list the early script rendered are new objects with the
     // same contents (a let over a helper, computed again), so the rows it adopted take the new keys and match by
     // position, written again
@@ -1674,7 +1760,10 @@ export function mount(root: Document | Element, o: MountOptions): App {
   function createLoader(def: ResourceDef) {
     const r = createResource(def.name, { key: def.key ?? null, order: def.order ?? null, locale: () => config.locale?.get(), warn, prep: (x) => (app.prep ? app.prep(x) : x), freeze: app.dev });
     r.onDirty = (what) => app.mark((what == 'data' ? '$r.' : '$meta.') + def.name);
+    const was = resources.get(def.name), at = was ? collections.indexOf(was) : -1;
+    if (at >= 0) collections.splice(at, 1);
     resources.set(def.name, r);
+    if (r.isCollection) collections.push(r);
     Object.defineProperty(app.page.$r, def.name, { get: r.value, enumerable: true });
     app.page.$meta[def.name] = r.meta;
     // fed by a server-event stream: connecting until its first open (src/sse.ts keeps it current)

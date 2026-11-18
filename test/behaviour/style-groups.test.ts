@@ -15,12 +15,14 @@ describe('style groups', () => {
       file: '/p/index.html', root: '/p', dev: false, prerender: true, helpers: { module: null, names: [], namespaces: {} }, readFile: () => { throw new Error('no files'); },
     });
     expect(out.diagnostics.filter((d) => d.severity === 'error')).toEqual([]);
-    const ir = JSON.parse(/const ir = (.*);\n/.exec(out.module)![1]!) as { roots: Array<{ b: Array<{ k: string; g?: number; n?: string }> }>; sg: string[][] };
+    const ir = JSON.parse(/const ir = (.*);\n/.exec(out.module)![1]!) as { roots: Array<{ b: Array<{ k: string; f: number; g?: number; n?: string; o?: 1 }> }>; sg: string[][] };
     const styles = ir.roots.flatMap((n) => n.b).filter((b) => b.k === 'style');
     expect(styles.map((b) => [b.g, b.n])).toEqual([[0, undefined], [0, undefined], [1, undefined]]);
     expect(ir.sg).toEqual([['color', 'font-size', 'margin-top'], ['color', 'width']]);
-    // one object read under its own names: read once
-    expect(out.module).toMatch(/\(\(o\) => \[o\.color, o\["font-size"\], o\["margin-top"\]\]\)\(\$\./);
+    // one object read under its own names: the function returns the object (`o`), the runtime reads the group's
+    // names from it; entries that read anything else return their values in the order of the names
+    expect(styles.map((b) => b.o)).toEqual([1, 1, undefined]);
+    expect(out.module).not.toMatch(/o\["font-size"\]/);
   });
 
   test('values follow state; null removes; a style object changed in place is written', async () => {
@@ -104,5 +106,29 @@ describe('style groups', () => {
     await flush();
     const p = root.querySelector('#p') as HTMLElement;
     expect([p.style.color, p.style.fontSize, p.style.marginTop]).toEqual(['', '9px', '']);
+  });
+
+  test("an object read by its own names: only the group's names are written, whatever else it holds", async () => {
+    const { root, flush } = await render(`<div data-sn-state="{ s: { color: 'red', position: 'fixed', 'z-index': '9', background: 'url(https://x.example/a)' } }">
+      <i id="t" data-sn-on-click="s = { 'font-size': '9px', position: 'absolute', inset: '0' }"></i>
+      <p id="p" data-sn-style="${STYLES}"></p></div>`);
+    await flush();
+    const p = root.querySelector('#p') as HTMLElement;
+    expect(p.getAttribute('style')).toBe('color: red;');
+    (root.querySelector('#t') as HTMLElement).click();
+    await flush();
+    expect(p.getAttribute('style')).toBe('font-size: 9px;');
+  });
+
+  test('an object without a prototype is read by its own names; a later plain one replaces it', async () => {
+    const { root, flush } = await render(`<div data-sn-state="{ s: Object.assign(Object.create(null), { color: 'teal', 'margin-top': '1px' }) }">
+      <i id="t" data-sn-on-click="s = { 'font-size': '7px' }"></i>
+      <p id="p" data-sn-style="${STYLES}"></p></div>`);
+    await flush();
+    const p = root.querySelector('#p') as HTMLElement;
+    expect([p.style.color, p.style.fontSize, p.style.marginTop]).toEqual(['teal', '', '1px']);
+    (root.querySelector('#t') as HTMLElement).click();
+    await flush();
+    expect([p.style.color, p.style.fontSize, p.style.marginTop]).toEqual(['', '7px', '']);
   });
 });
