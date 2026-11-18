@@ -308,4 +308,6 @@ jobs:
       - uses: actions/checkout@v4
       - env:
           REF: ${{ needs.prepare.outputs.ref }}
-        run: git push origin --delete "$REF"
+        # gone already when a re-run of failed jobs runs this again
+        run: |
+          if git ls-remote --exit-code --heads origin "$REF" >/dev/null; then git push origin --delete "$REF"; else echo "$REF is gone already"; fi
