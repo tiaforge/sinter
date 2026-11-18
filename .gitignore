@@ -5,6 +5,7 @@ dist/
 coverage/
 .claude
 .sinter/
+.codegraph
 
 # VS Code extension packages
 *.vsix
