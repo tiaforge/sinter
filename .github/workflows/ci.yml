@@ -3,6 +3,8 @@ name: CI
 on:
   push:
   pull_request:
+  # the Release workflow runs all of it on the release's tag before anything is published
+  workflow_call:
 
 jobs:
   test:

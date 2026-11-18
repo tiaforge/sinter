@@ -1,0 +1,154 @@
+name: Release
+
+# Publishes every package when a GitHub release is published (Releases → Draft a new release → pick the
+# tag `npm run release -- x.y.z` pushed → Publish). Nothing is published unless the tag is the version of
+# every package (scripts/release-check.mjs) and CI passes on the tagged commit. A pre-release
+# (x.y.z-rc.1) goes to npm under the `next` dist-tag; anything else under `latest`.
+#
+# No long-lived tokens: npm, crates.io and NuGet each trust this workflow through GitHub's OIDC token
+# (trusted publishing), and npm records a provenance attestation for each package. Every publish job
+# runs in the `release` environment, so required reviewers set there approve a release before it goes out.
+# A job that is run again skips what is already published, so a failure part-way can be retried.
+
+on:
+  release:
+    types: [published]
+
+permissions: {}
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      dist-tag: ${{ steps.check.outputs.dist-tag }}
+      version: ${{ steps.check.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: check
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          dist_tag=$(node scripts/release-check.mjs "$TAG")
+          echo "dist-tag=$dist_tag" >> "$GITHUB_OUTPUT"
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+
+  ci:
+    needs: check
+    permissions:
+      contents: read
+    uses: ./.github/workflows/ci.yml
+
+  # sinter first: the starter's template depends on this version
+  npm-sinter:
+    needs: [check, ci]
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+      - run: npm ci
+      # the build prepublishOnly would make; the tests it would run passed in the ci job
+      - run: npm run build
+      - name: publish @tiaforge-ui/sinter
+        env:
+          VERSION: ${{ needs.check.outputs.version }}
+          DIST_TAG: ${{ needs.check.outputs.dist-tag }}
+        run: |
+          if npm view "@tiaforge-ui/sinter@$VERSION" version >/dev/null 2>&1; then echo "already published"; exit 0; fi
+          npm publish --provenance --access public --tag "$DIST_TAG" --ignore-scripts
+
+  npm-packages:
+    needs: [check, npm-sinter]
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: read
+      id-token: write
+    strategy:
+      fail-fast: false
+      matrix:
+        package:
+          - { name: create-sinter, dir: packages/create }
+          - { name: '@tiaforge-ui/sinter-markdown', dir: packages/sinter-markdown }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+      - name: publish ${{ matrix.package.name }}
+        working-directory: ${{ matrix.package.dir }}
+        env:
+          NAME: ${{ matrix.package.name }}
+          VERSION: ${{ needs.check.outputs.version }}
+          DIST_TAG: ${{ needs.check.outputs.dist-tag }}
+        run: |
+          if npm view "$NAME@$VERSION" version >/dev/null 2>&1; then echo "already published"; exit 0; fi
+          npm publish --provenance --access public --tag "$DIST_TAG"
+
+  # the macros first: sinter-axum depends on them at this version
+  crates:
+    needs: [check, ci]
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: read
+      id-token: write
+    defaults:
+      run:
+        working-directory: packages/sinter-axum
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: rust-lang/crates-io-auth-action@v1
+        id: auth
+      - name: publish sinter-axum-macros and sinter-axum
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+          VERSION: ${{ needs.check.outputs.version }}
+        run: |
+          for crate in sinter-axum-macros sinter-axum; do
+            if curl -fsS -A "sinter release workflow" "https://crates.io/api/v1/crates/$crate/$VERSION" >/dev/null 2>&1; then
+              echo "$crate $VERSION already published"; continue
+            fi
+            cargo publish --locked -p "$crate"
+          done
+
+  nuget:
+    needs: [check, ci]
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: read
+      id-token: write
+    defaults:
+      run:
+        working-directory: packages/sinter-aspnetcore
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            8.0.x
+            10.0.x
+      - run: dotnet pack src/Sinter.AspNetCore -c Release -o artifacts
+      # the nuget.org account the trusted publishing policy belongs to: the repository variable NUGET_USER
+      - uses: NuGet/login@v1
+        id: login
+        with:
+          user: ${{ vars.NUGET_USER }}
+      - run: dotnet nuget push "artifacts/Sinter.AspNetCore.${{ needs.check.outputs.version }}.nupkg" --source https://api.nuget.org/v3/index.json --api-key "$NUGET_API_KEY" --skip-duplicate
+        env:
+          NUGET_API_KEY: ${{ steps.login.outputs.NUGET_API_KEY }}

@@ -188,7 +188,12 @@ sinter-axum and sinter-axum-macros, Sinter.AspNetCore.
 Push:
   git push origin HEAD ${tag}
 
-Publish, in this order (the starter needs sinter ${version} on npm, sinter-axum needs its macros on crates.io):
+Then publish it: on GitHub, Releases → Draft a new release → choose the tag ${tag} → Publish release
+(tick "Set as a pre-release" for a pre-release). The Release workflow (.github/workflows/release.yml)
+checks the tag against every package's version, runs CI on the tagged commit, and publishes to npm
+(with provenance), crates.io and NuGet, each through trusted publishing.
+
+By hand instead, in this order (the starter needs sinter ${version} on npm, sinter-axum needs its macros on crates.io):
   npm publish
   (cd packages/create && npm publish)
   (cd packages/sinter-markdown && npm publish)

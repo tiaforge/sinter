@@ -91,6 +91,31 @@ npm run release -- 0.3.0   # sinter, the create starter, sinter-markdown (its pe
                            # commands (nothing pushed or published)
 ```
 
+### Releasing
+
+1. `npm run release -- 0.3.0`, then `git push origin HEAD v0.3.0` (on `main`, or a branch merged with a
+   merge commit, so that the tagged commit is on `main`).
+2. On GitHub: Releases → Draft a new release → choose the tag `v0.3.0` → Publish release. "Set as a
+   pre-release" (or a version such as `0.3.0-rc.1`) publishes to npm under `next` instead of `latest`.
+
+The [Release workflow](.github/workflows/release.yml) then checks that the tag is every package's version
+(`scripts/release-check.mjs`), runs CI on the tagged commit, and publishes: `@tiaforge-ui/sinter` first, then
+`create-sinter` and `@tiaforge-ui/sinter-markdown`, all with npm provenance; the two crates; the NuGet package.
+It holds no tokens: each registry trusts the workflow through GitHub's OIDC token. Running a failed job again
+skips what is already published.
+
+Set up once:
+
+- npm: for each of `@tiaforge-ui/sinter`, `create-sinter` and `@tiaforge-ui/sinter-markdown`, Settings →
+  Trusted publishing → GitHub Actions: `tiaforge/sinter`, workflow `release.yml`, environment `release`.
+- crates.io: for `sinter-axum` and `sinter-axum-macros`, Settings → Trusted Publishing: the same repository,
+  workflow and environment.
+- NuGet: a trusted publishing policy on nuget.org for `tiaforge/sinter`, `release.yml`, environment `release`,
+  and the repository variable `NUGET_USER` (Settings → Secrets and variables → Actions → Variables) set to
+  the nuget.org account that owns the policy.
+- GitHub: the `release` environment (Settings → Environments; the first run makes it), with required
+  reviewers if a release should wait for an approval.
+
 Internal docs: [`docs/spec.md`](docs/spec.md) is the design spec the source comments cite,
 [`docs/progress.md`](docs/progress.md) tracks what is built and where it departs from the spec, and
 [`docs/proposals/`](docs/proposals) holds the design proposals, each with its status on its first lines.
