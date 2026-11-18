@@ -20,6 +20,8 @@ jobs:
       options: --ipc=host
     env:
       HOME: /root
+      # in the image, localhost is ::1 first: a dev server would listen there while fetch() connects to 127.0.0.1
+      NODE_OPTIONS: --dns-result-order=ipv4first
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -50,6 +52,8 @@ jobs:
       options: --ipc=host
     env:
       HOME: /root
+      # in the image, localhost is ::1 first: a dev server would listen there while fetch() connects to 127.0.0.1
+      NODE_OPTIONS: --dns-result-order=ipv4first
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -150,6 +154,8 @@ jobs:
       options: --ipc=host
     env:
       HOME: /root
+      # in the image, localhost is ::1 first: a dev server would listen there while fetch() connects to 127.0.0.1
+      NODE_OPTIONS: --dns-result-order=ipv4first
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -200,6 +206,8 @@ jobs:
       options: --ipc=host
     env:
       HOME: /root
+      # in the image, localhost is ::1 first: a dev server would listen there while fetch() connects to 127.0.0.1
+      NODE_OPTIONS: --dns-result-order=ipv4first
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
