@@ -12,6 +12,16 @@ jobs:
       matrix:
         # vitest and jsdom need Node 22+; the package itself also supports 20.19.
         node: [22, 24, 26]
+    # Playwright's image: the system libraries and the three browsers of this Playwright version, so no apt-get (the
+    # step that took 20 minutes and more on some runners) and no download. Root, with its own home: Firefox refuses
+    # a home another user owns. Keep the tag at the version in package-lock.json (see the install step)
+    container:
+      image: mcr.microsoft.com/playwright:v1.63.0-noble
+      options: --ipc=host
+    env:
+      HOME: /root
+      # in the image, localhost is ::1 first: a dev server would listen there while fetch() connects to 127.0.0.1
+      NODE_OPTIONS: --dns-result-order=ipv4first
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -22,8 +32,10 @@ jobs:
       - run: npm run typecheck
       - run: npm run build
       # Chromium for the tests that compare with a real browser (layout, the dev image check, built pages);
-      # Firefox and WebKit too, for those that must hold in every engine (components: scoped styles, scripts)
-      - run: npx playwright install --with-deps chromium firefox webkit
+      # Firefox and WebKit too, for those that must hold in every engine (components: scoped styles, scripts).
+      # The image has them: this does nothing, unless package-lock.json moved past the image's version (then it
+      # downloads that version's browsers, about 10 s, and the image's tag wants updating)
+      - run: npx playwright install chromium firefox webkit
       - run: npm test
       # size budgets: the minimal page and the RealWorld example's pages (its own dependencies first)
       - run: npm ci --prefix examples/realworld
@@ -34,6 +46,14 @@ jobs:
   # same; what it records must link into it again (SN_LINK_AUDIT). The summary says how many pages linked something
   link-audit:
     runs-on: ubuntu-latest
+    # Playwright's image, as the test job's
+    container:
+      image: mcr.microsoft.com/playwright:v1.63.0-noble
+      options: --ipc=host
+    env:
+      HOME: /root
+      # in the image, localhost is ::1 first: a dev server would listen there while fetch() connects to 127.0.0.1
+      NODE_OPTIONS: --dns-result-order=ipv4first
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -42,7 +62,8 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build
-      - run: npx playwright install --with-deps chromium firefox webkit
+      # the image has them (see the test job)
+      - run: npx playwright install chromium firefox webkit
       # (each compile runs eight times: the largest pages' tests need longer than the default 5 s)
       - run: npm test -- --testTimeout=60000
         env:
@@ -127,6 +148,14 @@ jobs:
   # The timeout turns a build that never exits into a failure.
   example-dashboard:
     runs-on: ubuntu-latest
+    # Playwright's image, as the test job's
+    container:
+      image: mcr.microsoft.com/playwright:v1.63.0-noble
+      options: --ipc=host
+    env:
+      HOME: /root
+      # in the image, localhost is ::1 first: a dev server would listen there while fetch() connects to 127.0.0.1
+      NODE_OPTIONS: --dns-result-order=ipv4first
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -144,7 +173,8 @@ jobs:
       - run: timeout 300 npx vite build
         working-directory: examples/dashboard
       # with swaps on: the player plays on across a link and Back, in Chromium, Firefox and WebKit
-      - run: npx playwright install --with-deps chromium firefox webkit
+      # the image has them (see the test job)
+      - run: npx playwright install chromium firefox webkit
       - run: node e2e-swap.mjs
         working-directory: examples/dashboard
 
@@ -170,6 +200,14 @@ jobs:
   # each browser has it
   e2e-links:
     runs-on: ubuntu-latest
+    # Playwright's image, as the test job's
+    container:
+      image: mcr.microsoft.com/playwright:v1.63.0-noble
+      options: --ipc=host
+    env:
+      HOME: /root
+      # in the image, localhost is ::1 first: a dev server would listen there while fetch() connects to 127.0.0.1
+      NODE_OPTIONS: --dns-result-order=ipv4first
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -178,7 +216,8 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build
-      - run: npx playwright install --with-deps chromium firefox webkit
+      # the image has them (see the test job)
+      - run: npx playwright install chromium firefox webkit
       - run: npm ci --prefix e2e/links
       - run: node e2e/links/run.mjs
       # swaps and kept elements (sinter({ swap: true }))
