@@ -269,3 +269,22 @@ jobs:
           flags=()
           if [ "$DIST_TAG" = next ]; then flags+=(--prerelease); fi
           gh release create "$TAG" --verify-tag --title "$TAG" --notes-file "$RUNNER_TEMP/notes.md" "${flags[@]}"
+
+  # workflow_dispatch only: a run that stops before any registry has the version takes its tag back, so the
+  # next run (after the fix) can make it again. Once anything is published, the tag stays; re-run the failed jobs
+  untag:
+    needs: [prepare, check, ci, npm-sinter, npm-packages, crates, nuget]
+    if: >-
+      ${{ always() && github.event_name == 'workflow_dispatch' && needs.prepare.outputs.tag != ''
+      && contains(needs.*.result, 'failure')
+      && needs.npm-sinter.result != 'success' && needs.crates.result != 'success' && needs.nuget.result != 'success' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - env:
+          TAG: ${{ needs.prepare.outputs.tag }}
+        run: |
+          git push origin ":refs/tags/$TAG"
+          echo "Nothing was published: took back $TAG. Fix what failed, then run the Release workflow with the same version again."
