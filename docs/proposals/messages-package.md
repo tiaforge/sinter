@@ -242,8 +242,9 @@ the selectors (input name, function, options) and the variants (keys, pattern), 
 escapes resolved to a form the formatter reads without parsing (placeholders as `[name]` parts). The per-page,
 per-language file holds only the page's ids.
 
-**Fallback**: a message missing in a language falls back to the base language's, reported once per language at
-build, as today. A translation whose inputs are not a subset of the base language's is an error at that file.
+**Fallback**: a message missing in a language is looked up along that language's chain
+([locale-axis.md](locale-axis.md#fallback-chains): `de-AT → de → en` by default, or the app's `fallbacks`), and
+resolved at build. SN522 reports the keys that reach the base language, once per language. A translation whose inputs are not a subset of the base language's is an error at that file.
 A dotted id that is both a message and a group (`a` and `a.b`) is an error.
 
 ## Plan

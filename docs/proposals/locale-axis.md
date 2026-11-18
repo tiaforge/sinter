@@ -139,9 +139,11 @@ Everything that knows a point's language is a language, all pure functions over 
 - `relocate`'s language: the point's, passed in, instead of guessed from the first path segment
   (page-urls.ts:90).
 - `manifestLocales()`: the manifest's `locales` (`{ base, list, at }`) that `@tiaforge-ui/sinter/server`,
-  sinter-axum and Sinter.AspNetCore read. The manifest format does not change, so the server layers do not.
+  sinter-axum and Sinter.AspNetCore read. The manifest format does not change in this step, so the server layers
+  do not (the fallback chains of §4 add to it later).
 - `choose(cookie, acceptLanguage, locales)`: the visitor's language at a chooser, the one rule the chooser
   script and the server layers implement.
+- `chain(locale, locales)`: the languages a value is looked up in, in order (§4).
 
 ### 4. `locales` in the core
 
@@ -155,6 +157,45 @@ sinter({ localePrefix: true, locales: { base: 'en', list: ['en', 'de'] } })
   works when `locales` is given.
 - `checkLocale` (locales-build.ts:30), which gives `sinter check` and the editor the base language, reads the same
   config.
+
+#### Fallback chains
+
+Today there is one rule, in one direction. Choosing a visitor's language (the early picker, the choosers,
+`choose()` in server.ts:256, sinter-axum) matches a tag exactly, ignoring case, else by its language part: a
+visitor's `de-DE` reaches the site's `de`. A visitor's `de` or `de-CH` on a site with only `de-DE` gets the base.
+A message missing in a language takes the base language's text (SN522, vite.ts:1244; `t()` in messages.ts), so on
+a site with `en`, `de` and `de-AT` a key missing in `de-AT` shows English. An entry missing in a language's
+`{$locale}` list or `perLocale` collection has no page there. Only the formatters fall back well: `Intl` does it.
+
+The proposal: each language has a **chain**, the languages a value is looked up in, in order.
+
+```js
+sinter({
+  localePrefix: true,
+  locales: { base: 'en', list: ['en', 'de', 'de-AT', 'de-CH'], fallbacks: { 'de-CH': ['de-AT', 'de'] } },
+})
+```
+
+- **The default chain drops subtags** one at a time and keeps the languages the site has, then the base, as
+  BCP 47 lookup does (RFC 4647): `de-AT → de → en`, `zh-Hant-TW → zh-Hant → zh → en`. `fallbacks` replaces a
+  language's chain before the base, which always ends it. A chain that names a language the site does not have,
+  or a cycle, is an error.
+- **Choosing the visitor's language** walks the visitor's tags in their order (cookie, then `Accept-Language`)
+  and, for each, first the site's language with that tag, then the one its chain names, then, the direction
+  missing today, a site language with the same language part (`de` reaches `de-DE` when the site has no `de`;
+  of several, the first in `list`). One rule in `chain`/`choose`, shared by the picker, the choosers and the
+  three server layers, which read the chains from the embed manifest (`locales.fallbacks`, a manifest version
+  bump). One set of test cases (a JSON file of tags, lists and answers) runs in all three languages' suites.
+- **Messages** are looked up along the chain per key: `de-AT` falls back to `de` before `en`. The text is
+  resolved at build (each language's page has its own), so the browser pays nothing. SN522 reports only the keys
+  that reach the base, and names, per language, how many came from another language of the chain.
+- **Content** takes an opt-in: `fallback: true` on a `perLocale` collection or a `{$locale}` source. An entry
+  that a language lacks is then built in that language from the first language of its chain that has it, with
+  the page's own chrome and messages, and a canonical link to that language's page. Such a page is not in the
+  sitemap or the `hreflang` alternates (a page whose canonical points elsewhere must not be). Without the
+  option, the entry has no page there, as today: for a shop, a regional page that silently shows another
+  region's product is often wrong.
+- **Formatters** keep the page's own tag (`Intl` negotiates its data), and `order` collates in it.
 
 ### 5. One language per page
 
@@ -240,6 +281,10 @@ Each step ships on its own.
    written into this proposal.
 5. **One language per page** (§5): the deprecation release, then the removal release (Breaking in the
    changelog). The messages recipe and llms.txt move with the first.
+6. **Fallback chains** (§4, "Fallback chains"). `chain` and the new direction in `choose`, the shared test
+   cases in the three server layers, the manifest's `fallbacks`, messages along the chain, `fallback: true` for
+   content. Independent of step 5. It changes output where a language now falls back to another than the base,
+   so the baseline is recorded again first. Docs: static-pages.md#languages, configuration.md#messages.
 
 After step 5, [messages-package.md](messages-package.md) starts at its step 3 (content namespaces): its step 1 is
 this proposal's step 1, and its step 2 shrinks to what `localePrefix` already does.
