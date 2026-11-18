@@ -12,6 +12,10 @@ Attribute names, function names and diagnostic codes are public API. Before
 - **Behaviour change:** a computed list's kept rows (`data-sn-for` over an expression that is not a path, such as a helper's result or a component prop's children) rendered everything below them whenever the list was evaluated again, in case an item had changed in place without anything saying so. They now do so only when a change inside a value the list reads reaches it (see above); otherwise they render down to the components whose props changed. An item changed in place without a write sinter sees (mutated outside a handler, then the list evaluated again by another change) no longer reaches the components below it: replace the item, or change it from a handler.
 - A component used inside itself, or chosen by `<sn-component use>`, no longer renders its whole subtree again each time one of its props' dependencies changes while every prop is the same value (each evaluation makes a new props object, which forced the subtree). It renders again, forced as before, when a prop is another value or a change of the round is inside a value a prop reads (`node.children[1] = …`, or the whole state). A 2,012-element email tree that passes a limit down: raising the limit in 400-node steps costs 264 ms in all instead of 407, and a step no longer costs more the more of the tree is rendered.
 
+### Fixed
+
+- With swaps on, a kept `<audio controls>` or `<video controls>` that plays on across a link now shows its controls in Chromium. The browser moves the kept element with `moveBefore`, after which it painted the controls as an empty bar until they were clicked; the swap now turns `controls` off and on again in the same task. The dashboard example's swap test checks that the controls are drawn after a link and after Back.
+
 ## 0.19.0 (2026-11-17)
 
 ### Added

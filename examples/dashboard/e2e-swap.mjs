@@ -1,7 +1,7 @@
 // The dashboard with swaps on, in Chromium, Firefox and WebKit (Playwright): the build served by
 // `vite preview` (with the demo API), then in each browser: the player plays, notes are typed, the header's
 // link swaps the latency page in and Back swaps the overview in again. Checked: one page load, the sound
-// playing on (not paused, its time still advancing), the notes and the drawer kept, each page's data, and
+// playing on (not paused, its time still advancing) with its controls drawn, the notes and the drawer kept, each page's data, and
 // one event stream open at a time (the old page's closes). Under CI a browser that does not start fails.
 //   npx vite build && node e2e-swap.mjs [chromium|firefox|webkit ...]
 import { spawn } from 'node:child_process';
@@ -56,6 +56,20 @@ for (const name of browsers) {
       streams: window.__streams.filter((s) => s.readyState !== 2).length,
     };
   });
+  // whether the player's controls are drawn: a blank control is one color (Chromium's after moveBefore)
+  const drawn = async () => {
+    await page.mouse.move(0, 0);
+    const png = await page.locator('.dock audio').screenshot();
+    const img = await page.evaluate(async (b64) => {
+      const bmp = await createImageBitmap(await (await fetch('data:image/png;base64,' + b64)).blob());
+      const c = new OffscreenCanvas(bmp.width, bmp.height), x = c.getContext('2d');
+      x.drawImage(bmp, 0, 0);
+      const d = x.getImageData(0, 0, bmp.width, bmp.height).data, seen = new Set();
+      for (let i = 0; i < d.length; i += 4) seen.add((d[i] >> 4) << 8 | (d[i + 1] >> 4) << 4 | d[i + 2] >> 4);
+      return seen.size;
+    }, png.toString('base64'));
+    return img > 4;
+  };
   try {
     await page.goto(base + '/');
     await page.waitForFunction(() => window.__streams.some((s) => s.readyState === 1), null, { timeout: 10000 });
@@ -65,10 +79,10 @@ for (const name of browsers) {
     await page.waitForTimeout(500);
     await page.click('header a[href="/latency/"]');
     await page.waitForFunction(() => location.pathname === '/latency/' && document.querySelectorAll('main tbody tr').length > 0, null, { timeout: 10000 }).catch(() => {});
-    check('the link swaps the latency page in; the player plays on', await read(), { path: '/latency/', heading: 'Latency', kept: true, open: true, notes: 'watch the p99', playing: true, streams: 1 });
+    check('the link swaps the latency page in; the player plays on', { ...await read(), controls: await drawn() }, { path: '/latency/', heading: 'Latency', kept: true, open: true, notes: 'watch the p99', playing: true, streams: 1, controls: true });
     await page.goBack();
     await page.waitForFunction(() => location.pathname === '/' && !document.querySelector('main tbody tr'), null, { timeout: 10000 }).catch(() => {});
-    check('Back swaps the overview in', await read(), { path: '/', kept: true, open: true, notes: 'watch the p99', playing: true, streams: 1 });
+    check('Back swaps the overview in', { ...await read(), controls: await drawn() }, { path: '/', kept: true, open: true, notes: 'watch the p99', playing: true, streams: 1, controls: true });
     check('one page load', { loads }, { loads: ['/'] });
   } catch (e) { steps.push(`✗ ${e.message.split('\n')[0]}`); failed++; }
   if (errors.length) { steps.push(`✗ errors: ${JSON.stringify(errors)}`); failed++; }

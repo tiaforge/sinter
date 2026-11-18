@@ -238,8 +238,14 @@ function wanted(): boolean {
 /** moves the kept element `o` to where `n` is, keeping what a move would reset (without `moveBefore`: scroll, focus, selection) */
 function keepAt(o: Element, n: Element) {
   const p = n.parentNode as Element & { moveBefore?: (a: Node, b: Node | null) => void };
-  if (p.moveBefore && p.isConnected && o.isConnected) p.moveBefore(o, n);
-  else {
+  if (p.moveBefore && p.isConnected && o.isConnected) {
+    p.moveBefore(o, n);
+    // Chromium paints the controls of a media element moved this way empty (it plays on) until they are
+    // clicked: turned off and on again in the same task, they are drawn again, with nothing painted in between
+    for (const m of [o, ...o.querySelectorAll('audio[controls], video[controls]')] as HTMLMediaElement[]) {
+      if (m instanceof HTMLMediaElement && m.controls) { m.controls = false; m.controls = true; }
+    }
+  } else {
     const scrolled = [o, ...o.querySelectorAll('*')].filter((x) => x.scrollTop || x.scrollLeft).map((x) => [x, x.scrollTop, x.scrollLeft] as const);
     const f = document.activeElement as (HTMLElement & Partial<HTMLInputElement>) | null, inside = !!f && o.contains(f);
     const sel = inside && typeof f!.selectionStart == 'number' ? [f!.selectionStart!, f!.selectionEnd ?? null, f!.selectionDirection] as const : null;
