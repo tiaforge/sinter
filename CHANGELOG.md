@@ -3,6 +3,12 @@
 Attribute names, function names and diagnostic codes are public API. Before
 1.0, renames are allowed but listed here.
 
+## Unreleased
+
+### Changed
+
+- A component used inside itself, or chosen by `<sn-component use>`, no longer renders its whole subtree again each time one of its props' dependencies changes while every prop is the same value (each evaluation makes a new props object, which forced the subtree). It renders again, forced as before, when a prop is another value or a change of the round is inside a value a prop reads (`node.children[1] = …`, or the whole state). A 2,012-element email tree that passes a limit down: raising the limit in 400-node steps costs 264 ms in all instead of 407, and a step no longer costs more the more of the tree is rendered.
+
 ## 0.19.0 (2026-11-17)
 
 ### Added
