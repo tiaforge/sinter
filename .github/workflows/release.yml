@@ -1,0 +1,271 @@
+name: Release
+
+# Publishes every package at one version: @tiaforge-ui/sinter, create-sinter (npm create sinter),
+# @tiaforge-ui/sinter-markdown, sinter-axum and sinter-axum-macros (crates.io), Sinter.AspNetCore (NuGet).
+#
+# From GitHub's UI: Actions → Release → Run workflow (on main) → the version, such as 0.20.0. The workflow
+# runs `npm run release -- <version>` (every version bumped, the changelog dated, commit "Release <version>",
+# tag v<version>, every publish as a dry run) and pushes the tag; runs CI on it; publishes; then moves main
+# to the release commit and makes the GitHub release, its notes the version's changelog section.
+#
+# Or locally: `npm run release -- <version>`, push the commit and the tag, and publish a GitHub release
+# for that tag: the same checks and publishes, without the first and last steps.
+#
+# Nothing is published unless the tag is the version of every package (scripts/release-check.mjs) and CI
+# passes on the tagged commit. A pre-release (0.20.0-rc.1) goes to npm under the `next` dist-tag.
+#
+# No long-lived tokens: npm, crates.io and NuGet each trust this workflow through GitHub's OIDC token
+# (trusted publishing), and npm records a provenance attestation for each package. The publish jobs run in
+# the `release` environment, which the registries' trust names. A job that is run again skips what is
+# already published, so a failure part-way can be retried with "Re-run failed jobs".
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'The version to release, such as 0.20.0 (0.20.0-rc.1 for a pre-release)'
+        required: true
+        type: string
+  release:
+    types: [published]
+
+permissions: {}
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  # bump, commit and tag (workflow_dispatch only); the commit reaches main in `finish`, once published
+  prepare:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+    steps:
+      - if: github.ref != 'refs/heads/main'
+        run: |
+          echo "Run the Release workflow on main, not ${GITHUB_REF#refs/heads/}"
+          exit 1
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      # release.mjs dry-runs every publish: cargo's and dotnet's too
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            8.0.x
+            10.0.x
+      - run: npm ci
+      - run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+      # the tests run in the ci job, on the tagged commit
+      - env:
+          VERSION: ${{ inputs.version }}
+        run: node scripts/release.mjs "$VERSION" --no-check
+      - id: tag
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          tag="v${VERSION#v}"
+          git push origin "refs/tags/$tag"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+  check:
+    needs: prepare
+    if: ${{ !failure() && !cancelled() }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      tag: ${{ steps.check.outputs.tag }}
+      version: ${{ steps.check.outputs.version }}
+      dist-tag: ${{ steps.check.outputs.dist-tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.tag || github.event.release.tag_name }}
+      - id: check
+        env:
+          TAG: ${{ needs.prepare.outputs.tag || github.event.release.tag_name }}
+        run: |
+          dist_tag=$(node scripts/release-check.mjs "$TAG")
+          { echo "tag=$TAG"; echo "version=${TAG#v}"; echo "dist-tag=$dist_tag"; } >> "$GITHUB_OUTPUT"
+
+  ci:
+    needs: check
+    if: ${{ !failure() && !cancelled() }}
+    permissions:
+      contents: read
+    uses: ./.github/workflows/ci.yml
+    with:
+      ref: ${{ needs.check.outputs.tag }}
+
+  # sinter first: the starter's template depends on this version
+  npm-sinter:
+    needs: [check, ci]
+    if: ${{ !failure() && !cancelled() }}
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.check.outputs.tag }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+      - run: npm ci
+      # the build prepublishOnly would make; the tests it would run passed in the ci job
+      - run: npm run build
+      - name: publish @tiaforge-ui/sinter
+        env:
+          VERSION: ${{ needs.check.outputs.version }}
+          DIST_TAG: ${{ needs.check.outputs.dist-tag }}
+        run: |
+          if npm view "@tiaforge-ui/sinter@$VERSION" version >/dev/null 2>&1; then echo "already published"; exit 0; fi
+          npm publish --provenance --access public --tag "$DIST_TAG" --ignore-scripts
+
+  # the starter (npm create sinter) and the markdown library
+  npm-packages:
+    needs: [check, npm-sinter]
+    if: ${{ !failure() && !cancelled() }}
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: read
+      id-token: write
+    strategy:
+      fail-fast: false
+      matrix:
+        package:
+          - { name: create-sinter, dir: packages/create }
+          - { name: '@tiaforge-ui/sinter-markdown', dir: packages/sinter-markdown }
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.check.outputs.tag }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+      - name: publish ${{ matrix.package.name }}
+        working-directory: ${{ matrix.package.dir }}
+        env:
+          NAME: ${{ matrix.package.name }}
+          VERSION: ${{ needs.check.outputs.version }}
+          DIST_TAG: ${{ needs.check.outputs.dist-tag }}
+        run: |
+          if npm view "$NAME@$VERSION" version >/dev/null 2>&1; then echo "already published"; exit 0; fi
+          npm publish --provenance --access public --tag "$DIST_TAG"
+
+  # the macros first: sinter-axum depends on them at this version
+  crates:
+    needs: [check, ci]
+    if: ${{ !failure() && !cancelled() }}
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: read
+      id-token: write
+    defaults:
+      run:
+        working-directory: packages/sinter-axum
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.check.outputs.tag }}
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: rust-lang/crates-io-auth-action@v1
+        id: auth
+      - name: publish sinter-axum-macros and sinter-axum
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+          VERSION: ${{ needs.check.outputs.version }}
+        run: |
+          for crate in sinter-axum-macros sinter-axum; do
+            if curl -fsS -A "sinter release workflow (github.com/tiaforge/sinter)" "https://crates.io/api/v1/crates/$crate/$VERSION" >/dev/null 2>&1; then
+              echo "$crate $VERSION already published"; continue
+            fi
+            cargo publish --locked -p "$crate"
+          done
+
+  nuget:
+    needs: [check, ci]
+    if: ${{ !failure() && !cancelled() }}
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: read
+      id-token: write
+    defaults:
+      run:
+        working-directory: packages/sinter-aspnetcore
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.check.outputs.tag }}
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            8.0.x
+            10.0.x
+      - run: dotnet pack src/Sinter.AspNetCore -c Release -o artifacts
+      # the nuget.org account the trusted publishing policy belongs to: the repository variable NUGET_USER
+      - uses: NuGet/login@v1
+        id: login
+        with:
+          user: ${{ vars.NUGET_USER }}
+      - run: dotnet nuget push "artifacts/Sinter.AspNetCore.$VERSION.nupkg" --source https://api.nuget.org/v3/index.json --api-key "$NUGET_API_KEY" --skip-duplicate
+        env:
+          VERSION: ${{ needs.check.outputs.version }}
+          NUGET_API_KEY: ${{ steps.login.outputs.NUGET_API_KEY }}
+
+  # workflow_dispatch only: main gets the release commit, and the tag its GitHub release
+  finish:
+    needs: [check, npm-sinter, npm-packages, crates, nuget]
+    if: ${{ github.event_name == 'workflow_dispatch' && !failure() && !cancelled() }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - name: main to the release commit
+        env:
+          TAG: ${{ needs.check.outputs.tag }}
+        run: |
+          git fetch origin "refs/tags/$TAG:refs/tags/$TAG"
+          if git merge-base --is-ancestor HEAD "$TAG"; then
+            git push origin "$TAG^{commit}:refs/heads/main"
+          else
+            # main moved on while the release ran: merge the release commit into it
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git merge --no-ff -m "Merge release $TAG" "$TAG"
+            git push origin HEAD:refs/heads/main
+          fi
+      - name: the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.check.outputs.tag }}
+          DIST_TAG: ${{ needs.check.outputs.dist-tag }}
+        run: |
+          git checkout -q "$TAG"
+          node scripts/release-check.mjs "$TAG" --notes > "$RUNNER_TEMP/notes.md"
+          flags=()
+          if [ "$DIST_TAG" = next ]; then flags+=(--prerelease); fi
+          gh release create "$TAG" --verify-tag --title "$TAG" --notes-file "$RUNNER_TEMP/notes.md" "${flags[@]}"
