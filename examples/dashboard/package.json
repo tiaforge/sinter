@@ -10,7 +10,7 @@
     "check": "sinter check && temper check ."
   },
   "dependencies": {
-    "@tiaforge-ui/sinter": "^0.19.0",
+    "@tiaforge-ui/sinter": "^0.20.0",
     "@tiaforge-ui/temper": "^0.3.0"
   },
   "devDependencies": {
