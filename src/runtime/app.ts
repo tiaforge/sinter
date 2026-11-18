@@ -679,6 +679,8 @@ export function mount(root: Document | Element, o: MountOptions): App {
    * whole of a state scope included) at or above the dependency.
    */
   const inside = (rb: RB): boolean => {
+    // (no change in this round: a first render, outside a flush)
+    if (!cur.length) return false;
     for (const n of ids(rb.b.d)) if (each(n, (d, e) => level(e, d, rb.s) > 0 && (d.w < 0 || (kinds[d.w] == '**' ? depth(d.w) - 1 <= depth(n) : depth(d.w) > depth(n))))) return true;
     return false;
   };
@@ -1010,7 +1012,14 @@ export function mount(root: Document | Element, o: MountOptions): App {
     for (const rb of rbs) {
       if (!process(rb, force) || !(F.LIST || F.BRANCH) || !rb.rows) continue;
       const t = rb.t;
-      let r = force || !t ? 2 : rowHits.get(t);
+      // Two forces: 2 renders everything below (a change inside a value, which no path names below it; the takeover of
+      // rows the early script rendered); 3, for a row whose item or props were replaced by other values, stops at the
+      // components below: a component's row (a definition's, a choice case's: its item the props) renders forced only
+      // when its own props changed (`x.f`, set by reconcile or toggle), else as any row the round's changes reach. A
+      // component's markup reads its props, its own state and what paths track, nothing of the scope above it, so a
+      // force from above reaches it only through its props.
+      const bound = force != 2 && !!t?.item?.startsWith('$p');
+      let r = (force && !bound) || !t ? 2 : rowHits.get(t);
       if (r == null) {
         r = 0;
         // a mark counts as "only marked rows" for dependencies on this list's own element; others (outer rows) reach any row
@@ -1048,7 +1057,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
         }
       }
       // otherwise skip rows no dirty path can reach (unless they moved or changed), and rows created in this round
-      for (const x of rb.rows) if (x.r != round && (r || x.f)) { walkRow(x, t!, Math.max(force, x.f)); x.f = 0; }
+      for (const x of rb.rows) if (x.r != round && (r || x.f)) { walkRow(x, t!, bound ? x.f : x.f == 2 || force == 2 ? 2 : Math.max(force, x.f)); x.f = 0; }
       rb.pf = false;
     }
   }
@@ -1066,7 +1075,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
     const els: Array<Element | null> = fns[t.find!]!(x.first), vals = meta.vals, v = x.v!;
     for (let j = only < 0 ? 0 : only; j < vals.length; j++) {
       const [k, b] = vals[j]!, el = els[k], prev = v[j];
-      if (el && (force == 2 || (force == 1 && b.i) || (b.d && hit(b.d, x.s)))) {
+      if (el && (force >= 2 || (force == 1 && b.i) || (b.d && hit(b.d, x.s)))) {
         const val = evalB(b, x.s, el, null);
         if (!Object.is(val, prev)) { write(b, el, val, prev == UNSET ? undefined : prev, prev == UNSET); v[j] = val; }
       }
@@ -1076,7 +1085,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
 
   /** Evaluates and writes one binding if needed; false while it waits in a closed dialog. */
   function process(rb: RB, level: number): boolean {
-    const force = level == 2 || (level == 1 && !!rb.b.i);
+    const force = level >= 2 || (level == 1 && !!rb.b.i);
     if (!force && !(deferred.size && deferred.has(rb)) && !(rb.b.d && hit(rb.b.d, rb.s))) return true;
     // (an anchor's start comment is in its parent element, which a dialog's check reads)
     if (F.DIALOG && rb.c && waits(rb.el.nodeType == 1 ? rb.el as Element : rb.el.parentElement)) { deferred.add(rb); return false; }
@@ -1253,12 +1262,18 @@ export function mount(root: Document | Element, o: MountOptions): App {
     // a component's definition (a component inside itself): one row, its item the props, a new object at each
     // evaluation. The same values again keep the row as it is, as a choice's case does (`toggle`)
     const props = t.item!.startsWith('$p');
+    // a change of the round inside a value the list reads (a deeper path, a `**`): what its rows hold may have changed
+    // in place, so a row whose item changed renders to the bottom (force 2); else to the components whose props changed
+    let dp: boolean | undefined;
+    const deep = () => (dp ??= inside(rb));
     const reuse = (x: Inst, i: number) => {
       const item = items[i];
-      if (x.item !== item && !(props && sameProps(x.item, item) && !inside(rb))) { setRow(x.s, t, (x.item = item), (x.i = i)); x.f = 2; }
+      if (x.item !== item && !(props && sameProps(x.item, item) && !deep())) { setRow(x.s, t, (x.item = item), (x.i = i)); x.f = deep() ? 2 : 3; }
       else if (x.i != i) { setRow(x.s, t, item, (x.i = i)); if (moved) x.f ||= 1; }
-      // a computed list's row (`dv`): its item may have changed in place, which only the list depends on
-      if (t.dv) x.f = 2;
+      // a computed list's row (`dv`): its item may have changed in place, which only the list depends on: the row renders
+      // forced, to the bottom when the change is inside a value the list reads (`deep`), else to the components whose
+      // props changed
+      if (t.dv) x.f = x.f == 2 || deep() ? 2 : 3;
       rows[i] = x;
     };
     // rows with the same keys at the start and the end stay where they are
@@ -1357,7 +1372,10 @@ export function mount(root: Document | Element, o: MountOptions): App {
       // row's bindings that changes reach, as a list's row with the same item. Each render makes a new props
       // object, so without this a recursive component re-renders its whole subtree whenever any prop's
       // dependency changes (a tree of 2,000 elements: every binding of every element).
-      if (ch && x && x.item !== item && !(sameProps(x.item, item) && !inside(rb))) { setRow(x.s, rb.t!, (x.item = item), 0); walkRow(x, rb.t!, 2); }
+      if (ch && x && x.item !== item) {
+        const deep = inside(rb);
+        if (!sameProps(x.item, item) || deep) { setRow(x.s, rb.t!, (x.item = item), 0); walkRow(x, rb.t!, deep ? 2 : 3); }
+      }
       return;
     }
     // a wrapper's anchor has no end comment: its branch ends where its row or branch does
