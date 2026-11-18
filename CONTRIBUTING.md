@@ -105,7 +105,8 @@ the tag `v0.3.0`.
 Either way, the [Release workflow](.github/workflows/release.yml) checks that the tag is every package's version
 (`scripts/release-check.mjs`), runs CI on the tagged commit, and publishes: `@tiaforge-ui/sinter` first, then
 `create-sinter` and `@tiaforge-ui/sinter-markdown`, all with npm provenance; the two crates; the NuGet package.
-It holds no tokens: each registry trusts the workflow through GitHub's OIDC token. Running a failed job again
+It holds no tokens: each registry trusts the workflow through GitHub's OIDC token. A run that fails before anything is
+published deletes its tag, so it can simply be run again with the same version. Running a failed job again
 skips what is already published.
 
 Set up once:

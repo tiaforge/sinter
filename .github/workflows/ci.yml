@@ -183,9 +183,9 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build
-      - run: npm install
-        working-directory: examples/dashboard
-      - run: npm install --no-save ../..
+      # this repository's sinter in place of the one from npm before installing: on a release's tag the
+      # example already asks for the version about to be published, which npm does not have yet
+      - run: npm pkg set "dependencies.@tiaforge-ui/sinter=file:../.." && npm install
         working-directory: examples/dashboard
       - run: test "$(readlink -f node_modules/@tiaforge-ui/sinter)" = "$GITHUB_WORKSPACE"
         working-directory: examples/dashboard
