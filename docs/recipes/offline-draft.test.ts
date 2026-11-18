@@ -10,13 +10,15 @@ test('a draft typed while offline is sent once the connection is back, with one 
   configure({ sessionProbe: '/api/user', retry: retry({ policies: { drafts: { backoff: ['1s', '30s'] } } }) });
   let online = false;
   const requests = mockRequests({
-    'GET /api/notes/7': { id: 7, title: 'Plan', body: '' },
+    'GET /api/notes/7': { id: 7, title: 'Plan', body: 'Agenda' },
     'GET /api/user': () => (online ? { name: 'me' } : { status: 503 }),
     'PUT /api/notes/7': (c) => { if (!online) throw new TypeError('Failed to fetch'); return c.body; },
   });
   const { root, settle, advance } = await render(page, { requests });
   await settle();
   const form = root.querySelector('form')!, title = root.querySelector('input')!;
+  expect(title.value).toBe('Plan');                    // the form starts as the note
+  expect(root.querySelector('textarea')!.value).toBe('Agenda');
 
   title.value = 'Plan for Monday';
   title.dispatchEvent(new Event('input', { bubbles: true }));
@@ -31,7 +33,7 @@ test('a draft typed while offline is sent once the connection is back, with one 
   await settle();
   const puts = requests.calls.filter((c) => c.method === 'PUT');
   expect(puts).toHaveLength(2);
-  expect(puts[1]!.body).toEqual({ title: 'Plan for Monday', body: '' });
+  expect(puts[1]!.body).toEqual({ title: 'Plan for Monday', body: 'Agenda' });   // the body is kept
   expect(puts[1]!.headers['idempotency-key']).toBe(puts[0]!.headers['idempotency-key']);
   expect(form.hasAttribute('aria-busy')).toBe(false);
 });

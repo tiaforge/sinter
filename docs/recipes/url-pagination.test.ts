@@ -19,8 +19,22 @@ test('a shared link opens its page; moving writes the URL; Back goes to the page
   await settle();
   expect(url()).toBe('http://localhost/?page=3');
   expect(titles(root)).toEqual(['A5']);
-  expect(root.querySelector('.active')!.textContent).toBe('3');
+  expect(root.querySelector('a[aria-current]')!.textContent).toBe('3');
   await back();
   await settle();
   expect(titles(root)).toEqual(['A3', 'A4']);
+});
+
+test('a page link stays on the page: a history entry, and the list loads that page', async () => {
+  const requests = api();
+  const { root, settle, url, historyWrites } = await render(page, { requests });
+  await settle();
+  const before = requests.calls.length;
+  root.querySelector<HTMLAnchorElement>('a[href="?page=3"]')!.click();
+  await settle();
+  expect(url()).toBe('http://localhost/?page=3');
+  expect(titles(root)).toEqual(['A5']);
+  expect(root.querySelector('a[aria-current]')!.textContent).toBe('3');
+  expect(requests.calls.slice(before).map((c) => c.url)).toEqual(['/api/articles?offset=4&limit=2']);
+  expect(historyWrites().at(-1)).toMatchObject({ op: 'push' });
 });

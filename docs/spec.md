@@ -818,7 +818,7 @@ A mutation's 2xx response is applied to the resources it is about, by the `apply
 
 - Patches merge. A field the response omits stays; a row created by rule 2 lacks fields only the server sets until the next load or event. Fields that already hold the value are not written: a base write to an item drops an older pending layer's changes to that item (as a server event does), so a confirmation that changes nothing must write nothing.
 - Never by type alone: a response `Article` does not replace the single `article` unless the URL read it; a response `Profile` does not touch `article.author` unless the URL read it. A `DELETE` on a sub-resource (`/articles/{slug}/favorite`) removes nothing; a `DELETE` of a single-object resource's URL leaves it (the page usually navigates).
-- Rules 1 to 3 need the spec (`sinter({ openapi })`); untyped pages get rule 4 and the body-only form of rule 3.
+- Rules 1 to 3 need the spec (`sinter({ apis })`); untyped pages get rule 4 and the body-only form of rule 3.
 - `data-sn-apply="off"` turns it off for one element. `GET` actions and `data-sn-call` have no write-through.
 - `SN510 redundant-write` (warning): a `then` that `patch`es or `upsert`s a resource with `$result.<path>` a rule applies, or `remove`s the row a rule 4 removes. Dev builds log each application: `write-through after POST /api/articles/x/favorite: articles: patch, feed: patch`.
 - RealWorld (2026-11-08): 12 of 19 `then` handlers went, among them every favorite and follow button and the comment form's `upsert`.

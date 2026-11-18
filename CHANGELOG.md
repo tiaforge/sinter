@@ -3,6 +3,12 @@
 Attribute names, function names and diagnostic codes are public API. Before
 1.0, renames are allowed but listed here.
 
+## Unreleased
+
+### Fixed
+
+- Recipes brought up to date: the offline-draft form starts as the loaded note (it started empty, so the first autosave cleared the note's body); the URL pagination recipe's page numbers are links with `aria-current`, the recommended pager since same-page links; the form dialog has no `data-sn-catch`, so a rejected save shows the server's messages on its fields, and it says why `upsert('people', $result)` stays (no write-through for a POST without an OpenAPI spec). docs/pagination.md marks the current page link from `$url.page`, as its text says.
+
 ## 0.20.0 (2026-11-18)
 
 ### Changed
