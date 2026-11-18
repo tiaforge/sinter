@@ -95,9 +95,10 @@ npm run release -- 0.3.0   # sinter, the create starter, sinter-markdown (its pe
 
 From GitHub's UI: Actions → Release → Run workflow (on `main`) → the version, such as `0.3.0`
 (`0.3.0-rc.1` for a pre-release, published to npm under `next` instead of `latest`). The workflow runs
-`npm run release -- 0.3.0 --no-check` (the bumps, the dated changelog, commit "Release 0.3.0", tag `v0.3.0`,
-the publish dry runs) and pushes the tag; once everything is published it moves `main` to the release commit
-(merging it, if `main` moved on meanwhile) and makes the GitHub release, its notes the changelog's section.
+`npm run release -- 0.3.0 --no-check` (the bumps, the dated changelog, commit "Release 0.3.0", the publish dry
+runs) and pushes the commit to a temporary branch, `release/v0.3.0`; runs CI on it; tags it `v0.3.0` only once
+CI passed; publishes; then moves `main` to the release commit (merging it, if `main` moved on meanwhile), makes
+the GitHub release, its notes the changelog's section, and deletes the branch.
 
 Or locally: `npm run release -- 0.3.0`, `git push origin HEAD v0.3.0`, then on GitHub publish a release for
 the tag `v0.3.0`.
@@ -105,9 +106,9 @@ the tag `v0.3.0`.
 Either way, the [Release workflow](.github/workflows/release.yml) checks that the tag is every package's version
 (`scripts/release-check.mjs`), runs CI on the tagged commit, and publishes: `@tiaforge-ui/sinter` first, then
 `create-sinter` and `@tiaforge-ui/sinter-markdown`, all with npm provenance; the two crates; the NuGet package.
-It holds no tokens: each registry trusts the workflow through GitHub's OIDC token. A run that fails before anything is
-published deletes its tag, so it can simply be run again with the same version. Running a failed job again
-skips what is already published.
+It holds no tokens: each registry trusts the workflow through GitHub's OIDC token. A run that fails before the tag leaves
+nothing behind (its branch is deleted), so it can simply be run again with the same version. Once tagged, a
+failed publish is retried with "Re-run failed jobs", which skips what is already published.
 
 Set up once:
 
