@@ -158,6 +158,13 @@ test('SN503 passes a value with a literal prefix', () => {
   expect(sn503("id: c.id + '-x'")).toBe(1);
   expect(sn503("id: '' + c.id")).toBe(1);
   expect(sn503('id: `${c.id}-x`')).toBe(1);
+  // a choice: each branch literal-prefixed, or no attribute at all
+  expect(sn503("id: c.id ? 'contact-' + c.id : null")).toBe(0);
+  expect(sn503("id: c.vip ? `vip-${c.id}` : c.id ? 'c-' + c.id : undefined")).toBe(0);
+  expect(sn503("id: c.id ? 'contact-' + c.id : false")).toBe(0);
+  expect(sn503("id: c.id ? 'contact-' + c.id : c.id")).toBe(1);
+  expect(sn503("id: c.id ? c.id : null")).toBe(1);
+  expect(sn503("id: c.id ? 'contact-' + c.id : ''")).toBe(1);
 });
 
 describe('sandbox gaps closed', () => {

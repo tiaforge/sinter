@@ -590,6 +590,18 @@ export function mount(root: Document | Element, o: MountOptions): App {
       else if (STYLE_BAD.test(v)) { el.style.removeProperty(n); warn(8, n, v); }
       else el.style.setProperty(n, v);
     } : undefined,
+    /** a style group (`Binding.g`): its values `v` in the order of its names; only those that differ from `prev` are written */
+    // On the first write to an element with no inline style (a new clone of a template element without a
+    // `style` attribute), an unset entry has nothing to remove: it is skipped, not a removeProperty call per
+    // name (a group of 50 names, 2,000 elements: 100,000 calls that change nothing).
+    g: F.STYLE ? (el: HTMLElement, g: number, v: any, prev?: any) => {
+      const names = ir.sg![g]!;
+      const fresh = !prev && !el.hasAttribute('style');
+      for (let i = 0; i < names.length; i++) {
+        const x = v?.[i];
+        if (fresh ? x != null && x !== false : !prev || !Object.is(x, prev[i])) W.s!(el, names[i]!, x);
+      }
+    } : undefined,
   };
 
   /** Elements written through callbacks (`$.$m(row, …)`) since the last flush. */
@@ -1125,7 +1137,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
         }
         break;
       case 'attr': W.a(el, n, v); break;
-      case 'style': if (F.STYLE) W.s!(el, n, v);
+      case 'style': if (F.STYLE) b.g != null ? W.g!(el, b.g, v, prev) : W.s!(el, n, v);
     }
   }
 

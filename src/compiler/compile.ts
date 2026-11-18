@@ -1049,7 +1049,7 @@ class Compiler {
   /** components used inside themselves: their tags (recursion points), and the definition each compiles to */
   private readonly points = new WeakMap<P5Element, string>();
   /** `<sn-component use>`: one point per candidate, rendered when `use` is its name; `key`: the value of the data that names it, for narrowing */
-  private readonly choices = new WeakMap<P5Element, { name: string; key: string | null; keySrc: string | null; names: string[]; pool?: string[]; first: boolean; keys?: string[]; hasElse?: boolean; group: ChoiceGroup; keyAt?: number }>();
+  private readonly choices = new WeakMap<P5Element, { name: string; key: string | null; keySrc: string | null; names: string[]; pool?: string[]; first: boolean; keys?: string[]; also?: string[]; hasElse?: boolean; group: ChoiceGroup; keyAt?: number }>();
   /** `<sn-component use>`: one choice anchor per use, its candidates gathered as the walk reaches them (`finishChoices`) */
   private readonly choiceGroups: ChoiceGroup[] = [];
   /** the `<template>` of each `if`, `for`, `else` and recursion point node, which `anchors()` turns into a pair of comments */
@@ -1421,6 +1421,54 @@ class Compiler {
     return (this.walk = { doc, images, paths });
   }
 
+  /**
+   * An element's `data-sn-style` entries as one binding (`Binding.g`): its function returns the values in the
+   * order of its names, which are listed once per distinct list in the IR (`sg`), and the runtime writes those
+   * that changed. What a page with many styled elements ships (a component library that renders a tree, one
+   * element per node, each with the properties it may have) is then one function and one binding per element,
+   * not one of each per property. Entries that all read one object under their own key
+   * (`{ color: node.style.color, 'font-size': node.style['font-size'] }`) read it once. Only plain entries are
+   * grouped: not one that reads `$el` or compares a row with an outer value (`s`). The names stay the literal
+   * keys the compiler checked; the runtime sets only those.
+   */
+  groupStyles(): string[][] {
+    const lists: string[][] = [], byKey = new Map<string, number>();
+    const prefix = '($) => (';
+    const group = (node: NodeDef) => {
+      const st = node.b.filter((b) => b.k === 'style' && b.n !== undefined && b.f !== undefined && !b.e && !b.s);
+      if (st.length < 2) return;
+      const codes = st.map((b) => this.fns[b.f!]!);
+      if (!codes.every((c) => c.startsWith(prefix) && c.endsWith(')'))) return;
+      const exprs = codes.map((c) => c.slice(prefix.length, -1));
+      const names = st.map((b) => b.n!);
+      // one object read under each entry's own name: read it once
+      let object: string | null = null;
+      const reads = exprs.map((x) => {
+        let n: acorn.Expression;
+        try { n = parseExpression(x) as acorn.Expression; } catch { return null; }
+        if (n.type !== 'MemberExpression') return null;
+        const key = n.computed ? (n.property.type === 'Literal' && typeof n.property.value === 'string' ? n.property.value : null) : (n.property as acorn.Identifier).name;
+        return key === null ? null : { object: x.slice(n.object.start, n.object.end), key };
+      });
+      if (reads.every((r, i) => r && r.key === names[i] && r.object === reads[0]!.object)) object = reads[0]!.object;
+      const code = object !== null
+        ? `($) => (((o) => [${names.map((n) => (/^[A-Za-z_$][\w$]*$/.test(n) ? `o.${n}` : `o[${JSON.stringify(n)}]`)).join(', ')}])(${object}))`
+        : `($) => ([${exprs.map((x) => `(${x})`).join(', ')}])`;
+      const key = JSON.stringify(names);
+      let g = byKey.get(key);
+      if (g === undefined) byKey.set(key, (g = lists.push(names) - 1));
+      const d = new Map<string, PathRef>();
+      for (const b of st) for (const x of b.d ?? []) d.set(JSON.stringify(x), x);
+      const merged = this.binding({ k: 'style', f: this.fn(code, this.fnAt[st[0]!.f!] ?? null), g, ...(d.size ? { d: [...d.values()] } : {}), ...(st.some((b) => b.i) ? { i: 1 as const } : {}) });
+      for (const b of st) if (--this.fnUses[b.f!]! === 0) this.fns[b.f!] = '0';
+      const at = node.b.indexOf(st[0]!);
+      node.b = node.b.flatMap((b, i) => (i === at ? [merged] : st.includes(b) ? [] : [b]));
+    };
+    for (const n of this.roots) group(n);
+    for (const t of this.templates) for (const n of t.nodes) group(n);
+    return lists;
+  }
+
   /** The walked page evaluated, its constants written and dropped, and its HTML, IR and module parts. */
   finishPage({ doc, images, paths }: NonNullable<Compiler['walk']>): CompiledParts & { canonicalOnly?: boolean } {
     if (this.opts.prerender) { this.prerender(); this.embedFolded(); this.dropConstants(); this.dropFiles(); this.foldScriptsOut(); if (this.collecting()) this.collectConstants(); }
@@ -1428,6 +1476,8 @@ class Compiler {
     let early = this.opts.early ? this.earlyParts() : undefined;
     this.placeTemplates(doc, early);
     if (early && this.opts.sourcemap) early.sources = this.sourcesOf(early.fns, this.earlySites);
+    // (after the passes that read one binding per property: the constants written at build time, the early file)
+    const styleGroups = this.groupStyles();
     // row templates (data-sn-for) get a compiled element lookup; if/else branches render once per
     // toggle and use the generic path walk, which costs no code per template
     const rowTemplates = new Set([...this.roots, ...this.templates.flatMap((t) => t.nodes)].flatMap((n) => n.b.filter((b) => b.k === 'for').map((b) => b.x!)));
@@ -1462,6 +1512,7 @@ class Compiler {
       if (t && kids.length == 1 && 'tagName' in kids[0]!) t.o = 1;
     }
     const ir: IR = { v: 2, resources: this.resources, syncs: this.syncs, roots: this.roots, templates: this.templates, actions: this.actions };
+    if (styleGroups.length) ir.sg = styleGroups;
     if (this.page.usesNow) ir.now = true;
     // lets that wait for a lazy helper module (lets.ts), each module loaded by a function of the table
     const lazyHelpers = this.lazyMods.filter((_, i) => this.fns.some((c) => c.includes(`$.$z(${i}, `)));
@@ -2229,7 +2280,8 @@ class Compiler {
     const all = this.choicePool(this.origins.get(el)?.file);
     const lib = this.libOfFile(this.origins.get(el)?.file);
     // each candidate, and the value of the data that names it (convention, map), for narrowing
-    let cands: Array<{ name: string; key: string | null; at?: number }>;
+    // `also`: a map's other keys for the same component (one candidate per component, as the browser picks one)
+    let cands: Array<{ name: string; key: string | null; at?: number; also?: string[] }>;
     let keySrc: string | null = null, map = false;
     if (ast.type === 'TemplateLiteral' && ast.expressions.length === 1) {
       const pre = ast.quasis[0]!.value.cooked ?? '', post = ast.quasis[1]!.value.cooked ?? '';
@@ -2267,6 +2319,14 @@ class Compiler {
     } else {
       return fail('`use` names the component by a template string (``use="`${b.type}-block`"``), a map (`use="{ hero: \'hero-block\' }[b.type]"`) or a helper (`use="blockComponent(b)"`)');
     }
+    // every key of the map: what `use`'s key may be, and what the else is not
+    const allKeys = cands.flatMap((c) => (c.key === null ? [] : [c.key]));
+    if (map) {
+      // a component named under two keys is one candidate with both: rendered once, as the browser's choice renders it
+      const byName = new Map<string, { name: string; key: string | null; at?: number; also: string[] }>();
+      for (const c of cands) { const f = byName.get(c.name); if (f) f.also.push(c.key!); else byName.set(c.name, { ...c, also: [] }); }
+      cands = [...byName.values()];
+    }
     const names = cands.map((c) => c.name);
     const parent = el.parentNode!;
     const at = parent.childNodes.indexOf(el as never);
@@ -2282,7 +2342,7 @@ class Compiler {
       for (const map of [this.slotOf, this.fillOf, this.defaultOf, this.childrenOf] as Array<WeakMap<object, unknown>>) if (map.has(el)) map.set(x, map.get(el));
       this.points.set(x, c.name);
       if (this.pointCtx.has(el)) this.pointCtx.set(x, this.pointCtx.get(el)!);
-      this.choices.set(x, { name: c.name, key: c.key, keySrc, names, ...(lib ? { pool: [...lib.public, ...lib.internal] } : {}), first: !clones.length, group, ...(map ? { keys: cands.map((y) => y.key!) } : {}), ...(c.at !== undefined ? { keyAt: c.at } : keySrc !== null ? { keyAt: use!.indexOf(keySrc) } : {}) });
+      this.choices.set(x, { name: c.name, key: c.key, keySrc, names, ...(lib ? { pool: [...lib.public, ...lib.internal] } : {}), first: !clones.length, group, ...(map ? { keys: allKeys } : {}), ...(c.also?.length ? { also: c.also } : {}), ...(c.at !== undefined ? { keyAt: c.at } : keySrc !== null ? { keyAt: use!.indexOf(keySrc) } : {}) });
       clones.push(x);
     }
     if (!clones.length) this.report(el, 'use', 'SN312', '`use` names no component of the app', 0);
@@ -2293,7 +2353,7 @@ class Compiler {
       next.attrs = next.attrs.filter((a) => a.name !== 'data-sn-else');
       next.attrs.push({ name: 'data-sn-if', value: `!${JSON.stringify(names)}.includes(${use})` });
       // checked where the key names no candidate, so the data narrows (`n.value` of the union's other members)
-      if (keySrc !== null && cands.length && cands.every((c) => c.key !== null)) this.branchGuard.set(next, `!(${cands.map((c) => `(${keySrc}) === ${JSON.stringify(c.key)}`).join(' || ')})`);
+      if (keySrc !== null && cands.length && cands.every((c) => c.key !== null)) this.branchGuard.set(next, `!(${(map ? allKeys : cands.map((c) => c.key!)).map((k) => `(${keySrc}) === ${JSON.stringify(k)}`).join(' || ')})`);
       for (const c of clones) this.choices.get(c)!.hasElse = true;
     }
   }
@@ -3436,7 +3496,8 @@ class Compiler {
     // each candidate's props, checked with the data narrowed to its value (convention, map; a helper hides the link)
     if (choice?.key != null && this.check && this.lastExpr !== null && attr(host, 'data-sn-prop') !== undefined) {
       const e = this.check.exprs[this.lastExpr]!;
-      e.guard = `(${choice.keySrc}) === ${JSON.stringify(choice.key)}`;
+      // (in parentheses when there are several keys: the guard is joined with others)
+      e.guard = choice.also?.length ? `(${[choice.key, ...choice.also].map((k) => `(${choice.keySrc}) === ${JSON.stringify(k)}`).join(' || ')})` : `(${choice.keySrc}) === ${JSON.stringify(choice.key)}`;
       e.guardAt = { name: choice.name, key: choice.key, loc: this.locOf(host, 'use', choice.keyAt ?? 0) };
     }
     for (const l of lets) if (l.src?.length) this.addSources(`@def:${name}:${l.name}`, l.src);
@@ -3848,8 +3909,26 @@ class Compiler {
   finishChoices() {
     for (const g of this.choiceGroups) {
       const b = g.node!.b[0]!;
-      const cases = g.cases.map((c, i) => `v === ${JSON.stringify(c.name)} ? [${i}, ${c.props}]`).join(' : ');
-      b.f = this.fn(`($) => { const v = (${g.pick}); ${g.warn}return ${cases} : null; }`, g.site);
+      // Many candidates that take a few distinct props (a library's dispatch: one prop, `{ node }`, the
+      // same for every candidate but those that also carry fills) are a lookup, not a chain: one entry per
+      // name, the first candidate of a name winning as in the chain, and each distinct props object written
+      // once. The table has no prototype and is read only for a string, so `use` matches exactly the names
+      // the chain would. A component used in many places repeats this per place, so it must stay small.
+      const variants = [...new Set(g.cases.map((c) => c.props))];
+      if (g.cases.length >= CHOICE_TABLE && variants.length <= 3) {
+        const entries = new Map<string, string>();
+        g.cases.forEach((c, i) => {
+          if (!entries.has(c.name)) entries.set(c.name, variants.length > 1 ? `[${i}, ${variants.indexOf(c.props)}]` : String(i));
+        });
+        const table = `{ __proto__: null, ${[...entries].map(([n, e]) => `${JSON.stringify(n)}: ${e}`).join(', ')} }`;
+        const pick = variants.length > 1
+          ? `const e = typeof v === 'string' ? ${table}[v] : undefined; return e === undefined ? null : [e[0], ${variants.map((p, k) => (k < variants.length - 1 ? `e[1] === ${k} ? ${p} : ` : p)).join('')}];`
+          : `const i = typeof v === 'string' ? ${table}[v] : undefined; return i === undefined ? null : [i, ${variants[0]}];`;
+        b.f = this.fn(`($) => { const v = (${g.pick}); ${g.warn}${pick} }`, g.site);
+      } else {
+        const cases = g.cases.map((c, i) => `v === ${JSON.stringify(c.name)} ? [${i}, ${c.props}]`).join(' : ');
+        b.f = this.fn(`($) => { const v = (${g.pick}); ${g.warn}return ${cases} : null; }`, g.site);
+      }
       b.c = g.cases.map((c) => c.tid);
       const d = [...new Set(g.cases.flatMap((c) => c.deps))].sort();
       if (d.length) b.d = d;
@@ -8859,14 +8938,24 @@ const entryValue = (r: ExprResult, e: { offset: number }): Node | undefined => {
 };
 /**
  * Whether a value starts with a literal, non-empty string (`'contact-' + c.id`, `` `contact-${c.id}` ``):
- * data then cannot name a global another script reads, so `id`/`name` from it is not reported.
+ * data then cannot name a global another script reads, so `id`/`name` from it is not reported. A choice
+ * (`c.id ? 'contact-' + c.id : null`) is when each of its branches is, or sets no attribute (`null`,
+ * `false`, `undefined`): every value it can give still starts with the literal.
  */
 const literalPrefix = (n: Node | undefined): boolean => {
+  if (n?.type === 'ConditionalExpression') {
+    const c = n as import('acorn').ConditionalExpression;
+    return [c.consequent, c.alternate].every((b) => noAttribute(b as Node) || literalPrefix(b as Node));
+  }
   while (n?.type === 'BinaryExpression' && (n as import('acorn').BinaryExpression).operator === '+') n = (n as import('acorn').BinaryExpression).left as Node;
   if (n?.type === 'Literal') { const v = (n as import('acorn').Literal).value; return typeof v === 'string' && v !== ''; }
   if (n?.type === 'TemplateLiteral') return ((n as import('acorn').TemplateLiteral).quasis[0].value.cooked ?? '') !== '';
   return false;
 };
+/** `null`, `false` or `undefined`: a value that removes the attribute */
+const noAttribute = (n: Node): boolean =>
+  (n.type === 'Literal' && ((n as import('acorn').Literal).value === null || (n as import('acorn').Literal).value === false))
+  || (n.type === 'Identifier' && (n as import('acorn').Identifier).name === 'undefined');
 /**
  * The local image files an expression can only evaluate to (a literal path, or a choice between
  * literals: `dark ? './logo-dark.png' : './logo.png'`), or null when it can be anything else.
@@ -8902,7 +8991,7 @@ const usesEl = (r: ExprResult): Pick<Binding, 'e' | 'i'> => ({ ...(r.usesEl ? { 
 
 function binding(b: Binding): Binding {
   const out: Binding = { k: b.k };
-  for (const key of ['f', 'd', 'n', 'q', 'm', 'x', 'a', 'y', 'z', 'c', 'w', 'p', 'e', 'i', 'ms', 's'] as const) {
+  for (const key of ['f', 'd', 'n', 'q', 'm', 'x', 'a', 'y', 'z', 'c', 'w', 'p', 'e', 'i', 'ms', 's', 'g'] as const) {
     const v = b[key];
     if (v === undefined || (Array.isArray(v) && v.length === 0 && key !== 'd')) continue;
     (out as unknown as Record<string, unknown>)[key] = v;
@@ -9160,6 +9249,8 @@ export function makeCode(nodes: NodeDef[], fns: string[]): string | null {
       const v = 'v' + names.length;
       names.push(v);
       vals.push(`${v} = ${e} ? (${code.slice('($) => ('.length, -1)}) : w.U`);
+      // a style group: its values in the order of its names (`groupStyles`)
+      if (b.g !== undefined) { writes.push(`${e} && w.g(${e}, ${b.g}, ${v})`); continue; }
       writes.push(`${e} && w.${b.k === 'text' && b.n ? 'x' : WRITER[b.k]}(${e}, ${JSON.stringify(b.n ?? '')}, ${v}${b.k === 'class' ? `, ${valued[k]!.cl ? 1 : 0}` : ''})`);
     }
   }
@@ -9238,13 +9329,40 @@ export function preconnects(resources: ResourceDef[], syncs: SyncDef[]): string[
   return [...out];
 }
 
-/** JSON-like data: what a literal state object holds. */
-function plainData(v: unknown, depth = 0): boolean {
-  if (v === null || ['string', 'number', 'boolean', 'undefined'].includes(typeof v)) return true;
-  if (depth > 20 || typeof v !== 'object') return false;
-  if (Array.isArray(v)) return v.every((x) => plainData(x, depth + 1));
-  const proto = Object.getPrototypeOf(v);
-  return (proto === Object.prototype || proto === null) && Object.values(v as object).every((x) => plainData(x, depth + 1));
+/** From this many candidates, a `<sn-component use>` choice is a lookup table rather than a chain (`finishChoices`). */
+const CHOICE_TABLE = 8;
+
+/**
+ * How deep plain data may nest. A constant tree a component library unrolls at build time is as deep as
+ * its content: an email's HTML, a document's sections (each element is two levels: the node and its
+ * children's array). The bound keeps a cycle, or a structure nothing renders, from being walked forever.
+ */
+const PLAIN_DEPTH = 1024;
+
+/**
+ * JSON-like data: what a literal state object holds. Walked with a stack, not recursion, so a deep
+ * tree does not exhaust the call stack; an object reached twice (a shared subtree) is walked once
+ * unless it is reached again less deep.
+ */
+function plainData(v: unknown): boolean {
+  const scalar = (x: unknown) => x === null || ['string', 'number', 'boolean', 'undefined'].includes(typeof x);
+  if (scalar(v)) return true;
+  const seen = new Map<object, number>();
+  const stack: [unknown, number][] = [[v, 0]];
+  while (stack.length) {
+    const [x, depth] = stack.pop()!;
+    if (scalar(x)) continue;
+    if (depth > PLAIN_DEPTH || typeof x !== 'object') return false;
+    const at = seen.get(x as object);
+    if (at !== undefined && at <= depth) continue;
+    seen.set(x as object, depth);
+    if (!Array.isArray(x)) {
+      const proto = Object.getPrototypeOf(x);
+      if (proto !== Object.prototype && proto !== null) return false;
+    }
+    for (const c of Array.isArray(x) ? x : Object.values(x as object)) stack.push([c, depth + 1]);
+  }
+  return true;
 }
 
 /** A copy of parsed markup as the parser made it (source locations shared), with nothing the compiler attached. */
