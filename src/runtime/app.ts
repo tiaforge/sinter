@@ -8,6 +8,14 @@ import { envOf, type Env } from './env.js';
 import { prefetched } from './handoff.js';
 import { createRequestLayer, isAbort, readBody, toError, type RequestLayer, type SendInit } from './request.js';
 import { schemesOf, STYLE_BAD, urlAllowed } from './security.js';
+/** Two props objects of a choice's case (`[name]: value`) with the same keys, each the same value (Object.is). */
+const sameProps = (a: any, b: any): boolean => {
+  if (!a || !b || typeof a != 'object' || typeof b != 'object') return false;
+  let n = 0;
+  for (const k in a) { if (!Object.is(a[k], b[k])) return false; n++; }
+  for (const _ in b) n--;
+  return n == 0;
+};
 import { expand, readUrl as readFrom, withParams } from './url.js';
 // the parts of the core this build's pages use (a site's build serves its own: src/core-parts.ts)
 import * as F from './flags.js';
@@ -657,6 +665,23 @@ export function mount(root: Document | Element, o: MountOptions): App {
    */
   const isMarked = (t: number, s: any) => marked.has(s[ir.templates[t]!.item!]);
   const level = (e: Reach, d: Dirty, s?: any) => (e.conds.length ? reachLevel(e, d.v, s, isMarked) : 2);
+  /** a path node's depth in the trie, computed once */
+  const depthOf = new Int32Array(par.length).fill(-1);
+  const depth = (n: number): number => {
+    if (depthOf[n]! >= 0) return depthOf[n]!;
+    let k = 0;
+    for (let m = n; m >= 0; m = par[m]!) k++;
+    return (depthOf[n] = k);
+  };
+  /**
+   * Whether a change of the current round reaches a dependency of `rb` from inside the value it reads: the
+   * written path is longer than the dependency's, or it ends in `**` (a change anywhere below its parent, the
+   * whole of a state scope included) at or above the dependency.
+   */
+  const inside = (rb: RB): boolean => {
+    for (const n of ids(rb.b.d)) if (each(n, (d, e) => level(e, d, rb.s) > 0 && (d.w < 0 || (kinds[d.w] == '**' ? depth(d.w) - 1 <= depth(n) : depth(d.w) > depth(n))))) return true;
+    return false;
+  };
 
   /**
    * Dependencies of every binding in a template's rows, nested templates included. Templates that reach each
@@ -1225,9 +1250,12 @@ export function mount(root: Document | Element, o: MountOptions): App {
     // position, written again
     if (rb.ad != null && round <= rb.ad + 1 && n == m) old.forEach((x, i) => (x.key = keys[i]));
     rb.ad = undefined;
+    // a component's definition (a component inside itself): one row, its item the props, a new object at each
+    // evaluation. The same values again keep the row as it is, as a choice's case does (`toggle`)
+    const props = t.item!.startsWith('$p');
     const reuse = (x: Inst, i: number) => {
       const item = items[i];
-      if (x.item !== item) { setRow(x.s, t, (x.item = item), (x.i = i)); x.f = 2; }
+      if (x.item !== item && !(props && sameProps(x.item, item) && !inside(rb))) { setRow(x.s, t, (x.item = item), (x.i = i)); x.f = 2; }
       else if (x.i != i) { setRow(x.s, t, item, (x.i = i)); if (moved) x.f ||= 1; }
       // a computed list's row (`dv`): its item may have changed in place, which only the list depends on
       if (t.dv) x.f = 2;
@@ -1322,7 +1350,14 @@ export function mount(root: Document | Element, o: MountOptions): App {
     }
     if (br == rb.br) {
       const x = rb.rows?.[0];
-      if (ch && x && x.item !== item) { setRow(x.s, rb.t!, (x.item = item), 0); walkRow(x, rb.t!, 2); }
+      // a new props object: the row takes it and renders again, forced, since what its props hold may have changed
+      // in place (the case's bindings read it through the row's item, which no dirty path names). Not when each
+      // prop is the same value and no change of the round reached the choice from inside a value it reads (a
+      // write below the dependency it reached): then nothing the props hold changed, and the walk visits the
+      // row's bindings that changes reach, as a list's row with the same item. Each render makes a new props
+      // object, so without this a recursive component re-renders its whole subtree whenever any prop's
+      // dependency changes (a tree of 2,000 elements: every binding of every element).
+      if (ch && x && x.item !== item && !(sameProps(x.item, item) && !inside(rb))) { setRow(x.s, rb.t!, (x.item = item), 0); walkRow(x, rb.t!, 2); }
       return;
     }
     // a wrapper's anchor has no end comment: its branch ends where its row or branch does

@@ -153,6 +153,39 @@ describe('the runtime', () => {
     expect(p.textContent).toBe('ac');
     expect(p.querySelector('em')).toBeNull();
   });
+
+  test('a recursive component whose props are the same values again does not render its subtree again; another value does', async () => {
+    // `cap` depends on `big`, as a limit passed down a tree does: a click changes `big`, which reaches every choice
+    // and definition, and each gets a new props object of the same values. The tree's texts count their reads:
+    // a forced render of a subtree reads them all again
+    const C = {
+      'x-n': `<template data-sn-component="{ node: any; cap: number }"><b><template data-sn-for="n in node.children"><sn-component use="{ text: 'x-t', el: 'x-n' }[n.type]" data-sn-prop="{ node: n, cap }"></sn-component></template></b></template>`,
+      'x-t': '<template data-sn-component="{ node: any; cap: number }"><span><template data-sn-text="node.value"></template><i data-sn-text="cap"></i></span></template>',
+    };
+    let reads = 0;
+    // (`toJSON`: the dev tools serialize the state; that is not a read of the render)
+    const text = (v: string) => ({ type: 'text', get value() { reads++; return v; }, toJSON: () => ({ type: 'text', value: v }) });
+    const tree = () => ({ children: [{ type: 'el', children: [text('a'), { type: 'el', children: [text('b'), text('c')] }] }] });
+    const { root, state, flush } = await render(`<div data-sn-state="{ doc: tree(), big: false, n: 1 }">
+      <button id="big" data-sn-on-click="big = !big"></button><button id="n" data-sn-on-click="n = n + 1"></button>${W('doc = null')}
+      <template data-sn-for="b in doc.children"><sn-component use="{ el: 'x-n' }[b.type]" data-sn-prop="{ node: b, cap: big ? n : n }"></sn-component></template></div>`, { components: C, helpers: { tree } });
+    const out = () => root.querySelector('b')!.textContent;
+    expect(out()).toBe('a1b1c1');
+    reads = 0;
+    toggle(root, 'big');
+    await flush();
+    expect(out()).toBe('a1b1c1');
+    expect(reads).toBe(0);
+    // a prop that is another value renders the subtree again
+    toggle(root, 'n');
+    await flush();
+    expect(out()).toBe('a2b2c2');
+    expect(reads).toBeGreaterThan(0);
+    // a change inside a prop's value, the node the same object, still renders
+    state(root.querySelector('div')!).update((s) => { s.doc.children[0].children[1].children[1] = { type: 'text', value: 'd' }; });
+    await flush();
+    expect(out()).toBe('a2b2d2');
+  });
 });
 
 describe('first paint and takeover', () => {
