@@ -1,6 +1,8 @@
 # Proposal: per-language content and content namespaces, with messages as a package on them
 
-Status: proposed 2026-11-18, not started. It revisits the decision "i18n source" in
+Status: proposed 2026-11-18, not started. It builds on [locale-axis.md](locale-axis.md), which is its
+groundwork: the locale in the core (step 1 here) is that proposal's step 1, and if that proposal drops runtime
+switching (its decision 4), the runtime parts of §2 and step 2 here fall away. It revisits the decision "i18n source" in
 [spec.md](../spec.md#decisions) (2026-11-08: built-in messages from the inlang files, one file per page and
 language loaded before the first paint), but keeps every reason given there. Paraglide was considered as the
 package's engine and dropped: its message functions carry every language's text, its runtime picks the locale
@@ -252,7 +254,7 @@ Each step ships on its own and leaves every example app and the e2e pages as the
    a `localePrefix` page, the early file, the page module and each language file (bytes, gzip), and the
    rendered HTML. A test compares them after each step (`test/vite/messages-size.test.ts`, like the size budget
    tests).
-1. **`locales` in the core** (design §1). The picker moves into the early script and reads `sinter({ locales })`,
+1. **`locales` in the core** (design §1; done as [locale-axis.md](locale-axis.md)'s step 1). The picker moves into the early script and reads `sinter({ locales })`,
    or the inlang project when the option is absent (the built-in messages still supply it). `localePrefix`
    works with `messages: false` when `locales` is given. Docs: configuration.md, static-pages.md#languages.
 2. **Per-language constants at runtime** (§2). `{$locale}` in `file:` and `perLocale` collections without
