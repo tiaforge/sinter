@@ -27,7 +27,8 @@ Decisions proposed:
 5. **The public API does not change.** `localePrefix: true` stays one line for the whole app, links are
    rewritten as today, and no page declares its languages. A generic axis (`data-sn-pages="lang in languages"`
    written by the app, or tenant and market axes) is not proposed: the core would still have to be told which
-   list is the language, for the formatters, the links and `hreflang`.
+   list is the language, for the formatters, the links and `hreflang`. Tenants are the case for a second
+   axis; [§6](#6-tenants-by-domain) says what works for them today and what that axis would need.
 6. **Every built page is byte for byte what it is today**, for every example app and the e2e pages, through
    steps 1 to 4. Step 4 is also a speed change, measured.
 
@@ -169,6 +170,58 @@ sinter({ localePrefix: true, locales: { base: 'en', list: ['en', 'de'] } })
   must switch in place and cannot prefix its URLs.
 - The messages recipe moves to `localePrefix`, with a language link instead of a `<select>`.
 
+### 6. Tenants by domain
+
+The case: a multi-tenant shop, one tenant per domain (`acme-shop.com`, `globex-shop.com`), with the same pages,
+each tenant's own products and its own texts on top of shared ones, in several languages.
+
+**Today: one build per tenant**, and the reverse proxy maps each domain to its build's folder:
+
+```sh
+for t in acme globex; do TENANT=$t vite build --outDir dist/$t; done
+```
+
+- Each build sees its pages at `/`, so links, canonical links, the sitemap, `hreflang`, `data-sn-path` and
+  same-page links are right for its domain with nothing new. `site` comes from the tenant
+  (`sinter({ site: tenants[process.env.TENANT].origin })`).
+- Content loaders get `env`, so `TENANT` picks the tenant's products and other content; `localePrefix` and
+  `perLocale` work inside each build as for any app.
+- Texts: the `messages` option takes an inlang project's path (vite.ts:1099), so each tenant can have its own
+  project. Its single `pathPattern` means every shared text is repeated per tenant. The messages package
+  removes that: its `pathPattern` is a list, merged in order, so a tenant's files override only the keys
+  they change ([messages-package.md](messages-package.md#5-the-package)):
+  `['./messages/{locale}.json', './tenants/' + env.TENANT + '/{locale}.json']`.
+- The cost: N full builds that share nothing, and N folders to deploy.
+
+**Later: one build, with the tenant as an axis whose values are origins.** The proxy rewrites
+`acme-shop.com/*` to `/acme/*`, but a tenant written as a path prefix would be wrong: sinter would write
+`/acme/cart/` into links, which the visitor sees as `acme-shop.com/acme/cart/` and the proxy maps to
+`/acme/acme/cart/`. The axis needs a second kind of value besides the language's path prefix, an **origin**:
+
+```html
+<!-- src/layouts/shop.html: every page that uses the layout is built once per tenant -->
+<html data-sn-pages="tenant in tenants" data-sn-origin="tenant.origin">
+```
+
+- **Declared by a layout**, once: every page that uses it is built once per tenant, with the page's own
+  `data-sn-pages` entries inside each tenant and the languages around both. A point becomes language × the
+  layout's lists × the page's entries, on the engine of §1.
+- **Files under a folder, URLs without it**: the point is written under `dist/<tenant>/`, and every URL in it
+  (links, canonical, sitemap, `hreflang`, `localeUrl()`, the runtime's path patterns) is the one its domain
+  serves, with the tenant's origin where an absolute URL is needed. One sitemap per tenant.
+- **Shared assets** stay at the root (`/assets/…`), written once, and the proxy passes them through.
+- **Content per point**: `perLocale: true` becomes `per: ['tenant', 'locale']` on collections and content
+  namespaces, and a loader gets the point's values (`load: ({ tenant, locale }) => …`). The messages package's
+  file list then takes the tenant from the point instead of `env`.
+- **The server layers** (`@tiaforge-ui/sinter/server`, sinter-axum, Sinter.AspNetCore) get a host → tenant map in
+  the embed manifest, if the app embeds data.
+- **Not language traits**: choosers, the `locale` cookie and `hreflang` between tenants do not apply; a tenant
+  is never chosen for a visitor.
+
+What it buys over one build per tenant: one build and one deploy, and §2's reuse, so a page is walked once for
+all its tenants and languages when its program is the same. It is not in the plan below: it is worth building
+once N builds are too slow or too awkward to deploy, which one build per tenant measures first.
+
 ## Plan
 
 Each step ships on its own.
@@ -193,9 +246,8 @@ this proposal's step 1, and its step 2 shrinks to what `localePrefix` already do
 
 ## Not in this proposal
 
-- A public, generic axis: an app writing `data-sn-pages="lang in languages"`, or tenant and market axes. The
-  engine allows a second implicit outer list later; it needs a user first, and its own traits (a brand has no
-  `hreflang`).
+- A public, generic axis: an app writing `data-sn-pages="lang in languages"`, or market axes. Tenants by
+  domain have a design in [§6](#6-tenants-by-domain) but no step in the plan yet.
 - Translated path segments (`/de/ueber-uns`).
 - Messages: [messages-package.md](messages-package.md).
 
