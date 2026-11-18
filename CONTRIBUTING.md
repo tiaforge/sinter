@@ -93,12 +93,16 @@ npm run release -- 0.3.0   # sinter, the create starter, sinter-markdown (its pe
 
 ### Releasing
 
-1. `npm run release -- 0.3.0`, then `git push origin HEAD v0.3.0` (on `main`, or a branch merged with a
-   merge commit, so that the tagged commit is on `main`).
-2. On GitHub: Releases → Draft a new release → choose the tag `v0.3.0` → Publish release. "Set as a
-   pre-release" (or a version such as `0.3.0-rc.1`) publishes to npm under `next` instead of `latest`.
+From GitHub's UI: Actions → Release → Run workflow (on `main`) → the version, such as `0.3.0`
+(`0.3.0-rc.1` for a pre-release, published to npm under `next` instead of `latest`). The workflow runs
+`npm run release -- 0.3.0 --no-check` (the bumps, the dated changelog, commit "Release 0.3.0", tag `v0.3.0`,
+the publish dry runs) and pushes the tag; once everything is published it moves `main` to the release commit
+(merging it, if `main` moved on meanwhile) and makes the GitHub release, its notes the changelog's section.
 
-The [Release workflow](.github/workflows/release.yml) then checks that the tag is every package's version
+Or locally: `npm run release -- 0.3.0`, `git push origin HEAD v0.3.0`, then on GitHub publish a release for
+the tag `v0.3.0`.
+
+Either way, the [Release workflow](.github/workflows/release.yml) checks that the tag is every package's version
 (`scripts/release-check.mjs`), runs CI on the tagged commit, and publishes: `@tiaforge-ui/sinter` first, then
 `create-sinter` and `@tiaforge-ui/sinter-markdown`, all with npm provenance; the two crates; the NuGet package.
 It holds no tokens: each registry trusts the workflow through GitHub's OIDC token. Running a failed job again

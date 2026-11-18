@@ -5,6 +5,11 @@ on:
   pull_request:
   # the Release workflow runs all of it on the release's tag before anything is published
   workflow_call:
+    inputs:
+      ref:
+        description: the tag to check out (the pushed or pulled commit when empty)
+        type: string
+        default: ''
 
 jobs:
   test:
@@ -26,6 +31,8 @@ jobs:
       NODE_OPTIONS: --dns-result-order=ipv4first
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node }}
@@ -58,6 +65,8 @@ jobs:
       NODE_OPTIONS: --dns-result-order=ipv4first
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
       - uses: actions/setup-node@v4
         with:
           node-version: 24
@@ -85,6 +94,8 @@ jobs:
         working-directory: packages/sinter-axum
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy, rustfmt
@@ -107,6 +118,8 @@ jobs:
         working-directory: packages/sinter-aspnetcore
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: |
@@ -128,6 +141,8 @@ jobs:
         working-directory: packages/sinter-markdown
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
       - uses: actions/setup-node@v4
         with:
           node-version: 24
@@ -160,6 +175,8 @@ jobs:
       NODE_OPTIONS: --dns-result-order=ipv4first
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
       - uses: actions/setup-node@v4
         with:
           node-version: 24
@@ -186,6 +203,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
       - uses: actions/setup-node@v4
         with:
           node-version: 24
@@ -212,6 +231,8 @@ jobs:
       NODE_OPTIONS: --dns-result-order=ipv4first
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
       - uses: actions/setup-node@v4
         with:
           node-version: 24
