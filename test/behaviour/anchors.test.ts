@@ -186,6 +186,69 @@ describe('the runtime', () => {
     await flush();
     expect(out()).toBe('a2b2d2');
   });
+
+  test('a tree replaced by a copy of the path to a change: that path renders again, the components beside it whose props are the same do not', async () => {
+    // a tree that grows the way a stream or a progressive render grows it: each change is a new root, a copy of the
+    // elements down to where a node was added, the rest shared. Rows are keyed by the nodes' ids, so a copy keeps its
+    // row (by object, it would be a new row). The texts count their reads: a render of a component that did not change
+    // would read them again
+    const C = {
+      'x-n': `<template data-sn-component="{ node: any }"><b><template data-sn-for="n in node.children" data-sn-key="n.id"><sn-component use="{ text: 'x-t', el: 'x-n' }[n.type]" data-sn-prop="{ node: n }"></sn-component></template></b></template>`,
+      'x-t': '<template data-sn-component="{ node: any }"><span><template data-sn-text="node.value"></template></span></template>',
+    };
+    let reads = 0;
+    const text = (v: string) => ({ type: 'text', id: v, get value() { reads++; return v; }, toJSON: () => ({ type: 'text', id: v, value: v }) });
+    // an element beside the path that grows (`l`, with its own text) and the one it grows in (`i`)
+    const tree = () => ({ children: [{ type: 'el', id: 'o', children: [{ type: 'el', id: 'l', children: [text('a')] }, { type: 'el', id: 'i', children: [text('b')] }] }] });
+    // the copy: the root, the outer element and the inner one, with a text added to the inner one
+    const grow = (d: any, v: string) => {
+      const [outer] = d.children, inner = outer.children[1];
+      return { children: [{ ...outer, children: [outer.children[0], { ...inner, children: [...inner.children, text(v)] }] }] };
+    };
+    const { root, flush } = await render(`<div data-sn-state="{ doc: tree() }">
+      <button id="grow" data-sn-on-click="doc = grow(doc, 'c')"></button><button id="push" data-sn-on-click="doc.children[0].children[1].children.push({ type: 'text', id: 'd', value: 'd' })"></button>
+      <template data-sn-for="b in doc.children" data-sn-key="b.id"><sn-component use="{ el: 'x-n' }[b.type]" data-sn-prop="{ node: b }"></sn-component></template></div>`, { components: C, helpers: { tree, grow } });
+    const out = () => root.querySelector('b')!.textContent;
+    expect(out()).toBe('ab');
+    reads = 0;
+    toggle(root, 'grow');
+    await flush();
+    expect(out()).toBe('abc');
+    // the new text's read only (its row is new): `a` and `b` are not read again (6 reads when every component below
+    // the copied path rendered again)
+    expect(reads).toBe(1);
+    // a change in place, through a path into the same objects, still renders to the bottom
+    toggle(root, 'push');
+    await flush();
+    expect(out()).toBe('abcd');
+  });
+
+  test('a copy of the path through a component used inside itself, with tree slots: what is beside the path does not render again', async () => {
+    // as a document library is built: a root that declares a tree slot, a component used inside itself by its tag
+    // (a definition: one row, its item the props), whose loop over a prop is a computed list, the slot's fills passed
+    // down in the props (an object built at each evaluation)
+    const C = {
+      'x-doc': `<template data-sn-component="{ doc: any; link: Slot<{ node: any }> }"><div><template data-sn-for="b in doc.children" data-sn-key="b.id"><x-n data-sn-prop="{ node: b }"></x-n></template></div></template>`,
+      'x-n': `<template data-sn-component="{ node: any }"><b><template data-sn-for="n in node.children" data-sn-key="n.id"><template data-sn-if="n.type === 'text'"><span data-sn-text="n.value"></span></template><template data-sn-else><template data-sn-if="n.type === 'a'"><slot name="link" data-sn-prop="{ node: n }"><i>link</i></slot></template><template data-sn-else><x-n data-sn-prop="{ node: n }"></x-n></template></template></template></b></template>`,
+    };
+    const reads: Record<string, number> = {};
+    const text = (v: string) => ({ type: 'text', id: v, get value() { reads[v] = (reads[v] ?? 0) + 1; return v; }, toJSON: () => ({ type: 'text', id: v, value: v }) });
+    const tree = () => ({ children: [{ type: 'el', id: 'o', children: [{ type: 'el', id: 'l', children: [text('a'), { type: 'a', id: 'x', children: [] }] }, { type: 'el', id: 'i', children: [text('b')] }] }] });
+    const grow = (d: any, v: string) => {
+      const [outer] = d.children, inner = outer.children[1];
+      return { children: [{ ...outer, children: [outer.children[0], { ...inner, children: [...inner.children, text(v)] }] }] };
+    };
+    const { root, flush } = await render(`<div data-sn-state="{ doc: tree() }"><button id="grow" data-sn-on-click="doc = grow(doc, 'c')"></button><x-doc data-sn-prop="{ doc }"></x-doc></div>`, { components: C, helpers: { tree, grow } });
+    const out = () => root.querySelector('b')!.textContent;
+    expect(out()).toBe('alinkb');
+    for (const k in reads) delete reads[k];
+    toggle(root, 'grow');
+    await flush();
+    expect(out()).toBe('alinkbc');
+    // the new text, and \`b\`: the copied element's own content renders again; \`a\`, beside the path, does not (read
+    // again when the fills passed down, or the computed list of a component's own row, forced what is below)
+    expect(reads).toEqual({ b: 1, c: 1 });
+  });
 });
 
 describe('first paint and takeover', () => {
