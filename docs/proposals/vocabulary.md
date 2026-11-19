@@ -1,9 +1,13 @@
 # Proposal: a smaller, plainer vocabulary
 
-Status: in progress. Each step below lands as its own commit, with a diagnostic that names the
-replacement, so a page written for 0.20 fails the build with the fix in the message rather than
-changing behaviour silently. Attribute names, function names and diagnostic codes are public API;
-before 1.0 renames are allowed and listed in the changelog.
+Status: implemented 2026-11-19, except step 9 (below, held for a decision). Each step landed as its own
+commit, with a diagnostic that names the replacement, so a page written for 0.20 fails the build with the
+fix in the message rather than changing behaviour silently. Attribute names, function names and
+diagnostic codes are public API; before 1.0 renames are allowed and listed in the changelog.
+
+Decided with the user along the way: `reset()` goes too (4a); `data-sn-listbox` becomes the general
+mechanism, named `data-sn-options` (not `data-sn-roving`: a roving tabindex moves the focus itself); the
+props declaration is `data-sn-props`, so the passing attribute is renamed `data-sn-with` (12).
 
 The rule this applies: one way to do each thing, one word per concept, and nothing in the vocabulary
 that another part of it already does.
@@ -159,7 +163,20 @@ without one, beside `data-sn-debounce-<event>` for one handler. Now `data-sn-deb
 action's trigger only, and a handler is delayed by `data-sn-debounce-<event>` (`-input`, `-keydown-j`).
 `data-sn-debounce` without a method is `SN102` naming the `-<event>` attributes to write instead.
 
-### 9. `<sn-event>` writes with the store functions
+### 9. `<sn-event>` writes with the store functions (held)
+
+**Not done.** The `op` form is more than a way to write: the compiler and runtime read `resource` from it
+to know which resources a stream feeds, for `$meta.<name>.live`, the refresh of every fed resource after a
+reconnect, the hand-over of streamed pages, and the typing of `item` and `set` against the resource. `op`
+also carries rules a store call does not: an `upsert` of a key not on a paginated list's page refreshes
+the page instead, a `refresh` passes the payload so an `each` resource reloads only its source, a payload
+without the key fields is skipped with a warning and `then` does not run. To keep all of that, the
+compiler would have to read the calls back out of `then` into the same form, and a `?:` fallback would
+have no static form at all. The gain (four attributes fewer) does not pay for an implicit form that
+every one of those places has to reverse-engineer. Smaller options, if any: `item` and `set` as one
+attribute; `fallback` as a flag.
+
+The design as first written:
 
 `<sn-event>` had its own small language for changes (`resource`, `op`, `item`, `set`, `fallback`)
 beside `then`, which already calls store functions. In `then`, the store functions now take the
@@ -211,5 +228,5 @@ throughout: the values given to what the tag stands for.
 
 ## Plan
 
-One commit each, in this order: 1, 4a, 2, 3, 4, 10, 5, 8, 11, 7, 6, 9. Each updates the vocabulary, the
+One commit each, in this order: 1, 4a, 2, 3, 4, 10, 5, 8, 11, 7, 12, 6. Step 9 is held (above). Each updates the vocabulary, the
 compiler and runtime, tests, recipes, examples, docs (`npm run docs`) and the changelog.
