@@ -345,6 +345,8 @@ export async function sha256(file, ctx) {
   method attribute or `data-sn-body` is an error.
 - It is an action in every other respect: triggers, debounce, `aria-busy`, concurrency,
   `data-sn-optimistic`, `then` with `$result`, `catch` with `$error`, and the unhandled-error path.
+- `data-sn-retry` applies to each request the function sends with `ctx.request`, with its own
+  idempotency key; the function runs once ([retry.md](retry.md)).
 - Arguments are expressions evaluated at trigger time (they see `$event`). The function receives
   them, then a context `{signal, request, el}`. `request` is `fetch` through your middleware
   (headers, 401 handling, allowed origins, timeout); `signal` aborts when the page is hidden; `el`

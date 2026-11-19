@@ -5705,7 +5705,6 @@ class Compiler {
     if (applyAttr !== undefined && method === 'call') this.report(el, 'data-sn-write-through', 'SN102', '`data-sn-write-through` belongs to a method attribute (`data-sn-post`, `-put`, `-patch`, `-delete`): a call has no write-through', 0);
     const retryAttr = get('retry')?.trim();
     if (retryAttr === '') this.report(el, 'data-sn-retry', 'SN401', '`data-sn-retry` takes the name of a retry policy from `configure({ retry })`, e.g. `data-sn-retry="drafts"`', 0);
-    else if (retryAttr !== undefined && method === 'call') this.report(el, 'data-sn-retry', 'SN102', '`data-sn-retry` belongs to a method attribute (`data-sn-post`, `-put`, `-patch`, `-delete`): a call may send several requests, so sinter cannot send it again', 0);
     const ap = method !== 'call' && applyAttr === undefined ? this.applyDef(reads, typed) : null;
     if (ap) {
       this.features.add('apply');
@@ -5732,7 +5731,7 @@ class Compiler {
       ...(confirm.f !== null ? (this.features.add('confirm'), { confirm: confirm.f }) : {}),
       ...(encoding === 'form' ? { enc: 'form' as const } : {}),
       ...(ap ? { ap } : {}),
-      ...(retryAttr && method !== 'call' ? { retry: retryAttr } : {}),
+      ...(retryAttr ? { retry: retryAttr } : {}),
     };
     this.devAt(def, [def.then, def.catch]);
     this.actions.push(def);

@@ -130,7 +130,7 @@ export type Navigator = (i: Intent) => Decision | void | undefined;
 export interface CallContext {
   /** aborts when the page is hidden (pagehide) or, for a resource, when its inputs change */
   signal: AbortSignal;
-  /** a request through the app's middleware chain (401 handling, origins, timeout) */
+  /** a request through the app's middleware chain (401 handling, origins, timeout); with the action's `data-sn-retry`, sent again as its policy says (its own `init.retry` wins) */
   request(url: string, init?: SendInit): Promise<unknown>;
   /** the element whose action this is; null for a resource */
   el: Element | null;
@@ -213,7 +213,8 @@ export interface App {
     apply?: (a: ActionDef, scope: any, url: string, body: unknown, result: unknown) => void;
     /** an action is sent: the form's marks and `$error` are cleared; the function reports a failure, true when the form shows it */
     /** action functions (call.ts): runs one with its context (an action's signal aborts on pagehide); what one throws as an `$error` */
-    call?: { run(f: number, args: unknown, el: Element | null, signal?: AbortSignal): Promise<unknown>; error(e: unknown): SinterError };
+    /** `retry`: the action's `data-sn-retry`, for each request the function sends (`ctx.request`), `stop` ending its tries */
+    call?: { run(f: number, args: unknown, el: Element | null, signal?: AbortSignal, retry?: { retry: string; stop: AbortSignal }): Promise<unknown>; error(e: unknown): SinterError };
     /** debounced handlers and actions (debounce.ts): runs `run` once, `ms` after the last call for `key` */
     debounce?: (key: object, ms: number, run: () => void) => void;
     /** `data-sn-confirm` (confirm.ts): runs `go` once the user agrees to `question` (at once when it is falsy) */
@@ -1702,7 +1703,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
     }
     try {
       const result = a.call
-        ? await app.ext.call!.run(a.call.run, body, el)
+        ? await app.ext.call!.run(a.call.run, body, el, undefined, a.retry ? { retry: a.retry, stop: (st.r = new AbortController()).signal } : undefined)
         : await req.send(url, { method: a.method, body, ...(a.retry ? { retry: a.retry, stop: (st.r = new AbortController()).signal } : {}) });
       // a success keeps the optimistic change, under what `then` writes
       drop(true);

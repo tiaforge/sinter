@@ -465,7 +465,7 @@ export function validateIR(ir: unknown, fnCount: number): string[] {
     const at = `actions[${i}]`;
     if (!['POST', 'PUT', 'PATCH', 'DELETE', 'CALL'].includes(a.method)) errs.push(`${at}: bad method`);
     if (!['block', 'queue', 'latest'].includes(a.concurrency)) errs.push(`${at}: bad concurrency`);
-    if (a.retry !== undefined && (typeof a.retry !== 'string' || !a.retry || a.method === 'CALL')) errs.push(`${at}: retry is a policy name, on a mutation`);
+    if (a.retry !== undefined && (typeof a.retry !== 'string' || !a.retry)) errs.push(`${at}: retry is a policy name`);
     if (a.method === 'CALL') {
       if (!a.call) errs.push(`${at}: CALL needs call`);
       else { fn(a.call.args, `${at}.call.args`, false); fn(a.call.run, `${at}.call.run`, false); }

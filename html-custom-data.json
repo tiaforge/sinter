@@ -255,7 +255,7 @@
     },
     {
       "name": "data-sn-concurrency",
-      "description": "mutations only; default block for forms, queue otherwise (block | queue | latest)"
+      "description": "what a trigger does while the action runs; default block for forms, queue otherwise (block | queue | latest)"
     },
     {
       "name": "data-sn-optimistic",
@@ -279,7 +279,7 @@
     },
     {
       "name": "data-sn-retry",
-      "description": "mutations only: sends the request again as that policy of configure({ retry }) says (after a network error, a 5xx, a 429), with an Idempotency-Key; without it a write is sent once (retry policy name)"
+      "description": "sends the request again (with data-sn-call: each request ctx.request sends) as that policy of configure({ retry }) says (after a network error, a 5xx, a 429), with an Idempotency-Key; without it a write is sent once (retry policy name)"
     },
     {
       "name": "data-sn-write-through",

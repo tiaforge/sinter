@@ -45,9 +45,9 @@ Turn an element into a request. Details: [actions](actions.md).
 | `data-sn-trigger` | DOM event name | overrides the default trigger |
 | `data-sn-debounce` | milliseconds | delays the action's trigger, resets on each event; a handler waits with data-sn-debounce-&lt;event&gt; |
 | `data-sn-encoding` | json \| form | form: the body (data-sn-body, arrays as repeated keys, or the form) goes as application/x-www-form-urlencoded |
-| `data-sn-concurrency` | block \| queue \| latest | mutations only; default block for forms, queue otherwise |
+| `data-sn-concurrency` | block \| queue \| latest | what a trigger does while the action runs; default block for forms, queue otherwise |
 | `data-sn-confirm` | value expression | asks this question before the action runs (configure({ confirm }), window.confirm by default); no question when falsy |
-| `data-sn-retry` | retry policy name | mutations only: sends the request again as that policy of configure({ retry }) says (after a network error, a 5xx, a 429), with an Idempotency-Key; without it a write is sent once |
+| `data-sn-retry` | retry policy name | sends the request again (with data-sn-call: each request ctx.request sends) as that policy of configure({ retry }) says (after a network error, a 5xx, a 429), with an Idempotency-Key; without it a write is sent once |
 | `data-sn-write-through` | off | turns write-through off for this mutation: its response is not applied to the resources it is about |
 
 ## After a request

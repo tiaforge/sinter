@@ -270,12 +270,47 @@ test('`retry.get` leaves background refreshes of an `each` resource to `refresh`
   expect(r.root.querySelector('p')!.textContent).toBe('a error');
 });
 
-test('the compiler: a policy name on a mutation only', () => {
+test('a call with a policy: each request it sends follows it, with a key of its own; the function runs once', async () => {
+  configure({ retry: retry({ policies }) });
+  let runs = 0;
+  const requests = mockRequests({ 'PUT /api/a': seq({ status: 503 }, { ok: 1 }), 'PUT /api/b': { ok: 2 }, 'PUT /api/c': seq({ status: 503 }, { ok: 3 }) });
+  const r = await render(`<main data-sn-state="{ got: '' }">
+    <button id="with" data-sn-call="save()" data-sn-retry="drafts" data-sn-then="got = $result">s</button>
+    <button id="own" data-sn-call="once()" data-sn-retry="drafts" data-sn-catch="got = $error.message">o</button>
+    <b data-sn-text="got"></b></main>`, { requests, actions: {
+    save: async (ctx: { request: (u: string, i?: object) => Promise<{ ok: number }> }) => {
+      runs++;
+      const a = await ctx.request('/api/a', { method: 'PUT', body: {} });
+      const b = await ctx.request('/api/b', { method: 'PUT', body: {} });
+      return `${a.ok}${b.ok}`;
+    },
+    // the function's own `retry: false` wins over the element's policy
+    once: async (ctx: { request: (u: string, i?: object) => Promise<unknown> }) => ctx.request('/api/c', { method: 'PUT', body: {}, retry: false }),
+  } });
+  await r.settle();
+  r.root.querySelector<HTMLElement>('#with')!.click();
+  await r.settle();
+  await r.advance(1000);
+  await r.settle();
+  expect(runs).toBe(1);
+  expect(r.root.querySelector('b')!.textContent).toBe('12');
+  const keys = (path: string) => requests.calls.filter((c) => c.path == path).map((c) => c.headers['idempotency-key']);
+  expect(keys('/api/a')).toHaveLength(2);
+  expect(new Set(keys('/api/a')).size).toBe(1);
+  expect(keys('/api/b')).toHaveLength(1);
+  expect(keys('/api/b')[0]).not.toBe(keys('/api/a')[0]);
+  r.root.querySelector<HTMLElement>('#own')!.click();
+  await r.settle();
+  expect(keys('/api/c')).toHaveLength(1);
+  expect(r.root.querySelector('b')!.textContent).toBe('503');
+});
+
+test('the compiler: a policy name, on any action', () => {
   const opts = { file: '/x/i.html', root: '/x', dev: false, helpers: { module: null, names: [], namespaces: {} }, actions: { module: '/x/a.js', names: ['x'], namespaces: {} }, readFile: () => '' };
   const errors = (html: string) => compile(html, opts).diagnostics.map((d) => `${d.code} ${d.message}`);
   expect(errors('<button data-sn-post="/api/x" data-sn-retry="drafts">x</button>')).toEqual([]);
   expect(compile('<button data-sn-post="/api/x" data-sn-retry="drafts">x</button>', opts).module).toContain('"retry":"drafts"');
   expect(errors('<button data-sn-post="/api/x" data-sn-retry>x</button>')).toEqual([expect.stringMatching(/^SN401 `data-sn-retry` takes the name of a retry policy/)]);
-  expect(errors('<button data-sn-call="x()" data-sn-retry="drafts">x</button>')).toEqual([expect.stringMatching(/^SN102 .*a call may send several requests/)]);
+  expect(errors('<button data-sn-call="x()" data-sn-retry="drafts">x</button>')).toEqual([]);
   expect(errors('<button data-sn-retry="drafts">x</button>')).toEqual([expect.stringMatching(/^SN102 `data-sn-retry` needs a method attribute/)]);
 });

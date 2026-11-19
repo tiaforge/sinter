@@ -422,7 +422,7 @@ A model on `$url` (added 2026-11-13): `data-sn-model="$url.q"` binds a query par
 | `data-sn-trigger` | DOM event name | overrides the default trigger |
 | `data-sn-debounce` | milliseconds | delays the action's trigger, resets on each event; without a method `SN102`, naming the `data-sn-debounce-<event>` attributes for the element's handlers |
 | `data-sn-debounce-<event>` | milliseconds | delays the `data-sn-on-<event>` handler (it runs with the last event; `data-sn-model` still updates at once), e.g. `data-sn-debounce-input="200"` next to an immediate `data-sn-on-blur` |
-| `data-sn-concurrency` | `block`, `queue` or `latest` | mutations only; default `block` for forms, `queue` otherwise |
+| `data-sn-concurrency` | `block`, `queue` or `latest` | what a trigger does while the action runs; default `block` for forms, `queue` otherwise |
 | `data-sn-optimistic` | handler expression | store changes applied before the request |
 | `data-sn-then` | handler expression | runs after a 2xx response, `$result` = parsed body |
 | `data-sn-catch` | handler expression | runs after an error, `$error` = error object |
@@ -941,7 +941,7 @@ configure({
 
 Durations are written as in `refresh` and `cache` (`30s`, `5m`, `1h`, `1d`); `retry()` throws on a value it cannot read, and when `get` names no policy. Without `retries` and `maxAge`, a policy retries for as long as the page is open.
 
-- **Where.** `data-sn-retry` takes a policy name, on actions with `data-sn-post`, `-put`, `-patch` or `-delete`. No value is `SN401`; on `data-sn-call` (a call may send several requests) or on an element without an action it is `SN102`. Writes have no default policy: whether a write may be sent twice depends on what its endpoint does, which only its element can say. GETs (resource loads, `each` sources, pages) use `retry.get`, except background refreshes (`refresh`, which retries by itself), the session probe, next-page data and the early file's requests. A name `retry()` does not define fails the action with `$error.message` "unknown retry policy `x`"; with no `retry` configured at all, the write is sent once, as without the attribute (the check lives in the retry module, not in core). Dev builds warn at mount about both. The compiler does not read the config module, so the name is checked when the page runs.
+- **Where.** `data-sn-retry` takes a policy name, on any action. No value is `SN401`; on an element without an action it is `SN102`. On `data-sn-call` (added 2026-11-19) the policy goes to each request the function sends through `ctx.request`, each with its own idempotency key; the function runs once (it may do more than send, and its requests differ), and a request's own `retry` in its init wins (`retry: false` sends it once). While the function waits inside a request it does not count as busy, the request does. Writes have no default policy: whether a write may be sent twice depends on what its endpoint does, which only its element can say. GETs (resource loads, `each` sources, pages) use `retry.get`, except background refreshes (`refresh`, which retries by itself), the session probe, next-page data and the early file's requests. A name `retry()` does not define fails the action with `$error.message` "unknown retry policy `x`"; with no `retry` configured at all, the write is sent once, as without the attribute (the check lives in the retry module, not in core). Dev builds warn at mount about both. The compiler does not read the config module, so the name is checked when the page runs.
 - **What is sent again:**
 
 | Response | Effect |
