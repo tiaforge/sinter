@@ -6,7 +6,7 @@
 
   <!-- Only events about this task: an edit in another tab shows here, a delete empties the page. -->
   <sn-sync src="/api/events">
-    <sn-event name="task_updated" resource="task" op="upsert" item="task" when="task.id === $url.id" type="TaskEvent"></sn-event>
+    <sn-event name="task_updated" resource="task" op="upsert" value="task" when="task.id === $url.id" type="TaskEvent"></sn-event>
     <sn-event name="task_removed" resource="task" op="remove" when="id === $url.id" type="TaskRemoved"></sn-event>
   </sn-sync>
 

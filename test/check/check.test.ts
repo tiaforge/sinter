@@ -592,11 +592,11 @@ export const initial = (c: Contact): string => (c.name[0] ?? '?').toUpperCase();
     const html = page(`<sn-resource name="feed" src="/api/feed" key="id" type="Contact[]" paginate="{ keyset: { after: idd }, size: 10 }"></sn-resource>
 <p data-sn-text="contacts.length + feed.length"></p>
 <sn-sync src="/api/events">
-  <sn-event name="a" resource="contacts" op="upsert" item="contact" type="ContactEvent"></sn-event>
-  <sn-event name="b" resource="contacts" op="upsert" item="id" type="ContactEvent"></sn-event>
-  <sn-event name="c" resource="contacts" op="merge" set="{ name: patch.name }" type="ContactEvent"></sn-event>
-  <sn-event name="d" resource="contacts" op="upsert" item="contct" type="ContactEvent"></sn-event>
-  <sn-event name="e" resource="contacts" op="upsert" item="whatever" type="any"></sn-event>
+  <sn-event name="a" resource="contacts" op="upsert" value="contact" type="ContactEvent"></sn-event>
+  <sn-event name="b" resource="contacts" op="upsert" value="id" type="ContactEvent"></sn-event>
+  <sn-event name="c" resource="contacts" op="merge" value="{ name: patch.name }" type="ContactEvent"></sn-event>
+  <sn-event name="d" resource="contacts" op="upsert" value="contct" type="ContactEvent"></sn-event>
+  <sn-event name="e" resource="contacts" op="upsert" value="whatever" type="any"></sn-event>
 </sn-sync>`);
     const r = run(html, { 'src/sinter.types.ts': types });
     expect(r.compile.filter((d) => d.severity === 'error' || d.code === 'SN506')).toEqual([]);

@@ -6681,14 +6681,15 @@ class Compiler {
     const resEl = resource ? this.resourceEls.get(resource) : undefined;
     const written = (resEl && attr(resEl, 'type')?.trim()) || null;
     const itemType = written && written !== 'any' ? (/^(.+)\[\]$/.exec(written)?.[1] ?? /^(?:Readonly)?Array<(.+)>$/.exec(written)?.[1] ?? null) : null;
-    const item = attr(el, 'item')?.trim();
+    const item = attr(el, 'op')?.trim() === 'upsert' ? attr(el, 'value')?.trim() : undefined;
     if (item && /^[A-Za-z_$][\w$]*$/.test(item)) return `{ ${item}: ${itemType ?? '…'} }`;
     return '{ id: number; … }';
   }
 
   event(el: P5Element, ctx: Ctx): EventDef | null {
     for (const a of el.attrs) {
-      if (!EVENT_ATTRS.includes(a.name)) this.report(el, a.name, 'SN101', `\`${a.name}\` is not an attribute of \`<sn-event>\`.${didYouMean(a.name, EVENT_ATTRS)}`, 0);
+      if (a.name === 'item' || a.name === 'set') this.report(el, a.name, 'SN401', `\`${a.name}\` is \`value\` now, the value the change writes: the item for \`op="upsert"\`, the fields for \`op="merge"\``, 0);
+      else if (!EVENT_ATTRS.includes(a.name)) this.report(el, a.name, 'SN101', `\`${a.name}\` is not an attribute of \`<sn-event>\`.${didYouMean(a.name, EVENT_ATTRS)}`, 0);
     }
     const name = attr(el, 'name');
     const resource = attr(el, 'resource') ?? null;
@@ -6708,7 +6709,7 @@ class Compiler {
     const scope = ctx.scope;
     const typeAttr = attr(el, 'type')?.trim() || null;
     const payloadType: TypeRef | null = typeAttr && typeAttr !== 'any' ? { kind: 'ts', text: typeAttr, loc: this.locOf(el, 'type') } : null;
-    if (this.check && !typeAttr && ['item', 'set', 'when', 'then'].some((n) => attr(el, n) != null)) {
+    if (this.check && !typeAttr && ['value', 'when', 'then'].some((n) => attr(el, n) != null)) {
       this.report(el, null, 'SN506', `event \`${name}\` has no type: expressions reading its payload are not checked`, 0,
         `add \`type="${this.payloadTypeHint(el, resource)}"\`, the payload's fields (a type from the types module may be named), or \`type="any"\` to leave it unchecked`);
     }
@@ -6719,16 +6720,16 @@ class Compiler {
       writes = r.writes;
       this.typeLast({
         payload: payloadType,
-        ...(!resource ? {} : n === 'item' ? { returns: { kind: 'item', resource } } : n === 'set' ? { returns: { kind: 'item', resource, partial: true } } : {}),
+        ...(!resource || n !== 'value' ? {} : { returns: { kind: 'item', resource, ...(op === 'merge' ? { partial: true } : {}) } }),
       });
       if (object && r.ast && r.ast.type !== 'ObjectExpression') this.report(el, n, 'SN401', `\`${n}\` must be an object literal`, 0);
       return this.fn(r.code);
     };
-    const item = fnOf('item');
-    const set = fnOf('set', true);
-    if (item !== null && op !== 'upsert') this.report(el, 'item', 'SN102', '`item` applies to `op="upsert"`', 0);
-    if (set !== null && op !== 'merge') this.report(el, 'set', 'SN102', '`set` applies to `op="merge"`', 0);
-    if (op === 'merge' && set === null) this.report(el, null, 'SN401', '`op="merge"` needs `set`', 0);
+    // `value`: what the change writes, the item (`upsert`, default the whole payload) or the fields (`merge`)
+    const value = fnOf('value', op === 'merge');
+    if (value !== null && op !== 'upsert' && op !== 'merge') this.report(el, 'value', 'SN102', '`value` applies to `op="upsert"` (the item) and `op="merge"` (the fields)', 0);
+    if (op === 'merge' && value === null) this.report(el, null, 'SN401', '`op="merge"` needs `value`, the fields it merges: `value="{ flags }"`', 0);
+    const item = op === 'upsert' ? value : null, set = op === 'merge' ? value : null;
     const fallback = attr(el, 'fallback');
     if (fallback != null && fallback !== 'refresh') this.report(el, 'fallback', 'SN401', fallback === 'refetch' ? '`fallback="refetch"` is renamed to `fallback="refresh"`' : '`fallback` takes `refresh`', 0);
     const when = fnOf('when');

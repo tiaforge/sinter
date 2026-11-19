@@ -67,7 +67,7 @@ Key filters (`data-sn-on-keydown-<modifiers->key`, `data-sn-on-keyup-…`): modi
 - `<sn-resource>` `name`, `src`, `method`, `body`, `call`, `each`, `key`, `items`, `total`, `order`, `when`, `paginate`, `type`, `cache`, `refresh`, `then`, `early`, `drafts`: a named, page-wide cache of server data; `cache` (or `cache="10m"`) shows the data from the last page load at once, then revalidates. `refresh="30s"` reloads it once that long has passed since its last load, whatever caused that load (server events, `refresh()`, a reconnect), in the background: `$meta.loading` stays false, and paused while the tab is hidden. `early="off"`: never preloaded or requested before the page module (for a resource a request middleware answers itself; one whose request a middleware changes, such as a token, needs nothing: the build and runtime handle it). `then` is a handler run after each successful load (`$result`: what it loaded; the state around the resource in scope). With `sinter({ apis })`, `src` is a path relative to an API (`/articles`, `billing:/invoices`); `method="POST"` with `body` loads with a POST of that value. `src="file:./intro.txt"` (`file:/…` from the root) reads the project at build time (text, JSON, markdown's frontmatter and `body`; a glob: a list with `slug`, `dir`, `path`), a constant (`order`, `drafts`). Loading needs no attributes: concurrent loads of one URL share a request, a `src` change aborts the running one (latest wins), a change typed into a text field waits 250 ms for the next keystroke, a resource only dialogs read is requested with low priority, and a bfcache restore or going back online refetches. `paginate="{ keyset: { before: id }, size: 20 }"` loads a page at a time (`append`, `offset: true`; `model: $url.page` keeps an offset list's page in the URL; `jump`, `params`, `directions`, also per API)
 - `<sn-sync>` `src`: one server event stream
 - `<sn-component>` `use`, `data-sn-with`: a component chosen by data at runtime; `use` names it: ``use="`${b.type}-block`"`` (convention), `use="{ hero: 'hero-block' }[b.type]"` (map) or `use="blockComponent(b)"` (helper); it must fit `ComponentName`, every candidate must exist, props are checked per candidate (narrowed for convention and map); a value outside the candidates renders nothing, or the `data-sn-else` template after it
-- `<sn-event>` `name`, `resource`, `op`, `item`, `set`, `when`, `fallback`, `then`, `type`: maps one server event to a change message; child of <sn-sync>. `then` is a handler run after the change (payload fields and the state around the sync in scope), e.g. closeDialog('detail'); with `then`, `resource` and `op` may be left out
+- `<sn-event>` `name`, `resource`, `op`, `value`, `when`, `fallback`, `then`, `type`: maps one server event to a change message; child of <sn-sync>. `then` is a handler run after the change (payload fields and the state around the sync in scope), e.g. closeDialog('detail'); with `then`, `resource` and `op` may be left out
 
 ## Expressions and scope
 
@@ -216,7 +216,7 @@ Each recipe has a test beside it (`docs/recipes/<name>.test.ts`).
 
 <main data-sn-state="{ sel: null }">
   <sn-sync src="/api/events">
-    <sn-event name="person_updated" resource="people" op="upsert" item="person" fallback="refresh"></sn-event>
+    <sn-event name="person_updated" resource="people" op="upsert" value="person" fallback="refresh"></sn-event>
     <!-- after the removal: close the dialog if it shows that person (closing clears `sel`) -->
     <sn-event name="person_removed" resource="people" op="remove"
               then="sel?.id === id && closeDialog('person')"></sn-event>
@@ -275,7 +275,7 @@ Each recipe has a test beside it (`docs/recipes/<name>.test.ts`).
 <sn-resource name="contacts" src="/api/contacts" items="contacts" key="id" type="Contact[]"></sn-resource>
 
 <sn-sync src="/api/events">
-  <sn-event name="contact_updated" resource="contacts" op="upsert" item="contact" type="ContactEvent"></sn-event>
+  <sn-event name="contact_updated" resource="contacts" op="upsert" value="contact" type="ContactEvent"></sn-event>
 </sn-sync>
 
 <section data-sn-state="{ editing: /** @type {Contact|null} */ (null) }">
@@ -377,7 +377,7 @@ export async function upload(file, digest, ctx) {
 - State takes a JSDoc cast where the literal is not enough: `data-sn-state="{ editing: /** @type {Contact|null} */ (null) }"`.
 - Actions matched in the spec: `data-sn-body` is checked against the request schema, `$result` in `then` has the response type.
 - `$result` in `<sn-resource then>` has the resource's type (`type`, OpenAPI, or a `call`'s result).
-- `<sn-event … type="ContactEvent">` types the payload, the object the server sends: `item="contact"` on a resource of `Contact[]` is `type="{ contact: Contact }"`; `item` must fit the resource's item, `set` part of it, and `then` is checked against it; `cursor` reads the item. No `type` on an event with payload expressions is warning SN506.
+- `<sn-event … type="ContactEvent">` types the payload, the object the server sends: `value="contact"` on a resource of `Contact[]` is `type="{ contact: Contact }"`; `item` must fit the resource's item, `set` part of it, and `then` is checked against it; `cursor` reads the item. No `type` on an event with payload expressions is warning SN506.
 - In the URL, body, call arguments and confirm of an element `run('id')` starts (not a form), `$event` is `RunEvent<…>` (no event when run): guard reads with `$event && $event.shiftKey`.
 - Strict mode (`sinter({ strict: true })`, or `SINTER_STRICT=1`): warnings fail `sinter check`, `vite build` (the type-checker's ones, SN504 and SN506, only with `typecheck: true`), pages in the dev server and `render()` in tests; runtime warnings are printed in the dev server's terminal and overlay. Run `sinter check --strict` after a change and fix what it reports rather than treating warnings as noise. `sinter({ strict: { allow: { SN504: 'reason' } } })` keeps a code a warning, with the reason. SN525–SN528 (machine or network), SN507 and runtime warnings that depend on the environment stay warnings. A test about a warning: `render(html, { strict: false })` and `warnings()`. docs/strict.md.
 - SN509 (`run-cycle`) is opt-in: `sinter check --check-cycles`, or `sinter({ checkCycles: true })` for the build, `sinter check` and `sinter lsp`. It reports `then`/`catch` handlers that start each other again through `run()` (and `refresh()`), with every step.

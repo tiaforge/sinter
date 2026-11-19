@@ -79,7 +79,7 @@ Branches do narrow. What is inside a `data-sn-if` template is checked where its 
 
 ```html
 <sn-sync src="/api/events">
-  <sn-event name="contact_updated" resource="contacts" op="upsert" item="contact" type="ContactEvent"></sn-event>
+  <sn-event name="contact_updated" resource="contacts" op="upsert" value="contact" type="ContactEvent"></sn-event>
 </sn-sync>
 ```
 
@@ -87,7 +87,7 @@ Branches do narrow. What is inside a `data-sn-if` template is checked where its 
 export interface ContactEvent { contact: Contact }
 ```
 
-`item` must be assignable to the resource's item, and `set` to a part of it, so a payload that does not fit the resource is an error:
+An `upsert`'s `value` must be assignable to the resource's item, and a `merge`'s to a part of it, so a payload that does not fit the resource is an error:
 
 ```text
 Type 'string' is not assignable to type 'Contact'.

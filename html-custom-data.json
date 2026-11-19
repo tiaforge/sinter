@@ -96,10 +96,7 @@
           "name": "op"
         },
         {
-          "name": "item"
-        },
-        {
-          "name": "set"
+          "name": "value"
         },
         {
           "name": "when"

@@ -46,6 +46,7 @@ const cases: Array<[string, string, RegExp, Opts?]> = [
   ['SN101', '<p data-sn-txt="1"></p>', /`data-sn-txt` is not a sinter attribute. Did you mean `data-sn-text`\?/],
   ['SN101', '<button data-sn-post="/api/x" data-sn-apply="off"></button>', /`data-sn-apply` is renamed to `data-sn-write-through`/],
   ['SN101', '<x-card data-sn-prop="{ a: 1 }"></x-card>', /`data-sn-prop` is renamed to `data-sn-with`/],
+  ['SN401', '<sn-resource name="p" src="/api/p" key="id"></sn-resource><p data-sn-text="p.length"></p><sn-sync src="/s"><sn-event name="e" resource="p" op="upsert" item="person"></sn-event></sn-sync>', /`item` is `value` now, the value the change writes/],
   ['SN101', '<button data-sn-get="/api/x"></button>', /`data-sn-get` is gone: data a GET loads is a resource/],
   ['SN201', '<dialog id="d"></dialog><button data-sn-on-click="showModal(\'d\')"></button>', /`showModal\(\)` is renamed to `openDialog\(\)`/],
   ['SN201', '<dialog><button data-sn-on-click="close()"></button></dialog>', /`close\(\)` is renamed to `closeDialog\(\)`/],
@@ -95,7 +96,7 @@ const cases: Array<[string, string, RegExp, Opts?]> = [
   ['SN502', '<p data-sn-text="Date.now()"></p>', /`Date.now\(\)` in a binding never updates. Use `\$now`/],
   ['SN503', `${R}${use}<template data-sn-for="c in contacts"><a data-sn-attr="{id: c.id}"></a></template>`, /`id` bound from data can shadow globals/],
   ['SN504', `${R}${use}`, /resource `contacts` has no type: expressions using it are not checked/, { check: true }],
-  ['SN506', `${R}${use}<sn-sync src="/api/events"><sn-event name="contact_updated" resource="contacts" op="upsert" item="contact"></sn-event></sn-sync>`, /event `contact_updated` has no type: expressions reading its payload are not checked/, { check: true }],
+  ['SN506', `${R}${use}<sn-sync src="/api/events"><sn-event name="contact_updated" resource="contacts" op="upsert" value="contact"></sn-event></sn-sync>`, /event `contact_updated` has no type: expressions reading its payload are not checked/, { check: true }],
   ['SN507', '<div data-sn-state="{ a: 0 }"><button data-sn-on-click="a = 1; a = 2; a = 3; a = 4; a = 5" data-sn-text="a"></button></div>', /`data-sn-on-click` is too complex for markup: 5 statements in one handler \(limit `statements`: 4\)\. Move the logic into a helper/],
   ['SN334', '<div data-sn-state="{ v: true }"><x-maybe id="m" data-sn-with="{ on: v }"></x-maybe></div>', /`<x-maybe>`'s root may render nothing, so `id` on its tag would point at an element that may not exist/],
   ['SN333', '<div data-sn-state="{ v: 1 }"><template data-sn-text="v" data-sn-if="v"></template></div>', /`data-sn-text` and `data-sn-if` on one `<template>`/],
@@ -504,14 +505,14 @@ describe('expressions', () => {
     const hint = (resource: string, ev: string) => diags(`${resource}<p data-sn-text="contacts.length"></p><sn-sync src="/api/events">${ev}</sn-sync>`, { check: true })
       .find((d) => d.code === 'SN506')?.hint;
     const typed = '<sn-resource name="contacts" src="/api/c" key="id" type="Contact[]"></sn-resource>';
-    expect(hint(typed, '<sn-event name="contact.updated" resource="contacts" op="upsert" item="contact"></sn-event>'))
+    expect(hint(typed, '<sn-event name="contact.updated" resource="contacts" op="upsert" value="contact"></sn-event>'))
       .toBe('add `type="{ contact: Contact }"`, the payload\'s fields (a type from the types module may be named), or `type="any"` to leave it unchecked');
-    expect(hint(typed.replace('Contact[]', 'Array<Contact>'), '<sn-event name="u" resource="contacts" op="upsert" item="contact"></sn-event>')).toMatch(/^add `type="\{ contact: Contact \}"`/);
+    expect(hint(typed.replace('Contact[]', 'Array<Contact>'), '<sn-event name="u" resource="contacts" op="upsert" value="contact"></sn-event>')).toMatch(/^add `type="\{ contact: Contact \}"`/);
     // the sync before the resource it feeds
-    expect(diags(`<sn-sync src="/api/events"><sn-event name="u" resource="contacts" op="upsert" item="contact"></sn-event></sn-sync>${typed}<p data-sn-text="contacts.length"></p>`, { check: true })
+    expect(diags(`<sn-sync src="/api/events"><sn-event name="u" resource="contacts" op="upsert" value="contact"></sn-event></sn-sync>${typed}<p data-sn-text="contacts.length"></p>`, { check: true })
       .find((d) => d.code === 'SN506')?.hint).toMatch(/^add `type="\{ contact: Contact \}"`/);
     // an untyped resource, and an item that is not one payload field
-    expect(hint(typed.replace(' type="Contact[]"', ''), '<sn-event name="u" resource="contacts" op="upsert" item="contact"></sn-event>')).toMatch(/^add `type="\{ contact: … \}"`/);
+    expect(hint(typed.replace(' type="Contact[]"', ''), '<sn-event name="u" resource="contacts" op="upsert" value="contact"></sn-event>')).toMatch(/^add `type="\{ contact: … \}"`/);
     expect(hint(typed, '<sn-event name="d" resource="contacts" op="remove" when="id > 0"></sn-event>')).toMatch(/^add `type="\{ id: number; … \}"`/);
   });
   test('SN531 only for a body that is a JSON.stringify call: objects and other strings pass; a POST resource\'s body too', () => {

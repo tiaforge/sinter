@@ -52,7 +52,7 @@ test('`cache` writes confirmed changes when the app is destroyed, as on pagehide
   const stream = mockStream();
   const LIST = `<sn-resource name="contacts" src="/api/contacts" items="contacts" key="id" order="name" cache></sn-resource>
     <ul><template data-sn-for="c in contacts"><li data-sn-text="c.name"></li></template></ul>`;
-  const r = await render(`${LIST}<sn-sync src="/api/events"><sn-event name="contact_updated" resource="contacts" op="upsert" item="contact"></sn-event></sn-sync>`,
+  const r = await render(`${LIST}<sn-sync src="/api/events"><sn-event name="contact_updated" resource="contacts" op="upsert" value="contact"></sn-event></sn-sync>`,
     { session, requests: mockRequests({ 'GET /api/contacts': { contacts: [{ id: 1, name: 'Ada' }] } }), streams: { '/api/events': stream } });
   await r.settle();
   stream.emit('contact_updated', { contact: { id: 2, name: 'Grace' } });
@@ -67,7 +67,7 @@ test('its streams close and its timers stop', async () => {
   const stream = mockStream();
   const requests = mockRequests({ 'GET /api/jobs': { jobs: [] } });
   const r = await render(`<sn-resource name="jobs" src="/api/jobs" items="jobs" key="id" refresh="10s"></sn-resource>
-    <sn-sync src="/api/events"><sn-event name="job" resource="jobs" op="upsert" item="job"></sn-event></sn-sync>`,
+    <sn-sync src="/api/events"><sn-event name="job" resource="jobs" op="upsert" value="job"></sn-event></sn-sync>`,
     { requests, streams: { '/api/events': stream } });
   await r.settle();
   expect(stream.connected).toBe(true);

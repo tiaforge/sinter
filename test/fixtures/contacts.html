@@ -8,7 +8,7 @@
              key="account_id,href"></sn-resource>
 
 <sn-sync src="/api/events/stream">
-  <sn-event name="contact_updated"  resource="contacts" op="upsert" item="contact" fallback="refresh"></sn-event>
+  <sn-event name="contact_updated"  resource="contacts" op="upsert" value="contact" fallback="refresh"></sn-event>
   <sn-event name="contact_removed"  resource="contacts" op="remove"></sn-event>
   <sn-event name="contacts_refetch" resource="contacts" op="refresh"></sn-event>
 </sn-sync>

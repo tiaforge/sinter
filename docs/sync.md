@@ -9,7 +9,7 @@ mid-request.
 <sn-resource name="people" src="/api/people" key="id" order="name"></sn-resource>
 
 <sn-sync src="/api/events">
-  <sn-event name="person_updated" resource="people" op="upsert" item="person"></sn-event>
+  <sn-event name="person_updated" resource="people" op="upsert" value="person"></sn-event>
   <sn-event name="person_removed" resource="people" op="remove"></sn-event>
 </sn-sync>
 
@@ -29,7 +29,7 @@ event: person_removed
 data: {"id": 7}
 ```
 
-`item="person"` reads `payload.person`. For `remove` (and `merge`) the key comes from the payload,
+`value="person"` reads `payload.person`. For `remove` (and `merge`) the key comes from the payload,
 using the resource's `key` fields: here `id`. See [recipes/sse-sync.html](recipes/sse-sync.html).
 
 ## Change messages
@@ -38,8 +38,8 @@ Whatever the transport, the store only understands four changes:
 
 | `op` | Effect | Needs |
 | --- | --- | --- |
-| `upsert` | add the item, or replace the one with the same key | `item` (default: the whole payload) |
-| `merge` | merge fields into the item with that key | `set`, key in the payload |
+| `upsert` | add the item, or replace the one with the same key | `value`, the item (default: the whole payload) |
+| `merge` | merge fields into the item with that key | `value`, the fields; key in the payload |
 | `remove` | delete the item with that key | key in the payload |
 | `refresh` | reload the resource | nothing |
 
@@ -50,10 +50,9 @@ Whatever the transport, the store only understands four changes:
 | `name` | The event name: the SSE event name, or whatever the transport reports. |
 | `resource` | Target resource. |
 | `op` | `upsert`, `merge`, `remove` or `refresh`. |
-| `item` | Expression for `upsert`. Default: the whole payload. |
-| `set` | Object literal for `merge`, e.g. `{flags, is_read: flags.includes('\\Seen')}`. |
+| `value` | What the change writes: for `upsert` the item, an expression (default: the whole payload); for `merge` the fields, an object literal such as `{flags, is_read: flags.includes('\\Seen')}`. |
 | `when` | Skip the event unless this is truthy, e.g. `mailbox === $url.mailbox`. |
-| `fallback` | `refresh`: reload when `item` evaluates to null, for servers that send some updates without a body. |
+| `fallback` | `refresh`: reload when an `upsert`'s `value` evaluates to null, for servers that send some updates without a body. |
 | `then` | Handler run after the change is applied, see [Reacting to events](#reacting-to-events). |
 | `type` | The payload's type, for `sinter check` ([type-checking.md](type-checking.md)). |
 
@@ -63,7 +62,7 @@ same way. Loop variables and resources are not in scope.
 
 ```html
 <sn-event name="message_changed" resource="messages" op="merge"
-          set="{flags, is_read: flags.includes('\\Seen')}"
+          value="{flags, is_read: flags.includes('\\Seen')}"
           when="mailbox === sel.mailbox"></sn-event>
 ```
 

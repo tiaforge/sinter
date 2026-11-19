@@ -229,6 +229,11 @@ the model's write in place of the typing pause (a resource over it loads right a
 writes one history entry); and `data-sn-retry` on `data-sn-call` applies to each request the function
 sends, so the attribute works on every action.
 
+### 15. `<sn-event value>`
+
+`item` (for `upsert`) and `set` (for `merge`) were two names for what the change writes; it is one,
+`value`. The `op` form itself stays (step 9).
+
 ## Looked at and kept
 
 - `data-sn-wait`: already automatic. The build hides what follows a content-sized box by itself; the

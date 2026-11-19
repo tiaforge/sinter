@@ -252,7 +252,7 @@ Every attribute value that is not a URL or a name is a JavaScript expression, pa
 
 | Kind | Used in | Allowed | Refused |
 | --- | --- | --- | --- |
-| Value | `text`, `attr`, `class`, `show`, `prop`, `for` (after `in`), `if`, `key`, `body`, `state`, resource `when` and `cursor`, `<sn-event>` `item`, `set` and `when`, URL interpolations | any JS expression, `new` on allowed globals, arrow functions as arguments, template strings, `?.`, `??` | assignment, `++`/`--`, `delete`, `await`, `import()` |
+| Value | `text`, `attr`, `class`, `show`, `prop`, `for` (after `in`), `if`, `key`, `body`, `state`, resource `when` and `cursor`, `<sn-event>` `value` and `when`, URL interpolations | any JS expression, `new` on allowed globals, arrow functions as arguments, template strings, `?.`, `??` | assignment, `++`/`--`, `delete`, `await`, `import()` |
 | Handler | `on-*`, `then`, `catch`, `optimistic`, `<sn-event>` and `<sn-resource>` `then` | statements separated by `;`, assignment to state variables, calls to store functions (actions run through `run('id')`) | declarations (`let`, `const`, `function`), loops, `await` |
 
 Value expressions must be side-effect free, so the runtime may evaluate them any number of times.
@@ -459,7 +459,7 @@ A keyboard handler can name its key in the attribute: `data-sn-on-keydown-<modif
 | --- | --- | --- |
 | `<sn-resource>` | `name`, `src`, `call`, `each`, `key`, `items`, `total`, `order`, `when`, `cache`, `then`, `type`, pagination attributes | see Resources and Pagination |
 | `<sn-sync>` | `src` | one server event stream |
-| `<sn-event>` (child of `<sn-sync>`) | `name`, `resource`, `op`, `item`, `set`, `when`, `fallback`, `then`, `type` | maps one server event to a change message, and runs `then` after it |
+| `<sn-event>` (child of `<sn-sync>`) | `name`, `resource`, `op`, `value`, `when`, `fallback`, `then`, `type` | maps one server event to a change message, and runs `then` after it |
 
 Custom elements with a hyphen are valid HTML, so these pass a validator before compilation.
 
@@ -685,22 +685,21 @@ type Change<T> =
 ### Declaring a stream
 ```html
 <sn-sync src="/api/events/stream">
-  <sn-event name="contact_updated"  resource="contacts" op="upsert" item="contact" fallback="refresh"></sn-event>
+  <sn-event name="contact_updated"  resource="contacts" op="upsert" value="contact" fallback="refresh"></sn-event>
   <sn-event name="contact_removed"  resource="contacts" op="remove"></sn-event>
   <sn-event name="contacts_refetch" resource="contacts" op="refresh"></sn-event>
 </sn-sync>
 ```
-Inside `<sn-event>` attributes, the event's parsed JSON payload is the scope: `item="contact"` reads `payload.contact`. State declared around the `<sn-sync>` is in scope too, and a state name wins over a payload field of the same name: `when="mailbox === sel.mailbox"` compares the payload's `mailbox` with the state `sel` (added 2026-11-05, for Caley's mail list). `data-sn-let` names declared around the `<sn-sync>` resolve the same way, before payload fields, and read the state they are computed from when the event arrives (`data-sn-let="{ open: … }"` on the page's `<main>`: `then="open && open.uid === uid && …"`; added 2026-11-08); a let that reads `$el` is `SN201` here, since there is no element. With a typed payload (`type="…"`), a state or let name that is also a payload field is a `sinter check` error; without a type, pick names that payloads do not use. Loop variables and resources are not in scope here (a let may read resources). `src` of `<sn-sync>` is evaluated in the same scope.
+Inside `<sn-event>` attributes, the event's parsed JSON payload is the scope: `value="contact"` reads `payload.contact`. State declared around the `<sn-sync>` is in scope too, and a state name wins over a payload field of the same name: `when="mailbox === sel.mailbox"` compares the payload's `mailbox` with the state `sel` (added 2026-11-05, for Caley's mail list). `data-sn-let` names declared around the `<sn-sync>` resolve the same way, before payload fields, and read the state they are computed from when the event arrives (`data-sn-let="{ open: … }"` on the page's `<main>`: `then="open && open.uid === uid && …"`; added 2026-11-08); a let that reads `$el` is `SN201` here, since there is no element. With a typed payload (`type="…"`), a state or let name that is also a payload field is a `sinter check` error; without a type, pick names that payloads do not use. Loop variables and resources are not in scope here (a let may read resources). `src` of `<sn-sync>` is evaluated in the same scope.
 
 | Attribute | Meaning |
 | --- | --- |
 | `name` | event name (the SSE event name, or what the transport reports) |
 | `resource` | target resource |
 | `op` | `upsert`, `merge`, `remove` or `refresh` |
-| `item` | value expression for `upsert`; default: the whole payload |
-| `set` | object literal for `merge`, e.g. `{flags, is_read: flags.includes('\\Seen')}` |
+| `value` | what the change writes (changed 2026-11-19: was `item` and `set`, now `SN401`): for `upsert` the item, a value expression, default the whole payload; for `merge` the fields, an object literal, e.g. `{flags, is_read: flags.includes('\\Seen')}` |
 | `when` | value expression; skip the event unless truthy, e.g. `mailbox === $url.mailbox` |
-| `fallback` | `refresh` when `item` evaluates to null (for servers that send some updates without a body) |
+| `fallback` | `refresh` when an `upsert`'s `value` evaluates to null (for servers that send some updates without a body) |
 | `then` | handler expression, run after the change is applied (see Handlers on server events) |
 | `type` | the payload's type, for `sinter check` (see Type checking) |
 
@@ -1434,7 +1433,7 @@ Operations are calls, `new`, operators, assignments, updates, computed member ac
 - OpenAPI: `sinter({ openapi: 'openapi.yml' })` (or a list, one per API; local JSON or YAML files, so builds stay deterministic). A resource without `type` is matched to a GET operation: the `servers` URL prefix is stripped from `src`, the query string dropped, literal segments match literally, a segment that is one interpolation matches a `{param}`, and a literal path beats a templated one. Its type is the first 2xx JSON response's schema at `items`, converted to TypeScript by sinter (named schemas become named types). The match runs in every build, not only in the check: an `items` or `total` the schema lacks is `SN308`, a literal query parameter the operation does not declare is warning `SN505`. No match leaves the resource untyped (`SN504`, naming the closest path).
 - Actions are matched like resources, with their own method: `data-sn-body` must fit the JSON request schema, and `$result` in `then` has the response's type (`any` without a match).
 - `$result` in `<sn-resource then>` has the resource's type: its `type`, the matched OpenAPI response at `items`, or for `call` the action's awaited result at `items` (`any` for an untyped resource).
-- Server events: `type` on `<sn-event>` types the payload, using the types module's names. `item` must be assignable to the resource's item and `set` to a part of it, so a payload that does not fit the resource is an error. `then` is checked with the payload and the state around the `<sn-sync>` in scope. `cursor` reads the resource's own item. An event with payload expressions and no `type` is warning `SN506`; `type="any"` opts out.
+- Server events: `type` on `<sn-event>` types the payload, using the types module's names. an `upsert`'s `value` must be assignable to the resource's item and a `merge`'s to a part of it, so a payload that does not fit the resource is an error. `then` is checked with the payload and the state around the `<sn-sync>` in scope. `cursor` reads the resource's own item. An event with payload expressions and no `type` is warning `SN506`; `type="any"` opts out.
 - `checkPage(html, { files, types, openapi })` from `@tiaforge-ui/sinter/check` runs the same check on one page in a temporary project, for tests.
 
 ### Dev runtime
@@ -1538,7 +1537,7 @@ Endpoints used: `GET /api/contacts` → `{addressbooks, contacts}`, `POST /api/c
              key="account_id,href"></sn-resource>
 
 <sn-sync src="/api/events/stream">
-  <sn-event name="contact_updated"  resource="contacts" op="upsert" item="contact" fallback="refresh"></sn-event>
+  <sn-event name="contact_updated"  resource="contacts" op="upsert" value="contact" fallback="refresh"></sn-event>
   <sn-event name="contact_removed"  resource="contacts" op="remove"></sn-event>
   <sn-event name="contacts_refetch" resource="contacts" op="refresh"></sn-event>
 </sn-sync>

@@ -8,7 +8,7 @@ const LIST = (then: string, attrs = '') => `
     <sn-resource name="contacts" src="/api/contacts?q={q}" items="contacts" key="id" order="name" ${attrs} then="${then}"></sn-resource>
     <sn-sync src="/api/events">
       <sn-event name="changed" resource="contacts" op="refresh"></sn-event>
-      <sn-event name="updated" resource="contacts" op="upsert" item="contact"></sn-event>
+      <sn-event name="updated" resource="contacts" op="upsert" value="contact"></sn-event>
     </sn-sync>
     <button id="refresh" data-sn-on-click="refresh('contacts')"></button>
     <button id="q" data-sn-on-click="q = 'b'"></button>
