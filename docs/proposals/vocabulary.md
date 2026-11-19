@@ -70,11 +70,13 @@ selectable list and a command palette are others.
 
 - The value is the id of the list. Empty: the options inside the element, else the nearest list
   around it (inputs rendered in a loop).
-- Options are `[role=option]`, `[role=menuitem]`, `[role=menuitemcheckbox]`, `[role=menuitemradio]`
-  and `[role=treeitem]` that are shown.
-- Focus stays on the element with the attribute; the mark is `aria-selected="true"` on the option and
-  `aria-activedescendant` on the element (an option without an `id` gets one), the pattern assistive
-  technology reads for both comboboxes and composite widgets.
+- Options are `[role=option]`, `[role=menuitem]`, `[role=menuitemcheckbox]` and
+  `[role=menuitemradio]` that are shown and not `aria-disabled`. (Tree items left out: their expand
+  and collapse keys are a widget of their own.)
+- Focus stays on the element with the attribute; the mark is `aria-activedescendant` on the element
+  (an option without an `id` gets one), `data-sn-marked` on the option for styling, and
+  `aria-selected` on an `option`: the pattern assistive technology reads for both comboboxes and
+  composite widgets.
 - ArrowDown and ArrowUp move the mark (ArrowRight and ArrowLeft with `aria-orientation="horizontal"`),
   Home and End go to the first and last. Enter clicks the marked option; on an element that is not a
   text field, Space does too. Tab clicks the marked one, or the only one, on a text input. Escape

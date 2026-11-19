@@ -246,8 +246,8 @@
       "description": "on a <template> directly after an if template. Lists, branches and chosen components render between two comments (`<ul><!--sn 4--><li>a</li><!--/sn--></ul>`): CSS sees plain children. Comments that are exactly `<!--sn-->`, `<!--sn 4-->`, `<!--/sn-->` or `<!---->` are reserved (SN105); `$el` in an if, for or use is SN213; keep HTML comments"
     },
     {
-      "name": "data-sn-listbox",
-      "description": "on a text input: arrow keys mark a [role=option] of that list (empty: the nearest [role=listbox]), Enter or Tab clicks it, Escape fires `dismiss` (id of the suggestion list, or empty)"
+      "name": "data-sn-roving",
+      "description": "arrows mark a [role=option|menuitem] of the list (empty: inside the element, else the nearest listbox or menu), Enter clicks it, Escape fires `dismiss`; focus stays on the element. Text field: a combobox (id of the list, or empty)"
     },
     {
       "name": "data-sn-persist",

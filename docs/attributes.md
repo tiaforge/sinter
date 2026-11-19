@@ -68,7 +68,7 @@ Handlers without a request. Details: [events](actions.md), [key filters](actions
 | --- | --- | --- |
 | `data-sn-on-<event>` | handler expression | plain event handler, no request; e.g. data-sn-on-click |
 | `data-sn-debounce-<event>` | milliseconds | delays only that event's data-sn-on-&lt;event&gt; handler (it runs with the last event); e.g. data-sn-debounce-input |
-| `data-sn-listbox` | id of the suggestion list, or empty | on a text input: arrow keys mark a [role=option] of that list (empty: the nearest [role=listbox]), Enter or Tab clicks it, Escape fires `dismiss` |
+| `data-sn-roving` | id of the list, or empty | arrows mark a [role=option\|menuitem] of the list (empty: inside the element, else the nearest listbox or menu), Enter clicks it, Escape fires `dismiss`; focus stays on the element. Text field: a combobox |
 
 ## Components
 

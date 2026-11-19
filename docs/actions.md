@@ -454,12 +454,14 @@ becomes `question`). Uppercase is an error too: N is `shift-n`.
 
 Recipe: [keyboard-shortcuts](recipes/keyboard-shortcuts.html).
 
-## Suggestion lists
+## Lists you move through with the keys
 
-`data-sn-listbox` turns a text input into a combobox over a list of options:
+`data-sn-roving` lets the arrow keys move a mark through a list of options, and Enter click the
+marked one. The focus stays on the element with the attribute. A text field with suggestions (a
+combobox) is one use:
 
 ```html
-<input data-sn-model="q" data-sn-listbox="hits" data-sn-on-dismiss="open = false">
+<input data-sn-model="q" data-sn-roving="hits" data-sn-on-dismiss="open = false">
 <ul id="hits" role="listbox" data-sn-show="open && hits.length">
   <template data-sn-for="h in hits">
     <li role="option" data-sn-on-click="pick(h)" data-sn-text="h"></li>
@@ -467,16 +469,34 @@ Recipe: [keyboard-shortcuts](recipes/keyboard-shortcuts.html).
 </ul>
 ```
 
-- The compiler adds `role="combobox"`, `aria-controls` and `aria-autocomplete="list"` to the input.
-- The value is the list's `id`. Left empty, the list is the nearest `[role="listbox"]` around the
-  input, for inputs rendered in a loop.
-- ArrowDown and ArrowUp mark an option (`aria-selected="true"`, scrolled into view). Enter clicks
-  the marked option, Tab the marked one or the only one. Escape fires a bubbling, cancelable
-  `dismiss` event on the input; one handler on a form can serve all its inputs, and an input's own
-  handler keeps it there with `$event.preventDefault()`. Other keys, and Enter with no marked
-  option, do what they always do.
-- Typing unmarks. A mouse press on an option does not take focus from the input. Picking is your
-  option's own click handler.
+A menu, a command palette or a selectable list is another: the element that holds the options takes
+the focus itself.
+
+```html
+<ul role="menu" data-sn-roving>
+  <template data-sn-for="c in commands"><li role="menuitem" data-sn-on-click="run(c.id)" data-sn-text="c.label"></li></template>
+</ul>
+```
+
+- The value is the list's `id`. Left empty, the list is the element itself when it holds options,
+  else the nearest `[role="listbox"]` or `[role="menu"]` around it (for inputs rendered in a loop).
+- The options are the shown `[role="option"]`, `[role="menuitem"]`, `[role="menuitemcheckbox"]`
+  and `[role="menuitemradio"]` elements, except those with `aria-disabled="true"`.
+- The mark: `aria-activedescendant` on the element points at the marked option (an option without
+  an `id` gets one), the option has `data-sn-marked` (style it with `[data-sn-marked]`), and an
+  `option` also `aria-selected="true"`. The option is scrolled into view.
+- ArrowDown and ArrowUp move the mark; ArrowRight and ArrowLeft instead when the list or the element
+  has `aria-orientation="horizontal"`. Enter clicks the marked option. Escape fires a bubbling,
+  cancelable `dismiss` event on the element; one handler on a form can serve all its inputs, and an
+  input's own handler keeps it there with `$event.preventDefault()`. Other keys, and Enter with no
+  marked option, do what they always do. Picking is your option's own click handler.
+- **On a text field** the compiler adds `role="combobox"`, `aria-controls` and
+  `aria-autocomplete="list"`. Tab clicks the marked option, or the only one; up from the first
+  option goes back to the field; typing unmarks; a mouse press on an option does not take the focus
+  from the input. The left and right arrows, Home, End and Space stay the field's.
+- **On another element** the compiler adds `tabindex="0"` unless it has a `tabindex`. Home and End
+  mark the first and last option, Space clicks like Enter, and the mark stays after a pick.
+- It does not go on a `<select>` or a non-text `<input>`, which have keys of their own (`SN102`).
 
 ## Dialogs
 

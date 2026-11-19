@@ -95,7 +95,7 @@ Anything that runs in the browser keeps the runtime on its page:
 | a binding over `$url`, `$now`, `$locale` or a built-in formatter | the browser computes it |
 | a binding that calls a helper that cannot run at build time (it reads the clock, the locale, the browser, …) | the browser computes it; `SN322` names the helper and what it reaches |
 | `<sn-resource>`, `<sn-sync>`, an action (`data-sn-post`, `data-sn-call`, …) | it talks to your API |
-| a handler (`data-sn-on-click`, key shortcuts), `data-sn-model`, `data-sn-persist`, `data-sn-listbox` | it reacts to the visitor |
+| a handler (`data-sn-on-click`, key shortcuts), `data-sn-model`, `data-sn-persist`, `data-sn-roving` | it reacts to the visitor |
 | a component with a script (`src/components/<name>.ts`) | its script runs |
 | messages that switch language in the browser (`m.*`) | the language is picked in the browser |
 | `data-sn-transition`, images from the API through a resizing service | they need code |
