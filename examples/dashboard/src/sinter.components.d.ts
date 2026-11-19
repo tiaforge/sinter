@@ -5,7 +5,7 @@ type ComponentName = "service-card" | "spark-line" | "stat-tile";
 interface Slot<T> { readonly 'sinter.slot': T }
 /** every layout of the app, by its tag */
 type LayoutName = "app-layout";
-/** the props each layout declares (`data-sn-props`) */
+/** the props each layout declares (`data-sn-props` on its `<html>`) */
 interface LayoutProps {
   "app-layout": { title?: string };
 }

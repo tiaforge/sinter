@@ -5,7 +5,7 @@ type ComponentName = "content-tree" | "feature-grid" | "nav-list" | "node-code" 
 interface Slot<T> { readonly 'sinter.slot': T }
 /** every layout of the app, by its tag */
 type LayoutName = "site-layout";
-/** the props each layout declares (`data-sn-props`) */
+/** the props each layout declares (`data-sn-props` on its `<html>`) */
 interface LayoutProps {
   "site-layout": { title: string; description: string; nav: string };
 }

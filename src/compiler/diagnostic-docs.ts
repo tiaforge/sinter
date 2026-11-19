@@ -119,13 +119,13 @@ export const DIAGNOSTIC_DOCS: Record<Code, DiagnosticDoc> = {
   },
   SN303: {
     example: '`$meta.contacts.loadng` is not a status field. Did you mean `loading`?',
-    means: '`$meta.<resource>` has a fixed set of fields: `loading`, `error`, `loadedAt`, `pending`, `total`, `live`, and with `paginate` also `pages`, `from`, `to`, `hasPrev`, `hasNext`; `page` with `paginate="offset"`, or keyset with `offset-param`.',
+    means: '`$meta.<resource>` has a fixed set of fields: `loading`, `error`, `loadedAt`, `pending`, `total`, `live`, and with `paginate` also `pages`, `from`, `to`, `hasPrev`, `hasNext`; `page` on an offset list (`offset: true`), or a keyset list with `jump: true`.',
     fix: 'Use the suggested field. A pagination field needs `paginate` on the resource.',
   },
   SN304: {
     example: 'keyset pagination cannot jump to a page number. Add `jump: true` to `paginate` if the server also accepts an offset, or use `offset: true`',
     means: 'Keyset (cursor) pagination only knows the next and previous page, so `page(\'name\', 7)` has nothing to jump to, unless the server can also skip items by offset. A computed target (`page(\'name\', dir)`) is not this error: `sinter check` types it as a direction, and at run time a page number is refused without a request. `append` pagination takes only the literal `\'next\'`.',
-    fix: 'If the API accepts an offset next to its cursor, add `jump: true` to `paginate` (and `params: { offset: \'skip\' }` where the server names it otherwise): the jump is sent as an offset and `prev`/`next` continue by cursor. Otherwise use `paginate="offset"`, or only step with `first`, `prev`, `next` and `last`.',
+    fix: 'If the API accepts an offset next to its cursor, add `jump: true` to `paginate` (and `params: { offset: \'skip\' }` where the server names it otherwise): the jump is sent as an offset and `prev`/`next` continue by cursor. Otherwise use `offset: true` in `paginate`, or only step with `first`, `prev`, `next` and `last`.',
   },
   SN306: {
     example: '`<comment-card>` → `<reply-list>` → `<comment-card>` uses itself with no `data-sn-for` or `data-sn-if` template between, so it would never end',
@@ -184,7 +184,7 @@ export const DIAGNOSTIC_DOCS: Record<Code, DiagnosticDoc> = {
   },
   SN317: {
     example: '`selected` has no source: `merge()` acts on an item where it came from, and nothing says which resource `selected` is an item of',
-    means: '`merge(item, …)` and `remove(item)` change the item in the resource it came from, found by its key: a row of a `data-sn-for` over a resource (also a filtered one, or one a helper returns), an element of one (`contacts[0]`, `.find(…)`), a single resource, a component prop that is one of those, or state a handler assigned from one (`sel = m`). The item here is none of these. Also reported: the removed forms with a resource name, `patch(\'name\', item, …)` and `remove(\'name\', item)`, and a row of a helper that takes more than one resource.',
+    means: '`merge(item, …)` and `remove(item)` change the item in the resource it came from, found by its key: a row of a `data-sn-for` over a resource (also a filtered one, or one a helper returns), an element of one (`contacts[0]`, `.find(…)`), a single resource, a component prop that is one of those, or state a handler assigned from one (`sel = m`). The item here is none of these. Also reported: the removed forms with a resource name, `merge(\'name\', item, …)` and `remove(\'name\', item)`, and a row of a helper that takes more than one resource.',
     fix: 'Drop the resource name from the old forms. Otherwise pass the row itself; for `$result`, rely on write-through (with a spec) or patch the row with its fields; a server event\'s payload goes through `<sn-event resource op>`; an island changes the resource through the instance API.',
   },
   SN318: {
@@ -284,7 +284,7 @@ export const DIAGNOSTIC_DOCS: Record<Code, DiagnosticDoc> = {
   },
   SN344: {
     example: 'browser code reads `products`, a collection, so it would ship to the page: name the fields it gets with `fields="…"`',
-    means: 'A collection (`content:`) holds what a loader returned, which can be more than a page shows: a CMS\'s internal fields, drafts\' notes, prices for another market. What bindings read is written into the HTML at build time and ships nothing; but when code in the browser reads the collection (a filter as you type, a handler), the list is embedded in the page, and a collection is embedded only with `fields`: the fields of each entry it ships. A `data-sn-pages` page built from a collection follows its list\'s `fields`.',
+    means: 'A collection (`content:`) holds what a loader returned, which can be more than a page shows: a CMS\'s internal fields, drafts\' notes, prices for another market. What bindings read is written into the HTML at build time and ships nothing; but when code in the browser reads the collection (a filter as you type, a handler), the list is embedded in the page, and a collection is embedded only with `fields`: the fields of each entry it ships. A page per entry (`<html data-sn-for>`) built from a collection follows its list\'s `fields`.',
     fix: 'Add `fields="sku,name,price"` with what the browser code reads, or keep the reads at build time (bindings over constants fold). Fields left out are `undefined` in the browser.',
   },
   SN345: {

@@ -7,7 +7,7 @@
   <script type="module" src="../pages/bench.js"></script>
 </head>
 <body>
-<!-- "load more": paginate="append" fetches the rows after the last id and adds them to the list.
+<!-- "load more": paginate="{ append: … }" fetches the rows after the last id and adds them to the list.
      The server picks the sizes (base list, then n/10); `r` in the URL reloads the first page (reset). -->
 <div data-sn-state="{ r: 0 }">
   <sn-resource name="rows" src="/rows.json?n={$url.n}&s=append&r={r}" items="rows" key="id"
