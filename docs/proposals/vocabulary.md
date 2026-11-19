@@ -234,6 +234,14 @@ sends, so the attribute works on every action.
 `item` (for `upsert`) and `set` (for `merge`) were two names for what the change writes; it is one,
 `value`. The `op` form itself stays (step 9).
 
+### 16. Diagnostics
+
+Kept separate where a code is its own opt-out (strict mode's `allow` is per code: the image warnings), and
+merged where two codes were one rule with one severity: `SN302` into `SN209`. `SN327` (error, with
+`sinter({ apis })`, where the config can declare the parameter) and `SN505` (warning, a bare spec, where
+nothing can) are one rule with two severities, so they stay apart and name each other. `SN316`, a
+migration error from 0.14, is gone; the rename messages of this proposal go at 1.0.
+
 ## Looked at and kept
 
 - `data-sn-wait`: already automatic. The build hides what follows a content-sized box by itself; the

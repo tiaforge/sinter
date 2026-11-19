@@ -270,7 +270,7 @@ const NAME_FORMS = 'a string literal, `?:`, `||` or `??` between them, or a `dat
 const EVERYWHERE_MAGIC = ['$el', '$url', '$now', '$locale', '$meta'];
 export const ALL_MAGIC = ['$event', '$el', '$url', '$now', '$locale', '$result', '$error', '$meta'];
 export const STORE_FNS = ['refresh', 'upsert', 'merge', 'remove', 'page', 'openDialog', 'closeDialog', 'emit', 'run', 'navigate'];
-/** store functions that are gone or renamed (docs/proposals/vocabulary.md): what to write instead */
+/** store functions that are gone or renamed (docs/proposals/vocabulary.md): what to write instead. Removed at 1.0 */
 const RETIRED_FNS: Record<string, string> = {
   showModal: '`showModal()` is renamed to `openDialog()`, the pair of `closeDialog()`: `openDialog(\'edit\')`',
   close: '`close()` is renamed to `closeDialog()`, the pair of `openDialog()`: `closeDialog()` closes the nearest dialog, `closeDialog(\'edit\')` that one',

@@ -447,11 +447,9 @@ test('render() keeps <html> attributes: persisted state on <html> is read from <
   expect([...document.documentElement.attributes].map((a) => a.name)).toEqual([]);
 });
 
-test('<sn-include> is removed: the build error names what the partial reads from the page', async () => {
-  await expect(render(`
-    <div data-sn-state="{ c: { name: 'Ada' }, d: 1 }"><template data-sn-for="x in [1]" data-sn-key="x"><sn-include src="./card.html"></sn-include></template></div>`,
-  { files: { 'card.html': '<b data-sn-state="{ own: 2 }" data-sn-text="c.name + x + own"></b>' } }))
-    .rejects.toThrow(/SN316 include-removed: `<sn-include>` is removed: a partial is a component\. Move `\.\/card\.html` to `src\/components\/x-card\.html`.* It reads `c`, `x` from the page: add them to `data-sn-props` and pass them with `data-sn-with="\{ c: c, x: x \}"`/);
+test('<sn-include> is gone: SN101 says what a partial is now', async () => {
+  await expect(render('<div><sn-include src="./card.html"></sn-include></div>', { files: { 'card.html': '<b></b>' } }))
+    .rejects.toThrow(/SN101 unknown-attribute: `<sn-include>` is gone \(0\.14\): a partial is a component/);
 });
 
 test('custom elements: props in, events out, a prop follows its state', async () => {

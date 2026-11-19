@@ -233,15 +233,15 @@ dist/blog/recap.html      /blog/recap
   `sinter check` types it as one item of the list: `post.titel` is an error.
 - **Its URL**: each `:param` of the pattern is the entry's field of that name, a string or a number that is
   one path segment, encoded as the sitemap encodes it (`A b` is `A%20b`). An entry that cannot fill it, or two
-  that fill one path, are [SN341](diagnostics.md#sn341-pages-param). The page has exactly that one pattern
-  ([SN340](diagnostics.md#sn340-pages-path)).
+  that fill one path, are [SN341](diagnostics.md#sn341-entry-param). The page has exactly that one pattern
+  ([SN340](diagnostics.md#sn340-entry-path)).
 - **A file at its path**, as any page with an exact `data-sn-path`: `blog/hello.html` at `/blog/hello`, which
   hosts serve without a rule, so `_redirects` has none for it. Its canonical link is written at build time,
   and the sitemap lists every entry (no `sitemap.paths` for the pattern). The template (`blog/post.html`) is
   not written: nothing answers at it. A path another page or a file in `public/` has fails the build.
 - **Speculation Rules** name the pattern once (`/blog/:slug`), not each entry.
 - **The pattern's parameters are the entry's.** `$url.slug` on such a page is
-  [SN345](diagnostics.md#sn345-url-param-pages): read `post.slug`, known at build time (a query parameter, `$url.tab`,
+  [SN345](diagnostics.md#sn345-url-param-entry): read `post.slug`, known at build time (a query parameter, `$url.tab`,
   is fine). A list or tree on it too long to write at build time ([SN536](diagnostics.md#sn536-expansion-limit)) is an error here,
   not a warning: one long entry would ship its content and the runtime.
 - **An index in pages** is a collection of pages, built with `chunks()`

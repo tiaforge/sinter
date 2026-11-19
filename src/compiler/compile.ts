@@ -505,7 +505,7 @@ export interface CompiledParts {
 
 const ATTRS = ATTRIBUTES.map((a) => a.name);
 const METHODS = ['post', 'put', 'patch', 'delete'] as const;
-/** attributes that are gone or renamed (docs/proposals/vocabulary.md): what to write instead */
+/** attributes that are gone or renamed (docs/proposals/vocabulary.md): what to write instead. Removed at 1.0, as SN316 was */
 const RETIRED: Record<string, string> = {
   'data-sn-prop': 'is renamed to `data-sn-with`, so passing values and declaring them (`data-sn-props`) are different words: `<contact-card data-sn-with="{ contact: c }">`',
   'data-sn-component': 'is renamed to `data-sn-props`, the one declaration of a component\'s or a layout\'s props: `<template data-sn-props="{ article: Article }">`',
@@ -701,8 +701,6 @@ function plainRoot(e: P5Node | undefined, c: { componentFile(tag: string): unkno
  */
 type FillChain = Placement[];
 
-/** An `<sn-include>`, kept only to name what the partial reads from the page in its migration error. */
-interface IncludeRec { el: P5Element; src: string; names: Set<string>; site: Set<object> | null }
 /**
  * an expression's place: the value of `attr` (null: the element's start tag), `shift` characters in.
  * `parts`: for a function the compiler wrote, the code it inlined (found in order) and where each was written.
@@ -1063,10 +1061,6 @@ class Compiler {
   readonly lazyLoads = new Map<string, string>();
   /** `data-sn-preload`: the lazy packages the build preloads with the page */
   readonly preloads = new Set<string>();
-  /** nodes that came from an `<sn-include>`, and the top-level ones */
-  private readonly includeOf = new WeakMap<object, IncludeRec>();
-  private readonly includeTop = new WeakMap<object, IncludeRec>();
-  private readonly includes: IncludeRec[] = [];
   /** `merge()`/`remove()` sources: what handlers assign to state paths and components emit, by reference (`@$s3.sel`, `@ev:2:select`) */
   private readonly srcOf = new Map<string, Set<string>>();
   /** calls whose sources hold references, resolved after the walk */
@@ -1361,7 +1355,6 @@ class Compiler {
     this.tag(doc, { file: this.opts.file, src: html, chain: [] });
     if (this.isLayoutFile(this.opts.file)) this.diagnostics.push({ severity: 'error', code: 'SN318', message: 'a layout is not a page: a page uses it by its tag. Leave `src/layouts/` out of the build\'s inputs', file: this.opts.file, line: 1, col: 1 });
     else doc = this.mergeLayout(doc) ?? doc;
-    this.expandIncludes(doc, [this.opts.file]);
     this.pagesOf(doc);
     this.head = findHead(doc);
     this.expandComponents(doc, []);
@@ -1410,7 +1403,6 @@ class Compiler {
     this.finishChoices();
     this.resolveSources();
     this.fileUses();
-    this.reportIncludes();
     // the component's name on its root: in dev builds for devtools, and on pages with scoped styles,
     // which start at the roots and stop at other components' roots and at slot content (`data-sn-s`)
     const styled = [...this.uses.keys()].filter((n) => this.componentFiles.get(n)?.css);
@@ -1908,88 +1900,6 @@ class Compiler {
 
   reporter(el: P5Element, attr: string, shift = 0): ExprOptions['report'] {
     return (code, message, offset, hint) => this.report(el, attr, code, message, offset + shift, hint, true);
-  }
-
-  // ---- includes
-
-  expandIncludes(parent: P5Parent, chain: string[]) {
-    const children = [...parent.childNodes];
-    for (const child of children) {
-      if (!isElement(child)) continue;
-      if (child.tagName === 'sn-include') {
-        this.include(child, chain);
-        continue;
-      }
-      this.expandIncludes(child, chain);
-      if (child.tagName === 'template') this.expandIncludes((child as P5Template).content, chain);
-    }
-  }
-
-  include(el: P5Element, chain: string[]) {
-    const src = attr(el, 'src');
-    const origin = this.origins.get(el)!;
-    const fail = (code: Code, msg: string) => { this.report(el, 'src', code, msg, 0); detach(el); };
-    if (src == null || src === '' || src.includes('{')) return fail('SN316', 'partial `src` must be a literal path');
-    for (const a of el.attrs) if (a.name !== 'src') this.report(el, a.name, 'SN101', `\`${a.name}\` is not an attribute of \`<sn-include>\``, 0);
-    const resolved = resolvePath(dirname(origin.file), src);
-    const root = normalize(this.opts.root).replace(/\/$/, '');
-    if (!(resolved === root || resolved.startsWith(root + '/'))) {
-      return fail('SN316', `partial \`${src}\` not found or outside the project root`);
-    }
-    if (chain.includes(resolved)) {
-      return fail('SN306', `${[...chain, resolved].map(basename).join(' → ')} includes itself`);
-    }
-    let text: string;
-    try {
-      text = this.opts.readFile(resolved);
-    } catch {
-      return fail('SN316', `partial \`${src}\` not found or outside the project root`);
-    }
-    this.files.add(resolved);
-    const frag = parse5.parseFragment(text, { sourceCodeLocationInfo: true });
-    const loc = el.sourceCodeLocation ? this.lineCol(origin.src, el.sourceCodeLocation.startOffset) : { line: 1, col: 1 };
-    const here = `${basename(origin.file)}:${loc.line}`;
-    this.tag(frag, { file: resolved, src: text, chain: [here, ...origin.chain], use: `${this.siteKey(el) ?? ''}<${origin.use ?? ''}` });
-    const rec: IncludeRec = { el, src, names: new Set(), site: null };
-    this.includes.push(rec);
-    const mark = (n: object) => {
-      this.includeOf.set(n, rec);
-      for (const c of (n as P5Parent).childNodes ?? []) mark(c);
-      if ((n as P5Element).nodeName === 'template') mark((n as P5Template).content);
-    };
-    for (const c of frag.childNodes) { mark(c); this.includeTop.set(c, rec); }
-    this.expandIncludes(frag, [...chain, resolved]);
-    const parent = el.parentNode!;
-    const i = parent.childNodes.indexOf(el as never);
-    for (const c of frag.childNodes) (c as { parentNode: P5Parent }).parentNode = parent;
-    parent.childNodes.splice(i, 1, ...(frag.childNodes as never[]));
-    // the browser merges adjacent text when it parses the output; merge now so node paths agree
-    mergeText(parent);
-  }
-
-  /**
-   * `<sn-include>` is removed: a partial is a component. Each one fails the build with what it
-   * reads from the page, the props it needs as a component.
-   */
-  reportIncludes() {
-    for (const rec of this.includes) {
-      const names = [...rec.names].sort();
-      const name = basename(rec.src).replace(/\.html?$/, '');
-      const tag = name.includes('-') ? name : `x-${name}`;
-      this.report(rec.el, 'src', 'SN316', `\`<sn-include>\` is removed: a partial is a component. Move \`${rec.src}\` to \`src/components/${tag}.html\`, wrap its markup in \`<template data-sn-props="{ … }">\` around one root element, and write \`<${tag}></${tag}>\` here${
-        names.length ? `. It reads ${names.map((n) => `\`${n}\``).join(', ')} from the page: add ${names.length > 1 ? 'them' : 'it'} to \`data-sn-props\` and pass ${names.length > 1 ? 'them' : 'it'} with \`data-sn-with="{ ${names.map((n) => `${n}: ${n}`).join(', ')} }"\`` : ''}`, 0);
-    }
-  }
-
-  /** The names a partial's expression reads from the scope its `<sn-include>` is in. */
-  outerNames(src: string, scope: Scope, o: Omit<ExprOptions, 'report'>, rec: IncludeRec) {
-    if (!rec.site) return;
-    const free: string[] = [];
-    analyze(src, { loops: [], states: [] }, this.page, { ...o, report: (code, message) => { const m = code === 'SN201' && /^`([^`]+)` is not defined/.exec(message); if (m) free.push(m[1]!); } });
-    for (const n of free) {
-      const entry = (scope.lets ?? []).findLast((l) => l.name === n) ?? scope.loops.findLast((l) => l.name === n) ?? scope.states.findLast((x) => x.names.has(n));
-      if (entry && rec.site.has(entry)) rec.names.add(n);
-    }
   }
 
   // ---- components
@@ -4171,7 +4081,7 @@ class Compiler {
           continue;
         }
         if (this.page.resources.has(name)) {
-          this.report(child, 'name', 'SN302', `resource \`${name}\` is declared twice`, 0);
+          this.report(child, 'name', 'SN209', `resource \`${name}\` is declared twice`, 0);
           continue;
         }
         if (STORE_FNS.includes(name)) {
@@ -4432,9 +4342,6 @@ class Compiler {
     const caseScope = this.caseScopes.get(el);
     if (caseScope) ctx = { ...ctx, scope: caseScope };
     const base = ctx.scope;
-    // the partial an `<sn-include>` inserted: what the page's scope has there
-    const inc = this.includeTop.get(el);
-    if (inc && !inc.site) inc.site = new Set<object>([...ctx.scope.loops, ...ctx.scope.states, ...(ctx.scope.lets ?? [])]);
     // a component used inside itself: an instance of its shared definition
     const point = this.points.get(el);
     if (point) return this.recursionPoint(el, point, ctx, index);
@@ -4454,7 +4361,8 @@ class Compiler {
       case 'sn-event': this.report(el, null, 'SN102', '`<sn-event>` must be a child of `<sn-sync>`', 0); this.remove.push(el); return null;
     }
     if (el.tagName.startsWith('sn-')) {
-      this.report(el, null, 'SN101', `\`<${el.tagName}>\` is not a sinter element.${didYouMean(el.tagName, ['sn-resource', 'sn-sync', 'sn-event', 'sn-component'])}`, 0);
+      if (el.tagName === 'sn-include') this.report(el, null, 'SN101', '`<sn-include>` is gone (0.14): a partial is a component, a file in `src/components/` used by its tag, with its props in `data-sn-props`', 0);
+      else this.report(el, null, 'SN101', `\`<${el.tagName}>\` is not a sinter element.${didYouMean(el.tagName, ['sn-resource', 'sn-sync', 'sn-event', 'sn-component'])}`, 0);
     }
 
     const sn = el.attrs.filter((a) => a.name.startsWith('data-sn-'));
@@ -5063,8 +4971,6 @@ class Compiler {
     for (const a of r.assigns ?? []) this.addSources(`@${a.path}`, a.src);
     if (scope.component?.id !== undefined) for (const e of r.emitted ?? []) this.addSources(`@ev:${scope.component.id}:${e.event}`, e.src);
     for (const c of r.srcRefs ?? []) this.srcCalls.push({ el, attr: attrName, shift, ...c });
-    const inc = this.includeOf.get(el);
-    if (inc) this.outerNames(src, scope, o, inc);
     this.at = { el, attr: attrName, shift };
     if (r.ok && !this.codeAt.has(r.code)) this.codeAt.set(r.code, this.at);
     if (r.ok && r.ast) this.complexity(el, attrName, o, r.ast);

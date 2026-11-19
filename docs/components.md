@@ -594,7 +594,6 @@ names start with the library's prefix (`ui-`), which no app component may use.
 
 ## From `<sn-include>`
 
-`<sn-include>` is removed: a partial is a component without a script. The build error (`SN316`) lists
-the names the partial read from the page. Move the file to `src/components/<name>.html`, wrap its
+`<sn-include>` is gone (0.14): a partial is a component without a script. Move the file to `src/components/<name>.html`, wrap its
 markup in `<template data-sn-props="{ … }">` around one root element, declare those names as
 props, and pass them with `data-sn-with`.

@@ -148,9 +148,9 @@ Error, for example:
 
 > `s` is already defined here by `data-sn-let`; use another name
 
-A `data-sn-let` name is inlined wherever it is read, so it cannot share a name with a state variable or loop variable in its scope, or be redeclared inside it. A resource cannot take the name of a store function (`refresh`, `upsert`, `merge`, `remove`, `page`, `showModal`, `close`, `emit`, `run`, `navigate`).
+A name is declared twice where one is read: a `data-sn-let` name is inlined wherever it is read, so it cannot share a name with a state variable or loop variable in its scope, or be redeclared inside it; two `<sn-resource>` elements on one page cannot share a name. A resource cannot take the name of a store function (`refresh`, `upsert`, `merge`, `remove`, `page`, `showModal`, `close`, `emit`, `run`, `navigate`).
 
-**Fix:** Rename the let, the state or loop variable, or the resource.
+**Fix:** Rename the let, the state or loop variable, or one of the resources (or remove the duplicate).
 
 ## SN210 url-list-mismatch
 
@@ -201,16 +201,6 @@ Error, for example:
 A store call, `$meta` or embedded data (`data-sn-data`) names a resource that no `<sn-resource>` on the page or its partials declares. A name chosen by an expression (`page(searching ? 'results' : 'messages', 'next')`, or a `data-sn-let` name that is one) is checked for each name it can take. Also reported: a store call whose name argument cannot be listed from the source (a state variable, a helper's result, `$event.detail`).
 
 **Fix:** Fix the name or add the `<sn-resource>` element. For a name that cannot be listed, write the choice as literals: `?:`, `||` or `??` between string literals, or a `data-sn-let` name whose value is one; a name kept in state becomes `tab === 'inbox' ? 'inbox' : 'sent'`.
-
-## SN302 duplicate-resource
-
-Error, for example:
-
-> resource `contacts` is declared twice
-
-Two `<sn-resource>` elements on one page share a name, often once in the page and once in a partial.
-
-**Fix:** Rename one, or remove the duplicate.
 
 ## SN303 unknown-meta-field
 
@@ -332,16 +322,6 @@ A component's events are the ones its `data-sn-emits` declares: `emit()` inside 
 
 **Fix:** Fix the name, or declare the event with its detail type: `data-sn-emits="{ pick: 'done' | 'open' }"`.
 
-## SN316 include-removed
-
-Error, for example:
-
-> `<sn-include>` is removed: a partial is a component. Move `./partials/contact-dialog.html` to `src/components/contact-dialog.html`, … It reads `draft`, `save` from the page: add them to `data-sn-props` and pass them with `data-sn-with="{ draft: draft, save: save }"`
-
-Partials became components. A component sees only its props, so the names a partial read from the page where it was included become props; the message lists them.
-
-**Fix:** Move the file to `src/components/<name>.html` (the name needs a `-`), wrap its markup in `<template data-sn-props="{ draft: Contact; … }">` around one root element, and replace the `<sn-include>` by `<name data-sn-with="{ draft: draft }"></name>`.
-
 ## SN317 no-item-source
 
 Error, for example:
@@ -448,7 +428,7 @@ Error, for example:
 
 > `GET /articles` of the API `main` declares no query parameter `tagg`. Did you mean `tag`?
 
-A query parameter in a path to a configured API must be one its operation declares (in the spec, or in `query` of the API's `defaults` or `operations`), and every required one must be given. The parameters `paginate` adds count as given, and are checked too.
+A query parameter in a path to a configured API must be one its operation declares (in the spec, or in `query` of the API's `defaults` or `operations`), and every required one must be given. The parameters `paginate` adds count as given, and are checked too. The same rule without `sinter({ apis })`, with a bare `openapi` spec, is the warning `SN505`: there the parameter has nowhere to be declared.
 
 **Fix:** Use the suggested name, give the required parameter, or declare it: in the spec, or with `query: ['name']` in the API's `defaults` for the operation.
 
@@ -552,7 +532,7 @@ A tag with a library's prefix names one of its components. Those in its `compone
 
 **Fix:** Use one of the public components the message lists, or fix the name. A library's author moves a component the app needs out of `components/internal/`.
 
-## SN340 pages-path
+## SN340 entry-path
 
 Error, for example:
 
@@ -562,7 +542,7 @@ Error, for example:
 
 **Fix:** Write `data-sn-path="/blog/:slug"` beside it, declare the list on the page (`<sn-resource name="posts" src="file:/content/posts/*.md">`), and name the entry `post in posts`.
 
-## SN341 pages-param
+## SN341 entry-param
 
 Error, for example:
 
@@ -602,7 +582,7 @@ A collection (`content:`) holds what a loader returned, which can be more than a
 
 **Fix:** Add `fields="sku,name,price"` with what the browser code reads, or keep the reads at build time (bindings over constants fold). Fields left out are `undefined` in the browser.
 
-## SN345 url-param-pages
+## SN345 url-param-entry
 
 Error, for example:
 
@@ -678,7 +658,7 @@ Warning, for example:
 
 > `GET /articles` declares no query parameter `tagg`. Did you mean `tag`?
 
-A literal query parameter in `src` is not declared by the matched OpenAPI operation, usually a typo the server would ignore.
+A literal query parameter in `src` is not declared by the matched OpenAPI operation, usually a typo the server would ignore. The same rule with `sinter({ apis })` is the error `SN327`, since the API's config can declare the parameter (`query` in its `defaults`).
 
 **Fix:** Use the suggested name, or add the parameter to the spec.
 

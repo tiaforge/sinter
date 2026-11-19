@@ -84,8 +84,8 @@ export const DIAGNOSTIC_DOCS: Record<Code, DiagnosticDoc> = {
   },
   SN209: {
     example: '`s` is already defined here by `data-sn-let`; use another name',
-    means: 'A `data-sn-let` name is inlined wherever it is read, so it cannot share a name with a state variable or loop variable in its scope, or be redeclared inside it. A resource cannot take the name of a store function (`refresh`, `upsert`, `merge`, `remove`, `page`, `showModal`, `close`, `emit`, `run`, `navigate`).',
-    fix: 'Rename the let, the state or loop variable, or the resource.',
+    means: 'A name is declared twice where one is read: a `data-sn-let` name is inlined wherever it is read, so it cannot share a name with a state variable or loop variable in its scope, or be redeclared inside it; two `<sn-resource>` elements on one page cannot share a name. A resource cannot take the name of a store function (`refresh`, `upsert`, `merge`, `remove`, `page`, `showModal`, `close`, `emit`, `run`, `navigate`).',
+    fix: 'Rename the let, the state or loop variable, or one of the resources (or remove the duplicate).',
   },
   SN210: {
     example: '`$url.tag` is a list elsewhere on the page (a `<select multiple>` or a checkbox with a `value`), and one value here; bind it as a list everywhere',
@@ -111,11 +111,6 @@ export const DIAGNOSTIC_DOCS: Record<Code, DiagnosticDoc> = {
     example: 'resource `mesages` is not declared on this page',
     means: 'A store call, `$meta` or embedded data (`data-sn-data`) names a resource that no `<sn-resource>` on the page or its partials declares. A name chosen by an expression (`page(searching ? \'results\' : \'messages\', \'next\')`, or a `data-sn-let` name that is one) is checked for each name it can take. Also reported: a store call whose name argument cannot be listed from the source (a state variable, a helper\'s result, `$event.detail`).',
     fix: 'Fix the name or add the `<sn-resource>` element. For a name that cannot be listed, write the choice as literals: `?:`, `||` or `??` between string literals, or a `data-sn-let` name whose value is one; a name kept in state becomes `tab === \'inbox\' ? \'inbox\' : \'sent\'`.',
-  },
-  SN302: {
-    example: 'resource `contacts` is declared twice',
-    means: 'Two `<sn-resource>` elements on one page share a name, often once in the page and once in a partial.',
-    fix: 'Rename one, or remove the duplicate.',
   },
   SN303: {
     example: '`$meta.contacts.loadng` is not a status field. Did you mean `loading`?',
@@ -177,11 +172,6 @@ export const DIAGNOSTIC_DOCS: Record<Code, DiagnosticDoc> = {
     means: 'A component\'s events are the ones its `data-sn-emits` declares: `emit()` inside it, and `data-sn-on-<event>` on its tag, must name one of them (or, on the tag, a DOM event such as `click`).',
     fix: 'Fix the name, or declare the event with its detail type: `data-sn-emits="{ pick: \'done\' | \'open\' }"`.',
   },
-  SN316: {
-    example: '`<sn-include>` is removed: a partial is a component. Move `./partials/contact-dialog.html` to `src/components/contact-dialog.html`, … It reads `draft`, `save` from the page: add them to `data-sn-props` and pass them with `data-sn-with="{ draft: draft, save: save }"`',
-    means: 'Partials became components. A component sees only its props, so the names a partial read from the page where it was included become props; the message lists them.',
-    fix: 'Move the file to `src/components/<name>.html` (the name needs a `-`), wrap its markup in `<template data-sn-props="{ draft: Contact; … }">` around one root element, and replace the `<sn-include>` by `<name data-sn-with="{ draft: draft }"></name>`.',
-  },
   SN317: {
     example: '`selected` has no source: `merge()` acts on an item where it came from, and nothing says which resource `selected` is an item of',
     means: '`merge(item, …)` and `remove(item)` change the item in the resource it came from, found by its key: a row of a `data-sn-for` over a resource (also a filtered one, or one a helper returns), an element of one (`contacts[0]`, `.find(…)`), a single resource, a component prop that is one of those, or state a handler assigned from one (`sel = m`). The item here is none of these. Also reported: the removed forms with a resource name, `merge(\'name\', item, …)` and `remove(\'name\', item)`, and a row of a helper that takes more than one resource.',
@@ -234,7 +224,7 @@ export const DIAGNOSTIC_DOCS: Record<Code, DiagnosticDoc> = {
   },
   SN327: {
     example: '`GET /articles` of the API `main` declares no query parameter `tagg`. Did you mean `tag`?',
-    means: 'A query parameter in a path to a configured API must be one its operation declares (in the spec, or in `query` of the API\'s `defaults` or `operations`), and every required one must be given. The parameters `paginate` adds count as given, and are checked too.',
+    means: 'A query parameter in a path to a configured API must be one its operation declares (in the spec, or in `query` of the API\'s `defaults` or `operations`), and every required one must be given. The parameters `paginate` adds count as given, and are checked too. The same rule without `sinter({ apis })`, with a bare `openapi` spec, is the warning `SN505`: there the parameter has nowhere to be declared.',
     fix: 'Use the suggested name, give the required parameter, or declare it: in the spec, or with `query: [\'name\']` in the API\'s `defaults` for the operation.',
   },
   SN328: {
@@ -349,7 +339,7 @@ export const DIAGNOSTIC_DOCS: Record<Code, DiagnosticDoc> = {
   },
   SN505: {
     example: '`GET /articles` declares no query parameter `tagg`. Did you mean `tag`?',
-    means: 'A literal query parameter in `src` is not declared by the matched OpenAPI operation, usually a typo the server would ignore.',
+    means: 'A literal query parameter in `src` is not declared by the matched OpenAPI operation, usually a typo the server would ignore. The same rule with `sinter({ apis })` is the error `SN327`, since the API\'s config can declare the parameter (`query` in its `defaults`).',
     fix: 'Use the suggested name, or add the parameter to the spec.',
   },
   SN506: {

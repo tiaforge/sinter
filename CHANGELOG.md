@@ -7,7 +7,7 @@ Attribute names, function names and diagnostic codes are public API. Before
 
 ### Changed
 
-A smaller vocabulary, one word per concept ([docs/proposals/vocabulary.md](docs/proposals/vocabulary.md)). Each old name is a build error that names its replacement.
+A smaller vocabulary, one word per concept ([docs/proposals/vocabulary.md](docs/proposals/vocabulary.md)). Each old name is a build error that names its replacement. Those messages stay until 1.0, then an old name is an unknown one.
 
 - **Removed:** `data-sn-get`. Data a GET loads is a resource: `<sn-resource src>` reloads when the values its URL reads change, with latest-wins, the typing pause, `$meta`, `cache` and preloading, none of which a GET action had. A load that a click starts sets the state the resource's `when` reads, or is a `data-sn-call`. With it go its special cases: GET's own concurrency, and the exceptions for GET in field errors, write-through and `data-sn-retry`.
 - **Renamed:** the store function `patch()` is `merge()`, which says what it does (fields left out stay) and no longer reads like the HTTP method beside `data-sn-patch`. `<sn-event op="patch">` is `op="merge"`, and on the JavaScript side `Resource.patch()` is `Resource.merge()` and a change message's `op: 'patch'` is `op: 'merge'`. `patch(…)` in an expression is `SN201` naming `merge`. A helper with a store function's name (a helper `merge` from your module) is now `SN201` where it is called: the store function always won, so the helper was unreachable.
@@ -23,6 +23,7 @@ A smaller vocabulary, one word per concept ([docs/proposals/vocabulary.md](docs/
 - **Added:** `data-sn-debounce` on a field with `data-sn-model` and no action delays the model's write: `<input data-sn-model="q" data-sn-debounce="200">` filters a list once the typing pauses, while the field shows each keystroke. The pause replaces the typing pause: a resource over `q` loads right after it, and a model on `$url` writes one history entry. Enter or leaving the field writes at once.
 - **Renamed:** the dialog store functions `showModal()` and `close()` are `openDialog()` and `closeDialog()`, a pair that says what it acts on. `openDialog(id)` still opens the dialog modally; `closeDialog()` closes the nearest dialog, `closeDialog(id)` that one. (`open()` was considered: a state named `open` would hide it.) The old names are `SN201` naming the new ones.
 - **Renamed:** `<sn-event>`'s `item` and `set` are one attribute, `value`: what the change writes, the item for `op="upsert"` and the fields for `op="merge"`. The old names are `SN401`.
+- **Diagnostics:** `SN302` (a resource declared twice) is `SN209` name-conflict, which already reported names declared twice; `SN316` (the `<sn-include>` migration error, since 0.14) is gone, and `<sn-include>` is `SN101` saying what replaced it. `SN340`, `SN341` and `SN345` are named `entry-path`, `entry-param` and `url-param-entry` (were `pages-…`). `SN327` and `SN505`, one rule with and without `sinter({ apis })`, name each other.
 - **Removed:** the store function `reset()`. A form's fields follow their `data-sn-model` state, so a form clears by clearing its state (`data-sn-then="body = ''"`). A `<button type="reset">` or `form.reset()` now updates the models of the fields it restores (it left them at the old values before).
 
 ### Fixed
