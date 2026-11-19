@@ -1,4 +1,4 @@
-// `data-sn-roving`: keys move a mark through a list of options, and Enter clicks the marked one. A
+// `data-sn-options`: keys move a mark through a list of options, and Enter clicks the marked one. A
 // text field with suggestions (the WAI-ARIA combobox) is one use; a menu, a selectable list or a
 // command palette are others. The focus stays on the element with the attribute (the owner); the
 // mark is `aria-activedescendant` on it, `data-sn-marked` on the option, and `aria-selected` on an
@@ -26,7 +26,7 @@ const isText = (el: Element) => el.localName == 'textarea'
 
 /** the owner's list: the element its value names, the owner when it holds options, else the nearest list around it */
 const listOf = (owner: Element): Element | null => {
-  const id = owner.getAttribute('data-sn-roving');
+  const id = owner.getAttribute('data-sn-options');
   if (id) return owner.ownerDocument.getElementById(id);
   if (owner.querySelector(ITEM)) return owner;
   for (let p = owner.parentElement; p; p = p.parentElement) {
@@ -35,7 +35,7 @@ const listOf = (owner: Element): Element | null => {
   }
   return null;
 };
-const options = (owner: Element): HTMLElement[] => {
+const optionsOf = (owner: Element): HTMLElement[] => {
   const list = listOf(owner);
   if (!list || list.closest('[hidden]')) return [];
   return [...list.querySelectorAll<HTMLElement>(ITEM)].filter((o) => !o.closest('[hidden]') && o.getAttribute('aria-disabled') != 'true');
@@ -54,17 +54,17 @@ const mark = (owner: Element, all: HTMLElement[], next: HTMLElement | null) => {
   } else owner.removeAttribute('aria-activedescendant');
 };
 
-const roving: Feature = {
-  name: 'roving',
+const feature: Feature = {
+  name: 'options',
   install(app: App) {
     const root = app.root;
     // removed on destroy, so a page mounted again (tests) does not handle each key twice
     const ctl = new AbortController(), on = { signal: ctl.signal };
     app.addCleanup(() => ctl.abort());
     root.addEventListener('keydown', (e: Event) => {
-      const owner = (e.target as Element).closest?.('[data-sn-roving]');
+      const owner = (e.target as Element).closest?.('[data-sn-options]');
       if (!owner || (e as KeyboardEvent).isComposing) return;
-      const all = options(owner);
+      const all = optionsOf(owner);
       if (!all.length) return;
       const text = isText(owner), at = markedOf(all), key = (e as KeyboardEvent).key;
       const across = !text && (listOf(owner)?.getAttribute('aria-orientation') ?? owner.getAttribute('aria-orientation')) == 'horizontal';
@@ -88,14 +88,14 @@ const roving: Feature = {
       }
     }, on);
     root.addEventListener('input', (e: Event) => {
-      const owner = (e.target as Element).closest?.('[data-sn-roving]');
-      if (owner && isText(owner)) mark(owner, options(owner), null);
+      const owner = (e.target as Element).closest?.('[data-sn-options]');
+      if (owner && isText(owner)) mark(owner, optionsOf(owner), null);
     }, on);
     root.addEventListener('mousedown', (e: Event) => {
       // an option of a list outside its owner (a text field's suggestions): the focus stays in the owner
       const option = (e.target as Element).closest?.(ITEM);
       if (!option) return;
-      for (const owner of root.querySelectorAll('[data-sn-roving]')) {
+      for (const owner of root.querySelectorAll('[data-sn-options]')) {
         const list = listOf(owner);
         if (list && list != owner && !owner.contains(list) && list.contains(option)) return e.preventDefault();
       }
@@ -103,4 +103,4 @@ const roving: Feature = {
   },
 };
 
-export default roving;
+export default feature;

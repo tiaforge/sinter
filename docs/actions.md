@@ -456,12 +456,12 @@ Recipe: [keyboard-shortcuts](recipes/keyboard-shortcuts.html).
 
 ## Lists you move through with the keys
 
-`data-sn-roving` lets the arrow keys move a mark through a list of options, and Enter click the
+`data-sn-options` lets the arrow keys move a mark through a list of options, and Enter click the
 marked one. The focus stays on the element with the attribute. A text field with suggestions (a
 combobox) is one use:
 
 ```html
-<input data-sn-model="q" data-sn-roving="hits" data-sn-on-dismiss="open = false">
+<input data-sn-model="q" data-sn-options="hits" data-sn-on-dismiss="open = false">
 <ul id="hits" role="listbox" data-sn-show="open && hits.length">
   <template data-sn-for="h in hits">
     <li role="option" data-sn-on-click="pick(h)" data-sn-text="h"></li>
@@ -473,7 +473,7 @@ A menu, a command palette or a selectable list is another: the element that hold
 the focus itself.
 
 ```html
-<ul role="menu" data-sn-roving>
+<ul role="menu" data-sn-options>
   <template data-sn-for="c in commands"><li role="menuitem" data-sn-on-click="run(c.id)" data-sn-text="c.label"></li></template>
 </ul>
 ```

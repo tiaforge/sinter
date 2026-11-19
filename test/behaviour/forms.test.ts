@@ -1,4 +1,4 @@
-// data-sn-confirm, data-sn-encoding="form", $error.detail, data-sn-roving and per-event debounce.
+// data-sn-confirm, data-sn-encoding="form", $error.detail, data-sn-options and per-event debounce.
 import { afterEach, expect, test } from 'vitest';
 import { configure } from '../../src/index.js';
 import { render, mockRequests } from '../../src/testing/index.js';
@@ -62,10 +62,10 @@ test('$error.detail: the server\'s words or a thrown message, else null', async 
   expect(root.querySelector('p')!.textContent).toBe('Name taken|Bad date|fallback: 500');
 });
 
-test('data-sn-roving on a text field: arrows mark an option, Enter and Tab pick it, Escape dismisses', async () => {
+test('data-sn-options on a text field: arrows mark an option, Enter and Tab pick it, Escape dismisses', async () => {
   const { root, flush } = await render(`
     <div data-sn-state="{ q: '', open: true, picked: '' }" data-sn-let="{ hits: ['ab', 'ac', 'ad'].filter(w => w.startsWith(q)) }">
-      <input data-sn-model="q" data-sn-roving="hits" data-sn-on-dismiss="open = false">
+      <input data-sn-model="q" data-sn-options="hits" data-sn-on-dismiss="open = false">
       <ul id="hits" role="listbox" data-sn-show="open && hits.length">
         <template data-sn-for="w in hits" data-sn-key="w"><li role="option" data-sn-on-click="picked = w; q = ''" data-sn-text="w"></li></template>
       </ul>
@@ -100,8 +100,8 @@ test('data-sn-roving on a text field: arrows mark an option, Enter and Tab pick 
 test('dismiss bubbles to a form handler and is cancelable: an input can keep it', async () => {
   const { root, flush } = await render(`
     <form data-sn-state="{ log: '' }" data-sn-on-dismiss="log += 'form;'">
-      <input class="a" data-sn-roving="opts">
-      <input class="b" data-sn-roving="opts" data-sn-on-dismiss="log += 'b;'; $event.preventDefault()">
+      <input class="a" data-sn-options="opts">
+      <input class="b" data-sn-options="opts" data-sn-on-dismiss="log += 'b;'; $event.preventDefault()">
       <ul id="opts" role="listbox"><li role="option">x</li></ul>
       <b data-sn-text="log"></b>
     </form>`);
@@ -111,11 +111,11 @@ test('dismiss bubbles to a form handler and is cancelable: an input can keep it'
   expect(root.querySelector('b')!.textContent).toBe('form;b;');
 });
 
-test('data-sn-roving without an id on a text field controls the nearest listbox around the input', async () => {
+test('data-sn-options without an id on a text field controls the nearest listbox around the input', async () => {
   const { root, flush } = await render(`
     <div data-sn-state="{ fields: ['to', 'cc'], picked: '' }">
       <template data-sn-for="f in fields" data-sn-key="f">
-        <div><input data-sn-roving>
+        <div><input data-sn-options>
           <ul role="listbox"><li role="option" data-sn-on-click="picked = f" data-sn-text="f"></li></ul></div>
       </template>
       <b data-sn-text="picked"></b>
@@ -126,9 +126,9 @@ test('data-sn-roving without an id on a text field controls the nearest listbox 
   expect(root.querySelector('b')!.textContent).toBe('cc');
 });
 
-test('data-sn-roving on a text field: aria-activedescendant follows the mark, options get ids', async () => {
+test('data-sn-options on a text field: aria-activedescendant follows the mark, options get ids', async () => {
   const { root } = await render(`
-    <div><input data-sn-roving="opts"><ul id="opts" role="listbox"><li role="option">a</li><li role="option" id="own">b</li></ul></div>`);
+    <div><input data-sn-options="opts"><ul id="opts" role="listbox"><li role="option">a</li><li role="option" id="own">b</li></ul></div>`);
   const input = root.querySelector('input')!;
   const key = (k: string) => input.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true }));
   key('ArrowDown');
@@ -148,10 +148,10 @@ test('data-sn-roving on a text field: aria-activedescendant follows the mark, op
   expect(home.defaultPrevented).toBe(false);
 });
 
-test('data-sn-roving on a menu: it takes the focus, arrows, Home and End mark, Enter and Space click, the mark stays', async () => {
+test('data-sn-options on a menu: it takes the focus, arrows, Home and End mark, Enter and Space click, the mark stays', async () => {
   const { root, flush } = await render(`
     <div data-sn-state="{ log: '' }">
-      <ul role="menu" data-sn-roving data-sn-on-dismiss="log += 'x'">
+      <ul role="menu" data-sn-options data-sn-on-dismiss="log += 'x'">
         <template data-sn-for="c in ['cut', 'copy', 'paste']" data-sn-key="c"><li role="menuitem" data-sn-on-click="log += c[0]" data-sn-text="c"></li></template>
         <li role="menuitem" aria-disabled="true">off</li>
       </ul>
@@ -159,7 +159,7 @@ test('data-sn-roving on a menu: it takes the focus, arrows, Home and End mark, E
     </div>`);
   const menu = root.querySelector('ul')!;
   expect(menu.getAttribute('tabindex')).toBe('0');
-  expect(menu.getAttribute('data-sn-roving')).toBe('');
+  expect(menu.getAttribute('data-sn-options')).toBe('');
   expect(menu.hasAttribute('role')).toBe(true);
   const key = (k: string) => { const e = new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true }); menu.dispatchEvent(e); return e.defaultPrevented; };
   const marked = () => [...root.querySelectorAll('li')].findIndex((li) => li.hasAttribute('data-sn-marked'));
@@ -181,9 +181,9 @@ test('data-sn-roving on a menu: it takes the focus, arrows, Home and End mark, E
   expect(menu.hasAttribute('aria-activedescendant')).toBe(false);
 });
 
-test('data-sn-roving across: ArrowRight and ArrowLeft with aria-orientation="horizontal"; a tabindex of its own stays', async () => {
+test('data-sn-options across: ArrowRight and ArrowLeft with aria-orientation="horizontal"; a tabindex of its own stays', async () => {
   const { root } = await render(`
-    <div role="toolbar" aria-orientation="horizontal" tabindex="-1" data-sn-roving><div role="menuitem">a</div><div role="menuitem">b</div></div>`);
+    <div role="toolbar" aria-orientation="horizontal" tabindex="-1" data-sn-options><div role="menuitem">a</div><div role="menuitem">b</div></div>`);
   const bar = root.querySelector('[role=toolbar]')!;
   expect(bar.getAttribute('tabindex')).toBe('-1');
   const key = (k: string) => { const e = new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true }); bar.dispatchEvent(e); return e.defaultPrevented; };
@@ -195,15 +195,15 @@ test('data-sn-roving across: ArrowRight and ArrowLeft with aria-orientation="hor
   expect(bar.getAttribute('aria-activedescendant')).toBe(root.querySelectorAll('[role=menuitem]')[0]!.id);
 });
 
-test('data-sn-roving: where it belongs, its value, and data-sn-listbox renamed', async () => {
+test('data-sn-options: where it belongs, its value, and data-sn-listbox renamed', async () => {
   const { compile } = await import('../../src/compiler/index.js');
   const d = (html: string) => compile(html, {
     file: '/p/x.html', root: '/p', dev: false, readFile: () => '', helpers: { module: null, names: [], namespaces: {} },
   }).diagnostics.map((x) => `${x.code} ${x.message}`);
-  expect(d('<select data-sn-roving></select>')).toEqual([expect.stringMatching(/^SN102 `data-sn-roving` belongs on a text field with suggestions, or on the element that holds the options/)]);
-  expect(d('<input type="checkbox" data-sn-roving>')).toEqual([expect.stringMatching(/^SN102 /)]);
-  expect(d('<ul data-sn-roving="a b"></ul>')).toEqual([expect.stringMatching(/^SN401 `data-sn-roving` takes the literal `id` of the list/)]);
-  expect(d('<input data-sn-listbox="x">')).toEqual([expect.stringMatching(/^SN101 `data-sn-listbox` is renamed to `data-sn-roving`/)]);
+  expect(d('<select data-sn-options></select>')).toEqual([expect.stringMatching(/^SN102 `data-sn-options` belongs on a text field with suggestions, or on the element that holds the options/)]);
+  expect(d('<input type="checkbox" data-sn-options>')).toEqual([expect.stringMatching(/^SN102 /)]);
+  expect(d('<ul data-sn-options="a b"></ul>')).toEqual([expect.stringMatching(/^SN401 `data-sn-options` takes the literal `id` of the list/)]);
+  expect(d('<input data-sn-listbox="x">')).toEqual([expect.stringMatching(/^SN101 `data-sn-listbox` is renamed to `data-sn-options`/)]);
 });
 
 test('data-sn-debounce-<event> delays only that handler', async () => {

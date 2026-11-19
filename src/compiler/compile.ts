@@ -509,7 +509,7 @@ const METHODS = ['post', 'put', 'patch', 'delete'] as const;
 const RETIRED: Record<string, string> = {
   'data-sn-pages': 'is `data-sn-for` on `<html>` (or a layout\'s tag): `<html data-sn-for="post in posts" data-sn-path="/blog/:slug">` builds the page once per entry',
   'data-sn-apply': 'is renamed to `data-sn-write-through`, the name of what it turns off: `data-sn-write-through="off"`',
-  'data-sn-listbox': 'is renamed to `data-sn-roving`, which also serves menus and lists: on a text field it works as before; on the element that holds the options, that element takes the focus',
+  'data-sn-listbox': 'is renamed to `data-sn-options`, which also serves menus and lists: on a text field it works as before; on the element that holds the options, that element takes the focus',
   'data-sn-get': 'is gone: data a GET loads is a resource, `<sn-resource name="hits" src="/api/search?q={q}" when="q">`, which reloads when the values its URL reads change (latest wins); a load a click starts sets the state its `when` reads, or is a `data-sn-call`',
 };
 /** an action's expressions evaluated when it triggers, so they see `$event` */
@@ -1570,7 +1570,7 @@ class Compiler {
       ir, fns: this.fns,
       ...(this.opts.prerender ? { fixedState: this.fixedState() } : {}),
       ...(this.opts.sourcemap ? { sources: this.sourcesOf(this.fns) } : {}),
-      features: [...(this.opts.dev ? ['dev'] : []), ...['sse', 'optimistic', 'paginate', 'persist', 'cache', 'versions', 'refresh', 'each', 'roving', 'keys', 'apply', 'fields', 'form', 'select', 'location', 'typing', 'query-links', 'navigate', 'call', 'debounce', 'confirm', 'models', 'transition', 'components', 'nested', 'lets'].filter((f) => this.features.has(f))],
+      features: [...(this.opts.dev ? ['dev'] : []), ...['sse', 'optimistic', 'paginate', 'persist', 'cache', 'versions', 'refresh', 'each', 'options', 'keys', 'apply', 'fields', 'form', 'select', 'location', 'typing', 'query-links', 'navigate', 'call', 'debounce', 'confirm', 'models', 'transition', 'components', 'nested', 'lets'].filter((f) => this.features.has(f))],
       helpers: { user, builtin }, namespaces, calls: [...this.calls].sort(),
       diagnostics: this.diagnostics, files: [...this.files].sort(), ...(this.fileGlobs.length ? { globs: this.fileGlobs } : {}), ...(this.pagesOut ? { pages: this.pagesOut } : {}),
       ...(this.check ? { check: this.check } : {}),
@@ -4486,20 +4486,20 @@ class Compiler {
     // derived names: the element and its subtree read them like state
     if (has('let')) scope = this.lets(el, scope);
 
-    // keys move a mark through a list of options (see src/roving.ts): the attribute stays, for the runtime
-    if (has('roving')) {
-      const list = get('roving')!.trim();
+    // keys move a mark through a list of options (see src/options.ts): the attribute stays, for the runtime
+    if (has('options')) {
+      const list = get('options')!.trim();
       const type = attr(el, 'type')?.trim().toLowerCase() ?? 'text';
       const text = el.tagName === 'textarea' || (el.tagName === 'input' && !/^(button|submit|reset|checkbox|radio|image|file|color|range|hidden)$/.test(type));
-      if (el.tagName === 'select' || (el.tagName === 'input' && !text) || el.tagName === 'template') this.report(el, 'data-sn-roving', 'SN102', '`data-sn-roving` belongs on a text field with suggestions, or on the element that holds the options (a menu, a list)', 0);
-      else if (list && !/^[A-Za-z][\w-]*$/.test(list)) this.report(el, 'data-sn-roving', 'SN401', '`data-sn-roving` takes the literal `id` of the list, or nothing: the options inside the element, else the nearest list around it', 0);
+      if (el.tagName === 'select' || (el.tagName === 'input' && !text) || el.tagName === 'template') this.report(el, 'data-sn-options', 'SN102', '`data-sn-options` belongs on a text field with suggestions, or on the element that holds the options (a menu, a list)', 0);
+      else if (list && !/^[A-Za-z][\w-]*$/.test(list)) this.report(el, 'data-sn-options', 'SN401', '`data-sn-options` takes the literal `id` of the list, or nothing: the options inside the element, else the nearest list around it', 0);
       else {
         if (text) {
           setAttr(el, 'role', 'combobox');
           setAttr(el, 'aria-autocomplete', 'list');
         } else if (attr(el, 'tabindex') == null) setAttr(el, 'tabindex', '0');
         if (list) setAttr(el, 'aria-controls', list);
-        this.features.add('roving');
+        this.features.add('options');
       }
     }
 
@@ -9110,7 +9110,7 @@ function setAttr(el: P5Element, name: string, value: string) {
   if (a) a.value = value; else el.attrs.push({ name, value });
 }
 
-const KEPT_ATTRS = new Set(['data-sn-navigate', 'data-sn-permanent', 'data-sn-swap', 'data-sn-roving']);
+const KEPT_ATTRS = new Set(['data-sn-navigate', 'data-sn-permanent', 'data-sn-swap', 'data-sn-options']);
 /** the ids of a kept element's nodes: a range of its own, from its name, past any page's own numbering */
 const KEPT_IDS = 1000;
 export const keptBase = (name: string) => {
@@ -9125,8 +9125,8 @@ const hashText = (t: string) => {
 };
 function stripSn(el: P5Element) {
   // what stays, for the runtime: `data-sn-navigate` marks an element with a `navigate` handler (navigate.ts),
-  // `data-sn-permanent` a kept element, `data-sn-swap` a link the swap leaves to the browser and `data-sn-roving`
-  // the owner of a list of options (roving.ts)
+  // `data-sn-permanent` a kept element, `data-sn-swap` a link the swap leaves to the browser and `data-sn-options`
+  // the owner of a list of options (options.ts)
   el.attrs = el.attrs.filter((a) => !a.name.startsWith('data-sn-') || KEPT_ATTRS.has(a.name));
 }
 

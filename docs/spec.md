@@ -429,7 +429,7 @@ A model on `$url` (added 2026-11-13): `data-sn-model="$url.q"` binds a query par
 | `data-sn-confirm` | value expression | a question asked before the action runs; no request when the answer is no, no question when the value is falsy |
 | `data-sn-encoding` | `json` or `form` | `form`: the body is sent as `application/x-www-form-urlencoded` (see Request body) |
 | `data-sn-write-through` | `off` | turns write-through off for this mutation (see Write-through) |
-| `data-sn-roving` | the `id` of a list, or empty | keys move a mark through the options (see Lists you move through with the keys) |
+| `data-sn-options` | the `id` of a list, or empty | keys move a mark through the options (see Lists you move through with the keys) |
 | `data-sn-on-<event>` | handler expression | plain event handler, no request; e.g. `data-sn-on-click` |
 | `data-sn-on-keydown-<key>`, `data-sn-on-keyup-<key>` | handler expression | runs only for that key, with modifiers before it: `-j`, `-shift-n`, `-mod-enter`, `-escape`; see Key filters |
 
@@ -1015,16 +1015,16 @@ A handler cannot call an action function (`SN203`), because an action's lifecycl
 - **Islands** have no `app.run()`: they talk back through events, and the page decides, `data-sn-on-reader-read="run('mark-read')"`. That keeps the page the only place that knows its ids.
 - Recipe: "Run an action from a handler" (mark read after load, and a shortcut on a button).
 
-### Lists you move through with the keys (`data-sn-roving`)
+### Lists you move through with the keys (`data-sn-options`)
 Keys move a mark through a list of options and Enter clicks the marked one; the focus stays on the element with the attribute (the owner). A text field with suggestions (the WAI-ARIA combobox) is one use, a menu, a selectable list or a command palette others:
 ```html
-<input data-sn-model="q" data-sn-roving="hits" data-sn-on-dismiss="open = false">
+<input data-sn-model="q" data-sn-options="hits" data-sn-on-dismiss="open = false">
 <ul id="hits" role="listbox" data-sn-show="open && hits.length">
   <template data-sn-for="h in hits"><li role="option" data-sn-on-click="pick(h)" data-sn-text="h"></li></template>
 </ul>
-<ul role="menu" data-sn-roving>…<li role="menuitem" data-sn-on-click="…">…</li></ul>
+<ul role="menu" data-sn-options>…<li role="menuitem" data-sn-on-click="…">…</li></ul>
 ```
-- The attribute stays in the HTML for the `roving` module (`KEPT_ATTRS`). On a text field the compiler adds `role="combobox"` and `aria-autocomplete="list"`; elsewhere `tabindex="0"` unless the element has a `tabindex`; with an id, `aria-controls`. On a `<select>`, a non-text `<input>` or a `<template>` it is `SN102`; a value that is not an id is `SN401`. `data-sn-listbox` is `SN101` naming the rename.
+- The attribute stays in the HTML for the `options` module (`KEPT_ATTRS`). On a text field the compiler adds `role="combobox"` and `aria-autocomplete="list"`; elsewhere `tabindex="0"` unless the element has a `tabindex`; with an id, `aria-controls`. On a `<select>`, a non-text `<input>` or a `<template>` it is `SN102`; a value that is not an id is `SN401`. `data-sn-listbox` is `SN101` naming the rename.
 - The list: the element the id names; without one, the owner when it holds options, else the nearest `[role="listbox"]`, `[role="menu"]` or `[role="menubar"]` around it (in its parent, else further up), for inputs rendered in a loop. The options: its shown `[role="option"]`, `[role="menuitem"]`, `[role="menuitemcheckbox"]` and `[role="menuitemradio"]` without `aria-disabled="true"`.
 - The mark: `aria-activedescendant` on the owner (an option without an `id` gets `sn-o-<n>`), `data-sn-marked` on the option, and `aria-selected` true or false on every `option` (menu items take no `aria-selected`); scrolled into view.
 - ArrowDown and ArrowUp move it (ArrowRight and ArrowLeft with `aria-orientation="horizontal"` on the list or the owner, not in a text field). Enter clicks the marked option. Escape unmarks and fires `dismiss` on the owner (bubbling and cancelable: one handler on a form can serve all its inputs, and an input's own handler can keep it there with `$event.preventDefault()`). Other keys, and Enter without a marked option, do what they always do.
@@ -1222,7 +1222,7 @@ Delegation walks from the target up, and the first element that **handles** the 
 Why this rule (decided 2026-11-08, from Caley's calendar, whose week-grid arrow handler hid the page's N and P): nearest-wins is what clickable rows with buttons, actions and forms rely on, so it stays; only plain key handlers changed, and their signal is the DOM's own for a consumed key, which handlers already give for keys they take from their default. Full DOM-like bubbling would have needed a stop at every inner handler, and opt-in attributes would have needed markup in each place.
 
 #### Custom events are notifications
-A bubbling custom event (`emit()`, an island's `CustomEvent`, `sn-error`, the `roving` module's `dismiss`) does not end the walk at the first element that handles it: it goes to every element from the target up to the mount root that has a handler for it, until a handler calls `$event.preventDefault()`. Clicks need nearest-wins (a button in a row is not a click on the row); a custom event says that something happened, and every level that cares hears it. A row that clears its own `saving` flag and a page that shows a toast handle the same `saved`:
+A bubbling custom event (`emit()`, an island's `CustomEvent`, `sn-error`, the `options` module's `dismiss`) does not end the walk at the first element that handles it: it goes to every element from the target up to the mount root that has a handler for it, until a handler calls `$event.preventDefault()`. Clicks need nearest-wins (a button in a row is not a click on the row); a custom event says that something happened, and every level that cares hears it. A row that clears its own `saving` flag and a page that shows a toast handle the same `saved`:
 ```html
 <main data-sn-state="{ toast: '' }" data-sn-on-saved="toast = m.saved()">
   <template data-sn-for="r in rows">
@@ -1231,7 +1231,7 @@ A bubbling custom event (`emit()`, an island's `CustomEvent`, `sn-error`, the `r
 ```
 - **Which events.** Events that are `CustomEvent`s and bubble. Native events, and an island's plain `Event`, keep the rule above (the nearest element that handled it; keys go on when not prevented). A custom event that does not bubble (`bubbles: false`) keeps its nearest-ancestor reach: the island said it should not travel.
 - **Order.** Inner to outer, as the event bubbles; on each element its handlers in attribute order, with its action's trigger. Everything runs synchronously inside the dispatch, so an outer handler sees the state the inner one wrote, every handler sees the same `$event.detail`, and statements after `emit()` in the emitting handler run after all of them. Each level has its own scope: `$el` is that element, its own state and lets. One flush renders all their writes.
-- **Saying "final".** `$event.preventDefault()`: the walk stops after the element whose handler prevented it (the other handlers on that element, and its action, still run, as for keys). `emit()` dispatches a cancelable event, and so does the `roving` module for `dismiss`. `sn-error` is cancelable, and preventing it means "handled, no `onError`": an inner `data-sn-on-sn-error` that only logs lets the page's handler and then `onError` see the error. A handler on a non-cancelable custom event (an island's event without `cancelable`) cannot stop it (the DOM ignores `preventDefault()` there): every level runs. Islands whose events may be final at some level dispatch them with `cancelable: true`.
+- **Saying "final".** `$event.preventDefault()`: the walk stops after the element whose handler prevented it (the other handlers on that element, and its action, still run, as for keys). `emit()` dispatches a cancelable event, and so does the `options` module for `dismiss`. `sn-error` is cancelable, and preventing it means "handled, no `onError`": an inner `data-sn-on-sn-error` that only logs lets the page's handler and then `onError` see the error. A handler on a non-cancelable custom event (an island's event without `cancelable`) cannot stop it (the DOM ignores `preventDefault()` there): every level runs. Islands whose events may be final at some level dispatch them with `cancelable: true`.
 - **Debounced handlers** (`data-sn-debounce-<event>`) have not run when the walk decides, so they pass the event on; a level that must be final does not debounce, or prevents in a plain handler next to the debounced one.
 - **Actions** triggered by a custom event (`data-sn-trigger="saved"`) pass it on too: an action does not prevent a custom event (an `<a>` action prevents only native events).
 - **Islands and other listeners.** sinter's walk runs in its capture listener at the root, before the event reaches its target and bubbles to `document`, so app code listening outside sinter (RealWorld's `document.addEventListener('navigate', …)`) still gets every event, and can read `defaultPrevented` to see whether a page handler took it. An island that dispatches a cancelable event and checks `dispatchEvent()`'s result to skip its own default (a `reader-close` the page may veto) sees a page handler that ends the walk as a veto too; an island that needs the two apart dispatches two events.

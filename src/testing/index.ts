@@ -28,7 +28,7 @@ import optimistic from '../optimistic.js';
 import paginate from '../paginate.js';
 import each from '../each.js';
 import persist from '../persist.js';
-import roving from '../roving.js';
+import options from '../options.js';
 import keys from '../keys.js';
 import apply from '../apply.js';
 import transition from '../transition.js';
@@ -50,7 +50,7 @@ import sse from '../sse.js';
 import { lists, prefetch, type PrefetchPage } from '../prefetch.js';
 import { pagePaths } from '../prefetch-build.js';
 
-const FEATURES: Record<string, Feature> = { components, nested, lets, dev, sse, optimistic, paginate, persist, cache, versions, refresh, each, roving, keys, apply, fields, form, select, location, typing, 'query-links': queryLinks, navigate, call, debounce, confirm, models, transition };
+const FEATURES: Record<string, Feature> = { components, nested, lets, dev, sse, optimistic, paginate, persist, cache, versions, refresh, each, options, keys, apply, fields, form, select, location, typing, 'query-links': queryLinks, navigate, call, debounce, confirm, models, transition };
 
 // ---- requests
 

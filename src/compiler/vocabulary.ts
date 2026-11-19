@@ -30,7 +30,7 @@ export const ATTRIBUTES: AttrDoc[] = [
   { name: 'key', value: 'value expression', doc: 'row identity; defaults to the resource key or object identity' },
   { name: 'if', value: 'value expression', doc: 'renders a <template> while truthy. Same id, same control: when the branch with focus is swapped, the element with its id in the new one takes focus (a toggle\'s two buttons: <button id="follow" data-sn-delete=…> and <button id="follow" data-sn-post=…>)' },
   { name: 'else', value: '', doc: 'on a <template> directly after an if template. Lists, branches and chosen components render between two comments (`<ul><!--sn 4--><li>a</li><!--/sn--></ul>`): CSS sees plain children. Comments that are exactly `<!--sn-->`, `<!--sn 4-->`, `<!--/sn-->` or `<!---->` are reserved (SN105); `$el` in an if, for or use is SN213; keep HTML comments' },
-  { name: 'roving', value: 'id of the list, or empty', doc: 'arrows mark a [role=option|menuitem] of the list (empty: inside the element, else the nearest listbox or menu), Enter clicks it, Escape fires `dismiss`; focus stays on the element. Text field: a combobox' },
+  { name: 'options', value: 'id of the list, or empty', doc: 'arrows mark a [role=option|menuitem] of the list (empty: inside the element, else the nearest listbox or menu), Enter clicks it, Escape fires `dismiss`; focus stays on the element. Text field: a combobox' },
   { name: 'persist', value: 'storage key', doc: 'persists the model or state in localStorage under sn:' },
   { name: 'post', value: 'URL template', doc: 'POST action' },
   { name: 'put', value: 'URL template', doc: 'PUT action' },

@@ -51,7 +51,7 @@ words or `null`, so a page can put its own, translated text where the server sai
 typed in `Meta`, without `detail`, though it is the same object. Both now say `{status, body,
 message, detail}`.
 
-### 5. `data-sn-listbox` becomes `data-sn-roving`
+### 5. `data-sn-listbox` becomes `data-sn-options`
 
 The one attribute that implemented a single widget becomes the general mechanism under it: keys move
 a mark through a list of options, and Enter clicks the marked one. A combobox is one use; a menu, a
@@ -59,11 +59,11 @@ selectable list and a command palette are others.
 
 ```html
 <!-- a combobox: focus stays in the input -->
-<input data-sn-model="q" data-sn-roving="hits" data-sn-on-dismiss="open = false">
+<input data-sn-model="q" data-sn-options="hits" data-sn-on-dismiss="open = false">
 <ul id="hits" role="listbox" data-sn-show="open && hits.length">…<li role="option">…</li></ul>
 
 <!-- a menu, a list: the element itself takes focus, its options are inside it -->
-<ul role="menu" data-sn-roving>
+<ul role="menu" data-sn-options>
   <template data-sn-for="c in commands"><li role="menuitem" data-sn-on-click="run(c.id)">…</li></template>
 </ul>
 ```
@@ -85,7 +85,10 @@ selectable list and a command palette are others.
   `aria-autocomplete="list"`, as before; typing unmarks. On another element it adds `tabindex="0"`
   when the element has none.
 - A mouse press on an option keeps the focus where it is.
-- `data-sn-listbox` is `SN101`, "renamed to `data-sn-roving`".
+- `data-sn-listbox` is `SN101`, "renamed to `data-sn-options`".
+- The name: first `data-sn-roving`, but a roving tabindex is the other ARIA technique, where the focus
+  itself moves from item to item. Here the focus stays and the element points at its marked option, so the
+  attribute is named for what it points at: `data-sn-options="hits"`, the element's options are `#hits`.
 
 ### 6. Pagination is one attribute
 

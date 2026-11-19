@@ -39,7 +39,7 @@
     "./remote": "./dist/remote.js",
     "./each": "./dist/each.js",
     "./persist": "./dist/persist.js",
-    "./roving": "./dist/roving.js",
+    "./options": "./dist/options.js",
     "./keys": "./dist/keys.js",
     "./apply": "./dist/apply.js",
     "./cache": "./dist/cache.js",
