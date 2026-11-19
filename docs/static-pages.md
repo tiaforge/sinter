@@ -206,12 +206,12 @@ proxy's business.
 
 ### A page per entry
 
-`data-sn-pages` builds a page once per entry of a list the page reads from the repository, and writes each at
+`data-sn-for` on `<html>` builds a page once per entry of a list the page reads from the repository, and writes each at
 its `data-sn-path` pattern filled from the entry:
 
 ```html
 <!-- blog/post.html -->
-<site-layout data-sn-path="/blog/:slug" data-sn-pages="post in posts" data-sn-prop="{ title: post.title }">
+<site-layout data-sn-path="/blog/:slug" data-sn-for="post in posts" data-sn-prop="{ title: post.title }">
   <sn-resource name="posts" src="file:/content/posts/*.md" type="Post"></sn-resource>
   <article>
     <h1 data-sn-text="post.title"></h1>
@@ -245,7 +245,7 @@ dist/blog/recap.html      /blog/recap
   is fine). A list or tree on it too long to write at build time ([SN536](diagnostics.md#sn536-expansion-limit)) is an error here,
   not a warning: one long entry would ship its content and the runtime.
 - **An index in pages** is a collection of pages, built with `chunks()`
-  ([collections](resources.md#collections)), and a `data-sn-pages` page at `/blog/page/:n`; the front page
+  ([collections](resources.md#collections)), and a page per entry (`data-sn-for` on `<html>`) at `/blog/page/:n`; the front page
   (`/blog/`) is a page of its own.
 - **Links to entries are checked**: a link in a built page to a path the pattern matches but no entry has
   (`/blog/helo`) fails the build with the entry it was likely meant for

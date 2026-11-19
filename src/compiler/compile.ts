@@ -64,13 +64,13 @@ export interface CompileOptions {
    */
   listFiles?: (dir: string) => string[];
   /**
-   * `data-sn-pages` (docs/static-pages.md#a-page-per-entry): the entry this compile writes, and the path it is written
-   * at (the page's pattern filled from it). Without it, a page with `data-sn-pages` is compiled as its template, its
+   * `<html data-sn-for>` (docs/static-pages.md#a-page-per-entry): the entry this compile writes, and the path it is written
+   * at (the page's pattern filled from it). Without it, a page with `<html data-sn-for>` is compiled as its template, its
    * entry the list's first (`sinter check`, the editor, and the build's look at it, which lists its entries: `pages`).
    */
   page?: { value: unknown; path: string; key?: string };
   /**
-   * Builds: where a `data-sn-pages` template's first pass is kept, so its other entries are not walked again
+   * Builds: where a `<html data-sn-for>` template's first pass is kept, so its other entries are not walked again
    * (`fromTemplate`). The compiles that share one must differ only in what each entry changes: `page`, `foldLog`,
    * `urls`, `moduleSrc`, `paintCss`, `images` and `locale.urls`. Cleared with the build's reads.
    */
@@ -303,7 +303,7 @@ export interface CompileResult {
   diagnostics: Diagnostic[];
   files: string[];
   /**
-   * `data-sn-pages`: the variable, the list, the pattern, and each entry with the path it fills (compiled as the
+   * `<html data-sn-for>`: the variable, the list, the pattern, and each entry with the path it fills (compiled as the
    * template: no `page` option). A build writes one page per entry.
    */
   pages?: { name: string; of: string; pattern: string; entries: Array<{ value: unknown; path: string; key: string }> };
@@ -447,7 +447,7 @@ export interface CompiledParts {
   diagnostics: Diagnostic[];
   files: string[];
   /**
-   * `data-sn-pages`: the variable, the list, the pattern, and each entry with the path it fills (compiled as the
+   * `<html data-sn-for>`: the variable, the list, the pattern, and each entry with the path it fills (compiled as the
    * template: no `page` option). A build writes one page per entry.
    */
   pages?: { name: string; of: string; pattern: string; entries: Array<{ value: unknown; path: string; key: string }> };
@@ -507,6 +507,7 @@ const ATTRS = ATTRIBUTES.map((a) => a.name);
 const METHODS = ['post', 'put', 'patch', 'delete'] as const;
 /** attributes that are gone or renamed (docs/proposals/vocabulary.md): what to write instead */
 const RETIRED: Record<string, string> = {
+  'data-sn-pages': 'is `data-sn-for` on `<html>` (or a layout\'s tag): `<html data-sn-for="post in posts" data-sn-path="/blog/:slug">` builds the page once per entry',
   'data-sn-apply': 'is renamed to `data-sn-write-through`, the name of what it turns off: `data-sn-write-through="off"`',
   'data-sn-listbox': 'is renamed to `data-sn-roving`, which also serves menus and lists: on a text field it works as before; on the element that holds the options, that element takes the focus',
   'data-sn-get': 'is gone: data a GET loads is a resource, `<sn-resource name="hits" src="/api/search?q={q}" when="q">`, which reloads when the values its URL reads change (latest wins); a load a click starts sets the state its `when` reads, or is a `data-sn-call`',
@@ -834,7 +835,7 @@ export function compilerFields(html: string, options: CompileOptions): Array<[st
 /** what a unit shares of its page as it is (`unitChild`); its numbering (`UNIT_NUMBERING`) it copies */
 const UNIT_SHARED = new Set(['page', 'componentFiles']);
 
-/** a `data-sn-pages` template walked once (`fromTemplate`): its first pass, kept for each entry's evaluation */
+/** a `<html data-sn-for>` template walked once (`fromTemplate`): its first pass, kept for each entry's evaluation */
 type KeptTemplate = { c: Compiler; path: string; checked: boolean; hits: number; misses: number };
 
 /** the template walked as one entry's first pass, up to its evaluation; null when its entries cannot share it */
@@ -848,7 +849,7 @@ function keepTemplate(html: string, options: CompileOptions): KeptTemplate | nul
 }
 
 /**
- * `data-sn-pages` in a build (`templates`): an entry's page from its template's first pass, kept for every entry.
+ * `<html data-sn-for>` in a build (`templates`): an entry's page from its template's first pass, kept for every entry.
  * Each entry's first pass is the same program: the entry is a constant resource only the evaluation reads
  * (`prerender`, through `fileConstants`), and what it decides is keyed by place (`instKey`). So the template is
  * walked once, each entry is only evaluated again (`decideFor`) and compiled with what it decided: one walk per
@@ -1553,7 +1554,7 @@ class Compiler {
       const params = new Set(this.pagesDecl.pattern.split('/').filter((x) => x[0] === ':').map((x) => x.slice(1)));
       const read = new Set<string>();
       eachPath(ir, (p) => { if (typeof p === 'string' && p.startsWith('$url.')) { const n = p.slice(5).split('.')[0]!; if (params.has(n)) read.add(n); } }, () => {});
-      for (const n of [...read].sort()) this.report(this.pagesDecl.html, 'data-sn-pages', 'SN345', `\`$url.${n}\` on a \`data-sn-pages\` page: each entry's page is written at its own path, so \`:${n}\` is the entry's field, \`${this.pagesDecl.name}.${n}\``, 0);
+      for (const n of [...read].sort()) this.report(this.pagesDecl.html, 'data-sn-for', 'SN345', `\`$url.${n}\` on a page per entry (\`data-sn-for\` on \`<html>\`): each entry's page is written at its own path, so \`:${n}\` is the entry's field, \`${this.pagesDecl.name}.${n}\``, 0);
     }
     const reads = this.urlReads(ir, paths), own = this.ownPaths(paths);
     if (reads) this.checkDroppedQuery(reads, paths);
@@ -2111,10 +2112,11 @@ class Compiler {
     // the tag's attributes: plain ones replace the layout's on `<html>` (its defaults), `class` is joined
     for (const a of host.attrs) {
       if (a.name === 'data-sn-prop' || a.name === 'data-sn-state') continue;
-      if (a.name === 'data-sn-path' || a.name === 'data-sn-prefetch' || a.name === 'data-sn-pages' || a.name === 'data-sn-swap') { setAttr(lhtml, a.name, a.value); continue; }
+      if (a.name === 'data-sn-path' || a.name === 'data-sn-prefetch' || a.name === 'data-sn-for' || a.name === 'data-sn-swap') { setAttr(lhtml, a.name, a.value); continue; }
+      if (a.name === 'data-sn-pages') { this.report(host, a.name, 'SN101', `\`data-sn-pages\` ${RETIRED['data-sn-pages']}`, 0); continue; }
       if (a.name === 'data-sn-early') { this.report(host, a.name, 'SN319', '`data-sn-early` cannot be on a layout\'s tag: the layout is the whole page', 0, 'leave parts out of the early script on their own tags: `<tag-cloud data-sn-early="off">`'); continue; }
       if (a.name.startsWith('data-sn-')) {
-        if (!callerAttribute(a.name) || a.name === 'data-sn-model' || a.name === 'data-sn-persist') this.report(host, a.name, 'SN102', `\`${a.name}\` cannot be on a layout's tag`, 0, 'a layout\'s tag takes `data-sn-prop`, `data-sn-state`, handlers, `data-sn-class`, `-attr` and `-style`, `data-sn-path`, `data-sn-pages`, `data-sn-prefetch` and `data-sn-swap`, and the attributes of `<html>`');
+        if (!callerAttribute(a.name) || a.name === 'data-sn-model' || a.name === 'data-sn-persist') this.report(host, a.name, 'SN102', `\`${a.name}\` cannot be on a layout's tag`, 0, 'a layout\'s tag takes `data-sn-prop`, `data-sn-state`, handlers, `data-sn-class`, `-attr` and `-style`, `data-sn-path`, `data-sn-for` (a page per entry), `data-sn-prefetch` and `data-sn-swap`, and the attributes of `<html>`');
         continue;
       }
       if (a.name === 'class') { const own = attr(lhtml, 'class'); setAttr(lhtml, 'class', own ? `${own} ${a.value}` : a.value); }
@@ -3968,7 +3970,7 @@ class Compiler {
     }
     if (u && !('seen' in u)) { L.off = true; return this.compileDefinition(name); }
     // recorded the second time a build needs it (recording logs what the unit reads and writes): a definition only one
-    // page needs, as a `data-sn-pages` template's first entry, is compiled in place once. The chain goes on from either
+    // page needs, as a `<html data-sn-for>` template's first entry, is compiled in place once. The chain goes on from either
     if (u === undefined) {
       const id = cache.size;
       cache.set(key, { seen: id });
@@ -4358,7 +4360,6 @@ class Compiler {
     }
     if (has('early') && !this.useOf.get(el)) this.report(el, 'data-sn-early', 'SN102', '`data-sn-early` goes on a component\'s tag, `<tag-cloud data-sn-early="off">`', 0);
     if (has('path') && el.tagName !== 'html') this.report(el, 'data-sn-path', 'SN102', '`data-sn-path` belongs on `<html>`', 0);
-    if (has('pages') && el.tagName !== 'html') this.report(el, 'data-sn-pages', 'SN102', '`data-sn-pages` belongs on `<html>` (or a layout\'s tag), beside `data-sn-path`', 0);
     if (has('prefetch')) {
       if (el.tagName !== 'html') this.report(el, 'data-sn-prefetch', 'SN102', '`data-sn-prefetch` belongs on `<html>`: it keeps other pages from prefetching or prerendering this one', 0);
       else if (get('prefetch')!.trim() !== 'off') this.report(el, 'data-sn-prefetch', 'SN401', '`data-sn-prefetch` takes `off`; prefetching is on without the attribute', 0);
@@ -4511,7 +4512,7 @@ class Compiler {
     }
 
     for (const n of ['for', 'if', 'else'] as const) {
-      if (has(n) && !isTemplate) this.report(el, `data-sn-${n}`, 'SN102', `\`data-sn-${n}\` must be on a \`<template>\``, 0);
+      if (has(n) && !isTemplate) this.report(el, `data-sn-${n}`, 'SN102', `\`data-sn-${n}\` must be on a \`<template>\`${n === 'for' ? ' (or on `<html>`: the page once per entry)' : ''}`, 0);
     }
     if (has('key') && !(isTemplate && has('for'))) this.report(el, 'data-sn-key', 'SN102', '`data-sn-key` belongs on a `<template data-sn-for>`', 0);
 
@@ -6218,39 +6219,43 @@ class Compiler {
   }
   /** the folders `file:` globs listed, and what their files match: the dev server reloads the page when one is added or removed */
   readonly fileGlobs: Array<{ dir: string; match: string }> = [];
-  /** `data-sn-pages`: the variable, its list, the pattern as written, and the internal resource that holds the entry */
+  /** `<html data-sn-for>`: the variable, its list, the pattern as written, and the internal resource that holds the entry */
   private pagesDecl: { name: string; of: string; pattern: string; html: P5Element; entry: P5Element } | null = null;
-  /** `data-sn-pages`, compiled as the template: the entries and their paths */
+  /** `<html data-sn-for>`, compiled as the template: the entries and their paths */
   private pagesOut: CompiledParts['pages'] | undefined;
   /** the page's `<html lang>`, once the layout is merged */
   private pageLang: string | undefined;
 
   /**
-   * `<html data-sn-pages="post in posts">` (on the page's `<html>`, or its layout's tag): the page once per entry of a
+   * `<html data-sn-for="post in posts">` (on the page's `<html>`, or its layout's tag): the page once per entry of a
    * build-time list the page declares, at its `data-sn-path` pattern filled from the entry. The entry is an internal
    * resource beside the list, so it is page scope, folds and is typed as any resource. With `page` the compile writes
    * that entry at its path; without it, the template, with the list's first entry.
    */
   pagesOf(doc: DefaultTreeAdapterMap['document']) {
     const html = doc.childNodes.find((n): n is P5Element => isElement(n) && n.tagName === 'html');
-    const v = html && attr(html, 'data-sn-pages');
+    if (html && attr(html, 'data-sn-pages') !== undefined) {
+      this.report(html, 'data-sn-pages', 'SN101', `\`data-sn-pages\` ${RETIRED['data-sn-pages']}`, 0);
+      html.attrs = html.attrs.filter((a) => a.name !== 'data-sn-pages');
+    }
+    const v = html && attr(html, 'data-sn-for');
     if (!html || v === undefined) return;
-    html.attrs = html.attrs.filter((a) => a.name !== 'data-sn-pages');
+    html.attrs = html.attrs.filter((a) => a.name !== 'data-sn-for');
     const m = /^\s*([A-Za-z_$][\w$]*)\s+in\s+([A-Za-z_$][\w$]*)\s*$/.exec(v);
-    if (!m) { this.report(html, 'data-sn-pages', 'SN340', '`data-sn-pages` takes `<name> in <list>`, e.g. `post in posts`, where `posts` is a `file:` resource of this page', 0); return; }
+    if (!m) { this.report(html, 'data-sn-for', 'SN340', '`data-sn-for` on `<html>` takes `<name> in <list>`, e.g. `post in posts`, where `posts` is a `file:` resource of this page', 0); return; }
     const [, name, of] = m as unknown as [string, string, string];
-    if (STORE_FNS.includes(name) || name.startsWith('$')) { this.report(html, 'data-sn-pages', 'SN340', `\`${name}\` cannot name the entry: it is ${name.startsWith('$') ? 'a magic name' : 'a store function'}`, v.indexOf(name)); return; }
+    if (STORE_FNS.includes(name) || name.startsWith('$')) { this.report(html, 'data-sn-for', 'SN340', `\`${name}\` cannot name the entry: it is ${name.startsWith('$') ? 'a magic name' : 'a store function'}`, v.indexOf(name)); return; }
     const pattern = (attr(html, 'data-sn-path') ?? '').trim();
     const pats = pattern.split(/\s+/).filter(Boolean);
-    if (pats.length !== 1 || !/\/:/.test(pats[0]!)) { this.report(html, 'data-sn-pages', 'SN340', `\`data-sn-pages\` needs \`data-sn-path\` with exactly one pattern to fill from each entry, e.g. \`data-sn-path="/blog/:slug"\`${pattern ? ` (it is \`${pattern}\`)` : ''}`, 0); return; }
+    if (pats.length !== 1 || !/\/:/.test(pats[0]!)) { this.report(html, 'data-sn-for', 'SN340', `\`data-sn-for\` on \`<html>\` needs \`data-sn-path\` with exactly one pattern to fill from each entry, e.g. \`data-sn-path="/blog/:slug"\`${pattern ? ` (it is \`${pattern}\`)` : ''}`, 0); return; }
     // the list: a top-level `<sn-resource>` of the page with a `file:` glob (not inside a template or a component)
     let list: P5Element | null = null;
     const find = (p: P5Parent) => { for (const c of p.childNodes) { if (!isElement(c) || list) continue; if (c.tagName === 'template') continue; if (c.tagName === 'sn-resource' && attr(c, 'name') === of) { list = c; return; } find(c); } };
     find(doc);
     const el = list as P5Element | null;
-    if (!el) { this.report(html, 'data-sn-pages', 'SN340', `\`${of}\` is not a resource of this page: \`data-sn-pages\` takes a list the page declares, outside any template (\`<sn-resource name="${of}" src="file:/content/posts/*.md">\`)`, v.indexOf(of)); return; }
+    if (!el) { this.report(html, 'data-sn-for', 'SN340', `\`${of}\` is not a resource of this page: \`data-sn-for\` on \`<html>\` takes a list the page declares, outside any template (\`<sn-resource name="${of}" src="file:/content/posts/*.md">\`)`, v.indexOf(of)); return; }
     const src = attr(el, 'src') ?? '';
-    if (!isContentSource(src) && (!isFileSource(src) || !isGlob(src.trim().slice('file:'.length)))) { this.report(html, 'data-sn-pages', 'SN340', `\`${of}\` is not a build-time list: \`data-sn-pages\` takes a \`file:\` glob (\`file:/content/posts/*.md\`) or a collection (\`content:posts\`), whose entries the build knows`, v.indexOf(of)); return; }
+    if (!isContentSource(src) && (!isFileSource(src) || !isGlob(src.trim().slice('file:'.length)))) { this.report(html, 'data-sn-for', 'SN340', `\`${of}\` is not a build-time list: \`data-sn-for\` on \`<html>\` takes a \`file:\` glob (\`file:/content/posts/*.md\`) or a collection (\`content:posts\`), whose entries the build knows`, v.indexOf(of)); return; }
     // the entry: an internal resource right after the list, so the list is read first
     const entry = parse5.defaultTreeAdapter.createElement('sn-resource', parse5.html.NS.HTML, [{ name: 'name', value: name }, { name: PAGE_ENTRY, value: of }]);
     const parent = el.parentNode as P5Parent;
@@ -6309,7 +6314,7 @@ class Compiler {
     this.declAt.set(this.resources[this.resources.length - 1]!, el);
   }
 
-  /** `data-sn-pages`: the entry, a constant (`fx`) beside its list; as the template, the list's entries and their paths */
+  /** `<html data-sn-for>`: the entry, a constant (`fx`) beside its list; as the template, the list's entries and their paths */
   entryResource(el: P5Element, name: string, scope: number) {
     const d = this.pagesDecl!;
     const list = this.fileData.get(d.of)?.value;
@@ -6331,9 +6336,9 @@ class Compiler {
           if (!bad && (t === '' || t === '.' || t === '..' || t.includes('/'))) bad = `has \`${k}\` \`${t}\`, which is not one path segment`;
           return encodeURIComponent(t);
         });
-        if (bad) { this.report(d.html, 'data-sn-pages', 'SN341', `${what} ${bad}: each entry fills \`${d.pattern}\``, 0); continue; }
+        if (bad) { this.report(d.html, 'data-sn-for', 'SN341', `${what} ${bad}: each entry fills \`${d.pattern}\``, 0); continue; }
         const prev = seen.get(path);
-        if (prev) { this.report(d.html, 'data-sn-pages', 'SN341', `${what} and ${prev} would both be \`${path}\``, 0); continue; }
+        if (prev) { this.report(d.html, 'data-sn-for', 'SN341', `${what} and ${prev} would both be \`${path}\``, 0); continue; }
         seen.set(path, what);
         out.push({ value: e, path, key: keyOf.map((k) => String(rec[k])).join('\u001f') });
       }
@@ -6348,7 +6353,7 @@ class Compiler {
     // the list is read: by the build, for its entries, whatever the page reads of it
     const listInfo = this.page.resources.get(d.of);
     if (listInfo) listInfo.used = true;
-    if (this.check) this.check.resources.push({ name, type: null, loc: this.locOf(el, null), nameLoc: this.locOf(d.html, 'data-sn-pages'), item: d.of });
+    if (this.check) this.check.resources.push({ name, type: null, loc: this.locOf(el, null), nameLoc: this.locOf(d.html, 'data-sn-for'), item: d.of });
     this.resources.push({ name, src: [], key: null, items: null, total: null, order: null, when: null, paginate: null, deps: [], scope, data: null, fx: 1 });
     this.declAt.set(this.resources[this.resources.length - 1]!, el);
   }
@@ -6392,7 +6397,7 @@ class Compiler {
       const { dir, match } = where.glob;
       this.fileGlobs.push({ dir, match: match.source });
       // the finished list (entries, drafts left out, keys checked, sorted), and what it reported: kept for the build, since
-      // every page of a `data-sn-pages` template reads the same list, and building it per page grew with their square
+      // every page of a `<html data-sn-for>` template reads the same list, and building it per page grew with their square
       const drafts = attr(el, 'drafts')?.trim() || null, order = attr(el, 'order')?.trim() || null, keyAttr = attr(el, 'key')?.trim() || null;
       const key = info.key ?? ['slug'];
       const lang = this.opts.locale?.name ?? this.pageLang;
@@ -7001,7 +7006,7 @@ class Compiler {
   expansionWarning(el: P5Element, limit: number, list: boolean) {
     const what = list ? 'this list\'s rows' : 'this component\'s tree';
     const n = this.diagnostics.length;
-    this.report(el, null, 'SN536', `${what} would take the page past ${limit.toLocaleString('en')} rows and components expanded at build time, so it is rendered in the browser${this.pagesDecl ? ': on a `data-sn-pages` page, where every entry\'s page would ship its content and the runtime, that is an error' : ''}`, 0,
+    this.report(el, null, 'SN536', `${what} would take the page past ${limit.toLocaleString('en')} rows and components expanded at build time, so it is rendered in the browser${this.pagesDecl ? ': on a page per entry, where every entry\'s page would ship its content and the runtime, that is an error' : ''}`, 0,
       'a page that long builds and lays out slowly: split the content over pages, keep a long list of it a list the browser renders, or raise `sinter({ expansionLimit })` if the page is measured fast enough');
     // a page per entry: one long entry would quietly ship its body and the runtime, on that page only
     if (this.pagesDecl) for (const d of this.diagnostics.slice(n)) d.severity = 'error';
@@ -8638,7 +8643,7 @@ class Compiler {
     this.headEl = head ?? null;
     if (!head || !this.fileData.size) return;
     // the elements now, their JSON once the page is compiled and only for what is left (`fileJson`): a list that every
-    // page of a `data-sn-pages` template declares would otherwise be written and parsed in each, and then dropped
+    // page of a `<html data-sn-for>` template declares would otherwise be written and parsed in each, and then dropped
     for (const d of this.fileData.values()) {
       const el = parse5.defaultTreeAdapter.createElement('script', parse5.html.NS.HTML, [{ name: 'type', value: 'application/json' }, { name: 'data-sn', value: String(d.id) }]);
       parse5.defaultTreeAdapter.appendChild(head, el);
@@ -8665,7 +8670,7 @@ class Compiler {
     for (const [name, d] of this.fileData) if (d.el && !d.el.childNodes.length && d.el.parentNode) {
       // what the browser still reads: only the fields `fields` names, of each entry; a collection's is named, always,
       // so that what a CMS returns and no page shows does not ship (SN344)
-      if (d.content && !d.fields && d.at) this.reportLate(d.at, d.at.tagName === 'html' ? 'data-sn-pages' : 'src', 'SN344', `browser code reads \`${name}\`, a collection, so it would ship to the page: name the fields it gets with \`fields="…"\`${d.at.tagName === 'html' ? ' on its list' : ''}`, 0, 'a collection holds what a loader returned, which can be more than a page shows (a CMS\'s internal fields); `fields="sku,name,price"` ships those of each entry, and nothing else');
+      if (d.content && !d.fields && d.at) this.reportLate(d.at, d.at.tagName === 'html' ? 'data-sn-for' : 'src', 'SN344', `browser code reads \`${name}\`, a collection, so it would ship to the page: name the fields it gets with \`fields="…"\`${d.at.tagName === 'html' ? ' on its list' : ''}`, 0, 'a collection holds what a loader returned, which can be more than a page shows (a CMS\'s internal fields); `fields="sku,name,price"` ships those of each entry, and nothing else');
       parse5.defaultTreeAdapter.insertText(d.el, `\u0001sn-json:${d.id}\u0001`);
       this.jsonOut.set(d.id, d.fields ? pickFields(d.value, d.fields) : d.value);
     }

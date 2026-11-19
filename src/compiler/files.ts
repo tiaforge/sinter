@@ -37,7 +37,7 @@ export const CONTENT = 'content';
 /** whether a `src` is a collection of the content module: `content:` and a name (not a path: `content:/x` is not one) */
 export const isContentSource = (value: string | undefined) => value != null && /^content:[A-Za-z_$]/.test(value.trimStart());
 
-/** the attribute of the internal resource that holds a `data-sn-pages` entry (never written by a page) */
+/** the attribute of the internal resource that holds a `<html data-sn-for>` entry (never written by a page) */
 export const PAGE_ENTRY = 'data-sn-page-entry';
 
 /** whether a `file:` path is a glob: `*`, `**`, `?`, or `{a,b}` alternation */

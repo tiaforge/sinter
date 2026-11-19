@@ -126,7 +126,7 @@ export interface PageInfo {
   locale?: { name: string; messages: string | null; localeUrl: string; ownUrls?: boolean };
   /**
    * Set when an expression compiled the page's own URL into its code: `$canonical` of a page at a fixed path, or
-   * `localeUrl()` from the page's translations (`ownUrls`). A `data-sn-pages` template doing so has a program per entry
+   * `localeUrl()` from the page's translations (`ownUrls`). A `<html data-sn-for>` template doing so has a program per entry
    */
   readsUrl?: boolean;
   helpers: Set<string>;

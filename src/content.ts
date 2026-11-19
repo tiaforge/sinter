@@ -52,7 +52,7 @@ export function isCollection(v: unknown): v is Collection {
 }
 
 /**
- * A list in pages of `size` entries, for an index in pages (`data-sn-pages="p in postPages"` at `/blog/page/:n`):
+ * A list in pages of `size` entries, for an index in pages (`<html data-sn-for="p in postPages">` at `/blog/page/:n`):
  * each page's number `n` (from 1), its `items`, and the number of pages, `count`.
  */
 export function chunks<T>(list: readonly T[], size: number): Array<{ n: number; items: T[]; count: number }> {

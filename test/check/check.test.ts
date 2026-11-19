@@ -861,8 +861,8 @@ describe('file: resources, checked against their files', () => {
     expect(bad.at).toEqual([expect.stringMatching(/^team\.json:1 .*'nmae'/)]);
   });
 
-  test('a `data-sn-pages` entry is one item of its list: a typo through it is an error', () => {
-    const page = (expr: string) => `<!doctype html><html data-sn-path="/blog/:slug" data-sn-pages="post in posts"><head></head><body><sn-resource name="posts" src="file:/content/posts/*.md" type="Post"></sn-resource><h1 data-sn-text="${expr}"></h1></body></html>`;
+  test('a `data-sn-for` on `<html>` entry is one item of its list: a typo through it is an error', () => {
+    const page = (expr: string) => `<!doctype html><html data-sn-path="/blog/:slug" data-sn-for="post in posts"><head></head><body><sn-resource name="posts" src="file:/content/posts/*.md" type="Post"></sn-resource><h1 data-sn-text="${expr}"></h1></body></html>`;
     expect(runFiles(page('post.title + post.slug + post.body.length'), posts).at).toEqual([]);
     expect(runFiles(page('post.titel'), posts).at).toEqual([expect.stringMatching(/^index\.html:1 Property 'titel' does not exist on type .*Did you mean 'title'\?/)]);
   });

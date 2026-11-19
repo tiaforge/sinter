@@ -1,4 +1,4 @@
-// `data-sn-pages` in a build (compile's `templates`): a template's first pass is walked once and kept, and each entry
+// `data-sn-for` on `<html>` in a build (compile's `templates`): a template's first pass is walked once and kept, and each entry
 // is only evaluated again before its second pass. Every entry's page must be what it is compiled on its own: its HTML,
 // module, early script, diagnostics and the helper calls it logs. Some templates cannot share their walk (an entry's URL
 // in the program) and some entries are compiled the usual way (nothing to decide, constants for the layout, errors).
@@ -45,7 +45,7 @@ const base = (o: Partial<Options>): Options => ({
   listFiles: (d) => Object.keys(files).map((f) => `/p/${f}`).filter((f) => f.startsWith(d.replace(/\/$/, '') + '/')),
   ...o,
 } as Options);
-const page = (body: string, list = 'file:/content/posts/*.md', name = 'post', of = 'posts') => `<!doctype html><html lang="en" data-sn-path="/blog/:slug" data-sn-pages="${name} in ${of}"><head><title data-sn-text="${name}.slug"></title></head><body>
+const page = (body: string, list = 'file:/content/posts/*.md', name = 'post', of = 'posts') => `<!doctype html><html lang="en" data-sn-path="/blog/:slug" data-sn-for="${name} in ${of}"><head><title data-sn-text="${name}.slug"></title></head><body>
 <sn-resource name="${of}" src="${list}"></sn-resource>
 ${body}
 </body></html>`;

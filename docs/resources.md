@@ -282,7 +282,7 @@ export const tags = collection({
   browser reads it (a filter as you type), it is embedded in the page, and only with `fields="sku,name,price"`:
   those fields of each entry. Without `fields` that is [SN344](diagnostics.md#sn344-content-fields), so what a CMS
   returns and no page shows never ships by accident. Fields left out are `undefined` in the browser (`sinter check`
-  does not narrow the type to them). A `data-sn-pages` page follows its list's `fields`. A `file:` resource takes
+  does not narrow the type to them). A page per entry (`data-sn-for` on `<html>`) follows its list's `fields`. A `file:` resource takes
   `fields` too, and without it ships whole.
 - **`vite dev`** runs the loaders at startup and again when the content module or a file `files()` read changes,
   then reloads the page. A change in the CMS needs a restart, or a rebuild in production (a webhook to the CI).

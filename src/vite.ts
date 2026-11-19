@@ -565,7 +565,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   type Described = { parts: PrefetchParts | null; path: string[]; off: boolean; keep: string[]; swapOff: boolean; keptSource: Record<string, string>; keptBound: string[] };
   const described = new Map<string, Described>();
   /**
-   * `data-sn-pages`: each template's description (by source and language), from the first of its entries described.
+   * `<html data-sn-for>`: each template's description (by source and language), from the first of its entries described.
    * Another entry's is that one at its own path: what an entry can request ahead reads only the URL (`$url`), never
    * the entry, so it is the same for every entry, as what a swap keeps is. Cleared with `described`.
    */
@@ -574,7 +574,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   const entryDescription = (v: { source: string; locale?: string; page?: { path: string } } | undefined): Described | null => {
     if (!v?.page) return null;
     const k = entriesDescribed.get(`${v.source}\0${v.locale ?? ''}`);
-    // (the one path a `data-sn-pages` page has: the entry's, under its language's prefix)
+    // (the one path a `<html data-sn-for>` page has: the entry's, under its language's prefix)
     if (!k || k.d.path.length !== 1 || !k.d.path[0]!.endsWith(k.page)) return null;
     const own = k.d.path[0]!.slice(0, k.d.path[0]!.length - k.page.length) + v.page.path;
     const at = (ps: string[]) => ps.map((x) => (x === k.d.path[0] ? own : x));
@@ -591,9 +591,9 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   /** `localePrefix`: the languages, and each page in a language (`<root>/<locale>/<page>`) with its source and language */
   let locales: Locales | null = null;
   const virtual = new Map<string, { source: string; locale: string; page?: { value: unknown; path: string; key: string } }>();
-  /** `data-sn-pages` with languages: each template's entries by key, each language's path (an entry's translations) */
+  /** `<html data-sn-for>` with languages: each template's entries by key, each language's path (an entry's translations) */
   const entryLangs = new Map<string, Map<string, string>>();
-  /** `data-sn-pages`: the build's inputs, each template page replaced by a page per entry (`pageInputs()`), or null */
+  /** `<html data-sn-for>`: the build's inputs, each template page replaced by a page per entry (`pageInputs()`), or null */
   let pageInputs: string[] | null = null;
   /** the build's input as the app wrote it, before `localePrefix` turns it into one input per page and language */
   let sourceInput: unknown = undefined;
@@ -659,7 +659,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   /** the app's HTML entries: its pages, or with `localePrefix` each page in each language */
   const entries = () => pageInputs ?? (locales ? sourceEntries().flatMap((s) => locales!.list.map((l) => virtualOf(s, l))) : sourceEntries());
   /**
-   * `data-sn-pages` (docs/static-pages.md#a-page-per-entry): a page's entries, from a compile of it as its template, which
+   * `<html data-sn-for>` (docs/static-pages.md#a-page-per-entry): a page's entries, from a compile of it as its template, which
    * reads its `file:` list; null for a page without it. Its errors (SN340, SN341) fail the build: the template is no
    * input of its own, so nothing else would report them.
    */
@@ -668,7 +668,8 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     const k = `${file}\0${locale ?? ''}`;
     if (!dev && templatesKept.has(k)) return templatesKept.get(k)!;
     const html = readFileSync(file, 'utf8');
-    if (!/data-sn-pages\b/.test(html)) { templatesKept.set(k, null); return null; }
+    // `data-sn-for` on `<html>` or on a layout's tag (a custom element: no other takes it)
+    if (!/<(?:html|[a-z][\w.]*-[\w.-]*)(?=[\s/>])[^>]*\sdata-sn-(?:for|pages)\s*=/i.test(html)) { templatesKept.set(k, null); return null; }
     const p = proj();
     // in a language: its entries (a `{$locale}` path reads that language's files)
     const out = compile(html, { file, root, dev, helpers: p.helpers, actions: p.actions, readFile: readVia(p), listFiles: p.listFiles, ...(dev ? {} : { globCache }), ...contentOpts(locale), lazy: p.lazy, openapi: p.openapi, apis: p.apis, prerender: true, ...(locale ? { locale: { name: locale, urls: null, base: resolved?.base ?? '/' } } : {}) });
@@ -688,7 +689,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     const by = entryLangs.get(`${source}\0${key}`);
     return by ? (by.get(locales!.base) ?? [...by.values()][0]!) : null;
   };
-  /** dev: the entry a URL names on a `data-sn-pages` page (its path, under `base`), else its first */
+  /** dev: the entry a URL names on a `<html data-sn-for>` page (its path, under `base`), else its first */
   const devEntry = (file: string, url: string, locale?: string): { value: unknown; path: string; key: string } | undefined => {
     let pages: ReturnType<typeof templatePages>;
     try { pages = templatePages(file, locale); } catch { return undefined; }
@@ -698,7 +699,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     return pages.entries.find((e) => decodeURIComponent(e.path) === path) ?? pages.entries[0];
   };
   /**
-   * builds: each `data-sn-pages` page becomes one input per entry, a virtual page at the entry's path (`blog/hello.html`
+   * builds: each `<html data-sn-for>` page becomes one input per entry, a virtual page at the entry's path (`blog/hello.html`
    * for `/blog/hello`), compiled with its entry; the template itself is no input. A path another page or a file in
    * `public/` has fails the build.
    */
@@ -725,7 +726,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
         for (const e of entries) {
           const rel = (l ? `${l}/` : '') + relOfPath(e.path);
           const other = taken.get(rel) ?? taken.get(rel + '/');
-          if (other) throw new Error(`sinter: ${relOf(f)}: the entry at \`${l ? `/${l}` : ''}${e.path}\` would be written where \`${other}\` is (data-sn-pages)`);
+          if (other) throw new Error(`sinter: ${relOf(f)}: the entry at \`${l ? `/${l}` : ''}${e.path}\` would be written where \`${other}\` is (data-sn-for on <html>)`);
           if (resolved?.publicDir && existsSync(resolve(resolved.publicDir, rel + '.html'))) throw new Error(`sinter: ${relOf(f)}: the entry at \`${e.path}\` would be written where \`public/${rel}.html\` is (data-sn-pages)`);
           taken.set(rel, `${relOf(f)} (${e.path})`);
           const v = resolve(root, rel + '.html');
@@ -807,7 +808,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   };
   /** the rules' JSON for links to the app's pages, or null; `samePage`: a page with same-page links (query-links.ts), whose own URLs are left out */
   /**
-   * The Speculation Rules' pages: every page's paths, but a `data-sn-pages` page's entries are its pattern, once
+   * The Speculation Rules' pages: every page's paths, but a `<html data-sn-for>` page's entries are its pattern, once
    * (listing each entry in every page's head would grow with the square of their number)
    */
   let rulesKept: { for: unknown; same: Map<boolean, string | null> } | null = null;
@@ -829,7 +830,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     return speculationRules(mode, [...pages.flatMap((x) => x.paths).filter((x) => !entry.has(x)), ...patterns], samePage);
   };
   /**
-   * builds: a link in a finished page to a path a `data-sn-pages` pattern matches, but no entry was written at, fails
+   * builds: a link in a finished page to a path a `<html data-sn-for>` pattern matches, but no entry was written at, fails
    * the build (SN343), with the entry it was likely meant for. The links are the built HTML's (`href`, root-relative):
    * those from constants and folded expressions, markdown's included; a link built at run time is not checked.
    */
@@ -851,7 +852,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     }
     if (found.length) fail(`sinter: error SN343 ${CODES.SN343}: ${found.slice(0, 20).join('\n  ')}${found.length > 20 ? `\n  … and ${found.length - 20} more` : ''}\n  docs: \`npx sinter docs SN343\`, https://github.com/tiaforge/sinter/blob/main/docs/diagnostics.md#sn343-broken-entry-link`);
   };
-  /** a `data-sn-pages` page's pattern, as its template writes it (read once per build) */
+  /** a `<html data-sn-for>` page's pattern, as its template writes it (read once per build) */
   const templatePatterns = new Map<string, string>();
   const templatePattern = (source: string) => {
     let pt = templatePatterns.get(source);
@@ -916,7 +917,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   const contentOpts = (locale?: string) => (content ? { collections: collectionsIn(content, locale), ...(content.error ? { collectionsError: content.error } : {}) } : {});
   /** builds: the `file:` lists already built (compile's `globCache`), cleared with the reads */
   const globCache: NonNullable<Parameters<typeof compile>[1]['globCache']> = new Map();
-  /** builds: each `data-sn-pages` template's first pass, walked once for all its entries (compile's `templates`), cleared with the reads */
+  /** builds: each `<html data-sn-for>` template's first pass, walked once for all its entries (compile's `templates`), cleared with the reads */
   const templates = new Map<string, unknown>();
   /** (docs/proposals/compile-once.md, (5)): builds: shared definitions, recorded on one page and linked into the next */
   const definitions = new Map<string, unknown>();
@@ -966,7 +967,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     // a page in a language: compiled from its source (diagnostics, components, layouts as written), in that language
     const v = virtual.get(file), src = v?.source ?? file;
     const lang = v?.locale && p.messages ? { ...p.messages.dicts[p.messages.base], ...p.messages.dicts[v.locale] } : null;
-    // `data-sn-pages`: an entry's page (a build's input), or in dev the entry the URL names
+    // `<html data-sn-for>`: an entry's page (a build's input), or in dev the entry the URL names
     const page = v?.page ?? (dev && url ? devEntry(src, url, v?.locale) : undefined);
     const fatal = strictly(p.diagnostics).filter((d) => d.severity === 'error');
     if (fatal.length) throw new Error(`sinter: ${fatal.map(formatDiagnostic).join('\n')}`);
@@ -1112,7 +1113,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
         if (!dev) throw new Error(`sinter: ${content.error}`);
         config.logger.error(`sinter: ${content.error}`);
       }
-      // `data-sn-pages`: one input per entry, before the build starts (its inputs are fixed from here)
+      // `<html data-sn-for>`: one input per entry, before the build starts (its inputs are fixed from here)
       if (!dev) {
         const b = config.build as { rollupOptions?: { input?: unknown }; rolldownOptions?: { input?: unknown } };
         sourceInput ??= b.rolldownOptions?.input ?? b.rollupOptions?.input;

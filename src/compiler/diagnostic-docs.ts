@@ -263,13 +263,13 @@ export const DIAGNOSTIC_DOCS: Record<Code, DiagnosticDoc> = {
     fix: 'Write a literal path or glob in the project, or fix the file it names. Give two files with one name a `slug` of their own in their frontmatter (or a `key` that tells them apart). Leave out the attribute that would load or change it; for data that changes, serve it from an API and use a URL. To change the values a page shows, keep them in `data-sn-state`, initialized from the resource.',
   },
   SN340: {
-    example: '`data-sn-pages` needs `data-sn-path` with exactly one pattern to fill from each entry, e.g. `data-sn-path="/blog/:slug"`',
-    means: '`<html data-sn-pages="post in posts">` (or on a layout\'s tag) builds the page once per entry of `posts`, a `file:` glob the page declares outside any template, and writes each at its `data-sn-path` pattern filled from the entry. The value is `<name> in <list>`; the name is the entry, readable in the whole page as a resource is (not a store function\'s or a magic name). The page has exactly one pattern, with parameters, and no other path: a fixed path would be written once per entry.',
+    example: '`data-sn-for` on `<html>` needs `data-sn-path` with exactly one pattern to fill from each entry, e.g. `data-sn-path="/blog/:slug"`',
+    means: '`<html data-sn-for="post in posts">` (or on a layout\'s tag) builds the page once per entry of `posts`, a `file:` glob the page declares outside any template, and writes each at its `data-sn-path` pattern filled from the entry. The value is `<name> in <list>`; the name is the entry, readable in the whole page as a resource is (not a store function\'s or a magic name). The page has exactly one pattern, with parameters, and no other path: a fixed path would be written once per entry.',
     fix: 'Write `data-sn-path="/blog/:slug"` beside it, declare the list on the page (`<sn-resource name="posts" src="file:/content/posts/*.md">`), and name the entry `post in posts`.',
   },
   SN341: {
     example: '`content/posts/draft.md` has no `slug` to fill `:slug` (a string or a number): each entry fills `/blog/:slug`',
-    means: 'Each entry of a `data-sn-pages` list fills the page\'s pattern: every `:param` takes the entry\'s field of that name, which must be a string or a number, one path segment (not empty, not `.` or `..`, no `/`). Two entries that fill the same path would be one page.',
+    means: 'Each entry of an `<html data-sn-for>` list fills the page\'s pattern: every `:param` takes the entry\'s field of that name, which must be a string or a number, one path segment (not empty, not `.` or `..`, no `/`). Two entries that fill the same path would be one page.',
     fix: 'Give the entry the field (in its frontmatter, or a file name that makes its `slug`), make it one segment, or give two entries different values.',
   },
   SN342: {
@@ -279,7 +279,7 @@ export const DIAGNOSTIC_DOCS: Record<Code, DiagnosticDoc> = {
   },
   SN343: {
     example: '`index.html` links to `/blog/helo`, which `/blog/:slug` (blog/post.html) matches, but no entry is there. Did you mean `/blog/hello`?',
-    means: 'A build knows every page a `data-sn-pages` template was written at, so a link in a built page to a path its pattern matches but no entry has would be a 404. The links checked are the built HTML\'s root-relative `href`s: from the markup, constants, folded expressions and markdown. A link built in the browser at run time is not checked.',
+    means: 'A build knows every page an `<html data-sn-for>` template was written at, so a link in a built page to a path its pattern matches but no entry has would be a 404. The links checked are the built HTML\'s root-relative `href`s: from the markup, constants, folded expressions and markdown. A link built in the browser at run time is not checked.',
     fix: 'Link to an entry that exists (the build suggests the nearest), give the entry that slug, or drop the link.',
   },
   SN344: {
@@ -288,9 +288,9 @@ export const DIAGNOSTIC_DOCS: Record<Code, DiagnosticDoc> = {
     fix: 'Add `fields="sku,name,price"` with what the browser code reads, or keep the reads at build time (bindings over constants fold). Fields left out are `undefined` in the browser.',
   },
   SN345: {
-    example: '`$url.slug` on a `data-sn-pages` page: each entry\'s page is written at its own path, so `:slug` is the entry\'s field, `post.slug`',
-    means: 'A `data-sn-pages` page is written once per entry, each at its pattern filled from the entry, as a page with a fixed path. Its pattern\'s parameters are the entry\'s fields, known at build time; read through `$url` they would be read in the browser, and keep the page from being written at build time.',
-    fix: 'Read the entry\'s field: `post.slug` for `:slug`, where `post` is the name in `data-sn-pages="post in posts"`. A query parameter (`$url.tab`) is fine.',
+    example: '`$url.slug` on a page per entry (`<html data-sn-for>`): each entry\'s page is written at its own path, so `:slug` is the entry\'s field, `post.slug`',
+    means: 'A page with `data-sn-for` on `<html>` is written once per entry, each at its pattern filled from the entry, as a page with a fixed path. Its pattern\'s parameters are the entry\'s fields, known at build time; read through `$url` they would be read in the browser, and keep the page from being written at build time.',
+    fix: 'Read the entry\'s field: `post.slug` for `:slug`, where `post` is the name in `data-sn-for="post in posts"`. A query parameter (`$url.tab`) is fine.',
   },
   SN333: {
     example: '`data-sn-text` and `data-sn-if` on one `<template>`: a text node is one binding; the condition or the loop goes on a template around it',

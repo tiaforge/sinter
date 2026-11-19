@@ -29,7 +29,7 @@ const PAGES: Array<[string, Record<string, unknown>]> = [
   [page('<sn-resource name="doc" src="file:./doc.json"></sn-resource><x-doc data-sn-prop="{ doc }"></x-doc><x-count data-sn-prop="{ start: 1 }"></x-count>'), {}],
   [page('<section data-sn-state="{ wide: false }"><div data-sn-class="{ wide }"><img src="img/a.jpg" alt=""></div><button data-sn-on-click="wide = !wide">w</button></section>'),
     { styles: [{ file: '/p/s.css', css: '.wide { width: 900px } img { width: 100% }' }], images: { info: () => null, url: () => '/i.jpg', stylesheet: '/@sinter/img.css' } }],
-  ['<!doctype html><html lang="en" data-sn-path="/blog/:slug" data-sn-pages="post in posts"><head><title data-sn-text="post.title"></title></head><body><sn-resource name="posts" src="file:/content/posts/*.md"></sn-resource><h1 data-sn-text="post.title"></h1></body></html>', {}],
+  ['<!doctype html><html lang="en" data-sn-path="/blog/:slug" data-sn-for="post in posts"><head><title data-sn-text="post.title"></title></head><body><sn-resource name="posts" src="file:/content/posts/*.md"></sn-resource><h1 data-sn-text="post.title"></h1></body></html>', {}],
   [page('<div data-sn-state="{ q: \'\' }"><input data-sn-model="q"><p data-sn-text="q.length"></p></div>'), { check: true }],
 ];
 

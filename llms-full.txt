@@ -34,7 +34,7 @@ This is the full reference, `llms-full.txt`. `llms.txt` beside it is the short v
 - `data-sn-head` (props type): on the <template> of a head component (src/components/<name>.html): its props, as data-sn-component; it holds any number of head elements (<title>, <meta>, <link>, …), inlined at its use in a head
 - `data-sn-emits` (events type): on the <template data-sn-component>: the events emit() sends and their detail types, e.g. { select: Article }
 - `data-sn-model` (state path | $url.<param>): two-way binding for form controls; on $url, the URL follows (a history entry; typing at each pause), and a <select multiple> or a checkbox with a value makes the parameter a list
-- `data-sn-for` (item in list | (item, i) in list): repeats a <template> per item
+- `data-sn-for` (item in list | (item, i) in list): repeats a <template> per item. On <html>: the page once per entry of a `file:` list, at `data-sn-path` filled from it
 - `data-sn-key` (value expression): row identity; defaults to the resource key or object identity
 - `data-sn-if` (value expression): renders a <template> while truthy. Same id, same control: when the branch with focus is swapped, the element with its id in the new one takes focus (a toggle's two buttons: <button id="follow" data-sn-delete=…> and <button id="follow" data-sn-post=…>)
 - `data-sn-else`: on a <template> directly after an if template. Lists, branches and chosen components render between two comments (`<ul><!--sn 4--><li>a</li><!--/sn--></ul>`): CSS sees plain children. Comments that are exactly `<!--sn-->`, `<!--sn 4-->`, `<!--/sn-->` or `<!---->` are reserved (SN105); `$el` in an if, for or use is SN213; keep HTML comments
@@ -57,7 +57,6 @@ This is the full reference, `llms-full.txt`. `llms.txt` beside it is the short v
 - `data-sn-retry` (retry policy name): mutations only: sends the request again as that policy of configure({ retry }) says (after a network error, a 5xx, a 429), with an Idempotency-Key; without it a write is sent once
 - `data-sn-write-through` (off): turns write-through off for this mutation: its response is not applied to the resources it is about
 - `data-sn-path` (URL patterns /a/:b …): on <html>: the path shapes this page is served for; `:name` segments appear read-only in $url
-- `data-sn-pages` (entry in list): on <html>: the page once per entry of a `file:` list, at `data-sn-path` filled from it
 - `data-sn-data` (resource name): on <script type="application/json"> in <head>: initial data for a resource
 - `data-sn-on-<event>` (handler expression): plain event handler, no request; e.g. data-sn-on-click
 - `data-sn-on-keydown-<key>` (handler expression): runs only for that key (also on-keyup-<key>): modifiers first, the key last, e.g. data-sn-on-keydown-j, -shift-n (N), -mod-enter (Ctrl, Cmd on Apple), -escape, -question (?); matches KeyboardEvent.key; other Ctrl/Alt/Meta held do not match; an ancestor's filter skips keys typed into fields; a match calls preventDefault()

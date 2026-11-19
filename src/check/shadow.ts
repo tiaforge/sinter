@@ -148,7 +148,7 @@ export function shadow(o: ShadowOptions): Shadow {
       continue;
     }
     if (r.item) {
-      // a `data-sn-pages` entry: one item of the list it names
+      // a `<html data-sn-for>` entry: one item of the list it names
       const it = `import('./sinter').Item<typeof ${r.item}>`;
       types[types.length - 1] = `${JSON.stringify(r.name)}: ${it}`;
       line(`/** @type {${it}} */`);

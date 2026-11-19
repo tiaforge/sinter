@@ -26,7 +26,7 @@ export const ATTRIBUTES: AttrDoc[] = [
   { name: 'head', value: 'props type', doc: 'on the <template> of a head component (src/components/<name>.html): its props, as data-sn-component; it holds any number of head elements (<title>, <meta>, <link>, …), inlined at its use in a head' },
   { name: 'emits', value: 'events type', doc: 'on the <template data-sn-component>: the events emit() sends and their detail types, e.g. { select: Article }' },
   { name: 'model', value: 'state path | $url.<param>', doc: 'two-way binding for form controls; on $url, the URL follows (a history entry; typing at each pause), and a <select multiple> or a checkbox with a value makes the parameter a list' },
-  { name: 'for', value: 'item in list | (item, i) in list', doc: 'repeats a <template> per item' },
+  { name: 'for', value: 'item in list | (item, i) in list', doc: 'repeats a <template> per item. On <html>: the page once per entry of a `file:` list, at `data-sn-path` filled from it' },
   { name: 'key', value: 'value expression', doc: 'row identity; defaults to the resource key or object identity' },
   { name: 'if', value: 'value expression', doc: 'renders a <template> while truthy. Same id, same control: when the branch with focus is swapped, the element with its id in the new one takes focus (a toggle\'s two buttons: <button id="follow" data-sn-delete=…> and <button id="follow" data-sn-post=…>)' },
   { name: 'else', value: '', doc: 'on a <template> directly after an if template. Lists, branches and chosen components render between two comments (`<ul><!--sn 4--><li>a</li><!--/sn--></ul>`): CSS sees plain children. Comments that are exactly `<!--sn-->`, `<!--sn 4-->`, `<!--/sn-->` or `<!---->` are reserved (SN105); `$el` in an if, for or use is SN213; keep HTML comments' },
@@ -49,7 +49,6 @@ export const ATTRIBUTES: AttrDoc[] = [
   { name: 'retry', value: 'retry policy name', doc: 'mutations only: sends the request again as that policy of configure({ retry }) says (after a network error, a 5xx, a 429), with an Idempotency-Key; without it a write is sent once' },
   { name: 'write-through', value: 'off', doc: 'turns write-through off for this mutation: its response is not applied to the resources it is about' },
   { name: 'path', value: 'URL patterns /a/:b …', doc: 'on <html>: the path shapes this page is served for; `:name` segments appear read-only in $url' },
-  { name: 'pages', value: 'entry in list', doc: 'on <html>: the page once per entry of a `file:` list, at `data-sn-path` filled from it' },
   { name: 'data', value: 'resource name', doc: 'on <script type="application/json"> in <head>: initial data for a resource' },
 ];
 

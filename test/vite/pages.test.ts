@@ -1,5 +1,5 @@
 // @vitest-environment node
-// `data-sn-pages` in a build (docs/static-pages.md#a-page-per-entry): one HTML file per entry of a `file:` glob, at the
+// `data-sn-for` on `<html>` in a build (docs/static-pages.md#a-page-per-entry): one HTML file per entry of a `file:` glob, at the
 // page's pattern filled from the entry, with its canonical link and in the sitemap; the template is no page of its own;
 // the Speculation Rules name the pattern once; a path another page has fails the build.
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -24,7 +24,7 @@ const blog = {
   'content/posts/hello.md': '---\ntitle: Hello\ndate: 2026-11-02\n---\nHi.\n',
   'content/posts/recap.md': '---\ntitle: Recap\ndate: 2026-12-30\n---\nThe year.\n',
   'src/layouts/site-layout.html': '<!doctype html><html lang="en" data-sn-layout="{ title: string }"><head><title data-sn-text="title"></title></head><body><slot></slot></body></html>',
-  'blog/post.html': `<site-layout data-sn-path="/blog/:slug" data-sn-pages="post in posts" data-sn-prop="{ title: post.title }">
+  'blog/post.html': `<site-layout data-sn-path="/blog/:slug" data-sn-for="post in posts" data-sn-prop="{ title: post.title }">
   <sn-resource name="posts" src="file:/content/posts/*.md" order="-date"></sn-resource>
   <article><h1 data-sn-text="post.title"></h1><time data-sn-text="post.date"></time></article>
 </site-layout>`,
@@ -71,7 +71,7 @@ describe('data-sn-pages in a build', () => {
   test('an entry whose path another page has: the build fails, naming both', async () => {
     const root = app({ ...blog, 'blog/hello.html': '<!doctype html><html><head><title>x</title></head><body>mine</body></html>' });
     const r = await run(root, ['index.html', 'blog/post.html', 'blog/hello.html']);
-    expect(r.error).toMatch(/blog\/post\.html: the entry at `\/blog\/hello` would be written where `blog\/hello\.html` is \(data-sn-pages\)/);
+    expect(r.error).toMatch(/blog\/post\.html: the entry at `\/blog\/hello` would be written where `blog\/hello\.html` is \(data-sn-for on <html>\)/);
   }, 60_000);
 
   test('a link to an entry that does not exist fails the build (SN343), with the one it was likely meant for', async () => {
@@ -92,7 +92,7 @@ describe('data-sn-pages in a build', () => {
       'project.inlang/settings.json': JSON.stringify({ baseLocale: 'en', locales: ['en', 'de'] }), 'messages/en.json': '{}', 'messages/de.json': '{}',
       'content/en/posts/hello.md': '---\nid: 1\ntitle: Hello\n---\n', 'content/en/posts/only.md': '---\nid: 2\ntitle: English only\n---\n',
       'content/de/posts/hallo.md': '---\nid: 1\ntitle: Hallo\n---\n',
-      'blog/post.html': `<!doctype html><html data-sn-path="/blog/:slug" data-sn-pages="post in posts"><head><title data-sn-text="post.title"></title></head><body>
+      'blog/post.html': `<!doctype html><html data-sn-path="/blog/:slug" data-sn-for="post in posts"><head><title data-sn-text="post.title"></title></head><body>
 <sn-resource name="posts" src="file:/content/{$locale}/posts/*.md" key="id"></sn-resource>
 <h1 data-sn-text="post.title"></h1><a hreflang="de" data-sn-attr="{ href: localeUrl('de') }">Deutsch</a></body></html>`,
       'index.html': '<!doctype html><html><head><title>x</title></head><body>x</body></html>',

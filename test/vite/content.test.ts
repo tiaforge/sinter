@@ -1,6 +1,6 @@
 // @vitest-environment node
 // The content module in a build (docs/resources.md#collections): its collections run once, before any page compiles,
-// with `ctx.files`, `ctx.get` and `ctx.env` (from `.env`); a page reads one with `content:` and a `data-sn-pages` page is
+// with `ctx.files`, `ctx.get` and `ctx.env` (from `.env`); a page reads one with `content:` and a page per entry (`data-sn-for` on `<html>`) is
 // built from one. A loader that throws, or a result that is not a list of plain data with unique keys, fails the build.
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -45,7 +45,7 @@ const app = {
   'content/posts/recap.md': '---\ntitle: Recap\ntags: [news]\n---\nThe year.\n',
   'content/posts/wip.md': '---\ntitle: Soon\ndraft: true\n---\n',
   'index.html': '<!doctype html><html><head><title>x</title></head><body><sn-resource name="site" src="content:site"></sn-resource><sn-resource name="tags" src="content:tags" order="slug"></sn-resource><h1 data-sn-text="site[0].name + \' (\' + site[0].command + \')\'"></h1><ul><template data-sn-for="t in tags"><li data-sn-text="t.slug + \': \' + t.titles.join(\', \')"></li></template></ul></body></html>',
-  'tag.html': '<!doctype html><html data-sn-path="/tag/:slug" data-sn-pages="tag in tags"><head><title data-sn-text="tag.slug"></title></head><body><sn-resource name="tags" src="content:tags"></sn-resource><p data-sn-text="tag.titles.length"></p></body></html>',
+  'tag.html': '<!doctype html><html data-sn-path="/tag/:slug" data-sn-for="tag in tags"><head><title data-sn-text="tag.slug"></title></head><body><sn-resource name="tags" src="content:tags"></sn-resource><p data-sn-text="tag.titles.length"></p></body></html>',
 };
 
 describe('the content module in a build', () => {
@@ -116,7 +116,7 @@ export const postPages = collection({ key: 'n', load: async ({ get }) => chunks(
 `;
     const files: Record<string, string> = { 'src/sinter.content.ts': content };
     for (const t of ['a', 'b', 'c', 'd', 'e']) files[`content/posts/${t}.md`] = `---\ntitle: ${t.toUpperCase()}\n---\n`;
-    files['archive.html'] = '<!doctype html><html data-sn-path="/blog/page/:n" data-sn-pages="p in postPages"><head><title data-sn-text="\'Page \' + p.n"></title></head><body><sn-resource name="postPages" src="content:postPages"></sn-resource><ul><template data-sn-for="post in p.items"><li data-sn-text="post.title"></li></template></ul><i data-sn-text="p.n + \'/\' + p.count"></i></body></html>';
+    files['archive.html'] = '<!doctype html><html data-sn-path="/blog/page/:n" data-sn-for="p in postPages"><head><title data-sn-text="\'Page \' + p.n"></title></head><body><sn-resource name="postPages" src="content:postPages"></sn-resource><ul><template data-sn-for="post in p.items"><li data-sn-text="post.title"></li></template></ul><i data-sn-text="p.n + \'/\' + p.count"></i></body></html>';
     const r = await run(files, ['archive.html']);
     expect(r.error).toBe(null);
     expect(r.read('blog/page/1.html')).toMatch(/<li>A<\/li><li>B<\/li><\/ul><i>1\/3<\/i>/);

@@ -231,7 +231,7 @@
     },
     {
       "name": "data-sn-for",
-      "description": "repeats a <template> per item (item in list | (item, i) in list)"
+      "description": "repeats a <template> per item. On <html>: the page once per entry of a `file:` list, at `data-sn-path` filled from it (item in list | (item, i) in list)"
     },
     {
       "name": "data-sn-key",
@@ -320,10 +320,6 @@
     {
       "name": "data-sn-path",
       "description": "on <html>: the path shapes this page is served for; `:name` segments appear read-only in $url (URL patterns /a/:b …)"
-    },
-    {
-      "name": "data-sn-pages",
-      "description": "on <html>: the page once per entry of a `file:` list, at `data-sn-path` filled from it (entry in list)"
     },
     {
       "name": "data-sn-data",

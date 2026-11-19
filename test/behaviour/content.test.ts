@@ -1,6 +1,6 @@
 // `content:` resources (docs/resources.md#collections): a collection of the content module, loaded before the compile
 // (`collections`), is a constant list as a `file:` glob is: it folds, sorts by `order`, keys by the collection's key,
-// and a `data-sn-pages` page can be built from it. An unknown name is SN342.
+// and a page per entry (`data-sn-for` on `<html>`) can be built from it. An unknown name is SN342.
 import { describe, expect, test } from 'vitest';
 import { compile } from '../../src/compiler/index.js';
 import { scrub } from '../../src/content-node.js';
@@ -42,7 +42,7 @@ describe('content: resources', () => {
   });
 
   test('a page per entry of a collection', () => {
-    const html = '<!doctype html><html data-sn-path="/shop/:sku" data-sn-pages="product in products"><head><title data-sn-text="product.name"></title></head><body><sn-resource name="products" src="content:products"></sn-resource><h1 data-sn-text="product.name"></h1></body></html>';
+    const html = '<!doctype html><html data-sn-path="/shop/:sku" data-sn-for="product in products"><head><title data-sn-text="product.name"></title></head><body><sn-resource name="products" src="content:products"></sn-resource><h1 data-sn-text="product.name"></h1></body></html>';
     const t = build(html);
     expect(errors(t)).toEqual([]);
     expect(t.pages!.entries.map((e) => e.path)).toEqual(['/shop/b-2', '/shop/a-1']);
