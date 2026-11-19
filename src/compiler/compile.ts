@@ -504,9 +504,13 @@ export interface CompiledParts {
 }
 
 const ATTRS = ATTRIBUTES.map((a) => a.name);
-const METHODS = ['get', 'post', 'put', 'patch', 'delete'] as const;
+const METHODS = ['post', 'put', 'patch', 'delete'] as const;
+/** attributes that are gone or renamed (docs/proposals/vocabulary.md): what to write instead */
+const RETIRED: Record<string, string> = {
+  'data-sn-get': 'is gone: data a GET loads is a resource, `<sn-resource name="hits" src="/api/search?q={q}" when="q">`, which reloads when the values its URL reads change (latest wins); a load a click starts sets the state its `when` reads, or is a `data-sn-call`',
+};
 /** an action's expressions evaluated when it triggers, so they see `$event` */
-const TRIGGER_TIME = new Set(['data-sn-get', 'data-sn-post', 'data-sn-put', 'data-sn-patch', 'data-sn-delete', 'data-sn-call', 'data-sn-body', 'data-sn-confirm']);
+const TRIGGER_TIME = new Set(['data-sn-post', 'data-sn-put', 'data-sn-patch', 'data-sn-delete', 'data-sn-call', 'data-sn-body', 'data-sn-confirm']);
 const ACTION_ONLY = ['body', 'trigger', 'debounce', 'concurrency', 'optimistic', 'then', 'catch', 'confirm', 'encoding', 'apply', 'retry'];
 const UNSAFE_ELEMENTS = new Set(['script', 'style', 'iframe', 'object', 'embed', 'base', 'meta', 'link', 'animate', 'set', 'animatemotion', 'animatetransform']);
 const FORM_CONTROLS = new Set(['input', 'select', 'textarea']);
@@ -4341,6 +4345,8 @@ class Compiler {
     const known = new Set<string>(ATTRS.map((a) => `data-sn-${a}`));
     for (const a of sn) {
       if (known.has(a.name) || a.name.startsWith('data-sn-on-') || a.name.startsWith('data-sn-debounce-')) continue;
+      const retired = RETIRED[a.name];
+      if (retired) { this.report(el, a.name, 'SN101', `\`${a.name}\` ${retired}`, 0); continue; }
       this.report(el, a.name, 'SN101', `\`${a.name}\` is not a sinter attribute.${didYouMean(a.name, [...known, 'data-sn-on-click'])}`, 0);
     }
 
@@ -4639,7 +4645,7 @@ class Compiler {
     if (!methods.length && !isCall && has('debounce')) {
       handlerDebounce = Number(get('debounce'));
       if (!Number.isFinite(handlerDebounce) || handlerDebounce < 0) this.report(el, 'data-sn-debounce', 'SN401', '`data-sn-debounce` takes milliseconds', 0);
-      if (!sn.some((a) => a.name.startsWith('data-sn-on-'))) this.report(el, 'data-sn-debounce', 'SN102', '`data-sn-debounce` needs a method attribute (`data-sn-get`, `-post`, …) or a `data-sn-on-*` handler on the same element', 0);
+      if (!sn.some((a) => a.name.startsWith('data-sn-on-'))) this.report(el, 'data-sn-debounce', 'SN102', '`data-sn-debounce` needs a method attribute (`data-sn-post`, `-put`, …) or a `data-sn-on-*` handler on the same element', 0);
     }
     // `data-sn-debounce-<event>`: only that event's handler waits
     for (const a of sn) {
@@ -4685,7 +4691,7 @@ class Compiler {
     if (methods.length && isCall) this.report(el, 'data-sn-call', 'SN102', 'an element has one action: a method attribute or `data-sn-call`, not both', 0);
     if (methods.length) this.action(el, node, scope, methods[0]!, get, !!ctx.form || el.attrs.some((x) => x.name === 'form'));
     else if (isCall) this.action(el, node, scope, 'call', get);
-    else for (const n of ACTION_ONLY) if (has(n) && n !== 'debounce') this.report(el, `data-sn-${n}`, 'SN102', `\`data-sn-${n}\` needs a method attribute (\`data-sn-get\`, \`-post\`, …) on the same element`, 0);
+    else for (const n of ACTION_ONLY) if (has(n) && n !== 'debounce') this.report(el, `data-sn-${n}`, 'SN102', `\`data-sn-${n}\` needs a method attribute (\`data-sn-post\`, \`-put\`, …) on the same element`, 0);
   }
 
   /**
@@ -5544,7 +5550,6 @@ class Compiler {
       this.report(el, 'data-sn-concurrency', 'SN401', '`data-sn-concurrency` is `block`, `queue` or `latest`', 0);
       concurrency = 'queue';
     }
-    if (get('concurrency') && method === 'get') this.report(el, 'data-sn-concurrency', 'SN102', '`data-sn-concurrency` applies to mutations only; `GET` actions are always latest-wins', 0);
     const fnOf = (n: string, o: Omit<ExprOptions, 'report'>, type?: Parameters<Compiler['typeLast']>[0]) => {
       if (get(n) === undefined) return { f: null, w: [] as string[], r: null };
       const r = this.expr(el, `data-sn-${n}`, scope, o);
@@ -5571,22 +5576,20 @@ class Compiler {
     if (encoding !== undefined && method === 'call') this.report(el, 'data-sn-encoding', 'SN102', '`data-sn-encoding` belongs to a method attribute; a call sends its own requests', 0);
     const applyAttr = get('apply');
     if (applyAttr !== undefined && applyAttr.trim() !== 'off') this.report(el, 'data-sn-apply', 'SN401', '`data-sn-apply` takes `off`; write-through is on without the attribute', 0);
-    if (applyAttr !== undefined && (method === 'call' || method === 'get')) this.report(el, 'data-sn-apply', 'SN102', '`data-sn-apply` belongs to a mutation (`data-sn-post`, `-put`, `-patch`, `-delete`): a GET or a call has no write-through', 0);
+    if (applyAttr !== undefined && method === 'call') this.report(el, 'data-sn-apply', 'SN102', '`data-sn-apply` belongs to a method attribute (`data-sn-post`, `-put`, `-patch`, `-delete`): a call has no write-through', 0);
     const retryAttr = get('retry')?.trim();
     if (retryAttr === '') this.report(el, 'data-sn-retry', 'SN401', '`data-sn-retry` takes the name of a retry policy from `configure({ retry })`, e.g. `data-sn-retry="drafts"`', 0);
-    else if (retryAttr !== undefined && (method === 'call' || method === 'get')) this.report(el, 'data-sn-retry', 'SN102', method === 'get'
-      ? '`data-sn-retry` belongs to a mutation (`data-sn-post`, `-put`, `-patch`, `-delete`): GETs use the policy `retry.get` names'
-      : '`data-sn-retry` belongs to a mutation (`data-sn-post`, `-put`, `-patch`, `-delete`): a call may send several requests, so sinter cannot send it again', 0);
-    const ap = method !== 'call' && method !== 'get' && applyAttr === undefined ? this.applyDef(reads, typed) : null;
+    else if (retryAttr !== undefined && method === 'call') this.report(el, 'data-sn-retry', 'SN102', '`data-sn-retry` belongs to a method attribute (`data-sn-post`, `-put`, `-patch`, `-delete`): a call may send several requests, so sinter cannot send it again', 0);
+    const ap = method !== 'call' && applyAttr === undefined ? this.applyDef(reads, typed) : null;
     if (ap) {
       this.features.add('apply');
       if (then.r?.ast) this.redundantWrites(el, then.r, ap, url, method, typed?.path ?? null);
     }
     // server validation errors shown on the fields (fields.ts): forms that send a mutation and leave errors to sinter
     // (a form's own action, or a control's inside one, as the editor's Publish button in RealWorld)
-    if ((isForm || (inForm && (tag === 'button' || FORM_CONTROLS.has(tag)))) && method !== 'call' && method !== 'get' && get('catch') === undefined) this.features.add('fields');
+    if ((isForm || (inForm && (tag === 'button' || FORM_CONTROLS.has(tag)))) && method !== 'call' && get('catch') === undefined) this.features.add('fields');
     // a form's own fields as the body, or form encoding: the form module (form.ts)
-    if ((isForm && body.f === null && method !== 'call' && method !== 'get' && method !== 'delete') || (encoding === 'form' && method !== 'call')) this.features.add('form');
+    if ((isForm && body.f === null && method !== 'call' && method !== 'delete') || (encoding === 'form' && method !== 'call')) this.features.add('form');
     // only what differs from the defaults: an attribute the page does not write costs no bytes
     // (the event is the `on` binding's; the runtime reads absent fields as null, 0, false, [])
     const w = [...new Set([...then.w, ...catch_.w])].sort();
@@ -5603,7 +5606,7 @@ class Compiler {
       ...(confirm.f !== null ? (this.features.add('confirm'), { confirm: confirm.f }) : {}),
       ...(encoding === 'form' ? { enc: 'form' as const } : {}),
       ...(ap ? { ap } : {}),
-      ...(retryAttr && method !== 'call' && method !== 'get' ? { retry: retryAttr } : {}),
+      ...(retryAttr && method !== 'call' ? { retry: retryAttr } : {}),
     };
     this.devAt(def, [def.then, def.catch]);
     this.actions.push(def);

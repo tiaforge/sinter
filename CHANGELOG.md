@@ -5,6 +5,12 @@ Attribute names, function names and diagnostic codes are public API. Before
 
 ## Unreleased
 
+### Changed
+
+A smaller vocabulary, one word per concept ([docs/proposals/vocabulary.md](docs/proposals/vocabulary.md)). Each old name is a build error that names its replacement.
+
+- **Removed:** `data-sn-get`. Data a GET loads is a resource: `<sn-resource src>` reloads when the values its URL reads change, with latest-wins, the typing pause, `$meta`, `cache` and preloading, none of which a GET action had. A load that a click starts sets the state the resource's `when` reads, or is a `data-sn-call`. With it go its special cases: GET's own concurrency, and the exceptions for GET in field errors, write-through and `data-sn-retry`.
+
 ### Fixed
 
 - Recipes brought up to date: the offline-draft form starts as the loaded note (it started empty, so the first autosave cleared the note's body); the URL pagination recipe's page numbers are links with `aria-current`, the recommended pager since same-page links; the form dialog has no `data-sn-catch`, so a rejected save shows the server's messages on its fields, and it says why `upsert('people', $result)` stays (no write-through for a POST without an OpenAPI spec). docs/pagination.md marks the current page link from `$url.page`, as its text says.

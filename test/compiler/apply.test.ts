@@ -18,7 +18,7 @@ const SPEC = { file: '/p/openapi.json', doc: {
   },
   components: { schemas: { Article, Profile: { type: 'object', properties: { username: { type: 'string' }, following: { type: 'boolean' } } }, Comment: { type: 'object', properties: { id: { type: 'integer' }, body: { type: 'string' } } } } },
 } };
-const opts = (openapi = true): CompileOptions => ({ file: '/p/page.html', root: '/p', dev: false, readFile: () => '', helpers: { module: null, names: [], namespaces: {} }, ...(openapi ? { openapi: [SPEC] } : {}) });
+const opts = (openapi = true): CompileOptions => ({ file: '/p/page.html', root: '/p', dev: false, readFile: () => '', helpers: { module: null, names: [], namespaces: {} }, actions: { module: '/p/a.js', names: ['x'], namespaces: {} }, ...(openapi ? { openapi: [SPEC] } : {}) });
 const page = (body: string) => `<!doctype html><html><head></head><body data-sn-state="{ feedOn: false }">
   <sn-resource name="articles" src="/api/articles" items="articles" key="slug"></sn-resource>
   <sn-resource name="feed" src="/api/articles/feed" items="articles" key="slug"></sn-resource>
@@ -44,21 +44,21 @@ test('provenance: a row (also of a `cond ? feed : articles` loop), a single, and
   expect(out.features).toContain('apply');
 });
 
-test('without a spec: provenance only (rule 4 and the body-only update); no `ap` without reads; `data-sn-apply="off"` drops it; GET and call have none', () => {
+test('without a spec: provenance only (rule 4 and the body-only update); no `ap` without reads; `data-sn-apply="off"` drops it; a call has none', () => {
   const out = compileParts(page(`
     <template data-sn-for="a in articles"><button data-sn-delete="/api/articles/{a.slug}">d</button></template>
     <button data-sn-post="/api/ping">p</button>
     <button data-sn-post="/api/articles/{article.slug}/favorite" data-sn-apply="off">f</button>
-    <button data-sn-get="/api/articles/{article.slug}">g</button>`), opts(false));
+    <button data-sn-call="x()">g</button>`), opts(false));
   expect(out.diagnostics).toEqual([]);
   expect(out.ir.actions.map((a) => a.ap)).toEqual([{ tg: [{ r: 'articles', v: 'a' }] }, undefined, undefined, undefined]);
 });
 
 test('`data-sn-apply` takes `off` only, on mutations only', () => {
-  const out = compileParts(page(`<button data-sn-post="/api/ping" data-sn-apply="on">p</button><button data-sn-get="/api/ping" data-sn-apply="off">g</button>`), opts(false));
+  const out = compileParts(page(`<button data-sn-post="/api/ping" data-sn-apply="on">p</button><button data-sn-call="x()" data-sn-apply="off">g</button>`), opts(false));
   expect(out.diagnostics.map((d) => d.code + ' ' + d.message)).toEqual([
     'SN401 `data-sn-apply` takes `off`; write-through is on without the attribute',
-    'SN102 `data-sn-apply` belongs to a mutation (`data-sn-post`, `-put`, `-patch`, `-delete`): a GET or a call has no write-through',
+    'SN102 `data-sn-apply` belongs to a method attribute (`data-sn-post`, `-put`, `-patch`, `-delete`): a call has no write-through',
   ]);
 });
 

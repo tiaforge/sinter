@@ -271,11 +271,11 @@ test('`retry.get` leaves background refreshes of an `each` resource to `refresh`
 });
 
 test('the compiler: a policy name on a mutation only', () => {
-  const opts = { file: '/x/i.html', root: '/x', dev: false, helpers: { module: null, names: [], namespaces: {} }, readFile: () => '' };
+  const opts = { file: '/x/i.html', root: '/x', dev: false, helpers: { module: null, names: [], namespaces: {} }, actions: { module: '/x/a.js', names: ['x'], namespaces: {} }, readFile: () => '' };
   const errors = (html: string) => compile(html, opts).diagnostics.map((d) => `${d.code} ${d.message}`);
   expect(errors('<button data-sn-post="/api/x" data-sn-retry="drafts">x</button>')).toEqual([]);
   expect(compile('<button data-sn-post="/api/x" data-sn-retry="drafts">x</button>', opts).module).toContain('"retry":"drafts"');
   expect(errors('<button data-sn-post="/api/x" data-sn-retry>x</button>')).toEqual([expect.stringMatching(/^SN401 `data-sn-retry` takes the name of a retry policy/)]);
-  expect(errors('<button data-sn-get="/api/x" data-sn-retry="drafts">x</button>')).toEqual([expect.stringMatching(/^SN102 .*GETs use the policy `retry.get` names/)]);
+  expect(errors('<button data-sn-call="x()" data-sn-retry="drafts">x</button>')).toEqual([expect.stringMatching(/^SN102 .*a call may send several requests/)]);
   expect(errors('<button data-sn-retry="drafts">x</button>')).toEqual([expect.stringMatching(/^SN102 `data-sn-retry` needs a method attribute/)]);
 });

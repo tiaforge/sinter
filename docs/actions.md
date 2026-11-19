@@ -20,10 +20,11 @@ reported. Nothing else to write.
 
 ## Sending a request
 
-One method attribute per element: `data-sn-get`, `-post`, `-put`, `-patch` or `-delete`, with a URL
+One method attribute per element: `data-sn-post`, `-put`, `-patch` or `-delete`, with a URL
 template (`{c.id}` reads the row in scope). With [`sinter({ apis })`](apis.md) it is a path relative to
 an API (`data-sn-delete="/contacts/{c.id}"`), and the operation must be one the API declares. Add other
-attributes as needed:
+attributes as needed. Data that a GET loads is a [resource](resources.md), not an action: its `src`
+reloads when the values it reads change.
 
 | Attribute | Does |
 | --- | --- |
@@ -51,7 +52,8 @@ An `<a>` with a method attribute does not navigate. A `<button>` inside a form t
 method attribute is its own action, not a submit.
 
 ```html
-<input type="search" name="q" data-sn-get="/api/search?q={q}" data-sn-trigger="input" data-sn-debounce="300">
+<textarea name="draft" data-sn-model="draft" data-sn-put="/api/drafts/{id}" data-sn-body="{ text: draft }"
+          data-sn-trigger="input" data-sn-debounce="800" data-sn-concurrency="latest"></textarea>
 ```
 
 ### The body
@@ -62,7 +64,7 @@ method attribute is its own action, not a submit.
   numbers, a single checkbox a boolean, several checkboxes with one name an array of the checked
   values. Disabled controls are skipped.
 - A form with an `<input type="file">` is sent as `multipart/form-data`.
-- `GET` and `DELETE` without `data-sn-body` send no body.
+- `DELETE` without `data-sn-body` sends no body.
 
 `data-sn-encoding="form"` is for backends that expect a browser-style form post. A form's fields go
 as a browser would send them (repeated names stay repeated). With `data-sn-body`, the object's keys
@@ -104,7 +106,7 @@ use), sinter puts each message on the control with that name:
 - editing a control clears its error, and sending the form again clears them all.
 
 This applies to forms and to buttons inside them (`form="id"` counts) with `post`, `put`, `patch` or
-`delete`, as long as the action has no `data-sn-catch`. `GET` actions and local actions mark no
+`delete`, as long as the action has no `data-sn-catch`. Local actions mark no
 fields. To place a message yourself, point `aria-errormessage` at an element:
 
 ```html
@@ -143,8 +145,7 @@ codes instead of text, map them to your messages in this hook. Recipe: [field-er
 ## Pending state and concurrency
 
 While a request is pending, the element has `aria-busy="true"`, and a form in `block` mode is also
-disabled. `GET` actions abort the previous request when triggered again (latest wins). Mutations
-follow a policy, applied per element, so rows in a list never block each other:
+disabled. Actions follow a policy, applied per element, so rows in a list never block each other:
 
 | `data-sn-concurrency` | While one is pending | Default for |
 | --- | --- | --- |
@@ -244,8 +245,7 @@ URL and body which resources and rows the action reads.
 - Patches merge: fields the response omits stay.
 - Nothing is matched by type alone. A response `Article` does not replace the single resource
   `article` unless the URL read it, and `DELETE /articles/{slug}/favorite` removes nothing.
-- `data-sn-apply="off"` turns it off for one element. `GET` actions and `data-sn-call` have no
-  write-through.
+- `data-sn-apply="off"` turns it off for one element. `data-sn-call` has no write-through.
 - A `then` that does what a rule already does is the warning `SN510`. Dev builds log each
   application to the console.
 
@@ -378,7 +378,7 @@ for chaining, or for "mark read after the body loads":
           data-sn-optimistic="remove(open)">Archive</button>
 ```
 
-- The target is an element in the page (components included) that carries `data-sn-get`, `-post`,
+- The target is an element in the page (components included) that carries `data-sn-post`,
   `-put`, `-patch`, `-delete` or `data-sn-call`. The id must be a string literal naming exactly one
   such element, outside any `data-sn-for` row, or the build fails (`SN311`). Pass a row through
   state: `open = m; run('mark-read')`.
@@ -539,7 +539,6 @@ optimistic change is one layer, so it rolls back as a whole. Recipe: [row-select
 - `$error` outside a form and outside `data-sn-catch` is a build error (`SN201`); inside
   `data-sn-catch` it is that action's own error, and `data-sn-catch` also switches off the form's
   automatic field errors.
-- A `GET` action cancelled by a newer trigger is a failure for its optimistic layer.
 
 See also: [resources.md](resources.md), [sync.md](sync.md), [retry.md](retry.md),
 [configuration.md](configuration.md), [attributes.md](attributes.md), [diagnostics.md](diagnostics.md).

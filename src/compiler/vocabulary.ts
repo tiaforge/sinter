@@ -32,7 +32,6 @@ export const ATTRIBUTES: AttrDoc[] = [
   { name: 'else', value: '', doc: 'on a <template> directly after an if template. Lists, branches and chosen components render between two comments (`<ul><!--sn 4--><li>a</li><!--/sn--></ul>`): CSS sees plain children. Comments that are exactly `<!--sn-->`, `<!--sn 4-->`, `<!--/sn-->` or `<!---->` are reserved (SN105); `$el` in an if, for or use is SN213; keep HTML comments' },
   { name: 'listbox', value: 'id of the suggestion list, or empty', doc: 'on a text input: arrow keys mark a [role=option] of that list (empty: the nearest [role=listbox]), Enter or Tab clicks it, Escape fires `dismiss`' },
   { name: 'persist', value: 'storage key', doc: 'persists the model or state in localStorage under sn:' },
-  { name: 'get', value: 'URL template', doc: 'GET action; latest wins' },
   { name: 'post', value: 'URL template', doc: 'POST action' },
   { name: 'put', value: 'URL template', doc: 'PUT action' },
   { name: 'patch', value: 'URL template', doc: 'PATCH action' },

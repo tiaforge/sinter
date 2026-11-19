@@ -254,10 +254,6 @@
       "description": "persists the model or state in localStorage under sn: (storage key)"
     },
     {
-      "name": "data-sn-get",
-      "description": "GET action; latest wins (URL template)"
-    },
-    {
       "name": "data-sn-post",
       "description": "POST action (URL template)"
     },

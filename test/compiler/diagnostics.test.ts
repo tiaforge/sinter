@@ -44,6 +44,7 @@ const use = '<p data-sn-text="contacts.length + messages.length"></p>';
 /** One failing fixture per diagnostic code; the message text is part of the public API. */
 const cases: Array<[string, string, RegExp, Opts?]> = [
   ['SN101', '<p data-sn-txt="1"></p>', /`data-sn-txt` is not a sinter attribute. Did you mean `data-sn-text`\?/],
+  ['SN101', '<button data-sn-get="/api/x"></button>', /`data-sn-get` is gone: data a GET loads is a resource/],
   ['SN102', '<div data-sn-for="x in [1]"></div>', /`data-sn-for` must be on a `<template>`/],
   ['SN103', '<template data-sn-for="x in [1, 2]"><i></i></template>', /needs `data-sn-key`/],
   ['SN104', '<div data-sn-state="{f: null}"><input type="file" data-sn-model="f"></div>', /does not support `type="file"`/],
@@ -170,9 +171,9 @@ test('SN503 passes a value with a literal prefix', () => {
 describe('sandbox gaps closed', () => {
   const codes = (html: string) => diags(html).filter((d) => d.severity === 'error').map((d) => `${d.code} ${d.message}`);
   test('a literal origin followed by a value needs its `/`', () => {
-    expect(codes('<div data-sn-state="{x: 1}"><button data-sn-get="https://api.example.com{x}/p"></button></div>')).toEqual([expect.stringMatching(/^SN207 a URL template must start/)]);
-    expect(codes('<div data-sn-state="{x: 1}"><button data-sn-get="https://api.example.com/{x}"></button></div>')).toEqual([]);
-    expect(codes('<button data-sn-get="https://api.example.com"></button>')).toEqual([]);
+    expect(codes('<div data-sn-state="{x: 1}"><button data-sn-post="https://api.example.com{x}/p"></button></div>')).toEqual([expect.stringMatching(/^SN207 a URL template must start/)]);
+    expect(codes('<div data-sn-state="{x: 1}"><button data-sn-post="https://api.example.com/{x}"></button></div>')).toEqual([]);
+    expect(codes('<button data-sn-post="https://api.example.com"></button>')).toEqual([]);
   });
   test('Object.assign() on a resource item is a mutation; on state it is a write', () => {
     expect(codes(`${R}${use}<template data-sn-for="c in contacts"><button data-sn-on-click="Object.assign(c, {name: 'x'})"></button></template>`))

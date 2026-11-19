@@ -14,7 +14,7 @@ import { pathFix } from './lsp/paths.js';
 type P5Element = DefaultTreeAdapterMap['element'];
 type P5Parent = DefaultTreeAdapterMap['parentNode'];
 
-const ACTIONS = ['get', 'post', 'put', 'patch', 'delete'] as const;
+const ACTIONS = ['post', 'put', 'patch', 'delete'] as const;
 const SHAPE = ['items', 'total', 'key', 'type'] as const;
 
 export interface Rewrite { line: number; from: string; to: string }

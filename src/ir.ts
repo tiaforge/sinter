@@ -280,7 +280,7 @@ export interface ActionDef {
   /** dev builds: where each function it uses was written in the markup (`"file:line:col"`, by function index) */
   at?: Record<number, string>;
   /** `CALL`: `data-sn-call`, with `call` set and an empty `url` */
-  method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' | 'CALL';
+  method: 'POST' | 'PUT' | 'PATCH' | 'DELETE' | 'CALL';
   url: UrlTemplate;
   call?: CallDef;
   // absent fields take their default (the compiler writes only what differs): no body, trigger and
@@ -463,9 +463,9 @@ export function validateIR(ir: unknown, fnCount: number): string[] {
   (o.lm ?? []).forEach((f, i) => fn(f, `lm[${i}]`, false));
   o.actions.forEach((a, i) => {
     const at = `actions[${i}]`;
-    if (!['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'CALL'].includes(a.method)) errs.push(`${at}: bad method`);
+    if (!['POST', 'PUT', 'PATCH', 'DELETE', 'CALL'].includes(a.method)) errs.push(`${at}: bad method`);
     if (!['block', 'queue', 'latest'].includes(a.concurrency)) errs.push(`${at}: bad concurrency`);
-    if (a.retry !== undefined && (typeof a.retry !== 'string' || !a.retry || a.method === 'GET' || a.method === 'CALL')) errs.push(`${at}: retry is a policy name, on a mutation`);
+    if (a.retry !== undefined && (typeof a.retry !== 'string' || !a.retry || a.method === 'CALL')) errs.push(`${at}: retry is a policy name, on a mutation`);
     if (a.method === 'CALL') {
       if (!a.call) errs.push(`${at}: CALL needs call`);
       else { fn(a.call.args, `${at}.call.args`, false); fn(a.call.run, `${at}.call.run`, false); }

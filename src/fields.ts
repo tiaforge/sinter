@@ -69,7 +69,7 @@ const fields: Feature = {
         // the form an error is about: the action's own, or the one a control (a button) belongs to
         const own = a.call ? null : a.form ? (el as HTMLFormElement) : (el as HTMLButtonElement).form;
         if (!own) return;
-        const form = a.catch == null && a.method != 'GET' ? own : null;
+        const form = a.catch == null ? own : null;
         const all = marks.get(own) ?? new Map<string, () => void>();
         marks.set(own, all);
         if (form) for (const name of [...all.keys()]) unmark(form, name);

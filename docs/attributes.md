@@ -36,7 +36,6 @@ Turn an element into a request. Details: [actions](actions.md).
 
 | Attribute | Value | Meaning |
 | --- | --- | --- |
-| `data-sn-get` | URL template | GET action; latest wins |
 | `data-sn-post` | URL template | POST action |
 | `data-sn-put` | URL template | PUT action |
 | `data-sn-patch` | URL template | PATCH action |

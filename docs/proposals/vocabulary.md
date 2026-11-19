@@ -1,0 +1,185 @@
+# Proposal: a smaller, plainer vocabulary
+
+Status: in progress. Each step below lands as its own commit, with a diagnostic that names the
+replacement, so a page written for 0.20 fails the build with the fix in the message rather than
+changing behaviour silently. Attribute names, function names and diagnostic codes are public API;
+before 1.0 renames are allowed and listed in the changelog.
+
+The rule this applies: one way to do each thing, one word per concept, and nothing in the vocabulary
+that another part of it already does.
+
+## Removals and renames
+
+### 1. `data-sn-get` goes
+
+A GET that puts its result on the page is a resource. `<sn-resource src>` already reloads when the
+values its URL reads change, aborts the running request (latest wins), waits for the typing pause, has
+`$meta` status, `cache`, `refresh`, a typed `$result`, can be preloaded and embedded. A GET action had
+none of that, and it was the reason for special cases elsewhere: GET's own "latest wins" concurrency,
+"GET actions mark no fields", "GET actions have no write-through", no body for GET.
+
+| Before | After |
+| --- | --- |
+| `<input name="q" data-sn-get="/api/search?q={q}" data-sn-trigger="input" data-sn-then="hits = $result">` | `<input data-sn-model="q">` and `<sn-resource name="hits" src="/api/search?q={q}" when="q">` |
+| a button that fetches once into state | a resource with `when` set by the button, or `data-sn-call` |
+
+`data-sn-get` is `SN101` with that hint.
+
+### 2. `patch()` is `merge()`
+
+The store function shared its name with the HTTP method, so `data-sn-patch="…"` and
+`data-sn-optimistic="patch(…)"` on one element read as the same thing twice. `merge(item, {…})` says
+what it does: fields you leave out stay. `<sn-event op="patch">` is `op="merge"`. `data-sn-patch`, the
+HTTP method, stays.
+
+`patch(` in an expression is `SN201` with "renamed to `merge`"; `op="patch"` is `SN403`-style
+(`op`'s own diagnostic) with the same hint.
+
+### 3. `refetch` is `refresh`
+
+One concept had two words: `refresh()`, `refresh="30s"`, and `<sn-event op="refetch">`,
+`fallback="refetch"`. All are `refresh` now.
+
+### 4. `$error` has one text: `message`
+
+`$error` had `message` (the HTTP status as text) and `detail` (the server's words, when there were
+any), and `$meta.<name>.error` had only `message`. Now `message` is the server's words when there are
+any (a short text body, a JSON body's `message` or `error`), else the status text, everywhere.
+`$error.detail` is a build error naming `message`.
+
+### 5. `data-sn-listbox` becomes `data-sn-roving`
+
+The one attribute that implemented a single widget becomes the general mechanism under it: keys move
+a mark through a list of options, and Enter clicks the marked one. A combobox is one use; a menu, a
+selectable list and a command palette are others.
+
+```html
+<!-- a combobox: focus stays in the input -->
+<input data-sn-model="q" data-sn-roving="hits" data-sn-on-dismiss="open = false">
+<ul id="hits" role="listbox" data-sn-show="open && hits.length">…<li role="option">…</li></ul>
+
+<!-- a menu, a list: the element itself takes focus, its options are inside it -->
+<ul role="menu" data-sn-roving>
+  <template data-sn-for="c in commands"><li role="menuitem" data-sn-on-click="run(c.id)">…</li></template>
+</ul>
+```
+
+- The value is the id of the list. Empty: the options inside the element, else the nearest list
+  around it (inputs rendered in a loop).
+- Options are `[role=option]`, `[role=menuitem]`, `[role=menuitemcheckbox]`, `[role=menuitemradio]`
+  and `[role=treeitem]` that are shown.
+- Focus stays on the element with the attribute; the mark is `aria-selected="true"` on the option and
+  `aria-activedescendant` on the element (an option without an `id` gets one), the pattern assistive
+  technology reads for both comboboxes and composite widgets.
+- ArrowDown and ArrowUp move the mark (ArrowRight and ArrowLeft with `aria-orientation="horizontal"`),
+  Home and End go to the first and last. Enter clicks the marked option; on an element that is not a
+  text field, Space does too. Tab clicks the marked one, or the only one, on a text input. Escape
+  fires a bubbling, cancelable `dismiss`.
+- On a text input the compiler adds `role="combobox"`, `aria-controls` and
+  `aria-autocomplete="list"`, as before; typing unmarks. On another element it adds `tabindex="0"`
+  when the element has none.
+- A mouse press on an option keeps the focus where it is.
+- `data-sn-listbox` is `SN101`, "renamed to `data-sn-roving`".
+
+### 6. Pagination is one attribute
+
+Nine attributes (`paginate`, `page-size`, `size-param`, `cursor`, `direction-param`,
+`direction-values`, `page-param`, `offset-param`, `page-model`) mixed two kinds of thing: how this list
+pages, and how the server spells its parameters. The second is the same for every list of an API.
+
+```html
+<sn-resource name="messages" src="/api/messages" items="messages" total="total" key="id"
+  paginate="{ keyset: { before: id }, size: 20 }"></sn-resource>
+<sn-resource name="feed" src="/api/feed" key="id" paginate="{ append: { before: id }, size: 20 }"></sn-resource>
+<sn-resource name="articles" src="/api/articles?tag={$url.tag}" items="articles" total="count"
+  paginate="{ offset: true, size: 10, model: $url.page }"></sn-resource>
+```
+
+| Key | Meaning | Was |
+| --- | --- | --- |
+| `keyset`, `append`: an object literal | the mode, and the cursor read on the boundary item | `paginate`, `cursor` |
+| `offset: true` | offset mode | `paginate="offset"` |
+| `size` | items per page | `page-size` |
+| `model` | offset: the URL parameter that holds the page, `$url.page` | `page-model` |
+| `jump: true` | keyset: page numbers, by sending an offset | `offset-param` on a keyset list |
+| `params` | the server's names: `{ size: 'limit', page: 'page', offset: 'offset', direction: 'dir' }` | `size-param`, `page-param`, `offset-param`, `direction-param` |
+| `directions` | the server's direction values, `{ first: 'forward', prev: 'backward' }` | `direction-values` |
+
+- `params` and `directions` are given once per API: `sinter({ apis: { main: { …, paginate: { params,
+  directions } } } })`, and on a resource only where it differs. Without `apis`, they go in the
+  attribute. `params.offset` means "this server skips by offset": offset mode sends it instead of a
+  page number, and keyset's `jump` needs it.
+- `offset-param` no longer has two jobs: on a keyset list, jumping to a page is `jump: true`.
+- The old attributes are `SN401` with the object they become.
+
+## Merges
+
+### 7. One declaration for a component's props: `data-sn-props`
+
+`data-sn-component`, `data-sn-head` and `data-sn-layout` each declared "this file's props", and the
+kind came from the attribute's name. The compiler already knows the kind: a file in `src/layouts/` is
+a layout (on its `<html>`), and a component whose markup is head elements is a head component (today's
+`SN312` already tells the two apart to suggest the other attribute). One attribute:
+
+```html
+<template data-sn-props="{ contact: Contact; compact?: boolean }" data-sn-emits="{ pick: Contact }">
+<template data-sn-props="{ title?: string }"><title data-sn-text="title"></title>…</template>
+<html data-sn-props="{ title: string }">  <!-- src/layouts/app.html -->
+```
+
+The three old names are `SN101` with "renamed to `data-sn-props`".
+
+### 8. `data-sn-debounce` has one meaning
+
+It meant "delay the request" next to a method attribute, and "delay every `data-sn-on-*` handler"
+without one, beside `data-sn-debounce-<event>` for one handler. Now `data-sn-debounce` delays an
+action's trigger only, and a handler is delayed by `data-sn-debounce-<event>` (`-input`, `-keydown-j`).
+`data-sn-debounce` without a method is `SN102` naming the `-<event>` attributes to write instead.
+
+### 9. `<sn-event>` writes with the store functions
+
+`<sn-event>` had its own small language for changes (`resource`, `op`, `item`, `set`, `fallback`)
+beside `then`, which already calls store functions. In `then`, the store functions now take the
+resource by name and the item from the payload:
+
+```html
+<sn-event name="person_updated" then="upsert('people', person)"></sn-event>
+<sn-event name="person_removed" then="remove('people', { id })"></sn-event>
+<sn-event name="message_changed" when="mailbox === sel.mailbox"
+          then="merge('messages', { uid, flags, is_read: flags.includes('\\Seen') })"></sn-event>
+<sn-event name="stats_changed" then="refresh('stats')"></sn-event>
+```
+
+- `merge(name, fields)` and `remove(name, fields)` find the item by the resource's `key` fields in
+  `fields`; `upsert(name, item)` as everywhere. These two-argument forms are only for `<sn-event then>`,
+  where the item is a payload; elsewhere `SN317` stands (an item comes from the resource).
+- They write to the base like the old `op`s (a server event is what the server confirmed), so
+  optimistic layers stay on top.
+- `fallback` is `person ? upsert('people', person) : refresh('people')`.
+- `resource`, `op`, `item`, `set`, `fallback` are `SN101` with the `then` they become.
+
+### 10. `data-sn-apply` is `data-sn-write-through`
+
+The docs call the concept write-through everywhere; the attribute should say so.
+`data-sn-write-through="off"`.
+
+### 11. `data-sn-pages` is `data-sn-for` on `<html>`
+
+It is a loop, and its name clashed with pagination's `page()` and `$meta.pages`:
+`<html data-sn-for="p in posts" data-sn-path="/blog/:slug">`.
+
+## Looked at and kept
+
+- `data-sn-wait`: already automatic. The build hides what follows a content-sized box by itself; the
+  attribute is only the `off` switch, with `SN529` reporting the shift.
+- `data-sn-prop`: its meanings are one idea, the values given to the thing (a custom element, a
+  component, a slot's fill). A tree placement is a slot with values that its own component does not
+  declare, and `SN535` catches near-misses.
+- `data-sn-import` and `data-sn-preload`: they are apart on purpose. Preloading competes with the page
+  bundle on a slow network, and docs/lazy.md measures both; folding one into the other would preload
+  where nobody measured.
+
+## Plan
+
+One commit each, in this order: 1, 2, 3, 4, 10, 5, 8, 11, 7, 6, 9. Each updates the vocabulary, the
+compiler and runtime, tests, recipes, examples, docs (`npm run docs`) and the changelog.

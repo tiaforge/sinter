@@ -289,10 +289,10 @@ test('queue sends every trigger in order; latest drops older waiting triggers', 
 });
 
 test('debounce delays the trigger', async () => {
-  const requests = mockRequests({ 'GET /api/s': [] });
+  const requests = mockRequests({ 'PUT /api/s': {} });
   const { root, flush, advance } = await render(`
     <div data-sn-state="{ q: '' }">
-      <input data-sn-model="q" data-sn-get="/api/s?q={q}" data-sn-trigger="input" data-sn-debounce="300">
+      <input data-sn-model="q" data-sn-put="/api/s?q={q}" data-sn-trigger="input" data-sn-debounce="300">
     </div>`, { requests });
   const el = root.querySelector('input')!;
   input(el, 'a'); await flush();
@@ -333,7 +333,7 @@ test('debounce without a method or a handler is misplaced', async () => {
   const d = compile('<div data-sn-state="{ q: 1 }"><input data-sn-model="q" data-sn-debounce="250"></div>', {
     file: '/p/x.html', root: '/p', dev: false, readFile: () => '', helpers: { module: null, names: [], namespaces: {} },
   }).diagnostics.map((x) => `${x.code} ${x.message}`);
-  expect(d).toEqual(['SN102 `data-sn-debounce` needs a method attribute (`data-sn-get`, `-post`, …) or a `data-sn-on-*` handler on the same element']);
+  expect(d).toEqual(['SN102 `data-sn-debounce` needs a method attribute (`data-sn-post`, `-put`, …) or a `data-sn-on-*` handler on the same element']);
 });
 
 test('unhandled errors bubble as sn-error, then reach onError', async () => {

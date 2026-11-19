@@ -41,7 +41,6 @@ This is the short version, small enough for a shell to show whole: the core refe
 - `data-sn-else`: on a <template> directly after an if template. Lists, branches and chosen components render between two comments (`<ul><!--sn 4--><li>a</li><!--/sn--></ul>`): CSS sees plain children. Comments that are exactly `<!--sn-->`, `<!--sn 4-->`, `<!--/sn-->` or `<!---->` are reserved (SN105); `$el` in an if, for or use is SN213; keep HTML comments
 - `data-sn-listbox` (id of the suggestion list, or empty): on a text input: arrow keys mark a [role=option] of that list (empty: the nearest [role=listbox]), Enter or Tab clicks it, Escape fires `dismiss`
 - `data-sn-persist` (storage key): persists the model or state in localStorage under sn:
-- `data-sn-get` (URL template): GET action; latest wins
 - `data-sn-post` (URL template): POST action
 - `data-sn-put` (URL template): PUT action
 - `data-sn-patch` (URL template): PATCH action

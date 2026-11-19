@@ -11,7 +11,7 @@
 export const LIST = true;
 /** `data-sn-if` / `data-sn-else`, `<sn-component use>`: branches */
 export const BRANCH = true;
-/** `data-sn-get|post|put|patch|delete|call`: actions (concurrency, the request, `then`/`catch`) */
+/** `data-sn-post|put|patch|delete|call`: actions (concurrency, the request, `then`/`catch`) */
 export const ACTION = true;
 /** bindings inside a `<dialog>` (`NodeDef.dl`): they wait while it is closed */
 export const DIALOG = true;

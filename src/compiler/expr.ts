@@ -1228,7 +1228,7 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
     const id = first.value, at = (first as Node).start, t = page.ids?.get(id);
     const actionIds = [...(page.ids ?? [])].filter(([, v]) => v.action).map(([k]) => k);
     if (!t) report('SN311', `no element \`id="${id}"\` on this page.${didYouMean(id, actionIds)}`, at);
-    else if (!t.action) report('SN311', `\`#${id}\` has no action (\`data-sn-get\`, \`-post\`, \`-put\`, \`-patch\`, \`-delete\` or \`data-sn-call\`); \`run()\` starts actions, not handlers`, at);
+    else if (!t.action) report('SN311', `\`#${id}\` has no action (\`data-sn-post\`, \`-put\`, \`-patch\`, \`-delete\` or \`data-sn-call\`); \`run()\` starts actions, not handlers`, at);
     else if (t.row) report('SN311', `\`#${id}\` is inside a \`data-sn-for\` row, so every row has it; put the action outside the list and pass the row through state`, at);
     else if (t.n > 1) report('SN311', `${t.n} elements have \`id="${id}"\`; \`run()\` needs one`, at);
     else runs.push({ id, offset: at });

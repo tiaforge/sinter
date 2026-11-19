@@ -259,7 +259,7 @@ function customData(): string {
 const ATTRIBUTE_GROUPS: Array<[string, string, string[]]> = [
   ['Show data', 'Bind values to the page.', ['text', 'attr', 'class', 'style', 'show', 'prop', 'for', 'key', 'if', 'else']],
   ['Keep state', 'Local state next to the markup that uses it.', ['state', 'let', 'model', 'persist']],
-  ['Send changes', 'Turn an element into a request. Details: [actions](actions.md).', ['get', 'post', 'put', 'patch', 'delete', 'call', 'body', 'trigger', 'debounce', 'encoding', 'concurrency', 'confirm', 'retry', 'apply']],
+  ['Send changes', 'Turn an element into a request. Details: [actions](actions.md).', ['post', 'put', 'patch', 'delete', 'call', 'body', 'trigger', 'debounce', 'encoding', 'concurrency', 'confirm', 'retry', 'apply']],
   ['After a request', 'What happens on screen around a response. Details: [optimistic updates](actions.md#optimistic-updates).', ['optimistic', 'then', 'catch']],
   ['React to events', 'Handlers without a request. Details: [events](actions.md), [key filters](actions.md).', ['on-<event>', 'debounce-<event>', 'listbox']],
   ['Components', 'In a component file in `src/components/`, and on a component\'s tag (`early`). Details: [components](components.md).', ['component', 'head', 'emits', 'early', 'ref', 'layout']],

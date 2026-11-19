@@ -418,7 +418,6 @@ interface ActState {
   n: number;
   q: Array<() => void>;
   w: { run: () => void; drop: () => void } | null;
-  c: AbortController | null;
   /** the running write's retry: aborted when a newer `latest` trigger replaces it while it waits */
   r: AbortController | null;
   off: HTMLInputElement[] | null;
@@ -1648,14 +1647,14 @@ export function mount(root: Document | Element, o: MountOptions): App {
   }
 
   function act(el: Element): ActState {
-    if (!acts.has(el)) acts.set(el, { n: 0, q: [], w: null, c: null, r: null, off: null });
+    if (!acts.has(el)) acts.set(el, { n: 0, q: [], w: null, r: null, off: null });
     return acts.get(el)!;
   }
 
   function fire(rb: RB, a: ActionDef, e: Event | null) {
     // `then` and `catch` run in the context of what triggered the action (a user's event, or not)
-    const st = act(rb.el), get = a.method == 'GET', u = ev;
-    if (!get && a.concurrency == 'block' && st.n) return;
+    const st = act(rb.el), u = ev;
+    if (a.concurrency == 'block' && st.n) return;
     const s = child(rb.s, { $el: rb.el, $event: e });
     let url = '', body: unknown;
     try {
@@ -1674,10 +1673,6 @@ export function mount(root: Document | Element, o: MountOptions): App {
     a.confirm != null ? app.ext.confirm!(fns[a.confirm]!(s), go) : go();
     function go() {
     const drop = a.optimistic != null ? app.ext.optimistic!.begin(a.optimistic, s) : () => {};
-    if (get) {
-      st.c?.abort();
-      return void send(rb, a, st, url, body, drop, u, (st.c = new AbortController()));
-    }
     const run = () => void send(rb, a, st, url, body, drop, u);
     if (!st.n) run();
     else if (a.concurrency == 'latest') { st.w ? st.w.drop() : app.busy++; st.w = { run, drop }; st.r?.abort(); }
@@ -1685,7 +1680,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
     }
   }
 
-  async function send(rb: RB, a: ActionDef, st: ActState, url: string, body: unknown, drop: (ok?: boolean) => void, u: Event | null, c?: AbortController) {
+  async function send(rb: RB, a: ActionDef, st: ActState, url: string, body: unknown, drop: (ok?: boolean) => void, u: Event | null) {
     const el = rb.el as HTMLFormElement, s = rb.s;
     // where the element is now: an optimistic remove may take its row away before an error reports
     const up: Element[] = [];
@@ -1694,29 +1689,27 @@ export function mount(root: Document | Element, o: MountOptions): App {
     // server errors on the form (fields.ts): its marks cleared and its `$error` null while it is sent again
     const fs = app.ext.fields?.sent(el, a);
     el.setAttribute('aria-busy', 'true');
-    if (a.form && a.concurrency == 'block' && !c && !st.off) {
+    if (a.form && a.concurrency == 'block' && !st.off) {
       st.off = ([...el.elements] as HTMLInputElement[]).filter((x) => !x.disabled);
       for (const x of st.off) x.disabled = true;
     }
     try {
       const result = a.call
         ? await app.ext.call!.run(a.call.run, body, el)
-        : await req.send(url, { method: a.method, body, signal: c?.signal, ...(a.retry ? { retry: a.retry, stop: (st.r = new AbortController()).signal } : {}) });
-      // a superseded GET's change is rolled back; a success keeps it, under what `then` writes
-      if (c && st.c != c) return drop();
+        : await req.send(url, { method: a.method, body, ...(a.retry ? { retry: a.retry, stop: (st.r = new AbortController()).signal } : {}) });
+      // a success keeps the optimistic change, under what `then` writes
       drop(true);
       // write-through lands between the commit and `then`, so `then` still has the last word
       if (a.ap) app.ext.apply?.(a, s, url, body, result);
       if (a.then != null) as(u, () => handle(rb, a.then!, null, a.w, { $result: result }));
     } catch (err) {
       drop();
-      if (isAbort(err) || (c && st.c != c)) return;
+      if (isAbort(err)) return;
       const error = a.call ? app.ext.call!.error(err) : toError(err);
       // shown on the form (every message on its field, or its markup reads `$error`): handled
       if (fs?.(error, { url, method: a.method }) && a.catch == null) return;
       as(u, () => a.catch != null ? handle(rb, a.catch, null, a.w, { $error: error }) : unhandled(error, el.isConnected ? el : up.find((x) => x.isConnected) ?? null));
     } finally {
-      if (c && st.c == c) st.c = null;
       st.r = null;
       if (!--st.n) {
         for (const x of st.off ?? []) x.disabled = false;

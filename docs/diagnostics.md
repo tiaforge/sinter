@@ -288,7 +288,7 @@ Error, for example:
 
 > no element `id="mark-raed"` on this page. Did you mean `mark-read`?
 
-`run(id)` starts the action of the element with that literal `id`: an element on the page or one of its partials with `data-sn-get`, `-post`, `-put`, `-patch`, `-delete` or `data-sn-call`. Also reported: an id that is not a string literal, an element without an action, an element inside a `data-sn-for` row (every row would have the id), and an id that more than one element has.
+`run(id)` starts the action of the element with that literal `id`: an element on the page or one of its partials with `data-sn-post`, `-put`, `-patch`, `-delete` or `data-sn-call`. Also reported: an id that is not a string literal, an element without an action, an element inside a `data-sn-for` row (every row would have the id), and an id that more than one element has.
 
 **Fix:** Fix the id, or give the action element an `id`. For a row's action, put one action element outside the list and pass the row through state: `open = m; run('mark-read')`.
 
@@ -518,7 +518,7 @@ Error, for example:
 
 > `<ui-panel>`'s root may render nothing, so `id` on its tag would point at an element that may not exist
 
-A component whose root may render nothing (an if chain without a `data-sn-else`, `<sn-component use>`, or a component tag whose own root may) takes no `id`, `data-sn-model`, action (`data-sn-get`, `-post`, `-put`, `-patch`, `-delete`, `data-sn-call`) or `data-sn-transition` on its tag: each points at, or depends on, the element the tag becomes. A root with no element at all is the same case: a `<slot>` at the root given a text fill (`<template slot data-sn-text>`) renders one text node, so every attribute on the tag but `data-sn-prop` and `data-sn-early` is SN334 there, the plain ones (`class`) too, since none has an element to land on.
+A component whose root may render nothing (an if chain without a `data-sn-else`, `<sn-component use>`, or a component tag whose own root may) takes no `id`, `data-sn-model`, action (`data-sn-post`, `-put`, `-patch`, `-delete`, `data-sn-call`) or `data-sn-transition` on its tag: each points at, or depends on, the element the tag becomes. A root with no element at all is the same case: a `<slot>` at the root given a text fill (`<template slot data-sn-text>`) renders one text node, so every attribute on the tag but `data-sn-prop` and `data-sn-early` is SN334 there, the plain ones (`class`) too, since none has an element to land on.
 
 **Fix:** Put the attribute on an element inside the component that is always there, give the chain a `data-sn-else`, or wrap the tag in an element that carries it. For a text root, give an element as the fill, or wrap the tag.
 

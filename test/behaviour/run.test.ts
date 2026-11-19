@@ -228,7 +228,7 @@ describe('run() diagnostics', () => {
     expect(page("run('mark-read')")).toEqual([]);
     expect(page('run(x)')).toEqual(["SN311 `run()` takes the action element's `id` as a string literal"]);
     expect(page("run('mark-raed')")).toEqual(['SN311 no element `id="mark-raed"` on this page. Did you mean `mark-read`?']);
-    expect(page("run('plain')")).toEqual(['SN311 `#plain` has no action (`data-sn-get`, `-post`, `-put`, `-patch`, `-delete` or `data-sn-call`); `run()` starts actions, not handlers']);
+    expect(page("run('plain')")).toEqual(['SN311 `#plain` has no action (`data-sn-post`, `-put`, `-patch`, `-delete` or `data-sn-call`); `run()` starts actions, not handlers']);
     expect(page("run('row')", `<template data-sn-for="m in [1]" data-sn-key="m"><button id="row" data-sn-post="/x"></button></template>`))
       .toEqual(['SN532 `id="row"` is in markup that renders more than once (a `data-sn-for` row): the page would have that id more than once', 'SN311 `#row` is inside a `data-sn-for` row, so every row has it; put the action outside the list and pass the row through state']);
     expect(page("run('mark-read')", '<i id="mark-read"></i>')).toEqual(['SN311 2 elements have `id="mark-read"`; `run()` needs one']);
