@@ -70,7 +70,7 @@ A configured API accepts only the operations it declares, in its spec or in `ope
 | `src="https://api.example.com/v1/x"` | `SN328` names the origin of the API `main`: write `/x` |
 | `operations` without `type` for a resource | `SN504` warning (untyped), as for any resource without a type |
 
-The parameters `paginate` sends (`size-param`, `offset-param`, `page-param`, `direction-param`, the
+The parameters `paginate` sends (the names in its `params`, or its API's `paginate.params`, and the
 cursor's fields) count as given, and are checked too. A parameter with `style: deepObject` accepts
 `name[field]`.
 

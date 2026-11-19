@@ -181,7 +181,7 @@ web-standard `Request` and `Response` (Node, Bun, Deno, Workers, Hono and other 
 sinter({ embed: true })
 ```
 
-Every resource whose request the page's URL decides (its `src`, `when` and `page-model` read only
+Every resource whose request the page's URL decides (its `src`, `when` and `paginate`'s `model` read only
 `$url`, constants and helpers) gets an empty slot, last in the head, so a streaming server sends
 the stylesheets and scripts before it has the data. The build lists the slots in
 `dist/sinter-embed.json`: per page, its paths and per slot the resource and the request the browser
@@ -312,7 +312,7 @@ below the list moves down to make room for them. For a list whose size the style
 build holds that room from the first frame:
 
 ```html
-<sn-resource name="people" src="/api/people" items="people" key="id" paginate="offset" page-size="12"></sn-resource>
+<sn-resource name="people" src="/api/people" items="people" key="id" paginate="{ offset: true, size: 12 }"></sn-resource>
 <ul><template data-sn-for="p in people"><li class="row" data-sn-text="p.name"></li></template></ul>
 ```
 
@@ -325,7 +325,7 @@ page's stylesheet: no inline style, nothing for a CSP to allow). The page module
 update that inserts the rows, or as soon as no load is running (it ended empty or failed, or it never
 started). Nothing moves when the rows arrive.
 
-How many rows: a paginated resource's `page-size`. A list without pages has no count the build can
+How many rows: a paginated resource's `size`. A list without pages has no count the build can
 know, and gets no space. The list may be the resource itself (`p in people`) or a choice between
 resources (`a in list` with `data-sn-let="{ list: $url.feed ? feed : articles }"`, or a resource with a
 `when`): then the placeholder is a branch the early script shows while one of them loads with no rows,
@@ -381,7 +381,7 @@ smaller one, and so does the space).
 
 When fewer rows arrive than were held (the last page, an empty list), what follows moves up by
 what is missing. Measured with the API answering after 500 ms (Chromium, 1280 px and 412 px wide,
-`page-size="12"` with content below; a list of 56 px rows, a three-column grid of 160 px cards, a table
+`size: 12` with content below; a list of 56 px rows, a three-column grid of 160 px cards, a table
 of one-line rows with collapsed borders; the median of 3 loads):
 
 | Rows that arrive | List, without / with | Grid, without / with | Table, without / with |

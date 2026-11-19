@@ -113,7 +113,7 @@ A named, page-wide cache of server data. Details: [resources](resources.md).
 - **Where the data comes from:** `name`, `src`, `method`, `body`, `call`, `each`, `when`, `early`
 - **What it looks like:** `key`, `items`, `total`, `order`, `drafts`, `type`
 - **How fresh it is:** `cache`, `refresh`, `then`
-- **Pagination:** `paginate`, `page-size`, `size-param`, `cursor`, `direction-param`, `direction-values`, `page-param`, `offset-param`, `page-model`
+- **Pagination:** `paginate`
 
 ### `<sn-sync>`
 

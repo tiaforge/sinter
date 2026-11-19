@@ -59,7 +59,7 @@ At mount, what follows the body needed CSS to hold it back (CLS 0.452 without); 
 The library is linked from `packages/` (`file:`), so `resolve.dedupe` in `vite.config.js` points its imports
 of sinter at the app's.
 
-The article lists keep their page in the URL with `page-model="$url.page"`: `?page=3` (or a reload,
+The article lists keep their page in the URL with `model: $url.page` in their `paginate`: `?page=3` (or a reload,
 or Back) loads the third page, in the early request and the embedded data too. The pager's links
 and the home page's feed tabs are plain links that stay on the page when clicked
 ([same-page links](../../docs/navigation.md#same-page-links)): a new history entry and the list's

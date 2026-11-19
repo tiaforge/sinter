@@ -114,7 +114,7 @@ public sealed class EmbedTests
     [Theory, MemberData(nameof(Apis))]
     public async Task A_paginated_resource_is_requested_at_its_first_page(Api api)
     {
-        // the build: `paginate="offset" page-size="10" size-param="limit"` over a tag from the path
+        // the build: `paginate="{ offset: true, size: 10 }"` over a tag from the path
         var dir = Build("paginated", """
             { "version": 2, "pages": [ { "file": "index.html", "paths": ["/tag/:tag"], "data": [
               { "id": 0, "resource": "articles", "src": ["/api/articles?tag=", { "url": "tag" }], "query": [["page", "1"], ["limit", "10"]] } ] } ] }

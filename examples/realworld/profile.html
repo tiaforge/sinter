@@ -3,7 +3,7 @@
   data-sn-with="{ nav, title: 'Profile', description: 'A Conduit author\'s profile: their articles and favorites.' }">
 <sn-resource cache name="profile" src="/profiles/{$url.username}"></sn-resource>
 <sn-resource cache name="articles"
-  src="/articles?author={$url.tab == 'favorites' ? null : $url.username}&favorited={$url.tab == 'favorites' ? $url.username : null}" paginate="offset" page-size="10" size-param="limit" offset-param="offset" page-model="$url.page"></sn-resource>
+  src="/articles?author={$url.tab == 'favorites' ? null : $url.username}&favorited={$url.tab == 'favorites' ? $url.username : null}" paginate="{ offset: true, size: 10, model: $url.page }"></sn-resource>
 
 <main class="profile-page">
   <template data-sn-if="$meta.profile.error">

@@ -122,6 +122,7 @@ export const LINK_FIELDS: Record<string, { kinds: string[]; how: 'table' | 'weak
   keptBound: { kinds: ['Set'], how: 'table' },
   keptDepth: { kinds: ['number'], how: 'fixed' },
   kinding: { kinds: ['Set'], how: 'cache' },
+  pageSpecs: { kinds: ['WeakMap'], how: 'weak' },
   keptSlot: { kinds: ['Set'], how: 'table' },
   keptSource: { kinds: ['Map'], how: 'table' },
   landing: { kinds: ['WeakMap'], how: 'weak' },

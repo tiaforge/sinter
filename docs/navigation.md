@@ -120,7 +120,7 @@ hosts do not do for HTML.
 ## The URL and the history
 
 `$url` is bindable: `data-sn-model="$url.q"` on a search field, `$url.sort` on a select,
-`page-model="$url.page"` on a list ([Page in the URL](pagination.md#page-in-the-url)). Back and
+`model: $url.page` in a list's `paginate` ([Page in the URL](pagination.md#page-in-the-url)). Back and
 Forward then restore what the user saw, reload and shared links show the same. The kind of entry is
 decided where the write happens:
 
@@ -181,7 +181,7 @@ the state you made (`data-sn-state`) and the scroll position stay. Nothing to wr
   prevented, and a parameter the page does not read (`?lang=de`, one a server or an island acts on)
   load the URL as before. Middle-click and Ctrl/Cmd-click open a new tab, as always.
 - **What follows:** `$url` takes the link's query, and everything that reads it follows as after
-  Back or Forward: a [`page-model`](pagination.md#page-in-the-url) list loads the link's page, so
+  Back or Forward: a list with a [`model`](pagination.md#page-in-the-url) loads the link's page, so
   `?tag=js&page=3` shows page 3 and `?tag=js` page 1. A text field's pending typing gets its own
   entry first. A link to the current URL changes nothing. A `#hash` in the link is followed by the
   browser, in the new entry.
@@ -199,7 +199,7 @@ the state you made (`data-sn-state`) and the scroll position stay. Nothing to wr
   query parameter the page reads, on any of its paths, as for `$url` writes.
 - **Building the query:** `href="?page=3"` keeps only `page`, as any URL resolves: on `?tag=go` it
   drops the tag. Build the whole query. A pager link (a static query-only `href` that sets a
-  `page-model` parameter) that drops other parameters the page reads is SN519; a filter or tab
+  `model` parameter) that drops other parameters the page reads is SN519; a filter or tab
   link that drops the page is how the list starts at page 1, and needs nothing.
 - Next-page data leaves same-page links alone. Speculation Rules on such a page leave out its own
   path with any other query, so a link there that changes a parameter the page does not read

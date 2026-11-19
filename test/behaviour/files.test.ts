@@ -82,7 +82,7 @@ describe('a file: resource', () => {
   });
 
   test('SN332: what would load, page or change it', () => {
-    for (const a of ['refresh="30s"', 'cache', 'paginate="offset" page-size="2"', 'when="true"', 'then="x = 1"', 'early="off"', 'order="name"', 'method="POST"']) {
+    for (const a of ['refresh="30s"', 'cache', 'paginate="{ offset: true, size: 2 }"', 'when="true"', 'then="x = 1"', 'early="off"', 'order="name"', 'method="POST"']) {
       const e = errors(build(`<div data-sn-state="{ x: 0 }"><sn-resource name="r" src="file:./post.txt" ${a}></sn-resource><p data-sn-text="r"></p></div>`));
       expect(e.some((x) => x.startsWith(`SN332 \`${a.split('=')[0]}\``)), a).toBe(true);
     }

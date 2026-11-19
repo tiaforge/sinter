@@ -281,7 +281,7 @@ describe('call diagnostics', () => {
   test('resources: src or call; call does not combine with paginate, each, cache', () => {
     expect(diags('<sn-resource name="b" src="/x" call="archive(1)"></sn-resource><p data-sn-text="b"></p>')).toContain('SN102 a resource loads from `src` or from `call`, not both');
     expect(diags('<sn-resource name="b"></sn-resource><p data-sn-text="b"></p>')).toContain('SN401 resource `b` needs a `src` (or a `call`)');
-    expect(diags('<sn-resource name="b" call="archive(1)" key="id" paginate="keyset" page-size="5" cursor="{id}"></sn-resource><p data-sn-text="b"></p>'))
+    expect(diags('<sn-resource name="b" call="archive(1)" key="id" paginate="{ keyset: {id}, size: 5 }"></sn-resource><p data-sn-text="b"></p>'))
       .toContain('SN401 `paginate` does not combine with `call` in v0.2');
   });
 });

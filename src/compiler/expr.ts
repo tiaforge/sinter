@@ -58,7 +58,7 @@ export interface LetEntry {
 
 export interface ResourceInfo {
   name: string; key: string[] | null; paginate: string | null; used: boolean;
-  /** keyset with `offset-param`: `page(name, n)` and `$meta.<name>.page` are available */
+  /** keyset with `jump`: `page(name, n)` and `$meta.<name>.page` are available */
   jumps?: boolean;
 }
 
@@ -677,7 +677,7 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
         } else if (field === 'live' && !page.fed.has(rname)) {
           report('SN516', `\`$meta.${rname}.live\` is always \`null\`: no \`<sn-event resource="${rname}">\` on this page feeds \`${rname}\``, n.start, `add an \`<sn-event>\` for \`${rname}\` to the \`<sn-sync>\`, or remove this`);
         } else if (field === 'page' && r.paginate !== 'offset' && !r.jumps) {
-          report('SN303', `\`$meta.${rname}.page\` exists only with \`paginate="offset"\`, or \`paginate="keyset"\` with \`offset-param\``, n.start);
+          report('SN303', `\`$meta.${rname}.page\` exists only on an offset list (\`paginate="{ offset: true, … }"\`), or a keyset list with \`jump: true\``, n.start);
         }
       }
     }
@@ -1075,7 +1075,7 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
         if (!r.paginate) once('SN303', `\`${r.name}\` has no \`paginate\`; \`page()\` needs a paginated resource`, n.start);
         else if (r.paginate === 'append' && named !== 'next') once('SN304', '`append` pagination only supports `page(…, \'next\')`', target?.start ?? n.start);
         else if (r.paginate === 'keyset' && !named && !computed && !r.jumps) {
-          once('SN304', 'keyset pagination cannot jump to a page number. Add `offset-param` if the server also accepts an offset, or use `paginate="offset"`', target?.start ?? n.start);
+          once('SN304', 'keyset pagination cannot jump to a page number. Add `jump: true` to `paginate` if the server also accepts an offset, or use `offset: true`', target?.start ?? n.start);
         }
       }
       if (named && !['first', 'prev', 'next', 'last'].includes(named) && !cands.some((c) => c.r.paginate === 'append')) {

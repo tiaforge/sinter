@@ -394,7 +394,7 @@ export interface PrefetchParts {
  * name }`), else null and the server must produce the data itself (`call`, `each` too). `when`:
  * the resource has a condition the server cannot evaluate. `query`: a paginated resource's first
  * page, the parameters the pager sends for it (`firstParams`), set on the template's URL as the
- * runtime sets them (`withParams`), in this order. `start`: its `page-model` parameter; from page 2
+ * runtime sets them (`withParams`), in this order. `start`: its `model` (paginate) parameter; from page 2
  * on, the parameters are `query` of `start` with `key` set to the page (with `skip`, to
  * `(page - 1) * size`), as the pager's `pageParams` writes them.
  */
@@ -522,6 +522,8 @@ const ACTION_ONLY = ['body', 'trigger', 'debounce', 'concurrency', 'optimistic',
 const UNSAFE_ELEMENTS = new Set(['script', 'style', 'iframe', 'object', 'embed', 'base', 'meta', 'link', 'animate', 'set', 'animatemotion', 'animatetransform']);
 const FORM_CONTROLS = new Set(['input', 'select', 'textarea']);
 const RESOURCE_ATTRS = ELEMENTS.find((e) => e.name === 'sn-resource')!.attrs;
+/** the attributes `paginate` replaced (docs/proposals/vocabulary.md): reported with the object they become */
+const PAGINATE_OLD = ['page-size', 'size-param', 'cursor', 'direction-param', 'direction-values', 'page-param', 'offset-param', 'page-model'];
 const EVENT_ATTRS = ELEMENTS.find((e) => e.name === 'sn-event')!.attrs;
 const IDENT = /^[A-Za-z_][\w]*$/;
 const BAD_PARAM = /^(constructor|__proto__|prototype)$/;
@@ -755,6 +757,17 @@ const CONST_PROP = /^(true|false|null|undefined|-?\d+(\.\d+)?|'[^'\\]*'|"[^"\\]*
 const FALSY_PROP = ['false', 'null', 'undefined', '0', "''", '""'];
 
 /** The query parameters `paginate` adds to a request, by mode (`runtime/pages.ts`), and the cursor's fields. */
+/** `paginate`, read (`pageSpec`): the cursor and the model with where they are written in the attribute */
+interface PageSpec {
+  mode: Paginate['mode'];
+  size: number;
+  cursor: { text: string; at: number } | null;
+  model: { name: string | null; at: number } | null;
+  jump: boolean;
+  params: { size?: string; page?: string; offset?: string; direction?: string };
+  directions: Paginate['directionValues'] | null;
+}
+
 function paginateParams(p: Paginate, cursor: string | undefined): string[] {
   const out = [p.sizeParam];
   if (p.mode === 'offset') out.push(p.offsetParam ?? p.pageParam);
@@ -985,6 +998,8 @@ class Compiler {
   private readonly layoutFiles = new Map<string, { file: string; text: string } | null>();
   /** component files by tag, read once (null: no such component, a plain custom element) */
   private readonly componentFiles = new Map<string, ComponentFile | null>();
+  /** `paginate` read once per element (`pageSpec`) */
+  private readonly pageSpecs = new WeakMap<P5Element, PageSpec | null>();
   /** the component files whose kind is being decided (`componentFile`), against cycles */
   private readonly kinding = new Set<string>();
   /** by component id (`ComponentScope.id`): the use, for the refs of its markup */
@@ -1219,7 +1234,7 @@ class Compiler {
     }));
   }
   /**
-   * SN519: a pager link (a static query-only `href` that sets a `page-model` parameter) that drops
+   * SN519: a pager link (a static query-only `href` that sets a `model` (paginate) parameter) that drops
    * query parameters the page reads. A filter or tab link that drops the page is how a list starts
    * at page 1; a link whose `href` is also bound is its fallback.
    */
@@ -1237,7 +1252,7 @@ class Compiler {
         'build the whole query in `data-sn-attr` (`href: \'?page=\' + n + \'&tag=\' + encodeURIComponent($url.tag)`), or leave the parameter out on purpose');
     }
   }
-  /** `page-model` parameters: one is never a list */
+  /** `model` (paginate) parameters: one is never a list */
   readonly pageModels: Array<{ name: string; report: (msg: string) => void }> = [];
   /**
    * The checks that need every array parameter: one bound as a list and as one value (SN210), a list
@@ -1250,7 +1265,7 @@ class Compiler {
       if (f.includes('$.$u(')) for (const n of arrays) f = f.split(`$.$u(${JSON.stringify(n)}, `).join(`$.$l(${JSON.stringify(n)}, `);
       this.fns[i] = f;
     });
-    for (const p of this.pageModels) if (arrays.has(p.name)) p.report(`\`page-model\` takes a URL parameter that is one value; \`$url.${p.name}\` is a list (a \`<select multiple>\` or a checkbox with a \`value\` binds it)`);
+    for (const p of this.pageModels) if (arrays.has(p.name)) p.report(`\`model\` (paginate) takes a URL parameter that is one value; \`$url.${p.name}\` is a list (a \`<select multiple>\` or a checkbox with a \`value\` binds it)`);
     for (const b of this.urlBinds) if (!b.array && arrays.has(b.name)) b.report(`\`$url.${b.name}\` is a list elsewhere on the page (a \`<select multiple>\` or a checkbox with a \`value\`), and one value here; bind it as a list everywhere`);
     for (const w of this.page.urlWrites ?? []) {
       if (w.list && !arrays.has(w.name)) w.report('SN210', `\`$url.${w.name}\` is one value (no \`<select multiple>\` or checkbox with a \`value\` binds it), and a list is written to it; write one value`);
@@ -1741,36 +1756,107 @@ class Compiler {
     return { args: this.fn(r.code), run: this.fn(`($a, $c) => ${local}(...$a, $c)`), name };
   }
 
-  /** `direction-values="{prev: 'backward', next: 'forward'}"`: static data, string values for known directions only */
-  directionValues(el: P5Element): Paginate['directionValues'] | null {
-    const text = attr(el, 'direction-values')!;
-    const DIRS = ['first', 'prev', 'next', 'last'] as const;
-    const fail = (message: string, offset = 0) => { this.report(el, 'direction-values', 'SN401', message, offset); return null; };
-    let ast: acorn.Expression;
-    try {
-      ast = parseExpression(text);
-    } catch (e) {
-      return fail(`\`direction-values\`: ${(e as Error).message.replace(/ \(\d+:\d+\)$/, '')}`, (e as { pos?: number }).pos ?? 0);
-    }
-    if (ast.type !== 'ObjectExpression' || ast.end !== text.trimEnd().length) {
-      return fail("`direction-values` is an object literal of strings, e.g. `{prev: 'backward', next: 'forward'}`");
-    }
-    const out: NonNullable<Paginate['directionValues']> = {};
-    for (const p of ast.properties) {
-      if (p.type !== 'Property' || p.computed || p.kind !== 'init' || p.method || p.shorthand) {
-        return fail("`direction-values` is an object literal of strings, e.g. `{prev: 'backward', next: 'forward'}`", p.start);
-      }
-      const key = p.key.type === 'Identifier' ? p.key.name : p.key.type === 'Literal' ? String(p.key.value) : '';
-      if (!(DIRS as readonly string[]).includes(key)) {
-        return fail(`\`${key}\` is not a direction; directions are \`first\`, \`prev\`, \`next\` and \`last\`.${didYouMean(key, DIRS)}`, p.key.start);
-      }
-      if (p.value.type !== 'Literal' || typeof p.value.value !== 'string') {
-        return fail(`the value for \`${key}\` must be a string literal`, p.value.start);
-      }
-      out[key as typeof DIRS[number]] = p.value.value;
-    }
-    return out;
+  /**
+   * `paginate="{ keyset: { before: id }, size: 20 }"` (docs/pagination.md): how a list pages, as one object literal.
+   * The mode is the key (`keyset` or `append` with the cursor, `offset: true`); `size`; `model: $url.page` (offset);
+   * `jump: true` (keyset, by `params.offset`); `params` and `directions`, the server's names, over the API's
+   * (`sinter({ apis: { main: { paginate } } })`). Parsed once per element; null after reporting what is wrong.
+   */
+  pageSpec(el: P5Element): PageSpec | null {
+    if (this.pageSpecs.has(el)) return this.pageSpecs.get(el)!;
+    const spec = this.readPageSpec(el);
+    this.pageSpecs.set(el, spec);
+    return spec;
   }
+
+  private readPageSpec(el: P5Element): PageSpec | null {
+    const text = attr(el, 'paginate');
+    if (text == null) return null;
+    const EXAMPLE = '`paginate="{ keyset: { before: id }, size: 20 }"`, `{ offset: true, size: 10 }` or `{ append: { before: id }, size: 20 }`';
+    const fail = (message: string, offset = 0) => { this.report(el, 'paginate', 'SN401', message, offset); return null; };
+    if (/^\s*(keyset|offset|append)\s*$/.test(text)) return fail(`\`paginate\` is one object literal now: ${this.legacyPaginate(el) ?? EXAMPLE}`);
+    let ast: acorn.Expression;
+    try { ast = parseExpression(text); } catch (e) { return fail(`\`paginate\`: ${(e as Error).message.replace(/ \(\d+:\d+\)$/, '')}`, (e as { pos?: number }).pos ?? 0); }
+    if (ast.type !== 'ObjectExpression' || ast.end !== text.trimEnd().length) return fail(`\`paginate\` is an object literal: ${EXAMPLE}`);
+    const lead = text.length - text.trimStart().length;
+    const spec: PageSpec = { mode: 'keyset', size: 0, cursor: null, model: null, jump: false, params: {}, directions: null };
+    let modes = 0;
+    const strings = (v: acorn.Node, keys: readonly string[], what: string): Record<string, string> | null => {
+      const o = v as acorn.Expression;
+      if (o.type !== 'ObjectExpression') return fail(`\`${what}\` is an object literal of strings`, o.start);
+      const out: Record<string, string> = {};
+      for (const q of o.properties) {
+        if (q.type !== 'Property' || q.computed || q.kind !== 'init' || q.method || q.shorthand) return fail(`\`${what}\` is an object literal of strings`, q.start);
+        const k = q.key.type === 'Identifier' ? q.key.name : q.key.type === 'Literal' ? String(q.key.value) : '';
+        if (!keys.includes(k)) return fail(`\`${k}\` is not a key of \`${what}\`; it takes ${keys.map((x) => `\`${x}\``).join(', ')}.${didYouMean(k, keys)}`, q.key.start);
+        if (q.value.type !== 'Literal' || typeof q.value.value !== 'string' || !q.value.value) return fail(`\`${what}.${k}\` is a non-empty string literal`, q.value.start);
+        if (what === 'params' && !/^[\w.\-[\]]+$/.test(q.value.value)) return fail(`\`params.${k}\` is a query parameter name`, q.value.start);
+        out[k] = q.value.value;
+      }
+      return out;
+    };
+    for (const p of ast.properties) {
+      if (p.type !== 'Property' || p.computed || p.kind !== 'init' || p.method || p.shorthand) return fail(`\`paginate\` takes \`key: value\` entries: ${EXAMPLE}`, p.start);
+      const key = p.key.type === 'Identifier' ? p.key.name : p.key.type === 'Literal' ? String(p.key.value) : '';
+      const v = p.value as acorn.Expression;
+      if (key === 'keyset' || key === 'append') {
+        modes++;
+        spec.mode = key;
+        if (v.type !== 'ObjectExpression') return fail(`\`${key}\` is the cursor, an object literal read on the boundary item: \`${key}: { before: id }\``, v.start);
+        spec.cursor = { text: text.slice(v.start, v.end), at: v.start };
+      } else if (key === 'offset') {
+        modes++;
+        spec.mode = 'offset';
+        if (v.type !== 'Literal' || v.value !== true) return fail('`offset` takes `true`: `{ offset: true, size: 10 }`', v.start);
+      } else if (key === 'size') {
+        if (v.type !== 'Literal' || typeof v.value !== 'number' || !Number.isInteger(v.value) || v.value <= 0) return fail('`size` is the number of items per page, a positive whole number', v.start);
+        spec.size = v.value;
+      } else if (key === 'model') {
+        const name = v.type === 'MemberExpression' && !v.computed && v.object.type === 'Identifier' && v.object.name === '$url' && v.property.type === 'Identifier' ? v.property.name : null;
+        spec.model = { name, at: v.start };
+      } else if (key === 'jump') {
+        if (v.type !== 'Literal' || v.value !== true) return fail('`jump` takes `true`: page numbers on a keyset list, sent as `params.offset`', v.start);
+        spec.jump = true;
+      } else if (key === 'params') {
+        const o = strings(v, ['size', 'page', 'offset', 'direction'], 'params');
+        if (!o) return null;
+        spec.params = o;
+      } else if (key === 'directions') {
+        const o = strings(v, ['first', 'prev', 'next', 'last'], 'directions');
+        if (!o) return null;
+        spec.directions = o;
+      } else {
+        const KEYS = ['keyset', 'append', 'offset', 'size', 'model', 'jump', 'params', 'directions'];
+        return fail(`\`${key}\` is not a key of \`paginate\`; it takes ${KEYS.map((x) => `\`${x}\``).join(', ')}.${didYouMean(key, KEYS)}`, p.key.start);
+      }
+    }
+    if (modes !== 1) return fail(`\`paginate\` names one mode, \`keyset\`, \`append\` (each with its cursor) or \`offset: true\`: ${EXAMPLE}`, lead);
+    if (!spec.size) return fail('`paginate` needs `size`, the number of items per page', lead);
+    if (spec.model && spec.mode !== 'offset') return fail(`\`model\` is for \`offset\` lists, where every move has a page number when it is made; ${spec.mode === 'append' ? 'append lists load more by cursor' : 'keyset lists move by cursor, and their page number is often unknown'}`, spec.model.at);
+    if (spec.jump && spec.mode !== 'keyset') return fail(`\`jump\` is for \`keyset\` lists; ${spec.mode === 'offset' ? 'an offset list jumps already' : 'append lists only load more'}`, lead);
+    if (spec.directions && spec.mode === 'offset') return fail('`directions` is for `keyset` and `append` lists; an offset list sends page numbers', lead);
+    return spec;
+  }
+
+  /** the old attributes (`paginate="keyset" size="20" cursor="{…}" …`) as the object that replaces them, or null */
+  legacyPaginate(el: P5Element): string | null {
+    const mode = attr(el, 'paginate')?.trim();
+    if (mode !== 'keyset' && mode !== 'offset' && mode !== 'append') return null;
+    const parts: string[] = [];
+    const cursor = attr(el, 'cursor')?.trim(), offset = attr(el, 'offset-param')?.trim();
+    parts.push(mode === 'offset' ? 'offset: true' : `${mode}: ${cursor || '{ … }'}`);
+    parts.push(`size: ${attr(el, 'page-size')?.trim() || '…'}`);
+    const pm = attr(el, 'page-model')?.trim();
+    if (pm) parts.push(`model: ${pm}`);
+    if (mode === 'keyset' && offset) parts.push('jump: true');
+    const params = [['size', 'size-param'], ['page', 'page-param'], ['offset', 'offset-param'], ['direction', 'direction-param']]
+      .map(([k, a]) => [k, attr(el, a!)?.trim()] as const).filter(([, v]) => v).map(([k, v]) => `${k}: '${v}'`);
+    if (params.length) parts.push(`params: { ${params.join(', ')} }`);
+    const dirs = attr(el, 'direction-values')?.trim();
+    if (dirs) parts.push(`directions: ${dirs}`);
+    return `\`paginate="{ ${parts.join(', ')} }"\``;
+  }
+
 
   /**
    * SN540: with swaps on, a script in the body that a swap would not run (inline or classic: the module
@@ -4093,9 +4179,9 @@ class Compiler {
           continue;
         }
         const key = attr(child, 'key') ?? (attr(child, 'call') == null ? this.apiTarget(child, 'src', attr(child, 'method')?.trim() === 'POST' ? 'post' : 'get')?.shape?.key : undefined);
-        const paginate = attr(child, 'paginate');
-        const info: ResourceInfo = { name, key: key ? key.split(',').map((s) => s.trim()).filter(Boolean) : null, paginate: paginate ?? null, used: false };
-        if (paginate === 'keyset' && attr(child, 'offset-param') != null) info.jumps = true;
+        const paginate = attr(child, 'paginate') != null ? this.pageSpec(child) : null;
+        const info: ResourceInfo = { name, key: key ? key.split(',').map((s) => s.trim()).filter(Boolean) : null, paginate: paginate?.mode ?? null, used: false };
+        if (paginate?.jump) info.jumps = true;
         this.page.resources.set(name, info);
         this.resourceEls.set(name, child);
         continue;
@@ -6004,8 +6090,8 @@ class Compiler {
     if (isFileSource(attr(el, 'src'))) return this.fileResource(el, name, ctx.stateIdx);
     if (isContentSource(attr(el, 'src'))) return this.contentResource(el, name, ctx.stateIdx);
     for (const a of el.attrs) {
-      if (a.name === 'start-page') this.report(el, a.name, 'SN401', '`start-page` is renamed to `page-model` (offset lists, a query parameter), which also writes the page back', 0);
-      else if (!RESOURCE_ATTRS.includes(a.name)) this.report(el, a.name, 'SN101', `\`${a.name}\` is not an attribute of \`<sn-resource>\`.${didYouMean(a.name, RESOURCE_ATTRS)}`, 0);
+      if (a.name === 'start-page') this.report(el, a.name, 'SN401', '`start-page` is `model` in `paginate` now (offset lists, a query parameter), which also writes the page back: `paginate="{ offset: true, size: 10, model: $url.page }"`', 0);
+      else if (!RESOURCE_ATTRS.includes(a.name) && !PAGINATE_OLD.includes(a.name)) this.report(el, a.name, 'SN101', `\`${a.name}\` is not an attribute of \`<sn-resource>\`.${didYouMean(a.name, RESOURCE_ATTRS)}`, 0);
     }
     const earlyAttr = attr(el, 'early');
     if (earlyAttr != null && earlyAttr !== 'off') this.report(el, 'early', 'SN401', '`early` takes only `off`', 0);
@@ -6069,64 +6155,52 @@ class Compiler {
     }
     let paginate: Paginate | null = null;
     const mode = attr(el, 'paginate');
-    if (mode != null) {
-      if (!['keyset', 'offset', 'append'].includes(mode)) {
-        this.report(el, 'paginate', 'SN401', '`paginate` is `keyset`, `offset` or `append`', 0);
-      } else {
-        if (!info.key) this.report(el, 'paginate', 'SN401', 'a paginated resource needs `key`', 0);
-        const size = Number(attr(el, 'page-size') ?? '');
-        if (!Number.isInteger(size) || size <= 0) this.report(el, 'page-size', 'SN401', 'a paginated resource needs a positive `page-size`', 0);
-        let cursor: number | null = null;
-        if (mode !== 'offset') {
-          if (attr(el, 'cursor') == null) this.report(el, null, 'SN401', `\`paginate="${mode}"\` needs \`cursor\``, 0);
-          else {
-            const r = this.expr(el, 'cursor', ctx.scope, { mode: 'value', payload: true });
-            this.typeLast({ payload: { kind: 'item', resource: name } });
-            if (r.ast && r.ast.type !== 'ObjectExpression') this.report(el, 'cursor', 'SN401', '`cursor` must be an object literal', 0);
-            cursor = this.fn(r.code);
-          }
-        }
-        paginate = {
-          mode: mode as Paginate['mode'], size, sizeParam: attr(el, 'size-param') ?? 'limit', cursor,
-          directionParam: attr(el, 'direction-param') ?? 'direction', pageParam: attr(el, 'page-param') ?? 'page',
-        };
-        const offsetParam = attr(el, 'offset-param');
-        if (offsetParam != null) {
-          if (mode === 'append') this.report(el, 'offset-param', 'SN401', '`offset-param` applies to `paginate="offset"` (the items to skip, sent instead of `page-param`) and `paginate="keyset"` (to jump); append mode only loads more', 0);
-          else if (!/^[\w.\-\[\]]+$/.test(offsetParam)) this.report(el, 'offset-param', 'SN401', '`offset-param` is a query parameter name', 0);
-          else paginate.offsetParam = offsetParam;
-        }
-        // `page-model="$url.page"`: the list's page lives in the URL, read at load and written back on every move
-        const pm = attr(el, 'page-model');
-        if (pm != null) {
-          const name = /^\s*\$url\.([A-Za-z_$][\w$]*)\s*$/.exec(pm)?.[1];
-          if (mode !== 'offset') {
-            this.report(el, 'page-model', 'SN401', `\`page-model\` applies to \`paginate="offset"\`, where every move has a page number when it is made; ${mode === 'append' ? 'append lists load more by cursor' : 'keyset lists move by cursor, and their page number is often unknown'}`, 0);
-          } else if (!name || this.page.pathParams.has(name)) {
-            this.report(el, 'page-model', 'SN203', name ? `\`page-model\` takes a URL query parameter such as \`$url.page\`; \`$url.${name}\` is a path parameter (\`data-sn-path\`)` : '`page-model` takes a URL parameter such as `$url.page`', 0);
-          } else if ([...deps].some((d) => d === '$url' || d === `$url.${name}` || d.startsWith(`$url.${name}.`))) {
-            this.report(el, 'page-model', 'SN401', `\`$url.${name}\` is this resource's page (\`page-model\`), and its \`src\` or \`when\` reads it too: each page would reset the list; read another parameter there`, 0);
-          } else {
-            // the read is the compiled `$url.<name>`, where the early file, preloads and embedded data read the start page
-            paginate.start = this.fn(`($) => ($.$url.${name})`);
-            paginate.model = name;
-            deps.add(`$url.${name}`);
-            this.pageModels.push({ name, report: (m) => this.report(el, 'page-model', 'SN203', m, 0) });
-            this.page.writesUrl = true;
-          }
-        }
-        if (attr(el, 'direction-values') != null) {
-          if (mode === 'offset') this.report(el, 'direction-values', 'SN401', '`direction-values` applies to `paginate="keyset"` and `paginate="append"`; offset pages send `page-param`', 0);
-          else {
-            const values = this.directionValues(el);
-            if (values) paginate.directionValues = values;
-          }
-        }
-        this.features.add('paginate');
-      }
+    // the old attributes: the object they become, once (on the first one written)
+    const old = PAGINATE_OLD.find((a) => attr(el, a) != null);
+    if (old && !/^\s*(keyset|offset|append)\s*$/.test(mode ?? '')) {
+      this.report(el, old, 'SN401', `\`${old}\` is a key of \`paginate\` now, one object literal: \`paginate="{ keyset: { before: id }, size: 20 }"\` (docs/pagination.md)`, 0);
     }
-    for (const a of ['page-size', 'size-param', 'cursor', 'direction-param', 'direction-values', 'page-param', 'offset-param', 'page-model']) {
-      if (attr(el, a) != null && !paginate && mode == null) this.report(el, a, 'SN102', `\`${a}\` needs \`paginate\``, 0);
+    const spec = this.pageSpec(el);
+    if (spec) {
+      if (!info.key) this.report(el, 'paginate', 'SN401', 'a paginated resource needs `key`', 0);
+      // the server's names: the resource's own, over its API's, over the defaults
+      const src = attr(el, 'src')?.trim() ?? '';
+      const via = this.opts.apis && src && !isFileSource(src) && !isContentSource(src) ? apiOf(this.opts.apis, src) : null;
+      const wire = via && 'api' in via ? via.api.paginate : undefined;
+      const params = { ...wire?.params, ...spec.params }, directions = spec.directions ?? wire?.directions;
+      let cursor: number | null = null;
+      if (spec.cursor) {
+        const r = this.expr(el, 'paginate', ctx.scope, { mode: 'value', payload: true }, spec.cursor.text, spec.cursor.at);
+        this.typeLast({ payload: { kind: 'item', resource: name } });
+        cursor = this.fn(r.code);
+      }
+      paginate = {
+        mode: spec.mode, size: spec.size, sizeParam: params.size ?? 'limit', cursor,
+        directionParam: params.direction ?? 'direction', pageParam: params.page ?? 'page',
+      };
+      // the items to skip: an offset list sends it instead of the page number where the server skips by offset;
+      // a keyset list sends it to jump (`jump`)
+      if (spec.mode === 'offset' && params.offset) paginate.offsetParam = params.offset;
+      if (spec.jump) paginate.offsetParam = params.offset ?? 'offset';
+      if (directions && spec.mode !== 'offset') paginate.directionValues = directions;
+      // `model: $url.page`: the list's page lives in the URL, read at load and written back on every move
+      if (spec.model) {
+        const pm = spec.model.name;
+        const at = (m: string, code: Code = 'SN401') => this.report(el, 'paginate', code, m, spec.model!.at);
+        if (!pm || this.page.pathParams.has(pm)) {
+          at(pm ? `\`model\` takes a URL query parameter such as \`$url.page\`; \`$url.${pm}\` is a path parameter (\`data-sn-path\`)` : '`model` takes a URL parameter such as `$url.page`', 'SN203');
+        } else if ([...deps].some((d) => d === '$url' || d === `$url.${pm}` || d.startsWith(`$url.${pm}.`))) {
+          at(`\`$url.${pm}\` is this resource's page (\`model\`), and its \`src\` or \`when\` reads it too: each page would reset the list; read another parameter there`);
+        } else {
+          // the read is the compiled `$url.<name>`, where the early file, preloads and embedded data read the start page
+          paginate.start = this.fn(`($) => ($.$url.${pm})`);
+          paginate.model = pm;
+          deps.add(`$url.${pm}`);
+          this.pageModels.push({ name: pm, report: (m) => at(m, 'SN203') });
+          this.page.writesUrl = true;
+        }
+      }
+      this.features.add('paginate');
     }
     let cache: number | undefined;
     const cacheAttr = attr(el, 'cache');
@@ -6162,7 +6236,7 @@ class Compiler {
     }
     const order = attr(el, 'order');
     // `sinter({ apis })`: the operation the path calls, and what the config says it returns (said once)
-    const target = this.opts.apis && !hasCall ? this.apiCheck(el, 'src', post ? 'post' : 'get', srcPath, paginate ? paginateParams(paginate, attr(el, 'cursor')) : []) : null;
+    const target = this.opts.apis && !hasCall ? this.apiCheck(el, 'src', post ? 'post' : 'get', srcPath, paginate ? paginateParams(paginate, spec?.cursor?.text) : []) : null;
     if (target) this.apiOfResource.set(name, target.api);
     const shape = target?.shape ?? null;
     const shaped = (a: 'items' | 'total' | 'key' | 'type'): string | null => {
@@ -8378,7 +8452,7 @@ class Compiler {
 
   /**
    * The lists outside templates (and dialogs): each one's placeholder for the rows its resource brings
-   * after the first paint (`Layout.reserve`: a paginated resource's `page-size` rows, or
+   * after the first paint (`Layout.reserve`: a paginated resource's `size` rows, or
    * `data-sn-reserve="n"`), and the box around it whose width follows its content
    * (`Layout.contentSized`). Read before the walk, which removes the bindings the cascade looks at.
    */
@@ -8450,13 +8524,13 @@ class Compiler {
         waitForm = cands.length === 1 && list === cands[0] && attr(resources.get(cands[0])!, 'when') === undefined ? 'static' : 'if';
         if (![list, ...lets].every(chooses)) { if (why === '') why = 'the list is not a resource or a choice between resources (a filter, a field), whose rows the build could count'; names = []; }
         const rs = names.map((n) => resources.get(n)!);
-        // paginated (their page-size, the least), loading by URL or always: not `each` or `call`, nor data the page has (embedded)
+        // paginated (their size, the least), loading by URL or always: not `each` or `call`, nor data the page has (embedded)
         const ok = rs.length && rs.every((r) => attr(r, 'paginate') !== undefined && !['each', 'call'].some((x) => attr(r, x) !== undefined));
         if (rs.length && !ok && why === '') why = 'a resource with `each` or `call`';
         // the list is a resource that always loads: the placeholder is page markup; else it shows by its resources' status,
         // which the early file decides (`if`)
         form = names.length === 1 && list === names[0] && attr(rs[0]!, 'when') === undefined ? 'static' : 'if';
-        const n = ok ? Math.min(...rs.map((r) => Number(attr(r, 'page-size')))) : NaN;
+        const n = ok ? Math.min(...rs.map((r) => this.pageSpec(r)?.size ?? NaN)) : NaN;
         // in a box whose width follows its content, only rows of a width of their own (the placeholder takes it)
         if (Number.isInteger(n) && n > 0 && styled.size && inStyled(tpl)) { if (why === '') why = 'a component\'s own `<style>` styles the rows or their container, and the build reads only the page\'s stylesheets'; }
         else if (Number.isInteger(n) && n > 0) {
@@ -8665,7 +8739,7 @@ class Compiler {
 
   /**
    * `embed`: a placeholder at the end of the head for each resource without one whose `src`,
-   * `when` and `page-model` read only `$url`, constants and helpers (what a server knows at the
+   * `when` and `model` (paginate) read only `$url`, constants and helpers (what a server knows at the
    * page request; helpers make it a request only a resolver can make)
    */
   /** the values of the `file:` resources, as embedded data in the head (not placeholders: nothing for a server to fill) */
@@ -9355,7 +9429,7 @@ const readsParam = (code: string, name: string) => new RegExp(`\\$\\.\\$url\\.${
 /** a compiled function that is one `$url` read: `($) => ($.$url.page)` */
 const URL_READ = /^\(\$\) => \(\$\.\$url\.([A-Za-z_$][\w$]*)\)$/;
 
-/** the early file's `page-model` start: page n's parameters are `qn` with `k` set (the page, or with `offset-param` the items to skip) */
+/** the early file's `model` (paginate) start: page n's parameters are `qn` with `k` set (the page, or with `params.offset` the items to skip) */
 function startOf(cfg: Paginate, f: number): NonNullable<NonNullable<EarlyIR['res']>[number]['sp']> {
   const k = cfg.offsetParam ?? cfg.pageParam;
   return { f, k, s: cfg.size, ...(cfg.offsetParam ? { o: 1 as const } : {}), qn: pageParams(cfg, 2) };

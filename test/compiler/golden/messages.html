@@ -4,9 +4,7 @@
 <sn-resource name="messages"
   src="/api/email/messages?account_id={$url.account_id}&mailbox={$url.mailbox}"
   items="messages" total="total" key="account_id,mailbox,uid"
-  paginate="keyset" page-size="50" size-param="limit"
-  cursor="{cursor_sent_at: sent_at, cursor_rowid: rowid}"
-  direction-param="direction"></sn-resource>
+  paginate="{ keyset: {cursor_sent_at: sent_at, cursor_rowid: rowid}, size: 50, params: { size: 'limit', direction: 'direction' } }"></sn-resource>
 <sn-sync src="/api/events/stream">
   <sn-event name="flags" resource="messages" op="merge" set="{flags, is_read: flags.includes('\\Seen')}" when="mailbox === $url.mailbox"></sn-event>
 </sn-sync>

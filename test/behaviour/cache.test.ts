@@ -120,7 +120,7 @@ test('two pages that load the same thing share the entry, whatever they call it'
 
 test('offset pages are cached per page', async () => {
   const session = memoryStorage();
-  const html = `<sn-resource name="rows" src="/api/rows" items="rows" total="total" key="id" paginate="offset" page-size="2" cache></sn-resource>
+  const html = `<sn-resource name="rows" src="/api/rows" items="rows" total="total" key="id" paginate="{ offset: true, size: 2 }" cache></sn-resource>
     <ul><template data-sn-for="x in rows"><li data-sn-text="x.name"></li></template></ul><b data-sn-text="$meta.rows.pages"></b>`;
   const route = (c: { url: string }) => (new URL(c.url, 'http://x').searchParams.get('offset') === '2'
     ? { rows: [{ id: 3, name: 'c' }], total: 3 } : { rows: [{ id: 1, name: 'a' }, { id: 2, name: 'b' }], total: 3 });

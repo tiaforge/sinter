@@ -78,7 +78,7 @@ test('an action\'s `then` and a resource\'s `then` that throw name their attribu
 test('a stream event that cannot be applied and `page(…, \'last\')` without a total warn by code, with the same text', async () => {
   const stream = mockStream();
   const r = await render(`
-    <sn-resource name="rows" src="/api/rows" key="id" paginate="offset" page-size="2"></sn-resource>
+    <sn-resource name="rows" src="/api/rows" key="id" paginate="{ offset: true, size: 2 }"></sn-resource>
     <sn-sync src="/events">
       <sn-event name="patched" resource="rows" op="merge" set="{name}"></sn-event>
       <sn-event name="broken" resource="rows" op="upsert" item="a.b"></sn-event>

@@ -75,7 +75,7 @@ test('with `cache`: an entry without data is what the early file writes in, so t
 test('a `when` over state, or a status field the early file does not know: left to the page module', async () => {
   await firstPaint(PAGE('when="open"').replace('<body>', '<body data-sn-state="{ open: true }">'));
   expect(loading()).toBeNull();
-  await firstPaint(PAGE('paginate="offset" page-size="2"', '$meta.c.loading && !$meta.c.total'));
+  await firstPaint(PAGE('paginate="{ offset: true, size: 2 }"', '$meta.c.loading && !$meta.c.total'));
   expect(loading()).toBeNull();
 });
 
@@ -96,10 +96,10 @@ test('the whole status, as a helper reads it: every field as at mount', async ()
   await firstPaint(PAGE('', 'idle($meta.c)'), { helpers });
   expect(loading()).not.toBeNull();
   // paginated: its pager fields are not known early, and a binding that reads one is the page module's
-  await firstPaint(PAGE('paginate="offset" page-size="2"', 'idle($meta.c)'), { helpers });
+  await firstPaint(PAGE('paginate="{ offset: true, size: 2 }"', 'idle($meta.c)'), { helpers });
   expect(loading()).toBeNull();
   // one that reads only what is known renders early
-  await firstPaint(PAGE('paginate="offset" page-size="2"', '((m) => m.loading)($meta.c) && !c.length'.replace('((m) => m.loading)($meta.c)', 'first($meta.c)')), { helpers: { ...helpers, first: (m: { loading: boolean }) => m.loading } });
+  await firstPaint(PAGE('paginate="{ offset: true, size: 2 }"', '((m) => m.loading)($meta.c) && !c.length'.replace('((m) => m.loading)($meta.c)', 'first($meta.c)')), { helpers: { ...helpers, first: (m: { loading: boolean }) => m.loading } });
   expect(loading()).not.toBeNull();
 });
 

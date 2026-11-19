@@ -82,7 +82,7 @@ describe('a constant image is optimized', () => {
 
 describe('the dry run and reserved space', () => {
   // a paginated list holds its rows' space; the dry run takes `planSpace`'s result over when nothing it read changed
-  const page = (around: string, cls: string) => `<sn-resource name="items" src="/api/items" key="id" paginate="offset" page-size="10"></sn-resource>
+  const page = (around: string, cls: string) => `<sn-resource name="items" src="/api/items" key="id" paginate="{ offset: true, size: 10 }"></sn-resource>
 <section data-sn-state="{ dense: true, n: 0 }"><p${around}>x</p><ul${cls}><template data-sn-for="r in items" data-sn-key="r.id"><li class="row" data-sn-text="r.name"></li></template></ul><button data-sn-on-click="n++" data-sn-text="n"></button></section>`;
   const css = '.row { height: 56px } .dense .row { height: 30px } p.dense { color: red }';
   const paint = (body: string) => {

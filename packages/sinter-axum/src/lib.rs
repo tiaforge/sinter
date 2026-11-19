@@ -89,7 +89,7 @@ pub struct SlotRequest {
     /// the resource's name (`data-sn-data="articles"`)
     pub resource: String,
     /// the request the build describes, filled from `$url`: the resource's `src`, a paginated
-    /// one at its first page (or the page its `page-model` parameter names); None when the build could not
+    /// one at its first page (or the page its `model` (paginate) parameter names); None when the build could not
     /// describe it, or its `when` does not hold for this URL
     pub url: Option<String>,
     /// the page URL's parameters: the query (an array parameter as a list), then the path's `:name` segments

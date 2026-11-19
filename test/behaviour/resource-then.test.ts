@@ -166,7 +166,7 @@ describe('<sn-resource then>', () => {
     });
     const { root, settle } = await render(`
       <main data-sn-state="{ got: [] }">
-        <sn-resource name="m" src="/api/m" items="items" total="total" key="id" paginate="offset" page-size="2"
+        <sn-resource name="m" src="/api/m" items="items" total="total" key="id" paginate="{ offset: true, size: 2 }"
           then="got = [...got, $result.map((x) => x.id).join('+')]"></sn-resource>
         <button data-sn-on-click="page('m', 'next')"></button>
         <p data-sn-text="got.join(' ') + ' / ' + m.length"></p>

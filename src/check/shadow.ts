@@ -458,9 +458,9 @@ export type Props<K extends string> = K extends keyof HTMLElementTagNameMap ? { 
  */
 export type RunEvent<E> = E | void;
 export type Direction = 'first' | 'prev' | 'next' | 'last';
-/** what TypeScript names when a keyset resource without offset-param is given a page number */
-export type NoPageNumber = 'a keyset resource takes a direction; add offset-param for page numbers';
-/** R: the resources' types; D: the keyset resources without offset-param, which page() moves by direction only */
+/** what TypeScript names when a keyset resource without jump is given a page number */
+export type NoPageNumber = 'a keyset resource takes a direction; add jump: true to paginate for page numbers';
+/** R: the resources' types; D: the keyset resources without jump, which page() moves by direction only */
 export interface Store<R, D extends string = never> {
   refresh(...names: [keyof R & string, ...(keyof R & string)[]]): void;
   upsert<K extends keyof R & string>(name: K, item: Item<R[K]>): void;

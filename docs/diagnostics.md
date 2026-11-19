@@ -226,11 +226,11 @@ Error, for example:
 
 Error, for example:
 
-> keyset pagination cannot jump to a page number. Add `offset-param` if the server also accepts an offset, or use `paginate="offset"`
+> keyset pagination cannot jump to a page number. Add `jump: true` to `paginate` if the server also accepts an offset, or use `offset: true`
 
 Keyset (cursor) pagination only knows the next and previous page, so `page('name', 7)` has nothing to jump to, unless the server can also skip items by offset. A computed target (`page('name', dir)`) is not this error: `sinter check` types it as a direction, and at run time a page number is refused without a request. `append` pagination takes only the literal `'next'`.
 
-**Fix:** If the API accepts an offset next to its cursor, add `offset-param="offset"`: the jump is sent as an offset and `prev`/`next` continue by cursor. Otherwise use `paginate="offset"`, or only step with `first`, `prev`, `next` and `last`.
+**Fix:** If the API accepts an offset next to its cursor, add `jump: true` to `paginate` (and `params: { offset: 'skip' }` where the server names it otherwise): the jump is sent as an offset and `prev`/`next` continue by cursor. Otherwise use `paginate="offset"`, or only step with `first`, `prev`, `next` and `last`.
 
 ## SN306 component-cycle
 
@@ -808,7 +808,7 @@ Warning, for example:
 
 > `?page=3` keeps only its own query: `tag`, which this page reads, is dropped when it is followed
 
-A pager link whose `href` is only a query (`?page=3`, setting a `page-model` parameter) replaces the whole query of the current URL, as any URL resolves: on `/?tag=go` it goes to `/?page=3`, without the tag. The page reads the parameters named, so following the link loses them (in the page, with same-page links, or with a page load). A filter or tab link that drops the page is not reported: that is how a list starts at page 1. Nor is a static `href` kept as the fallback of a bound one.
+A pager link whose `href` is only a query (`?page=3`, setting the parameter a list's `model` (paginate) names) replaces the whole query of the current URL, as any URL resolves: on `/?tag=go` it goes to `/?page=3`, without the tag. The page reads the parameters named, so following the link loses them (in the page, with same-page links, or with a page load). A filter or tab link that drops the page is not reported: that is how a list starts at page 1. Nor is a static `href` kept as the fallback of a bound one.
 
 **Fix:** Build the whole query in `data-sn-attr` (`href: '?page=' + n + '&tag=' + encodeURIComponent($url.tag)`), or leave the parameter out on purpose, for a link that resets it.
 

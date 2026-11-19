@@ -1,7 +1,7 @@
 // The did-you-mean quick fix. Both the compiler ("Did you mean `count`?") and
 // TypeScript ("Did you mean 'title'?") put the suggestion in the message, next to
 // the misspelled name; the fix replaces that name where the diagnostic points. A rename
-// ("`start-page` is renamed to `page-model`") is fixed the same way.
+// ("`start-page` is renamed to `model` (paginate)") is fixed the same way.
 import type { Range } from './server.js';
 
 export interface TextEdit { range: Range; newText: string }

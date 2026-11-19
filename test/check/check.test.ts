@@ -320,33 +320,33 @@ export type Block = Para | Quote | Rule;
     expect(checkPage(page(`<div data-sn-state="{ q: '' }"><form data-sn-on-input="q = /** @type {HTMLInputElement} */ ($event.target).value"><input name="a"></form><p data-sn-text="q + contacts.length"></p></div>`), { files: { 'src/sinter.types.ts': TYPES } })).toEqual([]);
   });
 
-  test('page() with a computed target: a direction on keyset; a page number needs offset-param', () => {
+  test('page() with a computed target: a direction on keyset; a page number needs jump', () => {
     const helpers = `/** @param {boolean} back @returns {'next' | 'prev'} */\nexport function step(back) { return back ? 'prev' : 'next'; }\n`;
-    const html = (to: string, attrs = '') => page(`<sn-resource name="list" src="/api/l" key="id" type="Contact[]" paginate="keyset" page-size="5" cursor="{id}" ${attrs}></sn-resource>
+    const html = (to: string, more = '') => page(`<sn-resource name="list" src="/api/l" key="id" type="Contact[]" paginate="{ keyset: {id}, size: 5${more} }"></sn-resource>
 <div data-sn-state="{ n: 2, word: 'next' }"><button data-sn-on-click="page('list', ${to})" data-sn-text="contacts.length + list.length + n + word"></button></div>`);
-    const errors = (to: string, attrs = '') => checkPage(html(to, attrs), { files: { 'src/sinter.types.ts': TYPES, 'src/sinter.helpers.js': helpers } }).map((d) => `${d.code} ${d.message.replace(/ \(TS\d+\)$/, '')}`);
+    const errors = (to: string, more = '') => checkPage(html(to, more), { files: { 'src/sinter.types.ts': TYPES, 'src/sinter.helpers.js': helpers } }).map((d) => `${d.code} ${d.message.replace(/ \(TS\d+\)$/, '')}`);
     expect(errors(`$event.shiftKey ? 'prev' : 'next'`)).toEqual([]);
     expect(errors('step($event.shiftKey)')).toEqual([]);
-    expect(errors('n')).toEqual([`SN208 Argument of type 'number' is not assignable to parameter of type '"a keyset resource takes a direction; add offset-param for page numbers" | Direction'.`]);
-    expect(errors('word')).toEqual([`SN208 Argument of type 'string' is not assignable to parameter of type '"a keyset resource takes a direction; add offset-param for page numbers" | Direction'.`]);
-    // with offset-param, a page number is a target too
-    expect(errors('n', 'offset-param="offset"')).toEqual([]);
-    expect(errors('word', 'offset-param="offset"')).toEqual([`SN208 Argument of type 'string' is not assignable to parameter of type 'number | Direction'.`]);
+    expect(errors('n')).toEqual([`SN208 Argument of type 'number' is not assignable to parameter of type '"a keyset resource takes a direction; add jump: true to paginate for page numbers" | Direction'.`]);
+    expect(errors('word')).toEqual([`SN208 Argument of type 'string' is not assignable to parameter of type '"a keyset resource takes a direction; add jump: true to paginate for page numbers" | Direction'.`]);
+    // with jump, a page number is a target too
+    expect(errors('n', ', jump: true')).toEqual([]);
+    expect(errors('word', ', jump: true')).toEqual([`SN208 Argument of type 'string' is not assignable to parameter of type 'number | Direction'.`]);
   });
 
   test('resource names from ?: and lets: page() targets suit every name; items fit any of them', () => {
     const types = TYPES + 'export interface Message { uid: number; subject: string }\n';
-    const html = (lets: string, h: string) => page(`<sn-resource name="messages" src="/api/m" key="uid" type="Message[]" paginate="keyset" page-size="5" cursor="{uid}"></sn-resource>
-<sn-resource name="results" src="/api/r" key="uid" type="Message[]" paginate="offset" page-size="5"></sn-resource>
-<sn-resource name="jumps" src="/api/j" key="uid" type="Message[]" paginate="keyset" page-size="5" cursor="{uid}" offset-param="offset"></sn-resource>
+    const html = (lets: string, h: string) => page(`<sn-resource name="messages" src="/api/m" key="uid" type="Message[]" paginate="{ keyset: {uid}, size: 5 }"></sn-resource>
+<sn-resource name="results" src="/api/r" key="uid" type="Message[]" paginate="{ offset: true, size: 5 }"></sn-resource>
+<sn-resource name="jumps" src="/api/j" key="uid" type="Message[]" paginate="{ keyset: {uid}, size: 5, jump: true }"></sn-resource>
 <div data-sn-state="{ s: false, n: 2, m: /** @type {Message} */ ({ uid: 1, subject: '' }) }" data-sn-let="${lets}"><button data-sn-on-click="${h}" data-sn-text="contacts.length + messages.length + results.length + jumps.length"></button></div>`);
     const errors = (lets: string, h: string) => checkPage(html(lets, h), { files: { 'src/sinter.types.ts': types } }).map((d) => `${d.code} ${d.message.replace(/ \(TS\d+\)$/, '')}`);
     // a let of one literal is that name, not \`string\`
     expect(errors(`{ one: 'messages' }`, `page(one, 'next'); refresh(one)`)).toEqual([]);
     expect(errors(`{ shown: s ? 'results' : 'messages' }`, `page(shown, s ? 'prev' : 'next'); refresh(shown, 'contacts'); upsert(shown, m)`)).toEqual([]);
     expect(errors(`{ a: 'results', b: s ? a : 'jumps' }`, `page(b, n)`)).toEqual([]);
-    // a page number where one of the names is keyset without offset-param
-    expect(errors(`{ shown: s ? 'results' : 'messages' }`, `page(shown, n)`)).toEqual([`SN208 Argument of type 'number' is not assignable to parameter of type '"a keyset resource takes a direction; add offset-param for page numbers" | Direction'.`]);
+    // a page number where one of the names is keyset without jump
+    expect(errors(`{ shown: s ? 'results' : 'messages' }`, `page(shown, n)`)).toEqual([`SN208 Argument of type 'number' is not assignable to parameter of type '"a keyset resource takes a direction; add jump: true to paginate for page numbers" | Direction'.`]);
     // an item that fits one of the names
     expect(errors(`{ shown: s ? 'contacts' : 'messages' }`, `upsert(shown, m); remove(contacts[0])`)).toEqual([]);
     expect(errors(`{ shown: s ? 'results' : 'messages' }`, `upsert(shown, contacts[0])`)).toHaveLength(1);
@@ -589,7 +589,7 @@ export const initial = (c: Contact): string => (c.name[0] ?? '?').toUpperCase();
 
   test('events: typed payloads; `item` must fit the resource, `set` a part of it; cursor reads the item', () => {
     const types = TYPES + 'export interface ContactEvent { contact: Contact; id: number; patch: { name: number } }\n';
-    const html = page(`<sn-resource name="feed" src="/api/feed" key="id" type="Contact[]" paginate="keyset" page-size="10" cursor="{ after: idd }"></sn-resource>
+    const html = page(`<sn-resource name="feed" src="/api/feed" key="id" type="Contact[]" paginate="{ keyset: { after: idd }, size: 10 }"></sn-resource>
 <p data-sn-text="contacts.length + feed.length"></p>
 <sn-sync src="/api/events">
   <sn-event name="a" resource="contacts" op="upsert" item="contact" type="ContactEvent"></sn-event>

@@ -1,4 +1,4 @@
-// Pagination: keyset, offset and append modes, driven by page() calls. With `page-model` (offset
+// Pagination: keyset, offset and append modes, driven by page() calls. With `model` (paginate) (offset
 // lists), the URL is the single source: page() writes the parameter and the pager follows it.
 import type { Paginate } from './ir.js';
 import type { App, Feature, Pager, ResourceLoader } from './runtime/app.js';
@@ -21,7 +21,7 @@ export { firstParams } from './runtime/pages.js';
 class PagerImpl implements Pager {
   private move: Move;
   private readonly cfg: Paginate;
-  /** `page-model`: the page of the last request, and whether the last load failed */
+  /** `model` (paginate): the page of the last request, and whether the last load failed */
   private requested = 1;
   private failed = false;
 
@@ -34,7 +34,7 @@ class PagerImpl implements Pager {
     if (this.cfg.model) loader.settled.push((ok) => { this.failed = !ok; });
   }
 
-  /** `page-model`: the page the parameter names (`?page=abc` is page 1) */
+  /** `model` (paginate): the page the parameter names (`?page=abc` is page 1) */
   private param(): number {
     return toPage(this.loader.app.page.$url[this.cfg.model!]);
   }
@@ -43,7 +43,7 @@ class PagerImpl implements Pager {
     return { dir: 'page', page: n, params: pageParams(this.cfg, n), from: null, to: null };
   }
 
-  /** `page-model`: the parameter set to page `n` (page 1 deletes it); `kind` the history entry (location.ts) */
+  /** `model` (paginate): the parameter set to page `n` (page 1 deletes it); `kind` the history entry (location.ts) */
   private write(n: number, kind: number): void {
     this.loader.app.ext.location!.set(this.cfg.model!, n > 1 ? '' + n : null, kind);
   }
@@ -67,7 +67,7 @@ class PagerImpl implements Pager {
   }
 
   current(): unknown {
-    // `page-model`: every request (a refetch, a retry) is the page the URL names
+    // `model` (paginate): every request (a refetch, a retry) is the page the URL names
     if (this.cfg.model) return this.at(this.param());
     if (this.cfg.mode === 'append' && this.move.dir !== 'first') {
       // refetch reloads everything loaded so far in one request
@@ -89,7 +89,7 @@ class PagerImpl implements Pager {
   go(target: string | number): void {
     // a computed target: a direction, or a page number where the resource can jump; else the error path, no request
     const why = typeof target == 'number'
-      ? this.cfg.mode != 'offset' && !this.cfg.offsetParam && 'keyset pagination cannot jump to a page number; add offset-param'
+      ? this.cfg.mode != 'offset' && !this.cfg.offsetParam && 'keyset pagination cannot jump to a page number; add `jump: true` to paginate'
       : !['first', 'prev', 'next', 'last'].includes(target) && 'not a direction';
     if (why) {
       const l = this.loader, e = new SinterError(null, target, `page('${l.def.name}', ${JSON.stringify(target)}): ${why}`);
@@ -144,7 +144,7 @@ class PagerImpl implements Pager {
   }
 
   /**
-   * `page-model`: page() loads nothing; it writes the page it moves to (a push) and the pager follows.
+   * `model` (paginate): page() loads nothing; it writes the page it moves to (a push) and the pager follows.
    * `prev`/`next` count from the page last requested (after a failure, the page shown); past the ends,
    * and `next` while a page loads with no total known, they do nothing.
    */

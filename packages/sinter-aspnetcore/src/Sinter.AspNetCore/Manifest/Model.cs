@@ -47,7 +47,7 @@ public sealed class ManifestSlot(int id, string resource, UrlPart[]? src, bool w
     public Cond? When { get; } = when;
     /// <summary>Paginated: the first page's query parameters, set on the template's URL.</summary>
     public KeyValuePair<string, string>[] Query { get; } = query;
-    /// <summary>Paginated, starting at a page from <c>$url</c> (<c>page-model</c>).</summary>
+    /// <summary>Paginated, starting at a page from <c>$url</c> (<c>model</c> (paginate)).</summary>
     public ManifestStart? Start { get; } = start;
     /// <summary>The static headers of the resource's API (<c>sinter({ apis })</c>): sent with this layer's request for it.</summary>
     public KeyValuePair<string, string>[] Headers { get; } = headers ?? [];
@@ -108,7 +108,7 @@ public abstract class Cond
     }
 }
 
-/// <summary><c>page-model</c>: the page from its <c>$url</c> parameter; from page 2 on, <c>query</c> with <c>key</c> set to the page (with <c>skip</c>, to the items to skip, <c>(page - 1) * size</c>).</summary>
+/// <summary><c>model</c> (paginate): the page from its <c>$url</c> parameter; from page 2 on, <c>query</c> with <c>key</c> set to the page (with <c>skip</c>, to the items to skip, <c>(page - 1) * size</c>).</summary>
 [EditorBrowsable(EditorBrowsableState.Never)]
 public sealed class ManifestStart(string url, string key, ulong size, bool skip, KeyValuePair<string, string>[] query)
 {

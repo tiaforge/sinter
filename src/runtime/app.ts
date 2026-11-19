@@ -89,12 +89,12 @@ export interface BoundBinding {
 /** Pagination state of one resource; a "move" is one page request, repeated exactly by refetch. */
 export interface Pager {
   /**
-   * the resource's URL changed: back to the first page. With `page-model`, `why` says what changed it:
+   * the resource's URL changed: back to the first page. With `model` (paginate), `why` says what changed it:
    * 0 its first URL after mount (the URL's page, restored), 2 anything later (page 1 and the parameter
    * deleted, unless Back or Forward caused it: then the URL's page)
    */
   reset(why?: number): void;
-  /** `page-model`: the parameter may have changed (the URL did not): loads the page it names */
+  /** `model` (paginate): the parameter may have changed (the URL did not): loads the page it names */
   follow?(): void;
   current(): unknown;
   params(move: unknown): Record<string, string> | null;
@@ -230,7 +230,7 @@ export interface App {
       commit(kind: number): boolean;
       readonly kind: number;
       readonly back: boolean;
-      /** `page-model` (paginate.ts): sets a parameter (null deletes it) and writes it with `kind` */
+      /** `model` (paginate) (paginate.ts): sets a parameter (null deletes it) and writes it with `kind` */
       set(name: string, value: string | null, kind: number): void;
       /** a same-page link was followed (query-links.ts): its entry is pushed, `$url` read again; the flush is as after Back */
       arrive(): void;
@@ -1748,7 +1748,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
     app.page.$meta[def.name] = r.meta;
     // fed by a server-event stream: connecting until its first open (src/sse.ts keeps it current)
     if (def.fed) r.meta.live = 'connecting';
-    /** `had`: the resource has had a URL (its first one after mount restores a `page-model` page) */
+    /** `had`: the resource has had a URL (its first one after mount restores a `model` (paginate) page) */
     let url: string | null = null, c: AbortController | null = null, seq = 0, again: Promise<void> | null = null, loud = false, had = false, typing: unknown = null, posted: unknown;
 
     const scope = () => app.scopeOf(def.scope ?? -1);

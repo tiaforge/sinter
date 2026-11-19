@@ -128,7 +128,7 @@ test('early requests: resources whose URL reads only what is known early (state,
       <sn-resource name="days" src="/api/days?start={week}&q={q}" when="view === 'week'"></sn-resource>
       <sn-resource name="detail" src="/api/x/{sel.id}" when="sel"></sn-resource>
       <sn-resource name="dep" src="/api/y?u={user.id}"></sn-resource>
-      <sn-resource name="pg" src="/api/p?u={user.id}" paginate="offset" page-size="10" key="id"></sn-resource>
+      <sn-resource name="pg" src="/api/p?u={user.id}" paginate="{ offset: true, size: 10 }" key="id"></sn-resource>
       <sn-resource name="fmt" src="/api/z?d={date($now)}"></sn-resource>
       <p data-sn-text="dep.x"></p>
     </body></html>`, {}, ['monday']);
@@ -154,11 +154,11 @@ test('early requests, paginated: the first page, with the query parameters the p
   const { early, html, ir } = build(`<!doctype html><html data-sn-state="{ box: 'inbox' }" data-sn-persist="box"><head></head>
     <body>
       <sn-resource name="user" src="/api/user"></sn-resource>
-      <sn-resource name="mail" src="/api/mail?box={box}" key="id" paginate="keyset" page-size="50" size-param="limit" offset-param="offset" cursor="{after: id}" direction-param="dir" direction-values="{first: 'forward', prev: 'backward', next: 'forward', last: 'last'}" cache></sn-resource>
-      <sn-resource name="pages" src="/api/pages?box={box}" key="id" paginate="offset" page-size="20" page-param="p" size-param="n"></sn-resource>
-      <sn-resource name="more" src="/api/more?box={box}#x" key="id" paginate="append" page-size="5" cursor="{after: id}"></sn-resource>
-      <sn-resource name="lit" src="/api/lit?a=1" key="id" paginate="keyset" page-size="10" cursor="{after: id}"></sn-resource>
-      <sn-resource name="dep" src="/api/dep?u={user.id}" key="id" paginate="keyset" page-size="10" cursor="{after: id}"></sn-resource>
+      <sn-resource name="mail" src="/api/mail?box={box}" key="id" paginate="{ keyset: {after: id}, size: 50, jump: true, params: { size: 'limit', offset: 'offset', direction: 'dir' }, directions: {first: 'forward', prev: 'backward', next: 'forward', last: 'last'} }" cache></sn-resource>
+      <sn-resource name="pages" src="/api/pages?box={box}" key="id" paginate="{ offset: true, size: 20, params: { size: 'n', page: 'p' } }"></sn-resource>
+      <sn-resource name="more" src="/api/more?box={box}#x" key="id" paginate="{ append: {after: id}, size: 5 }"></sn-resource>
+      <sn-resource name="lit" src="/api/lit?a=1" key="id" paginate="{ keyset: {after: id}, size: 10 }"></sn-resource>
+      <sn-resource name="dep" src="/api/dep?u={user.id}" key="id" paginate="{ keyset: {after: id}, size: 10 }"></sn-resource>
       <ul><template data-sn-for="x in mail"><li data-sn-text="x.id"></li></template></ul>
       <ul><template data-sn-for="x in pages"><li data-sn-text="x.id"></li></template></ul>
       <ul><template data-sn-for="x in more"><li data-sn-text="x.id"></li></template></ul>

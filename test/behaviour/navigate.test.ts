@@ -7,7 +7,7 @@ import { mockRequests, render } from '../../src/testing/index.js';
 
 const ITEMS = Array.from({ length: 6 }, (_, i) => ({ id: i + 1 }));
 const PAGE = `
-  <sn-resource name="a" src="/api/a" items="items" total="total" key="id" paginate="offset" page-size="2" page-model="$url.page"></sn-resource>
+  <sn-resource name="a" src="/api/a" items="items" total="total" key="id" paginate="{ offset: true, size: 2, model: $url.page }"></sn-resource>
   <span data-sn-text="[$meta.a.page, a.map((x) => x.id)].join(' ')"></span>
   <button id="p2" data-sn-on-click="navigate('?page=2')"></button>
   <button id="p3r" data-sn-on-click="navigate('?page=3', { replace: true })"></button>

@@ -20,7 +20,7 @@ export interface SlotRequest {
   resource: string;
   /**
    * the request the build describes, filled from `$url`: the resource's `src`, a paginated one at its first
-   * page (or the page its `page-model` parameter names); null when the build could not describe it, or its `when` does
+   * page (or the page its `model` (paginate) parameter names); null when the build could not describe it, or its `when` does
    * not hold for this URL
    */
   url: string | null;
@@ -144,7 +144,7 @@ const holds = (c: Cond, p: Params): boolean =>
     : c.ne != null ? p[c.url] !== c.ne
     : !!p[c.url];
 
-/** A `page-model` parameter as the runtime's `toPage`: the whole number `parseInt` reads, else (or below 1) page 1. */
+/** A `model` (paginate) parameter as the runtime's `toPage`: the whole number `parseInt` reads, else (or below 1) page 1. */
 const toPage = (v: string | undefined) => {
   const n = parseInt(v ?? '', 10);
   return Number.isFinite(n) && n >= 1 ? n : 1;

@@ -136,7 +136,7 @@ function page(r: () => number) {
   const rowHandler = rowOps.join('; ');
   const state = `{ a: 1, xs: [1, 2], o: { items: [1] }, ks: [{ id: 1, n: 1 }, { id: 2, n: 2 }, { id: 3, n: 3 }], go: 0, pk: null, th: null, ct: null, q: { w: 2, h: 3 }, ys: [{ n: 1 }, { n: 2 }, { n: 3 }], sel: null, box: null, arr: [], h: null, u: null, k2: 0, cw: null, cp: null, ${Array.from({ length: reads }, (_, i) => `r${i}: null`).join(', ')} }`;
   const html = `<sn-resource name="todos" src="/api/todos" key="id"></sn-resource>
-<sn-resource name="pg" src="/api/pg" items="items" total="total" key="id" paginate="offset" page-size="2"></sn-resource>
+<sn-resource name="pg" src="/api/pg" items="items" total="total" key="id" paginate="{ offset: true, size: 2 }"></sn-resource>
 <sn-resource name="ev" each="t in todos" src="/api/ev?id={t.id}" key="id"></sn-resource>
 <sn-sync src="/s"><sn-event name="upd" resource="todos" op="upsert"></sn-event><sn-event name="re" resource="todos" op="refresh"></sn-event></sn-sync>
 <main data-sn-state="${state}" data-sn-let="{ ${lets} }" data-sn-on-bump="a = a + 10" data-sn-on-peek="pk = T + P.v" data-sn-on-ping="xs.length && (xs[0] = xs[0] + 5)">

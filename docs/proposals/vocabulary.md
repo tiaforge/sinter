@@ -119,7 +119,9 @@ pages, and how the server spells its parameters. The second is the same for ever
   attribute. `params.offset` means "this server skips by offset": offset mode sends it instead of a
   page number, and keyset's `jump` needs it.
 - `offset-param` no longer has two jobs: on a keyset list, jumping to a page is `jump: true`.
-- The old attributes are `SN401` with the object they become.
+- The old attributes are `SN401`; `paginate="keyset"` with them names the object they become.
+- RealWorld moved `params: { size: 'limit', offset: 'offset' }` from its three lists into its API's config;
+  its build is byte for byte the same (asset names apart).
 
 ### 4a. `reset()` goes
 
