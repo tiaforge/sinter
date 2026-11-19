@@ -469,7 +469,6 @@ export interface Store<R, D extends string = never> {
   page<K extends keyof R & string>(name: K, to: [Extract<K, D>] extends [never] ? Direction | number : Direction | NoPageNumber): void;
   showModal(id: string): void;
   close(id?: string): void;
-  reset(): void;
   emit(event: string, detail?: unknown): void;
   run(id: string): void;
   navigate(url: string, options?: { replace?: boolean }): void;

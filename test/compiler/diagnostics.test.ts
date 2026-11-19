@@ -45,6 +45,7 @@ const use = '<p data-sn-text="contacts.length + messages.length"></p>';
 const cases: Array<[string, string, RegExp, Opts?]> = [
   ['SN101', '<p data-sn-txt="1"></p>', /`data-sn-txt` is not a sinter attribute. Did you mean `data-sn-text`\?/],
   ['SN101', '<button data-sn-get="/api/x"></button>', /`data-sn-get` is gone: data a GET loads is a resource/],
+  ['SN201', '<form data-sn-post="/api/x" data-sn-then="reset()"></form>', /`reset\(\)` is gone: a form's fields follow their `data-sn-model` state/],
   ['SN102', '<div data-sn-for="x in [1]"></div>', /`data-sn-for` must be on a `<template>`/],
   ['SN103', '<template data-sn-for="x in [1, 2]"><i></i></template>', /needs `data-sn-key`/],
   ['SN104', '<div data-sn-state="{f: null}"><input type="file" data-sn-model="f"></div>', /does not support `type="file"`/],
@@ -297,9 +298,8 @@ describe('<sn-event then>', () => {
   });
   test('errors: unknown dialogs, element-less store functions, payload writes, a misspelt attribute', () => {
     expect(codes(`<sn-event name="n" then="close('detial')"></sn-event>`)).toEqual([expect.stringMatching(/^SN309 no `<dialog id="detial">` on this page. Did you mean `detail`\?/)]);
-    expect(codes(`<sn-event name="n" then="close(); reset(); emit('x')"></sn-event>`)).toEqual([
+    expect(codes(`<sn-event name="n" then="close(); emit('x')"></sn-event>`)).toEqual([
       "SN203 `close()` needs an element; an `<sn-event>` handler has none: name the dialog, `close('id')`",
-      'SN203 `reset()` needs an element; an `<sn-event>` handler has none',
       'SN203 `emit()` needs an element; an `<sn-event>` handler has none',
     ]);
     expect(codes(`<sn-event name="n" then="id = 2"></sn-event>`)).toEqual([expect.stringMatching(/^SN203 `id` cannot be assigned/)]);
@@ -329,9 +329,8 @@ describe('<sn-resource then>', () => {
     expect(codes("sel = $result[0]; c.length && showModal('detail'); close('detail'); refresh('c')")).toEqual([]);
   });
   test('errors: element-less store functions, $event, value-only places, a misspelt attribute', () => {
-    expect(codes("close(); reset(); emit('x')")).toEqual([
+    expect(codes("close(); emit('x')")).toEqual([
       "SN203 `close()` needs an element; an `<sn-resource>` handler has none: name the dialog, `close('id')`",
-      'SN203 `reset()` needs an element; an `<sn-resource>` handler has none',
       'SN203 `emit()` needs an element; an `<sn-resource>` handler has none',
     ]);
     expect(codes('$event.x')).toEqual([expect.stringMatching(/^SN201 `\$event` is not available here/)]);

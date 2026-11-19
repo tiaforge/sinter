@@ -10,6 +10,7 @@ Attribute names, function names and diagnostic codes are public API. Before
 A smaller vocabulary, one word per concept ([docs/proposals/vocabulary.md](docs/proposals/vocabulary.md)). Each old name is a build error that names its replacement.
 
 - **Removed:** `data-sn-get`. Data a GET loads is a resource: `<sn-resource src>` reloads when the values its URL reads change, with latest-wins, the typing pause, `$meta`, `cache` and preloading, none of which a GET action had. A load that a click starts sets the state the resource's `when` reads, or is a `data-sn-call`. With it go its special cases: GET's own concurrency, and the exceptions for GET in field errors, write-through and `data-sn-retry`.
+- **Removed:** the store function `reset()`. A form's fields follow their `data-sn-model` state, so a form clears by clearing its state (`data-sn-then="body = ''"`). A `<button type="reset">` or `form.reset()` now updates the models of the fields it restores (it left them at the old values before).
 
 ### Fixed
 

@@ -112,6 +112,14 @@ pages, and how the server spells its parameters. The second is the same for ever
 - `offset-param` no longer has two jobs: on a keyset list, jumping to a page is `jump: true`.
 - The old attributes are `SN401` with the object they become.
 
+### 4a. `reset()` goes
+
+It reset the nearest form's fields and then copied them into their models: two sources for one value.
+A form's fields follow their `data-sn-model` state, so a form clears by clearing its state
+(`data-sn-then="body = ''"`, as RealWorld's comment form already did), and `<button type="reset">`
+restores the fields with their models following, which it did not before. `reset()` is `SN201` with
+that hint.
+
 ## Merges
 
 ### 7. One declaration for a component's props: `data-sn-props`
@@ -181,5 +189,5 @@ It is a loop, and its name clashed with pagination's `page()` and `$meta.pages`:
 
 ## Plan
 
-One commit each, in this order: 1, 2, 3, 4, 10, 5, 8, 11, 7, 6, 9. Each updates the vocabulary, the
+One commit each, in this order: 1, 4a, 2, 3, 4, 10, 5, 8, 11, 7, 6, 9. Each updates the vocabulary, the
 compiler and runtime, tests, recipes, examples, docs (`npm run docs`) and the changelog.

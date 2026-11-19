@@ -168,7 +168,7 @@ export interface ExprOptions {
   payload?: boolean;
   /** with `payload`: state names in scope resolve to the state first (`<sn-event>`) */
   payloadState?: boolean;
-  /** a handler with no element (`<sn-event>`, `<sn-resource>` `then`): `close()` names its dialog, no `reset()` or `emit()` */
+  /** a handler with no element (`<sn-event>`, `<sn-resource>` `then`): `close()` names its dialog, no `emit()` */
   noElement?: string;
   /** parse as `{...}` object literal; returns its entries */
   object?: 'literal-keys' | 'any-keys' | 'state';
@@ -269,7 +269,11 @@ const NAME_FORMS = 'a string literal, `?:`, `||` or `??` between them, or a `dat
 
 const EVERYWHERE_MAGIC = ['$el', '$url', '$now', '$locale', '$meta'];
 export const ALL_MAGIC = ['$event', '$el', '$url', '$now', '$locale', '$result', '$error', '$meta'];
-export const STORE_FNS = ['refresh', 'upsert', 'patch', 'remove', 'page', 'showModal', 'close', 'reset', 'emit', 'run', 'navigate'];
+export const STORE_FNS = ['refresh', 'upsert', 'patch', 'remove', 'page', 'showModal', 'close', 'emit', 'run', 'navigate'];
+/** store functions that are gone or renamed (docs/proposals/vocabulary.md): what to write instead */
+const RETIRED_FNS: Record<string, string> = {
+  reset: '`reset()` is gone: a form\'s fields follow their `data-sn-model` state, so clear the state (`data-sn-then="draft = { title: \'\' }"`); `<button type="reset">` restores the fields and their models',
+};
 export const BUILTIN_HELPERS = ['date', 'time', 'datetime', 'relative', 'number', 'bytes'];
 export const META_FIELDS = ['loading', 'error', 'loadedAt', 'pending', 'total', 'live', 'page', 'pages', 'from', 'to', 'hasPrev', 'hasNext'];
 const PAGE_FIELDS = ['page', 'pages', 'from', 'to', 'hasPrev', 'hasNext'];
@@ -519,6 +523,10 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
       return null;
     }
     if (opts.payload) { payloadNames.add(name); return { kind: 'payload' }; }
+    if (Object.hasOwn(RETIRED_FNS, name)) {
+      report('SN201', RETIRED_FNS[name]!, offset);
+      return null;
+    }
     const candidates = [
       ...(scope.lets ?? []).map((l) => l.name), ...scope.loops.map((l) => l.name), ...scope.states.flatMap((s) => [...s.names]),
       ...page.resources.keys(), ...page.helpers, ...page.namespaces.keys(), ...STORE_FNS, ...BUILTIN_HELPERS,
@@ -992,7 +1000,7 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
     }
     const first = n.arguments[0];
     // an element-less handler has no nearest dialog or form, nothing to dispatch from
-    if (opts.noElement && (name === 'reset' || name === 'emit' || (name === 'close' && !first))) {
+    if (opts.noElement && (name === 'emit' || (name === 'close' && !first))) {
       report('SN203', `\`${name}()\` needs an element; an \`<${opts.noElement}>\` handler has none${name === 'close' ? `: name the dialog, \`close('id')\`` : ''}`, n.start);
       return;
     }

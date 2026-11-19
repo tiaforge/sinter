@@ -114,6 +114,12 @@ fields. To place a message yourself, point `aria-errormessage` at an element:
 <small id="username-error" hidden></small>
 ```
 
+### Clearing a form
+
+A form's fields follow their `data-sn-model` state, so a form clears by clearing its state, after the
+send succeeds: `data-sn-then="body = ''"`. A `<button type="reset">` (or `form.reset()` in a component's
+script) restores the fields to their markup's values, and their models follow.
+
 ### `$error` in a form
 
 Inside a `<form>`, `$error` is the form's last failed send, `{status, body, message, detail}`, or
@@ -264,7 +270,6 @@ a failure with `$error`. Both are handlers: state assignments and these built-in
 | `page('messages', 'next')` | change the page of a paginated resource |
 | `showModal('edit')` | open `<dialog id="edit">`, nothing if it is open |
 | `close()`, `close('edit')` | close the nearest `<dialog>`, or the one with that id |
-| `reset()` | reset the nearest form |
 | `emit('name', detail)` | dispatch a bubbling, cancelable `CustomEvent` from the element |
 | `navigate(url, { replace })` | go to `url` (relative to the page's): to this page with only parameters it reads changed, as a [same-page link](navigation.md#same-page-links), in the page; anywhere else the browser loads it, as a new history entry or, with `replace: true`, in the current one |
 | `run('id')` | start the action of the element with that id ([below](#run-an-action-from-a-handler)) |

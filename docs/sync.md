@@ -91,7 +91,7 @@ assign state. With `then`, `resource` and `op` can be left out: the event only r
   `fallback`.
 - Store functions are in scope (`refresh`, `upsert`, `patch`, `remove`, `page`, `showModal`,
   `close('id')`, `run('id')`) and win over payload fields of the same name.
-- There is no element, so `close()` must name its dialog, and `reset()` and `emit()` are errors
+- There is no element, so `close()` must name its dialog, and `emit()` is an error
   (`SN203`). `$event` and `$result` are not defined, and assigning to a payload field is an error.
 - A state name wins over a payload field of the same name. With a typed payload (`type`), such a
   clash is a `sinter check` error; without a type, pick names the payloads don't use.

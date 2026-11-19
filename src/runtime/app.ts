@@ -861,12 +861,6 @@ export function mount(root: Document | Element, o: MountOptions): App {
       remove: byItem('remove'),
       page: (n: string, t: string | number) => app.ext.paginate!.page(n, t),
       close: (id?: string) => (id ? dialog(id) : el?.closest('dialog'))?.close(),
-      reset: () => {
-        const form = el?.closest('form');
-        if (!form) return;
-        form.reset();
-        if (F.MODEL) for (const c of form.elements) { const rb = (c as Tagged)[MODEL]; if (rb) setModel(rb, readModel(rb)); }
-      },
       emit: (n: string, detail?: unknown) => el?.dispatchEvent(new CustomEvent(n, { detail, bubbles: true, cancelable: true })),
       // to this page with only parameters it reads changed: as a same-page link (no load); else the browser navigates
       // the navigation chain where a feature installed one (links.ts), else the page loads
@@ -936,6 +930,19 @@ export function mount(root: Document | Element, o: MountOptions): App {
     };
     doc.addEventListener('prerenderingchange', on);
     app.addCleanup(() => doc.removeEventListener('prerenderingchange', on));
+  }
+  // a form's reset (`<button type="reset">`, `form.reset()`): its models take the values it restored. The event comes
+  // before the browser restores them, so the models read the fields once it has
+  if (F.MODEL) {
+    const on = (e: Event) => {
+      const form = e.target as HTMLFormElement;
+      env.setTimeout(() => {
+        if (destroyed || e.defaultPrevented) return;
+        for (const c of form.elements ?? []) { const rb = (c as Tagged)[MODEL]; if (rb) setModel(rb, readModel(rb)); }
+      }, 0, 'task');
+    };
+    ET.addEventListener.call(root, 'reset', on, true);
+    cleanups.push(() => ET.removeEventListener.call(root, 'reset', on, true));
   }
   // one delegated capture listener per event type the page binds, rows included, at the mount root: the compiler listed them
   if (F.EVENTS) for (const type of ir.ev ?? []) {

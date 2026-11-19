@@ -562,7 +562,7 @@ Single-object resources (no `key`): `upsert` replaces the object, `patch` merges
 - Also for a reload answered with the version of the data already shown (see Unchanged responses under Behaviour): `$result` is what the load that stored the data stored.
 - So it runs again on every refetch: a handler meant to run once guards itself with state or with the data, one guard per step (`!opened && showModal('x'); opened = true`, `$result && …` for a resource that is empty when nothing is pending). A handler that refreshes its own resource loops.
 - Order: after the store has the response (writes made during the load replayed on top) and `$meta.<name>` is current (`loading` false, `loadedAt` set, `error` null), so the handler reads the resource and other resources as they now are. Its state writes re-render like any handler's, in the same flush.
-- Scope: the scope the resource's `src` and `when` see, so the state around the `<sn-resource>` element, which it may assign, and every resource. Store functions work, `run('id')` included (the mark-read case in Running an action from a handler); there is no element, so `close()` names its dialog and `reset()` and `emit()` are errors (`SN203`), as in `<sn-event then>`. `$event` and `$error` are not defined here; `$result` is not defined in the resource's other expressions. The `each` item name is not in scope.
+- Scope: the scope the resource's `src` and `when` see, so the state around the `<sn-resource>` element, which it may assign, and every resource. Store functions work, `run('id')` included (the mark-read case in Running an action from a handler); there is no element, so `close()` names its dialog and `emit()` is an error (`SN203`), as in `<sn-event then>`. `$event` and `$error` are not defined here; `$result` is not defined in the resource's other expressions. The `each` item name is not in scope.
 - An exception in the handler is logged; the load still counts as successful.
 - A resource with `then` counts as used: one that only its own `then` reads, with or without `$result`, is not `SN501`.
 
@@ -717,7 +717,7 @@ For `patch` and `remove`, the key is read from the payload using the resource's 
   </sn-sync>
 ```
 - The dialog clears the selection itself (`<dialog id="contact-detail" data-sn-on-close="sel = null">`), so the handler runs one step under its condition (two would be `SN507`).
-- Store functions are in scope (`refresh`, `upsert`, `patch`, `remove`, `page`, `showModal`, `close('id')`, `run('id')`), and their names win over payload fields. There is no element, so `close()` names its dialog and `reset()` and `emit()` are errors (`SN203`); `$event` and `$result` are not defined here, and assigning to a payload field is an error.
+- Store functions are in scope (`refresh`, `upsert`, `patch`, `remove`, `page`, `showModal`, `close('id')`, `run('id')`), and their names win over payload fields. There is no element, so `close()` names its dialog and `emit()` is an error (`SN203`); `$event` and `$result` are not defined here, and assigning to a payload field is an error.
 - State writes re-render what reads them, as from any handler. Bindings inside a dialog the handler closes keep their last values until it opens again.
 - Islands still receive the event through `app.on(name)`, after every mapping has run.
 
@@ -797,7 +797,6 @@ An action is an element with one method attribute; it sends a request when its t
 | `page('messages', 'next')` | change page: a direction, or a page number where the resource can jump; may be computed (see Pagination) |
 | `showModal('edit')` | open `<dialog id="edit">` as a modal; nothing if it is open |
 | `close()`, `close('edit')` | close the nearest `<dialog>`, or the one with that id |
-| `reset()` | reset the nearest `<form>` |
 | `emit('name', detail)` | dispatch a bubbling, cancelable `CustomEvent` from the element; every container with a handler for it runs, inner first, until one calls `$event.preventDefault()` |
 | `run('id')` | start the action of the element with that id, as its trigger would (a form: submit it); see Running an action from a handler |
 
