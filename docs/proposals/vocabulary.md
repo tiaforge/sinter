@@ -42,12 +42,14 @@ One concept had two words: `refresh()`, `refresh="30s"`, and `<sn-event op="refe
 and the change messages' `op: 'merge'` and `op: 'refresh'`. A helper named like a store function
 (`merge`) is `SN201`: the store function always won, so the helper was unreachable.
 
-### 4. `$error` has one text: `message`
+### 4. `$error`: kept, made consistent
 
-`$error` had `message` (the HTTP status as text) and `detail` (the server's words, when there were
-any), and `$meta.<name>.error` had only `message`. Now `message` is the server's words when there are
-any (a short text body, a JSON body's `message` or `error`), else the status text, everywhere.
-`$error.detail` is a build error naming `message`.
+Looked at closer, `message` and `detail` are not two names for one text: `message` is the server's
+words when it gave any, else the HTTP status (always something to show), and `detail` is the server's
+words or `null`, so a page can put its own, translated text where the server said nothing
+(`$error.detail ?? m.save_failed()`). What was wrong is that `$meta.<name>.error` was documented, and
+typed in `Meta`, without `detail`, though it is the same object. Both now say `{status, body,
+message, detail}`.
 
 ### 5. `data-sn-listbox` becomes `data-sn-roving`
 

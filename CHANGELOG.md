@@ -16,6 +16,7 @@ A smaller vocabulary, one word per concept ([docs/proposals/vocabulary.md](docs/
 
 ### Fixed
 
+- `$meta.<name>.error` is documented and typed (`Meta`) with `detail`, as `$error` is: it is the same object.
 - Recipes brought up to date: the offline-draft form starts as the loaded note (it started empty, so the first autosave cleared the note's body); the URL pagination recipe's page numbers are links with `aria-current`, the recommended pager since same-page links; the form dialog has no `data-sn-catch`, so a rejected save shows the server's messages on its fields, and it says why `upsert('people', $result)` stays (no write-through for a POST without an OpenAPI spec). docs/pagination.md marks the current page link from `$url.page`, as its text says.
 
 ## 0.20.0 (2026-11-18)

@@ -604,7 +604,7 @@ Status lives under `$meta.<name>`, never on the data itself. The field set is fi
 | Field | Type | Meaning |
 | --- | --- | --- |
 | `loading` | boolean | a request for this resource is in flight |
-| `error` | `{status, body, message}` or `null` | the last load failed; cleared on success |
+| `error` | `{status, body, message, detail}` or `null` | the last load failed; cleared on success |
 | `loadedAt` | number (ms) or `null` | time of the last successful load |
 | `pending` | number | optimistic layers whose request has not settled |
 | `total` | number or `null` | from the `total` path; adjusted by optimistic removes |

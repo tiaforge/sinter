@@ -16,7 +16,8 @@ export type Op =
 
 export interface Meta {
   loading: boolean;
-  error: { status: number | null; body: unknown; message: string } | null;
+  /** as `$error`: `message` is the server's words, else the HTTP status; `detail` the server's words or null */
+  error: { status: number | null; body: unknown; message: string; detail: string | null } | null;
   loadedAt: number | null;
   pending: number;
   total: number | null;
