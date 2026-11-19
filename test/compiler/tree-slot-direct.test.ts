@@ -2,9 +2,9 @@ import { expect, test } from 'vitest';
 import { compile } from '../../src/compiler/index.js';
 
 const C: Record<string, string> = {
-  'x-doc': `<template data-sn-component="{ doc: any; code: Slot<{ node: any }> }"><article><template data-sn-for="b in doc.children"><sn-component use="{ code: 'x-code', quote: 'x-quote' }[b.type]" data-sn-prop="{ node: b }"></sn-component></template></article></template>`,
-  'x-code': `<template data-sn-component="{ node: any }"><slot name="code" data-sn-prop="{ node }"><pre data-sn-text="node.value"></pre></slot></template>`,
-  'x-quote': `<template data-sn-component="{ node: any }"><blockquote><template data-sn-for="b in node.children"><sn-component use="{ code: 'x-code', quote: 'x-quote' }[b.type]" data-sn-prop="{ node: b }"></sn-component></template></blockquote></template>`,
+  'x-doc': `<template data-sn-props="{ doc: any; code: Slot<{ node: any }> }"><article><template data-sn-for="b in doc.children"><sn-component use="{ code: 'x-code', quote: 'x-quote' }[b.type]" data-sn-prop="{ node: b }"></sn-component></template></article></template>`,
+  'x-code': `<template data-sn-props="{ node: any }"><slot name="code" data-sn-prop="{ node }"><pre data-sn-text="node.value"></pre></slot></template>`,
+  'x-quote': `<template data-sn-props="{ node: any }"><blockquote><template data-sn-for="b in node.children"><sn-component use="{ code: 'x-code', quote: 'x-quote' }[b.type]" data-sn-prop="{ node: b }"></sn-component></template></blockquote></template>`,
 };
 
 function build(doc: unknown, fill = '') {
@@ -36,8 +36,8 @@ test('the same placement, one level down and at the top together, and with a fil
 
 test('a placement that is its component\'s root compiles its data-sn-prop in that component\'s scope, without prerender too', () => {
   const comps = {
-    'x-doc': `<template data-sn-component="{ doc: any; code: Slot<{ node: any }> }"><article><x-code data-sn-prop="{ node: doc }"></x-code></article></template>`,
-    'x-code': `<template data-sn-component="{ node: any }"><slot name="code" data-sn-prop="{ node: NODE }"><pre data-sn-text="node.value"></pre></slot></template>`,
+    'x-doc': `<template data-sn-props="{ doc: any; code: Slot<{ node: any }> }"><article><x-code data-sn-prop="{ node: doc }"></x-code></article></template>`,
+    'x-code': `<template data-sn-props="{ node: any }"><slot name="code" data-sn-prop="{ node: NODE }"><pre data-sn-text="node.value"></pre></slot></template>`,
   };
   const run = (name: string) => {
     const files: Record<string, string> = { '/p/doc.json': '{"value":"v"}' };

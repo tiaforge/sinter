@@ -5,7 +5,7 @@ import { rewriteImages, sourceFile, type ImageHost, type ImageResult } from './i
 import { boxSizesCss, type ReserveTrace, Layout, PLACEHOLDER_BASE, type Affine, type Reserved, type StyleSheet } from './layout.js';
 import { shows } from './status-eval.js';
 import { recordChild, replay as replayUnit, LINK_FIELDS, UNIT_NUMBERING, type Plan, type Refused } from './link.js';
-import { HEAD_ELEMENTS, parseDocument } from './head.js';
+import { HEAD_ELEMENTS, isHeadComponent, parseDocument } from './head.js';
 import { minifyMarkup } from './minify.js';
 import type { RemoteConfig } from '../remote.js';
 import { AUTO_FIT_HINT, AUTO_FIT_ROWS, FLUID_WIDTHS } from './images.js';
@@ -507,6 +507,9 @@ const ATTRS = ATTRIBUTES.map((a) => a.name);
 const METHODS = ['post', 'put', 'patch', 'delete'] as const;
 /** attributes that are gone or renamed (docs/proposals/vocabulary.md): what to write instead */
 const RETIRED: Record<string, string> = {
+  'data-sn-component': 'is renamed to `data-sn-props`, the one declaration of a component\'s or a layout\'s props: `<template data-sn-props="{ article: Article }">`',
+  'data-sn-head': 'is renamed to `data-sn-props`: a component whose markup is head elements is a head component, `<template data-sn-props="{ title?: string }"><title …></template>`',
+  'data-sn-layout': 'is renamed to `data-sn-props` on the layout\'s `<html>`: `<html lang="en" data-sn-props="{ title?: string }">`',
   'data-sn-pages': 'is `data-sn-for` on `<html>` (or a layout\'s tag): `<html data-sn-for="post in posts" data-sn-path="/blog/:slug">` builds the page once per entry',
   'data-sn-apply': 'is renamed to `data-sn-write-through`, the name of what it turns off: `data-sn-write-through="off"`',
   'data-sn-listbox': 'is renamed to `data-sn-options`, which also serves menus and lists: on a text field it works as before; on the element that holds the options, that element takes the focus',
@@ -577,7 +580,7 @@ interface Use {
   file: string;
   host: P5Element;
   root: P5Element;
-  /** the component's `<template data-sn-component>`, where its contract is written */
+  /** the component's `<template data-sn-props>`, where its contract is written */
   template: P5Element;
   /** declared props and events (null: written as a type the compiler cannot list, such as an alias); props without `Slot<T>` members */
   props: Member[] | null;
@@ -599,7 +602,7 @@ interface Use {
   scope?: ComponentScope;
   /** the caller's scope at the use: its attributes on the tag and its slot content see it */
   caller?: Scope;
-  /** a head component (`data-sn-head`): its elements, inlined at the use with no wrapper */
+  /** a head component (`data-sn-props`): its elements, inlined at the use with no wrapper */
   head?: { roots: P5Element[]; parent: Use | null };
   /** what its markup sees, computed once (a head component's elements share it, and the branches of a chain root) */
   markup?: Scope;
@@ -607,7 +610,7 @@ interface Use {
   shape?: RootShape;
   /** such a root's tag was slot content: the use whose caller wrote it */
   hostSlot?: Use;
-  /** a layout (`<html data-sn-layout>`): the page is its tag, its root the layout's `<html>` */
+  /** a layout (`<html data-sn-props>`): the page is its tag, its root the layout's `<html>` */
   layout?: true;
   /** a layout's tag's handlers, compiled on the layout's `<body>` (the page's `<body>` handlers, as before layouts) */
   bodyHandlers?: P5Element;
@@ -623,7 +626,7 @@ interface ComponentFile {
   script?: string | null;
   /** the class it exports: `TaskRing` for `task-ring`, else `default`; null when it exports neither */
   exported?: string | null;
-  /** `<template data-sn-head>`: a head component */
+  /** `<template data-sn-props>`: a head component */
   head?: boolean;
   /** its `<style>` as written, for `rootCss` */
   rawCss?: string;
@@ -981,6 +984,8 @@ class Compiler {
   private readonly layoutFiles = new Map<string, { file: string; text: string } | null>();
   /** component files by tag, read once (null: no such component, a plain custom element) */
   private readonly componentFiles = new Map<string, ComponentFile | null>();
+  /** the component files whose kind is being decided (`componentFile`), against cycles */
+  private readonly kinding = new Set<string>();
   /** by component id (`ComponentScope.id`): the use, for the refs of its markup */
   private readonly useById = new Map<number, Use>();
   /** slot content's top-level elements and the component whose markup they are ('' for the page's) */
@@ -1884,8 +1889,8 @@ class Compiler {
       const names = [...rec.names].sort();
       const name = basename(rec.src).replace(/\.html?$/, '');
       const tag = name.includes('-') ? name : `x-${name}`;
-      this.report(rec.el, 'src', 'SN316', `\`<sn-include>\` is removed: a partial is a component. Move \`${rec.src}\` to \`src/components/${tag}.html\`, wrap its markup in \`<template data-sn-component="{ … }">\` around one root element, and write \`<${tag}></${tag}>\` here${
-        names.length ? `. It reads ${names.map((n) => `\`${n}\``).join(', ')} from the page: add ${names.length > 1 ? 'them' : 'it'} to \`data-sn-component\` and pass ${names.length > 1 ? 'them' : 'it'} with \`data-sn-prop="{ ${names.map((n) => `${n}: ${n}`).join(', ')} }"\`` : ''}`, 0);
+      this.report(rec.el, 'src', 'SN316', `\`<sn-include>\` is removed: a partial is a component. Move \`${rec.src}\` to \`src/components/${tag}.html\`, wrap its markup in \`<template data-sn-props="{ … }">\` around one root element, and write \`<${tag}></${tag}>\` here${
+        names.length ? `. It reads ${names.map((n) => `\`${n}\``).join(', ')} from the page: add ${names.length > 1 ? 'them' : 'it'} to \`data-sn-props\` and pass ${names.length > 1 ? 'them' : 'it'} with \`data-sn-prop="{ ${names.map((n) => `${n}: ${n}`).join(', ')} }"\`` : ''}`, 0);
     }
   }
 
@@ -1902,6 +1907,20 @@ class Compiler {
 
   // ---- components
 
+  /**
+   * A component's or a layout's `data-sn-props`, under the name the compiler reads for its kind (`data-sn-component`,
+   * `data-sn-head`, `data-sn-layout`), with its place in the source, so diagnostics point at what was written. The
+   * old names written in the file are SN101.
+   */
+  declaration(el: P5Element, as: string, retired: string[]) {
+    for (const n of retired) if (attr(el, n) !== undefined) this.once(el, n, 'SN101', `\`${n}\` ${RETIRED[n]}`, 0);
+    const a = el.attrs.find((x) => x.name === 'data-sn-props');
+    if (!a) return;
+    a.name = as;
+    const loc = el.sourceCodeLocation?.attrs;
+    if (loc?.['data-sn-props']) loc[as] = loc['data-sn-props'];
+  }
+
   /** The component file for a tag (null: a plain custom element, or not a valid component name). */
   componentFile(tag: string): ComponentFile | null {
     if (!COMPONENT_NAME.test(tag) || tag.startsWith('sn-')) return null;
@@ -1915,7 +1934,12 @@ class Compiler {
     if (lib && !internal && !lib.public.includes(tag)) c = null;
     else try { c = { file, text: this.opts.readFile(file) }; } catch { c = null; }
     if (c && lib) { c.lib = lib; if (internal) c.internal = true; }
-    if (c && /<template\b[^>]*\sdata-sn-head\b/i.test(c.text)) c.head = true;
+    // its kind from its markup; a component's tag in it counts by its own kind (a cycle is a body component)
+    if (c) {
+      this.kinding.add(tag);
+      if (isHeadComponent(c.text, (t) => !this.kinding.has(t) && !!this.componentFile(t)?.head)) c.head = true;
+      this.kinding.delete(tag);
+    }
     if (c) {
       // a script beside it: the component runs it per instance
       const root = normalize(this.opts.root).replace(/\/$/, '');
@@ -2064,17 +2088,18 @@ class Compiler {
     ldoc.childNodes = ldoc.childNodes.filter((c) => c.nodeName !== '#comment');
     const lhtml = ldoc.childNodes.find((c): c is P5Element => isElement(c) && c.tagName === 'html')!;
     const lhead = lhtml.childNodes.find((c): c is P5Element => isElement(c) && c.tagName === 'head')!;
-    // a whole document in src/layouts/ without `data-sn-layout` takes no props (agents leave it out when there are
+    this.declaration(lhtml, 'data-sn-layout', ['data-sn-layout']);
+    // a whole document in src/layouts/ without `data-sn-props` takes no props (agents leave it out when there are
     // none: every benchmark run that did paid a failed build for it); one whose pages pass props must declare them
     const whole = !!lhtml.sourceCodeLocation?.startTag, passes = attr(host, 'data-sn-prop') != null;
     const decl = attr(lhtml, 'data-sn-layout') ?? (whole && !passes ? '{}' : undefined);
     if (decl === undefined || !whole) {
       const hint = whole
-        ? 'declare the props the pages pass, e.g. `<html lang="en" data-sn-layout="{ title?: string }">`'
-        : '`<!doctype html><html lang="en" data-sn-layout="{ title?: string }"><head>…</head><body><slot></slot></body></html>` (or `<html lang="en">` for a layout without props)';
+        ? 'declare the props the pages pass, e.g. `<html lang="en" data-sn-props="{ title?: string }">`'
+        : '`<!doctype html><html lang="en" data-sn-props="{ title?: string }"><head>…</head><body><slot></slot></body></html>` (or `<html lang="en">` for a layout without props)';
       const message = whole
-        ? `\`src/layouts/${name}.html\` declares no props, but this page passes \`data-sn-prop\`: a layout declares them on its \`<html>\`, \`<html data-sn-layout="{ …props }">\``
-        : `\`src/layouts/${name}.html\` is not a layout: a layout is a whole document whose \`<html>\` declares its props, \`<html data-sn-layout="{ …props }">\``;
+        ? `\`src/layouts/${name}.html\` declares no props, but this page passes \`data-sn-prop\`: a layout declares them on its \`<html>\`, \`<html data-sn-props="{ …props }">\``
+        : `\`src/layouts/${name}.html\` is not a layout: a layout is a whole document whose \`<html>\` declares its props, \`<html data-sn-props="{ …props }">\``;
       this.diagnostics.push({ severity: 'error', code: 'SN318', message, file: lf.file, line: 1, col: 1, hint });
       detach(host);
       return null;
@@ -2098,7 +2123,7 @@ class Compiler {
       }
     };
     inHead(lhead);
-    if (SLOT_TYPE.test(decl)) this.report(lhtml, 'data-sn-layout', 'SN331', `\`<${name}>\` is a layout: its slots pass nothing, so \`Slot<T>\` cannot be in \`data-sn-layout\``, decl.search(SLOT_TYPE), 'a plain `<slot name="…">` takes content with no declaration');
+    if (SLOT_TYPE.test(decl)) this.report(lhtml, 'data-sn-layout', 'SN331', `\`<${name}>\` is a layout: its slots pass nothing, so \`Slot<T>\` cannot be in \`data-sn-props\``, decl.search(SLOT_TYPE), 'a plain `<slot name="…">` takes content with no declaration');
     const use: Use = { name, file: lf.file, host, root: lhtml, template: lhtml, props, propsText: decl, emits: [], emitsText: null, chain: [], layout: true };
     // a head element given to a body slot: the browser would keep it, but it belongs in a head slot
     for (const c of [...host.childNodes]) {
@@ -2208,9 +2233,9 @@ class Compiler {
         // a head component goes in a head, a component in a body
         if (!!def.head !== inHead) {
           this.report(child, null, 'SN320', def.head
-            ? `\`<${name}>\` is a head component (\`data-sn-head\`): it goes in a \`<head>\`, or in a layout's head slot`
+            ? `\`<${name}>\` is a head component (\`data-sn-props\`): it goes in a \`<head>\`, or in a layout's head slot`
             : `\`<${name}>\` is a component with one root element, which cannot be in the \`<head>\``, 0,
-          def.head ? 'a component for the body is declared with `<template data-sn-component>` and has one root element' : 'for head elements, declare the component with `<template data-sn-head>`');
+          def.head ? 'a component for the body has one root element in its `<template data-sn-props>`' : 'a head component is a `<template data-sn-props>` whose markup is head elements only');
           detach(child);
           continue;
         }
@@ -2385,14 +2410,15 @@ class Compiler {
       return null;
     };
     const top = frag.childNodes.filter(isElement);
+    for (const t of top) if (t.tagName === 'template') this.declaration(t, def.head ? 'data-sn-head' : 'data-sn-component', ['data-sn-component', 'data-sn-head']);
     const templates = top.filter((t) => t.tagName === 'template' && (attr(t, 'data-sn-component') !== undefined || attr(t, 'data-sn-head') !== undefined));
     if (templates.length !== 1) {
-      return fail(templates[1] ?? null, null, `component \`<${name}>\` needs ${templates.length ? 'exactly ' : ''}one \`<template data-sn-component="{ …props }">\` (or \`<template data-sn-head>\` for head elements) around its markup`,
-        '`<template data-sn-component="{ article: Article }"><article>…</article></template>`');
+      return fail(templates[1] ?? null, null, `component \`<${name}>\` needs ${templates.length ? 'exactly ' : ''}one \`<template data-sn-props="{ …props }">\` (one root element, or head elements only) around its markup`,
+        '`<template data-sn-props="{ article: Article }"><article>…</article></template>`');
     }
     const template = templates[0]!;
     if (attr(template, 'data-sn-component') !== undefined && attr(template, 'data-sn-head') !== undefined) {
-      return fail(template, 'data-sn-head', `\`<${name}>\` declares both \`data-sn-component\` and \`data-sn-head\`; a component is one kind`, '`data-sn-component` for one root element in a body, `data-sn-head` for head elements');
+      return fail(template, 'data-sn-head', `\`<${name}>\` declares both \`data-sn-component\` and \`data-sn-head\`, which are one \`data-sn-props\` now`, 'its markup says the kind: one root element for a body, head elements only for a head');
     }
     const decl = def.head ? 'data-sn-head' : 'data-sn-component';
     for (const t of top) {
@@ -2456,7 +2482,7 @@ class Compiler {
     if (typeof shape === 'string') {
       const els = content.childNodes.filter(isElement);
       const headEls = els.length > 1 && els.every((e) => HEAD_ELEMENTS.has(e.tagName) || e.tagName === 'slot');
-      return fail(els[1] ?? els[0] ?? template, null, shape, headEls ? 'head elements: declare it with `<template data-sn-head="{ …props }">`, which holds any number of them'
+      return fail(els[1] ?? els[0] ?? template, null, shape, headEls ? 'a head component holds head elements only, any number of them: move what is not one out of it'
         : 'a root renders at most one element: one element, a `data-sn-if`/`data-sn-else` chain of them, a component, `<sn-component use>` or a `<slot>` whose default and fills are roots; wrap the markup in one element');
     }
     const own = (e: P5Element) => !this.slotOf.has(e);
@@ -2669,7 +2695,7 @@ class Compiler {
   }
 
   /**
-   * A head component's use (`<template data-sn-head>`): its elements, any number of them, take the
+   * A head component's use (`<template data-sn-props>`): its elements, any number of them, take the
    * tag's place with no wrapper. Its tag takes only `data-sn-prop` and slot content.
    */
   expandHead(host: P5Element, def: ComponentFile, template: P5Element, chain: string[]): null {
@@ -2684,13 +2710,13 @@ class Compiler {
       const ok = HEAD_ELEMENTS.has(c.tagName) || c.tagName === 'slot' || this.componentFile(c.tagName)?.head;
       if (!ok) {
         this.report(c, null, 'SN320', `a head component holds head elements: \`<${c.tagName}>\` cannot be in \`<${name}>\``, 0,
-          'head elements are `<title>`, `<meta>`, `<link>`, `<script>`, `<style>`, `<noscript>`, `<base>`, `<template>` and head components; a component for the body is a `<template data-sn-component>` with one root');
+          'head elements are `<title>`, `<meta>`, `<link>`, `<script>`, `<style>`, `<noscript>`, `<base>`, `<template>` and head components; a component for the body is a `<template data-sn-props>` with one root');
         def.bad = true; detach(host); return null;
       }
     }
     const propsText = attr(template, 'data-sn-head')!;
     const props = typeMembers(propsText.trim() === '' ? '{}' : propsText)?.filter((m) => m.slot === undefined) ?? null;
-    if (SLOT_TYPE.test(propsText)) this.once(template, 'data-sn-head', 'SN331', `\`<${name}>\` is a head component: its slots pass nothing, so \`Slot<T>\` cannot be in \`data-sn-head\``, propsText.search(SLOT_TYPE), 'a plain `<slot name="…">` takes content with no declaration');
+    if (SLOT_TYPE.test(propsText)) this.once(template, 'data-sn-head', 'SN331', `\`<${name}>\` is a head component: its slots pass nothing, so \`Slot<T>\` cannot be in \`data-sn-props\``, propsText.search(SLOT_TYPE), 'a plain `<slot name="…">` takes content with no declaration');
     const emitsText = attr(template, 'data-sn-emits') ?? null;
     const emits = emitsText === null ? [] : typeMembers(emitsText);
     if (emitsText !== null && !emits) this.report(template, 'data-sn-emits', 'SN401', '`data-sn-emits` takes a type literal of the events and their detail types: `{ select: Article; close: null }`', 0);
@@ -2775,7 +2801,7 @@ class Compiler {
       // a placement that passes data: of a slot declared `Slot<T>`
       if (attr(s.el, 'data-sn-prop') !== undefined && !data.has(k)) {
         this.once(s.el, 'data-sn-prop', 'SN331', k ? `\`data-sn-prop\` on \`<slot name="${k}">\` passes data, and \`<${name}>\` does not declare \`${k}\` as \`Slot<T>\`` : '`data-sn-prop` on the default `<slot>`: a slot that passes data is named, and declared `Slot<T>`', 0,
-          `declare it in the props type: \`data-sn-component="{ …; ${k || 'cell'}: Slot<{ row: Row }> }"\`${k ? '' : ', and name the slot'}`);
+          `declare it in the props type: \`data-sn-props="{ …; ${k || 'cell'}: Slot<{ row: Row }> }"\`${k ? '' : ', and name the slot'}`);
       } else if (data.has(k) && attr(s.el, 'data-sn-prop') === undefined) {
         this.once(s.el, null, 'SN331', `\`${k}\` is declared \`Slot<${data.get(k)!.slot}>\`: its placement passes the values with \`data-sn-prop\``, 0, `\`<slot name="${k}" data-sn-prop="{ … }">\``);
       }
@@ -3089,7 +3115,7 @@ class Compiler {
     const out = new Map<string, Member>();
     if (!members) {
       if (SLOT_TYPE.test(text)) this.once(template, 'data-sn-component', 'SN331', '`Slot<T>` is written in the props type literal, where the compiler sees the slot; here the props are a type it cannot list', text.search(SLOT_TYPE),
-        'write the props as a type literal: `data-sn-component="{ rows: Row[]; cell: Slot<{ row: Row }> }"`');
+        'write the props as a type literal: `data-sn-props="{ rows: Row[]; cell: Slot<{ row: Row }> }"`');
       return out;
     }
     for (const m of members) {
@@ -3138,8 +3164,8 @@ class Compiler {
       def.dataSlots = new Set();
       try {
         const frag = parsedText(def.text);
-        const t = frag.childNodes.find((c): c is P5Element => isElement(c) && c.tagName === 'template' && attr(c, 'data-sn-component') !== undefined);
-        const text = t ? attr(t, 'data-sn-component')! : '';
+        const t = frag.childNodes.find((c): c is P5Element => isElement(c) && c.tagName === 'template' && propsDecl(c) !== undefined);
+        const text = t ? propsDecl(t)! : '';
         for (const m of typeMembers(text.trim() === '' ? '{}' : text) ?? []) if (m.slot !== undefined) def.dataSlots.add(m.name);
       } catch { /* reported where the component is expanded */ }
     }
@@ -3457,7 +3483,7 @@ class Compiler {
       const ok = (!declared || declared.includes('value')) && (!use.emits || use.emits.some((m) => m.name === 'change'));
       if (!ok) {
         this.report(host, 'data-sn-model', 'SN313', `\`data-sn-model\` binds a component through its \`value\` prop and \`change\` event; \`<${name}>\` declares ${declared?.includes('value') ? 'no `change` event' : 'no `value` prop'}`, 0,
-          `declare both: \`data-sn-component="{ value: … }" data-sn-emits="{ change: … }"\`, and \`emit('change', v)\` when the value changes`);
+          `declare both: \`data-sn-props="{ value: … }" data-sn-emits="{ change: … }"\`, and \`emit('change', v)\` when the value changes`);
       } else if (passed.has('value')) {
         this.report(host, 'data-sn-model', 'SN209', '`data-sn-model` passes the `value` prop; `data-sn-prop` cannot pass it too', 0);
       } else {
@@ -3798,8 +3824,8 @@ class Compiler {
     const walk = (n: P5Parent) => {
       for (const c of n.childNodes) {
         if (!isElement(c)) continue;
-        if (c.tagName === 'template' && attr(c, 'data-sn-component') !== undefined) {
-          for (const m of typeMembers(attr(c, 'data-sn-component')!.trim() || '{}') ?? []) if (m.slot !== undefined) out.declares.add(m.name);
+        if (c.tagName === 'template' && propsDecl(c) !== undefined) {
+          for (const m of typeMembers(propsDecl(c)!.trim() || '{}') ?? []) if (m.slot !== undefined) out.declares.add(m.name);
         }
         if (c.tagName === 'slot' && attr(c, 'name')) {
           out.places.add(attr(c, 'name')!);
@@ -4346,7 +4372,8 @@ class Compiler {
     const has = (n: string) => sn.some((a) => a.name === `data-sn-${n}`);
 
     // unknown attributes
-    const known = new Set<string>(ATTRS.map((a) => `data-sn-${a}`));
+    // with the names `declaration()` gives `data-sn-props` for the compiler (the old names are reported there)
+    const known = new Set<string>([...ATTRS.map((a) => `data-sn-${a}`), 'data-sn-component', 'data-sn-head', 'data-sn-layout']);
     for (const a of sn) {
       if (known.has(a.name) || a.name.startsWith('data-sn-on-') || a.name.startsWith('data-sn-debounce-')) continue;
       const retired = RETIRED[a.name];
@@ -4354,9 +4381,10 @@ class Compiler {
       this.report(el, a.name, 'SN101', `\`${a.name}\` is not a sinter attribute.${didYouMean(a.name, [...known, 'data-sn-on-click'])}`, 0);
     }
 
-    if (has('layout') && !use?.layout) this.report(el, 'data-sn-layout', 'SN318', '`data-sn-layout` belongs on the `<html>` of a layout file (`src/layouts/<name>.html`)', 0);
-    for (const n of ['component', 'head', 'emits']) {
-      if (has(n)) this.report(el, `data-sn-${n}`, 'SN102', `\`data-sn-${n}\` belongs on the \`<template>\` of a component file (\`src/components/<name>.html\`)`, 0);
+    if (has('layout') && !use?.layout) this.report(el, 'data-sn-layout', 'SN318', '`data-sn-props` belongs on the `<html>` of a layout file (`src/layouts/<name>.html`), or on the `<template>` of a component file', 0);
+    if (has('props') && el.tagName === 'html') this.report(el, 'data-sn-props', 'SN318', '`data-sn-props` on `<html>` belongs to a layout file (`src/layouts/<name>.html`); a page takes no props', 0);
+    for (const n of ['props', 'component', 'head', 'emits']) {
+      if (has(n) && !(n === 'props' && el.tagName === 'html')) this.report(el, `data-sn-${n}`, 'SN102', `\`data-sn-${n === 'emits' ? n : 'props'}\` belongs on the \`<template>\` of a component file (\`src/components/<name>.html\`)${n === 'props' ? ', or on the `<html>` of a layout file' : ''}`, 0);
     }
     if (has('early') && !this.useOf.get(el)) this.report(el, 'data-sn-early', 'SN102', '`data-sn-early` goes on a component\'s tag, `<tag-cloud data-sn-early="off">`', 0);
     if (has('path') && el.tagName !== 'html') this.report(el, 'data-sn-path', 'SN102', '`data-sn-path` belongs on `<html>`', 0);
@@ -9123,6 +9151,9 @@ const hashText = (t: string) => {
   for (let i = 0; i < t.length; i++) h = Math.imul(h ^ t.charCodeAt(i), 16777619);
   return (h >>> 0).toString(36);
 };
+/** a component template's props type: `data-sn-props` as written, or the name the compiler gave it (`declaration()`) */
+const propsDecl = (t: P5Element) => attr(t, 'data-sn-props') ?? attr(t, 'data-sn-component');
+
 function stripSn(el: P5Element) {
   // what stays, for the runtime: `data-sn-navigate` marks an element with a `navigate` handler (navigate.ts),
   // `data-sn-permanent` a kept element, `data-sn-swap` a link the swap leaves to the browser and `data-sn-options`

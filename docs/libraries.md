@@ -120,7 +120,7 @@ fixtures/
 - **Components** are written as in an app ([components](components.md)). Every name starts with the
   library's prefix (`SN337` otherwise). Internal components may be used by any component of the
   library, public or internal.
-- **Type names** in `data-sn-component`, `Slot<T>` and `data-sn-emits` resolve against
+- **Type names** in `data-sn-props`, `Slot<T>` and `data-sn-emits` resolve against
   `sinter.types.ts`, whatever the app's types module exports.
 - **Scripts** work as in the app: `import { UiCardComponent } from './ui-card.html'`, a class per
   instance, with `this.props`, `this.state`, `this.refs` and `this.root`. `sinter check` in the

@@ -7,7 +7,7 @@ and its content fills the layout's slots, in the head and in the body.
 ```html
 <!-- src/layouts/site-layout.html -->
 <!doctype html>
-<html lang="en" data-sn-layout="{ title?: string; description?: string; nav: string }">
+<html lang="en" data-sn-props="{ title?: string; description?: string; nav: string }">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -52,9 +52,9 @@ hand. Nothing of the layout is left at run time.
   (`site-layout.html` is `<site-layout>`). A layout and a component with the same name is an error.
 - A whole document: an optional doctype, `<html>`, `<head>` and `<body>`. Comments before `<html>`
   document the file and are left out of the pages.
-- `data-sn-layout` on `<html>` declares its props, a TypeScript type literal as for a component
+- `data-sn-props` on `<html>` declares its props, a TypeScript type literal as for a component
   (the names of `src/sinter.types.ts` and the OpenAPI schemas work). A layout without props needs
-  none: `<html lang="en">` (or `data-sn-layout=""`).
+  none: `<html lang="en">` (or `data-sn-props=""`).
   A layout emits no events and has no script; the components it uses may have both.
 - Slots are `<slot>` elements, named, in the head or the body, with fallback content for a page that
   leaves them empty. The default slot is in the body: it takes the page's content without `slot`.
@@ -97,7 +97,7 @@ A head component holds head elements, any number of them, inlined where its tag 
 
 ```html
 <!-- src/components/seo-tags.html -->
-<template data-sn-head="{ title?: string; description?: string }">
+<template data-sn-props="{ title?: string; description?: string }">
   <title data-sn-text="title ? title + ' · My Blog' : 'My Blog'">My Blog</title>
   <meta name="description" content="Notes on the web." data-sn-attr="{ content: description ?? 'Notes on the web.' }">
   <meta property="og:title" content="My Blog" data-sn-attr="{ content: title ?? 'My Blog' }">
@@ -105,7 +105,7 @@ A head component holds head elements, any number of them, inlined where its tag 
 </template>
 ```
 
-It is declared with `data-sn-head` instead of `data-sn-component` and used in a head: a layout's, a
+It is declared with `data-sn-props` like any component, holds head elements only, and is used in a head: a layout's, a
 page's, or a head slot's content. See [components](components.md#head-components).
 
 ## Values and markup into the head

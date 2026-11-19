@@ -4,13 +4,13 @@ import { expect, test } from 'vitest';
 import { compile } from '../../src/compiler/index.js';
 
 const C: Record<string, string> = {
-  'x-doc': `<template data-sn-component="{ doc: any }"><article><template data-sn-for="b in doc.children"><sn-component use="{ list: 'x-list', h: 'x-h', deep: 'x-deep' }[b.type]" data-sn-prop="{ node: b }"></sn-component></template></article></template>`,
-  'x-list': `<template data-sn-component="{ node: any }"><template data-sn-if="node.ordered"><ol><template data-sn-for="i in node.children"><li data-sn-text="i"></li></template></ol></template><template data-sn-else><ul><template data-sn-for="i in node.children"><li data-sn-text="i"></li></template></ul></template></template>`,
-  'x-h': `<template data-sn-component="{ node: any }"><template data-sn-if="node.depth === 1"><h1 data-sn-text="node.value"></h1></template><template data-sn-else><template data-sn-if="node.depth === 2"><h2 data-sn-text="node.value"></h2></template><template data-sn-else><h3 data-sn-text="node.value"></h3></template></template></template>`,
+  'x-doc': `<template data-sn-props="{ doc: any }"><article><template data-sn-for="b in doc.children"><sn-component use="{ list: 'x-list', h: 'x-h', deep: 'x-deep' }[b.type]" data-sn-prop="{ node: b }"></sn-component></template></article></template>`,
+  'x-list': `<template data-sn-props="{ node: any }"><template data-sn-if="node.ordered"><ol><template data-sn-for="i in node.children"><li data-sn-text="i"></li></template></ol></template><template data-sn-else><ul><template data-sn-for="i in node.children"><li data-sn-text="i"></li></template></ul></template></template>`,
+  'x-h': `<template data-sn-props="{ node: any }"><template data-sn-if="node.depth === 1"><h1 data-sn-text="node.value"></h1></template><template data-sn-else><template data-sn-if="node.depth === 2"><h2 data-sn-text="node.value"></h2></template><template data-sn-else><h3 data-sn-text="node.value"></h3></template></template></template>`,
   // a component used inside itself whose root is a chain
-  'x-t': `<template data-sn-component="{ node: any }"><template data-sn-if="node.kids"><ul><template data-sn-for="k in node.kids"><li><x-t data-sn-prop="{ node: k }"></x-t></li></template></ul></template><template data-sn-else><span data-sn-text="node.v"></span></template></template>`,
+  'x-t': `<template data-sn-props="{ node: any }"><template data-sn-if="node.kids"><ul><template data-sn-for="k in node.kids"><li><x-t data-sn-prop="{ node: k }"></x-t></li></template></ul></template><template data-sn-else><span data-sn-text="node.v"></span></template></template>`,
   // one level deeper: a loop in a branch of a chain nested in the else of a chain root
-  'x-deep': `<template data-sn-component="{ node: any }"><template data-sn-if="node.kind === 'a'"><p data-sn-text="node.kind"></p></template><template data-sn-else><template data-sn-if="node.kind === 'b'"><ol><template data-sn-for="i in node.children"><li data-sn-text="i"></li></template></ol></template><template data-sn-else><ul><template data-sn-for="i in node.children"><li data-sn-text="i"></li></template></ul></template></template></template>`,
+  'x-deep': `<template data-sn-props="{ node: any }"><template data-sn-if="node.kind === 'a'"><p data-sn-text="node.kind"></p></template><template data-sn-else><template data-sn-if="node.kind === 'b'"><ol><template data-sn-for="i in node.children"><li data-sn-text="i"></li></template></ol></template><template data-sn-else><ul><template data-sn-for="i in node.children"><li data-sn-text="i"></li></template></ul></template></template></template>`,
 };
 function build(doc: unknown, page = '<x-doc data-sn-prop="{ doc }"></x-doc>') {
   const files: Record<string, string> = { '/p/doc.json': JSON.stringify(doc) };

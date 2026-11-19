@@ -1,4 +1,4 @@
 <!-- A list: an if chain over `ordered`. Each item knows whether the list is tight (no <p> in its items). -->
-<template data-sn-component="{ node: List }">
+<template data-sn-props="{ node: List }">
   <template data-sn-if="node.ordered"><ol data-sn-attr="{ start: node.start === 1 ? null : node.start }"><template data-sn-for="i in node.children"><md-list-item data-sn-prop="{ node: i, tight: !node.spread }"></md-list-item></template></ol></template><template data-sn-else><ul><template data-sn-for="i in node.children"><md-list-item data-sn-prop="{ node: i, tight: !node.spread }"></md-list-item></template></ul></template>
 </template>

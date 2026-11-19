@@ -65,7 +65,7 @@ describe('merge(item) and remove(item)', () => {
       <sn-resource name="messages" src="/api/m" key="id"></sn-resource>
       <ul><template data-sn-for="m in messages"><mail-row data-sn-prop="{ message: m }" data-sn-on-archive="remove($event.detail)"></mail-row></template></ul>`, {
       requests,
-      components: { 'mail-row': `<template data-sn-component="{ message: { id: number; s: string; f: boolean } }" data-sn-emits="{ archive: unknown }">
+      components: { 'mail-row': `<template data-sn-props="{ message: { id: number; s: string; f: boolean } }" data-sn-emits="{ archive: unknown }">
   <li><b data-sn-on-click="merge(message, { f: true })" data-sn-text="message.s + (message.f ? '!' : '')"></b><button data-sn-on-click="emit('archive', message)">x</button></li>
 </template>` },
     });

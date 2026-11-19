@@ -42,7 +42,7 @@ describe('nested loops over constants', () => {
   });
 
   test('a component in the rows, with a loop of its own over its prop', () => {
-    const files = { '/p/src/components/tag-list.html': '<template data-sn-component="{ tags: string[] }"><ul><template data-sn-for="t in tags" data-sn-key="t"><li data-sn-text="t"></li></template></ul></template>' };
+    const files = { '/p/src/components/tag-list.html': '<template data-sn-props="{ tags: string[] }"><ul><template data-sn-for="t in tags" data-sn-key="t"><li data-sn-text="t"></li></template></ul></template>' };
     expect(unrolled(`<template data-sn-for="g in [{ tags: ['x', 'y'] }, { tags: [] }]"><tag-list data-sn-prop="{ tags: g.tags }"></tag-list></template>`, files))
       .toBe('<ul><li>x</li><li>y</li></ul><ul></ul>');
   });
@@ -75,18 +75,18 @@ describe('decided per unrolled copy', () => {
   });
 
   const blocks = {
-    '/p/src/components/x-hero.html': '<template data-sn-component="{ v: string }"><h1 data-sn-text="v"></h1></template>',
-    '/p/src/components/x-note.html': '<template data-sn-component="{ v: string }"><aside data-sn-text="v"></aside></template>',
+    '/p/src/components/x-hero.html': '<template data-sn-props="{ v: string }"><h1 data-sn-text="v"></h1></template>',
+    '/p/src/components/x-note.html': '<template data-sn-props="{ v: string }"><aside data-sn-text="v"></aside></template>',
   };
 
   test('`<sn-component use>` per use: the component it renders, expanded at build time (step 9)', () => {
-    const files = { ...blocks, '/p/src/components/one-block.html': '<template data-sn-component="{ kind: string }"><div><sn-component use="`x-${kind}`" data-sn-prop="{ v: kind }"></sn-component></div></template>' };
+    const files = { ...blocks, '/p/src/components/one-block.html': '<template data-sn-props="{ kind: string }"><div><sn-component use="`x-${kind}`" data-sn-prop="{ v: kind }"></sn-component></div></template>' };
     expect(unrolled("<one-block data-sn-prop=\"{ kind: 'hero' }\"></one-block><one-block data-sn-prop=\"{ kind: 'note' }\"></one-block>", files))
       .toBe('<div><h1>hero</h1></div><div><aside>note</aside></div>');
   });
 
   test('`<sn-component use>` per use, over data: the one case it renders is left', () => {
-    const files = { ...blocks, '/p/src/components/one-block.html': '<template data-sn-component="{ kind: string; v: string }"><div><sn-component use="`x-${kind}`" data-sn-prop="{ v }"></sn-component></div></template>' };
+    const files = { ...blocks, '/p/src/components/one-block.html': '<template data-sn-props="{ kind: string; v: string }"><div><sn-component use="`x-${kind}`" data-sn-prop="{ v }"></sn-component></div></template>' };
     const out = build("<sn-resource name=\"r\" src=\"/api/r\"></sn-resource><one-block data-sn-prop=\"{ kind: 'hero', v: r }\"></one-block><one-block data-sn-prop=\"{ kind: 'note', v: r }\"></one-block>", files);
     expect(out.diagnostics).toEqual([]);
     // one choice node per use, each with the one case it renders (before: both candidates in each)
@@ -104,7 +104,7 @@ describe('decided per unrolled copy', () => {
 
 describe('uses', () => {
   const files = {
-    '/p/src/components/x-list.html': '<template data-sn-component="{ items: string[]; open: boolean }"><ul><template data-sn-if="open"><li>open</li></template><template data-sn-for="i in items" data-sn-key="i"><li data-sn-text="i"></li></template></ul></template>',
+    '/p/src/components/x-list.html': '<template data-sn-props="{ items: string[]; open: boolean }"><ul><template data-sn-if="open"><li>open</li></template><template data-sn-for="i in items" data-sn-key="i"><li data-sn-text="i"></li></template></ul></template>',
   };
 
   test('uses that disagree: each decided and unrolled on its own', () => {

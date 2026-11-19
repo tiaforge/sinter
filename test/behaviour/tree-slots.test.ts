@@ -11,13 +11,13 @@ const BLOCKS = "{ para: 'x-para', list: 'x-list' }";
 const INLINES = "{ text: 'x-text', em: 'x-em', link: 'x-link' }";
 const inl = (list = 'node.children') => `<template data-sn-for="n in ${list}"><sn-component use="${INLINES}[n.type]" data-sn-prop="{ node: n }"></sn-component></template>`;
 const TREE = {
-  'x-doc': `<template data-sn-component="{ doc: any; link: Slot<{ node: any }>; emph: Slot<{ node: any }> }"><div class="doc"><template data-sn-for="b in doc.children"><sn-component use="${BLOCKS}[b.type]" data-sn-prop="{ node: b }"></sn-component></template></div></template>`,
-  'x-para': `<template data-sn-component="{ node: any }"><p>${inl()}</p></template>`,
-  'x-list': `<template data-sn-component="{ node: any }"><ul><template data-sn-for="i in node.children"><li><template data-sn-for="b in i.children"><sn-component use="${BLOCKS}[b.type]" data-sn-prop="{ node: b }"></sn-component></template></li></template></ul></template>`,
-  'x-text': '<template data-sn-component="{ node: any }"><span data-sn-text="node.value"></span></template>',
-  'x-em': `<template data-sn-component="{ node: any }"><slot name="emph" data-sn-prop="{ node }"><em>${inl()}</em></slot></template>`,
+  'x-doc': `<template data-sn-props="{ doc: any; link: Slot<{ node: any }>; emph: Slot<{ node: any }> }"><div class="doc"><template data-sn-for="b in doc.children"><sn-component use="${BLOCKS}[b.type]" data-sn-prop="{ node: b }"></sn-component></template></div></template>`,
+  'x-para': `<template data-sn-props="{ node: any }"><p>${inl()}</p></template>`,
+  'x-list': `<template data-sn-props="{ node: any }"><ul><template data-sn-for="i in node.children"><li><template data-sn-for="b in i.children"><sn-component use="${BLOCKS}[b.type]" data-sn-prop="{ node: b }"></sn-component></template></li></template></ul></template>`,
+  'x-text': '<template data-sn-props="{ node: any }"><span data-sn-text="node.value"></span></template>',
+  'x-em': `<template data-sn-props="{ node: any }"><slot name="emph" data-sn-prop="{ node }"><em>${inl()}</em></slot></template>`,
   // deep inside: its root is the tree placement
-  'x-link': `<template data-sn-component="{ node: any }"><slot name="link" data-sn-prop="{ node }"><a data-sn-attr="{ href: node.url }">${inl()}</a></slot></template>`,
+  'x-link': `<template data-sn-props="{ node: any }"><slot name="link" data-sn-prop="{ node }"><a data-sn-attr="{ href: node.url }">${inl()}</a></slot></template>`,
 };
 const t = (value: string) => ({ type: 'text', value });
 const link = (url: string, ...children: any[]) => ({ type: 'link', url, children });
@@ -67,7 +67,7 @@ describe('a recursive tree with a link fill', () => {
 
 describe('app-wide looks: a wrapper', () => {
   test('its root is the tree root: its own link fill everywhere, a forwarded slot the page fills, the page\'s class on the root', async () => {
-    const WRAP = `<template data-sn-component="{ doc: any; emph: Slot<{ node: any }> }"><x-doc data-sn-prop="{ doc }"><a slot="link" class="w" data-sn-attr="{ href: $slot.node.url }"><slot></slot></a><slot name="emph" slot="emph" data-sn-prop="{ node: $slot.node }"></slot></x-doc></template>`;
+    const WRAP = `<template data-sn-props="{ doc: any; emph: Slot<{ node: any }> }"><x-doc data-sn-prop="{ doc }"><a slot="link" class="w" data-sn-attr="{ href: $slot.node.url }"><slot></slot></a><slot name="emph" slot="emph" data-sn-prop="{ node: $slot.node }"></slot></x-doc></template>`;
     const page = (fill: string) => `<div data-sn-state="{ doc: ${docState} }"><x-wrap class="page" data-sn-prop="{ doc }">${fill}</x-wrap></div>`;
     const { root } = await render(page('<strong slot="emph"><slot></slot></strong>'), { components: { ...TREE, 'x-wrap': WRAP } });
     expect(root.querySelector('div.doc.page')).not.toBeNull();

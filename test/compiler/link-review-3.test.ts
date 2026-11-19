@@ -9,14 +9,14 @@ import { compile } from '../../src/compiler/index.js';
 
 const INL = "{ text: 'x-text', link: 'x-link' }";
 const BASE: Record<string, string> = {
-  'x-doc': `<template data-sn-component="{ doc: any }"><div><template data-sn-for="n in doc.children"><sn-component use="${INL}[n.type]" data-sn-prop="{ node: n }"></sn-component></template></div></template>`,
-  'x-text': '<template data-sn-component="{ node: any }"><span data-sn-text="node.value"></span></template>',
-  'x-link': `<template data-sn-component="{ node: any }"><a data-sn-attr="{ href: node.url }"><template data-sn-for="n in node.children"><sn-component use="${INL}[n.type]" data-sn-prop="{ node: n }"></sn-component></template></a></template>`,
+  'x-doc': `<template data-sn-props="{ doc: any }"><div><template data-sn-for="n in doc.children"><sn-component use="${INL}[n.type]" data-sn-prop="{ node: n }"></sn-component></template></div></template>`,
+  'x-text': '<template data-sn-props="{ node: any }"><span data-sn-text="node.value"></span></template>',
+  'x-link': `<template data-sn-props="{ node: any }"><a data-sn-attr="{ href: node.url }"><template data-sn-for="n in node.children"><sn-component use="${INL}[n.type]" data-sn-prop="{ node: n }"></sn-component></template></a></template>`,
 };
 /** `x-text` (the first definition a page needs) with `extra` inside its one root */
-const textWith = (extra: string) => ({ 'x-text': `<template data-sn-component="{ node: any }"><span class="tx"><span data-sn-text="node.value"></span>${extra}</span></template>` });
+const textWith = (extra: string) => ({ 'x-text': `<template data-sn-props="{ node: any }"><span class="tx"><span data-sn-text="node.value"></span>${extra}</span></template>` });
 /** a component used inside itself (one definition, no other read by it), with `extra` inside its one root */
-const tree = (name: string, extra = '', decl = '') => ({ [name]: `<template data-sn-component="{ node: any }"${decl}><div><span data-sn-text="node.v"></span>${extra}<template data-sn-for="k in node.kids"><${name} data-sn-prop="{ node: k }"></${name}></template></div></template>` });
+const tree = (name: string, extra = '', decl = '') => ({ [name]: `<template data-sn-props="{ node: any }"${decl}><div><span data-sn-text="node.v"></span>${extra}<template data-sn-for="k in node.kids"><${name} data-sn-prop="{ node: k }"></${name}></template></div></template>` });
 const use = (name: string) => `<${name} data-sn-prop="{ node: doc }"></${name}>`;
 const TREE = '<x-doc data-sn-prop="{ doc }"></x-doc>';
 const DOC = '<sn-resource name="doc" src="/api/doc"></sn-resource>';
@@ -80,8 +80,8 @@ test('2. `emit()` in a definition, linked into a page whose uses are numbered ot
   const used = '<ul><template data-sn-for="z in other"><li data-sn-text="z.t"></li></template></ul>';
   const more = {
     ...tree('x-ta', '<template data-sn-for="o in other"><button data-sn-on-click="emit(\'pick\', o)">p</button></template>', ' data-sn-emits="{ pick: any }"'),
-    'x-box': '<template data-sn-component="{ t: string }"><section><h2 data-sn-text="t"></h2><slot></slot></section></template>',
-    'x-quiet': '<template data-sn-component="{ t: string }" data-sn-emits="{ pick: any }"><p data-sn-text="t"></p></template>',
+    'x-box': '<template data-sn-props="{ t: string }"><section><h2 data-sn-text="t"></h2><slot></slot></section></template>',
+    'x-quiet': '<template data-sn-props="{ t: string }" data-sn-emits="{ pick: any }"><p data-sn-text="t"></p></template>',
   };
   // (four bound nodes before the tree on every page)
   const plain = '<b data-sn-text="doc.z1"></b><b data-sn-text="doc.z2"></b><b data-sn-text="doc.z3"></b>';
@@ -99,9 +99,9 @@ test('2. `emit()` in a definition, linked into a page whose uses are numbered ot
 test('3. attributes passed to an earlier definition, on a page where its template\'s name is another definition\'s', () => {
   const more = {
     ...tree('x-ta'), ...tree('x-tb'),
-    'x-wrapb': '<template data-sn-component="{ node: any }"><sn-component use="{ b: \'x-tb\' }[node.type]" data-sn-prop="{ node: node }"></sn-component></template>',
-    'x-tc': '<template data-sn-component="{ node: any }"><p><x-wrapb class="hot" data-sn-class="{ on: node.on }" data-sn-prop="{ node: node }"></x-wrapb></p></template>',
-    'x-docc': '<template data-sn-component="{ doc: any }"><div><template data-sn-for="n in doc.children"><sn-component use="{ c: \'x-tc\' }[n.type]" data-sn-prop="{ node: n }"></sn-component></template></div></template>',
+    'x-wrapb': '<template data-sn-props="{ node: any }"><sn-component use="{ b: \'x-tb\' }[node.type]" data-sn-prop="{ node: node }"></sn-component></template>',
+    'x-tc': '<template data-sn-props="{ node: any }"><p><x-wrapb class="hot" data-sn-class="{ on: node.on }" data-sn-prop="{ node: node }"></x-wrapb></p></template>',
+    'x-docc': '<template data-sn-props="{ doc: any }"><div><template data-sn-for="n in doc.children"><sn-component use="{ c: \'x-tc\' }[n.type]" data-sn-prop="{ node: n }"></sn-component></template></div></template>',
   };
   const three = use('x-ta') + use('x-tb') + '<x-docc data-sn-prop="{ doc }"></x-docc>';
   linked(abc({ body: loops(1) + three }, { body: loops(4) + three }), more);

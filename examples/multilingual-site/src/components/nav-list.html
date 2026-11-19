@@ -1,4 +1,4 @@
-<template data-sn-component="{ current: string; items: { id: string; href: string; label: string }[] }">
+<template data-sn-props="{ current: string; items: { id: string; href: string; label: string }[] }">
   <ul class="nav">
     <template data-sn-for="i in items">
       <li><a data-sn-attr="{ href: i.href, 'aria-current': i.id === current ? 'page' : null }" data-sn-text="i.label"></a></li>

@@ -7,7 +7,7 @@ browser work and writes the component's state.
 
 ```html
 <!-- src/components/task-ring.html: the only contract -->
-<template data-sn-component="{ done: number; open: number }" data-sn-emits="{ pick: 'done' | 'open' }">
+<template data-sn-props="{ done: number; open: number }" data-sn-emits="{ pick: 'done' | 'open' }">
   <figure>
     <canvas data-sn-ref="canvas" role="img" data-sn-attr="{ 'aria-label': done + ' of ' + (done + open) + ' done' }"></canvas>
     <figcaption data-sn-text="done + ' / ' + (done + open)"></figcaption>

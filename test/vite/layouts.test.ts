@@ -19,7 +19,7 @@ const root = join(dir, 'app'), out = join(dir, 'dist');
 const listen = (s: Server) => new Promise<number>((r) => s.listen(0, '127.0.0.1', () => r((s.address() as { port: number }).port)));
 const files: Record<string, string> = {
   'src/layouts/site-layout.html': `<!doctype html>
-<html lang="en" data-sn-layout="{ title?: string; nav: string }">
+<html lang="en" data-sn-props="{ title?: string; nav: string }">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -34,11 +34,11 @@ const files: Record<string, string> = {
 </body>
 </html>
 `,
-  'src/components/seo-tags.html': `<template data-sn-head="{ title?: string }">
+  'src/components/seo-tags.html': `<template data-sn-props="{ title?: string }">
   <title data-sn-text="title ? title + ' · Blog' : 'Blog'">Blog</title>
 </template>
 `,
-  'src/components/site-header.html': `<template data-sn-component="{ nav: string }">
+  'src/components/site-header.html': `<template data-sn-props="{ nav: string }">
   <header class="site-header"><a href="/" data-sn-class="{ active: nav == 'home' }">Home</a></header>
 </template>
 <style>.site-header { display: flex; }</style>
@@ -71,7 +71,7 @@ afterAll(() => rmSync(dir, { recursive: true, force: true }));
 test('the merged head is what the build sees: the layout\'s script and stylesheet bundled, the early scripts first, the preload', () => {
   const html = readFileSync(join(out, 'blog/post.html'), 'utf8');
   expect(html).toMatch(/^<!DOCTYPE html>\s*<html lang="en" data-sn="0">/);
-  expect(html).not.toMatch(/site-layout|seo-tags|<slot|data-sn-layout/);
+  expect(html).not.toMatch(/site-layout|seo-tags|<slot|data-sn-props/);
   const head = /<head>([\s\S]*)<\/head>/.exec(html)![1]!;
   expect(head).toMatch(/<title data-sn="\d+">Blog<\/title>/);
   expect(head).toContain('<link rel="preload" as="fetch" crossorigin="" href="/api/post">');

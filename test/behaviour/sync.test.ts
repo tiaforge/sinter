@@ -295,7 +295,7 @@ test('<sn-sync>s that share a stream URL share one connection, and all their eve
       ${PAGE}
       <p data-sn-text="n.unread"></p>`, {
       requests,
-      components: { 'nav-sync': `<template data-sn-component=""><div><sn-resource name="n" src="/api/n"></sn-resource>
+      components: { 'nav-sync': `<template data-sn-props=""><div><sn-resource name="n" src="/api/n"></sn-resource>
         <sn-sync src="/api/events/stream">
           <sn-event name="unread" resource="n" op="upsert"></sn-event>
           <sn-event name="contacts_refetch" resource="n" op="refresh"></sn-event>

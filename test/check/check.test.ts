@@ -132,8 +132,8 @@ declare global {
     one(page(`<div data-sn-state="{ n: 0 }"><mail-reader data-sn-on-reader-flag="n = $event.detail"></mail-reader></div>`), /Type 'boolean' is not assignable to type 'number'/, 'n = $event', island);
   });
 
-  test('components: props typed by data-sn-component at the call site and inside, $event.detail by data-sn-emits', () => {
-    const card = { 'src/components/contact-card.html': `<template data-sn-component="{ contact: Contact; compact?: boolean }" data-sn-emits="{ pick: Contact }">
+  test('components: props typed by data-sn-props at the call site and inside, $event.detail by data-sn-emits', () => {
+    const card = { 'src/components/contact-card.html': `<template data-sn-props="{ contact: Contact; compact?: boolean }" data-sn-emits="{ pick: Contact }">
   <div><h2 data-sn-text="contact.name"></h2><button data-sn-on-click="emit('pick', contact)"></button></div>
 </template>` };
     const ok = page(`<div data-sn-state="{ sel: /** @type {Contact|null} */ (null) }">
@@ -149,8 +149,8 @@ declare global {
     expect(r.diagnostics[0]!.file).toMatch(/src\/components\/contact-card.html$/);
   });
 
-  test('head components: props typed by data-sn-head at the call site and inside', () => {
-    const seo = { 'src/components/seo-tags.html': `<template data-sn-head="{ contact: Contact; count?: number }">
+  test('head components: props typed by data-sn-props at the call site and inside', () => {
+    const seo = { 'src/components/seo-tags.html': `<template data-sn-props="{ contact: Contact; count?: number }">
   <title data-sn-text="contact.name"></title>
 </template>` };
     const html = (use: string) => `<!doctype html><html><head>
@@ -164,9 +164,9 @@ ${use}
     expect(r.diagnostics[0]!.file).toMatch(/src\/components\/seo-tags.html$/);
   });
 
-  test('layouts: props typed by data-sn-layout at the page\'s tag and inside the layout, the page\'s state in its slots', () => {
+  test('layouts: props typed by data-sn-props at the page\'s tag and inside the layout, the page\'s state in its slots', () => {
     const layout = { 'src/layouts/site-layout.html': `<!doctype html>
-<html data-sn-layout="{ contact: Contact; count?: number }">
+<html data-sn-props="{ contact: Contact; count?: number }">
 <head><title data-sn-text="contact.name"></title><slot name="head"></slot></head>
 <body><slot></slot></body>
 </html>` };
@@ -192,8 +192,8 @@ export type AnyBlock = Hero | Text | Image;
 `;
     const files = {
       'src/sinter.types.ts': types,
-      'src/components/hero-block.html': '<template data-sn-component="{ block: Hero }"><h1 data-sn-text="block.title"></h1></template>',
-      'src/components/text-block.html': '<template data-sn-component="{ block: Text }"><p data-sn-text="block.body"></p></template>',
+      'src/components/hero-block.html': '<template data-sn-props="{ block: Hero }"><h1 data-sn-text="block.title"></h1></template>',
+      'src/components/text-block.html': '<template data-sn-props="{ block: Text }"><p data-sn-text="block.body"></p></template>',
     };
     const html = (t: string, use: string) => `<!doctype html><html><head></head><body>
 <sn-resource name="blocks" src="/api/b" key="id" type="${t}[]"></sn-resource>
@@ -216,8 +216,8 @@ export type Inline = Plain | Strong | Ref;
 `;
     const files = {
       'src/sinter.types.ts': types,
-      'src/components/x-strong.html': '<template data-sn-component="{ node: Strong }"><b data-sn-text="node.children.length"></b></template>',
-      'src/components/x-ref.html': '<template data-sn-component="{ node: Ref }"><a data-sn-attr="{ href: node.url }"></a></template>',
+      'src/components/x-strong.html': '<template data-sn-props="{ node: Strong }"><b data-sn-text="node.children.length"></b></template>',
+      'src/components/x-ref.html': '<template data-sn-props="{ node: Ref }"><a data-sn-attr="{ href: node.url }"></a></template>',
     };
     const html = (body: string) => `<!doctype html><html><head></head><body>
 <sn-resource name="nodes" src="/api/n" type="Inline[]"></sn-resource>
@@ -252,8 +252,8 @@ export type Block = Para | Quote | Rule;
 `;
     const files = {
       'src/sinter.types.ts': types,
-      'src/components/x-para.html': '<template data-sn-component="{ node: Para }"><p data-sn-text="node.text"></p></template>',
-      'src/components/x-quote.html': '<template data-sn-component="{ node: Quote }"><blockquote data-sn-text="node.text"></blockquote></template>',
+      'src/components/x-para.html': '<template data-sn-props="{ node: Para }"><p data-sn-text="node.text"></p></template>',
+      'src/components/x-quote.html': '<template data-sn-props="{ node: Quote }"><blockquote data-sn-text="node.text"></blockquote></template>',
     };
     const use = `{ para: 'x-para', quote: 'x-quote' }[b.type]`;
     const html = `<!doctype html><html><head></head><body>
@@ -292,7 +292,7 @@ export type Block = Para | Quote | Rule;
 
   test('a static page: a component prop in a loop over constants keeps its loop variable (the check reads the page as written, not unrolled)', () => {
     // a benchmark agent's `sinter check` failed 13 times with "Cannot find name 'p'" and it dropped `static: true` to pass
-    const root = project({ 'src/components/post-item.html': '<template data-sn-component="{ post: { title: string } }"><li data-sn-text="post.title"></li></template>' });
+    const root = project({ 'src/components/post-item.html': '<template data-sn-props="{ post: { title: string } }"><li data-sn-text="post.title"></li></template>' });
     const page = (prop: string) => `<!doctype html><html><head><title>x</title></head><body><ul data-sn-state="{ posts: [{ title: 'a' }, { title: 'b' }] }"><template data-sn-for="p in posts"><post-item data-sn-prop="{ post: ${prop} }"></post-item></template></ul></body></html>`;
     const errors = (prop: string) => {
       const file = join(root, 'index.html'), html = page(prop);
@@ -568,7 +568,7 @@ export const initial = (c: Contact): string => (c.name[0] ?? '?').toUpperCase();
   });
 
   test('a component maps to its own file, with where it is used', () => {
-    const row = '<template data-sn-component="{ c: Contact }"><li>\n  <b data-sn-text="c.emial"></b></li></template>';
+    const row = '<template data-sn-props="{ c: Contact }"><li>\n  <b data-sn-text="c.emial"></b></li></template>';
     const r = run(page('<ul><template data-sn-for="c in contacts"><contact-row data-sn-prop="{ c }"></contact-row></template></ul>'), { 'src/components/contact-row.html': row });
     expect(r.compile).toEqual([]);
     expect(r.diagnostics).toHaveLength(1);
@@ -755,7 +755,7 @@ components:`);
 
 
 describe('slots that pass data', () => {
-  const table = (placement = '{ contact: c, column: k }') => ({ 'src/components/contact-table.html': `<template data-sn-component="{ rows: Contact[]; columns: (keyof Contact)[]; cell: Slot<{ contact: Contact; column: keyof Contact }> }">
+  const table = (placement = '{ contact: c, column: k }') => ({ 'src/components/contact-table.html': `<template data-sn-props="{ rows: Contact[]; columns: (keyof Contact)[]; cell: Slot<{ contact: Contact; column: keyof Contact }> }">
   <table><template data-sn-for="c in rows"><tr><template data-sn-for="k in columns"><td><slot name="cell" data-sn-prop="${placement}"><span data-sn-text="c[k]"></span></slot></td></template></tr></template></table>
 </template>` });
   const use = (fill: string) => page(`<contact-table data-sn-prop="{ rows: contacts, columns: ['name'] }">${fill}</contact-table>`);
@@ -774,7 +774,7 @@ describe('slots that pass data', () => {
 
   test('a Slot<T> in a type alias is an error', () => {
     const types = `${TYPES}export type CellProps = { cell: Slot<{ n: number }> };\n`;
-    const r = run(page('<x-cell></x-cell>'), { 'src/sinter.types.ts': types, 'src/components/x-cell.html': '<template data-sn-component="CellProps"><div data-sn-text="1"></div></template>' });
+    const r = run(page('<x-cell></x-cell>'), { 'src/sinter.types.ts': types, 'src/components/x-cell.html': '<template data-sn-props="CellProps"><div data-sn-text="1"></div></template>' });
     expect(r.diagnostics.map((d) => d.message)).toEqual([expect.stringMatching(/a Slot<T> member is in a type alias: write the props as a type literal/)]);
   });
 });

@@ -6,14 +6,14 @@ import { compactIR, validateIR } from '../../src/ir.js';
 
 const dir = resolve(__dirname, 'golden');
 const files: Record<string, string> = {
-  [`${dir}/src/components/article-card.html`]: `<template data-sn-component="{ article: { slug: string; title: string }; compact?: boolean }" data-sn-emits="{ select: string }">
+  [`${dir}/src/components/article-card.html`]: `<template data-sn-props="{ article: { slug: string; title: string }; compact?: boolean }" data-sn-emits="{ select: string }">
   <article data-sn-class="{ compact }">
     <h2 data-sn-text="article.title" data-sn-on-click="emit('select', article.slug)"></h2>
     <slot name="meta"></slot>
     <ul><template data-sn-for="a in [1, 2]" data-sn-key="a"><li data-sn-text="article.slug + a"></li></template></ul>
   </article>
 </template>`,
-  [`${dir}/src/components/rating-input.html`]: `<template data-sn-component="{ value: string | null }" data-sn-emits="{ change: string }">
+  [`${dir}/src/components/rating-input.html`]: `<template data-sn-props="{ value: string | null }" data-sn-emits="{ change: string }">
   <button data-sn-on-click="emit('change', 'x')" data-sn-text="value ?? '-'"></button>
 </template>`,
 };

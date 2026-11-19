@@ -8,7 +8,7 @@ import { firstPaint, mockRequests, render } from '../../src/testing/index.js';
 const files = {
   'post.txt': 'Hello <world> </script> ok',
   'data/tags.json': JSON.stringify({ tags: [{ id: 1, name: 'a' }, { id: 2, name: 'b' }] }),
-  'src/components/x-note.html': '<template data-sn-component="{}"><p><sn-resource name="note" src="file:./note.txt"></sn-resource><span data-sn-text="note"></span></p></template>',
+  'src/components/x-note.html': '<template data-sn-props="{}"><p><sn-resource name="note" src="file:./note.txt"></sn-resource><span data-sn-text="note"></span></p></template>',
   'src/components/note.txt': 'from the component folder',
 };
 

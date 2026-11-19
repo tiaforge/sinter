@@ -102,7 +102,7 @@ describe('white space', () => {
   });
 
   test("markup a component's scoped styles reach is left as written", () => {
-    const card = '<template data-sn-component>\n  <div class="c">\n    <b>x</b>\n    <i>y</i>\n  </div>\n</template>\n<style>.c { display: flex }</style>';
+    const card = '<template data-sn-props>\n  <div class="c">\n    <b>x</b>\n    <i>y</i>\n  </div>\n</template>\n<style>.c { display: flex }</style>';
     const out = build(live('<x-card></x-card>'), '', { componentNames: ['x-card'], readFile: (f: string) => { if (f === '/p/src/components/x-card.html') return card; throw new Error('missing'); } });
     expect(out.diagnostics.filter((d) => d.severity === 'error')).toEqual([]);
     expect(out.html).toMatch(/<b>x<\/b>\n    <i>y<\/i>/);

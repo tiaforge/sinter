@@ -5,18 +5,18 @@ import { describe, expect, test } from 'vitest';
 import { firstPaint, render } from '../../src/testing/index.js';
 
 const C: Record<string, string> = {
-  'x-plain': `<template data-sn-component="{ href?: string; label: string }"><a data-sn-attr="{ href }" data-sn-text="label"></a></template>`,
-  'x-ifelse': `<template data-sn-component="{ href?: string; label: string }"><template data-sn-if="href"><a data-sn-attr="{ href }" data-sn-text="label"></a></template><template data-sn-else><button type="button" data-sn-text="label"></button></template></template>`,
-  'x-var': `<template data-sn-component="{ href?: string; label: string }"><x-ifelse class="v" data-sn-prop="{ href, label: label + '!' }"></x-ifelse></template>`,
-  'x-c2': `<template data-sn-component="{ x: any }"><sn-component use="{ a: 'x-plain', v: 'x-var', i: 'x-ifelse' }[x.k]" data-sn-prop="{ href: x.href, label: x.t }"></sn-component></template>`,
+  'x-plain': `<template data-sn-props="{ href?: string; label: string }"><a data-sn-attr="{ href }" data-sn-text="label"></a></template>`,
+  'x-ifelse': `<template data-sn-props="{ href?: string; label: string }"><template data-sn-if="href"><a data-sn-attr="{ href }" data-sn-text="label"></a></template><template data-sn-else><button type="button" data-sn-text="label"></button></template></template>`,
+  'x-var': `<template data-sn-props="{ href?: string; label: string }"><x-ifelse class="v" data-sn-prop="{ href, label: label + '!' }"></x-ifelse></template>`,
+  'x-c2': `<template data-sn-props="{ x: any }"><sn-component use="{ a: 'x-plain', v: 'x-var', i: 'x-ifelse' }[x.k]" data-sn-prop="{ href: x.href, label: x.t }"></sn-component></template>`,
   // an outer component whose own props have the inner's names, with other values
-  'x-out': `<template data-sn-component="{ n: any; href?: string; label: string }"><span><x-ifelse data-sn-prop="{ href: n.href, label: n.t }"></x-ifelse></span></template>`,
-  'x-outv': `<template data-sn-component="{ n: any; href?: string; label: string }"><span><x-var data-sn-prop="{ href: n.href, label: n.t }"></x-var></span></template>`,
+  'x-out': `<template data-sn-props="{ n: any; href?: string; label: string }"><span><x-ifelse data-sn-prop="{ href: n.href, label: n.t }"></x-ifelse></span></template>`,
+  'x-outv': `<template data-sn-props="{ n: any; href?: string; label: string }"><span><x-var data-sn-prop="{ href: n.href, label: n.t }"></x-var></span></template>`,
   // and one that lacks them
-  'x-lack': `<template data-sn-component="{ n: any }"><span><x-ifelse data-sn-prop="{ href: n.href, label: n.t }"></x-ifelse></span></template>`,
-  'x-lackv': `<template data-sn-component="{ n: any }"><span><x-var data-sn-prop="{ href: n.href, label: n.t }"></x-var></span></template>`,
-  'x-wrap': `<template data-sn-component="{}"><em><slot></slot></em></template>`,
-  'x-slot': `<template data-sn-component="{ label: string; item: Slot<{ label: string }> }"><slot name="item" data-sn-prop="{ label }"><i data-sn-text="label"></i></slot></template>`,
+  'x-lack': `<template data-sn-props="{ n: any }"><span><x-ifelse data-sn-prop="{ href: n.href, label: n.t }"></x-ifelse></span></template>`,
+  'x-lackv': `<template data-sn-props="{ n: any }"><span><x-var data-sn-prop="{ href: n.href, label: n.t }"></x-var></span></template>`,
+  'x-wrap': `<template data-sn-props="{}"><em><slot></slot></em></template>`,
+  'x-slot': `<template data-sn-props="{ label: string; item: Slot<{ label: string }> }"><slot name="item" data-sn-prop="{ label }"><i data-sn-text="label"></i></slot></template>`,
 };
 const D = "[{ t: 'A', href: '/h', on: true, k: 'i', c: [{ t: 'a1' }, { t: 'a2', href: '/a2' }] }, { t: 'B', on: false, k: 'v', c: [] }]";
 

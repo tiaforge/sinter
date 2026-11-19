@@ -4,7 +4,7 @@ import { describe, expect, test } from 'vitest';
 import { compile } from '../../src/compiler/index.js';
 import { firstPaint, mockRequests, render } from '../../src/testing/index.js';
 
-const THREAD = `<template data-sn-component="{ comment: { id: number; body: string; replies: any[] } }">
+const THREAD = `<template data-sn-props="{ comment: { id: number; body: string; replies: any[] } }">
   <li>
     <p data-sn-text="comment.body" data-sn-on-click="merge(comment, { body: comment.body + '!' })"></p>
     <button data-sn-on-click="remove(comment)">x</button>
@@ -70,9 +70,9 @@ test('first paint: a tree over state renders before the page module', async () =
 
 describe('<sn-component use>: a component chosen by data', () => {
   const BLOCKS = {
-    'hero-block': '<template data-sn-component="{ block: { type: string; title: string } }"><h1 data-sn-text="block.title"></h1></template>',
-    'text-block': '<template data-sn-component="{ block: { type: string; body: string } }"><p data-sn-text="block.body"></p></template>',
-    'rich-text': '<template data-sn-component="{ block: { body: string } }"><p class="rich" data-sn-text="block.body"></p></template>',
+    'hero-block': '<template data-sn-props="{ block: { type: string; title: string } }"><h1 data-sn-text="block.title"></h1></template>',
+    'text-block': '<template data-sn-props="{ block: { type: string; body: string } }"><p data-sn-text="block.body"></p></template>',
+    'rich-text': '<template data-sn-props="{ block: { body: string } }"><p class="rich" data-sn-text="block.body"></p></template>',
   };
   const page = (use: string) => `<div data-sn-state="{ blocks: [{ id: 1, type: 'hero', title: 'Hi', body: '' }, { id: 2, type: 'text', title: '', body: 'Body' }, { id: 3, type: 'image', title: '', body: '' }] }">
     <template data-sn-for="b in blocks" data-sn-key="b.id"><sn-component use="${use}" data-sn-prop="{ block: b }"></sn-component><template data-sn-else><i data-sn-text="'no ' + b.type"></i></template></template>
@@ -110,7 +110,7 @@ describe('write-through at any depth', () => {
       delete: { responses: { '204': { description: 'gone' } } },
     },
   }, components: { schemas: { Comment: { type: 'object', properties: { id: { type: 'integer' }, body: { type: 'string' }, replies: { type: 'array', items: { $ref: '#/components/schemas/Comment' } } } } } } };
-  const NODE = `<template data-sn-component="{ comment: { id: number; body: string; replies: any[] } }">
+  const NODE = `<template data-sn-props="{ comment: { id: number; body: string; replies: any[] } }">
   <li>
     <p data-sn-text="comment.body"></p>
     <button class="edit" data-sn-put="/api/c/{comment.id}" data-sn-body="{ body: 'edited' }"></button>
@@ -143,7 +143,7 @@ test('<sn-component use>: dev builds warn about a value outside the candidates, 
   const { vi } = await import('vitest');
   const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
   try {
-    const C = { 'hero-block': '<template data-sn-component="{ block: { title: string } }"><h1 data-sn-text="block.title"></h1></template>' };
+    const C = { 'hero-block': '<template data-sn-props="{ block: { title: string } }"><h1 data-sn-text="block.title"></h1></template>' };
     const { root, state, flush } = await render(`<div data-sn-state="{ blocks: [{ id: 1, type: 'hero', title: 'Hi' }, { id: 2, type: 'image', title: '' }, { id: 3, type: 'image', title: '' }] }">
       <template data-sn-for="b in blocks" data-sn-key="b.id"><sn-component use="\`\${b.type}-block\`" data-sn-prop="{ block: b }"></sn-component></template>
       <button data-sn-on-click="blocks = []">clear</button></div>`, { components: C });
@@ -162,7 +162,7 @@ test('<sn-component use>: dev builds warn about a value outside the candidates, 
 });
 
 test('<sn-component use>: production builds carry no warning code', () => {
-  const C = '<template data-sn-component="{ block: { title: string } }"><h1 data-sn-text="block.title"></h1></template>';
+  const C = '<template data-sn-props="{ block: { title: string } }"><h1 data-sn-text="block.title"></h1></template>';
   const page = `<div data-sn-state="{ b: { type: 'image' } }"><sn-component use="\`\${b.type}-block\`" data-sn-prop="{ block: b }"></sn-component></div>`;
   const out = (dev: boolean) => compile(page, { file: '/p/i.html', root: '/p', dev, helpers: { module: null, names: [], namespaces: {} }, componentNames: ['hero-block'],
     readFile: (f) => { if (f === '/p/src/components/hero-block.html') return C; throw new Error('missing'); } }).module;
@@ -173,9 +173,9 @@ test('<sn-component use>: production builds carry no warning code', () => {
 describe('components that reach each other through <sn-component use>', () => {
   // a tree of nodes of two kinds: a block holds inlines, an inline holds inlines
   const C = {
-    'x-p': `<template data-sn-component="{ node: any }"><p><template data-sn-for="n in node.children"><sn-component use="{ text: 'x-text', em: 'x-em' }[n.type]" data-sn-prop="{ node: n }"></sn-component></template></p></template>`,
-    'x-em': `<template data-sn-component="{ node: any }"><em><template data-sn-for="n in node.children"><sn-component use="{ text: 'x-text', em: 'x-em' }[n.type]" data-sn-prop="{ node: n }"></sn-component></template></em></template>`,
-    'x-text': '<template data-sn-component="{ node: any }"><span data-sn-text="node.value"></span></template>',
+    'x-p': `<template data-sn-props="{ node: any }"><p><template data-sn-for="n in node.children"><sn-component use="{ text: 'x-text', em: 'x-em' }[n.type]" data-sn-prop="{ node: n }"></sn-component></template></p></template>`,
+    'x-em': `<template data-sn-props="{ node: any }"><em><template data-sn-for="n in node.children"><sn-component use="{ text: 'x-text', em: 'x-em' }[n.type]" data-sn-prop="{ node: n }"></sn-component></template></em></template>`,
+    'x-text': '<template data-sn-props="{ node: any }"><span data-sn-text="node.value"></span></template>',
   };
   const DOC = "{ children: [{ type: 'p', children: [{ type: 'text', value: 'a' }, { type: 'em', children: [{ type: 'em', children: [{ type: 'text', value: 'b' }] }] }] }] }";
   const page = `<div data-sn-state="{ doc: ${DOC} }"><template data-sn-for="b in doc.children"><sn-component use="{ p: 'x-p' }[b.type]" data-sn-prop="{ node: b }"></sn-component></template></div>`;

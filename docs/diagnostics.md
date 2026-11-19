@@ -298,9 +298,9 @@ Error, for example:
 
 > a component has one root element; `<article-preview>` has 2 elements at the top of its template
 
-A file in `src/components/` is not a valid component: it needs one `<template data-sn-component="{ …props }">` (and optionally a `<style>`) with exactly one root element in it, and the root cannot be a `<template>`, a `<slot>` or another component. A head component is declared with `<template data-sn-head>` instead, and holds any number of head elements. Also reported: two slots with the same name, a template with both declarations, a head component with a script, and `<sn-component use>` naming a head component.
+A file in `src/components/` is not a valid component: it needs one `<template data-sn-props="{ …props }">` (and optionally a `<style>`) with exactly one root element in it, and the root cannot be a `<template>`, a `<slot>` or another component. A head component is declared with `<template data-sn-props>` instead, and holds any number of head elements. Also reported: two slots with the same name, a template with both declarations, a head component with a script, and `<sn-component use>` naming a head component.
 
-**Fix:** Wrap the markup in one element inside `<template data-sn-component>`: the caller's classes, attributes and handlers land on it. For head elements (`<title>`, `<meta>`, …), declare the component with `<template data-sn-head>`.
+**Fix:** Wrap the markup in one element inside `<template data-sn-props>`: the caller's classes, attributes and handlers land on it. A component whose markup is head elements only (`<title>`, `<meta>`, …) is a head component, which holds any number of them.
 
 ## SN313 unknown-prop
 
@@ -308,7 +308,7 @@ Error, for example:
 
 > `artcle` is not a prop of `<article-preview>`; its props are `article`, `compact`. Did you mean `article`?
 
-`data-sn-prop` on a component passes a name its `data-sn-component` does not declare, or leaves out a prop that is not optional. Also reported: `data-sn-model` on a component without a `value` prop and a `change` event.
+`data-sn-prop` on a component passes a name its `data-sn-props` does not declare, or leaves out a prop that is not optional. Also reported: `data-sn-model` on a component without a `value` prop and a `change` event.
 
 **Fix:** Fix the name, pass the missing prop, or declare it in the component (`{ article: Article; compact?: boolean }`).
 
@@ -336,11 +336,11 @@ A component's events are the ones its `data-sn-emits` declares: `emit()` inside 
 
 Error, for example:
 
-> `<sn-include>` is removed: a partial is a component. Move `./partials/contact-dialog.html` to `src/components/contact-dialog.html`, … It reads `draft`, `save` from the page: add them to `data-sn-component` and pass them with `data-sn-prop="{ draft: draft, save: save }"`
+> `<sn-include>` is removed: a partial is a component. Move `./partials/contact-dialog.html` to `src/components/contact-dialog.html`, … It reads `draft`, `save` from the page: add them to `data-sn-props` and pass them with `data-sn-prop="{ draft: draft, save: save }"`
 
 Partials became components. A component sees only its props, so the names a partial read from the page where it was included become props; the message lists them.
 
-**Fix:** Move the file to `src/components/<name>.html` (the name needs a `-`), wrap its markup in `<template data-sn-component="{ draft: Contact; … }">` around one root element, and replace the `<sn-include>` by `<name data-sn-prop="{ draft: draft }"></name>`.
+**Fix:** Move the file to `src/components/<name>.html` (the name needs a `-`), wrap its markup in `<template data-sn-props="{ draft: Contact; … }">` around one root element, and replace the `<sn-include>` by `<name data-sn-prop="{ draft: draft }"></name>`.
 
 ## SN317 no-item-source
 
@@ -356,11 +356,11 @@ Error, for example:
 
 Error, for example:
 
-> `src/layouts/site-layout.html` is not a layout: a layout is a whole document whose `<html>` declares its props, `<html data-sn-layout="{ …props }">`
+> `src/layouts/site-layout.html` is not a layout: a layout is a whole document whose `<html>` declares its props, `<html data-sn-props="{ …props }">`
 
-A file in `src/layouts/` is a layout: a whole document (`<html>`, `<head>`, `<body>`) whose `<html>` carries `data-sn-layout` with its props type (left out, it takes none). Also reported: a page that passes `data-sn-prop` to a layout that declares no props, `data-sn-layout` anywhere else, a default slot in the layout's head (the default slot is the page's body), `data-sn-emits` on a layout, a layout with a script beside it, a layout and a component with the same name, and a layout built as a page.
+A file in `src/layouts/` is a layout: a whole document (`<html>`, `<head>`, `<body>`) whose `<html>` carries `data-sn-props` with its props type (left out, it takes none). Also reported: a page that passes `data-sn-prop` to a layout that declares no props, `data-sn-props` anywhere else, a default slot in the layout's head (the default slot is the page's body), `data-sn-emits` on a layout, a layout with a script beside it, a layout and a component with the same name, and a layout built as a page.
 
-**Fix:** Write the layout as a document: `<!doctype html><html lang="en" data-sn-layout="{ title?: string }"><head>…<slot name="head"></slot></head><body>…<slot></slot></body></html>`; a layout without props needs no `data-sn-layout` (`<html lang="en">`), but one whose pages pass `data-sn-prop` must declare those props. Name head slots; leave `src/layouts/` out of the build's inputs (a glob over every `.html` picks it up).
+**Fix:** Write the layout as a document: `<!doctype html><html lang="en" data-sn-props="{ title?: string }"><head>…<slot name="head"></slot></head><body>…<slot></slot></body></html>`; a layout without props needs no `data-sn-props` (`<html lang="en">`), but one whose pages pass `data-sn-prop` must declare those props. Name head slots; leave `src/layouts/` out of the build's inputs (a glob over every `.html` picks it up).
 
 ## SN319 layout-use
 
@@ -380,7 +380,7 @@ Error, for example:
 
 After components are expanded, a head holds only head elements: `<title>`, `<meta>`, `<link>`, `<script>`, `<style>`, `<noscript>`, `<base>` and `<template>`. `<sn-resource>` and `<sn-sync>` go in the body: they are page-wide wherever they are written, and their requests start in the head anyway. The browser ends the head at anything else and moves it, with every element after it, into the body. sinter parses heads so that a component's tag stays where it is written: the element it expands to must be head content.
 
-**Fix:** Move the element into the body. In a head, use head components (`<template data-sn-head>`).
+**Fix:** Move the element into the body. In a head, use head components (`<template data-sn-props>`).
 
 ## SN321 duplicate-head
 
@@ -488,7 +488,7 @@ Error, for example:
 
 > the slot `cell` is written with `?`; every slot may be left unfilled, and its placement shows its default
 
-A slot that passes data is declared, placed or filled wrongly. It is a `Slot<T>` member of the props type literal in `data-sn-component` (not in a type alias, not with `?`, not in `data-sn-head` or `data-sn-layout`; the app's types module may not export a type named `Slot`), placed with `<slot name="…" data-sn-prop="{ … }">`, whose default is one plain element or a `data-sn-if`/`data-sn-else` chain of them (anything broader comes with the component root, step 4 of the component-libraries proposal). A fill is elements with `slot="…"`; a `<template slot>` only starts an if/else chain. An unnamed `<slot>` in a fill places the children of the element the default renders: an error when it renders none, and the default's element may not declare names (`data-sn-let`, `data-sn-state`) its children read, since they move into the fill without it. Also reported: a `<slot>` that no component or fill encloses (on a page, or in a page's slot content).
+A slot that passes data is declared, placed or filled wrongly. It is a `Slot<T>` member of the props type literal in `data-sn-props` (not in a type alias, not with `?`, not in a head component's or a layout's props; the app's types module may not export a type named `Slot`), placed with `<slot name="…" data-sn-prop="{ … }">`, whose default is one plain element or a `data-sn-if`/`data-sn-else` chain of them (anything broader comes with the component root, step 4 of the component-libraries proposal). A fill is elements with `slot="…"`; a `<template slot>` only starts an if/else chain. An unnamed `<slot>` in a fill places the children of the element the default renders: an error when it renders none, and the default's element may not declare names (`data-sn-let`, `data-sn-state`) its children read, since they move into the fill without it. Also reported: a `<slot>` that no component or fill encloses (on a page, or in a page's slot content).
 
 **Fix:** Write the slot as `cell: Slot<{ row: Row }>` in the props type literal, place it with `data-sn-prop`, give the placement one element as default, and move names the children read onto the `<slot>`'s `data-sn-prop` or inside the element. Remove a `<slot>` from a page.
 

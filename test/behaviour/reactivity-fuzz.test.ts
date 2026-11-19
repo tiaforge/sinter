@@ -162,8 +162,8 @@ function page(r: () => number) {
 }
 /** the components; `c-l` has a let of its own over a helper */
 const COMPONENTS = {
-  'c-v': '<template data-sn-component="{ v: number }"><b class="cv" data-sn-text="v"></b></template>',
-  'c-l': '<template data-sn-component="{ xs: number[] }"><div data-sn-let="{ C: sum(xs) }"><b class="cl" data-sn-text="C + \':\' + xs.length"></b></div></template>',
+  'c-v': '<template data-sn-props="{ v: number }"><b class="cv" data-sn-text="v"></b></template>',
+  'c-l': '<template data-sn-props="{ xs: number[] }"><div data-sn-let="{ C: sum(xs) }"><b class="cl" data-sn-text="C + \':\' + xs.length"></b></div></template>',
 };
 const PAGES = [{ id: 11, n: 1 }, { id: 12, n: 2 }, { id: 13, n: 3 }, { id: 14, n: 4 }, { id: 15, n: 5 }];
 /** the mocked API */

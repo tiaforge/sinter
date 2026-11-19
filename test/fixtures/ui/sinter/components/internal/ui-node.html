@@ -1,4 +1,4 @@
-<template data-sn-component="{ item: Item }">
+<template data-sn-props="{ item: Item }">
   <li>
     <slot name="node" data-sn-prop="{ item }"><span class="label" data-sn-text="item.label"></span></slot>
     <template data-sn-if="item.children?.length">

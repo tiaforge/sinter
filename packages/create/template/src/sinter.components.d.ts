@@ -3,7 +3,7 @@
 type ComponentName = "app-header" | "task-chart";
 /** every layout of the app, by its tag */
 type LayoutName = "app-layout";
-/** the props each layout declares (`data-sn-layout`) */
+/** the props each layout declares (`data-sn-props`) */
 interface LayoutProps {
   "app-layout": { title?: string };
 }

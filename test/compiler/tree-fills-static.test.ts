@@ -5,12 +5,12 @@ import { compile } from '../../src/compiler/index.js';
 
 const INL = "{ text: 'x-text', link: 'x-link' }";
 const C: Record<string, string> = {
-  'x-doc': `<template data-sn-component="{ doc: any; link: Slot<{ url: string }> }"><div><template data-sn-for="n in doc.children"><sn-component use="${INL}[n.type]" data-sn-prop="{ node: n }"></sn-component></template></div></template>`,
-  'x-text': `<template data-sn-component="{ node: any }"><span data-sn-text="node.value"></span></template>`,
-  'x-link': `<template data-sn-component="{ node: any }"><slot name="link" data-sn-prop="{ url: node.url }"><a data-sn-attr="{ href: node.url }"><template data-sn-for="n in node.children"><sn-component use="${INL}[n.type]" data-sn-prop="{ node: n }"></sn-component></template></a></slot></template>`,
-  'x-pill': `<template data-sn-component="{ to: string }"><a class="pill" data-sn-attr="{ href: to }"><slot></slot></a></template>`,
+  'x-doc': `<template data-sn-props="{ doc: any; link: Slot<{ url: string }> }"><div><template data-sn-for="n in doc.children"><sn-component use="${INL}[n.type]" data-sn-prop="{ node: n }"></sn-component></template></div></template>`,
+  'x-text': `<template data-sn-props="{ node: any }"><span data-sn-text="node.value"></span></template>`,
+  'x-link': `<template data-sn-props="{ node: any }"><slot name="link" data-sn-prop="{ url: node.url }"><a data-sn-attr="{ href: node.url }"><template data-sn-for="n in node.children"><sn-component use="${INL}[n.type]" data-sn-prop="{ node: n }"></sn-component></template></a></slot></template>`,
+  'x-pill': `<template data-sn-props="{ to: string }"><a class="pill" data-sn-attr="{ href: to }"><slot></slot></a></template>`,
   // a wrapper that passes the page's link fill on to the tree
-  'x-wrap': `<template data-sn-component="{ doc: any; link: Slot<{ url: string }> }"><x-doc data-sn-prop="{ doc }"><slot name="link" slot="link" data-sn-prop="{ url: $slot.url }"></slot></x-doc></template>`,
+  'x-wrap': `<template data-sn-props="{ doc: any; link: Slot<{ url: string }> }"><x-doc data-sn-prop="{ doc }"><slot name="link" slot="link" data-sn-prop="{ url: $slot.url }"></slot></x-doc></template>`,
 };
 const DOC = { children: [{ type: 'text', value: 'see ' }, { type: 'link', url: '/a', children: [{ type: 'text', value: 'a' }] }] };
 

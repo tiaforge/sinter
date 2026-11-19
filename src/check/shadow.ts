@@ -414,12 +414,12 @@ declare global {
   interface SinterAttributes {}
 }
 declare global {
-  /** a slot that passes T to its fill, as a member of the props type in data-sn-component: \`cell: Slot<{ row: Row }>\` */
+  /** a slot that passes T to its fill, as a member of the props type in data-sn-props: \`cell: Slot<{ row: Row }>\` */
   interface Slot<T> { readonly 'sinter.slot': T }
 }
 /** true when no member of the props P is a Slot<T>: a slot is declared in the props type literal, where the compiler sees it */
 export type NoSlots<P> = { [K in keyof P]-?: NonNullable<P[K]> extends Slot<any> ? K : never }[keyof P] extends never ? true
-  : 'a Slot<T> member is in a type alias: write the props as a type literal in data-sn-component, where sinter sees the slot';
+  : 'a Slot<T> member is in a type alias: write the props as a type literal in data-sn-props, where sinter sees the slot';
 /** what data-sn-attr accepts: the keys SinterAttributes types, anything else as before */
 export type Attrs = { [K in keyof SinterAttributes]?: SinterAttributes[K] } & Record<string, unknown>;
 /** what a URL path interpolation accepts: anything but an array (a whole query value may be one, sent as a repeated key) */

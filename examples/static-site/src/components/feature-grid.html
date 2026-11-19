@@ -1,4 +1,4 @@
-<template data-sn-component="{ features: { title: string; text: string }[] }">
+<template data-sn-props="{ features: { title: string; text: string }[] }">
   <section class="features">
     <template data-sn-for="(f, n) in features">
       <article><h2 data-sn-text="(n + 1) + '. ' + f.title"></h2><p data-sn-text="f.text"></p></article>

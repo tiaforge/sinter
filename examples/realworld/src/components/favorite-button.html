@@ -3,7 +3,7 @@
      the single `article`), and write-through applies the response. `label`: the article page's wording.
      Both buttons have the id `favorite-<idSuffix>`, so the one a click brings keeps the focus (unique on the
      page; the literal start keeps data from naming a global, SN503). -->
-<template data-sn-component="{ article: Omit<Article, 'body'>; label?: boolean; idSuffix: string }">
+<template data-sn-props="{ article: Omit<Article, 'body'>; label?: boolean; idSuffix: string }">
   <span class="favorite">
     <template data-sn-if="article.favorited">
       <button class="btn btn-sm btn-primary" data-sn-attr="{ id: 'favorite-' + idSuffix }" data-sn-delete="/articles/{article.slug}/favorite"

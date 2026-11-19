@@ -146,6 +146,10 @@ a layout (on its `<html>`), and a component whose markup is head elements is a h
 
 The three old names are `SN101` with "renamed to `data-sn-props`".
 
+The props-passing attribute, `data-sn-prop`, was one letter from it; it is renamed in its own step (12) so
+that declaring and passing are different words. A head component may be made of other head components: a
+component's tag counts by that component's own kind (a cycle is a body component).
+
 ### 8. `data-sn-debounce` has one meaning
 
 It meant "delay the request" next to a method attribute, and "delay every `data-sn-on-*` handler"

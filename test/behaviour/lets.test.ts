@@ -103,7 +103,7 @@ describe('a let over a helper: its expression, at every read', () => {
     test('a component emits, its parent writes the prop its let reads', async () => {
       const r = await render(`<main data-sn-state="{ a: 1 }"><x-c data-sn-prop="{ a }" data-sn-on-bump="a = 5"></x-c></main>`, {
         helpers: { dbl },
-        components: { 'x-c': `<template data-sn-component="{ a: number }" data-sn-emits="{ bump: null }"><div data-sn-state="{ o: 0 }" data-sn-let="{ L: dbl(a) }">
+        components: { 'x-c': `<template data-sn-props="{ a: number }" data-sn-emits="{ bump: null }"><div data-sn-state="{ o: 0 }" data-sn-let="{ L: dbl(a) }">
           <p data-sn-text="L.v"></p><b data-sn-text="o"></b><button data-sn-on-click="emit('bump'); o = L.v"></button></div></template>` },
       });
       r.root.querySelector('button')!.click();
@@ -231,7 +231,7 @@ describe('a let over a helper: its expression, at every read', () => {
 
   test('a prop is a let: a prop over a helper', async () => {
     const { parse } = counting();
-    const doc = '<template data-sn-component="{ doc: any }"><div><p data-sn-text="doc.words.length"></p><template data-sn-for="x in doc.words"><span data-sn-text="x.w"></span></template></div></template>';
+    const doc = '<template data-sn-props="{ doc: any }"><div><p data-sn-text="doc.words.length"></p><template data-sn-for="x in doc.words"><span data-sn-text="x.w"></span></template></div></template>';
     const r = await render(`<main data-sn-state="{ src: 'a b c', n: 0 }"><x-doc data-sn-prop="{ doc: parse(src) }"></x-doc><button data-sn-on-click="n++" data-sn-text="n"></button></main>`, { helpers: { parse }, components: { 'x-doc': doc } });
     expect(r.root.querySelector('p')!.textContent).toBe('3');
     r.root.querySelector('button')!.click();
@@ -370,7 +370,7 @@ describe('a let may wait for a lazy helper module', () => {
     await expect(render('<main data-sn-state="{ n: crunch.parse(\'a\') }"></main>', { lazyHelpers: m.helpers })).rejects.toThrow(/SN324/);
     // a prop waits like a let
     const r = await render(`<main data-sn-state="{ src: 'a b c' }"><x-n data-sn-prop="{ doc: crunch.parse(src) }"></x-n></main>`,
-      { lazyHelpers: m.helpers, components: { 'x-n': '<template data-sn-component="{ doc?: any }"><p data-sn-text="doc ? doc.words.length : \'…\'"></p></template>' } });
+      { lazyHelpers: m.helpers, components: { 'x-n': '<template data-sn-props="{ doc?: any }"><p data-sn-text="doc ? doc.words.length : \'…\'"></p></template>' } });
     expect(r.root.querySelector('p')!.textContent).toBe('…');
     m.open();
     await r.settle();

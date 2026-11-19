@@ -6,9 +6,9 @@ import { compileParts } from '../../src/compiler/index.js';
 import { render } from '../../src/testing/index.js';
 
 const components = {
-  'x-doc': '<template data-sn-component="{ doc: any; link: Slot<{ node: any }> }"><p><template data-sn-for="n in doc"><sn-component use="{ link: \'x-l\', text: \'x-t\' }[n.type]" data-sn-prop="{ node: n }"></sn-component></template></p></template>',
-  'x-l': '<template data-sn-component="{ node: any }"><slot name="link" data-sn-prop="{ node }"><a data-sn-attr="{ href: node.url }" data-sn-text="node.text"></a></slot></template>',
-  'x-t': '<template data-sn-component="{ node: any }"><span data-sn-text="node.text"></span></template>',
+  'x-doc': '<template data-sn-props="{ doc: any; link: Slot<{ node: any }> }"><p><template data-sn-for="n in doc"><sn-component use="{ link: \'x-l\', text: \'x-t\' }[n.type]" data-sn-prop="{ node: n }"></sn-component></template></p></template>',
+  'x-l': '<template data-sn-props="{ node: any }"><slot name="link" data-sn-prop="{ node }"><a data-sn-attr="{ href: node.url }" data-sn-text="node.text"></a></slot></template>',
+  'x-t': '<template data-sn-props="{ node: any }"><span data-sn-text="node.text"></span></template>',
 };
 const DOC = "[{ type: 'text', text: 'see ' }, { type: 'link', url: '/a', text: 'this' }]";
 const fill = '<template slot="link" data-sn-text="$slot.node.text + \' (\' + $slot.node.url + \')\'"></template>';
@@ -30,7 +30,7 @@ test('over state', async () => {
 });
 
 test('a tag whose root is a text fill: an attribute on it has no element to land on (SN334)', () => {
-  const C: Record<string, string> = { 'x-box': '<template data-sn-component="{ label: Slot<{ n: number }> }"><slot name="label" data-sn-prop="{ n: 1 }"><b>x</b></slot></template>' };
+  const C: Record<string, string> = { 'x-box': '<template data-sn-props="{ label: Slot<{ n: number }> }"><slot name="label" data-sn-prop="{ n: 1 }"><b>x</b></slot></template>' };
   const codes = (tag: string) => compileParts(`<!doctype html><html><head></head><body>${tag}<template slot="label" data-sn-text="'n=' + $slot.n"></template></x-box></body></html>`, {
     file: '/p/index.html', root: '/p', dev: false, prerender: true, helpers: { module: null, names: [], namespaces: {} }, componentNames: Object.keys(C),
     readFile: (f) => { const m = /\/src\/components\/(.+)\.html$/.exec(f); if (m && m[1]! in C) return C[m[1]!]!; throw new Error('missing'); },

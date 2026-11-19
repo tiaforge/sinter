@@ -8,7 +8,7 @@ import { check, findTsc, typeExports } from '../check/index.js';
 import { Connection } from './rpc.js';
 import { existsSync, readdirSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
-import { HEAD_DECL } from '../components-build.js';
+import { isHeadComponent } from '../compiler/head.js';
 import { offsetOf, slotCompletions, slotDefinition, tagCompletions, tagHover, type TagFile } from './markup.js';
 import { didYouMeanEdit } from './quickfix.js';
 import { pathCompletions, pathDefinition, pathFix, pathHover } from './paths.js';
@@ -215,7 +215,7 @@ export function startServer(input: Readable, output: Writable, o: ServerOptions 
       const file = join(root, dir, `${tag}.html`);
       let text: string;
       try { text = workspace.read(file); } catch { continue; }
-      return { kind: layout ? 'layout' : HEAD_DECL.test(text) ? 'head' : 'component', file, text };
+      return { kind: layout ? 'layout' : isHeadComponent(text) ? 'head' : 'component', file, text };
     }
     return null;
   };

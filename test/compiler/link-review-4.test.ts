@@ -7,12 +7,12 @@ import { compile } from '../../src/compiler/index.js';
 
 const INL = "{ text: 'x-text', link: 'x-link' }";
 const BASE: Record<string, string> = {
-  'x-doc': `<template data-sn-component="{ doc: any }"><div><template data-sn-for="n in doc.children"><sn-component use="${INL}[n.type]" data-sn-prop="{ node: n }"></sn-component></template></div></template>`,
-  'x-text': '<template data-sn-component="{ node: any }"><span data-sn-text="node.value"></span></template>',
-  'x-link': `<template data-sn-component="{ node: any }"><a data-sn-attr="{ href: node.url }"><template data-sn-for="n in node.children"><sn-component use="${INL}[n.type]" data-sn-prop="{ node: n }"></sn-component></template></a></template>`,
+  'x-doc': `<template data-sn-props="{ doc: any }"><div><template data-sn-for="n in doc.children"><sn-component use="${INL}[n.type]" data-sn-prop="{ node: n }"></sn-component></template></div></template>`,
+  'x-text': '<template data-sn-props="{ node: any }"><span data-sn-text="node.value"></span></template>',
+  'x-link': `<template data-sn-props="{ node: any }"><a data-sn-attr="{ href: node.url }"><template data-sn-for="n in node.children"><sn-component use="${INL}[n.type]" data-sn-prop="{ node: n }"></sn-component></template></a></template>`,
 };
-const textWith = (extra: string) => ({ 'x-text': `<template data-sn-component="{ node: any }"><span class="tx"><span data-sn-text="node.value"></span>${extra}</span></template>` });
-const tree = (name: string, extra = '', decl = '') => ({ [name]: `<template data-sn-component="{ node: any }"${decl}><div><span data-sn-text="node.v"></span>${extra}<template data-sn-for="k in node.kids"><${name} data-sn-prop="{ node: k }"></${name}></template></div></template>` });
+const textWith = (extra: string) => ({ 'x-text': `<template data-sn-props="{ node: any }"><span class="tx"><span data-sn-text="node.value"></span>${extra}</span></template>` });
+const tree = (name: string, extra = '', decl = '') => ({ [name]: `<template data-sn-props="{ node: any }"${decl}><div><span data-sn-text="node.v"></span>${extra}<template data-sn-for="k in node.kids"><${name} data-sn-prop="{ node: k }"></${name}></template></div></template>` });
 const use = (name: string) => `<${name} data-sn-prop="{ node: doc }"></${name}>`;
 const TREE = '<x-doc data-sn-prop="{ doc }"></x-doc>';
 const DOC = '<sn-resource name="doc" src="/api/doc"></sn-resource>';
@@ -83,7 +83,7 @@ describe('1. a library definition recorded at the root, linked in a folder: a di
 //         `<form data-sn-state="{ t: doc.t }">` in the definition is the same code.
 
 describe('2. source maps: a state in a definition whose code the page wrote first, wrapped for `$error`', () => {
-  const more = { 'x-box': '<template data-sn-component="{ t: string }"><section><h2 data-sn-text="t"></h2><slot></slot></section></template>', ...textWith('<form data-sn-state="{ t: doc.t }"><b data-sn-text="$error"></b><i data-sn-text="t"></i></form>') };
+  const more = { 'x-box': '<template data-sn-props="{ t: string }"><section><h2 data-sn-text="t"></h2><slot></slot></section></template>', ...textWith('<form data-sn-state="{ t: doc.t }"><b data-sn-text="$error"></b><i data-sn-text="t"></i></form>') };
   const box = (k: string) => `<x-box data-sn-prop="{ t: doc.${k} }"><i>q</i></x-box>`;
   const opts = { sourcemap: true };
   test('2a. every page wrote it: the page that records differs', () => { linked(abc({ opts, body: box('t') + TREE }), more); });

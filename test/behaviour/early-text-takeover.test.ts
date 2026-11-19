@@ -27,9 +27,9 @@ test('a branch whose top node is a text: rendered early, the other branch by the
 
 test('a choice whose case is a text fill: rendered early, another candidate by the page module', async () => {
   const components = {
-    'x-doc': '<template data-sn-component="{ doc: any; link: Slot<{ node: any }> }"><span><template data-sn-for="v in doc"><sn-component use="{ link: \'x-l\', bold: \'x-b\' }[v.k]" data-sn-prop="{ node: v }"></sn-component></template></span></template>',
-    'x-l': '<template data-sn-component="{ node: any }"><slot name="link" data-sn-prop="{ node }"><a data-sn-text="node.s"></a></slot></template>',
-    'x-b': '<template data-sn-component="{ node: any }"><b data-sn-text="node.s"></b></template>',
+    'x-doc': '<template data-sn-props="{ doc: any; link: Slot<{ node: any }> }"><span><template data-sn-for="v in doc"><sn-component use="{ link: \'x-l\', bold: \'x-b\' }[v.k]" data-sn-prop="{ node: v }"></sn-component></template></span></template>',
+    'x-l': '<template data-sn-props="{ node: any }"><slot name="link" data-sn-prop="{ node }"><a data-sn-text="node.s"></a></slot></template>',
+    'x-b': '<template data-sn-props="{ node: any }"><b data-sn-text="node.s"></b></template>',
   };
   const { root, settle } = await render(page('<x-doc data-sn-prop="{ doc: all.c }"><template slot="link" data-sn-text="$slot.node.s"></template></x-doc>', { c: [{ k: 'link', s: 'early' }] }),
     { ...swap({ c: [{ k: 'bold', s: 'late' }] }), components });

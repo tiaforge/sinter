@@ -5,7 +5,7 @@ import { compile } from '../../src/compiler/index.js';
 
 const LAYOUT = `<!-- the site's document: not part of any page -->
 <!doctype html>
-<html lang="en" class="site" data-sn-layout="{ title?: string; nav: string }">
+<html lang="en" class="site" data-sn-props="{ title?: string; nav: string }">
 <head>
   <meta charset="utf-8">
   <seo-tags data-sn-prop="{ title }"></seo-tags>
@@ -19,8 +19,8 @@ const LAYOUT = `<!-- the site's document: not part of any page -->
   <footer><slot name="footer">© me</slot></footer>
 </body>
 </html>`;
-const SEO = '<template data-sn-head="{ title?: string }"><title data-sn-text="title ? title + \' · Blog\' : \'Blog\'">Blog</title></template>';
-const NAV = '<template data-sn-component=""><nav><a href="./about">About</a></nav></template>';
+const SEO = '<template data-sn-props="{ title?: string }"><title data-sn-text="title ? title + \' · Blog\' : \'Blog\'">Blog</title></template>';
+const NAV = '<template data-sn-props=""><nav><a href="./about">About</a></nav></template>';
 
 function run(page: string, extra: Record<string, string> = {}, file = '/p/post.html') {
   const files: Record<string, string> = {
@@ -47,7 +47,7 @@ describe('the merge', () => {
     expect(head).toMatch(/<meta charset="utf-8">\s*<title data-sn="\d+">Blog<\/title>\s*<link rel="stylesheet" href="\/src\/layouts\/site.css">\s*<script type="module" src="\/src\/main.ts"><\/script>\s*<meta name="robots" content="noindex">/);
     expect(out.html).toMatch(/<main>\s*<article><h1 data-sn="\d+"><\/h1><\/article>\s*<\/main>/);
     expect(out.html).toContain('<footer><p>mine</p></footer>');
-    expect(out.html).not.toMatch(/site-layout|<slot|data-sn-layout|data-sn-path|not part of any page/);
+    expect(out.html).not.toMatch(/site-layout|<slot|data-sn-props|data-sn-path|not part of any page/);
     expect(out.path).toEqual(['/post/:slug']);
     // a component's relative URL is not rebased: only the layout's own
     expect(out.html).toContain('<a href="./about">');
@@ -63,7 +63,7 @@ describe('the merge', () => {
   });
 
   test('the tag\'s handlers are the page\'s <body> handlers: on the layout\'s <body>, first, in the page\'s scope', () => {
-    const shell = '<!doctype html><html data-sn-layout="{ nav: string }"><head></head><body data-sn-state="{ k: 0 }" data-sn-on-keydown-escape="k++"><slot></slot></body></html>';
+    const shell = '<!doctype html><html data-sn-props="{ nav: string }"><head></head><body data-sn-state="{ k: 0 }" data-sn-on-keydown-escape="k++"><slot></slot></body></html>';
     const out = run('<site-layout data-sn-state="{ err: null }" data-sn-prop="{ nav: \'x\' }" data-sn-on-sn-error="err = $event.detail.error" data-sn-on-keydown-shift-n="err = null"><p>x</p></site-layout>',
       { '/p/src/layouts/site-layout.html': shell });
     expect(errors(out)).toEqual([]);
@@ -115,7 +115,7 @@ describe('errors', () => {
     expect(errors(run('<site-layout data-sn-prop="{ nav: \'x\' }"><meta slot="head" property="og:image" content="/a.png"><meta slot="head" property="og:image" content="/b.png"></site-layout>'))).toEqual([]);
   });
 
-  test('a whole document in src/layouts/ without data-sn-layout takes no props; SN318 only when the page passes some', () => {
+  test('a whole document in src/layouts/ without data-sn-props takes no props; SN318 only when the page passes some', () => {
     // benchmark agents left the attribute out of layouts without props, and each paid a failed build for it
     const doc = '<!doctype html><html lang="en"><head><slot name="head"></slot></head><body><main><slot></slot></main></body></html>';
     const plain = run('<x-plain><title slot="head">T</title><p>hi</p></x-plain>', { '/p/src/layouts/x-plain.html': doc });
@@ -130,10 +130,11 @@ describe('errors', () => {
 
   test('SN318: a layout that is not a document, a default slot in its head, a script beside it, a name shared with a component, a layout built as a page', () => {
     expect(errors(run('<x-bad></x-bad>', { '/p/src/layouts/x-bad.html': '<div><slot></slot></div>' }))).toEqual([expect.stringMatching(/^SN318 `src\/layouts\/x-bad.html` is not a layout/)]);
-    expect(errors(run('<x-l></x-l>', { '/p/src/layouts/x-l.html': '<!doctype html><html data-sn-layout=""><head><slot></slot></head><body></body></html>' }))).toEqual([expect.stringMatching(/^SN318 the default slot of a layout is in its body/)]);
-    expect(errors(run('<x-l></x-l>', { '/p/src/layouts/x-l.html': '<!doctype html><html data-sn-layout=""><head></head><body><slot></slot></body></html>', '/p/src/layouts/x-l.ts': '' }))).toEqual([expect.stringMatching(/^SN318 the layout `<x-l>` has a script/)]);
+    expect(errors(run('<x-l></x-l>', { '/p/src/layouts/x-l.html': '<!doctype html><html data-sn-props=""><head><slot></slot></head><body></body></html>' }))).toEqual([expect.stringMatching(/^SN318 the default slot of a layout is in its body/)]);
+    expect(errors(run('<x-l></x-l>', { '/p/src/layouts/x-l.html': '<!doctype html><html data-sn-props=""><head></head><body><slot></slot></body></html>', '/p/src/layouts/x-l.ts': '' }))).toEqual([expect.stringMatching(/^SN318 the layout `<x-l>` has a script/)]);
     expect(errors(run('<x-nav></x-nav>', { '/p/src/layouts/x-nav.html': LAYOUT }))).toEqual([expect.stringMatching(/^SN318 `<x-nav>` is both a layout/)]);
-    expect(errors(run('<p data-sn-layout=""></p>'))).toEqual([expect.stringMatching(/^SN318 `data-sn-layout` belongs on the `<html>` of a layout file/)]);
+    expect(errors(run('<!doctype html><html data-sn-props=""><head></head><body></body></html>'))).toEqual([expect.stringMatching(/^SN318 `data-sn-props` on `<html>` belongs to a layout file/)]);
+    expect(errors(run('<p data-sn-props=""></p>'))).toEqual([expect.stringMatching(/^SN102 `data-sn-props` belongs on the `<template>` of a component file/)]);
     expect(errors(run(LAYOUT, {}, '/p/src/layouts/site-layout.html'))[0]).toMatch(/^SN318 a layout is not a page/);
   });
 });

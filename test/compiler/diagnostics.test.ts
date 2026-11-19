@@ -3,16 +3,16 @@ import { compile, compileParts, CODES, type ComplexityOptions } from '../../src/
 import { complexityOf } from '../../src/project.js';
 
 const files: Record<string, string> = {
-  '/p/src/components/x-a.html': '<template data-sn-component=""><div><x-b></x-b></div></template>',
-  '/p/src/components/x-b.html': '<template data-sn-component=""><div><x-a></x-a></div></template>',
-  '/p/src/components/x-bad.html': '<template data-sn-component=""><p>\n  <b data-sn-txt="x"></b></p></template>',
-  '/p/src/components/x-card.html': '<template data-sn-component="{ title: string }" data-sn-emits="{ pick: number }"><div><slot name="foot"></slot></div></template>',
+  '/p/src/components/x-a.html': '<template data-sn-props=""><div><x-b></x-b></div></template>',
+  '/p/src/components/x-b.html': '<template data-sn-props=""><div><x-a></x-a></div></template>',
+  '/p/src/components/x-bad.html': '<template data-sn-props=""><p>\n  <b data-sn-txt="x"></b></p></template>',
+  '/p/src/components/x-card.html': '<template data-sn-props="{ title: string }" data-sn-emits="{ pick: number }"><div><slot name="foot"></slot></div></template>',
   '/p/partials/old.html': '<p></p>',
   '/p/content/posts/a.md': '---\ntitle: A\n---\n',
-  '/p/src/layouts/x-shell.html': '<!doctype html><html data-sn-layout=""><head></head><body><slot></slot></body></html>',
-  '/p/src/components/x-close.html': '<template data-sn-component="{ cell: Slot<{ n: number }> }"><div><slot name="cell" data-sn-prop="{ n: 1 }"><b></b></slot><slot name="cel" data-sn-prop="{ n: 2 }"><i></i></slot></div></template>',
-  '/p/src/components/x-two.html': '<template data-sn-component=""><p></p><p></p></template>',
-  '/p/src/components/x-maybe.html': '<template data-sn-component="{ on?: boolean }"><template data-sn-if="on"><p></p></template></template>',
+  '/p/src/layouts/x-shell.html': '<!doctype html><html data-sn-props=""><head></head><body><slot></slot></body></html>',
+  '/p/src/components/x-close.html': '<template data-sn-props="{ cell: Slot<{ n: number }> }"><div><slot name="cell" data-sn-prop="{ n: 1 }"><b></b></slot><slot name="cel" data-sn-prop="{ n: 2 }"><i></i></slot></div></template>',
+  '/p/src/components/x-two.html': '<template data-sn-props=""><p></p><p></p></template>',
+  '/p/src/components/x-maybe.html': '<template data-sn-props="{ on?: boolean }"><template data-sn-if="on"><p></p></template></template>',
 };
 
 const SPEC = { file: '/p/openapi.json', doc: {
@@ -82,7 +82,7 @@ const cases: Array<[string, string, RegExp, Opts?]> = [
   ['SN315', '<x-card data-sn-prop="{ title: \'a\' }" data-sn-on-pik="1"></x-card>', /`<x-card>` does not emit `pik`/],
   ['SN316', '<sn-include src="./partials/old.html"></sn-include>', /`<sn-include>` is removed: a partial is a component/],
   ['SN317', `${R}${use}<template data-sn-for="m in messages"><button data-sn-on-click="remove('messages', m)"></button></template>`, /`remove\(\)` takes the item, not a resource name/],
-  ['SN318', '<p data-sn-layout=""></p>', /`data-sn-layout` belongs on the `<html>` of a layout file/],
+  ['SN318', '<!doctype html><html data-sn-props=""><head></head><body></body></html>', /`data-sn-props` on `<html>` belongs to a layout file/],
   ['SN319', '<p>x</p><x-shell></x-shell>', /a page that uses the layout `<x-shell>` is only its tag/],
   ['SN321', '<!doctype html><html><head><title>a</title><title>b</title></head><body></body></html>', /a second `<title>` in the head/],
   ['SN323', '<p data-sn-text="$site"></p>', /`\$site` is the site's root URL, and the build does not know the site's origin/],

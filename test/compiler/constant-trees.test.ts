@@ -9,16 +9,16 @@ import type { FoldVerdict } from '../../src/fold-check.js';
 /** a dispatcher over the children of `of`: text in place, other nodes by their type */
 const kids = (of: string) => `<template data-sn-for="n in ${of}.children"><template data-sn-if="n.type === 'text'"><template data-sn-text="n.value"></template></template><template data-sn-else><sn-component use="\`x-\${n.type}\`" data-sn-prop="{ node: n }"></sn-component></template></template>`;
 const COMPONENTS: Record<string, string> = {
-  'doc-view': `<template data-sn-component="{ doc: any; link: Slot<{ href: string; text: string }> }"><article>${kids('doc')}</article></template>`,
-  'x-heading': `<template data-sn-component="{ node: any }"><h2>${kids('node')}</h2></template>`,
-  'x-para': `<template data-sn-component="{ node: any }"><p>${kids('node')}</p></template>`,
-  'x-list': `<template data-sn-component="{ node: any }"><ul>${kids('node')}</ul></template>`,
-  'x-item': `<template data-sn-component="{ node: any }"><li>${kids('node')}</li></template>`,
-  'x-link': '<template data-sn-component="{ node: any }"><slot name="link" data-sn-prop="{ href: node.url, text: node.value }"><a data-sn-attr="{ href: node.url }" data-sn-text="node.value"></a></slot></template>',
-  'x-image': '<template data-sn-component="{ node: any }"><img data-sn-attr="{ src: node.url, alt: node.alt }"></template>',
-  'x-code': '<template data-sn-component="{ node: any }"><pre><code data-sn-text="node.value"></code></pre></template>',
+  'doc-view': `<template data-sn-props="{ doc: any; link: Slot<{ href: string; text: string }> }"><article>${kids('doc')}</article></template>`,
+  'x-heading': `<template data-sn-props="{ node: any }"><h2>${kids('node')}</h2></template>`,
+  'x-para': `<template data-sn-props="{ node: any }"><p>${kids('node')}</p></template>`,
+  'x-list': `<template data-sn-props="{ node: any }"><ul>${kids('node')}</ul></template>`,
+  'x-item': `<template data-sn-props="{ node: any }"><li>${kids('node')}</li></template>`,
+  'x-link': '<template data-sn-props="{ node: any }"><slot name="link" data-sn-prop="{ href: node.url, text: node.value }"><a data-sn-attr="{ href: node.url }" data-sn-text="node.value"></a></slot></template>',
+  'x-image': '<template data-sn-props="{ node: any }"><img data-sn-attr="{ src: node.url, alt: node.alt }"></template>',
+  'x-code': '<template data-sn-props="{ node: any }"><pre><code data-sn-text="node.value"></code></pre></template>',
 };
-const COPY = '<template data-sn-component="{ node: any }"><pre><code data-sn-text="node.value"></code><button type="button" data-sn-on-click="copy($el)">Copy</button></pre></template>';
+const COPY = '<template data-sn-props="{ node: any }"><pre><code data-sn-text="node.value"></code><button type="button" data-sn-on-click="copy($el)">Copy</button></pre></template>';
 const t = (value: string) => ({ type: 'text', value });
 const DOC = { type: 'doc', children: [
   { type: 'heading', children: [t('Getting started')] },
@@ -79,7 +79,7 @@ describe('a constant tree is plain HTML', () => {
 
   test('a helper over the tree folds into it (step 8): the text is the helper\'s result', () => {
     const upper: FoldVerdict = { fold: true };
-    const para = `<template data-sn-component="{ node: any }"><p><template data-sn-for="n in node.children"><template data-sn-if="n.type === 'text'"><template data-sn-text="shout(n.value)"></template></template><template data-sn-else><sn-component use="\`x-\${n.type}\`" data-sn-prop="{ node: n }"></sn-component></template></template></p></template>`;
+    const para = `<template data-sn-props="{ node: any }"><p><template data-sn-for="n in node.children"><template data-sn-if="n.type === 'text'"><template data-sn-text="shout(n.value)"></template></template><template data-sn-else><sn-component use="\`x-\${n.type}\`" data-sn-prop="{ node: n }"></sn-component></template></template></p></template>`;
     const out = build(PAGE(), { static: true, more: { 'x-para': para }, helpers: { module: '/h.js', names: ['shout'], namespaces: {} }, helperValues: { shout: (s: string) => s.toUpperCase() }, helperFold: new Map([['shout', upper]]) });
     expect(errors(out)).toEqual([]);
     expect(out.static).toBe(true);
@@ -89,7 +89,7 @@ describe('a constant tree is plain HTML', () => {
 
 describe('what stays the runtime\'s', () => {
   test('a node with state of its own keeps the tree for the runtime, which reads the file\'s value from the head', () => {
-    const code = '<template data-sn-component="{ node: any }"><pre data-sn-state="{ copied: false }"><code data-sn-text="node.value"></code><button type="button" data-sn-on-click="copied = true" data-sn-text="copied ? \'Copied\' : \'Copy\'"></button></pre></template>';
+    const code = '<template data-sn-props="{ node: any }"><pre data-sn-state="{ copied: false }"><code data-sn-text="node.value"></code><button type="button" data-sn-on-click="copied = true" data-sn-text="copied ? \'Copied\' : \'Copy\'"></button></pre></template>';
     const out = build(PAGE(), { more: { 'x-code': code } });
     expect(errors(out)).toEqual([]);
     expect(out.module).toContain('$.$r.doc');

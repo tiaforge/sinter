@@ -4,7 +4,7 @@
 import { compile } from '../../dist/compiler/index.js';
 
 const [sections = 200, runs = 10] = process.argv.slice(2).map(Number);
-const card = `<template data-sn-component="{ title: string; body: string }"><article class="card"><h3 data-sn-text="title"></h3><p data-sn-text="body"></p><slot></slot></article></template>`;
+const card = `<template data-sn-props="{ title: string; body: string }"><article class="card"><h3 data-sn-text="title"></h3><p data-sn-text="body"></p><slot></slot></article></template>`;
 const files = { '/p/src/components/x-card.html': card };
 
 function page(n) {

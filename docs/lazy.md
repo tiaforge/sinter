@@ -75,7 +75,7 @@ otherwise for the pages that need it sooner:
 
 ```html
 <!-- src/components/mail-reader.html: every page with a reader loads openpgp once it has taken over -->
-<template data-sn-component="{ message: Message | null }">
+<template data-sn-props="{ message: Message | null }">
   <div class="reader" data-sn-import="openpgp">…</div>
 </template>
 ```

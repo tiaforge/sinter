@@ -220,7 +220,7 @@ test('the page\'s own URL in the forms a source links to: its file, `index.html`
 });
 
 test('a component\'s link counts on the page that uses it, by what that page reads', () => {
-  const NAV = `<template data-sn-component=""><nav><a href="/?feed=x">x</a></nav></template>`;
+  const NAV = `<template data-sn-props=""><nav><a href="/?feed=x">x</a></nav></template>`;
   const parts = (html: string) => compileParts(html, { file: '/p/index.html', root: '/p', dev: false, helpers: { module: null, names: [], namespaces: {} }, components: '/p/c', readFile: (f: string) => { if (f == '/p/c/site-nav.html') return NAV; throw new Error('missing'); } } as any);
   expect(parts('<site-nav></site-nav><p data-sn-text="$url.feed"></p>').features).toContain('query-links');
   expect(parts('<site-nav></site-nav><p data-sn-text="$url.q"></p>').ir.urlReads).toEqual(['q']);

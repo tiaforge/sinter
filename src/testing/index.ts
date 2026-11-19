@@ -241,9 +241,9 @@ export interface RenderOptions {
   actions?: Record<string, unknown>;
   /** other files the page reads, by path relative to the page (`src/components/x-y.html`) */
   files?: Record<string, string>;
-  /** the app's components, by name: `{ 'article-preview': '<template data-sn-component="…">…</template>' }` */
+  /** the app's components, by name: `{ 'article-preview': '<template data-sn-props="…">…</template>' }` */
   components?: Record<string, string>;
-  /** the app's layouts, by name: `{ 'app-layout': '<!doctype html><html data-sn-layout="{ title: string }">…</html>' }`; the page is the layout's tag */
+  /** the app's layouts, by name: `{ 'app-layout': '<!doctype html><html data-sn-props="{ title: string }">…</html>' }`; the page is the layout's tag */
   layouts?: Record<string, string>;
   /** the scripts of components, by name: the module (`await import('../src/components/task-ring.ts')`) or the class */
   scripts?: Record<string, unknown>;

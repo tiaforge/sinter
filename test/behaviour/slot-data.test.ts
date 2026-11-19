@@ -5,7 +5,7 @@
 import { describe, expect, test } from 'vitest';
 import { firstPaint, mockRequests, render } from '../../src/testing/index.js';
 
-const TABLE = `<template data-sn-component="{ rows: Row[]; columns: string[]; cell: Slot<{ row: Row; column: string }> }">
+const TABLE = `<template data-sn-props="{ rows: Row[]; columns: string[]; cell: Slot<{ row: Row; column: string }> }">
   <table><tbody>
     <template data-sn-for="r in rows" data-sn-key="r.id">
       <tr><template data-sn-for="c in columns"><td><slot name="cell" data-sn-prop="{ row: r, column: c }"><span class="plain" data-sn-text="r[c]"></span></slot></td></template></tr>
@@ -18,7 +18,7 @@ const INVOICES = [
   { id: 2, number: 'A-2', customer: 'Bo', total: 80 },
 ];
 
-const LIST = `<template data-sn-component="{ items: Item[]; row: Slot<{ item: Item; first: boolean }> }">
+const LIST = `<template data-sn-props="{ items: Item[]; row: Slot<{ item: Item; first: boolean }> }">
   <ul><template data-sn-for="(it, i) in items" data-sn-key="it.id"><slot name="row" data-sn-prop="{ item: it, first: i === 0 }"><li data-sn-text="it.title"></li></slot></template></ul>
 </template>`;
 
@@ -71,7 +71,7 @@ describe('a list with custom rows', () => {
   });
 
   test('a fill that picks its element by a chain, with the default\'s children placed by `<slot>`', async () => {
-    const ITEM = `<template data-sn-component="{ items: Item[]; row: Slot<{ item: Item }> }">
+    const ITEM = `<template data-sn-props="{ items: Item[]; row: Slot<{ item: Item }> }">
   <ul><template data-sn-for="it in items" data-sn-key="it.id"><slot name="row" data-sn-prop="{ item: it }"><li><span class="t" data-sn-text="it.title"></span></li></slot></template></ul>
 </template>`;
     const requests = mockRequests({ 'GET /api/todos': TODOS });
@@ -98,7 +98,7 @@ describe('first paint', () => {
   });
 
   test('plain slot content at the top of a component\'s unrolled row builds: the row\'s item is on the component\'s scope', async () => {
-    const L = '<template data-sn-component="{ items: string[] }"><ul><template data-sn-for="it in items"><slot name="row"><li data-sn-text="it"></li></slot></template></ul></template>';
+    const L = '<template data-sn-props="{ items: string[] }"><ul><template data-sn-for="it in items"><slot name="row"><li data-sn-text="it"></li></slot></template></ul></template>';
     const early = await firstPaint('<div data-sn-state="{ t: [\'a\', \'b\'] }"><x-l data-sn-prop="{ items: t }"><li slot="row">x</li></x-l></div>', { components: { 'x-l': L } });
     expect([...early.root.querySelectorAll('li')].map((li) => li.textContent)).toEqual(['x', 'x']);
   });

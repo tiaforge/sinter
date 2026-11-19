@@ -6,12 +6,12 @@ import { compile } from '../../src/compiler/index.js';
 
 const INL = "{ text: 'x-text', link: 'x-link' }";
 const BASE: Record<string, string> = {
-  'x-doc': `<template data-sn-component="{ doc: any }"><div><template data-sn-for="n in doc.children"><sn-component use="${INL}[n.type]" data-sn-prop="{ node: n }"></sn-component></template></div></template>`,
-  'x-text': '<template data-sn-component="{ node: any }"><span data-sn-text="node.value"></span></template>',
-  'x-link': `<template data-sn-component="{ node: any }"><a data-sn-attr="{ href: node.url }"><template data-sn-for="n in node.children"><sn-component use="${INL}[n.type]" data-sn-prop="{ node: n }"></sn-component></template></a></template>`,
+  'x-doc': `<template data-sn-props="{ doc: any }"><div><template data-sn-for="n in doc.children"><sn-component use="${INL}[n.type]" data-sn-prop="{ node: n }"></sn-component></template></div></template>`,
+  'x-text': '<template data-sn-props="{ node: any }"><span data-sn-text="node.value"></span></template>',
+  'x-link': `<template data-sn-props="{ node: any }"><a data-sn-attr="{ href: node.url }"><template data-sn-for="n in node.children"><sn-component use="${INL}[n.type]" data-sn-prop="{ node: n }"></sn-component></template></a></template>`,
 };
-const textWith = (extra: string) => ({ 'x-text': `<template data-sn-component="{ node: any }"><span class="tx"><span data-sn-text="node.value"></span>${extra}</span></template>` });
-const tree = (name: string, extra = '', decl = '') => ({ [name]: `<template data-sn-component="{ node: any }"${decl}><div><span data-sn-text="node.v"></span>${extra}<template data-sn-for="k in node.kids"><${name} data-sn-prop="{ node: k }"></${name}></template></div></template>` });
+const textWith = (extra: string) => ({ 'x-text': `<template data-sn-props="{ node: any }"><span class="tx"><span data-sn-text="node.value"></span>${extra}</span></template>` });
+const tree = (name: string, extra = '', decl = '') => ({ [name]: `<template data-sn-props="{ node: any }"${decl}><div><span data-sn-text="node.v"></span>${extra}<template data-sn-for="k in node.kids"><${name} data-sn-prop="{ node: k }"></${name}></template></div></template>` });
 const use = (name: string) => `<${name} data-sn-prop="{ node: doc }"></${name}>`;
 const TREE = '<x-doc data-sn-prop="{ doc }"></x-doc>';
 const DOC = '<sn-resource name="doc" src="/api/doc"></sn-resource>';
@@ -58,7 +58,7 @@ const abc = (ab: Partial<Page>, c: Partial<Page> = ab): Page[] => [{ name: 'a', 
 //         `x-text` again. The page linked into (`c`) binds the class `pa` (the recording page's) where it passes `pc`.
 //         Before fd3c4fb the map was `old` (the full `reach`) and the plan named it by its path (`defAttrs[$p0]`).
 describe('1. a page table inside a table, set again by the unit (`defAttrs`): the page linked into gets the recording page\'s', () => {
-  const more = { 'x-wrap': `<template data-sn-component="{ node: any }"><sn-component use="{ text: 'x-text' }[node.type]" data-sn-prop="{ node }"></sn-component></template>` };
+  const more = { 'x-wrap': `<template data-sn-props="{ node: any }"><sn-component use="{ text: 'x-text' }[node.type]" data-sn-prop="{ node }"></sn-component></template>` };
   const own = (cls: string) => `<x-wrap class="${cls}" data-sn-prop="{ node: doc }"></x-wrap>`;
   test('1a. the pages pass different classes to `x-text` before the tree', () => { linked(abc({ body: own('pa') + TREE }, { body: own('pc') + TREE }), more); });
   test('(the same class on each: alike)', () => { linked(abc({ body: own('pa') + TREE }), more); });

@@ -538,7 +538,7 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
     ];
     if (scope.component?.outer.has(name)) {
       report('SN201', `\`${name}\` is not defined in component \`<${scope.component.name}>\`, which sees only its props, its own state and the page's resources and helpers`, offset,
-        `add \`${name}\` to \`data-sn-component\` and pass it from the caller: \`data-sn-prop="{ ${name}: ${name} }"\``);
+        `add \`${name}\` to \`data-sn-props\` and pass it from the caller: \`data-sn-prop="{ ${name}: ${name} }"\``);
       return null;
     }
     report('SN201', `\`${name}\` is not defined here.${didYouMean(name, candidates)}`, offset);
@@ -1028,7 +1028,7 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
       if (!first || first.type !== 'Literal' || typeof first.value !== 'string') report('SN315', `\`emit()\` in component \`<${c.name}>\` takes the event's name as a string literal`, n.start);
       else if (!c.emits?.includes(first.value)) {
         report('SN315', c.emits ? `\`<${c.name}>\` does not declare the event \`${first.value}\`; \`data-sn-emits\` declares ${c.emits.map((e) => `\`${e}\``).join(', ') || 'none'}.${didYouMean(first.value, c.emits)}`
-          : `\`<${c.name}>\` declares no events; add \`data-sn-emits="{ ${first.value}: … }"\` to its \`<template data-sn-component>\``, (first as Node).start);
+          : `\`<${c.name}>\` declares no events; add \`data-sn-emits="{ ${first.value}: … }"\` to its \`<template data-sn-props>\``, (first as Node).start);
       }
       return;
     }

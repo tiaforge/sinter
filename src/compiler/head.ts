@@ -69,3 +69,39 @@ export function findHead(doc: P5Parent): P5Element | null {
   }
   return null;
 }
+
+/** elements that only a head holds (a body component's root is none of these) */
+const HEAD_ONLY = new Set(['title', 'meta', 'link', 'base', 'script', 'style', 'noscript']);
+
+/**
+ * Whether a component's `<template data-sn-props>` declares a head component: its markup is head
+ * elements (through `data-sn-if`/`data-sn-for` templates and slots) and head components, at least one of
+ * them. A body component's root is one element that is none of them; a template of slots alone is a body
+ * component. `headTag` says whether a component's tag is a head component; without it (the editor, the
+ * types), a component's tag is neither.
+ */
+export function holdsHead(template: P5Element, headTag?: (tag: string) => boolean): boolean {
+  let head = false;
+  const walk = (p: P5Parent): boolean => {
+    for (const c of p.childNodes) {
+      if (c.nodeName === '#text' && (c as DefaultTreeAdapterMap['textNode']).value.trim()) return false;
+      if (!('tagName' in c)) continue;
+      const el = c as P5Element;
+      if (el.tagName === 'template') { if (!walk((el as DefaultTreeAdapterMap['template']).content)) return false; }
+      else if (el.tagName === 'slot') { if (!walk(el)) return false; }
+      else if (HEAD_ONLY.has(el.tagName)) head = true;
+      else if (el.tagName.includes('-') && !el.tagName.startsWith('sn-')) { if (!headTag) continue; if (headTag(el.tagName)) head = true; else return false; }
+      else return false;
+    }
+    return true;
+  };
+  return walk((template as DefaultTreeAdapterMap['template']).content) && head;
+}
+
+/** a component file's text: whether it is a head component (`<template data-sn-props>` over head elements) */
+export function isHeadComponent(text: string, headTag?: (tag: string) => boolean): boolean {
+  const frag = parse5.parseFragment(text);
+  const t = frag.childNodes.find((c): c is P5Element => 'tagName' in c && (c as P5Element).tagName === 'template'
+    && (c as P5Element).attrs.some((a) => a.name === 'data-sn-props' || a.name === 'data-sn-head'));
+  return !!t && (t.attrs.some((a) => a.name === 'data-sn-head') || holdsHead(t, headTag));
+}

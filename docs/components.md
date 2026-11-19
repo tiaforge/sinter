@@ -5,7 +5,7 @@ every page:
 
 ```html
 <!-- src/components/article-preview.html -->
-<template data-sn-component="{ article: Article; compact?: boolean }" data-sn-emits="{ select: Article }">
+<template data-sn-props="{ article: Article; compact?: boolean }" data-sn-emits="{ select: Article }">
   <article class="preview" data-sn-class="{ compact }">
     <a data-sn-attr="{ href: '/article/' + article.slug }" data-sn-on-click="emit('select', article)">
       <h2 data-sn-text="article.title"></h2>
@@ -35,10 +35,10 @@ runtime.
 ## The file
 
 - The name contains a `-` (`article-preview.html` is `<article-preview>`).
-- One `<template data-sn-component="…">` holds the markup. Its root **renders at most one element**
+- One `<template data-sn-props="…">` holds the markup. Its root **renders at most one element**
   ([The root](#the-root)).
-- `data-sn-component` is the props type, written in TypeScript with the names `src/sinter.types.ts`
-  exports (or the schemas of your OpenAPI spec), as `<sn-resource type>` is. `data-sn-component=""`
+- `data-sn-props` is the props type, written in TypeScript with the names `src/sinter.types.ts`
+  exports (or the schemas of your OpenAPI spec), as `<sn-resource type>` is. `data-sn-props=""`
   takes no props.
 - `data-sn-emits` (optional) declares the events the component emits, with their detail types.
 - Together, these two attributes are the component's whole contract.
@@ -71,13 +71,13 @@ most one element**:
 
 ```html
 <!-- ui-button.html: an <a> or a <button> -->
-<template data-sn-component="{ href?: string; label: string }">
+<template data-sn-props="{ href?: string; label: string }">
   <template data-sn-if="href"><a data-sn-attr="{ href }" data-sn-text="label"></a></template>
   <template data-sn-else><button type="button" data-sn-text="label"></button></template>
 </template>
 
 <!-- primary-button.html: a variant, with no wrapper -->
-<template data-sn-component="{ href?: string; label: string }">
+<template data-sn-props="{ href?: string; label: string }">
   <ui-button class="primary" data-sn-prop="{ href, label }"></ui-button>
 </template>
 ```
@@ -137,7 +137,7 @@ fallback when it is left empty:
 
 ```html
 <!-- src/components/page-section.html -->
-<template data-sn-component="">
+<template data-sn-props="">
   <section><side-card><slot name="aside" slot="side">Nothing here</slot></side-card><slot></slot></section>
 </template>
 ```
@@ -150,7 +150,7 @@ A slot is placed once, with one exception: one `<slot>` of a name in each branch
 branch at build time. Two placements that can render together are a build error (`SN312`).
 
 ```html
-<template data-sn-component="{ level: number }">
+<template data-sn-props="{ level: number }">
   <div>
     <template data-sn-if="level === 1"><h1><slot></slot></h1></template>
     <template data-sn-else><h2><slot></slot></h2></template>
@@ -165,7 +165,7 @@ custom rows. The slot is a member of type `Slot<T>` in the props type, and `T` i
 
 ```html
 <!-- src/components/data-table.html -->
-<template data-sn-component="{ rows: Row[]; columns: (keyof Row)[]; cell: Slot<{ row: Row; column: keyof Row }> }">
+<template data-sn-props="{ rows: Row[]; columns: (keyof Row)[]; cell: Slot<{ row: Row; column: keyof Row }> }">
   <table><tbody>
     <template data-sn-for="r in rows" data-sn-key="r.id">
       <tr><template data-sn-for="c in columns"><td><slot name="cell" data-sn-prop="{ row: r, column: c }"><span data-sn-text="r[c]"></span></slot></td></template></tr>
@@ -184,7 +184,7 @@ custom rows. The slot is a member of type `Slot<T>` in the props type, and `T` i
   in the props type literal, where the compiler sees it (in a type alias, or inside another type, it
   is an error), without `?`: every slot may be left unfilled. A slot is not a prop: passing it with
   `data-sn-prop` is `SN313`, it is not in a script's `this.props`, and nothing requires it.
-  `Slot<T>` is not allowed in `data-sn-head` or `data-sn-layout`. `Slot` is a type sinter
+  `Slot<T>` is not allowed in a head component's or a layout's `data-sn-props`. `Slot` is a type sinter
   generates (in `src/sinter.components.d.ts`, beside `ComponentName`); a types module that exports
   one is an error that asks for another name. A slot that passes nothing needs no declaration.
 - **The placement.** `data-sn-prop` on the `<slot>` passes the values, as on a component's tag; it is
@@ -247,12 +247,12 @@ declares the slot; a component inside it places it without declaring it:
 
 ```html
 <!-- src/components/x-doc.html: the root -->
-<template data-sn-component="{ doc: Block[]; link: Slot<{ node: Link }> }">
+<template data-sn-props="{ doc: Block[]; link: Slot<{ node: Link }> }">
   <article><template data-sn-for="b in doc"><x-block data-sn-prop="{ block: b }"></x-block></template></article>
 </template>
 
 <!-- src/components/x-link.html: two levels down, it places the root's slot -->
-<template data-sn-component="{ node: Link }">
+<template data-sn-props="{ node: Link }">
   <slot name="link" data-sn-prop="{ node }"><a data-sn-attr="{ href: node.url }"><x-inline data-sn-prop="{ nodes: node.children }"></x-inline></a></slot>
 </template>
 ```
@@ -294,7 +294,7 @@ declares the slot; a component inside it places it without declaring it:
 
 ```html
 <!-- src/components/x-wrap.html: a wrapper that gives the page the link slot -->
-<template data-sn-component="{ doc: Block[]; link: Slot<{ node: Link }> }">
+<template data-sn-props="{ doc: Block[]; link: Slot<{ node: Link }> }">
   <x-doc data-sn-prop="{ doc }"><slot name="link" slot="link" data-sn-prop="{ node: $slot.node }"></slot></x-doc>
 </template>
 ```
@@ -364,7 +364,7 @@ A component that declares a `value` prop and a `change` event can be bound like 
 
 ```html
 <!-- src/components/rating-input.html -->
-<template data-sn-component="{ value: number }" data-sn-emits="{ change: number }">
+<template data-sn-props="{ value: number }" data-sn-emits="{ change: number }">
   <div>
     <template data-sn-for="i in [1, 2, 3, 4, 5]" data-sn-key="i">
       <button type="button" data-sn-class="{ on: i <= value }" data-sn-on-click="emit('change', i)" data-sn-text="i"></button>
@@ -420,7 +420,7 @@ tree, a nested menu.
 
 ```html
 <!-- src/components/comment-thread.html -->
-<template data-sn-component="{ comment: Comment }">
+<template data-sn-props="{ comment: Comment }">
   <li>
     <p data-sn-text="comment.body"></p>
     <button data-sn-on-click="upsert(comment.replies, { id: $now, body: 'Thanks!', replies: [] })">Reply</button>
@@ -555,7 +555,7 @@ A component for the `<head>` holds head elements, any number of them, with no wr
 
 ```html
 <!-- src/components/seo-tags.html -->
-<template data-sn-head="{ title?: string; description?: string }">
+<template data-sn-props="{ title?: string; description?: string }">
   <title data-sn-text="title ? title + ' · My Blog' : 'My Blog'">My Blog</title>
   <meta name="description" content="Notes on the web." data-sn-attr="{ content: description ?? 'Notes on the web.' }">
   <slot name="extra"></slot>
@@ -569,12 +569,11 @@ A component for the `<head>` holds head elements, any number of them, with no wr
 </head>
 ```
 
-- It is declared with `data-sn-head` in place of `data-sn-component`; the two declarations are the
-  file's kind, and a template with both is `SN312`.
-- It holds head elements: `<title>`, `<meta>`, `<link>`, `<script>`, `<style>`, `<noscript>`,
+- It is declared with `data-sn-props`, as every component is; its markup makes it a head component.
+- It holds head elements only: `<title>`, `<meta>`, `<link>`, `<script>`, `<style>`, `<noscript>`,
   `<base>`, `<template data-sn-if>` or `data-sn-for` over head elements, slots and other head
-  components. Anything else is `SN320`. Head elements in a `data-sn-component` are `SN312`, with the
-  hint to declare it with `data-sn-head`.
+  components, at least one of them. Markup with anything else is a component for the body, which
+  has one root element (`SN312` otherwise) and is `SN320` in a head.
 - It is used in a head: a page's, a [layout's](layouts.md), or a head slot's content. In a body it is
   `SN320`, as is a component with one root element in a head.
 - Its tag takes `data-sn-prop` and slot content, nothing else: there is no root for other attributes
@@ -597,5 +596,5 @@ names start with the library's prefix (`ui-`), which no app component may use.
 
 `<sn-include>` is removed: a partial is a component without a script. The build error (`SN316`) lists
 the names the partial read from the page. Move the file to `src/components/<name>.html`, wrap its
-markup in `<template data-sn-component="{ … }">` around one root element, declare those names as
+markup in `<template data-sn-props="{ … }">` around one root element, declare those names as
 props, and pass them with `data-sn-prop`.

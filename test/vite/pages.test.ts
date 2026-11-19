@@ -23,7 +23,7 @@ function app(files: Record<string, string>) {
 const blog = {
   'content/posts/hello.md': '---\ntitle: Hello\ndate: 2026-11-02\n---\nHi.\n',
   'content/posts/recap.md': '---\ntitle: Recap\ndate: 2026-12-30\n---\nThe year.\n',
-  'src/layouts/site-layout.html': '<!doctype html><html lang="en" data-sn-layout="{ title: string }"><head><title data-sn-text="title"></title></head><body><slot></slot></body></html>',
+  'src/layouts/site-layout.html': '<!doctype html><html lang="en" data-sn-props="{ title: string }"><head><title data-sn-text="title"></title></head><body><slot></slot></body></html>',
   'blog/post.html': `<site-layout data-sn-path="/blog/:slug" data-sn-for="post in posts" data-sn-prop="{ title: post.title }">
   <sn-resource name="posts" src="file:/content/posts/*.md" order="-date"></sn-resource>
   <article><h1 data-sn-text="post.title"></h1><time data-sn-text="post.date"></time></article>

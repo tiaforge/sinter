@@ -33,7 +33,7 @@ describe('constant bindings', () => {
 
   test('a component\'s script writes its root\'s state: what reads it stays bound', () => {
     const files: Record<string, string> = {
-      '/p/src/components/x-clock.html': '<template data-sn-component=""><div data-sn-state="{ n: 0 }"><b data-sn-text="n"></b></div></template>',
+      '/p/src/components/x-clock.html': '<template data-sn-props=""><div data-sn-state="{ n: 0 }"><b data-sn-text="n"></b></div></template>',
       '/p/src/components/x-clock.ts': 'export class XClock {}',
     };
     const out = compile('<!doctype html><html><head></head><body><x-clock></x-clock></body></html>', {
@@ -80,7 +80,7 @@ describe('constant bindings', () => {
   });
 
   test('a component used with different values: its data-sn-if is decided per use', () => {
-    const files: Record<string, string> = { '/p/src/components/x-tab.html': '<template data-sn-component="{ on: boolean }"><span><template data-sn-if="on"><b>on</b></template></span></template>' };
+    const files: Record<string, string> = { '/p/src/components/x-tab.html': '<template data-sn-props="{ on: boolean }"><span><template data-sn-if="on"><b>on</b></template></span></template>' };
     const out = compile('<!doctype html><html><head></head><body><div data-sn-state="{ a: true, b: false }"><x-tab data-sn-prop="{ on: a }"></x-tab><x-tab data-sn-prop="{ on: b }"></x-tab></div></body></html>', {
       file: '/p/index.html', root: '/p', dev: false, prerender: true,
       helpers: { module: null, names: [], namespaces: {} }, readFile: (p) => { if (p in files) return files[p]!; throw new Error('missing'); },

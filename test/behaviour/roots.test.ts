@@ -3,7 +3,7 @@
 import { describe, expect, test } from 'vitest';
 import { firstPaint, mockRequests, render } from '../../src/testing/index.js';
 
-const NODE = `<template data-sn-component="{ node: { id: number; name: string; open: boolean; kids: any[] } }" data-sn-emits="{ pick: string }">
+const NODE = `<template data-sn-props="{ node: { id: number; name: string; open: boolean; kids: any[] } }" data-sn-emits="{ pick: string }">
   <li data-sn-attr="{ 'data-id': node.id }">
     <span data-sn-text="node.name"></span>
     <ul><template data-sn-for="k in node.kids" data-sn-key="k.id"><tree-node class="child" title="inner" data-sn-class="{ open: k.open }" data-sn-on-click="$event.stopPropagation(); emit('pick', k.name)" data-sn-prop="{ node: k }"></tree-node></template></ul>
@@ -32,9 +32,9 @@ describe('the tag\'s attributes on a shared definition', () => {
 });
 
 describe('a choice as root', () => {
-  const BLOCK = `<template data-sn-component="{ b: { type: string; text: string } }"><sn-component use="\`\${b.type}-block\`" data-sn-prop="{ b }"></sn-component></template>`;
-  const HERO = '<template data-sn-component="{ b: { text: string } }"><h1 data-sn-text="b.text"></h1></template>';
-  const TEXT = '<template data-sn-component="{ b: { text: string } }"><p data-sn-text="b.text"></p></template>';
+  const BLOCK = `<template data-sn-props="{ b: { type: string; text: string } }"><sn-component use="\`\${b.type}-block\`" data-sn-prop="{ b }"></sn-component></template>`;
+  const HERO = '<template data-sn-props="{ b: { text: string } }"><h1 data-sn-text="b.text"></h1></template>';
+  const TEXT = '<template data-sn-props="{ b: { text: string } }"><p data-sn-text="b.text"></p></template>';
   test('a dispatcher with no wrapper: the tag\'s attributes land on the chosen component\'s root, and follow a change', async () => {
     const { root, flush } = await render(`<div data-sn-state="{ blocks: [{ type: 'hero', text: 'H' }, { type: 'text', text: 'T' }], hot: true }"><i id="cool" data-sn-on-click="hot = false"></i>
       <template data-sn-for="b in blocks"><any-block class="blk" data-sn-class="{ hot }" data-sn-prop="{ b }"></any-block></template></div>`,
@@ -48,7 +48,7 @@ describe('a choice as root', () => {
 });
 
 describe('roots replaced when their condition changes', () => {
-  const BUTTON = `<template data-sn-component="{ href?: string; label: string }">
+  const BUTTON = `<template data-sn-props="{ href?: string; label: string }">
   <template data-sn-if="href"><a class="btn" data-sn-attr="{ href }" data-sn-text="label"></a></template>
   <template data-sn-else><button class="btn" type="button" data-sn-text="label"></button></template>
 </template>`;

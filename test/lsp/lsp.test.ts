@@ -174,8 +174,8 @@ describe('sinter lsp', () => {
 
   test('a component is checked through the pages that use it, and on its own when none does', async () => {
     const page = '<sn-resource name="contacts" src="/api/contacts" key="id"></sn-resource>\n<div data-sn-state="{ q: \'\' }">\n  <contact-list data-sn-prop="{ q }"></contact-list>\n</div>\n';
-    const component = '<template data-sn-component="{ q: string }"><ul><template data-sn-for="c in contacts">\n  <p data-sn-text="c.name + q"></p>\n</template></ul></template>\n';
-    const root = project({ 'index.html': page, 'src/components/contact-list.html': component, 'src/components/lone-card.html': '<template data-sn-component=""><p data-sn-text="nope"></p></template>\n' });
+    const component = '<template data-sn-props="{ q: string }"><ul><template data-sn-for="c in contacts">\n  <p data-sn-text="c.name + q"></p>\n</template></ul></template>\n';
+    const root = project({ 'index.html': page, 'src/components/contact-list.html': component, 'src/components/lone-card.html': '<template data-sn-props=""><p data-sn-text="nope"></p></template>\n' });
     const e = await editor(root);
     e.open('src/components/contact-list.html', component);
     // `contacts` is the page's resource and `q` a prop, so the component has no errors
@@ -190,7 +190,7 @@ describe('sinter lsp', () => {
     e.change('src/components/contact-list.html', component);
     await e.diagnostics('src/components/contact-list.html', (d) => d.every((x) => x.severity === 2));
 
-    e.open('src/components/lone-card.html', '<template data-sn-component=""><p data-sn-text="nope"></p></template>\n');
+    e.open('src/components/lone-card.html', '<template data-sn-props=""><p data-sn-text="nope"></p></template>\n');
     const lone = await e.diagnostics('src/components/lone-card.html', (d) => d.length > 0);
     expect(lone.map((x) => x.code)).toEqual(['SN201 unknown-identifier']);
   });
@@ -279,7 +279,7 @@ describe('sinter lsp', () => {
 
     test('a type error in a component is reported on the component', async () => {
       const page = '<sn-resource name="contacts" src="/api/contacts" key="id" type="Contact[]"></sn-resource>\n<contact-rows></contact-rows>\n';
-      const row = '<template data-sn-component=""><ul><template data-sn-for="c in contacts">\n  <p data-sn-text="c.tags.lenght"></p>\n</template></ul></template>\n';
+      const row = '<template data-sn-props=""><ul><template data-sn-for="c in contacts">\n  <p data-sn-text="c.tags.lenght"></p>\n</template></ul></template>\n';
       const root = project({ 'src/sinter.types.ts': TYPES, 'index.html': page, 'src/components/contact-rows.html': row });
       const e = await editor(root);
       e.open('src/components/contact-rows.html', row);
@@ -302,7 +302,7 @@ describe('sinter lsp', () => {
     });
   
     test('hover on `$slot` in a fill: its type, and which placement passes it', async () => {
-      const list = '<template data-sn-component="{ rows: Contact[]; row: Slot<{ contact: Contact }> }"><ul><template data-sn-for="c in rows"><slot name="row" data-sn-prop="{ contact: c }"><li></li></slot></template></ul></template>\n';
+      const list = '<template data-sn-props="{ rows: Contact[]; row: Slot<{ contact: Contact }> }"><ul><template data-sn-for="c in rows"><slot name="row" data-sn-prop="{ contact: c }"><li></li></slot></template></ul></template>\n';
       const page = '<sn-resource name="contacts" src="/api/contacts" key="id" type="Contact[]"></sn-resource>\n<contact-list data-sn-prop="{ rows: contacts }">\n  <li slot="row" data-sn-text="$slot.contact.name"></li>\n</contact-list>\n';
       const root = project({ 'src/sinter.types.ts': TYPES, 'index.html': page, 'src/components/contact-list.html': list });
       const e = await editor(root);
@@ -527,7 +527,7 @@ export default { plugins: [sinter({ apis: {
 
   test('go to definition on a component\'s tag opens the component', async () => {
     const page = '<x-row></x-row>\n';
-    const root = project({ 'index.html': page, 'src/components/x-row.html': '<template data-sn-component=""><p>row</p></template>\n' });
+    const root = project({ 'index.html': page, 'src/components/x-row.html': '<template data-sn-props=""><p>row</p></template>\n' });
     const e = await editor(root);
     e.open('index.html', page);
     const d = await e.definition('index.html', 0, 3);
@@ -536,7 +536,7 @@ export default { plugins: [sinter({ apis: {
 
   describe('layouts and slots', () => {
     const LAYOUT = `<!doctype html>
-<html data-sn-layout="{ title?: string }">
+<html data-sn-props="{ title?: string }">
 <head>
   <meta charset="utf-8">
   <slot name="head"></slot>
@@ -550,8 +550,8 @@ export default { plugins: [sinter({ apis: {
 `;
     const files = {
       'src/layouts/site-layout.html': LAYOUT,
-      'src/components/seo-tags.html': '<template data-sn-head="{ title?: string }"><title data-sn-text="title ?? \'x\'">x</title></template>\n',
-      'src/components/x-card.html': '<template data-sn-component="{ n: number }"><div><slot name="side"></slot><slot></slot></div></template>\n',
+      'src/components/seo-tags.html': '<template data-sn-props="{ title?: string }"><title data-sn-text="title ?? \'x\'">x</title></template>\n',
+      'src/components/x-card.html': '<template data-sn-props="{ n: number }"><div><slot name="side"></slot><slot></slot></div></template>\n',
     };
 
     test('slot="…" completes the layout\'s head slots on a head element, its body slots on the rest', async () => {
@@ -573,7 +573,7 @@ export default { plugins: [sinter({ apis: {
       e.open('index.html', page);
       expect((await e.completion('index.html', 0, 47))!.items.map((i) => i.label)).toEqual(['side']);
       const d = await e.definition('index.html', 0, 47);
-      expect(d!.map((x) => [x.uri.split('/').pop(), x.range.start.line, x.range.start.character])).toEqual([['x-card.html', 0, 49]]);
+      expect(d!.map((x) => [x.uri.split('/').pop(), x.range.start.line, x.range.start.character])).toEqual([['x-card.html', 0, 45]]);
     });
 
     test('tags: layouts at the top of an empty page, head components in a head, components in a body', async () => {
@@ -939,7 +939,7 @@ export function runSend(draft, sig, ctx) {
 
   test('in a component, the names are its props and the page\'s resources', async () => {
     const page = '<sn-resource name="contacts" src="/api/contacts" key="id" type="Contact[]"></sn-resource>\n<div data-sn-state="{ q: \'\' }">\n  <contact-rows data-sn-prop="{ q }"></contact-rows>\n</div>\n';
-    const row = '<template data-sn-component="{ q: string }"><ul><template data-sn-for="c in contacts">\n  <p data-sn-show="c.name.includes(q)"></p>\n</template></ul></template>\n';
+    const row = '<template data-sn-props="{ q: string }"><ul><template data-sn-for="c in contacts">\n  <p data-sn-show="c.name.includes(q)"></p>\n</template></ul></template>\n';
     const root = project({ 'src/sinter.types.ts': TYPES, 'src/sinter.helpers.ts': '', 'index.html': page, 'src/components/contact-rows.html': row });
     const e = await editor(root);
     e.open('src/components/contact-rows.html', row);

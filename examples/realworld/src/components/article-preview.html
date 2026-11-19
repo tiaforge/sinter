@@ -1,6 +1,6 @@
 <!-- An article in a list (which has no `body`): its favorite button, author and date, then its title,
      description and tags, linking to it. -->
-<template data-sn-component="{ article: Omit<Article, 'body'> }">
+<template data-sn-props="{ article: Omit<Article, 'body'> }">
   <div class="article-preview">
     <div class="article-meta">
       <favorite-button class="pull-xs-right" data-sn-prop="{ article, idSuffix: article.slug }"></favorite-button>

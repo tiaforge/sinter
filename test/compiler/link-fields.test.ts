@@ -7,10 +7,10 @@ import { LINK_FIELDS } from '../../src/compiler/link.js';
 
 const INL = "{ text: 'x-text', link: 'x-link' }";
 const components: Record<string, string> = {
-  'x-doc': `<template data-sn-component="{ doc: any }"><div><template data-sn-for="n in doc.children"><sn-component use="${INL}[n.type]" data-sn-prop="{ node: n }"></sn-component></template></div></template>`,
-  'x-text': '<template data-sn-component="{ node: any }"><span data-sn-text="node.value"></span></template>',
-  'x-link': `<template data-sn-component="{ node: any }"><a data-sn-attr="{ href: node.url }"><template data-sn-for="n in node.children"><sn-component use="${INL}[n.type]" data-sn-prop="{ node: n }"></sn-component></template></a></template>`,
-  'x-count': '<template data-sn-component="{ start: number }"><span data-sn-state="{ n: start }"><button data-sn-on-click="n++" data-sn-text="n"></button></span></template>',
+  'x-doc': `<template data-sn-props="{ doc: any }"><div><template data-sn-for="n in doc.children"><sn-component use="${INL}[n.type]" data-sn-prop="{ node: n }"></sn-component></template></div></template>`,
+  'x-text': '<template data-sn-props="{ node: any }"><span data-sn-text="node.value"></span></template>',
+  'x-link': `<template data-sn-props="{ node: any }"><a data-sn-attr="{ href: node.url }"><template data-sn-for="n in node.children"><sn-component use="${INL}[n.type]" data-sn-prop="{ node: n }"></sn-component></template></a></template>`,
+  'x-count': '<template data-sn-props="{ start: number }"><span data-sn-state="{ n: start }"><button data-sn-on-click="n++" data-sn-text="n"></button></span></template>',
 };
 const files: Record<string, string> = {
   '/p/doc.json': JSON.stringify({ children: [{ type: 'text', value: 'a' }, { type: 'link', url: '/b', children: [{ type: 'text', value: 'b' }] }] }),

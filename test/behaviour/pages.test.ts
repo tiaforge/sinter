@@ -7,7 +7,7 @@ import { compile } from '../../src/compiler/index.js';
 const files: Record<string, string> = {
   'content/posts/hello.md': '---\ntitle: Hello\n---\n# Hi\n',
   'content/posts/recap.md': '---\ntitle: Recap 2026\n---\nThe year.\n',
-  'src/layouts/blog-layout.html': '<!doctype html><html lang="en" data-sn-layout="{ title: string }"><head><title data-sn-text="title"></title></head><body><slot></slot></body></html>',
+  'src/layouts/blog-layout.html': '<!doctype html><html lang="en" data-sn-props="{ title: string }"><head><title data-sn-text="title"></title></head><body><slot></slot></body></html>',
 };
 const build = (html: string, o: Record<string, unknown> = {}, more: Record<string, string> = {}) => compile(html, {
   file: '/p/blog/post.html', root: '/p', dev: false, prerender: true, helpers: { module: null, names: [], namespaces: {} },

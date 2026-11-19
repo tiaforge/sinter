@@ -200,7 +200,7 @@ describe('models on $url', () => {
 });
 
 test('a component model on $url pushes, even when its change is not from a user event', async () => {
-  const PICK = `<template data-sn-component="{ value: string }" data-sn-emits="{ change: string }"><b data-sn-text="value"></b></template>`;
+  const PICK = `<template data-sn-props="{ value: string }" data-sn-emits="{ change: string }"><b data-sn-text="value"></b></template>`;
   const { root, flush, history } = await render('<x-pick data-sn-model="$url.p"></x-pick>', { components: { 'x-pick': PICK } });
   root.querySelector('b')!.dispatchEvent(new CustomEvent('change', { detail: 'a' }));
   await flush();

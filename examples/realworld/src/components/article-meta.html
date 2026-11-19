@@ -2,7 +2,7 @@
      page twice: `place` keeps the ids of its toggles (which keep the focus across a click) unique. Following
      answers with the author's profile, which write-through does not apply to the article it is nested in:
      `then` does. -->
-<template data-sn-component="{ article: Article; place: 'banner' | 'actions' }">
+<template data-sn-props="{ article: Article; place: 'banner' | 'actions' }">
   <div class="article-meta">
     <a data-sn-attr="{href: '/profile/' + encodeURIComponent(article.author.username)}"><img data-sn-attr="{src: avatar(article.author.image), alt: article.author.username}"></a>
     <div class="info">

@@ -1,6 +1,6 @@
 <!-- One service: its sparkline and newest numbers, from its samples. The `actions` slot is filled by the page,
      in the page's scope, so the Pause button is the page's: components do not change their props. -->
-<template data-sn-component="{ service: Service; samples: Sample[] }">
+<template data-sn-props="{ service: Service; samples: Sample[] }">
   <article data-layout="stack" data-gap="sm" data-sn-let="{ last: samples[samples.length - 1] }"
            data-sn-attr="{ 'data-paused': service.paused }">
     <header data-layout="row" data-gap="sm">

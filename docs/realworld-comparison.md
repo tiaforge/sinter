@@ -43,7 +43,7 @@ generated API client) and the shared theme CSS excluded. sinter's count includes
 config (page entries and path rewrites) and its `apis.js` (the API config), and leaves out its generated
 `src/sinter.components.d.ts`.
 Before components, with partials, the same script counts 765 lines (html 593, js 172): the components'
-`<template data-sn-component>` wrappers and their props cost more lines than the favorite button they
+`<template data-sn-props>` wrappers and their props cost more lines than the favorite button they
 deduplicate saves.
 
 | implementation | files | lines | by type |
@@ -276,7 +276,7 @@ head script from 837 to 717 B (gzip); the page module and the shared head script
 The seven pages now share one [layout](layouts.md), `src/layouts/conduit-layout.html`: the head
 (charset, viewport, icon, the Ionicons, Google Fonts and app stylesheets), the header and the footer.
 Each page is the layout's tag with its state, `data-sn-on-sn-error` and its title and description as
-props, which the `conduit-seo` head component (`<template data-sn-head>`) binds into the `<title>` and
+props, which the `conduit-seo` head component (`<template data-sn-props>`) binds into the `<title>` and
 the description `<meta>`. Every title is a constant, as before (`title: 'Article'`), so it is written
 into the HTML; the article page's Markdown script goes into the layout's head slot. The page files lost their
 heads and the header and footer tags: 7 to 11 lines each.

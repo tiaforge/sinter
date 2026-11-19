@@ -16,12 +16,12 @@ function rng(seed: number) {
 
 const CHOICE = "{ p: 'c-plain', c: 'c-chain', s: 'c-slot', e: 'c-none' }";
 const COMPONENTS: Record<string, string> = {
-  'c-plain': `<template data-sn-component="{ x: any }"><b data-sn-text="x.t"></b></template>`,
-  'c-chain': `<template data-sn-component="{ x: any }"><template data-sn-if="x.a"><i data-sn-text="x.t"></i></template><template data-sn-else><template data-sn-if="x.b"><u data-sn-text="x.t"></u></template></template></template>`,
+  'c-plain': `<template data-sn-props="{ x: any }"><b data-sn-text="x.t"></b></template>`,
+  'c-chain': `<template data-sn-props="{ x: any }"><template data-sn-if="x.a"><i data-sn-text="x.t"></i></template><template data-sn-else><template data-sn-if="x.b"><u data-sn-text="x.t"></u></template></template></template>`,
   // a slot root: a choice between a fill and its default (a case whose content is one choice)
-  'c-slot': `<template data-sn-component="{ x: any; item: Slot<{ x: any }> }"><slot name="item" data-sn-prop="{ x }"><template data-sn-if="x.b"><s data-sn-text="x.t"></s></template></slot></template>`,
+  'c-slot': `<template data-sn-props="{ x: any; item: Slot<{ x: any }> }"><slot name="item" data-sn-prop="{ x }"><template data-sn-if="x.b"><s data-sn-text="x.t"></s></template></slot></template>`,
   // a root that renders nothing while `a` is false
-  'c-none': `<template data-sn-component="{ x: any }"><template data-sn-if="x.a"><em data-sn-text="x.t"></em></template></template>`,
+  'c-none': `<template data-sn-props="{ x: any }"><template data-sn-if="x.a"><em data-sn-text="x.t"></em></template></template>`,
 };
 
 /** markup over the item `v` whose top level is one anchor (its row or branch a wrapper) or a leaf; `depth` levels left */

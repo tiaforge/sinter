@@ -4,15 +4,15 @@ import { describe, expect, test } from 'vitest';
 import { render } from '../../src/testing/index.js';
 
 const C: Record<string, string> = {
-  'x-plain': `<template data-sn-component="{ href?: string; label: string }"><a data-sn-attr="{ href }" data-sn-text="label"></a></template>`,
-  'x-if': `<template data-sn-component="{ href?: string; label: string }"><template data-sn-if="href"><a data-sn-attr="{ href }" data-sn-text="label"></a></template></template>`,
-  'x-ifelse': `<template data-sn-component="{ href?: string; label: string }"><template data-sn-if="href"><a data-sn-attr="{ href }" data-sn-text="label"></a></template><template data-sn-else><button type="button" data-sn-text="label"></button></template></template>`,
+  'x-plain': `<template data-sn-props="{ href?: string; label: string }"><a data-sn-attr="{ href }" data-sn-text="label"></a></template>`,
+  'x-if': `<template data-sn-props="{ href?: string; label: string }"><template data-sn-if="href"><a data-sn-attr="{ href }" data-sn-text="label"></a></template></template>`,
+  'x-ifelse': `<template data-sn-props="{ href?: string; label: string }"><template data-sn-if="href"><a data-sn-attr="{ href }" data-sn-text="label"></a></template><template data-sn-else><button type="button" data-sn-text="label"></button></template></template>`,
   // a component tag as root
-  'x-var': `<template data-sn-component="{ href?: string; label: string }"><x-ifelse class="v" data-sn-prop="{ href, label: label + '!' }"></x-ifelse></template>`,
+  'x-var': `<template data-sn-props="{ href?: string; label: string }"><x-ifelse class="v" data-sn-prop="{ href, label: label + '!' }"></x-ifelse></template>`,
   // a plain root that holds a component whose root is a chain
-  'x-inner': `<template data-sn-component="{ href?: string; label: string }"><span><x-ifelse data-sn-prop="{ href, label }"></x-ifelse></span></template>`,
+  'x-inner': `<template data-sn-props="{ href?: string; label: string }"><span><x-ifelse data-sn-prop="{ href, label }"></x-ifelse></span></template>`,
   // a slot that passes data, as root
-  'x-slot': `<template data-sn-component="{ label: string; item: Slot<{ label: string }> }"><slot name="item" data-sn-prop="{ label }"><i data-sn-text="label"></i></slot></template>`,
+  'x-slot': `<template data-sn-props="{ label: string; item: Slot<{ label: string }> }"><slot name="item" data-sn-prop="{ label }"><i data-sn-text="label"></i></slot></template>`,
 };
 const ITEMS = [{ t: 'a', href: '/a' }, { t: 'b' }, { t: 'c', href: '/c' }];
 
@@ -87,7 +87,7 @@ describe('over constants as over written state', () => {
 });
 
 describe('a fill that is a chain over `$slot`, outside a loop', () => {
-  const ONE = { 'x-one': `<template data-sn-component="{ x: { t: string }; item: Slot<{ x: { t: string } }> }"><div><slot name="item" data-sn-prop="{ x }"><i data-sn-text="x.t"></i></slot></div></template>` };
+  const ONE = { 'x-one': `<template data-sn-props="{ x: { t: string }; item: Slot<{ x: { t: string } }> }"><div><slot name="item" data-sn-prop="{ x }"><i data-sn-text="x.t"></i></slot></div></template>` };
   const fill = `<template slot="item" data-sn-if="$slot.x.t == 'b'"><b data-sn-text="$slot.x.t"></b></template><template data-sn-else><u data-sn-text="$slot.x.t"></u></template>`;
   for (const t of ['b', 'c']) {
     test(`over a literal as over written state: ${t}`, async () => {
@@ -104,9 +104,9 @@ describe('a fill that is a chain over `$slot`, outside a loop', () => {
 describe('a component tag as the fill of a slot a list places per row', () => {
   const L: Record<string, string> = {
     ...C,
-    'x-list': `<template data-sn-component="{ rows: any[]; cell: Slot<{ row: any; i: number }> }"><ul><template data-sn-for="(r, i) in rows"><li><slot name="cell" data-sn-prop="{ row: r, i }"><i data-sn-text="r.n"></i></slot></li></template></ul></template>`,
-    'x-cell': `<template data-sn-component="{ v: string; hot?: boolean }"><b data-sn-class="{ hot }" data-sn-text="v"></b></template>`,
-    'x-wrap': `<template data-sn-component="{}"><em><slot></slot></em></template>`,
+    'x-list': `<template data-sn-props="{ rows: any[]; cell: Slot<{ row: any; i: number }> }"><ul><template data-sn-for="(r, i) in rows"><li><slot name="cell" data-sn-prop="{ row: r, i }"><i data-sn-text="r.n"></i></slot></li></template></ul></template>`,
+    'x-cell': `<template data-sn-props="{ v: string; hot?: boolean }"><b data-sn-class="{ hot }" data-sn-text="v"></b></template>`,
+    'x-wrap': `<template data-sn-props="{}"><em><slot></slot></em></template>`,
   };
   const ROWS = [{ n: 'a', hot: true }, { n: 'b' }, { n: 'c', hot: true }];
   /** the fill, by case; `extra` is what the page loop adds to a value */
@@ -154,14 +154,14 @@ describe('a component tag as the fill of a slot a list places per row', () => {
 describe('fills of a tree placement, in a tree over constants', () => {
   const MAP = "{ p: 'x-p', a: 'x-a', t: 'x-t', h: 'x-h' }";
   const T: Record<string, string> = {
-    'x-doc': `<template data-sn-component="{ doc: any; link: Slot<{ href: string }>; heading: Slot<{ node: any }> }"><article><template data-sn-for="b in doc.children"><sn-component use="${MAP}[b.type]" data-sn-prop="{ node: b }"></sn-component></template></article></template>`,
-    'x-p': `<template data-sn-component="{ node: any }"><p><template data-sn-for="c in node.children"><sn-component use="${MAP}[c.type]" data-sn-prop="{ node: c }"></sn-component></template></p></template>`,
-    'x-h': `<template data-sn-component="{ node: any }"><slot name="heading" data-sn-prop="{ node }"><h3><template data-sn-for="c in node.children"><sn-component use="${MAP}[c.type]" data-sn-prop="{ node: c }"></sn-component></template></h3></slot></template>`,
-    'x-t': `<template data-sn-component="{ node: any }"><span data-sn-text="node.value"></span></template>`,
+    'x-doc': `<template data-sn-props="{ doc: any; link: Slot<{ href: string }>; heading: Slot<{ node: any }> }"><article><template data-sn-for="b in doc.children"><sn-component use="${MAP}[b.type]" data-sn-prop="{ node: b }"></sn-component></template></article></template>`,
+    'x-p': `<template data-sn-props="{ node: any }"><p><template data-sn-for="c in node.children"><sn-component use="${MAP}[c.type]" data-sn-prop="{ node: c }"></sn-component></template></p></template>`,
+    'x-h': `<template data-sn-props="{ node: any }"><slot name="heading" data-sn-prop="{ node }"><h3><template data-sn-for="c in node.children"><sn-component use="${MAP}[c.type]" data-sn-prop="{ node: c }"></sn-component></template></h3></slot></template>`,
+    'x-t': `<template data-sn-props="{ node: any }"><span data-sn-text="node.value"></span></template>`,
     // its default's children through a component whose root is a choice (a phrasing dispatcher)
-    'x-a': `<template data-sn-component="{ node: any }"><slot name="link" data-sn-prop="{ href: node.url }"><a data-sn-attr="{ href: node.url }"><template data-sn-for="c in node.children"><x-in data-sn-prop="{ node: c }"></x-in></template></a></slot></template>`,
-    'x-in': `<template data-sn-component="{ node: any }"><sn-component use="${MAP}[node.type]" data-sn-prop="{ node }"></sn-component></template>`,
-    'x-pill': `<template data-sn-component="{ to: string }"><a class="pill" data-sn-attr="{ href: to }"><slot></slot></a></template>`,
+    'x-a': `<template data-sn-props="{ node: any }"><slot name="link" data-sn-prop="{ href: node.url }"><a data-sn-attr="{ href: node.url }"><template data-sn-for="c in node.children"><x-in data-sn-prop="{ node: c }"></x-in></template></a></slot></template>`,
+    'x-in': `<template data-sn-props="{ node: any }"><sn-component use="${MAP}[node.type]" data-sn-prop="{ node }"></sn-component></template>`,
+    'x-pill': `<template data-sn-props="{ to: string }"><a class="pill" data-sn-attr="{ href: to }"><slot></slot></a></template>`,
   };
   const t = (value: string) => ({ type: 't', value });
   const DOC = { children: [
@@ -206,7 +206,7 @@ describe('fills of a tree placement, in a tree over constants', () => {
 describe('a choice inside a component over its own prop, choosing a component-tag root over a chain root', () => {
   const B = {
     ...C,
-    'x-c2': `<template data-sn-component="{ x: any }"><sn-component use="{ a: 'x-plain', v: 'x-var' }[x.k]" data-sn-prop="{ href: x.href, label: x.t }"></sn-component></template>`,
+    'x-c2': `<template data-sn-props="{ x: any }"><sn-component use="{ a: 'x-plain', v: 'x-var' }[x.k]" data-sn-prop="{ href: x.href, label: x.t }"></sn-component></template>`,
   };
   const D = "[{ t: 'a', href: '/a', k: 'a' }, { t: 'b', k: 'v' }, { t: 'c', href: '/c', k: 'v' }]";
   const BODIES: Record<string, string> = {

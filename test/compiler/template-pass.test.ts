@@ -19,14 +19,14 @@ const docs: Record<string, string> = {
 };
 const INL = "{ text: 'x-text', link: 'x-link' }";
 const components: Record<string, string> = {
-  'x-doc': `<template data-sn-component="{ doc: any }"><div><template data-sn-for="n in doc.children"><sn-component use="${INL}[n.type]" data-sn-prop="{ node: n }"></sn-component></template></div></template>`,
-  'x-text': '<template data-sn-component="{ node: any }"><span data-sn-text="node.value"></span></template>',
-  'x-link': `<template data-sn-component="{ node: any }"><a data-sn-attr="{ href: node.url }"><template data-sn-for="n in node.children"><sn-component use="${INL}[n.type]" data-sn-prop="{ node: n }"></sn-component></template></a></template>`,
+  'x-doc': `<template data-sn-props="{ doc: any }"><div><template data-sn-for="n in doc.children"><sn-component use="${INL}[n.type]" data-sn-prop="{ node: n }"></sn-component></template></div></template>`,
+  'x-text': '<template data-sn-props="{ node: any }"><span data-sn-text="node.value"></span></template>',
+  'x-link': `<template data-sn-props="{ node: any }"><a data-sn-attr="{ href: node.url }"><template data-sn-for="n in node.children"><sn-component use="${INL}[n.type]" data-sn-prop="{ node: n }"></sn-component></template></a></template>`,
 };
 // a tree with images: a post with one, and posts without
 const IMG = "{ text: 'x-text', image: 'x-image' }";
-components['x-idoc'] = `<template data-sn-component="{ doc: any }"><div><template data-sn-for="n in doc.children"><sn-component use="${IMG}[n.type]" data-sn-prop="{ node: n }"></sn-component></template></div></template>`;
-components['x-image'] = '<template data-sn-component="{ node: any }"><img data-sn-attr="{ src: node.url, alt: node.alt }"></template>';
+components['x-idoc'] = `<template data-sn-props="{ doc: any }"><div><template data-sn-for="n in doc.children"><sn-component use="${IMG}[n.type]" data-sn-prop="{ node: n }"></sn-component></template></div></template>`;
+components['x-image'] = '<template data-sn-props="{ node: any }"><img data-sn-attr="{ src: node.url, alt: node.alt }"></template>';
 const idocs: Record<string, string> = {
   'content/idocs/one.json': JSON.stringify({ slug: 'one', doc: { children: [{ type: 'text', value: 'no image' }] } }),
   'content/idocs/two.json': JSON.stringify({ slug: 'two', doc: { children: [{ type: 'image', url: '/img/photo.jpg', alt: 'A photo' }] } }),
@@ -169,7 +169,7 @@ describe('what is compiled the usual way', () => {
   test('the second entry walks the template too: a program that differs from the kept one is not shared', () => {
     // (what an entry may not change, changed: `<x-flag>` is a component for the later entries only, so only their
     // programs hold its condition; decided from the first entry's program, it would stay in the browser)
-    const flag = '<template data-sn-component="{ on: boolean }"><template data-sn-if="on"><b>Draft</b></template><template data-sn-else><b>Live</b></template></template>';
+    const flag = '<template data-sn-props="{ on: boolean }"><template data-sn-if="on"><b>Draft</b></template><template data-sn-else><b>Live</b></template></template>';
     const r = both(page('<x-flag data-sn-prop="{ on: post.draft }"></x-flag><template data-sn-if="post.draft"><i>d</i></template>'), {}, (e) => ({
       readFile: (f: string) => { const t = f === '/p/src/components/x-flag.html' && e.path !== '/blog/a' ? flag : files[f.replace(/^\/p\//, '')]; if (t === undefined) throw new Error(`no such file: ${f}`); return t; },
       componentNames: [...Object.keys(components), ...(e.path === '/blog/a' ? [] : ['x-flag'])],

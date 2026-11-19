@@ -28,7 +28,7 @@ browser ([build-time constants](first-paint.md#build-time-constants)):
 
   ```html
   <!-- src/components/nav-list.html -->
-  <template data-sn-component="{ items: { href: string; label: string }[] }">
+  <template data-sn-props="{ items: { href: string; label: string }[] }">
     <ul><template data-sn-for="i in items"><li><a data-sn-attr="{ href: i.href }" data-sn-text="i.label"></a></li></template></ul>
   </template>
 

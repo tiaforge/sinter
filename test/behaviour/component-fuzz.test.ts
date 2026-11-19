@@ -14,15 +14,15 @@ function rng(seed: number) {
 
 const CHOICE = "{ p: 'c-plain', c: 'c-chain', t: 'c-tag', l: 'c-list' }";
 const COMPONENTS: Record<string, string> = {
-  'c-plain': `<template data-sn-component="{ x: any }"><b data-sn-text="x.t"></b></template>`,
-  'c-chain': `<template data-sn-component="{ x: any }"><template data-sn-if="x.on"><i data-sn-text="x.t"></i></template><template data-sn-else><u data-sn-text="x.t + '!'"></u></template></template>`,
-  'c-tag': `<template data-sn-component="{ x: any }"><c-chain class="t" data-sn-prop="{ x }"></c-chain></template>`,
-  'c-slot': `<template data-sn-component="{ x: any; item: Slot<{ x: any }> }"><slot name="item" data-sn-prop="{ x }"><s data-sn-text="x.t"></s></slot></template>`,
-  'c-wrap': `<template data-sn-component="{}"><em><slot></slot></em></template>`,
-  'c-list': `<template data-sn-component="{ x: any }"><ol><template data-sn-for="y in x.c"><li><c-chain data-sn-prop="{ x: y }"></c-chain></li></template></ol></template>`,
-  'c-choice': `<template data-sn-component="{ x: any }"><sn-component use="${CHOICE}[x.k]" data-sn-prop="{ x }"></sn-component></template>`,
+  'c-plain': `<template data-sn-props="{ x: any }"><b data-sn-text="x.t"></b></template>`,
+  'c-chain': `<template data-sn-props="{ x: any }"><template data-sn-if="x.on"><i data-sn-text="x.t"></i></template><template data-sn-else><u data-sn-text="x.t + '!'"></u></template></template>`,
+  'c-tag': `<template data-sn-props="{ x: any }"><c-chain class="t" data-sn-prop="{ x }"></c-chain></template>`,
+  'c-slot': `<template data-sn-props="{ x: any; item: Slot<{ x: any }> }"><slot name="item" data-sn-prop="{ x }"><s data-sn-text="x.t"></s></slot></template>`,
+  'c-wrap': `<template data-sn-props="{}"><em><slot></slot></em></template>`,
+  'c-list': `<template data-sn-props="{ x: any }"><ol><template data-sn-for="y in x.c"><li><c-chain data-sn-prop="{ x: y }"></c-chain></li></template></ol></template>`,
+  'c-choice': `<template data-sn-props="{ x: any }"><sn-component use="${CHOICE}[x.k]" data-sn-prop="{ x }"></sn-component></template>`,
   // a component whose props have the inner component's names, with other values
-  'c-out': `<template data-sn-component="{ n: any; x?: any }"><span><c-chain data-sn-prop="{ x: n }"></c-chain></span></template>`,
+  'c-out': `<template data-sn-props="{ n: any; x?: any }"><span><c-chain data-sn-prop="{ x: n }"></c-chain></span></template>`,
 };
 
 /** `<c-slot>` over `v` with a named fill that reads `$slot` and `v` */

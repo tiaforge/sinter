@@ -129,7 +129,7 @@ A component is an HTML file in `src/components/`. Its file name is its tag:
 
 ```html
 <!-- src/components/contact-card.html -->
-<template data-sn-component="{ contact: Contact; compact?: boolean }" data-sn-emits="{ pick: Contact }">
+<template data-sn-props="{ contact: Contact; compact?: boolean }" data-sn-emits="{ pick: Contact }">
   <article class="card" data-sn-class="{ compact }">
     <h2 data-sn-text="contact.name"></h2>
     <slot name="meta"></slot>
@@ -165,7 +165,7 @@ A component is an HTML file in `src/components/`. Its file name is its tag:
   ``<sn-component use="`${b.type}-block`">`` picks one per item.
 - **Layouts.** A document in `src/layouts/` with slots in its head and body: a page is only its tag,
   and passes its title and SEO tags in through props, head slots and head components
-  (`<template data-sn-head>`). The merge happens at build time, so the early scripts, preloads and
+  (`<template data-sn-props>`). The merge happens at build time, so the early scripts, preloads and
   bundled scripts and fonts work on the merged head.
 
 [Components](docs/components.md), [layouts](docs/layouts.md), [components with a script](docs/islands.md)

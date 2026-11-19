@@ -2,7 +2,7 @@
 import { describe, expect, test } from 'vitest';
 import { render } from '../../src/testing/index.js';
 
-const LAYOUT = `<!doctype html><html lang="en" data-sn-layout="{ title: string }">
+const LAYOUT = `<!doctype html><html lang="en" data-sn-props="{ title: string }">
 <head><title data-sn-text="title"></title><slot name="head"></slot></head>
 <body><header>Site</header><main><slot></slot></main></body></html>`;
 

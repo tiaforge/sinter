@@ -5,14 +5,14 @@ import { compile } from '../../src/compiler/index.js';
 
 const MAP = "{ list: 'y-list', para: 'x-para', ol: 'y-ol', live: 'x-live' }";
 const C: Record<string, string> = {
-  'x-doc': `<template data-sn-component="{ doc: any }"><article><template data-sn-for="b in doc.children"><sn-component use="${MAP}[b.type]" data-sn-prop="{ node: b }"></sn-component></template></article></template>`,
-  'x-para': `<template data-sn-component="{ node: any }"><p data-sn-text="node.value"></p></template>`,
-  'y-list': `<template data-sn-component="{ node: any }"><ul><template data-sn-for="i in node.children"><x-item data-sn-prop="{ node: i }"></x-item></template></ul></template>`,
+  'x-doc': `<template data-sn-props="{ doc: any }"><article><template data-sn-for="b in doc.children"><sn-component use="${MAP}[b.type]" data-sn-prop="{ node: b }"></sn-component></template></article></template>`,
+  'x-para': `<template data-sn-props="{ node: any }"><p data-sn-text="node.value"></p></template>`,
+  'y-list': `<template data-sn-props="{ node: any }"><ul><template data-sn-for="i in node.children"><x-item data-sn-prop="{ node: i }"></x-item></template></ul></template>`,
   // the same list with an if-chain root
-  'y-ol': `<template data-sn-component="{ node: any }"><template data-sn-if="node.ordered"><ol><template data-sn-for="i in node.children"><x-item data-sn-prop="{ node: i }"></x-item></template></ol></template><template data-sn-else><ul><template data-sn-for="i in node.children"><x-item data-sn-prop="{ node: i }"></x-item></template></ul></template></template>`,
-  'x-item': `<template data-sn-component="{ node: any }"><li><template data-sn-for="b in node.children"><sn-component use="${MAP}[b.type]" data-sn-prop="{ node: b }"></sn-component></template></li></template>`,
+  'y-ol': `<template data-sn-props="{ node: any }"><template data-sn-if="node.ordered"><ol><template data-sn-for="i in node.children"><x-item data-sn-prop="{ node: i }"></x-item></template></ol></template><template data-sn-else><ul><template data-sn-for="i in node.children"><x-item data-sn-prop="{ node: i }"></x-item></template></ul></template></template>`,
+  'x-item': `<template data-sn-props="{ node: any }"><li><template data-sn-for="b in node.children"><sn-component use="${MAP}[b.type]" data-sn-prop="{ node: b }"></sn-component></template></li></template>`,
   // a node that cannot be expanded at build time: its own state, which a click writes
-  'x-live': `<template data-sn-component="{ node: any }"><button data-sn-state="{ n: 0 }" data-sn-on-click="n++" data-sn-text="node.value + n"></button></template>`,
+  'x-live': `<template data-sn-props="{ node: any }"><button data-sn-state="{ n: 0 }" data-sn-on-click="n++" data-sn-text="node.value + n"></button></template>`,
 };
 function build(doc: unknown, more: { expansionLimit?: number } = {}) {
   const files: Record<string, string> = { '/p/doc.json': JSON.stringify(doc) };
@@ -59,5 +59,5 @@ test('a static page never keeps a tree in the browser without SN322: one left th
   expect(codes).toContain('SN322');
   expect(out.static).toBeUndefined();
   // each SN322 names what runs in the browser, where it was written
-  expect(out.diagnostics.filter((d) => d.code === 'SN322').map((d) => `${d.file}:${d.col} ${/but (.*) runs in the browser/.exec(d.message)![1]}`)).toEqual(['/p/index.html:60 resource `doc`', '/p/src/components/x-doc.html:76 `data-sn-for`']);
+  expect(out.diagnostics.filter((d) => d.code === 'SN322').map((d) => `${d.file}:${d.col} ${/but (.*) runs in the browser/.exec(d.message)![1]}`)).toEqual(['/p/index.html:60 resource `doc`', '/p/src/components/x-doc.html:72 `data-sn-for`']);
 });

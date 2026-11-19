@@ -29,7 +29,7 @@ export class Thing { say(n) { return 'thing ' + n; } }
   // an app module (an action) calling the package through its stubs
   put('src/sinter.actions.ts', `import { shout } from 'slowpkg';\nexport async function loud(t: string) { return await shout(t); }\n`);
   // a component script that loads with the package
-  put('src/components/x-ring.html', '<template data-sn-component="{ n: number }"><p data-sn-state="{ said: \'\' }"><span class="said" data-sn-text="said"></span></p></template>\n');
+  put('src/components/x-ring.html', '<template data-sn-props="{ n: number }"><p data-sn-state="{ said: \'\' }"><span class="said" data-sn-text="said"></span></p></template>\n');
   put('src/components/x-ring.ts', `import { XRingComponent } from './x-ring.html';
 import { Thing } from 'slowpkg';
 export class XRing extends XRingComponent { connected() { this.state.said = new Thing().say(this.props.n); } }

@@ -9,7 +9,8 @@ import { project, viteProject, type Project, type ProjectOptions } from '../proj
 import { lazyHelpers } from '../lazy-build.js';
 import { loadHelpers, unloadedMessage, type NodeHelpers } from '../helpers-node.js';
 import { FoldCache } from '../fold-check.js';
-import { HEAD_DECL, writeComponentTypes } from '../components-build.js';
+import { writeComponentTypes } from '../components-build.js';
+import { isHeadComponent } from '../compiler/head.js';
 import { checkLocale } from '../locales-build.js';
 import { readSnapshot } from '../content-node.js';
 
@@ -254,7 +255,7 @@ export class Workspace {
       // a component or layout no page uses: compiled through a use of its own, which reports what is wrong inside it
       const component = componentName(state.root, page) ?? componentName(state.root, page, 'layouts');
       if (component) {
-        html = HEAD_DECL.test(html) ? `<!doctype html><html><head><${component}></${component}></head><body></body></html>` : `<${component}></${component}>`;
+        html = isHeadComponent(html) ? `<!doctype html><html><head><${component}></${component}></head><body></body></html>` : `<${component}></${component}>`;
       }
       try {
         const out = compile(html, {

@@ -13,11 +13,11 @@ const errors = (out: ReturnType<typeof run>) => out.diagnostics.filter((d) => d.
 const body = (out: ReturnType<typeof run>) => /<body>([\s\S]*)<\/body>/.exec(out.html)![1]!.replace(/\s+/g, ' ').trim();
 const head = (out: ReturnType<typeof run>) => /<head>([\s\S]*)<\/head>/.exec(out.html)![1]!.replace(/\s+/g, ' ').trim();
 
-const BUTTON = `<template data-sn-component="{ href?: string; label: string }">
+const BUTTON = `<template data-sn-props="{ href?: string; label: string }">
   <template data-sn-if="href"><a data-sn-attr="{ href }" data-sn-text="label"></a></template>
   <template data-sn-else><button type="button" data-sn-text="label"></button></template>
 </template>`;
-const PRIMARY = `<template data-sn-component="{ href?: string; label: string }">
+const PRIMARY = `<template data-sn-props="{ href?: string; label: string }">
   <ui-button class="primary" data-sn-prop="{ href, label }"></ui-button>
 </template>`;
 
@@ -58,12 +58,12 @@ describe('the tag\'s attributes', () => {
   });
 
   test('one attribute on the tag and on a branch\'s element: SN209, per branch', () => {
-    const C = '<template data-sn-component="{ on?: boolean }"><template data-sn-if="on"><a title="a"></a></template><template data-sn-else><b></b></template></template>';
+    const C = '<template data-sn-props="{ on?: boolean }"><template data-sn-if="on"><a title="a"></a></template><template data-sn-else><b></b></template></template>';
     expect(errors(run('<div data-sn-state="{ v: 1 }"><x-c title="t" data-sn-prop="{ on: v }"></x-c></div>', { 'x-c': C }))).toEqual([expect.stringMatching(/^SN209 `title` is set both here and on the root of `<x-c>`/)]);
   });
 
   test('a `<slot>` as root: the tag\'s attributes land on the fill, or on the default; a conflict names the fill', () => {
-    const C = '<template data-sn-component=""><slot><span class="dflt"></span></slot></template>';
+    const C = '<template data-sn-props=""><slot><span class="dflt"></span></slot></template>';
     const filled = run('<div data-sn-state="{ n: 1 }"><x-c class="mine"><em data-sn-text="n"></em></x-c></div>', { 'x-c': C });
     expect(errors(filled)).toEqual([]);
     expect(body(filled)).toBe('<div data-sn="0"><em class="mine" data-sn="1"></em></div>');
@@ -74,8 +74,8 @@ describe('the tag\'s attributes', () => {
   });
 
   test('a root that may render nothing takes no id, model, action or transition on its tag: SN334, also through a component tag', () => {
-    const MAYBE = '<template data-sn-component="{ on?: boolean }"><template data-sn-if="on"><p></p></template></template>';
-    const OUTER = '<template data-sn-component="{ on?: boolean }"><x-maybe data-sn-prop="{ on }"></x-maybe></template>';
+    const MAYBE = '<template data-sn-props="{ on?: boolean }"><template data-sn-if="on"><p></p></template></template>';
+    const OUTER = '<template data-sn-props="{ on?: boolean }"><x-maybe data-sn-prop="{ on }"></x-maybe></template>';
     const page = (a: string) => `<div data-sn-state="{ v: true }"><x-outer ${a} data-sn-prop="{ on: v }"></x-outer></div>`;
     for (const a of ['id="o"', 'data-sn-post="/x"', 'data-sn-transition="fade"']) {
       expect(errors(run(page(a), { 'x-maybe': MAYBE, 'x-outer': OUTER }))).toContainEqual(expect.stringMatching(/^SN334 `<x-outer>`'s root may render nothing \(through `<x-maybe>`\)/));
@@ -88,7 +88,7 @@ describe('the tag\'s attributes', () => {
 
 describe('what keeps a plain root', () => {
   test('a script, or data-sn-state on the root', () => {
-    const CHAIN = (state = '') => `<template data-sn-component="{ on?: boolean }"><template data-sn-if="on"><a${state}></a></template><template data-sn-else><b></b></template></template>`;
+    const CHAIN = (state = '') => `<template data-sn-props="{ on?: boolean }"><template data-sn-if="on"><a${state}></a></template><template data-sn-else><b></b></template></template>`;
     expect(errors(run('<div data-sn-state="{ v: 1 }"><x-s data-sn-prop="{ on: v }"></x-s></div>', { 'x-s': CHAIN(), 'components/x-s.ts': 'export class XS {}' })))
       .toEqual([expect.stringMatching(/^SN312 `<x-s>` has a script \(`\/src\/components\/x-s.ts`\), so its root is one plain element/)]);
     expect(errors(run('<div data-sn-state="{ v: 1 }"><x-s data-sn-prop="{ on: v }"></x-s></div>', { 'x-s': CHAIN(' data-sn-state="{ open: false }"') })))
@@ -98,15 +98,15 @@ describe('what keeps a plain root', () => {
 
 describe('roots that are no element', () => {
   test('text, a loop, several elements: SN312', () => {
-    expect(errors(run('<x-t></x-t>', { 'x-t': '<template data-sn-component="">hi</template>' }))).toEqual([expect.stringMatching(/^SN312 a component's root renders at most one element; `<x-t>` has text/)]);
-    expect(errors(run('<x-t></x-t>', { 'x-t': '<template data-sn-component=""><template data-sn-for="x in [1]"><p></p></template></template>' }))).toEqual([expect.stringMatching(/^SN312 .*`<template data-sn-for>` cannot be the root of `<x-t>`/)]);
-    expect(errors(run('<div data-sn-state="{ v: 1 }"><x-t data-sn-prop="{ on: v }"></x-t></div>', { 'x-t': '<template data-sn-component="{ on?: boolean }"><template data-sn-if="on"><p></p><p></p></template></template>' }))).toEqual([expect.stringMatching(/^SN312 .*has 2 elements/)]);
+    expect(errors(run('<x-t></x-t>', { 'x-t': '<template data-sn-props="">hi</template>' }))).toEqual([expect.stringMatching(/^SN312 a component's root renders at most one element; `<x-t>` has text/)]);
+    expect(errors(run('<x-t></x-t>', { 'x-t': '<template data-sn-props=""><template data-sn-for="x in [1]"><p></p></template></template>' }))).toEqual([expect.stringMatching(/^SN312 .*`<template data-sn-for>` cannot be the root of `<x-t>`/)]);
+    expect(errors(run('<div data-sn-state="{ v: 1 }"><x-t data-sn-prop="{ on: v }"></x-t></div>', { 'x-t': '<template data-sn-props="{ on?: boolean }"><template data-sn-if="on"><p></p><p></p></template></template>' }))).toEqual([expect.stringMatching(/^SN312 .*has 2 elements/)]);
   });
 });
 
 describe('scoped styles', () => {
-  const INNER = '<template data-sn-component="{ label: string }"><button class="b" data-sn-text="label"></button></template><style>.b { padding: 1px }</style>';
-  const OUTER = '<template data-sn-component="{ label: string }"><ui-b class="primary" data-sn-prop="{ label }"></ui-b></template><style>.primary { color: red } :scope { margin: 0 } .primary span { x: y } @media (min-width: 9px) { .primary::before { content: "" } }</style>';
+  const INNER = '<template data-sn-props="{ label: string }"><button class="b" data-sn-text="label"></button></template><style>.b { padding: 1px }</style>';
+  const OUTER = '<template data-sn-props="{ label: string }"><ui-b class="primary" data-sn-prop="{ label }"></ui-b></template><style>.primary { color: red } :scope { margin: 0 } .primary span { x: y } @media (min-width: 9px) { .primary::before { content: "" } }</style>';
   test('a component tag as root: the element is the inner component\'s, marked with the outer\'s name for its root rules', () => {
     const out = run('<p-b data-sn-prop="{ label: \'x\' }"></p-b>', { 'ui-b': INNER, 'p-b': OUTER });
     expect(errors(out)).toEqual([]);
@@ -124,11 +124,11 @@ describe('scoped styles', () => {
   });
 
   test('an if root\'s branches each carry the marker; a slot root\'s fill does not', () => {
-    const CHAIN = '<template data-sn-component="{ on?: boolean }"><template data-sn-if="on"><a></a></template><template data-sn-else><b></b></template></template><style>a, b { x: y }</style>';
+    const CHAIN = '<template data-sn-props="{ on?: boolean }"><template data-sn-if="on"><a></a></template><template data-sn-else><b></b></template></template><style>a, b { x: y }</style>';
     const out = run('<div data-sn-state="{ v: 1 }"><x-c data-sn-prop="{ on: v }"></x-c></div>', { 'x-c': CHAIN });
     expect(out.html).toMatch(/<a data-sn-c="x-c"><\/a>/);
     expect(out.html).toMatch(/<b data-sn-c="x-c"><\/b>/);
-    const SLOT = '<template data-sn-component=""><slot><i class="d"></i></slot></template><style>i { x: y }</style>';
+    const SLOT = '<template data-sn-props=""><slot><i class="d"></i></slot></template><style>i { x: y }</style>';
     expect(body(run('<x-s><em></em></x-s>', { 'x-s': SLOT }))).toBe('<em data-sn-s=""></em>');
     expect(body(run('<x-s></x-s>', { 'x-s': SLOT }))).toBe('<i class="d" data-sn-c="x-s"></i>');
   });

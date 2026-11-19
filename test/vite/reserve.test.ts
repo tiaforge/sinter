@@ -32,7 +32,7 @@ function font(): Buffer {
 
 const files: Record<string, string | Buffer> = {
   'src/layouts/app-layout.html': `<!doctype html>
-<html lang="en" data-sn-layout="{}">
+<html lang="en" data-sn-props="{}">
 <head><meta charset="utf-8"><title>List</title><link rel="stylesheet" href="../styles/app.css"></head>
 <body><main><slot></slot></main><footer id="after">below</footer></body>
 </html>

@@ -121,6 +121,7 @@ export const LINK_FIELDS: Record<string, { kinds: string[]; how: 'table' | 'weak
   jsonOut: { kinds: ['Map'], how: 'table' },
   keptBound: { kinds: ['Set'], how: 'table' },
   keptDepth: { kinds: ['number'], how: 'fixed' },
+  kinding: { kinds: ['Set'], how: 'cache' },
   keptSlot: { kinds: ['Set'], how: 'table' },
   keptSource: { kinds: ['Map'], how: 'table' },
   landing: { kinds: ['WeakMap'], how: 'weak' },

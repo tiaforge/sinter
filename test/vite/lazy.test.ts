@@ -28,7 +28,7 @@ export const enums = { aes: 1 };
 export class Thing { say(n) { return 'thing ' + n; } }
 `);
   // a component built around one of the package's classes: its script loads with the package
-  put('src/components/x-ring.html', `<template data-sn-component="{ n: number }"><p data-sn-state="{ said: '' }"><span data-sn-text="said"></span></p></template>\n`);
+  put('src/components/x-ring.html', `<template data-sn-props="{ n: number }"><p data-sn-state="{ said: '' }"><span data-sn-text="said"></span></p></template>\n`);
   put('src/components/x-ring.ts', `import { XRingComponent } from './x-ring.html';
 import { Thing } from 'fakepgp';
 export class XRing extends XRingComponent {
