@@ -8,13 +8,13 @@ import type { RemoteConfig } from '../../src/remote.js';
 
 const INL = "{ text: 'x-text', link: 'x-link' }";
 const BASE: Record<string, string> = {
-  'x-doc': `<template data-sn-props="{ doc: any; link: Slot<{ url: string }> }"><div><template data-sn-for="n in doc.children"><sn-component use="${INL}[n.type]" data-sn-prop="{ node: n }"></sn-component></template></div></template>`,
+  'x-doc': `<template data-sn-props="{ doc: any; link: Slot<{ url: string }> }"><div><template data-sn-for="n in doc.children"><sn-component use="${INL}[n.type]" data-sn-with="{ node: n }"></sn-component></template></div></template>`,
   'x-text': '<template data-sn-props="{ node: any }"><span data-sn-text="node.value"></span></template>',
-  'x-link': `<template data-sn-props="{ node: any }"><slot name="link" data-sn-prop="{ url: node.url }"><a data-sn-attr="{ href: node.url }"><template data-sn-for="n in node.children"><sn-component use="${INL}[n.type]" data-sn-prop="{ node: n }"></sn-component></template></a></slot></template>`,
+  'x-link': `<template data-sn-props="{ node: any }"><slot name="link" data-sn-with="{ url: node.url }"><a data-sn-attr="{ href: node.url }"><template data-sn-for="n in node.children"><sn-component use="${INL}[n.type]" data-sn-with="{ node: n }"></sn-component></template></a></slot></template>`,
 };
 /** `x-link` with `extra` in its link, inside its one root (beside the `<slot>` it would be two, and not compile: SN312) */
 const linkWith = (extra: string) => ({ 'x-link': BASE['x-link']!.replace('<a data-sn-attr="{ href: node.url }">', `<a data-sn-attr="{ href: node.url }">${extra}`) });
-const TREE = '<x-doc data-sn-prop="{ doc }"></x-doc>';
+const TREE = '<x-doc data-sn-with="{ doc }"></x-doc>';
 
 type Page = { name: string; body: string; opts?: Record<string, unknown> };
 function build(page: Page, components: Record<string, string>, definitions?: Map<string, unknown>) {
@@ -87,21 +87,21 @@ test('a dialog\'s template in a definition, on a page with another template befo
 });
 
 test('a fill in a component used inside itself, on a page with another filled tree before it', () => {
-  const wrap = '<template data-sn-props="{ doc: any }"><x-doc data-sn-prop="{ doc }"><a slot="link" class="W" data-sn-attr="{ href: $slot.url }"><slot></slot></a></x-doc></template>';
-  const filled = '<x-doc data-sn-prop="{ doc }"><b slot="link" data-sn-text="$slot.url"></b></x-doc>';
-  linked([{ name: 'a', body: '<x-wrap data-sn-prop="{ doc }"></x-wrap>' }, { name: 'b', body: '<x-wrap data-sn-prop="{ doc }"></x-wrap>' }, { name: 'c', body: filled + '<x-wrap data-sn-prop="{ doc }"></x-wrap>' }], { 'x-wrap': wrap });
-  linked([{ name: 'a', body: filled + '<x-wrap data-sn-prop="{ doc }"></x-wrap>' }, { name: 'b', body: filled + '<x-wrap data-sn-prop="{ doc }"></x-wrap>' }, { name: 'c', body: '<x-wrap data-sn-prop="{ doc }"></x-wrap>' }], { 'x-wrap': wrap });
+  const wrap = '<template data-sn-props="{ doc: any }"><x-doc data-sn-with="{ doc }"><a slot="link" class="W" data-sn-attr="{ href: $slot.url }"><slot></slot></a></x-doc></template>';
+  const filled = '<x-doc data-sn-with="{ doc }"><b slot="link" data-sn-text="$slot.url"></b></x-doc>';
+  linked([{ name: 'a', body: '<x-wrap data-sn-with="{ doc }"></x-wrap>' }, { name: 'b', body: '<x-wrap data-sn-with="{ doc }"></x-wrap>' }, { name: 'c', body: filled + '<x-wrap data-sn-with="{ doc }"></x-wrap>' }], { 'x-wrap': wrap });
+  linked([{ name: 'a', body: filled + '<x-wrap data-sn-with="{ doc }"></x-wrap>' }, { name: 'b', body: filled + '<x-wrap data-sn-with="{ doc }"></x-wrap>' }, { name: 'c', body: '<x-wrap data-sn-with="{ doc }"></x-wrap>' }], { 'x-wrap': wrap });
 });
 
 test('a component with scoped styles, used directly by the linked page and not by the recording one', () => {
   const styled = { 'x-text': '<template data-sn-props="{ node: any }"><span data-sn-text="node.value"></span></template><style>span { color: red }</style>' };
-  const direct = '<x-text data-sn-prop="{ node: { value: \'d\' } }"></x-text>';
+  const direct = '<x-text data-sn-with="{ node: { value: \'d\' } }"></x-text>';
   linked([{ name: 'a', body: TREE }, { name: 'b', body: TREE }, { name: 'c', body: direct + TREE }], styled);
   linked([{ name: 'a', body: direct + TREE }, { name: 'b', body: direct + TREE }, { name: 'c', body: TREE }], styled);
 });
 
 test('what the recording page had before the tree and the linked one has not: linked or refused, never a crash', () => {
-  const direct = '<x-text data-sn-prop="{ node: { value: \'d\' } }"></x-text>';
+  const direct = '<x-text data-sn-with="{ node: { value: \'d\' } }"></x-text>';
   linked([{ name: 'a', body: direct + TREE }, { name: 'b', body: direct + TREE }, { name: 'c', body: TREE }]);
   const res = '<sn-resource name="other" src="/api/other"></sn-resource>';
   linked([{ name: 'a', body: res + TREE }, { name: 'b', body: res + TREE }, { name: 'c', body: TREE }], linkWith('<p data-sn-text="other.title"></p>'));
@@ -110,8 +110,8 @@ test('what the recording page had before the tree and the linked one has not: li
 test('a choice among many components: the cache keys stay short', () => {
   const names = Array.from({ length: 30 }, (_, i) => `x-k${i}`);
   const many: Record<string, string> = {};
-  for (const n of names) many[n] = `<template data-sn-props="{ node: any }"><b><i data-sn-text="node.value"></i><sn-component use="${JSON.stringify(Object.fromEntries(names.map((m) => [m, m]))).replace(/"/g, "'")}[node.type]" data-sn-prop="{ node: node.next }"></sn-component></b></template>`;
-  const body = `<template data-sn-for="n in doc.children"><sn-component use="${JSON.stringify(Object.fromEntries(names.map((m) => [m, m]))).replace(/"/g, "'")}[n.type]" data-sn-prop="{ node: n }"></sn-component></template>`;
+  for (const n of names) many[n] = `<template data-sn-props="{ node: any }"><b><i data-sn-text="node.value"></i><sn-component use="${JSON.stringify(Object.fromEntries(names.map((m) => [m, m]))).replace(/"/g, "'")}[node.type]" data-sn-with="{ node: node.next }"></sn-component></b></template>`;
+  const body = `<template data-sn-for="n in doc.children"><sn-component use="${JSON.stringify(Object.fromEntries(names.map((m) => [m, m]))).replace(/"/g, "'")}[n.type]" data-sn-with="{ node: n }"></sn-component></template>`;
   const definitions = linked([{ name: 'a', body }, { name: 'b', body }, { name: 'c', body }], many);
   // (a key names the definitions before it by their short ids: nested, 30 of them would be megabytes)
   expect(Math.max(...[...definitions.keys()].map((k) => k.length))).toBeLessThan(2_000);

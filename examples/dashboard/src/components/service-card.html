@@ -8,7 +8,7 @@
       <span data-badge data-sn-text="service.paused ? 'paused' : last?.status"
             data-sn-attr="{ 'data-tone': tone(service.paused, last?.status) }"></span>
     </header>
-    <spark-line data-sn-prop="{ values: rates(samples), at: last?.tick, width: 120, height: 36, label: service.name + ' requests per second', tone: graphTone(service.paused, last?.status) }"></spark-line>
+    <spark-line data-sn-with="{ values: rates(samples), at: last?.tick, width: 120, height: 36, label: service.name + ' requests per second', tone: graphTone(service.paused, last?.status) }"></spark-line>
     <dl data-layout="row" data-gap="md" class="num">
       <div><dt data-muted>req/s</dt><dd data-sn-text="last?.rps"></dd></div>
       <div><dt data-muted>latency</dt><dd data-sn-text="last?.latencyMs + ' ms'"></dd></div>

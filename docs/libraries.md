@@ -24,9 +24,9 @@ Its public components are then tags on any page, layout or component of the app,
 events and fills as for the app's own:
 
 ```html
-<ui-card data-sn-prop="{ title: post.title }"><p data-sn-text="post.summary"></p></ui-card>
+<ui-card data-sn-with="{ title: post.title }"><p data-sn-text="post.summary"></p></ui-card>
 
-<ui-tree data-sn-prop="{ items: folders }">
+<ui-tree data-sn-with="{ items: folders }">
   <button slot="node" data-sn-text="$slot.item.label" data-sn-on-click="open = $slot.item.id"></button>
 </ui-tree>
 ```

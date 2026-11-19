@@ -24,7 +24,7 @@ npm run dev
   `command="show-modal"` is the browser's.
 - **Click the ring.** It is a component with a script (`src/components/task-chart.html` and
   `.ts`): sinter renders its markup, the script draws on the canvas; it gets the tasks through
-  `data-sn-prop` and sends the filter back as an event.
+  `data-sn-with` and sends the filter back as an event.
 - **Rest the pointer on a task, then click it.** Its data was requested while you pointed, so
   `task.html` shows it at once, and the title morphs into the page's heading.
 - **Reload.** The list appears before the server answers (`cache`), and the filter is kept

@@ -451,7 +451,7 @@ test('<sn-include> is removed: the build error names what the partial reads from
   await expect(render(`
     <div data-sn-state="{ c: { name: 'Ada' }, d: 1 }"><template data-sn-for="x in [1]" data-sn-key="x"><sn-include src="./card.html"></sn-include></template></div>`,
   { files: { 'card.html': '<b data-sn-state="{ own: 2 }" data-sn-text="c.name + x + own"></b>' } }))
-    .rejects.toThrow(/SN316 include-removed: `<sn-include>` is removed: a partial is a component\. Move `\.\/card\.html` to `src\/components\/x-card\.html`.* It reads `c`, `x` from the page: add them to `data-sn-props` and pass them with `data-sn-prop="\{ c: c, x: x \}"`/);
+    .rejects.toThrow(/SN316 include-removed: `<sn-include>` is removed: a partial is a component\. Move `\.\/card\.html` to `src\/components\/x-card\.html`.* It reads `c`, `x` from the page: add them to `data-sn-props` and pass them with `data-sn-with="\{ c: c, x: x \}"`/);
 });
 
 test('custom elements: props in, events out, a prop follows its state', async () => {
@@ -459,7 +459,7 @@ test('custom elements: props in, events out, a prop follows its state', async ()
   if (!customElements.get('x-card')) customElements.define('x-card', XCard);
   const { root, flush, state } = await render(`
     <div data-sn-state="{ item: {n: 1}, got: null }">
-      <x-card data-sn-prop="{data: item}" data-sn-on-picked="got = $event.detail"></x-card>
+      <x-card data-sn-with="{data: item}" data-sn-on-picked="got = $event.detail"></x-card>
       <p data-sn-text="got"></p><i data-sn-text="item.n"></i>
       <button data-sn-on-click="item.n = 2">next</button>
     </div>`);
@@ -479,8 +479,8 @@ test('custom elements defined after mount: props reach the class\'s setters, wit
   const seen: unknown[] = [];
   const { root, flush, state } = await render(`
     <div data-sn-state="{ msg: {id: 1}, n: 0 }">
-      <late-reader data-sn-prop="{message: msg, count: n}"></late-reader>
-      <template data-sn-for="i in [1, 2]" data-sn-key="i"><late-reader data-sn-prop="{message: {id: i}}"></late-reader></template>
+      <late-reader data-sn-with="{message: msg, count: n}"></late-reader>
+      <template data-sn-for="i in [1, 2]" data-sn-key="i"><late-reader data-sn-with="{message: {id: i}}"></late-reader></template>
       <button id="count" data-sn-on-click="n = 2">count</button><button id="next" data-sn-on-click="msg = { id: 3 }">next</button>
     </div>`);
   const [el, row] = [...root.querySelectorAll('late-reader')] as any[];
@@ -866,7 +866,7 @@ test('bindings after a component inside a template keep their node paths', async
     <div data-sn-state="{ show: true, n: 'after' }">
       <template data-sn-if="show">
         <p>before</p>
-        <x-part data-sn-prop="{ n }"></x-part>
+        <x-part data-sn-with="{ n }"></x-part>
         <b data-sn-text="n"></b>
       </template>
     </div>`, { components: { 'x-part': '<!-- a component -->\n<template data-sn-props="{ n: string }">\n  <!-- its root -->\n  <i data-sn-text="n + \'!\'"></i>\n</template>\n' } });

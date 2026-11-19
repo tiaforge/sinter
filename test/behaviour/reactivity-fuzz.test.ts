@@ -140,13 +140,13 @@ function page(r: () => number) {
 <sn-resource name="ev" each="t in todos" src="/api/ev?id={t.id}" key="id"></sn-resource>
 <sn-sync src="/s"><sn-event name="upd" resource="todos" op="upsert"></sn-event><sn-event name="re" resource="todos" op="refresh"></sn-event></sn-sync>
 <main data-sn-state="${state}" data-sn-let="{ ${lets} }" data-sn-on-bump="a = a + 10" data-sn-on-peek="pk = T + P.v" data-sn-on-ping="xs.length && (xs[0] = xs[0] + 5)">
-  <${ISLAND} data-sn-prop="{ n: go }"></${ISLAND}>
+  <${ISLAND} data-sn-with="{ n: go }"></${ISLAND}>
   <p class="v" data-sn-text="[T, P.v, N, TT, TS].join(' ')"></p>
   <p class="f" data-sn-text="W.q.w + ' ' + W.a + ' ' + YS + ' ' + L + ' ' + BG + ' ' + (cw ? cw.a + cw.q.w : '-') + ' ' + (cp ? cp.v : '-')"></p>
   <p class="al"><i data-sn-text="SL"></i> <i data-sn-text="BL"></i> <i data-sn-text="AL"></i> <i data-sn-text="HL"></i> <i data-sn-text="UL"></i> <i data-sn-text="YS"></i></p>
   <ul><template data-sn-for="x in xs"><li data-sn-let="{ R: inc(x) }" data-sn-text="R + T"></li></template></ul>
-  <c-v data-sn-prop="{ v: sum(xs) }"></c-v>
-  <c-l data-sn-prop="{ xs }"></c-l>
+  <c-v data-sn-with="{ v: sum(xs) }"></c-v>
+  <c-l data-sn-with="{ xs }"></c-l>
   <ol><template data-sn-for="k in ks" data-sn-key="k.id"><li class="k" data-sn-let="{ KR: inc(k.n) }" data-sn-text="k.id + ':' + KR + ':' + KS"></li></template></ol>
   <section data-sn-state="{ ps: 1, pr: null }" data-sn-persist="fz" data-sn-let="{ PS: twice(ps) }"><b class="ps" data-sn-text="PS + T"></b><button id="pp" data-sn-on-click="pr = PS; ps = ps + 1; pr = pr + PS"></button></section>
   <button id="ok" data-sn-post="/api/ok" data-sn-body="{}" data-sn-then="th = T + KS + TS"></button>

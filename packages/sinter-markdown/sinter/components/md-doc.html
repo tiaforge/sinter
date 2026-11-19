@@ -1,10 +1,10 @@
 <!--
   md-doc: a parsed document, block content. Public.
-  <md-doc data-sn-prop="{ doc }"></md-doc>, `doc` from md.parse (or an API that sends the tree).
+  <md-doc data-sn-with="{ doc }"></md-doc>, `doc` from md.parse (or an API that sends the tree).
   Its root is a plain element, so the tag may carry an id or a class; with no doc it is empty.
   The slots below are the library's whole contract: a fill changes how that kind of node renders,
   wherever it is in the tree.
 -->
 <template data-sn-props="{ doc?: Root | null; heading: Slot<{ node: Heading }>; link: Slot<{ node: Link }>; image: Slot<{ node: Image }>; code: Slot<{ node: Code }>; inlineCode: Slot<{ node: InlineCode }>; blockquote: Slot<{ node: Blockquote }>; table: Slot<{ node: Table }> }">
-  <div class="md"><template data-sn-for="b in doc ? doc.children : []"><md-block data-sn-prop="{ node: b }"></md-block></template></div>
+  <div class="md"><template data-sn-for="b in doc ? doc.children : []"><md-block data-sn-with="{ node: b }"></md-block></template></div>
 </template>

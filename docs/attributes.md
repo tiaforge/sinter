@@ -13,7 +13,7 @@ Bind values to the page.
 | `data-sn-class` | object literal {unread: …} | toggles each class |
 | `data-sn-style` | object literal {'--color': …} | sets each property with style.setProperty |
 | `data-sn-show` | value expression | toggles the hidden attribute |
-| `data-sn-prop` | object literal | sets JS properties; custom elements only (also one defined later). On a component's tag: its props, live and read-only. On a &lt;slot&gt; declared Slot&lt;T&gt;: the values its fill reads as $slot; on a named &lt;slot&gt; its component does not declare, a tree placement, filled by the nearest enclosing component declaring the name |
+| `data-sn-with` | object literal | sets JS properties; custom elements only (also one defined later). On a component's tag: its props, live and read-only. On a &lt;slot&gt; declared Slot&lt;T&gt;: the values its fill reads as $slot; on a named &lt;slot&gt; its component does not declare, a tree placement, filled by the nearest enclosing component declaring the name |
 | `data-sn-for` | item in list \| (item, i) in list | repeats a &lt;template&gt; per item. On &lt;html&gt;: the page once per entry of a `file:` list, at `data-sn-path` filled from it |
 | `data-sn-key` | value expression | row identity; defaults to the resource key or object identity |
 | `data-sn-if` | value expression | renders a &lt;template&gt; while truthy. Same id, same control: when the branch with focus is swapped, the element with its id in the new one takes focus (a toggle's two buttons: &lt;button id="follow" data-sn-delete=…&gt; and &lt;button id="follow" data-sn-post=…&gt;) |
@@ -121,7 +121,7 @@ A named, page-wide cache of server data. Details: [resources](resources.md).
 
 ### `<sn-component>`
 
-`use`, `data-sn-prop`. A component chosen by data at runtime; `use` names it: ``use="`${b.type}-block`"`` (convention), `use="{ hero: 'hero-block' }[b.type]"` (map) or `use="blockComponent(b)"` (helper); it must fit `ComponentName`, every candidate must exist, props are checked per candidate (narrowed for convention and map); a value outside the candidates renders nothing, or the `data-sn-else` template after it.
+`use`, `data-sn-with`. A component chosen by data at runtime; `use` names it: ``use="`${b.type}-block`"`` (convention), `use="{ hero: 'hero-block' }[b.type]"` (map) or `use="blockComponent(b)"` (helper); it must fit `ComponentName`, every candidate must exist, props are checked per candidate (narrowed for convention and map); a value outside the candidates renders nothing, or the `data-sn-else` template after it.
 
 ### `<sn-event>`
 

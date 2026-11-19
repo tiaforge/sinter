@@ -66,7 +66,7 @@ describe("a site's core", () => {
     // the same site with a page more: a dialog, an action and a custom element's property
     put('more.html', `<!doctype html><html><head><title>c</title></head><body>
 <div data-sn-state="{ n: 0 }"><button data-sn-on-click="n++">+</button><dialog><span data-sn-text="n"></span></dialog>
-<form data-sn-post="/api/x"><button>send</button></form><x-y data-sn-prop="{ n: 1 }"></x-y></div>
+<form data-sn-post="/api/x"><button>send</button></form><x-y data-sn-with="{ n: 1 }"></x-y></div>
 </body></html>`);
     const two = { index: join(root, 'index.html'), list: join(root, 'list.html') };
     const run = (outDir: string, input: Record<string, string>) => build({ root, logLevel: 'silent', plugins: [sinter()], resolve: { alias }, build: { outDir, emptyOutDir: true, rollupOptions: { input } } });

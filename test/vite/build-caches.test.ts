@@ -21,7 +21,7 @@ test('two pages that use one component and one file: both get them, read once pe
   const put = (f: string, s: string) => { mkdirSync(join(root, f, '..'), { recursive: true }); writeFileSync(join(root, f), s); };
   put('src/components/site-note.html', '<template data-sn-props="{ text: string }"><aside class="note" data-sn-text="text"></aside></template>');
   put('intro.txt', 'Hello');
-  for (const p of ['a', 'b']) put(`${p}.html`, page(`<sn-resource name="intro" src="file:./intro.txt"></sn-resource><site-note data-sn-prop="{ text: intro + ' ${p}' }"></site-note>`));
+  for (const p of ['a', 'b']) put(`${p}.html`, page(`<sn-resource name="intro" src="file:./intro.txt"></sn-resource><site-note data-sn-with="{ text: intro + ' ${p}' }"></site-note>`));
   await build({ root, logLevel: 'silent', plugins: [sinter({ static: true })], resolve: { alias }, build: { outDir: join(root, 'dist'), emptyOutDir: true, rollupOptions: { input: { a: join(root, 'a.html'), b: join(root, 'b.html') } } } });
   expect(readFileSync(join(root, 'dist/a/index.html'), 'utf8')).toContain('<aside class="note">Hello a</aside>');
   expect(readFileSync(join(root, 'dist/b/index.html'), 'utf8')).toContain('<aside class="note">Hello b</aside>');
@@ -32,7 +32,7 @@ test('under `vite build --watch`, each build reads afresh: a changed component, 
   const put = (f: string, s: string) => { mkdirSync(join(root, f, '..'), { recursive: true }); writeFileSync(join(root, f), s); };
   put('src/components/site-note.html', '<template data-sn-props="{ text: string }"><aside class="note" data-sn-text="text"></aside></template>');
   put('intro.txt', 'one');
-  put('index.html', page('<sn-resource name="intro" src="file:./intro.txt"></sn-resource><site-note data-sn-prop="{ text: intro }"></site-note>'));
+  put('index.html', page('<sn-resource name="intro" src="file:./intro.txt"></sn-resource><site-note data-sn-with="{ text: intro }"></site-note>'));
   const watcher = await build({ root, logLevel: 'silent', plugins: [sinter({ static: true })], resolve: { alias }, build: { outDir: join(root, 'dist'), emptyOutDir: true, watch: {} } }) as unknown as { on(e: string, f: (ev: { code: string; error?: Error }) => void): void; close(): Promise<void> };
   const builds: string[] = [];
   let waiting: { done: () => void; fail: (e: unknown) => void } | null = null;
@@ -51,11 +51,11 @@ test('under `vite build --watch`, each build reads afresh: a changed component, 
     // the component and the file change; the page is touched so that the watcher rebuilds it
     put('src/components/site-note.html', '<template data-sn-props="{ text: string }"><aside class="changed" data-sn-text="text"></aside></template>');
     put('intro.txt', 'two');
-    put('index.html', page('<sn-resource name="intro" src="file:./intro.txt"></sn-resource><site-note data-sn-prop="{ text: intro }"></site-note><!-- 2 -->'));
+    put('index.html', page('<sn-resource name="intro" src="file:./intro.txt"></sn-resource><site-note data-sn-with="{ text: intro }"></site-note><!-- 2 -->'));
     await next();
     // a component that did not exist in the last build
     put('src/components/site-badge.html', '<template data-sn-props><b class="badge">new</b></template>');
-    put('index.html', page('<sn-resource name="intro" src="file:./intro.txt"></sn-resource><site-note data-sn-prop="{ text: intro }"></site-note><site-badge></site-badge>'));
+    put('index.html', page('<sn-resource name="intro" src="file:./intro.txt"></sn-resource><site-note data-sn-with="{ text: intro }"></site-note><site-badge></site-badge>'));
     await next();
   } finally { await watcher.close(); }
   expect(builds[0]).toContain('<aside class="note">one</aside>');

@@ -8,7 +8,7 @@ const LAYOUT = `<!-- the site's document: not part of any page -->
 <html lang="en" class="site" data-sn-props="{ title?: string; nav: string }">
 <head>
   <meta charset="utf-8">
-  <seo-tags data-sn-prop="{ title }"></seo-tags>
+  <seo-tags data-sn-with="{ title }"></seo-tags>
   <link rel="stylesheet" href="./site.css">
   <script type="module" src="../main.ts"></script>
   <slot name="head"></slot>
@@ -31,7 +31,7 @@ function run(page: string, extra: Record<string, string> = {}, file = '/p/post.h
 }
 const errors = (out: ReturnType<typeof run>) => out.diagnostics.filter((d) => d.severity === 'error').map((d) => `${d.code} ${d.message}`);
 
-const PAGE = `<site-layout lang="de" class="post" data-sn-path="/post/:slug" data-sn-state="{ tab: 'a' }" data-sn-prop="{ nav: 'home', title: post?.title ?? tab }">
+const PAGE = `<site-layout lang="de" class="post" data-sn-path="/post/:slug" data-sn-state="{ tab: 'a' }" data-sn-with="{ nav: 'home', title: post?.title ?? tab }">
   <sn-resource name="post" src="/api/posts/{$url.slug}"></sn-resource>
   <meta slot="head" name="robots" content="noindex">
   <article><h1 data-sn-text="post.title + tab"></h1></article>
@@ -64,7 +64,7 @@ describe('the merge', () => {
 
   test('the tag\'s handlers are the page\'s <body> handlers: on the layout\'s <body>, first, in the page\'s scope', () => {
     const shell = '<!doctype html><html data-sn-props="{ nav: string }"><head></head><body data-sn-state="{ k: 0 }" data-sn-on-keydown-escape="k++"><slot></slot></body></html>';
-    const out = run('<site-layout data-sn-state="{ err: null }" data-sn-prop="{ nav: \'x\' }" data-sn-on-sn-error="err = $event.detail.error" data-sn-on-keydown-shift-n="err = null"><p>x</p></site-layout>',
+    const out = run('<site-layout data-sn-state="{ err: null }" data-sn-with="{ nav: \'x\' }" data-sn-on-sn-error="err = $event.detail.error" data-sn-on-keydown-shift-n="err = null"><p>x</p></site-layout>',
       { '/p/src/layouts/site-layout.html': shell });
     expect(errors(out)).toEqual([]);
     expect(out.html).toMatch(/<html data-sn="0"><head>.*<\/head><body data-sn="1">/s);
@@ -74,45 +74,45 @@ describe('the merge', () => {
   });
 
   test('a layout\'s tag takes handlers for DOM events, sn-error and dismiss: anything else is SN315', () => {
-    expect(errors(run('<site-layout data-sn-prop="{ nav: \'x\' }" data-sn-on-click="1" data-sn-on-dismiss="1"><p>x</p></site-layout>'))).toEqual([]);
-    expect(errors(run('<site-layout data-sn-prop="{ nav: \'x\' }" data-sn-on-sn-eror="1"><p>x</p></site-layout>'))).toEqual([expect.stringMatching(/^SN315 `sn-eror` is not an event the page's `<body>` hears: .*Did you mean `sn-error`\?/)]);
-    expect(errors(run('<site-layout data-sn-prop="{ nav: \'x\' }" data-sn-on-pick="1"><p>x</p></site-layout>'))).toEqual([expect.stringMatching(/^SN315 `pick` is not an event/)]);
+    expect(errors(run('<site-layout data-sn-with="{ nav: \'x\' }" data-sn-on-click="1" data-sn-on-dismiss="1"><p>x</p></site-layout>'))).toEqual([]);
+    expect(errors(run('<site-layout data-sn-with="{ nav: \'x\' }" data-sn-on-sn-eror="1"><p>x</p></site-layout>'))).toEqual([expect.stringMatching(/^SN315 `sn-eror` is not an event the page's `<body>` hears: .*Did you mean `sn-error`\?/)]);
+    expect(errors(run('<site-layout data-sn-with="{ nav: \'x\' }" data-sn-on-pick="1"><p>x</p></site-layout>'))).toEqual([expect.stringMatching(/^SN315 `pick` is not an event/)]);
     // a benchmark agent sent its own events from a component to the layout's tag: the hint names the way a component tells the page
-    expect(run('<site-layout data-sn-prop="{ nav: \'x\' }" data-sn-on-pick="1"><p>x</p></site-layout>').diagnostics.find((d) => d.code === 'SN315')?.hint)
+    expect(run('<site-layout data-sn-with="{ nav: \'x\' }" data-sn-on-pick="1"><p>x</p></site-layout>').diagnostics.find((d) => d.code === 'SN315')?.hint)
       .toMatch(/data-sn-emits=.*emit\('delete-start', item\).*on the component's tag/);
   });
 
   test('fallback content stays when the page leaves a slot empty', () => {
-    expect(run('<site-layout data-sn-prop="{ nav: \'x\' }"><p>x</p></site-layout>').html).toContain('<footer>© me</footer>');
+    expect(run('<site-layout data-sn-with="{ nav: \'x\' }"><p>x</p></site-layout>').html).toContain('<footer>© me</footer>');
   });
 
   test('a missing prop, an unknown slot, as for components', () => {
     expect(errors(run('<site-layout><p>x</p></site-layout>'))).toEqual([expect.stringMatching(/^SN313 `<site-layout>` needs the prop `nav`/)]);
-    expect(errors(run('<site-layout data-sn-prop="{ nav: \'x\' }"><p slot="side">x</p></site-layout>'))).toEqual([expect.stringMatching(/^SN314 `<site-layout>` has no slot `side`/)]);
+    expect(errors(run('<site-layout data-sn-with="{ nav: \'x\' }"><p slot="side">x</p></site-layout>'))).toEqual([expect.stringMatching(/^SN314 `<site-layout>` has no slot `side`/)]);
   });
 });
 
 describe('errors', () => {
   test('SN319: a page that uses a layout is only its tag', () => {
-    expect(errors(run('<p>before</p><site-layout data-sn-prop="{ nav: \'x\' }"></site-layout>'))).toEqual([expect.stringMatching(/^SN319 a page that uses the layout `<site-layout>` is only its tag: `<p>` belongs inside it/)]);
-    expect(errors(run('<!doctype html><html><head><title>t</title></head><body><site-layout data-sn-prop="{ nav: \'x\' }"></site-layout></body></html>'))).toEqual([expect.stringMatching(/^SN319 .*`<title>` belongs inside it/)]);
-    expect(errors(run('<site-layout data-sn-early="off" data-sn-prop="{ nav: \'x\' }"></site-layout>'))).toEqual([expect.stringMatching(/^SN319 `data-sn-early` cannot be on a layout's tag/)]);
+    expect(errors(run('<p>before</p><site-layout data-sn-with="{ nav: \'x\' }"></site-layout>'))).toEqual([expect.stringMatching(/^SN319 a page that uses the layout `<site-layout>` is only its tag: `<p>` belongs inside it/)]);
+    expect(errors(run('<!doctype html><html><head><title>t</title></head><body><site-layout data-sn-with="{ nav: \'x\' }"></site-layout></body></html>'))).toEqual([expect.stringMatching(/^SN319 .*`<title>` belongs inside it/)]);
+    expect(errors(run('<site-layout data-sn-early="off" data-sn-with="{ nav: \'x\' }"></site-layout>'))).toEqual([expect.stringMatching(/^SN319 `data-sn-early` cannot be on a layout's tag/)]);
   });
 
   test('SN319: a layout tag below the top level, or inside a component', () => {
-    expect(errors(run('<site-layout data-sn-prop="{ nav: \'x\' }"><div><site-layout></site-layout></div></site-layout>'))).toEqual([expect.stringMatching(/^SN319 `<site-layout>` is a layout: it is the only tag of a page/)]);
+    expect(errors(run('<site-layout data-sn-with="{ nav: \'x\' }"><div><site-layout></site-layout></div></site-layout>'))).toEqual([expect.stringMatching(/^SN319 `<site-layout>` is a layout: it is the only tag of a page/)]);
   });
 
   test('SN320: a head element given to a body slot', () => {
-    expect(errors(run('<site-layout data-sn-prop="{ nav: \'x\' }"><meta name="robots" content="x"></site-layout>'))).toEqual([expect.stringMatching(/^SN320 `<meta>` is a head element: content without `slot` goes into the layout's body/)]);
-    expect(errors(run('<site-layout data-sn-prop="{ nav: \'x\' }"><title slot="footer">t</title></site-layout>'))).toEqual([expect.stringMatching(/^SN320 `<title>` is a head element: `footer` is not a head slot/)]);
+    expect(errors(run('<site-layout data-sn-with="{ nav: \'x\' }"><meta name="robots" content="x"></site-layout>'))).toEqual([expect.stringMatching(/^SN320 `<meta>` is a head element: content without `slot` goes into the layout's body/)]);
+    expect(errors(run('<site-layout data-sn-with="{ nav: \'x\' }"><title slot="footer">t</title></site-layout>'))).toEqual([expect.stringMatching(/^SN320 `<title>` is a head element: `footer` is not a head slot/)]);
   });
 
   test('SN321: a second title in the merged head', () => {
-    const d = errors(run('<site-layout data-sn-prop="{ nav: \'x\' }"><title slot="head">mine</title></site-layout>'));
+    const d = errors(run('<site-layout data-sn-with="{ nav: \'x\' }"><title slot="head">mine</title></site-layout>'));
     expect(d).toEqual([expect.stringMatching(/^SN321 a second `<title>` in the head/)]);
     // metas that may repeat are fine
-    expect(errors(run('<site-layout data-sn-prop="{ nav: \'x\' }"><meta slot="head" property="og:image" content="/a.png"><meta slot="head" property="og:image" content="/b.png"></site-layout>'))).toEqual([]);
+    expect(errors(run('<site-layout data-sn-with="{ nav: \'x\' }"><meta slot="head" property="og:image" content="/a.png"><meta slot="head" property="og:image" content="/b.png"></site-layout>'))).toEqual([]);
   });
 
   test('a whole document in src/layouts/ without data-sn-props takes no props; SN318 only when the page passes some', () => {
@@ -122,8 +122,8 @@ describe('errors', () => {
     expect(errors(plain)).toEqual([]);
     expect(plain.html).toContain('<main><p>hi</p></main>');
     expect(plain.html).toContain('<title>T</title>');
-    const passes = run('<x-plain data-sn-prop="{ title: \'A\' }"></x-plain>', { '/p/src/layouts/x-plain.html': doc });
-    expect(errors(passes)).toEqual([expect.stringMatching(/^SN318 `src\/layouts\/x-plain.html` declares no props, but this page passes `data-sn-prop`/)]);
+    const passes = run('<x-plain data-sn-with="{ title: \'A\' }"></x-plain>', { '/p/src/layouts/x-plain.html': doc });
+    expect(errors(passes)).toEqual([expect.stringMatching(/^SN318 `src\/layouts\/x-plain.html` declares no props, but this page passes `data-sn-with`/)]);
     expect(passes.diagnostics.find((d) => d.code === 'SN318')?.hint).toMatch(/^declare the props the pages pass/);
     expect(run('<x-bad></x-bad>', { '/p/src/layouts/x-bad.html': '<div><slot></slot></div>' }).diagnostics.find((d) => d.code === 'SN318')?.hint).toContain('or `<html lang="en">` for a layout without props');
   });

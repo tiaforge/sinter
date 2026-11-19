@@ -25,7 +25,7 @@ test('per instance: connected with refs set, propsChanged once per render, state
   const { root, flush, state } = await render(`
     <div data-sn-state="{ items: [{ id: 1, done: 1, open: 1 }, { id: 2, done: 5, open: 0 }], picked: '' }">
       <template data-sn-for="t in items" data-sn-key="t.id">
-        <task-ring data-sn-prop="{ done: t.done, open: t.open }" data-sn-on-pick="picked = picked + t.id"></task-ring>
+        <task-ring data-sn-with="{ done: t.done, open: t.open }" data-sn-on-pick="picked = picked + t.id"></task-ring>
       </template>
       <p data-sn-text="picked"></p>
       <button data-sn-on-click="items = []">clear</button>

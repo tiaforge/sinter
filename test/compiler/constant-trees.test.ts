@@ -7,14 +7,14 @@ import { compile, type CompileOptions, type ImageHost, type ImageInfo, type Imag
 import type { FoldVerdict } from '../../src/fold-check.js';
 
 /** a dispatcher over the children of `of`: text in place, other nodes by their type */
-const kids = (of: string) => `<template data-sn-for="n in ${of}.children"><template data-sn-if="n.type === 'text'"><template data-sn-text="n.value"></template></template><template data-sn-else><sn-component use="\`x-\${n.type}\`" data-sn-prop="{ node: n }"></sn-component></template></template>`;
+const kids = (of: string) => `<template data-sn-for="n in ${of}.children"><template data-sn-if="n.type === 'text'"><template data-sn-text="n.value"></template></template><template data-sn-else><sn-component use="\`x-\${n.type}\`" data-sn-with="{ node: n }"></sn-component></template></template>`;
 const COMPONENTS: Record<string, string> = {
   'doc-view': `<template data-sn-props="{ doc: any; link: Slot<{ href: string; text: string }> }"><article>${kids('doc')}</article></template>`,
   'x-heading': `<template data-sn-props="{ node: any }"><h2>${kids('node')}</h2></template>`,
   'x-para': `<template data-sn-props="{ node: any }"><p>${kids('node')}</p></template>`,
   'x-list': `<template data-sn-props="{ node: any }"><ul>${kids('node')}</ul></template>`,
   'x-item': `<template data-sn-props="{ node: any }"><li>${kids('node')}</li></template>`,
-  'x-link': '<template data-sn-props="{ node: any }"><slot name="link" data-sn-prop="{ href: node.url, text: node.value }"><a data-sn-attr="{ href: node.url }" data-sn-text="node.value"></a></slot></template>',
+  'x-link': '<template data-sn-props="{ node: any }"><slot name="link" data-sn-with="{ href: node.url, text: node.value }"><a data-sn-attr="{ href: node.url }" data-sn-text="node.value"></a></slot></template>',
   'x-image': '<template data-sn-props="{ node: any }"><img data-sn-attr="{ src: node.url, alt: node.alt }"></template>',
   'x-code': '<template data-sn-props="{ node: any }"><pre><code data-sn-text="node.value"></code></pre></template>',
 };
@@ -28,7 +28,7 @@ const DOC = { type: 'doc', children: [
   { type: 'code', value: 'npm install' },
 ] };
 const PAGE = (fill = '<a slot="link" class="lnk" data-sn-attr="{ href: $slot.href }" data-sn-text="$slot.text"></a>', extra = '') => `<!doctype html><html><head></head><body><sn-resource name="doc" src="file:./doc.json"></sn-resource>
-<doc-view data-sn-prop="{ doc }">${fill}</doc-view>${extra}</body></html>`;
+<doc-view data-sn-with="{ doc }">${fill}</doc-view>${extra}</body></html>`;
 const ARTICLE = '<article><h2>Getting started</h2><p>Read the <a class="lnk" href="/guide/">guide</a> first.</p><ul><li><p>one <a class="lnk" href="/a/">a</a></p></li><li>two</li></ul>';
 
 const photo: ImageInfo = { width: 1600, height: 1067, alpha: false, kind: 'photo', color: '#8a7f6e', bytes: 200_000, hash: 'abc' };
@@ -79,7 +79,7 @@ describe('a constant tree is plain HTML', () => {
 
   test('a helper over the tree folds into it (step 8): the text is the helper\'s result', () => {
     const upper: FoldVerdict = { fold: true };
-    const para = `<template data-sn-props="{ node: any }"><p><template data-sn-for="n in node.children"><template data-sn-if="n.type === 'text'"><template data-sn-text="shout(n.value)"></template></template><template data-sn-else><sn-component use="\`x-\${n.type}\`" data-sn-prop="{ node: n }"></sn-component></template></template></p></template>`;
+    const para = `<template data-sn-props="{ node: any }"><p><template data-sn-for="n in node.children"><template data-sn-if="n.type === 'text'"><template data-sn-text="shout(n.value)"></template></template><template data-sn-else><sn-component use="\`x-\${n.type}\`" data-sn-with="{ node: n }"></sn-component></template></template></p></template>`;
     const out = build(PAGE(), { static: true, more: { 'x-para': para }, helpers: { module: '/h.js', names: ['shout'], namespaces: {} }, helperValues: { shout: (s: string) => s.toUpperCase() }, helperFold: new Map([['shout', upper]]) });
     expect(errors(out)).toEqual([]);
     expect(out.static).toBe(true);

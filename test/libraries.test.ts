@@ -135,8 +135,8 @@ describe('the components', () => {
   });
 
   test('SN339: the app using an internal component names the public ones; a name in a library\'s prefix that it does not have', () => {
-    const root = app({ 'src/components/app-list.html': '<template data-sn-props=""><ul><ui-node data-sn-prop="{ item: { id: 1, label: \'x\' } }"></ui-node></ul></template>' });
-    const internal = build(root, page('<ui-node data-sn-prop="{ item: { id: 1, label: \'x\' } }"></ui-node><app-list></app-list>')).diagnostics;
+    const root = app({ 'src/components/app-list.html': '<template data-sn-props=""><ul><ui-node data-sn-with="{ item: { id: 1, label: \'x\' } }"></ui-node></ul></template>' });
+    const internal = build(root, page('<ui-node data-sn-with="{ item: { id: 1, label: \'x\' } }"></ui-node><app-list></app-list>')).diagnostics;
     expect(internal.map((d) => [d.code, d.message, d.hint, d.file.slice(root.length + 1), d.line])).toEqual([
       ['SN339', '`<ui-node>` is internal to `@fixture/ui` (`components/internal/`): only its own components use it', 'its public components: `<ui-card>`, `<ui-tree>`', 'index.html', 1],
       ['SN339', '`<ui-node>` is internal to `@fixture/ui` (`components/internal/`): only its own components use it (included from index.html:1)', 'its public components: `<ui-card>`, `<ui-tree>`', 'src/components/app-list.html', 1],
@@ -144,8 +144,8 @@ describe('the components', () => {
     const unknown = build(root, page('<ui-crd></ui-crd>')).diagnostics;
     expect(unknown.map((d) => [d.code, d.message, d.hint])).toEqual([['SN339', '`<ui-crd>` is not a component of `@fixture/ui`, which owns the prefix `ui-`', ' Did you mean `ui-card`? its public components: `<ui-card>`, `<ui-tree>`'.trim()]]);
     // internal through a map in `<sn-component use>`, and a fill (the app's markup) inside a library's root
-    const map = build(root, page(`<div data-sn-state="{ t: 'a' }"><sn-component use="{ a: 'ui-node', b: 'ui-card' }[t]" data-sn-prop="{ title: 'x' }"></sn-component>
-      <ui-tree data-sn-prop="{ items: [] }"><span slot="node"><ui-node data-sn-prop="{ item: $slot.item }"></ui-node></span></ui-tree></div>`)).diagnostics;
+    const map = build(root, page(`<div data-sn-state="{ t: 'a' }"><sn-component use="{ a: 'ui-node', b: 'ui-card' }[t]" data-sn-with="{ title: 'x' }"></sn-component>
+      <ui-tree data-sn-with="{ items: [] }"><span slot="node"><ui-node data-sn-with="{ item: $slot.item }"></ui-node></span></ui-tree></div>`)).diagnostics;
     expect(codes(map)).toEqual(['SN339', 'SN339']);
     expect(map[0]!.message).toBe('`\'ui-node\'` is internal to `@fixture/ui` (`components/internal/`): only its own components use it');
   });
@@ -157,7 +157,7 @@ describe('the components', () => {
     writeFileSync(join(lib, 'sinter/components/internal/ui-node.html'), readFileSync(join(UI, 'sinter/components/internal/ui-node.html'), 'utf8').replace('<li>', '<li data-sn-txt="1">'));
     rmSync(join(root, 'node_modules/@fixture/ui'));
     symlinkSync(lib, join(root, 'node_modules/@fixture/ui'), 'dir');
-    const ds = build(root, page('\n\n<div data-sn-state="{ items: [] }">\n<ui-tree data-sn-prop="{ items }"></ui-tree></div>')).diagnostics;
+    const ds = build(root, page('\n\n<div data-sn-state="{ items: [] }">\n<ui-tree data-sn-with="{ items }"></ui-tree></div>')).diagnostics;
     const d = ds.find((x) => x.code === 'SN101')!;
     expect(d.message).toMatch(/ … used at index\.html:4$/);
     expect(formatDiagnostic(d)).toMatch(/^@fixture\/ui\/sinter\/components\/internal\/ui-node\.html:2:\d+ error SN101 unknown-attribute: .* … used at index\.html:4\n/);
@@ -166,21 +166,21 @@ describe('the components', () => {
   test('`<sn-component use>`: in the app\'s markup, the app\'s and the public components; in a library\'s, its own, internal ones included (rule 7)', () => {
     const kit = {
       'package.json': pkgJson({ name: '@t/kit', sinter: './sinter' }),
-      'sinter/components/kit-list.html': '<template data-sn-props="{ kinds: string[] }"><ul><template data-sn-for="k in kinds"><li><sn-component use="`kit-${k}-row`" data-sn-prop="{}"></sn-component></li></template></ul></template>',
+      'sinter/components/kit-list.html': '<template data-sn-props="{ kinds: string[] }"><ul><template data-sn-for="k in kinds"><li><sn-component use="`kit-${k}-row`" data-sn-with="{}"></sn-component></li></template></ul></template>',
       'sinter/components/kit-a-row.html': '<template data-sn-props=""><b>a</b></template>',
       'sinter/components/internal/kit-b-row.html': '<template data-sn-props=""><i>b</i></template>',
     };
     const root = app({ 'src/components/app-c-row.html': '<template data-sn-props=""><u>c</u></template>' }, { '@t/kit': kit });
     const o = { components: ['@fixture/ui', '@t/kit'] };
-    const r = build(root, page('<kit-list data-sn-prop="{ kinds: [\'a\', \'b\'] }"></kit-list><div data-sn-state="{ k: \'a\' }"><sn-component use="`kit-${k}-row`" data-sn-prop="{}"></sn-component><sn-component use="`app-${k}-row`" data-sn-prop="{}"></sn-component></div>'), o);
+    const r = build(root, page('<kit-list data-sn-with="{ kinds: [\'a\', \'b\'] }"></kit-list><div data-sn-state="{ k: \'a\' }"><sn-component use="`kit-${k}-row`" data-sn-with="{}"></sn-component><sn-component use="`app-${k}-row`" data-sn-with="{}"></sn-component></div>'), o);
     expect(r.diagnostics).toEqual([]);
     // the library's list renders its internal row; the page's choice has the public row only, the app's its own
     expect(r.out.html).toContain('<i>b</i>');
     const ids = [...r.out.html.matchAll(/<template id="sn-t-\d+">\s*<(\w+)/g)].map((m) => m[1]);
     expect(ids.filter((t) => t === 'i').length).toBe(1);
     // a map in a library's markup names only its own components
-    const bad = { ...kit, 'sinter/components/kit-list.html': '<template data-sn-props="{ k: string }"><div><sn-component use="{ a: \'kit-a-row\', c: \'app-c-row\' }[k]" data-sn-prop="{}"></sn-component></div></template>' };
-    const r2 = build(app({ 'src/components/app-c-row.html': '<template data-sn-props=""><u>c</u></template>' }, { '@t/kit': bad }), page('<kit-list data-sn-prop="{ k: \'a\' }"></kit-list>'), o);
+    const bad = { ...kit, 'sinter/components/kit-list.html': '<template data-sn-props="{ k: string }"><div><sn-component use="{ a: \'kit-a-row\', c: \'app-c-row\' }[k]" data-sn-with="{}"></sn-component></div></template>' };
+    const r2 = build(app({ 'src/components/app-c-row.html': '<template data-sn-props=""><u>c</u></template>' }, { '@t/kit': bad }), page('<kit-list data-sn-with="{ k: \'a\' }"></kit-list>'), o);
     expect(r2.diagnostics.map((d) => [d.code, d.message.split(':')[0]])).toEqual([['SN339', '`\'app-c-row\'` is not a component of `@t/kit`']]);
   });
 });
@@ -189,25 +189,25 @@ describe('tree slots across packages', () => {
   // `kit-tree` (a root that declares `leaf`) and `kit-leaf` (its tree placement) in one package
   const kit = (more: Record<string, string> = {}) => ({
     'package.json': pkgJson({ name: '@t/kit', sinter: './sinter' }),
-    'sinter/components/kit-tree.html': '<template data-sn-props="{ n: number; leaf: Slot<{ n: number }> }"><div class="tree"><kit-leaf data-sn-prop="{ n }"></kit-leaf></div></template>',
-    'sinter/components/kit-leaf.html': '<template data-sn-props="{ n: number }"><slot name="leaf" data-sn-prop="{ n }"><b class="default" data-sn-text="n"></b></slot></template>',
+    'sinter/components/kit-tree.html': '<template data-sn-props="{ n: number; leaf: Slot<{ n: number }> }"><div class="tree"><kit-leaf data-sn-with="{ n }"></kit-leaf></div></template>',
+    'sinter/components/kit-leaf.html': '<template data-sn-props="{ n: number }"><slot name="leaf" data-sn-with="{ n }"><b class="default" data-sn-text="n"></b></slot></template>',
     ...more,
   });
   const o = { components: ['@fixture/ui', '@t/kit'] };
 
   test('rule 2: a placement is filled by the nearest root of its own package; an app component that declares the name is not one', () => {
-    const root = app({ 'src/components/app-wrap.html': '<template data-sn-props="{ leaf: Slot<{ n: number }> }"><section><kit-leaf data-sn-prop="{ n: 1 }"></kit-leaf><slot name="leaf" data-sn-prop="{ n: 0 }"><i></i></slot></section></template>' }, { '@t/kit': kit() });
+    const root = app({ 'src/components/app-wrap.html': '<template data-sn-props="{ leaf: Slot<{ n: number }> }"><section><kit-leaf data-sn-with="{ n: 1 }"></kit-leaf><slot name="leaf" data-sn-with="{ n: 0 }"><i></i></slot></section></template>' }, { '@t/kit': kit() });
     const ds = build(root, page('<app-wrap><em slot="leaf">x</em></app-wrap>'), o).diagnostics;
-    expect(ds.map((d) => [d.code, d.message])).toEqual([['SN331', '`<kit-leaf>` places the slot `leaf` (`<slot name="leaf" data-sn-prop>`), and no component around it declares `leaf`: nothing can fill it here (included from index.html:1)']]);
+    expect(ds.map((d) => [d.code, d.message])).toEqual([['SN331', '`<kit-leaf>` places the slot `leaf` (`<slot name="leaf" data-sn-with>`), and no component around it declares `leaf`: nothing can fill it here (included from index.html:1)']]);
     // within its package, the root fills it
-    const ok = build(app({}, { '@t/kit': kit() }), page('<kit-tree data-sn-prop="{ n: 3 }"><em slot="leaf" class="fill" data-sn-text="$slot.n"></em></kit-tree>'), o);
+    const ok = build(app({}, { '@t/kit': kit() }), page('<kit-tree data-sn-with="{ n: 3 }"><em slot="leaf" class="fill" data-sn-text="$slot.n"></em></kit-tree>'), o);
     expect(ok.diagnostics).toEqual([]);
     expect(ok.out.html).toMatch(/<div class="tree"><em class="fill"[^>]*><\/em><\/div>/);
   });
 
   test('rule 3: a root written in another package\'s markup starts a new contract; outer fills do not reach into it', () => {
     // an app component that declares `leaf` and uses the library's root inside: the page's fill is app-wrap's, not kit-tree's
-    const root = app({ 'src/components/app-wrap.html': '<template data-sn-props="{ leaf: Slot<{ n: number }> }"><section><kit-tree data-sn-prop="{ n: 5 }"></kit-tree><slot name="leaf" data-sn-prop="{ n: 0 }"><i></i></slot></section></template>' }, { '@t/kit': kit() });
+    const root = app({ 'src/components/app-wrap.html': '<template data-sn-props="{ leaf: Slot<{ n: number }> }"><section><kit-tree data-sn-with="{ n: 5 }"></kit-tree><slot name="leaf" data-sn-with="{ n: 0 }"><i></i></slot></section></template>' }, { '@t/kit': kit() });
     const r = build(root, page('<app-wrap><em slot="leaf" class="fill" data-sn-text="$slot.n"></em></app-wrap>'), o);
     expect(r.diagnostics).toEqual([]);
     // kit-tree shows its default; the fill renders at app-wrap's own placement only
@@ -215,7 +215,7 @@ describe('tree slots across packages', () => {
   });
 
   test('rule 1 and 4 within a package: a root inside another root of its package takes the outer fill', () => {
-    const k = kit({ 'sinter/components/kit-pair.html': '<template data-sn-props="{ leaf: Slot<{ n: number }> }"><div class="pair"><kit-tree data-sn-prop="{ n: 7 }"></kit-tree></div></template>' });
+    const k = kit({ 'sinter/components/kit-pair.html': '<template data-sn-props="{ leaf: Slot<{ n: number }> }"><div class="pair"><kit-tree data-sn-with="{ n: 7 }"></kit-tree></div></template>' });
     const r = build(app({}, { '@t/kit': k }), page('<kit-pair><em slot="leaf" class="fill" data-sn-text="$slot.n"></em></kit-pair>'), o);
     expect(r.diagnostics).toEqual([]);
     expect(r.out.html).toMatch(/<div class="pair"><div class="tree"><em class="fill"[^>]*><\/em><\/div><\/div>/);
@@ -228,8 +228,8 @@ describe('tree slots across packages', () => {
   });
 
   test('rule 7: the helper form of `<sn-component use>` in a library component with slots', () => {
-    const k = kit({ 'sinter/components/kit-any.html': '<template data-sn-props="{ leaf: Slot<{ n: number }>; c: string }"><div><sn-component use="pick(c)" data-sn-prop="{ n: 1 }"></sn-component></div></template>' });
-    const ds = build(app({}, { '@t/kit': k }), page('<kit-any data-sn-prop="{ c: \'kit-leaf\' }"></kit-any>'), o).diagnostics;
+    const k = kit({ 'sinter/components/kit-any.html': '<template data-sn-props="{ leaf: Slot<{ n: number }>; c: string }"><div><sn-component use="pick(c)" data-sn-with="{ n: 1 }"></sn-component></div></template>' });
+    const ds = build(app({}, { '@t/kit': k }), page('<kit-any data-sn-with="{ c: \'kit-leaf\' }"></kit-any>'), o).diagnostics;
     expect(ds.map((d) => [d.code, d.message.split(',')[0]])).toEqual([['SN312', '`<kit-any>` declares slots']]);
   });
 });
@@ -245,8 +245,8 @@ describe('types', () => {
     const root = app();
     // `Tone` is only the library's: the app's types module re-exports `Item` and nothing else
     expect(typecheck(root, readFileSync(resolve(__dirname, 'fixtures/ui-app/index.html'), 'utf8'))).toEqual([]);
-    const bad = typecheck(root, page(`<ui-card data-sn-prop="{ title: 'x', tone: 'quiet' }"></ui-card>
-<div data-sn-state="{ items: [{ id: 1, label: 'a' }] }"><ui-tree data-sn-prop="{ items }"><b slot="node" data-sn-text="$slot.item.lable"></b></ui-tree></div>`));
+    const bad = typecheck(root, page(`<ui-card data-sn-with="{ title: 'x', tone: 'quiet' }"></ui-card>
+<div data-sn-state="{ items: [{ id: 1, label: 'a' }] }"><ui-tree data-sn-with="{ items }"><b slot="node" data-sn-text="$slot.item.lable"></b></ui-tree></div>`));
     // (a fill compiled for each depth of the tree reports its error once per depth, as among app components)
     const distinct = [...new Map(bad.map((d) => [`${d.file}:${d.line}:${d.col}:${d.message}`, d])).values()];
     expect(distinct.map((d) => [d.code, d.message])).toEqual([
@@ -318,8 +318,8 @@ describe('the library author\'s check', () => {
   test('rules 5 and 7 fail it, with the library\'s file named', () => {
     const lib = join(tmp, `repo-${n++}`);
     cpSync(UI, lib, { recursive: true });
-    writeFileSync(join(lib, 'sinter/components/ui-panel.html'), '<template data-sn-props="{ head: Slot<{ n: number }>; c: string }"><div><sn-component use="pick(c)" data-sn-prop="{}"></sn-component></div></template>');
-    writeFileSync(join(lib, 'fixtures/panel.html'), page('<ui-panel data-sn-prop="{ c: \'ui-card\' }"></ui-panel>'));
+    writeFileSync(join(lib, 'sinter/components/ui-panel.html'), '<template data-sn-props="{ head: Slot<{ n: number }>; c: string }"><div><sn-component use="pick(c)" data-sn-with="{}"></sn-component></div></template>');
+    writeFileSync(join(lib, 'fixtures/panel.html'), page('<ui-panel data-sn-with="{ c: \'ui-card\' }"></ui-panel>'));
     const r = cli(lib);
     expect(r.status).toBe(1);
     expect(r.stdout).toMatch(/sinter\/components\/ui-panel\.html:1:\d+ error SN331 invalid-slot: `<ui-panel>` declares the slot `head`, and nothing inside it places `head`/);

@@ -1,3 +1,3 @@
 <template data-sn-props="{ node: Delete }">
-  <del><template data-sn-for="n in node.children"><template data-sn-if="n.type === 'text'"><template data-sn-text="n.value"></template></template><template data-sn-else><md-phrasing data-sn-prop="{ node: n }"></md-phrasing></template></template></del>
+  <del><template data-sn-for="n in node.children"><template data-sn-if="n.type === 'text'"><template data-sn-text="n.value"></template></template><template data-sn-else><md-phrasing data-sn-with="{ node: n }"></md-phrasing></template></template></del>
 </template>

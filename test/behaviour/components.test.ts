@@ -35,7 +35,7 @@ describe('markup-only components', () => {
         <button id="narrow" data-sn-on-click="narrow = !narrow">narrow</button>
         <p id="sel" data-sn-text="sel"></p>
         <template data-sn-for="a in articles">
-          <article-preview class="item" data-sn-prop="{ article: a, compact: narrow }" data-sn-on-select="sel = $event.detail">
+          <article-preview class="item" data-sn-with="{ article: a, compact: narrow }" data-sn-on-select="sel = $event.detail">
             <span slot="meta" data-sn-text="a.createdAt"></span>
           </article-preview>
         </template>
@@ -65,7 +65,7 @@ describe('markup-only components', () => {
   <ul><template data-sn-for="a in items" data-sn-key="a"><li data-sn-text="label + a"></li></template></ul>
 </template>`;
     const r2 = await render(`<div data-sn-state="{ rows: [{ n: 'r', items: ['1', '2'] }] }">
-      <template data-sn-for="a in rows"><other-list data-sn-prop="{ label: a.n, items: a.items }"></other-list></template></div>`, { components: { 'other-list': OTHER } });
+      <template data-sn-for="a in rows"><other-list data-sn-with="{ label: a.n, items: a.items }"></other-list></template></div>`, { components: { 'other-list': OTHER } });
     await r2.settle();
     expect([...r2.root.querySelectorAll('li')].map((l) => l.textContent)).toEqual(['r1', 'r2']);
   });
@@ -75,9 +75,9 @@ describe('markup-only components', () => {
   <span data-sn-state="{ n: 0, step: 1 }"><button data-sn-on-click="n = n + step" data-sn-text="label + ': ' + n"></button></span>
 </template>`;
     const PANEL = `<template data-sn-props="{ title: string }">
-  <section><h3 data-sn-text="title"></h3><x-counter data-sn-prop="{ label: title, step: 5 }"></x-counter><x-counter data-sn-prop="{ label: 'plain' }"></x-counter><slot></slot></section>
+  <section><h3 data-sn-text="title"></h3><x-counter data-sn-with="{ label: title, step: 5 }"></x-counter><x-counter data-sn-with="{ label: 'plain' }"></x-counter><slot></slot></section>
 </template>`;
-    const { root, flush } = await render(`<div data-sn-state="{ t: 'T' }"><x-panel data-sn-prop="{ title: t }"><b data-sn-text="t + '!'"></b></x-panel></div>`,
+    const { root, flush } = await render(`<div data-sn-state="{ t: 'T' }"><x-panel data-sn-with="{ title: t }"><b data-sn-text="t + '!'"></b></x-panel></div>`,
       { components: { 'x-counter': COUNTER, 'x-panel': PANEL } });
     const [five, one] = root.querySelectorAll('button');
     expect(root.querySelector('h3')!.textContent).toBe('T');
@@ -107,7 +107,7 @@ describe('markup-only components', () => {
   });
 
   test('first paint: a component over embedded data and state renders before the page module', async () => {
-    const { root } = await firstPaint(`<div data-sn-state="{ now: '--:--' }"><live-clock data-sn-prop="{ time: now }"></live-clock></div>`,
+    const { root } = await firstPaint(`<div data-sn-state="{ now: '--:--' }"><live-clock data-sn-with="{ time: now }"></live-clock></div>`,
       { components: { 'live-clock': '<template data-sn-props="{ time: string }"><time data-sn-text="time"></time></template>' } });
     expect(root.querySelector('time')!.textContent).toBe('--:--');
   });
@@ -118,7 +118,7 @@ describe('component diagnostics', () => {
   const codes = (html: string, c: Record<string, string> = C) => compileErrors(html, c).map((d) => `${d.code} ${d.message}`);
 
   test('props: unknown and missing', () => {
-    expect(codes('<x-card data-sn-prop="{ titel: \'a\' }"></x-card>')).toEqual([
+    expect(codes('<x-card data-sn-with="{ titel: \'a\' }"></x-card>')).toEqual([
       expect.stringMatching(/^SN313 `titel` is not a prop of `<x-card>`; its props are `title`, `n`. Did you mean `title`\?/),
       expect.stringMatching(/^SN313 `<x-card>` needs the prop `title`/),
     ]);
@@ -129,19 +129,19 @@ describe('component diagnostics', () => {
     expect(d.map((x) => x.code)).toEqual(['SN201']);
     expect(d[0]!.file).toBe('/p/src/components/x-q.html');
     expect(d[0]!.message).toMatch(/`q` is not defined in component `<x-q>`.*\(included from index.html:1\)/);
-    expect(d[0]!.hint).toMatch(/data-sn-prop="\{ q: q \}"/);
+    expect(d[0]!.hint).toMatch(/data-sn-with="\{ q: q \}"/);
   });
 
   test('slots, events, the root, tag attributes', () => {
-    expect(codes('<x-card data-sn-prop="{ title: \'a\' }"><b slot="fot"></b><i></i></x-card>')).toEqual([
+    expect(codes('<x-card data-sn-with="{ title: \'a\' }"><b slot="fot"></b><i></i></x-card>')).toEqual([
       expect.stringMatching(/^SN314 `<x-card>` has no slot `fot`. Its slots are `foot`. Did you mean `foot`\?/),
       expect.stringMatching(/^SN314 `<x-card>` has no default `<slot>`/),
     ]);
-    expect(codes('<x-card data-sn-prop="{ title: \'a\' }" data-sn-on-pik="1" data-sn-on-click="1"></x-card>')).toEqual([expect.stringMatching(/^SN315 `<x-card>` does not emit `pik`; it declares `pick`/)]);
+    expect(codes('<x-card data-sn-with="{ title: \'a\' }" data-sn-on-pik="1" data-sn-on-click="1"></x-card>')).toEqual([expect.stringMatching(/^SN315 `<x-card>` does not emit `pik`; it declares `pick`/)]);
     expect(codes('<x-e></x-e>', { 'x-e': '<template data-sn-props="" data-sn-emits="{ a: number }"><button data-sn-on-click="emit(\'b\', 1)"></button></template>' }))
       .toEqual([expect.stringMatching(/^SN315 `<x-e>` does not declare the event `b`/)]);
     expect(codes('<x-two></x-two>', { 'x-two': '<template data-sn-props=""><p></p><p></p></template>' })).toEqual([expect.stringMatching(/^SN312 a component's root renders at most one element; `<x-two>` has 2 elements/)]);
-    expect(codes('<x-card data-sn-prop="{ title: \'a\' }" data-sn-text="1"></x-card>')).toEqual([expect.stringMatching(/^SN102 `data-sn-text` cannot be on a component's tag/)]);
+    expect(codes('<x-card data-sn-with="{ title: \'a\' }" data-sn-text="1"></x-card>')).toEqual([expect.stringMatching(/^SN102 `data-sn-text` cannot be on a component's tag/)]);
     expect(codes('<x-id></x-id><x-id></x-id>', { 'x-id': '<template data-sn-props=""><dialog id="edit"></dialog></template>' }))
       .toEqual([expect.stringMatching(/^SN209 `<x-id>` is used 2 times on this page, and its markup has `id="edit"`/)]);
   });
@@ -161,7 +161,7 @@ describe('component diagnostics', () => {
 describe('data-sn-early="off"', () => {
   const CLOCK = '<template data-sn-props="{ time: string }"><time data-sn-text="time"></time></template>';
   // a helper: not a build-time constant, so only the early script renders it before the page module
-  const PAGE = (early: string) => `<div data-sn-state="{ now: label() }"><live-clock data-sn-prop="{ time: now }"${early}></live-clock><b data-sn-text="now"></b></div>`;
+  const PAGE = (early: string) => `<div data-sn-state="{ now: label() }"><live-clock data-sn-with="{ time: now }"${early}></live-clock><b data-sn-text="now"></b></div>`;
   // a label only the browser knows (a helper over what it closes over does not run at build time)
   const clockText = '--:--';
   const helpers = { label: () => clockText };
@@ -187,7 +187,7 @@ describe('data-sn-early="off"', () => {
 
 test('a data-sn-if on a constant prop is decided at build time: dropped when the use leaves it out, its content in place when it is true', async () => {
   const BADGE = '<template data-sn-props="{ label?: string }"><span><template data-sn-if="label"><b data-sn-text="label"></b></template>x</span></template>';
-  const { root } = await render('<x-badge></x-badge><x-badge data-sn-prop="{ label: \'new\' }"></x-badge>', { components: { 'x-badge': BADGE } });
+  const { root } = await render('<x-badge></x-badge><x-badge data-sn-with="{ label: \'new\' }"></x-badge>', { components: { 'x-badge': BADGE } });
   const [a, b] = root.querySelectorAll('span');
   expect(a!.querySelector('b')).toBeNull();
   // decided at build time: no template, no binding
@@ -203,7 +203,7 @@ describe('slot content the build decides or unrolls stays its writer\'s', () => 
   test('a `data-sn-if` the first paint decides: its branch emits the writer\'s events and is outside the box\'s styles', async () => {
     const outer = `<template data-sn-props="{ on: boolean }" data-sn-emits="{ ping: void }">
   <section><x-box><template data-sn-if="!on"><p class="mine" data-sn-on-click="emit('ping')">p</p></template></x-box></section></template>`;
-    const r = await render('<main data-sn-state="{ n: 0 }"><x-outer data-sn-prop="{ on: false }" data-sn-on-ping="n++"></x-outer><b data-sn-text="n"></b></main>',
+    const r = await render('<main data-sn-state="{ n: 0 }"><x-outer data-sn-with="{ on: false }" data-sn-on-ping="n++"></x-outer><b data-sn-text="n"></b></main>',
       { components: { 'x-box': box, 'x-outer': outer }, firstPaint: true });
     await r.flush();
     const p = r.root.querySelector<HTMLElement>('.mine')!;

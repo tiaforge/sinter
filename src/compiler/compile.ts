@@ -507,6 +507,7 @@ const ATTRS = ATTRIBUTES.map((a) => a.name);
 const METHODS = ['post', 'put', 'patch', 'delete'] as const;
 /** attributes that are gone or renamed (docs/proposals/vocabulary.md): what to write instead */
 const RETIRED: Record<string, string> = {
+  'data-sn-prop': 'is renamed to `data-sn-with`, so passing values and declaring them (`data-sn-props`) are different words: `<contact-card data-sn-with="{ contact: c }">`',
   'data-sn-component': 'is renamed to `data-sn-props`, the one declaration of a component\'s or a layout\'s props: `<template data-sn-props="{ article: Article }">`',
   'data-sn-head': 'is renamed to `data-sn-props`: a component whose markup is head elements is a head component, `<template data-sn-props="{ title?: string }"><title …></template>`',
   'data-sn-layout': 'is renamed to `data-sn-props` on the layout\'s `<html>`: `<html lang="en" data-sn-props="{ title?: string }">`',
@@ -638,11 +639,11 @@ interface ComponentFile {
 }
 
 /**
- * A `<slot>` that passes data (`data-sn-prop` on it, `Slot<T>` in the props type): one place where a
- * fill renders. Its `data-sn-prop` is compiled where the fill is walked, in the component's scope there.
+ * A `<slot>` that passes data (`data-sn-with` on it, `Slot<T>` in the props type): one place where a
+ * fill renders. Its `data-sn-with` is compiled where the fill is walked, in the component's scope there.
  */
 interface Placement {
-  /** the `<slot>`, detached once filled: where its `data-sn-prop` is written */
+  /** the `<slot>`, detached once filled: where its `data-sn-with` is written */
   el: P5Element;
   use: Use;
   name: string;
@@ -794,7 +795,7 @@ function constantProps(src: string | undefined, props: Member[] | null): Map<str
 }
 
 /** what a component's tag may not carry: these change its content, which belongs to the component */
-const TAG_ONLY_HINT = 'a component\'s tag takes `data-sn-prop`, `data-sn-model`, handlers, actions, `data-sn-class`, `-attr`, `-style`, `-show` and `-transition`; the rest belongs inside the component';
+const TAG_ONLY_HINT = 'a component\'s tag takes `data-sn-with`, `data-sn-model`, handlers, actions, `data-sn-class`, `-attr`, `-style`, `-show` and `-transition`; the rest belongs inside the component';
 
 export function compileParts(html: string, options: CompileOptions): CompiledParts {
   let out = compilePasses(html, options);
@@ -1890,7 +1891,7 @@ class Compiler {
       const name = basename(rec.src).replace(/\.html?$/, '');
       const tag = name.includes('-') ? name : `x-${name}`;
       this.report(rec.el, 'src', 'SN316', `\`<sn-include>\` is removed: a partial is a component. Move \`${rec.src}\` to \`src/components/${tag}.html\`, wrap its markup in \`<template data-sn-props="{ … }">\` around one root element, and write \`<${tag}></${tag}>\` here${
-        names.length ? `. It reads ${names.map((n) => `\`${n}\``).join(', ')} from the page: add ${names.length > 1 ? 'them' : 'it'} to \`data-sn-props\` and pass ${names.length > 1 ? 'them' : 'it'} with \`data-sn-prop="{ ${names.map((n) => `${n}: ${n}`).join(', ')} }"\`` : ''}`, 0);
+        names.length ? `. It reads ${names.map((n) => `\`${n}\``).join(', ')} from the page: add ${names.length > 1 ? 'them' : 'it'} to \`data-sn-props\` and pass ${names.length > 1 ? 'them' : 'it'} with \`data-sn-with="{ ${names.map((n) => `${n}: ${n}`).join(', ')} }"\`` : ''}`, 0);
     }
   }
 
@@ -2091,14 +2092,14 @@ class Compiler {
     this.declaration(lhtml, 'data-sn-layout', ['data-sn-layout']);
     // a whole document in src/layouts/ without `data-sn-props` takes no props (agents leave it out when there are
     // none: every benchmark run that did paid a failed build for it); one whose pages pass props must declare them
-    const whole = !!lhtml.sourceCodeLocation?.startTag, passes = attr(host, 'data-sn-prop') != null;
+    const whole = !!lhtml.sourceCodeLocation?.startTag, passes = attr(host, 'data-sn-with') != null;
     const decl = attr(lhtml, 'data-sn-layout') ?? (whole && !passes ? '{}' : undefined);
     if (decl === undefined || !whole) {
       const hint = whole
         ? 'declare the props the pages pass, e.g. `<html lang="en" data-sn-props="{ title?: string }">`'
         : '`<!doctype html><html lang="en" data-sn-props="{ title?: string }"><head>…</head><body><slot></slot></body></html>` (or `<html lang="en">` for a layout without props)';
       const message = whole
-        ? `\`src/layouts/${name}.html\` declares no props, but this page passes \`data-sn-prop\`: a layout declares them on its \`<html>\`, \`<html data-sn-props="{ …props }">\``
+        ? `\`src/layouts/${name}.html\` declares no props, but this page passes \`data-sn-with\`: a layout declares them on its \`<html>\`, \`<html data-sn-props="{ …props }">\``
         : `\`src/layouts/${name}.html\` is not a layout: a layout is a whole document whose \`<html>\` declares its props, \`<html data-sn-props="{ …props }">\``;
       this.diagnostics.push({ severity: 'error', code: 'SN318', message, file: lf.file, line: 1, col: 1, hint });
       detach(host);
@@ -2136,12 +2137,13 @@ class Compiler {
     this.fillSlots(use, ldoc);
     // the tag's attributes: plain ones replace the layout's on `<html>` (its defaults), `class` is joined
     for (const a of host.attrs) {
-      if (a.name === 'data-sn-prop' || a.name === 'data-sn-state') continue;
+      if (a.name === 'data-sn-with' || a.name === 'data-sn-state') continue;
       if (a.name === 'data-sn-path' || a.name === 'data-sn-prefetch' || a.name === 'data-sn-for' || a.name === 'data-sn-swap') { setAttr(lhtml, a.name, a.value); continue; }
       if (a.name === 'data-sn-pages') { this.report(host, a.name, 'SN101', `\`data-sn-pages\` ${RETIRED['data-sn-pages']}`, 0); continue; }
       if (a.name === 'data-sn-early') { this.report(host, a.name, 'SN319', '`data-sn-early` cannot be on a layout\'s tag: the layout is the whole page', 0, 'leave parts out of the early script on their own tags: `<tag-cloud data-sn-early="off">`'); continue; }
       if (a.name.startsWith('data-sn-')) {
-        if (!callerAttribute(a.name) || a.name === 'data-sn-model' || a.name === 'data-sn-persist') this.report(host, a.name, 'SN102', `\`${a.name}\` cannot be on a layout's tag`, 0, 'a layout\'s tag takes `data-sn-prop`, `data-sn-state`, handlers, `data-sn-class`, `-attr` and `-style`, `data-sn-path`, `data-sn-for` (a page per entry), `data-sn-prefetch` and `data-sn-swap`, and the attributes of `<html>`');
+        if (RETIRED[a.name]) this.report(host, a.name, 'SN101', `\`${a.name}\` ${RETIRED[a.name]}`, 0);
+        else if (!callerAttribute(a.name) || a.name === 'data-sn-model' || a.name === 'data-sn-persist') this.report(host, a.name, 'SN102', `\`${a.name}\` cannot be on a layout's tag`, 0, 'a layout\'s tag takes `data-sn-with`, `data-sn-state`, handlers, `data-sn-class`, `-attr` and `-style`, `data-sn-path`, `data-sn-for` (a page per entry), `data-sn-prefetch` and `data-sn-swap`, and the attributes of `<html>`');
         continue;
       }
       if (a.name === 'class') { const own = attr(lhtml, 'class'); setAttr(lhtml, 'class', own ? `${own} ${a.value}` : a.value); }
@@ -2282,7 +2284,7 @@ class Compiler {
   }
 
   /**
-   * `<sn-component use="…" data-sn-prop="…">`: a component chosen by data at runtime. `use` names it in
+   * `<sn-component use="…" data-sn-with="…">`: a component chosen by data at runtime. `use` names it in
    * one of three forms, each of which gives the candidates:
    * - convention, ``use="`${b.type}-block`"``: the components whose names have that prefix and suffix
    *   (sinter check: the template-literal type of the data's union, which must fit `ComponentName`);
@@ -2302,7 +2304,7 @@ class Compiler {
       detach(el);
     };
     for (const a of el.attrs) {
-      if (a.name !== 'use' && a.name !== 'data-sn-prop' && a.name !== 'data-sn-early') this.report(el, a.name, 'SN101', `\`${a.name}\` is not an attribute of \`<sn-component>\`; it takes \`use\`, \`data-sn-prop\` and \`data-sn-early\``, 0);
+      if (a.name !== 'use' && a.name !== 'data-sn-with' && a.name !== 'data-sn-early') this.report(el, a.name, 'SN101', `\`${a.name}\` is not an attribute of \`<sn-component>\`; it takes \`use\`, \`data-sn-with\` and \`data-sn-early\``, 0);
     }
     let ast: acorn.Expression | null = null;
     try { ast = use ? parseExpression(use) : null; } catch { ast = null; }
@@ -2470,7 +2472,7 @@ class Compiler {
     // a root that is not one plain element: decided now where a constant prop decides its condition
     const plainTop = () => { const r = content.childNodes.filter(realNode); return r.length === 1 && isElement(r[0]!) && plainRoot(r[0], this) ? r[0] : null; };
     const folds = !plainTop();
-    if (folds) this.foldIn(content, constantProps(attr(host, 'data-sn-prop'), props), use);
+    if (folds) this.foldIn(content, constantProps(attr(host, 'data-sn-with'), props), use);
     // decided to render nothing for this use: the tag goes, with nothing in its place
     if (folds && !content.childNodes.some(realNode)) {
       for (const u of [use, ...(this.passOn.get(host) ?? [])]) this.emptyRootAttrs(u, name);
@@ -2507,14 +2509,15 @@ class Compiler {
     if (mayBeEmpty(shape)) for (const u of all) this.emptyRootAttrs(u, name);
     // a text root has no element: an attribute of the tag (or of an outer one passing on to it) has nowhere to land
     if (shape.kind === 'text') for (const u of all) for (const a of u.host.attrs) {
-      if (a.name === 'slot' || a.name === 'data-sn-prop' || a.name === 'data-sn-early') continue;
+      if (a.name === 'slot' || a.name === 'data-sn-with' || a.name === 'data-sn-early') continue;
       this.report(u.host, a.name, 'SN334', `\`<${u.name}>\`'s root is a text here (a text fill of the \`<slot>\` at the root${u.name !== name ? ` of \`<${name}>\`` : ''}), so \`${a.name}\` on its tag has no element to land on`, 0,
         'wrap the tag in an element that carries it, or give a fill that is an element');
     }
     // the tag's attributes: plain ones move onto the root (onto each branch, onto a component tag that is
     // the root, onto a fill), sinter's are compiled on it in the caller's scope
     for (const a of host.attrs) {
-      if (a.name.startsWith('data-sn-') && !callerAttribute(a.name)) this.report(host, a.name, 'SN102', `\`${a.name}\` cannot be on a component's tag`, 0, TAG_ONLY_HINT);
+      if (RETIRED[a.name]) this.report(host, a.name, 'SN101', `\`${a.name}\` ${RETIRED[a.name]}`, 0);
+      else if (a.name.startsWith('data-sn-') && !callerAttribute(a.name)) this.report(host, a.name, 'SN102', `\`${a.name}\` cannot be on a component's tag`, 0, TAG_ONLY_HINT);
     }
     const plain = host.attrs.filter((a) => !a.name.startsWith('data-sn-') && a.name !== 'slot');
     for (const el of shape.kind === 'tag' ? [shape.el] : shape.kind === 'choice' ? [] : lands) {
@@ -2696,7 +2699,7 @@ class Compiler {
 
   /**
    * A head component's use (`<template data-sn-props>`): its elements, any number of them, take the
-   * tag's place with no wrapper. Its tag takes only `data-sn-prop` and slot content.
+   * tag's place with no wrapper. Its tag takes only `data-sn-with` and slot content.
    */
   expandHead(host: P5Element, def: ComponentFile, template: P5Element, chain: string[]): null {
     const name = host.tagName;
@@ -2725,11 +2728,12 @@ class Compiler {
     const first = fragment.childNodes.find(isElement) ?? template;
     const use: Use = { name, file: def.file, host, root: first, template, props, propsText, emits, emitsText, chain, head: { roots: [], parent: null } };
     for (const a of host.attrs) {
-      if (a.name !== 'data-sn-prop' && a.name !== 'slot') this.report(host, a.name, 'SN102', `\`${a.name}\` cannot be on the tag of a head component; it takes \`data-sn-prop\` and slot content`, 0, 'a head component has no root element for other attributes to land on');
+      if (RETIRED[a.name]) this.report(host, a.name, 'SN101', `\`${a.name}\` ${RETIRED[a.name]}`, 0);
+      else if (a.name !== 'data-sn-with' && a.name !== 'slot') this.report(host, a.name, 'SN102', `\`${a.name}\` cannot be on the tag of a head component; it takes \`data-sn-with\` and slot content`, 0, 'a head component has no root element for other attributes to land on');
     }
     this.fillSlots(use, fragment);
     // a prop the use gives as a constant decides a `data-sn-if` on it now, before its elements join the head
-    this.foldIn(fragment, constantProps(attr(host, 'data-sn-prop'), props), use);
+    this.foldIn(fragment, constantProps(attr(host, 'data-sn-with'), props), use);
     this.expandComponents(fragment, [...chain, name], true);
     const nodes = [...fragment.childNodes];
     for (const n of nodes) {
@@ -2797,13 +2801,13 @@ class Compiler {
     for (const s of slots) {
       const k = attr(s.el, 'name') ?? '';
       // a named slot that passes data and that the component does not declare: a tree placement (section 4)
-      if (attr(s.el, 'data-sn-prop') !== undefined && k && !data.has(k)) { tree.push(s.el); continue; }
+      if (attr(s.el, 'data-sn-with') !== undefined && k && !data.has(k)) { tree.push(s.el); continue; }
       // a placement that passes data: of a slot declared `Slot<T>`
-      if (attr(s.el, 'data-sn-prop') !== undefined && !data.has(k)) {
-        this.once(s.el, 'data-sn-prop', 'SN331', k ? `\`data-sn-prop\` on \`<slot name="${k}">\` passes data, and \`<${name}>\` does not declare \`${k}\` as \`Slot<T>\`` : '`data-sn-prop` on the default `<slot>`: a slot that passes data is named, and declared `Slot<T>`', 0,
+      if (attr(s.el, 'data-sn-with') !== undefined && !data.has(k)) {
+        this.once(s.el, 'data-sn-with', 'SN331', k ? `\`data-sn-with\` on \`<slot name="${k}">\` passes data, and \`<${name}>\` does not declare \`${k}\` as \`Slot<T>\`` : '`data-sn-with` on the default `<slot>`: a slot that passes data is named, and declared `Slot<T>`', 0,
           `declare it in the props type: \`data-sn-props="{ …; ${k || 'cell'}: Slot<{ row: Row }> }"\`${k ? '' : ', and name the slot'}`);
-      } else if (data.has(k) && attr(s.el, 'data-sn-prop') === undefined) {
-        this.once(s.el, null, 'SN331', `\`${k}\` is declared \`Slot<${data.get(k)!.slot}>\`: its placement passes the values with \`data-sn-prop\``, 0, `\`<slot name="${k}" data-sn-prop="{ … }">\``);
+      } else if (data.has(k) && attr(s.el, 'data-sn-with') === undefined) {
+        this.once(s.el, null, 'SN331', `\`${k}\` is declared \`Slot<${data.get(k)!.slot}>\`: its placement passes the values with \`data-sn-with\``, 0, `\`<slot name="${k}" data-sn-with="{ … }">\``);
       }
       if (!byName.has(k)) byName.set(k, []);
       byName.get(k)!.push(s);
@@ -2911,7 +2915,7 @@ class Compiler {
     if (!u) {
       // in a shared definition: the root that uses it passes its fill at run time
       if (this.inDef > 0) { this.runtimeSlots.add(el); return; }
-      this.report(last.host, null, 'SN331', `\`<${x.name}>\` places the slot \`${k}\` (\`<slot name="${k}" data-sn-prop>\`), and no component around it declares \`${k}\`: nothing can fill it here`, 0,
+      this.report(last.host, null, 'SN331', `\`<${x.name}>\` places the slot \`${k}\` (\`<slot name="${k}" data-sn-with>\`), and no component around it declares \`${k}\`: nothing can fill it here`, 0,
         `use it inside a component that declares \`${k}: Slot<…>\`, or declare it in \`<${x.name}>\` to fill it from its tag`);
       put([...el.childNodes]);
       return;
@@ -2980,7 +2984,7 @@ class Compiler {
 
   /**
    * One placement of a slot that passes data, with what renders there: a fill (`filled`), or its
-   * default. A fill's top-level nodes get the placement, so the walk compiles its `data-sn-prop` and
+   * default. A fill's top-level nodes get the placement, so the walk compiles its `data-sn-with` and
    * gives the fill `$slot`; an unnamed `<slot>` in the fill places the children of the element the
    * default renders. A forwarding placement (`forwards`: itself a fill of an inner component's slot
    * that passes data) leaves those for the inner placement, which gives the children.
@@ -3063,7 +3067,7 @@ class Compiler {
     const shape = this.rootShape(p.el.childNodes, p.use.name);
     if (typeof shape === 'string') {
       this.once(p.el, null, 'SN331', `the default of \`<slot name="${p.name}">\` is a root: it renders at most one element (one element, a \`data-sn-if\`/\`data-sn-else\` chain of them, a component or \`<sn-component use>\`), or text`, 0,
-        `wrap the default in one element: \`<slot name="${p.name}" data-sn-prop="…"><span>…</span></slot>\``);
+        `wrap the default in one element: \`<slot name="${p.name}" data-sn-with="…"><span>…</span></slot>\``);
       return null;
     }
     // the children move into the fill: names an element declares would be lost to them
@@ -3072,7 +3076,7 @@ class Compiler {
       const names = [...stateKeys(attr(e, 'data-sn-state')), ...stateKeys(attr(e, 'data-sn-let'))];
       const read = names.find((n) => reads(e.childNodes, n));
       if (read) this.once(e, attr(e, 'data-sn-state') !== undefined ? 'data-sn-state' : 'data-sn-let', 'SN331', `the default of \`<slot name="${p.name}">\` declares \`${read}\` on its element, and its children read it: a fill's \`<slot>\` takes the children without that element`, 0,
-        `pass it with \`data-sn-prop\` on the \`<slot>\`, or declare it inside the element`);
+        `pass it with \`data-sn-with\` on the \`<slot>\`, or declare it inside the element`);
     }
     // a component (or a choice) somewhere in the default: its element's children are that component's markup, not given to a fill
     const opaque = (sh: RootShape): string | null => sh.kind === 'tag' || sh.kind === 'choice' ? sh.el.tagName : sh.kind === 'chain' ? sh.branches.map(opaque).find((x) => x) ?? null : null;
@@ -3332,8 +3336,8 @@ class Compiler {
 
   /**
    * What a fill sees: the scope of the markup that wrote it, and `$slot`. `at`: the component's scope at
-   * the placement, where its `data-sn-prop` is compiled; through forwarding slots, each outer
-   * placement's `data-sn-prop` is compiled with the inner one's `$slot`. Computed once per fill.
+   * the placement, where its `data-sn-with` is compiled; through forwarding slots, each outer
+   * placement's `data-sn-with` is compiled with the inner one's `$slot`. Computed once per fill.
    */
   /** The scope a fill was compiled in, for the children its `<slot>` places: at the fill's instance, which is the longest one recorded that `inst` (theirs, in a row deeper down) starts with. */
   fillAt(chain: FillChain, inst: string): { at: Scope; fill: Scope } | undefined {
@@ -3363,19 +3367,19 @@ class Compiler {
     return writer?.caller ? { ...writer.caller, slot: rec.fill.slot! } : rec.fill;
   }
 
-  /** A placement's `data-sn-prop`, in the component's scope at the placement: `$slot`, checked against the slot's `T`. */
+  /** A placement's `data-sn-with`, in the component's scope at the placement: `$slot`, checked against the slot's `T`. */
   placementData(p: Placement, scope: Scope): SlotScope {
     const el = p.el, T = p.member.slot!;
     const members = new Map<string, LetEntry>();
-    const src = attr(el, 'data-sn-prop');
+    const src = attr(el, 'data-sn-with');
     const known = typeMembers(T);
     if (src !== undefined) {
-      const r = this.expr(el, 'data-sn-prop', scope, { mode: 'value', object: 'literal-keys' });
+      const r = this.expr(el, 'data-sn-with', scope, { mode: 'value', object: 'literal-keys' });
       if (this.check) this.typeLast({ returns: { kind: 'ts', text: T, loc: this.locOf(p.use.template, 'data-sn-component', p.member.offset) } });
       for (const e of r.entries ?? []) {
         if (known && !known.some((m) => m.name === e.key)) {
           const names = known.map((m) => m.name);
-          this.report(el, 'data-sn-prop', 'SN313', `\`${e.key}\` is not in \`Slot<${T}>\` of \`${p.name}\`; ${names.length ? `it passes ${names.map((x) => `\`${x}\``).join(', ')}` : 'it passes nothing'}.${didYouMean(e.key, names)}`, e.offset);
+          this.report(el, 'data-sn-with', 'SN313', `\`${e.key}\` is not in \`Slot<${T}>\` of \`${p.name}\`; ${names.length ? `it passes ${names.map((x) => `\`${x}\``).join(', ')}` : 'it passes nothing'}.${didYouMean(e.key, names)}`, e.offset);
           continue;
         }
         if (members.has(e.key)) continue;
@@ -3383,7 +3387,7 @@ class Compiler {
         const q = v ? analyze(src.slice(v.start, v.end), scope, this.page, { mode: 'value', report: () => {} }) : null;
         members.set(e.key, { name: `$slot.${e.key}`, code: q?.ok ? q.inner : 'undefined', deps: q?.deps ?? [], usesEl: q?.usesEl ?? false, usesIndex: q?.usesIndex ?? false, resource: q?.resource ?? null, src: q?.itemOf ?? null, list: q?.listOf ?? null });
       }
-      for (const m of known ?? []) if (!m.optional && !members.has(m.name)) this.report(el, 'data-sn-prop', 'SN313', `the placement of \`${p.name}\` passes no \`${m.name}\`, which \`Slot<${T}>\` needs`, 0);
+      for (const m of known ?? []) if (!m.optional && !members.has(m.name)) this.report(el, 'data-sn-with', 'SN313', `the placement of \`${p.name}\` passes no \`${m.name}\`, which \`Slot<${T}>\` needs`, 0);
     }
     const all = [...members.values()];
     const whole: LetEntry = {
@@ -3453,20 +3457,20 @@ class Compiler {
     const lets: LetEntry[] = [];
     const passed = new Set<string>();
     const declared = use.props?.map((m) => m.name) ?? null;
-    const src = attr(host, 'data-sn-prop');
+    const src = attr(host, 'data-sn-with');
     if (src !== undefined) {
-      const r = this.expr(host, 'data-sn-prop', caller, { mode: 'value', object: 'literal-keys', waits: true });
+      const r = this.expr(host, 'data-sn-with', caller, { mode: 'value', object: 'literal-keys', waits: true });
       // a missing prop the compiler reports itself; TypeScript checks the types of those given
       if (this.check) this.typeLast({ returns: { kind: 'ts', text: use.props ? `Partial<${use.propsText.trim() || '{}'}>` : use.propsText, loc: this.locOf(use.template, use.layout ? 'data-sn-layout' : use.head ? 'data-sn-head' : 'data-sn-component') } });
       for (const e of r.entries ?? []) {
         const slot = use.slots?.get(e.key);
         if (slot) {
-          this.report(host, 'data-sn-prop', 'SN313', `\`${e.key}\` is a slot of \`<${name}>\` (\`Slot<${slot.slot}>\`), not a prop: it is filled with markup`, e.offset,
+          this.report(host, 'data-sn-with', 'SN313', `\`${e.key}\` is a slot of \`<${name}>\` (\`Slot<${slot.slot}>\`), not a prop: it is filled with markup`, e.offset,
             `put the content in the tag: \`<${name}><span slot="${e.key}" data-sn-text="$slot…"></span></${name}>\``);
           continue;
         }
         if (declared && !declared.includes(e.key)) {
-          this.report(host, 'data-sn-prop', 'SN313', `\`${e.key}\` is not a prop of \`<${name}>\`; ${declared.length ? `its props are ${declared.map((x) => `\`${x}\``).join(', ')}` : 'it declares none'}.${didYouMean(e.key, declared)}`, e.offset);
+          this.report(host, 'data-sn-with', 'SN313', `\`${e.key}\` is not a prop of \`<${name}>\`; ${declared.length ? `its props are ${declared.map((x) => `\`${x}\``).join(', ')}` : 'it declares none'}.${didYouMean(e.key, declared)}`, e.offset);
           continue;
         }
         if (passed.has(e.key)) continue;
@@ -3485,7 +3489,7 @@ class Compiler {
         this.report(host, 'data-sn-model', 'SN313', `\`data-sn-model\` binds a component through its \`value\` prop and \`change\` event; \`<${name}>\` declares ${declared?.includes('value') ? 'no `change` event' : 'no `value` prop'}`, 0,
           `declare both: \`data-sn-props="{ value: … }" data-sn-emits="{ change: … }"\`, and \`emit('change', v)\` when the value changes`);
       } else if (passed.has('value')) {
-        this.report(host, 'data-sn-model', 'SN209', '`data-sn-model` passes the `value` prop; `data-sn-prop` cannot pass it too', 0);
+        this.report(host, 'data-sn-model', 'SN209', '`data-sn-model` passes the `value` prop; `data-sn-with` cannot pass it too', 0);
       } else {
         const q = analyze(attr(host, 'data-sn-model')!, caller, this.page, { mode: 'value', report: () => {} });
         passed.add('value');
@@ -3496,7 +3500,7 @@ class Compiler {
     const defaults = stateKeys(attr(use.root, 'data-sn-state'));
     for (const m of use.props ?? []) {
       if (passed.has(m.name)) continue;
-      if (!m.optional) this.report(host, null, 'SN313', `\`<${name}>\` needs the prop \`${m.name}\``, 0, `pass it with \`data-sn-prop="{ ${m.name}: … }"\``);
+      if (!m.optional) this.report(host, null, 'SN313', `\`<${name}>\` needs the prop \`${m.name}\``, 0, `pass it with \`data-sn-with="{ ${m.name}: … }"\``);
       if (!defaults.has(m.name)) lets.push({ name: m.name, code: 'undefined', deps: [], usesEl: false, usesIndex: false, resource: null, prop: true });
     }
     return { lets, passed };
@@ -3528,7 +3532,7 @@ class Compiler {
     }
     const { lets } = this.propLets(use, ctx.scope);
     // each candidate's props, checked with the data narrowed to its value (convention, map; a helper hides the link)
-    if (choice?.key != null && this.check && this.lastExpr !== null && attr(host, 'data-sn-prop') !== undefined) {
+    if (choice?.key != null && this.check && this.lastExpr !== null && attr(host, 'data-sn-with') !== undefined) {
       const e = this.check.exprs[this.lastExpr]!;
       // (in parentheses when there are several keys: the guard is joined with others)
       e.guard = choice.also?.length ? `(${[choice.key, ...choice.also].map((k) => `(${choice.keySrc}) === ${JSON.stringify(k)}`).join(' || ')})` : `(${choice.keySrc}) === ${JSON.stringify(choice.key)}`;
@@ -3553,13 +3557,13 @@ class Compiler {
       if (g.node) { this.remove.push(host); return null; }
       g.pick = pick!.ok ? pick!.inner : 'undefined';
       g.warn = warn;
-      g.site = { el: host, attr: 'data-sn-prop', shift: 0 };
+      g.site = { el: host, attr: 'data-sn-with', shift: 0 };
       this.choiceGroups.push(g);
     }
     const code = `($) => ${props}`;
     const node: NodeDef = { tag: 'template', p: ctx.stateIdx, b: [choice
       ? this.binding({ k: 'ch', d: deps, c: [] })
-      : this.binding({ k: 'for', f: this.fn(code, { el: host, attr: 'data-sn-prop', shift: 0 }), d: deps, x: def.tid })] };
+      : this.binding({ k: 'for', f: this.fn(code, { el: host, attr: 'data-sn-with', shift: 0 }), d: deps, x: def.tid })] };
     if (choice) choice.group.node = node;
     // for the first pass's decisions: which case the choice renders, from `use` alone (a recursion point: no `pick`)
     this.pointOf.set(node, { el: host, group: choice?.group ?? null, top: ctx.tid < 0, pick: choice && pick?.ok ? { code: `($) => (${pick.inner})`, deps: pick.deps } : null });
@@ -3658,8 +3662,8 @@ class Compiler {
     const pristine = { ...el, childNodes: el.childNodes.map((c) => this.cloneTree(c, el)) } as P5Element;
     const shape = this.defaultShape({ el: pristine, use: this.useById.get(ctx.scope.component?.id ?? -1) ?? ({ name: ctx.scope.component?.name ?? '' } as Use), name: k, member: { name: k, optional: false, offset: 0 } });
     // the data, in the definition's scope at the placement
-    const r = this.expr(el, 'data-sn-prop', ctx.scope, { mode: 'value', object: 'literal-keys' });
-    const src = attr(el, 'data-sn-prop') ?? '{}';
+    const r = this.expr(el, 'data-sn-with', ctx.scope, { mode: 'value', object: 'literal-keys' });
+    const src = attr(el, 'data-sn-with') ?? '{}';
     const members = new Map<string, LetEntry>();
     for (const e of r.entries ?? []) {
       if (members.has(e.key)) continue;
@@ -3795,7 +3799,7 @@ class Compiler {
         const pkg = this.componentFile(name)?.lib ?? null;
         if (g.places.has(k) || [...this.reach(name)].some((n) => n !== name && (this.componentFile(n)?.lib ?? null) === pkg && this.fileGraph(n).data.has(k) && !this.fileGraph(n).declares.has(k))) continue;
         this.once(u.template, 'data-sn-component', 'SN331', `\`<${name}>\` declares the slot \`${k}\`, and nothing inside it places \`${k}\`: a fill for it would never render`, m.offset,
-          `place it: \`<slot name="${k}" data-sn-prop="{ … }">\` in \`<${name}>\` or in a component it uses, or remove it`);
+          `place it: \`<slot name="${k}" data-sn-with="{ … }">\` in \`<${name}>\` or in a component it uses, or remove it`);
       }
     }
   }
@@ -3829,7 +3833,7 @@ class Compiler {
         }
         if (c.tagName === 'slot' && attr(c, 'name')) {
           out.places.add(attr(c, 'name')!);
-          if (attr(c, 'data-sn-prop') !== undefined) out.data.add(attr(c, 'name')!);
+          if (attr(c, 'data-sn-with') !== undefined) out.data.add(attr(c, 'name')!);
         }
         if (c.tagName === 'sn-component') {
           const u = attr(c, 'use') ?? '';
@@ -3893,7 +3897,7 @@ class Compiler {
         if (!keys.has(`a:${a.name}`)) keys.set(`a:${a.name}`, this.binding({ k: 'attr', n: a.name, f: read(`a:${a.name}`) }));
       }
       // sinter's: compiled as on an element, then moved into the item
-      const sn = el.attrs.filter((a) => a.name.startsWith('data-sn-') && !['data-sn-prop', 'data-sn-early'].includes(a.name));
+      const sn = el.attrs.filter((a) => a.name.startsWith('data-sn-') && !['data-sn-with', 'data-sn-early'].includes(a.name));
       if (!sn.length) continue;
       const bad = sn.find((a) => !/^data-sn-(class|attr|style|show|on-.+)$/.test(a.name));
       if (bad) {
@@ -4327,7 +4331,7 @@ class Compiler {
     for (const u of starts) ctx = { ...ctx, scope: this.markupOf(u, ctx.scope, this.instOf(el), early) };
     // slot content sees the scope of the caller that wrote it
     if (slot?.head && !slot.caller) this.headMarkup(slot, ctx.scope);
-    // an unfilled placement: its `data-sn-prop`, compiled for its diagnostics and types
+    // an unfilled placement: its `data-sn-with`, compiled for its diagnostics and types
     const dflt = this.defaultOf.get(el);
     // a default that is a component's root, placed in that component's own markup: in its scope, below
     const own = dflt && this.useOf.get(el) && this.origins.get(dflt[0]!.el)?.file === this.origins.get(this.useOf.get(el)!.template)?.file;
@@ -4665,8 +4669,8 @@ class Compiler {
     if (has('attr')) source('data-sn-attr', () => this.attrBinding(el, node, scope));
     if (has('class')) source('data-sn-class', () => this.objectBinding(el, node, scope, 'class'));
     if (has('style')) source('data-sn-style', () => this.objectBinding(el, node, scope, 'style'));
-    if (has('prop') && !use) {
-      if (!el.tagName.includes('-')) this.report(el, 'data-sn-prop', 'SN102', '`data-sn-prop` is for custom elements only; use `data-sn-attr`', 0);
+    if (has('with') && !use) {
+      if (!el.tagName.includes('-')) this.report(el, 'data-sn-with', 'SN102', '`data-sn-with` is for custom elements only; use `data-sn-attr`', 0);
       else this.objectBinding(el, node, scope, 'prop');
     }
     if (has('model') && use) this.componentModel(use, node, scope);
@@ -5465,7 +5469,7 @@ class Compiler {
   }
 
   objectBinding(el: P5Element, node: NodeDef, scope: Scope, k: 'class' | 'style' | 'prop') {
-    const name = `data-sn-${k}`;
+    const name = k === 'prop' ? 'data-sn-with' : `data-sn-${k}`;
     const r = this.expr(el, name, scope, { mode: 'value', object: k === 'class' ? 'any-keys' : 'literal-keys' });
     // a custom element's properties, from the app's HTMLElementTagNameMap
     if (this.check && k === 'prop') this.typeLast({ returns: { kind: 'decl', name: `Props<${JSON.stringify(el.tagName)}>` } });
@@ -5473,7 +5477,7 @@ class Compiler {
     for (const e of r.entries) {
       let key = e.key;
       if (k === 'prop' && ['innerhtml', 'outerhtml', 'srcdoc', 'innertext', 'outertext'].includes(key.toLowerCase())) {
-        this.report(el, name, 'SN207', `\`${key}\` cannot be set with \`data-sn-prop\``, e.offset);
+        this.report(el, name, 'SN207', `\`${key}\` cannot be set with \`data-sn-with\``, e.offset);
         continue;
       }
       if (k === 'style' && !key.startsWith('--')) key = key.replace(/[A-Z]/g, (c) => '-' + c.toLowerCase());
@@ -8797,7 +8801,7 @@ class Compiler {
       const names = written(el);
       const want = b ? (b.k === 'on' && b.n ? `data-sn-on-${b.n}` : b.k === 'attr' && b.n === 'data-sn-vt' ? 'data-sn-transition' : BY_KIND[b.k]) : 'data-sn-state';
       if (want && names.includes(want)) return want;
-      return names.find((n) => n.startsWith('data-sn-') && !['data-sn-prop', 'data-sn-component', 'data-sn-key', 'data-sn-early'].includes(n)) ?? null;
+      return names.find((n) => n.startsWith('data-sn-') && !['data-sn-with', 'data-sn-component', 'data-sn-key', 'data-sn-early'].includes(n)) ?? null;
     };
     const elOf = new Map(this.paints.map((x) => [x.node, x.el]));
     for (const n of this.roots) {
@@ -9164,7 +9168,7 @@ function stripSn(el: P5Element) {
 /** Whether a form's markup reads `$error` (outside `data-sn-catch`, where `$error` is the action's own). */
 function readsFormError(el: P5Element, hostOf: (e: P5Element) => P5Element | undefined): boolean {
   const own = (e: P5Element) => e.attrs.some((a) => a.name.startsWith('data-sn-') && a.name !== 'data-sn-catch' && /\$error\b/.test(a.value));
-  // a component's tag, which its root replaced: `data-sn-prop="{ error: $error }"`
+  // a component's tag, which its root replaced: `data-sn-with="{ error: $error }"`
   const reads = (e: P5Element): boolean => own(e) || (!!hostOf(e) && own(hostOf(e)!))
     || (e.tagName === 'template' ? (e as P5Template).content.childNodes : e.childNodes).some((c) => isElement(c) && reads(c));
   return reads(el);

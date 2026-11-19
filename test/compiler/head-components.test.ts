@@ -6,7 +6,7 @@ import { compile } from '../../src/compiler/index.js';
 const SEO = `<template data-sn-props="{ title?: string; image?: string }">
   <title data-sn-text="title ? title + ' · Blog' : 'Blog'">Blog</title>
   <template data-sn-if="image"><link rel="image_src" href="/x.png"></template>
-  <og-tags data-sn-prop="{ t: title }"><meta name="x" content="in-og"></og-tags>
+  <og-tags data-sn-with="{ t: title }"><meta name="x" content="in-og"></og-tags>
   <slot name="extra"></slot>
 </template>`;
 const OG = '<template data-sn-props="{ t?: string }"><template data-sn-if="t"><meta property="og:title" content="og"></template><slot></slot></template>';
@@ -22,7 +22,7 @@ const codes = (html: string, c?: Record<string, string>) => run(html, c).diagnos
 
 describe('head components', () => {
   test('their elements take the tag\'s place in the head, with slots, nested head components and the caller\'s props', () => {
-    const out = run(page('<seo-tags data-sn-prop="{ title: post?.title, image: false }"><meta slot="extra" name="robots" content="noindex"></seo-tags>'));
+    const out = run(page('<seo-tags data-sn-with="{ title: post?.title, image: false }"><meta slot="extra" name="robots" content="noindex"></seo-tags>'));
     expect(out.diagnostics).toEqual([]);
     const head = /<head>([\s\S]*)<\/head>/.exec(out.html)![1]!;
     expect(head).not.toMatch(/seo-tags|og-tags|<slot/);
@@ -37,7 +37,7 @@ describe('head components', () => {
   });
 
   test('a constant prop that is true keeps its branch', () => {
-    expect(run(page('<seo-tags data-sn-prop="{ image: \'/a.png\' }"></seo-tags>')).html).toContain('<link rel="image_src" href="/x.png">');
+    expect(run(page('<seo-tags data-sn-with="{ image: \'/a.png\' }"></seo-tags>')).html).toContain('<link rel="image_src" href="/x.png">');
   });
 
   test('a head component in a body, and a component in a head, are SN320', () => {
@@ -57,10 +57,10 @@ describe('head components', () => {
   });
 
   test('a head component made of head components is one too', () => {
-    expect(codes(page('<x-outer></x-outer>'), { 'x-outer': '<template data-sn-props=""><og-tags data-sn-prop="{ t: \'a\' }"></og-tags></template>' })).toEqual([]);
+    expect(codes(page('<x-outer></x-outer>'), { 'x-outer': '<template data-sn-props=""><og-tags data-sn-with="{ t: \'a\' }"></og-tags></template>' })).toEqual([]);
   });
 
-  test('the tag takes only data-sn-prop and slot content; a style beside it and the old two declarations are errors', () => {
+  test('the tag takes only data-sn-with and slot content; a style beside it and the old two declarations are errors', () => {
     expect(codes(page('<seo-tags class="a" data-sn-show="1"></seo-tags>'))).toEqual([
       expect.stringMatching(/^SN102 `class` cannot be on the tag of a head component/),
       expect.stringMatching(/^SN102 `data-sn-show` cannot be on the tag of a head component/),
@@ -74,6 +74,6 @@ describe('head components', () => {
   });
 
   test('a wrong prop is SN313, as for every component', () => {
-    expect(codes(page('<seo-tags data-sn-prop="{ titel: 1 }"></seo-tags>'))).toEqual([expect.stringMatching(/^SN313 `titel` is not a prop of `<seo-tags>`/)]);
+    expect(codes(page('<seo-tags data-sn-with="{ titel: 1 }"></seo-tags>'))).toEqual([expect.stringMatching(/^SN313 `titel` is not a prop of `<seo-tags>`/)]);
   });
 });

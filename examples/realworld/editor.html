@@ -1,6 +1,6 @@
 <conduit-layout data-sn-path="/editor /editor/:slug"
   data-sn-state="{ nav: 'editor' }"
-  data-sn-prop="{ nav, title: 'Editor', description: 'Write or edit an article on Conduit.' }">
+  data-sn-with="{ nav, title: 'Editor', description: 'Write or edit an article on Conduit.' }">
 <template data-sn-if="$meta.user.loadedAt && !user && !$meta.user.error"><conduit-redirect to="/login"></conduit-redirect></template>
 <sn-resource cache name="article" src="/articles/{$url.slug}" when="$url.slug"></sn-resource>
 
@@ -12,7 +12,7 @@
         <template data-sn-if="user && (!$url.slug || article)">
           <form data-sn-on-submit="$event.preventDefault()"
                 data-sn-state="{ d: article ? {title: article.title, description: article.description, body: article.body, tagList: [...article.tagList]} : {title: '', description: '', body: '', tagList: []}, tag: '' }">
-            <error-list data-sn-prop="{ error: $error }"></error-list>
+            <error-list data-sn-with="{ error: $error }"></error-list>
             <fieldset>
               <fieldset class="form-group"><input type="text" class="form-control form-control-lg" name="title" placeholder="Article Title" data-sn-model="d.title"></fieldset>
               <fieldset class="form-group"><input type="text" class="form-control" name="description" placeholder="What's this article about?" data-sn-model="d.description"></fieldset>

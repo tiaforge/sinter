@@ -41,7 +41,7 @@ export class XRing extends XRingComponent { connected() { this.state.said = new 
 <div data-sn-state="{ out: '', src: 'hi' }">
   <button id="go" data-sn-call="loud('hi')" data-sn-then="out = $result">go</button>
   <output id="out" data-sn-text="out"></output>
-  <x-ring data-sn-prop="{ n: 3 }"></x-ring>
+  <x-ring data-sn-with="{ n: 3 }"></x-ring>
   <p id="crunched" data-sn-let="{ c: crunch.render(src) }" data-sn-text="c ?? 'waiting'"></p>
 </div>
 </body></html>`);

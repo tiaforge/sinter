@@ -23,13 +23,13 @@ const files: Record<string, string> = {
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <seo-tags data-sn-prop="{ title }"></seo-tags>
+  <seo-tags data-sn-with="{ title }"></seo-tags>
   <link rel="stylesheet" href="../styles/site.css">
   <script type="module" src="../main.ts"></script>
   <slot name="head"></slot>
 </head>
 <body>
-  <site-header data-sn-prop="{ nav }"></site-header>
+  <site-header data-sn-with="{ nav }"></site-header>
   <main><slot></slot></main>
 </body>
 </html>
@@ -45,11 +45,11 @@ const files: Record<string, string> = {
 `,
   'src/styles/site.css': 'body { margin: 0; }\n',
   'src/main.ts': 'document.documentElement.dataset.main = "yes";\n',
-  'index.html': `<site-layout data-sn-prop="{ nav: 'home', title: 'Home' }">
+  'index.html': `<site-layout data-sn-with="{ nav: 'home', title: 'Home' }">
   <h1>Welcome</h1>
 </site-layout>
 `,
-  'blog/post.html': `<site-layout data-sn-path="/blog/post" data-sn-state="{ n: 0 }" data-sn-on-sn-error="n = 99; $event.preventDefault()" data-sn-on-keydown-shift-n="n = 7" data-sn-prop="{ nav: 'post', title: post ? post.title + (n ? ' (' + n + ')' : '') : undefined }">
+  'blog/post.html': `<site-layout data-sn-path="/blog/post" data-sn-state="{ n: 0 }" data-sn-on-sn-error="n = 99; $event.preventDefault()" data-sn-on-keydown-shift-n="n = 7" data-sn-with="{ nav: 'post', title: post ? post.title + (n ? ' (' + n + ')' : '') : undefined }">
   <sn-resource name="post" src="/api/post" items="post" type="any"></sn-resource>
   <link slot="head" rel="stylesheet" href="../src/styles/site.css">
   <h1 data-sn-text="post ? post.title : ''"></h1>

@@ -9,7 +9,7 @@ changed with slots.
 ```html
 <sn-resource name="post" src="file:./post.md"></sn-resource>
 <main data-sn-let="{ doc: md.parse(post.body) }">
-  <md-doc data-sn-prop="{ doc }"></md-doc>
+  <md-doc data-sn-with="{ doc }"></md-doc>
 </main>
 ```
 
@@ -52,7 +52,7 @@ export type { Root, Heading, Link, TocEntry } from '@tiaforge-ui/sinter-markdown
 | A file: `src="file:./post.md"` | at build time | the article as plain HTML, no JavaScript ([static pages](https://github.com/tiaforge/sinter/blob/main/docs/static-pages.md)) |
 | A string from an API, in a `data-sn-let` | in the browser, once per source and options (md.parse keeps its trees) | the parser with the page |
 | The same, with the parser lazy | in the browser, once the parser has loaded | the parser in a chunk of its own, loaded when a let first needs it |
-| A tree from an API you control (`md.parse` run on the server, `<md-doc data-sn-prop="{ doc: article.doc }">`) | on the server: the API sends the tree instead of the markdown | no parser ([Performance](#performance)); the parse moves to the server, or to wherever the API stores the tree |
+| A tree from an API you control (`md.parse` run on the server, `<md-doc data-sn-with="{ doc: article.doc }">`) | on the server: the API sends the tree instead of the markdown | no parser ([Performance](#performance)); the parse moves to the server, or to wherever the API stores the tree |
 
 To make the parser lazy, list the package in `lazy`:
 
@@ -138,13 +138,13 @@ is frozen, at every depth, and shared: to change one, change a copy (`structured
 
 | | Renders | Root |
 | --- | --- | --- |
-| `<md-doc data-sn-prop="{ doc }">` | the blocks of a document | `<div class="md">` |
-| `<md-inline data-sn-prop="{ doc }">` | one line: the content of the paragraphs and headings, without their elements, with a space between two of them (a title, a label); other blocks are left out | `<span class="md">` |
+| `<md-doc data-sn-with="{ doc }">` | the blocks of a document | `<div class="md">` |
+| `<md-inline data-sn-with="{ doc }">` | one line: the content of the paragraphs and headings, without their elements, with a space between two of them (a title, a label); other blocks are left out | `<span class="md">` |
 
 - `doc` is optional: with none, the root is empty. Its root is always there, so the tag may carry a
   `class`, attributes and handlers.
 - `<md-inline>` is phrasing content, a `<span>` with only phrasing content inside, so it is valid in
-  a heading, a label, a link or a paragraph: `<h1><md-inline data-sn-prop="{ doc: md.parse(post.title)
+  a heading, a label, a link or a paragraph: `<h1><md-inline data-sn-with="{ doc: md.parse(post.title)
   }"></md-inline></h1>`. Parse a title with the options that fit a line; a list or a code block in it
   is not rendered.
 - The HTML is what a markdown renderer writes, with no wrapper of its own but one: `<h2 id="md-…">`,
@@ -178,7 +178,7 @@ in the tree, in a list item, a quote or a table cell. Each passes the node as `$
 | `table` | `Table` (`align`, `children`) | `<div class="md-table"><table>…</table></div>` |
 
 ```html
-<md-doc data-sn-prop="{ doc }">
+<md-doc data-sn-with="{ doc }">
   <!-- readers' links -->
   <a slot="link" rel="nofollow ugc" data-sn-attr="{ href: $slot.node.url }"><slot></slot></a>
   <!-- a heading with a link to itself: an if chain over the depth -->

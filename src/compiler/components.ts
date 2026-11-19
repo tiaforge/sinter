@@ -66,7 +66,7 @@ export function typeMembers(text: string): Member[] | null {
 export const SLOT_TYPE = /(?<![\w$.])Slot\s*</;
 
 /**
- * A props type literal without its `Slot<T>` members: what callers pass with `data-sn-prop`, what a
+ * A props type literal without its `Slot<T>` members: what callers pass with `data-sn-with`, what a
  * script's `this.props` holds. Slots are filled with markup, not passed. The text unchanged when it
  * has none, or is not a type literal.
  */
@@ -126,7 +126,7 @@ export const DOM_EVENTS = new Set([
  * `data-sn-state`, …) belongs inside the component.
  */
 export function callerAttribute(name: string): boolean {
-  return /^data-sn-(prop|model|persist|early|class|attr|style|show|transition|get|post|put|patch|delete|call|body|trigger|debounce|concurrency|optimistic|then|catch|confirm|encoding|apply|retry)$/.test(name)
+  return /^data-sn-(with|model|persist|early|class|attr|style|show|transition|post|put|patch|delete|call|body|trigger|debounce|concurrency|optimistic|then|catch|confirm|encoding|write-through|retry)$/.test(name)
     || name.startsWith('data-sn-on-') || name.startsWith('data-sn-debounce-');
 }
 

@@ -75,7 +75,7 @@ export interface Scope {
   guards?: Array<{ cond: string }>;
 }
 
-/** `$slot` in a fill: the placement's `data-sn-prop`, each value inlined where it is read, as props are. */
+/** `$slot` in a fill: the placement's `data-sn-with`, each value inlined where it is read, as props are. */
 export interface SlotScope {
   /** the slot's name and its component, for messages */
   name: string;
@@ -538,7 +538,7 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
     ];
     if (scope.component?.outer.has(name)) {
       report('SN201', `\`${name}\` is not defined in component \`<${scope.component.name}>\`, which sees only its props, its own state and the page's resources and helpers`, offset,
-        `add \`${name}\` to \`data-sn-props\` and pass it from the caller: \`data-sn-prop="{ ${name}: ${name} }"\``);
+        `add \`${name}\` to \`data-sn-props\` and pass it from the caller: \`data-sn-with="{ ${name}: ${name} }"\``);
       return null;
     }
     report('SN201', `\`${name}\` is not defined here.${didYouMean(name, candidates)}`, offset);

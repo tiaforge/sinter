@@ -9,7 +9,7 @@ function build(box: string, body: string) {
   }).diagnostics.map((d) => `${d.code} ${d.message}`);
 }
 
-const uses = '<x-box id="one" data-sn-prop="{ v: 1 }"></x-box><template data-sn-for="b in list"><x-box data-sn-prop="{ v: b }"></x-box></template>';
+const uses = '<x-box id="one" data-sn-with="{ v: 1 }"></x-box><template data-sn-for="b in list"><x-box data-sn-with="{ v: b }"></x-box></template>';
 
 test('an id on one use\'s tag is that use\'s, not the component\'s markup', () => {
   expect(build('<template data-sn-props="{ v?: any }"><div class="box" data-sn-text="v"></div></template>', uses)).toEqual([]);

@@ -42,7 +42,7 @@ describe('a constant image is optimized', () => {
 
   test('`src` and `alt` from a component\'s props given as literals, one use per line; the URL is the page\'s, as in the browser', () => {
     const files = { '/app/src/components/x-pic.html': '<template data-sn-props="{ src: string; label: string }"><img data-sn-attr="{ src, alt: label }"></template>' };
-    const out = build('<x-pic data-sn-prop="{ src: \'img/photo.jpg\', label: \'A\' }"></x-pic>\n<x-pic data-sn-prop="{ src: \'img/small.jpg\', label: \'B\' }"></x-pic>', { files });
+    const out = build('<x-pic data-sn-with="{ src: \'img/photo.jpg\', label: \'A\' }"></x-pic>\n<x-pic data-sn-with="{ src: \'img/small.jpg\', label: \'B\' }"></x-pic>', { files });
     expect(out.diagnostics).toEqual([]);
     expect(bodyOf(out.html)).toBe(written('<img src="img/photo.jpg" alt="A">\n<img src="img/small.jpg" alt="B">'));
   });
@@ -69,7 +69,7 @@ describe('a constant image is optimized', () => {
     // on an ancestor, from a prop, and a style
     const files = { '/app/src/components/x-card.html': '<template data-sn-props="{ wide?: boolean }"><div class="card" data-sn-class="{ wide }"><img src="/img/photo.jpg" alt=""></div></template>' };
     const card = 'main { width: 1000px } .card { width: 200px } .card.wide { width: 500px } .card img { width: 100% }';
-    expect(bodyOf(build('<main><x-card data-sn-prop="{ wide: true }"></x-card></main>', { css: card, files }).html)).toContain('sizes="(max-width: 500px) 100vw, 500px"');
+    expect(bodyOf(build('<main><x-card data-sn-with="{ wide: true }"></x-card></main>', { css: card, files }).html)).toContain('sizes="(max-width: 500px) 100vw, 500px"');
     const styled = build('<main data-sn-state="{ w: \'400px\' }"><div data-sn-style="{ width: w }"><img src="img/photo.jpg" alt="" style="width: 100%"></div></main>', { css: 'main { width: 1000px }' });
     expect(bodyOf(styled.html)).toBe(written('<main><div style="width: 400px"><img src="img/photo.jpg" alt="" style="width: 100%"></div></main>', { css: 'main { width: 1000px }' }));
   });
@@ -154,7 +154,7 @@ describe('what stays as it was', () => {
 
   test('two uses of a component on one line: told apart by where each tag is, so each image is optimized', () => {
     const files = { '/app/src/components/x-pic.html': '<template data-sn-props="{ src: string }"><img alt="" data-sn-attr="{ src }"></template>' };
-    const out = build('<x-pic data-sn-prop="{ src: \'img/photo.jpg\' }"></x-pic><x-pic data-sn-prop="{ src: \'img/small.jpg\' }"></x-pic>', { files });
+    const out = build('<x-pic data-sn-with="{ src: \'img/photo.jpg\' }"></x-pic><x-pic data-sn-with="{ src: \'img/small.jpg\' }"></x-pic>', { files });
     expect(bodyOf(out.html)).toBe(written('<img alt="" src="img/photo.jpg"><img alt="" src="img/small.jpg">'));
   });
 

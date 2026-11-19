@@ -19,13 +19,13 @@ const docs: Record<string, string> = {
 };
 const INL = "{ text: 'x-text', link: 'x-link' }";
 const components: Record<string, string> = {
-  'x-doc': `<template data-sn-props="{ doc: any }"><div><template data-sn-for="n in doc.children"><sn-component use="${INL}[n.type]" data-sn-prop="{ node: n }"></sn-component></template></div></template>`,
+  'x-doc': `<template data-sn-props="{ doc: any }"><div><template data-sn-for="n in doc.children"><sn-component use="${INL}[n.type]" data-sn-with="{ node: n }"></sn-component></template></div></template>`,
   'x-text': '<template data-sn-props="{ node: any }"><span data-sn-text="node.value"></span></template>',
-  'x-link': `<template data-sn-props="{ node: any }"><a data-sn-attr="{ href: node.url }"><template data-sn-for="n in node.children"><sn-component use="${INL}[n.type]" data-sn-prop="{ node: n }"></sn-component></template></a></template>`,
+  'x-link': `<template data-sn-props="{ node: any }"><a data-sn-attr="{ href: node.url }"><template data-sn-for="n in node.children"><sn-component use="${INL}[n.type]" data-sn-with="{ node: n }"></sn-component></template></a></template>`,
 };
 // a tree with images: a post with one, and posts without
 const IMG = "{ text: 'x-text', image: 'x-image' }";
-components['x-idoc'] = `<template data-sn-props="{ doc: any }"><div><template data-sn-for="n in doc.children"><sn-component use="${IMG}[n.type]" data-sn-prop="{ node: n }"></sn-component></template></div></template>`;
+components['x-idoc'] = `<template data-sn-props="{ doc: any }"><div><template data-sn-for="n in doc.children"><sn-component use="${IMG}[n.type]" data-sn-with="{ node: n }"></sn-component></template></div></template>`;
 components['x-image'] = '<template data-sn-props="{ node: any }"><img data-sn-attr="{ src: node.url, alt: node.alt }"></template>';
 const idocs: Record<string, string> = {
   'content/idocs/one.json': JSON.stringify({ slug: 'one', doc: { children: [{ type: 'text', value: 'no image' }] } }),
@@ -85,7 +85,7 @@ describe('a data-sn-pages template walked once for all its entries', () => {
   });
 
   test('a tree of components that use each other: what each entry renders of it differs', () => {
-    const r = both(page('<x-doc data-sn-prop="{ doc: d.doc }"></x-doc>', 'file:/content/docs/*.json', 'd', 'ds'));
+    const r = both(page('<x-doc data-sn-with="{ doc: d.doc }"></x-doc>', 'file:/content/docs/*.json', 'd', 'ds'));
     same(r);
     expect(r.hits).toBe(3);
     expect(r.kept.find((x) => x.path === '/blog/two')!.html).toContain('<a href="/a"><span>a</span><a href="/b"><span>b</span></a></a>');
@@ -151,7 +151,7 @@ describe('what is compiled the usual way', () => {
   });
 
   test('images in a tree, where an entry has one: its constants from the evaluation, shared', () => {
-    const r = both(page('<x-idoc data-sn-prop="{ doc: d.doc }"></x-idoc>', 'file:/content/idocs/*.json', 'd', 'ds'), { images: host });
+    const r = both(page('<x-idoc data-sn-with="{ doc: d.doc }"></x-idoc>', 'file:/content/idocs/*.json', 'd', 'ds'), { images: host });
     same(r);
     expect(r.hits).toBe(3);
     expect(r.kept.find((x) => x.path === '/blog/two')!.html).toMatch(/<img[^>]*srcset="[^"]*\/i\/photo-/);
@@ -170,7 +170,7 @@ describe('what is compiled the usual way', () => {
     // (what an entry may not change, changed: `<x-flag>` is a component for the later entries only, so only their
     // programs hold its condition; decided from the first entry's program, it would stay in the browser)
     const flag = '<template data-sn-props="{ on: boolean }"><template data-sn-if="on"><b>Draft</b></template><template data-sn-else><b>Live</b></template></template>';
-    const r = both(page('<x-flag data-sn-prop="{ on: post.draft }"></x-flag><template data-sn-if="post.draft"><i>d</i></template>'), {}, (e) => ({
+    const r = both(page('<x-flag data-sn-with="{ on: post.draft }"></x-flag><template data-sn-if="post.draft"><i>d</i></template>'), {}, (e) => ({
       readFile: (f: string) => { const t = f === '/p/src/components/x-flag.html' && e.path !== '/blog/a' ? flag : files[f.replace(/^\/p\//, '')]; if (t === undefined) throw new Error(`no such file: ${f}`); return t; },
       componentNames: [...Object.keys(components), ...(e.path === '/blog/a' ? [] : ['x-flag'])],
     }));

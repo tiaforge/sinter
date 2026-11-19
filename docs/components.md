@@ -20,9 +20,9 @@ every page:
 ```html
 <!-- any page -->
 <template data-sn-for="a in articles">
-  <article-preview class="item" data-sn-prop="{ article: a, compact: narrow }" data-sn-on-select="sel = $event.detail">
+  <article-preview class="item" data-sn-with="{ article: a, compact: narrow }" data-sn-on-select="sel = $event.detail">
     <span slot="meta" data-sn-text="date(a.createdAt)"></span>
-    <favorite-button data-sn-prop="{ article: a }"></favorite-button>
+    <favorite-button data-sn-with="{ article: a }"></favorite-button>
   </article-preview>
 </template>
 ```
@@ -78,12 +78,12 @@ most one element**:
 
 <!-- primary-button.html: a variant, with no wrapper -->
 <template data-sn-props="{ href?: string; label: string }">
-  <ui-button class="primary" data-sn-prop="{ href, label }"></ui-button>
+  <ui-button class="primary" data-sn-with="{ href, label }"></ui-button>
 </template>
 ```
 
 - A root that is not a plain element is an `if` or a choice like any other: marked by comments,
-  decided at build time when a constant prop decides it (`<ui-button data-sn-prop="{ label: 'Save' }">`
+  decided at build time when a constant prop decides it (`<ui-button data-sn-with="{ label: 'Save' }">`
   is a `<button>` in the HTML), otherwise replaced when its condition changes. Focus on the old element
   is lost, a handler on the tag sees the new `$el`, and a pending or debounced handler on the old
   element is dropped with it. Whitespace between the branch templates is dropped.
@@ -99,13 +99,13 @@ most one element**:
   (`SN334`): each points at an element that may not exist.
 - More than one element, or text, at the root is `SN312`. One exception: a `<slot>` at the root
   given a text fill (`<template slot="link" data-sn-text="…">`, a link rendered as plain text). The
-  root is then one text node and no element: any attribute on the tag other than `data-sn-prop` and
+  root is then one text node and no element: any attribute on the tag other than `data-sn-with` and
   `data-sn-early` is `SN334`, since it has nowhere to land. A component's own `<template data-sn-text>`
   at its root stays `SN312`.
 
 ## Props
 
-`data-sn-prop` on the tag passes the props. Each prop is the caller's expression, evaluated where the
+`data-sn-with` on the tag passes the props. Each prop is the caller's expression, evaluated where the
 component reads it: nothing is copied, so a change shows at once.
 
 - Props are read-only. A component changes its own `data-sn-state`, or emits an event.
@@ -168,14 +168,14 @@ custom rows. The slot is a member of type `Slot<T>` in the props type, and `T` i
 <template data-sn-props="{ rows: Row[]; columns: (keyof Row)[]; cell: Slot<{ row: Row; column: keyof Row }> }">
   <table><tbody>
     <template data-sn-for="r in rows" data-sn-key="r.id">
-      <tr><template data-sn-for="c in columns"><td><slot name="cell" data-sn-prop="{ row: r, column: c }"><span data-sn-text="r[c]"></span></slot></td></template></tr>
+      <tr><template data-sn-for="c in columns"><td><slot name="cell" data-sn-with="{ row: r, column: c }"><span data-sn-text="r[c]"></span></slot></td></template></tr>
     </template>
   </tbody></table>
 </template>
 ```
 
 ```html
-<data-table data-sn-prop="{ rows: invoices, columns: ['number', 'customer', 'total'] }">
+<data-table data-sn-with="{ rows: invoices, columns: ['number', 'customer', 'total'] }">
   <span slot="cell" data-sn-text="$slot.column === 'total' ? number($slot.row.total) : $slot.row[$slot.column]"></span>
 </data-table>
 ```
@@ -183,11 +183,11 @@ custom rows. The slot is a member of type `Slot<T>` in the props type, and `T` i
 - **The declaration.** `cell: Slot<…>` is a type, not a value: the content stays markup. It is written
   in the props type literal, where the compiler sees it (in a type alias, or inside another type, it
   is an error), without `?`: every slot may be left unfilled. A slot is not a prop: passing it with
-  `data-sn-prop` is `SN313`, it is not in a script's `this.props`, and nothing requires it.
+  `data-sn-with` is `SN313`, it is not in a script's `this.props`, and nothing requires it.
   `Slot<T>` is not allowed in a head component's or a layout's `data-sn-props`. `Slot` is a type sinter
   generates (in `src/sinter.components.d.ts`, beside `ComponentName`); a types module that exports
   one is an error that asks for another name. A slot that passes nothing needs no declaration.
-- **The placement.** `data-sn-prop` on the `<slot>` passes the values, as on a component's tag; it is
+- **The placement.** `data-sn-with` on the `<slot>` passes the values, as on a component's tag; it is
   checked against `T`. A slot that passes data is named, and may be placed more than once (each
   placement renders its own copy of the content).
 - **The fill.** The caller's elements with `slot="cell"`, as for any slot. A `<template slot="cell">`
@@ -198,7 +198,7 @@ custom rows. The slot is a member of type `Slot<T>` in the props type, and `T` i
   another component, the inner `$slot` hides the outer one; keep the outer value with
   `data-sn-let="{ outer: $slot.row }"` on the outer fill.
 - Whether a slot is filled cannot be tested in the component: an unfilled placement shows its default.
-- `sinter check` types `$slot` by `T`, and the placement's `data-sn-prop` against it. In the editor,
+- `sinter check` types `$slot` by `T`, and the placement's `data-sn-with` against it. In the editor,
   a hover on `$slot` shows its type and its placement.
 
 For a library, turning a plain slot into a `Slot<T>` changes what an unnamed `<slot>` in a caller's
@@ -213,7 +213,7 @@ data is that element's children. They are the component's markup, with its scope
 
 ```html
 <!-- placement: the default renders one element, whose children a fill's <slot> gets -->
-<slot name="link" data-sn-prop="{ node }"><a data-sn-attr="{ href: node.url }"><span data-sn-text="node.text"></span></a></slot>
+<slot name="link" data-sn-with="{ node }"><a data-sn-attr="{ href: node.url }"><span data-sn-text="node.text"></span></a></slot>
 
 <!-- fill: the children, then an icon -->
 <a slot="link" rel="nofollow ugc" data-sn-attr="{ href: $slot.node.url }"><slot></slot> ↗</a>
@@ -227,13 +227,13 @@ data is that element's children. They are the component's markup, with its scope
   passes nothing is given nothing: every `<slot>` in it is the enclosing component's.
 - A component's own default slot cannot be placed inside a fill of a slot that passes data: that
   `<slot>` is the children there. Give it a name.
-- Forwarding passes the children on: a `<slot name="link" slot="link" data-sn-prop="…">` in a
+- Forwarding passes the children on: a `<slot name="link" slot="link" data-sn-with="…">` in a
   wrapper gives its own fill what its placement gave it, so a page's fill of the wrapper's `link` can
   place `<slot>` too.
 - A fill without a `<slot>` drops the children.
 - Errors (`SN331`): a `<slot>` in a fill whose placement's default renders no element (text, nothing);
   names the default's element declares (`data-sn-let`, `data-sn-state`) that its children read, since
-  they move into the fill without it (put them on the `<slot>`'s `data-sn-prop`, or inside); a
+  they move into the fill without it (put them on the `<slot>`'s `data-sn-with`, or inside); a
   default that is not a root (several elements, a loop); a `<slot>` in a fill whose default is a
   component, whose element's children are that component's markup. Two unnamed `<slot>`s in one fill that can render together
   are `SN312`.
@@ -248,22 +248,22 @@ declares the slot; a component inside it places it without declaring it:
 ```html
 <!-- src/components/x-doc.html: the root -->
 <template data-sn-props="{ doc: Block[]; link: Slot<{ node: Link }> }">
-  <article><template data-sn-for="b in doc"><x-block data-sn-prop="{ block: b }"></x-block></template></article>
+  <article><template data-sn-for="b in doc"><x-block data-sn-with="{ block: b }"></x-block></template></article>
 </template>
 
 <!-- src/components/x-link.html: two levels down, it places the root's slot -->
 <template data-sn-props="{ node: Link }">
-  <slot name="link" data-sn-prop="{ node }"><a data-sn-attr="{ href: node.url }"><x-inline data-sn-prop="{ nodes: node.children }"></x-inline></a></slot>
+  <slot name="link" data-sn-with="{ node }"><a data-sn-attr="{ href: node.url }"><x-inline data-sn-with="{ nodes: node.children }"></x-inline></a></slot>
 </template>
 ```
 
 ```html
-<x-doc data-sn-prop="{ doc: page.doc }">
+<x-doc data-sn-with="{ doc: page.doc }">
   <a slot="link" rel="nofollow" data-sn-attr="{ href: $slot.node.url }"><slot></slot> ↗</a>
 </x-doc>
 ```
 
-- **The placement.** A `<slot name>` with `data-sn-prop` whose name its own component does not
+- **The placement.** A `<slot name>` with `data-sn-with` whose name its own component does not
   declare is a tree placement. A name close to one its component declares is `SN535` (warning), with
   the name it suggests.
 - **Which root fills it.** The nearest enclosing component that declares the name: its caller's fill,
@@ -295,7 +295,7 @@ declares the slot; a component inside it places it without declaring it:
 ```html
 <!-- src/components/x-wrap.html: a wrapper that gives the page the link slot -->
 <template data-sn-props="{ doc: Block[]; link: Slot<{ node: Link }> }">
-  <x-doc data-sn-prop="{ doc }"><slot name="link" slot="link" data-sn-prop="{ node: $slot.node }"></slot></x-doc>
+  <x-doc data-sn-with="{ doc }"><slot name="link" slot="link" data-sn-with="{ node: $slot.node }"></slot></x-doc>
 </template>
 ```
 
@@ -313,7 +313,7 @@ page is parsed. A use that can accept the layout changing when it renders (a wid
 sidebar box) can opt out on its tag, so the early script stays small:
 
 ```html
-<tag-cloud data-sn-early="off" data-sn-prop="{ tags }"></tag-cloud>
+<tag-cloud data-sn-early="off" data-sn-with="{ tags }"></tag-cloud>
 ```
 
 That use's bindings are left out of the early script, at any depth (components inside it too, not the
@@ -379,7 +379,7 @@ A component that declares a `value` prop and a `change` event can be bound like 
 </form>
 ```
 
-`data-sn-model="draft.stars"` is `data-sn-prop="{ value: draft.stars }"` plus a `change` handler that
+`data-sn-model="draft.stars"` is `data-sn-with="{ value: draft.stars }"` plus a `change` handler that
 writes `$event.detail` back. Only the component's own event writes: a native `change` from a control
 inside it is not. It binds state, never a resource, as on `<input>`.
 
@@ -411,7 +411,7 @@ around it.
   before it marks it, or an empty comment does.
 - A build-time constant (a literal, state nothing writes, a constant prop, the item of a row unrolled at build time) folds into the HTML as plain text, its marks and binding gone; a text that stays a binding keeps its marks, so the two never merge. A page whose text is all constant ships no JavaScript for it.
 - A fill may be a text: `<template slot="label" data-sn-text="$slot.v"></template>`, also for a `<slot>` at the component's root (the root is then that text node).
-- A fill may be a component's tag: `<x-pill slot="item" data-sn-prop="{ t: $slot.x.t }">`. Its props and its attributes are compiled in the fill's scope, so they read `$slot`.
+- A fill may be a component's tag: `<x-pill slot="item" data-sn-with="{ t: $slot.x.t }">`. Its props and its attributes are compiled in the fill's scope, so they read `$slot`.
 
 ## A component inside itself
 
@@ -426,7 +426,7 @@ tree, a nested menu.
     <button data-sn-on-click="upsert(comment.replies, { id: $now, body: 'Thanks!', replies: [] })">Reply</button>
     <ul>
       <template data-sn-for="r in comment.replies" data-sn-key="r.id">
-        <comment-thread data-sn-prop="{ comment: r }"></comment-thread>
+        <comment-thread data-sn-with="{ comment: r }"></comment-thread>
       </template>
     </ul>
   </li>
@@ -465,7 +465,7 @@ A list of mixed blocks (a CMS page, dashboard widgets, a form builder) picks a c
 
 ```html
 <template data-sn-for="b in blocks" data-sn-key="b.id">
-  <sn-component use="`${b.type}-block`" data-sn-prop="{ block: b }"></sn-component>
+  <sn-component use="`${b.type}-block`" data-sn-with="{ block: b }"></sn-component>
 </template>
 ```
 
@@ -495,7 +495,7 @@ A list of mixed blocks (a CMS page, dashboard widgets, a form builder) picks a c
 
   ```html
   <template data-sn-for="n in node.children">
-    <sn-component use="{ emphasis: 'x-em', link: 'x-link' }[n.type]" data-sn-prop="{ node: n }"></sn-component>
+    <sn-component use="{ emphasis: 'x-em', link: 'x-link' }[n.type]" data-sn-with="{ node: n }"></sn-component>
     <template data-sn-else><template data-sn-text="n.value"></template></template>
   </template>
   ```
@@ -534,8 +534,8 @@ optimizers off sinter's pages: one that strips comments breaks lists and branche
 
 | Where | What is checked |
 | --- | --- |
-| The tag | `data-sn-prop` keys and types; `data-sn-on-<event>` names and the type of `$event.detail`; slot names; `$slot` in a fill, by the slot's `Slot<T>` |
-| A placement | `data-sn-prop` on a `<slot>`, against its `Slot<T>` |
+| The tag | `data-sn-with` keys and types; `data-sn-on-<event>` names and the type of `$event.detail`; slot names; `$slot` in a fill, by the slot's `Slot<T>` |
+| A placement | `data-sn-with` on a `<slot>`, against its `Slot<T>` |
 | The component's markup | bindings read only declared props, its state and globals; `emit()` names match `data-sn-emits` |
 | The script | TypeScript, through the generated base class: a misspelled prop, event or ref, or a wrong detail type, is a type error |
 
@@ -565,7 +565,7 @@ A component for the `<head>` holds head elements, any number of them, with no wr
 ```html
 <head>
   <meta charset="utf-8">
-  <seo-tags data-sn-prop="{ title: post?.title, description: post?.summary }"></seo-tags>
+  <seo-tags data-sn-with="{ title: post?.title, description: post?.summary }"></seo-tags>
 </head>
 ```
 
@@ -576,7 +576,7 @@ A component for the `<head>` holds head elements, any number of them, with no wr
   has one root element (`SN312` otherwise) and is `SN320` in a head.
 - It is used in a head: a page's, a [layout's](layouts.md), or a head slot's content. In a body it is
   `SN320`, as is a component with one root element in a head.
-- Its tag takes `data-sn-prop` and slot content, nothing else: there is no root for other attributes
+- Its tag takes `data-sn-with` and slot content, nothing else: there is no root for other attributes
   to land on. It has no script and no scoped `<style>`.
 - Props, slots, constants deciding a `data-sn-if` at build time and `sinter check` work as for every
   component. `<sn-component use>` chooses only components for the body.
@@ -597,4 +597,4 @@ names start with the library's prefix (`ui-`), which no app component may use.
 `<sn-include>` is removed: a partial is a component without a script. The build error (`SN316`) lists
 the names the partial read from the page. Move the file to `src/components/<name>.html`, wrap its
 markup in `<template data-sn-props="{ … }">` around one root element, declare those names as
-props, and pass them with `data-sn-prop`.
+props, and pass them with `data-sn-with`.

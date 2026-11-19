@@ -35,7 +35,7 @@ async function site(files: Record<string, string>, options: Parameters<typeof si
 }
 
 const HEADER = `<template data-sn-props="{ title: string; nav: string }">
-  <header class="h"><h1 data-sn-text="title"></h1><nav-list data-sn-prop="{ nav, items: [{ id: 'home', href: '/', label: 'Home' }, { id: 'about', href: '/about.html', label: 'About' }] }"></nav-list></header>
+  <header class="h"><h1 data-sn-text="title"></h1><nav-list data-sn-with="{ nav, items: [{ id: 'home', href: '/', label: 'Home' }, { id: 'about', href: '/about.html', label: 'About' }] }"></nav-list></header>
 </template>
 <style>.h { padding: 7px; }</style>
 `;
@@ -44,7 +44,7 @@ const NAV = `<template data-sn-props="{ nav: string; items: { id: string; href: 
 </template>
 `;
 const PAGE = (title: string, nav: string, body: string) => `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>${title}</title></head><body>
-<site-header data-sn-prop="{ title: '${title}', nav: '${nav}' }"></site-header>
+<site-header data-sn-with="{ title: '${title}', nav: '${nav}' }"></site-header>
 <main data-sn-state="{ year: 2026 }">${body}<footer data-sn-text="'© ' + year"></footer></main>
 </body></html>`;
 const STATIC = {

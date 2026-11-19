@@ -18,7 +18,7 @@ const PAGE = [
   '  <input data-sn-model="q">',
   '  <p data-sn-text="q.length + n"></p>',
   '  <button data-sn-on-click="n = n + 1">+</button>',
-  '  <x-row data-sn-prop="{ q }"></x-row>',
+  '  <x-row data-sn-with="{ q }"></x-row>',
   '</div>',
 ].join('\n');
 

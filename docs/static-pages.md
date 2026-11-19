@@ -20,7 +20,7 @@ written: in the page, a component or the layout.
 Whatever can never change is written into the HTML at build time and carries nothing in the
 browser ([build-time constants](first-paint.md#build-time-constants)):
 
-- literals, and a component's props given as literals: `<site-header data-sn-prop="{ title: 'About' }">`
+- literals, and a component's props given as literals: `<site-header data-sn-with="{ title: 'About' }">`
 - `data-sn-state` fields that nothing on the page writes: `{ nav: 'about' }` read by a nav link's class
 - `data-sn-if` over those, decided at build time
 - `data-sn-for` over a constant list, unrolled into its rows, when the rows read only the item, its
@@ -33,7 +33,7 @@ browser ([build-time constants](first-paint.md#build-time-constants)):
   </template>
 
   <!-- the page -->
-  <nav-list data-sn-prop="{ items: [{ href: '/', label: 'Home' }, { href: '/about.html', label: 'About' }] }"></nav-list>
+  <nav-list data-sn-with="{ items: [{ href: '/', label: 'Home' }, { href: '/about.html', label: 'About' }] }"></nav-list>
   ```
 
   is `<ul><li><a href="/">Home</a></li><li><a href="/about.html">About</a></li></ul>` in the built page.
@@ -211,11 +211,11 @@ its `data-sn-path` pattern filled from the entry:
 
 ```html
 <!-- blog/post.html -->
-<site-layout data-sn-path="/blog/:slug" data-sn-for="post in posts" data-sn-prop="{ title: post.title }">
+<site-layout data-sn-path="/blog/:slug" data-sn-for="post in posts" data-sn-with="{ title: post.title }">
   <sn-resource name="posts" src="file:/content/posts/*.md" type="Post"></sn-resource>
   <article>
     <h1 data-sn-text="post.title"></h1>
-    <md-doc data-sn-prop="{ doc: md.parse(post.body) }"></md-doc>
+    <md-doc data-sn-with="{ doc: md.parse(post.body) }"></md-doc>
   </article>
 </site-layout>
 ```

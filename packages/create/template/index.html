@@ -22,7 +22,7 @@
   <div data-layout="split" data-gap="lg" style="--tm-split: 9rem">
     <!-- A component with a script: the tasks in through props, the filter back out through its event. -->
     <aside>
-      <task-chart data-sn-prop="{ tasks, show }" data-sn-on-pick="show = $event.detail"></task-chart>
+      <task-chart data-sn-with="{ tasks, show }" data-sn-on-pick="show = $event.detail"></task-chart>
     </aside>
 
     <section data-layout="stack" data-gap="md" data-sn-let="{ shown: visible(tasks, q, show) }">

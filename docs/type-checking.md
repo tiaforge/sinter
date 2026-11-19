@@ -65,7 +65,7 @@ declare global {
 }
 ```
 
-Then `data-sn-prop` on `<mail-reader>` takes only its properties, with their types; `$el` is a `MailReader`; and in
+Then `data-sn-with` on `<mail-reader>` takes only its properties, with their types; `$el` is a `MailReader`; and in
 `data-sn-on-reader-flag`, `$event.detail` is a `boolean`. An element the app does not declare takes any property,
 and its events' `detail` is `any`.
 

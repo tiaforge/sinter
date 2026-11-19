@@ -19,7 +19,7 @@ export const DIALOG = true;
 export const EVENTS = true;
 /** `data-sn-model` */
 export const MODEL = true;
-/** `data-sn-prop`: properties of custom elements, set again once they are defined */
+/** `data-sn-with`: properties of custom elements, set again once they are defined */
 export const PROP = true;
 /** `data-sn-style` */
 export const STYLE = true;

@@ -1,6 +1,6 @@
 <!-- /task/?id=…: one task. Its data was requested while the pointer rested on the link,
      so it shows at once. The tab's title is the task's, once it is there. -->
-<app-layout data-sn-prop="{ title: task ? task.title : 'Task' }">
+<app-layout data-sn-with="{ title: task ? task.title : 'Task' }">
 
   <sn-resource name="task" src="/api/tasks/{$url.id}" type="Task"></sn-resource>
 

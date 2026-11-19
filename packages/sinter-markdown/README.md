@@ -8,7 +8,7 @@ with slots.
 ```html
 <sn-resource name="post" src="file:./post.md"></sn-resource>
 <main data-sn-let="{ doc: md.parse(post.body) }">
-  <md-doc data-sn-prop="{ doc }"></md-doc>
+  <md-doc data-sn-with="{ doc }"></md-doc>
 </main>
 ```
 
@@ -114,7 +114,7 @@ docs/                     the docs page and the recipe
   owns: no app component and no other library may use it.
 - **The contract is in the public files.** `md-doc.html` and `md-inline.html` declare the slots an app
   fills (`heading: Slot<{ node: Heading }>`, …); the internal components place them
-  (`<slot name="heading" data-sn-prop="{ node }">`) without declaring them, as [tree
+  (`<slot name="heading" data-sn-with="{ node }">`) without declaring them, as [tree
   slots](https://github.com/tiaforge/sinter/blob/main/docs/components.md#tree-slots). Adding a slot
   later is additive; renaming or removing one breaks apps.
 - **Roots.** A component's root renders at most one element. A heading is an if chain over its depth,

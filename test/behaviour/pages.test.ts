@@ -47,7 +47,7 @@ describe('data-sn-for on <html>: a page per entry', () => {
   });
 
   test('on a layout\'s tag, as `data-sn-path` is', () => {
-    const page = '<blog-layout data-sn-path="/blog/:slug" data-sn-for="post in posts" data-sn-prop="{ title: post.title }"><sn-resource name="posts" src="file:/content/posts/*.md"></sn-resource><h1 data-sn-text="post.title"></h1></blog-layout>';
+    const page = '<blog-layout data-sn-path="/blog/:slug" data-sn-for="post in posts" data-sn-with="{ title: post.title }"><sn-resource name="posts" src="file:/content/posts/*.md"></sn-resource><h1 data-sn-text="post.title"></h1></blog-layout>';
     const out = build(page, { page: build(page).pages!.entries[0]! });
     expect(errors(out)).toEqual([]);
     expect(out.html).toContain('<title>Hello</title>');

@@ -9,7 +9,7 @@ const components = {
   'x-plain': '<template data-sn-props="{ href?: string; label: string }"><span data-sn-text="label"></span></template>',
 };
 const list = (writes: boolean) => `<div data-sn-state="{ xs: [{ k: 'a', href: '/a', t: 'a' }, { k: 'a', t: 'b' }, { k: 'v', t: 'c' }] }">${writes ? `<button id="w" data-sn-on-click="xs = [{ k: 'a', t: 'd' }, { k: 'a', href: '/e', t: 'e' }]">w</button>` : ''}
-  <p><template data-sn-for="x in xs"><sn-component use="{ a: 'x-ifelse', v: 'x-plain' }[x.k]" data-sn-prop="{ href: x.href, label: x.t }"></sn-component></template></p></div>`;
+  <p><template data-sn-for="x in xs"><sn-component use="{ a: 'x-ifelse', v: 'x-plain' }[x.k]" data-sn-with="{ href: x.href, label: x.t }"></sn-component></template></p></div>`;
 const shape = (p: Element) => [...p.children].map((e) => `${e.localName}${e.getAttribute('href') ? `[${e.getAttribute('href')}]` : ''}:${e.textContent}`);
 
 test('over state, then a change', async () => {
@@ -26,7 +26,7 @@ test('over constants', async () => {
 });
 
 test('a component used inside itself: a data-sn-if on an optional prop is decided per instance, not at build time', async () => {
-  const tree = { 'x-node': '<template data-sn-props="{ n: any; href?: string }"><span><template data-sn-if="href"><a data-sn-attr="{ href }" data-sn-text="n.t"></a></template><template data-sn-else><i data-sn-text="n.t"></i></template><template data-sn-for="c in n.c"><x-node data-sn-prop="{ n: c, href: c.href }"></x-node></template></span></template>' };
-  const { root } = await render(`<div data-sn-state="{ t: { t: 'r', c: [{ t: 'a', href: '/a', c: [] }, { t: 'b', c: [] }] } }"><button data-sn-on-click="t = null">w</button><x-node data-sn-prop="{ n: t }"></x-node></div>`, { components: tree });
+  const tree = { 'x-node': '<template data-sn-props="{ n: any; href?: string }"><span><template data-sn-if="href"><a data-sn-attr="{ href }" data-sn-text="n.t"></a></template><template data-sn-else><i data-sn-text="n.t"></i></template><template data-sn-for="c in n.c"><x-node data-sn-with="{ n: c, href: c.href }"></x-node></template></span></template>' };
+  const { root } = await render(`<div data-sn-state="{ t: { t: 'r', c: [{ t: 'a', href: '/a', c: [] }, { t: 'b', c: [] }] } }"><button data-sn-on-click="t = null">w</button><x-node data-sn-with="{ n: t }"></x-node></div>`, { components: tree });
   expect([...root.querySelectorAll('span span > :is(a, i)')].map((e) => `${e.localName}:${e.textContent}`)).toEqual(['a:a', 'i:b']);
 });

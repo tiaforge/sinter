@@ -6,13 +6,13 @@ import { compile } from '../../src/compiler/index.js';
 
 const INL = "{ text: 'x-text', link: 'x-link' }";
 const BASE: Record<string, string> = {
-  'x-doc': `<template data-sn-props="{ doc: any }"><div><template data-sn-for="n in doc.children"><sn-component use="${INL}[n.type]" data-sn-prop="{ node: n }"></sn-component></template></div></template>`,
+  'x-doc': `<template data-sn-props="{ doc: any }"><div><template data-sn-for="n in doc.children"><sn-component use="${INL}[n.type]" data-sn-with="{ node: n }"></sn-component></template></div></template>`,
   'x-text': '<template data-sn-props="{ node: any }"><span data-sn-text="node.value"></span></template>',
-  'x-link': `<template data-sn-props="{ node: any }"><a data-sn-attr="{ href: node.url }"><template data-sn-for="n in node.children"><sn-component use="${INL}[n.type]" data-sn-prop="{ node: n }"></sn-component></template></a></template>`,
+  'x-link': `<template data-sn-props="{ node: any }"><a data-sn-attr="{ href: node.url }"><template data-sn-for="n in node.children"><sn-component use="${INL}[n.type]" data-sn-with="{ node: n }"></sn-component></template></a></template>`,
 };
 /** `x-text` (the first definition a page needs) with `extra` inside its one root */
 const textWith = (extra: string) => ({ 'x-text': `<template data-sn-props="{ node: any }"><span class="tx"><span data-sn-text="node.value"></span>${extra}</span></template>` });
-const TREE = '<x-doc data-sn-prop="{ doc }"></x-doc>';
+const TREE = '<x-doc data-sn-with="{ doc }"></x-doc>';
 const DOC = '<sn-resource name="doc" src="/api/doc"></sn-resource>';
 
 type Page = { name: string; body?: string; res?: string; opts?: Record<string, unknown> };

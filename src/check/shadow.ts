@@ -450,7 +450,7 @@ export interface SinterNavigate extends Event {
 /** $event of a handler for event K on an element with tag T */
 export type Ev<K extends string, T extends string = string> = K extends 'navigate' ? SinterNavigate : K extends keyof HTMLElementEventMap ? HTMLElementEventMap[K]
   : T extends keyof SinterElementEvents ? (K extends keyof SinterElementEvents[T] ? CustomEvent<SinterElementEvents[T][K]> : CustomEvent) : CustomEvent;
-/** what data-sn-prop accepts on a custom element: its own properties when HTMLElementTagNameMap has it, anything otherwise */
+/** what data-sn-with accepts on a custom element: its own properties when HTMLElementTagNameMap has it, anything otherwise */
 export type Props<K extends string> = K extends keyof HTMLElementTagNameMap ? { [P in keyof HTMLElementTagNameMap[K]]?: HTMLElementTagNameMap[K][P] } : Record<string, unknown>;
 /**
  * $event where run('id') can start the action: null then. Checking runs without strictNullChecks, where

@@ -17,7 +17,7 @@ const build = (body: string, more: Record<string, unknown> = {}) => compile(`<!d
 
 describe('a page with nothing to run', () => {
   test('no script, no early script (not even for the app\'s early module), the components\' styles linked', () => {
-    const out = build('<site-title data-sn-prop="{ t: \'About\' }"></site-title><p>Hi.</p>');
+    const out = build('<site-title data-sn-with="{ t: \'About\' }"></site-title><p>Hi.</p>');
     expect(out.static).toBe(true);
     expect(out.runtime).toEqual([]);
     expect(out.early).toBeNull();
@@ -54,7 +54,7 @@ describe('why a page needs the runtime', () => {
       'src/components/site-footer.html:3 about.html must ship no JavaScript (`sinter({ static })`), but `data-sn-on-click` runs in the browser',
       'src/components/site-footer.html:3 about.html must ship no JavaScript (`sinter({ static })`), but `data-sn-text` runs in the browser',
     ]);
-    expect(build('<site-title data-sn-prop="{ t: \'About\' }"></site-title>', { static: true }).diagnostics).toEqual([]);
+    expect(build('<site-title data-sn-with="{ t: \'About\' }"></site-title>', { static: true }).diagnostics).toEqual([]);
   });
 });
 

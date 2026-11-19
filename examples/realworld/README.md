@@ -33,7 +33,7 @@ islands; the pages are declarative.
 
 The article's body is Markdown, rendered by the markdown library: `src/sinter.helpers.js` re-exports it as
 `md`, `vite.config.js` lists it in `components`, and `article.html` writes
-`<md-doc data-sn-prop="{ doc: md.parse(article.body) }">`. It renders with the article, in the same frame,
+`<md-doc data-sn-with="{ doc: md.parse(article.body) }">`. It renders with the article, in the same frame,
 so nothing after the body moves when it comes in. Raw HTML in a body shows as text (`md.parse`'s default,
 `html: 'text'`), and sinter refuses a link's or an image's `javascript:` URL (it renders without it): the XSS
 suite's payloads stay inert. Until 2026-11-17 the body was marked and DOMPurify in an island,
@@ -81,14 +81,14 @@ login-redirect guards read it).
 
 ## Form errors
 
-No form has a `data-sn-catch`: each has an `<error-list data-sn-prop="{ error: $error }">`, its `.error-messages` list
+No form has a `data-sn-catch`: each has an `<error-list data-sn-with="{ error: $error }">`, its `.error-messages` list
 reading `$error` (the form's last failed send) with the `errors()` helper's lines, and
 `fieldErrors: () => null` in `src/sinter.config.js` marks no field, as the reference markup does. The
 pages with a form load the fields module (1.1 KB gzip).
 
 The buttons (favorite, follow, delete) have no catch either: a failed action without one bubbles
 `sn-error`, and one handler on each page's root (home, profile, article) sends a 401 to the login page
-and shows anything else in the page's `.error-messages` list (`<error-list data-sn-prop="{ error }">`). Deleting a
+and shows anything else in the page's `.error-messages` list (`<error-list data-sn-with="{ error }">`). Deleting a
 comment keeps its catch: it fills the comments' own list (`commentError`). The comment form's list
 sits inside its card, so `public/styles.css` pads it like the textarea (the one rule of ours next to
 the theme's comment-form rules).

@@ -39,8 +39,8 @@ export class XRing extends XRingComponent {
 `);
   put('comp.html', `<!doctype html><html><head><title>comp</title></head><body>
 <div data-sn-state="{ n: 1, show: true }" data-sn-preload="fakepgp">
-  <template data-sn-if="show"><div id="a"><x-ring data-sn-prop="{ n }"></x-ring></div></template>
-  <div id="b"><x-ring data-sn-prop="{ n }"></x-ring></div>
+  <template data-sn-if="show"><div id="a"><x-ring data-sn-with="{ n }"></x-ring></div></template>
+  <div id="b"><x-ring data-sn-with="{ n }"></x-ring></div>
   <button id="inc" data-sn-on-click="n = n + 1">inc</button>
   <button id="hide" data-sn-on-click="show = false">hide</button>
 </div>

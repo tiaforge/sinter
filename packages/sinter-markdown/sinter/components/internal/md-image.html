@@ -5,5 +5,5 @@
   name any image. An app that wants it resized fills the `image` slot with its own <img>.
 -->
 <template data-sn-props="{ node: Image }">
-  <slot name="image" data-sn-prop="{ node }"><img data-sn-attr="{ src: node.url, alt: node.alt, title: node.title, srcset: null }"></slot>
+  <slot name="image" data-sn-with="{ node }"><img data-sn-attr="{ src: node.url, alt: node.alt, title: node.title, srcset: null }"></slot>
 </template>

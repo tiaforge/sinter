@@ -142,7 +142,7 @@ export * as toc from './lib/toc.ts';    // reads a parsed tree, imports no parse
 ```html
 <!-- vite.config.ts: sinter({ lazy: ['some-parser'] }) -->
 <article data-sn-let="{ tree: doc.parse(post.body) }">
-  <template data-sn-if="tree"><doc-view data-sn-prop="{ tree }"></doc-view></template>
+  <template data-sn-if="tree"><doc-view data-sn-with="{ tree }"></doc-view></template>
   <template data-sn-else><p class="placeholder">…</p></template>
   <nav data-sn-text="toc.title(post)"></nav>
 </article>
@@ -152,7 +152,7 @@ export * as toc from './lib/toc.ts';    // reads a parsed tree, imports no parse
   check runs without `strictNullChecks`, so it does not report an unguarded read (`doc.words`): guard
   every read (`data-sn-if="doc"`, `doc?.words`, `doc ?? fallback`). The arrival renders what reads it. Show something else meanwhile with `data-sn-if` on the let, or `??`. A
   let has no `$meta`: an app that needs loading and error states uses `<sn-resource call>`.
-- A component prop is a let: `data-sn-prop="{ tree: doc.parse(x) }"` waits the same way.
+- A component prop is a let: `data-sn-with="{ tree: doc.parse(x) }"` waits the same way.
 - Anywhere else (a binding, a handler, a state initializer) calling a helper of such a module is `SN324`,
   with the hint to name it in a let. The rule is per module: keep the helpers that do not need the
   package (`toc.title`, a reading time) in a module that does not import it, and they stay ordinary

@@ -101,7 +101,7 @@ describe('a let over a helper: its expression, at every read', () => {
     });
 
     test('a component emits, its parent writes the prop its let reads', async () => {
-      const r = await render(`<main data-sn-state="{ a: 1 }"><x-c data-sn-prop="{ a }" data-sn-on-bump="a = 5"></x-c></main>`, {
+      const r = await render(`<main data-sn-state="{ a: 1 }"><x-c data-sn-with="{ a }" data-sn-on-bump="a = 5"></x-c></main>`, {
         helpers: { dbl },
         components: { 'x-c': `<template data-sn-props="{ a: number }" data-sn-emits="{ bump: null }"><div data-sn-state="{ o: 0 }" data-sn-let="{ L: dbl(a) }">
           <p data-sn-text="L.v"></p><b data-sn-text="o"></b><button data-sn-on-click="emit('bump'); o = L.v"></button></div></template>` },
@@ -151,7 +151,7 @@ describe('a let over a helper: its expression, at every read', () => {
       }
       if (!customElements.get('x-ping')) customElements.define('x-ping', XPing);
       const r = await render(`<main data-sn-state="{ go: 0, k: 1, xs: [{ s: 0 }, { s: 2 }, { s: 0 }] }" data-sn-let="{ T: sum(xs.map((x) => x.s)), U: dbl(k) }" data-sn-on-ping="xs[1].s = 2">
-        <x-ping data-sn-prop="{ n: go }"></x-ping><b data-sn-text="U.v + go"></b><p data-sn-text="T"></p>
+        <x-ping data-sn-with="{ n: go }"></x-ping><b data-sn-text="U.v + go"></b><p data-sn-text="T"></p>
         <ul><template data-sn-for="x in xs"><li data-sn-text="x.s"></li></template></ul><i data-sn-text="T + go"></i>
         <button data-sn-on-click="xs[0].s = 7; xs[2].s = 9; go = 1"></button></main>`, { helpers: { sum, dbl } });
       r.root.querySelector('button')!.click();
@@ -232,7 +232,7 @@ describe('a let over a helper: its expression, at every read', () => {
   test('a prop is a let: a prop over a helper', async () => {
     const { parse } = counting();
     const doc = '<template data-sn-props="{ doc: any }"><div><p data-sn-text="doc.words.length"></p><template data-sn-for="x in doc.words"><span data-sn-text="x.w"></span></template></div></template>';
-    const r = await render(`<main data-sn-state="{ src: 'a b c', n: 0 }"><x-doc data-sn-prop="{ doc: parse(src) }"></x-doc><button data-sn-on-click="n++" data-sn-text="n"></button></main>`, { helpers: { parse }, components: { 'x-doc': doc } });
+    const r = await render(`<main data-sn-state="{ src: 'a b c', n: 0 }"><x-doc data-sn-with="{ doc: parse(src) }"></x-doc><button data-sn-on-click="n++" data-sn-text="n"></button></main>`, { helpers: { parse }, components: { 'x-doc': doc } });
     expect(r.root.querySelector('p')!.textContent).toBe('3');
     r.root.querySelector('button')!.click();
     await r.flush();
@@ -369,7 +369,7 @@ describe('a let may wait for a lazy helper module', () => {
       .rejects.toThrow(/SN324/);
     await expect(render('<main data-sn-state="{ n: crunch.parse(\'a\') }"></main>', { lazyHelpers: m.helpers })).rejects.toThrow(/SN324/);
     // a prop waits like a let
-    const r = await render(`<main data-sn-state="{ src: 'a b c' }"><x-n data-sn-prop="{ doc: crunch.parse(src) }"></x-n></main>`,
+    const r = await render(`<main data-sn-state="{ src: 'a b c' }"><x-n data-sn-with="{ doc: crunch.parse(src) }"></x-n></main>`,
       { lazyHelpers: m.helpers, components: { 'x-n': '<template data-sn-props="{ doc?: any }"><p data-sn-text="doc ? doc.words.length : \'…\'"></p></template>' } });
     expect(r.root.querySelector('p')!.textContent).toBe('…');
     m.open();

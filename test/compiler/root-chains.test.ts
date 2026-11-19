@@ -4,15 +4,15 @@ import { expect, test } from 'vitest';
 import { compile } from '../../src/compiler/index.js';
 
 const C: Record<string, string> = {
-  'x-doc': `<template data-sn-props="{ doc: any }"><article><template data-sn-for="b in doc.children"><sn-component use="{ list: 'x-list', h: 'x-h', deep: 'x-deep' }[b.type]" data-sn-prop="{ node: b }"></sn-component></template></article></template>`,
+  'x-doc': `<template data-sn-props="{ doc: any }"><article><template data-sn-for="b in doc.children"><sn-component use="{ list: 'x-list', h: 'x-h', deep: 'x-deep' }[b.type]" data-sn-with="{ node: b }"></sn-component></template></article></template>`,
   'x-list': `<template data-sn-props="{ node: any }"><template data-sn-if="node.ordered"><ol><template data-sn-for="i in node.children"><li data-sn-text="i"></li></template></ol></template><template data-sn-else><ul><template data-sn-for="i in node.children"><li data-sn-text="i"></li></template></ul></template></template>`,
   'x-h': `<template data-sn-props="{ node: any }"><template data-sn-if="node.depth === 1"><h1 data-sn-text="node.value"></h1></template><template data-sn-else><template data-sn-if="node.depth === 2"><h2 data-sn-text="node.value"></h2></template><template data-sn-else><h3 data-sn-text="node.value"></h3></template></template></template>`,
   // a component used inside itself whose root is a chain
-  'x-t': `<template data-sn-props="{ node: any }"><template data-sn-if="node.kids"><ul><template data-sn-for="k in node.kids"><li><x-t data-sn-prop="{ node: k }"></x-t></li></template></ul></template><template data-sn-else><span data-sn-text="node.v"></span></template></template>`,
+  'x-t': `<template data-sn-props="{ node: any }"><template data-sn-if="node.kids"><ul><template data-sn-for="k in node.kids"><li><x-t data-sn-with="{ node: k }"></x-t></li></template></ul></template><template data-sn-else><span data-sn-text="node.v"></span></template></template>`,
   // one level deeper: a loop in a branch of a chain nested in the else of a chain root
   'x-deep': `<template data-sn-props="{ node: any }"><template data-sn-if="node.kind === 'a'"><p data-sn-text="node.kind"></p></template><template data-sn-else><template data-sn-if="node.kind === 'b'"><ol><template data-sn-for="i in node.children"><li data-sn-text="i"></li></template></ol></template><template data-sn-else><ul><template data-sn-for="i in node.children"><li data-sn-text="i"></li></template></ul></template></template></template>`,
 };
-function build(doc: unknown, page = '<x-doc data-sn-prop="{ doc }"></x-doc>') {
+function build(doc: unknown, page = '<x-doc data-sn-with="{ doc }"></x-doc>') {
   const files: Record<string, string> = { '/p/doc.json': JSON.stringify(doc) };
   for (const [k, v] of Object.entries(C)) files[`/p/src/components/${k}.html`] = v;
   return compile('<!doctype html><html><head></head><body><sn-resource name="doc" src="file:./doc.json"></sn-resource>' + page + '</body></html>', {
@@ -45,7 +45,7 @@ test('a for in a branch of a chain nested in an if-chain root, each instance its
 });
 
 test('a component used inside itself whose root is a chain expands at every level', () => {
-  const out = build({ kids: [{ v: 'a' }, { kids: [{ v: 'b' }, { v: 'c' }] }] }, '<x-t data-sn-prop="{ node: doc }"></x-t>');
+  const out = build({ kids: [{ v: 'a' }, { kids: [{ v: 'b' }, { v: 'c' }] }] }, '<x-t data-sn-with="{ node: doc }"></x-t>');
   expect(report(out)).toEqual([]);
   expect(body(out)).toBe('<ul><li><span>a</span></li><li><ul><li><span>b</span></li><li><span>c</span></li></ul></li></ul>');
 });

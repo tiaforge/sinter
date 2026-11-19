@@ -29,11 +29,11 @@ beforeAll(() => {
 </style>
 `);
   writeFileSync(join(root, 'src/components/x-inner.html'), '<template data-sn-props=""><div class="inner"><p class="nested">nested</p></div></template>\n');
-  writeFileSync(join(root, 'src/components/x-page.html'), `<template data-sn-props=""><main><x-card data-sn-prop="{ title: 'In page' }"><p class="mine">slot</p></x-card></main></template>
+  writeFileSync(join(root, 'src/components/x-page.html'), `<template data-sn-props=""><main><x-card data-sn-with="{ title: 'In page' }"><p class="mine">slot</p></x-card></main></template>
 <style>p { text-decoration: underline; }</style>
 `);
   writeFileSync(join(root, 'index.html'), `<!doctype html><html><head><title>c</title></head><body>
-<div data-sn-state="{ t: 'Hello' }"><x-card data-sn-prop="{ title: t }"><p class="page">from the page</p></x-card><x-card class="second" data-sn-prop="{ title: 'two' }"></x-card></div>
+<div data-sn-state="{ t: 'Hello' }"><x-card data-sn-with="{ title: t }"><p class="page">from the page</p></x-card><x-card class="second" data-sn-with="{ title: 'two' }"></x-card></div>
 <x-page></x-page>
 </body></html>`);
 });
@@ -100,7 +100,7 @@ export class TaskRing extends TaskRingComponent {
 `);
     writeFileSync(join(app, 'index.html'), `<!doctype html><html><head><title>t</title></head><body>
 <div data-sn-state="{ tasks: [{ id: 1, done: true }, { id: 2, done: false }], picked: '' }">
-  <task-ring data-sn-prop="{ tasks }" data-sn-on-pick="picked = $event.detail"></task-ring>
+  <task-ring data-sn-with="{ tasks }" data-sn-on-pick="picked = $event.detail"></task-ring>
   <button data-sn-on-click="tasks = [...tasks, { id: 3, done: true }]">add</button>
   <output data-sn-text="picked"></output>
 </div>

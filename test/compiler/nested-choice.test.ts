@@ -5,19 +5,19 @@ import { compile } from '../../src/compiler/index.js';
 
 const MAP = "{ list: 'y-list', para: 'x-para', ol: 'y-ol', live: 'x-live' }";
 const C: Record<string, string> = {
-  'x-doc': `<template data-sn-props="{ doc: any }"><article><template data-sn-for="b in doc.children"><sn-component use="${MAP}[b.type]" data-sn-prop="{ node: b }"></sn-component></template></article></template>`,
+  'x-doc': `<template data-sn-props="{ doc: any }"><article><template data-sn-for="b in doc.children"><sn-component use="${MAP}[b.type]" data-sn-with="{ node: b }"></sn-component></template></article></template>`,
   'x-para': `<template data-sn-props="{ node: any }"><p data-sn-text="node.value"></p></template>`,
-  'y-list': `<template data-sn-props="{ node: any }"><ul><template data-sn-for="i in node.children"><x-item data-sn-prop="{ node: i }"></x-item></template></ul></template>`,
+  'y-list': `<template data-sn-props="{ node: any }"><ul><template data-sn-for="i in node.children"><x-item data-sn-with="{ node: i }"></x-item></template></ul></template>`,
   // the same list with an if-chain root
-  'y-ol': `<template data-sn-props="{ node: any }"><template data-sn-if="node.ordered"><ol><template data-sn-for="i in node.children"><x-item data-sn-prop="{ node: i }"></x-item></template></ol></template><template data-sn-else><ul><template data-sn-for="i in node.children"><x-item data-sn-prop="{ node: i }"></x-item></template></ul></template></template>`,
-  'x-item': `<template data-sn-props="{ node: any }"><li><template data-sn-for="b in node.children"><sn-component use="${MAP}[b.type]" data-sn-prop="{ node: b }"></sn-component></template></li></template>`,
+  'y-ol': `<template data-sn-props="{ node: any }"><template data-sn-if="node.ordered"><ol><template data-sn-for="i in node.children"><x-item data-sn-with="{ node: i }"></x-item></template></ol></template><template data-sn-else><ul><template data-sn-for="i in node.children"><x-item data-sn-with="{ node: i }"></x-item></template></ul></template></template>`,
+  'x-item': `<template data-sn-props="{ node: any }"><li><template data-sn-for="b in node.children"><sn-component use="${MAP}[b.type]" data-sn-with="{ node: b }"></sn-component></template></li></template>`,
   // a node that cannot be expanded at build time: its own state, which a click writes
   'x-live': `<template data-sn-props="{ node: any }"><button data-sn-state="{ n: 0 }" data-sn-on-click="n++" data-sn-text="node.value + n"></button></template>`,
 };
 function build(doc: unknown, more: { expansionLimit?: number } = {}) {
   const files: Record<string, string> = { '/p/doc.json': JSON.stringify(doc) };
   for (const [k, s] of Object.entries(C)) files[`/p/src/components/${k}.html`] = s;
-  return compile('<!doctype html><html><head></head><body><sn-resource name="doc" src="file:./doc.json"></sn-resource><x-doc data-sn-prop="{ doc }"></x-doc></body></html>', {
+  return compile('<!doctype html><html><head></head><body><sn-resource name="doc" src="file:./doc.json"></sn-resource><x-doc data-sn-with="{ doc }"></x-doc></body></html>', {
     file: '/p/index.html', root: '/p', dev: false, prerender: true, static: true, componentNames: Object.keys(C),
     helpers: { module: null, names: [], namespaces: {} }, readFile: (p) => { if (p in files) return files[p]!; throw new Error(p); }, ...more,
   });

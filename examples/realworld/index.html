@@ -1,6 +1,6 @@
 <conduit-layout data-sn-path="/ /tag/:tag"
   data-sn-state="{ nav: 'home' }"
-  data-sn-prop="{ nav, title: 'Home', description: 'Conduit, a place to share your knowledge: the global feed, your feed and popular tags.' }">
+  data-sn-with="{ nav, title: 'Home', description: 'Conduit, a place to share your knowledge: the global feed, your feed and popular tags.' }">
 
 <!-- the page lives in the URL (page-model): ?page=3 loads the third page (offset 20); the pager's links navigate -->
 <sn-resource cache name="articles" when="$url.feed != 'following'"
@@ -36,7 +36,7 @@
           <div class="article-preview">Loading articles...</div>
         </template>
         <template data-sn-for="a in list" data-sn-key="a.slug">
-          <article-preview data-sn-prop="{ article: a }"></article-preview>
+          <article-preview data-sn-with="{ article: a }"></article-preview>
         </template>
         <template data-sn-if="!meta.loading && meta.loadedAt && !list.length">
           <template data-sn-if="$url.feed == 'following'">
@@ -44,7 +44,7 @@
           </template>
           <template data-sn-else><div class="article-preview empty-feed-message">No articles are here... yet.</div></template>
         </template>
-        <template data-sn-if="meta.pages > 1"><conduit-pager data-sn-prop="{ meta, query: $url.feed ? 'feed=' + encodeURIComponent($url.feed) + '&' : '' }"></conduit-pager></template>
+        <template data-sn-if="meta.pages > 1"><conduit-pager data-sn-with="{ meta, query: $url.feed ? 'feed=' + encodeURIComponent($url.feed) + '&' : '' }"></conduit-pager></template>
       </div>
       <div class="col-md-3">
         <div class="sidebar">

@@ -29,19 +29,19 @@ const DOC = { children: [
   { type: 'p', children: [{ type: 'text', value: 'c &amp; d' }] },
 ] };
 const COMPONENTS: Record<string, string> = {
-  'x-p': '<template data-sn-props="{ node: any }"><p><template data-sn-for="n in node.children"><sn-component use="{ text: \'x-text\', em: \'x-em\', strong: \'x-strong\' }[n.type]" data-sn-prop="{ node: n }"></sn-component></template></p></template>',
-  'x-em': '<template data-sn-props="{ node: any }"><em><template data-sn-for="n in node.children"><sn-component use="{ text: \'x-text\', em: \'x-em\', strong: \'x-strong\' }[n.type]" data-sn-prop="{ node: n }"></sn-component></template></em></template>',
-  'x-strong': '<template data-sn-props="{ node: any }"><strong><template data-sn-for="n in node.children"><sn-component use="{ text: \'x-text\', em: \'x-em\', strong: \'x-strong\' }[n.type]" data-sn-prop="{ node: n }"></sn-component></template></strong></template>',
+  'x-p': '<template data-sn-props="{ node: any }"><p><template data-sn-for="n in node.children"><sn-component use="{ text: \'x-text\', em: \'x-em\', strong: \'x-strong\' }[n.type]" data-sn-with="{ node: n }"></sn-component></template></p></template>',
+  'x-em': '<template data-sn-props="{ node: any }"><em><template data-sn-for="n in node.children"><sn-component use="{ text: \'x-text\', em: \'x-em\', strong: \'x-strong\' }[n.type]" data-sn-with="{ node: n }"></sn-component></template></em></template>',
+  'x-strong': '<template data-sn-props="{ node: any }"><strong><template data-sn-for="n in node.children"><sn-component use="{ text: \'x-text\', em: \'x-em\', strong: \'x-strong\' }[n.type]" data-sn-with="{ node: n }"></sn-component></template></strong></template>',
   'x-text': '<template data-sn-props="{ node: any }"><span data-sn-text="node.value"></span></template>',
   // section 3: text without an element, and roots that are no element of their own
-  'y-p': '<template data-sn-props="{ node: any }"><p><template data-sn-for="n in node.children"><template data-sn-if="n.type === \'text\'"><template data-sn-text="n.value"></template></template><template data-sn-else><y-inline data-sn-prop="{ node: n }"></y-inline></template></template></p></template>',
+  'y-p': '<template data-sn-props="{ node: any }"><p><template data-sn-for="n in node.children"><template data-sn-if="n.type === \'text\'"><template data-sn-text="n.value"></template></template><template data-sn-else><y-inline data-sn-with="{ node: n }"></y-inline></template></template></p></template>',
   'y-inline': '<template data-sn-props="{ node: any }"><template data-sn-if="node.type === \'em\'"><em><template data-sn-for="n in node.children"><template data-sn-text="n.value"></template></template></em></template><template data-sn-else><strong><template data-sn-for="n in node.children"><template data-sn-text="n.value"></template></template></strong></template></template>',
   // section 4: a tree root whose link slot is placed deep inside, through shared definitions
-  'z-doc': '<template data-sn-props="{ doc?: any; link: Slot<{ node: any }> }"><div class="z"><template data-sn-for="b in doc ? doc.children : []"><z-p data-sn-prop="{ node: b }"></z-p></template></div></template>',
-  'z-p': '<template data-sn-props="{ node: any }"><p><template data-sn-for="n in node.children"><sn-component use="{ text: \'z-text\', link: \'z-link\', em: \'z-em\' }[n.type]" data-sn-prop="{ node: n }"></sn-component></template></p></template>',
-  'z-em': '<template data-sn-props="{ node: any }"><em><template data-sn-for="n in node.children"><sn-component use="{ text: \'z-text\', link: \'z-link\', em: \'z-em\' }[n.type]" data-sn-prop="{ node: n }"></sn-component></template></em></template>',
+  'z-doc': '<template data-sn-props="{ doc?: any; link: Slot<{ node: any }> }"><div class="z"><template data-sn-for="b in doc ? doc.children : []"><z-p data-sn-with="{ node: b }"></z-p></template></div></template>',
+  'z-p': '<template data-sn-props="{ node: any }"><p><template data-sn-for="n in node.children"><sn-component use="{ text: \'z-text\', link: \'z-link\', em: \'z-em\' }[n.type]" data-sn-with="{ node: n }"></sn-component></template></p></template>',
+  'z-em': '<template data-sn-props="{ node: any }"><em><template data-sn-for="n in node.children"><sn-component use="{ text: \'z-text\', link: \'z-link\', em: \'z-em\' }[n.type]" data-sn-with="{ node: n }"></sn-component></template></em></template>',
   'z-text': '<template data-sn-props="{ node: any }"><span data-sn-text="node.value"></span></template>',
-  'z-link': '<template data-sn-props="{ node: any }"><slot name="link" data-sn-prop="{ node }"><a data-sn-attr="{ href: node.url }"><template data-sn-for="n in node.children"><sn-component use="{ text: \'z-text\', link: \'z-link\', em: \'z-em\' }[n.type]" data-sn-prop="{ node: n }"></sn-component></template></a></slot></template>',
+  'z-link': '<template data-sn-props="{ node: any }"><slot name="link" data-sn-with="{ node }"><a data-sn-attr="{ href: node.url }"><template data-sn-for="n in node.children"><sn-component use="{ text: \'z-text\', link: \'z-link\', em: \'z-em\' }[n.type]" data-sn-with="{ node: n }"></sn-component></template></a></slot></template>',
   'ui-button': '<template data-sn-props="{ href?: string; label: string }"><template data-sn-if="href"><a class="btn" data-sn-attr="{ href }" data-sn-text="label"></a></template><template data-sn-else><button class="btn" type="button" data-sn-text="label"></button></template></template>',
 };
 const LINK_DOC = { children: [
@@ -74,26 +74,26 @@ beforeAll(async () => {
   <svg id="chart" viewBox="0 0 10 10"><template data-sn-for="p in ps" data-sn-key="p"><circle r="1" data-sn-attr="{ cx: p }"></circle></template></svg>
   <dialog id="d"><ul id="in-dialog"><template data-sn-for="x in xs" data-sn-key="x"><li data-sn-text="x"></li></template></ul></dialog>
   <button id="open" data-sn-on-click="showModal('d')">open</button>
-  <article id="doc"><template data-sn-for="b in doc.children"><sn-component use="{ p: 'x-p' }[b.type]" data-sn-prop="{ node: b }"></sn-component></template></article>
+  <article id="doc"><template data-sn-for="b in doc.children"><sn-component use="{ p: 'x-p' }[b.type]" data-sn-with="{ node: b }"></sn-component></template></article>
 </body></html>`);
   writeFileSync(join(root, 'tree.html'), `<!doctype html><html lang="en">${head('Tree')}
 <body>
   <sn-resource name="doc" src="/api/doc"></sn-resource>
-  <article id="doc"><template data-sn-for="b in doc.children"><sn-component use="{ p: 'x-p' }[b.type]" data-sn-prop="{ node: b }"></sn-component></template></article>
+  <article id="doc"><template data-sn-for="b in doc.children"><sn-component use="{ p: 'x-p' }[b.type]" data-sn-with="{ node: b }"></sn-component></template></article>
 </body></html>`);
   writeFileSync(join(root, 'text.html'), `<!doctype html><html lang="en">${head('Text')}
 <body data-sn-state="{ items: [{ id: 1, to: '/a' }, { id: 2, to: '' }], n: 0 }">
   <sn-resource name="doc" src="/api/text"></sn-resource>
-  <article id="doc"><template data-sn-for="b in doc.children"><y-p data-sn-prop="{ node: b }"></y-p></template></article>
+  <article id="doc"><template data-sn-for="b in doc.children"><y-p data-sn-with="{ node: b }"></y-p></template></article>
   <button id="swap" data-sn-on-click="items = [{ id: 2, to: '/b' }, { id: 1, to: '' }]">swap</button>
   <p id="count">n=<template data-sn-text="n"></template></p>
-  <nav id="buttons"><template data-sn-for="it in items" data-sn-key="it.id"><ui-button class="row" data-sn-prop="{ href: it.to, label: 'L' + it.id }" data-sn-on-click="$event.preventDefault(); n = n + it.id"></ui-button></template></nav>
+  <nav id="buttons"><template data-sn-for="it in items" data-sn-key="it.id"><ui-button class="row" data-sn-with="{ href: it.to, label: 'L' + it.id }" data-sn-on-click="$event.preventDefault(); n = n + it.id"></ui-button></template></nav>
 </body></html>`);
   writeFileSync(join(root, 'links.html'), `<!doctype html><html lang="en">${head('Links')}
 <body data-sn-state="{ rel: 'ugc', clicks: 0 }">
   <sn-resource name="doc" src="/api/links"></sn-resource>
   <p id="clicks" data-sn-text="clicks"></p><button id="rel" data-sn-on-click="rel = 'nofollow'">rel</button>
-  <z-doc data-sn-prop="{ doc }"><a slot="link" class="mine" data-sn-attr="{ href: $slot.node.url, rel }" data-sn-on-click="$event.preventDefault(); clicks = clicks + 1"><slot></slot>!</a></z-doc>
+  <z-doc data-sn-with="{ doc }"><a slot="link" class="mine" data-sn-attr="{ href: $slot.node.url, rel }" data-sn-on-click="$event.preventDefault(); clicks = clicks + 1"><slot></slot>!</a></z-doc>
 </body></html>`);
   const input = { index: join(root, 'index.html'), tree: join(root, 'tree.html'), text: join(root, 'text.html'), links: join(root, 'links.html') };
   await build({ root, logLevel: 'silent', resolve: { alias }, plugins: [sinter()], build: { outDir: out, emptyOutDir: true, minify: false, rollupOptions: { input } } });

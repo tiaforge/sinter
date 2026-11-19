@@ -65,7 +65,7 @@ Left as written:
 
 - `<pre>`, `<textarea>`, `<script>`, `<style>`, `<title>` and the other raw-text elements; text with
   `white-space: pre`, `pre-wrap`, `pre-line` or `break-spaces`; editable content (`contenteditable`);
-- an element whose content a binding writes (`data-sn-text`, a `data-sn-prop` of `innerHTML`/`textContent`);
+- an element whose content a binding writes (`data-sn-text`, a `data-sn-with` of `innerHTML`/`textContent`);
 - markup a component's scoped `<style>` reaches (the cascade is read from the page's stylesheets);
 - SVG and MathML;
 - your own `<template>`s (a script may read them as written);

@@ -6,7 +6,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <conduit-seo data-sn-prop="{ title, description }"></conduit-seo>
+  <conduit-seo data-sn-with="{ title, description }"></conduit-seo>
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="https://code.ionicframework.com/ionicons/2.0.1/css/ionicons.min.css">
   <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Titillium+Web:700|Source+Serif+Pro:400,700|Merriweather+Sans:400,700|Source+Sans+Pro:400,300,600,700,300italic,400italic,600italic,700italic">
@@ -19,8 +19,8 @@
   data-sn-on-sn-error="$event.detail.error.status == 401 ? navigate('/login') : error = $event.detail.error; $event.preventDefault()">
 <!-- early="off": the auth middleware answers this request without a token, and adds one otherwise -->
 <sn-resource cache name="user" src="/user" early="off"></sn-resource>
-<conduit-header data-sn-prop="{ nav }"></conduit-header>
-<div class="container"><error-list data-sn-prop="{ error }"></error-list></div>
+<conduit-header data-sn-with="{ nav }"></conduit-header>
+<div class="container"><error-list data-sn-with="{ error }"></error-list></div>
 <slot></slot>
 <conduit-footer></conduit-footer>
 </body>

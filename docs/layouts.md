@@ -11,7 +11,7 @@ and its content fills the layout's slots, in the head and in the body.
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <seo-tags data-sn-prop="{ title, description }">
+  <seo-tags data-sn-with="{ title, description }">
     <slot name="seo" slot="extra"></slot>
   </seo-tags>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700">
@@ -20,7 +20,7 @@ and its content fills the layout's slots, in the head and in the body.
   <slot name="head"></slot>
 </head>
 <body>
-  <site-header data-sn-prop="{ nav }"></site-header>
+  <site-header data-sn-with="{ nav }"></site-header>
   <main><slot></slot></main>
   <footer><slot name="footer">© 2026 My Blog</slot></footer>
 </body>
@@ -30,7 +30,7 @@ and its content fills the layout's slots, in the head and in the body.
 ```html
 <!-- post.html: the whole page -->
 <site-layout data-sn-path="/post/:slug"
-  data-sn-prop="{ nav: 'post', title: post?.title, description: post?.summary }">
+  data-sn-with="{ nav: 'post', title: post?.title, description: post?.summary }">
   <sn-resource name="post" src="/api/posts/{$url.slug}" items="post"></sn-resource>
   <meta slot="seo" property="og:type" content="article">
   <link slot="head" rel="stylesheet" href="./post.css">
@@ -72,13 +72,13 @@ hand. Nothing of the layout is left at run time.
 - The tag's children fill the slots: `slot="seo"` goes into `<slot name="seo">`, the rest into the
   default slot. A head element (`<title>`, `<meta>`, `<link>`, `<base>`) needs a head slot: given to
   the body, it is `SN320`. A slot takes every child that names it, in order.
-- `data-sn-prop` passes the layout's props, evaluated in the page's scope: they can read the page's
+- `data-sn-with` passes the layout's props, evaluated in the page's scope: they can read the page's
   resources.
 - `data-sn-state` on the tag is the page's state. The props and all the content the page passes in
   see it, in the head and the body; the layout's markup does not.
 
   ```html
-  <site-layout data-sn-state="{ tab: 'all' }" data-sn-prop="{ nav: 'home', title: tab == 'all' ? 'All' : 'Mine' }">
+  <site-layout data-sn-state="{ tab: 'all' }" data-sn-with="{ nav: 'home', title: tab == 'all' ? 'All' : 'Mine' }">
   ```
 
 - The tag's attributes go onto `<html>`. A plain one (`lang`, `dir`, `data-theme`) replaces the

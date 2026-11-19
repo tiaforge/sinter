@@ -146,7 +146,7 @@ A component is an HTML file in `src/components/`. Its file name is its tag:
 ```html
 <!-- any page -->
 <template data-sn-for="c in contacts">
-  <contact-card data-sn-prop="{ contact: c }" data-sn-on-pick="open = $event.detail">
+  <contact-card data-sn-with="{ contact: c }" data-sn-on-pick="open = $event.detail">
     <small slot="meta" data-sn-text="c.email"></small>
   </contact-card>
 </template>

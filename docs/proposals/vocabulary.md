@@ -189,12 +189,19 @@ The docs call the concept write-through everywhere; the attribute should say so.
 It is a loop, and its name clashed with pagination's `page()` and `$meta.pages`:
 `<html data-sn-for="p in posts" data-sn-path="/blog/:slug">`.
 
+### 12. `data-sn-prop` is `data-sn-with`
+
+With the declaration named `data-sn-props` (the familiar pair with `data-sn-emits`), passing values
+was one letter away. The passing side gives way: `<contact-card data-sn-with="{ contact: c }">`,
+`<slot name="cell" data-sn-with="{ row }">`, `<x-chart data-sn-with="{ data }">`. One meaning
+throughout: the values given to what the tag stands for.
+
 ## Looked at and kept
 
 - `data-sn-wait`: already automatic. The build hides what follows a content-sized box by itself; the
   attribute is only the `off` switch, with `SN529` reporting the shift.
-- `data-sn-prop`: its meanings are one idea, the values given to the thing (a custom element, a
-  component, a slot's fill). A tree placement is a slot with values that its own component does not
+- `data-sn-with` (was `data-sn-prop`): its meanings are one idea, the values given to the thing (a
+  custom element, a component, a slot's fill). A tree placement is a slot with values that its own component does not
   declare, and `SN535` catches near-misses.
 - `data-sn-import` and `data-sn-preload`: they are apart on purpose. Preloading competes with the page
   bundle on a slow network, and docs/lazy.md measures both; folding one into the other would preload

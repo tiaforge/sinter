@@ -136,7 +136,7 @@ const AUGMENTS = /\binterface\s+(HTMLElementTagNameMap|SinterElementEvents)\b/;
 
 /**
  * The app's modules under `src/` that declare custom elements for \`HTMLElementTagNameMap\` or their
- * events for \`SinterElementEvents\` (an island's class with \`declare global\`): \`$el\`, \`data-sn-prop\`
+ * events for \`SinterElementEvents\` (an island's class with \`declare global\`): \`$el\`, \`data-sn-with\`
  * and \`$event.detail\` are typed by them.
  */
 export function augmentations(root: string): string[] {

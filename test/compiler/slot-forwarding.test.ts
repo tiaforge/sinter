@@ -13,7 +13,7 @@ const errors = (out: ReturnType<typeof run>) => out.diagnostics.filter((d) => d.
 
 const SEO = '<template data-sn-props="{ title?: string }"><title data-sn-text="title ?? \'Blog\'">Blog</title><slot name="extra"><meta name="x" content="seo-fallback"></slot></template>';
 const LAYOUT = `<!doctype html><html data-sn-props="{ title?: string }"><head>
-<seo-tags data-sn-prop="{ title }"><slot name="seo" slot="extra"></slot></seo-tags>
+<seo-tags data-sn-with="{ title }"><slot name="seo" slot="extra"></slot></seo-tags>
 </head><body><x-card><slot name="aside" slot="side"><em>layout fallback</em></slot></x-card><main><slot></slot></main></body></html>`;
 const CARD = '<template data-sn-props=""><section><div class="side"><slot name="side">card fallback</slot></div><slot></slot></section></template>';
 const files = { 'layouts/site-layout.html': LAYOUT, 'components/seo-tags.html': SEO, 'components/x-card.html': CARD };

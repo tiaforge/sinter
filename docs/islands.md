@@ -42,7 +42,7 @@ export class TaskRing extends TaskRingComponent {
 
 ```html
 <!-- any page -->
-<task-ring data-sn-prop="{ done: doneCount(tasks), open: openCount(tasks) }"
+<task-ring data-sn-with="{ done: doneCount(tasks), open: openCount(tasks) }"
            data-sn-on-pick="show = $event.detail"></task-ring>
 ```
 
@@ -88,7 +88,7 @@ may commit it or git-ignore it; the starter template commits it. Types it names 
 ## Plain custom elements
 
 Your own or third-party web components keep working without a component file: data goes in through
-properties (`data-sn-prop`), events come out as DOM events. The rest of this page is about them.
+properties (`data-sn-with`), events come out as DOM events. The rest of this page is about them.
 
 An example:
 
@@ -107,7 +107,7 @@ An example:
   </ul>
 
   <template data-sn-if="selected">
-    <mail-reader data-sn-prop="{message: selected, readonly: !selected.can_edit}"
+    <mail-reader data-sn-with="{message: selected, readonly: !selected.can_edit}"
                  data-sn-on-reader-flag="merge(selected, {is_flagged: $event.detail})"
                  data-sn-on-reader-note="draft = $event.detail"></mail-reader>
     <p>Note: <span data-sn-text="draft.length"></span> characters</p>
@@ -133,7 +133,7 @@ class MailReader extends HTMLElement {
     this.replaceChildren(this.#title, this.#flag, this.#note);
   }
 
-  // sinter assigns these from data-sn-prop, each time the value changes
+  // sinter assigns these from data-sn-with, each time the value changes
   set message(m) {
     this.#message = m;
     this.#title.textContent = m.subject;
@@ -151,11 +151,11 @@ customElements.define('mail-reader', MailReader);
 ```
 The round trip:
 
-1. Clicking a row sets `selectedId`; `selected` is derived from the resource, so it is always the current item. `data-sn-prop` assigns `message` and `readonly` on the island, and its setters update the
+1. Clicking a row sets `selectedId`; `selected` is derived from the resource, so it is always the current item. `data-sn-with` assigns `message` and `readonly` on the island, and its setters update the
    elements it built.
 2. Clicking Flag dispatches `reader-flag` with the new value. The template's handler calls
    `merge(selected, {...})`, which updates the resource, so the `flagged` label in the
-   list changes, and `selected` is the patched item, which `data-sn-prop` passes to the island again, and it
+   list changes, and `selected` is the patched item, which `data-sn-with` passes to the island again, and it
    re-renders with "Unflag".
 3. Typing dispatches `reader-note` with the text. The handler writes it to the `draft` state, and the
    `<span data-sn-text="draft.length">` next to the island updates on every keystroke.
@@ -165,7 +165,7 @@ through properties and out through events, never through the DOM in between.
 
 ### Data in
 
-`data-sn-prop` takes an object literal and assigns each entry as a JavaScript property, so the
+`data-sn-with` takes an object literal and assigns each entry as a JavaScript property, so the
 island receives objects and arrays, not strings. It works on custom elements only.
 
 The island's module may define the element after the page has mounted (a lazy `import()`). Values
