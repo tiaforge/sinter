@@ -25,7 +25,7 @@ const SPEC = { file: '/p/openapi.json', doc: {
   components: { schemas: { Contact: { type: 'object', properties: { id: { type: 'integer' }, name: { type: 'string' }, starred: { type: 'boolean' } } } } },
 } };
 
-interface Opts { check?: boolean; openapi?: boolean; complexity?: ComplexityOptions; checkCycles?: boolean; collections?: boolean }
+interface Opts { check?: boolean; openapi?: boolean; complexity?: ComplexityOptions; checkCycles?: boolean; collections?: boolean; helpers?: string[] }
 
 function diags(html: string, o: Opts = {}) {
   return compile(html, {
@@ -33,7 +33,7 @@ function diags(html: string, o: Opts = {}) {
     readFile: (p) => { if (!(p in files)) throw new Error('missing'); return files[p]!; },
     listFiles: (d) => Object.keys(files).filter((f) => f.startsWith(d.replace(/\/$/, '') + '/')),
     ...(o.collections ? { collections: new Map() } : {}),
-    helpers: { module: '/h.js', names: ['fmt'], namespaces: { m: { module: '/m.js', members: ['inbox_title'] } } },
+    helpers: { module: '/h.js', names: ['fmt', ...(o.helpers ?? [])], namespaces: { m: { module: '/m.js', members: ['inbox_title'] } } },
   }).diagnostics;
 }
 
@@ -45,6 +45,8 @@ const use = '<p data-sn-text="contacts.length + messages.length"></p>';
 const cases: Array<[string, string, RegExp, Opts?]> = [
   ['SN101', '<p data-sn-txt="1"></p>', /`data-sn-txt` is not a sinter attribute. Did you mean `data-sn-text`\?/],
   ['SN101', '<button data-sn-get="/api/x"></button>', /`data-sn-get` is gone: data a GET loads is a resource/],
+  ['SN201', `${R}${use}<template data-sn-for="c in contacts"><b data-sn-on-click="patch(c, {})"></b></template>`, /`patch\(\)` is renamed to `merge\(\)`/],
+  ['SN201', '<b data-sn-on-click="merge(x, {})"></b>', /`merge` is both a store function and a helper/, { helpers: ['merge'] }],
   ['SN201', '<form data-sn-post="/api/x" data-sn-then="reset()"></form>', /`reset\(\)` is gone: a form's fields follow their `data-sn-model` state/],
   ['SN102', '<div data-sn-for="x in [1]"></div>', /`data-sn-for` must be on a `<template>`/],
   ['SN103', '<template data-sn-for="x in [1, 2]"><i></i></template>', /needs `data-sn-key`/],
@@ -54,8 +56,8 @@ const cases: Array<[string, string, RegExp, Opts?]> = [
   ['SN201', `${R}${use}<p data-sn-text="contcts.length"></p>`, /`contcts` is not defined here. Did you mean `contacts`\?/],
   ['SN202', '<p data-sn-text="window.x"></p>', /`window` is a browser API/],
   ['SN203', '<div data-sn-state="{a: 1}"><p data-sn-text="a = 2"></p></div>', /value expressions cannot assign; move this to `data-sn-on-\*`/],
-  ['SN204', '<div data-sn-state="{a: 1}"><button data-sn-post="/x" data-sn-optimistic="a = 2"></button></div>', /may only call `patch`, `upsert`, `remove`/],
-  ['SN205', `${R}${use}<template data-sn-for="m in messages"><button data-sn-on-click="m.is_read = true"></button></template>`, /`m.is_read` mutates a resource. Use `patch\(m, \{…\}\)`/],
+  ['SN204', '<div data-sn-state="{a: 1}"><button data-sn-post="/x" data-sn-optimistic="a = 2"></button></div>', /may only call `merge`, `upsert`, `remove`/],
+  ['SN205', `${R}${use}<template data-sn-for="m in messages"><button data-sn-on-click="m.is_read = true"></button></template>`, /`m.is_read` mutates a resource. Use `merge\(m, \{…\}\)`/],
   ['SN206', '<p data-sn-text="m.inbox_titel()"></p>', /`m.inbox_titel` is not exported by namespace `m`. Did you mean `inbox_title`\?/],
   ['SN207', '<a data-sn-attr="{onclick: 1}"></a>', /`onclick` cannot be bound with `data-sn-attr`; use `data-sn-on-click`/],
   ['SN209', '<div data-sn-state="{ s: 1 }" data-sn-let="{ s: 2 }"><p data-sn-text="s"></p></div>', /`s` is already defined here; use another name/],
@@ -113,8 +115,8 @@ const cases: Array<[string, string, RegExp, Opts?]> = [
   ['SN519', '<sn-resource name="a" src="/api/a?tag={$url.tag}" items="a" key="id" paginate="offset" page-size="2" page-model="$url.page"></sn-resource><p data-sn-text="a.length"></p><a href="?page=2">2</a>', /`\?page=2` keeps only its own query: `tag`, which this page reads, is dropped when it is followed/],
   ['SN515', '<!doctype html><html data-sn-path="/page/"><head></head><body></body></html>', /`data-sn-path="\/page\/"` is the URL this page has anyway/],
   ['SN505', '<sn-resource name="c" src="/api/c?qq=1" items="contacts"></sn-resource><p data-sn-text="c"></p>', /`GET \/api\/c` declares no query parameter `qq`. Did you mean `q`\?/, { openapi: true }],
-  ['SN510', `<sn-resource name="c" src="/api/c" items="contacts" key="id"></sn-resource><template data-sn-for="x in c"><button data-sn-post="/api/c/{x.id}/star" data-sn-then="patch(x, $result.contact)"></button></template>`,
-    /`patch\(x, \$result\.contact\)` is what write-through does: the response of `POST \/api\/c\/\{id\}\/star` is `Contact`, which `c` holds; remove this write, or add `data-sn-apply="off"` to keep it/, { openapi: true }],
+  ['SN510', `<sn-resource name="c" src="/api/c" items="contacts" key="id"></sn-resource><template data-sn-for="x in c"><button data-sn-post="/api/c/{x.id}/star" data-sn-then="merge(x, $result.contact)"></button></template>`,
+    /`merge\(x, \$result\.contact\)` is what write-through does: the response of `POST \/api\/c\/\{id\}\/star` is `Contact`, which `c` holds; remove this write, or add `data-sn-apply="off"` to keep it/, { openapi: true }],
 ];
 
 /** Codes that do not come from compile(): `sinter check` runs TypeScript (SN208), loading a spec fails (SN307). Fixtures in test/check. */
@@ -514,7 +516,7 @@ describe('expressions', () => {
     expect(codes('<div data-sn-state="{ u: \'a\' }"><button data-sn-post="/api/notes" data-sn-body="u + \'!\'"></button></div>')).not.toContain('SN531');
     expect(codes('<div data-sn-state="{ q: \'a\' }"><sn-resource name="found" src="/api/find" method="POST" body="JSON.stringify({ q })"></sn-resource><p data-sn-text="found"></p></div>')).toContain('SN531');
   });
-  test('resource mutators are SN205 with the patch() hint', () => {
+  test('resource mutators are SN205 with the merge() hint', () => {
     const d = diags(`${R}${use}<button data-sn-on-click="contacts.push(1)"></button>`);
     expect(d.find((x) => x.code === 'SN205')).toBeDefined();
   });
@@ -648,14 +650,14 @@ describe('SN507 complex expressions', () => {
 describe('SN516: $meta.<resource>.live of a resource no stream feeds', () => {
   const R = '<sn-resource name="c" src="/api/c" items="contacts" key="id"></sn-resource>';
   const badge = '<p data-sn-text="$meta.c.live"></p>';
-  const sync = '<sn-sync src="/api/events"><sn-event name="x" resource="c" op="refetch"></sn-event></sn-sync>';
+  const sync = '<sn-sync src="/api/events"><sn-event name="x" resource="c" op="refresh"></sn-event></sn-sync>';
   const codes = (html: string) => diags(html).map((d) => d.code);
   test('no warning when an <sn-event> names the resource, wherever the sync is on the page', () => {
     expect(codes(R + sync + badge)).not.toContain('SN516');
     expect(codes(badge + R + sync)).not.toContain('SN516');
   });
   test('a sync whose events name another resource, or only run `then`, does not feed it', () => {
-    expect(codes(R + '<sn-sync src="/api/events"><sn-event name="x" resource="d" op="refetch"></sn-event></sn-sync>' + badge)).toContain('SN516');
+    expect(codes(R + '<sn-sync src="/api/events"><sn-event name="x" resource="d" op="refresh"></sn-event></sn-sync>' + badge)).toContain('SN516');
     expect(codes(R + '<sn-sync src="/api/events"><sn-event name="x" then="1"></sn-event></sn-sync>' + badge)).toContain('SN516');
   });
 });

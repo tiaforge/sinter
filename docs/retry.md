@@ -37,7 +37,7 @@ configure({
 
 ```html
 <form data-sn-put="/api/notes/{note.id}" data-sn-retry="drafts" data-sn-concurrency="latest"
-      data-sn-optimistic="patch(note, draft)">
+      data-sn-optimistic="merge(note, draft)">
 ```
 
 | Policy field | Default | Meaning |

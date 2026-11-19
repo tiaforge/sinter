@@ -108,11 +108,11 @@ describe('the fill: $slot', () => {
   test('a list with custom rows: the fill writes the caller\'s state and patches the row in its resource', () => {
     const out = run(`<sn-resource name="todos" src="/api/todos" key="id"></sn-resource>
       <div data-sn-state="{ picked: null }"><x-list data-sn-prop="{ items: todos }">
-        <li slot="row" data-sn-class="{ done: $slot.item.done }" data-sn-on-click="picked = $slot.item.id; patch($slot.item, { done: !$slot.item.done })" data-sn-text="$slot.item.title"></li>
+        <li slot="row" data-sn-class="{ done: $slot.item.done }" data-sn-on-click="picked = $slot.item.id; merge($slot.item, { done: !$slot.item.done })" data-sn-text="$slot.item.title"></li>
       </x-list></div>`, { 'x-list': LIST });
     expect(errors(out)).toEqual([]);
     expect(out.module).toContain('$.$s0.picked = $.it.id');
-    expect(out.module).toMatch(/\$\.\$f\.patch\(\["todos"\], \$\.it, \{ done: !\$\.it\.done \}\)/);
+    expect(out.module).toMatch(/\$\.\$f\.merge\(\["todos"\], \$\.it, \{ done: !\$\.it\.done \}\)/);
   });
 
   test('`$slot` outside a fill, and a key the placement does not pass: SN201', () => {

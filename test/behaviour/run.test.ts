@@ -25,7 +25,7 @@ describe('run(): starting an action from a handler', () => {
       <main data-sn-state="{ open: null, error: '' }">
         <sn-resource name="messages" src="/api/messages" key="id"></sn-resource>
         <span hidden id="mark-read" data-sn-call="mail.markRead(open)"
-              data-sn-optimistic="patch(open, {is_read: true})" data-sn-catch="error = $error.message"></span>
+              data-sn-optimistic="merge(open, {is_read: true})" data-sn-catch="error = $error.message"></span>
         <sn-resource name="body" call="mail.body(open)" when="open"
                      then="$result && !open.is_read && run('mark-read')"></sn-resource>
         <template data-sn-for="m in messages"><li data-sn-class="{unread: !m.is_read}" data-sn-on-click="open = m"></li></template>
@@ -240,7 +240,7 @@ describe('run() diagnostics', () => {
   test('a store function: not in values or optimistic changes; a resource cannot be called run', () => {
     expect(diags(`<span id="a" data-sn-post="/x"></span><p data-sn-text="run('a')"></p>`)).toEqual(['SN203 value expressions cannot call `run()`; move it to a handler']);
     expect(diags(`<span id="a" data-sn-post="/x"></span><button data-sn-post="/y" data-sn-optimistic="run('a')"></button>`))
-      .toEqual([expect.stringMatching(/^SN204 `data-sn-optimistic` may only call `patch`, `upsert`, `remove`/)]);
+      .toEqual([expect.stringMatching(/^SN204 `data-sn-optimistic` may only call `merge`, `upsert`, `remove`/)]);
     expect(diags('<sn-resource name="run" src="/x"></sn-resource>')).toContain('SN209 `run` is a store function (`run()`); a resource cannot take its name');
   });
 

@@ -1043,7 +1043,7 @@ class Compiler {
   private readonly includeOf = new WeakMap<object, IncludeRec>();
   private readonly includeTop = new WeakMap<object, IncludeRec>();
   private readonly includes: IncludeRec[] = [];
-  /** `patch()`/`remove()` sources: what handlers assign to state paths and components emit, by reference (`@$s3.sel`, `@ev:2:select`) */
+  /** `merge()`/`remove()` sources: what handlers assign to state paths and components emit, by reference (`@$s3.sel`, `@ev:2:select`) */
   private readonly srcOf = new Map<string, Set<string>>();
   /** calls whose sources hold references, resolved after the walk */
   /** write-through targets whose row's source is a reference: added once it is resolved */
@@ -5008,7 +5008,7 @@ class Compiler {
   }
 
   /**
-   * The sources of `patch()`/`remove()` items that are state (`sel`) or a component's event detail:
+   * The sources of `merge()`/`remove()` items that are state (`sel`) or a component's event detail:
    * the resources assigned to them anywhere on the page, followed through other references. A
    * reference no assignment gives a resource is SN317.
    */
@@ -5685,7 +5685,7 @@ class Compiler {
   }
 
   /**
-   * `SN510`: a `then` write that write-through makes: `patch(item, $result.p)` (an item of `x`)/`upsert('x', $result.p)`
+   * `SN510`: a `then` write that write-through makes: `merge(item, $result.p)` (an item of `x`)/`upsert('x', $result.p)`
    * where the response's `p` is an object of `x`'s schema (an upsert also needs the action's URL to be the
    * list's URL, judged by the literal parts), and `remove(row)` on a DELETE of that row's URL.
    */
@@ -5699,7 +5699,7 @@ class Compiler {
     const visit = (n: acorn.AnyNode) => {
       const fn = n.type === 'CallExpression' && n.callee.type === 'Identifier' ? n.callee.name : null;
       // upsert names its resource; patch and remove take the item, whose one source is the resource
-      const item = fn === 'patch' || fn === 'remove' ? then.itemCalls?.find((c) => c.start === n.start)?.src : null;
+      const item = fn === 'merge' || fn === 'remove' ? then.itemCalls?.find((c) => c.start === n.start)?.src : null;
       const name = fn === 'upsert' && n.type === 'CallExpression' && n.arguments[0]?.type === 'Literal' && typeof n.arguments[0].value === 'string' ? n.arguments[0].value
         : item?.length === 1 && !item[0]!.startsWith('@') ? item[0]! : null;
       if (n.type === 'CallExpression' && fn && name) {
@@ -5709,8 +5709,8 @@ class Compiler {
         const resultPath = value && value.type === 'MemberExpression' && !value.computed && value.object.type === 'Identifier' && value.object.name === '$result' && value.property.type === 'Identifier' ? value.property.name
           : value && value.type === 'Identifier' && value.name === '$result' ? '' : null;
         const entry = resultPath != null ? ap.rs?.find((e) => e.p === resultPath && !e.a) : undefined;
-        if (r && entry && r.sch === entry.s && fn === 'patch' && (r.key || ap.tg.some((t) => t.r === name && t.s === entry.s))) {
-          this.report(el, 'data-sn-then', 'SN510', `\`patch(${itemText}, $result${resultPath ? '.' + resultPath : ''})\` is what write-through does: ${op} is \`${entry.s}\`, which \`${name}\` holds; ${fix}`, n.start);
+        if (r && entry && r.sch === entry.s && fn === 'merge' && (r.key || ap.tg.some((t) => t.r === name && t.s === entry.s))) {
+          this.report(el, 'data-sn-then', 'SN510', `\`merge(${itemText}, $result${resultPath ? '.' + resultPath : ''})\` is what write-through does: ${op} is \`${entry.s}\`, which \`${name}\` holds; ${fix}`, n.start);
         } else if (r && entry && r.sch === entry.s && fn === 'upsert' && r.key && sameUrl(name)) {
           this.report(el, 'data-sn-then', 'SN510', `\`upsert('${name}', $result${resultPath ? '.' + resultPath : ''})\` is what write-through does: a POST to \`${name}\`'s URL inserts ${op}'s \`${entry.s}\`; ${fix}`, n.start);
         } else if (r && fn === 'remove' && method === 'delete' && value?.type === 'Identifier' && ap.tg.some((t) => t.r === name && t.v === (value as acorn.Identifier).name && !t.p) && rowUrl(name)) {
@@ -6573,8 +6573,9 @@ class Compiler {
       this.report(el, 'resource', 'SN301', `resource \`${resource ?? ''}\` is not declared on this page.${didYouMean(resource ?? '', this.page.resources.keys())}`, 0);
       return null;
     }
-    if (!only && (!op || !['upsert', 'patch', 'remove', 'refetch'].includes(op))) {
-      this.report(el, 'op', 'SN401', '`op` is `upsert`, `patch`, `remove` or `refetch`', 0);
+    if (!only && (!op || !['upsert', 'merge', 'remove', 'refresh'].includes(op))) {
+      const was = { patch: 'merge', refetch: 'refresh' }[op as string];
+      this.report(el, 'op', 'SN401', was ? `\`op="${op}"\` is renamed to \`op="${was}"\`` : '`op` is `upsert`, `merge`, `remove` or `refresh`', 0);
       return null;
     }
     const scope = ctx.scope;
@@ -6599,14 +6600,14 @@ class Compiler {
     const item = fnOf('item');
     const set = fnOf('set', true);
     if (item !== null && op !== 'upsert') this.report(el, 'item', 'SN102', '`item` applies to `op="upsert"`', 0);
-    if (set !== null && op !== 'patch') this.report(el, 'set', 'SN102', '`set` applies to `op="patch"`', 0);
-    if (op === 'patch' && set === null) this.report(el, null, 'SN401', '`op="patch"` needs `set`', 0);
+    if (set !== null && op !== 'merge') this.report(el, 'set', 'SN102', '`set` applies to `op="merge"`', 0);
+    if (op === 'merge' && set === null) this.report(el, null, 'SN401', '`op="merge"` needs `set`', 0);
     const fallback = attr(el, 'fallback');
-    if (fallback != null && fallback !== 'refetch') this.report(el, 'fallback', 'SN401', '`fallback` takes `refetch`', 0);
+    if (fallback != null && fallback !== 'refresh') this.report(el, 'fallback', 'SN401', fallback === 'refetch' ? '`fallback="refetch"` is renamed to `fallback="refresh"`' : '`fallback` takes `refresh`', 0);
     const when = fnOf('when');
     const then = fnOf('then');
     return {
-      name, resource, op, item, set, when, fallback: fallback === 'refetch' ? 'refetch' : null,
+      name, resource, op, item, set, when, fallback: fallback === 'refresh' ? 'refresh' : null,
       ...(then !== null ? { then, ...(writes.length ? { w: writes } : {}) } : {}),
     };
   }

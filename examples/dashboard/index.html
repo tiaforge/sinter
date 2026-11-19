@@ -40,7 +40,7 @@
           <!-- Optimistic: shows paused at once, and is taken back if the PATCH fails. The 200 response replaces the service. -->
           <button slot="actions" data-variant="ghost" data-size="sm"
                   data-sn-patch="/services/{s.id}" data-sn-body="{ paused: !s.paused }"
-                  data-sn-optimistic="patch(s, { paused: !s.paused })"
+                  data-sn-optimistic="merge(s, { paused: !s.paused })"
                   data-sn-text="s.paused ? 'Resume' : 'Pause'"></button>
         </service-card>
       </template>

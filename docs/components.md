@@ -194,7 +194,7 @@ custom rows. The slot is a member of type `Slot<T>` in the props type, and `T` i
   starts an `if`/`else` chain (`<template slot="cell" data-sn-if="…">…</template><template
   data-sn-else>…</template>`). The fill sees the caller's scope plus `$slot`, the values of its
   placement, as a handler sees `$event`. `$slot.row` is the row the component got from its prop, so
-  `patch($slot.row, …)` and `remove($slot.row)` act on the caller's resource. Inside a fill for
+  `merge($slot.row, …)` and `remove($slot.row)` act on the caller's resource. Inside a fill for
   another component, the inner `$slot` hides the outer one; keep the outer value with
   `data-sn-let="{ outer: $slot.row }"` on the outer fill.
 - Whether a slot is filled cannot be tested in the component: an unfilled placement shows its default.
@@ -450,7 +450,7 @@ tree, a nested menu.
   content. An inner use's plain attributes, `data-sn-class`, `-attr`, `-style`, `-show` and handlers
   reach the root its instance renders: they are compiled where the tag is written and passed with
   its props. Other sinter attributes on it are `SN102`.
-- **Nested items are changed along their path.** `patch(r, …)` and `remove(r)` for `r in
+- **Nested items are changed along their path.** `merge(r, …)` and `remove(r)` for `r in
   comment.replies` act on `r` inside its top-level row, at any depth: the objects along the path are
   replaced, and every view of that row updates. Nested items are matched by the resource's key, so
   give nested loops `data-sn-key`. `upsert(c.replies, x)` adds `x` to a nested list (or replaces the item

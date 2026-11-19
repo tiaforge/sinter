@@ -18,7 +18,7 @@ test(`store, ${N} items ordered by name`, () => {
   };
   measure(`store, ${N} items ordered by name (one write or burst, then one read)`, [
     { name: 'upsert one (new name)', setup, run: () => { r.upsert({ id: i % N, name: `renamed ${i++}`, score: 1 }); r.value(); } },
-    { name: 'patch one (field outside the order)', setup, run: () => { r.patch(String(i++ % N), { score: i }); r.value(); } },
+    { name: 'patch one (field outside the order)', setup, run: () => { r.merge(String(i++ % N), { score: i }); r.value(); } },
     // capped, so the list never runs out of items
     { name: 'remove one', setup, runs: 2000, run: () => { r.remove(String(i++ % N)); r.value(); } },
     { name: 'burst of 50 upserts', setup, run: () => { for (let j = 0; j < 50; j++) r.upsert({ id: i++ % N, name: `renamed ${i}`, score: 1 }); r.value(); } },

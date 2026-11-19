@@ -464,7 +464,7 @@ export type NoPageNumber = 'a keyset resource takes a direction; add offset-para
 export interface Store<R, D extends string = never> {
   refresh(...names: [keyof R & string, ...(keyof R & string)[]]): void;
   upsert<K extends keyof R & string>(name: K, item: Item<R[K]>): void;
-  patch<T>(item: T, set: Partial<NonNullable<T>>): void;
+  merge<T>(item: T, set: Partial<NonNullable<T>>): void;
   remove(item: unknown): void;
   page<K extends keyof R & string>(name: K, to: [Extract<K, D>] extends [never] ? Direction | number : Direction | NoPageNumber): void;
   showModal(id: string): void;

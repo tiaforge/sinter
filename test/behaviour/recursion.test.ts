@@ -6,7 +6,7 @@ import { firstPaint, mockRequests, render } from '../../src/testing/index.js';
 
 const THREAD = `<template data-sn-component="{ comment: { id: number; body: string; replies: any[] } }">
   <li>
-    <p data-sn-text="comment.body" data-sn-on-click="patch(comment, { body: comment.body + '!' })"></p>
+    <p data-sn-text="comment.body" data-sn-on-click="merge(comment, { body: comment.body + '!' })"></p>
     <button data-sn-on-click="remove(comment)">x</button>
     <button class="reply" data-sn-on-click="upsert(comment.replies, { id: comment.id * 10, body: 're ' + comment.body, replies: [] })">+</button>
     <ul>

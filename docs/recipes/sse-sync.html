@@ -2,7 +2,7 @@
 
 <main data-sn-state="{ sel: null }">
   <sn-sync src="/api/events">
-    <sn-event name="person_updated" resource="people" op="upsert" item="person" fallback="refetch"></sn-event>
+    <sn-event name="person_updated" resource="people" op="upsert" item="person" fallback="refresh"></sn-event>
     <!-- after the removal: close the dialog if it shows that person (closing clears `sel`) -->
     <sn-event name="person_removed" resource="people" op="remove"
               then="sel?.id === id && close('person')"></sn-event>

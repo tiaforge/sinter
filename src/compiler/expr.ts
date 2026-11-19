@@ -22,12 +22,12 @@ export interface LoopEntry {
   of?: string[] | null;
   /** the name the runtime gives it, when not `name`: loops inside a component, so a prop read in them cannot be shadowed */
   rt?: string;
-  /** item: the resources its list is (see `Sources`): where `patch(item, …)` and `remove(item)` act */
+  /** item: the resources its list is (see `Sources`): where `merge(item, …)` and `remove(item)` act */
   src?: string[] | null;
 }
 
 /**
- * Where an item or a list comes from, for `patch(item, …)` and `remove(item)`: resource names, and
+ * Where an item or a list comes from, for `merge(item, …)` and `remove(item)`: resource names, and
  * references the compiler resolves once the page is compiled: `@$s3.sel` (what handlers assign to
  * a state path) and `@ev:<use>:<event>` (what a component emits). `!<helper>`: a helper that takes
  * more than one resource, whose rows have no single source.
@@ -82,7 +82,7 @@ export interface SlotScope {
   component: string;
   /** `$slot` as a whole: the object the placement passes */
   whole: LetEntry;
-  /** `$slot.<key>`: each value, with its sources, so `patch($slot.row, …)` acts on the caller's resource */
+  /** `$slot.<key>`: each value, with its sources, so `merge($slot.row, …)` acts on the caller's resource */
   members: Map<string, LetEntry>;
 }
 
@@ -223,9 +223,9 @@ export interface ExprResult {
   assigns?: Array<{ path: string; src: Sources }>;
   /** `emit(event, item)`: the item's sources, by event */
   emitted?: Array<{ event: string; src: Sources }>;
-  /** every `patch()`/`remove()` call, at its start, with its item's sources */
+  /** every `merge()`/`remove()` call, at its start, with its item's sources */
   itemCalls?: Array<{ start: number; src: Sources }>;
-  /** `patch()`/`remove()` calls whose item has sources the compiler resolves later (references), at `offset` */
+  /** `merge()`/`remove()` calls whose item has sources the compiler resolves later (references), at `offset` */
   srcRefs?: Array<{ fn: string; offset: number; src: Sources; text: string }>;
 }
 
@@ -269,9 +269,10 @@ const NAME_FORMS = 'a string literal, `?:`, `||` or `??` between them, or a `dat
 
 const EVERYWHERE_MAGIC = ['$el', '$url', '$now', '$locale', '$meta'];
 export const ALL_MAGIC = ['$event', '$el', '$url', '$now', '$locale', '$result', '$error', '$meta'];
-export const STORE_FNS = ['refresh', 'upsert', 'patch', 'remove', 'page', 'showModal', 'close', 'emit', 'run', 'navigate'];
+export const STORE_FNS = ['refresh', 'upsert', 'merge', 'remove', 'page', 'showModal', 'close', 'emit', 'run', 'navigate'];
 /** store functions that are gone or renamed (docs/proposals/vocabulary.md): what to write instead */
 const RETIRED_FNS: Record<string, string> = {
+  patch: '`patch()` is renamed to `merge()`, which says what it does (fields left out stay) and is not the HTTP method: `merge(item, {…})`',
   reset: '`reset()` is gone: a form\'s fields follow their `data-sn-model` state, so clear the state (`data-sn-then="draft = { title: \'\' }"`); `<button type="reset">` restores the fields and their models',
 };
 export const BUILTIN_HELPERS = ['date', 'time', 'datetime', 'relative', 'number', 'bytes'];
@@ -498,6 +499,10 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
       if (r) { r.used = true; return { kind: 'resource' }; }
     }
     // an <sn-event> `then` calls store functions; its value expressions do not
+    if (STORE_FNS.includes(name) && page.helpers.has(name)) {
+      report('SN201', `\`${name}\` is both a store function and a helper; rename the helper, which expressions cannot reach`, offset);
+      return null;
+    }
     if (STORE_FNS.includes(name) && (!opts.payload || mode === 'handler')) return { kind: 'store' };
     if (page.namespaces.has(name)) return { kind: 'ns' };
     if (page.helpers.has(name) || BUILTIN_HELPERS.includes(name)) return { kind: 'helper' };
@@ -888,7 +893,7 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
     const cp = chainPath(target, locals);
     if (!cp) { report('SN203', 'only state variables and their properties can be assigned', at); return; }
     if (cp.res.kind === 'let' && cp.root === '$slot') {
-      report('SN203', '`$slot` is what the placement passes, and cannot be assigned; change it with `patch()` on its item, or in the component', at);
+      report('SN203', '`$slot` is what the placement passes, and cannot be assigned; change it with `merge()` on its item, or in the component', at);
       return;
     }
     if (cp.res.kind === 'let') {
@@ -896,7 +901,7 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
       return;
     }
     if (cp.resource) {
-      report('SN205', `\`${src.slice(target.start, target.end)}\` mutates a resource. Use \`patch(${src.slice(target.start, target.end).replace(/\.[^.]*$/, '')}, {…})\``, at,
+      report('SN205', `\`${src.slice(target.start, target.end)}\` mutates a resource. Use \`merge(${src.slice(target.start, target.end).replace(/\.[^.]*$/, '')}, {…})\``, at,
         'resources are read-only in expressions; copy with structuredClone() to edit');
       return;
     }
@@ -933,7 +938,7 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
           }
           if (!READ_ONLY.has(method)) {
             if (recv.resource && MUTATORS.has(method)) {
-              report('SN205', `\`${src.slice(m.start, m.end)}()\` mutates a resource. Use \`patch(item, …)\` or copy with structuredClone()`, n.start);
+              report('SN205', `\`${src.slice(m.start, m.end)}()\` mutates a resource. Use \`merge(item, …)\` or copy with structuredClone()`, n.start);
             } else if (mode === 'value' && MUTATORS.has(method) && recv.segs && recv.res.kind === 'state') {
               report('SN203', `value expressions cannot change state; move \`${method}()\` to \`data-sn-on-*\``, n.start);
             } else if (mode === 'handler' && recv.segs && recv.res.kind !== 'magic' && !recv.resource) {
@@ -954,7 +959,7 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
           const target = n.arguments[0];
           const cp = OBJECT_MUTATORS.has(method) && target && (target.type === 'Identifier' || target.type === 'MemberExpression') ? chainPath(target as Node, locals) : null;
           if (cp) {
-            if (cp.resource) report('SN205', `\`Object.${method}(${src.slice(target!.start, target!.end)}, …)\` mutates a resource. Use \`patch(item, …)\` or copy with structuredClone()`, n.start);
+            if (cp.resource) report('SN205', `\`Object.${method}(${src.slice(target!.start, target!.end)}, …)\` mutates a resource. Use \`merge(item, …)\` or copy with structuredClone()`, n.start);
             else if (cp.segs && cp.res.kind === 'state') {
               if (mode === 'value') report('SN203', `value expressions cannot change state; move \`Object.${method}()\` to \`data-sn-on-*\``, n.start);
               else if (mode === 'handler') writes.add(track(cp, cp.segs, n).join('.'));
@@ -1008,7 +1013,7 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
       runCall(first, n);
       return;
     }
-    if (name === 'patch' || name === 'remove') {
+    if (name === 'merge' || name === 'remove') {
       itemCall(name, n, locals);
       return;
     }
@@ -1080,26 +1085,26 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
   }
 
   /**
-   * `patch(item, …)`, `remove(item)`: act on the item in the resource it came from, found by its key.
+   * `merge(item, …)`, `remove(item)`: act on the item in the resource it came from, found by its key.
    * The compiler passes the item's sources as a first argument the runtime reads (resource names;
    * references are resolved once the page is compiled). The forms with a resource name are removed.
    */
-  function itemCall(name: 'patch' | 'remove', n: acorn.CallExpression & Node, locals: Locals) {
+  function itemCall(name: 'merge' | 'remove', n: acorn.CallExpression & Node, locals: Locals) {
     const args = n.arguments as Node[];
     const first = args[0];
     const literal = (a: Node | undefined) => !!a && ((a.type === 'Literal' && typeof (a as acorn.Literal).value === 'string') || (a.type === 'TemplateLiteral' && !(a as acorn.TemplateLiteral).expressions.length));
-    if (literal(first) && args.length === (name === 'patch' ? 3 : 2)) {
+    if (literal(first) && args.length === (name === 'merge' ? 3 : 2)) {
       const rest = args.slice(1).map((a) => src.slice(a.start, a.end)).join(', ');
       report('SN317', `\`${name}()\` takes the item, not a resource name: \`${name}(${rest})\` acts on the resource the item came from`, first!.start,
         'drop the first argument; to change an item in a list other than its own, use refresh(\'name\') or leave it to write-through and server events');
       return;
     }
-    if (!first) { report('SN317', `\`${name}()\` takes the item it ${name === 'patch' ? 'changes, then the fields to set' : 'removes'}`, n.start); return; }
+    if (!first) { report('SN317', `\`${name}()\` takes the item it ${name === 'merge' ? 'changes, then the fields to set' : 'removes'}`, n.start); return; }
     const sources = itemSource(first, locals);
     const text = src.slice(first.start, first.end);
     if (!sources?.length) {
       const why = first.type === 'Identifier' && (first as acorn.Identifier).name === '$result'
-        ? 'with a spec, write-through already applies the response; else patch the row with `$result`\'s fields'
+        ? 'with a spec, write-through already applies the response; else merge into the row `$result`\'s fields'
         : opts.payload ? 'a server event\'s payload has no source: use `<sn-event resource op>`, which names its resource'
         : /\$event\b/.test(text) ? 'an island\'s event detail has no source: change the resource in the island through the instance API, which holds its handle'
         : 'pass a row of a `data-sn-for` over a resource, an element of one (`list[0]`), a single resource, a prop that is one, or state assigned from one of those';
@@ -1279,7 +1284,7 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
         return;
       case 'AssignmentExpression': {
         if (mode !== 'handler') {
-          report('SN203', mode === 'optimistic' ? '`data-sn-optimistic` may only call `patch`, `upsert`, `remove`' : 'value expressions cannot assign; move this to `data-sn-on-*`', n.start);
+          report('SN203', mode === 'optimistic' ? '`data-sn-optimistic` may only call `merge`, `upsert`, `remove`' : 'value expressions cannot assign; move this to `data-sn-on-*`', n.start);
           return;
         }
         if (n.left.type === 'ObjectPattern' || n.left.type === 'ArrayPattern') {
@@ -1365,10 +1370,10 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
     }
   }
 
-  // ---- optimistic: only patch/upsert/remove calls
+  // ---- optimistic: only merge/upsert/remove calls
   function checkOptimistic(e: Node) {
-    if (e.type !== 'CallExpression' || e.callee.type !== 'Identifier' || !['patch', 'upsert', 'remove'].includes(e.callee.name)) {
-      report('SN204', '`data-sn-optimistic` may only call `patch`, `upsert`, `remove`', e.start, 'local state and side effects cannot be rolled back; put them in `data-sn-then`');
+    if (e.type !== 'CallExpression' || e.callee.type !== 'Identifier' || !['merge', 'upsert', 'remove'].includes(e.callee.name)) {
+      report('SN204', '`data-sn-optimistic` may only call `merge`, `upsert`, `remove`', e.start, 'local state and side effects cannot be rolled back; put them in `data-sn-then`');
       return false;
     }
     return true;
@@ -1475,7 +1480,7 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
     if (!resource) { const c = choices(e); if (c && c.length > 1) resources = [...new Set(c)]; }
   }
 
-  // what the value is an item or a list of, for `patch()` and `remove()` through rows, lets and props
+  // what the value is an item or a list of, for `merge()` and `remove()` through rows, lets and props
   const value = body.length === 1 && !opts.object && mode === 'value' && ok ? body[0]! : null;
   const sources = value ? { itemOf: itemSource(value, root), listOf: listSource(value, root) } : {};
   return { ok, code, inner: out, deps: [...deps].sort(), writes: [...writes].sort(), usesEl, usesIndex, entries, path, resource, ast, ...sources,

@@ -375,7 +375,7 @@ export type Block = Para | Quote | Rule;
   test('sn-event: state around the sync is in scope; shadowing a typed payload field is an error', () => {
     const types = `${TYPES}export interface Refetch { mailbox: string; account_id: string }\n`;
     const sync = (when: string) => page(`<main data-sn-state="{ sel: 'inbox', account_id: 'a' }">
-<sn-sync src="/api/events"><sn-event name="r" resource="contacts" op="refetch" type="Refetch" when="${when}"></sn-event></sn-sync>
+<sn-sync src="/api/events"><sn-event name="r" resource="contacts" op="refresh" type="Refetch" when="${when}"></sn-event></sn-sync>
 <p data-sn-text="contacts.length + sel"></p></main>`);
     expect(run(sync('mailbox === sel'), { 'src/sinter.types.ts': types }).diagnostics).toEqual([]);
     expect(run(sync('mailbox === sel.lenght'), { 'src/sinter.types.ts': types }).diagnostics.map((d) => d.message))
@@ -551,8 +551,8 @@ export const initial = (c: Contact): string => (c.name[0] ?? '?').toUpperCase();
   test('loop index, state inside a row and store functions', () => {
     const html = page(`<ul><template data-sn-for="(c, i) in contacts"><li data-sn-state="{ first: i == 0 }">
   <b data-sn-text="first.toFixed()"></b>
-  <button data-sn-on-click="patch(c, { name: 'x' })">ok</button>
-  <button data-sn-on-click="patch(c, { nme: 'x' })">typo</button>
+  <button data-sn-on-click="merge(c, { name: 'x' })">ok</button>
+  <button data-sn-on-click="merge(c, { nme: 'x' })">typo</button>
 </li></template></ul>`);
     const r = run(html);
     expect(r.diagnostics.map((d) => [d.message.match(/TS\d+/)![0], d.line, d.col])).toEqual([
@@ -594,7 +594,7 @@ export const initial = (c: Contact): string => (c.name[0] ?? '?').toUpperCase();
 <sn-sync src="/api/events">
   <sn-event name="a" resource="contacts" op="upsert" item="contact" type="ContactEvent"></sn-event>
   <sn-event name="b" resource="contacts" op="upsert" item="id" type="ContactEvent"></sn-event>
-  <sn-event name="c" resource="contacts" op="patch" set="{ name: patch.name }" type="ContactEvent"></sn-event>
+  <sn-event name="c" resource="contacts" op="merge" set="{ name: patch.name }" type="ContactEvent"></sn-event>
   <sn-event name="d" resource="contacts" op="upsert" item="contct" type="ContactEvent"></sn-event>
   <sn-event name="e" resource="contacts" op="upsert" item="whatever" type="any"></sn-event>
 </sn-sync>`);

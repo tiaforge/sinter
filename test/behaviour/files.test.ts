@@ -95,7 +95,7 @@ describe('a file: resource', () => {
 
   test('SN332: file: is a resource\'s source only, not an action\'s or a stream\'s', () => {
     expect(errors(build('<button data-sn-post="file:./post.txt"></button>'))).toEqual([expect.stringMatching(/^SN332 `file:` is a source for `<sn-resource src>`.*An action sends a request/)]);
-    expect(errors(build('<sn-resource name="r" src="/api/r"></sn-resource><sn-sync src="file:./s"><sn-event name="x" resource="r" op="refetch"></sn-event></sn-sync><p data-sn-text="r"></p>'))).toEqual([expect.stringMatching(/^SN332 .*A stream sends a request/)]);
+    expect(errors(build('<sn-resource name="r" src="/api/r"></sn-resource><sn-sync src="file:./s"><sn-event name="x" resource="r" op="refresh"></sn-event></sn-sync><p data-sn-text="r"></p>'))).toEqual([expect.stringMatching(/^SN332 .*A stream sends a request/)]);
   });
 
   test('with sinter({ apis }): file: is read as a file, and `file` is a reserved API name (SN329)', async () => {

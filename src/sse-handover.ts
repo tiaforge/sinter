@@ -60,7 +60,7 @@ export function claim(app: App, url: string, heard: Set<string>, changed: () => 
   c.names = new Set([...(c.names ?? []), ...names]);
   c.seen = undefined;
   // its data came with its HTML, older than those events: fetched again (one loading already asks the server now)
-  for (const r of stale) { const x = app.resource(r); if (!x.meta.loading) void x.refetch(); }
+  for (const r of stale) { const x = app.resource(r); if (!x.meta.loading) void x.refresh(); }
   return c;
 }
 
@@ -97,7 +97,7 @@ function close(w: Window): void {
     const held = c.buf ?? [];
     c.buf = null;
     // more than the cap arrived: what the stream feeds is fetched again, as after a reconnect
-    if (c.lossy) { c.lossy = false; for (const r of new Set(c.subs.map(([e]) => e.resource))) if (r) void c.app.resource(r).refetch(); }
+    if (c.lossy) { c.lossy = false; for (const r of new Set(c.subs.map(([e]) => e.resource))) if (r) void c.app.resource(r).refresh(); }
     for (const [n, p] of held) c.event(n, p);
   }
 }

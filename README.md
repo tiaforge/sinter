@@ -114,7 +114,7 @@ contacts.html:11:70 error SN201 unknown-identifier: `qq` is not defined here. Di
 ```
 
 The same pass rejects code that would break at runtime: writing to server data
-(`c.name = 'x'` is `SN205`, use `patch(c, {...})`) and browser APIs inside expressions
+(`c.name = 'x'` is `SN205`, use `merge(c, {...})`) and browser APIs inside expressions
 (`localStorage` is `SN202`, use a component's script). With a `type` on the resource or your OpenAPI spec,
 `sinter check` also type-checks fields, request bodies and event payloads, so `article.titel`
 reports `Property 'titel' does not exist on type 'Article'. Did you mean 'title'?`.

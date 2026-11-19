@@ -343,7 +343,7 @@ Every attribute value that is not a URL or a name is a JavaScript expression, pa
 | Value | `text`, `attr`, `class`, `show`, `prop`, `for` (after `in`), `if`, `key`, `body`, `state`, URL interpolations | any expression: template strings, `?.`, `??`, arrow functions as arguments, `new` on allowed globals | assignment, `++`/`--`, `delete`, `await`, `import()` |
 | Handler | `on-*`, `then`, `catch`, `optimistic` | statements separated by `;`, assignment to state, calls to store functions | declarations, loops, `await` |
 
-A name resolves to the first match, innermost first: loop variables, state, resources, magic names (`$event`, `$el`, `$url`, `$now`, `$locale`, `$result`, `$error`, `$meta`), then helpers, namespaces and store functions (`refresh`, `upsert`, `patch`, `remove`, `page`, `showModal`, `close`, `reset`, `emit`, `run`), then allowed globals. Anything else is `SN201` with a suggestion.
+A name resolves to the first match, innermost first: loop variables, state, resources, magic names (`$event`, `$el`, `$url`, `$now`, `$locale`, `$result`, `$error`, `$meta`), then helpers, namespaces and store functions (`refresh`, `upsert`, `merge`, `remove`, `page`, `showModal`, `close`, `emit`, `run`, `navigate`), then allowed globals. Anything else is `SN201` with a suggestion.
 
 Globals are JavaScript, not the browser. `Math`, `JSON`, `Object`, `Array`, `Set`, `Map`, `Date`, `Intl`, `RegExp`, `URL`, `URLSearchParams` and `structuredClone` work. `window`, `document`, `fetch`, `localStorage`, timers, `eval`, `Function`, `Proxy` and `Reflect` do not (`SN202`): browser work belongs in a [component's script](islands.md). In a binding, `Date.now()` and `Math.random()` never update, so use `$now` (`SN502`).
 

@@ -21,7 +21,7 @@ CHROME=/path/to/chrome npm run e2e   # the official e2e suite (e2e/, unchanged)
 | `settings.html` | user settings, logout | `/settings` |
 | `login.html`, `register.html` | auth | `/login`, `/register` |
 | `src/layouts/conduit-layout.html` | the document every page shares: the head, the header and the footer; each page is its tag, with its state, its handlers and its title and description as props | |
-| `src/components/` | header, footer, `conduit-seo` (the head component for the title and description), article meta, byline, preview, error list, favorite button (each page declares the `user` resource the header reads); `patch(article, …)` in the favorite button acts on the article where each use got it | |
+| `src/components/` | header, footer, `conduit-seo` (the head component for the title and description), article meta, byline, preview, error list, favorite button (each page declares the `user` resource the header reads); `merge(article, …)` in the favorite button acts on the article where each use got it | |
 | `src/sinter.config.js` | JWT middleware (`localStorage.jwtToken`), current-user error handling | |
 | `src/islands.js` | sign-in/out (clearing the page-load cache) and navigation events, `<conduit-redirect>`, `window.__conduit_debug__` | |
 | `vite.config.js` | page entries, the dev/preview rewrites for the path patterns, `sinter({ apis })` | |

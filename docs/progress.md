@@ -296,7 +296,7 @@ built, what deviates, and what is left.
 - `MountOptions` gains `env`, `request` and `transport` seams for the testing module.
 - `Transport.connect` takes a 4th argument, the event names to listen for
   (EventSource needs them), plus an optional `listen(name)` for late subscribers.
-- Subscribers of `resource.subscribe()` get `{ op: 'refetch' }` after each full load.
+- Subscribers of `resource.subscribe()` get `{ op: 'refresh' }` after each full load.
 - A plain `data-sn-on-<event>` handler and an action on the same element both
   run, the handler first.
 - `helper(draft)` in a handler invalidates the whole `draft` root (opaque call);
@@ -361,7 +361,7 @@ built, what deviates, and what is left.
 - Playwright suite in real browsers (`<dialog>`/`commandfor`, bfcache,
   `EventSource`, focus preservation), with Trusted Types and strict CSP.
 - List-update benchmark in CI.
-- From bench/live (2026-11-10), not needed now: `<sn-event op="patch" items="…">` (one event patching several
+- From bench/live (2026-11-10), not needed now: `<sn-event op="merge" items="…">` (one event patching several
   items, so a tick of many rows patches a keyed resource instead of a `then` helper replacing a whole state value,
   and only the changed rows' bindings are checked); a frame-rate cap for server-event renders (e.g. 30 fps, to save
   battery). The dashboard at 4× CPU is now bound by style, layout and paint (about 30 % of the main thread).

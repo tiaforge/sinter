@@ -102,7 +102,7 @@ describe('prototype pollution', () => {
       <p data-sn-text="x.length"></p>
       <form data-sn-post="/api/f"><input name="__proto__.polluted" value="1"><input name="ok" value="2"></form>`, { requests });
     await settle();
-    app.resource('x').patch('1', JSON.parse('{"__proto__": {"polluted": true}, "a": 1}'));
+    app.resource('x').merge('1', JSON.parse('{"__proto__": {"polluted": true}, "a": 1}'));
     root.querySelector('form')!.requestSubmit();
     await settle();
     expect(({} as Record<string, unknown>).polluted).toBeUndefined();

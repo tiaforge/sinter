@@ -86,7 +86,7 @@ the same value is warning `SN518` (it says nothing), a different one error `SN33
 the page uses the data.
 
 `key` is never guessed. A list of objects without `key` is warning `SN517`: the resource is one
-object holding the list, fine for a list that is only read, but an `upsert`, `patch` or `remove`
+object holding the list, fine for a list that is only read, but an `upsert`, `merge` or `remove`
 would act on the whole list.
 
 ## Resources that load with POST

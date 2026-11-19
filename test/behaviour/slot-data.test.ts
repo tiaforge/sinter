@@ -58,7 +58,7 @@ describe('a list with custom rows', () => {
       <div data-sn-state="{ picked: '' }">
         <p id="picked" data-sn-text="picked"></p>
         <todo-list data-sn-prop="{ items: todos }">
-          <li slot="row" data-sn-class="{ done: $slot.item.done, first: $slot.first }" data-sn-on-click="picked = $slot.item.title; patch($slot.item, { done: !$slot.item.done })" data-sn-text="$slot.item.title"></li>
+          <li slot="row" data-sn-class="{ done: $slot.item.done, first: $slot.first }" data-sn-on-click="picked = $slot.item.title; merge($slot.item, { done: !$slot.item.done })" data-sn-text="$slot.item.title"></li>
         </todo-list>
       </div>`, { requests, components: { 'todo-list': LIST } });
     await settle();

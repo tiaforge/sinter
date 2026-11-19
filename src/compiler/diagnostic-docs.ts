@@ -58,14 +58,14 @@ export const DIAGNOSTIC_DOCS: Record<Code, DiagnosticDoc> = {
     fix: 'Do the assignment in an event handler (`data-sn-on-click`) or in an action\'s `then`. To start an action from a handler (a key filter, `data-sn-then`, `<sn-resource then>`), put it on an element with an `id` and call `run(\'id\')`: `<span hidden id="mark-read" data-sn-call="mail.markRead(open)"></span>` and `then="$result && run(\'mark-read\')"`.',
   },
   SN204: {
-    example: '`data-sn-optimistic` may only call `patch`, `upsert`, `remove`',
+    example: '`data-sn-optimistic` may only call `merge`, `upsert`, `remove`',
     means: 'An optimistic change is undone when the request fails, so it may only use the store functions that sinter can roll back.',
-    fix: 'Express the change with `patch`, `upsert` or `remove`; set other state in `then`.',
+    fix: 'Express the change with `merge`, `upsert` or `remove`; set other state in `then`.',
   },
   SN205: {
-    example: '`m.is_read = true` mutates a resource. Use `patch(\'messages\', m, {is_read: true})`',
+    example: '`m.is_read = true` mutates a resource. Use `merge(m, {is_read: true})`',
     means: 'Resource data is read-only in expressions: it mirrors the server, and a direct write (an assignment, a mutating method such as `push()`, or `Object.assign()` on an item) would be lost on the next refresh or event.',
-    fix: 'Use the `patch()` call from the message, or copy the item with `structuredClone(c)` to edit it in state.',
+    fix: 'Use the `merge()` call from the message, or copy the item with `structuredClone(c)` to edit it in state.',
   },
   SN206: {
     example: '`m.inbox_titel` is not exported by namespace `m`. Did you mean `inbox_title`?',
@@ -84,7 +84,7 @@ export const DIAGNOSTIC_DOCS: Record<Code, DiagnosticDoc> = {
   },
   SN209: {
     example: '`s` is already defined here by `data-sn-let`; use another name',
-    means: 'A `data-sn-let` name is inlined wherever it is read, so it cannot share a name with a state variable or loop variable in its scope, or be redeclared inside it. A resource cannot take the name of a store function (`refresh`, `upsert`, `patch`, `remove`, `page`, `showModal`, `close`, `emit`, `run`, `navigate`).',
+    means: 'A `data-sn-let` name is inlined wherever it is read, so it cannot share a name with a state variable or loop variable in its scope, or be redeclared inside it. A resource cannot take the name of a store function (`refresh`, `upsert`, `merge`, `remove`, `page`, `showModal`, `close`, `emit`, `run`, `navigate`).',
     fix: 'Rename the let, the state or loop variable, or the resource.',
   },
   SN210: {
@@ -183,8 +183,8 @@ export const DIAGNOSTIC_DOCS: Record<Code, DiagnosticDoc> = {
     fix: 'Move the file to `src/components/<name>.html` (the name needs a `-`), wrap its markup in `<template data-sn-component="{ draft: Contact; … }">` around one root element, and replace the `<sn-include>` by `<name data-sn-prop="{ draft: draft }"></name>`.',
   },
   SN317: {
-    example: '`selected` has no source: `patch()` acts on an item where it came from, and nothing says which resource `selected` is an item of',
-    means: '`patch(item, …)` and `remove(item)` change the item in the resource it came from, found by its key: a row of a `data-sn-for` over a resource (also a filtered one, or one a helper returns), an element of one (`contacts[0]`, `.find(…)`), a single resource, a component prop that is one of those, or state a handler assigned from one (`sel = m`). The item here is none of these. Also reported: the removed forms with a resource name, `patch(\'name\', item, …)` and `remove(\'name\', item)`, and a row of a helper that takes more than one resource.',
+    example: '`selected` has no source: `merge()` acts on an item where it came from, and nothing says which resource `selected` is an item of',
+    means: '`merge(item, …)` and `remove(item)` change the item in the resource it came from, found by its key: a row of a `data-sn-for` over a resource (also a filtered one, or one a helper returns), an element of one (`contacts[0]`, `.find(…)`), a single resource, a component prop that is one of those, or state a handler assigned from one (`sel = m`). The item here is none of these. Also reported: the removed forms with a resource name, `patch(\'name\', item, …)` and `remove(\'name\', item)`, and a row of a helper that takes more than one resource.',
     fix: 'Drop the resource name from the old forms. Otherwise pass the row itself; for `$result`, rely on write-through (with a spec) or patch the row with its fields; a server event\'s payload goes through `<sn-event resource op>`; an island changes the resource through the instance API.',
   },
   SN318: {
@@ -368,7 +368,7 @@ export const DIAGNOSTIC_DOCS: Record<Code, DiagnosticDoc> = {
     fix: 'Make sure a step stops: a condition that becomes false (`$error.status === 503 && tries < 3 && run(\'save\')`), or drop one step.',
   },
   SN510: {
-    example: '`patch(\'articles\', …, $result.article)` is what write-through does: the response of `POST /articles/{slug}/favorite` is `Article`, which `articles` holds; remove this write, or add `data-sn-apply="off"` to keep it',
+    example: '`merge(article, $result.article)` is what write-through does: the response of `POST /articles/{slug}/favorite` is `Article`, which `articles` holds; remove this write, or add `data-sn-apply="off"` to keep it',
     means: 'A `then` handler writes to the store what write-through writes by itself after the response: an object of a resource\'s schema is patched into the item with its key (and into what the URL named), a POST to a list\'s URL inserts the created item, a DELETE of a row\'s URL removes the row. The handler\'s write lands on top and changes nothing.',
     fix: 'Remove the write from the handler (keep its other statements). To keep the explicit write, turn write-through off for that element with `data-sn-apply="off"`.',
   },

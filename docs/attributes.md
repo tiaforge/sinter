@@ -56,7 +56,7 @@ What happens on screen around a response. Details: [optimistic updates](actions.
 
 | Attribute | Value | Meaning |
 | --- | --- | --- |
-| `data-sn-optimistic` | handler expression | patch/upsert/remove calls applied before the request, kept on success, rolled back on failure |
+| `data-sn-optimistic` | handler expression | merge/upsert/remove calls applied before the request, kept on success, rolled back on failure |
 | `data-sn-then` | handler expression | runs after a 2xx response; $result = parsed body |
 | `data-sn-catch` | handler expression | runs after an error; $error = {status, body, message, detail}. A form without it shows a 4xx `{errors: {name: message}}` on its fields (aria-invalid and the message); its markup reads the failure as `$error` |
 
@@ -133,5 +133,5 @@ A named, page-wide cache of server data. Details: [resources](resources.md).
 ## Names available in expressions
 
 - **Magic names:** `$event`, `$el`, `$url`, `$now`, `$locale`, `$result`, `$error`, `$meta`.
-- **Store functions:** `refresh()`, `upsert()`, `patch()`, `remove()`, `page()`, `showModal()`, `close()`, `emit()`, `run()`, `navigate()`.
+- **Store functions:** `refresh()`, `upsert()`, `merge()`, `remove()`, `page()`, `showModal()`, `close()`, `emit()`, `run()`, `navigate()`.
 - **Built-in helpers:** `date()`, `time()`, `datetime()`, `relative()`, `number()`, `bytes()`.

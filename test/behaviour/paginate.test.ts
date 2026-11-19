@@ -56,7 +56,7 @@ test('refetch repeats the current page exactly', async () => {
   const requests = mockRequests({ 'GET /api/m': keyset });
   const stream = mockStream();
   const { root, settle } = await render(PAGE.replace('<ul>', `
-    <sn-sync src="/s"><sn-event name="r" resource="messages" op="refetch"></sn-event>
+    <sn-sync src="/s"><sn-event name="r" resource="messages" op="refresh"></sn-event>
       <sn-event name="u" resource="messages" op="upsert"></sn-event></sn-sync><ul>`), { requests, streams: { '/s': stream } });
   await settle();
   root.querySelector<HTMLElement>('#next')!.click();
@@ -97,7 +97,7 @@ test('append mode keeps loaded items and refetches them in one request', async (
   const stream = mockStream();
   const { root, settle } = await render(`
     <sn-resource name="messages" src="/api/m" items="messages" key="uid" paginate="append" page-size="3" cursor="{at}" order="-at"></sn-resource>
-    <sn-sync src="/s"><sn-event name="r" resource="messages" op="refetch"></sn-event></sn-sync>
+    <sn-sync src="/s"><sn-event name="r" resource="messages" op="refresh"></sn-event></sn-sync>
     <button data-sn-on-click="page('messages', 'next')"></button>
     <ul><template data-sn-for="m in messages"><li data-sn-text="m.uid"></li></template></ul>`, { requests, streams: { '/s': stream } });
   await settle();

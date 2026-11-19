@@ -68,7 +68,7 @@ describe('a let over a helper: its expression, at every read', () => {
     const dbl = (a: number) => ({ v: a * 2 });
     const todos = () => mockRequests({ 'GET /api/todos': [{ id: 1, n: 1 }, { id: 2, n: 2 }] });
     for (const [what, handler, want] of [
-      ['patch()', 'patch(x, { n: 10 }); o = T', '12'],
+      ['merge()', 'merge(x, { n: 10 }); o = T', '12'],
       ['remove()', 'remove(x); o = T', '2'],
       ["upsert('todos', …)", "upsert('todos', { id: 3, n: 100 }); o = T", '103'],
     ] as const) {

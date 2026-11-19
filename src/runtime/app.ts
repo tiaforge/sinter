@@ -258,8 +258,8 @@ export interface App {
     /** nested items (nested.ts): changes an item under a resource's rows, through `fields`; the list `upsert(c.replies, x)` gives */
     nested?: {
       /** applies one change to an item from `names`; for write-through, one under `r` through `fields` (true when found) */
-      change(res: (n: string) => Resource, op: 'patch' | 'remove', names: string[], item: unknown, set: any): void;
-      apply(r: Resource, fields: string[], op: 'patch' | 'remove', item: unknown, set: any, byId: boolean): boolean;
+      change(res: (n: string) => Resource, op: 'merge' | 'remove', names: string[], item: unknown, set: any): void;
+      apply(r: Resource, fields: string[], op: 'merge' | 'remove', item: unknown, set: any, byId: boolean): boolean;
       /** `upsert(c.replies, x)`: `owner` (from `names`) gets its list `field` with `item` in it */
       upsert(res: (n: string) => Resource, names: string[], owner: any, field: string, item: unknown): void;
     };
@@ -545,19 +545,19 @@ export function mount(root: Document | Element, o: MountOptions): App {
     if (!r) throw Error(`sinter: no resource ${name}`);
     return r;
   };
-  /** The item has `r`'s key fields: a list or a `patch()` that may come from several resources tries only those it can be in (the others would warn 14). */
+  /** The item has `r`'s key fields: a list or a `merge()` that may come from several resources tries only those it can be in (the others would warn 14). */
   const keyed = (r: Resource, item: any) => item != null && r.key!.every((f) => item[f] !== undefined);
   /**
-   * `patch(item, …)`, `remove(item)`: the compiler passes the resources the item can come from; it is
+   * `merge(item, …)`, `remove(item)`: the compiler passes the resources the item can come from; it is
    * changed in the one that holds it, by key (a single resource is the item itself)
    */
-  const byItem = (m: 'patch' | 'remove') => (names: string[], item: any, set?: any) => {
+  const byItem = (m: 'merge' | 'remove') => (names: string[], item: any, set?: any) => {
     // a source under a row (`comments>replies`): the nested module, loaded with it, does it all (the rows too:
     // a few bytes there, which pages without nested lists do not load, rather than in the core)
     if (app.ext.nested) return app.ext.nested.change(res, m, names, item, set);
     for (const n of names) {
       const r = res(n);
-      if (r.isCollection ? keyed(r, item) && r.has(item) : true) return void (m == 'patch' ? r.patch(item, set) : r.remove(item));
+      if (r.isCollection ? keyed(r, item) && r.has(item) : true) return void (m == 'merge' ? r.merge(item, set) : r.remove(item));
     }
   };
   const warn = (code: number | string, ...args: unknown[]) => app.warn(code, ...args);
@@ -854,10 +854,10 @@ export function mount(root: Document | Element, o: MountOptions): App {
     },
     storeFns: (el) => ({
       showModal: (id: string) => { const d = dialog(id); if (d && !d.open) d.showModal(); },
-      refresh: (...n: string[]) => { for (const x of n) res(x).refetch(); },
+      refresh: (...n: string[]) => { for (const x of n) res(x).refresh(); },
       // `upsert(c.replies, x)`: the item that holds the list gets it as a patch
       upsert: (n: string | string[], a: any, f?: string, x?: any) => Array.isArray(n) ? app.ext.nested!.upsert(res, n, a, f!, x) : res(n).upsert(a),
-      patch: byItem('patch'),
+      merge: byItem('merge'),
       remove: byItem('remove'),
       page: (n: string, t: string | number) => app.ext.paginate!.page(n, t),
       close: (id?: string) => (id ? dialog(id) : el?.closest('dialog'))?.close(),

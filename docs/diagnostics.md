@@ -96,21 +96,21 @@ A binding that produces a value (`text`, `attr`, `show`, `for`, …) tried to ch
 
 Error, for example:
 
-> `data-sn-optimistic` may only call `patch`, `upsert`, `remove`
+> `data-sn-optimistic` may only call `merge`, `upsert`, `remove`
 
 An optimistic change is undone when the request fails, so it may only use the store functions that sinter can roll back.
 
-**Fix:** Express the change with `patch`, `upsert` or `remove`; set other state in `then`.
+**Fix:** Express the change with `merge`, `upsert` or `remove`; set other state in `then`.
 
 ## SN205 resource-mutation
 
 Error, for example:
 
-> `m.is_read = true` mutates a resource. Use `patch('messages', m, {is_read: true})`
+> `m.is_read = true` mutates a resource. Use `merge(m, {is_read: true})`
 
 Resource data is read-only in expressions: it mirrors the server, and a direct write (an assignment, a mutating method such as `push()`, or `Object.assign()` on an item) would be lost on the next refresh or event.
 
-**Fix:** Use the `patch()` call from the message, or copy the item with `structuredClone(c)` to edit it in state.
+**Fix:** Use the `merge()` call from the message, or copy the item with `structuredClone(c)` to edit it in state.
 
 ## SN206 unknown-namespace-member
 
@@ -148,7 +148,7 @@ Error, for example:
 
 > `s` is already defined here by `data-sn-let`; use another name
 
-A `data-sn-let` name is inlined wherever it is read, so it cannot share a name with a state variable or loop variable in its scope, or be redeclared inside it. A resource cannot take the name of a store function (`refresh`, `upsert`, `patch`, `remove`, `page`, `showModal`, `close`, `emit`, `run`, `navigate`).
+A `data-sn-let` name is inlined wherever it is read, so it cannot share a name with a state variable or loop variable in its scope, or be redeclared inside it. A resource cannot take the name of a store function (`refresh`, `upsert`, `merge`, `remove`, `page`, `showModal`, `close`, `emit`, `run`, `navigate`).
 
 **Fix:** Rename the let, the state or loop variable, or the resource.
 
@@ -346,9 +346,9 @@ Partials became components. A component sees only its props, so the names a part
 
 Error, for example:
 
-> `selected` has no source: `patch()` acts on an item where it came from, and nothing says which resource `selected` is an item of
+> `selected` has no source: `merge()` acts on an item where it came from, and nothing says which resource `selected` is an item of
 
-`patch(item, …)` and `remove(item)` change the item in the resource it came from, found by its key: a row of a `data-sn-for` over a resource (also a filtered one, or one a helper returns), an element of one (`contacts[0]`, `.find(…)`), a single resource, a component prop that is one of those, or state a handler assigned from one (`sel = m`). The item here is none of these. Also reported: the removed forms with a resource name, `patch('name', item, …)` and `remove('name', item)`, and a row of a helper that takes more than one resource.
+`merge(item, …)` and `remove(item)` change the item in the resource it came from, found by its key: a row of a `data-sn-for` over a resource (also a filtered one, or one a helper returns), an element of one (`contacts[0]`, `.find(…)`), a single resource, a component prop that is one of those, or state a handler assigned from one (`sel = m`). The item here is none of these. Also reported: the removed forms with a resource name, `patch('name', item, …)` and `remove('name', item)`, and a row of a helper that takes more than one resource.
 
 **Fix:** Drop the resource name from the old forms. Otherwise pass the row itself; for `$result`, rely on write-through (with a spec) or patch the row with its fields; a server event's payload goes through `<sn-event resource op>`; an island changes the resource through the instance API.
 
@@ -716,7 +716,7 @@ Warning, for example:
 
 Warning, for example:
 
-> `patch('articles', …, $result.article)` is what write-through does: the response of `POST /articles/{slug}/favorite` is `Article`, which `articles` holds; remove this write, or add `data-sn-apply="off"` to keep it
+> `merge(article, $result.article)` is what write-through does: the response of `POST /articles/{slug}/favorite` is `Article`, which `articles` holds; remove this write, or add `data-sn-apply="off"` to keep it
 
 A `then` handler writes to the store what write-through writes by itself after the response: an object of a resource's schema is patched into the item with its key (and into what the URL named), a POST to a list's URL inserts the created item, a DELETE of a row's URL removes the row. The handler's write lands on top and changes nothing.
 

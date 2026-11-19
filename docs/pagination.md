@@ -160,6 +160,6 @@ target: on keyset without `offset-param` it must be a subset of `'first' | 'prev
   items.
 - With `cache`, each page's request URL has its own entry; `append` caches only its first page.
 - On a paginated resource, a [server event](sync.md) that upserts a key not on the current page
-  becomes a refetch of the current page. `patch` and `remove` apply only to items present.
+  becomes a refetch of the current page. `merge` and `remove` apply only to items present.
 - The first request is the first page as the pager sends it, so it can be preloaded or embedded;
   `page()` then moves on from it ([first paint](first-paint.md)).

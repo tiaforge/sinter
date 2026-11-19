@@ -171,12 +171,12 @@ succeeds, and undoes exactly that change if it fails.
 ```html
 <button data-sn-patch="/api/messages/{m.id}"
         data-sn-body="{is_flagged: !m.is_flagged}"
-        data-sn-optimistic="patch(m, {is_flagged: !m.is_flagged})"
+        data-sn-optimistic="merge(m, {is_flagged: !m.is_flagged})"
         data-sn-catch="emit('toast', $error.message)"
         data-sn-attr="{'aria-pressed': m.is_flagged ? 'true' : 'false'}">★</button>
 ```
 
-The expression may only call `patch`, `upsert` and `remove` (anything else is a build error, since
+The expression may only call `merge`, `upsert` and `remove` (anything else is a build error, since
 local state and side effects cannot be rolled back).
 
 ### Model
@@ -185,7 +185,7 @@ Each resource keeps a **base** (what the server last confirmed) and an ordered l
 **layers** (optimistic changes whose request is pending). What the page shows is the base with every
 layer applied on top, in order.
 
-- Triggering the action records its `patch`, `upsert` and `remove` calls as one layer and re-renders
+- Triggering the action records its `merge`, `upsert` and `remove` calls as one layer and re-renders
   the affected rows.
 - On success (2xx) the layer is committed into the base, then `then` runs, so a write in `then`
   goes on top and wins. What is on screen does not change at commit, so nothing flickers.
@@ -201,7 +201,7 @@ not wipe each other out when the first fails.
 
 ### Rules
 
-- A `patch` on an item the base no longer has is ignored; a `remove` of an absent item does nothing.
+- A `merge` on an item the base no longer has is ignored; a `remove` of an absent item does nothing.
 - On a paginated resource, `remove` also lowers `$meta.<name>.total` in the same layer.
 - A layer lives until its request settles: the 30 s timeout, and with `data-sn-retry` every try of
   its policy.
@@ -212,11 +212,11 @@ not wipe each other out when the first fails.
 
 | Action | Optimistic change |
 | --- | --- |
-| Flag or mark read | `patch(m, {is_flagged: …})` |
+| Flag or mark read | `merge(m, {is_flagged: …})` |
 | Delete or move | `remove(m)` |
-| Bulk mark read | one layer, one `patch` per selected message |
-| Toggle visibility | `patch(cal, {hidden: !cal.hidden})` |
-| Rename inline | `patch(i, {title})`, leaving edit mode on submit (below) |
+| Bulk mark read | one layer, one `merge` per selected message |
+| Toggle visibility | `merge(cal, {hidden: !cal.hidden})` |
+| Rename inline | `merge(i, {title})`, leaving edit mode on submit (below) |
 
 An inline edit leaves edit mode when the form is sent, not in `then`: `then` runs when the server
 answers, so the form would stay until then and the new title would wait for it. The request, the
@@ -225,7 +225,7 @@ rollback and `catch` still run after the form is gone.
 ```html
 <template data-sn-if="editingId === i.id">
   <form data-sn-patch="/api/items/{i.id}" data-sn-body="{ title }"
-        data-sn-optimistic="patch(i, { title })"
+        data-sn-optimistic="merge(i, { title })"
         data-sn-on-submit="editingId = null"
         data-sn-catch="emit('toast', $error.message)">…</form>
 </template>
@@ -265,7 +265,7 @@ a failure with `$error`. Both are handlers: state assignments and these built-in
 | --- | --- |
 | `refresh('contacts')`, `refresh('a', 'b')` | refetch the named resources |
 | `upsert('contacts', $result)` | insert or replace an item |
-| `patch(item, {…})` | change fields of an item, in the resource it came from |
+| `merge(item, {…})` | change fields of an item, in the resource it came from |
 | `remove(item)` | remove an item from the resource it came from (a single resource becomes `null`) |
 | `page('messages', 'next')` | change the page of a paginated resource |
 | `showModal('edit')` | open `<dialog id="edit">`, nothing if it is open |
@@ -274,9 +274,9 @@ a failure with `$error`. Both are handlers: state assignments and these built-in
 | `navigate(url, { replace })` | go to `url` (relative to the page's): to this page with only parameters it reads changed, as a [same-page link](navigation.md#same-page-links), in the page; anywhere else the browser loads it, as a new history entry or, with `replace: true`, in the current one |
 | `run('id')` | start the action of the element with that id ([below](#run-an-action-from-a-handler)) |
 
-### Where `patch` and `remove` act
+### Where `merge` and `remove` act
 
-`patch(item, {…})` and `remove(item)` take no resource name: they change the item in the resource it
+`merge(item, {…})` and `remove(item)` take no resource name: they change the item in the resource it
 came from, found by its key, so every list and binding that reads that resource shows the change.
 The compiler knows where an item comes from:
 
@@ -285,7 +285,7 @@ The compiler knows where an item comes from:
   that takes one resource keeps its rows' source; one that takes two is an error);
 - an element of a resource: `contacts[0]`, `messages.find((m) => m.id === openId)`, also through a
   `data-sn-let` name;
-- a single resource: `patch(article, {…})`;
+- a single resource: `merge(article, {…})`;
 - a component's prop that is one of those, and an event detail the component emits from one
   (`data-sn-on-select="remove($event.detail)"`);
 - state a handler assigned one of those: `sel = m`, or a copy, `draft = structuredClone(c)`.
@@ -295,7 +295,7 @@ its message. The same entity in another resource (the article in `feed` and in `
 from write-through and server events.
 
 State holding a row is a snapshot: sinter keeps resources and `data-sn-let` names current, not values
-in state. `patch(sel, …)` still finds the right item through its key; to show the current row, keep
+in state. `merge(sel, …)` still finds the right item through its key; to show the current row, keep
 its key in state and derive the row with `data-sn-let`.
 
 ```html
@@ -375,7 +375,7 @@ for chaining, or for "mark read after the body loads":
 ```html
 <body data-sn-on-keydown-e="run('archive')">
   <span hidden id="mark-read" data-sn-call="mail.markRead(open)"
-        data-sn-optimistic="patch(open, {is_read: true})"></span>
+        data-sn-optimistic="merge(open, {is_read: true})"></span>
   <sn-resource name="body" call="mail.body(open)" when="open"
                then="$result && !open.is_read && run('mark-read')"></sn-resource>
 

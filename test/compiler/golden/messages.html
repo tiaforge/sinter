@@ -8,7 +8,7 @@
   cursor="{cursor_sent_at: sent_at, cursor_rowid: rowid}"
   direction-param="direction"></sn-resource>
 <sn-sync src="/api/events/stream">
-  <sn-event name="flags" resource="messages" op="patch" set="{flags, is_read: flags.includes('\\Seen')}" when="mailbox === $url.mailbox"></sn-event>
+  <sn-event name="flags" resource="messages" op="merge" set="{flags, is_read: flags.includes('\\Seen')}" when="mailbox === $url.mailbox"></sn-event>
 </sn-sync>
 <nav>
   <button data-sn-on-click="page('messages', 'first')" data-sn-attr="{disabled: !$meta.messages.hasPrev}">«</button>
@@ -20,7 +20,7 @@
     <time data-sn-text="relative(m.sent_at, $now)"></time>
     <button data-sn-patch="/api/email/message/flags"
             data-sn-body="{account_id: m.account_id, mailbox: m.mailbox, uid: m.uid, flags: ['\\Flagged'], set: !m.is_flagged}"
-            data-sn-optimistic="patch(m, {is_flagged: !m.is_flagged})"
+            data-sn-optimistic="merge(m, {is_flagged: !m.is_flagged})"
             data-sn-catch="emit('toast', $error.message)"
             data-sn-attr="{'aria-pressed': m.is_flagged}">★</button>
   </article>

@@ -38,7 +38,9 @@ HTTP method, stays.
 ### 3. `refetch` is `refresh`
 
 One concept had two words: `refresh()`, `refresh="30s"`, and `<sn-event op="refetch">`,
-`fallback="refetch"`. All are `refresh` now.
+`fallback="refetch"`. All are `refresh` now. The JavaScript side follows both renames: `Resource.merge()`, `Resource.refresh()`,
+and the change messages' `op: 'merge'` and `op: 'refresh'`. A helper named like a store function
+(`merge`) is `SN201`: the store function always won, so the helper was unreachable.
 
 ### 4. `$error` has one text: `message`
 

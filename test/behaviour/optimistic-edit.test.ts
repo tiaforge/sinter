@@ -8,7 +8,7 @@ const page = `<!doctype html><html><head></head><body>
     <li>
       <template data-sn-if="editingId === i.id">
         <form data-sn-patch="/api/items/{i.id}" data-sn-body="{ title: editTitle }"
-              data-sn-optimistic="patch(i, { title: editTitle })"
+              data-sn-optimistic="merge(i, { title: editTitle })"
               data-sn-on-submit="editingId = null"
               data-sn-catch="failed = true">
           <input name="title" data-sn-model="editTitle"><button>Save</button>

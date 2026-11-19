@@ -23,7 +23,7 @@ test('a resource read only inside dialogs (directly, in a template of the dialog
     <sn-resource name="byStream" src="/api/st" key="id"></sn-resource>
     <sn-resource name="byMeta" src="/api/m"></sn-resource>
     <sn-resource name="unread" src="/api/un"></sn-resource>
-    <sn-sync src="/events?t={byStream.length}"><sn-event name="e" resource="labels" op="refetch"></sn-event></sn-sync>
+    <sn-sync src="/events?t={byStream.length}"><sn-event name="e" resource="labels" op="refresh"></sn-event></sn-sync>
     <p data-sn-text="dep.x"></p>
     <button data-sn-on-click="sel = byHandler.id">h</button>
     <button data-sn-delete="/api/a/{byAction.id}">a</button>

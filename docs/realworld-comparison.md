@@ -229,13 +229,13 @@ signed-out users are sent to login by the page's `sn-error` handler. The state t
 
 ```html
 <button class="btn btn-sm btn-outline-primary" data-sn-post="https://api.realworld.show/api/articles/{article.slug}/favorite"
-        data-sn-optimistic="patch(article, { favorited: true, favoritesCount: article.favoritesCount + 1 })">
+        data-sn-optimistic="merge(article, { favorited: true, favoritesCount: article.favoritesCount + 1 })">
 ```
 
-`patch(article, …)` names no resource. At each use it changes the article where it came from (a row of
+`merge(article, …)` names no resource. At each use it changes the article where it came from (a row of
 `articles` or `feed` on the home page, a row of the profile's list, the single `article` on the article
-page), and write-through applies the response. There is no store code: no `patch('articles', …)` and
-`patch('feed', …)` side by side as before.
+page), and write-through applies the response. There is no store code: no `merge('articles', …)` and
+`merge('feed', …)` side by side as before.
 
 ## Components
 
@@ -259,10 +259,10 @@ definitions out of the core into modules only the pages that use them load):
 
 | file | change | what it is |
 | --- | ---: | --- |
-| core (`npm run size`) | +93 B (13,925 → 14,018) | `patch()`/`remove()` finding the item in the resource it came from 54, `upsert` into a nested list 9, the script hook 12, the shared-definition hook 10, cycle guards 6 |
+| core (`npm run size`) | +93 B (13,925 → 14,018) | `merge()`/`remove()` finding the item in the resource it came from 54, `upsert` into a nested list 9, the script hook 12, the shared-definition hook 10, cycle guards 6 |
 | write-through module | 0 (1,055) | nested targets are in a list of their own, which the `nested` module applies (only pages with nested lists load it) |
 | shared chunk of the app (core, config, write-through) | +100 B | the core |
-| page modules | -24 to +2 B | the same functions as `main`: a prop that is a plain path is inlined without parentheses (so one expression is one function, wherever a prop inlines it), and a `data-sn-if` on a constant prop is decided at build time; left are the source names in `patch()` calls (`["article"]`) |
+| page modules | -24 to +2 B | the same functions as `main`: a prop that is a plain path is inlined without parentheses (so one expression is one function, wherever a prop inlines it), and a `data-sn-if` on a constant prop is decided at build time; left are the source names in `merge()` calls (`["article"]`) |
 | head scripts | 0 | |
 | other modules | 0 to +5 B | no source change: `npm run size` leaves their runtime imports external, so their output holds the checkout's absolute path, one character longer here than in the `main` checkout measured |
 | new modules | `components` 674 B, `nested` 1,234 B (with the write-through helpers it shares: with the write-through module, 94 B less than two copies), `defs` 175 B | only on pages with a component script, nested changes, shared definitions |

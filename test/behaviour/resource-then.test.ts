@@ -7,12 +7,12 @@ const LIST = (then: string, attrs = '') => `
   <main data-sn-state="{ n: 0, last: '', q: 'a' }">
     <sn-resource name="contacts" src="/api/contacts?q={q}" items="contacts" key="id" order="name" ${attrs} then="${then}"></sn-resource>
     <sn-sync src="/api/events">
-      <sn-event name="changed" resource="contacts" op="refetch"></sn-event>
+      <sn-event name="changed" resource="contacts" op="refresh"></sn-event>
       <sn-event name="updated" resource="contacts" op="upsert" item="contact"></sn-event>
     </sn-sync>
     <button id="refresh" data-sn-on-click="refresh('contacts')"></button>
     <button id="q" data-sn-on-click="q = 'b'"></button>
-    <button id="edit" data-sn-patch="/api/contacts/1" data-sn-optimistic="patch(contacts[0], { name: 'Zed' })"></button>
+    <button id="edit" data-sn-patch="/api/contacts/1" data-sn-optimistic="merge(contacts[0], { name: 'Zed' })"></button>
     <p data-sn-text="n + ' ' + last + ' ' + contacts.length"></p>
   </main>`;
 
@@ -144,7 +144,7 @@ describe('<sn-resource then>', () => {
       <sn-resource name="accounts" src="/api/accounts" key="id"></sn-resource>
       <sn-resource name="boxes" each="a in accounts" src="/api/boxes?account={a.id}" items="boxes" key="account,name"
         then="seen($result.map((b) => b.account).join())"></sn-resource>
-      <sn-sync src="/s"><sn-event name="boxes_changed" resource="boxes" op="refetch"></sn-event></sn-sync>
+      <sn-sync src="/s"><sn-event name="boxes_changed" resource="boxes" op="refresh"></sn-event></sn-sync>
       <ul><template data-sn-for="b in boxes"><li data-sn-text="b.account"></li></template></ul>`,
     { requests, streams: { '/s': stream }, helpers: { seen: (s: string) => seen.push(s) } });
     await r.settle();

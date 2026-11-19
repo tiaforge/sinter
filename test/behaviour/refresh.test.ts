@@ -62,7 +62,7 @@ test('any load starts the clock again: a stream that keeps the resource current 
   const s = server();
   const stream = mockStream();
   const requests = mockRequests({ 'GET /api/jobs': s.route });
-  const html = PAGE('refresh="10s"', `<sn-sync src="/api/events"><sn-event name="jobs_changed" resource="jobs" op="refetch"></sn-event></sn-sync>`);
+  const html = PAGE('refresh="10s"', `<sn-sync src="/api/events"><sn-event name="jobs_changed" resource="jobs" op="refresh"></sn-event></sn-sync>`);
   const r = await render(html, { requests, streams: { '/api/events': stream } });
   await r.settle();
   await r.advance(8_000);
@@ -181,7 +181,7 @@ test('a change to the data since (a server event) makes the next response count,
   const requests = mockRequests({ 'GET /api/jobs': s.route });
   const html = PAGE('refresh="10s"', `<sn-sync src="/api/events">
       <sn-event name="job" resource="jobs" op="upsert"></sn-event>
-      <sn-event name="jobs_changed" resource="jobs" op="refetch"></sn-event>
+      <sn-event name="jobs_changed" resource="jobs" op="refresh"></sn-event>
     </sn-sync>`);
   const r = await render(html, { requests, streams: { '/api/events': stream } });
   await r.settle();
@@ -198,7 +198,7 @@ test('on a page with a stream, the version check applies to every reload, not on
   const s = server(() => '"v1"');
   const requests = mockRequests({ 'GET /api/jobs': s.route });
   const html = PAGE('', `<button data-sn-on-click="refresh('jobs')">reload</button>
-    <sn-sync src="/api/events"><sn-event name="jobs_changed" resource="jobs" op="refetch"></sn-event></sn-sync>`);
+    <sn-sync src="/api/events"><sn-event name="jobs_changed" resource="jobs" op="refresh"></sn-event></sn-sync>`);
   const r = await render(html, { requests, streams: { '/api/events': mockStream() } });
   await r.settle();
   s.state.jobs = [{ id: 1, state: 'not stored' }];
@@ -295,7 +295,7 @@ test('the compiler checks the value and adds the feature only where it is used',
   expect(plain).not.toContain('sinter/refresh');
   expect(plain).not.toContain('sinter/versions');
   // a stream reloads resources too (refetch events, reconnects): its pages get the version check
-  const streamed = compile(`${page(null)}<sn-sync src="/api/events"><sn-event name="x" resource="jobs" op="refetch"></sn-event></sn-sync>`, opts).module;
+  const streamed = compile(`${page(null)}<sn-sync src="/api/events"><sn-event name="x" resource="jobs" op="refresh"></sn-event></sn-sync>`, opts).module;
   expect(streamed).toContain("import sn$versions from '@tiaforge-ui/sinter/versions'");
   expect(streamed).not.toContain('sinter/refresh');
   const errors = (v: string) => compile(page(v), opts).diagnostics.map((d) => `${d.code} ${d.message}`);

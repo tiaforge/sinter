@@ -183,7 +183,7 @@ test('preconnect: every origin a literal resource or stream `src` names gets one
     <sn-resource name="user" src="https://api.example.com/api/user"></sn-resource>
     <sn-resource name="tags" src="https://api.example.com/api/tags?x={here}"></sn-resource>
     <sn-resource name="local" src="/api/local"></sn-resource>
-    <sn-sync src="https://events.example.com/stream"><sn-event name="e" resource="local" op="refetch"></sn-event></sn-sync>`));
+    <sn-sync src="https://events.example.com/stream"><sn-event name="e" resource="local" op="refresh"></sn-event></sn-sync>`));
   const head = html.slice(0, html.indexOf('<body'));
   expect(head.match(/<link rel="preconnect" href="([^"]+)" crossorigin="">/g)).toEqual([
     '<link rel="preconnect" href="https://api.example.com" crossorigin="">',

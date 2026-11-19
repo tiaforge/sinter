@@ -49,7 +49,7 @@ duplicate key in a response keeps the last item (with a warning in dev builds).
 
 ## Single objects
 
-Without `key` the resource is one object, such as the signed-in user. `upsert` replaces it, `patch`
+Without `key` the resource is one object, such as the signed-in user. `upsert` replaces it, `merge`
 merges fields into it and `remove` sets it to `null`.
 
 ## Status: `$meta`
@@ -78,7 +78,7 @@ with these store functions, usable in any handler:
 | --- | --- |
 | `refresh('a', 'b')` | Reload the named resources. |
 | `upsert('name', item)` | Insert or replace by key. |
-| `patch(item, {…})` | Merge fields into an item. |
+| `merge(item, {…})` | Merge fields into an item. |
 | `remove(item)` | Remove an item. |
 
 A successful mutation's response is already applied to the right resources, so these are mostly

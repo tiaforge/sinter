@@ -22,8 +22,8 @@ const PAGE = `
   <sn-sync src="/s">
     <sn-event name="account_added" resource="accounts" op="upsert"></sn-event>
     <sn-event name="account_removed" resource="accounts" op="remove"></sn-event>
-    <sn-event name="mailboxes_changed" resource="mailboxes" op="refetch"></sn-event>
-    <sn-event name="mailbox_renamed" resource="mailboxes" op="patch" set="{label}"></sn-event>
+    <sn-event name="mailboxes_changed" resource="mailboxes" op="refresh"></sn-event>
+    <sn-event name="mailbox_renamed" resource="mailboxes" op="merge" set="{label}"></sn-event>
     <sn-event name="mailbox_created" resource="mailboxes" op="upsert"></sn-event>
   </sn-sync>
   <b data-sn-text="[$meta.mailboxes.loading, !!$meta.mailboxes.loadedAt].join()"></b>

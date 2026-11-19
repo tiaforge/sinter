@@ -43,7 +43,7 @@ test('a stream on another transport (here a mock) is not reported', async () => 
   const stream = mockStream();
   const r = await render(`
     <sn-resource name="contacts" src="/api/contacts" key="id"></sn-resource>
-    <sn-sync src="/api/events"><sn-event name="refresh" resource="contacts" op="refetch"></sn-event></sn-sync>
+    <sn-sync src="/api/events"><sn-event name="refresh" resource="contacts" op="refresh"></sn-event></sn-sync>
     <p data-sn-text="contacts.length"></p>`, { requests: mockRequests({ 'GET /api/contacts': [] }), streams: { '/api/events': stream } });
   await r.settle();
   expect(stream.connected).toBe(true);
