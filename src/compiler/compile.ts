@@ -4646,12 +4646,13 @@ class Compiler {
 
     const methods = METHODS.filter((m) => has(m));
     const isCall = has('call');
-    // without a method, `data-sn-debounce` delays the element's own handlers
-    let handlerDebounce = 0;
+    // `data-sn-debounce` delays an action's trigger; a handler waits by `data-sn-debounce-<event>`
     if (!methods.length && !isCall && has('debounce')) {
-      handlerDebounce = Number(get('debounce'));
-      if (!Number.isFinite(handlerDebounce) || handlerDebounce < 0) this.report(el, 'data-sn-debounce', 'SN401', '`data-sn-debounce` takes milliseconds', 0);
-      if (!sn.some((a) => a.name.startsWith('data-sn-on-'))) this.report(el, 'data-sn-debounce', 'SN102', '`data-sn-debounce` needs a method attribute (`data-sn-post`, `-put`, …) or a `data-sn-on-*` handler on the same element', 0);
+      const events = [...new Set(sn.filter((a) => a.name.startsWith('data-sn-on-')).map((a) => a.name.slice('data-sn-on-'.length)))];
+      const ms = get('debounce')!.trim();
+      this.report(el, 'data-sn-debounce', 'SN102', events.length
+        ? `\`data-sn-debounce\` delays an action's trigger; a handler waits with the attribute for its event: ${events.map((e) => `\`data-sn-debounce-${e}="${ms}"\``).join(', ')}`
+        : '`data-sn-debounce` needs a method attribute (`data-sn-post`, `-put`, …) on the same element; a handler waits with `data-sn-debounce-<event>`', 0);
     }
     // `data-sn-debounce-<event>`: only that event's handler waits
     for (const a of sn) {
@@ -4688,7 +4689,7 @@ class Compiler {
       // selectOption() dispatches them). A handler higher up hears both: there `input` replaces.
       const choice = (event === 'input' || event === 'change') && (el.tagName === 'select' || (el.tagName === 'input' && /^(checkbox|radio)$/i.test(attr(el, 'type') ?? '')));
       const r = this.expr(el, a.name, scope, { mode: 'handler', magic: ['$event'], ...(choice ? { urlKind: 4 } : {}) });
-      const own = get(`debounce-${event}`), ms = own !== undefined ? Number(own) || 0 : handlerDebounce;
+      const ms = Number(get(`debounce-${event}`)) || 0;
       if (ms > 0) this.features.add('debounce');
       if (r.ok) node.b.push(this.binding({ k: 'on', n: kf ? kf[1]! : event, f: this.fn(r.code), w: r.writes, ...filter, ...(ms > 0 ? { ms } : {}) }));
     }

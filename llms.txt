@@ -48,7 +48,7 @@ This is the short version, small enough for a shell to show whole: the core refe
 - `data-sn-call` (action call): local action: a function of the actions module, e.g. pgp.decrypt(msg); a handler starts it with run('id'). The function gets a trailing context; its `ctx.request(url, { method, body })` encodes `body` as JSON: pass the object, not `JSON.stringify(…)` (a string)
 - `data-sn-body` (value expression): JSON request body; overrides form serialization
 - `data-sn-trigger` (DOM event name): overrides the default trigger
-- `data-sn-debounce` (milliseconds): delays the trigger, resets on each event; without a method, delays the element's data-sn-on-* handlers
+- `data-sn-debounce` (milliseconds): delays the action's trigger, resets on each event; a handler waits with data-sn-debounce-<event>
 - `data-sn-concurrency` (block | queue | latest): mutations only; default block for forms, queue otherwise
 - `data-sn-optimistic` (handler expression): merge/upsert/remove calls applied before the request, kept on success, rolled back on failure
 - `data-sn-then` (handler expression): runs after a 2xx response; $result = parsed body

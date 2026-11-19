@@ -310,7 +310,7 @@ test('debounce on a handler: the model updates at once, the handler once input p
   const { root, flush, advance, settle } = await render(`
     <div data-sn-state="{ q: '', query: '' }">
       <sn-resource name="results" src="/api/search?q={query}" when="query" key="id"></sn-resource>
-      <input data-sn-model="q" data-sn-on-input="query = q.trim()" data-sn-debounce="250">
+      <input data-sn-model="q" data-sn-on-input="query = q.trim()" data-sn-debounce-input="250">
       <p data-sn-text="q + '|' + query + '|' + results.length"></p>
     </div>`, { requests });
   const el = root.querySelector('input')!;
@@ -328,12 +328,16 @@ test('debounce on a handler: the model updates at once, the handler once input p
   expect(requests.calls.map((c) => c.url)).toEqual(['/api/search?q=inv']);
 });
 
-test('debounce without a method or a handler is misplaced', async () => {
+test('data-sn-debounce without a method is misplaced, and names the attribute a handler takes', async () => {
   const { compile } = await import('../../src/compiler/index.js');
   const d = compile('<div data-sn-state="{ q: 1 }"><input data-sn-model="q" data-sn-debounce="250"></div>', {
     file: '/p/x.html', root: '/p', dev: false, readFile: () => '', helpers: { module: null, names: [], namespaces: {} },
   }).diagnostics.map((x) => `${x.code} ${x.message}`);
-  expect(d).toEqual(['SN102 `data-sn-debounce` needs a method attribute (`data-sn-post`, `-put`, …) or a `data-sn-on-*` handler on the same element']);
+  expect(d).toEqual(['SN102 `data-sn-debounce` needs a method attribute (`data-sn-post`, `-put`, …) on the same element; a handler waits with `data-sn-debounce-<event>`']);
+  const h = compile('<div data-sn-state="{ q: 1 }"><input data-sn-on-input="q = 2" data-sn-on-blur="q = 3" data-sn-debounce="250"></div>', {
+    file: '/p/x.html', root: '/p', dev: false, readFile: () => '', helpers: { module: null, names: [], namespaces: {} },
+  }).diagnostics.map((x) => `${x.code} ${x.message}`);
+  expect(h).toEqual(['SN102 `data-sn-debounce` delays an action\'s trigger; a handler waits with the attribute for its event: `data-sn-debounce-input="250"`, `data-sn-debounce-blur="250"`']);
 });
 
 test('unhandled errors bubble as sn-error, then reach onError', async () => {

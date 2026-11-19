@@ -420,8 +420,8 @@ A model on `$url` (added 2026-11-13): `data-sn-model="$url.q"` binds a query par
 | `data-sn-call` | one call of an action, `ns.fn(args)` | a local action instead of a request (see Local actions); one action per element |
 | `data-sn-body` | value expression | JSON body; overrides form serialization |
 | `data-sn-trigger` | DOM event name | overrides the default trigger |
-| `data-sn-debounce` | milliseconds | delays the trigger, resets on each event; on an element without a method, delays its `data-sn-on-*` handlers the same way (the handler runs with the last event; `data-sn-model` still updates at once) |
-| `data-sn-debounce-<event>` | milliseconds | delays only the `data-sn-on-<event>` handler, e.g. `data-sn-debounce-input="200"` next to an immediate `data-sn-on-blur`; overrides `data-sn-debounce` for that handler, `0` makes it immediate |
+| `data-sn-debounce` | milliseconds | delays the action's trigger, resets on each event; without a method `SN102`, naming the `data-sn-debounce-<event>` attributes for the element's handlers |
+| `data-sn-debounce-<event>` | milliseconds | delays the `data-sn-on-<event>` handler (it runs with the last event; `data-sn-model` still updates at once), e.g. `data-sn-debounce-input="200"` next to an immediate `data-sn-on-blur` |
 | `data-sn-concurrency` | `block`, `queue` or `latest` | mutations only; default `block` for forms, `queue` otherwise |
 | `data-sn-optimistic` | handler expression | store changes applied before the request |
 | `data-sn-then` | handler expression | runs after a 2xx response, `$result` = parsed body |
@@ -449,7 +449,7 @@ A keyboard handler can name its key in the attribute: `data-sn-on-keydown-<modif
 - **Default and repeats.** A filter that matches calls `$event.preventDefault()` before its handler runs (Space does not scroll, `slash` does not type into a field it focuses); a plain `data-sn-on-keydown` never does, so it is the escape hatch for a key whose default should happen. Held keys repeat, and every repeat runs the handler (holding `j` moves on); a handler that should not repeat checks `$event.repeat` (`$event.repeat || (marked = toggled(marked, cursor))`). During IME composition no filter matches.
 - **Which handlers run.** The nearest element (from the target up) that handles the key wins (see Events, Which handlers run): one whose filter matches, or whose plain `data-sn-on-keydown` ran and called `$event.preventDefault()`. So a `<dialog data-sn-on-keydown-escape>` does not swallow the `j` meant for `<body>`, and neither does a grid's plain arrow-key handler that prevents only the arrows it uses. On that element, the matching filters and the plain handler all run, in attribute order; the plain one runs for every key. Several filters can match one event (`ctrl-shift-k` and `shift-ctrl-k`). A plain key handler that does not prevent a key passes it on (changed 2026-11-08; it used to keep every key from its ancestors).
 - **Where.** Keys go to the focused element, or to `<body>` when nothing is focused, so page-wide shortcuts belong on `<body>` (or `<html>`); a filter on an element runs while focus is inside it.
-- **Debounce.** `data-sn-debounce-keydown-j` delays only that filter's handler; `data-sn-debounce-keydown` only the plain one, `data-sn-debounce` all of the element's handlers. `preventDefault()` is called at once.
+- **Debounce.** `data-sn-debounce-keydown-j` delays only that filter's handler; `data-sn-debounce-keydown` only the plain one. `preventDefault()` is called at once.
 - **Types.** `sinter check` types `$event` in a key filter as the `KeyboardEvent` of its `keydown` or `keyup`.
 - The runtime part is a feature module (`@tiaforge-ui/sinter/keys`), imported only by pages with a key filter. A custom event named `keydown-…` or `keyup-…` cannot be handled with `data-sn-on-*`.
 

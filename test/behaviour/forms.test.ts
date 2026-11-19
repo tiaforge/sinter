@@ -210,7 +210,7 @@ test('data-sn-debounce-<event> delays only that handler', async () => {
   const { root, flush, advance } = await render(`
     <div data-sn-state="{ q: '', blurred: 0, typed: 0, clicks: 0 }">
       <input data-sn-on-input="q = $el.value" data-sn-debounce-input="200" data-sn-on-blur="blurred++">
-      <button data-sn-debounce="300" data-sn-on-click="clicks++" data-sn-on-focus="typed++" data-sn-debounce-focus="0">b</button>
+      <button data-sn-debounce-click="300" data-sn-on-click="clicks++" data-sn-on-focus="typed++">b</button>
       <p data-sn-text="q + '|' + blurred + '|' + clicks + '|' + typed"></p>
     </div>`);
   const input = root.querySelector('input')!, p = root.querySelector('p')!;
@@ -226,7 +226,7 @@ test('data-sn-debounce-<event> delays only that handler', async () => {
   b.click();
   b.dispatchEvent(new FocusEvent('focus'));
   await flush();
-  expect(p.textContent).toBe('ad|1|0|1');        // data-sn-debounce-focus="0" overrides data-sn-debounce
+  expect(p.textContent).toBe('ad|1|0|1');        // focus has no debounce of its own: at once
   await advance(300);
   await flush();
   expect(p.textContent).toBe('ad|1|1|1');
@@ -235,7 +235,7 @@ test('data-sn-debounce-<event> delays only that handler', async () => {
 test('a debounced handler whose row was removed meanwhile does not run', async () => {
   const { root, flush, advance } = await render(`
     <ul data-sn-state="{ items: [{id: 1}], hits: 0 }">
-      <template data-sn-for="it in items" data-sn-key="it.id"><li><input data-sn-on-input="hits++" data-sn-debounce="100"></li></template>
+      <template data-sn-for="it in items" data-sn-key="it.id"><li><input data-sn-on-input="hits++" data-sn-debounce-input="100"></li></template>
       <button data-sn-on-click="items = []">x</button><p data-sn-text="hits"></p></ul>`);
   root.querySelector('input')!.dispatchEvent(new Event('input', { bubbles: true }));
   root.querySelector('button')!.click();

@@ -43,7 +43,7 @@ Turn an element into a request. Details: [actions](actions.md).
 | `data-sn-call` | action call | local action: a function of the actions module, e.g. pgp.decrypt(msg); a handler starts it with run('id'). The function gets a trailing context; its `ctx.request(url, { method, body })` encodes `body` as JSON: pass the object, not `JSON.stringify(…)` (a string) |
 | `data-sn-body` | value expression | JSON request body; overrides form serialization |
 | `data-sn-trigger` | DOM event name | overrides the default trigger |
-| `data-sn-debounce` | milliseconds | delays the trigger, resets on each event; without a method, delays the element's data-sn-on-* handlers |
+| `data-sn-debounce` | milliseconds | delays the action's trigger, resets on each event; a handler waits with data-sn-debounce-&lt;event&gt; |
 | `data-sn-encoding` | json \| form | form: the body (data-sn-body, arrays as repeated keys, or the form) goes as application/x-www-form-urlencoded |
 | `data-sn-concurrency` | block \| queue \| latest | mutations only; default block for forms, queue otherwise |
 | `data-sn-confirm` | value expression | asks this question before the action runs (configure({ confirm }), window.confirm by default); no question when falsy |
