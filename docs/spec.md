@@ -420,7 +420,7 @@ A model on `$url` (added 2026-11-13): `data-sn-model="$url.q"` binds a query par
 | `data-sn-call` | one call of an action, `ns.fn(args)` | a local action instead of a request (see Local actions); one action per element |
 | `data-sn-body` | value expression | JSON body; overrides form serialization |
 | `data-sn-trigger` | DOM event name | overrides the default trigger |
-| `data-sn-debounce` | milliseconds | delays the action's trigger, resets on each event; without a method `SN102`, naming the `data-sn-debounce-<event>` attributes for the element's handlers |
+| `data-sn-debounce` | milliseconds | delays the action's trigger, resets on each event; without an action, delays its `data-sn-model`'s write (added 2026-11-19: the field shows the keystrokes at once; the write is no keystroke, so a resource over it loads at once and a model on `$url` pushes one entry, with no second pause; a text field's `change` writes at once); without either `SN102`, naming the `data-sn-debounce-<event>` attributes for the element's handlers |
 | `data-sn-debounce-<event>` | milliseconds | delays the `data-sn-on-<event>` handler (it runs with the last event; `data-sn-model` still updates at once), e.g. `data-sn-debounce-input="200"` next to an immediate `data-sn-on-blur` |
 | `data-sn-concurrency` | `block`, `queue` or `latest` | what a trigger does while the action runs; default `block` for forms, `queue` otherwise |
 | `data-sn-optimistic` | handler expression | store changes applied before the request |

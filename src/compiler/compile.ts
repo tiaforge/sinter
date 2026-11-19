@@ -4760,18 +4760,26 @@ class Compiler {
       else this.objectBinding(el, node, scope, 'prop');
     }
     if (has('model') && use) this.componentModel(use, node, scope);
-    else if (has('model')) this.model(el, node, scope, get('persist'));
+    // with `data-sn-debounce` and no action, the model writes once the field pauses (below)
+    else if (has('model')) this.model(el, node, scope, get('persist'), has('debounce') && !METHODS.some((m) => has(m)) && !has('call'));
     else if (has('persist') && !has('state')) this.report(el, 'data-sn-persist', 'SN102', '`data-sn-persist` needs `data-sn-model` or `data-sn-state` on the same element', 0);
 
     const methods = METHODS.filter((m) => has(m));
     const isCall = has('call');
-    // `data-sn-debounce` delays an action's trigger; a handler waits by `data-sn-debounce-<event>`
-    if (!methods.length && !isCall && has('debounce')) {
+    // `data-sn-debounce` delays what the element does: its action's trigger or, without one, its model's write
+    // (the pause in place of the typing pause: the write is not typing, so a resource over it loads at once and
+    // a model on `$url` is one history entry); a handler waits by `data-sn-debounce-<event>`
+    const modelB = !methods.length && !isCall && has('debounce') && has('model') && !use ? node.b.find((b) => b.k === 'model') : undefined;
+    if (modelB) {
+      const ms = Number(get('debounce'));
+      if (!Number.isFinite(ms) || ms < 0 || get('debounce')!.trim() === '') this.report(el, 'data-sn-debounce', 'SN401', '`data-sn-debounce` takes milliseconds', 0);
+      else if (ms > 0) { modelB.ms = ms; this.features.add('debounce'); }
+    } else if (!methods.length && !isCall && has('debounce')) {
       const events = [...new Set(sn.filter((a) => a.name.startsWith('data-sn-on-')).map((a) => a.name.slice('data-sn-on-'.length)))];
       const ms = get('debounce')!.trim();
       this.report(el, 'data-sn-debounce', 'SN102', events.length
         ? `\`data-sn-debounce\` delays an action's trigger; a handler waits with the attribute for its event: ${events.map((e) => `\`data-sn-debounce-${e}="${ms}"\``).join(', ')}`
-        : '`data-sn-debounce` needs a method attribute (`data-sn-post`, `-put`, …) on the same element; a handler waits with `data-sn-debounce-<event>`', 0);
+        : '`data-sn-debounce` needs a method attribute (`data-sn-post`, `-put`, …) or `data-sn-model` on the same element; a handler waits with `data-sn-debounce-<event>`', 0);
     }
     // `data-sn-debounce-<event>`: only that event's handler waits
     for (const a of sn) {
@@ -5602,7 +5610,7 @@ class Compiler {
     return { r: this.fn(ro.code), o: this.fn(oo.code), d, ...(bin.operator === '!==' ? { x: 1 as const } : {}) };
   }
 
-  model(el: P5Element, node: NodeDef, scope: Scope, persist: string | undefined) {
+  model(el: P5Element, node: NodeDef, scope: Scope, persist: string | undefined, debounced = false) {
     const tag = el.tagName;
     const type = (attr(el, 'type') ?? 'text').toLowerCase();
     let kind: string;
@@ -5643,10 +5651,12 @@ class Compiler {
       this.urlBinds.push({ name: r.path[1]!, array: kind == 'multi' || (kind == 'checkbox' && attr(el, 'value') != null), report: (m) => this.report(el, 'data-sn-model', 'SN210', m, 0) });
       // through the handler analysis: a path parameter or `$url.a.b` is refused as in a handler; typing
       // in a text field commits at each pause, a number field's burst of steps pushes once at its pause,
-      // any other control pushes a history entry (location.ts: 2 typing, 3 burst, 4 push)
-      const h = this.expr(el, 'data-sn-model', scope, { mode: 'handler', magic: ['$event'], urlKind: kind == 'text' ? 2 : kind == 'number' ? 3 : 4 }, `${attr(el, 'data-sn-model')!} = $event`);
+      // any other control pushes a history entry (location.ts: 2 typing, 3 burst, 4 push); a debounced model writes
+      // after its own pause, so its write pushes, with no second pause
+      const urlKind = debounced ? 4 : kind == 'text' ? 2 : kind == 'number' ? 3 : 4;
+      const h = this.expr(el, 'data-sn-model', scope, { mode: 'handler', magic: ['$event'], urlKind }, `${attr(el, 'data-sn-model')!} = $event`);
       // typing and a number field's steps wait for a pause: the typing module, only on pages with such a model
-      if (kind == 'text' || kind == 'number') this.features.add('typing');
+      if (urlKind == 2 || urlKind == 3) this.features.add('typing');
       if (!h.ok) return;
       setter = this.fn(`($, v) => (${h.code})(Object.assign(Object.create($), { $event: v }))`);
     } else setter = this.fn(`($, v) => { ${r.code.slice('($) => ('.length, -1)} = v; }`);

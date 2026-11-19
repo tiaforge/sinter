@@ -251,7 +251,7 @@
     },
     {
       "name": "data-sn-debounce",
-      "description": "delays the action's trigger, resets on each event; a handler waits with data-sn-debounce-<event> (milliseconds)"
+      "description": "delays the action's trigger, resets on each event; with no action, the model's write (instead of the typing pause, not after it); a handler waits with data-sn-debounce-<event> (milliseconds)"
     },
     {
       "name": "data-sn-concurrency",

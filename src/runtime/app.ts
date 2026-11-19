@@ -1619,7 +1619,15 @@ export function mount(root: Document | Element, o: MountOptions): App {
       }
       // models update state before other handlers on the same event
       const m = F.MODEL ? (el as Tagged)[MODEL] : undefined;
-      if (m && /^(input|change)$/.test(e.type) && (e.type == 'input') == (m.b.n == 'text')) setModel(m, readModel(m), e.type == 'input' && !m.el.localName.includes('-'));
+      if (m && /^(input|change)$/.test(e.type) && (m.b.ms || (e.type == 'input') == (m.b.n == 'text'))) {
+        // `data-sn-debounce` on the model (debounce.ts): it writes once the field pauses, as an event's write that is
+        // not typing (the pause is over), with the value the field has then; a text field's `change` (Enter,
+        // leaving it) ends the pause
+        if (m.b.ms) {
+          const u = ev, now = m.b.n == 'text' && e.type == 'change';
+          if (now || (e.type == 'input') == (m.b.n == 'text')) app.ext.debounce!(m, now ? 0 : m.b.ms, () => m.el.isConnected && as(u, () => setModel(m, readModel(m))));
+        } else setModel(m, readModel(m), e.type == 'input' && !m.el.localName.includes('-'));
+      }
       for (; el; el = el.parentElement) {
         const h = handlersOf(el as Tagged), hs = h && (Array.isArray(h) ? h : [h]).filter((x) => x.b.n == e.type && (x.b.q == null || app.ext.keys!(x, e as KeyboardEvent)));
         if (hs?.length) {

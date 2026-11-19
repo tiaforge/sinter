@@ -29,7 +29,7 @@ reloads when the values it reads change.
 | Attribute | Does |
 | --- | --- |
 | `data-sn-trigger="input"` | fires on this DOM event instead of the default |
-| `data-sn-debounce="300"` | waits that many ms after the last trigger |
+| `data-sn-debounce="300"` | waits that many ms after the last trigger (on a field with no action: delays its `data-sn-model`'s write, [resources](resources.md)) |
 | `data-sn-body="expr"` | sends the value as JSON, instead of serializing a form |
 | `data-sn-encoding="form"` | sends `application/x-www-form-urlencoded` instead of JSON |
 | `data-sn-confirm="expr"` | asks first; a falsy value asks nothing |

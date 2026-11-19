@@ -22,6 +22,17 @@ changes go through store functions.
 Loading needs no code. The list stays sorted by `name`, and the old data stays on screen during a
 reload. See `docs/recipes/list-filter.html`.
 
+A long list or an expensive filter can wait for the typing to pause: `data-sn-debounce` on the field
+delays the model's write, while the field shows each keystroke at once.
+
+```html
+<input type="search" data-sn-model="q" data-sn-debounce="200">
+```
+
+The pause takes the place of the typing pause, it does not add to it: a resource whose `src` reads `q`
+loads right after the 200 ms, and a model on `$url` writes one history entry then. Enter, or leaving
+the field, writes at once.
+
 ## Attributes
 
 | Attribute | Meaning |

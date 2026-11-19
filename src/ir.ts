@@ -155,7 +155,7 @@ export interface Binding {
   e?: 1;
   /** the expression reads a loop index, so it re-runs when only the row's position changed */
   i?: 1;
-  /** a handler's `data-sn-debounce-<event>` milliseconds */
+  /** a handler's `data-sn-debounce-<event>` milliseconds; a model's `data-sn-debounce` (its element has no action): it writes after that pause */
   ms?: number;
   /** key filter (`on` for keydown/keyup): the `KeyboardEvent.key` to match, letters in lowercase */
   q?: string;
