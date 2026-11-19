@@ -28,7 +28,8 @@ Decisions proposed:
    rewritten as today, and no page declares its languages. A generic axis (`data-sn-pages="lang in languages"`
    written by the app, or tenant and market axes) is not proposed: the core would still have to be told which
    list is the language, for the formatters, the links and `hreflang`. Tenants are the case for a second
-   axis; [§6](#6-tenants-by-domain) says what works for them today and what that axis would need.
+   axis; [§6](#6-origins-languages-and-tenants-on-their-own-domains) says what works for them today and what that
+   axis would need.
 6. **Every built page is byte for byte what it is today**, for every example app and the e2e pages, through
    steps 1 to 4. Step 4 is also a speed change, measured.
 
@@ -197,6 +198,29 @@ sinter({
   region's product is often wrong.
 - **Formatters** keep the page's own tag (`Intl` negotiates its data), and `order` collates in it.
 
+#### URL segments
+
+Today a language's URL segment is its tag as written in the list (`/de-AT/`). Sites often want another segment
+(`/at/` for `de-AT`), or one language to answer for tags it does not list (`nb` for a site's `no`):
+
+```js
+locales: {
+  base: 'en', list: ['en', 'de', 'de-AT', 'no'],
+  paths: { 'de-AT': 'at' },          // the URL segment: /at/…, dist/at/…
+  codes: { no: ['nb', 'nn'] },       // tags a visitor may send for it
+}
+```
+
+- **The tag is the language, the segment only its URL.** `$locale`, `<html lang>`, `localeUrl('de-AT')`, the
+  `locale` cookie, `{$locale}` in a `file:` path, `per: ['locale']` loaders, the messages' files and the chains
+  all use the tag. The segment is used for URLs and output folders only: `prefix()` in `src/locales.ts`, so
+  nothing else learns it.
+- **`codes`** are extra tags that choosing a visitor's language treats as that language (exactly, before the
+  chains). `hreflang` lists the language's tag and each of its codes, all at its URL.
+- A segment must be one URL-safe path segment, unique among the languages, and not a top-level folder or page of
+  the site: §1's collision check covers it, since points are written at their segment. Without `paths` the
+  segment is the tag, as today, so the output does not change.
+
 ### 5. One language per page
 
 - **Deprecation release:** `$locale = …` and `setLocale()` on a page built without `localePrefix` warn (a new
@@ -211,7 +235,47 @@ sinter({
   must switch in place and cannot prefix its URLs.
 - The messages recipe moves to `localePrefix`, with a language link instead of a `<select>`.
 
-### 6. Tenants by domain
+### 6. Origins: languages and tenants on their own domains
+
+A point can be served from its own domain instead of under a path prefix. Two uses: a language per domain
+(`example.de`, `example.fr`), which this proposal plans, and a tenant per domain, designed below for later.
+Both need the same thing from the engine: an **origin** as an axis value, whose files are written under a folder
+and whose URLs are written without it. Astro has the first only with server rendering (`i18n.domains`, Node or
+Vercel adapter); here both stay static, with the reverse proxy mapping each domain to its folder.
+
+**What an origin changes for its points**, whether a language or a tenant has it:
+
+- **Files under a folder, URLs without it**: the point is written under its folder (`dist/de/`, `dist/acme/`),
+  and every URL in it (links, canonical, sitemap, `hreflang`, `localeUrl()`, the runtime's path patterns, the
+  pager's and same-page links' rules) is the one its domain serves, with its origin where a URL is absolute.
+- **Links to another origin are absolute**: a link from `example.de` to the French page is
+  `https://example.fr/…`, and loads the page, as any cross-origin link (no same-page link, no swap).
+- **Shared assets** stay at the root (`/assets/…`), written once; the proxy serves them on every domain.
+- **One sitemap per origin**, at its root, listing its own URLs, with `hreflang` alternates across origins.
+- **The server layers** (`@tiaforge-ui/sinter/server`, sinter-axum, Sinter.AspNetCore) get a host → folder map in
+  the embed manifest, so a request is answered from the right point.
+
+#### Languages on their own domains
+
+```js
+sinter({
+  localePrefix: true, site: 'https://example.com',
+  locales: { base: 'en', list: ['en', 'de', 'fr'], domains: { de: 'https://example.de', fr: 'https://example.fr' } },
+})
+```
+
+- A language with a domain is served at its root (`https://example.de/about/`), from `dist/de/`. The others
+  stay prefixed on `site` (`https://example.com/en/about/`), as today.
+- **Choosing**: a visitor who opens a language's domain gets that language; there is no chooser there. The
+  choosers stay on `site`'s unprefixed URLs and may send a visitor to another domain. The `locale` cookie is per
+  domain, so a choice made on one domain is not seen on another: at a chooser, `Accept-Language` decides unless
+  `site`'s own cookie does.
+- `localeUrl('fr')` on `example.de` is the French domain's URL. `{$locale}` content, messages and fallback
+  chains are unchanged: a domain changes where a point is served, not what it contains.
+- The case for it: a domain per country is common for shops and public bodies, and it is the smallest first
+  user of origins, with nothing but the language axis that exists already.
+
+#### Tenants by domain
 
 The case: a multi-tenant shop, one tenant per domain (`acme-shop.com`, `globex-shop.com`), with the same pages,
 each tenant's own products and its own texts on top of shared ones, in several languages.
@@ -247,21 +311,17 @@ for t in acme globex; do TENANT=$t vite build --outDir dist/$t; done
 - **Declared by a layout**, once: every page that uses it is built once per tenant, with the page's own
   `data-sn-pages` entries inside each tenant and the languages around both. A point becomes language × the
   layout's lists × the page's entries, on the engine of §1.
-- **Files under a folder, URLs without it**: the point is written under `dist/<tenant>/`, and every URL in it
-  (links, canonical, sitemap, `hreflang`, `localeUrl()`, the runtime's path patterns) is the one its domain
-  serves, with the tenant's origin where an absolute URL is needed. One sitemap per tenant.
-- **Shared assets** stay at the root (`/assets/…`), written once, and the proxy passes them through.
+- **Served from its origin**, as above: files under `dist/<tenant>/`, URLs for its domain, one sitemap each.
 - **Content per point**: `perLocale: true` becomes `per: ['tenant', 'locale']` on collections and content
   namespaces, and a loader gets the point's values (`load: ({ tenant, locale }) => …`). The messages package's
   file list then takes the tenant from the point instead of `env`.
-- **The server layers** (`@tiaforge-ui/sinter/server`, sinter-axum, Sinter.AspNetCore) get a host → tenant map in
-  the embed manifest, if the app embeds data.
 - **Not language traits**: choosers, the `locale` cookie and `hreflang` between tenants do not apply; a tenant
   is never chosen for a visitor.
 
 What it buys over one build per tenant: one build and one deploy, and §2's reuse, so a page is walked once for
 all its tenants and languages when its program is the same. It is not in the plan below: it is worth building
-once N builds are too slow or too awkward to deploy, which one build per tenant measures first.
+once N builds are too slow or too awkward to deploy, which one build per tenant measures first. Languages on their
+own domains (plan step 8) build the origin part it needs.
 
 ## Plan
 
@@ -285,6 +345,12 @@ Each step ships on its own.
    cases in the three server layers, the manifest's `fallbacks`, messages along the chain, `fallback: true` for
    content. Independent of step 5. It changes output where a language now falls back to another than the base,
    so the baseline is recorded again first. Docs: static-pages.md#languages, configuration.md#messages.
+7. **URL segments** (§4, "URL segments"): `paths` and `codes`. Without them the output does not change.
+8. **Languages on their own domains** (§6): origins as axis values (files under a folder, URLs without it,
+   absolute links across origins, a sitemap per origin), `locales.domains`, choosers on `site` only, the
+   manifest's host map in the three server layers. A test site with three languages, two of them on domains,
+   built and served through a proxy config in e2e. Docs: static-pages.md#languages, with the proxy rules for
+   nginx, Caddy and Apache, as for the other host rules.
 
 After step 5, [messages-package.md](messages-package.md) starts at its step 3 (content namespaces): its step 1 is
 this proposal's step 1, and its step 2 shrinks to what `localePrefix` already does.
@@ -292,7 +358,8 @@ this proposal's step 1, and its step 2 shrinks to what `localePrefix` already do
 ## Not in this proposal
 
 - A public, generic axis: an app writing `data-sn-pages="lang in languages"`, or market axes. Tenants by
-  domain have a design in [§6](#6-tenants-by-domain) but no step in the plan yet.
+  domain have a design in [§6](#6-origins-languages-and-tenants-on-their-own-domains) but no step in the plan yet;
+  the origins they need are step 8.
 - Translated path segments (`/de/ueber-uns`).
 - Messages: [messages-package.md](messages-package.md).
 
