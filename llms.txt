@@ -56,7 +56,7 @@ This is the short version, small enough for a shell to show whole: the core refe
 - `data-sn-confirm` (value expression): asks this question before the action runs (configure({ confirm }), window.confirm by default); no question when falsy
 - `data-sn-encoding` (json | form): form: the body (data-sn-body, arrays as repeated keys, or the form) goes as application/x-www-form-urlencoded
 - `data-sn-retry` (retry policy name): mutations only: sends the request again as that policy of configure({ retry }) says (after a network error, a 5xx, a 429), with an Idempotency-Key; without it a write is sent once
-- `data-sn-apply` (off): turns write-through off for this mutation: its response is not applied to the resources it is about
+- `data-sn-write-through` (off): turns write-through off for this mutation: its response is not applied to the resources it is about
 - `data-sn-path` (URL patterns /a/:b …): on <html>: the path shapes this page is served for; `:name` segments appear read-only in $url
 - `data-sn-pages` (entry in list): on <html>: the page once per entry of a `file:` list, at `data-sn-path` filled from it
 - `data-sn-data` (resource name): on <script type="application/json"> in <head>: initial data for a resource

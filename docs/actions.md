@@ -36,7 +36,7 @@ reloads when the values it reads change.
 | `data-sn-optimistic="…"` | changes lists before the request ([below](#optimistic-updates)) |
 | `data-sn-then="…"`, `data-sn-catch="…"` | run after success or failure ([below](#then-and-catch)) |
 | `data-sn-concurrency` | what to do with triggers while one is pending |
-| `data-sn-apply="off"` | turns off [write-through](#write-through) for this element |
+| `data-sn-write-through="off"` | turns off [write-through](#write-through) for this element |
 | `data-sn-retry` | resend after a dropped connection: see [retry.md](retry.md) |
 
 ### Triggers
@@ -251,7 +251,7 @@ URL and body which resources and rows the action reads.
 - Patches merge: fields the response omits stay.
 - Nothing is matched by type alone. A response `Article` does not replace the single resource
   `article` unless the URL read it, and `DELETE /articles/{slug}/favorite` removes nothing.
-- `data-sn-apply="off"` turns it off for one element. `data-sn-call` has no write-through.
+- `data-sn-write-through="off"` turns it off for one element. `data-sn-call` has no write-through.
 - A `then` that does what a rule already does is the warning `SN510`. Dev builds log each
   application to the console.
 

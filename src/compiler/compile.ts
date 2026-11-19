@@ -507,12 +507,13 @@ const ATTRS = ATTRIBUTES.map((a) => a.name);
 const METHODS = ['post', 'put', 'patch', 'delete'] as const;
 /** attributes that are gone or renamed (docs/proposals/vocabulary.md): what to write instead */
 const RETIRED: Record<string, string> = {
+  'data-sn-apply': 'is renamed to `data-sn-write-through`, the name of what it turns off: `data-sn-write-through="off"`',
   'data-sn-listbox': 'is renamed to `data-sn-roving`, which also serves menus and lists: on a text field it works as before; on the element that holds the options, that element takes the focus',
   'data-sn-get': 'is gone: data a GET loads is a resource, `<sn-resource name="hits" src="/api/search?q={q}" when="q">`, which reloads when the values its URL reads change (latest wins); a load a click starts sets the state its `when` reads, or is a `data-sn-call`',
 };
 /** an action's expressions evaluated when it triggers, so they see `$event` */
 const TRIGGER_TIME = new Set(['data-sn-post', 'data-sn-put', 'data-sn-patch', 'data-sn-delete', 'data-sn-call', 'data-sn-body', 'data-sn-confirm']);
-const ACTION_ONLY = ['body', 'trigger', 'debounce', 'concurrency', 'optimistic', 'then', 'catch', 'confirm', 'encoding', 'apply', 'retry'];
+const ACTION_ONLY = ['body', 'trigger', 'debounce', 'concurrency', 'optimistic', 'then', 'catch', 'confirm', 'encoding', 'write-through', 'retry'];
 const UNSAFE_ELEMENTS = new Set(['script', 'style', 'iframe', 'object', 'embed', 'base', 'meta', 'link', 'animate', 'set', 'animatemotion', 'animatetransform']);
 const FORM_CONTROLS = new Set(['input', 'select', 'textarea']);
 const RESOURCE_ATTRS = ELEMENTS.find((e) => e.name === 'sn-resource')!.attrs;
@@ -5579,9 +5580,9 @@ class Compiler {
     const encoding = get('encoding');
     if (encoding !== undefined && encoding !== 'form' && encoding !== 'json') this.report(el, 'data-sn-encoding', 'SN401', '`data-sn-encoding` is `json` (the default) or `form`', 0);
     if (encoding !== undefined && method === 'call') this.report(el, 'data-sn-encoding', 'SN102', '`data-sn-encoding` belongs to a method attribute; a call sends its own requests', 0);
-    const applyAttr = get('apply');
-    if (applyAttr !== undefined && applyAttr.trim() !== 'off') this.report(el, 'data-sn-apply', 'SN401', '`data-sn-apply` takes `off`; write-through is on without the attribute', 0);
-    if (applyAttr !== undefined && method === 'call') this.report(el, 'data-sn-apply', 'SN102', '`data-sn-apply` belongs to a method attribute (`data-sn-post`, `-put`, `-patch`, `-delete`): a call has no write-through', 0);
+    const applyAttr = get('write-through');
+    if (applyAttr !== undefined && applyAttr.trim() !== 'off') this.report(el, 'data-sn-write-through', 'SN401', '`data-sn-write-through` takes `off`; write-through is on without the attribute', 0);
+    if (applyAttr !== undefined && method === 'call') this.report(el, 'data-sn-write-through', 'SN102', '`data-sn-write-through` belongs to a method attribute (`data-sn-post`, `-put`, `-patch`, `-delete`): a call has no write-through', 0);
     const retryAttr = get('retry')?.trim();
     if (retryAttr === '') this.report(el, 'data-sn-retry', 'SN401', '`data-sn-retry` takes the name of a retry policy from `configure({ retry })`, e.g. `data-sn-retry="drafts"`', 0);
     else if (retryAttr !== undefined && method === 'call') this.report(el, 'data-sn-retry', 'SN102', '`data-sn-retry` belongs to a method attribute (`data-sn-post`, `-put`, `-patch`, `-delete`): a call may send several requests, so sinter cannot send it again', 0);
@@ -5699,7 +5700,7 @@ class Compiler {
     const src = (name: string) => this.resources.find((r) => r.name === name)?.src ?? null;
     const sameUrl = (name: string) => { const s = src(name); return !!s && lits(s).join('\0') === lits(url).join('\0'); };
     const rowUrl = (name: string) => { const s = src(name); if (!s) return false; const a = lits(url), b = lits(s); return a.length === b.length && a.slice(0, -1).join('\0') === b.slice(0, -1).join('\0') && a[a.length - 1] === b[b.length - 1] + '/'; };
-    const fix = 'remove this write, or add `data-sn-apply="off"` to keep it';
+    const fix = 'remove this write, or add `data-sn-write-through="off"` to keep it';
     const op = opPath ? `the response of \`${method.toUpperCase()} ${opPath}\`` : 'the response';
     const visit = (n: acorn.AnyNode) => {
       const fn = n.type === 'CallExpression' && n.callee.type === 'Identifier' ? n.callee.name : null;
@@ -6494,7 +6495,7 @@ class Compiler {
       const store = new RegExp(`\\$\\.\\$f\\.(refresh|upsert|page|patch|remove)\\([^)]*["']${q}["']`);
       const m = this.fns.map((c) => store.exec(c)).find(Boolean);
       if (m) this.report(el, 'name', 'SN332', `\`${m[1]}()\` would load or change \`${n}\`, a \`file:\` resource: it is a constant, read at build time`, 0);
-      if (this.actions.some((a) => a.ap?.tg.some((t) => t.r === n) || a.ap?.nt?.some((t) => t.r === n))) this.report(el, 'name', 'SN332', `an action's response would be written through to \`${n}\`, a \`file:\` resource, which is a constant: add \`data-sn-apply="off"\` to the action`, 0);
+      if (this.actions.some((a) => a.ap?.tg.some((t) => t.r === n) || a.ap?.nt?.some((t) => t.r === n))) this.report(el, 'name', 'SN332', `an action's response would be written through to \`${n}\`, a \`file:\` resource, which is a constant: add \`data-sn-write-through="off"\` to the action`, 0);
       for (const s of this.syncs) if (s.events.some((e) => e.resource === n)) this.report(el, 'name', 'SN332', `an \`<sn-event>\` changes \`${n}\`, a \`file:\` resource, which is a constant`, 0);
     }
   }

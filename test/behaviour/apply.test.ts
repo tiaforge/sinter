@@ -183,11 +183,11 @@ test('order: write-through lands after the optimistic commit and before `then`, 
   expect(root.querySelector('p')!.textContent).toBe('5:true:then');
 });
 
-test('data-sn-apply="off" keeps the handler\'s work to itself', async () => {
+test('data-sn-write-through="off" keeps the handler\'s work to itself', async () => {
   const requests = mockRequests({ 'GET /api/articles': { articles: [a1] }, 'POST /api/articles/a1/favorite': { article: { ...a1, favoritesCount: 5 } } });
   const { root, settle } = await render(`
     <sn-resource name="articles" src="/api/articles" items="articles" key="slug"></sn-resource>
-    <template data-sn-for="a in articles"><div><p data-sn-text="a.favoritesCount"></p><button data-sn-post="/api/articles/{a.slug}/favorite" data-sn-apply="off">f</button></div></template>`, { requests, openapi: SPEC });
+    <template data-sn-for="a in articles"><div><p data-sn-text="a.favoritesCount"></p><button data-sn-post="/api/articles/{a.slug}/favorite" data-sn-write-through="off">f</button></div></template>`, { requests, openapi: SPEC });
   await settle();
   click(root, 'button'); await settle();
   expect(root.querySelector('p')!.textContent).toBe('1');

@@ -44,6 +44,7 @@ const use = '<p data-sn-text="contacts.length + messages.length"></p>';
 /** One failing fixture per diagnostic code; the message text is part of the public API. */
 const cases: Array<[string, string, RegExp, Opts?]> = [
   ['SN101', '<p data-sn-txt="1"></p>', /`data-sn-txt` is not a sinter attribute. Did you mean `data-sn-text`\?/],
+  ['SN101', '<button data-sn-post="/api/x" data-sn-apply="off"></button>', /`data-sn-apply` is renamed to `data-sn-write-through`/],
   ['SN101', '<button data-sn-get="/api/x"></button>', /`data-sn-get` is gone: data a GET loads is a resource/],
   ['SN201', `${R}${use}<template data-sn-for="c in contacts"><b data-sn-on-click="patch(c, {})"></b></template>`, /`patch\(\)` is renamed to `merge\(\)`/],
   ['SN201', '<b data-sn-on-click="merge(x, {})"></b>', /`merge` is both a store function and a helper/, { helpers: ['merge'] }],
@@ -116,7 +117,7 @@ const cases: Array<[string, string, RegExp, Opts?]> = [
   ['SN515', '<!doctype html><html data-sn-path="/page/"><head></head><body></body></html>', /`data-sn-path="\/page\/"` is the URL this page has anyway/],
   ['SN505', '<sn-resource name="c" src="/api/c?qq=1" items="contacts"></sn-resource><p data-sn-text="c"></p>', /`GET \/api\/c` declares no query parameter `qq`. Did you mean `q`\?/, { openapi: true }],
   ['SN510', `<sn-resource name="c" src="/api/c" items="contacts" key="id"></sn-resource><template data-sn-for="x in c"><button data-sn-post="/api/c/{x.id}/star" data-sn-then="merge(x, $result.contact)"></button></template>`,
-    /`merge\(x, \$result\.contact\)` is what write-through does: the response of `POST \/api\/c\/\{id\}\/star` is `Contact`, which `c` holds; remove this write, or add `data-sn-apply="off"` to keep it/, { openapi: true }],
+    /`merge\(x, \$result\.contact\)` is what write-through does: the response of `POST \/api\/c\/\{id\}\/star` is `Contact`, which `c` holds; remove this write, or add `data-sn-write-through="off"` to keep it/, { openapi: true }],
 ];
 
 /** Codes that do not come from compile(): `sinter check` runs TypeScript (SN208), loading a spec fails (SN307). Fixtures in test/check. */

@@ -368,9 +368,9 @@ export const DIAGNOSTIC_DOCS: Record<Code, DiagnosticDoc> = {
     fix: 'Make sure a step stops: a condition that becomes false (`$error.status === 503 && tries < 3 && run(\'save\')`), or drop one step.',
   },
   SN510: {
-    example: '`merge(article, $result.article)` is what write-through does: the response of `POST /articles/{slug}/favorite` is `Article`, which `articles` holds; remove this write, or add `data-sn-apply="off"` to keep it',
+    example: '`merge(article, $result.article)` is what write-through does: the response of `POST /articles/{slug}/favorite` is `Article`, which `articles` holds; remove this write, or add `data-sn-write-through="off"` to keep it',
     means: 'A `then` handler writes to the store what write-through writes by itself after the response: an object of a resource\'s schema is patched into the item with its key (and into what the URL named), a POST to a list\'s URL inserts the created item, a DELETE of a row\'s URL removes the row. The handler\'s write lands on top and changes nothing.',
-    fix: 'Remove the write from the handler (keep its other statements). To keep the explicit write, turn write-through off for that element with `data-sn-apply="off"`.',
+    fix: 'Remove the write from the handler (keep its other statements). To keep the explicit write, turn write-through off for that element with `data-sn-write-through="off"`.',
   },
   SN511: {
     example: '`hero.jpg` is 600 px wide; the 400 px box needs 800 px to be sharp on 2x screens',

@@ -314,7 +314,7 @@
       "description": "mutations only: sends the request again as that policy of configure({ retry }) says (after a network error, a 5xx, a 429), with an Idempotency-Key; without it a write is sent once (retry policy name)"
     },
     {
-      "name": "data-sn-apply",
+      "name": "data-sn-write-through",
       "description": "turns write-through off for this mutation: its response is not applied to the resources it is about (off)"
     },
     {

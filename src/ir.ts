@@ -299,7 +299,7 @@ export interface ActionDef {
   confirm?: number;
   /** `data-sn-encoding="form"`: the body goes as application/x-www-form-urlencoded */
   enc?: 'form';
-  /** write-through of the response (absent with `data-sn-apply="off"`, for GET and `call`) */
+  /** write-through of the response (absent with `data-sn-write-through="off"`, and for `call`) */
   ap?: ApplyDef;
   /** `data-sn-retry`: the retry policy of a mutation */
   retry?: string;

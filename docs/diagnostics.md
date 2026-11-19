@@ -716,11 +716,11 @@ Warning, for example:
 
 Warning, for example:
 
-> `merge(article, $result.article)` is what write-through does: the response of `POST /articles/{slug}/favorite` is `Article`, which `articles` holds; remove this write, or add `data-sn-apply="off"` to keep it
+> `merge(article, $result.article)` is what write-through does: the response of `POST /articles/{slug}/favorite` is `Article`, which `articles` holds; remove this write, or add `data-sn-write-through="off"` to keep it
 
 A `then` handler writes to the store what write-through writes by itself after the response: an object of a resource's schema is patched into the item with its key (and into what the URL named), a POST to a list's URL inserts the created item, a DELETE of a row's URL removes the row. The handler's write lands on top and changes nothing.
 
-**Fix:** Remove the write from the handler (keep its other statements). To keep the explicit write, turn write-through off for that element with `data-sn-apply="off"`.
+**Fix:** Remove the write from the handler (keep its other statements). To keep the explicit write, turn write-through off for that element with `data-sn-write-through="off"`.
 
 ## SN511 image-too-small
 

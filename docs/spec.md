@@ -428,7 +428,7 @@ A model on `$url` (added 2026-11-13): `data-sn-model="$url.q"` binds a query par
 | `data-sn-catch` | handler expression | runs after an error, `$error` = error object |
 | `data-sn-confirm` | value expression | a question asked before the action runs; no request when the answer is no, no question when the value is falsy |
 | `data-sn-encoding` | `json` or `form` | `form`: the body is sent as `application/x-www-form-urlencoded` (see Request body) |
-| `data-sn-apply` | `off` | turns write-through off for this mutation (see Write-through) |
+| `data-sn-write-through` | `off` | turns write-through off for this mutation (see Write-through) |
 | `data-sn-roving` | the `id` of a list, or empty | keys move a mark through the options (see Lists you move through with the keys) |
 | `data-sn-on-<event>` | handler expression | plain event handler, no request; e.g. `data-sn-on-click` |
 | `data-sn-on-keydown-<key>`, `data-sn-on-keyup-<key>` | handler expression | runs only for that key, with modifiers before it: `-j`, `-shift-n`, `-mod-enter`, `-escape`; see Key filters |
@@ -818,7 +818,7 @@ A mutation's 2xx response is applied to the resources it is about, by the `apply
 - Patches merge. A field the response omits stays; a row created by rule 2 lacks fields only the server sets until the next load or event. Fields that already hold the value are not written: a base write to an item drops an older pending layer's changes to that item (as a server event does), so a confirmation that changes nothing must write nothing.
 - Never by type alone: a response `Article` does not replace the single `article` unless the URL read it; a response `Profile` does not touch `article.author` unless the URL read it. A `DELETE` on a sub-resource (`/articles/{slug}/favorite`) removes nothing; a `DELETE` of a single-object resource's URL leaves it (the page usually navigates).
 - Rules 1 to 3 need the spec (`sinter({ apis })`); untyped pages get rule 4 and the body-only form of rule 3.
-- `data-sn-apply="off"` turns it off for one element. `data-sn-call` has no write-through.
+- `data-sn-write-through="off"` turns it off for one element. `data-sn-call` has no write-through.
 - `SN510 redundant-write` (warning): a `then` that `merge`s or `upsert`s a resource with `$result.<path>` a rule applies, or `remove`s the row a rule 4 removes. Dev builds log each application: `write-through after POST /api/articles/x/favorite: articles: patch, feed: patch`.
 - RealWorld (2026-11-08): 12 of 19 `then` handlers went, among them every favorite and follow button and the comment form's `upsert`.
 
