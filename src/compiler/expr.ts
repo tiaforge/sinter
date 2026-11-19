@@ -152,7 +152,7 @@ export interface PageInfo {
    * export's name in it. Only a `data-sn-let` or a prop may call one (SN324)
    */
   lazy?: Map<string, { i: number; name: string }>;
-  /** literal `id`s of the page's `<dialog>` elements, for `showModal()` and `close()` */
+  /** literal `id`s of the page's `<dialog>` elements, for `openDialog()` and `closeDialog()` */
   dialogs: Set<string>;
   /** the resources an `<sn-event resource>` on the page names: the ones a stream feeds (`$meta.<name>.live`, SN516) */
   fed: Set<string>;
@@ -168,7 +168,7 @@ export interface ExprOptions {
   payload?: boolean;
   /** with `payload`: state names in scope resolve to the state first (`<sn-event>`) */
   payloadState?: boolean;
-  /** a handler with no element (`<sn-event>`, `<sn-resource>` `then`): `close()` names its dialog, no `emit()` */
+  /** a handler with no element (`<sn-event>`, `<sn-resource>` `then`): `closeDialog()` names its dialog, no `emit()` */
   noElement?: string;
   /** parse as `{...}` object literal; returns its entries */
   object?: 'literal-keys' | 'any-keys' | 'state';
@@ -269,9 +269,11 @@ const NAME_FORMS = 'a string literal, `?:`, `||` or `??` between them, or a `dat
 
 const EVERYWHERE_MAGIC = ['$el', '$url', '$now', '$locale', '$meta'];
 export const ALL_MAGIC = ['$event', '$el', '$url', '$now', '$locale', '$result', '$error', '$meta'];
-export const STORE_FNS = ['refresh', 'upsert', 'merge', 'remove', 'page', 'showModal', 'close', 'emit', 'run', 'navigate'];
+export const STORE_FNS = ['refresh', 'upsert', 'merge', 'remove', 'page', 'openDialog', 'closeDialog', 'emit', 'run', 'navigate'];
 /** store functions that are gone or renamed (docs/proposals/vocabulary.md): what to write instead */
 const RETIRED_FNS: Record<string, string> = {
+  showModal: '`showModal()` is renamed to `openDialog()`, the pair of `closeDialog()`: `openDialog(\'edit\')`',
+  close: '`close()` is renamed to `closeDialog()`, the pair of `openDialog()`: `closeDialog()` closes the nearest dialog, `closeDialog(\'edit\')` that one',
   patch: '`patch()` is renamed to `merge()`, which says what it does (fields left out stay) and is not the HTTP method: `merge(item, {…})`',
   reset: '`reset()` is gone: a form\'s fields follow their `data-sn-model` state, so clear the state (`data-sn-then="draft = { title: \'\' }"`); `<button type="reset">` restores the fields and their models',
 };
@@ -1005,8 +1007,8 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
     }
     const first = n.arguments[0];
     // an element-less handler has no nearest dialog or form, nothing to dispatch from
-    if (opts.noElement && (name === 'emit' || (name === 'close' && !first))) {
-      report('SN203', `\`${name}()\` needs an element; an \`<${opts.noElement}>\` handler has none${name === 'close' ? `: name the dialog, \`close('id')\`` : ''}`, n.start);
+    if (opts.noElement && (name === 'emit' || (name === 'closeDialog' && !first))) {
+      report('SN203', `\`${name}()\` needs an element; an \`<${opts.noElement}>\` handler has none${name === 'closeDialog' ? `: name the dialog, \`closeDialog('id')\`` : ''}`, n.start);
       return;
     }
     if (name === 'run') {
@@ -1032,7 +1034,7 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
       }
       return;
     }
-    if (name === 'showModal' || (name === 'close' && first)) {
+    if (name === 'openDialog' || (name === 'closeDialog' && first)) {
       if (!first || first.type !== 'Literal' || typeof first.value !== 'string') {
         report('SN309', `\`${name}()\` takes the dialog's \`id\` as a string literal`, n.start);
       } else if (!page.dialogs.has(first.value)) {

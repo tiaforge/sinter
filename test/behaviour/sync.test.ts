@@ -360,9 +360,9 @@ test('`then` on <sn-event> runs after the change, with the payload and the sync\
     <sn-resource name="contacts" src="/api/contacts" items="contacts" key="id" order="name"></sn-resource>
     <sn-sync src="/api/events/stream">
       <sn-event name="contact_removed" resource="contacts" op="remove"
-                then="removed++; seen(id); sel?.id === id && (sel = null, close('detail'))"></sn-event>
+                then="removed++; seen(id); sel?.id === id && (sel = null, closeDialog('detail'))"></sn-event>
     </sn-sync>
-    <ul><template data-sn-for="c in contacts"><li data-sn-on-click="sel = c; showModal('detail')" data-sn-text="c.name"></li></template></ul>
+    <ul><template data-sn-for="c in contacts"><li data-sn-on-click="sel = c; openDialog('detail')" data-sn-text="c.name"></li></template></ul>
     <p data-sn-text="removed + ' ' + (sel?.name ?? '-')"></p>
     <dialog id="detail"><h2 data-sn-text="sel?.name"></h2></dialog></main>`, {
     requests, streams: { '/api/events/stream': stream },

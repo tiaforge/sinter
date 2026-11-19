@@ -125,10 +125,10 @@ A named, page-wide cache of server data. Details: [resources](resources.md).
 
 ### `<sn-event>`
 
-`name`, `resource`, `op`, `item`, `set`, `when`, `fallback`, `then`, `type`. Maps one server event to a change message; child of &lt;sn-sync&gt;. `then` is a handler run after the change (payload fields and the state around the sync in scope), e.g. close('detail'); with `then`, `resource` and `op` may be left out.
+`name`, `resource`, `op`, `item`, `set`, `when`, `fallback`, `then`, `type`. Maps one server event to a change message; child of &lt;sn-sync&gt;. `then` is a handler run after the change (payload fields and the state around the sync in scope), e.g. closeDialog('detail'); with `then`, `resource` and `op` may be left out.
 
 ## Names available in expressions
 
 - **Magic names:** `$event`, `$el`, `$url`, `$now`, `$locale`, `$result`, `$error`, `$meta`.
-- **Store functions:** `refresh()`, `upsert()`, `merge()`, `remove()`, `page()`, `showModal()`, `close()`, `emit()`, `run()`, `navigate()`.
+- **Store functions:** `refresh()`, `upsert()`, `merge()`, `remove()`, `page()`, `openDialog()`, `closeDialog()`, `emit()`, `run()`, `navigate()`.
 - **Built-in helpers:** `date()`, `time()`, `datetime()`, `relative()`, `number()`, `bytes()`.

@@ -343,7 +343,7 @@ Every attribute value that is not a URL or a name is a JavaScript expression, pa
 | Value | `text`, `attr`, `class`, `show`, `prop`, `for` (after `in`), `if`, `key`, `body`, `state`, URL interpolations | any expression: template strings, `?.`, `??`, arrow functions as arguments, `new` on allowed globals | assignment, `++`/`--`, `delete`, `await`, `import()` |
 | Handler | `on-*`, `then`, `catch`, `optimistic` | statements separated by `;`, assignment to state, calls to store functions | declarations, loops, `await` |
 
-A name resolves to the first match, innermost first: loop variables, state, resources, magic names (`$event`, `$el`, `$url`, `$now`, `$locale`, `$result`, `$error`, `$meta`), then helpers, namespaces and store functions (`refresh`, `upsert`, `merge`, `remove`, `page`, `showModal`, `close`, `emit`, `run`, `navigate`), then allowed globals. Anything else is `SN201` with a suggestion.
+A name resolves to the first match, innermost first: loop variables, state, resources, magic names (`$event`, `$el`, `$url`, `$now`, `$locale`, `$result`, `$error`, `$meta`), then helpers, namespaces and store functions (`refresh`, `upsert`, `merge`, `remove`, `page`, `openDialog`, `closeDialog`, `emit`, `run`, `navigate`), then allowed globals. Anything else is `SN201` with a suggestion.
 
 Globals are JavaScript, not the browser. `Math`, `JSON`, `Object`, `Array`, `Set`, `Map`, `Date`, `Intl`, `RegExp`, `URL`, `URLSearchParams` and `structuredClone` work. `window`, `document`, `fetch`, `localStorage`, timers, `eval`, `Function`, `Proxy` and `Reflect` do not (`SN202`): browser work belongs in a [component's script](islands.md). In a binding, `Date.now()` and `Math.random()` never update, so use `$now` (`SN502`).
 
@@ -354,10 +354,10 @@ Markup holds filters, conditions, single assignments and short calls. Logic that
 <li data-sn-on-click="sel = rowClick($event, sel, f.id, ids)">
 
 <!-- a guard over one step is fine -->
-<button data-sn-on-click="open && close('detail')">
+<button data-sn-on-click="open && closeDialog('detail')">
 ```
 
-One condition per step. `a && (b = null, close())` is two steps behind one guard: write them as separate statements, or compute the new state in a helper.
+One condition per step. `a && (b = null, closeDialog())` is two steps behind one guard: write them as separate statements, or compute the new state in a helper.
 
 ### Complexity limits (`SN507`)
 
@@ -367,7 +367,7 @@ Expressions that outgrow markup get warning `SN507`, naming the limit they excee
 | --- | --- | --- |
 | `statements` | 4 | `;`-separated statements in one handler |
 | `sequences` | 0 | comma sequences `(a, b)` |
-| `guarded` | 1 | steps one `&&`, `\|\|`, `??` or `?:` statement runs: `a && close()` is 1, `a && (b = 1, close())` is 2 |
+| `guarded` | 1 | steps one `&&`, `\|\|`, `??` or `?:` statement runs: `a && closeDialog()` is 1, `a && (b = 1, closeDialog())` is 2 |
 | `ternaries` | 2 | nesting of `?:` |
 | `arrow` | 8 | operations in one arrow function body; a block body is always too many |
 | `operations` | 15 | operations in one expression, the backstop |

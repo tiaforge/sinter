@@ -108,7 +108,7 @@ describe('<sn-resource then>', () => {
     const { root, settle } = await render(`
       <main data-sn-state="{ compose: null }">
         <sn-resource name="pending" call="mail.pendingCompose()"
-          then="$result && (compose = { subject: $result.subject, files: $result.files }, showModal('mail-compose'))"></sn-resource>
+          then="$result && (compose = { subject: $result.subject, files: $result.files }, openDialog('mail-compose'))"></sn-resource>
         <dialog id="mail-compose"><h2 data-sn-text="compose?.subject"></h2><p data-sn-text="compose?.files.join()"></p></dialog>
         <i data-sn-text="pending?.subject"></i>
       </main>`, { actions });
@@ -122,7 +122,7 @@ describe('<sn-resource then>', () => {
   test('a call resource with nothing pending: `$result` is null and the guard skips', async () => {
     const { root, settle } = await render(`
       <main data-sn-state="{ ran: 0 }">
-        <sn-resource name="pending" call="pending()" then="ran++; $result && showModal('d')"></sn-resource>
+        <sn-resource name="pending" call="pending()" then="ran++; $result && openDialog('d')"></sn-resource>
         <dialog id="d"></dialog><p data-sn-text="ran + ' ' + !!pending"></p>
       </main>`, { actions: { pending: async () => null } });
     await settle();

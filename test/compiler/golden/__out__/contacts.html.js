@@ -27,7 +27,7 @@ const fns = [
   ($) => {$.$f.remove(["contacts"], $.c)
 },
   ($) => ($.$s0.draft),
-  ($) => {$.$f.upsert('contacts', $.$result); $.$s0.draft = null; $.$f.close()
+  ($) => {$.$f.upsert('contacts', $.$result); $.$s0.draft = null; $.$f.closeDialog()
 },
   ($) => {$.$f.emit('toast', $.$error.message)
 },

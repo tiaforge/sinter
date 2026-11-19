@@ -2,7 +2,7 @@
      search, the filter (kept across page loads by data-sn-persist) and the new task's draft.
      N opens the new-task dialog. -->
 <app-layout data-sn-state="{ q: '', show: 'all', draft: { title: '' } }"
-            data-sn-on-keydown-n="showModal('new-task')">
+            data-sn-on-keydown-n="openDialog('new-task')">
 
   <!-- The data: loaded once, kept sorted, shown at once on the next page load (`cache`), then revalidated. -->
   <sn-resource name="tasks" src="/api/tasks" key="id" order="-createdAt" type="Task[]" cache></sn-resource>
@@ -63,7 +63,7 @@
 
   <dialog id="new-task" closedby="any">
     <form data-layout="stack" data-gap="md" data-sn-post="/api/tasks" data-sn-body="draft"
-          data-sn-then="upsert('tasks', $result); draft = { title: '' }; close()">
+          data-sn-then="upsert('tasks', $result); draft = { title: '' }; closeDialog()">
       <header>
         <h2>New task</h2>
         <button type="button" commandfor="new-task" command="close" aria-label="Close"></button>

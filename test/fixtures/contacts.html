@@ -37,7 +37,7 @@
   </ul>
   <dialog id="edit">
     <form data-sn-post="/api/contact" data-sn-body="draft"
-          data-sn-then="upsert('contacts', $result); draft = null; close()"
+          data-sn-then="upsert('contacts', $result); draft = null; closeDialog()"
           data-sn-catch="emit('toast', $error.message)">
       <input data-sn-model="draft.fn_name" required>
       <input data-sn-model="draft.org">

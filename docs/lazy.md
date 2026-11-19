@@ -212,7 +212,7 @@ from other failures: when a lazy load fails, it requests the chunk's URL again.
 ```html
 <button data-sn-call="pgp.decrypt(msg)" data-sn-catch="error = $error.stale ? m.page_outdated() : $error.message">…</button>
 <!-- or once for the page: the unhandled-error path carries the flag -->
-<body data-sn-on-sn-error="$event.detail.error.stale && showModal('outdated')">
+<body data-sn-on-sn-error="$event.detail.error.stale && openDialog('outdated')">
 ```
 
 - Lazy packages, lazy component scripts, and an `import()` in an action function (when the browser names

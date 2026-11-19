@@ -215,6 +215,20 @@ was one letter away. The passing side gives way: `<contact-card data-sn-with="{ 
 `<slot name="cell" data-sn-with="{ row }">`, `<x-chart data-sn-with="{ data }">`. One meaning
 throughout: the values given to what the tag stands for.
 
+### 13. `openDialog()` and `closeDialog()`
+
+`showModal()` and `close()` were two DOM methods side by side, the only store functions that were not
+one plain word. `open()` would read best but loses to a state named `open` (the open message, in our
+own recipes thirty times), and `show()` is the DOM's non-modal open. So the pair names its object:
+`openDialog('edit')`, `closeDialog()`.
+
+### 14. `data-sn-debounce` on a model, and `data-sn-retry` on a call
+
+Added after the review: a field with `data-sn-model` and no action takes `data-sn-debounce`, which delays
+the model's write in place of the typing pause (a resource over it loads right after, a model on `$url`
+writes one history entry); and `data-sn-retry` on `data-sn-call` applies to each request the function
+sends, so the attribute works on every action.
+
 ## Looked at and kept
 
 - `data-sn-wait`: already automatic. The build hides what follows a content-sized box by itself; the

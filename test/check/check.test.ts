@@ -410,10 +410,10 @@ export type Block = Para | Quote | Rule;
     const html = (then: string, type = ' type="Removed"') => page(`<main data-sn-state="{ sel: /** @type {Contact|null} */ (null), last: '' }">
 <sn-sync src="/api/events"><sn-event name="r" resource="contacts" op="remove"${type} then="${then}"></sn-event></sn-sync>
 <dialog id="detail"></dialog><p data-sn-text="contacts.length + (sel?.name ?? last)"></p></main>`);
-    expect(checkPage(html("sel?.id === id && close('detail'); sel = sel?.id === id ? null : sel"), { files })).toEqual([]);
+    expect(checkPage(html("sel?.id === id && closeDialog('detail'); sel = sel?.id === id ? null : sel"), { files })).toEqual([]);
     const errors = (then: string, type?: string) => checkPage(html(then, type), { files }).map((d) => `${d.code} ${d.message.replace(/ \(TS\d+\)$/, '')}`);
     expect(errors('last = id')).toEqual(["SN208 Type 'number' is not assignable to type 'string'."]);
-    expect(errors('sel?.id === uid && close(\'detail\')')).toEqual([expect.stringMatching(/^SN208 Property 'uid' does not exist on type 'Removed'/)]);
+    expect(errors('sel?.id === uid && closeDialog(\'detail\')')).toEqual([expect.stringMatching(/^SN208 Property 'uid' does not exist on type 'Removed'/)]);
     expect(errors('last = id', '')).toEqual(['SN506 event `r` has no type: expressions reading its payload are not checked']);
   });
 
@@ -428,7 +428,7 @@ export type Block = Para | Quote | Rule;
 <sn-resource name="p" call="pending()" then="${call}"></sn-resource>
 <dialog id="compose"></dialog><p data-sn-text="contacts.length + (sel?.name ?? subject) + p?.subject"></p></main></body></html>`;
     const errors = (then: string, call = '') => checkPage(html(then, call), { files }).map((d) => `${d.code} ${d.message.replace(/ \(TS\d+\)$/, '')}`);
-    expect(errors('sel = $result[0]', "subject = $result?.subject ?? subject; $result && showModal('compose')")).toEqual([]);
+    expect(errors('sel = $result[0]', "subject = $result?.subject ?? subject; $result && openDialog('compose')")).toEqual([]);
     expect(errors('subject = $result[0].id')).toEqual(["SN208 Type 'number' is not assignable to type 'string'."]);
     expect(errors('sel = $result')).toEqual([expect.stringMatching(/^SN208 Type 'Contact\[\]' is missing the following properties from type 'Contact'/)]);
     expect(errors('', 'subject = $result.files')).toEqual(["SN208 Type 'string[]' is not assignable to type 'string'."]);

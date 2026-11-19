@@ -80,7 +80,7 @@ assign state. With `then`, `resource` and `op` can be left out: the event only r
 <body data-sn-state="{ sel: null, notice: '' }">
   <sn-sync src="/api/events">
     <sn-event name="person_removed" resource="people" op="remove"
-              then="sel?.id === id && close('person')"></sn-event>
+              then="sel?.id === id && closeDialog('person')"></sn-event>
     <sn-event name="notice" then="notice = text"></sn-event>
   </sn-sync>
 </body>
@@ -89,9 +89,9 @@ assign state. With `then`, `resource` and `op` can be left out: the event only r
 - The handler runs for every event that passes `when`. It does not run when the payload can't be
   applied: a `merge` or `remove` without the key fields, or an `upsert` without an item and no
   `fallback`.
-- Store functions are in scope (`refresh`, `upsert`, `merge`, `remove`, `page`, `showModal`,
-  `close('id')`, `run('id')`) and win over payload fields of the same name.
-- There is no element, so `close()` must name its dialog, and `emit()` is an error
+- Store functions are in scope (`refresh`, `upsert`, `merge`, `remove`, `page`, `openDialog`,
+  `closeDialog('id')`, `run('id')`) and win over payload fields of the same name.
+- There is no element, so `closeDialog()` must name its dialog, and `emit()` is an error
   (`SN203`). `$event` and `$result` are not defined, and assigning to a payload field is an error.
 - A state name wins over a payload field of the same name. With a typed payload (`type`), such a
   clash is a `sinter check` error; without a type, pick names the payloads don't use.
@@ -148,11 +148,11 @@ configure({
 ### Your own transport
 
 A transport is an object with `connect(url, onEvent, onState, names)`, an optional `listen(name)`
-and `close()`:
+and `closeDialog()`:
 
 - `onEvent(name, payload)` delivers one event with its **parsed** payload.
 - `onState('open')` once connected; `onState('error')` when the connection is lost, cleanly or not.
-  Nothing is reported after `close()`.
+  Nothing is reported after `closeDialog()`.
 - `names` are the event names the page maps. `listen(name)` adds one an island subscribes to later.
 - A transport never reconnects by itself.
 

@@ -755,7 +755,7 @@ export function nextQuery(c: Contact, i: number) {
 
   test('a handler writing several properties of one state object: one helper per value, or one returning an object', async () => {
     const page = `<div data-sn-state="{ draft: { title: '', body: '' }, sig: '-- me', note: '' }">
-  <button data-sn-on-click="draft.title = draft.title.trim(); draft.body = draft.body.trim() + sig; close()">Tidy</button>
+  <button data-sn-on-click="draft.title = draft.title.trim(); draft.body = draft.body.trim() + sig; closeDialog()">Tidy</button>
   <button data-sn-on-click="note = sig.trim(); draft.title = note.toUpperCase()">Other</button>
 </div>
 `;
@@ -770,11 +770,11 @@ export function nextQuery(c: Contact, i: number) {
       'Extract the 2 assignments to helper `draftChanges` (returns an object, merged with Object.assign)',
     ]);
     const values = apply(root, list[0]!.edit);
-    expect(values['index.html']).toContain('data-sn-on-click="draft.title = nextTitle(draft); draft.body = nextBody(draft, sig); close()"');
+    expect(values['index.html']).toContain('data-sn-on-click="draft.title = nextTitle(draft); draft.body = nextBody(draft, sig); closeDialog()"');
     writeFileSync(join(root, 'index.html'), page);
     writeFileSync(join(root, 'src/sinter.helpers.js'), '');
     const merged = apply(root, list[1]!.edit);
-    expect(merged['index.html']).toContain('data-sn-on-click="Object.assign(draft, draftChanges(draft, sig)); close()"');
+    expect(merged['index.html']).toContain('data-sn-on-click="Object.assign(draft, draftChanges(draft, sig)); closeDialog()"');
     expect(merged['src/sinter.helpers.js']).toContain(`export function draftChanges(draft, sig) {
   return {
     title: draft.title.trim(),

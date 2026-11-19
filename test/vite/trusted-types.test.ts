@@ -73,7 +73,7 @@ beforeAll(async () => {
   <select id="pick" data-sn-model="sel"><template data-sn-for="o in os" data-sn-key="o"><option data-sn-attr="{ value: o }" data-sn-text="o"></option></template></select>
   <svg id="chart" viewBox="0 0 10 10"><template data-sn-for="p in ps" data-sn-key="p"><circle r="1" data-sn-attr="{ cx: p }"></circle></template></svg>
   <dialog id="d"><ul id="in-dialog"><template data-sn-for="x in xs" data-sn-key="x"><li data-sn-text="x"></li></template></ul></dialog>
-  <button id="open" data-sn-on-click="showModal('d')">open</button>
+  <button id="open" data-sn-on-click="openDialog('d')">open</button>
   <article id="doc"><template data-sn-for="b in doc.children"><sn-component use="{ p: 'x-p' }[b.type]" data-sn-with="{ node: b }"></sn-component></template></article>
 </body></html>`);
   writeFileSync(join(root, 'tree.html'), `<!doctype html><html lang="en">${head('Tree')}

@@ -467,8 +467,8 @@ export interface Store<R, D extends string = never> {
   merge<T>(item: T, set: Partial<NonNullable<T>>): void;
   remove(item: unknown): void;
   page<K extends keyof R & string>(name: K, to: [Extract<K, D>] extends [never] ? Direction | number : Direction | NoPageNumber): void;
-  showModal(id: string): void;
-  close(id?: string): void;
+  openDialog(id: string): void;
+  closeDialog(id?: string): void;
   emit(event: string, detail?: unknown): void;
   run(id: string): void;
   navigate(url: string, options?: { replace?: boolean }): void;

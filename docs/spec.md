@@ -262,10 +262,10 @@ Markup holds filters, conditions, single assignments and short calls. Logic goes
 ```html
 <li data-sn-on-click="sel = rowClick($event, sel, f.id, ids)">        <!-- not: four lines of if/else on $event.shiftKey -->
 <input data-sn-on-keydown-enter="d.tagList = withTag(d.tagList, tag); tag = ''">
-<button data-sn-on-click="open && close('detail')">                  <!-- a guard over one step -->
+<button data-sn-on-click="open && closeDialog('detail')">                  <!-- a guard over one step -->
 ```
 - A helper is a plain function in the helpers module, so it is unit-tested without a page; the page's test checks that the handler applies it (recipe: row selection).
-- One condition per step: `a && (b = null, close())` is two steps behind one guard; write the steps as statements (`a && close()` plus `data-sn-on-close="b = null"` on the dialog), or compute the new state in a helper.
+- One condition per step: `a && (b = null, closeDialog())` is two steps behind one guard; write the steps as statements (`a && closeDialog()` plus `data-sn-on-close="b = null"` on the dialog), or compute the new state in a helper.
 - Warning `SN507` flags what has outgrown markup: long handlers, comma sequences, guards over several steps, deep `?:` chains, long or block-bodied arrow functions (see Complexity).
 
 ### Identifier resolution
@@ -274,7 +274,7 @@ A free identifier resolves to the first match, innermost first:
 - State variables declared by the nearest enclosing `data-sn-state`.
 - Resource names declared on the page.
 - Magic names: `$event`, `$el`, `$url`, `$now`, `$locale`, `$result`, `$error`, `$meta`.
-- Registered helpers, helper namespaces and the store functions (`refresh`, `upsert`, `merge`, `remove`, `page`, `showModal`, `close`, `emit`, `run`, `navigate`).
+- Registered helpers, helper namespaces and the store functions (`refresh`, `upsert`, `merge`, `remove`, `page`, `openDialog`, `closeDialog`, `emit`, `run`, `navigate`).
 - Allowed globals (below).
 Anything else is a build error with a suggestion: `contcts` → "did you mean `contacts`?".
 Globals: JavaScript yes, browser no. Expressions may use the ECMAScript standard library, including `new`: `Math`, `JSON`, `Object`, `Array`, `Set`, `Map`, `Date`, `Intl.*`, `RegExp` and the rest. Three pure web-platform utilities are allowed as well: `URL`, `URLSearchParams`, `structuredClone`. Forbidden are browser and I/O APIs (`window`, `document`, `fetch`, `localStorage`, `navigator`, timers, …) and the language's meta-tools (`eval`, `Function`, `Proxy`, `Reflect`, `globalThis`, `WeakRef`, `FinalizationRegistry`, `Atomics`). Browser work belongs in islands. `$el` and `$event` are handed in explicitly, so their properties and methods may be used: `$event.preventDefault()`, `$el.focus()`, `$el.form.requestSubmit()`.
@@ -555,14 +555,14 @@ Single-object resources (no `key`): `upsert` replaces the object, `merge` merges
 ```html
 <main data-sn-state="{ compose: null }">
   <sn-resource name="pending" call="mail.pendingCompose()"
-    then="compose = $result ? composeDraft('new', null, identities, '', null, $result.files, $result.subject) : compose; $result && showModal('mail-compose')"></sn-resource>
+    then="compose = $result ? composeDraft('new', null, identities, '', null, $result.files, $result.subject) : compose; $result && openDialog('mail-compose')"></sn-resource>
 ```
 - `$result` is what the load stored: what `items` selects (the response itself without `items`, the function's result for `call`), the same value the store received, before `order`. For a paginated resource it is the page just loaded (in `append` mode: the new items only); for an `each` resource, the items of the one source that answered.
 - When: after every response the store takes: the first load, `refresh()`, a `refresh` from a server event (or a reconnect), a change of `src`, `call` arguments or `when` that loads again, every `page()`, and embedded JSON (the page's first load). For `each`, once per source response, not once per round. Not for the cached data `cache` shows at once (only once the revalidation succeeds), not for a failed, aborted or superseded load, not when `when` empties the resource, and not for changes that are not loads: optimistic layers, `upsert`/`merge`/`remove` from handlers or server events, action results.
 - Also for a reload answered with the version of the data already shown (see Unchanged responses under Behaviour): `$result` is what the load that stored the data stored.
-- So it runs again on every refetch: a handler meant to run once guards itself with state or with the data, one guard per step (`!opened && showModal('x'); opened = true`, `$result && …` for a resource that is empty when nothing is pending). A handler that refreshes its own resource loops.
+- So it runs again on every refetch: a handler meant to run once guards itself with state or with the data, one guard per step (`!opened && openDialog('x'); opened = true`, `$result && …` for a resource that is empty when nothing is pending). A handler that refreshes its own resource loops.
 - Order: after the store has the response (writes made during the load replayed on top) and `$meta.<name>` is current (`loading` false, `loadedAt` set, `error` null), so the handler reads the resource and other resources as they now are. Its state writes re-render like any handler's, in the same flush.
-- Scope: the scope the resource's `src` and `when` see, so the state around the `<sn-resource>` element, which it may assign, and every resource. Store functions work, `run('id')` included (the mark-read case in Running an action from a handler); there is no element, so `close()` names its dialog and `emit()` is an error (`SN203`), as in `<sn-event then>`. `$event` and `$error` are not defined here; `$result` is not defined in the resource's other expressions. The `each` item name is not in scope.
+- Scope: the scope the resource's `src` and `when` see, so the state around the `<sn-resource>` element, which it may assign, and every resource. Store functions work, `run('id')` included (the mark-read case in Running an action from a handler); there is no element, so `closeDialog()` names its dialog and `emit()` is an error (`SN203`), as in `<sn-event then>`. `$event` and `$error` are not defined here; `$result` is not defined in the resource's other expressions. The `each` item name is not in scope.
 - An exception in the handler is logged; the load still counts as successful.
 - A resource with `then` counts as used: one that only its own `then` reads, with or without `$result`, is not `SN501`.
 
@@ -712,12 +712,12 @@ For `merge` and `remove`, the key is read from the payload using the resource's 
 <body data-sn-state="{ sel: null, notice: '' }">
   <sn-sync src="/api/events/stream">
     <sn-event name="contact_removed" resource="contacts" op="remove" type="ContactRemoved"
-              then="sel?.uid === uid && close('contact-detail')"></sn-event>
+              then="sel?.uid === uid && closeDialog('contact-detail')"></sn-event>
     <sn-event name="notice" type="Notice" then="notice = text"></sn-event>
   </sn-sync>
 ```
 - The dialog clears the selection itself (`<dialog id="contact-detail" data-sn-on-close="sel = null">`), so the handler runs one step under its condition (two would be `SN507`).
-- Store functions are in scope (`refresh`, `upsert`, `merge`, `remove`, `page`, `showModal`, `close('id')`, `run('id')`), and their names win over payload fields. There is no element, so `close()` names its dialog and `emit()` is an error (`SN203`); `$event` and `$result` are not defined here, and assigning to a payload field is an error.
+- Store functions are in scope (`refresh`, `upsert`, `merge`, `remove`, `page`, `openDialog`, `closeDialog('id')`, `run('id')`), and their names win over payload fields. There is no element, so `closeDialog()` names its dialog and `emit()` is an error (`SN203`); `$event` and `$result` are not defined here, and assigning to a payload field is an error.
 - State writes re-render what reads them, as from any handler. Bindings inside a dialog the handler closes keep their last values until it opens again.
 - Islands still receive the event through `app.on(name)`, after every mapping has run.
 
@@ -739,9 +739,9 @@ Later, with a backend change: a `session_expired` event sent before the server c
 On a paginated resource, `upsert` of a key that is not on the current page becomes a `refresh` of the current page. `merge` and `remove` apply only to items present. This keeps page boundaries correct without client-side guessing.
 
 ### Transport interface
-A transport is an object with `connect(url, onEvent, onState, names)`, an optional `listen(name)` and `close()`:
+A transport is an object with `connect(url, onEvent, onState, names)`, an optional `listen(name)` and `closeDialog()`:
 - `onEvent(name, payload)` delivers one event with its **parsed** payload (the SSE transport parses JSON and passes anything else as the raw string).
-- `onState('open')` once connected; `onState('error')` when the connection is lost, cleanly or not. A transport never reconnects by itself: the connection rules above (session probe, backoff, refetch) apply to every transport. Nothing is reported after `close()`.
+- `onState('open')` once connected; `onState('error')` when the connection is lost, cleanly or not. A transport never reconnects by itself: the connection rules above (session probe, backoff, refetch) apply to every transport. Nothing is reported after `closeDialog()`.
 - `names` are the event names the page maps; `listen(name)` adds one an island subscribes to later. A transport delivers at least those.
 
 The transport is chosen per stream URL in the config module; the URL in the HTML stays an http(s) URL under the usual URL template rules, so a value can never choose the host:
@@ -795,13 +795,13 @@ An action is an element with one method attribute; it sends a request when its t
 | `merge(item, {…})` | change fields of an item, in the resource it came from |
 | `remove(item)` | remove an item from the resource it came from; a single resource becomes `null` |
 | `page('messages', 'next')` | change page: a direction, or a page number where the resource can jump; may be computed (see Pagination) |
-| `showModal('edit')` | open `<dialog id="edit">` as a modal; nothing if it is open |
-| `close()`, `close('edit')` | close the nearest `<dialog>`, or the one with that id |
+| `openDialog('edit')` | open `<dialog id="edit">` as a modal; nothing if it is open |
+| `closeDialog()`, `closeDialog('edit')` | close the nearest `<dialog>`, or the one with that id |
 | `emit('name', detail)` | dispatch a bubbling, cancelable `CustomEvent` from the element; every container with a handler for it runs, inner first, until one calls `$event.preventDefault()` |
 | `run('id')` | start the action of the element with that id, as its trigger would (a form: submit it); see Running an action from a handler |
 
-State assignments work too: `data-sn-then="editing = null; close()"`.
-The dialog id of `showModal()` and `close()` is a string literal that must name a `<dialog id>` on the page or the components it uses (`SN309`), so a typo fails the build. A button that only opens a dialog needs no handler: `commandfor="edit" command="show-modal"` is the platform's. `showModal()` is for opening after a request or call (`data-sn-then`), from a custom event, or after setting state in the same handler. Bindings inside the dialog render when it opens.
+State assignments work too: `data-sn-then="editing = null; closeDialog()"`.
+The dialog id of `openDialog()` and `closeDialog()` is a string literal that must name a `<dialog id>` on the page or the components it uses (`SN309`), so a typo fails the build. A button that only opens a dialog needs no handler: `commandfor="edit" command="show-modal"` is the platform's. `openDialog()` is for opening after a request or call (`data-sn-then`), from a custom event, or after setting state in the same handler. Bindings inside the dialog render when it opens.
 
 ### Write-through
 A mutation's 2xx response is applied to the resources it is about, by the `apply` feature module (loaded by pages that have something to apply), after the optimistic layer commits and before `then` runs, so `then` has the last word. Nothing is declared: the compiler knows what the action is about and what the response holds.
@@ -1413,12 +1413,12 @@ Expressions that are too complex for markup are warning `SN507`, with the limit 
 | --- | --- | --- |
 | `statements` | 4 | `;`-separated statements in one handler |
 | `sequences` | 0 | comma sequences `(a, b)` |
-| `guarded` | 1 | steps one `&&`, `\|\|`, `??` or `?:` used as a statement runs: `a && close()` is 1, `a && (b = 1, close())` and `a && (b ? c() : d())` are 2 |
+| `guarded` | 1 | steps one `&&`, `\|\|`, `??` or `?:` used as a statement runs: `a && closeDialog()` is 1, `a && (b = 1, closeDialog())` and `a && (b ? c() : d())` are 2 |
 | `ternaries` | 2 | nesting of `?:`: `n === 0 ? 'none' : n === 1 ? 'one' : 'many'` is 2 |
 | `arrow` | 8 | operations in one arrow function's body (`p => p.name.toLowerCase().includes(q)` has 3); a block body `{ … }` is always too many |
 | `operations` | 15 | operations in one expression (each statement of a handler), the backstop |
 
-Operations are calls, `new`, operators, assignments, updates, computed member access and functions; names, member paths (`a.b.c`), literals, and object and array literal structure are free, so a draft literal of plain fields costs nothing. Object attributes (`data-sn-state`, `-let`, `-attr`, `-class`, `-style`, `-prop`) are measured per property value, and the warning names the property. The defaults leave filters (`people.filter(p => p.name.includes(q))`), single assignments of a helper's result, a guard over one call (`open && close()`), short object literals and one nested ternary alone; they were checked against the recipes, the RealWorld example and the e2e pages, which pass.
+Operations are calls, `new`, operators, assignments, updates, computed member access and functions; names, member paths (`a.b.c`), literals, and object and array literal structure are free, so a draft literal of plain fields costs nothing. Object attributes (`data-sn-state`, `-let`, `-attr`, `-class`, `-style`, `-prop`) are measured per property value, and the warning names the property. The defaults leave filters (`people.filter(p => p.name.includes(q))`), single assignments of a helper's result, a guard over one call (`open && closeDialog()`), short object literals and one nested ternary alone; they were checked against the recipes, the RealWorld example and the e2e pages, which pass.
 - Options of the Vite plugin, read by `sinter check` and `sinter lsp` too: `sinter({ complexity: { statements: 6, ternaries: 1, level: 'warn' } })`. `level` is `warn` (default), `error` (fails the build like any error) or `off`. Each limit can be set alone; an unknown name or level is refused when the config loads.
 - What to do instead: see What belongs in markup.
 
@@ -1572,7 +1572,7 @@ The edit dialog binds the form to `draft` and sends it as the body, which keeps 
 ```html
 <dialog id="edit">
   <form data-sn-post="/api/contact" data-sn-body="draft"
-        data-sn-then="upsert('contacts', $result); draft = null; close()"
+        data-sn-then="upsert('contacts', $result); draft = null; closeDialog()"
         data-sn-catch="emit('toast', $error.message)">
     <input data-sn-model="draft.fn_name" required>
     <input data-sn-model="draft.org">

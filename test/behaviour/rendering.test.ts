@@ -235,7 +235,7 @@ test('forms serialize to nested JSON; then writes the base and closes the dialog
   const { root, settle } = await render(`
     <sn-resource name="people" src="/api/people" key="id"></sn-resource>
     <dialog open>
-      <form data-sn-post="/api/people" data-sn-then="upsert('people', $result); close()">
+      <form data-sn-post="/api/people" data-sn-then="upsert('people', $result); closeDialog()">
         <input name="name" value="Ada">
         <input name="age" type="number" value="36">
         <input name="emails[0].value" value="a@x">
@@ -544,12 +544,12 @@ test('closed dialogs are evaluated when they open', async () => {
   expect(root.querySelector('input')!.value).toBe('Ada');
 });
 
-test('showModal(id) opens a dialog anywhere on the page; close(id) closes it from outside', async () => {
+test('openDialog(id) opens a dialog anywhere on the page; close(id) closes it from outside', async () => {
   const { root, flush } = await render(`
     <div data-sn-state="{ draft: null }">
-      <section><button class="open" data-sn-on-click="draft = {name: 'Ada'}; showModal('edit')">edit</button></section>
-      <button class="shut" data-sn-on-click="close('edit')">close</button>
-      <dialog id="edit"><input data-sn-model="draft.name"><button class="inner" data-sn-on-click="close()">x</button></dialog>
+      <section><button class="open" data-sn-on-click="draft = {name: 'Ada'}; openDialog('edit')">edit</button></section>
+      <button class="shut" data-sn-on-click="closeDialog('edit')">close</button>
+      <dialog id="edit"><input data-sn-model="draft.name"><button class="inner" data-sn-on-click="closeDialog()">x</button></dialog>
     </div>`);
   const dialog = root.querySelector('dialog')!;
   root.querySelector<HTMLButtonElement>('.open')!.click();
@@ -611,7 +611,7 @@ test('settle() runs the task that releases a dialog a close button closed: reope
   // Caley's import dialog: Cancel closes it, a new draft opens it again
   const { root, settle } = await render(`
     <div data-sn-state="{ imp: null }">
-      <button class="open" data-sn-on-click="imp = {name: 'b'}; showModal('imp')">open</button>
+      <button class="open" data-sn-on-click="imp = {name: 'b'}; openDialog('imp')">open</button>
       <dialog id="imp">
         <h2 data-sn-text="imp?.name"></h2>
         <button class="cancel" data-sn-on-click="imp = null" commandfor="imp" command="close">Cancel</button>
@@ -631,9 +631,9 @@ test('settle() runs the task that releases a dialog a close button closed: reope
   expect(h2.textContent).toBe('b');
 });
 
-test('showModal() and close() check the dialog id at build time', async () => {
-  await expect(render(`<dialog id="a"></dialog><button data-sn-on-click="showModal('b')"></button>`)).rejects.toThrow(/SN309/);
-  await expect(render(`<div data-sn-state="{ id: 'a' }"><dialog id="a"></dialog><button data-sn-on-click="close(id)"></button></div>`)).rejects.toThrow(/SN309/);
+test('openDialog() and close() check the dialog id at build time', async () => {
+  await expect(render(`<dialog id="a"></dialog><button data-sn-on-click="openDialog('b')"></button>`)).rejects.toThrow(/SN309/);
+  await expect(render(`<div data-sn-state="{ id: 'a' }"><dialog id="a"></dialog><button data-sn-on-click="closeDialog(id)"></button></div>`)).rejects.toThrow(/SN309/);
 });
 
 test('bindings in a closed dialog wait for it to open; bindings outside it do not', async () => {
@@ -661,7 +661,7 @@ test('a select in a closed dialog waits for it to open, then picks its value fro
   const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
   const { root, flush } = await render(`
     <div data-sn-state="{ imp: null, cals: ['a', 'b'] }">
-      <button data-sn-on-click="imp = { target: 'b' }; showModal('imp')">import</button>
+      <button data-sn-on-click="imp = { target: 'b' }; openDialog('imp')">import</button>
       <button class="other" data-sn-on-click="cals = ['a', 'b', 'c']; imp = { target: 'c' }">other</button>
       <dialog id="imp"><select data-sn-model="imp.target"><template data-sn-for="c in cals" data-sn-key="c"><option data-sn-attr="{value: c}" data-sn-text="c"></option></template></select></dialog>
       <p data-sn-text="cals.length"></p><i data-sn-on-click="cals = [...cals]">x</i>

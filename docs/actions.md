@@ -268,8 +268,8 @@ a failure with `$error`. Both are handlers: state assignments and these built-in
 | `merge(item, {…})` | change fields of an item, in the resource it came from |
 | `remove(item)` | remove an item from the resource it came from (a single resource becomes `null`) |
 | `page('messages', 'next')` | change the page of a paginated resource |
-| `showModal('edit')` | open `<dialog id="edit">`, nothing if it is open |
-| `close()`, `close('edit')` | close the nearest `<dialog>`, or the one with that id |
+| `openDialog('edit')` | open `<dialog id="edit">`, nothing if it is open |
+| `closeDialog()`, `closeDialog('edit')` | close the nearest `<dialog>`, or the one with that id |
 | `emit('name', detail)` | dispatch a bubbling, cancelable `CustomEvent` from the element |
 | `navigate(url, { replace })` | go to `url` (relative to the page's): to this page with only parameters it reads changed, as a [same-page link](navigation.md#same-page-links), in the page; anywhere else the browser loads it, as a new history entry or, with `replace: true`, in the current one |
 | `run('id')` | start the action of the element with that id ([below](#run-an-action-from-a-handler)) |
@@ -300,7 +300,7 @@ its key in state and derive the row with `data-sn-let`.
 
 ```html
 <form data-sn-post="/api/people" data-sn-body="draft"
-      data-sn-then="upsert('people', $result); draft = null; close()"
+      data-sn-then="upsert('people', $result); draft = null; closeDialog()"
       data-sn-catch="emit('toast', $error.message)">
 ```
 
@@ -511,15 +511,15 @@ Use the native `<dialog>`. A button that only opens it needs no handler: `comman
 
 <dialog id="edit">
   <form data-sn-post="/api/people" data-sn-body="draft"
-        data-sn-then="upsert('people', $result); draft = null; close()">
+        data-sn-then="upsert('people', $result); draft = null; closeDialog()">
     <input data-sn-model="draft.name" required>
     <button>Save</button>
   </form>
 </dialog>
 ```
 
-- `showModal('edit')` and `close('edit')` are for opening or closing from a handler, such as a
-  `then` after a request or a custom event. `close()` alone closes the nearest dialog. The id must
+- `openDialog('edit')` and `closeDialog('edit')` are for opening or closing from a handler, such as a
+  `then` after a request or a custom event. `closeDialog()` alone closes the nearest dialog. The id must
   be a string literal naming a `<dialog id>` on the page or in the components it uses, or the build fails
   (`SN309`).
 - Bindings inside a dialog render when it opens. A resource that only dialogs read loads with low

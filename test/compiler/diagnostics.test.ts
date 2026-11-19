@@ -47,6 +47,8 @@ const cases: Array<[string, string, RegExp, Opts?]> = [
   ['SN101', '<button data-sn-post="/api/x" data-sn-apply="off"></button>', /`data-sn-apply` is renamed to `data-sn-write-through`/],
   ['SN101', '<x-card data-sn-prop="{ a: 1 }"></x-card>', /`data-sn-prop` is renamed to `data-sn-with`/],
   ['SN101', '<button data-sn-get="/api/x"></button>', /`data-sn-get` is gone: data a GET loads is a resource/],
+  ['SN201', '<dialog id="d"></dialog><button data-sn-on-click="showModal(\'d\')"></button>', /`showModal\(\)` is renamed to `openDialog\(\)`/],
+  ['SN201', '<dialog><button data-sn-on-click="close()"></button></dialog>', /`close\(\)` is renamed to `closeDialog\(\)`/],
   ['SN201', `${R}${use}<template data-sn-for="c in contacts"><b data-sn-on-click="patch(c, {})"></b></template>`, /`patch\(\)` is renamed to `merge\(\)`/],
   ['SN201', '<b data-sn-on-click="merge(x, {})"></b>', /`merge` is both a store function and a helper/, { helpers: ['merge'] }],
   ['SN201', '<form data-sn-post="/api/x" data-sn-then="reset()"></form>', /`reset\(\)` is gone: a form's fields follow their `data-sn-model` state/],
@@ -74,7 +76,7 @@ const cases: Array<[string, string, RegExp, Opts?]> = [
   ['SN304', `${R}${use}<button data-sn-on-click="page('messages', 7)"></button>`, /keyset pagination cannot jump to a page number/],
   ['SN308', '<sn-resource name="c" src="/api/c" items="contcts"></sn-resource><p data-sn-text="c"></p>', /the response of `GET \/api\/c` has no `contcts`. Did you mean `contacts`\?/, { openapi: true }],
   ['SN306', '<x-a></x-a>', /`<x-a>` → `<x-b>` → `<x-a>` uses itself with no `data-sn-for` or `data-sn-if` template between/],
-  ['SN309', '<dialog id="compose"></dialog><button data-sn-on-click="showModal(\'compse\')"></button>', /no `<dialog id="compse">` on this page. Did you mean `compose`\?/],
+  ['SN309', '<dialog id="compose"></dialog><button data-sn-on-click="openDialog(\'compse\')"></button>', /no `<dialog id="compse">` on this page. Did you mean `compose`\?/],
   ['SN310', '<button data-sn-call="archive(1)"></button>', /`archive` is not exported by the actions module/],
   ['SN311', `<span id="mark-read" data-sn-post="/x"></span><button data-sn-on-click="run('mark-raed')"></button>`, /no element `id="mark-raed"` on this page. Did you mean `mark-read`\?/],
   ['SN312', '<x-two></x-two>', /a component's root renders at most one element/],
@@ -284,7 +286,7 @@ describe('<sn-event then>', () => {
   const codes = (events: string) => diags(`${R}${use}<dialog id="detail"></dialog><main data-sn-state="{ sel: null }"><p data-sn-text="sel"></p>
     <sn-sync src="/api/events">${events}</sn-sync></main>`).filter((d) => d.severity === 'error').map((d) => `${d.code} ${d.message}`);
   test('a handler: state writes, store functions and payload fields; with `then`, resource and op may be left out', () => {
-    expect(codes(`<sn-event name="r" resource="contacts" op="remove" then="sel?.id === id && (sel = null, close('detail')); refresh('messages')"></sn-event>`)).toEqual([]);
+    expect(codes(`<sn-event name="r" resource="contacts" op="remove" then="sel?.id === id && (sel = null, closeDialog('detail')); refresh('messages')"></sn-event>`)).toEqual([]);
     expect(codes(`<sn-event name="n" then="sel = id"></sn-event>`)).toEqual([]);
     expect(codes(`<sn-event name="n" when="id = 1"></sn-event>`)).toEqual([expect.stringMatching(/^SN301 resource `` is not declared/)]);
   });
@@ -301,9 +303,9 @@ describe('<sn-event then>', () => {
     expect(parts.fns.find((f) => f.includes('$.$p.id'))).toContain('$.$s0.sel || $.$p.id');
   });
   test('errors: unknown dialogs, element-less store functions, payload writes, a misspelt attribute', () => {
-    expect(codes(`<sn-event name="n" then="close('detial')"></sn-event>`)).toEqual([expect.stringMatching(/^SN309 no `<dialog id="detial">` on this page. Did you mean `detail`\?/)]);
-    expect(codes(`<sn-event name="n" then="close(); emit('x')"></sn-event>`)).toEqual([
-      "SN203 `close()` needs an element; an `<sn-event>` handler has none: name the dialog, `close('id')`",
+    expect(codes(`<sn-event name="n" then="closeDialog('detial')"></sn-event>`)).toEqual([expect.stringMatching(/^SN309 no `<dialog id="detial">` on this page. Did you mean `detail`\?/)]);
+    expect(codes(`<sn-event name="n" then="closeDialog(); emit('x')"></sn-event>`)).toEqual([
+      "SN203 `closeDialog()` needs an element; an `<sn-event>` handler has none: name the dialog, `closeDialog('id')`",
       'SN203 `emit()` needs an element; an `<sn-event>` handler has none',
     ]);
     expect(codes(`<sn-event name="n" then="id = 2"></sn-event>`)).toEqual([expect.stringMatching(/^SN203 `id` cannot be assigned/)]);
@@ -330,16 +332,16 @@ describe('<sn-resource then>', () => {
   const codes = (then: string, attrs = '') => diags(`<dialog id="detail"></dialog><main data-sn-state="{ sel: null }"><p data-sn-text="sel + c.length"></p>
     <sn-resource name="c" src="/api/c" key="id" ${attrs} then="${then}"></sn-resource></main>`).filter((d) => d.severity === 'error').map((d) => `${d.code} ${d.message}`);
   test('a handler: $result, state writes, store functions and resources', () => {
-    expect(codes("sel = $result[0]; c.length && showModal('detail'); close('detail'); refresh('c')")).toEqual([]);
+    expect(codes("sel = $result[0]; c.length && openDialog('detail'); closeDialog('detail'); refresh('c')")).toEqual([]);
   });
   test('errors: element-less store functions, $event, value-only places, a misspelt attribute', () => {
-    expect(codes("close(); emit('x')")).toEqual([
-      "SN203 `close()` needs an element; an `<sn-resource>` handler has none: name the dialog, `close('id')`",
+    expect(codes("closeDialog(); emit('x')")).toEqual([
+      "SN203 `closeDialog()` needs an element; an `<sn-resource>` handler has none: name the dialog, `closeDialog('id')`",
       'SN203 `emit()` needs an element; an `<sn-resource>` handler has none',
     ]);
     expect(codes('$event.x')).toEqual([expect.stringMatching(/^SN201 `\$event` is not available here/)]);
     expect(codes('$error')).toEqual([expect.stringMatching(/^SN201 `\$error` is not available here/)]);
-    expect(codes("showModal('detial')")).toEqual([expect.stringMatching(/^SN309 no `<dialog id="detial">` on this page/)]);
+    expect(codes("openDialog('detial')")).toEqual([expect.stringMatching(/^SN309 no `<dialog id="detial">` on this page/)]);
     expect(codes('let x = 1')).toEqual([expect.stringMatching(/^SN203 handlers cannot contain declarations/)]);
     expect(diags('<sn-resource name="c" src="/api/c" key="id" thn="x"></sn-resource><p data-sn-text="c.length"></p>').map((d) => `${d.code} ${d.message}`))
       .toEqual(['SN101 `thn` is not an attribute of `<sn-resource>`. Did you mean `then`?']);
@@ -348,7 +350,7 @@ describe('<sn-resource then>', () => {
     // the spec's pattern: a resource loaded only for its `then`
     const sn501 = (then: string) => diags(`<dialog id="mail-compose"></dialog><main data-sn-state="{ compose: null, seen: false }">
       <sn-resource name="pending" src="/api/pending" then="${then}"></sn-resource><p data-sn-text="compose"></p></main>`).filter((d) => d.code === 'SN501');
-    expect(sn501("compose = $result ?? compose; $result && showModal('mail-compose')")).toEqual([]);
+    expect(sn501("compose = $result ?? compose; $result && openDialog('mail-compose')")).toEqual([]);
     expect(sn501('seen = true')).toEqual([]);
     expect(diags('<sn-resource name="pending" src="/api/pending"></sn-resource><p data-sn-text="1"></p>').map((d) => d.code)).toEqual(['SN501']);
   });
@@ -598,14 +600,14 @@ describe('SN507 complex expressions', () => {
 
   test('idiomatic expressions are left alone', () => {
     for (const body of [
-      `<template data-sn-for="p in people.filter(p => p.name.toLowerCase().includes(q.toLowerCase()))"><li data-sn-on-click="sel = p; showModal('person')" data-sn-text="p.name"></li></template>`,
-      `<dialog id="person" data-sn-on-close="sel = null"></dialog><button data-sn-on-click="open && close('person')"></button>`,
+      `<template data-sn-for="p in people.filter(p => p.name.toLowerCase().includes(q.toLowerCase()))"><li data-sn-on-click="sel = p; openDialog('person')" data-sn-text="p.name"></li></template>`,
+      `<dialog id="person" data-sn-on-close="sel = null"></dialog><button data-sn-on-click="open && closeDialog('person')"></button>`,
       `<button data-sn-on-click="sel = fmt(sel, n)"></button><button data-sn-on-click="n++; open = !open; sel = null; refresh('people')"></button>`,
       `<p data-sn-class="{active: sel === q, muted: !open, big: n > 10 && !open}" data-sn-attr="{title: n ? fmt(n) : null, 'aria-pressed': open ? 'true' : 'false'}"></p>`,
       `<p data-sn-text="n === 0 ? 'none' : n === 1 ? 'one' : 'many'"></p>`,
       `<p data-sn-text="people.find(p => p.id === sel?.id && p.name !== q)?.name ?? ''"></p>`,
       `<template data-sn-for="c in people.filter(c => !q || (c.fn_name + ' ' + c.org).toLowerCase().includes(q.toLowerCase()))"><i></i></template>`,
-      `<button data-sn-on-click="open ? close('person') : showModal('person')"></button>`,
+      `<button data-sn-on-click="open ? closeDialog('person') : openDialog('person')"></button>`,
       `<div data-sn-state="{ draft: { name: '', emails: [{ value: '', type: 'home' }], phones: [], tags: ['a', 'b', 'c'], nested: { a: 1, b: { c: 2 } } } }"><p data-sn-text="draft.name"></p></div>`,
       `<button data-sn-on-click="d = { tags: [...d.tags, q.trim()], title: q, size: n + 1, open: !open }"></button>`,
       // a resource list is one call: one statement, however many names
@@ -615,9 +617,9 @@ describe('SN507 complex expressions', () => {
 
   test('each limit, named in the message', () => {
     expect(warned(`<button data-sn-on-click="n = 1; n = 2; n = 3; n = 4; n = 5"></button>`)).toEqual(['`data-sn-on-click` is too complex for markup: 5 statements in one handler (limit `statements`: 4).']);
-    expect(warned(`<button data-sn-on-click="open && (sel = null, close())"></button>`)).toEqual(['`data-sn-on-click` is too complex for markup: a condition used as a statement runs 2 steps (limit `guarded`: 1).']);
-    expect(warned(`<button data-sn-on-click="open && (n ? close() : refresh('people'))"></button>`)).toEqual(['`data-sn-on-click` is too complex for markup: a condition used as a statement runs 2 steps (limit `guarded`: 1).']);
-    expect(warned(`<button data-sn-on-click="(sel = null, close())"></button>`)).toEqual(['`data-sn-on-click` is too complex for markup: 1 comma sequence `(a, b)` (limit `sequences`: 0).']);
+    expect(warned(`<button data-sn-on-click="open && (sel = null, closeDialog())"></button>`)).toEqual(['`data-sn-on-click` is too complex for markup: a condition used as a statement runs 2 steps (limit `guarded`: 1).']);
+    expect(warned(`<button data-sn-on-click="open && (n ? closeDialog() : refresh('people'))"></button>`)).toEqual(['`data-sn-on-click` is too complex for markup: a condition used as a statement runs 2 steps (limit `guarded`: 1).']);
+    expect(warned(`<button data-sn-on-click="(sel = null, closeDialog())"></button>`)).toEqual(['`data-sn-on-click` is too complex for markup: 1 comma sequence `(a, b)` (limit `sequences`: 0).']);
     expect(warned(`<p data-sn-text="n === 0 ? 'a' : n === 1 ? 'b' : n === 2 ? 'c' : 'd'"></p>`)).toEqual(['`data-sn-text` is too complex for markup: `?:` nested 3 deep (limit `ternaries`: 2).']);
     expect(warned(`<p data-sn-text="people.filter(p => p.name.trim().toLowerCase().startsWith(q.trim().toLowerCase()) && !p.hidden && p.age * 2 > n).length"></p>`))
       .toEqual(['`data-sn-text` is too complex for markup: 10 operations in one arrow function (limit `arrow`: 8).']);
@@ -634,7 +636,7 @@ describe('SN507 complex expressions', () => {
   test('limits and the level are configurable', () => {
     const body = `<button data-sn-on-click="n = 1; n = 2; n = 3; n = 4; n = 5"></button>`;
     expect(warned(body, { complexity: { statements: 5 } })).toEqual([]);
-    expect(warned(`<button data-sn-on-click="open && (sel = null, close())"></button>`, { complexity: { guarded: 2, sequences: 1 } })).toEqual([]);
+    expect(warned(`<button data-sn-on-click="open && (sel = null, closeDialog())"></button>`, { complexity: { guarded: 2, sequences: 1 } })).toEqual([]);
     expect(diags(page(body), { complexity: { level: 'off' } }).filter((d) => d.code === 'SN507')).toEqual([]);
     const err = diags(page(body), { complexity: { level: 'error' } }).filter((d) => d.code === 'SN507');
     expect(err.map((d) => d.severity)).toEqual(['error']);
