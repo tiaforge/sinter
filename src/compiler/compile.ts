@@ -27,7 +27,7 @@ import { FILE_ATTRS, FILE_ENTRY, fileAttrProblem, fileEntry, filePath, fileValue
 import { deref, matchOperation, matchResource, type Method, type OpenApiMatch, type Auth, namedAt, namedSchema, properties, propertyNames, queryNames, responseEntities, walk, wrapperKey, type OpenApiSpec } from './openapi.js';
 import type { ActionDef, ApplyDef, Binding, EarlyIR, EventDef, IR, NodeDef, Paginate, PathRef, ResourceDef, SyncDef, TemplateDef, UrlTemplate } from '../ir.js';
 import { $k, schemesOf, STYLE_BAD, urlAllowed } from '../runtime/security.js';
-import { withParams } from '../runtime/url.js';
+import { $href, $hv, withParams } from '../runtime/url.js';
 import { firstParams, pageParams } from '../runtime/pages.js';
 import { eachPath } from '../paths.js';
 import { pagePaths } from '../page-paths.js';
@@ -846,7 +846,7 @@ function constantProps(src: string | undefined, props: Member[] | null): Map<str
 }
 
 /** what a component's tag may not carry: these change its content, which belongs to the component */
-const TAG_ONLY_HINT = 'a component\'s tag takes `data-sn-with`, `data-sn-model`, handlers, actions, `data-sn-class`, `-attr`, `-style`, `-show` and `-transition`; the rest belongs inside the component';
+const TAG_ONLY_HINT = 'a component\'s tag takes `data-sn-with`, `data-sn-model`, handlers, actions, `data-sn-class`, `-attr`, `-href`, `-style`, `-show` and `-transition`; the rest belongs inside the component';
 
 export function compileParts(html: string, options: CompileOptions): CompiledParts {
   let out = compilePasses(html, options);
@@ -1228,7 +1228,7 @@ class Compiler {
   /** models on `$url` parameters: whether each binds a list (`<select multiple>`, a checkbox with a `value`) */
   readonly urlBinds: Array<{ name: string; array: boolean; report: (msg: string) => void }> = [];
   /** links and what the build can see of where they go (static `href`s, the literal starts of bound ones); elements whose `href` is bound */
-  readonly hrefs: Array<{ el: P5Element; prefixes: HrefPrefix[]; literal: boolean }> = [];
+  readonly hrefs: Array<{ el: P5Element; prefixes: HrefPrefix[]; literal: boolean; query?: string[]; src?: string }> = [];
   readonly boundHrefs = new Set<P5Element>();
   /**
    * Same-page links (query-links.ts): the query parameters the page reads, from the IR's dependencies
@@ -1268,9 +1268,9 @@ class Compiler {
     }));
   }
   /**
-   * SN519: a pager link (a static query-only `href` that sets a `model` (paginate) parameter) that drops
-   * query parameters the page reads. A filter or tab link that drops the page is how a list starts
-   * at page 1; a link whose `href` is also bound is its fallback.
+   * SN519: a pager link (a query-only `href` that sets a `model` (paginate) parameter: static, or a `data-sn-href`
+   * template, whose parameter names are literal) that drops query parameters the page reads. A filter or tab
+   * link that drops the page is how a list starts at page 1; a static `href` beside a bound one is its fallback.
    */
   checkDroppedQuery(reads: string[], patterns: string[]): void {
     const models = new Set(this.pageModels.map((m) => m.name));
@@ -1278,12 +1278,14 @@ class Compiler {
     const query = reads.filter((n) => !fromPath.has(n) && !models.has(n));
     for (const h of this.hrefs) {
       const v = h.prefixes[0]?.s;
-      if (!h.literal || v?.[0] !== '?' || this.boundHrefs.has(h.el)) continue;
-      const has = new Set(new URLSearchParams(v.slice(1).split('#')[0]).keys());
-      if (![...has].some((n) => models.has(n))) continue;
+      if (!h.query && (!h.literal || v?.[0] !== '?' || this.boundHrefs.has(h.el))) continue;
+      const has = new Set(h.query ?? new URLSearchParams(v!.slice(1).split('#')[0]).keys());
+      const model = [...has].find((n) => models.has(n));
+      if (model === undefined) continue;
       const dropped = query.filter((n) => !has.has(n));
-      if (dropped.length) this.report(h.el, 'href', 'SN519', `\`${v}\` keeps only its own query: ${dropped.map((n) => `\`${n}\``).join(', ')}, which this page reads, ${dropped.length > 1 ? 'are' : 'is'} dropped when it is followed`, 0,
-        'build the whole query in `data-sn-attr` (`href: \'?page=\' + n + \'&tag=\' + encodeURIComponent($url.tag)`), or leave the parameter out on purpose');
+      const name = h.query ? 'data-sn-href' : 'href', shown = h.src ?? v;
+      if (dropped.length) this.report(h.el, name, 'SN519', `\`${shown}\` keeps only its own query: ${dropped.map((n) => `\`${n}\``).join(', ')}, which this page reads, ${dropped.length > 1 ? 'are' : 'is'} dropped when it is followed`, 0,
+        `keep ${dropped.length > 1 ? 'them' : 'it'} in the link's template (\`data-sn-href="?${dropped.map((n) => `${n}={$url.${n}}&`).join('')}${model}={n}"\`: a parameter that is not set is left out), or leave ${dropped.length > 1 ? 'them' : 'it'} out on purpose`);
     }
   }
   /** `model` (paginate) parameters: one is never a list */
@@ -1591,6 +1593,8 @@ class Compiler {
     const live = this.fns.filter((c) => c !== '0').join('\n');
     const imported = (key: string) => !this.page.lazy?.has(key) && new RegExp(`(?<![\\w$.])${key.replace(/\$/g, '\\$')}(?![\\w$])`).test(live);
     for (const h of [...this.page.usedHelpers].sort()) if (imported(h)) (this.page.helpers.has(h) ? user : builtin).push(h);
+    // a link's URL template (`data-sn-href`) that is not written into the HTML
+    for (const h of ['$href', '$hv']) if (imported(h)) builtin.push(h);
     const namespaces: Record<string, string[]> = {};
     for (const [k, v] of [...this.page.usedNs].sort(([a], [b]) => a.localeCompare(b))) {
       const ms = [...v].filter((m) => imported(`${k}$${m}`)).sort();
@@ -3977,7 +3981,7 @@ class Compiler {
       // sinter's: compiled as on an element, then moved into the item
       const sn = el.attrs.filter((a) => a.name.startsWith('data-sn-') && !['data-sn-with', 'data-sn-early'].includes(a.name));
       if (!sn.length) continue;
-      const bad = sn.find((a) => !/^data-sn-(class|attr|style|show|on-.+)$/.test(a.name));
+      const bad = sn.find((a) => !/^data-sn-(class|attr|href|style|show|on-.+)$/.test(a.name));
       if (bad) {
         this.report(el, bad.name, 'SN102', `\`${bad.name}\` cannot be on the tag of a component used inside itself or chosen by \`<sn-component>\`: its root is a shared definition, which takes plain attributes, \`data-sn-class\`, \`-attr\`, \`-style\`, \`-show\` and handlers`, 0,
           'wrap the tag in an element that carries it, or move it inside the component');
@@ -4747,6 +4751,7 @@ class Compiler {
       if (r.ok) { node.b.push(this.binding({ k: 'attr', n: 'data-sn-vt', f: this.fn(r.code), d: r.deps, ...usesEl(r) })); this.features.add('transition'); }
     }
     if (has('attr')) source('data-sn-attr', () => this.attrBinding(el, node, scope));
+    if (has('href')) source('data-sn-href', () => this.hrefBinding(el, node, scope, use));
     if (has('class')) source('data-sn-class', () => this.objectBinding(el, node, scope, 'class'));
     if (has('style')) source('data-sn-style', () => this.objectBinding(el, node, scope, 'style'));
     if (has('with') && !use) {
@@ -5472,11 +5477,44 @@ class Compiler {
         if (files) this.report(el, 'data-sn-attr', 'SN513', `\`src\` is bound to ${files.length > 1 ? 'local images' : 'a local image'} (${files.map((f) => `\`${f}\``).join(', ')}), which ${files.length > 1 ? 'are' : 'is'} not optimized`, e.offset,
           `write each image as a static \`<img src>\` (optimized at build time) and choose with \`data-sn-if\` or \`data-sn-show\`: \`<img src="${files[0]}" data-sn-show="…">\``);
       }
+      if (key === 'href' && attr(el, 'data-sn-href') !== undefined) {
+        this.report(el, 'data-sn-attr', 'SN102', '`href` is bound by `data-sn-href` on this element: bind it once', e.offset);
+        continue;
+      }
       if (key === 'href' && (el.tagName === 'a' || el.tagName === 'area')) { this.hrefs.push({ el, prefixes: hrefPrefixes(entryValue(r, e)), literal: false }); this.boundHrefs.add(el); }
       const remote = key === 'src' ? this.remoteImage(el, e, r.entries.some((x) => x.key.toLowerCase() === 'srcset'), scope) : null;
       node.b.push(this.binding({ k: 'attr', n: e.key, f: this.fn(remote ? remote.src : e.code), d: e.deps, ...usesEl(r), s: this.selection(scope, attr(el, 'data-sn-attr') ?? '', entryValue(r, e), r) }));
       if (remote) node.b.push(this.binding({ k: 'attr', n: 'srcset', f: this.fn(remote.srcset), d: e.deps, ...usesEl(r) }));
     }
+  }
+
+  /**
+   * `data-sn-href`: a link's URL template, the grammar of an action's (`/profile/{a.author.username}`, each value
+   * encoded, a query value that is null or `[]` leaves its parameter out), which may also start with `?` or `#`.
+   * It is a bound `href` in every way (`data-sn-attr="{ href }"`): one binding, whose function fills the template
+   * with `$href` (runtime/url.ts) from its interpolations' values, so a constant one is written into the HTML.
+   */
+  hrefBinding(el: P5Element, node: NodeDef, scope: Scope, use?: Use) {
+    const tag = use?.root.tagName ?? el.tagName;
+    // (the tag of a component used inside itself or chosen by `<sn-component>`: its root is a shared definition's, read when it renders)
+    if (tag !== 'a' && tag !== 'area' && !(!use && this.componentFile(tag))) {
+      this.report(el, 'data-sn-href', 'SN102', `\`data-sn-href\` is a link's URL, on \`<a>\` or \`<area>\`; \`<${tag}>\` binds its URLs with \`data-sn-attr\``, 0);
+      return;
+    }
+    const vals: ExprResult[] = [], deps = new Set<string>();
+    const d0 = this.diagnostics.length;
+    const tpl = this.urlTemplate(el, 'data-sn-href', scope, {}, deps, undefined, vals);
+    if (this.diagnostics.slice(d0).some((d) => d.severity === 'error') || vals.some((v) => !v.ok)) return;
+    const lits = tpl.filter((p): p is string => typeof p === 'string');
+    // what the build sees of where it goes: the literal start, the whole URL without values; the literal query names of a
+    // query-only one, which replaces the whole query (SN519)
+    const first = typeof tpl[0] === 'string' ? tpl[0] : '';
+    const query = first[0] === '?' ? [...lits.join('').split('#')[0]!.matchAll(/[?&]([^?&=#]+)=/g)].map((m) => m[1]!) : undefined;
+    this.hrefs.push({ el, prefixes: [{ s: first, whole: !vals.length }], literal: false, ...(query ? { query, src: attr(el, 'data-sn-href') } : {}) });
+    this.boundHrefs.add(el);
+    const code = `($) => (${hrefCode(tpl, vals.map((v) => `(${v.inner})`))})`;
+    const flags = usesEl({ usesEl: vals.some((v) => v.usesEl), usesIndex: vals.some((v) => v.usesIndex) } as ExprResult);
+    node.b.push(this.binding({ k: 'attr', n: 'href', f: this.fn(code), d: [...deps].sort(), ...flags }));
   }
 
   /**
@@ -5931,16 +5969,20 @@ class Compiler {
     return { tid, scope: inner };
   }
 
-  urlTemplate(el: P5Element, attrName: string, scope: Scope, exprOpts: Partial<ExprOptions> = {}, deps?: Set<string>, reads?: Read[]): UrlTemplate {
+  /**
+   * `link`: the template is a link's (`data-sn-href`): no API's, it may also start with `?` or `#` (this page's URL), and its
+   * numbers index `link`, where each interpolation's result is put (no function is made for it).
+   */
+  urlTemplate(el: P5Element, attrName: string, scope: Scope, exprOpts: Partial<ExprOptions> = {}, deps?: Set<string>, reads?: Read[], link?: ExprResult[]): UrlTemplate {
     const value = attr(el, attrName) ?? '';
     const parts: UrlTemplate = [];
     // `file:` reads a file at build time: a resource's source, never a request
-    if (isFileSource(value)) {
+    if (!link && isFileSource(value)) {
       this.report(el, attrName, 'SN332', `\`file:\` is a source for \`<sn-resource src>\`: a file of the project, read at build time. ${el.tagName === 'sn-sync' ? 'A stream' : 'An action'} sends a request; give it a URL`, value.indexOf('file:'));
       return [''];
     }
     // `sinter({ apis })`: `[api:]/path`, relative to the API's base
-    const apis = this.opts.apis;
+    const apis = link ? undefined : this.opts.apis;
     let api: ApiDef | null = null, i = 0;
     if (apis) {
       if (/^https?:\/\//i.test(value)) {
@@ -5978,7 +6020,7 @@ class Compiler {
       const r = this.expr(el, attrName, scope, { mode: 'value', ...exprOpts }, value.slice(i + 1, j), i + 1);
       // an array is a repeated key as a whole query value, and refused in the path
       if (!/[?#]/.test(value.slice(0, i))) this.typeLast({ returns: { kind: 'decl', name: 'PathValue' } });
-      parts.push(this.fn(r.code));
+      parts.push(link ? link.push(r) - 1 : this.fn(r.code));
       if (deps) for (const d of r.deps) deps.add(d);
       reads?.push(...(r.reads ?? []));
       i = j + 1;
@@ -5987,9 +6029,11 @@ class Compiler {
     const first = parts[0];
     // a literal origin followed by a value needs its `/`: `https://api.example.com{x}` lets `x` extend the host
     const origin = parts.length > 1 ? /^https?:\/\/[^/{}]+\//i : /^https?:\/\/[^/{}]+(\/|$)/i;
-    if (typeof first !== 'string' || !(/^\/[^/\\]/.test(first) || first === '/' || (!api && origin.test(first)))) {
-      this.report(el, attrName, 'SN207', api ? 'a path to an API must start with a literal `/` (`/contacts/{c.id}`)' : 'a URL template must start with a literal same-origin path (`/api/…`) or a literal `https://` origin (with a `/` after the host when a value follows)', 0,
-        'a leading interpolation or `//` lets a value choose the host');
+    if (typeof first !== 'string' || !(/^\/[^/\\]/.test(first) || first === '/' || (!api && origin.test(first)) || (link && /^[?#]/.test(first)))) {
+      this.report(el, attrName, 'SN207', api ? 'a path to an API must start with a literal `/` (`/contacts/{c.id}`)'
+        : link ? 'a link\'s URL template must start with a literal same-origin path (`/profile/…`), `?` or `#` (this page\'s URL), or a literal `https://` origin (with a `/` after the host when a value follows)'
+          : 'a URL template must start with a literal same-origin path (`/api/…`) or a literal `https://` origin (with a `/` after the host when a value follows)', 0,
+        link && typeof first !== 'string' ? 'a leading interpolation lets a value choose the scheme and host: a URL that comes whole from data goes in `data-sn-attr="{ href: … }"`, whose URL is checked' : 'a leading interpolation or `//` lets a value choose the host');
     }
     this.lastPath = parts.slice();
     if (api && api.base && typeof parts[0] === 'string') parts[0] = api.base + parts[0];
@@ -6809,7 +6853,7 @@ class Compiler {
     // everything the page could call is shadowed: what is not a constant throws
     const NOT = new Error('not a build-time constant');
     const stub = new Proxy(function () {}, { apply() { throw NOT; }, get() { throw NOT; } });
-    const params = new Map<string, unknown>([['$k', $k]]);
+    const params = new Map<string, unknown>([['$k', $k], ['$href', $href], ['$hv', $hv]]);
     // (`location`: the browser's, as in a pattern page's `$canonical`; a test environment may have one)
     for (const h of ['Date', 'Intl', 'Math', 'location', 'date', 'relative', 'number', 'bytes', ...this.opts.helpers.names]) params.set(h, stub);
     // the app's helpers: a call over constants runs here when the static check lets it (`helperFold`), else its stub
@@ -9042,6 +9086,23 @@ export function stateReaders(fns: readonly string[]): Map<string, Set<string>> {
 function hasBase(n: P5Parent): boolean {
   return n.childNodes.some((c) => isElement(c) && ((c.tagName === 'base' && attr(c, 'href') != null) || hasBase(c.tagName === 'template' ? (c as any).content : c)));
 }
+/**
+ * The code that fills a link's URL template, as `expand` (runtime/url.ts) would: `$href(tpl, [values])`, or where no value
+ * is a whole query value (none can leave its parameter out) and no `?` or `&` is left trailing, the literals and each
+ * value through `$hv` (`"/profile/" + $hv(a.author.username)`), which needs none of `expand`.
+ */
+export function hrefCode(tpl: UrlTemplate, vals: string[]): string {
+  let query = false, plain = true;
+  const parts = tpl.map((p, i) => {
+    if (typeof p === 'string') { query ||= /[?#]/.test(p); return JSON.stringify(p); }
+    const prev = tpl[i - 1], next = tpl[i + 1];
+    if (query && (next === undefined || (typeof next === 'string' && /^[&#]/.test(next))) && typeof prev === 'string' && /[?&][^?&=#]*=$/.test(prev)) plain = false;
+    return `$hv(${vals[p]}${query ? ', 1' : ''})`;
+  });
+  if (/[?&](?=#|$)/.test(tpl.map((p) => (typeof p === 'string' ? p : 'v')).join(''))) plain = false;
+  return plain ? parts.join(' + ') : `$href(${JSON.stringify(tpl)}, [${vals.join(', ')}])`;
+}
+
 /** What the build can see of where a link goes: a literal start, and whether it is the whole `href`. */
 interface HrefPrefix { s: string; whole: boolean }
 /**

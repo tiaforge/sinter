@@ -8,6 +8,7 @@ export const ATTRIBUTES: AttrDoc[] = [
   { name: 'let', value: 'object literal {name: expression}', doc: 'derived names for the element and its subtree, computed where they are read (a helper call included: keep an expensive one\'s results with `memo()`, configuration.md); later names may use earlier ones' },
   { name: 'text', value: 'value expression', doc: 'sets textContent (null and undefined: empty, no `?? \'\'` needed); never HTML. On a <template>: a text node with no element (a run of text beside elements); no other attribute on that template' },
   { name: 'attr', value: 'object literal {href: …}', doc: 'literal keys; null/false removes, true sets empty; URL values are checked; checked, selected, indeterminate and value also set the live property' },
+  { name: 'href', value: 'URL template', doc: 'on <a>, <area>: the link; may also start with ? or #' },
   { name: 'class', value: 'object literal {unread: …}', doc: 'toggles each class' },
   { name: 'style', value: "object literal {'--color': …}", doc: 'sets each property with style.setProperty' },
   { name: 'show', value: 'value expression', doc: 'toggles the hidden attribute' },

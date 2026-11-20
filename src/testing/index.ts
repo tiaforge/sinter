@@ -17,6 +17,7 @@ import { mount, scopeState, type App, type Feature, type Transport } from '../ru
 import { config, type Middleware } from '../runtime/config.js';
 import type { Env } from '../runtime/env.js';
 import { $k } from '../runtime/security.js';
+import { $href, $hv } from '../runtime/url.js';
 import * as builtins from '../runtime/helpers.js';
 import { remote, resolveRemote, type RemoteImages } from '../remote.js';
 import cache from '../cache.js';
@@ -572,7 +573,7 @@ export async function render(html: string, options: RenderOptions = {}): Promise
   // function table, with helpers and namespace members in scope
   const names: string[] = ['$k'];
   const values: unknown[] = [$k];
-  for (const h of parts.helpers.builtin) { names.push(h); values.push((builtins as Record<string, unknown>)[h]); }
+  for (const h of parts.helpers.builtin) { names.push(h); values.push(h === '$href' ? $href : h === '$hv' ? $hv : (builtins as Record<string, unknown>)[h]); }
   for (const h of parts.helpers.user) { names.push(h); values.push(helpers[h]); }
   for (const [ns, members] of Object.entries(parts.namespaces)) {
     for (const m of members) { names.push(`${ns}$${m}`); values.push((helpers[ns] as Record<string, unknown>)[m]); }
