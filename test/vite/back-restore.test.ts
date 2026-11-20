@@ -22,7 +22,7 @@ for (const [swap, bare] of [[false, false], [true, false], [true, true]] as cons
   test.skipIf(!chromium)(`Back shows the list as it was left, then the API's (${swap ? (bare ? 'a swap from a page with nothing to run, which reloads' : 'a swap') : 'a load'})`, async () => {
     const root = join(dir, swap ? (bare ? 'bare' : 'swap') : 'load');
     const put = (f: string, s: string) => { mkdirSync(join(root, f, '..'), { recursive: true }); writeFileSync(join(root, f), s); };
-    put('index.html', page('<sn-resource name="items" src="/api/items" items="items" key="id"></sn-resource><ul><template data-sn-for="x in items"><li data-sn-text="x.name"></li></template></ul><a id="go" href="/other/">other</a>'));
+    put('index.html', page('<sn-resource name="items" src="/api/items" select="items" key="id"></sn-resource><ul><template data-sn-for="x in items"><li data-sn-text="x.name"></li></template></ul><a id="go" href="/other/">other</a>'));
     put('other.html', page(bare ? '<p id="other">other</p>' : '<p id="other" data-sn-state="{ n: 1 }" data-sn-text="n" data-sn-on-click="n++"></p>'));
     const out = join(root, 'dist');
     await build({ root, logLevel: 'silent', plugins: [sinter({ swap, prefetch: false })], resolve: { alias },

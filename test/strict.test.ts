@@ -28,7 +28,7 @@ afterAll(() => rmSync(root, { recursive: true, force: true }));
 mkdirSync(join(root, 'node_modules'));
 symlinkSync(resolve(__dirname, '../node_modules/typescript'), join(root, 'node_modules/typescript'));
 writeFileSync(join(root, 'index.html'), `<!doctype html><html lang="en"><head><title>t</title></head><body>
-<sn-resource name="contacts" src="/api/contacts" items="contacts" key="id" type="any"></sn-resource>
+<sn-resource name="contacts" src="/api/contacts" select="contacts" key="id" type="any"></sn-resource>
 </body></html>`);
 
 const cli = (args: string[], env: Record<string, string> = {}) => {

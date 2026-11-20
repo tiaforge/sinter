@@ -720,6 +720,7 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
     deps.add(segs.join('.'));
   }
 
+  const metaSeen = new Map<Node, Array<{ name: string; at: number }> | null>();
   /** `$meta[key]` with a key whose resource names can be listed: those names (null otherwise) */
   function metaNames(n: Node, locals: Locals): Array<{ name: string; at: number }> | null {
     let cur: Node = n;
@@ -729,6 +730,14 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
       else break;
     }
     if (cur.type !== 'MemberExpression' || !cur.computed || cur.property.type === 'Literal') return null;
+    // asked once per member of the chain and for its dependencies: worked out (and reported) once
+    if (metaSeen.has(cur)) return metaSeen.get(cur)!;
+    const names = metaKey(cur, locals);
+    metaSeen.set(cur, names);
+    return names;
+  }
+
+  function metaKey(cur: acorn.MemberExpression & Node, locals: Locals): Array<{ name: string; at: number }> | null {
     const lets: LetEntry[] = [];
     const names = refNames(cur.property, (nm) => lookRef(nm, locals), lets);
     if (names === 'string') {
@@ -742,7 +751,9 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
 
   function checkMeta(n: acorn.MemberExpression & Node, locals: Locals) {
     const cp = chainPath(n, locals);
-    if (!cp || cp.root !== '$meta' || cp.res.kind !== 'magic' || !cp.segs) return;
+    // `checkMeta` runs for each member of the chain: the key is checked by the member on `$meta`, the field by the
+    // member that names it, and the members after it (`.loadedAt.getTime`) have nothing to check
+    if (!cp || cp.root !== '$meta' || cp.res.kind !== 'magic' || !cp.segs || cp.segs.length > 3) return;
     const [, key, field] = cp.segs;
     // a computed key is checked for each name it can take, when they can be listed
     const names = key === '*' ? metaNames(n, locals) : key ? [{ name: key, at: n.start }] : null;

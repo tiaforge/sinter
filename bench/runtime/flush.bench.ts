@@ -16,7 +16,7 @@ function bindings(n: number) {
 function list(n: number) {
   const rows = JSON.stringify({ rows: items(n) });
   return `<html><head><script type="application/json" data-sn-resource="rows">${rows}</script></head><body>
-    <sn-resource name="rows" src="/api/rows" items="rows" key="id" order="name"></sn-resource>
+    <sn-resource name="rows" src="/api/rows" select="rows" key="id" order="name"></sn-resource>
     <p data-sn-text="rows.length"></p>
     <ul><template data-sn-for="r in rows"><li><b data-sn-text="r.name"></b> <i data-sn-text="r.score"></i></li></template></ul>
   </body></html>`;
@@ -61,7 +61,7 @@ test('flush', () => {
 function links(n: number, href: string) {
   const rows = JSON.stringify({ rows: items(n).map((x) => ({ ...x, url: '/u/' + x.id })) });
   return `<html><head><script type="application/json" data-sn-resource="rows">${rows}</script></head><body>
-    <sn-resource name="rows" src="/api/rows" items="rows" key="id"></sn-resource>
+    <sn-resource name="rows" src="/api/rows" select="rows" key="id"></sn-resource>
     <ul><template data-sn-for="r in rows"><li><a data-sn-attr="{href: ${href}}" data-sn-text="r.name"></a></li></template></ul>
   </body></html>`;
 }
@@ -69,7 +69,7 @@ function links(n: number, href: string) {
 function selection(n: number) {
   const rows = JSON.stringify({ rows: items(n) });
   return `<html><head><script type="application/json" data-sn-resource="rows">${rows}</script></head><body>
-    <sn-resource name="rows" src="/api/rows" items="rows" key="id"></sn-resource>
+    <sn-resource name="rows" src="/api/rows" select="rows" key="id"></sn-resource>
     <section data-sn-state="{ sel: -1 }"><ul><template data-sn-for="r in rows"><li data-sn-class="{danger: r.id === sel}"><b data-sn-text="r.name"></b></li></template></ul></section>
   </body></html>`;
 }

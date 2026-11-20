@@ -6,11 +6,11 @@ reloads, [server events](sync.md) and [optimistic updates](actions.md). Template
 changes go through store functions.
 
 ```html
-<sn-resource name="people" src="/api/people" items="people" key="id" order="name"></sn-resource>
+<sn-resource name="people" src="/api/people" select="people" key="id" order="name"></sn-resource>
 
 <section data-sn-state="{ q: '' }">
   <input type="search" data-sn-model="q">
-  <p data-sn-show="$meta.people.loading" aria-busy="true">Loading…</p>
+  <p data-sn-show="$meta.people.loading && !people.length" aria-busy="true">Loading…</p>
   <ul>
     <template data-sn-for="p in people.filter(p => p.name.toLowerCase().includes(q.toLowerCase()))">
       <li data-sn-text="p.name"></li>
@@ -20,7 +20,7 @@ changes go through store functions.
 ```
 
 Loading needs no code. The list stays sorted by `name`, and the old data stays on screen during a
-reload. See `docs/recipes/list-filter.html`.
+reload ([loading, empty, error](#loading-empty-error)). See `docs/recipes/list-filter.html`.
 
 A long list or an expensive filter can wait for the typing to pause: `data-sn-model-debounce` on the
 field delays the model's write, while the field shows each keystroke at once.
@@ -49,7 +49,7 @@ then filter by `term`.
 | `body` | With `method="POST"`: the request body, a value sent as JSON; the resource reloads when it changes. |
 | `call` | Instead of `src`: one call of a [local action](actions.md), `ns.fn(args)`. Reloads when the arguments' inputs change. |
 | `key` | Comma-separated item fields that form the identity. Required for collections; without it the resource is a single object. |
-| `items` | Path to the array in the response. Default: the response itself. |
+| `select` | Path in the response to the data: the array of a collection, or the object (`select="user"` of `{ user: … }`). Default: the response itself. |
 | `total` | Path to a total count, exposed as `$meta.<name>.total`. |
 | `order` | Field kept sorted when items are inserted. `-field` sorts descending. Strings compare locale-aware. |
 | `when` | Value expression. While falsy the resource is empty (`[]` for a list, else `null`: [single objects](#single-objects)), not loaded (`loadedAt` and `error` are `null`), and a running request is aborted. |
@@ -57,7 +57,7 @@ then filter by `term`.
 | `refresh` | Reload in the background once the data is this old, a duration: `30s`, `5m`, `1h`, `1d` (at least `1s`). |
 | `for` | `item in list`: one request per item of another list, merged into one collection. |
 | `then` | Handler run after each successful load, with `$result`. |
-| `type` | Type of what `items` selects, for the [type checker](type-checking.md). |
+| `type` | Type of what `select` picks, for the [type checker](type-checking.md). |
 
 Paginated resources add more attributes; see [pagination](pagination.md).
 
@@ -73,7 +73,7 @@ A list that cannot have a key, such as a list of strings (`["go", "rust"]`), is 
 the build knows its value is a list, it is `[]` instead of `null` while it has no data (loading, while
 `when` is falsy, after `remove`), in the first paint as after it, so markup reads it as any list:
 `tags.length`, `data-sn-for="t in tags"`, with no `?.` or `?? []`. The build knows it from `type`
-(`type="string[]"`, `Array<Tag>`; not an alias that names a list), the OpenAPI response at `items`, or a
+(`type="string[]"`, `Array<Tag>`; not an alias that names a list), the OpenAPI response at `select`, or a
 `file:` or `content:` list. Otherwise it stays `null` until loaded.
 
 ## Status: `$meta`
@@ -148,7 +148,7 @@ answered, so guards like `$meta.user.loadedAt && !user` never act on cached data
 revalidation keeps the cached data and sets `error`. See `docs/recipes/cached-list.html`.
 
 - Entries live in `sessionStorage`, so they last one tab's lifetime. They are keyed by request URL
-  and the `items` and `total` paths, so two pages loading the same data share an entry.
+  and the `select` and `total` paths, so two pages loading the same data share an entry.
 - Only the first load reads the cache; a `src` that changes later does not.
 - An entry over 256 KB is not written.
 - Every entry is removed on any 401 response and by `clearStored()`, which apps call on sign-in and sign-out.
@@ -197,7 +197,7 @@ as a safety net for one that might miss events.
 ## After a load: `then`
 
 `then` is a handler run after every successful load, with `$result` set to what was stored (what
-`items` selects, or the whole response).
+`select` picks, or the whole response).
 
 ```html
 <sn-resource name="body" src="/api/messages/{open.id}/body" when="open"
@@ -236,7 +236,7 @@ the results into one collection:
 
 ```html
 <sn-resource name="intro" src="file:./intro.txt"></sn-resource>
-<sn-resource name="team" src="file:/content/team.json" items="people" key="id" type="Person[]"></sn-resource>
+<sn-resource name="team" src="file:/content/team.json" select="people" key="id" type="Person[]"></sn-resource>
 <sn-resource name="post" src="file:./hello.md" type="Post"></sn-resource>
 <sn-resource name="posts" src="file:/content/posts/*.md" type="Post" order="-date" drafts="draft"></sn-resource>
 
@@ -282,10 +282,10 @@ the results into one collection:
   and a single file must exist; an interpolation (`{…}`, other than a glob's `{a,b}`) is an error (`SN332`).
   With `sinter({ apis })` it is read the same way, and `file` cannot be an API's name (`SN329`).
 - It is a constant: nothing loads, refreshes or changes it. `$meta.<name>.loading` is `false` and the
-  other status fields are `null`. It takes only `name`, `src`, `type`, `items`, `key`, `order`, `drafts` and `fields`;
+  other status fields are `null`. It takes only `name`, `src`, `type`, `select`, `key`, `order`, `drafts` and `fields`;
   anything that would load or change it is `SN332`: `refresh`, `cache`, `paginate`, `for`, `call`, `when`,
   `then`, `early`, store functions that name it or change one of its items, write-through, and
-  `<sn-event>`s. `items` picks a list out of one JSON file.
+  `<sn-event>`s. `select` picks a part of one JSON file.
 - Bindings over it are written into the page at build time, and so are helper calls over it (when the
   helper can run at build time: [static pages](static-pages.md#helpers-and-files-at-build-time)). What
   still runs in the browser reads it from embedded data in the page's head, so the first frame has it
@@ -347,13 +347,14 @@ export const tags = collection({
   of `env`, since they are printed and shown in the browser in dev.
 - **On a page** it is a constant list, as a `file:` glob is: bindings over it are written at build time, `order`
   sorts it in the page's language, `key` is the collection's, and a [page per entry](static-pages.md#a-page-per-entry)
-  can be built from it. `drafts` and `items` are the loader's business.
+  can be built from it. `drafts` and `select` are the loader's business.
 - **What ships is named.** Bindings over a collection are written into the HTML and ship nothing. When code in the
   browser reads it (a filter as you type), it is embedded in the page, and only with `fields="sku,name,price"`:
   those fields of each entry. Without `fields` that is [SN344](diagnostics.md#sn344-content-fields), so what a CMS
   returns and no page shows never ships by accident. Fields left out are `undefined` in the browser (`sinter check`
   does not narrow the type to them). A page per entry (`data-sn-for` on `<html>`) follows its list's `fields`. A `file:` resource takes
-  `fields` too, and without it ships whole.
+  `fields` too, and without it ships whole. `fields` and `drafts` are a build-time source's only: on a fetched
+  resource they would do nothing, and are `SN332`.
 - **`vite dev`** runs the loaders at startup and again when the content module or a file `files()` read changes,
   then reloads the page. A change in the CMS needs a restart, or a rebuild in production (a webhook to the CI).
 - **`sinter check` and the editor never run loaders** (a CMS fetch per keystroke or per CI check would be slow,

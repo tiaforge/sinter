@@ -37,7 +37,7 @@
 
       <!-- A busy line: temper gives it a spinner and shows it only after --tm-busy-delay (200ms). -->
       <p data-sn-show="$meta.tasks.loading && !tasks.length" aria-busy="true">Loading…</p>
-      <p data-muted data-sn-show="$meta.tasks.loadedAt && !shown.length">No tasks here.</p>
+      <p data-muted data-sn-show="$meta.tasks.loadedAt && !$meta.tasks.loading && !shown.length">No tasks here.</p>
 
       <ul data-list data-sn-show="shown.length">
         <template data-sn-for="t in shown">

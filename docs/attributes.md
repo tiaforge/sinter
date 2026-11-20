@@ -17,7 +17,7 @@ Bind values to the page.
 | `data-sn-with` | object literal | sets JS properties; custom elements only (also one defined later). On a component's tag: its props, live and read-only. On a &lt;slot&gt; declared Slot&lt;T&gt;: the values its fill reads as $slot; on a named &lt;slot&gt; its component does not declare, a tree placement, filled by the nearest enclosing component declaring the name |
 | `data-sn-for` | item in list \| (item, i) in list | repeats a &lt;template&gt; per item. On &lt;html&gt;: the page once per entry of a `file:` list, at `data-sn-path` filled from it |
 | `data-sn-key` | value expression | row identity; inferred: resource key, object identity or value |
-| `data-sn-if` | value expression | renders a &lt;template&gt; while truthy. Same id, same control: when the branch with focus is swapped, the element with its id in the new one takes focus (a toggle's two buttons: &lt;button id="follow" data-sn-delete=…&gt; and &lt;button id="follow" data-sn-post=…&gt;) |
+| `data-sn-if` | value expression | renders a &lt;template&gt; while truthy. Same id, same control: when a branch swaps, the element with an id in the new one takes the old one's focus and running action (a toggle: &lt;button id="f" data-sn-delete=…&gt;, &lt;button id="f" data-sn-post=…&gt;) |
 | `data-sn-else` |  | on a &lt;template&gt; directly after an if template; with data-sn-if beside it, an else-if (&lt;template data-sn-else data-sn-if="q"&gt;). After a for template: the list's empty state, shown while it is empty and its resources have loaded, are not loading and have no error⟪FULL⟫ (a `when` that is falsy has not loaded; a `file:` list is decided at build time; a list of state, while empty); no else-if there (SN102)⟪SHORT⟫⟪END⟫. Lists, branches and chosen components render between two comments (`<ul><!--sn 4--><li>a</li><!--/sn--></ul>`): CSS sees plain children. Comments that are exactly `<!--sn-->`, `<!--sn 4-->`, `<!--/sn-->` or `<!---->` are reserved (SN105); `$el` in an if, for or use is SN213; keep HTML comments |
 
 ## Keep state
@@ -123,7 +123,7 @@ Attributes sinter writes for CSS to style; writing one in markup is `SN101`.
 A named, page-wide cache of server data. Details: [resources](resources.md).
 
 - **Where the data comes from:** `name`, `src`, `method`, `body`, `call`, `for`, `when`, `early`
-- **What it looks like:** `key`, `items`, `total`, `order`, `drafts`, `fields`, `type`
+- **What it looks like:** `key`, `select`, `total`, `order`, `drafts`, `fields`, `type`
 - **How fresh it is:** `cache`, `refresh`, `then`
 - **Pagination:** `paginate`
 

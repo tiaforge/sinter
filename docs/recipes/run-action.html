@@ -1,7 +1,7 @@
 <!doctype html>
 <html>
 <body data-sn-state="{ open: null, error: '' }" data-sn-on-keydown-e="run('archive')">
-  <sn-resource name="messages" src="/api/messages" items="messages" key="id"></sn-resource>
+  <sn-resource name="messages" src="/api/messages" select="messages" key="id"></sn-resource>
   <!-- loads when a mail opens; once its body is there, an unread mail is marked read -->
   <sn-resource name="body" src="/api/messages/{open.id}/body" when="open"
                then="$result && !open.is_read && run('mark-read')"></sn-resource>

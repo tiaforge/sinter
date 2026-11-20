@@ -6,7 +6,7 @@ pages and `$meta` fields to draw the pager. sinter builds the requests; your API
 pages.
 
 ```html
-<sn-resource name="messages" src="/api/messages" items="messages" total="total" key="id"
+<sn-resource name="messages" src="/api/messages" select="messages" total="total" key="id"
   paginate="{ keyset: {before: $item.id}, size: 2 }"></sn-resource>
 
 <ul>
@@ -63,7 +63,7 @@ sinter({ apis: { main: { openapi: 'openapi.yml', paginate: { params: { size: 'pe
 <sn-resource name="articles" src="/articles" paginate="{ numbered: 'offset', size: 10 }"></sn-resource>   <!-- per_page, skip -->
 ```
 
-`total`, `items` and `key` work as on any [resource](resources.md).
+`total`, `select` and `key` work as on any [resource](resources.md).
 
 ## Server requirements for keyset
 
@@ -86,7 +86,7 @@ pages. A jump past the end is clamped to `$meta.<name>.pages` when the total is 
 written back on every move, so reload, Back and Forward and a shared link show the same page.
 
 ```html
-<sn-resource name="articles" src="/api/articles?tag={$url.tag}" items="articles" total="count"
+<sn-resource name="articles" src="/api/articles?tag={$url.tag}" select="articles" total="count"
   paginate="{ numbered: 'offset', size: 10, model: $url.page }"></sn-resource>
 
 <template data-sn-for="n in [1, 2, 3]">

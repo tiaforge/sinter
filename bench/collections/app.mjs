@@ -47,7 +47,7 @@ ${src}
   <nav><template data-sn-for="h in md.headings(doc)"><a data-sn-attr="{ href: '#' + h.id }" data-sn-text="h.text"></a></template></nav>
   <md-doc data-sn-with="{ doc }"></md-doc>
 </main>
-${live ? `<sn-resource name="comments" src="/api/comments?post={${slug}}" items="comments" key="id" type="any"></sn-resource>
+${live ? `<sn-resource name="comments" src="/api/comments?post={${slug}}" select="comments" key="id" type="any"></sn-resource>
 <ul><template data-sn-for="c in comments"><li data-sn-text="c.body"></li></template></ul>` : ''}
 </body>
 </html>

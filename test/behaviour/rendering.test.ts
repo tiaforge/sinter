@@ -174,8 +174,8 @@ test('a list chosen between resources with the same key keys by it: a row in bot
     'GET /api/feed': { articles: [{ slug: 'b', t: 'B2' }, { slug: 'c', t: 'C' }] },
   });
   const { root, flush, settle, warnings } = await render(`
-    <sn-resource name="articles" src="/api/articles" items="articles" key="slug"></sn-resource>
-    <sn-resource name="feed" src="/api/feed" items="articles" key="slug"></sn-resource>
+    <sn-resource name="articles" src="/api/articles" select="articles" key="slug"></sn-resource>
+    <sn-resource name="feed" src="/api/feed" select="articles" key="slug"></sn-resource>
     <div data-sn-state="{ mine: false }" data-sn-let="{ list: mine ? feed : articles }">
       <ul><template data-sn-for="a in list"><li data-sn-text="a.t"></li></template></ul>
       <ol><template data-sn-for="a in (mine ? feed : articles).toSorted((x, y) => y.slug.localeCompare(x.slug))"><li data-sn-text="a.t"></li></template></ol>
@@ -219,7 +219,7 @@ test('resources load, order, filter and expose $meta', async () => {
     'GET /api/people': { people: [{ id: 2, name: 'Bob' }, { id: 1, name: 'ada' }], total: 2 },
   });
   const { root, flush, settle } = await render(`
-    <sn-resource name="people" src="/api/people" items="people" total="total" key="id" order="name"></sn-resource>
+    <sn-resource name="people" src="/api/people" select="people" total="total" key="id" order="name"></sn-resource>
     <div data-sn-state="{ q: '' }">
       <input data-sn-model="q">
       <p data-sn-show="$meta.people.loading">loading</p>
@@ -242,7 +242,7 @@ test('state-dependent src refetches, latest wins, when gates loading', async () 
   });
   const { root, flush, settle } = await render(`
     <div data-sn-state="{ q: 'a', on: true }">
-      <sn-resource name="items" src="/api/items?q={q}" items="items" key="id" when="on"></sn-resource>
+      <sn-resource name="items" src="/api/items?q={q}" select="items" key="id" when="on"></sn-resource>
       <input data-sn-model="q">
       <button data-sn-on-click="on = !on">t</button>
       <ul><template data-sn-for="it in items"><li data-sn-text="it.id"></li></template></ul>
@@ -264,8 +264,8 @@ test('state-dependent src refetches, latest wins, when gates loading', async () 
 test('resources with the same src share one request', async () => {
   const requests = mockRequests({ 'GET /api/contacts': { a: [{ id: 1 }], b: [{ id: 2 }] } });
   const { root, settle } = await render(`
-    <sn-resource name="a" src="/api/contacts" items="a" key="id"></sn-resource>
-    <sn-resource name="b" src="/api/contacts" items="b" key="id"></sn-resource>
+    <sn-resource name="a" src="/api/contacts" select="a" key="id"></sn-resource>
+    <sn-resource name="b" src="/api/contacts" select="b" key="id"></sn-resource>
     <p data-sn-text="a.length + b.length"></p>`, { requests });
   await settle();
   expect(root.querySelector('p')!.textContent).toBe('2');

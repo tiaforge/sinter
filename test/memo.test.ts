@@ -1,7 +1,7 @@
 // @vitest-environment node
 // memo() (src/memo.ts): keyed one to one by its arguments, copies them, freezes and shares its results,
 // bounded by size with the least recently used going first, and caches nothing for a call that throws.
-import { describe, expect, test } from 'vitest';
+import { describe, expect, test, vi } from 'vitest';
 import { memo } from '../src/memo.js';
 
 /** a memoized function that records its calls, returning a new object each time */
@@ -204,20 +204,19 @@ describe('round 6: copies, depth, arrays, the function itself', () => {
     expect(Object.isFrozen(x)).toBe(true);
   });
 
-  test('a million-element array is frozen in a small multiple of the time it takes to build, its elements read by index', () => {
-    // relative to this machine's speed, not a fixed time (CI runners vary): reading each element's own keys
-    // took about 13 times the build, reading by index about 2 to 3 times
-    const build = (n: number) => Array.from({ length: n }, (_, i) => i);
-    build(1_000_000);
-    const t0 = performance.now();
-    build(1_000_000);
-    const plain = performance.now() - t0;
-    const rows = memo(build);
-    const t1 = performance.now();
-    const r = rows(1_000_000);
-    const memoized = performance.now() - t1;
+  test('a million-element array is frozen by reading its elements by index, never listing its keys', () => {
+    // listing a dense array's keys (a string per element) took about 13 times its build, reading by index 2 to 3
+    // times; counted rather than timed, so a busy machine cannot fail it
+    const rows = memo((n: number) => Array.from({ length: n }, (_, i) => i));
+    const ownKeys = vi.spyOn(Reflect, 'ownKeys'), descriptor = vi.spyOn(Object, 'getOwnPropertyDescriptor');
+    let r: number[], listed: number[];
+    try {
+      r = rows(1_000_000);
+      listed = [ownKeys.mock.calls.length, descriptor.mock.calls.length];
+    } finally { ownKeys.mockRestore(); descriptor.mockRestore(); }
     expect(Object.isFrozen(r)).toBe(true);
-    expect(memoized).toBeLessThan(8 * plain + 50);
+    expect(r[999_999]).toBe(999_999);
+    expect(listed).toEqual([0, 0]);
   });
 
   test('a sparse array with an extra property calls through, uncached', () => {

@@ -7,7 +7,7 @@ import { compile } from '../../src/compiler/index.js';
 
 const CSS = 'ul { margin: 0; padding: 0 } li { height: 20px }';
 const PAGE = (attrs = '', resource = 'paginate="{ numbered: true, size: 3 }"') => `
-  <sn-resource name="people" src="/api/people" items="people" key="id" ${resource}></sn-resource>
+  <sn-resource name="people" src="/api/people" select="people" key="id" ${resource}></sn-resource>
   <ul><template data-sn-for="p in people"${attrs}><li data-sn-text="p.name"></li></template></ul>`;
 const rows = (n: number) => ({ people: Array.from({ length: n }, (_, i) => ({ id: i + 1, name: `P${i + 1}` })) });
 const held = (root: ParentNode) => root.querySelector('ul > .sn-reserve');
@@ -75,8 +75,8 @@ test('a resource with `when`: held while it loads, as a branch the early file de
 });
 
 test('a list chosen by the URL (a data-sn-let over two resources): held for the one that loads', async () => {
-  const page = `<sn-resource name="mine" src="/api/mine" items="people" key="id" paginate="{ numbered: true, size: 3 }" when="$url.feed"></sn-resource>
-    <sn-resource name="all" src="/api/all" items="people" key="id" paginate="{ numbered: true, size: 3 }" when="!$url.feed"></sn-resource>
+  const page = `<sn-resource name="mine" src="/api/mine" select="people" key="id" paginate="{ numbered: true, size: 3 }" when="$url.feed"></sn-resource>
+    <sn-resource name="all" src="/api/all" select="people" key="id" paginate="{ numbered: true, size: 3 }" when="!$url.feed"></sn-resource>
     <ul data-sn-let="{ list: $url.feed ? mine : all }"><template data-sn-for="p in list"><li data-sn-text="p.name"></li></template></ul>`;
   const { root, settle } = await render(page, { requests: mockRequests({ 'GET /api/all?page=1&limit=3': rows(2) }), css: CSS });
   expect(held(root)).not.toBeNull();
@@ -87,7 +87,7 @@ test('a list chosen by the URL (a data-sn-let over two resources): held for the 
 
 test('a "Loading…" branch right before the list takes the placeholder\'s place; another one beside it leaves none', () => {
   const opts = { file: '/app/index.html', root: '/app', dev: false, readFile: () => '', moduleSrc: '/page.js', helpers: { module: null, names: [], namespaces: {} }, prerender: true, styles: [{ file: 'a.css', css: CSS + ' .ld { margin: 4px 0 }' }], paintCss: '/p.css' };
-  const list = '<sn-resource name="people" src="/api/people" items="people" key="id" paginate="{ numbered: true, size: 3 }"></sn-resource>';
+  const list = '<sn-resource name="people" src="/api/people" select="people" key="id" paginate="{ numbered: true, size: 3 }"></sn-resource>';
   const loading = '<template data-sn-if="$meta.people.loading && !people.length"><p class="ld">Loading…</p></template>';
   const tpl = '<template data-sn-for="p in people"><li data-sn-text="p.name"></li></template>';
   const out = compile(`<!doctype html><html><head></head><body>${list}<ul>${loading}${tpl}</ul></body></html>`, opts);
@@ -120,7 +120,7 @@ test('the build: the placeholder\'s rule in the page\'s first-paint stylesheet, 
 
 test('what follows a box whose width follows its content stays hidden while the list\'s first rows load (builds)', () => {
   const css = '.row { display: flex; flex-wrap: wrap }';
-  const page = (box = '') => `<sn-resource name="people" src="/api/people" items="people" key="id"></sn-resource>
+  const page = (box = '') => `<sn-resource name="people" src="/api/people" select="people" key="id"></sn-resource>
     <div class="row"><div class="feed"${box}><template data-sn-for="p in people"><p class="card" data-sn-text="p.name"></p></template></div><aside>tags</aside></div>`;
   const opts = { file: '/app/index.html', root: '/app', dev: false, readFile: () => '', moduleSrc: '/page.js', helpers: { module: null, names: [], namespaces: {} }, prerender: true, styles: [{ file: 'a.css', css }], paintCss: '/p.css' };
   const out = compile(page(), opts);
@@ -148,7 +148,7 @@ test('what follows a box whose width follows its content stays hidden while the 
 test('what follows the box is hidden only at the widths where its width follows its content', () => {
   // a grid system: below 768 px the column is a flex item with no basis, from 768 px it has one
   const css = '.row { display: flex; flex-wrap: wrap } @media (min-width: 768px) { .col-9 { flex: 0 0 75%; max-width: 75% } }';
-  const out = compile(`<sn-resource name="people" src="/api/people" items="people" key="id"></sn-resource>
+  const out = compile(`<sn-resource name="people" src="/api/people" select="people" key="id"></sn-resource>
     <div class="row"><div class="col-9"><template data-sn-for="p in people"><p data-sn-text="p.name"></p></template></div><div class="col-3">tags</div></div>`, {
     file: '/app/index.html', root: '/app', dev: false, readFile: () => '', moduleSrc: '/page.js', helpers: { module: null, names: [], namespaces: {} }, prerender: true, styles: [{ file: 'a.css', css }], paintCss: '/p.css',
   });
@@ -161,8 +161,8 @@ test('a choice between resources: the marker shows on the first load of those th
   // mount, so it never shows the marker; the articles' first load does
   const css = '.row { display: flex; flex-wrap: wrap }';
   const out = compile(`<sn-resource name="user" src="/api/user"></sn-resource>
-    <sn-resource name="articles" src="/api/articles" items="articles" when="$url.feed != 'mine'"></sn-resource>
-    <sn-resource name="feed" src="/api/feed" items="articles" when="$url.feed == 'mine' && user"></sn-resource>
+    <sn-resource name="articles" src="/api/articles" select="articles" when="$url.feed != 'mine'"></sn-resource>
+    <sn-resource name="feed" src="/api/feed" select="articles" when="$url.feed == 'mine' && user"></sn-resource>
     <div class="row"><div class="feed" data-sn-let="{ list: $url.feed == 'mine' ? feed : articles }"><template data-sn-for="a in list"><p data-sn-text="a.title"></p></template></div><aside>tags</aside></div>`, {
     file: '/app/index.html', root: '/app', dev: false, readFile: () => '', moduleSrc: '/page.js', helpers: { module: null, names: [], namespaces: {} }, prerender: true, styles: [{ file: 'a.css', css }], paintCss: '/p.css',
   });
@@ -174,7 +174,7 @@ test('a choice between resources: the marker shows on the first load of those th
 test('SN529: a list over late data in a flex item whose width follows its content', async () => {
   const css = '.row { display: flex; flex-wrap: wrap }';
   // `data-sn-wait="off"`: what follows the box is not hidden while the rows load, and the build says why it moves
-  const page = (resource = '') => `<sn-resource name="people" src="/api/people" items="people" key="id" ${resource}></sn-resource>
+  const page = (resource = '') => `<sn-resource name="people" src="/api/people" select="people" key="id" ${resource}></sn-resource>
     <div class="row"><div class="feed" data-sn-wait="off"><template data-sn-for="p in people"><p class="card" data-sn-text="p.name"></p></template></div><aside>tags</aside></div>`;
   const opts = { file: '/app/index.html', root: '/app', dev: false, readFile: () => '', moduleSrc: '/page.js', helpers: { module: null, names: [], namespaces: {} }, prerender: true, styles: [{ file: 'a.css', css }], paintCss: '/p.css' };
   const off = compile(page(), opts);
@@ -221,7 +221,7 @@ test('SN530 suggests the fix for that image: its size from the API, the attribut
 
 test('indicators anywhere on the page: a `data-sn-show` or a branch elsewhere over the same status leaves the list without space; ones that never show while loading do not', () => {
   const opts = { file: '/app/index.html', root: '/app', dev: false, readFile: () => '', moduleSrc: '/page.js', helpers: { module: null, names: [], namespaces: {} }, prerender: true, styles: [{ file: 'a.css', css: CSS }], paintCss: '/p.css' };
-  const list = '<sn-resource name="people" src="/api/people" items="people" key="id" paginate="{ numbered: true, size: 3 }"></sn-resource>';
+  const list = '<sn-resource name="people" src="/api/people" select="people" key="id" paginate="{ numbered: true, size: 3 }"></sn-resource>';
   const tpl = '<ul><template data-sn-for="p in people"><li data-sn-text="p.name"></li></template></ul>';
   const page = (other: string) => compile(`<!doctype html><html><head></head><body>${list}${other}${tpl}</body></html>`, opts);
   expect(page('<p data-sn-show="$meta.people.loading">Loading…</p>').html).not.toContain('sn-reserve');
@@ -235,7 +235,7 @@ test('indicators anywhere on the page: a `data-sn-show` or a branch elsewhere ov
 
 test('a `src` that reads another resource: its load may not start at mount, no space and a note', () => {
   const page = `<sn-resource name="me" src="/api/me"></sn-resource>
-    <sn-resource name="people" src="/api/people/{me.id}" items="people" key="id" paginate="{ numbered: true, size: 3 }"></sn-resource>
+    <sn-resource name="people" src="/api/people/{me.id}" select="people" key="id" paginate="{ numbered: true, size: 3 }"></sn-resource>
     <ul><template data-sn-for="p in people"><li data-sn-text="p.name"></li></template></ul>`;
   const out = compile(`<!doctype html><html><head></head><body>${page}</body></html>`, { file: '/app/index.html', root: '/app', dev: false, readFile: () => '', moduleSrc: '/page.js', helpers: { module: null, names: [], namespaces: {} }, prerender: true, styles: [{ file: 'a.css', css: CSS }], paintCss: '/p.css' });
   expect(out.html).not.toContain('sn-reserve');
@@ -267,7 +267,7 @@ test('rows a component\'s own `<style>` reaches: no space (the build reads the p
 
 test('SN529 in dev as in a build: the plan is the same, only the placeholder is the build\'s', () => {
   const css = '.row { display: flex; flex-wrap: wrap } .card { width: 280px; height: 40px; margin: 0 }';
-  const page = `<!doctype html><html><head></head><body><sn-resource name="people" src="/api/people" items="people" key="id" paginate="{ numbered: true, size: 4 }"></sn-resource>
+  const page = `<!doctype html><html><head></head><body><sn-resource name="people" src="/api/people" select="people" key="id" paginate="{ numbered: true, size: 4 }"></sn-resource>
     <div class="row"><div class="feed"><template data-sn-for="p in people"><p class="card" data-sn-text="p.name"></p></template></div><aside>tags</aside></div></body></html>`;
   const opts = { file: '/app/index.html', root: '/app', readFile: () => '', moduleSrc: '/page.js', helpers: { module: null, names: [], namespaces: {} }, prerender: true, styles: [{ file: 'a.css', css }] };
   const dev = compile(page, { ...opts, dev: true }), build = compile(page, { ...opts, dev: false, paintCss: '/p.css' });

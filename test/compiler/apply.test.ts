@@ -20,9 +20,9 @@ const SPEC = { file: '/p/openapi.json', doc: {
 } };
 const opts = (openapi = true): CompileOptions => ({ file: '/p/page.html', root: '/p', dev: false, readFile: () => '', helpers: { module: null, names: [], namespaces: {} }, actions: { module: '/p/a.js', names: ['x'], namespaces: {} }, ...(openapi ? { openapi: [SPEC] } : {}) });
 const page = (body: string) => `<!doctype html><html><head></head><body data-sn-state="{ feedOn: false }">
-  <sn-resource name="articles" src="/api/articles" items="articles" key="slug"></sn-resource>
-  <sn-resource name="feed" src="/api/articles/feed" items="articles" key="slug"></sn-resource>
-  <sn-resource name="article" src="/api/articles/x" items="article"></sn-resource>
+  <sn-resource name="articles" src="/api/articles" select="articles" key="slug"></sn-resource>
+  <sn-resource name="feed" src="/api/articles/feed" select="articles" key="slug"></sn-resource>
+  <sn-resource name="article" src="/api/articles/x" select="article"></sn-resource>
   <p data-sn-text="articles.length + feed.length + article.title"></p>${body}</body></html>`;
 
 test('schema names: a `$ref`, an inline copy, and an inline projection of a component all name it', () => {
@@ -69,7 +69,7 @@ test('SN510 names each redundant write: patch by key or provenance, upsert on th
     </template>
     <button data-sn-post="/api/profiles/{article.author.username}/follow" data-sn-then="merge(article, {author: $result.profile})">follow</button>
     <div data-sn-state="{ slug: 'x' }">
-      <sn-resource name="comments" src="/api/articles/{slug}/comments" items="comments" key="id"></sn-resource>
+      <sn-resource name="comments" src="/api/articles/{slug}/comments" select="comments" key="id"></sn-resource>
       <p data-sn-text="comments.length"></p>
       <form data-sn-post="/api/articles/{slug}/comments" data-sn-then="upsert(comments, $result.comment); slug = slug"></form>
       <form data-sn-post="/api/articles/{slug}/comments" data-sn-then="upsert(articles, $result.comment)"></form>

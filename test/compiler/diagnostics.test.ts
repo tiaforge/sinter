@@ -101,7 +101,7 @@ const cases: Array<[string, string, RegExp, Opts?]> = [
   ['SN209', `${R}${use}<sn-resource name="contacts" src="/x" key="id"></sn-resource>`, /resource `contacts` is declared twice/],
   ['SN303', `${R}${use}<p data-sn-text="$meta.contacts.loadng"></p>`, /`\$meta.contacts.loadng` is not a status field. Did you mean `loading`\?/],
   ['SN304', `${R}${use}<button data-sn-on-click="page(messages, 7)"></button>`, /keyset pagination cannot jump to a page number/],
-  ['SN308', '<sn-resource name="c" src="/api/c" items="contcts"></sn-resource><p data-sn-text="c"></p>', /the response of `GET \/api\/c` has no `contcts`. Did you mean `contacts`\?/, { openapi: true }],
+  ['SN308', '<sn-resource name="c" src="/api/c" select="contcts"></sn-resource><p data-sn-text="c"></p>', /the response of `GET \/api\/c` has no `contcts`. Did you mean `contacts`\?/, { openapi: true }],
   ['SN306', '<x-a></x-a>', /`<x-a>` → `<x-b>` → `<x-a>` uses itself with no `data-sn-for` or `data-sn-if` template between/],
   ['SN309', '<dialog id="compose"></dialog><button data-sn-on-click="openDialog(\'compse\')"></button>', /no `<dialog id="compse">` on this page. Did you mean `compose`\?/],
   ['SN310', '<button data-sn-call="archive(1)"></button>', /`archive` is not exported by the actions module/],
@@ -140,12 +140,12 @@ const cases: Array<[string, string, RegExp, Opts?]> = [
   ['SN531', '<div data-sn-state="{ u: \'a\' }"><button data-sn-post="/api/login" data-sn-body="JSON.stringify({ username: u })"></button></div>', /`data-sn-body` is already JSON text \(`JSON\.stringify\(…\)`\): sinter encodes the body, so the server would get a JSON string, not the object/],
   ['SN509', `<button id="save" data-sn-post="/x" data-sn-catch="run('save')"></button>`, /`run\(\)` cycle: `#save` `data-sn-catch` \(page.html:1\) runs `#save`, which starts the first step again/],
   ['SN513', '<div data-sn-state="{ dark: false }"><img alt="" data-sn-attr="{src: dark ? \'./logo-dark.png\' : \'./logo.png\'}"></div>', /`src` is bound to local images \(`\.\/logo-dark\.png`, `\.\/logo\.png`\), which are not optimized/],
-  ['SN517', '<sn-resource name="c" src="/api/c" items="contacts"></sn-resource><p data-sn-text="c"></p>', /`GET \/api\/c` returns a list at `contacts`: resource `c` has no `key`, so it is one object holding the list/, { openapi: true }],
-  ['SN516', '<sn-resource name="c" src="/api/c" items="contacts"></sn-resource><p data-sn-text="$meta.c.live"></p>', /`\$meta\.c\.live` is always `null`: no `<sn-event resource="c">` on this page feeds `c`/],
-  ['SN519', '<sn-resource name="a" src="/api/a?tag={$url.tag}" items="a" key="id" paginate="{ numbered: true, size: 2, model: $url.page }"></sn-resource><p data-sn-text="a.length"></p><a href="?page=2">2</a>', /`\?page=2` keeps only its own query: `tag`, which this page reads, is dropped when it is followed/],
+  ['SN517', '<sn-resource name="c" src="/api/c" select="contacts"></sn-resource><p data-sn-text="c"></p>', /`GET \/api\/c` returns a list at `contacts`: resource `c` has no `key`, so it is one object holding the list/, { openapi: true }],
+  ['SN516', '<sn-resource name="c" src="/api/c" select="contacts"></sn-resource><p data-sn-text="$meta.c.live"></p>', /`\$meta\.c\.live` is always `null`: no `<sn-event resource="c">` on this page feeds `c`/],
+  ['SN519', '<sn-resource name="a" src="/api/a?tag={$url.tag}" select="a" key="id" paginate="{ numbered: true, size: 2, model: $url.page }"></sn-resource><p data-sn-text="a.length"></p><a href="?page=2">2</a>', /`\?page=2` keeps only its own query: `tag`, which this page reads, is dropped when it is followed/],
   ['SN515', '<!doctype html><html data-sn-path="/page/"><head></head><body></body></html>', /`data-sn-path="\/page\/"` is the URL this page has anyway/],
-  ['SN505', '<sn-resource name="c" src="/api/c?qq=1" items="contacts"></sn-resource><p data-sn-text="c"></p>', /`GET \/api\/c` declares no query parameter `qq`. Did you mean `q`\?/, { openapi: true }],
-  ['SN510', `<sn-resource name="c" src="/api/c" items="contacts" key="id"></sn-resource><template data-sn-for="x in c"><button data-sn-post="/api/c/{x.id}/star" data-sn-then="merge(x, $result.contact)"></button></template>`,
+  ['SN505', '<sn-resource name="c" src="/api/c?qq=1" select="contacts"></sn-resource><p data-sn-text="c"></p>', /`GET \/api\/c` declares no query parameter `qq`. Did you mean `q`\?/, { openapi: true }],
+  ['SN510', `<sn-resource name="c" src="/api/c" select="contacts" key="id"></sn-resource><template data-sn-for="x in c"><button data-sn-post="/api/c/{x.id}/star" data-sn-then="merge(x, $result.contact)"></button></template>`,
     /`merge\(x, \$result\.contact\)` is what write-through does: the response of `POST \/api\/c\/\{id\}\/star` is `Contact`, which `c` holds; remove this write, or add `data-sn-write-through="off"` to keep it/, { openapi: true }],
 ];
 
@@ -282,6 +282,21 @@ describe('resource references: resources, ?:, ||, ?? and lets that are one', () 
     expect(text(`$meta[s ? jumps : messages].page`)).toEqual(['SN303 `$meta.messages.page` exists only on a numbered list (`paginate="{ numbered: true, … }"`), or a keyset list with `jump: true`']);
     // other computed keys: accepted, unchecked
     expect(text(`$meta[tab].hasNxt`)).toEqual([]);
+  });
+
+  test('one mistake in a $meta chain, one diagnostic, however long the chain', () => {
+    const text = (x: string) => msgs(`<p data-sn-text="${x}"></p><p data-sn-text="other.length"></p>`).filter((m) => !m.startsWith('SN501'));
+    const named = 'SN301 `$meta[…]` takes the resource, not its name: `$meta[s ? \'messages\' : \'other\']` is `$meta[s ? messages : other]`';
+    expect(text(`$meta[s ? 'messages' : 'other'].loading`)).toEqual([named]);
+    expect(text(`$meta[s ? 'messages' : 'other']?.loading.x`)).toEqual([named]);
+    expect(text(`$meta[s ? mesages : other].loading.x`)).toEqual(['SN301 resource `mesages` is not declared on this page. Did you mean `messages`?']);
+    expect(text(`$meta.other.loadng.toString()`)).toEqual(['SN303 `$meta.other.loadng` is not a status field. Did you mean `loading`?']);
+    expect(text(`$meta.other.pending.x.y`)).toEqual(['SN303 `$meta.other.pending` is gone: an element shows its own request with `aria-busy` (`[aria-busy=true]` in CSS), optimistic or not']);
+    expect(text(`$meta.other.live.x`)).toEqual(['SN516 `$meta.other.live` is always `null`: no `<sn-event resource="other">` on this page feeds `other`']);
+    expect(text(`$meta[s ? other : messages].loadng.x`)).toEqual([
+      'SN303 `$meta.other.loadng` is not a status field. Did you mean `loading`?',
+      'SN303 `$meta.messages.loadng` is not a status field. Did you mean `loading`?',
+    ]);
   });
 
   test('dependencies: a listable $meta key reads only those resources\' status', () => {
@@ -682,7 +697,7 @@ describe('SN507 complex expressions', () => {
 });
 
 describe('SN516: $meta.<resource>.live of a resource no stream feeds', () => {
-  const R = '<sn-resource name="c" src="/api/c" items="contacts" key="id"></sn-resource>';
+  const R = '<sn-resource name="c" src="/api/c" select="contacts" key="id"></sn-resource>';
   const badge = '<p data-sn-text="$meta.c.live"></p>';
   const sync = '<sn-sync src="/api/events"><sn-event name="x" resource="c" op="refresh"></sn-event></sn-sync>';
   const codes = (html: string) => diags(html).map((d) => d.code);

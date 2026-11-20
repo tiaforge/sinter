@@ -2,7 +2,7 @@
 <html>
 <head><title>Components</title></head>
 <body>
-<sn-resource name="articles" src="/api/articles" items="articles" key="slug"></sn-resource>
+<sn-resource name="articles" src="/api/articles" select="articles" key="slug"></sn-resource>
 <sn-sync src="/api/events"><sn-event name="article_changed" resource="articles" op="refresh"></sn-event></sn-sync>
 <main data-sn-state="{ narrow: false, sel: null }">
   <template data-sn-for="a in articles">
