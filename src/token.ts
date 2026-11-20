@@ -47,6 +47,20 @@ const hooks: TokenHooks = {
     return !!t && read(t, env) == null && needs(t, 'GET', pathOf(a, url, env.href()));
   },
   mine: (url, env) => !!apiFor(url, env.href())?.t,
+  skip(l, req, m) {
+    const d = l.def, r = l.res, env = l.app.env;
+    if (d.call || d.body != null || !hooks.out(req, env)) return false;
+    if (!l.pager?.appends(m)) r.replace(r.isCollection ? [] : null);
+    r.setTotal(null);
+    l.pager?.received([], null, m);
+    r.meta.error = null;
+    r.meta.loadedAt = new Date(env.now());
+    l.loading(false);
+    r.onDirty('meta');
+    l.done(r.value());
+    l.settle(true);
+    return true;
+  },
   async send(a, method, url, headers, go, env) {
     const t = a.t!, path = pathOf(a, url, env.href()), need = needs(t, method, path), v = read(t, env);
     // signed out: a GET that needs the token is not sent (its resource reads as signed out)

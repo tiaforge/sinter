@@ -3,7 +3,7 @@
 // closure so private state minifies to short local names.
 import type { ActionDef, Binding, Fn, IR, NodeDef, PathRef, ResourceDef, TemplateDef, UrlTemplate } from '../ir.js';
 import { decode, level as reachLevel, passes, type Reach } from '../paths.js';
-import { config, clearStored, SinterError, type Middleware } from './config.js';
+import { config, SinterError, type Middleware } from './config.js';
 import { envOf, type Env } from './env.js';
 import { prefetched } from './handoff.js';
 import { createRequestLayer, isAbort, readBody, toError, tokens, type RequestLayer, type SendInit } from './request.js';
@@ -500,7 +500,7 @@ export function navigate(url: string, o?: { replace?: boolean }): void {
 export function signOut(): void {
   const app = instances.get(document);
   if (app) app.storeFns(null).signOut();
-  else tokens.on ? tokens.on.signOut(envOf(config)) : clearStored();
+  else tokens.on?.signOut(envOf(config));
 }
 
 /** The instance mount() created on `root`; throws if none. */
@@ -879,7 +879,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
         else app.env.navigate(to);
       },
       // every API's token goes (src/token.ts), with what the page kept; the resources of those APIs load again: signed out
-      signOut: () => { tokens.on ? tokens.on.signOut(env, app) : clearStored(); },
+      signOut: () => tokens.on?.signOut(env, app),
       // the element's action, as if its trigger fired (a form is submitted); disabled or inert: nothing
       run: (id: string) => {
         const t = F.ACTION ? byId(id) : undefined, h = t && handlersOf(t as Tagged), rb = h && (Array.isArray(h) ? h : [h]).find((x) => x.b.x != null);
@@ -1901,18 +1901,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
         const req = withParams(url, m ? l.pager!.params(m) : null);
         // signed out (src/token.ts): a request that needs the API's token, and none is stored, is not sent; the resource
         // is loaded, empty, now (the early script's first paint says the same)
-        const out = () => {
-          if (!tokens.on || def.call || def.body != null || !tokens.on.out(req, env)) return false;
-          c = null;
-          fill(r.isCollection ? [] : null, null, m);
-          r.meta.error = null;
-          r.meta.loadedAt = new Date(env.now());
-          loading(false);
-          r.onDirty('meta');
-          l.done(r.value());
-          l.settle(true);
-          return true;
-        };
+        const out = () => !!tokens.on?.skip(l, req, m) && !(c = null);
         if (out()) return;
         const mark = r.startLoad();
         let loaded = false, ok = false, v;

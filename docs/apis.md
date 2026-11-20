@@ -184,7 +184,7 @@ What happens:
   reads as signed out; one that does not is sent again without it (the anonymous answer). An action's 401 that
   nothing shows (no `data-sn-catch`, a form that does not read `$error`) goes to `signIn`.
 - **`signOut()`.** The store function (and the export, for app code) removes every API's token with what sinter
-  stored, and the page's resources of those APIs load again, signed out. `data-sn-on-click="signOut(); navigate('/')"`.
+  stored, and the page's resources of those APIs load again, signed out (in an app without a token it does nothing). `data-sn-on-click="signOut(); navigate('/')"`.
 
 A middleware that only reads responses keeps the early requests: RealWorld's turns any 4xx from `GET /user` into a 401
 (the suite signs out on those), and the request the early file sent is still the one the page sends. One that changes

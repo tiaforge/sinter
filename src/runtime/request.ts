@@ -3,7 +3,7 @@
 // is sent again unless a retry policy says so (`configure({ retry })`, the retry module).
 import { apiFor, clearCached, clearPrefetched, config, PREFETCH_MARK, SinterError, type ApiSettings, type Middleware } from './config.js';
 import type { Env } from './env.js';
-import type { App } from './app.js';
+import type { App, ResourceLoader } from './app.js';
 import { prefetched } from './handoff.js';
 
 export const TIMEOUT = 30_000;
@@ -57,6 +57,8 @@ export interface RequestLayer {
 export interface TokenHooks {
   /** whether a GET of this URL needs a token that is not stored: not sent, the resource reads as signed out */
   out(url: string, env: Env): boolean;
+  /** signed out: a load of `l` (its request `req`, page `m`) that needs the token is not sent, and the resource is loaded, empty, now (true) */
+  skip(l: ResourceLoader, req: string, m: unknown): boolean;
   /** whether the URL goes to an API with a token */
   mine(url: string, env: Env): boolean;
   /** sends a request of API `a` (`go`, the whole chain) with its token in `headers`, and reads what the response says of it */
