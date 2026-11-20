@@ -16,7 +16,8 @@ export const isFileSource = (value: string | undefined) => value != null && /^fi
 /** the attributes a `file:` resource takes: the others load, refresh, page or write it */
 export const FILE_ATTRS = ['name', 'src', 'type', 'items', 'key', 'order', 'drafts', 'fields'];
 
-const ATTR_LIST = '`name`, `src`, `type`, `items`, `key`, `order`, `drafts` and `fields`';
+/** `a`, `b` and `c` */
+const listOf = (names: string[]) => names.map((x) => `\`${x}\``).join(', ').replace(/, ([^,]*)$/, ' and $1');
 
 /** the attributes only a build-time source (`file:`, `content:`) has: on a fetched resource they would do nothing (SN332) */
 export const BUILD_TIME_ATTRS = ['drafts', 'fields'];
@@ -25,8 +26,8 @@ export const BUILD_TIME_ATTRS = ['drafts', 'fields'];
 export const buildTimeAttrProblem = (name: string) =>
   `\`${name}\` is an attribute of a build-time source (\`src="file:…"\` or \`src="content:…"\`), read when the site is built; this resource is fetched, so \`${name}\` would do nothing`;
 
-/** Why an attribute of `<sn-resource>` does not apply to a `file:` resource. */
-export function fileAttrProblem(name: string): string {
+/** Why an attribute of `<sn-resource>` does not apply to a `file:` resource (or, with `takes`, a source that takes those). */
+export function fileAttrProblem(name: string, takes = FILE_ATTRS): string {
   const what: Record<string, string> = {
     refresh: 'reloads', cache: 'caches responses', paginate: 'loads pages', each: 'sends a request per item', call: 'runs an action function',
     when: 'decides when to load', then: 'runs after a load', early: 'decides how it is requested', method: 'sends a request', body: 'sends a request body',
@@ -34,8 +35,8 @@ export function fileAttrProblem(name: string): string {
   };
   const why = what[name] ?? (/^(page-size|size-param|cursor|direction-param|direction-values|page-param|offset-param|page-model)$/.test(name) ? 'pages a list' : null);
   return why
-    ? `\`${name}\` ${why}, and a \`file:\` resource is a constant: it is read at build time and never loads or changes; it takes only \`name\`, \`type\`, \`items\` and \`key\``
-    : `\`${name}\` is not an attribute of a \`file:\` resource, which takes only \`name\`, \`type\`, \`items\` and \`key\``;
+    ? `\`${name}\` ${why}, and a \`file:\` resource is a constant: it is read at build time and never loads or changes; it takes only ${listOf(takes)}`
+    : `\`${name}\` is not an attribute of a \`file:\` resource, which takes only ${listOf(takes)}`;
 }
 
 /** the built-in name of the content module's collections in `src` (`content:posts`), and so a reserved API name */

@@ -6387,7 +6387,7 @@ class Compiler {
     for (const a of el.attrs) if (!FILE_ATTRS.includes(a.name) || a.name === 'drafts' || a.name === 'items') {
       const why = a.name === 'drafts' ? '`drafts` is a `file:` glob\'s; a collection leaves its drafts out in its loader (`ctx.files(glob, { drafts })`, `ctx.command`)'
         : a.name === 'items' ? '`items` picks a list out of a value; a collection is a list already'
-        : fileAttrProblem(a.name).replace(/a `file:` resource/g, 'a `content:` resource');
+        : fileAttrProblem(a.name, FILE_ATTRS.filter((x) => x !== 'drafts' && x !== 'items')).replace(/a `file:` resource/g, 'a `content:` resource');
       this.report(el, a.name, RESOURCE_ATTRS.includes(a.name) || a.name === 'drafts' || a.name === 'items' ? 'SN332' : 'SN101', why, 0);
     }
     const src = attr(el, 'src')!.trim(), cname = src.slice('content:'.length), at = attr(el, 'src')!.indexOf(cname);

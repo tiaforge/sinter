@@ -60,6 +60,7 @@ A smaller vocabulary, one word per concept ([docs/proposals/vocabulary.md](docs/
 
 ### Fixed
 
+- The message for an attribute a `file:` or `content:` resource does not take lists what it takes: it said only `name`, `type`, `items` and `key`, leaving out `src`, `order`, `drafts` and `fields` (and a collection takes neither `drafts` nor `items`).
 - A build-time source's attributes on a fetched resource are one rule: `fields` and `drafts` on `<sn-resource src="/api/…">` are `SN332`, saying they are for `file:` and `content:` sources (`fields` was `SN101` "not an attribute", and `drafts` was accepted and did nothing). `fields` is in the vocabulary, so editors complete it.
 - One mistake in a `$meta` chain is one diagnostic: `$meta[s ? 'people' : 'other'].loading` reported its `SN301` three times, and a bad field followed by more members (`$meta.people.loadng.toString()`, `$meta.people.live.x`) its `SN303` or `SN516` once per member.
 - `data-sn-write-through` on a component's tag was refused (`SN102`) since its rename from `data-sn-apply`; a test now checks that every caller attribute of the vocabulary is allowed there.

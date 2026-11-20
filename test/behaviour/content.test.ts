@@ -39,6 +39,8 @@ describe('content: resources', () => {
     expect(one('drafts="draft"')).toEqual([expect.stringMatching(/^SN332 `drafts` is a `file:` glob's; a collection leaves its drafts out in its loader/)]);
     expect(one('items="x"')).toEqual([expect.stringMatching(/^SN332 `items` picks a list out of a value; a collection is a list already/)]);
     expect(one('refresh="30s"')).toEqual([expect.stringMatching(/^SN332 `refresh` reloads, and a `content:` resource is a constant/)]);
+    // the attributes it takes, without the two a `file:` resource has and a collection does not
+    expect(one('sort="x"')).toEqual(['SN101 `sort` is not an attribute of a `content:` resource, which takes only `name`, `src`, `type`, `key`, `order` and `fields`']);
   });
 
   test('a page per entry of a collection', () => {

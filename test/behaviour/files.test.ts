@@ -98,6 +98,12 @@ describe('a file: resource', () => {
     expect(errors(build('<sn-resource name="r" src="/api/r"></sn-resource><sn-sync src="file:./s"><sn-event name="x" resource="r" op="refresh"></sn-event></sn-sync><p data-sn-text="r"></p>'))).toEqual([expect.stringMatching(/^SN332 .*A stream sends a request/)]);
   });
 
+  test('the attributes a file: resource takes are named in full when one is refused', () => {
+    const all = '`name`, `src`, `type`, `items`, `key`, `order`, `drafts` and `fields`';
+    expect(errors(build('<sn-resource name="r" src="file:./post.txt" refresh="30s"></sn-resource><p data-sn-text="r"></p>'))).toEqual([`SN332 \`refresh\` reloads, and a \`file:\` resource is a constant: it is read at build time and never loads or changes; it takes only ${all}`]);
+    expect(errors(build('<sn-resource name="r" src="file:./post.txt" sort="x"></sn-resource><p data-sn-text="r"></p>'))).toEqual([`SN101 \`sort\` is not an attribute of a \`file:\` resource, which takes only ${all}`]);
+  });
+
   test('SN332: a build-time source\'s attributes (`fields`, `drafts`) on a fetched resource, one rule for both', () => {
     const fetched = (a: string) => errors(build(`<sn-resource name="r" src="/api/r" key="id" ${a}></sn-resource><p data-sn-text="r.length"></p>`));
     for (const a of ['fields', 'drafts']) {
