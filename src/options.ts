@@ -87,7 +87,7 @@ const feature: Feature = {
         pick.click();
       } else if (key == 'Escape') {
         mark(owner, all, null);
-        const kept = !owner.dispatchEvent(new CustomEvent('dismiss', { bubbles: true, cancelable: true }));
+        const kept = !owner.dispatchEvent(new CustomEvent('sn-dismiss', { bubbles: true, cancelable: true }));
         // Escape is the list's when it closes something: a text field's suggestions, a mark, or a
         // `dismiss` handler that calls `$event.preventDefault()`; otherwise it goes on (a dialog closes)
         if (text || at >= 0 || kept) e.preventDefault();

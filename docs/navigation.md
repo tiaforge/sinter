@@ -275,7 +275,7 @@ be `<html>`, `<head>`, `<body>` or in the head (`SN346`).
 
 ## Refusing a navigation
 
-`data-sn-on-navigate` runs before any navigation away from the page while its element is on it (a link,
+`data-sn-on-sn-navigate` runs before any navigation away from the page while its element is on it (a link,
 one to another site or with `rel="external"` too, `navigate()`, Back where the browser can still refuse
 it), and `$event.preventDefault()` refuses it.
 `$event` has `to`, `from`, `kind` (`push`, `replace`, `traverse`) and `trigger` (the link or the element
@@ -283,7 +283,7 @@ whose handler called `navigate()`):
 
 ```html
 <form data-sn-state="{ dirty: false }" data-sn-on-input="dirty = true"
-      data-sn-on-navigate="dirty && $event.preventDefault()">
+      data-sn-on-sn-navigate="dirty && $event.preventDefault()">
   <p data-sn-show="dirty">Save or discard your changes before you leave.</p>
 ```
 

@@ -74,7 +74,7 @@ describe('the merge', () => {
   });
 
   test('a layout\'s tag takes handlers for DOM events, sn-error and dismiss: anything else is SN315', () => {
-    expect(errors(run('<site-layout data-sn-with="{ nav: \'x\' }" data-sn-on-click="1" data-sn-on-dismiss="1"><p>x</p></site-layout>'))).toEqual([]);
+    expect(errors(run('<site-layout data-sn-with="{ nav: \'x\' }" data-sn-on-click="1" data-sn-on-sn-dismiss="1"><p>x</p></site-layout>'))).toEqual([]);
     expect(errors(run('<site-layout data-sn-with="{ nav: \'x\' }" data-sn-on-sn-eror="1"><p>x</p></site-layout>'))).toEqual([expect.stringMatching(/^SN315 `sn-eror` is not an event the page's `<body>` hears: .*Did you mean `sn-error`\?/)]);
     expect(errors(run('<site-layout data-sn-with="{ nav: \'x\' }" data-sn-on-pick="1"><p>x</p></site-layout>'))).toEqual([expect.stringMatching(/^SN315 `pick` is not an event/)]);
     // a benchmark agent sent its own events from a component to the layout's tag: the hint names the way a component tells the page

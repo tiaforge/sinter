@@ -65,7 +65,7 @@ test('$error.detail: the server\'s words or a thrown message, else null', async 
 test('data-sn-options on a text field: arrows mark an option, Enter and Tab pick it, Escape dismisses', async () => {
   const { root, flush } = await render(`
     <div data-sn-state="{ q: '', open: true, picked: '' }" data-sn-let="{ hits: ['ab', 'ac', 'ad'].filter(w => w.startsWith(q)) }">
-      <input data-sn-model="q" data-sn-options="hits" data-sn-on-dismiss="open = false">
+      <input data-sn-model="q" data-sn-options="hits" data-sn-on-sn-dismiss="open = false">
       <ul id="hits" role="listbox" data-sn-show="open && hits.length">
         <template data-sn-for="w in hits" data-sn-key="w"><li role="option" data-sn-on-click="picked = w; q = ''" data-sn-text="w"></li></template>
       </ul>
@@ -99,9 +99,9 @@ test('data-sn-options on a text field: arrows mark an option, Enter and Tab pick
 
 test('dismiss bubbles to a form handler and is cancelable: an input can keep it', async () => {
   const { root, flush } = await render(`
-    <form data-sn-state="{ log: '' }" data-sn-on-dismiss="log += 'form;'">
+    <form data-sn-state="{ log: '' }" data-sn-on-sn-dismiss="log += 'form;'">
       <input class="a" data-sn-options="opts">
-      <input class="b" data-sn-options="opts" data-sn-on-dismiss="log += 'b;'; $event.preventDefault()">
+      <input class="b" data-sn-options="opts" data-sn-on-sn-dismiss="log += 'b;'; $event.preventDefault()">
       <ul id="opts" role="listbox"><li role="option">x</li></ul>
       <b data-sn-text="log"></b>
     </form>`);
@@ -151,7 +151,7 @@ test('data-sn-options on a text field: aria-activedescendant follows the mark, o
 test('data-sn-options on a menu: it takes the focus, arrows, Home and End mark, Enter and Space click, the mark stays', async () => {
   const { root, flush } = await render(`
     <div data-sn-state="{ log: '' }">
-      <ul role="menu" data-sn-options data-sn-on-dismiss="log += 'x'">
+      <ul role="menu" data-sn-options data-sn-on-sn-dismiss="log += 'x'">
         <template data-sn-for="c in ['cut', 'copy', 'paste']" data-sn-key="c"><li role="menuitem" data-sn-on-click="log += c[0]" data-sn-text="c"></li></template>
         <li role="menuitem" aria-disabled="true">off</li>
       </ul>
@@ -183,7 +183,7 @@ test('data-sn-options on a menu: it takes the focus, arrows, Home and End mark, 
 
 test('data-sn-options: Escape on a list with nothing to close goes on, so a dialog around it closes', async () => {
   const { root } = await render(`<dialog><ul role="menu" data-sn-options><li role="menuitem">a</li></ul>
-    <ul class="kept" role="menu" data-sn-options data-sn-on-dismiss="$event.preventDefault()"><li role="menuitem">b</li></ul></dialog>`);
+    <ul class="kept" role="menu" data-sn-options data-sn-on-sn-dismiss="$event.preventDefault()"><li role="menuitem">b</li></ul></dialog>`);
   const esc = (sel: string) => { const e = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }); root.querySelector(sel)!.dispatchEvent(e); return e.defaultPrevented; };
   expect(esc('ul')).toBe(false);                 // nothing marked: the dialog gets the Escape
   root.querySelector('ul')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true }));

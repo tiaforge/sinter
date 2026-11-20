@@ -109,9 +109,9 @@ describe('sinter check', () => {
     one(page(`<div data-sn-state="{ q: '' }"><input data-sn-on-input="q = $el.valu"></div>`), /Did you mean 'value'\?/, 'valu');
   });
 
-  test('data-sn-on-navigate: $event is the navigation (to, from, kind, trigger)', () => {
-    one(page(`<form data-sn-state="{ n: 0 }" data-sn-on-navigate="n = $event.to; $event.kind == 'traverse' && $event.preventDefault()"></form>`), /Type 'string' is not assignable to type 'number'/, 'n = $event');
-    one(page(`<form data-sn-state="{ s: '' }" data-sn-on-navigate="s = $event.too"></form>`), /Property 'too' does not exist/, 'too');
+  test('data-sn-on-sn-navigate: $event is the navigation (to, from, kind, trigger)', () => {
+    one(page(`<form data-sn-state="{ n: 0 }" data-sn-on-sn-navigate="n = $event.to; $event.kind == 'traverse' && $event.preventDefault()"></form>`), /Type 'string' is not assignable to type 'number'/, 'n = $event');
+    one(page(`<form data-sn-state="{ s: '' }" data-sn-on-sn-navigate="s = $event.too"></form>`), /Property 'too' does not exist/, 'too');
   });
 
   test('custom elements: data-sn-with, $el and $event.detail are typed by the app\'s declarations under src/', () => {

@@ -168,13 +168,13 @@ describe('with swaps on, what each page passes does not shape a kept element (th
   });
 });
 
-test('SN209: `navigate` is sinter\'s event, so a component cannot emit one of that name', () => {
-  const files: Record<string, string> = { '/p/src/components/nav-pick.html': '<template data-sn-props="{}" data-sn-emits="{ navigate: string }"><button>x</button></template>' };
+test('SN209: `sn-…` names are sinter\'s events, so a component cannot emit one; `navigate` is the component\'s own now', () => {
+  const files: Record<string, string> = { '/p/src/components/nav-pick.html': '<template data-sn-props="{}" data-sn-emits="{ \'sn-navigate\': string }"><button>x</button></template>' };
   const out = compile('<!doctype html><html><head><title>x</title></head><body><nav-pick></nav-pick></body></html>', {
     file: '/p/a.html', root: '/p', dev: false, moduleSrc: '/m.js', helpers: { module: null, names: [], namespaces: {} },
     readFile: (p: string) => { if (p in files) return files[p]!; throw new Error('missing'); },
   });
   expect(out.diagnostics.filter((d) => d.code === 'SN209').map((d) => d.message.replace(/ \(included from .*\)$| … used at .*$/, ''))).toEqual([
-    '`navigate` is sinter\'s event (`data-sn-on-navigate` runs before every navigation): name the component\'s event otherwise, e.g. `go`',
+    "`sn-navigate`: names starting with `sn-` are sinter's events (`sn-navigate`, `sn-dismiss`, `sn-error`, `sn-page`); name the component's event otherwise",
   ]);
 });

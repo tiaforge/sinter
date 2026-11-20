@@ -67,6 +67,7 @@ const cases: Array<[string, string, RegExp, Opts?]> = [
   ['SN101', '<p data-sn-component="{}"></p>', /`data-sn-component` is renamed to `data-sn-props`/],
   ['SN101', '<sn-resource name="p" src="/api/p" key="id"></sn-resource><p data-sn-text="p.length"></p><sn-sync src="/s"><sn-event name="e" resource="p" op="upsert" value="person" fallback></sn-event></sn-sync>', /`fallback` is gone: write the refresh as a second event of the same name/],
   ['SN101', '<button data-sn-get="/api/x"></button>', /`data-sn-get` is gone: data a GET loads is a resource/],
+  ['SN101', '<form data-sn-on-dismiss="x = 1"></form>', /`data-sn-on-dismiss` is renamed to `data-sn-on-sn-dismiss`, as sinter's events are all `sn-…`/],
   ['SN101', '<li data-sn-marked></li>', /`data-sn-marked` is set by sinter \(on the option a `data-sn-options` list marks\): style it with `\[data-sn-marked\]`/],
   ['SN401', '<div data-sn-wait="on"></div>', /`data-sn-wait` takes `off`/],
   ['SN101', '<x-oldslot></x-oldslot>', /`data-sn-prop` is renamed to `data-sn-with`/],

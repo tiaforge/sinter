@@ -765,7 +765,9 @@ function onceKey(el: P5Element): { id: string; label: string } | null {
 }
 
 /** the events the runtime itself sends, which bubble up the page */
-const SINTER_EVENTS = ['sn-error', 'dismiss', 'navigate'];
+const SINTER_EVENTS = ['sn-error', 'sn-dismiss', 'sn-navigate'];
+/** sinter's own events before they took the `sn-` prefix, as every one of them has now */
+const UNPREFIXED: Record<string, string> = { navigate: 'sn-navigate', dismiss: 'sn-dismiss' };
 
 /** a prop's value that is a build-time constant, and those of them that are falsy */
 const CONST_PROP = /^(true|false|null|undefined|-?\d+(\.\d+)?|'[^'\\]*'|"[^"\\]*")$/;
@@ -2494,8 +2496,9 @@ class Compiler {
     const emitsText = attr(template, 'data-sn-emits') ?? null;
     const emits = emitsText === null ? [] : typeMembers(emitsText);
     if (emitsText !== null && !emits) this.report(template, 'data-sn-emits', 'SN401', '`data-sn-emits` takes a type literal of the events and their detail types: `{ select: Article; close: null }`', 0);
-    // `navigate` is sinter's: `data-sn-on-navigate` is the guard of every navigation (navigate.ts)
-    if (emits?.some((m) => m.name === 'navigate')) this.report(template, 'data-sn-emits', 'SN209', '`navigate` is sinter\'s event (`data-sn-on-navigate` runs before every navigation): name the component\'s event otherwise, e.g. `go`', 0);
+    // sinter's events are `sn-…` (`sn-navigate`, the guard of every navigation): a component's are named otherwise
+    const snEvent = emits?.find((m) => m.name.startsWith('sn-'));
+    if (snEvent) this.report(template, 'data-sn-emits', 'SN209', `\`${snEvent.name}\`: names starting with \`sn-\` are sinter's events (\`sn-navigate\`, \`sn-dismiss\`, \`sn-error\`, \`sn-page\`); name the component's event otherwise`, 0);
     // a root is known once its slots are filled: a `<slot>` at the top is its fill, or its default
     const first = content.childNodes.find(isElement) ?? template;
     const use: Use = { name, file: def.file, host, root: first, template, props, propsText, emits, emitsText, chain, ...(slots.size ? { slots } : {}), ...(this.lateTag(host) ? { late: true } : {}) };
@@ -2762,8 +2765,9 @@ class Compiler {
     const emitsText = attr(template, 'data-sn-emits') ?? null;
     const emits = emitsText === null ? [] : typeMembers(emitsText);
     if (emitsText !== null && !emits) this.report(template, 'data-sn-emits', 'SN401', '`data-sn-emits` takes a type literal of the events and their detail types: `{ select: Article; close: null }`', 0);
-    // `navigate` is sinter's: `data-sn-on-navigate` is the guard of every navigation (navigate.ts)
-    if (emits?.some((m) => m.name === 'navigate')) this.report(template, 'data-sn-emits', 'SN209', '`navigate` is sinter\'s event (`data-sn-on-navigate` runs before every navigation): name the component\'s event otherwise, e.g. `go`', 0);
+    // sinter's events are `sn-…` (`sn-navigate`, the guard of every navigation): a component's are named otherwise
+    const snEvent = emits?.find((m) => m.name.startsWith('sn-'));
+    if (snEvent) this.report(template, 'data-sn-emits', 'SN209', `\`${snEvent.name}\`: names starting with \`sn-\` are sinter's events (\`sn-navigate\`, \`sn-dismiss\`, \`sn-error\`, \`sn-page\`); name the component's event otherwise`, 0);
     const first = fragment.childNodes.find(isElement) ?? template;
     const use: Use = { name, file: def.file, host, root: first, template, props, propsText, emits, emitsText, chain, head: { roots: [], parent: null } };
     for (const a of host.attrs) {
@@ -4760,16 +4764,21 @@ class Compiler {
       const filter = kf ? this.keyFilter(el, a.name, kf[2]!) : undefined;
       if (filter === null) continue;
       if (filter) this.features.add('keys');
-      // `navigate`: sinter's, for every navigation while the element is on the page (navigate.ts finds the
+      // sinter's events before the `sn-` prefix: a component that emits one of these names keeps it
+      if (UNPREFIXED[event] && !use?.emits?.some((m) => m.name === event)) {
+        this.report(el, a.name, 'SN101', `\`${a.name}\` is renamed to \`data-sn-on-${UNPREFIXED[event]}\`, as sinter's events are all \`sn-…\``, 0);
+        continue;
+      }
+      // `sn-navigate`: sinter's, for every navigation while the element is on the page (navigate.ts finds the
       // element by this mark, which stays in the HTML)
-      if (event === 'navigate') { this.features.add('navigate'); setAttr(el, 'data-sn-navigate', ''); }
+      if (event === 'sn-navigate') { this.features.add('navigate'); setAttr(el, 'data-sn-navigate', ''); }
       if (!kf && !/^[a-z][a-z0-9]*(-[a-z0-9]+)*$/.test(event)) {
         this.report(el, a.name, 'SN101', `event names are lowercase kebab-case: \`${a.name}\``, 0);
         continue;
       }
       // a layout's tag: the page's `<body>` handlers, for DOM events and sinter's own
       if (use?.layout && !kf && !DOM_EVENTS.has(event) && !SINTER_EVENTS.includes(event)) {
-        this.report(el, a.name, 'SN315', `\`${event}\` is not an event the page's \`<body>\` hears: a layout's tag takes handlers for DOM events and sinter's \`sn-error\` and \`dismiss\`.${didYouMean(event, [...SINTER_EVENTS, ...DOM_EVENTS])}`, 0,
+        this.report(el, a.name, 'SN315', `\`${event}\` is not an event the page's \`<body>\` hears: a layout's tag takes handlers for DOM events and sinter's \`sn-error\` and \`sn-dismiss\`.${didYouMean(event, [...SINTER_EVENTS, ...DOM_EVENTS])}`, 0,
           'a component tells the page with an event it declares: `data-sn-emits="{ \'delete-start\': Item }"` on its template, `emit(\'delete-start\', item)` in it, and the page handles it on the component\'s tag (`<item-row data-sn-on-delete-start="…">`) or an element around it, in the page\'s content');
       } else if (use && !use.layout && !kf && use.emits && !DOM_EVENTS.has(event) && !use.emits.some((m) => m.name === event)) {
         const names = use.emits.map((m) => m.name);

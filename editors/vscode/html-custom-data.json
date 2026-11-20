@@ -213,7 +213,7 @@
     },
     {
       "name": "data-sn-options",
-      "description": "arrows mark a [role=option|menuitem] of the list (empty: inside the element, else the nearest listbox or menu), Enter clicks it, Escape fires `dismiss`; focus stays on the element. Text field: a combobox (id of the list, or empty)"
+      "description": "arrows mark a [role=option|menuitem] of the list (empty: inside the element, else the nearest listbox or menu), Enter clicks it, Escape fires `sn-dismiss`; focus stays on the element. Text field: a combobox (id of the list, or empty)"
     },
     {
       "name": "data-sn-persist",
