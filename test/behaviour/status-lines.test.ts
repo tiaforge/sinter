@@ -10,14 +10,15 @@ const repo = resolve(import.meta.dirname, '../..');
 
 test('the starter\'s "Loading…" and "No tasks here." never show together, also while an empty list reloads', async () => {
   const page = readFileSync(resolve(repo, 'packages/create/template/index.html'), 'utf8');
-  // the starter's own two lines, over its resource, with a button that reloads it
-  const lines = [/<p[^>]*>Loading…<\/p>/, /<p[^>]*>No tasks here\.<\/p>/].map((re) => re.exec(page)![0]);
+  // the starter's own busy line and the empty state after its list, over its resource, with a button that reloads it
+  const [loading, empty] = [/<p[^>]*>Loading…<\/p>/, /<template data-sn-else>.*?No tasks here\..*?<\/template>/].map((re) => re.exec(page)![0]);
   const requests = mockRequests({ 'GET /api/tasks': [] });
   const r = await render(`<main data-sn-let="{ shown: tasks }">
     <sn-resource name="tasks" src="/api/tasks" key="id"></sn-resource>
-    ${lines.join('\n')}
+    ${loading}
+    <ul><template data-sn-for="t in shown"><li data-sn-text="t.id"></li></template>${empty}</ul>
     <button data-sn-on-click="refresh(tasks)">Reload</button></main>`, { requests });
-  const shown = () => [...r.root.querySelectorAll('p')].filter((p) => !p.hidden).map((p) => p.textContent);
+  const shown = () => [...r.root.querySelectorAll('p, li')].filter((p) => !(p as HTMLElement).hidden).map((p) => p.textContent);
   await r.flush();
   expect(shown()).toEqual(['Loading…']);
   await r.settle();

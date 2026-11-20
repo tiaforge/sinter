@@ -37,9 +37,8 @@
 
       <!-- A busy line: temper gives it a spinner and shows it only after --tm-busy-delay (200ms). -->
       <p data-sn-show="$meta.tasks.loading && !tasks.length" aria-busy="true">Loading…</p>
-      <p data-muted data-sn-show="$meta.tasks.loadedAt && !$meta.tasks.loading && !shown.length">No tasks here.</p>
 
-      <ul data-list data-sn-show="shown.length">
+      <ul data-list>
         <template data-sn-for="t in shown">
           <li data-layout="row" data-gap="sm" data-wrap="none">
             <!-- Optimistic: ticks at once, rolls back if the server refuses. -->
@@ -57,6 +56,8 @@
                     data-sn-delete="/api/tasks/{t.id}" data-sn-optimistic="remove(t)"></button>
           </li>
         </template>
+        <!-- The empty state: shown once the tasks have loaded and none is shown (not while they load). -->
+        <template data-sn-else><li data-muted>No tasks here.</li></template>
       </ul>
     </section>
   </div>
