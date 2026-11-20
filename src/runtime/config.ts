@@ -116,7 +116,8 @@ export const PREFETCH_PREFIX = 'sn:p:';
  */
 export const PREFETCH_MARK = 'x-sinter-prefetch';
 
-function removeKeys(s: Storage | null, prefix: string) {
+/** removes every key of `s` under `prefix` (storage failures are ignored) */
+export function removeKeys(s: Storage | null, prefix: string) {
   if (!s) return;
   try {
     const keys: string[] = [];

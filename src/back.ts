@@ -7,7 +7,8 @@
 // module to a page with a resource it can restore (not `for`, `call`, `method="POST"`, `file:`, embedded or `append`).
 import type { ResourceDef } from './ir.js';
 import type { App, Feature } from './runtime/app.js';
-import { CACHE_PREFIX } from './runtime/config.js';
+import { CACHE_PREFIX, removeKeys } from './runtime/config.js';
+import { SWAP } from './runtime/flags.js';
 
 /** entries larger than this (serialized) are not written */
 export const MAX_ENTRY = 256 * 1024;
@@ -25,8 +26,9 @@ export const keyOf = (d: ResourceDef, url: string) => CACHE_PREFIX + JSON.string
  */
 export function traversal(app: App): boolean {
   const s = app.env.session();
-  let back: boolean = app.env.traversal?.() ?? (globalThis as any)[Symbol.for('sinter.traverse')] ?? ((performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming | undefined)?.type == 'back_forward');
-  try { const m = s?.getItem('sn:back'); if (m != null) { back ||= m == app.env.href(); s!.removeItem('sn:back'); } } catch { /* storage failures are ignored */ }
+  // the swap's own (an app without swaps sets neither)
+  let back: boolean = app.env.traversal?.() ?? (SWAP ? (globalThis as any)[Symbol.for('sinter.traverse')] : null) ?? ((performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming | undefined)?.type == 'back_forward');
+  if (SWAP) try { const m = s?.getItem('sn:back'); if (m != null) { back ||= m == app.env.href(); s!.removeItem('sn:back'); } } catch { /* storage failures are ignored */ }
   return back;
 }
 
@@ -54,7 +56,7 @@ const back: Feature = {
         if (text.length > MAX_ENTRY) { app.warn(19, def.name, Math.round(text.length / 1024)); continue; }
         // full: the page-load cache's entries go, and this one is written once more
         try { s.setItem(key, text); } catch {
-          for (let i = s.length; i--;) if (s.key(i)?.startsWith(CACHE_PREFIX)) s.removeItem(s.key(i)!);
+          removeKeys(s, CACHE_PREFIX);
           try { s.setItem(key, text); } catch { /* too large for the storage */ }
         }
       }

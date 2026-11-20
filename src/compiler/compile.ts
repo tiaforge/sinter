@@ -8540,7 +8540,8 @@ class Compiler {
           if (def.body == null) {
             const start = JSON.stringify(typeof def.src[0] === 'string' ? def.src[0] : '').slice(1, -1), end = `,${JSON.stringify(def.select ?? null)},${JSON.stringify(def.total ?? null)}]`;
             const none = JSON.stringify(def.key ? '[]' : 'null');
-            const kinds = def.cache != null ? '/^sn:[cp]:\\[/' : `(performance.getEntriesByType?.('navigation')[0]?.type == 'back_forward' || sessionStorage.getItem('sn:back') == location.href ? /^sn:[cp]:\\[/ : /^sn:p:\\[/)`;
+            // (the swap's mark only in an app with swaps: no other sets it)
+            const kinds = def.cache != null ? '/^sn:[cp]:\\[/' : `(performance.getEntriesByType?.('navigation')[0]?.type == 'back_forward'${this.opts.swap ? " || sessionStorage.getItem('sn:back') == location.href" : ''} ? /^sn:[cp]:\\[/ : /^sn:p:\\[/)`;
             checks.add(fn(`() => { for (const k of Object.keys(sessionStorage)) if (${kinds}.test(k) && k.includes(${JSON.stringify(start)}) && k.endsWith(${JSON.stringify(end)})) { let e; try { e = JSON.parse(sessionStorage.getItem(k)); } catch { throw 0; } if (!e || JSON.stringify(e.items) !== ${none} || e.total != null) throw 0; } }`));
           }
           // its API's token, when the operation needs it: with none stored the resource is loaded, empty, at mount (signed
