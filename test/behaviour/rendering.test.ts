@@ -455,9 +455,9 @@ test('render() keeps <html> attributes: persisted state on <html> is read from <
   expect([...document.documentElement.attributes].map((a) => a.name)).toEqual([]);
 });
 
-test('<sn-include> is gone: SN101 says what a partial is now', async () => {
+test('<sn-include> is an unknown element', async () => {
   await expect(render('<div><sn-include src="./card.html"></sn-include></div>', { files: { 'card.html': '<b></b>' } }))
-    .rejects.toThrow(/SN101 unknown-attribute: `<sn-include>` is gone \(0\.14\): a partial is a component/);
+    .rejects.toThrow(/SN101 unknown-attribute: `<sn-include>` is not a sinter element/);
 });
 
 test('custom elements: props in, events out, a prop follows its state', async () => {

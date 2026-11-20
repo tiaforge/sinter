@@ -277,6 +277,24 @@ Left for 1.0, as already deprecated: the top-level `sinter({ openapi })` (an API
   bundle on a slow network, and docs/lazy.md measures both; folding one into the other would preload
   where nobody measured.
 
+## Removed at 1.0
+
+Every migration error of this proposal goes at 1.0, at once. They live in:
+
+- `RETIRED` (attributes and elements, `SN101`) and `PAGINATE_OLD` with `legacyPaginate` (the old pagination
+  attributes) in `src/compiler/compile.ts`; `SET_BY_SINTER` stays, it is not a migration.
+- `RETIRED_FNS` (`SN201`) in `src/compiler/expr.ts`.
+- The old `<sn-event>` attributes and `op` values (`item`, `set`, `fallback`, `op="patch|refetch"`), `UNPREFIXED`
+  (`data-sn-on-navigate`, `data-sn-on-dismiss`) and `offset: true` in `paginate`, in `src/compiler/compile.ts`.
+- `retiredOptions` in `src/project.ts` (`components`, the module paths, `content: '<path>'`), the renamed
+  options in `src/vite.ts` (`speculation`, `earlyBudget`, the old `prefetch.html` values), `credentials()` in
+  the config module (`configSource`), the old `complexity` keys (`complexityOf`), `--check-cycles` in
+  `src/cli.ts`, and `render({ minify, remoteImages })` in `src/testing/index.ts`.
+- Already deprecated, also going: the top-level `sinter({ openapi })` and `render({ openapi })` (an API's
+  `openapi`), and `configure({ origins })` (`sinter({ origins })`).
+
+The `<sn-include>` and `start-page` errors went early (2026-11-20): two and more generations old.
+
 ## Plan
 
 One commit each, in this order: 1, 4a, 2, 3, 4, 10, 5, 8, 11, 7, 12, 6. Step 9 was held, then dropped: `op` and `value` stay. Each updates the vocabulary, the

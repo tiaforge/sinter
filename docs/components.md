@@ -594,9 +594,3 @@ would end the head at it and move it, and everything after it, into the body.
 A [component library](libraries.md) is a package of components in this format, named in
 `sinter({ libraries: ['@acme/ui'] })`. Its public components are tags like the app's own; their
 names start with the library's prefix (`ui-`), which no app component may use.
-
-## From `<sn-include>`
-
-`<sn-include>` is gone (0.14): a partial is a component without a script. Move the file to `src/components/<name>.html`, wrap its
-markup in `<template data-sn-props="{ … }">` around one root element, declare those names as
-props, and pass them with `data-sn-with`.

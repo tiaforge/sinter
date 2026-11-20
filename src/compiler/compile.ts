@@ -4409,8 +4409,7 @@ class Compiler {
       case 'sn-event': this.report(el, null, 'SN102', '`<sn-event>` must be a child of `<sn-sync>`', 0); this.remove.push(el); return null;
     }
     if (el.tagName.startsWith('sn-')) {
-      if (el.tagName === 'sn-include') this.report(el, null, 'SN101', '`<sn-include>` is gone (0.14): a partial is a component, a file in `src/components/` used by its tag, with its props in `data-sn-props`', 0);
-      else this.report(el, null, 'SN101', `\`<${el.tagName}>\` is not a sinter element.${didYouMean(el.tagName, ['sn-resource', 'sn-sync', 'sn-event', 'sn-component'])}`, 0);
+      this.report(el, null, 'SN101', `\`<${el.tagName}>\` is not a sinter element.${didYouMean(el.tagName, ['sn-resource', 'sn-sync', 'sn-event', 'sn-component'])}`, 0);
     }
 
     const sn = el.attrs.filter((a) => a.name.startsWith('data-sn-'));
@@ -6071,8 +6070,7 @@ class Compiler {
     if (isFileSource(attr(el, 'src'))) return this.fileResource(el, name, ctx.stateIdx);
     if (isContentSource(attr(el, 'src'))) return this.contentResource(el, name, ctx.stateIdx);
     for (const a of el.attrs) {
-      if (a.name === 'start-page') this.report(el, a.name, 'SN101', '`start-page` is `model` in `paginate` now (numbered lists, a query parameter), which also writes the page back: `paginate="{ numbered: true, size: 10, model: $url.page }"`', 0);
-      else if (!RESOURCE_ATTRS.includes(a.name) && !PAGINATE_OLD.includes(a.name)) this.report(el, a.name, 'SN101', `\`${a.name}\` is not an attribute of \`<sn-resource>\`.${didYouMean(a.name, RESOURCE_ATTRS)}`, 0);
+      if (!RESOURCE_ATTRS.includes(a.name) && !PAGINATE_OLD.includes(a.name)) this.report(el, a.name, 'SN101', `\`${a.name}\` is not an attribute of \`<sn-resource>\`.${didYouMean(a.name, RESOURCE_ATTRS)}`, 0);
     }
     const earlyAttr = attr(el, 'early');
     if (earlyAttr != null && earlyAttr !== 'off') this.report(el, 'early', 'SN401', '`early` takes only `off`', 0);
@@ -6365,7 +6363,7 @@ class Compiler {
       const why = a.name === 'drafts' ? '`drafts` is a `file:` glob\'s; a collection leaves its drafts out in its loader (`ctx.files(glob, { drafts })`, `ctx.command`)'
         : a.name === 'items' ? '`items` picks a list out of a value; a collection is a list already'
         : fileAttrProblem(a.name).replace(/a `file:` resource/g, 'a `content:` resource');
-      this.report(el, a.name, a.name === 'start-page' || RESOURCE_ATTRS.includes(a.name) || a.name === 'drafts' || a.name === 'items' ? 'SN332' : 'SN101', why, 0);
+      this.report(el, a.name, RESOURCE_ATTRS.includes(a.name) || a.name === 'drafts' || a.name === 'items' ? 'SN332' : 'SN101', why, 0);
     }
     const src = attr(el, 'src')!.trim(), cname = src.slice('content:'.length), at = attr(el, 'src')!.indexOf(cname);
     const known = this.opts.collections;
@@ -6451,7 +6449,7 @@ class Compiler {
    */
   fileResource(el: P5Element, name: string, scope: number) {
     const info = this.page.resources.get(name)!;
-    for (const a of el.attrs) if (!FILE_ATTRS.includes(a.name)) this.report(el, a.name, a.name === 'start-page' || RESOURCE_ATTRS.includes(a.name) ? 'SN332' : 'SN101', fileAttrProblem(a.name), 0);
+    for (const a of el.attrs) if (!FILE_ATTRS.includes(a.name)) this.report(el, a.name, RESOURCE_ATTRS.includes(a.name) ? 'SN332' : 'SN101', fileAttrProblem(a.name), 0);
     const written = attr(el, 'src')!, at = written.indexOf('file:');
     // `{$locale}`: each language's build reads its own folder (`localePrefix`); `sinter check` and the editor, the base one
     const lang = /\{\s*\$locale\s*\}/;
