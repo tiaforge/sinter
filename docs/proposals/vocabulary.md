@@ -298,6 +298,8 @@ What the fourth review left of the same kind, across the JavaScript and configur
 - `header(name, value)` takes `() => string | null | undefined` for `value`, read per request (null: no header):
   the docs' own token example read the token once, so it sent `Bearer null` signed out and a stale token after a
   sign-in with swapped pages. Not a rename: a string still works.
+- `apis: { main: { default: true } }` (was `sinter({ defaultApi: 'main' })`, a sibling of the APIs it chose from;
+  `render({ defaultApi })` too).
 
 ## Looked at and kept
 
@@ -327,10 +329,10 @@ Every migration error of this proposal goes at 1.0, at once. They live in:
 - `RETIRED_FNS` (`SN201`) in `src/compiler/expr.ts`.
 - The old `<sn-event>` attributes and `op` values (`item`, `set`, `fallback`, `op="patch|refetch"`), `UNPREFIXED`
   (`data-sn-on-navigate`, `data-sn-on-dismiss`) and `offset: true` in `paginate`, in `src/compiler/compile.ts`.
-- `retiredOptions` in `src/project.ts` (`components`, the module paths, `content: '<path>'`), the renamed
+- `retiredOptions` in `src/project.ts` (`components`, the module paths, `content: '<path>'`, `defaultApi`), the renamed
   options in `src/vite.ts` (`speculation`, `earlyBudget`, the old `prefetch.html` values, `fonts.inline`), `credentials()` in
   the config module (`configSource`), `clearPersisted` and `@tiaforge-ui/sinter/components` in an app module (`retiredExport` in `src/project.ts`), the old `complexity` keys (`complexityOf`), `--check-cycles` in
-  `src/cli.ts`, and `render({ minify, remoteImages })` in `src/testing/index.ts`.
+  `src/cli.ts`, and `render({ minify, remoteImages, defaultApi })` in `src/testing/index.ts`.
 - Already deprecated, also going: the top-level `sinter({ openapi })` and `render({ openapi })` (an API's
   `openapi`), and `configure({ origins })` (`sinter({ origins })`).
 

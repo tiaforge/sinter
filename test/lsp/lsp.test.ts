@@ -474,9 +474,9 @@ components:
     const spec = readFileSync(join(process.cwd(), 'test/fixtures/apis-openapi.yml'), 'utf8');
     const config = `import sinter from ${JSON.stringify(join(process.cwd(), 'src/vite.ts'))};
 export default { plugins: [sinter({ apis: {
-  main: { openapi: 'openapi.yml', defaults: { 'GET /contacts': { items: 'contacts', key: 'id' } } },
+  main: { openapi: 'openapi.yml', defaults: { 'GET /contacts': { items: 'contacts', key: 'id' } }, default: true },
   billing: { base: '/billing', operations: { 'GET /invoices': { type: 'any' } } },
-}, defaultApi: 'main' })] };
+} })] };
 `;
     const open = async (page: string, capabilities?: object) => {
       const root = project({ 'openapi.yml': spec, 'index.html': page, 'vite.config.js': config });

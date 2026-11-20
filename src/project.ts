@@ -6,7 +6,7 @@ import { dirname, join, relative, resolve, sep } from 'node:path';
 import { readHelperManifest, type Diagnostic, type HelperManifest } from './compiler/index.js';
 import { strictOf, type Strict } from './compiler/diagnostics.js';
 import type { OpenApiSpec } from './compiler/openapi.js';
-import { resolveApis, type ApiOptions, type ApisDef } from './compiler/apis.js';
+import { defaultApiRenamed, resolveApis, type ApiOptions, type ApisDef } from './compiler/apis.js';
 import { COMPLEXITY_LIMITS, type ComplexityOptions } from './compiler/complexity.js';
 import { MESSAGES_MODULE, messagesDts, readMessages, type MessagesProject } from './i18n-build.js';
 import { componentNames, writeComponentTypes } from './components-build.js';
@@ -30,8 +30,6 @@ export interface ProjectOptions {
    * is relative to one of them, and must be an operation it declares.
    */
   apis?: Record<string, ApiOptions>;
-  /** the API a path without `api:` goes to; with one API configured it is that one */
-  defaultApi?: string;
   /** SN507 (`complex-expression`): `false` turns it off, `{ level: 'error' }` makes it an error; the limits are fixed */
   complexity?: false | { level?: 'warn' | 'error' };
   /**
@@ -173,6 +171,7 @@ export const COMPONENTS_RENAMED = 'sinter({ components }) is renamed to `librari
 export function retiredOptions(options: object): void {
   const o = options as Record<string, unknown>;
   if (o.components !== undefined) throw new Error(COMPONENTS_RENAMED);
+  if (o.defaultApi !== undefined) throw new Error(defaultApiRenamed('sinter', o.defaultApi));
   for (const [k, file] of [['helpers', 'sinter.helpers'], ['actions', 'sinter.actions'], ['config', 'sinter.config'], ['early', 'sinter.early'], ['types', 'sinter.types']] as const) {
     if (o[k] !== undefined) throw new Error(`sinter({ ${k} }) is gone: the module is \`src/${file}.ts\` (or \`.js\`), in a component library \`fixtures/${file}.ts\` beside its fixture pages`);
   }

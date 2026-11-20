@@ -47,7 +47,6 @@ fixture pages, in `fixtures/` ([docs/libraries.md](libraries.md)).
 | `messages` | `project.inlang`, if it exists | the inlang project for [messages](messages.md); `false` turns them off |
 | `apis` | none | the APIs the app calls: base URL, OpenAPI spec, credentials, headers, and what each endpoint returns. Pages then write paths relative to them (`src="/contacts"`), checked against the spec ([docs/apis.md](apis.md)) |
 | `libraries` | `[]` | component libraries, by package name (`['@acme/ui']`): packages whose `package.json` names a folder of sinter components (`"sinter": "./sinter"`). Their public components are tags in the app; their helpers come in through a namespace re-export in your helpers module ([docs/libraries.md](libraries.md)) |
-| `defaultApi` | the only API | the API a path without `api:` goes to |
 | `openapi` | none | deprecated: one OpenAPI file or a list of them; give each API its spec in `apis` instead ([docs/type-checking.md](type-checking.md#openapi)) |
 
 ### Checks
