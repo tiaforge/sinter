@@ -131,7 +131,9 @@ export function tagCompletions(text: string, offset: number, names: Array<{ name
   const from = offset - (m[1]?.length ?? 0);
   const rest = before.slice(0, m.index);
   const top = /^\s*(<!doctype[^>]*>\s*)?(<!--[\s\S]*?-->\s*)*$/i.test(rest);
-  const inHead = /<head[\s>]/i.test(rest) && !/<\/head\s*>/i.test(rest) || (/\sdata-sn-(?:props|head)\s*=/.test(rest) && isHeadComponent(rest));
+  // a head component's file: its template, with `data-sn-props` or (no props) the file's first element
+  const component = /\sdata-sn-(?:props|head)\s*=/.test(rest) || /^\s*(<!--[\s\S]*?-->\s*)*<template[\s>]/i.test(rest);
+  const inHead = /<head[\s>]/i.test(rest) && !/<\/head\s*>/i.test(rest) || (component && isHeadComponent(rest));
   const kinds: Array<TagFile['kind']> = top ? ['layout'] : inHead ? ['head'] : ['component'];
   return names.filter((n) => kinds.includes(n.kind)).map((n) => ({ label: n.name, detail: n.kind === 'layout' ? 'layout' : n.kind === 'head' ? 'head component' : 'component', from, to: offset }));
 }

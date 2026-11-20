@@ -1,6 +1,6 @@
 <conduit-layout data-sn-path="/article/:slug"
-  data-sn-state="{ nav: '', commentError: null }"
-  data-sn-with="{ nav, title: 'Article', description: 'An article on Conduit, with its comments.' }">
+  data-sn-state="{ commentError: null }"
+  data-sn-with="{ nav: '', title: 'Article', description: 'An article on Conduit, with its comments.' }">
 <sn-resource cache name="article" src="/articles/{$url.slug}"></sn-resource>
 <sn-resource cache name="comments" src="/articles/{$url.slug}/comments" order="-createdAt"></sn-resource>
 

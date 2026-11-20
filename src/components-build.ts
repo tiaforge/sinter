@@ -7,7 +7,7 @@ import * as parse5 from 'parse5';
 import { parseExpressionAt } from 'acorn';
 import type { DefaultTreeAdapterMap } from 'parse5';
 import { COMPONENT_NAME, withoutSlots } from './compiler/components.js';
-import { componentKinds } from './compiler/head.js';
+import { componentKinds, declaringTemplate } from './compiler/head.js';
 import { typeExports } from './check/index.js';
 import { modulesDir, type Library } from './libraries.js';
 
@@ -47,7 +47,7 @@ export function contractOf(html: string): Contract | null {
   const frag = parse5.parseFragment(html);
   const isEl = (n: unknown): n is El => !!n && typeof n === 'object' && 'tagName' in n;
   const attr = (el: El, n: string) => el.attrs.find((a) => a.name === n)?.value;
-  const template = frag.childNodes.filter(isEl).find((t) => t.tagName === 'template' && (attr(t, 'data-sn-props') ?? attr(t, 'data-sn-component')) !== undefined);
+  const template = declaringTemplate(frag.childNodes);
   if (!template) return null;
   const root = (template as DefaultTreeAdapterMap['template']).content.childNodes.find(isEl);
   const refs: string[] = [];

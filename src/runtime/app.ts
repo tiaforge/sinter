@@ -1759,7 +1759,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
   // ---- resources
 
   function createLoader(def: ResourceDef) {
-    const r = createResource(def.name, { key: def.key ?? null, order: def.order ?? null, locale: () => config.locale?.get(), warn, prep: (x) => (app.prep ? app.prep(x) : x), freeze: app.dev });
+    const r = createResource(def.name, { key: def.key ?? null, order: def.order ?? null, locale: () => config.locale?.get(), warn, prep: (x) => (app.prep ? app.prep(x) : x), freeze: app.dev, list: def.ls });
     r.onDirty = (what) => app.mark((what == 'data' ? '$r.' : '$meta.') + def.name);
     resources.set(def.name, r);
     Object.defineProperty(app.page.$r, def.name, { get: r.value, enumerable: true });
