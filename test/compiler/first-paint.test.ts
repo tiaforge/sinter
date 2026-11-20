@@ -154,11 +154,11 @@ test('early requests, paginated: the first page, with the query parameters the p
   const { early, html, ir } = build(`<!doctype html><html data-sn-state="{ box: 'inbox' }" data-sn-persist="box"><head></head>
     <body>
       <sn-resource name="user" src="/api/user"></sn-resource>
-      <sn-resource name="mail" src="/api/mail?box={box}" key="id" paginate="{ keyset: {after: id}, size: 50, jump: true, params: { size: 'limit', offset: 'offset', direction: 'dir' }, directions: {first: 'forward', prev: 'backward', next: 'forward', last: 'last'} }" cache></sn-resource>
+      <sn-resource name="mail" src="/api/mail?box={box}" key="id" paginate="{ keyset: {after: $item.id}, size: 50, jump: true, params: { size: 'limit', offset: 'offset', direction: 'dir' }, directions: {first: 'forward', prev: 'backward', next: 'forward', last: 'last'} }" cache></sn-resource>
       <sn-resource name="pages" src="/api/pages?box={box}" key="id" paginate="{ numbered: true, size: 20, params: { size: 'n', page: 'p' } }"></sn-resource>
-      <sn-resource name="more" src="/api/more?box={box}#x" key="id" paginate="{ append: {after: id}, size: 5 }"></sn-resource>
-      <sn-resource name="lit" src="/api/lit?a=1" key="id" paginate="{ keyset: {after: id}, size: 10 }"></sn-resource>
-      <sn-resource name="dep" src="/api/dep?u={user.id}" key="id" paginate="{ keyset: {after: id}, size: 10 }"></sn-resource>
+      <sn-resource name="more" src="/api/more?box={box}#x" key="id" paginate="{ append: {after: $item.id}, size: 5 }"></sn-resource>
+      <sn-resource name="lit" src="/api/lit?a=1" key="id" paginate="{ keyset: {after: $item.id}, size: 10 }"></sn-resource>
+      <sn-resource name="dep" src="/api/dep?u={user.id}" key="id" paginate="{ keyset: {after: $item.id}, size: 10 }"></sn-resource>
       <ul><template data-sn-for="x in mail"><li data-sn-text="x.id"></li></template></ul>
       <ul><template data-sn-for="x in pages"><li data-sn-text="x.id"></li></template></ul>
       <ul><template data-sn-for="x in more"><li data-sn-text="x.id"></li></template></ul>

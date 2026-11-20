@@ -278,7 +278,8 @@ diagnostics and docs. Done:
   `$meta.pending`; `<sn-resource for>`; `data-sn-resource`; placeholder in the server layer.
 - Store functions and `$meta[…]` take the resource, not its name (`refresh(people)`).
 - Codes that were one rule merged (SN309, SN318, SN337, SN340); `sinter migrate` writes every rename.
-- Open: the `<sn-event>` payload as `$event` instead of bare names, with `paginate`'s cursor (decided apart).
+- Then, decided with examples: the `<sn-event>` payload is `$event`, and `paginate`'s cursor reads `$item` (chosen over
+  `$edge`, `$boundary` and an arrow function: plain, and the docs' word for one entry of a resource).
 
 ## Looked at and kept
 

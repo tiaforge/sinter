@@ -679,8 +679,8 @@ type Change<T> =
 ### Declaring a stream
 ```html
 <sn-sync src="/api/events/stream">
-  <sn-event name="contact_updated"  resource="contacts" op="upsert" value="contact" when="contact"></sn-event>
-  <sn-event name="contact_updated"  resource="contacts" op="refresh" when="!contact"></sn-event>
+  <sn-event name="contact_updated"  resource="contacts" op="upsert" value="$event.contact" when="$event.contact"></sn-event>
+  <sn-event name="contact_updated"  resource="contacts" op="refresh" when="!$event.contact"></sn-event>
   <sn-event name="contact_removed"  resource="contacts" op="remove"></sn-event>
   <sn-event name="contacts_changed" resource="contacts" op="refresh"></sn-event>
 </sn-sync>
@@ -705,8 +705,8 @@ For `merge` and `remove`, the key is read from the payload using the resource's 
 <body data-sn-state="{ sel: null, notice: '' }">
   <sn-sync src="/api/events/stream">
     <sn-event name="contact_removed" resource="contacts" op="remove" type="ContactRemoved"
-              then="sel?.uid === uid && closeDialog('contact-detail')"></sn-event>
-    <sn-event name="notice" type="Notice" then="notice = text"></sn-event>
+              then="sel?.uid === $event.uid && closeDialog('contact-detail')"></sn-event>
+    <sn-event name="notice" type="Notice" then="notice = $event.text"></sn-event>
   </sn-sync>
 ```
 - The dialog clears the selection itself (`<dialog id="contact-detail" data-sn-on-close="sel = null">`), so the handler runs one step under its condition (two would be `SN507`).
@@ -1072,7 +1072,7 @@ Pagination is declared on the resource and driven by `page()` calls; v0.1 suppor
 <sn-resource name="messages"
   src="/api/email/messages?account_id={$url.account_id}&mailbox={$url.mailbox}"
   items="messages" total="total" key="account_id,mailbox,uid"
-  paginate="{ keyset: {cursor_sent_at: sent_at, cursor_rowid: rowid}, size: 50, params: { size: 'limit', direction: 'direction' } }"></sn-resource>
+  paginate="{ keyset: {cursor_sent_at: $item.sent_at, cursor_rowid: $item.rowid}, size: 50, params: { size: 'limit', direction: 'direction' } }"></sn-resource>
 
 <nav>
   <button data-sn-on-click="page(messages, 'first')" data-sn-attr="{disabled: !$meta.messages.hasPrev}">«</button>
@@ -1110,7 +1110,7 @@ Keyset mode jumps only when the server can skip by offset as well. With `jump: t
 
 | Key | Meaning |
 | --- | --- |
-| `keyset`, `append` | the mode, and its cursor: an object literal evaluated on the boundary item of the current page, its last item for `next`, its first for `prev`; `first` and `last` send no cursor. Fields that are `null` or `undefined` are left out, as in URL templates. Compiled with `expr(el, 'paginate', …, text, offset)`, so diagnostics point into the attribute |
+| `keyset`, `append` | the mode, and its cursor: an object literal over `$item`, the boundary item of the current page (its fields were bare names until 2026-11-20), its last item for `next`, its first for `prev`; `first` and `last` send no cursor. Fields that are `null` or `undefined` are left out, as in URL templates. Compiled with `expr(el, 'paginate', …, text, offset)`, so diagnostics point into the attribute |
 | `numbered: true`, `numbered: 'offset'` | numbered mode: pages by number (was `offset: true` until 2026-11-20, `SN401` naming the rename); `'offset'` sends the items to skip (`params.offset`, default `offset`) instead of the page number. Naming `params.offset` switches nothing (changed 2026-11-20) |
 | `size` | items per page, a positive whole number literal; required |
 | `model` | numbered mode: `$url.<param>`, the URL query parameter that holds the page (see above) |
@@ -1492,8 +1492,8 @@ Endpoints used: `GET /api/contacts` → `{addressbooks, contacts}`, `POST /api/c
              key="account_id,href"></sn-resource>
 
 <sn-sync src="/api/events/stream">
-  <sn-event name="contact_updated"  resource="contacts" op="upsert" value="contact" when="contact"></sn-event>
-  <sn-event name="contact_updated"  resource="contacts" op="refresh" when="!contact"></sn-event>
+  <sn-event name="contact_updated"  resource="contacts" op="upsert" value="$event.contact" when="$event.contact"></sn-event>
+  <sn-event name="contact_updated"  resource="contacts" op="refresh" when="!$event.contact"></sn-event>
   <sn-event name="contact_removed"  resource="contacts" op="remove"></sn-event>
   <sn-event name="contacts_changed" resource="contacts" op="refresh"></sn-event>
 </sn-sync>

@@ -17,6 +17,6 @@ test('a typo in a field is an error at its position, with a suggestion', () => {
 });
 
 test('an event payload that does not fit the resource is an error', () => {
-  const [d] = checkPage(page.replace('value="contact"', 'value="contact.name"'), { files });
+  const [d] = checkPage(page.replace('value="$event.contact"', 'value="$event.contact.name"'), { files });
   expect(d!.message).toMatch(/Type 'string' is not assignable to type 'Contact'/);
 });

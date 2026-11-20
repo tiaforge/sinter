@@ -7,7 +7,7 @@ pages.
 
 ```html
 <sn-resource name="messages" src="/api/messages" items="messages" total="total" key="id"
-  paginate="{ keyset: {before: id}, size: 2 }"></sn-resource>
+  paginate="{ keyset: {before: $item.id}, size: 2 }"></sn-resource>
 
 <ul>
   <template data-sn-for="m in messages"><li data-sn-text="m.subject"></li></template>
@@ -35,14 +35,14 @@ See `docs/recipes/pagination.html`.
 ## The object
 
 ```html
-<sn-resource … paginate="{ keyset: { before: id }, size: 20 }"></sn-resource>
-<sn-resource … paginate="{ append: { before: id }, size: 20 }"></sn-resource>
+<sn-resource … paginate="{ keyset: { before: $item.id }, size: 20 }"></sn-resource>
+<sn-resource … paginate="{ append: { before: $item.id }, size: 20 }"></sn-resource>
 <sn-resource … paginate="{ numbered: true, size: 10, model: $url.page }"></sn-resource>
 ```
 
 | Key | Meaning |
 | --- | --- |
-| `keyset`, `append` | The mode, and its cursor: an object literal evaluated on the boundary item, the last item for `next`, the first for `prev`. `first` and `last` send no cursor. Fields that are `null` or `undefined` are left out. |
+| `keyset`, `append` | The mode, and its cursor: an object literal that reads the item at the page's edge as `$item` (`{ before: $item.id }`), the last item for `next`, the first for `prev`; a field written bare, the form before 2026-11-20, is `SN201` naming `$item.<field>`. `first` and `last` send no cursor. Fields that are `null` or `undefined` are left out. |
 | `numbered: true`, `numbered: 'offset'` | Numbered mode: pages by number. `true` sends the page number (`params.page`); `'offset'` sends the items to skip instead, `(n - 1) × size` (`params.offset`), for a server that skips by offset. |
 | `size` | Items per page, a positive whole number. Required. |
 | `model` | Numbered mode: the URL parameter that holds the page, `$url.page`. See [Page in the URL](#page-in-the-url). |

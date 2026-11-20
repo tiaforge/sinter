@@ -75,7 +75,7 @@ Branches do narrow. What is inside a `data-sn-if` template is checked where its 
 
 ```html
 <sn-sync src="/api/events">
-  <sn-event name="contact_updated" resource="contacts" op="upsert" value="contact" type="ContactEvent"></sn-event>
+  <sn-event name="contact_updated" resource="contacts" op="upsert" value="$event.contact" type="ContactEvent"></sn-event>
 </sn-sync>
 ```
 

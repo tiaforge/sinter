@@ -486,7 +486,7 @@ export function plans(ctx: ExtractContext, range: Range, o: { whole?: boolean } 
   while (rb > ra && /\s/.test(src[rb - 1]!)) rb--;
   const empty = whole || ra === rb;
 
-  const scopeNames = new Set<string>([...(e.payload?.names ?? []), ...unit.resources.map((r) => r.name)]);
+  const scopeNames = new Set<string>([...(e.payload ? [e.payload.as] : []), ...unit.resources.map((r) => r.name)]);
   for (const i of e.frames) {
     const f = unit.frames[i]!;
     if (f.kind === 'state') for (const n of f.names) scopeNames.add(n);

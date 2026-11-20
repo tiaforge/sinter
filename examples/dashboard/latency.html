@@ -5,7 +5,7 @@
   <sn-resource name="samples" src="/samples" key="slot" order="at"></sn-resource>
   <sn-sync src="/events">
     <sn-event name="sample" resource="samples" op="upsert"></sn-event>
-    <sn-event name="service_updated" resource="services" op="upsert" value="service" type="ServiceEvent"></sn-event>
+    <sn-event name="service_updated" resource="services" op="upsert" value="$event.service" type="ServiceEvent"></sn-event>
   </sn-sync>
 
   <span slot="status" data-badge data-sn-text="{ connecting: 'Connecting…', open: 'Live', retrying: 'Reconnecting…' }[$meta.samples.live]"

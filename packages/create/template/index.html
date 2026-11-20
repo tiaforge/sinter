@@ -9,7 +9,7 @@
 
   <!-- Live updates: what another tab (or user) changes arrives as server events. -->
   <sn-sync src="/api/events">
-    <sn-event name="task_updated" resource="tasks" op="upsert" value="task" type="TaskEvent"></sn-event>
+    <sn-event name="task_updated" resource="tasks" op="upsert" value="$event.task" type="TaskEvent"></sn-event>
     <sn-event name="task_removed" resource="tasks" op="remove" type="TaskRemoved"></sn-event>
   </sn-sync>
 

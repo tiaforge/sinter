@@ -10,7 +10,7 @@
   <!-- Live updates, pushed by the server: one new sample at a time, and a service when it is paused. -->
   <sn-sync src="/events">
     <sn-event name="sample" resource="samples" op="upsert"></sn-event>
-    <sn-event name="service_updated" resource="services" op="upsert" value="service" type="ServiceEvent"></sn-event>
+    <sn-event name="service_updated" resource="services" op="upsert" value="$event.service" type="ServiceEvent"></sn-event>
   </sn-sync>
 
   <!-- The layout's `status` slot, in the header. `live` is the state of the stream that feeds `samples`:

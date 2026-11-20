@@ -4,8 +4,8 @@
 <sn-resource name="people" src="/api/people" key="id" order="name"></sn-resource>
 
 <sn-sync src="/api/events">
-  <sn-event name="person_updated" resource="people" op="upsert" value="person" when="person"></sn-event>
-  <sn-event name="person_updated" resource="people" op="refresh" when="!person"></sn-event>
+  <sn-event name="person_updated" resource="people" op="upsert" value="$event.person" when="$event.person"></sn-event>
+  <sn-event name="person_updated" resource="people" op="refresh" when="!$event.person"></sn-event>
 </sn-sync>
 
 <ul>

@@ -56,7 +56,7 @@ test('confirmed changes are written on pagehide; optimistic ones are not', async
   const session = memoryStorage();
   const stream = mockStream();
   const html = `${LIST()}
-    <sn-sync src="/api/events"><sn-event name="contact_updated" resource="contacts" op="upsert" value="contact"></sn-event></sn-sync>
+    <sn-sync src="/api/events"><sn-event name="contact_updated" resource="contacts" op="upsert" value="$event.contact"></sn-event></sn-sync>
     <button data-sn-delete="/api/contacts/1" data-sn-optimistic="remove(contacts[0])">delete</button>`;
   const requests = mockRequests({ 'GET /api/contacts': { contacts: [{ id: 1, name: 'Ada' }] }, 'DELETE /api/contacts/1': null });
   const r = await render(html, { session, requests, streams: { '/api/events': stream } });

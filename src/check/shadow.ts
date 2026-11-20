@@ -318,32 +318,21 @@ export function shadow(o: ShadowOptions): Shadow {
     line('');
     if (e.returns) tagged('returns', e.returns);
     line(`function $e${i}() {`);
-    // the payload's block is outside the frames: state and lets shadow its fields, as sinter resolves them
+    // the payload's block is outside the frames
     if (e.payload) {
       line('{');
       if (e.payload.type) tagged('type', e.payload.type, ' const $p = $any;');
       else line('const $p = $any;');
-      // a field the payload type lacks is reported at the start of the expression
-      for (const n of e.payload.names) {
-        regions.push({ start: out.length + 1, lines: 1, loc: e.loc, fixed: true });
-        line(`const ${n} = $p.${n};`);
-      }
-      // a state or let name shadows a payload field of the same name: an error when the payload type has it
-      if (e.payload.type) {
-        const shadowing = [...(e.payload.states ?? []).map((n) => [n, 'state', 'the state'] as const), ...(e.payload.lets ?? []).map((n) => [n, '`data-sn-let` name', 'it'] as const)];
-        for (const [n, what, it] of shadowing) {
-          const msg = `${what} \`${n}\` shadows the payload field \`${n}\`: rename ${it}`;
-          regions.push({ start: out.length + 1, lines: 1, loc: e.loc, fixed: true });
-          line(`/** @type {${JSON.stringify(n)} extends keyof typeof $p ? ${JSON.stringify(msg)} : true} */ const $shadows_${n} = true; void $shadows_${n};`);
-        }
-      }
+      // the payload by its name: `$event` in an `<sn-event>`, `$item` in a cursor
+      line(`const ${e.payload.as} = $p;`);
     }
     const blocks = open(e.frames) + (e.payload ? 1 : 0);
     line(`/** @type {${decl(`El<${JSON.stringify(e.tag)}>`)}} */ const $el = $any;`);
     if (e.mode === 'value') {
       // action arguments and bodies are taken when the trigger fires
       // run('id') starts the action without an event: unguarded reads are reported
-      if (e.detail) tagged('type', { ...e.detail, text: `CustomEvent<${e.detail.kind === 'ts' ? e.detail.text : 'any'}>` } as TypeRef, ' const $event = $any;');
+      if (e.payload?.as === '$event') { /* the payload, declared above */ }
+      else if (e.detail) tagged('type', { ...e.detail, text: `CustomEvent<${e.detail.kind === 'ts' ? e.detail.text : 'any'}>` } as TypeRef, ' const $event = $any;');
       else if (e.event !== null) line(`/** @type {${decl(e.run ? `RunEvent<${decl(`Ev<${JSON.stringify(e.event)}, ${JSON.stringify(e.tag)}>`)}>` : `Ev<${JSON.stringify(e.event)}, ${JSON.stringify(e.tag)}>`)}} */ const $event = $any;`);
       if (e.guard) {
         if (e.guardAt) regions.push({ start: out.length + 1, lines: 1, loc: e.guardAt.loc, fixed: true, candidate: { name: e.guardAt.name, key: e.guardAt.key, keySrc: e.guard.replace(/^\((.*)\) === .*$/s, '$1') } });
@@ -355,7 +344,9 @@ export function shadow(o: ShadowOptions): Shadow {
       verbatim(e.src, e.loc);
       line(');');
     } else {
-      if (e.detail) tagged('type', { ...e.detail, text: `CustomEvent<${e.detail.kind === 'ts' ? e.detail.text : 'any'}>` } as TypeRef, ' const $event = $any;');
+      // an `<sn-event>` handler's `$event` is its payload, declared above
+      if (e.payload?.as === '$event') { /* the payload */ }
+      else if (e.detail) tagged('type', { ...e.detail, text: `CustomEvent<${e.detail.kind === 'ts' ? e.detail.text : 'any'}>` } as TypeRef, ' const $event = $any;');
       else line(`/** @type {${decl(`Ev<${JSON.stringify(e.event ?? '')}, ${JSON.stringify(e.tag)}>`)}} */ const $event = $any;`);
       if (e.result) {
         if (e.resultType) tagged('type', e.resultType, ' const $result = $any;');

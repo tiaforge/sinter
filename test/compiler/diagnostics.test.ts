@@ -40,7 +40,7 @@ function diags(html: string, o: Opts = {}) {
 }
 
 const R = `<sn-resource name="contacts" src="/api/c" key="id"></sn-resource>
-  <sn-resource name="messages" src="/api/m" key="uid" paginate="{ keyset: {uid}, size: 5 }"></sn-resource>`;
+  <sn-resource name="messages" src="/api/m" key="uid" paginate="{ keyset: {uid: $item.uid}, size: 5 }"></sn-resource>`;
 const use = '<p data-sn-text="contacts.length + messages.length"></p>';
 
 test('a helper named like a retired function is the app\'s own, in handlers as in bindings', () => {
@@ -65,7 +65,7 @@ const cases: Array<[string, string, RegExp, Opts?]> = [
   ['SN101', '<sn-resource name="p" src="/api/p" key="id"></sn-resource><p data-sn-text="p.length"></p><sn-sync src="/s"><sn-event name="e" resource="p" op="upsert" item="person"></sn-event></sn-sync>', /`item` is renamed to `value`, the value the change writes/],
   ['SN201', '<dialog id="d"></dialog><sn-sync src="/s"><sn-event name="x" then="close(\'d\')"></sn-event></sn-sync>', /`close\(\)` is renamed to `closeDialog\(\)`/],
   ['SN101', '<p data-sn-component="{}"></p>', /`data-sn-component` is renamed to `data-sn-props`/],
-  ['SN101', '<sn-resource name="p" src="/api/p" key="id"></sn-resource><p data-sn-text="p.length"></p><sn-sync src="/s"><sn-event name="e" resource="p" op="upsert" value="person" fallback></sn-event></sn-sync>', /`fallback` is gone: write the refresh as a second event of the same name/],
+  ['SN101', '<sn-resource name="p" src="/api/p" key="id"></sn-resource><p data-sn-text="p.length"></p><sn-sync src="/s"><sn-event name="e" resource="p" op="upsert" value="$event.person" fallback></sn-event></sn-sync>', /`fallback` is gone: write the refresh as a second event of the same name/],
   ['SN101', '<button data-sn-get="/api/x"></button>', /`data-sn-get` is gone: data a GET loads is a resource/],
   ['SN101', '<form data-sn-on-dismiss="x = 1"></form>', /`data-sn-on-dismiss` is renamed to `data-sn-on-sn-dismiss`, as sinter's events are all `sn-…`/],
   ['SN101', '<script type="application/json" data-sn-data="contacts"></script>', /`data-sn-data` is renamed to `data-sn-resource`/],
@@ -122,7 +122,7 @@ const cases: Array<[string, string, RegExp, Opts?]> = [
   ['SN502', '<p data-sn-text="Date.now()"></p>', /`Date.now\(\)` in a binding never updates. Use `\$now`/],
   ['SN503', `${R}${use}<template data-sn-for="c in contacts"><a data-sn-attr="{id: c.id}"></a></template>`, /`id` bound from data can shadow globals/],
   ['SN504', `${R}${use}`, /resource `contacts` has no type: expressions using it are not checked/, { check: true }],
-  ['SN506', `${R}${use}<sn-sync src="/api/events"><sn-event name="contact_updated" resource="contacts" op="upsert" value="contact"></sn-event></sn-sync>`, /event `contact_updated` has no type: expressions reading its payload are not checked/, { check: true }],
+  ['SN506', `${R}${use}<sn-sync src="/api/events"><sn-event name="contact_updated" resource="contacts" op="upsert" value="$event.contact"></sn-event></sn-sync>`, /event `contact_updated` has no type: expressions reading its payload are not checked/, { check: true }],
   ['SN507', '<div data-sn-state="{ a: 0 }"><button data-sn-on-click="a = 1; a = 2; a = 3; a = 4; a = 5" data-sn-text="a"></button></div>', /`data-sn-on-click` is too complex for markup: 5 statements in one handler \(limit `statements`: 4\)\. Move the logic into a helper/],
   ['SN334', '<div data-sn-state="{ v: true }"><x-maybe id="m" data-sn-with="{ on: v }"></x-maybe></div>', /`<x-maybe>`'s root may render nothing, so `id` on its tag would point at an element that may not exist/],
   ['SN333', '<div data-sn-state="{ v: 1 }"><template data-sn-text="v" data-sn-if="v"></template></div>', /`data-sn-text` and `data-sn-if` on one `<template>`/],
@@ -235,10 +235,10 @@ test('refresh() with several resources: each a declared one', () => {
 const FORMS = (fn: string) => `\`${fn}()\` takes ${fn === 'refresh' ? 'resources' : 'a resource'}: a resource (\`refresh(people)\`), \`?:\`, \`||\` or \`??\` between resources, or a \`data-sn-let\` name that is one`;
 
 describe('resource references: resources, ?:, ||, ?? and lets that are one', () => {
-  const P = `<sn-resource name="messages" src="/api/m" key="uid" paginate="{ keyset: {uid}, size: 5 }"></sn-resource>
+  const P = `<sn-resource name="messages" src="/api/m" key="uid" paginate="{ keyset: {uid: $item.uid}, size: 5 }"></sn-resource>
   <sn-resource name="results" src="/api/r" key="uid" paginate="{ numbered: true, size: 5 }"></sn-resource>
-  <sn-resource name="jumps" src="/api/j" key="uid" paginate="{ keyset: {uid}, size: 5, jump: true }"></sn-resource>
-  <sn-resource name="feed" src="/api/f" key="uid" paginate="{ append: {uid}, size: 5 }"></sn-resource>
+  <sn-resource name="jumps" src="/api/j" key="uid" paginate="{ keyset: {uid: $item.uid}, size: 5, jump: true }"></sn-resource>
+  <sn-resource name="feed" src="/api/f" key="uid" paginate="{ append: {uid: $item.uid}, size: 5 }"></sn-resource>
   <sn-resource name="other" src="/api/o" key="id"></sn-resource>`;
   const msgs = (h: string, o: Opts = {}) => diags(`${P}<main data-sn-state="{ s: false, tab: 'messages' }">${h}</main>`, o).map((d) => `${d.code} ${d.message}`);
   const on = (h: string, lets = `{ shown: s ? results : messages }`) => msgs(`<div data-sn-let="${lets}"><button data-sn-on-click="${h}"></button></div>`).filter((m) => !m.startsWith('SN501'));
@@ -314,19 +314,20 @@ describe('resource references: resources, ?:, ||, ?? and lets that are one', () 
 describe('<sn-event then>', () => {
   const codes = (events: string) => diags(`${R}${use}<dialog id="detail"></dialog><main data-sn-state="{ sel: null }"><p data-sn-text="sel"></p>
     <sn-sync src="/api/events">${events}</sn-sync></main>`).filter((d) => d.severity === 'error').map((d) => `${d.code} ${d.message}`);
-  test('a handler: state writes, store functions and payload fields; with `then`, resource and op may be left out', () => {
-    expect(codes(`<sn-event name="r" resource="contacts" op="remove" then="sel?.id === id && (sel = null, closeDialog('detail')); refresh(messages)"></sn-event>`)).toEqual([]);
-    expect(codes(`<sn-event name="n" then="sel = id"></sn-event>`)).toEqual([]);
-    expect(codes(`<sn-event name="n" when="id = 1"></sn-event>`)).toEqual([expect.stringMatching(/^SN301 resource `` is not declared/)]);
+  test('a handler: state writes, store functions and the payload, $event; with `then`, resource and op may be left out', () => {
+    expect(codes(`<sn-event name="r" resource="contacts" op="remove" then="sel?.id === $event.id && (sel = null, closeDialog('detail')); refresh(messages)"></sn-event>`)).toEqual([]);
+    expect(codes(`<sn-event name="n" then="sel = $event.id"></sn-event>`)).toEqual([]);
+    // a payload field read bare, the form before 2026-11-20, names `$event`
+    expect(codes(`<sn-event name="n" then="sel = id"></sn-event>`)).toEqual(["SN201 `id` is renamed to `$event.id`: an `<sn-event>`'s payload is `$event`"]);
   });
-  test('data-sn-let names around the sync resolve like state, before payload fields; they cannot be assigned', () => {
+  test('data-sn-let names around the sync resolve as anywhere; they cannot be assigned', () => {
     const lets = (events: string) => diags(`${R}${use}<main data-sn-state="{ sel: null }" data-sn-let="{ open: sel, tag: $el.id }"><p data-sn-text="open + tag"></p>
       <sn-sync src="/api/events">${events}</sn-sync></main>`).filter((d) => d.severity === 'error').map((d) => `${d.code} ${d.message}`);
-    expect(lets(`<sn-event name="n" when="open && open.id === id" then="open && sel === open && refresh(messages)"></sn-event>`)).toEqual([]);
-    expect(lets(`<sn-event name="n" then="open = id"></sn-event>`)).toEqual(['SN203 `open` is derived (`data-sn-let`) and cannot be assigned; assign the state it is computed from']);
+    expect(lets(`<sn-event name="n" when="open && open.id === $event.id" then="open && sel === open && refresh(messages)"></sn-event>`)).toEqual([]);
+    expect(lets(`<sn-event name="n" then="open = $event.id"></sn-event>`)).toEqual(['SN203 `open` is derived (`data-sn-let`) and cannot be assigned; assign the state it is computed from']);
     expect(lets(`<sn-event name="n" then="sel = tag"></sn-event>`)).toEqual(['SN201 `tag` (`data-sn-let`) reads `$el`, and `<sn-event>` has no element']);
     const parts = compileParts(`${R}${use}<main data-sn-state="{ sel: null }" data-sn-let="{ open: sel }"><p data-sn-text="open"></p>
-      <sn-sync src="/api/events"><sn-event name="n" then="sel = open || id"></sn-event></sn-sync></main>`, {
+      <sn-sync src="/api/events"><sn-event name="n" then="sel = open || $event.id"></sn-event></sn-sync></main>`, {
       file: '/p/page.html', root: '/p', dev: false, readFile: () => '', helpers: { module: null, names: [], namespaces: {} },
     });
     expect(parts.fns.find((f) => f.includes('$.$p.id'))).toContain('$.$s0.sel || $.$p.id');
@@ -337,8 +338,7 @@ describe('<sn-event then>', () => {
       "SN203 `closeDialog()` needs an element; an `<sn-event>` handler has none: name the dialog, `closeDialog('id')`",
       'SN203 `emit()` needs an element; an `<sn-event>` handler has none',
     ]);
-    expect(codes(`<sn-event name="n" then="id = 2"></sn-event>`)).toEqual([expect.stringMatching(/^SN203 `id` cannot be assigned/)]);
-    expect(codes(`<sn-event name="n" then="$event.x"></sn-event>`)).toEqual([expect.stringMatching(/^SN201 `\$event` is not available here/)]);
+    expect(codes(`<sn-event name="n" then="$event.id = 2"></sn-event>`)).toEqual([expect.stringMatching(/^SN203 `\$event\.id` cannot be assigned/)]);
     expect(codes(`<sn-event name="r" resource="contacts" op="remove" thn="sel = null"></sn-event>`))
       .toEqual(['SN101 `thn` is not an attribute of `<sn-event>`. Did you mean `then`?']);
   });
@@ -533,14 +533,14 @@ describe('expressions', () => {
     const hint = (resource: string, ev: string) => diags(`${resource}<p data-sn-text="contacts.length"></p><sn-sync src="/api/events">${ev}</sn-sync>`, { check: true })
       .find((d) => d.code === 'SN506')?.hint;
     const typed = '<sn-resource name="contacts" src="/api/c" key="id" type="Contact[]"></sn-resource>';
-    expect(hint(typed, '<sn-event name="contact.updated" resource="contacts" op="upsert" value="contact"></sn-event>'))
+    expect(hint(typed, '<sn-event name="contact.updated" resource="contacts" op="upsert" value="$event.contact"></sn-event>'))
       .toBe('add `type="{ contact: Contact }"`, the payload\'s fields (a type from the types module may be named), or `type="any"` to leave it unchecked');
-    expect(hint(typed.replace('Contact[]', 'Array<Contact>'), '<sn-event name="u" resource="contacts" op="upsert" value="contact"></sn-event>')).toMatch(/^add `type="\{ contact: Contact \}"`/);
+    expect(hint(typed.replace('Contact[]', 'Array<Contact>'), '<sn-event name="u" resource="contacts" op="upsert" value="$event.contact"></sn-event>')).toMatch(/^add `type="\{ contact: Contact \}"`/);
     // the sync before the resource it feeds
-    expect(diags(`<sn-sync src="/api/events"><sn-event name="u" resource="contacts" op="upsert" value="contact"></sn-event></sn-sync>${typed}<p data-sn-text="contacts.length"></p>`, { check: true })
+    expect(diags(`<sn-sync src="/api/events"><sn-event name="u" resource="contacts" op="upsert" value="$event.contact"></sn-event></sn-sync>${typed}<p data-sn-text="contacts.length"></p>`, { check: true })
       .find((d) => d.code === 'SN506')?.hint).toMatch(/^add `type="\{ contact: Contact \}"`/);
     // an untyped resource, and an item that is not one payload field
-    expect(hint(typed.replace(' type="Contact[]"', ''), '<sn-event name="u" resource="contacts" op="upsert" value="contact"></sn-event>')).toMatch(/^add `type="\{ contact: … \}"`/);
+    expect(hint(typed.replace(' type="Contact[]"', ''), '<sn-event name="u" resource="contacts" op="upsert" value="$event.contact"></sn-event>')).toMatch(/^add `type="\{ contact: … \}"`/);
     expect(hint(typed, '<sn-event name="d" resource="contacts" op="remove" when="id > 0"></sn-event>')).toMatch(/^add `type="\{ id: number; … \}"`/);
   });
   test('SN531 only for a body that is a JSON.stringify call: objects and other strings pass; a POST resource\'s body too', () => {

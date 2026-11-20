@@ -89,12 +89,12 @@ async function swapTo(next: ReturnType<typeof compile>, between?: () => void) {
 const sync = (src: string, events: string) => `<sn-sync src="${src}">${events}</sn-sync>`;
 const A = compile(`<div data-sn-state="{ got: [] }">
   <sn-resource name="items" src="/api/items" items="items" key="id"></sn-resource>
-  ${sync('/events', '<sn-event name="item" resource="items" op="upsert"></sn-event><sn-event name="note" then="got = [...got, text]"></sn-event>')}
+  ${sync('/events', '<sn-event name="item" resource="items" op="upsert"></sn-event><sn-event name="note" then="got = [...got, $event.text]"></sn-event>')}
   <p id="got" data-sn-text="got.join(',')"></p><p id="live" data-sn-text="$meta.items.live"></p>
   <ul><template data-sn-for="x in items"><li data-sn-text="x.id"></li></template></ul></div>`);
 const B = compile(`<div data-sn-state="{ got: [] }">
   <sn-resource name="items" src="/api/other" items="items" key="id"></sn-resource>
-  ${sync('/events', '<sn-event name="item" resource="items" op="upsert"></sn-event><sn-event name="note" then="got = [...got, \'B:\' + text]"></sn-event><sn-event name="extra" then="got = [...got, \'x\']"></sn-event>')}
+  ${sync('/events', '<sn-event name="item" resource="items" op="upsert"></sn-event><sn-event name="note" then="got = [...got, \'B:\' + $event.text]"></sn-event><sn-event name="extra" then="got = [...got, \'x\']"></sn-event>')}
   <p id="got" data-sn-text="got.join(',')"></p><p id="live" data-sn-text="$meta.items.live"></p>
   <ul><template data-sn-for="x in items"><li data-sn-text="x.id"></li></template></ul></div>`);
 const NONE = compile(`<p>no stream</p>`);

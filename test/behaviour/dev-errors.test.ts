@@ -80,8 +80,8 @@ test('a stream event that cannot be applied and `page(…, \'last\')` without a 
   const r = await render(`
     <sn-resource name="rows" src="/api/rows" key="id" paginate="{ numbered: true, size: 2 }"></sn-resource>
     <sn-sync src="/events">
-      <sn-event name="patched" resource="rows" op="merge" value="{name}"></sn-event>
-      <sn-event name="broken" resource="rows" op="upsert" value="a.b"></sn-event>
+      <sn-event name="patched" resource="rows" op="merge" value="{name: $event.name}"></sn-event>
+      <sn-event name="broken" resource="rows" op="upsert" value="$event.a.b"></sn-event>
     </sn-sync>
     <template data-sn-for="x in rows"><li data-sn-text="x.id"></li></template>
     <button data-sn-on-click="page(rows, 'last')">last</button>`, {

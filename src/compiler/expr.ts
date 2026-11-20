@@ -169,9 +169,11 @@ export interface ExprOptions {
   mode: Mode;
   /** magic names allowed here besides the everywhere ones */
   magic?: string[];
-  /** free identifiers resolve to fields of `$.$p` (sn-event, cursor) */
+  /** the expression reads a payload, `$.$p`, by a magic name: an `<sn-event>`'s (`$event`) or the cursor's item (`$item`) */
   payload?: boolean;
-  /** with `payload`: state names in scope resolve to the state first (`<sn-event>`) */
+  /** the payload's name: `$event` (default) or `$item` */
+  payloadAs?: '$event' | '$item';
+  /** with `payload`: the state and lets around the `<sn-sync>` are in scope (`<sn-event>`) */
   payloadState?: boolean;
   /** a handler with no element (`<sn-event>`, `<sn-resource>` `then`): `closeDialog()` names its dialog, no `emit()` */
   noElement?: string;
@@ -208,12 +210,6 @@ export interface ExprResult {
   /** a `?:` (or `||`, `??`) between expressions rooted at resources: each of them */
   resources?: string[];
   ast: Node | null;
-  /** names resolved to payload fields (`payload` mode) */
-  payloadNames?: string[];
-  /** state names read where the payload is the scope (they shadow payload fields of the same name) */
-  payloadStates?: string[];
-  /** `data-sn-let` names read where the payload is the scope (they shadow payload fields of the same name) */
-  payloadLets?: string[];
   /** handlers: the action elements `run('id')` starts and the resources `refresh(name)` reloads, with offsets (for `SN509`) */
   runs?: Array<{ id: string; offset: number }>;
   refreshes?: Array<{ name: string; offset: number }>;
@@ -410,9 +406,6 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
   let usesEl = false;
   let usesIndex = false;
   let ok = true;
-  const payloadNames = new Set<string>();
-  const payloadStates = new Set<string>();
-  const payloadLets = new Set<string>();
   const runs: NonNullable<ExprResult['runs']> = [];
   const refreshes: NonNullable<ExprResult['refreshes']> = [];
   const nameLets: LetEntry[] = [];
@@ -500,6 +493,7 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
       report('SN201', '`$slot` is not available here: it is the values a placement passes, in a fill of a slot declared `Slot<T>` (`<span slot="cell" data-sn-text="$slot.row.name">`)', offset);
       return null;
     }
+    if (opts.payload && name === (opts.payloadAs ?? '$event')) return { kind: 'payload' };
     if (name.startsWith('$')) {
       if (ALL_MAGIC.includes(name)) {
         // outside `catch`, `$error` is the form's: a state field the compiler gives a form that reads it
@@ -522,17 +516,16 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
       return null;
     }
     if (opts.payload && opts.payloadState) {
-      // lets and state around the <sn-sync> win over payload fields of the same name
+      // the lets and state around the <sn-sync>, as anywhere (the payload is `$event`)
       const lets = scope.lets ?? [];
       for (let i = lets.length - 1; i >= 0; i--) {
         if (lets[i]!.name !== name) continue;
         // an element-less handler has no element for a let that reads `$el`
         if (lets[i]!.usesEl) { report('SN201', `\`${name}\` (\`data-sn-let\`) reads \`$el\`, and \`<sn-event>\` has no element`, offset); return null; }
-        payloadLets.add(name);
         return { kind: 'let', entry: lets[i]! };
       }
       for (let i = scope.states.length - 1; i >= 0; i--) {
-        if (scope.states[i]!.names.has(name)) { payloadStates.add(name); return { kind: 'state', sid: scope.states[i]!.sid }; }
+        if (scope.states[i]!.names.has(name)) return { kind: 'state', sid: scope.states[i]!.sid };
       }
     }
     if (!opts.payload) {
@@ -571,7 +564,6 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
       report('SN202', `\`${name}\` is not allowed in expressions`, offset);
       return null;
     }
-    if (opts.payload) { payloadNames.add(name); return { kind: 'payload' }; }
     if (page.actions?.has(name)) {
       if (mode === 'value') report('SN203', `\`${name}\` is an action: actions run through \`data-sn-call\` or \`<sn-resource call>\`, not inside expressions`, offset);
       else {
@@ -587,7 +579,12 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
       report('SN202', `\`${name}\` is a browser API; expressions may use JavaScript, not the browser. Use a component's script`, offset);
       return null;
     }
-    if (opts.payload) { payloadNames.add(name); return { kind: 'payload' }; }
+    // a payload field read bare, the form before 2026-11-20: it is a field of the payload's name
+    if (opts.payload) {
+      const as = opts.payloadAs ?? '$event';
+      report('SN201', `\`${name}\` is renamed to \`${as}.${name}\`: ${as === '$event' ? 'an `<sn-event>`\'s payload is `$event`' : 'the cursor reads the item at the page\'s edge as `$item`'}`, offset);
+      return null;
+    }
     if (Object.hasOwn(RETIRED_FNS, name)) {
       report('SN201', RETIRED_FNS[name]!, offset);
       return null;
@@ -629,7 +626,7 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
       case 'magic': return `$.${name}`;
       case 'const': return res.code;
       case 'store': return `$.$f.${name}`;
-      case 'payload': return `$.$p.${name}`;
+      case 'payload': return '$.$p';
       case 'ns': return name;
     }
   }
@@ -1588,7 +1585,7 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
   const value = body.length === 1 && !opts.object && mode === 'value' && ok ? body[0]! : null;
   const sources = value ? { itemOf: itemSource(value, root), listOf: listSource(value, root) } : {};
   return { ok, code, inner: out, deps: [...deps].sort(), writes: [...writes].sort(), usesEl, usesIndex, entries, path, resource, ast, ...sources,
-    ...(nameEdits.length ? { nameEdits } : {}), ...(assigns.length ? { assigns } : {}), ...(emitted.length ? { emitted } : {}), ...(srcRefs.length ? { srcRefs } : {}), ...(itemCalls.length ? { itemCalls } : {}), ...(opts.payload ? { payloadNames: [...payloadNames].sort(), payloadStates: [...payloadStates].sort(), payloadLets: [...payloadLets].sort() } : {}), ...(runs.length ? { runs } : {}), ...(refreshes.length ? { refreshes } : {}), ...(nameLets.length ? { nameLets: [...new Set(nameLets)] } : {}), ...(reads.length ? { reads } : {}), ...(resources ? { resources } : {}) };
+    ...(nameEdits.length ? { nameEdits } : {}), ...(assigns.length ? { assigns } : {}), ...(emitted.length ? { emitted } : {}), ...(srcRefs.length ? { srcRefs } : {}), ...(itemCalls.length ? { itemCalls } : {}), ...(runs.length ? { runs } : {}), ...(refreshes.length ? { refreshes } : {}), ...(nameLets.length ? { nameLets: [...new Set(nameLets)] } : {}), ...(reads.length ? { reads } : {}), ...(resources ? { resources } : {}) };
 }
 
 export function applyEdits(src: string, edits: Edit[]): string {

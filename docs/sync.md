@@ -9,7 +9,7 @@ mid-request.
 <sn-resource name="people" src="/api/people" key="id" order="name"></sn-resource>
 
 <sn-sync src="/api/events">
-  <sn-event name="person_updated" resource="people" op="upsert" value="person"></sn-event>
+  <sn-event name="person_updated" resource="people" op="upsert" value="$event.person"></sn-event>
   <sn-event name="person_removed" resource="people" op="remove"></sn-event>
 </sn-sync>
 
@@ -55,25 +55,26 @@ Whatever the transport, the store only understands four changes:
 | `then` | Handler run after the change is applied, see [Reacting to events](#reacting-to-events). |
 | `type` | The payload's type, for `sinter check` ([type-checking.md](type-checking.md)). |
 
-Attributes are expressions evaluated against the event's parsed payload: its fields are bare names.
-State declared around the `<sn-sync>` is in scope too, and `src` of `<sn-sync>` is evaluated the
-same way. Loop variables and resources are not in scope.
+Attributes are expressions, and the event's parsed payload is `$event` in them. The state and
+`data-sn-let` names around the `<sn-sync>` are in scope as anywhere (`src` of `<sn-sync>` reads them
+too); loop variables are not, and a resource is named only where a store function takes one.
 
 ```html
 <sn-event name="message_changed" resource="messages" op="merge"
-          value="{flags, is_read: flags.includes('\\Seen')}"
-          when="mailbox === sel.mailbox"></sn-event>
+          value="{flags: $event.flags, is_read: $event.flags.includes('\\Seen')}"
+          when="$event.mailbox === sel.mailbox"></sn-event>
 ```
 
-Here `mailbox` is a payload field and `sel` is state. Events with no `<sn-event>` are still
+Here `$event.mailbox` is the payload's field and `sel` is state. A payload field written bare, the
+form before 2026-11-20, is `SN201` naming `$event.<field>`. Events with no `<sn-event>` are still
 delivered to [custom elements](islands.md).
 
 Several `<sn-event>` elements may name the same event; each applies when its `when` holds. A server
 whose updates sometimes carry the item and sometimes only an id writes both cases:
 
 ```html
-<sn-event name="person_updated" resource="people" op="upsert" value="person" when="person"></sn-event>
-<sn-event name="person_updated" resource="people" op="refresh" when="!person"></sn-event>
+<sn-event name="person_updated" resource="people" op="upsert" value="$event.person" when="$event.person"></sn-event>
+<sn-event name="person_updated" resource="people" op="refresh" when="!$event.person"></sn-event>
 ```
 
 See [recipes/partial-events.html](recipes/partial-events.html).
@@ -88,8 +89,8 @@ assign state. With `then`, `resource` and `op` can be left out: the event only r
 <body data-sn-state="{ sel: null, notice: '' }">
   <sn-sync src="/api/events">
     <sn-event name="person_removed" resource="people" op="remove"
-              then="sel?.id === id && closeDialog('person')"></sn-event>
-    <sn-event name="notice" then="notice = text"></sn-event>
+              then="sel?.id === $event.id && closeDialog('person')"></sn-event>
+    <sn-event name="notice" then="notice = $event.text"></sn-event>
   </sn-sync>
 </body>
 ```
@@ -97,13 +98,11 @@ assign state. With `then`, `resource` and `op` can be left out: the event only r
 - The handler runs for every event that passes `when`. It does not run when the payload can't be
   applied: a `merge` or `remove` without the key fields, or an `upsert` without an item.
 - Store functions are in scope (`refresh`, `upsert`, `merge`, `remove`, `page`, `openDialog`,
-  `closeDialog('id')`, `run('id')`) and win over payload fields of the same name.
+  `closeDialog('id')`, `run('id')`).
 - There is no element, so `closeDialog()` must name its dialog, and `emit()` is an error
-  (`SN203`). `$event` and `$result` are not defined, and assigning to a payload field is an error.
-- A state name wins over a payload field of the same name. With a typed payload (`type`), such a
-  clash is a `sinter check` error; without a type, pick names the payloads don't use.
-- `data-sn-let` names declared around the `<sn-sync>` resolve like state, before payload fields.
-  A `data-sn-let` that reads `$el` is `SN201` here, since there is no element.
+  (`SN203`). `$event` is the payload, not a DOM event; `$result` is not defined, and assigning to
+  the payload (`$event.id = 1`) is an error.
+- A `data-sn-let` that reads `$el` is `SN201` here, since there is no element.
 
 ## Transports
 

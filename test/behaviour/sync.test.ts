@@ -7,9 +7,9 @@ afterEach(() => configure({ request: [], onError: null, sessionProbe: null }));
 const PAGE = `
   <sn-resource name="contacts" src="/api/contacts" items="contacts" key="id" order="name"></sn-resource>
   <sn-sync src="/api/events/stream">
-    <sn-event name="contact_updated" resource="contacts" op="upsert" value="contact" when="contact"></sn-event>
-    <sn-event name="contact_updated" resource="contacts" op="refresh" when="!contact"></sn-event>
-    <sn-event name="contact_patched" resource="contacts" op="merge" value="{name}"></sn-event>
+    <sn-event name="contact_updated" resource="contacts" op="upsert" value="$event.contact" when="$event.contact"></sn-event>
+    <sn-event name="contact_updated" resource="contacts" op="refresh" when="!$event.contact"></sn-event>
+    <sn-event name="contact_patched" resource="contacts" op="merge" value="{name: $event.name}"></sn-event>
     <sn-event name="contact_removed" resource="contacts" op="remove"></sn-event>
     <sn-event name="contacts_refetch" resource="contacts" op="refresh"></sn-event>
   </sn-sync>
@@ -198,7 +198,7 @@ test('<sn-sync> inside a state element: src and event expressions read that stat
   const { root, settle } = await render(`<main data-sn-state="{ sel: 'inbox', topic: 'mail' }">
     <sn-resource name="m" src="/api/m" key="id"></sn-resource>
     <sn-sync src="/s/{topic}">
-      <sn-event name="refetch" resource="m" op="refresh" when="mailbox === sel"></sn-event>
+      <sn-event name="refetch" resource="m" op="refresh" when="$event.mailbox === sel"></sn-event>
     </sn-sync>
     <button data-sn-on-click="sel = 'sent'"></button>
     <p data-sn-text="m.length"></p></main>`, { requests, streams: { '/s/mail': stream } });
@@ -218,14 +218,14 @@ test('<sn-sync> inside a state element: src and event expressions read that stat
   expect(loads()).toBe(3);
 });
 
-test('<sn-event> reads data-sn-let names around the sync in when and then; a let wins over a payload field', async () => {
+test('<sn-event> reads data-sn-let names around the sync in when and then, beside the payload, $event', async () => {
   // Caley's mail page: `open` is derived from state on an ancestor of the <sn-sync>
   const stream = mockStream();
   const { root, settle } = await render(`<main data-sn-state="{ sel: { uid: 1, mailbox: 'inbox' }, seen: 0 }" data-sn-let="{ open: sel, box: sel.mailbox, items: m.length }">
     <sn-resource name="m" src="/api/m" key="id"></sn-resource>
     <div data-sn-state="{ hits: '' }">
       <sn-sync src="/s">
-        <sn-event name="updated" when="mailbox === box" then="open.uid === uid && seen++; hits = hits + items"></sn-event>
+        <sn-event name="updated" when="$event.mailbox === box" then="open.uid === $event.uid && seen++; hits = hits + items"></sn-event>
         <sn-event name="named" then="hits = hits + open.uid"></sn-event>
       </sn-sync>
       <button data-sn-on-click="sel = { uid: 2, mailbox: 'sent' }"></button>
@@ -340,8 +340,8 @@ test('<sn-sync>s with different stream URLs keep their own connections', async (
   const requests = mockRequests({ 'GET /api/contacts': { contacts: [] } });
   const { root, flush, settle } = await render(`
     <sn-resource name="contacts" src="/api/contacts" items="contacts" key="id"></sn-resource>
-    <sn-sync src="/s/a"><sn-event name="up" resource="contacts" op="upsert" value="contact"></sn-event></sn-sync>
-    <sn-sync src="/s/b"><sn-event name="up" resource="contacts" op="upsert" value="contact"></sn-event></sn-sync>
+    <sn-sync src="/s/a"><sn-event name="up" resource="contacts" op="upsert" value="$event.contact"></sn-event></sn-sync>
+    <sn-sync src="/s/b"><sn-event name="up" resource="contacts" op="upsert" value="$event.contact"></sn-event></sn-sync>
     <ul><template data-sn-for="c in contacts"><li data-sn-text="c.name"></li></template></ul>`, { requests, streams: { '/s/a': a, '/s/b': b } });
   await settle();
   expect(a.connected && b.connected).toBe(true);
@@ -361,7 +361,7 @@ test('`then` on <sn-event> runs after the change, with the payload and the sync\
     <sn-resource name="contacts" src="/api/contacts" items="contacts" key="id" order="name"></sn-resource>
     <sn-sync src="/api/events/stream">
       <sn-event name="contact_removed" resource="contacts" op="remove"
-                then="removed++; seen(id); sel?.id === id && (sel = null, closeDialog('detail'))"></sn-event>
+                then="removed++; seen($event.id); sel?.id === $event.id && (sel = null, closeDialog('detail'))"></sn-event>
     </sn-sync>
     <ul><template data-sn-for="c in contacts"><li data-sn-on-click="sel = c; openDialog('detail')" data-sn-text="c.name"></li></template></ul>
     <p data-sn-text="removed + ' ' + (sel?.name ?? '-')"></p>
@@ -396,7 +396,7 @@ test('`then` without resource and op only runs the handler; `when` gates it; a p
   const { root, flush } = await render(`<main data-sn-state="{ last: '', n: 0 }">
     <sn-resource name="contacts" src="/api/contacts" items="contacts" key="id"></sn-resource>
     <sn-sync src="/api/events/stream">
-      <sn-event name="notice" then="last = text" when="text !== 'skip'"></sn-event>
+      <sn-event name="notice" then="last = $event.text" when="$event.text !== 'skip'"></sn-event>
       <sn-event name="contact_removed" resource="contacts" op="remove" then="n++"></sn-event>
     </sn-sync>
     <p data-sn-text="last + ' ' + n + ' ' + contacts.length"></p></main>`, { requests, streams: { '/api/events/stream': stream } });
@@ -417,7 +417,7 @@ test('server events render with the next frame: a burst renders once; a handler 
     <sn-resource name="contacts" src="/api/contacts" items="contacts" key="id" order="name"></sn-resource>
     <div data-sn-state="{ n: 0, clicks: 0 }">
       <sn-sync src="/api/events/stream">
-        <sn-event name="contact_patched" resource="contacts" op="merge" value="{name}" then="n = n + 1"></sn-event>
+        <sn-event name="contact_patched" resource="contacts" op="merge" value="{name: $event.name}" then="n = n + 1"></sn-event>
       </sn-sync>
       <b data-sn-text="n"></b> <i data-sn-text="clicks"></i>
       <button data-sn-on-click="clicks = clicks + 1"></button>
@@ -463,7 +463,7 @@ const LIVE = `
   <sn-resource name="contacts" src="/api/contacts" items="contacts" key="id"></sn-resource>
   <sn-resource name="plain" src="/api/plain"></sn-resource>
   <sn-sync src="/api/events/stream">
-    <sn-event name="contact_updated" resource="contacts" op="upsert" value="contact"></sn-event>
+    <sn-event name="contact_updated" resource="contacts" op="upsert" value="$event.contact"></sn-event>
   </sn-sync>
   <b data-sn-text="[$meta.contacts.live, $meta.plain.live].join()"></b>`;
 

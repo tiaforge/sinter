@@ -1,7 +1,7 @@
 <sn-resource name="contacts" src="/api/contacts" items="contacts" key="id" type="Contact[]"></sn-resource>
 
 <sn-sync src="/api/events">
-  <sn-event name="contact_updated" resource="contacts" op="upsert" value="contact" type="ContactEvent"></sn-event>
+  <sn-event name="contact_updated" resource="contacts" op="upsert" value="$event.contact" type="ContactEvent"></sn-event>
 </sn-sync>
 
 <section data-sn-state="{ editing: /** @type {Contact|null} */ (null) }">

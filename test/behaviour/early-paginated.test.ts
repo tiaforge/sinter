@@ -39,7 +39,7 @@ const PAGE = (attrs: string) => `<!doctype html><html data-sn-state="{ box: 'inb
   <button id="prev" data-sn-on-click="page(mail, 'prev')"></button>
   <ul><template data-sn-for="m in mail"><li data-sn-text="m.id"></li></template></ul>
 </body></html>`;
-const KEYSET = `paginate="{ keyset: {after: id, before: id}, size: 2, jump: true, params: { size: 'limit', offset: 'offset', direction: 'dir' }, directions: {first: 'forward', prev: 'backward', next: 'forward', last: 'last'} }"`;
+const KEYSET = `paginate="{ keyset: {after: $item.id, before: $item.id}, size: 2, jump: true, params: { size: 'limit', offset: 'offset', direction: 'dir' }, directions: {first: 'forward', prev: 'backward', next: 'forward', last: 'last'} }"`;
 
 /**
  * A page load: the page's early file starts its requests (answered by the server, logged in

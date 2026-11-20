@@ -219,7 +219,7 @@ describe('a let over a helper: its expression, at every read', () => {
     const { parse } = counting();
     const stream = mockStream();
     const r = await render(`<main data-sn-state="{ src: 'a b', got: '' }" data-sn-let="{ doc: parse(src) }">
-      <sn-sync src="/s"><sn-event name="ping" when="doc.words.length > 1" then="got = got + doc.words[0].w + n"></sn-event></sn-sync>
+      <sn-sync src="/s"><sn-event name="ping" when="doc.words.length > 1" then="got = got + doc.words[0].w + $event.n"></sn-event></sn-sync>
       <p data-sn-text="got + doc.words.length"></p></main>`, { helpers: { parse }, streams: { '/s': stream } });
     await r.settle();
     stream.emit('ping', { n: 1 });

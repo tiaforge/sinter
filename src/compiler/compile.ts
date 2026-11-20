@@ -533,6 +533,23 @@ export function duration(v: string, bare: 'ms' | null): number | null {
   return Number(m[1]) * { ms: 1, s: 1e3, m: 6e4, h: 36e5, d: 864e5 }[(m[2] ?? 'ms') as 'ms'];
 }
 const DURATION = 'a duration such as `300ms`, `2s`, `10m`, `2h` or `1d`';
+/** an old cursor (`{uid}`, `{ before: id }`, its fields bare) as the cursor of `$item`: `{ uid: $item.uid }` */
+function itemCursor(text: string): string {
+  let ast: acorn.Expression;
+  try { ast = parseExpression(text); } catch { return text; }
+  const edits: Array<[number, number, string]> = [];
+  fullAncestor(ast as Node, (n, _s, anc) => {
+    if (n.type !== 'Identifier') return;
+    const id = n as acorn.Identifier, p = anc[anc.length - 2] as acorn.Node | undefined;
+    if (id.name.startsWith('$') || (p?.type === 'MemberExpression' && (p as acorn.MemberExpression).property === id && !(p as acorn.MemberExpression).computed)) return;
+    if (p?.type === 'Property' && (p as acorn.Property).key === id && !(p as acorn.Property).shorthand) return;
+    if (p?.type === 'Property' && (p as acorn.Property).shorthand) edits.push([p.start, p.end, `${id.name}: $item.${id.name}`]);
+    else edits.push([id.start, id.end, `$item.${id.name}`]);
+  });
+  let out = text;
+  for (const [a, b, t] of edits.sort((x, y) => y[0] - x[0])) out = out.slice(0, a) + t + out.slice(b);
+  return out;
+}
 const ACTION_ONLY = ['body', 'trigger', 'debounce', 'concurrency', 'optimistic', 'then', 'catch', 'confirm', 'encoding', 'write-through', 'retry'];
 const UNSAFE_ELEMENTS = new Set(['script', 'style', 'iframe', 'object', 'embed', 'base', 'meta', 'link', 'animate', 'set', 'animatemotion', 'animatetransform']);
 const FORM_CONTROLS = new Set(['input', 'select', 'textarea']);
@@ -1771,7 +1788,7 @@ class Compiler {
   }
 
   /**
-   * `paginate="{ keyset: { before: id }, size: 20 }"` (docs/pagination.md): how a list pages, as one object literal.
+   * `paginate="{ keyset: { before: $item.id }, size: 20 }"` (docs/pagination.md): how a list pages, as one object literal.
    * The mode is the key (`keyset` or `append` with the cursor, `numbered: true`); `size`; `model: $url.page` (numbered);
    * `jump: true` (keyset, by `params.offset`); `params` and `directions`, the server's names, over the API's
    * (`sinter({ apis: { main: { paginate } } })`). Parsed once per element; null after reporting what is wrong.
@@ -1786,7 +1803,7 @@ class Compiler {
   private readPageSpec(el: P5Element): PageSpec | null {
     const text = attr(el, 'paginate');
     if (text == null) return null;
-    const EXAMPLE = '`paginate="{ keyset: { before: id }, size: 20 }"`, `{ numbered: true, size: 10 }` or `{ append: { before: id }, size: 20 }`';
+    const EXAMPLE = '`paginate="{ keyset: { before: $item.id }, size: 20 }"`, `{ numbered: true, size: 10 }` or `{ append: { before: $item.id }, size: 20 }`';
     const fail = (message: string, offset = 0) => { this.report(el, 'paginate', 'SN401', message, offset); return null; };
     if (/^\s*(keyset|offset|append)\s*$/.test(text)) return fail(`\`paginate\` is one object literal now: ${this.legacyPaginate(el) ?? EXAMPLE}`);
     let ast: acorn.Expression;
@@ -1819,7 +1836,7 @@ class Compiler {
       if (key === 'keyset' || key === 'append') {
         modes++;
         spec.mode = key;
-        if (v.type !== 'ObjectExpression') return fail(`\`${key}\` is the cursor, an object literal read on the boundary item: \`${key}: { before: id }\``, v.start);
+        if (v.type !== 'ObjectExpression') return fail(`\`${key}\` is the cursor, an object literal read on the boundary item, \`$item\`: \`${key}: { before: $item.id }\``, v.start);
         spec.cursor = { text: text.slice(v.start, v.end), at: v.start };
       } else if (key === 'offset') {
         return fail('`offset: true` is renamed to `numbered: true` (pages by number; `numbered: \'offset\'` sends the items to skip): `{ numbered: true, size: 10 }`', p.key.start);
@@ -1869,7 +1886,7 @@ class Compiler {
     if (mode !== 'keyset' && mode !== 'offset' && mode !== 'append') return null;
     const parts: string[] = [];
     const cursor = attr(el, 'cursor')?.trim(), offset = attr(el, 'offset-param')?.trim();
-    parts.push(mode === 'offset' ? (offset ? "numbered: 'offset'" : 'numbered: true') : `${mode}: ${cursor || '{ … }'}`);
+    parts.push(mode === 'offset' ? (offset ? "numbered: 'offset'" : 'numbered: true') : `${mode}: ${cursor ? itemCursor(cursor) : '{ … }'}`);
     parts.push(`size: ${attr(el, 'page-size')?.trim() || '…'}`);
     const pm = attr(el, 'page-model')?.trim();
     if (pm) parts.push(`model: ${pm}`);
@@ -5381,7 +5398,7 @@ class Compiler {
     if (use && event && use.emitsText && use.emits?.some((m) => m.name === event)) {
       e.detail = { kind: 'ts', text: `(${use.emitsText})[${JSON.stringify(event)}]`, loc: this.locOf(use.template, 'data-sn-emits') };
     }
-    if (o.payload) e.payload = { names: r.payloadNames ?? [], type: null, ...(r.payloadStates?.length ? { states: r.payloadStates } : {}), ...(r.payloadLets?.length ? { lets: r.payloadLets } : {}) };
+    if (o.payload) e.payload = { as: o.payloadAs ?? '$event', type: null };
     this.check!.exprs.push(e);
     const list = this.exprsOf.get(el) ?? [];
     list.push({ attr: attrName, i: this.check!.exprs.length - 1 });
@@ -6144,7 +6161,7 @@ class Compiler {
     // the old attributes: the object they become, once (on the first one written)
     const old = PAGINATE_OLD.find((a) => attr(el, a) != null);
     if (old && !/^\s*(keyset|offset|append)\s*$/.test(mode ?? '')) {
-      this.report(el, old, 'SN101', `\`${old}\` is a key of \`paginate\` now, one object literal: \`paginate="{ keyset: { before: id }, size: 20 }"\` (docs/pagination.md)`, 0);
+      this.report(el, old, 'SN101', `\`${old}\` is a key of \`paginate\` now, one object literal: \`paginate="{ keyset: { before: $item.id }, size: 20 }"\` (docs/pagination.md)`, 0);
     }
     const spec = this.pageSpec(el);
     if (spec) {
@@ -6156,7 +6173,7 @@ class Compiler {
       const params = { ...wire?.params, ...spec.params }, directions = spec.directions || wire?.directions ? { ...wire?.directions, ...spec.directions } : null;
       let cursor: number | null = null;
       if (spec.cursor) {
-        const r = this.expr(el, 'paginate', ctx.scope, { mode: 'value', payload: true }, spec.cursor.text, spec.cursor.at);
+        const r = this.expr(el, 'paginate', ctx.scope, { mode: 'value', payload: true, payloadAs: '$item' }, spec.cursor.text, spec.cursor.at);
         this.typeLast({ payload: { kind: 'item', resource: name } });
         cursor = this.fn(r.code);
       }
@@ -6658,7 +6675,8 @@ class Compiler {
     const written = (resEl && attr(resEl, 'type')?.trim()) || null;
     const itemType = written && written !== 'any' ? (/^(.+)\[\]$/.exec(written)?.[1] ?? /^(?:Readonly)?Array<(.+)>$/.exec(written)?.[1] ?? null) : null;
     const item = attr(el, 'op')?.trim() === 'upsert' ? attr(el, 'value')?.trim() : undefined;
-    if (item && /^[A-Za-z_$][\w$]*$/.test(item)) return `{ ${item}: ${itemType ?? '…'} }`;
+    const field = item ? /^\$event\.([A-Za-z_$][\w$]*)$/.exec(item)?.[1] : undefined;
+    if (field) return `{ ${field}: ${itemType ?? '…'} }`;
     return '{ id: number; … }';
   }
 

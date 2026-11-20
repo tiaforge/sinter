@@ -69,7 +69,7 @@ export interface CheckExpr {
   /** the value must be assignable to this (`data-sn-body`, `<sn-event>` `item` and `set`) */
   returns?: TypeRef;
   /** payload expressions (`<sn-event>`, `cursor`): the payload fields read, and the payload's type (null: any) */
-  payload?: { names: string[]; type: TypeRef | null; states?: string[]; lets?: string[] };
+  payload?: { as: '$event' | '$item'; type: TypeRef | null };
   /** checked only where this holds (`<sn-component>`: the data names this candidate), so the data is narrowed */
   guard?: string;
   /** the candidate the guard is for, and where its key is written: a guard that can never hold is SN538 there */

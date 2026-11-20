@@ -323,7 +323,7 @@ export type Block = Para | Quote | Rule;
 
   test('page() with a computed target: a direction on keyset; a page number needs jump', () => {
     const helpers = `/** @param {boolean} back @returns {'next' | 'prev'} */\nexport function step(back) { return back ? 'prev' : 'next'; }\n`;
-    const html = (to: string, more = '') => page(`<sn-resource name="list" src="/api/l" key="id" type="Contact[]" paginate="{ keyset: {id}, size: 5${more} }"></sn-resource>
+    const html = (to: string, more = '') => page(`<sn-resource name="list" src="/api/l" key="id" type="Contact[]" paginate="{ keyset: {id: $item.id}, size: 5${more} }"></sn-resource>
 <div data-sn-state="{ n: 2, word: 'next' }"><button data-sn-on-click="page(list, ${to})" data-sn-text="contacts.length + list.length + n + word"></button></div>`);
     const errors = (to: string, more = '') => checkPage(html(to, more), { files: { 'src/sinter.types.ts': TYPES, 'src/sinter.helpers.js': helpers } }).map((d) => `${d.code} ${d.message.replace(/ \(TS\d+\)$/, '')}`);
     expect(errors(`$event.shiftKey ? 'prev' : 'next'`)).toEqual([]);
@@ -337,9 +337,9 @@ export type Block = Para | Quote | Rule;
 
   test('resource names from ?: and lets: page() targets suit every name; items fit any of them', () => {
     const types = TYPES + 'export interface Message { uid: number; subject: string }\n';
-    const html = (lets: string, h: string) => page(`<sn-resource name="messages" src="/api/m" key="uid" type="Message[]" paginate="{ keyset: {uid}, size: 5 }"></sn-resource>
+    const html = (lets: string, h: string) => page(`<sn-resource name="messages" src="/api/m" key="uid" type="Message[]" paginate="{ keyset: {uid: $item.uid}, size: 5 }"></sn-resource>
 <sn-resource name="results" src="/api/r" key="uid" type="Message[]" paginate="{ numbered: true, size: 5 }"></sn-resource>
-<sn-resource name="jumps" src="/api/j" key="uid" type="Message[]" paginate="{ keyset: {uid}, size: 5, jump: true }"></sn-resource>
+<sn-resource name="jumps" src="/api/j" key="uid" type="Message[]" paginate="{ keyset: {uid: $item.uid}, size: 5, jump: true }"></sn-resource>
 <div data-sn-state="{ s: false, n: 2, m: /** @type {Message} */ ({ uid: 1, subject: '' }) }" data-sn-let="${lets}"><button data-sn-on-click="${h}" data-sn-text="contacts.length + messages.length + results.length + jumps.length"></button></div>`);
     const errors = (lets: string, h: string) => checkPage(html(lets, h), { files: { 'src/sinter.types.ts': types } }).map((d) => `${d.code} ${d.message.replace(/ \(TS\d+\)$/, '')}`);
     // a let of one literal is that name, not \`string\`
@@ -373,18 +373,18 @@ export type Block = Para | Quote | Rule;
     one(page(`<p data-sn-text="m.items_count({ count: 'x' })"></p>`), /Type 'string' is not assignable to type 'number'/, 'count:');
   });
 
-  test('sn-event: state around the sync is in scope; shadowing a typed payload field is an error', () => {
+  test('sn-event: state around the sync is in scope, the payload is $event: a state may share a field\'s name', () => {
     const types = `${TYPES}export interface Refetch { mailbox: string; account_id: string }\n`;
     const sync = (when: string) => page(`<main data-sn-state="{ sel: 'inbox', account_id: 'a' }">
 <sn-sync src="/api/events"><sn-event name="r" resource="contacts" op="refresh" type="Refetch" when="${when}"></sn-event></sn-sync>
 <p data-sn-text="contacts.length + sel"></p></main>`);
-    expect(run(sync('mailbox === sel'), { 'src/sinter.types.ts': types }).diagnostics).toEqual([]);
-    expect(run(sync('mailbox === sel.lenght'), { 'src/sinter.types.ts': types }).diagnostics.map((d) => d.message))
+    expect(run(sync('$event.mailbox === sel'), { 'src/sinter.types.ts': types }).diagnostics).toEqual([]);
+    expect(run(sync('$event.mailbox === sel.lenght'), { 'src/sinter.types.ts': types }).diagnostics.map((d) => d.message))
       .toEqual([expect.stringMatching(/Property 'lenght' does not exist on type 'string'/)]);
-    // `account_id` is state here, so it cannot also mean the payload field
-    const d = run(sync('account_id === sel'), { 'src/sinter.types.ts': types }).diagnostics;
-    expect(d).toHaveLength(1);
-    expect(d[0]!.message).toMatch(/state `account_id` shadows the payload field `account_id`: rename the state/);
+    // the state `account_id` and the payload's `$event.account_id` are two names
+    expect(run(sync('$event.account_id === account_id'), { 'src/sinter.types.ts': types }).diagnostics).toEqual([]);
+    expect(run(sync('$event.acount_id === account_id'), { 'src/sinter.types.ts': types }).diagnostics.map((d) => d.message))
+      .toEqual([expect.stringMatching(/Property 'acount_id' does not exist on type 'Refetch'/)]);
   });
 
   test('sn-event: `data-sn-let` names around the sync are in scope like state, in `when` and `then`', () => {
@@ -395,15 +395,14 @@ export type Block = Para | Quote | Rule;
 <sn-sync src="/api/events"><sn-event name="u" type="Updated" ${attrs}></sn-event></sn-sync>
 <p data-sn-text="contacts.length + n + last + open?.name + box"></p></div></main>`);
     const errors = (attrs: string) => checkPage(sync(attrs), { files: { 'src/sinter.types.ts': types } }).map((d) => `${d.code} ${d.message.replace(/ \(TS\d+\)$/, '')}`);
-    expect(errors(`when="mailbox === box" then="open && open.id === uid && n++; last = open?.name ?? last"`)).toEqual([]);
+    expect(errors(`when="$event.mailbox === box" then="open && open.id === $event.uid && n++; last = open?.name ?? last"`)).toEqual([]);
     expect(errors(`then="last = open.id"`)).toEqual(["SN208 Type 'number' is not assignable to type 'string'."]);
     expect(errors(`then="n = box.lenght"`)).toEqual([expect.stringMatching(/^SN208 Property 'lenght' does not exist on type 'string'/)]);
-    // a let named like a field of the typed payload hides it: an error, as for state
-    const shadowing = page(`<main data-sn-state="{ n: 0 }" data-sn-let="{ seen: n > 0 }">
-<sn-sync src="/api/events"><sn-event name="u" type="Updated" then="seen && n++"></sn-event></sn-sync>
+    // a let named like a field of the payload: the let, and `$event.seen` the field
+    const both = page(`<main data-sn-state="{ n: 0 }" data-sn-let="{ seen: n > 0 }">
+<sn-sync src="/api/events"><sn-event name="u" type="Updated" then="seen && $event.seen && n++"></sn-event></sn-sync>
 <p data-sn-text="contacts.length + n + (seen ? 1 : 0)"></p></main>`);
-    expect(checkPage(shadowing, { files: { 'src/sinter.types.ts': types } }).map((d) => d.message))
-      .toEqual([expect.stringMatching(/`data-sn-let` name `seen` shadows the payload field `seen`: rename it/)]);
+    expect(checkPage(both, { files: { 'src/sinter.types.ts': types } })).toEqual([]);
   });
 
   test('sn-event `then`: the typed payload and the state are checked; SN506 without a type', () => {
@@ -411,11 +410,11 @@ export type Block = Para | Quote | Rule;
     const html = (then: string, type = ' type="Removed"') => page(`<main data-sn-state="{ sel: /** @type {Contact|null} */ (null), last: '' }">
 <sn-sync src="/api/events"><sn-event name="r" resource="contacts" op="remove"${type} then="${then}"></sn-event></sn-sync>
 <dialog id="detail"></dialog><p data-sn-text="contacts.length + (sel?.name ?? last)"></p></main>`);
-    expect(checkPage(html("sel?.id === id && closeDialog('detail'); sel = sel?.id === id ? null : sel"), { files })).toEqual([]);
+    expect(checkPage(html("sel?.id === $event.id && closeDialog('detail'); sel = sel?.id === $event.id ? null : sel"), { files })).toEqual([]);
     const errors = (then: string, type?: string) => checkPage(html(then, type), { files }).map((d) => `${d.code} ${d.message.replace(/ \(TS\d+\)$/, '')}`);
-    expect(errors('last = id')).toEqual(["SN208 Type 'number' is not assignable to type 'string'."]);
-    expect(errors('sel?.id === uid && closeDialog(\'detail\')')).toEqual([expect.stringMatching(/^SN208 Property 'uid' does not exist on type 'Removed'/)]);
-    expect(errors('last = id', '')).toEqual(['SN506 event `r` has no type: expressions reading its payload are not checked']);
+    expect(errors('last = $event.id')).toEqual(["SN208 Type 'number' is not assignable to type 'string'."]);
+    expect(errors('sel?.id === $event.uid && closeDialog(\'detail\')')).toEqual([expect.stringMatching(/^SN208 Property 'uid' does not exist on type 'Removed'/)]);
+    expect(errors('last = $event.id', '')).toEqual(['SN506 event `r` has no type: expressions reading its payload are not checked']);
   });
 
   test('<sn-resource then>: `$result` has the resource\'s type (`type`, or the action\'s result); state is checked', () => {
@@ -590,21 +589,21 @@ export const initial = (c: Contact): string => (c.name[0] ?? '?').toUpperCase();
 
   test('events: typed payloads; `item` must fit the resource, `set` a part of it; cursor reads the item', () => {
     const types = TYPES + 'export interface ContactEvent { contact: Contact; id: number; patch: { name: number } }\n';
-    const html = page(`<sn-resource name="feed" src="/api/feed" key="id" type="Contact[]" paginate="{ keyset: { after: idd }, size: 10 }"></sn-resource>
+    const html = page(`<sn-resource name="feed" src="/api/feed" key="id" type="Contact[]" paginate="{ keyset: { after: $item.idd }, size: 10 }"></sn-resource>
 <p data-sn-text="contacts.length + feed.length"></p>
 <sn-sync src="/api/events">
-  <sn-event name="a" resource="contacts" op="upsert" value="contact" type="ContactEvent"></sn-event>
-  <sn-event name="b" resource="contacts" op="upsert" value="id" type="ContactEvent"></sn-event>
-  <sn-event name="c" resource="contacts" op="merge" value="{ name: patch.name }" type="ContactEvent"></sn-event>
-  <sn-event name="d" resource="contacts" op="upsert" value="contct" type="ContactEvent"></sn-event>
-  <sn-event name="e" resource="contacts" op="upsert" value="whatever" type="any"></sn-event>
+  <sn-event name="a" resource="contacts" op="upsert" value="$event.contact" type="ContactEvent"></sn-event>
+  <sn-event name="b" resource="contacts" op="upsert" value="$event.id" type="ContactEvent"></sn-event>
+  <sn-event name="c" resource="contacts" op="merge" value="{ name: $event.patch.name }" type="ContactEvent"></sn-event>
+  <sn-event name="d" resource="contacts" op="upsert" value="$event.contct" type="ContactEvent"></sn-event>
+  <sn-event name="e" resource="contacts" op="upsert" value="$event.whatever" type="any"></sn-event>
 </sn-sync>`);
     const r = run(html, { 'src/sinter.types.ts': types });
     expect(r.compile.filter((d) => d.severity === 'error' || d.code === 'SN506')).toEqual([]);
     expect(r.diagnostics.map((d) => [d.message.replace(/ (Did you mean .*)?\(TS\d+\)$/, ''), d.line, d.col])).toEqual([
-      ["Property 'idd' does not exist on type 'Contact'.", ...at(html, '{ after: idd }')],
-      ["Type 'number' is not assignable to type 'Contact'.", ...at(html, 'id" type="ContactEvent"></sn-event>\n  <sn-event name="c"')],
-      ["Type 'number' is not assignable to type 'string'.", ...at(html, 'name: patch')],
+      ["Property 'idd' does not exist on type 'Contact'.", ...at(html, 'idd }')],
+      ["Type 'number' is not assignable to type 'Contact'.", ...at(html, '$event.id" type="ContactEvent"></sn-event>\n  <sn-event name="c"')],
+      ["Type 'number' is not assignable to type 'string'.", ...at(html, 'name: $event.patch')],
       ["Property 'contct' does not exist on type 'ContactEvent'.", ...at(html, 'contct')],
     ]);
   });
