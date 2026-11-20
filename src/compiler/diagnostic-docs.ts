@@ -422,9 +422,9 @@ export const DIAGNOSTIC_DOCS: Record<Code, DiagnosticDoc> = {
     fix: 'Install it, `npm install -D sharp`, or turn optimization off with `sinter({ images: false })`.',
   },
   SN526: {
-    example: 'could not download https://fonts.example/inter.woff2; the page keeps the link (sinter({ fonts: { inline: false } }) turns this off)',
-    means: 'The build self-hosts the fonts a page links to, and one could not be downloaded, so the page keeps the link to the font\'s host. This depends on the network, so `--strict` leaves it a warning. Reported by the build, without a file and line.',
-    fix: 'Build with network access, or turn self-hosting off with `sinter({ fonts: { inline: false } })`.',
+    example: 'could not download https://fonts.example/inter.woff2; the page keeps the link (sinter({ fonts: { bundle: false } }) turns this off)',
+    means: 'The build bundles the Google Fonts stylesheets a page links to, and one could not be downloaded, so the page keeps the link to the font\'s host. This depends on the network, so `--strict` leaves it a warning. Reported by the build, without a file and line.',
+    fix: 'Build with network access, or keep the links with `sinter({ fonts: { bundle: false } })`.',
   },
   SN527: {
     example: 'image sizes from src/styles.scss are not read: Undefined variable $gap',

@@ -277,7 +277,7 @@ origin. The fonts and their look are unchanged; the page loses a render-blocking
 origin. It is a file, not an inline `<style>`, so your CSP needs no change.
 
 Downloads are cached in `node_modules/.cache/sinter/fonts`. If a build cannot download, it keeps
-the link and warns. `sinter({ fonts: { inline: false } })` turns this off.
+the link and warns. `sinter({ fonts: false })` turns this off (`fonts: { bundle: false, preload }` keeps the preloads).
 
 To preload a face, opt in: `sinter({ fonts: { preload: ['Inter', { family: 'Inter', weight: 700 }] } })`
 (a bare family means its regular face, 400 normal). A preload can make the first paint later,
@@ -512,7 +512,7 @@ Put only what needs data inside the template. The complete version is in
 | --- | --- |
 | Turn off the early script and reserved space for the app | `sinter({ firstPaint: false })`: bindings that need no data wait for the page script; build-time constants are still written into the HTML, and pages with nothing to run still ship no JavaScript |
 | Keep one resource out of preload and early request | `<sn-resource early="off">` |
-| Skip Google Fonts bundling | `sinter({ fonts: { inline: false } })` |
+| Skip Google Fonts bundling | `sinter({ fonts: false })` |
 | Leave out next-page data and Speculation Rules | `sinter({ prefetch: false })` or `<html data-sn-prefetch="off">`, see [navigation.md](navigation.md) |
 
 ## Testing

@@ -93,7 +93,7 @@ Google Fonts stylesheets are downloaded at build time and bundled as one of your
 
 | Option | Default | Purpose |
 | --- | --- | --- |
-| `fonts.inline` | `true` | `false` keeps the `<link>` to Google Fonts |
+| `fonts.bundle` | `true` | `false` keeps the `<link>` to Google Fonts (`fonts: false` turns off `preload` too) |
 | `fonts.preload` | none | faces to preload: a family name (its 400 normal face) or `{ family, weight, style }`, from a Google Fonts stylesheet or the app's own `@font-face` (builds) |
 
 ```js

@@ -229,7 +229,12 @@ test('the renamed options fail naming the new form', () => {
   expect(() => sinter({ prefetch: { html: { delivry: 'header' } } } as never)).toThrow('sinter({ prefetch: { html } }): no option `delivry`; it takes `prerender` and `delivery`');
   expect(() => sinter({ earlyBudget: 20000 } as never)).toThrow('sinter({ earlyBudget }) is renamed to `firstPaint: { budget: 20000 }`');
   expect(() => sinter({ typechek: true } as never)).toThrow('sinter({ typechek }) is not an option. Did you mean `typecheck`?');
-  expect(() => sinter({ fonts: false } as never)).toThrow('sinter({ fonts }): takes `{ inline, preload }`');
+  expect(() => sinter({ fonts: true } as never)).toThrow('sinter({ fonts }): takes `false` or `{ bundle, preload }`, not true');
+  expect(() => sinter({ fonts: false })).not.toThrow();
+  // `inline` bundled a CSS file, it inlined nothing: `bundle`, and off is `fonts: false` as for the other features
+  expect(() => sinter({ fonts: { inline: false } } as never)).toThrow("sinter({ fonts: { inline } }) is renamed to `fonts: false`: the build bundles Google Fonts' stylesheets as CSS files, it inlines nothing");
+  expect(() => sinter({ fonts: { inline: false, preload: ['Inter'] } } as never)).toThrow('sinter({ fonts: { inline } }) is renamed to `fonts: { bundle: false, preload }`');
+  expect(() => sinter({ fonts: { inline: true } } as never)).toThrow("is renamed to `fonts: { bundle }`: the build bundles Google Fonts' stylesheets as CSS files, it inlines nothing (`bundle: true` is the default: leave it out)");
   expect(() => sinter({ fonts: { preloads: [] } } as never)).toThrow('sinter({ fonts }): no option `preloads`');
   expect(() => sinter({ images: { width: [1] } } as never)).toThrow('sinter({ images }): no option `width`');
   expect(() => sinter({ components: ['@acme/ui'] } as never)).toThrow('sinter({ components }) is renamed to `libraries`');
