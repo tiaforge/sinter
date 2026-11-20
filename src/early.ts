@@ -87,7 +87,7 @@ type Fn = (...a: any[]) => any;
  * function table, and its compiled renderer (compiler/early-render.ts): `scopes` over the base
  * scope, then `render` with them.
  */
-export type EarlyPage = () => { ir: Pick<EarlyIR, 'res' | 'as' | 'path' | 'urlArrays' | 'emb' | 'si'>; fns: Fn[]; scopes(base: any): any[]; render(doc: Document, scopes: any[], base: any): void; locale?: typeof locale; lists?: typeof lists; away?: typeof away };
+export type EarlyPage = () => { ir: Pick<EarlyIR, 'res' | 'as' | 'path' | 'urlArrays' | 'emb' | 'si'>; fns: Fn[]; scopes(base: any): any[]; render(doc: Document, scopes: any[], base: any): void; locale?: typeof locale; lists?: typeof lists; away?: (o: any, base: any) => boolean };
 
 /** the configured locale source, for a page whose early functions read `$locale` (others carry no config) */
 export const locale = () => config.locale;
@@ -383,10 +383,11 @@ export function early(doc: Document, page: ReturnType<EarlyPage>): void {
  * mounts). A prerendered page renders: the page module sends the visitor on once it is shown. Only a page with the
  * guard passes it (`away` on its early page object), so a site without one carries none of it.
  */
-export function away(o: ReturnType<EarlyPage>, base: any, to: (i: any, href: string, session: Storage | null) => string = toPath): boolean {
+export function away(o: ReturnType<EarlyPage>, base: any, out: typeof $so, to: (i: any, href: string, session: Storage | null) => string = toPath): boolean {
   const g = o.ir.si;
   if (!g || (document as Document & { prerendering?: boolean }).prerendering) return false;
-  try { if (token({ ...g.t, h: '', p: '' }) != null || (g.f != null && !o.fns[g.f]!(base))) return false; } catch { return false; }
+  // `out`: `$so`, which the page passes (the shared head script's, when every page reads a token: no second copy here)
+  try { if (!out(g.t.s, g.t.k) || (g.f != null && !o.fns[g.f]!(base))) return false; } catch { return false; }
   const e = io;
   if (!e) document.documentElement.hidden = true;
   let session: Storage | null = null;
@@ -401,7 +402,7 @@ const toPath = (i: string, href: string, s: Storage | null) => {
   return i;
 };
 /** the guard of an API whose `signIn` is loginRedirect's options (`{ to, returnUrl }`) */
-export const awayVia = (o: ReturnType<EarlyPage>, base: any) => away(o, base, signInTarget);
+export const awayVia = (o: ReturnType<EarlyPage>, base: any, out: typeof $so) => away(o, base, out, signInTarget);
 
 function prepare(o: ReturnType<EarlyPage>, req: EarlyRequests | null) {
   const { ir, fns } = o, base = scope(o, req);

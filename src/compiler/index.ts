@@ -186,9 +186,10 @@ export function earlyPage(early: EarlyParts): { code: string; uses: string[] } {
   const away = early.ir.si ? (typeof early.ir.si.i == 'string' ? 'away' : 'awayVia') : null;
   const extra = [...(lc ? ['locale'] : []), ...(ls ? ['lists'] : []), ...(away ? [away] : [])];
   // a resource that needs its API's token: its early status reads whether one is stored
-  const so = early.fns.some((x) => x.includes('$so(')) ? ['$so'] : [];
+  // (and the guard, which the page passes it)
+  const so = away || early.fns.some((x) => x.includes('$so(')) ? ['$so'] : [];
   const uses = extra.length || hr.length || so.length ? [...r.uses, ...extra, ...hr, ...so].sort() : r.uses;
-  return { code: `{ ir: ${JSON.stringify(ir)}, fns: f, scopes: ${r.scopes}, render: ${r.render}${extra.map((x) => (x == 'awayVia' ? ', away: awayVia' : ', ' + x)).join('')} }`, uses };
+  return { code: `{ ir: ${JSON.stringify(ir)}, fns: f, scopes: ${r.scopes}, render: ${r.render}${extra.map((x) => (x == away ? `, away: (o, b) => ${x}(o, b, $so)` : ', ' + x)).join('')} }`, uses };
 }
 
 function earlyLines(early: EarlyParts | null, options: Pick<CompileOptions, 'helpers' | 'early' | 'observe' | 'locale' | 'baseMessages'>): MappedLines | null {
