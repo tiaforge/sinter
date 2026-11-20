@@ -66,12 +66,11 @@ and the home page's feed tabs are plain links that stay on the page when clicked
 next page, no reload. "Global Feed" from `/tag/go` is another path: the home page is swapped in ([swaps](../../docs/navigation.md#swaps)). The active page is
 `$meta.<name>.page`, the page shown.
 
-The build warns twice, `SN529`, and the warnings stay: below 768 px the Conduit theme gives its grid
-columns no width, so the feed's column is only as wide as its content and the tags sit beside it
-until the articles arrive. That layout shift (0.15 on a phone, with the API answering after 500 ms;
-0.035 with the columns at full width) is the theme's, which every RealWorld implementation shares,
-so the theme stays as it is. The build is strict (warnings fail it) with `SN529` allowed, by name and
-with the reason, in `vite.config.js`. The "Loading articles..." and "Loading tags..." lines are in the first
+The build is strict (warnings fail it) and warns about nothing. Below 768 px the Conduit theme gives its grid
+columns no width, so the feed's column and the tags' are only as wide as their content until their rows arrive;
+the build keeps what follows each of them hidden while its first rows load
+([a box whose width follows the list](../../docs/first-paint.md#a-box-whose-width-follows-the-list)), so nothing
+shown moves, and `SN529`, which says it moves, has nothing to report. The "Loading articles..." and "Loading tags..." lines are in the first
 frame ([first paint](../../docs/first-paint.md#loading-branches)).
 
 Every resource has `cache`: a page shows what the previous page loaded at once and revalidates.

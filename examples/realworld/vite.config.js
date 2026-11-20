@@ -22,10 +22,7 @@ export default defineConfig({
       // against 2,127 ms with the body rendered at mount (README.md). Without embedded data nothing of it is early
       firstPaint: { budget: 40 * 1024 },
       embed: !!process.env.SINTER_EMBED,
-      // warnings fail the build, except SN529 for the tag list: the feed and the tag list sit in the RealWorld theme's
-      // columns, which follow their content below 768 px. The build keeps the tag column hidden while the feed's first
-      // rows load; the tags' own column is the row's last, so nothing follows it to move
-      strict: { allow: { SN529: 'the shared RealWorld theme sizes .col-md-3 by its content below 768 px; nothing follows it in its row' } },
+      strict: true,
     }),
   ],
   // sinter-markdown is linked from packages/ (file:): its imports of sinter resolve to the app's
