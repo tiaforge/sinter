@@ -333,11 +333,11 @@ test('data-sn-debounce without a method is misplaced, and names the attribute a 
   const d = compile('<div data-sn-state="{ q: 1 }"><p data-sn-text="q" data-sn-debounce="250"></p></div>', {
     file: '/p/x.html', root: '/p', dev: false, readFile: () => '', helpers: { module: null, names: [], namespaces: {} },
   }).diagnostics.map((x) => `${x.code} ${x.message}`);
-  expect(d).toEqual(['SN102 `data-sn-debounce` needs a method attribute (`data-sn-post`, `-put`, …) or `data-sn-model` on the same element; a handler waits with `data-sn-debounce-<event>`']);
+  expect(d).toEqual(['SN102 `data-sn-debounce` needs a method attribute (`data-sn-post`, `-put`, …) on the same element; a model waits with `data-sn-debounce-model`, a handler with `data-sn-debounce-<event>`']);
   const h = compile('<div data-sn-state="{ q: 1 }"><input data-sn-on-input="q = 2" data-sn-on-blur="q = 3" data-sn-debounce="250"></div>', {
     file: '/p/x.html', root: '/p', dev: false, readFile: () => '', helpers: { module: null, names: [], namespaces: {} },
   }).diagnostics.map((x) => `${x.code} ${x.message}`);
-  expect(h).toEqual(['SN102 `data-sn-debounce` delays an action\'s trigger; a handler waits with the attribute for its event: `data-sn-debounce-input="250"`, `data-sn-debounce-blur="250"`']);
+  expect(h).toEqual(['SN102 `data-sn-debounce` delays an action\'s trigger; a handler waits with `data-sn-debounce-input="250"`, `data-sn-debounce-blur="250"`']);
 });
 
 test('unhandled errors bubble as sn-error, then reach onError', async () => {

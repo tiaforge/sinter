@@ -28,6 +28,7 @@ Local state next to the markup that uses it.
 | `data-sn-state` | object literal | declares local reactive state for the element and its subtree |
 | `data-sn-let` | object literal {name: expression} | derived names for the element and its subtree, computed where they are read (a helper call included: keep an expensive one's results with `memo()`, configuration.md); later names may use earlier ones |
 | `data-sn-model` | state path \| $url.&lt;param&gt; | two-way binding for form controls; on $url, the URL follows (a history entry; typing at each pause), and a &lt;select multiple&gt; or a checkbox with a value makes the parameter a list |
+| `data-sn-debounce-model` | milliseconds | delays the model's write until typing pauses (no second pause after it); Enter writes at once |
 | `data-sn-persist` | storage key | persists the model or state in localStorage under sn: |
 
 ## Send changes
@@ -43,7 +44,7 @@ Turn an element into a request. Details: [actions](actions.md).
 | `data-sn-call` | action call | local action: a function of the actions module, e.g. pgp.decrypt(msg); a handler starts it with run('id'). The function gets a trailing context; its `ctx.request(url, { method, body })` encodes `body` as JSON: pass the object, not `JSON.stringify(…)` (a string) |
 | `data-sn-body` | value expression | JSON request body; overrides form serialization |
 | `data-sn-trigger` | DOM event name | overrides the default trigger |
-| `data-sn-debounce` | milliseconds | delays the action's trigger, resets on each event; with no action, the model's write (instead of the typing pause, not after it); a handler waits with data-sn-debounce-&lt;event&gt; |
+| `data-sn-debounce` | milliseconds | delays the action's trigger, resets on each event |
 | `data-sn-encoding` | json \| form | form: the body (data-sn-body, arrays as repeated keys, or the form) goes as application/x-www-form-urlencoded |
 | `data-sn-concurrency` | block \| queue \| latest | what a trigger does while the action runs; default block for forms, queue otherwise |
 | `data-sn-confirm` | value expression | asks this question before the action runs (configure({ confirm }), window.confirm by default); no question when falsy |

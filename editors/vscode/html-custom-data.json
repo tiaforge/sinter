@@ -195,6 +195,10 @@
       "description": "two-way binding for form controls; on $url, the URL follows (a history entry; typing at each pause), and a <select multiple> or a checkbox with a value makes the parameter a list (state path | $url.<param>)"
     },
     {
+      "name": "data-sn-debounce-model",
+      "description": "delays the model's write until typing pauses (no second pause after it); Enter writes at once (milliseconds)"
+    },
+    {
       "name": "data-sn-for",
       "description": "repeats a <template> per item. On <html>: the page once per entry of a `file:` list, at `data-sn-path` filled from it (item in list | (item, i) in list)"
     },
@@ -248,7 +252,7 @@
     },
     {
       "name": "data-sn-debounce",
-      "description": "delays the action's trigger, resets on each event; with no action, the model's write (instead of the typing pause, not after it); a handler waits with data-sn-debounce-<event> (milliseconds)"
+      "description": "delays the action's trigger, resets on each event (milliseconds)"
     },
     {
       "name": "data-sn-concurrency",
