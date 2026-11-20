@@ -242,6 +242,25 @@ merged where two codes were one rule with one severity: `SN302` into `SN209`. `S
 nothing can) are one rule with two severities, so they stay apart and name each other. `SN316`, a
 migration error from 0.14, is gone; the rename messages of this proposal go at 1.0.
 
+### 17. After the review (2026-11-20)
+
+A second reader's review found bugs in the steps above (fixed, each with a test) and these, done:
+- `data-sn-debounce-model` delays a model's write, and `data-sn-debounce` stays the action's: one attribute
+  meant two things again, and adding an action to a debounced field moved its delay without a word.
+- `paginate`'s numbered mode is `numbered: true`: `offset` was the mode and the server's skip parameter.
+- `<sn-event fallback>` is a flag; `"refresh"` was its one value.
+- `sinter({ libraries })` (was `components`): it lists component libraries.
+- `prefetch: { data, pages }` (was `prefetch` and `speculation`), with `prefetch: false` turning off both as
+  `<html data-sn-prefetch="off">` does for a page; `firstPaint: { budget }` (was `earlyBudget`).
+- The feature module `./write-through` (was `./apply`).
+- Renamed attributes report under `SN101`, functions under `SN201`, values under `SN401`.
+- Diagnostic names that read alike where the rules are alike: `missing-row-key`/`missing-resource-key`,
+  `undeclared-query`/`undeclared-query-in-spec`.
+
+Left for 1.0, as already deprecated: the top-level `sinter({ openapi })` (an API's `openapi`), and
+`configure({ origins })` (`sinter({ origins })`). Kept: `data-sn-with` on `<sn-component>`, where a bare
+`with` would give the word a second spelling.
+
 ## Looked at and kept
 
 - `data-sn-wait`: already automatic. The build hides what follows a content-sized box by itself; the

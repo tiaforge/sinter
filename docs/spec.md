@@ -1366,7 +1366,7 @@ Each diagnostic has `severity`, `code`, `message`, `file`, `line`, `col`, an opt
 | --- | --- | --- |
 | `SN101 unknown-attribute` | error | `data-sn-txt` is not a sinter attribute. Did you mean `data-sn-text`? |
 | `SN102 wrong-element` | error | `data-sn-for` must be on a `<template>` |
-| `SN103 missing-key` | error | a `data-sn-for` over primitive values needs `data-sn-key` |
+| `SN103 missing-row-key` | error | a `data-sn-for` over primitive values needs `data-sn-key` |
 | `SN104 unsupported-model` | error | `data-sn-model` does not support `type="file"`; submit the form instead |
 | `SN201 unknown-identifier` | error | `contcts` is not defined here. Did you mean `contacts`? |
 | `SN202 forbidden-global` | error | `window` is a browser API; expressions may use JavaScript, not the browser. Use a component's script |
@@ -1398,7 +1398,7 @@ Each diagnostic has `severity`, `code`, `message`, `file`, `line`, `col`, an opt
 | `SN502 non-reactive-value` | warning | `Date.now()` in a binding never updates. Use `$now` |
 | `SN503 data-bound-id` | warning | `id` bound from data can shadow globals other scripts read (DOM clobbering) |
 | `SN504 untyped-resource` | warning | resource `contacts` has no type: expressions using it are not checked — `sinter check` only |
-| `SN505 unknown-query-param` | warning | `GET /articles` declares no query parameter `tagg`. Did you mean `tag`? |
+| `SN505 undeclared-query-in-spec` | warning | `GET /articles` declares no query parameter `tagg`. Did you mean `tag`? |
 | `SN506 untyped-event` | warning | event `contact_updated` has no type: expressions reading its payload are not checked — `sinter check` only |
 | `SN507 complex-expression` | warning | `data-sn-on-click` is too complex for markup: 5 statements in one handler (limit `statements`: 4). Move the logic into a helper (pure, `x = fn(…)`) or an action |
 | `SN509 run-cycle` | warning | `run()` cycle: `#save` `data-sn-catch` (index.html:12) runs `#save`, which starts the first step again — opt-in (`checkCycles`) |

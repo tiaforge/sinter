@@ -119,7 +119,7 @@ The match runs in every build, not only in the check:
 
 ```text
 SN308 unknown-schema-field: the response of `GET /articles` has no `articls`. Did you mean `articles`?
-SN505 unknown-query-param: `GET /articles` declares no query parameter `tagg`. Did you mean `tag`?
+SN505 undeclared-query-in-spec: `GET /articles` declares no query parameter `tagg`. Did you mean `tag`?
 ```
 
 `SN308` means `items` or `total` is not in the schema. `SN505` is a warning for a literal query parameter the operation does not declare, with the older `openapi` option; with `apis` it is the error `SN327`.

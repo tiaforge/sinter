@@ -22,7 +22,7 @@ The attribute or element is valid, but not here: lists and conditionals render f
 
 **Fix:** Move it to where the message says, wrapping the content in a `<template>` if needed.
 
-## SN103 missing-key
+## SN103 missing-row-key
 
 Error, for example:
 
@@ -652,7 +652,7 @@ The type checker has no type for the resource, so expressions that use it are no
 
 **Fix:** Add `type="Contact[]"` with a type from `src/sinter.types.ts`, configure an OpenAPI spec that matches `src`, load it with `call` (typed by what the action returns), or write `type="any"` to opt out.
 
-## SN505 unknown-query-param
+## SN505 undeclared-query-in-spec
 
 Warning, for example:
 
@@ -762,7 +762,7 @@ Warning, for example:
 
 **Fix:** Add an `<sn-event resource="…">` for the resource to the `<sn-sync>`, or read `live` of a resource that a stream feeds.
 
-## SN517 unkeyed-list
+## SN517 missing-resource-key
 
 Warning, for example:
 
