@@ -77,7 +77,7 @@ test('the page module creates the service from the config, only when a page uses
     file: '/app/index.html', root: '/app', dev: false, readFile: () => '', helpers: { module: null, names: [], namespaces: {} },
     remoteImages: resolveRemote({ url: 'netlify', origins: ['self'] }),
   });
-  expect(out.module).toContain("import { remote } from '@tiaforge-ui/sinter/remote';");
+  expect(out.module).toContain("import { remote } from '@tiaforge-ui/sinter/runtime/remote';");
   expect(out.module).toContain('const $ri = remote({"url":"/.netlify/images?url={url}&w={w}&q={q}"');
   expect(out.module).toMatch(/\$ri\.set\(\(\$\.\$r\.me\.photo\), \[480,960,1440,1920,2560\], 0\)/);
 });

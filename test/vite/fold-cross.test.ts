@@ -15,7 +15,7 @@ import { crossCheck, crossMessage, hashOf } from '../../src/fold-cross.js';
 import { resultKey } from '../../src/compiler/compile.js';
 
 const src = resolve(__dirname, '../../src');
-const alias = [{ find: /^@tiaforge-ui\/sinter\/(.+)$/, replacement: `${src}/$1.ts` }, { find: /^@tiaforge-ui\/sinter$/, replacement: `${src}/index.ts` }];
+const alias = [{ find: /^@tiaforge-ui\/sinter\/runtime$/, replacement: `${src}/runtime-entry.ts` }, { find: /^@tiaforge-ui\/sinter\/(?:runtime\/)?(.+)$/, replacement: `${src}/$1.ts` }, { find: /^@tiaforge-ui\/sinter$/, replacement: `${src}/index.ts` }];
 const tmp = mkdtempSync(join(tmpdir(), 'sinter-fold-cross-'));
 afterAll(() => rmSync(tmp, { recursive: true, force: true }));
 

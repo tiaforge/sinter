@@ -56,5 +56,5 @@ test('the build marks the element and loads the feature; the mark is all that st
   expect(out.diagnostics.filter((d) => d.severity === 'error')).toEqual([]);
   expect(out.html).toMatch(/<form data-sn="\d+" data-sn-navigate="">|<form data-sn-navigate=""[^>]*>/);
   expect(out.html).not.toContain('data-sn-on-navigate');
-  expect(out.module).toContain("from '@tiaforge-ui/sinter/navigate'");
+  expect(out.module).toContain("from '@tiaforge-ui/sinter/runtime/navigate'");
 });

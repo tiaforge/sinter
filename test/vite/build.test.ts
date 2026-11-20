@@ -12,9 +12,7 @@ const src = resolve(__dirname, '../../src');
 const out = mkdtempSync(join(tmpdir(), 'sinter-vite-'));
 afterAll(() => rmSync(out, { recursive: true, force: true }));
 
-const alias = ['sse', 'optimistic', 'paginate', 'persist', 'early', 'prefetch', 'transition', 'form', 'select', 'location', 'call', 'debounce', 'confirm', 'models']
-  .map((f) => ({ find: `@tiaforge-ui/sinter/${f}`, replacement: `${src}/${f}.ts` }))
-  .concat([{ find: '@tiaforge-ui/sinter', replacement: `${src}/index.ts` }]);
+const alias = [{ find: /^@tiaforge-ui\/sinter\/runtime$/, replacement: `${src}/runtime-entry.ts` }, { find: /^@tiaforge-ui\/sinter\/(?:runtime\/)?([\w-]+)$/, replacement: `${src}/$1.ts` }, { find: /^@tiaforge-ui\/sinter$/, replacement: `${src}/index.ts` }];
 
 /** the page's head scripts, first in the head: the shared one (`sinter-head-…`) and the page's own (`<page>-head-…`) */
 function heads(html: string, dir: string, page = 'index') {
@@ -416,7 +414,7 @@ test('first paint in the dev server: the early script as in builds, one classic 
 });
 
 test('source maps in the dev server: the page and early modules map their expressions to the HTML', async () => {
-  const devAlias = [{ find: '@tiaforge-ui/sinter/dev', replacement: `${src}/dev.ts` }, ...alias];
+  const devAlias = [{ find: '@tiaforge-ui/sinter/runtime/dev', replacement: `${src}/dev.ts` }, ...alias];
   const server = await createServer({ root, logLevel: 'silent', resolve: { alias: devAlias }, server: { middlewareMode: true, hmr: false, ws: false }, appType: 'custom', plugins: [sinter()] });
   try {
     await server.transformIndexHtml('/index.html', readFileSync(join(root, 'index.html'), 'utf8'));

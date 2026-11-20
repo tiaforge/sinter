@@ -12,7 +12,7 @@ import sinter from '../../src/vite.js';
 const src = resolve(__dirname, '../../src');
 const root = mkdtempSync(join(tmpdir(), 'sinter-images-'));
 afterAll(() => rmSync(root, { recursive: true, force: true }));
-const alias = [{ find: '@tiaforge-ui/sinter', replacement: `${src}/index.ts` }];
+const alias = [{ find: /^@tiaforge-ui\/sinter\/runtime$/, replacement: `${src}/runtime-entry.ts` }, { find: /^@tiaforge-ui\/sinter\/(?:runtime\/)?([\w-]+)$/, replacement: `${src}/$1.ts` }, { find: /^@tiaforge-ui\/sinter$/, replacement: `${src}/index.ts` }];
 /** a PostCSS plugin of the app's: \`x-thumb\` becomes \`width\` */
 const xThumb = { postcssPlugin: 'x-thumb', Declaration: { 'x-thumb': (d: { prop: string }) => { d.prop = 'width'; } } };
 

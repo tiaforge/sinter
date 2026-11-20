@@ -1,4 +1,4 @@
-// @tiaforge-ui/sinter/early: what a page's early file runs before the first paint. It starts the
+// @tiaforge-ui/sinter/runtime/early: what a page's early file runs before the first paint. It starts the
 // requests of the resources whose URL is known before any data (the page module's request layer
 // takes the responses), and renders, once, the bindings the compiler found renderable before any data: page-level values from state
 // (persisted values read from storage) and helpers, and the branch of each such `data-sn-if`.

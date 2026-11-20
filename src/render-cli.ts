@@ -215,7 +215,8 @@ const SHARED = Symbol.for('sinter.render.shared');
 async function ownModule(sub: string): Promise<Record<string, unknown>> {
   // (paths, not URL objects: a simulated DOM may have replaced the global URL)
   const here = dirname(fileURLToPath(import.meta.url)), ext = import.meta.url.endsWith('.ts') ? '.ts' : '.js';
-  const name = sub || 'index';
+  // the compiled modules' `runtime` and `runtime/<feature>` are files beside this one
+  const name = sub === 'runtime' ? 'runtime-entry' : sub.startsWith('runtime/') ? sub.slice('runtime/'.length) : sub || 'index';
   for (const f of [`${name}${ext}`, `${name}/index${ext}`]) {
     const file = resolve(here, f);
     if (existsSync(file)) return import(pathToFileURL(file).href) as Promise<Record<string, unknown>>;

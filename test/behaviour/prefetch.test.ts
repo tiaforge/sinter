@@ -216,7 +216,7 @@ test('the compiler describes only resources whose request the URL decides; helpe
   // array parameters: only an app with a page that has them passes `lists` (and carries it)
   expect(mod).not.toMatch(/\blists\b/);
   const withLists = prefetchModule([{ paths: ['/s'], parts: { ...parts.prefetch!, a: ['tag'] } }], { module: null, names: [], namespaces: {} });
-  expect(withLists).toContain("import { prefetch, lists } from '@tiaforge-ui/sinter/prefetch';");
+  expect(withLists).toContain("import { prefetch, lists } from '@tiaforge-ui/sinter/runtime/prefetch';");
   expect(withLists).toMatch(/\], lists\);\n$/);
 });
 

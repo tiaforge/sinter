@@ -110,7 +110,8 @@ describe('the template builds', () => {
   const dir = join(tmp, 'built');
   const src = resolve(repo, 'src');
   const alias = [
-    { find: /^@tiaforge-ui\/sinter\/([\w-]+)$/, replacement: `${src}/$1.ts` },
+    { find: /^@tiaforge-ui\/sinter\/runtime$/, replacement: `${src}/runtime-entry.ts` },
+    { find: /^@tiaforge-ui\/sinter\/(?:runtime\/)?([\w-]+)$/, replacement: `${src}/$1.ts` },
     { find: /^@tiaforge-ui\/sinter$/, replacement: `${src}/index.ts` },
   ];
 

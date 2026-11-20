@@ -12,7 +12,7 @@ import sinter from '../../src/vite.js';
 import type { FontPreload } from '../../src/fonts-build.js';
 
 const src = resolve(__dirname, '../../src');
-const alias = [{ find: '@tiaforge-ui/sinter', replacement: `${src}/index.ts` }];
+const alias = [{ find: /^@tiaforge-ui\/sinter\/runtime$/, replacement: `${src}/runtime-entry.ts` }, { find: /^@tiaforge-ui\/sinter\/(?:runtime\/)?([\w-]+)$/, replacement: `${src}/$1.ts` }, { find: /^@tiaforge-ui\/sinter$/, replacement: `${src}/index.ts` }];
 const GOOGLE = 'https://fonts.googleapis.com/css?family=Source+Sans+Pro:400,700';
 const CSS = ['latin-ext', 'latin'].map((subset) => [400, 700].map((w) => `/* ${subset} */
 @font-face { font-family: 'Source Sans Pro'; font-style: normal; font-weight: ${w}; src: url(https://fonts.gstatic.com/s/ssp/${subset}-${w}.woff2) format('woff2'); unicode-range: ${subset == 'latin' ? 'U+0000-00FF' : 'U+0100-02BA'}; }`).join('\n')).join('\n');

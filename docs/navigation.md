@@ -188,7 +188,7 @@ the state you made (`data-sn-state`) and the scroll position stay. Nothing to wr
 - **What it does not do:** no other path or page (that is a page load, always); no cross-document
   view transition (the list keeps its rows until the response, as with `page()`); no
   `<form method="get">` (bind the field instead: `data-sn-model="$url.q"`).
-- **Which pages:** the build loads it (`@tiaforge-ui/sinter/query-links`, about 0.7 KB gzip) on a
+- **Which pages:** the build loads it (`@tiaforge-ui/sinter/runtime/query-links`, about 0.7 KB gzip) on a
   page that reads a query parameter by name and has a link it can see goes to the page: a static
   `href` (`?page=3`, the page's own URL or its file, `about.html?q=1`), or a `data-sn-attr` `href`
   that starts with one (followed through `+`, template literals, `?:`, `||` and `??`). A link it

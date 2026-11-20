@@ -165,7 +165,7 @@ export interface CompileOptions {
    * credentials, as the request layer sends cross-origin requests
    */
   origins?: string[];
-  /** the early module runs as a classic script in the head, started by `observe` (see `@tiaforge-ui/sinter/early`); with `early.src`, its tag is classic */
+  /** the early module runs as a classic script in the head, started by `observe` (see `@tiaforge-ui/sinter/runtime/early`); with `early.src`, its tag is classic */
   observe?: boolean;
   /**
    * builds served by a server that fills embedded data (sinter-axum): every resource whose request

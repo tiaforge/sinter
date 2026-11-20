@@ -208,15 +208,15 @@ sink.on = send;
 const EARLY = `${PREFIX}early/`;
 
 /**
- * The early runtime (`@tiaforge-ui/sinter/early`) is in the shared head script, once for every page:
+ * The early runtime (`@tiaforge-ui/sinter/runtime/early`) is in the shared head script, once for every page:
  * it puts the exports the pages call on this global, and each page's head script takes them from it
  * (this module stands for the runtime in a page's build).
  */
 const RT_KEY = 'sinter.early.rt';
 const RT_ID = '\0sinter:early-rt';
-const EARLY_PKG = '@tiaforge-ui/sinter/early';
+const EARLY_PKG = '@tiaforge-ui/sinter/runtime/early';
 /** the runtime's exports a page's early module imports (the compiler names each it calls) */
-const runtimeNames = (code: string) => /import \{([^}]*)\} from '@tiaforge-ui\/sinter\/early'/.exec(code)?.[1]!.split(',').map((x) => x.trim()).filter(Boolean) ?? [];
+const runtimeNames = (code: string) => /import \{([^}]*)\} from '@tiaforge-ui\/sinter\/runtime\/early'/.exec(code)?.[1]!.split(',').map((x) => x.trim()).filter(Boolean) ?? [];
 /** the page's image rules (a CSS module the page module imports) */
 const IMG_CSS = `${PREFIX}img-css/`;
 /** builds: a page's reserved-space rules (docs/first-paint.md#reserved-space), imported by its module */

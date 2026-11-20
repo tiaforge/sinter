@@ -82,7 +82,7 @@ export function prefetchModule(pages: Array<{ paths: string[]; parts: PrefetchPa
   }
   // array parameters: only an app with a page that has them passes `lists` (and carries it)
   const ls = pages.some((p) => p.parts.a);
-  const lines = [`import { $k } from '${PACKAGE}';`, `import { prefetch${ls ? ', lists' : ''} } from '${PACKAGE}/prefetch';`];
+  const lines = [`import { $k } from '${PACKAGE}/runtime';`, `import { prefetch${ls ? ', lists' : ''} } from '${PACKAGE}/runtime/prefetch';`];
   lines.push(...helperImports([...user].sort(), Object.fromEntries([...ns].map(([n, m]) => [n, [...m].sort()])), helpers));
   lines.push('', 'void $k;', 'export default prefetch([');
   for (const { paths, parts } of pages) {

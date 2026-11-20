@@ -478,7 +478,7 @@ export type Tagged = Element & { [HANDLERS]?: RB | RB[]; [MODEL]?: RB; [STATE]?:
 const others = new WeakMap<TemplateDef, number[]>(), allDeps = new WeakMap<TemplateDef, number[]>();
 /** set by the early script on the start comment of a `data-sn-for` whose rows it rendered from embedded data: each row's nodes, the end comment */
 const EARLY_ROWS = Symbol.for('sinter.early.rows');
-/** set by the early chunk (@tiaforge-ui/sinter/early) on the start comment of a `data-sn-if` or choice whose branch it rendered */
+/** set by the early chunk (@tiaforge-ui/sinter/runtime/early) on the start comment of a `data-sn-if` or choice whose branch it rendered */
 const EARLY = Symbol.for('sinter.early');
 const simple = new WeakMap<TemplateDef, Simple | null>();
 /** ROW: on each node of a simple row with handlers, its instance */

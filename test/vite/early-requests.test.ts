@@ -13,9 +13,7 @@ import sinter from '../../src/vite.js';
 import { chromium } from '../browser.js';
 
 const src = resolve(__dirname, '../../src');
-const alias = ['sse', 'optimistic', 'paginate', 'persist', 'early', 'prefetch', 'transition', 'cache', 'write-through', 'form', 'select', 'location', 'call', 'debounce', 'confirm', 'models']
-  .map((f) => ({ find: `@tiaforge-ui/sinter/${f}`, replacement: `${src}/${f}.ts` }))
-  .concat([{ find: '@tiaforge-ui/sinter', replacement: `${src}/index.ts` }]);
+const alias = [{ find: /^@tiaforge-ui\/sinter\/runtime$/, replacement: `${src}/runtime-entry.ts` }, { find: /^@tiaforge-ui\/sinter\/(?:runtime\/)?([\w-]+)$/, replacement: `${src}/$1.ts` }, { find: /^@tiaforge-ui\/sinter$/, replacement: `${src}/index.ts` }];
 
 const dir = mkdtempSync(join(tmpdir(), 'sinter-early-req-'));
 const root = join(dir, 'app'), out = join(dir, 'dist');
