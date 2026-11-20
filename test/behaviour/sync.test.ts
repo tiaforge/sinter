@@ -7,7 +7,7 @@ afterEach(() => configure({ request: [], onError: null, sessionProbe: null }));
 const PAGE = `
   <sn-resource name="contacts" src="/api/contacts" items="contacts" key="id" order="name"></sn-resource>
   <sn-sync src="/api/events/stream">
-    <sn-event name="contact_updated" resource="contacts" op="upsert" value="contact" fallback="refresh"></sn-event>
+    <sn-event name="contact_updated" resource="contacts" op="upsert" value="contact" fallback></sn-event>
     <sn-event name="contact_patched" resource="contacts" op="merge" value="{name}"></sn-event>
     <sn-event name="contact_removed" resource="contacts" op="remove"></sn-event>
     <sn-event name="contacts_refetch" resource="contacts" op="refresh"></sn-event>

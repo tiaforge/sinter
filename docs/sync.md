@@ -52,7 +52,7 @@ Whatever the transport, the store only understands four changes:
 | `op` | `upsert`, `merge`, `remove` or `refresh`. |
 | `value` | What the change writes: for `upsert` the item, an expression (default: the whole payload); for `merge` the fields, an object literal such as `{flags, is_read: flags.includes('\\Seen')}`. |
 | `when` | Skip the event unless this is truthy, e.g. `mailbox === $url.mailbox`. |
-| `fallback` | `refresh`: reload when an `upsert`'s `value` evaluates to null, for servers that send some updates without a body. |
+| `fallback` | A flag, on `op="upsert"`: reload the resource when the `value` evaluates to null, for servers that send some updates without a body. |
 | `then` | Handler run after the change is applied, see [Reacting to events](#reacting-to-events). |
 | `type` | The payload's type, for `sinter check` ([type-checking.md](type-checking.md)). |
 

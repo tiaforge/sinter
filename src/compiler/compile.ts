@@ -6665,11 +6665,13 @@ class Compiler {
     if (op === 'merge' && value === null) this.report(el, null, 'SN401', '`op="merge"` needs `value`, the fields it merges: `value="{ flags }"`', 0);
     const item = op === 'upsert' ? value : null, set = op === 'merge' ? value : null;
     const fallback = attr(el, 'fallback');
-    if (fallback != null && fallback !== 'refresh') this.report(el, 'fallback', 'SN401', fallback === 'refetch' ? '`fallback="refetch"` is renamed to `fallback="refresh"`' : '`fallback` takes `refresh`', 0);
+    // a flag: an `upsert` whose value is missing refreshes the resource instead
+    if (fallback != null && fallback.trim() !== '') this.report(el, 'fallback', 'SN401', /^(refresh|refetch)$/.test(fallback.trim()) ? `\`fallback="${fallback.trim()}"\` is \`fallback\` now, a flag: \`<sn-event … op="upsert" value="person" fallback>\`` : '`fallback` is a flag, written without a value', 0);
+    if (fallback != null && op !== 'upsert') this.report(el, 'fallback', 'SN102', '`fallback` applies to `op="upsert"`: an event without the item refreshes the resource', 0);
     const when = fnOf('when');
     const then = fnOf('then');
     return {
-      name, resource, op, item, set, when, fallback: fallback === 'refresh' ? 'refresh' : null,
+      name, resource, op, item, set, when, fallback: fallback != null && fallback.trim() === '' ? 'refresh' : null,
       ...(then !== null ? { then, ...(writes.length ? { w: writes } : {}) } : {}),
     };
   }

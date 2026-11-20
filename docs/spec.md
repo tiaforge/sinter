@@ -686,7 +686,7 @@ type Change<T> =
 ### Declaring a stream
 ```html
 <sn-sync src="/api/events/stream">
-  <sn-event name="contact_updated"  resource="contacts" op="upsert" value="contact" fallback="refresh"></sn-event>
+  <sn-event name="contact_updated"  resource="contacts" op="upsert" value="contact" fallback></sn-event>
   <sn-event name="contact_removed"  resource="contacts" op="remove"></sn-event>
   <sn-event name="contacts_refetch" resource="contacts" op="refresh"></sn-event>
 </sn-sync>
@@ -700,7 +700,7 @@ Inside `<sn-event>` attributes, the event's parsed JSON payload is the scope: `v
 | `op` | `upsert`, `merge`, `remove` or `refresh` |
 | `value` | what the change writes (changed 2026-11-19: was `item` and `set`, now `SN401`): for `upsert` the item, a value expression, default the whole payload; for `merge` the fields, an object literal, e.g. `{flags, is_read: flags.includes('\\Seen')}` |
 | `when` | value expression; skip the event unless truthy, e.g. `mailbox === $url.mailbox` |
-| `fallback` | `refresh` when an `upsert`'s `value` evaluates to null (for servers that send some updates without a body) |
+| `fallback` | a flag on `op="upsert"` (was `fallback="refresh"` until 2026-11-20, now `SN401`): refresh the resource when the `value` evaluates to null (for servers that send some updates without a body) |
 | `then` | handler expression, run after the change is applied (see Handlers on server events) |
 | `type` | the payload's type, for `sinter check` (see Type checking) |
 
@@ -1537,7 +1537,7 @@ Endpoints used: `GET /api/contacts` → `{addressbooks, contacts}`, `POST /api/c
              key="account_id,href"></sn-resource>
 
 <sn-sync src="/api/events/stream">
-  <sn-event name="contact_updated"  resource="contacts" op="upsert" value="contact" fallback="refresh"></sn-event>
+  <sn-event name="contact_updated"  resource="contacts" op="upsert" value="contact" fallback></sn-event>
   <sn-event name="contact_removed"  resource="contacts" op="remove"></sn-event>
   <sn-event name="contacts_refetch" resource="contacts" op="refresh"></sn-event>
 </sn-sync>
