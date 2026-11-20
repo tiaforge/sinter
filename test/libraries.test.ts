@@ -150,6 +150,20 @@ describe('the components', () => {
     expect(map[0]!.message).toBe('`\'ui-node\'` is internal to `@fixture/ui` (`components/internal/`): only its own components use it');
   });
 
+  test('a library\'s component without props: its one `<template>` declares it, public and internal; a branch at its top is SN312', () => {
+    const root = app({}, { '@t/bare': {
+      'package.json': pkgJson({ name: '@t/bare', sinter: './s' }),
+      's/components/bare-box.html': '<template><div class="box"><bare-dot></bare-dot></div></template>',
+      's/components/internal/bare-dot.html': '<template><i>·</i></template>',
+      's/components/bare-if.html': '<template data-sn-if="true"><p></p></template>',
+    } });
+    const ok = build(root, page('<bare-box></bare-box>'), { libraries: ['@t/bare'] });
+    expect(ok.diagnostics).toEqual([]);
+    expect(ok.out.html).toMatch(/<div class="box"[^>]*><i[^>]*>·<\/i><\/div>/);
+    const bad = build(root, page('<bare-if></bare-if>'), { libraries: ['@t/bare'] }).diagnostics;
+    expect(bad.map((d) => [d.code, d.file.slice(root.length + 1)])).toEqual([['SN312', 'node_modules/@t/bare/s/components/bare-if.html']]);
+  });
+
   test('a diagnostic in a library\'s file names the file in the package, then where the app uses it', () => {
     const root = app();
     const lib = join(tmp, `lib-${n++}`);

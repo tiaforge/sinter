@@ -415,7 +415,7 @@ const IDENT = /^[A-Za-z_$][\w$]*$/;
 /** a name from the attribute: `textValue`, `showValue`; a URL interpolation is a `urlPart` */
 function valueName(attr: string): string {
   const stem = attr.replace(/^data-sn-/, '');
-  if (/^(get|post|put|patch|delete|src)$/.test(stem)) return 'urlPart';
+  if (/^(get|post|put|patch|delete|src|href)$/.test(stem)) return 'urlPart';
   const camel = stem.replace(/-([a-z])/g, (_, c: string) => c.toUpperCase()).replace(/[^\w$]/g, '');
   return IDENT.test(camel) ? `${camel}Value` : 'extracted';
 }

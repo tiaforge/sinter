@@ -194,7 +194,7 @@ export interface App {
       state(key: string, obj: Record<string, unknown>, sid: number): void;
     };
     cache?: {
-      /** the cached data for a request, if any and not older than the resource allows */
+      /** the cached data for a request, if any and not older than the resource allows; without `cache`, only on Back or Forward */
       read(def: ResourceDef, url: string): { t: number; items: unknown; total: number | null } | null;
       /** a load (or embedded data) stored `items`: cache them, and the resource's later changes */
       loaded(def: ResourceDef, r: Resource, url: string, items: unknown, total: number | null, appended: boolean): void;
@@ -1237,16 +1237,16 @@ export function mount(root: Document | Element, o: MountOptions): App {
    * A row's identity: the explicit key, the resource key, or the item object itself. A list the
    * compiler cannot trace to a resource (a helper's result: `t in visible(tasks, q)`) keys an item
    * that is a keyed resource's current item by that resource's key, so a patch (a new object)
-   * keeps its row.
+   * keeps its row. An item without the key fields (a helper's own object) keys by identity. A
+   * string, number or other primitive keys by its type and value (`p…`), to which `reconcile` adds its occurrence.
    */
   function keyOf(t: TemplateDef, item: any, s: any): unknown {
     if (t.key != null) return 'k' + fns[t.key]!(s);
-    if (t.keyFields && item) return 'r' + t.keyFields.map((f) => item[f]).join('\x1f');
     if (Object(item) === item) {
+      if (t.keyFields?.every((f) => item[f] != null)) return 'r' + t.keyFields.map((f) => item[f]).join('\x1f');
       for (const r of resources.values()) if (r.isCollection && keyed(r, item) && r.get(item) === item) return 'o' + r.name + '\x1f' + r.keyOf(item);
       return item;
     }
-    warn(10);
     return 'p' + typeof item + item;
   }
 
@@ -1255,6 +1255,15 @@ export function mount(root: Document | Element, o: MountOptions): App {
     // rows the early script rendered from the page's embedded data: adopted (bound, not cloned again) when there
     // are as many items, else removed; the row's values are written again, so a changed item still renders right
     const pre: { rows: Node[][]; end: Comment } | undefined = (rb.el as any)[EARLY_ROWS];
+    // a primitive's key with its occurrence among equal values (`['a', 'b', 'a']`: `a`, `b`, `a` 1): duplicates are
+    // rows of their own, the first `a` staying the first, so a list of strings needs no `data-sn-key`
+    const seen = new Map<unknown, number>(), key = (item: unknown, s: any) => {
+      const k = keyOf(rb.t!, item, s);
+      if (typeof k != 'string' || k[0] != 'p') return k;
+      const n = seen.get(k) ?? 0;
+      seen.set(k, n + 1);
+      return n ? k + '\x1f' + n : k;
+    };
     if (pre) {
       delete (rb.el as any)[EARLY_ROWS];
       const t = rb.t!, tpl = tplOf(t.id);
@@ -1262,7 +1271,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
         rb.end = pre.end;
         rb.rows = items.map((item, i) => {
           const s = setRow(Object.create(rb.s), t, item, i);
-          return instantiate(tpl, t, s, keyOf(t, item, s), item, i, pre.rows[i]);
+          return instantiate(tpl, t, s, key(item, s), item, i, pre.rows[i]);
         });
         rb.rr = round;
         rb.pf = true;
@@ -1278,7 +1287,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
     const inPlace = !m && !end.isConnected ? end : undefined;
     // a scope is only needed up front for an explicit key expression
     const scopes = t.key != null ? items.map((item, i) => setRow(Object.create(rb.s), t, item, i)) : null;
-    const keys = items.map((item, i) => keyOf(t, item, scopes?.[i]));
+    const keys = items.map((item, i) => key(item, scopes?.[i]));
     app.dupes?.(keys);
     // the takeover: the page module's items for an unkeyed list the early script rendered are new objects with the
     // same contents (a let over a helper, computed again), so the rows it adopted take the new keys and match by
@@ -1777,7 +1786,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
   // ---- resources
 
   function createLoader(def: ResourceDef) {
-    const r = createResource(def.name, { key: def.key ?? null, order: def.order ?? null, locale: () => config.locale?.get(), warn, prep: (x) => (app.prep ? app.prep(x) : x), freeze: app.dev });
+    const r = createResource(def.name, { key: def.key ?? null, order: def.order ?? null, locale: () => config.locale?.get(), warn, prep: (x) => (app.prep ? app.prep(x) : x), freeze: app.dev, list: def.ls });
     r.onDirty = (what) => app.mark((what == 'data' ? '$r.' : '$meta.') + def.name);
     resources.set(def.name, r);
     Object.defineProperty(app.page.$r, def.name, { get: r.value, enumerable: true });
@@ -1822,7 +1831,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
       if (Array.isArray(items)) items = items.map(clean);
       const t = def.total ? pick(def.total, body) : null, total = t == null ? null : +t;
       fill(items, total, m);
-      if (def.cache != null) app.ext.cache?.loaded(def, r, req, items, total, !!l.pager?.appends(m));
+      app.ext.cache?.loaded(def, r, req, items, total, !!l.pager?.appends(m));
       return items;
     };
     /** the request URL for the current page of `u` */
@@ -1859,11 +1868,11 @@ export function mount(root: Document | Element, o: MountOptions): App {
         if (url == null) {
           // the data the previous page prefetched for this request, else the page-load cache: shown
           // now, and changed() revalidates
-          const ahead = app.ext.prefetch && !def.call && !def.each && !def.paginate && def.body == null;
-          const u = ahead || (def.cache != null && app.ext.cache) ? resolve() : null;
+          const ahead = app.ext.prefetch && !def.call && !def.each && def.body == null;
+          const u = ahead || app.ext.cache ? resolve() : null;
           if (u != null) {
             l.pager?.reset(0);
-            const q = request(u), hit = (ahead && app.ext.prefetch!.take(def, q)) || (def.cache != null && app.ext.cache?.read(def, q));
+            const q = request(u), hit = (ahead && app.ext.prefetch!.take(def, q)) || app.ext.cache?.read(def, q);
             // loadedAt stays null: it means the server answered during this page load, and
             // guards such as `$meta.user.loadedAt && !user` must not act on another page's data
             if (hit) fill(hit.items, hit.total, l.pager?.current());
@@ -1893,7 +1902,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
         }
         c?.abort();
         r.replace(r.isCollection ? [] : null);
-        if (def.cache != null) app.ext.cache?.cleared(def);
+        app.ext.cache?.cleared(def);
         loading(false);
       },
       /** Repeats the current request; several calls in one task share one request (quiet only if every call was). */

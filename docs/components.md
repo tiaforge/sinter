@@ -7,7 +7,7 @@ every page:
 <!-- src/components/article-preview.html -->
 <template data-sn-props="{ article: Article; compact?: boolean }" data-sn-emits="{ select: Article }">
   <article class="preview" data-sn-class="{ compact }">
-    <a data-sn-attr="{ href: '/article/' + article.slug }" data-sn-on-click="emit('select', article)">
+    <a data-sn-href="/article/{article.slug}" data-sn-on-click="emit('select', article)">
       <h2 data-sn-text="article.title"></h2>
     </a>
     <slot name="meta"></slot>
@@ -38,8 +38,10 @@ runtime.
 - One `<template data-sn-props="…">` holds the markup. Its root **renders at most one element**
   ([The root](#the-root)).
 - `data-sn-props` is the props type, written in TypeScript with the names `src/sinter.types.ts`
-  exports (or the schemas of your OpenAPI spec), as `<sn-resource type>` is. `data-sn-props=""`
-  takes no props.
+  exports (or the schemas of your OpenAPI spec), as `<sn-resource type>` is. A component without
+  props needs none: the file's one top-level `<template>` is its declaration (`data-sn-props=""` works
+  too). That template is never a branch, list or text: `data-sn-if`, `data-sn-else`, `data-sn-for` or
+  `data-sn-text` on it, or two top-level templates without `data-sn-props`, is `SN312`.
 - `data-sn-emits` (optional) declares the events the component emits, with their detail types.
 - Together, these two attributes are the component's whole contract.
 
@@ -50,7 +52,7 @@ child (grid, flex, `data-layout`), with no wrapper.
 
 - `class` on the tag is joined with the root's. Another attribute (`id`, `aria-*`, `data-grow`) moves
   onto the root; the same attribute on both is an error, not a silent override.
-- Handlers (`data-sn-on-*`), an action (`data-sn-post`, …), `data-sn-class`, `-attr`, `-style`,
+- Handlers (`data-sn-on-*`), an action (`data-sn-post`, …), `data-sn-class`, `-attr`, `-href`, `-style`,
   `-show` and `-transition` on the tag move onto the root, in the caller's scope.
 - A component whose root is a `<tr>` or `<li>` is that element. Write its tag inside the row's
   `<template data-sn-for>`: directly in a `<table>`, the HTML parser moves an unknown tag out of the
@@ -137,7 +139,7 @@ fallback when it is left empty:
 
 ```html
 <!-- src/components/page-section.html -->
-<template data-sn-props="">
+<template>
   <section><side-card><slot name="aside" slot="side">Nothing here</slot></side-card><slot></slot></section>
 </template>
 ```
@@ -366,7 +368,7 @@ A component that declares a `value` prop and a `change` event can be bound like 
 <!-- src/components/rating-input.html -->
 <template data-sn-props="{ value: number }" data-sn-emits="{ change: number }">
   <div>
-    <template data-sn-for="i in [1, 2, 3, 4, 5]" data-sn-key="i">
+    <template data-sn-for="i in [1, 2, 3, 4, 5]">
       <button type="button" data-sn-class="{ on: i <= value }" data-sn-on-click="emit('change', i)" data-sn-text="i"></button>
     </template>
   </div>
@@ -454,7 +456,7 @@ tree, a nested menu.
   comment.replies` act on `r` inside its top-level row, at any depth: the objects along the path are
   replaced, and every view of that row updates. Nested items are matched by the resource's key, so
   give nested loops `data-sn-key`. `upsert(c.replies, x)` adds `x` to a nested list (or replaces the item
-  with its key); a resource name stays the form for top-level lists.
+  with its key); the resource itself, `upsert(comments, x)`, stays the form for top-level lists.
 - **Write-through follows the same paths.** An action inside the tree is about the nested item it reads
   (`data-sn-put="/api/comments/{comment.id}"`): its response patches that item at its depth, and a
   DELETE of the item's URL removes it from its list.

@@ -20,8 +20,6 @@ export interface Meta {
   error: { status: number | null; body: unknown; message: string; detail: string | null } | null;
   /** when the server last answered, as a `Date` (like `$now`); null before the first load */
   loadedAt: Date | null;
-  /** optimistic layers whose request has not settled (JavaScript only: markup reads `aria-busy`) */
-  pending: number;
   total: number | null;
   /** the server-event stream(s) feeding this resource: null when none does, else the worst state among them */
   live: 'connecting' | 'open' | 'retrying' | null;
@@ -42,6 +40,8 @@ export interface ResourceOptions {
   prep?: <T>(item: T) => T;
   /** hand out frozen lists (dev builds) */
   freeze?: boolean;
+  /** a single-object resource the build knows is a list (a list of strings has no key): empty, it reads `[]`, not null */
+  list?: 1;
 }
 
 /** The public store handle (`app.resource(name)`), plus the hooks loaders and features use. */
@@ -53,7 +53,7 @@ export interface Resource<T extends object = any> {
   get(key: string | T): T | undefined;
   has(key: string | T): boolean;
   all(): readonly T[];
-  /** what expressions see: the ordered array, or the single object (null when absent) */
+  /** what expressions see: the ordered array, or the single object (null when absent; `[]` for a list without `key`) */
   value(): readonly T[] | T | null;
   replace(items: T[] | T | null): void;
   upsert(item: T): void;
@@ -70,6 +70,8 @@ export interface Resource<T extends object = any> {
   startLoad(): number;
   endLoad(mark: number, loaded: boolean): void;
   addLayer(ops: Op[]): number;
+  /** optimistic layers whose request has not settled (tests; markup reads an element's own `aria-busy`) */
+  waiting(): number;
   /** the rollback: the layer's changes are gone */
   dropLayer(id: number): void;
   /** the request succeeded: the layer goes into the base, in order (after the older layers settle) */
@@ -91,12 +93,15 @@ export function clean<T>(obj: T): T {
   return out as T;
 }
 
+/** the empty value of a list without `key`: one frozen array, so a read that finds it empty changes nothing */
+const NONE: readonly never[] = Object.freeze([]);
+
 /** One collator per locale: constructing one is costly in some engines. */
 const collators = new Map<string, Intl.Collator>();
 const collator = (l = '') => collators.get(l) ?? (collators.set(l, new Intl.Collator(l || undefined, { numeric: true })), collators.get(l)!);
 
 export function createResource<T extends object = any>(name: string, o: ResourceOptions): Resource<T> {
-  const meta: Meta = { loading: false, error: null, loadedAt: null, pending: 0, total: null, live: null };
+  const meta: Meta = { loading: false, error: null, loadedAt: null, total: null, live: null };
   const coll = !!o.key, field = o.order?.replace(/^-/, ''), dir = o.order?.[0] == '-' ? -1 : 1;
   const subs = new Set<(c: Change<T>) => void>();
   const prep = (x: any) => (o.prep ? o.prep(x) : x);
@@ -207,12 +212,11 @@ export function createResource<T extends object = any>(name: string, o: Resource
     if (meta.total !== t) { meta.total = t; r.onDirty('meta'); }
   }
 
-  /** A data change: readers rebuild their view; `meta` too when the pending count changed. */
-  const changed = (pending?: boolean) => {
+  /** A data change: readers rebuild their view. */
+  const changed = () => {
     view = null;
     sync();
     r.onDirty('data');
-    if (pending) { meta.pending = layers.filter((l) => !l.ok).length; r.onDirty('meta'); }
   };
 
   function visible() {
@@ -254,7 +258,7 @@ export function createResource<T extends object = any>(name: string, o: Resource
       apply(op);
       done.push(op);
     }
-    changed(true);
+    changed();
     for (const op of done) for (const f of subs) f({ resource: name, ...op } as Change<T>);
   }
 
@@ -263,7 +267,7 @@ export function createResource<T extends object = any>(name: string, o: Resource
     get: (k) => (coll ? visible().get(keyOf(k)) : visible().s ?? undefined),
     has: (k) => r.get(k) !== undefined,
     all: () => visible().l,
-    value: () => (coll ? visible().l : visible().s),
+    value: () => (coll ? visible().l : visible().s ?? (o.list ? NONE : null)),
     replace(items) {
       if (coll) {
         base = new Map();
@@ -298,9 +302,10 @@ export function createResource<T extends object = any>(name: string, o: Resource
       for (const op of ops) apply(op);
       changed();
     },
+    waiting: () => layers.filter((l) => !l.ok).length,
     addLayer(ops) {
       layers.push({ id: ++lastLayer, ops });
-      changed(true);
+      changed();
       return lastLayer;
     },
     dropLayer(id) {

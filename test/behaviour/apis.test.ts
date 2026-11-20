@@ -47,6 +47,14 @@ describe('request settings per API', () => {
     expect(sent).toHaveLength(2);
   });
 
+  test('render({ defaultApi }) is renamed to the API\'s own `default: true`', async () => {
+    await expect(render('<p></p>', { apis: { main: { base: '/v1' }, other: { base: '/v2' } }, defaultApi: 'main' } as never)).rejects.toThrow('render({ defaultApi }) is renamed to `apis: { main: { default: true } }`');
+    const requests = mockRequests({ 'GET /v2/x': { n: 1 } });
+    const { root, settle } = await render('<sn-resource name="x" src="/x"></sn-resource><p data-sn-text="x?.n"></p>', { requests, apis: { main: { base: '/v1' }, other: { base: '/v2', default: true, operations: { 'GET /x': {} } } } });
+    await settle();
+    expect(root.querySelector('p')!.textContent).toBe('1');
+  });
+
   test('render: a page written with paths of an API', async () => {
     const requests = mockRequests({ 'GET /v1/contacts': { contacts: [{ id: 1, name: 'Ada' }] } });
     const { root, settle } = await render('<sn-resource name="contacts" src="/contacts"></sn-resource><p data-sn-text="contacts[0].name"></p>', {

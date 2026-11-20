@@ -92,7 +92,7 @@ test('the early function: the status written in field by field, text in strings 
 });
 
 test('the whole status, as a helper reads it: every field as at mount', async () => {
-  const helpers = { idle: (m: { pending: number; total: unknown; live: unknown; loading: boolean }) => m.loading && m.pending === 0 && m.total === null && m.live === null };
+  const helpers = { idle: (m: { total: unknown; live: unknown; loading: boolean }) => m.loading && !('pending' in m) && m.total === null && m.live === null };
   await firstPaint(PAGE('', 'idle($meta.c)'), { helpers });
   expect(loading()).not.toBeNull();
   // paginated: its pager fields are not known early, and a binding that reads one is the page module's
@@ -108,8 +108,9 @@ test('with next-page data in the app, the early binding first checks this tab ho
   const opts = { file: '/app/index.html', root: '/app', dev: false, readFile: () => '', moduleSrc: '/page.js', helpers: { module: null, names: [], namespaces: {} }, prerender: true, early: { module: null }, observe: true };
   const html = PAGE('when="$url.go"');
   const plain = compile(html, opts).early!, ahead = compile(html, { ...opts, prefetch: '/prefetch.js' }).early!;
-  expect(plain).not.toContain('sessionStorage');
-  expect(ahead).toContain('/^sn:[cp]:\\[/');
+  // without `cache`: the page-load cache's entries count only on Back or Forward, which restores them (cache.ts)
+  expect(plain).toContain("type == 'back_forward' || sessionStorage.getItem('sn:back') == location.href ? /^sn:[cp]:\\[/ : /^sn:p:\\[/");
+  expect(ahead).toContain('/^sn:p:\\[/');
   // `when` is called from the table, not written out again
   expect(ahead).toMatch(/!!f\[\d+\]\(\$\)/);
 });

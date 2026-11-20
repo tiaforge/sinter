@@ -33,6 +33,8 @@ export const configured = (): EarlyEnv => {
 export { $k } from './runtime/keys.js';
 /** for a page whose early requests include a paginated resource's first page (the compiler passes it to `requests`) */
 export { withParams } from './runtime/url.js';
+/** a link's URL template (`data-sn-href`) the early bindings fill */
+export { $href, $hv } from './runtime/url.js';
 
 /** On the start comment of a `data-sn-if` (or a choice) the early chunk rendered: the branch, its nodes and the end comment, for the runtime to adopt. */
 export const EARLY = Symbol.for('sinter.early');
@@ -243,7 +245,8 @@ function embedded(emb: NonNullable<EarlyIR['emb']>): any {
       if (!got.has(name as string)) {
         let v: any = json(e.id);
         for (const k of e.items ? e.items.split('.') : []) v = v?.[k];
-        got.set(name as string, v);
+        // a list without `key` (`ls`) is `[]` when empty, as in the page module
+        got.set(name as string, v ?? (e.ls ? [] : v));
       }
       return got.get(name as string);
     },

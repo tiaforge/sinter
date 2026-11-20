@@ -79,13 +79,17 @@ describe('sinter({ apis })', () => {
     expect(bad({ apis: { main: { openapi: 'openapi.yml', defaults: { 'GET /nope': {} } } } })[0]).toMatch(/`main.defaults` names `GET \/nope`, which its spec does not have/);
     expect(bad({ apis: { main: { openapi: 'openapi.yml', operations: { 'GET /contacts': { type: 'X' } } } } })[0]).toMatch(/which the spec has: its shape goes in `main.defaults`/);
     expect(bad({ apis: { main: { operations: { 'get /x': {} } } } })[0]).toMatch(/as `METHOD \/path`/);
-    expect(bad({ apis: { a: {}, b: {} }, defaultApi: 'c' })[0]).toMatch(/`defaultApi` names `c`, which is no API/);
+    expect(bad({ apis: { a: { default: true }, b: { default: true } } })[0]).toMatch(/one API is the default, not `a` and `b`/);
+    expect(bad({ apis: { a: { default: 'yes' as never } } })[0]).toMatch(/`a.default` is `true` or `false`/);
+    // the default is the API's own setting (was a sibling of `apis`)
+    expect(() => apiProject({ apis: { a: {}, b: {} }, defaultApi: 'a' } as never)).toThrow('sinter({ defaultApi }) is renamed to `apis: { a: { default: true } }`');
     expect(bad({ apis: { site: { base: '/x' } } })[0]).toMatch(/`site` is the page's own origin/);
     expect(bad({ apis: { main: { basee: '/x' } as never } })[0]).toMatch(/`main.basee` is not an API setting/);
     expect(bad({ openapi: 'openapi.yml', apis: { main: {} } })[0]).toMatch(/`openapi` moves into an API/);
   });
 
-  test('several APIs need defaultApi for a path without api:', () => {
+  test('several APIs need a default for a path without api:', () => {
+    expect(apiProject({ apis: { main: { base: '/api', default: true }, billing: { base: '/billing' } } }).apis!.defaultApi).toBe('main');
     const p = apiProject({ apis: { main: { base: '/api' }, billing: { base: '/billing' } } });
     expect(p.apis!.defaultApi).toBeNull();
     expect(apiOf(p.apis!, '/x')).toMatchObject({ error: expect.stringMatching(/several APIs are configured/) });

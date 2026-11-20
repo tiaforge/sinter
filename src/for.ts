@@ -1,4 +1,5 @@
-// Fan-out resources: `each="a in accounts"` loads one request per list item into one collection.
+// Fan-out resources (`@tiaforge-ui/sinter/runtime/for`): `<sn-resource for="a in accounts">` loads one request per
+// list item into one collection.
 import type { App, Feature, ResourceLoader } from './runtime/app.js';
 
 interface Source {
@@ -117,7 +118,7 @@ function fanOut(l: ResourceLoader, app: App) {
 }
 
 const each: Feature = {
-  name: 'each',
+  name: 'for',
   install(app: App) {
     app.ext.each = { fanOut: (loader) => fanOut(loader, app) };
   },

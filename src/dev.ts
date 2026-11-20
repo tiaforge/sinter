@@ -17,7 +17,6 @@ const MESSAGES: Record<number, string> = {
   7: 'refused URL in `%` on <%>: %',
   8: 'refused style value for `%`: %',
   9: 'model on <%>% could not be set: %',
-  10: 'a `data-sn-for` over primitive values needs `data-sn-key`',
   11: 'duplicate key in `data-sn-for`: %',
   12: 'resource `%`: `items` path `%` is not an array',
   13: 'resource `%`: duplicate key `%`; the last one wins',

@@ -12,6 +12,7 @@ sinter({
       base: process.env.API_URL,          // default: the spec's first server
       openapi: 'specs/main.yml',
       credentials: 'include',
+      default: true,                      // paths without `api:` (with one API, it is that one)
       defaults: {
         'GET /articles': { items: 'articles', total: 'articlesCount', key: 'slug' },
         'GET /user': { items: 'user' },
@@ -19,7 +20,6 @@ sinter({
     },
     billing: { base: process.env.BILLING_URL, openapi: 'specs/billing.yml' },
   },
-  defaultApi: 'main',
 });
 ```
 
@@ -42,8 +42,9 @@ Without `apis` nothing changes: `src="/api/contacts"` is a same-origin URL, as b
 | `headers` | Static headers for every request to the API. They are compiled into the page bundle: no secrets. |
 | `defaults` | What the spec's operations return, by `METHOD /path` as the spec writes it: `items`, `total`, `key`, `type`, and `query` (query parameters the spec leaves out). |
 | `operations` | Endpoints the spec does not have, with the same keys. |
+| `default` | `true`: paths without `api:` go to this API. With one API it is that one. |
 
-`defaultApi` names the API a path without `api:` goes to; with one API it is that one. `site` is
+`site` is
 built in: the page's own origin (`src="site:/config.json"`), declared like any other API. `file` is
 built in too, and cannot name an API (`SN329`): `src="file:./intro.txt"` reads a file of the project at
 build time ([resources.md](resources.md#files)).

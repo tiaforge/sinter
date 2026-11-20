@@ -115,7 +115,7 @@ export class TaskRing extends TaskRingComponent {
     const { findTsc } = await import('../../src/check/index.js');
     const { spawnSync } = await import('node:child_process');
     const tsconfig = (files: string[]) => JSON.stringify({ compilerOptions: { strict: true, noEmit: true, target: 'es2022', module: 'esnext', moduleResolution: 'bundler', lib: ['es2023', 'dom', 'dom.iterable'], allowImportingTsExtensions: true, skipLibCheck: true,
-      paths: { '@tiaforge-ui/sinter/components': [join(src, 'components.ts')] } }, files });
+      paths: { '@tiaforge-ui/sinter/runtime/components': [join(src, 'components.ts')] } }, files });
     writeFileSync(join(app, 'tsconfig.json'), tsconfig(['src/sinter.components.d.ts', 'src/components/task-ring.ts']));
     const tsc = (path = app) => spawnSync(process.execPath, [findTsc(process.cwd()), '-p', path], { encoding: 'utf8' }).stdout;
     expect(tsc()).toBe('');

@@ -442,6 +442,16 @@ export type Block = Para | Quote | Rule;
       .toEqual([expect.stringMatching(/^SN208 Type 'string\[\]' is not assignable to type 'PathValue'/)]);
   });
 
+  test('a link\'s URL template (data-sn-href) is typed as an action\'s: no array in the path, a name it does not know is an error', () => {
+    const html = (href: string) => page(`<main data-sn-state="{ ids: ['a'], id: 'a', o: { x: 1 } }">
+<template data-sn-for="c in contacts"><a data-sn-href="${href}">x</a></template><p data-sn-text="ids + id + o"></p></main>`);
+    const errors = (href: string) => checkPage(html(href), { files: { 'src/sinter.types.ts': TYPES } }).map((d) => d.code + ' ' + d.message);
+    expect(errors('/contacts/{c.id}/{o.x}?tag={ids}&amp;q={id}#n-{c.name}')).toEqual([]);
+    expect(errors('?page={o.x}')).toEqual([]);
+    expect(errors('/contacts/{ids}')).toEqual([expect.stringMatching(/^SN208 Type 'string\[\]' is not assignable to type 'PathValue'/)]);
+    expect(errors('/contacts/{c.nmae}')).toEqual([expect.stringMatching(/^SN208 Property 'nmae' does not exist on type/)]);
+  });
+
   test('<sn-resource call>: the result at `items` must fit `type`; without `type` it is the type', () => {
     const root = project({
       'src/sinter.types.ts': `${TYPES}export interface Body { text: string }\n`,

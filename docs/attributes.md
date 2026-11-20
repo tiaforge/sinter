@@ -8,14 +8,15 @@ Bind values to the page.
 
 | Attribute | Value | Meaning |
 | --- | --- | --- |
-| `data-sn-text` | value expression | sets textContent; never HTML. On a &lt;template&gt;: a text node with no element (a run of text beside elements); no other attribute on that template |
+| `data-sn-text` | value expression | sets textContent (null and undefined: empty, no `?? ''` needed); never HTML. On a &lt;template&gt;: a text node with no element (a run of text beside elements); no other attribute on that template |
 | `data-sn-attr` | object literal {href: …} | literal keys; null/false removes, true sets empty; URL values are checked; checked, selected, indeterminate and value also set the live property |
+| `data-sn-href` | URL template | on &lt;a&gt;, &lt;area&gt;: the link; may also start with ? or # |
 | `data-sn-class` | object literal {unread: …} | toggles each class |
 | `data-sn-style` | object literal {'--color': …} | sets each property with style.setProperty |
 | `data-sn-show` | value expression | toggles the hidden attribute |
 | `data-sn-with` | object literal | sets JS properties; custom elements only (also one defined later). On a component's tag: its props, live and read-only. On a &lt;slot&gt; declared Slot&lt;T&gt;: the values its fill reads as $slot; on a named &lt;slot&gt; its component does not declare, a tree placement, filled by the nearest enclosing component declaring the name |
 | `data-sn-for` | item in list \| (item, i) in list | repeats a &lt;template&gt; per item. On &lt;html&gt;: the page once per entry of a `file:` list, at `data-sn-path` filled from it |
-| `data-sn-key` | value expression | row identity; defaults to the resource key or object identity |
+| `data-sn-key` | value expression | row identity; inferred: resource key, object identity or value |
 | `data-sn-if` | value expression | renders a &lt;template&gt; while truthy. Same id, same control: when a branch swaps, the element with an id in the new one takes the old one's focus and running action (a toggle: &lt;button id="f" data-sn-delete=…&gt;, &lt;button id="f" data-sn-post=…&gt;) |
 | `data-sn-else` |  | on a &lt;template&gt; directly after an if template; with data-sn-if beside it, an else-if (&lt;template data-sn-else data-sn-if="q"&gt;). Lists, branches and chosen components render between two comments (`<ul><!--sn 4--><li>a</li><!--/sn--></ul>`): CSS sees plain children. Comments that are exactly `<!--sn-->`, `<!--sn 4-->`, `<!--/sn-->` or `<!---->` are reserved (SN105); `$el` in an if, for or use is SN213; keep HTML comments |
 
@@ -77,7 +78,7 @@ In a component file in `src/components/`, and on a component's tag (`early`). De
 
 | Attribute | Value | Meaning |
 | --- | --- | --- |
-| `data-sn-props` | props type | the props a component or a layout takes, a TypeScript type literal, { article: Article; compact?: boolean }. On the &lt;template&gt; of a component file (src/components/&lt;name&gt;.html, or a component library's components/): a member cell: Slot&lt;{ row: Row }&gt; is a slot that passes data to its fill; its root renders at most one element (one element, a data-sn-if/data-sn-else chain of them, a component, &lt;sn-component use&gt; or a &lt;slot&gt;), or, a head component, any number of head elements (&lt;title&gt;, &lt;meta&gt;, &lt;link&gt;, …), inlined at its use in a head. On the &lt;html&gt; of a layout file (src/layouts/&lt;name&gt;.html): a page that is only the layout's tag fills its slots, in the head and the body |
+| `data-sn-props` | props type | the props a component or a layout takes, a TypeScript type literal, { article: Article; compact?: boolean }. On the &lt;template&gt; of a component file (src/components/&lt;name&gt;.html, or a component library's components/): a member cell: Slot&lt;{ row: Row }&gt; is a slot that passes data to its fill; its root renders at most one element (one element, a data-sn-if/data-sn-else chain of them, a component, &lt;sn-component use&gt; or a &lt;slot&gt;), or, a head component, any number of head elements (&lt;title&gt;, &lt;meta&gt;, &lt;link&gt;, …), inlined at its use in a head. On the &lt;html&gt; of a layout file (src/layouts/&lt;name&gt;.html): a page that is only the layout's tag fills its slots, in the head and the body. Either leaves it out when it takes no props |
 | `data-sn-emits` | events type | on the &lt;template data-sn-props&gt;: the events emit() sends and their detail types, e.g. { select: Article } |
 | `data-sn-early` | off | on a component's tag (a use): this use is left out of the early script and renders when the page module runs (build-time constants stay in the HTML); keeps the early script small |
 | `data-sn-ref` | name | in a component's markup: the element its script reads as this.refs.&lt;name&gt;, typed by its tag |
@@ -132,7 +133,7 @@ A named, page-wide cache of server data. Details: [resources](resources.md).
 
 ### `<sn-component>`
 
-`use`, `data-sn-with`. A component chosen by data at runtime; `use` names it: ``use="`${b.type}-block`"`` (convention), `use="{ hero: 'hero-block' }[b.type]"` (map) or `use="blockComponent(b)"` (helper); it must fit `ComponentName`, every candidate must exist, props are checked per candidate (narrowed for convention and map); a value outside the candidates renders nothing, or the `data-sn-else` template after it.
+`use`, `data-sn-with`, `data-sn-early`. A component chosen by data at runtime; `use` names it: ``use="`${b.type}-block`"`` (convention), `use="{ hero: 'hero-block' }[b.type]"` (map) or `use="blockComponent(b)"` (helper); it must fit `ComponentName`, every candidate must exist, props are checked per candidate (narrowed for convention and map); a value outside the candidates renders nothing, or the `data-sn-else` template after it; `data-sn-early="off"` leaves it out of the early script.
 
 ### `<sn-event>`
 
@@ -140,6 +141,6 @@ A named, page-wide cache of server data. Details: [resources](resources.md).
 
 ## Names available in expressions
 
-- **Magic names:** `$event`, `$el`, `$url`, `$now`, `$locale`, `$result`, `$error`, `$meta`. Filled in by the build: `$site` and `$canonical` (the site's root and the page's URL, with `sinter({ site })`), `$slot` (in a fill of a slot declared `Slot<T>`, the values it passes) and `localeUrl(locale)` (this page in another language, with `sinter({ localePrefix: true })`).
+- **Magic names:** `$event`, `$el`, `$url`, `$now`, `$locale`, `$result`, `$error`, `$meta`. Filled in by the build: `$site` and `$canonical` (the site's root and the page's URL, with `sinter({ site })`), `$slot` (in a fill of a slot declared `Slot<T>`, the values it passes) and `localeUrl(locale)` (this page in another language, with `sinter({ localePrefix: true })`). `$item`, in `paginate`'s cursor only, is the item at the page's edge.
 - **Store functions:** `refresh()`, `upsert()`, `merge()`, `remove()`, `page()`, `openDialog()`, `closeDialog()`, `emit()`, `run()`, `navigate()`.
 - **Built-in helpers:** `date()`, `relative()`, `number()`, `bytes()`.

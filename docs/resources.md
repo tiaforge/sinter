@@ -52,7 +52,7 @@ then filter by `term`.
 | `items` | Path to the array in the response. Default: the response itself. |
 | `total` | Path to a total count, exposed as `$meta.<name>.total`. |
 | `order` | Field kept sorted when items are inserted. `-field` sorts descending. Strings compare locale-aware. |
-| `when` | Value expression. While falsy the resource is empty (`null` or `[]`) and a running request is aborted. |
+| `when` | Value expression. While falsy the resource is empty (`[]` for a list, else `null`: [single objects](#single-objects)) and a running request is aborted. |
 | `cache` | Show the data from the last page load at once, then revalidate. No value means any age; `30s`, `10m`, `2h` or `1d` ignores older data. |
 | `refresh` | Reload in the background once the data is this old, a duration: `30s`, `5m`, `1h`, `1d` (at least `1s`). |
 | `for` | `item in list`: one request per item of another list, merged into one collection. |
@@ -68,6 +68,13 @@ duplicate key in a response keeps the last item (with a warning in dev builds).
 
 Without `key` the resource is one object, such as the signed-in user. `upsert` replaces it, `merge`
 merges fields into it and `remove` sets it to `null`.
+
+A list that cannot have a key, such as a list of strings (`["go", "rust"]`), is such a resource too. When
+the build knows its value is a list, it is `[]` instead of `null` while it has no data (loading, while
+`when` is falsy, after `remove`), in the first paint as after it, so markup reads it as any list:
+`tags.length`, `data-sn-for="t in tags"`, with no `?.` or `?? []`. The build knows it from `type`
+(`type="string[]"`, `Array<Tag>`; not an alias that names a list), the OpenAPI response at `items`, or a
+`file:` or `content:` list. Otherwise it stays `null` until loaded.
 
 ## Status: `$meta`
 
@@ -103,8 +110,8 @@ with these store functions, usable in any handler:
 
 | Function | Effect |
 | --- | --- |
-| `refresh(a, b)` | Reload the named resources. |
-| `upsert(name, item)` | Insert or replace by key. |
+| `refresh(people)`, `refresh(a, b)` | Reload these resources. |
+| `upsert(people, item)` | Insert or replace by key. |
 | `merge(item, {…})` | Merge fields into an item. |
 | `remove(item)` | Remove an item. |
 
@@ -129,7 +136,28 @@ revalidation keeps the cached data and sets `error`. See `docs/recipes/cached-li
   and the `items` and `total` paths, so two pages loading the same data share an entry.
 - Only the first load reads the cache; a `src` that changes later does not.
 - An entry over 256 KB is not written.
-- Every entry is removed on any 401 response and by `clearPersisted()`, which apps call on logout.
+- Every entry is removed on any 401 response and by `clearStored()`, which apps call on sign-in and sign-out.
+
+### Back and Forward
+
+Nothing to write. When the visitor comes back to a page with Back or Forward and the browser's
+back/forward cache does not have it (it loads the page again, or a [swap](navigation.md#swaps) swaps it
+in), every resource shows what the page showed when they left it, at once, and revalidates as with
+`cache`: `loading` is true, `loadedAt` stays `null` until the server answers, a failed revalidation
+keeps the data. The scroll position the browser restores then lands on the same rows.
+
+- Every resource but `for`, `call` and `method="POST"` ones, with or without `cache`; with `cache`, at any
+  age (`cache="10m"` limits only ordinary loads). A paginated list comes back at the page it showed; an
+  `append` list loads again.
+- A resource without `cache` writes its entry once, as the page is left (`pagehide`, or the swap), so
+  it costs nothing while the page is shown; it is read only on Back and Forward. The entries are the
+  same as `cache`'s: the 256 KB limit, the 401 and `clearStored()` apply, and a full
+  `sessionStorage` drops the older half of them.
+- An ordinary load of the page (a link, a reload, a typed URL) shows them only with `cache`.
+- Embedded data wins, as with `cache`: a resource whose data the server writes into the page has nothing to restore.
+- On Back and Forward browsers prefer their HTTP cache for the page's requests: an API should send
+  `Cache-Control: no-cache` (with an `ETag`), or the revalidation may get the old response again.
+- In tests: `render(html, { session, traverse: true })` after a first `render()` with the same `session`.
 
 ## Background refresh
 
@@ -199,7 +227,7 @@ the results into one collection:
 
 <p data-sn-text="intro"></p>
 <h1 data-sn-text="post.title"></h1>
-<ul><template data-sn-for="p in posts"><li><a data-sn-attr="{ href: '/blog/' + p.slug + '/' }" data-sn-text="p.title"></a></li></template></ul>
+<ul><template data-sn-for="p in posts"><li><a data-sn-href="/blog/{p.slug}/" data-sn-text="p.title"></a></li></template></ul>
 ```
 
 | File | Value |

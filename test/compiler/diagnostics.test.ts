@@ -81,7 +81,6 @@ const cases: Array<[string, string, RegExp, Opts?]> = [
   ['SN201', '<b data-sn-on-click="merge(x, {})"></b>', /`merge` is both a store function and a helper/, { helpers: ['merge'] }],
   ['SN201', '<form data-sn-post="/api/x" data-sn-then="reset()"></form>', /`reset\(\)` is gone: a form's fields follow their `data-sn-model` state/],
   ['SN102', '<div data-sn-for="x in [1]"></div>', /`data-sn-for` must be on a `<template>`/],
-  ['SN103', '<template data-sn-for="x in [1, 2]"><i></i></template>', /needs `data-sn-key`/],
   ['SN104', '<div data-sn-state="{f: null}"><input type="file" data-sn-model="f"></div>', /does not support `type="file"`/],
   ['SN105', '<ul><!--sn 3--></ul>', /this comment is one of the forms sinter marks lists and branches with/],
   ['SN106', '<div data-sn-state="{ xs: [1] }"><textarea><template data-sn-for="x in xs"><i></i></template></textarea></div>', /a `<template data-sn-for>` inside `<textarea>` is text to the HTML parser/],

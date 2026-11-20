@@ -10,14 +10,14 @@ type V = unknown;
 /**
  * The truth of `code` (a compiled function, `($) => (…)`) when the resources `names` have `status`
  * (`$meta.<name>`) and `rows` (`$r.<name>`; `data` overrides it per resource, `null` for one object not
- * loaded yet): true, false, or null when it cannot be told.
+ * loaded yet, `[]` for a list without a key): true, false, or null when it cannot be told.
  */
 export function shows(code: string, names: string[], status: { loading: boolean }, rows: unknown[], data: Record<string, unknown> = {}): boolean | null {
   let fn: any;
   try { fn = parseExpression(code); } catch { return null; }
   if (fn.type !== 'ArrowFunctionExpression' || fn.params.length !== 1 || fn.params[0].type !== 'Identifier') return null;
   const self = fn.params[0].name as string, set = new Set(names);
-  const meta = { ...status, error: null, loadedAt: null, pending: 0 };
+  const meta = { ...status, error: null, loadedAt: null };
   const ev = (n: any): V => {
     switch (n.type) {
       case 'Literal': return n.value;

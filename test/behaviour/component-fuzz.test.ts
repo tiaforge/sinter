@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
-// Random nested components (plain, if/else, component-tag, slot and choice roots, with fills and slot content),
+// Random nested components (plain, if/else, component-tag, slot and choice roots, with fills and slot content; one
+// without props, declared by its bare `<template>`),
 // loops, branches and texts, over one list: after a state change the page must equal a fresh render of the new
 // state, the build over constants, and the early script's first paint taken over by the page module.
 import { expect, test } from 'vitest';
@@ -19,8 +20,12 @@ const COMPONENTS: Record<string, string> = {
   'c-tag': `<template data-sn-props="{ x: any }"><c-chain class="t" data-sn-with="{ x }"></c-chain></template>`,
   'c-slot': `<template data-sn-props="{ x: any; item: Slot<{ x: any }> }"><slot name="item" data-sn-with="{ x }"><s data-sn-text="x.t"></s></slot></template>`,
   'c-wrap': `<template data-sn-props="{}"><em><slot></slot></em></template>`,
+  // no props: the file's one `<template>` is the declaration, without `data-sn-props`
+  'c-bare': `<template><kbd><slot><s>none</s></slot></kbd></template>`,
   'c-list': `<template data-sn-props="{ x: any }"><ol><template data-sn-for="y in x.c"><li><c-chain data-sn-with="{ x: y }"></c-chain></li></template></ol></template>`,
   'c-choice': `<template data-sn-props="{ x: any }"><sn-component use="${CHOICE}[x.k]" data-sn-with="{ x }"></sn-component></template>`,
+  // a link root, whose `href` its tag gives (`data-sn-href`)
+  'c-link': `<template data-sn-props="{ x: any }"><a data-sn-text="x.t"></a></template>`,
   // a component whose props have the inner component's names, with other values
   'c-out': `<template data-sn-props="{ n: any; x?: any }"><span><c-chain data-sn-with="{ x: n }"></c-chain></span></template>`,
 };
@@ -42,11 +47,14 @@ function markup(r: () => number, v: string, depth: number): string {
   let out = '';
   for (let i = 0; i < n; i++) {
     const kinds = depth > 0
-      ? ['text', 'el', 'plain', 'chain', 'tag', 'choice', 'out', 'list', 'slot', 'slot-tag', 'wrap', 'if', 'for', 'use', 'wrap-for-fill', 'wrap-if-fill']
-      : ['text', 'el', 'plain', 'chain', 'tag', 'choice', 'out', 'list'];
+      ? ['text', 'el', 'plain', 'chain', 'tag', 'choice', 'out', 'list', 'href', 'link', 'slot', 'slot-tag', 'wrap', 'if', 'for', 'use', 'wrap-for-fill', 'wrap-if-fill', 'bare', 'bare-empty']
+      : ['text', 'el', 'plain', 'chain', 'tag', 'choice', 'out', 'list', 'href', 'link', 'bare-empty'];
     switch (pick(kinds)) {
       case 'text': out += `<template data-sn-text="${v}.t"></template>`; break;
       case 'el': out += `<p data-sn-text="${v}.t"></p>`; break;
+      // a link's URL template: a path value, a query value left out when null, a list as a repeated key
+      case 'href': out += `<a data-sn-href="/x/{${v}.t}?on={${v}.on ? 'y' : null}&amp;k={${v}.c.map((c) => c.k)}#{${v}.k}" data-sn-text="${v}.k"></a>`; break;
+      case 'link': out += `<c-link data-sn-with="{ x: ${v} }" data-sn-href="/l/{${v}.k}/{${v}.t}"></c-link>`; break;
       case 'plain': out += `<c-plain data-sn-with="{ x: ${v} }"></c-plain>`; break;
       case 'chain': out += `<c-chain data-sn-with="{ x: ${v} }"></c-chain>`; break;
       case 'tag': out += `<c-tag data-sn-with="{ x: ${v} }"></c-tag>`; break;
@@ -59,6 +67,8 @@ function markup(r: () => number, v: string, depth: number): string {
       case 'wrap-if-fill': out += `<c-wrap><template data-sn-if="${v}.on">${namedFill(pick, v)}</template></c-wrap>`; break;
       case 'slot-tag': { const c = pick(['c-plain', 'c-chain', 'c-tag']); out += `<c-slot data-sn-with="{ x: ${v} }"><${c} slot="item" data-sn-with="{ x: $slot.x }"></${c}></c-slot>`; break; }
       case 'wrap': out += `<c-wrap>${markup(r, v, depth - 1)}</c-wrap>`; break;
+      case 'bare': out += `<c-bare>${markup(r, v, depth - 1)}</c-bare>`; break;
+      case 'bare-empty': out += '<c-bare></c-bare>'; break;
       case 'if': out += `<template data-sn-if="${v}.on">${markup(r, v, depth - 1)}</template>`; break;
       case 'for': { const w = v + 'y'; out += `<template data-sn-for="${w} in ${v}.c">${markup(r, w, depth - 1)}</template>`; break; }
       case 'use': out += `<sn-component use="${CHOICE}[${v}.k]" data-sn-with="{ x: ${v} }"></sn-component>`; break;
@@ -73,14 +83,14 @@ function data(r: () => number, depth: number): unknown[] {
   }));
 }
 
-/** the content as the user sees it: elements with their class, and text; no comments */
+/** the content as the user sees it: elements with their class and `href`, and text; no comments */
 function shape(n: Node): string {
   let s = '';
   for (const c of n.childNodes) {
     if (c.nodeType === 3) s += (c as Text).data;
     else if (c.nodeType === 1 && (c as Element).localName !== 'template') {
-      const e = c as Element, cls = e.getAttribute('class');
-      s += `<${e.localName}${cls ? `.${cls}` : ''}>${shape(c)}</${e.localName}>`;
+      const e = c as Element, cls = e.getAttribute('class'), href = e.getAttribute('href');
+      s += `<${e.localName}${cls ? `.${cls}` : ''}${href !== null ? ` ${href}` : ''}>${shape(c)}</${e.localName}>`;
     }
   }
   return s;

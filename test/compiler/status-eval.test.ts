@@ -10,7 +10,8 @@ test('the status and the rows, as a branch reads them', () => {
   expect(at('$.$meta.c.error', true)).toBe(false);
   expect(at('!$.$meta.c.loading', true)).toBe(false);
   expect(at('$.$meta.c.loadedAt == null ? "a" : ""', true)).toBe(true);
-  expect(at('$.$meta.c.pending === 0 && $.$meta.c.loading', true)).toBe(true);
+  // `pending` is gone (SN303): a field the status does not have is unknown
+  expect(at('$.$meta.c.pending === 0 && $.$meta.c.loading', true)).toBe(null);
 });
 
 test('anything else: unknown, never run', () => {
