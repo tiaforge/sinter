@@ -3,7 +3,7 @@
 Give a resource a type and `sinter check` verifies every expression that touches it: fields, request bodies and event payloads. `article.titel` becomes a build error with a suggestion.
 
 ```html
-<sn-resource name="contacts" src="/api/contacts" items="contacts" key="id" type="Contact[]"></sn-resource>
+<sn-resource name="contacts" src="/api/contacts" select="contacts" key="id" type="Contact[]"></sn-resource>
 
 <template data-sn-for="c in contacts">
   <span data-sn-text="c.emial"></span>
@@ -33,7 +33,7 @@ turns that off. Without types, the compiler still checks every name, state varia
 
 ## Types on resources
 
-`type` names the type of what `items` selects. The names come from your types module, `src/sinter.types.ts` (or `.d.ts`, `.js`).
+`type` names the type of what `select` picks. The names come from your types module, `src/sinter.types.ts` (or `.d.ts`, `.js`).
 
 | Attribute | Meaning |
 | --- | --- |
@@ -107,7 +107,7 @@ A resource with no `type` is matched to a `GET` operation:
 
 - The `servers` URL prefix is stripped from `src` and the query string is dropped.
 - Literal segments match literally; a segment that is one interpolation (`/api/contacts/{id}`) matches a `{param}`. A literal path beats a templated one.
-- The type is the first 2xx JSON response's schema at `items`. Named schemas become named types.
+- The type is the first 2xx JSON response's schema at `select`. Named schemas become named types.
 
 Actions are matched the same way with their own method: `data-sn-body` must fit the JSON request schema, and `$result` in `then` has the response type. No match leaves the resource or action untyped (`any`), and `SN504` names the closest path.
 
@@ -118,7 +118,7 @@ SN308 unknown-schema-field: the response of `GET /articles` has no `articls`. Di
 SN505 undeclared-query-in-spec: `GET /articles` declares no query parameter `tagg`. Did you mean `tag`?
 ```
 
-`SN308` means `items` or `total` is not in the schema. `SN505` is a warning for a literal query parameter the operation does not declare, with the older `openapi` option; with `apis` it is the error `SN327`.
+`SN308` means `select` or `total` is not in the schema. `SN505` is a warning for a literal query parameter the operation does not declare, with the older `openapi` option; with `apis` it is the error `SN327`.
 
 ## Examples of errors
 

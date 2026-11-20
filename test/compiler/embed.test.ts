@@ -7,7 +7,7 @@ const opts: CompileOptions = { file: '/app/index.html', root: '/app', dev: false
 
 test('a keyset resource: its first page is the size and the `first` direction, under their parameter names', () => {
   const out = compileParts(`<!doctype html><html><head><script type="application/json" data-sn-resource="m"></script></head><body>
-    <sn-resource name="m" key="uid" src="/api/m?folder=inbox" items="messages" paginate="{ keyset: {at: $item.at}, size: 50, params: { size: 'n' }, directions: { first: 'top' } }"></sn-resource>
+    <sn-resource name="m" key="uid" src="/api/m?folder=inbox" select="messages" paginate="{ keyset: {at: $item.at}, size: 50, params: { size: 'n' }, directions: { first: 'top' } }"></sn-resource>
     <p data-sn-text="m.length"></p></body></html>`, opts);
   expect(out.diagnostics.filter((d) => d.severity === 'error')).toEqual([]);
   expect(out.embed[0]).toMatchObject({ resource: 'm', src: ['/api/m?folder=inbox'], query: [['n', '50'], ['direction', 'top']] });
@@ -23,7 +23,7 @@ test('each placeholder: its id, and the URL template where only the URL decides 
     <sn-resource name="article" src="https://api.example/articles/{$url.slug}?v={$url.v}"></sn-resource>
     <sn-resource name="list" key="id" src="/api/list?offset={offset($url.page, 10)}"></sn-resource>
     <sn-resource name="mine" key="id" src="/api/mine?q={q}" when="q"></sn-resource>
-    <sn-resource name="rows" key="id" src="/api/rows" items="rows" total="total" paginate="{ numbered: true, size: 2 }"></sn-resource>
+    <sn-resource name="rows" key="id" src="/api/rows" select="rows" total="total" paginate="{ numbered: true, size: 2 }"></sn-resource>
     <sn-resource name="other" src="/api/other"></sn-resource>
     <p data-sn-text="article.title + list.length + mine.length + rows.length + other.x"></p>
   </body></html>`, opts);
@@ -42,7 +42,7 @@ test('each placeholder: its id, and the URL template where only the URL decides 
 
 test('model: the parameter is described (the page, from page 2 on); it takes a query parameter, on a numbered list; start-page is unknown', () => {
   const page = (attrs: string, extra = '') => compileParts(`<!doctype html><html><head><script type="application/json" data-sn-resource="m"></script></head><body data-sn-state="{ n: 2 }">
-    <sn-resource name="m" key="id" src="/api/m" items="items" total="total" ${attrs}></sn-resource>${extra}
+    <sn-resource name="m" key="id" src="/api/m" select="items" total="total" ${attrs}></sn-resource>${extra}
     <p data-sn-text="m.length"></p></body></html>`, opts);
   const pg = (o: string) => `paginate="{ ${o} }"`;
   const off = page(pg("numbered: 'offset', size: 10, model: $url.page"));

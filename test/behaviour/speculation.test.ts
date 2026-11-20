@@ -31,7 +31,7 @@ test('a prerendered page loads, connects its streams once shown, and refetches t
   let n = 0;
   const requests = mockRequests({ 'GET /api/inbox': () => ({ items: [{ id: 1, n: ++n }] }) });
   const r = await render(`
-    <sn-resource name="inbox" src="/api/inbox" items="items" key="id"></sn-resource>
+    <sn-resource name="inbox" src="/api/inbox" select="items" key="id"></sn-resource>
     <sn-sync src="/api/events"><sn-event name="mail" resource="inbox" op="upsert" value="$event.m"></sn-event></sn-sync>
     <template data-sn-for="m in inbox"><p data-sn-text="m.n"></p></template>`, { requests, streams: { '/api/events': stream } });
   await r.settle();
@@ -50,7 +50,7 @@ test('a page that is not prerendered connects at once and loads once', async () 
   const stream = mockStream();
   const requests = mockRequests({ 'GET /api/inbox': { items: [] } });
   const r = await render(`
-    <sn-resource name="inbox" src="/api/inbox" items="items" key="id"></sn-resource>
+    <sn-resource name="inbox" src="/api/inbox" select="items" key="id"></sn-resource>
     <sn-sync src="/api/events"><sn-event name="mail" resource="inbox" op="upsert" value="$event.m"></sn-event></sn-sync>
     <i data-sn-text="inbox.length"></i>`, { requests, streams: { '/api/events': stream } });
   await r.settle();

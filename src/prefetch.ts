@@ -18,7 +18,7 @@ export interface PrefetchPage {
   /** path patterns (`/article/:slug`), or the paths the page's file is served at */
   m: string[];
   /**
-   * the page's resources whose request only `$url` decides: URL template, `when`, `items`, `total`, `k` for a collection;
+   * the page's resources whose request only `$url` decides: URL template, `when`, `select`, `total`, `k` for a collection;
    * a paginated one's first page `q`, and with `model` (paginate) `sp`: from page 2 on, `q` with `k` set to the page (`o`: the items to skip, `(n - 1) * s`)
    */
   r: Array<{ s: UrlTemplate; w?: number; i: string | null; t: string | null; k?: 1; q?: Record<string, string>; sp?: { f: number; k: string; s: number; o?: 1 } }>;
@@ -37,7 +37,7 @@ export const HOVER = 65;
 /** entries larger than this (serialized) are not written */
 const MAX_ENTRY = 256 * 1024;
 
-const keyOf = (url: string, items?: string | null, total?: string | null) => PREFETCH_PREFIX + JSON.stringify([url, items, total]);
+const keyOf = (url: string, select?: string | null, total?: string | null) => PREFETCH_PREFIX + JSON.stringify([url, select, total]);
 const pick = (path: string | null | undefined, body: unknown): any => (path ? path.split('.').reduce((x: any, k) => x?.[k], body) : body);
 const segments = (p: string) => p.split('/').filter(Boolean);
 const matches = (pattern: string, segs: string[]) => {
@@ -76,7 +76,7 @@ export function prefetch(pages: PrefetchPage[], l?: typeof lists): Feature {
 
       app.ext.prefetch = {
         take(def: ResourceDef, url: string) {
-          const key = keyOf(url, def.items, def.total), e = read(key);
+          const key = keyOf(url, def.select, def.total), e = read(key);
           if (!e) return null;
           try { env.session()?.removeItem(key); } catch { /* ignored */ }
           return env.now() - e.t <= MAX_AGE ? e : null;
@@ -99,7 +99,7 @@ export function prefetch(pages: PrefetchPage[], l?: typeof lists): Feature {
         const scope = { $url: l && page.a ? l(u.href, page.a, readUrl(u.href, page.m)) : readUrl(u.href, page.m) };
         const g = page.g;
         if (g) try { if (!(g.t.s == 's' ? env.session() : env.storage())?.getItem(g.t.k) && (g.f == null || page.f[g.f]!(scope))) return; } catch { return; }
-        // resources that read different parts of one response (`items`) share its request, as on the page
+        // resources that read different parts of one response (`select`) share its request, as on the page
         const sent = new Map<string, Promise<unknown>>();
         for (const r of page.r) {
           let url: string;
@@ -115,7 +115,7 @@ export function prefetch(pages: PrefetchPage[], l?: typeof lists): Feature {
           const key = keyOf(url, r.i, r.t), had = read(key);
           if (busy.has(key) || (had && env.now() - had.t < MAX_AGE / 3)) continue;
           // data this page has loaded from the same request: handed over, no request
-          const own = app.ir.resources.find((d) => !d.paginate && d.items == r.i && d.total == r.t && app.resource(d.name).loader?.url?.() == url && app.resource(d.name).meta.loadedAt != null);
+          const own = app.ir.resources.find((d) => !d.paginate && d.select == r.i && d.total == r.t && app.resource(d.name).loader?.url?.() == url && app.resource(d.name).meta.loadedAt != null);
           if (own) { const b = app.resource(own.name).base(); write(key, b.items, b.total); continue; }
           busy.add(key);
           const w = app.req.writes;

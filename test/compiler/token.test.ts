@@ -19,7 +19,7 @@ function apisOf(apis: Record<string, ApiOptions & { openapi?: unknown }>) {
   return { apis: r.apis!, openapi, diagnostics: r.diagnostics };
 }
 
-const MAIN = { openapi: TOKEN_SPEC as unknown as string, defaults: { 'GET /user': { items: 'user' }, 'GET /articles': { items: 'articles', key: 'slug' } }, token: { storage: 'local:jwt' as const, scheme: 'Token', from: { 'POST /users/login': 'user.token' } } };
+const MAIN = { openapi: TOKEN_SPEC as unknown as string, defaults: { 'GET /user': { select: 'user' }, 'GET /articles': { select: 'articles', key: 'slug' } }, token: { storage: 'local:jwt' as const, scheme: 'Token', from: { 'POST /users/login': 'user.token' } } };
 const PAGE = `<!doctype html><html><head></head><body>
   <sn-resource name="user" src="/user"></sn-resource>
   <sn-resource name="articles" src="/articles"></sn-resource>

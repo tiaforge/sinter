@@ -190,8 +190,8 @@ describe('an entry\'s description is its template\'s, at the entry\'s path', () 
   const swapped = (d: ReturnType<typeof describeAll>) => d.map((x) => JSON.stringify({ ...x, page: 0, path: x.path.map((p) => (p.endsWith(x.page) ? p.slice(0, -x.page.length) + '<entry>' : p)), parts: x.parts && { ...x.parts, path: x.parts.path.map((p) => (p.endsWith(x.page) ? p.slice(0, -x.page.length) + '<entry>' : p)) } }));
   // (with what a page swap keeps: an element as it is, and one that binds the entry)
   const BODY = `<nav data-sn-permanent="menu"><a href="/">home</a></nav><aside data-sn-permanent="side"><b data-sn-text="post.title"></b></aside>
-<sn-resource name="c" src="/api/comments?tag={$url.tag}" key="id" items="comments"></sn-resource>
-<sn-resource name="mine" src="/api/comments?post={post.slug}" key="id" items="comments"></sn-resource>
+<sn-resource name="c" src="/api/comments?tag={$url.tag}" key="id" select="comments"></sn-resource>
+<sn-resource name="mine" src="/api/comments?post={post.slug}" key="id" select="comments"></sn-resource>
 <template data-sn-if="post.draft"><p>Draft</p></template><ul><template data-sn-for="x in c"><li data-sn-text="x.id"></li></template><template data-sn-for="x in mine"><li data-sn-text="x.id"></li></template></ul>`;
 
   test('a request over the URL, ahead; one over the entry, not: the same for every entry', () => {

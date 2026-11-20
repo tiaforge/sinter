@@ -14,8 +14,8 @@ sinter({
       credentials: 'include',
       default: true,                      // paths without `api:` (with one API, it is that one)
       defaults: {
-        'GET /articles': { items: 'articles', total: 'articlesCount', key: 'slug' },
-        'GET /user': { items: 'user' },
+        'GET /articles': { select: 'articles', total: 'articlesCount', key: 'slug' },
+        'GET /user': { select: 'user' },
       },
     },
     billing: { base: process.env.BILLING_URL, openapi: 'specs/billing.yml' },
@@ -40,7 +40,7 @@ Without `apis` nothing changes: `src="/api/contacts"` is a same-origin URL, as b
 | `openapi` | Local OpenAPI 3 files (JSON or YAML), one or a list. Optional. |
 | `credentials` | `'omit'`, `'same-origin'` (default) or `'include'`, for every request to the API. |
 | `headers` | Static headers for every request to the API. They are compiled into the page bundle: no secrets. |
-| `defaults` | What the spec's operations return, by `METHOD /path` as the spec writes it: `items`, `total`, `key`, `type`, and `query` (query parameters the spec leaves out). |
+| `defaults` | What the spec's operations return, by `METHOD /path` as the spec writes it: `select`, `total`, `key`, `type`, and `query` (query parameters the spec leaves out). |
 | `operations` | Endpoints the spec does not have, with the same keys. |
 | `default` | `true`: paths without `api:` go to this API. With one API it is that one. |
 
@@ -80,7 +80,7 @@ A path matches the spec's paths as `src` always did: a literal segment matches t
 
 ## What an endpoint returns, said once
 
-`items`, `total`, `key` and `type` come from the API's `defaults` or `operations`, else from the
+`select`, `total`, `key` and `type` come from the API's `defaults` or `operations`, else from the
 element, and the type from the spec. When the config has a value, a resource does not write it:
 the same value is warning `SN518` (it says nothing), a different one error `SN330`. `order`,
 `for`, `paginate`, `when`, `then`, `cache`, `refresh` and `early` stay on the element: they are how
@@ -220,7 +220,7 @@ It is a convenience, not security: the server still refuses the requests of a vi
 part of the path, the operation's id or summary, or the API's name (`comments` finds
 `/articles/{slug}/comments`). Path parameters are placeholders to fill in. After `?` and `&` it
 offers the declared query parameters. Hover shows the method and the absolute URL with the page's
-values, the operation, and where `items`, `key` and `type` come from. Go to definition opens the
+values, the operation, and where `select`, `key` and `type` come from. Go to definition opens the
 path in the spec, or its key in the config. `SN326`, `SN328`, `SN330` and `SN518` have quick fixes.
 
 ## Moving an app to `apis`
@@ -247,7 +247,7 @@ What it does:
   declares, and the query parameters the spec leaves out (`query`, those `paginate` sends included).
   A likely typo of a query parameter, or a required one left out, is listed for you instead.
 - **The attributes the config then says.** Once the config has the `defaults`, `--write` removes the
-  `items`, `total`, `key` and `type` it restates (`SN518`), with the space before each.
+  `select`, `total`, `key` and `type` it restates (`SN518`), with the space before each.
 
 Run it, add what it prints to the config, and run it again with `--write`. It edits only attribute
 values and those attributes, never the Vite config, and a second run changes nothing. On RealWorld,

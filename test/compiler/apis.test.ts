@@ -4,7 +4,7 @@ import type { ProjectOptions } from '../../src/project.js';
 import { apiProject } from '../apis.test.js';
 
 const main = (extra: Record<string, unknown> = {}): ProjectOptions => ({
-  apis: { main: { openapi: 'openapi.yml', defaults: { 'GET /contacts': { items: 'contacts', key: 'id' } }, ...extra } },
+  apis: { main: { openapi: 'openapi.yml', defaults: { 'GET /contacts': { select: 'contacts', key: 'id' } }, ...extra } },
 });
 
 function page(html: string, options: ProjectOptions = main(), check = false) {
@@ -46,7 +46,7 @@ describe('paginate: the server\'s names, once per API', () => {
 describe('paths relative to an API', () => {
   test('compile to the URL the base and path make, with the configured shape', () => {
     const viaApi = page(`<sn-resource name="contacts" src="/contacts?q={q}"></sn-resource>${USE}`);
-    const viaUrl = page(`<sn-resource name="contacts" src="https://api.example.com/v1/contacts?q={q}" items="contacts" key="id"></sn-resource>${USE}`, { openapi: 'openapi.yml' });
+    const viaUrl = page(`<sn-resource name="contacts" src="https://api.example.com/v1/contacts?q={q}" select="contacts" key="id"></sn-resource>${USE}`, { openapi: 'openapi.yml' });
     expect(viaApi.diagnostics).toEqual([]);
     // the same page module, plus the APIs for the runtime (`$apis`, for `apiOf` and request settings)
     const own = (m: string) => m.split('\n').filter((l) => !/\$apis\b/.test(l)).join('\n');
@@ -55,7 +55,7 @@ describe('paths relative to an API', () => {
   });
 
   test('actions and other APIs: a path, the method from the attribute', () => {
-    const o = { apis: { main: { openapi: 'openapi.yml', defaults: { 'GET /contacts': { items: 'contacts', key: 'id' } }, default: true }, files: { base: '/files', operations: { 'POST /upload': {} } } } };
+    const o = { apis: { main: { openapi: 'openapi.yml', defaults: { 'GET /contacts': { select: 'contacts', key: 'id' } }, default: true }, files: { base: '/files', operations: { 'POST /upload': {} } } } };
     const html = `<sn-resource name="contacts" src="/contacts"></sn-resource><template data-sn-for="c in contacts"><button data-sn-delete="/contacts/{c.id}">x</button></template><form data-sn-post="files:/upload"></form>`;
     const viaApi = page(html, o);
     expect(viaApi.diagnostics).toEqual([]);
@@ -78,7 +78,7 @@ describe('paths relative to an API', () => {
     expect(codes(`<sn-resource name="contacts" src="/contacts" paginate="{ numbered: 'offset', size: 20, params: { size: 'limit', offset: 'q' } }"></sn-resource>${USE}`)).toEqual([]);
     expect(codes('<sn-resource name="r" src="/reports"></sn-resource><p data-sn-text="r.n"></p>')).toEqual(['SN327 `GET /reports` of the API `main` needs the query parameter `from`']);
     expect(codes('<sn-resource name="r" src="/reports?from={q}&filter[name]={q}"></sn-resource><p data-sn-text="r.n"></p>')).toEqual([]);
-    const withQuery = main({ defaults: { 'GET /contacts': { items: 'contacts', key: 'id', query: ['tag'] } } });
+    const withQuery = main({ defaults: { 'GET /contacts': { select: 'contacts', key: 'id', query: ['tag'] } } });
     expect(codes(`<sn-resource name="contacts" src="/contacts?tag=x"></sn-resource>${USE}`, withQuery)).toEqual([]);
   });
 
@@ -89,14 +89,14 @@ describe('paths relative to an API', () => {
   });
 
   test('the shape is said once (SN330 different, SN518 the same)', () => {
-    expect(codes(`<sn-resource name="contacts" src="/contacts" items="people"></sn-resource>${USE}`)[0])
-      .toBe('SN330 `items` of `GET /contacts` is `contacts` (`main.defaults`), not `people`: every page reads one shape from an endpoint');
+    expect(codes(`<sn-resource name="contacts" src="/contacts" select="people"></sn-resource>${USE}`)[0])
+      .toBe('SN330 `select` of `GET /contacts` is `contacts` (`main.defaults`), not `people`: every page reads one shape from an endpoint');
     expect(codes(`<sn-resource name="contacts" src="/contacts" key="id"></sn-resource>${USE}`)[0])
       .toBe('SN518 `key` of `GET /contacts` is configured as `id` (`main.defaults`): remove it here');
   });
 
   test('operations the config declares: site, streams, and their type', () => {
-    const o = { apis: { main: { openapi: 'openapi.yml', defaults: { 'GET /contacts': { items: 'contacts', key: 'id' } }, operations: { 'GET /events': {} } }, site: { operations: { 'GET /config.json': { type: 'Config' } } } } };
+    const o = { apis: { main: { openapi: 'openapi.yml', defaults: { 'GET /contacts': { select: 'contacts', key: 'id' } }, operations: { 'GET /events': {} } }, site: { operations: { 'GET /config.json': { type: 'Config' } } } } };
     expect(codes(`<sn-resource name="contacts" src="/contacts"></sn-resource>${USE}<sn-sync src="/events"></sn-sync><sn-resource name="config" src="site:/config.json"></sn-resource><p data-sn-text="config"></p>`, o)).toEqual([]);
     const untyped = { apis: { main: { operations: { 'GET /stats': {} } } } };
     expect(codes('<sn-resource name="stats" src="/stats"></sn-resource><p data-sn-text="stats"></p>', untyped, true))
@@ -104,7 +104,7 @@ describe('paths relative to an API', () => {
   });
 
   test('a key from the config makes a collection (no SN517, paginate allowed)', () => {
-    const o = { apis: { main: { openapi: 'openapi.yml', defaults: { 'GET /contacts': { items: 'contacts' } } } } };
+    const o = { apis: { main: { openapi: 'openapi.yml', defaults: { 'GET /contacts': { select: 'contacts' } } } } };
     expect(codes(`<sn-resource name="contacts" src="/contacts"></sn-resource>${USE}`, o)[0]).toMatch(/^SN517/);
     expect(codes(`<sn-resource name="contacts" src="/contacts" paginate="{ numbered: 'offset', size: 20, params: { size: 'limit', offset: 'q' } }"></sn-resource>${USE}`)).toEqual([]);
   });

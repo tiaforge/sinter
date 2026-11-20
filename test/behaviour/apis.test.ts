@@ -55,10 +55,14 @@ describe('request settings per API', () => {
     expect(root.querySelector('p')!.textContent).toBe('1');
   });
 
+  test('render({ apis }): `items` in a shape is renamed to `select`', async () => {
+    await expect(render('<p></p>', { apis: { main: { base: '/v1', operations: { 'GET /me': { items: 'user' } as never } } } })).rejects.toThrow("`main.operations['GET /me'].items` is renamed to `select`");
+  });
+
   test('render: a page written with paths of an API', async () => {
     const requests = mockRequests({ 'GET /v1/contacts': { contacts: [{ id: 1, name: 'Ada' }] } });
     const { root, settle } = await render('<sn-resource name="contacts" src="/contacts"></sn-resource><p data-sn-text="contacts[0].name"></p>', {
-      requests, apis: { main: { openapi: doc, headers: { 'X-Api': '2' }, defaults: { 'GET /contacts': { items: 'contacts', key: 'id' } } } },
+      requests, apis: { main: { openapi: doc, headers: { 'X-Api': '2' }, defaults: { 'GET /contacts': { select: 'contacts', key: 'id' } } } },
     });
     await settle();
     expect(root.querySelector('p')!.textContent).toBe('Ada');
@@ -99,7 +103,7 @@ describe('method="POST" resources', () => {
 
 describe('the build: preloads, the early file, embedding', () => {
   const build = (o: Record<string, unknown>, html: string) => {
-    const p = apiProject({ apis: { main: { openapi: 'openapi.yml', defaults: { 'GET /contacts': { items: 'contacts', key: 'id' } }, ...o } } });
+    const p = apiProject({ apis: { main: { openapi: 'openapi.yml', defaults: { 'GET /contacts': { select: 'contacts', key: 'id' } }, ...o } } });
     return compile(html, { file: `${p.root}/page.html`, root: p.root, dev: false, readFile: p.readFile, helpers: { module: null, names: [], namespaces: {} }, openapi: p.openapi, apis: p.apis, origins: ['https://api.example.com'], embed: !!o.embed, early: { module: null }, moduleSrc: '/x.js' });
   };
   const PAGE = '<html><head></head><body><sn-resource name="contacts" src="/contacts"></sn-resource><p data-sn-text="contacts.length"></p></body></html>';

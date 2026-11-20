@@ -25,7 +25,7 @@ beforeAll(async () => {
 <html lang="en">
 <head><meta charset="utf-8"><title>Search</title></head>
 <body>
-  <sn-resource name="hits" src="/api/hits?q={$url.q}&tag={$url.tag}" items="hits" total="total" key="id"
+  <sn-resource name="hits" src="/api/hits?q={$url.q}&tag={$url.tag}" select="hits" total="total" key="id"
     paginate="{ numbered: true, size: 2, model: $url.page }" type="any"></sn-resource>
   <input id="q" type="search" data-sn-model="$url.q">
   <select id="tag" data-sn-model="$url.tag"><option value="">all</option><option>go</option><option>js</option></select>

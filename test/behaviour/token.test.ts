@@ -16,7 +16,7 @@ import { TOKEN_SPEC } from '../fixtures/token-spec.js';
 const api = (extra: Record<string, unknown> = {}) => ({
   main: {
     openapi: TOKEN_SPEC,
-    defaults: { 'GET /user': { items: 'user' }, 'GET /articles': { items: 'articles', key: 'slug' }, 'GET /feed': { items: 'articles', key: 'slug' } },
+    defaults: { 'GET /user': { select: 'user' }, 'GET /articles': { select: 'articles', key: 'slug' }, 'GET /feed': { select: 'articles', key: 'slug' } },
     token: { storage: 'local:jwt' as const, scheme: 'Token', signIn: '/login', from: { 'POST /users/login': 'user.token' }, ...extra },
   },
 });

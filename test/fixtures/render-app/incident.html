@@ -2,7 +2,7 @@
 <html data-sn-path="/incidents/:id">
 <head><title>Incident</title></head>
 <body>
-<sn-resource name="me" src="/api/me" items="user"></sn-resource>
+<sn-resource name="me" src="/api/me" select="user"></sn-resource>
 <sn-resource name="incident" src="/api/incidents/{$url.id}"></sn-resource>
 <main>
   <h1 data-sn-text="incident.title"></h1>

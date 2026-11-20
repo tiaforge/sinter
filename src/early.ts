@@ -238,7 +238,7 @@ const ready = (el: Node) => {
 /** the JSON of the head's embedded data element `data-sn="<id>"`, parsed */
 const json = (id: number) => JSON.parse(document.querySelector(`head > script[data-sn="${id}"]`)!.textContent!);
 
-/** `$r` over the page's embedded data: each resource's items (by its `items` path), parsed once; another resource throws */
+/** `$r` over the page's embedded data: each resource's data (by its `select` path), parsed once; another resource throws */
 function embedded(emb: NonNullable<EarlyIR['emb']>): any {
   const got = new Map<string, unknown>();
   return new Proxy(Object.create(null), {
@@ -247,7 +247,7 @@ function embedded(emb: NonNullable<EarlyIR['emb']>): any {
       if (!e) throw Error('sinter: not available early');
       if (!got.has(name as string)) {
         let v: any = json(e.id);
-        for (const k of e.items ? e.items.split('.') : []) v = v?.[k];
+        for (const k of e.select ? e.select.split('.') : []) v = v?.[k];
         // a list without `key` (`ls`) is `[]` when empty, as in the page module
         got.set(name as string, v ?? (e.ls ? [] : v));
       }

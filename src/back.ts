@@ -2,7 +2,7 @@
 // visitor comes back to the page and the back/forward cache did not keep it (a load of type `back_forward`, a
 // swap's traversal, or the reload a swap's traversal marks), each resource shows what the page showed as it was
 // left, at once, and revalidates. Entries are the page-load cache's (`sn:c:`, keyed by the request URL and the
-// `items`/`total` paths: the 256 KB limit, the 401 and `clearStored()` apply), written once, as the page is left
+// `select`/`total` paths: the 256 KB limit, the 401 and `clearStored()` apply), written once, as the page is left
 // (`pagehide`, or the app destroyed for a swap): its confirmed data, not after each load. The compiler adds this
 // module to a page with a resource it can restore (not `for`, `call`, `method="POST"`, `file:`, embedded or `append`).
 import type { ResourceDef } from './ir.js';
@@ -15,7 +15,7 @@ export const MAX_ENTRY = 256 * 1024;
 /** what the page-load cache never holds: `call`, `for`, `method="POST"` and `file:` resources */
 export const never = (d: ResourceDef) => d.call || d.each || d.body != null || d.fx;
 
-export const keyOf = (d: ResourceDef, url: string) => CACHE_PREFIX + JSON.stringify([url, d.items, d.total]);
+export const keyOf = (d: ResourceDef, url: string) => CACHE_PREFIX + JSON.stringify([url, d.select, d.total]);
 
 /**
  * Whether the page is reached by Back or Forward, as it mounts: the env says (tests), else a swap (which sets

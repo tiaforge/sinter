@@ -127,7 +127,7 @@ describe('data-sn-for on <html> in a build', () => {
 
   test('next-page data: each entry at its own path, with what it requests ahead (one description for all)', async () => {
     const root = app({ ...blog, 'blog/post.html': blog['blog/post.html'].replace('</article>', `</article>
-  <sn-resource name="related" src="/api/related?tag={$url.tag}" key="id" items="posts"></sn-resource>
+  <sn-resource name="related" src="/api/related?tag={$url.tag}" key="id" select="posts"></sn-resource>
   <ul><template data-sn-for="p in related"><li data-sn-text="p.title"></li></template></ul>`) });
     await run(root, ['index.html', 'blog/post.html'], { prefetch: true });
     const js = readdirSync(join(root, 'dist/assets')).filter((f) => f.endsWith('.js')).map((f) => readFileSync(join(root, 'dist/assets', f), 'utf8')).join('\n').replace(/\s+/g, '');

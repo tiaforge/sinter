@@ -159,6 +159,10 @@ disabled. Actions follow a policy, applied per element, so rows in a list never 
 | `queue` | every trigger is sent, in order | everything else |
 | `latest` | the newest waiting trigger is sent after the running one, older ones are dropped | nothing |
 
+A toggle written as two buttons with one `id` in a `data-sn-if`/`data-sn-else` (a POST and a DELETE) is one
+control: when the branch swaps while a request is running, the button with the id in the new branch carries on
+its queue and busy state, so a quick second click waits for the first request instead of racing it.
+
 `latest` suits autosave, and only when the body describes the target state (a full draft,
 `set: true`), not an operation such as "create". A running mutation is never aborted, because
 aborting `fetch` does not stop the server.

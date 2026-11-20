@@ -115,7 +115,7 @@ test('a history call the browser refuses: a warning, $url keeps the value', asyn
 
 describe('models on $url', () => {
   const page = `
-    <sn-resource name="r" src="/api/s?q={$url.q}&sort={$url.sort}" items="items" key="id"></sn-resource>
+    <sn-resource name="r" src="/api/s?q={$url.q}&sort={$url.sort}" select="items" key="id"></sn-resource>
     <input type="search" data-sn-model="$url.q">
     <select data-sn-model="$url.sort"><option value="">-</option><option value="new">new</option></select>
     <button data-sn-on-click="$url.tag = 'go'">tag</button>`;
@@ -218,7 +218,7 @@ describe('array parameters', () => {
   test('a <select multiple> or a checkbox group: a list, written as repeated keys, absent as []', async () => {
     const requests = mockRequests({ 'GET /api/a': { items: [] } });
     const { root, flush, settle, url, history } = await render(`
-      <sn-resource name="r" src="/api/a?tag={$url.tag}" items="items" key="id"></sn-resource>
+      <sn-resource name="r" src="/api/a?tag={$url.tag}" select="items" key="id"></sn-resource>
       <select multiple data-sn-model="$url.tag"><option>go</option><option>js</option><option>rs</option></select>
       <input type="checkbox" value="go" data-sn-model="$url.tag"><input type="checkbox" value="rs" data-sn-model="$url.tag">
       <p data-sn-text="JSON.stringify($url.tag) + $url.tag.length"></p>

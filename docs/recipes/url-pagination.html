@@ -1,6 +1,6 @@
 <!-- The page lives in the URL: ?page=3 is read at load and written back on every move. Page numbers are
      links (crawlable, a new tab, copy link); a click stays on the page and loads that page of the list. -->
-<sn-resource name="articles" src="/api/articles" items="articles" total="count" key="slug"
+<sn-resource name="articles" src="/api/articles" select="articles" total="count" key="slug"
   paginate="{ numbered: 'offset', size: 2, model: $url.page }"></sn-resource>
 
 <ul>

@@ -14,7 +14,7 @@ No router or store library to write, and no app JavaScript for typical pages: a 
 each page that needs one (about 16 KB gzipped for a simple page), and a page with nothing to run [ships none](docs/static-pages.md).
 
 ```html
-<sn-resource name="contacts" src="/api/contacts" items="contacts" key="id" order="name"></sn-resource>
+<sn-resource name="contacts" src="/api/contacts" select="contacts" key="id" order="name"></sn-resource>
 
 <sn-sync src="/api/events">
   <sn-event name="contact_updated" resource="contacts" op="upsert" value="$event.contact"></sn-event>

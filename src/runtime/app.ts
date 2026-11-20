@@ -165,12 +165,12 @@ export interface ResourceLoader {
   get(url: string, signal: AbortSignal, lo?: number): Promise<unknown>;
   /** for feature modules: the shared GET's response, before its body is read */
   got(url: string, signal: AbortSignal, lo?: number): Promise<Got>;
-  /** for feature modules: the collection items of a response body (`items` path, checked, cleaned) */
+  /** for feature modules: the collection items of a response body (`select` path, checked, cleaned) */
   items(body: unknown): any[];
   /** for feature modules: a failed load: `$meta.error`, then the unhandled-error path (`quiet`: only if it was not failing already) */
   failed(e: unknown, quiet?: boolean): void;
   loading(on: boolean): void;
-  /** for feature modules: a load stored `result` (what `items` selects): runs `then` */
+  /** for feature modules: a load stored `result` (what `select` selects): runs `then` */
   done(result: unknown): void;
 }
 
@@ -416,6 +416,8 @@ interface Inst {
 }
 
 interface ActState {
+  /** the element whose action this is: its twin in a swapped-in branch takes it over (same id, same control) */
+  el: Element;
   n: number;
   q: Array<() => void>;
   w: { run: () => void; drop: () => void } | null;
@@ -521,6 +523,8 @@ export function mount(root: Document | Element, o: MountOptions): App {
   const schemes = schemesOf(config.urlSchemes);
   const resources = new Map<string, Resource>(), loaders: Array<{ def: ResourceDef; changed(typing?: boolean): void; start(): void; refresh(): Promise<void> }> = [];
   const acts = new WeakMap<Element, ActState>();
+  /** the action states with a request running or waiting, for a branch swap to hand on */
+  const live = new Set<ActState>();
   /** props set on custom elements not defined yet, by element: the latest value of each */
   const early = new WeakMap<Element, Map<string, unknown>>();
   const deferred = new Set<RB>();
@@ -1421,8 +1425,9 @@ export function mount(root: Document | Element, o: MountOptions): App {
     }
     // a wrapper's anchor has no end comment: its branch ends where its row or branch does
     const end: ChildNode = rb.u ? after(rb) : rb.end ?? endFor(rb);
-    // same id, same control: the focused element of an if's old branch goes with it, its twin in the new one takes focus
-    const f = doc.activeElement;
+    // same id, same control: the focused element of an if's old branch goes with it, its twin in the new one takes focus,
+    // and an action still running or waiting on an element of it goes on as its twin's (handOn)
+    const f = doc.activeElement, held = !ch && live.size ? [...live].filter((st) => st.el.id && st.el.isConnected) : null;
     // what is between the start and the end (a wrapper's anchor: from its row's first node), its bindings forgotten
     for (const n of range(rb.u ? rb.x!.first : rb.el.nextSibling, end)) (n as ChildNode).remove();
     forget([rb]);
@@ -1438,7 +1443,27 @@ export function mount(root: Document | Element, o: MountOptions): App {
       if (!n) end.before((n = new Comment()));
       for (let q: RB | undefined = rb; q?.x; q = q.u) q.x.first = n;
     }
+    if (held?.length && rb.rows[0]) handOn(held, rowNodes(rb.rows[0]));
     if (!ch && f?.id && !f.isConnected) (doc.getElementById(f.id) as HTMLElement | null)?.focus();
+  }
+
+  /**
+   * Same id, same control: an action state whose element a branch swap removed goes on as the state of the element
+   * with its id in the new branch (`nodes`): a toggle's second click queues behind the first (or is blocked, or kept
+   * as the latest), and the twin is busy while it runs. The twin's own triggers follow its own policy.
+   */
+  function handOn(held: ActState[], nodes: Node[]) {
+    for (const st of held) {
+      if (st.el.isConnected) continue;
+      const twin = doc.getElementById(st.el.id);
+      if (!twin || acts.has(twin) || !nodes.some((n) => n == twin || n.contains(twin))) continue;
+      acts.set(twin, st);
+      st.el = twin;
+      twin.setAttribute('aria-busy', 'true');
+      // a blocked form's controls stay disabled on its twin until the request ends
+      if (st.off) st.off = 'elements' in twin ? ([...(twin as HTMLFormElement).elements] as HTMLInputElement[]).filter((x) => !x.disabled) : [];
+      for (const x of st.off ?? []) x.disabled = true;
+    }
   }
 
   /** The branch an if's or choice's value names: an if's 1, its else 2; a choice's case + 1; 0 none. */
@@ -1681,7 +1706,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
   }
 
   function act(el: Element): ActState {
-    if (!acts.has(el)) acts.set(el, { n: 0, q: [], w: null, r: null, off: null });
+    if (!acts.has(el)) acts.set(el, { el, n: 0, q: [], w: null, r: null, off: null });
     return acts.get(el)!;
   }
 
@@ -1715,11 +1740,13 @@ export function mount(root: Document | Element, o: MountOptions): App {
   }
 
   async function send(rb: RB, a: ActionDef, st: ActState, url: string, body: unknown, drop: (ok?: boolean) => void, u: Event | null) {
-    const el = rb.el as HTMLFormElement, s = rb.s;
+    // the element that holds the action now: a queued trigger of a control its twin has replaced runs on the twin
+    const el = st.el as HTMLFormElement, s = rb.s;
     // where the element is now: an optimistic remove may take its row away before an error reports
     const up: Element[] = [];
     for (let x = el.parentElement; x; x = x.parentElement) up.push(x);
     st.n++;
+    live.add(st);
     // server errors on the form (fields.ts): its marks cleared and its `$error` null while it is sent again
     const fs = app.ext.fields?.sent(el, a);
     el.setAttribute('aria-busy', 'true');
@@ -1743,7 +1770,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
       // shown on the form (every message on its field, or its markup reads `$error`): handled
       if (fs?.(error, { url, method: a.method }) && a.catch == null) return;
       // a 401 nothing shows, from an API with a token: signed out, to its sign-in page (src/token.ts)
-      as(u, () => a.catch != null ? handle(rb, a.catch, null, a.w, { $error: error }) : (error.status == 401 && !a.call && tokens.on?.signIn(url, env)) || unhandled(error, el.isConnected ? el : up.find((x) => x.isConnected) ?? null));
+      as(u, () => a.catch != null ? handle(rb, a.catch, null, a.w, { $error: error }) : (error.status == 401 && !a.call && tokens.on?.signIn(url, env)) || unhandled(error, st.el.isConnected ? st.el : up.find((x) => x.isConnected) ?? null));
     } finally {
       st.r = null;
       if (!--st.n) {
@@ -1751,7 +1778,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
         st.off = null;
         const next = st.q.shift() ?? st.w?.run;
         if (next && next == st.w?.run) st.w = null;
-        if (next) { app.busy--; next(); } else el.removeAttribute('aria-busy');
+        if (next) { app.busy--; next(); } else { st.el.removeAttribute('aria-busy'); live.delete(st); }
       }
     }
   }
@@ -1809,8 +1836,8 @@ export function mount(root: Document | Element, o: MountOptions): App {
     };
     /** stores a response; `req` is the URL it came from, for the page-load cache */
     const store = (body: unknown, req: string, m = l.pager?.current()) => {
-      let items = pick(def.items, body);
-      if (r.isCollection && !Array.isArray(items)) { warn(12, def.name, def.items ?? '(response)'); items = []; }
+      let items = pick(def.select, body);
+      if (r.isCollection && !Array.isArray(items)) { warn(12, def.name, def.select ?? '(response)'); items = []; }
       if (Array.isArray(items)) items = items.map(clean);
       const t = def.total ? pick(def.total, body) : null, total = t == null ? null : +t;
       fill(items, total, m);
@@ -1835,8 +1862,8 @@ export function mount(root: Document | Element, o: MountOptions): App {
       // no user event causes a load's `then`: its `$url` writes replace
       done: (v) => def.then != null && as(null, () => app.exec(def.then!, child(scope(), { $result: v }), def.w)),
       items(body) {
-        let items = pick(def.items, body);
-        if (!Array.isArray(items)) { warn(12, def.name, def.items ?? '(response)'); items = []; }
+        let items = pick(def.select, body);
+        if (!Array.isArray(items)) { warn(12, def.name, def.select ?? '(response)'); items = []; }
         return items.map(clean);
       },
       start() {

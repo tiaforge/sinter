@@ -26,7 +26,7 @@ afterEach(() => {
 const api = () => ({
   main: {
     openapi: TOKEN_SPEC,
-    defaults: { 'GET /user': { items: 'user' }, 'GET /articles': { items: 'articles', key: 'slug' }, 'GET /feed': { items: 'articles', key: 'slug' } },
+    defaults: { 'GET /user': { select: 'user' }, 'GET /articles': { select: 'articles', key: 'slug' }, 'GET /feed': { select: 'articles', key: 'slug' } },
     token: { storage: 'local:jwt' as const, signIn: { to: '/login', returnUrl: { allow: ['/'], param: 'next' } } },
   },
 });

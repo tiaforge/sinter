@@ -18,7 +18,7 @@ const MESSAGES: Record<number, string> = {
   8: 'refused style value for `%`: %',
   9: 'model on <%>% could not be set: %',
   11: 'duplicate key in `data-sn-for`: %',
-  12: 'resource `%`: `items` path `%` is not an array',
+  12: 'resource `%`: `select` path `%` is not an array',
   13: 'resource `%`: duplicate key `%`; the last one wins',
   14: 'resource `%`: item is missing key field `%`',
   15: 'state `%` changed outside sinter: write it from a handler, or a component script\'s `this.state`',

@@ -9,7 +9,8 @@ import { CONTENT, FILE } from './files.js';
 
 /** What an endpoint returns, said once (`defaults` for the spec's operations, `operations` for others). */
 export interface OperationShape {
-  items?: string;
+  /** the path in the response where the data is (`articles`); default: the response itself */
+  select?: string;
   total?: string;
   key?: string;
   /** a type from the types module, as `<sn-resource type>` */
@@ -353,10 +354,11 @@ export function resolveApis(
       return !!paths && typeof paths[path] === 'object' && paths[path] !== null && method in paths[path]!;
     });
     const shapeOk = (where: string, key: string, shape: unknown): shape is OperationShape => {
-      if (typeof shape !== 'object' || shape === null || Array.isArray(shape)) { fail(`\`${where}['${key}']\` takes an object (\`items\`, \`total\`, \`key\`, \`type\`, \`query\`)`); return false; }
+      if (typeof shape !== 'object' || shape === null || Array.isArray(shape)) { fail(`\`${where}['${key}']\` takes an object (\`select\`, \`total\`, \`key\`, \`type\`, \`query\`)`); return false; }
       for (const [k, v] of Object.entries(shape)) {
         if (k === 'query') { if (!Array.isArray(v) || v.some((x) => typeof x !== 'string')) fail(`\`${where}['${key}'].query\` is a list of parameter names`); }
-        else if (!['items', 'total', 'key', 'type'].includes(k)) fail(`\`${where}['${key}'].${k}\` is not a shape setting; the settings are \`items\`, \`total\`, \`key\`, \`type\` and \`query\``);
+        else if (k === 'items') fail(`\`${where}['${key}'].items\` is renamed to \`select\`, as \`<sn-resource select>\`: the path in the response where the data is, a list or one object (\`select: 'articles'\`)`);
+        else if (!['select', 'total', 'key', 'type'].includes(k)) fail(`\`${where}['${key}'].${k}\` is not a shape setting; the settings are \`select\`, \`total\`, \`key\`, \`type\` and \`query\``);
         else if (typeof v !== 'string' || !v.trim()) fail(`\`${where}['${key}'].${k}\` is a non-empty string`);
       }
       return true;

@@ -41,10 +41,10 @@ beforeAll(async () => {
 <html data-sn-path="/">
 <head><meta charset="utf-8"><title>early</title><link rel="stylesheet" href="/slow.css"></head>
 <body>
-  <sn-resource name="items" src="${apiOrigin}/items?q={$url.q}" items="items" key="id" type="any"></sn-resource>
-  <sn-resource name="tags" src="${apiOrigin}/tags" items="tags" type="any"></sn-resource>
-  <sn-resource name="pages" src="${apiOrigin}/pages?q={$url.q}" items="items" total="total" key="id" type="any" paginate="{ keyset: {after: $item.id}, size: 2, directions: {first: 'down'} }"></sn-resource>
-  <sn-resource name="me" src="${apiOrigin}/me" items="me" type="any" early="off"></sn-resource>
+  <sn-resource name="items" src="${apiOrigin}/items?q={$url.q}" select="items" key="id" type="any"></sn-resource>
+  <sn-resource name="tags" src="${apiOrigin}/tags" select="tags" type="any"></sn-resource>
+  <sn-resource name="pages" src="${apiOrigin}/pages?q={$url.q}" select="items" total="total" key="id" type="any" paginate="{ keyset: {after: $item.id}, size: 2, directions: {first: 'down'} }"></sn-resource>
+  <sn-resource name="me" src="${apiOrigin}/me" select="me" type="any" early="off"></sn-resource>
   <sn-resource name="other" src="https://other.example/x" type="any" when="false"></sn-resource>
   <ul><template data-sn-for="i in items"><li data-sn-text="i.name"></li></template></ul>
   <p id="tags" data-sn-text="tags ? tags.length : ''"></p>
