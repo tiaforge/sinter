@@ -1,4 +1,9 @@
-# sinter
+<h1>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/logo/sinter-logo-dark.svg">
+    <img src="docs/logo/sinter-logo.svg" alt="sinter" width="240" height="54">
+  </picture>
+</h1>
 
 <a href="https://stackblitz.com/github/tiaforge/sinter/tree/main/examples/dashboard"><img src="https://developer.stackblitz.com/img/open_in_stackblitz.svg" alt="Open in StackBlitz" align="absmiddle"></a>&nbsp; a live dashboard, nothing to install
 
