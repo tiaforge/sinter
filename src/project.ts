@@ -178,6 +178,9 @@ function parseSpec(file: string, text: string): unknown {
   return doc;
 }
 
+/** `sinter({ components })` is the option's old name */
+export const COMPONENTS_RENAMED = 'sinter({ components }) is renamed to sinter({ libraries }): it lists component libraries, e.g. `libraries: [\'@acme/ui\']`';
+
 export function project(root: string, options: ProjectOptions = {}): Project {
   const find = (given: string | undefined, base: string, exts = ['.js', '.ts']): string | null => {
     const candidates = given ? [given] : exts.map((e) => base + e);
@@ -187,7 +190,7 @@ export function project(root: string, options: ProjectOptions = {}): Project {
   // the component libraries: their files are read wherever they really are (a workspace link)
   const configFile = resolve(root, VITE_CONFIGS.find((f) => existsSync(resolve(root, f))) ?? 'vite.config.js');
   const appComponents = componentNames(root);
-  if ((options as { components?: unknown }).components !== undefined) throw new Error('sinter({ components }) is renamed to sinter({ libraries }): it lists component libraries, e.g. `libraries: [\'@acme/ui\']`');
+  if ((options as { components?: unknown }).components !== undefined) throw new Error(COMPONENTS_RENAMED);
   const libs = findLibraries(root, librariesOf(options.libraries), appComponents, configFile);
   let realRoot: string | undefined;
   const readFile = (path: string): string => {

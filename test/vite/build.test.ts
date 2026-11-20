@@ -225,6 +225,7 @@ test('the renamed options fail naming the new form', () => {
   expect(() => sinter({ firstPaint: { budgt: 1 } } as never)).toThrow('sinter({ firstPaint }): no option `budgt`; it takes `budget`');
   expect(() => sinter({ speculation: 'prerender' } as never)).toThrow("sinter({ speculation }) is renamed to `prefetch: { html: \"prerender\" }`");
   expect(() => sinter({ earlyBudget: 20000 } as never)).toThrow('sinter({ earlyBudget }) is renamed to `firstPaint: { budget: 20000 }`');
+  expect(() => sinter({ components: ['@acme/ui'] } as never)).toThrow('sinter({ components }) is renamed to sinter({ libraries })');
 });
 
 /** a logger that keeps the info lines, for the build's hints */

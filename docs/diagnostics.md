@@ -238,7 +238,7 @@ Error, for example:
 
 > OpenAPI spec `api.yml` is not an OpenAPI 3 document (needs `openapi: 3.x` and `paths`)
 
-A spec given to `sinter({ openapi })` is missing, unreadable, or not OpenAPI 3.
+The spec of an API (`sinter({ apis: { main: { openapi } } })`) is missing, unreadable, or not OpenAPI 3.
 
 **Fix:** Fix the path in the Vite config, or convert a Swagger 2 spec to OpenAPI 3.
 

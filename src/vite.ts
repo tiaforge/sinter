@@ -13,7 +13,7 @@ import { flagsModule } from './core-parts.js';
 import { loadEnv, type Plugin, type ResolvedConfig, type ViteDevServer } from 'vite';
 import { collectionsIn, loadContent, writeSnapshot, type LoadedContent } from './content-node.js';
 import { applyStrict, CODES, compile, formatDiagnostic, formatWarning, strictPromotes, suggest, type Code, type CheckUnit, type Diagnostic, type CompileResult, type SourceMap } from './compiler/index.js';
-import { lazyOf, project, staticPages, strictOf, type ProjectOptions } from './project.js';
+import { COMPONENTS_RENAMED, lazyOf, project, staticPages, strictOf, type ProjectOptions } from './project.js';
 import { CHUNK_MARK, chainText, isComponentScript, LAZY, lazyHelpers, lazyPackage, lineCol, loaderModule, mentions, parseLazyId, reachLazy, rewriteLazy, scanLazy, stubModule } from './lazy-build.js';
 import { I18N_PICKER, languageFile, moduleKeys, type MessagesProject } from './i18n-build.js';
 import { HOLD_SCRIPT } from './paint-build.js';
@@ -255,9 +255,10 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   // the Vite server sinter starts to load the helpers module in Node (helpers-node.ts): nothing of sinter runs in it
   if (loadingHelpers()) return [{ name: 'sinter', api: { options, source: (f: string) => f } }, { name: 'sinter:post' }, { name: 'sinter:css-images' }, { name: 'sinter:fonts' }, { name: 'sinter:font-check' }, { name: 'sinter:pages' }];
   // options renamed (docs/proposals/vocabulary.md): what to write instead
-  const was = options as { speculation?: unknown; earlyBudget?: unknown };
+  const was = options as { speculation?: unknown; earlyBudget?: unknown; components?: unknown };
   if (was.speculation !== undefined) throw new Error(`sinter({ speculation }) is renamed to \`prefetch: { html: ${JSON.stringify(was.speculation)} }\`, beside the next page's data (\`prefetch: { data }\`)`);
   if (was.earlyBudget !== undefined) throw new Error(`sinter({ earlyBudget }) is renamed to \`firstPaint: { budget: ${JSON.stringify(was.earlyBudget)} }\``);
+  if (was.components !== undefined) throw new Error(COMPONENTS_RENAMED);
   // nested options take known keys only, as markup does: a typo fails the build instead of doing nothing
   const keysOf = (name: string, v: unknown, keys: string[]) => {
     if (typeof v !== 'object' || v === null) return;
