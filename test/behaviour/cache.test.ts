@@ -206,3 +206,90 @@ test('a resource turned off by `when` does not replace its cache entry with noth
   const second = await render(html, { session, requests: mockRequests({ 'GET /api/contacts': { contacts: [] } }) });
   expect(names(second.root)).toEqual(['Ada', 'Grace']);
 });
+
+// Back and Forward: a page reached by a history traversal (no back/forward cache) shows what it showed as it was
+// left, with or without `cache`, then revalidates
+test('Back to a page restores its resources as they were left, without `cache`, then revalidates', async () => {
+  const session = memoryStorage();
+  const stream = mockStream();
+  const html = `${LIST('')}<sn-sync src="/api/events"><sn-event name="added" resource="contacts" op="upsert" value="$event.contact"></sn-event></sn-sync>`;
+  const r = await render(html, { session, streams: { '/api/events': stream }, requests: mockRequests({ 'GET /api/contacts': { contacts: [{ id: 1, name: 'Ada' }] } }) });
+  await r.settle();
+  // nothing written while the page is shown
+  expect(cacheKeys(session)).toEqual([]);
+  stream.emit('added', { contact: { id: 2, name: 'Grace' } });
+  await r.settle();
+  await r.window('pagehide');
+  expect(cacheKeys(session)).toHaveLength(1);
+
+  const requests = mockRequests({ 'GET /api/contacts': { contacts: [{ id: 1, name: 'Ada' }, { id: 3, name: 'Linus' }] } });
+  const back = await render(html, { session, traverse: true, streams: { '/api/events': mockStream() }, requests });
+  expect(names(back.root)).toEqual(['Ada', 'Grace']);
+  expect(back.app.page.$meta.contacts.loadedAt).toBeNull();
+  await back.settle();
+  expect(names(back.root)).toEqual(['Ada', 'Linus']);
+
+  // a link to the page (not Back) does not read it
+  const again = await render(LIST(''), { session, requests: mockRequests({ 'GET /api/contacts': { contacts: [] } }) });
+  expect(names(again.root)).toEqual([]);
+  await again.settle();
+});
+
+test('Back ignores `cache`\'s age; a paginated list comes back at its page; a POST resource is not kept', async () => {
+  const session = memoryStorage();
+  const page = `<sn-resource name="contacts" src="/api/contacts" items="contacts" key="id" cache="1m"></sn-resource>
+    <sn-resource name="feed" src="/api/feed" items="feed" key="id" paginate="{ numbered: true, size: 1, model: $url.page }"></sn-resource>
+    <sn-resource name="hits" src="/api/hits" method="POST" body="{ q: 1 }" items="hits" key="id"></sn-resource>
+    <ul><template data-sn-for="c in contacts"><li data-sn-text="c.name"></li></template></ul>
+    <ol><template data-sn-for="f in feed"><li data-sn-text="f.t"></li></template></ol>
+    <i data-sn-text="hits.length"></i>`;
+  const routes = { 'GET /api/contacts': { contacts: [{ id: 1, name: 'Ada' }] }, 'GET /api/feed': { feed: [{ id: 2, t: 'second' }] }, 'POST /api/hits': { hits: [{ id: 1 }] } };
+  const r = await render(page, { session, url: '/?page=2', requests: mockRequests(routes) });
+  await r.settle();
+  await r.window('pagehide');
+  const keys = cacheKeys(session);
+  expect(keys).toHaveLength(2);
+  expect(keys.some((k) => k.includes('/api/feed?page=2&limit=1'))).toBe(true);
+  // an hour later: `cache="1m"` does not show it on a load; Back does
+  const later = Date.parse('2026-01-01T10:00:00Z'), none = { 'GET /api/contacts': { contacts: [] }, 'GET /api/feed': { feed: [] }, 'POST /api/hits': { hits: [] } };
+  const back = await render(page, { session, now: later, url: '/?page=2', traverse: true, requests: mockRequests(none) });
+  expect(names(back.root)).toEqual(['Ada', 'second']);
+  expect(back.app.page.$meta.feed.page).toBe(2);
+  expect(back.root.querySelector('i')!.textContent).toBe('0');
+  await back.settle();
+  const load = await render(page, { session, now: later + 1000, url: '/?page=2', requests: mockRequests(none) });
+  expect(names(load.root)).toEqual([]);
+  await load.settle();
+});
+
+test('what Back restores is gone after a 401 and after clearStored()', async () => {
+  const session = memoryStorage();
+  const r = await visit(session, LIST(''));
+  await r.window('pagehide');
+  expect(cacheKeys(session)).toHaveLength(1);
+  clearStored();
+  expect(cacheKeys(session)).toEqual([]);
+  const again = await visit(session, LIST(''));
+  await again.window('pagehide');
+  const failed = await render(`${LIST('')}<sn-resource name="me" src="/api/me"></sn-resource><b data-sn-text="me?.n"></b>`, { session, requests: mockRequests({ 'GET /api/contacts': { contacts: [] }, 'GET /api/me': { status: 401 } }) });
+  await failed.settle().catch(() => {});
+  expect(cacheKeys(session)).toEqual([]);
+});
+
+test('an entry over 256 KB is not written as the page is left', async () => {
+  const session = memoryStorage();
+  const big = Array.from({ length: 3000 }, (_, i) => ({ id: i, name: 'x'.repeat(100) }));
+  const r = await visit(session, LIST(''), { contacts: big });
+  await r.window('pagehide');
+  expect(cacheKeys(session)).toEqual([]);
+});
+
+test('Back\'s module: the cache module with `cache`, the small one without, none where nothing can come back', () => {
+  const opts = { file: '/x/i.html', root: '/x', dev: false, helpers: { module: null, names: [], namespaces: {} }, readFile: () => { throw new Error('none'); }, actions: { module: '/x/a.js', names: ['go'], namespaces: {} } };
+  const features = (body: string, head = '') => [...compile(`<html><head>${head}</head><body>${body}</body></html>`, opts).module.matchAll(/runtime\/(cache|back)'/g)].map((m) => m[1]);
+  expect(features(LIST())).toEqual(['cache']);
+  expect(features(LIST(''))).toEqual(['back']);
+  // embedded data wins over any entry; `call`, POST and `append` lists are never written
+  expect(features('<sn-resource name="a" src="/api/a" key="id"></sn-resource><i data-sn-text="a.length"></i>', '<script type="application/json" data-sn-resource="a">[]</script>')).toEqual([]);
+  expect(features('<sn-resource name="a" call="go()"></sn-resource><sn-resource name="b" src="/api/b" method="POST" body="{ q: 1 }"></sn-resource><sn-resource name="c" src="/api/c" key="id" paginate="{ append: { before: $item.id }, size: 5 }"></sn-resource><i data-sn-text="[a, b, c.length]"></i>')).toEqual([]);
+});

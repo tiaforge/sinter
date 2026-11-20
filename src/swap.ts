@@ -61,6 +61,9 @@ export const pageAt = (list: SwapPage[], path: string) => list.find((p) => p.m.s
   return w.length == h.length && w.every((x, i) => x[0] == ':' || x == h[i]);
 }));
 
+/** a traversal that loads its page (a reload of the entry): marked for the page that loads (cache.ts reads it once) */
+export const back = () => { try { sessionStorage.setItem('sn:back', location.href); } catch { /* no storage: a plain load */ } };
+
 function state(list: SwapPage[]): SwapState {
   const g = globalThis as Record<symbol, SwapState | undefined>;
   if (g[STATE]) return g[STATE]!;
@@ -72,7 +75,8 @@ function state(list: SwapPage[]): SwapState {
   // a page with nothing to run, swapped in, has no app to take Back and Forward: each loads its entry
   nav()!.addEventListener('navigate', (ev) => {
     const e = ev as NavigateLike & { navigationType: string; canIntercept: boolean };
-    if (s.bare && e.canIntercept && e.navigationType == 'traverse') e.intercept({ async handler() { location.reload(); } });
+    // (marked as Back or Forward for the page that loads: its resources come back as they were left, cache.ts)
+    if (s.bare && e.canIntercept && e.navigationType == 'traverse') e.intercept({ async handler() { back(); location.reload(); } });
   });
   // per-page app code listens for `sn-page`: after each mount, the first one included
   queueMicrotask(() => document.dispatchEvent(new CustomEvent('sn-page', { detail: { to: location.href, kind: 'load' } })));

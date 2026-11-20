@@ -57,9 +57,11 @@ the data that page loads first. The next page shows it at its first paint, then 
   starts at once. A touch waits 65 ms, and a scroll that starts on the link requests nothing. Skipped
   with `navigator.connection.saveData` or on 2g.
 - **What:** the resources of the target page whose `src` and `when` read only `$url`, constants and
-  your helpers. Resources that read state, other resources, `$now`, or that are paginated, `for`,
-  `call` or embedded, are not prefetched. Data the current page already loaded from the same
-  request is handed over without a new request.
+  your helpers. A paginated one is requested at the page its first load asks for: the page the
+  link's URL names with `model: $url.page` (`/?page=3`: page 3), else the first page (keyset and
+  `append` lists always). Resources that read state, other resources, `$now`, or that are `for`,
+  `call`, `method="POST"` or embedded, are not prefetched. Data the current page already loaded from the
+  same request is handed over without a new request (not a paginated list's page: that one is requested).
 - **Which links:** same-origin links to one of the app's pages, matched by the pages' `data-sn-path`
   patterns (or their file paths). Give pages a `data-sn-path` so that `/article/slug` finds
   `article.html`.
@@ -77,6 +79,7 @@ that download, open elsewhere (`target`) or are `rel="nofollow"` are left out.
 
 ```js
 sinter({ prefetch: { html: true } })          // default: the next page's HTML
+sinter({ prefetch: { html: { prerender: 'auto' } } })   // the build decides per page (below)
 sinter({ prefetch: { html: { prerender: true } } })   // the whole page, data included, before the click
 sinter({ prefetch: { html: false } })         // none
 sinter({ prefetch: { html: { delivery: 'header' } } })   // by a response header; see the CSP section
@@ -84,7 +87,40 @@ sinter({ prefetch: { html: { delivery: 'header' } } })   // by a response header
 
 Prerendering runs the next page before anyone sees it: its requests go out and its custom elements start.
 Streams (`<sn-sync>`) wait until the page is shown, and then every resource is reloaded, since it
-may have loaded minutes earlier. Use it for apps whose pages do nothing on load but read.
+may have loaded minutes earlier. Use it for apps whose pages do nothing on load but read, or let the
+build pick those pages.
+
+### Prerendering chosen per page
+
+`prefetch: { html: { prerender: 'auto' } }` (with `delivery` beside it if you need it) prerenders the
+pages the build can show do nothing on load but read, and prefetches the HTML of the others. A page
+is prerendered when:
+
+- every resource loads with a GET (`src`, also `for`): none has `call`, `method="POST"` or `then`;
+- no handler is for an event the page can fire without a visitor: only clicks, keys, pointer, input,
+  form, drag, clipboard and dialog-closing events, and `data-sn-on-navigate`; not `load`, `error`,
+  `toggle`, `focus`, `scroll`, `sn-error` or a component's own events;
+- it has no component with a script, no other custom element, no lazy package that loads as it renders
+  (`data-sn-import`, a helper of `sinter({ lazy })`; `data-sn-preload` only fetches), and no
+  `<script>` of its own other than data (JSON, JSON-LD, an import map);
+- it is not `<html data-sn-prefetch="off">` (that page is in no rule at all), and with swaps on it is a page
+  that does not swap (those are in no rule either);
+- the app's modules every page runs (`sinter.config`, `sinter.early`, the helpers and actions modules,
+  and what they import) do nothing as they load: their top level only declares (functions, classes,
+  constants from literals and functions, `import.meta.env`) and calls sinter's configuration
+  (`configure()`, `header()`, `onUnauthorized()`, `loginRedirect()`, `memo()`), and a package they
+  import says `"sideEffects": false` in its package.json. One that does more (an analytics call,
+  `customElements.define()`, an import of a package that does not say) turns prerendering off for
+  every page.
+
+A stream (`<sn-sync>`) does not count: it connects once the page is shown. The build prints which pages
+links prerender and, for each other one, what it found. A link whose URL another, prefetched page's
+`data-sn-path` also matches (`/article/new` beside `/article/:slug`) is prefetched. The rules are the same
+inline and by header.
+
+Prerendering costs what the build cannot see: each prerendered page loads its data before anyone asks
+(and, when shown, again), and a server that counts page views counts a page nobody may open (its
+request carries `Sec-Purpose: prefetch;prerender`). That is why `true` stays the default.
 
 ## Speculation Rules and a Content Security Policy
 
@@ -355,8 +391,10 @@ element it becomes on the detail page:
   (the names themselves are hashes).
 - **The element must be there at the page's first paint**, which is when the browser captures it.
   When a morph is pending, sinter holds that paint until the page has mounted, but not until
-  responses arrive. Render the element from `$url`, `cache`, prefetched or embedded data. A list
-  you morph back into needs `cache` on its resource, or its rows arrive too late and it only fades.
+  responses arrive. Render the element from `$url`, `cache`, prefetched or embedded data. Back to a
+  list needs nothing: its rows come back as it was left ([Back and Forward](resources.md#back-and-forward)).
+  A link to a list (not Back) morphs into it only with `cache` on its resource, or its rows arrive too
+  late and it only fades.
 - One morph per navigation. Navigations sinter starts itself (a redirect) do not morph.
 
 **Swaps** follow the same rule as loads: a swap fades only where the stylesheet asks for page transitions

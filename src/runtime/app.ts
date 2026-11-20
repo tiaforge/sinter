@@ -194,7 +194,7 @@ export interface App {
       state(key: string, obj: Record<string, unknown>, sid: number): void;
     };
     cache?: {
-      /** the cached data for a request, if any and not older than the resource allows */
+      /** the cached data for a request, if any and not older than the resource allows; without `cache`, only on Back or Forward */
       read(def: ResourceDef, url: string): { t: number; items: unknown; total: number | null } | null;
       /** a load (or embedded data) stored `items`: cache them, and the resource's later changes */
       loaded(def: ResourceDef, r: Resource, url: string, items: unknown, total: number | null, appended: boolean): void;
@@ -1804,7 +1804,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
       if (Array.isArray(items)) items = items.map(clean);
       const t = def.total ? pick(def.total, body) : null, total = t == null ? null : +t;
       fill(items, total, m);
-      if (def.cache != null) app.ext.cache?.loaded(def, r, req, items, total, !!l.pager?.appends(m));
+      app.ext.cache?.loaded(def, r, req, items, total, !!l.pager?.appends(m));
       return items;
     };
     /** the request URL for the current page of `u` */
@@ -1841,11 +1841,11 @@ export function mount(root: Document | Element, o: MountOptions): App {
         if (url == null) {
           // the data the previous page prefetched for this request, else the page-load cache: shown
           // now, and changed() revalidates
-          const ahead = app.ext.prefetch && !def.call && !def.each && !def.paginate && def.body == null;
-          const u = ahead || (def.cache != null && app.ext.cache) ? resolve() : null;
+          const ahead = app.ext.prefetch && !def.call && !def.each && def.body == null;
+          const u = ahead || app.ext.cache ? resolve() : null;
           if (u != null) {
             l.pager?.reset(0);
-            const q = request(u), hit = (ahead && app.ext.prefetch!.take(def, q)) || (def.cache != null && app.ext.cache?.read(def, q));
+            const q = request(u), hit = (ahead && app.ext.prefetch!.take(def, q)) || app.ext.cache?.read(def, q);
             // loadedAt stays null: it means the server answered during this page load, and
             // guards such as `$meta.user.loadedAt && !user` must not act on another page's data
             if (hit) fill(hit.items, hit.total, l.pager?.current());
@@ -1875,7 +1875,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
         }
         c?.abort();
         r.replace(r.isCollection ? [] : null);
-        if (def.cache != null) app.ext.cache?.cleared(def);
+        app.ext.cache?.cleared(def);
         loading(false);
       },
       /** Repeats the current request; several calls in one task share one request (quiet only if every call was). */

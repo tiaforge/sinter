@@ -108,8 +108,9 @@ test('with next-page data in the app, the early binding first checks this tab ho
   const opts = { file: '/app/index.html', root: '/app', dev: false, readFile: () => '', moduleSrc: '/page.js', helpers: { module: null, names: [], namespaces: {} }, prerender: true, early: { module: null }, observe: true };
   const html = PAGE('when="$url.go"');
   const plain = compile(html, opts).early!, ahead = compile(html, { ...opts, prefetch: '/prefetch.js' }).early!;
-  expect(plain).not.toContain('sessionStorage');
-  expect(ahead).toContain('/^sn:[cp]:\\[/');
+  // without `cache`: the page-load cache's entries count only on Back or Forward, which restores them (cache.ts)
+  expect(plain).toContain("type == 'back_forward' || sessionStorage.getItem('sn:back') == location.href ? /^sn:[cp]:\\[/ : /^sn:p:\\[/");
+  expect(ahead).toContain('/^sn:p:\\[/');
   // `when` is called from the table, not written out again
   expect(ahead).toMatch(/!!f\[\d+\]\(\$\)/);
 });

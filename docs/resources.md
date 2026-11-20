@@ -127,6 +127,27 @@ revalidation keeps the cached data and sets `error`. See `docs/recipes/cached-li
 - An entry over 256 KB is not written.
 - Every entry is removed on any 401 response and by `clearStored()`, which apps call on sign-in and sign-out.
 
+### Back and Forward
+
+Nothing to write. When the visitor comes back to a page with Back or Forward and the browser's
+back/forward cache does not have it (it loads the page again, or a [swap](navigation.md#swaps) swaps it
+in), every resource shows what the page showed when they left it, at once, and revalidates as with
+`cache`: `loading` is true, `loadedAt` stays `null` until the server answers, a failed revalidation
+keeps the data. The scroll position the browser restores then lands on the same rows.
+
+- Every resource but `for`, `call` and `method="POST"` ones, with or without `cache`; with `cache`, at any
+  age (`cache="10m"` limits only ordinary loads). A paginated list comes back at the page it showed; an
+  `append` list loads again.
+- A resource without `cache` writes its entry once, as the page is left (`pagehide`, or the swap), so
+  it costs nothing while the page is shown; it is read only on Back and Forward. The entries are the
+  same as `cache`'s: the 256 KB limit, the 401 and `clearStored()` apply, and a full
+  `sessionStorage` drops the older half of them.
+- An ordinary load of the page (a link, a reload, a typed URL) shows them only with `cache`.
+- Embedded data wins, as with `cache`: a resource whose data the server writes into the page has nothing to restore.
+- On Back and Forward browsers prefer their HTTP cache for the page's requests: an API should send
+  `Cache-Control: no-cache` (with an `ETag`), or the revalidation may get the old response again.
+- In tests: `render(html, { session, traverse: true })` after a first `render()` with the same `session`.
+
 ## Background refresh
 
 `refresh` reloads a resource once its last load is that old. Use it for data no stream updates, or

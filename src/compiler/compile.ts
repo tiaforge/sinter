@@ -339,6 +339,8 @@ export interface CompileResult {
   /** origins of resources that could be requested early but are not in `origins` */
   unlistedOrigins?: string[];
   prefetchOff?: true;
+  /** what the page does as it loads besides reading (`CompiledParts.loadEffect`); absent: nothing */
+  loadEffect?: string;
   /** the names of the page's kept elements (`data-sn-permanent`), in document order */
   permanent?: string[];
   /** where each kept element was written (file, offset, a hash of its source): one markup across the pages, for those that bind */
@@ -376,7 +378,11 @@ export const EARLY_FORMATTERS = ['date', 'number', 'bytes'];
  */
 export interface PrefetchParts {
   path: string[];
-  res: Array<{ s: UrlTemplate; w?: number; i: string | null; t: string | null; k?: 1 }>;
+  /**
+   * a paginated resource's first page: `q` its parameters (`firstParams`), and with `model` (paginate) `sp`, the page the
+   * link's URL names, as the early file reads it (`startOf`): from page 2 on, `q` with `k` set to the page (`o`: the items to skip)
+   */
+  res: Array<{ s: UrlTemplate; w?: number; i: string | null; t: string | null; k?: 1; q?: Record<string, string>; sp?: { f: number; k: string; s: number; o?: 1 } }>;
   fns: string[];
   /** helper names and namespace members the functions call */
   helpers: string[];
@@ -477,6 +483,11 @@ export interface CompiledParts {
   embed: EmbedSlot[];
   /** `<html data-sn-prefetch="off">` */
   prefetchOff?: true;
+  /**
+   * what the page does as it loads besides reading data and rendering it, the first the build found (`loadEffects()`);
+   * absent: nothing, so `prefetch: { html: { prerender: 'auto' } }` may prerender it (its app modules permitting)
+   */
+  loadEffect?: string;
   /** the names of the page's kept elements (`data-sn-permanent`), in document order */
   permanent?: string[];
   /** where each kept element was written, and those that bind: one markup across the pages */
@@ -1613,6 +1624,9 @@ class Compiler {
       eachPath(ir, (p) => { if (typeof p === 'string' && p.startsWith('$url.')) { const n = p.slice(5).split('.')[0]!; if (params.has(n)) read.add(n); } }, () => {});
       for (const n of [...read].sort()) this.report(this.pagesDecl.html, 'data-sn-for', 'SN345', `\`$url.${n}\` on a page per entry (\`data-sn-for\` on \`<html>\`): each entry's page is written at its own path, so \`:${n}\` is the entry's field, \`${this.pagesDecl.name}.${n}\``, 0);
     }
+    // Back and Forward restore what the page showed as it was left: cache.ts with `cache`, else back.ts where a resource can
+    // come back (not `for`, `call`, `method="POST"`, `file:`, embedded data, which wins, or `append`, which is not written)
+    if (!this.features.has('cache') && this.resources.some((r) => !r.call && !r.each && r.body == null && !r.fx && r.data == null && r.paginate?.mode !== 'append')) this.features.add('back');
     const reads = this.urlReads(ir, paths), own = this.ownPaths(paths);
     if (reads) this.checkDroppedQuery(reads, paths);
     // `navigate()` may go to this page with another query too: the build cannot see where, so it loads the module
@@ -1627,7 +1641,7 @@ class Compiler {
       ir, fns: this.fns,
       ...(this.opts.prerender ? { fixedState: this.fixedState() } : {}),
       ...(this.opts.sourcemap ? { sources: this.sourcesOf(this.fns) } : {}),
-      features: [...(this.opts.dev ? ['dev'] : []), ...['sse', 'optimistic', 'paginate', 'persist', 'cache', 'versions', 'refresh', 'for', 'options', 'keys', 'write-through', 'fields', 'form', 'select', 'location', 'typing', 'query-links', 'navigate', 'call', 'debounce', 'confirm', 'models', 'transition', 'components', 'nested', 'lets'].filter((f) => this.features.has(f))],
+      features: [...(this.opts.dev ? ['dev'] : []), ...['sse', 'optimistic', 'paginate', 'persist', 'cache', 'back', 'versions', 'refresh', 'for', 'options', 'keys', 'write-through', 'fields', 'form', 'select', 'location', 'typing', 'query-links', 'navigate', 'call', 'debounce', 'confirm', 'models', 'transition', 'components', 'nested', 'lets'].filter((f) => this.features.has(f))],
       helpers: { user, builtin }, namespaces, calls: [...this.calls].sort(),
       diagnostics: this.diagnostics, files: [...this.files].sort(), ...(this.fileGlobs.length ? { globs: this.fileGlobs } : {}), ...(this.pagesOut ? { pages: this.pagesOut } : {}),
       ...(this.check ? { check: this.check } : {}),
@@ -1640,6 +1654,7 @@ class Compiler {
       prefetch: this.prefetchOff ? null : this.prefetchParts(),
       embed: this.embedSlots(),
       ...(this.prefetchOff ? { prefetchOff: true as const } : {}),
+      ...((effect) => (effect ? { loadEffect: effect } : {}))(this.loadEffects(ir, doc)),
       ...(this.permanentNames.length ? { permanent: [...this.permanentNames], keptSource: Object.fromEntries(this.keptSource), ...(this.keptBound.size ? { keptBound: [...this.keptBound] } : {}) } : {}),
       ...(this.swapOff ? { swapOff: true as const } : {}),
       ...(this.unlisted.size ? { unlistedOrigins: [...this.unlisted].sort() } : {}),
@@ -1904,6 +1919,44 @@ class Compiler {
     return `\`paginate="{ ${parts.join(', ')} }"\``;
   }
 
+
+  /**
+   * What the page does as it loads besides reading data and rendering it, the first found, or null: what makes a page unsafe
+   * to prerender (`prefetch: { html: { prerender: 'auto' } }`), since a prerendered page runs for a visitor who may never see
+   * it. Reads are its GET resources (and `for` ones); streams wait until it is shown. Anything else counts: a resource that
+   * loads with `call` or a POST or runs `then`, a handler of an event no user caused (`load`, `toggle`, `sn-error`, a
+   * component's own events), a component script or another custom element, a lazy package loaded as it renders, a script
+   * that is not data. The app's modules (config, early, helpers, actions) are the build's to check (`prerender-build.ts`).
+   */
+  loadEffects(ir: IR, doc: P5Parent): string | null {
+    for (const r of this.resources) {
+      if (r.call) return `resource \`${r.name}\` loads with \`call\``;
+      if (r.body != null) return `resource \`${r.name}\` loads with \`method="POST"\``;
+      if (r.then != null) return `resource \`${r.name}\` runs \`then\``;
+    }
+    for (const n of [...ir.roots, ...ir.templates.flatMap((t) => t.nodes)]) for (const b of n.b) {
+      if (b.k === 'cmp') return 'a component with a script';
+      if (b.k === 'imp') return 'lazy packages loaded as it renders (`data-sn-import`)';
+      if (b.k === 'on' && !USER_EVENTS.has(b.n!)) return `a handler of \`${b.n}\`, which the page may fire as it loads`;
+    }
+    if (ir.lm?.length) return 'a helper that loads lazy packages';
+    const DATA = /^(application\/(ld\+)?json|speculationrules|importmap)$/i;
+    const known = (tag: string) => tag.startsWith('sn-') || !!this.componentFiles.get(tag) || this.uses.has(tag);
+    let found: string | null = null;
+    const visit = (p: P5Parent) => {
+      for (const c of p.childNodes) {
+        if (found || !isElement(c)) continue;
+        if (c.tagName === 'script' && !OWN_SCRIPTS.has(c) && !DATA.test((attr(c, 'type') ?? '').trim())) found = attr(c, 'src') ? `a script (\`${attr(c, 'src')}\`)` : 'an inline script';
+        else if (c.tagName.includes('-') && !known(c.tagName)) found = `a custom element (\`<${c.tagName}>\`)`;
+        visit(c);
+        const t = (c as P5Element & { content?: P5Parent }).content;
+        if (t) visit(t);
+      }
+    };
+    visit(doc);
+    for (const tpl of this.headTemplates.values()) visit(tpl.content);
+    return found;
+  }
 
   /**
    * SN540: with swaps on, a script in the body that a swap would not run (inline or classic: the module
@@ -8291,10 +8344,12 @@ class Compiler {
           // data (no rows, a null object: a signed-out visitor's `{user: null}`) fills the resource with what is written in
           // here, and `loadedAt` stays null at mount, so it changes nothing: the binding stays early (otherwise a branch over
           // it renders at mount, after the first paint, in every tab that opened another page first)
-          if (def.cache != null || (this.opts.prefetch && !def.paginate && def.body == null)) {
+          // without `cache`: its `sn:c:` entry only on Back or Forward (cache.ts), as a load's navigation type or a swap's mark says
+          if (def.body == null) {
             const start = JSON.stringify(typeof def.src[0] === 'string' ? def.src[0] : '').slice(1, -1), end = `,${JSON.stringify(def.items ?? null)},${JSON.stringify(def.total ?? null)}]`;
             const none = JSON.stringify(def.key ? '[]' : 'null');
-            checks.add(fn(`() => { for (const k of Object.keys(sessionStorage)) if (/^sn:[cp]:\\[/.test(k) && k.includes(${JSON.stringify(start)}) && k.endsWith(${JSON.stringify(end)})) { let e; try { e = JSON.parse(sessionStorage.getItem(k)); } catch { throw 0; } if (!e || JSON.stringify(e.items) !== ${none} || e.total != null) throw 0; } }`));
+            const kinds = def.cache != null ? '/^sn:[cp]:\\[/' : `(performance.getEntriesByType?.('navigation')[0]?.type == 'back_forward' || sessionStorage.getItem('sn:back') == location.href ? /^sn:[cp]:\\[/ : /^sn:p:\\[/)`;
+            checks.add(fn(`() => { for (const k of Object.keys(sessionStorage)) if (${kinds}.test(k) && k.includes(${JSON.stringify(start)}) && k.endsWith(${JSON.stringify(end)})) { let e; try { e = JSON.parse(sessionStorage.getItem(k)); } catch { throw 0; } if (!e || JSON.stringify(e.items) !== ${none} || e.total != null) throw 0; } }`));
           }
           const when = def.when != null ? `!!f[${fn(this.fns[def.when]!)}]($)` : 'true';
           if (r !== null) { edits.push([n.start, n.end, def.key || def.ls ? '[]' : 'null']); return; }
@@ -8487,7 +8542,8 @@ class Compiler {
   /**
    * The resources another page can request for this one before it is opened: a `src` and `when`
    * that read only `$url`, constants and the app's helpers (no state, resources, clock, formatters
-   * or messages); not paginated, `each`, `call` or embedded data.
+   * or messages); not `for`, `call`, `method="POST"` or embedded data. A paginated one at the page its
+   * first load requests: the first, or with `model` (paginate) the one the URL names (a `$url` read too).
    */
   prefetchParts(): PrefetchParts | null {
     const userHelpers = new Set(this.opts.helpers.names);
@@ -8498,7 +8554,7 @@ class Compiler {
     const fn = (code: string) => { let i = index.get(code); if (i === undefined) index.set(code, (i = fns.push(code) - 1)); return i; };
     const res: PrefetchParts['res'] = [];
     for (const def of this.resources) {
-      if (def.call || def.each || def.data != null || def.paginate || def.body != null || !def.src.length) continue;
+      if (def.call || def.each || def.data != null || def.body != null || !def.src.length) continue;
       if (!strs(def.deps).every((d) => d === '$url' || d.startsWith('$url.'))) continue;
       const codes = [...def.src.filter((x): x is number => typeof x === 'number'), ...(def.when != null ? [def.when] : [])].map((i) => this.fns[i]!);
       if (codes.some((c) => /\$\.\$(?!url\b)/.test(c) || builtin(c) || messages.some((m) => c.includes(`${m}$`)))) continue;
@@ -8506,6 +8562,8 @@ class Compiler {
         s: def.src.map((x) => (typeof x === 'number' ? fn(this.fns[x]!) : x)),
         ...(def.when != null ? { w: fn(this.fns[def.when]!) } : {}),
         i: def.items ?? null, t: def.total ?? null, ...(def.key ? { k: 1 as const } : {}),
+        ...(def.paginate ? { q: firstParams(def.paginate) } : {}),
+        ...(def.paginate?.start != null ? { sp: (({ qn: _, ...sp }) => sp)(startOf(def.paginate, fn(this.fns[def.paginate.start]!))) } : {}),
       });
     }
     if (!res.length) return null;
@@ -9044,6 +9102,7 @@ class Compiler {
       const observe = !!this.opts.observe;
       const tag = parse5.parseFragment(observe ? `<script src="${esc(early)}"></script>` : `<script type="module" src="${esc(early)}" blocking="render"></script>`).childNodes[0] as P5Element;
       tag.parentNode = head;
+      OWN_SCRIPTS.add(tag);
       if (observe) {
         let at = 0;
         for (let i = 0; i < head.childNodes.length; i++) { const n = head.childNodes[i]!; if (isElement(n) && n.tagName !== 'meta') break; if (isElement(n)) at = i + 1; }
@@ -9054,6 +9113,7 @@ class Compiler {
     const frag = parse5.parseFragment(`<script type="module" src="${esc(src)}"></script>`);
     const script = frag.childNodes[0] as P5Element;
     script.parentNode = head;
+    OWN_SCRIPTS.add(script);
     head.childNodes.push(script as never);
   }
 }
@@ -9498,6 +9558,19 @@ function condOf(code: string): EmbedCond | null {
   };
   return walk(fn.body);
 }
+
+/** the scripts sinter writes into a page (its early file, its page module): not the page's own (`loadEffects`) */
+const OWN_SCRIPTS = new WeakSet<P5Element>();
+
+/**
+ * The events only a visitor causes (`loadEffects`): a handler of any other may run while a prerendered page loads. Not
+ * `focus` (`autofocus`), `load`, `error`, `toggle` (`<details open>`), `scroll`, `sn-error` or a component's own events.
+ */
+const USER_EVENTS = new Set(['click', 'dblclick', 'auxclick', 'contextmenu', 'input', 'beforeinput', 'change', 'submit', 'reset', 'invalid',
+  'keydown', 'keyup', 'keypress', 'pointerdown', 'pointerup', 'pointermove', 'pointerover', 'pointerout', 'pointerenter', 'pointerleave',
+  'pointercancel', 'mousedown', 'mouseup', 'mousemove', 'mouseover', 'mouseout', 'mouseenter', 'mouseleave', 'touchstart', 'touchend',
+  'touchmove', 'touchcancel', 'wheel', 'dragstart', 'drag', 'dragend', 'dragenter', 'dragover', 'dragleave', 'drop', 'copy', 'cut', 'paste',
+  'close', 'cancel', 'navigate', 'dismiss']);
 
 /** whether compiled code reads `$url.<name>` */
 const readsParam = (code: string, name: string) => new RegExp(`\\$\\.\\$url\\.${name.replace(/\$/g, '\\$')}(?![\\w$])`).test(code);
