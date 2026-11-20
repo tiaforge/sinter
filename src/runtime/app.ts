@@ -1267,11 +1267,9 @@ export function mount(root: Document | Element, o: MountOptions): App {
     // a primitive's key with its occurrence among equal values (`['a', 'b', 'a']`: `a`, `b`, `a` 1): duplicates are
     // rows of their own, the first `a` staying the first, so a list of strings needs no `data-sn-key`
     const seen = new Map<unknown, number>(), key = (item: unknown, s: any) => {
-      const k = keyOf(rb.t!, item, s);
-      if (typeof k != 'string' || k[0] != 'p') return k;
-      const n = seen.get(k) ?? 0;
-      seen.set(k, n + 1);
-      return n ? k + '\x1f' + n : k;
+      let k = keyOf(rb.t!, item, s), n;
+      if (typeof k == 'string' && k[0] == 'p') { seen.set(k, (n = seen.get(k) ?? 0) + 1); if (n) k += '\x1f' + n; }
+      return k;
     };
     if (pre) {
       delete (rb.el as any)[EARLY_ROWS];
@@ -1426,7 +1424,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
     // a wrapper's anchor has no end comment: its branch ends where its row or branch does
     const end: ChildNode = rb.u ? after(rb) : rb.end ?? endFor(rb);
     // same id, same control: the focused element of an if's old branch goes with it, its twin in the new one takes focus,
-    // and an action still running or waiting on an element of it goes on as its twin's (handOn)
+    // and an action still running or waiting on an element of it goes on as its twin's (below)
     const f = doc.activeElement, held = !ch && live.size ? [...live].filter((st) => st.el.id && st.el.isConnected) : null;
     // what is between the start and the end (a wrapper's anchor: from its row's first node), its bindings forgotten
     for (const n of range(rb.u ? rb.x!.first : rb.el.nextSibling, end)) (n as ChildNode).remove();
@@ -1443,27 +1441,19 @@ export function mount(root: Document | Element, o: MountOptions): App {
       if (!n) end.before((n = new Comment()));
       for (let q: RB | undefined = rb; q?.x; q = q.u) q.x.first = n;
     }
-    if (held?.length && rb.rows[0]) handOn(held, rowNodes(rb.rows[0]));
-    if (!ch && f?.id && !f.isConnected) (doc.getElementById(f.id) as HTMLElement | null)?.focus();
-  }
-
-  /**
-   * Same id, same control: an action state whose element a branch swap removed goes on as the state of the element
-   * with its id in the new branch (`nodes`): a toggle's second click queues behind the first (or is blocked, or kept
-   * as the latest), and the twin is busy while it runs. The twin's own triggers follow its own policy.
-   */
-  function handOn(held: ActState[], nodes: Node[]) {
-    for (const st of held) {
-      if (st.el.isConnected) continue;
+    // same id, same control: an action state whose element went goes on as the state of the element with its id in the
+    // new branch: a toggle's second click queues behind the first (or is blocked, or kept as the latest), and the twin is
+    // busy while it runs. The twin's own triggers follow its own policy
+    if (held && rb.rows[0]) for (const st of held) {
       const twin = doc.getElementById(st.el.id);
-      if (!twin || acts.has(twin) || !nodes.some((n) => n == twin || n.contains(twin))) continue;
+      if (!twin || st.el.isConnected || acts.has(twin) || !rowNodes(rb.rows[0]).some((n) => n.contains(twin))) continue;
       acts.set(twin, st);
       st.el = twin;
       twin.setAttribute('aria-busy', 'true');
       // a blocked form's controls stay disabled on its twin until the request ends
-      if (st.off) st.off = 'elements' in twin ? ([...(twin as HTMLFormElement).elements] as HTMLInputElement[]).filter((x) => !x.disabled) : [];
-      for (const x of st.off ?? []) x.disabled = true;
+      if (st.off) for (const x of (st.off = 'elements' in twin ? ([...(twin as HTMLFormElement).elements] as HTMLInputElement[]).filter((x) => !x.disabled) : [])) x.disabled = true;
     }
+    if (!ch && f?.id && !f.isConnected) (doc.getElementById(f.id) as HTMLElement | null)?.focus();
   }
 
   /** The branch an if's or choice's value names: an if's 1, its else 2; a choice's case + 1; 0 none. */
