@@ -122,7 +122,7 @@ Attributes sinter writes for CSS to style; writing one in markup is `SN101`.
 A named, page-wide cache of server data. Details: [resources](resources.md).
 
 - **Where the data comes from:** `name`, `src`, `method`, `body`, `call`, `for`, `when`, `early`
-- **What it looks like:** `key`, `items`, `total`, `order`, `drafts`, `type`
+- **What it looks like:** `key`, `items`, `total`, `order`, `drafts`, `fields`, `type`
 - **How fresh it is:** `cache`, `refresh`, `then`
 - **Pagination:** `paginate`
 
@@ -132,7 +132,7 @@ A named, page-wide cache of server data. Details: [resources](resources.md).
 
 ### `<sn-component>`
 
-`use`, `data-sn-with`. A component chosen by data at runtime; `use` names it: ``use="`${b.type}-block`"`` (convention), `use="{ hero: 'hero-block' }[b.type]"` (map) or `use="blockComponent(b)"` (helper); it must fit `ComponentName`, every candidate must exist, props are checked per candidate (narrowed for convention and map); a value outside the candidates renders nothing, or the `data-sn-else` template after it.
+`use`, `data-sn-with`, `data-sn-early`. A component chosen by data at runtime; `use` names it: ``use="`${b.type}-block`"`` (convention), `use="{ hero: 'hero-block' }[b.type]"` (map) or `use="blockComponent(b)"` (helper); it must fit `ComponentName`, every candidate must exist, props are checked per candidate (narrowed for convention and map); a value outside the candidates renders nothing, or the `data-sn-else` template after it; `data-sn-early="off"` leaves it out of the early script.
 
 ### `<sn-event>`
 
@@ -140,6 +140,6 @@ A named, page-wide cache of server data. Details: [resources](resources.md).
 
 ## Names available in expressions
 
-- **Magic names:** `$event`, `$el`, `$url`, `$now`, `$locale`, `$result`, `$error`, `$meta`. Filled in by the build: `$site` and `$canonical` (the site's root and the page's URL, with `sinter({ site })`), `$slot` (in a fill of a slot declared `Slot<T>`, the values it passes) and `localeUrl(locale)` (this page in another language, with `sinter({ localePrefix: true })`).
+- **Magic names:** `$event`, `$el`, `$url`, `$now`, `$locale`, `$result`, `$error`, `$meta`. Filled in by the build: `$site` and `$canonical` (the site's root and the page's URL, with `sinter({ site })`), `$slot` (in a fill of a slot declared `Slot<T>`, the values it passes) and `localeUrl(locale)` (this page in another language, with `sinter({ localePrefix: true })`). `$item`, in `paginate`'s cursor only, is the item at the page's edge.
 - **Store functions:** `refresh()`, `upsert()`, `merge()`, `remove()`, `page()`, `openDialog()`, `closeDialog()`, `emit()`, `run()`, `navigate()`.
 - **Built-in helpers:** `date()`, `relative()`, `number()`, `bytes()`.

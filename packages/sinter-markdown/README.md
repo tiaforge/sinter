@@ -233,8 +233,8 @@ pages (there is no Vite config with pages of its own), configures the package as
 slot is placed somewhere (`SN331`), `<sn-component use>` takes a map (`SN312`), internal components are
 used only inside the library (`SN339`). Each app's build checks the same rules again.
 
-`vite.config.ts` points the check at `fixtures/sinter.helpers.ts` and `fixtures/sinter.types.ts`, which
-are what an app would write: the package re-exported by its own name (`export * as md from
+The check reads the modules beside the fixture pages, at their fixed names, `fixtures/sinter.helpers.ts` and
+`fixtures/sinter.types.ts`, which are what an app would write: the package re-exported by its own name (`export * as md from
 '@tiaforge-ui/sinter-markdown'`, which works because the package has `exports`).
 
 ## Checking and testing

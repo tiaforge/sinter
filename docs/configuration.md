@@ -4,7 +4,7 @@ Three places configure a sinter app, and each has one job:
 
 | Where | What it configures |
 | --- | --- |
-| `sinter({...})` in `vite.config.js` | the build: checks, first paint, prefetching, fonts, images |
+| `sinter({...})` in `vite.config.js` | the build: checks, page URLs, first paint, prefetching, fonts, images |
 | `src/sinter.config.js` | the running page: requests, auth, errors, locale |
 | `src/sinter.helpers.js` | functions your markup can call |
 
@@ -58,6 +58,13 @@ fixture pages, in `fixtures/` ([docs/libraries.md](libraries.md)).
 | `complexity` | warnings | `SN507`, expressions that outgrew markup ([below](expressions.md#what-belongs-in-markup)): `{ level: 'error' }` fails the build, `false` turns it off |
 | `expansionLimit` | `10000` | the most rows and component instances a page expands at build time; past it the list or tree renders in the browser, with `SN536` ([docs/static-pages.md](static-pages.md#what-is-static)) |
 | `strict` | `false` | warnings fail `sinter check`, `vite build`, pages in the dev server and `render()`; runtime warnings show in the dev server's terminal and overlay. `{ allow: { SN504: 'reason' } }` keeps codes warnings. `SINTER_STRICT=1`/`0` overrides it ([docs/strict.md](strict.md)) |
+
+### Pages and URLs
+
+What the build writes for the site as a whole: page URLs, languages, and pages without JavaScript.
+
+| Option | Default | Purpose |
+| --- | --- | --- |
 | `site` | none | the site's origin (`'https://example.com'`, no path): every page whose URL is known gets a canonical link, and expressions get `$site` and `$canonical` ([docs/static-pages.md](static-pages.md#canonical-urls)) |
 | `sitemap` | on with `site` | `sitemap.xml` with every page that may be indexed; `{ paths: { '/article/:slug': () => slugs() } }` gives the values of pages whose path has parameters; `false` leaves it out ([docs/static-pages.md](static-pages.md#sitemap)) |
 | `localePrefix` | `false` | each page once per language of the [messages](messages.md), under its prefix (`/de/about/`), its text in the HTML; unprefixed URLs choose a language ([docs/static-pages.md](static-pages.md#languages)) |

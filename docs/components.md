@@ -454,7 +454,7 @@ tree, a nested menu.
   comment.replies` act on `r` inside its top-level row, at any depth: the objects along the path are
   replaced, and every view of that row updates. Nested items are matched by the resource's key, so
   give nested loops `data-sn-key`. `upsert(c.replies, x)` adds `x` to a nested list (or replaces the item
-  with its key); a resource name stays the form for top-level lists.
+  with its key); the resource itself, `upsert(comments, x)`, stays the form for top-level lists.
 - **Write-through follows the same paths.** An action inside the tree is about the nested item it reads
   (`data-sn-put="/api/comments/{comment.id}"`): its response patches that item at its depth, and a
   DELETE of the item's URL removes it from its list.

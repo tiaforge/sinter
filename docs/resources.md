@@ -92,8 +92,8 @@ with these store functions, usable in any handler:
 
 | Function | Effect |
 | --- | --- |
-| `refresh(a, b)` | Reload the named resources. |
-| `upsert(name, item)` | Insert or replace by key. |
+| `refresh(people)`, `refresh(a, b)` | Reload these resources. |
+| `upsert(people, item)` | Insert or replace by key. |
 | `merge(item, {…})` | Merge fields into an item. |
 | `remove(item)` | Remove an item. |
 
@@ -228,7 +228,7 @@ the results into one collection:
   and a single file must exist; an interpolation (`{…}`, other than a glob's `{a,b}`) is an error (`SN332`).
   With `sinter({ apis })` it is read the same way, and `file` cannot be an API's name (`SN329`).
 - It is a constant: nothing loads, refreshes or changes it. `$meta.<name>.loading` is `false` and the
-  other status fields are `null`. It takes only `name`, `src`, `type`, `items`, `key`, `order` and `drafts`;
+  other status fields are `null`. It takes only `name`, `src`, `type`, `items`, `key`, `order`, `drafts` and `fields`;
   anything that would load or change it is `SN332`: `refresh`, `cache`, `paginate`, `for`, `call`, `when`,
   `then`, `early`, store functions that name it or change one of its items, write-through, and
   `<sn-event>`s. `items` picks a list out of one JSON file.

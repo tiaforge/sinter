@@ -262,7 +262,7 @@ a failure with `$error`. Both are handlers: state assignments and these built-in
 
 | Function | Effect |
 | --- | --- |
-| `refresh(contacts)`, `refresh(a, b)` | reload the named resources |
+| `refresh(contacts)`, `refresh(a, b)` | reload these resources |
 | `upsert(contacts, $result)` | insert or replace an item |
 | `merge(item, {…})` | change fields of an item, in the resource it came from |
 | `remove(item)` | remove an item from the resource it came from (a single resource becomes `null`) |

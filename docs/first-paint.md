@@ -170,8 +170,8 @@ bindings over it, `data-sn-for` loops included, are in the first frame. The page
 the rows that are there instead of cloning them again.
 
 Who writes the JSON is up to you. A server that only fetches your API and writes the response
-into the page is enough: it renders nothing. The slots must sit in `<head>`, once per resource;
-anything else is ignored. Empty slot contents mean "no data", and the page requests it itself, so
+into the page is enough: it renders nothing. The placeholders must sit in `<head>`, once per resource;
+anything else is ignored. An empty placeholder means "no data", and the page requests it itself, so
 a server that fails or times out leaves a working page. Invalid JSON is a dev warning.
 
 ### The server layer
@@ -187,9 +187,9 @@ sinter({ embed: true })
 ```
 
 Every resource whose request the page's URL decides (its `src`, `when` and `paginate`'s `model` read only
-`$url`, constants and helpers) gets an empty slot, last in the head, so a streaming server sends
-the stylesheets and scripts before it has the data. The build lists the slots in
-`dist/sinter-embed.json`: per page, its paths and per slot the resource and the request the browser
+`$url`, constants and helpers) gets an empty placeholder, last in the head, so a streaming server sends
+the stylesheets and scripts before it has the data. The build lists the placeholders in
+`dist/sinter-embed.json`: per page, its paths and per placeholder the resource and the request the browser
 would have made. Those resources are no longer preloaded or requested by the browser; the data comes
 with the page. `vite dev` is unaffected.
 

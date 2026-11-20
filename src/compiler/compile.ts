@@ -553,7 +553,8 @@ function itemCursor(text: string): string {
 const ACTION_ONLY = ['body', 'trigger', 'debounce', 'concurrency', 'optimistic', 'then', 'catch', 'confirm', 'encoding', 'write-through', 'retry'];
 const UNSAFE_ELEMENTS = new Set(['script', 'style', 'iframe', 'object', 'embed', 'base', 'meta', 'link', 'animate', 'set', 'animatemotion', 'animatetransform']);
 const FORM_CONTROLS = new Set(['input', 'select', 'textarea']);
-const RESOURCE_ATTRS = ELEMENTS.find((e) => e.name === 'sn-resource')!.attrs;
+// `fields` is a build-time source's (`file:`, `content:`, FILE_ATTRS): listed in the vocabulary, still SN101 on a fetched resource
+const RESOURCE_ATTRS = ELEMENTS.find((e) => e.name === 'sn-resource')!.attrs.filter((a) => a !== 'fields');
 /** the attributes `paginate` replaced (docs/proposals/vocabulary.md): reported with the object they become */
 const PAGINATE_OLD = ['page-size', 'size-param', 'cursor', 'direction-param', 'direction-values', 'page-param', 'offset-param', 'page-model'];
 const EVENT_ATTRS = ELEMENTS.find((e) => e.name === 'sn-event')!.attrs;
