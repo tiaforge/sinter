@@ -175,7 +175,7 @@ describe('paginate diagnostics', () => {
       "SN401 `paginate` is one object literal now: `paginate=\"{ keyset: {uid}, size: 5, jump: true, params: { offset: 'o' }, directions: {prev: 'b'} }\"`",
     ]);
     expect(diags('paginate="offset" page-size="10" page-model="$url.page"')).toEqual(['SN401 `paginate` is one object literal now: `paginate="{ numbered: true, size: 10, model: $url.page }"`']);
-    expect(diags(`${keyset()} page-size="5"`)).toEqual([expect.stringMatching(/^SN401 `page-size` is a key of `paginate` now/)]);
+    expect(diags(`${keyset()} page-size="5"`)).toEqual([expect.stringMatching(/^SN101 `page-size` is a key of `paginate` now/)]);
   });
 });
 
@@ -281,7 +281,7 @@ describe('jump diagnostics', () => {
     expect(diags(`paginate="{ append: {uid}, size: 5, params: { offset: 'offset' } }"`)).toEqual([]);
     expect(diags('paginate="{ append: {uid}, size: 5, jump: true }"')).toEqual(['SN401 `jump` is for `keyset` lists; append lists only load more']);
     expect(diags('paginate="{ numbered: true, size: 5, jump: true }"')).toEqual(['SN401 `jump` is for `keyset` lists; a numbered list jumps already']);
-    expect(diags('offset-param="offset"')).toEqual([expect.stringMatching(/^SN401 `offset-param` is a key of `paginate` now, one object literal/)]);
+    expect(diags('offset-param="offset"')).toEqual([expect.stringMatching(/^SN101 `offset-param` is a key of `paginate` now, one object literal/)]);
   });
 });
 

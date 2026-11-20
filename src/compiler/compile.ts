@@ -6101,7 +6101,7 @@ class Compiler {
     // the old attributes: the object they become, once (on the first one written)
     const old = PAGINATE_OLD.find((a) => attr(el, a) != null);
     if (old && !/^\s*(keyset|offset|append)\s*$/.test(mode ?? '')) {
-      this.report(el, old, 'SN401', `\`${old}\` is a key of \`paginate\` now, one object literal: \`paginate="{ keyset: { before: id }, size: 20 }"\` (docs/pagination.md)`, 0);
+      this.report(el, old, 'SN101', `\`${old}\` is a key of \`paginate\` now, one object literal: \`paginate="{ keyset: { before: id }, size: 20 }"\` (docs/pagination.md)`, 0);
     }
     const spec = this.pageSpec(el);
     if (spec) {
@@ -6622,7 +6622,7 @@ class Compiler {
 
   event(el: P5Element, ctx: Ctx): EventDef | null {
     for (const a of el.attrs) {
-      if (a.name === 'item' || a.name === 'set') this.report(el, a.name, 'SN401', `\`${a.name}\` is \`value\` now, the value the change writes: the item for \`op="upsert"\`, the fields for \`op="merge"\``, 0);
+      if (a.name === 'item' || a.name === 'set') this.report(el, a.name, 'SN101', `\`${a.name}\` is \`value\` now, the value the change writes: the item for \`op="upsert"\`, the fields for \`op="merge"\``, 0);
       else if (!EVENT_ATTRS.includes(a.name)) this.report(el, a.name, 'SN101', `\`${a.name}\` is not an attribute of \`<sn-event>\`.${didYouMean(a.name, EVENT_ATTRS)}`, 0);
     }
     const name = attr(el, 'name');

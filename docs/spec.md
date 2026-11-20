@@ -698,7 +698,7 @@ Inside `<sn-event>` attributes, the event's parsed JSON payload is the scope: `v
 | `name` | event name (the SSE event name, or what the transport reports) |
 | `resource` | target resource |
 | `op` | `upsert`, `merge`, `remove` or `refresh` |
-| `value` | what the change writes (changed 2026-11-19: was `item` and `set`, now `SN401`): for `upsert` the item, a value expression, default the whole payload; for `merge` the fields, an object literal, e.g. `{flags, is_read: flags.includes('\\Seen')}` |
+| `value` | what the change writes (changed 2026-11-19: was `item` and `set`, now `SN101`): for `upsert` the item, a value expression, default the whole payload; for `merge` the fields, an object literal, e.g. `{flags, is_read: flags.includes('\\Seen')}` |
 | `when` | value expression; skip the event unless truthy, e.g. `mailbox === $url.mailbox` |
 | `fallback` | a flag on `op="upsert"` (was `fallback="refresh"` until 2026-11-20, now `SN401`): refresh the resource when the `value` evaluates to null (for servers that send some updates without a body) |
 | `then` | handler expression, run after the change is applied (see Handlers on server events) |
@@ -1124,7 +1124,7 @@ Keyset mode jumps only when the server can skip by offset as well. With `jump: t
 | `directions` | keyset/append: the value sent for a direction where the server names it differently, e.g. `{first: 'forward', prev: 'backward', next: 'forward'}` (`first` and `next` may share a value: the server tells them apart by the cursor, which `first` does not send); directions not listed are sent by name |
 
 - `params` and `directions` are given once per API in `sinter({ apis: { main: { paginate: { params, directions } } } })` (`PaginateWire`, checked by `resolveApis`, `SN329`); a resource's own keys win, key by key for `params`. The API is the resource's `src` (`apiOf`); `file:` and `content:` resources have none.
-- Errors are `SN401` at the key: one mode exactly, a `size`, known keys (did-you-mean), `model` only on offset lists, `jump` only on keyset, `directions` not on offset, string literals for names. The old attributes (`page-size`, `size-param`, `cursor`, `direction-param`, `direction-values`, `page-param`, `offset-param`, `page-model`) are `SN401` (`PAGINATE_OLD`); `paginate="keyset"` with them is `SN401` with the object they become (`legacyPaginate`).
+- Errors are `SN401` at the key: one mode exactly, a `size`, known keys (did-you-mean), `model` only on offset lists, `jump` only on keyset, `directions` not on offset, string literals for names. The old attributes (`page-size`, `size-param`, `cursor`, `direction-param`, `direction-values`, `page-param`, `offset-param`, `page-model`) are `SN101` (`PAGINATE_OLD`), as every renamed attribute is; `paginate="keyset"` with them is `SN401` with the object they become (`legacyPaginate`).
 
 ### `$meta` fields
 `page` (offset mode, and keyset with `jump`), `pages` (when `total` is known), `total`, `from`, `to`, `hasPrev`, `hasNext`, `loading`.
