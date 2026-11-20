@@ -276,6 +276,14 @@ Left for 1.0, as already deprecated: the top-level `sinter({ openapi })` (an API
 - `data-sn-import` and `data-sn-preload`: they are apart on purpose. Preloading competes with the page
   bundle on a slow network, and docs/lazy.md measures both; folding one into the other would preload
   where nobody measured.
+- `data-sn-show` (looked at again in the fourth review, as `data-sn-attr="{ hidden: !x }"`): it keeps the element
+  and needs no negation, and the compiler reads its condition as one, for reserved space and closed branches in
+  the first paint and for the URL checks; a `hidden` key of `data-sn-attr` would need the same special case.
+- `data-sn-model-debounce` (same review, against a copy with `data-sn-debounce-input`): its pause replaces the
+  typing pause instead of adding to it, Enter or leaving the field writes at once, and a model on `$url`
+  writes one history entry; the copy does none of that. It is the model's own attribute (`data-sn-model-*`).
+- `data-sn-trigger` and the action's `data-sn-debounce` (same review, against `run()` from a handler): `run()`
+  targets are outside rows, and the default trigger would still fire beside the handler.
 
 ## Removed at 1.0
 
