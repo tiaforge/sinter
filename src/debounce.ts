@@ -10,6 +10,8 @@ const feature: Feature = {
     app.ext.debounce = (key, ms, run) => {
       const t = timers.get(key);
       if (t) { app.env.clearTimeout(t); app.busy--; }
+      // no delay (a debounced model's `change`): the pending run is dropped and this one runs now
+      if (ms <= 0) { timers.delete(key); return run(); }
       app.busy++;
       timers.set(key, app.env.setTimeout(() => { timers.delete(key); app.busy--; run(); }, ms, 'debounce'));
     };

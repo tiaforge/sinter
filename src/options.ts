@@ -18,6 +18,7 @@ import type { App, Feature } from './runtime/app.js';
 
 const ITEM = '[role="option"],[role="menuitem"],[role="menuitemcheckbox"],[role="menuitemradio"]';
 const LIST = '[role="listbox"],[role="menu"],[role="menubar"]';
+const CONTROL = 'input,textarea,select,button,a[href],[contenteditable]:not([contenteditable="false"]),[tabindex]';
 const SELECTABLE = 'option';
 let ids = 0;
 
@@ -62,8 +63,10 @@ const feature: Feature = {
     const ctl = new AbortController(), on = { signal: ctl.signal };
     app.addCleanup(() => ctl.abort());
     root.addEventListener('keydown', (e: Event) => {
-      const owner = (e.target as Element).closest?.('[data-sn-options]');
+      const t = e.target as Element, owner = t.closest?.('[data-sn-options]');
       if (!owner || (e as KeyboardEvent).isComposing) return;
+      // a control of its own inside the list (a filter field, a button) keeps its keys, unless it is an option
+      if (t != owner && !t.closest(ITEM) && t.matches(CONTROL)) return;
       const all = optionsOf(owner);
       if (!all.length) return;
       const text = isText(owner), at = markedOf(all), key = (e as KeyboardEvent).key;

@@ -669,7 +669,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     if (!dev && templatesKept.has(k)) return templatesKept.get(k)!;
     const html = readFileSync(file, 'utf8');
     // `data-sn-for` on `<html>` or on a layout's tag (a custom element: no other takes it)
-    if (!/<(?:html|[a-z][\w.]*-[\w.-]*)(?=[\s/>])[^>]*\sdata-sn-(?:for|pages)\s*=/i.test(html)) { templatesKept.set(k, null); return null; }
+    if (!/<(?:html|[a-z][\w.]*-[\w.-]*)(?=[\s/>])(?:[^>"']|"[^"]*"|'[^']*')*\sdata-sn-(?:for|pages)\s*=/i.test(html)) { templatesKept.set(k, null); return null; }
     const p = proj();
     // in a language: its entries (a `{$locale}` path reads that language's files)
     const out = compile(html, { file, root, dev, helpers: p.helpers, actions: p.actions, readFile: readVia(p), listFiles: p.listFiles, ...(dev ? {} : { globCache }), ...contentOpts(locale), lazy: p.lazy, openapi: p.openapi, apis: p.apis, prerender: true, ...(locale ? { locale: { name: locale, urls: null, base: resolved?.base ?? '/' } } : {}) });
@@ -727,7 +727,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
           const rel = (l ? `${l}/` : '') + relOfPath(e.path);
           const other = taken.get(rel) ?? taken.get(rel + '/');
           if (other) throw new Error(`sinter: ${relOf(f)}: the entry at \`${l ? `/${l}` : ''}${e.path}\` would be written where \`${other}\` is (data-sn-for on <html>)`);
-          if (resolved?.publicDir && existsSync(resolve(resolved.publicDir, rel + '.html'))) throw new Error(`sinter: ${relOf(f)}: the entry at \`${e.path}\` would be written where \`public/${rel}.html\` is (data-sn-pages)`);
+          if (resolved?.publicDir && existsSync(resolve(resolved.publicDir, rel + '.html'))) throw new Error(`sinter: ${relOf(f)}: the entry at \`${e.path}\` would be written where \`public/${rel}.html\` is (data-sn-for on <html>)`);
           taken.set(rel, `${relOf(f)} (${e.path})`);
           const v = resolve(root, rel + '.html');
           virtual.set(v, { source: f, locale: (l ?? undefined) as unknown as string, page: e });

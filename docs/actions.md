@@ -499,6 +499,7 @@ the focus itself.
 - **On another element** the compiler adds `tabindex="0"` unless it has a `tabindex`. Home and End
   mark the first and last option, Space clicks like Enter, and the mark stays after a pick.
 - It does not go on a `<select>` or a non-text `<input>`, which have keys of their own (`SN102`).
+- A control of its own inside the list (a filter field, a button) keeps its keys, unless it is an option.
 
 ## Dialogs
 

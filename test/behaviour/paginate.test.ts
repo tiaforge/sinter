@@ -162,6 +162,11 @@ describe('paginate diagnostics', () => {
     expect(diags(`paginate="{ offset: true, size: 5, params: { page: 'a b' } }"`)).toEqual(['SN401 `params.page` is a query parameter name']);
     expect(diags('paginate="offset: true"')[0]).toMatch(/^SN401 `paginate` is an object literal/);
   });
+  test('a key given twice; a server name the list never sends', () => {
+    expect(diags('paginate="{ offset: true, size: 5, size: 7 }"')).toEqual(['SN401 `size` is given twice in `paginate`']);
+    expect(diags(keyset(", params: { page: 'p' }"))).toEqual(['SN401 `params.page` is for `offset` lists; a keyset or append list moves by its cursor']);
+    expect(diags(`paginate="{ offset: true, size: 5, params: { direction: 'd' } }"`)).toEqual(['SN401 `params.direction` is for `keyset` and `append` lists; an offset list sends page numbers']);
+  });
   test('the old attributes: the object they become', () => {
     expect(diags(`paginate="keyset" page-size="5" cursor="{uid}" offset-param="o" direction-values="{prev: 'b'}"`)).toEqual([
       "SN401 `paginate` is one object literal now: `paginate=\"{ keyset: {uid}, size: 5, jump: true, params: { offset: 'o' }, directions: {prev: 'b'} }\"`",

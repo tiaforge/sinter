@@ -572,8 +572,11 @@ A component for the `<head>` holds head elements, any number of them, with no wr
 - It is declared with `data-sn-props`, as every component is; its markup makes it a head component.
 - It holds head elements only: `<title>`, `<meta>`, `<link>`, `<script>`, `<style>`, `<noscript>`,
   `<base>`, `<template data-sn-if>` or `data-sn-for` over head elements, slots and other head
-  components, at least one of them. Markup with anything else is a component for the body, which
-  has one root element (`SN312` otherwise) and is `SN320` in a head.
+  components, with at least one `<title>`, `<meta>`, `<link>`, `<base>` or head component. Markup with
+  anything else is a component for the body, which has one root element (`SN312` otherwise) and is
+  `SN320` in a head. Markup either may hold (only slots, `<script>`, `<style>`, `<noscript>`, such as a
+  JSON-LD script) takes the kind of where it is used: in a head it is a head component, in a body a
+  component for the body.
 - It is used in a head: a page's, a [layout's](layouts.md), or a head slot's content. In a body it is
   `SN320`, as is a component with one root element in a head.
 - Its tag takes `data-sn-with` and slot content, nothing else: there is no root for other attributes

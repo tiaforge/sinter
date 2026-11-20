@@ -70,38 +70,69 @@ export function findHead(doc: P5Parent): P5Element | null {
   return null;
 }
 
-/** elements that only a head holds (a body component's root is none of these) */
-const HEAD_ONLY = new Set(['title', 'meta', 'link', 'base', 'script', 'style', 'noscript']);
+/** elements that only a head holds; `<script>`, `<style>` and `<noscript>` may be in either */
+const HEAD_ONLY = new Set(['title', 'meta', 'link', 'base']);
+const EITHER = new Set(['script', 'style', 'noscript']);
 
 /**
- * Whether a component's `<template data-sn-props>` declares a head component: its markup is head
- * elements (through `data-sn-if`/`data-sn-for` templates and slots) and head components, at least one of
- * them. A body component's root is one element that is none of them; a template of slots alone is a body
- * component. `headTag` says whether a component's tag is a head component; without it (the editor, the
- * types), a component's tag is neither.
+ * What a component's `<template data-sn-props>` declares, from its markup: `head` when it holds head elements
+ * (`<title>`, `<meta>`, `<link>`, `<base>`, or head components, through `data-sn-if`/`data-sn-for` templates and
+ * slots) and nothing for a body; `body` when it holds anything a head cannot (text, another element, a body
+ * component); `either` when it holds only what both can (slots, `<script>`, `<style>`, `<noscript>`): its kind is
+ * where it is used. `headTag` says whether a component's tag is a head component (null: neither, or unknown).
  */
-export function holdsHead(template: P5Element, headTag?: (tag: string) => boolean): boolean {
-  let head = false;
-  const walk = (p: P5Parent): boolean => {
+export function componentKind(template: P5Element, headTag?: (tag: string) => boolean | null): 'head' | 'body' | 'either' {
+  let head = false, body = false;
+  const walk = (p: P5Parent) => {
     for (const c of p.childNodes) {
-      if (c.nodeName === '#text' && (c as DefaultTreeAdapterMap['textNode']).value.trim()) return false;
+      if (c.nodeName === '#text') { if ((c as DefaultTreeAdapterMap['textNode']).value.trim()) body = true; continue; }
       if (!('tagName' in c)) continue;
       const el = c as P5Element;
-      if (el.tagName === 'template') { if (!walk((el as DefaultTreeAdapterMap['template']).content)) return false; }
-      else if (el.tagName === 'slot') { if (!walk(el)) return false; }
+      if (el.tagName === 'template') walk((el as DefaultTreeAdapterMap['template']).content);
+      else if (el.tagName === 'slot') walk(el);
       else if (HEAD_ONLY.has(el.tagName)) head = true;
-      else if (el.tagName.includes('-') && !el.tagName.startsWith('sn-')) { if (!headTag) continue; if (headTag(el.tagName)) head = true; else return false; }
-      else return false;
+      else if (EITHER.has(el.tagName)) continue;
+      else if (el.tagName.includes('-') && !el.tagName.startsWith('sn-')) { const k = headTag?.(el.tagName); if (k === true) head = true; else if (k === false) body = true; }
+      else body = true;
     }
-    return true;
   };
-  return walk((template as DefaultTreeAdapterMap['template']).content) && head;
+  walk((template as DefaultTreeAdapterMap['template']).content);
+  return body ? 'body' : head ? 'head' : 'either';
 }
 
-/** a component file's text: whether it is a head component (`<template data-sn-props>` over head elements) */
-export function isHeadComponent(text: string, headTag?: (tag: string) => boolean): boolean {
+/** a component file's text: its kind (`componentKind`); a template with the old `data-sn-head` is a head component */
+export function kindOfComponent(text: string, headTag?: (tag: string) => boolean | null): 'head' | 'body' | 'either' | null {
   const frag = parse5.parseFragment(text);
   const t = frag.childNodes.find((c): c is P5Element => 'tagName' in c && (c as P5Element).tagName === 'template'
-    && (c as P5Element).attrs.some((a) => a.name === 'data-sn-props' || a.name === 'data-sn-head'));
-  return !!t && (t.attrs.some((a) => a.name === 'data-sn-head') || holdsHead(t, headTag));
+    && (c as P5Element).attrs.some((a) => a.name === 'data-sn-props' || a.name === 'data-sn-head' || a.name === 'data-sn-component'));
+  if (!t) return null;
+  if (t.attrs.some((a) => a.name === 'data-sn-head')) return 'head';
+  if (t.attrs.some((a) => a.name === 'data-sn-component')) return 'body';
+  return componentKind(t, headTag);
+}
+
+/** whether a component file is a head component wherever it is used (an `either` one is not) */
+export function isHeadComponent(text: string, headTag?: (tag: string) => boolean | null): boolean {
+  return kindOfComponent(text, headTag) === 'head';
+}
+
+/**
+ * Component kinds read from files, as the compiler decides them (`componentKind`, a tag in a component counting by
+ * its own kind): for the editor and the generated types, which read files without compiling. `read` returns a
+ * component's text by tag, or null. Cached per tag; a cycle counts as unknown.
+ */
+export function componentKinds(read: (tag: string) => string | null): (tag: string) => 'head' | 'body' | 'either' | null {
+  const known = new Map<string, 'head' | 'body' | 'either' | null>(), deciding = new Set<string>();
+  const kind = (tag: string): 'head' | 'body' | 'either' | null => {
+    if (known.has(tag)) return known.get(tag)!;
+    if (deciding.has(tag)) return null;
+    const text = read(tag);
+    if (text == null) { known.set(tag, null); return null; }
+    deciding.add(tag);
+    const k = kindOfComponent(text, (t) => { const x = kind(t); return x === 'head' ? true : x === 'body' ? false : null; });
+    deciding.delete(tag);
+    known.set(tag, k);
+    return k;
+  };
+  return kind;
 }

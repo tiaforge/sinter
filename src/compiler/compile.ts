@@ -5,7 +5,7 @@ import { rewriteImages, sourceFile, type ImageHost, type ImageResult } from './i
 import { boxSizesCss, type ReserveTrace, Layout, PLACEHOLDER_BASE, type Affine, type Reserved, type StyleSheet } from './layout.js';
 import { shows } from './status-eval.js';
 import { recordChild, replay as replayUnit, LINK_FIELDS, UNIT_NUMBERING, type Plan, type Refused } from './link.js';
-import { HEAD_ELEMENTS, isHeadComponent, parseDocument } from './head.js';
+import { HEAD_ELEMENTS, kindOfComponent, parseDocument } from './head.js';
 import { minifyMarkup } from './minify.js';
 import type { RemoteConfig } from '../remote.js';
 import { AUTO_FIT_HINT, AUTO_FIT_ROWS, FLUID_WIDTHS } from './images.js';
@@ -631,6 +631,9 @@ interface ComponentFile {
   exported?: string | null;
   /** `<template data-sn-props>`: a head component */
   head?: boolean;
+  /** its markup is only what a head and a body both hold (slots, `<script>`, `<style>`, `<noscript>`): a head
+   *  component where it is used in a head, else a body component (`asKind`) */
+  either?: boolean;
   /** its `<style>` as written, for `rootCss` */
   rawCss?: string;
   /** the names of its slots that pass data (`Slot<T>` in its props type), read once */
@@ -1773,6 +1776,7 @@ class Compiler {
     const lead = text.length - text.trimStart().length;
     const spec: PageSpec = { mode: 'keyset', size: 0, cursor: null, model: null, jump: false, params: {}, directions: null };
     let modes = 0;
+    const seen = new Set<string>();
     const strings = (v: acorn.Node, keys: readonly string[], what: string): Record<string, string> | null => {
       const o = v as acorn.Expression;
       if (o.type !== 'ObjectExpression') return fail(`\`${what}\` is an object literal of strings`, o.start);
@@ -1790,6 +1794,8 @@ class Compiler {
     for (const p of ast.properties) {
       if (p.type !== 'Property' || p.computed || p.kind !== 'init' || p.method || p.shorthand) return fail(`\`paginate\` takes \`key: value\` entries: ${EXAMPLE}`, p.start);
       const key = p.key.type === 'Identifier' ? p.key.name : p.key.type === 'Literal' ? String(p.key.value) : '';
+      if (seen.has(key)) return fail(`\`${key}\` is given twice in \`paginate\``, p.key.start);
+      seen.add(key);
       const v = p.value as acorn.Expression;
       if (key === 'keyset' || key === 'append') {
         modes++;
@@ -1827,6 +1833,9 @@ class Compiler {
     if (spec.model && spec.mode !== 'offset') return fail(`\`model\` is for \`offset\` lists, where every move has a page number when it is made; ${spec.mode === 'append' ? 'append lists load more by cursor' : 'keyset lists move by cursor, and their page number is often unknown'}`, spec.model.at);
     if (spec.jump && spec.mode !== 'keyset') return fail(`\`jump\` is for \`keyset\` lists; ${spec.mode === 'offset' ? 'an offset list jumps already' : 'append lists only load more'}`, lead);
     if (spec.directions && spec.mode === 'offset') return fail('`directions` is for `keyset` and `append` lists; an offset list sends page numbers', lead);
+    // names this list never sends (an API's `params` may name them for its other lists)
+    if (spec.params.page && spec.mode !== 'offset') return fail('`params.page` is for `offset` lists; a keyset or append list moves by its cursor', lead);
+    if (spec.params.direction && spec.mode === 'offset') return fail('`params.direction` is for `keyset` and `append` lists; an offset list sends page numbers', lead);
     return spec;
   }
 
@@ -1918,6 +1927,14 @@ class Compiler {
     if (loc?.['data-sn-props']) loc[as] = loc['data-sn-props'];
   }
 
+  /** `either` components as a head or a body component, one copy of each per file (its fields are the file's) */
+  private readonly kinds = new WeakMap<ComponentFile, { head?: ComponentFile; body?: ComponentFile }>();
+  asKind(def: ComponentFile, head: boolean): ComponentFile {
+    let k = this.kinds.get(def);
+    if (!k) this.kinds.set(def, (k = {}));
+    return (head ? k.head : k.body) ?? (k[head ? 'head' : 'body'] = Object.assign(Object.create(def) as ComponentFile, { head, either: false }));
+  }
+
   /** The component file for a tag (null: a plain custom element, or not a valid component name). */
   componentFile(tag: string): ComponentFile | null {
     if (!COMPONENT_NAME.test(tag) || tag.startsWith('sn-')) return null;
@@ -1934,8 +1951,10 @@ class Compiler {
     // its kind from its markup; a component's tag in it counts by its own kind (a cycle is a body component)
     if (c) {
       this.kinding.add(tag);
-      if (isHeadComponent(c.text, (t) => !this.kinding.has(t) && !!this.componentFile(t)?.head)) c.head = true;
+      const kind = kindOfComponent(c.text, (t) => { if (this.kinding.has(t)) return null; const f = this.componentFile(t); return !f || f.either ? null : !!f.head; });
       this.kinding.delete(tag);
+      if (kind === 'head') c.head = true;
+      else if (kind === 'either') c.either = true;
     }
     if (c) {
       // a script beside it: the component runs it per instance
@@ -2206,8 +2225,8 @@ class Compiler {
       const en = su ? this.enclosing.get(su.host) ?? null : placedBy?.length ? placedBy[placedBy.length - 1]!.use : encl;
       // (where a recursion point or a choice is: a second pass expands one the first found constant, as a use here)
       if (child.tagName === 'sn-component') { this.pointCtx.set(child, { ch, en }); this.choice(child, en); continue; }
-      const def = this.componentFile(child.tagName);
-      if (!def && COMPONENT_NAME.test(child.tagName) && this.libOfTag(child.tagName)) {
+      const def0 = this.componentFile(child.tagName);
+      if (!def0 && COMPONENT_NAME.test(child.tagName) && this.libOfTag(child.tagName)) {
         const lib = this.libOfTag(child.tagName)!;
         const pool = this.libOfFile(this.origins.get(child)?.file) === lib ? [...lib.public, ...lib.internal] : lib.public;
         this.report(child, null, 'SN339', `\`<${child.tagName}>\` is not a component of \`${lib.name}\`, which owns the prefix \`${lib.prefix}-\``, 0,
@@ -2215,18 +2234,20 @@ class Compiler {
         detach(child);
         continue;
       }
-      if (def && this.internalUse(child, def)) { detach(child); continue; }
-      if (!def && this.layoutFile(child.tagName)) {
+      if (def0 && this.internalUse(child, def0)) { detach(child); continue; }
+      if (!def0 && this.layoutFile(child.tagName)) {
         this.report(child, null, 'SN319', `\`<${child.tagName}>\` is a layout: it is the only tag of a page, at its top level`, 0, 'a layout cannot be inside a component, another layout or other markup');
         detach(child);
         continue;
       }
-      if (def && this.layoutFile(child.tagName)) {
+      if (def0 && this.layoutFile(child.tagName)) {
         this.report(child, null, 'SN318', `\`<${child.tagName}>\` is both a layout (\`src/layouts/${child.tagName}.html\`) and a component (\`src/components/${child.tagName}.html\`); rename one`, 0);
         detach(child);
         continue;
       }
-      if (def) {
+      if (def0) {
+        // a component whose markup either may hold takes the kind of where it is used
+        const def = def0.either ? this.asKind(def0, inHead) : def0;
         const name = child.tagName;
         // a head component goes in a head, a component in a body
         if (!!def.head !== inHead) {
@@ -2706,7 +2727,7 @@ class Compiler {
         def.bad = true; detach(host); return null;
       }
       if (!isElement(c)) continue;
-      const ok = HEAD_ELEMENTS.has(c.tagName) || c.tagName === 'slot' || this.componentFile(c.tagName)?.head;
+      const ok = HEAD_ELEMENTS.has(c.tagName) || c.tagName === 'slot' || this.componentFile(c.tagName)?.head || this.componentFile(c.tagName)?.either;
       if (!ok) {
         this.report(c, null, 'SN320', `a head component holds head elements: \`<${c.tagName}>\` cannot be in \`<${name}>\``, 0,
           'head elements are `<title>`, `<meta>`, `<link>`, `<script>`, `<style>`, `<noscript>`, `<base>`, `<template>` and head components; a component for the body is a `<template data-sn-props>` with one root');
@@ -4379,9 +4400,11 @@ class Compiler {
       this.report(el, a.name, 'SN101', `\`${a.name}\` is not a sinter attribute.${didYouMean(a.name, [...known, 'data-sn-on-click'])}`, 0);
     }
 
-    if (has('layout') && !use?.layout) this.report(el, 'data-sn-layout', 'SN318', '`data-sn-props` belongs on the `<html>` of a layout file (`src/layouts/<name>.html`), or on the `<template>` of a component file', 0);
+    if (has('layout') && !use?.layout) this.report(el, 'data-sn-layout', 'SN101', `\`data-sn-layout\` ${RETIRED['data-sn-layout']}`, 0);
     if (has('props') && el.tagName === 'html') this.report(el, 'data-sn-props', 'SN318', '`data-sn-props` on `<html>` belongs to a layout file (`src/layouts/<name>.html`); a page takes no props', 0);
     for (const n of ['props', 'component', 'head', 'emits']) {
+      // the old names, written outside a component file: renamed, whatever the place
+      if ((n === 'component' || n === 'head') && has(n)) { this.report(el, `data-sn-${n}`, 'SN101', `\`data-sn-${n}\` ${RETIRED[`data-sn-${n}`]}`, 0); continue; }
       if (has(n) && !(n === 'props' && el.tagName === 'html')) this.report(el, `data-sn-${n}`, 'SN102', `\`data-sn-${n === 'emits' ? n : 'props'}\` belongs on the \`<template>\` of a component file (\`src/components/<name>.html\`)${n === 'props' ? ', or on the `<html>` of a layout file' : ''}`, 0);
     }
     if (has('early') && !this.useOf.get(el)) this.report(el, 'data-sn-early', 'SN102', '`data-sn-early` goes on a component\'s tag, `<tag-cloud data-sn-early="off">`', 0);
@@ -4669,7 +4692,7 @@ class Compiler {
     }
     if (has('model') && use) this.componentModel(use, node, scope);
     // with `data-sn-debounce` and no action, the model writes once the field pauses (below)
-    else if (has('model')) this.model(el, node, scope, get('persist'), has('debounce') && !METHODS.some((m) => has(m)) && !has('call'));
+    else if (has('model')) this.model(el, node, scope, get('persist'), Number(get('debounce')) > 0 && !METHODS.some((m) => has(m)) && !has('call'));
     else if (has('persist') && !has('state')) this.report(el, 'data-sn-persist', 'SN102', '`data-sn-persist` needs `data-sn-model` or `data-sn-state` on the same element', 0);
 
     const methods = METHODS.filter((m) => has(m));
@@ -4682,6 +4705,8 @@ class Compiler {
       const ms = Number(get('debounce'));
       if (!Number.isFinite(ms) || ms < 0 || get('debounce')!.trim() === '') this.report(el, 'data-sn-debounce', 'SN401', '`data-sn-debounce` takes milliseconds', 0);
       else if (ms > 0) { modelB.ms = ms; this.features.add('debounce'); }
+    } else if (!methods.length && !isCall && has('debounce') && has('model') && use) {
+      this.report(el, 'data-sn-debounce', 'SN102', '`data-sn-debounce` delays the model of a form field; a component\'s value changes when it emits `change`, so a component that should wait does it inside', 0);
     } else if (!methods.length && !isCall && has('debounce')) {
       const events = [...new Set(sn.filter((a) => a.name.startsWith('data-sn-on-')).map((a) => a.name.slice('data-sn-on-'.length)))];
       const ms = get('debounce')!.trim();
@@ -6082,7 +6107,7 @@ class Compiler {
       const src = attr(el, 'src')?.trim() ?? '';
       const via = this.opts.apis && src && !isFileSource(src) && !isContentSource(src) ? apiOf(this.opts.apis, src) : null;
       const wire = via && 'api' in via ? via.api.paginate : undefined;
-      const params = { ...wire?.params, ...spec.params }, directions = spec.directions ?? wire?.directions;
+      const params = { ...wire?.params, ...spec.params }, directions = spec.directions || wire?.directions ? { ...wire?.directions, ...spec.directions } : null;
       let cursor: number | null = null;
       if (spec.cursor) {
         const r = this.expr(el, 'paginate', ctx.scope, { mode: 'value', payload: true }, spec.cursor.text, spec.cursor.at);

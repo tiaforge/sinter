@@ -47,6 +47,8 @@ const cases: Array<[string, string, RegExp, Opts?]> = [
   ['SN101', '<button data-sn-post="/api/x" data-sn-apply="off"></button>', /`data-sn-apply` is renamed to `data-sn-write-through`/],
   ['SN101', '<x-card data-sn-prop="{ a: 1 }"></x-card>', /`data-sn-prop` is renamed to `data-sn-with`/],
   ['SN401', '<sn-resource name="p" src="/api/p" key="id"></sn-resource><p data-sn-text="p.length"></p><sn-sync src="/s"><sn-event name="e" resource="p" op="upsert" item="person"></sn-event></sn-sync>', /`item` is `value` now, the value the change writes/],
+  ['SN201', '<dialog id="d"></dialog><sn-sync src="/s"><sn-event name="x" then="close(\'d\')"></sn-event></sn-sync>', /`close\(\)` is renamed to `closeDialog\(\)`/],
+  ['SN101', '<p data-sn-component="{}"></p>', /`data-sn-component` is renamed to `data-sn-props`/],
   ['SN101', '<button data-sn-get="/api/x"></button>', /`data-sn-get` is gone: data a GET loads is a resource/],
   ['SN201', '<dialog id="d"></dialog><button data-sn-on-click="showModal(\'d\')"></button>', /`showModal\(\)` is renamed to `openDialog\(\)`/],
   ['SN201', '<dialog><button data-sn-on-click="close()"></button></dialog>', /`close\(\)` is renamed to `closeDialog\(\)`/],

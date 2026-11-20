@@ -181,6 +181,14 @@ test('data-sn-options on a menu: it takes the focus, arrows, Home and End mark, 
   expect(menu.hasAttribute('aria-activedescendant')).toBe(false);
 });
 
+test('data-sn-options: a control of its own inside the list keeps its keys', async () => {
+  const { root } = await render(`<ul role="listbox" data-sn-options><li><input class="filter"></li><li role="option">a</li><li role="option">b</li></ul>`);
+  const field = root.querySelector<HTMLInputElement>('.filter')!;
+  const key = (k: string) => { const e = new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true }); field.dispatchEvent(e); return e.defaultPrevented; };
+  expect([key(' '), key('Home'), key('ArrowDown'), key('Enter')]).toEqual([false, false, false, false]);
+  expect(root.querySelector('ul')!.hasAttribute('aria-activedescendant')).toBe(false);
+});
+
 test('data-sn-options across: ArrowRight and ArrowLeft with aria-orientation="horizontal"; a tabindex of its own stays', async () => {
   const { root } = await render(`
     <div role="toolbar" aria-orientation="horizontal" tabindex="-1" data-sn-options><div role="menuitem">a</div><div role="menuitem">b</div></div>`);

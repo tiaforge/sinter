@@ -43,7 +43,14 @@ async function run(root: string, input: string[], o: Parameters<typeof sinter>[0
   return { error, read, has: (f: string) => existsSync(join(root, 'dist', f)) };
 }
 
-describe('data-sn-pages in a build', () => {
+describe('data-sn-for on <html> in a build', () => {
+  test('an attribute before data-sn-for that holds a `>` (an arrow, a comparison): still a page per entry', async () => {
+    const root = app({ ...blog, 'blog/post.html': blog['blog/post.html'].replace('<site-layout data-sn-path', '<site-layout data-sn-with="{ title: [1].some((n) => n > 0) ? post.title : \'\' }" data-sn-path').replace(' data-sn-with="{ title: post.title }"', '') });
+    const r = await run(root, ['index.html', 'blog/post.html']);
+    expect(r.error).toBe(null);
+    expect(r.read('blog/hello.html')).toContain('<title>Hello</title>');
+    expect(r.read('blog/recap.html')).toContain('<h1>Recap</h1>');
+  });
   test('a file per entry at its path, its entry folded in, the template not written, no JavaScript', async () => {
     const root = app(blog);
     const r = await run(root, ['index.html', 'blog/post.html']);

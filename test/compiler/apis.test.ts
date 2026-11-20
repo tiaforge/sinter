@@ -29,6 +29,8 @@ describe('paginate: the server\'s names, once per API', () => {
     // a keyset list does not send the offset unless it jumps
     expect(keyset).not.toContain('"offsetParam"');
     expect(page(list('keyset: { after: id }, size: 5, jump: true'), main(wire)).module).toContain('"offsetParam":"skip"');
+    // a list's own directions win key by key, as its params do
+    expect(page(list("keyset: { after: id }, size: 5, directions: { first: 'start' }"), main(wire)).module).toContain('"directionValues":{"prev":"back","first":"start"}');
     const over = page(list("offset: true, size: 5, params: { size: 'n' }"), main(wire)).module;
     expect(over).toMatch(/"sizeParam":"n".*"pageParam":"p"/);
   });

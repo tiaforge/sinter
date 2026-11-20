@@ -72,3 +72,30 @@ test('the compiler: milliseconds; on an element with an action it delays the act
   expect(m.diagnostics).toEqual([]);
   expect(m.module).not.toMatch(/"k":"model"[^}]*"ms":300/);
 });
+
+test('Enter in a form: the change writes at once, so the submit sends what was typed', async () => {
+  const requests = mockRequests({ 'POST /api/s': {} });
+  const r = await render(`<div data-sn-state="{ q: '' }"><form data-sn-post="/api/s" data-sn-body="{ q }"><input data-sn-model="q" data-sn-debounce="300"></form></div>`, { requests });
+  const el = r.root.querySelector('input')!;
+  input(el, 'ab');
+  el.dispatchEvent(new Event('change', { bubbles: true }));
+  r.root.querySelector('form')!.requestSubmit();
+  await r.settle();
+  expect(requests.calls.map((c) => c.body)).toEqual([{ q: 'ab' }]);
+});
+
+test('data-sn-debounce="0" is no debounce: a model on $url types as without it', async () => {
+  const { root, flush, advance, history } = await render(`<input data-sn-model="$url.q" data-sn-debounce="0">`, { url: 'http://localhost/' });
+  const el = root.querySelector('input')!;
+  for (const v of ['a', 'ab', 'abc']) { input(el, v); await flush(); }
+  await advance(1000); await flush();
+  expect(history()).toEqual(['http://localhost/', 'http://localhost/?q=abc']);
+});
+
+test('on a component\'s tag it says the component waits inside', () => {
+  const files: Record<string, string> = { '/p/src/components/my-field.html': '<template data-sn-props="{ value: string }" data-sn-emits="{ change: string }"><input data-sn-attr="{ value }"></template>' };
+  const d = compile('<div data-sn-state="{ q: \'\' }"><my-field data-sn-model="q" data-sn-debounce="200"></my-field></div>', {
+    file: '/p/x.html', root: '/p', dev: false, readFile: (f) => { if (f in files) return files[f]!; throw new Error('missing'); }, helpers: { module: null, names: [], namespaces: {} },
+  }).diagnostics.map((x) => x.message);
+  expect(d).toEqual(['`data-sn-debounce` delays the model of a form field; a component\'s value changes when it emits `change`, so a component that should wait does it inside']);
+});

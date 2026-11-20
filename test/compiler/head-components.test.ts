@@ -20,6 +20,22 @@ const page = (head: string, body = '<p data-sn-text="post.title"></p>') =>
   `<!doctype html><html><head><meta charset="utf-8">${head}<link rel="stylesheet" href="/a.css"></head><body><sn-resource name="post" src="/api/post"></sn-resource>${body}</body></html>`;
 const codes = (html: string, c?: Record<string, string>) => run(html, c).diagnostics.filter((d) => d.severity === 'error').map((d) => `${d.code} ${d.message}`);
 
+describe('a component\'s kind', () => {
+  test('markup both may hold (a JSON-LD script, a slot) takes the kind of where it is used', () => {
+    const ld = { 'x-ld': '<template data-sn-props=""><script type="application/ld+json">{}</script></template>' };
+    expect(codes(page('', '<x-ld></x-ld>'), ld)).toEqual([]);
+    expect(codes(page('<x-ld></x-ld>'), ld)).toEqual([]);
+    const slot = { 'x-slot': '<template data-sn-props=""><slot></slot></template>' };
+    expect(codes(page('<x-slot><meta name="a" content="b"></x-slot>'), slot)).toEqual([]);
+  });
+  test('the editor and the types read a head component made of head components as one', async () => {
+    const { componentKinds } = await import('../../src/compiler/head.js');
+    const files: Record<string, string> = { 'x-outer': '<template data-sn-props=""><og-tags></og-tags></template>', 'og-tags': OG, 'x-body': '<template data-sn-props=""><div><og-tags></og-tags></div></template>' };
+    const kind = componentKinds((t) => files[t] ?? null);
+    expect([kind('x-outer'), kind('og-tags'), kind('x-body'), kind('none')]).toEqual(['head', 'head', 'body', null]);
+  });
+});
+
 describe('head components', () => {
   test('their elements take the tag\'s place in the head, with slots, nested head components and the caller\'s props', () => {
     const out = run(page('<seo-tags data-sn-with="{ title: post?.title, image: false }"><meta slot="extra" name="robots" content="noindex"></seo-tags>'));

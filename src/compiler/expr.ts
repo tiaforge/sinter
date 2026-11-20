@@ -501,11 +501,18 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
       if (r) { r.used = true; return { kind: 'resource' }; }
     }
     // an <sn-event> `then` calls store functions; its value expressions do not
-    if (STORE_FNS.includes(name) && page.helpers.has(name)) {
+    // store functions are callable where they are in scope: handlers, not an <sn-event>'s value expressions
+    const storeHere = !opts.payload || mode === 'handler';
+    if (STORE_FNS.includes(name) && page.helpers.has(name) && storeHere) {
       report('SN201', `\`${name}\` is both a store function and a helper; rename the helper, which expressions cannot reach`, offset);
       return null;
     }
-    if (STORE_FNS.includes(name) && (!opts.payload || mode === 'handler')) return { kind: 'store' };
+    if (STORE_FNS.includes(name) && storeHere) return { kind: 'store' };
+    // an old store function called where store functions are (an <sn-event> `then` too, where other unknown names are payload fields)
+    if (Object.hasOwn(RETIRED_FNS, name) && storeHere && /^\s*\(/.test(src.slice(offset + name.length))) {
+      report('SN201', RETIRED_FNS[name]!, offset);
+      return null;
+    }
     if (page.namespaces.has(name)) return { kind: 'ns' };
     if (page.helpers.has(name) || BUILTIN_HELPERS.includes(name)) return { kind: 'helper' };
     if (GLOBALS.has(name)) return { kind: 'global' };

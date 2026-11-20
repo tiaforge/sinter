@@ -10,7 +10,7 @@ import { lazyHelpers } from '../lazy-build.js';
 import { loadHelpers, unloadedMessage, type NodeHelpers } from '../helpers-node.js';
 import { FoldCache } from '../fold-check.js';
 import { writeComponentTypes } from '../components-build.js';
-import { isHeadComponent } from '../compiler/head.js';
+import { componentKinds } from '../compiler/head.js';
 import { checkLocale } from '../locales-build.js';
 import { readSnapshot } from '../content-node.js';
 
@@ -255,7 +255,8 @@ export class Workspace {
       // a component or layout no page uses: compiled through a use of its own, which reports what is wrong inside it
       const component = componentName(state.root, page) ?? componentName(state.root, page, 'layouts');
       if (component) {
-        html = isHeadComponent(html) ? `<!doctype html><html><head><${component}></${component}></head><body></body></html>` : `<${component}></${component}>`;
+        const kinds = componentKinds((t) => { try { return t === component ? html : readFileSync(join(state.root, 'src/components', `${t}.html`), 'utf8'); } catch { return null; } });
+        html = kinds(component) === 'head' ? `<!doctype html><html><head><${component}></${component}></head><body></body></html>` : `<${component}></${component}>`;
       }
       try {
         const out = compile(html, {
