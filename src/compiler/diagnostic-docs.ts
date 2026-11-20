@@ -129,7 +129,7 @@ export const DIAGNOSTIC_DOCS: Record<Code, DiagnosticDoc> = {
   },
   SN307: {
     example: 'OpenAPI spec `api.yml` is not an OpenAPI 3 document (needs `openapi: 3.x` and `paths`)',
-    means: 'A spec given to `sinter({ openapi })` is missing, unreadable, or not OpenAPI 3.',
+    means: 'An API's spec (`sinter({ apis: { main: { openapi } } })`) is missing, unreadable, or not OpenAPI 3.',
     fix: 'Fix the path in the Vite config, or convert a Swagger 2 spec to OpenAPI 3.',
   },
   SN308: {

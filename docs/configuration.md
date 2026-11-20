@@ -16,7 +16,7 @@ import { defineConfig } from 'vite';
 import sinter from '@tiaforge-ui/sinter/vite';
 
 export default defineConfig({
-  plugins: sinter({ openapi: 'openapi.yml', typecheck: true }),
+  plugins: sinter({ apis: { main: { openapi: 'openapi.yml' } }, typecheck: true }),
 });
 ```
 

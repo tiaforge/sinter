@@ -1,6 +1,6 @@
 # Proposal: a smaller, plainer vocabulary
 
-Status: implemented 2026-11-19, except step 9 (below, held for a decision). Each step landed as its own
+Status: implemented 2026-11-20. Step 9 was held, and decided against (below). Each step landed as its own
 commit, with a diagnostic that names the replacement, so a page written for 0.20 fails the build with the
 fix in the message rather than changing behaviour silently. Attribute names, function names and
 diagnostic codes are public API; before 1.0 renames are allowed and listed in the changelog.
@@ -105,23 +105,23 @@ pages, and how the server spells its parameters. The second is the same for ever
   paginate="{ keyset: { before: id }, size: 20 }"></sn-resource>
 <sn-resource name="feed" src="/api/feed" key="id" paginate="{ append: { before: id }, size: 20 }"></sn-resource>
 <sn-resource name="articles" src="/api/articles?tag={$url.tag}" items="articles" total="count"
-  paginate="{ offset: true, size: 10, model: $url.page }"></sn-resource>
+  paginate="{ numbered: true, size: 10, model: $url.page }"></sn-resource>
 ```
 
 | Key | Meaning | Was |
 | --- | --- | --- |
 | `keyset`, `append`: an object literal | the mode, and the cursor read on the boundary item | `paginate`, `cursor` |
-| `offset: true` | offset mode | `paginate="offset"` |
+| `numbered: true`, `numbered: 'offset'` | numbered mode: sends the page number, or with `'offset'` the items to skip | `paginate="offset"`, `offset-param` on it |
 | `size` | items per page | `page-size` |
-| `model` | offset: the URL parameter that holds the page, `$url.page` | `page-model` |
+| `model` | numbered: the URL parameter that holds the page, `$url.page` | `page-model` |
 | `jump: true` | keyset: page numbers, by sending an offset | `offset-param` on a keyset list |
 | `params` | the server's names: `{ size: 'limit', page: 'page', offset: 'offset', direction: 'dir' }` | `size-param`, `page-param`, `offset-param`, `direction-param` |
 | `directions` | the server's direction values, `{ first: 'forward', prev: 'backward' }` | `direction-values` |
 
 - `params` and `directions` are given once per API: `sinter({ apis: { main: { …, paginate: { params,
   directions } } } })`, and on a resource only where it differs. Without `apis`, they go in the
-  attribute. `params.offset` means "this server skips by offset": offset mode sends it instead of a
-  page number, and keyset's `jump` needs it.
+  attribute. `params` only names parameters: whether the items to skip are sent is
+  `numbered: 'offset'` or `jump: true`, on the list (step 17).
 - `offset-param` no longer has two jobs: on a keyset list, jumping to a page is `jump: true`.
 - The old attributes are `SN401`; `paginate="keyset"` with them names the object they become.
 - RealWorld moved `params: { size: 'limit', offset: 'offset' }` from its three lists into its API's config;
@@ -163,7 +163,7 @@ without one, beside `data-sn-debounce-<event>` for one handler. Now `data-sn-deb
 action's trigger only, and a handler is delayed by `data-sn-debounce-<event>` (`-input`, `-keydown-j`).
 `data-sn-debounce` without a method is `SN102` naming the `-<event>` attributes to write instead.
 
-### 9. `<sn-event>` writes with the store functions (held)
+### 9. `<sn-event>` writes with the store functions (not done)
 
 **Not done.** The `op` form is more than a way to write: the compiler and runtime read `resource` from it
 to know which resources a stream feeds, for `$meta.<name>.live`, the refresh of every fed resource after a
@@ -224,7 +224,7 @@ own recipes thirty times), and `show()` is the DOM's non-modal open. So the pair
 
 ### 14. `data-sn-debounce` on a model, and `data-sn-retry` on a call
 
-Added after the review: a field with `data-sn-model` and no action takes `data-sn-debounce`, which delays
+Added after the review: a field with `data-sn-model` takes `data-sn-model-debounce` (first `data-sn-debounce`, step 17), which delays
 the model's write in place of the typing pause (a resource over it loads right after, a model on `$url`
 writes one history entry); and `data-sn-retry` on `data-sn-call` applies to each request the function
 sends, so the attribute works on every action.
@@ -248,14 +248,18 @@ A second reader's review found bugs in the steps above (fixed, each with a test)
 - `data-sn-model-debounce` delays a model's write, and `data-sn-debounce` stays the action's: one attribute
   meant two things again, and adding an action to a debounced field moved its delay without a word.
 - `paginate`'s numbered mode is `numbered: true`: `offset` was the mode and the server's skip parameter.
-- `<sn-event fallback>` is a flag; `"refresh"` was its one value.
+- `<sn-event fallback>` is gone: a payload that sometimes lacks the item is two `<sn-event>`s of the same
+  name, each with its `when` (recipe: partial events). `numbered: 'offset'` (was `params.offset`, which
+  switched the request as well as naming it).
 - `sinter({ libraries })` (was `components`): it lists component libraries.
-- `prefetch: { data, pages }` (was `prefetch` and `speculation`), with `prefetch: false` turning off both as
+- `prefetch: { data, html }` (was `prefetch` and `speculation`), with `prefetch: false` turning off both as
   `<html data-sn-prefetch="off">` does for a page; `firstPaint: { budget }` (was `earlyBudget`).
 - The feature module `./write-through` (was `./apply`).
 - Renamed attributes report under `SN101`, functions under `SN201`, values under `SN401`.
 - Diagnostic names that read alike where the rules are alike: `missing-row-key`/`missing-resource-key`,
-  `undeclared-query`/`undeclared-query-in-spec`.
+  `undeclared-query`/`undeclared-query-in-spec`; `SN523` is `first-paint-budget`. Pure renames say
+  "`X` is renamed to `Y`", and the editor's quick fix writes each.
+- Click to load: a recipe for what `data-sn-get` did on a click (state and `when`).
 
 Left for 1.0, as already deprecated: the top-level `sinter({ openapi })` (an API's `openapi`), and
 `configure({ origins })` (`sinter({ origins })`). Kept: `data-sn-with` on `<sn-component>`, where a bare
@@ -274,5 +278,5 @@ Left for 1.0, as already deprecated: the top-level `sinter({ openapi })` (an API
 
 ## Plan
 
-One commit each, in this order: 1, 4a, 2, 3, 4, 10, 5, 8, 11, 7, 12, 6. Step 9 is held (above). Each updates the vocabulary, the
+One commit each, in this order: 1, 4a, 2, 3, 4, 10, 5, 8, 11, 7, 12, 6. Step 9 was held, then dropped: `op` and `value` stay. Each updates the vocabulary, the
 compiler and runtime, tests, recipes, examples, docs (`npm run docs`) and the changelog.
