@@ -49,12 +49,12 @@ that download, open elsewhere (`target`) or are `rel="nofollow"` are left out.
 ```js
 sinter({ prefetch: { html: true } })          // default: the next page's HTML
 sinter({ prefetch: { html: { prerender: 'auto' } } })   // the build decides per page (below)
-sinter({ prefetch: { html: 'prerender' } })   // the whole page, data included, before the click
+sinter({ prefetch: { html: { prerender: true } } })   // the whole page, data included, before the click
 sinter({ prefetch: { html: false } })         // none
 sinter({ prefetch: { html: { delivery: 'header' } } })   // by a response header; see the CSP section
 ```
 
-`'prerender'` runs the next page before anyone sees it: its requests go out and its custom elements start.
+Prerendering runs the next page before anyone sees it: its requests go out and its custom elements start.
 Streams (`<sn-sync>`) wait until the page is shown, and then every resource is reloaded, since it
 may have loaded minutes earlier. Use it for apps whose pages do nothing on load but read, or let the
 build pick those pages.

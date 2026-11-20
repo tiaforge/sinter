@@ -92,8 +92,8 @@ with these store functions, usable in any handler:
 
 | Function | Effect |
 | --- | --- |
-| `refresh(a, b)` | Reload the named resources. |
-| `upsert(name, item)` | Insert or replace by key. |
+| `refresh(people)`, `refresh(a, b)` | Reload these resources. |
+| `upsert(people, item)` | Insert or replace by key. |
 | `merge(item, {…})` | Merge fields into an item. |
 | `remove(item)` | Remove an item. |
 
@@ -118,7 +118,7 @@ revalidation keeps the cached data and sets `error`. See `docs/recipes/cached-li
   and the `items` and `total` paths, so two pages loading the same data share an entry.
 - Only the first load reads the cache; a `src` that changes later does not.
 - An entry over 256 KB is not written.
-- Every entry is removed on any 401 response and by `clearPersisted()`, which apps call on logout.
+- Every entry is removed on any 401 response and by `clearStored()`, which apps call on sign-in and sign-out.
 
 ### Back and Forward
 
@@ -133,7 +133,7 @@ keeps the data. The scroll position the browser restores then lands on the same 
   `append` list loads again.
 - A resource without `cache` writes its entry once, as the page is left (`pagehide`, or the swap), so
   it costs nothing while the page is shown; it is read only on Back and Forward. The entries are the
-  same as `cache`'s: the 256 KB limit, the 401 and `clearPersisted()` apply, and a full
+  same as `cache`'s: the 256 KB limit, the 401 and `clearStored()` apply, and a full
   `sessionStorage` drops the older half of them.
 - An ordinary load of the page (a link, a reload, a typed URL) shows them only with `cache`.
 - On Back and Forward browsers prefer their HTTP cache for the page's requests: an API should send
@@ -248,7 +248,7 @@ the results into one collection:
   and a single file must exist; an interpolation (`{…}`, other than a glob's `{a,b}`) is an error (`SN332`).
   With `sinter({ apis })` it is read the same way, and `file` cannot be an API's name (`SN329`).
 - It is a constant: nothing loads, refreshes or changes it. `$meta.<name>.loading` is `false` and the
-  other status fields are `null`. It takes only `name`, `src`, `type`, `items`, `key`, `order` and `drafts`;
+  other status fields are `null`. It takes only `name`, `src`, `type`, `items`, `key`, `order`, `drafts` and `fields`;
   anything that would load or change it is `SN332`: `refresh`, `cache`, `paginate`, `for`, `call`, `when`,
   `then`, `early`, store functions that name it or change one of its items, write-through, and
   `<sn-event>`s. `items` picks a list out of one JSON file.

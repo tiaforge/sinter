@@ -15,7 +15,6 @@ export interface Diagnostic {
 export const CODES = {
   SN101: 'unknown-attribute',
   SN102: 'wrong-element',
-  SN103: 'missing-row-key',
   SN104: 'unsupported-model',
   SN105: 'reserved-comment',
   SN106: 'anchor-in-raw-text',

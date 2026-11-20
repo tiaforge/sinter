@@ -22,16 +22,6 @@ The attribute or element is valid, but not here: lists and conditionals render f
 
 **Fix:** Move it to where the message says, wrapping the content in a `<template>` if needed.
 
-## SN103 missing-row-key
-
-Error, for example:
-
-> a `data-sn-for` over primitive values needs `data-sn-key`
-
-sinter keys list rows by the resource key or by object identity. Strings and numbers have neither, so rows could not be matched on update.
-
-**Fix:** Add `data-sn-key` with an expression that is unique per row, such as the value itself: `data-sn-key="tag"`.
-
 ## SN104 unsupported-model
 
 Error, for example:
@@ -198,9 +188,9 @@ Error, for example:
 
 > resource `mesages` is not declared on this page
 
-A store call, `$meta` or embedded data (`data-sn-resource`) names a resource that no `<sn-resource>` on the page or its partials declares. A name chosen by an expression (`page(searching ? 'results' : 'messages', 'next')`, or a `data-sn-let` name that is one) is checked for each name it can take. Also reported: a store call whose name argument cannot be listed from the source (a state variable, a helper's result, `$event.detail`).
+A store call, `$meta` or embedded data (`data-sn-resource`) names a resource that no `<sn-resource>` on the page or its partials declares. Store functions and `$meta[…]` take the resource itself, not its name. A resource chosen by an expression (`page(searching ? results : messages, 'next')`, `||` or `??` between resources, or a `data-sn-let` name that is one) is checked for each resource it can take. Also reported: a name as a string (`refresh('people')`, `$meta[s ? 'a' : 'b']`), and a store call whose resource argument cannot be listed from the source (a state variable, a helper's result, `$event.detail`, `a && b`).
 
-**Fix:** Fix the name or add the `<sn-resource>` element. For a name that cannot be listed, write the choice as literals: `?:`, `||` or `??` between string literals, or a `data-sn-let` name whose value is one; a name kept in state becomes `tab === 'inbox' ? 'inbox' : 'sent'`.
+**Fix:** Fix the name or add the `<sn-resource>` element. Write the resource, not a string: `refresh(people)`. For a choice that cannot be listed, write it between resources: `?:`, `||` or `??`, or a `data-sn-let` name whose value is one (`data-sn-let="{ shown: searching ? results : messages }"`, then `page(shown, 'next')`); a choice kept in state becomes `tab === 'inbox' ? inbox : sent`.
 
 ## SN303 unknown-meta-field
 
@@ -208,7 +198,7 @@ Error, for example:
 
 > `$meta.contacts.loadng` is not a status field. Did you mean `loading`?
 
-`$meta.<resource>` has a fixed set of fields: `loading`, `error`, `loadedAt`, `total`, `live`, and with `paginate` also `pages`, `from`, `to`, `hasPrev`, `hasNext`; `page` on a numbered list (`numbered: true`), or a keyset list with `jump: true`.
+`$meta.<resource>` has a fixed set of fields: `loading`, `error`, `loadedAt`, `total`, `live`, and with `paginate` also `pages`, `from`, `to`, `hasPrev`, `hasNext`; `page` on a numbered list (`numbered: true`), or a keyset list with `jump: true`. There is no `pending`: an element shows its own request with `aria-busy`.
 
 **Fix:** Use the suggested field. A pagination field needs `paginate` on the resource.
 
@@ -218,7 +208,7 @@ Error, for example:
 
 > keyset pagination cannot jump to a page number. Add `jump: true` to `paginate` if the server also accepts an offset, or use `numbered: true`
 
-Keyset (cursor) pagination only knows the next and previous page, so `page(name, 7)` has nothing to jump to, unless the server can also skip items by offset. A computed target (`page(name, dir)`) is not this error: `sinter check` types it as a direction, and at run time a page number is refused without a request. `append` pagination takes only the literal `'next'`.
+Keyset (cursor) pagination only knows the next and previous page, so `page(messages, 7)` has nothing to jump to, unless the server can also skip items by offset. A computed target (`page(messages, dir)`) is not this error: `sinter check` types it as a direction, and at run time a page number is refused without a request. `append` pagination takes only the literal `'next'`.
 
 **Fix:** If the API accepts an offset next to its cursor, add `jump: true` to `paginate` (and `params: { offset: 'skip' }` where the server names it otherwise): the jump is sent as an offset and `prev`/`next` continue by cursor. Otherwise use `numbered: true` in `paginate`, or only step with `first`, `prev`, `next` and `last`.
 
@@ -398,7 +388,7 @@ Error, for example:
 
 > `GET /contacs` is no operation of the API `main`. Did you mean `/contacts`?
 
-With `sinter({ apis })`, a path in `src`, an action or `<sn-sync src>` is relative to an API, and the API accepts only the operations its spec or its `operations` declare, with the method the place implies (`GET` for a resource unless it has `method`, the attribute's for an action). Also reported: `api:` naming no API, and a path without `api:` when several APIs are configured and `defaultApi` names none.
+With `sinter({ apis })`, a path in `src`, an action or `<sn-sync src>` is relative to an API, and the API accepts only the operations its spec or its `operations` declare, with the method the place implies (`GET` for a resource unless it has `method`, the attribute's for an action). Also reported: `api:` naming no API, and a path without `api:` when several APIs are configured and none is the default (`default: true`).
 
 **Fix:** Use the suggested path (the editor completes them), add the endpoint to the spec, or declare it in the API's `operations`. A path written with the base in it (`/api/contacts` with `base: '/api'`) drops the base.
 
@@ -428,7 +418,7 @@ Error, for example:
 
 > sinter({ apis }): `main.base` is `undefined` (an environment variable that is not set?); it does not fall back to the spec's server
 
-The `apis` option is invalid: an API setting that does not exist, a `base` that is not `''`, a same-origin path or an `https://` URL (or is `undefined`), `defaults` naming an operation the spec does not have, `operations` naming one it has, `defaultApi` naming no API, or a top-level `openapi` next to `apis`.
+The `apis` option is invalid: an API setting that does not exist, a `base` that is not `''`, a same-origin path or an `https://` URL (or is `undefined`), `defaults` naming an operation the spec does not have, `operations` naming one it has, two APIs with `default: true`, or a top-level `openapi` next to `apis`.
 
 **Fix:** Follow the message: set the environment variable, move the endpoint between `defaults` and `operations`, or move `openapi` into an API.
 
@@ -816,11 +806,11 @@ Image optimization needs the `sharp` package, which is not installed, so images 
 
 Warning, for example:
 
-> could not download https://fonts.example/inter.woff2; the page keeps the link (sinter({ fonts: { inline: false } }) turns this off)
+> could not download https://fonts.example/inter.woff2; the page keeps the link (sinter({ fonts: { bundle: false } }) turns this off)
 
-The build self-hosts the fonts a page links to, and one could not be downloaded, so the page keeps the link to the font's host. This depends on the network, so `--strict` leaves it a warning. Reported by the build, without a file and line.
+The build bundles the Google Fonts stylesheets a page links to, and one could not be downloaded, so the page keeps the link to the font's host. This depends on the network, so `--strict` leaves it a warning. Reported by the build, without a file and line.
 
-**Fix:** Build with network access, or turn self-hosting off with `sinter({ fonts: { inline: false } })`.
+**Fix:** Build with network access, or keep the links with `sinter({ fonts: { bundle: false } })`.
 
 ## SN527 css-image-sizes
 

@@ -1,6 +1,6 @@
 // `cache` on <sn-resource>: the page-load cache in sessionStorage.
 import { expect, test, vi } from 'vitest';
-import { clearPersisted } from '../../src/index.js';
+import { clearStored } from '../../src/index.js';
 import { compile } from '../../src/compiler/index.js';
 import { memoryStorage, mockRequests, mockStream, render, type RouteResponse } from '../../src/testing/index.js';
 
@@ -91,10 +91,10 @@ test('any 401 removes every cache entry', async () => {
   expect(session.getItem('sn:return')).toBe('/inbox');
 });
 
-test('clearPersisted() removes the cache too', async () => {
+test('clearStored() removes the cache too', async () => {
   const session = memoryStorage();
   await visit(session);
-  clearPersisted();
+  clearStored();
   expect(cacheKeys(session)).toEqual([]);
 });
 
@@ -262,12 +262,12 @@ test('Back ignores `cache`\'s age; a paginated list comes back at its page; a PO
   await load.settle();
 });
 
-test('what Back restores is gone after a 401 and after clearPersisted()', async () => {
+test('what Back restores is gone after a 401 and after clearStored()', async () => {
   const session = memoryStorage();
   const r = await visit(session, LIST(''));
   await r.window('pagehide');
   expect(cacheKeys(session)).toHaveLength(1);
-  clearPersisted();
+  clearStored();
   expect(cacheKeys(session)).toEqual([]);
   const again = await visit(session, LIST(''));
   await again.window('pagehide');

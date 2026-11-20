@@ -136,7 +136,7 @@ that renaming a page cannot drop it from the check unnoticed.
   data, sinter's runtime requests that page's data, so it shows at once. A static page has no runtime,
   so a data page opened from it loads its data after one round trip, as on a first visit. Speculation
   Rules still work, since they are not JavaScript: the browser fetches the next page's HTML, and with
-  `sinter({ prefetch: { html: 'prerender' } })` Chromium loads the whole next page, data included, before the
+  `sinter({ prefetch: { html: { prerender: true } } })` Chromium loads the whole next page, data included, before the
   click ([navigation](navigation.md)).
 
 ## Your own scripts

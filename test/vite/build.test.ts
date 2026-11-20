@@ -221,7 +221,10 @@ test('by default every page carries inline rules for the app\'s paths; `prefetch
 test('the renamed options fail naming the new form', () => {
   expect(() => sinter({ prefetch: { page: 'prerender' } } as never)).toThrow('sinter({ prefetch }): no option `page`; it takes `data` and `html`');
   expect(() => sinter({ firstPaint: { budgt: 1 } } as never)).toThrow('sinter({ firstPaint }): no option `budgt`; it takes `budget`');
-  expect(() => sinter({ speculation: 'prerender' } as never)).toThrow("sinter({ speculation }) is renamed to `prefetch: { html: 'prerender' }`");
+  expect(() => sinter({ speculation: 'prerender' } as never)).toThrow('sinter({ speculation }) is renamed to `prefetch: { html: { prerender: true } }`');
+  // one spelling of prerendering: the object's `prerender`, where a value the build decides per page has room
+  expect(() => sinter({ prefetch: { html: 'prerender' } } as never)).toThrow("sinter({ prefetch: { html: 'prerender' } }) is renamed to `html: { prerender: true }`");
+  expect(() => sinter({ prefetch: { html: 'eager' } } as never)).toThrow('sinter({ prefetch: { html } }): takes `true`, `false` or `{ prerender, delivery }`, not "eager"');
   expect(() => sinter({ speculation: 'prefetch' } as never)).toThrow('sinter({ speculation }) is renamed to `prefetch: { html: true }`');
   // `html` no longer repeats the option's name: `true`, and `prerender: true` in the object
   expect(() => sinter({ prefetch: { html: 'prefetch' } } as never)).toThrow("sinter({ prefetch: { html: 'prefetch' } }) is renamed to `html: true`");
@@ -229,10 +232,28 @@ test('the renamed options fail naming the new form', () => {
   expect(() => sinter({ prefetch: { html: { delivry: 'header' } } } as never)).toThrow('sinter({ prefetch: { html } }): no option `delivry`; it takes `prerender` and `delivery`');
   expect(() => sinter({ earlyBudget: 20000 } as never)).toThrow('sinter({ earlyBudget }) is renamed to `firstPaint: { budget: 20000 }`');
   expect(() => sinter({ typechek: true } as never)).toThrow('sinter({ typechek }) is not an option. Did you mean `typecheck`?');
-  expect(() => sinter({ fonts: false } as never)).toThrow('sinter({ fonts }): takes `{ inline, preload }`');
+  expect(() => sinter({ fonts: true } as never)).toThrow('sinter({ fonts }): takes `false` or `{ bundle, preload }`, not true');
+  expect(() => sinter({ fonts: false })).not.toThrow();
+  // `inline` bundled a CSS file, it inlined nothing: `bundle`, and off is `fonts: false` as for the other features
+  expect(() => sinter({ fonts: { inline: false } } as never)).toThrow("sinter({ fonts: { inline } }) is renamed to `fonts: false`: the build bundles Google Fonts' stylesheets as CSS files, it inlines nothing");
+  expect(() => sinter({ fonts: { inline: false, preload: ['Inter'] } } as never)).toThrow('sinter({ fonts: { inline } }) is renamed to `fonts: { bundle: false, preload }`');
+  expect(() => sinter({ fonts: { inline: true } } as never)).toThrow("is renamed to `fonts: { bundle }`: the build bundles Google Fonts' stylesheets as CSS files, it inlines nothing (`bundle: true` is the default: leave it out)");
   expect(() => sinter({ fonts: { preloads: [] } } as never)).toThrow('sinter({ fonts }): no option `preloads`');
   expect(() => sinter({ images: { width: [1] } } as never)).toThrow('sinter({ images }): no option `width`');
   expect(() => sinter({ components: ['@acme/ui'] } as never)).toThrow('sinter({ components }) is renamed to `libraries`');
+});
+
+test('a renamed export of the package fails the build naming the new one', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'sinter-retired-export-'));
+  try {
+    writeFileSync(join(dir, 'index.html'), '<!doctype html><html><head><title>t</title><script type="module" src="./main.js"></script></head><body data-sn-state="{ n: 1 }"><p data-sn-text="n"></p></body></html>');
+    writeFileSync(join(dir, 'main.js'), "import { clearPersisted } from '@tiaforge-ui/sinter';\ndocument.addEventListener('signed-out', () => clearPersisted());\n");
+    await expect(build({ root: dir, logLevel: 'silent', plugins: [sinter()], resolve: { alias }, build: { outDir: join(dir, 'dist'), emptyOutDir: true } }))
+      .rejects.toThrow('main.js: `clearPersisted()` is renamed to `clearStored()`');
+    writeFileSync(join(dir, 'main.js'), "import { Component } from '@tiaforge-ui/sinter/components';\nconsole.log(Component);\n");
+    await expect(build({ root: dir, logLevel: 'silent', plugins: [sinter()], resolve: { alias }, build: { outDir: join(dir, 'dist'), emptyOutDir: true } }))
+      .rejects.toThrow('main.js: `@tiaforge-ui/sinter/components` is gone: a component\'s script extends its base from its own HTML');
+  } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
 /** a logger that keeps the info lines, for the build's hints */

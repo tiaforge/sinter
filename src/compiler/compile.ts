@@ -564,7 +564,8 @@ function itemCursor(text: string): string {
 const ACTION_ONLY = ['body', 'trigger', 'debounce', 'concurrency', 'optimistic', 'then', 'catch', 'confirm', 'encoding', 'write-through', 'retry'];
 const UNSAFE_ELEMENTS = new Set(['script', 'style', 'iframe', 'object', 'embed', 'base', 'meta', 'link', 'animate', 'set', 'animatemotion', 'animatetransform']);
 const FORM_CONTROLS = new Set(['input', 'select', 'textarea']);
-const RESOURCE_ATTRS = ELEMENTS.find((e) => e.name === 'sn-resource')!.attrs;
+// `fields` is a build-time source's (`file:`, `content:`, FILE_ATTRS): listed in the vocabulary, still SN101 on a fetched resource
+const RESOURCE_ATTRS = ELEMENTS.find((e) => e.name === 'sn-resource')!.attrs.filter((a) => a !== 'fields');
 /** the attributes `paginate` replaced (docs/proposals/vocabulary.md): reported with the object they become */
 const PAGINATE_OLD = ['page-size', 'size-param', 'cursor', 'direction-param', 'direction-values', 'page-param', 'offset-param', 'page-model'];
 const EVENT_ATTRS = ELEMENTS.find((e) => e.name === 'sn-event')!.attrs;
@@ -1633,7 +1634,7 @@ class Compiler {
       ir, fns: this.fns,
       ...(this.opts.prerender ? { fixedState: this.fixedState() } : {}),
       ...(this.opts.sourcemap ? { sources: this.sourcesOf(this.fns) } : {}),
-      features: [...(this.opts.dev ? ['dev'] : []), ...['sse', 'optimistic', 'paginate', 'persist', 'cache', 'versions', 'refresh', 'each', 'options', 'keys', 'write-through', 'fields', 'form', 'select', 'location', 'typing', 'query-links', 'navigate', 'call', 'debounce', 'confirm', 'models', 'transition', 'components', 'nested', 'lets'].filter((f) => this.features.has(f))],
+      features: [...(this.opts.dev ? ['dev'] : []), ...['sse', 'optimistic', 'paginate', 'persist', 'cache', 'versions', 'refresh', 'for', 'options', 'keys', 'write-through', 'fields', 'form', 'select', 'location', 'typing', 'query-links', 'navigate', 'call', 'debounce', 'confirm', 'models', 'transition', 'components', 'nested', 'lets'].filter((f) => this.features.has(f))],
       helpers: { user, builtin }, namespaces, calls: [...this.calls].sort(),
       diagnostics: this.diagnostics, files: [...this.files].sort(), ...(this.fileGlobs.length ? { globs: this.fileGlobs } : {}), ...(this.pagesOut ? { pages: this.pagesOut } : {}),
       ...(this.check ? { check: this.check } : {}),
@@ -5951,8 +5952,12 @@ class Compiler {
       if (k.ok) t.key = this.fn(k.code);
     } else if (resInfo?.key) {
       t.keyFields = resInfo.key;
-    } else if (list.ast && primitiveList(list.ast)) {
-      this.report(el, 'data-sn-for', 'SN103', 'a `data-sn-for` over primitive values needs `data-sn-key`', m[0].length);
+    } else {
+      // a choice between resources (`f ? feed : articles`, through lets, `filter`/`toSorted` and a helper given
+      // one): their key, when every candidate has the same. Primitives key by value at run time (`keysOf`)
+      const names = list.listOf;
+      const keys = names?.length && names.every((n) => /^[\w$]+$/.test(n)) ? names.map((n) => this.page.resources.get(n)?.key) : null;
+      if (keys?.every((k) => k && k.join('\0') === keys[0]!.join('\0'))) t.keyFields = keys[0]!;
     }
     // a plain list path changes the rows only through its structure or replaced elements (`#`), not element fields
     const deps = alias && list.deps.length == 1 && list.deps[0] == list.path!.join('.') ? [list.deps[0] + '.#'] : list.deps;
@@ -6177,7 +6182,7 @@ class Compiler {
         }
         srcScope = { ...ctx.scope, loops: [...ctx.scope.loops, loop] };
         if (list.ok) each = { item: m[1]!, list: this.fn(list.code), ...(list.resource ? { of: list.resource } : {}) };
-        this.features.add('each');
+        this.features.add('for');
         if (!info.key) this.report(el, 'for', 'SN401', 'a `for` resource is a collection: it needs `key`, with a field that tells the sources apart', 0);
         for (const a of ['paginate', 'total', 'cache']) {
           if (attr(el, a) != null) this.report(el, a, 'SN401', `\`${a}\` does not combine with \`for\`: the items come from several requests`, 0);
@@ -7154,7 +7159,7 @@ class Compiler {
       for (const k of def?.items ? def.items.split('.') : []) v = (v as Record<string, unknown> | null)?.[k];
       // a list a build keeps for every page that reads it is frozen once (`globCache`): shared, not copied per page
       values.set(name, v && typeof v === 'object' ? (DEEP_FROZEN.has(v) ? v : deepFreeze(structuredClone(v) as object)) : v);
-      status.set(name, Object.freeze({ loading: false, error: null, loadedAt: null, pending: 0, total: null, live: null }));
+      status.set(name, Object.freeze({ loading: false, error: null, loadedAt: null, total: null, live: null }));
     }
     const of = (m: Map<string, unknown>) => new Proxy({}, { get: (_, k) => { if (typeof k === 'string' && m.has(k)) return m.get(k); throw NOT; } });
     return { r: of(values), meta: of(status) };
@@ -8291,8 +8296,8 @@ class Compiler {
           // before then, and throw (the page module renders what reads them)
           const open = def.paginate || this.page.fed.has(def.name);
           const make = fn(open
-            ? '(l) => ({ loading: l, error: null, loadedAt: null, pending: 0, get total() { throw 0; }, get live() { throw 0; }, get page() { throw 0; }, get pages() { throw 0; }, get from() { throw 0; }, get to() { throw 0; }, get hasPrev() { throw 0; }, get hasNext() { throw 0; } })'
-            : '(l) => ({ loading: l, error: null, loadedAt: null, pending: 0, total: null, live: null })');
+            ? '(l) => ({ loading: l, error: null, loadedAt: null, get total() { throw 0; }, get live() { throw 0; }, get page() { throw 0; }, get pages() { throw 0; }, get from() { throw 0; }, get to() { throw 0; }, get hasPrev() { throw 0; }, get hasNext() { throw 0; } })'
+            : '(l) => ({ loading: l, error: null, loadedAt: null, total: null, live: null })');
           edits.push([n.start, n.end, `f[${make}](${when})`]);
           return;
         }
@@ -9336,17 +9341,6 @@ function detach(el: P5Element) {
   const i = p.childNodes.indexOf(el as never);
   if (i >= 0) p.childNodes.splice(i, 1);
   el.parentNode = null;
-}
-
-function primitiveList(ast: { type: string }): boolean {
-  const a = ast as { type: string; elements?: Array<{ type: string } | null>; callee?: { type: string; object?: { type: string; name?: string }; property?: { name?: string } } };
-  if (a.type === 'ArrayExpression') return (a.elements ?? []).every((e) => e && (e.type === 'Literal' || e.type === 'TemplateLiteral'));
-  if (a.type === 'CallExpression' && a.callee?.type === 'MemberExpression') {
-    const obj = a.callee.object, prop = a.callee.property?.name;
-    if (obj?.type === 'Identifier' && obj.name === 'Object' && prop === 'keys') return true;
-    if (prop === 'split') return true;
-  }
-  return false;
 }
 
 export function normalize(p: string): string {

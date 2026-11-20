@@ -86,9 +86,9 @@ a list's `model` (`?page=99999` asks the API for that page): the text is set as 
 and the page number is parsed as a whole number, but the server decides what a request may ask for.
 Names that could reach prototypes (`__proto__`, `constructor`, `prototype`) are dropped from `$url`.
 
-Persisted keys are namespaced `sn:`. They are cleared by `loginRedirect`; call `clearPersisted()`
-on logout. The page-load cache and next-page data entries (in `sessionStorage`) are cleared on any
-401 and by `clearPersisted()` too.
+Persisted keys are namespaced `sn:`. They are cleared by `loginRedirect`; call `clearStored()`
+on sign-in and sign-out. The page-load cache and next-page data entries (in `sessionStorage`) are cleared on any
+401 and by `clearStored()` too.
 
 ## Outside sinter's control
 

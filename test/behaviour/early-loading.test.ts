@@ -92,7 +92,7 @@ test('the early function: the status written in field by field, text in strings 
 });
 
 test('the whole status, as a helper reads it: every field as at mount', async () => {
-  const helpers = { idle: (m: { pending: number; total: unknown; live: unknown; loading: boolean }) => m.loading && m.pending === 0 && m.total === null && m.live === null };
+  const helpers = { idle: (m: { total: unknown; live: unknown; loading: boolean }) => m.loading && !('pending' in m) && m.total === null && m.live === null };
   await firstPaint(PAGE('', 'idle($meta.c)'), { helpers });
   expect(loading()).not.toBeNull();
   // paginated: its pager fields are not known early, and a binding that reads one is the page module's

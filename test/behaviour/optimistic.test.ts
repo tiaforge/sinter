@@ -34,7 +34,7 @@ async function page(attrs = '', extra = '', items: object[] = [ITEM]) {
   await r.settle();
   const text = () => r.root.querySelector('span')?.textContent ?? '';
   // the layers still waiting (the store's count; markup has no field for it), then what the page shows
-  const meta = () => `${r.app.resource('m').meta.pending} ${r.root.querySelector('p')!.textContent}`;
+  const meta = () => `${r.app.resource('m').waiting()} ${r.root.querySelector('p')!.textContent}`;
   const click = async (id: string) => { r.root.querySelector<HTMLElement>(`#${id}`)!.click(); await r.flush(); };
   /** settles a call and lets its handlers and the flush run */
   const settle = async (i: number, ok = true) => { ok ? flag.calls[i]!.ok() : flag.calls[i]!.fail(); await r.settle().catch(() => {}); };
@@ -192,11 +192,11 @@ test('islands: app.optimistic() keeps the change when `run` resolves', async () 
   await settle();
   const done = app.optimistic(() => app.resource('m').remove('1'), () => app.request('/api/m', { method: 'DELETE' }));
   await flush();
-  expect([root.querySelector('p')!.textContent, app.resource('m').meta.pending]).toEqual(['1', 1]);
+  expect([root.querySelector('p')!.textContent, app.resource('m').waiting()]).toEqual(['1', 1]);
   await settle();
   await done;
   await flush();
-  expect([root.querySelector('p')!.textContent, app.resource('m').meta.pending]).toEqual(['1', 0]);
+  expect([root.querySelector('p')!.textContent, app.resource('m').waiting()]).toEqual(['1', 0]);
 });
 
 describe('data-sn-attr sets the live form state', () => {

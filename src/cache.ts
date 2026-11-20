@@ -3,7 +3,7 @@
 // sessionStorage (one tab's lifetime) under `sn:c:`, keyed by the request URL and
 // the `items`/`total` paths, so pages that load the same thing share them. Written
 // after every load, on `pagehide` and when the app is destroyed (confirmed data only, never optimistic layers);
-// removed on any 401 and by `clearPersisted()`.
+// removed on any 401 and by `clearStored()`.
 //
 // Back and Forward: on a page reached by a history traversal (a load of type `back_forward`, which the
 // back/forward cache did not serve, or a swap's traversal), every resource the cache can hold restores

@@ -99,7 +99,7 @@ test('app modules: declarations, sinter\'s configuration and pure packages are q
   const quiet = file('config.ts', "import { configure, onUnauthorized, loginRedirect } from '@tiaforge-ui/sinter';\nimport { API } from './util.js';\nimport { x } from 'pure';\nconst ENV = import.meta.env.MODE;\nconfigure({ request: [onUnauthorized(loginRedirect({ to: '/login' }))], onError: () => {} });\nexport class A { m() { return x; } }\nexport default { API, ENV };\n");
   expect(moduleEffect(quiet, m)).toBeNull();
   expect(moduleEffect(file('a.js', "import 'loud';\n"), m)).toMatch(/a\.js:1: imports `loud`, whose package\.json does not say `"sideEffects": false`/);
-  expect(moduleEffect(file('b.js', "import { clearPersisted } from '@tiaforge-ui/sinter';\nclearPersisted();\n"), m)).toMatch(/b\.js:2: runs code as it loads/);
+  expect(moduleEffect(file('b.js', "import { clearStored } from '@tiaforge-ui/sinter';\nclearStored();\n"), m)).toMatch(/b\.js:2: runs code as it loads/);
   expect(moduleEffect(file('c.js', "import './d.js';\n"), m)).toMatch(/d\.js: could not be read|cannot find/);
   file('e.js', "customElements.define('x-y', class extends HTMLElement {});\n");
   expect(moduleEffect(file('f.js', "import './e.js';\nexport const n = 1;\n"), m)).toMatch(/e\.js:1: runs code as it loads/);

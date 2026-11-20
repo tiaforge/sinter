@@ -12,7 +12,7 @@
 // ArrowDown/ArrowUp mark the next or previous option (ArrowRight/ArrowLeft in a list with
 // `aria-orientation="horizontal"`, not in a text field, whose caret they move). Home/End: the first
 // and last (not in a text field). Enter clicks the marked option; Space too, outside a text field;
-// Tab clicks the marked one, or the only one, in a text field. Escape fires `dismiss` on the owner, and
+// Tab clicks the marked one, or the only one, in a text field. Escape fires `sn-dismiss` on the owner, and
 // stays with the list only when it closes something (see below).
 // Typing unmarks; pressing the mouse on an option of a list outside the owner keeps the focus where it is.
 import type { App, Feature } from './runtime/app.js';
@@ -89,7 +89,7 @@ const feature: Feature = {
         mark(owner, all, null);
         const kept = !owner.dispatchEvent(new CustomEvent('sn-dismiss', { bubbles: true, cancelable: true }));
         // Escape is the list's when it closes something: a text field's suggestions, a mark, or a
-        // `dismiss` handler that calls `$event.preventDefault()`; otherwise it goes on (a dialog closes)
+        // `sn-dismiss` handler that calls `$event.preventDefault()`; otherwise it goes on (a dialog closes)
         if (text || at >= 0 || kept) e.preventDefault();
       }
     }, on);
