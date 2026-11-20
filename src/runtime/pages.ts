@@ -17,8 +17,8 @@ export function base(cfg: Cfg, dir: Dir | null, size = cfg.size): Record<string,
  * the number of items to skip; keyset (with `params.offset`) sends the skip with the `first` direction.
  */
 export function pageParams(cfg: Cfg, n: number): Record<string, string> {
-  if (cfg.mode === 'offset') return cfg.offsetParam ? { [cfg.offsetParam]: String((n - 1) * cfg.size), ...base(cfg, null) } : { [cfg.pageParam]: String(n), ...base(cfg, null) };
-  return { [cfg.offsetParam!]: String((n - 1) * cfg.size), ...base(cfg, 'first') };
+  if (cfg.mode === 'numbered') return cfg.skipParam ? { [cfg.skipParam]: String((n - 1) * cfg.size), ...base(cfg, null) } : { [cfg.pageParam]: String(n), ...base(cfg, null) };
+  return { [cfg.skipParam!]: String((n - 1) * cfg.size), ...base(cfg, 'first') };
 }
 
 /**
@@ -26,7 +26,7 @@ export function pageParams(cfg: Cfg, n: number): Record<string, string> {
  * `src` change); with `model` (paginate), the page the URL names (`pageParams`) from page 2 on.
  */
 export function firstParams(cfg: Cfg): Record<string, string> {
-  return cfg.mode === 'offset' ? pageParams(cfg, 1) : base(cfg, 'first');
+  return cfg.mode === 'numbered' ? pageParams(cfg, 1) : base(cfg, 'first');
 }
 
 /** a `model` (paginate) parameter as a page: a whole number from 1 (`"3"`, `3`), anything else page 1 */

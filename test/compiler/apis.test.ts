@@ -23,12 +23,12 @@ describe('paginate: the server\'s names, once per API', () => {
   const wire = { paginate: { params: { size: 'per_page', page: 'p', offset: 'skip', direction: 'dir' }, directions: { prev: 'back' } } };
   test('a list on the API sends its names; its own `params` and `directions` win', () => {
     const own = page(list("numbered: 'offset', size: 5"), main(wire)).module;
-    expect(own).toMatch(/"sizeParam":"per_page".*"directionParam":"dir","pageParam":"p".*"offsetParam":"skip"/);
+    expect(own).toMatch(/"sizeParam":"per_page".*"directionParam":"dir","pageParam":"p".*"skipParam":"skip"/);
     const keyset = page(list('keyset: { after: id }, size: 5'), main(wire)).module;
     expect(keyset).toContain('"directionValues":{"prev":"back"}');
     // a keyset list does not send the offset unless it jumps
-    expect(keyset).not.toContain('"offsetParam"');
-    expect(page(list('keyset: { after: id }, size: 5, jump: true'), main(wire)).module).toContain('"offsetParam":"skip"');
+    expect(keyset).not.toContain('"skipParam"');
+    expect(page(list('keyset: { after: id }, size: 5, jump: true'), main(wire)).module).toContain('"skipParam":"skip"');
     // a list's own directions win key by key, as its params do
     expect(page(list("keyset: { after: id }, size: 5, directions: { first: 'start' }"), main(wire)).module).toContain('"directionValues":{"prev":"back","first":"start"}');
     const over = page(list("numbered: true, size: 5, params: { size: 'n' }"), main(wire)).module;

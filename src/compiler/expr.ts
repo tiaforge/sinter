@@ -685,7 +685,7 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
           report('SN303', `\`$meta.${rname}.${field}\` is a pagination field, but \`${rname}\` has no \`paginate\``, n.start);
         } else if (field === 'live' && !page.fed.has(rname)) {
           report('SN516', `\`$meta.${rname}.live\` is always \`null\`: no \`<sn-event resource="${rname}">\` on this page feeds \`${rname}\``, n.start, `add an \`<sn-event>\` for \`${rname}\` to the \`<sn-sync>\`, or remove this`);
-        } else if (field === 'page' && r.paginate !== 'offset' && !r.jumps) {
+        } else if (field === 'page' && r.paginate !== 'numbered' && !r.jumps) {
           report('SN303', `\`$meta.${rname}.page\` exists only on a numbered list (\`paginate="{ numbered: true, … }"\`), or a keyset list with \`jump: true\``, n.start);
         }
       }

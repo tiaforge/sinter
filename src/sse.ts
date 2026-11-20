@@ -191,7 +191,7 @@ export class Connection {
         void r.refresh(scope.$p);
         break;
       case 'upsert': {
-        const item = def.item != null ? app.fns[def.item]!(scope) : payload;
+        const item = def.value != null ? app.fns[def.value]!(scope) : payload;
         // no item in the payload: nothing to apply (a second `<sn-event>` with `when` can refresh instead)
         if (item == null || typeof item !== 'object') return false;
         else if (paginated && !r.has(item as object)) void r.refresh();
@@ -201,7 +201,7 @@ export class Connection {
       case 'merge': {
         if (r.isCollection && !this.hasKey(r.key!, scope.$p, def)) return false;
         const key = r.keyOf(scope.$p);
-        if (!r.isCollection || r.has(key)) r.merge(key, clean(app.fns[def.set!]!(scope)));
+        if (!r.isCollection || r.has(key)) r.merge(key, clean(app.fns[def.value!]!(scope)));
         break;
       }
       case 'remove': {

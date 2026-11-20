@@ -84,4 +84,4 @@ as written, is not seen. Turn minifying off for such an app with `minifyHtml: fa
 ## Testing
 
 `render()` in `@tiaforge-ui/sinter/testing` does not minify, so a test sees the page as written. `render(html,
-{ minify: true, css })` renders it as a build would, minified against `css`.
+{ minifyHtml: true, css })` renders it as a build would, minified against `css`.

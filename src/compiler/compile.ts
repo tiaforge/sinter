@@ -773,10 +773,10 @@ interface PageSpec {
 
 function paginateParams(p: Paginate, cursor: string | undefined): string[] {
   const out = [p.sizeParam];
-  if (p.mode === 'offset') out.push(p.offsetParam ?? p.pageParam);
+  if (p.mode === 'numbered') out.push(p.skipParam ?? p.pageParam);
   else {
     out.push(p.directionParam);
-    if (p.offsetParam) out.push(p.offsetParam);
+    if (p.skipParam) out.push(p.skipParam);
     if (cursor) {
       try {
         const ast = parseExpression(cursor) as acorn.Expression;
@@ -1808,7 +1808,7 @@ class Compiler {
         return fail('`offset: true` is renamed to `numbered: true` (pages by number; `numbered: \'offset\'` sends the items to skip): `{ numbered: true, size: 10 }`', p.key.start);
       } else if (key === 'numbered') {
         modes++;
-        spec.mode = 'offset';
+        spec.mode = 'numbered';
         // `true`: the page number; `'offset'`: the items to skip (a server that skips by offset)
         if (v.type !== 'Literal' || (v.value !== true && v.value !== 'offset')) return fail('`numbered` takes `true` (sends the page number) or `\'offset\'` (sends the items to skip): `{ numbered: true, size: 10 }`', v.start);
         spec.skip = v.value === 'offset';
@@ -1836,13 +1836,13 @@ class Compiler {
     }
     if (modes !== 1) return fail(`\`paginate\` names one mode, \`keyset\`, \`append\` (each with its cursor) or \`numbered: true\`: ${EXAMPLE}`, lead);
     if (!spec.size) return fail('`paginate` needs `size`, the number of items per page', lead);
-    if (spec.model && spec.mode !== 'offset') return fail(`\`model\` is for numbered lists, where every move has a page number when it is made; ${spec.mode === 'append' ? 'append lists load more by cursor' : 'keyset lists move by cursor, and their page number is often unknown'}`, spec.model.at);
-    if (spec.jump && spec.mode !== 'keyset') return fail(`\`jump\` is for \`keyset\` lists; ${spec.mode === 'offset' ? 'a numbered list jumps already' : 'append lists only load more'}`, lead);
-    if (spec.directions && spec.mode === 'offset') return fail('`directions` is for `keyset` and `append` lists; a numbered list sends page numbers', lead);
+    if (spec.model && spec.mode !== 'numbered') return fail(`\`model\` is for numbered lists, where every move has a page number when it is made; ${spec.mode === 'append' ? 'append lists load more by cursor' : 'keyset lists move by cursor, and their page number is often unknown'}`, spec.model.at);
+    if (spec.jump && spec.mode !== 'keyset') return fail(`\`jump\` is for \`keyset\` lists; ${spec.mode === 'numbered' ? 'a numbered list jumps already' : 'append lists only load more'}`, lead);
+    if (spec.directions && spec.mode === 'numbered') return fail('`directions` is for `keyset` and `append` lists; a numbered list sends page numbers', lead);
     // names this list never sends (an API's `params` may name them for its other lists)
-    if (spec.params.page && spec.mode !== 'offset') return fail('`params.page` is for numbered lists; a keyset or append list moves by its cursor', lead);
-    if (spec.params.offset && !spec.skip && !spec.jump) return fail(`\`params.offset\` names a parameter this list does not send: only \`numbered: 'offset'\` and \`jump: true\` send the items to skip${spec.mode === 'offset' ? `; write \`numbered: 'offset'\` to send them instead of the page number` : spec.mode === 'keyset' ? '; add `jump: true` for page numbers' : ''}`, lead);
-    if (spec.params.direction && spec.mode === 'offset') return fail('`params.direction` is for `keyset` and `append` lists; a numbered list sends page numbers', lead);
+    if (spec.params.page && spec.mode !== 'numbered') return fail('`params.page` is for numbered lists; a keyset or append list moves by its cursor', lead);
+    if (spec.params.offset && !spec.skip && !spec.jump) return fail(`\`params.offset\` names a parameter this list does not send: only \`numbered: 'offset'\` and \`jump: true\` send the items to skip${spec.mode === 'numbered' ? `; write \`numbered: 'offset'\` to send them instead of the page number` : spec.mode === 'keyset' ? '; add `jump: true` for page numbers' : ''}`, lead);
+    if (spec.params.direction && spec.mode === 'numbered') return fail('`params.direction` is for `keyset` and `append` lists; a numbered list sends page numbers', lead);
     return spec;
   }
 
@@ -6135,9 +6135,9 @@ class Compiler {
       };
       // the items to skip, named by `params.offset`: a numbered list sends them instead of the page number with
       // `numbered: 'offset'`, a keyset list to jump (`jump`); naming the parameter alone switches nothing
-      if (spec.skip) paginate.offsetParam = params.offset ?? 'offset';
-      if (spec.jump) paginate.offsetParam = params.offset ?? 'offset';
-      if (directions && spec.mode !== 'offset') paginate.directionValues = directions;
+      if (spec.skip) paginate.skipParam = params.offset ?? 'offset';
+      if (spec.jump) paginate.skipParam = params.offset ?? 'offset';
+      if (directions && spec.mode !== 'numbered') paginate.directionValues = directions;
       // `model: $url.page`: the list's page lives in the URL, read at load and written back on every move
       if (spec.model) {
         const pm = spec.model.name;
@@ -6240,7 +6240,7 @@ class Compiler {
       const r: CheckResource = { name, type, loc: this.locOf(el, type ? 'type' : null), nameLoc: this.locOf(el, 'name') };
       if (openapi && 'schema' in openapi) r.openapi = openapi;
       if (call) r.call = { name: call.name, items };
-      if (paginate?.mode === 'keyset' && !paginate.offsetParam) r.directions = true;
+      if (paginate?.mode === 'keyset' && !paginate.skipParam) r.directions = true;
       this.check.resources.push(r);
       // a resource fed by an action is typed by the action's result
       if (!type && !r.openapi && !r.call) {
@@ -6676,11 +6676,10 @@ class Compiler {
     const value = fnOf('value', op === 'merge');
     if (value !== null && op !== 'upsert' && op !== 'merge') this.report(el, 'value', 'SN102', '`value` applies to `op="upsert"` (the item) and `op="merge"` (the fields)', 0);
     if (op === 'merge' && value === null) this.report(el, null, 'SN401', '`op="merge"` needs `value`, the fields it merges: `value="{ flags }"`', 0);
-    const item = op === 'upsert' ? value : null, set = op === 'merge' ? value : null;
     const when = fnOf('when');
     const then = fnOf('then');
     return {
-      name, resource, op, item, set, when,
+      name, resource, op, value: op === 'upsert' || op === 'merge' ? value : null, when,
       ...(then !== null ? { then, ...(writes.length ? { w: writes } : {}) } : {}),
     };
   }
@@ -8773,7 +8772,7 @@ class Compiler {
         ...(this.apiOfResource.get(def.name)?.headers ? { headers: this.apiOfResource.get(def.name)!.headers } : {}),
         // a `when` that reads an array parameter is the browser's to evaluate
         ...(def.when != null ? { when: (!arrays.some((n) => readsParam(this.fns[def.when!]!, n)) && condOf(this.fns[def.when]!)) || true as const } : {}), ...(pg ? { query: Object.entries(firstParams(pg)) } : {}),
-        ...(pg && startUrl ? { start: { url: startUrl, key: pg.offsetParam ?? pg.pageParam, size: pg.size, ...(pg.offsetParam ? { skip: true as const } : {}), query: Object.entries(pageParams(pg, 2)) } } : {}),
+        ...(pg && startUrl ? { start: { url: startUrl, key: pg.skipParam ?? pg.pageParam, size: pg.size, ...(pg.skipParam ? { skip: true as const } : {}), query: Object.entries(pageParams(pg, 2)) } } : {}),
       });
     }
     return out.sort((a, b) => a.id - b.id);
@@ -8793,7 +8792,7 @@ class Compiler {
     for (const n of this.roots) if (!n.dl) node(n);
     for (const t of this.templates) if (!this.dlTemplates.has(t.id)) for (const n of t.nodes) if (!n.dl) node(n);
     for (const r of this.resources) { for (const x of r.src) if (typeof x === 'number') fn(x); fn(r.when); fn(r.then); if (r.each) fn(r.each.list); if (r.call) { fn(r.call.args); fn(r.call.run); } fn(r.paginate?.cursor); }
-    for (const y of this.syncs) { for (const x of y.src) if (typeof x === 'number') fn(x); for (const e of y.events) { fn(e.item); fn(e.set); fn(e.when); fn(e.then); } }
+    for (const y of this.syncs) { for (const x of y.src) if (typeof x === 'number') fn(x); for (const e of y.events) { fn(e.value); fn(e.when); fn(e.then); } }
     const read = new Set<string>();
     for (const c of codes) for (const m of c.matchAll(/\$\.\$(?:r|meta)\.([A-Za-z_$][\w$]*)/g)) read.add(m[1]!);
     for (const r of this.resources) if (!read.has(r.name) && r.data == null) r.lo = 1;
@@ -9386,8 +9385,8 @@ const URL_READ = /^\(\$\) => \(\$\.\$url\.([A-Za-z_$][\w$]*)\)$/;
 
 /** the early file's `model` (paginate) start: page n's parameters are `qn` with `k` set (the page, or with `params.offset` the items to skip) */
 function startOf(cfg: Paginate, f: number): NonNullable<NonNullable<EarlyIR['res']>[number]['sp']> {
-  const k = cfg.offsetParam ?? cfg.pageParam;
-  return { f, k, s: cfg.size, ...(cfg.offsetParam ? { o: 1 as const } : {}), qn: pageParams(cfg, 2) };
+  const k = cfg.skipParam ?? cfg.pageParam;
+  return { f, k, s: cfg.size, ...(cfg.skipParam ? { o: 1 as const } : {}), qn: pageParams(cfg, 2) };
 }
 
 /** URLs of the resources whose request is fixed at build time (callers pass only those it may request early: same-origin or a listed origin): the page preloads them from its HTML (low priority when every resource of that URL is `lo`). */

@@ -168,8 +168,8 @@ describe('paginate diagnostics', () => {
     const ir = (pg: string) => compileParts(`<sn-resource name="m" src="/api/m" key="uid" paginate="{ ${pg} }"></sn-resource><p data-sn-text="m.length"></p>`, {
       file: '/p/page.html', root: '/p', dev: false, readFile: () => '', helpers: { module: null, names: [], namespaces: {} },
     }).ir.resources[0]!.paginate;
-    expect(ir("numbered: 'offset', size: 5")!.offsetParam).toBe('offset');
-    expect(ir("numbered: 'offset', size: 5, params: { offset: 'skip' }")!.offsetParam).toBe('skip');
+    expect(ir("numbered: 'offset', size: 5")!.skipParam).toBe('offset');
+    expect(ir("numbered: 'offset', size: 5, params: { offset: 'skip' }")!.skipParam).toBe('skip');
     expect(diags('paginate="{ numbered: \'pages\', size: 5 }"')[0]).toMatch(/^SN401 `numbered` takes `true` \(sends the page number\) or `'offset'`/);
     expect(diags('paginate="offset" page-size="5" offset-param="offset"')[0]).toMatch(/`paginate="\{ numbered: 'offset', size: 5 \}"`/);
   });

@@ -31,7 +31,7 @@ export interface PathTable {
 export type UrlTemplate = Array<string | number>;
 
 export interface Paginate {
-  mode: 'keyset' | 'offset' | 'append';
+  mode: 'keyset' | 'numbered' | 'append';
   size: number;
   sizeParam: string;
   /** keyset/append: object literal evaluated with the boundary item as `$.$p` */
@@ -41,7 +41,7 @@ export interface Paginate {
   directionValues?: Partial<Record<'first' | 'prev' | 'next' | 'last', string>>;
   pageParam: string;
   /** the number of items to skip, (n - 1) * size: a `numbered: 'offset'` list sends it instead of `pageParam`; keyset, to let `page(name, n)` jump */
-  offsetParam?: string;
+  skipParam?: string;
   /** `model: $url.page`: the query parameter that holds the page (numbered lists) */
   model?: string;
   /** with `model`: the function that reads it (`$.$url.page`), where the early file and embedded data read the start page */
@@ -99,8 +99,8 @@ export interface EventDef {
   /** null for an event that only runs `then` */
   resource?: string | null;
   op?: 'upsert' | 'merge' | 'remove' | 'refresh' | null;
-  item?: number | null;
-  set?: number | null;
+  /** what the change writes: the item (`upsert`; absent: the whole payload) or the fields (`merge`) */
+  value?: number | null;
   when?: number | null;
   /** `then`: handler run after the change is applied; `w`: the state paths it writes */
   then?: number;
@@ -400,7 +400,7 @@ export function validateIR(ir: unknown, fnCount: number): string[] {
     fn(r.when, `${at}.when`); fn(r.then, `${at}.then`);
     for (const d of [...(r.w ?? []), ...(r.deps ?? [])]) if (bad(d)) errs.push(`${at}: bad path`);
     if (r.paginate) {
-      if (!['keyset', 'offset', 'append'].includes(r.paginate.mode)) errs.push(`${at}: bad paginate mode`);
+      if (!['keyset', 'numbered', 'append'].includes(r.paginate.mode)) errs.push(`${at}: bad paginate mode`);
       fn(r.paginate.cursor, `${at}.paginate.cursor`);
     }
   });
@@ -414,7 +414,7 @@ export function validateIR(ir: unknown, fnCount: number): string[] {
         if (!names.has(e.resource!)) errs.push(`${at}: unknown resource ${e.resource}`);
         if (!['upsert', 'merge', 'remove', 'refresh'].includes(e.op!)) errs.push(`${at}: bad op`);
       }
-      fn(e.item, `${at}.item`); fn(e.set, `${at}.set`); fn(e.when, `${at}.when`); fn(e.then, `${at}.then`);
+      fn(e.value, `${at}.value`); fn(e.when, `${at}.when`); fn(e.then, `${at}.then`);
       for (const d of e.w ?? []) if (bad(d)) errs.push(`${at}: bad path`);
     });
   });
