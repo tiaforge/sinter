@@ -143,17 +143,18 @@ fixtures/
 A library has no pages of its own, and `sinter check` checks a component through the pages that use
 it. Keep fixture pages in `fixtures/` beside the `sinter` folder, using the public components with
 the cases you support. `npx sinter check` in the library's repository finds them when there is no
-Vite config with pages, configures the library as the app's `components` would, and compiles and
+Vite config with pages, configures the library as the app's `libraries` would, and compiles and
 type-checks them, the declared-slot and `<sn-component use>` rules included. The same rules are
 checked again in each app's build.
 
-The fixtures call the library's helpers as an app does, through a namespace. Their helpers module
-(`src/sinter.helpers.ts` in the library's repository) imports the library by its own name, which a
+The fixtures call the library's helpers as an app does, through a namespace. Their modules sit beside
+them, as an app's sit in `src/`: `fixtures/sinter.helpers.ts`, `fixtures/sinter.types.ts`, and so on.
+The helpers module imports the library by its own name, which a
 package with `exports` may do (Node's self-reference), resolved through its own `exports` with
 production conditions:
 
 ```ts
-// src/sinter.helpers.ts in @acme/ui's repository
+// fixtures/sinter.helpers.ts in @acme/ui's repository
 export * as ui from '@acme/ui';
 ```
 

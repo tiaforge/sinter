@@ -9,7 +9,7 @@ import type { DefaultTreeAdapterMap } from 'parse5';
 import { COMPONENT_NAME, withoutSlots } from './compiler/components.js';
 import { componentKinds } from './compiler/head.js';
 import { typeExports } from './check/index.js';
-import type { Library } from './libraries.js';
+import { modulesDir, type Library } from './libraries.js';
 
 type El = DefaultTreeAdapterMap['element'];
 type Parent = DefaultTreeAdapterMap['parentNode'];
@@ -102,7 +102,7 @@ export function componentTypes(root: string, read: (file: string) => string = (f
   const self = libs.find((l) => l.dir === root);
   const out: string[] = [];
   const src = self ? self.folder : join(root, 'src');
-  const typesFile = ['src/sinter.types.ts', 'src/sinter.types.d.ts'].map((f) => join(root, f)).find((f) => existsSync(f));
+  const typesFile = ['sinter.types.ts', 'sinter.types.d.ts'].map((f) => join(root, modulesDir(root), f)).find((f) => existsSync(f));
   const specOf = (f: string) => { const s = relative(src, f).split(sep).join('/').replace(/\.(d\.)?ts$/, ''); return s.startsWith('.') ? s : './' + s; };
   /** the declarations of one folder's components with a script, type names resolved against `types` */
   const declare = (cdir: string, list: string[], types: string | null, shown: string) => {

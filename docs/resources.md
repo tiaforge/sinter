@@ -314,8 +314,7 @@ export const tags = collection({
   shares cannot `get` one that differs per language. Without `localePrefix`, `perLocale` is an error.
 - **An index in pages**: `chunks(list, size)` from `@tiaforge-ui/sinter/content` gives `{ n, items, count }` per page,
   `n` from 1: a collection of pages for a [page per entry](static-pages.md#a-page-per-entry) at `/blog/page/:n`.
-- `sinter({ content: 'src/data.ts' })` moves the module; `content: false` turns it off. `content` cannot be an
-  API's name (SN329).
+- `sinter({ content: false })` turns the module off. `content` cannot be an API's name (SN329).
 
 ## Loading behavior
 

@@ -37,7 +37,7 @@ The check runs at the end of `vite build`. Without types, the compiler still che
 
 ## Types on resources
 
-`type` names the type of what `items` selects. The names come from your types module, `src/sinter.types.ts` (or `.d.ts`, `.js`; set `sinter({ types })` to move it).
+`type` names the type of what `items` selects. The names come from your types module, `src/sinter.types.ts` (or `.d.ts`, `.js`).
 
 | Attribute | Meaning |
 | --- | --- |

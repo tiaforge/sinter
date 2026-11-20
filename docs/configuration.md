@@ -30,15 +30,20 @@ multi-page app (`appType: 'mpa'`). A config that names `build.rollupOptions.inpu
 
 ### Project files
 
-Each option names a file relative to the project root. Leave it out and sinter looks for the default, `.js` first, then `.ts`.
+The app's modules have fixed names in `src/`, each optional, `.js` or `.ts`. A component library's are beside its
+fixture pages, in `fixtures/` ([docs/libraries.md](libraries.md)).
+
+| File | Purpose |
+| --- | --- |
+| `src/sinter.helpers.js` | functions and namespaces for expressions, [below](#helpers) |
+| `src/sinter.actions.js` | functions for `data-sn-call` and `<sn-resource call>` ([docs/actions.md](actions.md)) |
+| `src/sinter.config.js` | the module that calls `configure()`, [below](#the-config-module) |
+| `src/sinter.early.js` | code that runs before the first paint ([docs/first-paint.md](first-paint.md)) |
+| `src/sinter.types.ts` (or `.d.ts`, `.js`) | the types `type="..."` may name ([docs/type-checking.md](type-checking.md)) |
+| `src/sinter.content.ts` | collections for `src="content:…"` ([docs/resources.md](resources.md)); `sinter({ content: false })` turns it off |
 
 | Option | Default | Purpose |
 | --- | --- | --- |
-| `helpers` | `src/sinter.helpers.js` | functions and namespaces for expressions, [below](#helpers) |
-| `actions` | `src/sinter.actions.js` | functions for `data-sn-call` and `<sn-resource call>` ([docs/actions.md](actions.md)) |
-| `config` | `src/sinter.config.js` | the module that calls `configure()`, [below](#the-config-module) |
-| `early` | `src/sinter.early.js` | code that runs before the first paint ([docs/first-paint.md](first-paint.md)) |
-| `types` | `src/sinter.types.ts` (then `.d.ts`, `.js`) | the types `type="..."` may name ([docs/type-checking.md](type-checking.md)) |
 | `messages` | `project.inlang`, if it exists | the inlang project for [messages](#messages); `false` turns them off |
 | `apis` | none | the APIs the app calls: base URL, OpenAPI spec, credentials, headers, and what each endpoint returns. Pages then write paths relative to them (`src="/contacts"`), checked against the spec ([docs/apis.md](apis.md)) |
 | `libraries` | `[]` | component libraries, by package name (`['@acme/ui']`): packages whose `package.json` names a folder of sinter components (`"sinter": "./sinter"`). Their public components are tags in the app; their helpers come in through a namespace re-export in your helpers module ([docs/libraries.md](libraries.md)) |

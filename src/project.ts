@@ -2,7 +2,7 @@
 // way by the Vite plugin and by `sinter check`.
 import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { dirname, relative, resolve, sep } from 'node:path';
+import { dirname, join, relative, resolve, sep } from 'node:path';
 import { readHelperManifest, type Diagnostic, type HelperManifest } from './compiler/index.js';
 import { strictOf, type Strict } from './compiler/diagnostics.js';
 import type { OpenApiSpec } from './compiler/openapi.js';
@@ -11,27 +11,17 @@ import { COMPLEXITY_LIMITS, type ComplexityOptions } from './compiler/complexity
 import { MESSAGES_MODULE, messagesDts, readMessages, type MessagesProject } from './i18n-build.js';
 import { componentNames, writeComponentTypes } from './components-build.js';
 import { typeExports } from './check/index.js';
-import { librariesOf, libraries as findLibraries, libraryOf, ownLibrary, type Library } from './libraries.js';
+import { librariesOf, libraries as findLibraries, libraryOf, modulesDir, ownLibrary, type Library } from './libraries.js';
 import { isSelfReference, resolveImport } from './fold-check.js';
 
 export interface ProjectOptions {
-  /** helpers module, relative to the root (default `src/sinter.helpers.js`, or `.ts`) */
-  helpers?: string;
-  /** actions module for `data-sn-call` and `<sn-resource call>` (default `src/sinter.actions.js`, or `.ts`) */
-  actions?: string;
-  /** content module: collections for `<sn-resource src="content:…">` (default `src/sinter.content.ts`, or `.js`); `false`: none */
-  content?: string | false;
-  /** app configuration module imported before mount (default `src/sinter.config.js`, or `.ts`) */
-  config?: string;
-  /** app module the early chunk runs before the first paint (default `src/sinter.early.js`, or `.ts`) */
-  early?: string;
+  /** content module: collections for `<sn-resource src="content:…">` (`src/sinter.content.ts`, or `.js`); `false`: none */
+  content?: false;
   /**
    * built-in messages: the inlang project (default `project.inlang`, if it exists) whose message
    * files give `m.key()` in markup and `m` from `@tiaforge-ui/sinter/messages`; `false`: none
    */
   messages?: string | false;
-  /** module whose exported types `type="…"` on `<sn-resource>` may name (default `src/sinter.types.ts`, `.d.ts` or `.js`) */
-  types?: string;
   /** OpenAPI specs (JSON or YAML, inside the root) that resources without `type` are matched against; deprecated: give each API its spec in `apis` */
   openapi?: string | string[];
   /**
@@ -86,6 +76,7 @@ export interface ProjectOptions {
 }
 
 export { strictEnv, strictOf, type Strict } from './compiler/diagnostics.js';
+export { modulesDir } from './libraries.js';
 
 /** A path pattern of `static`: `**` any folders, `*` within one name, `?` one character. */
 export function staticPattern(pattern: string): RegExp {
@@ -181,6 +172,16 @@ function parseSpec(file: string, text: string): unknown {
 /** `sinter({ components })` is the option's old name */
 export const COMPONENTS_RENAMED = 'sinter({ components }) is renamed to `libraries`: it lists component libraries, e.g. `libraries: [\'@acme/ui\']`';
 
+/** options that are gone or renamed: each fails naming what replaces it */
+export function retiredOptions(options: object): void {
+  const o = options as Record<string, unknown>;
+  if (o.components !== undefined) throw new Error(COMPONENTS_RENAMED);
+  for (const [k, file] of [['helpers', 'sinter.helpers'], ['actions', 'sinter.actions'], ['config', 'sinter.config'], ['early', 'sinter.early'], ['types', 'sinter.types']] as const) {
+    if (o[k] !== undefined) throw new Error(`sinter({ ${k} }) is gone: the module is \`src/${file}.ts\` (or \`.js\`), in a component library \`fixtures/${file}.ts\` beside its fixture pages`);
+  }
+  if (typeof o.content === 'string') throw new Error('sinter({ content }) takes only `false`: the content module is `src/sinter.content.ts` (or `.js`)');
+}
+
 export function project(root: string, options: ProjectOptions = {}): Project {
   const find = (given: string | undefined, base: string, exts = ['.js', '.ts']): string | null => {
     const candidates = given ? [given] : exts.map((e) => base + e);
@@ -190,7 +191,7 @@ export function project(root: string, options: ProjectOptions = {}): Project {
   // the component libraries: their files are read wherever they really are (a workspace link)
   const configFile = resolve(root, VITE_CONFIGS.find((f) => existsSync(resolve(root, f))) ?? 'vite.config.js');
   const appComponents = componentNames(root);
-  if ((options as { components?: unknown }).components !== undefined) throw new Error(COMPONENTS_RENAMED);
+  retiredOptions(options);
   const libs = findLibraries(root, librariesOf(options.libraries), appComponents, configFile);
   let realRoot: string | undefined;
   const readFile = (path: string): string => {
@@ -245,12 +246,14 @@ export function project(root: string, options: ProjectOptions = {}): Project {
       },
     }), file];
   };
-  const [helpers, helpersFile] = manifest(options.helpers, 'src/sinter.helpers');
-  const [actions, actionsFile] = manifest(options.actions, 'src/sinter.actions');
-  const contentRel = options.content === false ? null : find(options.content, 'src/sinter.content', ['.ts', '.js']);
-  const configRel = find(options.config, 'src/sinter.config');
-  const earlyRel = find(options.early, 'src/sinter.early');
-  const typesRel = find(options.types, 'src/sinter.types', ['.ts', '.d.ts', '.js']);
+  // the project modules are files at fixed names: `src/sinter.*`, or in a component library, beside its fixture pages
+  const at = modulesDir(root);
+  const [helpers, helpersFile] = manifest(undefined, `${at}/sinter.helpers`);
+  const [actions, actionsFile] = manifest(undefined, `${at}/sinter.actions`);
+  const contentRel = options.content === false ? null : find(undefined, `${at}/sinter.content`, ['.ts', '.js']);
+  const configRel = find(undefined, `${at}/sinter.config`);
+  const earlyRel = find(undefined, `${at}/sinter.early`);
+  const typesRel = find(undefined, `${at}/sinter.types`, ['.ts', '.d.ts', '.js']);
   const openapi: OpenApiSpec[] = [];
   const diagnostics: Diagnostic[] = [...libs.diagnostics];
   const loadSpec = (rel: string): number | null => {

@@ -69,6 +69,11 @@ export function ownLibrary(root: string): { name: string; pages: string[] } | nu
   return { name: pkg.name, pages };
 }
 
+/** where the project modules live: `src/`, or a component library's `fixtures/` (beside the fixture pages `sinter check` compiles) */
+export function modulesDir(root: string): string {
+  return ownLibrary(root) ? relative(root, join(dirname(join(root, (JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')) as { sinter: string }).sinter)), 'fixtures')).split(sep).join('/') : 'src';
+}
+
 /** The package's folder: the project itself when it is the package, else `node_modules/<name>` in the root or a folder above it, as found (links not followed). */
 export function packageDir(root: string, name: string): string | null {
   if (ownLibrary(root)?.name === name) return resolve(root);

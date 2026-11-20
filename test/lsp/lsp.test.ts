@@ -862,13 +862,6 @@ export function textValue(c: Contact) {
     await j.diagnostics('index.html');
     const [b] = extracts(await j.actions('index.html', find(plain, 'n * 2', { cursor: 0 })));
     expect(apply(js, b!.edit)['src/sinter.helpers.js']).toBe('/**\n * @param {number} n\n */\nexport function textValue(n) {\n  return n * 2 + 1;\n}\n');
-    // a configured path is used as it is
-    const conf = project({ 'index.html': plain, 'vite.config.js': `import sinter from ${JSON.stringify(join(process.cwd(), 'src/vite.ts'))};\nexport default { plugins: [sinter({ helpers: 'lib/helpers.js' })] };\n` });
-    const k = await editor(conf, { capabilities: CREATE });
-    k.open('index.html', plain);
-    await k.diagnostics('index.html');
-    const [c] = extracts(await k.actions('index.html', find(plain, 'n * 2', { cursor: 0 })));
-    expect(c!.title).toBe('Extract to helper `textValue` in lib/helpers.js');
     // a client that cannot create files is not offered one that needs a new module
     const none = project({ 'index.html': plain });
     const n = await editor(none);

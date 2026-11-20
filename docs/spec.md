@@ -973,7 +973,7 @@ Work that is not one request (crypto, MIME, WebAuthn, other browser APIs) runs i
 <button data-sn-call="mail.archive(msg)" data-sn-optimistic="remove(msg)" data-sn-catch="error = $error.message">Archive</button>
 <sn-resource name="body" call="pgp.decrypt(open)" when="open" type="Decrypted"></sn-resource>
 ```
-- The actions module is `src/sinter.actions.js` or `.ts` (`sinter({ actions })` overrides it), read like the helpers module: export names, `export * as ns` namespaces, re-exports followed. Its functions may be async and have side effects.
+- The actions module is `src/sinter.actions.js` or `.ts`, read like the helpers module: export names, `export * as ns` namespaces, re-exports followed. Its functions may be async and have side effects.
 - `data-sn-call` is exactly one call of an exported function or namespace member; anything else is `SN401`, an unknown name `SN310`. A method attribute and `data-sn-call` on one element is `SN102`, and so is `data-sn-body` on a call.
 - An action is an action: the same triggers, `data-sn-trigger`, `data-sn-debounce`, `aria-busy`, the mutation concurrency rules (`block` for forms, `queue`, `latest`; a running call is never aborted), optimistic layers, `then` with `$result`, `catch` with `$error`, and the unhandled-error path.
 - Arguments are value expressions evaluated when the action triggers; like `data-sn-body`, they see `$event`, e.g. `$event.submitter` to tell a form's submit buttons apart. The function receives them, then a context: `{signal, request, el}`. `request` goes through the request layer (401 handling, origins, timeout); `signal` aborts when the page is hidden; `el` is the element (null for a resource).

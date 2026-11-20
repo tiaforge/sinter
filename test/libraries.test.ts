@@ -270,7 +270,7 @@ test('a package imports itself by its name through its own `exports` (Node\'s se
   const { resolveImport, foldVerdicts } = await import('../src/fold-check.js');
   const lib = join(tmp, `self-${n++}`);
   cpSync(UI, lib, { recursive: true });
-  const from = join(lib, 'src/sinter.helpers.ts');
+  const from = join(lib, 'fixtures/sinter.helpers.ts');
   expect(resolveImport('@fixture/ui', from, lib)).toBe(join(lib, 'sinter/index.ts'));
   // a subpath its `exports` does not give is not resolved
   expect(resolveImport('@fixture/ui/sinter/outline.ts', from, lib)).toBe(null);
@@ -404,6 +404,11 @@ describe('a package namespace by its declaring modules (section 8\'s per-module 
     // `words` is judged by its own module, which reaches the package's top-level code (and, being lazy, never runs at build time anyway)
     expect(v.get('ui$words')).toMatchObject({ fold: false, reason: '`globalThis`' });
   });
+});
+
+test('the module options are gone: the modules have fixed names', () => {
+  expect(() => project(app(), { helpers: 'lib/h.ts' } as never)).toThrow('sinter({ helpers }) is gone: the module is `src/sinter.helpers.ts` (or `.js`), in a component library `fixtures/sinter.helpers.ts` beside its fixture pages');
+  expect(() => project(app(), { content: 'src/data.ts' } as never)).toThrow('sinter({ content }) takes only `false`');
 });
 
 test('sinter({ components }) is renamed to `libraries`', () => {
