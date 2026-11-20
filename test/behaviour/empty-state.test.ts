@@ -3,7 +3,8 @@
 // no error; over a list that is no resource's, while the list is empty.
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { compile } from '../../src/compiler/index.js';
-import { firstPaint, mockRequests, render, type CallContext, type RecordedCall } from '../../src/testing/index.js';
+import { firstPaint, mockRequests, render, type RecordedCall } from '../../src/testing/index.js';
+import type { CallContext } from '../../src/index.js';
 
 const LIST = (res: string, list = 'c', around = '') => `
   ${res}
