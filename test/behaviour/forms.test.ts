@@ -181,6 +181,17 @@ test('data-sn-options on a menu: it takes the focus, arrows, Home and End mark, 
   expect(menu.hasAttribute('aria-activedescendant')).toBe(false);
 });
 
+test('data-sn-options: Escape on a list with nothing to close goes on, so a dialog around it closes', async () => {
+  const { root } = await render(`<dialog><ul role="menu" data-sn-options><li role="menuitem">a</li></ul>
+    <ul class="kept" role="menu" data-sn-options data-sn-on-dismiss="$event.preventDefault()"><li role="menuitem">b</li></ul></dialog>`);
+  const esc = (sel: string) => { const e = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }); root.querySelector(sel)!.dispatchEvent(e); return e.defaultPrevented; };
+  expect(esc('ul')).toBe(false);                 // nothing marked: the dialog gets the Escape
+  root.querySelector('ul')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true }));
+  expect(esc('ul')).toBe(true);                  // the first Escape unmarks
+  expect(esc('ul')).toBe(false);                 // the next one closes the dialog
+  expect(esc('ul.kept')).toBe(true);             // a dismiss handler that keeps it
+});
+
 test('data-sn-options: a control of its own inside the list keeps its keys', async () => {
   const { root } = await render(`<ul role="listbox" data-sn-options><li><input class="filter"></li><li role="option">a</li><li role="option">b</li></ul>`);
   const field = root.querySelector<HTMLInputElement>('.filter')!;

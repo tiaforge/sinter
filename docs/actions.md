@@ -490,7 +490,9 @@ the focus itself.
 - ArrowDown and ArrowUp move the mark; ArrowRight and ArrowLeft instead when the list or the element
   has `aria-orientation="horizontal"`. Enter clicks the marked option. Escape fires a bubbling,
   cancelable `dismiss` event on the element; one handler on a form can serve all its inputs, and an
-  input's own handler keeps it there with `$event.preventDefault()`. Other keys, and Enter with no
+  input's own handler keeps it there with `$event.preventDefault()`. Escape stays with the list when it
+  closes something (a text field's suggestions, a mark, or a `dismiss` handler that calls
+  `$event.preventDefault()`); otherwise it goes on, so a menu in a `<dialog>` lets the dialog close. Other keys, and Enter with no
   marked option, do what they always do. Picking is your option's own click handler.
 - **On a text field** the compiler adds `role="combobox"`, `aria-controls` and
   `aria-autocomplete="list"`. Tab clicks the marked option, or the only one; up from the first
