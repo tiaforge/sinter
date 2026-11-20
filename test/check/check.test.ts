@@ -272,7 +272,8 @@ export type Block = Para | Quote | Rule;
     const d = checkPage(html, { files: { 'src/sinter.types.ts': TYPES } });
     expect(d.map((x) => `${x.severity} ${x.code} ${x.file}:${x.line}`)).toEqual(['warning SN507 index.html:3']);
     expect(checkPage(html, { files: { 'src/sinter.types.ts': TYPES }, complexity: { level: 'error' } }).map((x) => x.severity)).toEqual(['error']);
-    expect(checkPage(html, { files: { 'src/sinter.types.ts': TYPES }, complexity: { statements: 5 } })).toEqual([]);
+    expect(checkPage(html, { files: { 'src/sinter.types.ts': TYPES }, complexity: false })).toEqual([]);
+    expect(() => checkPage(html, { complexity: { statements: 5 } } as never)).toThrow('sinter({ complexity }): `statements` is gone: the limits are fixed');
   });
 
   test('$error passes to a helper that takes a SinterError (an Error: name, stack)', () => {

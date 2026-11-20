@@ -55,7 +55,7 @@ fixture pages, in `fixtures/` ([docs/libraries.md](libraries.md)).
 | Option | Default | Purpose |
 | --- | --- | --- |
 | `typecheck` | on with TypeScript | run `sinter check` at the end of `vite build` and fail the build on type errors; `false` turns it off |
-| `complexity` | see [below](#what-belongs-in-markup) | limits for the `SN507` warning, and its level |
+| `complexity` | warnings | `SN507`, expressions that outgrew markup ([below](#what-belongs-in-markup)): `{ level: 'error' }` fails the build, `false` turns it off |
 | `expansionLimit` | `10000` | the most rows and component instances a page expands at build time; past it the list or tree renders in the browser, with `SN536` ([docs/static-pages.md](static-pages.md#what-is-static)) |
 | `strict` | `false` | warnings fail `sinter check`, `vite build`, pages in the dev server and `render()`; runtime warnings show in the dev server's terminal and overlay. `{ allow: { SN504: 'reason' } }` keeps codes warnings. `SINTER_STRICT=1`/`0` overrides it ([docs/strict.md](strict.md)) |
 | `site` | none | the site's origin (`'https://example.com'`, no path): every page whose URL is known gets a canonical link, and expressions get `$site` and `$canonical` ([docs/static-pages.md](static-pages.md#canonical-urls)) |
@@ -382,7 +382,8 @@ Expressions that outgrow markup get warning `SN507`, naming the limit they excee
 Operations are calls, `new`, operators, assignments, computed member access and functions. Names, member paths (`a.b.c`), literals and object and array structure are free, so a draft object of plain fields costs nothing. Filters like `people.filter(p => p.name.includes(q))` stay under the limits.
 
 ```js
-sinter({ complexity: { statements: 6, ternaries: 1, level: 'error' } })
+sinter({ complexity: { level: 'error' } })   // SN507 fails the build
+sinter({ complexity: false })                // no SN507
 ```
 
-Set any limit alone. `level` is `'warn'` (default), `'error'` (fails the build) or `'off'`. An unknown limit or level is refused when the config loads. The setting also applies to `sinter check` and the editor. In an editor, the quick fix for `SN507` extracts the expression into a helper ([docs/editors.md](editors.md)).
+The limits are the same in every project, so markup reads alike wherever it is. The setting also applies to `sinter check` and the editor. In an editor, the quick fix for `SN507` extracts the expression into a helper ([docs/editors.md](editors.md)).

@@ -32,8 +32,8 @@ export interface ProjectOptions {
   apis?: Record<string, ApiOptions>;
   /** the API a path without `api:` goes to; with one API configured it is that one */
   defaultApi?: string;
-  /** SN507: limits for expressions too complex for markup (`statements`, `sequences`, `guarded`, `ternaries`, `arrow`, `operations`) and `level`: `warn` (default), `error` or `off` */
-  complexity?: ComplexityOptions;
+  /** SN507 (`complex-expression`): `false` turns it off, `{ level: 'error' }` makes it an error; the limits are fixed */
+  complexity?: false | { level?: 'warn' | 'error' };
   /**
    * The most rows and component instances a page expands at build time, in all (default 10,000: each costs about
    * 0.2 ms of compile, in the build and in the editor, which compiles on every edit). A list or tree that would cross
@@ -360,16 +360,19 @@ export function expansionLimitOf(n: number | undefined): number | undefined {
 }
 
 /** The `complexity` option, refused when it names an unknown limit or level, or a limit is not a number of 0 or more. */
-export function complexityOf(c: ComplexityOptions | undefined): ComplexityOptions {
+/** The `complexity` option, checked: `false` turns SN507 off, `{ level: 'error' }` makes it an error; the limits are fixed. */
+export function complexityOf(c: unknown): ComplexityOptions {
   if (c == null) return {};
-  const bad = (m: string) => { throw new Error(`sinter: complexity: ${m}`); };
-  if (typeof c !== 'object') bad('takes an object, e.g. `{ statements: 4, level: \'warn\' }`');
-  for (const [k, v] of Object.entries(c)) {
-    if (k === 'level') { if (!['warn', 'error', 'off'].includes(v as string)) bad(`\`level\` is \`warn\`, \`error\` or \`off\`, not \`${String(v)}\``); }
-    else if (!(COMPLEXITY_LIMITS as string[]).includes(k)) bad(`\`${k}\` is not a limit; the limits are ${COMPLEXITY_LIMITS.map((l) => `\`${l}\``).join(', ')}`);
-    else if (typeof v !== 'number' || !(v >= 0)) bad(`\`${k}\` takes a number of 0 or more`);
+  const bad = (m: string): never => { throw new Error(`sinter({ complexity }): ${m}`); };
+  if (c === false) return { level: 'off' };
+  if (typeof c !== 'object') bad('takes `false` (no SN507) or `{ level: \'error\' }`');
+  for (const [k, v] of Object.entries(c as object)) {
+    if ((COMPLEXITY_LIMITS as string[]).includes(k)) bad(`\`${k}\` is gone: the limits are fixed, so markup reads alike in every project (docs/configuration.md#what-belongs-in-markup)`);
+    if (k !== 'level') bad(`\`${k}\` is not an option; it takes \`level\``);
+    if (v === 'off') bad('`level: \'off\'` is `complexity: false`');
+    if (v !== 'warn' && v !== 'error') bad(`\`level\` is \`'warn'\` or \`'error'\`, not \`${String(v)}\``);
   }
-  return c;
+  return c as ComplexityOptions;
 }
 
 /** The `lazy` option, checked: package names (`openpgp`, `@scope/pkg`), not paths. */

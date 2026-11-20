@@ -93,7 +93,7 @@ Key filters (`data-sn-on-keydown-<modifiers->key`, `data-sn-on-keyup-…`): modi
 - Markup holds filters, conditions, single assignments and short calls. Logic goes into a helper when it computes a value (pure: unit-test it without a page), or into an action when it has side effects (`data-sn-call`).
 - Handlers apply a helper's result to state: `data-sn-on-click="sel = rowClick($event, sel, f.id, ids)"`, not branches on `$event.shiftKey` in the attribute. See the row selection recipe.
 - One step per condition: `open && closeDialog('detail')` is fine; `a && (b = null, closeDialog())` is not: split it into statements, let the dialog's `data-sn-on-close` reset state, or compute the new state in a helper.
-- Warning SN507 (`complex-expression`) flags expressions that outgrew markup and names the limit: statements per handler (4), comma sequences (0), steps behind one `&&`/`||`/`?:` statement (1), `?:` nesting (2), operations in an arrow function (8), operations per expression (15). `sinter({ complexity: { …, level: 'warn' | 'error' | 'off' } })` changes them.
+- Warning SN507 (`complex-expression`) flags expressions that outgrew markup and names the limit: statements per handler (4), comma sequences (0), steps behind one `&&`/`||`/`?:` statement (1), `?:` nesting (2), operations in an arrow function (8), operations per expression (15). `complexity: { level: 'error' }` fails the build on it, `complexity: false` turns it off.
 
 ## Magic names
 

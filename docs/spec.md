@@ -1371,7 +1371,7 @@ Expressions that are too complex for markup are warning `SN507`, with the limit 
 | `operations` | 15 | operations in one expression (each statement of a handler), the backstop |
 
 Operations are calls, `new`, operators, assignments, updates, computed member access and functions; names, member paths (`a.b.c`), literals, and object and array literal structure are free, so a draft literal of plain fields costs nothing. Object attributes (`data-sn-state`, `-let`, `-attr`, `-class`, `-style`, `-with`) are measured per property value, and the warning names the property. The defaults leave filters (`people.filter(p => p.name.includes(q))`), single assignments of a helper's result, a guard over one call (`open && closeDialog()`), short object literals and one nested ternary alone; they were checked against the recipes, the RealWorld example and the e2e pages, which pass.
-- Options of the Vite plugin, read by `sinter check` and `sinter lsp` too: `sinter({ complexity: { statements: 6, ternaries: 1, level: 'warn' } })`. `level` is `warn` (default), `error` (fails the build like any error) or `off`. Each limit can be set alone; an unknown name or level is refused when the config loads.
+- The option of the Vite plugin, read by `sinter check` and `sinter lsp` too: `sinter({ complexity: { level: 'error' } })` fails the build on it, `complexity: false` turns it off. The limits are fixed (until 2026-11-20 each could be set; those keys now fail naming the change).
 - What to do instead: see What belongs in markup.
 
 ### Type checking

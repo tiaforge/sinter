@@ -670,10 +670,12 @@ describe('SN507 complex expressions', () => {
   });
 
   test('the option is checked', () => {
-    expect(complexityOf({ statements: 2, level: 'error' })).toEqual({ statements: 2, level: 'error' });
-    expect(() => complexityOf({ statments: 2 } as ComplexityOptions)).toThrow(/`statments` is not a limit; the limits are `statements`/);
-    expect(() => complexityOf({ level: 'loud' } as unknown as ComplexityOptions)).toThrow(/`level` is `warn`, `error` or `off`/);
-    expect(() => complexityOf({ arrow: -1 })).toThrow(/`arrow` takes a number of 0 or more/);
+    expect(complexityOf({ level: 'error' })).toEqual({ level: 'error' });
+    expect(complexityOf(false)).toEqual({ level: 'off' });
+    expect(() => complexityOf({ statements: 2 })).toThrow(/`statements` is gone: the limits are fixed/);
+    expect(() => complexityOf({ level: 'off' })).toThrow("`level: 'off'` is `complexity: false`");
+    expect(() => complexityOf({ level: 'loud' })).toThrow(/`level` is `'warn'` or `'error'`/);
+    expect(() => complexityOf({ levl: 'error' })).toThrow(/`levl` is not an option; it takes `level`/);
   });
 });
 
