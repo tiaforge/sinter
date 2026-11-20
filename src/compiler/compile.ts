@@ -367,7 +367,7 @@ export interface EarlyParts {
  * writes at mount (the runtime's own functions, bundled into the page's early file beside the messages module that
  * sets their locale). Not `relative`: it reads the clock.
  */
-export const EARLY_FORMATTERS = ['date', 'time', 'datetime', 'number', 'bytes'];
+export const EARLY_FORMATTERS = ['date', 'number', 'bytes'];
 
 /**
  * What another page needs to request this page's data ahead (the `prefetch` feature): its
@@ -6769,7 +6769,7 @@ class Compiler {
     const stub = new Proxy(function () {}, { apply() { throw NOT; }, get() { throw NOT; } });
     const params = new Map<string, unknown>([['$k', $k]]);
     // (`location`: the browser's, as in a pattern page's `$canonical`; a test environment may have one)
-    for (const h of ['Date', 'Intl', 'Math', 'location', 'date', 'time', 'datetime', 'relative', 'number', 'bytes', ...this.opts.helpers.names]) params.set(h, stub);
+    for (const h of ['Date', 'Intl', 'Math', 'location', 'date', 'relative', 'number', 'bytes', ...this.opts.helpers.names]) params.set(h, stub);
     // the app's helpers: a call over constants runs here when the static check lets it (`helperFold`), else its stub
     // records which helper kept the binding in the browser, for SN322
     const folding = (this.folding = this.helperCalls(NOT));
@@ -8116,7 +8116,7 @@ class Compiler {
    */
   earlyParts(): EarlyParts | null {
     const userHelpers = new Set(this.opts.helpers.names);
-    const BUILTIN = /(?<![\w$.])(date|time|datetime|relative|number|bytes)\(/g;
+    const BUILTIN = /(?<![\w$.])(date|relative|number|bytes)\(/g;
     // for requests: no formatter (their URLs and `when`s stay as before)
     const builtin = (code: string) => [...code.matchAll(BUILTIN)].some((m) => !userHelpers.has(m[1]!));
     // for bindings and state fields: the formatters the early file carries (EARLY_FORMATTERS) give the text the page module
@@ -8384,7 +8384,7 @@ class Compiler {
   predictable(): Map<string, ResourceDef> {
     const out = new Map<string, ResourceDef>();
     const userHelpers = new Set(this.opts.helpers.names);
-    const builtin = (code: string) => [...code.matchAll(/(?<![\w$.])(date|time|datetime|relative|number|bytes)\(/g)].some((m) => !userHelpers.has(m[1]!));
+    const builtin = (code: string) => [...code.matchAll(/(?<![\w$.])(date|relative|number|bytes)\(/g)].some((m) => !userHelpers.has(m[1]!));
     for (const def of this.resources) {
       if (def.call || def.each || def.data != null || this.embedded.has(def.name)) continue;
       // its URL and its `when` (and the page it starts at) over what the early file knows: then its load starts at mount
@@ -8405,7 +8405,7 @@ class Compiler {
    */
   prefetchParts(): PrefetchParts | null {
     const userHelpers = new Set(this.opts.helpers.names);
-    const BUILTIN = /(?<![\w$.])(date|time|datetime|relative|number|bytes)\(/g;
+    const BUILTIN = /(?<![\w$.])(date|relative|number|bytes)\(/g;
     const builtin = (code: string) => [...code.matchAll(BUILTIN)].some((m) => !userHelpers.has(m[1]!));
     const messages = Object.entries(this.opts.helpers.namespaces).filter(([, v]) => v.module === '@tiaforge-ui/sinter/messages').map(([k]) => k);
     const fns: string[] = [], index = new Map<string, number>();

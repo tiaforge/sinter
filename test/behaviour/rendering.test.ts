@@ -416,6 +416,16 @@ test('relative() follows $now: "2 minutes ago" moves on without $now in the bind
   expect(root.querySelector('p')!.textContent).toBe('3 minutes ago');
 });
 
+test('date() formats a date, a date with its time, or the time alone; time() and datetime() say so', async () => {
+  const { root } = await render(`<p data-sn-state="{ at: '2026-03-04T09:30:00Z' }">
+    <i data-sn-text="date(at)"></i><i data-sn-text="date(at, 'medium', 'short')"></i><i data-sn-text="date(at, null, 'short')"></i></p>`, { locale: 'en-US' });
+  const [d, dt, t] = [...root.querySelectorAll('i')].map((i) => i.textContent);
+  expect(d).toMatch(/^Mar [34], 2026$/);
+  expect(dt).toMatch(/^Mar [34], 2026, \d{1,2}:30\s?[AP]M$/);
+  expect(t).toMatch(/^\d{1,2}:30\s?[AP]M$/);
+  await expect(render('<p data-sn-text="time(1)"></p>')).rejects.toThrow("`time(v)` is `date(v, null, 'short')`");
+});
+
 test('$locale assignment re-runs locale-dependent bindings', async () => {
   const { root, flush } = await render(`
     <span data-sn-text="number(1234.5)"></span>

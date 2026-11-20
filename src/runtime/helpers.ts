@@ -35,19 +35,16 @@ type Style = 'full' | 'long' | 'medium' | 'short';
  */
 export const isCalendarDate = (v: unknown): v is string => typeof v == 'string' && /^\d{4}-\d\d-\d\d$/.test(v);
 
-export function date(v: unknown, style: Style = 'medium'): string {
+/**
+ * A date, a time, or both: `date(v)`, `date(v, 'long')`, `date(v, 'medium', 'short')` (with the time),
+ * `date(v, null, 'short')` (the time only). A calendar date (`2026-03-04`) is that day wherever it is shown.
+ */
+export function date(v: unknown, style: Style | null = 'medium', timeStyle?: Style): string {
   const d = toDate(v);
-  return d ? fmt(Intl.DateTimeFormat, 'd', { dateStyle: style, timeZone: isCalendarDate(v) ? 'UTC' : undefined }).format(d) : '';
-}
-
-export function time(v: unknown, style: Style = 'short'): string {
-  const d = toDate(v);
-  return d ? fmt(Intl.DateTimeFormat, 'd', { timeStyle: style }).format(d) : '';
-}
-
-export function datetime(v: unknown, style: Style = 'medium'): string {
-  const d = toDate(v);
-  return d ? fmt(Intl.DateTimeFormat, 'd', { dateStyle: style, timeStyle: 'short' }).format(d) : '';
+  if (!d) return '';
+  const o: Intl.DateTimeFormatOptions = { ...(style ? { dateStyle: style } : {}), ...(timeStyle ? { timeStyle } : {}) };
+  if (!style && !timeStyle) o.dateStyle = 'medium';
+  return fmt(Intl.DateTimeFormat, 'd', { ...o, timeZone: !timeStyle && isCalendarDate(v) ? 'UTC' : undefined }).format(d);
 }
 
 const UNITS: Array<[Intl.RelativeTimeFormatUnit, number]> = [

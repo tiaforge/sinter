@@ -86,7 +86,7 @@ the element exists; its content once the parser has closed it.
 The runtime then takes over: on mount it computes the same values, writes nothing new, and nothing
 flashes or resets. Early code runs once and keeps no listeners.
 
-The built-in formatters `date()`, `time()`, `datetime()`, `number()` and `bytes()` are early too: the early
+The built-in formatters `date()`, `number()` and `bytes()` are early too: the early
 file carries the runtime's own, over the same locale, so a date under an article's title is in the first frame
 and the page script writes nothing new at mount. A page's early file includes only the formatters its early
 bindings call. `relative()` reads the clock and waits for the page script. The first formatter a document builds

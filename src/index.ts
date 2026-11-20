@@ -8,6 +8,6 @@ import type { Resource as StoreResource } from './runtime/store.js';
 /** A resource as the app sees it (`app.resource(name)`): its data, status and the store's changes */
 export type Resource<T extends object = any> = Pick<StoreResource<T>, 'name' | 'meta' | 'key' | 'isCollection' | 'get' | 'has' | 'all' | 'value'
   | 'replace' | 'upsert' | 'merge' | 'remove' | 'refresh' | 'subscribe' | 'keyOf'>;
-export { date, time, datetime, relative, number, bytes } from './runtime/helpers.js';
+export { date, relative, number, bytes } from './runtime/helpers.js';
 export type { Env } from './runtime/env.js';
 export type { IR } from './ir.js';

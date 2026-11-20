@@ -276,20 +276,20 @@ Always available, no import. They read the current locale, so a locale switch up
 
 | Helper | Example | Result in `en` |
 | --- | --- | --- |
-| `date(v, style)` | `date(c.born, 'long')` | `March 4, 1990` |
-| `time(v, style)` | `time(c.at)` | `9:30 AM` |
-| `datetime(v, style)` | `datetime(c.at)` | `Mar 4, 1990, 9:30 AM` |
+| `date(v, style, timeStyle)` | `date(c.born, 'long')` | `March 4, 1990` |
+| | `date(c.at, 'medium', 'short')` | `Mar 4, 1990, 9:30 AM` |
+| | `date(c.at, null, 'short')` | `9:30 AM` |
 | `relative(v)` | `relative(c.at)` | `3 days ago` |
 | `number(v, opts)` | `number(c.total, { style: 'currency', currency: 'EUR' })` | `€12.50` |
 | `bytes(v)` | `bytes(f.size)` | `1.5 MB` |
 
-`style` is `'full'`, `'long'`, `'medium'` or `'short'`; `date` and `datetime` default to `'medium'`, `time` to `'short'`. `opts` are `Intl.NumberFormat` options. Missing or invalid values give an empty string, not `Invalid Date`.
+`style` and `timeStyle` are `'full'`, `'long'`, `'medium'` or `'short'`; the date defaults to `'medium'` and the time to none, and `null` leaves the date out (`time()` and `datetime()` were these two until 2026-11-20). `opts` are `Intl.NumberFormat` options. Missing or invalid values give an empty string, not `Invalid Date`.
 
 A calendar date, a string `YYYY-MM-DD` (`'2026-11-11'`), is the same day for every visitor: `date()` formats it in UTC,
 where it was parsed, so it never shows the day before west of Greenwich. A moment (a timestamp, a `Date`,
 `'2026-11-11T09:00:00Z'`) is shown in the visitor's time zone. In a page built in one language
 ([`localePrefix`](static-pages.md#languages)), `number()`, `bytes()` and `date()` of a calendar date over constants
-are written into the HTML at build time; moments, `time()`, `datetime()` and `relative()` are formatted in the browser.
+are written into the HTML at build time; moments, times and `relative()` are formatted in the browser.
 
 ## State, briefly
 

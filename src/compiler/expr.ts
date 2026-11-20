@@ -316,7 +316,7 @@ const RETIRED_FNS: Record<string, string> = {
   patch: '`patch()` is renamed to `merge()`, which says what it does (fields left out stay) and is not the HTTP method: `merge(item, {…})`',
   reset: '`reset()` is gone: a form\'s fields follow their `data-sn-model` state, so clear the state (`data-sn-then="draft = { title: \'\' }"`); `<button type="reset">` restores the fields and their models',
 };
-export const BUILTIN_HELPERS = ['date', 'time', 'datetime', 'relative', 'number', 'bytes'];
+export const BUILTIN_HELPERS = ['date', 'relative', 'number', 'bytes'];
 export const META_FIELDS = ['loading', 'error', 'loadedAt', 'total', 'live', 'page', 'pages', 'from', 'to', 'hasPrev', 'hasNext'];
 const PAGE_FIELDS = ['page', 'pages', 'from', 'to', 'hasPrev', 'hasNext'];
 
@@ -596,6 +596,11 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
       ...(scope.lets ?? []).map((l) => l.name), ...scope.loops.map((l) => l.name), ...scope.states.flatMap((s) => [...s.names]),
       ...page.resources.keys(), ...page.helpers, ...page.namespaces.keys(), ...STORE_FNS, ...BUILTIN_HELPERS,
     ];
+    // the formatters before one `date()` (2026-11-20)
+    if (name === 'time' || name === 'datetime') {
+      report('SN201', name === 'time' ? '`time(v)` is `date(v, null, \'short\')`: one formatter for dates and times' : '`datetime(v)` is `date(v, \'medium\', \'short\')`: one formatter for dates and times', offset);
+      return null;
+    }
     if (scope.component?.outer.has(name)) {
       report('SN201', `\`${name}\` is not defined in component \`<${scope.component.name}>\`, which sees only its props, its own state and the page's resources and helpers`, offset,
         `add \`${name}\` to \`data-sn-props\` and pass it from the caller: \`data-sn-with="{ ${name}: ${name} }"\``);

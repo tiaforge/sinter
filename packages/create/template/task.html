@@ -19,7 +19,7 @@
       <div data-layout="row" data-gap="sm" data-justify="between">
         <span data-badge data-sn-attr="{ 'data-tone': task.done ? 'success' : 'accent' }"
               data-sn-text="task.done ? 'Done' : 'Open'"></span>
-        <small data-muted data-sn-text="'Created ' + datetime(task.createdAt)"></small>
+        <small data-muted data-sn-text="'Created ' + date(task.createdAt, 'medium', 'short')"></small>
       </div>
 
       <!-- Edit a copy; saving sends it, and the response updates `task`. -->

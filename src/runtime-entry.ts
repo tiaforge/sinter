@@ -3,5 +3,5 @@
 export { mount } from './runtime/app.js';
 export { $origins, $apis } from './runtime/config.js';
 export { $k } from './runtime/keys.js';
-export { date, time, datetime, relative, number, bytes } from './runtime/helpers.js';
+export { date, relative, number, bytes } from './runtime/helpers.js';
 export { parsed, rendered } from './runtime/env.js';

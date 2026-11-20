@@ -291,7 +291,7 @@ Helpers are plain functions called like any JS function: `date(c.birthday, 'shor
 
 | Helper | Purpose |
 | --- | --- |
-| `date(v, style)`, `time(v, style)`, `datetime(v, style)` | `Intl.DateTimeFormat` with the current locale; `date` of a calendar date (`YYYY-MM-DD`) with `timeZone: 'UTC'` (added 2026-11-11) |
+| `date(v, style, timeStyle)` | `Intl.DateTimeFormat` with the current locale (`dateStyle`, `timeStyle`; `style` `null` leaves the date out; one function since 2026-11-20, was `date`, `time`, `datetime`); `date` of a calendar date (`YYYY-MM-DD`) with `timeZone: 'UTC'` (added 2026-11-11) |
 | `relative(v)` | `Intl.RelativeTimeFormat`, e.g. "3 days ago" |
 | `number(v, opts)`, `bytes(v)` | `Intl.NumberFormat`, file sizes |
 

@@ -473,9 +473,7 @@ export interface Store<R, D extends string = never> {
   navigate(url: string, options?: { replace?: boolean }): void;
 }
 type Style = 'short' | 'medium' | 'long' | 'full';
-export function date(v: unknown, style?: Style): string;
-export function time(v: unknown, style?: Style): string;
-export function datetime(v: unknown, style?: Style): string;
+export function date(v: unknown, style?: Style | null, timeStyle?: Style): string;
 export function relative(v: unknown, now?: unknown): string;
 export function number(v: unknown, opts?: Intl.NumberFormatOptions): string;
 export function bytes(v: unknown): string;
