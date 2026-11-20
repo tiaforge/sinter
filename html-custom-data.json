@@ -121,7 +121,7 @@
     },
     {
       "name": "data-sn-text",
-      "description": "sets textContent; never HTML. On a <template>: a text node with no element (a run of text beside elements); no other attribute on that template (value expression)"
+      "description": "sets textContent (null and undefined: empty, no `?? ''` needed); never HTML. On a <template>: a text node with no element (a run of text beside elements); no other attribute on that template (value expression)"
     },
     {
       "name": "data-sn-attr",
