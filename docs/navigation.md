@@ -52,7 +52,7 @@ sinter({ prefetch: { html: { mode: 'prefetch', delivery: 'header' } } })   // by
 ```
 
 `'prerender'` runs the next page before anyone sees it: its requests go out and its islands start.
-Streams (`<sn-sync>`) wait until the page is shown, and then every resource is refetched, since it
+Streams (`<sn-sync>`) wait until the page is shown, and then every resource is reloaded, since it
 may have loaded minutes earlier. Use it for apps whose pages do nothing on load but read.
 
 ## Speculation Rules and a Content Security Policy

@@ -175,10 +175,10 @@ A component is an HTML file in `src/components/`. Its file name is its tag:
 ### Data
 
 - **Resources.** `<sn-resource>` loads a JSON endpoint, caches it by key and shares the request
-  between everything that asks. Loading flags, stale responses and refetching are handled.
+  between everything that asks. Loading flags, stale responses and reloading are handled.
   [Resources and store](docs/resources.md)
 - **Live updates.** `<sn-sync>` turns server events into list changes (upsert, remove, patch) with
-  attributes, over SSE, WebSocket or SignalR. Coming back online or from the back button refetches.
+  attributes, over SSE, WebSocket or SignalR. Coming back online or from the back button reloads.
   [Sync](docs/sync.md), [recipe](docs/recipes/sse-sync.html)
 - **Pagination.** Keyset, offset and "load more" lists, including a start page from the URL.
   [Pagination](docs/pagination.md), [recipe](docs/recipes/pagination.html)

@@ -151,7 +151,7 @@ stream.emit('contact_updated', { contact: { id: 2, name: 'Grace' } });
 await flush();
 expect(root.querySelectorAll('li')).toHaveLength(1);
 
-stream.drop();                    // a network error: sinter reconnects and refetches
+stream.drop();                    // a network error: sinter reconnects and reloads
 ```
 
 | Member | Purpose |

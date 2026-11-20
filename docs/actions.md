@@ -242,7 +242,7 @@ URL and body which resources and rows the action reads.
 | Rule | When | Effect |
 | --- | --- | --- |
 | Confirm | the response holds an object of a schema `S` | every keyed list of `S` patches its item with that key; what the URL named is patched when it is an `S` |
-| Create | a `POST` to a keyed list's own URL, query included | the response's object (else the body merged with the response's key fields; else a refetch) is upserted. A filtered or paginated list is never inserted into |
+| Create | a `POST` to a keyed list's own URL, query included | the response's object (else the body merged with the response's key fields; else a reload) is upserted. A filtered or paginated list is never inserted into |
 | Update | a `PUT` or `PATCH` | the body patches the entity the URL named |
 | Delete | a `DELETE` of that list's URL plus one path segment, built from a row | the row is removed |
 
@@ -263,7 +263,7 @@ a failure with `$error`. Both are handlers: state assignments and these built-in
 
 | Function | Effect |
 | --- | --- |
-| `refresh('contacts')`, `refresh('a', 'b')` | refetch the named resources |
+| `refresh('contacts')`, `refresh('a', 'b')` | reload the named resources |
 | `upsert('contacts', $result)` | insert or replace an item |
 | `merge(item, {…})` | change fields of an item, in the resource it came from |
 | `remove(item)` | remove an item from the resource it came from (a single resource becomes `null`) |
@@ -561,7 +561,7 @@ optimistic change is one layer, so it rolls back as a whole. Recipe: [row-select
   nearest element that handles a click wins. Custom events from `emit()` are different; they
   reach every ancestor with a handler, inner first, until one prevents the default.
 - `then` runs after write-through, so what `then` writes has the last word.
-- A later refetch or server event also beats an optimistic change that has already committed, like
+- A later reload or server event also beats an optimistic change that has already committed, like
   any later write to the base.
 - `data-sn-confirm` with a falsy value skips the question, not the action.
 - `$error` outside a form and outside `data-sn-catch` is a build error (`SN201`); inside

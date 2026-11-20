@@ -37,7 +37,7 @@ export interface Library {
 /** sinter's package name, as libraries name it in `peerDependencies` */
 export const SINTER_PACKAGE = '@tiaforge-ui/sinter';
 
-/** The `components` option, checked: package names (`@acme/ui`), not paths. */
+/** The `libraries` option, checked: package names (`@acme/ui`), not paths. */
 export function librariesOf(list: unknown): string[] {
   if (list == null) return [];
   if (!Array.isArray(list)) throw new Error('sinter({ libraries }): takes a list of package names, e.g. `libraries: [\'@acme/ui\']`');

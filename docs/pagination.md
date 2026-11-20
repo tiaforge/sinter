@@ -170,14 +170,14 @@ target: on keyset without `jump` it must be a subset of `'first' | 'prev' | 'nex
   unhandled-error path, with a dev warning. The next load clears it.
 - Changing `src`, for example another filter value, resets to the first page.
 - Calling `page()` while a page is loading aborts the pending load.
-- A refetch, from `refresh()`, `refresh="30s"` or a server event, repeats the current page's exact
+- A reload, from `refresh()`, `refresh="30s"` or a server event, repeats the current page's exact
   request, so a refresh never jumps. In `append` mode it reloads everything loaded so far as one
   request. A live keyset list that should pick up items added after a short last page uses these
-  too, since a refetch recomputes `hasNext`.
+  too, since a reload recomputes `hasNext`.
 - `then` runs after every page. `$result` is the page just loaded; in `append` mode, only the new
   items.
 - With `cache`, each page's request URL has its own entry; `append` caches only its first page.
 - On a paginated resource, a [server event](sync.md) that upserts a key not on the current page
-  becomes a refetch of the current page. `merge` and `remove` apply only to items present.
+  becomes a reload of the current page. `merge` and `remove` apply only to items present.
 - The first request is the first page as the pager sends it, so it can be preloaded or embedded;
   `page()` then moves on from it ([first paint](first-paint.md)).

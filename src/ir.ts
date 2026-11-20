@@ -40,9 +40,9 @@ export interface Paginate {
   /** keyset/append: the value sent for each direction, where it differs from the direction's name */
   directionValues?: Partial<Record<'first' | 'prev' | 'next' | 'last', string>>;
   pageParam: string;
-  /** the number of items to skip, (n - 1) * size: offset mode sends it instead of `pageParam`; keyset, to let `page(name, n)` jump */
+  /** the number of items to skip, (n - 1) * size: a `numbered: 'offset'` list sends it instead of `pageParam`; keyset, to let `page(name, n)` jump */
   offsetParam?: string;
-  /** `model: $url.page`: the query parameter that holds the page (offset mode) */
+  /** `model: $url.page`: the query parameter that holds the page (numbered lists) */
   model?: string;
   /** with `model`: the function that reads it (`$.$url.page`), where the early file and embedded data read the start page */
   start?: number;

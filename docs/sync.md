@@ -176,7 +176,7 @@ when one of its `<sn-event>` elements names it in `resource`):
 | --- | --- |
 | `'connecting'` | Until the stream first opens, and while a page restored from the back/forward cache reconnects. |
 | `'open'` | The stream is connected. |
-| `'retrying'` | The stream failed; sinter is probing the session and backing off. It is `'open'` again after a reconnect, and the resource is refetched once. |
+| `'retrying'` | The stream failed; sinter is probing the session and backing off. It is `'open'` again after a reconnect, and the resource is reloaded once. |
 | `null` | No `<sn-event>` feeds this resource. |
 
 When several streams feed a resource, `live` is the worst of their states, so an indicator never says
@@ -189,7 +189,7 @@ When several streams feed a resource, `live` is the worst of their states, so an
 
 Reading `live` of a resource that no `<sn-event>` feeds is the warning [SN516](diagnostics.md#sn516-unfed-live): it is always `null`.
 
-The state is not an error: events sent while the stream was down are caught up by the refetch, and
+The state is not an error: events sent while the stream was down are caught up by the reload, and
 the data stays on screen. A page that never reads `live` pays nothing for it. A prerendered page
 reads `'connecting'` until it is shown. A custom transport sets it through `onState('open' | 'error')`.
 
@@ -205,11 +205,11 @@ reads `'connecting'` until it is shown. A custom transport sets it through `onSt
 - **Backoff** starts at 1 s, doubles up to 30 s with jitter, and resets after a successful
   reconnect.
 - **Missed events are caught up.** After a reconnect, every resource fed by that stream is
-  refetched once, because events sent while disconnected are lost.
+  reloaded once, because events sent while disconnected are lost.
 - **Back/forward cache.** The connection closes on `pagehide` and reopens on `pageshow`, so an open
   stream doesn't keep the page out of the cache. Reopening goes through the probe, so a page
   restored after logout is redirected to login.
-- **Refetches coalesce.** Several `refresh` messages for one resource in the same task cause one
+- **Reloads coalesce.** Several `refresh` messages for one resource in the same task cause one
   request.
 - **Swaps keep a stream open.** With [swaps](navigation.md#swaps) on, a stream whose URL the next
   page also declares (the same resolved `src`, the same transport) stays connected: the next page's
@@ -217,7 +217,7 @@ reads `'connecting'` until it is shown. A custom transport sets it through `onSt
   in order, after it has mounted and its `sn-page` listeners have run. Other streams close. With
   `EventSource`, an event whose name the old page did not listen to is not delivered during the swap;
   a server that sends one event name with the kind in the payload avoids that. A resource of the next
-  page whose data came with its HTML is refetched when an event that feeds it may have arrived while
+  page whose data came with its HTML is reloaded when an event that feeds it may have arrived while
   that HTML was fetched. Apps without swaps
   carry none of this.
 - **Streams aren't shared across tabs.** Each tab opens its own connection.

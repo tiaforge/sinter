@@ -13,8 +13,8 @@ export function base(cfg: Cfg, dir: Dir | null, size = cfg.size): Record<string,
 }
 
 /**
- * Page `n` (1-based) by number: offset mode sends `params.page`, or with `params.offset` the number
- * of items to skip; keyset (with `params.offset`) sends the skip with the `first` direction.
+ * Page `n` (1-based) by number: a numbered list sends `params.page`, or with `numbered: 'offset'`
+ * the number of items to skip; keyset (with `params.offset`) sends the skip with the `first` direction.
  */
 export function pageParams(cfg: Cfg, n: number): Record<string, string> {
   if (cfg.mode === 'offset') return cfg.offsetParam ? { [cfg.offsetParam]: String((n - 1) * cfg.size), ...base(cfg, null) } : { [cfg.pageParam]: String(n), ...base(cfg, null) };

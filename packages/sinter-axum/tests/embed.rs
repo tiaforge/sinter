@@ -203,7 +203,7 @@ async fn the_head_is_sent_before_the_data_and_slow_data_ends_the_page_at_the_tim
 
 #[tokio::test]
 async fn a_paginated_resource_is_requested_at_its_first_page() {
-    // the build: `paginate="{ offset: true, size: 10 }"` over a tag from the path
+    // the build: `paginate="{ numbered: true, size: 10 }"` over a tag from the path
     let dir = build(
         "paginated",
         r#"{ "version": 2, "pages": [ { "file": "index.html", "paths": ["/tag/:tag"], "data": [

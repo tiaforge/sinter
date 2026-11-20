@@ -44,7 +44,7 @@ then filter by `term`.
 | Attribute | Meaning |
 | --- | --- |
 | `name` | Identifier used in expressions. Required, must be a valid JavaScript identifier. |
-| `src` | URL template, refetched when its interpolated values change. Required unless `call` is set. With [`sinter({ apis })`](apis.md) a path relative to an API (`/contacts`, `billing:/invoices`), checked against its spec. |
+| `src` | URL template, reloaded when its interpolated values change. Required unless `call` is set. With [`sinter({ apis })`](apis.md) a path relative to an API (`/contacts`, `billing:/invoices`), checked against its spec. |
 | `method` | `POST` for an endpoint that loads data with a request body (search, reports). Default `GET`. Not with `cache`, `paginate` or `each` ([docs/apis.md](apis.md#resources-that-load-with-post)). |
 | `body` | With `method="POST"`: the request body, a value sent as JSON; the resource reloads when it changes. |
 | `call` | Instead of `src`: one call of a [local action](actions.md), `ns.fn(args)`. Reloads when the arguments' inputs change. |
@@ -130,7 +130,7 @@ as a safety net for one that might miss events.
 <sn-resource name="jobs" src="/api/jobs" key="id" refresh="30s"></sn-resource>
 ```
 
-- The clock restarts after every load, whatever caused it: a server event refetch, `refresh()`, a
+- The clock restarts after every load, whatever caused it: a server event reload, `refresh()`, a
   reconnect, a changed `src`. A resource a stream reloads often is rarely refreshed.
 - The reload is silent: `loading` stays false, so a spinner binding does not flicker every 30 s.
 - Nothing is reloaded while the tab is hidden; a refresh that fell due runs when it is shown again.
@@ -152,7 +152,7 @@ as a safety net for one that might miss events.
 ```
 
 - It sees the state around the resource and may assign it. Store functions and `run('id')` work.
-- It runs on every load: the first, `refresh()`, refetches from events, a changed `src`, each page of
+- It runs on every load: the first, `refresh()`, reloads from events, a changed `src`, each page of
   a paginated resource, and embedded data. It does not run for cached data shown early, failed loads,
   or changes that are not loads (optimistic updates, `upsert` from events).
 - So a handler meant to run once must guard itself, one step per guard. A handler that refreshes its
@@ -328,7 +328,7 @@ export const tags = collection({
   `loading` is not set. A select, checkbox or handler triggers the request at once. A text field
   bound to the URL (`data-sn-model="$url.q"`) waits the same, and writes the URL at that pause too.
 - **Priority.** A resource read only inside `<dialog>` elements is requested with low priority.
-- **Coming back.** Restoring a page from the back/forward cache, or going back online, refetches
+- **Coming back.** Restoring a page from the back/forward cache, or going back online, reloads
   every resource. Resources a stream feeds are left to the stream's reconnect.
 - **Immutable data.** Items are frozen in dev builds. Changes always replace the item object.
 

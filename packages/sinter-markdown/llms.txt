@@ -4,7 +4,7 @@
 
 ## Setup
 
-- vite.config: `sinter({ components: ['@tiaforge-ui/sinter-markdown'] })`; to load the parser on demand, also `lazy: ['@tiaforge-ui/sinter-markdown']`.
+- vite.config: `sinter({ libraries: ['@tiaforge-ui/sinter-markdown'] })`; to load the parser on demand, also `lazy: ['@tiaforge-ui/sinter-markdown']`.
 - src/sinter.helpers.ts: `export * as md from '@tiaforge-ui/sinter-markdown';`
 - src/sinter.types.ts: `export type { Root, Heading, Link, Image, Code, Table, TocEntry } from '@tiaforge-ui/sinter-markdown';`
 
