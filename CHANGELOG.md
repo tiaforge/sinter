@@ -5,6 +5,10 @@ Attribute names, function names and diagnostic codes are public API. Before
 
 ## Unreleased
 
+### Added
+
+- A `<template data-sn-else>` directly after a `<template data-sn-for>` is the list's empty state: it renders while the list is empty and every resource the list may come from has loaded, is not loading and has no error (found as `merge()` finds them, through lets, `?:`, `filter` and a helper given one; at a choice, the one shown), so it never shows beside "Loading…" or an error; over state, while the list is empty. A filter that leaves nothing is empty. A `file:` list empty at build time writes it into the page. An else-if there is `SN102` ([docs/proposals/empty-state.md](docs/proposals/empty-state.md), [docs/resources.md](docs/resources.md#loading-empty-error)). RealWorld's empty feeds use it.
+
 ### Changed
 
 A smaller vocabulary, one word per concept ([docs/proposals/vocabulary.md](docs/proposals/vocabulary.md)). Each old name is a build error that names its replacement: `SN101` for an attribute or element, `SN201` for a function, `SN401` for a value (`op="patch"`, `paginate="keyset"`). Those messages stay until 1.0, then an old name is an unknown one. `npx sinter migrate --write` writes every rename the compiler reports, in the pages, components and layouts (`npx sinter migrate` prints them first); the editor's quick fix writes one.
@@ -70,6 +74,8 @@ A smaller vocabulary, one word per concept ([docs/proposals/vocabulary.md](docs/
 - `$meta.<name>.error` is documented and typed (`Meta`) with `detail`, as `$error` is: it is the same object.
 - Recipes brought up to date: the offline-draft form starts as the loaded note (it started empty, so the first autosave cleared the note's body); the URL pagination recipe's page numbers are links with `aria-current`, the recommended pager since same-page links; the form dialog has no `data-sn-catch`, so a rejected save shows the server's messages on its fields, and it says why `upsert('people', $result)` stays (no write-through for a POST without an OpenAPI spec). docs/pagination.md marks the current page link from `$url.page`, as its text says.
 - **Changed:** a `data-sn-for` over strings or numbers needs no `data-sn-key`: a row keys by its value and its occurrence among equal values, so duplicates (`['a', 'a']`) are rows of their own that reorder, insert and remove right, with no dev warning. `SN103` (`missing-row-key`) is retired; it was reported only for a literal array, `Object.keys` and `split`, while a resource's `tagList` keyed by value at run time with two dev warnings. A list chosen between resources with the same key (`$url.feed == 'following' ? feed : articles`, through `data-sn-let`s, `?:`, `||`, `??`, `filter`/`toSorted` and a helper given one) keys by it, so a row shown in both stays when the choice changes; RealWorld drops its `data-sn-key`s.
+- A resource whose `when` turns falsy after a load is not loaded again: `$meta.<name>.loadedAt` and `error` go back to `null` (a `for` resource no longer counts `when` falsy as an empty list loaded).
+- `SN501` no longer reports a `file:` resource that only a branch decided at build time, or a list unrolled to no rows, reads.
 
 ## 0.20.0 (2026-11-18)
 

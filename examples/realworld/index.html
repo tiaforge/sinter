@@ -37,7 +37,7 @@
         <template data-sn-for="a in list">
           <article-preview data-sn-with="{ article: a }"></article-preview>
         </template>
-        <template data-sn-if="!meta.loading && meta.loadedAt && !list.length">
+        <template data-sn-else>
           <template data-sn-if="$url.feed == 'following'">
             <div class="article-preview empty-feed-message">Your feed is empty. Follow some authors or check the <a href="/">Global Feed</a>.</div>
           </template>

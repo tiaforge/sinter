@@ -19,7 +19,7 @@ export const DIAGNOSTIC_DOCS: Record<Code, DiagnosticDoc> = {
   },
   SN102: {
     example: '`data-sn-for` must be on a `<template>`',
-    means: 'The attribute or element is valid, but not here: lists and conditionals render from a `<template>`, `data-sn-path` belongs on `<html>`, `<sn-event>` inside `<sn-sync>`, options such as `data-sn-debounce` need an action on the same element (a method attribute or `data-sn-call`), and `data-sn-attr` cannot bind the `value` or `checked` that a `data-sn-model` on the same control writes.',
+    means: 'The attribute or element is valid, but not here: lists and conditionals render from a `<template>`, `data-sn-path` belongs on `<html>`, `<sn-event>` inside `<sn-sync>`, options such as `data-sn-debounce` need an action on the same element (a method attribute or `data-sn-call`), and `data-sn-attr` cannot bind the `value` or `checked` that a `data-sn-model` on the same control writes. A `data-sn-else` goes directly after a `data-sn-if` template, or after a `data-sn-for` template, where it is the list\'s empty state: that one takes no `data-sn-if` (choose inside it), and the list\'s own `data-sn-let` is not its.',
     fix: 'Move it to where the message says, wrapping the content in a `<template>` if needed.',
   },
   SN104: {
