@@ -295,6 +295,9 @@ What the fourth review left of the same kind, across the JavaScript and configur
   cache and the next-page data). One function, what an app calls on sign-in and sign-out.
 - `@tiaforge-ui/sinter/components` goes: it was `@tiaforge-ui/sinter/runtime/components` under a second name. Only
   generated code imports it (the page modules, a component script's base in its `.html`, the components' types).
+- `header(name, value)` takes `() => string | null | undefined` for `value`, read per request (null: no header):
+  the docs' own token example read the token once, so it sent `Bearer null` signed out and a stale token after a
+  sign-in with swapped pages. Not a rename: a string still works.
 
 ## Looked at and kept
 

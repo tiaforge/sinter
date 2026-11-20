@@ -126,8 +126,12 @@ import { configure, header, onUnauthorized, loginRedirect } from '@tiaforge-ui/s
 
 configure({
   request: [
-    // a value the browser knows; a fixed one (credentials, a CSRF header) goes on the API: sinter({ apis })
-    header('Authorization', `Bearer ${localStorage.getItem('token')}`),
+    // a value the browser knows, read for each request (none while signed out); a fixed one
+    // (credentials, a CSRF header) goes on the API: sinter({ apis })
+    header('Authorization', () => {
+      const token = localStorage.getItem('token');
+      return token && `Bearer ${token}`;
+    }),
     onUnauthorized(loginRedirect({ to: '/login/', returnUrl: { allow: ['/app/'] } })),
   ],
   sessionProbe: '/api/user',
@@ -179,7 +183,7 @@ Built in:
 
 | Function | Does |
 | --- | --- |
-| `header(name, value, { origin })` | adds a header to same-origin requests, or only to `origin`: for a value the browser knows (a token). Fixed credentials and headers go on the API ([docs/apis.md](apis.md)), which keeps early requests |
+| `header(name, value, { origin })` | adds a header to same-origin requests, or only to `origin`: for a value the browser knows (a token). `value` is a function called for each request, `() => string \| null \| undefined` (null or undefined: no header), so a token set after sign-in is sent, also with swapped pages; a string is sent as it is. Fixed credentials and headers go on the API ([docs/apis.md](apis.md)), which keeps early requests |
 | `onUnauthorized(handler)` | calls `handler(request, response)` on a 401 |
 | `loginRedirect({ to, returnUrl })` | stores the current URL (same-origin and under an allowed prefix only), clears persisted state, goes to `to`. It never resolves, so `then` and `catch` do not run |
 | `takeReturnUrl(allow)` | on the login page: the stored URL if it is same-origin and under an allowed prefix, else `null`; removes it |

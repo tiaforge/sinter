@@ -147,15 +147,19 @@ export function clearStored(): void {
 
 /**
  * Adds a header to same-origin requests, or to requests to `options.origin` only: for a value the browser knows
- * when the config module runs (a token from storage). A fixed value goes on the API, `sinter({ apis: { … headers } })`.
+ * (a token from storage). `value` is a string, or a function called for each request, so the value is the current
+ * one (a token set after sign-in, also with swapped pages, where the config module does not run again); a
+ * function that returns null or undefined sends no header (signed out). A fixed value goes on the API,
+ * `sinter({ apis: { … headers } })`.
  */
-export function header(name: string, value: string, options: { origin?: string } = {}): Middleware {
+export function header(name: string, value: string | (() => string | null | undefined), options: { origin?: string } = {}): Middleware {
   return (req, next) => {
     const target = new URL(req.url).origin;
     const allowed = options.origin ? target === new URL(options.origin).origin : target === new URL(envOf(config).href()).origin;
-    if (!allowed) return next(req);
+    const v = allowed ? (typeof value == 'function' ? value() : value) : null;
+    if (v == null) return next(req);
     const headers = new Headers(req.headers);
-    headers.set(name, value);
+    headers.set(name, v);
     return next(new Request(req, { headers }));
   };
 }
