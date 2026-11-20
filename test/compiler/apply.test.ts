@@ -41,7 +41,7 @@ test('provenance: a row (also of a `cond ? feed : articles` loop), a single, and
     { tg: [{ r: 'article', s: 'Article' }, { r: 'article', p: ['author'], s: 'Profile' }], t: 1, rs: [{ p: 'profile', s: 'Profile' }] },
     { tg: [{ r: 'article', s: 'Article' }], t: 1, rs: [{ p: 'comment', s: 'Comment' }], rq: 'comment', u: 0 },
   ]);
-  expect(out.features).toContain('apply');
+  expect(out.features).toContain('write-through');
 });
 
 test('without a spec: provenance only (rule 4 and the body-only update); no `ap` without reads; `data-sn-write-through="off"` drops it; a call has none', () => {

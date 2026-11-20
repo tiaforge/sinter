@@ -41,7 +41,7 @@
     "./persist": "./dist/persist.js",
     "./options": "./dist/options.js",
     "./keys": "./dist/keys.js",
-    "./apply": "./dist/apply.js",
+    "./write-through": "./dist/write-through.js",
     "./cache": "./dist/cache.js",
     "./refresh": "./dist/refresh.js",
     "./retry": "./dist/retry.js",

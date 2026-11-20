@@ -27,7 +27,7 @@ export function changed(current: unknown, p: string[], fields: Record<string, an
 }
 
 const apply: Feature = {
-  name: 'apply',
+  name: 'write-through',
   install(app: App) {
     const schemaOf = new Map(app.ir.resources.filter((r) => r.sch).map((r) => [r.name, r.sch!]));
     app.ext.apply = (a, s, url, body, result) => {

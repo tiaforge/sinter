@@ -61,7 +61,7 @@ const entries = {
   retry: `export { retry } from '${dist}/retry.js';`,
   versions: `export { default } from '${dist}/versions.js';`,
   keys: `export { default } from '${dist}/keys.js';`,
-  apply: `export { default } from '${dist}/apply.js';`,
+  'write-through': `export { default } from '${dist}/write-through.js';`,
   prefetch: `export { prefetch } from '${dist}/prefetch.js';`,
   fields: `export { default } from '${dist}/fields.js';`,
   form: `export { default } from '${dist}/form.js';`,

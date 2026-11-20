@@ -1586,7 +1586,7 @@ class Compiler {
       ir, fns: this.fns,
       ...(this.opts.prerender ? { fixedState: this.fixedState() } : {}),
       ...(this.opts.sourcemap ? { sources: this.sourcesOf(this.fns) } : {}),
-      features: [...(this.opts.dev ? ['dev'] : []), ...['sse', 'optimistic', 'paginate', 'persist', 'cache', 'versions', 'refresh', 'each', 'options', 'keys', 'apply', 'fields', 'form', 'select', 'location', 'typing', 'query-links', 'navigate', 'call', 'debounce', 'confirm', 'models', 'transition', 'components', 'nested', 'lets'].filter((f) => this.features.has(f))],
+      features: [...(this.opts.dev ? ['dev'] : []), ...['sse', 'optimistic', 'paginate', 'persist', 'cache', 'versions', 'refresh', 'each', 'options', 'keys', 'write-through', 'fields', 'form', 'select', 'location', 'typing', 'query-links', 'navigate', 'call', 'debounce', 'confirm', 'models', 'transition', 'components', 'nested', 'lets'].filter((f) => this.features.has(f))],
       helpers: { user, builtin }, namespaces, calls: [...this.calls].sort(),
       diagnostics: this.diagnostics, files: [...this.files].sort(), ...(this.fileGlobs.length ? { globs: this.fileGlobs } : {}), ...(this.pagesOut ? { pages: this.pagesOut } : {}),
       ...(this.check ? { check: this.check } : {}),
@@ -5110,7 +5110,7 @@ class Compiler {
           if (sn) add({ r: base, ...(t.rd.row ? { v: t.rd.row } : {}), ...(n ? { n } : {}), p: t.rd.path.slice(0, i), s: sn });
         }
         if (n) this.features.add('nested');
-        this.features.add('apply');
+        this.features.add('write-through');
       }
     }
     const resolved = new Map<string, string[]>();
@@ -5648,7 +5648,7 @@ class Compiler {
     if (retryAttr === '') this.report(el, 'data-sn-retry', 'SN401', '`data-sn-retry` takes the name of a retry policy from `configure({ retry })`, e.g. `data-sn-retry="drafts"`', 0);
     const ap = method !== 'call' && applyAttr === undefined ? this.applyDef(reads, typed) : null;
     if (ap) {
-      this.features.add('apply');
+      this.features.add('write-through');
       if (then.r?.ast) this.redundantWrites(el, then.r, ap, url, method, typed?.path ?? null);
     }
     // server validation errors shown on the fields (fields.ts): forms that send a mutation and leave errors to sinter

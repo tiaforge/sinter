@@ -4,7 +4,7 @@
 // along its path are replaced, and the row is patched. Loaded only by pages that change nested items.
 import type { App, Feature } from './runtime/app.js';
 import type { Resource } from './runtime/store.js';
-import { at, changed, isObj, nest } from './apply.js';
+import { at, changed, isObj, nest } from './write-through.js';
 
 type Obj = Record<string, any>;
 
