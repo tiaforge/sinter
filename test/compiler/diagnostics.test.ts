@@ -285,6 +285,21 @@ describe('resource references: resources, ?:, ||, ?? and lets that are one', () 
     expect(text(`$meta[tab].hasNxt`)).toEqual([]);
   });
 
+  test('one mistake in a $meta chain, one diagnostic, however long the chain', () => {
+    const text = (x: string) => msgs(`<p data-sn-text="${x}"></p><p data-sn-text="other.length"></p>`).filter((m) => !m.startsWith('SN501'));
+    const named = 'SN301 `$meta[…]` takes the resource, not its name: `$meta[s ? \'messages\' : \'other\']` is `$meta[s ? messages : other]`';
+    expect(text(`$meta[s ? 'messages' : 'other'].loading`)).toEqual([named]);
+    expect(text(`$meta[s ? 'messages' : 'other']?.loading.x`)).toEqual([named]);
+    expect(text(`$meta[s ? mesages : other].loading.x`)).toEqual(['SN301 resource `mesages` is not declared on this page. Did you mean `messages`?']);
+    expect(text(`$meta.other.loadng.toString()`)).toEqual(['SN303 `$meta.other.loadng` is not a status field. Did you mean `loading`?']);
+    expect(text(`$meta.other.pending.x.y`)).toEqual(['SN303 `$meta.other.pending` is gone: an element shows its own request with `aria-busy` (`[aria-busy=true]` in CSS), optimistic or not']);
+    expect(text(`$meta.other.live.x`)).toEqual(['SN516 `$meta.other.live` is always `null`: no `<sn-event resource="other">` on this page feeds `other`']);
+    expect(text(`$meta[s ? other : messages].loadng.x`)).toEqual([
+      'SN303 `$meta.other.loadng` is not a status field. Did you mean `loading`?',
+      'SN303 `$meta.messages.loadng` is not a status field. Did you mean `loading`?',
+    ]);
+  });
+
   test('dependencies: a listable $meta key reads only those resources\' status', () => {
     const r = compileParts(`${P}<main data-sn-state="{ s: false, tab: 'x' }" data-sn-let="{ shown: s ? results : messages }"><p data-sn-text="$meta[shown].hasNext"></p><p data-sn-text="$meta[tab].loading"></p><p data-sn-text="results.length + messages.length + jumps.length + feed.length + other.length"></p></main>`, {
       file: '/p/page.html', root: '/p', dev: false, readFile: () => '', helpers: { module: '/h.js', names: [], namespaces: {} },

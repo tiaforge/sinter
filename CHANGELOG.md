@@ -60,6 +60,7 @@ A smaller vocabulary, one word per concept ([docs/proposals/vocabulary.md](docs/
 
 ### Fixed
 
+- One mistake in a `$meta` chain is one diagnostic: `$meta[s ? 'people' : 'other'].loading` reported its `SN301` three times, and a bad field followed by more members (`$meta.people.loadng.toString()`, `$meta.people.live.x`) its `SN303` or `SN516` once per member.
 - `data-sn-write-through` on a component's tag was refused (`SN102`) since its rename from `data-sn-apply`; a test now checks that every caller attribute of the vocabulary is allowed there.
 - `$meta.<name>.error` is documented and typed (`Meta`) with `detail`, as `$error` is: it is the same object.
 - Recipes brought up to date: the offline-draft form starts as the loaded note (it started empty, so the first autosave cleared the note's body); the URL pagination recipe's page numbers are links with `aria-current`, the recommended pager since same-page links; the form dialog has no `data-sn-catch`, so a rejected save shows the server's messages on its fields, and it says why `upsert('people', $result)` stays (no write-through for a POST without an OpenAPI spec). docs/pagination.md marks the current page link from `$url.page`, as its text says.
