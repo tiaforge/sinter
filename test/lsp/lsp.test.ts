@@ -350,7 +350,7 @@ describe('did-you-mean', () => {
   });
 
   test('a renamed attribute: the fix writes the new name (`start-page` → `page-model`)', () => {
-    const text = '<sn-resource name="a" src="/a" paginate="{ offset: true, size: 2 }" start-page="$url.page"></sn-resource>';
+    const text = '<sn-resource name="a" src="/a" paginate="{ numbered: true, size: 2 }" start-page="$url.page"></sn-resource>';
     const at = text.indexOf('start-page');
     expect(didYouMeanEdit(text, { start: { line: 0, character: at }, end: { line: 0, character: at + 10 } }, '`start-page` is renamed to `page-model` (offset lists, a query parameter), which also writes the page back'))
       .toEqual({ range: { start: { line: 0, character: at }, end: { line: 0, character: at + 10 } }, newText: 'page-model' });

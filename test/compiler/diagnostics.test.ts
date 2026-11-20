@@ -118,7 +118,7 @@ const cases: Array<[string, string, RegExp, Opts?]> = [
   ['SN513', '<div data-sn-state="{ dark: false }"><img alt="" data-sn-attr="{src: dark ? \'./logo-dark.png\' : \'./logo.png\'}"></div>', /`src` is bound to local images \(`\.\/logo-dark\.png`, `\.\/logo\.png`\), which are not optimized/],
   ['SN517', '<sn-resource name="c" src="/api/c" items="contacts"></sn-resource><p data-sn-text="c"></p>', /`GET \/api\/c` returns a list at `contacts`: resource `c` has no `key`, so it is one object holding the list/, { openapi: true }],
   ['SN516', '<sn-resource name="c" src="/api/c" items="contacts"></sn-resource><p data-sn-text="$meta.c.live"></p>', /`\$meta\.c\.live` is always `null`: no `<sn-event resource="c">` on this page feeds `c`/],
-  ['SN519', '<sn-resource name="a" src="/api/a?tag={$url.tag}" items="a" key="id" paginate="{ offset: true, size: 2, model: $url.page }"></sn-resource><p data-sn-text="a.length"></p><a href="?page=2">2</a>', /`\?page=2` keeps only its own query: `tag`, which this page reads, is dropped when it is followed/],
+  ['SN519', '<sn-resource name="a" src="/api/a?tag={$url.tag}" items="a" key="id" paginate="{ numbered: true, size: 2, model: $url.page }"></sn-resource><p data-sn-text="a.length"></p><a href="?page=2">2</a>', /`\?page=2` keeps only its own query: `tag`, which this page reads, is dropped when it is followed/],
   ['SN515', '<!doctype html><html data-sn-path="/page/"><head></head><body></body></html>', /`data-sn-path="\/page\/"` is the URL this page has anyway/],
   ['SN505', '<sn-resource name="c" src="/api/c?qq=1" items="contacts"></sn-resource><p data-sn-text="c"></p>', /`GET \/api\/c` declares no query parameter `qq`. Did you mean `q`\?/, { openapi: true }],
   ['SN510', `<sn-resource name="c" src="/api/c" items="contacts" key="id"></sn-resource><template data-sn-for="x in c"><button data-sn-post="/api/c/{x.id}/star" data-sn-then="merge(x, $result.contact)"></button></template>`,
@@ -209,7 +209,7 @@ const FORMS = (fn: string) => `\`${fn}()\` takes ${fn === 'refresh' ? 'resource 
 
 describe('resource names from a closed set of literals', () => {
   const P = `<sn-resource name="messages" src="/api/m" key="uid" paginate="{ keyset: {uid}, size: 5 }"></sn-resource>
-  <sn-resource name="results" src="/api/r" key="uid" paginate="{ offset: true, size: 5 }"></sn-resource>
+  <sn-resource name="results" src="/api/r" key="uid" paginate="{ numbered: true, size: 5 }"></sn-resource>
   <sn-resource name="jumps" src="/api/j" key="uid" paginate="{ keyset: {uid}, size: 5, jump: true }"></sn-resource>
   <sn-resource name="feed" src="/api/f" key="uid" paginate="{ append: {uid}, size: 5 }"></sn-resource>
   <sn-resource name="other" src="/api/o" key="id"></sn-resource>`;
@@ -239,7 +239,7 @@ describe('resource names from a closed set of literals', () => {
     expect(on(`page(s ? 'other' : 'messages', 'next')`)).toEqual(['SN303 `other` has no `paginate`; `page()` needs a paginated resource']);
     // a page number: fine where every name can jump, SN304 where one is keyset without jump
     expect(on(`page(s ? 'results' : 'jumps', 3)`)).toEqual([]);
-    expect(on(`page(shown, 3)`)).toEqual(['SN304 keyset pagination cannot jump to a page number. Add `jump: true` to `paginate` if the server also accepts an offset, or use `offset: true`']);
+    expect(on(`page(shown, 3)`)).toEqual(['SN304 keyset pagination cannot jump to a page number. Add `jump: true` to `paginate` if the server also accepts an offset, or use `numbered: true`']);
     expect(on(`page(s ? 'feed' : 'messages', 'prev')`)).toEqual(['SN304 `append` pagination only supports `page(…, \'next\')`']);
     expect(on(`page(s ? 'feed' : 'messages', 'next')`)).toEqual([]);
   });
@@ -253,7 +253,7 @@ describe('resource names from a closed set of literals', () => {
     ]);
     expect(text(`$meta[s ? 'reslts' : 'messages'].loading`)).toEqual(['SN301 resource `reslts` is not declared on this page. Did you mean `results`?']);
     expect(text(`$meta[s ? 'other' : 'results'].page`)).toEqual(['SN303 `$meta.other.page` is a pagination field, but `other` has no `paginate`']);
-    expect(text(`$meta[s ? 'jumps' : 'messages'].page`)).toEqual(['SN303 `$meta.messages.page` exists only on an offset list (`paginate="{ offset: true, … }"`), or a keyset list with `jump: true`']);
+    expect(text(`$meta[s ? 'jumps' : 'messages'].page`)).toEqual(['SN303 `$meta.messages.page` exists only on a numbered list (`paginate="{ numbered: true, … }"`), or a keyset list with `jump: true`']);
     // other computed keys: accepted, unchecked
     expect(text(`$meta[tab].hasNxt`)).toEqual([]);
   });

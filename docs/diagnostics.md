@@ -208,7 +208,7 @@ Error, for example:
 
 > `$meta.contacts.loadng` is not a status field. Did you mean `loading`?
 
-`$meta.<resource>` has a fixed set of fields: `loading`, `error`, `loadedAt`, `pending`, `total`, `live`, and with `paginate` also `pages`, `from`, `to`, `hasPrev`, `hasNext`; `page` on an offset list (`offset: true`), or a keyset list with `jump: true`.
+`$meta.<resource>` has a fixed set of fields: `loading`, `error`, `loadedAt`, `pending`, `total`, `live`, and with `paginate` also `pages`, `from`, `to`, `hasPrev`, `hasNext`; `page` on a numbered list (`numbered: true`), or a keyset list with `jump: true`.
 
 **Fix:** Use the suggested field. A pagination field needs `paginate` on the resource.
 
@@ -216,11 +216,11 @@ Error, for example:
 
 Error, for example:
 
-> keyset pagination cannot jump to a page number. Add `jump: true` to `paginate` if the server also accepts an offset, or use `offset: true`
+> keyset pagination cannot jump to a page number. Add `jump: true` to `paginate` if the server also accepts an offset, or use `numbered: true`
 
 Keyset (cursor) pagination only knows the next and previous page, so `page('name', 7)` has nothing to jump to, unless the server can also skip items by offset. A computed target (`page('name', dir)`) is not this error: `sinter check` types it as a direction, and at run time a page number is refused without a request. `append` pagination takes only the literal `'next'`.
 
-**Fix:** If the API accepts an offset next to its cursor, add `jump: true` to `paginate` (and `params: { offset: 'skip' }` where the server names it otherwise): the jump is sent as an offset and `prev`/`next` continue by cursor. Otherwise use `offset: true` in `paginate`, or only step with `first`, `prev`, `next` and `last`.
+**Fix:** If the API accepts an offset next to its cursor, add `jump: true` to `paginate` (and `params: { offset: 'skip' }` where the server names it otherwise): the jump is sent as an offset and `prev`/`next` continue by cursor. Otherwise use `numbered: true` in `paginate`, or only step with `first`, `prev`, `next` and `last`.
 
 ## SN306 component-cycle
 

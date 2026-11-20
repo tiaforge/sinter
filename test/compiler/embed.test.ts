@@ -23,7 +23,7 @@ test('each placeholder: its id, and the URL template where only the URL decides 
     <sn-resource name="article" src="https://api.example/articles/{$url.slug}?v={$url.v}"></sn-resource>
     <sn-resource name="list" key="id" src="/api/list?offset={offset($url.page, 10)}"></sn-resource>
     <sn-resource name="mine" key="id" src="/api/mine?q={q}" when="q"></sn-resource>
-    <sn-resource name="rows" key="id" src="/api/rows" items="rows" total="total" paginate="{ offset: true, size: 2 }"></sn-resource>
+    <sn-resource name="rows" key="id" src="/api/rows" items="rows" total="total" paginate="{ numbered: true, size: 2 }"></sn-resource>
     <sn-resource name="other" src="/api/other"></sn-resource>
     <p data-sn-text="article.title + list.length + mine.length + rows.length + other.x"></p>
   </body></html>`, opts);
@@ -45,25 +45,25 @@ test('model: the parameter is described (the page, from page 2 on); it takes a q
     <sn-resource name="m" key="id" src="/api/m" items="items" total="total" ${attrs}></sn-resource>${extra}
     <p data-sn-text="m.length"></p></body></html>`, opts);
   const pg = (o: string) => `paginate="{ ${o} }"`;
-  const off = page(pg("offset: true, size: 10, model: $url.page, params: { size: 'limit', offset: 'offset' }"));
+  const off = page(pg("numbered: true, size: 10, model: $url.page, params: { size: 'limit', offset: 'offset' }"));
   expect(off.diagnostics.filter((d) => d.severity === 'error')).toEqual([]);
   expect(off.embed[0]).toMatchObject({ src: ['/api/m'], query: [['offset', '0'], ['limit', '10']], start: { url: 'page', key: 'offset', size: 10, skip: true, query: [['offset', '10'], ['limit', '10']] } });
-  const num = page(pg('offset: true, size: 10, model: $url.p'));
+  const num = page(pg('numbered: true, size: 10, model: $url.p'));
   expect(num.embed[0]).toMatchObject({ query: [['page', '1'], ['limit', '10']], start: { url: 'p', key: 'page', size: 10, query: [['page', '2'], ['limit', '10']] } });
   expect(num.embed[0]!.start).not.toHaveProperty('skip');
   const codes = (attrs: string) => page(attrs).diagnostics.map((d) => `${d.code} ${d.message}`);
   // a state value, an expression, a path parameter
-  expect(codes(pg('offset: true, size: 10, model: n'))).toEqual(['SN203 `model` takes a URL parameter such as `$url.page`']);
-  expect(codes(pg('offset: true, size: 10, model: +$url.page'))).toEqual(['SN203 `model` takes a URL parameter such as `$url.page`']);
-  expect(compileParts('<html data-sn-path="/p/:n"><body><sn-resource name="m" key="id" src="/api/m" paginate="{ offset: true, size: 10, model: $url.n }"></sn-resource><p data-sn-text="m.length"></p></body></html>', opts).diagnostics.map((d) => d.message))
+  expect(codes(pg('numbered: true, size: 10, model: n'))).toEqual(['SN203 `model` takes a URL parameter such as `$url.page`']);
+  expect(codes(pg('numbered: true, size: 10, model: +$url.page'))).toEqual(['SN203 `model` takes a URL parameter such as `$url.page`']);
+  expect(compileParts('<html data-sn-path="/p/:n"><body><sn-resource name="m" key="id" src="/api/m" paginate="{ numbered: true, size: 10, model: $url.n }"></sn-resource><p data-sn-text="m.length"></p></body></html>', opts).diagnostics.map((d) => d.message))
     .toEqual(['`model` takes a URL query parameter such as `$url.page`; `$url.n` is a path parameter (`data-sn-path`)']);
   // the resource's own src or when reading it
-  expect(codes(`when="$url.page" ${pg('offset: true, size: 10, model: $url.page')}`)).toContainEqual(expect.stringMatching(/^SN401 `\$url.page` is this resource's page \(`model`\), and its `src` or `when` reads it too/));
-  expect(codes(pg('append: {after: id}, size: 5, model: $url.page'))).toContainEqual('SN401 `model` is for `offset` lists, where every move has a page number when it is made; append lists load more by cursor');
-  expect(codes(pg('keyset: {after: id}, size: 5, jump: true, model: $url.page'))).toContainEqual('SN401 `model` is for `offset` lists, where every move has a page number when it is made; keyset lists move by cursor, and their page number is often unknown');
-  expect(codes(`${pg('offset: true, size: 10')} start-page="$url.page"`)).toEqual(['SN401 `start-page` is `model` in `paginate` now (offset lists, a query parameter), which also writes the page back: `paginate="{ offset: true, size: 10, model: $url.page }"`']);
+  expect(codes(`when="$url.page" ${pg('numbered: true, size: 10, model: $url.page')}`)).toContainEqual(expect.stringMatching(/^SN401 `\$url.page` is this resource's page \(`model`\), and its `src` or `when` reads it too/));
+  expect(codes(pg('append: {after: id}, size: 5, model: $url.page'))).toContainEqual('SN401 `model` is for numbered lists, where every move has a page number when it is made; append lists load more by cursor');
+  expect(codes(pg('keyset: {after: id}, size: 5, jump: true, model: $url.page'))).toContainEqual('SN401 `model` is for numbered lists, where every move has a page number when it is made; keyset lists move by cursor, and their page number is often unknown');
+  expect(codes(`${pg('numbered: true, size: 10')} start-page="$url.page"`)).toEqual(['SN401 `start-page` is `model` in `paginate` now (numbered lists, a query parameter), which also writes the page back: `paginate="{ numbered: true, size: 10, model: $url.page }"`']);
   // a list parameter is no page
-  expect(page(pg('offset: true, size: 10, model: $url.tag'), '<select multiple data-sn-model="$url.tag"></select>').diagnostics.map((d) => `${d.code} ${d.message}`)).toEqual(['SN203 `model` (paginate) takes a URL parameter that is one value; `$url.tag` is a list (a `<select multiple>` or a checkbox with a `value` binds it)']);
+  expect(page(pg('numbered: true, size: 10, model: $url.tag'), '<select multiple data-sn-model="$url.tag"></select>').diagnostics.map((d) => `${d.code} ${d.message}`)).toEqual(['SN203 `model` (paginate) takes a URL parameter that is one value; `$url.tag` is a list (a `<select multiple>` or a checkbox with a `value` binds it)']);
 });
 
 test('when: `$url` values against strings, `!`, `&&`, `||` are a condition a server evaluates; anything else only the browser can', () => {

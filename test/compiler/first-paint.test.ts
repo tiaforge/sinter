@@ -128,7 +128,7 @@ test('early requests: resources whose URL reads only what is known early (state,
       <sn-resource name="days" src="/api/days?start={week}&q={q}" when="view === 'week'"></sn-resource>
       <sn-resource name="detail" src="/api/x/{sel.id}" when="sel"></sn-resource>
       <sn-resource name="dep" src="/api/y?u={user.id}"></sn-resource>
-      <sn-resource name="pg" src="/api/p?u={user.id}" paginate="{ offset: true, size: 10 }" key="id"></sn-resource>
+      <sn-resource name="pg" src="/api/p?u={user.id}" paginate="{ numbered: true, size: 10 }" key="id"></sn-resource>
       <sn-resource name="fmt" src="/api/z?d={date($now)}"></sn-resource>
       <p data-sn-text="dep.x"></p>
     </body></html>`, {}, ['monday']);
@@ -155,7 +155,7 @@ test('early requests, paginated: the first page, with the query parameters the p
     <body>
       <sn-resource name="user" src="/api/user"></sn-resource>
       <sn-resource name="mail" src="/api/mail?box={box}" key="id" paginate="{ keyset: {after: id}, size: 50, jump: true, params: { size: 'limit', offset: 'offset', direction: 'dir' }, directions: {first: 'forward', prev: 'backward', next: 'forward', last: 'last'} }" cache></sn-resource>
-      <sn-resource name="pages" src="/api/pages?box={box}" key="id" paginate="{ offset: true, size: 20, params: { size: 'n', page: 'p' } }"></sn-resource>
+      <sn-resource name="pages" src="/api/pages?box={box}" key="id" paginate="{ numbered: true, size: 20, params: { size: 'n', page: 'p' } }"></sn-resource>
       <sn-resource name="more" src="/api/more?box={box}#x" key="id" paginate="{ append: {after: id}, size: 5 }"></sn-resource>
       <sn-resource name="lit" src="/api/lit?a=1" key="id" paginate="{ keyset: {after: id}, size: 10 }"></sn-resource>
       <sn-resource name="dep" src="/api/dep?u={user.id}" key="id" paginate="{ keyset: {after: id}, size: 10 }"></sn-resource>

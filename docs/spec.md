@@ -1116,7 +1116,7 @@ Keyset mode jumps only when the server can skip by offset as well. With `jump: t
 | Key | Meaning |
 | --- | --- |
 | `keyset`, `append` | the mode, and its cursor: an object literal evaluated on the boundary item of the current page, its last item for `next`, its first for `prev`; `first` and `last` send no cursor. Fields that are `null` or `undefined` are left out, as in URL templates. Compiled with `expr(el, 'paginate', …, text, offset)`, so diagnostics point into the attribute |
-| `offset: true` | offset mode |
+| `numbered: true` | numbered (offset) mode: pages by number (was `offset: true` until 2026-11-20, `SN401` naming the rename) |
 | `size` | items per page, a positive whole number literal; required |
 | `model` | offset mode: `$url.<param>`, the URL query parameter that holds the page (see above) |
 | `jump: true` | keyset mode: `page(name, n)` and `$meta.<name>.page`, sent as the items to skip (`params.offset`, default `offset`) |
@@ -1381,7 +1381,7 @@ Each diagnostic has `severity`, `code`, `message`, `file`, `line`, `col`, an opt
 | `SN211 url-list-condition` | error | `$url.tag` is a list and always truthy; use `$url.tag.length` |
 | `SN301 unknown-resource` | error | resource `mesages` is not declared on this page |
 | `SN303 unknown-meta-field` | error | `$meta.contacts.loadng` is not a status field. Did you mean `loading`? |
-| `SN304 keyset-jump` | error | keyset pagination cannot jump to a page number. Add `jump: true` to `paginate`, or use `offset: true` |
+| `SN304 keyset-jump` | error | keyset pagination cannot jump to a page number. Add `jump: true` to `paginate`, or use `numbered: true` |
 | `SN306 component-cycle` | error | `<x-a>` → `<x-b>` → `<x-a>` uses itself with no `data-sn-for` or `data-sn-if` template between |
 | `SN307 openapi-invalid` | error | OpenAPI spec `api.yml` is not an OpenAPI 3 document (needs `openapi: 3.x` and `paths`) |
 | `SN308 unknown-schema-field` | error | the response of `GET /articles` has no `articls`. Did you mean `articles`? |

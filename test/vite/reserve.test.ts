@@ -48,17 +48,17 @@ body { margin: 0 } ul { margin: 0; padding: 0; list-style: none }
 `,
   'src/fonts/lined.ttf': font(),
   'index.html': `<app-layout>
-  <sn-resource name="people" src="/api/people" items="people" key="id" paginate="{ offset: true, size: 5 }"></sn-resource>
+  <sn-resource name="people" src="/api/people" items="people" key="id" paginate="{ numbered: true, size: 5 }"></sn-resource>
   <ul class="text"><template data-sn-for="p in people"><li data-sn-text="p.name"></li></template></ul>
 </app-layout>
 `,
   'fallback.html': `<app-layout>
-  <sn-resource name="people" src="/api/people" items="people" key="id" paginate="{ offset: true, size: 5 }"></sn-resource>
+  <sn-resource name="people" src="/api/people" items="people" key="id" paginate="{ numbered: true, size: 5 }"></sn-resource>
   <ul class="fb"><template data-sn-for="p in people"><li data-sn-text="p.name"></li></template></ul>
 </app-layout>
 `,
   'loading.html': `<app-layout>
-  <sn-resource name="people" src="/api/people" items="people" key="id" paginate="{ offset: true, size: 5 }"></sn-resource>
+  <sn-resource name="people" src="/api/people" items="people" key="id" paginate="{ numbered: true, size: 5 }"></sn-resource>
   <ul class="fixed">
     <template data-sn-if="$meta.people.loading && !people.length"><li class="ld">Loading…</li></template>
     <template data-sn-for="p in people"><li data-sn-text="p.name"></li></template>
@@ -66,24 +66,24 @@ body { margin: 0 } ul { margin: 0; padding: 0; list-style: none }
 </app-layout>
 `,
   'table.html': `<app-layout>
-  <sn-resource name="people" src="/api/people" items="people" key="id" paginate="{ offset: true, size: 5 }"></sn-resource>
+  <sn-resource name="people" src="/api/people" items="people" key="id" paginate="{ numbered: true, size: 5 }"></sn-resource>
   <table class="t"><thead><tr><th>Name</th><th>Role</th></tr></thead>
     <tbody><template data-sn-for="p in people"><tr><td data-sn-text="p.name"></td><td>engineer</td></tr></template></tbody></table>
 </app-layout>
 `,
   'when.html': `<app-layout>
-  <sn-resource name="people" src="/api/people" items="people" key="id" paginate="{ offset: true, size: 5 }" when="$url.go"></sn-resource>
+  <sn-resource name="people" src="/api/people" items="people" key="id" paginate="{ numbered: true, size: 5 }" when="$url.go"></sn-resource>
   <ul class="fixed"><template data-sn-for="p in people"><li data-sn-text="p.name"></li></template></ul>
 </app-layout>
 `,
   'early.html': `<app-layout>
-  <sn-resource name="people" src="/api/people" items="people" key="id" paginate="{ offset: true, size: 5 }"></sn-resource>
+  <sn-resource name="people" src="/api/people" items="people" key="id" paginate="{ numbered: true, size: 5 }"></sn-resource>
   <ul class="fixed"><template data-sn-if="$meta.people.loading && !people.length"><li id="loading">Loading…</li></template><template data-sn-for="p in people"><li data-sn-text="p.name"></li></template></ul>
   <p id="q" data-sn-text="'Query: ' + $url.q"></p>
 </app-layout>
 `,
   'fixed.html': `<app-layout>
-  <sn-resource name="people" src="/api/people" items="people" key="id" paginate="{ offset: true, size: 5 }"></sn-resource>
+  <sn-resource name="people" src="/api/people" items="people" key="id" paginate="{ numbered: true, size: 5 }"></sn-resource>
   <ul class="fixed"><template data-sn-for="p in people"><li data-sn-text="p.name"></li></template></ul>
 </app-layout>
 `,

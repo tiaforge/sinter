@@ -1753,7 +1753,7 @@ class Compiler {
 
   /**
    * `paginate="{ keyset: { before: id }, size: 20 }"` (docs/pagination.md): how a list pages, as one object literal.
-   * The mode is the key (`keyset` or `append` with the cursor, `offset: true`); `size`; `model: $url.page` (offset);
+   * The mode is the key (`keyset` or `append` with the cursor, `numbered: true`); `size`; `model: $url.page` (numbered);
    * `jump: true` (keyset, by `params.offset`); `params` and `directions`, the server's names, over the API's
    * (`sinter({ apis: { main: { paginate } } })`). Parsed once per element; null after reporting what is wrong.
    */
@@ -1767,7 +1767,7 @@ class Compiler {
   private readPageSpec(el: P5Element): PageSpec | null {
     const text = attr(el, 'paginate');
     if (text == null) return null;
-    const EXAMPLE = '`paginate="{ keyset: { before: id }, size: 20 }"`, `{ offset: true, size: 10 }` or `{ append: { before: id }, size: 20 }`';
+    const EXAMPLE = '`paginate="{ keyset: { before: id }, size: 20 }"`, `{ numbered: true, size: 10 }` or `{ append: { before: id }, size: 20 }`';
     const fail = (message: string, offset = 0) => { this.report(el, 'paginate', 'SN401', message, offset); return null; };
     if (/^\s*(keyset|offset|append)\s*$/.test(text)) return fail(`\`paginate\` is one object literal now: ${this.legacyPaginate(el) ?? EXAMPLE}`);
     let ast: acorn.Expression;
@@ -1803,9 +1803,11 @@ class Compiler {
         if (v.type !== 'ObjectExpression') return fail(`\`${key}\` is the cursor, an object literal read on the boundary item: \`${key}: { before: id }\``, v.start);
         spec.cursor = { text: text.slice(v.start, v.end), at: v.start };
       } else if (key === 'offset') {
+        return fail('`offset: true` is `numbered: true` now (pages by number; `params.offset` names a server that skips by offset): `{ numbered: true, size: 10 }`', p.key.start);
+      } else if (key === 'numbered') {
         modes++;
         spec.mode = 'offset';
-        if (v.type !== 'Literal' || v.value !== true) return fail('`offset` takes `true`: `{ offset: true, size: 10 }`', v.start);
+        if (v.type !== 'Literal' || v.value !== true) return fail('`numbered` takes `true`: `{ numbered: true, size: 10 }`', v.start);
       } else if (key === 'size') {
         if (v.type !== 'Literal' || typeof v.value !== 'number' || !Number.isInteger(v.value) || v.value <= 0) return fail('`size` is the number of items per page, a positive whole number', v.start);
         spec.size = v.value;
@@ -1828,14 +1830,14 @@ class Compiler {
         return fail(`\`${key}\` is not a key of \`paginate\`; it takes ${KEYS.map((x) => `\`${x}\``).join(', ')}.${didYouMean(key, KEYS)}`, p.key.start);
       }
     }
-    if (modes !== 1) return fail(`\`paginate\` names one mode, \`keyset\`, \`append\` (each with its cursor) or \`offset: true\`: ${EXAMPLE}`, lead);
+    if (modes !== 1) return fail(`\`paginate\` names one mode, \`keyset\`, \`append\` (each with its cursor) or \`numbered: true\`: ${EXAMPLE}`, lead);
     if (!spec.size) return fail('`paginate` needs `size`, the number of items per page', lead);
-    if (spec.model && spec.mode !== 'offset') return fail(`\`model\` is for \`offset\` lists, where every move has a page number when it is made; ${spec.mode === 'append' ? 'append lists load more by cursor' : 'keyset lists move by cursor, and their page number is often unknown'}`, spec.model.at);
-    if (spec.jump && spec.mode !== 'keyset') return fail(`\`jump\` is for \`keyset\` lists; ${spec.mode === 'offset' ? 'an offset list jumps already' : 'append lists only load more'}`, lead);
-    if (spec.directions && spec.mode === 'offset') return fail('`directions` is for `keyset` and `append` lists; an offset list sends page numbers', lead);
+    if (spec.model && spec.mode !== 'offset') return fail(`\`model\` is for numbered lists, where every move has a page number when it is made; ${spec.mode === 'append' ? 'append lists load more by cursor' : 'keyset lists move by cursor, and their page number is often unknown'}`, spec.model.at);
+    if (spec.jump && spec.mode !== 'keyset') return fail(`\`jump\` is for \`keyset\` lists; ${spec.mode === 'offset' ? 'a numbered list jumps already' : 'append lists only load more'}`, lead);
+    if (spec.directions && spec.mode === 'offset') return fail('`directions` is for `keyset` and `append` lists; a numbered list sends page numbers', lead);
     // names this list never sends (an API's `params` may name them for its other lists)
-    if (spec.params.page && spec.mode !== 'offset') return fail('`params.page` is for `offset` lists; a keyset or append list moves by its cursor', lead);
-    if (spec.params.direction && spec.mode === 'offset') return fail('`params.direction` is for `keyset` and `append` lists; an offset list sends page numbers', lead);
+    if (spec.params.page && spec.mode !== 'offset') return fail('`params.page` is for numbered lists; a keyset or append list moves by its cursor', lead);
+    if (spec.params.direction && spec.mode === 'offset') return fail('`params.direction` is for `keyset` and `append` lists; a numbered list sends page numbers', lead);
     return spec;
   }
 
@@ -1845,7 +1847,7 @@ class Compiler {
     if (mode !== 'keyset' && mode !== 'offset' && mode !== 'append') return null;
     const parts: string[] = [];
     const cursor = attr(el, 'cursor')?.trim(), offset = attr(el, 'offset-param')?.trim();
-    parts.push(mode === 'offset' ? 'offset: true' : `${mode}: ${cursor || '{ … }'}`);
+    parts.push(mode === 'offset' ? 'numbered: true' : `${mode}: ${cursor || '{ … }'}`);
     parts.push(`size: ${attr(el, 'page-size')?.trim() || '…'}`);
     const pm = attr(el, 'page-model')?.trim();
     if (pm) parts.push(`model: ${pm}`);
@@ -6031,7 +6033,7 @@ class Compiler {
     if (isFileSource(attr(el, 'src'))) return this.fileResource(el, name, ctx.stateIdx);
     if (isContentSource(attr(el, 'src'))) return this.contentResource(el, name, ctx.stateIdx);
     for (const a of el.attrs) {
-      if (a.name === 'start-page') this.report(el, a.name, 'SN401', '`start-page` is `model` in `paginate` now (offset lists, a query parameter), which also writes the page back: `paginate="{ offset: true, size: 10, model: $url.page }"`', 0);
+      if (a.name === 'start-page') this.report(el, a.name, 'SN401', '`start-page` is `model` in `paginate` now (numbered lists, a query parameter), which also writes the page back: `paginate="{ numbered: true, size: 10, model: $url.page }"`', 0);
       else if (!RESOURCE_ATTRS.includes(a.name) && !PAGINATE_OLD.includes(a.name)) this.report(el, a.name, 'SN101', `\`${a.name}\` is not an attribute of \`<sn-resource>\`.${didYouMean(a.name, RESOURCE_ATTRS)}`, 0);
     }
     const earlyAttr = attr(el, 'early');

@@ -88,7 +88,7 @@ test('keyset: the early file requests the first page; the runtime takes it (no s
 });
 
 test('offset: the early request is page 1 with the page size', async () => {
-  const p = await load(PAGE(`paginate="{ offset: true, size: 2, params: { size: 'n', page: 'p' } }"`));
+  const p = await load(PAGE(`paginate="{ numbered: true, size: 2, params: { size: 'n', page: 'p' } }"`));
   await p.settle();
   expect(p.early).toEqual(['/api/mail?box=inbox&p=1&n=2']);
   expect(p.calls).toEqual([]);
@@ -131,7 +131,7 @@ test('cache: the cached first page shows at once, the early response revalidates
 });
 
 test('page-model, offset mode with offset-param: the early file asks for the URL\'s page as the items to skip; the runtime takes it and pages on from there', async () => {
-  const attrs = `paginate="{ offset: true, size: 2, model: $url.page, params: { size: 'n', offset: 'off' } }"`;
+  const attrs = `paginate="{ numbered: true, size: 2, model: $url.page, params: { size: 'n', offset: 'off' } }"`;
   const p = await load(PAGE(attrs).replace('<span ', '<b data-sn-text="$meta.mail.page"></b><span '), { href: 'http://localhost/?page=2' });
   await p.settle();
   expect(p.early).toEqual(['/api/mail?box=inbox&off=2&n=2']);

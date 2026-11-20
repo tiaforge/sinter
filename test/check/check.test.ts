@@ -337,7 +337,7 @@ export type Block = Para | Quote | Rule;
   test('resource names from ?: and lets: page() targets suit every name; items fit any of them', () => {
     const types = TYPES + 'export interface Message { uid: number; subject: string }\n';
     const html = (lets: string, h: string) => page(`<sn-resource name="messages" src="/api/m" key="uid" type="Message[]" paginate="{ keyset: {uid}, size: 5 }"></sn-resource>
-<sn-resource name="results" src="/api/r" key="uid" type="Message[]" paginate="{ offset: true, size: 5 }"></sn-resource>
+<sn-resource name="results" src="/api/r" key="uid" type="Message[]" paginate="{ numbered: true, size: 5 }"></sn-resource>
 <sn-resource name="jumps" src="/api/j" key="uid" type="Message[]" paginate="{ keyset: {uid}, size: 5, jump: true }"></sn-resource>
 <div data-sn-state="{ s: false, n: 2, m: /** @type {Message} */ ({ uid: 1, subject: '' }) }" data-sn-let="${lets}"><button data-sn-on-click="${h}" data-sn-text="contacts.length + messages.length + results.length + jumps.length"></button></div>`);
     const errors = (lets: string, h: string) => checkPage(html(lets, h), { files: { 'src/sinter.types.ts': types } }).map((d) => `${d.code} ${d.message.replace(/ \(TS\d+\)$/, '')}`);
