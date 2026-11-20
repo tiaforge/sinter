@@ -20,7 +20,7 @@ changes go through store functions.
 ```
 
 Loading needs no code. The list stays sorted by `name`, and the old data stays on screen during a
-reload ([loading, empty and error](#loading-empty-and-error)). See `docs/recipes/list-filter.html`.
+reload ([loading, empty, error](#loading-empty-error)). See `docs/recipes/list-filter.html`.
 
 A long list or an expensive filter can wait for the typing to pause: `data-sn-model-debounce` on the
 field delays the model's write, while the field shows each keystroke at once.
@@ -52,7 +52,7 @@ then filter by `term`.
 | `select` | Path in the response to the data: the array of a collection, or the object (`select="user"` of `{ user: … }`). Default: the response itself. |
 | `total` | Path to a total count, exposed as `$meta.<name>.total`. |
 | `order` | Field kept sorted when items are inserted. `-field` sorts descending. Strings compare locale-aware. |
-| `when` | Value expression. While falsy the resource is empty (`[]` for a list, else `null`: [single objects](#single-objects)) and a running request is aborted. |
+| `when` | Value expression. While falsy the resource is empty (`[]` for a list, else `null`: [single objects](#single-objects)), not loaded (`loadedAt` and `error` are `null`), and a running request is aborted. |
 | `cache` | Show the data from the last page load at once, then revalidate. No value means any age; `30s`, `10m`, `2h` or `1d` ignores older data. |
 | `refresh` | Reload in the background once the data is this old, a duration: `30s`, `5m`, `1h`, `1d` (at least `1s`). |
 | `for` | `item in list`: one request per item of another list, merged into one collection. |
@@ -86,22 +86,37 @@ build error, and so is a pagination field on a resource that is not paginated
 | --- | --- |
 | `loading` | A request for this resource is in flight. |
 | `error` | `{status, body, message, detail}` after a failed load (as [`$error`](actions.md#then-and-catch)), `null` once a load succeeds. |
-| `loadedAt` | When the last load succeeded, a `Date` like `$now` (`relative($meta.x.loadedAt)`), `null` before the server has answered on this page. |
+| `loadedAt` | When the last load succeeded, a `Date` like `$now` (`relative($meta.x.loadedAt)`), `null` before the server has answered on this page and while `when` is falsy. |
 | `total` | From the `total` path, adjusted by optimistic removes. `null` if unknown. |
 | `live` | The server-event stream feeding the resource ([sync](sync.md#connection-status)): `'connecting'` until it first opens, `'open'`, `'retrying'` after a failure; `null` when no `<sn-event>` feeds the resource. |
 
 Pagination adds `page`, `pages`, `from`, `to`, `hasPrev` and `hasNext`.
 
-### Loading, empty and error
+## Loading, empty, error
 
-A list's three status lines, so that at most one of "Loading…" and the empty message shows, also while an
-empty list reloads:
+A list has three states besides its rows. Loading and error read `$meta`; empty is the `data-sn-else` after the
+list:
 
-| Line | Condition |
-| --- | --- |
-| Loading | `$meta.people.loading && !people.length` (with data present, `loading` means "updating": the old rows stay) |
-| Empty | `$meta.people.loadedAt && !$meta.people.loading && !shown.length`, where `shown` is what the list shows (the resource, or a filter of it) |
-| Error | `$meta.people.error` |
+```html
+<template data-sn-if="$meta.tasks.loading && !tasks.length"><p aria-busy="true">Loading…</p></template>
+<template data-sn-if="$meta.tasks.error"><p>Could not load the tasks.</p></template>
+<ul>
+  <template data-sn-for="t in tasks.filter((t) => !t.done)"><li data-sn-text="t.title"></li></template>
+  <template data-sn-else><li>Nothing left to do.</li></template>
+</ul>
+```
+
+- **Loading** is `$meta.x.loading && !x.length`: a reload with rows on screen keeps them, without a spinner.
+- **Error** is `$meta.x.error`.
+- **Empty** renders while the list is empty and every resource it may come from has loaded, is not loading and
+  has no error, so it never shows beside the other two. A filter that leaves nothing is empty too, while the
+  resource has rows. The resources are found as `merge()` finds them: through lets, `?:`/`||`/`??`, `filter`,
+  `slice`, `toSorted`, `toReversed` and a helper given one; at a choice, the one shown (`q ? results : recent`).
+- A resource whose `when` is falsy has not loaded: a search with nothing typed shows no "No results". Cached data
+  shown early is not empty yet (`loadedAt` waits for the server), a background `refresh` keeps it, `page()` hides it
+  while the page loads. A `file:` or `content:` list is decided at build time: the empty state is in the page, or
+  not. A list of state, or a list inside a row (`a.comments`), is empty when it is empty.
+- The else after a list takes no `data-sn-if` (SN102): choose inside it.
 
 ## Changing a resource
 

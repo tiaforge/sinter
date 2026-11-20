@@ -1913,6 +1913,8 @@ export function mount(root: Document | Element, o: MountOptions): App {
         c?.abort();
         r.replace(r.isCollection ? [] : null);
         app.ext.cache?.cleared(def);
+        // nothing from the server now: not loaded, as before the first load (a list's empty state waits for one)
+        if (r.meta.loadedAt || r.meta.error) { r.meta.loadedAt = r.meta.error = null; r.onDirty('meta'); }
         loading(false);
       },
       /** Repeats the current request; several calls in one task share one request (quiet only if every call was). */

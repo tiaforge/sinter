@@ -7,5 +7,6 @@
     <template data-sn-for="p in people.filter(p => p.name.toLowerCase().includes(q.toLowerCase()))">
       <li data-sn-text="p.name"></li>
     </template>
+    <template data-sn-else><li class="empty">No one matches.</li></template>
   </ul>
 </section>

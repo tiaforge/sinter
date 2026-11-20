@@ -38,7 +38,7 @@ This is the full reference, `llms-full.txt`. `llms.txt` beside it is the short v
 - `data-sn-for` (item in list | (item, i) in list): repeats a <template> per item. On <html>: the page once per entry of a `file:` list, at `data-sn-path` filled from it
 - `data-sn-key` (value expression): row identity; inferred: resource key, object identity or value
 - `data-sn-if` (value expression): renders a <template> while truthy. Same id, same control: when a branch swaps, the element with an id in the new one takes the old one's focus and running action (a toggle: <button id="f" data-sn-delete=…>, <button id="f" data-sn-post=…>)
-- `data-sn-else`: on a <template> directly after an if template; with data-sn-if beside it, an else-if (<template data-sn-else data-sn-if="q">). Lists, branches and chosen components render between two comments (`<ul><!--sn 4--><li>a</li><!--/sn--></ul>`): CSS sees plain children. Comments that are exactly `<!--sn-->`, `<!--sn 4-->`, `<!--/sn-->` or `<!---->` are reserved (SN105); `$el` in an if, for or use is SN213; keep HTML comments
+- `data-sn-else`: on a <template> directly after an if template; with data-sn-if beside it, an else-if (<template data-sn-else data-sn-if="q">). After a for template: the list's empty state, shown while it is empty and its resources have loaded, are not loading and have no error (a `when` that is falsy has not loaded; a `file:` list is decided at build time; a list of state, while empty); no else-if there (SN102). Lists, branches and chosen components render between two comments (`<ul><!--sn 4--><li>a</li><!--/sn--></ul>`): CSS sees plain children. Comments that are exactly `<!--sn-->`, `<!--sn 4-->`, `<!--/sn-->` or `<!---->` are reserved (SN105); `$el` in an if, for or use is SN213; keep HTML comments
 - `data-sn-options` (id of the list, or empty): arrows mark a [role=option|menuitem] of the list (empty: inside the element, else the nearest listbox or menu), Enter clicks it, Escape fires `sn-dismiss`; focus stays on the element. Text field: a combobox
 - `data-sn-persist` (storage key): persists the model or state in localStorage under sn:
 - `data-sn-post` (URL template): POST action
@@ -157,6 +157,7 @@ Each recipe has a test beside it (`docs/recipes/<name>.test.ts`).
     <template data-sn-for="p in people.filter(p => p.name.toLowerCase().includes(q.toLowerCase()))">
       <li data-sn-text="p.name"></li>
     </template>
+    <template data-sn-else><li class="empty">No one matches.</li></template>
   </ul>
 </section>
 ```

@@ -29,9 +29,9 @@ or only after the page module takes over.
 
 - `test/behaviour/component-fuzz.test.ts` nests components of every root shape (plain, `if`/`else`,
   another component's tag, a slot, a choice, a list; one without props, declared by its bare `<template>`), with fills, slot content,
-  `<sn-component use>`, loops, branches and texts.
+  `<sn-component use>`, loops (with and without an empty state), branches and texts.
 - `test/behaviour/anchor-fuzz.test.ts` nests lists (of objects, and of strings and numbers with duplicates and
-  no key), branches, texts and elements inside a row.
+  no key; with and without an empty state), branches, texts and elements inside a row.
 - `test/behaviour/reactivity-fuzz.test.ts` runs random handlers over a page with lets over helpers: writes
   in place and reassigned, keyed and index-keyed rows moved and their own handlers, rows of strings with
   duplicates and no key with state of their own, store functions,

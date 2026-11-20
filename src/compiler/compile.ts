@@ -1204,6 +1204,10 @@ class Compiler {
   readonly frameOf = new Map<object, number>();
   /** `sinter check`: the condition a branch is checked under, when it is not its own `data-sn-if` (the `data-sn-else` of a choice); and each `if` binding's, for its `data-sn-else` */
   private readonly branchGuard = new WeakMap<object, string>();
+  /** a list's empty state (`emptyStates`): the `data-sn-else` after a `data-sn-for`, now a `data-sn-if`, and the list it is about */
+  /** the second pass: the expressions of the branches it decided and the lists it unrolled to no rows, which read what they name (SN501) */
+  private readonly foldedText: string[] = [];
+  private readonly emptyOf = new WeakMap<P5Element, { list: string; at: P5Element }>();
   /** index in `check.exprs` of the expression `expr()` recorded last, or null */
   lastExpr: number | null = null;
   /** action elements by literal `id` (`run()` targets) */
@@ -1420,6 +1424,7 @@ class Compiler {
     this.pagesOf(doc);
     this.head = findHead(doc);
     this.expandComponents(doc, []);
+    this.emptyStates(doc);
     this.strayAndRepeated(doc);
     this.slotsPlaced();
     // the second pass: what the first decided, per instance, at any depth (decided templates and choices, unrolled loops)
@@ -1488,8 +1493,10 @@ class Compiler {
     this.declareLayers(doc);
     if (this.opts.embed) this.addPlaceholders(doc);
     this.placeholders();
+    // read by what the second pass decided and took out (a branch, a list with no entries): read
+    const folded = new Set(this.foldedText.flatMap((t) => t.match(/[A-Za-z_$][\w$]*/g) ?? []));
     for (const info of this.page.resources.values()) {
-      if (!info.used) {
+      if (!info.used && !folded.has(info.name)) {
         const el = this.resourceEls.get(info.name)!;
         this.report(el, 'name', 'SN501', `resource \`${info.name}\` is declared but never read`, 0);
       }
@@ -2523,6 +2530,112 @@ class Compiler {
     }
   }
 
+  /**
+   * A list's empty state: the `<template data-sn-else>` directly after a `<template data-sn-for>` becomes a
+   * `data-sn-if`, whose condition the walk writes (`emptyCondition`). From here on it is a branch like a
+   * hand-written one: the second pass, the reserved space, the early file and the build's constants read it as
+   * one (docs/proposals/empty-state.md). Before the second pass for the page; at each level of the walk for the
+   * trees compiled on their own (a shared definition), `deep` false.
+   */
+  emptyStates(parent: P5Parent, deep = true) {
+    let prev: P5Element | null = null;
+    for (const c of parent.childNodes) {
+      if (!isElement(c)) {
+        if (c.nodeName === '#text' && (c as DefaultTreeAdapterMap['textNode']).value.trim() !== '') prev = null;
+        continue;
+      }
+      if (prev && c.tagName === 'template' && attr(c, 'data-sn-else') !== undefined && !this.emptyOf.has(c)) {
+        if (attr(c, 'data-sn-else')) this.report(c, 'data-sn-else', 'SN401', '`data-sn-else` takes no value', 0);
+        if (attr(c, 'data-sn-if') !== undefined) {
+          this.report(c, 'data-sn-if', 'SN102', 'the `data-sn-else` after a `data-sn-for` is the list\'s empty state, which takes no condition', 0,
+            'choose inside it: `<template data-sn-else><template data-sn-if="q">…</template><template data-sn-else>…</template></template>`');
+        }
+        c.attrs = c.attrs.filter((a) => a.name !== 'data-sn-else' && a.name !== 'data-sn-if');
+        c.attrs.push({ name: 'data-sn-if', value: '' });
+        this.emptyOf.set(c, { list: /^\s*(?:\(\s*[A-Za-z_]\w*\s*,\s*[A-Za-z_]\w*\s*\)|[A-Za-z_]\w*)\s+in\s+([\s\S]*)$/.exec(attr(prev, 'data-sn-for')!)?.[1] ?? '', at: prev });
+      }
+      prev = c.tagName === 'template' && attr(c, 'data-sn-for') !== undefined ? c : null;
+      if (deep) this.emptyStates(c.tagName === 'template' ? (c as P5Template).content : c);
+    }
+  }
+
+  /**
+   * The condition of a list's empty state, as source: the list is empty and every resource it may come from (as
+   * `listOf` follows it: lets, `?:`/`||`/`??`, `filter`/`slice`/`toSorted`/`toReversed`, a helper given one) has
+   * loaded, is not loading and has no error. A choice is followed: `q ? results : recent` waits for the one shown.
+   * A constant (`file:`, `content:`) has nothing to wait for; nor has a list that is not a resource's (state, a
+   * prop of none) or a list inside an item (`a.comments`, which came with its row).
+   */
+  emptyCondition(list: string, scope: Scope): string {
+    const fetched = (n: string) => {
+      const el = this.resourceEls.get(n), src = el && attr(el, 'src');
+      return !!el && !isFileSource(src) && !isContentSource(src);
+    };
+    const ld = (n: string) => (fetched(n) ? `$meta.${n}.loadedAt && !$meta.${n}.loading && !$meta.${n}.error` : null);
+    const all = (xs: Array<string | null>) => { const k = [...new Set(xs.filter((x): x is string => !!x))]; return k.length ? k.map((x) => `(${x})`).join(' && ') : null; };
+    // what a name is where the list is read: a let (before `upto`), a loop's or state's name, a resource
+    const lets = scope.lets ?? [];
+    const look = (n: string, upto: number): LetEntry | 'resource' | null => {
+      if (scope.loops.some((l) => l.name === n)) return null;
+      const l = lets.slice(0, upto).findLast((x) => x.name === n);
+      if (l) return l;
+      if (scope.states.some((s) => s.names.has(n))) return null;
+      return this.page.resources.has(n) ? 'resource' : null;
+    };
+    const names = (sources: string[] | null | undefined) => all((sources ?? []).filter((x) => /^[\w$]+$/.test(x)).map(ld));
+    type N = acorn.Expression & { start: number; end: number };
+    const parse = (text: string): N | null => { try { return parseExpression(text) as N; } catch { return null; } };
+    let depth = 0;
+    // `of`: the text the node's offsets are in; `upto`: the lets it may read
+    const walk = (n: N, of: string, upto: number): string | null => {
+      if (++depth > 64) return null;
+      switch (n.type) {
+        case 'ChainExpression': return walk(n.expression as N, of, upto);
+        case 'Identifier': {
+          const x = look(n.name, upto);
+          if (x === 'resource') return ld(n.name);
+          if (!x) return null;
+          const i = lets.indexOf(x), v = x.text !== undefined ? parse(x.text) : null;
+          return v ? walk(v, x.text!, i) : names(x.list);
+        }
+        // an item's list came with its row; a single resource's field waits for it (`feed.items`)
+        case 'MemberExpression': {
+          let o = n.object as N;
+          while (o.type === 'MemberExpression' || o.type === 'ChainExpression') o = (o.type === 'ChainExpression' ? o.expression : o.object) as N;
+          if (o.type !== 'Identifier') return null;
+          if (o.name === '$slot') return names(analyze(of.slice(n.start, n.end), scope, this.page, { mode: 'value', report: () => {} }).listOf?.map((s) => s.split('>')[0]!));
+          const x = look(o.name, upto);
+          return x === 'resource' ? ld(o.name) : x?.resource ? ld(x.resource) : null;
+        }
+        case 'ConditionalExpression': {
+          const a = walk(n.consequent as N, of, upto), b = walk(n.alternate as N, of, upto);
+          return a || b ? `(${of.slice(n.test.start, n.test.end)}) ? (${a ?? 'true'}) : (${b ?? 'true'})` : null;
+        }
+        case 'LogicalExpression': return n.operator === '&&' ? walk(n.right as N, of, upto) : all([walk(n.left as N, of, upto), walk(n.right as N, of, upto)]);
+        case 'ArrayExpression': return all(n.elements.map((e) => (e?.type === 'SpreadElement' ? walk(e.argument as N, of, upto) : null)));
+        case 'CallExpression': {
+          const c = n.callee as N;
+          if (c.type === 'MemberExpression' && !c.computed && c.property.type === 'Identifier' && ['filter', 'slice', 'toSorted', 'toReversed'].includes(c.property.name)) return walk(c.object as N, of, upto);
+          return all(n.arguments.map((a) => (a.type === 'SpreadElement' ? null : walk(a as N, of, upto))));
+        }
+        default: return null;
+      }
+    };
+    const ast = parse(list);
+    // the same text twice where it is plain: a resource, or what keeps a list an array
+    const array = !!ast && ((ast.type === 'Identifier' && ((x) => x === 'resource' || !!(x?.names?.length && x.names.every((n) => this.page.resources.get(n)?.key)))(look(ast.name, lets.length)))
+      || (ast.type === 'CallExpression' && ast.callee.type === 'MemberExpression' && !ast.callee.computed && ast.callee.property.type === 'Identifier' && ['filter', 'slice', 'toSorted', 'toReversed'].includes(ast.callee.property.name)));
+    const empty = array ? `!(${list})?.length` : `![...((${list}) || [])].length`;
+    const loaded = ast ? walk(ast, list, lets.length) : null;
+    // a choice that may not compile here (its test reads a name of the let's own place): wait for every candidate
+    if (loaded && !analyze(loaded, scope, this.page, { mode: 'value', report: () => {} }).ok) {
+      const r = analyze(list, scope, this.page, { mode: 'value', report: () => {} });
+      const every = names(r.listOf);
+      return every ? `(${every}) && ${empty}` : empty;
+    }
+    return loaded ? `(${loaded}) && ${empty}` : empty;
+  }
+
   /** Replaces one component tag by the component's root; null when the component file is invalid. */
   expandUse(host: P5Element, def: ComponentFile, chain: string[]): P5Element | null {
     const name = host.tagName;
@@ -2733,6 +2846,9 @@ class Compiler {
       if (typeof y === 'string') return y;
       return { kind: 'chain', templates: [a!, b!], branches: [x, y], empty: false };
     }
+    if (els.length === 2 && a!.tagName === 'template' && attr(a!, 'data-sn-for') !== undefined && b!.tagName === 'template' && attr(b!, 'data-sn-else') !== undefined) {
+      return `a component's root renders at most one element: a \`<template data-sn-for>\` and its \`data-sn-else\` cannot be the root of \`<${name}>\``;
+    }
     if (els.length !== 1) {
       return `a component's root renders at most one element; \`<${name}>\` has ${els.length} elements at the top of its template`;
     }
@@ -2910,13 +3026,14 @@ class Compiler {
     const { host, name, chain } = use;
     const real = (c: P5Node) => isElement(c) || (c.nodeName === '#text' && (c as DefaultTreeAdapterMap['textNode']).value.trim() !== '');
     const realIn = (nodes: P5Node[] | undefined) => !!nodes?.some(real);
-    // the tag's content by slot name; the `data-sn-else` template after a `<template slot="…" data-sn-if>` is part of its fill
+    // the tag's content by slot name; the `data-sn-else` template after a `<template slot="…" data-sn-if>` (or `data-sn-for`,
+    // its empty state) is part of its fill
     const groups = new Map<string, P5Node[]>();
     let ifSlot: string | null = null;
     for (const c of [...host.childNodes]) {
       let slot = isElement(c) ? attr(c, 'slot') : this.forwarded.get(c);
       if (slot === undefined && ifSlot !== null && isElement(c) && c.tagName === 'template' && attr(c, 'data-sn-else') !== undefined) slot = ifSlot;
-      if (real(c)) ifSlot = isElement(c) && c.tagName === 'template' && attr(c, 'data-sn-if') !== undefined && attr(c, 'slot') !== undefined ? attr(c, 'slot')! : null;
+      if (real(c)) ifSlot = isElement(c) && c.tagName === 'template' && (attr(c, 'data-sn-if') !== undefined || attr(c, 'data-sn-for') !== undefined) && attr(c, 'slot') !== undefined ? attr(c, 'slot')! : null;
       const k = slot ?? '';
       if (!groups.has(k)) groups.set(k, []);
       groups.get(k)!.push(c);
@@ -4381,6 +4498,7 @@ class Compiler {
 
   walkChildren(parent: P5Parent, ctx: Ctx) {
     for (const chain of this.emptyDefaults.get(parent) ?? []) this.fillScope(chain, ctx.scope, null, this.instOf(parent as P5Node));
+    this.emptyStates(parent, false);
     let lastIf: { node: NodeDef; binding: Binding } | null = null;
     const kids = parent.childNodes;
     for (let i = 0; i < kids.length; i++) {
@@ -4745,18 +4863,24 @@ class Compiler {
     let content: { tid: number; scope: Scope } | null = null;
     if (isTemplate && has('for')) content = this.forTemplate(el, node, scope, get('for')!, get('key'));
     else if (isTemplate && has('if')) {
-      const r = this.expr(el, 'data-sn-if', scope, { mode: 'value', cond: true });
+      // a list's empty state: its condition is the compiler's, over what the list already reads (compiled quietly: the
+      // list reported its own problems), and no `data-sn-else` follows it
+      const empty = this.emptyOf.get(el);
+      const r = empty ? this.emptyExpr(el, empty.list, scope) : this.expr(el, 'data-sn-if', scope, { mode: 'value', cond: true });
       const tid = this.newTemplate();
       const b = this.binding({ k: 'if', f: this.fn(r.code), d: r.deps, x: tid, ...usesEl(r) });
       if (r.usesEl) this.report(el, 'data-sn-if', 'SN213', '`$el` in a `data-sn-if`: the condition is marked by comments in the page, so there is no element to read', 0, 'read the element in a binding inside the template, or move the condition onto an element with `data-sn-show`');
       node.b.push(b);
-      result = { node, binding: b };
-      const cond = this.branchGuard.get(el) ?? `(${get('if')})`;
-      if (this.check) this.branchGuard.set(b, cond);
-      content = { tid, scope: this.guarded(scope, cond) };
+      if (empty) content = { tid, scope };
+      else {
+        result = { node, binding: b };
+        const cond = this.branchGuard.get(el) ?? `(${get('if')})`;
+        if (this.check) this.branchGuard.set(b, cond);
+        content = { tid, scope: this.guarded(scope, cond) };
+      }
     } else if (isTemplate && has('else')) {
       if (get('else')) this.report(el, 'data-sn-else', 'SN401', '`data-sn-else` takes no value; an else-if is `<template data-sn-else data-sn-if="…">`', 0);
-      if (!prevIf) this.report(el, 'data-sn-else', 'SN102', '`data-sn-else` must be on a `<template>` directly after a `data-sn-if` template', 0);
+      if (!prevIf) this.report(el, 'data-sn-else', 'SN102', '`data-sn-else` must be on a `<template>` directly after a `data-sn-if` template, or after a `data-sn-for` (the list\'s empty state)', 0);
       const tid = this.newTemplate();
       node.b.push(this.binding({ k: 'else', x: tid }));
       if (prevIf) prevIf.binding.y = nodeIdx;
@@ -5168,6 +5292,18 @@ class Compiler {
     return r;
   }
 
+  /** a list's empty state (`emptyCondition`), compiled quietly where the list is: what is wrong with it, the list says */
+  emptyExpr(el: P5Element, list: string, scope: Scope): ExprResult {
+    const r = analyze(this.emptyCondition(list, scope), scope, this.page, { mode: 'value', cond: true, report: () => {} });
+    this.at = { el, attr: null, shift: 0 };
+    if (r.ok) { if (!this.codeAt.has(r.code)) this.codeAt.set(r.code, this.at); return r; }
+    // a list that reads names of its own template (its `data-sn-let`), which its empty state does not have
+    if (analyze(list, scope, this.page, { mode: 'value', report: () => {} }).ok === false && this.diagnostics.every((d) => d.severity !== 'error')) {
+      this.report(el, null, 'SN102', 'this list\'s empty state cannot read the list here: it reads a name of its own `<template data-sn-for>` (a `data-sn-let` on it)', 0, 'move the `data-sn-let` onto an element around the list and its `data-sn-else`');
+    }
+    return analyze('false', scope, this.page, { mode: 'value', report: () => {} });
+  }
+
   /**
    * `data-sn-ref="name"` in a component's markup: a `cmp` binding on the element that gives it to its
    * instance's `this.refs`, found through the root's state (`[state, name]`); nothing for a component
@@ -5333,7 +5469,7 @@ class Compiler {
       const v = p.value as import('acorn').Expression & { start: number; end: number };
       const r = this.expr(el, 'data-sn-let', scope, { mode: 'value', waits: true }, src.slice(v.start, v.end), v.start);
       const waiting = r.ok ? this.lazyLet(r.inner, r.deps) : null;
-      const entry: LetEntry = { name, code: waiting?.code ?? r.inner, deps: waiting?.deps ?? r.deps, usesEl: r.usesEl, usesIndex: r.usesIndex, resource: r.resource, src: r.itemOf ?? null, list: r.listOf ?? null };
+      const entry: LetEntry = { name, code: waiting?.code ?? r.inner, deps: waiting?.deps ?? r.deps, usesEl: r.usesEl, usesIndex: r.usesIndex, resource: r.resource, src: r.itemOf ?? null, list: r.listOf ?? null, text: src.slice(v.start, v.end) };
       // the resources it can be, for store calls and `$meta[…]` that take it as one: its value as their names
       // (also when the value has an undeclared name: the use reports it as a resource, with the suggestion)
       {
@@ -7786,6 +7922,8 @@ class Compiler {
   expandConstants(parent: P5Parent, prefix: string, inTemplate: boolean) {
     const decided = this.opts.decided, unrolled = this.opts.unrolled;
     const real = (c: P5Node) => isElement(c) || (c.nodeName === '#text' && (c as DefaultTreeAdapterMap['textNode']).value.trim() !== '');
+    // a tree the page-wide pass did not reach (a shared definition): its empty states, before a list unrolls away
+    this.emptyStates(parent, false);
     let changed = false;
     for (let i = 0; i < parent.childNodes.length; i++) {
       const c = parent.childNodes[i]!;
@@ -7814,6 +7952,7 @@ class Compiler {
       const key = c.tagName === 'template' && attr(c, 'data-sn-if') !== undefined ? this.instKey(c) : null;
       const v = key ? decided?.get(pre + key) : undefined;
       if (v !== undefined) {
+        this.foldedText.push(attr(c, 'data-sn-if')!, this.emptyOf.get(c)?.list ?? '');
         const j = parent.childNodes.findIndex((x, k) => k > i && real(x));
         const other = j >= 0 && isElement(parent.childNodes[j]!) && (parent.childNodes[j] as P5Element).tagName === 'template' && attr(parent.childNodes[j] as P5Element, 'data-sn-else') !== undefined ? parent.childNodes[j] as P5Element : null;
         place([...(v ? (c as P5Template).content.childNodes : other ? (other as P5Template).content.childNodes : [])], (other ? j : i) - i + 1);
@@ -7852,6 +7991,7 @@ class Compiler {
       const items = tkey ? unrolled?.get(pre + tkey) : undefined;
       const m = items !== undefined ? /^\s*(?:\(\s*([A-Za-z_][\w]*)\s*,\s*([A-Za-z_][\w]*)\s*\)|([A-Za-z_][\w]*))\s+in\s+/.exec(value!) : null;
       if (m) {
+        if (!items!.length) this.foldedText.push(value!.slice(m[0].length));
         const rows: P5Node[] = [];
         for (let k = 0; k < items!.length; k++) {
           const info: RowInfo = { tpl: c, item: (m[1] ?? m[3])!, index: m[2] ?? null, list: value!.slice(m[0].length), offset: m[0].length, k, value: items![k], inst: `${pre}${tkey}#${k}/`, ...(row ? { up: row } : {}) };

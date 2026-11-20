@@ -52,7 +52,7 @@
           <template data-sn-for="a in articles">
             <article-preview data-sn-with="{ article: a }"></article-preview>
           </template>
-          <template data-sn-if="$meta.articles.loadedAt && !$meta.articles.loading && !articles.length">
+          <template data-sn-else>
             <div class="article-preview empty-feed-message">No articles are here... yet.</div>
           </template>
           <template data-sn-if="$meta.articles.pages > 1"><conduit-pager data-sn-with="{ meta: $meta.articles }"></conduit-pager></template>
