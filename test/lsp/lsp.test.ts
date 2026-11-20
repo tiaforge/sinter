@@ -349,12 +349,20 @@ describe('did-you-mean', () => {
     expect(suggestionOf('resource `x` is declared twice')).toBeNull();
   });
 
-  test('a renamed attribute: the fix writes the new name (`start-page` → `page-model`)', () => {
-    const text = '<sn-resource name="a" src="/a" paginate="{ numbered: true, size: 2 }" start-page="$url.page"></sn-resource>';
-    const at = text.indexOf('start-page');
-    expect(didYouMeanEdit(text, { start: { line: 0, character: at }, end: { line: 0, character: at + 10 } }, '`start-page` is renamed to `page-model` (offset lists, a query parameter), which also writes the page back'))
-      .toEqual({ range: { start: { line: 0, character: at }, end: { line: 0, character: at + 10 } }, newText: 'page-model' });
+  test('a rename: the fix writes the new name, for an attribute, a function and a value', () => {
+    const fix = (text: string, wrong: string, message: string) => {
+      const at = text.indexOf(wrong);
+      return didYouMeanEdit(text, { start: { line: 0, character: at }, end: { line: 0, character: at + wrong.length } }, message);
+    };
+    const attr = '<input data-sn-listbox="hits">';
+    expect(fix(attr, 'data-sn-listbox', '`data-sn-listbox` is renamed to `data-sn-options`, which also serves menus and lists'))
+      .toEqual({ range: { start: { line: 0, character: 7 }, end: { line: 0, character: 22 } }, newText: 'data-sn-options' });
+    const fn = '<b data-sn-on-click="showModal(\'d\')"></b>';
+    expect(fix(fn, 'showModal', '`showModal()` is renamed to `openDialog()`, the pair of `closeDialog()`')!.newText).toBe('openDialog');
+    const value = '<sn-resource name="a" src="/a" paginate="{ offset: true, size: 2 }"></sn-resource>';
+    expect(fix(value, 'offset: true', '`offset: true` is renamed to `numbered: true` (pages by number)')!.newText).toBe('numbered: true');
   });
+
 
   test('replaces the whole name nearest the diagnostic', () => {
     const text = '<p data-sn-txt="txt"></p>';

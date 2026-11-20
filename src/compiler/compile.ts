@@ -511,7 +511,7 @@ const RETIRED: Record<string, string> = {
   'data-sn-component': 'is renamed to `data-sn-props`, the one declaration of a component\'s or a layout\'s props: `<template data-sn-props="{ article: Article }">`',
   'data-sn-head': 'is renamed to `data-sn-props`: a component whose markup is head elements is a head component, `<template data-sn-props="{ title?: string }"><title …></template>`',
   'data-sn-layout': 'is renamed to `data-sn-props` on the layout\'s `<html>`: `<html lang="en" data-sn-props="{ title?: string }">`',
-  'data-sn-pages': 'is `data-sn-for` on `<html>` (or a layout\'s tag): `<html data-sn-for="post in posts" data-sn-path="/blog/:slug">` builds the page once per entry',
+  'data-sn-pages': 'is renamed to `data-sn-for`, on `<html>` (or a layout\'s tag): `<html data-sn-for="post in posts" data-sn-path="/blog/:slug">` builds the page once per entry',
   'data-sn-apply': 'is renamed to `data-sn-write-through`, the name of what it turns off: `data-sn-write-through="off"`',
   'data-sn-listbox': 'is renamed to `data-sn-options`, which also serves menus and lists: on a text field it works as before; on the element that holds the options, that element takes the focus',
   'data-sn-get': 'is gone: data a GET loads is a resource, `<sn-resource name="hits" src="/api/search?q={q}" when="q">`, which reloads when the values its URL reads change (latest wins); a load a click starts sets the state its `when` reads, or is a `data-sn-call`',
@@ -1805,7 +1805,7 @@ class Compiler {
         if (v.type !== 'ObjectExpression') return fail(`\`${key}\` is the cursor, an object literal read on the boundary item: \`${key}: { before: id }\``, v.start);
         spec.cursor = { text: text.slice(v.start, v.end), at: v.start };
       } else if (key === 'offset') {
-        return fail('`offset: true` is `numbered: true` now (pages by number; `params.offset` names a server that skips by offset): `{ numbered: true, size: 10 }`', p.key.start);
+        return fail('`offset: true` is renamed to `numbered: true` (pages by number; `numbered: \'offset\'` sends the items to skip): `{ numbered: true, size: 10 }`', p.key.start);
       } else if (key === 'numbered') {
         modes++;
         spec.mode = 'offset';
@@ -6041,7 +6041,7 @@ class Compiler {
     if (isFileSource(attr(el, 'src'))) return this.fileResource(el, name, ctx.stateIdx);
     if (isContentSource(attr(el, 'src'))) return this.contentResource(el, name, ctx.stateIdx);
     for (const a of el.attrs) {
-      if (a.name === 'start-page') this.report(el, a.name, 'SN401', '`start-page` is `model` in `paginate` now (numbered lists, a query parameter), which also writes the page back: `paginate="{ numbered: true, size: 10, model: $url.page }"`', 0);
+      if (a.name === 'start-page') this.report(el, a.name, 'SN101', '`start-page` is `model` in `paginate` now (numbered lists, a query parameter), which also writes the page back: `paginate="{ numbered: true, size: 10, model: $url.page }"`', 0);
       else if (!RESOURCE_ATTRS.includes(a.name) && !PAGINATE_OLD.includes(a.name)) this.report(el, a.name, 'SN101', `\`${a.name}\` is not an attribute of \`<sn-resource>\`.${didYouMean(a.name, RESOURCE_ATTRS)}`, 0);
     }
     const earlyAttr = attr(el, 'early');
@@ -6631,7 +6631,7 @@ class Compiler {
   event(el: P5Element, ctx: Ctx): EventDef | null {
     for (const a of el.attrs) {
       if (a.name === 'fallback') this.report(el, a.name, 'SN101', '`fallback` is gone: write the refresh as a second event of the same name, each with its `when`: `<sn-event name="person_updated" resource="people" op="upsert" value="person" when="person">` and `<sn-event name="person_updated" resource="people" op="refresh" when="!person">` (docs/recipes/partial-events.html)', 0);
-      else if (a.name === 'item' || a.name === 'set') this.report(el, a.name, 'SN101', `\`${a.name}\` is \`value\` now, the value the change writes: the item for \`op="upsert"\`, the fields for \`op="merge"\``, 0);
+      else if (a.name === 'item' || a.name === 'set') this.report(el, a.name, 'SN101', `\`${a.name}\` is renamed to \`value\`, the value the change writes: the item for \`op="upsert"\`, the fields for \`op="merge"\``, 0);
       else if (!EVENT_ATTRS.includes(a.name)) this.report(el, a.name, 'SN101', `\`${a.name}\` is not an attribute of \`<sn-event>\`.${didYouMean(a.name, EVENT_ATTRS)}`, 0);
     }
     const name = attr(el, 'name');

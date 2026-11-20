@@ -46,7 +46,7 @@ const cases: Array<[string, string, RegExp, Opts?]> = [
   ['SN101', '<p data-sn-txt="1"></p>', /`data-sn-txt` is not a sinter attribute. Did you mean `data-sn-text`\?/],
   ['SN101', '<button data-sn-post="/api/x" data-sn-apply="off"></button>', /`data-sn-apply` is renamed to `data-sn-write-through`/],
   ['SN101', '<x-card data-sn-prop="{ a: 1 }"></x-card>', /`data-sn-prop` is renamed to `data-sn-with`/],
-  ['SN101', '<sn-resource name="p" src="/api/p" key="id"></sn-resource><p data-sn-text="p.length"></p><sn-sync src="/s"><sn-event name="e" resource="p" op="upsert" item="person"></sn-event></sn-sync>', /`item` is `value` now, the value the change writes/],
+  ['SN101', '<sn-resource name="p" src="/api/p" key="id"></sn-resource><p data-sn-text="p.length"></p><sn-sync src="/s"><sn-event name="e" resource="p" op="upsert" item="person"></sn-event></sn-sync>', /`item` is renamed to `value`, the value the change writes/],
   ['SN201', '<dialog id="d"></dialog><sn-sync src="/s"><sn-event name="x" then="close(\'d\')"></sn-event></sn-sync>', /`close\(\)` is renamed to `closeDialog\(\)`/],
   ['SN101', '<p data-sn-component="{}"></p>', /`data-sn-component` is renamed to `data-sn-props`/],
   ['SN101', '<sn-resource name="p" src="/api/p" key="id"></sn-resource><p data-sn-text="p.length"></p><sn-sync src="/s"><sn-event name="e" resource="p" op="upsert" value="person" fallback></sn-event></sn-sync>', /`fallback` is gone: write the refresh as a second event of the same name/],

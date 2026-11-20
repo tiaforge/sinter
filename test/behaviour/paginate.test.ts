@@ -174,7 +174,7 @@ describe('paginate diagnostics', () => {
     expect(diags('paginate="offset" page-size="5" offset-param="offset"')[0]).toMatch(/`paginate="\{ numbered: 'offset', size: 5 \}"`/);
   });
   test('offset: true is numbered: true now', () => {
-    expect(diags('paginate="{ offset: true, size: 5 }"')).toEqual(['SN401 `offset: true` is `numbered: true` now (pages by number; `params.offset` names a server that skips by offset): `{ numbered: true, size: 10 }`']);
+    expect(diags('paginate="{ offset: true, size: 5 }"')).toEqual(['SN401 `offset: true` is renamed to `numbered: true` (pages by number; `numbered: \'offset\'` sends the items to skip): `{ numbered: true, size: 10 }`']);
   });
   test('a key given twice; a server name the list never sends', () => {
     expect(diags('paginate="{ numbered: true, size: 5, size: 7 }"')).toEqual(['SN401 `size` is given twice in `paginate`']);

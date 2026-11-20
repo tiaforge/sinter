@@ -61,7 +61,7 @@ test('model: the parameter is described (the page, from page 2 on); it takes a q
   expect(codes(`when="$url.page" ${pg('numbered: true, size: 10, model: $url.page')}`)).toContainEqual(expect.stringMatching(/^SN401 `\$url.page` is this resource's page \(`model`\), and its `src` or `when` reads it too/));
   expect(codes(pg('append: {after: id}, size: 5, model: $url.page'))).toContainEqual('SN401 `model` is for numbered lists, where every move has a page number when it is made; append lists load more by cursor');
   expect(codes(pg('keyset: {after: id}, size: 5, jump: true, model: $url.page'))).toContainEqual('SN401 `model` is for numbered lists, where every move has a page number when it is made; keyset lists move by cursor, and their page number is often unknown');
-  expect(codes(`${pg('numbered: true, size: 10')} start-page="$url.page"`)).toEqual(['SN401 `start-page` is `model` in `paginate` now (numbered lists, a query parameter), which also writes the page back: `paginate="{ numbered: true, size: 10, model: $url.page }"`']);
+  expect(codes(`${pg('numbered: true, size: 10')} start-page="$url.page"`)).toEqual(['SN101 `start-page` is `model` in `paginate` now (numbered lists, a query parameter), which also writes the page back: `paginate="{ numbered: true, size: 10, model: $url.page }"`']);
   // a list parameter is no page
   expect(page(pg('numbered: true, size: 10, model: $url.tag'), '<select multiple data-sn-model="$url.tag"></select>').diagnostics.map((d) => `${d.code} ${d.message}`)).toEqual(['SN203 `model` (paginate) takes a URL parameter that is one value; `$url.tag` is a list (a `<select multiple>` or a checkbox with a `value` binds it)']);
 });

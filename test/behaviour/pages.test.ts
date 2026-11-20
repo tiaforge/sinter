@@ -63,7 +63,7 @@ describe('data-sn-for on <html>: a page per entry', () => {
     expect(one('data-sn-path="/blog/:slug" data-sn-for="post in pots"')).toEqual([expect.stringMatching(/^SN340 `pots` is not a resource of this page/)]);
     expect(one('data-sn-path="/blog/:slug" data-sn-for="post in posts"', '<sn-resource name="posts" src="file:/content/posts/hello.md"></sn-resource>')).toEqual([expect.stringMatching(/^SN340 `posts` is not a build-time list: `data-sn-for` on `<html>` takes a `file:` glob/)]);
     expect(errors(build('<div data-sn-for="post in posts"></div>'))).toEqual([expect.stringMatching(/^SN102 `data-sn-for` must be on a `<template>` \(or on `<html>`: the page once per entry\)/)]);
-    expect(one('data-sn-path="/blog/:slug" data-sn-pages="post in posts"')).toEqual([expect.stringMatching(/^SN101 `data-sn-pages` is `data-sn-for` on `<html>`/)]);
+    expect(one('data-sn-path="/blog/:slug" data-sn-pages="post in posts"')).toEqual([expect.stringMatching(/^SN101 `data-sn-pages` is renamed to `data-sn-for`, on `<html>`/)]);
   });
 
   test('SN341: an entry that cannot fill the pattern, or two that fill one path', () => {

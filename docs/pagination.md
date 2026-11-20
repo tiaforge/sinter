@@ -124,7 +124,7 @@ page. Build the whole query: `href="?page=3"` alone drops `tag` (SN519). Buttons
   for anything else); the resource's own `src` or `when` cannot read it (SN401), since each page
   would reset the list.
 
-`start-page` is `model` (SN401). A start page from a path segment (`/blog/page/3`), from another
+`start-page` is `model` (SN101). A start page from a path segment (`/blog/page/3`), from another
 expression, or for keyset lists with `jump` is not possible: those lists start at page 1.
 See `docs/recipes/url-pagination.html`.
 
