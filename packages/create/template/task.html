@@ -12,7 +12,7 @@
 
   <a href="/" data-icon="arrow-left" data-self="start">All tasks</a>
   <!-- The same transition name as the link on the list: the title morphs into this heading. -->
-  <h1 data-sn-transition="'task-' + $url.id" data-sn-text="task ? task.title : ''"></h1>
+  <h1 data-sn-transition="'task-' + $url.id" data-sn-text="task?.title"></h1>
 
   <template data-sn-if="task">
     <article data-layout="stack" data-gap="md">
