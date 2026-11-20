@@ -69,6 +69,13 @@ describe('an API with a token', () => {
     expect(out.early).toContain('$so("l", "jwt")');
   });
 
+  test('a signIn path needs none of loginRedirect\'s options; a signIn of its options passes signInTarget', () => {
+    expect(build({}, { main: { ...MAIN, token: { ...MAIN.token, signIn: '/login' } }, other: { openapi: OTHER as unknown as string } }).out.module).toContain('$tokens();');
+    const { out } = build({}, { main: { ...MAIN, token: { ...MAIN.token, signIn: { to: '/login', returnUrl: { allow: ['/'], param: 'next' } } } }, other: { openapi: OTHER as unknown as string } });
+    expect(out.module).toContain("import { $tokens, signInTarget } from '@tiaforge-ui/sinter/runtime/token';");
+    expect(out.module).toContain('$tokens(signInTarget);');
+  });
+
   test('nothing of the token is written into the HTML; the bundle and early file name only its storage key', () => {
     const { out } = build();
     expect(out.html).not.toContain('jwt');

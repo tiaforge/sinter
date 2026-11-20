@@ -312,7 +312,9 @@ function pageLines(parts: CompiledParts, options: Pick<CompileOptions, 'helpers'
     const table = options.apis.list.map(runtimeApi);
     lines.push(`import { $apis } from '${RUNTIME}';`, `$apis(${JSON.stringify(table)});`);
     // an API with a token: the request layer sends it (src/token.ts); other apps carry none of it
-    if (table.some((a) => a.t)) lines.push(`import { $tokens } from '${RUNTIME}/token';`, '$tokens();');
+    // (a `signIn` of loginRedirect's options: its target function; a path needs none of it)
+    if (table.some((a) => a.t)) lines.push(...(table.some((a) => typeof a.t?.i == 'object')
+      ? [`import { $tokens, signInTarget } from '${RUNTIME}/token';`, '$tokens(signInTarget);'] : [`import { $tokens } from '${RUNTIME}/token';`, '$tokens();']));
   }
   // images from the API: the resizing service's URLs (docs/images.md, step 2)
   if (parts.remote) lines.push(`import { remote } from '${RUNTIME}/remote';`);

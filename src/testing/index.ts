@@ -17,7 +17,7 @@ import { mount, scopeState, type App, type Feature, type Transport } from '../ru
 import { config, type Middleware } from '../runtime/config.js';
 import type { Env } from '../runtime/env.js';
 import { tokens } from '../runtime/request.js';
-import { $tokens } from '../token.js';
+import { $tokens, signInTarget } from '../token.js';
 import signedIn from '../signed-in.js';
 import { $k } from '../runtime/security.js';
 import { $href, $hv } from '../runtime/url.js';
@@ -577,7 +577,7 @@ export async function render(html: string, options: RenderOptions = {}): Promise
   // the page module's `$apis`: each API's base, credentials, headers and token
   config.apis = apis?.list.map(runtimeApi) ?? [];
   // and an API with a token: the request layer sends it, as the page module's `$tokens()` sets up
-  if (config.apis.some((a) => a.t)) $tokens(); else tokens.on = undefined;
+  if (config.apis.some((a) => a.t)) $tokens(signInTarget); else tokens.on = undefined;
   // and their origins join the allowlist, as the page module's `$origins` does
   if (apis) config.origins = [...new Set([...config.origins, ...apiOrigins(apis)])];
 

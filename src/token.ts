@@ -4,11 +4,24 @@
 // out); a 401 clears it; an action's 401 that nothing on the page shows goes to the sign-in page; a response the
 // config names stores a new one.
 // The page module installs this (`$tokens()`) when one of its APIs has a token: other apps carry none of it.
-import { apiFor, config, clearStored, loginRedirect, SinterError, type ApiSettings, type LoginRedirectOptions } from './runtime/config.js';
+import { apiFor, config, clearStored, SinterError, type ApiSettings, type LoginRedirectOptions } from './runtime/config.js';
 import type { Env } from './runtime/env.js';
 import { tokens, type TokenHooks } from './runtime/request.js';
 
 type Token = NonNullable<ApiSettings['t']>;
+/** where a sign-in goes from `href`: `signInTarget`'s (runtime/config.ts) */
+type To = (i: string | LoginRedirectOptions, href: string, session: Storage | null) => string;
+
+/** an app whose `signIn`s are paths needs none of loginRedirect's options: `signInTarget`'s path form, the return URL stored */
+let to: To = (i, href, s) => {
+  const u = new URL(href);
+  try { s?.setItem('sn:return', u.pathname + u.search + u.hash); } catch { /* ignored */ }
+  return i as string;
+};
+/** where the sign-in of `i` (an API's `signIn`) goes from the page now, the return URL stored (also the sign-in guard's, src/signed-in.ts) */
+export const signInOf = (i: string | LoginRedirectOptions, env: Env): string => to(i, env.href(), env.session());
+/** for the page module of an app with a `signIn` of loginRedirect's options: `$tokens(signInTarget)` */
+export { signInTarget } from './runtime/config.js';
 
 const storage = (t: Token, env: Env) => (t.s == 's' ? env.session() : env.storage());
 
@@ -84,8 +97,10 @@ const hooks: TokenHooks = {
   signIn(url, env) {
     const t = apiFor(url, env.href())?.t;
     if (!t?.i) return false;
-    // (a path alone is the path form: signInTarget reads it)
-    void loginRedirect(t.i as LoginRedirectOptions)();
+    // as loginRedirect: the return URL stored, what the visitor kept dropped, then away
+    const u = signInOf(t.i, env);
+    clearStored();
+    env.navigate(u);
     return true;
   },
   signOut(env, app) {
@@ -103,7 +118,11 @@ const hooks: TokenHooks = {
   },
 };
 
-/** The page module, for an app with a token: the request layer sends it (once is enough; the testing module calls it too). */
-export function $tokens(): void {
+/**
+ * The page module, for an app with a token: the request layer sends it (once is enough; the testing module calls it too).
+ * `target`: `signInTarget`, passed by an app with a `signIn` of loginRedirect's options (`{ to, returnUrl }`).
+ */
+export function $tokens(target?: To): void {
   tokens.on = hooks;
+  if (target) to = target;
 }
