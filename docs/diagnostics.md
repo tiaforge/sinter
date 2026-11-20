@@ -728,7 +728,7 @@ Warning, for example:
 
 > `GET /api/contacts` returns a list at `contacts`: resource `contacts` has no `key`, so it is one object holding the list
 
-Without `key` a resource is a single object. A list of objects loads and renders that way, but nothing can change one item: an `upsert` replaces the whole list, `merge` merges fields into the list and `remove` sets it to `null`. Reported when the OpenAPI response at `items` is a list of objects.
+Without `key` a resource is a single object. A list of objects loads and renders that way, but nothing can change one item: an `upsert` replaces the whole list, `merge` merges fields into the list and `remove` empties it (`[]`). Reported when the OpenAPI response at `items` is a list of objects.
 
 **Fix:** Add `key` with the field that identifies an item, such as `key="id"`. A list that is only read can stay as it is.
 

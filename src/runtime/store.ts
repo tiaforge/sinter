@@ -42,6 +42,8 @@ export interface ResourceOptions {
   prep?: <T>(item: T) => T;
   /** hand out frozen lists (dev builds) */
   freeze?: boolean;
+  /** a single-object resource the build knows is a list (a list of strings has no key): empty, it reads `[]`, not null */
+  list?: 1;
 }
 
 /** The public store handle (`app.resource(name)`), plus the hooks loaders and features use. */
@@ -53,7 +55,7 @@ export interface Resource<T extends object = any> {
   get(key: string | T): T | undefined;
   has(key: string | T): boolean;
   all(): readonly T[];
-  /** what expressions see: the ordered array, or the single object (null when absent) */
+  /** what expressions see: the ordered array, or the single object (null when absent; `[]` for a list without `key`) */
   value(): readonly T[] | T | null;
   replace(items: T[] | T | null): void;
   upsert(item: T): void;
@@ -90,6 +92,9 @@ export function clean<T>(obj: T): T {
   for (const k of Object.keys(obj)) if (!BAD_KEY.test(k)) out[k] = (obj as Record<string, unknown>)[k];
   return out as T;
 }
+
+/** the empty value of a list without `key`: one frozen array, so a read that finds it empty changes nothing */
+const NONE: readonly never[] = Object.freeze([]);
 
 /** One collator per locale: constructing one is costly in some engines. */
 const collators = new Map<string, Intl.Collator>();
@@ -263,7 +268,7 @@ export function createResource<T extends object = any>(name: string, o: Resource
     get: (k) => (coll ? visible().get(keyOf(k)) : visible().s ?? undefined),
     has: (k) => r.get(k) !== undefined,
     all: () => visible().l,
-    value: () => (coll ? visible().l : visible().s),
+    value: () => (coll ? visible().l : visible().s ?? (o.list ? NONE : null)),
     replace(items) {
       if (coll) {
         base = new Map();

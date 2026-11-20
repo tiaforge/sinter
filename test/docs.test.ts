@@ -212,7 +212,7 @@ Each open EventSource holds one HTTP connection, and HTTP/1.1 allows 6 per origi
 `);
   out.push(`## Resources
 
-\`<sn-resource name src key>\` is a named, page-wide cache of server data: the page reads it by name, it loads by itself (latest wins, shared requests, the typing pause), and \`$meta.<name>\` holds its status. \`when\` delays it, \`cache\` shows the last page load's data at once, \`refresh="30s"\` reloads it in the background, \`for="a in accounts"\` fans out one request per item, \`call\` feeds it from a function, \`src="file:…"\` or \`content:\` from the project at build time. Guide: docs/resources.md.
+\`<sn-resource name src key>\` is a named, page-wide cache of server data: the page reads it by name, it loads by itself (latest wins, shared requests, the typing pause), and \`$meta.<name>\` holds its status. \`when\` delays it, \`cache\` shows the last page load's data at once, \`refresh="30s"\` reloads it in the background, \`for="a in accounts"\` fans out one request per item, \`call\` feeds it from a function, \`src="file:…"\` or \`content:\` from the project at build time. Without \`key\` it is one object, \`null\` until loaded; a list the build knows is one (\`type="string[]"\`, the OpenAPI response at \`items\`, a \`file:\` list) is \`[]\` instead, so \`tags.length\` needs no \`?.\`. Guide: docs/resources.md.
 `);
   out.push(`## Actions
 
