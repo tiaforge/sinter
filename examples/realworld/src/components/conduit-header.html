@@ -17,7 +17,7 @@
         </template>
         <template data-sn-if="!user && $meta.user.error">
           <li class="nav-item"><span class="nav-link">Connecting…</span></li>
-          <li class="nav-item"><button class="btn btn-sm btn-outline-secondary" type="button" data-sn-on-click="refresh('user')">Retry</button></li>
+          <li class="nav-item"><button class="btn btn-sm btn-outline-secondary" type="button" data-sn-on-click="refresh(user)">Retry</button></li>
         </template>
         <!-- signed out: known before the first paint when no token is stored (the page's `guest`), so
              these links and the home banner do not shift the page in later; while a stored token is

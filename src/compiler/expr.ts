@@ -45,8 +45,13 @@ export interface LetEntry {
   usesEl: boolean;
   usesIndex: boolean;
   resource: string | null;
-  /** the resource names the value can be (literals through `?:`, `||`, `??` and lets), or null when they cannot be listed */
+  /** the resources the value can be (through `?:`, `||`, `??` and lets), by name, or null when they cannot be listed */
   names?: string[] | null;
+  /** with `names`: the value as names, where a store function or `$meta[…]` takes it (`s ? "a" : "b"`), and what that reads */
+  nameCode?: string;
+  nameDeps?: string[];
+  /** the same as source text, for `sinter check` */
+  nameSrc?: string;
   /** the lets those names come from */
   from?: LetEntry[];
   /** a component's prop: the caller's expression */
@@ -209,11 +214,13 @@ export interface ExprResult {
   payloadStates?: string[];
   /** `data-sn-let` names read where the payload is the scope (they shadow payload fields of the same name) */
   payloadLets?: string[];
-  /** handlers: the action elements `run('id')` starts and the resources `refresh('name')` reloads, with offsets (for `SN509`) */
+  /** handlers: the action elements `run('id')` starts and the resources `refresh(name)` reloads, with offsets (for `SN509`) */
   runs?: Array<{ id: string; offset: number }>;
   refreshes?: Array<{ name: string; offset: number }>;
   /** lets read as a resource name (store calls, `$meta[…]`), with the lets their names come from: `sinter check` types them as those names */
   nameLets?: LetEntry[];
+  /** where the source names resources by value, the same text with their names (`refresh(people)` as `refresh('people')`), for `sinter check` */
+  nameEdits?: Edit[];
   /** member chains rooted at a resource or at a row of one (`article.author.username`, `a.slug`): what the expression is about */
   reads?: Read[];
   /** a value expression: the item it is, or the list, by source (see `Sources`) */
@@ -264,8 +271,38 @@ export function literalNames(n: acorn.AnyNode, letOf: (name: string) => LetEntry
   }
 }
 
-/** what a resource name argument may be, for `SN301` */
-const NAME_FORMS = 'a string literal, `?:`, `||` or `??` between them, or a `data-sn-let` name that is one';
+/**
+ * A reference to resources, where a store function or `$meta[…]` takes one (`refresh(people)`,
+ * `page(shown, 'next')`): a resource, `?:`, `||` or `??` between references, or a let that is one. Each
+ * leaf is the identifier the compiler turns into the resource's name. `'string'`: a name written as a
+ * string, the form before 2026-11-20. Null when the names cannot be listed.
+ */
+export type NameLeaf = { name: string; at: number; node: acorn.Identifier; let?: LetEntry };
+export function refNames(n: acorn.AnyNode, look: (name: string) => 'resource' | LetEntry | null, lets?: LetEntry[]): NameLeaf[] | 'string' | null {
+  const both = (a: acorn.AnyNode, b: acorn.AnyNode) => {
+    const x = refNames(a, look, lets);
+    if (x === 'string' || x === null) return x;
+    const y = refNames(b, look, lets);
+    return y === 'string' || y === null ? y : [...x, ...y];
+  };
+  switch (n.type) {
+    case 'Literal': return typeof n.value == 'string' ? 'string' : null;
+    case 'TemplateLiteral': return n.expressions.length ? null : 'string';
+    case 'ConditionalExpression': return both(n.consequent, n.alternate);
+    case 'LogicalExpression': return n.operator == '&&' ? null : both(n.left, n.right);
+    case 'Identifier': {
+      const l = look(n.name);
+      if (l === 'resource') return [{ name: n.name, at: n.start, node: n }];
+      if (!l?.names || l.nameCode == null) return null;
+      lets?.push(l, ...(l.from ?? []));
+      return l.names.map((name) => ({ name, at: n.start, node: n, let: l }));
+    }
+    default: return null;
+  }
+}
+
+/** what a resource argument may be, for `SN301` */
+const NAME_FORMS = 'a resource (`refresh(people)`), `?:`, `||` or `??` between resources, or a `data-sn-let` name that is one';
 
 const EVERYWHERE_MAGIC = ['$el', '$url', '$now', '$locale', '$meta'];
 export const ALL_MAGIC = ['$event', '$el', '$url', '$now', '$locale', '$result', '$error', '$meta'];
@@ -379,6 +416,17 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
   const runs: NonNullable<ExprResult['runs']> = [];
   const refreshes: NonNullable<ExprResult['refreshes']> = [];
   const nameLets: LetEntry[] = [];
+  // the identifiers that name resources where a store function or `$meta[…]` takes them: compiled to the names
+  const nameNodes = new Map<acorn.Identifier, NameLeaf>();
+  const nameEdits: Edit[] = [];
+  /** registers a reference's leaves (`refNames`): the compiled code and the checked source get the names */
+  const nameLeaves = (leaves: NameLeaf[]) => {
+    for (const l of leaves) {
+      if (nameNodes.has(l.node)) continue;
+      nameNodes.set(l.node, l);
+      nameEdits.push({ start: l.node.start, end: l.node.end, text: l.let ? `(${l.let.nameSrc})` : `'${l.name}'` });
+    }
+  };
   const assigns: NonNullable<ExprResult['assigns']> = [];
   const emitted: NonNullable<ExprResult['emitted']> = [];
   const srcRefs: NonNullable<ExprResult['srcRefs']> = [];
@@ -639,6 +687,15 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
     return { root: name, res, segs, resource: base.resource, props };
   }
 
+  /** what a name is in a resource reference: a resource, a let that names resources, or neither */
+  function lookRef(nm: string, locals: Locals): 'resource' | LetEntry | null {
+    const res = resolveQuiet(nm, locals);
+    // a name nothing defines: taken as a resource, so it is reported as an undeclared one, with the suggestion;
+    // in an `<sn-event>` handler, where bare names are payload fields, a resource's name is the resource here
+    if (!res || res.kind === 'resource' || (res.kind === 'payload' && page.resources.has(nm))) return 'resource';
+    return res.kind === 'let' ? res.entry : null;
+  }
+
   /** Resolution without diagnostics, for chains already resolved by the walker. */
   function resolveQuiet(name: string, locals: Locals): Resolved | null {
     const saved = opts.report;
@@ -669,8 +726,13 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
     }
     if (cur.type !== 'MemberExpression' || !cur.computed || cur.property.type === 'Literal') return null;
     const lets: LetEntry[] = [];
-    const names = literalNames(cur.property, (nm) => { const res = resolveQuiet(nm, locals); return res?.kind === 'let' ? res.entry : null; }, lets);
-    if (names) nameLets.push(...lets);
+    const names = refNames(cur.property, (nm) => lookRef(nm, locals), lets);
+    if (names === 'string') {
+      const text = src.slice(cur.property.start, cur.property.end);
+      report('SN301', `\`$meta[…]\` takes the resource, not its name: \`$meta[${text}]\` is \`$meta[${text.replace(/(['"`])([A-Za-z_$][\w$]*)\1/g, '$2')}]\``, cur.property.start);
+      return null;
+    }
+    if (names) { nameLets.push(...lets); nameLeaves(names); }
     return names;
   }
 
@@ -706,6 +768,12 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
 
   // ---- walking
   function ident(n: acorn.Identifier & Node, locals: Locals, shorthand = false) {
+    const leaf = nameNodes.get(n);
+    if (leaf) {
+      if (leaf.let) for (const d of leaf.let.nameDeps ?? []) deps.add(d);
+      edits.push({ start: n.start, end: n.end, text: leaf.let ? `(${leaf.let.nameCode})` : JSON.stringify(leaf.name) });
+      return;
+    }
     const res = resolve(n.name, locals, n.start);
     if (!res) return;
     if (res.kind === 'ns') {
@@ -1066,8 +1134,8 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
       return;
     }
     if (name === 'refresh') {
-      // `refresh('a', 'b')`: every argument names resources
-      if (!first) report('SN301', `\`refresh()\` takes resource names: ${NAME_FORMS}`, n.start);
+      // `refresh(a, b)`: every argument names resources
+      if (!first) report('SN301', `\`refresh()\` takes resources: ${NAME_FORMS}`, n.start);
       for (const a of n.arguments) for (const c of resourcesOf(a as Node, name, locals) ?? []) refreshes.push({ name: c.name, offset: c.at });
       return;
     }
@@ -1087,7 +1155,7 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
       }
     }
     if (['upsert', 'page'].includes(name)) {
-      const cands = first ? resourcesOf(first as Node, name, locals) : (report('SN301', `\`${name}()\` takes a resource name: ${NAME_FORMS}`, n.start), null);
+      const cands = first ? resourcesOf(first as Node, name, locals) : (report('SN301', `\`${name}()\` takes a resource: ${NAME_FORMS}`, n.start), null);
       if (!cands || name !== 'page') return;
       const target = n.arguments[1];
       const named = target?.type === 'Literal' && typeof target.value === 'string' ? target.value : null;
@@ -1242,12 +1310,18 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
    */
   function resourcesOf(a: Node, fn: string, locals: Locals): Array<{ name: string; at: number; r: ResourceInfo }> | null {
     const lets: LetEntry[] = [];
-    const names = literalNames(a, (nm) => { const res = resolveQuiet(nm, locals); return res?.kind === 'let' ? res.entry : null; }, lets);
+    const names = refNames(a, (nm) => lookRef(nm, locals), lets);
+    if (names === 'string') {
+      const text = src.slice(a.start, a.end), fixed = text.replace(/(['"`])([A-Za-z_$][\w$]*)\1/g, '$2');
+      report('SN301', `\`${fn}()\` takes the resource, not its name: \`${text}\` is \`${fixed}\``, a.start);
+      return null;
+    }
     if (!names) {
-      report('SN301', fn === 'refresh' ? `\`refresh()\` takes resource names: ${NAME_FORMS}` : `\`${fn}()\` takes a resource name: ${NAME_FORMS}`, a.start);
+      report('SN301', fn === 'refresh' ? `\`refresh()\` takes resources: ${NAME_FORMS}` : `\`${fn}()\` takes a resource: ${NAME_FORMS}`, a.start);
       return null;
     }
     nameLets.push(...lets);
+    nameLeaves(names);
     const out: Array<{ name: string; at: number; r: ResourceInfo }> = [];
     for (const c of names) {
       const r = page.resources.get(c.name);
@@ -1509,7 +1583,7 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
   const value = body.length === 1 && !opts.object && mode === 'value' && ok ? body[0]! : null;
   const sources = value ? { itemOf: itemSource(value, root), listOf: listSource(value, root) } : {};
   return { ok, code, inner: out, deps: [...deps].sort(), writes: [...writes].sort(), usesEl, usesIndex, entries, path, resource, ast, ...sources,
-    ...(assigns.length ? { assigns } : {}), ...(emitted.length ? { emitted } : {}), ...(srcRefs.length ? { srcRefs } : {}), ...(itemCalls.length ? { itemCalls } : {}), ...(opts.payload ? { payloadNames: [...payloadNames].sort(), payloadStates: [...payloadStates].sort(), payloadLets: [...payloadLets].sort() } : {}), ...(runs.length ? { runs } : {}), ...(refreshes.length ? { refreshes } : {}), ...(nameLets.length ? { nameLets: [...new Set(nameLets)] } : {}), ...(reads.length ? { reads } : {}), ...(resources ? { resources } : {}) };
+    ...(nameEdits.length ? { nameEdits } : {}), ...(assigns.length ? { assigns } : {}), ...(emitted.length ? { emitted } : {}), ...(srcRefs.length ? { srcRefs } : {}), ...(itemCalls.length ? { itemCalls } : {}), ...(opts.payload ? { payloadNames: [...payloadNames].sort(), payloadStates: [...payloadStates].sort(), payloadLets: [...payloadLets].sort() } : {}), ...(runs.length ? { runs } : {}), ...(refreshes.length ? { refreshes } : {}), ...(nameLets.length ? { nameLets: [...new Set(nameLets)] } : {}), ...(reads.length ? { reads } : {}), ...(resources ? { resources } : {}) };
 }
 
 export function applyEdits(src: string, edits: Edit[]): string {

@@ -35,8 +35,8 @@ function server(url: string) {
 const PAGE = (attrs: string) => `<!doctype html><html data-sn-state="{ box: 'inbox' }" data-sn-persist="box"><head></head><body>
   <sn-resource name="mail" src="/api/mail?box={box}" items="items" total="total" key="id" ${attrs}></sn-resource>
   <span data-sn-text="[$meta.mail.from, $meta.mail.to, $meta.mail.total, $meta.mail.pages, $meta.mail.hasPrev, $meta.mail.hasNext].join()"></span>
-  <button id="next" data-sn-on-click="page('mail', 'next')"></button>
-  <button id="prev" data-sn-on-click="page('mail', 'prev')"></button>
+  <button id="next" data-sn-on-click="page(mail, 'next')"></button>
+  <button id="prev" data-sn-on-click="page(mail, 'prev')"></button>
   <ul><template data-sn-for="m in mail"><li data-sn-text="m.id"></li></template></ul>
 </body></html>`;
 const KEYSET = `paginate="{ keyset: {after: id, before: id}, size: 2, jump: true, params: { size: 'limit', offset: 'offset', direction: 'dir' }, directions: {first: 'forward', prev: 'backward', next: 'forward', last: 'last'} }"`;

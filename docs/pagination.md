@@ -13,9 +13,9 @@ pages.
   <template data-sn-for="m in messages"><li data-sn-text="m.subject"></li></template>
 </ul>
 <nav>
-  <button data-sn-on-click="page('messages', 'prev')" data-sn-attr="{disabled: !$meta.messages.hasPrev}">‹</button>
+  <button data-sn-on-click="page(messages, 'prev')" data-sn-attr="{disabled: !$meta.messages.hasPrev}">‹</button>
   <span data-sn-text="`${$meta.messages.from}–${$meta.messages.to} of ${$meta.messages.total}`"></span>
-  <button data-sn-on-click="page('messages', 'next')" data-sn-attr="{disabled: !$meta.messages.hasNext}">›</button>
+  <button data-sn-on-click="page(messages, 'next')" data-sn-attr="{disabled: !$meta.messages.hasNext}">›</button>
 </nav>
 ```
 
@@ -75,7 +75,7 @@ sinter({ apis: { main: { openapi: 'openapi.yml', paginate: { params: { size: 'pe
 ## Jumping to a page number
 
 Keyset mode can jump only if the server can also skip by offset. With `jump: true`,
-`page('messages', 7)` requests the `first` direction with `offset=300` (at page size 50) and no
+`page(messages, 7)` requests the `first` direction with `offset=300` (at page size 50) and no
 cursor; `prev` and `next` then continue by cursor from there. Without `jump`, a literal page
 number on a keyset resource is build error `SN304`. sinter never simulates a jump by stepping through
 pages. A jump past the end is clamped to `$meta.<name>.pages` when the total is known.
@@ -99,7 +99,7 @@ written back on every move, so reload, Back and Forward and a shared link show t
 Links are the recommended pager: crawlable, a new tab, copy link. A plain click stays on the page
 ([same-page links](navigation.md#same-page-links)): a new history entry, and the list loads that
 page. Build the whole query: `href="?page=3"` alone drops `tag` (SN519). Buttons with
-`page('articles', 'next')` move the list the same way, for relative moves.
+`page(articles, 'next')` move the list the same way, for relative moves.
 
 - The URL is the single source. `page()` loads nothing itself: it writes the page it moves to
   (a new history entry; page 1 deletes the parameter), and the list follows the parameter. A handler
@@ -149,11 +149,11 @@ gained items meanwhile.
 The target of `page()` may be an expression, so one handler can serve both directions:
 
 ```html
-<div data-sn-let="{ shown: searching ? 'results' : 'messages' }"
+<div data-sn-let="{ shown: searching ? results : messages }"
      data-sn-on-list-step="page(shown, $event.detail > 0 ? 'next' : 'prev')">
 ```
 
-The resource name may also be chosen between literals. The type checker verifies a computed
+The resource may be chosen too, `searching ? results : messages`, or through a `data-sn-let` that is one. The type checker verifies a computed
 target: on keyset without `jump` it must be a subset of `'first' | 'prev' | 'next' | 'last'`
 ([type checking](type-checking.md)). `append` accepts only the literal `'next'`.
 

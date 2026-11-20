@@ -16,7 +16,7 @@
   </ul>
   <template data-sn-if="editing">
     <form data-sn-put="/api/contacts/{editing.id}" data-sn-body="editing"
-          data-sn-then="upsert('contacts', $result); editing = null">
+          data-sn-then="upsert(contacts, $result); editing = null">
       <input data-sn-model="editing.name" required>
       <button>Save</button>
     </form>

@@ -55,7 +55,7 @@ test('any node after a nested anchor in a branch is found: a bound element after
 });
 
 test('an early branch with a nested if and a loop, adopted, then refreshed', async () => {
-  const c = `<template data-sn-props="{ doc?: any }"><span class="l"><template data-sn-if="doc.on"><template data-sn-if="doc.sep"><b>-</b></template><template data-sn-for="n in doc.children"><i data-sn-text="n"></i></template></template><button id="r" data-sn-on-click="refresh('d')">r</button></span></template>`;
+  const c = `<template data-sn-props="{ doc?: any }"><span class="l"><template data-sn-if="doc.on"><template data-sn-if="doc.sep"><b>-</b></template><template data-sn-for="n in doc.children"><i data-sn-text="n"></i></template></template><button id="r" data-sn-on-click="refresh(d)">r</button></span></template>`;
   const data = { on: true, sep: true, children: ['a', 'b'] };
   let early = '';
   const { root, settle } = await render(`<!doctype html><html><head><script type="application/json" data-sn-data="d">${JSON.stringify(data)}</script></head><body><sn-resource name="d" src="/api/d"></sn-resource><x-l data-sn-with="{ doc: d }"></x-l></body></html>`,

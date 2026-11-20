@@ -235,7 +235,7 @@ test('forms serialize to nested JSON; then writes the base and closes the dialog
   const { root, settle } = await render(`
     <sn-resource name="people" src="/api/people" key="id"></sn-resource>
     <dialog open>
-      <form data-sn-post="/api/people" data-sn-then="upsert('people', $result); closeDialog()">
+      <form data-sn-post="/api/people" data-sn-then="upsert(people, $result); closeDialog()">
         <input name="name" value="Ada">
         <input name="age" type="number" value="36">
         <input name="emails[0].value" value="a@x">

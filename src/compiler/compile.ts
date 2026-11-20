@@ -14,7 +14,7 @@ import { parseExpression, parseProgram } from './parse.js';
 import { fullAncestor } from 'acorn-walk';
 import type { DefaultTreeAdapterMap } from 'parse5';
 import { type Code, type Diagnostic, didYouMean, severityOf, suggest } from './diagnostics.js';
-import { analyze, literalNames, STORE_FNS, throughField, type SlotScope, type ComponentScope, type ExprOptions, type ExprResult, type LetEntry, type LoopEntry, type PageInfo, type Read, type ResourceInfo, type Scope } from './expr.js';
+import { analyze, applyEdits, refNames, STORE_FNS, throughField, type SlotScope, type ComponentScope, type ExprOptions, type ExprResult, type LetEntry, type LoopEntry, type PageInfo, type Read, type ResourceInfo, type Scope } from './expr.js';
 import { callerAttribute, COMPONENT_NAME, DOM_EVENTS, LIBRARY_LAYER, rootCss, scopeCss, SLOT_TYPE, typeMembers, withoutSlots, type Member } from './components.js';
 import type { Node } from 'acorn';
 import type * as acorn from 'acorn';
@@ -4182,7 +4182,7 @@ class Compiler {
   /**
    * SN509: `then`/`catch` handlers that start each other again. Nodes are
    * action elements (by id) and resources; an edge is a `run('id')` in an action's `then`/`catch`
-   * or a resource's `then`, or a `refresh('name')` there (a load runs the resource's `then`).
+   * or a resource's `then`, or a `refresh(name)` there (a load runs the resource's `then`).
    * Each elementary cycle with at least one `run()` is reported once, at its first step.
    */
   runCycles() {
@@ -5042,12 +5042,8 @@ class Compiler {
     if (r.runs || r.refreshes) this.flows.push({ el, attr: attrName, shift, runs: r.runs ?? [], refreshes: r.refreshes ?? [] });
     this.lastExpr = null;
     if (this.check) {
-      // a let read as a resource name is typed as its names (TypeScript would widen `'messages'` to string)
-      for (const l of r.nameLets ?? []) {
-        const f = this.check.frames[this.frameOf.get(l) ?? -1];
-        if (f?.kind === 'let' && f.init !== null && l.names) this.check.exprs[f.init]!.returns = { kind: 'names', names: l.names };
-      }
-      const i = this.recordExpr(el, attrName, scope, o, src, shift, r);
+      // resources named by value (`refresh(people)`) are checked as their names, which the store's types take
+      const i = this.recordExpr(el, attrName, scope, o, r.nameEdits ? applyEdits(src, r.nameEdits) : src, shift, r);
       // a broken expression is there for editor completion only; nothing refers to it
       if (r.ok) this.lastExpr = i;
       else this.check.exprs[i]!.broken = true;
@@ -5221,11 +5217,20 @@ class Compiler {
       const r = this.expr(el, 'data-sn-let', scope, { mode: 'value', waits: true }, src.slice(v.start, v.end), v.start);
       const waiting = r.ok ? this.lazyLet(r.inner, r.deps) : null;
       const entry: LetEntry = { name, code: waiting?.code ?? r.inner, deps: waiting?.deps ?? r.deps, usesEl: r.usesEl, usesIndex: r.usesIndex, resource: r.resource, src: r.itemOf ?? null, list: r.listOf ?? null };
-      // the resource names it can be, for store calls and `$meta[…]` that read it as one
-      if (r.ok) {
+      // the resources it can be, for store calls and `$meta[…]` that take it as one: its value as their names
+      // (also when the value has an undeclared name: the use reports it as a resource, with the suggestion)
+      {
         const lets = scope.lets ?? [], from: LetEntry[] = [];
-        const names = literalNames(v, (n) => lets.findLast((l) => l.name === n) ?? null, from);
-        if (names) Object.assign(entry, { names: [...new Set(names.map((c) => c.name))], from });
+        const look = (n: string): 'resource' | LetEntry | null => lets.findLast((l) => l.name === n)
+          ?? (scope.loops.some((x) => x.name === n) || scope.states.some((x) => x.names.has(n)) ? null : 'resource');
+        const leaves = refNames(v, look, from);
+        if (Array.isArray(leaves)) {
+          const text = src.slice(v.start, v.end), seen = new Set<object>();
+          const nameSrc = applyEdits(text, leaves.filter((l) => !seen.has(l.node) && seen.add(l.node)).map((l) => ({ start: l.node.start - v.start, end: l.node.end - v.start, text: l.let ? `(${l.let.nameSrc})` : `'${l.name}'` })));
+          // compiled quietly: the value itself was checked above
+          const n = analyze(nameSrc, scope, this.page, { mode: 'value', report: () => {} });
+          if (n.ok) Object.assign(entry, { names: [...new Set(leaves.map((c) => c.name))], from, nameSrc, nameCode: n.inner, nameDeps: n.deps });
+        }
       }
       if (this.check) {
         this.frameOf.set(entry, this.check.frames.length);
@@ -5791,7 +5796,7 @@ class Compiler {
   }
 
   /**
-   * `SN510`: a `then` write that write-through makes: `merge(item, $result.p)` (an item of `x`)/`upsert('x', $result.p)`
+   * `SN510`: a `then` write that write-through makes: `merge(item, $result.p)` (an item of `x`)/`upsert(x, $result.p)`
    * where the response's `p` is an object of `x`'s schema (an upsert also needs the action's URL to be the
    * list's URL, judged by the literal parts), and `remove(row)` on a DELETE of that row's URL.
    */
@@ -5806,7 +5811,7 @@ class Compiler {
       const fn = n.type === 'CallExpression' && n.callee.type === 'Identifier' ? n.callee.name : null;
       // upsert names its resource; patch and remove take the item, whose one source is the resource
       const item = fn === 'merge' || fn === 'remove' ? then.itemCalls?.find((c) => c.start === n.start)?.src : null;
-      const name = fn === 'upsert' && n.type === 'CallExpression' && n.arguments[0]?.type === 'Literal' && typeof n.arguments[0].value === 'string' ? n.arguments[0].value
+      const name = fn === 'upsert' && n.type === 'CallExpression' && n.arguments[0]?.type === 'Identifier' && this.page.resources.has(n.arguments[0].name) ? n.arguments[0].name
         : item?.length === 1 && !item[0]!.startsWith('@') ? item[0]! : null;
       if (n.type === 'CallExpression' && fn && name) {
         const r = this.resources.find((x) => x.name === name);
@@ -5818,7 +5823,7 @@ class Compiler {
         if (r && entry && r.sch === entry.s && fn === 'merge' && (r.key || ap.tg.some((t) => t.r === name && t.s === entry.s))) {
           this.report(el, 'data-sn-then', 'SN510', `\`merge(${itemText}, $result${resultPath ? '.' + resultPath : ''})\` is what write-through does: ${op} is \`${entry.s}\`, which \`${name}\` holds; ${fix}`, n.start);
         } else if (r && entry && r.sch === entry.s && fn === 'upsert' && r.key && sameUrl(name)) {
-          this.report(el, 'data-sn-then', 'SN510', `\`upsert('${name}', $result${resultPath ? '.' + resultPath : ''})\` is what write-through does: a POST to \`${name}\`'s URL inserts ${op}'s \`${entry.s}\`; ${fix}`, n.start);
+          this.report(el, 'data-sn-then', 'SN510', `\`upsert(${name}, $result${resultPath ? '.' + resultPath : ''})\` is what write-through does: a POST to \`${name}\`'s URL inserts ${op}'s \`${entry.s}\`; ${fix}`, n.start);
         } else if (r && fn === 'remove' && method === 'delete' && value?.type === 'Identifier' && ap.tg.some((t) => t.r === name && t.v === (value as acorn.Identifier).name && !t.p) && rowUrl(name)) {
           this.report(el, 'data-sn-then', 'SN510', `\`remove(${(value as acorn.Identifier).name})\` is what write-through does: a DELETE of a row's URL removes the row; ${fix}`, n.start);
         }

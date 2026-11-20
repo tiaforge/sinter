@@ -71,15 +71,15 @@ test('SN510 names each redundant write: patch by key or provenance, upsert on th
     <div data-sn-state="{ slug: 'x' }">
       <sn-resource name="comments" src="/api/articles/{slug}/comments" items="comments" key="id"></sn-resource>
       <p data-sn-text="comments.length"></p>
-      <form data-sn-post="/api/articles/{slug}/comments" data-sn-then="upsert('comments', $result.comment); slug = slug"></form>
-      <form data-sn-post="/api/articles/{slug}/comments" data-sn-then="upsert('articles', $result.comment)"></form>
+      <form data-sn-post="/api/articles/{slug}/comments" data-sn-then="upsert(comments, $result.comment); slug = slug"></form>
+      <form data-sn-post="/api/articles/{slug}/comments" data-sn-then="upsert(articles, $result.comment)"></form>
       <template data-sn-for="c in comments"><button data-sn-delete="/api/articles/{slug}/comments/{c.id}" data-sn-then="remove(c)">x</button></template>
       <template data-sn-for="c in comments"><button data-sn-delete="/api/articles/{slug}/comments/{c.id}/flag" data-sn-then="remove(c)">x</button></template>
     </div>`), opts());
   expect(out.diagnostics.map((d) => `${d.code} ${d.line} ${d.message.slice(0, d.message.indexOf(' is what'))}`)).toEqual([
     "SN510 7 `merge(a, $result.article)`",
     "SN510 7 `merge(a, $result.article)`",
-    "SN510 13 `upsert('comments', $result.comment)`",
+    "SN510 13 `upsert(comments, $result.comment)`",
     "SN510 15 `remove(c)`",
   ]);
   expect(out.diagnostics.every((d) => d.severity === 'warning')).toBe(true);

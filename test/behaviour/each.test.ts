@@ -27,7 +27,7 @@ const PAGE = `
     <sn-event name="mailbox_created" resource="mailboxes" op="upsert"></sn-event>
   </sn-sync>
   <b data-sn-text="[$meta.mailboxes.loading, !!$meta.mailboxes.loadedAt].join()"></b>
-  <button data-sn-on-click="refresh('mailboxes')"></button>
+  <button data-sn-on-click="refresh(mailboxes)"></button>
   <ul><template data-sn-for="m in mailboxes"><li data-sn-text="m.account_id + ':' + (m.label ?? m.name)"></li></template></ul>`;
 
 async function setup(accounts = ['a', 'b'], boxes = MAILBOXES) {

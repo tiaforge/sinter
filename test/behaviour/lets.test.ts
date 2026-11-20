@@ -70,7 +70,7 @@ describe('a let over a helper: its expression, at every read', () => {
     for (const [what, handler, want] of [
       ['merge()', 'merge(x, { n: 10 }); o = T', '12'],
       ['remove()', 'remove(x); o = T', '2'],
-      ["upsert('todos', …)", "upsert('todos', { id: 3, n: 100 }); o = T", '103'],
+      ['upsert(todos, …)', 'upsert(todos, { id: 3, n: 100 }); o = T', '103'],
     ] as const) {
       test(`a store function: ${what}`, async () => {
         const r = await render(`<sn-resource name="todos" src="/api/todos" key="id"></sn-resource>

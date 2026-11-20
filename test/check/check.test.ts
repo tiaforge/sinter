@@ -287,7 +287,7 @@ export type Block = Para | Quote | Rule;
   });
 
   test('refresh() with several names types each against the page\'s resources', () => {
-    const html = page(`<sn-resource name="other" src="/api/o" type="any"></sn-resource><button data-sn-on-click="refresh('contacts', 'other')" data-sn-text="contacts.length + other"></button>`);
+    const html = page(`<sn-resource name="other" src="/api/o" type="any"></sn-resource><button data-sn-on-click="refresh(contacts, other)" data-sn-text="contacts.length + other"></button>`);
     expect(checkPage(html, { files: { 'src/sinter.types.ts': TYPES } })).toEqual([]);
   });
 
@@ -324,7 +324,7 @@ export type Block = Para | Quote | Rule;
   test('page() with a computed target: a direction on keyset; a page number needs jump', () => {
     const helpers = `/** @param {boolean} back @returns {'next' | 'prev'} */\nexport function step(back) { return back ? 'prev' : 'next'; }\n`;
     const html = (to: string, more = '') => page(`<sn-resource name="list" src="/api/l" key="id" type="Contact[]" paginate="{ keyset: {id}, size: 5${more} }"></sn-resource>
-<div data-sn-state="{ n: 2, word: 'next' }"><button data-sn-on-click="page('list', ${to})" data-sn-text="contacts.length + list.length + n + word"></button></div>`);
+<div data-sn-state="{ n: 2, word: 'next' }"><button data-sn-on-click="page(list, ${to})" data-sn-text="contacts.length + list.length + n + word"></button></div>`);
     const errors = (to: string, more = '') => checkPage(html(to, more), { files: { 'src/sinter.types.ts': TYPES, 'src/sinter.helpers.js': helpers } }).map((d) => `${d.code} ${d.message.replace(/ \(TS\d+\)$/, '')}`);
     expect(errors(`$event.shiftKey ? 'prev' : 'next'`)).toEqual([]);
     expect(errors('step($event.shiftKey)')).toEqual([]);
@@ -343,14 +343,14 @@ export type Block = Para | Quote | Rule;
 <div data-sn-state="{ s: false, n: 2, m: /** @type {Message} */ ({ uid: 1, subject: '' }) }" data-sn-let="${lets}"><button data-sn-on-click="${h}" data-sn-text="contacts.length + messages.length + results.length + jumps.length"></button></div>`);
     const errors = (lets: string, h: string) => checkPage(html(lets, h), { files: { 'src/sinter.types.ts': types } }).map((d) => `${d.code} ${d.message.replace(/ \(TS\d+\)$/, '')}`);
     // a let of one literal is that name, not \`string\`
-    expect(errors(`{ one: 'messages' }`, `page(one, 'next'); refresh(one)`)).toEqual([]);
-    expect(errors(`{ shown: s ? 'results' : 'messages' }`, `page(shown, s ? 'prev' : 'next'); refresh(shown, 'contacts'); upsert(shown, m)`)).toEqual([]);
-    expect(errors(`{ a: 'results', b: s ? a : 'jumps' }`, `page(b, n)`)).toEqual([]);
+    expect(errors(`{ one: messages }`, `page(one, 'next'); refresh(one)`)).toEqual([]);
+    expect(errors(`{ shown: s ? results : messages }`, `page(shown, s ? 'prev' : 'next'); refresh(shown, contacts); upsert(shown, m)`)).toEqual([]);
+    expect(errors(`{ a: results, b: s ? a : jumps }`, `page(b, n)`)).toEqual([]);
     // a page number where one of the names is keyset without jump
-    expect(errors(`{ shown: s ? 'results' : 'messages' }`, `page(shown, n)`)).toEqual([`SN208 Argument of type 'number' is not assignable to parameter of type '"a keyset resource takes a direction; add jump: true to paginate for page numbers" | Direction'.`]);
+    expect(errors(`{ shown: s ? results : messages }`, `page(shown, n)`)).toEqual([`SN208 Argument of type 'number' is not assignable to parameter of type '"a keyset resource takes a direction; add jump: true to paginate for page numbers" | Direction'.`]);
     // an item that fits one of the names
-    expect(errors(`{ shown: s ? 'contacts' : 'messages' }`, `upsert(shown, m); remove(contacts[0])`)).toEqual([]);
-    expect(errors(`{ shown: s ? 'results' : 'messages' }`, `upsert(shown, contacts[0])`)).toHaveLength(1);
+    expect(errors(`{ shown: s ? contacts : messages }`, `upsert(shown, m); remove(contacts[0])`)).toEqual([]);
+    expect(errors(`{ shown: s ? results : messages }`, `upsert(shown, contacts[0])`)).toHaveLength(1);
   });
 
   test('a key filter\'s $event is the KeyboardEvent of its keydown or keyup', () => {

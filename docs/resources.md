@@ -92,8 +92,8 @@ with these store functions, usable in any handler:
 
 | Function | Effect |
 | --- | --- |
-| `refresh('a', 'b')` | Reload the named resources. |
-| `upsert('name', item)` | Insert or replace by key. |
+| `refresh(a, b)` | Reload the named resources. |
+| `upsert(name, item)` | Insert or replace by key. |
 | `merge(item, {…})` | Merge fields into an item. |
 | `remove(item)` | Remove an item. |
 
@@ -173,7 +173,7 @@ the results into one collection:
   and `cache` do not combine with `each`.
 - When the list changes, only new sources load and a removed source's items are dropped.
 - `loading` is true while any source loads. `loadedAt` is set once every current source has answered.
-- `refresh('mailboxes')` reloads every source. `then` runs once per source response.
+- `refresh(mailboxes)` reloads every source. `then` runs once per source response.
 - If you control the server, prefer one endpoint for the whole collection.
 
 ## Files

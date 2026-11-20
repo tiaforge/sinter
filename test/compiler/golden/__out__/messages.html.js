@@ -13,11 +13,11 @@ const fns = [
   ($) => ({flags: $.$p.flags, is_read: $.$p.flags.includes('\\Seen')}),
   ($) => ($.$p.mailbox === $.$url.mailbox),
   ($) => (!$.$meta.messages.hasPrev),
-  ($) => {$.$f.page('messages', 'first')
+  ($) => {$.$f.page("messages", 'first')
 },
   ($) => (`${$.$meta.messages.from}–${$.$meta.messages.to} of ${$.$meta.messages.total}`),
   ($) => (!$.$meta.messages.hasNext),
-  ($) => {$.$f.page('messages', 'next')
+  ($) => {$.$f.page("messages", 'next')
 },
   ($) => ($.$r.messages),
   ($) => (!$.m.is_read),

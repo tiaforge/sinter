@@ -87,8 +87,8 @@ describe('a file: resource', () => {
       expect(e.some((x) => x.startsWith(`SN332 \`${a.split('=')[0]}\``)), a).toBe(true);
     }
     const json = (body: string) => errors(build(`<sn-resource name="tags" src="file:/data/tags.json" items="tags" key="id"></sn-resource>${body}`));
-    expect(json('<button data-sn-on-click="refresh(\'tags\')"></button><p data-sn-text="tags.length"></p>')).toEqual([expect.stringMatching(/^SN332 `refresh\(\)` would load or change `tags`/)]);
-    expect(json('<button data-sn-on-click="upsert(\'tags\', { id: 3 })"></button><p data-sn-text="tags.length"></p>')).toEqual([expect.stringMatching(/^SN332 `upsert\(\)`/)]);
+    expect(json('<button data-sn-on-click="refresh(tags)"></button><p data-sn-text="tags.length"></p>')).toEqual([expect.stringMatching(/^SN332 `refresh\(\)` would load or change `tags`/)]);
+    expect(json('<button data-sn-on-click="upsert(tags, { id: 3 })"></button><p data-sn-text="tags.length"></p>')).toEqual([expect.stringMatching(/^SN332 `upsert\(\)`/)]);
     expect(json('<template data-sn-for="t in tags"><button data-sn-on-click="remove(t)"></button></template>')).toEqual([expect.stringMatching(/^SN332 `remove\(\)` (would load or )?changes? `tags`, a `file:` resource/)]);
     expect(json('<sn-sync src="/s"><sn-event name="added" resource="tags" op="upsert"></sn-event></sn-sync><p data-sn-text="tags.length"></p>')).toEqual([expect.stringMatching(/^SN332 an `<sn-event>` changes `tags`/)]);
   });

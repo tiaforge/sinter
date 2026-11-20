@@ -566,7 +566,7 @@ For data that no stream keeps current, or as a check on one that may miss events
 <sn-resource name="jobs" src="/api/jobs" key="id" refresh="30s"></sn-resource>
 ```
 - The clock starts at the end of every load, whatever caused it: the first load (embedded data included), `refresh()`, a `refresh` event or a stream's reconnect, a change of `src`, `call` arguments or `when`, `page()`. A resource that a stream keeps reloading is rarely refreshed; one that only receives `upsert`/`merge` events is, since those are not loads. The wait is ±10 % (`random()`), so pages opened together do not reload together.
-- Named `refresh`, not `poll`, decided 2026-11-09: it sets how old the data may get, not how often to send a request, and `refresh="30s"` is what `refresh('jobs')` does, by itself, after 30 s (as `<meta http-equiv="refresh">`). `revalidate` would blur with `cache`, which revalidates already.
+- Named `refresh`, not `poll`, decided 2026-11-09: it sets how old the data may get, not how often to send a request, and `refresh="30s"` is what `refresh(jobs)` does, by itself, after 30 s (as `<meta http-equiv="refresh">`). `revalidate` would blur with `cache`, which revalidates already.
 - A background load: `$meta.<name>.loading` stays false (a `loading` binding does not flicker every 30 s); otherwise it is the resource's ordinary reload, with `then`, the page-load cache and writes made during it replayed on top. A `refresh()` or event in the same task makes it an ordinary load again. With `paginate` it reloads the current page; with `each`, every source.
 - Hidden: while the page is hidden (a background tab, a prerendered page) nothing is reloaded; a refresh that fell due meanwhile runs when the page is shown again (`visibilitychange`); one that did not runs at its time.
 - Nothing to load: while `when` is falsy there is no refresh; the load that follows starts the clock again. A load in flight when the refresh falls due counts as the refresh.
@@ -783,11 +783,11 @@ An action is an element with one method attribute; it sends a request when its t
 
 | Function | Effect |
 | --- | --- |
-| `refresh('contacts')`, `refresh('messages', 'unread')` | reload each named resource (names as in Resource names below; one call, one statement for `SN507`) |
-| `upsert('contacts', $result)` | insert or replace an item |
+| `refresh(contacts)`, `refresh(messages, unread)` | reload each named resource (names as in Resource names below; one call, one statement for `SN507`) |
+| `upsert(contacts, $result)` | insert or replace an item |
 | `merge(item, {…})` | change fields of an item, in the resource it came from |
 | `remove(item)` | remove an item from the resource it came from; a single resource becomes `null` |
-| `page('messages', 'next')` | change page: a direction, or a page number where the resource can jump; may be computed (see Pagination) |
+| `page(messages, 'next')` | change page: a direction, or a page number where the resource can jump; may be computed (see Pagination) |
 | `openDialog('edit')` | open `<dialog id="edit">` as a modal; nothing if it is open |
 | `closeDialog()`, `closeDialog('edit')` | close the nearest `<dialog>`, or the one with that id |
 | `emit('name', detail)` | dispatch a bubbling, cancelable `CustomEvent` from the element; every container with a handler for it runs, inner first, until one calls `$event.preventDefault()` |
@@ -819,16 +819,18 @@ A mutation's 2xx response is applied to the resources it is about, by the `write
 ### Resource names
 `merge(item, …)` and `remove(item)` take no resource name (added 2026-11-10; the forms with one are `SN317`). The compiler resolves where the item came from, as write-through resolves what an action is about: a loop row (for `a in (x ? feed : articles)`, either list; through `filter`, `slice`, `toSorted`, `toReversed`, or a helper that takes exactly one resource or list with a source; a helper that takes two is `SN317`), an element of a list (`list[i]`, `.find()`, `.findLast()`, `.at()`), a single resource, a `data-sn-let` name or a component prop that is one of those, a component event's `$event.detail` when the component emits one of those, `structuredClone()` of one, and a state path a handler on the page assigns one of those (`sel = m`; every assignment counts). It passes those resource names to the runtime ahead of the item; the runtime changes the item in the first that holds its key (a single resource is the item itself). An item with none of these sources is `SN317`, naming what to use instead: write-through for `$result`, `<sn-event resource op>` for a payload, the instance API for an island's event. State that holds a row stays a snapshot: sinter does not rewrite values in state; `merge(sel, …)` finds the item by its key.
 
-`refresh()`, `upsert()` and `page()` take the resource name as an expression whose possible values the compiler can list from the source: a string literal; `c ? x : y` where `x` and `y` are such expressions (the test is any value expression); `x || y` and `x ?? y` where both are; parentheses; and a `data-sn-let` name whose value is such an expression (lets are inlined, so the compiler has their expression). "Page the list shown", where the list is one of two resources:
+`refresh()`, `upsert()` and `page()` take the resource itself (changed 2026-11-20; they took its name as a string, now `SN301` naming the form): a resource (`refresh(people)`); `c ? x : y` where `x` and `y` are references (the test is any value expression); `x || y` and `x ?? y`; or a `data-sn-let` name whose value is one. The compiler lists the resources it can be and compiles each leaf to the resource's name, so the runtime still looks names up; a let used both as a list and as a reference is both.
 ```html
-<div data-sn-let="{ shown: searching ? 'results' : 'messages', list: searching ? results : messages }"
+<div data-sn-let="{ shown: searching ? results : messages }"
      data-sn-on-list-next="page(shown, 'next')"
-     data-sn-on-mail-saved="refresh(shown, 'unread')">
+     data-sn-on-mail-saved="refresh(shown, unread)">
+  <template data-sn-for="m in shown">…</template>
+</div>
 ```
-- **Compile time.** Every name the expression can take gets the checks a literal gets: `SN301` (did-you-mean on that literal, and the LSP quick fix; for a let's name it is reported where the let is read), `SN303` and `SN304` for each name `page()` can take (a literal page number on a `?:` that may name a keyset resource without `jump` is `SN304`), each name counts as used for `SN501`, and `refresh()` adds an `SN509` edge per name. An expression whose names cannot be listed (a state variable, a helper's result, `$event.detail`, `a && 'x'`) is `SN301`: "takes a resource name: a string literal, `?:`, `||` or `??` between them, or a `data-sn-let` name that is one". A name kept in state (`tab: 'inbox'`) becomes a `?:` or a let.
-- **`sinter check`.** The shadow types the name as `K extends keyof R & string`, so `searching ? 'results' : 'messages'` infers `'results' | 'messages'`; a let read as a name is typed as its names (TypeScript would widen a single `'messages'` to `string`). `page()`'s target must suit every name: a page number only where none of them is a keyset resource without `jump` (`[Extract<K, D>] extends [never] ? Direction | number : Direction | NoPageNumber`). `upsert`, `merge` and `remove` accept an item of any of the names' types (`Item<R[K]>` over the union).
-- **Runtime.** The store functions look the name up when they run. The compiler guarantees every value is a declared resource; with a hand-written IR, an unknown name makes the store function throw, the rest of the handler is skipped, and the error is logged.
-- **`$meta`.** A computed key whose names can be listed (`$meta[shown].hasNext`) gets `SN301` and `SN303` per name and depends only on `$meta.<name>.<field>` for each; any other computed key is accepted unchecked and depends on all of `$meta`.
+- **Compile time.** Every resource the reference can be gets the checks: `SN301` (an undeclared one, did-you-mean; for a let it is reported where the let is read), `SN303` and `SN304` for each one `page()` can take. A reference whose resources cannot be listed (state, a call) is `SN301` with the forms allowed. Each one counts as used (`SN501`).
+- **`sinter check`.** The checked source names each leaf as its string (`page('results' …)`), so the store's types (`K extends keyof R & string`) check the targets per resource.
+- **Runtime.** The store functions look the name up when they run; with a hand-written IR, an unknown name makes the store function throw, the rest of the handler is skipped, and the error is reported as any handler's.
+- **`$meta`.** A computed key that is a reference (`$meta[shown].hasNext`) gets `SN301` and `SN303` per resource and depends only on `$meta.<name>.<field>` for each; any other computed key is accepted unchecked and depends on all of `$meta`.
 
 ### Unhandled errors
 When an action fails and has no `data-sn-catch`:
@@ -1038,7 +1040,7 @@ An action with `data-sn-optimistic` changes the store before the request is sent
 Each resource holds a base (what the server last confirmed) and an ordered list of optimistic layers. What templates see is the base with every layer applied on top, in order.
 - On trigger, the `optimistic` expression runs against a recorder. Its `merge`, `upsert` and `remove` calls become one layer, tagged with the action's request.
 - The visible state is recomputed; affected rows re-render immediately.
-- Success (2xx, or a call that resolves): the layer is committed: its changes are applied to the base, then `then` runs, so a `then` write (`upsert('contacts', $result)`) goes on top of them and wins. What the page shows does not change at commit, so nothing flickers and nothing flips back. A server event or a reload that comes later wins too, as any later base write does. (Changed 2026-11-08: before, a success dropped the layer, so a change `then` did not write again flipped back until the next reload.)
+- Success (2xx, or a call that resolves): the layer is committed: its changes are applied to the base, then `then` runs, so a `then` write (`upsert(contacts, $result)`) goes on top of them and wins. What the page shows does not change at commit, so nothing flickers and nothing flips back. A server event or a reload that comes later wins too, as any later base write does. (Changed 2026-11-08: before, a success dropped the layer, so a change `then` did not write again flipped back until the next reload.)
 - Failure: the layer is dropped, which is the rollback; `catch` runs. An aborted request is a failure; so is a `latest` trigger replaced before it was sent.
 - Commits keep the layers' order: a layer whose request succeeds while an older layer is still pending waits on top of it, and joins the base once every older layer has settled (committed or rolled back). So the change made last stays on top, whatever order the responses come in. While it waits it no longer counts in `pending`, and a server write to the same item wins over it (it drops that layer's changes to the item).
 - Server events always write to the base. Layers are re-applied on top, so an SSE update arriving mid-flight is neither lost nor overwritten by a later rollback; on success the layer is applied on top of it.
@@ -1073,11 +1075,11 @@ Pagination is declared on the resource and driven by `page()` calls; v0.1 suppor
   paginate="{ keyset: {cursor_sent_at: sent_at, cursor_rowid: rowid}, size: 50, params: { size: 'limit', direction: 'direction' } }"></sn-resource>
 
 <nav>
-  <button data-sn-on-click="page('messages', 'first')" data-sn-attr="{disabled: !$meta.messages.hasPrev}">«</button>
-  <button data-sn-on-click="page('messages', 'prev')"  data-sn-attr="{disabled: !$meta.messages.hasPrev}">‹</button>
+  <button data-sn-on-click="page(messages, 'first')" data-sn-attr="{disabled: !$meta.messages.hasPrev}">«</button>
+  <button data-sn-on-click="page(messages, 'prev')"  data-sn-attr="{disabled: !$meta.messages.hasPrev}">‹</button>
   <span data-sn-text="`${$meta.messages.from}–${$meta.messages.to} of ${$meta.messages.total}`"></span>
-  <button data-sn-on-click="page('messages', 'next')"  data-sn-attr="{disabled: !$meta.messages.hasNext}">›</button>
-  <button data-sn-on-click="page('messages', 'last')"  data-sn-attr="{disabled: !$meta.messages.hasNext}">»</button>
+  <button data-sn-on-click="page(messages, 'next')"  data-sn-attr="{disabled: !$meta.messages.hasNext}">›</button>
+  <button data-sn-on-click="page(messages, 'last')"  data-sn-attr="{disabled: !$meta.messages.hasNext}">»</button>
 </nav>
 ```
 
@@ -1089,10 +1091,10 @@ Pagination is declared on the resource and driven by `page()` calls; v0.1 suppor
 | `numbered` | `params.page` (1-based) + `params.size`; with `numbered: 'offset'`, the items to skip (`params.offset`) instead of the page | the above + a page number | lists that need "go to page N" |
 | `append` | like `keyset`, `next` only | `next` | "load more", infinite scroll |
 
-Keyset mode jumps only when the server can skip by offset as well. With `jump: true`, `page('messages', 7)` requests the `first` direction with `offset=300` (page size 50) and no cursor; `prev` and `next` then continue by cursor from that page's first and last items. Without it, a page number on a keyset resource is error `SN304`, with a hint to add `jump: true` or use offset mode. sinter never simulates jumps by stepping through pages. (Added 2026-11-05, for APIs such as Caley's mail list.)
+Keyset mode jumps only when the server can skip by offset as well. With `jump: true`, `page(messages, 7)` requests the `first` direction with `offset=300` (page size 50) and no cursor; `prev` and `next` then continue by cursor from that page's first and last items. Without it, a page number on a keyset resource is error `SN304`, with a hint to add `jump: true` or use offset mode. sinter never simulates jumps by stepping through pages. (Added 2026-11-05, for APIs such as Caley's mail list.)
 - `numbered: 'offset'` (added 2026-11-10 as `offset-param`, then `params.offset`): page n sends `params.offset`=(n - 1) × `size` and `params.size`, no `params.page`, for APIs that take an offset (RealWorld's `?offset=20&limit=10`).
 - `model: $url.page` (added 2026-11-13 as `page-model`, numbered lists only; replaces `start-page`, whose migration error went 2026-11-20): the list's page lives in the URL, read at load and written back on every move. The URL is the single source. The pager keeps `requested`, the page of its last request; its request, reloads (`refresh`, `pageshow`, `online`) and retries are built from the parameter (`pageParams(toPage(…))`). `page()` does not load: it computes the target and writes it (page 1 deletes the parameter), a push. `next`/`prev` count from `requested`, or from the shown page after a failed load; a target past `pages` is clamped when the total is known; with an unknown total, `next` is ignored while a page is loading; `prev`/`next` past the ends do nothing. `page()` to the page already requested reloads it when the last load failed (a handler writing the same value changes nothing). On a resource whose `when` is false, `page()` does nothing. The pager follows the parameter (it is among the resource's dependencies): it loads `toPage(param)` when that differs from `requested`, so a typed page field gets the typing pause and the pager's own write is no echo. The first URL a resource gets after mount (at mount, or when a late `when` turns true) reads the parameter and never writes: `?page=3` restores, with no clamp or correction (`?page=abc` is page 1). A change caused by popstate never resets: it loads the parameter's page. Any other later change of the resource's URL (a `src` change, a later `when` turning true) resets to page 1 and deletes the parameter, a replace: changing a filter on page 3 starts at page 1, and Back restores page 3. `when` turning false never writes. `$url.page` is the page asked for (it changes at once), `$meta.<name>.page` the page shown (it changes when the response arrives, and stays after a failure). Lists bound to the same parameter page together and reset together. The early request, the preload rule and `sinter-embed.json` (`start`) read it where `start-page` was (`pageParams` in `runtime/pages.ts`, shared by all of them). Errors: on another mode `SN401` with the reason (keyset page numbers are often unknown; keyset and append move by cursor); a value other than `$url.<query param>` (a path parameter, state, an expression, a list) `SN203`; the resource's own `src` or `when` reading the same parameter `SN401`, since each page write would reset the list. Lost with `start-page`: a start page from a path segment, from an arbitrary expression, and for keyset lists with `jump` (those start at page 1). Cursor-based lists (plain keyset, append) are not synced to the URL.
-- The target may be computed: `page('results', $event.shiftKey ? 'prev' : 'next')`, or a helper's result, so one handler serves both directions. The compiler cannot tell a computed direction from a page number, so it accepts it, and `sinter check` types it: on a keyset resource without `jump` it must be a subset of `'first' | 'prev' | 'next' | 'last'` (a `number`, or a plain `string`, is `SN208`, whose message says to add `jump: true` for page numbers); elsewhere a direction or a number. A literal page number stays `SN304`; `append` takes only the literal `'next'`. (Added 2026-11-08, for Caley's keyset list.)
+- The target may be computed: `page(results, $event.shiftKey ? 'prev' : 'next')`, or a helper's result, so one handler serves both directions. The compiler cannot tell a computed direction from a page number, so it accepts it, and `sinter check` types it: on a keyset resource without `jump` it must be a subset of `'first' | 'prev' | 'next' | 'last'` (a `number`, or a plain `string`, is `SN208`, whose message says to add `jump: true` for page numbers); elsewhere a direction or a number. A literal page number stays `SN304`; `append` takes only the literal `'next'`. (Added 2026-11-08, for Caley's keyset list.)
 - At run time a target the resource cannot go to (a page number on keyset without `jump`, a string that is not a direction, `NaN`) sends no request: it takes the error path of a failed load, `$meta.<name>.error` with the reason and the unhandled-error path (see Unhandled errors), plus a dev warning. The next load clears the error.
 - A jump target is clamped to `$meta.<name>.pages` when the total is known.
 - `$meta.<name>.page` is the page holding the last item shown, `ceil(to / size)`, so it is exact after a jump, `first` and `last`, and approximate after cursor steps across items inserted meanwhile, as offsets always are on a live list.
@@ -1134,7 +1136,7 @@ For keyset, `hasNext` is true when the page came back full; `hasPrev` is false a
 ### Past the ends
 `page()` with `prev` does nothing while `$meta.<name>.hasPrev` is false, and with `next` while `hasNext` is false, in every mode: no request, no change. `first` and `last` always load (they send no cursor, so they also serve as "reload from the top"), and page numbers keep their clamping. A handler that pages in a computed direction needs no guard:
 ```html
-<div data-sn-let="{ shown: searching ? 'results' : 'messages' }"
+<div data-sn-let="{ shown: searching ? results : messages }"
      data-sn-on-list-step="page(shown, $event.detail > 0 ? 'next' : 'prev')">
 ```
 - Buttons keep their `disabled: !$meta.x.hasNext`, a binding with a fixed direction.
@@ -1525,7 +1527,7 @@ The edit dialog binds the form to `draft` and sends it as the body, which keeps 
 ```html
 <dialog id="edit">
   <form data-sn-post="/api/contact" data-sn-body="draft"
-        data-sn-then="upsert('contacts', $result); draft = null; closeDialog()"
+        data-sn-then="upsert(contacts, $result); draft = null; closeDialog()"
         data-sn-catch="emit('toast', $error.message)">
     <input data-sn-model="draft.fn_name" required>
     <input data-sn-model="draft.org">

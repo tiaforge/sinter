@@ -255,7 +255,7 @@ describe('run() diagnostics', () => {
   test('SN509: then/catch handlers that start each other again, with every step', () => {
     const html = `<div data-sn-state="{ n: 0 }">
 <sn-resource name="body" src="/b" then="run('mark')"></sn-resource><p data-sn-text="body"></p>
-<span id="mark" data-sn-post="/m" data-sn-then="refresh('body')"></span>
+<span id="mark" data-sn-post="/m" data-sn-then="refresh(body)"></span>
 <button id="a" data-sn-post="/a" data-sn-then="run('b')"></button>
 <button id="b" data-sn-post="/b" data-sn-catch="n = n + 1; run('a')" data-sn-on-click="run('b')"></button>
 <button id="self" data-sn-post="/s" data-sn-catch="run('self')"></button>
@@ -266,13 +266,13 @@ describe('run() diagnostics', () => {
       'SN509 `run()` cycle: `#a` `data-sn-then` (page.html:4) runs `#b`, then `#b` `data-sn-catch` (page.html:5) runs `#a`, which starts the first step again',
       'SN509 `run()` cycle: `#self` `data-sn-catch` (page.html:6) runs `#self`, which starts the first step again',
     ]);
-    // every name of refresh('a', 'b') is an edge
+    // every name of refresh(a, b) is an edge
     expect(diags(`<sn-resource name="a" src="/a"></sn-resource><sn-resource name="body" src="/b" then="run('mark')"></sn-resource><p data-sn-text="a + body"></p>
-<span id="mark" data-sn-post="/m" data-sn-then="refresh('a', 'body')"></span>`)).toEqual([
+<span id="mark" data-sn-post="/m" data-sn-then="refresh(a, body)"></span>`)).toEqual([
       'SN509 `run()` cycle: `<sn-resource name="body">` `then` (page.html:1) runs `#mark`, then `#mark` `data-sn-then` (page.html:2) refreshes `body`, which starts the first step again',
     ]);
     // refresh alone is not a run() cycle
-    expect(diags('<sn-resource name="r" src="/r" then="refresh(\'r\')"></sn-resource>')).toEqual([]);
+    expect(diags('<sn-resource name="r" src="/r" then="refresh(r)"></sn-resource>')).toEqual([]);
   });
 });
 

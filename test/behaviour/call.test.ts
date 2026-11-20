@@ -212,7 +212,7 @@ describe('<sn-resource call>: resources fed by a function', () => {
     const { root, settle } = await render(`
       <section data-sn-on-sn-error="$event.preventDefault()">
         <sn-resource name="body" call="load()"></sn-resource>
-        <button data-sn-on-click="refresh('body')"></button>
+        <button data-sn-on-click="refresh(body)"></button>
         <p data-sn-text="$meta.body.error ? $meta.body.error.status + ':' + $meta.body.error.message : body?.text"></p>
       </section>`, { actions });
     await settle();
@@ -231,7 +231,7 @@ test('refresh() with several names reloads each', async () => {
     <sn-resource name="b" src="/api/b" key="id"></sn-resource>
     <sn-resource name="c" src="/api/c" key="id"></sn-resource>
     <p data-sn-text="a.length + b.length + c.length"></p>
-    <button data-sn-on-click="refresh('a', 'c')"></button>`, { requests });
+    <button data-sn-on-click="refresh(a, c)"></button>`, { requests });
   await settle();
   requests.calls.length = 0;
   root.querySelector('button')!.click();

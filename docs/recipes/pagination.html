@@ -5,7 +5,7 @@
   <template data-sn-for="m in messages"><li data-sn-text="m.subject"></li></template>
 </ul>
 <nav>
-  <button data-sn-on-click="page('messages', 'prev')" data-sn-attr="{disabled: !$meta.messages.hasPrev}">‹</button>
+  <button data-sn-on-click="page(messages, 'prev')" data-sn-attr="{disabled: !$meta.messages.hasPrev}">‹</button>
   <span data-sn-text="`${$meta.messages.from}–${$meta.messages.to} of ${$meta.messages.total}`"></span>
-  <button data-sn-on-click="page('messages', 'next')" data-sn-attr="{disabled: !$meta.messages.hasNext}">›</button>
+  <button data-sn-on-click="page(messages, 'next')" data-sn-attr="{disabled: !$meta.messages.hasNext}">›</button>
 </nav>

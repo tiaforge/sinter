@@ -262,11 +262,11 @@ a failure with `$error`. Both are handlers: state assignments and these built-in
 
 | Function | Effect |
 | --- | --- |
-| `refresh('contacts')`, `refresh('a', 'b')` | reload the named resources |
-| `upsert('contacts', $result)` | insert or replace an item |
+| `refresh(contacts)`, `refresh(a, b)` | reload the named resources |
+| `upsert(contacts, $result)` | insert or replace an item |
 | `merge(item, {…})` | change fields of an item, in the resource it came from |
 | `remove(item)` | remove an item from the resource it came from (a single resource becomes `null`) |
-| `page('messages', 'next')` | change the page of a paginated resource |
+| `page(messages, 'next')` | change the page of a paginated resource |
 | `openDialog('edit')` | open `<dialog id="edit">`, nothing if it is open |
 | `closeDialog()`, `closeDialog('edit')` | close the nearest `<dialog>`, or the one with that id |
 | `emit('name', detail)` | dispatch a bubbling, cancelable `CustomEvent` from the element |
@@ -299,7 +299,7 @@ its key in state and derive the row with `data-sn-let`.
 
 ```html
 <form data-sn-post="/api/people" data-sn-body="draft"
-      data-sn-then="upsert('people', $result); draft = null; closeDialog()"
+      data-sn-then="upsert(people, $result); draft = null; closeDialog()"
       data-sn-catch="emit('toast', $error.message)">
 ```
 
@@ -513,7 +513,7 @@ Use the native `<dialog>`. A button that only opens it needs no handler: `comman
 
 <dialog id="edit">
   <form data-sn-post="/api/people" data-sn-body="draft"
-        data-sn-then="upsert('people', $result); draft = null; closeDialog()">
+        data-sn-then="upsert(people, $result); draft = null; closeDialog()">
     <input data-sn-model="draft.name" required>
     <button>Save</button>
   </form>

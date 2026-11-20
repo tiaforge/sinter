@@ -207,7 +207,7 @@ the state you made (`data-sn-state`) and the scroll position stay. Nothing to wr
 - A history call the browser refuses (Safari, called too often): the link loads.
 
 For a pager, links are the recommended form: crawlable, a new tab, copy link, and on the page with
-this. `page('next')` stays for relative moves and buttons. A pager link should carry
+this. `page(next)` stays for relative moves and buttons. A pager link should carry
 `aria-current="page"` for the active page.
 
 ## Swaps

@@ -10,7 +10,7 @@ const LIST = (then: string, attrs = '') => `
       <sn-event name="changed" resource="contacts" op="refresh"></sn-event>
       <sn-event name="updated" resource="contacts" op="upsert" value="contact"></sn-event>
     </sn-sync>
-    <button id="refresh" data-sn-on-click="refresh('contacts')"></button>
+    <button id="refresh" data-sn-on-click="refresh(contacts)"></button>
     <button id="q" data-sn-on-click="q = 'b'"></button>
     <button id="edit" data-sn-patch="/api/contacts/1" data-sn-optimistic="merge(contacts[0], { name: 'Zed' })"></button>
     <p data-sn-text="n + ' ' + last + ' ' + contacts.length"></p>
@@ -168,7 +168,7 @@ describe('<sn-resource then>', () => {
       <main data-sn-state="{ got: [] }">
         <sn-resource name="m" src="/api/m" items="items" total="total" key="id" paginate="{ numbered: true, size: 2 }"
           then="got = [...got, $result.map((x) => x.id).join('+')]"></sn-resource>
-        <button data-sn-on-click="page('m', 'next')"></button>
+        <button data-sn-on-click="page(m, 'next')"></button>
         <p data-sn-text="got.join(' ') + ' / ' + m.length"></p>
       </main>`, { requests });
     await settle();

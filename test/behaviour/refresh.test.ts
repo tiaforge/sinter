@@ -80,7 +80,7 @@ test('any load starts the clock again: a stream that keeps the resource current 
 test('`refresh()` and other loads that show `loading` still show it', async () => {
   const s = server();
   const requests = mockRequests({ 'GET /api/jobs': s.route });
-  const r = await render(PAGE('refresh="10s"', `<button data-sn-on-click="refresh('jobs')">reload</button>`), { requests });
+  const r = await render(PAGE('refresh="10s"', `<button data-sn-on-click="refresh(jobs)">reload</button>`), { requests });
   await r.settle();
   r.root.querySelector('button')!.click();
   await r.flush();
@@ -197,7 +197,7 @@ test('a change to the data since (a server event) makes the next response count,
 test('on a page with a stream, the version check applies to every reload, not only refreshes', async () => {
   const s = server(() => '"v1"');
   const requests = mockRequests({ 'GET /api/jobs': s.route });
-  const html = PAGE('', `<button data-sn-on-click="refresh('jobs')">reload</button>
+  const html = PAGE('', `<button data-sn-on-click="refresh(jobs)">reload</button>
     <sn-sync src="/api/events"><sn-event name="jobs_changed" resource="jobs" op="refresh"></sn-event></sn-sync>`);
   const r = await render(html, { requests, streams: { '/api/events': mockStream() } });
   await r.settle();
@@ -212,7 +212,7 @@ test('on a page with a stream, the version check applies to every reload, not on
 test('a page with neither `refresh` nor a stream has no version check: every reload is stored', async () => {
   const s = server(() => '"v1"');
   const requests = mockRequests({ 'GET /api/jobs': s.route });
-  const r = await render(PAGE('', `<button data-sn-on-click="refresh('jobs')">reload</button>`), { requests });
+  const r = await render(PAGE('', `<button data-sn-on-click="refresh(jobs)">reload</button>`), { requests });
   await r.settle();
   s.state.jobs = [{ id: 1, state: 'stored' }];
   r.root.querySelector('button')!.click();

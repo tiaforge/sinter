@@ -218,7 +218,7 @@ Error, for example:
 
 > keyset pagination cannot jump to a page number. Add `jump: true` to `paginate` if the server also accepts an offset, or use `numbered: true`
 
-Keyset (cursor) pagination only knows the next and previous page, so `page('name', 7)` has nothing to jump to, unless the server can also skip items by offset. A computed target (`page('name', dir)`) is not this error: `sinter check` types it as a direction, and at run time a page number is refused without a request. `append` pagination takes only the literal `'next'`.
+Keyset (cursor) pagination only knows the next and previous page, so `page(name, 7)` has nothing to jump to, unless the server can also skip items by offset. A computed target (`page(name, dir)`) is not this error: `sinter check` types it as a direction, and at run time a page number is refused without a request. `append` pagination takes only the literal `'next'`.
 
 **Fix:** If the API accepts an offset next to its cursor, add `jump: true` to `paginate` (and `params: { offset: 'skip' }` where the server names it otherwise): the jump is sent as an offset and `prev`/`next` continue by cursor. Otherwise use `numbered: true` in `paginate`, or only step with `first`, `prev`, `next` and `last`.
 

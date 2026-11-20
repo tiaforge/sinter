@@ -63,7 +63,7 @@
 
   <dialog id="new-task" closedby="any">
     <form data-layout="stack" data-gap="md" data-sn-post="/api/tasks" data-sn-body="draft"
-          data-sn-then="upsert('tasks', $result); draft = { title: '' }; closeDialog()">
+          data-sn-then="upsert(tasks, $result); draft = { title: '' }; closeDialog()">
       <header>
         <h2>New task</h2>
         <button type="button" commandfor="new-task" command="close" aria-label="Close"></button>

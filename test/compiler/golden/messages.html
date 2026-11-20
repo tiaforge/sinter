@@ -9,9 +9,9 @@
   <sn-event name="flags" resource="messages" op="merge" value="{flags, is_read: flags.includes('\\Seen')}" when="mailbox === $url.mailbox"></sn-event>
 </sn-sync>
 <nav>
-  <button data-sn-on-click="page('messages', 'first')" data-sn-attr="{disabled: !$meta.messages.hasPrev}">«</button>
+  <button data-sn-on-click="page(messages, 'first')" data-sn-attr="{disabled: !$meta.messages.hasPrev}">«</button>
   <span data-sn-text="`${$meta.messages.from}–${$meta.messages.to} of ${$meta.messages.total}`"></span>
-  <button data-sn-on-click="page('messages', 'next')" data-sn-attr="{disabled: !$meta.messages.hasNext}">›</button>
+  <button data-sn-on-click="page(messages, 'next')" data-sn-attr="{disabled: !$meta.messages.hasNext}">›</button>
 </nav>
 <template data-sn-for="m in messages">
   <article data-sn-class="{unread: !m.is_read}">

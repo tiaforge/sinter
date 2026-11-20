@@ -40,7 +40,7 @@ test('a choice whose case is a text fill: rendered early, another candidate by t
 
 test('adopted: the same rows, then a change the page module writes', async () => {
   const data = { c: [{ name: 'Ada' }, { name: 'Grace' }] };
-  const { root, settle } = await render(page('<template data-sn-for="c in all.c"><template data-sn-text="c.name"></template>,</template><button id="r" data-sn-on-click="refresh(\'all\')">r</button>', data),
+  const { root, settle } = await render(page('<template data-sn-for="c in all.c"><template data-sn-text="c.name"></template>,</template><button id="r" data-sn-on-click="refresh(all)">r</button>', data),
     { firstPaint: true, requests: mockRequests({ 'GET /api/all': { c: [{ name: 'Bo' }, { name: 'Cy' }, { name: 'Di' }] } }) });
   await settle();
   expect(root.querySelector('p')!.textContent).toBe('Ada,Grace,r');
@@ -51,7 +51,7 @@ test('adopted: the same rows, then a change the page module writes', async () =>
 
 test('adopted: rows that are only a text, then a change the page module writes', async () => {
   const data = { c: [{ name: 'Ada' }, { name: 'Grace' }] };
-  const { root, settle } = await render(page('<template data-sn-for="c in all.c"><template data-sn-text="c.name"></template></template><button id="r" data-sn-on-click="refresh(\'all\')">r</button>', data),
+  const { root, settle } = await render(page('<template data-sn-for="c in all.c"><template data-sn-text="c.name"></template></template><button id="r" data-sn-on-click="refresh(all)">r</button>', data),
     { firstPaint: true, requests: mockRequests({ 'GET /api/all': { c: [{ name: 'Bo' }] } }) });
   await settle();
   expect(root.querySelector('p')!.textContent).toBe('AdaGracer');
@@ -63,7 +63,7 @@ test('adopted: rows that are only a text, then a change the page module writes',
 
 test('adopted keyed rows that are only a text: removing the first row removes its text', async () => {
   const data = { c: [{ id: 1, name: 'Ada' }, { id: 2, name: 'Grace' }, { id: 3, name: 'Lin' }] };
-  const { root, settle } = await render(page('<template data-sn-for="c in all.c" data-sn-key="c.id"><template data-sn-text="c.name"></template></template><button id="r" data-sn-on-click="refresh(\'all\')">r</button>', data),
+  const { root, settle } = await render(page('<template data-sn-for="c in all.c" data-sn-key="c.id"><template data-sn-text="c.name"></template></template><button id="r" data-sn-on-click="refresh(all)">r</button>', data),
     { firstPaint: true, requests: mockRequests({ 'GET /api/all': { c: [{ id: 2, name: 'Grace' }, { id: 3, name: 'Lin' }] } }) });
   await settle();
   expect(root.querySelector('p')!.textContent).toBe('AdaGraceLinr');
@@ -74,7 +74,7 @@ test('adopted keyed rows that are only a text: removing the first row removes it
 
 test('adopted rows that end with a text: removing the first row removes its text, not the next rows', async () => {
   const data = { c: [{ id: 1, name: 'Ada' }, { id: 2, name: 'Grace' }, { id: 3, name: 'Lin' }] };
-  const { root, settle } = await render(page('<template data-sn-for="c in all.c" data-sn-key="c.id"><i>-</i><template data-sn-text="c.name"></template></template><button id="r" data-sn-on-click="refresh(\'all\')">r</button>', data),
+  const { root, settle } = await render(page('<template data-sn-for="c in all.c" data-sn-key="c.id"><i>-</i><template data-sn-text="c.name"></template></template><button id="r" data-sn-on-click="refresh(all)">r</button>', data),
     { firstPaint: true, requests: mockRequests({ 'GET /api/all': { c: [{ id: 2, name: 'Grace' }, { id: 3, name: 'Lin' }] } }) });
   await settle();
   expect(root.querySelector('p')!.textContent).toBe('-Ada-Grace-Linr');
@@ -86,7 +86,7 @@ test('adopted rows that end with a text: removing the first row removes its text
 test('adopted rows that end with a text: removing a middle row, then the first', async () => {
   const data = { c: [{ id: 1, name: 'Ada' }, { id: 2, name: 'Grace' }, { id: 3, name: 'Lin' }] };
   let next: unknown = { c: [{ id: 1, name: 'Ada' }, { id: 3, name: 'Lin' }] };
-  const { root, settle } = await render(page('<template data-sn-for="c in all.c" data-sn-key="c.id"><i>-</i><template data-sn-text="c.name"></template></template><button id="r" data-sn-on-click="refresh(\'all\')">r</button>', data),
+  const { root, settle } = await render(page('<template data-sn-for="c in all.c" data-sn-key="c.id"><i>-</i><template data-sn-text="c.name"></template></template><button id="r" data-sn-on-click="refresh(all)">r</button>', data),
     { firstPaint: true, requests: mockRequests({ 'GET /api/all': () => next }) });
   await settle();
   (root.querySelector('#r') as HTMLButtonElement).click();

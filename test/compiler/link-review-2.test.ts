@@ -61,11 +61,11 @@ test('2a. a definition loops over a page resource: recorded where it has no `key
 
 test('2b. `page(\'other\', 3)` in a definition: recorded where the resource has `jump`, linked where it has not (SN304 is lost)', () => {
   const pg = (jump = '') => `key="id" paginate="{ keyset: { after: $last.id }, size: 10${jump} }"`;
-  linked(abc({ res: other(pg(", jump: true, params: { offset: 'o' }")) }, { res: other(pg()) }), textWith('<button data-sn-on-click="page(\'other\', 3)">3</button>'));
+  linked(abc({ res: other(pg(", jump: true, params: { offset: 'o' }")) }, { res: other(pg()) }), textWith('<button data-sn-on-click="page(other, 3)">3</button>'));
 });
 
 test('2c. `run(\'save\')` in a definition: `#save` carries an action on the recording page and none on the linked one (SN309 is lost), and the other way round (SN309 is invented)', () => {
-  const action = TREE + '<button id="save" data-sn-post="/api/s">s</button>', none = TREE + '<button id="save" data-sn-on-click="refresh(\'doc\')">s</button>';
+  const action = TREE + '<button id="save" data-sn-post="/api/s">s</button>', none = TREE + '<button id="save" data-sn-on-click="refresh(doc)">s</button>';
   const run = textWith('<button data-sn-on-click="run(\'save\')">go</button>');
   linked(abc({ body: action }, { body: none }), run);
   linked(abc({ body: none }, { body: action }), run);

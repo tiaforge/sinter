@@ -755,10 +755,10 @@ export function nextQuery(c: Contact, i: number) {
     expect(w!.title).toContain('`nextQuery`');
     // `open = !open` is not worth one, and a store call is not a helper
     expect(extracts(await e.actions('index.html', find(PAGE, 'open = !open', { cursor: 2 })))).toEqual([]);
-    const refresh = PAGE.replace('open = !open', "refresh('contacts')");
+    const refresh = PAGE.replace('open = !open', "refresh(contacts)");
     e.change('index.html', refresh);
     await e.diagnostics('index.html');
-    expect(extracts(await e.actions('index.html', find(refresh, "refresh('contacts')")))).toEqual([]);
+    expect(extracts(await e.actions('index.html', find(refresh, "refresh(contacts)")))).toEqual([]);
   });
 
   test('a handler writing several properties of one state object: one helper per value, or one returning an object', async () => {

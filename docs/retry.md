@@ -133,7 +133,7 @@ turns false, and `$meta.<name>.loading` stays true while it waits.
 
 Without `retry.get`, a failed load sets `$meta.<name>.error` at once and nothing is sent again by
 itself. Pages still recover on their own: on `online`, after a stream reconnects, on the next
-`refresh`, or with `refresh('name')`.
+`refresh`, or with `refresh(name)`.
 
 ## Development and tests
 

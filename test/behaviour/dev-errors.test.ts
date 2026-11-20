@@ -84,7 +84,7 @@ test('a stream event that cannot be applied and `page(…, \'last\')` without a 
       <sn-event name="broken" resource="rows" op="upsert" value="a.b"></sn-event>
     </sn-sync>
     <template data-sn-for="x in rows"><li data-sn-text="x.id"></li></template>
-    <button data-sn-on-click="page('rows', 'last')">last</button>`, {
+    <button data-sn-on-click="page(rows, 'last')">last</button>`, {
     requests: mockRequests({ 'GET /api/rows?page=1&limit=2': [{ id: 1 }, { id: 2 }] }), streams: { '/events': stream },
   });
   await r.settle();
@@ -95,7 +95,7 @@ test('a stream event that cannot be applied and `page(…, \'last\')` without a 
   const w = r.warnings().map((x) => [x.code, x.message.replace(/applied: .*/, 'applied: …')]);
   expect(w).toContainEqual([29, 'sinter: event `patched` payload is missing key field(s) id for `rows`']);
   expect(w).toContainEqual([28, 'sinter: event `broken` could not be applied: …']);
-  expect(w).toContainEqual([30, "sinter: page('rows', 'last') needs a known total"]);
+  expect(w).toContainEqual([30, "sinter: page(rows, 'last') needs a known total"]);
   // the payload follows the message, as before
   expect(said(warn, 'missing key field(s)')[0]![1]).toEqual({ name: 'x' });
 });

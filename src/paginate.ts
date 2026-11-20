@@ -92,7 +92,7 @@ class PagerImpl implements Pager {
       ? this.cfg.mode != 'numbered' && !this.cfg.skipParam && 'keyset pagination cannot jump to a page number; add `jump: true` to paginate'
       : !['first', 'prev', 'next', 'last'].includes(target) && 'not a direction';
     if (why) {
-      const l = this.loader, e = new SinterError(null, target, `page('${l.def.name}', ${JSON.stringify(target)}): ${why}`);
+      const l = this.loader, e = new SinterError(null, target, `page(${l.def.name}, ${JSON.stringify(target)}): ${why}`);
       l.app.warn(e.message);
       return l.failed(e);
     }

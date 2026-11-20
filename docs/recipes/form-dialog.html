@@ -16,7 +16,7 @@
          for a POST. With one (`sinter({ apis })`), write-through inserts it by itself; leave `upsert` out (SN510).
          No data-sn-catch: a failed save keeps the dialog open, with the server's messages on the fields. -->
     <form data-sn-post="/api/people" data-sn-body="draft"
-          data-sn-then="upsert('people', $result); draft = null; closeDialog()">
+          data-sn-then="upsert(people, $result); draft = null; closeDialog()">
       <p data-tone="danger" data-sn-show="$error && !$error.body?.errors" data-sn-text="$error?.detail ?? $error?.message"></p>
       <input name="name" data-sn-model="draft.name" required>
       <template data-sn-for="(e, i) in draft.emails">
