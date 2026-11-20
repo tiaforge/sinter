@@ -215,7 +215,7 @@ const { root, flush } = await render(page, { messages, locale: 'de' });
 expect(root.querySelector('h1').textContent).toBe('Posteingang');
 ```
 
-The locale is `locale`, else the stored choice (`locale` in `storage`), else the base language. `$locale = 'en'` in a handler switches. See [docs/configuration.md](configuration.md#messages) and [docs/recipes/messages.html](recipes/messages.html).
+The locale is `locale`, else the stored choice (`locale` in `storage`), else the base language. `$locale = 'en'` in a handler switches. See [docs/messages.md](messages.md) and [docs/recipes/messages.html](recipes/messages.html).
 
 ## Type-checking in tests
 

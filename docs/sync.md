@@ -66,7 +66,7 @@ same way. Loop variables and resources are not in scope.
 ```
 
 Here `mailbox` is a payload field and `sel` is state. Events with no `<sn-event>` are still
-delivered to [islands](islands.md).
+delivered to [custom elements](islands.md).
 
 Several `<sn-event>` elements may name the same event; each applies when its `when` holds. A server
 whose updates sometimes carry the item and sometimes only an id writes both cases:
@@ -160,7 +160,7 @@ and `close()`:
 - `onEvent(name, payload)` delivers one event with its **parsed** payload.
 - `onState('open')` once connected; `onState('error')` when the connection is lost, cleanly or not.
   Nothing is reported after `close()`.
-- `names` are the event names the page maps. `listen(name)` adds one an island subscribes to later.
+- `names` are the event names the page maps. `listen(name)` adds one a custom element subscribes to later.
 - A transport never reconnects by itself.
 
 Actions always go over HTTP, so `then`/`catch`, optimistic updates and 401 handling work the same
@@ -197,7 +197,7 @@ reads `'connecting'` until it is shown. A custom transport sets it through `onSt
 
 - **One connection per URL.** `<sn-sync>` elements whose `src` resolves to the same URL share one
   connection, and all their `<sn-event>` mappings apply, each in its own `<sn-sync>`'s scope. An
-  event mapped twice applies twice; islands receive it once.
+  event mapped twice applies twice; custom elements receive it once.
 - **Reconnects go through the session probe.** `EventSource` can't see the HTTP status, so after an
   error sinter calls the `sessionProbe` URL from the config module through the request layer: 2xx
   reconnects, 401 follows the normal login redirect, a network error waits and probes again.

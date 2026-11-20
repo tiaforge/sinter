@@ -92,7 +92,7 @@ on logout. The page-load cache and next-page data entries (in `sessionStorage`) 
 
 ## Outside sinter's control
 
-- Islands, your helpers and `onError` handlers are trusted code. Do not pass server data, including
+- Custom elements, your helpers and `onError` handlers are trusted code. Do not pass server data, including
   `$error.message`, to HTML sinks (`innerHTML`) from them.
 - Embedded JSON must be serialized with `<` written as `<`, so it cannot close its
   `<script>`. `sinter-axum` does this.

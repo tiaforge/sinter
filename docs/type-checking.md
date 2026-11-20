@@ -53,7 +53,7 @@ Custom elements are typed by the app's own declarations. A module under `src/` t
 `HTMLElementTagNameMap`, or its events in `SinterElementEvents`, is part of every check:
 
 ```ts
-// src/islands/mail-reader.ts
+// src/custom elements/mail-reader.ts
 export class MailReader extends HTMLElement { message: Message | null = null; readonly = false; }
 declare global {
   interface HTMLElementTagNameMap { 'mail-reader': MailReader }

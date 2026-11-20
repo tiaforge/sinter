@@ -328,10 +328,10 @@ The broad concepts:
 Every attribute is in the [reference](docs/attributes.md). Optional files in `src/`:
 
 - [`sinter.config.js`](docs/configuration.md): auth headers, error handling, transports, retries.
-- [`sinter.helpers.js`](docs/configuration.md): functions your expressions can call.
+- [`sinter.helpers.js`](docs/expressions.md#helpers): functions your expressions can call.
 - `sinter.types.ts`, or `sinter({ apis: { main: { openapi: 'openapi.yml' } } })`: types for [`sinter check`](docs/type-checking.md).
 
-`npx sinter check` type-checks every expression, and `npx sinter lsp --stdio` gives editors errors as you type ([editors](docs/editors.md)). Loading, first paint and navigation need no configuration; their options are in the [first paint](docs/first-paint.md) and [navigation](docs/navigation.md) docs.
+`npx sinter check` type-checks every expression, and `npx sinter lsp --stdio` gives editors errors as you type ([editors](docs/editors.md)). [Strict mode](docs/strict.md) makes warnings fail like errors; [expressions](docs/expressions.md) says what belongs in markup and what in a helper; built-in [messages](docs/messages.md) translate the pages; builds [minify](docs/minify.md) each page's HTML. Loading, first paint and navigation need no configuration; their options are in the [first paint](docs/first-paint.md) and [navigation](docs/navigation.md) docs.
 
 ## Contributing and license
 

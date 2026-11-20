@@ -154,7 +154,7 @@ Split such a module (the helpers early bindings call in a module of their own), 
 In builds the page script is `async`, so it does not wait for stylesheets and starts its requests
 sooner. It may therefore run before the body is parsed. sinter waits for the parse (and the early
 script) before it mounts, but your code at the top level of a page-bundle module must not read the
-body, and an island must not read its children or later siblings in `connectedCallback`; read them
+body, and a custom element must not read its children or later siblings in `connectedCallback`; read them
 when sinter sets a prop or on an event.
 
 ## Embedded data

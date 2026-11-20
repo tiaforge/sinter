@@ -426,7 +426,7 @@ Sitemap: https://example.com/sitemap.xml
 
 ## Languages
 
-With [messages](configuration.md#messages) in more than one language, `localePrefix` builds each page once
+With [messages](messages.md) in more than one language, `localePrefix` builds each page once
 per language, under that language's prefix, with its text in the HTML:
 
 ```js

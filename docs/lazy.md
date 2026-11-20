@@ -124,7 +124,7 @@ export class TaskRing extends TaskRingComponent {
   with chart.js, when its component first renders: src/components/x.ts → src/lib/chart.ts → chart.js`),
   so an innocent import that makes a component wait does not go unnoticed. A script that should run at
   once reaches the package only through `await import()`.
-- Islands (custom elements your app defines and imports) are your modules: they get the stubs.
+- Custom elements (custom elements your app defines and imports) are your modules: they get the stubs.
 
 ## Helpers that wait
 

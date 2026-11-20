@@ -18,7 +18,7 @@ License: MIT. Contributions are accepted under the Developer Certificate of Orig
 - HTML responses or `innerHTML` rendering.
 - A runtime interpreter: HTML that never passes through the compiler cannot use directives.
 - Dialogs and popovers: native `<dialog>`, `popover` and `commandfor` cover them.
-- Anything that measures layout: that stays in islands.
+- Anything that measures layout: that stays in custom elements.
 
 ### Design principles
 - One way to do each thing. No aliases, no overlapping features.
@@ -29,7 +29,7 @@ License: MIT. Contributions are accepted under the Developer Certificate of Orig
 - Seams for later work. A versioned intermediate format, a DOM-free store and normalized change messages keep a type generator, embedded server data, cross-page caching and a shared SSE worker possible without API changes.
 
 ## Architecture
-The compiler turns annotated HTML into a page module once; at runtime the store sits in the middle, and every change from the server, an action or an island goes through it before the renderer writes the DOM.
+The compiler turns annotated HTML into a page module once; at runtime the store sits in the middle, and every change from the server, an action or a custom element goes through it before the renderer writes the DOM.
 Server data enters through the request layer (loads) and the sync adapter (events); the renderer only reads the store, so there is one path to the DOM.
 
 ### Packages
@@ -187,7 +187,7 @@ The page renders correctly before its module has run; the module then fills in d
 
 The runtime owns every binding: on mount it computes the same values, and its writes change nothing, so there is no flash and no reset. Early code runs once and keeps no listeners.
 
-**The page bundle is `async`.** In builds its entry script carries `async`: a deferred module script waits for every pending stylesheet before it runs, an async one does not, so on a warm load the page module starts its requests one round trip earlier. It may now run before the body is parsed, or before the early file, so the page module waits before it mounts: `await parsed()` (`readyState` past `loading`), or on a page with an early script `await rendered()` (both from `@tiaforge-ui/sinter`: the core is in every page bundle, so no chunk more), which waits for the parse and for the early script's last pass (and for the dictionary, with messages). They are bundled apart, so the two meet through a global (`Symbol.for('sinter.early.page')`): the early script marks that it started and when it has rendered. An early script that failed to load does not hold the page: if it has not started by DOMContentLoaded, the page module mounts. The takeover is the same as with a deferred page module. What changes for app code: the modules of the page bundle (islands, `src/sinter.config.ts`) may run while the body is still being parsed, so top-level code must not read the body, and an island defined then is upgraded as the parser creates it (its `connectedCallback` can run before later siblings or its children are parsed: read them when sinter sets a prop or on an event, not on connect). In dev the page module stays a plain module script; the same waits apply.
+**The page bundle is `async`.** In builds its entry script carries `async`: a deferred module script waits for every pending stylesheet before it runs, an async one does not, so on a warm load the page module starts its requests one round trip earlier. It may now run before the body is parsed, or before the early file, so the page module waits before it mounts: `await parsed()` (`readyState` past `loading`), or on a page with an early script `await rendered()` (both from `@tiaforge-ui/sinter`: the core is in every page bundle, so no chunk more), which waits for the parse and for the early script's last pass (and for the dictionary, with messages). They are bundled apart, so the two meet through a global (`Symbol.for('sinter.early.page')`): the early script marks that it started and when it has rendered. An early script that failed to load does not hold the page: if it has not started by DOMContentLoaded, the page module mounts. The takeover is the same as with a deferred page module. What changes for app code: the modules of the page bundle (custom elements, `src/sinter.config.ts`) may run while the body is still being parsed, so top-level code must not read the body, and a custom element defined then is upgraded as the parser creates it (its `connectedCallback` can run before later siblings or its children are parsed: read them when sinter sets a prop or on an event, not on connect). In dev the page module stays a plain module script; the same waits apply.
 
 **Data requests before the page module.** A page's resources are requested before its page module has run, in two ways (with first paint on):
 - Every origin a literal `src` of a resource or a stream names (`https://api.example.com/…`) gets `<link rel="preconnect" href="https://api.example.com" crossorigin>` in the head, before the preloads: DNS, TCP and TLS are done while the page bundle downloads instead of when its first request leaves. `crossorigin` (anonymous), because the request layer sends cross-origin requests with `credentials: 'same-origin'` and `EventSource` connects without credentials. Such a `src` gets a preload and an early request (below) only when its origin is listed in `sinter({ origins: [...] })`. Every page module adds that list to the runtime's allowlist (`$origins()`, after the app's config module, which may still call `configure({ origins })`: an origin listed only there is allowed but not requested early), so an app lists its API origins once and nothing the runtime would refuse is sent early. The build names, once, the origins it left to the page module. (Before 2026-11-09 both were same-origin only.)
@@ -267,7 +267,7 @@ A free identifier resolves to the first match, innermost first:
 - Registered helpers, helper namespaces and the store functions (`refresh`, `upsert`, `merge`, `remove`, `page`, `openDialog`, `closeDialog`, `emit`, `run`, `navigate`).
 - Allowed globals (below).
 Anything else is a build error with a suggestion: `contcts` → "did you mean `contacts`?".
-Globals: JavaScript yes, browser no. Expressions may use the ECMAScript standard library, including `new`: `Math`, `JSON`, `Object`, `Array`, `Set`, `Map`, `Date`, `Intl.*`, `RegExp` and the rest. Three pure web-platform utilities are allowed as well: `URL`, `URLSearchParams`, `structuredClone`. Forbidden are browser and I/O APIs (`window`, `document`, `fetch`, `localStorage`, `navigator`, timers, …) and the language's meta-tools (`eval`, `Function`, `Proxy`, `Reflect`, `globalThis`, `WeakRef`, `FinalizationRegistry`, `Atomics`). Browser work belongs in islands. `$el` and `$event` are handed in explicitly, so their properties and methods may be used: `$event.preventDefault()`, `$el.focus()`, `$el.form.requestSubmit()`.
+Globals: JavaScript yes, browser no. Expressions may use the ECMAScript standard library, including `new`: `Math`, `JSON`, `Object`, `Array`, `Set`, `Map`, `Date`, `Intl.*`, `RegExp` and the rest. Three pure web-platform utilities are allowed as well: `URL`, `URLSearchParams`, `structuredClone`. Forbidden are browser and I/O APIs (`window`, `document`, `fetch`, `localStorage`, `navigator`, timers, …) and the language's meta-tools (`eval`, `Function`, `Proxy`, `Reflect`, `globalThis`, `WeakRef`, `FinalizationRegistry`, `Atomics`). Browser work belongs in custom elements. `$el` and `$event` are handed in explicitly, so their properties and methods may be used: `$event.preventDefault()`, `$el.focus()`, `$el.form.requestSubmit()`.
 The sandbox is a guardrail, not a security boundary: expressions come from the page source at build time, never from users. A strict CSP blocks `eval` and `Function` at runtime as a second layer.
 Time and randomness. `Date.now()`, `new Date()` without arguments and `Math.random()` in a value expression are warning `SN502`, because the binding never updates on its own. Use `$now` instead.
 
@@ -321,7 +321,7 @@ Built-in messages, from an inlang project's message files, so the inlang tooling
 - Switching: `$locale = 'de'` (or `setLocale('de')` from the messages module) stores the choice, loads this page's file for that language once, sets `<html lang>` and re-renders what reads `$locale` (every message, `date()`, `number()`), without a reload. `onLocale(fn)` tells app code.
 - Testing: `render(html, { messages: { en: {…}, de: {…} }, locale })` and `firstPaint(html, { messages, storage })`.
 
-**Cost when unused.** An app without an inlang project pays nothing: no picker, no language file, no request more, and the messages module is imported only by pages and modules that call `m`. The core runtime has no i18n code path: in an app with an inlang project every page module wires sinter's locale source (`use()`) and waits for the dictionary, and a page gets the picker and its language file whenever it calls `m` at all: in its markup or in any module of its bundle or early file (a page whose markup has no `m` may still call it from a helper, an action or an island). A build of the same app before and after this feature is byte for byte the same (the `vite-app` fixture, checked 2026-11-08); a test guards that a build without messages contains no picker, language file or messages code.
+**Cost when unused.** An app without an inlang project pays nothing: no picker, no language file, no request more, and the messages module is imported only by pages and modules that call `m`. The core runtime has no i18n code path: in an app with an inlang project every page module wires sinter's locale source (`use()`) and waits for the dictionary, and a page gets the picker and its language file whenever it calls `m` at all: in its markup or in any module of its bundle or early file (a page whose markup has no `m` may still call it from a helper, an action or a custom element). A build of the same app before and after this feature is byte for byte the same (the `vite-app` fixture, checked 2026-11-08); a test guards that a build without messages contains no picker, language file or messages code.
 
 ### Derived names
 `data-sn-let` names values computed from state, resources and loop variables, for the element and its subtree:
@@ -331,7 +331,7 @@ Built-in messages, from an inlang project's message files, so the inlang tooling
 </div>
 ```
 - Each entry is a value expression; later entries may use earlier ones.
-- A name is compiled into every expression that reads it, so it is always current, costs no runtime and is tracked like the expression itself; handlers see the value at the time they run. A helper call in it is a call at every read: a binding, a handler, a listener, each row (a parse that three bindings read runs three times). An expensive helper is the app's to keep: `memo()` from `@tiaforge-ui/sinter/memo` ([configuration.md](configuration.md#memoized-helpers)), `export const parse = memo(parseDocument)` in the helpers module, which keeps results by arguments, copies object arguments, freezes and shares its results, and folds at build time as the function it calls does. A cache inside the framework was built (2026-11-15) and taken out again (2026-11-16): the proposal's step 10, as built, says why.
+- A name is compiled into every expression that reads it, so it is always current, costs no runtime and is tracked like the expression itself; handlers see the value at the time they run. A helper call in it is a call at every read: a binding, a handler, a listener, each row (a parse that three bindings read runs three times). An expensive helper is the app's to keep: `memo()` from `@tiaforge-ui/sinter/memo` ([expressions.md](expressions.md#memoized-helpers)), `export const parse = memo(parseDocument)` in the helpers module, which keeps results by arguments, copies object arguments, freezes and shares its results, and folds at build time as the function it calls does. A cache inside the framework was built (2026-11-15) and taken out again (2026-11-16): the proposal's step 10, as built, says why.
 - **A let may wait for a lazy helper module** ([lazy.md](lazy.md#helpers-that-wait)): a call of a helper whose declaring module reaches a package of `lazy` becomes `$.$z(<module>, "<export>")`, which starts the module's load (a function of the table, `IR.lm`) and throws a marker; the let's expression is wrapped in `$.$w(() => …)` (`lets.ts`, loaded only by pages with such a let), which catches it: the let is `undefined`. Its arrival marks `$lz.<module>`, one more dependency of the let. `sinter check` declares the let `T | undefined` (`$waits()` in the shadow file), but checks with `strictNullChecks: false` (`check/index.ts`), so an unguarded read is not reported; the docs recommend guarding every read (`data-sn-if`, `?.`, `??`). A failed load takes the unhandled-error path, once, and the let stays `undefined`. Elsewhere such a call is `SN324`. Not early.
 - Names are read-only (`SN203` on assignment) and may not share a name with a state or loop variable in their scope (`SN209`).
 
@@ -697,7 +697,7 @@ Inside `<sn-event>` attributes, the event's parsed JSON payload is the scope: `v
 | `then` | handler expression, run after the change is applied (see Handlers on server events) |
 | `type` | the payload's type, for `sinter check` (see Type checking) |
 
-For `merge` and `remove`, the key is read from the payload using the resource's `key` fields. On a `for` resource, `refresh` reloads only the source the payload resolves to (see Fan-out resources). Events with no `<sn-event>` are still dispatched to islands (see JS API).
+For `merge` and `remove`, the key is read from the payload using the resource's `key` fields. On a `for` resource, `refresh` reloads only the source the payload resolves to (see Fan-out resources). Events with no `<sn-event>` are still dispatched to custom elements (see JS API).
 
 ### Handlers on server events
 `then` on `<sn-event>` is a handler expression, like `data-sn-then` on an action, run after the event's change is applied to the store (for `refresh`: once the reload is requested; it does not wait for it). It sees the same scope as the event's other attributes: payload fields as bare names, and the state and `data-sn-let` names around the `<sn-sync>`; it may assign the state. It runs for every event that passes `when`; not when the payload cannot be applied (a `merge` or `remove` without the key fields, an `upsert` without an item; a second event of the same name with `when` can refresh instead). With `then`, `resource` and `op` may be left out: the event only runs its handler. (Added 2026-11-08, for Caley's detail dialogs.)
@@ -712,10 +712,10 @@ For `merge` and `remove`, the key is read from the payload using the resource's 
 - The dialog clears the selection itself (`<dialog id="contact-detail" data-sn-on-close="sel = null">`), so the handler runs one step under its condition (two would be `SN507`).
 - Store functions are in scope (`refresh`, `upsert`, `merge`, `remove`, `page`, `openDialog`, `closeDialog('id')`, `run('id')`), and their names win over payload fields. There is no element, so `closeDialog()` names its dialog and `emit()` is an error (`SN203`); `$event` and `$result` are not defined here, and assigning to a payload field is an error.
 - State writes re-render what reads them, as from any handler. Bindings inside a dialog the handler closes keep their last values until it opens again.
-- Islands still receive the event through `app.on(name)`, after every mapping has run.
+- Custom elements still receive the event through `app.on(name)`, after every mapping has run.
 
 ### Connection rules
-- One connection per stream URL per page, however many elements use it: `<sn-sync>` elements whose `src` resolves to the same URL (at connect time, after the page mounts) share one transport, and all their `<sn-event>` mappings apply, each evaluated in its own `<sn-sync>`'s scope. An event mapped by several of them applies once per mapping; islands receive it once.
+- One connection per stream URL per page, however many elements use it: `<sn-sync>` elements whose `src` resolves to the same URL (at connect time, after the page mounts) share one transport, and all their `<sn-event>` mappings apply, each evaluated in its own `<sn-sync>`'s scope. An event mapped by several of them applies once per mapping; custom elements receive it once.
 - The session probe gates every reconnect. `EventSource` cannot see HTTP status, so after an error the adapter does not reconnect directly. It calls the configured `sessionProbe` through the request layer:
   - 2xx: reconnect the stream.
   - 401: the normal login redirect.
@@ -735,7 +735,7 @@ On a paginated resource, `upsert` of a key that is not on the current page becom
 A transport is an object with `connect(url, onEvent, onState, names)`, an optional `listen(name)` and `close()`:
 - `onEvent(name, payload)` delivers one event with its **parsed** payload (the SSE transport parses JSON and passes anything else as the raw string).
 - `onState('open')` once connected; `onState('error')` when the connection is lost, cleanly or not. A transport never reconnects by itself: the connection rules above (session probe, backoff, reload) apply to every transport. Nothing is reported after `close()`.
-- `names` are the event names the page maps; `listen(name)` adds one an island subscribes to later. A transport delivers at least those.
+- `names` are the event names the page maps; `listen(name)` adds one a custom element subscribes to later. A transport delivers at least those.
 
 The transport is chosen per stream URL in the config module; the URL in the HTML stays an http(s) URL under the usual URL template rules, so a value can never choose the host:
 ```js
@@ -817,7 +817,7 @@ A mutation's 2xx response is applied to the resources it is about, by the `write
 - RealWorld (2026-11-08): 12 of 19 `then` handlers went, among them every favorite and follow button and the comment form's `upsert`.
 
 ### Resource names
-`merge(item, …)` and `remove(item)` take no resource name (added 2026-11-10; the forms with one are `SN317`). The compiler resolves where the item came from, as write-through resolves what an action is about: a loop row (for `a in (x ? feed : articles)`, either list; through `filter`, `slice`, `toSorted`, `toReversed`, or a helper that takes exactly one resource or list with a source; a helper that takes two is `SN317`), an element of a list (`list[i]`, `.find()`, `.findLast()`, `.at()`), a single resource, a `data-sn-let` name or a component prop that is one of those, a component event's `$event.detail` when the component emits one of those, `structuredClone()` of one, and a state path a handler on the page assigns one of those (`sel = m`; every assignment counts). It passes those resource names to the runtime ahead of the item; the runtime changes the item in the first that holds its key (a single resource is the item itself). An item with none of these sources is `SN317`, naming what to use instead: write-through for `$result`, `<sn-event resource op>` for a payload, the instance API for an island's event. State that holds a row stays a snapshot: sinter does not rewrite values in state; `merge(sel, …)` finds the item by its key.
+`merge(item, …)` and `remove(item)` take no resource name (added 2026-11-10; the forms with one are `SN317`). The compiler resolves where the item came from, as write-through resolves what an action is about: a loop row (for `a in (x ? feed : articles)`, either list; through `filter`, `slice`, `toSorted`, `toReversed`, or a helper that takes exactly one resource or list with a source; a helper that takes two is `SN317`), an element of a list (`list[i]`, `.find()`, `.findLast()`, `.at()`), a single resource, a `data-sn-let` name or a component prop that is one of those, a component event's `$event.detail` when the component emits one of those, `structuredClone()` of one, and a state path a handler on the page assigns one of those (`sel = m`; every assignment counts). It passes those resource names to the runtime ahead of the item; the runtime changes the item in the first that holds its key (a single resource is the item itself). An item with none of these sources is `SN317`, naming what to use instead: write-through for `$result`, `<sn-event resource op>` for a payload, the instance API for a custom element's event. State that holds a row stays a snapshot: sinter does not rewrite values in state; `merge(sel, …)` finds the item by its key.
 
 `refresh()`, `upsert()` and `page()` take the resource itself (changed 2026-11-20; they took its name as a string, now `SN301` naming the form): a resource (`refresh(people)`); `c ? x : y` where `x` and `y` are references (the test is any value expression); `x || y` and `x ?? y`; or a `data-sn-let` name whose value is one. The compiler lists the resources it can be and compiles each leaf to the resource's name, so the runtime still looks names up; a let used both as a list and as a reference is both.
 ```html
@@ -999,7 +999,7 @@ A handler cannot call an action function (`SN203`), because an action's lifecycl
 | `inert`, itself or an ancestor (the attribute) | nothing happens, no warning, as HTML means by inert |
 | `hidden`, `data-sn-show` false, off-screen | runs: a hidden carrier is the intended pattern |
 | inside a closed `<dialog>` | runs: actions are bound at mount; only value bindings wait for the dialog to open |
-| not on the page (a `data-sn-if` branch that is not rendered, removed by an island) | nothing happens; dev builds warn |
+| not on the page (a `data-sn-if` branch that is not rendered, removed by a custom element) | nothing happens; dev builds warn |
 | a `block` action with a request pending | the run is ignored, as a second click would be |
 
 - **Concurrency.** The target's own policy applies, per element: `block` ignores the run, `queue` sends every run in order, `latest` keeps the newest waiting one; a running mutation is never aborted. `data-sn-concurrency="block"` on the carrier keeps one in flight and drops the rest.
@@ -1007,7 +1007,7 @@ A handler cannot call an action function (`SN203`), because an action's lifecycl
 - **Where.** Every handler: `data-sn-on-*` (key filters included), `data-sn-then`/`data-sn-catch` (chaining: on success, run the next action), `<sn-event then>` and `<sn-resource then>`; it needs no element of the caller's. Not in value expressions (`SN203`) and not in `data-sn-optimistic` (`SN204`: a request cannot be rolled back).
 - **Key filters** combine as any handler: `data-sn-on-keydown-mod-enter="run('send')"`. The filter has already called `preventDefault()`. Held keys repeat and every repeat runs the action through its concurrency policy; a shortcut that should not repeat guards itself, `$event.repeat || run('archive')`.
 - **Cycles.** Actions are asynchronous, so a cycle is an endless series of requests, not a stack overflow: `data-sn-catch="run('save')"` on `#save`, A's `then` running B and B's running A, or a `<sn-resource then>` that runs an action whose `then` refreshes that resource. There is no runtime guard: the runtime cannot tell a loop from a retry. Warning `SN509 run-cycle` lists every such cycle with each step's element, handler and line: `` `#a` `data-sn-then` (index.html:4) runs `#b`, then `#b` `data-sn-catch` (index.html:5) runs `#a` ``. Edges are `run()` and `refresh()` calls in an action's `then`/`catch` or a resource's `then`; `data-sn-on-*` handlers are not edges (a user's event starts them), and a cycle needs at least one `run()`. Reported on every check (added 2026-11-20; it was opt-in, `checkCycles`). A guarded retry is a deliberate cycle: `strict: { allow: { SN509: 'why' } }` keeps it a warning.
-- **Islands** have no `app.run()`: they talk back through events, and the page decides, `data-sn-on-reader-read="run('mark-read')"`. That keeps the page the only place that knows its ids.
+- **Custom elements** have no `app.run()`: they talk back through events, and the page decides, `data-sn-on-reader-read="run('mark-read')"`. That keeps the page the only place that knows its ids.
 - Recipe: "Run an action from a handler" (mark read after load, and a shortcut on a button).
 
 ### Lists you move through with the keys (`data-sn-options`)
@@ -1193,7 +1193,7 @@ sinter updates the DOM fine-grained, without a virtual DOM: every binding knows 
 
 ### Scheduler
 - All changes in one task are collected; one microtask flush evaluates dirty bindings and writes.
-- Changes from server events (`<sn-sync>`: the store changes and state writes of `<sn-event>` mappings and their `then`) are applied when the event arrives, and rendered before the next frame is painted (`requestAnimationFrame`) instead of in a microtask, so a burst of events renders once per frame. Any other change (a handler, a response, a timer) still flushes in a microtask and renders the waiting server changes with it. A hidden page has no frames: there, server events flush in a microtask as before. Islands' `app.on()` listeners run when the event arrives, before that render. (Added 2026-11-10, from bench/live: at 4× CPU slowdown a dashboard kept up with 200 events/s when each one rendered, and with 5,000/s at 51 fps rendering once per frame.)
+- Changes from server events (`<sn-sync>`: the store changes and state writes of `<sn-event>` mappings and their `then`) are applied when the event arrives, and rendered before the next frame is painted (`requestAnimationFrame`) instead of in a microtask, so a burst of events renders once per frame. Any other change (a handler, a response, a timer) still flushes in a microtask and renders the waiting server changes with it. A hidden page has no frames: there, server events flush in a microtask as before. Custom elements' `app.on()` listeners run when the event arrives, before that render. (Added 2026-11-10, from bench/live: at 4× CPU slowdown a dashboard kept up with 200 events/s when each one rendered, and with 5,000/s at 51 fps rendering once per frame.)
 - The core never reads layout (`offsetHeight`, `getBoundingClientRect`), so a flush cannot force reflow.
 - Bindings inside a closed `<dialog>` are kept dirty and evaluated on its `toggle` to open.
 
@@ -1204,32 +1204,32 @@ sinter updates the DOM fine-grained, without a virtual DOM: every binding knows 
 
 #### Which handlers run
 Delegation walks from the target up, and the first element that **handles** the event ends the walk. On that element every applying handler runs, in attribute order, with its action's trigger. An element handles the event when:
-- **Any event but keys and bubbling custom events** (`click`, `submit`, `input`, an island's plain `Event`, a `CustomEvent` that does not bubble): any of its handlers or an action for that type ran. A button or an action inside a clickable row keeps the row's `data-sn-on-click` from running.
-- **Bubbling custom events** (`emit()`, islands' `CustomEvent`s, `sn-error`, `sn-dismiss`): no element ends the walk by handling them; it ends where a handler called `$event.preventDefault()`. See Custom events are notifications.
+- **Any event but keys and bubbling custom events** (`click`, `submit`, `input`, a custom element's plain `Event`, a `CustomEvent` that does not bubble): any of its handlers or an action for that type ran. A button or an action inside a clickable row keeps the row's `data-sn-on-click` from running.
+- **Bubbling custom events** (`emit()`, custom elements' `CustomEvent`s, `sn-error`, `sn-dismiss`): no element ends the walk by handling them; it ends where a handler called `$event.preventDefault()`. See Custom events are notifications.
 - **Keys** (`keydown`, `keyup`): a key filter matched (it calls `preventDefault()` first), an action ran, a debounced handler was scheduled, or a plain `data-sn-on-keydown`/`-keyup` ran **and `$event.defaultPrevented` is set afterwards**. A plain key handler that does not prevent a key passes it on, so `<body data-sn-on-keydown-shift-n>` still gets N while focus is in a grid whose plain handler takes only the arrow keys it calls `preventDefault()` for. To keep a key from ancestors, prevent it.
 - A debounced plain key handler has not run when the walk decides, so it always counts as handled; a key that should go on past such an element needs a key filter for the keys the element uses instead.
 - The editable-field rule applies wherever the walk goes: an ancestor's filter never takes a key typed into a field, so a key a field's plain handler passes on only reaches ancestors' plain handlers.
 - Non-bubbling events (`focus`, `blur`, `toggle`, `close`, `cancel`, `invalid`, `scroll`, `load`) are seen by sinter's capture listener at the root and take the same walk: the nearest element from the target up with a handler for the type, an ancestor included (an inner `<details>` without a handler reaches an outer `<details data-sn-on-toggle>`).
 - `run('id')` dispatches no event and takes no walk; a form it submits sends `submit` as usual.
-- There is no sinter-level stop. `$event.stopPropagation()` keeps its native meaning: sinter's listener runs in the capture phase at the root, so calling it there also keeps the event from the target and any island's listeners, and does not end sinter's walk early (the walk has already ended at the element that handled the event).
+- There is no sinter-level stop. `$event.stopPropagation()` keeps its native meaning: sinter's listener runs in the capture phase at the root, so calling it there also keeps the event from the target and any custom element's listeners, and does not end sinter's walk early (the walk has already ended at the element that handled the event).
 - Cost: one property read per ancestor for the event types the page binds; the walk goes past an element only for a key it did not prevent.
 
 Why this rule (decided 2026-11-08, from Caley's calendar, whose week-grid arrow handler hid the page's N and P): nearest-wins is what clickable rows with buttons, actions and forms rely on, so it stays; only plain key handlers changed, and their signal is the DOM's own for a consumed key, which handlers already give for keys they take from their default. Full DOM-like bubbling would have needed a stop at every inner handler, and opt-in attributes would have needed markup in each place.
 
 #### Custom events are notifications
-A bubbling custom event (`emit()`, an island's `CustomEvent`, `sn-error`, the `options` module's `sn-dismiss`) does not end the walk at the first element that handles it: it goes to every element from the target up to the mount root that has a handler for it, until a handler calls `$event.preventDefault()`. Clicks need nearest-wins (a button in a row is not a click on the row); a custom event says that something happened, and every level that cares hears it. A row that clears its own `saving` flag and a page that shows a toast handle the same `saved`:
+A bubbling custom event (`emit()`, a custom element's `CustomEvent`, `sn-error`, the `options` module's `sn-dismiss`) does not end the walk at the first element that handles it: it goes to every element from the target up to the mount root that has a handler for it, until a handler calls `$event.preventDefault()`. Clicks need nearest-wins (a button in a row is not a click on the row); a custom event says that something happened, and every level that cares hears it. A row that clears its own `saving` flag and a page that shows a toast handle the same `saved`:
 ```html
 <main data-sn-state="{ toast: '' }" data-sn-on-saved="toast = m.saved()">
   <template data-sn-for="r in rows">
     <li data-sn-state="{ saving: false }" data-sn-on-saved="saving = false">       <!-- runs first, passes it on -->
       <button data-sn-post="/api/r/{r.id}" data-sn-on-click="saving = true" data-sn-then="emit('saved', $result)">
 ```
-- **Which events.** Events that are `CustomEvent`s and bubble. Native events, and an island's plain `Event`, keep the rule above (the nearest element that handled it; keys go on when not prevented). A custom event that does not bubble (`bubbles: false`) keeps its nearest-ancestor reach: the island said it should not travel.
+- **Which events.** Events that are `CustomEvent`s and bubble. Native events, and a custom element's plain `Event`, keep the rule above (the nearest element that handled it; keys go on when not prevented). A custom event that does not bubble (`bubbles: false`) keeps its nearest-ancestor reach: the custom element said it should not travel.
 - **Order.** Inner to outer, as the event bubbles; on each element its handlers in attribute order, with its action's trigger. Everything runs synchronously inside the dispatch, so an outer handler sees the state the inner one wrote, every handler sees the same `$event.detail`, and statements after `emit()` in the emitting handler run after all of them. Each level has its own scope: `$el` is that element, its own state and lets. One flush renders all their writes.
-- **Saying "final".** `$event.preventDefault()`: the walk stops after the element whose handler prevented it (the other handlers on that element, and its action, still run, as for keys). `emit()` dispatches a cancelable event, and so does the `options` module for `sn-dismiss`. `sn-error` is cancelable, and preventing it means "handled, no `onError`": an inner `data-sn-on-sn-error` that only logs lets the page's handler and then `onError` see the error. A handler on a non-cancelable custom event (an island's event without `cancelable`) cannot stop it (the DOM ignores `preventDefault()` there): every level runs. Islands whose events may be final at some level dispatch them with `cancelable: true`.
+- **Saying "final".** `$event.preventDefault()`: the walk stops after the element whose handler prevented it (the other handlers on that element, and its action, still run, as for keys). `emit()` dispatches a cancelable event, and so does the `options` module for `sn-dismiss`. `sn-error` is cancelable, and preventing it means "handled, no `onError`": an inner `data-sn-on-sn-error` that only logs lets the page's handler and then `onError` see the error. A handler on a non-cancelable custom event (a custom element's event without `cancelable`) cannot stop it (the DOM ignores `preventDefault()` there): every level runs. Custom elements whose events may be final at some level dispatch them with `cancelable: true`.
 - **Debounced handlers** (`data-sn-debounce-<event>`) have not run when the walk decides, so they pass the event on; a level that must be final does not debounce, or prevents in a plain handler next to the debounced one.
 - **Actions** triggered by a custom event (`data-sn-trigger="saved"`) pass it on too: an action does not prevent a custom event (an `<a>` action prevents only native events).
-- **Islands and other listeners.** sinter's walk runs in its capture listener at the root, before the event reaches its target and bubbles to `document`, so app code listening outside sinter (RealWorld's `document.addEventListener('navigate', …)`) still gets every event, and can read `defaultPrevented` to see whether a page handler took it. An island that dispatches a cancelable event and checks `dispatchEvent()`'s result to skip its own default (a `reader-close` the page may veto) sees a page handler that ends the walk as a veto too; an island that needs the two apart dispatches two events.
+- **Custom elements and other listeners.** sinter's walk runs in its capture listener at the root, before the event reaches its target and bubbles to `document`, so app code listening outside sinter (RealWorld's `document.addEventListener('navigate', …)`) still gets every event, and can read `defaultPrevented` to see whether a page handler took it. A custom element that dispatches a cancelable event and checks `dispatchEvent()`'s result to skip its own default (a `reader-close` the page may veto) sees a page handler that ends the walk as a veto too; a custom element that needs the two apart dispatches two events.
 - **`$event.stopPropagation()`** keeps its native meaning, as above: it does not end sinter's walk (which already runs at the root), and it keeps the event from its target and from listeners outside sinter. There is no sinter-level stop: `preventDefault()` already says "final" for keys and `sn-error`.
 - `run('id')` dispatches no event and is unaffected.
 
@@ -1285,7 +1285,7 @@ Configuration comes only from `configure()` in JavaScript, never from the DOM, s
 `data-sn-state`, `$url` and persisted values can be changed by the user in the browser, and `$url` by anyone who sends a link; URL values reach models (as values, never markup) and `paginate`'s `model` (parsed as a whole number). The server validates every request on its own. Persisted keys are namespaced `sn:`, cleared by `loginRedirect`, and can be cleared with `clearPersisted()` on logout.
 
 ### Outside sinter's control
-- Islands, user helpers and `onError` handlers are trusted code and must not pass server data, `$error.message` included, to HTML sinks themselves.
+- Custom elements, user helpers and `onError` handlers are trusted code and must not pass server data, `$error.message` included, to HTML sinks themselves.
 - Embedded JSON must be serialized with `<` escaped as `<`, so it cannot close its `<script>`.
 - The server rejects state-changing requests without the CSRF header, never changes state on `GET`, and never answers credentialed CORS requests for arbitrary origins (which would defeat the header check).
 - JSON responses carry `Content-Type: application/json` and `X-Content-Type-Options: nosniff`.
@@ -1307,8 +1307,8 @@ Configuration comes only from `configure()` in JavaScript, never from the DOM, s
 - The compiler uses a spec-compliant HTML parser (the algorithm browsers use, no regular expressions) and serializes its output from that tree, so the compiler and the browser always agree on which element an attribute belongs to.
 - Component files are read from `src/components/` inside the project root only, symlinks included, so a build cannot inline files from outside the project.
 
-## JS API for islands
-Islands are custom elements that own imperative work (encryption, rich editors, canvas-like views); they get data through properties and talk back through DOM events, and may use the store directly.
+## JS API for custom elements
+Custom elements are custom elements that own imperative work (encryption, rich editors, canvas-like views); they get data through properties and talk back through DOM events, and may use the store directly.
 
 ### Data in, events out
 ```html
@@ -1317,9 +1317,9 @@ Islands are custom elements that own imperative work (encryption, rich editors, 
                 data-sn-on-reader-flag="merge(selected, {is_flagged: $event.detail})"></mail-reader>
 </template>
 ```
-- `data-sn-with` assigns JS properties, so islands receive objects, not strings.
-- An island's module may define its element after the page has mounted (a lazy `import()`). Until then, a property sinter sets is a plain own property of the element, readable but hiding the class's accessor once it is defined. So for an element that is not defined yet, sinter remembers the latest value of each property and, when `customElements.whenDefined()` resolves (a microtask after the upgrade, so after the constructor and `connectedCallback`), deletes the own property and sets the value again, through the class's setter. A class field the upgrade redefined gets the latest value too. Elements already defined pay one `customElements.get()` per write. (Fixed 2026-11-08; Caley had an `upgradeProps()` workaround.)
-- An island dispatches `CustomEvent`s with lowercase kebab-case names (`reader-flag`), bubbling; `data-sn-on-<name>` handles them at every level until one calls `$event.preventDefault()`, so an event that may be final somewhere is dispatched with `cancelable: true` (see Events, Custom events are notifications).
+- `data-sn-with` assigns JS properties, so custom elements receive objects, not strings.
+- A custom element's module may define its element after the page has mounted (a lazy `import()`). Until then, a property sinter sets is a plain own property of the element, readable but hiding the class's accessor once it is defined. So for an element that is not defined yet, sinter remembers the latest value of each property and, when `customElements.whenDefined()` resolves (a microtask after the upgrade, so after the constructor and `connectedCallback`), deletes the own property and sets the value again, through the class's setter. A class field the upgrade redefined gets the latest value too. Elements already defined pay one `customElements.get()` per write. (Fixed 2026-11-08; Caley had an `upgradeProps()` workaround.)
+- A custom element dispatches `CustomEvent`s with lowercase kebab-case names (`reader-flag`), bubbling; `data-sn-on-<name>` handles them at every level until one calls `$event.preventDefault()`, so an event that may be final somewhere is dispatched with `cancelable: true` (see Events, Custom events are notifications).
 
 ### Instance API
 ```ts
@@ -1347,8 +1347,8 @@ app.on('new_email', payload => notify(payload));  // any server event, mapped or
 
 
 ### Rules
-- Components with a script never write to sinter-managed nodes; neither do islands (plain custom elements). Markup written inside a custom element in the page is bound like the rest of the page.
-- Direct store writes from islands go to the base, like server events; unconfirmed changes use `app.optimistic()`. Both follow the base/layer model, so SSE and optimistic updates stay consistent.
+- Components with a script never write to sinter-managed nodes; neither do custom elements (plain custom elements). Markup written inside a custom element in the page is bound like the rest of the page.
+- Direct store writes from custom elements go to the base, like server events; unconfirmed changes use `app.optimistic()`. Both follow the base/layer model, so SSE and optimistic updates stay consistent.
 - Multiple instances may exist (one per mount root); there is no global singleton.
 
 ## Developer experience
@@ -1551,7 +1551,7 @@ The edit dialog binds the form to `draft` and sends it as the body, which keeps 
 - Markup used on several pages goes in a component: `src/components/contact-card.html`, used as `<contact-card data-sn-with="{ contact: c }">`.
 
 ## Open questions
-- State reactivity depth. Decided: compile-time path invalidation, default identity keys, `update()` for islands, dev-mode detector, resources read-only (`SN205`), copies via `structuredClone`. See Expressions and scope.
+- State reactivity depth. Decided: compile-time path invalidation, default identity keys, `update()` for custom elements, dev-mode detector, resources read-only (`SN205`), copies via `structuredClone`. See Expressions and scope.
 - $meta naming. Decided: `$meta.<name>.<field>` with a fixed field set. See Resources and store.
 - Mutation concurrency. Decided: `block` for forms, `queue` otherwise, `latest` on request via `data-sn-concurrency`; running mutations are never aborted. See Actions.
 - Safe globals. Decided: "JavaScript yes, browser no", `new` allowed, `$now` for time, warning `SN502`. See Expressions and scope.
@@ -1563,7 +1563,7 @@ The edit dialog binds the form to `draft` and sends it as the body, which keeps 
 - Optional query parameters. Decided (2026-11-04): a query parameter whose interpolated value is `null`/`undefined` is omitted from the URL, so one resource covers lists whose filters come and go.
 - Templates shared across pages. Decided (2026-11-10): components, expanded at build time, with props, slots and events; `<sn-include>` is removed. See Components and `docs/proposals/components.md`.
 - Handlers at several levels. Decided (2026-11-08): nearest wins unless the element did not handle the event; a plain key handler handles a key only when it prevents it. See Events, Which handlers run.
-- Running an action from a handler. Decided (2026-11-08): `run('id')` starts the action of the element with that literal id (`SN309`), keeping its lifecycle; `$event` is null (forms are submitted), disabled and inert targets do nothing, no return value, no `app.run()` for islands, cycle check `SN509` opt-in. See Running an action from a handler.
+- Running an action from a handler. Decided (2026-11-08): `run('id')` starts the action of the element with that literal id (`SN309`), keeping its lifecycle; `$event` is null (forms are submitted), disabled and inert targets do nothing, no return value, no `app.run()` for custom elements, cycle check `SN509` opt-in. See Running an action from a handler.
 
 ## Sources
 Advisories and guidance the Security section was checked against:
@@ -1588,4 +1588,375 @@ Every page without `data-sn-path` (not `index.html`, `404.html` or `200.html`) i
 ### Languages in the URL (added 2026-11-11)
 
 `sinter({ localePrefix: true })` needs the built-in messages; `readLocales` (`src/locales-build.ts`) reads `baseLocale` and `locales` from the inlang settings and refuses a missing `baseLocale`, one not among `locales`, or a locale that is not a language tag. Each source page is built once per locale as `<root>/<locale>/<page>`: the build's input is replaced by those paths, `resolveId` and `load` serve them from the source page, and `build()` compiles the source (`file` is the source, so diagnostics, components and layouts are as written) with the compile option `locale: { name, urls, base }` and that language's messages as `baseMessages`, then rebases the output from the source's folder to the language's (`rebaseHtml`). In the compiler: `$locale` and `localeUrl` compile to constants (`localeUrl` from `urls`, or for a page whose paths all have parameters `base + l + location.pathname.slice(…)`); messages of the built-in namespace add no `$locale` dependency, are written in attributes too, and get no `data-sn-m`; built-in helpers add no `$locale` dependency, and the build-time evaluator has `number`, `bytes` and `date` of a calendar date in that locale (the runtime's `number`, `bytes` and `date`, with that locale for the call; any other date throws, so it is formatted in the browser); in the page module and the early script each message the code calls is a function of that language's text (`fixedMessages` in `src/compiler/index.ts`: `m$title = () => "Über uns"`, a `{param}` read from the argument, kept as written when missing), and `fixed(locale)` from the messages module sets the locale (the config's locale source, unless the app set one) and reads the dictionary of the app's modules' messages from `script[data-sn-messages]`; nothing waits for a dictionary; assigning `$locale` is `SN203`; `data-sn-path` patterns get the prefix after `base`; `<html lang>` is the locale; the page module sets the `locale` cookie (`Path=/`, a year, `SameSite=Lax`) before mounting. No page in a language gets the picker or a language file: the plugin writes the messages the page's bundled modules and early file call (`moduleKeys`), in that language, into its head as `<script type="application/json" data-sn-messages>` (in dev, the language's whole dictionary). The pages plugin adds `hreflang` links (with `site`) and links into the page's language (`relocateHtml` with the locales: a page's same-language pages also by their unprefixed paths; `<a hreflang>` is left alone), writes a chooser (`chooserHtml`) at each source page's unprefixed file (its `pageFile`; `404.html` and `200.html` are the base language's page, rebased), and the same chooser at a moved source page's file (`about.html`), so an old URL is one hop from a language. A chooser has a refresh to the base language's URL, `noindex`, `hreflang`, links to each language, and on a site where a page ships JavaScript a script: the `locale` cookie, else `navigator.languages`, else the base; to that language's URL of the page (a page with a fixed path: the URLs are in the script, so it works at any URL), or for a pattern page the same path under that prefix; query and fragment kept. `siteRoutes` adds the choosers' rules to the languages': each a rewrite with `choose`, the old file URL's too (`/about.html  /about/  200`); sinter-axum sends a fixed rule's request to its target under the language (`/about.html` → `/de/about/`), a pattern's to the request's path; the embed manifest has `locales: { base, list, at }` and a `choose` route for each fixed unprefixed URL too, and sinter-axum answers a `choose` route with a 302 (`Vary: Cookie, Accept-Language`) to `at + locale + '/' + rest`. `vite dev` serves a page in a language through `transformIndexHtml` at its URL (redirecting its other forms) and a chooser at an unprefixed URL.
+
+## Implementation log
+
+What was built, in order, and where it departed from the spec (was `docs/progress.md` until 2026-11-20; the
+changelog lists the released changes).
+
+
+
+### Layout
+
+| Path | Contents |
+| --- | --- |
+| `src/ir.ts` | IR v1 types shared by compiler and runtime |
+| `src/compiler/` | `compile()`: HTML rewrite, includes, expression checking and codegen, helper manifest |
+| `src/runtime/` | store, scheduler, renderer, actions, request layer, config, helpers, security checks |
+| `src/sse.ts`, `src/optimistic.ts`, `src/paginate.ts`, `src/persist.ts`, `src/cache.ts` | feature modules |
+| `src/ws.ts` | WebSocket transport (imported by the app's config module, not a feature) |
+| `src/vite.ts` | Vite adapter |
+| `src/project.ts` | the app's helpers, config and types modules, found the same way by the plugin and the CLI; pages from the Vite config |
+| `src/check/`, `src/cli.ts` | `sinter check`: shadow files, `tsc`, error mapping |
+| `src/lsp/` | `sinter lsp`: JSON-RPC, the workspace of projects and open buffers, the TypeScript bridge, quick fixes |
+| `editors/vscode/` | the VS Code extension: starts the project's `sinter lsp` |
+| `src/compiler/diagnostic-docs.ts` | example, meaning and fix per code; `docs/diagnostics.md` is generated from it |
+| `src/testing/` | `render`, `mockRequests`, `mockStream` |
+| `src/compiler/vocabulary.ts` | the attribute/element table; compiler, `llms.txt` and custom data derive from it |
+| `test/` | Vitest suites (happy-dom); `test/compiler/golden/__out__` are file snapshots |
+| `docs/recipes/` | the nine `llms.txt` recipes, each with its executed test |
+| `scripts/size.mjs` | min+gzip per module (`npm run size`) |
+| `scripts/release.mjs` | bump versions, date the changelog, commit and tag (`npm run release -- 0.3.0`) |
+
+### Milestones
+
+- [x] M0 scaffold: package, tsconfig, test runner
+- [x] M1 compiler: HTML parse/rewrite, `<sn-include>`, attribute vocabulary, diagnostics
+- [x] M2 expressions: parse, scope resolution, sandbox rules, dirty-path analysis, codegen
+- [x] M3 runtime core: store, scheduler, bindings, keyed lists (LIS moves), if/else, model, events, closed dialogs
+- [x] M4 request layer + actions: middleware, bodies, concurrency, then/catch, unhandled errors, 401
+- [x] M5 SSE sync module: change messages, session probe, backoff, missed-event refetch, bfcache
+- [x] M6 optimistic layers (actions and `app.optimistic()`)
+- [x] M7 pagination: keyset, offset, append
+- [x] M8 persist, `$url`, `$now`, `$locale`, helpers and namespaces
+- [x] M9 testing module
+- [x] M10 Vite plugin (transformIndexHtml, virtual page module, root-confined partials, full reload on change)
+- [x] M11 diagnostics fixture per code, golden outputs + IR schema check, property-based tests,
+      security corpus (URLs, CSS, injection, clobbering, pollution, origins), recipes with tests,
+      generated `llms.txt` and `html-custom-data.json`
+- [ ] M12 size budget: measured, not met (see below)
+- [ ] M13 real-browser suite (Playwright on Chromium, Firefox, WebKit; Trusted Types + strict CSP run)
+      (started: `e2e/transports` runs `<sn-sync>` over SSE, WebSocket and SignalR against real
+      servers in headless Chrome)
+
+### How it fits together
+
+- The compiler resolves every identifier statically and emits one function per
+  expression taking a scope object `$`: loop variables are `$.c`, state is
+  `$.$s<n>.q`, resources `$.$r.contacts`, magic names `$.$url` etc., store
+  functions `$.$f.patch`. Scopes are prototype chains (page → state → row).
+- Dependency and write paths are strings like `$s0.draft.emails.{i}.value`;
+  `{name}` is filled from the row scope at runtime, `*` matches any segment.
+  A binding re-runs when one of its paths and a dirty path are prefixes of each
+  other. Row-local reads (loop items) re-run only when the item is replaced.
+- Resources hold base + optimistic layers; server events and `then` writes go
+  to the base; an optimistic action records ops into a layer, dropped on settle.
+
+### Log
+
+- 2026-11-04: spec imported, plan written.
+- 2026-11-04: compiler, runtime, feature modules and testing module in; the
+  spec's test example passes. 38 behaviour tests (rendering, models, lists,
+  actions, errors, 401, SSE, optimistic overlaps, pagination).
+- Runtime rewritten as closures (private state minifies to short names);
+  dev warnings, freezing and the outside-write detector moved to the `dev`
+  feature module, which the compiler adds to dev builds only. Lists and if
+  blocks use one end-marker comment instead of recursive node bookkeeping.
+  The size script now minifies fully (Vite's lib mode keeps whitespace in ES
+  output, which had inflated earlier numbers).
+- js-framework-benchmark entry added (`bench/js-framework-benchmark`, results in
+  [benchmark.md](benchmark.md)); flush and reconcile optimized from ~1.2× to ~0.94× Svelte.
+  Found while optimizing: index reads across lists (`names[i]` in a row of another list)
+  missed structure changes; fixed with a test.
+- RealWorld example (`examples/realworld`), run against the official e2e suite: 130–133/140.
+  Bugs it found in sinter, each fixed with a test: parenthesized expressions failed to parse;
+  inlined partials shifted node paths (adjacent text merges in the browser); a load answered
+  after a local write wiped that write (writes during a load are now replayed); mutations were
+  cancelled by navigations (now sent with `keepalive`).
+- URL templates omit query parameters whose value is `null`/`undefined` (spec addition, 2026-11-04).
+- `data-sn-path` on `<html>` (spec addition, decided 2026-11-04 for the RealWorld app):
+  path parameters in `$url`, read-only, several patterns per page. Server rewrites are not
+  generated yet; the compiler puts the patterns in the IR (`ir.path`) so the Vite plugin can later.
+- Fixed: delegated listeners were only added for event types used by root
+  elements, so handlers used only inside template rows never fired.
+- Vite plugin with a real build test; diagnostics fixtures for all 21 codes;
+  golden outputs; property-based list and layer tests; security tests;
+  recipes; generated docs. 129 tests pass, typecheck clean.
+- 2026-11-05: pluggable stream transports. `configure({ transport })` picks one per `<sn-sync>`
+  URL (EventSource otherwise); `@tiaforge-ui/sinter/ws` is a WebSocket transport (`{event, data}`
+  messages or a `decode` function; http(s) stream URLs are opened as ws(s), so the compiler's URL
+  rules are unchanged); SignalR is an `llms.txt` recipe with its adapter in the app. Transports now
+  deliver parsed payloads (SignalR and WebSocket adapters parse themselves). `render()` falls back
+  to the configured transport for stream URLs without a mock.
+- 2026-11-05: type checking, phase 2 of the adoption roadmap (`type=` only; OpenAPI is phase 3).
+  `compile(…, { check: true })` returns a check unit (expressions with positions and scope frames);
+  `src/check/` writes one checked JS file per page to `.sinter/check/` and runs the project's `tsc`
+  (TypeScript 7's native `tsc` works; no in-process compiler API is needed). New `type` attribute on
+  `<sn-resource>`, `SN208 type-error`, `SN504 untyped-resource`, `sinter check` CLI,
+  `sinter({ typecheck, types })`. The untyped RealWorld example (377 expressions) checks with no errors;
+  that is a test.
+- 2026-11-05: type checking, phase 3: OpenAPI. `sinter({ openapi })` loads JSON/YAML specs (`yaml` is now a
+  dependency, required only when a spec is configured); `src/compiler/openapi.ts` matches resources to
+  GET operations in every build (`SN307`, `SN308`, `SN505`); `src/check/openapi-types.ts` converts schemas
+  to TypeScript. RealWorld now uses the Conduit spec (`examples/realworld/openapi.yml`): 15 of 15
+  resources typed with no annotations, 0 errors (a test); a planted `article.titel` reports
+  "Property 'titel' does not exist on type 'Article'. Did you mean 'title'?".
+- 2026-11-05: type checking, last phase: actions match OpenAPI operations by method (`data-sn-body`
+  against the request schema, typed `$result`: 20 of RealWorld's 23 `then` handlers), `type` on
+  `<sn-event>` (payload typed, `item`/`set` checked against the resource, `SN506 untyped-event`), `cursor`
+  typed as the resource's item, `checkPage()` for tests, and the "Typed resources, state and events"
+  recipe. A value that is wrong as a whole is reported by TypeScript on the shadow's `return`; that line
+  now maps to the expression's start.
+- 2026-11-05: pre-launch fixes. The core's size budget is now 11 KB min+gzip (10.1 KB today); 5 KB
+  was never met. `docs/diagnostics.md` is generated from `src/compiler/diagnostic-docs.ts` (example,
+  meaning and fix per code) and ships in the package; diagnostics link to its section on GitHub
+  (`github.com/tiaforge/sinter`).
+- 2026-11-05: editor integration, phase 1: `sinter lsp` (`src/lsp/`: JSON-RPC framing, a
+  `Workspace` of projects, pages, partials and open buffers, the LSP glue). Compiler diagnostics as you
+  type; partials are compiled through the pages that include them; Vite entries are compiled on load
+  (about 0.4 s for RealWorld, mostly Vite's config resolution); file watching reloads the project when
+  helpers, types, specs or the Vite config change. `Diagnostic.span` gives attribute- and element-level
+  diagnostics their full range. Reading the Vite config moved from `cli.ts` to `viteProject()` in
+  `project.ts`. Tests drive the server over in-memory streams (`test/lsp/`).
+- 2026-11-05: editor integration, phase 2: `src/lsp/typescript.ts` starts the project's
+  `tsc --lsp --stdio` (TypeScript 7) per project, keeps one shadow per page open in it (written to
+  `.sinter/lsp/` once so its tsconfig includes them, then changed in memory), pulls errors 300 ms after
+  the last compile and maps them with TypeScript's range; hover maps the cursor into the shadow
+  (`shadowPosition()` in `shadow.ts`) and the range back. Before TypeScript 7, the `sinter check`
+  pipeline runs on save (tested with a fake TypeScript 5 package). `check()` is split into
+  `writeSupport`, `shadowOf` and `typeDiagnostic` so both share them. RealWorld over stdio: a planted
+  `article.titel` is reported 340 ms after the edit; a hover takes 6 ms.
+- 2026-11-05: editor integration, phase 3: completion (`completionItem/resolve` forwarded to
+  TypeScript), go to definition and the did-you-mean quick fix (`src/lsp/quickfix.ts`, which reads the
+  suggestion from the message, so TypeScript's suggestions work too). In check mode the compiler keeps
+  expressions with errors as `broken` (written last in the shadow; their TypeScript errors dropped,
+  also in `sinter check`); state and loop frames and resources carry the location of their names, and
+  the shadow maps its declarations there. `src/lsp/spec-location.ts` finds a schema or property in the
+  spec with `yaml`'s source ranges. RealWorld over stdio: completion after `article.` 22 ms,
+  definition of `title` → `openapi.yml:561` 23 ms.
+- 2026-11-05: editor integration, phase 4: the VS Code extension (`editors/vscode`, plain CommonJS,
+  `vscode-languageclient` 10.1.2, packaged with `@vscode/vsce` 4.0.0 to a 694 KB `.vsix`). It starts
+  the `sinter lsp` of the nearest installation above each HTML file, one client per installation;
+  middleware keeps a client away from files of a nested project. Its `html-custom-data.json` is kept
+  current by the docs test. `docs/editors.md`: setup for VS Code, Neovim, Helix and Emacs. Tested with
+  fakes for `vscode` and the client (`test/vscode/`); not yet run inside VS Code itself.
+- 2026-11-05: data across page loads (roadmap item 3), phase 1. Sharing one stream across tabs was
+  dropped (it changes what servers see per connection; the 6-connection limit is HTTP/1.1's). Instead,
+  dev builds warn (code 18) when an EventSource stream's origin was reached over HTTP/1.1
+  (`protocolOf()` in `dev.ts`, from Resource Timing; the SSE module calls `app.streamOpened` for
+  default-transport streams only), and the spec, README and `llms.txt` say to serve streams over HTTP/2.
+- 2026-11-05: item 3, phase 2: the page-load cache. `cache` on `<sn-resource>` (value: max age,
+  `SN401` if malformed) compiles to `ResourceDef.cache` and adds the `cache` feature
+  (`src/cache.ts`, 757 B gzip). The loader reads the entry on start (after embedded data) and reports
+  every load to the feature (`fill`/`store` split in `createLoader`); the feature writes after loads
+  and on `pagehide` for resources whose base changed (store `base()`, subscriptions fire for confirmed
+  writes only). The request layer clears `sn:c:` entries on any 401, at `fetch` and after the
+  middleware chain; `clearPersisted()` clears them too. `render({ session, storage })` and
+  `memoryStorage()` in the testing module. Core: 10.30 → 10.53 KB gzip.
+- 2026-11-05: RealWorld uses `cache` on all 9 resources and calls `clearPersisted()` on sign-in and
+  sign-out. The e2e suite (local backend, `spa`) found that cached data set `loadedAt`, so the
+  editor's and settings' login-redirect guard (`$meta.user.loadedAt && !user`) fired on a cached
+  `user: null`: 5 tests failed reproducibly. `loadedAt` now stays null until the server answers
+  (e582d83). After that: 134/140, the same 5 known failures plus 1 `page.goto` load timeout that
+  passes alone (the baseline without cache had 5 such timeouts in one run).
+
+- 2026-11-06: 0.2 roadmap, phase 1: benchmarks. `npm run bench` (`bench/runtime/`, its own Vitest
+  config, not part of `npm test`) times the store (5,000 items ordered by name: ~10 ms per write,
+  because every write re-sorts from arrival order) and one flush (0.2–0.3 µs per root binding;
+  1.6 / 11.3 ms for one upsert into 1,000 / 5,000 sorted rows). `npm run size` measures a minimal page
+  and every RealWorld page from a production build; budgets moved from the core to pages. Vitest 5
+  dropped `bench()`, so the cases are plain tests that print tables.
+
+- 2026-11-06: 0.2 phase 2, store fixes. The sorted list is patched per write instead of re-sorted
+  (one upsert on 5,000 items: 9.9 → 0.007 ms); ties keep arrival order exactly, which the property
+  test now checks against a full sort. `meta.total` is computed when the total or a layer changes,
+  not when the list is read: a page that shows only `$meta.x.total` updates, and a load no longer
+  needs a second flush pass. `setTotal` marks only `meta`. Lists are frozen in dev builds only
+  (frozen arrays are 3–50× slower to copy and filter in V8). Core +481 B gzip.
+
+- 2026-11-06: 0.2 phases 3–4 (builder calls, per-page core) stopped after measuring: positional
+  builder calls save 250–345 B gzip per RealWorld page (~2 %), a per-page core about 0.3 KB on two
+  pages (every page uses lists, conditionals and handlers). Both stay possible features.
+
+- 2026-11-06: flush cost per root binding. A profile of one flush on a page with 4,000 root bindings
+  showed two per-binding costs besides matching: every binding that matched ran
+  `el.closest('dialog:not([open])')`, and every binding tested did a `WeakMap` lookup for its parsed
+  dependencies, plus a `Set` lookup in the deferred set. The compiler now marks nodes that are a
+  `<dialog>` or inside one of their block (`dl` in the IR; it replaces the runtime's
+  `querySelector('dialog')` per row template), bindings keep their parsed dependencies, and the
+  deferred set is consulted only when non-empty. Chrome 156, one change on 4,000 root bindings:
+  0.49 → 0.18–0.24 ms; happy-dom (`npm run bench`), 2,000 root bindings: 0.41 → 0.10 ms. Row
+  creation, select and update of 1,000 rows and mount unchanged within noise. Core −30 B gzip.
+- 2026-11-06: identical expressions share one entry in the page's function table (`fn()` in the
+  compiler keys by code). RealWorld article: 112 → 60 functions, 16,507 → 16,293 B gzip; index,
+  profile and editor 28–55 B smaller. A first call costs about 5 µs per function in Chrome, so mount
+  gains at most about 0.26 ms on the article page, not measurable in a page load's script time.
+- 2026-11-08: `run('id')` (proposal reviewed the same day): a store function that starts the action
+  of the element with that id through the trigger path (`trigger(rb, null)`), or `requestSubmit()`
+  for a form; disabled (`:disabled`) and inert (`[inert]` on it or an ancestor) targets do nothing,
+  a missing one warns (dev code 20). Compiler: element ids collected in `declare` (`PageInfo.ids`:
+  action, in a row, count) for `SN311`; handlers' `run()`/`refresh()` calls (`flows`) give the
+  `$event` typing of targets (`CheckExpr.run`, `RunEvent<E> = E | void`, because `E | null` is `E`
+  without `strictNullChecks`) and the opt-in `SN509` cycle search. happy-dom does not match
+  `:disabled` inside a disabled `<fieldset>` and passes the form as `requestSubmit()`'s submitter;
+  the tests allow for both. Core +86 B gzip.
+
+- 2026-11-08: loading optimizations without attributes (asked: "where there is a clear pattern we can just do"):
+  preconnect links for origins literal `src`s name (compiler, `preconnects()`); low request priority for
+  resources only dialogs read (`ResourceDef.lo`, from the function table's `$.$r.<name>`/`$.$meta.<name>`
+  reads of nodes outside dialogs, templates inside dialogs tracked in `dlTemplates`; `SendInit.priority`,
+  `fetchpriority` on the preload); a 250 ms pause for URL changes that keystrokes cause (the model
+  handler marks its dirty paths as typing, `hits()` tells a loader whether only such marks reached it);
+  refetch on persisted `pageshow` and `online` for resources no stream feeds. Core +230 B gzip.
+- 2026-11-08: write-through (designed in the roadmap doc's "Write-through (0.9)" tab, decisions there). Compiler:
+  `ExprResult.reads` (member chains rooted at a resource or a row; `LoopEntry.resources` for `cond ? feed : articles`),
+  `ResourceDef.sch` from `namedSchema()` (`$ref`, identical inline copy, or inline projection: RealWorld's list
+  response inlines an Article without `body`), `ActionDef.ap` from `applyDef()` (provenance with named sub-paths,
+  response entities, request wrapper, the body's target), `SN510` from the `then` AST. Runtime: `src/apply.ts`
+  (rules 1–4, unchanged fields skipped because a base write drops a waiting layer's changes to the item: the
+  overlapping-actions test caught that), one hook in `send()`. The RealWorld check test doubles as the acceptance:
+  12 handlers removed.
+- 2026-11-09: next-page data (pitch item: "Astro for dynamic content", prefetch). Compiler: `prefetchParts()`
+  (`CompiledParts.prefetch`, `CompileResult.prefetch`): `data-sn-path` patterns and the resources whose `src`/`when`
+  read only `$url`, constants and helpers. `src/prefetch-build.ts`: `pagePaths()` (a file's served paths) and
+  `prefetchModule()`; the Vite plugin describes every HTML entry once (`/@sinter/prefetch.js`, invalidated on HTML
+  changes in dev) and passes `prefetch` to `compile()`, whose page module adds the feature. Runtime: `src/prefetch.ts`
+  (delegated pointer/focus/touch listeners, 65 ms rest, handover of this page's own data, sessionStorage `sn:p:`),
+  `ext.prefetch.take()` in the loader's start before the cache, `writes`/`writing` on the request layer (a mutation
+  clears entries; an overlapping prefetch is dropped), the `x-sinter-prefetch` mark (removed before fetch; errors
+  reject there; `onUnauthorized` skips it). Chosen over "use the prefetched response instead of a request": the next
+  page revalidates, so the preload links and early requests are still taken (no unused preloads) and nothing older
+  than one round trip stays on screen. The document itself is not prefetched (a `<link rel=prefetch>` cost 90 B gzip
+  for a request a CDN usually answers fast; Speculation Rules would need `inline-speculation-rules` in the CSP or a
+  response header). Real browser (RealWorld build, Chromium, API mocked at 1.5 s): hover → article and comments
+  requested, the user handed over; the article showed 215 ms after the click, the fresh data at 1,591 ms. Size: feature
+  1,366 B gzip; core +153 B; RealWorld article 19,971 → 21,306 B gzip, budget raised from 20 to 22 KB.
+- 2026-11-09: Speculation Rules (`speculationRules()` in `prefetch-build.ts`, written by the plugin into every page; CSP hash
+  logged in `closeBundle`) and prerender awareness (`app.shown()`; the SSE module connects through it; activation refetches
+  every loader). `CompileResult.path` carries `data-sn-path` so pages without prefetchable data still get rules. Chromium,
+  RealWorld build: `/article/post-1` fetched on hover with `Sec-Purpose: prefetch`, the navigation used it; with
+  `'prerender'` the browser asked for `prefetch;prerender` but reported `PrerenderingDisabledByDevTools` (Playwright, also
+  without request interception), so activation is covered by `test/behaviour/speculation.test.ts` only. Default stays
+  `'prefetch'`: prerender runs pages nobody may see (requests, custom elements' side effects).
+- 2026-11-09: `data-sn-transition` (`src/transition.ts`; compiled to an attribute binding writing `data-sn-vt`). Names are
+  given at `pageswap`/`pagereveal` only, to the followed row's element and its match. A row is the nearest ancestor of the
+  link holding named elements without links elsewhere (the first version climbed to `<body>`: a link to `/about` named the
+  first row's image; the behaviour test caught it). Chromium, RealWorld: list → article morphs
+  (`::view-transition-group(sn-1k2g1wp)` beside `root`, only the clicked title named); back to the list fades only: Playwright's
+  Chromium reloads it (no bfcache) and the rows render after the first paint, which is when the browser captures.
+  temper: `@view-transition { navigation: auto; }` in `core.css` (on by default, off with `navigation: none` in the app's CSS).
+- 2026-11-09: holding the first paint while a morph is pending (`HOLD_SCRIPT`: a MutationObserver makes the async page
+  module deferred and render-blocking before the parser prepares it). Tried first on a bare page with the module delayed
+  400 ms: first paint 35 ms without the element, 420 ms with it. RealWorld back to a reloaded list: morphs, 3 of 3.
+  `view-transition-class: sn-transition` on the named pair. Per-link prefetch opt-out dropped: the browser's rules can
+  only skip a link by a marker in the page; `<html data-sn-prefetch="off">` is build-time and stripped.
+- 2026-11-09: `e2e/navigation` (headless Chrome over `bench/swap/cdp.mjs`, which takes `CHROME_ARGS` now): hover → data and
+  HTML prefetched; first paint with the prefetched title; morph forward and back. Its first run found that the back morph
+  had passed by timing: the hold script waits for the mount, not for responses, so the list needs `cache` (it has it now,
+  and the step slows the API to 1.5 s). Building with `prefetch: false` fails steps 2 to 5.
+- 2026-11-09: touch presses wait like a hover (pointercancel ends it); the pending morph name carries its time (10 s).
+  CI runs `e2e/navigation` (green on GitHub's Chrome, 13 s). CSP: tried in Chromium under `script-src 'self'`: inline rules
+  blocked, rules from a `Speculation-Rules` header served as `application/speculationrules+json` work, as `application/json`
+  rejected. So `speculation: { delivery: 'header' }` (a fixed-name `speculation-rules.json`; dev and preview send the header
+  and type) and `docs/navigation.md` with the CSP part near the top; the README no longer mentions CSP. `e2e/navigation` now
+  runs under that policy, and a step fails on any violation.
+- 2026-11-09: Speculation Rules delivery, decided after testing each option in Chromium (not committed in between: header by
+  default, then a `<link rel="prefetch">` default). No in-page file form exists (`<script src>`: "External speculation rules
+  are not yet supported"; `<meta http-equiv>`, `<link rel=speculationrules>`: ignored). A `<link rel="prefetch">` is reused for
+  the navigation only for cacheable HTML (`max-age=60` yes; none, `no-cache`, `max-age=0`, `no-store` no). So: inline by
+  default (no server setup), the build adds the hash to a CSP `<meta>` (works, tested), a header CSP needs
+  `'inline-speculation-rules'`; dev warns (code 22, buffered `ReportingObserver`: tested, it gets the report from before mount).
+  `delivery: 'header'` stays the opt-in that no CSP blocks. `e2e/navigation` runs under a `script-src 'self'` `<meta>`.
+- 2026-11-09: data and fonts before the first paint, from Lighthouse on RealWorld (bench/realworld/lighthouse.mjs). The early
+  requests waited for the stylesheets (the early file is deferred) and skipped other origins; the article title (the LCP)
+  needs its data and its font. A/B, mobile, median of 5 (LCP): base 3.0 s, Google Fonts inlined 2.8 s, early requests from an
+  `async` file 2.8 s, both 2.3 s; desktop unchanged (1.0–1.1 s). Decided: (1) a page with early requests splits its early file:
+  loaded `async` before the stylesheets (starts the requests), rendered by a ~60-byte render-blocking stub that imports it (one
+  module per URL), instead of the prototype's second, near-duplicate requests file (3.2 kB gzip a page); one script cannot do
+  both (an async render-blocking module that awaits the parse does not hold the paint, see Messages). (2) Other origins
+  requested early only when listed in `sinter({ origins })`, on by default for those; the page module adds that list to the
+  runtime's allowlist (`$origins()`), so apps list API origins once (RealWorld's config no longer does). (3) `<sn-resource early="off">` for a resource a middleware answers or changes (RealWorld's `user` logged a 401 from
+  its preload). (4) Google Fonts inlined by default (the Angular CLI does; its RealWorld demo has the preconnect), cached in
+  `node_modules/.cache/sinter/fonts`. Not done: other third-party CSS (the app's call), `font-display` (a visual choice),
+  non-blocking CSS (the build cannot know what affects layout). The RealWorld article page's budget: 26 KB (its early file
+  now carries the request code). Tested in Chromium under a `script-src 'self'` header CSP: no violations.
+
+### Decisions and deviations
+
+- `CompileOptions` gains optional `moduleSrc` (URL of the injected
+  `<script type="module" src>`; an inline module script would break
+  `script-src 'self'`) and `config` (app config module imported before mount).
+- `MountOptions` gains `env`, `request` and `transport` seams for the testing module.
+- `Transport.connect` takes a 4th argument, the event names to listen for
+  (EventSource needs them), plus an optional `listen(name)` for late subscribers.
+- Subscribers of `resource.subscribe()` get `{ op: 'refresh' }` after each full load.
+- A plain `data-sn-on-<event>` handler and an action on the same element both
+  run, the handler first.
+- `helper(draft)` in a handler invalidates the whole `draft` root (opaque call);
+  built-in helpers, namespace members and store functions do not invalidate.
+- `render()` options also accept `files` (partials for `<sn-include>`). Mock
+  responses are held until `settle()`, so `flush()` can observe optimistic state.
+- Payload scopes (`<sn-event>`, `cursor`) resolve unknown identifiers to payload
+  fields before the browser-API check, so fields like `name` work.
+- Diagnostics in partials append the include chain to the message.
+- `loginRedirect` stores the return URL in sessionStorage (`sn:return`);
+  `takeReturnUrl(allow)` reads it back after login.
+- `.` / `..` in a URL *path* interpolation is refused at runtime (reported via
+  `onError`) instead of being encoded as `%2E`/`%2E%2E`: WHATWG URL parsing,
+  and so `fetch`, turns `%2E%2E` back into a `..` segment. Query values are
+  still encoded as specified.
+- `SN503` fires for any `id`/`name` value that is not a literal and does not start with a
+  non-empty literal string (`'contact-' + c.id`, `` `contact-${c.id}` ``): row-local reads have
+  no dependency paths, so "bound from data" means "not a literal".
+- Type checking turns off `strictNullChecks` and `noImplicitAny`: bindings that read `null` render
+  nothing at runtime, one attribute cannot narrow another (`data-sn-if="x"` around `x.y`), and
+  `{ error: null }` state stays unchecked unless it has a JSDoc cast. With them on, the untyped
+  RealWorld example had 26 errors, none of them bugs.
+- OpenAPI types come from sinter's own schema converter, not `openapi-typescript`: that package builds
+  its output with the TypeScript 5 compiler API and declares `typescript@^5` as a peer, which conflicts
+  with TypeScript 7 projects (this one included). The converter also turns named schemas into named
+  declarations, so messages say `type 'Article'` instead of spelling out the object.
+- `type` on `<sn-resource>` is any TypeScript type over the types module's exports (`Contact[]`,
+  `Page<Article>`); the shadow file brings the exports into scope with a JSDoc `@import`, so state casts
+  use plain names too.
+- The compiler's browser-API list does not include very generic names (`name`,
+  `open`, `print`, `event`); they are `SN201` instead of `SN202`.
+
+### Open / not yet done
+
+- **Size budgets per page since 2026-11-06** (0.2 roadmap, decision 2): the minimal page (one resource, one
+  text binding) ≤ 15 KB gzip (11.5 KB until 2026-11-07: 0.3's features took it to 12.1 KB, and the
+  budget was raised rather than features moved out of the core), replacing "core ≤ 11 KB", and the
+  RealWorld article page ≤ 20 KB (16.5 KB until 2026-11-07, when it stood at 16.9 KB), with every other RealWorld page reported (baseline in
+  [benchmark.md](benchmark.md)). CI runs `npm run size -- --check`. The table below is the
+  core budget's last measurement. Until then: **11 KB for the core, met** (it was 5 KB until 2026-11-05, which the core never reached). `npm run size` (rolldown bundle, oxc minify, gzip -9), 2026-11-05:
+
+  | Module | min | gzip |
+  | --- | ---: | ---: |
+  | core (`mount`, `$k`) | 23.5 KB | 10.1 KB (11.5 KB before the closure rewrite) |
+  | sse | 3.1 KB | 1.4 KB |
+  | paginate | 2.9 KB | 1.2 KB |
+  | persist | 0.7 KB | 0.4 KB |
+  | optimistic | 0.2 KB | 0.2 KB |
+  | dev (dev builds only) | 1.4 KB | 0.8 KB |
+  | contacts page (core + sse + optimistic + persist) | 27.2 KB | 11.4 KB |
+
+  The list performance work of 2026-11-05 (bench/swap, js-framework-benchmark) added 354 B gzip to
+  the core (9,944 → 10,298 B), and compiled pages carry one element-lookup function per
+  `data-sn-for` template (RealWorld's 7 pages: 18 functions, 275 B gzip in all).
+
+  Marginal gzip cost inside the core: request layer + config ≈ 0.9 KB, store
+  ≈ 0.9, app object/API ≈ 1.2, mount/bind ≈ 0.8, loaders ≈ 0.9, actions ≈ 0.7,
+  lists ≈ 0.7, render ≈ 0.4, security ≈ 0.4, forms ≈ 0.3, models ≈ 0.3.
+  Further trimming yields tens of bytes; 5 KB would need either moving
+  parts (actions, forms, models, loaders) into compiler-selected modules or a
+  different budget definition.
+- Playwright suite in real browsers (`<dialog>`/`commandfor`, bfcache,
+  `EventSource`, focus preservation), with Trusted Types and strict CSP.
+- List-update benchmark in CI.
+- From bench/live (2026-11-10), not needed now: `<sn-event op="merge" items="…">` (one event patching several
+  items, so a tick of many rows patches a keyed resource instead of a `then` helper replacing a whole state value,
+  and only the changed rows' bindings are checked); a frame-rate cap for server-event renders (e.g. 30 fps, to save
+  battery). The dashboard at 4× CPU is now bound by style, layout and paint (about 30 % of the main thread).
+- Release pipeline (CI-only trusted publishing with provenance).
 

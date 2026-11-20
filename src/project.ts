@@ -367,7 +367,7 @@ export function complexityOf(c: unknown): ComplexityOptions {
   if (c === false) return { level: 'off' };
   if (typeof c !== 'object') bad('takes `false` (no SN507) or `{ level: \'error\' }`');
   for (const [k, v] of Object.entries(c as object)) {
-    if ((COMPLEXITY_LIMITS as string[]).includes(k)) bad(`\`${k}\` is gone: the limits are fixed, so markup reads alike in every project (docs/configuration.md#what-belongs-in-markup)`);
+    if ((COMPLEXITY_LIMITS as string[]).includes(k)) bad(`\`${k}\` is gone: the limits are fixed, so markup reads alike in every project (docs/expressions.md#what-belongs-in-markup)`);
     if (k !== 'level') bad(`\`${k}\` is not an option; it takes \`level\``);
     if (v === 'off') bad('`level: \'off\'` is `complexity: false`');
     if (v !== 'warn' && v !== 'error') bad(`\`level\` is \`'warn'\` or \`'error'\`, not \`${String(v)}\``);

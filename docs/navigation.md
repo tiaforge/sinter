@@ -51,7 +51,7 @@ sinter({ prefetch: { html: false } })         // none
 sinter({ prefetch: { html: { delivery: 'header' } } })   // by a response header; see the CSP section
 ```
 
-`'prerender'` runs the next page before anyone sees it: its requests go out and its islands start.
+`'prerender'` runs the next page before anyone sees it: its requests go out and its custom elements start.
 Streams (`<sn-sync>`) wait until the page is shown, and then every resource is reloaded, since it
 may have loaded minutes earlier. Use it for apps whose pages do nothing on load but read.
 
@@ -178,7 +178,7 @@ the state you made (`data-sn-state`) and the scroll position stay. Nothing to wr
   origin and path (path parameters included: `/tag/go?page=2` → `/tag/go?page=3` stays,
   `/tag/go` → `/` loads), when every parameter that differs is one the page reads (`$url.<name>`).
   A link with `download`, a `target` other than `_self` or `rel="external"`, a click a handler
-  prevented, and a parameter the page does not read (`?lang=de`, one a server or an island acts on)
+  prevented, and a parameter the page does not read (`?lang=de`, one a server or a custom element acts on)
   load the URL as before. Middle-click and Ctrl/Cmd-click open a new tab, as always.
 - **What follows:** `$url` takes the link's query, and everything that reads it follows as after
   Back or Forward: a list with a [`model`](pagination.md#page-in-the-url) loads the link's page, so
@@ -192,7 +192,7 @@ the state you made (`data-sn-state`) and the scroll position stay. Nothing to wr
   page that reads a query parameter by name and has a link it can see goes to the page: a static
   `href` (`?page=3`, the page's own URL or its file, `about.html?q=1`), or a `data-sn-attr` `href`
   that starts with one (followed through `+`, template literals, `?:`, `||` and `??`). A link it
-  cannot see (an `href` from data, a helper, a link an island renders) loads its URL, as before. A
+  cannot see (an `href` from data, a helper, a link a custom element renders) loads its URL, as before. A
   page that reads `$url` whole or by a computed name (`$url[k]`), or has a `<base href>`, does not
   load it: every link loads. The same link in a layout stays on one page and loads from another: it
   depends on what each page reads. A parameter that is a path parameter (`/tag/:tag`) is not a
