@@ -184,7 +184,7 @@ export interface CompileOptions {
   /** where the app's components are (default `<root>/src/components`): `<name>.html` is the component `<name>` */
   components?: string;
   /**
-   * the component libraries (`sinter({ components })`, docs/libraries.md): a tag with a library's prefix
+   * the component libraries (`sinter({ libraries })`, docs/libraries.md): a tag with a library's prefix
    * is its component, from `<folder>/components/` (public) or `<folder>/components/internal/`
    */
   libraries?: readonly CompileLibrary[];
@@ -638,7 +638,7 @@ interface ComponentFile {
   rawCss?: string;
   /** the names of its slots that pass data (`Slot<T>` in its props type), read once */
   dataSlots?: Set<string>;
-  /** a component of a library (`sinter({ components })`); `internal`: in its `components/internal/` */
+  /** a component of a library (`sinter({ libraries })`); `internal`: in its `components/internal/` */
   lib?: CompileLibrary;
   internal?: true;
 }

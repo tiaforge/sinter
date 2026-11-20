@@ -140,7 +140,7 @@ const APIS_ONLY = ['SN326', 'SN327', 'SN328', 'SN329', 'SN330', 'SN518'];
 const STYLES_ONLY = ['SN529', 'SN530'];
 /** Warnings of the Vite plugin, with no page position (`formatWarning`): SN521 in test/vite/page-urls.test.ts, SN523 in test/vite/build.test.ts, SN533 in test/vite/helpers-node.test.ts; SN534 (a helper call that does not fold) in test/behaviour/fold.test.ts, which needs the helpers loaded. */
 const BUILD_ONLY = ['SN343', 'SN534', 'SN533', 'SN520', 'SN521', 'SN522', 'SN523', 'SN524', 'SN525', 'SN526', 'SN527', 'SN528'];
-/** Component libraries (`sinter({ components })`): the packages (SN337, SN537) and their prefixes (SN338) are read from disk, uses of their components (SN339) need one. Fixtures in test/libraries.test.ts. */
+/** Component libraries (`sinter({ libraries })`): the packages (SN337, SN537) and their prefixes (SN338) are read from disk, uses of their components (SN339) need one. Fixtures in test/libraries.test.ts. */
 const LIBRARY_ONLY = ['SN337', 'SN338', 'SN339', 'SN537'];
 /** Codes of build-time expansion, which needs `prerender`: SN536 (the expansion limit) in test/compiler/unroll-nested.test.ts and test/compiler/constant-trees.test.ts. */
 const PRERENDER_ONLY = ['SN536'];

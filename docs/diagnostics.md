@@ -506,9 +506,9 @@ A component whose root may render nothing (an if chain without a `data-sn-else`,
 
 Error, for example:
 
-> `@acme/ui` is in `sinter({ components })` and its package.json has no `"sinter"` field: a component library names the folder of its components
+> `@acme/ui` is in `sinter({ libraries })` and its package.json has no `"sinter"` field: a component library names the folder of its components
 
-A package in `sinter({ components })` is a component library (docs/libraries.md): installed, with `"sinter": "./sinter"` in its package.json naming a folder inside the package that has a `components/` folder. Its components share their first segment (`ui-card`, `ui-tree`: `ui`), the prefix it owns, and a name is in `components/` (public) or `components/internal/`, not both.
+A package in `sinter({ libraries })` is a component library (docs/libraries.md): installed, with `"sinter": "./sinter"` in its package.json naming a folder inside the package that has a `components/` folder. Its components share their first segment (`ui-card`, `ui-tree`: `ui`), the prefix it owns, and a name is in `components/` (public) or `components/internal/`, not both.
 
 **Fix:** Install the package, or take it out of `components` if it is not a component library. A library's author adds the `"sinter"` field and folder, and renames components to share one prefix.
 
@@ -516,7 +516,7 @@ A package in `sinter({ components })` is a component library (docs/libraries.md)
 
 Error, for example:
 
-> `<ui-button>` starts with `ui-`, the prefix of `@acme/ui` (`sinter({ components })`): a library owns its prefix, and an app component cannot shadow or add to it
+> `<ui-button>` starts with `ui-`, the prefix of `@acme/ui` (`sinter({ libraries })`): a library owns its prefix, and an app component cannot shadow or add to it
 
 Each component library owns the first segment of its components' names. Two configured libraries with one prefix, or an app component (`src/components/`) whose name starts with a library's prefix, fail the build: a tag names exactly one component, and there is no shadowing.
 

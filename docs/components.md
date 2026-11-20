@@ -592,7 +592,7 @@ would end the head at it and move it, and everything after it, into the body.
 ## From a library
 
 A [component library](libraries.md) is a package of components in this format, named in
-`sinter({ components: ['@acme/ui'] })`. Its public components are tags like the app's own; their
+`sinter({ libraries: ['@acme/ui'] })`. Its public components are tags like the app's own; their
 names start with the library's prefix (`ui-`), which no app component may use.
 
 ## From `<sn-include>`

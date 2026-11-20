@@ -36,7 +36,7 @@ import { familyLineHeights, familyZeroWidths } from './font-metrics.js';
 import { faceName, faceOf, fontDownloader, fontFileDownloader, inlineFonts, preloadFonts, preloadLocalFonts, usesFamily, type FontFaceRef, type FontPreload } from './fonts-build.js';
 import { componentBase } from './components-build.js';
 import { COMPONENT_NAME, LIBRARY_LAYER } from './compiler/components.js';
-import { componentsOf, libraryOf } from './libraries.js';
+import { librariesOf, libraryOf } from './libraries.js';
 import { LAYERS_SHEET, type FoldArg } from './compiler/compile.js';
 import { docsUrl } from './compiler/diagnostics.js';
 import { crossCheck, crossMessage, hashOf, type FoldCall } from './fold-cross.js';
@@ -1046,7 +1046,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     if (!lazyPkgs.length || id.startsWith('\0') || !/\.[cm]?[jt]sx?(\?|$)/.test(id)) return null;
     const file = id.replace(/[?#].*$/, '');
     // packages are not the app's modules, except the component libraries
-    const libs = options.components?.length ? proj().libraries : [];
+    const libs = options.libraries?.length ? proj().libraries : [];
     if (id.includes('/node_modules/') && !libraryOf(libs, file)) return null;
     // a module of a lazy package (a component library listed in `lazy`) is the package: it loads whole with it
     const lib = libraryOf(libs, file);
@@ -1079,7 +1079,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     config(user) {
       // dev: the lazy packages are pre-bundled at startup (no page imports them statically, so the scan would not find them)
       // component libraries ship source the plugin compiles: never pre-bundled
-      const libs = componentsOf(options.components);
+      const libs = librariesOf(options.libraries);
       const deps = lazyPkgs.length || libs.length ? { optimizeDeps: { ...(lazyPkgs.length ? { include: lazyPkgs } : {}), ...(libs.length ? { exclude: libs } : {}) } } : {};
       const mp = user.build?.modulePreload;
       if (mp === false || (typeof mp === 'object' && mp.polyfill !== undefined)) return deps;
@@ -1091,7 +1091,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       dev = config.command === 'serve';
       resolved = config;
       // dev: a component library's files are served wherever they really are (a workspace link outside the root)
-      if (dev && options.components?.length) {
+      if (dev && options.libraries?.length) {
         const allow = (config.server.fs as { allow?: string[] }).allow;
         if (Array.isArray(allow)) for (const l of proj().libraries) if (!allow.includes(l.real)) allow.push(l.real);
       }
@@ -1399,7 +1399,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       if (importer && id.endsWith('.html') && !importer.endsWith('.html')) {
         const file = resolve(dirname(importer.replace(/[?#].*$/, '')), id);
         const name = file.slice(0, -5).split(sep).pop()!;
-        if (COMPONENT_NAME.test(name) && (dirname(file) === resolve(root, 'src/components') || (options.components?.length && isComponentScript(root, file.slice(0, -5) + '.ts', proj().libraries)))) return `\0${COMPONENT_BASE}${name}.js`;
+        if (COMPONENT_NAME.test(name) && (dirname(file) === resolve(root, 'src/components') || (options.libraries?.length && isComponentScript(root, file.slice(0, -5) + '.ts', proj().libraries)))) return `\0${COMPONENT_BASE}${name}.js`;
       }
       // a build with source maps: page modules keep a plain id, as Rolldown drops the map of a `\0` module
       if (id.startsWith(PREFIX) && !dev && maps.has(id)) return id;
@@ -1439,7 +1439,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
         // resolved from the library, and imported by that path
         const own = await this.resolve(lz.spec, resolve(root, 'index.html'));
         let r = own, spec = lz.spec;
-        if (!r) for (const l of options.components?.length ? proj().libraries : []) {
+        if (!r) for (const l of options.libraries?.length ? proj().libraries : []) {
           r = await this.resolve(lz.spec, join(l.folder, 'index.js'));
           if (r) { spec = r.id; break; }
         }

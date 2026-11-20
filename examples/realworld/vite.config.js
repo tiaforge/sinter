@@ -16,7 +16,7 @@ export default defineConfig({
     sinter({
       apis,
       // the article's body: <md-doc> renders the tree md.parse builds from its markdown (src/sinter.helpers.js)
-      components: ['@tiaforge-ui/sinter-markdown'],
+      libraries: ['@tiaforge-ui/sinter-markdown'],
       // links and navigate() swap the next page in: the e2e suite's settings tests keep reading the page
       // after saving (docs/navigation.md#swaps)
       swap: true,

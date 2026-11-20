@@ -11,7 +11,7 @@ import { COMPLEXITY_LIMITS, type ComplexityOptions } from './compiler/complexity
 import { MESSAGES_MODULE, messagesDts, readMessages, type MessagesProject } from './i18n-build.js';
 import { componentNames, writeComponentTypes } from './components-build.js';
 import { typeExports } from './check/index.js';
-import { componentsOf, libraries as findLibraries, libraryOf, ownLibrary, type Library } from './libraries.js';
+import { librariesOf, libraries as findLibraries, libraryOf, ownLibrary, type Library } from './libraries.js';
 import { isSelfReference, resolveImport } from './fold-check.js';
 
 export interface ProjectOptions {
@@ -75,7 +75,7 @@ export interface ProjectOptions {
    * folder their package.json names (`"sinter": "./sinter"`). The app uses their public components
    * by name, and their helpers through a namespace (`export * as ui from '@acme/ui'`).
    */
-  components?: string[];
+  libraries?: string[];
   /**
    * Strict mode (docs/strict.md): warnings fail `vite build`, `sinter check` and pages in the dev
    * server, and runtime warnings show in the dev server's terminal and overlay. `allow` keeps codes
@@ -187,7 +187,8 @@ export function project(root: string, options: ProjectOptions = {}): Project {
   // the component libraries: their files are read wherever they really are (a workspace link)
   const configFile = resolve(root, VITE_CONFIGS.find((f) => existsSync(resolve(root, f))) ?? 'vite.config.js');
   const appComponents = componentNames(root);
-  const libs = findLibraries(root, componentsOf(options.components), appComponents, configFile);
+  if ((options as { components?: unknown }).components !== undefined) throw new Error('sinter({ components }) is renamed to sinter({ libraries }): it lists component libraries, e.g. `libraries: [\'@acme/ui\']`');
+  const libs = findLibraries(root, librariesOf(options.libraries), appComponents, configFile);
   let realRoot: string | undefined;
   const readFile = (path: string): string => {
     const real = realpathSync(path);
@@ -343,7 +344,7 @@ export async function viteProject(root: string): Promise<{ pages: string[]; opti
 function withOwnLibrary(root: string, p: { pages: string[]; options: ProjectOptions }): { pages: string[]; options: ProjectOptions } {
   const own = ownLibrary(root);
   if (!own) return p;
-  const options = { ...p.options, components: [...new Set([...(p.options.components ?? []), own.name])] };
+  const options = { ...p.options, libraries: [...new Set([...(p.options.libraries ?? []), own.name])] };
   const onlyIndex = p.pages.length === 1 && p.pages[0] === resolve(root, 'index.html') && own.pages.length;
   return { pages: p.pages.length && !onlyIndex ? p.pages : own.pages, options };
 }

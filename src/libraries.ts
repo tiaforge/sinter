@@ -1,4 +1,4 @@
-// Component libraries (docs/libraries.md): packages named in `sinter({ components })` ship source,
+// Component libraries (docs/libraries.md): packages named in `sinter({ libraries })` ship source,
 // an app-shaped folder their `package.json` names (`"sinter": "./sinter"`) with `components/`
 // (public), `components/internal/` (internal), `sinter.helpers.ts` and `sinter.types.ts`. The app's
 // sinter compiles them as it compiles the app's own components. A package owns the first segment of
@@ -38,11 +38,11 @@ export interface Library {
 export const SINTER_PACKAGE = '@tiaforge-ui/sinter';
 
 /** The `components` option, checked: package names (`@acme/ui`), not paths. */
-export function componentsOf(list: unknown): string[] {
+export function librariesOf(list: unknown): string[] {
   if (list == null) return [];
-  if (!Array.isArray(list)) throw new Error('sinter({ components }): takes a list of package names, e.g. `components: [\'@acme/ui\']`');
+  if (!Array.isArray(list)) throw new Error('sinter({ libraries }): takes a list of package names, e.g. `libraries: [\'@acme/ui\']`');
   for (const x of list) {
-    if (typeof x !== 'string' || !/^(@[a-z0-9][\w.-]*\/)?[a-z0-9][\w.-]*$/i.test(x)) throw new Error(`sinter({ components }): \`${String(x)}\` is not a package name; list component libraries from node_modules, e.g. \`'@acme/ui'\``);
+    if (typeof x !== 'string' || !/^(@[a-z0-9][\w.-]*\/)?[a-z0-9][\w.-]*$/i.test(x)) throw new Error(`sinter({ libraries }): \`${String(x)}\` is not a package name; list component libraries from node_modules, e.g. \`'@acme/ui'\``);
   }
   return [...new Set(list as string[])];
 }
@@ -97,9 +97,9 @@ export function readLibrary(name: string, dir: string, diagnostics: Diagnostic[]
     return null;
   };
   let pkg: { name?: string; version?: string; sinter?: unknown; peerDependencies?: Record<string, string> };
-  try { pkg = JSON.parse(readFileSync(pkgFile, 'utf8')); } catch (e) { return fail(`\`${name}\` (in \`sinter({ components })\`): its package.json cannot be read: ${(e as Error).message}`, undefined, at); }
+  try { pkg = JSON.parse(readFileSync(pkgFile, 'utf8')); } catch (e) { return fail(`\`${name}\` (in \`sinter({ libraries })\`): its package.json cannot be read: ${(e as Error).message}`, undefined, at); }
   if (typeof pkg.sinter !== 'string') {
-    return fail(`\`${name}\` is in \`sinter({ components })\` and its package.json has no \`"sinter"\` field: a component library names the folder of its components`, '`"sinter": "./sinter"`, a folder with `components/`, `sinter.helpers.ts` and `sinter.types.ts`');
+    return fail(`\`${name}\` is in \`sinter({ libraries })\` and its package.json has no \`"sinter"\` field: a component library names the folder of its components`, '`"sinter": "./sinter"`, a folder with `components/`, `sinter.helpers.ts` and `sinter.types.ts`');
   }
   const folder = normalize(join(dir, pkg.sinter));
   if (folder !== dir && !folder.startsWith(dir + sep)) return fail(`\`${name}\`: \`"sinter": ${JSON.stringify(pkg.sinter)}\` is outside the package`);
@@ -128,7 +128,7 @@ export function readLibrary(name: string, dir: string, diagnostics: Diagnostic[]
 }
 
 /**
- * The libraries of `sinter({ components })`, found from the root, with what is wrong: a package
+ * The libraries of `sinter({ libraries })`, found from the root, with what is wrong: a package
  * that is not installed, has no `"sinter"` folder or none with `components/` (SN337); two packages,
  * or a package and an app component, with one prefix (SN338); a sinter version outside a library's
  * `peerDependencies` range (SN537). `config` is the file problems with the option itself point at.
@@ -140,7 +140,7 @@ export function libraries(root: string, list: string[], appComponents: string[],
   for (const name of list) {
     const dir = packageDir(root, name);
     if (!dir) {
-      diagnostics.push({ severity: 'error', code: 'SN337', message: `\`${name}\` is in \`sinter({ components })\` and is not installed: no \`node_modules/${name}\` in the project or a folder above it`, file: config, line: 1, col: 1, hint: `npm install ${name}` });
+      diagnostics.push({ severity: 'error', code: 'SN337', message: `\`${name}\` is in \`sinter({ libraries })\` and is not installed: no \`node_modules/${name}\` in the project or a folder above it`, file: config, line: 1, col: 1, hint: `npm install ${name}` });
       continue;
     }
     const lib = readLibrary(name, dir, diagnostics, config);
@@ -159,7 +159,7 @@ export function libraries(root: string, list: string[], appComponents: string[],
   }
   for (const lib of out) {
     const taken = appComponents.filter((n) => lib.prefix && n.split('-')[0] === lib.prefix);
-    for (const n of taken) diagnostics.push({ severity: 'error', code: 'SN338', message: `\`<${n}>\` starts with \`${lib.prefix}-\`, the prefix of \`${lib.name}\` (\`sinter({ components })\`): a library owns its prefix, and an app component cannot shadow or add to it`, file: join(root, 'src', 'components', `${n}.html`), line: 1, col: 1, hint: `rename it (\`app-${n.slice(lib.prefix!.length + 1)}\`); to change how a library component looks everywhere, wrap it in a component of your own` });
+    for (const n of taken) diagnostics.push({ severity: 'error', code: 'SN338', message: `\`<${n}>\` starts with \`${lib.prefix}-\`, the prefix of \`${lib.name}\` (\`sinter({ libraries })\`): a library owns its prefix, and an app component cannot shadow or add to it`, file: join(root, 'src', 'components', `${n}.html`), line: 1, col: 1, hint: `rename it (\`app-${n.slice(lib.prefix!.length + 1)}\`); to change how a library component looks everywhere, wrap it in a component of your own` });
   }
   return { libraries: out, diagnostics };
 }

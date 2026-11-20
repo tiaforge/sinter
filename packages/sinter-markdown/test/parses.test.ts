@@ -28,7 +28,7 @@ beforeAll(async () => {
   await build({
     root: a.root, logLevel: 'silent',
     resolve: { alias: [{ find: /^@tiaforge-ui\/sinter-markdown\/parser$/, replacement: join(PKG, 'test/count-parser.js') }] },
-    plugins: [sinter({ components: ['@tiaforge-ui/sinter-markdown'] })],
+    plugins: [sinter({ libraries: ['@tiaforge-ui/sinter-markdown'] })],
     build: { outDir: out, emptyOutDir: true },
   });
   server = createServer((req, res) => {

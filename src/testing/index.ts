@@ -304,7 +304,7 @@ export interface RenderProject {
   readFile: (path: string) => string;
   listFiles?: (dir: string) => string[];
   componentNames: string[];
-  /** the component libraries (`sinter({ components })`) */
+  /** the component libraries (`sinter({ libraries })`) */
   libraries?: readonly CompileLibrary[];
   openapi: OpenApiSpec[];
   apis: ApisDef | null;

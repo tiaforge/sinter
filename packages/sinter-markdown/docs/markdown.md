@@ -31,7 +31,7 @@ import { defineConfig } from 'vite';
 import sinter from '@tiaforge-ui/sinter/vite';
 
 export default defineConfig({
-  plugins: [sinter({ components: ['@tiaforge-ui/sinter-markdown'] })],
+  plugins: [sinter({ libraries: ['@tiaforge-ui/sinter-markdown'] })],
 });
 ```
 
@@ -57,7 +57,7 @@ export type { Root, Heading, Link, TocEntry } from '@tiaforge-ui/sinter-markdown
 To make the parser lazy, list the package in `lazy`:
 
 ```js
-sinter({ components: ['@tiaforge-ui/sinter-markdown'], lazy: ['@tiaforge-ui/sinter-markdown'] })
+sinter({ libraries: ['@tiaforge-ui/sinter-markdown'], lazy: ['@tiaforge-ui/sinter-markdown'] })
 ```
 
 A let that calls `md.parse` is then `undefined` until the parser has arrived, and its arrival renders

@@ -27,7 +27,7 @@ npm install @tiaforge-ui/sinter-markdown
 
 ```js
 // vite.config.js: the package is a component library
-sinter({ components: ['@tiaforge-ui/sinter-markdown'] })
+sinter({ libraries: ['@tiaforge-ui/sinter-markdown'] })
 ```
 
 ```ts
@@ -229,7 +229,7 @@ A library has no pages, and sinter checks a component through the pages that use
 are pages that use the public components with the cases the library supports: an article from a
 file, every slot filled, comments from an API. `npx sinter check` in this folder takes them as its
 pages (there is no Vite config with pages of its own), configures the package as a library of
-`sinter({ components })`, compiles and type-checks them, and checks the library's rules: every declared
+`sinter({ libraries })`, compiles and type-checks them, and checks the library's rules: every declared
 slot is placed somewhere (`SN331`), `<sn-component use>` takes a map (`SN312`), internal components are
 used only inside the library (`SN339`). Each app's build checks the same rules again.
 

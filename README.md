@@ -231,7 +231,7 @@ A component is an HTML file in `src/components/`. Its file name is its tag:
   package loads on first call; `data-sn-import` and `data-sn-preload` load it sooner where a page needs
   it. The build fails when a page would ship it anyway, and a tab left open across a deploy gets
   `$error.stale` instead of a broken import. [Lazy packages](docs/lazy.md)
-- **Component libraries as source.** `sinter({ components: ['@acme/ui'] })`: a package's components
+- **Component libraries as source.** `sinter({ libraries: ['@acme/ui'] })`: a package's components
   compile with the app's, so they get its constants, early script, types and scoped styles; their
   CSS sits in a cascade layer the app's own CSS wins over. [Libraries](docs/libraries.md),
   [markdown](packages/sinter-markdown/docs/markdown.md), and one in its own repository:

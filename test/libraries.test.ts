@@ -1,5 +1,5 @@
 // Component libraries (docs/libraries.md, section 9 of the component-libraries proposal): packages in
-// `sinter({ components })` ship source in an app-shaped folder, which the app's sinter compiles as its
+// `sinter({ libraries })` ship source in an app-shaped folder, which the app's sinter compiles as its
 // own components. `@fixture/ui` (test/fixtures/ui) is used by test/fixtures/ui-app through a link in
 // node_modules, as a workspace links it: its real path is outside the app's root.
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
@@ -32,7 +32,7 @@ function app(files: Record<string, string> = {}, packages: Record<string, Record
 }
 const page = (body: string) => `<!doctype html><html><head><title>t</title></head><body>${body}</body></html>`;
 /** compiles a page of the app as the build does */
-function build(root: string, html: string, options: ProjectOptions = { components: ['@fixture/ui'] }, more: { check?: boolean } = {}) {
+function build(root: string, html: string, options: ProjectOptions = { libraries: ['@fixture/ui'] }, more: { check?: boolean } = {}) {
   const p = project(root, options);
   const file = join(root, 'index.html');
   writeFileSync(file, html);
@@ -45,7 +45,7 @@ const pkgJson = (o: object) => JSON.stringify({ version: '1.0.0', type: 'module'
 describe('the packages', () => {
   test('found from the config: the app-shaped folder, the prefix, public and internal components, files read through the link', () => {
     const root = app();
-    const p = project(root, { components: ['@fixture/ui'] });
+    const p = project(root, { libraries: ['@fixture/ui'] });
     expect(p.diagnostics).toEqual([]);
     const [l] = p.libraries;
     expect([l!.name, l!.prefix, l!.public, l!.internal]).toEqual(['@fixture/ui', 'ui', ['ui-card', 'ui-tree'], ['ui-node']]);
@@ -60,7 +60,7 @@ describe('the packages', () => {
   });
 
   test('helpers: the app re-exports a package as a namespace, followed like a relative re-export', () => {
-    const p = project(app(), { components: ['@fixture/ui'] });
+    const p = project(app(), { libraries: ['@fixture/ui'] });
     // each member by the module of the package that declares it, past the package's entry
     const at = (f: string) => ({ module: `/node_modules/@fixture/ui/sinter/${f}`, name: '' });
     expect(p.helpers.namespaces.ui).toEqual({ module: '@fixture/ui', members: ['count', 'initials', 'outline', 'words'], from: {
@@ -80,9 +80,9 @@ describe('the packages', () => {
       '@t/mixed': { 'package.json': pkgJson({ name: '@t/mixed', sinter: './s' }), 's/components/m-a.html': '<template data-sn-props=""><p></p></template>', 's/components/m-b.html': '<template data-sn-props=""><p></p></template>', 's/components/internal/q-c.html': '<template data-sn-props=""><p></p></template>' },
       '@t/out': { 'package.json': pkgJson({ name: '@t/out', sinter: '../x' }) },
     });
-    const ds = project(root, { components: ['@t/missing', '@t/plain', '@t/empty', '@t/both', '@t/mixed', '@t/out'] }).diagnostics;
+    const ds = project(root, { libraries: ['@t/missing', '@t/plain', '@t/empty', '@t/both', '@t/mixed', '@t/out'] }).diagnostics;
     expect(codes(ds)).toEqual(['SN337', 'SN337', 'SN337', 'SN337', 'SN337', 'SN337']);
-    expect(ds[0]!.message).toMatch(/`@t\/missing` is in `sinter\(\{ components \}\)` and is not installed/);
+    expect(ds[0]!.message).toMatch(/`@t\/missing` is in `sinter\(\{ libraries \}\)` and is not installed/);
     expect(ds[1]!.message).toMatch(/`@t\/plain` .* has no `"sinter"` field/);
     expect(ds[2]!.message).toMatch(/`@t\/empty`: its `"sinter"` folder \(`\.\/sinter`\) has no `components\/` folder/);
     expect(ds[3]!.message).toMatch(/`b-x` is both in `components\/` and `components\/internal\/`/);
@@ -95,10 +95,10 @@ describe('the packages', () => {
     const root = app({ 'src/components/ui-button.html': '<template data-sn-props=""><button></button></template>' }, {
       '@t/other': { 'package.json': pkgJson({ name: '@t/other', sinter: './sinter' }), 'sinter/components/ui-box.html': '<template data-sn-props=""><div></div></template>' },
     });
-    const ds = project(root, { components: ['@fixture/ui', '@t/other'] }).diagnostics;
+    const ds = project(root, { libraries: ['@fixture/ui', '@t/other'] }).diagnostics;
     expect(ds.map((d) => [d.code, d.message.split(':')[0]])).toEqual([
       ['SN338', '`@t/other` and `@fixture/ui` both name their components `ui-…`'],
-      ['SN338', '`<ui-button>` starts with `ui-`, the prefix of `@fixture/ui` (`sinter({ components })`)'],
+      ['SN338', '`<ui-button>` starts with `ui-`, the prefix of `@fixture/ui` (`sinter({ libraries })`)'],
     ]);
     expect(ds[1]!.file).toBe(join(root, 'src/components/ui-button.html'));
     expect(ds[1]!.hint).toMatch(/rename it \(`app-button`\)/);
@@ -111,7 +111,7 @@ describe('the packages', () => {
       '@t/none': { 'package.json': JSON.stringify({ name: '@t/none', sinter: './s' }), 's/components/n-a.html': '<template data-sn-props=""><p></p></template>' },
       '@t/old': { 'package.json': JSON.stringify({ name: '@t/old', sinter: './s', peerDependencies: { '@tiaforge-ui/sinter': '^0.1.0' } }), 's/components/o-a.html': '<template data-sn-props=""><p></p></template>' },
     });
-    const ds = project(root, { components: ['@fixture/ui', '@t/none', '@t/old'] }).diagnostics;
+    const ds = project(root, { libraries: ['@fixture/ui', '@t/none', '@t/old'] }).diagnostics;
     expect(ds.map((d) => [d.code, d.severity])).toEqual([['SN537', 'warning'], ['SN537', 'warning']]);
     expect(ds[0]!.message).toMatch(/`@t\/none` does not say which sinter versions it supports/);
     expect(ds[1]!.message).toBe(`\`@t/old\` supports sinter \`^0.1.0\`, and this is sinter ${v}: its markup may use what this version does not have, or what it no longer has`);
@@ -171,7 +171,7 @@ describe('the components', () => {
       'sinter/components/internal/kit-b-row.html': '<template data-sn-props=""><i>b</i></template>',
     };
     const root = app({ 'src/components/app-c-row.html': '<template data-sn-props=""><u>c</u></template>' }, { '@t/kit': kit });
-    const o = { components: ['@fixture/ui', '@t/kit'] };
+    const o = { libraries: ['@fixture/ui', '@t/kit'] };
     const r = build(root, page('<kit-list data-sn-with="{ kinds: [\'a\', \'b\'] }"></kit-list><div data-sn-state="{ k: \'a\' }"><sn-component use="`kit-${k}-row`" data-sn-with="{}"></sn-component><sn-component use="`app-${k}-row`" data-sn-with="{}"></sn-component></div>'), o);
     expect(r.diagnostics).toEqual([]);
     // the library's list renders its internal row; the page's choice has the public row only, the app's its own
@@ -193,7 +193,7 @@ describe('tree slots across packages', () => {
     'sinter/components/kit-leaf.html': '<template data-sn-props="{ n: number }"><slot name="leaf" data-sn-with="{ n }"><b class="default" data-sn-text="n"></b></slot></template>',
     ...more,
   });
-  const o = { components: ['@fixture/ui', '@t/kit'] };
+  const o = { libraries: ['@fixture/ui', '@t/kit'] };
 
   test('rule 2: a placement is filled by the nearest root of its own package; an app component that declares the name is not one', () => {
     const root = app({ 'src/components/app-wrap.html': '<template data-sn-props="{ leaf: Slot<{ n: number }> }"><section><kit-leaf data-sn-with="{ n: 1 }"></kit-leaf><slot name="leaf" data-sn-with="{ n: 0 }"><i></i></slot></section></template>' }, { '@t/kit': kit() });
@@ -236,7 +236,7 @@ describe('tree slots across packages', () => {
 
 describe('types', () => {
   const typecheck = (root: string, html: string) => {
-    const { p, out, diagnostics } = build(root, html, { components: ['@fixture/ui'] }, { check: true });
+    const { p, out, diagnostics } = build(root, html, { libraries: ['@fixture/ui'] }, { check: true });
     const r = check({ root, units: out.check ? [out.check] : [], helpers: p.helpers, actions: p.actions, types: p.types, openapi: p.openapi, tsc: findTsc(process.cwd()), messagesTypes: p.messagesTypes, libraries: p.libraries });
     return [...diagnostics, ...r.diagnostics];
   };
@@ -257,7 +257,7 @@ describe('types', () => {
 
   test('the generated declarations: ComponentName with the public components, the base class of a library\'s script typed by its types module', () => {
     const root = app();
-    const p = project(root, { components: ['@fixture/ui'] });
+    const p = project(root, { libraries: ['@fixture/ui'] });
     const d = readFileSync(p.componentsTypes!, 'utf8');
     expect(d).toContain('type ComponentName = "app-frame" | "ui-card" | "ui-tree";');
     expect(d).toContain(`declare module '*/ui-card.html' {\n  type Tone = import('../node_modules/@fixture/ui/sinter/sinter.types').Tone;`);
@@ -301,7 +301,7 @@ describe('the library author\'s check', () => {
     cpSync(UI, lib, { recursive: true });
     const v = await viteProject(lib);
     expect(v.pages).toEqual([join(lib, 'fixtures/helpers.html'), join(lib, 'fixtures/index.html')]);
-    expect(v.options.components).toEqual(['@fixture/ui']);
+    expect(v.options.libraries).toEqual(['@fixture/ui']);
     const p = project(lib, v.options);
     expect(p.libraries.map((l) => [l.name, l.dir])).toEqual([['@fixture/ui', lib]]);
     // its script's base class is declared in its own folder
@@ -336,7 +336,7 @@ test('lazy helper modules: a library\'s helper module that reaches a lazy packag
     },
     bigparse: { 'package.json': JSON.stringify({ name: 'bigparse', type: 'module', main: 'index.js' }), 'index.js': 'export const parse = (s) => s;\n' },
   });
-  const p = project(root, { components: ['@fixture/ui', '@t/heavy'], lazy: ['bigparse'] });
+  const p = project(root, { libraries: ['@fixture/ui', '@t/heavy'], lazy: ['bigparse'] });
   expect(p.helpers.namespaces.heavy!.members).toEqual(['read']);
   const lh = lazyHelpers(root, p.lazy, undefined, p.libraries);
   expect(lh.reach('@t/heavy')).toEqual(['bigparse']);
@@ -354,7 +354,7 @@ test('lazy helper modules: a library\'s helper module that reaches a lazy packag
 test('`sinter render` finds a library component\'s script and runs it', async () => {
   const { parseRenderArgs, renderPage } = await import('../src/render-cli.js');
   // the options as the Vite config gives them (the plugin's `api.options`)
-  const root = app({ 'vite.config.mjs': 'export default { plugins: [{ name: \'sinter\', api: { options: { components: [\'@fixture/ui\'] } } }] };\n' });
+  const root = app({ 'vite.config.mjs': 'export default { plugins: [{ name: \'sinter\', api: { options: { libraries: [\'@fixture/ui\'] } } }] };\n' });
   const a = parseRenderArgs(['index.html'], root);
   if (typeof a === 'string') throw new Error(a);
   const r = await renderPage(a);
@@ -364,7 +364,7 @@ test('`sinter render` finds a library component\'s script and runs it', async ()
 
 describe('a package namespace by its declaring modules (section 8\'s per-module rule)', () => {
   // `outline` needs only the tree; `words` reaches `@fixture/heavy`, lazy in this app; one namespace re-exports both
-  const o = { components: ['@fixture/ui'], lazy: ['@fixture/heavy'] };
+  const o = { libraries: ['@fixture/ui'], lazy: ['@fixture/heavy'] };
   const compileLazy = (root: string, html: string) => {
     const p = project(root, o);
     const file = join(root, 'index.html');
@@ -404,4 +404,8 @@ describe('a package namespace by its declaring modules (section 8\'s per-module 
     // `words` is judged by its own module, which reaches the package's top-level code (and, being lazy, never runs at build time anyway)
     expect(v.get('ui$words')).toMatchObject({ fold: false, reason: '`globalThis`' });
   });
+});
+
+test('sinter({ components }) is renamed to sinter({ libraries })', () => {
+  expect(() => project(app(), { components: ['@fixture/ui'] } as never)).toThrow(/sinter\(\{ components \}\) is renamed to sinter\(\{ libraries \}\)/);
 });

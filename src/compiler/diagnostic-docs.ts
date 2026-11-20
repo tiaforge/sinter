@@ -293,12 +293,12 @@ export const DIAGNOSTIC_DOCS: Record<Code, DiagnosticDoc> = {
     fix: 'Put the attribute on an element inside the component that is always there, give the chain a `data-sn-else`, or wrap the tag in an element that carries it. For a text root, give an element as the fill, or wrap the tag.',
   },
   SN337: {
-    example: '`@acme/ui` is in `sinter({ components })` and its package.json has no `"sinter"` field: a component library names the folder of its components',
-    means: 'A package in `sinter({ components })` is a component library (docs/libraries.md): installed, with `"sinter": "./sinter"` in its package.json naming a folder inside the package that has a `components/` folder. Its components share their first segment (`ui-card`, `ui-tree`: `ui`), the prefix it owns, and a name is in `components/` (public) or `components/internal/`, not both.',
+    example: '`@acme/ui` is in `sinter({ libraries })` and its package.json has no `"sinter"` field: a component library names the folder of its components',
+    means: 'A package in `sinter({ libraries })` is a component library (docs/libraries.md): installed, with `"sinter": "./sinter"` in its package.json naming a folder inside the package that has a `components/` folder. Its components share their first segment (`ui-card`, `ui-tree`: `ui`), the prefix it owns, and a name is in `components/` (public) or `components/internal/`, not both.',
     fix: 'Install the package, or take it out of `components` if it is not a component library. A library\'s author adds the `"sinter"` field and folder, and renames components to share one prefix.',
   },
   SN338: {
-    example: '`<ui-button>` starts with `ui-`, the prefix of `@acme/ui` (`sinter({ components })`): a library owns its prefix, and an app component cannot shadow or add to it',
+    example: '`<ui-button>` starts with `ui-`, the prefix of `@acme/ui` (`sinter({ libraries })`): a library owns its prefix, and an app component cannot shadow or add to it',
     means: 'Each component library owns the first segment of its components\' names. Two configured libraries with one prefix, or an app component (`src/components/`) whose name starts with a library\'s prefix, fail the build: a tag names exactly one component, and there is no shadowing.',
     fix: 'Rename the app component (`app-button`). To change how a library component looks or behaves everywhere, write a wrapper component of your own that uses it, with fills for its slots. Two libraries with one prefix cannot be used together.',
   },

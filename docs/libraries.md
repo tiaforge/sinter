@@ -16,7 +16,7 @@ import { defineConfig } from 'vite';
 import sinter from '@tiaforge-ui/sinter/vite';
 
 export default defineConfig({
-  plugins: [sinter({ components: ['@acme/ui'] })],
+  plugins: [sinter({ libraries: ['@acme/ui'] })],
 });
 ```
 

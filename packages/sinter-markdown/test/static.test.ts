@@ -60,7 +60,7 @@ beforeAll(async () => {
   for (const [name, a] of Object.entries(apps)) {
     let error: string | null = null;
     try {
-      await build({ root: a.root, logLevel: 'silent', plugins: [sinter({ components: ['@tiaforge-ui/sinter-markdown'], static: ['index.html'] })], build: { outDir: join(a.root, 'dist'), emptyOutDir: true } });
+      await build({ root: a.root, logLevel: 'silent', plugins: [sinter({ libraries: ['@tiaforge-ui/sinter-markdown'], static: ['index.html'] })], build: { outDir: join(a.root, 'dist'), emptyOutDir: true } });
     } catch (e) { error = (e as Error).message; }
     const dist = join(a.root, 'dist');
     out[name] = {
