@@ -883,7 +883,9 @@ A mutation (`data-sn-post`, `-put`, `-patch`, `-delete`) without `data-sn-catch`
   `aria-busy`), as it takes the focus. A toggle's two buttons (a POST and a DELETE, swapped at once by an optimistic
   change) are then one control: a quick second click queues behind the first instead of racing it, so the server
   ends as the page shows. The twin's own triggers follow its own policy. Nothing else carries over (an element's
-  field errors, its debounce, a `confirm` it is asking).
+  field errors, its debounce, a `confirm` it is asking). A part of the site's core (`TWIN` in src/runtime/flags.ts,
+  2026-11-20): a build keeps it only when a page has branches and an action's element with an `id` or a
+  `data-sn-attr` (which may bind one; `IR.tw`), so an app with actions and no such element carries none of it (125 B gzip).
 
 | Policy | Behaviour | Default for |
 | --- | --- | --- |

@@ -26,6 +26,11 @@ export const STYLE = true;
 /** `<sn-resource>`: loaders, the shared GET, the store */
 export const RESOURCE = true;
 /**
+ * an action's element with an `id` (or bound attributes, which may give it one), in a page with branches (`IR.tw`): a running
+ * action goes on as the action of the element with its id in an if's new branch (same id, same control)
+ */
+export const TWIN = true;
+/**
  * Not a part of the core: a helper module a page shares with its early file (docs/first-paint.md#own-copies), whose own
  * copy a swap imports beside the page module (it runs no early file). A build decides it from its early files
  * (`flagsModule`), so a site that shares nothing ships none of it.

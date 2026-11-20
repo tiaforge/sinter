@@ -355,6 +355,8 @@ export interface IR {
   v: 2;
   /** `data-sn-signed-in`: the page needs a session */
   si?: SignedIn;
+  /** an action's element has an `id` or bound attributes (`data-sn-attr`): the core keeps the same-id hand-over of a running action (the `TWIN` part) */
+  tw?: 1;
   resources: ResourceDef[];
   /** absent in a page module without streams */
   syncs?: SyncDef[];

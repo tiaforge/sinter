@@ -197,6 +197,7 @@ export const LINK_FIELDS: Record<string, { kinds: string[]; how: 'table' | 'weak
   stateAt: { kinds: ['Map'], how: 'table' },
   stateInits: { kinds: ['Array'], how: 'table' },
   swapOff: { kinds: ['boolean'], how: 'fixed' },
+  twin: { kinds: ['boolean'], how: 'fixed' },
   syncs: { kinds: ['Array'], how: 'table' },
   tagIds: { kinds: ['WeakSet'], how: 'weak' },
   templateAt: { kinds: ['Map'], how: 'table' },

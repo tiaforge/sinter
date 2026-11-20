@@ -1426,7 +1426,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
     const end: ChildNode = rb.u ? after(rb) : rb.end ?? endFor(rb);
     // same id, same control: the focused element of an if's old branch goes with it, its twin in the new one takes focus,
     // and an action still running or waiting on an element of it goes on as its twin's (below)
-    const f = doc.activeElement, held = !ch && live.size ? [...live].filter((st) => st.el.id && st.el.isConnected) : null;
+    const f = doc.activeElement, held = F.TWIN && !ch && live.size ? [...live].filter((st) => st.el.id && st.el.isConnected) : null;
     // what is between the start and the end (a wrapper's anchor: from its row's first node), its bindings forgotten
     for (const n of range(rb.u ? rb.x!.first : rb.el.nextSibling, end)) (n as ChildNode).remove();
     forget([rb]);
@@ -1737,7 +1737,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
     const up: Element[] = [];
     for (let x = el.parentElement; x; x = x.parentElement) up.push(x);
     st.n++;
-    live.add(st);
+    if (F.TWIN) live.add(st);
     // server errors on the form (fields.ts): its marks cleared and its `$error` null while it is sent again
     const fs = app.ext.fields?.sent(el, a);
     el.setAttribute('aria-busy', 'true');
@@ -1769,7 +1769,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
         st.off = null;
         const next = st.q.shift() ?? st.w?.run;
         if (next && next == st.w?.run) st.w = null;
-        if (next) { app.busy--; next(); } else { st.el.removeAttribute('aria-busy'); live.delete(st); }
+        if (next) { app.busy--; next(); } else { st.el.removeAttribute('aria-busy'); if (F.TWIN) live.delete(st); }
       }
     }
   }

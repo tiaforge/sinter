@@ -1000,6 +1000,8 @@ class Compiler {
   readonly fnIndex = new Map<string, number>();
   /** how many times each function's index was handed out: a function no longer used by anything is left out (`dropConstants`) */
   private readonly fnUses: number[] = [];
+  /** an action's element has an id, or bound attributes: `IR.tw` */
+  twin = false;
   /** where each function in `fns` was first written: the expression that compiled to it, else the element being compiled */
   readonly fnAt: Array<Site | null> = [];
   /** the element or expression being compiled: the site of functions the compiler writes itself */
@@ -1612,6 +1614,7 @@ class Compiler {
     if (styleGroups.length) ir.sg = styleGroups;
     if (this.page.usesNow) ir.now = true;
     if (this.guard) { ir.si = this.guard; this.features.add('signed-in'); }
+    if (this.twin) ir.tw = 1;
     // lets that wait for a lazy helper module (lets.ts), each module loaded by a function of the table
     const lazyHelpers = this.lazyMods.filter((_, i) => this.fns.some((c) => c.includes(`$.$z(${i}, `)));
     if (lazyHelpers.length) {
@@ -6035,6 +6038,8 @@ class Compiler {
       ...(retryAttr ? { retry: retryAttr } : {}),
     };
     this.devAt(def, [def.then, def.catch]);
+    // an element with an id, or bound attributes (an id among them): the core keeps the same-id hand-over (TWIN)
+    if (attr(el, 'id') != null || attr(el, 'data-sn-attr') != null) this.twin = true;
     this.actions.push(def);
     node.b.push(this.binding({ k: 'on', n: trigger, x: this.actions.length - 1 }));
   }
