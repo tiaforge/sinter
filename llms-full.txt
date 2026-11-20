@@ -357,6 +357,7 @@ export async function upload(file, digest, ctx) {
 ### More recipes
 
 - Events that sometimes carry the item: apply it, or reload: https://github.com/tiaforge/sinter/blob/main/docs/recipes/partial-events.html
+- Data a click loads: state and `when`, instead of a GET action: https://github.com/tiaforge/sinter/blob/main/docs/recipes/click-to-load.html
 - Offline drafts: sent again once the connection is back: https://github.com/tiaforge/sinter/blob/main/docs/recipes/offline-draft.html
 - Pagination: https://github.com/tiaforge/sinter/blob/main/docs/recipes/pagination.html
 - Search in the URL: a model on $url, one history entry per search: https://github.com/tiaforge/sinter/blob/main/docs/recipes/url-search.html

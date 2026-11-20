@@ -24,6 +24,7 @@ const RECIPES: Array<[string, string, string[]?]> = [
   ['field-errors', 'Server validation errors on the fields'],
   ['sse-sync', 'SSE sync'],
   ['partial-events', 'Events that sometimes carry the item: apply it, or reload'],
+  ['click-to-load', 'Data a click loads: state and `when`, instead of a GET action'],
   ['optimistic-toggle', 'Optimistic toggle'],
   ['offline-draft', 'Offline drafts: sent again once the connection is back'],
   ['pagination', 'Pagination'],
