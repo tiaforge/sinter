@@ -1367,6 +1367,7 @@ class Compiler {
       resources: new Map(), helpers: new Set(opts.helpers.names), namespaces: ns,
       actions: new Set([...(opts.actions?.names ?? []), ...Object.keys(opts.actions?.namespaces ?? {})]),
       usedHelpers: new Set(), usedNs: new Map(), usesNow: false, pathParams: new Set(), dialogs: new Set(), fed: new Set(), ids: new Map(),
+      ...(opts.apis?.list.some((a) => a.token) ? { tokens: true } : {}),
     };
     const l = opts.locale;
     if (l) {

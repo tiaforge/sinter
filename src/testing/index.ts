@@ -624,6 +624,7 @@ export async function render(html: string, options: RenderOptions = {}): Promise
   const timers: Timer[] = [];
   let nextTimer = 1;
   const navigations: string[] = [];
+  let early: string | null = null;
   const store = options.storage ?? memoryStorage(), session = options.session ?? memoryStorage();
   const winListeners = new Map<string, Set<(e: Event) => void>>();
   let hidden = false;
@@ -634,7 +635,8 @@ export async function render(html: string, options: RenderOptions = {}): Promise
     clearTimeout: (id) => { const i = timers.findIndex((t) => t.id === id); if (i >= 0) timers.splice(i, 1); },
     queueMicrotask: (fn) => queueMicrotask(fn),
     navigate: (url) => { navigations.push(url); },
-    replace: (url) => { navigations.push(`replace ${url}`); },
+    // the early script's sign-in redirect (`data-sn-signed-in`) is the page's: in a browser the page module does not mount after it
+    replace: (url) => { if (url === early) { early = null; return; } navigations.push(`replace ${url}`); },
     fetch: (req) => Promise.reject(new Error(`unexpected network request: ${req.method} ${req.url}; pass \`requests: mockRequests({...})\``)),
     storage: () => store,
     session: () => session,
@@ -659,7 +661,9 @@ export async function render(html: string, options: RenderOptions = {}): Promise
   if (options.firstPaint) {
     const fp = options.firstPaint === true ? {} : options.firstPaint;
     if (options.messages) { config.locale = null; useMessages(); }
+    const n = navigations.length;
     paint(parts, helpers, fp.early);
+    if (navigations.length > n && navigations.at(-1)!.startsWith('replace ')) early = navigations.at(-1)!.slice(8);
     fp.afterEarly?.();
   }
   if (options.messages) {

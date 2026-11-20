@@ -75,7 +75,7 @@ realworld: {
    `loginRedirect`'s, with its return-URL rules.
 6. **Stored.** After a 2xx of an operation in `from`, the token at that path of the body is stored. A change between
    none and one clears what sinter stored (`clearStored()`'s work, called internally).
-7. **`signOut()`**: a store function and an export. It removes every API's token with what sinter stored, and the
+7. **`signOut()`**: a store function and an export; in an app without a token API it is `SN347` (decided after review). It removes every API's token with what sinter stored, and the
    page's resources of those APIs load again, signed out. The name is free in the examples and recipes (RealWorld's
    helper was `signedOut`, gone with this).
 8. **Build rules.** With a token, an API's operations are requested early by the early script with the token, never
@@ -108,8 +108,8 @@ realworld: {
     `sinter({ static })` reports it as `SN322`).
 16. **`signOut()`** on a guarded page leaves the visitor to the handler, which navigates on
     (`signOut(); navigate('/')` from settings goes home, not to sign in).
-17. **Testing**: `render()` reports the redirect in `navigations` (`'replace /login'`). With `firstPaint`, the early
-    script's redirect comes first; the testing module mounts the page anyway, so the page module's follows.
+17. **Testing**: `render()` reports the redirect in `navigations` (`'replace /login'`), once: with `firstPaint`, the
+    early script's, and the page module's same redirect after it is not counted again.
 18. It is a convenience: the server refuses a visitor's requests without a valid token all the same.
 
 ## RealWorld, before and after

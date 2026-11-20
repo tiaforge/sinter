@@ -68,7 +68,7 @@ export const CODES = {
   SN344: 'content-fields',
   SN345: 'url-param-entry',
   SN346: 'kept-element',
-  SN347: 'signed-in-guard',
+  SN347: 'session',
   SN401: 'parse-error',
   SN501: 'unused-resource',
   SN502: 'non-reactive-value',

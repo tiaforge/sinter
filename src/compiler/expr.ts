@@ -159,6 +159,8 @@ export interface PageInfo {
   lazy?: Map<string, { i: number; name: string }>;
   /** literal `id`s of the page's `<dialog>` elements, for `openDialog()` and `closeDialog()` */
   dialogs: Set<string>;
+  /** an API of the app has a `token` (`signOut()` has something to remove, SN347) */
+  tokens?: boolean;
   /** the resources an `<sn-event resource>` on the page names: the ones a stream feeds (`$meta.<name>.live`, SN516) */
   fed: Set<string>;
   /** literal `id`s of the page's elements, for `run()`: whether one carries an action, sits in a `data-sn-for` row, how many share it */
@@ -1117,6 +1119,10 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
     }
     if (name === 'run') {
       runCall(first, n);
+      return;
+    }
+    if (name === 'signOut' && !page.tokens) {
+      report('SN347', '`signOut()` removes the tokens of the APIs that have one (`sinter({ apis: { main: { token } } })`), and no API of this app has one', n.start);
       return;
     }
     if (name === 'merge' || name === 'remove') {

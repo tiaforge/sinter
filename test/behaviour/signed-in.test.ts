@@ -75,8 +75,8 @@ describe('the early script', () => {
     const r = await render(page(), { requests, apis: api(), storage: withToken(null), url: 'http://localhost/settings', firstPaint: { afterEarly: () => {
       expect(document.documentElement.hidden).toBe(false);
     } } });
-    // (the early script's, then the page module's: in a browser the page module does not mount after the first)
-    expect(r.navigations[0]).toBe('replace /login?next=%2Fsettings');
+    // once: in a browser the page module does not mount after it, and render() does not count its own again
+    expect(r.navigations).toEqual(['replace /login?next=%2Fsettings']);
     expect(requests.calls).toEqual([]);
   });
 });
