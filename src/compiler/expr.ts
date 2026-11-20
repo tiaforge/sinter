@@ -56,6 +56,8 @@ export interface LetEntry {
   from?: LetEntry[];
   /** a component's prop: the caller's expression */
   prop?: true;
+  /** a `data-sn-let` entry's value as written (a list's empty state follows a choice in it: `emptyCondition`) */
+  text?: string;
   /** the item it is (see `Sources`), or the list */
   src?: Sources | null;
   list?: Sources | null;

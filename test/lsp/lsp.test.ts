@@ -142,6 +142,16 @@ describe('sinter lsp', () => {
     await e.diagnostics('index.html', (d) => d.length === 0);
   });
 
+  test('a `data-sn-else` after a `data-sn-for` is the list\'s empty state: no "must follow a data-sn-if"', async () => {
+    const root = project({ 'index.html': '<p>hi</p>\n' });
+    const e = await editor(root);
+    const page = (after: string) => `<div data-sn-state="{ xs: [] }">\n  <button data-sn-on-click="xs = [1]"></button>\n  <ul><template data-sn-for="x in xs"><li data-sn-text="x"></li></template>${after}<template data-sn-else><li>None</li></template></ul>\n</div>\n`;
+    e.open('index.html', page('<li></li>'));
+    await e.diagnostics('index.html', (d) => d.some((x) => x.code.startsWith('SN102')));
+    e.change('index.html', page(''));
+    expect(await e.diagnostics('index.html', (d) => d.length === 0)).toEqual([]);
+  });
+
   test('the helpers module is loaded in Node, as the build loads it: one that cannot load there is SN533 on its file', async () => {
     const root = project({
       'vite.config.js': `import sinter from ${JSON.stringify(join(__dirname, '../../src/vite.ts'))};\nexport default { plugins: [sinter()] };\n`,

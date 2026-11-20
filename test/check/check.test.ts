@@ -244,6 +244,19 @@ export type Inline = Plain | Strong | Ref;
       .toEqual([expect.stringMatching(/Property 'tpye' does not exist/)]);
   });
 
+  test('a list\'s empty state: checked where the list is, its problems reported once, at the list', () => {
+    const files = { 'src/sinter.types.ts': 'export interface Contact { id: number; name: string }\n' };
+    const html = (list: string, empty = '<p>None</p>') => `<!doctype html><html><head></head><body data-sn-state="{ q: '' }">
+<sn-resource name="contacts" src="/api/c" key="id" type="Contact[]"></sn-resource><input data-sn-model="q">
+<ul><template data-sn-for="c in ${list}"><li data-sn-text="c.name"></li></template><template data-sn-else>${empty}</template></ul>
+</body></html>`;
+    const errors = (list: string, empty?: string) => checkPage(html(list, empty), { files }).map((d) => `${d.code} ${d.message.replace(/ \(TS\d+\)$/, '')}`);
+    expect(errors('contacts.filter((c) => c.name.includes(q))')).toEqual([]);
+    expect(errors('contacts.filter((c) => c.nmae.includes(q))')).toEqual([expect.stringMatching(/Property 'nmae' does not exist on type 'Contact'/)]);
+    // its content is checked in the list's scope
+    expect(errors('contacts', '<p data-sn-text="q.lenght"></p>')).toEqual([expect.stringMatching(/Property 'lenght' does not exist on type 'string'/)]);
+  });
+
   test('SN538: a candidate the branches around rule out is a warning at its key, not an error in generated code', () => {
     const types = `export interface Para { type: 'para'; text: string }
 export interface Quote { type: 'quote'; text: string }

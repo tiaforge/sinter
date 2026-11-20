@@ -70,9 +70,9 @@ function fanOut(l: ResourceLoader, app: App) {
 
   l.changed = () => {
     const scope = l.scope();
-    let list: unknown = [];
+    let list: unknown = [], on = false;
     try {
-      if (def.when == null || app.fns[def.when]!(scope)) list = app.fns[each.list]!(scope) ?? [];
+      if ((on = def.when == null || !!app.fns[def.when]!(scope))) list = app.fns[each.list]!(scope) ?? [];
     } catch (e) { app.warn(17, def.name, (e as Error).message); }
     const want = new Set<string>();
     for (const item of Array.isArray(list) ? list : [...(list as Iterable<unknown>)]) {
@@ -91,8 +91,10 @@ function fanOut(l: ResourceLoader, app: App) {
       sources.set(u, { c: null, seq: 0, keys: new Set(), answered: false });
       void load(u);
     }
-    // nothing to load: loaded once the list itself is (an empty list is an answer, a pending one is not)
-    if (!sources.size && r.meta.loadedAt == null && (!each.of || app.resource(each.of).meta.loadedAt != null)) {
+    // `when` falsy: not loaded, as before the first load; else nothing to load: loaded once the list itself is (an empty
+    // list is an answer, a pending one is not)
+    if (!on) { if (r.meta.loadedAt || r.meta.error) { r.meta.loadedAt = r.meta.error = null; r.onDirty('meta'); } }
+    else if (!sources.size && r.meta.loadedAt == null && (!each.of || app.resource(each.of).meta.loadedAt != null)) {
       r.meta.loadedAt = new Date(app.env.now());
       r.onDirty('meta');
     }
