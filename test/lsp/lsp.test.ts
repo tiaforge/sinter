@@ -468,9 +468,10 @@ components:
     await e.diagnostics('index.html');
     const d = await e.definition('index.html', 1, 30);
     expect(d!.map((x) => [x.uri.split('/').pop(), x.range.start.line, x.range.start.character])).toEqual([['openapi.yml', 18, 8]]);
-  });
+  }, 30_000);
 
-  describe('paths to an API', () => {
+  // each test loads a Vite config that imports the plugin, bundled afresh: seconds, more on a busy machine
+  describe('paths to an API', { timeout: 30_000 }, () => {
     const spec = readFileSync(join(process.cwd(), 'test/fixtures/apis-openapi.yml'), 'utf8');
     const config = `import sinter from ${JSON.stringify(join(process.cwd(), 'src/vite.ts'))};
 export default { plugins: [sinter({ apis: {
