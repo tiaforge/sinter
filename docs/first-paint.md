@@ -101,12 +101,13 @@ What waits for the page script: `$url`, `$now`, `$meta` (but a resource's status
 ### Your own early code
 
 `src/sinter.early.ts` is optional app code that runs before anything is rendered, for example to
-configure the environment.
+connect another i18n library's locale, so the first paint is already in the visitor's language:
 
 ```ts
 // src/sinter.early.ts
 import { configure } from '@tiaforge-ui/sinter';
-configure({ env: { apiVersion: '2' } });
+import { getLocale, setLocale } from './paraglide/runtime.js';
+configure({ locale: { get: getLocale, set: setLocale } });
 ```
 
 Because the early files block the parser, keep them small. The build prints each page's early size

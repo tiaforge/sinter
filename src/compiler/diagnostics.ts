@@ -187,6 +187,8 @@ export function strictOf(s: unknown, env: string | undefined = globalThis.proces
     if (typeof a !== 'object' || a === null || Array.isArray(a)) bad('`allow` takes an object of codes and reasons: `{ SN504: \'the legacy API has no types\' }`');
     for (const [code, why] of Object.entries(a as object)) {
       if (!(code in CODES)) bad(`\`${code}\` in \`allow\` is not a diagnostic code (docs/diagnostics.md)`);
+      else if (severityOf(code as Code) === 'error') bad(`\`${code}\` is an error: \`allow\` keeps warnings as warnings, and errors fail the build either way`);
+      else if (!strictPromotes(code)) bad(`\`${code}\` stays a warning in strict mode already (docs/strict.md#what-stays-a-warning): leave it out of \`allow\``);
       if (typeof why !== 'string' || !why.trim()) bad(`\`allow.${code}\` takes the reason it stays a warning, as a string`);
       allow.set(code, why);
     }

@@ -38,7 +38,7 @@ import { componentBase } from './components-build.js';
 import { COMPONENT_NAME, LIBRARY_LAYER } from './compiler/components.js';
 import { librariesOf, libraryOf } from './libraries.js';
 import { LAYERS_SHEET, type FoldArg } from './compiler/compile.js';
-import { docsUrl } from './compiler/diagnostics.js';
+import { didYouMean, docsUrl } from './compiler/diagnostics.js';
 import { crossCheck, crossMessage, hashOf, type FoldCall } from './fold-cross.js';
 import { apiOrigins } from './compiler/apis.js';
 import { loadHelpers, loadingHelpers, unloadedMessage, type NodeHelpers } from './helpers-node.js';
@@ -276,6 +276,16 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     const extra = Object.keys(v).filter((k) => !keys.includes(k));
     if (extra.length) throw new Error(`sinter({ ${name} }): no option \`${extra[0]}\`; it takes ${keys.map((k) => `\`${k}\``).join(' and ')}`);
   };
+  // the options themselves, as nested ones: a typo (`typechek`) fails instead of doing nothing
+  const OPTIONS = ['typecheck', 'firstPaint', 'minifyHtml', 'images', 'redirects', 'site', 'sitemap', 'localePrefix', 'prefetch', 'embed', 'origins', 'fonts',
+    'helpers', 'actions', 'content', 'config', 'early', 'messages', 'types', 'openapi', 'apis', 'defaultApi', 'complexity', 'expansionLimit', 'checkCycles', 'static', 'swap', 'lazy', 'libraries', 'strict'];
+  const unknown = Object.keys(options).find((k) => !OPTIONS.includes(k));
+  if (unknown) throw new Error(`sinter({ ${unknown} }) is not an option.${didYouMean(unknown, OPTIONS)}`);
+  if (options.fonts !== undefined && (typeof options.fonts !== 'object' || options.fonts === null)) {
+    throw new Error('sinter({ fonts }): takes `{ inline, preload }`; `fonts: { inline: false }` keeps Google Fonts as links');
+  }
+  keysOf('fonts', options.fonts, ['inline', 'preload']);
+  keysOf('images', options.images, ['widths', 'remote']);
   keysOf('prefetch', options.prefetch, ['data', 'html']);
   keysOf('firstPaint', options.firstPaint, ['budget']);
   // `prefetch.html` was `'prefetch'`, `'prerender'` or `{ mode, delivery }`: a value that repeated the option's name

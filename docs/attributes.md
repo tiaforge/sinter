@@ -17,7 +17,7 @@ Bind values to the page.
 | `data-sn-for` | item in list \| (item, i) in list | repeats a &lt;template&gt; per item. On &lt;html&gt;: the page once per entry of a `file:` list, at `data-sn-path` filled from it |
 | `data-sn-key` | value expression | row identity; defaults to the resource key or object identity |
 | `data-sn-if` | value expression | renders a &lt;template&gt; while truthy. Same id, same control: when the branch with focus is swapped, the element with its id in the new one takes focus (a toggle's two buttons: &lt;button id="follow" data-sn-delete=…&gt; and &lt;button id="follow" data-sn-post=…&gt;) |
-| `data-sn-else` |  | on a &lt;template&gt; directly after an if template. Lists, branches and chosen components render between two comments (`<ul><!--sn 4--><li>a</li><!--/sn--></ul>`): CSS sees plain children. Comments that are exactly `<!--sn-->`, `<!--sn 4-->`, `<!--/sn-->` or `<!---->` are reserved (SN105); `$el` in an if, for or use is SN213; keep HTML comments |
+| `data-sn-else` |  | on a &lt;template&gt; directly after an if template; with data-sn-if beside it, an else-if (&lt;template data-sn-else data-sn-if="q"&gt;). Lists, branches and chosen components render between two comments (`<ul><!--sn 4--><li>a</li><!--/sn--></ul>`): CSS sees plain children. Comments that are exactly `<!--sn-->`, `<!--sn 4-->`, `<!--/sn-->` or `<!---->` are reserved (SN105); `$el` in an if, for or use is SN213; keep HTML comments |
 
 ## Keep state
 
@@ -45,7 +45,7 @@ Turn an element into a request. Details: [actions](actions.md).
 | `data-sn-body` | value expression | JSON request body; overrides form serialization |
 | `data-sn-trigger` | DOM event name | overrides the default trigger |
 | `data-sn-debounce` | milliseconds | delays the action's trigger, resets on each event |
-| `data-sn-encoding` | json \| form | form: the body (data-sn-body, arrays as repeated keys, or the form) goes as application/x-www-form-urlencoded |
+| `data-sn-encoding` | form | the body (data-sn-body, arrays as repeated keys, or the form) goes as application/x-www-form-urlencoded |
 | `data-sn-concurrency` | block \| queue \| latest | what a trigger does while the action runs; default block for forms, queue otherwise |
 | `data-sn-confirm` | value expression | asks this question before the action runs (configure({ confirm }), window.confirm by default); no question when falsy |
 | `data-sn-retry` | retry policy name | sends the request again (with data-sn-call: each request ctx.request sends) as that policy of configure({ retry }) says (after a network error, a 5xx, a 429), with an Idempotency-Key; without it a write is sent once |
@@ -105,6 +105,16 @@ When a package of `sinter({ lazy })` loads, on any element of a page, a layout o
 | `data-sn-import` | lazy packages, comma-separated | loads packages of sinter({ lazy }) when the element is rendered (at takeover outside templates, when its branch or row first renders inside one), instead of on first call |
 | `data-sn-preload` | lazy packages, comma-separated | the build preloads packages of sinter({ lazy }) with the page (&lt;link rel="modulepreload"&gt;): fetched with the page bundle, run on first call or by data-sn-import |
 
+## Set by sinter
+
+Attributes sinter writes for CSS to style; writing one in markup is `SN101`.
+
+| Attribute | Where |
+| --- | --- |
+| `data-sn-marked` | on the option a data-sn-options list marks |
+| `data-sn-error` | on the message it inserts after a field with a server error |
+| `data-sn-failed` | on the &lt;body&gt; of a page whose server render failed |
+
 ## Elements
 
 ### `<sn-resource>`
@@ -126,10 +136,10 @@ A named, page-wide cache of server data. Details: [resources](resources.md).
 
 ### `<sn-event>`
 
-`name`, `resource`, `op`, `value`, `when`, `then`, `type`. Maps one server event to a change message; child of &lt;sn-sync&gt;. `then` is a handler run after the change (payload fields and the state around the sync in scope), e.g. closeDialog('detail'); with `then`, `resource` and `op` may be left out.
+`name`, `resource`, `op`, `value`, `when`, `then`, `type`. Maps one server event to a change message; child of &lt;sn-sync&gt;. `then`: a handler run after the change.
 
 ## Names available in expressions
 
-- **Magic names:** `$event`, `$el`, `$url`, `$now`, `$locale`, `$result`, `$error`, `$meta`.
+- **Magic names:** `$event`, `$el`, `$url`, `$now`, `$locale`, `$result`, `$error`, `$meta`. Filled in by the build: `$site` and `$canonical` (the site's root and the page's URL, with `sinter({ site })`), `$slot` (in a fill of a slot declared `Slot<T>`, the values it passes) and `localeUrl(locale)` (this page in another language, with `sinter({ localePrefix: true })`).
 - **Store functions:** `refresh()`, `upsert()`, `merge()`, `remove()`, `page()`, `openDialog()`, `closeDialog()`, `emit()`, `run()`, `navigate()`.
 - **Built-in helpers:** `date()`, `time()`, `datetime()`, `relative()`, `number()`, `bytes()`.

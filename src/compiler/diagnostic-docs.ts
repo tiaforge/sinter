@@ -153,9 +153,9 @@ export const DIAGNOSTIC_DOCS: Record<Code, DiagnosticDoc> = {
     fix: 'Fix the id, or give the action element an `id`. For a row\'s action, put one action element outside the list and pass the row through state: `open = m; run(\'mark-read\')`.',
   },
   SN312: {
-    example: 'a component has one root element; `<article-preview>` has 2 elements at the top of its template',
-    means: 'A file in `src/components/` is not a valid component: it needs one `<template data-sn-props="{ …props }">` (and optionally a `<style>`) with exactly one root element in it, and the root cannot be a `<template>`, a `<slot>` or another component. A head component is declared with `<template data-sn-props>` instead, and holds any number of head elements. Also reported: two slots with the same name, a template with both declarations, a head component with a script, and `<sn-component use>` naming a head component.',
-    fix: 'Wrap the markup in one element inside `<template data-sn-props>`: the caller\'s classes, attributes and handlers land on it. A component whose markup is head elements only (`<title>`, `<meta>`, …) is a head component, which holds any number of them.',
+    example: "a component's root renders at most one element; `<article-preview>` has 2 elements at the top of its template",
+    means: 'A file in `src/components/` is not a valid component: it needs one `<template data-sn-props="{ …props }">` (and optionally a `<style>`) whose root renders at most one element: one element, a `data-sn-if`/`data-sn-else` chain of them, a component, `<sn-component use>`, or a `<slot>` whose default and fills are roots. A component whose template holds head elements only is a head component, which holds any number of them. Also reported: two slots with the same name, a head component with a script, and `<sn-component use>` naming a head component.',
+    fix: 'Wrap the markup in one element inside `<template data-sn-props>`: the caller\'s classes, attributes and handlers land on it.',
   },
   SN313: {
     example: '`artcle` is not a prop of `<article-preview>`; its props are `article`, `compact`. Did you mean `article`?',
@@ -269,7 +269,7 @@ export const DIAGNOSTIC_DOCS: Record<Code, DiagnosticDoc> = {
   },
   SN343: {
     example: '`index.html` links to `/blog/helo`, which `/blog/:slug` (blog/post.html) matches, but no entry is there. Did you mean `/blog/hello`?',
-    means: 'A build knows every page an `<html data-sn-for>` template was written at, so a link in a built page to a path its pattern matches but no entry has would be a 404. The links checked are the built HTML\'s root-relative `href`s: from the markup, constants, folded expressions and markdown. A link built in the browser at run time is not checked.',
+    means: 'A build knows every page an `<html data-sn-for>` template was written at, so a link in a built page to a path its pattern matches but no entry has would be a 404. The links checked are the built HTML\'s root-relative `href`s: from the markup, constants, folded expressions and markdown. A link built in the browser at run time is not checked. Reported by the build, without a file and line.',
     fix: 'Link to an entry that exists (the build suggests the nearest), give the entry that slug, or drop the link.',
   },
   SN344: {
@@ -434,22 +434,22 @@ export const DIAGNOSTIC_DOCS: Record<Code, DiagnosticDoc> = {
   },
   SN525: {
     example: 'images are not optimized, since sharp is not installed (npm install -D sharp), or sinter({ images: false }) to silence this',
-    means: 'Image optimization needs the `sharp` package, which is not installed, so images are served as they are. This depends on the machine, so `--strict` leaves it a warning.',
+    means: 'Image optimization needs the `sharp` package, which is not installed, so images are served as they are. This depends on the machine, so `--strict` leaves it a warning. Reported by the build, without a file and line.',
     fix: 'Install it, `npm install -D sharp`, or turn optimization off with `sinter({ images: false })`.',
   },
   SN526: {
     example: 'could not download https://fonts.example/inter.woff2; the page keeps the link (sinter({ fonts: { inline: false } }) turns this off)',
-    means: 'The build self-hosts the fonts a page links to, and one could not be downloaded, so the page keeps the link to the font\'s host. This depends on the network, so `--strict` leaves it a warning.',
+    means: 'The build self-hosts the fonts a page links to, and one could not be downloaded, so the page keeps the link to the font\'s host. This depends on the network, so `--strict` leaves it a warning. Reported by the build, without a file and line.',
     fix: 'Build with network access, or turn self-hosting off with `sinter({ fonts: { inline: false } })`.',
   },
   SN527: {
     example: 'image sizes from src/styles.scss are not read: Undefined variable $gap',
-    means: 'The build reads the page\'s CSS to size its images, and a stylesheet could not be compiled (by Vite\'s CSS pipeline, Sass, PostCSS, …). Those images get sizes without that stylesheet. This depends on the tools installed, so `--strict` leaves it a warning.',
+    means: 'The build reads the page\'s CSS to size its images, and a stylesheet could not be compiled (by Vite\'s CSS pipeline, Sass, PostCSS, …). Those images get sizes without that stylesheet. This depends on the tools installed, so `--strict` leaves it a warning. Reported by the build, without a file and line.',
     fix: 'Fix the error the message shows, or install the preprocessor the stylesheet needs.',
   },
   SN528: {
     example: 'images from the API: fetch failed',
-    means: 'In dev, `images.remote` optimizes images from the API, and one could not be fetched or converted. The request answers 502. This depends on the API being reachable, so `--strict` leaves it a warning.',
+    means: 'In dev, `images.remote` optimizes images from the API, and one could not be fetched or converted. The request answers 502. This depends on the API being reachable, so `--strict` leaves it a warning. Reported by the build, without a file and line.',
     fix: 'Check that the API is running and serves the image at that URL.',
   },
   SN529: {
@@ -474,12 +474,12 @@ export const DIAGNOSTIC_DOCS: Record<Code, DiagnosticDoc> = {
   },
   SN533: {
     example: 'the helpers module could not be loaded in Node (src/sinter.helpers.ts: Cannot find module \'./missing.js\'): no helper call is run at build time',
-    means: 'The build, the dev server, `sinter check` and the language server load the helpers module in Node, with the app\'s Vite config, to run helper calls over build-time constants. A module that throws when it loads there (it reads `window` or `document` at its top level, imports a file that is missing, or a package that only runs in a browser) folds nothing: every helper call stays in the browser, as before. Reported once per build or session.',
+    means: 'The build, the dev server, `sinter check` and the language server load the helpers module in Node, with the app\'s Vite config, to run helper calls over build-time constants. A module that throws when it loads there (it reads `window` or `document` at its top level, imports a file that is missing, or a package that only runs in a browser) folds nothing: every helper call stays in the browser, as before. Reported once per build or session. Reported by the build, without a file and line.',
     fix: 'Move what needs the browser out of the module\'s top level (into the functions that need it), or into a component script. The page works either way; only build-time folding is lost. Strict mode does not fail on this warning: it depends on what the app imports, not on a mistake.',
   },
   SN534: {
     example: '`fmt.title()` threw at build time (Cannot read properties of undefined), so this call stays in the browser',
-    means: 'A helper call over build-time constants (in a binding or a state initializer) runs in the compiler when the helper may fold, and its result is written into the page. This call did not: the helper threw, returned something that is not plain data (JSON values: a `Date`, a `Map`, a class instance, a function), or, as every build runs each such call twice, returned another result the second time. The call runs in the browser instead, as before; a warning in dev builds, once per call. A production build also runs every page\'s calls again at its end, in a fresh copy of the helpers module and in reverse page order, and fails with SN534 when a result differs: the helper keeps state between calls (a table of ids, a counter), so each page would show what the build\'s page order made of it.',
+    means: 'A helper call over build-time constants (in a binding or a state initializer) runs in the compiler when the helper may fold, and its result is written into the page. This call did not: the helper threw, returned something that is not plain data (JSON values: a `Date`, a `Map`, a class instance, a function), or, as every build runs each such call twice, returned another result the second time. The call runs in the browser instead, as before; a warning in dev builds, once per call. A production build also runs every page\'s calls again at its end, in a fresh copy of the helpers module and in reverse page order, and fails with SN534 when a result differs: the helper keeps state between calls (a table of ids, a counter), so each page would show what the build\'s page order made of it. Reported by the build, without a file and line.',
     fix: 'Make the helper return plain data for constant arguments and keep it pure (same arguments, same result, nothing read or changed elsewhere, no state kept between calls; a cache that only remembers is fine). A helper that cannot is fine in the browser: call it from a handler, or over values the browser has.',
   },  SN535: {
     example: '`<slot name="cel">` in `<x-cell>` is a tree placement, filled by the nearest root that declares `cel`; `<x-cell>` declares a slot of a close name. Did you mean `cell`?',

@@ -12,6 +12,7 @@ import { loadHelpers, unloadedMessage } from './helpers-node.js';
 import { checkLocale } from './locales-build.js';
 import { readSnapshot } from './content-node.js';
 import { componentScript } from './components-build.js';
+import { CODES, severityOf, strictPromotes, type Code } from './compiler/diagnostics.js';
 
 const USAGE = 'usage: sinter check [--root <dir>] [--check-cycles] [--strict [--allow SN501,…]] [page.html …]\n       sinter docs [topic | data-sn-… | SN318 | words]\n       sinter render <page.html> [--url …] [--api mocks.json | http://…] [--click …] (sinter render --help)\n       sinter migrate [--root <dir>] [--write]\n       sinter lsp [--stdio]';
 
@@ -39,8 +40,8 @@ async function main(argv: string[]): Promise<number> {
     else if (a === '--allow' || a.startsWith('--allow=')) {
       const list = a === '--allow' ? rest[++i] : a.slice('--allow='.length);
       const codes = (list ?? '').split(',').map((c) => c.trim().toUpperCase()).filter(Boolean);
-      const bad = codes.filter((c) => !/^SN\d{3}$/.test(c));
-      if (!codes.length || bad.length) { console.error(`sinter check: --allow takes diagnostic codes, such as --allow SN501,SN518${bad.length ? ` (not a code: ${bad.join(', ')})` : ''}\n${USAGE}`); return 2; }
+      const bad = codes.filter((c) => !(c in CODES) || severityOf(c as Code) === 'error' || !strictPromotes(c));
+      if (!codes.length || bad.length) { console.error(`sinter check: --allow takes the codes of warnings strict mode fails on, such as --allow SN501,SN518${bad.length ? ` (not one: ${bad.join(', ')})` : ''}\n${USAGE}`); return 2; }
       for (const c of codes) allow.add(c);
     } else if (a.startsWith('--')) { console.error(`sinter check: unknown option ${a}\n${USAGE}`); return 2; }
     else pages.push(a);

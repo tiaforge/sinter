@@ -408,6 +408,14 @@ test('$now refreshes every minute; helpers format with the locale', async () => 
   expect(root.querySelector('p')!.textContent).toBe('2026-01-01T00:01:00.000Z');
 });
 
+test('relative() follows $now: "2 minutes ago" moves on without $now in the binding', async () => {
+  const at = Date.parse('2026-01-01T00:00:00Z');
+  const { root, advance } = await render(`<p data-sn-state="{ at: ${at - 120_000} }" data-sn-text="relative(at)"></p>`, { now: at, locale: 'en-US' });
+  expect(root.querySelector('p')!.textContent).toBe('2 minutes ago');
+  await advance(60_000);
+  expect(root.querySelector('p')!.textContent).toBe('3 minutes ago');
+});
+
 test('$locale assignment re-runs locale-dependent bindings', async () => {
   const { root, flush } = await render(`
     <span data-sn-text="number(1234.5)"></span>

@@ -15,7 +15,7 @@ import * as acorn from 'acorn';
 import { dirname, join, relative, resolve } from 'node:path';
 import type { CheckExpr, CheckUnit } from '../compiler/check-unit.js';
 import type { HelperManifest } from '../compiler/compile.js';
-import { ALL_MAGIC, BUILTIN_HELPERS, GLOBALS, MUTATORS, READ_ONLY, STORE_FNS } from '../compiler/expr.js';
+import { ALL_MAGIC, BUILD_NAMES, BUILTIN_HELPERS, GLOBALS, MUTATORS, READ_ONLY, STORE_FNS } from '../compiler/expr.js';
 import { PACKAGE, parseModule, type Diagnostic } from '../compiler/index.js';
 import type { Project, ProjectOptions } from '../project.js';
 import type { Range } from './server.js';
@@ -425,7 +425,7 @@ function takenNames(ctx: ExtractContext, modules: Module[]): Set<string> {
   const { helpers, actions } = ctx.project;
   const taken = new Set<string>([
     ...helpers.names, ...Object.keys(helpers.namespaces), ...actions.names, ...Object.keys(actions.namespaces),
-    ...BUILTIN_HELPERS, ...STORE_FNS, ...GLOBALS, ...ALL_MAGIC, 'ctx',
+    ...BUILTIN_HELPERS, ...STORE_FNS, ...GLOBALS, ...ALL_MAGIC, ...BUILD_NAMES, 'localeUrl', 'ctx',
   ]);
   for (const unit of ctx.units) {
     for (const r of unit.resources) taken.add(r.name);

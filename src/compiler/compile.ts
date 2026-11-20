@@ -518,6 +518,12 @@ const RETIRED: Record<string, string> = {
 };
 /** an action's expressions evaluated when it triggers, so they see `$event` */
 const TRIGGER_TIME = new Set(['data-sn-post', 'data-sn-put', 'data-sn-patch', 'data-sn-delete', 'data-sn-call', 'data-sn-body', 'data-sn-confirm']);
+/** attributes sinter writes on the page for CSS to style (docs/attributes.md), never written in markup */
+export const SET_BY_SINTER: Record<string, string> = {
+  'data-sn-marked': 'on the option a `data-sn-options` list marks',
+  'data-sn-error': 'on the message it inserts after a field with a server error',
+  'data-sn-failed': 'on the `<body>` of a page whose server render failed',
+};
 const ACTION_ONLY = ['body', 'trigger', 'debounce', 'concurrency', 'optimistic', 'then', 'catch', 'confirm', 'encoding', 'write-through', 'retry'];
 const UNSAFE_ELEMENTS = new Set(['script', 'style', 'iframe', 'object', 'embed', 'base', 'meta', 'link', 'animate', 'set', 'animatemotion', 'animatetransform']);
 const FORM_CONTROLS = new Set(['input', 'select', 'textarea']);
@@ -4406,6 +4412,8 @@ class Compiler {
       if (known.has(a.name) || a.name.startsWith('data-sn-on-') || a.name.startsWith('data-sn-debounce-')) continue;
       const retired = RETIRED[a.name];
       if (retired) { this.report(el, a.name, 'SN101', `\`${a.name}\` ${retired}`, 0); continue; }
+      const by = SET_BY_SINTER[a.name];
+      if (by) { this.report(el, a.name, 'SN101', `\`${a.name}\` is set by sinter (${by}): style it with \`[${a.name}]\`, do not write it`, 0); continue; }
       this.report(el, a.name, 'SN101', `\`${a.name}\` is not a sinter attribute.${didYouMean(a.name, [...known, 'data-sn-on-click'])}`, 0);
     }
 
@@ -4457,6 +4465,7 @@ class Compiler {
         if (/<slot\b/i.test(text)) this.keptSlot.add(name);
       }
     }
+    if (has('wait') && get('wait')!.trim() !== 'off') this.report(el, 'data-sn-wait', 'SN401', '`data-sn-wait` takes `off`: what follows the box shows at once instead of waiting for the list\'s first rows', 0);
     // a page or a link the swap leaves to the browser: on `<html>` the build records it, on a link it stays
     if (has('swap')) {
       if (el.tagName !== 'html' && el.tagName !== 'a' && el.tagName !== 'area') this.report(el, 'data-sn-swap', 'SN102', '`data-sn-swap` belongs on `<html>` (links to the page load it) or on a link (it loads its page)', 0);
@@ -4619,7 +4628,7 @@ class Compiler {
       if (this.check) this.branchGuard.set(b, cond);
       content = { tid, scope: this.guarded(scope, cond) };
     } else if (isTemplate && has('else')) {
-      if (get('else')) this.report(el, 'data-sn-else', 'SN401', '`data-sn-else` takes no value', 0);
+      if (get('else')) this.report(el, 'data-sn-else', 'SN401', '`data-sn-else` takes no value; an else-if is `<template data-sn-else data-sn-if="…">`', 0);
       if (!prevIf) this.report(el, 'data-sn-else', 'SN102', '`data-sn-else` must be on a `<template>` directly after a `data-sn-if` template', 0);
       const tid = this.newTemplate();
       node.b.push(this.binding({ k: 'else', x: tid }));
@@ -5654,7 +5663,7 @@ class Compiler {
     const catch_ = fnOf('catch', { mode: 'handler', magic: ['$event', '$error'] });
     const confirm = fnOf('confirm', { mode: 'value', magic: ['$event'] });
     const encoding = get('encoding');
-    if (encoding !== undefined && encoding !== 'form' && encoding !== 'json') this.report(el, 'data-sn-encoding', 'SN401', '`data-sn-encoding` is `json` (the default) or `form`', 0);
+    if (encoding !== undefined && encoding !== 'form') this.report(el, 'data-sn-encoding', 'SN401', '`data-sn-encoding` takes `form`; a body is sent as JSON without the attribute', 0);
     if (encoding !== undefined && method === 'call') this.report(el, 'data-sn-encoding', 'SN102', '`data-sn-encoding` belongs to a method attribute; a call sends its own requests', 0);
     const applyAttr = get('write-through');
     if (applyAttr !== undefined && applyAttr.trim() !== 'off') this.report(el, 'data-sn-write-through', 'SN401', '`data-sn-write-through` takes `off`; write-through is on without the attribute', 0);
@@ -6091,7 +6100,7 @@ class Compiler {
     // `method="POST"`: an endpoint that loads data with a request body (search, reports); its body is a value, reloaded when it changes
     const methodAttr = attr(el, 'method')?.trim();
     const post = methodAttr === 'POST';
-    if (methodAttr != null && !post && methodAttr !== 'GET') this.report(el, 'method', 'SN401', '`method` is `POST` (or `GET`, the default)', 0);
+    if (methodAttr != null && !post) this.report(el, 'method', 'SN401', '`method` takes `POST`; a resource is loaded with GET without the attribute', 0);
     if (attr(el, 'body') != null && !post) this.report(el, 'body', 'SN102', '`body` needs `method="POST"`: a GET request has no body', 0);
     if (post) {
       if (hasCall) this.report(el, 'method', 'SN102', '`method` is for a resource with `src`', 0);

@@ -33,11 +33,13 @@ export interface Config {
 
 export const config: Config = {
   request: [], sessionProbe: null, onError: null, locale: null, urlSchemes: [], origins: [], apis: [], transport: null, retry: null,
-  confirm: null, env: null,
+  confirm: null, fieldErrors: null, env: null,
 };
 
 export function configure(options: Partial<Omit<Config, 'env'>> & { env?: Partial<Env> }): void {
   const { env, ...rest } = options;
+  // a typo fails instead of doing nothing, as in `sinter({...})`
+  for (const k in rest) if (!(k in config)) throw new Error(`configure({ ${k} }) is not an option`);
   Object.assign(config, rest);
   if (env) config.env = { ...config.env, ...env };
 }

@@ -1,6 +1,6 @@
 # sinter diagnostics
 
-Generated from `src/compiler/diagnostic-docs.ts` by `npm run docs`. Every diagnostic links to its section here. Codes from SN500 up are warnings; the rest are errors and fail the build. `sinter check --strict` fails on warnings too, except the ones that depend on the machine or the network (SN525 to SN528) and SN507 ([docs/strict.md](strict.md)). Codes from SN520 up are reported by the build rather than by a page, without a file and line.
+Generated from `src/compiler/diagnostic-docs.ts` by `npm run docs`. Every diagnostic links to its section here. Codes from SN500 up are warnings; the rest are errors and fail the build. `sinter check --strict` fails on warnings too, except the ones that depend on the machine or the network (SN525, SN526, SN527, SN528, SN533) and the heuristic ones (SN507, SN536) ([docs/strict.md](strict.md)). A code reported by the build rather than by a page, without a file and line, says so.
 
 ## SN101 unknown-attribute
 
@@ -286,11 +286,11 @@ Error, for example:
 
 Error, for example:
 
-> a component has one root element; `<article-preview>` has 2 elements at the top of its template
+> a component's root renders at most one element; `<article-preview>` has 2 elements at the top of its template
 
-A file in `src/components/` is not a valid component: it needs one `<template data-sn-props="{ …props }">` (and optionally a `<style>`) with exactly one root element in it, and the root cannot be a `<template>`, a `<slot>` or another component. A head component is declared with `<template data-sn-props>` instead, and holds any number of head elements. Also reported: two slots with the same name, a template with both declarations, a head component with a script, and `<sn-component use>` naming a head component.
+A file in `src/components/` is not a valid component: it needs one `<template data-sn-props="{ …props }">` (and optionally a `<style>`) whose root renders at most one element: one element, a `data-sn-if`/`data-sn-else` chain of them, a component, `<sn-component use>`, or a `<slot>` whose default and fills are roots. A component whose template holds head elements only is a head component, which holds any number of them. Also reported: two slots with the same name, a head component with a script, and `<sn-component use>` naming a head component.
 
-**Fix:** Wrap the markup in one element inside `<template data-sn-props>`: the caller's classes, attributes and handlers land on it. A component whose markup is head elements only (`<title>`, `<meta>`, …) is a head component, which holds any number of them.
+**Fix:** Wrap the markup in one element inside `<template data-sn-props>`: the caller's classes, attributes and handlers land on it.
 
 ## SN313 unknown-prop
 
@@ -568,7 +568,7 @@ Error, for example:
 
 > `index.html` links to `/blog/helo`, which `/blog/:slug` (blog/post.html) matches, but no entry is there. Did you mean `/blog/hello`?
 
-A build knows every page an `<html data-sn-for>` template was written at, so a link in a built page to a path its pattern matches but no entry has would be a 404. The links checked are the built HTML's root-relative `href`s: from the markup, constants, folded expressions and markdown. A link built in the browser at run time is not checked.
+A build knows every page an `<html data-sn-for>` template was written at, so a link in a built page to a path its pattern matches but no entry has would be a 404. The links checked are the built HTML's root-relative `href`s: from the markup, constants, folded expressions and markdown. A link built in the browser at run time is not checked. Reported by the build, without a file and line.
 
 **Fix:** Link to an entry that exists (the build suggests the nearest), give the entry that slug, or drop the link.
 
@@ -848,7 +848,7 @@ Warning, for example:
 
 > images are not optimized, since sharp is not installed (npm install -D sharp), or sinter({ images: false }) to silence this
 
-Image optimization needs the `sharp` package, which is not installed, so images are served as they are. This depends on the machine, so `--strict` leaves it a warning.
+Image optimization needs the `sharp` package, which is not installed, so images are served as they are. This depends on the machine, so `--strict` leaves it a warning. Reported by the build, without a file and line.
 
 **Fix:** Install it, `npm install -D sharp`, or turn optimization off with `sinter({ images: false })`.
 
@@ -858,7 +858,7 @@ Warning, for example:
 
 > could not download https://fonts.example/inter.woff2; the page keeps the link (sinter({ fonts: { inline: false } }) turns this off)
 
-The build self-hosts the fonts a page links to, and one could not be downloaded, so the page keeps the link to the font's host. This depends on the network, so `--strict` leaves it a warning.
+The build self-hosts the fonts a page links to, and one could not be downloaded, so the page keeps the link to the font's host. This depends on the network, so `--strict` leaves it a warning. Reported by the build, without a file and line.
 
 **Fix:** Build with network access, or turn self-hosting off with `sinter({ fonts: { inline: false } })`.
 
@@ -868,7 +868,7 @@ Warning, for example:
 
 > image sizes from src/styles.scss are not read: Undefined variable $gap
 
-The build reads the page's CSS to size its images, and a stylesheet could not be compiled (by Vite's CSS pipeline, Sass, PostCSS, …). Those images get sizes without that stylesheet. This depends on the tools installed, so `--strict` leaves it a warning.
+The build reads the page's CSS to size its images, and a stylesheet could not be compiled (by Vite's CSS pipeline, Sass, PostCSS, …). Those images get sizes without that stylesheet. This depends on the tools installed, so `--strict` leaves it a warning. Reported by the build, without a file and line.
 
 **Fix:** Fix the error the message shows, or install the preprocessor the stylesheet needs.
 
@@ -878,7 +878,7 @@ Warning, for example:
 
 > images from the API: fetch failed
 
-In dev, `images.remote` optimizes images from the API, and one could not be fetched or converted. The request answers 502. This depends on the API being reachable, so `--strict` leaves it a warning.
+In dev, `images.remote` optimizes images from the API, and one could not be fetched or converted. The request answers 502. This depends on the API being reachable, so `--strict` leaves it a warning. Reported by the build, without a file and line.
 
 **Fix:** Check that the API is running and serves the image at that URL.
 
@@ -928,7 +928,7 @@ Warning, for example:
 
 > the helpers module could not be loaded in Node (src/sinter.helpers.ts: Cannot find module './missing.js'): no helper call is run at build time
 
-The build, the dev server, `sinter check` and the language server load the helpers module in Node, with the app's Vite config, to run helper calls over build-time constants. A module that throws when it loads there (it reads `window` or `document` at its top level, imports a file that is missing, or a package that only runs in a browser) folds nothing: every helper call stays in the browser, as before. Reported once per build or session.
+The build, the dev server, `sinter check` and the language server load the helpers module in Node, with the app's Vite config, to run helper calls over build-time constants. A module that throws when it loads there (it reads `window` or `document` at its top level, imports a file that is missing, or a package that only runs in a browser) folds nothing: every helper call stays in the browser, as before. Reported once per build or session. Reported by the build, without a file and line.
 
 **Fix:** Move what needs the browser out of the module's top level (into the functions that need it), or into a component script. The page works either way; only build-time folding is lost. Strict mode does not fail on this warning: it depends on what the app imports, not on a mistake.
 
@@ -938,7 +938,7 @@ Warning, for example:
 
 > `fmt.title()` threw at build time (Cannot read properties of undefined), so this call stays in the browser
 
-A helper call over build-time constants (in a binding or a state initializer) runs in the compiler when the helper may fold, and its result is written into the page. This call did not: the helper threw, returned something that is not plain data (JSON values: a `Date`, a `Map`, a class instance, a function), or, as every build runs each such call twice, returned another result the second time. The call runs in the browser instead, as before; a warning in dev builds, once per call. A production build also runs every page's calls again at its end, in a fresh copy of the helpers module and in reverse page order, and fails with SN534 when a result differs: the helper keeps state between calls (a table of ids, a counter), so each page would show what the build's page order made of it.
+A helper call over build-time constants (in a binding or a state initializer) runs in the compiler when the helper may fold, and its result is written into the page. This call did not: the helper threw, returned something that is not plain data (JSON values: a `Date`, a `Map`, a class instance, a function), or, as every build runs each such call twice, returned another result the second time. The call runs in the browser instead, as before; a warning in dev builds, once per call. A production build also runs every page's calls again at its end, in a fresh copy of the helpers module and in reverse page order, and fails with SN534 when a result differs: the helper keeps state between calls (a table of ids, a counter), so each page would show what the build's page order made of it. Reported by the build, without a file and line.
 
 **Fix:** Make the helper return plain data for constant arguments and keep it pure (same arguments, same result, nothing read or changed elsewhere, no state kept between calls; a cache that only remembers is fine). A helper that cannot is fine in the browser: call it from a handler, or over values the browser has.
 

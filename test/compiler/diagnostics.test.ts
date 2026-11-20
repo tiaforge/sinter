@@ -47,6 +47,12 @@ test('a helper named like a retired function is the app\'s own, in handlers as i
   expect(diags('<form data-sn-post="/api/x" data-sn-then="reset()"><b data-sn-on-click="close(1)" data-sn-text="patch(2)"></b></form>', { helpers: ['reset', 'close', 'patch'] })).toEqual([]);
 });
 
+test('a bare name nothing defines: the hint names the row field and the string', () => {
+  const d = diags('<ul><template data-sn-for="r in [{ id: 1 }]" data-sn-key="id"><li></li></template></ul>').find((x) => x.code === 'SN201');
+  expect(d!.hint).toBe("a row's field is read through its loop variable: `r.id`");
+  expect(diags('<div data-sn-transition="hero"></div>').find((x) => x.code === 'SN201')!.hint).toBe("a fixed name is a string: `'hero'`");
+});
+
 test('a retired action has its own error: its options do not ask for an action', () => {
   expect(diags('<button data-sn-get="/api/x" data-sn-trigger="click"></button>').map((d) => d.code)).toEqual(['SN101']);
 });
@@ -61,6 +67,8 @@ const cases: Array<[string, string, RegExp, Opts?]> = [
   ['SN101', '<p data-sn-component="{}"></p>', /`data-sn-component` is renamed to `data-sn-props`/],
   ['SN101', '<sn-resource name="p" src="/api/p" key="id"></sn-resource><p data-sn-text="p.length"></p><sn-sync src="/s"><sn-event name="e" resource="p" op="upsert" value="person" fallback></sn-event></sn-sync>', /`fallback` is gone: write the refresh as a second event of the same name/],
   ['SN101', '<button data-sn-get="/api/x"></button>', /`data-sn-get` is gone: data a GET loads is a resource/],
+  ['SN101', '<li data-sn-marked></li>', /`data-sn-marked` is set by sinter \(on the option a `data-sn-options` list marks\): style it with `\[data-sn-marked\]`/],
+  ['SN401', '<div data-sn-wait="on"></div>', /`data-sn-wait` takes `off`/],
   ['SN101', '<x-oldslot></x-oldslot>', /`data-sn-prop` is renamed to `data-sn-with`/],
   ['SN101', '<sn-component use="\'x-card\'" data-sn-prop="{ title: \'t\' }"></sn-component>', /`data-sn-prop` is renamed to `data-sn-with`/],
   ['SN101', '<x-cls></x-cls>', /`class` is not an attribute of `<template data-sn-props>`; it takes `data-sn-props` and `data-sn-emits`/],

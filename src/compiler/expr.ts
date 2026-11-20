@@ -3,7 +3,7 @@
 // (value expressions) and written paths (handlers), and emits a function.
 import type * as acorn from 'acorn';
 import { parseExpression, parseProgram } from './parse.js';
-import { type Code, didYouMean } from './diagnostics.js';
+import { type Code, didYouMean, suggest } from './diagnostics.js';
 
 type Node = acorn.AnyNode & { start: number; end: number };
 
@@ -269,6 +269,8 @@ const NAME_FORMS = 'a string literal, `?:`, `||` or `??` between them, or a `dat
 
 const EVERYWHERE_MAGIC = ['$el', '$url', '$now', '$locale', '$meta'];
 export const ALL_MAGIC = ['$event', '$el', '$url', '$now', '$locale', '$result', '$error', '$meta'];
+/** names the build fills in, where they apply: the site's URLs (`sinter({ site })`) and a fill's slot values */
+export const BUILD_NAMES = ['$site', '$canonical', '$slot'];
 export const STORE_FNS = ['refresh', 'upsert', 'merge', 'remove', 'page', 'openDialog', 'closeDialog', 'emit', 'run', 'navigate'];
 /** store functions that are gone or renamed (docs/proposals/vocabulary.md): what to write instead. Removed at 1.0 */
 const RETIRED_FNS: Record<string, string> = {
@@ -468,7 +470,7 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
         if (name === '$now') page.usesNow = true;
         return { kind: 'magic' };
       }
-      report('SN201', `\`${name}\` is not defined.${didYouMean(name, [...ALL_MAGIC, '$slot'])}`, offset);
+      report('SN201', `\`${name}\` is not defined.${didYouMean(name, [...ALL_MAGIC, ...BUILD_NAMES])}`, offset);
       return null;
     }
     if (opts.payload && opts.payloadState) {
@@ -551,7 +553,14 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
         `add \`${name}\` to \`data-sn-props\` and pass it from the caller: \`data-sn-with="{ ${name}: ${name} }"\``);
       return null;
     }
-    report('SN201', `\`${name}\` is not defined here.${didYouMean(name, candidates)}`, offset);
+    // the two slips this message meets most: a row's field without its loop variable, and a fixed name written bare
+    const row = scope.loops.length ? scope.loops[scope.loops.length - 1]!.name : null;
+    const parts = [
+      ...(row ? [`a row's field is read through its loop variable: \`${row}.${name}\``] : []),
+      ...(mode === 'value' && !suggest(name, candidates) ? [`a fixed name is a string: \`'${name}'\``] : []),
+    ];
+    const hint = parts.length ? parts.join('; ') : undefined;
+    report('SN201', `\`${name}\` is not defined here.${didYouMean(name, candidates)}`, offset, hint);
     void member;
     return null;
   }
@@ -991,7 +1000,11 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
       if (res?.kind === 'store') storeCall(callee.name, n, locals);
       else if (res?.kind === 'helper') {
         // (a page built in one language: the locale never changes)
-        if (BUILTIN_HELPERS.includes(callee.name)) { if (!page.locale) addDep(['$locale']); }
+        if (BUILTIN_HELPERS.includes(callee.name)) {
+          if (!page.locale) addDep(['$locale']);
+          // `relative(v)` reads the clock: it follows `$now`, so "3 minutes ago" moves on
+          if (callee.name === 'relative' && n.arguments.length < 2 && mode === 'value') { addDep(['$now']); page.usesNow = true; }
+        }
         else if (mode === 'handler') {
           for (const a of n.arguments) {
             const cp = a.type === 'Identifier' || a.type === 'MemberExpression' ? chainPath(a as Node, locals) : null;

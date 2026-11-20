@@ -252,7 +252,7 @@ Every attribute value that is not a URL or a name is a JavaScript expression, pa
 
 | Kind | Used in | Allowed | Refused |
 | --- | --- | --- | --- |
-| Value | `text`, `attr`, `class`, `show`, `prop`, `for` (after `in`), `if`, `key`, `body`, `state`, resource `when` and `cursor`, `<sn-event>` `value` and `when`, URL interpolations | any JS expression, `new` on allowed globals, arrow functions as arguments, template strings, `?.`, `??` | assignment, `++`/`--`, `delete`, `await`, `import()` |
+| Value | `text`, `attr`, `class`, `show`, `with`, `for` (after `in`), `if`, `key`, `body`, `state`, resource `when` and `paginate`, `<sn-event>` `value` and `when`, URL interpolations | any JS expression, `new` on allowed globals, arrow functions as arguments, template strings, `?.`, `??` | assignment, `++`/`--`, `delete`, `await`, `import()` |
 | Handler | `on-*`, `then`, `catch`, `optimistic`, `<sn-event>` and `<sn-resource>` `then` | statements separated by `;`, assignment to state variables, calls to store functions (actions run through `run('id')`) | declarations (`let`, `const`, `function`), loops, `await` |
 
 Value expressions must be side-effect free, so the runtime may evaluate them any number of times.
@@ -428,7 +428,7 @@ A model on `$url` (added 2026-11-13): `data-sn-model="$url.q"` binds a query par
 | `data-sn-then` | handler expression | runs after a 2xx response, `$result` = parsed body |
 | `data-sn-catch` | handler expression | runs after an error, `$error` = error object |
 | `data-sn-confirm` | value expression | a question asked before the action runs; no request when the answer is no, no question when the value is falsy |
-| `data-sn-encoding` | `json` or `form` | `form`: the body is sent as `application/x-www-form-urlencoded` (see Request body) |
+| `data-sn-encoding` | `form` | the body is sent as `application/x-www-form-urlencoded` (see Request body) |
 | `data-sn-write-through` | `off` | turns write-through off for this mutation (see Write-through) |
 | `data-sn-options` | the `id` of a list, or empty | keys move a mark through the options (see Lists you move through with the keys) |
 | `data-sn-on-<event>` | handler expression | plain event handler, no request; e.g. `data-sn-on-click` |
@@ -498,6 +498,9 @@ The page module calls `$apis([{ n, b, c?, h? }])` when an API has `credentials` 
 | `$result` | `then` | parsed response body (action); what the load stored (`<sn-resource then>`) |
 | `$error` | `catch`; inside a `<form>` | `{status, body, message, detail}`; `detail` is the server's message or a thrown error's, else `null`. In a form: its last failed send, else `null` (see Server validation errors on the form) |
 | `$meta` | everywhere | per resource status fields (see Resources and store) |
+| `$site`, `$canonical` | everywhere, with `sinter({ site })` | the site's root URL and the page's absolute URL, filled in by the build (`SN323` without `site`) |
+| `$slot` | a fill of a slot declared `Slot<T>` | the values the placement passes |
+| `localeUrl(locale)` | everywhere, with `sinter({ localePrefix: true })` | this page's URL in another language |
 
 
 ### The URL (`$url`)
@@ -613,6 +616,7 @@ Status lives under `$meta.<name>`, never on the data itself. The field set is fi
 | `pages` | number or `null` | paginated, when `total` is known |
 | `from`, `to` | number | paginated: 1-based positions of the current page |
 | `hasPrev`, `hasNext` | boolean | paginated |
+| `live` | `'connecting'`, `'open'`, `'retrying'` or `null` | the stream feeding the resource (see Connection status); `null` when no `<sn-event>` names it |
 
 Any other field is a build error (`SN303 unknown-meta-field`), and so is a pagination field on a resource without `paginate`.
 
@@ -798,6 +802,7 @@ An action is an element with one method attribute; it sends a request when its t
 | `openDialog('edit')` | open `<dialog id="edit">` as a modal; nothing if it is open |
 | `closeDialog()`, `closeDialog('edit')` | close the nearest `<dialog>`, or the one with that id |
 | `emit('name', detail)` | dispatch a bubbling, cancelable `CustomEvent` from the element; every container with a handler for it runs, inner first, until one calls `$event.preventDefault()` |
+| `navigate(url, { replace })` | go to `url` (relative to the page's): a same-page link when only parameters the page reads change, else a navigation (a swap where on) |
 | `run('id')` | start the action of the element with that id, as its trigger would (a form: submit it); see Running an action from a handler |
 
 State assignments work too: `data-sn-then="editing = null; closeDialog()"`.
@@ -1362,47 +1367,7 @@ Errors should be found by the compiler, worded so that a person or a coding agen
 ### Diagnostics
 Each diagnostic has `severity`, `code`, `message`, `file`, `line`, `col`, an optional `hint` and an optional `span` (what an editor underlines).
 
-| Code | Severity | Example message |
-| --- | --- | --- |
-| `SN101 unknown-attribute` | error | `data-sn-txt` is not a sinter attribute. Did you mean `data-sn-text`? |
-| `SN102 wrong-element` | error | `data-sn-for` must be on a `<template>` |
-| `SN103 missing-row-key` | error | a `data-sn-for` over primitive values needs `data-sn-key` |
-| `SN104 unsupported-model` | error | `data-sn-model` does not support `type="file"`; submit the form instead |
-| `SN201 unknown-identifier` | error | `contcts` is not defined here. Did you mean `contacts`? |
-| `SN202 forbidden-global` | error | `window` is a browser API; expressions may use JavaScript, not the browser. Use a component's script |
-| `SN203 side-effect` | error | value expressions cannot assign; move this to `data-sn-on-*` |
-| `SN204 optimistic-scope` | error | `data-sn-optimistic` may only call `merge`, `upsert`, `remove` |
-| `SN205 resource-mutation` | error | `m.is_read = true` mutates a resource. Use `merge(m, {is_read: true})` |
-| `SN206 unknown-namespace-member` | error | `m.inbox_titel` is not exported by namespace `m`. Did you mean `inbox_title`? |
-| `SN207 unsafe-sink` | error | `onclick` cannot be bound with `data-sn-attr`; use `data-sn-on-click` |
-| `SN208 type-error` | error | Property 'nmae' does not exist on type 'Contact'. (TS2339) — `sinter check` only |
-| `SN209 name-conflict` | error | resource `contacts` is declared twice (was `SN302` until 2026-11-19) |
-| `SN210 url-list-mismatch` | error | `$url.tag` is a list elsewhere on the page (a `<select multiple>` or a checkbox with a `value`), and one value here; bind it as a list everywhere |
-| `SN211 url-list-condition` | error | `$url.tag` is a list and always truthy; use `$url.tag.length` |
-| `SN301 unknown-resource` | error | resource `mesages` is not declared on this page |
-| `SN303 unknown-meta-field` | error | `$meta.contacts.loadng` is not a status field. Did you mean `loading`? |
-| `SN304 keyset-jump` | error | keyset pagination cannot jump to a page number. Add `jump: true` to `paginate`, or use `numbered: true` |
-| `SN306 component-cycle` | error | `<x-a>` → `<x-b>` → `<x-a>` uses itself with no `data-sn-for` or `data-sn-if` template between |
-| `SN307 openapi-invalid` | error | OpenAPI spec `api.yml` is not an OpenAPI 3 document (needs `openapi: 3.x` and `paths`) |
-| `SN308 unknown-schema-field` | error | the response of `GET /articles` has no `articls`. Did you mean `articles`? |
-| `SN311 unknown-run-target` | error | no element `id="mark-raed"` on this page. Did you mean `mark-read`? |
-| `SN312 invalid-component` | error | a component's root renders at most one element; `<article-preview>` has 2 elements at the top of its template |
-| `SN313 unknown-prop` | error | `artcle` is not a prop of `<article-preview>`; its props are `article`, `compact` |
-| `SN314 unknown-slot` | error | `<article-preview>` has no slot `meta` |
-| `SN315 unknown-component-event` | error | `<task-ring>` does not declare the event `pik` |
-| `SN331 invalid-slot` | error | the slot `cell` is written with `?`; every slot may be left unfilled, and its placement shows its default |
-| `SN334 empty-root` | error | `<ui-panel>`'s root may render nothing, so `id` on its tag would point at an element that may not exist |
-| `SN333 invalid-text` | error | `data-sn-text` and `data-sn-if` on one `<template>`: a text node is one binding |
-| `SN401 parse-error` | error | JS syntax error, with the column inside the attribute |
-| `SN501 unused-resource` | warning | resource `addressbooks` is declared but never read |
-| `SN502 non-reactive-value` | warning | `Date.now()` in a binding never updates. Use `$now` |
-| `SN503 data-bound-id` | warning | `id` bound from data can shadow globals other scripts read (DOM clobbering) |
-| `SN504 untyped-resource` | warning | resource `contacts` has no type: expressions using it are not checked — `sinter check` only |
-| `SN505 undeclared-query-in-spec` | warning | `GET /articles` declares no query parameter `tagg`. Did you mean `tag`? |
-| `SN506 untyped-event` | warning | event `contact_updated` has no type: expressions reading its payload are not checked — `sinter check` only |
-| `SN507 complex-expression` | warning | `data-sn-on-click` is too complex for markup: 5 statements in one handler (limit `statements`: 4). Move the logic into a helper (pure, `x = fn(…)`) or an action |
-| `SN509 run-cycle` | warning | `run()` cycle: `#save` `data-sn-catch` (index.html:12) runs `#save`, which starts the first step again — opt-in (`checkCycles`) |
-| `SN532 repeated-id` | warning | `id="total"` is in markup that renders more than once (a `data-sn-for` row): the page would have that id more than once |
+Every code, with its message, meaning and fix, is in [diagnostics.md](diagnostics.md), generated from `src/compiler/diagnostic-docs.ts`; codes are public API (strict mode's `allow` names them).
 
 
 ### Complexity (`SN507`)
@@ -1417,7 +1382,7 @@ Expressions that are too complex for markup are warning `SN507`, with the limit 
 | `arrow` | 8 | operations in one arrow function's body (`p => p.name.toLowerCase().includes(q)` has 3); a block body `{ … }` is always too many |
 | `operations` | 15 | operations in one expression (each statement of a handler), the backstop |
 
-Operations are calls, `new`, operators, assignments, updates, computed member access and functions; names, member paths (`a.b.c`), literals, and object and array literal structure are free, so a draft literal of plain fields costs nothing. Object attributes (`data-sn-state`, `-let`, `-attr`, `-class`, `-style`, `-prop`) are measured per property value, and the warning names the property. The defaults leave filters (`people.filter(p => p.name.includes(q))`), single assignments of a helper's result, a guard over one call (`open && closeDialog()`), short object literals and one nested ternary alone; they were checked against the recipes, the RealWorld example and the e2e pages, which pass.
+Operations are calls, `new`, operators, assignments, updates, computed member access and functions; names, member paths (`a.b.c`), literals, and object and array literal structure are free, so a draft literal of plain fields costs nothing. Object attributes (`data-sn-state`, `-let`, `-attr`, `-class`, `-style`, `-with`) are measured per property value, and the warning names the property. The defaults leave filters (`people.filter(p => p.name.includes(q))`), single assignments of a helper's result, a guard over one call (`open && closeDialog()`), short object literals and one nested ternary alone; they were checked against the recipes, the RealWorld example and the e2e pages, which pass.
 - Options of the Vite plugin, read by `sinter check` and `sinter lsp` too: `sinter({ complexity: { statements: 6, ternaries: 1, level: 'warn' } })`. `level` is `warn` (default), `error` (fails the build like any error) or `off`. Each limit can be set alone; an unknown name or level is refused when the config loads.
 - What to do instead: see What belongs in markup.
 

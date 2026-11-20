@@ -1,6 +1,7 @@
 // Built-in helpers. Each reads the current locale, so bindings that call them
 // re-run when `$locale` changes.
 import { config } from './config.js';
+import { envOf } from './env.js';
 
 const locale = () => config.locale?.get();
 
@@ -53,8 +54,8 @@ const UNITS: Array<[Intl.RelativeTimeFormatUnit, number]> = [
   ['year', 31536000], ['month', 2592000], ['week', 604800], ['day', 86400], ['hour', 3600], ['minute', 60], ['second', 1],
 ];
 
-/** "3 days ago", relative to `now` (default: the current time). */
-export function relative(v: unknown, now: unknown = Date.now()): string {
+/** "3 days ago", relative to `now` (default: the clock `$now` reads; a binding calling it follows `$now`). */
+export function relative(v: unknown, now: unknown = envOf(config).now()): string {
   const d = toDate(v), n = toDate(now);
   if (!d || !n) return '';
   const diff = (d.getTime() - n.getTime()) / 1000;
