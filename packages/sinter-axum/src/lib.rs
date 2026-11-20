@@ -257,8 +257,10 @@ impl Embed {
     pub fn build(self) -> Result<EmbedLayer, Error> {
         let (pages, routes, locales) = manifest::load(&self.dir, self.compiled)?;
         let mut problems = Vec::new();
-        let names: HashSet<String> =
-            pages.iter().flat_map(|p| p.placeholders.iter().flat_map(|s| [s.resource.clone(), format!("{}:{}", p.file, s.resource)])).collect();
+        let names: HashSet<String> = pages
+            .iter()
+            .flat_map(|p| p.placeholders.iter().flat_map(|s| [s.resource.clone(), format!("{}:{}", p.file, s.resource)]))
+            .collect();
         for n in self.resolvers.keys().chain(&self.skips) {
             if !names.contains(n) {
                 problems.push(format!("`{n}`: no page of the build has a placeholder for it"));

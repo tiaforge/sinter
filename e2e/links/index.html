@@ -11,7 +11,7 @@
   </nav>
   <input id="search" aria-label="search" data-sn-model="$url.q">
   <!-- a guard: while `dirty`, every navigation is refused -->
-  <form id="draft" data-sn-state="{ dirty: false, seen: 0 }" data-sn-on-navigate="seen = seen + 1; dirty && $event.preventDefault()">
+  <form id="draft" data-sn-state="{ dirty: false, seen: 0 }" data-sn-on-sn-navigate="seen = seen + 1; dirty && $event.preventDefault()">
     <button id="dirty" type="button" data-sn-on-click="dirty = true">dirty</button>
     <button id="clean" type="button" data-sn-on-click="dirty = false">clean</button>
     <b id="seen" data-sn-text="seen"></b>

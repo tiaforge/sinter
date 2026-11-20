@@ -36,7 +36,7 @@ import { familyLineHeights, familyZeroWidths } from './font-metrics.js';
 import { faceName, faceOf, fontDownloader, fontFileDownloader, inlineFonts, preloadFonts, preloadLocalFonts, usesFamily, type FontFaceRef, type FontPreload } from './fonts-build.js';
 import { componentBase } from './components-build.js';
 import { COMPONENT_NAME, LIBRARY_LAYER } from './compiler/components.js';
-import { librariesOf, libraryOf } from './libraries.js';
+import { librariesOf, libraryOf, ownLibrary } from './libraries.js';
 import { LAYERS_SHEET, type FoldArg } from './compiler/compile.js';
 import { didYouMean, docsUrl } from './compiler/diagnostics.js';
 import { crossCheck, crossMessage, hashOf, type FoldCall } from './fold-cross.js';
@@ -1135,8 +1135,10 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       const b = user.build as { rollupOptions?: { input?: unknown }; rolldownOptions?: { input?: unknown }; outDir?: string } | undefined;
       const own = b?.rolldownOptions?.input ?? b?.rollupOptions?.input;
       const r = resolve(user.root ?? process.cwd());
+      // a component library's own repository: its fixture pages, not its components' files
+      const lib = ownLibrary(r);
       const pages = env.command === 'build' && own === undefined
-        ? Object.fromEntries(htmlPages(r, { build: { outDir: b?.outDir ?? 'dist' }, publicDir: resolve(r, typeof user.publicDir === 'string' ? user.publicDir : 'public') } as ResolvedConfig)
+        ? Object.fromEntries((lib ? lib.pages : htmlPages(r, { build: { outDir: b?.outDir ?? 'dist' }, publicDir: resolve(r, typeof user.publicDir === 'string' ? user.publicDir : 'public') } as ResolvedConfig))
           .map((f) => [relative(r, f).split(sep).join('/').replace(/\.html$/, ''), f]))
         : null;
       const mpa = { ...(user.appType === undefined ? { appType: 'mpa' as const } : {}), ...(pages && Object.keys(pages).length ? { build: { rollupOptions: { input: pages } } } : {}) };

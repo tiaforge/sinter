@@ -109,7 +109,8 @@ pub fn embed(input: TokenStream) -> TokenStream {
             push(syn::Error::new(e.key.span(), format!("no page of the build has a placeholder for `{k}` (it has {})", names.join(", "))));
         }
     }
-    let covered = |s: &Placeholder| entries.iter().any(|e| e.key.value() == s.resource || e.key.value() == format!("{}:{}", s.page, s.resource));
+    let covered =
+        |s: &Placeholder| entries.iter().any(|e| e.key.value() == s.resource || e.key.value() == format!("{}:{}", s.page, s.resource));
     for s in &placeholders {
         if let (Some(why), false) = (s.undescribed, covered(s)) {
             push(syn::Error::new(
