@@ -3,7 +3,7 @@
      `armed`: whether the next change is set to fail. The header sets it; the next failed action, on
      any page, resets it (sn-error bubbles to <body>). -->
 <!doctype html>
-<html lang="en" data-sn-layout="{ title?: string }">
+<html lang="en" data-sn-props="{ title?: string }">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -13,7 +13,7 @@
   <link rel="stylesheet" href="../style.css">
 </head>
 <body data-sn-state="{ armed: false }" data-sn-on-sn-error="armed = false">
-  <app-header data-sn-prop="{ armed }" data-sn-on-arm="armed = true"></app-header>
+  <app-header data-sn-with="{ armed }" data-sn-on-arm="armed = true"></app-header>
 
   <main data-layout="center" data-gap="lg" data-pad="lg" style="--tm-measure: 48rem">
     <slot></slot>

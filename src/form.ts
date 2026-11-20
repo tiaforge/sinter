@@ -51,9 +51,9 @@ export function serialize(form: HTMLFormElement): unknown {
 const feature: Feature = {
   name: 'form',
   install(app: App) {
-    // a form's own action without `data-sn-body` (not GET or DELETE) sends its fields
+    // a form's own action without `data-sn-body` (not DELETE) sends its fields
     app.ext.form = (el, a, body) => {
-      if (a.form && a.body == null && a.method != 'GET' && a.method != 'DELETE') body = a.enc ? new FormData(el as HTMLFormElement) : serialize(el as HTMLFormElement);
+      if (a.form && a.body == null && a.method != 'DELETE') body = a.enc ? new FormData(el as HTMLFormElement) : serialize(el as HTMLFormElement);
       return a.enc ? formBody(body) : body;
     };
   },

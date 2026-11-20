@@ -19,7 +19,7 @@ public sealed class SinterManifest(ManifestPage[] pages, ManifestRoute[] routes,
 
 /// <summary>A page: its HTML file relative to the build's output, the paths it answers at, its placeholders.</summary>
 [EditorBrowsable(EditorBrowsableState.Never)]
-public sealed class ManifestPage(string file, string[] paths, ManifestSlot[] data, string[]? arrays = null)
+public sealed class ManifestPage(string file, string[] paths, ManifestPlaceholder[] data, string[]? arrays = null)
 {
     /// <summary>Its array parameters: <c>$url</c> values read as lists (repeated keys).</summary>
     public string[] Arrays { get; } = arrays ?? [];
@@ -28,12 +28,12 @@ public sealed class ManifestPage(string file, string[] paths, ManifestSlot[] dat
     /// <summary>The paths it answers at: <c>data-sn-path</c> patterns, else where its file is served.</summary>
     public string[] Paths { get; } = paths;
     /// <summary>Its placeholders.</summary>
-    public ManifestSlot[] Data { get; } = data;
+    public ManifestPlaceholder[] Data { get; } = data;
 }
 
 /// <summary>One placeholder: <c>&lt;script type="application/json" data-sn="{id}"&gt;&lt;/script&gt;</c> in the page's head.</summary>
 [EditorBrowsable(EditorBrowsableState.Never)]
-public sealed class ManifestSlot(int id, string resource, UrlPart[]? src, bool whenInBrowser, Cond? when, KeyValuePair<string, string>[] query, ManifestStart? start, KeyValuePair<string, string>[]? headers = null)
+public sealed class ManifestPlaceholder(int id, string resource, UrlPart[]? src, bool whenInBrowser, Cond? when, KeyValuePair<string, string>[] query, ManifestStart? start, KeyValuePair<string, string>[]? headers = null)
 {
     /// <summary>Its <c>data-sn</c> id.</summary>
     public int Id { get; } = id;
@@ -47,7 +47,7 @@ public sealed class ManifestSlot(int id, string resource, UrlPart[]? src, bool w
     public Cond? When { get; } = when;
     /// <summary>Paginated: the first page's query parameters, set on the template's URL.</summary>
     public KeyValuePair<string, string>[] Query { get; } = query;
-    /// <summary>Paginated, starting at a page from <c>$url</c> (<c>page-model</c>).</summary>
+    /// <summary>Paginated, starting at a page from <c>$url</c> (<c>model</c> (paginate)).</summary>
     public ManifestStart? Start { get; } = start;
     /// <summary>The static headers of the resource's API (<c>sinter({ apis })</c>): sent with this layer's request for it.</summary>
     public KeyValuePair<string, string>[] Headers { get; } = headers ?? [];
@@ -108,7 +108,7 @@ public abstract class Cond
     }
 }
 
-/// <summary><c>page-model</c>: the page from its <c>$url</c> parameter; from page 2 on, <c>query</c> with <c>key</c> set to the page (with <c>skip</c>, to the items to skip, <c>(page - 1) * size</c>).</summary>
+/// <summary><c>model</c> (paginate): the page from its <c>$url</c> parameter; from page 2 on, <c>query</c> with <c>key</c> set to the page (with <c>skip</c>, to the items to skip, <c>(page - 1) * size</c>).</summary>
 [EditorBrowsable(EditorBrowsableState.Never)]
 public sealed class ManifestStart(string url, string key, ulong size, bool skip, KeyValuePair<string, string>[] query)
 {

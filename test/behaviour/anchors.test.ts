@@ -31,8 +31,8 @@ describe('the markup', () => {
   });
 
   test('`<sn-component use>` is one choice anchor: two comments and one evaluation, whatever the number of candidates', () => {
-    const blocks: Record<string, string> = Object.fromEntries(['a', 'b', 'c'].map((k) => [`${k}-block`, `<template data-sn-component="{ block: { type: string } }"><p class="${k}"></p></template>`]));
-    const out = compile('<div data-sn-state="{ bs: [{ id: 1, type: \'a\' }] }">' + W('bs = []') + '<template data-sn-for="b in bs" data-sn-key="b.id"><sn-component use="`${b.type}-block`" data-sn-prop="{ block: b }"></sn-component></template></div>', blocks);
+    const blocks: Record<string, string> = Object.fromEntries(['a', 'b', 'c'].map((k) => [`${k}-block`, `<template data-sn-props="{ block: { type: string } }"><p class="${k}"></p></template>`]));
+    const out = compile('<div data-sn-state="{ bs: [{ id: 1, type: \'a\' }] }">' + W('bs = []') + '<template data-sn-for="b in bs" data-sn-key="b.id"><sn-component use="`${b.type}-block`" data-sn-with="{ block: b }"></sn-component></template></div>', blocks);
     const row = out.ir.templates[out.ir.roots.find((n) => n.b[0]?.k === 'for')!.b[0]!.x!]!;
     expect(row.nodes).toHaveLength(1);
     expect(row.nodes[0]!.b).toEqual([expect.objectContaining({ k: 'ch', c: [expect.any(Number), expect.any(Number), expect.any(Number)] })]);
@@ -61,7 +61,7 @@ describe('reserved comments: only the exact anchor forms', () => {
   });
 
   test('the page: author comments beside and in a list are left alone, by the runtime and the early script', async () => {
-    const page = `<!doctype html><html><head><script type="application/json" data-sn-data="all">{"c":[{"id":1,"name":"Ada"}]}</script></head><body>
+    const page = `<!doctype html><html><head><script type="application/json" data-sn-resource="all">{"c":[{"id":1,"name":"Ada"}]}</script></head><body>
       <sn-resource name="all" src="/api/all" items="c" key="id"></sn-resource>
       <!--snippet--><ul><!-- snapshot --><template data-sn-for="c in all"><li data-sn-text="c.name"></li></template><!-- sn notes --></ul></body></html>`;
     const { root, settle, warnings } = await render(page, { firstPaint: true });
@@ -137,12 +137,12 @@ describe('the runtime', () => {
 
   test('a choice switches its one row, and a tree renders at any depth', async () => {
     const C = {
-      'x-p': `<template data-sn-component="{ node: any }"><p><template data-sn-for="n in node.children"><sn-component use="{ text: 'x-text', em: 'x-em' }[n.type]" data-sn-prop="{ node: n }"></sn-component></template></p></template>`,
-      'x-em': `<template data-sn-component="{ node: any }"><em><template data-sn-for="n in node.children"><sn-component use="{ text: 'x-text', em: 'x-em' }[n.type]" data-sn-prop="{ node: n }"></sn-component></template></em></template>`,
-      'x-text': '<template data-sn-component="{ node: any }"><span data-sn-text="node.value"></span></template>',
+      'x-p': `<template data-sn-props="{ node: any }"><p><template data-sn-for="n in node.children"><sn-component use="{ text: 'x-text', em: 'x-em' }[n.type]" data-sn-with="{ node: n }"></sn-component></template></p></template>`,
+      'x-em': `<template data-sn-props="{ node: any }"><em><template data-sn-for="n in node.children"><sn-component use="{ text: 'x-text', em: 'x-em' }[n.type]" data-sn-with="{ node: n }"></sn-component></template></em></template>`,
+      'x-text': '<template data-sn-props="{ node: any }"><span data-sn-text="node.value"></span></template>',
     };
     const { root, state, flush } = await render(`<div data-sn-state="{ doc: { children: [{ type: 'p', children: [{ type: 'text', value: 'a' }, { type: 'em', children: [{ type: 'em', children: [{ type: 'text', value: 'b' }] }] }] }] } }">${W('doc = null')}
-      <template data-sn-for="b in doc.children"><sn-component use="{ p: 'x-p' }[b.type]" data-sn-prop="{ node: b }"></sn-component></template></div>`, { components: C });
+      <template data-sn-for="b in doc.children"><sn-component use="{ p: 'x-p' }[b.type]" data-sn-with="{ node: b }"></sn-component></template></div>`, { components: C });
     const p = root.querySelector('p')!;
     expect(p.textContent).toBe('ab');
     expect(p.querySelector('em > em > span')!.textContent).toBe('b');
@@ -159,8 +159,8 @@ describe('the runtime', () => {
     // and definition, and each gets a new props object of the same values. The tree's texts count their reads:
     // a forced render of a subtree reads them all again
     const C = {
-      'x-n': `<template data-sn-component="{ node: any; cap: number }"><b><template data-sn-for="n in node.children"><sn-component use="{ text: 'x-t', el: 'x-n' }[n.type]" data-sn-prop="{ node: n, cap }"></sn-component></template></b></template>`,
-      'x-t': '<template data-sn-component="{ node: any; cap: number }"><span><template data-sn-text="node.value"></template><i data-sn-text="cap"></i></span></template>',
+      'x-n': `<template data-sn-props="{ node: any; cap: number }"><b><template data-sn-for="n in node.children"><sn-component use="{ text: 'x-t', el: 'x-n' }[n.type]" data-sn-with="{ node: n, cap }"></sn-component></template></b></template>`,
+      'x-t': '<template data-sn-props="{ node: any; cap: number }"><span><template data-sn-text="node.value"></template><i data-sn-text="cap"></i></span></template>',
     };
     let reads = 0;
     // (`toJSON`: the dev tools serialize the state; that is not a read of the render)
@@ -168,7 +168,7 @@ describe('the runtime', () => {
     const tree = () => ({ children: [{ type: 'el', children: [text('a'), { type: 'el', children: [text('b'), text('c')] }] }] });
     const { root, state, flush } = await render(`<div data-sn-state="{ doc: tree(), big: false, n: 1 }">
       <button id="big" data-sn-on-click="big = !big"></button><button id="n" data-sn-on-click="n = n + 1"></button>${W('doc = null')}
-      <template data-sn-for="b in doc.children"><sn-component use="{ el: 'x-n' }[b.type]" data-sn-prop="{ node: b, cap: big ? n : n }"></sn-component></template></div>`, { components: C, helpers: { tree } });
+      <template data-sn-for="b in doc.children"><sn-component use="{ el: 'x-n' }[b.type]" data-sn-with="{ node: b, cap: big ? n : n }"></sn-component></template></div>`, { components: C, helpers: { tree } });
     const out = () => root.querySelector('b')!.textContent;
     expect(out()).toBe('a1b1c1');
     reads = 0;
@@ -193,8 +193,8 @@ describe('the runtime', () => {
     // row (by object, it would be a new row). The texts count their reads: a render of a component that did not change
     // would read them again
     const C = {
-      'x-n': `<template data-sn-component="{ node: any }"><b><template data-sn-for="n in node.children" data-sn-key="n.id"><sn-component use="{ text: 'x-t', el: 'x-n' }[n.type]" data-sn-prop="{ node: n }"></sn-component></template></b></template>`,
-      'x-t': '<template data-sn-component="{ node: any }"><span><template data-sn-text="node.value"></template></span></template>',
+      'x-n': `<template data-sn-props="{ node: any }"><b><template data-sn-for="n in node.children" data-sn-key="n.id"><sn-component use="{ text: 'x-t', el: 'x-n' }[n.type]" data-sn-with="{ node: n }"></sn-component></template></b></template>`,
+      'x-t': '<template data-sn-props="{ node: any }"><span><template data-sn-text="node.value"></template></span></template>',
     };
     let reads = 0;
     const text = (v: string) => ({ type: 'text', id: v, get value() { reads++; return v; }, toJSON: () => ({ type: 'text', id: v, value: v }) });
@@ -207,7 +207,7 @@ describe('the runtime', () => {
     };
     const { root, flush } = await render(`<div data-sn-state="{ doc: tree() }">
       <button id="grow" data-sn-on-click="doc = grow(doc, 'c')"></button><button id="push" data-sn-on-click="doc.children[0].children[1].children.push({ type: 'text', id: 'd', value: 'd' })"></button>
-      <template data-sn-for="b in doc.children" data-sn-key="b.id"><sn-component use="{ el: 'x-n' }[b.type]" data-sn-prop="{ node: b }"></sn-component></template></div>`, { components: C, helpers: { tree, grow } });
+      <template data-sn-for="b in doc.children" data-sn-key="b.id"><sn-component use="{ el: 'x-n' }[b.type]" data-sn-with="{ node: b }"></sn-component></template></div>`, { components: C, helpers: { tree, grow } });
     const out = () => root.querySelector('b')!.textContent;
     expect(out()).toBe('ab');
     reads = 0;
@@ -228,8 +228,8 @@ describe('the runtime', () => {
     // (a definition: one row, its item the props), whose loop over a prop is a computed list, the slot's fills passed
     // down in the props (an object built at each evaluation)
     const C = {
-      'x-doc': `<template data-sn-component="{ doc: any; link: Slot<{ node: any }> }"><div><template data-sn-for="b in doc.children" data-sn-key="b.id"><x-n data-sn-prop="{ node: b }"></x-n></template></div></template>`,
-      'x-n': `<template data-sn-component="{ node: any }"><b><template data-sn-for="n in node.children" data-sn-key="n.id"><template data-sn-if="n.type === 'text'"><span data-sn-text="n.value"></span></template><template data-sn-else><template data-sn-if="n.type === 'a'"><slot name="link" data-sn-prop="{ node: n }"><i>link</i></slot></template><template data-sn-else><x-n data-sn-prop="{ node: n }"></x-n></template></template></template></b></template>`,
+      'x-doc': `<template data-sn-props="{ doc: any; link: Slot<{ node: any }> }"><div><template data-sn-for="b in doc.children" data-sn-key="b.id"><x-n data-sn-with="{ node: b }"></x-n></template></div></template>`,
+      'x-n': `<template data-sn-props="{ node: any }"><b><template data-sn-for="n in node.children" data-sn-key="n.id"><template data-sn-if="n.type === 'text'"><span data-sn-text="n.value"></span></template><template data-sn-else><template data-sn-if="n.type === 'a'"><slot name="link" data-sn-with="{ node: n }"><i>link</i></slot></template><template data-sn-else><x-n data-sn-with="{ node: n }"></x-n></template></template></template></b></template>`,
     };
     const reads: Record<string, number> = {};
     const text = (v: string) => ({ type: 'text', id: v, get value() { reads[v] = (reads[v] ?? 0) + 1; return v; }, toJSON: () => ({ type: 'text', id: v, value: v }) });
@@ -238,7 +238,7 @@ describe('the runtime', () => {
       const [outer] = d.children, inner = outer.children[1];
       return { children: [{ ...outer, children: [outer.children[0], { ...inner, children: [...inner.children, text(v)] }] }] };
     };
-    const { root, flush } = await render(`<div data-sn-state="{ doc: tree() }"><button id="grow" data-sn-on-click="doc = grow(doc, 'c')"></button><x-doc data-sn-prop="{ doc }"></x-doc></div>`, { components: C, helpers: { tree, grow } });
+    const { root, flush } = await render(`<div data-sn-state="{ doc: tree() }"><button id="grow" data-sn-on-click="doc = grow(doc, 'c')"></button><x-doc data-sn-with="{ doc }"></x-doc></div>`, { components: C, helpers: { tree, grow } });
     const out = () => root.querySelector('b')!.textContent;
     expect(out()).toBe('alinkb');
     for (const k in reads) delete reads[k];
@@ -253,7 +253,7 @@ describe('the runtime', () => {
 
 describe('first paint and takeover', () => {
   const data = JSON.stringify({ c: [{ id: 1, name: 'Ada' }, { id: 2, name: 'Grace' }] });
-  const page = `<!doctype html><html><head><script type="application/json" data-sn-data="all">${data}</script></head><body>
+  const page = `<!doctype html><html><head><script type="application/json" data-sn-resource="all">${data}</script></head><body>
     <sn-resource name="all" src="/api/all" items="c" key="id"></sn-resource>
     <ul><template data-sn-for="c in all"><li data-sn-text="c.name"></li></template></ul></body></html>`;
 

@@ -35,7 +35,7 @@ export interface Env {
 const g = globalThis as typeof globalThis & Window;
 const tryGet = (f: () => Storage) => { try { return f(); } catch { return null; } };
 
-/** The environment the runtime uses: the default, with what `configure({ env })` overrides. */
+/** The environment the runtime uses: the default, with what `setEnv()` (tests) overrides. */
 export const envOf = (c: { env: Partial<Env> | null }): Env => (c.env ? { ...defaultEnv, ...c.env } : defaultEnv);
 
 export const defaultEnv: Env = {
@@ -72,7 +72,7 @@ export const parsed = (doc: Document = document): Promise<void> => new Promise((
 const contentLoaded = (doc: Document) => doc.readyState == 'complete' || ((performance.getEntriesByType?.('navigation')[0] as PerformanceNavigationTiming | undefined)?.domContentLoadedEventStart ?? 0) > 0;
 
 /**
- * What the page module awaits before it mounts on a page with an early file (`@tiaforge-ui/sinter/early`): the document is
+ * What the page module awaits before it mounts on a page with an early file (`@tiaforge-ui/sinter/runtime/early`): the document is
  * parsed and the early file has rendered (with built-in messages, once the dictionary arrived).
  * The page module is `async` and may run before the early file: it waits for it to start, or for
  * DOMContentLoaded (by then the early file has started, unless it failed to load).

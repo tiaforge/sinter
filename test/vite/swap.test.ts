@@ -10,7 +10,7 @@ import { afterAll, expect, test, vi } from 'vitest';
 import sinter from '../../src/vite.js';
 
 const src = resolve(__dirname, '../../src');
-const alias = [{ find: /^@tiaforge-ui\/sinter\/(.+)$/, replacement: `${src}/$1.ts` }, { find: /^@tiaforge-ui\/sinter$/, replacement: `${src}/index.ts` }];
+const alias = [{ find: /^@tiaforge-ui\/sinter\/runtime$/, replacement: `${src}/runtime-entry.ts` }, { find: /^@tiaforge-ui\/sinter\/(?:runtime\/)?(.+)$/, replacement: `${src}/$1.ts` }, { find: /^@tiaforge-ui\/sinter$/, replacement: `${src}/index.ts` }];
 const dirs: string[] = [];
 afterAll(() => { for (const d of dirs) rmSync(d, { recursive: true, force: true }); });
 
@@ -77,7 +77,7 @@ test('a build: a kept element ships the module only with swaps on; SN540 names t
 });
 
 test('a kept element that binds is one markup on every page that keeps it (SN346 across the pages)', async () => {
-  const layout = '<!doctype html><html data-sn-layout=""><head><title>x</title></head><body><aside data-sn-permanent="player" data-sn-state="{ n: 0 }"><b data-sn-text="n"></b></aside><slot></slot></body></html>';
+  const layout = '<!doctype html><html data-sn-props=""><head><title>x</title></head><body><aside data-sn-permanent="player" data-sn-state="{ n: 0 }"><b data-sn-text="n"></b></aside><slot></slot></body></html>';
   const ok = app({ 'src/layouts/site-layout.html': layout, 'index.html': '<site-layout><p>a</p></site-layout>', 'about.html': '<site-layout><p>b</p></site-layout>' });
   await build({ root: ok, logLevel: 'silent', plugins: [sinter({ swap: true })], resolve: { alias }, build: { write: false, rollupOptions: { input: [join(ok, 'index.html'), join(ok, 'about.html')] } } });
   // the same name written again on another page, plain: the next page's code would not find its nodes

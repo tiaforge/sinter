@@ -1,6 +1,6 @@
 // Same-page links: a plain click on a link to this page that changes only query parameters the page
 // reads is handled in the page. A new history entry, `$url` read again, and everything follows as
-// after Back or Forward, which is what loading the URL would show (a `page-model` list loads the
+// after Back or Forward, which is what loading the URL would show (a `model` (paginate) list loads the
 // link's page). A `#hash` stays the browser's. Any other click is the browser's: another path or
 // origin, `download`, a `target`, `rel="external"`, a modifier key, a prevented default, or a
 // parameter the page does not read. Loaded only by pages with a link the build sees goes to the page

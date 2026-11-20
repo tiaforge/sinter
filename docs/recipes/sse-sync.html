@@ -2,15 +2,15 @@
 
 <main data-sn-state="{ sel: null }">
   <sn-sync src="/api/events">
-    <sn-event name="person_updated" resource="people" op="upsert" item="person" fallback="refetch"></sn-event>
+    <sn-event name="person_updated" resource="people" op="upsert" value="$event.person"></sn-event>
     <!-- after the removal: close the dialog if it shows that person (closing clears `sel`) -->
     <sn-event name="person_removed" resource="people" op="remove"
-              then="sel?.id === id && close('person')"></sn-event>
+              then="sel?.id === $event.id && closeDialog('person')"></sn-event>
   </sn-sync>
 
   <ul>
     <template data-sn-for="p in people">
-      <li><button data-sn-on-click="sel = p; showModal('person')" data-sn-text="p.name"></button></li>
+      <li><button data-sn-on-click="sel = p; openDialog('person')" data-sn-text="p.name"></button></li>
     </template>
   </ul>
   <dialog id="person" data-sn-on-close="sel = null"><h2 data-sn-text="sel?.name"></h2></dialog>

@@ -15,9 +15,10 @@ import * as acorn from 'acorn';
 import { dirname, join, relative, resolve } from 'node:path';
 import type { CheckExpr, CheckUnit } from '../compiler/check-unit.js';
 import type { HelperManifest } from '../compiler/compile.js';
-import { ALL_MAGIC, BUILTIN_HELPERS, GLOBALS, MUTATORS, READ_ONLY, STORE_FNS } from '../compiler/expr.js';
+import { ALL_MAGIC, BUILD_NAMES, BUILTIN_HELPERS, GLOBALS, MUTATORS, READ_ONLY, STORE_FNS } from '../compiler/expr.js';
 import { PACKAGE, parseModule, type Diagnostic } from '../compiler/index.js';
 import type { Project, ProjectOptions } from '../project.js';
+import { modulesDir } from '../libraries.js';
 import type { Range } from './server.js';
 
 type Node = acorn.AnyNode & { start: number; end: number };
@@ -373,13 +374,12 @@ function readModule(ctx: ExtractContext, file: string): Module {
   return { file, url: '/' + relative(ctx.root, file).split('\\').join('/'), ts, text, bound, importsEnd };
 }
 
-/** The helpers module: the project's, the configured path, else a new one (`.ts` in a TypeScript project). */
+/** The helpers module: the project's, else a new one (`.ts` in a TypeScript project). */
 function helpersModule(ctx: ExtractContext): Module {
   const p = ctx.project;
   if (p.helpersFile) return readModule(ctx, p.helpersFile);
-  if (ctx.options.helpers) return readModule(ctx, resolve(ctx.root, ctx.options.helpers));
   const ts = [p.types, p.actionsFile].some((f) => f && /\.[cm]?tsx?$/.test(f)) || ctx.read(join(ctx.root, 'tsconfig.json')) !== null;
-  return readModule(ctx, join(ctx.root, 'src', `sinter.helpers.${ts ? 'ts' : 'js'}`));
+  return readModule(ctx, join(ctx.root, modulesDir(ctx.root), `sinter.helpers.${ts ? 'ts' : 'js'}`));
 }
 
 interface Imports {
@@ -425,7 +425,7 @@ function takenNames(ctx: ExtractContext, modules: Module[]): Set<string> {
   const { helpers, actions } = ctx.project;
   const taken = new Set<string>([
     ...helpers.names, ...Object.keys(helpers.namespaces), ...actions.names, ...Object.keys(actions.namespaces),
-    ...BUILTIN_HELPERS, ...STORE_FNS, ...GLOBALS, ...ALL_MAGIC, 'ctx',
+    ...BUILTIN_HELPERS, ...STORE_FNS, ...GLOBALS, ...ALL_MAGIC, ...BUILD_NAMES, 'localeUrl', 'ctx',
   ]);
   for (const unit of ctx.units) {
     for (const r of unit.resources) taken.add(r.name);
@@ -486,7 +486,7 @@ export function plans(ctx: ExtractContext, range: Range, o: { whole?: boolean } 
   while (rb > ra && /\s/.test(src[rb - 1]!)) rb--;
   const empty = whole || ra === rb;
 
-  const scopeNames = new Set<string>([...(e.payload?.names ?? []), ...unit.resources.map((r) => r.name)]);
+  const scopeNames = new Set<string>([...(e.payload ? [e.payload.as] : []), ...unit.resources.map((r) => r.name)]);
   for (const i of e.frames) {
     const f = unit.frames[i]!;
     if (f.kind === 'state') for (const n of f.names) scopeNames.add(n);

@@ -10,11 +10,12 @@ import { apiOf, shapeTemplate, SITE, type ApisDef } from './compiler/apis.js';
 import { matchOperation, type Method, type OpenApiSpec } from './compiler/openapi.js';
 import type { Diagnostic } from './compiler/diagnostics.js';
 import { pathFix } from './lsp/paths.js';
+import { didYouMeanEdit } from './lsp/quickfix.js';
 
 type P5Element = DefaultTreeAdapterMap['element'];
 type P5Parent = DefaultTreeAdapterMap['parentNode'];
 
-const ACTIONS = ['get', 'post', 'put', 'patch', 'delete'] as const;
+const ACTIONS = ['post', 'put', 'patch', 'delete'] as const;
 const SHAPE = ['items', 'total', 'key', 'type'] as const;
 
 export interface Rewrite { line: number; from: string; to: string }
@@ -224,4 +225,30 @@ export function removeAttributes(text: string, spans: Array<NonNullable<Diagnost
     if (fix) out = out.slice(0, fix.from) + fix.text + out.slice(fix.to);
   }
   return out;
+}
+
+/** a diagnostic that names its replacement, which `sinter migrate` writes: a rename, or a resource named by a string */
+export const isRename = (d: Diagnostic): boolean => / is renamed to `|takes the resource, not its name: /.test(d.message);
+
+/**
+ * The renames the compiler reports in one file, applied: each diagnostic that names its replacement
+ * (`is renamed to`) has the fix the editor offers. Returns the text and what changed, by line.
+ */
+export function applyRenames(text: string, diagnostics: Diagnostic[]): { text: string; changes: Array<{ line: number; from: string; to: string }> } {
+  const edits = diagnostics.filter(isRename).map((d) => {
+    const range = { start: { line: d.line - 1, character: d.col - 1 }, end: { line: (d.span?.endLine ?? d.line) - 1, character: (d.span?.endCol ?? d.col) - 1 } };
+    return didYouMeanEdit(text, range, d.message);
+  }).filter((e): e is NonNullable<typeof e> => !!e);
+  const lines = text.split('\n'), changes: Array<{ line: number; from: string; to: string }> = [];
+  const seen = new Set<string>();
+  // from the end, so earlier positions stay valid
+  for (const e of edits.sort((a, b) => b.range.start.line - a.range.start.line || b.range.start.character - a.range.start.character)) {
+    const key = `${e.range.start.line}:${e.range.start.character}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const l = lines[e.range.start.line]!;
+    changes.push({ line: e.range.start.line + 1, from: l.slice(e.range.start.character, e.range.end.character), to: e.newText });
+    lines[e.range.start.line] = l.slice(0, e.range.start.character) + e.newText + l.slice(e.range.end.character);
+  }
+  return { text: lines.join('\n'), changes: changes.reverse() };
 }

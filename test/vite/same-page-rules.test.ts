@@ -10,7 +10,7 @@ import { afterAll, beforeAll, expect, test } from 'vitest';
 import sinter from '../../src/vite.js';
 
 const src = resolve(__dirname, '../../src');
-const alias = [{ find: /^@tiaforge-ui\/sinter\/(.+)$/, replacement: `${src}/$1.ts` }, { find: /^@tiaforge-ui\/sinter$/, replacement: `${src}/index.ts` }];
+const alias = [{ find: /^@tiaforge-ui\/sinter\/runtime$/, replacement: `${src}/runtime-entry.ts` }, { find: /^@tiaforge-ui\/sinter\/(?:runtime\/)?(.+)$/, replacement: `${src}/$1.ts` }, { find: /^@tiaforge-ui\/sinter$/, replacement: `${src}/index.ts` }];
 const dir = mkdtempSync(join(tmpdir(), 'sinter-same-page-rules-'));
 const root = join(dir, 'app');
 const page = (body: string) => `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>t</title></head><body>${body}</body></html>`;
@@ -38,6 +38,6 @@ test('inline: the page with same-page links leaves out its own URLs; the build n
 
 test('header: one rules file, which leaves out each page\'s own URLs once a page has same-page links', async () => {
   const out = join(dir, 'header');
-  await build({ root, logLevel: 'silent', resolve: { alias }, build: { outDir: out, emptyOutDir: true, minify: false, rollupOptions: { input: [join(root, 'index.html'), join(root, 'other.html')] } }, plugins: [sinter({ speculation: { mode: 'prefetch', delivery: 'header' } })] });
+  await build({ root, logLevel: 'silent', resolve: { alias }, build: { outDir: out, emptyOutDir: true, minify: false, rollupOptions: { input: [join(root, 'index.html'), join(root, 'other.html')] } }, plugins: [sinter({ prefetch: { html: { delivery: 'header' } } })] });
   expect(JSON.parse(readFileSync(join(out, 'speculation-rules.json'), 'utf8')).prefetch[0].where.and).toContainEqual(EXCLUDE);
 });

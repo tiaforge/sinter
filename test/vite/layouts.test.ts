@@ -13,43 +13,43 @@ import sinter from '../../src/vite.js';
 import { chromium } from '../browser.js';
 
 const src = resolve(__dirname, '../../src');
-const alias = [{ find: /^@tiaforge-ui\/sinter\/(.+)$/, replacement: `${src}/$1.ts` }, { find: /^@tiaforge-ui\/sinter$/, replacement: `${src}/index.ts` }];
+const alias = [{ find: /^@tiaforge-ui\/sinter\/runtime$/, replacement: `${src}/runtime-entry.ts` }, { find: /^@tiaforge-ui\/sinter\/(?:runtime\/)?(.+)$/, replacement: `${src}/$1.ts` }, { find: /^@tiaforge-ui\/sinter$/, replacement: `${src}/index.ts` }];
 const dir = mkdtempSync(join(tmpdir(), 'sinter-layouts-'));
 const root = join(dir, 'app'), out = join(dir, 'dist');
 const listen = (s: Server) => new Promise<number>((r) => s.listen(0, '127.0.0.1', () => r((s.address() as { port: number }).port)));
 const files: Record<string, string> = {
   'src/layouts/site-layout.html': `<!doctype html>
-<html lang="en" data-sn-layout="{ title?: string; nav: string }">
+<html lang="en" data-sn-props="{ title?: string; nav: string }">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <seo-tags data-sn-prop="{ title }"></seo-tags>
+  <seo-tags data-sn-with="{ title }"></seo-tags>
   <link rel="stylesheet" href="../styles/site.css">
   <script type="module" src="../main.ts"></script>
   <slot name="head"></slot>
 </head>
 <body>
-  <site-header data-sn-prop="{ nav }"></site-header>
+  <site-header data-sn-with="{ nav }"></site-header>
   <main><slot></slot></main>
 </body>
 </html>
 `,
-  'src/components/seo-tags.html': `<template data-sn-head="{ title?: string }">
+  'src/components/seo-tags.html': `<template data-sn-props="{ title?: string }">
   <title data-sn-text="title ? title + ' · Blog' : 'Blog'">Blog</title>
 </template>
 `,
-  'src/components/site-header.html': `<template data-sn-component="{ nav: string }">
+  'src/components/site-header.html': `<template data-sn-props="{ nav: string }">
   <header class="site-header"><a href="/" data-sn-class="{ active: nav == 'home' }">Home</a></header>
 </template>
 <style>.site-header { display: flex; }</style>
 `,
   'src/styles/site.css': 'body { margin: 0; }\n',
   'src/main.ts': 'document.documentElement.dataset.main = "yes";\n',
-  'index.html': `<site-layout data-sn-prop="{ nav: 'home', title: 'Home' }">
+  'index.html': `<site-layout data-sn-with="{ nav: 'home', title: 'Home' }">
   <h1>Welcome</h1>
 </site-layout>
 `,
-  'blog/post.html': `<site-layout data-sn-path="/blog/post" data-sn-state="{ n: 0 }" data-sn-on-sn-error="n = 99; $event.preventDefault()" data-sn-on-keydown-shift-n="n = 7" data-sn-prop="{ nav: 'post', title: post ? post.title + (n ? ' (' + n + ')' : '') : undefined }">
+  'blog/post.html': `<site-layout data-sn-path="/blog/post" data-sn-state="{ n: 0 }" data-sn-on-sn-error="n = 99; $event.preventDefault()" data-sn-on-keydown-shift-n="n = 7" data-sn-with="{ nav: 'post', title: post ? post.title + (n ? ' (' + n + ')' : '') : undefined }">
   <sn-resource name="post" src="/api/post" items="post" type="any"></sn-resource>
   <link slot="head" rel="stylesheet" href="../src/styles/site.css">
   <h1 data-sn-text="post ? post.title : ''"></h1>
@@ -71,7 +71,7 @@ afterAll(() => rmSync(dir, { recursive: true, force: true }));
 test('the merged head is what the build sees: the layout\'s script and stylesheet bundled, the early scripts first, the preload', () => {
   const html = readFileSync(join(out, 'blog/post.html'), 'utf8');
   expect(html).toMatch(/^<!DOCTYPE html>\s*<html lang="en" data-sn="0">/);
-  expect(html).not.toMatch(/site-layout|seo-tags|<slot|data-sn-layout/);
+  expect(html).not.toMatch(/site-layout|seo-tags|<slot|data-sn-props/);
   const head = /<head>([\s\S]*)<\/head>/.exec(html)![1]!;
   expect(head).toMatch(/<title data-sn="\d+">Blog<\/title>/);
   expect(head).toContain('<link rel="preload" as="fetch" crossorigin="" href="/api/post">');

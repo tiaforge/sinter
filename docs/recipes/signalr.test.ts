@@ -34,7 +34,7 @@ test('applies hub messages to the list', async () => {
   await flush();
   expect([...root.querySelectorAll('li')].map((li) => li.textContent)).toEqual(['Ada']);
 
-  // a lost connection: sinter reconnects with a new hub and refetches what the stream feeds
+  // a lost connection: sinter reconnects with a new hub and reloads what the stream feeds
   hubs[0]!.lose();
   await advance(2000); // the backoff (1 s ± jitter) before reconnecting
   await settle();

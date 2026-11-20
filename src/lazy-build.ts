@@ -45,7 +45,7 @@ export function parseLazyId(id: string): { spec: string; names: string[] | null 
  * The loader: one cached `import()` of the package for every stub, `data-sn-import`, and the
  * component scripts that load with it. `chunk`: the id the build writes the chunk's URL for (null in dev).
  */
-export function loaderModule(spec: string, chunk: string | null, runtime = '@tiaforge-ui/sinter/lazy'): string {
+export function loaderModule(spec: string, chunk: string | null, runtime = '@tiaforge-ui/sinter/runtime/lazy'): string {
   const url = chunk === null ? 'null' : JSON.stringify(CHUNK_MARK + chunk + '__');
   return `import { lazy } from ${JSON.stringify(runtime)};\nexport const load = lazy(() => import(${JSON.stringify(spec)}), ${url}, import.meta.url);\n`;
 }

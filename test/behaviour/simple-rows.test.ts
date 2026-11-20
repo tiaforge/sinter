@@ -9,7 +9,7 @@ test('handlers in simple rows: a click on the row element, a debounced handler k
     <div data-sn-state="{ rows: [{id: 1, n: 0}, {id: 2, n: 0}], log: [] }">
       <ul><template data-sn-for="r in rows">
         <li data-sn-attr="{'data-row': r.id}" data-sn-on-click="r.n++"><span data-sn-text="r.id + ':' + r.n"></span>
-          <button class="d" data-sn-on-input="log.push('typed ' + r.id)" data-sn-debounce="100">d</button>
+          <button class="d" data-sn-on-input="log.push('typed ' + r.id)" data-sn-debounce-input="100">d</button>
           <button class="a" data-sn-post="/api/rows/{r.id}" data-sn-then="log.push('posted ' + r.id)">a</button>
         </li>
       </template></ul>

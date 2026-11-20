@@ -25,7 +25,7 @@ describe('run(): starting an action from a handler', () => {
       <main data-sn-state="{ open: null, error: '' }">
         <sn-resource name="messages" src="/api/messages" key="id"></sn-resource>
         <span hidden id="mark-read" data-sn-call="mail.markRead(open)"
-              data-sn-optimistic="patch(open, {is_read: true})" data-sn-catch="error = $error.message"></span>
+              data-sn-optimistic="merge(open, {is_read: true})" data-sn-catch="error = $error.message"></span>
         <sn-resource name="body" call="mail.body(open)" when="open"
                      then="$result && !open.is_read && run('mark-read')"></sn-resource>
         <template data-sn-for="m in messages"><li data-sn-class="{unread: !m.is_read}" data-sn-on-click="open = m"></li></template>
@@ -218,20 +218,20 @@ describe('run(): starting an action from a handler', () => {
 
 describe('run() diagnostics', () => {
   const actions = { module: '/src/a.js', names: ['archive'], namespaces: { mail: { module: '/src/mail.js', members: ['markRead'] } } };
-  const diags = (html: string, checkCycles = false) => compile(html, {
-    file: '/p/page.html', root: '/p', dev: false, readFile: () => '', helpers: { module: null, names: [], namespaces: {} }, actions, checkCycles,
+  const diags = (html: string) => compile(html, {
+    file: '/p/page.html', root: '/p', dev: false, readFile: () => '', helpers: { module: null, names: [], namespaces: {} }, actions,
   }).diagnostics.map((d) => `${d.code} ${d.message}`);
 
-  test('SN311: a literal id of one action element outside rows', () => {
+  test('SN309: a literal id of one action element outside rows', () => {
     const page = (call: string, rest = '') => diags(`<div data-sn-state="{ x: 'a' }"><button data-sn-on-click="${call}"></button>
       <span id="mark-read" data-sn-post="/x"></span><p id="plain"></p>${rest}</div>`);
     expect(page("run('mark-read')")).toEqual([]);
-    expect(page('run(x)')).toEqual(["SN311 `run()` takes the action element's `id` as a string literal"]);
-    expect(page("run('mark-raed')")).toEqual(['SN311 no element `id="mark-raed"` on this page. Did you mean `mark-read`?']);
-    expect(page("run('plain')")).toEqual(['SN311 `#plain` has no action (`data-sn-get`, `-post`, `-put`, `-patch`, `-delete` or `data-sn-call`); `run()` starts actions, not handlers']);
+    expect(page('run(x)')).toEqual(["SN309 `run()` takes the action element's `id` as a string literal"]);
+    expect(page("run('mark-raed')")).toEqual(['SN309 no element `id="mark-raed"` on this page. Did you mean `mark-read`?']);
+    expect(page("run('plain')")).toEqual(['SN309 `#plain` has no action (`data-sn-post`, `-put`, `-patch`, `-delete` or `data-sn-call`); `run()` starts actions, not handlers']);
     expect(page("run('row')", `<template data-sn-for="m in [1]" data-sn-key="m"><button id="row" data-sn-post="/x"></button></template>`))
-      .toEqual(['SN532 `id="row"` is in markup that renders more than once (a `data-sn-for` row): the page would have that id more than once', 'SN311 `#row` is inside a `data-sn-for` row, so every row has it; put the action outside the list and pass the row through state']);
-    expect(page("run('mark-read')", '<i id="mark-read"></i>')).toEqual(['SN311 2 elements have `id="mark-read"`; `run()` needs one']);
+      .toEqual(['SN532 `id="row"` is in markup that renders more than once (a `data-sn-for` row): the page would have that id more than once', 'SN309 `#row` is inside a `data-sn-for` row, so every row has it; put the action outside the list and pass the row through state']);
+    expect(page("run('mark-read')", '<i id="mark-read"></i>')).toEqual(['SN309 2 elements have `id="mark-read"`; `run()` needs one']);
     // a data-sn-if branch is fine; so are element-less handlers and data-sn-call targets
     expect(page("run('maybe')", `<template data-sn-if="x"><span id="maybe" data-sn-call="mail.markRead(x)"></span></template>
       <sn-sync src="/e"><sn-event name="n" then="run('maybe')"></sn-event></sn-sync>`)).toEqual([]);
@@ -240,7 +240,7 @@ describe('run() diagnostics', () => {
   test('a store function: not in values or optimistic changes; a resource cannot be called run', () => {
     expect(diags(`<span id="a" data-sn-post="/x"></span><p data-sn-text="run('a')"></p>`)).toEqual(['SN203 value expressions cannot call `run()`; move it to a handler']);
     expect(diags(`<span id="a" data-sn-post="/x"></span><button data-sn-post="/y" data-sn-optimistic="run('a')"></button>`))
-      .toEqual([expect.stringMatching(/^SN204 `data-sn-optimistic` may only call `patch`, `upsert`, `remove`/)]);
+      .toEqual([expect.stringMatching(/^SN204 `data-sn-optimistic` may only call `merge`, `upsert`, `remove`/)]);
     expect(diags('<sn-resource name="run" src="/x"></sn-resource>')).toContain('SN209 `run` is a store function (`run()`); a resource cannot take its name');
   });
 
@@ -252,28 +252,27 @@ describe('run() diagnostics', () => {
     expect(d!.hint).toBe(`<span hidden id="mark-read" data-sn-call="mail.markRead(…)"></span>, then run('mark-read') in the handler; the element's busy state, concurrency, optimistic layer and then/catch apply`);
   });
 
-  test('SN509 (opt-in): then/catch handlers that start each other again, with every step', () => {
+  test('SN509: then/catch handlers that start each other again, with every step', () => {
     const html = `<div data-sn-state="{ n: 0 }">
 <sn-resource name="body" src="/b" then="run('mark')"></sn-resource><p data-sn-text="body"></p>
-<span id="mark" data-sn-post="/m" data-sn-then="refresh('body')"></span>
+<span id="mark" data-sn-post="/m" data-sn-then="refresh(body)"></span>
 <button id="a" data-sn-post="/a" data-sn-then="run('b')"></button>
 <button id="b" data-sn-post="/b" data-sn-catch="n = n + 1; run('a')" data-sn-on-click="run('b')"></button>
 <button id="self" data-sn-post="/s" data-sn-catch="run('self')"></button>
 <button id="loop" data-sn-post="/l" data-sn-on-click="run('loop')"></button>
 </div>`;
-    expect(diags(html)).toEqual([]);
-    expect(diags(html, true)).toEqual([
+    expect(diags(html)).toEqual([
       'SN509 `run()` cycle: `<sn-resource name="body">` `then` (page.html:2) runs `#mark`, then `#mark` `data-sn-then` (page.html:3) refreshes `body`, which starts the first step again',
       'SN509 `run()` cycle: `#a` `data-sn-then` (page.html:4) runs `#b`, then `#b` `data-sn-catch` (page.html:5) runs `#a`, which starts the first step again',
       'SN509 `run()` cycle: `#self` `data-sn-catch` (page.html:6) runs `#self`, which starts the first step again',
     ]);
-    // every name of refresh('a', 'b') is an edge
+    // every name of refresh(a, b) is an edge
     expect(diags(`<sn-resource name="a" src="/a"></sn-resource><sn-resource name="body" src="/b" then="run('mark')"></sn-resource><p data-sn-text="a + body"></p>
-<span id="mark" data-sn-post="/m" data-sn-then="refresh('a', 'body')"></span>`, true)).toEqual([
+<span id="mark" data-sn-post="/m" data-sn-then="refresh(a, body)"></span>`)).toEqual([
       'SN509 `run()` cycle: `<sn-resource name="body">` `then` (page.html:1) runs `#mark`, then `#mark` `data-sn-then` (page.html:2) refreshes `body`, which starts the first step again',
     ]);
     // refresh alone is not a run() cycle
-    expect(diags('<sn-resource name="r" src="/r" then="refresh(\'r\')"></sn-resource>', true)).toEqual([]);
+    expect(diags('<sn-resource name="r" src="/r" then="refresh(r)"></sn-resource>')).toEqual([]);
   });
 });
 
@@ -290,10 +289,9 @@ describe('run() in sinter check', () => {
     expect(d.map((x) => [x.code, x.line, x.message])).toEqual([['SN208', 2, expect.stringMatching(/Property 'shiftKey' does not exist on type 'RunEvent<PointerEvent>'/)]]);
   });
 
-  test('SN509 is opt-in through checkCycles', async () => {
+  test('SN509 is reported on every check', async () => {
     const { checkPage } = await import('../../src/check/index.js');
     const html = `<button id="a" data-sn-post="/a" data-sn-catch="run('a')"></button>`;
-    expect(checkPage(html).map((x) => x.code)).toEqual([]);
-    expect(checkPage(html, { checkCycles: true }).map((x) => [x.code, x.message])).toEqual([['SN509', '`run()` cycle: `#a` `data-sn-catch` (index.html:1) runs `#a`, which starts the first step again']]);
+    expect(checkPage(html).map((x) => [x.code, x.message])).toEqual([['SN509', '`run()` cycle: `#a` `data-sn-catch` (index.html:1) runs `#a`, which starts the first step again']]);
   });
 });

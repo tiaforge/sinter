@@ -1,4 +1,4 @@
-// @tiaforge-ui/sinter/early: what a page's early file runs before the first paint. It starts the
+// @tiaforge-ui/sinter/runtime/early: what a page's early file runs before the first paint. It starts the
 // requests of the resources whose URL is known before any data (the page module's request layer
 // takes the responses), and renders, once, the bindings the compiler found renderable before any data: page-level values from state
 // (persisted values read from storage) and helpers, and the branch of each such `data-sn-if`.
@@ -22,7 +22,7 @@ type EarlyEnv = Pick<Env, 'now' | 'href' | 'fetch'>;
 /** the browser's: before the first paint only an app early module could have configured another */
 const browser = (): EarlyEnv => ({ now: Date.now, href: () => location.href, fetch: (r) => fetch(r) });
 /**
- * `configure({ env })`, else the browser: for a page whose app has an early module (the compiler
+ * `setEnv()` (tests), else the browser: for a page whose app has an early module (the compiler
  * passes it to `requests`), and for tests; only then does the early file carry the config.
  */
 export const configured = (): EarlyEnv => {
@@ -305,7 +305,7 @@ export function requests(params?: typeof withParams, envOf: () => EarlyEnv = bro
           const s = r.scope < 0 ? base : scopes[r.scope];
           if (r.when != null && !fns[r.when]!(s)) continue;
           let q = r.q;
-          // `page-model`: page n's parameters (the pager's pageParams)
+          // `model` (paginate): page n's parameters (the pager's pageParams)
           if (r.sp) { const n = toPage(fns[r.sp.f]!(s)); if (n > 1) q = { ...r.sp.qn, [r.sp.k]: String(r.sp.o ? (n - 1) * r.sp.s : n) }; }
           const t = expand(r.src, s, fns), u = new URL(q ? params!(t, q) : t, here);
           // another origin only when the build found it in `sinter({ origins })` (`xo`)

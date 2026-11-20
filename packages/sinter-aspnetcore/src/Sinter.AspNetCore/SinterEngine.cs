@@ -7,14 +7,14 @@ using Sinter.AspNetCore.Manifest;
 
 namespace Sinter.AspNetCore;
 
-/// <summary>A page cut at its placeholders: <c>Parts[i]</c> comes before <c>Slots[i]</c>, the last part after them all.</summary>
-internal sealed class Page(string file, string[] paths, byte[][] parts, ManifestSlot[] slots, string[] arrays)
+/// <summary>A page cut at its placeholders: <c>Parts[i]</c> comes before <c>Placeholders[i]</c>, the last part after them all.</summary>
+internal sealed class Page(string file, string[] paths, byte[][] parts, ManifestPlaceholder[] placeholders, string[] arrays)
 {
     public string File { get; } = file;
     public string[] Paths { get; } = paths;
     public string[] Arrays { get; } = arrays;
     public byte[][] Parts { get; } = parts;
-    public ManifestSlot[] Slots { get; } = slots;
+    public ManifestPlaceholder[] Placeholders { get; } = placeholders;
     public int Length { get; } = parts.Sum(p => p.Length);
 }
 
@@ -99,7 +99,7 @@ internal sealed partial class SinterEngine
         try { text = File.ReadAllText(at); }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
-            throw new SinterException($"{at}: {e.Message} (built with sinter's Vite plugin, with `embed: true` or a `data-sn-data` placeholder?)");
+            throw new SinterException($"{at}: {e.Message} (built with sinter's Vite plugin, with `embed: true` or a `data-sn-resource` placeholder?)");
         }
         if (compiled is not null)
         {
@@ -138,7 +138,7 @@ internal sealed partial class SinterEngine
     }
 
     /// <summary>Why this configuration cannot make the request the build describes for a placeholder, or null if it can.</summary>
-    private string? Source(ManifestSlot s)
+    private string? Source(ManifestPlaceholder s)
     {
         if (!s.Described)
             return s.Src is null
@@ -160,7 +160,7 @@ internal sealed partial class SinterEngine
     /// <summary>Cuts the page at each placeholder, in document order; one that is missing or not empty means the HTML and the manifest are from different builds.</summary>
     internal static Page Split(byte[] html, ManifestPage p)
     {
-        var at = new List<(int Start, int End, ManifestSlot Slot)>();
+        var at = new List<(int Start, int End, ManifestPlaceholder Placeholder)>();
         foreach (var s in p.Data)
         {
             var open = Encoding.UTF8.GetBytes($"<script type=\"application/json\" data-sn=\"{s.Id}\">");
@@ -180,7 +180,7 @@ internal sealed partial class SinterEngine
             from = at[k].End;
         }
         parts[^1] = html[from..];
-        return new Page(p.File, p.Paths, parts, at.Select(x => x.Slot).ToArray(), p.Arrays);
+        return new Page(p.File, p.Paths, parts, at.Select(x => x.Placeholder).ToArray(), p.Arrays);
     }
 
     /// <summary>The end of a page whose data failed, from inside its head: a redirect to the error page if there is one, then a body with the text.</summary>
@@ -197,7 +197,7 @@ internal sealed partial class SinterEngine
     }
 
     /// <summary>The request the build describes for a placeholder at this URL, if any and if its <c>when</c> holds.</summary>
-    public static string? DescribedUrl(ManifestSlot s, IReadOnlyDictionary<string, UrlParam> p)
+    public static string? DescribedUrl(ManifestPlaceholder s, IReadOnlyDictionary<string, UrlParam> p)
     {
         if (s.When is { } c && !c.Holds(p)) return null;
         if (s.Src is null || SinterUrl.Expand(s.Src, p) is not { } url) return null;
@@ -205,7 +205,7 @@ internal sealed partial class SinterEngine
     }
 
     /// <summary>The data for one placeholder. Never throws: a failure is <see cref="Fill.Failed"/>.</summary>
-    public async Task<Fill> FillAsync(SlotRequest r)
+    public async Task<Fill> FillAsync(PlaceholderRequest r)
     {
         var o = Options;
         var key = $"{r.Page}:{r.Resource}";

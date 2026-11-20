@@ -33,7 +33,7 @@ test('the next page shows the cached data at once, then revalidates', async () =
   await r.settle();
   expect(names(r.root)).toEqual(['Ada', 'Linus']);
   expect(status(r.root)).toBe('idle');
-  expect(r.app.page.$meta.contacts.loadedAt).toBe(Date.parse('2026-01-01T09:00:00Z'));
+  expect(r.app.page.$meta.contacts.loadedAt).toEqual(new Date('2026-01-01T09:00:00Z'));
   expect(requests.calls).toHaveLength(1);
 });
 
@@ -56,7 +56,7 @@ test('confirmed changes are written on pagehide; optimistic ones are not', async
   const session = memoryStorage();
   const stream = mockStream();
   const html = `${LIST()}
-    <sn-sync src="/api/events"><sn-event name="contact_updated" resource="contacts" op="upsert" item="contact"></sn-event></sn-sync>
+    <sn-sync src="/api/events"><sn-event name="contact_updated" resource="contacts" op="upsert" value="$event.contact"></sn-event></sn-sync>
     <button data-sn-delete="/api/contacts/1" data-sn-optimistic="remove(contacts[0])">delete</button>`;
   const requests = mockRequests({ 'GET /api/contacts': { contacts: [{ id: 1, name: 'Ada' }] }, 'DELETE /api/contacts/1': null });
   const r = await render(html, { session, requests, streams: { '/api/events': stream } });
@@ -102,7 +102,7 @@ test('embedded data wins over the cache and is cached itself', async () => {
   const session = memoryStorage();
   await visit(session);
   const requests = mockRequests({});
-  const r = await render(`<html><head><script type="application/json" data-sn-data="contacts">{"contacts":[{"id":9,"name":"Edsger"}]}</script></head><body>${LIST()}</body></html>`, { session, requests });
+  const r = await render(`<html><head><script type="application/json" data-sn-resource="contacts">{"contacts":[{"id":9,"name":"Edsger"}]}</script></head><body>${LIST()}</body></html>`, { session, requests });
   await r.settle();
   expect(names(r.root)).toEqual(['Edsger']);
   expect(requests.calls).toHaveLength(0);
@@ -120,7 +120,7 @@ test('two pages that load the same thing share the entry, whatever they call it'
 
 test('offset pages are cached per page', async () => {
   const session = memoryStorage();
-  const html = `<sn-resource name="rows" src="/api/rows" items="rows" total="total" key="id" paginate="offset" page-size="2" cache></sn-resource>
+  const html = `<sn-resource name="rows" src="/api/rows" items="rows" total="total" key="id" paginate="{ numbered: true, size: 2 }" cache></sn-resource>
     <ul><template data-sn-for="x in rows"><li data-sn-text="x.name"></li></template></ul><b data-sn-text="$meta.rows.pages"></b>`;
   const route = (c: { url: string }) => (new URL(c.url, 'http://x').searchParams.get('offset') === '2'
     ? { rows: [{ id: 3, name: 'c' }], total: 3 } : { rows: [{ id: 1, name: 'a' }, { id: 2, name: 'b' }], total: 3 });
@@ -169,12 +169,14 @@ test('the compiler checks `cache` and adds the feature only where it is used', (
   const opts = { file: '/x/i.html', root: '/x', dev: false, helpers: { module: null, names: [], namespaces: {} }, readFile: () => '' };
   const ok = compile(LIST('cache="2h"'), opts);
   expect(ok.diagnostics).toEqual([]);
-  expect(ok.module).toContain("import sn$cache from '@tiaforge-ui/sinter/cache'");
+  expect(ok.module).toContain("import sn$cache from '@tiaforge-ui/sinter/runtime/cache'");
   expect(ok.module).toContain('"cache":7200000');
   expect(compile(LIST(''), opts).module).not.toContain('sinter/cache');
   const bad = compile(LIST('cache="soon"'), opts);
   expect(bad.diagnostics.map((d) => d.code)).toEqual(['SN401']);
-  expect(bad.diagnostics[0]!.message).toContain('`30s`, `10m`, `2h` or `1d`');
+  expect(bad.diagnostics[0]!.message).toContain('a duration such as `300ms`, `2s`, `10m`, `2h` or `1d`');
+  // one duration grammar: `1d`, and `500ms`
+  expect(compile(LIST('cache="1d"'), opts).module).toContain('"cache":86400000');
 });
 
 test('a guard on loadedAt does not act on cached data', async () => {

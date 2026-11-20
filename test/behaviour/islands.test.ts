@@ -15,8 +15,8 @@ test('islands defined before mount: props in a row template reach the setters of
   if (!customElements.get('row-frame')) customElements.define('row-frame', RowFrame);
   const { root, flush, state } = await render(`
     <div data-sn-state="{ ids: [1, 2], on: true }">
-      <template data-sn-for="i in ids" data-sn-key="i"><row-frame data-sn-prop="{message: {id: i}}"></row-frame></template>
-      <template data-sn-if="on"><row-frame data-sn-prop="{message: {id: 9}}"></row-frame></template>
+      <template data-sn-for="i in ids" data-sn-key="i"><row-frame data-sn-with="{message: {id: i}}"></row-frame></template>
+      <template data-sn-if="on"><row-frame data-sn-with="{message: {id: 9}}"></row-frame></template>
       <button data-sn-on-click="ids = []">clear</button>
     </div>`);
   await flush();

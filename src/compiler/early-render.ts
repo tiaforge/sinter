@@ -1,4 +1,4 @@
-// The early file's renderer, compiled per page: what `@tiaforge-ui/sinter/early` used to interpret
+// The early file's renderer, compiled per page: what `@tiaforge-ui/sinter/runtime/early` used to interpret
 // from the early IR (the state scopes with persisted values, then each binding's first write, and
 // each early `data-sn-if` branch with its bindings) as straight-line code over the early table `f`.
 // It calls only the writers the page's bindings use, so the early file bundles only those (a page

@@ -16,12 +16,12 @@ function rng(seed: number) {
 
 const CHOICE = "{ p: 'c-plain', c: 'c-chain', s: 'c-slot', e: 'c-none' }";
 const COMPONENTS: Record<string, string> = {
-  'c-plain': `<template data-sn-component="{ x: any }"><b data-sn-text="x.t"></b></template>`,
-  'c-chain': `<template data-sn-component="{ x: any }"><template data-sn-if="x.a"><i data-sn-text="x.t"></i></template><template data-sn-else><template data-sn-if="x.b"><u data-sn-text="x.t"></u></template></template></template>`,
+  'c-plain': `<template data-sn-props="{ x: any }"><b data-sn-text="x.t"></b></template>`,
+  'c-chain': `<template data-sn-props="{ x: any }"><template data-sn-if="x.a"><i data-sn-text="x.t"></i></template><template data-sn-else><template data-sn-if="x.b"><u data-sn-text="x.t"></u></template></template></template>`,
   // a slot root: a choice between a fill and its default (a case whose content is one choice)
-  'c-slot': `<template data-sn-component="{ x: any; item: Slot<{ x: any }> }"><slot name="item" data-sn-prop="{ x }"><template data-sn-if="x.b"><s data-sn-text="x.t"></s></template></slot></template>`,
+  'c-slot': `<template data-sn-props="{ x: any; item: Slot<{ x: any }> }"><slot name="item" data-sn-with="{ x }"><template data-sn-if="x.b"><s data-sn-text="x.t"></s></template></slot></template>`,
   // a root that renders nothing while `a` is false
-  'c-none': `<template data-sn-component="{ x: any }"><template data-sn-if="x.a"><em data-sn-text="x.t"></em></template></template>`,
+  'c-none': `<template data-sn-props="{ x: any }"><template data-sn-if="x.a"><em data-sn-text="x.t"></em></template></template>`,
 };
 
 /** markup over the item `v` whose top level is one anchor (its row or branch a wrapper) or a leaf; `depth` levels left */
@@ -32,7 +32,7 @@ function chain(r: () => number, v: string, depth: number): string {
   switch (pick(kinds)) {
     case 'if': return `<template data-sn-if="${v}.${f()}">${chain(r, v, depth - 1)}</template>`;
     case 'ifelse': return `<template data-sn-if="${v}.${f()}">${chain(r, v, depth - 1)}</template><template data-sn-else>${chain(r, v, depth - 1)}</template>`;
-    case 'use': return `<sn-component use="${CHOICE}[${v}.k]" data-sn-prop="{ x: ${v} }"></sn-component>`;
+    case 'use': return `<sn-component use="${CHOICE}[${v}.k]" data-sn-with="{ x: ${v} }"></sn-component>`;
     case 'for': { const w = v + 'y'; return `<template data-sn-for="${w} in ${v}.c"${r() < 0.5 ? ` data-sn-key="${w}.id"` : ''}>${chain(r, w, depth - 1)}</template>`; }
     // not a wrapper: a node next to the anchor
     case 'pair': return `<b>${v}</b>${chain(r, v, depth - 1)}`;
@@ -43,10 +43,10 @@ function chain(r: () => number, v: string, depth: number): string {
     `<template data-sn-text="${v}.t"></template><i>.</i>`,
     '',
     '<i>s</i>',
-    `<c-chain data-sn-prop="{ x: ${v} }"></c-chain>`,
-    `<c-slot data-sn-prop="{ x: ${v} }"></c-slot>`,
-    `<c-none data-sn-prop="{ x: ${v} }"></c-none>`,
-    `<c-plain data-sn-prop="{ x: ${v} }"></c-plain>`,
+    `<c-chain data-sn-with="{ x: ${v} }"></c-chain>`,
+    `<c-slot data-sn-with="{ x: ${v} }"></c-slot>`,
+    `<c-none data-sn-with="{ x: ${v} }"></c-none>`,
+    `<c-plain data-sn-with="{ x: ${v} }"></c-plain>`,
   ]);
 }
 

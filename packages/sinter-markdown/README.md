@@ -8,7 +8,7 @@ with slots.
 ```html
 <sn-resource name="post" src="file:./post.md"></sn-resource>
 <main data-sn-let="{ doc: md.parse(post.body) }">
-  <md-doc data-sn-prop="{ doc }"></md-doc>
+  <md-doc data-sn-with="{ doc }"></md-doc>
 </main>
 ```
 
@@ -27,7 +27,7 @@ npm install @tiaforge-ui/sinter-markdown
 
 ```js
 // vite.config.js: the package is a component library
-sinter({ components: ['@tiaforge-ui/sinter-markdown'] })
+sinter({ libraries: ['@tiaforge-ui/sinter-markdown'] })
 ```
 
 ```ts
@@ -114,7 +114,7 @@ docs/                     the docs page and the recipe
   owns: no app component and no other library may use it.
 - **The contract is in the public files.** `md-doc.html` and `md-inline.html` declare the slots an app
   fills (`heading: Slot<{ node: Heading }>`, …); the internal components place them
-  (`<slot name="heading" data-sn-prop="{ node }">`) without declaring them, as [tree
+  (`<slot name="heading" data-sn-with="{ node }">`) without declaring them, as [tree
   slots](https://github.com/tiaforge/sinter/blob/main/docs/components.md#tree-slots). Adding a slot
   later is additive; renaming or removing one breaks apps.
 - **Roots.** A component's root renders at most one element. A heading is an if chain over its depth,
@@ -229,7 +229,7 @@ A library has no pages, and sinter checks a component through the pages that use
 are pages that use the public components with the cases the library supports: an article from a
 file, every slot filled, comments from an API. `npx sinter check` in this folder takes them as its
 pages (there is no Vite config with pages of its own), configures the package as a library of
-`sinter({ components })`, compiles and type-checks them, and checks the library's rules: every declared
+`sinter({ libraries })`, compiles and type-checks them, and checks the library's rules: every declared
 slot is placed somewhere (`SN331`), `<sn-component use>` takes a map (`SN312`), internal components are
 used only inside the library (`SN339`). Each app's build checks the same rules again.
 

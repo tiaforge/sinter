@@ -26,7 +26,7 @@ the data that page loads first. The next page shows it at its first paint, then 
   starts at once. A touch waits 65 ms, and a scroll that starts on the link requests nothing. Skipped
   with `navigator.connection.saveData` or on 2g.
 - **What:** the resources of the target page whose `src` and `when` read only `$url`, constants and
-  your helpers. Resources that read state, other resources, `$now`, or that are paginated, `each`,
+  your helpers. Resources that read state, other resources, `$now`, or that are paginated, `for`,
   `call` or embedded, are not prefetched. Data the current page already loaded from the same
   request is handed over without a new request.
 - **Which links:** same-origin links to one of the app's pages, matched by the pages' `data-sn-path`
@@ -35,7 +35,7 @@ the data that page loads first. The next page shows it at its first paint, then 
 - **Requests** go through your middleware (auth headers apply) with low priority. A failed one is
   dropped and never triggers `onUnauthorized` or a login redirect. Any mutation discards what was
   prefetched.
-- **Off:** `sinter({ prefetch: false })`; for one page, see [Opting a page out](#opting-a-page-out).
+- **Off:** `sinter({ prefetch: { data: false } })`, or `prefetch: false` for this and the Speculation Rules below; for one page, see [Opting a page out](#opting-a-page-out).
 - **Testing:** `render(html, { pages: { 'article.html': articleHtml } })`.
 
 ## Speculation Rules
@@ -45,14 +45,14 @@ app's pages, with eagerness `moderate` (the pointer rests on a link, or a press 
 that download, open elsewhere (`target`) or are `rel="nofollow"` are left out.
 
 ```js
-sinter({ speculation: 'prefetch' })    // default: the next page's HTML
-sinter({ speculation: 'prerender' })   // the whole page, data included, before the click
-sinter({ speculation: false })         // none
-sinter({ speculation: { mode: 'prefetch', delivery: 'header' } })   // by a response header; see the CSP section
+sinter({ prefetch: { html: true } })          // default: the next page's HTML
+sinter({ prefetch: { html: 'prerender' } })   // the whole page, data included, before the click
+sinter({ prefetch: { html: false } })         // none
+sinter({ prefetch: { html: { delivery: 'header' } } })   // by a response header; see the CSP section
 ```
 
-`'prerender'` runs the next page before anyone sees it: its requests go out and its islands start.
-Streams (`<sn-sync>`) wait until the page is shown, and then every resource is refetched, since it
+`'prerender'` runs the next page before anyone sees it: its requests go out and its custom elements start.
+Streams (`<sn-sync>`) wait until the page is shown, and then every resource is reloaded, since it
 may have loaded minutes earlier. Use it for apps whose pages do nothing on load but read.
 
 ## Speculation Rules and a Content Security Policy
@@ -84,7 +84,7 @@ Everything else on this page, and the script that holds the first paint, works u
 No CSP blocks rules delivered this way:
 
 ```js
-sinter({ speculation: { mode: 'prefetch', delivery: 'header' } })   // or mode: 'prerender'
+sinter({ prefetch: { html: { delivery: 'header' } } })   // or { prerender: true, delivery: 'header' }
 ```
 
 The build then writes `speculation-rules.json` at the site root and no inline script. Your server
@@ -120,7 +120,7 @@ hosts do not do for HTML.
 ## The URL and the history
 
 `$url` is bindable: `data-sn-model="$url.q"` on a search field, `$url.sort` on a select,
-`page-model="$url.page"` on a list ([Page in the URL](pagination.md#page-in-the-url)). Back and
+`model: $url.page` in a list's `paginate` ([Page in the URL](pagination.md#page-in-the-url)). Back and
 Forward then restore what the user saw, reload and shared links show the same. The kind of entry is
 decided where the write happens:
 
@@ -178,28 +178,28 @@ the state you made (`data-sn-state`) and the scroll position stay. Nothing to wr
   origin and path (path parameters included: `/tag/go?page=2` → `/tag/go?page=3` stays,
   `/tag/go` → `/` loads), when every parameter that differs is one the page reads (`$url.<name>`).
   A link with `download`, a `target` other than `_self` or `rel="external"`, a click a handler
-  prevented, and a parameter the page does not read (`?lang=de`, one a server or an island acts on)
+  prevented, and a parameter the page does not read (`?lang=de`, one a server or a custom element acts on)
   load the URL as before. Middle-click and Ctrl/Cmd-click open a new tab, as always.
 - **What follows:** `$url` takes the link's query, and everything that reads it follows as after
-  Back or Forward: a [`page-model`](pagination.md#page-in-the-url) list loads the link's page, so
+  Back or Forward: a list with a [`model`](pagination.md#page-in-the-url) loads the link's page, so
   `?tag=js&page=3` shows page 3 and `?tag=js` page 1. A text field's pending typing gets its own
   entry first. A link to the current URL changes nothing. A `#hash` in the link is followed by the
   browser, in the new entry.
 - **What it does not do:** no other path or page (that is a page load, always); no cross-document
   view transition (the list keeps its rows until the response, as with `page()`); no
   `<form method="get">` (bind the field instead: `data-sn-model="$url.q"`).
-- **Which pages:** the build loads it (`@tiaforge-ui/sinter/query-links`, about 0.7 KB gzip) on a
+- **Which pages:** the build loads it (`@tiaforge-ui/sinter/runtime/query-links`, about 0.7 KB gzip) on a
   page that reads a query parameter by name and has a link it can see goes to the page: a static
   `href` (`?page=3`, the page's own URL or its file, `about.html?q=1`), or a `data-sn-attr` `href`
   that starts with one (followed through `+`, template literals, `?:`, `||` and `??`). A link it
-  cannot see (an `href` from data, a helper, a link an island renders) loads its URL, as before. A
+  cannot see (an `href` from data, a helper, a link a custom element renders) loads its URL, as before. A
   page that reads `$url` whole or by a computed name (`$url[k]`), or has a `<base href>`, does not
   load it: every link loads. The same link in a layout stays on one page and loads from another: it
   depends on what each page reads. A parameter that is a path parameter (`/tag/:tag`) is not a
   query parameter the page reads, on any of its paths, as for `$url` writes.
 - **Building the query:** `href="?page=3"` keeps only `page`, as any URL resolves: on `?tag=go` it
   drops the tag. Build the whole query. A pager link (a static query-only `href` that sets a
-  `page-model` parameter) that drops other parameters the page reads is SN519; a filter or tab
+  `model` parameter) that drops other parameters the page reads is SN519; a filter or tab
   link that drops the page is how the list starts at page 1, and needs nothing.
 - Next-page data leaves same-page links alone. Speculation Rules on such a page leave out its own
   path with any other query, so a link there that changes a parameter the page does not read
@@ -207,7 +207,7 @@ the state you made (`data-sn-state`) and the scroll position stay. Nothing to wr
 - A history call the browser refuses (Safari, called too often): the link loads.
 
 For a pager, links are the recommended form: crawlable, a new tab, copy link, and on the page with
-this. `page('next')` stays for relative moves and buttons. A pager link should carry
+this. `page(next)` stays for relative moves and buttons. A pager link should carry
 `aria-current="page"` for the active page.
 
 ## Swaps
@@ -275,7 +275,7 @@ be `<html>`, `<head>`, `<body>` or in the head (`SN346`).
 
 ## Refusing a navigation
 
-`data-sn-on-navigate` runs before any navigation away from the page while its element is on it (a link,
+`data-sn-on-sn-navigate` runs before any navigation away from the page while its element is on it (a link,
 one to another site or with `rel="external"` too, `navigate()`, Back where the browser can still refuse
 it), and `$event.preventDefault()` refuses it.
 `$event` has `to`, `from`, `kind` (`push`, `replace`, `traverse`) and `trigger` (the link or the element
@@ -283,7 +283,7 @@ whose handler called `navigate()`):
 
 ```html
 <form data-sn-state="{ dirty: false }" data-sn-on-input="dirty = true"
-      data-sn-on-navigate="dirty && $event.preventDefault()">
+      data-sn-on-sn-navigate="dirty && $event.preventDefault()">
   <p data-sn-show="dirty">Save or discard your changes before you leave.</p>
 ```
 

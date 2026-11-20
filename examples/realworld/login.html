@@ -1,6 +1,6 @@
 <conduit-layout data-sn-path="/login"
   data-sn-state="{ nav: 'login', email: '', password: '' }"
-  data-sn-prop="{ nav, title: 'Sign in', description: 'Sign in to Conduit.' }">
+  data-sn-with="{ nav, title: 'Sign in', description: 'Sign in to Conduit.' }">
 
 <main class="auth-page">
   <div class="container page">
@@ -10,7 +10,7 @@
         <p class="text-xs-center"><a href="/register">Need an account?</a></p>
         <form data-sn-post="/users/login" data-sn-body="{user: {email, password}}"
               data-sn-then="emit('signed-in', {user: $result.user, to: /^\/(?!\/)/.test($url.next || '') ? $url.next : null})">
-          <error-list data-sn-prop="{ error: $error }"></error-list>
+          <error-list data-sn-with="{ error: $error }"></error-list>
           <fieldset>
             <fieldset class="form-group"><input class="form-control form-control-lg" type="email" name="email" placeholder="Email" data-sn-model="email"></fieldset>
             <fieldset class="form-group"><input class="form-control form-control-lg" type="password" name="password" placeholder="Password" data-sn-model="password"></fieldset>

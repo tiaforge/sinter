@@ -1,7 +1,7 @@
 <!-- The header of the app layout: a component, expanded at build time. It shows the layout's `armed`
      state and emits `arm` when the next change is set to fail; the layout writes its state.
      data-theme="dark": a dark band on a light page is one attribute. -->
-<template data-sn-component="{ armed: boolean }" data-sn-emits="{ arm: null }">
+<template data-sn-props="{ armed: boolean }" data-sn-emits="{ arm: null }">
   <header data-theme="dark" data-pad="sm">
     <div data-layout="center" style="--tm-measure: 48rem">
       <div data-layout="row" data-gap="sm" data-justify="between">

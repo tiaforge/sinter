@@ -15,7 +15,7 @@ namespace Sinter.AspNetCore;
 /// static partial class Web
 /// {
 ///     [SinterResolve("profile.html:articles")]
-///     static Task&lt;ArticleList?&gt; Articles(SlotRequest req, ArticleStore store) => store.ByAuthor(req.Param("username"));
+///     static Task&lt;ArticleList?&gt; Articles(PlaceholderRequest req, ArticleStore store) => store.ByAuthor(req.Param("username"));
 /// }
 ///
 /// builder.Services.AddSinter(Web.Build);
@@ -27,10 +27,10 @@ public sealed class SinterEmbedAttribute : Attribute;
 /// <summary>
 /// A static method that gives a resource's data. <c>"articles"</c> applies to every page,
 /// <c>"profile.html:articles"</c> to one. Its parameters are bound when the project compiles:
-/// <see cref="SlotRequest"/>, <c>HttpContext</c>, <c>CancellationToken</c>, <c>ClaimsPrincipal</c>,
+/// <see cref="PlaceholderRequest"/>, <c>HttpContext</c>, <c>CancellationToken</c>, <c>ClaimsPrincipal</c>,
 /// <c>IServiceProvider</c>, or any other type from the placeholder's service scope. It returns (or
 /// returns a <c>Task</c> or <c>ValueTask</c> of) a <c>byte[]</c> or <c>string</c> of JSON, a
-/// <see cref="SlotData"/>, or any value, serialized as minimal APIs serialize it; null leaves the
+/// <see cref="PlaceholderData"/>, or any value, serialized as minimal APIs serialize it; null leaves the
 /// resource to the browser.
 /// </summary>
 [AttributeUsage(AttributeTargets.Method, Inherited = false)]

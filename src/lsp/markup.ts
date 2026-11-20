@@ -3,6 +3,7 @@
 // layouts a tag can name (completion after `<`), and a tag's contract (hover).
 import * as parse5 from 'parse5';
 import type { DefaultTreeAdapterMap } from 'parse5';
+import { isHeadComponent } from '../compiler/head.js';
 import { parseDocument } from '../compiler/head.js';
 import { typeMembers } from '../compiler/components.js';
 
@@ -49,7 +50,7 @@ export function slotsOf(t: TagFile): SlotInfo[] {
 
 /** The props a component or layout declares, as written. */
 export function propsOf(t: TagFile): string {
-  const m = (t.kind === 'layout' ? /\sdata-sn-layout\s*=\s*"([^"]*)"/ : t.kind === 'head' ? /\sdata-sn-head\s*=\s*"([^"]*)"/ : /\sdata-sn-component\s*=\s*"([^"]*)"/).exec(t.text);
+  const m = (t.kind === 'layout' ? /\sdata-sn-(?:props|layout)\s*=\s*"([^"]*)"/ : t.kind === 'head' ? /\sdata-sn-(?:props|head)\s*=\s*"([^"]*)"/ : /\sdata-sn-(?:props|component)\s*=\s*"([^"]*)"/).exec(t.text);
   return m?.[1]?.trim() || '{}';
 }
 
@@ -130,7 +131,7 @@ export function tagCompletions(text: string, offset: number, names: Array<{ name
   const from = offset - (m[1]?.length ?? 0);
   const rest = before.slice(0, m.index);
   const top = /^\s*(<!doctype[^>]*>\s*)?(<!--[\s\S]*?-->\s*)*$/i.test(rest);
-  const inHead = /<head[\s>]/i.test(rest) && !/<\/head\s*>/i.test(rest) || /\sdata-sn-head\s*=/.test(rest);
+  const inHead = /<head[\s>]/i.test(rest) && !/<\/head\s*>/i.test(rest) || (/\sdata-sn-(?:props|head)\s*=/.test(rest) && isHeadComponent(rest));
   const kinds: Array<TagFile['kind']> = top ? ['layout'] : inHead ? ['head'] : ['component'];
   return names.filter((n) => kinds.includes(n.kind)).map((n) => ({ label: n.name, detail: n.kind === 'layout' ? 'layout' : n.kind === 'head' ? 'head component' : 'component', from, to: offset }));
 }

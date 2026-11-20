@@ -204,7 +204,7 @@ test('the compiler describes only resources whose request the URL decides; helpe
     <sn-resource name="a" src="/api/a/{$url.id}?o={offset($url.page)}" items="a" key="id" when="$url.id"></sn-resource>
     <sn-resource name="b" src="/api/b?q={q}" items="b"></sn-resource>
     <sn-resource name="c" src="/api/c?at={a.length}" items="c"></sn-resource>
-    <sn-resource name="d" src="/api/d" items="d" paginate="offset" page-size="10"></sn-resource>
+    <sn-resource name="d" src="/api/d" items="d" paginate="{ numbered: true, size: 10 }"></sn-resource>
     <i data-sn-text="a.length + b.length + c.length + d.length"></i></div></body></html>`;
   const parts = compileParts(html, { file: '/t/p.html', root: '/t', dev: false, readFile: () => '', helpers: { module: '/src/h.js', names: ['offset'], namespaces: {} } });
   expect(parts.prefetch!.path).toEqual(['/p/:id']);
@@ -216,7 +216,7 @@ test('the compiler describes only resources whose request the URL decides; helpe
   // array parameters: only an app with a page that has them passes `lists` (and carries it)
   expect(mod).not.toMatch(/\blists\b/);
   const withLists = prefetchModule([{ paths: ['/s'], parts: { ...parts.prefetch!, a: ['tag'] } }], { module: null, names: [], namespaces: {} });
-  expect(withLists).toContain("import { prefetch, lists } from '@tiaforge-ui/sinter/prefetch';");
+  expect(withLists).toContain("import { prefetch, lists } from '@tiaforge-ui/sinter/runtime/prefetch';");
   expect(withLists).toMatch(/\], lists\);\n$/);
 });
 

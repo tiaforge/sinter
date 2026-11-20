@@ -12,7 +12,7 @@ import { loadHelpers } from '../../src/helpers-node.js';
 import { readHelperManifest } from '../../src/compiler/index.js';
 
 const src = resolve(__dirname, '../../src');
-const alias = [{ find: /^@tiaforge-ui\/sinter\/(.+)$/, replacement: `${src}/$1.ts` }, { find: /^@tiaforge-ui\/sinter$/, replacement: `${src}/index.ts` }];
+const alias = [{ find: /^@tiaforge-ui\/sinter\/runtime$/, replacement: `${src}/runtime-entry.ts` }, { find: /^@tiaforge-ui\/sinter\/(?:runtime\/)?(.+)$/, replacement: `${src}/$1.ts` }, { find: /^@tiaforge-ui\/sinter$/, replacement: `${src}/index.ts` }];
 const tmp = mkdtempSync(join(tmpdir(), 'sinter-memo-fold-'));
 afterAll(() => rmSync(tmp, { recursive: true, force: true }));
 

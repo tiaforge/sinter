@@ -66,7 +66,7 @@ export interface MountOptions {
 /**
  * A server event transport (EventSource, WebSocket, SignalR, …). It delivers named events with
  * their parsed payload and reports `open` once connected and `error` when the connection is lost;
- * reconnecting (session probe, backoff, refetch) is the caller's job, so a transport never
+ * reconnecting (session probe, backoff, reload) is the caller's job, so a transport never
  * reconnects by itself. `names` are the event names the page maps; deliver at least those.
  */
 export interface Transport {
@@ -86,15 +86,15 @@ export interface BoundBinding {
   s: any;
 }
 
-/** Pagination state of one resource; a "move" is one page request, repeated exactly by refetch. */
+/** Pagination state of one resource; a "move" is one page request, repeated exactly by reload. */
 export interface Pager {
   /**
-   * the resource's URL changed: back to the first page. With `page-model`, `why` says what changed it:
+   * the resource's URL changed: back to the first page. With `model` (paginate), `why` says what changed it:
    * 0 its first URL after mount (the URL's page, restored), 2 anything later (page 1 and the parameter
    * deleted, unless Back or Forward caused it: then the URL's page)
    */
   reset(why?: number): void;
-  /** `page-model`: the parameter may have changed (the URL did not): loads the page it names */
+  /** `model` (paginate): the parameter may have changed (the URL did not): loads the page it names */
   follow?(): void;
   current(): unknown;
   params(move: unknown): Record<string, string> | null;
@@ -130,7 +130,7 @@ export type Navigator = (i: Intent) => Decision | void | undefined;
 export interface CallContext {
   /** aborts when the page is hidden (pagehide) or, for a resource, when its inputs change */
   signal: AbortSignal;
-  /** a request through the app's middleware chain (401 handling, origins, timeout) */
+  /** a request through the app's middleware chain (401 handling, origins, timeout); with the action's `data-sn-retry`, sent again as its policy says (its own `init.retry` wins) */
   request(url: string, init?: SendInit): Promise<unknown>;
   /** the element whose action this is; null for a resource */
   el: Element | null;
@@ -149,7 +149,7 @@ export interface ResourceLoader {
   url(): string | null;
   /** `quiet`: a background reload (`refresh`): `$meta.loading` stays false, and a failure while already failing is not reported again */
   load(move?: unknown, quiet?: boolean): Promise<void>;
-  refetch(hint?: object, quiet?: boolean): Promise<void>;
+  refresh(hint?: object, quiet?: boolean): Promise<void>;
   /** whether a load is in flight */
   inflight(): boolean;
   /** called after each load settles (true: it succeeded, its content changed or not); feature modules add to it */
@@ -213,7 +213,8 @@ export interface App {
     apply?: (a: ActionDef, scope: any, url: string, body: unknown, result: unknown) => void;
     /** an action is sent: the form's marks and `$error` are cleared; the function reports a failure, true when the form shows it */
     /** action functions (call.ts): runs one with its context (an action's signal aborts on pagehide); what one throws as an `$error` */
-    call?: { run(f: number, args: unknown, el: Element | null, signal?: AbortSignal): Promise<unknown>; error(e: unknown): SinterError };
+    /** `retry`: the action's `data-sn-retry`, for each request the function sends (`ctx.request`), `stop` ending its tries */
+    call?: { run(f: number, args: unknown, el: Element | null, signal?: AbortSignal, retry?: { retry: string; stop: AbortSignal }): Promise<unknown>; error(e: unknown): SinterError };
     /** debounced handlers and actions (debounce.ts): runs `run` once, `ms` after the last call for `key` */
     debounce?: (key: object, ms: number, run: () => void) => void;
     /** `data-sn-confirm` (confirm.ts): runs `go` once the user agrees to `question` (at once when it is falsy) */
@@ -230,7 +231,7 @@ export interface App {
       commit(kind: number): boolean;
       readonly kind: number;
       readonly back: boolean;
-      /** `page-model` (paginate.ts): sets a parameter (null deletes it) and writes it with `kind` */
+      /** `model` (paginate) (paginate.ts): sets a parameter (null deletes it) and writes it with `kind` */
       set(name: string, value: string | null, kind: number): void;
       /** a same-page link was followed (query-links.ts): its entry is pushed, `$url` read again; the flush is as after Back */
       arrive(): void;
@@ -258,8 +259,8 @@ export interface App {
     /** nested items (nested.ts): changes an item under a resource's rows, through `fields`; the list `upsert(c.replies, x)` gives */
     nested?: {
       /** applies one change to an item from `names`; for write-through, one under `r` through `fields` (true when found) */
-      change(res: (n: string) => Resource, op: 'patch' | 'remove', names: string[], item: unknown, set: any): void;
-      apply(r: Resource, fields: string[], op: 'patch' | 'remove', item: unknown, set: any, byId: boolean): boolean;
+      change(res: (n: string) => Resource, op: 'merge' | 'remove', names: string[], item: unknown, set: any): void;
+      apply(r: Resource, fields: string[], op: 'merge' | 'remove', item: unknown, set: any, byId: boolean): boolean;
       /** `upsert(c.replies, x)`: `owner` (from `names`) gets its list `field` with `item` in it */
       upsert(res: (n: string) => Resource, names: string[], owner: any, field: string, item: unknown): void;
     };
@@ -418,7 +419,6 @@ interface ActState {
   n: number;
   q: Array<() => void>;
   w: { run: () => void; drop: () => void } | null;
-  c: AbortController | null;
   /** the running write's retry: aborted when a newer `latest` trigger replaces it while it waits */
   r: AbortController | null;
   off: HTMLInputElement[] | null;
@@ -478,7 +478,7 @@ export type Tagged = Element & { [HANDLERS]?: RB | RB[]; [MODEL]?: RB; [STATE]?:
 const others = new WeakMap<TemplateDef, number[]>(), allDeps = new WeakMap<TemplateDef, number[]>();
 /** set by the early script on the start comment of a `data-sn-for` whose rows it rendered from embedded data: each row's nodes, the end comment */
 const EARLY_ROWS = Symbol.for('sinter.early.rows');
-/** set by the early chunk (@tiaforge-ui/sinter/early) on the start comment of a `data-sn-if` or choice whose branch it rendered */
+/** set by the early chunk (@tiaforge-ui/sinter/runtime/early) on the start comment of a `data-sn-if` or choice whose branch it rendered */
 const EARLY = Symbol.for('sinter.early');
 const simple = new WeakMap<TemplateDef, Simple | null>();
 /** ROW: on each node of a simple row with handlers, its instance */
@@ -512,7 +512,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
   const env = o.env ?? envOf(config);
   const req = createRequestLayer(env, o.request ?? config.request);
   const schemes = schemesOf(config.urlSchemes);
-  const resources = new Map<string, Resource>(), loaders: Array<{ def: ResourceDef; changed(typing?: boolean): void; start(): void; refetch(): Promise<void> }> = [];
+  const resources = new Map<string, Resource>(), loaders: Array<{ def: ResourceDef; changed(typing?: boolean): void; start(): void; refresh(): Promise<void> }> = [];
   const acts = new WeakMap<Element, ActState>();
   /** props set on custom elements not defined yet, by element: the latest value of each */
   const early = new WeakMap<Element, Map<string, unknown>>();
@@ -525,7 +525,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
   const closing = new Set<Element>();
   const listeners = new Map<string, Set<(p: unknown) => void>>(), cleanups: Array<() => void> = [];
   const shared = new Map<string, { n: number; c: AbortController; p: Promise<Got> }>();
-  /** `showModal(id)`, `close(id)`: the dialog of this mount root with that id; `run(id)`: any element */
+  /** `openDialog(id)`, `closeDialog(id)`: the dialog of this mount root with that id; `run(id)`: any element */
   const byId = (id: string, s = '[id]') => [...root.querySelectorAll(s)].find((d) => d.id === id);
   const dialog = (id: string) => byId(id, 'dialog') as HTMLDialogElement | undefined;
   const rootRbs: RB[] = [], rootScopes: any[] = [], found = new Map<number, Element | Comment>();
@@ -546,19 +546,19 @@ export function mount(root: Document | Element, o: MountOptions): App {
     if (!r) throw Error(`sinter: no resource ${name}`);
     return r;
   };
-  /** The item has `r`'s key fields: a list or a `patch()` that may come from several resources tries only those it can be in (the others would warn 14). */
+  /** The item has `r`'s key fields: a list or a `merge()` that may come from several resources tries only those it can be in (the others would warn 14). */
   const keyed = (r: Resource, item: any) => item != null && r.key!.every((f) => item[f] !== undefined);
   /**
-   * `patch(item, …)`, `remove(item)`: the compiler passes the resources the item can come from; it is
+   * `merge(item, …)`, `remove(item)`: the compiler passes the resources the item can come from; it is
    * changed in the one that holds it, by key (a single resource is the item itself)
    */
-  const byItem = (m: 'patch' | 'remove') => (names: string[], item: any, set?: any) => {
+  const byItem = (m: 'merge' | 'remove') => (names: string[], item: any, set?: any) => {
     // a source under a row (`comments>replies`): the nested module, loaded with it, does it all (the rows too:
     // a few bytes there, which pages without nested lists do not load, rather than in the core)
     if (app.ext.nested) return app.ext.nested.change(res, m, names, item, set);
     for (const n of names) {
       const r = res(n);
-      if (r.isCollection ? keyed(r, item) && r.has(item) : true) return void (m == 'patch' ? r.patch(item, set) : r.remove(item));
+      if (r.isCollection ? keyed(r, item) && r.has(item) : true) return void (m == 'merge' ? r.merge(item, set) : r.remove(item));
     }
   };
   const warn = (code: number | string, ...args: unknown[]) => app.warn(code, ...args);
@@ -854,20 +854,14 @@ export function mount(root: Document | Element, o: MountOptions): App {
       return (ok) => { if (!done) { done = true; for (const [r, id] of ids) ok ? r.commitLayer(id) : r.dropLayer(id); } };
     },
     storeFns: (el) => ({
-      showModal: (id: string) => { const d = dialog(id); if (d && !d.open) d.showModal(); },
-      refresh: (...n: string[]) => { for (const x of n) res(x).refetch(); },
+      openDialog: (id: string) => { const d = dialog(id); if (d && !d.open) d.showModal(); },
+      refresh: (...n: string[]) => { for (const x of n) res(x).refresh(); },
       // `upsert(c.replies, x)`: the item that holds the list gets it as a patch
       upsert: (n: string | string[], a: any, f?: string, x?: any) => Array.isArray(n) ? app.ext.nested!.upsert(res, n, a, f!, x) : res(n).upsert(a),
-      patch: byItem('patch'),
+      merge: byItem('merge'),
       remove: byItem('remove'),
       page: (n: string, t: string | number) => app.ext.paginate!.page(n, t),
-      close: (id?: string) => (id ? dialog(id) : el?.closest('dialog'))?.close(),
-      reset: () => {
-        const form = el?.closest('form');
-        if (!form) return;
-        form.reset();
-        if (F.MODEL) for (const c of form.elements) { const rb = (c as Tagged)[MODEL]; if (rb) setModel(rb, readModel(rb)); }
-      },
+      closeDialog: (id?: string) => (id ? dialog(id) : el?.closest('dialog'))?.close(),
       emit: (n: string, detail?: unknown) => el?.dispatchEvent(new CustomEvent(n, { detail, bubbles: true, cancelable: true })),
       // to this page with only parameters it reads changed: as a same-page link (no load); else the browser navigates
       // the navigation chain where a feature installed one (links.ts), else the page loads
@@ -920,23 +914,36 @@ export function mount(root: Document | Element, o: MountOptions): App {
   for (const id of bad) { found.delete(id); warn(1, id); }
   if (F.RESOURCE) for (const def of ir.resources) createLoader(def);
   // back from the bfcache, or online again: the data may have changed meanwhile. Resources a stream
-  // feeds are refetched by the stream module when it reconnects.
-  const again = () => { for (const l of loaders) if (!l.def.fed) void l.refetch(); };
+  // feeds are reloaded by the stream module when it reconnects.
+  const again = () => { for (const l of loaders) if (!l.def.fed) void l.refresh(); };
   app.addCleanup(env.listen('pageshow', (e) => { if ((e as PageTransitionEvent).persisted) again(); }));
   app.addCleanup(env.listen('online', again));
   // prerendered (Speculation Rules): the page loaded while nobody saw it, maybe minutes ago, and
-  // streams wait (app.shown). Shown: everything is refetched, then the waiting work runs
+  // streams wait (app.shown). Shown: everything is reloaded, then the waiting work runs
   if (waiting) {
     const on = () => {
       if (doc.prerendering) return;
       doc.removeEventListener('prerenderingchange', on);
       const w = waiting!;
       waiting = null;
-      for (const l of loaders) void l.refetch();
+      for (const l of loaders) void l.refresh();
       for (const fn of w) fn();
     };
     doc.addEventListener('prerenderingchange', on);
     app.addCleanup(() => doc.removeEventListener('prerenderingchange', on));
+  }
+  // a form's reset (`<button type="reset">`, `form.reset()`): its models take the values it restored. The event comes
+  // before the browser restores them, so the models read the fields once it has
+  if (F.MODEL) {
+    const on = (e: Event) => {
+      const form = e.target as HTMLFormElement;
+      env.setTimeout(() => {
+        if (destroyed || e.defaultPrevented) return;
+        for (const c of form.elements ?? []) { const rb = (c as Tagged)[MODEL]; if (rb) setModel(rb, readModel(rb)); }
+      }, 0, 'task');
+    };
+    ET.addEventListener.call(root, 'reset', on, true);
+    cleanups.push(() => ET.removeEventListener.call(root, 'reset', on, true));
   }
   // one delegated capture listener per event type the page binds, rows included, at the mount root: the compiler listed them
   if (F.EVENTS) for (const type of ir.ev ?? []) {
@@ -1612,7 +1619,15 @@ export function mount(root: Document | Element, o: MountOptions): App {
       }
       // models update state before other handlers on the same event
       const m = F.MODEL ? (el as Tagged)[MODEL] : undefined;
-      if (m && /^(input|change)$/.test(e.type) && (e.type == 'input') == (m.b.n == 'text')) setModel(m, readModel(m), e.type == 'input' && !m.el.localName.includes('-'));
+      if (m && /^(input|change)$/.test(e.type) && (m.b.ms || (e.type == 'input') == (m.b.n == 'text'))) {
+        // `data-sn-model-debounce` (debounce.ts): it writes once the field pauses, as an event's write that is
+        // not typing (the pause is over), with the value the field has then; a text field's `change` (Enter,
+        // leaving it) ends the pause
+        if (m.b.ms) {
+          const u = ev, now = m.b.n == 'text' && e.type == 'change';
+          if (now || (e.type == 'input') == (m.b.n == 'text')) app.ext.debounce!(m, now ? 0 : m.b.ms, () => m.el.isConnected && as(u, () => setModel(m, readModel(m))));
+        } else setModel(m, readModel(m), e.type == 'input' && !m.el.localName.includes('-'));
+      }
       for (; el; el = el.parentElement) {
         const h = handlersOf(el as Tagged), hs = h && (Array.isArray(h) ? h : [h]).filter((x) => x.b.n == e.type && (x.b.q == null || app.ext.keys!(x, e as KeyboardEvent)));
         if (hs?.length) {
@@ -1648,14 +1663,14 @@ export function mount(root: Document | Element, o: MountOptions): App {
   }
 
   function act(el: Element): ActState {
-    if (!acts.has(el)) acts.set(el, { n: 0, q: [], w: null, c: null, r: null, off: null });
+    if (!acts.has(el)) acts.set(el, { n: 0, q: [], w: null, r: null, off: null });
     return acts.get(el)!;
   }
 
   function fire(rb: RB, a: ActionDef, e: Event | null) {
     // `then` and `catch` run in the context of what triggered the action (a user's event, or not)
-    const st = act(rb.el), get = a.method == 'GET', u = ev;
-    if (!get && a.concurrency == 'block' && st.n) return;
+    const st = act(rb.el), u = ev;
+    if (a.concurrency == 'block' && st.n) return;
     const s = child(rb.s, { $el: rb.el, $event: e });
     let url = '', body: unknown;
     try {
@@ -1674,10 +1689,6 @@ export function mount(root: Document | Element, o: MountOptions): App {
     a.confirm != null ? app.ext.confirm!(fns[a.confirm]!(s), go) : go();
     function go() {
     const drop = a.optimistic != null ? app.ext.optimistic!.begin(a.optimistic, s) : () => {};
-    if (get) {
-      st.c?.abort();
-      return void send(rb, a, st, url, body, drop, u, (st.c = new AbortController()));
-    }
     const run = () => void send(rb, a, st, url, body, drop, u);
     if (!st.n) run();
     else if (a.concurrency == 'latest') { st.w ? st.w.drop() : app.busy++; st.w = { run, drop }; st.r?.abort(); }
@@ -1685,7 +1696,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
     }
   }
 
-  async function send(rb: RB, a: ActionDef, st: ActState, url: string, body: unknown, drop: (ok?: boolean) => void, u: Event | null, c?: AbortController) {
+  async function send(rb: RB, a: ActionDef, st: ActState, url: string, body: unknown, drop: (ok?: boolean) => void, u: Event | null) {
     const el = rb.el as HTMLFormElement, s = rb.s;
     // where the element is now: an optimistic remove may take its row away before an error reports
     const up: Element[] = [];
@@ -1694,29 +1705,27 @@ export function mount(root: Document | Element, o: MountOptions): App {
     // server errors on the form (fields.ts): its marks cleared and its `$error` null while it is sent again
     const fs = app.ext.fields?.sent(el, a);
     el.setAttribute('aria-busy', 'true');
-    if (a.form && a.concurrency == 'block' && !c && !st.off) {
+    if (a.form && a.concurrency == 'block' && !st.off) {
       st.off = ([...el.elements] as HTMLInputElement[]).filter((x) => !x.disabled);
       for (const x of st.off) x.disabled = true;
     }
     try {
       const result = a.call
-        ? await app.ext.call!.run(a.call.run, body, el)
-        : await req.send(url, { method: a.method, body, signal: c?.signal, ...(a.retry ? { retry: a.retry, stop: (st.r = new AbortController()).signal } : {}) });
-      // a superseded GET's change is rolled back; a success keeps it, under what `then` writes
-      if (c && st.c != c) return drop();
+        ? await app.ext.call!.run(a.call.run, body, el, undefined, a.retry ? { retry: a.retry, stop: (st.r = new AbortController()).signal } : undefined)
+        : await req.send(url, { method: a.method, body, ...(a.retry ? { retry: a.retry, stop: (st.r = new AbortController()).signal } : {}) });
+      // a success keeps the optimistic change, under what `then` writes
       drop(true);
       // write-through lands between the commit and `then`, so `then` still has the last word
       if (a.ap) app.ext.apply?.(a, s, url, body, result);
       if (a.then != null) as(u, () => handle(rb, a.then!, null, a.w, { $result: result }));
     } catch (err) {
       drop();
-      if (isAbort(err) || (c && st.c != c)) return;
+      if (isAbort(err)) return;
       const error = a.call ? app.ext.call!.error(err) : toError(err);
       // shown on the form (every message on its field, or its markup reads `$error`): handled
       if (fs?.(error, { url, method: a.method }) && a.catch == null) return;
       as(u, () => a.catch != null ? handle(rb, a.catch, null, a.w, { $error: error }) : unhandled(error, el.isConnected ? el : up.find((x) => x.isConnected) ?? null));
     } finally {
-      if (c && st.c == c) st.c = null;
       st.r = null;
       if (!--st.n) {
         for (const x of st.off ?? []) x.disabled = false;
@@ -1748,7 +1757,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
     app.page.$meta[def.name] = r.meta;
     // fed by a server-event stream: connecting until its first open (src/sse.ts keeps it current)
     if (def.fed) r.meta.live = 'connecting';
-    /** `had`: the resource has had a URL (its first one after mount restores a `page-model` page) */
+    /** `had`: the resource has had a URL (its first one after mount restores a `model` (paginate) page) */
     let url: string | null = null, c: AbortController | null = null, seq = 0, again: Promise<void> | null = null, loud = false, had = false, typing: unknown = null, posted: unknown;
 
     const scope = () => app.scopeOf(def.scope ?? -1);
@@ -1838,7 +1847,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
         l.pager?.reset(0);
         const v = store(data!.v, request(url));
         // a `file:` resource: a constant read at build time, never loaded (`loadedAt` null)
-        if (!def.fx) r.meta.loadedAt = env.now();
+        if (!def.fx) r.meta.loadedAt = new Date(env.now());
         l.done(v);
         l.settle(true);
       },
@@ -1861,7 +1870,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
         loading(false);
       },
       /** Repeats the current request; several calls in one task share one request (quiet only if every call was). */
-      refetch: (_hint, quiet) => {
+      refresh: (_hint, quiet) => {
         if (def.fx) return Promise.resolve();
         if (!quiet) loud = true;
         return (again ??= Promise.resolve().then(() => { again = null; const q = !loud; loud = false; return l.load(undefined, q); }));
@@ -1886,7 +1895,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
           v = loaded ? store(body, req, m) : body;
           ok = true;
           r.meta.error = null;
-          r.meta.loadedAt = env.now();
+          r.meta.loadedAt = new Date(env.now());
         } catch (e) {
           if (n != seq || isAbort(e)) return;
           fail(def.call ? app.ext.call!.error(e) : e, quiet);

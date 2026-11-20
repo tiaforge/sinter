@@ -1,4 +1,4 @@
-// data-sn-confirm, data-sn-encoding="form", $error.detail, data-sn-listbox and per-event debounce.
+// data-sn-confirm, data-sn-encoding="form", $error.detail, data-sn-options and per-event debounce.
 import { afterEach, expect, test } from 'vitest';
 import { configure } from '../../src/index.js';
 import { render, mockRequests } from '../../src/testing/index.js';
@@ -62,10 +62,10 @@ test('$error.detail: the server\'s words or a thrown message, else null', async 
   expect(root.querySelector('p')!.textContent).toBe('Name taken|Bad date|fallback: 500');
 });
 
-test('data-sn-listbox: arrows mark an option, Enter and Tab pick it, Escape dismisses', async () => {
+test('data-sn-options on a text field: arrows mark an option, Enter and Tab pick it, Escape dismisses', async () => {
   const { root, flush } = await render(`
     <div data-sn-state="{ q: '', open: true, picked: '' }" data-sn-let="{ hits: ['ab', 'ac', 'ad'].filter(w => w.startsWith(q)) }">
-      <input data-sn-model="q" data-sn-listbox="hits" data-sn-on-dismiss="open = false">
+      <input data-sn-model="q" data-sn-options="hits" data-sn-on-sn-dismiss="open = false">
       <ul id="hits" role="listbox" data-sn-show="open && hits.length">
         <template data-sn-for="w in hits" data-sn-key="w"><li role="option" data-sn-on-click="picked = w; q = ''" data-sn-text="w"></li></template>
       </ul>
@@ -99,9 +99,9 @@ test('data-sn-listbox: arrows mark an option, Enter and Tab pick it, Escape dism
 
 test('dismiss bubbles to a form handler and is cancelable: an input can keep it', async () => {
   const { root, flush } = await render(`
-    <form data-sn-state="{ log: '' }" data-sn-on-dismiss="log += 'form;'">
-      <input class="a" data-sn-listbox="opts">
-      <input class="b" data-sn-listbox="opts" data-sn-on-dismiss="log += 'b;'; $event.preventDefault()">
+    <form data-sn-state="{ log: '' }" data-sn-on-sn-dismiss="log += 'form;'">
+      <input class="a" data-sn-options="opts">
+      <input class="b" data-sn-options="opts" data-sn-on-sn-dismiss="log += 'b;'; $event.preventDefault()">
       <ul id="opts" role="listbox"><li role="option">x</li></ul>
       <b data-sn-text="log"></b>
     </form>`);
@@ -111,11 +111,11 @@ test('dismiss bubbles to a form handler and is cancelable: an input can keep it'
   expect(root.querySelector('b')!.textContent).toBe('form;b;');
 });
 
-test('data-sn-listbox without an id controls the nearest listbox around the input', async () => {
+test('data-sn-options without an id on a text field controls the nearest listbox around the input', async () => {
   const { root, flush } = await render(`
     <div data-sn-state="{ fields: ['to', 'cc'], picked: '' }">
       <template data-sn-for="f in fields" data-sn-key="f">
-        <div><input data-sn-listbox>
+        <div><input data-sn-options>
           <ul role="listbox"><li role="option" data-sn-on-click="picked = f" data-sn-text="f"></li></ul></div>
       </template>
       <b data-sn-text="picked"></b>
@@ -126,11 +126,110 @@ test('data-sn-listbox without an id controls the nearest listbox around the inpu
   expect(root.querySelector('b')!.textContent).toBe('cc');
 });
 
+test('data-sn-options on a text field: aria-activedescendant follows the mark, options get ids', async () => {
+  const { root } = await render(`
+    <div><input data-sn-options="opts"><ul id="opts" role="listbox"><li role="option">a</li><li role="option" id="own">b</li></ul></div>`);
+  const input = root.querySelector('input')!;
+  const key = (k: string) => input.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true }));
+  key('ArrowDown');
+  const [a, b] = root.querySelectorAll('li');
+  expect(a!.id).toMatch(/^sn-o-\d+$/);
+  expect(input.getAttribute('aria-activedescendant')).toBe(a!.id);
+  expect(a!.hasAttribute('data-sn-marked')).toBe(true);
+  key('ArrowDown');
+  expect(input.getAttribute('aria-activedescendant')).toBe('own');
+  expect(b!.getAttribute('aria-selected')).toBe('true');
+  expect(a!.getAttribute('aria-selected')).toBe('false');
+  key('ArrowUp'); key('ArrowUp');            // up from the first: back to the field
+  expect(input.hasAttribute('aria-activedescendant')).toBe(false);
+  // Home and End move the caret in a text field
+  const home = new KeyboardEvent('keydown', { key: 'Home', bubbles: true, cancelable: true });
+  input.dispatchEvent(home);
+  expect(home.defaultPrevented).toBe(false);
+});
+
+test('data-sn-options on a menu: it takes the focus, arrows, Home and End mark, Enter and Space click, the mark stays', async () => {
+  const { root, flush } = await render(`
+    <div data-sn-state="{ log: '' }">
+      <ul role="menu" data-sn-options data-sn-on-sn-dismiss="log += 'x'">
+        <template data-sn-for="c in ['cut', 'copy', 'paste']" data-sn-key="c"><li role="menuitem" data-sn-on-click="log += c[0]" data-sn-text="c"></li></template>
+        <li role="menuitem" aria-disabled="true">off</li>
+      </ul>
+      <b data-sn-text="log"></b>
+    </div>`);
+  const menu = root.querySelector('ul')!;
+  expect(menu.getAttribute('tabindex')).toBe('0');
+  expect(menu.getAttribute('data-sn-options')).toBe('');
+  expect(menu.hasAttribute('role')).toBe(true);
+  const key = (k: string) => { const e = new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true }); menu.dispatchEvent(e); return e.defaultPrevented; };
+  const marked = () => [...root.querySelectorAll('li')].findIndex((li) => li.hasAttribute('data-sn-marked'));
+  expect(key('ArrowDown')).toBe(true);
+  expect(marked()).toBe(0);
+  expect(key('ArrowUp')).toBe(true);           // the mark stays on the first
+  expect(marked()).toBe(0);
+  expect(key('End')).toBe(true);
+  expect(marked()).toBe(2);                      // the disabled item is skipped
+  expect(root.querySelectorAll('li')[2]!.hasAttribute('aria-selected')).toBe(false);   // a menu item takes no aria-selected
+  expect(key('Enter')).toBe(true);
+  await flush();
+  expect(marked()).toBe(2);
+  expect(key('Home')).toBe(true);
+  expect(key(' ')).toBe(true);
+  expect(key('Escape')).toBe(true);
+  await flush();
+  expect(root.querySelector('b')!.textContent).toBe('pcx');
+  expect(menu.hasAttribute('aria-activedescendant')).toBe(false);
+});
+
+test('data-sn-options: Escape on a list with nothing to close goes on, so a dialog around it closes', async () => {
+  const { root } = await render(`<dialog><ul role="menu" data-sn-options><li role="menuitem">a</li></ul>
+    <ul class="kept" role="menu" data-sn-options data-sn-on-sn-dismiss="$event.preventDefault()"><li role="menuitem">b</li></ul></dialog>`);
+  const esc = (sel: string) => { const e = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }); root.querySelector(sel)!.dispatchEvent(e); return e.defaultPrevented; };
+  expect(esc('ul')).toBe(false);                 // nothing marked: the dialog gets the Escape
+  root.querySelector('ul')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true }));
+  expect(esc('ul')).toBe(true);                  // the first Escape unmarks
+  expect(esc('ul')).toBe(false);                 // the next one closes the dialog
+  expect(esc('ul.kept')).toBe(true);             // a dismiss handler that keeps it
+});
+
+test('data-sn-options: a control of its own inside the list keeps its keys', async () => {
+  const { root } = await render(`<ul role="listbox" data-sn-options><li><input class="filter"></li><li role="option">a</li><li role="option">b</li></ul>`);
+  const field = root.querySelector<HTMLInputElement>('.filter')!;
+  const key = (k: string) => { const e = new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true }); field.dispatchEvent(e); return e.defaultPrevented; };
+  expect([key(' '), key('Home'), key('ArrowDown'), key('Enter')]).toEqual([false, false, false, false]);
+  expect(root.querySelector('ul')!.hasAttribute('aria-activedescendant')).toBe(false);
+});
+
+test('data-sn-options across: ArrowRight and ArrowLeft with aria-orientation="horizontal"; a tabindex of its own stays', async () => {
+  const { root } = await render(`
+    <div role="toolbar" aria-orientation="horizontal" tabindex="-1" data-sn-options><div role="menuitem">a</div><div role="menuitem">b</div></div>`);
+  const bar = root.querySelector('[role=toolbar]')!;
+  expect(bar.getAttribute('tabindex')).toBe('-1');
+  const key = (k: string) => { const e = new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true }); bar.dispatchEvent(e); return e.defaultPrevented; };
+  expect(key('ArrowDown')).toBe(false);
+  expect(key('ArrowRight')).toBe(true);
+  expect(key('ArrowRight')).toBe(true);
+  expect(bar.getAttribute('aria-activedescendant')).toBe(root.querySelectorAll('[role=menuitem]')[1]!.id);
+  expect(key('ArrowLeft')).toBe(true);
+  expect(bar.getAttribute('aria-activedescendant')).toBe(root.querySelectorAll('[role=menuitem]')[0]!.id);
+});
+
+test('data-sn-options: where it belongs, its value, and data-sn-listbox renamed', async () => {
+  const { compile } = await import('../../src/compiler/index.js');
+  const d = (html: string) => compile(html, {
+    file: '/p/x.html', root: '/p', dev: false, readFile: () => '', helpers: { module: null, names: [], namespaces: {} },
+  }).diagnostics.map((x) => `${x.code} ${x.message}`);
+  expect(d('<select data-sn-options></select>')).toEqual([expect.stringMatching(/^SN102 `data-sn-options` belongs on a text field with suggestions, or on the element that holds the options/)]);
+  expect(d('<input type="checkbox" data-sn-options>')).toEqual([expect.stringMatching(/^SN102 /)]);
+  expect(d('<ul data-sn-options="a b"></ul>')).toEqual([expect.stringMatching(/^SN401 `data-sn-options` takes the literal `id` of the list/)]);
+  expect(d('<input data-sn-listbox="x">')).toEqual([expect.stringMatching(/^SN101 `data-sn-listbox` is renamed to `data-sn-options`/)]);
+});
+
 test('data-sn-debounce-<event> delays only that handler', async () => {
   const { root, flush, advance } = await render(`
     <div data-sn-state="{ q: '', blurred: 0, typed: 0, clicks: 0 }">
       <input data-sn-on-input="q = $el.value" data-sn-debounce-input="200" data-sn-on-blur="blurred++">
-      <button data-sn-debounce="300" data-sn-on-click="clicks++" data-sn-on-focus="typed++" data-sn-debounce-focus="0">b</button>
+      <button data-sn-debounce-click="300" data-sn-on-click="clicks++" data-sn-on-focus="typed++">b</button>
       <p data-sn-text="q + '|' + blurred + '|' + clicks + '|' + typed"></p>
     </div>`);
   const input = root.querySelector('input')!, p = root.querySelector('p')!;
@@ -146,7 +245,7 @@ test('data-sn-debounce-<event> delays only that handler', async () => {
   b.click();
   b.dispatchEvent(new FocusEvent('focus'));
   await flush();
-  expect(p.textContent).toBe('ad|1|0|1');        // data-sn-debounce-focus="0" overrides data-sn-debounce
+  expect(p.textContent).toBe('ad|1|0|1');        // focus has no debounce of its own: at once
   await advance(300);
   await flush();
   expect(p.textContent).toBe('ad|1|1|1');
@@ -155,7 +254,7 @@ test('data-sn-debounce-<event> delays only that handler', async () => {
 test('a debounced handler whose row was removed meanwhile does not run', async () => {
   const { root, flush, advance } = await render(`
     <ul data-sn-state="{ items: [{id: 1}], hits: 0 }">
-      <template data-sn-for="it in items" data-sn-key="it.id"><li><input data-sn-on-input="hits++" data-sn-debounce="100"></li></template>
+      <template data-sn-for="it in items" data-sn-key="it.id"><li><input data-sn-on-input="hits++" data-sn-debounce-input="100"></li></template>
       <button data-sn-on-click="items = []">x</button><p data-sn-text="hits"></p></ul>`);
   root.querySelector('input')!.dispatchEvent(new Event('input', { bubbles: true }));
   root.querySelector('button')!.click();

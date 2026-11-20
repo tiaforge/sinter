@@ -195,7 +195,7 @@ test('resources with the same src share one request', async () => {
 test('embedded data replaces the first request', async () => {
   const requests = mockRequests({});
   const { root, settle } = await render(`<html><head>
-    <script type="application/json" data-sn-data="people">[{"id":1,"name":"Ada"}]</script></head><body>
+    <script type="application/json" data-sn-resource="people">[{"id":1,"name":"Ada"}]</script></head><body>
     <sn-resource name="people" src="/api/people" key="id"></sn-resource>
     <ul><template data-sn-for="p in people"><li data-sn-text="p.name"></li></template></ul></body></html>`, { requests });
   await settle();
@@ -208,9 +208,9 @@ test('an empty placeholder (the server that fills it did not) is no data: the pa
   const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
   try {
     const { root, settle } = await render(`<html><head>
-      <script type="application/json" data-sn-data="people"></script>
-      <script type="application/json" data-sn-data="tags">  </script>
-      <script type="application/json" data-sn-data="bad">{</script></head><body>
+      <script type="application/json" data-sn-resource="people"></script>
+      <script type="application/json" data-sn-resource="tags">  </script>
+      <script type="application/json" data-sn-resource="bad">{</script></head><body>
       <sn-resource name="people" src="/api/people" key="id"></sn-resource>
       <sn-resource name="tags" src="/api/tags"></sn-resource>
       <sn-resource name="bad" src="/api/bad"></sn-resource>
@@ -235,7 +235,7 @@ test('forms serialize to nested JSON; then writes the base and closes the dialog
   const { root, settle } = await render(`
     <sn-resource name="people" src="/api/people" key="id"></sn-resource>
     <dialog open>
-      <form data-sn-post="/api/people" data-sn-then="upsert('people', $result); close()">
+      <form data-sn-post="/api/people" data-sn-then="upsert(people, $result); closeDialog()">
         <input name="name" value="Ada">
         <input name="age" type="number" value="36">
         <input name="emails[0].value" value="a@x">
@@ -289,10 +289,10 @@ test('queue sends every trigger in order; latest drops older waiting triggers', 
 });
 
 test('debounce delays the trigger', async () => {
-  const requests = mockRequests({ 'GET /api/s': [] });
+  const requests = mockRequests({ 'PUT /api/s': {} });
   const { root, flush, advance } = await render(`
     <div data-sn-state="{ q: '' }">
-      <input data-sn-model="q" data-sn-get="/api/s?q={q}" data-sn-trigger="input" data-sn-debounce="300">
+      <input data-sn-model="q" data-sn-put="/api/s?q={q}" data-sn-trigger="input" data-sn-debounce="300">
     </div>`, { requests });
   const el = root.querySelector('input')!;
   input(el, 'a'); await flush();
@@ -310,7 +310,7 @@ test('debounce on a handler: the model updates at once, the handler once input p
   const { root, flush, advance, settle } = await render(`
     <div data-sn-state="{ q: '', query: '' }">
       <sn-resource name="results" src="/api/search?q={query}" when="query" key="id"></sn-resource>
-      <input data-sn-model="q" data-sn-on-input="query = q.trim()" data-sn-debounce="250">
+      <input data-sn-model="q" data-sn-on-input="query = q.trim()" data-sn-debounce-input="250">
       <p data-sn-text="q + '|' + query + '|' + results.length"></p>
     </div>`, { requests });
   const el = root.querySelector('input')!;
@@ -328,12 +328,16 @@ test('debounce on a handler: the model updates at once, the handler once input p
   expect(requests.calls.map((c) => c.url)).toEqual(['/api/search?q=inv']);
 });
 
-test('debounce without a method or a handler is misplaced', async () => {
+test('data-sn-debounce without a method is misplaced, and names the attribute a handler takes', async () => {
   const { compile } = await import('../../src/compiler/index.js');
-  const d = compile('<div data-sn-state="{ q: 1 }"><input data-sn-model="q" data-sn-debounce="250"></div>', {
+  const d = compile('<div data-sn-state="{ q: 1 }"><p data-sn-text="q" data-sn-debounce="250"></p></div>', {
     file: '/p/x.html', root: '/p', dev: false, readFile: () => '', helpers: { module: null, names: [], namespaces: {} },
   }).diagnostics.map((x) => `${x.code} ${x.message}`);
-  expect(d).toEqual(['SN102 `data-sn-debounce` needs a method attribute (`data-sn-get`, `-post`, …) or a `data-sn-on-*` handler on the same element']);
+  expect(d).toEqual(['SN102 `data-sn-debounce` needs an action on the same element: a method attribute (`data-sn-post`, `-put`, …) or `data-sn-call`; a model waits with `data-sn-model-debounce`, a handler with `data-sn-debounce-<event>`']);
+  const h = compile('<div data-sn-state="{ q: 1 }"><input data-sn-on-input="q = 2" data-sn-on-blur="q = 3" data-sn-debounce="250"></div>', {
+    file: '/p/x.html', root: '/p', dev: false, readFile: () => '', helpers: { module: null, names: [], namespaces: {} },
+  }).diagnostics.map((x) => `${x.code} ${x.message}`);
+  expect(h).toEqual(['SN102 `data-sn-debounce` delays an action\'s trigger, and this element has none; delay the handlers with `data-sn-debounce-input="250"`, `data-sn-debounce-blur="250"`']);
 });
 
 test('unhandled errors bubble as sn-error, then reach onError', async () => {
@@ -404,6 +408,24 @@ test('$now refreshes every minute; helpers format with the locale', async () => 
   expect(root.querySelector('p')!.textContent).toBe('2026-01-01T00:01:00.000Z');
 });
 
+test('relative() follows $now: "2 minutes ago" moves on without $now in the binding', async () => {
+  const at = Date.parse('2026-01-01T00:00:00Z');
+  const { root, advance } = await render(`<p data-sn-state="{ at: ${at - 120_000} }" data-sn-text="relative(at)"></p>`, { now: at, locale: 'en-US' });
+  expect(root.querySelector('p')!.textContent).toBe('2 minutes ago');
+  await advance(60_000);
+  expect(root.querySelector('p')!.textContent).toBe('3 minutes ago');
+});
+
+test('date() formats a date, a date with its time, or the time alone; time() and datetime() say so', async () => {
+  const { root } = await render(`<p data-sn-state="{ at: '2026-03-04T09:30:00Z' }">
+    <i data-sn-text="date(at)"></i><i data-sn-text="date(at, 'medium', 'short')"></i><i data-sn-text="date(at, null, 'short')"></i></p>`, { locale: 'en-US' });
+  const [d, dt, t] = [...root.querySelectorAll('i')].map((i) => i.textContent);
+  expect(d).toMatch(/^Mar [34], 2026$/);
+  expect(dt).toMatch(/^Mar [34], 2026, \d{1,2}:30\s?[AP]M$/);
+  expect(t).toMatch(/^\d{1,2}:30\s?[AP]M$/);
+  await expect(render('<p data-sn-text="time(1)"></p>')).rejects.toThrow("`time(v)` is `date(v, null, 'short')`");
+});
+
 test('$locale assignment re-runs locale-dependent bindings', async () => {
   const { root, flush } = await render(`
     <span data-sn-text="number(1234.5)"></span>
@@ -443,11 +465,9 @@ test('render() keeps <html> attributes: persisted state on <html> is read from <
   expect([...document.documentElement.attributes].map((a) => a.name)).toEqual([]);
 });
 
-test('<sn-include> is removed: the build error names what the partial reads from the page', async () => {
-  await expect(render(`
-    <div data-sn-state="{ c: { name: 'Ada' }, d: 1 }"><template data-sn-for="x in [1]" data-sn-key="x"><sn-include src="./card.html"></sn-include></template></div>`,
-  { files: { 'card.html': '<b data-sn-state="{ own: 2 }" data-sn-text="c.name + x + own"></b>' } }))
-    .rejects.toThrow(/SN316 include-removed: `<sn-include>` is removed: a partial is a component\. Move `\.\/card\.html` to `src\/components\/x-card\.html`.* It reads `c`, `x` from the page: add them to `data-sn-component` and pass them with `data-sn-prop="\{ c: c, x: x \}"`/);
+test('<sn-include> is an unknown element', async () => {
+  await expect(render('<div><sn-include src="./card.html"></sn-include></div>', { files: { 'card.html': '<b></b>' } }))
+    .rejects.toThrow(/SN101 unknown-attribute: `<sn-include>` is not a sinter element/);
 });
 
 test('custom elements: props in, events out, a prop follows its state', async () => {
@@ -455,7 +475,7 @@ test('custom elements: props in, events out, a prop follows its state', async ()
   if (!customElements.get('x-card')) customElements.define('x-card', XCard);
   const { root, flush, state } = await render(`
     <div data-sn-state="{ item: {n: 1}, got: null }">
-      <x-card data-sn-prop="{data: item}" data-sn-on-picked="got = $event.detail"></x-card>
+      <x-card data-sn-with="{data: item}" data-sn-on-picked="got = $event.detail"></x-card>
       <p data-sn-text="got"></p><i data-sn-text="item.n"></i>
       <button data-sn-on-click="item.n = 2">next</button>
     </div>`);
@@ -475,8 +495,8 @@ test('custom elements defined after mount: props reach the class\'s setters, wit
   const seen: unknown[] = [];
   const { root, flush, state } = await render(`
     <div data-sn-state="{ msg: {id: 1}, n: 0 }">
-      <late-reader data-sn-prop="{message: msg, count: n}"></late-reader>
-      <template data-sn-for="i in [1, 2]" data-sn-key="i"><late-reader data-sn-prop="{message: {id: i}}"></late-reader></template>
+      <late-reader data-sn-with="{message: msg, count: n}"></late-reader>
+      <template data-sn-for="i in [1, 2]" data-sn-key="i"><late-reader data-sn-with="{message: {id: i}}"></late-reader></template>
       <button id="count" data-sn-on-click="n = 2">count</button><button id="next" data-sn-on-click="msg = { id: 3 }">next</button>
     </div>`);
   const [el, row] = [...root.querySelectorAll('late-reader')] as any[];
@@ -540,12 +560,12 @@ test('closed dialogs are evaluated when they open', async () => {
   expect(root.querySelector('input')!.value).toBe('Ada');
 });
 
-test('showModal(id) opens a dialog anywhere on the page; close(id) closes it from outside', async () => {
+test('openDialog(id) opens a dialog anywhere on the page; close(id) closes it from outside', async () => {
   const { root, flush } = await render(`
     <div data-sn-state="{ draft: null }">
-      <section><button class="open" data-sn-on-click="draft = {name: 'Ada'}; showModal('edit')">edit</button></section>
-      <button class="shut" data-sn-on-click="close('edit')">close</button>
-      <dialog id="edit"><input data-sn-model="draft.name"><button class="inner" data-sn-on-click="close()">x</button></dialog>
+      <section><button class="open" data-sn-on-click="draft = {name: 'Ada'}; openDialog('edit')">edit</button></section>
+      <button class="shut" data-sn-on-click="closeDialog('edit')">close</button>
+      <dialog id="edit"><input data-sn-model="draft.name"><button class="inner" data-sn-on-click="closeDialog()">x</button></dialog>
     </div>`);
   const dialog = root.querySelector('dialog')!;
   root.querySelector<HTMLButtonElement>('.open')!.click();
@@ -607,7 +627,7 @@ test('settle() runs the task that releases a dialog a close button closed: reope
   // Caley's import dialog: Cancel closes it, a new draft opens it again
   const { root, settle } = await render(`
     <div data-sn-state="{ imp: null }">
-      <button class="open" data-sn-on-click="imp = {name: 'b'}; showModal('imp')">open</button>
+      <button class="open" data-sn-on-click="imp = {name: 'b'}; openDialog('imp')">open</button>
       <dialog id="imp">
         <h2 data-sn-text="imp?.name"></h2>
         <button class="cancel" data-sn-on-click="imp = null" commandfor="imp" command="close">Cancel</button>
@@ -627,9 +647,9 @@ test('settle() runs the task that releases a dialog a close button closed: reope
   expect(h2.textContent).toBe('b');
 });
 
-test('showModal() and close() check the dialog id at build time', async () => {
-  await expect(render(`<dialog id="a"></dialog><button data-sn-on-click="showModal('b')"></button>`)).rejects.toThrow(/SN309/);
-  await expect(render(`<div data-sn-state="{ id: 'a' }"><dialog id="a"></dialog><button data-sn-on-click="close(id)"></button></div>`)).rejects.toThrow(/SN309/);
+test('openDialog() and close() check the dialog id at build time', async () => {
+  await expect(render(`<dialog id="a"></dialog><button data-sn-on-click="openDialog('b')"></button>`)).rejects.toThrow(/SN309/);
+  await expect(render(`<div data-sn-state="{ id: 'a' }"><dialog id="a"></dialog><button data-sn-on-click="closeDialog(id)"></button></div>`)).rejects.toThrow(/SN309/);
 });
 
 test('bindings in a closed dialog wait for it to open; bindings outside it do not', async () => {
@@ -657,7 +677,7 @@ test('a select in a closed dialog waits for it to open, then picks its value fro
   const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
   const { root, flush } = await render(`
     <div data-sn-state="{ imp: null, cals: ['a', 'b'] }">
-      <button data-sn-on-click="imp = { target: 'b' }; showModal('imp')">import</button>
+      <button data-sn-on-click="imp = { target: 'b' }; openDialog('imp')">import</button>
       <button class="other" data-sn-on-click="cals = ['a', 'b', 'c']; imp = { target: 'c' }">other</button>
       <dialog id="imp"><select data-sn-model="imp.target"><template data-sn-for="c in cals" data-sn-key="c"><option data-sn-attr="{value: c}" data-sn-text="c"></option></template></select></dialog>
       <p data-sn-text="cals.length"></p><i data-sn-on-click="cals = [...cals]">x</i>
@@ -862,10 +882,10 @@ test('bindings after a component inside a template keep their node paths', async
     <div data-sn-state="{ show: true, n: 'after' }">
       <template data-sn-if="show">
         <p>before</p>
-        <x-part data-sn-prop="{ n }"></x-part>
+        <x-part data-sn-with="{ n }"></x-part>
         <b data-sn-text="n"></b>
       </template>
-    </div>`, { components: { 'x-part': '<!-- a component -->\n<template data-sn-component="{ n: string }">\n  <!-- its root -->\n  <i data-sn-text="n + \'!\'"></i>\n</template>\n' } });
+    </div>`, { components: { 'x-part': '<!-- a component -->\n<template data-sn-props="{ n: string }">\n  <!-- its root -->\n  <i data-sn-text="n + \'!\'"></i>\n</template>\n' } });
   expect(root.querySelector('i')!.textContent).toBe('after!');
   expect(root.querySelector('b')!.textContent).toBe('after');
 });

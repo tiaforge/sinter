@@ -6,21 +6,21 @@ import { compile } from '../../src/compiler/index.js';
 
 const INL = "{ text: 'x-text', link: 'x-link' }";
 const C: Record<string, string> = {
-  'x-doc': `<template data-sn-component="{ doc: any; link: Slot<{ url: string }> }"><div><template data-sn-for="n in doc.children"><sn-component use="${INL}[n.type]" data-sn-prop="{ node: n }"></sn-component></template></div></template>`,
-  'x-text': '<template data-sn-component="{ node: any }"><span data-sn-text="node.value"></span></template>',
-  'x-link': `<template data-sn-component="{ node: any }"><slot name="link" data-sn-prop="{ url: node.url }"><a data-sn-attr="{ href: node.url }"><template data-sn-for="n in node.children"><sn-component use="${INL}[n.type]" data-sn-prop="{ node: n }"></sn-component></template></a></slot></template>`,
-  'x-pill': '<template data-sn-component="{ to: string }"><a class="pill" data-sn-attr="{ href: to }"><slot></slot></a></template>',
+  'x-doc': `<template data-sn-props="{ doc: any; link: Slot<{ url: string }> }"><div><template data-sn-for="n in doc.children"><sn-component use="${INL}[n.type]" data-sn-with="{ node: n }"></sn-component></template></div></template>`,
+  'x-text': '<template data-sn-props="{ node: any }"><span data-sn-text="node.value"></span></template>',
+  'x-link': `<template data-sn-props="{ node: any }"><slot name="link" data-sn-with="{ url: node.url }"><a data-sn-attr="{ href: node.url }"><template data-sn-for="n in node.children"><sn-component use="${INL}[n.type]" data-sn-with="{ node: n }"></sn-component></template></a></slot></template>`,
+  'x-pill': '<template data-sn-props="{ to: string }"><a class="pill" data-sn-attr="{ href: to }"><slot></slot></a></template>',
 };
 const DOC = { children: [{ type: 'text', value: 'see ' }, { type: 'link', url: '/a', children: [{ type: 'text', value: 'a' }, { type: 'link', url: '/b', children: [{ type: 'text', value: 'b' }] }] }] };
 const OTHER = { children: [{ type: 'link', url: '/c', children: [{ type: 'text', value: 'c' }] }] };
 
 const PAGES: Record<string, string> = {
-  alone: '<x-doc data-sn-prop="{ doc }"></x-doc>',
-  'loop and if before': '<ul><template data-sn-for="x in [1, 2, 3]"><li data-sn-text="x"></li></template></ul><template data-sn-if="doc.children.length > 1"><p>long</p></template><x-doc data-sn-prop="{ doc }"></x-doc>',
-  'component before': '<x-pill data-sn-prop="{ to: \'/home\' }">home</x-pill><x-doc data-sn-prop="{ doc }"></x-doc>',
-  'a fill of its slot': '<x-doc data-sn-prop="{ doc }"><a slot="link" class="L" data-sn-attr="{ href: $slot.url }"><slot></slot></a></x-doc>',
-  'state and a handler': '<section data-sn-state="{ n: 0 }"><button data-sn-on-click="n++" data-sn-text="n"></button></section><x-doc data-sn-prop="{ doc }"></x-doc>',
-  'two trees': '<x-doc data-sn-prop="{ doc }"></x-doc><x-doc data-sn-prop="{ doc: other }"></x-doc>',
+  alone: '<x-doc data-sn-with="{ doc }"></x-doc>',
+  'loop and if before': '<ul><template data-sn-for="x in [1, 2, 3]"><li data-sn-text="x"></li></template></ul><template data-sn-if="doc.children.length > 1"><p>long</p></template><x-doc data-sn-with="{ doc }"></x-doc>',
+  'component before': '<x-pill data-sn-with="{ to: \'/home\' }">home</x-pill><x-doc data-sn-with="{ doc }"></x-doc>',
+  'a fill of its slot': '<x-doc data-sn-with="{ doc }"><a slot="link" class="L" data-sn-attr="{ href: $slot.url }"><slot></slot></a></x-doc>',
+  'state and a handler': '<section data-sn-state="{ n: 0 }"><button data-sn-on-click="n++" data-sn-text="n"></button></section><x-doc data-sn-with="{ doc }"></x-doc>',
+  'two trees': '<x-doc data-sn-with="{ doc }"></x-doc><x-doc data-sn-with="{ doc: other }"></x-doc>',
 };
 
 function build(name: string, body: string, definitions?: Map<string, unknown>) {
@@ -57,7 +57,7 @@ test('an action in a definition: refused (its index is not renumbered), and each
   // a button in every link of the tree, after the page's own action, so the page's actions and the unit's would mix
   C['x-link'] = was.replace('<a data-sn-attr', '<button data-sn-post="/api/visit/{node.url}">visit</button><a data-sn-attr');
   try {
-    const body = '<button data-sn-post="/api/page">page</button><x-doc data-sn-prop="{ doc }"></x-doc>';
+    const body = '<button data-sn-post="/api/page">page</button><x-doc data-sn-with="{ doc }"></x-doc>';
     for (let round = 0; round < 3; round++) for (const name of ['first', 'second']) expect(build(name, body, definitions), `${name}, round ${round}`).toEqual(build(name, body));
   } finally { C['x-link'] = was; delete (globalThis as { __snLink?: unknown }).__snLink; }
   expect(stats.refused.some((r) => r.includes('adds an action'))).toBe(true);

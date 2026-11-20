@@ -17,7 +17,7 @@ each page that needs one (about 16 KB gzipped for a simple page), and a page wit
 <sn-resource name="contacts" src="/api/contacts" items="contacts" key="id" order="name"></sn-resource>
 
 <sn-sync src="/api/events">
-  <sn-event name="contact_updated" resource="contacts" op="upsert" item="contact"></sn-event>
+  <sn-event name="contact_updated" resource="contacts" op="upsert" value="$event.contact"></sn-event>
   <sn-event name="contact_removed" resource="contacts" op="remove"></sn-event>
 </sn-sync>
 
@@ -119,7 +119,7 @@ contacts.html:11:70 error SN201 unknown-identifier: `qq` is not defined here. Di
 ```
 
 The same pass rejects code that would break at runtime: writing to server data
-(`c.name = 'x'` is `SN205`, use `patch(c, {...})`) and browser APIs inside expressions
+(`c.name = 'x'` is `SN205`, use `merge(c, {...})`) and browser APIs inside expressions
 (`localStorage` is `SN202`, use a component's script). With a `type` on the resource or your OpenAPI spec,
 `sinter check` also type-checks fields, request bodies and event payloads, so `article.titel`
 reports `Property 'titel' does not exist on type 'Article'. Did you mean 'title'?`.
@@ -134,7 +134,7 @@ A component is an HTML file in `src/components/`. Its file name is its tag:
 
 ```html
 <!-- src/components/contact-card.html -->
-<template data-sn-component="{ contact: Contact; compact?: boolean }" data-sn-emits="{ pick: Contact }">
+<template data-sn-props="{ contact: Contact; compact?: boolean }" data-sn-emits="{ pick: Contact }">
   <article class="card" data-sn-class="{ compact }">
     <h2 data-sn-text="contact.name"></h2>
     <slot name="meta"></slot>
@@ -151,7 +151,7 @@ A component is an HTML file in `src/components/`. Its file name is its tag:
 ```html
 <!-- any page -->
 <template data-sn-for="c in contacts">
-  <contact-card data-sn-prop="{ contact: c }" data-sn-on-pick="open = $event.detail">
+  <contact-card data-sn-with="{ contact: c }" data-sn-on-pick="open = $event.detail">
     <small slot="meta" data-sn-text="c.email"></small>
   </contact-card>
 </template>
@@ -170,7 +170,7 @@ A component is an HTML file in `src/components/`. Its file name is its tag:
   ``<sn-component use="`${b.type}-block`">`` picks one per item.
 - **Layouts.** A document in `src/layouts/` with slots in its head and body: a page is only its tag,
   and passes its title and SEO tags in through props, head slots and head components
-  (`<template data-sn-head>`). The merge happens at build time, so the early scripts, preloads and
+  (`<template data-sn-props>`). The merge happens at build time, so the early scripts, preloads and
   bundled scripts and fonts work on the merged head.
 
 [Components](docs/components.md), [layouts](docs/layouts.md), [components with a script](docs/islands.md)
@@ -180,12 +180,12 @@ A component is an HTML file in `src/components/`. Its file name is its tag:
 ### Data
 
 - **Resources.** `<sn-resource>` loads a JSON endpoint, caches it by key and shares the request
-  between everything that asks. Loading flags, stale responses and refetching are handled.
+  between everything that asks. Loading flags, stale responses and reloading are handled.
   [Resources and store](docs/resources.md)
-- **Live updates.** `<sn-sync>` turns server events into list changes (upsert, remove, patch) with
-  attributes, over SSE, WebSocket or SignalR. Coming back online or from the back button refetches.
+- **Live updates.** `<sn-sync>` turns server events into list changes (upsert, merge, remove, refresh) with
+  attributes, over SSE, WebSocket or SignalR. Coming back online or from the back button reloads.
   [Sync](docs/sync.md), [recipe](docs/recipes/sse-sync.html)
-- **Pagination.** Keyset, offset and "load more" lists, including a start page from the URL.
+- **Pagination.** Keyset, numbered and "load more" lists, with the page in the URL.
   [Pagination](docs/pagination.md), [recipe](docs/recipes/pagination.html)
 - **Fan-out.** One request per item of another list (`each="a in accounts"`).
   [Fan-out resources](docs/resources.md)
@@ -206,7 +206,7 @@ A component is an HTML file in `src/components/`. Its file name is its tag:
 - **Dialogs, keyboard shortcuts, suggestion lists and row selection** in markup.
   [Form dialog](docs/recipes/form-dialog.html),
   [Shortcuts](docs/recipes/keyboard-shortcuts.html),
-  [Listbox](docs/actions.md),
+  [Suggestion lists](docs/actions.md#lists-you-move-through-with-the-keys),
   [Row select](docs/recipes/row-select.html)
 
 ### Speed
@@ -220,7 +220,7 @@ A component is an HTML file in `src/components/`. Its file name is its tag:
   handler for Node, Bun, Deno, Workers and Hono) stream the head first, then write each API response into
   its slot. Each checks that every slot can be filled: at compile time in Rust and C#, as a type error in
   TypeScript, and at startup. Other languages are easy to add: the
-  server only writes JSON into the `<script type="application/json" data-sn-data>` slots in the
+  server only writes JSON into the `<script type="application/json" data-sn-resource>` slots in the
   head, listed in the build's `sinter-embed.json` ([contract](docs/first-paint.md)).
 - **Instant navigation.** Next-page data (sinter, all browsers). Generated Speculation Rules and
   CSP handling for HTML prefetch or prerender (the browser fetches; Chromium). `data-sn-transition`
@@ -236,7 +236,7 @@ A component is an HTML file in `src/components/`. Its file name is its tag:
   package loads on first call; `data-sn-import` and `data-sn-preload` load it sooner where a page needs
   it. The build fails when a page would ship it anyway, and a tab left open across a deploy gets
   `$error.stale` instead of a broken import. [Lazy packages](docs/lazy.md)
-- **Component libraries as source.** `sinter({ components: ['@acme/ui'] })`: a package's components
+- **Component libraries as source.** `sinter({ libraries: ['@acme/ui'] })`: a package's components
   compile with the app's, so they get its constants, early script, types and scoped styles; their
   CSS sits in a cascade layer the app's own CSS wins over. [Libraries](docs/libraries.md),
   [markdown](packages/sinter-markdown/docs/markdown.md), and one in its own repository:
@@ -333,10 +333,10 @@ The broad concepts:
 Every attribute is in the [reference](docs/attributes.md). Optional files in `src/`:
 
 - [`sinter.config.js`](docs/configuration.md): auth headers, error handling, transports, retries.
-- [`sinter.helpers.js`](docs/configuration.md): functions your expressions can call.
-- `sinter.types.ts`, or `sinter({ openapi: 'openapi.yml' })`: types for [`sinter check`](docs/type-checking.md).
+- [`sinter.helpers.js`](docs/expressions.md#helpers): functions your expressions can call.
+- `sinter.types.ts`, or `sinter({ apis: { main: { openapi: 'openapi.yml' } } })`: types for [`sinter check`](docs/type-checking.md).
 
-`npx sinter check` type-checks every expression, and `npx sinter lsp --stdio` gives editors errors as you type ([editors](docs/editors.md)). Loading, first paint and navigation need no configuration; their options are in the [first paint](docs/first-paint.md) and [navigation](docs/navigation.md) docs.
+`npx sinter check` type-checks every expression, and `npx sinter lsp --stdio` gives editors errors as you type ([editors](docs/editors.md)). [Strict mode](docs/strict.md) makes warnings fail like errors; [expressions](docs/expressions.md) says what belongs in markup and what in a helper; built-in [messages](docs/messages.md) translate the pages; builds [minify](docs/minify.md) each page's HTML. Loading, first paint and navigation need no configuration; their options are in the [first paint](docs/first-paint.md) and [navigation](docs/navigation.md) docs.
 
 ## Contributing and license
 

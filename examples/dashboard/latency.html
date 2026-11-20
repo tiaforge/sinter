@@ -1,11 +1,11 @@
 <!-- A second page: with swaps on (vite.config.js), following the header's link swaps this page in around the
      layout's kept player and notes (data-sn-permanent). -->
-<app-layout data-sn-prop="{ title: 'Latency' }">
+<app-layout data-sn-with="{ title: 'Latency' }">
   <sn-resource name="services" src="/services" key="id" order="name"></sn-resource>
   <sn-resource name="samples" src="/samples" key="slot" order="at"></sn-resource>
   <sn-sync src="/events">
     <sn-event name="sample" resource="samples" op="upsert"></sn-event>
-    <sn-event name="service_updated" resource="services" op="upsert" item="service" type="ServiceEvent"></sn-event>
+    <sn-event name="service_updated" resource="services" op="upsert" value="$event.service" type="ServiceEvent"></sn-event>
   </sn-sync>
 
   <span slot="status" data-badge data-sn-text="{ connecting: 'Connecting…', open: 'Live', retrying: 'Reconnecting…' }[$meta.samples.live]"

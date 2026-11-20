@@ -61,7 +61,7 @@ which compiles the same way; 100 posts, the same machine:
 The output is the same, byte for byte, at each step, and so is every example app's (`examples/*`, built with
 `main` and with the change).
 
-## A page per entry (`data-sn-pages`)
+## A page per entry (`data-sn-for` on `<html>`)
 
 The app builds every post from one template (`measure.mjs`; `--files` for one page per post). Static posts, Node's
 default heap:

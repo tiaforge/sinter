@@ -50,7 +50,7 @@ test('reloads in the background once the last load is `refresh` old', async () =
   await r.settle();
   expect(states(r.root)).toEqual(['running']);
   expect(text(r.root, 'b')).toBe('2');
-  expect(r.app.page.$meta.jobs.loadedAt).toBe(Date.parse('2026-01-01T09:00:10Z'));
+  expect(r.app.page.$meta.jobs.loadedAt).toEqual(new Date('2026-01-01T09:00:10Z'));
 
   // and again, counted from that load
   await r.advance(10_000);
@@ -62,7 +62,7 @@ test('any load starts the clock again: a stream that keeps the resource current 
   const s = server();
   const stream = mockStream();
   const requests = mockRequests({ 'GET /api/jobs': s.route });
-  const html = PAGE('refresh="10s"', `<sn-sync src="/api/events"><sn-event name="jobs_changed" resource="jobs" op="refetch"></sn-event></sn-sync>`);
+  const html = PAGE('refresh="10s"', `<sn-sync src="/api/events"><sn-event name="jobs_changed" resource="jobs" op="refresh"></sn-event></sn-sync>`);
   const r = await render(html, { requests, streams: { '/api/events': stream } });
   await r.settle();
   await r.advance(8_000);
@@ -80,7 +80,7 @@ test('any load starts the clock again: a stream that keeps the resource current 
 test('`refresh()` and other loads that show `loading` still show it', async () => {
   const s = server();
   const requests = mockRequests({ 'GET /api/jobs': s.route });
-  const r = await render(PAGE('refresh="10s"', `<button data-sn-on-click="refresh('jobs')">reload</button>`), { requests });
+  const r = await render(PAGE('refresh="10s"', `<button data-sn-on-click="refresh(jobs)">reload</button>`), { requests });
   await r.settle();
   r.root.querySelector('button')!.click();
   await r.flush();
@@ -153,7 +153,7 @@ test('a response with the version of the data shown is not stored again or re-re
   expect(text(r.root, 'b')).toBe('2');
   expect(text(r.root, 's')).toBe('queued');
   // still counts as a load: loadedAt moves, and the clock starts again from it
-  expect(r.app.page.$meta.jobs.loadedAt).toBe(Date.parse('2026-01-01T09:00:10Z'));
+  expect(r.app.page.$meta.jobs.loadedAt).toEqual(new Date('2026-01-01T09:00:10Z'));
 
   tag = '"v2"';
   s.state.jobs = [{ id: 1, state: 'done' }];
@@ -181,7 +181,7 @@ test('a change to the data since (a server event) makes the next response count,
   const requests = mockRequests({ 'GET /api/jobs': s.route });
   const html = PAGE('refresh="10s"', `<sn-sync src="/api/events">
       <sn-event name="job" resource="jobs" op="upsert"></sn-event>
-      <sn-event name="jobs_changed" resource="jobs" op="refetch"></sn-event>
+      <sn-event name="jobs_changed" resource="jobs" op="refresh"></sn-event>
     </sn-sync>`);
   const r = await render(html, { requests, streams: { '/api/events': stream } });
   await r.settle();
@@ -197,8 +197,8 @@ test('a change to the data since (a server event) makes the next response count,
 test('on a page with a stream, the version check applies to every reload, not only refreshes', async () => {
   const s = server(() => '"v1"');
   const requests = mockRequests({ 'GET /api/jobs': s.route });
-  const html = PAGE('', `<button data-sn-on-click="refresh('jobs')">reload</button>
-    <sn-sync src="/api/events"><sn-event name="jobs_changed" resource="jobs" op="refetch"></sn-event></sn-sync>`);
+  const html = PAGE('', `<button data-sn-on-click="refresh(jobs)">reload</button>
+    <sn-sync src="/api/events"><sn-event name="jobs_changed" resource="jobs" op="refresh"></sn-event></sn-sync>`);
   const r = await render(html, { requests, streams: { '/api/events': mockStream() } });
   await r.settle();
   s.state.jobs = [{ id: 1, state: 'not stored' }];
@@ -212,7 +212,7 @@ test('on a page with a stream, the version check applies to every reload, not on
 test('a page with neither `refresh` nor a stream has no version check: every reload is stored', async () => {
   const s = server(() => '"v1"');
   const requests = mockRequests({ 'GET /api/jobs': s.route });
-  const r = await render(PAGE('', `<button data-sn-on-click="refresh('jobs')">reload</button>`), { requests });
+  const r = await render(PAGE('', `<button data-sn-on-click="refresh(jobs)">reload</button>`), { requests });
   await r.settle();
   s.state.jobs = [{ id: 1, state: 'stored' }];
   r.root.querySelector('button')!.click();
@@ -271,7 +271,7 @@ test('an `each` resource refreshes every source', async () => {
   });
   const html = `
     <sn-resource name="accounts" src="/api/accounts" key="id"></sn-resource>
-    <sn-resource name="boxes" each="a in accounts" src="/api/boxes?account={a.id}" key="account,name" refresh="1m"></sn-resource>
+    <sn-resource name="boxes" for="a in accounts" src="/api/boxes?account={a.id}" key="account,name" refresh="1m"></sn-resource>
     <p data-sn-text="$meta.boxes.loading ? 'loading' : 'idle'"></p>
     <ul><template data-sn-for="b in boxes"><li data-sn-text="b.account"></li></template></ul>`;
   const r = await render(html, { requests });
@@ -288,17 +288,19 @@ test('the compiler checks the value and adds the feature only where it is used',
   const page = (v: string | null) => `<sn-resource name="jobs" src="/api/jobs"${v == null ? '' : ` refresh="${v}"`}></sn-resource><p data-sn-text="jobs"></p>`;
   const ok = compile(page('5m'), opts);
   expect(ok.diagnostics).toEqual([]);
-  expect(ok.module).toContain("import sn$refresh from '@tiaforge-ui/sinter/refresh'");
+  expect(ok.module).toContain("import sn$refresh from '@tiaforge-ui/sinter/runtime/refresh'");
   expect(ok.module).toContain('"refresh":300000');
-  expect(ok.module).toContain("import sn$versions from '@tiaforge-ui/sinter/versions'");
+  expect(ok.module).toContain("import sn$versions from '@tiaforge-ui/sinter/runtime/versions'");
   const plain = compile(page(null), opts).module;
   expect(plain).not.toContain('sinter/refresh');
   expect(plain).not.toContain('sinter/versions');
   // a stream reloads resources too (refetch events, reconnects): its pages get the version check
-  const streamed = compile(`${page(null)}<sn-sync src="/api/events"><sn-event name="x" resource="jobs" op="refetch"></sn-event></sn-sync>`, opts).module;
-  expect(streamed).toContain("import sn$versions from '@tiaforge-ui/sinter/versions'");
+  const streamed = compile(`${page(null)}<sn-sync src="/api/events"><sn-event name="x" resource="jobs" op="refresh"></sn-event></sn-sync>`, opts).module;
+  expect(streamed).toContain("import sn$versions from '@tiaforge-ui/sinter/runtime/versions'");
   expect(streamed).not.toContain('sinter/refresh');
   const errors = (v: string) => compile(page(v), opts).diagnostics.map((d) => `${d.code} ${d.message}`);
   expect(errors('0s')).toEqual(['SN401 `refresh` must be at least `1s`']);
-  for (const v of ['500ms', '', 'soon', '1d']) expect(errors(v)).toEqual([expect.stringMatching(/^SN401 `refresh` takes/)]);
+  expect(errors('500ms')).toEqual(['SN401 `refresh` must be at least `1s`']);
+  for (const v of ['', 'soon', '30']) expect(errors(v)).toEqual([expect.stringMatching(/^SN401 `refresh` takes the longest time between loads, a duration/)]);
+  expect(errors('1d')).toEqual([]);
 });

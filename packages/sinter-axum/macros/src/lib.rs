@@ -46,14 +46,14 @@ impl Parse for Input {
 }
 
 /// One placeholder as the check sees it.
-struct Slot {
+struct Placeholder {
     page: String,
     resource: String,
     /// why the build could not describe its request, if it could not
     undescribed: Option<&'static str>,
 }
 
-fn slots(manifest: &serde_json::Value) -> Result<Vec<Slot>, String> {
+fn placeholders(manifest: &serde_json::Value) -> Result<Vec<Placeholder>, String> {
     if manifest.get("version").and_then(|v| v.as_u64()) != Some(2) {
         return Err("not a sinter-embed.json of version 2".into());
     }
@@ -69,7 +69,7 @@ fn slots(manifest: &serde_json::Value) -> Result<Vec<Slot>, String> {
             } else {
                 None
             };
-            out.push(Slot { page: page.into(), resource: resource.into(), undescribed });
+            out.push(Placeholder { page: page.into(), resource: resource.into(), undescribed });
         }
     }
     Ok(out)
@@ -92,7 +92,7 @@ pub fn embed(input: TokenStream) -> TokenStream {
             return syn::Error::new(dir.span(), msg).to_compile_error().into();
         }
     };
-    let slots = match serde_json::from_str::<serde_json::Value>(&text).map_err(|e| e.to_string()).and_then(|m| slots(&m)) {
+    let placeholders = match serde_json::from_str::<serde_json::Value>(&text).map_err(|e| e.to_string()).and_then(|m| placeholders(&m)) {
         Ok(s) => s,
         Err(e) => return syn::Error::new(dir.span(), format!("{}: {e}", file.display())).to_compile_error().into(),
     };
@@ -103,14 +103,15 @@ pub fn embed(input: TokenStream) -> TokenStream {
     };
     for e in &entries {
         let k = e.key.value();
-        if !slots.iter().any(|s| s.resource == k || format!("{}:{}", s.page, s.resource) == k) {
+        if !placeholders.iter().any(|s| s.resource == k || format!("{}:{}", s.page, s.resource) == k) {
             let names: Vec<String> =
-                slots.iter().map(|s| format!("`{}`", s.resource)).collect::<std::collections::BTreeSet<_>>().into_iter().collect();
+                placeholders.iter().map(|s| format!("`{}`", s.resource)).collect::<std::collections::BTreeSet<_>>().into_iter().collect();
             push(syn::Error::new(e.key.span(), format!("no page of the build has a placeholder for `{k}` (it has {})", names.join(", "))));
         }
     }
-    let covered = |s: &Slot| entries.iter().any(|e| e.key.value() == s.resource || e.key.value() == format!("{}:{}", s.page, s.resource));
-    for s in &slots {
+    let covered =
+        |s: &Placeholder| entries.iter().any(|e| e.key.value() == s.resource || e.key.value() == format!("{}:{}", s.page, s.resource));
+    for s in &placeholders {
         if let (Some(why), false) = (s.undescribed, covered(s)) {
             push(syn::Error::new(
                 dir.span(),

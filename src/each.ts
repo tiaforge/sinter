@@ -51,7 +51,7 @@ function fanOut(l: ResourceLoader, app: App) {
       s.answered = loaded = true;
       r.meta.error = null;
       // loadedAt: every current source has answered once
-      if ([...sources.values()].every((x) => x.answered)) r.meta.loadedAt = app.env.now();
+      if ([...sources.values()].every((x) => x.answered)) r.meta.loadedAt = new Date(app.env.now());
     } catch (e) {
       if (n != s.seq || isAbort(e)) return;
       s.answered = failed = true;
@@ -92,7 +92,7 @@ function fanOut(l: ResourceLoader, app: App) {
     }
     // nothing to load: loaded once the list itself is (an empty list is an answer, a pending one is not)
     if (!sources.size && r.meta.loadedAt == null && (!each.of || app.resource(each.of).meta.loadedAt != null)) {
-      r.meta.loadedAt = app.env.now();
+      r.meta.loadedAt = new Date(app.env.now());
       r.onDirty('meta');
     }
     l.loading(pending > 0);
@@ -100,8 +100,8 @@ function fanOut(l: ResourceLoader, app: App) {
   l.start = () => l.changed();
   l.load = () => Promise.all([...sources.keys()].map((u) => load(u))).then(() => {});
   // a hint (an event's payload) that resolves to one source's URL reloads only that source;
-  // several refetches in one task share one round of requests
-  l.refetch = (hint?: object, quiet?: boolean) => {
+  // several reloads in one task share one round of requests
+  l.refresh = (hint?: object, quiet?: boolean) => {
     const u = hint ? urlOf(hint) : null;
     queued.add(u != null && sources.has(u) ? u : '*');
     if (!quiet) loud = true;

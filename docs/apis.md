@@ -70,7 +70,7 @@ A configured API accepts only the operations it declares, in its spec or in `ope
 | `src="https://api.example.com/v1/x"` | `SN328` names the origin of the API `main`: write `/x` |
 | `operations` without `type` for a resource | `SN504` warning (untyped), as for any resource without a type |
 
-The parameters `paginate` sends (`size-param`, `offset-param`, `page-param`, `direction-param`, the
+The parameters `paginate` sends (the names in its `params`, or its API's `paginate.params`, and the
 cursor's fields) count as given, and are checked too. A parameter with `style: deepObject` accepts
 `name[field]`.
 
@@ -82,11 +82,11 @@ A path matches the spec's paths as `src` always did: a literal segment matches t
 `items`, `total`, `key` and `type` come from the API's `defaults` or `operations`, else from the
 element, and the type from the spec. When the config has a value, a resource does not write it:
 the same value is warning `SN518` (it says nothing), a different one error `SN330`. `order`,
-`each`, `paginate`, `when`, `then`, `cache`, `refresh` and `early` stay on the element: they are how
+`for`, `paginate`, `when`, `then`, `cache`, `refresh` and `early` stay on the element: they are how
 the page uses the data.
 
 `key` is never guessed. A list of objects without `key` is warning `SN517`: the resource is one
-object holding the list, fine for a list that is only read, but an `upsert`, `patch` or `remove`
+object holding the list, fine for a list that is only read, but an `upsert`, `merge` or `remove`
 would act on the whole list.
 
 ## Resources that load with POST
@@ -97,7 +97,7 @@ would act on the whole list.
 
 A search or report endpoint that takes a request body. The body is sent as JSON, checked against
 the request schema, and the resource reloads when it changes; loads with the same URL and body
-share one request. A POST resource cannot have `cache`, `paginate` or `each`, and loads from the
+share one request. A POST resource cannot have `cache`, `paginate` or `for`, and loads from the
 page module only: it is not preloaded, requested early, prefetched or embedded.
 
 ## Requests
@@ -111,7 +111,7 @@ token) still gets a request of its own.
   `headers` gets none, and the early file's request (which sends them) is its first.
   `credentials: 'include'` writes `crossorigin="use-credentials"`.
 - Early requests leave before request middleware runs. When the config module may change requests
-  (`configure({ request })`, `header()`, `credentials()`), nothing is requested early: a request without
+  (`configure({ request })`, `header()`), nothing is requested early: a request without
   what the middleware adds (a token) would be refused and sent again ([first paint](first-paint.md#request-middleware-and-sign-in)).
 - The spec's `security` refines that per operation (the operation's, else the document's):
   - public (`security: []`, or an alternative `{}`) or a cookie (`apiKey` with `in: cookie`,
@@ -156,6 +156,9 @@ npx sinter migrate --write    # rewrites the pages, components and layouts
 
 What it does:
 
+- **Renames.** First, as without `apis`: every rename the compiler reports is written (`data-sn-prop` →
+  `data-sn-with`, `refresh('people')` → `refresh(people)`, …), until a pass finds none. A change that is
+  not a rename (an old value the message describes) is left for you, as the build reports it.
 - **URLs.** Every URL that starts with an API's base becomes the path relative to it, with `api:` for
   another API than the default.
 - **The page's own paths.** In a file it migrates, a same-origin path under no base (`/config.json`

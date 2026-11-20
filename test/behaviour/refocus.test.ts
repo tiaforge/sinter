@@ -6,8 +6,8 @@ import { mockRequests, render } from '../../src/testing/index.js';
 const TOGGLE = `
   <sn-resource name="a" src="/api/a"></sn-resource>
   <template data-sn-if="a">
-    <template data-sn-if="a.on"><button id="t" data-sn-delete="/api/a/on" data-sn-optimistic="patch(a, { on: false })">On</button></template>
-    <template data-sn-else><button id="t" data-sn-post="/api/a/on" data-sn-optimistic="patch(a, { on: true })">Off</button></template>
+    <template data-sn-if="a.on"><button id="t" data-sn-delete="/api/a/on" data-sn-optimistic="merge(a, { on: false })">On</button></template>
+    <template data-sn-else><button id="t" data-sn-post="/api/a/on" data-sn-optimistic="merge(a, { on: true })">Off</button></template>
   </template>
   <input id="elsewhere">`;
 const api = () => mockRequests({ 'GET /api/a': { on: false }, 'POST /api/a/on': { on: true }, 'DELETE /api/a/on': { on: false } });
@@ -65,8 +65,8 @@ test('a bound id in a list row: the row\'s own twin, not another row\'s', async 
   const r = await render(`
     <sn-resource name="items" src="/api/items" key="id"></sn-resource>
     <ul><template data-sn-for="x in items"><li>
-      <template data-sn-if="x.fav"><button data-sn-attr="{ id: 'fav-' + x.id }" data-sn-on-click="patch(x, { fav: false })">Unfav</button></template>
-      <template data-sn-else><button data-sn-attr="{ id: 'fav-' + x.id }" data-sn-on-click="patch(x, { fav: true })">Fav</button></template>
+      <template data-sn-if="x.fav"><button data-sn-attr="{ id: 'fav-' + x.id }" data-sn-on-click="merge(x, { fav: false })">Unfav</button></template>
+      <template data-sn-else><button data-sn-attr="{ id: 'fav-' + x.id }" data-sn-on-click="merge(x, { fav: true })">Fav</button></template>
     </li></template></ul>`, { requests: mockRequests({ 'GET /api/items': [{ id: 1, fav: false }, { id: 2, fav: false }] }) });
   await r.settle();
   const doc = r.root.ownerDocument;

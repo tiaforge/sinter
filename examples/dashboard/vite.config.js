@@ -1,14 +1,11 @@
-import { resolve } from 'node:path';
 import { defineConfig } from 'vite';
 import sinter from '@tiaforge-ui/sinter/vite';
 import temper from '@tiaforge-ui/temper/vite';
 import api from './server/api.js';
 
 export default defineConfig({
-  appType: 'mpa',
   // two pages: the header links them; with swaps on, a link swaps the next page in and the layout's player and
   // notes stay (data-sn-permanent)
-  build: { rollupOptions: { input: { index: resolve(import.meta.dirname, 'index.html'), latency: resolve(import.meta.dirname, 'latency.html') } } },
   plugins: [
     // The backend describes itself in server/openapi.yml: every resource is typed from it, and the
     // build checks each expression in index.html against it (typecheck). A wrong field name fails it.

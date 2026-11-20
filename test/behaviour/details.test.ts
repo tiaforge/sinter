@@ -18,20 +18,51 @@ test('load failures set $meta.error and dispatch sn-error with the resource', as
   expect(root.querySelector('p')!.textContent).toBe('503 down');
 });
 
-test('reset() resets the nearest form and its models', async () => {
-  const requests = mockRequests({ 'POST /api/x': null });
+test('a form\'s reset restores its fields, and their models follow', async () => {
+  const { root, settle } = await render(`
+    <div data-sn-state="{ v: 'start', on: false }">
+      <form><input name="v" value="start" data-sn-model="v"><input type="checkbox" data-sn-model="on"><button type="reset">r</button></form>
+      <p data-sn-text="v + on"></p>
+    </div>`);
+  const [input, box] = root.querySelectorAll('input');
+  input!.value = 'typed';
+  input!.dispatchEvent(new Event('input', { bubbles: true }));
+  box!.click();
+  await settle();
+  expect(root.querySelector('p')!.textContent).toBe('typedtrue');
+  root.querySelector('form')!.reset();
+  await settle();
+  expect(input!.value).toBe('start');
+  expect(root.querySelector('p')!.textContent).toBe('startfalse');
+});
+
+test('a reset that is prevented changes no model', async () => {
   const { root, settle } = await render(`
     <div data-sn-state="{ v: 'start' }">
-      <form data-sn-post="/api/x" data-sn-then="reset()"><input name="v" value="start" data-sn-model="v"></form>
+      <form data-sn-on-reset="$event.preventDefault()"><input name="v" value="start" data-sn-model="v"></form>
       <p data-sn-text="v"></p>
+    </div>`);
+  const input = root.querySelector('input')!;
+  input.value = 'typed';
+  input.dispatchEvent(new Event('input', { bubbles: true }));
+  root.querySelector('form')!.reset();
+  await settle();
+  expect(root.querySelector('p')!.textContent).toBe('typed');
+});
+
+test('a form clears after a send by clearing its state', async () => {
+  const requests = mockRequests({ 'POST /api/x': null });
+  const { root, settle } = await render(`
+    <div data-sn-state="{ v: '' }">
+      <form data-sn-post="/api/x" data-sn-body="{ v }" data-sn-then="v = ''"><input name="v" data-sn-model="v"></form>
     </div>`, { requests });
   const input = root.querySelector('input')!;
   input.value = 'typed';
   input.dispatchEvent(new Event('input', { bubbles: true }));
   root.querySelector('form')!.requestSubmit();
   await settle();
-  expect(input.value).toBe('start');
-  expect(root.querySelector('p')!.textContent).toBe('start');
+  expect(requests.calls.map((c) => c.body)).toEqual([{ v: 'typed' }]);
+  expect(input.value).toBe('');
 });
 
 test('an <a> with a method attribute does not navigate', async () => {

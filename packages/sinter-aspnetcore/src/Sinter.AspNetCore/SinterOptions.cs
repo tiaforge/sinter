@@ -4,7 +4,7 @@ using Microsoft.AspNetCore.Builder;
 namespace Sinter.AspNetCore;
 
 /// <summary>A resolver: your code for one resource's data.</summary>
-public delegate ValueTask<SlotData> SlotResolver(SlotRequest request);
+public delegate ValueTask<PlaceholderData> PlaceholderResolver(PlaceholderRequest request);
 
 /// <summary>
 /// The configuration: a build's output directory and where the data comes from. The middleware checks
@@ -13,7 +13,7 @@ public delegate ValueTask<SlotData> SlotResolver(SlotRequest request);
 /// <remarks>
 /// Where a placeholder's data comes from, first match:
 /// <list type="number">
-/// <item><see cref="Resolve(string, SlotResolver)"/>: your function for that resource;</item>
+/// <item><see cref="Resolve(string, PlaceholderResolver)"/>: your function for that resource;</item>
 /// <item><see cref="Skip"/>: none, the browser requests it;</item>
 /// <item>the request the build describes: a same-origin path goes to <see cref="Upstream"/> if set, else to
 /// the app's own endpoints (minimal APIs, MVC controllers), called in-process; an absolute URL is fetched
@@ -22,7 +22,7 @@ public delegate ValueTask<SlotData> SlotResolver(SlotRequest request);
 /// </remarks>
 public sealed class SinterOptions
 {
-    internal Dictionary<string, SlotResolver> Resolvers { get; } = new(StringComparer.Ordinal);
+    internal Dictionary<string, PlaceholderResolver> Resolvers { get; } = new(StringComparer.Ordinal);
     internal HashSet<string> Skips { get; } = new(StringComparer.Ordinal);
     internal List<string> Origins { get; } = [];
     internal List<Action<IApplicationBuilder>> ApiMiddleware { get; } = [];
@@ -92,21 +92,21 @@ public sealed class SinterOptions
     /// Your function for a resource's data: <c>"articles"</c> applies to every page,
     /// <c>"profile.html:articles"</c> to one. It takes precedence over the request the build describes.
     /// </summary>
-    public SinterOptions Resolve(string resource, SlotResolver resolver)
+    public SinterOptions Resolve(string resource, PlaceholderResolver resolver)
     {
         Resolvers[resource] = resolver;
         return this;
     }
 
     /// <summary>Your function for a resource's data, as a UTF-8 JSON body (null leaves it to the browser).</summary>
-    public SinterOptions Resolve(string resource, Func<SlotRequest, ValueTask<byte[]?>> resolver) =>
-        Resolve(resource, async r => SlotData.From(await resolver(r).ConfigureAwait(false)));
+    public SinterOptions Resolve(string resource, Func<PlaceholderRequest, ValueTask<byte[]?>> resolver) =>
+        Resolve(resource, async r => PlaceholderData.From(await resolver(r).ConfigureAwait(false)));
 
     /// <summary>Your function for a resource's data, as a value serialized with the type information given (null leaves it to the browser).</summary>
-    public SinterOptions Resolve<T>(string resource, JsonTypeInfo<T> type, Func<SlotRequest, ValueTask<T?>> resolver) =>
-        Resolve(resource, async r => SlotData.Serialize(await resolver(r).ConfigureAwait(false), type));
+    public SinterOptions Resolve<T>(string resource, JsonTypeInfo<T> type, Func<PlaceholderRequest, ValueTask<T?>> resolver) =>
+        Resolve(resource, async r => PlaceholderData.Serialize(await resolver(r).ConfigureAwait(false), type));
 
-    /// <summary>A resource the server does not fill: the browser requests it (data only the browser can request, such as the user's with a token from JavaScript). Names as for <see cref="Resolve(string, SlotResolver)"/>.</summary>
+    /// <summary>A resource the server does not fill: the browser requests it (data only the browser can request, such as the user's with a token from JavaScript). Names as for <see cref="Resolve(string, PlaceholderResolver)"/>.</summary>
     public SinterOptions Skip(string resource)
     {
         Skips.Add(resource);

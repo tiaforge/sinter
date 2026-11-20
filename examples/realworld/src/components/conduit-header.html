@@ -1,6 +1,6 @@
 <!-- Navbar. The layout declares the `user` resource; `nav` is the active link, `guest` whether the
      visitor is signed out (`signedOut()` until `user` has loaded, then whether the server knows them). -->
-<template data-sn-component="{ nav: string }">
+<template data-sn-props="{ nav: string }">
   <nav class="navbar navbar-light" data-sn-let="{ guest: $meta.user.loadedAt ? !user : signedOut() }">
     <div class="container">
       <a class="navbar-brand" href="/">conduit</a>
@@ -17,7 +17,7 @@
         </template>
         <template data-sn-if="!user && $meta.user.error">
           <li class="nav-item"><span class="nav-link">Connecting…</span></li>
-          <li class="nav-item"><button class="btn btn-sm btn-outline-secondary" type="button" data-sn-on-click="refresh('user')">Retry</button></li>
+          <li class="nav-item"><button class="btn btn-sm btn-outline-secondary" type="button" data-sn-on-click="refresh(user)">Retry</button></li>
         </template>
         <!-- signed out: known before the first paint when no token is stored (the page's `guest`), so
              these links and the home banner do not shift the page in later; while a stored token is

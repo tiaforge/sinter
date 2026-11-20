@@ -1,5 +1,5 @@
 <!-- The page links of a paginated list (its `$meta`); `query`: what the links keep besides `page`. -->
-<template data-sn-component="{ meta: { pages?: number | null; page?: number | null }; query?: string }">
+<template data-sn-props="{ meta: { pages?: number | null; page?: number | null }; query?: string }">
   <nav>
     <ul class="pagination">
       <template data-sn-for="n in range(meta.pages)" data-sn-key="n">

@@ -10,13 +10,13 @@ import sinter from '../../src/vite.js';
 import { engines } from '../browser.js';
 
 const src = resolve(__dirname, '../../src');
-const alias = [{ find: /^@tiaforge-ui\/sinter\/(.+)$/, replacement: `${src}/$1.ts` }, { find: /^@tiaforge-ui\/sinter$/, replacement: `${src}/index.ts` }];
+const alias = [{ find: /^@tiaforge-ui\/sinter\/runtime$/, replacement: `${src}/runtime-entry.ts` }, { find: /^@tiaforge-ui\/sinter\/(?:runtime\/)?(.+)$/, replacement: `${src}/$1.ts` }, { find: /^@tiaforge-ui\/sinter$/, replacement: `${src}/index.ts` }];
 const root = mkdtempSync(join(tmpdir(), 'sinter-components-'));
 afterAll(() => rmSync(root, { recursive: true, force: true }));
 
 beforeAll(() => {
   mkdirSync(join(root, 'src/components'), { recursive: true });
-  writeFileSync(join(root, 'src/components/x-card.html'), `<template data-sn-component="{ title: string }">
+  writeFileSync(join(root, 'src/components/x-card.html'), `<template data-sn-props="{ title: string }">
   <section class="card"><h2 data-sn-text="title"></h2><p class="own">own</p><x-inner></x-inner><slot></slot></section>
   <!-- (a second instance below is a sibling: the first one's \`.card + .card\` must not reach it) -->
 </template>
@@ -28,12 +28,12 @@ beforeAll(() => {
   .card + .card { outline: 3px solid red; }
 </style>
 `);
-  writeFileSync(join(root, 'src/components/x-inner.html'), '<template data-sn-component=""><div class="inner"><p class="nested">nested</p></div></template>\n');
-  writeFileSync(join(root, 'src/components/x-page.html'), `<template data-sn-component=""><main><x-card data-sn-prop="{ title: 'In page' }"><p class="mine">slot</p></x-card></main></template>
+  writeFileSync(join(root, 'src/components/x-inner.html'), '<template data-sn-props=""><div class="inner"><p class="nested">nested</p></div></template>\n');
+  writeFileSync(join(root, 'src/components/x-page.html'), `<template data-sn-props=""><main><x-card data-sn-with="{ title: 'In page' }"><p class="mine">slot</p></x-card></main></template>
 <style>p { text-decoration: underline; }</style>
 `);
   writeFileSync(join(root, 'index.html'), `<!doctype html><html><head><title>c</title></head><body>
-<div data-sn-state="{ t: 'Hello' }"><x-card data-sn-prop="{ title: t }"><p class="page">from the page</p></x-card><x-card class="second" data-sn-prop="{ title: 'two' }"></x-card></div>
+<div data-sn-state="{ t: 'Hello' }"><x-card data-sn-with="{ title: t }"><p class="page">from the page</p></x-card><x-card class="second" data-sn-with="{ title: 'two' }"></x-card></div>
 <x-page></x-page>
 </body></html>`);
 });
@@ -84,7 +84,7 @@ test('a component with a script: its base class from its HTML, the generated typ
   try {
     mkdirSync(join(app, 'src/components'), { recursive: true });
     writeFileSync(join(app, 'src/sinter.types.ts'), 'export interface Task { id: number; done: boolean }\n');
-    writeFileSync(join(app, 'src/components/task-ring.html'), `<template data-sn-component="{ tasks: Task[] }" data-sn-emits="{ pick: 'done' | 'open' }">
+    writeFileSync(join(app, 'src/components/task-ring.html'), `<template data-sn-props="{ tasks: Task[] }" data-sn-emits="{ pick: 'done' | 'open' }">
   <figure data-sn-state="{ drawn: 0 }">
     <canvas data-sn-ref="canvas"></canvas>
     <figcaption data-sn-text="tasks.filter((t) => t.done).length + ' done, drawn ' + drawn"></figcaption>
@@ -100,7 +100,7 @@ export class TaskRing extends TaskRingComponent {
 `);
     writeFileSync(join(app, 'index.html'), `<!doctype html><html><head><title>t</title></head><body>
 <div data-sn-state="{ tasks: [{ id: 1, done: true }, { id: 2, done: false }], picked: '' }">
-  <task-ring data-sn-prop="{ tasks }" data-sn-on-pick="picked = $event.detail"></task-ring>
+  <task-ring data-sn-with="{ tasks }" data-sn-on-pick="picked = $event.detail"></task-ring>
   <button data-sn-on-click="tasks = [...tasks, { id: 3, done: true }]">add</button>
   <output data-sn-text="picked"></output>
 </div>

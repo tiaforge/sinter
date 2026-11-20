@@ -4,6 +4,7 @@
 // again, on the next body.
 import { expect, test } from 'vitest';
 import * as sinter from '../../src/index.js';
+import * as runtime from '../../src/runtime-entry.js';
 import { compile } from '../../src/compiler/index.js';
 
 const PAGE = '<!doctype html><html><head><title>x</title></head><body><aside data-sn-permanent="player"></aside><div data-sn-state="{ n: 0 }"><button data-sn-on-click="n++"></button><b data-sn-text="n"></b></div></body></html>';
@@ -12,10 +13,10 @@ const build = (swap: boolean) => compile(PAGE, { file: '/p/a.html', root: '/p', 
 const PAGES = Symbol.for('sinter.pages');
 /** runs a page module at `url` (its imports from sinter given): what it registered */
 async function run(module: string, url = 'http://localhost/assets/a.js'): Promise<{ boot?: () => sinter.App; kept?: string[] }> {
-  const imports = /^import \{ ([^}]*) \} from '@tiaforge-ui\/sinter';$/m.exec(module)![1]!;
+  const imports = /^import \{ ([^}]*) \} from '@tiaforge-ui\/sinter\/runtime';$/m.exec(module)![1]!;
   const body = module.replace(/^import .*$/gm, '').replaceAll('import.meta.url', '$url');
   const fn = new Function('$sinter', '$url', `return (async () => { const { ${imports} } = $sinter; ${body} })();`);
-  await fn(sinter, url);
+  await fn(runtime, url);
   return (globalThis as unknown as Record<symbol, Record<string, { boot: () => sinter.App; kept: string[] }>>)[PAGES]?.[url] ?? {};
 }
 const SWAPPING = Symbol.for('sinter.swapping');

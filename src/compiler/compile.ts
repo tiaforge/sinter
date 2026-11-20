@@ -5,7 +5,7 @@ import { rewriteImages, sourceFile, type ImageHost, type ImageResult } from './i
 import { boxSizesCss, type ReserveTrace, Layout, PLACEHOLDER_BASE, type Affine, type Reserved, type StyleSheet } from './layout.js';
 import { shows } from './status-eval.js';
 import { recordChild, replay as replayUnit, LINK_FIELDS, UNIT_NUMBERING, type Plan, type Refused } from './link.js';
-import { HEAD_ELEMENTS, parseDocument } from './head.js';
+import { HEAD_ELEMENTS, kindOfComponent, parseDocument } from './head.js';
 import { minifyMarkup } from './minify.js';
 import type { RemoteConfig } from '../remote.js';
 import { AUTO_FIT_HINT, AUTO_FIT_ROWS, FLUID_WIDTHS } from './images.js';
@@ -14,7 +14,7 @@ import { parseExpression, parseProgram } from './parse.js';
 import { fullAncestor } from 'acorn-walk';
 import type { DefaultTreeAdapterMap } from 'parse5';
 import { type Code, type Diagnostic, didYouMean, severityOf, suggest } from './diagnostics.js';
-import { analyze, literalNames, STORE_FNS, throughField, type SlotScope, type ComponentScope, type ExprOptions, type ExprResult, type LetEntry, type LoopEntry, type PageInfo, type Read, type ResourceInfo, type Scope } from './expr.js';
+import { analyze, applyEdits, refNames, STORE_FNS, throughField, type SlotScope, type ComponentScope, type ExprOptions, type ExprResult, type LetEntry, type LoopEntry, type PageInfo, type Read, type ResourceInfo, type Scope } from './expr.js';
 import { callerAttribute, COMPONENT_NAME, DOM_EVENTS, LIBRARY_LAYER, rootCss, scopeCss, SLOT_TYPE, typeMembers, withoutSlots, type Member } from './components.js';
 import type { Node } from 'acorn';
 import type * as acorn from 'acorn';
@@ -64,13 +64,13 @@ export interface CompileOptions {
    */
   listFiles?: (dir: string) => string[];
   /**
-   * `data-sn-pages` (docs/static-pages.md#a-page-per-entry): the entry this compile writes, and the path it is written
-   * at (the page's pattern filled from it). Without it, a page with `data-sn-pages` is compiled as its template, its
+   * `<html data-sn-for>` (docs/static-pages.md#a-page-per-entry): the entry this compile writes, and the path it is written
+   * at (the page's pattern filled from it). Without it, a page with `<html data-sn-for>` is compiled as its template, its
    * entry the list's first (`sinter check`, the editor, and the build's look at it, which lists its entries: `pages`).
    */
   page?: { value: unknown; path: string; key?: string };
   /**
-   * Builds: where a `data-sn-pages` template's first pass is kept, so its other entries are not walked again
+   * Builds: where a `<html data-sn-for>` template's first pass is kept, so its other entries are not walked again
    * (`fromTemplate`). The compiles that share one must differ only in what each entry changes: `page`, `foldLog`,
    * `urls`, `moduleSrc`, `paintCss`, `images` and `locale.urls`. Cleared with the build's reads.
    */
@@ -134,12 +134,10 @@ export interface CompileOptions {
   foldLog?: (key: string, args: FoldArg[], result: string, id: number) => void;
   /** SN507: limits for expressions too complex for markup, and the level (default `warn`) */
   complexity?: ComplexityOptions;
-  /** SN509: report `then`/`catch` handlers that start each other again through `run()` (off by default) */
-  checkCycles?: boolean;
   /** write bindings whose value is a build-time constant (literal state, no helpers) into the HTML */
   prerender?: boolean;
   /**
-   * the app's config may change requests (middleware, `header()`, `credentials()`): nothing is requested before the
+   * the app's config may change requests (middleware, `header()`): nothing is requested before the
    * page module (an early request lacks what the middleware adds: refused, then sent again), unless the spec says the
    * operation is public or answered with cookies
    */
@@ -167,7 +165,7 @@ export interface CompileOptions {
    * credentials, as the request layer sends cross-origin requests
    */
   origins?: string[];
-  /** the early module runs as a classic script in the head, started by `observe` (see `@tiaforge-ui/sinter/early`); with `early.src`, its tag is classic */
+  /** the early module runs as a classic script in the head, started by `observe` (see `@tiaforge-ui/sinter/runtime/early`); with `early.src`, its tag is classic */
   observe?: boolean;
   /**
    * builds served by a server that fills embedded data (sinter-axum): every resource whose request
@@ -184,7 +182,7 @@ export interface CompileOptions {
   /** where the app's components are (default `<root>/src/components`): `<name>.html` is the component `<name>` */
   components?: string;
   /**
-   * the component libraries (`sinter({ components })`, docs/libraries.md): a tag with a library's prefix
+   * the component libraries (`sinter({ libraries })`, docs/libraries.md): a tag with a library's prefix
    * is its component, from `<folder>/components/` (public) or `<folder>/components/internal/`
    */
   libraries?: readonly CompileLibrary[];
@@ -303,7 +301,7 @@ export interface CompileResult {
   diagnostics: Diagnostic[];
   files: string[];
   /**
-   * `data-sn-pages`: the variable, the list, the pattern, and each entry with the path it fills (compiled as the
+   * `<html data-sn-for>`: the variable, the list, the pattern, and each entry with the path it fills (compiled as the
    * template: no `page` option). A build writes one page per entry.
    */
   pages?: { name: string; of: string; pattern: string; entries: Array<{ value: unknown; path: string; key: string }> };
@@ -369,7 +367,7 @@ export interface EarlyParts {
  * writes at mount (the runtime's own functions, bundled into the page's early file beside the messages module that
  * sets their locale). Not `relative`: it reads the clock.
  */
-export const EARLY_FORMATTERS = ['date', 'time', 'datetime', 'number', 'bytes'];
+export const EARLY_FORMATTERS = ['date', 'number', 'bytes'];
 
 /**
  * What another page needs to request this page's data ahead (the `prefetch` feature): its
@@ -388,13 +386,13 @@ export interface PrefetchParts {
 }
 
 /**
- * One embedded-data placeholder (`data-sn-data`), for a server that fills it per request (a
+ * One embedded-data placeholder (`data-sn-resource`), for a server that fills it per request (a
  * middleware: `sinter-embed.json`). `id`: the `data-sn` id the build gives the `<script>`. `src`:
  * the resource's URL template when only literals and plain `$url.<name>` reads make it up (`{ url:
  * name }`), else null and the server must produce the data itself (`call`, `each` too). `when`:
  * the resource has a condition the server cannot evaluate. `query`: a paginated resource's first
  * page, the parameters the pager sends for it (`firstParams`), set on the template's URL as the
- * runtime sets them (`withParams`), in this order. `start`: its `page-model` parameter; from page 2
+ * runtime sets them (`withParams`), in this order. `start`: its `model` (paginate) parameter; from page 2
  * on, the parameters are `query` of `start` with `key` set to the page (with `skip`, to
  * `(page - 1) * size`), as the pager's `pageParams` writes them.
  */
@@ -447,7 +445,7 @@ export interface CompiledParts {
   diagnostics: Diagnostic[];
   files: string[];
   /**
-   * `data-sn-pages`: the variable, the list, the pattern, and each entry with the path it fills (compiled as the
+   * `<html data-sn-for>`: the variable, the list, the pattern, and each entry with the path it fills (compiled as the
    * template: no `page` option). A build writes one page per entry.
    */
   pages?: { name: string; of: string; pattern: string; entries: Array<{ value: unknown; path: string; key: string }> };
@@ -504,13 +502,60 @@ export interface CompiledParts {
 }
 
 const ATTRS = ATTRIBUTES.map((a) => a.name);
-const METHODS = ['get', 'post', 'put', 'patch', 'delete'] as const;
+const METHODS = ['post', 'put', 'patch', 'delete'] as const;
+/** attributes that are gone or renamed (docs/proposals/vocabulary.md): what to write instead. Removed at 1.0, as SN316 was */
+const RETIRED: Record<string, string> = {
+  'data-sn-data': 'is renamed to `data-sn-resource`, which names the resource the embedded JSON is for: `<script type="application/json" data-sn-resource="people">`',
+  'data-sn-prop': 'is renamed to `data-sn-with`, so passing values and declaring them (`data-sn-props`) are different words: `<contact-card data-sn-with="{ contact: c }">`',
+  'data-sn-component': 'is renamed to `data-sn-props`, the one declaration of a component\'s or a layout\'s props: `<template data-sn-props="{ article: Article }">`',
+  'data-sn-head': 'is renamed to `data-sn-props`: a component whose markup is head elements is a head component, `<template data-sn-props="{ title?: string }"><title …></template>`',
+  'data-sn-layout': 'is renamed to `data-sn-props` on the layout\'s `<html>`: `<html lang="en" data-sn-props="{ title?: string }">`',
+  'data-sn-pages': 'is renamed to `data-sn-for`, on `<html>` (or a layout\'s tag): `<html data-sn-for="post in posts" data-sn-path="/blog/:slug">` builds the page once per entry',
+  'data-sn-apply': 'is renamed to `data-sn-write-through`, the name of what it turns off: `data-sn-write-through="off"`',
+  'data-sn-listbox': 'is renamed to `data-sn-options`, which also serves menus and lists: on a text field it works as before; on the element that holds the options, that element takes the focus',
+  'data-sn-get': 'is gone: data a GET loads is a resource, `<sn-resource name="hits" src="/api/search?q={q}" when="q">`, which reloads when the values its URL reads change (latest wins); a load a click starts sets the state its `when` reads (docs/recipes/click-to-load.html), or is a `data-sn-call`',
+};
 /** an action's expressions evaluated when it triggers, so they see `$event` */
-const TRIGGER_TIME = new Set(['data-sn-get', 'data-sn-post', 'data-sn-put', 'data-sn-patch', 'data-sn-delete', 'data-sn-call', 'data-sn-body', 'data-sn-confirm']);
-const ACTION_ONLY = ['body', 'trigger', 'debounce', 'concurrency', 'optimistic', 'then', 'catch', 'confirm', 'encoding', 'apply', 'retry'];
+const TRIGGER_TIME = new Set(['data-sn-post', 'data-sn-put', 'data-sn-patch', 'data-sn-delete', 'data-sn-call', 'data-sn-body', 'data-sn-confirm']);
+/** attributes sinter writes on the page for CSS to style (docs/attributes.md), never written in markup */
+export const SET_BY_SINTER: Record<string, string> = {
+  'data-sn-marked': 'on the option a `data-sn-options` list marks',
+  'data-sn-error': 'on the message it inserts after a field with a server error',
+  'data-sn-failed': 'on the `<body>` of a page whose server render failed',
+};
+/**
+ * A duration in markup, one grammar for every attribute that takes one: a number and `ms`, `s`, `m`, `h` or `d`
+ * (`300ms`, `2s`, `10m`, `1d`). `bare: 'ms'`: a number alone is milliseconds (the debounces). Null when malformed.
+ */
+export function duration(v: string, bare: 'ms' | null): number | null {
+  const m = /^\s*(\d+(?:\.\d+)?)\s*(ms|s|m|h|d)?\s*$/.exec(v);
+  if (!m || (!m[2] && bare !== 'ms')) return null;
+  return Number(m[1]) * { ms: 1, s: 1e3, m: 6e4, h: 36e5, d: 864e5 }[(m[2] ?? 'ms') as 'ms'];
+}
+const DURATION = 'a duration such as `300ms`, `2s`, `10m`, `2h` or `1d`';
+/** an old cursor (`{uid}`, `{ before: id }`, its fields bare) as the cursor of `$item`: `{ uid: $item.uid }` */
+function itemCursor(text: string): string {
+  let ast: acorn.Expression;
+  try { ast = parseExpression(text); } catch { return text; }
+  const edits: Array<[number, number, string]> = [];
+  fullAncestor(ast as Node, (n, _s, anc) => {
+    if (n.type !== 'Identifier') return;
+    const id = n as acorn.Identifier, p = anc[anc.length - 2] as acorn.Node | undefined;
+    if (id.name.startsWith('$') || (p?.type === 'MemberExpression' && (p as acorn.MemberExpression).property === id && !(p as acorn.MemberExpression).computed)) return;
+    if (p?.type === 'Property' && (p as acorn.Property).key === id && !(p as acorn.Property).shorthand) return;
+    if (p?.type === 'Property' && (p as acorn.Property).shorthand) edits.push([p.start, p.end, `${id.name}: $item.${id.name}`]);
+    else edits.push([id.start, id.end, `$item.${id.name}`]);
+  });
+  let out = text;
+  for (const [a, b, t] of edits.sort((x, y) => y[0] - x[0])) out = out.slice(0, a) + t + out.slice(b);
+  return out;
+}
+const ACTION_ONLY = ['body', 'trigger', 'debounce', 'concurrency', 'optimistic', 'then', 'catch', 'confirm', 'encoding', 'write-through', 'retry'];
 const UNSAFE_ELEMENTS = new Set(['script', 'style', 'iframe', 'object', 'embed', 'base', 'meta', 'link', 'animate', 'set', 'animatemotion', 'animatetransform']);
 const FORM_CONTROLS = new Set(['input', 'select', 'textarea']);
 const RESOURCE_ATTRS = ELEMENTS.find((e) => e.name === 'sn-resource')!.attrs;
+/** the attributes `paginate` replaced (docs/proposals/vocabulary.md): reported with the object they become */
+const PAGINATE_OLD = ['page-size', 'size-param', 'cursor', 'direction-param', 'direction-values', 'page-param', 'offset-param', 'page-model'];
 const EVENT_ATTRS = ELEMENTS.find((e) => e.name === 'sn-event')!.attrs;
 const IDENT = /^[A-Za-z_][\w]*$/;
 const BAD_PARAM = /^(constructor|__proto__|prototype)$/;
@@ -570,7 +615,7 @@ interface Use {
   file: string;
   host: P5Element;
   root: P5Element;
-  /** the component's `<template data-sn-component>`, where its contract is written */
+  /** the component's `<template data-sn-props>`, where its contract is written */
   template: P5Element;
   /** declared props and events (null: written as a type the compiler cannot list, such as an alias); props without `Slot<T>` members */
   props: Member[] | null;
@@ -592,7 +637,7 @@ interface Use {
   scope?: ComponentScope;
   /** the caller's scope at the use: its attributes on the tag and its slot content see it */
   caller?: Scope;
-  /** a head component (`data-sn-head`): its elements, inlined at the use with no wrapper */
+  /** a head component (`data-sn-props`): its elements, inlined at the use with no wrapper */
   head?: { roots: P5Element[]; parent: Use | null };
   /** what its markup sees, computed once (a head component's elements share it, and the branches of a chain root) */
   markup?: Scope;
@@ -600,7 +645,7 @@ interface Use {
   shape?: RootShape;
   /** such a root's tag was slot content: the use whose caller wrote it */
   hostSlot?: Use;
-  /** a layout (`<html data-sn-layout>`): the page is its tag, its root the layout's `<html>` */
+  /** a layout (`<html data-sn-props>`): the page is its tag, its root the layout's `<html>` */
   layout?: true;
   /** a layout's tag's handlers, compiled on the layout's `<body>` (the page's `<body>` handlers, as before layouts) */
   bodyHandlers?: P5Element;
@@ -616,23 +661,26 @@ interface ComponentFile {
   script?: string | null;
   /** the class it exports: `TaskRing` for `task-ring`, else `default`; null when it exports neither */
   exported?: string | null;
-  /** `<template data-sn-head>`: a head component */
+  /** `<template data-sn-props>`: a head component */
   head?: boolean;
+  /** its markup is only what a head and a body both hold (slots, `<script>`, `<style>`, `<noscript>`): a head
+   *  component where it is used in a head, else a body component (`asKind`) */
+  either?: boolean;
   /** its `<style>` as written, for `rootCss` */
   rawCss?: string;
   /** the names of its slots that pass data (`Slot<T>` in its props type), read once */
   dataSlots?: Set<string>;
-  /** a component of a library (`sinter({ components })`); `internal`: in its `components/internal/` */
+  /** a component of a library (`sinter({ libraries })`); `internal`: in its `components/internal/` */
   lib?: CompileLibrary;
   internal?: true;
 }
 
 /**
- * A `<slot>` that passes data (`data-sn-prop` on it, `Slot<T>` in the props type): one place where a
- * fill renders. Its `data-sn-prop` is compiled where the fill is walked, in the component's scope there.
+ * A `<slot>` that passes data (`data-sn-with` on it, `Slot<T>` in the props type): one place where a
+ * fill renders. Its `data-sn-with` is compiled where the fill is walked, in the component's scope there.
  */
 interface Placement {
-  /** the `<slot>`, detached once filled: where its `data-sn-prop` is written */
+  /** the `<slot>`, detached once filled: where its `data-sn-with` is written */
   el: P5Element;
   use: Use;
   name: string;
@@ -688,8 +736,6 @@ function plainRoot(e: P5Node | undefined, c: { componentFile(tag: string): unkno
  */
 type FillChain = Placement[];
 
-/** An `<sn-include>`, kept only to name what the partial reads from the page in its migration error. */
-interface IncludeRec { el: P5Element; src: string; names: Set<string>; site: Set<object> | null }
 /**
  * an expression's place: the value of `attr` (null: the element's start tag), `shift` characters in.
  * `parts`: for a function the compiler wrote, the code it inlined (found in order) and where each was written.
@@ -737,19 +783,34 @@ function onceKey(el: P5Element): { id: string; label: string } | null {
 }
 
 /** the events the runtime itself sends, which bubble up the page */
-const SINTER_EVENTS = ['sn-error', 'dismiss', 'navigate'];
+const SINTER_EVENTS = ['sn-error', 'sn-dismiss', 'sn-navigate'];
+/** sinter's own events before they took the `sn-` prefix, as every one of them has now */
+const UNPREFIXED: Record<string, string> = { navigate: 'sn-navigate', dismiss: 'sn-dismiss' };
 
 /** a prop's value that is a build-time constant, and those of them that are falsy */
 const CONST_PROP = /^(true|false|null|undefined|-?\d+(\.\d+)?|'[^'\\]*'|"[^"\\]*")$/;
 const FALSY_PROP = ['false', 'null', 'undefined', '0', "''", '""'];
 
 /** The query parameters `paginate` adds to a request, by mode (`runtime/pages.ts`), and the cursor's fields. */
+/** `paginate`, read (`pageSpec`): the cursor and the model with where they are written in the attribute */
+interface PageSpec {
+  mode: Paginate['mode'];
+  size: number;
+  cursor: { text: string; at: number } | null;
+  model: { name: string | null; at: number } | null;
+  jump: boolean;
+  /** numbered: `numbered: 'offset'`, the items to skip are sent instead of the page number */
+  skip: boolean;
+  params: { size?: string; page?: string; offset?: string; direction?: string };
+  directions: Paginate['directionValues'] | null;
+}
+
 function paginateParams(p: Paginate, cursor: string | undefined): string[] {
   const out = [p.sizeParam];
-  if (p.mode === 'offset') out.push(p.offsetParam ?? p.pageParam);
+  if (p.mode === 'numbered') out.push(p.skipParam ?? p.pageParam);
   else {
     out.push(p.directionParam);
-    if (p.offsetParam) out.push(p.offsetParam);
+    if (p.skipParam) out.push(p.skipParam);
     if (cursor) {
       try {
         const ast = parseExpression(cursor) as acorn.Expression;
@@ -784,7 +845,7 @@ function constantProps(src: string | undefined, props: Member[] | null): Map<str
 }
 
 /** what a component's tag may not carry: these change its content, which belongs to the component */
-const TAG_ONLY_HINT = 'a component\'s tag takes `data-sn-prop`, `data-sn-model`, handlers, actions, `data-sn-class`, `-attr`, `-style`, `-show` and `-transition`; the rest belongs inside the component';
+const TAG_ONLY_HINT = 'a component\'s tag takes `data-sn-with`, `data-sn-model`, handlers, actions, `data-sn-class`, `-attr`, `-style`, `-show` and `-transition`; the rest belongs inside the component';
 
 export function compileParts(html: string, options: CompileOptions): CompiledParts {
   let out = compilePasses(html, options);
@@ -828,7 +889,7 @@ export function compilerFields(html: string, options: CompileOptions): Array<[st
 /** what a unit shares of its page as it is (`unitChild`); its numbering (`UNIT_NUMBERING`) it copies */
 const UNIT_SHARED = new Set(['page', 'componentFiles']);
 
-/** a `data-sn-pages` template walked once (`fromTemplate`): its first pass, kept for each entry's evaluation */
+/** a `<html data-sn-for>` template walked once (`fromTemplate`): its first pass, kept for each entry's evaluation */
 type KeptTemplate = { c: Compiler; path: string; checked: boolean; hits: number; misses: number };
 
 /** the template walked as one entry's first pass, up to its evaluation; null when its entries cannot share it */
@@ -842,7 +903,7 @@ function keepTemplate(html: string, options: CompileOptions): KeptTemplate | nul
 }
 
 /**
- * `data-sn-pages` in a build (`templates`): an entry's page from its template's first pass, kept for every entry.
+ * `<html data-sn-for>` in a build (`templates`): an entry's page from its template's first pass, kept for every entry.
  * Each entry's first pass is the same program: the entry is a constant resource only the evaluation reads
  * (`prerender`, through `fileConstants`), and what it decides is keyed by place (`instKey`). So the template is
  * walked once, each entry is only evaluated again (`decideFor`) and compiled with what it decided: one walk per
@@ -974,6 +1035,10 @@ class Compiler {
   private readonly layoutFiles = new Map<string, { file: string; text: string } | null>();
   /** component files by tag, read once (null: no such component, a plain custom element) */
   private readonly componentFiles = new Map<string, ComponentFile | null>();
+  /** `paginate` read once per element (`pageSpec`) */
+  private readonly pageSpecs = new WeakMap<P5Element, PageSpec | null>();
+  /** the component files whose kind is being decided (`componentFile`), against cycles */
+  private readonly kinding = new Set<string>();
   /** by component id (`ComponentScope.id`): the use, for the refs of its markup */
   private readonly useById = new Map<number, Use>();
   /** slot content's top-level elements and the component whose markup they are ('' for the page's) */
@@ -1035,11 +1100,7 @@ class Compiler {
   readonly lazyLoads = new Map<string, string>();
   /** `data-sn-preload`: the lazy packages the build preloads with the page */
   readonly preloads = new Set<string>();
-  /** nodes that came from an `<sn-include>`, and the top-level ones */
-  private readonly includeOf = new WeakMap<object, IncludeRec>();
-  private readonly includeTop = new WeakMap<object, IncludeRec>();
-  private readonly includes: IncludeRec[] = [];
-  /** `patch()`/`remove()` sources: what handlers assign to state paths and components emit, by reference (`@$s3.sel`, `@ev:2:select`) */
+  /** `merge()`/`remove()` sources: what handlers assign to state paths and components emit, by reference (`@$s3.sel`, `@ev:2:select`) */
   private readonly srcOf = new Map<string, Set<string>>();
   /** calls whose sources hold references, resolved after the walk */
   /** write-through targets whose row's source is a reference: added once it is resolved */
@@ -1206,7 +1267,7 @@ class Compiler {
     }));
   }
   /**
-   * SN519: a pager link (a static query-only `href` that sets a `page-model` parameter) that drops
+   * SN519: a pager link (a static query-only `href` that sets a `model` (paginate) parameter) that drops
    * query parameters the page reads. A filter or tab link that drops the page is how a list starts
    * at page 1; a link whose `href` is also bound is its fallback.
    */
@@ -1224,7 +1285,7 @@ class Compiler {
         'build the whole query in `data-sn-attr` (`href: \'?page=\' + n + \'&tag=\' + encodeURIComponent($url.tag)`), or leave the parameter out on purpose');
     }
   }
-  /** `page-model` parameters: one is never a list */
+  /** `model` (paginate) parameters: one is never a list */
   readonly pageModels: Array<{ name: string; report: (msg: string) => void }> = [];
   /**
    * The checks that need every array parameter: one bound as a list and as one value (SN210), a list
@@ -1237,7 +1298,7 @@ class Compiler {
       if (f.includes('$.$u(')) for (const n of arrays) f = f.split(`$.$u(${JSON.stringify(n)}, `).join(`$.$l(${JSON.stringify(n)}, `);
       this.fns[i] = f;
     });
-    for (const p of this.pageModels) if (arrays.has(p.name)) p.report(`\`page-model\` takes a URL parameter that is one value; \`$url.${p.name}\` is a list (a \`<select multiple>\` or a checkbox with a \`value\` binds it)`);
+    for (const p of this.pageModels) if (arrays.has(p.name)) p.report(`\`model\` (paginate) takes a URL parameter that is one value; \`$url.${p.name}\` is a list (a \`<select multiple>\` or a checkbox with a \`value\` binds it)`);
     for (const b of this.urlBinds) if (!b.array && arrays.has(b.name)) b.report(`\`$url.${b.name}\` is a list elsewhere on the page (a \`<select multiple>\` or a checkbox with a \`value\`), and one value here; bind it as a list everywhere`);
     for (const w of this.page.urlWrites ?? []) {
       if (w.list && !arrays.has(w.name)) w.report('SN210', `\`$url.${w.name}\` is one value (no \`<select multiple>\` or checkbox with a \`value\` binds it), and a list is written to it; write one value`);
@@ -1333,7 +1394,6 @@ class Compiler {
     this.tag(doc, { file: this.opts.file, src: html, chain: [] });
     if (this.isLayoutFile(this.opts.file)) this.diagnostics.push({ severity: 'error', code: 'SN318', message: 'a layout is not a page: a page uses it by its tag. Leave `src/layouts/` out of the build\'s inputs', file: this.opts.file, line: 1, col: 1 });
     else doc = this.mergeLayout(doc) ?? doc;
-    this.expandIncludes(doc, [this.opts.file]);
     this.pagesOf(doc);
     this.head = findHead(doc);
     this.expandComponents(doc, []);
@@ -1382,7 +1442,6 @@ class Compiler {
     this.finishChoices();
     this.resolveSources();
     this.fileUses();
-    this.reportIncludes();
     // the component's name on its root: in dev builds for devtools, and on pages with scoped styles,
     // which start at the roots and stop at other components' roots and at slot content (`data-sn-s`)
     const styled = [...this.uses.keys()].filter((n) => this.componentFiles.get(n)?.css);
@@ -1414,7 +1473,7 @@ class Compiler {
     }
     this.runTargets();
     if (this.opts.swap && !this.swapOff) this.swapScripts(doc);
-    if (this.opts.checkCycles) this.runCycles();
+    this.runCycles();
     for (const el of this.remove) detach(el);
     this.markLowPriority();
     this.walked = this.diagnostics.length;
@@ -1536,7 +1595,7 @@ class Compiler {
       const ms = [...v].filter((m) => imported(`${k}$${m}`)).sort();
       if (ms.length) namespaces[k] = ms;
     }
-    // unchanged reloads skipped by version, where reloads are routine: refreshes, refetch events and reconnects
+    // unchanged reloads skipped by version, where reloads are routine: refreshes, refresh events and reconnects
     if (this.features.has('refresh') || this.features.has('sse')) this.features.add('versions');
     // a handler or model that writes `$url`: the query string follows (location.ts)
     if (this.page.writesUrl) this.features.add('location');
@@ -1547,7 +1606,7 @@ class Compiler {
       const params = new Set(this.pagesDecl.pattern.split('/').filter((x) => x[0] === ':').map((x) => x.slice(1)));
       const read = new Set<string>();
       eachPath(ir, (p) => { if (typeof p === 'string' && p.startsWith('$url.')) { const n = p.slice(5).split('.')[0]!; if (params.has(n)) read.add(n); } }, () => {});
-      for (const n of [...read].sort()) this.report(this.pagesDecl.html, 'data-sn-pages', 'SN345', `\`$url.${n}\` on a \`data-sn-pages\` page: each entry's page is written at its own path, so \`:${n}\` is the entry's field, \`${this.pagesDecl.name}.${n}\``, 0);
+      for (const n of [...read].sort()) this.report(this.pagesDecl.html, 'data-sn-for', 'SN345', `\`$url.${n}\` on a page per entry (\`data-sn-for\` on \`<html>\`): each entry's page is written at its own path, so \`:${n}\` is the entry's field, \`${this.pagesDecl.name}.${n}\``, 0);
     }
     const reads = this.urlReads(ir, paths), own = this.ownPaths(paths);
     if (reads) this.checkDroppedQuery(reads, paths);
@@ -1563,7 +1622,7 @@ class Compiler {
       ir, fns: this.fns,
       ...(this.opts.prerender ? { fixedState: this.fixedState() } : {}),
       ...(this.opts.sourcemap ? { sources: this.sourcesOf(this.fns) } : {}),
-      features: [...(this.opts.dev ? ['dev'] : []), ...['sse', 'optimistic', 'paginate', 'persist', 'cache', 'versions', 'refresh', 'each', 'listbox', 'keys', 'apply', 'fields', 'form', 'select', 'location', 'typing', 'query-links', 'navigate', 'call', 'debounce', 'confirm', 'models', 'transition', 'components', 'nested', 'lets'].filter((f) => this.features.has(f))],
+      features: [...(this.opts.dev ? ['dev'] : []), ...['sse', 'optimistic', 'paginate', 'persist', 'cache', 'versions', 'refresh', 'each', 'options', 'keys', 'write-through', 'fields', 'form', 'select', 'location', 'typing', 'query-links', 'navigate', 'call', 'debounce', 'confirm', 'models', 'transition', 'components', 'nested', 'lets'].filter((f) => this.features.has(f))],
       helpers: { user, builtin }, namespaces, calls: [...this.calls].sort(),
       diagnostics: this.diagnostics, files: [...this.files].sort(), ...(this.fileGlobs.length ? { globs: this.fileGlobs } : {}), ...(this.pagesOut ? { pages: this.pagesOut } : {}),
       ...(this.check ? { check: this.check } : {}),
@@ -1728,36 +1787,118 @@ class Compiler {
     return { args: this.fn(r.code), run: this.fn(`($a, $c) => ${local}(...$a, $c)`), name };
   }
 
-  /** `direction-values="{prev: 'backward', next: 'forward'}"`: static data, string values for known directions only */
-  directionValues(el: P5Element): Paginate['directionValues'] | null {
-    const text = attr(el, 'direction-values')!;
-    const DIRS = ['first', 'prev', 'next', 'last'] as const;
-    const fail = (message: string, offset = 0) => { this.report(el, 'direction-values', 'SN401', message, offset); return null; };
-    let ast: acorn.Expression;
-    try {
-      ast = parseExpression(text);
-    } catch (e) {
-      return fail(`\`direction-values\`: ${(e as Error).message.replace(/ \(\d+:\d+\)$/, '')}`, (e as { pos?: number }).pos ?? 0);
-    }
-    if (ast.type !== 'ObjectExpression' || ast.end !== text.trimEnd().length) {
-      return fail("`direction-values` is an object literal of strings, e.g. `{prev: 'backward', next: 'forward'}`");
-    }
-    const out: NonNullable<Paginate['directionValues']> = {};
-    for (const p of ast.properties) {
-      if (p.type !== 'Property' || p.computed || p.kind !== 'init' || p.method || p.shorthand) {
-        return fail("`direction-values` is an object literal of strings, e.g. `{prev: 'backward', next: 'forward'}`", p.start);
-      }
-      const key = p.key.type === 'Identifier' ? p.key.name : p.key.type === 'Literal' ? String(p.key.value) : '';
-      if (!(DIRS as readonly string[]).includes(key)) {
-        return fail(`\`${key}\` is not a direction; directions are \`first\`, \`prev\`, \`next\` and \`last\`.${didYouMean(key, DIRS)}`, p.key.start);
-      }
-      if (p.value.type !== 'Literal' || typeof p.value.value !== 'string') {
-        return fail(`the value for \`${key}\` must be a string literal`, p.value.start);
-      }
-      out[key as typeof DIRS[number]] = p.value.value;
-    }
-    return out;
+  /**
+   * `paginate="{ keyset: { before: $item.id }, size: 20 }"` (docs/pagination.md): how a list pages, as one object literal.
+   * The mode is the key (`keyset` or `append` with the cursor, `numbered: true`); `size`; `model: $url.page` (numbered);
+   * `jump: true` (keyset, by `params.offset`); `params` and `directions`, the server's names, over the API's
+   * (`sinter({ apis: { main: { paginate } } })`). Parsed once per element; null after reporting what is wrong.
+   */
+  pageSpec(el: P5Element): PageSpec | null {
+    if (this.pageSpecs.has(el)) return this.pageSpecs.get(el)!;
+    const spec = this.readPageSpec(el);
+    this.pageSpecs.set(el, spec);
+    return spec;
   }
+
+  private readPageSpec(el: P5Element): PageSpec | null {
+    const text = attr(el, 'paginate');
+    if (text == null) return null;
+    const EXAMPLE = '`paginate="{ keyset: { before: $item.id }, size: 20 }"`, `{ numbered: true, size: 10 }` or `{ append: { before: $item.id }, size: 20 }`';
+    const fail = (message: string, offset = 0) => { this.report(el, 'paginate', 'SN401', message, offset); return null; };
+    if (/^\s*(keyset|offset|append)\s*$/.test(text)) return fail(`\`paginate\` is one object literal now: ${this.legacyPaginate(el) ?? EXAMPLE}`);
+    let ast: acorn.Expression;
+    try { ast = parseExpression(text); } catch (e) { return fail(`\`paginate\`: ${(e as Error).message.replace(/ \(\d+:\d+\)$/, '')}`, (e as { pos?: number }).pos ?? 0); }
+    if (ast.type !== 'ObjectExpression' || ast.end !== text.trimEnd().length) return fail(`\`paginate\` is an object literal: ${EXAMPLE}`);
+    const lead = text.length - text.trimStart().length;
+    const spec: PageSpec = { mode: 'keyset', size: 0, cursor: null, model: null, jump: false, skip: false, params: {}, directions: null };
+    let modes = 0;
+    const seen = new Set<string>();
+    const strings = (v: acorn.Node, keys: readonly string[], what: string): Record<string, string> | null => {
+      const o = v as acorn.Expression;
+      if (o.type !== 'ObjectExpression') return fail(`\`${what}\` is an object literal of strings`, o.start);
+      const out: Record<string, string> = {};
+      for (const q of o.properties) {
+        if (q.type !== 'Property' || q.computed || q.kind !== 'init' || q.method || q.shorthand) return fail(`\`${what}\` is an object literal of strings`, q.start);
+        const k = q.key.type === 'Identifier' ? q.key.name : q.key.type === 'Literal' ? String(q.key.value) : '';
+        if (!keys.includes(k)) return fail(`\`${k}\` is not a key of \`${what}\`; it takes ${keys.map((x) => `\`${x}\``).join(', ')}.${didYouMean(k, keys)}`, q.key.start);
+        if (q.value.type !== 'Literal' || typeof q.value.value !== 'string' || !q.value.value) return fail(`\`${what}.${k}\` is a non-empty string literal`, q.value.start);
+        if (what === 'params' && !/^[\w.\-[\]]+$/.test(q.value.value)) return fail(`\`params.${k}\` is a query parameter name`, q.value.start);
+        out[k] = q.value.value;
+      }
+      return out;
+    };
+    for (const p of ast.properties) {
+      if (p.type !== 'Property' || p.computed || p.kind !== 'init' || p.method || p.shorthand) return fail(`\`paginate\` takes \`key: value\` entries: ${EXAMPLE}`, p.start);
+      const key = p.key.type === 'Identifier' ? p.key.name : p.key.type === 'Literal' ? String(p.key.value) : '';
+      if (seen.has(key)) return fail(`\`${key}\` is given twice in \`paginate\``, p.key.start);
+      seen.add(key);
+      const v = p.value as acorn.Expression;
+      if (key === 'keyset' || key === 'append') {
+        modes++;
+        spec.mode = key;
+        if (v.type !== 'ObjectExpression') return fail(`\`${key}\` is the cursor, an object literal read on the boundary item, \`$item\`: \`${key}: { before: $item.id }\``, v.start);
+        spec.cursor = { text: text.slice(v.start, v.end), at: v.start };
+      } else if (key === 'offset') {
+        return fail('`offset: true` is renamed to `numbered: true` (pages by number; `numbered: \'offset\'` sends the items to skip): `{ numbered: true, size: 10 }`', p.key.start);
+      } else if (key === 'numbered') {
+        modes++;
+        spec.mode = 'numbered';
+        // `true`: the page number; `'offset'`: the items to skip (a server that skips by offset)
+        if (v.type !== 'Literal' || (v.value !== true && v.value !== 'offset')) return fail('`numbered` takes `true` (sends the page number) or `\'offset\'` (sends the items to skip): `{ numbered: true, size: 10 }`', v.start);
+        spec.skip = v.value === 'offset';
+      } else if (key === 'size') {
+        if (v.type !== 'Literal' || typeof v.value !== 'number' || !Number.isInteger(v.value) || v.value <= 0) return fail('`size` is the number of items per page, a positive whole number', v.start);
+        spec.size = v.value;
+      } else if (key === 'model') {
+        const name = v.type === 'MemberExpression' && !v.computed && v.object.type === 'Identifier' && v.object.name === '$url' && v.property.type === 'Identifier' ? v.property.name : null;
+        spec.model = { name, at: v.start };
+      } else if (key === 'jump') {
+        if (v.type !== 'Literal' || v.value !== true) return fail('`jump` takes `true`: page numbers on a keyset list, sent as `params.offset`', v.start);
+        spec.jump = true;
+      } else if (key === 'params') {
+        const o = strings(v, ['size', 'page', 'offset', 'direction'], 'params');
+        if (!o) return null;
+        spec.params = o;
+      } else if (key === 'directions') {
+        const o = strings(v, ['first', 'prev', 'next', 'last'], 'directions');
+        if (!o) return null;
+        spec.directions = o;
+      } else {
+        const KEYS = ['keyset', 'append', 'numbered', 'size', 'model', 'jump', 'params', 'directions'];
+        return fail(`\`${key}\` is not a key of \`paginate\`; it takes ${KEYS.map((x) => `\`${x}\``).join(', ')}.${didYouMean(key, KEYS)}`, p.key.start);
+      }
+    }
+    if (modes !== 1) return fail(`\`paginate\` names one mode, \`keyset\`, \`append\` (each with its cursor) or \`numbered: true\`: ${EXAMPLE}`, lead);
+    if (!spec.size) return fail('`paginate` needs `size`, the number of items per page', lead);
+    if (spec.model && spec.mode !== 'numbered') return fail(`\`model\` is for numbered lists, where every move has a page number when it is made; ${spec.mode === 'append' ? 'append lists load more by cursor' : 'keyset lists move by cursor, and their page number is often unknown'}`, spec.model.at);
+    if (spec.jump && spec.mode !== 'keyset') return fail(`\`jump\` is for \`keyset\` lists; ${spec.mode === 'numbered' ? 'a numbered list jumps already' : 'append lists only load more'}`, lead);
+    if (spec.directions && spec.mode === 'numbered') return fail('`directions` is for `keyset` and `append` lists; a numbered list sends page numbers', lead);
+    // names this list never sends (an API's `params` may name them for its other lists)
+    if (spec.params.page && spec.mode !== 'numbered') return fail('`params.page` is for numbered lists; a keyset or append list moves by its cursor', lead);
+    if (spec.params.offset && !spec.skip && !spec.jump) return fail(`\`params.offset\` names a parameter this list does not send: only \`numbered: 'offset'\` and \`jump: true\` send the items to skip${spec.mode === 'numbered' ? `; write \`numbered: 'offset'\` to send them instead of the page number` : spec.mode === 'keyset' ? '; add `jump: true` for page numbers' : ''}`, lead);
+    if (spec.params.direction && spec.mode === 'numbered') return fail('`params.direction` is for `keyset` and `append` lists; a numbered list sends page numbers', lead);
+    return spec;
+  }
+
+  /** the old attributes (`paginate="keyset" size="20" cursor="{…}" …`) as the object that replaces them, or null */
+  legacyPaginate(el: P5Element): string | null {
+    const mode = attr(el, 'paginate')?.trim();
+    if (mode !== 'keyset' && mode !== 'offset' && mode !== 'append') return null;
+    const parts: string[] = [];
+    const cursor = attr(el, 'cursor')?.trim(), offset = attr(el, 'offset-param')?.trim();
+    parts.push(mode === 'offset' ? (offset ? "numbered: 'offset'" : 'numbered: true') : `${mode}: ${cursor ? itemCursor(cursor) : '{ … }'}`);
+    parts.push(`size: ${attr(el, 'page-size')?.trim() || '…'}`);
+    const pm = attr(el, 'page-model')?.trim();
+    if (pm) parts.push(`model: ${pm}`);
+    if (mode === 'keyset' && offset) parts.push('jump: true');
+    const params = [['size', 'size-param'], ['page', 'page-param'], ['offset', 'offset-param'], ['direction', 'direction-param']]
+      .map(([k, a]) => [k, attr(el, a!)?.trim()] as const).filter(([k, v]) => v && !(k === 'offset' && v === 'offset')).map(([k, v]) => `${k}: '${v}'`);
+    if (params.length) parts.push(`params: { ${params.join(', ')} }`);
+    const dirs = attr(el, 'direction-values')?.trim();
+    if (dirs) parts.push(`directions: ${dirs}`);
+    return `\`paginate="{ ${parts.join(', ')} }"\``;
+  }
+
 
   /**
    * SN540: with swaps on, a script in the body that a swap would not run (inline or classic: the module
@@ -1811,89 +1952,29 @@ class Compiler {
     return (code, message, offset, hint) => this.report(el, attr, code, message, offset + shift, hint, true);
   }
 
-  // ---- includes
-
-  expandIncludes(parent: P5Parent, chain: string[]) {
-    const children = [...parent.childNodes];
-    for (const child of children) {
-      if (!isElement(child)) continue;
-      if (child.tagName === 'sn-include') {
-        this.include(child, chain);
-        continue;
-      }
-      this.expandIncludes(child, chain);
-      if (child.tagName === 'template') this.expandIncludes((child as P5Template).content, chain);
-    }
-  }
-
-  include(el: P5Element, chain: string[]) {
-    const src = attr(el, 'src');
-    const origin = this.origins.get(el)!;
-    const fail = (code: Code, msg: string) => { this.report(el, 'src', code, msg, 0); detach(el); };
-    if (src == null || src === '' || src.includes('{')) return fail('SN316', 'partial `src` must be a literal path');
-    for (const a of el.attrs) if (a.name !== 'src') this.report(el, a.name, 'SN101', `\`${a.name}\` is not an attribute of \`<sn-include>\``, 0);
-    const resolved = resolvePath(dirname(origin.file), src);
-    const root = normalize(this.opts.root).replace(/\/$/, '');
-    if (!(resolved === root || resolved.startsWith(root + '/'))) {
-      return fail('SN316', `partial \`${src}\` not found or outside the project root`);
-    }
-    if (chain.includes(resolved)) {
-      return fail('SN306', `${[...chain, resolved].map(basename).join(' → ')} includes itself`);
-    }
-    let text: string;
-    try {
-      text = this.opts.readFile(resolved);
-    } catch {
-      return fail('SN316', `partial \`${src}\` not found or outside the project root`);
-    }
-    this.files.add(resolved);
-    const frag = parse5.parseFragment(text, { sourceCodeLocationInfo: true });
-    const loc = el.sourceCodeLocation ? this.lineCol(origin.src, el.sourceCodeLocation.startOffset) : { line: 1, col: 1 };
-    const here = `${basename(origin.file)}:${loc.line}`;
-    this.tag(frag, { file: resolved, src: text, chain: [here, ...origin.chain], use: `${this.siteKey(el) ?? ''}<${origin.use ?? ''}` });
-    const rec: IncludeRec = { el, src, names: new Set(), site: null };
-    this.includes.push(rec);
-    const mark = (n: object) => {
-      this.includeOf.set(n, rec);
-      for (const c of (n as P5Parent).childNodes ?? []) mark(c);
-      if ((n as P5Element).nodeName === 'template') mark((n as P5Template).content);
-    };
-    for (const c of frag.childNodes) { mark(c); this.includeTop.set(c, rec); }
-    this.expandIncludes(frag, [...chain, resolved]);
-    const parent = el.parentNode!;
-    const i = parent.childNodes.indexOf(el as never);
-    for (const c of frag.childNodes) (c as { parentNode: P5Parent }).parentNode = parent;
-    parent.childNodes.splice(i, 1, ...(frag.childNodes as never[]));
-    // the browser merges adjacent text when it parses the output; merge now so node paths agree
-    mergeText(parent);
-  }
+  // ---- components
 
   /**
-   * `<sn-include>` is removed: a partial is a component. Each one fails the build with what it
-   * reads from the page, the props it needs as a component.
+   * A component's or a layout's `data-sn-props`, under the name the compiler reads for its kind (`data-sn-component`,
+   * `data-sn-head`, `data-sn-layout`), with its place in the source, so diagnostics point at what was written. The
+   * old names written in the file are SN101.
    */
-  reportIncludes() {
-    for (const rec of this.includes) {
-      const names = [...rec.names].sort();
-      const name = basename(rec.src).replace(/\.html?$/, '');
-      const tag = name.includes('-') ? name : `x-${name}`;
-      this.report(rec.el, 'src', 'SN316', `\`<sn-include>\` is removed: a partial is a component. Move \`${rec.src}\` to \`src/components/${tag}.html\`, wrap its markup in \`<template data-sn-component="{ … }">\` around one root element, and write \`<${tag}></${tag}>\` here${
-        names.length ? `. It reads ${names.map((n) => `\`${n}\``).join(', ')} from the page: add ${names.length > 1 ? 'them' : 'it'} to \`data-sn-component\` and pass ${names.length > 1 ? 'them' : 'it'} with \`data-sn-prop="{ ${names.map((n) => `${n}: ${n}`).join(', ')} }"\`` : ''}`, 0);
-    }
+  declaration(el: P5Element, as: string, retired: string[]) {
+    for (const n of retired) if (attr(el, n) !== undefined) this.once(el, n, 'SN101', `\`${n}\` ${RETIRED[n]}`, 0);
+    const a = el.attrs.find((x) => x.name === 'data-sn-props');
+    if (!a) return;
+    a.name = as;
+    const loc = el.sourceCodeLocation?.attrs;
+    if (loc?.['data-sn-props']) loc[as] = loc['data-sn-props'];
   }
 
-  /** The names a partial's expression reads from the scope its `<sn-include>` is in. */
-  outerNames(src: string, scope: Scope, o: Omit<ExprOptions, 'report'>, rec: IncludeRec) {
-    if (!rec.site) return;
-    const free: string[] = [];
-    analyze(src, { loops: [], states: [] }, this.page, { ...o, report: (code, message) => { const m = code === 'SN201' && /^`([^`]+)` is not defined/.exec(message); if (m) free.push(m[1]!); } });
-    for (const n of free) {
-      const entry = (scope.lets ?? []).findLast((l) => l.name === n) ?? scope.loops.findLast((l) => l.name === n) ?? scope.states.findLast((x) => x.names.has(n));
-      if (entry && rec.site.has(entry)) rec.names.add(n);
-    }
+  /** `either` components as a head or a body component, one copy of each per file (its fields are the file's) */
+  private readonly kinds = new WeakMap<ComponentFile, { head?: ComponentFile; body?: ComponentFile }>();
+  asKind(def: ComponentFile, head: boolean): ComponentFile {
+    let k = this.kinds.get(def);
+    if (!k) this.kinds.set(def, (k = {}));
+    return (head ? k.head : k.body) ?? (k[head ? 'head' : 'body'] = Object.assign(Object.create(def) as ComponentFile, { head, either: false }));
   }
-
-  // ---- components
 
   /** The component file for a tag (null: a plain custom element, or not a valid component name). */
   componentFile(tag: string): ComponentFile | null {
@@ -1908,7 +1989,14 @@ class Compiler {
     if (lib && !internal && !lib.public.includes(tag)) c = null;
     else try { c = { file, text: this.opts.readFile(file) }; } catch { c = null; }
     if (c && lib) { c.lib = lib; if (internal) c.internal = true; }
-    if (c && /<template\b[^>]*\sdata-sn-head\b/i.test(c.text)) c.head = true;
+    // its kind from its markup; a component's tag in it counts by its own kind (a cycle is a body component)
+    if (c) {
+      this.kinding.add(tag);
+      const kind = kindOfComponent(c.text, (t) => { if (this.kinding.has(t)) return null; const f = this.componentFile(t); return !f || f.either ? null : !!f.head; });
+      this.kinding.delete(tag);
+      if (kind === 'head') c.head = true;
+      else if (kind === 'either') c.either = true;
+    }
     if (c) {
       // a script beside it: the component runs it per instance
       const root = normalize(this.opts.root).replace(/\/$/, '');
@@ -2037,11 +2125,11 @@ class Compiler {
     // the page is the tag, and nothing else
     for (const c of [...head.childNodes.filter(real), ...top.filter((c) => c !== host)]) {
       const el = isElement(c) ? c : host;
-      this.report(el, null, 'SN319', `a page that uses the layout \`<${name}>\` is only its tag: ${isElement(c) ? `\`<${c.tagName}>\`` : 'this text'} belongs inside it`, 0,
+      this.report(el, null, 'SN318', `a page that uses the layout \`<${name}>\` is only its tag: ${isElement(c) ? `\`<${c.tagName}>\`` : 'this text'} belongs inside it`, 0,
         `put it in one of the layout's slots: \`<${name}>…</${name}>\` (a head element with \`slot="…"\` for a head slot)`);
     }
     if (html.sourceCodeLocation?.startTag && html.attrs.length) {
-      this.report(html, html.attrs[0]!.name, 'SN319', `a page that uses the layout \`<${name}>\` writes the attributes of \`<html>\` on its tag: \`<${name} ${html.attrs[0]!.name}="…">\``, 0);
+      this.report(html, html.attrs[0]!.name, 'SN318', `a page that uses the layout \`<${name}>\` writes the attributes of \`<html>\` on its tag: \`<${name} ${html.attrs[0]!.name}="…">\``, 0);
     }
     const lroot = normalize(this.opts.root).replace(/\/$/, '');
     for (const ext of ['.ts', '.js', '.mts', '.mjs']) {
@@ -2057,17 +2145,18 @@ class Compiler {
     ldoc.childNodes = ldoc.childNodes.filter((c) => c.nodeName !== '#comment');
     const lhtml = ldoc.childNodes.find((c): c is P5Element => isElement(c) && c.tagName === 'html')!;
     const lhead = lhtml.childNodes.find((c): c is P5Element => isElement(c) && c.tagName === 'head')!;
-    // a whole document in src/layouts/ without `data-sn-layout` takes no props (agents leave it out when there are
+    this.declaration(lhtml, 'data-sn-layout', ['data-sn-layout']);
+    // a whole document in src/layouts/ without `data-sn-props` takes no props (agents leave it out when there are
     // none: every benchmark run that did paid a failed build for it); one whose pages pass props must declare them
-    const whole = !!lhtml.sourceCodeLocation?.startTag, passes = attr(host, 'data-sn-prop') != null;
+    const whole = !!lhtml.sourceCodeLocation?.startTag, passes = attr(host, 'data-sn-with') != null;
     const decl = attr(lhtml, 'data-sn-layout') ?? (whole && !passes ? '{}' : undefined);
     if (decl === undefined || !whole) {
       const hint = whole
-        ? 'declare the props the pages pass, e.g. `<html lang="en" data-sn-layout="{ title?: string }">`'
-        : '`<!doctype html><html lang="en" data-sn-layout="{ title?: string }"><head>…</head><body><slot></slot></body></html>` (or `<html lang="en">` for a layout without props)';
+        ? 'declare the props the pages pass, e.g. `<html lang="en" data-sn-props="{ title?: string }">`'
+        : '`<!doctype html><html lang="en" data-sn-props="{ title?: string }"><head>…</head><body><slot></slot></body></html>` (or `<html lang="en">` for a layout without props)';
       const message = whole
-        ? `\`src/layouts/${name}.html\` declares no props, but this page passes \`data-sn-prop\`: a layout declares them on its \`<html>\`, \`<html data-sn-layout="{ …props }">\``
-        : `\`src/layouts/${name}.html\` is not a layout: a layout is a whole document whose \`<html>\` declares its props, \`<html data-sn-layout="{ …props }">\``;
+        ? `\`src/layouts/${name}.html\` declares no props, but this page passes \`data-sn-with\`: a layout declares them on its \`<html>\`, \`<html data-sn-props="{ …props }">\``
+        : `\`src/layouts/${name}.html\` is not a layout: a layout is a whole document whose \`<html>\` declares its props, \`<html data-sn-props="{ …props }">\``;
       this.diagnostics.push({ severity: 'error', code: 'SN318', message, file: lf.file, line: 1, col: 1, hint });
       detach(host);
       return null;
@@ -2091,7 +2180,7 @@ class Compiler {
       }
     };
     inHead(lhead);
-    if (SLOT_TYPE.test(decl)) this.report(lhtml, 'data-sn-layout', 'SN331', `\`<${name}>\` is a layout: its slots pass nothing, so \`Slot<T>\` cannot be in \`data-sn-layout\``, decl.search(SLOT_TYPE), 'a plain `<slot name="…">` takes content with no declaration');
+    if (SLOT_TYPE.test(decl)) this.report(lhtml, 'data-sn-layout', 'SN331', `\`<${name}>\` is a layout: its slots pass nothing, so \`Slot<T>\` cannot be in \`data-sn-props\``, decl.search(SLOT_TYPE), 'a plain `<slot name="…">` takes content with no declaration');
     const use: Use = { name, file: lf.file, host, root: lhtml, template: lhtml, props, propsText: decl, emits: [], emitsText: null, chain: [], layout: true };
     // a head element given to a body slot: the browser would keep it, but it belongs in a head slot
     for (const c of [...host.childNodes]) {
@@ -2104,11 +2193,13 @@ class Compiler {
     this.fillSlots(use, ldoc);
     // the tag's attributes: plain ones replace the layout's on `<html>` (its defaults), `class` is joined
     for (const a of host.attrs) {
-      if (a.name === 'data-sn-prop' || a.name === 'data-sn-state') continue;
-      if (a.name === 'data-sn-path' || a.name === 'data-sn-prefetch' || a.name === 'data-sn-pages' || a.name === 'data-sn-swap') { setAttr(lhtml, a.name, a.value); continue; }
-      if (a.name === 'data-sn-early') { this.report(host, a.name, 'SN319', '`data-sn-early` cannot be on a layout\'s tag: the layout is the whole page', 0, 'leave parts out of the early script on their own tags: `<tag-cloud data-sn-early="off">`'); continue; }
+      if (a.name === 'data-sn-with' || a.name === 'data-sn-state') continue;
+      if (a.name === 'data-sn-path' || a.name === 'data-sn-prefetch' || a.name === 'data-sn-for' || a.name === 'data-sn-swap') { setAttr(lhtml, a.name, a.value); continue; }
+      if (a.name === 'data-sn-pages') { this.report(host, a.name, 'SN101', `\`data-sn-pages\` ${RETIRED['data-sn-pages']}`, 0); continue; }
+      if (a.name === 'data-sn-early') { this.report(host, a.name, 'SN318', '`data-sn-early` cannot be on a layout\'s tag: the layout is the whole page', 0, 'leave parts out of the early script on their own tags: `<tag-cloud data-sn-early="off">`'); continue; }
       if (a.name.startsWith('data-sn-')) {
-        if (!callerAttribute(a.name) || a.name === 'data-sn-model' || a.name === 'data-sn-persist') this.report(host, a.name, 'SN102', `\`${a.name}\` cannot be on a layout's tag`, 0, 'a layout\'s tag takes `data-sn-prop`, `data-sn-state`, handlers, `data-sn-class`, `-attr` and `-style`, `data-sn-path`, `data-sn-pages`, `data-sn-prefetch` and `data-sn-swap`, and the attributes of `<html>`');
+        if (RETIRED[a.name]) this.report(host, a.name, 'SN101', `\`${a.name}\` ${RETIRED[a.name]}`, 0);
+        else if (!callerAttribute(a.name) || a.name === 'data-sn-model' || a.name === 'data-sn-persist') this.report(host, a.name, 'SN102', `\`${a.name}\` cannot be on a layout's tag`, 0, 'a layout\'s tag takes `data-sn-with`, `data-sn-state`, handlers, `data-sn-class`, `-attr` and `-style`, `data-sn-path`, `data-sn-for` (a page per entry), `data-sn-prefetch` and `data-sn-swap`, and the attributes of `<html>`');
         continue;
       }
       if (a.name === 'class') { const own = attr(lhtml, 'class'); setAttr(lhtml, 'class', own ? `${own} ${a.value}` : a.value); }
@@ -2175,8 +2266,8 @@ class Compiler {
       const en = su ? this.enclosing.get(su.host) ?? null : placedBy?.length ? placedBy[placedBy.length - 1]!.use : encl;
       // (where a recursion point or a choice is: a second pass expands one the first found constant, as a use here)
       if (child.tagName === 'sn-component') { this.pointCtx.set(child, { ch, en }); this.choice(child, en); continue; }
-      const def = this.componentFile(child.tagName);
-      if (!def && COMPONENT_NAME.test(child.tagName) && this.libOfTag(child.tagName)) {
+      const def0 = this.componentFile(child.tagName);
+      if (!def0 && COMPONENT_NAME.test(child.tagName) && this.libOfTag(child.tagName)) {
         const lib = this.libOfTag(child.tagName)!;
         const pool = this.libOfFile(this.origins.get(child)?.file) === lib ? [...lib.public, ...lib.internal] : lib.public;
         this.report(child, null, 'SN339', `\`<${child.tagName}>\` is not a component of \`${lib.name}\`, which owns the prefix \`${lib.prefix}-\``, 0,
@@ -2184,25 +2275,27 @@ class Compiler {
         detach(child);
         continue;
       }
-      if (def && this.internalUse(child, def)) { detach(child); continue; }
-      if (!def && this.layoutFile(child.tagName)) {
-        this.report(child, null, 'SN319', `\`<${child.tagName}>\` is a layout: it is the only tag of a page, at its top level`, 0, 'a layout cannot be inside a component, another layout or other markup');
+      if (def0 && this.internalUse(child, def0)) { detach(child); continue; }
+      if (!def0 && this.layoutFile(child.tagName)) {
+        this.report(child, null, 'SN318', `\`<${child.tagName}>\` is a layout: it is the only tag of a page, at its top level`, 0, 'a layout cannot be inside a component, another layout or other markup');
         detach(child);
         continue;
       }
-      if (def && this.layoutFile(child.tagName)) {
+      if (def0 && this.layoutFile(child.tagName)) {
         this.report(child, null, 'SN318', `\`<${child.tagName}>\` is both a layout (\`src/layouts/${child.tagName}.html\`) and a component (\`src/components/${child.tagName}.html\`); rename one`, 0);
         detach(child);
         continue;
       }
-      if (def) {
+      if (def0) {
+        // a component whose markup either may hold takes the kind of where it is used
+        const def = def0.either ? this.asKind(def0, inHead) : def0;
         const name = child.tagName;
         // a head component goes in a head, a component in a body
         if (!!def.head !== inHead) {
           this.report(child, null, 'SN320', def.head
-            ? `\`<${name}>\` is a head component (\`data-sn-head\`): it goes in a \`<head>\`, or in a layout's head slot`
+            ? `\`<${name}>\` is a head component (\`data-sn-props\`): it goes in a \`<head>\`, or in a layout's head slot`
             : `\`<${name}>\` is a component with one root element, which cannot be in the \`<head>\``, 0,
-          def.head ? 'a component for the body is declared with `<template data-sn-component>` and has one root element' : 'for head elements, declare the component with `<template data-sn-head>`');
+          def.head ? 'a component for the body has one root element in its `<template data-sn-props>`' : 'a head component is a `<template data-sn-props>` whose markup is head elements only');
           detach(child);
           continue;
         }
@@ -2249,7 +2342,7 @@ class Compiler {
   }
 
   /**
-   * `<sn-component use="…" data-sn-prop="…">`: a component chosen by data at runtime. `use` names it in
+   * `<sn-component use="…" data-sn-with="…">`: a component chosen by data at runtime. `use` names it in
    * one of three forms, each of which gives the candidates:
    * - convention, ``use="`${b.type}-block`"``: the components whose names have that prefix and suffix
    *   (sinter check: the template-literal type of the data's union, which must fit `ComponentName`);
@@ -2269,7 +2362,8 @@ class Compiler {
       detach(el);
     };
     for (const a of el.attrs) {
-      if (a.name !== 'use' && a.name !== 'data-sn-prop' && a.name !== 'data-sn-early') this.report(el, a.name, 'SN101', `\`${a.name}\` is not an attribute of \`<sn-component>\`; it takes \`use\`, \`data-sn-prop\` and \`data-sn-early\``, 0);
+      if (RETIRED[a.name]) this.report(el, a.name, 'SN101', `\`${a.name}\` ${RETIRED[a.name]}`, 0);
+      else if (a.name !== 'use' && a.name !== 'data-sn-with' && a.name !== 'data-sn-early') this.report(el, a.name, 'SN101', `\`${a.name}\` is not an attribute of \`<sn-component>\`; it takes \`use\`, \`data-sn-with\` and \`data-sn-early\``, 0);
     }
     let ast: acorn.Expression | null = null;
     try { ast = use ? parseExpression(use) : null; } catch { ast = null; }
@@ -2377,18 +2471,19 @@ class Compiler {
       return null;
     };
     const top = frag.childNodes.filter(isElement);
+    for (const t of top) if (t.tagName === 'template') this.declaration(t, def.head ? 'data-sn-head' : 'data-sn-component', ['data-sn-component', 'data-sn-head']);
     const templates = top.filter((t) => t.tagName === 'template' && (attr(t, 'data-sn-component') !== undefined || attr(t, 'data-sn-head') !== undefined));
     if (templates.length !== 1) {
-      return fail(templates[1] ?? null, null, `component \`<${name}>\` needs ${templates.length ? 'exactly ' : ''}one \`<template data-sn-component="{ …props }">\` (or \`<template data-sn-head>\` for head elements) around its markup`,
-        '`<template data-sn-component="{ article: Article }"><article>…</article></template>`');
+      return fail(templates[1] ?? null, null, `component \`<${name}>\` needs ${templates.length ? 'exactly ' : ''}one \`<template data-sn-props="{ …props }">\` (one root element, or head elements only) around its markup`,
+        '`<template data-sn-props="{ article: Article }"><article>…</article></template>`');
     }
     const template = templates[0]!;
     if (attr(template, 'data-sn-component') !== undefined && attr(template, 'data-sn-head') !== undefined) {
-      return fail(template, 'data-sn-head', `\`<${name}>\` declares both \`data-sn-component\` and \`data-sn-head\`; a component is one kind`, '`data-sn-component` for one root element in a body, `data-sn-head` for head elements');
+      return fail(template, 'data-sn-head', `\`<${name}>\` declares both \`data-sn-component\` and \`data-sn-head\`, which are one \`data-sn-props\` now`, 'its markup says the kind: one root element for a body, head elements only for a head');
     }
     const decl = def.head ? 'data-sn-head' : 'data-sn-component';
     for (const t of top) {
-      if (t !== template && t.tagName !== 'style') return fail(t, null, `a component file holds its \`<template ${decl}>\` and \`<style>\`; \`<${t.tagName}>\` belongs inside the template`);
+      if (t !== template && t.tagName !== 'style') return fail(t, null, `a component file holds its \`<template data-sn-props>\` and \`<style>\`; \`<${t.tagName}>\` belongs inside the template`);
     }
     if (def.head && def.css === undefined && top.some((t) => t.tagName === 'style')) {
       def.css = null;
@@ -2406,7 +2501,7 @@ class Compiler {
     }
     for (const a of template.attrs) {
       if (a.name === 'data-sn-early') this.report(template, a.name, 'SN102', '`data-sn-early` goes on a use of the component, its tag: `<' + name + ' data-sn-early="off">`', 0);
-      else if (a.name !== decl && a.name !== 'data-sn-emits') this.report(template, a.name, 'SN101', `\`${a.name}\` is not an attribute of \`<template ${decl}>\`; it takes \`${decl}\` and \`data-sn-emits\``, 0);
+      else if (a.name !== decl && a.name !== 'data-sn-emits') this.report(template, a.name, 'SN101', `\`${a.name}\` is not an attribute of \`<template data-sn-props>\`; it takes \`data-sn-props\` and \`data-sn-emits\``, 0);
     }
     if (def.head) return this.expandHead(host, def, template, chain);
     const content = (template as P5Template).content;
@@ -2419,8 +2514,9 @@ class Compiler {
     const emitsText = attr(template, 'data-sn-emits') ?? null;
     const emits = emitsText === null ? [] : typeMembers(emitsText);
     if (emitsText !== null && !emits) this.report(template, 'data-sn-emits', 'SN401', '`data-sn-emits` takes a type literal of the events and their detail types: `{ select: Article; close: null }`', 0);
-    // `navigate` is sinter's: `data-sn-on-navigate` is the guard of every navigation (navigate.ts)
-    if (emits?.some((m) => m.name === 'navigate')) this.report(template, 'data-sn-emits', 'SN209', '`navigate` is sinter\'s event (`data-sn-on-navigate` runs before every navigation): name the component\'s event otherwise, e.g. `go`', 0);
+    // sinter's events are `sn-…` (`sn-navigate`, the guard of every navigation): a component's are named otherwise
+    const snEvent = emits?.find((m) => m.name.startsWith('sn-'));
+    if (snEvent) this.report(template, 'data-sn-emits', 'SN209', `\`${snEvent.name}\`: names starting with \`sn-\` are sinter's events (\`sn-navigate\`, \`sn-dismiss\`, \`sn-error\`, \`sn-page\`); name the component's event otherwise`, 0);
     // a root is known once its slots are filled: a `<slot>` at the top is its fill, or its default
     const first = content.childNodes.find(isElement) ?? template;
     const use: Use = { name, file: def.file, host, root: first, template, props, propsText, emits, emitsText, chain, ...(slots.size ? { slots } : {}), ...(this.lateTag(host) ? { late: true } : {}) };
@@ -2436,7 +2532,7 @@ class Compiler {
     // a root that is not one plain element: decided now where a constant prop decides its condition
     const plainTop = () => { const r = content.childNodes.filter(realNode); return r.length === 1 && isElement(r[0]!) && plainRoot(r[0], this) ? r[0] : null; };
     const folds = !plainTop();
-    if (folds) this.foldIn(content, constantProps(attr(host, 'data-sn-prop'), props), use);
+    if (folds) this.foldIn(content, constantProps(attr(host, 'data-sn-with'), props), use);
     // decided to render nothing for this use: the tag goes, with nothing in its place
     if (folds && !content.childNodes.some(realNode)) {
       for (const u of [use, ...(this.passOn.get(host) ?? [])]) this.emptyRootAttrs(u, name);
@@ -2448,7 +2544,7 @@ class Compiler {
     if (typeof shape === 'string') {
       const els = content.childNodes.filter(isElement);
       const headEls = els.length > 1 && els.every((e) => HEAD_ELEMENTS.has(e.tagName) || e.tagName === 'slot');
-      return fail(els[1] ?? els[0] ?? template, null, shape, headEls ? 'head elements: declare it with `<template data-sn-head="{ …props }">`, which holds any number of them'
+      return fail(els[1] ?? els[0] ?? template, null, shape, headEls ? 'a head component holds head elements only, any number of them: move what is not one out of it'
         : 'a root renders at most one element: one element, a `data-sn-if`/`data-sn-else` chain of them, a component, `<sn-component use>` or a `<slot>` whose default and fills are roots; wrap the markup in one element');
     }
     const own = (e: P5Element) => !this.slotOf.has(e);
@@ -2473,14 +2569,15 @@ class Compiler {
     if (mayBeEmpty(shape)) for (const u of all) this.emptyRootAttrs(u, name);
     // a text root has no element: an attribute of the tag (or of an outer one passing on to it) has nowhere to land
     if (shape.kind === 'text') for (const u of all) for (const a of u.host.attrs) {
-      if (a.name === 'slot' || a.name === 'data-sn-prop' || a.name === 'data-sn-early') continue;
+      if (a.name === 'slot' || a.name === 'data-sn-with' || a.name === 'data-sn-early') continue;
       this.report(u.host, a.name, 'SN334', `\`<${u.name}>\`'s root is a text here (a text fill of the \`<slot>\` at the root${u.name !== name ? ` of \`<${name}>\`` : ''}), so \`${a.name}\` on its tag has no element to land on`, 0,
         'wrap the tag in an element that carries it, or give a fill that is an element');
     }
     // the tag's attributes: plain ones move onto the root (onto each branch, onto a component tag that is
     // the root, onto a fill), sinter's are compiled on it in the caller's scope
     for (const a of host.attrs) {
-      if (a.name.startsWith('data-sn-') && !callerAttribute(a.name)) this.report(host, a.name, 'SN102', `\`${a.name}\` cannot be on a component's tag`, 0, TAG_ONLY_HINT);
+      if (RETIRED[a.name]) this.report(host, a.name, 'SN101', `\`${a.name}\` ${RETIRED[a.name]}`, 0);
+      else if (a.name.startsWith('data-sn-') && !callerAttribute(a.name)) this.report(host, a.name, 'SN102', `\`${a.name}\` cannot be on a component's tag`, 0, TAG_ONLY_HINT);
     }
     const plain = host.attrs.filter((a) => !a.name.startsWith('data-sn-') && a.name !== 'slot');
     for (const el of shape.kind === 'tag' ? [shape.el] : shape.kind === 'choice' ? [] : lands) {
@@ -2661,8 +2758,8 @@ class Compiler {
   }
 
   /**
-   * A head component's use (`<template data-sn-head>`): its elements, any number of them, take the
-   * tag's place with no wrapper. Its tag takes only `data-sn-prop` and slot content.
+   * A head component's use (`<template data-sn-props>`): its elements, any number of them, take the
+   * tag's place with no wrapper. Its tag takes only `data-sn-with` and slot content.
    */
   expandHead(host: P5Element, def: ComponentFile, template: P5Element, chain: string[]): null {
     const name = host.tagName;
@@ -2673,29 +2770,31 @@ class Compiler {
         def.bad = true; detach(host); return null;
       }
       if (!isElement(c)) continue;
-      const ok = HEAD_ELEMENTS.has(c.tagName) || c.tagName === 'slot' || this.componentFile(c.tagName)?.head;
+      const ok = HEAD_ELEMENTS.has(c.tagName) || c.tagName === 'slot' || this.componentFile(c.tagName)?.head || this.componentFile(c.tagName)?.either;
       if (!ok) {
         this.report(c, null, 'SN320', `a head component holds head elements: \`<${c.tagName}>\` cannot be in \`<${name}>\``, 0,
-          'head elements are `<title>`, `<meta>`, `<link>`, `<script>`, `<style>`, `<noscript>`, `<base>`, `<template>` and head components; a component for the body is a `<template data-sn-component>` with one root');
+          'head elements are `<title>`, `<meta>`, `<link>`, `<script>`, `<style>`, `<noscript>`, `<base>`, `<template>` and head components; a component for the body is a `<template data-sn-props>` with one root');
         def.bad = true; detach(host); return null;
       }
     }
     const propsText = attr(template, 'data-sn-head')!;
     const props = typeMembers(propsText.trim() === '' ? '{}' : propsText)?.filter((m) => m.slot === undefined) ?? null;
-    if (SLOT_TYPE.test(propsText)) this.once(template, 'data-sn-head', 'SN331', `\`<${name}>\` is a head component: its slots pass nothing, so \`Slot<T>\` cannot be in \`data-sn-head\``, propsText.search(SLOT_TYPE), 'a plain `<slot name="…">` takes content with no declaration');
+    if (SLOT_TYPE.test(propsText)) this.once(template, 'data-sn-head', 'SN331', `\`<${name}>\` is a head component: its slots pass nothing, so \`Slot<T>\` cannot be in \`data-sn-props\``, propsText.search(SLOT_TYPE), 'a plain `<slot name="…">` takes content with no declaration');
     const emitsText = attr(template, 'data-sn-emits') ?? null;
     const emits = emitsText === null ? [] : typeMembers(emitsText);
     if (emitsText !== null && !emits) this.report(template, 'data-sn-emits', 'SN401', '`data-sn-emits` takes a type literal of the events and their detail types: `{ select: Article; close: null }`', 0);
-    // `navigate` is sinter's: `data-sn-on-navigate` is the guard of every navigation (navigate.ts)
-    if (emits?.some((m) => m.name === 'navigate')) this.report(template, 'data-sn-emits', 'SN209', '`navigate` is sinter\'s event (`data-sn-on-navigate` runs before every navigation): name the component\'s event otherwise, e.g. `go`', 0);
+    // sinter's events are `sn-…` (`sn-navigate`, the guard of every navigation): a component's are named otherwise
+    const snEvent = emits?.find((m) => m.name.startsWith('sn-'));
+    if (snEvent) this.report(template, 'data-sn-emits', 'SN209', `\`${snEvent.name}\`: names starting with \`sn-\` are sinter's events (\`sn-navigate\`, \`sn-dismiss\`, \`sn-error\`, \`sn-page\`); name the component's event otherwise`, 0);
     const first = fragment.childNodes.find(isElement) ?? template;
     const use: Use = { name, file: def.file, host, root: first, template, props, propsText, emits, emitsText, chain, head: { roots: [], parent: null } };
     for (const a of host.attrs) {
-      if (a.name !== 'data-sn-prop' && a.name !== 'slot') this.report(host, a.name, 'SN102', `\`${a.name}\` cannot be on the tag of a head component; it takes \`data-sn-prop\` and slot content`, 0, 'a head component has no root element for other attributes to land on');
+      if (RETIRED[a.name]) this.report(host, a.name, 'SN101', `\`${a.name}\` ${RETIRED[a.name]}`, 0);
+      else if (a.name !== 'data-sn-with' && a.name !== 'slot') this.report(host, a.name, 'SN102', `\`${a.name}\` cannot be on the tag of a head component; it takes \`data-sn-with\` and slot content`, 0, 'a head component has no root element for other attributes to land on');
     }
     this.fillSlots(use, fragment);
     // a prop the use gives as a constant decides a `data-sn-if` on it now, before its elements join the head
-    this.foldIn(fragment, constantProps(attr(host, 'data-sn-prop'), props), use);
+    this.foldIn(fragment, constantProps(attr(host, 'data-sn-with'), props), use);
     this.expandComponents(fragment, [...chain, name], true);
     const nodes = [...fragment.childNodes];
     for (const n of nodes) {
@@ -2762,14 +2861,15 @@ class Compiler {
     }
     for (const s of slots) {
       const k = attr(s.el, 'name') ?? '';
+      for (const a of s.el.attrs) if (RETIRED[a.name]) this.once(s.el, a.name, 'SN101', `\`${a.name}\` ${RETIRED[a.name]}`, 0);
       // a named slot that passes data and that the component does not declare: a tree placement (section 4)
-      if (attr(s.el, 'data-sn-prop') !== undefined && k && !data.has(k)) { tree.push(s.el); continue; }
+      if (attr(s.el, 'data-sn-with') !== undefined && k && !data.has(k)) { tree.push(s.el); continue; }
       // a placement that passes data: of a slot declared `Slot<T>`
-      if (attr(s.el, 'data-sn-prop') !== undefined && !data.has(k)) {
-        this.once(s.el, 'data-sn-prop', 'SN331', k ? `\`data-sn-prop\` on \`<slot name="${k}">\` passes data, and \`<${name}>\` does not declare \`${k}\` as \`Slot<T>\`` : '`data-sn-prop` on the default `<slot>`: a slot that passes data is named, and declared `Slot<T>`', 0,
-          `declare it in the props type: \`data-sn-component="{ …; ${k || 'cell'}: Slot<{ row: Row }> }"\`${k ? '' : ', and name the slot'}`);
-      } else if (data.has(k) && attr(s.el, 'data-sn-prop') === undefined) {
-        this.once(s.el, null, 'SN331', `\`${k}\` is declared \`Slot<${data.get(k)!.slot}>\`: its placement passes the values with \`data-sn-prop\``, 0, `\`<slot name="${k}" data-sn-prop="{ … }">\``);
+      if (attr(s.el, 'data-sn-with') !== undefined && !data.has(k)) {
+        this.once(s.el, 'data-sn-with', 'SN331', k ? `\`data-sn-with\` on \`<slot name="${k}">\` passes data, and \`<${name}>\` does not declare \`${k}\` as \`Slot<T>\`` : '`data-sn-with` on the default `<slot>`: a slot that passes data is named, and declared `Slot<T>`', 0,
+          `declare it in the props type: \`data-sn-props="{ …; ${k || 'cell'}: Slot<{ row: Row }> }"\`${k ? '' : ', and name the slot'}`);
+      } else if (data.has(k) && attr(s.el, 'data-sn-with') === undefined) {
+        this.once(s.el, null, 'SN331', `\`${k}\` is declared \`Slot<${data.get(k)!.slot}>\`: its placement passes the values with \`data-sn-with\``, 0, `\`<slot name="${k}" data-sn-with="{ … }">\``);
       }
       if (!byName.has(k)) byName.set(k, []);
       byName.get(k)!.push(s);
@@ -2877,7 +2977,7 @@ class Compiler {
     if (!u) {
       // in a shared definition: the root that uses it passes its fill at run time
       if (this.inDef > 0) { this.runtimeSlots.add(el); return; }
-      this.report(last.host, null, 'SN331', `\`<${x.name}>\` places the slot \`${k}\` (\`<slot name="${k}" data-sn-prop>\`), and no component around it declares \`${k}\`: nothing can fill it here`, 0,
+      this.report(last.host, null, 'SN331', `\`<${x.name}>\` places the slot \`${k}\` (\`<slot name="${k}" data-sn-with>\`), and no component around it declares \`${k}\`: nothing can fill it here`, 0,
         `use it inside a component that declares \`${k}: Slot<…>\`, or declare it in \`<${x.name}>\` to fill it from its tag`);
       put([...el.childNodes]);
       return;
@@ -2946,7 +3046,7 @@ class Compiler {
 
   /**
    * One placement of a slot that passes data, with what renders there: a fill (`filled`), or its
-   * default. A fill's top-level nodes get the placement, so the walk compiles its `data-sn-prop` and
+   * default. A fill's top-level nodes get the placement, so the walk compiles its `data-sn-with` and
    * gives the fill `$slot`; an unnamed `<slot>` in the fill places the children of the element the
    * default renders. A forwarding placement (`forwards`: itself a fill of an inner component's slot
    * that passes data) leaves those for the inner placement, which gives the children.
@@ -3029,7 +3129,7 @@ class Compiler {
     const shape = this.rootShape(p.el.childNodes, p.use.name);
     if (typeof shape === 'string') {
       this.once(p.el, null, 'SN331', `the default of \`<slot name="${p.name}">\` is a root: it renders at most one element (one element, a \`data-sn-if\`/\`data-sn-else\` chain of them, a component or \`<sn-component use>\`), or text`, 0,
-        `wrap the default in one element: \`<slot name="${p.name}" data-sn-prop="…"><span>…</span></slot>\``);
+        `wrap the default in one element: \`<slot name="${p.name}" data-sn-with="…"><span>…</span></slot>\``);
       return null;
     }
     // the children move into the fill: names an element declares would be lost to them
@@ -3038,7 +3138,7 @@ class Compiler {
       const names = [...stateKeys(attr(e, 'data-sn-state')), ...stateKeys(attr(e, 'data-sn-let'))];
       const read = names.find((n) => reads(e.childNodes, n));
       if (read) this.once(e, attr(e, 'data-sn-state') !== undefined ? 'data-sn-state' : 'data-sn-let', 'SN331', `the default of \`<slot name="${p.name}">\` declares \`${read}\` on its element, and its children read it: a fill's \`<slot>\` takes the children without that element`, 0,
-        `pass it with \`data-sn-prop\` on the \`<slot>\`, or declare it inside the element`);
+        `pass it with \`data-sn-with\` on the \`<slot>\`, or declare it inside the element`);
     }
     // a component (or a choice) somewhere in the default: its element's children are that component's markup, not given to a fill
     const opaque = (sh: RootShape): string | null => sh.kind === 'tag' || sh.kind === 'choice' ? sh.el.tagName : sh.kind === 'chain' ? sh.branches.map(opaque).find((x) => x) ?? null : null;
@@ -3081,7 +3181,7 @@ class Compiler {
     const out = new Map<string, Member>();
     if (!members) {
       if (SLOT_TYPE.test(text)) this.once(template, 'data-sn-component', 'SN331', '`Slot<T>` is written in the props type literal, where the compiler sees the slot; here the props are a type it cannot list', text.search(SLOT_TYPE),
-        'write the props as a type literal: `data-sn-component="{ rows: Row[]; cell: Slot<{ row: Row }> }"`');
+        'write the props as a type literal: `data-sn-props="{ rows: Row[]; cell: Slot<{ row: Row }> }"`');
       return out;
     }
     for (const m of members) {
@@ -3130,8 +3230,8 @@ class Compiler {
       def.dataSlots = new Set();
       try {
         const frag = parsedText(def.text);
-        const t = frag.childNodes.find((c): c is P5Element => isElement(c) && c.tagName === 'template' && attr(c, 'data-sn-component') !== undefined);
-        const text = t ? attr(t, 'data-sn-component')! : '';
+        const t = frag.childNodes.find((c): c is P5Element => isElement(c) && c.tagName === 'template' && propsDecl(c) !== undefined);
+        const text = t ? propsDecl(t)! : '';
         for (const m of typeMembers(text.trim() === '' ? '{}' : text) ?? []) if (m.slot !== undefined) def.dataSlots.add(m.name);
       } catch { /* reported where the component is expanded */ }
     }
@@ -3298,8 +3398,8 @@ class Compiler {
 
   /**
    * What a fill sees: the scope of the markup that wrote it, and `$slot`. `at`: the component's scope at
-   * the placement, where its `data-sn-prop` is compiled; through forwarding slots, each outer
-   * placement's `data-sn-prop` is compiled with the inner one's `$slot`. Computed once per fill.
+   * the placement, where its `data-sn-with` is compiled; through forwarding slots, each outer
+   * placement's `data-sn-with` is compiled with the inner one's `$slot`. Computed once per fill.
    */
   /** The scope a fill was compiled in, for the children its `<slot>` places: at the fill's instance, which is the longest one recorded that `inst` (theirs, in a row deeper down) starts with. */
   fillAt(chain: FillChain, inst: string): { at: Scope; fill: Scope } | undefined {
@@ -3329,19 +3429,19 @@ class Compiler {
     return writer?.caller ? { ...writer.caller, slot: rec.fill.slot! } : rec.fill;
   }
 
-  /** A placement's `data-sn-prop`, in the component's scope at the placement: `$slot`, checked against the slot's `T`. */
+  /** A placement's `data-sn-with`, in the component's scope at the placement: `$slot`, checked against the slot's `T`. */
   placementData(p: Placement, scope: Scope): SlotScope {
     const el = p.el, T = p.member.slot!;
     const members = new Map<string, LetEntry>();
-    const src = attr(el, 'data-sn-prop');
+    const src = attr(el, 'data-sn-with');
     const known = typeMembers(T);
     if (src !== undefined) {
-      const r = this.expr(el, 'data-sn-prop', scope, { mode: 'value', object: 'literal-keys' });
+      const r = this.expr(el, 'data-sn-with', scope, { mode: 'value', object: 'literal-keys' });
       if (this.check) this.typeLast({ returns: { kind: 'ts', text: T, loc: this.locOf(p.use.template, 'data-sn-component', p.member.offset) } });
       for (const e of r.entries ?? []) {
         if (known && !known.some((m) => m.name === e.key)) {
           const names = known.map((m) => m.name);
-          this.report(el, 'data-sn-prop', 'SN313', `\`${e.key}\` is not in \`Slot<${T}>\` of \`${p.name}\`; ${names.length ? `it passes ${names.map((x) => `\`${x}\``).join(', ')}` : 'it passes nothing'}.${didYouMean(e.key, names)}`, e.offset);
+          this.report(el, 'data-sn-with', 'SN313', `\`${e.key}\` is not in \`Slot<${T}>\` of \`${p.name}\`; ${names.length ? `it passes ${names.map((x) => `\`${x}\``).join(', ')}` : 'it passes nothing'}.${didYouMean(e.key, names)}`, e.offset);
           continue;
         }
         if (members.has(e.key)) continue;
@@ -3349,7 +3449,7 @@ class Compiler {
         const q = v ? analyze(src.slice(v.start, v.end), scope, this.page, { mode: 'value', report: () => {} }) : null;
         members.set(e.key, { name: `$slot.${e.key}`, code: q?.ok ? q.inner : 'undefined', deps: q?.deps ?? [], usesEl: q?.usesEl ?? false, usesIndex: q?.usesIndex ?? false, resource: q?.resource ?? null, src: q?.itemOf ?? null, list: q?.listOf ?? null });
       }
-      for (const m of known ?? []) if (!m.optional && !members.has(m.name)) this.report(el, 'data-sn-prop', 'SN313', `the placement of \`${p.name}\` passes no \`${m.name}\`, which \`Slot<${T}>\` needs`, 0);
+      for (const m of known ?? []) if (!m.optional && !members.has(m.name)) this.report(el, 'data-sn-with', 'SN313', `the placement of \`${p.name}\` passes no \`${m.name}\`, which \`Slot<${T}>\` needs`, 0);
     }
     const all = [...members.values()];
     const whole: LetEntry = {
@@ -3419,20 +3519,20 @@ class Compiler {
     const lets: LetEntry[] = [];
     const passed = new Set<string>();
     const declared = use.props?.map((m) => m.name) ?? null;
-    const src = attr(host, 'data-sn-prop');
+    const src = attr(host, 'data-sn-with');
     if (src !== undefined) {
-      const r = this.expr(host, 'data-sn-prop', caller, { mode: 'value', object: 'literal-keys', waits: true });
+      const r = this.expr(host, 'data-sn-with', caller, { mode: 'value', object: 'literal-keys', waits: true });
       // a missing prop the compiler reports itself; TypeScript checks the types of those given
       if (this.check) this.typeLast({ returns: { kind: 'ts', text: use.props ? `Partial<${use.propsText.trim() || '{}'}>` : use.propsText, loc: this.locOf(use.template, use.layout ? 'data-sn-layout' : use.head ? 'data-sn-head' : 'data-sn-component') } });
       for (const e of r.entries ?? []) {
         const slot = use.slots?.get(e.key);
         if (slot) {
-          this.report(host, 'data-sn-prop', 'SN313', `\`${e.key}\` is a slot of \`<${name}>\` (\`Slot<${slot.slot}>\`), not a prop: it is filled with markup`, e.offset,
+          this.report(host, 'data-sn-with', 'SN313', `\`${e.key}\` is a slot of \`<${name}>\` (\`Slot<${slot.slot}>\`), not a prop: it is filled with markup`, e.offset,
             `put the content in the tag: \`<${name}><span slot="${e.key}" data-sn-text="$slot…"></span></${name}>\``);
           continue;
         }
         if (declared && !declared.includes(e.key)) {
-          this.report(host, 'data-sn-prop', 'SN313', `\`${e.key}\` is not a prop of \`<${name}>\`; ${declared.length ? `its props are ${declared.map((x) => `\`${x}\``).join(', ')}` : 'it declares none'}.${didYouMean(e.key, declared)}`, e.offset);
+          this.report(host, 'data-sn-with', 'SN313', `\`${e.key}\` is not a prop of \`<${name}>\`; ${declared.length ? `its props are ${declared.map((x) => `\`${x}\``).join(', ')}` : 'it declares none'}.${didYouMean(e.key, declared)}`, e.offset);
           continue;
         }
         if (passed.has(e.key)) continue;
@@ -3449,9 +3549,9 @@ class Compiler {
       const ok = (!declared || declared.includes('value')) && (!use.emits || use.emits.some((m) => m.name === 'change'));
       if (!ok) {
         this.report(host, 'data-sn-model', 'SN313', `\`data-sn-model\` binds a component through its \`value\` prop and \`change\` event; \`<${name}>\` declares ${declared?.includes('value') ? 'no `change` event' : 'no `value` prop'}`, 0,
-          `declare both: \`data-sn-component="{ value: … }" data-sn-emits="{ change: … }"\`, and \`emit('change', v)\` when the value changes`);
+          `declare both: \`data-sn-props="{ value: … }" data-sn-emits="{ change: … }"\`, and \`emit('change', v)\` when the value changes`);
       } else if (passed.has('value')) {
-        this.report(host, 'data-sn-model', 'SN209', '`data-sn-model` passes the `value` prop; `data-sn-prop` cannot pass it too', 0);
+        this.report(host, 'data-sn-model', 'SN209', '`data-sn-model` passes the `value` prop; `data-sn-with` cannot pass it too', 0);
       } else {
         const q = analyze(attr(host, 'data-sn-model')!, caller, this.page, { mode: 'value', report: () => {} });
         passed.add('value');
@@ -3462,7 +3562,7 @@ class Compiler {
     const defaults = stateKeys(attr(use.root, 'data-sn-state'));
     for (const m of use.props ?? []) {
       if (passed.has(m.name)) continue;
-      if (!m.optional) this.report(host, null, 'SN313', `\`<${name}>\` needs the prop \`${m.name}\``, 0, `pass it with \`data-sn-prop="{ ${m.name}: … }"\``);
+      if (!m.optional) this.report(host, null, 'SN313', `\`<${name}>\` needs the prop \`${m.name}\``, 0, `pass it with \`data-sn-with="{ ${m.name}: … }"\``);
       if (!defaults.has(m.name)) lets.push({ name: m.name, code: 'undefined', deps: [], usesEl: false, usesIndex: false, resource: null, prop: true });
     }
     return { lets, passed };
@@ -3494,7 +3594,7 @@ class Compiler {
     }
     const { lets } = this.propLets(use, ctx.scope);
     // each candidate's props, checked with the data narrowed to its value (convention, map; a helper hides the link)
-    if (choice?.key != null && this.check && this.lastExpr !== null && attr(host, 'data-sn-prop') !== undefined) {
+    if (choice?.key != null && this.check && this.lastExpr !== null && attr(host, 'data-sn-with') !== undefined) {
       const e = this.check.exprs[this.lastExpr]!;
       // (in parentheses when there are several keys: the guard is joined with others)
       e.guard = choice.also?.length ? `(${[choice.key, ...choice.also].map((k) => `(${choice.keySrc}) === ${JSON.stringify(k)}`).join(' || ')})` : `(${choice.keySrc}) === ${JSON.stringify(choice.key)}`;
@@ -3519,13 +3619,13 @@ class Compiler {
       if (g.node) { this.remove.push(host); return null; }
       g.pick = pick!.ok ? pick!.inner : 'undefined';
       g.warn = warn;
-      g.site = { el: host, attr: 'data-sn-prop', shift: 0 };
+      g.site = { el: host, attr: 'data-sn-with', shift: 0 };
       this.choiceGroups.push(g);
     }
     const code = `($) => ${props}`;
     const node: NodeDef = { tag: 'template', p: ctx.stateIdx, b: [choice
       ? this.binding({ k: 'ch', d: deps, c: [] })
-      : this.binding({ k: 'for', f: this.fn(code, { el: host, attr: 'data-sn-prop', shift: 0 }), d: deps, x: def.tid })] };
+      : this.binding({ k: 'for', f: this.fn(code, { el: host, attr: 'data-sn-with', shift: 0 }), d: deps, x: def.tid })] };
     if (choice) choice.group.node = node;
     // for the first pass's decisions: which case the choice renders, from `use` alone (a recursion point: no `pick`)
     this.pointOf.set(node, { el: host, group: choice?.group ?? null, top: ctx.tid < 0, pick: choice && pick?.ok ? { code: `($) => (${pick.inner})`, deps: pick.deps } : null });
@@ -3624,8 +3724,8 @@ class Compiler {
     const pristine = { ...el, childNodes: el.childNodes.map((c) => this.cloneTree(c, el)) } as P5Element;
     const shape = this.defaultShape({ el: pristine, use: this.useById.get(ctx.scope.component?.id ?? -1) ?? ({ name: ctx.scope.component?.name ?? '' } as Use), name: k, member: { name: k, optional: false, offset: 0 } });
     // the data, in the definition's scope at the placement
-    const r = this.expr(el, 'data-sn-prop', ctx.scope, { mode: 'value', object: 'literal-keys' });
-    const src = attr(el, 'data-sn-prop') ?? '{}';
+    const r = this.expr(el, 'data-sn-with', ctx.scope, { mode: 'value', object: 'literal-keys' });
+    const src = attr(el, 'data-sn-with') ?? '{}';
     const members = new Map<string, LetEntry>();
     for (const e of r.entries ?? []) {
       if (members.has(e.key)) continue;
@@ -3761,7 +3861,7 @@ class Compiler {
         const pkg = this.componentFile(name)?.lib ?? null;
         if (g.places.has(k) || [...this.reach(name)].some((n) => n !== name && (this.componentFile(n)?.lib ?? null) === pkg && this.fileGraph(n).data.has(k) && !this.fileGraph(n).declares.has(k))) continue;
         this.once(u.template, 'data-sn-component', 'SN331', `\`<${name}>\` declares the slot \`${k}\`, and nothing inside it places \`${k}\`: a fill for it would never render`, m.offset,
-          `place it: \`<slot name="${k}" data-sn-prop="{ … }">\` in \`<${name}>\` or in a component it uses, or remove it`);
+          `place it: \`<slot name="${k}" data-sn-with="{ … }">\` in \`<${name}>\` or in a component it uses, or remove it`);
       }
     }
   }
@@ -3790,12 +3890,12 @@ class Compiler {
     const walk = (n: P5Parent) => {
       for (const c of n.childNodes) {
         if (!isElement(c)) continue;
-        if (c.tagName === 'template' && attr(c, 'data-sn-component') !== undefined) {
-          for (const m of typeMembers(attr(c, 'data-sn-component')!.trim() || '{}') ?? []) if (m.slot !== undefined) out.declares.add(m.name);
+        if (c.tagName === 'template' && propsDecl(c) !== undefined) {
+          for (const m of typeMembers(propsDecl(c)!.trim() || '{}') ?? []) if (m.slot !== undefined) out.declares.add(m.name);
         }
         if (c.tagName === 'slot' && attr(c, 'name')) {
           out.places.add(attr(c, 'name')!);
-          if (attr(c, 'data-sn-prop') !== undefined) out.data.add(attr(c, 'name')!);
+          if (attr(c, 'data-sn-with') !== undefined) out.data.add(attr(c, 'name')!);
         }
         if (c.tagName === 'sn-component') {
           const u = attr(c, 'use') ?? '';
@@ -3859,7 +3959,7 @@ class Compiler {
         if (!keys.has(`a:${a.name}`)) keys.set(`a:${a.name}`, this.binding({ k: 'attr', n: a.name, f: read(`a:${a.name}`) }));
       }
       // sinter's: compiled as on an element, then moved into the item
-      const sn = el.attrs.filter((a) => a.name.startsWith('data-sn-') && !['data-sn-prop', 'data-sn-early'].includes(a.name));
+      const sn = el.attrs.filter((a) => a.name.startsWith('data-sn-') && !['data-sn-with', 'data-sn-early'].includes(a.name));
       if (!sn.length) continue;
       const bad = sn.find((a) => !/^data-sn-(class|attr|style|show|on-.+)$/.test(a.name));
       if (bad) {
@@ -3962,7 +4062,7 @@ class Compiler {
     }
     if (u && !('seen' in u)) { L.off = true; return this.compileDefinition(name); }
     // recorded the second time a build needs it (recording logs what the unit reads and writes): a definition only one
-    // page needs, as a `data-sn-pages` template's first entry, is compiled in place once. The chain goes on from either
+    // page needs, as a `<html data-sn-for>` template's first entry, is compiled in place once. The chain goes on from either
     if (u === undefined) {
       const id = cache.size;
       cache.set(key, { seen: id });
@@ -4047,7 +4147,7 @@ class Compiler {
           continue;
         }
         if (this.page.resources.has(name)) {
-          this.report(child, 'name', 'SN302', `resource \`${name}\` is declared twice`, 0);
+          this.report(child, 'name', 'SN209', `resource \`${name}\` is declared twice`, 0);
           continue;
         }
         if (STORE_FNS.includes(name)) {
@@ -4055,9 +4155,9 @@ class Compiler {
           continue;
         }
         const key = attr(child, 'key') ?? (attr(child, 'call') == null ? this.apiTarget(child, 'src', attr(child, 'method')?.trim() === 'POST' ? 'post' : 'get')?.shape?.key : undefined);
-        const paginate = attr(child, 'paginate');
-        const info: ResourceInfo = { name, key: key ? key.split(',').map((s) => s.trim()).filter(Boolean) : null, paginate: paginate ?? null, used: false };
-        if (paginate === 'keyset' && attr(child, 'offset-param') != null) info.jumps = true;
+        const paginate = attr(child, 'paginate') != null ? this.pageSpec(child) : null;
+        const info: ResourceInfo = { name, key: key ? key.split(',').map((s) => s.trim()).filter(Boolean) : null, paginate: paginate?.mode ?? null, used: false };
+        if (paginate?.jump) info.jumps = true;
         this.page.resources.set(name, info);
         this.resourceEls.set(name, child);
         continue;
@@ -4098,9 +4198,9 @@ class Compiler {
   }
 
   /**
-   * SN509 (opt-in, `checkCycles`): `then`/`catch` handlers that start each other again. Nodes are
+   * SN509: `then`/`catch` handlers that start each other again. Nodes are
    * action elements (by id) and resources; an edge is a `run('id')` in an action's `then`/`catch`
-   * or a resource's `then`, or a `refresh('name')` there (a load runs the resource's `then`).
+   * or a resource's `then`, or a `refresh(name)` there (a load runs the resource's `then`).
    * Each elementary cycle with at least one `run()` is reported once, at its first step.
    */
   runCycles() {
@@ -4149,7 +4249,7 @@ class Compiler {
               });
               const first = path[0]!;
               this.report(first.flow.el, first.flow.attr, 'SN509', `\`run()\` cycle: ${steps.join(', then ')}, which starts the first step again`, first.flow.shift + first.offset,
-                'each step starts the next, so the requests never stop; a step that should end needs a condition that becomes false, or one step goes. Reported because the cycle check is on (`sinter check --check-cycles` or `sinter({ checkCycles: true })`)', true);
+                'each step starts the next, so the requests never stop; a step that should end needs a condition that becomes false, or one step goes. A deliberate cycle, a guarded retry, stays a warning with `strict: { allow: { SN509: \'why\' } }`', true);
               reported++;
             }
           } else if (!onPath.has(e.to)) {
@@ -4293,7 +4393,7 @@ class Compiler {
     for (const u of starts) ctx = { ...ctx, scope: this.markupOf(u, ctx.scope, this.instOf(el), early) };
     // slot content sees the scope of the caller that wrote it
     if (slot?.head && !slot.caller) this.headMarkup(slot, ctx.scope);
-    // an unfilled placement: its `data-sn-prop`, compiled for its diagnostics and types
+    // an unfilled placement: its `data-sn-with`, compiled for its diagnostics and types
     const dflt = this.defaultOf.get(el);
     // a default that is a component's root, placed in that component's own markup: in its scope, below
     const own = dflt && this.useOf.get(el) && this.origins.get(dflt[0]!.el)?.file === this.origins.get(this.useOf.get(el)!.template)?.file;
@@ -4308,9 +4408,6 @@ class Compiler {
     const caseScope = this.caseScopes.get(el);
     if (caseScope) ctx = { ...ctx, scope: caseScope };
     const base = ctx.scope;
-    // the partial an `<sn-include>` inserted: what the page's scope has there
-    const inc = this.includeTop.get(el);
-    if (inc && !inc.site) inc.site = new Set<object>([...ctx.scope.loops, ...ctx.scope.states, ...(ctx.scope.lets ?? [])]);
     // a component used inside itself: an instance of its shared definition
     const point = this.points.get(el);
     if (point) return this.recursionPoint(el, point, ctx, index);
@@ -4338,19 +4435,26 @@ class Compiler {
     const has = (n: string) => sn.some((a) => a.name === `data-sn-${n}`);
 
     // unknown attributes
-    const known = new Set<string>(ATTRS.map((a) => `data-sn-${a}`));
+    // with the names `declaration()` gives `data-sn-props` for the compiler (the old names are reported there)
+    const known = new Set<string>([...ATTRS.map((a) => `data-sn-${a}`), 'data-sn-component', 'data-sn-head', 'data-sn-layout']);
     for (const a of sn) {
       if (known.has(a.name) || a.name.startsWith('data-sn-on-') || a.name.startsWith('data-sn-debounce-')) continue;
+      const retired = RETIRED[a.name];
+      if (retired) { this.report(el, a.name, 'SN101', `\`${a.name}\` ${retired}`, 0); continue; }
+      const by = SET_BY_SINTER[a.name];
+      if (by) { this.report(el, a.name, 'SN101', `\`${a.name}\` is set by sinter (${by}): style it with \`[${a.name}]\`, do not write it`, 0); continue; }
       this.report(el, a.name, 'SN101', `\`${a.name}\` is not a sinter attribute.${didYouMean(a.name, [...known, 'data-sn-on-click'])}`, 0);
     }
 
-    if (has('layout') && !use?.layout) this.report(el, 'data-sn-layout', 'SN318', '`data-sn-layout` belongs on the `<html>` of a layout file (`src/layouts/<name>.html`)', 0);
-    for (const n of ['component', 'head', 'emits']) {
-      if (has(n)) this.report(el, `data-sn-${n}`, 'SN102', `\`data-sn-${n}\` belongs on the \`<template>\` of a component file (\`src/components/<name>.html\`)`, 0);
+    if (has('layout') && !use?.layout) this.report(el, 'data-sn-layout', 'SN101', `\`data-sn-layout\` ${RETIRED['data-sn-layout']}`, 0);
+    if (has('props') && el.tagName === 'html') this.report(el, 'data-sn-props', 'SN318', '`data-sn-props` on `<html>` belongs to a layout file (`src/layouts/<name>.html`); a page takes no props', 0);
+    for (const n of ['props', 'component', 'head', 'emits']) {
+      // the old names, written outside a component file: renamed, whatever the place
+      if ((n === 'component' || n === 'head') && has(n)) { this.report(el, `data-sn-${n}`, 'SN101', `\`data-sn-${n}\` ${RETIRED[`data-sn-${n}`]}`, 0); continue; }
+      if (has(n) && !(n === 'props' && el.tagName === 'html')) this.report(el, `data-sn-${n}`, 'SN102', `\`data-sn-${n === 'emits' ? n : 'props'}\` belongs on the \`<template>\` of a component file (\`src/components/<name>.html\`)${n === 'props' ? ', or on the `<html>` of a layout file' : ''}`, 0);
     }
     if (has('early') && !this.useOf.get(el)) this.report(el, 'data-sn-early', 'SN102', '`data-sn-early` goes on a component\'s tag, `<tag-cloud data-sn-early="off">`', 0);
     if (has('path') && el.tagName !== 'html') this.report(el, 'data-sn-path', 'SN102', '`data-sn-path` belongs on `<html>`', 0);
-    if (has('pages') && el.tagName !== 'html') this.report(el, 'data-sn-pages', 'SN102', '`data-sn-pages` belongs on `<html>` (or a layout\'s tag), beside `data-sn-path`', 0);
     if (has('prefetch')) {
       if (el.tagName !== 'html') this.report(el, 'data-sn-prefetch', 'SN102', '`data-sn-prefetch` belongs on `<html>`: it keeps other pages from prefetching or prerendering this one', 0);
       else if (get('prefetch')!.trim() !== 'off') this.report(el, 'data-sn-prefetch', 'SN401', '`data-sn-prefetch` takes `off`; prefetching is on without the attribute', 0);
@@ -4390,6 +4494,7 @@ class Compiler {
         if (/<slot\b/i.test(text)) this.keptSlot.add(name);
       }
     }
+    if (has('wait') && get('wait')!.trim() !== 'off') this.report(el, 'data-sn-wait', 'SN401', '`data-sn-wait` takes `off`: what follows the box shows at once instead of waiting for the list\'s first rows', 0);
     // a page or a link the swap leaves to the browser: on `<html>` the build records it, on a link it stays
     if (has('swap')) {
       if (el.tagName !== 'html' && el.tagName !== 'a' && el.tagName !== 'area') this.report(el, 'data-sn-swap', 'SN102', '`data-sn-swap` belongs on `<html>` (links to the page load it) or on a link (it loads its page)', 0);
@@ -4398,15 +4503,15 @@ class Compiler {
     }
 
     // embedded data
-    if (has('data')) {
+    if (has('resource')) {
       if (el.tagName !== 'script' || attr(el, 'type') !== 'application/json') {
-        this.report(el, 'data-sn-data', 'SN102', '`data-sn-data` must be on a `<script type="application/json">`', 0);
+        this.report(el, 'data-sn-resource', 'SN102', '`data-sn-resource` must be on a `<script type="application/json">`', 0);
       } else {
-        const name = get('data')!;
+        const name = get('resource')!;
         if (!this.page.resources.has(name)) {
-          this.report(el, 'data-sn-data', 'SN301', `resource \`${name}\` is not declared on this page.${didYouMean(name, this.page.resources.keys())}`, 0);
+          this.report(el, 'data-sn-resource', 'SN301', `resource \`${name}\` is not declared on this page.${didYouMean(name, this.page.resources.keys())}`, 0);
         } else if (ctx.tid >= 0) {
-          this.report(el, 'data-sn-data', 'SN102', 'embedded data cannot be inside a `<template>`', 0);
+          this.report(el, 'data-sn-resource', 'SN102', 'embedded data cannot be inside a `<template>`', 0);
         } else {
           const id = this.nextId++;
           this.embedded.set(name, id);
@@ -4477,16 +4582,20 @@ class Compiler {
     // derived names: the element and its subtree read them like state
     if (has('let')) scope = this.lets(el, scope);
 
-    // a text field with suggestions: the listbox feature handles the keys (see src/listbox.ts)
-    if (has('listbox')) {
-      const list = get('listbox')!;
-      if (!['input', 'textarea'].includes(el.tagName)) this.report(el, 'data-sn-listbox', 'SN102', '`data-sn-listbox` belongs on a text `<input>` or `<textarea>`', 0);
-      else if (list && !/^[A-Za-z][\w-]*$/.test(list)) this.report(el, 'data-sn-listbox', 'SN401', '`data-sn-listbox` takes the literal `id` of the suggestion list, or nothing for the nearest `[role="listbox"]` around the input', 0);
+    // keys move a mark through a list of options (see src/options.ts): the attribute stays, for the runtime
+    if (has('options')) {
+      const list = get('options')!.trim();
+      const type = attr(el, 'type')?.trim().toLowerCase() ?? 'text';
+      const text = el.tagName === 'textarea' || (el.tagName === 'input' && !/^(button|submit|reset|checkbox|radio|image|file|color|range|hidden)$/.test(type));
+      if (el.tagName === 'select' || (el.tagName === 'input' && !text) || el.tagName === 'template') this.report(el, 'data-sn-options', 'SN102', '`data-sn-options` belongs on a text field with suggestions, or on the element that holds the options (a menu, a list)', 0);
+      else if (list && !/^[A-Za-z][\w-]*$/.test(list)) this.report(el, 'data-sn-options', 'SN401', '`data-sn-options` takes the literal `id` of the list, or nothing: the options inside the element, else the nearest list around it', 0);
       else {
-        setAttr(el, 'role', 'combobox');
+        if (text) {
+          setAttr(el, 'role', 'combobox');
+          setAttr(el, 'aria-autocomplete', 'list');
+        } else if (attr(el, 'tabindex') == null) setAttr(el, 'tabindex', '0');
         if (list) setAttr(el, 'aria-controls', list);
-        setAttr(el, 'aria-autocomplete', 'list');
-        this.features.add('listbox');
+        this.features.add('options');
       }
     }
 
@@ -4499,7 +4608,7 @@ class Compiler {
     }
 
     for (const n of ['for', 'if', 'else'] as const) {
-      if (has(n) && !isTemplate) this.report(el, `data-sn-${n}`, 'SN102', `\`data-sn-${n}\` must be on a \`<template>\``, 0);
+      if (has(n) && !isTemplate) this.report(el, `data-sn-${n}`, 'SN102', `\`data-sn-${n}\` must be on a \`<template>\`${n === 'for' ? ' (or on `<html>`: the page once per entry)' : ''}`, 0);
     }
     if (has('key') && !(isTemplate && has('for'))) this.report(el, 'data-sn-key', 'SN102', '`data-sn-key` belongs on a `<template data-sn-for>`', 0);
 
@@ -4548,7 +4657,7 @@ class Compiler {
       if (this.check) this.branchGuard.set(b, cond);
       content = { tid, scope: this.guarded(scope, cond) };
     } else if (isTemplate && has('else')) {
-      if (get('else')) this.report(el, 'data-sn-else', 'SN401', '`data-sn-else` takes no value', 0);
+      if (get('else')) this.report(el, 'data-sn-else', 'SN401', '`data-sn-else` takes no value; an else-if is `<template data-sn-else data-sn-if="…">`', 0);
       if (!prevIf) this.report(el, 'data-sn-else', 'SN102', '`data-sn-else` must be on a `<template>` directly after a `data-sn-if` template', 0);
       const tid = this.newTemplate();
       node.b.push(this.binding({ k: 'else', x: tid }));
@@ -4624,28 +4733,44 @@ class Compiler {
     if (has('attr')) source('data-sn-attr', () => this.attrBinding(el, node, scope));
     if (has('class')) source('data-sn-class', () => this.objectBinding(el, node, scope, 'class'));
     if (has('style')) source('data-sn-style', () => this.objectBinding(el, node, scope, 'style'));
-    if (has('prop') && !use) {
-      if (!el.tagName.includes('-')) this.report(el, 'data-sn-prop', 'SN102', '`data-sn-prop` is for custom elements only; use `data-sn-attr`', 0);
+    if (has('with') && !use) {
+      if (!el.tagName.includes('-')) this.report(el, 'data-sn-with', 'SN102', '`data-sn-with` is for custom elements only; use `data-sn-attr`', 0);
       else this.objectBinding(el, node, scope, 'prop');
     }
     if (has('model') && use) this.componentModel(use, node, scope);
-    else if (has('model')) this.model(el, node, scope, get('persist'));
+    // with `data-sn-debounce` and no action, the model writes once the field pauses (below)
+    else if (has('model')) this.model(el, node, scope, get('persist'), (duration(get('model-debounce') ?? '', 'ms') ?? 0) > 0);
     else if (has('persist') && !has('state')) this.report(el, 'data-sn-persist', 'SN102', '`data-sn-persist` needs `data-sn-model` or `data-sn-state` on the same element', 0);
 
     const methods = METHODS.filter((m) => has(m));
     const isCall = has('call');
-    // without a method, `data-sn-debounce` delays the element's own handlers
-    let handlerDebounce = 0;
+    // `data-sn-debounce` delays an action's trigger; `data-sn-model-debounce` a model's write (the pause in place of
+    // the typing pause: the write is not typing, so a resource over it loads at once and a model on `$url` is one
+    // history entry); a handler waits by `data-sn-debounce-<event>`
+    if (has('model-debounce')) {
+      const ms = duration(get('model-debounce')!, 'ms'), modelB = !use ? node.b.find((b) => b.k === 'model') : undefined;
+      if (ms === null) this.report(el, 'data-sn-model-debounce', 'SN401', `\`data-sn-model-debounce\` takes ${DURATION}, or milliseconds (\`300\`)`, 0);
+      else if (use) { /* a component's tag: reported with its other attributes, `cannot be on a component's tag` */ }
+      else if (!modelB) this.report(el, 'data-sn-model-debounce', 'SN102', '`data-sn-model-debounce` needs `data-sn-model` on the same element', 0);
+      else if (ms > 0) { modelB.ms = ms; this.features.add('debounce'); }
+    }
     if (!methods.length && !isCall && has('debounce')) {
-      handlerDebounce = Number(get('debounce'));
-      if (!Number.isFinite(handlerDebounce) || handlerDebounce < 0) this.report(el, 'data-sn-debounce', 'SN401', '`data-sn-debounce` takes milliseconds', 0);
-      if (!sn.some((a) => a.name.startsWith('data-sn-on-'))) this.report(el, 'data-sn-debounce', 'SN102', '`data-sn-debounce` needs a method attribute (`data-sn-get`, `-post`, …) or a `data-sn-on-*` handler on the same element', 0);
+      const events = [...new Set(sn.filter((a) => a.name.startsWith('data-sn-on-')).map((a) => a.name.slice('data-sn-on-'.length)))];
+      const ms = get('debounce')!.trim();
+      // what each part of the element takes instead, the model's only where it has none yet
+      const parts = [
+        ...(has('model') && !has('model-debounce') ? [`the model with \`data-sn-model-debounce="${ms}"\``] : []),
+        ...(events.length ? [`${events.length > 1 ? 'the handlers' : 'the handler'} with ${events.map((e) => `\`data-sn-debounce-${e}="${ms}"\``).join(', ')}`] : []),
+      ];
+      this.report(el, 'data-sn-debounce', 'SN102', parts.length
+        ? `\`data-sn-debounce\` delays an action's trigger, and this element has none; delay ${parts.join(', and ')}`
+        : '`data-sn-debounce` needs an action on the same element: a method attribute (`data-sn-post`, `-put`, …) or `data-sn-call`; a model waits with `data-sn-model-debounce`, a handler with `data-sn-debounce-<event>`', 0);
     }
     // `data-sn-debounce-<event>`: only that event's handler waits
     for (const a of sn) {
       if (!a.name.startsWith('data-sn-debounce-')) continue;
-      const event = a.name.slice('data-sn-debounce-'.length), ms = Number(a.value);
-      if (!Number.isFinite(ms) || ms < 0 || a.value.trim() === '') this.report(el, a.name, 'SN401', `\`${a.name}\` takes milliseconds`, 0);
+      const event = a.name.slice('data-sn-debounce-'.length);
+      if (duration(a.value, 'ms') === null) this.report(el, a.name, 'SN401', `\`${a.name}\` takes ${DURATION}, or milliseconds (\`300\`)`, 0);
       if (!has(`on-${event}`)) this.report(el, a.name, 'SN102', `\`${a.name}\` needs a \`data-sn-on-${event}\` handler on the same element`, 0);
     }
     for (const a of sn) {
@@ -4656,16 +4781,21 @@ class Compiler {
       const filter = kf ? this.keyFilter(el, a.name, kf[2]!) : undefined;
       if (filter === null) continue;
       if (filter) this.features.add('keys');
-      // `navigate`: sinter's, for every navigation while the element is on the page (navigate.ts finds the
+      // sinter's events before the `sn-` prefix: a component that emits one of these names keeps it
+      if (UNPREFIXED[event] && !use?.emits?.some((m) => m.name === event)) {
+        this.report(el, a.name, 'SN101', `\`${a.name}\` is renamed to \`data-sn-on-${UNPREFIXED[event]}\`, as sinter's events are all \`sn-…\``, 0);
+        continue;
+      }
+      // `sn-navigate`: sinter's, for every navigation while the element is on the page (navigate.ts finds the
       // element by this mark, which stays in the HTML)
-      if (event === 'navigate') { this.features.add('navigate'); setAttr(el, 'data-sn-navigate', ''); }
+      if (event === 'sn-navigate') { this.features.add('navigate'); setAttr(el, 'data-sn-navigate', ''); }
       if (!kf && !/^[a-z][a-z0-9]*(-[a-z0-9]+)*$/.test(event)) {
         this.report(el, a.name, 'SN101', `event names are lowercase kebab-case: \`${a.name}\``, 0);
         continue;
       }
       // a layout's tag: the page's `<body>` handlers, for DOM events and sinter's own
       if (use?.layout && !kf && !DOM_EVENTS.has(event) && !SINTER_EVENTS.includes(event)) {
-        this.report(el, a.name, 'SN315', `\`${event}\` is not an event the page's \`<body>\` hears: a layout's tag takes handlers for DOM events and sinter's \`sn-error\` and \`dismiss\`.${didYouMean(event, [...SINTER_EVENTS, ...DOM_EVENTS])}`, 0,
+        this.report(el, a.name, 'SN315', `\`${event}\` is not an event the page's \`<body>\` hears: a layout's tag takes handlers for DOM events and sinter's \`sn-error\` and \`sn-dismiss\`.${didYouMean(event, [...SINTER_EVENTS, ...DOM_EVENTS])}`, 0,
           'a component tells the page with an event it declares: `data-sn-emits="{ \'delete-start\': Item }"` on its template, `emit(\'delete-start\', item)` in it, and the page handles it on the component\'s tag (`<item-row data-sn-on-delete-start="…">`) or an element around it, in the page\'s content');
       } else if (use && !use.layout && !kf && use.emits && !DOM_EVENTS.has(event) && !use.emits.some((m) => m.name === event)) {
         const names = use.emits.map((m) => m.name);
@@ -4676,7 +4806,7 @@ class Compiler {
       // selectOption() dispatches them). A handler higher up hears both: there `input` replaces.
       const choice = (event === 'input' || event === 'change') && (el.tagName === 'select' || (el.tagName === 'input' && /^(checkbox|radio)$/i.test(attr(el, 'type') ?? '')));
       const r = this.expr(el, a.name, scope, { mode: 'handler', magic: ['$event'], ...(choice ? { urlKind: 4 } : {}) });
-      const own = get(`debounce-${event}`), ms = own !== undefined ? Number(own) || 0 : handlerDebounce;
+      const ms = duration(get(`debounce-${event}`) ?? '', 'ms') ?? 0;
       if (ms > 0) this.features.add('debounce');
       if (r.ok) node.b.push(this.binding({ k: 'on', n: kf ? kf[1]! : event, f: this.fn(r.code), w: r.writes, ...filter, ...(ms > 0 ? { ms } : {}) }));
     }
@@ -4685,7 +4815,8 @@ class Compiler {
     if (methods.length && isCall) this.report(el, 'data-sn-call', 'SN102', 'an element has one action: a method attribute or `data-sn-call`, not both', 0);
     if (methods.length) this.action(el, node, scope, methods[0]!, get, !!ctx.form || el.attrs.some((x) => x.name === 'form'));
     else if (isCall) this.action(el, node, scope, 'call', get);
-    else for (const n of ACTION_ONLY) if (has(n) && n !== 'debounce') this.report(el, `data-sn-${n}`, 'SN102', `\`data-sn-${n}\` needs a method attribute (\`data-sn-get\`, \`-post\`, …) on the same element`, 0);
+    // a retired action (`data-sn-get`) has its own SN101: its options asking for an action would contradict it
+    else if (!has('get')) for (const n of ACTION_ONLY) if (has(n) && n !== 'debounce') this.report(el, `data-sn-${n}`, 'SN102', `\`data-sn-${n}\` needs an action on the same element: a method attribute (\`data-sn-post\`, \`-put\`, …) or \`data-sn-call\``, 0);
   }
 
   /**
@@ -4923,20 +5054,14 @@ class Compiler {
     for (const a of r.assigns ?? []) this.addSources(`@${a.path}`, a.src);
     if (scope.component?.id !== undefined) for (const e of r.emitted ?? []) this.addSources(`@ev:${scope.component.id}:${e.event}`, e.src);
     for (const c of r.srcRefs ?? []) this.srcCalls.push({ el, attr: attrName, shift, ...c });
-    const inc = this.includeOf.get(el);
-    if (inc) this.outerNames(src, scope, o, inc);
     this.at = { el, attr: attrName, shift };
     if (r.ok && !this.codeAt.has(r.code)) this.codeAt.set(r.code, this.at);
     if (r.ok && r.ast) this.complexity(el, attrName, o, r.ast);
     if (r.runs || r.refreshes) this.flows.push({ el, attr: attrName, shift, runs: r.runs ?? [], refreshes: r.refreshes ?? [] });
     this.lastExpr = null;
     if (this.check) {
-      // a let read as a resource name is typed as its names (TypeScript would widen `'messages'` to string)
-      for (const l of r.nameLets ?? []) {
-        const f = this.check.frames[this.frameOf.get(l) ?? -1];
-        if (f?.kind === 'let' && f.init !== null && l.names) this.check.exprs[f.init]!.returns = { kind: 'names', names: l.names };
-      }
-      const i = this.recordExpr(el, attrName, scope, o, src, shift, r);
+      // resources named by value (`refresh(people)`) are checked as their names, which the store's types take
+      const i = this.recordExpr(el, attrName, scope, o, r.nameEdits ? applyEdits(src, r.nameEdits) : src, shift, r);
       // a broken expression is there for editor completion only; nothing refers to it
       if (r.ok) this.lastExpr = i;
       else this.check.exprs[i]!.broken = true;
@@ -5002,7 +5127,7 @@ class Compiler {
   }
 
   /**
-   * The sources of `patch()`/`remove()` items that are state (`sel`) or a component's event detail:
+   * The sources of `merge()`/`remove()` items that are state (`sel`) or a component's event detail:
    * the resources assigned to them anywhere on the page, followed through other references. A
    * reference no assignment gives a resource is SN317.
    */
@@ -5039,7 +5164,7 @@ class Compiler {
           if (sn) add({ r: base, ...(t.rd.row ? { v: t.rd.row } : {}), ...(n ? { n } : {}), p: t.rd.path.slice(0, i), s: sn });
         }
         if (n) this.features.add('nested');
-        this.features.add('apply');
+        this.features.add('write-through');
       }
     }
     const resolved = new Map<string, string[]>();
@@ -5110,11 +5235,20 @@ class Compiler {
       const r = this.expr(el, 'data-sn-let', scope, { mode: 'value', waits: true }, src.slice(v.start, v.end), v.start);
       const waiting = r.ok ? this.lazyLet(r.inner, r.deps) : null;
       const entry: LetEntry = { name, code: waiting?.code ?? r.inner, deps: waiting?.deps ?? r.deps, usesEl: r.usesEl, usesIndex: r.usesIndex, resource: r.resource, src: r.itemOf ?? null, list: r.listOf ?? null };
-      // the resource names it can be, for store calls and `$meta[…]` that read it as one
-      if (r.ok) {
+      // the resources it can be, for store calls and `$meta[…]` that take it as one: its value as their names
+      // (also when the value has an undeclared name: the use reports it as a resource, with the suggestion)
+      {
         const lets = scope.lets ?? [], from: LetEntry[] = [];
-        const names = literalNames(v, (n) => lets.findLast((l) => l.name === n) ?? null, from);
-        if (names) Object.assign(entry, { names: [...new Set(names.map((c) => c.name))], from });
+        const look = (n: string): 'resource' | LetEntry | null => lets.findLast((l) => l.name === n)
+          ?? (scope.loops.some((x) => x.name === n) || scope.states.some((x) => x.names.has(n)) ? null : 'resource');
+        const leaves = refNames(v, look, from);
+        if (Array.isArray(leaves)) {
+          const text = src.slice(v.start, v.end), seen = new Set<object>();
+          const nameSrc = applyEdits(text, leaves.filter((l) => !seen.has(l.node) && seen.add(l.node)).map((l) => ({ start: l.node.start - v.start, end: l.node.end - v.start, text: l.let ? `(${l.let.nameSrc})` : `'${l.name}'` })));
+          // compiled quietly: the value itself was checked above
+          const n = analyze(nameSrc, scope, this.page, { mode: 'value', report: () => {} });
+          if (n.ok) Object.assign(entry, { names: [...new Set(leaves.map((c) => c.name))], from, nameSrc, nameCode: n.inner, nameDeps: n.deps });
+        }
       }
       if (this.check) {
         this.frameOf.set(entry, this.check.frames.length);
@@ -5264,7 +5398,7 @@ class Compiler {
     if (use && event && use.emitsText && use.emits?.some((m) => m.name === event)) {
       e.detail = { kind: 'ts', text: `(${use.emitsText})[${JSON.stringify(event)}]`, loc: this.locOf(use.template, 'data-sn-emits') };
     }
-    if (o.payload) e.payload = { names: r.payloadNames ?? [], type: null, ...(r.payloadStates?.length ? { states: r.payloadStates } : {}), ...(r.payloadLets?.length ? { lets: r.payloadLets } : {}) };
+    if (o.payload) e.payload = { as: o.payloadAs ?? '$event', type: null };
     this.check!.exprs.push(e);
     const list = this.exprsOf.get(el) ?? [];
     list.push({ attr: attrName, i: this.check!.exprs.length - 1 });
@@ -5423,7 +5557,7 @@ class Compiler {
   }
 
   objectBinding(el: P5Element, node: NodeDef, scope: Scope, k: 'class' | 'style' | 'prop') {
-    const name = `data-sn-${k}`;
+    const name = k === 'prop' ? 'data-sn-with' : `data-sn-${k}`;
     const r = this.expr(el, name, scope, { mode: 'value', object: k === 'class' ? 'any-keys' : 'literal-keys' });
     // a custom element's properties, from the app's HTMLElementTagNameMap
     if (this.check && k === 'prop') this.typeLast({ returns: { kind: 'decl', name: `Props<${JSON.stringify(el.tagName)}>` } });
@@ -5431,7 +5565,7 @@ class Compiler {
     for (const e of r.entries) {
       let key = e.key;
       if (k === 'prop' && ['innerhtml', 'outerhtml', 'srcdoc', 'innertext', 'outertext'].includes(key.toLowerCase())) {
-        this.report(el, name, 'SN207', `\`${key}\` cannot be set with \`data-sn-prop\``, e.offset);
+        this.report(el, name, 'SN207', `\`${key}\` cannot be set with \`data-sn-with\``, e.offset);
         continue;
       }
       if (k === 'style' && !key.startsWith('--')) key = key.replace(/[A-Z]/g, (c) => '-' + c.toLowerCase());
@@ -5470,7 +5604,7 @@ class Compiler {
     return { r: this.fn(ro.code), o: this.fn(oo.code), d, ...(bin.operator === '!==' ? { x: 1 as const } : {}) };
   }
 
-  model(el: P5Element, node: NodeDef, scope: Scope, persist: string | undefined) {
+  model(el: P5Element, node: NodeDef, scope: Scope, persist: string | undefined, debounced = false) {
     const tag = el.tagName;
     const type = (attr(el, 'type') ?? 'text').toLowerCase();
     let kind: string;
@@ -5511,10 +5645,12 @@ class Compiler {
       this.urlBinds.push({ name: r.path[1]!, array: kind == 'multi' || (kind == 'checkbox' && attr(el, 'value') != null), report: (m) => this.report(el, 'data-sn-model', 'SN210', m, 0) });
       // through the handler analysis: a path parameter or `$url.a.b` is refused as in a handler; typing
       // in a text field commits at each pause, a number field's burst of steps pushes once at its pause,
-      // any other control pushes a history entry (location.ts: 2 typing, 3 burst, 4 push)
-      const h = this.expr(el, 'data-sn-model', scope, { mode: 'handler', magic: ['$event'], urlKind: kind == 'text' ? 2 : kind == 'number' ? 3 : 4 }, `${attr(el, 'data-sn-model')!} = $event`);
+      // any other control pushes a history entry (location.ts: 2 typing, 3 burst, 4 push); a debounced model writes
+      // after its own pause, so its write pushes, with no second pause
+      const urlKind = debounced ? 4 : kind == 'text' ? 2 : kind == 'number' ? 3 : 4;
+      const h = this.expr(el, 'data-sn-model', scope, { mode: 'handler', magic: ['$event'], urlKind }, `${attr(el, 'data-sn-model')!} = $event`);
       // typing and a number field's steps wait for a pause: the typing module, only on pages with such a model
-      if (kind == 'text' || kind == 'number') this.features.add('typing');
+      if (urlKind == 2 || urlKind == 3) this.features.add('typing');
       if (!h.ok) return;
       setter = this.fn(`($, v) => (${h.code})(Object.assign(Object.create($), { $event: v }))`);
     } else setter = this.fn(`($, v) => { ${r.code.slice('($) => ('.length, -1)} = v; }`);
@@ -5537,14 +5673,13 @@ class Compiler {
     const isForm = tag === 'form';
     const trigger = get('trigger') ?? (isForm ? 'submit' : FORM_CONTROLS.has(tag) ? 'change' : 'click');
     if (!/^[a-z][a-z0-9-]*$/.test(trigger)) this.report(el, 'data-sn-trigger', 'SN401', '`data-sn-trigger` takes a DOM event name', 0);
-    const debounce = get('debounce') !== undefined ? Number(get('debounce')) : 0;
-    if (!Number.isFinite(debounce) || debounce < 0) this.report(el, 'data-sn-debounce', 'SN401', '`data-sn-debounce` takes milliseconds', 0);
+    const debounce = get('debounce') !== undefined ? duration(get('debounce')!, 'ms') ?? -1 : 0;
+    if (debounce < 0) this.report(el, 'data-sn-debounce', 'SN401', `\`data-sn-debounce\` takes ${DURATION}, or milliseconds (\`300\`)`, 0);
     let concurrency = (get('concurrency') ?? (isForm ? 'block' : 'queue')) as ActionDef['concurrency'];
     if (!['block', 'queue', 'latest'].includes(concurrency)) {
       this.report(el, 'data-sn-concurrency', 'SN401', '`data-sn-concurrency` is `block`, `queue` or `latest`', 0);
       concurrency = 'queue';
     }
-    if (get('concurrency') && method === 'get') this.report(el, 'data-sn-concurrency', 'SN102', '`data-sn-concurrency` applies to mutations only; `GET` actions are always latest-wins', 0);
     const fnOf = (n: string, o: Omit<ExprOptions, 'report'>, type?: Parameters<Compiler['typeLast']>[0]) => {
       if (get(n) === undefined) return { f: null, w: [] as string[], r: null };
       const r = this.expr(el, `data-sn-${n}`, scope, o);
@@ -5567,26 +5702,23 @@ class Compiler {
     const catch_ = fnOf('catch', { mode: 'handler', magic: ['$event', '$error'] });
     const confirm = fnOf('confirm', { mode: 'value', magic: ['$event'] });
     const encoding = get('encoding');
-    if (encoding !== undefined && encoding !== 'form' && encoding !== 'json') this.report(el, 'data-sn-encoding', 'SN401', '`data-sn-encoding` is `json` (the default) or `form`', 0);
+    if (encoding !== undefined && encoding !== 'form') this.report(el, 'data-sn-encoding', 'SN401', '`data-sn-encoding` takes `form`; a body is sent as JSON without the attribute', 0);
     if (encoding !== undefined && method === 'call') this.report(el, 'data-sn-encoding', 'SN102', '`data-sn-encoding` belongs to a method attribute; a call sends its own requests', 0);
-    const applyAttr = get('apply');
-    if (applyAttr !== undefined && applyAttr.trim() !== 'off') this.report(el, 'data-sn-apply', 'SN401', '`data-sn-apply` takes `off`; write-through is on without the attribute', 0);
-    if (applyAttr !== undefined && (method === 'call' || method === 'get')) this.report(el, 'data-sn-apply', 'SN102', '`data-sn-apply` belongs to a mutation (`data-sn-post`, `-put`, `-patch`, `-delete`): a GET or a call has no write-through', 0);
+    const applyAttr = get('write-through');
+    if (applyAttr !== undefined && applyAttr.trim() !== 'off') this.report(el, 'data-sn-write-through', 'SN401', '`data-sn-write-through` takes `off`; write-through is on without the attribute', 0);
+    if (applyAttr !== undefined && method === 'call') this.report(el, 'data-sn-write-through', 'SN102', '`data-sn-write-through` belongs to a method attribute (`data-sn-post`, `-put`, `-patch`, `-delete`): a call has no write-through', 0);
     const retryAttr = get('retry')?.trim();
     if (retryAttr === '') this.report(el, 'data-sn-retry', 'SN401', '`data-sn-retry` takes the name of a retry policy from `configure({ retry })`, e.g. `data-sn-retry="drafts"`', 0);
-    else if (retryAttr !== undefined && (method === 'call' || method === 'get')) this.report(el, 'data-sn-retry', 'SN102', method === 'get'
-      ? '`data-sn-retry` belongs to a mutation (`data-sn-post`, `-put`, `-patch`, `-delete`): GETs use the policy `retry.get` names'
-      : '`data-sn-retry` belongs to a mutation (`data-sn-post`, `-put`, `-patch`, `-delete`): a call may send several requests, so sinter cannot send it again', 0);
-    const ap = method !== 'call' && method !== 'get' && applyAttr === undefined ? this.applyDef(reads, typed) : null;
+    const ap = method !== 'call' && applyAttr === undefined ? this.applyDef(reads, typed) : null;
     if (ap) {
-      this.features.add('apply');
+      this.features.add('write-through');
       if (then.r?.ast) this.redundantWrites(el, then.r, ap, url, method, typed?.path ?? null);
     }
     // server validation errors shown on the fields (fields.ts): forms that send a mutation and leave errors to sinter
     // (a form's own action, or a control's inside one, as the editor's Publish button in RealWorld)
-    if ((isForm || (inForm && (tag === 'button' || FORM_CONTROLS.has(tag)))) && method !== 'call' && method !== 'get' && get('catch') === undefined) this.features.add('fields');
+    if ((isForm || (inForm && (tag === 'button' || FORM_CONTROLS.has(tag)))) && method !== 'call' && get('catch') === undefined) this.features.add('fields');
     // a form's own fields as the body, or form encoding: the form module (form.ts)
-    if ((isForm && body.f === null && method !== 'call' && method !== 'get' && method !== 'delete') || (encoding === 'form' && method !== 'call')) this.features.add('form');
+    if ((isForm && body.f === null && method !== 'call' && method !== 'delete') || (encoding === 'form' && method !== 'call')) this.features.add('form');
     // only what differs from the defaults: an attribute the page does not write costs no bytes
     // (the event is the `on` binding's; the runtime reads absent fields as null, 0, false, [])
     const w = [...new Set([...then.w, ...catch_.w])].sort();
@@ -5603,7 +5735,7 @@ class Compiler {
       ...(confirm.f !== null ? (this.features.add('confirm'), { confirm: confirm.f }) : {}),
       ...(encoding === 'form' ? { enc: 'form' as const } : {}),
       ...(ap ? { ap } : {}),
-      ...(retryAttr && method !== 'call' && method !== 'get' ? { retry: retryAttr } : {}),
+      ...(retryAttr ? { retry: retryAttr } : {}),
     };
     this.devAt(def, [def.then, def.catch]);
     this.actions.push(def);
@@ -5682,7 +5814,7 @@ class Compiler {
   }
 
   /**
-   * `SN510`: a `then` write that write-through makes: `patch(item, $result.p)` (an item of `x`)/`upsert('x', $result.p)`
+   * `SN510`: a `then` write that write-through makes: `merge(item, $result.p)` (an item of `x`)/`upsert(x, $result.p)`
    * where the response's `p` is an object of `x`'s schema (an upsert also needs the action's URL to be the
    * list's URL, judged by the literal parts), and `remove(row)` on a DELETE of that row's URL.
    */
@@ -5691,13 +5823,13 @@ class Compiler {
     const src = (name: string) => this.resources.find((r) => r.name === name)?.src ?? null;
     const sameUrl = (name: string) => { const s = src(name); return !!s && lits(s).join('\0') === lits(url).join('\0'); };
     const rowUrl = (name: string) => { const s = src(name); if (!s) return false; const a = lits(url), b = lits(s); return a.length === b.length && a.slice(0, -1).join('\0') === b.slice(0, -1).join('\0') && a[a.length - 1] === b[b.length - 1] + '/'; };
-    const fix = 'remove this write, or add `data-sn-apply="off"` to keep it';
+    const fix = 'remove this write, or add `data-sn-write-through="off"` to keep it';
     const op = opPath ? `the response of \`${method.toUpperCase()} ${opPath}\`` : 'the response';
     const visit = (n: acorn.AnyNode) => {
       const fn = n.type === 'CallExpression' && n.callee.type === 'Identifier' ? n.callee.name : null;
       // upsert names its resource; patch and remove take the item, whose one source is the resource
-      const item = fn === 'patch' || fn === 'remove' ? then.itemCalls?.find((c) => c.start === n.start)?.src : null;
-      const name = fn === 'upsert' && n.type === 'CallExpression' && n.arguments[0]?.type === 'Literal' && typeof n.arguments[0].value === 'string' ? n.arguments[0].value
+      const item = fn === 'merge' || fn === 'remove' ? then.itemCalls?.find((c) => c.start === n.start)?.src : null;
+      const name = fn === 'upsert' && n.type === 'CallExpression' && n.arguments[0]?.type === 'Identifier' && this.page.resources.has(n.arguments[0].name) ? n.arguments[0].name
         : item?.length === 1 && !item[0]!.startsWith('@') ? item[0]! : null;
       if (n.type === 'CallExpression' && fn && name) {
         const r = this.resources.find((x) => x.name === name);
@@ -5706,10 +5838,10 @@ class Compiler {
         const resultPath = value && value.type === 'MemberExpression' && !value.computed && value.object.type === 'Identifier' && value.object.name === '$result' && value.property.type === 'Identifier' ? value.property.name
           : value && value.type === 'Identifier' && value.name === '$result' ? '' : null;
         const entry = resultPath != null ? ap.rs?.find((e) => e.p === resultPath && !e.a) : undefined;
-        if (r && entry && r.sch === entry.s && fn === 'patch' && (r.key || ap.tg.some((t) => t.r === name && t.s === entry.s))) {
-          this.report(el, 'data-sn-then', 'SN510', `\`patch(${itemText}, $result${resultPath ? '.' + resultPath : ''})\` is what write-through does: ${op} is \`${entry.s}\`, which \`${name}\` holds; ${fix}`, n.start);
+        if (r && entry && r.sch === entry.s && fn === 'merge' && (r.key || ap.tg.some((t) => t.r === name && t.s === entry.s))) {
+          this.report(el, 'data-sn-then', 'SN510', `\`merge(${itemText}, $result${resultPath ? '.' + resultPath : ''})\` is what write-through does: ${op} is \`${entry.s}\`, which \`${name}\` holds; ${fix}`, n.start);
         } else if (r && entry && r.sch === entry.s && fn === 'upsert' && r.key && sameUrl(name)) {
-          this.report(el, 'data-sn-then', 'SN510', `\`upsert('${name}', $result${resultPath ? '.' + resultPath : ''})\` is what write-through does: a POST to \`${name}\`'s URL inserts ${op}'s \`${entry.s}\`; ${fix}`, n.start);
+          this.report(el, 'data-sn-then', 'SN510', `\`upsert(${name}, $result${resultPath ? '.' + resultPath : ''})\` is what write-through does: a POST to \`${name}\`'s URL inserts ${op}'s \`${entry.s}\`; ${fix}`, n.start);
         } else if (r && fn === 'remove' && method === 'delete' && value?.type === 'Identifier' && ap.tg.some((t) => t.r === name && t.v === (value as acorn.Identifier).name && !t.p) && rowUrl(name)) {
           this.report(el, 'data-sn-then', 'SN510', `\`remove(${(value as acorn.Identifier).name})\` is what write-through does: a DELETE of a row's URL removes the row; ${fix}`, n.start);
         }
@@ -5877,7 +6009,7 @@ class Compiler {
 
   /**
    * Not requested before the page module, by preload or the early file: \`early="off"\`; the spec says the request
-   * needs a token the app adds; or the config may change requests (middleware, \`header()\`, \`credentials()\`) and
+   * needs a token the app adds; or the config may change requests (middleware, \`header()\`) and
    * the spec does not say the operation is public or answered with cookies. A request sent before the middleware
    * runs would only be refused (a 401, a console error) and sent again with what the middleware adds.
    */
@@ -5961,8 +6093,8 @@ class Compiler {
     if (isFileSource(attr(el, 'src'))) return this.fileResource(el, name, ctx.stateIdx);
     if (isContentSource(attr(el, 'src'))) return this.contentResource(el, name, ctx.stateIdx);
     for (const a of el.attrs) {
-      if (a.name === 'start-page') this.report(el, a.name, 'SN401', '`start-page` is renamed to `page-model` (offset lists, a query parameter), which also writes the page back', 0);
-      else if (!RESOURCE_ATTRS.includes(a.name)) this.report(el, a.name, 'SN101', `\`${a.name}\` is not an attribute of \`<sn-resource>\`.${didYouMean(a.name, RESOURCE_ATTRS)}`, 0);
+      if (a.name === 'each') this.report(el, a.name, 'SN101', '`each` is renamed to `for`, as in `data-sn-for`: `<sn-resource name="mailboxes" for="a in accounts" src="/api/mailboxes?account={a.id}">`', 0);
+      else if (!RESOURCE_ATTRS.includes(a.name) && !PAGINATE_OLD.includes(a.name)) this.report(el, a.name, 'SN101', `\`${a.name}\` is not an attribute of \`<sn-resource>\`.${didYouMean(a.name, RESOURCE_ATTRS)}`, 0);
     }
     const earlyAttr = attr(el, 'early');
     if (earlyAttr != null && earlyAttr !== 'off') this.report(el, 'early', 'SN401', '`early` takes only `off`', 0);
@@ -5972,33 +6104,33 @@ class Compiler {
     if (hasCall && attr(el, 'src') != null) this.report(el, 'call', 'SN102', 'a resource loads from `src` or from `call`, not both', 0);
     else if (!hasCall && attr(el, 'src') == null) this.report(el, null, 'SN401', `resource \`${name}\` needs a \`src\` (or a \`call\`)`, 0);
     if (hasCall) {
-      for (const a of ['paginate', 'each', 'cache']) {
+      for (const a of ['paginate', 'for', 'cache']) {
         if (attr(el, a) != null) this.report(el, a, 'SN401', `\`${a}\` does not combine with \`call\` in v0.2`, 0);
       }
     }
     const deps = new Set<string>();
-    // `each="a in accounts"`: src is evaluated once per list item, with the item in scope
+    // `for="a in accounts"`: src is evaluated once per list item, with the item in scope
     let each: ResourceDef['each'];
     let srcScope = ctx.scope;
-    const eachAttr = attr(el, 'each');
+    const eachAttr = attr(el, 'for');
     if (eachAttr != null) {
       const m = /^\s*([A-Za-z_$][\w$]*)\s+in\s+/.exec(eachAttr);
-      if (!m) this.report(el, 'each', 'SN401', '`each` takes `item in list`, e.g. `a in accounts`', 0);
+      if (!m) this.report(el, 'for', 'SN401', '`for` takes `item in list`, e.g. `a in accounts`', 0);
       else {
-        const list = this.expr(el, 'each', ctx.scope, { mode: 'value' }, eachAttr.slice(m[0].length), m[0].length);
+        const list = this.expr(el, 'for', ctx.scope, { mode: 'value' }, eachAttr.slice(m[0].length), m[0].length);
         const listExpr = this.lastExpr;
         for (const d of list.deps) deps.add(d);
         const loop: LoopEntry = { name: m[1]!, kind: 'item', alias: null, resource: list.resource };
         if (this.check) {
           this.frameOf.set(loop, this.check.frames.length);
-          this.check.frames.push({ kind: 'loop', item: m[1]!, index: null, init: listExpr, loc: this.locOf(el, 'each', eachAttr.indexOf(m[1]!)) });
+          this.check.frames.push({ kind: 'loop', item: m[1]!, index: null, init: listExpr, loc: this.locOf(el, 'for', eachAttr.indexOf(m[1]!)) });
         }
         srcScope = { ...ctx.scope, loops: [...ctx.scope.loops, loop] };
         if (list.ok) each = { item: m[1]!, list: this.fn(list.code), ...(list.resource ? { of: list.resource } : {}) };
         this.features.add('each');
-        if (!info.key) this.report(el, 'each', 'SN401', 'an `each` resource is a collection: it needs `key`, with a field that tells the sources apart', 0);
+        if (!info.key) this.report(el, 'for', 'SN401', 'a `for` resource is a collection: it needs `key`, with a field that tells the sources apart', 0);
         for (const a of ['paginate', 'total', 'cache']) {
-          if (attr(el, a) != null) this.report(el, a, 'SN401', `\`${a}\` does not combine with \`each\`: the items come from several requests`, 0);
+          if (attr(el, a) != null) this.report(el, a, 'SN401', `\`${a}\` does not combine with \`for\`: the items come from several requests`, 0);
         }
       }
     }
@@ -6007,11 +6139,11 @@ class Compiler {
     // `method="POST"`: an endpoint that loads data with a request body (search, reports); its body is a value, reloaded when it changes
     const methodAttr = attr(el, 'method')?.trim();
     const post = methodAttr === 'POST';
-    if (methodAttr != null && !post && methodAttr !== 'GET') this.report(el, 'method', 'SN401', '`method` is `POST` (or `GET`, the default)', 0);
+    if (methodAttr != null && !post) this.report(el, 'method', 'SN401', '`method` takes `POST`; a resource is loaded with GET without the attribute', 0);
     if (attr(el, 'body') != null && !post) this.report(el, 'body', 'SN102', '`body` needs `method="POST"`: a GET request has no body', 0);
     if (post) {
       if (hasCall) this.report(el, 'method', 'SN102', '`method` is for a resource with `src`', 0);
-      for (const a of ['cache', 'paginate', 'each']) {
+      for (const a of ['cache', 'paginate', 'for']) {
         if (attr(el, a) != null) this.report(el, a, 'SN401', a === 'cache' ? '`cache` does not combine with `method="POST"`: a cached search or report would outlive the request that asked for it' : `\`${a}\` does not combine with \`method="POST"\``, 0);
       }
       // started by the page module only: not preloaded, requested early, prefetched or embedded
@@ -6026,72 +6158,60 @@ class Compiler {
     }
     let paginate: Paginate | null = null;
     const mode = attr(el, 'paginate');
-    if (mode != null) {
-      if (!['keyset', 'offset', 'append'].includes(mode)) {
-        this.report(el, 'paginate', 'SN401', '`paginate` is `keyset`, `offset` or `append`', 0);
-      } else {
-        if (!info.key) this.report(el, 'paginate', 'SN401', 'a paginated resource needs `key`', 0);
-        const size = Number(attr(el, 'page-size') ?? '');
-        if (!Number.isInteger(size) || size <= 0) this.report(el, 'page-size', 'SN401', 'a paginated resource needs a positive `page-size`', 0);
-        let cursor: number | null = null;
-        if (mode !== 'offset') {
-          if (attr(el, 'cursor') == null) this.report(el, null, 'SN401', `\`paginate="${mode}"\` needs \`cursor\``, 0);
-          else {
-            const r = this.expr(el, 'cursor', ctx.scope, { mode: 'value', payload: true });
-            this.typeLast({ payload: { kind: 'item', resource: name } });
-            if (r.ast && r.ast.type !== 'ObjectExpression') this.report(el, 'cursor', 'SN401', '`cursor` must be an object literal', 0);
-            cursor = this.fn(r.code);
-          }
-        }
-        paginate = {
-          mode: mode as Paginate['mode'], size, sizeParam: attr(el, 'size-param') ?? 'limit', cursor,
-          directionParam: attr(el, 'direction-param') ?? 'direction', pageParam: attr(el, 'page-param') ?? 'page',
-        };
-        const offsetParam = attr(el, 'offset-param');
-        if (offsetParam != null) {
-          if (mode === 'append') this.report(el, 'offset-param', 'SN401', '`offset-param` applies to `paginate="offset"` (the items to skip, sent instead of `page-param`) and `paginate="keyset"` (to jump); append mode only loads more', 0);
-          else if (!/^[\w.\-\[\]]+$/.test(offsetParam)) this.report(el, 'offset-param', 'SN401', '`offset-param` is a query parameter name', 0);
-          else paginate.offsetParam = offsetParam;
-        }
-        // `page-model="$url.page"`: the list's page lives in the URL, read at load and written back on every move
-        const pm = attr(el, 'page-model');
-        if (pm != null) {
-          const name = /^\s*\$url\.([A-Za-z_$][\w$]*)\s*$/.exec(pm)?.[1];
-          if (mode !== 'offset') {
-            this.report(el, 'page-model', 'SN401', `\`page-model\` applies to \`paginate="offset"\`, where every move has a page number when it is made; ${mode === 'append' ? 'append lists load more by cursor' : 'keyset lists move by cursor, and their page number is often unknown'}`, 0);
-          } else if (!name || this.page.pathParams.has(name)) {
-            this.report(el, 'page-model', 'SN203', name ? `\`page-model\` takes a URL query parameter such as \`$url.page\`; \`$url.${name}\` is a path parameter (\`data-sn-path\`)` : '`page-model` takes a URL parameter such as `$url.page`', 0);
-          } else if ([...deps].some((d) => d === '$url' || d === `$url.${name}` || d.startsWith(`$url.${name}.`))) {
-            this.report(el, 'page-model', 'SN401', `\`$url.${name}\` is this resource's page (\`page-model\`), and its \`src\` or \`when\` reads it too: each page would reset the list; read another parameter there`, 0);
-          } else {
-            // the read is the compiled `$url.<name>`, where the early file, preloads and embedded data read the start page
-            paginate.start = this.fn(`($) => ($.$url.${name})`);
-            paginate.model = name;
-            deps.add(`$url.${name}`);
-            this.pageModels.push({ name, report: (m) => this.report(el, 'page-model', 'SN203', m, 0) });
-            this.page.writesUrl = true;
-          }
-        }
-        if (attr(el, 'direction-values') != null) {
-          if (mode === 'offset') this.report(el, 'direction-values', 'SN401', '`direction-values` applies to `paginate="keyset"` and `paginate="append"`; offset pages send `page-param`', 0);
-          else {
-            const values = this.directionValues(el);
-            if (values) paginate.directionValues = values;
-          }
-        }
-        this.features.add('paginate');
-      }
+    // the old attributes: the object they become, once (on the first one written)
+    const old = PAGINATE_OLD.find((a) => attr(el, a) != null);
+    if (old && !/^\s*(keyset|offset|append)\s*$/.test(mode ?? '')) {
+      this.report(el, old, 'SN101', `\`${old}\` is a key of \`paginate\` now, one object literal: \`paginate="{ keyset: { before: $item.id }, size: 20 }"\` (docs/pagination.md)`, 0);
     }
-    for (const a of ['page-size', 'size-param', 'cursor', 'direction-param', 'direction-values', 'page-param', 'offset-param', 'page-model']) {
-      if (attr(el, a) != null && !paginate && mode == null) this.report(el, a, 'SN102', `\`${a}\` needs \`paginate\``, 0);
+    const spec = this.pageSpec(el);
+    if (spec) {
+      if (!info.key) this.report(el, 'paginate', 'SN401', 'a paginated resource needs `key`', 0);
+      // the server's names: the resource's own, over its API's, over the defaults
+      const src = attr(el, 'src')?.trim() ?? '';
+      const via = this.opts.apis && src && !isFileSource(src) && !isContentSource(src) ? apiOf(this.opts.apis, src) : null;
+      const wire = via && 'api' in via ? via.api.paginate : undefined;
+      const params = { ...wire?.params, ...spec.params }, directions = spec.directions || wire?.directions ? { ...wire?.directions, ...spec.directions } : null;
+      let cursor: number | null = null;
+      if (spec.cursor) {
+        const r = this.expr(el, 'paginate', ctx.scope, { mode: 'value', payload: true, payloadAs: '$item' }, spec.cursor.text, spec.cursor.at);
+        this.typeLast({ payload: { kind: 'item', resource: name } });
+        cursor = this.fn(r.code);
+      }
+      paginate = {
+        mode: spec.mode, size: spec.size, sizeParam: params.size ?? 'limit', cursor,
+        directionParam: params.direction ?? 'direction', pageParam: params.page ?? 'page',
+      };
+      // the items to skip, named by `params.offset`: a numbered list sends them instead of the page number with
+      // `numbered: 'offset'`, a keyset list to jump (`jump`); naming the parameter alone switches nothing
+      if (spec.skip) paginate.skipParam = params.offset ?? 'offset';
+      if (spec.jump) paginate.skipParam = params.offset ?? 'offset';
+      if (directions && spec.mode !== 'numbered') paginate.directionValues = directions;
+      // `model: $url.page`: the list's page lives in the URL, read at load and written back on every move
+      if (spec.model) {
+        const pm = spec.model.name;
+        const at = (m: string, code: Code = 'SN401') => this.report(el, 'paginate', code, m, spec.model!.at);
+        if (!pm || this.page.pathParams.has(pm)) {
+          at(pm ? `\`model\` takes a URL query parameter such as \`$url.page\`; \`$url.${pm}\` is a path parameter (\`data-sn-path\`)` : '`model` takes a URL parameter such as `$url.page`', 'SN203');
+        } else if ([...deps].some((d) => d === '$url' || d === `$url.${pm}` || d.startsWith(`$url.${pm}.`))) {
+          at(`\`$url.${pm}\` is this resource's page (\`model\`), and its \`src\` or \`when\` reads it too: each page would reset the list; read another parameter there`);
+        } else {
+          // the read is the compiled `$url.<name>`, where the early file, preloads and embedded data read the start page
+          paginate.start = this.fn(`($) => ($.$url.${pm})`);
+          paginate.model = pm;
+          deps.add(`$url.${pm}`);
+          this.pageModels.push({ name: pm, report: (m) => at(m, 'SN203') });
+          this.page.writesUrl = true;
+        }
+      }
+      this.features.add('paginate');
     }
     let cache: number | undefined;
     const cacheAttr = attr(el, 'cache');
     if (cacheAttr != null) {
-      const m = /^\s*(?:(\d+)\s*(s|m|h|d))?\s*$/.exec(cacheAttr);
-      if (!m) this.report(el, 'cache', 'SN401', '`cache` takes a maximum age such as `30s`, `10m`, `2h` or `1d`, or no value for any age', 0);
+      const age = cacheAttr.trim() === '' ? 0 : duration(cacheAttr, null);
+      if (age === null) this.report(el, 'cache', 'SN401', `\`cache\` takes the maximum age, ${DURATION}, or no value for any age`, 0);
       else {
-        cache = m[1] ? Number(m[1]) * { s: 1e3, m: 6e4, h: 36e5, d: 864e5 }[m[2] as 's' | 'm' | 'h' | 'd'] : 0;
+        cache = age;
         this.features.add('cache');
       }
     }
@@ -6099,9 +6219,8 @@ class Compiler {
     let refresh: number | undefined;
     const refreshAttr = attr(el, 'refresh');
     if (refreshAttr != null) {
-      const m = /^\s*(\d+)\s*(s|m|h)\s*$/.exec(refreshAttr);
-      const ms = m ? Number(m[1]) * { s: 1e3, m: 6e4, h: 36e5 }[m[2] as 's' | 'm' | 'h'] : 0;
-      if (!m) this.report(el, 'refresh', 'SN401', '`refresh` takes the longest time between loads, such as `30s`, `5m` or `1h`', 0);
+      const ms = duration(refreshAttr, null) ?? 0;
+      if (duration(refreshAttr, null) === null) this.report(el, 'refresh', 'SN401', `\`refresh\` takes the longest time between loads, ${DURATION}`, 0);
       else if (ms < 1000) this.report(el, 'refresh', 'SN401', '`refresh` must be at least `1s`', 0);
       else {
         refresh = ms;
@@ -6119,7 +6238,7 @@ class Compiler {
     }
     const order = attr(el, 'order');
     // `sinter({ apis })`: the operation the path calls, and what the config says it returns (said once)
-    const target = this.opts.apis && !hasCall ? this.apiCheck(el, 'src', post ? 'post' : 'get', srcPath, paginate ? paginateParams(paginate, attr(el, 'cursor')) : []) : null;
+    const target = this.opts.apis && !hasCall ? this.apiCheck(el, 'src', post ? 'post' : 'get', srcPath, paginate ? paginateParams(paginate, spec?.cursor?.text) : []) : null;
     if (target) this.apiOfResource.set(name, target.api);
     const shape = target?.shape ?? null;
     const shaped = (a: 'items' | 'total' | 'key' | 'type'): string | null => {
@@ -6168,7 +6287,7 @@ class Compiler {
       const r: CheckResource = { name, type, loc: this.locOf(el, type ? 'type' : null), nameLoc: this.locOf(el, 'name') };
       if (openapi && 'schema' in openapi) r.openapi = openapi;
       if (call) r.call = { name: call.name, items };
-      if (paginate?.mode === 'keyset' && !paginate.offsetParam) r.directions = true;
+      if (paginate?.mode === 'keyset' && !paginate.skipParam) r.directions = true;
       this.check.resources.push(r);
       // a resource fed by an action is typed by the action's result
       if (!type && !r.openapi && !r.call) {
@@ -6208,39 +6327,43 @@ class Compiler {
   }
   /** the folders `file:` globs listed, and what their files match: the dev server reloads the page when one is added or removed */
   readonly fileGlobs: Array<{ dir: string; match: string }> = [];
-  /** `data-sn-pages`: the variable, its list, the pattern as written, and the internal resource that holds the entry */
+  /** `<html data-sn-for>`: the variable, its list, the pattern as written, and the internal resource that holds the entry */
   private pagesDecl: { name: string; of: string; pattern: string; html: P5Element; entry: P5Element } | null = null;
-  /** `data-sn-pages`, compiled as the template: the entries and their paths */
+  /** `<html data-sn-for>`, compiled as the template: the entries and their paths */
   private pagesOut: CompiledParts['pages'] | undefined;
   /** the page's `<html lang>`, once the layout is merged */
   private pageLang: string | undefined;
 
   /**
-   * `<html data-sn-pages="post in posts">` (on the page's `<html>`, or its layout's tag): the page once per entry of a
+   * `<html data-sn-for="post in posts">` (on the page's `<html>`, or its layout's tag): the page once per entry of a
    * build-time list the page declares, at its `data-sn-path` pattern filled from the entry. The entry is an internal
    * resource beside the list, so it is page scope, folds and is typed as any resource. With `page` the compile writes
    * that entry at its path; without it, the template, with the list's first entry.
    */
   pagesOf(doc: DefaultTreeAdapterMap['document']) {
     const html = doc.childNodes.find((n): n is P5Element => isElement(n) && n.tagName === 'html');
-    const v = html && attr(html, 'data-sn-pages');
+    if (html && attr(html, 'data-sn-pages') !== undefined) {
+      this.report(html, 'data-sn-pages', 'SN101', `\`data-sn-pages\` ${RETIRED['data-sn-pages']}`, 0);
+      html.attrs = html.attrs.filter((a) => a.name !== 'data-sn-pages');
+    }
+    const v = html && attr(html, 'data-sn-for');
     if (!html || v === undefined) return;
-    html.attrs = html.attrs.filter((a) => a.name !== 'data-sn-pages');
+    html.attrs = html.attrs.filter((a) => a.name !== 'data-sn-for');
     const m = /^\s*([A-Za-z_$][\w$]*)\s+in\s+([A-Za-z_$][\w$]*)\s*$/.exec(v);
-    if (!m) { this.report(html, 'data-sn-pages', 'SN340', '`data-sn-pages` takes `<name> in <list>`, e.g. `post in posts`, where `posts` is a `file:` resource of this page', 0); return; }
+    if (!m) { this.report(html, 'data-sn-for', 'SN340', '`data-sn-for` on `<html>` takes `<name> in <list>`, e.g. `post in posts`, where `posts` is a `file:` resource of this page', 0); return; }
     const [, name, of] = m as unknown as [string, string, string];
-    if (STORE_FNS.includes(name) || name.startsWith('$')) { this.report(html, 'data-sn-pages', 'SN340', `\`${name}\` cannot name the entry: it is ${name.startsWith('$') ? 'a magic name' : 'a store function'}`, v.indexOf(name)); return; }
+    if (STORE_FNS.includes(name) || name.startsWith('$')) { this.report(html, 'data-sn-for', 'SN340', `\`${name}\` cannot name the entry: it is ${name.startsWith('$') ? 'a magic name' : 'a store function'}`, v.indexOf(name)); return; }
     const pattern = (attr(html, 'data-sn-path') ?? '').trim();
     const pats = pattern.split(/\s+/).filter(Boolean);
-    if (pats.length !== 1 || !/\/:/.test(pats[0]!)) { this.report(html, 'data-sn-pages', 'SN340', `\`data-sn-pages\` needs \`data-sn-path\` with exactly one pattern to fill from each entry, e.g. \`data-sn-path="/blog/:slug"\`${pattern ? ` (it is \`${pattern}\`)` : ''}`, 0); return; }
+    if (pats.length !== 1 || !/\/:/.test(pats[0]!)) { this.report(html, 'data-sn-for', 'SN340', `\`data-sn-for\` on \`<html>\` needs \`data-sn-path\` with exactly one pattern to fill from each entry, e.g. \`data-sn-path="/blog/:slug"\`${pattern ? ` (it is \`${pattern}\`)` : ''}`, 0); return; }
     // the list: a top-level `<sn-resource>` of the page with a `file:` glob (not inside a template or a component)
     let list: P5Element | null = null;
     const find = (p: P5Parent) => { for (const c of p.childNodes) { if (!isElement(c) || list) continue; if (c.tagName === 'template') continue; if (c.tagName === 'sn-resource' && attr(c, 'name') === of) { list = c; return; } find(c); } };
     find(doc);
     const el = list as P5Element | null;
-    if (!el) { this.report(html, 'data-sn-pages', 'SN340', `\`${of}\` is not a resource of this page: \`data-sn-pages\` takes a list the page declares, outside any template (\`<sn-resource name="${of}" src="file:/content/posts/*.md">\`)`, v.indexOf(of)); return; }
+    if (!el) { this.report(html, 'data-sn-for', 'SN340', `\`${of}\` is not a resource of this page: \`data-sn-for\` on \`<html>\` takes a list the page declares, outside any template (\`<sn-resource name="${of}" src="file:/content/posts/*.md">\`)`, v.indexOf(of)); return; }
     const src = attr(el, 'src') ?? '';
-    if (!isContentSource(src) && (!isFileSource(src) || !isGlob(src.trim().slice('file:'.length)))) { this.report(html, 'data-sn-pages', 'SN340', `\`${of}\` is not a build-time list: \`data-sn-pages\` takes a \`file:\` glob (\`file:/content/posts/*.md\`) or a collection (\`content:posts\`), whose entries the build knows`, v.indexOf(of)); return; }
+    if (!isContentSource(src) && (!isFileSource(src) || !isGlob(src.trim().slice('file:'.length)))) { this.report(html, 'data-sn-for', 'SN340', `\`${of}\` is not a build-time list: \`data-sn-for\` on \`<html>\` takes a \`file:\` glob (\`file:/content/posts/*.md\`) or a collection (\`content:posts\`), whose entries the build knows`, v.indexOf(of)); return; }
     // the entry: an internal resource right after the list, so the list is read first
     const entry = parse5.defaultTreeAdapter.createElement('sn-resource', parse5.html.NS.HTML, [{ name: 'name', value: name }, { name: PAGE_ENTRY, value: of }]);
     const parent = el.parentNode as P5Parent;
@@ -6264,7 +6387,7 @@ class Compiler {
       const why = a.name === 'drafts' ? '`drafts` is a `file:` glob\'s; a collection leaves its drafts out in its loader (`ctx.files(glob, { drafts })`, `ctx.command`)'
         : a.name === 'items' ? '`items` picks a list out of a value; a collection is a list already'
         : fileAttrProblem(a.name).replace(/a `file:` resource/g, 'a `content:` resource');
-      this.report(el, a.name, a.name === 'start-page' || RESOURCE_ATTRS.includes(a.name) || a.name === 'drafts' || a.name === 'items' ? 'SN332' : 'SN101', why, 0);
+      this.report(el, a.name, RESOURCE_ATTRS.includes(a.name) || a.name === 'drafts' || a.name === 'items' ? 'SN332' : 'SN101', why, 0);
     }
     const src = attr(el, 'src')!.trim(), cname = src.slice('content:'.length), at = attr(el, 'src')!.indexOf(cname);
     const known = this.opts.collections;
@@ -6299,7 +6422,7 @@ class Compiler {
     this.declAt.set(this.resources[this.resources.length - 1]!, el);
   }
 
-  /** `data-sn-pages`: the entry, a constant (`fx`) beside its list; as the template, the list's entries and their paths */
+  /** `<html data-sn-for>`: the entry, a constant (`fx`) beside its list; as the template, the list's entries and their paths */
   entryResource(el: P5Element, name: string, scope: number) {
     const d = this.pagesDecl!;
     const list = this.fileData.get(d.of)?.value;
@@ -6321,9 +6444,9 @@ class Compiler {
           if (!bad && (t === '' || t === '.' || t === '..' || t.includes('/'))) bad = `has \`${k}\` \`${t}\`, which is not one path segment`;
           return encodeURIComponent(t);
         });
-        if (bad) { this.report(d.html, 'data-sn-pages', 'SN341', `${what} ${bad}: each entry fills \`${d.pattern}\``, 0); continue; }
+        if (bad) { this.report(d.html, 'data-sn-for', 'SN340', `${what} ${bad}: each entry fills \`${d.pattern}\``, 0); continue; }
         const prev = seen.get(path);
-        if (prev) { this.report(d.html, 'data-sn-pages', 'SN341', `${what} and ${prev} would both be \`${path}\``, 0); continue; }
+        if (prev) { this.report(d.html, 'data-sn-for', 'SN340', `${what} and ${prev} would both be \`${path}\``, 0); continue; }
         seen.set(path, what);
         out.push({ value: e, path, key: keyOf.map((k) => String(rec[k])).join('\u001f') });
       }
@@ -6338,7 +6461,7 @@ class Compiler {
     // the list is read: by the build, for its entries, whatever the page reads of it
     const listInfo = this.page.resources.get(d.of);
     if (listInfo) listInfo.used = true;
-    if (this.check) this.check.resources.push({ name, type: null, loc: this.locOf(el, null), nameLoc: this.locOf(d.html, 'data-sn-pages'), item: d.of });
+    if (this.check) this.check.resources.push({ name, type: null, loc: this.locOf(el, null), nameLoc: this.locOf(d.html, 'data-sn-for'), item: d.of });
     this.resources.push({ name, src: [], key: null, items: null, total: null, order: null, when: null, paginate: null, deps: [], scope, data: null, fx: 1 });
     this.declAt.set(this.resources[this.resources.length - 1]!, el);
   }
@@ -6350,7 +6473,7 @@ class Compiler {
    */
   fileResource(el: P5Element, name: string, scope: number) {
     const info = this.page.resources.get(name)!;
-    for (const a of el.attrs) if (!FILE_ATTRS.includes(a.name)) this.report(el, a.name, a.name === 'start-page' || RESOURCE_ATTRS.includes(a.name) ? 'SN332' : 'SN101', fileAttrProblem(a.name), 0);
+    for (const a of el.attrs) if (!FILE_ATTRS.includes(a.name)) this.report(el, a.name, RESOURCE_ATTRS.includes(a.name) ? 'SN332' : 'SN101', fileAttrProblem(a.name), 0);
     const written = attr(el, 'src')!, at = written.indexOf('file:');
     // `{$locale}`: each language's build reads its own folder (`localePrefix`); `sinter check` and the editor, the base one
     const lang = /\{\s*\$locale\s*\}/;
@@ -6382,7 +6505,7 @@ class Compiler {
       const { dir, match } = where.glob;
       this.fileGlobs.push({ dir, match: match.source });
       // the finished list (entries, drafts left out, keys checked, sorted), and what it reported: kept for the build, since
-      // every page of a `data-sn-pages` template reads the same list, and building it per page grew with their square
+      // every page of a `<html data-sn-for>` template reads the same list, and building it per page grew with their square
       const drafts = attr(el, 'drafts')?.trim() || null, order = attr(el, 'order')?.trim() || null, keyAttr = attr(el, 'key')?.trim() || null;
       const key = info.key ?? ['slug'];
       const lang = this.opts.locale?.name ?? this.pageLang;
@@ -6486,7 +6609,7 @@ class Compiler {
       const store = new RegExp(`\\$\\.\\$f\\.(refresh|upsert|page|patch|remove)\\([^)]*["']${q}["']`);
       const m = this.fns.map((c) => store.exec(c)).find(Boolean);
       if (m) this.report(el, 'name', 'SN332', `\`${m[1]}()\` would load or change \`${n}\`, a \`file:\` resource: it is a constant, read at build time`, 0);
-      if (this.actions.some((a) => a.ap?.tg.some((t) => t.r === n) || a.ap?.nt?.some((t) => t.r === n))) this.report(el, 'name', 'SN332', `an action's response would be written through to \`${n}\`, a \`file:\` resource, which is a constant: add \`data-sn-apply="off"\` to the action`, 0);
+      if (this.actions.some((a) => a.ap?.tg.some((t) => t.r === n) || a.ap?.nt?.some((t) => t.r === n))) this.report(el, 'name', 'SN332', `an action's response would be written through to \`${n}\`, a \`file:\` resource, which is a constant: add \`data-sn-write-through="off"\` to the action`, 0);
       for (const s of this.syncs) if (s.events.some((e) => e.resource === n)) this.report(el, 'name', 'SN332', `an \`<sn-event>\` changes \`${n}\`, a \`file:\` resource, which is a constant`, 0);
     }
   }
@@ -6544,21 +6667,24 @@ class Compiler {
   }
 
   /**
-   * The payload type an untyped `<sn-event>` most likely has, for SN506's hint: \`item="incident"\` on a resource
+   * The payload type an untyped `<sn-event>` most likely has, for SN506's hint: \`value="incident"\` on a resource
    * typed \`Incident[]\` is \`{ incident: Incident }\`; anything else gets the shape with a placeholder.
    */
   private payloadTypeHint(el: P5Element, resource: string | null): string {
     const resEl = resource ? this.resourceEls.get(resource) : undefined;
     const written = (resEl && attr(resEl, 'type')?.trim()) || null;
     const itemType = written && written !== 'any' ? (/^(.+)\[\]$/.exec(written)?.[1] ?? /^(?:Readonly)?Array<(.+)>$/.exec(written)?.[1] ?? null) : null;
-    const item = attr(el, 'item')?.trim();
-    if (item && /^[A-Za-z_$][\w$]*$/.test(item)) return `{ ${item}: ${itemType ?? '…'} }`;
+    const item = attr(el, 'op')?.trim() === 'upsert' ? attr(el, 'value')?.trim() : undefined;
+    const field = item ? /^\$event\.([A-Za-z_$][\w$]*)$/.exec(item)?.[1] : undefined;
+    if (field) return `{ ${field}: ${itemType ?? '…'} }`;
     return '{ id: number; … }';
   }
 
   event(el: P5Element, ctx: Ctx): EventDef | null {
     for (const a of el.attrs) {
-      if (!EVENT_ATTRS.includes(a.name)) this.report(el, a.name, 'SN101', `\`${a.name}\` is not an attribute of \`<sn-event>\`.${didYouMean(a.name, EVENT_ATTRS)}`, 0);
+      if (a.name === 'fallback') this.report(el, a.name, 'SN101', '`fallback` is gone: write the refresh as a second event of the same name, each with its `when`: `<sn-event name="person_updated" resource="people" op="upsert" value="person" when="person">` and `<sn-event name="person_updated" resource="people" op="refresh" when="!person">` (docs/recipes/partial-events.html)', 0);
+      else if (a.name === 'item' || a.name === 'set') this.report(el, a.name, 'SN101', `\`${a.name}\` is renamed to \`value\`, the value the change writes: the item for \`op="upsert"\`, the fields for \`op="merge"\``, 0);
+      else if (!EVENT_ATTRS.includes(a.name)) this.report(el, a.name, 'SN101', `\`${a.name}\` is not an attribute of \`<sn-event>\`.${didYouMean(a.name, EVENT_ATTRS)}`, 0);
     }
     const name = attr(el, 'name');
     const resource = attr(el, 'resource') ?? null;
@@ -6570,14 +6696,15 @@ class Compiler {
       this.report(el, 'resource', 'SN301', `resource \`${resource ?? ''}\` is not declared on this page.${didYouMean(resource ?? '', this.page.resources.keys())}`, 0);
       return null;
     }
-    if (!only && (!op || !['upsert', 'patch', 'remove', 'refetch'].includes(op))) {
-      this.report(el, 'op', 'SN401', '`op` is `upsert`, `patch`, `remove` or `refetch`', 0);
+    if (!only && (!op || !['upsert', 'merge', 'remove', 'refresh'].includes(op))) {
+      const was = { patch: 'merge', refetch: 'refresh' }[op as string];
+      this.report(el, 'op', 'SN401', was ? `\`op="${op}"\` is renamed to \`op="${was}"\`` : '`op` is `upsert`, `merge`, `remove` or `refresh`', 0);
       return null;
     }
     const scope = ctx.scope;
     const typeAttr = attr(el, 'type')?.trim() || null;
     const payloadType: TypeRef | null = typeAttr && typeAttr !== 'any' ? { kind: 'ts', text: typeAttr, loc: this.locOf(el, 'type') } : null;
-    if (this.check && !typeAttr && ['item', 'set', 'when', 'then'].some((n) => attr(el, n) != null)) {
+    if (this.check && !typeAttr && ['value', 'when', 'then'].some((n) => attr(el, n) != null)) {
       this.report(el, null, 'SN506', `event \`${name}\` has no type: expressions reading its payload are not checked`, 0,
         `add \`type="${this.payloadTypeHint(el, resource)}"\`, the payload's fields (a type from the types module may be named), or \`type="any"\` to leave it unchecked`);
     }
@@ -6588,22 +6715,19 @@ class Compiler {
       writes = r.writes;
       this.typeLast({
         payload: payloadType,
-        ...(!resource ? {} : n === 'item' ? { returns: { kind: 'item', resource } } : n === 'set' ? { returns: { kind: 'item', resource, partial: true } } : {}),
+        ...(!resource || n !== 'value' ? {} : { returns: { kind: 'item', resource, ...(op === 'merge' ? { partial: true } : {}) } }),
       });
       if (object && r.ast && r.ast.type !== 'ObjectExpression') this.report(el, n, 'SN401', `\`${n}\` must be an object literal`, 0);
       return this.fn(r.code);
     };
-    const item = fnOf('item');
-    const set = fnOf('set', true);
-    if (item !== null && op !== 'upsert') this.report(el, 'item', 'SN102', '`item` applies to `op="upsert"`', 0);
-    if (set !== null && op !== 'patch') this.report(el, 'set', 'SN102', '`set` applies to `op="patch"`', 0);
-    if (op === 'patch' && set === null) this.report(el, null, 'SN401', '`op="patch"` needs `set`', 0);
-    const fallback = attr(el, 'fallback');
-    if (fallback != null && fallback !== 'refetch') this.report(el, 'fallback', 'SN401', '`fallback` takes `refetch`', 0);
+    // `value`: what the change writes, the item (`upsert`, default the whole payload) or the fields (`merge`)
+    const value = fnOf('value', op === 'merge');
+    if (value !== null && op !== 'upsert' && op !== 'merge') this.report(el, 'value', 'SN102', '`value` applies to `op="upsert"` (the item) and `op="merge"` (the fields)', 0);
+    if (op === 'merge' && value === null) this.report(el, null, 'SN401', '`op="merge"` needs `value`, the fields it merges: `value="{ flags }"`', 0);
     const when = fnOf('when');
     const then = fnOf('then');
     return {
-      name, resource, op, item, set, when, fallback: fallback === 'refetch' ? 'refetch' : null,
+      name, resource, op, value: op === 'upsert' || op === 'merge' ? value : null, when,
       ...(then !== null ? { then, ...(writes.length ? { w: writes } : {}) } : {}),
     };
   }
@@ -6663,7 +6787,7 @@ class Compiler {
     const stub = new Proxy(function () {}, { apply() { throw NOT; }, get() { throw NOT; } });
     const params = new Map<string, unknown>([['$k', $k]]);
     // (`location`: the browser's, as in a pattern page's `$canonical`; a test environment may have one)
-    for (const h of ['Date', 'Intl', 'Math', 'location', 'date', 'time', 'datetime', 'relative', 'number', 'bytes', ...this.opts.helpers.names]) params.set(h, stub);
+    for (const h of ['Date', 'Intl', 'Math', 'location', 'date', 'relative', 'number', 'bytes', ...this.opts.helpers.names]) params.set(h, stub);
     // the app's helpers: a call over constants runs here when the static check lets it (`helperFold`), else its stub
     // records which helper kept the binding in the browser, for SN322
     const folding = (this.folding = this.helperCalls(NOT));
@@ -6990,7 +7114,7 @@ class Compiler {
   expansionWarning(el: P5Element, limit: number, list: boolean) {
     const what = list ? 'this list\'s rows' : 'this component\'s tree';
     const n = this.diagnostics.length;
-    this.report(el, null, 'SN536', `${what} would take the page past ${limit.toLocaleString('en')} rows and components expanded at build time, so it is rendered in the browser${this.pagesDecl ? ': on a `data-sn-pages` page, where every entry\'s page would ship its content and the runtime, that is an error' : ''}`, 0,
+    this.report(el, null, 'SN536', `${what} would take the page past ${limit.toLocaleString('en')} rows and components expanded at build time, so it is rendered in the browser${this.pagesDecl ? ': on a page per entry, where every entry\'s page would ship its content and the runtime, that is an error' : ''}`, 0,
       'a page that long builds and lays out slowly: split the content over pages, keep a long list of it a list the browser renders, or raise `sinter({ expansionLimit })` if the page is measured fast enough');
     // a page per entry: one long entry would quietly ship its body and the runtime, on that page only
     if (this.pagesDecl) for (const d of this.diagnostics.slice(n)) d.severity = 'error';
@@ -8010,7 +8134,7 @@ class Compiler {
    */
   earlyParts(): EarlyParts | null {
     const userHelpers = new Set(this.opts.helpers.names);
-    const BUILTIN = /(?<![\w$.])(date|time|datetime|relative|number|bytes)\(/g;
+    const BUILTIN = /(?<![\w$.])(date|relative|number|bytes)\(/g;
     // for requests: no formatter (their URLs and `when`s stay as before)
     const builtin = (code: string) => [...code.matchAll(BUILTIN)].some((m) => !userHelpers.has(m[1]!));
     // for bindings and state fields: the formatters the early file carries (EARLY_FORMATTERS) give the text the page module
@@ -8278,7 +8402,7 @@ class Compiler {
   predictable(): Map<string, ResourceDef> {
     const out = new Map<string, ResourceDef>();
     const userHelpers = new Set(this.opts.helpers.names);
-    const builtin = (code: string) => [...code.matchAll(/(?<![\w$.])(date|time|datetime|relative|number|bytes)\(/g)].some((m) => !userHelpers.has(m[1]!));
+    const builtin = (code: string) => [...code.matchAll(/(?<![\w$.])(date|relative|number|bytes)\(/g)].some((m) => !userHelpers.has(m[1]!));
     for (const def of this.resources) {
       if (def.call || def.each || def.data != null || this.embedded.has(def.name)) continue;
       // its URL and its `when` (and the page it starts at) over what the early file knows: then its load starts at mount
@@ -8299,7 +8423,7 @@ class Compiler {
    */
   prefetchParts(): PrefetchParts | null {
     const userHelpers = new Set(this.opts.helpers.names);
-    const BUILTIN = /(?<![\w$.])(date|time|datetime|relative|number|bytes)\(/g;
+    const BUILTIN = /(?<![\w$.])(date|relative|number|bytes)\(/g;
     const builtin = (code: string) => [...code.matchAll(BUILTIN)].some((m) => !userHelpers.has(m[1]!));
     const messages = Object.entries(this.opts.helpers.namespaces).filter(([, v]) => v.module === '@tiaforge-ui/sinter/messages').map(([k]) => k);
     const fns: string[] = [], index = new Map<string, number>();
@@ -8330,7 +8454,7 @@ class Compiler {
 
   /**
    * The lists outside templates (and dialogs): each one's placeholder for the rows its resource brings
-   * after the first paint (`Layout.reserve`: a paginated resource's `page-size` rows, or
+   * after the first paint (`Layout.reserve`: a paginated resource's `size` rows, or
    * `data-sn-reserve="n"`), and the box around it whose width follows its content
    * (`Layout.contentSized`). Read before the walk, which removes the bindings the cascade looks at.
    */
@@ -8398,17 +8522,17 @@ class Compiler {
         };
         const lets = around.filter(({ k }) => words(list).has(k)).map(({ v }) => v);
         if (![list, ...lets].every(chooses)) cands = [];
-        if (cands.some((c) => ['each', 'call'].some((x) => attr(resources.get(c)!, x) !== undefined))) cands = [];
+        if (cands.some((c) => ['for', 'call'].some((x) => attr(resources.get(c)!, x) !== undefined))) cands = [];
         waitForm = cands.length === 1 && list === cands[0] && attr(resources.get(cands[0])!, 'when') === undefined ? 'static' : 'if';
         if (![list, ...lets].every(chooses)) { if (why === '') why = 'the list is not a resource or a choice between resources (a filter, a field), whose rows the build could count'; names = []; }
         const rs = names.map((n) => resources.get(n)!);
-        // paginated (their page-size, the least), loading by URL or always: not `each` or `call`, nor data the page has (embedded)
-        const ok = rs.length && rs.every((r) => attr(r, 'paginate') !== undefined && !['each', 'call'].some((x) => attr(r, x) !== undefined));
-        if (rs.length && !ok && why === '') why = 'a resource with `each` or `call`';
+        // paginated (their size, the least), loading by URL or always: not `each` or `call`, nor data the page has (embedded)
+        const ok = rs.length && rs.every((r) => attr(r, 'paginate') !== undefined && !['for', 'call'].some((x) => attr(r, x) !== undefined));
+        if (rs.length && !ok && why === '') why = 'a resource with `for` or `call`';
         // the list is a resource that always loads: the placeholder is page markup; else it shows by its resources' status,
         // which the early file decides (`if`)
         form = names.length === 1 && list === names[0] && attr(rs[0]!, 'when') === undefined ? 'static' : 'if';
-        const n = ok ? Math.min(...rs.map((r) => Number(attr(r, 'page-size')))) : NaN;
+        const n = ok ? Math.min(...rs.map((r) => this.pageSpec(r)?.size ?? NaN)) : NaN;
         // in a box whose width follows its content, only rows of a width of their own (the placeholder takes it)
         if (Number.isInteger(n) && n > 0 && styled.size && inStyled(tpl)) { if (why === '') why = 'a component\'s own `<style>` styles the rows or their container, and the build reads only the page\'s stylesheets'; }
         else if (Number.isInteger(n) && n > 0) {
@@ -8617,7 +8741,7 @@ class Compiler {
 
   /**
    * `embed`: a placeholder at the end of the head for each resource without one whose `src`,
-   * `when` and `page-model` read only `$url`, constants and helpers (what a server knows at the
+   * `when` and `model` (paginate) read only `$url`, constants and helpers (what a server knows at the
    * page request; helpers make it a request only a resolver can make)
    */
   /** the values of the `file:` resources, as embedded data in the head (not placeholders: nothing for a server to fill) */
@@ -8627,7 +8751,7 @@ class Compiler {
     this.headEl = head ?? null;
     if (!head || !this.fileData.size) return;
     // the elements now, their JSON once the page is compiled and only for what is left (`fileJson`): a list that every
-    // page of a `data-sn-pages` template declares would otherwise be written and parsed in each, and then dropped
+    // page of a `<html data-sn-for>` template declares would otherwise be written and parsed in each, and then dropped
     for (const d of this.fileData.values()) {
       const el = parse5.defaultTreeAdapter.createElement('script', parse5.html.NS.HTML, [{ name: 'type', value: 'application/json' }, { name: 'data-sn', value: String(d.id) }]);
       parse5.defaultTreeAdapter.appendChild(head, el);
@@ -8654,7 +8778,7 @@ class Compiler {
     for (const [name, d] of this.fileData) if (d.el && !d.el.childNodes.length && d.el.parentNode) {
       // what the browser still reads: only the fields `fields` names, of each entry; a collection's is named, always,
       // so that what a CMS returns and no page shows does not ship (SN344)
-      if (d.content && !d.fields && d.at) this.reportLate(d.at, d.at.tagName === 'html' ? 'data-sn-pages' : 'src', 'SN344', `browser code reads \`${name}\`, a collection, so it would ship to the page: name the fields it gets with \`fields="…"\`${d.at.tagName === 'html' ? ' on its list' : ''}`, 0, 'a collection holds what a loader returned, which can be more than a page shows (a CMS\'s internal fields); `fields="sku,name,price"` ships those of each entry, and nothing else');
+      if (d.content && !d.fields && d.at) this.reportLate(d.at, d.at.tagName === 'html' ? 'data-sn-for' : 'src', 'SN344', `browser code reads \`${name}\`, a collection, so it would ship to the page: name the fields it gets with \`fields="…"\`${d.at.tagName === 'html' ? ' on its list' : ''}`, 0, 'a collection holds what a loader returned, which can be more than a page shows (a CMS\'s internal fields); `fields="sku,name,price"` ships those of each entry, and nothing else');
       parse5.defaultTreeAdapter.insertText(d.el, `\u0001sn-json:${d.id}\u0001`);
       this.jsonOut.set(d.id, d.fields ? pickFields(d.value, d.fields) : d.value);
     }
@@ -8696,7 +8820,7 @@ class Compiler {
         ...(this.apiOfResource.get(def.name)?.headers ? { headers: this.apiOfResource.get(def.name)!.headers } : {}),
         // a `when` that reads an array parameter is the browser's to evaluate
         ...(def.when != null ? { when: (!arrays.some((n) => readsParam(this.fns[def.when!]!, n)) && condOf(this.fns[def.when]!)) || true as const } : {}), ...(pg ? { query: Object.entries(firstParams(pg)) } : {}),
-        ...(pg && startUrl ? { start: { url: startUrl, key: pg.offsetParam ?? pg.pageParam, size: pg.size, ...(pg.offsetParam ? { skip: true as const } : {}), query: Object.entries(pageParams(pg, 2)) } } : {}),
+        ...(pg && startUrl ? { start: { url: startUrl, key: pg.skipParam ?? pg.pageParam, size: pg.size, ...(pg.skipParam ? { skip: true as const } : {}), query: Object.entries(pageParams(pg, 2)) } } : {}),
       });
     }
     return out.sort((a, b) => a.id - b.id);
@@ -8716,7 +8840,7 @@ class Compiler {
     for (const n of this.roots) if (!n.dl) node(n);
     for (const t of this.templates) if (!this.dlTemplates.has(t.id)) for (const n of t.nodes) if (!n.dl) node(n);
     for (const r of this.resources) { for (const x of r.src) if (typeof x === 'number') fn(x); fn(r.when); fn(r.then); if (r.each) fn(r.each.list); if (r.call) { fn(r.call.args); fn(r.call.run); } fn(r.paginate?.cursor); }
-    for (const y of this.syncs) { for (const x of y.src) if (typeof x === 'number') fn(x); for (const e of y.events) { fn(e.item); fn(e.set); fn(e.when); fn(e.then); } }
+    for (const y of this.syncs) { for (const x of y.src) if (typeof x === 'number') fn(x); for (const e of y.events) { fn(e.value); fn(e.when); fn(e.then); } }
     const read = new Set<string>();
     for (const c of codes) for (const m of c.matchAll(/\$\.\$(?:r|meta)\.([A-Za-z_$][\w$]*)/g)) read.add(m[1]!);
     for (const r of this.resources) if (!read.has(r.name) && r.data == null) r.lo = 1;
@@ -8753,7 +8877,7 @@ class Compiler {
       const names = written(el);
       const want = b ? (b.k === 'on' && b.n ? `data-sn-on-${b.n}` : b.k === 'attr' && b.n === 'data-sn-vt' ? 'data-sn-transition' : BY_KIND[b.k]) : 'data-sn-state';
       if (want && names.includes(want)) return want;
-      return names.find((n) => n.startsWith('data-sn-') && !['data-sn-prop', 'data-sn-component', 'data-sn-key', 'data-sn-early'].includes(n)) ?? null;
+      return names.find((n) => n.startsWith('data-sn-') && !['data-sn-with', 'data-sn-component', 'data-sn-key', 'data-sn-early'].includes(n)) ?? null;
     };
     const elOf = new Map(this.paints.map((x) => [x.node, x.el]));
     for (const n of this.roots) {
@@ -9094,7 +9218,7 @@ function setAttr(el: P5Element, name: string, value: string) {
   if (a) a.value = value; else el.attrs.push({ name, value });
 }
 
-const KEPT_ATTRS = new Set(['data-sn-navigate', 'data-sn-permanent', 'data-sn-swap']);
+const KEPT_ATTRS = new Set(['data-sn-navigate', 'data-sn-permanent', 'data-sn-swap', 'data-sn-options']);
 /** the ids of a kept element's nodes: a range of its own, from its name, past any page's own numbering */
 const KEPT_IDS = 1000;
 export const keptBase = (name: string) => {
@@ -9107,16 +9231,20 @@ const hashText = (t: string) => {
   for (let i = 0; i < t.length; i++) h = Math.imul(h ^ t.charCodeAt(i), 16777619);
   return (h >>> 0).toString(36);
 };
+/** a component template's props type: `data-sn-props` as written, or the name the compiler gave it (`declaration()`) */
+const propsDecl = (t: P5Element) => attr(t, 'data-sn-props') ?? attr(t, 'data-sn-component');
+
 function stripSn(el: P5Element) {
   // what stays, for the runtime: `data-sn-navigate` marks an element with a `navigate` handler (navigate.ts),
-  // `data-sn-permanent` a kept element and `data-sn-swap` a link the swap leaves to the browser
+  // `data-sn-permanent` a kept element, `data-sn-swap` a link the swap leaves to the browser and `data-sn-options`
+  // the owner of a list of options (options.ts)
   el.attrs = el.attrs.filter((a) => !a.name.startsWith('data-sn-') || KEPT_ATTRS.has(a.name));
 }
 
 /** Whether a form's markup reads `$error` (outside `data-sn-catch`, where `$error` is the action's own). */
 function readsFormError(el: P5Element, hostOf: (e: P5Element) => P5Element | undefined): boolean {
   const own = (e: P5Element) => e.attrs.some((a) => a.name.startsWith('data-sn-') && a.name !== 'data-sn-catch' && /\$error\b/.test(a.value));
-  // a component's tag, which its root replaced: `data-sn-prop="{ error: $error }"`
+  // a component's tag, which its root replaced: `data-sn-with="{ error: $error }"`
   const reads = (e: P5Element): boolean => own(e) || (!!hostOf(e) && own(hostOf(e)!))
     || (e.tagName === 'template' ? (e as P5Template).content.childNodes : e.childNodes).some((c) => isElement(c) && reads(c));
   return reads(el);
@@ -9303,10 +9431,10 @@ const readsParam = (code: string, name: string) => new RegExp(`\\$\\.\\$url\\.${
 /** a compiled function that is one `$url` read: `($) => ($.$url.page)` */
 const URL_READ = /^\(\$\) => \(\$\.\$url\.([A-Za-z_$][\w$]*)\)$/;
 
-/** the early file's `page-model` start: page n's parameters are `qn` with `k` set (the page, or with `offset-param` the items to skip) */
+/** the early file's `model` (paginate) start: page n's parameters are `qn` with `k` set (the page, or with `params.offset` the items to skip) */
 function startOf(cfg: Paginate, f: number): NonNullable<NonNullable<EarlyIR['res']>[number]['sp']> {
-  const k = cfg.offsetParam ?? cfg.pageParam;
-  return { f, k, s: cfg.size, ...(cfg.offsetParam ? { o: 1 as const } : {}), qn: pageParams(cfg, 2) };
+  const k = cfg.skipParam ?? cfg.pageParam;
+  return { f, k, s: cfg.size, ...(cfg.skipParam ? { o: 1 as const } : {}), qn: pageParams(cfg, 2) };
 }
 
 /** URLs of the resources whose request is fixed at build time (callers pass only those it may request early: same-origin or a listed origin): the page preloads them from its HTML (low priority when every resource of that URL is `lo`). */

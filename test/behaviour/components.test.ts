@@ -5,7 +5,7 @@ import { describe, expect, test } from 'vitest';
 import { firstPaint, mockRequests, render } from '../../src/testing/index.js';
 import { compile } from '../../src/compiler/index.js';
 
-const PREVIEW = `<template data-sn-component="{ article: { slug: string; title: string; description: string }; compact?: boolean }" data-sn-emits="{ select: string }">
+const PREVIEW = `<template data-sn-props="{ article: { slug: string; title: string; description: string }; compact?: boolean }" data-sn-emits="{ select: string }">
   <article class="preview" data-sn-class="{ compact }">
     <a data-sn-attr="{ href: '/article/' + article.slug }" data-sn-on-click="$event.preventDefault(); emit('select', article.slug)"><h2 data-sn-text="article.title"></h2></a>
     <slot name="meta"></slot>
@@ -35,7 +35,7 @@ describe('markup-only components', () => {
         <button id="narrow" data-sn-on-click="narrow = !narrow">narrow</button>
         <p id="sel" data-sn-text="sel"></p>
         <template data-sn-for="a in articles">
-          <article-preview class="item" data-sn-prop="{ article: a, compact: narrow }" data-sn-on-select="sel = $event.detail">
+          <article-preview class="item" data-sn-with="{ article: a, compact: narrow }" data-sn-on-select="sel = $event.detail">
             <span slot="meta" data-sn-text="a.createdAt"></span>
           </article-preview>
         </template>
@@ -61,23 +61,23 @@ describe('markup-only components', () => {
   });
 
   test('a prop read inside the component\'s own loop is the caller\'s, also when the loops share a name', async () => {
-    const OTHER = `<template data-sn-component="{ label: string; items: string[] }">
+    const OTHER = `<template data-sn-props="{ label: string; items: string[] }">
   <ul><template data-sn-for="a in items" data-sn-key="a"><li data-sn-text="label + a"></li></template></ul>
 </template>`;
     const r2 = await render(`<div data-sn-state="{ rows: [{ n: 'r', items: ['1', '2'] }] }">
-      <template data-sn-for="a in rows"><other-list data-sn-prop="{ label: a.n, items: a.items }"></other-list></template></div>`, { components: { 'other-list': OTHER } });
+      <template data-sn-for="a in rows"><other-list data-sn-with="{ label: a.n, items: a.items }"></other-list></template></div>`, { components: { 'other-list': OTHER } });
     await r2.settle();
     expect([...r2.root.querySelectorAll('li')].map((l) => l.textContent)).toEqual(['r1', 'r2']);
   });
 
   test('the component\'s own state, an optional prop\'s default from it, and nesting', async () => {
-    const COUNTER = `<template data-sn-component="{ label: string; step?: number }">
+    const COUNTER = `<template data-sn-props="{ label: string; step?: number }">
   <span data-sn-state="{ n: 0, step: 1 }"><button data-sn-on-click="n = n + step" data-sn-text="label + ': ' + n"></button></span>
 </template>`;
-    const PANEL = `<template data-sn-component="{ title: string }">
-  <section><h3 data-sn-text="title"></h3><x-counter data-sn-prop="{ label: title, step: 5 }"></x-counter><x-counter data-sn-prop="{ label: 'plain' }"></x-counter><slot></slot></section>
+    const PANEL = `<template data-sn-props="{ title: string }">
+  <section><h3 data-sn-text="title"></h3><x-counter data-sn-with="{ label: title, step: 5 }"></x-counter><x-counter data-sn-with="{ label: 'plain' }"></x-counter><slot></slot></section>
 </template>`;
-    const { root, flush } = await render(`<div data-sn-state="{ t: 'T' }"><x-panel data-sn-prop="{ title: t }"><b data-sn-text="t + '!'"></b></x-panel></div>`,
+    const { root, flush } = await render(`<div data-sn-state="{ t: 'T' }"><x-panel data-sn-with="{ title: t }"><b data-sn-text="t + '!'"></b></x-panel></div>`,
       { components: { 'x-counter': COUNTER, 'x-panel': PANEL } });
     const [five, one] = root.querySelectorAll('button');
     expect(root.querySelector('h3')!.textContent).toBe('T');
@@ -89,7 +89,7 @@ describe('markup-only components', () => {
   });
 
   test('data-sn-model on a component: the value prop and its change event', async () => {
-    const RATING = `<template data-sn-component="{ value: number }" data-sn-emits="{ change: number }">
+    const RATING = `<template data-sn-props="{ value: number }" data-sn-emits="{ change: number }">
   <div><template data-sn-for="i in [1, 2, 3]" data-sn-key="i"><button data-sn-class="{ on: i <= value }" data-sn-on-click="emit('change', i)" data-sn-text="i"></button></template><input type="checkbox"></div>
 </template>`;
     const { root, flush } = await render(`<div data-sn-state="{ draft: { stars: 1 } }"><rating-input data-sn-model="draft.stars"></rating-input><p data-sn-text="draft.stars"></p></div>`,
@@ -107,61 +107,61 @@ describe('markup-only components', () => {
   });
 
   test('first paint: a component over embedded data and state renders before the page module', async () => {
-    const { root } = await firstPaint(`<div data-sn-state="{ now: '--:--' }"><live-clock data-sn-prop="{ time: now }"></live-clock></div>`,
-      { components: { 'live-clock': '<template data-sn-component="{ time: string }"><time data-sn-text="time"></time></template>' } });
+    const { root } = await firstPaint(`<div data-sn-state="{ now: '--:--' }"><live-clock data-sn-with="{ time: now }"></live-clock></div>`,
+      { components: { 'live-clock': '<template data-sn-props="{ time: string }"><time data-sn-text="time"></time></template>' } });
     expect(root.querySelector('time')!.textContent).toBe('--:--');
   });
 });
 
 describe('component diagnostics', () => {
-  const C = { 'x-card': '<template data-sn-component="{ title: string; n?: number }" data-sn-emits="{ pick: number }"><div><h1 data-sn-text="title"></h1><slot name="foot"></slot></div></template>' };
+  const C = { 'x-card': '<template data-sn-props="{ title: string; n?: number }" data-sn-emits="{ pick: number }"><div><h1 data-sn-text="title"></h1><slot name="foot"></slot></div></template>' };
   const codes = (html: string, c: Record<string, string> = C) => compileErrors(html, c).map((d) => `${d.code} ${d.message}`);
 
   test('props: unknown and missing', () => {
-    expect(codes('<x-card data-sn-prop="{ titel: \'a\' }"></x-card>')).toEqual([
+    expect(codes('<x-card data-sn-with="{ titel: \'a\' }"></x-card>')).toEqual([
       expect.stringMatching(/^SN313 `titel` is not a prop of `<x-card>`; its props are `title`, `n`. Did you mean `title`\?/),
       expect.stringMatching(/^SN313 `<x-card>` needs the prop `title`/),
     ]);
   });
 
   test('the component sees only its props: a caller name is an error naming the prop to add', () => {
-    const d = compileErrors('<div data-sn-state="{ q: 1 }"><x-q></x-q></div>', { 'x-q': '<template data-sn-component=""><p data-sn-text="q"></p></template>' });
+    const d = compileErrors('<div data-sn-state="{ q: 1 }"><x-q></x-q></div>', { 'x-q': '<template data-sn-props=""><p data-sn-text="q"></p></template>' });
     expect(d.map((x) => x.code)).toEqual(['SN201']);
     expect(d[0]!.file).toBe('/p/src/components/x-q.html');
     expect(d[0]!.message).toMatch(/`q` is not defined in component `<x-q>`.*\(included from index.html:1\)/);
-    expect(d[0]!.hint).toMatch(/data-sn-prop="\{ q: q \}"/);
+    expect(d[0]!.hint).toMatch(/data-sn-with="\{ q: q \}"/);
   });
 
   test('slots, events, the root, tag attributes', () => {
-    expect(codes('<x-card data-sn-prop="{ title: \'a\' }"><b slot="fot"></b><i></i></x-card>')).toEqual([
+    expect(codes('<x-card data-sn-with="{ title: \'a\' }"><b slot="fot"></b><i></i></x-card>')).toEqual([
       expect.stringMatching(/^SN314 `<x-card>` has no slot `fot`. Its slots are `foot`. Did you mean `foot`\?/),
       expect.stringMatching(/^SN314 `<x-card>` has no default `<slot>`/),
     ]);
-    expect(codes('<x-card data-sn-prop="{ title: \'a\' }" data-sn-on-pik="1" data-sn-on-click="1"></x-card>')).toEqual([expect.stringMatching(/^SN315 `<x-card>` does not emit `pik`; it declares `pick`/)]);
-    expect(codes('<x-e></x-e>', { 'x-e': '<template data-sn-component="" data-sn-emits="{ a: number }"><button data-sn-on-click="emit(\'b\', 1)"></button></template>' }))
+    expect(codes('<x-card data-sn-with="{ title: \'a\' }" data-sn-on-pik="1" data-sn-on-click="1"></x-card>')).toEqual([expect.stringMatching(/^SN315 `<x-card>` does not emit `pik`; it declares `pick`/)]);
+    expect(codes('<x-e></x-e>', { 'x-e': '<template data-sn-props="" data-sn-emits="{ a: number }"><button data-sn-on-click="emit(\'b\', 1)"></button></template>' }))
       .toEqual([expect.stringMatching(/^SN315 `<x-e>` does not declare the event `b`/)]);
-    expect(codes('<x-two></x-two>', { 'x-two': '<template data-sn-component=""><p></p><p></p></template>' })).toEqual([expect.stringMatching(/^SN312 a component's root renders at most one element; `<x-two>` has 2 elements/)]);
-    expect(codes('<x-card data-sn-prop="{ title: \'a\' }" data-sn-text="1"></x-card>')).toEqual([expect.stringMatching(/^SN102 `data-sn-text` cannot be on a component's tag/)]);
-    expect(codes('<x-id></x-id><x-id></x-id>', { 'x-id': '<template data-sn-component=""><dialog id="edit"></dialog></template>' }))
+    expect(codes('<x-two></x-two>', { 'x-two': '<template data-sn-props=""><p></p><p></p></template>' })).toEqual([expect.stringMatching(/^SN312 a component's root renders at most one element; `<x-two>` has 2 elements/)]);
+    expect(codes('<x-card data-sn-with="{ title: \'a\' }" data-sn-text="1"></x-card>')).toEqual([expect.stringMatching(/^SN102 `data-sn-text` cannot be on a component's tag/)]);
+    expect(codes('<x-id></x-id><x-id></x-id>', { 'x-id': '<template data-sn-props=""><dialog id="edit"></dialog></template>' }))
       .toEqual([expect.stringMatching(/^SN209 `<x-id>` is used 2 times on this page, and its markup has `id="edit"`/)]);
   });
 
   test('a cycle with no template between', () => {
-    expect(codes('<x-a></x-a>', { 'x-a': '<template data-sn-component=""><div><x-b></x-b></div></template>', 'x-b': '<template data-sn-component=""><p><x-a></x-a></p></template>' }))
+    expect(codes('<x-a></x-a>', { 'x-a': '<template data-sn-props=""><div><x-b></x-b></div></template>', 'x-b': '<template data-sn-props=""><p><x-a></x-a></p></template>' }))
       .toEqual([expect.stringMatching(/^SN306 `<x-a>` → `<x-b>` → `<x-a>` uses itself with no/)]);
   });
 
   test('a component tag written directly in a table', () => {
-    expect(codes('<table><tbody><x-row></x-row></tbody></table>', { 'x-row': '<template data-sn-component=""><tr><td>1</td></tr></template>' }))
+    expect(codes('<table><tbody><x-row></x-row></tbody></table>', { 'x-row': '<template data-sn-props=""><tr><td>1</td></tr></template>' }))
       .toEqual([expect.stringMatching(/^SN102 `<x-row>` is written in a table/)]);
-    expect(codes('<table><tbody><template data-sn-for="r in [1]" data-sn-key="r"><x-row></x-row></template></tbody></table>', { 'x-row': '<template data-sn-component=""><tr><td>1</td></tr></template>' })).toEqual([]);
+    expect(codes('<table><tbody><template data-sn-for="r in [1]" data-sn-key="r"><x-row></x-row></template></tbody></table>', { 'x-row': '<template data-sn-props=""><tr><td>1</td></tr></template>' })).toEqual([]);
   });
 });
 
 describe('data-sn-early="off"', () => {
-  const CLOCK = '<template data-sn-component="{ time: string }"><time data-sn-text="time"></time></template>';
+  const CLOCK = '<template data-sn-props="{ time: string }"><time data-sn-text="time"></time></template>';
   // a helper: not a build-time constant, so only the early script renders it before the page module
-  const PAGE = (early: string) => `<div data-sn-state="{ now: label() }"><live-clock data-sn-prop="{ time: now }"${early}></live-clock><b data-sn-text="now"></b></div>`;
+  const PAGE = (early: string) => `<div data-sn-state="{ now: label() }"><live-clock data-sn-with="{ time: now }"${early}></live-clock><b data-sn-text="now"></b></div>`;
   // a label only the browser knows (a helper over what it closes over does not run at build time)
   const clockText = '--:--';
   const helpers = { label: () => clockText };
@@ -186,8 +186,8 @@ describe('data-sn-early="off"', () => {
 });
 
 test('a data-sn-if on a constant prop is decided at build time: dropped when the use leaves it out, its content in place when it is true', async () => {
-  const BADGE = '<template data-sn-component="{ label?: string }"><span><template data-sn-if="label"><b data-sn-text="label"></b></template>x</span></template>';
-  const { root } = await render('<x-badge></x-badge><x-badge data-sn-prop="{ label: \'new\' }"></x-badge>', { components: { 'x-badge': BADGE } });
+  const BADGE = '<template data-sn-props="{ label?: string }"><span><template data-sn-if="label"><b data-sn-text="label"></b></template>x</span></template>';
+  const { root } = await render('<x-badge></x-badge><x-badge data-sn-with="{ label: \'new\' }"></x-badge>', { components: { 'x-badge': BADGE } });
   const [a, b] = root.querySelectorAll('span');
   expect(a!.querySelector('b')).toBeNull();
   // decided at build time: no template, no binding
@@ -198,12 +198,12 @@ test('a data-sn-if on a constant prop is decided at build time: dropped when the
 
 describe('slot content the build decides or unrolls stays its writer\'s', () => {
   // the box: a component whose slot the outer component fills, with styles of its own
-  const box = '<template data-sn-component=""><div><slot></slot></div></template><style>p { color: red }</style>';
+  const box = '<template data-sn-props=""><div><slot></slot></div></template><style>p { color: red }</style>';
 
   test('a `data-sn-if` the first paint decides: its branch emits the writer\'s events and is outside the box\'s styles', async () => {
-    const outer = `<template data-sn-component="{ on: boolean }" data-sn-emits="{ ping: void }">
+    const outer = `<template data-sn-props="{ on: boolean }" data-sn-emits="{ ping: void }">
   <section><x-box><template data-sn-if="!on"><p class="mine" data-sn-on-click="emit('ping')">p</p></template></x-box></section></template>`;
-    const r = await render('<main data-sn-state="{ n: 0 }"><x-outer data-sn-prop="{ on: false }" data-sn-on-ping="n++"></x-outer><b data-sn-text="n"></b></main>',
+    const r = await render('<main data-sn-state="{ n: 0 }"><x-outer data-sn-with="{ on: false }" data-sn-on-ping="n++"></x-outer><b data-sn-text="n"></b></main>',
       { components: { 'x-box': box, 'x-outer': outer }, firstPaint: true });
     await r.flush();
     const p = r.root.querySelector<HTMLElement>('.mine')!;
@@ -214,7 +214,7 @@ describe('slot content the build decides or unrolls stays its writer\'s', () => 
   });
 
   test('a loop over a constant list the first paint unrolls: its rows see the writer\'s state and their item', async () => {
-    const outer = `<template data-sn-component=""><section data-sn-state="{ label: 'a' }"><x-box>
+    const outer = `<template data-sn-props=""><section data-sn-state="{ label: 'a' }"><x-box>
   <template data-sn-for="x in [1, 2]" data-sn-key="x"><p class="row" data-sn-text="label + x"></p></template></x-box></section></template>`;
     const r = await render('<main><x-outer></x-outer></main>', { components: { 'x-box': box, 'x-outer': outer }, firstPaint: true });
     await r.flush();

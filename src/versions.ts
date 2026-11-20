@@ -7,7 +7,7 @@
 // condition) counts the same. sinter sends no conditional headers itself: the browser's HTTP
 // cache revalidates when the server sends `Cache-Control: no-cache`.
 // Added to pages whose resources are reloaded as a matter of course: those with `refresh` or an
-// `<sn-sync>` (refetch events, reconnects). Not for `call` and `each` resources.
+// `<sn-sync>` (refresh events, reconnects). Not for `call` and `each` resources.
 import { UNCHANGED, type Feature, type ResourceLoader } from './runtime/app.js';
 
 /** What identifies a response's content: its `ETag`, else its `Last-Modified`. */

@@ -126,7 +126,7 @@ describe('the app\'s imports', () => {
   put('src/lib/mime.ts', `import { armor } from './pgp.js';\nexport const mime = (s: string) => s;`);
   put('src/lib/pgp.ts', `import * as openpgp from 'openpgp';\nexport const armor = async (s: string) => openpgp.readMessage({ armoredMessage: s });`);
   put('src/lib/types.ts', `import * as openpgp from 'openpgp';\nexport type Key = openpgp.Key;\nopenpgp.config.x = 1;`);
-  put('src/components/task-ring.html', '<template data-sn-component=""><canvas></canvas></template>');
+  put('src/components/task-ring.html', '<template data-sn-props=""><canvas></canvas></template>');
   put('src/components/task-ring.ts', `import Chart from 'chart.js';\nexport class TaskRing { c = new Chart(null as never, {} as never); }`);
 
   test('the shortest chain to a package, through the app\'s static value imports', () => {

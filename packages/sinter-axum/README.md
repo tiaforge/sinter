@@ -4,11 +4,11 @@ Serve a [sinter](https://github.com/tiaforge/sinter#readme) app from axum with i
 
 You add one layer. For each page, it calls your API and writes the JSON into the HTML as it's sent.
 
-The server layer is optional: without it, sinter pages fetch their data in the browser. It is also easy to port to another language. The server only writes JSON into the `<script type="application/json" data-sn-data>` slots in the head of each page, which the build lists in `sinter-embed.json` ([contract](https://github.com/tiaforge/sinter/blob/main/docs/first-paint.md)).
+The server layer is optional: without it, sinter pages fetch their data in the browser. It is also easy to port to another language. The server only writes JSON into the `<script type="application/json" data-sn-resource>` placeholders in the head of each page, which the build lists in `sinter-embed.json` ([contract](https://github.com/tiaforge/sinter/blob/main/docs/first-paint.md)).
 
 ## Quick start
 
-**1. Build the frontend for a server.** In its Vite config, `sinter({ embed: true })` (needs `@tiaforge-ui/sinter` 0.13 or newer). The build then leaves an empty data slot in each page for every resource whose request the page's URL decides, and lists them in `dist/sinter-embed.json`. The browser no longer requests those itself: their data comes with the page.
+**1. Build the frontend for a server.** In its Vite config, `sinter({ embed: true })` (needs `@tiaforge-ui/sinter` 0.13 or newer). The build then leaves an empty data placeholder in each page for every resource whose request the page's URL decides, and lists them in `dist/sinter-embed.json`. The browser no longer requests those itself: their data comes with the page.
 
 **2. Add the crate.**
 
@@ -47,7 +47,7 @@ The page is sent head first, before the data is in, so its status is `200` from 
 
 ## The compile-time check
 
-`embed!` reads the build's `sinter-embed.json` when your crate compiles; the path is relative to your `Cargo.toml`. It's a compile error when the build has a slot your configuration can't fill, and the error names the page, the resource and the fix:
+`embed!` reads the build's `sinter-embed.json` when your crate compiles; the path is relative to your `Cargo.toml`. It's a compile error when the build has a placeholder your configuration can't fill, and the error names the page, the resource and the fix:
 
 ```text
 error: index.html: `articles`: the build could not describe its request (its `src` calls a
@@ -55,7 +55,7 @@ error: index.html: `articles`: the build could not describe its request (its `sr
        to give its data, or `"articles" => skip` to leave it to the browser
 ```
 
-A name that no slot has (a typo) is an error too. A name applies to every page; `"profile.html:articles"` names one page's slot.
+A name that no placeholder has (a typo) is an error too. A name applies to every page; `"profile.html:articles"` names one page's placeholder.
 
 The manifest is compiled into the binary. At startup, `build()` refuses a `dist/` from a different build, so the frontend and the server can't drift apart. If the pages are somewhere else at run time, say so with `.dir("/srv/dist")`.
 
@@ -83,12 +83,12 @@ A resolver is an async Rust function you register for one resource; it produces 
 
 You need one when the build can't describe the request: the frontend's `src` calls a helper or chooses between parameters with a ternary, or its `when` is more than a comparison of URL values with strings. The compile-time check tells you which ones.
 
-A resolver receives a `SlotRequest` with:
+A resolver receives a `PlaceholderRequest` with:
 
 - `params`: the page URL's parameters, each a `Param`: query parameters and named path segments (`/article/:slug` gives `slug`), `Param::One` (`as_str()`), or `Param::List` for an array parameter (one a `<select multiple>` or a checkbox with a `value` binds: `?tag=a&tag=b`; `values()` gives either as a slice);
 - `headers`: the page request's headers;
 - `url`: the URL the layer would request, if the build describes one;
-- `page`, `resource`: which slot it is.
+- `page`, `resource`: which placeholder it is.
 
 It returns the JSON body the API would have returned, as `Option<Bytes>`. `None` leaves the resource to the browser.
 
@@ -116,7 +116,7 @@ Which case are you in?
 1. **The data is the same for everyone** (public articles, tags). Nothing to do.
 2. **The data is per user, and the session is a cookie.** Nothing to do. The browser's request for the page includes the session cookie, and the layer passes it on to `.api` and `.upstream`, so your API sees the same user. Requests to `.allow_origin` URLs get no cookies, as sinter's own requests to another origin don't either.
 3. **The data is per user, and the frontend sends a token from JavaScript** (kept in `localStorage`, sent as `Authorization`). The request for the page doesn't include the token, so the API would answer as if signed out, and a signed-in user would see signed-out data on every page load. Leave these resources to the browser:
-   - in the frontend, `early="off"` on the resource. It already means "a request middleware changes this request", so the build gives it no slot;
+   - in the frontend, `early="off"` on the resource. It already means "a request middleware changes this request", so the build gives it no placeholder;
    - or on the server, `"articles" => skip`.
 
 Pages are sent with `Cache-Control: private, no-cache`, so a shared cache never gives one user's page to another.
@@ -136,14 +136,14 @@ Pages are sent with `Cache-Control: private, no-cache`, so a shared cache never 
 
 ## What the layer does
 
-- **At startup (`build()`):** it reads `sinter-embed.json`, checks that every slot has a source, and splits each page at its slots. The slots are the last thing in the page's `<head>`, after the stylesheets and scripts.
+- **At startup (`build()`):** it reads `sinter-embed.json`, checks that every placeholder has a source, and splits each page at its placeholders. The placeholders are the last thing in the page's `<head>`, after the stylesheets and scripts.
 - **On a GET for a page:**
-  - it sends the HTML up to the first slot right away, so the browser loads stylesheets and scripts while the data is fetched;
-  - it fetches every slot's data in parallel, for this URL: the URL's values in the request, the page a paginated list starts at, and no request when the resource's `when` doesn't hold;
+  - it sends the HTML up to the first placeholder right away, so the browser loads stylesheets and scripts while the data is fetched;
+  - it fetches every placeholder's data in parallel, for this URL: the URL's values in the request, the page a paginated list starts at, and no request when the resource's `when` doesn't hold;
   - it writes the data, with `<` escaped so it can't break out of its `<script>`, then the rest of the page.
-- **When a slot's data can't be fetched** (the API errors or can't be reached, a non-2xx or non-JSON response, one over `max_bytes`, the time limit), the page is not sent: the layer ends the response there with the error text in the page's body, marked so the page's scripts don't start, and with `.error_redirect(url)` sends the browser to your error page. A 404 from the API counts too, so a missing article shows the error text, not the page's own not-found state.
+- **When a placeholder's data can't be fetched** (the API errors or can't be reached, a non-2xx or non-JSON response, one over `max_bytes`, the time limit), the page is not sent: the layer ends the response there with the error text in the page's body, marked so the page's scripts don't start, and with `.error_redirect(url)` sends the browser to your error page. A 404 from the API counts too, so a missing article shows the error text, not the page's own not-found state.
 - **The site's URLs:** it follows the same rules as the build's `_redirects`, which it reads from the manifest: a permanent redirect from a page's old file URL (`/about.html` to `/about/`, with the query), and a path a page declares in `data-sn-path` (`/article/hello`) answered from that page's file, with its data written in, or passed to the inner service as that file. So the app needs no routes of its own for its pages ([page URLs](../../docs/static-pages.md#page-urls)).
-- **No data is not a failure:** a resolver's `None`, a `skip`, or a `when` that doesn't hold leaves the slot empty, and the browser requests that data itself.
+- **No data is not a failure:** a resolver's `None`, a `skip`, or a `when` that doesn't hold leaves the placeholder empty, and the browser requests that data itself.
 - **What it never does:** fetch a URL whose host comes from the page's URL, or serve `sinter-embed.json` (it answers 404).
 
 ## What the browser receives
@@ -154,7 +154,7 @@ For the frontend, a resource is just a resource:
 <sn-resource name="articles" src="/api/articles?tag={$url.tag}" key="slug" items="articles"></sn-resource>
 ```
 
-With `embed: true`, the build gives it an empty slot at the end of the head and lists its request in `sinter-embed.json`:
+With `embed: true`, the build gives it an empty placeholder at the end of the head and lists its request in `sinter-embed.json`:
 
 ```html
 <!-- dist/index.html -->
@@ -165,7 +165,7 @@ With `embed: true`, the build gives it an empty slot at the end of the head and 
 { "id": 0, "resource": "articles", "src": ["/api/articles?tag=", { "url": "tag" }] }
 ```
 
-For a request to `/?tag=rust`, the layer requests `/api/articles?tag=rust` from your API and writes the response body into the slot:
+For a request to `/?tag=rust`, the layer requests `/api/articles?tag=rust` from your API and writes the response body into the placeholder:
 
 ```html
 <script type="application/json" data-sn="0">{"articles":[{"slug":"hello","title":"Hello"}],"articlesCount":1}</script>

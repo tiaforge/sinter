@@ -13,9 +13,7 @@ import sinter from '../../src/vite.js';
 import { chromium } from '../browser.js';
 
 const src = resolve(__dirname, '../../src');
-const alias = ['sse', 'optimistic', 'paginate', 'persist', 'early', 'prefetch', 'transition', 'cache', 'apply', 'form', 'select', 'location', 'call', 'debounce', 'confirm', 'models']
-  .map((f) => ({ find: `@tiaforge-ui/sinter/${f}`, replacement: `${src}/${f}.ts` }))
-  .concat([{ find: '@tiaforge-ui/sinter', replacement: `${src}/index.ts` }]);
+const alias = [{ find: /^@tiaforge-ui\/sinter\/runtime$/, replacement: `${src}/runtime-entry.ts` }, { find: /^@tiaforge-ui\/sinter\/(?:runtime\/)?([\w-]+)$/, replacement: `${src}/$1.ts` }, { find: /^@tiaforge-ui\/sinter$/, replacement: `${src}/index.ts` }];
 
 const dir = mkdtempSync(join(tmpdir(), 'sinter-early-req-'));
 const root = join(dir, 'app'), out = join(dir, 'dist');
@@ -45,7 +43,7 @@ beforeAll(async () => {
 <body>
   <sn-resource name="items" src="${apiOrigin}/items?q={$url.q}" items="items" key="id" type="any"></sn-resource>
   <sn-resource name="tags" src="${apiOrigin}/tags" items="tags" type="any"></sn-resource>
-  <sn-resource name="pages" src="${apiOrigin}/pages?q={$url.q}" items="items" total="total" key="id" type="any" paginate="keyset" page-size="2" cursor="{after: id}" direction-values="{first: 'down'}"></sn-resource>
+  <sn-resource name="pages" src="${apiOrigin}/pages?q={$url.q}" items="items" total="total" key="id" type="any" paginate="{ keyset: {after: $item.id}, size: 2, directions: {first: 'down'} }"></sn-resource>
   <sn-resource name="me" src="${apiOrigin}/me" items="me" type="any" early="off"></sn-resource>
   <sn-resource name="other" src="https://other.example/x" type="any" when="false"></sn-resource>
   <ul><template data-sn-for="i in items"><li data-sn-text="i.name"></li></template></ul>

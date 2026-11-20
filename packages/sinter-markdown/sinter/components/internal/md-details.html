@@ -1,4 +1,4 @@
 <!-- <details> with its <summary>, kept from raw HTML under md.parse's html: 'allow'. -->
-<template data-sn-component="{ node: Details }">
-  <details data-sn-attr="{ open: node.open }"><template data-sn-if="node.summary.length"><summary><template data-sn-for="n in node.summary"><template data-sn-if="n.type === 'text'"><template data-sn-text="n.value"></template></template><template data-sn-else><md-phrasing data-sn-prop="{ node: n }"></md-phrasing></template></template></summary></template><template data-sn-for="b in node.children"><md-block data-sn-prop="{ node: b }"></md-block></template></details>
+<template data-sn-props="{ node: Details }">
+  <details data-sn-attr="{ open: node.open }"><template data-sn-if="node.summary.length"><summary><template data-sn-for="n in node.summary"><template data-sn-if="n.type === 'text'"><template data-sn-text="n.value"></template></template><template data-sn-else><md-phrasing data-sn-with="{ node: n }"></md-phrasing></template></template></summary></template><template data-sn-for="b in node.children"><md-block data-sn-with="{ node: b }"></md-block></template></details>
 </template>

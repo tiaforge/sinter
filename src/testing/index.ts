@@ -28,9 +28,9 @@ import optimistic from '../optimistic.js';
 import paginate from '../paginate.js';
 import each from '../each.js';
 import persist from '../persist.js';
-import listbox from '../listbox.js';
+import options from '../options.js';
 import keys from '../keys.js';
-import apply from '../apply.js';
+import writeThrough from '../write-through.js';
 import transition from '../transition.js';
 import fields from '../fields.js';
 import form from '../form.js';
@@ -50,7 +50,7 @@ import sse from '../sse.js';
 import { lists, prefetch, type PrefetchPage } from '../prefetch.js';
 import { pagePaths } from '../prefetch-build.js';
 
-const FEATURES: Record<string, Feature> = { components, nested, lets, dev, sse, optimistic, paginate, persist, cache, versions, refresh, each, listbox, keys, apply, fields, form, select, location, typing, 'query-links': queryLinks, navigate, call, debounce, confirm, models, transition };
+const FEATURES: Record<string, Feature> = { components, nested, lets, dev, sse, optimistic, paginate, persist, cache, versions, refresh, each, options, keys, 'write-through': writeThrough, fields, form, select, location, typing, 'query-links': queryLinks, navigate, call, debounce, confirm, models, transition };
 
 // ---- requests
 
@@ -241,9 +241,9 @@ export interface RenderOptions {
   actions?: Record<string, unknown>;
   /** other files the page reads, by path relative to the page (`src/components/x-y.html`) */
   files?: Record<string, string>;
-  /** the app's components, by name: `{ 'article-preview': '<template data-sn-component="…">…</template>' }` */
+  /** the app's components, by name: `{ 'article-preview': '<template data-sn-props="…">…</template>' }` */
   components?: Record<string, string>;
-  /** the app's layouts, by name: `{ 'app-layout': '<!doctype html><html data-sn-layout="{ title: string }">…</html>' }`; the page is the layout's tag */
+  /** the app's layouts, by name: `{ 'app-layout': '<!doctype html><html data-sn-props="{ title: string }">…</html>' }`; the page is the layout's tag */
   layouts?: Record<string, string>;
   /** the scripts of components, by name: the module (`await import('../src/components/task-ring.ts')`) or the class */
   scripts?: Record<string, unknown>;
@@ -266,7 +266,7 @@ export interface RenderOptions {
    * data ahead, as in a build. A page answers at its `data-sn-path` patterns, else at its file's paths
    */
   pages?: Record<string, string>;
-  /** an OpenAPI 3 document (parsed), as `sinter({ openapi })` gives the compiler: types resources and actions, and write-through knows the entities */
+  /** deprecated with `sinter({ openapi })`, until 1.0: `apis: { main: { openapi } }`. An OpenAPI 3 document (parsed), as `sinter({ openapi })` gives the compiler: types resources and actions, and write-through knows the entities */
   openapi?: unknown;
   /**
    * the app's APIs, as `sinter({ apis })` (docs/apis.md), each spec a parsed OpenAPI 3 document: paths
@@ -274,15 +274,15 @@ export interface RenderOptions {
    */
   apis?: Record<string, Omit<ApiOptions, 'openapi'> & { openapi?: unknown }>;
   defaultApi?: string;
-  /** images from the API, as `sinter({ images: { remote } })`: a bound `<img src>` gets the service's `srcset` */
-  remoteImages?: RemoteImages;
+  /** as `sinter({ images: { remote } })`: images from the API; a bound `<img src>` gets the service's `srcset` */
+  images?: { remote?: RemoteImages };
   /** the page's stylesheets, for the boxes of its images and the space of its lists (as the Vite plugin reads them from the page) */
   css?: string;
   /**
-   * minify the page's HTML as a build does (default false here; builds do it unless `sinter({ minifyHtml: false })`):
-   * the author's comments out, and white space `css` shows to render nothing (docs/minify.md)
+   * as `sinter({ minifyHtml })`, but off by default here: minify the page's HTML as a build does, the
+   * author's comments out, and white space `css` shows to render nothing (docs/minify.md)
    */
-  minify?: boolean;
+  minifyHtml?: boolean;
   /**
    * strict mode (docs/strict.md), as `sinter({ strict })` takes it (default: `SINTER_STRICT`; `false` wins over it, for a test that expects warnings): the page's
    * warnings throw like its errors, except the codes in `allow`, and a runtime warning makes the call
@@ -304,7 +304,7 @@ export interface RenderProject {
   readFile: (path: string) => string;
   listFiles?: (dir: string) => string[];
   componentNames: string[];
-  /** the component libraries (`sinter({ components })`) */
+  /** the component libraries (`sinter({ libraries })`) */
   libraries?: readonly CompileLibrary[];
   openapi: OpenApiSpec[];
   apis: ApisDef | null;
@@ -429,6 +429,10 @@ function paint(parts: CompiledParts, helpers: Record<string, unknown>, app?: () 
 }
 
 function compilePage(html: string, options: RenderOptions, strict: Strict = { on: false, allow: new Map() }): { parts: CompiledParts; manifest: HelperManifest; actions: Record<string, unknown>; apis: ApisDef | null; diagnostics: Diagnostic[] } {
+  // renamed to the Vite plugin's spelling
+  const was = options as { minify?: unknown; remoteImages?: unknown };
+  if (was.minify !== undefined) throw new Error('render({ minify }) is renamed to `minifyHtml`, as in `sinter({ minifyHtml })`');
+  if (was.remoteImages !== undefined) throw new Error('render({ remoteImages }) is renamed to `images: { remote }`, as in `sinter({ images: { remote } })`');
   const helpers = options.helpers ?? {};
   const manifest: HelperManifest = { module: null, names: [], namespaces: {} };
   for (const [k, v] of Object.entries(helpers)) {
@@ -484,13 +488,13 @@ function compilePage(html: string, options: RenderOptions, strict: Strict = { on
     // compiled as a build does (both passes: build-time constants, decided branches, unrolled loops); `firstPaint` runs the early chunk
     prerender: true, ...(options.firstPaint ? { early: { module: null } } : {}),
     ...(apis ? { openapi: apis.specs, ...(apis.apis ? { apis: apis.apis } : {}) } : options.openapi ? { openapi: [{ file: 'openapi.yml', doc: options.openapi }] } : {}),
-    ...(options.remoteImages ? { remoteImages: resolveRemote(options.remoteImages) } : {}),
+    ...(options.images?.remote ? { remoteImages: resolveRemote(options.images.remote) } : {}),
     // static images stay as written in tests (no files to encode); the stylesheets size bound ones
     ...(options.css ? { images: { info: () => null, url: () => '', styles: [{ file: 'test.css', css: options.css }] } } : {}),
     // and hold the space of lists whose data comes later (the rules are the build's; the test reads the placeholder)
     ...(options.css ? { styles: [{ file: 'test.css', css: options.css }], paintCss: 'paint.css' } : {}),
     // as a build does (`sinter({ minifyHtml })`, on by default there): the page's markup minified against `css`
-    ...(options.minify ? { minify: { styles: options.css ? [{ file: 'test.css', css: options.css }] : [] } } : {}),
+    ...(options.minifyHtml ? { minify: { styles: options.css ? [{ file: 'test.css', css: options.css }] : [] } } : {}),
   });
   const diagnostics = strict.on ? applyStrict(parts.diagnostics, new Set(strict.allow.keys())) : parts.diagnostics;
   const errors = diagnostics.filter((d) => d.severity === 'error');

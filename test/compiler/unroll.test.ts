@@ -12,7 +12,7 @@ const build = (body: string, files: Record<string, string> = {}) => compile(`<!d
 const irOf = (module: string) => JSON.parse(/const ir = (\{.*\});/.exec(module)![1]!);
 const bodyOf = (html: string) => /<body>([\s\S]*)<\/body>/.exec(html)![1]!;
 
-const NAV = '<template data-sn-component="{ items: { href: string; label: string }[] }"><ul><template data-sn-for="(i, n) in items"><li><a data-sn-attr="{ href: i.href }" data-sn-text="(n + 1) + \'. \' + i.label"></a></li></template></ul></template>';
+const NAV = '<template data-sn-props="{ items: { href: string; label: string }[] }"><ul><template data-sn-for="(i, n) in items"><li><a data-sn-attr="{ href: i.href }" data-sn-text="(n + 1) + \'. \' + i.label"></a></li></template></ul></template>';
 const LINKS = "[{ href: '/', label: 'Home' }, { href: '/about.html', label: 'About' }]";
 
 describe('loops over constants', () => {
@@ -27,7 +27,7 @@ describe('loops over constants', () => {
 
   test('a component\'s list prop given as a literal, with the index; two uses with different lists', () => {
     const files = { '/p/src/components/nav-list.html': NAV };
-    const out = build(`<nav-list data-sn-prop="{ items: ${LINKS} }"></nav-list>\n<nav-list data-sn-prop="{ items: [{ href: '/x', label: 'X' }] }"></nav-list>`, files);
+    const out = build(`<nav-list data-sn-with="{ items: ${LINKS} }"></nav-list>\n<nav-list data-sn-with="{ items: [{ href: '/x', label: 'X' }] }"></nav-list>`, files);
     expect(bodyOf(out.html)).toContain('<li><a href="/">1. Home</a></li><li><a href="/about.html">2. About</a></li>');
     expect(bodyOf(out.html)).toContain('<li><a href="/x">1. X</a></li>');
     expect(irOf(out.module).templates).toEqual([]);
@@ -70,17 +70,17 @@ describe('loops over constants', () => {
 describe('loops over constants, with components in the rows', () => {
   test('a row that is a component: its props read the item', () => {
     const files = {
-      '/p/src/components/nav-item.html': '<template data-sn-component="{ link: { href: string; label: string } }"><li><a data-sn-attr="{ href: link.href }" data-sn-text="link.label"></a></li></template>',
+      '/p/src/components/nav-item.html': '<template data-sn-props="{ link: { href: string; label: string } }"><li><a data-sn-attr="{ href: link.href }" data-sn-text="link.label"></a></li></template>',
     };
-    const out = build(`<ul><template data-sn-for="i in ${LINKS}"><nav-item data-sn-prop="{ link: i }"></nav-item></template></ul>`, files);
+    const out = build(`<ul><template data-sn-for="i in ${LINKS}"><nav-item data-sn-with="{ link: i }"></nav-item></template></ul>`, files);
     expect(out.diagnostics).toEqual([]);
     expect(bodyOf(out.html)).toBe('<ul><li><a href="/">Home</a></li><li><a href="/about.html">About</a></li></ul>');
     expect(irOf(out.module).templates).toEqual([]);
   });
 
   test('a component inside a row, below its top element', () => {
-    const files = { '/p/src/components/x-label.html': '<template data-sn-component="{ text: string }"><b data-sn-text="text"></b></template>' };
-    const out = build(`<ul><template data-sn-for="i in ${LINKS}"><li><x-label data-sn-prop="{ text: i.label }"></x-label></li></template></ul>`, files);
+    const files = { '/p/src/components/x-label.html': '<template data-sn-props="{ text: string }"><b data-sn-text="text"></b></template>' };
+    const out = build(`<ul><template data-sn-for="i in ${LINKS}"><li><x-label data-sn-with="{ text: i.label }"></x-label></li></template></ul>`, files);
     expect(out.diagnostics).toEqual([]);
     expect(bodyOf(out.html)).toBe('<ul><li><b>Home</b></li><li><b>About</b></li></ul>');
   });

@@ -173,9 +173,9 @@ describe('sinter lsp', () => {
   }, 30_000);
 
   test('a component is checked through the pages that use it, and on its own when none does', async () => {
-    const page = '<sn-resource name="contacts" src="/api/contacts" key="id"></sn-resource>\n<div data-sn-state="{ q: \'\' }">\n  <contact-list data-sn-prop="{ q }"></contact-list>\n</div>\n';
-    const component = '<template data-sn-component="{ q: string }"><ul><template data-sn-for="c in contacts">\n  <p data-sn-text="c.name + q"></p>\n</template></ul></template>\n';
-    const root = project({ 'index.html': page, 'src/components/contact-list.html': component, 'src/components/lone-card.html': '<template data-sn-component=""><p data-sn-text="nope"></p></template>\n' });
+    const page = '<sn-resource name="contacts" src="/api/contacts" key="id"></sn-resource>\n<div data-sn-state="{ q: \'\' }">\n  <contact-list data-sn-with="{ q }"></contact-list>\n</div>\n';
+    const component = '<template data-sn-props="{ q: string }"><ul><template data-sn-for="c in contacts">\n  <p data-sn-text="c.name + q"></p>\n</template></ul></template>\n';
+    const root = project({ 'index.html': page, 'src/components/contact-list.html': component, 'src/components/lone-card.html': '<template data-sn-props=""><p data-sn-text="nope"></p></template>\n' });
     const e = await editor(root);
     e.open('src/components/contact-list.html', component);
     // `contacts` is the page's resource and `q` a prop, so the component has no errors
@@ -190,7 +190,7 @@ describe('sinter lsp', () => {
     e.change('src/components/contact-list.html', component);
     await e.diagnostics('src/components/contact-list.html', (d) => d.every((x) => x.severity === 2));
 
-    e.open('src/components/lone-card.html', '<template data-sn-component=""><p data-sn-text="nope"></p></template>\n');
+    e.open('src/components/lone-card.html', '<template data-sn-props=""><p data-sn-text="nope"></p></template>\n');
     const lone = await e.diagnostics('src/components/lone-card.html', (d) => d.length > 0);
     expect(lone.map((x) => x.code)).toEqual(['SN201 unknown-identifier']);
   });
@@ -279,7 +279,7 @@ describe('sinter lsp', () => {
 
     test('a type error in a component is reported on the component', async () => {
       const page = '<sn-resource name="contacts" src="/api/contacts" key="id" type="Contact[]"></sn-resource>\n<contact-rows></contact-rows>\n';
-      const row = '<template data-sn-component=""><ul><template data-sn-for="c in contacts">\n  <p data-sn-text="c.tags.lenght"></p>\n</template></ul></template>\n';
+      const row = '<template data-sn-props=""><ul><template data-sn-for="c in contacts">\n  <p data-sn-text="c.tags.lenght"></p>\n</template></ul></template>\n';
       const root = project({ 'src/sinter.types.ts': TYPES, 'index.html': page, 'src/components/contact-rows.html': row });
       const e = await editor(root);
       e.open('src/components/contact-rows.html', row);
@@ -302,8 +302,8 @@ describe('sinter lsp', () => {
     });
   
     test('hover on `$slot` in a fill: its type, and which placement passes it', async () => {
-      const list = '<template data-sn-component="{ rows: Contact[]; row: Slot<{ contact: Contact }> }"><ul><template data-sn-for="c in rows"><slot name="row" data-sn-prop="{ contact: c }"><li></li></slot></template></ul></template>\n';
-      const page = '<sn-resource name="contacts" src="/api/contacts" key="id" type="Contact[]"></sn-resource>\n<contact-list data-sn-prop="{ rows: contacts }">\n  <li slot="row" data-sn-text="$slot.contact.name"></li>\n</contact-list>\n';
+      const list = '<template data-sn-props="{ rows: Contact[]; row: Slot<{ contact: Contact }> }"><ul><template data-sn-for="c in rows"><slot name="row" data-sn-with="{ contact: c }"><li></li></slot></template></ul></template>\n';
+      const page = '<sn-resource name="contacts" src="/api/contacts" key="id" type="Contact[]"></sn-resource>\n<contact-list data-sn-with="{ rows: contacts }">\n  <li slot="row" data-sn-text="$slot.contact.name"></li>\n</contact-list>\n';
       const root = project({ 'src/sinter.types.ts': TYPES, 'index.html': page, 'src/components/contact-list.html': list });
       const e = await editor(root);
       e.open('index.html', page);
@@ -349,12 +349,20 @@ describe('did-you-mean', () => {
     expect(suggestionOf('resource `x` is declared twice')).toBeNull();
   });
 
-  test('a renamed attribute: the fix writes the new name (`start-page` → `page-model`)', () => {
-    const text = '<sn-resource name="a" src="/a" paginate="offset" page-size="2" start-page="$url.page"></sn-resource>';
-    const at = text.indexOf('start-page');
-    expect(didYouMeanEdit(text, { start: { line: 0, character: at }, end: { line: 0, character: at + 10 } }, '`start-page` is renamed to `page-model` (offset lists, a query parameter), which also writes the page back'))
-      .toEqual({ range: { start: { line: 0, character: at }, end: { line: 0, character: at + 10 } }, newText: 'page-model' });
+  test('a rename: the fix writes the new name, for an attribute, a function and a value', () => {
+    const fix = (text: string, wrong: string, message: string) => {
+      const at = text.indexOf(wrong);
+      return didYouMeanEdit(text, { start: { line: 0, character: at }, end: { line: 0, character: at + wrong.length } }, message);
+    };
+    const attr = '<input data-sn-listbox="hits">';
+    expect(fix(attr, 'data-sn-listbox', '`data-sn-listbox` is renamed to `data-sn-options`, which also serves menus and lists'))
+      .toEqual({ range: { start: { line: 0, character: 7 }, end: { line: 0, character: 22 } }, newText: 'data-sn-options' });
+    const fn = '<b data-sn-on-click="showModal(\'d\')"></b>';
+    expect(fix(fn, 'showModal', '`showModal()` is renamed to `openDialog()`, the pair of `closeDialog()`')!.newText).toBe('openDialog');
+    const value = '<sn-resource name="a" src="/a" paginate="{ offset: true, size: 2 }"></sn-resource>';
+    expect(fix(value, 'offset: true', '`offset: true` is renamed to `numbered: true` (pages by number)')!.newText).toBe('numbered: true');
   });
+
 
   test('replaces the whole name nearest the diagnostic', () => {
     const text = '<p data-sn-txt="txt"></p>';
@@ -370,7 +378,7 @@ describe('did-you-mean', () => {
 });
 
 test('componentAt finds the tag name under the cursor', () => {
-  const line = '  <article-preview data-sn-prop="{ a }"></article-preview>';
+  const line = '  <article-preview data-sn-with="{ a }"></article-preview>';
   expect(componentAt(line, 0, 5)).toBe('article-preview');
   expect(componentAt(line, 0, 45)).toBe('article-preview');
   expect(componentAt(line, 0, 25)).toBeNull();
@@ -404,7 +412,7 @@ describe('completion, definition, quick fixes', () => {
     e.open('index.html', PAGE('$meta.contacts.'));
     await e.diagnostics('index.html', (d) => d.length > 0);
     const r = await e.completion('index.html', 3, 37);
-    expect(r!.items.map((i) => i.label)).toEqual(expect.arrayContaining(['loading', 'error', 'loadedAt', 'pending', 'total', 'live']));
+    expect(r!.items.map((i) => i.label)).toEqual(expect.arrayContaining(['loading', 'error', 'loadedAt', 'total', 'live']));
     const resolved = await e.resolve(r!.items.find((i) => i.label === 'live'));
     expect(JSON.stringify(resolved)).toContain('retrying');
   });
@@ -527,7 +535,7 @@ export default { plugins: [sinter({ apis: {
 
   test('go to definition on a component\'s tag opens the component', async () => {
     const page = '<x-row></x-row>\n';
-    const root = project({ 'index.html': page, 'src/components/x-row.html': '<template data-sn-component=""><p>row</p></template>\n' });
+    const root = project({ 'index.html': page, 'src/components/x-row.html': '<template data-sn-props=""><p>row</p></template>\n' });
     const e = await editor(root);
     e.open('index.html', page);
     const d = await e.definition('index.html', 0, 3);
@@ -536,7 +544,7 @@ export default { plugins: [sinter({ apis: {
 
   describe('layouts and slots', () => {
     const LAYOUT = `<!doctype html>
-<html data-sn-layout="{ title?: string }">
+<html data-sn-props="{ title?: string }">
 <head>
   <meta charset="utf-8">
   <slot name="head"></slot>
@@ -550,8 +558,8 @@ export default { plugins: [sinter({ apis: {
 `;
     const files = {
       'src/layouts/site-layout.html': LAYOUT,
-      'src/components/seo-tags.html': '<template data-sn-head="{ title?: string }"><title data-sn-text="title ?? \'x\'">x</title></template>\n',
-      'src/components/x-card.html': '<template data-sn-component="{ n: number }"><div><slot name="side"></slot><slot></slot></div></template>\n',
+      'src/components/seo-tags.html': '<template data-sn-props="{ title?: string }"><title data-sn-text="title ?? \'x\'">x</title></template>\n',
+      'src/components/x-card.html': '<template data-sn-props="{ n: number }"><div><slot name="side"></slot><slot></slot></div></template>\n',
     };
 
     test('slot="…" completes the layout\'s head slots on a head element, its body slots on the rest', async () => {
@@ -567,13 +575,13 @@ export default { plugins: [sinter({ apis: {
     });
 
     test('slot="…" completes a component\'s slots; go to definition lands on the <slot>', async () => {
-      const page = '<div><x-card data-sn-prop="{ n: 1 }"><b slot="side">x</b></x-card></div>\n';
+      const page = '<div><x-card data-sn-with="{ n: 1 }"><b slot="side">x</b></x-card></div>\n';
       const root = project({ ...files, 'index.html': page });
       const e = await editor(root);
       e.open('index.html', page);
       expect((await e.completion('index.html', 0, 47))!.items.map((i) => i.label)).toEqual(['side']);
       const d = await e.definition('index.html', 0, 47);
-      expect(d!.map((x) => [x.uri.split('/').pop(), x.range.start.line, x.range.start.character])).toEqual([['x-card.html', 0, 49]]);
+      expect(d!.map((x) => [x.uri.split('/').pop(), x.range.start.line, x.range.start.character])).toEqual([['x-card.html', 0, 45]]);
     });
 
     test('tags: layouts at the top of an empty page, head components in a head, components in a body', async () => {
@@ -588,7 +596,7 @@ export default { plugins: [sinter({ apis: {
     });
 
     test('hover on a layout\'s tag lists its props and slots; go to definition opens the layout', async () => {
-      const page = '<site-layout data-sn-prop="{ title: \'a\' }"><p>x</p></site-layout>\n';
+      const page = '<site-layout data-sn-with="{ title: \'a\' }"><p>x</p></site-layout>\n';
       const root = project({ ...files, 'index.html': page });
       const e = await editor(root);
       e.open('index.html', page);
@@ -747,15 +755,15 @@ export function nextQuery(c: Contact, i: number) {
     expect(w!.title).toContain('`nextQuery`');
     // `open = !open` is not worth one, and a store call is not a helper
     expect(extracts(await e.actions('index.html', find(PAGE, 'open = !open', { cursor: 2 })))).toEqual([]);
-    const refresh = PAGE.replace('open = !open', "refresh('contacts')");
+    const refresh = PAGE.replace('open = !open', "refresh(contacts)");
     e.change('index.html', refresh);
     await e.diagnostics('index.html');
-    expect(extracts(await e.actions('index.html', find(refresh, "refresh('contacts')")))).toEqual([]);
+    expect(extracts(await e.actions('index.html', find(refresh, "refresh(contacts)")))).toEqual([]);
   });
 
   test('a handler writing several properties of one state object: one helper per value, or one returning an object', async () => {
     const page = `<div data-sn-state="{ draft: { title: '', body: '' }, sig: '-- me', note: '' }">
-  <button data-sn-on-click="draft.title = draft.title.trim(); draft.body = draft.body.trim() + sig; close()">Tidy</button>
+  <button data-sn-on-click="draft.title = draft.title.trim(); draft.body = draft.body.trim() + sig; closeDialog()">Tidy</button>
   <button data-sn-on-click="note = sig.trim(); draft.title = note.toUpperCase()">Other</button>
 </div>
 `;
@@ -770,11 +778,11 @@ export function nextQuery(c: Contact, i: number) {
       'Extract the 2 assignments to helper `draftChanges` (returns an object, merged with Object.assign)',
     ]);
     const values = apply(root, list[0]!.edit);
-    expect(values['index.html']).toContain('data-sn-on-click="draft.title = nextTitle(draft); draft.body = nextBody(draft, sig); close()"');
+    expect(values['index.html']).toContain('data-sn-on-click="draft.title = nextTitle(draft); draft.body = nextBody(draft, sig); closeDialog()"');
     writeFileSync(join(root, 'index.html'), page);
     writeFileSync(join(root, 'src/sinter.helpers.js'), '');
     const merged = apply(root, list[1]!.edit);
-    expect(merged['index.html']).toContain('data-sn-on-click="Object.assign(draft, draftChanges(draft, sig)); close()"');
+    expect(merged['index.html']).toContain('data-sn-on-click="Object.assign(draft, draftChanges(draft, sig)); closeDialog()"');
     expect(merged['src/sinter.helpers.js']).toContain(`export function draftChanges(draft, sig) {
   return {
     title: draft.title.trim(),
@@ -854,13 +862,6 @@ export function textValue(c: Contact) {
     await j.diagnostics('index.html');
     const [b] = extracts(await j.actions('index.html', find(plain, 'n * 2', { cursor: 0 })));
     expect(apply(js, b!.edit)['src/sinter.helpers.js']).toBe('/**\n * @param {number} n\n */\nexport function textValue(n) {\n  return n * 2 + 1;\n}\n');
-    // a configured path is used as it is
-    const conf = project({ 'index.html': plain, 'vite.config.js': `import sinter from ${JSON.stringify(join(process.cwd(), 'src/vite.ts'))};\nexport default { plugins: [sinter({ helpers: 'lib/helpers.js' })] };\n` });
-    const k = await editor(conf, { capabilities: CREATE });
-    k.open('index.html', plain);
-    await k.diagnostics('index.html');
-    const [c] = extracts(await k.actions('index.html', find(plain, 'n * 2', { cursor: 0 })));
-    expect(c!.title).toBe('Extract to helper `textValue` in lib/helpers.js');
     // a client that cannot create files is not offered one that needs a new module
     const none = project({ 'index.html': plain });
     const n = await editor(none);
@@ -938,8 +939,8 @@ export function runSend(draft, sig, ctx) {
   });
 
   test('in a component, the names are its props and the page\'s resources', async () => {
-    const page = '<sn-resource name="contacts" src="/api/contacts" key="id" type="Contact[]"></sn-resource>\n<div data-sn-state="{ q: \'\' }">\n  <contact-rows data-sn-prop="{ q }"></contact-rows>\n</div>\n';
-    const row = '<template data-sn-component="{ q: string }"><ul><template data-sn-for="c in contacts">\n  <p data-sn-show="c.name.includes(q)"></p>\n</template></ul></template>\n';
+    const page = '<sn-resource name="contacts" src="/api/contacts" key="id" type="Contact[]"></sn-resource>\n<div data-sn-state="{ q: \'\' }">\n  <contact-rows data-sn-with="{ q }"></contact-rows>\n</div>\n';
+    const row = '<template data-sn-props="{ q: string }"><ul><template data-sn-for="c in contacts">\n  <p data-sn-show="c.name.includes(q)"></p>\n</template></ul></template>\n';
     const root = project({ 'src/sinter.types.ts': TYPES, 'src/sinter.helpers.ts': '', 'index.html': page, 'src/components/contact-rows.html': row });
     const e = await editor(root);
     e.open('src/components/contact-rows.html', row);

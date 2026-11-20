@@ -1,0 +1,17 @@
+<!doctype html>
+<html>
+<!-- Data a click loads: the button sets state, and the resource waits for it with `when`. Once open,
+     the list behaves as any resource (loading flags, latest wins); `refresh()` loads it again. -->
+<body data-sn-state="{ open: false }">
+  <sn-resource name="comments" src="/api/posts/7/comments" items="comments" key="id" when="open"></sn-resource>
+
+  <button data-sn-on-click="open = true" data-sn-show="!open">Show comments</button>
+  <section data-sn-show="open">
+    <p data-sn-show="$meta.comments.loading">Loading…</p>
+    <ul>
+      <template data-sn-for="c in comments"><li data-sn-text="c.body"></li></template>
+    </ul>
+    <button data-sn-on-click="refresh(comments)">Reload</button>
+  </section>
+</body>
+</html>

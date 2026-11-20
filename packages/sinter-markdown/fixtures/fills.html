@@ -6,7 +6,7 @@
 </head>
 <body data-sn-state="{ source: '# Title\n\nA [link](/a) and `code`.\n\n```sh\nnpm i\n```\n\n> quoted\n\n| a |\n| - |\n| 1 |\n\n![alt](/x.png)' }">
   <!-- Each declared slot, filled. `<slot>` in a fill is the default element's children. -->
-  <md-doc data-sn-prop="{ doc: md.parse(source) }">
+  <md-doc data-sn-with="{ doc: md.parse(source) }">
     <template slot="heading" data-sn-if="$slot.node.depth === 1"><h1 class="title" data-sn-attr="{ id: 'md-' + $slot.node.slug }"><slot></slot></h1></template>
     <template data-sn-else><h2 data-sn-attr="{ id: 'md-' + $slot.node.slug }"><slot></slot> <a data-sn-attr="{ href: '#md-' + $slot.node.slug }">#</a></h2></template>
     <a slot="link" class="link" data-sn-attr="{ href: $slot.node.url }"><slot></slot> ↗</a>
@@ -16,6 +16,6 @@
     <blockquote slot="blockquote" class="quote"><slot></slot></blockquote>
     <div slot="table" class="scroll"><slot></slot></div>
   </md-doc>
-  <h1><md-inline data-sn-prop="{ doc: md.parse('A *title* with [a link](/t)') }"><a slot="link" class="title-link" data-sn-attr="{ href: $slot.node.url }"><slot></slot></a></md-inline></h1>
+  <h1><md-inline data-sn-with="{ doc: md.parse('A *title* with [a link](/t)') }"><a slot="link" class="title-link" data-sn-attr="{ href: $slot.node.url }"><slot></slot></a></md-inline></h1>
 </body>
 </html>

@@ -27,7 +27,7 @@ const api = () => mockRequests({
   },
 });
 const LIST = `
-  <sn-resource name="a" src="/api/a?tag={$url.tag}" items="items" total="total" key="id" paginate="offset" page-size="2" page-model="$url.page"></sn-resource>
+  <sn-resource name="a" src="/api/a?tag={$url.tag}" items="items" total="total" key="id" paginate="{ numbered: true, size: 2, model: $url.page }"></sn-resource>
   <span data-sn-text="[$meta.a.page, a.map((x) => x.id)].join(' ')"></span>
   <a id="p2" href="?page=2">2</a>
   <a id="js3" href="?tag=js&amp;page=3">js, 3</a>
@@ -115,7 +115,7 @@ test('the build loads the module on a page with a link it sees goes to the page 
 });
 
 test('SN519: a pager link that drops parameters the page reads; not a filter or tab link, nor a fallback for a bound href', () => {
-  const diags = (links: string) => compileParts(`<sn-resource name="a" src="/api/a?tag={$url.tag}&feed={$url.feed}" items="a" key="id" paginate="offset" page-size="2" page-model="$url.page"></sn-resource>
+  const diags = (links: string) => compileParts(`<sn-resource name="a" src="/api/a?tag={$url.tag}&feed={$url.feed}" items="a" key="id" paginate="{ numbered: true, size: 2, model: $url.page }"></sn-resource>
     <p data-sn-text="a.length"></p>${links}`, { file: '/p/index.html', root: '/p', dev: false, helpers: { module: null, names: [], namespaces: {} }, readFile: () => '' }).diagnostics.map((x) => [x.code, x.message]);
   expect(diags('<a href="?page=2">2</a>')).toEqual([['SN519', '`?page=2` keeps only its own query: `feed`, `tag`, which this page reads, are dropped when it is followed']]);
   // the whole query; a filter or a tab (page 1 is how the list starts); a fallback next to a bound href
@@ -220,7 +220,7 @@ test('the page\'s own URL in the forms a source links to: its file, `index.html`
 });
 
 test('a component\'s link counts on the page that uses it, by what that page reads', () => {
-  const NAV = `<template data-sn-component=""><nav><a href="/?feed=x">x</a></nav></template>`;
+  const NAV = `<template data-sn-props=""><nav><a href="/?feed=x">x</a></nav></template>`;
   const parts = (html: string) => compileParts(html, { file: '/p/index.html', root: '/p', dev: false, helpers: { module: null, names: [], namespaces: {} }, components: '/p/c', readFile: (f: string) => { if (f == '/p/c/site-nav.html') return NAV; throw new Error('missing'); } } as any);
   expect(parts('<site-nav></site-nav><p data-sn-text="$url.feed"></p>').features).toContain('query-links');
   expect(parts('<site-nav></site-nav><p data-sn-text="$url.q"></p>').ir.urlReads).toEqual(['q']);

@@ -5,11 +5,12 @@ import { existsSync, readFileSync, statSync } from 'node:fs';
 import { basename, dirname, join, resolve, sep } from 'node:path';
 import type { CheckUnit } from '../compiler/check-unit.js';
 import { compile, type Diagnostic, type HelperManifest } from '../compiler/index.js';
-import { project, viteProject, type Project, type ProjectOptions } from '../project.js';
+import { modulesDir, project, viteProject, type Project, type ProjectOptions } from '../project.js';
 import { lazyHelpers } from '../lazy-build.js';
 import { loadHelpers, unloadedMessage, type NodeHelpers } from '../helpers-node.js';
 import { FoldCache } from '../fold-check.js';
-import { HEAD_DECL, writeComponentTypes } from '../components-build.js';
+import { writeComponentTypes } from '../components-build.js';
+import { componentKinds } from '../compiler/head.js';
 import { checkLocale } from '../locales-build.js';
 import { readSnapshot } from '../content-node.js';
 
@@ -102,12 +103,13 @@ export class Workspace {
     const inputs = new Set<string>(VITE_CONFIGS.map((c) => join(root, c)));
     for (const f of [p.helpersFile, p.actionsFile, p.types, ...p.openapi.map((s) => s.file)]) if (f) inputs.add(f);
     for (const spec of options.openapi == null ? [] : ([] as string[]).concat(options.openapi)) inputs.add(resolve(root, spec));
+    const at = modulesDir(root);
     for (const ext of ['.js', '.ts']) {
-      inputs.add(join(root, 'src/sinter.helpers' + ext));
-      inputs.add(join(root, 'src/sinter.actions' + ext));
-      inputs.add(join(root, 'src/sinter.types' + ext));
+      inputs.add(join(root, `${at}/sinter.helpers${ext}`));
+      inputs.add(join(root, `${at}/sinter.actions${ext}`));
+      inputs.add(join(root, `${at}/sinter.types${ext}`));
     }
-    inputs.add(join(root, 'src/sinter.types.d.ts'));
+    inputs.add(join(root, `${at}/sinter.types.d.ts`));
     for (const m of Object.values(p.helpers.namespaces)) if (m.module.startsWith('/')) inputs.add(join(root, m.module));
     // the helpers module in Node, as the build loads it (with the app's Vite config); the files it reaches reload the project
     const helpers = await loadHelpers({ root, helpersFile: p.helpersFile, manifest: p.helpers, cache: this.foldCache });
@@ -254,14 +256,15 @@ export class Workspace {
       // a component or layout no page uses: compiled through a use of its own, which reports what is wrong inside it
       const component = componentName(state.root, page) ?? componentName(state.root, page, 'layouts');
       if (component) {
-        html = HEAD_DECL.test(html) ? `<!doctype html><html><head><${component}></${component}></head><body></body></html>` : `<${component}></${component}>`;
+        const kinds = componentKinds((t) => { try { return t === component ? html : readFileSync(join(state.root, 'src/components', `${t}.html`), 'utf8'); } catch { return null; } });
+        html = kinds(component) === 'head' ? `<!doctype html><html><head><${component}></${component}></head><body></body></html>` : `<${component}></${component}>`;
       }
       try {
         const out = compile(html, {
           // helper modules that reach a lazy package: their helpers outside a let are SN324, as in the build
           ...(p.lazy.length ? { lazyModule: (lh ??= lazyHelpers(state.root, p.lazy, undefined, p.libraries)).reach } : {}),
           helperValues: state.helpers.module, helperFold: state.helpers.fold,
-          file: component ? join(state.root, `.sinter-use-${component}.html`) : page, root: state.root, dev: false, helpers: p.helpers, actions: p.actions, config: p.config, readFile, listFiles: this.lister(state), ...(state.locale ? { locale: state.locale } : {}), ...this.contentOpts(state), check: true, openapi: p.openapi, apis: p.apis, complexity: p.complexity, ...(p.expansionLimit ? { expansionLimit: p.expansionLimit } : {}), componentNames: p.componentNames, libraries: p.libraries, checkCycles: p.checkCycles, lazy: p.lazy,
+          file: component ? join(state.root, `.sinter-use-${component}.html`) : page, root: state.root, dev: false, helpers: p.helpers, actions: p.actions, config: p.config, readFile, listFiles: this.lister(state), ...(state.locale ? { locale: state.locale } : {}), ...this.contentOpts(state), check: true, openapi: p.openapi, apis: p.apis, complexity: p.complexity, ...(p.expansionLimit ? { expansionLimit: p.expansionLimit } : {}), componentNames: p.componentNames, libraries: p.libraries, lazy: p.lazy,
           ...(!component && p.isStatic(page) ? { static: true, prerender: true } : {}),
           ...(p.swap ? { swap: true } : {}),
         });

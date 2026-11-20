@@ -18,7 +18,7 @@ const SPEC = { file: '/p/openapi.json', doc: {
   },
   components: { schemas: { Article, Profile: { type: 'object', properties: { username: { type: 'string' }, following: { type: 'boolean' } } }, Comment: { type: 'object', properties: { id: { type: 'integer' }, body: { type: 'string' } } } } },
 } };
-const opts = (openapi = true): CompileOptions => ({ file: '/p/page.html', root: '/p', dev: false, readFile: () => '', helpers: { module: null, names: [], namespaces: {} }, ...(openapi ? { openapi: [SPEC] } : {}) });
+const opts = (openapi = true): CompileOptions => ({ file: '/p/page.html', root: '/p', dev: false, readFile: () => '', helpers: { module: null, names: [], namespaces: {} }, actions: { module: '/p/a.js', names: ['x'], namespaces: {} }, ...(openapi ? { openapi: [SPEC] } : {}) });
 const page = (body: string) => `<!doctype html><html><head></head><body data-sn-state="{ feedOn: false }">
   <sn-resource name="articles" src="/api/articles" items="articles" key="slug"></sn-resource>
   <sn-resource name="feed" src="/api/articles/feed" items="articles" key="slug"></sn-resource>
@@ -41,45 +41,45 @@ test('provenance: a row (also of a `cond ? feed : articles` loop), a single, and
     { tg: [{ r: 'article', s: 'Article' }, { r: 'article', p: ['author'], s: 'Profile' }], t: 1, rs: [{ p: 'profile', s: 'Profile' }] },
     { tg: [{ r: 'article', s: 'Article' }], t: 1, rs: [{ p: 'comment', s: 'Comment' }], rq: 'comment', u: 0 },
   ]);
-  expect(out.features).toContain('apply');
+  expect(out.features).toContain('write-through');
 });
 
-test('without a spec: provenance only (rule 4 and the body-only update); no `ap` without reads; `data-sn-apply="off"` drops it; GET and call have none', () => {
+test('without a spec: provenance only (rule 4 and the body-only update); no `ap` without reads; `data-sn-write-through="off"` drops it; a call has none', () => {
   const out = compileParts(page(`
     <template data-sn-for="a in articles"><button data-sn-delete="/api/articles/{a.slug}">d</button></template>
     <button data-sn-post="/api/ping">p</button>
-    <button data-sn-post="/api/articles/{article.slug}/favorite" data-sn-apply="off">f</button>
-    <button data-sn-get="/api/articles/{article.slug}">g</button>`), opts(false));
+    <button data-sn-post="/api/articles/{article.slug}/favorite" data-sn-write-through="off">f</button>
+    <button data-sn-call="x()">g</button>`), opts(false));
   expect(out.diagnostics).toEqual([]);
   expect(out.ir.actions.map((a) => a.ap)).toEqual([{ tg: [{ r: 'articles', v: 'a' }] }, undefined, undefined, undefined]);
 });
 
-test('`data-sn-apply` takes `off` only, on mutations only', () => {
-  const out = compileParts(page(`<button data-sn-post="/api/ping" data-sn-apply="on">p</button><button data-sn-get="/api/ping" data-sn-apply="off">g</button>`), opts(false));
+test('`data-sn-write-through` takes `off` only, on mutations only', () => {
+  const out = compileParts(page(`<button data-sn-post="/api/ping" data-sn-write-through="on">p</button><button data-sn-call="x()" data-sn-write-through="off">g</button>`), opts(false));
   expect(out.diagnostics.map((d) => d.code + ' ' + d.message)).toEqual([
-    'SN401 `data-sn-apply` takes `off`; write-through is on without the attribute',
-    'SN102 `data-sn-apply` belongs to a mutation (`data-sn-post`, `-put`, `-patch`, `-delete`): a GET or a call has no write-through',
+    'SN401 `data-sn-write-through` takes `off`; write-through is on without the attribute',
+    'SN102 `data-sn-write-through` belongs to a method attribute (`data-sn-post`, `-put`, `-patch`, `-delete`): a call has no write-through',
   ]);
 });
 
 test('SN510 names each redundant write: patch by key or provenance, upsert on the list\'s URL, remove on a DELETE of the row\'s URL; others pass', () => {
   const out = compileParts(page(`
     <template data-sn-for="a in articles">
-      <button data-sn-post="/api/articles/{a.slug}/favorite" data-sn-then="patch(a, $result.article); patch(a, $result.article); saved = 1" data-sn-state="{ saved: 0 }">f</button>
+      <button data-sn-post="/api/articles/{a.slug}/favorite" data-sn-then="merge(a, $result.article); merge(a, $result.article); saved = 1" data-sn-state="{ saved: 0 }">f</button>
     </template>
-    <button data-sn-post="/api/profiles/{article.author.username}/follow" data-sn-then="patch(article, {author: $result.profile})">follow</button>
+    <button data-sn-post="/api/profiles/{article.author.username}/follow" data-sn-then="merge(article, {author: $result.profile})">follow</button>
     <div data-sn-state="{ slug: 'x' }">
       <sn-resource name="comments" src="/api/articles/{slug}/comments" items="comments" key="id"></sn-resource>
       <p data-sn-text="comments.length"></p>
-      <form data-sn-post="/api/articles/{slug}/comments" data-sn-then="upsert('comments', $result.comment); slug = slug"></form>
-      <form data-sn-post="/api/articles/{slug}/comments" data-sn-then="upsert('articles', $result.comment)"></form>
+      <form data-sn-post="/api/articles/{slug}/comments" data-sn-then="upsert(comments, $result.comment); slug = slug"></form>
+      <form data-sn-post="/api/articles/{slug}/comments" data-sn-then="upsert(articles, $result.comment)"></form>
       <template data-sn-for="c in comments"><button data-sn-delete="/api/articles/{slug}/comments/{c.id}" data-sn-then="remove(c)">x</button></template>
       <template data-sn-for="c in comments"><button data-sn-delete="/api/articles/{slug}/comments/{c.id}/flag" data-sn-then="remove(c)">x</button></template>
     </div>`), opts());
   expect(out.diagnostics.map((d) => `${d.code} ${d.line} ${d.message.slice(0, d.message.indexOf(' is what'))}`)).toEqual([
-    "SN510 7 `patch(a, $result.article)`",
-    "SN510 7 `patch(a, $result.article)`",
-    "SN510 13 `upsert('comments', $result.comment)`",
+    "SN510 7 `merge(a, $result.article)`",
+    "SN510 7 `merge(a, $result.article)`",
+    "SN510 13 `upsert(comments, $result.comment)`",
     "SN510 15 `remove(c)`",
   ]);
   expect(out.diagnostics.every((d) => d.severity === 'warning')).toBe(true);

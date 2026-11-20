@@ -1,11 +1,11 @@
 <!--
   md-inline: a parsed line, phrasing content. Public.
-  <h1><md-inline data-sn-prop="{ doc: md.parse(post.title) }"></md-inline></h1>: the content of the
+  <h1><md-inline data-sn-with="{ doc: md.parse(post.title) }"></md-inline></h1>: the content of the
   document's paragraphs and headings, without their elements, one space between two of them; other
   blocks (a list, a code block) are left out. Its root is a <span> with only phrasing content inside,
   so it is valid in a heading, a label, a link or a paragraph. It places links, images and inline code, so those
   are the slots it declares.
 -->
-<template data-sn-component="{ doc?: Root | null; link: Slot<{ node: Link }>; image: Slot<{ node: Image }>; inlineCode: Slot<{ node: InlineCode }> }">
-  <span class="md"><template data-sn-for="(b, i) in doc ? doc.children.filter((x) => x.type === 'paragraph' || x.type === 'heading') : []"><template data-sn-if="i > 0"><template data-sn-text="' '"></template></template><template data-sn-for="n in b.children"><template data-sn-if="n.type === 'text'"><template data-sn-text="n.value"></template></template><template data-sn-else><md-phrasing data-sn-prop="{ node: n }"></md-phrasing></template></template></template></span>
+<template data-sn-props="{ doc?: Root | null; link: Slot<{ node: Link }>; image: Slot<{ node: Image }>; inlineCode: Slot<{ node: InlineCode }> }">
+  <span class="md"><template data-sn-for="(b, i) in doc ? doc.children.filter((x) => x.type === 'paragraph' || x.type === 'heading') : []"><template data-sn-if="i > 0"><template data-sn-text="' '"></template></template><template data-sn-for="n in b.children"><template data-sn-if="n.type === 'text'"><template data-sn-text="n.value"></template></template><template data-sn-else><md-phrasing data-sn-with="{ node: n }"></md-phrasing></template></template></template></span>
 </template>

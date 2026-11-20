@@ -12,9 +12,7 @@ const src = resolve(__dirname, '../../src');
 const out = mkdtempSync(join(tmpdir(), 'sinter-vite-'));
 afterAll(() => rmSync(out, { recursive: true, force: true }));
 
-const alias = ['sse', 'optimistic', 'paginate', 'persist', 'early', 'prefetch', 'transition', 'form', 'select', 'location', 'call', 'debounce', 'confirm', 'models']
-  .map((f) => ({ find: `@tiaforge-ui/sinter/${f}`, replacement: `${src}/${f}.ts` }))
-  .concat([{ find: '@tiaforge-ui/sinter', replacement: `${src}/index.ts` }]);
+const alias = [{ find: /^@tiaforge-ui\/sinter\/runtime$/, replacement: `${src}/runtime-entry.ts` }, { find: /^@tiaforge-ui\/sinter\/(?:runtime\/)?([\w-]+)$/, replacement: `${src}/$1.ts` }, { find: /^@tiaforge-ui\/sinter$/, replacement: `${src}/index.ts` }];
 
 /** the page's head scripts, first in the head: the shared one (`sinter-head-…`) and the page's own (`<page>-head-…`) */
 function heads(html: string, dir: string, page = 'index') {
@@ -95,7 +93,7 @@ test('embedded data: `sinter-embed.json` lists each placeholder with its `data-s
   const page = join(root, 'index.html');
   const original = readFileSync(page, 'utf8');
   writeFileSync(page, original
-    .replace('<head><title>app</title></head>', '<head><title>app</title><script type="application/json" data-sn-data="people"></script><script type="application/json" data-sn-data="person"></script></head>')
+    .replace('<head><title>app</title></head>', '<head><title>app</title><script type="application/json" data-sn-resource="people"></script><script type="application/json" data-sn-resource="person"></script></head>')
     .replace('<sn-resource name="people"', '<sn-resource name="person" src="/api/people/{$url.id}?full=1" when="$url.id"></sn-resource><p data-sn-text="person.name"></p>\n  <sn-resource name="people"'));
   try {
     const dir = join(out, 'embed');
@@ -164,7 +162,7 @@ test('`embed: true`: placeholders for the resources only the URL decides, last i
 
 test('`delivery: \'header\'`: a rules file at the site root, no inline script; `vite preview` sends the header and its type', async () => {
   const dir = join(out, 'header');
-  const config = { root, logLevel: 'silent' as const, resolve: { alias }, build: { outDir: dir, emptyOutDir: true, minify: false }, plugins: [sinter({ speculation: { mode: 'prerender', delivery: 'header' } })] };
+  const config = { root, logLevel: 'silent' as const, resolve: { alias }, build: { outDir: dir, emptyOutDir: true, minify: false }, plugins: [sinter({ prefetch: { html: { prerender: true, delivery: 'header' } } })] };
   await build(config);
   expect(readFileSync(join(dir, 'index.html'), 'utf8')).not.toContain('speculationrules');
   expect(JSON.parse(readFileSync(join(dir, 'speculation-rules.json'), 'utf8')).prerender[0].where.and[0].href_matches).toEqual(['/\\?*#*', '/index.html\\?*#*']);
@@ -202,16 +200,39 @@ test('a page that uses data-sn-transition gets the hold script in its own head s
   }
 });
 
-test('by default every page carries inline rules for the app\'s paths; `speculation: false`: neither rules nor file', async () => {
+test('by default every page carries inline rules for the app\'s paths; `prefetch: { html: false }`: neither rules nor file', async () => {
   await run(out);
   const html = readFileSync(join(out, 'index.html'), 'utf8');
   const rules = JSON.parse(/<script type="speculationrules">(.*?)<\/script>/.exec(html)![1]!);
   expect(rules.prefetch[0].where.and[0].href_matches).toEqual(['/\\?*#*', '/index.html\\?*#*']);
   expect(readdirSync(out)).not.toContain('speculation-rules.json');
   const dir = join(out, 'no-speculation');
-  await build({ root, logLevel: 'silent', resolve: { alias }, build: { outDir: dir, emptyOutDir: true, minify: false }, plugins: [sinter({ speculation: false })] });
+  await build({ root, logLevel: 'silent', resolve: { alias }, build: { outDir: dir, emptyOutDir: true, minify: false }, plugins: [sinter({ prefetch: { html: false } })] });
   expect(readFileSync(join(dir, 'index.html'), 'utf8')).not.toContain('speculationrules');
   expect(readdirSync(dir)).not.toContain('speculation-rules.json');
+  // `prefetch: false` turns off both, as `<html data-sn-prefetch="off">` does for a page; `data: false` keeps the rules
+  const off = join(out, 'no-prefetch'), noData = join(out, 'no-data');
+  await build({ root, logLevel: 'silent', resolve: { alias }, build: { outDir: off, emptyOutDir: true, minify: false }, plugins: [sinter({ prefetch: false })] });
+  expect(readFileSync(join(off, 'index.html'), 'utf8')).not.toContain('speculationrules');
+  await build({ root, logLevel: 'silent', resolve: { alias }, build: { outDir: noData, emptyOutDir: true, minify: false }, plugins: [sinter({ prefetch: { data: false } })] });
+  expect(readFileSync(join(noData, 'index.html'), 'utf8')).toContain('speculationrules');
+});
+
+test('the renamed options fail naming the new form', () => {
+  expect(() => sinter({ prefetch: { page: 'prerender' } } as never)).toThrow('sinter({ prefetch }): no option `page`; it takes `data` and `html`');
+  expect(() => sinter({ firstPaint: { budgt: 1 } } as never)).toThrow('sinter({ firstPaint }): no option `budgt`; it takes `budget`');
+  expect(() => sinter({ speculation: 'prerender' } as never)).toThrow("sinter({ speculation }) is renamed to `prefetch: { html: 'prerender' }`");
+  expect(() => sinter({ speculation: 'prefetch' } as never)).toThrow('sinter({ speculation }) is renamed to `prefetch: { html: true }`');
+  // `html` no longer repeats the option's name: `true`, and `prerender: true` in the object
+  expect(() => sinter({ prefetch: { html: 'prefetch' } } as never)).toThrow("sinter({ prefetch: { html: 'prefetch' } }) is renamed to `html: true`");
+  expect(() => sinter({ prefetch: { html: { mode: 'prerender', delivery: 'header' } } } as never)).toThrow("is renamed to `html: { prerender: true, delivery: 'header' }`");
+  expect(() => sinter({ prefetch: { html: { delivry: 'header' } } } as never)).toThrow('sinter({ prefetch: { html } }): no option `delivry`; it takes `prerender` and `delivery`');
+  expect(() => sinter({ earlyBudget: 20000 } as never)).toThrow('sinter({ earlyBudget }) is renamed to `firstPaint: { budget: 20000 }`');
+  expect(() => sinter({ typechek: true } as never)).toThrow('sinter({ typechek }) is not an option. Did you mean `typecheck`?');
+  expect(() => sinter({ fonts: false } as never)).toThrow('sinter({ fonts }): takes `{ inline, preload }`');
+  expect(() => sinter({ fonts: { preloads: [] } } as never)).toThrow('sinter({ fonts }): no option `preloads`');
+  expect(() => sinter({ images: { width: [1] } } as never)).toThrow('sinter({ images }): no option `width`');
+  expect(() => sinter({ components: ['@acme/ui'] } as never)).toThrow('sinter({ components }) is renamed to `libraries`');
 });
 
 /** a logger that keeps the info lines, for the build's hints */
@@ -293,7 +314,7 @@ test('first paint: a classic head script per page over one shared by every page,
   await build({
     root, resolve: { alias }, build: { outDir: dir, emptyOutDir: true, minify: false },
     customLogger: { info: (m: string) => { logs.push(m); }, warn: (m: string) => { logs.push(m); }, warnOnce: () => {}, error: () => {}, clearScreen: () => {}, hasErrorLogged: () => false, hasWarned: false } as never,
-    plugins: [sinter({ earlyBudget: 1 })],
+    plugins: [sinter({ firstPaint: { budget: 1  }})],
   });
   const html = readFileSync(join(dir, 'index.html'), 'utf8');
   const h = heads(html, dir);
@@ -324,7 +345,7 @@ test('first paint: a classic head script per page over one shared by every page,
   // the page module (async) mounts once the early script has rendered
   expect(readFileSync(join(dir, 'assets', page![1]!), 'utf8')).toMatch(/await rendered\(\);[\s\S]*mount\(document/);
   // the build reports the early scripts' size, and warns over the budget with the largest modules
-  expect(logs.find((l) => l.includes('early script of index.html'))).toMatch(/^sinter: warning SN523 early-budget: early script of index\.html: assets\/index-head-[\w-]+\.js [\d.]+ kB gzip \+ assets\/sinter-head-[\w-]+\.js [\d.]+ kB gzip \(shared\), over the early budget of 0\.0 kB.*Largest \(before gzip\): /s);
+  expect(logs.find((l) => l.includes('early script of index.html'))).toMatch(/^sinter: warning SN523 first-paint-budget: early script of index\.html: assets\/index-head-[\w-]+\.js [\d.]+ kB gzip \+ assets\/sinter-head-[\w-]+\.js [\d.]+ kB gzip \(shared\), over the first-paint budget of 0\.0 kB.*Largest \(before gzip\): /s);
   // `firstPaint: false`: everything waits for the page module
   await build({ root, logLevel: 'silent', resolve: { alias }, build: { outDir: join(dir, 'off'), emptyOutDir: true, minify: false }, plugins: [sinter({ firstPaint: false })] });
   const off = readFileSync(join(dir, 'off', 'index.html'), 'utf8');
@@ -393,7 +414,7 @@ test('first paint in the dev server: the early script as in builds, one classic 
 });
 
 test('source maps in the dev server: the page and early modules map their expressions to the HTML', async () => {
-  const devAlias = [{ find: '@tiaforge-ui/sinter/dev', replacement: `${src}/dev.ts` }, ...alias];
+  const devAlias = [{ find: '@tiaforge-ui/sinter/runtime/dev', replacement: `${src}/dev.ts` }, ...alias];
   const server = await createServer({ root, logLevel: 'silent', resolve: { alias: devAlias }, server: { middlewareMode: true, hmr: false, ws: false }, appType: 'custom', plugins: [sinter()] });
   try {
     await server.transformIndexHtml('/index.html', readFileSync(join(root, 'index.html'), 'utf8'));
@@ -492,9 +513,9 @@ test('strict: the build\'s warnings fail it after it has run, all of them; `allo
   const quiet = { info: () => {}, warn: () => {}, warnOnce: () => {}, error: () => {}, clearScreen: () => {}, hasErrorLogged: () => false, hasWarned: false } as never;
   const run = (strict: NonNullable<Parameters<typeof sinter>[0]>['strict'], dir: string) => build({
     root, resolve: { alias }, customLogger: quiet, build: { outDir: join(out, dir), emptyOutDir: true, minify: false },
-    plugins: [sinter({ earlyBudget: 1, strict })],
+    plugins: [sinter({ firstPaint: { budget: 1 }, strict, typecheck: false })],
   });
-  await expect(run(true, 'strict')).rejects.toThrow(/warning\(s\) fail the build in strict mode[\s\S]*sinter: warning SN523 early-budget: early script of index\.html/);
+  await expect(run(true, 'strict')).rejects.toThrow(/warning\(s\) fail the build in strict mode[\s\S]*sinter: warning SN523 first-paint-budget: early script of index\.html/);
   await run({ allow: { SN523: 'the fixture has no budget' } }, 'strict-allow');
   expect(() => sinter({ strict: { allow: { SN523: '' } } })).toThrow(/`allow.SN523` takes the reason/);
   expect(() => sinter({ strict: { allow: { SN999: 'x' } } })).toThrow(/`SN999` in `allow` is not a diagnostic code/);

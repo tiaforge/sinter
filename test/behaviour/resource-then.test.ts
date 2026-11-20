@@ -7,12 +7,12 @@ const LIST = (then: string, attrs = '') => `
   <main data-sn-state="{ n: 0, last: '', q: 'a' }">
     <sn-resource name="contacts" src="/api/contacts?q={q}" items="contacts" key="id" order="name" ${attrs} then="${then}"></sn-resource>
     <sn-sync src="/api/events">
-      <sn-event name="changed" resource="contacts" op="refetch"></sn-event>
-      <sn-event name="updated" resource="contacts" op="upsert" item="contact"></sn-event>
+      <sn-event name="changed" resource="contacts" op="refresh"></sn-event>
+      <sn-event name="updated" resource="contacts" op="upsert" value="$event.contact"></sn-event>
     </sn-sync>
-    <button id="refresh" data-sn-on-click="refresh('contacts')"></button>
+    <button id="refresh" data-sn-on-click="refresh(contacts)"></button>
     <button id="q" data-sn-on-click="q = 'b'"></button>
-    <button id="edit" data-sn-patch="/api/contacts/1" data-sn-optimistic="patch(contacts[0], { name: 'Zed' })"></button>
+    <button id="edit" data-sn-patch="/api/contacts/1" data-sn-optimistic="merge(contacts[0], { name: 'Zed' })"></button>
     <p data-sn-text="n + ' ' + last + ' ' + contacts.length"></p>
   </main>`;
 
@@ -90,7 +90,7 @@ describe('<sn-resource then>', () => {
   });
 
   test('embedded data counts as the first load', async () => {
-    const r = await render(`<html><head><script type="application/json" data-sn-data="people">[{"id":1,"name":"Ada"}]</script></head><body>
+    const r = await render(`<html><head><script type="application/json" data-sn-resource="people">[{"id":1,"name":"Ada"}]</script></head><body>
       <main data-sn-state="{ names: '' }">
         <sn-resource name="people" src="/api/people" key="id" then="names = $result.map((p) => p.name).join()"></sn-resource>
         <p data-sn-text="names + ' ' + people.length"></p>
@@ -108,7 +108,7 @@ describe('<sn-resource then>', () => {
     const { root, settle } = await render(`
       <main data-sn-state="{ compose: null }">
         <sn-resource name="pending" call="mail.pendingCompose()"
-          then="$result && (compose = { subject: $result.subject, files: $result.files }, showModal('mail-compose'))"></sn-resource>
+          then="$result && (compose = { subject: $result.subject, files: $result.files }, openDialog('mail-compose'))"></sn-resource>
         <dialog id="mail-compose"><h2 data-sn-text="compose?.subject"></h2><p data-sn-text="compose?.files.join()"></p></dialog>
         <i data-sn-text="pending?.subject"></i>
       </main>`, { actions });
@@ -122,7 +122,7 @@ describe('<sn-resource then>', () => {
   test('a call resource with nothing pending: `$result` is null and the guard skips', async () => {
     const { root, settle } = await render(`
       <main data-sn-state="{ ran: 0 }">
-        <sn-resource name="pending" call="pending()" then="ran++; $result && showModal('d')"></sn-resource>
+        <sn-resource name="pending" call="pending()" then="ran++; $result && openDialog('d')"></sn-resource>
         <dialog id="d"></dialog><p data-sn-text="ran + ' ' + !!pending"></p>
       </main>`, { actions: { pending: async () => null } });
     await settle();
@@ -142,9 +142,9 @@ describe('<sn-resource then>', () => {
     const stream = mockStream();
     const r = await render(`
       <sn-resource name="accounts" src="/api/accounts" key="id"></sn-resource>
-      <sn-resource name="boxes" each="a in accounts" src="/api/boxes?account={a.id}" items="boxes" key="account,name"
+      <sn-resource name="boxes" for="a in accounts" src="/api/boxes?account={a.id}" items="boxes" key="account,name"
         then="seen($result.map((b) => b.account).join())"></sn-resource>
-      <sn-sync src="/s"><sn-event name="boxes_changed" resource="boxes" op="refetch"></sn-event></sn-sync>
+      <sn-sync src="/s"><sn-event name="boxes_changed" resource="boxes" op="refresh"></sn-event></sn-sync>
       <ul><template data-sn-for="b in boxes"><li data-sn-text="b.account"></li></template></ul>`,
     { requests, streams: { '/s': stream }, helpers: { seen: (s: string) => seen.push(s) } });
     await r.settle();
@@ -166,9 +166,9 @@ describe('<sn-resource then>', () => {
     });
     const { root, settle } = await render(`
       <main data-sn-state="{ got: [] }">
-        <sn-resource name="m" src="/api/m" items="items" total="total" key="id" paginate="offset" page-size="2"
+        <sn-resource name="m" src="/api/m" items="items" total="total" key="id" paginate="{ numbered: true, size: 2 }"
           then="got = [...got, $result.map((x) => x.id).join('+')]"></sn-resource>
-        <button data-sn-on-click="page('m', 'next')"></button>
+        <button data-sn-on-click="page(m, 'next')"></button>
         <p data-sn-text="got.join(' ') + ' / ' + m.length"></p>
       </main>`, { requests });
     await settle();

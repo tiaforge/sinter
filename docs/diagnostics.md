@@ -1,6 +1,6 @@
 # sinter diagnostics
 
-Generated from `src/compiler/diagnostic-docs.ts` by `npm run docs`. Every diagnostic links to its section here. Codes from SN500 up are warnings; the rest are errors and fail the build. `sinter check --strict` fails on warnings too, except the ones that depend on the machine or the network (SN525 to SN528) and SN507 ([docs/strict.md](strict.md)). Codes from SN520 up are reported by the build rather than by a page, without a file and line.
+Generated from `src/compiler/diagnostic-docs.ts` by `npm run docs`. Every diagnostic links to its section here. Codes from SN500 up are warnings; the rest are errors and fail the build. `sinter check --strict` fails on warnings too, except the ones that depend on the machine or the network (SN525, SN526, SN527, SN528, SN533) and the heuristic ones (SN507, SN536) ([docs/strict.md](strict.md)). A code reported by the build rather than by a page, without a file and line, says so.
 
 ## SN101 unknown-attribute
 
@@ -18,11 +18,11 @@ Error, for example:
 
 > `data-sn-for` must be on a `<template>`
 
-The attribute or element is valid, but not here: lists and conditionals render from a `<template>`, `data-sn-path` belongs on `<html>`, `<sn-event>` inside `<sn-sync>`, options such as `data-sn-debounce` need a method attribute on the same element, and `data-sn-attr` cannot bind the `value` or `checked` that a `data-sn-model` on the same control writes.
+The attribute or element is valid, but not here: lists and conditionals render from a `<template>`, `data-sn-path` belongs on `<html>`, `<sn-event>` inside `<sn-sync>`, options such as `data-sn-debounce` need an action on the same element (a method attribute or `data-sn-call`), and `data-sn-attr` cannot bind the `value` or `checked` that a `data-sn-model` on the same control writes.
 
 **Fix:** Move it to where the message says, wrapping the content in a `<template>` if needed.
 
-## SN103 missing-key
+## SN103 missing-row-key
 
 Error, for example:
 
@@ -96,21 +96,21 @@ A binding that produces a value (`text`, `attr`, `show`, `for`, …) tried to ch
 
 Error, for example:
 
-> `data-sn-optimistic` may only call `patch`, `upsert`, `remove`
+> `data-sn-optimistic` may only call `merge`, `upsert`, `remove`
 
 An optimistic change is undone when the request fails, so it may only use the store functions that sinter can roll back.
 
-**Fix:** Express the change with `patch`, `upsert` or `remove`; set other state in `then`.
+**Fix:** Express the change with `merge`, `upsert` or `remove`; set other state in `then`.
 
 ## SN205 resource-mutation
 
 Error, for example:
 
-> `m.is_read = true` mutates a resource. Use `patch('messages', m, {is_read: true})`
+> `m.is_read = true` mutates a resource. Use `merge(m, {is_read: true})`
 
 Resource data is read-only in expressions: it mirrors the server, and a direct write (an assignment, a mutating method such as `push()`, or `Object.assign()` on an item) would be lost on the next refresh or event.
 
-**Fix:** Use the `patch()` call from the message, or copy the item with `structuredClone(c)` to edit it in state.
+**Fix:** Use the `merge()` call from the message, or copy the item with `structuredClone(c)` to edit it in state.
 
 ## SN206 unknown-namespace-member
 
@@ -138,7 +138,7 @@ Error, for example:
 
 > Property 'nmae' does not exist on type 'Contact'. (TS2339)
 
-TypeScript found a type error in an expression. Reported by `sinter check`, `sinter({ typecheck: true })` and the editor integration.
+TypeScript found a type error in an expression. Reported by `sinter check`, `vite build` (when the project has TypeScript) and the editor integration.
 
 **Fix:** Fix the expression, or the type: `type` on `<sn-resource>`, the OpenAPI spec, or a JSDoc cast in `data-sn-state`.
 
@@ -148,9 +148,9 @@ Error, for example:
 
 > `s` is already defined here by `data-sn-let`; use another name
 
-A `data-sn-let` name is inlined wherever it is read, so it cannot share a name with a state variable or loop variable in its scope, or be redeclared inside it. A resource cannot take the name of a store function (`refresh`, `upsert`, `patch`, `remove`, `page`, `showModal`, `close`, `reset`, `emit`, `run`).
+A name is declared twice where one is read: a `data-sn-let` name is inlined wherever it is read, so it cannot share a name with a state variable or loop variable in its scope, or be redeclared inside it; two `<sn-resource>` elements on one page cannot share a name. A resource cannot take the name of a store function (`refresh`, `upsert`, `merge`, `remove`, `page`, `showModal`, `close`, `emit`, `run`, `navigate`).
 
-**Fix:** Rename the let, the state or loop variable, or the resource.
+**Fix:** Rename the let, the state or loop variable, or one of the resources (or remove the duplicate).
 
 ## SN210 url-list-mismatch
 
@@ -198,19 +198,9 @@ Error, for example:
 
 > resource `mesages` is not declared on this page
 
-A store call, `$meta` or embedded data (`data-sn-data`) names a resource that no `<sn-resource>` on the page or its partials declares. A name chosen by an expression (`page(searching ? 'results' : 'messages', 'next')`, or a `data-sn-let` name that is one) is checked for each name it can take. Also reported: a store call whose name argument cannot be listed from the source (a state variable, a helper's result, `$event.detail`).
+A store call, `$meta` or embedded data (`data-sn-resource`) names a resource that no `<sn-resource>` on the page or its partials declares. A name chosen by an expression (`page(searching ? 'results' : 'messages', 'next')`, or a `data-sn-let` name that is one) is checked for each name it can take. Also reported: a store call whose name argument cannot be listed from the source (a state variable, a helper's result, `$event.detail`).
 
 **Fix:** Fix the name or add the `<sn-resource>` element. For a name that cannot be listed, write the choice as literals: `?:`, `||` or `??` between string literals, or a `data-sn-let` name whose value is one; a name kept in state becomes `tab === 'inbox' ? 'inbox' : 'sent'`.
-
-## SN302 duplicate-resource
-
-Error, for example:
-
-> resource `contacts` is declared twice
-
-Two `<sn-resource>` elements on one page share a name, often once in the page and once in a partial.
-
-**Fix:** Rename one, or remove the duplicate.
 
 ## SN303 unknown-meta-field
 
@@ -218,7 +208,7 @@ Error, for example:
 
 > `$meta.contacts.loadng` is not a status field. Did you mean `loading`?
 
-`$meta.<resource>` has a fixed set of fields: `loading`, `error`, `loadedAt`, `pending`, `total`, `live`, and with `paginate` also `pages`, `from`, `to`, `hasPrev`, `hasNext`; `page` with `paginate="offset"`, or keyset with `offset-param`.
+`$meta.<resource>` has a fixed set of fields: `loading`, `error`, `loadedAt`, `total`, `live`, and with `paginate` also `pages`, `from`, `to`, `hasPrev`, `hasNext`; `page` on a numbered list (`numbered: true`), or a keyset list with `jump: true`.
 
 **Fix:** Use the suggested field. A pagination field needs `paginate` on the resource.
 
@@ -226,11 +216,11 @@ Error, for example:
 
 Error, for example:
 
-> keyset pagination cannot jump to a page number. Add `offset-param` if the server also accepts an offset, or use `paginate="offset"`
+> keyset pagination cannot jump to a page number. Add `jump: true` to `paginate` if the server also accepts an offset, or use `numbered: true`
 
-Keyset (cursor) pagination only knows the next and previous page, so `page('name', 7)` has nothing to jump to, unless the server can also skip items by offset. A computed target (`page('name', dir)`) is not this error: `sinter check` types it as a direction, and at run time a page number is refused without a request. `append` pagination takes only the literal `'next'`.
+Keyset (cursor) pagination only knows the next and previous page, so `page(name, 7)` has nothing to jump to, unless the server can also skip items by offset. A computed target (`page(name, dir)`) is not this error: `sinter check` types it as a direction, and at run time a page number is refused without a request. `append` pagination takes only the literal `'next'`.
 
-**Fix:** If the API accepts an offset next to its cursor, add `offset-param="offset"`: the jump is sent as an offset and `prev`/`next` continue by cursor. Otherwise use `paginate="offset"`, or only step with `first`, `prev`, `next` and `last`.
+**Fix:** If the API accepts an offset next to its cursor, add `jump: true` to `paginate` (and `params: { offset: 'skip' }` where the server names it otherwise): the jump is sent as an offset and `prev`/`next` continue by cursor. Otherwise use `numbered: true` in `paginate`, or only step with `first`, `prev`, `next` and `last`.
 
 ## SN306 component-cycle
 
@@ -248,7 +238,7 @@ Error, for example:
 
 > OpenAPI spec `api.yml` is not an OpenAPI 3 document (needs `openapi: 3.x` and `paths`)
 
-A spec given to `sinter({ openapi })` is missing, unreadable, or not OpenAPI 3.
+The spec of an API (`sinter({ apis: { main: { openapi } } })`) is missing, unreadable, or not OpenAPI 3.
 
 **Fix:** Fix the path in the Vite config, or convert a Swagger 2 spec to OpenAPI 3.
 
@@ -262,15 +252,15 @@ The resource matched an operation in the OpenAPI spec, but its `items` or `total
 
 **Fix:** Fix the path in `items` or `total`, or the spec if the API changed.
 
-## SN309 unknown-dialog
+## SN309 unknown-element-id
 
 Error, for example:
 
 > no `<dialog id="compose-dialg">` on this page. Did you mean `compose-dialog`?
 
-`showModal(id)` and `close(id)` name a `<dialog>` by its literal `id`, which must be on the page or one of its partials.
+`openDialog(id)` and `closeDialog(id)` name a `<dialog>` by its literal `id`, which must be on the page or one of its partials. `run(id)` starts the action of the element with that literal `id`: an element on the page or one of its partials with `data-sn-post`, `-put`, `-patch`, `-delete` or `data-sn-call`. Also reported: an id that is not a string literal, an element without an action, an element inside a `data-sn-for` row (every row would have the id), and an id that more than one element has.
 
-**Fix:** Fix the id, or add `id` to the `<dialog>`. `close()` without an argument closes the dialog around the element.
+**Fix:** Fix the id, or add `id` to the `<dialog>`. `closeDialog()` without an argument closes the dialog around the element. Fix the id, or give the action element an `id`. For a row's action, put one action element outside the list and pass the row through state: `open = m; run('mark-read')`.
 
 ## SN310 unknown-action
 
@@ -282,25 +272,15 @@ Error, for example:
 
 **Fix:** Use the suggested name, or export the function from the actions module.
 
-## SN311 unknown-run-target
-
-Error, for example:
-
-> no element `id="mark-raed"` on this page. Did you mean `mark-read`?
-
-`run(id)` starts the action of the element with that literal `id`: an element on the page or one of its partials with `data-sn-get`, `-post`, `-put`, `-patch`, `-delete` or `data-sn-call`. Also reported: an id that is not a string literal, an element without an action, an element inside a `data-sn-for` row (every row would have the id), and an id that more than one element has.
-
-**Fix:** Fix the id, or give the action element an `id`. For a row's action, put one action element outside the list and pass the row through state: `open = m; run('mark-read')`.
-
 ## SN312 invalid-component
 
 Error, for example:
 
-> a component has one root element; `<article-preview>` has 2 elements at the top of its template
+> a component's root renders at most one element; `<article-preview>` has 2 elements at the top of its template
 
-A file in `src/components/` is not a valid component: it needs one `<template data-sn-component="{ …props }">` (and optionally a `<style>`) with exactly one root element in it, and the root cannot be a `<template>`, a `<slot>` or another component. A head component is declared with `<template data-sn-head>` instead, and holds any number of head elements. Also reported: two slots with the same name, a template with both declarations, a head component with a script, and `<sn-component use>` naming a head component.
+A file in `src/components/` is not a valid component: it needs one `<template data-sn-props="{ …props }">` (and optionally a `<style>`) whose root renders at most one element: one element, a `data-sn-if`/`data-sn-else` chain of them, a component, `<sn-component use>`, or a `<slot>` whose default and fills are roots. A component whose template holds head elements only is a head component, which holds any number of them. Also reported: two slots with the same name, a head component with a script, and `<sn-component use>` naming a head component.
 
-**Fix:** Wrap the markup in one element inside `<template data-sn-component>`: the caller's classes, attributes and handlers land on it. For head elements (`<title>`, `<meta>`, …), declare the component with `<template data-sn-head>`.
+**Fix:** Wrap the markup in one element inside `<template data-sn-props>`: the caller's classes, attributes and handlers land on it.
 
 ## SN313 unknown-prop
 
@@ -308,7 +288,7 @@ Error, for example:
 
 > `artcle` is not a prop of `<article-preview>`; its props are `article`, `compact`. Did you mean `article`?
 
-`data-sn-prop` on a component passes a name its `data-sn-component` does not declare, or leaves out a prop that is not optional. Also reported: `data-sn-model` on a component without a `value` prop and a `change` event.
+`data-sn-with` on a component passes a name its `data-sn-props` does not declare, or leaves out a prop that is not optional. Also reported: `data-sn-model` on a component without a `value` prop and a `change` event.
 
 **Fix:** Fix the name, pass the missing prop, or declare it in the component (`{ article: Article; compact?: boolean }`).
 
@@ -332,45 +312,25 @@ A component's events are the ones its `data-sn-emits` declares: `emit()` inside 
 
 **Fix:** Fix the name, or declare the event with its detail type: `data-sn-emits="{ pick: 'done' | 'open' }"`.
 
-## SN316 include-removed
-
-Error, for example:
-
-> `<sn-include>` is removed: a partial is a component. Move `./partials/contact-dialog.html` to `src/components/contact-dialog.html`, … It reads `draft`, `save` from the page: add them to `data-sn-component` and pass them with `data-sn-prop="{ draft: draft, save: save }"`
-
-Partials became components. A component sees only its props, so the names a partial read from the page where it was included become props; the message lists them.
-
-**Fix:** Move the file to `src/components/<name>.html` (the name needs a `-`), wrap its markup in `<template data-sn-component="{ draft: Contact; … }">` around one root element, and replace the `<sn-include>` by `<name data-sn-prop="{ draft: draft }"></name>`.
-
 ## SN317 no-item-source
 
 Error, for example:
 
-> `selected` has no source: `patch()` acts on an item where it came from, and nothing says which resource `selected` is an item of
+> `selected` has no source: `merge()` acts on an item where it came from, and nothing says which resource `selected` is an item of
 
-`patch(item, …)` and `remove(item)` change the item in the resource it came from, found by its key: a row of a `data-sn-for` over a resource (also a filtered one, or one a helper returns), an element of one (`contacts[0]`, `.find(…)`), a single resource, a component prop that is one of those, or state a handler assigned from one (`sel = m`). The item here is none of these. Also reported: the removed forms with a resource name, `patch('name', item, …)` and `remove('name', item)`, and a row of a helper that takes more than one resource.
+`merge(item, …)` and `remove(item)` change the item in the resource it came from, found by its key: a row of a `data-sn-for` over a resource (also a filtered one, or one a helper returns), an element of one (`contacts[0]`, `.find(…)`), a single resource, a component prop that is one of those, or state a handler assigned from one (`sel = m`). The item here is none of these. Also reported: the removed forms with a resource name, `merge('name', item, …)` and `remove('name', item)`, and a row of a helper that takes more than one resource.
 
-**Fix:** Drop the resource name from the old forms. Otherwise pass the row itself; for `$result`, rely on write-through (with a spec) or patch the row with its fields; a server event's payload goes through `<sn-event resource op>`; an island changes the resource through the instance API.
+**Fix:** Drop the resource name from the old forms. Otherwise pass the row itself; for `$result`, rely on write-through (with a spec) or `merge()` its fields into the row; a server event's payload goes through `<sn-event resource op>`; a custom element changes the resource through the instance API.
 
 ## SN318 invalid-layout
 
 Error, for example:
 
-> `src/layouts/site-layout.html` is not a layout: a layout is a whole document whose `<html>` declares its props, `<html data-sn-layout="{ …props }">`
+> `src/layouts/site-layout.html` is not a layout: a layout is a whole document whose `<html>` declares its props, `<html data-sn-props="{ …props }">`
 
-A file in `src/layouts/` is a layout: a whole document (`<html>`, `<head>`, `<body>`) whose `<html>` carries `data-sn-layout` with its props type (left out, it takes none). Also reported: a page that passes `data-sn-prop` to a layout that declares no props, `data-sn-layout` anywhere else, a default slot in the layout's head (the default slot is the page's body), `data-sn-emits` on a layout, a layout with a script beside it, a layout and a component with the same name, and a layout built as a page.
+A file in `src/layouts/` is a layout: a whole document (`<html>`, `<head>`, `<body>`) whose `<html>` carries `data-sn-props` with its props type (left out, it takes none). Also reported: a page that passes `data-sn-with` to a layout that declares no props, `data-sn-props` anywhere else, a default slot in the layout's head (the default slot is the page's body), `data-sn-emits` on a layout, a layout with a script beside it, a layout and a component with the same name, and a layout built as a page. A page that uses a layout is the layout's tag at its top level and nothing else (a doctype and comments are allowed): its content goes into the layout's slots, the attributes of `<html>` on the tag. A layout's tag anywhere else (inside a component, another layout, or other markup) is reported too, and so is `data-sn-early` on it.
 
-**Fix:** Write the layout as a document: `<!doctype html><html lang="en" data-sn-layout="{ title?: string }"><head>…<slot name="head"></slot></head><body>…<slot></slot></body></html>`; a layout without props needs no `data-sn-layout` (`<html lang="en">`), but one whose pages pass `data-sn-prop` must declare those props. Name head slots; leave `src/layouts/` out of the build's inputs (a glob over every `.html` picks it up).
-
-## SN319 layout-use
-
-Error, for example:
-
-> a page that uses the layout `<site-layout>` is only its tag: `<p>` belongs inside it
-
-A page that uses a layout is the layout's tag at its top level and nothing else (a doctype and comments are allowed): its content goes into the layout's slots, the attributes of `<html>` on the tag. A layout's tag anywhere else (inside a component, another layout, or other markup) is reported too, and so is `data-sn-early` on it.
-
-**Fix:** Move the content inside the tag, with `slot="…"` for a named slot; write `lang`, `data-sn-path` and the like on the tag.
+**Fix:** Write the layout as a document: `<!doctype html><html lang="en" data-sn-props="{ title?: string }"><head>…<slot name="head"></slot></head><body>…<slot></slot></body></html>`; a layout without props needs no `data-sn-props` (`<html lang="en">`), but one whose pages pass `data-sn-with` must declare those props. Name head slots; leave `src/layouts/` out of the build's inputs (a glob over every `.html` picks it up). Move the content inside the tag, with `slot="…"` for a named slot; write `lang`, `data-sn-path` and the like on the tag.
 
 ## SN320 head-content
 
@@ -380,7 +340,7 @@ Error, for example:
 
 After components are expanded, a head holds only head elements: `<title>`, `<meta>`, `<link>`, `<script>`, `<style>`, `<noscript>`, `<base>` and `<template>`. `<sn-resource>` and `<sn-sync>` go in the body: they are page-wide wherever they are written, and their requests start in the head anyway. The browser ends the head at anything else and moves it, with every element after it, into the body. sinter parses heads so that a component's tag stays where it is written: the element it expands to must be head content.
 
-**Fix:** Move the element into the body. In a head, use head components (`<template data-sn-head>`).
+**Fix:** Move the element into the body. In a head, use head components (`<template data-sn-props>`).
 
 ## SN321 duplicate-head
 
@@ -448,7 +408,7 @@ Error, for example:
 
 > `GET /articles` of the API `main` declares no query parameter `tagg`. Did you mean `tag`?
 
-A query parameter in a path to a configured API must be one its operation declares (in the spec, or in `query` of the API's `defaults` or `operations`), and every required one must be given. The parameters `paginate` adds count as given, and are checked too.
+A query parameter in a path to a configured API must be one its operation declares (in the spec, or in `query` of the API's `defaults` or `operations`), and every required one must be given. The parameters `paginate` adds count as given, and are checked too. The same rule without `sinter({ apis })`, with a bare `openapi` spec, is the warning `SN505`: there the parameter has nowhere to be declared.
 
 **Fix:** Use the suggested name, give the required parameter, or declare it: in the spec, or with `query: ['name']` in the API's `defaults` for the operation.
 
@@ -488,9 +448,9 @@ Error, for example:
 
 > the slot `cell` is written with `?`; every slot may be left unfilled, and its placement shows its default
 
-A slot that passes data is declared, placed or filled wrongly. It is a `Slot<T>` member of the props type literal in `data-sn-component` (not in a type alias, not with `?`, not in `data-sn-head` or `data-sn-layout`; the app's types module may not export a type named `Slot`), placed with `<slot name="…" data-sn-prop="{ … }">`, whose default is one plain element or a `data-sn-if`/`data-sn-else` chain of them (anything broader comes with the component root, step 4 of the component-libraries proposal). A fill is elements with `slot="…"`; a `<template slot>` only starts an if/else chain. An unnamed `<slot>` in a fill places the children of the element the default renders: an error when it renders none, and the default's element may not declare names (`data-sn-let`, `data-sn-state`) its children read, since they move into the fill without it. Also reported: a `<slot>` that no component or fill encloses (on a page, or in a page's slot content).
+A slot that passes data is declared, placed or filled wrongly. It is a `Slot<T>` member of the props type literal in `data-sn-props` (not in a type alias, not with `?`, not in a head component's or a layout's props; the app's types module may not export a type named `Slot`), placed with `<slot name="…" data-sn-with="{ … }">`, whose default is one plain element or a `data-sn-if`/`data-sn-else` chain of them (anything broader comes with the component root, step 4 of the component-libraries proposal). A fill is elements with `slot="…"`; a `<template slot>` only starts an if/else chain. An unnamed `<slot>` in a fill places the children of the element the default renders: an error when it renders none, and the default's element may not declare names (`data-sn-let`, `data-sn-state`) its children read, since they move into the fill without it. Also reported: a `<slot>` that no component or fill encloses (on a page, or in a page's slot content).
 
-**Fix:** Write the slot as `cell: Slot<{ row: Row }>` in the props type literal, place it with `data-sn-prop`, give the placement one element as default, and move names the children read onto the `<slot>`'s `data-sn-prop` or inside the element. Remove a `<slot>` from a page.
+**Fix:** Write the slot as `cell: Slot<{ row: Row }>` in the props type literal, place it with `data-sn-with`, give the placement one element as default, and move names the children read onto the `<slot>`'s `data-sn-with` or inside the element. Remove a `<slot>` from a page.
 
 ## SN332 build-time-source
 
@@ -498,7 +458,7 @@ Error, for example:
 
 > `refresh` reloads, and a `file:` resource is a constant: it is read at build time and never loads or changes; it takes only `name`, `src`, `type`, `items`, `key`, `order` and `drafts`
 
-A `file:` source (`<sn-resource src="file:./post.md">`) reads the project at build time: one file (its text, a `.json` file's parsed value, a markdown file's frontmatter and `body`), or with a glob (`file:/content/posts/*.md`) a list with one entry per file, each with its `slug`, `dir` and `path`. The path is a literal, relative to the file that writes it (a page, a layout, a component) or `/…` from the project root, and inside the root; the file must exist, a `.json` file must parse, frontmatter must be YAML fields without anchors, aliases or tags, and must not name `body`, `dir` or `path`, which sinter writes. In a glob each `.json` file is one object, and two entries may not share a key (`slug` by default). `order` sorts a list and `drafts` names a field that leaves an entry out of a build; `items` picks a list out of one JSON file. The resource is a constant: what would load, page, refresh, cache or change it is refused (`refresh`, `cache`, `paginate`, `each`, `call`, `when`, `then`, `early`, `method`, store functions that name it or change one of its items, write-through, `<sn-event>`s). `file:` is a source of `<sn-resource src>` only, not of an action or `<sn-sync>`.
+A `file:` source (`<sn-resource src="file:./post.md">`) reads the project at build time: one file (its text, a `.json` file's parsed value, a markdown file's frontmatter and `body`), or with a glob (`file:/content/posts/*.md`) a list with one entry per file, each with its `slug`, `dir` and `path`. The path is a literal, relative to the file that writes it (a page, a layout, a component) or `/…` from the project root, and inside the root; the file must exist, a `.json` file must parse, frontmatter must be YAML fields without anchors, aliases or tags, and must not name `body`, `dir` or `path`, which sinter writes. In a glob each `.json` file is one object, and two entries may not share a key (`slug` by default). `order` sorts a list and `drafts` names a field that leaves an entry out of a build; `items` picks a list out of one JSON file. The resource is a constant: what would load, page, refresh, cache or change it is refused (`refresh`, `cache`, `paginate`, `for`, `call`, `when`, `then`, `early`, `method`, store functions that name it or change one of its items, write-through, `<sn-event>`s). `file:` is a source of `<sn-resource src>` only, not of an action or `<sn-sync>`.
 
 **Fix:** Write a literal path or glob in the project, or fix the file it names. Give two files with one name a `slug` of their own in their frontmatter (or a `key` that tells them apart). Leave out the attribute that would load or change it; for data that changes, serve it from an API and use a URL. To change the values a page shows, keep them in `data-sn-state`, initialized from the resource.
 
@@ -518,29 +478,19 @@ Error, for example:
 
 > `<ui-panel>`'s root may render nothing, so `id` on its tag would point at an element that may not exist
 
-A component whose root may render nothing (an if chain without a `data-sn-else`, `<sn-component use>`, or a component tag whose own root may) takes no `id`, `data-sn-model`, action (`data-sn-get`, `-post`, `-put`, `-patch`, `-delete`, `data-sn-call`) or `data-sn-transition` on its tag: each points at, or depends on, the element the tag becomes. A root with no element at all is the same case: a `<slot>` at the root given a text fill (`<template slot data-sn-text>`) renders one text node, so every attribute on the tag but `data-sn-prop` and `data-sn-early` is SN334 there, the plain ones (`class`) too, since none has an element to land on.
+A component whose root may render nothing (an if chain without a `data-sn-else`, `<sn-component use>`, or a component tag whose own root may) takes no `id`, `data-sn-model`, action (`data-sn-post`, `-put`, `-patch`, `-delete`, `data-sn-call`) or `data-sn-transition` on its tag: each points at, or depends on, the element the tag becomes. A root with no element at all is the same case: a `<slot>` at the root given a text fill (`<template slot data-sn-text>`) renders one text node, so every attribute on the tag but `data-sn-with` and `data-sn-early` is SN334 there, the plain ones (`class`) too, since none has an element to land on.
 
 **Fix:** Put the attribute on an element inside the component that is always there, give the chain a `data-sn-else`, or wrap the tag in an element that carries it. For a text root, give an element as the fill, or wrap the tag.
 
-## SN337 library-package
+## SN337 invalid-library
 
 Error, for example:
 
-> `@acme/ui` is in `sinter({ components })` and its package.json has no `"sinter"` field: a component library names the folder of its components
+> `@acme/ui` is in `sinter({ libraries })` and its package.json has no `"sinter"` field: a component library names the folder of its components
 
-A package in `sinter({ components })` is a component library (docs/libraries.md): installed, with `"sinter": "./sinter"` in its package.json naming a folder inside the package that has a `components/` folder. Its components share their first segment (`ui-card`, `ui-tree`: `ui`), the prefix it owns, and a name is in `components/` (public) or `components/internal/`, not both.
+A package in `sinter({ libraries })` is a component library (docs/libraries.md): installed, with `"sinter": "./sinter"` in its package.json naming a folder inside the package that has a `components/` folder. Its components share their first segment (`ui-card`, `ui-tree`: `ui`), the prefix it owns, and a name is in `components/` (public) or `components/internal/`, not both. Each component library owns the first segment of its components' names. Two configured libraries with one prefix, or an app component (`src/components/`) whose name starts with a library's prefix, fail the build: a tag names exactly one component, and there is no shadowing.
 
-**Fix:** Install the package, or take it out of `components` if it is not a component library. A library's author adds the `"sinter"` field and folder, and renames components to share one prefix.
-
-## SN338 library-prefix
-
-Error, for example:
-
-> `<ui-button>` starts with `ui-`, the prefix of `@acme/ui` (`sinter({ components })`): a library owns its prefix, and an app component cannot shadow or add to it
-
-Each component library owns the first segment of its components' names. Two configured libraries with one prefix, or an app component (`src/components/`) whose name starts with a library's prefix, fail the build: a tag names exactly one component, and there is no shadowing.
-
-**Fix:** Rename the app component (`app-button`). To change how a library component looks or behaves everywhere, write a wrapper component of your own that uses it, with fills for its slots. Two libraries with one prefix cannot be used together.
+**Fix:** Install the package, or take it out of `components` if it is not a component library. A library's author adds the `"sinter"` field and folder, and renames components to share one prefix. Rename the app component (`app-button`). To change how a library component looks or behaves everywhere, write a wrapper component of your own that uses it, with fills for its slots. Two libraries with one prefix cannot be used together.
 
 ## SN339 library-component
 
@@ -552,25 +502,15 @@ A tag with a library's prefix names one of its components. Those in its `compone
 
 **Fix:** Use one of the public components the message lists, or fix the name. A library's author moves a component the app needs out of `components/internal/`.
 
-## SN340 pages-path
+## SN340 invalid-entry-page
 
 Error, for example:
 
-> `data-sn-pages` needs `data-sn-path` with exactly one pattern to fill from each entry, e.g. `data-sn-path="/blog/:slug"`
+> `data-sn-for` on `<html>` needs `data-sn-path` with exactly one pattern to fill from each entry, e.g. `data-sn-path="/blog/:slug"`
 
-`<html data-sn-pages="post in posts">` (or on a layout's tag) builds the page once per entry of `posts`, a `file:` glob the page declares outside any template, and writes each at its `data-sn-path` pattern filled from the entry. The value is `<name> in <list>`; the name is the entry, readable in the whole page as a resource is (not a store function's or a magic name). The page has exactly one pattern, with parameters, and no other path: a fixed path would be written once per entry.
+`<html data-sn-for="post in posts">` (or on a layout's tag) builds the page once per entry of `posts`, a `file:` glob the page declares outside any template, and writes each at its `data-sn-path` pattern filled from the entry. The value is `<name> in <list>`; the name is the entry, readable in the whole page as a resource is (not a store function's or a magic name). The page has exactly one pattern, with parameters, and no other path: a fixed path would be written once per entry. Each entry of an `<html data-sn-for>` list fills the page's pattern: every `:param` takes the entry's field of that name, which must be a string or a number, one path segment (not empty, not `.` or `..`, no `/`). Two entries that fill the same path would be one page.
 
-**Fix:** Write `data-sn-path="/blog/:slug"` beside it, declare the list on the page (`<sn-resource name="posts" src="file:/content/posts/*.md">`), and name the entry `post in posts`.
-
-## SN341 pages-param
-
-Error, for example:
-
-> `content/posts/draft.md` has no `slug` to fill `:slug` (a string or a number): each entry fills `/blog/:slug`
-
-Each entry of a `data-sn-pages` list fills the page's pattern: every `:param` takes the entry's field of that name, which must be a string or a number, one path segment (not empty, not `.` or `..`, no `/`). Two entries that fill the same path would be one page.
-
-**Fix:** Give the entry the field (in its frontmatter, or a file name that makes its `slug`), make it one segment, or give two entries different values.
+**Fix:** Write `data-sn-path="/blog/:slug"` beside it, declare the list on the page (`<sn-resource name="posts" src="file:/content/posts/*.md">`), and name the entry `post in posts`. Give the entry the field (in its frontmatter, or a file name that makes its `slug`), make it one segment, or give two entries different values.
 
 ## SN342 unknown-collection
 
@@ -588,7 +528,7 @@ Error, for example:
 
 > `index.html` links to `/blog/helo`, which `/blog/:slug` (blog/post.html) matches, but no entry is there. Did you mean `/blog/hello`?
 
-A build knows every page a `data-sn-pages` template was written at, so a link in a built page to a path its pattern matches but no entry has would be a 404. The links checked are the built HTML's root-relative `href`s: from the markup, constants, folded expressions and markdown. A link built in the browser at run time is not checked.
+A build knows every page an `<html data-sn-for>` template was written at, so a link in a built page to a path its pattern matches but no entry has would be a 404. The links checked are the built HTML's root-relative `href`s: from the markup, constants, folded expressions and markdown. A link built in the browser at run time is not checked. Reported by the build, without a file and line.
 
 **Fix:** Link to an entry that exists (the build suggests the nearest), give the entry that slug, or drop the link.
 
@@ -598,19 +538,19 @@ Error, for example:
 
 > browser code reads `products`, a collection, so it would ship to the page: name the fields it gets with `fields="…"`
 
-A collection (`content:`) holds what a loader returned, which can be more than a page shows: a CMS's internal fields, drafts' notes, prices for another market. What bindings read is written into the HTML at build time and ships nothing; but when code in the browser reads the collection (a filter as you type, a handler), the list is embedded in the page, and a collection is embedded only with `fields`: the fields of each entry it ships. A `data-sn-pages` page built from a collection follows its list's `fields`.
+A collection (`content:`) holds what a loader returned, which can be more than a page shows: a CMS's internal fields, drafts' notes, prices for another market. What bindings read is written into the HTML at build time and ships nothing; but when code in the browser reads the collection (a filter as you type, a handler), the list is embedded in the page, and a collection is embedded only with `fields`: the fields of each entry it ships. A page per entry (`<html data-sn-for>`) built from a collection follows its list's `fields`.
 
 **Fix:** Add `fields="sku,name,price"` with what the browser code reads, or keep the reads at build time (bindings over constants fold). Fields left out are `undefined` in the browser.
 
-## SN345 url-param-pages
+## SN345 url-param-entry
 
 Error, for example:
 
-> `$url.slug` on a `data-sn-pages` page: each entry's page is written at its own path, so `:slug` is the entry's field, `post.slug`
+> `$url.slug` on a page per entry (`<html data-sn-for>`): each entry's page is written at its own path, so `:slug` is the entry's field, `post.slug`
 
-A `data-sn-pages` page is written once per entry, each at its pattern filled from the entry, as a page with a fixed path. Its pattern's parameters are the entry's fields, known at build time; read through `$url` they would be read in the browser, and keep the page from being written at build time.
+A page with `data-sn-for` on `<html>` is written once per entry, each at its pattern filled from the entry, as a page with a fixed path. Its pattern's parameters are the entry's fields, known at build time; read through `$url` they would be read in the browser, and keep the page from being written at build time.
 
-**Fix:** Read the entry's field: `post.slug` for `:slug`, where `post` is the name in `data-sn-pages="post in posts"`. A query parameter (`$url.tab`) is fine.
+**Fix:** Read the entry's field: `post.slug` for `:slug`, where `post` is the name in `data-sn-for="post in posts"`. A query parameter (`$url.tab`) is fine.
 
 ## SN346 kept-element
 
@@ -672,13 +612,13 @@ The type checker has no type for the resource, so expressions that use it are no
 
 **Fix:** Add `type="Contact[]"` with a type from `src/sinter.types.ts`, configure an OpenAPI spec that matches `src`, load it with `call` (typed by what the action returns), or write `type="any"` to opt out.
 
-## SN505 unknown-query-param
+## SN505 undeclared-query-in-spec
 
 Warning, for example:
 
 > `GET /articles` declares no query parameter `tagg`. Did you mean `tag`?
 
-A literal query parameter in `src` is not declared by the matched OpenAPI operation, usually a typo the server would ignore.
+A literal query parameter in `src` is not declared by the matched OpenAPI operation, usually a typo the server would ignore. The same rule with `sinter({ apis })` is the error `SN327`, since the API's config can declare the parameter (`query` in its `defaults`).
 
 **Fix:** Use the suggested name, or add the parameter to the spec.
 
@@ -690,7 +630,7 @@ Warning, for example:
 
 An `<sn-event>` reads its payload but has no `type`, so those expressions are not checked. Reported by `sinter check` only.
 
-**Fix:** Add `type` with the payload's type: the object the server sends, so `item="contact"` on a resource of `Contact[]` is `type="{ contact: Contact }"` (the hint names it), or a type from `src/sinter.types.ts`. `type="any"` opts out.
+**Fix:** Add `type` with the payload's type: the object the server sends, so `value="contact"` on a resource of `Contact[]` is `type="{ contact: Contact }"` (the hint names it), or a type from `src/sinter.types.ts`. `type="any"` opts out.
 
 ## SN507 complex-expression
 
@@ -698,7 +638,7 @@ Warning, for example:
 
 > `data-sn-on-click` is too complex for markup: 5 statements in one handler (limit `statements`: 4). Move the logic into a helper (pure, `x = fn(…)`) or an action
 
-An expression has more structure than markup should hold. The measure is structure, not length: statements in a handler (`statements`, 4), comma sequences (`sequences`, 0), steps one `&&`/`||`/`?:` used as a statement runs (`guarded`, 1: `a && close()` is fine, `a && (b = 1, close())` is not), `?:` nesting (`ternaries`, 2), operations in an arrow function (`arrow`, 8; a block body `{ … }` always counts), and operations in one expression or statement (`operations`, 15) as a backstop. Operations are calls, operators, assignments and computed access; names, member paths (`a.b.c`) and literals are free. Object attributes (`data-sn-state`, `-let`, `-attr`, `-class`, `-style`, `-prop`) are measured per property value. A warning by default.
+An expression has more structure than markup should hold. The measure is structure, not length: statements in a handler (`statements`, 4), comma sequences (`sequences`, 0), steps one `&&`/`||`/`?:` used as a statement runs (`guarded`, 1: `a && closeDialog()` is fine, `a && (b = 1, closeDialog())` is not), `?:` nesting (`ternaries`, 2), operations in an arrow function (`arrow`, 8; a block body `{ … }` always counts), and operations in one expression or statement (`operations`, 15) as a backstop. Operations are calls, operators, assignments and computed access; names, member paths (`a.b.c`) and literals are free. Object attributes (`data-sn-state`, `-let`, `-attr`, `-class`, `-style`, `-prop`) are measured per property value. A warning by default.
 
 **Fix:** Move the logic into a helper (pure) and apply its result in the handler, `sel = rowClick($event, sel, key)`, or into an action for side effects (`data-sn-call`). Split independent steps into separate `;` statements. Limits and the level are options of the Vite plugin: `sinter({ complexity: { statements: 4, level: 'error' } })`; `level: 'off'` turns the check off.
 
@@ -708,7 +648,7 @@ Warning, for example:
 
 > `run()` cycle: `#save` `data-sn-catch` (index.html:12) runs `#save`, which starts the first step again
 
-`then`/`catch` handlers start each other again through `run()` (and `refresh()`, whose load runs the resource's `then`), so the requests may never stop. The message lists every step with its handler and line. The check is off by default: a guarded retry is a deliberate cycle. `sinter check --check-cycles` turns it on for one run, and `sinter({ checkCycles: true })` for the build, `sinter check` and `sinter lsp`.
+`then`/`catch` handlers start each other again through `run()` (and `refresh()`, whose load runs the resource's `then`), so the requests may never stop. The message lists every step with its handler and line. A guarded retry is a deliberate cycle: `strict: { allow: { SN509: 'a retry, at most 3 times' } }` keeps it a warning.
 
 **Fix:** Make sure a step stops: a condition that becomes false (`$error.status === 503 && tries < 3 && run('save')`), or drop one step.
 
@@ -716,11 +656,11 @@ Warning, for example:
 
 Warning, for example:
 
-> `patch('articles', …, $result.article)` is what write-through does: the response of `POST /articles/{slug}/favorite` is `Article`, which `articles` holds; remove this write, or add `data-sn-apply="off"` to keep it
+> `merge(article, $result.article)` is what write-through does: the response of `POST /articles/{slug}/favorite` is `Article`, which `articles` holds; remove this write, or add `data-sn-write-through="off"` to keep it
 
 A `then` handler writes to the store what write-through writes by itself after the response: an object of a resource's schema is patched into the item with its key (and into what the URL named), a POST to a list's URL inserts the created item, a DELETE of a row's URL removes the row. The handler's write lands on top and changes nothing.
 
-**Fix:** Remove the write from the handler (keep its other statements). To keep the explicit write, turn write-through off for that element with `data-sn-apply="off"`.
+**Fix:** Remove the write from the handler (keep its other statements). To keep the explicit write, turn write-through off for that element with `data-sn-write-through="off"`.
 
 ## SN511 image-too-small
 
@@ -782,13 +722,13 @@ Warning, for example:
 
 **Fix:** Add an `<sn-event resource="…">` for the resource to the `<sn-sync>`, or read `live` of a resource that a stream feeds.
 
-## SN517 unkeyed-list
+## SN517 missing-resource-key
 
 Warning, for example:
 
 > `GET /api/contacts` returns a list at `contacts`: resource `contacts` has no `key`, so it is one object holding the list
 
-Without `key` a resource is a single object. A list of objects loads and renders that way, but nothing can change one item: an `upsert` replaces the whole list, `patch` merges fields into the list and `remove` sets it to `null`. Reported when the OpenAPI response at `items` is a list of objects.
+Without `key` a resource is a single object. A list of objects loads and renders that way, but nothing can change one item: an `upsert` replaces the whole list, `merge` merges fields into the list and `remove` sets it to `null`. Reported when the OpenAPI response at `items` is a list of objects.
 
 **Fix:** Add `key` with the field that identifies an item, such as `key="id"`. A list that is only read can stay as it is.
 
@@ -808,7 +748,7 @@ Warning, for example:
 
 > `?page=3` keeps only its own query: `tag`, which this page reads, is dropped when it is followed
 
-A pager link whose `href` is only a query (`?page=3`, setting a `page-model` parameter) replaces the whole query of the current URL, as any URL resolves: on `/?tag=go` it goes to `/?page=3`, without the tag. The page reads the parameters named, so following the link loses them (in the page, with same-page links, or with a page load). A filter or tab link that drops the page is not reported: that is how a list starts at page 1. Nor is a static `href` kept as the fallback of a bound one.
+A pager link whose `href` is only a query (`?page=3`, setting the parameter a list's `model` (paginate) names) replaces the whole query of the current URL, as any URL resolves: on `/?tag=go` it goes to `/?page=3`, without the tag. The page reads the parameters named, so following the link loses them (in the page, with same-page links, or with a page load). A filter or tab link that drops the page is not reported: that is how a list starts at page 1. Nor is a static `href` kept as the fallback of a bound one.
 
 **Fix:** Build the whole query in `data-sn-attr` (`href: '?page=' + n + '&tag=' + encodeURIComponent($url.tag)`), or leave the parameter out on purpose, for a link that resets it.
 
@@ -842,13 +782,13 @@ The inlang project has messages without a text in one of its languages, so pages
 
 **Fix:** Add the translations to the language's message file.
 
-## SN523 early-budget
+## SN523 first-paint-budget
 
 Warning, for example:
 
-> early script of index.html: assets/index-head.js 12.4 kB gzip, over the early budget of 10.0 kB
+> early script of index.html: assets/index-head.js 12.4 kB gzip, over the first-paint budget of 10.0 kB
 
-The script that renders before the first paint is larger than the budget (`sinter({ earlyBudget })`, 10 kB gzip by default). It blocks the first frame, so its size is paid on every visit. The message names the largest modules. Reported by the build.
+The script that renders before the first paint is larger than the budget (`sinter({ firstPaint: { budget } })`, 10 kB gzip by default). It blocks the first frame, so its size is paid on every visit. The message names the largest modules. Reported by the build.
 
 **Fix:** Keep heavy imports out of `src/sinter.early.ts` and of the helpers that early bindings call, or raise the budget.
 
@@ -868,7 +808,7 @@ Warning, for example:
 
 > images are not optimized, since sharp is not installed (npm install -D sharp), or sinter({ images: false }) to silence this
 
-Image optimization needs the `sharp` package, which is not installed, so images are served as they are. This depends on the machine, so `--strict` leaves it a warning.
+Image optimization needs the `sharp` package, which is not installed, so images are served as they are. This depends on the machine, so `--strict` leaves it a warning. Reported by the build, without a file and line.
 
 **Fix:** Install it, `npm install -D sharp`, or turn optimization off with `sinter({ images: false })`.
 
@@ -878,7 +818,7 @@ Warning, for example:
 
 > could not download https://fonts.example/inter.woff2; the page keeps the link (sinter({ fonts: { inline: false } }) turns this off)
 
-The build self-hosts the fonts a page links to, and one could not be downloaded, so the page keeps the link to the font's host. This depends on the network, so `--strict` leaves it a warning.
+The build self-hosts the fonts a page links to, and one could not be downloaded, so the page keeps the link to the font's host. This depends on the network, so `--strict` leaves it a warning. Reported by the build, without a file and line.
 
 **Fix:** Build with network access, or turn self-hosting off with `sinter({ fonts: { inline: false } })`.
 
@@ -888,7 +828,7 @@ Warning, for example:
 
 > image sizes from src/styles.scss are not read: Undefined variable $gap
 
-The build reads the page's CSS to size its images, and a stylesheet could not be compiled (by Vite's CSS pipeline, Sass, PostCSS, …). Those images get sizes without that stylesheet. This depends on the tools installed, so `--strict` leaves it a warning.
+The build reads the page's CSS to size its images, and a stylesheet could not be compiled (by Vite's CSS pipeline, Sass, PostCSS, …). Those images get sizes without that stylesheet. This depends on the tools installed, so `--strict` leaves it a warning. Reported by the build, without a file and line.
 
 **Fix:** Fix the error the message shows, or install the preprocessor the stylesheet needs.
 
@@ -898,7 +838,7 @@ Warning, for example:
 
 > images from the API: fetch failed
 
-In dev, `images.remote` optimizes images from the API, and one could not be fetched or converted. The request answers 502. This depends on the API being reachable, so `--strict` leaves it a warning.
+In dev, `images.remote` optimizes images from the API, and one could not be fetched or converted. The request answers 502. This depends on the API being reachable, so `--strict` leaves it a warning. Reported by the build, without a file and line.
 
 **Fix:** Check that the API is running and serves the image at that URL.
 
@@ -908,7 +848,7 @@ Warning, for example:
 
 > this list's rows arrive after the first paint inside `<div.col-md-9>`, whose width follows its content: the rows widen it and move what is beside it
 
-The rows of a `data-sn-for` over a resource come after the first paint (without embedded data). The list is inside a box whose width the stylesheets leave to its content: a flex item in a row with no `flex-basis` or `width`, or a float. Empty, that box is narrow and what is beside it sits next to it; once the rows arrive it widens, and its neighbours move or wrap to the next line, a layout shift as large as the boxes that move. The build cannot reserve that width, since it depends on the data. A build keeps what follows the box invisible while the list's first rows load, so nothing shown moves ([first paint](first-paint.md#a-box-whose-width-follows-the-list)); this is reported when it cannot: `data-sn-wait="off"` on the box, or a list whose first load the page cannot tell (a `src` over state, a filter, `each` or `call`). Reported where the stylesheets decide it, at any screen width.
+The rows of a `data-sn-for` over a resource come after the first paint (without embedded data). The list is inside a box whose width the stylesheets leave to its content: a flex item in a row with no `flex-basis` or `width`, or a float. Empty, that box is narrow and what is beside it sits next to it; once the rows arrive it widens, and its neighbours move or wrap to the next line, a layout shift as large as the boxes that move. The build cannot reserve that width, since it depends on the data. A build keeps what follows the box invisible while the list's first rows load, so nothing shown moves ([first paint](first-paint.md#a-box-whose-width-follows-the-list)); this is reported when it cannot: `data-sn-wait="off"` on the box, or a list whose first load the page cannot tell (a `src` over state, a filter, `for` or `call`). Reported where the stylesheets decide it, at any screen width.
 
 **Fix:** Give the box a width that does not depend on its content: `flex: 1 1 0` or a `flex-basis` in a row, `width: 100%` (or a basis of 100%) where it should take the whole line, as most grid systems do below their breakpoint. With rows of a width of their own (`width` in px or rem) on a paginated list, the build holds the box's width from the first frame, and this is not reported.
 
@@ -948,7 +888,7 @@ Warning, for example:
 
 > the helpers module could not be loaded in Node (src/sinter.helpers.ts: Cannot find module './missing.js'): no helper call is run at build time
 
-The build, the dev server, `sinter check` and the language server load the helpers module in Node, with the app's Vite config, to run helper calls over build-time constants. A module that throws when it loads there (it reads `window` or `document` at its top level, imports a file that is missing, or a package that only runs in a browser) folds nothing: every helper call stays in the browser, as before. Reported once per build or session.
+The build, the dev server, `sinter check` and the language server load the helpers module in Node, with the app's Vite config, to run helper calls over build-time constants. A module that throws when it loads there (it reads `window` or `document` at its top level, imports a file that is missing, or a package that only runs in a browser) folds nothing: every helper call stays in the browser, as before. Reported once per build or session. Reported by the build, without a file and line.
 
 **Fix:** Move what needs the browser out of the module's top level (into the functions that need it), or into a component script. The page works either way; only build-time folding is lost. Strict mode does not fail on this warning: it depends on what the app imports, not on a mistake.
 
@@ -958,7 +898,7 @@ Warning, for example:
 
 > `fmt.title()` threw at build time (Cannot read properties of undefined), so this call stays in the browser
 
-A helper call over build-time constants (in a binding or a state initializer) runs in the compiler when the helper may fold, and its result is written into the page. This call did not: the helper threw, returned something that is not plain data (JSON values: a `Date`, a `Map`, a class instance, a function), or, as every build runs each such call twice, returned another result the second time. The call runs in the browser instead, as before; a warning in dev builds, once per call. A production build also runs every page's calls again at its end, in a fresh copy of the helpers module and in reverse page order, and fails with SN534 when a result differs: the helper keeps state between calls (a table of ids, a counter), so each page would show what the build's page order made of it.
+A helper call over build-time constants (in a binding or a state initializer) runs in the compiler when the helper may fold, and its result is written into the page. This call did not: the helper threw, returned something that is not plain data (JSON values: a `Date`, a `Map`, a class instance, a function), or, as every build runs each such call twice, returned another result the second time. The call runs in the browser instead, as before; a warning in dev builds, once per call. A production build also runs every page's calls again at its end, in a fresh copy of the helpers module and in reverse page order, and fails with SN534 when a result differs: the helper keeps state between calls (a table of ids, a counter), so each page would show what the build's page order made of it. Reported by the build, without a file and line.
 
 **Fix:** Make the helper return plain data for constant arguments and keep it pure (same arguments, same result, nothing read or changed elsewhere, no state kept between calls; a cache that only remembers is fine). A helper that cannot is fine in the browser: call it from a handler, or over values the browser has.
 

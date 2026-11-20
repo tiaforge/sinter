@@ -112,15 +112,15 @@ export const LINK_FIELDS: Record<string, { kinds: string[]; how: 'table' | 'weak
   hostUse: { kinds: ['WeakMap'], how: 'weak' },
   hrefs: { kinds: ['Array'], how: 'table' },
   idEls: { kinds: ['Map'], how: 'table' },
-  includeOf: { kinds: ['WeakMap'], how: 'weak' },
-  includes: { kinds: ['Array'], how: 'table' },
-  includeTop: { kinds: ['WeakMap'], how: 'weak' },
   inDef: { kinds: ['number'], how: 'restored' },
   instAt: { kinds: ['WeakMap'], how: 'weak' },
   itemSchema: { kinds: ['Map'], how: 'table' },
   jsonOut: { kinds: ['Map'], how: 'table' },
   keptBound: { kinds: ['Set'], how: 'table' },
   keptDepth: { kinds: ['number'], how: 'fixed' },
+  kinding: { kinds: ['Set'], how: 'cache' },
+  kinds: { kinds: ['WeakMap'], how: 'weak' },
+  pageSpecs: { kinds: ['WeakMap'], how: 'weak' },
   keptSlot: { kinds: ['Set'], how: 'table' },
   keptSource: { kinds: ['Map'], how: 'table' },
   landing: { kinds: ['WeakMap'], how: 'weak' },
@@ -457,7 +457,7 @@ class LoggedWeak {
  * on each page.
  */
 const BUILD_OPTIONS = new Set(['root', 'dev', 'sourcemap', 'helpers', 'actions', 'config', 'readFile', 'listFiles', 'globCache', 'templates', 'definitions', 'collections',
-  'collectionsError', 'prefetch', 'openapi', 'apis', 'complexity', 'expansionLimit', 'componentNames', 'libraries', 'checkCycles', 'lazy', 'lazyScript', 'lazyModule',
+  'collectionsError', 'prefetch', 'openapi', 'apis', 'complexity', 'expansionLimit', 'componentNames', 'libraries', 'lazy', 'lazyScript', 'lazyModule',
   'helperValues', 'helperFold', 'foldLog', 'prerender', 'changesRequests', 'observe', 'embed', 'componentCss', 'base', 'file', 'decided', 'unrolled', 'constants', 'frozen', 'overLimit']);
 
 /**

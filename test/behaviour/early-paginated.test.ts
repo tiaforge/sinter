@@ -8,14 +8,14 @@ import { compileParts } from '../../src/compiler/compile.js';
 import * as earlyExports from '../../src/early.js';
 import { configured, requests, start, withParams } from '../../src/early.js';
 import type { EarlyIR } from '../../src/ir.js';
-import { configure, type Middleware } from '../../src/runtime/config.js';
+import { configure, setEnv, type Middleware } from '../../src/runtime/config.js';
 import { defaultEnv } from '../../src/runtime/env.js';
 import { memoryStorage, mockRequests, render, type MockRequests, type RecordedCall } from '../../src/testing/index.js';
 
 const KEYS = ['sinter.prefetched', 'sinter.early.page'];
 afterEach(() => {
   for (const k of KEYS) delete (globalThis as any)[Symbol.for(k)];
-  configure({ env: defaultEnv });
+  setEnv(defaultEnv);
 });
 
 const ALL = Array.from({ length: 5 }, (_, i) => ({ id: i + 1 }));
@@ -35,11 +35,11 @@ function server(url: string) {
 const PAGE = (attrs: string) => `<!doctype html><html data-sn-state="{ box: 'inbox' }" data-sn-persist="box"><head></head><body>
   <sn-resource name="mail" src="/api/mail?box={box}" items="items" total="total" key="id" ${attrs}></sn-resource>
   <span data-sn-text="[$meta.mail.from, $meta.mail.to, $meta.mail.total, $meta.mail.pages, $meta.mail.hasPrev, $meta.mail.hasNext].join()"></span>
-  <button id="next" data-sn-on-click="page('mail', 'next')"></button>
-  <button id="prev" data-sn-on-click="page('mail', 'prev')"></button>
+  <button id="next" data-sn-on-click="page(mail, 'next')"></button>
+  <button id="prev" data-sn-on-click="page(mail, 'prev')"></button>
   <ul><template data-sn-for="m in mail"><li data-sn-text="m.id"></li></template></ul>
 </body></html>`;
-const KEYSET = `paginate="keyset" page-size="2" size-param="limit" offset-param="offset" cursor="{after: id, before: id}" direction-param="dir" direction-values="{first: 'forward', prev: 'backward', next: 'forward', last: 'last'}"`;
+const KEYSET = `paginate="{ keyset: {after: $item.id, before: $item.id}, size: 2, jump: true, params: { size: 'limit', offset: 'offset', direction: 'dir' }, directions: {first: 'forward', prev: 'backward', next: 'forward', last: 'last'} }"`;
 
 /**
  * A page load: the page's early file starts its requests (answered by the server, logged in
@@ -57,7 +57,7 @@ async function load(html: string, o: { storage?: Storage; session?: Storage; ir?
   const page = new Function('$k', ...made.uses, `"use strict"; const f = [${parts.fns.join(',\n')}]; return ${made.code};`)((x: unknown) => x, ...made.uses.map((u) => (earlyExports as Record<string, unknown>)[u]));
   const early: string[] = [];
   const storage = o.storage ?? memoryStorage();
-  configure({ env: { ...defaultEnv, href: () => o.href ?? 'http://localhost/', storage: () => storage, fetch: async (r: Request) => { const u = new URL(r.url); early.push(u.pathname + u.search); await o.hold; return Response.json(server(r.url)); } } });
+  setEnv({ ...defaultEnv, href: () => o.href ?? 'http://localhost/', storage: () => storage, fetch: async (r: Request) => { const u = new URL(r.url); early.push(u.pathname + u.search); await o.hold; return Response.json(server(r.url)); } });
   expect(out.early).toContain(', requests(withParams)');
   start(() => page, null, requests(withParams, configured));
   const mock = mockRequests({ 'GET /api/mail': (c: RecordedCall) => server(c.url) });
@@ -88,7 +88,7 @@ test('keyset: the early file requests the first page; the runtime takes it (no s
 });
 
 test('offset: the early request is page 1 with the page size', async () => {
-  const p = await load(PAGE('paginate="offset" page-size="2" page-param="p" size-param="n"'));
+  const p = await load(PAGE(`paginate="{ numbered: true, size: 2, params: { size: 'n', page: 'p' } }"`));
   await p.settle();
   expect(p.early).toEqual(['/api/mail?box=inbox&p=1&n=2']);
   expect(p.calls).toEqual([]);
@@ -131,7 +131,7 @@ test('cache: the cached first page shows at once, the early response revalidates
 });
 
 test('page-model, offset mode with offset-param: the early file asks for the URL\'s page as the items to skip; the runtime takes it and pages on from there', async () => {
-  const attrs = 'paginate="offset" page-size="2" size-param="n" offset-param="off" page-model="$url.page"';
+  const attrs = `paginate="{ numbered: 'offset', size: 2, model: $url.page, params: { size: 'n', offset: 'off' } }"`;
   const p = await load(PAGE(attrs).replace('<span ', '<b data-sn-text="$meta.mail.page"></b><span '), { href: 'http://localhost/?page=2' });
   await p.settle();
   expect(p.early).toEqual(['/api/mail?box=inbox&off=2&n=2']);

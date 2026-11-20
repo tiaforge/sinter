@@ -9,7 +9,7 @@ import { elementAt } from './markup.js';
 /** What the paths need of a project: its specs and its APIs. */
 export interface PathProject { openapi: OpenApiSpec[]; apis: ApisDef | null }
 
-const ACTIONS = ['get', 'post', 'put', 'patch', 'delete'] as const;
+const ACTIONS = ['post', 'put', 'patch', 'delete'] as const;
 
 /** An operation of an API, as completion offers it. */
 interface Candidate { api: ApiDef; method: Method; path: string; id: string | null; summary: string | null; spec: number; ref: string }

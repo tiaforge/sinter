@@ -4,7 +4,7 @@ import { expect, test } from 'vitest';
 import { render } from '../../src/testing/index.js';
 import { Component } from '../../src/components.js';
 
-const RING = `<template data-sn-component="{ done: number; open: number }" data-sn-emits="{ pick: string }">
+const RING = `<template data-sn-props="{ done: number; open: number }" data-sn-emits="{ pick: string }">
   <figure data-sn-state="{ clicks: 0 }">
     <canvas data-sn-ref="canvas" data-sn-attr="{ 'aria-label': done + ' of ' + (done + open) }"></canvas>
     <figcaption data-sn-text="done + ' / ' + (done + open) + ' (' + clicks + ')'"></figcaption>
@@ -25,7 +25,7 @@ test('per instance: connected with refs set, propsChanged once per render, state
   const { root, flush, state } = await render(`
     <div data-sn-state="{ items: [{ id: 1, done: 1, open: 1 }, { id: 2, done: 5, open: 0 }], picked: '' }">
       <template data-sn-for="t in items" data-sn-key="t.id">
-        <task-ring data-sn-prop="{ done: t.done, open: t.open }" data-sn-on-pick="picked = picked + t.id"></task-ring>
+        <task-ring data-sn-with="{ done: t.done, open: t.open }" data-sn-on-pick="picked = picked + t.id"></task-ring>
       </template>
       <p data-sn-text="picked"></p>
       <button data-sn-on-click="items = []">clear</button>
@@ -55,9 +55,9 @@ test('a default export works; the refs of a nested component and of slot content
   class Outer extends Component { connected() { seen.push(`outer ${String(!!this.refs.own)} ${String(!!this.refs.inner)} ${String(!!this.refs.slotted)}`); } }
   await render(`<x-page></x-page>`, {
     components: {
-      'x-page': '<template data-sn-component=""><main><x-outer><span data-sn-ref="slotted"></span></x-outer></main></template>',
-      'x-outer': '<template data-sn-component=""><div><i data-sn-ref="own"></i><x-inner></x-inner><slot></slot></div></template>',
-      'x-inner': '<template data-sn-component=""><p><b data-sn-ref="inner"></b></p></template>',
+      'x-page': '<template data-sn-props=""><main><x-outer><span data-sn-ref="slotted"></span></x-outer></main></template>',
+      'x-outer': '<template data-sn-props=""><div><i data-sn-ref="own"></i><x-inner></x-inner><slot></slot></div></template>',
+      'x-inner': '<template data-sn-props=""><p><b data-sn-ref="inner"></b></p></template>',
     },
     scripts: { 'x-outer': { default: Outer } },
   });
@@ -69,7 +69,7 @@ test('a default export works; the refs of a nested component and of slot content
 test('a script without the class named after the component, or a default export, fails the build', async () => {
   const { compile } = await import('../../src/compiler/index.js');
   const files: Record<string, string> = {
-    '/p/src/components/task-ring.html': '<template data-sn-component=""><figure></figure></template>',
+    '/p/src/components/task-ring.html': '<template data-sn-props=""><figure></figure></template>',
     '/p/src/components/task-ring.ts': 'export class Ring {}',
   };
   const d = compile('<task-ring></task-ring>', { file: '/p/i.html', root: '/p', dev: false, helpers: { module: null, names: [], namespaces: {} }, readFile: (f) => { if (f in files) return files[f]!; throw new Error('missing'); } }).diagnostics;

@@ -21,7 +21,7 @@ CHROME=/path/to/chrome npm run e2e   # the official e2e suite (e2e/, unchanged)
 | `settings.html` | user settings, logout | `/settings` |
 | `login.html`, `register.html` | auth | `/login`, `/register` |
 | `src/layouts/conduit-layout.html` | the document every page shares: the head, the header and the footer; each page is its tag, with its state, its handlers and its title and description as props | |
-| `src/components/` | header, footer, `conduit-seo` (the head component for the title and description), article meta, byline, preview, error list, favorite button (each page declares the `user` resource the header reads); `patch(article, …)` in the favorite button acts on the article where each use got it | |
+| `src/components/` | header, footer, `conduit-seo` (the head component for the title and description), article meta, byline, preview, error list, favorite button (each page declares the `user` resource the header reads); `merge(article, …)` in the favorite button acts on the article where each use got it | |
 | `src/sinter.config.js` | JWT middleware (`localStorage.jwtToken`), current-user error handling | |
 | `src/islands.js` | sign-in/out (clearing the page-load cache) and navigation events, `<conduit-redirect>`, `window.__conduit_debug__` | |
 | `vite.config.js` | page entries, the dev/preview rewrites for the path patterns, `sinter({ apis })` | |
@@ -33,13 +33,13 @@ islands; the pages are declarative.
 
 The article's body is Markdown, rendered by the markdown library: `src/sinter.helpers.js` re-exports it as
 `md`, `vite.config.js` lists it in `components`, and `article.html` writes
-`<md-doc data-sn-prop="{ doc: md.parse(article.body) }">`. It renders with the article, in the same frame,
+`<md-doc data-sn-with="{ doc: md.parse(article.body) }">`. It renders with the article, in the same frame,
 so nothing after the body moves when it comes in. Raw HTML in a body shows as text (`md.parse`'s default,
 `html: 'text'`), and sinter refuses a link's or an image's `javascript:` URL (it renders without it): the XSS
 suite's payloads stay inert. Until 2026-11-17 the body was marked and DOMPurify in an island,
 `<conduit-markdown>`; the comparison is in the [markdown library's docs](../../packages/sinter-markdown/docs/markdown.md#performance).
 The parser loads with the article page. With embedded data (`SINTER_EMBED`), the body renders in the early script
-like the rest of the article, so the parser is in the article's early file (30.5 kB gzip, `earlyBudget` raised to
+like the rest of the article, so the parser is in the article's early file (30.5 kB gzip, `firstPaint.budget` raised to
 40 KB in `vite.config.js`), and the page module takes that instance instead of a copy of its own
 ([own copies](../../docs/first-paint.md#own-copies)). Measured on the article page (Lighthouse mobile, a local
 API, median of 5):
@@ -59,7 +59,7 @@ At mount, what follows the body needed CSS to hold it back (CLS 0.452 without); 
 The library is linked from `packages/` (`file:`), so `resolve.dedupe` in `vite.config.js` points its imports
 of sinter at the app's.
 
-The article lists keep their page in the URL with `page-model="$url.page"`: `?page=3` (or a reload,
+The article lists keep their page in the URL with `model: $url.page` in their `paginate`: `?page=3` (or a reload,
 or Back) loads the third page, in the early request and the embedded data too. The pager's links
 and the home page's feed tabs are plain links that stay on the page when clicked
 ([same-page links](../../docs/navigation.md#same-page-links)): a new history entry and the list's
@@ -81,14 +81,14 @@ login-redirect guards read it).
 
 ## Form errors
 
-No form has a `data-sn-catch`: each has an `<error-list data-sn-prop="{ error: $error }">`, its `.error-messages` list
+No form has a `data-sn-catch`: each has an `<error-list data-sn-with="{ error: $error }">`, its `.error-messages` list
 reading `$error` (the form's last failed send) with the `errors()` helper's lines, and
 `fieldErrors: () => null` in `src/sinter.config.js` marks no field, as the reference markup does. The
 pages with a form load the fields module (1.1 KB gzip).
 
 The buttons (favorite, follow, delete) have no catch either: a failed action without one bubbles
 `sn-error`, and one handler on each page's root (home, profile, article) sends a 401 to the login page
-and shows anything else in the page's `.error-messages` list (`<error-list data-sn-prop="{ error }">`). Deleting a
+and shows anything else in the page's `.error-messages` list (`<error-list data-sn-with="{ error }">`). Deleting a
 comment keeps its catch: it fills the comments' own list (`commentError`). The comment form's list
 sits inside its card, so `public/styles.css` pads it like the textarea (the one rule of ours next to
 the theme's comment-form rules).

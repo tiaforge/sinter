@@ -5,19 +5,22 @@ import { BAD_KEY } from './keys.js';
 
 export type Change<T = any> =
   | { resource: string; op: 'upsert'; item: T }
-  | { resource: string; op: 'patch'; key: string; fields: Partial<T> }
+  | { resource: string; op: 'merge'; key: string; fields: Partial<T> }
   | { resource: string; op: 'remove'; key: string }
-  | { resource: string; op: 'refetch' };
+  | { resource: string; op: 'refresh' };
 
 export type Op =
   | { op: 'upsert'; item: any }
-  | { op: 'patch'; key: string; fields: any }
+  | { op: 'merge'; key: string; fields: any }
   | { op: 'remove'; key: string };
 
 export interface Meta {
   loading: boolean;
-  error: { status: number | null; body: unknown; message: string } | null;
-  loadedAt: number | null;
+  /** as `$error`: `message` is the server's words, else the HTTP status; `detail` the server's words or null */
+  error: { status: number | null; body: unknown; message: string; detail: string | null } | null;
+  /** when the server last answered, as a `Date` (like `$now`); null before the first load */
+  loadedAt: Date | null;
+  /** optimistic layers whose request has not settled (JavaScript only: markup reads `aria-busy`) */
   pending: number;
   total: number | null;
   /** the server-event stream(s) feeding this resource: null when none does, else the worst state among them */
@@ -54,10 +57,10 @@ export interface Resource<T extends object = any> {
   value(): readonly T[] | T | null;
   replace(items: T[] | T | null): void;
   upsert(item: T): void;
-  patch(key: string | T, fields: Partial<T>): void;
+  merge(key: string | T, fields: Partial<T>): void;
   remove(key: string | T): void;
   /** `hint`: a server event's payload; an `each` resource reloads only the source it names */
-  refetch(hint?: object): Promise<void>;
+  refresh(hint?: object): Promise<void>;
   subscribe(fn: (change: Change<T>) => void): () => void;
   keyOf(item: string | T): string;
   /**
@@ -74,9 +77,9 @@ export interface Resource<T extends object = any> {
   setTotal(total: number | null): void;
   /** what the server last confirmed, without optimistic layers (in arrival order) */
   base(): { items: T[] | T | null; total: number | null };
-  /** while set, upsert/patch/remove are recorded instead of applied */
+  /** while set, upsert/merge/remove are recorded instead of applied */
   recording: Op[] | null;
-  loader: { refetch(hint?: object): Promise<void>; url?(): string | null } | null;
+  loader: { refresh(hint?: object): Promise<void>; url?(): string | null } | null;
   onDirty(what: 'data' | 'meta'): void;
 }
 
@@ -276,12 +279,12 @@ export function createResource<T extends object = any>(name: string, o: Resource
         }
       } else single = items == null ? null : prep(items);
       changed();
-      for (const f of subs) f({ resource: name, op: 'refetch' });
+      for (const f of subs) f({ resource: name, op: 'refresh' });
     },
     upsert: (item) => write({ op: 'upsert', item }),
-    patch: (k, fields) => write({ op: 'patch', key: keyOf(k), fields }),
+    merge: (k, fields) => write({ op: 'merge', key: keyOf(k), fields }),
     remove: (k) => write({ op: 'remove', key: keyOf(k) }),
-    refetch: (hint) => r.loader?.refetch(hint) ?? Promise.resolve(),
+    refresh: (hint) => r.loader?.refresh(hint) ?? Promise.resolve(),
     subscribe: (fn) => (subs.add(fn), () => subs.delete(fn)),
     startLoad() {
       loads++;

@@ -56,12 +56,12 @@ pub(crate) struct PageDesc {
     /// its array parameters: `$url` values read as lists (repeated keys)
     #[serde(default)]
     pub arrays: Vec<String>,
-    pub data: Vec<SlotDesc>,
+    pub data: Vec<PlaceholderDesc>,
 }
 
 /// One placeholder: `<script type="application/json" data-sn="{id}"></script>` in the page's head.
 #[derive(Debug, Clone, Deserialize)]
-pub(crate) struct SlotDesc {
+pub(crate) struct PlaceholderDesc {
     pub id: u32,
     pub resource: String,
     /// the resource's URL template, when only literals and `$url` reads make it up
@@ -72,7 +72,7 @@ pub(crate) struct SlotDesc {
     /// paginated: the first page's query parameters, set on the template's URL
     #[serde(default)]
     pub query: Vec<(String, String)>,
-    /// paginated, starting at the page a `$url` parameter names (`page-model`)
+    /// paginated, starting at the page a `$url` parameter names (`model` (paginate))
     #[serde(default)]
     pub start: Option<Start>,
     /// the static headers of the resource's API (`sinter({ apis })`), sent with this crate's request
@@ -80,7 +80,7 @@ pub(crate) struct SlotDesc {
     pub headers: std::collections::BTreeMap<String, String>,
 }
 
-impl SlotDesc {
+impl PlaceholderDesc {
     /// whether the build describes the request completely: its URL, and its `when` if it has one
     pub fn described(&self) -> bool {
         self.src.is_some() && !matches!(self.when, Some(When::Browser(_)))
@@ -125,7 +125,7 @@ impl Cond {
     }
 }
 
-/// `page-model`: the page from its `$url` parameter; from page 2 on, `query` with `key` set to the page (with `skip`, to
+/// `model` (paginate): the page from its `$url` parameter; from page 2 on, `query` with `key` set to the page (with `skip`, to
 /// the items to skip, `(page - 1) * size`).
 #[derive(Debug, Clone, Deserialize)]
 pub(crate) struct Start {
@@ -163,14 +163,14 @@ pub enum Part {
     Url { url: String },
 }
 
-/// A page cut at its placeholders: `parts[i]` comes before `slots[i]`, the last part after them all.
+/// A page cut at its placeholders: `parts[i]` comes before `placeholders[i]`, the last part after them all.
 #[derive(Debug)]
 pub(crate) struct Page {
     pub file: String,
     pub paths: Vec<String>,
     pub arrays: Vec<String>,
     pub parts: Vec<Bytes>,
-    pub slots: Vec<SlotDesc>,
+    pub placeholders: Vec<PlaceholderDesc>,
 }
 
 /// A build the middleware cannot use.
@@ -205,7 +205,7 @@ pub(crate) type Build = (Vec<Page>, Vec<Route>, Option<Locales>);
 pub(crate) fn load(dir: &Path, compiled: Option<&str>) -> Result<Build, Error> {
     let at = dir.join(FILE);
     let text = std::fs::read_to_string(&at).map_err(|e| {
-        Error(format!("{}: {e} (built with sinter's Vite plugin, with `embed: true` or a `data-sn-data` placeholder?)", at.display()))
+        Error(format!("{}: {e} (built with sinter's Vite plugin, with `embed: true` or a `data-sn-resource` placeholder?)", at.display()))
     })?;
     let m: Manifest = parse(&text).map_err(|e| Error(format!("{}: {}", at.display(), e.0)))?;
     if let Some(c) = compiled {
@@ -233,9 +233,9 @@ pub(crate) fn load(dir: &Path, compiled: Option<&str>) -> Result<Build, Error> {
 
 /// Cuts the page at each placeholder, in document order; a placeholder that is missing or already
 /// has content means the HTML and the manifest are from different builds.
-pub(crate) fn split(html: &str, paths: Vec<String>, mut slots: Vec<SlotDesc>) -> Result<Page, Error> {
-    let mut at: Vec<(usize, usize, SlotDesc)> = Vec::new();
-    for s in slots.drain(..) {
+pub(crate) fn split(html: &str, paths: Vec<String>, mut placeholders: Vec<PlaceholderDesc>) -> Result<Page, Error> {
+    let mut at: Vec<(usize, usize, PlaceholderDesc)> = Vec::new();
+    for s in placeholders.drain(..) {
         let open = format!(r#"<script type="application/json" data-sn="{}">"#, s.id);
         let i = html.find(&open).ok_or_else(|| {
             Error(format!(
@@ -257,5 +257,5 @@ pub(crate) fn split(html: &str, paths: Vec<String>, mut slots: Vec<SlotDesc>) ->
         out.push(s);
     }
     parts.push(Bytes::copy_from_slice(&html.as_bytes()[from..]));
-    Ok(Page { file: String::new(), paths, arrays: Vec::new(), parts, slots: out })
+    Ok(Page { file: String::new(), paths, arrays: Vec::new(), parts, placeholders: out })
 }

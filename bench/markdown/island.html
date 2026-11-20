@@ -11,7 +11,7 @@
 <body>
 <sn-resource name="article" src="/api/article"></sn-resource>
 <main>
-  <template data-sn-if="article"><island-markdown id="article" class="md" data-sn-prop="{ source: article.body }"></island-markdown></template>
+  <template data-sn-if="article"><island-markdown id="article" class="md" data-sn-with="{ source: article.body }"></island-markdown></template>
 </main>
 </body>
 </html>

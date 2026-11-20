@@ -13,7 +13,7 @@ import sinter from '../../src/vite.js';
 import { engines } from '../browser.js';
 
 const src = resolve(__dirname, '../../src');
-const alias = [{ find: /^@tiaforge-ui\/sinter\/(.+)$/, replacement: `${src}/$1.ts` }, { find: /^@tiaforge-ui\/sinter$/, replacement: `${src}/index.ts` }];
+const alias = [{ find: /^@tiaforge-ui\/sinter\/runtime$/, replacement: `${src}/runtime-entry.ts` }, { find: /^@tiaforge-ui\/sinter\/(?:runtime\/)?(.+)$/, replacement: `${src}/$1.ts` }, { find: /^@tiaforge-ui\/sinter$/, replacement: `${src}/index.ts` }];
 const dir = mkdtempSync(join(tmpdir(), 'sinter-head-bindings-'));
 const root = join(dir, 'app'), out = join(dir, 'dist');
 const listen = (s: Server) => new Promise<number>((r) => s.listen(0, '127.0.0.1', () => r((s.address() as { port: number }).port)));
@@ -29,7 +29,7 @@ beforeAll(async () => {
   <title data-sn-text="site() + ' · Blog'">Blog</title>
   <meta name="description" content="Notes" data-sn-attr="{ content: 'About ' + site() }">
   <template data-sn-if="withImage()"><meta property="og:image" data-sn-attr="{ content: '/img/' + site() + '.png' }"></template>
-  <script type="application/json" data-sn-data="post">{ "post": { "title": "Embedded" } }</script>
+  <script type="application/json" data-sn-resource="post">{ "post": { "title": "Embedded" } }</script>
   <meta property="og:title" content="Blog" data-sn-attr="{ content: post ? post.title + ($url.q ? ' ' + $url.q : '') : 'Blog' }">
   <meta property="og:description" content="Blog" data-sn-attr="{ content: other ? other.text : 'Blog' }">
 </head>

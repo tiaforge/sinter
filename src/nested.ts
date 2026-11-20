@@ -1,10 +1,10 @@
-// Nested items (docs/components.md): `patch(r, …)` and `remove(r)` for an item of a nested list
+// Nested items (docs/components.md): `merge(r, …)` and `remove(r)` for an item of a nested list
 // (`r in comment.replies`, at any depth in a recursive component), and `upsert(c.replies, x)`. The
 // item is found under the resource's rows through those lists, by the resource's key; the objects
 // along its path are replaced, and the row is patched. Loaded only by pages that change nested items.
 import type { App, Feature } from './runtime/app.js';
 import type { Resource } from './runtime/store.js';
-import { at, changed, isObj, nest } from './apply.js';
+import { at, changed, isObj, nest } from './write-through.js';
 
 type Obj = Record<string, any>;
 
@@ -16,7 +16,7 @@ const feature: Feature = {
      * The change of the row (or single resource) holding `item` under `fields`, at any depth: the row's
      * fields to patch, or null when it is not there. `same`: by identity only, or also by key.
      */
-    const change = (r: Resource, fields: string[], op: 'patch' | 'remove', item: unknown, set: Obj | undefined, byId: boolean) => {
+    const change = (r: Resource, fields: string[], op: 'merge' | 'remove', item: unknown, set: Obj | undefined, byId: boolean) => {
       const k = r.key && item && typeof item == 'object' ? r.keyOf(item as Obj) : null;
       const same = (x: unknown) => x === item || (!byId && k != null && !!x && typeof x == 'object' && r.keyOf(x as Obj) === k);
       const under = (x: Obj): Obj | null => {
@@ -37,15 +37,15 @@ const feature: Feature = {
       }
       return null;
     };
-    const apply = (r: Resource, fields: string[], op: 'patch' | 'remove', item: unknown, set: Obj | undefined, byId: boolean) => {
+    const apply = (r: Resource, fields: string[], op: 'merge' | 'remove', item: unknown, set: Obj | undefined, byId: boolean) => {
       const c = change(r, fields, op, item, set, byId);
-      if (c) r.patch(c[0] as Obj, c[1]);
+      if (c) r.merge(c[0] as Obj, c[1]);
       return !!c;
     };
-    /** `patch(item, …)`/`remove(item)` from these sources: a nested one with the same object first, then a row by key, then a nested one by key */
-    const byItem = (res: (n: string) => Resource, op: 'patch' | 'remove', names: string[], item: unknown, set?: Obj) => {
+    /** `merge(item, …)`/`remove(item)` from these sources: a nested one with the same object first, then a row by key, then a nested one by key */
+    const byItem = (res: (n: string) => Resource, op: 'merge' | 'remove', names: string[], item: unknown, set?: Obj) => {
       const nested = (byId: boolean) => names.some((n) => { const [r, f] = n.split('>'); return f != null && apply(res(r!), f.split(','), op, item, set, byId); });
-      const row = () => names.some((n) => { const r = !n.includes('>') && res(n); return !!r && (r.isCollection ? item != null && r.key!.every((f) => (item as Obj)[f] !== undefined) && r.has(item as Obj) : true) && (op == 'patch' ? r.patch(item as Obj, set!) : r.remove(item as Obj), true); });
+      const row = () => names.some((n) => { const r = !n.includes('>') && res(n); return !!r && (r.isCollection ? item != null && r.key!.every((f) => (item as Obj)[f] !== undefined) && r.has(item as Obj) : true) && (op == 'merge' ? r.merge(item as Obj, set!) : r.remove(item as Obj), true); });
       nested(true) || row() || nested(false);
     };
     // write-through to nested items (`ap.nt`): after the write-through module, the same rules
@@ -63,7 +63,7 @@ const feature: Feature = {
         // (the write-through module's helpers: the same diff and nesting as for rows)
         // only the fields that differ, at the target's sub-path inside the item
         const p = t.p ?? [], diff = changed(item, p, fields);
-        if (diff && apply(r, t.n!, 'patch', item, nest(item, p, diff), false)) log(t.r, `patch ${t.n!.join(',')}${p.length ? ' .' + p.join('.') : ''}`);
+        if (diff && apply(r, t.n!, 'merge', item, nest(item, p, diff), false)) log(t.r, `merge ${t.n!.join(',')}${p.length ? ' .' + p.join('.') : ''}`);
       };
       // 3 update: the body describes the item the URL named
       if ((m == 'PUT' || m == 'PATCH') && isObj(body)) {
@@ -90,7 +90,7 @@ const feature: Feature = {
         const key = res(names[0]!.split('>')[0]!);
         const l: unknown[] = Array.isArray(owner?.[field]) ? owner[field] : [];
         const i = key.key && item && typeof item == 'object' ? l.findIndex((x) => x && key.keyOf(x as Obj) === key.keyOf(item as Obj)) : -1;
-        byItem(res, 'patch', names, owner, { [field]: i < 0 ? [...l, item] : l.with(i, item) });
+        byItem(res, 'merge', names, owner, { [field]: i < 0 ? [...l, item] : l.with(i, item) });
       },
     };
   },

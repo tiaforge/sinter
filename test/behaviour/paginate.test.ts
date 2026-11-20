@@ -20,13 +20,13 @@ function keyset(call: RecordedCall) {
 
 const PAGE = `
   <sn-resource name="messages" src="/api/m" items="messages" total="total" key="uid"
-    paginate="keyset" page-size="3" cursor="{at}" order="-at"></sn-resource>
+    paginate="{ keyset: {at: $item.at}, size: 3 }" order="-at"></sn-resource>
   <span data-sn-text="\`\${$meta.messages.from}–\${$meta.messages.to} of \${$meta.messages.total} \${$meta.messages.pages}\`"></span>
   <b data-sn-text="[$meta.messages.hasPrev, $meta.messages.hasNext].join()"></b>
-  <button id="first" data-sn-on-click="page('messages', 'first')"></button>
-  <button id="prev" data-sn-on-click="page('messages', 'prev')"></button>
-  <button id="next" data-sn-on-click="page('messages', 'next')"></button>
-  <button id="last" data-sn-on-click="page('messages', 'last')"></button>
+  <button id="first" data-sn-on-click="page(messages, 'first')"></button>
+  <button id="prev" data-sn-on-click="page(messages, 'prev')"></button>
+  <button id="next" data-sn-on-click="page(messages, 'next')"></button>
+  <button id="last" data-sn-on-click="page(messages, 'last')"></button>
   <ul><template data-sn-for="m in messages"><li data-sn-text="m.uid"></li></template></ul>`;
 
 test('keyset pagination moves with cursors and tracks positions', async () => {
@@ -56,7 +56,7 @@ test('refetch repeats the current page exactly', async () => {
   const requests = mockRequests({ 'GET /api/m': keyset });
   const stream = mockStream();
   const { root, settle } = await render(PAGE.replace('<ul>', `
-    <sn-sync src="/s"><sn-event name="r" resource="messages" op="refetch"></sn-event>
+    <sn-sync src="/s"><sn-event name="r" resource="messages" op="refresh"></sn-event>
       <sn-event name="u" resource="messages" op="upsert"></sn-event></sn-sync><ul>`), { requests, streams: { '/s': stream } });
   await settle();
   root.querySelector<HTMLElement>('#next')!.click();
@@ -82,9 +82,9 @@ test('offset pagination jumps to page numbers', async () => {
     },
   });
   const { root, settle } = await render(`
-    <sn-resource name="o" src="/api/o" items="items" total="total" key="uid" paginate="offset" page-size="3"></sn-resource>
+    <sn-resource name="o" src="/api/o" items="items" total="total" key="uid" paginate="{ numbered: true, size: 3 }"></sn-resource>
     <span data-sn-text="[$meta.o.page, $meta.o.pages, $meta.o.from, $meta.o.to, $meta.o.hasPrev, $meta.o.hasNext].join()"></span>
-    <button data-sn-on-click="page('o', 3)"></button>`, { requests });
+    <button data-sn-on-click="page(o, 3)"></button>`, { requests });
   await settle();
   expect(root.querySelector('span')!.textContent).toBe('1,3,1,3,false,true');
   root.querySelector('button')!.click();
@@ -96,9 +96,9 @@ test('append mode keeps loaded items and refetches them in one request', async (
   const requests = mockRequests({ 'GET /api/m': keyset });
   const stream = mockStream();
   const { root, settle } = await render(`
-    <sn-resource name="messages" src="/api/m" items="messages" key="uid" paginate="append" page-size="3" cursor="{at}" order="-at"></sn-resource>
-    <sn-sync src="/s"><sn-event name="r" resource="messages" op="refetch"></sn-event></sn-sync>
-    <button data-sn-on-click="page('messages', 'next')"></button>
+    <sn-resource name="messages" src="/api/m" items="messages" key="uid" paginate="{ append: {at: $item.at}, size: 3 }" order="-at"></sn-resource>
+    <sn-sync src="/s"><sn-event name="r" resource="messages" op="refresh"></sn-event></sn-sync>
+    <button data-sn-on-click="page(messages, 'next')"></button>
     <ul><template data-sn-for="m in messages"><li data-sn-text="m.uid"></li></template></ul>`, { requests, streams: { '/s': stream } });
   await settle();
   root.querySelector('button')!.click();
@@ -109,7 +109,7 @@ test('append mode keeps loaded items and refetches them in one request', async (
   expect(requests.calls.at(-1)!.url).toBe('/api/m?limit=6&direction=first');
 });
 
-test('direction-values: the server names the directions its own way', async () => {
+test('directions: the server names the directions its own way', async () => {
   // Caley's mail API: `forward` (also the first page), `backward`, `last`
   const requests = mockRequests({
     'GET /api/m': (call) => {
@@ -121,7 +121,7 @@ test('direction-values: the server names the directions its own way', async () =
       return keyset({ ...call, url: `/api/m?${q}` });
     },
   });
-  const page = PAGE.replace('cursor="{at}"', `cursor="{at}" direction-values="{first: 'forward', prev: 'backward', next: 'forward'}"`);
+  const page = PAGE.replace('size: 3 }', `size: 3, directions: {first: 'forward', prev: 'backward', next: 'forward'} }`);
   const { root, settle } = await render(page, { requests });
   await settle();
   const go = async (id: string) => { root.querySelector<HTMLElement>(`#${id}`)!.click(); await settle(); };
@@ -138,35 +138,63 @@ test('direction-values: the server names the directions its own way', async () =
   expect(items()).toBe('5,6,7');
 });
 
-describe('direction-values diagnostics', () => {
+describe('paginate diagnostics', () => {
   const diags = (attrs: string) => compile(`<sn-resource name="m" src="/api/m" key="uid" ${attrs}></sn-resource><p data-sn-text="m.length"></p>`, {
     file: '/p/page.html', root: '/p', dev: false, readFile: () => '', helpers: { module: null, names: [], namespaces: {} },
   }).diagnostics.map((d) => `${d.code} ${d.message}`);
-  const keyset = 'paginate="keyset" page-size="5" cursor="{uid}"';
+  const keyset = (more = '') => `paginate="{ keyset: {uid: $item.uid}, size: 5${more} }"`;
 
-  test('valid values compile without diagnostics', () => {
-    expect(diags(`${keyset} direction-values="{prev: 'backward', 'next': 'forward'}"`)).toEqual([]);
+  test('directions: string values for known directions', () => {
+    expect(diags(keyset(`, directions: {prev: 'backward', 'next': 'forward'}`))).toEqual([]);
+    expect(diags(keyset(`, directions: {nxt: 'forward'}`))).toEqual(['SN401 `nxt` is not a key of `directions`; it takes `first`, `prev`, `next`, `last`. Did you mean `next`?']);
+    expect(diags(keyset(', directions: {prev: dir}'))).toEqual(['SN401 `directions.prev` is a non-empty string literal']);
+    expect(diags(keyset(", directions: ['backward']"))).toEqual(['SN401 `directions` is an object literal of strings']);
+    expect(diags(`paginate="{ numbered: true, size: 5, directions: {prev: 'b'} }"`)).toEqual(['SN401 `directions` is for `keyset` and `append` lists; a numbered list sends page numbers']);
   });
-  test('an unknown direction, with a suggestion', () => {
-    expect(diags(`${keyset} direction-values="{nxt: 'forward'}"`)).toEqual([
-      'SN401 `nxt` is not a direction; directions are `first`, `prev`, `next` and `last`. Did you mean `next`?',
+  test('one object literal, one mode, a size; unknown keys with a suggestion', () => {
+    expect(diags('paginate="{ keyset: {uid: $item.uid} }"')).toEqual(['SN401 `paginate` needs `size`, the number of items per page']);
+    expect(diags('paginate="{ size: 5 }"')[0]).toMatch(/^SN401 `paginate` names one mode/);
+    expect(diags('paginate="{ keyset: {uid: $item.uid}, numbered: true, size: 5 }"')[0]).toMatch(/^SN401 `paginate` names one mode/);
+    expect(diags('paginate="{ keyset: uid, size: 5 }"')).toEqual(['SN401 `keyset` is the cursor, an object literal read on the boundary item, `$item`: `keyset: { before: $item.id }`']);
+    expect(diags('paginate="{ numbered: true, size: 0 }"')).toEqual(['SN401 `size` is the number of items per page, a positive whole number']);
+    expect(diags('paginate="{ numbered: true, sise: 5 }"')).toEqual(['SN401 `sise` is not a key of `paginate`; it takes `keyset`, `append`, `numbered`, `size`, `model`, `jump`, `params`, `directions`. Did you mean `size`?']);
+    expect(diags('paginate="{ number: true, size: 5 }"')).toEqual(['SN401 `number` is not a key of `paginate`; it takes `keyset`, `append`, `numbered`, `size`, `model`, `jump`, `params`, `directions`. Did you mean `numbered`?']);
+    expect(diags(`paginate="{ numbered: true, size: 5, params: { pge: 'p' } }"`)[0]).toMatch(/^SN401 `pge` is not a key of `params`; .*Did you mean `page`\?/);
+    expect(diags(`paginate="{ numbered: true, size: 5, params: { page: 'a b' } }"`)).toEqual(['SN401 `params.page` is a query parameter name']);
+    expect(diags('paginate="offset: true"')[0]).toMatch(/^SN401 `paginate` is an object literal/);
+  });
+  test('numbered: \'offset\' sends the items to skip; params.offset only names the parameter', async () => {
+    const { compileParts } = await import('../../src/compiler/index.js');
+    const ir = (pg: string) => compileParts(`<sn-resource name="m" src="/api/m" key="uid" paginate="{ ${pg} }"></sn-resource><p data-sn-text="m.length"></p>`, {
+      file: '/p/page.html', root: '/p', dev: false, readFile: () => '', helpers: { module: null, names: [], namespaces: {} },
+    }).ir.resources[0]!.paginate;
+    expect(ir("numbered: 'offset', size: 5")!.skipParam).toBe('offset');
+    expect(ir("numbered: 'offset', size: 5, params: { offset: 'skip' }")!.skipParam).toBe('skip');
+    expect(diags('paginate="{ numbered: \'pages\', size: 5 }"')[0]).toMatch(/^SN401 `numbered` takes `true` \(sends the page number\) or `'offset'`/);
+    expect(diags('paginate="offset" page-size="5" offset-param="offset"')[0]).toMatch(/`paginate="\{ numbered: 'offset', size: 5 \}"`/);
+  });
+  test('offset: true is numbered: true now', () => {
+    expect(diags('paginate="{ offset: true, size: 5 }"')).toEqual(['SN401 `offset: true` is renamed to `numbered: true` (pages by number; `numbered: \'offset\'` sends the items to skip): `{ numbered: true, size: 10 }`']);
+  });
+  test('a key given twice; a server name the list never sends', () => {
+    expect(diags('paginate="{ numbered: true, size: 5, size: 7 }"')).toEqual(['SN401 `size` is given twice in `paginate`']);
+    expect(diags(keyset(", params: { page: 'p' }"))).toEqual(['SN401 `params.page` is for numbered lists; a keyset or append list moves by its cursor']);
+    // the old `offset-param` switched the list to skipping; naming the parameter now switches nothing
+    expect(diags('paginate="{ numbered: true, size: 5, params: { offset: \'skip\' } }"')).toEqual(["SN401 `params.offset` names a parameter this list does not send: only `numbered: 'offset'` and `jump: true` send the items to skip; write `numbered: 'offset'` to send them instead of the page number"]);
+    expect(diags(keyset(", params: { offset: 'skip' }"))).toEqual(["SN401 `params.offset` names a parameter this list does not send: only `numbered: 'offset'` and `jump: true` send the items to skip; add `jump: true` for page numbers"]);
+    expect(diags('paginate="{ numbered: \'offset\', size: 5, params: { offset: \'skip\' } }"')).toEqual([]);
+    expect(diags(`paginate="{ numbered: true, size: 5, params: { direction: 'd' } }"`)).toEqual(['SN401 `params.direction` is for `keyset` and `append` lists; a numbered list sends page numbers']);
+  });
+  test('the old attributes: the object they become', () => {
+    expect(diags(`paginate="keyset" page-size="5" cursor="{uid}" offset-param="o" direction-values="{prev: 'b'}"`)).toEqual([
+      "SN401 `paginate` is one object literal now: `paginate=\"{ keyset: {uid: $item.uid}, size: 5, jump: true, params: { offset: 'o' }, directions: {prev: 'b'} }\"`",
     ]);
-    expect(diags(`${keyset} direction-values="{previous: 'backward'}"`)).toEqual([
-      'SN401 `previous` is not a direction; directions are `first`, `prev`, `next` and `last`.',
-    ]);
-  });
-  test('values are string literals; the whole value is one object literal', () => {
-    expect(diags(`${keyset} direction-values="{prev: dir}"`)).toEqual(['SN401 the value for `prev` must be a string literal']);
-    expect(diags(`${keyset} direction-values="['backward']"`)[0]).toMatch(/^SN401 `direction-values` is an object literal of strings/);
-    expect(diags(`${keyset} direction-values="{prev: 'a'} + 1"`)[0]).toMatch(/^SN401 `direction-values` is an object literal of strings/);
-  });
-  test('offset mode has no directions; without paginate it is misplaced', () => {
-    expect(diags(`paginate="offset" page-size="5" direction-values="{prev: 'b'}"`)[0]).toMatch(/^SN401 `direction-values` applies to `paginate="keyset"`/);
-    expect(diags(`direction-values="{prev: 'b'}"`)).toEqual(['SN102 `direction-values` needs `paginate`']);
+    expect(diags('paginate="offset" page-size="10" page-model="$url.page"')).toEqual(['SN401 `paginate` is one object literal now: `paginate="{ numbered: true, size: 10, model: $url.page }"`']);
+    expect(diags(`${keyset()} page-size="5"`)).toEqual([expect.stringMatching(/^SN101 `page-size` is a key of `paginate` now/)]);
   });
 });
 
-test('offset-param: keyset pages jump with an offset, then continue by cursor', async () => {
+test('jump: keyset pages jump with an offset, then continue by cursor', async () => {
   // Caley's mail API: cursor paging, plus `offset` to jump; `first` and an offset send no cursor
   const requests = mockRequests({
     'GET /api/m': (call) => {
@@ -180,10 +208,10 @@ test('offset-param: keyset pages jump with an offset, then continue by cursor', 
       return keyset(call);
     },
   });
-  const page = PAGE.replace('cursor="{at}"', 'cursor="{at}" offset-param="offset"')
+  const page = PAGE.replace('size: 3 }', 'size: 3, jump: true }')
     .replace('<ul>', `<i data-sn-text="$meta.messages.page"></i>
-      <button id="p3" data-sn-on-click="page('messages', 3)"></button>
-      <button id="p9" data-sn-on-click="page('messages', 9)"></button><ul>`);
+      <button id="p3" data-sn-on-click="page(messages, 3)"></button>
+      <button id="p9" data-sn-on-click="page(messages, 9)"></button><ul>`);
   const { root, settle } = await render(page, { requests });
   await settle();
   const state = () => [
@@ -212,9 +240,9 @@ test('page() with a computed direction; a page number or other value where it ca
   const requests = mockRequests({ 'GET /api/m': keyset });
   const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
   const { root, settle } = await render(`<main data-sn-state="{ to: 2 }" data-sn-on-sn-error="$event.preventDefault()">${PAGE}
-    <button id="move" data-sn-on-click="page('messages', $event.shiftKey ? 'prev' : 'next')"></button>
-    <button id="number" data-sn-on-click="page('messages', to)"></button>
-    <button id="word" data-sn-on-click="page('messages', 'nex' + 't!')"></button>
+    <button id="move" data-sn-on-click="page(messages, $event.shiftKey ? 'prev' : 'next')"></button>
+    <button id="number" data-sn-on-click="page(messages, to)"></button>
+    <button id="word" data-sn-on-click="page(messages, 'nex' + 't!')"></button>
     <p data-sn-text="$meta.messages.error ? $meta.messages.error.message : 'ok'"></p></main>`, { requests });
   await settle();
   const list = () => [...root.querySelectorAll('li')].map((l) => l.textContent).join(',');
@@ -227,53 +255,55 @@ test('page() with a computed direction; a page number or other value where it ca
   await click('number');
   expect(requests.calls.length).toBe(loads);
   expect(list()).toBe('1,2,3');
-  expect(root.querySelector('p')!.textContent).toBe(`page('messages', 2): keyset pagination cannot jump to a page number; add offset-param`);
-  expect(warn).toHaveBeenCalledWith(`sinter: page('messages', 2): keyset pagination cannot jump to a page number; add offset-param`);
+  expect(root.querySelector('p')!.textContent).toBe(`page(messages, 2): keyset pagination cannot jump to a page number; add \`jump: true\` to paginate`);
+  expect(warn).toHaveBeenCalledWith(`sinter: page(messages, 2): keyset pagination cannot jump to a page number; add \`jump: true\` to paginate`);
   await click('word');
   expect(requests.calls.length).toBe(loads);
-  expect(root.querySelector('p')!.textContent).toBe(`page('messages', "next!"): not a direction`);
+  expect(root.querySelector('p')!.textContent).toBe(`page(messages, "next!"): not a direction`);
   // the next load clears the error
   await click('move');
   expect(root.querySelector('p')!.textContent).toBe('ok');
   warn.mockRestore();
 });
 
-describe('offset-param diagnostics', () => {
+describe('jump diagnostics', () => {
   const diags = (attrs: string, body = '<p data-sn-text="m.length"></p>') => compile(`<sn-resource name="m" src="/api/m" key="uid" ${attrs}></sn-resource>${body}`, {
     file: '/p/page.html', root: '/p', dev: false, readFile: () => '', helpers: { module: null, names: [], namespaces: {} },
   }).diagnostics.map((d) => `${d.code} ${d.message}`);
-  const keyset = 'paginate="keyset" page-size="5" cursor="{uid}"';
-  const jump = `<p data-sn-text="m.length + $meta.m.page"></p><button data-sn-on-click="page('m', 4)"></button>`;
+  const keyset = 'paginate="{ keyset: {uid: $item.uid}, size: 5 }"';
+  const jump = `<p data-sn-text="m.length + $meta.m.page"></p><button data-sn-on-click="page(m, 4)"></button>`;
 
-  test('with offset-param, page(name, n) and $meta.<name>.page are allowed on keyset', () => {
-    expect(diags(`${keyset} offset-param="offset"`, jump)).toEqual([]);
+  test('with jump, page(name, n) and $meta.<name>.page are allowed on keyset', () => {
+    expect(diags('paginate="{ keyset: {uid: $item.uid}, size: 5, jump: true }"', jump)).toEqual([]);
   });
-  test('without it, both are errors that point to offset-param', () => {
+  test('without it, both are errors that point to jump', () => {
     expect(diags(keyset, jump)).toEqual([
-      'SN303 `$meta.m.page` exists only with `paginate="offset"`, or `paginate="keyset"` with `offset-param`',
-      'SN304 keyset pagination cannot jump to a page number. Add `offset-param` if the server also accepts an offset, or use `paginate="offset"`',
+      'SN303 `$meta.m.page` exists only on a numbered list (`paginate="{ numbered: true, … }"`), or a keyset list with `jump: true`',
+      'SN304 keyset pagination cannot jump to a page number. Add `jump: true` to `paginate` if the server also accepts an offset, or use `numbered: true`',
     ]);
   });
   test('a computed target compiles (sinter check types it); a literal page number does not', () => {
-    const body = (to: string) => `<div data-sn-state="{ n: 2, dir: 'next' }"><p data-sn-text="m.length + n + dir"></p><button data-sn-on-click="page('m', ${to})"></button></div>`;
+    const body = (to: string) => `<div data-sn-state="{ n: 2, dir: 'next' }"><p data-sn-text="m.length + n + dir"></p><button data-sn-on-click="page(m, ${to})"></button></div>`;
     for (const to of [`$event.shiftKey ? 'prev' : 'next'`, 'dir', 'n', 'n + 1']) expect(diags(keyset, body(to)), to).toEqual([]);
     for (const to of ['7', '-1', '']) expect(diags(keyset, body(to)), to).toEqual([expect.stringMatching(/^SN304 keyset pagination cannot jump to a page number/)]);
     expect(diags(keyset, body(`'nxt'`))).toEqual([expect.stringMatching(/^SN401 `page\(\)` targets are/)]);
     // append only loads more: nothing to compute
-    expect(diags('paginate="append" page-size="5" cursor="{uid}"', body('dir'))).toEqual(["SN304 `append` pagination only supports `page(…, 'next')`"]);
+    expect(diags('paginate="{ append: {uid: $item.uid}, size: 5 }"', body('dir'))).toEqual(["SN304 `append` pagination only supports `page(…, 'next')`"]);
   });
-  test('keyset and offset resources take offset-param (offset mode sends it instead of page-param); append does not', () => {
-    expect(diags('paginate="append" page-size="5" cursor="{uid}" offset-param="offset"')).toEqual(['SN401 `offset-param` applies to `paginate="offset"` (the items to skip, sent instead of `page-param`) and `paginate="keyset"` (to jump); append mode only loads more']);
-    expect(diags('paginate="offset" page-size="5" offset-param="offset"')).toEqual([]);
-    expect(diags('offset-param="offset"')).toEqual(['SN102 `offset-param` needs `paginate`']);
+  test('params.offset only where the list sends it; `jump` is for keyset lists; the old attribute names the new key', () => {
+    // on the list, a name it does not send is an error (an API's `params` may name it for its other lists)
+    expect(diags(`paginate="{ append: {uid: $item.uid}, size: 5, params: { offset: 'offset' } }"`)).toEqual(["SN401 `params.offset` names a parameter this list does not send: only `numbered: 'offset'` and `jump: true` send the items to skip"]);
+    expect(diags('paginate="{ append: {uid: $item.uid}, size: 5, jump: true }"')).toEqual(['SN401 `jump` is for `keyset` lists; append lists only load more']);
+    expect(diags('paginate="{ numbered: true, size: 5, jump: true }"')).toEqual(['SN401 `jump` is for `keyset` lists; a numbered list jumps already']);
+    expect(diags('offset-param="offset"')).toEqual([expect.stringMatching(/^SN101 `offset-param` is a key of `paginate` now, one object literal/)]);
   });
 });
 
 test('cursor fields that are null are left out, like URL template parameters', async () => {
   const requests = mockRequests({ 'GET /api/n': { items: [{ id: 1, sent: null }, { id: 2, sent: null }] } });
   const { root, settle } = await render(`
-    <sn-resource name="n" src="/api/n" items="items" key="id" paginate="keyset" page-size="2" cursor="{cursor_sent_at: sent, cursor_rowid: id}"></sn-resource>
-    <button data-sn-on-click="page('n', 'next')"></button><p data-sn-text="n.length"></p>`, { requests });
+    <sn-resource name="n" src="/api/n" items="items" key="id" paginate="{ keyset: {cursor_sent_at: $item.sent, cursor_rowid: $item.id}, size: 2 }"></sn-resource>
+    <button data-sn-on-click="page(n, 'next')"></button><p data-sn-text="n.length"></p>`, { requests });
   await settle();
   root.querySelector('button')!.click();
   await settle();
@@ -284,8 +314,8 @@ test('an empty next page shows no positions; offset prev on page 1 and next on t
   // a full first page, then nothing after it
   const requests = mockRequests({ 'GET /api/e': (call) => ({ items: call.url.includes('after=') ? [] : [{ id: 1 }, { id: 2 }] }) });
   const r = await render(`
-    <sn-resource name="e" src="/api/e" key="id" items="items" paginate="keyset" page-size="2" cursor="{after: id}"></sn-resource>
-    <button data-sn-on-click="page('e', 'next')">n</button>
+    <sn-resource name="e" src="/api/e" key="id" items="items" paginate="{ keyset: {after: $item.id}, size: 2 }"></sn-resource>
+    <button data-sn-on-click="page(e, 'next')">n</button>
     <p data-sn-text="[$meta.e.from, $meta.e.to, $meta.e.hasPrev, $meta.e.hasNext].join()"></p>`, { requests });
   await r.settle();
   expect(r.root.querySelector('p')!.textContent).toBe('1,2,false,true');
@@ -296,8 +326,8 @@ test('an empty next page shows no positions; offset prev on page 1 and next on t
 
   const offset = mockRequests({ 'GET /api/o': { items: [{ id: 1 }], total: 10 } });
   const o = await render(`
-    <sn-resource name="o" src="/api/o" key="id" items="items" total="total" paginate="offset" page-size="10"></sn-resource>
-    <button id="p" data-sn-on-click="page('o', 'prev')">p</button><button id="n" data-sn-on-click="page('o', 'next')">n</button>
+    <sn-resource name="o" src="/api/o" key="id" items="items" total="total" paginate="{ numbered: true, size: 10 }"></sn-resource>
+    <button id="p" data-sn-on-click="page(o, 'prev')">p</button><button id="n" data-sn-on-click="page(o, 'next')">n</button>
     <p data-sn-text="$meta.o.page"></p>`, { requests: offset });
   await o.settle();
   expect(offset.calls.length).toBe(1);
@@ -313,18 +343,18 @@ test('page() does nothing past the ends: prev without hasPrev, next without hasN
   const flags = (n: string) => `<b id="${n}-f" data-sn-text="[$meta.${n}.hasPrev, $meta.${n}.hasNext].join()"></b>`;
   const requests = mockRequests({ 'GET /api/m': keyset, 'GET /api/a': keyset, 'GET /api/o': { items: [{ id: 1 }], total: 1 } });
   const r = await render(`
-    <sn-resource name="messages" src="/api/m" items="messages" total="total" key="uid" paginate="keyset" page-size="3" cursor="{at}"></sn-resource>
-    <sn-resource name="feed" src="/api/a" items="messages" key="uid" paginate="append" page-size="4" cursor="{at}"></sn-resource>
-    <sn-resource name="o" src="/api/o" items="items" total="total" key="id" paginate="offset" page-size="10"></sn-resource>
+    <sn-resource name="messages" src="/api/m" items="messages" total="total" key="uid" paginate="{ keyset: {at: $item.at}, size: 3 }"></sn-resource>
+    <sn-resource name="feed" src="/api/a" items="messages" key="uid" paginate="{ append: {at: $item.at}, size: 4 }"></sn-resource>
+    <sn-resource name="o" src="/api/o" items="items" total="total" key="id" paginate="{ numbered: true, size: 10 }"></sn-resource>
     ${flags('messages')}${flags('feed')}${flags('o')}
     <div data-sn-state="{ to: 'prev' }">
-      <button id="k-dir" data-sn-on-click="page('messages', to)"></button>
-      <button id="k-next" data-sn-on-click="page('messages', 'next')"></button>
-      <button id="k-first" data-sn-on-click="page('messages', 'first')"></button>
-      <button id="k-last" data-sn-on-click="page('messages', 'last')"></button>
-      <button id="a-next" data-sn-on-click="page('feed', 'next')"></button>
-      <button id="o-dir" data-sn-on-click="page('o', to); to = 'next'"></button>
-      <button id="o-first" data-sn-on-click="page('o', 'first')"></button>
+      <button id="k-dir" data-sn-on-click="page(messages, to)"></button>
+      <button id="k-next" data-sn-on-click="page(messages, 'next')"></button>
+      <button id="k-first" data-sn-on-click="page(messages, 'first')"></button>
+      <button id="k-last" data-sn-on-click="page(messages, 'last')"></button>
+      <button id="a-next" data-sn-on-click="page(feed, 'next')"></button>
+      <button id="o-dir" data-sn-on-click="page(o, to); to = 'next'"></button>
+      <button id="o-first" data-sn-on-click="page(o, 'first')"></button>
     </div>
     <p data-sn-text="messages.length + feed.length + o.length"></p>`, { requests });
   await r.settle();
@@ -362,8 +392,8 @@ test('page() does nothing past the ends: prev without hasPrev, next without hasN
 test('page() before the first load has come back does nothing for prev and next', async () => {
   const requests = mockRequests({ 'GET /api/m': keyset });
   const r = await render(`
-    <sn-resource name="messages" src="/api/m" items="messages" key="uid" paginate="keyset" page-size="3" cursor="{at}"></sn-resource>
-    <button data-sn-on-click="page('messages', 'next')"></button>
+    <sn-resource name="messages" src="/api/m" items="messages" key="uid" paginate="{ keyset: {at: $item.at}, size: 3 }"></sn-resource>
+    <button data-sn-on-click="page(messages, 'next')"></button>
     <ul><template data-sn-for="m in messages"><li data-sn-text="m.uid"></li></template></ul>`, { requests });
   r.root.querySelector('button')!.click();
   await r.settle();
@@ -375,7 +405,7 @@ test('embedded data is the first page: positions, total and the next cursor come
   // what a server writes for the first page (the request firstParams describes: limit=3&direction=first)
   const first = JSON.stringify({ messages: ALL.slice(0, 3), total: ALL.length });
   const requests = mockRequests({ 'GET /api/m': keyset });
-  const { root, settle } = await render(`<html><head><script type="application/json" data-sn-data="messages">${first}</script></head><body>${PAGE}</body></html>`, { requests });
+  const { root, settle } = await render(`<html><head><script type="application/json" data-sn-resource="messages">${first}</script></head><body>${PAGE}</body></html>`, { requests });
   await settle();
   const state = () => [[...root.querySelectorAll('li')].map((l) => l.textContent).join(','), root.querySelector('span')!.textContent, root.querySelector('b')!.textContent];
   expect(state()).toEqual(['1,2,3', '1–3 of 7 3', 'false,true']);
@@ -392,10 +422,10 @@ test('offset mode: embedded data is page 1, and page(3) asks for page 3', async 
     return { items: ALL.slice((p - 1) * n, p * n), total: ALL.length };
   } });
   const first = JSON.stringify({ items: ALL.slice(0, 3), total: ALL.length });
-  const { root, settle } = await render(`<html><head><script type="application/json" data-sn-data="o">${first}</script></head><body>
-    <sn-resource name="o" src="/api/o" items="items" total="total" key="uid" paginate="offset" page-size="3"></sn-resource>
+  const { root, settle } = await render(`<html><head><script type="application/json" data-sn-resource="o">${first}</script></head><body>
+    <sn-resource name="o" src="/api/o" items="items" total="total" key="uid" paginate="{ numbered: true, size: 3 }"></sn-resource>
     <span data-sn-text="[$meta.o.page, $meta.o.pages, $meta.o.from, $meta.o.to, $meta.o.hasPrev, $meta.o.hasNext].join()"></span>
-    <button data-sn-on-click="page('o', 3)"></button></body></html>`, { requests });
+    <button data-sn-on-click="page(o, 3)"></button></body></html>`, { requests });
   await settle();
   expect(root.querySelector('span')!.textContent).toBe('1,3,1,3,false,true');
   expect(requests.calls).toHaveLength(0);
@@ -412,10 +442,10 @@ test('page-model with embedded data: the data is the URL\'s page (here 3 of 3), 
   } });
   // what a server writes for /?page=3: the request ?skip=6&limit=3
   const third = JSON.stringify({ items: ALL.slice(6, 9), total: ALL.length });
-  const { root, settle } = await render(`<html><head><script type="application/json" data-sn-data="o">${third}</script></head><body>
-    <sn-resource name="o" src="/api/o" items="items" total="total" key="uid" paginate="offset" page-size="3" offset-param="skip" page-model="$url.page"></sn-resource>
+  const { root, settle } = await render(`<html><head><script type="application/json" data-sn-resource="o">${third}</script></head><body>
+    <sn-resource name="o" src="/api/o" items="items" total="total" key="uid" paginate="{ numbered: 'offset', size: 3, model: $url.page, params: { offset: 'skip' } }"></sn-resource>
     <span data-sn-text="[$meta.o.page, $meta.o.pages, $meta.o.from, $meta.o.to, $meta.o.hasPrev, $meta.o.hasNext].join()"></span>
-    <button data-sn-on-click="page('o', 'prev')"></button></body></html>`, { requests, url: 'http://localhost/?page=3' });
+    <button data-sn-on-click="page(o, 'prev')"></button></body></html>`, { requests, url: 'http://localhost/?page=3' });
   await settle();
   expect(root.querySelector('span')!.textContent).toBe('3,3,7,7,true,false');
   expect(requests.calls).toHaveLength(0);

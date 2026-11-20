@@ -20,22 +20,23 @@ reported. Nothing else to write.
 
 ## Sending a request
 
-One method attribute per element: `data-sn-get`, `-post`, `-put`, `-patch` or `-delete`, with a URL
+One method attribute per element: `data-sn-post`, `-put`, `-patch` or `-delete`, with a URL
 template (`{c.id}` reads the row in scope). With [`sinter({ apis })`](apis.md) it is a path relative to
 an API (`data-sn-delete="/contacts/{c.id}"`), and the operation must be one the API declares. Add other
-attributes as needed:
+attributes as needed. Data that a GET loads is a [resource](resources.md), not an action: its `src`
+reloads when the values it reads change.
 
 | Attribute | Does |
 | --- | --- |
 | `data-sn-trigger="input"` | fires on this DOM event instead of the default |
-| `data-sn-debounce="300"` | waits that many ms after the last trigger |
+| `data-sn-debounce="300"` | waits that many ms after the last trigger (a model waits with `data-sn-model-debounce`, [resources](resources.md)) |
 | `data-sn-body="expr"` | sends the value as JSON, instead of serializing a form |
 | `data-sn-encoding="form"` | sends `application/x-www-form-urlencoded` instead of JSON |
 | `data-sn-confirm="expr"` | asks first; a falsy value asks nothing |
 | `data-sn-optimistic="…"` | changes lists before the request ([below](#optimistic-updates)) |
 | `data-sn-then="…"`, `data-sn-catch="…"` | run after success or failure ([below](#then-and-catch)) |
 | `data-sn-concurrency` | what to do with triggers while one is pending |
-| `data-sn-apply="off"` | turns off [write-through](#write-through) for this element |
+| `data-sn-write-through="off"` | turns off [write-through](#write-through) for this element |
 | `data-sn-retry` | resend after a dropped connection: see [retry.md](retry.md) |
 
 ### Triggers
@@ -51,7 +52,8 @@ An `<a>` with a method attribute does not navigate. A `<button>` inside a form t
 method attribute is its own action, not a submit.
 
 ```html
-<input type="search" name="q" data-sn-get="/api/search?q={q}" data-sn-trigger="input" data-sn-debounce="300">
+<textarea name="draft" data-sn-model="draft" data-sn-put="/api/drafts/{id}" data-sn-body="{ text: draft }"
+          data-sn-trigger="input" data-sn-debounce="800" data-sn-concurrency="latest"></textarea>
 ```
 
 ### The body
@@ -62,7 +64,7 @@ method attribute is its own action, not a submit.
   numbers, a single checkbox a boolean, several checkboxes with one name an array of the checked
   values. Disabled controls are skipped.
 - A form with an `<input type="file">` is sent as `multipart/form-data`.
-- `GET` and `DELETE` without `data-sn-body` send no body.
+- `DELETE` without `data-sn-body` sends no body.
 
 `data-sn-encoding="form"` is for backends that expect a browser-style form post. A form's fields go
 as a browser would send them (repeated names stay repeated). With `data-sn-body`, the object's keys
@@ -104,13 +106,19 @@ use), sinter puts each message on the control with that name:
 - editing a control clears its error, and sending the form again clears them all.
 
 This applies to forms and to buttons inside them (`form="id"` counts) with `post`, `put`, `patch` or
-`delete`, as long as the action has no `data-sn-catch`. `GET` actions and local actions mark no
+`delete`, as long as the action has no `data-sn-catch`. Local actions mark no
 fields. To place a message yourself, point `aria-errormessage` at an element:
 
 ```html
 <input name="username" aria-errormessage="username-error">
 <small id="username-error" hidden></small>
 ```
+
+### Clearing a form
+
+A form's fields follow their `data-sn-model` state, so a form clears by clearing its state, after the
+send succeeds: `data-sn-then="body = ''"`. A `<button type="reset">` (or `form.reset()` in a component's
+script) restores the fields to their markup's values, and their models follow.
 
 ### `$error` in a form
 
@@ -143,8 +151,7 @@ codes instead of text, map them to your messages in this hook. Recipe: [field-er
 ## Pending state and concurrency
 
 While a request is pending, the element has `aria-busy="true"`, and a form in `block` mode is also
-disabled. `GET` actions abort the previous request when triggered again (latest wins). Mutations
-follow a policy, applied per element, so rows in a list never block each other:
+disabled. Actions follow a policy, applied per element, so rows in a list never block each other:
 
 | `data-sn-concurrency` | While one is pending | Default for |
 | --- | --- | --- |
@@ -164,12 +171,12 @@ succeeds, and undoes exactly that change if it fails.
 ```html
 <button data-sn-patch="/api/messages/{m.id}"
         data-sn-body="{is_flagged: !m.is_flagged}"
-        data-sn-optimistic="patch(m, {is_flagged: !m.is_flagged})"
+        data-sn-optimistic="merge(m, {is_flagged: !m.is_flagged})"
         data-sn-catch="emit('toast', $error.message)"
         data-sn-attr="{'aria-pressed': m.is_flagged ? 'true' : 'false'}">★</button>
 ```
 
-The expression may only call `patch`, `upsert` and `remove` (anything else is a build error, since
+The expression may only call `merge`, `upsert` and `remove` (anything else is a build error, since
 local state and side effects cannot be rolled back).
 
 ### Model
@@ -178,7 +185,7 @@ Each resource keeps a **base** (what the server last confirmed) and an ordered l
 **layers** (optimistic changes whose request is pending). What the page shows is the base with every
 layer applied on top, in order.
 
-- Triggering the action records its `patch`, `upsert` and `remove` calls as one layer and re-renders
+- Triggering the action records its `merge`, `upsert` and `remove` calls as one layer and re-renders
   the affected rows.
 - On success (2xx) the layer is committed into the base, then `then` runs, so a write in `then`
   goes on top and wins. What is on screen does not change at commit, so nothing flickers.
@@ -194,22 +201,21 @@ not wipe each other out when the first fails.
 
 ### Rules
 
-- A `patch` on an item the base no longer has is ignored; a `remove` of an absent item does nothing.
+- A `merge` on an item the base no longer has is ignored; a `remove` of an absent item does nothing.
 - On a paginated resource, `remove` also lowers `$meta.<name>.total` in the same layer.
 - A layer lives until its request settles: the 30 s timeout, and with `data-sn-retry` every try of
   its policy.
 - A bulk action puts all its changes into one layer, so they roll back together.
-- `$meta.<name>.pending` counts layers whose request has not settled.
 
 ### Typical cases
 
 | Action | Optimistic change |
 | --- | --- |
-| Flag or mark read | `patch(m, {is_flagged: …})` |
+| Flag or mark read | `merge(m, {is_flagged: …})` |
 | Delete or move | `remove(m)` |
-| Bulk mark read | one layer, one `patch` per selected message |
-| Toggle visibility | `patch(cal, {hidden: !cal.hidden})` |
-| Rename inline | `patch(i, {title})`, leaving edit mode on submit (below) |
+| Bulk mark read | one layer, one `merge` per selected message |
+| Toggle visibility | `merge(cal, {hidden: !cal.hidden})` |
+| Rename inline | `merge(i, {title})`, leaving edit mode on submit (below) |
 
 An inline edit leaves edit mode when the form is sent, not in `then`: `then` runs when the server
 answers, so the form would stay until then and the new title would wait for it. The request, the
@@ -218,7 +224,7 @@ rollback and `catch` still run after the form is gone.
 ```html
 <template data-sn-if="editingId === i.id">
   <form data-sn-patch="/api/items/{i.id}" data-sn-body="{ title }"
-        data-sn-optimistic="patch(i, { title })"
+        data-sn-optimistic="merge(i, { title })"
         data-sn-on-submit="editingId = null"
         data-sn-catch="emit('toast', $error.message)">…</form>
 </template>
@@ -235,7 +241,7 @@ URL and body which resources and rows the action reads.
 | Rule | When | Effect |
 | --- | --- | --- |
 | Confirm | the response holds an object of a schema `S` | every keyed list of `S` patches its item with that key; what the URL named is patched when it is an `S` |
-| Create | a `POST` to a keyed list's own URL, query included | the response's object (else the body merged with the response's key fields; else a refetch) is upserted. A filtered or paginated list is never inserted into |
+| Create | a `POST` to a keyed list's own URL, query included | the response's object (else the body merged with the response's key fields; else a reload) is upserted. A filtered or paginated list is never inserted into |
 | Update | a `PUT` or `PATCH` | the body patches the entity the URL named |
 | Delete | a `DELETE` of that list's URL plus one path segment, built from a row | the row is removed |
 
@@ -244,8 +250,7 @@ URL and body which resources and rows the action reads.
 - Patches merge: fields the response omits stay.
 - Nothing is matched by type alone. A response `Article` does not replace the single resource
   `article` unless the URL read it, and `DELETE /articles/{slug}/favorite` removes nothing.
-- `data-sn-apply="off"` turns it off for one element. `GET` actions and `data-sn-call` have no
-  write-through.
+- `data-sn-write-through="off"` turns it off for one element. `data-sn-call` has no write-through.
 - A `then` that does what a rule already does is the warning `SN510`. Dev builds log each
   application to the console.
 
@@ -257,21 +262,20 @@ a failure with `$error`. Both are handlers: state assignments and these built-in
 
 | Function | Effect |
 | --- | --- |
-| `refresh('contacts')`, `refresh('a', 'b')` | refetch the named resources |
-| `upsert('contacts', $result)` | insert or replace an item |
-| `patch(item, {…})` | change fields of an item, in the resource it came from |
+| `refresh(contacts)`, `refresh(a, b)` | reload the named resources |
+| `upsert(contacts, $result)` | insert or replace an item |
+| `merge(item, {…})` | change fields of an item, in the resource it came from |
 | `remove(item)` | remove an item from the resource it came from (a single resource becomes `null`) |
-| `page('messages', 'next')` | change the page of a paginated resource |
-| `showModal('edit')` | open `<dialog id="edit">`, nothing if it is open |
-| `close()`, `close('edit')` | close the nearest `<dialog>`, or the one with that id |
-| `reset()` | reset the nearest form |
+| `page(messages, 'next')` | change the page of a paginated resource |
+| `openDialog('edit')` | open `<dialog id="edit">`, nothing if it is open |
+| `closeDialog()`, `closeDialog('edit')` | close the nearest `<dialog>`, or the one with that id |
 | `emit('name', detail)` | dispatch a bubbling, cancelable `CustomEvent` from the element |
 | `navigate(url, { replace })` | go to `url` (relative to the page's): to this page with only parameters it reads changed, as a [same-page link](navigation.md#same-page-links), in the page; anywhere else the browser loads it, as a new history entry or, with `replace: true`, in the current one |
 | `run('id')` | start the action of the element with that id ([below](#run-an-action-from-a-handler)) |
 
-### Where `patch` and `remove` act
+### Where `merge` and `remove` act
 
-`patch(item, {…})` and `remove(item)` take no resource name: they change the item in the resource it
+`merge(item, {…})` and `remove(item)` take no resource name: they change the item in the resource it
 came from, found by its key, so every list and binding that reads that resource shows the change.
 The compiler knows where an item comes from:
 
@@ -280,7 +284,7 @@ The compiler knows where an item comes from:
   that takes one resource keeps its rows' source; one that takes two is an error);
 - an element of a resource: `contacts[0]`, `messages.find((m) => m.id === openId)`, also through a
   `data-sn-let` name;
-- a single resource: `patch(article, {…})`;
+- a single resource: `merge(article, {…})`;
 - a component's prop that is one of those, and an event detail the component emits from one
   (`data-sn-on-select="remove($event.detail)"`);
 - state a handler assigned one of those: `sel = m`, or a copy, `draft = structuredClone(c)`.
@@ -290,12 +294,12 @@ its message. The same entity in another resource (the article in `feed` and in `
 from write-through and server events.
 
 State holding a row is a snapshot: sinter keeps resources and `data-sn-let` names current, not values
-in state. `patch(sel, …)` still finds the right item through its key; to show the current row, keep
+in state. `merge(sel, …)` still finds the right item through its key; to show the current row, keep
 its key in state and derive the row with `data-sn-let`.
 
 ```html
 <form data-sn-post="/api/people" data-sn-body="draft"
-      data-sn-then="upsert('people', $result); draft = null; close()"
+      data-sn-then="upsert(people, $result); draft = null; closeDialog()"
       data-sn-catch="emit('toast', $error.message)">
 ```
 
@@ -340,6 +344,8 @@ export async function sha256(file, ctx) {
   method attribute or `data-sn-body` is an error.
 - It is an action in every other respect: triggers, debounce, `aria-busy`, concurrency,
   `data-sn-optimistic`, `then` with `$result`, `catch` with `$error`, and the unhandled-error path.
+- `data-sn-retry` applies to each request the function sends with `ctx.request`, with its own
+  idempotency key; the function runs once ([retry.md](retry.md)).
 - Arguments are expressions evaluated at trigger time (they see `$event`). The function receives
   them, then a context `{signal, request, el}`. `request` is `fetch` through your middleware
   (headers, 401 handling, allowed origins, timeout); `signal` aborts when the page is hidden; `el`
@@ -354,7 +360,7 @@ export async function sha256(file, ctx) {
   belongs. Expressions cannot call them.
 - `<sn-resource call="…">` is a resource fed by a function. It calls again when the arguments
   change, aborting the running call through `ctx.signal` and dropping its late result.
-  `paginate`, `each` and `cache` do not combine with `call`.
+  `paginate`, `for` and `cache` do not combine with `call`.
 - With JSDoc or TypeScript types, `sinter check` checks arguments against the parameters (without
   the trailing context) and `$result` against the return type.
 
@@ -370,7 +376,7 @@ for chaining, or for "mark read after the body loads":
 ```html
 <body data-sn-on-keydown-e="run('archive')">
   <span hidden id="mark-read" data-sn-call="mail.markRead(open)"
-        data-sn-optimistic="patch(open, {is_read: true})"></span>
+        data-sn-optimistic="merge(open, {is_read: true})"></span>
   <sn-resource name="body" call="mail.body(open)" when="open"
                then="$result && !open.is_read && run('mark-read')"></sn-resource>
 
@@ -378,9 +384,9 @@ for chaining, or for "mark read after the body loads":
           data-sn-optimistic="remove(open)">Archive</button>
 ```
 
-- The target is an element in the page (components included) that carries `data-sn-get`, `-post`,
+- The target is an element in the page (components included) that carries `data-sn-post`,
   `-put`, `-patch`, `-delete` or `data-sn-call`. The id must be a string literal naming exactly one
-  such element, outside any `data-sn-for` row, or the build fails (`SN311`). Pass a row through
+  such element, outside any `data-sn-for` row, or the build fails (`SN309`). Pass a row through
   state: `open = m; run('mark-read')`.
 - It enters where the trigger event would: debounce, confirm, concurrency, optimistic layer, busy
   state, `then`/`catch` all apply. No DOM event is dispatched, so the target's own `data-sn-on-*`
@@ -399,8 +405,8 @@ for chaining, or for "mark read after the body loads":
 - `run()` works in every handler (`data-sn-on-*`, `then`, `catch`, `<sn-resource then>`,
   `<sn-event then>`), not in value expressions or `data-sn-optimistic`.
 - A loop of actions that run each other (`data-sn-catch="run('save')"` on `#save`) is an endless
-  series of requests; nothing stops it at runtime. `sinter check --check-cycles` lists such cycles
-  as `SN509`.
+  series of requests; nothing stops it at runtime. `sinter check` and the build report such cycles
+  as `SN509`; a deliberate one, a guarded retry, stays a warning with `strict: { allow: { SN509: 'why' } }`.
 
 Recipe: [run-action](recipes/run-action.html).
 
@@ -449,12 +455,14 @@ becomes `question`). Uppercase is an error too: N is `shift-n`.
 
 Recipe: [keyboard-shortcuts](recipes/keyboard-shortcuts.html).
 
-## Suggestion lists
+## Lists you move through with the keys
 
-`data-sn-listbox` turns a text input into a combobox over a list of options:
+`data-sn-options` lets the arrow keys move a mark through a list of options, and Enter click the
+marked one. The focus stays on the element with the attribute. A text field with suggestions (a
+combobox) is one use:
 
 ```html
-<input data-sn-model="q" data-sn-listbox="hits" data-sn-on-dismiss="open = false">
+<input data-sn-model="q" data-sn-options="hits" data-sn-on-sn-dismiss="open = false">
 <ul id="hits" role="listbox" data-sn-show="open && hits.length">
   <template data-sn-for="h in hits">
     <li role="option" data-sn-on-click="pick(h)" data-sn-text="h"></li>
@@ -462,16 +470,37 @@ Recipe: [keyboard-shortcuts](recipes/keyboard-shortcuts.html).
 </ul>
 ```
 
-- The compiler adds `role="combobox"`, `aria-controls` and `aria-autocomplete="list"` to the input.
-- The value is the list's `id`. Left empty, the list is the nearest `[role="listbox"]` around the
-  input, for inputs rendered in a loop.
-- ArrowDown and ArrowUp mark an option (`aria-selected="true"`, scrolled into view). Enter clicks
-  the marked option, Tab the marked one or the only one. Escape fires a bubbling, cancelable
-  `dismiss` event on the input; one handler on a form can serve all its inputs, and an input's own
-  handler keeps it there with `$event.preventDefault()`. Other keys, and Enter with no marked
-  option, do what they always do.
-- Typing unmarks. A mouse press on an option does not take focus from the input. Picking is your
-  option's own click handler.
+A menu, a command palette or a selectable list is another: the element that holds the options takes
+the focus itself.
+
+```html
+<ul role="menu" data-sn-options>
+  <template data-sn-for="c in commands"><li role="menuitem" data-sn-on-click="run(c.id)" data-sn-text="c.label"></li></template>
+</ul>
+```
+
+- The value is the list's `id`. Left empty, the list is the element itself when it holds options,
+  else the nearest `[role="listbox"]` or `[role="menu"]` around it (for inputs rendered in a loop).
+- The options are the shown `[role="option"]`, `[role="menuitem"]`, `[role="menuitemcheckbox"]`
+  and `[role="menuitemradio"]` elements, except those with `aria-disabled="true"`.
+- The mark: `aria-activedescendant` on the element points at the marked option (an option without
+  an `id` gets one), the option has `data-sn-marked` (style it with `[data-sn-marked]`), and an
+  `option` also `aria-selected="true"`. The option is scrolled into view.
+- ArrowDown and ArrowUp move the mark; ArrowRight and ArrowLeft instead when the list or the element
+  has `aria-orientation="horizontal"`. Enter clicks the marked option. Escape fires a bubbling,
+  cancelable `sn-dismiss` event on the element; one handler on a form can serve all its inputs, and an
+  input's own handler keeps it there with `$event.preventDefault()`. Escape stays with the list when it
+  closes something (a text field's suggestions, a mark, or a `sn-dismiss` handler that calls
+  `$event.preventDefault()`); otherwise it goes on, so a menu in a `<dialog>` lets the dialog close. Other keys, and Enter with no
+  marked option, do what they always do. Picking is your option's own click handler.
+- **On a text field** the compiler adds `role="combobox"`, `aria-controls` and
+  `aria-autocomplete="list"`. Tab clicks the marked option, or the only one; up from the first
+  option goes back to the field; typing unmarks; a mouse press on an option does not take the focus
+  from the input. The left and right arrows, Home, End and Space stay the field's.
+- **On another element** the compiler adds `tabindex="0"` unless it has a `tabindex`. Home and End
+  mark the first and last option, Space clicks like Enter, and the mark stays after a pick.
+- It does not go on a `<select>` or a non-text `<input>`, which have keys of their own (`SN102`).
+- A control of its own inside the list (a filter field, a button) keeps its keys, unless it is an option.
 
 ## Dialogs
 
@@ -484,15 +513,15 @@ Use the native `<dialog>`. A button that only opens it needs no handler: `comman
 
 <dialog id="edit">
   <form data-sn-post="/api/people" data-sn-body="draft"
-        data-sn-then="upsert('people', $result); draft = null; close()">
+        data-sn-then="upsert(people, $result); draft = null; closeDialog()">
     <input data-sn-model="draft.name" required>
     <button>Save</button>
   </form>
 </dialog>
 ```
 
-- `showModal('edit')` and `close('edit')` are for opening or closing from a handler, such as a
-  `then` after a request or a custom event. `close()` alone closes the nearest dialog. The id must
+- `openDialog('edit')` and `closeDialog('edit')` are for opening or closing from a handler, such as a
+  `then` after a request or a custom event. `closeDialog()` alone closes the nearest dialog. The id must
   be a string literal naming a `<dialog id>` on the page or in the components it uses, or the build fails
   (`SN309`).
 - Bindings inside a dialog render when it opens. A resource that only dialogs read loads with low
@@ -533,13 +562,12 @@ optimistic change is one layer, so it rolls back as a whole. Recipe: [row-select
   nearest element that handles a click wins. Custom events from `emit()` are different; they
   reach every ancestor with a handler, inner first, until one prevents the default.
 - `then` runs after write-through, so what `then` writes has the last word.
-- A later refetch or server event also beats an optimistic change that has already committed, like
+- A later reload or server event also beats an optimistic change that has already committed, like
   any later write to the base.
 - `data-sn-confirm` with a falsy value skips the question, not the action.
 - `$error` outside a form and outside `data-sn-catch` is a build error (`SN201`); inside
   `data-sn-catch` it is that action's own error, and `data-sn-catch` also switches off the form's
   automatic field errors.
-- A `GET` action cancelled by a newer trigger is a failure for its optimistic layer.
 
 See also: [resources.md](resources.md), [sync.md](sync.md), [retry.md](retry.md),
 [configuration.md](configuration.md), [attributes.md](attributes.md), [diagnostics.md](diagnostics.md).

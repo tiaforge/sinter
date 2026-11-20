@@ -5,8 +5,8 @@ import { compile } from '../../src/compiler/index.js';
 import { staticPattern } from '../../src/project.js';
 
 const files: Record<string, string> = {
-  '/p/src/components/site-footer.html': '<template data-sn-component="">\n<footer data-sn-state="{ n: 0 }">\n  <button data-sn-on-click="n++">+</button><b data-sn-text="n"></b>\n</footer>\n</template>\n',
-  '/p/src/components/site-title.html': '<template data-sn-component="{ t: string }"><h1 class="t" data-sn-text="t"></h1></template>\n<style>.t { color: red; }</style>\n',
+  '/p/src/components/site-footer.html': '<template data-sn-props="">\n<footer data-sn-state="{ n: 0 }">\n  <button data-sn-on-click="n++">+</button><b data-sn-text="n"></b>\n</footer>\n</template>\n',
+  '/p/src/components/site-title.html': '<template data-sn-props="{ t: string }"><h1 class="t" data-sn-text="t"></h1></template>\n<style>.t { color: red; }</style>\n',
 };
 const build = (body: string, more: Record<string, unknown> = {}) => compile(`<!doctype html><html><head><title>x</title></head><body>${body}</body></html>`, {
   file: '/p/about.html', root: '/p', dev: false, prerender: true, moduleSrc: '/@sinter/about.html.js',
@@ -17,7 +17,7 @@ const build = (body: string, more: Record<string, unknown> = {}) => compile(`<!d
 
 describe('a page with nothing to run', () => {
   test('no script, no early script (not even for the app\'s early module), the components\' styles linked', () => {
-    const out = build('<site-title data-sn-prop="{ t: \'About\' }"></site-title><p>Hi.</p>');
+    const out = build('<site-title data-sn-with="{ t: \'About\' }"></site-title><p>Hi.</p>');
     expect(out.static).toBe(true);
     expect(out.runtime).toEqual([]);
     expect(out.early).toBeNull();
@@ -54,7 +54,7 @@ describe('why a page needs the runtime', () => {
       'src/components/site-footer.html:3 about.html must ship no JavaScript (`sinter({ static })`), but `data-sn-on-click` runs in the browser',
       'src/components/site-footer.html:3 about.html must ship no JavaScript (`sinter({ static })`), but `data-sn-text` runs in the browser',
     ]);
-    expect(build('<site-title data-sn-prop="{ t: \'About\' }"></site-title>', { static: true }).diagnostics).toEqual([]);
+    expect(build('<site-title data-sn-with="{ t: \'About\' }"></site-title>', { static: true }).diagnostics).toEqual([]);
   });
 });
 

@@ -23,7 +23,7 @@ test('a resource read only inside dialogs (directly, in a template of the dialog
     <sn-resource name="byStream" src="/api/st" key="id"></sn-resource>
     <sn-resource name="byMeta" src="/api/m"></sn-resource>
     <sn-resource name="unread" src="/api/un"></sn-resource>
-    <sn-sync src="/events?t={byStream.length}"><sn-event name="e" resource="labels" op="refetch"></sn-event></sn-sync>
+    <sn-sync src="/events?t={byStream.length}"><sn-event name="e" resource="labels" op="refresh"></sn-event></sn-sync>
     <p data-sn-text="dep.x"></p>
     <button data-sn-on-click="sel = byHandler.id">h</button>
     <button data-sn-delete="/api/a/{byAction.id}">a</button>
@@ -63,7 +63,7 @@ test('the preload link of a low-priority resource carries fetchpriority="low", t
 });
 
 test('embedded data: no request, so no mark', () => {
-  const out = compileParts(`<!doctype html><html><head><script type="application/json" data-sn-data="emb">{"y":1}</script></head><body>
+  const out = compileParts(`<!doctype html><html><head><script type="application/json" data-sn-resource="emb">{"y":1}</script></head><body>
     <sn-resource name="emb" src="/api/emb"></sn-resource><dialog><p data-sn-text="emb.y"></p></dialog></body></html>`, opts(false));
   expect(out.diagnostics.filter((d) => d.severity === 'error')).toEqual([]);
   expect(out.ir.resources[0]!.lo).toBeUndefined();

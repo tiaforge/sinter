@@ -19,6 +19,8 @@ export { compileParts };
 export { COMPLEXITY_DEFAULTS, type ComplexityLimits, type ComplexityOptions } from './complexity.js';
 
 export const PACKAGE = '@tiaforge-ui/sinter';
+/** what compiled modules import: the core and each feature, `@tiaforge-ui/sinter/runtime/<feature>` */
+export const RUNTIME = `${PACKAGE}/runtime`;
 /** lazy packages' generated modules (lazy-build.ts): `<pkg>.js` is the loader */
 const LAZY_PREFIX = '/@sinter/lazy/';
 /** the built-in messages: a helper namespace with this module is sinter's `m` */
@@ -142,7 +144,7 @@ function lazyScripts(parts: CompiledParts, options: CompileOptions): string {
   const specs = [...new Set(list.flatMap((x) => x.lazy!))].sort();
   const loader = (s: string) => `$ls$${specs.indexOf(s)}`;
   const file = (m: string) => `${options.root.replace(/\/$/, '')}${m}`;
-  return `import { later as $later } from '${PACKAGE}/lazy';\n`
+  return `import { later as $later } from '${RUNTIME}/lazy';\n`
     + specs.map((s) => `import { load as ${loader(s)} } from ${JSON.stringify(`${LAZY_PREFIX}${s}.js`)};\n`).join('')
     + list.map((x) => `const ${x.local} = $later(() => import(${JSON.stringify(x.module)}).then((m) => m[${JSON.stringify(x.export)}]), [${x.lazy!.map(loader).join(', ')}], ${options.dev ? 'null' : JSON.stringify(`__SN_CHUNK__${file(x.module)}__`)}, import.meta.url);\n`).join('');
 }
@@ -190,7 +192,7 @@ function earlyLines(early: EarlyParts | null, options: Pick<CompileOptions, 'hel
   const page = early ? earlyPage(early) : null;
   // a page with nothing to wait for (no requests, no messages, no app early module's dictionary): `run`, one step
   const simple = !!early && !observe && !req && (fixed || !Object.values(options.helpers.namespaces).some((n) => n.module === MESSAGES));
-  lines.push(`import { ${[observe ? 'observe' : simple ? 'run' : 'start', ...(early ? ['$k', ...page!.uses] : []), ...(req ? ['requests', ...(app ? ['configured'] : [])] : []), ...(pages ? ['withParams'] : [])].join(', ')} } from '${PACKAGE}/early';`);
+  lines.push(`import { ${[observe ? 'observe' : simple ? 'run' : 'start', ...(early ? ['$k', ...page!.uses] : []), ...(req ? ['requests', ...(app ? ['configured'] : [])] : []), ...(pages ? ['withParams'] : [])].join(', ')} } from '${RUNTIME}/early';`);
   let messages: string | null = null;
   const byModule = new Map<string, string[]>();
   if (early) {
@@ -216,7 +218,7 @@ function earlyLines(early: EarlyParts | null, options: Pick<CompileOptions, 'hel
   for (const [mod, specs] of byModule) lines.push(`import { ${specs.join(', ')} } from ${JSON.stringify(mod)};`);
   // the built-in formatters the early bindings call, from the package (not the early runtime, which the build shares
   // between pages): each early file bundles only those it calls, beside the messages module that sets its locale
-  if (early?.formatters?.length) lines.push(`import { ${early.formatters.join(', ')} } from '${PACKAGE}';`);
+  if (early?.formatters?.length) lines.push(`import { ${early.formatters.join(', ')} } from '${RUNTIME}';`);
   // observe: the early script reads the dictionary's state (has it arrived?) from the messages module
   if (messages) lines.push(observe && !fixed ? messages.replace('ready as $ready }', 'ready as $ready, state as $state }') : messages);
   // a page in one language: its text is compiled in, nothing to wait for
@@ -241,10 +243,10 @@ function pageLines(parts: CompiledParts, options: Pick<CompileOptions, 'helpers'
   const lines = new MappedLines();
   // the page module is `async`: it waits for the parse, and for the early file if the page has one
   const core = ['mount', '$k', parts.early ? 'rendered' : 'parsed', ...parts.helpers.builtin];
-  lines.push(`import { ${core.join(', ')} } from '${PACKAGE}';`);
+  lines.push(`import { ${core.join(', ')} } from '${RUNTIME}';`);
   // prefixed (a helper may be named as a feature: `keys`, `form`, …), and an identifier (`query-links` is `sn$query_links`)
   const local = (f: string) => `sn$${f.replace(/-/g, '_')}`;
-  for (const f of parts.features) lines.push(`import ${local(f)} from '${PACKAGE}/${f}';`);
+  for (const f of parts.features) lines.push(`import ${local(f)} from '${RUNTIME}/${f}';`);
   // next-page data: the app's pages, described in one module every page shares
   // swaps: the stub with the build's list, on every page that swaps (not one that opts out)
   const swaps = !!options.swap && !parts.swapOff;
@@ -265,7 +267,7 @@ function pageLines(parts: CompiledParts, options: Pick<CompileOptions, 'helpers'
     const specs = [...new Set(parts.lazyHelpers.flatMap((x) => x.lazy))].sort();
     const loader = (s: string) => `$lp$${specs.indexOf(s)}`;
     const file = (m: string) => `${(options.root ?? '').replace(/\/$/, '')}${m}`;
-    lines.push(`import { later as $laterH } from '${PACKAGE}/lazy';`);
+    lines.push(`import { later as $laterH } from '${RUNTIME}/lazy';`);
     for (const s of specs) lines.push(`import { load as ${loader(s)} } from ${JSON.stringify(`${LAZY_PREFIX}${s}.js`)};`);
     for (const x of parts.lazyHelpers) lines.push(`const ${x.local} = $laterH(() => import(${JSON.stringify(x.module)}), [${x.lazy.map(loader).join(', ')}], ${options.dev || !x.module.startsWith('/') ? 'null' : JSON.stringify(`__SN_CHUNK__${file(x.module)}__`)}, import.meta.url);`);
   }
@@ -295,14 +297,14 @@ function pageLines(parts: CompiledParts, options: Pick<CompileOptions, 'helpers'
   for (const x of parts.lazy) lines.push(`import { load as ${x.local} } from ${JSON.stringify(`${LAZY_PREFIX}${x.spec}.js`)};`);
   if (options.config) lines.push(`import ${JSON.stringify(options.config)};`);
   // the build's origins join the runtime's allowlist, after the app's config module (imports run first): listed once
-  if (options.origins?.length) lines.push(`import { $origins } from '${PACKAGE}';`, `$origins(${JSON.stringify(options.origins)});`);
+  if (options.origins?.length) lines.push(`import { $origins } from '${RUNTIME}';`, `$origins(${JSON.stringify(options.origins)});`);
   // `sinter({ apis })`: the runtime sends each API's credentials and headers, and `apiOf(url)` names a request's API
   if (options.apis?.list.length) {
     const table = options.apis.list.map((a) => ({ n: a.name, b: a.base, ...(a.credentials ? { c: a.credentials } : {}), ...(a.headers ? { h: a.headers } : {}) }));
-    lines.push(`import { $apis } from '${PACKAGE}';`, `$apis(${JSON.stringify(table)});`);
+    lines.push(`import { $apis } from '${RUNTIME}';`, `$apis(${JSON.stringify(table)});`);
   }
   // images from the API: the resizing service's URLs (docs/images.md, step 2)
-  if (parts.remote) lines.push(`import { remote } from '${PACKAGE}/remote';`);
+  if (parts.remote) lines.push(`import { remote } from '${RUNTIME}/remote';`);
   lines.push('');
   if (parts.remote) lines.push(`const $ri = remote(${JSON.stringify(parts.remote)});`);
   lines.push(`const ir = ${JSON.stringify(compactIR(parts.ir))};`);

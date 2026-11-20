@@ -5,7 +5,7 @@ type ComponentName = "article-meta" | "article-preview" | "conduit-footer" | "co
 interface Slot<T> { readonly 'sinter.slot': T }
 /** every layout of the app, by its tag */
 type LayoutName = "conduit-layout";
-/** the props each layout declares (`data-sn-layout`) */
+/** the props each layout declares (`data-sn-props` on its `<html>`) */
 interface LayoutProps {
   "conduit-layout": { nav: string; title: string; description: string };
 }

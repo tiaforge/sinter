@@ -1,4 +1,4 @@
-<two-layout data-sn-prop="{ title: info ? 'A: ' + info.name : 'A', description: info?.about ?? '', kind: 'a' }">
+<two-layout data-sn-with="{ title: info ? 'A: ' + info.name : 'A', description: info?.about ?? '', kind: 'a' }">
   <sn-resource name="info" src="/api/a.json" items="info"></sn-resource>
   <h1 id="heading" data-sn-text="info?.name"></h1>
   <!-- a morph: the same name on both pages (B's heading) -->

@@ -12,7 +12,7 @@ import sinter from '../../src/vite.js';
 const src = resolve(__dirname, '../../src');
 const root = mkdtempSync(join(tmpdir(), 'sinter-images-'));
 afterAll(() => rmSync(root, { recursive: true, force: true }));
-const alias = [{ find: '@tiaforge-ui/sinter', replacement: `${src}/index.ts` }];
+const alias = [{ find: /^@tiaforge-ui\/sinter\/runtime$/, replacement: `${src}/runtime-entry.ts` }, { find: /^@tiaforge-ui\/sinter\/(?:runtime\/)?([\w-]+)$/, replacement: `${src}/$1.ts` }, { find: /^@tiaforge-ui\/sinter$/, replacement: `${src}/index.ts` }];
 /** a PostCSS plugin of the app's: \`x-thumb\` becomes \`width\` */
 const xThumb = { postcssPlugin: 'x-thumb', Declaration: { 'x-thumb': (d: { prop: string }) => { d.prop = 'width'; } } };
 
@@ -40,7 +40,7 @@ beforeAll(async () => {
   writeFileSync(join(root, 'src/app.css'), "@import './avatar.css' layer(ui);\n.hero img { width: 100% }\n");
   writeFileSync(join(root, 'src/avatar.css'), ':where([data-avatar]) { --_av: calc(var(--avatar-size, 2.5rem)); display: inline-grid; inline-size: var(--_av); block-size: var(--_av); overflow: hidden; }\n:where([data-avatar]) > :where(img) { inline-size: 100%; block-size: 100%; object-fit: cover; }\n');
   mkdirSync(join(root, 'src/components'));
-  writeFileSync(join(root, 'src/components/photo-card.html'), '<template data-sn-component=""><img src="../../img/photo.jpg" width="120" height="120" style="object-fit: cover" alt="Card"></template>');
+  writeFileSync(join(root, 'src/components/photo-card.html'), '<template data-sn-props=""><img src="../../img/photo.jpg" width="120" height="120" style="object-fit: cover" alt="Card"></template>');
   writeFileSync(join(root, 'index.html'), `<!doctype html><html><head><title>Images</title><script type="module" src="/src/main.js"></script></head><body>
 <span data-avatar><img src="img/photo.jpg" alt="Avatar"></span>
 <div class="hero"><img src="img/photo.jpg" width="300" alt="Fluid by CSS"></div>

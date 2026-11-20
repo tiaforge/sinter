@@ -54,7 +54,7 @@ test('with `cache`: an entry without data is what the early file writes in, so t
   expect(loading()).not.toBeNull();
   // an object cached as null (RealWorld's signed-out `{user: null}`): the signed-out branch is in the first paint
   // with an embedded resource beside it, as RealWorld's article page served by sinter-axum
-  const page = `<!doctype html><html><head><script type="application/json" data-sn-data="a">{"a":{"title":"T"}}</script></head><body>
+  const page = `<!doctype html><html><head><script type="application/json" data-sn-resource="a">{"a":{"title":"T"}}</script></head><body>
   <sn-resource name="a" src="/api/a" items="a"></sn-resource>
   <sn-resource cache name="user" src="/api/user" items="user"></sn-resource>
   <template data-sn-if="user"><p id="in">Signed in</p></template><template data-sn-else><p id="out">Sign in</p></template>
@@ -75,7 +75,7 @@ test('with `cache`: an entry without data is what the early file writes in, so t
 test('a `when` over state, or a status field the early file does not know: left to the page module', async () => {
   await firstPaint(PAGE('when="open"').replace('<body>', '<body data-sn-state="{ open: true }">'));
   expect(loading()).toBeNull();
-  await firstPaint(PAGE('paginate="offset" page-size="2"', '$meta.c.loading && !$meta.c.total'));
+  await firstPaint(PAGE('paginate="{ numbered: true, size: 2 }"', '$meta.c.loading && !$meta.c.total'));
   expect(loading()).toBeNull();
 });
 
@@ -96,10 +96,10 @@ test('the whole status, as a helper reads it: every field as at mount', async ()
   await firstPaint(PAGE('', 'idle($meta.c)'), { helpers });
   expect(loading()).not.toBeNull();
   // paginated: its pager fields are not known early, and a binding that reads one is the page module's
-  await firstPaint(PAGE('paginate="offset" page-size="2"', 'idle($meta.c)'), { helpers });
+  await firstPaint(PAGE('paginate="{ numbered: true, size: 2 }"', 'idle($meta.c)'), { helpers });
   expect(loading()).toBeNull();
   // one that reads only what is known renders early
-  await firstPaint(PAGE('paginate="offset" page-size="2"', '((m) => m.loading)($meta.c) && !c.length'.replace('((m) => m.loading)($meta.c)', 'first($meta.c)')), { helpers: { ...helpers, first: (m: { loading: boolean }) => m.loading } });
+  await firstPaint(PAGE('paginate="{ numbered: true, size: 2 }"', '((m) => m.loading)($meta.c) && !c.length'.replace('((m) => m.loading)($meta.c)', 'first($meta.c)')), { helpers: { ...helpers, first: (m: { loading: boolean }) => m.loading } });
   expect(loading()).not.toBeNull();
 });
 
@@ -115,7 +115,7 @@ test('with next-page data in the app, the early binding first checks this tab ho
 });
 
 test('embedded rows chosen by the URL between an embedded resource and one that is not: in the first paint (as before)', async () => {
-  const page = `<!doctype html><html><head><script type="application/json" data-sn-data="all">{"c":[{"id":1,"name":"Ada"},{"id":2,"name":"Grace"}]}</script></head><body>
+  const page = `<!doctype html><html><head><script type="application/json" data-sn-resource="all">{"c":[{"id":1,"name":"Ada"},{"id":2,"name":"Grace"}]}</script></head><body>
     <sn-resource name="user" src="/api/user"></sn-resource>
     <sn-resource name="mine" src="/api/mine" items="c" key="id" when="user"></sn-resource>
     <sn-resource name="all" src="/api/all" items="c" key="id"></sn-resource>

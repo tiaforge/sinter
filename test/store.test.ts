@@ -6,7 +6,7 @@ test('writes made while a load is in flight survive its older response', () => {
   r.replace([{ id: 1, t: 'old' }]);
   const mark = r.startLoad();          // GET sent
   r.upsert({ id: 2, t: 'new' });      // POST answered, `then` upserts
-  r.patch('1', { t: 'edited' });      // a server event patches
+  r.merge('1', { t: 'edited' });      // a server event patches
   r.replace([{ id: 1, t: 'old' }]);    // the GET answers with data from before both writes
   r.endLoad(mark, true);
   expect(r.all().map((x) => `${x.id}:${x.t}`)).toEqual(['1:edited', '2:new']);
@@ -50,9 +50,9 @@ test('a sorted list changed in place matches a full sort, ties in arrival order'
   const r = createResource<{ id: number; n: string }>('c', { key: ['id'], order: 'n' });
   r.replace([{ id: 1, n: 'b' }, { id: 2, n: 'a' }, { id: 3, n: 'b' }]);
   expect(r.all().map((x) => x.id)).toEqual([2, 1, 3]);
-  r.patch('3', { n: 'a' });          // ties with 2, which arrived first
+  r.merge('3', { n: 'a' });          // ties with 2, which arrived first
   r.upsert({ id: 4, n: 'a' });       // a new key ties last
-  r.patch('2', { n: 'a' });          // an updated key keeps its arrival place among ties
+  r.merge('2', { n: 'a' });          // an updated key keeps its arrival place among ties
   expect(r.all().map((x) => x.id)).toEqual([2, 3, 4, 1]);
   r.remove('3');
   r.upsert({ id: 3, n: 'a' });       // removed and added again: arrives anew

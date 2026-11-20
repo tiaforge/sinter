@@ -28,7 +28,7 @@ if (!existsSync(join(realworld, 'node_modules/@tiaforge-ui/sinter/package.json')
 const minimalOut = compile('<html><body><sn-resource name="user" src="/api/user"></sn-resource><p data-sn-text="user.name"></p></body></html>', {
   file: '/min/index.html', root: '/min', dev: false, helpers: { module: null, names: [], namespaces: {} }, readFile: () => '', moduleSrc: '/m.js',
 });
-const minimal = minimalOut.module.replace(/'@tiaforge-ui\/sinter(\/[a-z]+)?'/g, (_, sub) => `'${dist}${sub ?? '/index'}.js'`);
+const minimal = minimalOut.module.replace(/'@tiaforge-ui\/sinter(\/runtime)?(\/[a-z-]+)?'/g, (_, rt, sub) => `'${dist}${sub ?? (rt ? '/runtime-entry' : '/index')}.js'`);
 
 /** The same page in an app with swaps on: the stub and the build's list (`sinter({ swap: true })`) */
 const swapList = join(dir, 'swap-list.js');
@@ -36,7 +36,7 @@ writeFileSync(swapList, `import { swap } from '${dist}/swap.js';\nexport default
 const minimalSwapOut = compile('<html><body><sn-resource name="user" src="/api/user"></sn-resource><p data-sn-text="user.name"></p></body></html>', {
   file: '/min/index.html', root: '/min', dev: false, helpers: { module: null, names: [], namespaces: {} }, readFile: () => '', moduleSrc: '/m.js', swap: true, swapList,
 });
-const minimalSwap = minimalSwapOut.module.replace(/'@tiaforge-ui\/sinter(\/[a-z]+)?'/g, (_, sub) => `'${dist}${sub ?? '/index'}.js'`);
+const minimalSwap = minimalSwapOut.module.replace(/'@tiaforge-ui\/sinter(\/runtime)?(\/[a-z-]+)?'/g, (_, rt, sub) => `'${dist}${sub ?? (rt ? '/runtime-entry' : '/index')}.js'`);
 
 /**
  * The core as a build keeps it (docs/proposals/site-core.md), by entry: the parts that stay on. A minimal page's are its
@@ -48,8 +48,8 @@ const flagsFile = resolve(dist, 'runtime/flags.js');
 const entries = {
   minimal,
   'minimal, swaps': minimalSwap,
-  core: `export { mount, $k } from '${dist}/index.js';`,
-  'core, no parts': `export { mount, $k } from '${dist}/index.js';`,
+  core: `export { mount, $k } from '${dist}/runtime-entry.js';`,
+  'core, no parts': `export { mount, $k } from '${dist}/runtime-entry.js';`,
   sse: `export { default } from '${dist}/sse.js';`,
   ws: `export { webSocketTransport } from '${dist}/ws.js';`,
   optimistic: `export { default } from '${dist}/optimistic.js';`,
@@ -61,7 +61,7 @@ const entries = {
   retry: `export { retry } from '${dist}/retry.js';`,
   versions: `export { default } from '${dist}/versions.js';`,
   keys: `export { default } from '${dist}/keys.js';`,
-  apply: `export { default } from '${dist}/apply.js';`,
+  'write-through': `export { default } from '${dist}/write-through.js';`,
   prefetch: `export { prefetch } from '${dist}/prefetch.js';`,
   fields: `export { default } from '${dist}/fields.js';`,
   form: `export { default } from '${dist}/form.js';`,
@@ -85,7 +85,7 @@ const entries = {
   remote: `export { remote } from '${dist}/remote.js';`,
   dev: `export { default } from '${dist}/dev.js';`,
   // what the contacts example loads: core + sse + optimistic + persist
-  page: `export { mount, $k } from '${dist}/index.js'; export { default as a } from '${dist}/sse.js'; export { default as b } from '${dist}/optimistic.js'; export { default as c } from '${dist}/persist.js';`,
+  page: `export { mount, $k } from '${dist}/runtime-entry.js'; export { default as a } from '${dist}/sse.js'; export { default as b } from '${dist}/optimistic.js'; export { default as c } from '${dist}/persist.js';`,
 };
 // bytes, gzip -9; article: what the page loads, its page module and the app's own code included
 // the minimal page in an app with swaps on (2026-11-16): the stub every page that swaps carries (1.7 KB, the

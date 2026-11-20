@@ -8,7 +8,7 @@ import { firstPaint, mockRequests, render } from '../../src/testing/index.js';
 const files = {
   'post.txt': 'Hello <world> </script> ok',
   'data/tags.json': JSON.stringify({ tags: [{ id: 1, name: 'a' }, { id: 2, name: 'b' }] }),
-  'src/components/x-note.html': '<template data-sn-component="{}"><p><sn-resource name="note" src="file:./note.txt"></sn-resource><span data-sn-text="note"></span></p></template>',
+  'src/components/x-note.html': '<template data-sn-props="{}"><p><sn-resource name="note" src="file:./note.txt"></sn-resource><span data-sn-text="note"></span></p></template>',
   'src/components/note.txt': 'from the component folder',
 };
 
@@ -82,20 +82,20 @@ describe('a file: resource', () => {
   });
 
   test('SN332: what would load, page or change it', () => {
-    for (const a of ['refresh="30s"', 'cache', 'paginate="offset" page-size="2"', 'when="true"', 'then="x = 1"', 'early="off"', 'order="name"', 'method="POST"']) {
+    for (const a of ['refresh="30s"', 'cache', 'paginate="{ numbered: true, size: 2 }"', 'when="true"', 'then="x = 1"', 'early="off"', 'order="name"', 'method="POST"']) {
       const e = errors(build(`<div data-sn-state="{ x: 0 }"><sn-resource name="r" src="file:./post.txt" ${a}></sn-resource><p data-sn-text="r"></p></div>`));
       expect(e.some((x) => x.startsWith(`SN332 \`${a.split('=')[0]}\``)), a).toBe(true);
     }
     const json = (body: string) => errors(build(`<sn-resource name="tags" src="file:/data/tags.json" items="tags" key="id"></sn-resource>${body}`));
-    expect(json('<button data-sn-on-click="refresh(\'tags\')"></button><p data-sn-text="tags.length"></p>')).toEqual([expect.stringMatching(/^SN332 `refresh\(\)` would load or change `tags`/)]);
-    expect(json('<button data-sn-on-click="upsert(\'tags\', { id: 3 })"></button><p data-sn-text="tags.length"></p>')).toEqual([expect.stringMatching(/^SN332 `upsert\(\)`/)]);
+    expect(json('<button data-sn-on-click="refresh(tags)"></button><p data-sn-text="tags.length"></p>')).toEqual([expect.stringMatching(/^SN332 `refresh\(\)` would load or change `tags`/)]);
+    expect(json('<button data-sn-on-click="upsert(tags, { id: 3 })"></button><p data-sn-text="tags.length"></p>')).toEqual([expect.stringMatching(/^SN332 `upsert\(\)`/)]);
     expect(json('<template data-sn-for="t in tags"><button data-sn-on-click="remove(t)"></button></template>')).toEqual([expect.stringMatching(/^SN332 `remove\(\)` (would load or )?changes? `tags`, a `file:` resource/)]);
     expect(json('<sn-sync src="/s"><sn-event name="added" resource="tags" op="upsert"></sn-event></sn-sync><p data-sn-text="tags.length"></p>')).toEqual([expect.stringMatching(/^SN332 an `<sn-event>` changes `tags`/)]);
   });
 
   test('SN332: file: is a resource\'s source only, not an action\'s or a stream\'s', () => {
     expect(errors(build('<button data-sn-post="file:./post.txt"></button>'))).toEqual([expect.stringMatching(/^SN332 `file:` is a source for `<sn-resource src>`.*An action sends a request/)]);
-    expect(errors(build('<sn-resource name="r" src="/api/r"></sn-resource><sn-sync src="file:./s"><sn-event name="x" resource="r" op="refetch"></sn-event></sn-sync><p data-sn-text="r"></p>'))).toEqual([expect.stringMatching(/^SN332 .*A stream sends a request/)]);
+    expect(errors(build('<sn-resource name="r" src="/api/r"></sn-resource><sn-sync src="file:./s"><sn-event name="x" resource="r" op="refresh"></sn-event></sn-sync><p data-sn-text="r"></p>'))).toEqual([expect.stringMatching(/^SN332 .*A stream sends a request/)]);
   });
 
   test('with sinter({ apis }): file: is read as a file, and `file` is a reserved API name (SN329)', async () => {

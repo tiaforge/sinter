@@ -8,11 +8,11 @@ import { firstPaint, render } from '../../src/testing/index.js';
 
 const N = 10;
 const names = Array.from({ length: N }, (_, i) => `c${i}`);
-const components = Object.fromEntries(names.map((n, i) => [`${n}-block`, `<template data-sn-component="{ b: { type: unknown; text: string } }"><p data-sn-attr="{ 'data-c': ${i} }" data-sn-text="b.text"></p></template>`]));
+const components = Object.fromEntries(names.map((n, i) => [`${n}-block`, `<template data-sn-props="{ b: { type: unknown; text: string } }"><p data-sn-attr="{ 'data-c': ${i} }" data-sn-text="b.text"></p></template>`]));
 // the map names each candidate once, and c0 a second time under another key
 const MAP = `{ ${names.map((n) => `${n}: '${n}-block'`).join(', ')}, again: 'c0-block' }`;
 const page = (blocks: string, live = true) => `<div data-sn-state="{ blocks: ${blocks} }">${live ? `<i id="next" data-sn-on-click="blocks = blocks.map((b) => ({ ...b, type: b.type === 'c1' ? 'c9' : b.type }))"></i>` : ''}
-  <template data-sn-for="b in blocks"><sn-component use="${MAP}[b.type]" data-sn-prop="{ b }"></sn-component><template data-sn-else><i class="none" data-sn-text="b.text"></i></template></template></div>`;
+  <template data-sn-for="b in blocks"><sn-component use="${MAP}[b.type]" data-sn-with="{ b }"></sn-component><template data-sn-else><i class="none" data-sn-text="b.text"></i></template></template></div>`;
 const shape = (root: ParentNode) => [...root.querySelectorAll('[data-c], .none')].map((e) => `${e.getAttribute('data-c') ?? '-'}:${e.textContent}`);
 
 describe('a choice among many candidates', () => {

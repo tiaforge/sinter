@@ -1,6 +1,6 @@
 <!-- A content tree (`{ type, children, value }`) as HTML: each node by its type (`node-heading`, `node-para`, …),
      text in place. Over a constant tree (a `file:` resource) the build writes it all into the page; over data
      from an API it renders in the browser. `link` is the site's own look for every link in the tree. -->
-<template data-sn-component="{ tree: { children: any[] }; link: Slot<{ url: string; text: string }> }">
-  <div class="content"><template data-sn-for="n in tree.children"><template data-sn-if="n.type === 'text'"><template data-sn-text="n.value"></template></template><template data-sn-else><sn-component use="{ heading: 'node-heading', para: 'node-para', code: 'node-code', link: 'node-link', image: 'node-image', list: 'node-list', item: 'node-item' }[n.type]" data-sn-prop="{ node: n }"></sn-component></template></template></div>
+<template data-sn-props="{ tree: { children: any[] }; link: Slot<{ url: string; text: string }> }">
+  <div class="content"><template data-sn-for="n in tree.children"><template data-sn-if="n.type === 'text'"><template data-sn-text="n.value"></template></template><template data-sn-else><sn-component use="{ heading: 'node-heading', para: 'node-para', code: 'node-code', link: 'node-link', image: 'node-image', list: 'node-list', item: 'node-item' }[n.type]" data-sn-with="{ node: n }"></sn-component></template></template></div>
 </template>

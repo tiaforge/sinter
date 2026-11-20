@@ -31,7 +31,7 @@ export interface PathTable {
 export type UrlTemplate = Array<string | number>;
 
 export interface Paginate {
-  mode: 'keyset' | 'offset' | 'append';
+  mode: 'keyset' | 'numbered' | 'append';
   size: number;
   sizeParam: string;
   /** keyset/append: object literal evaluated with the boundary item as `$.$p` */
@@ -40,9 +40,9 @@ export interface Paginate {
   /** keyset/append: the value sent for each direction, where it differs from the direction's name */
   directionValues?: Partial<Record<'first' | 'prev' | 'next' | 'last', string>>;
   pageParam: string;
-  /** the number of items to skip, (n - 1) * size: offset mode sends it instead of `pageParam`; keyset, to let `page(name, n)` jump */
-  offsetParam?: string;
-  /** `page-model="$url.page"`: the query parameter that holds the page (offset mode) */
+  /** the number of items to skip, (n - 1) * size: a `numbered: 'offset'` list sends it instead of `pageParam`; keyset, to let `page(name, n)` jump */
+  skipParam?: string;
+  /** `model: $url.page`: the query parameter that holds the page (numbered lists) */
   model?: string;
   /** with `model`: the function that reads it (`$.$url.page`), where the early file and embedded data read the start page */
   start?: number;
@@ -98,11 +98,10 @@ export interface EventDef {
   // absent fields (in the page module: `compactIR`) are null
   /** null for an event that only runs `then` */
   resource?: string | null;
-  op?: 'upsert' | 'patch' | 'remove' | 'refetch' | null;
-  item?: number | null;
-  set?: number | null;
+  op?: 'upsert' | 'merge' | 'remove' | 'refresh' | null;
+  /** what the change writes: the item (`upsert`; absent: the whole payload) or the fields (`merge`) */
+  value?: number | null;
   when?: number | null;
-  fallback?: 'refetch' | null;
   /** `then`: handler run after the change is applied; `w`: the state paths it writes */
   then?: number;
   w?: PathRef[];
@@ -155,7 +154,7 @@ export interface Binding {
   e?: 1;
   /** the expression reads a loop index, so it re-runs when only the row's position changed */
   i?: 1;
-  /** handler on an element without a method: `data-sn-debounce` milliseconds */
+  /** a handler's `data-sn-debounce-<event>` milliseconds; a model's `data-sn-debounce` (its element has no action): it writes after that pause */
   ms?: number;
   /** key filter (`on` for keydown/keyup): the `KeyboardEvent.key` to match, letters in lowercase */
   q?: string;
@@ -210,7 +209,7 @@ export interface EarlyIR {
   /** resources the early file requests: URL template and `when` (function indexes into the early table), scope by index into `roots`, -1 for the page; `q`: a paginated resource's first-page query parameters */
   res?: Array<{
     name: string; src: UrlTemplate; when: number | null; scope: number; q?: Record<string, string>;
-    /** `page-model`: from page 2 on, `qn` with `k` set to the page (`o`: the items to skip, `(n - 1) * s`) */
+    /** `model` (paginate): from page 2 on, `qn` with `k` set to the page (`o`: the items to skip, `(n - 1) * s`) */
     sp?: { f: number; k: string; s: number; o?: 1; qn: Record<string, string> };
     lo?: 1; xo?: 1;
     /** the request settings of the resource's API (`sinter({ apis })`): credentials and static headers */
@@ -280,7 +279,7 @@ export interface ActionDef {
   /** dev builds: where each function it uses was written in the markup (`"file:line:col"`, by function index) */
   at?: Record<number, string>;
   /** `CALL`: `data-sn-call`, with `call` set and an empty `url` */
-  method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' | 'CALL';
+  method: 'POST' | 'PUT' | 'PATCH' | 'DELETE' | 'CALL';
   url: UrlTemplate;
   call?: CallDef;
   // absent fields take their default (the compiler writes only what differs): no body, trigger and
@@ -299,13 +298,13 @@ export interface ActionDef {
   confirm?: number;
   /** `data-sn-encoding="form"`: the body goes as application/x-www-form-urlencoded */
   enc?: 'form';
-  /** write-through of the response (absent with `data-sn-apply="off"`, for GET and `call`) */
+  /** write-through of the response (absent with `data-sn-write-through="off"`, and for `call`) */
   ap?: ApplyDef;
   /** `data-sn-retry`: the retry policy of a mutation */
   retry?: string;
 }
 
-/** What a mutation is about and what its response holds, for the `apply` feature (write-through). */
+/** What a mutation is about and what its response holds, for the `write-through` feature. */
 export interface ApplyDef {
   /**
    * provenance: what the URL and body read. `r`: the resource; `v`: the row's name in scope (a loop
@@ -401,7 +400,7 @@ export function validateIR(ir: unknown, fnCount: number): string[] {
     fn(r.when, `${at}.when`); fn(r.then, `${at}.then`);
     for (const d of [...(r.w ?? []), ...(r.deps ?? [])]) if (bad(d)) errs.push(`${at}: bad path`);
     if (r.paginate) {
-      if (!['keyset', 'offset', 'append'].includes(r.paginate.mode)) errs.push(`${at}: bad paginate mode`);
+      if (!['keyset', 'numbered', 'append'].includes(r.paginate.mode)) errs.push(`${at}: bad paginate mode`);
       fn(r.paginate.cursor, `${at}.paginate.cursor`);
     }
   });
@@ -413,9 +412,9 @@ export function validateIR(ir: unknown, fnCount: number): string[] {
       if (e.resource == null && e.op == null) { if (e.then === undefined) errs.push(`${at}: needs a resource or then`); }
       else {
         if (!names.has(e.resource!)) errs.push(`${at}: unknown resource ${e.resource}`);
-        if (!['upsert', 'patch', 'remove', 'refetch'].includes(e.op!)) errs.push(`${at}: bad op`);
+        if (!['upsert', 'merge', 'remove', 'refresh'].includes(e.op!)) errs.push(`${at}: bad op`);
       }
-      fn(e.item, `${at}.item`); fn(e.set, `${at}.set`); fn(e.when, `${at}.when`); fn(e.then, `${at}.then`);
+      fn(e.value, `${at}.value`); fn(e.when, `${at}.when`); fn(e.then, `${at}.then`);
       for (const d of e.w ?? []) if (bad(d)) errs.push(`${at}: bad path`);
     });
   });
@@ -463,9 +462,9 @@ export function validateIR(ir: unknown, fnCount: number): string[] {
   (o.lm ?? []).forEach((f, i) => fn(f, `lm[${i}]`, false));
   o.actions.forEach((a, i) => {
     const at = `actions[${i}]`;
-    if (!['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'CALL'].includes(a.method)) errs.push(`${at}: bad method`);
+    if (!['POST', 'PUT', 'PATCH', 'DELETE', 'CALL'].includes(a.method)) errs.push(`${at}: bad method`);
     if (!['block', 'queue', 'latest'].includes(a.concurrency)) errs.push(`${at}: bad concurrency`);
-    if (a.retry !== undefined && (typeof a.retry !== 'string' || !a.retry || a.method === 'GET' || a.method === 'CALL')) errs.push(`${at}: retry is a policy name, on a mutation`);
+    if (a.retry !== undefined && (typeof a.retry !== 'string' || !a.retry)) errs.push(`${at}: retry is a policy name`);
     if (a.method === 'CALL') {
       if (!a.call) errs.push(`${at}: CALL needs call`);
       else { fn(a.call.args, `${at}.call.args`, false); fn(a.call.run, `${at}.call.run`, false); }

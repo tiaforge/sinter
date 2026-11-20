@@ -27,19 +27,24 @@ export interface Config {
   fieldErrors?: ((error: SinterError, request: { url: string; method: string }) => Record<string, unknown> | null | undefined) | null;
   /** retry policies: `retry({ policies, get })` from `@tiaforge-ui/sinter/retry`; null: nothing is sent again */
   retry: Retry | null;
-  /** what `configure({ env })` overrides of the default environment (see `envOf`); the testing module sets a whole one */
+  /** what `setEnv()` overrides of the default environment (see `envOf`); the testing module sets a whole one */
   env: Partial<Env> | null;
 }
 
 export const config: Config = {
   request: [], sessionProbe: null, onError: null, locale: null, urlSchemes: [], origins: [], apis: [], transport: null, retry: null,
-  confirm: null, env: null,
+  confirm: null, fieldErrors: null, env: null,
 };
 
-export function configure(options: Partial<Omit<Config, 'env'>> & { env?: Partial<Env> }): void {
-  const { env, ...rest } = options;
-  Object.assign(config, rest);
-  if (env) config.env = { ...config.env, ...env };
+export function configure(options: Partial<Omit<Config, 'env'>>): void {
+  // a typo fails instead of doing nothing, as in `sinter({...})`; `env` is the tests' (`setEnv`), not an option
+  for (const k in options) if (!(k in config) || k == 'env') throw new Error(`configure({ ${k} }) is not an option`);
+  Object.assign(config, options);
+}
+
+/** The tests' seam: overrides parts of the environment (clock, storage, fetch, …); not part of `configure()`. */
+export function setEnv(env: Partial<Env> | null): void {
+  config.env = env ? { ...config.env, ...env } : null;
 }
 
 /**
@@ -137,11 +142,10 @@ export function clearPersisted(): void {
 
 // ---- middleware
 
-export function credentials(mode: RequestCredentials): Middleware {
-  return (req, next) => next(new Request(req, { credentials: mode }));
-}
-
-/** Adds a header to same-origin requests, or to requests to `options.origin` only. */
+/**
+ * Adds a header to same-origin requests, or to requests to `options.origin` only: for a value the browser knows
+ * when the config module runs (a token from storage). A fixed value goes on the API, `sinter({ apis: { … headers } })`.
+ */
 export function header(name: string, value: string, options: { origin?: string } = {}): Middleware {
   return (req, next) => {
     const target = new URL(req.url).origin;

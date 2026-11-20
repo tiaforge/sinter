@@ -6,7 +6,7 @@ import { memoryStorage, mockRequests, render } from '../../src/testing/index.js'
 import { compile } from '../../src/compiler/index.js';
 
 const CSS = 'ul { margin: 0; padding: 0 } li { height: 20px }';
-const PAGE = (attrs = '', resource = 'paginate="offset" page-size="3"') => `
+const PAGE = (attrs = '', resource = 'paginate="{ numbered: true, size: 3 }"') => `
   <sn-resource name="people" src="/api/people" items="people" key="id" ${resource}></sn-resource>
   <ul><template data-sn-for="p in people"${attrs}><li data-sn-text="p.name"></li></template></ul>`;
 const rows = (n: number) => ({ people: Array.from({ length: n }, (_, i) => ({ id: i + 1, name: `P${i + 1}` })) });
@@ -35,15 +35,15 @@ test('an empty list and a failed load remove it too', async () => {
 });
 
 test('a list whose `src` cannot be built loads nothing: removed at mount', async () => {
-  const { root } = await render(PAGE('', 'paginate="offset" page-size="3"').replace('src="/api/people"', 'src="/api/people/{boom()}"'), { requests: mockRequests({}), css: CSS, helpers: { boom: () => { throw new Error('no'); } } });
+  const { root } = await render(PAGE('', 'paginate="{ numbered: true, size: 3 }"').replace('src="/api/people"', 'src="/api/people/{boom()}"'), { requests: mockRequests({}), css: CSS, helpers: { boom: () => { throw new Error('no'); } } });
   expect(held(root)).toBeNull();
 });
 
 test('cached rows replace it when the page module mounts', async () => {
   // the previous page loaded them
-  const session = memoryStorage(), page = PAGE('', 'paginate="offset" page-size="3" cache');
+  const session = memoryStorage(), page = PAGE('', 'paginate="{ numbered: true, size: 3 }" cache');
   await (await render(page, { requests: mockRequests({ 'GET /api/people?page=1&limit=3': rows(2) }), css: CSS, session })).settle();
-  const { root } = await render(PAGE('', 'paginate="offset" page-size="3" cache'), { requests: mockRequests({ 'GET /api/people?page=1&limit=3': rows(2) }), css: CSS, session });
+  const { root } = await render(PAGE('', 'paginate="{ numbered: true, size: 3 }" cache'), { requests: mockRequests({ 'GET /api/people?page=1&limit=3': rows(2) }), css: CSS, session });
   expect(held(root)).toBeNull();
   expect(root.querySelectorAll('ul > li').length).toBe(2);
 });
@@ -56,7 +56,7 @@ test('not for a list without pages: the build cannot count its rows', async () =
 test('not for a list the build cannot count (a filter), nor one the page embeds', async () => {
   for (const page of [
     PAGE().replace('p in people', 'p in people.filter((x) => x.id > 1)'),
-    `<script type="application/json" data-sn-data="people">{"people":[]}</script>${PAGE()}`,
+    `<script type="application/json" data-sn-resource="people">{"people":[]}</script>${PAGE()}`,
   ]) {
     const { root } = await render(page, { requests: mockRequests({ 'GET /api/people?page=1&limit=3': rows(1) }), css: CSS });
     expect(held(root)).toBeNull();
@@ -64,7 +64,7 @@ test('not for a list the build cannot count (a filter), nor one the page embeds'
 });
 
 test('a resource with `when`: held while it loads, as a branch the early file decides', async () => {
-  const page = PAGE('', 'paginate="offset" page-size="3" when="$url.go"');
+  const page = PAGE('', 'paginate="{ numbered: true, size: 3 }" when="$url.go"');
   const on = await render(page, { url: 'http://localhost/?go=1', requests: mockRequests({ 'GET /api/people?page=1&limit=3': rows(3) }), css: CSS });
   expect(held(on.root)).not.toBeNull();
   await on.settle();
@@ -75,8 +75,8 @@ test('a resource with `when`: held while it loads, as a branch the early file de
 });
 
 test('a list chosen by the URL (a data-sn-let over two resources): held for the one that loads', async () => {
-  const page = `<sn-resource name="mine" src="/api/mine" items="people" key="id" paginate="offset" page-size="3" when="$url.feed"></sn-resource>
-    <sn-resource name="all" src="/api/all" items="people" key="id" paginate="offset" page-size="3" when="!$url.feed"></sn-resource>
+  const page = `<sn-resource name="mine" src="/api/mine" items="people" key="id" paginate="{ numbered: true, size: 3 }" when="$url.feed"></sn-resource>
+    <sn-resource name="all" src="/api/all" items="people" key="id" paginate="{ numbered: true, size: 3 }" when="!$url.feed"></sn-resource>
     <ul data-sn-let="{ list: $url.feed ? mine : all }"><template data-sn-for="p in list"><li data-sn-text="p.name"></li></template></ul>`;
   const { root, settle } = await render(page, { requests: mockRequests({ 'GET /api/all?page=1&limit=3': rows(2) }), css: CSS });
   expect(held(root)).not.toBeNull();
@@ -87,7 +87,7 @@ test('a list chosen by the URL (a data-sn-let over two resources): held for the 
 
 test('a "Loading…" branch right before the list takes the placeholder\'s place; another one beside it leaves none', () => {
   const opts = { file: '/app/index.html', root: '/app', dev: false, readFile: () => '', moduleSrc: '/page.js', helpers: { module: null, names: [], namespaces: {} }, prerender: true, styles: [{ file: 'a.css', css: CSS + ' .ld { margin: 4px 0 }' }], paintCss: '/p.css' };
-  const list = '<sn-resource name="people" src="/api/people" items="people" key="id" paginate="offset" page-size="3"></sn-resource>';
+  const list = '<sn-resource name="people" src="/api/people" items="people" key="id" paginate="{ numbered: true, size: 3 }"></sn-resource>';
   const loading = '<template data-sn-if="$meta.people.loading && !people.length"><p class="ld">Loading…</p></template>';
   const tpl = '<template data-sn-for="p in people"><li data-sn-text="p.name"></li></template>';
   const out = compile(`<!doctype html><html><head></head><body>${list}<ul>${loading}${tpl}</ul></body></html>`, opts);
@@ -187,7 +187,7 @@ test('SN529: a list over late data in a flex item whose width follows its conten
   // with a basis of its own, nothing to say
   expect(compile(page(), { ...opts, styles: [{ file: 'a.css', css: css + ' .feed { flex: 1 1 0 }' }] }).diagnostics.filter((d) => d.code === 'SN529')).toEqual([]);
   // rows of a width of their own, paginated: a placeholder as wide holds the box's width, nothing to say either
-  const fixed = compile(page('paginate="offset" page-size="4"'), { ...opts, styles: [{ file: 'a.css', css: css + ' .card { width: 280px; height: 40px; margin: 0 }' }] });
+  const fixed = compile(page('paginate="{ numbered: true, size: 4 }"'), { ...opts, styles: [{ file: 'a.css', css: css + ' .card { width: 280px; height: 40px; margin: 0 }' }] });
   expect(fixed.diagnostics.filter((d) => d.code === 'SN529')).toEqual([]);
   expect(fixed.paint).toContain('width:280px');
   expect(fixed.paint).toContain('height:160px');
@@ -221,7 +221,7 @@ test('SN530 suggests the fix for that image: its size from the API, the attribut
 
 test('indicators anywhere on the page: a `data-sn-show` or a branch elsewhere over the same status leaves the list without space; ones that never show while loading do not', () => {
   const opts = { file: '/app/index.html', root: '/app', dev: false, readFile: () => '', moduleSrc: '/page.js', helpers: { module: null, names: [], namespaces: {} }, prerender: true, styles: [{ file: 'a.css', css: CSS }], paintCss: '/p.css' };
-  const list = '<sn-resource name="people" src="/api/people" items="people" key="id" paginate="offset" page-size="3"></sn-resource>';
+  const list = '<sn-resource name="people" src="/api/people" items="people" key="id" paginate="{ numbered: true, size: 3 }"></sn-resource>';
   const tpl = '<ul><template data-sn-for="p in people"><li data-sn-text="p.name"></li></template></ul>';
   const page = (other: string) => compile(`<!doctype html><html><head></head><body>${list}${other}${tpl}</body></html>`, opts);
   expect(page('<p data-sn-show="$meta.people.loading">Loading…</p>').html).not.toContain('sn-reserve');
@@ -235,7 +235,7 @@ test('indicators anywhere on the page: a `data-sn-show` or a branch elsewhere ov
 
 test('a `src` that reads another resource: its load may not start at mount, no space and a note', () => {
   const page = `<sn-resource name="me" src="/api/me"></sn-resource>
-    <sn-resource name="people" src="/api/people/{me.id}" items="people" key="id" paginate="offset" page-size="3"></sn-resource>
+    <sn-resource name="people" src="/api/people/{me.id}" items="people" key="id" paginate="{ numbered: true, size: 3 }"></sn-resource>
     <ul><template data-sn-for="p in people"><li data-sn-text="p.name"></li></template></ul>`;
   const out = compile(`<!doctype html><html><head></head><body>${page}</body></html>`, { file: '/app/index.html', root: '/app', dev: false, readFile: () => '', moduleSrc: '/page.js', helpers: { module: null, names: [], namespaces: {} }, prerender: true, styles: [{ file: 'a.css', css: CSS }], paintCss: '/p.css' });
   expect(out.html).not.toContain('sn-reserve');
@@ -244,21 +244,21 @@ test('a `src` that reads another resource: its load may not start at mount, no s
 
 test('the `if` form\'s anchor after the rows is comments: a `:last-child` rule matches the last row in both forms; per-row views are each list\'s own', () => {
   const opts = { file: '/app/index.html', root: '/app', dev: false, readFile: () => '', moduleSrc: '/page.js', helpers: { module: null, names: [], namespaces: {} }, prerender: true, styles: [{ file: 'a.css', css: CSS + ' li:last-child { height: 100px }' }], paintCss: '/p.css' };
-  const page = (when: string) => compile(`<!doctype html><html><head></head><body>${PAGE('', `paginate="offset" page-size="3" ${when}`)}</body></html>`, opts).paint;
+  const page = (when: string) => compile(`<!doctype html><html><head></head><body>${PAGE('', `paginate="{ numbered: true, size: 3 }" ${when}`)}</body></html>`, opts).paint;
   expect(page('')).toContain('height:140px');
   expect(page('when="$url.go"')).toContain('height:140px');
   // two lists, one of each form, on one page: the same rows, the same height
-  const two = compile(`<!doctype html><html><head></head><body>${PAGE()}${PAGE('', 'paginate="offset" page-size="3" when="$url.go"').replace(/people/g, 'others')}</body></html>`, opts).paint;
+  const two = compile(`<!doctype html><html><head></head><body>${PAGE()}${PAGE('', 'paginate="{ numbered: true, size: 3 }" when="$url.go"').replace(/people/g, 'others')}</body></html>`, opts).paint;
   expect(two?.match(/height:140px/g)).toHaveLength(2);
 });
 
 test('rows a component\'s own `<style>` reaches: no space (the build reads the page\'s stylesheets only)', () => {
   const files: Record<string, string> = {
-    '/app/src/components/person-row.html': '<template data-sn-component="{ name: string }"><li class="pr" data-sn-text="name"></li></template>\n<style>.pr { height: 10px }</style>\n',
-    '/app/src/components/plain-row.html': '<template data-sn-component="{ name: string }"><li data-sn-text="name"></li></template>\n',
+    '/app/src/components/person-row.html': '<template data-sn-props="{ name: string }"><li class="pr" data-sn-text="name"></li></template>\n<style>.pr { height: 10px }</style>\n',
+    '/app/src/components/plain-row.html': '<template data-sn-props="{ name: string }"><li data-sn-text="name"></li></template>\n',
   };
   const opts = { file: '/app/index.html', root: '/app', dev: false, readFile: (p: string) => { if (p in files) return files[p]!; throw new Error('missing'); }, moduleSrc: '/page.js', helpers: { module: null, names: [], namespaces: {} }, prerender: true, styles: [{ file: 'a.css', css: CSS }], paintCss: '/p.css' };
-  const page = (tag: string) => compile(`<!doctype html><html><head></head><body>${PAGE().replace('<li data-sn-text="p.name"></li>', `<${tag} data-sn-prop="{ name: p.name }"></${tag}>`)}</body></html>`, opts);
+  const page = (tag: string) => compile(`<!doctype html><html><head></head><body>${PAGE().replace('<li data-sn-text="p.name"></li>', `<${tag} data-sn-with="{ name: p.name }"></${tag}>`)}</body></html>`, opts);
   const styled = page('person-row');
   expect(styled.html).not.toContain('sn-reserve');
   expect(JSON.stringify(styled.unheld)).toContain('own `<style>`');
@@ -267,7 +267,7 @@ test('rows a component\'s own `<style>` reaches: no space (the build reads the p
 
 test('SN529 in dev as in a build: the plan is the same, only the placeholder is the build\'s', () => {
   const css = '.row { display: flex; flex-wrap: wrap } .card { width: 280px; height: 40px; margin: 0 }';
-  const page = `<!doctype html><html><head></head><body><sn-resource name="people" src="/api/people" items="people" key="id" paginate="offset" page-size="4"></sn-resource>
+  const page = `<!doctype html><html><head></head><body><sn-resource name="people" src="/api/people" items="people" key="id" paginate="{ numbered: true, size: 4 }"></sn-resource>
     <div class="row"><div class="feed"><template data-sn-for="p in people"><p class="card" data-sn-text="p.name"></p></template></div><aside>tags</aside></div></body></html>`;
   const opts = { file: '/app/index.html', root: '/app', readFile: () => '', moduleSrc: '/page.js', helpers: { module: null, names: [], namespaces: {} }, prerender: true, styles: [{ file: 'a.css', css }] };
   const dev = compile(page, { ...opts, dev: true }), build = compile(page, { ...opts, dev: false, paintCss: '/p.css' });
@@ -283,6 +283,6 @@ test('with `embed`: a list the server fills holds no space; one it cannot fill s
   expect(served.html).not.toContain('sn-reserve');
   expect(JSON.stringify(served.unheld)).toContain('embedded by the server');
   // `early="off"`: not embedded, loaded by the page
-  const own = compile(`<!doctype html><html><head></head><body>${PAGE('', 'paginate="offset" page-size="3" early="off"')}</body></html>`, opts);
+  const own = compile(`<!doctype html><html><head></head><body>${PAGE('', 'paginate="{ numbered: true, size: 3 }" early="off"')}</body></html>`, opts);
   expect(own.html).toContain('sn-reserve');
 });

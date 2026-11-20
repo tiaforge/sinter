@@ -93,7 +93,7 @@ describe('SN540: a script a swap would not run', () => {
 });
 
 test('data-sn-swap on a layout\'s tag goes onto <html>, as data-sn-prefetch does', () => {
-  const layout = '<!doctype html><html data-sn-layout=""><head><title>x</title></head><body><slot></slot></body></html>';
+  const layout = '<!doctype html><html data-sn-props=""><head><title>x</title></head><body><slot></slot></body></html>';
   const out = compile('<site-layout data-sn-swap="off"><p>Hi.</p></site-layout>', {
     file: '/p/about.html', root: '/p', dev: false, prerender: true, moduleSrc: '/@sinter/about.html.js',
     helpers: { module: null, names: [], namespaces: {} },
@@ -108,10 +108,10 @@ test('SN346: a kept element inside another', () => {
 });
 
 test('with swaps on, constant props do not shape a kept element: the same ids and bindings on every page, whatever each passes', () => {
-  const layout = `<!doctype html><html data-sn-layout="{ title: string; fancy: boolean }"><head><title data-sn-text="title"></title></head><body>
+  const layout = `<!doctype html><html data-sn-props="{ title: string; fancy: boolean }"><head><title data-sn-text="title"></title></head><body>
 <aside data-sn-permanent="p" data-sn-state="{ n: 0 }"><a href="/k1/" data-sn-class="{ active: title == 'K1' }">K1</a><template data-sn-if="fancy"><em data-sn-text="'fancy ' + n"></em></template><b data-sn-text="title + ' ' + n"></b><button data-sn-on-click="n = n + 1">+</button></aside>
 <main><slot></slot></main></body></html>`;
-  const page = (props: string, swap: boolean) => compile(`<site-layout data-sn-prop="${props}"><p>x</p></site-layout>`, {
+  const page = (props: string, swap: boolean) => compile(`<site-layout data-sn-with="${props}"><p>x</p></site-layout>`, {
     file: '/p/k.html', root: '/p', dev: false, prerender: true, moduleSrc: '/@sinter/k.html.js', swap,
     helpers: { module: null, names: [], namespaces: {} },
     readFile: (p: string) => { if (p === '/p/src/layouts/site-layout.html') return layout; throw new Error('missing'); },
@@ -131,13 +131,13 @@ test('with swaps on, constant props do not shape a kept element: the same ids an
 describe('with swaps on, what each page passes does not shape a kept element (the third review)', () => {
   const files: Record<string, string> = {
     // a component used inside the kept element, its branch on a constant the layout passes on
-    '/p/src/components/my-badge.html': `<template data-sn-component="{ fancy: boolean }"><span data-sn-state="{ n: 0 }"><template data-sn-if="fancy"><em data-sn-text="'x ' + n"></em></template><u data-sn-text="n"></u><b data-sn-on-click="n = n + 1">+</b></span></template>`,
+    '/p/src/components/my-badge.html': `<template data-sn-props="{ fancy: boolean }"><span data-sn-state="{ n: 0 }"><template data-sn-if="fancy"><em data-sn-text="'x ' + n"></em></template><u data-sn-text="n"></u><b data-sn-on-click="n = n + 1">+</b></span></template>`,
     // a component whose root is the kept element
-    '/p/src/components/kept-bar.html': `<template data-sn-component="{ fancy: boolean }"><aside data-sn-permanent="bar" data-sn-state="{ n: 0 }"><template data-sn-if="fancy"><em data-sn-text="'x ' + n"></em></template><u data-sn-text="n"></u></aside></template>`,
-    '/p/src/layouts/site-layout.html': `<!doctype html><html data-sn-layout="{ fancy: boolean; title: string }"><head><title data-sn-text="title"></title></head><body>
-<aside data-sn-permanent="p"><my-badge data-sn-prop="{ fancy }"></my-badge></aside><kept-bar data-sn-prop="{ fancy }"></kept-bar><main><slot></slot></main></body></html>`,
+    '/p/src/components/kept-bar.html': `<template data-sn-props="{ fancy: boolean }"><aside data-sn-permanent="bar" data-sn-state="{ n: 0 }"><template data-sn-if="fancy"><em data-sn-text="'x ' + n"></em></template><u data-sn-text="n"></u></aside></template>`,
+    '/p/src/layouts/site-layout.html': `<!doctype html><html data-sn-props="{ fancy: boolean; title: string }"><head><title data-sn-text="title"></title></head><body>
+<aside data-sn-permanent="p"><my-badge data-sn-with="{ fancy }"></my-badge></aside><kept-bar data-sn-with="{ fancy }"></kept-bar><main><slot></slot></main></body></html>`,
   };
-  const page = (props: string) => compile(`<site-layout data-sn-prop="${props}"><p>x</p></site-layout>`, {
+  const page = (props: string) => compile(`<site-layout data-sn-with="${props}"><p>x</p></site-layout>`, {
     file: '/p/k.html', root: '/p', dev: false, prerender: true, moduleSrc: '/@sinter/k.html.js', swap: true,
     helpers: { module: null, names: [], namespaces: {} }, readFile: (p: string) => { if (p in files) return files[p]!; throw new Error('missing'); },
   });
@@ -153,8 +153,8 @@ describe('with swaps on, what each page passes does not shape a kept element (th
   });
 
   test('SN346: a slot in a kept element that binds; the document\'s own elements', () => {
-    const layout = '<!doctype html><html data-sn-layout="{ title: string }"><head><title>x</title></head><body><aside data-sn-permanent="side"><slot name="side"></slot><b data-sn-text="title"></b></aside><main><slot></slot></main></body></html>';
-    const out = compile('<site-layout data-sn-prop="{ title: \'A\' }"><i slot="side" data-sn-text="$url.q"></i><p>x</p></site-layout>', {
+    const layout = '<!doctype html><html data-sn-props="{ title: string }"><head><title>x</title></head><body><aside data-sn-permanent="side"><slot name="side"></slot><b data-sn-text="title"></b></aside><main><slot></slot></main></body></html>';
+    const out = compile('<site-layout data-sn-with="{ title: \'A\' }"><i slot="side" data-sn-text="$url.q"></i><p>x</p></site-layout>', {
       file: '/p/k.html', root: '/p', dev: false, prerender: true, moduleSrc: '/m.js', swap: true, helpers: { module: null, names: [], namespaces: {} },
       readFile: (p: string) => { if (p === '/p/src/layouts/site-layout.html') return layout; throw new Error('missing'); },
     });
@@ -168,13 +168,13 @@ describe('with swaps on, what each page passes does not shape a kept element (th
   });
 });
 
-test('SN209: `navigate` is sinter\'s event, so a component cannot emit one of that name', () => {
-  const files: Record<string, string> = { '/p/src/components/nav-pick.html': '<template data-sn-component="{}" data-sn-emits="{ navigate: string }"><button>x</button></template>' };
+test('SN209: `sn-…` names are sinter\'s events, so a component cannot emit one; `navigate` is the component\'s own now', () => {
+  const files: Record<string, string> = { '/p/src/components/nav-pick.html': '<template data-sn-props="{}" data-sn-emits="{ \'sn-navigate\': string }"><button>x</button></template>' };
   const out = compile('<!doctype html><html><head><title>x</title></head><body><nav-pick></nav-pick></body></html>', {
     file: '/p/a.html', root: '/p', dev: false, moduleSrc: '/m.js', helpers: { module: null, names: [], namespaces: {} },
     readFile: (p: string) => { if (p in files) return files[p]!; throw new Error('missing'); },
   });
   expect(out.diagnostics.filter((d) => d.code === 'SN209').map((d) => d.message.replace(/ \(included from .*\)$| … used at .*$/, ''))).toEqual([
-    '`navigate` is sinter\'s event (`data-sn-on-navigate` runs before every navigation): name the component\'s event otherwise, e.g. `go`',
+    "`sn-navigate`: names starting with `sn-` are sinter's events (`sn-navigate`, `sn-dismiss`, `sn-error`, `sn-page`); name the component's event otherwise",
   ]);
 });

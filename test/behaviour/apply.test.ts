@@ -174,8 +174,8 @@ test('order: write-through lands after the optimistic commit and before `then`, 
   const { root, settle } = await render(`
     <sn-resource name="articles" src="/api/articles" items="articles" key="slug"></sn-resource>
     <template data-sn-for="a in articles"><div><p data-sn-text="a.favoritesCount + ':' + a.favorited + ':' + a.title"></p>
-      <button id="fav" data-sn-post="/api/articles/{a.slug}/favorite" data-sn-optimistic="patch(a, {favorited: true})" data-sn-then="patch(a, {title: 'then'})">f</button>
-      <button id="unfav" data-sn-delete="/api/articles/{a.slug}/favorite" data-sn-optimistic="patch(a, {favorited: false})" data-sn-catch="$event.preventDefault()">u</button></div></template>`, { requests, openapi: SPEC });
+      <button id="fav" data-sn-post="/api/articles/{a.slug}/favorite" data-sn-optimistic="merge(a, {favorited: true})" data-sn-then="merge(a, {title: 'then'})">f</button>
+      <button id="unfav" data-sn-delete="/api/articles/{a.slug}/favorite" data-sn-optimistic="merge(a, {favorited: false})" data-sn-catch="$event.preventDefault()">u</button></div></template>`, { requests, openapi: SPEC });
   await settle();
   click(root, '#fav'); await settle();
   expect(root.querySelector('p')!.textContent).toBe('5:true:then');
@@ -183,11 +183,11 @@ test('order: write-through lands after the optimistic commit and before `then`, 
   expect(root.querySelector('p')!.textContent).toBe('5:true:then');
 });
 
-test('data-sn-apply="off" keeps the handler\'s work to itself', async () => {
+test('data-sn-write-through="off" keeps the handler\'s work to itself', async () => {
   const requests = mockRequests({ 'GET /api/articles': { articles: [a1] }, 'POST /api/articles/a1/favorite': { article: { ...a1, favoritesCount: 5 } } });
   const { root, settle } = await render(`
     <sn-resource name="articles" src="/api/articles" items="articles" key="slug"></sn-resource>
-    <template data-sn-for="a in articles"><div><p data-sn-text="a.favoritesCount"></p><button data-sn-post="/api/articles/{a.slug}/favorite" data-sn-apply="off">f</button></div></template>`, { requests, openapi: SPEC });
+    <template data-sn-for="a in articles"><div><p data-sn-text="a.favoritesCount"></p><button data-sn-post="/api/articles/{a.slug}/favorite" data-sn-write-through="off">f</button></div></template>`, { requests, openapi: SPEC });
   await settle();
   click(root, 'button'); await settle();
   expect(root.querySelector('p')!.textContent).toBe('1');

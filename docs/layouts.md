@@ -7,11 +7,11 @@ and its content fills the layout's slots, in the head and in the body.
 ```html
 <!-- src/layouts/site-layout.html -->
 <!doctype html>
-<html lang="en" data-sn-layout="{ title?: string; description?: string; nav: string }">
+<html lang="en" data-sn-props="{ title?: string; description?: string; nav: string }">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <seo-tags data-sn-prop="{ title, description }">
+  <seo-tags data-sn-with="{ title, description }">
     <slot name="seo" slot="extra"></slot>
   </seo-tags>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700">
@@ -20,7 +20,7 @@ and its content fills the layout's slots, in the head and in the body.
   <slot name="head"></slot>
 </head>
 <body>
-  <site-header data-sn-prop="{ nav }"></site-header>
+  <site-header data-sn-with="{ nav }"></site-header>
   <main><slot></slot></main>
   <footer><slot name="footer">© 2026 My Blog</slot></footer>
 </body>
@@ -30,7 +30,7 @@ and its content fills the layout's slots, in the head and in the body.
 ```html
 <!-- post.html: the whole page -->
 <site-layout data-sn-path="/post/:slug"
-  data-sn-prop="{ nav: 'post', title: post?.title, description: post?.summary }">
+  data-sn-with="{ nav: 'post', title: post?.title, description: post?.summary }">
   <sn-resource name="post" src="/api/posts/{$url.slug}" items="post"></sn-resource>
   <meta slot="seo" property="og:type" content="article">
   <link slot="head" rel="stylesheet" href="./post.css">
@@ -52,9 +52,9 @@ hand. Nothing of the layout is left at run time.
   (`site-layout.html` is `<site-layout>`). A layout and a component with the same name is an error.
 - A whole document: an optional doctype, `<html>`, `<head>` and `<body>`. Comments before `<html>`
   document the file and are left out of the pages.
-- `data-sn-layout` on `<html>` declares its props, a TypeScript type literal as for a component
+- `data-sn-props` on `<html>` declares its props, a TypeScript type literal as for a component
   (the names of `src/sinter.types.ts` and the OpenAPI schemas work). A layout without props needs
-  none: `<html lang="en">` (or `data-sn-layout=""`).
+  none: `<html lang="en">` (or `data-sn-props=""`).
   A layout emits no events and has no script; the components it uses may have both.
 - Slots are `<slot>` elements, named, in the head or the body, with fallback content for a page that
   leaves them empty. The default slot is in the body: it takes the page's content without `slot`.
@@ -68,17 +68,17 @@ hand. Nothing of the layout is left at run time.
 ## The page
 
 - A page that uses a layout is its tag, at the top level, and nothing else (a doctype and comments
-  may be around it). Anything else is `SN319`.
+  may be around it). Anything else is `SN318`.
 - The tag's children fill the slots: `slot="seo"` goes into `<slot name="seo">`, the rest into the
   default slot. A head element (`<title>`, `<meta>`, `<link>`, `<base>`) needs a head slot: given to
   the body, it is `SN320`. A slot takes every child that names it, in order.
-- `data-sn-prop` passes the layout's props, evaluated in the page's scope: they can read the page's
+- `data-sn-with` passes the layout's props, evaluated in the page's scope: they can read the page's
   resources.
 - `data-sn-state` on the tag is the page's state. The props and all the content the page passes in
   see it, in the head and the body; the layout's markup does not.
 
   ```html
-  <site-layout data-sn-state="{ tab: 'all' }" data-sn-prop="{ nav: 'home', title: tab == 'all' ? 'All' : 'Mine' }">
+  <site-layout data-sn-state="{ tab: 'all' }" data-sn-with="{ nav: 'home', title: tab == 'all' ? 'All' : 'Mine' }">
   ```
 
 - The tag's attributes go onto `<html>`. A plain one (`lang`, `dir`, `data-theme`) replaces the
@@ -86,7 +86,7 @@ hand. Nothing of the layout is left at run time.
   `data-sn-class`, `-attr`, `-style` go onto `<html>` in the page's scope.
 - The tag's handlers are the page's `<body>` handlers, as before layouts: they go onto the layout's
   `<body>`, in the page's scope, ahead of the layout's own handlers there. They take DOM events and
-  sinter's `sn-error` and `dismiss` (anything else is `SN315`): page-wide shortcuts
+  sinter's `sn-error` and `sn-dismiss` (anything else is `SN315`): page-wide shortcuts
   (`data-sn-on-keydown-shift-n`, heard even when nothing has focus) and the page's failed actions
   (`data-sn-on-sn-error`). A component's event is handled on an element around it, in the page's
   content.
@@ -97,7 +97,7 @@ A head component holds head elements, any number of them, inlined where its tag 
 
 ```html
 <!-- src/components/seo-tags.html -->
-<template data-sn-head="{ title?: string; description?: string }">
+<template data-sn-props="{ title?: string; description?: string }">
   <title data-sn-text="title ? title + ' · My Blog' : 'My Blog'">My Blog</title>
   <meta name="description" content="Notes on the web." data-sn-attr="{ content: description ?? 'Notes on the web.' }">
   <meta property="og:title" content="My Blog" data-sn-attr="{ content: title ?? 'My Blog' }">
@@ -105,7 +105,7 @@ A head component holds head elements, any number of them, inlined where its tag 
 </template>
 ```
 
-It is declared with `data-sn-head` instead of `data-sn-component` and used in a head: a layout's, a
+It is declared with `data-sn-props` like any component, holds head elements only, and is used in a head: a layout's, a
 page's, or a head slot's content. See [components](components.md#head-components).
 
 ## Values and markup into the head

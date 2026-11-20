@@ -27,7 +27,7 @@ const data = {
 test('a fixed box from the stylesheets: 1x/2x/3x through the template, cover crop with {h}; other origins as they are', async () => {
   const { root, settle } = await render(page, {
     requests: mockRequests(data), css: AVATAR,
-    remoteImages: { url: 'https://img.example.com/{w}/{url}', cover: 'https://img.example.com/{w}x{h}/{url}', origins: ['self', 'https://uploads.example.com'] },
+    images: { remote: { url: 'https://img.example.com/{w}/{url}', cover: 'https://img.example.com/{w}x{h}/{url}', origins: ['self', 'https://uploads.example.com'] } },
   });
   await settle();
   const imgs = [...root.querySelectorAll('li img')] as HTMLImageElement[];
@@ -52,12 +52,12 @@ test('a fixed box from the stylesheets: 1x/2x/3x through the template, cover cro
 });
 
 test('without a cover template, a cover box is resized by width only; {url:raw} and {q}', async () => {
-  const { root, settle } = await render(page, { requests: mockRequests(data), css: AVATAR, remoteImages: { url: 'cloudflare', cover: undefined, origins: ['https://uploads.example.com'], quality: 60 } });
+  const { root, settle } = await render(page, { requests: mockRequests(data), css: AVATAR, images: { remote: { url: 'cloudflare', cover: undefined, origins: ['https://uploads.example.com'], quality: 60 } } });
   await settle();
   const img = root.querySelector('li img')!;
   // the cloudflare preset has a cover template
   expect(img.getAttribute('src')).toBe('/cdn-cgi/image/width=40,height=40,fit=cover,quality=60,format=auto/https://uploads.example.com/a/1.jpg');
-  const v = await render(page, { requests: mockRequests(data), css: AVATAR, remoteImages: { url: 'vercel', origins: ['https://uploads.example.com'] } });
+  const v = await render(page, { requests: mockRequests(data), css: AVATAR, images: { remote: { url: 'vercel', origins: ['https://uploads.example.com'] } } });
   await v.settle();
   expect(v.root.querySelector('li img')!.getAttribute('srcset')).toContain(`/_vercel/image?url=${encodeURIComponent('https://uploads.example.com/a/1.jpg')}&w=80&q=75 80w`);
 });
@@ -77,7 +77,7 @@ test('the page module creates the service from the config, only when a page uses
     file: '/app/index.html', root: '/app', dev: false, readFile: () => '', helpers: { module: null, names: [], namespaces: {} },
     remoteImages: resolveRemote({ url: 'netlify', origins: ['self'] }),
   });
-  expect(out.module).toContain("import { remote } from '@tiaforge-ui/sinter/remote';");
+  expect(out.module).toContain("import { remote } from '@tiaforge-ui/sinter/runtime/remote';");
   expect(out.module).toContain('const $ri = remote({"url":"/.netlify/images?url={url}&w={w}&q={q}"');
   expect(out.module).toMatch(/\$ri\.set\(\(\$\.\$r\.me\.photo\), \[480,960,1440,1920,2560\], 0\)/);
 });
@@ -104,7 +104,7 @@ test('remote() on its own', () => {
 test('a fluid API image in a max-width container: sizes and widths from the bound', async () => {
   const { root, settle } = await render(page, {
     requests: mockRequests(data), css: AVATAR + ' body { max-width: 500px } img { max-width: 100% }',
-    remoteImages: { url: 'https://img.example.com/{w}/{url}', origins: ['https://uploads.example.com'] },
+    images: { remote: { url: 'https://img.example.com/{w}/{url}', origins: ['https://uploads.example.com'] } },
   });
   await settle();
   const hero = root.querySelector('#hero')!;

@@ -1,6 +1,6 @@
 <!-- One service: its sparkline and newest numbers, from its samples. The `actions` slot is filled by the page,
      in the page's scope, so the Pause button is the page's: components do not change their props. -->
-<template data-sn-component="{ service: Service; samples: Sample[] }">
+<template data-sn-props="{ service: Service; samples: Sample[] }">
   <article data-layout="stack" data-gap="sm" data-sn-let="{ last: samples[samples.length - 1] }"
            data-sn-attr="{ 'data-paused': service.paused }">
     <header data-layout="row" data-gap="sm">
@@ -8,7 +8,7 @@
       <span data-badge data-sn-text="service.paused ? 'paused' : last?.status"
             data-sn-attr="{ 'data-tone': tone(service.paused, last?.status) }"></span>
     </header>
-    <spark-line data-sn-prop="{ values: rates(samples), at: last?.tick, width: 120, height: 36, label: service.name + ' requests per second', tone: graphTone(service.paused, last?.status) }"></spark-line>
+    <spark-line data-sn-with="{ values: rates(samples), at: last?.tick, width: 120, height: 36, label: service.name + ' requests per second', tone: graphTone(service.paused, last?.status) }"></spark-line>
     <dl data-layout="row" data-gap="md" class="num">
       <div><dt data-muted>req/s</dt><dd data-sn-text="last?.rps"></dd></div>
       <div><dt data-muted>latency</dt><dd data-sn-text="last?.latencyMs + ' ms'"></dd></div>

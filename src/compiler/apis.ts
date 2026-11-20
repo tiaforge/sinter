@@ -30,6 +30,14 @@ export interface ApiOptions {
   defaults?: Record<string, OperationShape>;
   /** endpoints the spec does not have, by `METHOD /path` */
   operations?: Record<string, OperationShape>;
+  /** how this API's lists page: its parameter names and direction values, for every `paginate` of a resource on it */
+  paginate?: PaginateWire;
+}
+
+/** A server's pagination parameters (docs/pagination.md): the names it reads, and the values it gives the directions. */
+export interface PaginateWire {
+  params?: { size?: string; page?: string; offset?: string; direction?: string };
+  directions?: Partial<Record<'first' | 'prev' | 'next' | 'last', string>>;
 }
 
 /** One API, resolved. */
@@ -43,12 +51,32 @@ export interface ApiDef {
   headers?: Record<string, string>;
   /** shapes by `METHOD /path` (method in capitals), from `defaults` and `operations` */
   shapes: Record<string, OperationShape>;
+  paginate?: PaginateWire;
 }
 
 export interface ApisDef {
   list: ApiDef[];
   /** the API a path without `api:` goes to; null when several are configured and none is named */
   defaultApi: string | null;
+}
+
+/** `apis.<name>.paginate`, checked: string values for the known keys; undefined when it is wrong (reported). */
+function paginateWire(raw: unknown, where: string, fail: (m: string) => void): PaginateWire | undefined {
+  const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
+  if (!isObj(raw)) { fail(`\`${where}\` takes an object: \`{ params: { size: 'per_page' }, directions: { prev: 'backward' } }\``); return undefined; }
+  const out: PaginateWire = {};
+  for (const [k, keys] of [['params', ['size', 'page', 'offset', 'direction']], ['directions', ['first', 'prev', 'next', 'last']]] as const) {
+    const v = raw[k];
+    if (v === undefined) continue;
+    if (!isObj(v)) { fail(`\`${where}.${k}\` takes an object of strings`); return undefined; }
+    for (const [n, x] of Object.entries(v)) {
+      if (!(keys as readonly string[]).includes(n)) { fail(`\`${where}.${k}.${n}\` is not a key; the keys are ${keys.map((y) => `\`${y}\``).join(', ')}`); return undefined; }
+      if (typeof x !== 'string' || !x || (k === 'params' && !/^[\w.\-[\]]+$/.test(x))) { fail(`\`${where}.${k}.${n}\` is ${k === 'params' ? 'a query parameter name' : 'a non-empty string'}`); return undefined; }
+    }
+    (out as Record<string, unknown>)[k] = { ...v };
+  }
+  for (const k of Object.keys(raw)) if (k !== 'params' && k !== 'directions') { fail(`\`${where}.${k}\` is not a setting; it takes \`params\` and \`directions\``); return undefined; }
+  return out;
 }
 
 /** The built-in API of the page's own origin. */
@@ -157,9 +185,10 @@ export function resolveApis(
     if (!/^[A-Za-z_][\w-]*$/.test(name)) { fail(`\`${name}\` is not an API name: a letter or \`_\`, then letters, digits, \`_\` and \`-\``); continue; }
     if (name === FILE) { fail('`file` is the built-in source of the project\'s own files (`src="file:./post.txt"`): name the API otherwise'); continue; }
     if (name === CONTENT) { fail('`content` is the built-in source of the content module\'s collections (`src="content:posts"`): name the API otherwise'); continue; }
-    if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) { fail(`\`${name}\` takes an object (\`base\`, \`openapi\`, \`credentials\`, \`headers\`, \`defaults\`, \`operations\`)`); continue; }
+    if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) { fail(`\`${name}\` takes an object (\`base\`, \`openapi\`, \`credentials\`, \`headers\`, \`defaults\`, \`operations\`, \`paginate\`)`); continue; }
     const a = raw as ApiOptions & Record<string, unknown>;
-    for (const k of Object.keys(a)) if (!['base', 'openapi', 'credentials', 'headers', 'defaults', 'operations'].includes(k)) fail(`\`${name}.${k}\` is not an API setting; the settings are \`base\`, \`openapi\`, \`credentials\`, \`headers\`, \`defaults\` and \`operations\``);
+    for (const k of Object.keys(a)) if (!['base', 'openapi', 'credentials', 'headers', 'defaults', 'operations', 'paginate'].includes(k)) fail(`\`${name}.${k}\` is not an API setting; the settings are \`base\`, \`openapi\`, \`credentials\`, \`headers\`, \`defaults\`, \`operations\` and \`paginate\``);
+    const paginate = a.paginate == null ? undefined : paginateWire(a.paginate, `${name}.paginate`, fail);
     const specs: number[] = [];
     for (const rel of (a.openapi == null ? [] : Array.isArray(a.openapi) ? a.openapi : [a.openapi]) as unknown[]) {
       const i = loadSpec(rel);
@@ -211,7 +240,7 @@ export function resolveApis(
       openapi.push({ file: configFile, doc: operationsDoc(ops), config: name });
       specs.push(openapi.length - 1);
     }
-    list.push({ name, base, specs, shapes, ...(a.credentials ? { credentials: a.credentials } : {}), ...(a.headers && Object.keys(a.headers).length ? { headers: { ...a.headers } } : {}) });
+    list.push({ name, base, specs, shapes, ...(paginate ? { paginate } : {}), ...(a.credentials ? { credentials: a.credentials } : {}), ...(a.headers && Object.keys(a.headers).length ? { headers: { ...a.headers } } : {}) });
   }
   const own = list.filter((x) => x.name !== SITE);
   let defaultApi: string | null = options.defaultApi ?? (own.length === 1 ? own[0]!.name : null);

@@ -12,7 +12,7 @@ import sinter from '../../src/vite.js';
 import { chromium } from '../browser.js';
 
 const src = resolve(__dirname, '../../src');
-const alias = [{ find: /^@tiaforge-ui\/sinter\/(.+)$/, replacement: `${src}/$1.ts` }, { find: /^@tiaforge-ui\/sinter$/, replacement: `${src}/index.ts` }];
+const alias = [{ find: /^@tiaforge-ui\/sinter\/runtime$/, replacement: `${src}/runtime-entry.ts` }, { find: /^@tiaforge-ui\/sinter\/(?:runtime\/)?(.+)$/, replacement: `${src}/$1.ts` }, { find: /^@tiaforge-ui\/sinter$/, replacement: `${src}/index.ts` }];
 const dir = mkdtempSync(join(tmpdir(), 'sinter-reserve-'));
 const root = join(dir, 'app'), out = join(dir, 'dist');
 const listen = (s: Server) => new Promise<number>((r) => s.listen(0, '127.0.0.1', () => r((s.address() as { port: number }).port)));
@@ -32,7 +32,7 @@ function font(): Buffer {
 
 const files: Record<string, string | Buffer> = {
   'src/layouts/app-layout.html': `<!doctype html>
-<html lang="en" data-sn-layout="{}">
+<html lang="en" data-sn-props="{}">
 <head><meta charset="utf-8"><title>List</title><link rel="stylesheet" href="../styles/app.css"></head>
 <body><main><slot></slot></main><footer id="after">below</footer></body>
 </html>
@@ -48,17 +48,17 @@ body { margin: 0 } ul { margin: 0; padding: 0; list-style: none }
 `,
   'src/fonts/lined.ttf': font(),
   'index.html': `<app-layout>
-  <sn-resource name="people" src="/api/people" items="people" key="id" paginate="offset" page-size="5"></sn-resource>
+  <sn-resource name="people" src="/api/people" items="people" key="id" paginate="{ numbered: true, size: 5 }"></sn-resource>
   <ul class="text"><template data-sn-for="p in people"><li data-sn-text="p.name"></li></template></ul>
 </app-layout>
 `,
   'fallback.html': `<app-layout>
-  <sn-resource name="people" src="/api/people" items="people" key="id" paginate="offset" page-size="5"></sn-resource>
+  <sn-resource name="people" src="/api/people" items="people" key="id" paginate="{ numbered: true, size: 5 }"></sn-resource>
   <ul class="fb"><template data-sn-for="p in people"><li data-sn-text="p.name"></li></template></ul>
 </app-layout>
 `,
   'loading.html': `<app-layout>
-  <sn-resource name="people" src="/api/people" items="people" key="id" paginate="offset" page-size="5"></sn-resource>
+  <sn-resource name="people" src="/api/people" items="people" key="id" paginate="{ numbered: true, size: 5 }"></sn-resource>
   <ul class="fixed">
     <template data-sn-if="$meta.people.loading && !people.length"><li class="ld">Loading…</li></template>
     <template data-sn-for="p in people"><li data-sn-text="p.name"></li></template>
@@ -66,24 +66,24 @@ body { margin: 0 } ul { margin: 0; padding: 0; list-style: none }
 </app-layout>
 `,
   'table.html': `<app-layout>
-  <sn-resource name="people" src="/api/people" items="people" key="id" paginate="offset" page-size="5"></sn-resource>
+  <sn-resource name="people" src="/api/people" items="people" key="id" paginate="{ numbered: true, size: 5 }"></sn-resource>
   <table class="t"><thead><tr><th>Name</th><th>Role</th></tr></thead>
     <tbody><template data-sn-for="p in people"><tr><td data-sn-text="p.name"></td><td>engineer</td></tr></template></tbody></table>
 </app-layout>
 `,
   'when.html': `<app-layout>
-  <sn-resource name="people" src="/api/people" items="people" key="id" paginate="offset" page-size="5" when="$url.go"></sn-resource>
+  <sn-resource name="people" src="/api/people" items="people" key="id" paginate="{ numbered: true, size: 5 }" when="$url.go"></sn-resource>
   <ul class="fixed"><template data-sn-for="p in people"><li data-sn-text="p.name"></li></template></ul>
 </app-layout>
 `,
   'early.html': `<app-layout>
-  <sn-resource name="people" src="/api/people" items="people" key="id" paginate="offset" page-size="5"></sn-resource>
+  <sn-resource name="people" src="/api/people" items="people" key="id" paginate="{ numbered: true, size: 5 }"></sn-resource>
   <ul class="fixed"><template data-sn-if="$meta.people.loading && !people.length"><li id="loading">Loading…</li></template><template data-sn-for="p in people"><li data-sn-text="p.name"></li></template></ul>
   <p id="q" data-sn-text="'Query: ' + $url.q"></p>
 </app-layout>
 `,
   'fixed.html': `<app-layout>
-  <sn-resource name="people" src="/api/people" items="people" key="id" paginate="offset" page-size="5"></sn-resource>
+  <sn-resource name="people" src="/api/people" items="people" key="id" paginate="{ numbered: true, size: 5 }"></sn-resource>
   <ul class="fixed"><template data-sn-for="p in people"><li data-sn-text="p.name"></li></template></ul>
 </app-layout>
 `,
