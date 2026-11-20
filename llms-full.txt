@@ -263,7 +263,7 @@ Each recipe has a test beside it (`docs/recipes/<name>.test.ts`).
   <button data-sn-on-click="page(articles, 'prev')" data-sn-attr="{disabled: !$meta.articles.hasPrev}">‹</button>
   <template data-sn-for="n in Array.from({ length: $meta.articles.pages ?? 0 }, (_, i) => i + 1)">
     <!-- the current link reads the page asked for ($url.page); the range below, the page shown ($meta) -->
-    <a data-sn-text="n" data-sn-attr="{ href: '?page=' + n, 'aria-current': n == (+$url.page || 1) ? 'page' : null }"></a>
+    <a data-sn-text="n" data-sn-href="?page={n}" data-sn-attr="{ 'aria-current': n == (+$url.page || 1) ? 'page' : null }"></a>
   </template>
   <button data-sn-on-click="page(articles, 'next')" data-sn-attr="{disabled: !$meta.articles.hasNext}">›</button>
   <span data-sn-text="`${$meta.articles.from}–${$meta.articles.to} of ${$meta.articles.total}`"></span>
