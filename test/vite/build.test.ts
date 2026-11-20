@@ -243,6 +243,16 @@ test('the renamed options fail naming the new form', () => {
   expect(() => sinter({ components: ['@acme/ui'] } as never)).toThrow('sinter({ components }) is renamed to `libraries`');
 });
 
+test('a renamed export of the main entry fails the build naming the new one', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'sinter-retired-export-'));
+  try {
+    writeFileSync(join(dir, 'index.html'), '<!doctype html><html><head><title>t</title><script type="module" src="./main.js"></script></head><body data-sn-state="{ n: 1 }"><p data-sn-text="n"></p></body></html>');
+    writeFileSync(join(dir, 'main.js'), "import { clearPersisted } from '@tiaforge-ui/sinter';\ndocument.addEventListener('signed-out', () => clearPersisted());\n");
+    await expect(build({ root: dir, logLevel: 'silent', plugins: [sinter()], resolve: { alias }, build: { outDir: join(dir, 'dist'), emptyOutDir: true } }))
+      .rejects.toThrow('main.js: `clearPersisted()` is renamed to `clearStored()`');
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
 /** a logger that keeps the info lines, for the build's hints */
 function infoLogger() {
   const lines: string[] = [], logger = createLogger('silent');

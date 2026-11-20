@@ -395,6 +395,15 @@ function configSource(rel: string, source: string): string {
   return source;
 }
 
+/**
+ * The main entry's exports that are gone or renamed, as an app module imports them: what to write instead, or null.
+ * (A missing export alone fails the build without naming its replacement.)
+ */
+export function retiredExport(source: string): string | null {
+  if (!/\bclearPersisted\b/.test(source) || !/['"]@tiaforge-ui\/sinter['"]/.test(source)) return null;
+  return '`clearPersisted()` is renamed to `clearStored()`: it removes the page-load cache and the next-page data as well as the `data-sn-persist` values';
+}
+
 /** Whether a config module's source may change requests: `configure({ request })`, `header()`. Errs toward yes. */
 export function changesRequests(source: string): boolean {
   return /\brequest\s*[:,}]|\bheader\s*\(/.test(source.replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, ''));

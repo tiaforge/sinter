@@ -183,7 +183,7 @@ Built in:
 | `onUnauthorized(handler)` | calls `handler(request, response)` on a 401 |
 | `loginRedirect({ to, returnUrl })` | stores the current URL (same-origin and under an allowed prefix only), clears persisted state, goes to `to`. It never resolves, so `then` and `catch` do not run |
 | `takeReturnUrl(allow)` | on the login page: the stored URL if it is same-origin and under an allowed prefix, else `null`; removes it |
-| `clearPersisted()` | removes values stored by `data-sn-persist`, and cached page data. Call it on logout |
+| `clearStored()` | removes what sinter stored in the browser: `data-sn-persist` values, the page-load cache and next-page data. Call it on sign-in and sign-out |
 
 Requests time out after 30 seconds, and nothing is sent twice unless a [retry policy](retry.md) says so.
 

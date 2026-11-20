@@ -652,7 +652,7 @@ The page-load cache:
 - Writes: after every successful load, and on `pagehide` for resources whose confirmed data changed since (server events, action results). Optimistic layers are never written. Only the first load reads the cache; a `src` that changes on the page does not.
 - Pagination: each page's request URL has its own entry; an `append` list caches only its first page.
 - Limits: an entry over 256 KB serialized is not written (dev warning); a full storage drops the older half of the entries and retries once.
-- Logout: every entry is removed on any 401 (as the response arrives, before `onUnauthorized` middleware runs) and by `clearPersisted()`, which apps call on logout.
+- Logout: every entry is removed on any 401 (as the response arrives, before `onUnauthorized` middleware runs) and by `clearStored()` (was `clearPersisted()`, 2026-11-20: it clears more than the persisted values), which apps call on logout.
 - A malformed value is `SN401`. The cache module (`@tiaforge-ui/sinter/runtime/cache`) is added only to pages that use `cache`.
 
 Next-page data (added 2026-11-09, `@tiaforge-ui/sinter/runtime/prefetch`, nothing to declare):
@@ -1751,9 +1751,9 @@ changelog lists the released changes).
   every load to the feature (`fill`/`store` split in `createLoader`); the feature writes after loads
   and on `pagehide` for resources whose base changed (store `base()`, subscriptions fire for confirmed
   writes only). The request layer clears `sn:c:` entries on any 401, at `fetch` and after the
-  middleware chain; `clearPersisted()` clears them too. `render({ session, storage })` and
+  middleware chain; `clearStored()` clears them too. `render({ session, storage })` and
   `memoryStorage()` in the testing module. Core: 10.30 → 10.53 KB gzip.
-- 2026-11-05: RealWorld uses `cache` on all 9 resources and calls `clearPersisted()` on sign-in and
+- 2026-11-05: RealWorld uses `cache` on all 9 resources and calls `clearStored()` on sign-in and
   sign-out. The e2e suite (local backend, `spa`) found that cached data set `loadedAt`, so the
   editor's and settings' login-redirect guard (`$meta.user.loadedAt && !user`) fired on a cached
   `user: null`: 5 tests failed reproducibly. `loadedAt` now stays null until the server answers

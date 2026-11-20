@@ -291,6 +291,8 @@ What the fourth review left of the same kind, across the JavaScript and configur
   `sitemap: false`, `prefetch: false`); `fonts: { bundle: false, preload }` keeps the links and the preloads.
 - `prefetch.html` is `true | false | { prerender, delivery }`: `'prerender'` was a second spelling of
   `{ prerender: true }`. The object's key is the one that has room for another value.
+- `clearStored()` (was `clearPersisted()`, which said half of what it does: it also removes the page-load
+  cache and the next-page data). One function, what an app calls on sign-in and sign-out.
 
 ## Looked at and kept
 
@@ -322,7 +324,7 @@ Every migration error of this proposal goes at 1.0, at once. They live in:
   (`data-sn-on-navigate`, `data-sn-on-dismiss`) and `offset: true` in `paginate`, in `src/compiler/compile.ts`.
 - `retiredOptions` in `src/project.ts` (`components`, the module paths, `content: '<path>'`), the renamed
   options in `src/vite.ts` (`speculation`, `earlyBudget`, the old `prefetch.html` values, `fonts.inline`), `credentials()` in
-  the config module (`configSource`), the old `complexity` keys (`complexityOf`), `--check-cycles` in
+  the config module (`configSource`), `clearPersisted` in an app module (`retiredExport` in `src/project.ts`), the old `complexity` keys (`complexityOf`), `--check-cycles` in
   `src/cli.ts`, and `render({ minify, remoteImages })` in `src/testing/index.ts`.
 - Already deprecated, also going: the top-level `sinter({ openapi })` and `render({ openapi })` (an API's
   `openapi`), and `configure({ origins })` (`sinter({ origins })`).

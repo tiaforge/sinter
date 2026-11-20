@@ -134,8 +134,11 @@ export function clearPrefetched(env: Env): void {
   removeKeys(env.session(), PREFETCH_PREFIX);
 }
 
-/** Removes every persisted value (`sn:` keys) and the page-load cache, e.g. on logout. */
-export function clearPersisted(): void {
+/**
+ * Removes everything sinter stored in the browser for whoever is signed in: the `data-sn-persist`
+ * values (`sn:` keys), the page-load cache and the next-page data. An app calls it on sign-in and sign-out.
+ */
+export function clearStored(): void {
   removeKeys(envOf(config).storage(), PERSIST_PREFIX);
   clearCached();
 }
@@ -187,7 +190,7 @@ export function loginRedirect(options: LoginRedirectOptions) {
         target = u.origin === here.origin ? u.pathname + u.search + u.hash : options.to;
       }
     }
-    clearPersisted();
+    clearStored();
     env.navigate(target);
     return new Promise<Response>(() => {});
   };

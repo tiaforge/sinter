@@ -13,7 +13,7 @@ import { flagsModule } from './core-parts.js';
 import { loadEnv, type Plugin, type ResolvedConfig, type ViteDevServer } from 'vite';
 import { collectionsIn, loadContent, writeSnapshot, type LoadedContent } from './content-node.js';
 import { applyStrict, CODES, compile, formatDiagnostic, formatWarning, strictPromotes, suggest, type Code, type CheckUnit, type Diagnostic, type CompileResult, type SourceMap } from './compiler/index.js';
-import { lazyOf, project, retiredOptions, staticPages, strictOf, type ProjectOptions } from './project.js';
+import { lazyOf, project, retiredExport, retiredOptions, staticPages, strictOf, type ProjectOptions } from './project.js';
 import { CHUNK_MARK, chainText, isComponentScript, LAZY, lazyHelpers, lazyPackage, lineCol, loaderModule, mentions, parseLazyId, reachLazy, rewriteLazy, scanLazy, stubModule } from './lazy-build.js';
 import { I18N_PICKER, languageFile, moduleKeys, type MessagesProject } from './i18n-build.js';
 import { HOLD_SCRIPT } from './paint-build.js';
@@ -1464,6 +1464,8 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     },
 
     transform(code, id) {
+      // the app's own modules: a renamed export of the main entry fails naming the new one
+      if (!id.includes('/node_modules/') && /\.[cm]?[jt]sx?(\?|$)/.test(id)) { const gone = retiredExport(code); if (gone) this.error(`${relative(root, id.replace(/[?#].*$/, ''))}: ${gone}`); }
       collect(this, code, id);
       return lazyTransform(this, code, id);
     },
