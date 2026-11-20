@@ -460,7 +460,7 @@ A keyboard handler can name its key in the attribute: `data-sn-on-keydown-<modif
 | --- | --- | --- |
 | `<sn-resource>` | `name`, `src`, `call`, `each`, `key`, `items`, `total`, `order`, `when`, `cache`, `then`, `type`, pagination attributes | see Resources and Pagination |
 | `<sn-sync>` | `src` | one server event stream |
-| `<sn-event>` (child of `<sn-sync>`) | `name`, `resource`, `op`, `value`, `when`, `fallback`, `then`, `type` | maps one server event to a change message, and runs `then` after it |
+| `<sn-event>` (child of `<sn-sync>`) | `name`, `resource`, `op`, `value`, `when`, `then`, `type` | maps one server event to a change message, and runs `then` after it |
 
 Custom elements with a hyphen are valid HTML, so these pass a validator before compilation.
 
@@ -686,7 +686,8 @@ type Change<T> =
 ### Declaring a stream
 ```html
 <sn-sync src="/api/events/stream">
-  <sn-event name="contact_updated"  resource="contacts" op="upsert" value="contact" fallback></sn-event>
+  <sn-event name="contact_updated"  resource="contacts" op="upsert" value="contact" when="contact"></sn-event>
+  <sn-event name="contact_updated"  resource="contacts" op="refresh" when="!contact"></sn-event>
   <sn-event name="contact_removed"  resource="contacts" op="remove"></sn-event>
   <sn-event name="contacts_refetch" resource="contacts" op="refresh"></sn-event>
 </sn-sync>
@@ -700,14 +701,13 @@ Inside `<sn-event>` attributes, the event's parsed JSON payload is the scope: `v
 | `op` | `upsert`, `merge`, `remove` or `refresh` |
 | `value` | what the change writes (changed 2026-11-19: was `item` and `set`, now `SN101`): for `upsert` the item, a value expression, default the whole payload; for `merge` the fields, an object literal, e.g. `{flags, is_read: flags.includes('\\Seen')}` |
 | `when` | value expression; skip the event unless truthy, e.g. `mailbox === $url.mailbox` |
-| `fallback` | a flag on `op="upsert"` (was `fallback="refresh"` until 2026-11-20, now `SN401`): refresh the resource when the `value` evaluates to null (for servers that send some updates without a body) |
 | `then` | handler expression, run after the change is applied (see Handlers on server events) |
 | `type` | the payload's type, for `sinter check` (see Type checking) |
 
 For `merge` and `remove`, the key is read from the payload using the resource's `key` fields. On an `each` resource, `refresh` reloads only the source the payload resolves to (see Fan-out resources). Events with no `<sn-event>` are still dispatched to islands (see JS API).
 
 ### Handlers on server events
-`then` on `<sn-event>` is a handler expression, like `data-sn-then` on an action, run after the event's change is applied to the store (for `refresh`: once the reload is requested; it does not wait for it). It sees the same scope as the event's other attributes: payload fields as bare names, and the state and `data-sn-let` names around the `<sn-sync>`; it may assign the state. It runs for every event that passes `when`; not when the payload cannot be applied (a `merge` or `remove` without the key fields, an `upsert` without an item and no `fallback`). With `then`, `resource` and `op` may be left out: the event only runs its handler. (Added 2026-11-08, for Caley's detail dialogs.)
+`then` on `<sn-event>` is a handler expression, like `data-sn-then` on an action, run after the event's change is applied to the store (for `refresh`: once the reload is requested; it does not wait for it). It sees the same scope as the event's other attributes: payload fields as bare names, and the state and `data-sn-let` names around the `<sn-sync>`; it may assign the state. It runs for every event that passes `when`; not when the payload cannot be applied (a `merge` or `remove` without the key fields, an `upsert` without an item; a second event of the same name with `when` can refresh instead). With `then`, `resource` and `op` may be left out: the event only runs its handler. (Added 2026-11-08, for Caley's detail dialogs.)
 ```html
 <body data-sn-state="{ sel: null, notice: '' }">
   <sn-sync src="/api/events/stream">
@@ -1537,7 +1537,8 @@ Endpoints used: `GET /api/contacts` → `{addressbooks, contacts}`, `POST /api/c
              key="account_id,href"></sn-resource>
 
 <sn-sync src="/api/events/stream">
-  <sn-event name="contact_updated"  resource="contacts" op="upsert" value="contact" fallback></sn-event>
+  <sn-event name="contact_updated"  resource="contacts" op="upsert" value="contact" when="contact"></sn-event>
+  <sn-event name="contact_updated"  resource="contacts" op="refresh" when="!contact"></sn-event>
   <sn-event name="contact_removed"  resource="contacts" op="remove"></sn-event>
   <sn-event name="contacts_refetch" resource="contacts" op="refresh"></sn-event>
 </sn-sync>

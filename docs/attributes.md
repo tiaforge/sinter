@@ -126,7 +126,7 @@ A named, page-wide cache of server data. Details: [resources](resources.md).
 
 ### `<sn-event>`
 
-`name`, `resource`, `op`, `value`, `when`, `fallback`, `then`, `type`. Maps one server event to a change message; child of &lt;sn-sync&gt;. `then` is a handler run after the change (payload fields and the state around the sync in scope), e.g. closeDialog('detail'); with `then`, `resource` and `op` may be left out.
+`name`, `resource`, `op`, `value`, `when`, `then`, `type`. Maps one server event to a change message; child of &lt;sn-sync&gt;. `then` is a handler run after the change (payload fields and the state around the sync in scope), e.g. closeDialog('detail'); with `then`, `resource` and `op` may be left out.
 
 ## Names available in expressions
 

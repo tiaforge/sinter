@@ -192,10 +192,9 @@ export class Connection {
         break;
       case 'upsert': {
         const item = def.item != null ? app.fns[def.item]!(scope) : payload;
-        if (item == null || typeof item !== 'object') {
-          if (def.fallback !== 'refresh') return false;
-          void r.refresh(scope.$p);
-        } else if (paginated && !r.has(item as object)) void r.refresh();
+        // no item in the payload: nothing to apply (a second `<sn-event>` with `when` can refresh instead)
+        if (item == null || typeof item !== 'object') return false;
+        else if (paginated && !r.has(item as object)) void r.refresh();
         else r.upsert(clean(item) as object);
         break;
       }

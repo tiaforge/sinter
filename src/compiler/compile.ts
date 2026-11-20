@@ -6630,7 +6630,8 @@ class Compiler {
 
   event(el: P5Element, ctx: Ctx): EventDef | null {
     for (const a of el.attrs) {
-      if (a.name === 'item' || a.name === 'set') this.report(el, a.name, 'SN101', `\`${a.name}\` is \`value\` now, the value the change writes: the item for \`op="upsert"\`, the fields for \`op="merge"\``, 0);
+      if (a.name === 'fallback') this.report(el, a.name, 'SN101', '`fallback` is gone: write the refresh as a second event of the same name, each with its `when`: `<sn-event name="person_updated" resource="people" op="upsert" value="person" when="person">` and `<sn-event name="person_updated" resource="people" op="refresh" when="!person">` (docs/recipes/partial-events.html)', 0);
+      else if (a.name === 'item' || a.name === 'set') this.report(el, a.name, 'SN101', `\`${a.name}\` is \`value\` now, the value the change writes: the item for \`op="upsert"\`, the fields for \`op="merge"\``, 0);
       else if (!EVENT_ATTRS.includes(a.name)) this.report(el, a.name, 'SN101', `\`${a.name}\` is not an attribute of \`<sn-event>\`.${didYouMean(a.name, EVENT_ATTRS)}`, 0);
     }
     const name = attr(el, 'name');
@@ -6672,14 +6673,10 @@ class Compiler {
     if (value !== null && op !== 'upsert' && op !== 'merge') this.report(el, 'value', 'SN102', '`value` applies to `op="upsert"` (the item) and `op="merge"` (the fields)', 0);
     if (op === 'merge' && value === null) this.report(el, null, 'SN401', '`op="merge"` needs `value`, the fields it merges: `value="{ flags }"`', 0);
     const item = op === 'upsert' ? value : null, set = op === 'merge' ? value : null;
-    const fallback = attr(el, 'fallback');
-    // a flag: an `upsert` whose value is missing refreshes the resource instead
-    if (fallback != null && fallback.trim() !== '') this.report(el, 'fallback', 'SN401', /^(refresh|refetch)$/.test(fallback.trim()) ? `\`fallback="${fallback.trim()}"\` is \`fallback\` now, a flag: \`<sn-event … op="upsert" value="person" fallback>\`` : '`fallback` is a flag, written without a value', 0);
-    if (fallback != null && op !== 'upsert') this.report(el, 'fallback', 'SN102', '`fallback` applies to `op="upsert"`: an event without the item refreshes the resource', 0);
     const when = fnOf('when');
     const then = fnOf('then');
     return {
-      name, resource, op, item, set, when, fallback: fallback != null && fallback.trim() === '' ? 'refresh' : null,
+      name, resource, op, item, set, when,
       ...(then !== null ? { then, ...(writes.length ? { w: writes } : {}) } : {}),
     };
   }

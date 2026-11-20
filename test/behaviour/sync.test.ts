@@ -7,7 +7,8 @@ afterEach(() => configure({ request: [], onError: null, sessionProbe: null }));
 const PAGE = `
   <sn-resource name="contacts" src="/api/contacts" items="contacts" key="id" order="name"></sn-resource>
   <sn-sync src="/api/events/stream">
-    <sn-event name="contact_updated" resource="contacts" op="upsert" value="contact" fallback></sn-event>
+    <sn-event name="contact_updated" resource="contacts" op="upsert" value="contact" when="contact"></sn-event>
+    <sn-event name="contact_updated" resource="contacts" op="refresh" when="!contact"></sn-event>
     <sn-event name="contact_patched" resource="contacts" op="merge" value="{name}"></sn-event>
     <sn-event name="contact_removed" resource="contacts" op="remove"></sn-event>
     <sn-event name="contacts_refetch" resource="contacts" op="refresh"></sn-event>
@@ -39,7 +40,7 @@ test('server events upsert, patch and remove', async () => {
   expect(names(root)).toEqual(['Zed']);
 });
 
-test('fallback refetch when the event has no body; refetches coalesce', async () => {
+test('an event without the item refreshes through its second <sn-event> (when); refreshes coalesce', async () => {
   const { root, stream, settle, requests, set } = await setup();
   set([{ id: 1, name: 'Ada' }, { id: 3, name: 'Cy' }]);
   stream.emit('contact_updated', { contact: null });

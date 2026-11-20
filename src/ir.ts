@@ -102,7 +102,6 @@ export interface EventDef {
   item?: number | null;
   set?: number | null;
   when?: number | null;
-  fallback?: 'refresh' | null;
   /** `then`: handler run after the change is applied; `w`: the state paths it writes */
   then?: number;
   w?: PathRef[];

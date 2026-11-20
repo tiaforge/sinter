@@ -52,7 +52,6 @@ Whatever the transport, the store only understands four changes:
 | `op` | `upsert`, `merge`, `remove` or `refresh`. |
 | `value` | What the change writes: for `upsert` the item, an expression (default: the whole payload); for `merge` the fields, an object literal such as `{flags, is_read: flags.includes('\\Seen')}`. |
 | `when` | Skip the event unless this is truthy, e.g. `mailbox === $url.mailbox`. |
-| `fallback` | A flag, on `op="upsert"`: reload the resource when the `value` evaluates to null, for servers that send some updates without a body. |
 | `then` | Handler run after the change is applied, see [Reacting to events](#reacting-to-events). |
 | `type` | The payload's type, for `sinter check` ([type-checking.md](type-checking.md)). |
 
@@ -68,6 +67,16 @@ same way. Loop variables and resources are not in scope.
 
 Here `mailbox` is a payload field and `sel` is state. Events with no `<sn-event>` are still
 delivered to [islands](islands.md).
+
+Several `<sn-event>` elements may name the same event; each applies when its `when` holds. A server
+whose updates sometimes carry the item and sometimes only an id writes both cases:
+
+```html
+<sn-event name="person_updated" resource="people" op="upsert" value="person" when="person"></sn-event>
+<sn-event name="person_updated" resource="people" op="refresh" when="!person"></sn-event>
+```
+
+See [recipes/partial-events.html](recipes/partial-events.html).
 
 ## Reacting to events
 
@@ -86,8 +95,7 @@ assign state. With `then`, `resource` and `op` can be left out: the event only r
 ```
 
 - The handler runs for every event that passes `when`. It does not run when the payload can't be
-  applied: a `merge` or `remove` without the key fields, or an `upsert` without an item and no
-  `fallback`.
+  applied: a `merge` or `remove` without the key fields, or an `upsert` without an item.
 - Store functions are in scope (`refresh`, `upsert`, `merge`, `remove`, `page`, `openDialog`,
   `closeDialog('id')`, `run('id')`) and win over payload fields of the same name.
 - There is no element, so `closeDialog()` must name its dialog, and `emit()` is an error

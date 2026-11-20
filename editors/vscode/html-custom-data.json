@@ -102,9 +102,6 @@
           "name": "when"
         },
         {
-          "name": "fallback"
-        },
-        {
           "name": "then"
         },
         {

@@ -23,6 +23,7 @@ const RECIPES: Array<[string, string, string[]?]> = [
   ['form-dialog', 'Form dialog with repeatable fields'],
   ['field-errors', 'Server validation errors on the fields'],
   ['sse-sync', 'SSE sync'],
+  ['partial-events', 'Events that sometimes carry the item: apply it, or reload'],
   ['optimistic-toggle', 'Optimistic toggle'],
   ['offline-draft', 'Offline drafts: sent again once the connection is back'],
   ['pagination', 'Pagination'],
