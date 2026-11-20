@@ -102,7 +102,7 @@ describe('the demo API', () => {
 const temperDir = join(repo, 'node_modules/@tiaforge-ui/temper');
 
 test('the template turns strict mode on, and tells agents to keep it on', () => {
-  expect(readFileSync(join(repo, 'packages/create/template/vite.config.js'), 'utf8')).toContain('sinter({ typecheck: true, strict: true })');
+  expect(readFileSync(join(repo, 'packages/create/template/vite.config.js'), 'utf8')).toContain('sinter({ strict: true })');
   expect(readFileSync(join(repo, 'packages/create/template/AGENTS.md'), 'utf8')).toContain('Do not turn `strict` off');
 });
 

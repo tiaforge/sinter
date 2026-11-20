@@ -300,9 +300,15 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   const prefetchData = options.prefetch !== false && (typeof options.prefetch !== 'object' || options.prefetch.data !== false);
   const speculation = options.prefetch === false ? false : typeof options.prefetch === 'object' && options.prefetch.html !== undefined ? options.prefetch.html : true;
   let root = process.cwd();
-  /** type-check the build: on when the project resolves TypeScript, unless `typecheck: false` */
+  /** type-check the build: on when the project has TypeScript installed, unless `typecheck: false` */
   let tsFound: boolean | null = null;
-  const typecheckOn = () => options.typecheck ?? (tsFound ??= (() => { try { createRequire(join(root, 'package.json')).resolve('typescript/package.json'); return true; } catch { return false; } })());
+  const typecheckOn = () => options.typecheck ?? (tsFound ??= (() => {
+    // the project's own install: a node_modules from the root up (not a global folder on NODE_PATH)
+    for (let d = resolve(root); ; d = dirname(d)) {
+      if (existsSync(join(d, 'node_modules/typescript/package.json'))) return true;
+      if (dirname(d) === d) return false;
+    }
+  })());
   /**
    * The project (its helpers, components, libraries, specs) as a build sees it: read once per build, from its start, where
    * every page asked again (`project()` scans the components and libraries and reads the helpers' manifest). Before a build

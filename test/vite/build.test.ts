@@ -515,7 +515,7 @@ test('strict: the build\'s warnings fail it after it has run, all of them; `allo
   const quiet = { info: () => {}, warn: () => {}, warnOnce: () => {}, error: () => {}, clearScreen: () => {}, hasErrorLogged: () => false, hasWarned: false } as never;
   const run = (strict: NonNullable<Parameters<typeof sinter>[0]>['strict'], dir: string) => build({
     root, resolve: { alias }, customLogger: quiet, build: { outDir: join(out, dir), emptyOutDir: true, minify: false },
-    plugins: [sinter({ firstPaint: { budget: 1 }, strict })],
+    plugins: [sinter({ firstPaint: { budget: 1 }, strict, typecheck: false })],
   });
   await expect(run(true, 'strict')).rejects.toThrow(/warning\(s\) fail the build in strict mode[\s\S]*sinter: warning SN523 first-paint-budget: early script of index\.html/);
   await run({ allow: { SN523: 'the fixture has no budget' } }, 'strict-allow');
