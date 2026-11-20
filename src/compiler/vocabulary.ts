@@ -24,7 +24,7 @@ export const ATTRIBUTES: AttrDoc[] = [
   { name: 'ref', value: 'name', doc: 'in a component\'s markup: the element its script reads as this.refs.<name>, typed by its tag' },
   { name: 'emits', value: 'events type', doc: 'on the <template data-sn-props>: the events emit() sends and their detail types, e.g. { select: Article }' },
   { name: 'model', value: 'state path | $url.<param>', doc: 'two-way binding for form controls; on $url, the URL follows (a history entry; typing at each pause), and a <select multiple> or a checkbox with a value makes the parameter a list' },
-  { name: 'debounce-model', value: 'milliseconds', doc: 'delays the model\'s write until typing pauses (no second pause after it); Enter writes at once' },
+  { name: 'model-debounce', value: 'milliseconds', doc: 'delays the model\'s write until typing pauses (no second pause after it); Enter writes at once' },
   { name: 'for', value: 'item in list | (item, i) in list', doc: 'repeats a <template> per item. On <html>: the page once per entry of a `file:` list, at `data-sn-path` filled from it' },
   { name: 'key', value: 'value expression', doc: 'row identity; defaults to the resource key or object identity' },
   { name: 'if', value: 'value expression', doc: 'renders a <template> while truthy. Same id, same control: when the branch with focus is swapped, the element with its id in the new one takes focus (a toggle\'s two buttons: <button id="follow" data-sn-delete=…> and <button id="follow" data-sn-post=…>)' },

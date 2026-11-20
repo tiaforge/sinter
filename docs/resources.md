@@ -22,18 +22,18 @@ changes go through store functions.
 Loading needs no code. The list stays sorted by `name`, and the old data stays on screen during a
 reload. See `docs/recipes/list-filter.html`.
 
-A long list or an expensive filter can wait for the typing to pause: `data-sn-debounce-model` on the
+A long list or an expensive filter can wait for the typing to pause: `data-sn-model-debounce` on the
 field delays the model's write, while the field shows each keystroke at once.
 
 ```html
-<input type="search" data-sn-model="q" data-sn-debounce-model="200">
+<input type="search" data-sn-model="q" data-sn-model-debounce="200">
 ```
 
 The pause takes the place of the typing pause, it does not add to it: a resource whose `src` reads `q`
 loads right after the 200 ms, and a model on `$url` writes one history entry then. Enter, or leaving
 the field, writes at once (so a form sent with Enter sends what was typed). `data-sn-debounce` is for a
 form field's model; a component waits inside itself. On a field with an action too, `data-sn-debounce`
-still delays the action and `data-sn-debounce-model` the model, each by its own pause.
+still delays the action and `data-sn-model-debounce` the model, each by its own pause.
 
 To show the text at once in one place and filter after the pause in another, keep the model instant and
 delay a handler that copies it: `<input data-sn-model="q" data-sn-on-input="term = q" data-sn-debounce-input="200">`,

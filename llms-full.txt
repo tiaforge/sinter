@@ -32,7 +32,7 @@ This is the full reference, `llms-full.txt`. `llms.txt` beside it is the short v
 - `data-sn-ref` (name): in a component's markup: the element its script reads as this.refs.<name>, typed by its tag
 - `data-sn-emits` (events type): on the <template data-sn-props>: the events emit() sends and their detail types, e.g. { select: Article }
 - `data-sn-model` (state path | $url.<param>): two-way binding for form controls; on $url, the URL follows (a history entry; typing at each pause), and a <select multiple> or a checkbox with a value makes the parameter a list
-- `data-sn-debounce-model` (milliseconds): delays the model's write until typing pauses (no second pause after it); Enter writes at once
+- `data-sn-model-debounce` (milliseconds): delays the model's write until typing pauses (no second pause after it); Enter writes at once
 - `data-sn-for` (item in list | (item, i) in list): repeats a <template> per item. On <html>: the page once per entry of a `file:` list, at `data-sn-path` filled from it
 - `data-sn-key` (value expression): row identity; defaults to the resource key or object identity
 - `data-sn-if` (value expression): renders a <template> while truthy. Same id, same control: when the branch with focus is swapped, the element with its id in the new one takes focus (a toggle's two buttons: <button id="follow" data-sn-delete=…> and <button id="follow" data-sn-post=…>)

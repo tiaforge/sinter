@@ -4694,32 +4694,36 @@ class Compiler {
     }
     if (has('model') && use) this.componentModel(use, node, scope);
     // with `data-sn-debounce` and no action, the model writes once the field pauses (below)
-    else if (has('model')) this.model(el, node, scope, get('persist'), Number(get('debounce-model')) > 0);
+    else if (has('model')) this.model(el, node, scope, get('persist'), Number(get('model-debounce')) > 0);
     else if (has('persist') && !has('state')) this.report(el, 'data-sn-persist', 'SN102', '`data-sn-persist` needs `data-sn-model` or `data-sn-state` on the same element', 0);
 
     const methods = METHODS.filter((m) => has(m));
     const isCall = has('call');
-    // `data-sn-debounce` delays an action's trigger; `data-sn-debounce-model` a model's write (the pause in place of
+    // `data-sn-debounce` delays an action's trigger; `data-sn-model-debounce` a model's write (the pause in place of
     // the typing pause: the write is not typing, so a resource over it loads at once and a model on `$url` is one
     // history entry); a handler waits by `data-sn-debounce-<event>`
-    if (has('debounce-model')) {
-      const v = get('debounce-model')!, ms = Number(v), modelB = !use ? node.b.find((b) => b.k === 'model') : undefined;
-      if (!Number.isFinite(ms) || ms < 0 || v.trim() === '') this.report(el, 'data-sn-debounce-model', 'SN401', '`data-sn-debounce-model` takes milliseconds', 0);
-      else if (has('model') && use) { /* a component's tag: reported with its other attributes, `cannot be on a component's tag` */ }
-      else if (!modelB) this.report(el, 'data-sn-debounce-model', 'SN102', '`data-sn-debounce-model` needs `data-sn-model` on the same element', 0);
+    if (has('model-debounce')) {
+      const v = get('model-debounce')!, ms = Number(v), modelB = !use ? node.b.find((b) => b.k === 'model') : undefined;
+      if (!Number.isFinite(ms) || ms < 0 || v.trim() === '') this.report(el, 'data-sn-model-debounce', 'SN401', '`data-sn-model-debounce` takes milliseconds', 0);
+      else if (use) { /* a component's tag: reported with its other attributes, `cannot be on a component's tag` */ }
+      else if (!modelB) this.report(el, 'data-sn-model-debounce', 'SN102', '`data-sn-model-debounce` needs `data-sn-model` on the same element', 0);
       else if (ms > 0) { modelB.ms = ms; this.features.add('debounce'); }
     }
     if (!methods.length && !isCall && has('debounce')) {
       const events = [...new Set(sn.filter((a) => a.name.startsWith('data-sn-on-')).map((a) => a.name.slice('data-sn-on-'.length)))];
       const ms = get('debounce')!.trim();
-      const instead = [...(has('model') ? [`\`data-sn-debounce-model="${ms}"\``] : []), ...events.map((e) => `\`data-sn-debounce-${e}="${ms}"\``)];
-      this.report(el, 'data-sn-debounce', 'SN102', instead.length
-        ? `\`data-sn-debounce\` delays an action's trigger; ${has('model') ? 'the model waits with ' : 'a handler waits with '}${instead.join(', ')}`
-        : '`data-sn-debounce` needs a method attribute (`data-sn-post`, `-put`, …) on the same element; a model waits with `data-sn-debounce-model`, a handler with `data-sn-debounce-<event>`', 0);
+      // what each part of the element takes instead, the model's only where it has none yet
+      const parts = [
+        ...(has('model') && !has('model-debounce') ? [`the model with \`data-sn-model-debounce="${ms}"\``] : []),
+        ...(events.length ? [`${events.length > 1 ? 'the handlers' : 'the handler'} with ${events.map((e) => `\`data-sn-debounce-${e}="${ms}"\``).join(', ')}`] : []),
+      ];
+      this.report(el, 'data-sn-debounce', 'SN102', parts.length
+        ? `\`data-sn-debounce\` delays an action's trigger, and this element has none; delay ${parts.join(', and ')}`
+        : '`data-sn-debounce` needs a method attribute (`data-sn-post`, `-put`, …) on the same element; a model waits with `data-sn-model-debounce`, a handler with `data-sn-debounce-<event>`', 0);
     }
     // `data-sn-debounce-<event>`: only that event's handler waits
     for (const a of sn) {
-      if (!a.name.startsWith('data-sn-debounce-') || a.name === 'data-sn-debounce-model') continue;
+      if (!a.name.startsWith('data-sn-debounce-')) continue;
       const event = a.name.slice('data-sn-debounce-'.length), ms = Number(a.value);
       if (!Number.isFinite(ms) || ms < 0 || a.value.trim() === '') this.report(el, a.name, 'SN401', `\`${a.name}\` takes milliseconds`, 0);
       if (!has(`on-${event}`)) this.report(el, a.name, 'SN102', `\`${a.name}\` needs a \`data-sn-on-${event}\` handler on the same element`, 0);

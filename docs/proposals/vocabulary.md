@@ -245,7 +245,7 @@ migration error from 0.14, is gone; the rename messages of this proposal go at 1
 ### 17. After the review (2026-11-20)
 
 A second reader's review found bugs in the steps above (fixed, each with a test) and these, done:
-- `data-sn-debounce-model` delays a model's write, and `data-sn-debounce` stays the action's: one attribute
+- `data-sn-model-debounce` delays a model's write, and `data-sn-debounce` stays the action's: one attribute
   meant two things again, and adding an action to a debounced field moved its delay without a word.
 - `paginate`'s numbered mode is `numbered: true`: `offset` was the mode and the server's skip parameter.
 - `<sn-event fallback>` is a flag; `"refresh"` was its one value.

@@ -127,7 +127,7 @@ export const DOM_EVENTS = new Set([
  */
 export function callerAttribute(name: string): boolean {
   return /^data-sn-(with|model|persist|early|class|attr|style|show|transition|post|put|patch|delete|call|body|trigger|debounce|concurrency|optimistic|then|catch|confirm|encoding|write-through|retry)$/.test(name)
-    || name.startsWith('data-sn-on-') || (name.startsWith('data-sn-debounce-') && name !== 'data-sn-debounce-model');
+    || name.startsWith('data-sn-on-') || name.startsWith('data-sn-debounce-');
 }
 
 /** at-rules that cannot be scoped: they stay at the top of the stylesheet */

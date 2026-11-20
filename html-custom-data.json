@@ -195,7 +195,7 @@
       "description": "two-way binding for form controls; on $url, the URL follows (a history entry; typing at each pause), and a <select multiple> or a checkbox with a value makes the parameter a list (state path | $url.<param>)"
     },
     {
-      "name": "data-sn-debounce-model",
+      "name": "data-sn-model-debounce",
       "description": "delays the model's write until typing pauses (no second pause after it); Enter writes at once (milliseconds)"
     },
     {
