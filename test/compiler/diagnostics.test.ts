@@ -11,6 +11,8 @@ const files: Record<string, string> = {
   '/p/content/posts/a.md': '---\ntitle: A\n---\n',
   '/p/src/layouts/x-shell.html': '<!doctype html><html data-sn-props=""><head></head><body><slot></slot></body></html>',
   '/p/src/components/x-close.html': '<template data-sn-props="{ cell: Slot<{ n: number }> }"><div><slot name="cell" data-sn-with="{ n: 1 }"><b></b></slot><slot name="cel" data-sn-with="{ n: 2 }"><i></i></slot></div></template>',
+  '/p/src/components/x-oldslot.html': '<template data-sn-props=""><div><slot name="cell" data-sn-prop="{ n: 1 }"></slot></div></template>',
+  '/p/src/components/x-cls.html': '<template data-sn-props="" class="x"><div></div></template>',
   '/p/src/components/x-two.html': '<template data-sn-props=""><p></p><p></p></template>',
   '/p/src/components/x-maybe.html': '<template data-sn-props="{ on?: boolean }"><template data-sn-if="on"><p></p></template></template>',
 };
@@ -41,6 +43,10 @@ const R = `<sn-resource name="contacts" src="/api/c" key="id"></sn-resource>
   <sn-resource name="messages" src="/api/m" key="uid" paginate="{ keyset: {uid}, size: 5 }"></sn-resource>`;
 const use = '<p data-sn-text="contacts.length + messages.length"></p>';
 
+test('a retired action has its own error: its options do not ask for an action', () => {
+  expect(diags('<button data-sn-get="/api/x" data-sn-trigger="click"></button>').map((d) => d.code)).toEqual(['SN101']);
+});
+
 /** One failing fixture per diagnostic code; the message text is part of the public API. */
 const cases: Array<[string, string, RegExp, Opts?]> = [
   ['SN101', '<p data-sn-txt="1"></p>', /`data-sn-txt` is not a sinter attribute. Did you mean `data-sn-text`\?/],
@@ -51,6 +57,9 @@ const cases: Array<[string, string, RegExp, Opts?]> = [
   ['SN101', '<p data-sn-component="{}"></p>', /`data-sn-component` is renamed to `data-sn-props`/],
   ['SN101', '<sn-resource name="p" src="/api/p" key="id"></sn-resource><p data-sn-text="p.length"></p><sn-sync src="/s"><sn-event name="e" resource="p" op="upsert" value="person" fallback></sn-event></sn-sync>', /`fallback` is gone: write the refresh as a second event of the same name/],
   ['SN101', '<button data-sn-get="/api/x"></button>', /`data-sn-get` is gone: data a GET loads is a resource/],
+  ['SN101', '<x-oldslot></x-oldslot>', /`data-sn-prop` is renamed to `data-sn-with`/],
+  ['SN101', '<sn-component use="\'x-card\'" data-sn-prop="{ title: \'t\' }"></sn-component>', /`data-sn-prop` is renamed to `data-sn-with`/],
+  ['SN101', '<x-cls></x-cls>', /`class` is not an attribute of `<template data-sn-props>`; it takes `data-sn-props` and `data-sn-emits`/],
   ['SN201', '<dialog id="d"></dialog><button data-sn-on-click="showModal(\'d\')"></button>', /`showModal\(\)` is renamed to `openDialog\(\)`/],
   ['SN201', '<dialog><button data-sn-on-click="close()"></button></dialog>', /`close\(\)` is renamed to `closeDialog\(\)`/],
   ['SN201', `${R}${use}<template data-sn-for="c in contacts"><b data-sn-on-click="patch(c, {})"></b></template>`, /`patch\(\)` is renamed to `merge\(\)`/],

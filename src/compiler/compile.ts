@@ -1841,6 +1841,7 @@ class Compiler {
     if (spec.directions && spec.mode === 'offset') return fail('`directions` is for `keyset` and `append` lists; a numbered list sends page numbers', lead);
     // names this list never sends (an API's `params` may name them for its other lists)
     if (spec.params.page && spec.mode !== 'offset') return fail('`params.page` is for numbered lists; a keyset or append list moves by its cursor', lead);
+    if (spec.params.offset && !spec.skip && !spec.jump) return fail(`\`params.offset\` names a parameter this list does not send: only \`numbered: 'offset'\` and \`jump: true\` send the items to skip${spec.mode === 'offset' ? `; write \`numbered: 'offset'\` to send them instead of the page number` : spec.mode === 'keyset' ? '; add `jump: true` for page numbers' : ''}`, lead);
     if (spec.params.direction && spec.mode === 'offset') return fail('`params.direction` is for `keyset` and `append` lists; a numbered list sends page numbers', lead);
     return spec;
   }
@@ -2327,7 +2328,8 @@ class Compiler {
       detach(el);
     };
     for (const a of el.attrs) {
-      if (a.name !== 'use' && a.name !== 'data-sn-with' && a.name !== 'data-sn-early') this.report(el, a.name, 'SN101', `\`${a.name}\` is not an attribute of \`<sn-component>\`; it takes \`use\`, \`data-sn-with\` and \`data-sn-early\``, 0);
+      if (RETIRED[a.name]) this.report(el, a.name, 'SN101', `\`${a.name}\` ${RETIRED[a.name]}`, 0);
+      else if (a.name !== 'use' && a.name !== 'data-sn-with' && a.name !== 'data-sn-early') this.report(el, a.name, 'SN101', `\`${a.name}\` is not an attribute of \`<sn-component>\`; it takes \`use\`, \`data-sn-with\` and \`data-sn-early\``, 0);
     }
     let ast: acorn.Expression | null = null;
     try { ast = use ? parseExpression(use) : null; } catch { ast = null; }
@@ -2447,7 +2449,7 @@ class Compiler {
     }
     const decl = def.head ? 'data-sn-head' : 'data-sn-component';
     for (const t of top) {
-      if (t !== template && t.tagName !== 'style') return fail(t, null, `a component file holds its \`<template ${decl}>\` and \`<style>\`; \`<${t.tagName}>\` belongs inside the template`);
+      if (t !== template && t.tagName !== 'style') return fail(t, null, `a component file holds its \`<template data-sn-props>\` and \`<style>\`; \`<${t.tagName}>\` belongs inside the template`);
     }
     if (def.head && def.css === undefined && top.some((t) => t.tagName === 'style')) {
       def.css = null;
@@ -2465,7 +2467,7 @@ class Compiler {
     }
     for (const a of template.attrs) {
       if (a.name === 'data-sn-early') this.report(template, a.name, 'SN102', '`data-sn-early` goes on a use of the component, its tag: `<' + name + ' data-sn-early="off">`', 0);
-      else if (a.name !== decl && a.name !== 'data-sn-emits') this.report(template, a.name, 'SN101', `\`${a.name}\` is not an attribute of \`<template ${decl}>\`; it takes \`${decl}\` and \`data-sn-emits\``, 0);
+      else if (a.name !== decl && a.name !== 'data-sn-emits') this.report(template, a.name, 'SN101', `\`${a.name}\` is not an attribute of \`<template data-sn-props>\`; it takes \`data-sn-props\` and \`data-sn-emits\``, 0);
     }
     if (def.head) return this.expandHead(host, def, template, chain);
     const content = (template as P5Template).content;
@@ -2823,6 +2825,7 @@ class Compiler {
     }
     for (const s of slots) {
       const k = attr(s.el, 'name') ?? '';
+      for (const a of s.el.attrs) if (RETIRED[a.name]) this.once(s.el, a.name, 'SN101', `\`${a.name}\` ${RETIRED[a.name]}`, 0);
       // a named slot that passes data and that the component does not declare: a tree placement (section 4)
       if (attr(s.el, 'data-sn-with') !== undefined && k && !data.has(k)) { tree.push(s.el); continue; }
       // a placement that passes data: of a slot declared `Slot<T>`
@@ -4723,7 +4726,7 @@ class Compiler {
       ];
       this.report(el, 'data-sn-debounce', 'SN102', parts.length
         ? `\`data-sn-debounce\` delays an action's trigger, and this element has none; delay ${parts.join(', and ')}`
-        : '`data-sn-debounce` needs a method attribute (`data-sn-post`, `-put`, …) on the same element; a model waits with `data-sn-model-debounce`, a handler with `data-sn-debounce-<event>`', 0);
+        : '`data-sn-debounce` needs an action on the same element: a method attribute (`data-sn-post`, `-put`, …) or `data-sn-call`; a model waits with `data-sn-model-debounce`, a handler with `data-sn-debounce-<event>`', 0);
     }
     // `data-sn-debounce-<event>`: only that event's handler waits
     for (const a of sn) {
@@ -4769,7 +4772,8 @@ class Compiler {
     if (methods.length && isCall) this.report(el, 'data-sn-call', 'SN102', 'an element has one action: a method attribute or `data-sn-call`, not both', 0);
     if (methods.length) this.action(el, node, scope, methods[0]!, get, !!ctx.form || el.attrs.some((x) => x.name === 'form'));
     else if (isCall) this.action(el, node, scope, 'call', get);
-    else for (const n of ACTION_ONLY) if (has(n) && n !== 'debounce') this.report(el, `data-sn-${n}`, 'SN102', `\`data-sn-${n}\` needs a method attribute (\`data-sn-post\`, \`-put\`, …) on the same element`, 0);
+    // a retired action (`data-sn-get`) has its own SN101: its options asking for an action would contradict it
+    else if (!has('get')) for (const n of ACTION_ONLY) if (has(n) && n !== 'debounce') this.report(el, `data-sn-${n}`, 'SN102', `\`data-sn-${n}\` needs an action on the same element: a method attribute (\`data-sn-post\`, \`-put\`, …) or \`data-sn-call\``, 0);
   }
 
   /**

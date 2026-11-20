@@ -312,5 +312,5 @@ test('the compiler: a policy name, on any action', () => {
   expect(compile('<button data-sn-post="/api/x" data-sn-retry="drafts">x</button>', opts).module).toContain('"retry":"drafts"');
   expect(errors('<button data-sn-post="/api/x" data-sn-retry>x</button>')).toEqual([expect.stringMatching(/^SN401 `data-sn-retry` takes the name of a retry policy/)]);
   expect(errors('<button data-sn-call="x()" data-sn-retry="drafts">x</button>')).toEqual([]);
-  expect(errors('<button data-sn-retry="drafts">x</button>')).toEqual([expect.stringMatching(/^SN102 `data-sn-retry` needs a method attribute/)]);
+  expect(errors('<button data-sn-retry="drafts">x</button>')).toEqual([expect.stringMatching(/^SN102 `data-sn-retry` needs an action on the same element/)]);
 });

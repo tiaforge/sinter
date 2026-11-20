@@ -168,7 +168,6 @@ describe('paginate diagnostics', () => {
     const ir = (pg: string) => compileParts(`<sn-resource name="m" src="/api/m" key="uid" paginate="{ ${pg} }"></sn-resource><p data-sn-text="m.length"></p>`, {
       file: '/p/page.html', root: '/p', dev: false, readFile: () => '', helpers: { module: null, names: [], namespaces: {} },
     }).ir.resources[0]!.paginate;
-    expect(ir("numbered: true, size: 5, params: { offset: 'skip' }")!.offsetParam).toBeUndefined();
     expect(ir("numbered: 'offset', size: 5")!.offsetParam).toBe('offset');
     expect(ir("numbered: 'offset', size: 5, params: { offset: 'skip' }")!.offsetParam).toBe('skip');
     expect(diags('paginate="{ numbered: \'pages\', size: 5 }"')[0]).toMatch(/^SN401 `numbered` takes `true` \(sends the page number\) or `'offset'`/);
@@ -180,6 +179,10 @@ describe('paginate diagnostics', () => {
   test('a key given twice; a server name the list never sends', () => {
     expect(diags('paginate="{ numbered: true, size: 5, size: 7 }"')).toEqual(['SN401 `size` is given twice in `paginate`']);
     expect(diags(keyset(", params: { page: 'p' }"))).toEqual(['SN401 `params.page` is for numbered lists; a keyset or append list moves by its cursor']);
+    // the old `offset-param` switched the list to skipping; naming the parameter now switches nothing
+    expect(diags('paginate="{ numbered: true, size: 5, params: { offset: \'skip\' } }"')).toEqual(["SN401 `params.offset` names a parameter this list does not send: only `numbered: 'offset'` and `jump: true` send the items to skip; write `numbered: 'offset'` to send them instead of the page number"]);
+    expect(diags(keyset(", params: { offset: 'skip' }"))).toEqual(["SN401 `params.offset` names a parameter this list does not send: only `numbered: 'offset'` and `jump: true` send the items to skip; add `jump: true` for page numbers"]);
+    expect(diags('paginate="{ numbered: \'offset\', size: 5, params: { offset: \'skip\' } }"')).toEqual([]);
     expect(diags(`paginate="{ numbered: true, size: 5, params: { direction: 'd' } }"`)).toEqual(['SN401 `params.direction` is for `keyset` and `append` lists; a numbered list sends page numbers']);
   });
   test('the old attributes: the object they become', () => {
@@ -287,10 +290,9 @@ describe('jump diagnostics', () => {
     // append only loads more: nothing to compute
     expect(diags('paginate="{ append: {uid}, size: 5 }"', body('dir'))).toEqual(["SN304 `append` pagination only supports `page(…, 'next')`"]);
   });
-  test('params.offset: an offset list sends the items to skip instead of the page; `jump` is for keyset lists; the old attribute names the new key', () => {
-    expect(diags(`paginate="{ numbered: true, size: 5, params: { offset: 'offset' } }"`)).toEqual([]);
-    // a server's name, as the API gives it: an append list does not send it
-    expect(diags(`paginate="{ append: {uid}, size: 5, params: { offset: 'offset' } }"`)).toEqual([]);
+  test('params.offset only where the list sends it; `jump` is for keyset lists; the old attribute names the new key', () => {
+    // on the list, a name it does not send is an error (an API's `params` may name it for its other lists)
+    expect(diags(`paginate="{ append: {uid}, size: 5, params: { offset: 'offset' } }"`)).toEqual(["SN401 `params.offset` names a parameter this list does not send: only `numbered: 'offset'` and `jump: true` send the items to skip"]);
     expect(diags('paginate="{ append: {uid}, size: 5, jump: true }"')).toEqual(['SN401 `jump` is for `keyset` lists; append lists only load more']);
     expect(diags('paginate="{ numbered: true, size: 5, jump: true }"')).toEqual(['SN401 `jump` is for `keyset` lists; a numbered list jumps already']);
     expect(diags('offset-param="offset"')).toEqual([expect.stringMatching(/^SN101 `offset-param` is a key of `paginate` now, one object literal/)]);
