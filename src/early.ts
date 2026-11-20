@@ -33,6 +33,8 @@ export const configured = (): EarlyEnv => {
 export { $k } from './runtime/keys.js';
 /** for a page whose early requests include a paginated resource's first page (the compiler passes it to `requests`) */
 export { withParams } from './runtime/url.js';
+/** a link's URL template (`data-sn-href`) the early bindings fill */
+export { $href, $hv } from './runtime/url.js';
 
 /** On the start comment of a `data-sn-if` (or a choice) the early chunk rendered: the branch, its nodes and the end comment, for the runtime to adopt. */
 export const EARLY = Symbol.for('sinter.early');

@@ -73,6 +73,8 @@ The runtime reads only the `data-sn` ids the build assigned, and checks them at 
   docs/configuration.md.
 - Interpolated values are encoded with `encodeURIComponent`; a value that is exactly `.` or `..`
   becomes `%2E` or `%2E%2E`, so it cannot climb path segments.
+- A link's URL template (`data-sn-href`) follows the same rules (it may also start with `?` or `#`),
+  so a value never chooses a link's scheme or host either.
 - Header middleware such as a CSRF header applies to same-origin requests only, unless you scope it
   to a listed origin. A CSRF token does not leak to third-party hosts.
 - Stream URLs of `<sn-sync>` follow the same rules.

@@ -4,7 +4,7 @@ import { expect, test } from 'vitest';
 import { callerAttribute } from '../../src/compiler/components.js';
 import { ATTRIBUTES } from '../../src/compiler/vocabulary.js';
 
-const CALLER = ['with', 'model', 'persist', 'early', 'class', 'attr', 'style', 'show', 'transition', 'post', 'put', 'patch', 'delete', 'call',
+const CALLER = ['with', 'model', 'persist', 'early', 'class', 'attr', 'href', 'style', 'show', 'transition', 'post', 'put', 'patch', 'delete', 'call',
   'body', 'trigger', 'debounce', 'concurrency', 'optimistic', 'then', 'catch', 'confirm', 'encoding', 'write-through', 'retry'];
 
 test('a component\'s tag takes the caller\'s attributes of the vocabulary, and handlers', () => {

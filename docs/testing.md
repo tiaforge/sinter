@@ -66,6 +66,7 @@ A full document keeps its `<html>` attributes (`lang`, `data-sn-state`, `data-sn
 | `layouts` | the app's layouts by name: `{ 'app-layout': '<!doctype html><html data-sn-props="{ title: string }">…</html>' }`. A page that is only a layout's tag renders merged with it ([layouts](layouts.md)) |
 | `scripts` | the scripts of components by name: the module (`await import('../src/components/task-ring.ts')`) or the class |
 | `storage`, `session` | `localStorage` and `sessionStorage`. Pass the same `memoryStorage()` to two renders to test what carries over between page loads |
+| `traverse` | the page is reached by Back or Forward (not from the back/forward cache): its resources show what `session` holds of them as the previous page left it (written at `window('pagehide')` or when the next `render()` starts), then revalidate ([resources.md](resources.md#back-and-forward)) |
 | `messages` | built-in messages as the files hold them, base language first: `{ en: {...}, de: {...} }` |
 | `firstPaint` | `true` or `{ early, afterEarly }`: run the early script before mounting, [below](#firstpaint) |
 | `frames` | server-event changes wait for `frame()` instead of flushing in a microtask |

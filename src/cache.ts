@@ -4,13 +4,19 @@
 // the `items`/`total` paths, so pages that load the same thing share them. Written
 // after every load, on `pagehide` and when the app is destroyed (confirmed data only, never optimistic layers);
 // removed on any 401 and by `clearStored()`.
+//
+// Back and Forward: on a page reached by a history traversal (a load of type `back_forward`, which the
+// back/forward cache did not serve, or a swap's traversal), every resource the cache can hold restores
+// its entry, with or without `cache`, at any age, and revalidates; a resource without `cache` writes its
+// entry once, as the page is left (`pagehide`, or destroyed for a swap). A page without `cache` gets the
+// smaller src/back.ts for that instead. `append` lists are not written then.
 import type { ResourceDef } from './ir.js';
 import type { App, Feature } from './runtime/app.js';
 import { CACHE_PREFIX } from './runtime/config.js';
 import type { Resource } from './runtime/store.js';
+import { keyOf, MAX_ENTRY, never, traversal } from './back.js';
 
-/** entries larger than this (serialized) are not written */
-export const MAX_ENTRY = 256 * 1024;
+export { MAX_ENTRY };
 
 interface Tracked { def: ResourceDef; r: Resource; url: string; dirty: boolean; appended: boolean; off: boolean }
 
@@ -18,7 +24,7 @@ const cache: Feature = {
   name: 'cache',
   install(app: App) {
     const tracked = new Map<string, Tracked>();
-    const keyOf = (def: ResourceDef, url: string) => CACHE_PREFIX + JSON.stringify([url, def.items, def.total]);
+    const back = traversal(app);
 
     /** drops the older half of the cache entries; false when there was nothing to drop */
     const evict = (s: Storage, keep: string): boolean => {
@@ -50,26 +56,31 @@ const cache: Feature = {
 
     app.ext.cache = {
       read(def, url) {
+        // without `cache`: only coming back, and only what this module writes
+        if (def.cache == null && (!back || never(def))) return null;
         try {
           const v = app.env.session()?.getItem(keyOf(def, url));
           if (!v) return null;
           const e = JSON.parse(v) as { t: number; items: unknown; total: number | null };
-          return def.cache && app.env.now() - e.t > def.cache ? null : e;
+          return !back && def.cache && app.env.now() - e.t > def.cache ? null : e;
         } catch {
           return null;
         }
       },
       loaded(def, r, url, items, total, appended) {
+        if (never(def)) return;
         let t = tracked.get(def.name);
         if (!t) {
-          const entry: Tracked = (t = { def, r, url, dirty: false, appended, off: false });
+          // without `cache`: written as the page is left, so always dirty
+          const entry: Tracked = (t = { def, r, url, dirty: def.cache == null, appended, off: false });
           // confirmed changes after the load (server events, action results); layers never fire this
-          r.subscribe(() => { entry.dirty = true; });
+          if (def.cache != null) r.subscribe(() => { entry.dirty = true; });
           tracked.set(def.name, t);
         }
         t.url = url;
         t.appended = appended;
         t.off = false;
+        if (def.cache == null) return;
         // `append` caches only its first page: later pages would be shown as if they were it
         if (!appended) write(def, url, items, total);
         t.dirty = false;
@@ -86,7 +97,7 @@ const cache: Feature = {
         if (!t.dirty || t.off || t.appended || t.def.paginate?.mode == 'append') continue;
         const b = t.r.base();
         write(t.def, t.url, b.items, b.total);
-        t.dirty = false;
+        t.dirty = t.def.cache == null;
       }
     };
     app.addCleanup(app.env.listen('pagehide', flush));

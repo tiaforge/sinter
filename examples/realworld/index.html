@@ -23,7 +23,7 @@
             </template>
             <li class="nav-item"><a class="nav-link" href="/" data-sn-class="{active: $url.feed != 'following' && !$url.tag}">Global Feed</a></li>
             <template data-sn-if="$url.tag">
-              <li class="nav-item"><a class="nav-link active" data-sn-attr="{href: '/tag/' + encodeURIComponent($url.tag)}"><i class="ion-pound"></i> <span data-sn-text="$url.tag"></span></a></li>
+              <li class="nav-item"><a class="nav-link active" data-sn-href="/tag/{$url.tag}"><i class="ion-pound"></i> <span data-sn-text="$url.tag"></span></a></li>
             </template>
           </ul>
         </div>
@@ -43,7 +43,7 @@
           </template>
           <template data-sn-else><div class="article-preview empty-feed-message">No articles are here... yet.</div></template>
         </template>
-        <template data-sn-if="meta.pages > 1"><conduit-pager data-sn-with="{ meta, query: $url.feed ? 'feed=' + encodeURIComponent($url.feed) + '&' : '' }"></conduit-pager></template>
+        <template data-sn-if="meta.pages > 1"><conduit-pager data-sn-with="{ meta, feed: $url.feed }"></conduit-pager></template>
       </div>
       <div class="col-md-3">
         <div class="sidebar">
@@ -52,7 +52,7 @@
           <template data-sn-if="$meta.tags.error"><div class="error-messages">Could not load tags.</div></template>
           <div class="tag-list">
             <template data-sn-for="t in tags">
-              <a class="tag-pill tag-default" data-sn-attr="{href: '/tag/' + encodeURIComponent(t)}" data-sn-text="t"></a>
+              <a class="tag-pill tag-default" data-sn-href="/tag/{t}" data-sn-text="t"></a>
             </template>
           </div>
         </div>

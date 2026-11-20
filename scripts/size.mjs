@@ -57,6 +57,7 @@ const entries = {
   for: `export { default } from '${dist}/for.js';`,
   persist: `export { default } from '${dist}/persist.js';`,
   cache: `export { default } from '${dist}/cache.js';`,
+  back: `export { default } from '${dist}/back.js';`,
   refresh: `export { default } from '${dist}/refresh.js';`,
   retry: `export { retry } from '${dist}/retry.js';`,
   versions: `export { default } from '${dist}/versions.js';`,

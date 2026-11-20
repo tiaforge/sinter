@@ -323,8 +323,8 @@ A host that reads no rules still serves every page at its directory URL, and old
 redirect files; pages with `data-sn-path` then need the host's own rewrites.
 
 A link your page builds at run time is not rewritten: write it as the URL
-(`data-sn-attr="{ href: '/task/?id=' + t.id }"`). The build warns when a page's code still names a page
-by its file (`'/task.html?id='`), which works, but through the redirect.
+(`data-sn-href="/task/?id={t.id}"`). The build warns when a page's code still names a page
+by its file (`/task.html?id=`), which works, but through the redirect.
 
 ## Canonical URLs
 
