@@ -133,6 +133,7 @@ const cases: Array<[string, string, RegExp, Opts?]> = [
   ['SN342', '<sn-resource name="p" src="content:posts"></sn-resource><p data-sn-text="p.length"></p>', /`posts` is not a collection of the content module/, { collections: true }],
   ['SN344', '<sn-resource name="p" src="content:posts"></sn-resource><div data-sn-state="{ n: 0 }"><button data-sn-on-click="n++"></button><b data-sn-text="n + p.length"></b></div>', /browser code reads `p`, a collection/, { collections: true }],
   ['SN345', '<!doctype html><html data-sn-path="/blog/:slug" data-sn-for="post in posts"><head></head><body><sn-resource name="posts" src="file:/content/posts/*.md"></sn-resource><p data-sn-text="$url.slug"></p></body></html>', /`\$url\.slug` on a page per entry \(`data-sn-for` on `<html>`\)/],
+  ['SN347', '<!doctype html><html data-sn-signed-in><head></head><body><p>x</p></body></html>', /`data-sn-signed-in` needs an API with a `token`/],
   ['SN346', '<aside data-sn-permanent="p"></aside><nav data-sn-permanent="p"></nav>', /is on two elements of this page/],
   ['SN541', '<aside data-sn-permanent="p" data-sn-state="{ t: 0 }"><audio data-sn-attr="{ muted: t }"></audio></aside>', /in a kept element is bound/],
   ['SN539', '<sn-resource name="r" src="file:/content/none/*.md"></sn-resource><p data-sn-text="r.length"></p>', /`file:\/content\/none\/\*\.md` matches no file/],
