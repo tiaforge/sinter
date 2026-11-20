@@ -90,6 +90,8 @@ export interface ResourceDef {
   fed?: 1;
   /** a `file:` resource: its value is the page's embedded data (`data`), read at build time; it never loads or changes */
   fx?: 1;
+  /** no `key`, and the build knows its value is a list (its `type`, the OpenAPI response at `select`, a `file:` or `content:` list): empty, it is `[]` */
+  ls?: 1;
 }
 
 export interface EventDef {
@@ -206,7 +208,7 @@ export interface EarlyIR {
   /** by template id; null for templates the early chunk does not render; `w`: inside `<svg>` or `<math>` (`TemplateDef.w`) */
   templates: Array<{ nodes: NodeDef[]; item?: string; index?: string | null; w?: 1 } | null>;
   /** resources with embedded data the early bindings read (`$r.<name>`): the data element's `data-sn` id and `select` path */
-  emb?: Record<string, { id: number; select: string | null }>;
+  emb?: Record<string, { id: number; select: string | null; ls?: 1 }>;
   /** resources the early file requests: URL template and `when` (function indexes into the early table), scope by index into `roots`, -1 for the page; `q`: a paginated resource's first-page query parameters */
   res?: Array<{
     name: string; src: UrlTemplate; when: number | null; scope: number; q?: Record<string, string>;

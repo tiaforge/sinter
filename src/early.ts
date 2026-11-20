@@ -243,7 +243,8 @@ function embedded(emb: NonNullable<EarlyIR['emb']>): any {
       if (!got.has(name as string)) {
         let v: any = json(e.id);
         for (const k of e.select ? e.select.split('.') : []) v = v?.[k];
-        got.set(name as string, v);
+        // a list without `key` (`ls`) is `[]` when empty, as in the page module
+        got.set(name as string, v ?? (e.ls ? [] : v));
       }
       return got.get(name as string);
     },

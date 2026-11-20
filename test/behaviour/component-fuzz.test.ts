@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
-// Random nested components (plain, if/else, component-tag, slot and choice roots, with fills and slot content),
+// Random nested components (plain, if/else, component-tag, slot and choice roots, with fills and slot content; one
+// without props, declared by its bare `<template>`),
 // loops, branches and texts, over one list: after a state change the page must equal a fresh render of the new
 // state, the build over constants, and the early script's first paint taken over by the page module.
 import { expect, test } from 'vitest';
@@ -19,6 +20,8 @@ const COMPONENTS: Record<string, string> = {
   'c-tag': `<template data-sn-props="{ x: any }"><c-chain class="t" data-sn-with="{ x }"></c-chain></template>`,
   'c-slot': `<template data-sn-props="{ x: any; item: Slot<{ x: any }> }"><slot name="item" data-sn-with="{ x }"><s data-sn-text="x.t"></s></slot></template>`,
   'c-wrap': `<template data-sn-props="{}"><em><slot></slot></em></template>`,
+  // no props: the file's one `<template>` is the declaration, without `data-sn-props`
+  'c-bare': `<template><kbd><slot><s>none</s></slot></kbd></template>`,
   'c-list': `<template data-sn-props="{ x: any }"><ol><template data-sn-for="y in x.c"><li><c-chain data-sn-with="{ x: y }"></c-chain></li></template></ol></template>`,
   'c-choice': `<template data-sn-props="{ x: any }"><sn-component use="${CHOICE}[x.k]" data-sn-with="{ x }"></sn-component></template>`,
   // a component whose props have the inner component's names, with other values
@@ -42,8 +45,8 @@ function markup(r: () => number, v: string, depth: number): string {
   let out = '';
   for (let i = 0; i < n; i++) {
     const kinds = depth > 0
-      ? ['text', 'el', 'plain', 'chain', 'tag', 'choice', 'out', 'list', 'slot', 'slot-tag', 'wrap', 'if', 'for', 'use', 'wrap-for-fill', 'wrap-if-fill']
-      : ['text', 'el', 'plain', 'chain', 'tag', 'choice', 'out', 'list'];
+      ? ['text', 'el', 'plain', 'chain', 'tag', 'choice', 'out', 'list', 'slot', 'slot-tag', 'wrap', 'if', 'for', 'use', 'wrap-for-fill', 'wrap-if-fill', 'bare', 'bare-empty']
+      : ['text', 'el', 'plain', 'chain', 'tag', 'choice', 'out', 'list', 'bare-empty'];
     switch (pick(kinds)) {
       case 'text': out += `<template data-sn-text="${v}.t"></template>`; break;
       case 'el': out += `<p data-sn-text="${v}.t"></p>`; break;
@@ -59,6 +62,8 @@ function markup(r: () => number, v: string, depth: number): string {
       case 'wrap-if-fill': out += `<c-wrap><template data-sn-if="${v}.on">${namedFill(pick, v)}</template></c-wrap>`; break;
       case 'slot-tag': { const c = pick(['c-plain', 'c-chain', 'c-tag']); out += `<c-slot data-sn-with="{ x: ${v} }"><${c} slot="item" data-sn-with="{ x: $slot.x }"></${c}></c-slot>`; break; }
       case 'wrap': out += `<c-wrap>${markup(r, v, depth - 1)}</c-wrap>`; break;
+      case 'bare': out += `<c-bare>${markup(r, v, depth - 1)}</c-bare>`; break;
+      case 'bare-empty': out += '<c-bare></c-bare>'; break;
       case 'if': out += `<template data-sn-if="${v}.on">${markup(r, v, depth - 1)}</template>`; break;
       case 'for': { const w = v + 'y'; out += `<template data-sn-for="${w} in ${v}.c">${markup(r, w, depth - 1)}</template>`; break; }
       case 'use': out += `<sn-component use="${CHOICE}[${v}.k]" data-sn-with="{ x: ${v} }"></sn-component>`; break;

@@ -52,7 +52,7 @@ then filter by `term`.
 | `select` | Path in the response to the data: the array of a collection, or the object (`select="user"` of `{ user: … }`). Default: the response itself. |
 | `total` | Path to a total count, exposed as `$meta.<name>.total`. |
 | `order` | Field kept sorted when items are inserted. `-field` sorts descending. Strings compare locale-aware. |
-| `when` | Value expression. While falsy the resource is empty (`null` or `[]`) and a running request is aborted. |
+| `when` | Value expression. While falsy the resource is empty (`[]` for a list, else `null`: [single objects](#single-objects)) and a running request is aborted. |
 | `cache` | Show the data from the last page load at once, then revalidate. No value means any age; `30s`, `10m`, `2h` or `1d` ignores older data. |
 | `refresh` | Reload in the background once the data is this old, a duration: `30s`, `5m`, `1h`, `1d` (at least `1s`). |
 | `for` | `item in list`: one request per item of another list, merged into one collection. |
@@ -68,6 +68,13 @@ duplicate key in a response keeps the last item (with a warning in dev builds).
 
 Without `key` the resource is one object, such as the signed-in user. `upsert` replaces it, `merge`
 merges fields into it and `remove` sets it to `null`.
+
+A list that cannot have a key, such as a list of strings (`["go", "rust"]`), is such a resource too. When
+the build knows its value is a list, it is `[]` instead of `null` while it has no data (loading, while
+`when` is falsy, after `remove`), in the first paint as after it, so markup reads it as any list:
+`tags.length`, `data-sn-for="t in tags"`, with no `?.` or `?? []`. The build knows it from `type`
+(`type="string[]"`, `Array<Tag>`; not an alias that names a list), the OpenAPI response at `select`, or a
+`file:` or `content:` list. Otherwise it stays `null` until loaded.
 
 ## Status: `$meta`
 

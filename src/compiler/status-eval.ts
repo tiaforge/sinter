@@ -10,7 +10,7 @@ type V = unknown;
 /**
  * The truth of `code` (a compiled function, `($) => (…)`) when the resources `names` have `status`
  * (`$meta.<name>`) and `rows` (`$r.<name>`; `data` overrides it per resource, `null` for one object not
- * loaded yet): true, false, or null when it cannot be told.
+ * loaded yet, `[]` for a list without a key): true, false, or null when it cannot be told.
  */
 export function shows(code: string, names: string[], status: { loading: boolean }, rows: unknown[], data: Record<string, unknown> = {}): boolean | null {
   let fn: any;
