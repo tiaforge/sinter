@@ -56,12 +56,8 @@ export interface RequestLayer {
 
 /** What src/token.ts gives the request layer and the loaders, for an app whose APIs have a token (`$tokens()`). */
 export interface TokenHooks {
-  /** whether a GET of this URL needs a token that is not stored: not sent, the resource reads as signed out */
-  out(url: string, env: Env): boolean;
   /** signed out: a load of `l` (its request `req`, page `m`) that needs the token is not sent, and the resource is loaded, empty, now (true) */
   skip(l: ResourceLoader, req: string, m: unknown): boolean;
-  /** whether the URL goes to an API with a token */
-  mine(url: string, env: Env): boolean;
   /** sends a request of API `a` (`go`, the whole chain) with its token in `headers`, and reads what the response says of it */
   send(a: ApiSettings, method: string, url: string, headers: Headers, go: () => Promise<Response>, env: Env): Promise<Response>;
   /** an action's 401 that nothing on the page showed: to the sign-in page of the URL's API, if it has one (true) */

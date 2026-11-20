@@ -41,15 +41,16 @@ const needs = (t: Token, method: string, path: string) => method == 'GET' && (!t
 
 const pick = (at: string, body: any) => at.split('.').reduce((x, k) => x?.[k], body);
 
+/** whether a GET of this URL needs a token that is not stored: not sent, the resource reads as signed out */
+const out = (url: string, env: Env) => {
+  const a = apiFor(url, env.href()), t = a?.t;
+  return !!t && read(t, env) == null && needs(t, 'GET', pathOf(a, url, env.href()));
+};
+
 const hooks: TokenHooks = {
-  out(url, env) {
-    const a = apiFor(url, env.href()), t = a?.t;
-    return !!t && read(t, env) == null && needs(t, 'GET', pathOf(a, url, env.href()));
-  },
-  mine: (url, env) => !!apiFor(url, env.href())?.t,
   skip(l, req, m) {
     const d = l.def, r = l.res, env = l.app.env;
-    if (d.call || d.body != null || !hooks.out(req, env)) return false;
+    if (d.call || d.body != null || !out(req, env)) return false;
     if (!l.pager?.appends(m)) r.replace(r.isCollection ? [] : null);
     r.setTotal(null);
     l.pager?.received([], null, m);
@@ -97,7 +98,7 @@ const hooks: TokenHooks = {
     // the resources of those APIs load again: signed out
     for (const d of app?.ir.resources ?? []) {
       const l = app!.resource(d.name).loader, u = l?.url?.();
-      if (u && !d.call && hooks.mine(u, env)) void l!.refresh();
+      if (u && !d.call && apiFor(u, env.href())?.t) void l!.refresh();
     }
   },
 };
