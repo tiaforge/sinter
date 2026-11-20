@@ -1,7 +1,8 @@
 // `cache` on `<sn-resource>`: the page-load cache. A resource shows the data it had
 // on the last page load at once and revalidates as usual. Entries live in
 // sessionStorage (one tab's lifetime) under `sn:c:`, keyed by the request URL and
-// the `items`/`total` paths, so pages that load the same thing share them. Written
+// the `select`/`total` paths, so pages that load the same thing share them (the key holds the paths, not the names:
+// a build that renamed `items` to `select` reads the entries an older one wrote, of the same shape). Written
 // after every load, on `pagehide` and when the app is destroyed (confirmed data only, never optimistic layers);
 // removed on any 401 and by `clearStored()`.
 //

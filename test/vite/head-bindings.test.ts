@@ -34,8 +34,8 @@ beforeAll(async () => {
   <meta property="og:description" content="Blog" data-sn-attr="{ content: other ? other.text : 'Blog' }">
 </head>
 <body>
-  <sn-resource name="post" src="/api/post" items="post" type="any"></sn-resource>
-  <sn-resource name="other" src="/api/other" items="other" type="any"></sn-resource>
+  <sn-resource name="post" src="/api/post" select="post" type="any"></sn-resource>
+  <sn-resource name="other" src="/api/other" select="other" type="any"></sn-resource>
   <p id="t" data-sn-text="post ? post.title : ''"></p>
 </body>
 </html>

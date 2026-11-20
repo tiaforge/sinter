@@ -39,9 +39,9 @@ test('rule 1: the response Article patches the row in every list that holds it (
     'POST /api/articles/a1/favorite': { article: { ...a1, favorited: true, favoritesCount: 2 } },
   });
   const { root, settle } = await render(`
-    <sn-resource name="articles" src="/api/articles" items="articles" key="slug"></sn-resource>
-    <sn-resource name="feed" src="/api/articles/feed" items="articles" key="slug"></sn-resource>
-    <sn-resource name="article" src="/api/articles/a1" items="article"></sn-resource>
+    <sn-resource name="articles" src="/api/articles" select="articles" key="slug"></sn-resource>
+    <sn-resource name="feed" src="/api/articles/feed" select="articles" key="slug"></sn-resource>
+    <sn-resource name="article" src="/api/articles/a1" select="article"></sn-resource>
     <ul id="l"><template data-sn-for="a in articles"><li data-sn-text="a.slug + ':' + a.favoritesCount"></li></template></ul>
     <ul id="f"><template data-sn-for="a in feed"><li data-sn-text="a.slug + ':' + a.favoritesCount"></li></template></ul>
     <p data-sn-text="article.favoritesCount + ':' + article.favorited"></p>
@@ -62,7 +62,7 @@ test('rule 1 by provenance: a single resource the URL read is patched; a nested 
     'POST /api/profiles/ann/follow': { profile: { username: 'ann', following: true } },
   });
   const { root, settle } = await render(`
-    <sn-resource name="article" src="/api/articles/a1" items="article"></sn-resource>
+    <sn-resource name="article" src="/api/articles/a1" select="article"></sn-resource>
     <p data-sn-text="article.favoritesCount + ':' + article.favorited + ':' + article.author.following + ':' + article.title"></p>
     <button id="fav" data-sn-post="/api/articles/{article.slug}/favorite">fav</button>
     <button id="follow" data-sn-post="/api/profiles/{article.author.username}/follow">follow</button>`, { requests, openapi: SPEC });
@@ -81,8 +81,8 @@ test('rule 2: a POST to the list\'s own URL inserts the created item; a POST els
   });
   const { root, settle } = await render(`
     <div data-sn-state="{ slug: 'a1', body: 'second', saved: 0 }">
-      <sn-resource name="comments" src="/api/articles/{slug}/comments" items="comments" key="id" order="-id"></sn-resource>
-      <sn-resource name="tags" src="/api/tags" items="tags"></sn-resource>
+      <sn-resource name="comments" src="/api/articles/{slug}/comments" select="comments" key="id" order="-id"></sn-resource>
+      <sn-resource name="tags" src="/api/tags" select="tags"></sn-resource>
       <ul><template data-sn-for="c in comments"><li data-sn-text="c.id + ':' + c.body"></li></template></ul>
       <form id="c" data-sn-post="/api/articles/{slug}/comments" data-sn-body="{comment: {body}}" data-sn-then="body = ''; saved = saved + 1"></form>
       <button id="t" data-sn-post="/api/tags">t</button>
@@ -104,7 +104,7 @@ test('rule 2 without the item: body plus the returned key is the row; neither â†
   });
   const { root, settle } = await render(`
     <div data-sn-state="{ name: 'b' }">
-      <sn-resource name="labels" src="/api/labels" items="labels" key="id"></sn-resource>
+      <sn-resource name="labels" src="/api/labels" select="labels" key="id"></sn-resource>
       <ul><template data-sn-for="l in labels"><li data-sn-text="l.id + ':' + l.name"></li></template></ul>
       <form data-sn-post="/api/labels" data-sn-body="{name}"></form>
     </div>`, { requests, openapi: SPEC });
@@ -123,7 +123,7 @@ test('rule 3: a PUT body patches the row the URL named (unwrapped by the request
   const requests = mockRequests({ 'GET /api/labels': { labels: [{ id: 1, name: 'a' }, { id: 2, name: 'b' }] }, 'PUT /api/labels/2': { status: 204 } });
   const { root, settle } = await render(`
     <div data-sn-state="{ name: 'B!' }">
-      <sn-resource name="labels" src="/api/labels" items="labels" key="id"></sn-resource>
+      <sn-resource name="labels" src="/api/labels" select="labels" key="id"></sn-resource>
       <ul><template data-sn-for="l in labels"><li><i data-sn-text="l.id + ':' + l.name"></i><button data-sn-put="/api/labels/{l.id}" data-sn-body="{name}">s</button></li></template></ul>
     </div>`, { requests, openapi: SPEC });
   await settle();
@@ -134,7 +134,7 @@ test('rule 3: a PUT body patches the row the URL named (unwrapped by the request
 test('rule 3 without a spec: the body patches the row only when its keys are fields of the row', async () => {
   const requests = mockRequests({ 'GET /api/m': { m: [{ id: 1, read: false }] }, 'PATCH /api/m/1': { status: 204 }, 'PATCH /api/other': { status: 204 } });
   const { root, settle } = await render(`
-    <sn-resource name="m" src="/api/m" items="m" key="id"></sn-resource>
+    <sn-resource name="m" src="/api/m" select="m" key="id"></sn-resource>
     <template data-sn-for="x in m"><div><p data-sn-text="x.id + ':' + x.read + ':' + ('extra' in x)"></p>
       <button id="a" data-sn-patch="/api/m/{x.id}" data-sn-body="{read: true}">a</button>
       <button id="b" data-sn-patch="/api/other" data-sn-body="{id: x.id, extra: 1}">b</button></div></template>`, { requests });
@@ -151,8 +151,8 @@ test('rule 4: a DELETE of a row\'s URL removes the row (no spec needed); a sub-r
     'GET /api/articles/a1': { article: a1 }, 'DELETE /api/articles/a1/favorite': { status: 204 }, 'DELETE /api/articles/a1': { status: 204 },
   });
   const { root, settle } = await render(`
-    <sn-resource name="article" src="/api/articles/a1" items="article"></sn-resource>
-    <sn-resource name="comments" src="/api/articles/{article.slug}/comments" items="comments" key="id"></sn-resource>
+    <sn-resource name="article" src="/api/articles/a1" select="article"></sn-resource>
+    <sn-resource name="comments" src="/api/articles/{article.slug}/comments" select="comments" key="id"></sn-resource>
     <ul><template data-sn-for="c in comments"><li><i data-sn-text="c.id"></i><button data-sn-delete="/api/articles/{article.slug}/comments/{c.id}">x</button></li></template></ul>
     <button id="unfav" data-sn-delete="/api/articles/{article.slug}/favorite">u</button>
     <button id="del" data-sn-delete="/api/articles/{article.slug}">d</button>
@@ -172,7 +172,7 @@ test('order: write-through lands after the optimistic commit and before `then`, 
     'DELETE /api/articles/a1/favorite': { status: 500 },
   });
   const { root, settle } = await render(`
-    <sn-resource name="articles" src="/api/articles" items="articles" key="slug"></sn-resource>
+    <sn-resource name="articles" src="/api/articles" select="articles" key="slug"></sn-resource>
     <template data-sn-for="a in articles"><div><p data-sn-text="a.favoritesCount + ':' + a.favorited + ':' + a.title"></p>
       <button id="fav" data-sn-post="/api/articles/{a.slug}/favorite" data-sn-optimistic="merge(a, {favorited: true})" data-sn-then="merge(a, {title: 'then'})">f</button>
       <button id="unfav" data-sn-delete="/api/articles/{a.slug}/favorite" data-sn-optimistic="merge(a, {favorited: false})" data-sn-catch="$event.preventDefault()">u</button></div></template>`, { requests, openapi: SPEC });
@@ -186,7 +186,7 @@ test('order: write-through lands after the optimistic commit and before `then`, 
 test('data-sn-write-through="off" keeps the handler\'s work to itself', async () => {
   const requests = mockRequests({ 'GET /api/articles': { articles: [a1] }, 'POST /api/articles/a1/favorite': { article: { ...a1, favoritesCount: 5 } } });
   const { root, settle } = await render(`
-    <sn-resource name="articles" src="/api/articles" items="articles" key="slug"></sn-resource>
+    <sn-resource name="articles" src="/api/articles" select="articles" key="slug"></sn-resource>
     <template data-sn-for="a in articles"><div><p data-sn-text="a.favoritesCount"></p><button data-sn-post="/api/articles/{a.slug}/favorite" data-sn-write-through="off">f</button></div></template>`, { requests, openapi: SPEC });
   await settle();
   click(root, 'button'); await settle();

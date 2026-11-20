@@ -6,13 +6,13 @@ export const apis = {
   realworld: {
     openapi: 'openapi.yml',
     defaults: {
-      'GET /user': { items: 'user' },
-      'GET /articles': { items: 'articles', total: 'articlesCount', key: 'slug' },
-      'GET /articles/feed': { items: 'articles', total: 'articlesCount', key: 'slug' },
-      'GET /articles/{slug}': { items: 'article' },
-      'GET /articles/{slug}/comments': { items: 'comments', key: 'id' },
-      'GET /profiles/{username}': { items: 'profile' },
-      'GET /tags': { items: 'tags' },
+      'GET /user': { select: 'user' },
+      'GET /articles': { select: 'articles', total: 'articlesCount', key: 'slug' },
+      'GET /articles/feed': { select: 'articles', total: 'articlesCount', key: 'slug' },
+      'GET /articles/{slug}': { select: 'article' },
+      'GET /articles/{slug}/comments': { select: 'comments', key: 'id' },
+      'GET /profiles/{username}': { select: 'profile' },
+      'GET /tags': { select: 'tags' },
     },
   },
 };

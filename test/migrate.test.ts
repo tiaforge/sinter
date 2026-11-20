@@ -16,7 +16,7 @@ describe('sinter migrate', () => {
   });
 
   test('rewrites attribute values only, byte for byte, in templates too; idempotent', () => {
-    const page = `<sn-resource name="c" src="https://api.example.com/v1/contacts" items="contacts" key="id"></sn-resource>
+    const page = `<sn-resource name="c" src="https://api.example.com/v1/contacts" select="contacts" key="id"></sn-resource>
 <template data-sn-for="x in c"><button data-sn-delete='https://api.example.com/v1/contacts/{x.id}'>&amp; x</button></template>
 <sn-resource name="cfg" src="/config.json"></sn-resource>`;
     const r = migrateMarkup(page, 'page.html', p.apis!);
@@ -28,14 +28,14 @@ describe('sinter migrate', () => {
   });
 
   test('the config to add: shapes every page agrees on, endpoints no API declares', () => {
-    const a = migrateMarkup('<sn-resource name="c" src="/contacts" items="contacts" key="id"></sn-resource><sn-resource name="s" src="/stats" key="day"></sn-resource>', 'a.html', p.apis!);
-    const b = migrateMarkup('<sn-resource name="c" src="/contacts" items="contacts" key="id"></sn-resource><form data-sn-post="files:/upload"></form>', 'b.html', p.apis!);
+    const a = migrateMarkup('<sn-resource name="c" src="/contacts" select="contacts" key="id"></sn-resource><sn-resource name="s" src="/stats" key="day"></sn-resource>', 'a.html', p.apis!);
+    const b = migrateMarkup('<sn-resource name="c" src="/contacts" select="contacts" key="id"></sn-resource><form data-sn-post="files:/upload"></form>', 'b.html', p.apis!);
     const report = configReport([...a.uses, ...b.uses], p.apis!, p.openapi);
-    expect(report.defaults).toEqual({ main: { 'GET /contacts': { items: 'contacts', key: 'id' } } });
+    expect(report.defaults).toEqual({ main: { 'GET /contacts': { select: 'contacts', key: 'id' } } });
     expect(report.operations).toEqual({ main: { 'GET /stats': { key: 'day', '': 'type' } }, files: { 'POST /upload': {} } });
     expect(formatReport(report)).toContain(`"GET /stats": { key: "day", /* type: '…' */ },`);
-    const c = migrateMarkup('<sn-resource name="c" src="/contacts" items="people" key="id"></sn-resource>', 'c.html', p.apis!);
-    expect(configReport([...a.uses, ...c.uses], p.apis!, p.openapi).disagree).toEqual(['main: GET /contacts (items)']);
+    const c = migrateMarkup('<sn-resource name="c" src="/contacts" select="people" key="id"></sn-resource>', 'c.html', p.apis!);
+    expect(configReport([...a.uses, ...c.uses], p.apis!, p.openapi).disagree).toEqual(['main: GET /contacts (select)']);
   });
 
   test('site: in a file it migrates, for a same-origin path no operation of the default API matches', () => {
@@ -53,9 +53,9 @@ describe('sinter migrate', () => {
   });
 
   test('after the rewrite: the query parameters to declare, what to fix by hand, the attributes to remove', () => {
-    const q = apiProject({ apis: { main: { openapi: 'openapi.yml', defaults: { 'GET /contacts': { items: 'contacts', key: 'id' } } } } });
+    const q = apiProject({ apis: { main: { openapi: 'openapi.yml', defaults: { 'GET /contacts': { select: 'contacts', key: 'id' } } } } });
     const page = `<div data-sn-state="{ t: '' }">
-<sn-resource name="c" src="https://api.example.com/v1/contacts?tag={t}&qq={t}" items="contacts" key="id" paginate="{ numbered: true, size: 10, params: { size: 'per' } }"></sn-resource>
+<sn-resource name="c" src="https://api.example.com/v1/contacts?tag={t}&qq={t}" select="contacts" key="id" paginate="{ numbered: true, size: 10, params: { size: 'per' } }"></sn-resource>
 <sn-resource name="r" src="https://api.example.com/v1/reports"></sn-resource>
 <p data-sn-text="c.length + r.n"></p></div>`;
     const m = migrateMarkup(page, `${q.root}/page.html`, q.apis!, q.openapi);
@@ -72,7 +72,7 @@ describe('sinter migrate', () => {
     addQuery(report, fu.query, q.apis!, q.openapi);
     expect(report.defaults.main!['GET /contacts']).toEqual({ query: ['tag', 'per', 'page'] });
     expect(formatReport(report)).toContain('"GET /contacts": { query: ["tag","per","page"] },');
-    // `items` and `key` are in the config: removed, with the space before each
+    // `select` and `key` are in the config: removed, with the space before each
     expect(fu.redundant).toHaveLength(2);
     expect(removeAttributes(m.text, fu.redundant.map((x) => x.span))).toContain('<sn-resource name="c" src="/contacts?tag={t}&qq={t}" paginate="{ numbered: true, size: 10, params: { size: \'per\' } }"');
   });
@@ -84,7 +84,7 @@ describe('sinter migrate: the renames', () => {
     const { compile } = await import('../src/compiler/index.js');
     const { applyRenames } = await import('../src/migrate.js');
     const opts = { file: '/p/page.html', root: '/p', dev: false, readFile: () => '', helpers: { module: null, names: [], namespaces: {} } };
-    let text = `<sn-resource name="people" src="/api/people" key="id"></sn-resource>
+    let text = `<sn-resource name="people" src="/api/people" items="people" key="id"></sn-resource>
 <ul data-sn-listbox><template data-sn-for="p in people"><li data-sn-text="p.name"></li></template></ul>
 <button data-sn-on-click="refresh('people')">reload</button>
 <form data-sn-on-dismiss="x = 1"></form>`;
@@ -95,7 +95,7 @@ describe('sinter migrate: the renames', () => {
       all.push(...r.changes.map((c) => `${c.line} ${c.from} → ${c.to}`));
       text = r.text;
     }
-    expect(all).toEqual(['2 data-sn-listbox → data-sn-options', "3 'people' → people", '4 data-sn-on-dismiss → data-sn-on-sn-dismiss']);
+    expect(all).toEqual(['1 items → select', '2 data-sn-listbox → data-sn-options', "3 'people' → people", '4 data-sn-on-dismiss → data-sn-on-sn-dismiss']);
     expect(compile(text, opts).diagnostics.filter((d) => / is renamed to |not its name/.test(d.message))).toEqual([]);
   });
 });

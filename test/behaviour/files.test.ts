@@ -37,7 +37,7 @@ describe('a file: resource', () => {
   test('text and JSON (with items and key), a constant status, no request', async () => {
     const requests = mockRequests({});
     const r = await render(`<sn-resource name="post" src="file:./post.txt"></sn-resource>
-      <sn-resource name="tags" src="file:/data/tags.json" items="tags" key="id"></sn-resource>
+      <sn-resource name="tags" src="file:/data/tags.json" select="tags" key="id"></sn-resource>
       <p data-sn-text="post"></p><ul><template data-sn-for="t in tags"><li data-sn-text="t.name"></li></template></ul>
       <i data-sn-text="[$meta.post.loading, $meta.post.error, $meta.post.loadedAt, $meta.tags.loading].join(',')"></i>`, { files, requests });
     await r.settle();
@@ -77,7 +77,8 @@ describe('a file: resource', () => {
     const linked = errors(build('<sn-resource name="r" src="file:./link.txt"></sn-resource><p data-sn-text="r"></p>', {}, { readFile: (f: string) => { throw new Error(`outside the project root: ${f}`); } }));
     expect(linked).toEqual([expect.stringMatching(/^SN332 `file:\.\/link\.txt` is a link to a file outside the project root \(`link\.txt`\)/)]);
     expect(one('file:./bad.json')).toEqual([expect.stringMatching(/^SN332 `bad\.json` is not valid JSON/)]);
-    expect(one('file:./post.txt', ' items="x"')).toEqual([expect.stringMatching(/^SN332 `items` picks a list out of a JSON file/)]);
+    expect(one('file:./post.txt', ' select="x"')).toEqual([expect.stringMatching(/^SN332 `select` picks a part of one JSON file; this file is text/)]);
+    expect(one('file:./post.txt', ' items="x"')).toEqual([expect.stringMatching(/^SN101 `items` is renamed to `select`/)]);
     expect(one('file:')).toEqual([expect.stringMatching(/^SN332 `file:` needs a path/)]);
   });
 
@@ -86,7 +87,7 @@ describe('a file: resource', () => {
       const e = errors(build(`<div data-sn-state="{ x: 0 }"><sn-resource name="r" src="file:./post.txt" ${a}></sn-resource><p data-sn-text="r"></p></div>`));
       expect(e.some((x) => x.startsWith(`SN332 \`${a.split('=')[0]}\``)), a).toBe(true);
     }
-    const json = (body: string) => errors(build(`<sn-resource name="tags" src="file:/data/tags.json" items="tags" key="id"></sn-resource>${body}`));
+    const json = (body: string) => errors(build(`<sn-resource name="tags" src="file:/data/tags.json" select="tags" key="id"></sn-resource>${body}`));
     expect(json('<button data-sn-on-click="refresh(tags)"></button><p data-sn-text="tags.length"></p>')).toEqual([expect.stringMatching(/^SN332 `refresh\(\)` would load or change `tags`/)]);
     expect(json('<button data-sn-on-click="upsert(tags, { id: 3 })"></button><p data-sn-text="tags.length"></p>')).toEqual([expect.stringMatching(/^SN332 `upsert\(\)`/)]);
     expect(json('<template data-sn-for="t in tags"><button data-sn-on-click="remove(t)"></button></template>')).toEqual([expect.stringMatching(/^SN332 `remove\(\)` (would load or )?changes? `tags`, a `file:` resource/)]);
@@ -137,14 +138,14 @@ describe('a markdown file is an entry: its frontmatter and its body', () => {
     expect(out.html).toContain('<h1>yes</h1>');
   });
 
-  test('SN332: invalid YAML, anchors and aliases, tags, a field sinter writes, a list as frontmatter, `items`', () => {
+  test('SN332: invalid YAML, anchors and aliases, tags, a field sinter writes, a list as frontmatter, `select`', () => {
     const one = (md: string, extra = '') => errors(build(`<sn-resource name="r" src="file:./x.md"${extra}></sn-resource><p data-sn-text="r.body"></p>`, { 'x.md': md }));
     expect(one('---\ntitle: [unclosed\n---\nx')).toEqual([expect.stringMatching(/^SN332 `x\.md`: its frontmatter is not valid YAML/)]);
     expect(one('---\na: &x 1\nb: *x\n---\nx')).toEqual([expect.stringMatching(/^SN332 `x\.md`: its frontmatter uses an (alias|anchor)/)]);
     expect(one('---\na: !custom 1\n---\nx')).toEqual([expect.stringMatching(/^SN332 `x\.md`: its frontmatter is not valid YAML|uses a tag/)]);
     expect(one('---\nbody: mine\n---\nx')).toEqual([expect.stringMatching(/^SN332 `x\.md`: its frontmatter has a field `body`, which sinter writes/)]);
     expect(one('---\n- a\n- b\n---\nx')).toEqual([expect.stringMatching(/^SN332 `x\.md`: its frontmatter is not a set of fields/)]);
-    expect(one('# x', ' items="a"')).toEqual([expect.stringMatching(/^SN332 `items` picks a list out of a JSON file; a markdown file is one entry/)]);
+    expect(one('# x', ' select="a"')).toEqual([expect.stringMatching(/^SN332 `select` picks a part of one JSON file; a markdown file is one entry/)]);
   });
 });
 
@@ -190,12 +191,12 @@ describe('a glob is a list: one entry per file', () => {
     expect(out.html).toMatch(/<li>hello<\/li>.*<li>the-zebra<\/li>/s);
   });
 
-  test('SN332: a JSON file that is not an object, a field sinter writes, two entries with one slug, `items`, `drafts` on one file; SN539: no match', () => {
+  test('SN332: a JSON file that is not an object, a field sinter writes, two entries with one slug, `select`, `drafts` on one file; SN539: no match', () => {
     const one = (glob: string, more: Record<string, string>, extra = '') => errors(build(reads(`<sn-resource name="r" src="file:${glob}" type="any"${extra}></sn-resource>`), more));
     expect(one('/d/*.json', { 'd/a.json': '[1, 2]' })).toEqual([expect.stringMatching(/^SN332 `a\.json` is not an object: each file of a glob is one entry/)]);
     expect(one('/d/*.json', { 'd/a.json': '{"path":"x"}' })).toEqual([expect.stringMatching(/^SN332 `a\.json` has a field `path`, which sinter writes/)]);
     expect(one('/d/**/*.md', { 'd/x/a.md': 'a', 'd/y/a.md': 'b' })).toEqual([expect.stringMatching(/^SN332 two files have the slug `a`: `d\/x\/a\.md` and `d\/y\/a\.md`; give one of them a `slug` of its own/)]);
-    expect(one('/d/*.md', { 'd/a.md': 'a' }, ' items="x"')).toEqual([expect.stringMatching(/^SN332 `items` picks a list out of a JSON file; a glob is a list already/)]);
+    expect(one('/d/*.md', { 'd/a.md': 'a' }, ' select="x"')).toEqual([expect.stringMatching(/^SN332 `select` picks a part of one JSON file; a glob is a list already/)]);
     expect(one('/content/posts/hello.md', posts, ' drafts="draft"')).toEqual([expect.stringMatching(/^SN332 `drafts` leaves entries out of a list; this `file:` source is one file/)]);
     const none = build(reads('<sn-resource name="r" src="file:/content/posts/*.mdx" type="any"></sn-resource>'), posts);
     expect(errors(none)).toEqual([]);

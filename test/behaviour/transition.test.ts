@@ -6,14 +6,14 @@ import { ident } from '../../src/transition.js';
 import { memoryStorage, mockRequests, render, type Rendered } from '../../src/testing/index.js';
 
 const LIST = `
-  <sn-resource name="articles" src="/api/articles" items="articles" key="slug"></sn-resource>
+  <sn-resource name="articles" src="/api/articles" select="articles" key="slug"></sn-resource>
   <ul><template data-sn-for="a in articles"><li>
     <img alt="" data-sn-transition="'article-' + a.slug">
     <a data-sn-attr="{href: '/article/' + a.slug}" data-sn-text="a.title"></a>
   </li></template></ul>
   <a id="plain" href="/about">about</a>`;
 const DETAIL = `<html data-sn-path="/article/:slug"><head></head><body>
-  <sn-resource name="article" src="/api/articles/{$url.slug}" items="article"></sn-resource>
+  <sn-resource name="article" src="/api/articles/{$url.slug}" select="article"></sn-resource>
   <h1 data-sn-transition="'article-' + $url.slug" data-sn-text="article?.title"></h1>
 </body></html>`;
 

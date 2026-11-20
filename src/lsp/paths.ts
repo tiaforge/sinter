@@ -171,19 +171,19 @@ export function pathHover(text: string, offset: number, p: PathProject, fileName
   if (m.query.length) out.push('Query: ' + m.query.map((q) => `\`${q}\`${m.required.includes(q) ? ' (required)' : ''}`).join(', '));
   if (at.resource) {
     const where = spec.config ? 'operations' : 'defaults';
-    const fact = (k: 'items' | 'key' | 'type') => {
+    const fact = (k: 'select' | 'key' | 'type') => {
       if (shape?.[k] != null) return `\`${k}\`: \`${shape[k]}\` (${t.api.name}.${where})`;
       const own = at.attrOf(k);
       if (own != null) return `\`${k}\`: \`${own}\` (element)`;
       if (k === 'type' && m.body != null) {
-        const items = shape?.items ?? at.attrOf('items');
-        const w = items ? walk(doc, m.body, items) : { schema: m.body };
+        const select = shape?.select ?? at.attrOf('select');
+        const w = select ? walk(doc, m.body, select) : { schema: m.body };
         const n = 'schema' in w ? namedSchema(doc, w.schema) : null;
         if (n) return `\`type\`: \`${n.name}${n.array ? '[]' : ''}\` (spec)`;
       }
       return null;
     };
-    const facts = (['items', 'key', 'type'] as const).map(fact).filter(Boolean);
+    const facts = (['select', 'key', 'type'] as const).map(fact).filter(Boolean);
     if (facts.length) out.push(facts.join(' · '));
   }
   out.push(`From \`${fileName(spec.file)}\``);

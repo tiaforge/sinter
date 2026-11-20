@@ -18,7 +18,7 @@ async function page(attrs = '', extra = '', items: object[] = [ITEM]) {
   const stream = mockStream();
   const requests = mockRequests({ 'GET /api/m': () => ({ m: items, total: 10 }) });
   const r = await render(`
-    <sn-resource name="m" src="/api/m" items="m" total="total" key="id"></sn-resource>
+    <sn-resource name="m" src="/api/m" select="m" total="total" key="id"></sn-resource>
     <sn-sync src="/s"><sn-event name="msg" resource="m" op="upsert"></sn-event><sn-event name="gone" resource="m" op="remove"></sn-event></sn-sync>
     <template data-sn-for="x in m">
       <div>

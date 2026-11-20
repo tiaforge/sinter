@@ -27,7 +27,7 @@ const api = () => mockRequests({
   },
 });
 const LIST = `
-  <sn-resource name="a" src="/api/a?tag={$url.tag}" items="items" total="total" key="id" paginate="{ numbered: true, size: 2, model: $url.page }"></sn-resource>
+  <sn-resource name="a" src="/api/a?tag={$url.tag}" select="items" total="total" key="id" paginate="{ numbered: true, size: 2, model: $url.page }"></sn-resource>
   <span data-sn-text="[$meta.a.page, a.map((x) => x.id)].join(' ')"></span>
   <a id="p2" href="?page=2">2</a>
   <a id="js3" href="?tag=js&amp;page=3">js, 3</a>
@@ -115,7 +115,7 @@ test('the build loads the module on a page with a link it sees goes to the page 
 });
 
 test('SN519: a pager link that drops parameters the page reads; not a filter or tab link, nor a fallback for a bound href', () => {
-  const diags = (links: string) => compileParts(`<sn-resource name="a" src="/api/a?tag={$url.tag}&feed={$url.feed}" items="a" key="id" paginate="{ numbered: true, size: 2, model: $url.page }"></sn-resource>
+  const diags = (links: string) => compileParts(`<sn-resource name="a" src="/api/a?tag={$url.tag}&feed={$url.feed}" select="a" key="id" paginate="{ numbered: true, size: 2, model: $url.page }"></sn-resource>
     <p data-sn-text="a.length"></p>${links}`, { file: '/p/index.html', root: '/p', dev: false, helpers: { module: null, names: [], namespaces: {} }, readFile: () => '' }).diagnostics.map((x) => [x.code, x.message]);
   expect(diags('<a href="?page=2">2</a>')).toEqual([['SN519', '`?page=2` keeps only its own query: `feed`, `tag`, which this page reads, are dropped when it is followed']]);
   // the whole query; a filter or a tab (page 1 is how the list starts); a fallback next to a bound href
@@ -126,7 +126,7 @@ test('SN519: a pager link that drops parameters the page reads; not a filter or 
 
 test('typing waits to commit, then a link: the typed query gets its own entry first', async () => {
   const requests = mockRequests({ 'GET /api/s': { items: [] } });
-  const r = await render(`<sn-resource name="s" src="/api/s?q={$url.q}&sort={$url.sort}" items="items"></sn-resource>
+  const r = await render(`<sn-resource name="s" src="/api/s?q={$url.q}&sort={$url.sort}" select="items"></sn-resource>
     <input data-sn-model="$url.q"><a href="?sort=new">new</a>`, { requests });
   await r.settle();
   const field = r.root.querySelector('input')!;
@@ -143,7 +143,7 @@ test('hovering a same-page link prefetches nothing: the click stays in the page'
   const { HOVER } = await import('../../src/prefetch.js');
   const { memoryStorage } = await import('../../src/testing/index.js');
   const requests = mockRequests({ 'GET /api/s': { items: [] } });
-  const html = `<sn-resource name="s" src="/api/s?tag={$url.tag}" items="items"></sn-resource><a href="?tag=go">go</a>`;
+  const html = `<sn-resource name="s" src="/api/s?tag={$url.tag}" select="items"></sn-resource><a href="?tag=go">go</a>`;
   // next-page data knows this page as `/`: without the module it would request `?tag=go`'s data
   const r = await render(html, { requests, session: memoryStorage(), pages: { 'index.html': html } });
   await r.settle();
@@ -156,7 +156,7 @@ test('hovering a same-page link prefetches nothing: the click stays in the page'
 
 test('pending typing is committed before the link is compared: `?` clears the search, the typed URL is no duplicate', async () => {
   const requests = mockRequests({ 'GET /api/s': { items: [] } });
-  const page = `<sn-resource name="s" src="/api/s?q={$url.q}" items="items"></sn-resource><input data-sn-model="$url.q"><a id="all" href="?">all</a><a id="sin" href="?q=sin">sin</a>`;
+  const page = `<sn-resource name="s" src="/api/s?q={$url.q}" select="items"></sn-resource><input data-sn-model="$url.q"><a id="all" href="?">all</a><a id="sin" href="?q=sin">sin</a>`;
   for (const [id, want] of [['all', ['http://localhost/', 'http://localhost/?q=sin', 'http://localhost/?']], ['sin', ['http://localhost/', 'http://localhost/?q=sin']]] as const) {
     const r = await render(page, { requests });
     await r.settle();
@@ -205,7 +205,7 @@ test('the read parameters come from the dependencies: names with a hyphen, no mo
   const parts = (html: string, file = '/p/index.html') => compileParts(html, { file, root: '/p', dev: false, helpers: { module: null, names: [], namespaces: {} }, readFile: () => { throw new Error('missing'); } });
   expect(parts(`<p data-sn-text="$url['sort-by']"></p><a href="?sort-by=new">new</a>`).ir.urlReads).toEqual(['sort-by']);
   // a URL in a resource's `src` that starts with `$url.` is no read
-  expect(parts(`<sn-resource name="r" src="/api/r?x=$url.zz" items="r"></sn-resource><p data-sn-text="r.length + $url.q"></p><a href="?q=1">1</a>`).ir.urlReads).toEqual(['q']);
+  expect(parts(`<sn-resource name="r" src="/api/r?x=$url.zz" select="r"></sn-resource><p data-sn-text="r.length + $url.q"></p><a href="?q=1">1</a>`).ir.urlReads).toEqual(['q']);
   expect(parts(`<p data-sn-state="{ k: 'q' }" data-sn-text="$url[k]"></p><a href="?q=1">1</a>`).features).not.toContain('query-links');
   expect(parts(`<html><head><base href="/"></head><body><p data-sn-text="$url.q"></p><a href="?q=1">1</a></body></html>`).features).not.toContain('query-links');
 });

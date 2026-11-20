@@ -271,7 +271,7 @@ rendered
 state
   me        loading: false  error: null  value: {"name":"ada"}
   incident  loading: false  error: null  value: {"incident":{"id":3,"title":"Disk full"}}
-            ← the value is the whole response: items="incident" stores its `incident`
+            ← the value is the whole response: select="incident" stores its `incident`
 
 step --select #status=closed
   history

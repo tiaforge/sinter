@@ -56,7 +56,8 @@ export interface ResourceDef {
   /** key fields; null for a single-object resource */
   // absent fields (in the page module: `compactIR`) take their default: null, `deps` [], `scope` -1
   key?: string[] | null;
-  items?: string | null;
+  /** `select`: the path in the response where the data is; null: the response itself */
+  select?: string | null;
   total?: string | null;
   /** field, `-field` for descending */
   order?: string | null;
@@ -89,7 +90,7 @@ export interface ResourceDef {
   fed?: 1;
   /** a `file:` resource: its value is the page's embedded data (`data`), read at build time; it never loads or changes */
   fx?: 1;
-  /** no `key`, and the build knows its value is a list (its `type`, the OpenAPI response at `items`, a `file:` or `content:` list): empty, it is `[]` */
+  /** no `key`, and the build knows its value is a list (its `type`, the OpenAPI response at `select`, a `file:` or `content:` list): empty, it is `[]` */
   ls?: 1;
 }
 
@@ -206,8 +207,8 @@ export interface EarlyIR {
   /** by template id; null for templates the early chunk does not render */
   /** by template id; null for templates the early chunk does not render; `w`: inside `<svg>` or `<math>` (`TemplateDef.w`) */
   templates: Array<{ nodes: NodeDef[]; item?: string; index?: string | null; w?: 1 } | null>;
-  /** resources with embedded data the early bindings read (`$r.<name>`): the data element's `data-sn` id and `items` path */
-  emb?: Record<string, { id: number; items: string | null; ls?: 1 }>;
+  /** resources with embedded data the early bindings read (`$r.<name>`): the data element's `data-sn` id and `select` path */
+  emb?: Record<string, { id: number; select: string | null; ls?: 1 }>;
   /** resources the early file requests: URL template and `when` (function indexes into the early table), scope by index into `roots`, -1 for the page; `q`: a paginated resource's first-page query parameters */
   res?: Array<{
     name: string; src: UrlTemplate; when: number | null; scope: number; q?: Record<string, string>;

@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-// A resource without `key` that the build knows is a list (its `type`, the OpenAPI response at `items`, a `file:` or
+// A resource without `key` that the build knows is a list (its `type`, the OpenAPI response at `select`, a `file:` or
 // `content:` list) is `[]` when it has no data: while it loads, while `when` is falsy, after `remove()`. A list of
 // strings (RealWorld's tags) cannot have a key, so markup over it needs no `?.length` or `?? []`. A resource whose type
 // the build does not know stays `null`.
@@ -26,17 +26,17 @@ describe('which resources are lists', () => {
       expect(isArrayType(t), t).toBe(false);
   });
 
-  test('by `type`, by the OpenAPI response at `items`; not with `key`, an unknown type or one object', () => {
+  test('by `type`, by the OpenAPI response at `select`; not with `key`, an unknown type or one object', () => {
     expect(ls(`<sn-resource name="a" src="/x" type="string[]"></sn-resource><sn-resource name="b" src="/x" type="Tag"></sn-resource>
       <sn-resource name="c" src="/x"></sn-resource><sn-resource name="d" src="/x" key="id" type="Tag[]"></sn-resource><sn-resource name="e" src="/x" type="any"></sn-resource>
       <p data-sn-text="[a, b, c, d, e]"></p>`)).toEqual({ a: 1, b: 0, c: 0, d: 0, e: 0 });
-    expect(ls('<sn-resource name="t" src="/api/tags" items="tags"></sn-resource><sn-resource name="all" src="/api/tags"></sn-resource><sn-resource name="me" src="/api/me"></sn-resource><p data-sn-text="[t, all, me]"></p>', { openapi: [SPEC] }))
+    expect(ls('<sn-resource name="t" src="/api/tags" select="tags"></sn-resource><sn-resource name="all" src="/api/tags"></sn-resource><sn-resource name="me" src="/api/me"></sn-resource><p data-sn-text="[t, all, me]"></p>', { openapi: [SPEC] }))
       .toEqual({ t: 1, all: 0, me: 0 });
   });
 
   test('a `file:` JSON list without `key`', () => {
     const files: Record<string, string> = { '/p/tags.json': '["a","b"]', '/p/site.json': '{"name":"x","tags":["a"]}' };
-    const out = compileParts('<sn-resource name="t" src="file:./tags.json"></sn-resource><sn-resource name="s" src="file:./site.json"></sn-resource><sn-resource name="st" src="file:./site.json" items="tags"></sn-resource><p data-sn-text="[t, s, st]"></p>',
+    const out = compileParts('<sn-resource name="t" src="file:./tags.json"></sn-resource><sn-resource name="s" src="file:./site.json"></sn-resource><sn-resource name="st" src="file:./site.json" select="tags"></sn-resource><p data-sn-text="[t, s, st]"></p>',
       { ...OPTS, readFile: (p: string) => { if (p in files) return files[p]!; throw new Error('missing'); } });
     expect(Object.fromEntries(out.ir.resources.map((r) => [r.name, r.ls ?? 0]))).toEqual({ t: 1, s: 0, st: 1 });
   });

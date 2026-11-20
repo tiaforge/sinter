@@ -88,10 +88,10 @@ export interface CheckResource {
   loc: CheckLoc;
   /** start of the `name` value, where go to definition lands */
   nameLoc?: CheckLoc;
-  /** without `type`: the OpenAPI operation `src` matched and the schema of what `items` selects */
+  /** without `type`: the OpenAPI operation `src` matched and the schema of what `select` selects */
   openapi?: { spec: number; label: string; schema: unknown };
-  /** `call`: the action and the `items` path into its result; with `type`, the result must fit it */
-  call?: { name: string; items: string | null };
+  /** `call`: the action and the `select` path into its result; with `type`, the result must fit it */
+  call?: { name: string; select: string | null };
   /** keyset without `jump`: `page()` takes a direction, not a page number */
   directions?: boolean;
   /**

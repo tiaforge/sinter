@@ -1,5 +1,5 @@
 // Matches a resource's `src` against OpenAPI specs: which GET operation it calls,
-// the JSON schema of what `items` selects, and the query parameters the operation
+// the JSON schema of what `select` selects, and the query parameters the operation
 // declares. Pure; the adapter parses the spec files.
 import type { UrlTemplate } from '../ir.js';
 import { suggest } from './diagnostics.js';

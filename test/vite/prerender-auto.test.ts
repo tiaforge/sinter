@@ -22,11 +22,11 @@ const input = ['index.html', 'article.html', 'new.html', 'stream.html'];
 beforeAll(() => {
   mkdirSync(join(root, 'src'), { recursive: true });
   // reads only, a stream (it connects once the page is shown)
-  writeFileSync(join(root, 'index.html'), page('/', '<sn-resource name="a" src="/api/a" items="a" key="id"></sn-resource><ul><template data-sn-for="x in a"><li><a data-sn-attr="{ href: \'/article/\' + x.id }" data-sn-text="x.id"></a></li></template></ul><a href="/article/new">new</a>'));
+  writeFileSync(join(root, 'index.html'), page('/', '<sn-resource name="a" src="/api/a" select="a" key="id"></sn-resource><ul><template data-sn-for="x in a"><li><a data-sn-attr="{ href: \'/article/\' + x.id }" data-sn-text="x.id"></a></li></template></ul><a href="/article/new">new</a>'));
   writeFileSync(join(root, 'article.html'), page('/article/:id', '<sn-resource name="a" src="/api/a/{$url.id}"></sn-resource><h1 data-sn-text="a?.title"></h1><button data-sn-post="/api/a/{$url.id}/like">like</button>'));
   // a `then` on its resource: it does something as it loads
   writeFileSync(join(root, 'new.html'), page('/article/new', '<div data-sn-state="{ d: null }"><sn-resource name="draft" src="/api/draft" then="d = $result"></sn-resource><p data-sn-text="d?.title ?? draft?.title"></p></div>'));
-  writeFileSync(join(root, 'stream.html'), page('/live', '<sn-resource name="n" src="/api/n" items="n" key="id"></sn-resource><sn-sync src="/api/events"><sn-event name="n" resource="n" op="upsert" value="$event"></sn-event></sn-sync><i data-sn-text="n.length"></i>'));
+  writeFileSync(join(root, 'stream.html'), page('/live', '<sn-resource name="n" src="/api/n" select="n" key="id"></sn-resource><sn-sync src="/api/events"><sn-event name="n" resource="n" op="upsert" value="$event"></sn-event></sn-sync><i data-sn-text="n.length"></i>'));
 });
 afterAll(() => rmSync(dir, { recursive: true, force: true }));
 

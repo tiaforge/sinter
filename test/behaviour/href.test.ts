@@ -116,7 +116,7 @@ describe('diagnostics', () => {
   });
 
   test('SN519: a pager template whose literal query drops parameters the page reads', () => {
-    const d = (links: string) => diags(`<sn-resource name="a" src="/api/a?tag={$url.tag}" items="a" key="id" paginate="{ numbered: true, size: 2, model: $url.page }"></sn-resource><p data-sn-text="a.length"></p>${links}`);
+    const d = (links: string) => diags(`<sn-resource name="a" src="/api/a?tag={$url.tag}" select="a" key="id" paginate="{ numbered: true, size: 2, model: $url.page }"></sn-resource><p data-sn-text="a.length"></p>${links}`);
     expect(d('<template data-sn-for="n in [1, 2]" data-sn-key="n"><a data-sn-href="?page={n}">n</a></template>')).toEqual([['SN519', '`?page={n}` keeps only its own query: `tag`, which this page reads, is dropped when it is followed']]);
     expect(d('<template data-sn-for="n in [1, 2]" data-sn-key="n"><a data-sn-href="?tag={$url.tag}&amp;page={n}">n</a></template>')).toEqual([]);
     // a filter link: page 1 is how the list starts

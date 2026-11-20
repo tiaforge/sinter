@@ -129,8 +129,8 @@ export const DIAGNOSTIC_DOCS: Record<Code, DiagnosticDoc> = {
   },
   SN308: {
     example: 'the response of `GET /articles` has no `articls`. Did you mean `articles`?',
-    means: 'The resource matched an operation in the OpenAPI spec, but its `items` or `total` path is not in the response schema.',
-    fix: 'Fix the path in `items` or `total`, or the spec if the API changed.',
+    means: 'The resource matched an operation in the OpenAPI spec, but its `select` or `total` path is not in the response schema.',
+    fix: 'Fix the path in `select` or `total`, or the spec if the API changed.',
   },
   SN309: {
     example: 'no `<dialog id="compose-dialg">` on this page. Did you mean `compose-dialog`?',
@@ -221,12 +221,12 @@ export const DIAGNOSTIC_DOCS: Record<Code, DiagnosticDoc> = {
   },
   SN329: {
     example: 'sinter({ apis }): `main.base` is `undefined` (an environment variable that is not set?); it does not fall back to the spec\'s server',
-    means: 'The `apis` option is invalid: an API setting that does not exist, a `base` that is not `\'\'`, a same-origin path or an `https://` URL (or is `undefined`), `defaults` naming an operation the spec does not have, `operations` naming one it has, two APIs with `default: true`, or a top-level `openapi` next to `apis`.',
-    fix: 'Follow the message: set the environment variable, move the endpoint between `defaults` and `operations`, or move `openapi` into an API.',
+    means: 'The `apis` option is invalid: an API setting that does not exist, a `base` that is not `\'\'`, a same-origin path or an `https://` URL (or is `undefined`), `defaults` naming an operation the spec does not have, `operations` naming one it has, two APIs with `default: true`, a shape setting renamed (`items` is `select`), or a top-level `openapi` next to `apis`.',
+    fix: 'Follow the message: set the environment variable, move the endpoint between `defaults` and `operations`, write the new name, or move `openapi` into an API.',
   },
   SN330: {
-    example: '`items` of `GET /articles` is `articles` (`main.defaults`), not `posts`: every page reads one shape from an endpoint',
-    means: 'What an endpoint returns (`items`, `total`, `key`, `type`) is said once: when the API\'s `defaults` or `operations` give a value, a resource of that operation does not write a different one, because two pages would read different shapes from one endpoint. The same value is the warning `SN518`.',
+    example: '`select` of `GET /articles` is `articles` (`main.defaults`), not `posts`: every page reads one shape from an endpoint',
+    means: 'What an endpoint returns (`select`, `total`, `key`, `type`) is said once: when the API\'s `defaults` or `operations` give a value, a resource of that operation does not write a different one, because two pages would read different shapes from one endpoint. The same value is the warning `SN518`.',
     fix: 'Remove the attribute, or change the configured value if the page is right.',
   },
   SN331: {
@@ -235,7 +235,7 @@ export const DIAGNOSTIC_DOCS: Record<Code, DiagnosticDoc> = {
     fix: 'Write the slot as `cell: Slot<{ row: Row }>` in the props type literal, place it with `data-sn-with`, give the placement one element as default, and move names the children read onto the `<slot>`\'s `data-sn-with` or inside the element. Remove a `<slot>` from a page.',
   },
   SN332: {
-    example: '`refresh` reloads, and a `file:` resource is a constant: it is read at build time and never loads or changes; it takes only `name`, `src`, `type`, `items`, `key`, `order`, `drafts` and `fields`',
+    example: '`refresh` reloads, and a `file:` resource is a constant: it is read at build time and never loads or changes; it takes only `name`, `src`, `type`, `select`, `key`, `order`, `drafts` and `fields`',
     means: 'A `file:` source (`<sn-resource src="file:./post.md">`) reads the project at build time: one file (its text, a `.json` file\'s parsed value, a markdown file\'s frontmatter and `body`), or with a glob (`file:/content/posts/*.md`) a list with one entry per file, each with its `slug`, `dir` and `path`. The path is a literal, relative to the file that writes it (a page, a layout, a component) or `/…` from the project root, and inside the root; the file must exist, a `.json` file must parse, frontmatter must be YAML fields without anchors, aliases or tags, and must not name `body`, `dir` or `path`, which sinter writes. In a glob each `.json` file is one object, and two entries may not share a key (`slug` by default). `order` sorts a list and `drafts` names a field that leaves an entry out of a build; `items` picks a list out of one JSON file. The resource is a constant: what would load, page, refresh, cache or change it is refused (`refresh`, `cache`, `paginate`, `for`, `call`, `when`, `then`, `early`, `method`, store functions that name it or change one of its items, write-through, `<sn-event>`s). `file:` is a source of `<sn-resource src>` only, not of an action or `<sn-sync>`. `fields` and `drafts` are a build-time source\'s only (`file:`, `content:`): on a fetched resource they would do nothing.',
     fix: 'Write a literal path or glob in the project, or fix the file it names. Give two files with one name a `slug` of their own in their frontmatter (or a `key` that tells them apart). Leave out the attribute that would load or change it, and a build-time source\'s attribute on a fetched resource; for data that changes, serve it from an API and use a URL. To change the values a page shows, keep them in `data-sn-state`, initialized from the resource.',
   },
@@ -373,11 +373,11 @@ export const DIAGNOSTIC_DOCS: Record<Code, DiagnosticDoc> = {
   },
   SN517: {
     example: '`GET /api/contacts` returns a list at `contacts`: resource `contacts` has no `key`, so it is one object holding the list',
-    means: 'Without `key` a resource is a single object. A list of objects loads and renders that way, but nothing can change one item: an `upsert` replaces the whole list, `merge` merges fields into the list and `remove` empties it (`[]`). Reported when the OpenAPI response at `items` is a list of objects.',
+    means: 'Without `key` a resource is a single object. A list of objects loads and renders that way, but nothing can change one item: an `upsert` replaces the whole list, `merge` merges fields into the list and `remove` empties it (`[]`). Reported when the OpenAPI response at `select` is a list of objects.',
     fix: 'Add `key` with the field that identifies an item, such as `key="id"`. A list that is only read can stay as it is.',
   },
   SN518: {
-    example: '`items` of `GET /articles` is configured as `articles` (`main.defaults`): remove it here',
+    example: '`select` of `GET /articles` is configured as `articles` (`main.defaults`): remove it here',
     means: 'The API\'s `defaults` or `operations` already give this value for the endpoint, so the attribute says nothing. A different value is the error `SN330`.',
     fix: 'Remove the attribute.',
   },

@@ -18,7 +18,7 @@ function server(accounts: string[], boxes = MAILBOXES) {
 const PAGE = `
   <sn-resource name="accounts" src="/api/accounts" key="account_id"></sn-resource>
   <sn-resource name="mailboxes" for="a in accounts" src="/api/mailboxes?account_id={a.account_id}"
-    items="mailboxes" key="account_id,name" order="name"></sn-resource>
+    select="mailboxes" key="account_id,name" order="name"></sn-resource>
   <sn-sync src="/s">
     <sn-event name="account_added" resource="accounts" op="upsert"></sn-event>
     <sn-event name="account_removed" resource="accounts" op="remove"></sn-event>
@@ -113,7 +113,7 @@ describe('each: one resource fed by one request per item', () => {
     const page = `<div data-sn-state="{ on: true }">
       <sn-resource name="accounts" src="/api/accounts" key="account_id"></sn-resource>
       <sn-resource name="mailboxes" for="a in accounts" when="on" src="/api/mailboxes?account_id={a.account_id}"
-        items="mailboxes" key="account_id,name" order="name"></sn-resource>
+        select="mailboxes" key="account_id,name" order="name"></sn-resource>
       <input type="checkbox" checked data-sn-model="on">
       <ul><template data-sn-for="m in mailboxes"><li data-sn-text="m.account_id + ':' + m.name"></li></template></ul></div>`;
     const requests = server(['a', 'b']);
@@ -144,6 +144,8 @@ describe('each diagnostics', () => {
     expect(diags('src="/api/m?id={a.id}" key="id"')[0]).toMatch(/^SN201 /);
     // `each` is the name before 2026-11-20
     expect(diags('each="a in accounts" src="/api/m?id={a.id}" key="id"')).toEqual(expect.arrayContaining(['SN101 `each` is renamed to `for`, as in `data-sn-for`: `<sn-resource name="mailboxes" for="a in accounts" src="/api/mailboxes?account={a.id}">`']));
+    // `items` is the name before 2026-11-20
+    expect(diags('for="a in accounts" src="/api/m?id={a.id}" key="id" items="m"')).toEqual(['SN101 `items` is renamed to `select`: the path in the response where the data is, a list or one object: `<sn-resource name="people" src="/api/people" select="people" key="id">`']);
   });
   test('syntax, key and the attributes it does not combine with', () => {
     expect(diags('for="accounts" src="/api/m" key="id"')).toEqual(['SN401 `for` takes `item in list`, e.g. `a in accounts`']);
