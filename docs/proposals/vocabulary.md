@@ -303,6 +303,8 @@ What the fourth review left of the same kind, across the JavaScript and configur
 - `configure({ apis })` fails naming `sinter({ apis })`: it was accepted, and each page module overwrote it.
 - The main entry is the app's API only: `mount()` (compiled pages import it from `/runtime`) and the types
   only it and the features use (`MountOptions`, `Feature`, `Intent`, `Navigator`, `IR`, `Env`) are gone from it.
+- The feature module of `<sn-resource for>` is `@tiaforge-ui/sinter/runtime/for` (was `/runtime/each`), as `./apply`
+  became `./write-through`: only compiled pages import it.
 
 ## Looked at and kept
 

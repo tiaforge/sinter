@@ -26,7 +26,7 @@ import dev, { warningSink, type RuntimeWarning } from '../dev.js';
 export type { RuntimeWarning } from '../dev.js';
 import optimistic from '../optimistic.js';
 import paginate from '../paginate.js';
-import each from '../each.js';
+import fanOut from '../for.js';
 import persist from '../persist.js';
 import options from '../options.js';
 import keys from '../keys.js';
@@ -50,7 +50,7 @@ import sse from '../sse.js';
 import { lists, prefetch, type PrefetchPage } from '../prefetch.js';
 import { pagePaths } from '../prefetch-build.js';
 
-const FEATURES: Record<string, Feature> = { components, nested, lets, dev, sse, optimistic, paginate, persist, cache, versions, refresh, each, options, keys, 'write-through': writeThrough, fields, form, select, location, typing, 'query-links': queryLinks, navigate, call, debounce, confirm, models, transition };
+const FEATURES: Record<string, Feature> = { components, nested, lets, dev, sse, optimistic, paginate, persist, cache, versions, refresh, for: fanOut, options, keys, 'write-through': writeThrough, fields, form, select, location, typing, 'query-links': queryLinks, navigate, call, debounce, confirm, models, transition };
 
 // ---- requests
 
