@@ -5,6 +5,7 @@ import { apiFor, clearCached, clearPrefetched, config, PREFETCH_MARK, SinterErro
 import type { Env } from './env.js';
 import type { App, ResourceLoader } from './app.js';
 import { prefetched } from './handoff.js';
+import * as F from './flags.js';
 
 export const TIMEOUT = 30_000;
 
@@ -144,7 +145,7 @@ export function createRequestLayer(env: Env, chain: Middleware[]): RequestLayer 
     try {
       const go = () => (retry ? retry(once) : once());
       // the API's token, read now (src/token.ts)
-      return await (api?.t && tokens.on ? tokens.on.send(api, method, target.href, headers, go, env) : go());
+      return await (F.TOKEN && api?.t && tokens.on ? tokens.on.send(api, method, target.href, headers, go, env) : go());
     } catch (e) {
       throw isAbort(e) ? e : toError(e);
     } finally {

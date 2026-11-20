@@ -6,6 +6,9 @@
 import { coreParts } from '../src/core-parts.js';
 import type { IR } from '../src/ir.js';
 
+/** not a part: decided by the build from its `apis`; always on here */
+export const TOKEN = true;
+
 export let LIST = false, BRANCH = false, ACTION = false, DIALOG = false, EVENTS = false, MODEL = false, PROP = false, STYLE = false, RESOURCE = false;
 
 const on = new Set<string>();

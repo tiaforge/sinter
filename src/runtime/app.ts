@@ -883,7 +883,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
         else app.env.navigate(to);
       },
       // every API's token goes (src/token.ts), with what the page kept; the resources of those APIs load again: signed out
-      signOut: () => tokens.on?.signOut(env, app),
+      signOut: () => { if (F.TOKEN) tokens.on?.signOut(env, app); },
       // the element's action, as if its trigger fired (a form is submitted); disabled or inert: nothing
       run: (id: string) => {
         const t = F.ACTION ? byId(id) : undefined, h = t && handlersOf(t as Tagged), rb = h && (Array.isArray(h) ? h : [h]).find((x) => x.b.x != null);
@@ -1770,7 +1770,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
       // shown on the form (every message on its field, or its markup reads `$error`): handled
       if (fs?.(error, { url, method: a.method }) && a.catch == null) return;
       // a 401 nothing shows, from an API with a token: signed out, to its sign-in page (src/token.ts)
-      as(u, () => a.catch != null ? handle(rb, a.catch, null, a.w, { $error: error }) : (error.status == 401 && !a.call && tokens.on?.signIn(url, env)) || unhandled(error, st.el.isConnected ? st.el : up.find((x) => x.isConnected) ?? null));
+      as(u, () => a.catch != null ? handle(rb, a.catch, null, a.w, { $error: error }) : (F.TOKEN && error.status == 401 && !a.call && tokens.on?.signIn(url, env)) || unhandled(error, st.el.isConnected ? st.el : up.find((x) => x.isConnected) ?? null));
     } finally {
       st.r = null;
       if (!--st.n) {
@@ -1930,7 +1930,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
         const req = withParams(url, m ? l.pager!.params(m) : null);
         // signed out (src/token.ts): a request that needs the API's token, and none is stored, is not sent; the resource
         // is loaded, empty, now (the early script's first paint says the same)
-        const out = () => !!tokens.on?.skip(l, req, m) && !(c = null);
+        const out = () => F.TOKEN && !!tokens.on?.skip(l, req, m) && !(c = null);
         if (out()) return;
         const mark = r.startLoad();
         let loaded = false, ok = false, v;
@@ -1951,7 +1951,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
         } catch (e) {
           if (n != seq || isAbort(e)) return;
           // a 401 that took the token: signed out
-          if ((e as SinterError).status != 401 || !out()) {
+          if (!F.TOKEN || (e as SinterError).status != 401 || !out()) {
             fail(def.call ? app.ext.call!.error(e) : e, quiet);
             l.settle(false);
           }
