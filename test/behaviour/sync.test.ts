@@ -179,16 +179,16 @@ test('islands use app.optimistic() with the same layers', async () => {
   const requests = mockRequests({ 'GET /api/m': [{ id: 1 }, { id: 2 }], 'DELETE /api/m': { status: 500 } });
   const { root, flush, settle, app } = await render(`
     <sn-resource name="m" src="/api/m" key="id"></sn-resource>
-    <p data-sn-text="m.length + ' ' + $meta.m.pending"></p>`, { requests });
+    <p data-sn-text="m.length"></p>`, { requests });
   await settle();
   const res = app.resource('m');
   const p = app.optimistic(() => res.remove('1'), () => app.request('/api/m', { method: 'DELETE' })).catch((e) => e);
   await flush();
-  expect(root.querySelector('p')!.textContent).toBe('1 1');
+  expect([root.querySelector('p')!.textContent, app.resource('m').meta.pending]).toEqual(['1', 1]);
   await settle();
   expect(((await p) as { status: number }).status).toBe(500);
   await flush();
-  expect(root.querySelector('p')!.textContent).toBe('2 0');
+  expect([root.querySelector('p')!.textContent, app.resource('m').meta.pending]).toEqual(['2', 0]);
 });
 
 test('<sn-sync> inside a state element: src and event expressions read that state', async () => {

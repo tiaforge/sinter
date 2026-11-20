@@ -206,7 +206,6 @@ not wipe each other out when the first fails.
 - A layer lives until its request settles: the 30 s timeout, and with `data-sn-retry` every try of
   its policy.
 - A bulk action puts all its changes into one layer, so they roll back together.
-- `$meta.<name>.pending` counts layers whose request has not settled.
 
 ### Typical cases
 

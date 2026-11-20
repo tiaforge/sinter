@@ -600,7 +600,6 @@ Status lives under `$meta.<name>`, never on the data itself. The field set is fi
 | `loading` | boolean | a request for this resource is in flight |
 | `error` | `{status, body, message, detail}` or `null` | the last load failed; cleared on success |
 | `loadedAt` | number (ms) or `null` | time of the last successful load |
-| `pending` | number | optimistic layers whose request has not settled |
 | `total` | number or `null` | from the `total` path; adjusted by optimistic removes |
 | `page` | number | numbered lists, and keyset with `jump` |
 | `pages` | number or `null` | paginated, when `total` is known |
@@ -1052,7 +1051,7 @@ This is why rollback is "drop the layer", not "restore a snapshot": with two ove
 - An optimistic `remove` on a paginated resource also decrements `$meta.<name>.total` inside the same layer; its commit keeps the total down.
 - A layer lives until its request settles, including the 30 s timeout and, with `data-sn-retry`, every try its policy makes; then it is committed or dropped.
 - Bulk actions put all their changes into one layer, so they roll back together.
-- Pending layers are visible in dev tools through `$meta.<name>.pending` (count of layers whose request has not settled).
+- Pending layers are not exposed to expressions (`$meta.<name>.pending` was, until 2026-11-20): the element whose request is in flight carries `aria-busy`.
 
 ### Typical cases
 

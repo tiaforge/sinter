@@ -280,7 +280,7 @@ const RETIRED_FNS: Record<string, string> = {
   reset: '`reset()` is gone: a form\'s fields follow their `data-sn-model` state, so clear the state (`data-sn-then="draft = { title: \'\' }"`); `<button type="reset">` restores the fields and their models',
 };
 export const BUILTIN_HELPERS = ['date', 'time', 'datetime', 'relative', 'number', 'bytes'];
-export const META_FIELDS = ['loading', 'error', 'loadedAt', 'pending', 'total', 'live', 'page', 'pages', 'from', 'to', 'hasPrev', 'hasNext'];
+export const META_FIELDS = ['loading', 'error', 'loadedAt', 'total', 'live', 'page', 'pages', 'from', 'to', 'hasPrev', 'hasNext'];
 const PAGE_FIELDS = ['page', 'pages', 'from', 'to', 'hasPrev', 'hasNext'];
 
 export const GLOBALS = new Set([
@@ -689,7 +689,9 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
       }
       r.used = true;
       if (field && field !== '*') {
-        if (!META_FIELDS.includes(field)) {
+        if (field === 'pending') {
+          report('SN303', `\`$meta.${rname}.pending\` is gone: an element shows its own request with \`aria-busy\` (\`[aria-busy=true]\` in CSS), optimistic or not`, n.start);
+        } else if (!META_FIELDS.includes(field)) {
           report('SN303', `\`$meta.${rname}.${field}\` is not a status field.${didYouMean(field, META_FIELDS)}`, n.start);
         } else if (PAGE_FIELDS.includes(field) && !r.paginate) {
           report('SN303', `\`$meta.${rname}.${field}\` is a pagination field, but \`${rname}\` has no \`paginate\``, n.start);

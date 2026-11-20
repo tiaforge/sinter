@@ -29,11 +29,12 @@ async function page(attrs = '', extra = '', items: object[] = [ITEM]) {
         <button id="del" data-sn-call="flag(x.id, null)" data-sn-optimistic="remove(x)">del</button>
       </div>
     </template>
-    <p data-sn-text="$meta.m.pending + ' ' + $meta.m.total + ' ' + m.length"></p>${extra}`,
+    <p data-sn-text="$meta.m.total + ' ' + m.length"></p>${extra}`,
   { requests, streams: { '/s': stream }, actions: { flag: flag.fn } });
   await r.settle();
   const text = () => r.root.querySelector('span')?.textContent ?? '';
-  const meta = () => r.root.querySelector('p')!.textContent;
+  // the layers still waiting (the store's count; markup has no field for it), then what the page shows
+  const meta = () => `${r.app.resource('m').meta.pending} ${r.root.querySelector('p')!.textContent}`;
   const click = async (id: string) => { r.root.querySelector<HTMLElement>(`#${id}`)!.click(); await r.flush(); };
   /** settles a call and lets its handlers and the flush run */
   const settle = async (i: number, ok = true) => { ok ? flag.calls[i]!.ok() : flag.calls[i]!.fail(); await r.settle().catch(() => {}); };
@@ -187,15 +188,15 @@ test('islands: app.optimistic() keeps the change when `run` resolves', async () 
   const requests = mockRequests({ 'GET /api/m': [{ id: 1 }, { id: 2 }], 'DELETE /api/m': null });
   const { root, flush, settle, app } = await render(`
     <sn-resource name="m" src="/api/m" key="id"></sn-resource>
-    <p data-sn-text="m.length + ' ' + $meta.m.pending"></p>`, { requests });
+    <p data-sn-text="m.length"></p>`, { requests });
   await settle();
   const done = app.optimistic(() => app.resource('m').remove('1'), () => app.request('/api/m', { method: 'DELETE' }));
   await flush();
-  expect(root.querySelector('p')!.textContent).toBe('1 1');
+  expect([root.querySelector('p')!.textContent, app.resource('m').meta.pending]).toEqual(['1', 1]);
   await settle();
   await done;
   await flush();
-  expect(root.querySelector('p')!.textContent).toBe('1 0');
+  expect([root.querySelector('p')!.textContent, app.resource('m').meta.pending]).toEqual(['1', 0]);
 });
 
 describe('data-sn-attr sets the live form state', () => {
