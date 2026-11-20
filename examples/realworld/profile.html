@@ -1,6 +1,5 @@
 <conduit-layout data-sn-path="/profile/:username /profile/:username/:tab"
-  data-sn-state="{ nav: 'profile:' + $url.username }"
-  data-sn-with="{ nav, title: 'Profile', description: 'A Conduit author\'s profile: their articles and favorites.' }">
+  data-sn-with="{ nav: 'profile:' + $url.username, title: 'Profile', description: 'A Conduit author\'s profile: their articles and favorites.' }">
 <sn-resource cache name="profile" src="/profiles/{$url.username}"></sn-resource>
 <sn-resource cache name="articles"
   src="/articles?author={$url.tab == 'favorites' ? null : $url.username}&favorited={$url.tab == 'favorites' ? $url.username : null}" paginate="{ numbered: 'offset', size: 10, model: $url.page }"></sn-resource>
@@ -19,7 +18,7 @@
           <div class="col-xs-12 col-md-10 offset-md-1">
             <img class="user-img" alt="" data-sn-attr="{src: avatar(profile.image)}">
             <h4 data-sn-text="profile.username"></h4>
-            <p data-sn-text="profile.bio ?? ''"></p>
+            <p data-sn-text="profile.bio"></p>
             <template data-sn-if="user && user.username == profile.username">
               <a class="btn btn-sm btn-outline-secondary action-btn" href="/settings"><i class="ion-gear-a"></i> Edit Profile Settings</a>
             </template>

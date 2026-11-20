@@ -100,11 +100,25 @@ export function componentKind(template: P5Element, headTag?: (tag: string) => bo
   return body ? 'body' : head ? 'head' : 'either';
 }
 
+/** a component template's declaration: `data-sn-props`, or a name it had before (reported by the compiler) */
+export const declares = (t: P5Element) => t.attrs.some((a) => a.name === 'data-sn-props' || a.name === 'data-sn-head' || a.name === 'data-sn-component');
+/** what makes a `<template>` a branch, a list or a text, never a component's declaration */
+export const STRUCTURAL = ['data-sn-if', 'data-sn-else', 'data-sn-for', 'data-sn-text'];
+
+/**
+ * A component file's declaration, among its top-level nodes: the `<template>` with `data-sn-props` (or a retired
+ * name), else its only top-level `<template>` when that is no branch, list or text (`STRUCTURAL`): a component
+ * without props needs no `data-sn-props=""`. Null: none (the compiler says why: two templates, a structural one).
+ */
+export function declaringTemplate(nodes: readonly P5Node[]): P5Element | null {
+  const ts = nodes.filter((c): c is P5Element => 'tagName' in c && c.tagName === 'template');
+  return ts.find(declares) ?? (ts.length === 1 && !ts[0]!.attrs.some((a) => STRUCTURAL.includes(a.name)) ? ts[0]! : null);
+}
+
 /** a component file's text: its kind (`componentKind`); a template with the old `data-sn-head` is a head component */
 export function kindOfComponent(text: string, headTag?: (tag: string) => boolean | null): 'head' | 'body' | 'either' | null {
   const frag = parse5.parseFragment(text);
-  const t = frag.childNodes.find((c): c is P5Element => 'tagName' in c && (c as P5Element).tagName === 'template'
-    && (c as P5Element).attrs.some((a) => a.name === 'data-sn-props' || a.name === 'data-sn-head' || a.name === 'data-sn-component'));
+  const t = declaringTemplate(frag.childNodes);
   if (!t) return null;
   if (t.attrs.some((a) => a.name === 'data-sn-head')) return 'head';
   if (t.attrs.some((a) => a.name === 'data-sn-component')) return 'body';

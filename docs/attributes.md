@@ -8,7 +8,7 @@ Bind values to the page.
 
 | Attribute | Value | Meaning |
 | --- | --- | --- |
-| `data-sn-text` | value expression | sets textContent; never HTML. On a &lt;template&gt;: a text node with no element (a run of text beside elements); no other attribute on that template |
+| `data-sn-text` | value expression | sets textContent (null and undefined: empty, no `?? ''` needed); never HTML. On a &lt;template&gt;: a text node with no element (a run of text beside elements); no other attribute on that template |
 | `data-sn-attr` | object literal {href: …} | literal keys; null/false removes, true sets empty; URL values are checked; checked, selected, indeterminate and value also set the live property |
 | `data-sn-class` | object literal {unread: …} | toggles each class |
 | `data-sn-style` | object literal {'--color': …} | sets each property with style.setProperty |
@@ -77,7 +77,7 @@ In a component file in `src/components/`, and on a component's tag (`early`). De
 
 | Attribute | Value | Meaning |
 | --- | --- | --- |
-| `data-sn-props` | props type | the props a component or a layout takes, a TypeScript type literal, { article: Article; compact?: boolean }. On the &lt;template&gt; of a component file (src/components/&lt;name&gt;.html, or a component library's components/): a member cell: Slot&lt;{ row: Row }&gt; is a slot that passes data to its fill; its root renders at most one element (one element, a data-sn-if/data-sn-else chain of them, a component, &lt;sn-component use&gt; or a &lt;slot&gt;), or, a head component, any number of head elements (&lt;title&gt;, &lt;meta&gt;, &lt;link&gt;, …), inlined at its use in a head. On the &lt;html&gt; of a layout file (src/layouts/&lt;name&gt;.html): a page that is only the layout's tag fills its slots, in the head and the body |
+| `data-sn-props` | props type | the props a component or a layout takes, a TypeScript type literal, { article: Article; compact?: boolean }. On the &lt;template&gt; of a component file (src/components/&lt;name&gt;.html, or a component library's components/): a member cell: Slot&lt;{ row: Row }&gt; is a slot that passes data to its fill; its root renders at most one element (one element, a data-sn-if/data-sn-else chain of them, a component, &lt;sn-component use&gt; or a &lt;slot&gt;), or, a head component, any number of head elements (&lt;title&gt;, &lt;meta&gt;, &lt;link&gt;, …), inlined at its use in a head. On the &lt;html&gt; of a layout file (src/layouts/&lt;name&gt;.html): a page that is only the layout's tag fills its slots, in the head and the body. Either leaves it out when it takes no props |
 | `data-sn-emits` | events type | on the &lt;template data-sn-props&gt;: the events emit() sends and their detail types, e.g. { select: Article } |
 | `data-sn-early` | off | on a component's tag (a use): this use is left out of the early script and renders when the page module runs (build-time constants stay in the HTML); keeps the early script small |
 | `data-sn-ref` | name | in a component's markup: the element its script reads as this.refs.&lt;name&gt;, typed by its tag |

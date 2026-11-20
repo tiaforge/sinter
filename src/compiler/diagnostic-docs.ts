@@ -145,7 +145,7 @@ export const DIAGNOSTIC_DOCS: Record<Code, DiagnosticDoc> = {
 
   SN312: {
     example: "a component's root renders at most one element; `<article-preview>` has 2 elements at the top of its template",
-    means: 'A file in `src/components/` is not a valid component: it needs one `<template data-sn-props="{ …props }">` (and optionally a `<style>`) whose root renders at most one element: one element, a `data-sn-if`/`data-sn-else` chain of them, a component, `<sn-component use>`, or a `<slot>` whose default and fills are roots. A component whose template holds head elements only is a head component, which holds any number of them. Also reported: two slots with the same name, a head component with a script, and `<sn-component use>` naming a head component.',
+    means: 'A file in `src/components/` is not a valid component: it needs one `<template data-sn-props="{ …props }">` (a plain `<template>` for a component without props; and optionally a `<style>`) whose root renders at most one element: one element, a `data-sn-if`/`data-sn-else` chain of them, a component, `<sn-component use>`, or a `<slot>` whose default and fills are roots. A component whose template holds head elements only is a head component, which holds any number of them. Also reported: two top-level templates where none has `data-sn-props`, `data-sn-if`, `data-sn-else`, `data-sn-for` or `data-sn-text` on the file\'s template without `data-sn-props` (that template is the declaration, not a branch, list or text), two slots with the same name, a head component with a script, and `<sn-component use>` naming a head component.',
     fix: 'Wrap the markup in one element inside `<template data-sn-props>`: the caller\'s classes, attributes and handlers land on it.',
   },
   SN313: {
@@ -378,7 +378,7 @@ export const DIAGNOSTIC_DOCS: Record<Code, DiagnosticDoc> = {
   },
   SN517: {
     example: '`GET /api/contacts` returns a list at `contacts`: resource `contacts` has no `key`, so it is one object holding the list',
-    means: 'Without `key` a resource is a single object. A list of objects loads and renders that way, but nothing can change one item: an `upsert` replaces the whole list, `merge` merges fields into the list and `remove` sets it to `null`. Reported when the OpenAPI response at `items` is a list of objects.',
+    means: 'Without `key` a resource is a single object. A list of objects loads and renders that way, but nothing can change one item: an `upsert` replaces the whole list, `merge` merges fields into the list and `remove` empties it (`[]`). Reported when the OpenAPI response at `items` is a list of objects.',
     fix: 'Add `key` with the field that identifies an item, such as `key="id"`. A list that is only read can stay as it is.',
   },
   SN518: {
