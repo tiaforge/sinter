@@ -216,6 +216,17 @@ const build = (body: string, more: Record<string, string> = {}) => compile(`<!do
 });
 const codes = (out: ReturnType<typeof build>) => out.diagnostics.map((d) => `${d.code} ${d.message}`);
 
+test('in a candidate of `<sn-component use>` (a shared definition), over constants: the build decides it too (fuzz seed 33)', async () => {
+  const components = {
+    'c-plain': '<template data-sn-props="{ x: any }"><b data-sn-text="x.t"></b></template>',
+    'c-empty': '<template data-sn-props="{ x: any }"><ol><template data-sn-for="y in x.c"><li data-sn-text="y.t"></li></template><template data-sn-else><li>none</li></template></ol></template>',
+    'c-choice': '<template data-sn-props="{ x: any }"><sn-component use="{ p: \'c-plain\', e: \'c-empty\' }[x.k]" data-sn-with="{ x }"></sn-component></template>',
+  };
+  const r = await render('<div data-sn-state="{ d: [{ k: \'e\', c: [], t: \'a\' }, { k: \'e\', c: [{ t: \'b\' }], t: \'c\' }] }"><template data-sn-for="x in d"><c-choice data-sn-with="{ x }"></c-choice></template></div>', { components });
+  await r.settle();
+  expect([...r.root.querySelectorAll('li')].map((l) => l.textContent)).toEqual(['none', 'b']);
+});
+
 describe('at build time', () => {
   test('a `file:` list that is empty: the empty state is page markup; one with entries: no empty state', () => {
     const empty = build('<sn-resource name="posts" src="file:/data/p.json" key="id"></sn-resource><ul><template data-sn-for="p in posts"><li data-sn-text="p.t"></li></template><template data-sn-else><li>No posts yet</li></template></ul>', { 'data/p.json': '[]' });

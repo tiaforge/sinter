@@ -7773,6 +7773,8 @@ class Compiler {
   expandConstants(parent: P5Parent, prefix: string, inTemplate: boolean) {
     const decided = this.opts.decided, unrolled = this.opts.unrolled;
     const real = (c: P5Node) => isElement(c) || (c.nodeName === '#text' && (c as DefaultTreeAdapterMap['textNode']).value.trim() !== '');
+    // a tree the page-wide pass did not reach (a shared definition): its empty states, before a list unrolls away
+    this.emptyStates(parent, false);
     let changed = false;
     for (let i = 0; i < parent.childNodes.length; i++) {
       const c = parent.childNodes[i]!;
