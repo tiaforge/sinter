@@ -98,6 +98,13 @@ describe('a file: resource', () => {
     expect(errors(build('<sn-resource name="r" src="/api/r"></sn-resource><sn-sync src="file:./s"><sn-event name="x" resource="r" op="refresh"></sn-event></sn-sync><p data-sn-text="r"></p>'))).toEqual([expect.stringMatching(/^SN332 .*A stream sends a request/)]);
   });
 
+  test('SN332: a build-time source\'s attributes (`fields`, `drafts`) on a fetched resource, one rule for both', () => {
+    const fetched = (a: string) => errors(build(`<sn-resource name="r" src="/api/r" key="id" ${a}></sn-resource><p data-sn-text="r.length"></p>`));
+    for (const a of ['fields', 'drafts']) {
+      expect(fetched(`${a}="x"`), a).toEqual([`SN332 \`${a}\` is an attribute of a build-time source (\`src="file:…"\` or \`src="content:…"\`), read when the site is built; this resource is fetched, so \`${a}\` would do nothing`]);
+    }
+  });
+
   test('with sinter({ apis }): file: is read as a file, and `file` is a reserved API name (SN329)', async () => {
     const r = await render('<sn-resource name="post" src="file:./post.txt"></sn-resource><p data-sn-text="post"></p>', { files, apis: { main: { base: '/api' } } });
     expect(r.root.querySelector('p')!.textContent).toBe('Hello <world> </script> ok');

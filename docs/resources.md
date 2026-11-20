@@ -228,7 +228,7 @@ the results into one collection:
   and a single file must exist; an interpolation (`{…}`, other than a glob's `{a,b}`) is an error (`SN332`).
   With `sinter({ apis })` it is read the same way, and `file` cannot be an API's name (`SN329`).
 - It is a constant: nothing loads, refreshes or changes it. `$meta.<name>.loading` is `false` and the
-  other status fields are `null`. It takes only `name`, `src`, `type`, `items`, `key`, `order` and `drafts`;
+  other status fields are `null`. It takes only `name`, `src`, `type`, `items`, `key`, `order`, `drafts` and `fields`;
   anything that would load or change it is `SN332`: `refresh`, `cache`, `paginate`, `for`, `call`, `when`,
   `then`, `early`, store functions that name it or change one of its items, write-through, and
   `<sn-event>`s. `items` picks a list out of one JSON file.
@@ -299,7 +299,8 @@ export const tags = collection({
   those fields of each entry. Without `fields` that is [SN344](diagnostics.md#sn344-content-fields), so what a CMS
   returns and no page shows never ships by accident. Fields left out are `undefined` in the browser (`sinter check`
   does not narrow the type to them). A page per entry (`data-sn-for` on `<html>`) follows its list's `fields`. A `file:` resource takes
-  `fields` too, and without it ships whole.
+  `fields` too, and without it ships whole. `fields` and `drafts` are a build-time source's only: on a fetched
+  resource they would do nothing, and are `SN332`.
 - **`vite dev`** runs the loaders at startup and again when the content module or a file `files()` read changes,
   then reloads the page. A change in the CMS needs a restart, or a rebuild in production (a webhook to the CI).
 - **`sinter check` and the editor never run loaders** (a CMS fetch per keystroke or per CI check would be slow,

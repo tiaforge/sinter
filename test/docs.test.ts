@@ -330,7 +330,7 @@ const ATTRIBUTE_GROUPS: Array<[string, string, string[]]> = [
 ];
 const RESOURCE_GROUPS: Array<[string, string[]]> = [
   ['Where the data comes from', ['name', 'src', 'method', 'body', 'call', 'for', 'when', 'early']],
-  ['What it looks like', ['key', 'items', 'total', 'order', 'drafts', 'type']],
+  ['What it looks like', ['key', 'items', 'total', 'order', 'drafts', 'fields', 'type']],
   ['How fresh it is', ['cache', 'refresh', 'then']],
   ['Pagination', ['paginate']],
 ];

@@ -23,7 +23,7 @@ import { ATTRIBUTES, CHAR_KEYS, ELEMENTS, KEY_ALIASES, LOOSE_SHIFT, MODIFIERS, N
 import type { CheckExpr, CheckFrame, CheckLoc, CheckResource, CheckUnit, TypeRef } from './check-unit.js';
 import { apiOf, shapeTemplate, type ApiDef, type ApisDef, type OperationShape } from './apis.js';
 import { foldReason, type FoldVerdict } from '../fold-check.js';
-import { FILE_ATTRS, FILE_ENTRY, fileAttrProblem, fileEntry, filePath, fileValue, isContentSource, isFileSource, isGlob, PAGE_ENTRY, scriptJson, setPath, sortList } from './files.js';
+import { BUILD_TIME_ATTRS, buildTimeAttrProblem, FILE_ATTRS, FILE_ENTRY, fileAttrProblem, fileEntry, filePath, fileValue, isContentSource, isFileSource, isGlob, PAGE_ENTRY, scriptJson, setPath, sortList } from './files.js';
 import { deref, matchOperation, matchResource, type Method, type OpenApiMatch, type Auth, namedAt, namedSchema, properties, propertyNames, queryNames, responseEntities, walk, wrapperKey, type OpenApiSpec } from './openapi.js';
 import type { ActionDef, ApplyDef, Binding, EarlyIR, EventDef, IR, NodeDef, Paginate, PathRef, ResourceDef, SyncDef, TemplateDef, UrlTemplate } from '../ir.js';
 import { $k, schemesOf, STYLE_BAD, urlAllowed } from '../runtime/security.js';
@@ -6094,6 +6094,7 @@ class Compiler {
     if (isContentSource(attr(el, 'src'))) return this.contentResource(el, name, ctx.stateIdx);
     for (const a of el.attrs) {
       if (a.name === 'each') this.report(el, a.name, 'SN101', '`each` is renamed to `for`, as in `data-sn-for`: `<sn-resource name="mailboxes" for="a in accounts" src="/api/mailboxes?account={a.id}">`', 0);
+      else if (BUILD_TIME_ATTRS.includes(a.name)) this.report(el, a.name, 'SN332', buildTimeAttrProblem(a.name), 0);
       else if (!RESOURCE_ATTRS.includes(a.name) && !PAGINATE_OLD.includes(a.name)) this.report(el, a.name, 'SN101', `\`${a.name}\` is not an attribute of \`<sn-resource>\`.${didYouMean(a.name, RESOURCE_ATTRS)}`, 0);
     }
     const earlyAttr = attr(el, 'early');

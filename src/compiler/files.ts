@@ -18,6 +18,13 @@ export const FILE_ATTRS = ['name', 'src', 'type', 'items', 'key', 'order', 'draf
 
 const ATTR_LIST = '`name`, `src`, `type`, `items`, `key`, `order`, `drafts` and `fields`';
 
+/** the attributes only a build-time source (`file:`, `content:`) has: on a fetched resource they would do nothing (SN332) */
+export const BUILD_TIME_ATTRS = ['drafts', 'fields'];
+
+/** Why a build-time source's attribute does not apply to a fetched resource. */
+export const buildTimeAttrProblem = (name: string) =>
+  `\`${name}\` is an attribute of a build-time source (\`src="file:…"\` or \`src="content:…"\`), read when the site is built; this resource is fetched, so \`${name}\` would do nothing`;
+
 /** Why an attribute of `<sn-resource>` does not apply to a `file:` resource. */
 export function fileAttrProblem(name: string): string {
   const what: Record<string, string> = {

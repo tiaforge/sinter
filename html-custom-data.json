@@ -58,6 +58,9 @@
         },
         {
           "name": "drafts"
+        },
+        {
+          "name": "fields"
         }
       ]
     },
