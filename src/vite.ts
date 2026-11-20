@@ -45,7 +45,7 @@ import { loadHelpers, loadingHelpers, unloadedMessage, type NodeHelpers } from '
 import { FoldCache } from './fold-check.js';
 
 export interface SinterOptions extends ProjectOptions {
-  /** run `sinter check` at the end of `vite build` and fail it on type errors (needs TypeScript) */
+  /** run `sinter check` at the end of `vite build` and fail it on type errors: on when the project has TypeScript; `false` turns it off */
   typecheck?: boolean;
   /**
    * first paint (default true): each page gets an early script (the app's `src/sinter.early.ts`, then
@@ -278,7 +278,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   // the options themselves, as nested ones: a typo (`typechek`) fails instead of doing nothing
   retiredOptions(options);
   const OPTIONS = ['typecheck', 'firstPaint', 'minifyHtml', 'images', 'redirects', 'site', 'sitemap', 'localePrefix', 'prefetch', 'embed', 'origins', 'fonts',
-    'content', 'messages', 'openapi', 'apis', 'defaultApi', 'complexity', 'expansionLimit', 'checkCycles', 'static', 'swap', 'lazy', 'libraries', 'strict'];
+    'content', 'messages', 'openapi', 'apis', 'defaultApi', 'complexity', 'expansionLimit', 'static', 'swap', 'lazy', 'libraries', 'strict'];
   const unknown = Object.keys(options).find((k) => !OPTIONS.includes(k));
   if (unknown) throw new Error(`sinter({ ${unknown} }) is not an option.${didYouMean(unknown, OPTIONS)}`);
   if (options.fonts !== undefined && (typeof options.fonts !== 'object' || options.fonts === null)) {
@@ -300,6 +300,9 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   const prefetchData = options.prefetch !== false && (typeof options.prefetch !== 'object' || options.prefetch.data !== false);
   const speculation = options.prefetch === false ? false : typeof options.prefetch === 'object' && options.prefetch.html !== undefined ? options.prefetch.html : true;
   let root = process.cwd();
+  /** type-check the build: on when the project resolves TypeScript, unless `typecheck: false` */
+  let tsFound: boolean | null = null;
+  const typecheckOn = () => options.typecheck ?? (tsFound ??= (() => { try { createRequire(join(root, 'package.json')).resolve('typescript/package.json'); return true; } catch { return false; } })());
   /**
    * The project (its helpers, components, libraries, specs) as a build sees it: read once per build, from its start, where
    * every page asked again (`project()` scans the components and libraries and reads the helpers' manifest). Before a build
@@ -1023,7 +1026,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     const out = compile(html, {
       file: src, root, dev, sourcemap: dev || !!resolved?.build.sourcemap, helpers: p.helpers, actions: p.actions, moduleSrc: `${PREFIX}${rel}.js`, config: p.config, readFile: readVia(p), listFiles: p.listFiles, ...(dev ? {} : { globCache, templates, ...(process.env.SN_NO_LINK ? {} : { definitions }) }), ...contentOpts(v?.locale), prefetch,
       ...(page ? { page } : {}),
-      check: !!options.typecheck && !dev, openapi: p.openapi, apis: p.apis, complexity: p.complexity, ...(p.expansionLimit ? { expansionLimit: p.expansionLimit } : {}), componentNames: p.componentNames, libraries: p.libraries, checkCycles: p.checkCycles, lazy: p.lazy,
+      check: typecheckOn() && !dev, openapi: p.openapi, apis: p.apis, complexity: p.complexity, ...(p.expansionLimit ? { expansionLimit: p.expansionLimit } : {}), componentNames: p.componentNames, libraries: p.libraries, lazy: p.lazy,
       ...(lazyPkgs.length ? { lazyScript, lazyModule: (m: string) => lazyHelpers(root, lazyPkgs, undefined, p.libraries).reach(m) } : {}),
       ...(helpersNow ? { helperValues: helpersNow.module, helperFold: helpersNow.fold } : {}),
       // a build: each distinct call that folds is run again at its end in a fresh copy of the module (fold-cross.ts)
@@ -1553,10 +1556,10 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
           if (bad.length) this.error(`sinter: error SN534 helper-not-folded: ${crossMessage(bad)}\n  docs: \`npx sinter docs SN534\`, ${docsUrl('SN534')}`);
         }
       }
-      if (error || !options.typecheck || dev || !units.size) return;
+      if (error || !typecheckOn() || dev || !units.size) return;
       const { check } = await import('./check/index.js');
       const p = proj();
-      const r = check({ root, units: [...units.values()], helpers: p.helpers, actions: p.actions, types: p.types, openapi: p.openapi, messagesTypes: p.messagesTypes });
+      const r = check({ root, units: [...units.values()], helpers: p.helpers, actions: p.actions, types: p.types, openapi: p.openapi, messagesTypes: p.messagesTypes, libraries: p.libraries });
       units.clear();
       if (r.diagnostics.length) this.error(`sinter check: ${r.diagnostics.length} type error(s)\n${r.diagnostics.map(formatDiagnostic).join('\n')}`);
     },

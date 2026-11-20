@@ -27,13 +27,9 @@ npx sinter check page.html       # or name the pages
 npx sinter check --root app      # another project root
 ```
 
-It needs TypeScript in the project, uses your version of it, and never runs in the dev server. To fail the production build on type errors:
-
-```js
-sinter({ typecheck: true })
-```
-
-The check runs at the end of `vite build`. Without types, the compiler still checks every name, state variable and helper: [docs/diagnostics.md](diagnostics.md).
+It needs TypeScript in the project, uses your version of it, and never runs in the dev server. With
+TypeScript installed, `vite build` runs it at the end and fails on type errors; `sinter({ typecheck: false })`
+turns that off. Without types, the compiler still checks every name, state variable and helper: [docs/diagnostics.md](diagnostics.md).
 
 ## Types on resources
 
@@ -142,7 +138,7 @@ SN505 undeclared-query-in-spec: `GET /articles` declares no query parameter `tag
 sinter check: 4 page(s), 0 error(s), 1 warning(s); 7 of 8 resources typed (3 via OpenAPI)
 ```
 
-`--check-cycles` also reports `then`/`catch` handlers that start each other through `run()` (`SN509`).
+It also reports `then`/`catch` handlers that start each other through `run()` (`SN509`).
 
 `--strict` fails the check on warnings too, `--allow SN504,SN517` keeps codes warnings for one run: [docs/strict.md](strict.md).
 

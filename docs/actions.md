@@ -406,8 +406,8 @@ for chaining, or for "mark read after the body loads":
 - `run()` works in every handler (`data-sn-on-*`, `then`, `catch`, `<sn-resource then>`,
   `<sn-event then>`), not in value expressions or `data-sn-optimistic`.
 - A loop of actions that run each other (`data-sn-catch="run('save')"` on `#save`) is an endless
-  series of requests; nothing stops it at runtime. `sinter check --check-cycles` lists such cycles
-  as `SN509`.
+  series of requests; nothing stops it at runtime. `sinter check` and the build report such cycles
+  as `SN509`; a deliberate one, a guarded retry, stays a warning with `strict: { allow: { SN509: 'why' } }`.
 
 Recipe: [run-action](recipes/run-action.html).
 

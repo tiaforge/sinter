@@ -27,11 +27,11 @@ const SPEC = { file: '/p/openapi.json', doc: {
   components: { schemas: { Contact: { type: 'object', properties: { id: { type: 'integer' }, name: { type: 'string' }, starred: { type: 'boolean' } } } } },
 } };
 
-interface Opts { check?: boolean; openapi?: boolean; complexity?: ComplexityOptions; checkCycles?: boolean; collections?: boolean; helpers?: string[] }
+interface Opts { check?: boolean; openapi?: boolean; complexity?: ComplexityOptions; collections?: boolean; helpers?: string[] }
 
 function diags(html: string, o: Opts = {}) {
   return compile(html, {
-    file: '/p/page.html', root: '/p', dev: false, check: o.check, openapi: o.openapi ? [SPEC] : undefined, complexity: o.complexity, checkCycles: o.checkCycles,
+    file: '/p/page.html', root: '/p', dev: false, check: o.check, openapi: o.openapi ? [SPEC] : undefined, complexity: o.complexity, 
     readFile: (p) => { if (!(p in files)) throw new Error('missing'); return files[p]!; },
     listFiles: (d) => Object.keys(files).filter((f) => f.startsWith(d.replace(/\/$/, '') + '/')),
     ...(o.collections ? { collections: new Map() } : {}),
@@ -136,7 +136,7 @@ const cases: Array<[string, string, RegExp, Opts?]> = [
   ['SN539', '<sn-resource name="r" src="file:/content/none/*.md"></sn-resource><p data-sn-text="r.length"></p>', /`file:\/content\/none\/\*\.md` matches no file/],
   ['SN532', '<div data-sn-state="{ xs: [1] }"><template data-sn-for="x in xs"><p id="row" data-sn-text="x"></p></template></div>', /`id="row"` is in markup that renders more than once \(a `data-sn-for` row\)/],
   ['SN531', '<div data-sn-state="{ u: \'a\' }"><button data-sn-post="/api/login" data-sn-body="JSON.stringify({ username: u })"></button></div>', /`data-sn-body` is already JSON text \(`JSON\.stringify\(…\)`\): sinter encodes the body, so the server would get a JSON string, not the object/],
-  ['SN509', `<button id="save" data-sn-post="/x" data-sn-catch="run('save')"></button>`, /`run\(\)` cycle: `#save` `data-sn-catch` \(page.html:1\) runs `#save`, which starts the first step again/, { checkCycles: true }],
+  ['SN509', `<button id="save" data-sn-post="/x" data-sn-catch="run('save')"></button>`, /`run\(\)` cycle: `#save` `data-sn-catch` \(page.html:1\) runs `#save`, which starts the first step again/],
   ['SN513', '<div data-sn-state="{ dark: false }"><img alt="" data-sn-attr="{src: dark ? \'./logo-dark.png\' : \'./logo.png\'}"></div>', /`src` is bound to local images \(`\.\/logo-dark\.png`, `\.\/logo\.png`\), which are not optimized/],
   ['SN517', '<sn-resource name="c" src="/api/c" items="contacts"></sn-resource><p data-sn-text="c"></p>', /`GET \/api\/c` returns a list at `contacts`: resource `c` has no `key`, so it is one object holding the list/, { openapi: true }],
   ['SN516', '<sn-resource name="c" src="/api/c" items="contacts"></sn-resource><p data-sn-text="$meta.c.live"></p>', /`\$meta\.c\.live` is always `null`: no `<sn-event resource="c">` on this page feeds `c`/],
@@ -302,7 +302,7 @@ describe('resource names from a closed set of literals', () => {
   test('SN509: refresh() through a let adds an edge for each name', () => {
     const html = `<sn-resource name="a" src="/a" key="id" then="run('go')"></sn-resource><sn-resource name="b" src="/b" key="id"></sn-resource>
       <div data-sn-state="{ s: false }" data-sn-let="{ which: s ? 'b' : 'a' }"><span id="go" data-sn-post="/x" data-sn-then="refresh(which)"></span><p data-sn-text="b.length"></p></div>`;
-    expect(diags(html, { checkCycles: true }).filter((d) => d.code === 'SN509').map((d) => d.message)).toEqual([expect.stringMatching(/cycle/)]);
+    expect(diags(html).filter((d) => d.code === 'SN509').map((d) => d.message)).toEqual([expect.stringMatching(/cycle/)]);
   });
 });
 

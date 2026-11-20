@@ -218,8 +218,8 @@ describe('run(): starting an action from a handler', () => {
 
 describe('run() diagnostics', () => {
   const actions = { module: '/src/a.js', names: ['archive'], namespaces: { mail: { module: '/src/mail.js', members: ['markRead'] } } };
-  const diags = (html: string, checkCycles = false) => compile(html, {
-    file: '/p/page.html', root: '/p', dev: false, readFile: () => '', helpers: { module: null, names: [], namespaces: {} }, actions, checkCycles,
+  const diags = (html: string) => compile(html, {
+    file: '/p/page.html', root: '/p', dev: false, readFile: () => '', helpers: { module: null, names: [], namespaces: {} }, actions,
   }).diagnostics.map((d) => `${d.code} ${d.message}`);
 
   test('SN311: a literal id of one action element outside rows', () => {
@@ -252,7 +252,7 @@ describe('run() diagnostics', () => {
     expect(d!.hint).toBe(`<span hidden id="mark-read" data-sn-call="mail.markRead(…)"></span>, then run('mark-read') in the handler; the element's busy state, concurrency, optimistic layer and then/catch apply`);
   });
 
-  test('SN509 (opt-in): then/catch handlers that start each other again, with every step', () => {
+  test('SN509: then/catch handlers that start each other again, with every step', () => {
     const html = `<div data-sn-state="{ n: 0 }">
 <sn-resource name="body" src="/b" then="run('mark')"></sn-resource><p data-sn-text="body"></p>
 <span id="mark" data-sn-post="/m" data-sn-then="refresh('body')"></span>
@@ -261,19 +261,18 @@ describe('run() diagnostics', () => {
 <button id="self" data-sn-post="/s" data-sn-catch="run('self')"></button>
 <button id="loop" data-sn-post="/l" data-sn-on-click="run('loop')"></button>
 </div>`;
-    expect(diags(html)).toEqual([]);
-    expect(diags(html, true)).toEqual([
+    expect(diags(html)).toEqual([
       'SN509 `run()` cycle: `<sn-resource name="body">` `then` (page.html:2) runs `#mark`, then `#mark` `data-sn-then` (page.html:3) refreshes `body`, which starts the first step again',
       'SN509 `run()` cycle: `#a` `data-sn-then` (page.html:4) runs `#b`, then `#b` `data-sn-catch` (page.html:5) runs `#a`, which starts the first step again',
       'SN509 `run()` cycle: `#self` `data-sn-catch` (page.html:6) runs `#self`, which starts the first step again',
     ]);
     // every name of refresh('a', 'b') is an edge
     expect(diags(`<sn-resource name="a" src="/a"></sn-resource><sn-resource name="body" src="/b" then="run('mark')"></sn-resource><p data-sn-text="a + body"></p>
-<span id="mark" data-sn-post="/m" data-sn-then="refresh('a', 'body')"></span>`, true)).toEqual([
+<span id="mark" data-sn-post="/m" data-sn-then="refresh('a', 'body')"></span>`)).toEqual([
       'SN509 `run()` cycle: `<sn-resource name="body">` `then` (page.html:1) runs `#mark`, then `#mark` `data-sn-then` (page.html:2) refreshes `body`, which starts the first step again',
     ]);
     // refresh alone is not a run() cycle
-    expect(diags('<sn-resource name="r" src="/r" then="refresh(\'r\')"></sn-resource>', true)).toEqual([]);
+    expect(diags('<sn-resource name="r" src="/r" then="refresh(\'r\')"></sn-resource>')).toEqual([]);
   });
 });
 
@@ -290,10 +289,9 @@ describe('run() in sinter check', () => {
     expect(d.map((x) => [x.code, x.line, x.message])).toEqual([['SN208', 2, expect.stringMatching(/Property 'shiftKey' does not exist on type 'RunEvent<PointerEvent>'/)]]);
   });
 
-  test('SN509 is opt-in through checkCycles', async () => {
+  test('SN509 is reported on every check', async () => {
     const { checkPage } = await import('../../src/check/index.js');
     const html = `<button id="a" data-sn-post="/a" data-sn-catch="run('a')"></button>`;
-    expect(checkPage(html).map((x) => x.code)).toEqual([]);
-    expect(checkPage(html, { checkCycles: true }).map((x) => [x.code, x.message])).toEqual([['SN509', '`run()` cycle: `#a` `data-sn-catch` (index.html:1) runs `#a`, which starts the first step again']]);
+    expect(checkPage(html).map((x) => [x.code, x.message])).toEqual([['SN509', '`run()` cycle: `#a` `data-sn-catch` (index.html:1) runs `#a`, which starts the first step again']]);
   });
 });

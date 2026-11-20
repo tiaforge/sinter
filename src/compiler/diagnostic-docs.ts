@@ -79,7 +79,7 @@ export const DIAGNOSTIC_DOCS: Record<Code, DiagnosticDoc> = {
   },
   SN208: {
     example: 'Property \'nmae\' does not exist on type \'Contact\'. (TS2339)',
-    means: 'TypeScript found a type error in an expression. Reported by `sinter check`, `sinter({ typecheck: true })` and the editor integration.',
+    means: 'TypeScript found a type error in an expression. Reported by `sinter check`, `vite build` (when the project has TypeScript) and the editor integration.',
     fix: 'Fix the expression, or the type: `type` on `<sn-resource>`, the OpenAPI spec, or a JSDoc cast in `data-sn-state`.',
   },
   SN209: {
@@ -354,7 +354,7 @@ export const DIAGNOSTIC_DOCS: Record<Code, DiagnosticDoc> = {
   },
   SN509: {
     example: '`run()` cycle: `#save` `data-sn-catch` (index.html:12) runs `#save`, which starts the first step again',
-    means: '`then`/`catch` handlers start each other again through `run()` (and `refresh()`, whose load runs the resource\'s `then`), so the requests may never stop. The message lists every step with its handler and line. The check is off by default: a guarded retry is a deliberate cycle. `sinter check --check-cycles` turns it on for one run, and `sinter({ checkCycles: true })` for the build, `sinter check` and `sinter lsp`.',
+    means: '`then`/`catch` handlers start each other again through `run()` (and `refresh()`, whose load runs the resource\'s `then`), so the requests may never stop. The message lists every step with its handler and line. A guarded retry is a deliberate cycle: `strict: { allow: { SN509: \'a retry, at most 3 times\' } }` keeps it a warning.',
     fix: 'Make sure a step stops: a condition that becomes false (`$error.status === 503 && tries < 3 && run(\'save\')`), or drop one step.',
   },
   SN510: {

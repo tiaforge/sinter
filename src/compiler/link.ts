@@ -457,7 +457,7 @@ class LoggedWeak {
  * on each page.
  */
 const BUILD_OPTIONS = new Set(['root', 'dev', 'sourcemap', 'helpers', 'actions', 'config', 'readFile', 'listFiles', 'globCache', 'templates', 'definitions', 'collections',
-  'collectionsError', 'prefetch', 'openapi', 'apis', 'complexity', 'expansionLimit', 'componentNames', 'libraries', 'checkCycles', 'lazy', 'lazyScript', 'lazyModule',
+  'collectionsError', 'prefetch', 'openapi', 'apis', 'complexity', 'expansionLimit', 'componentNames', 'libraries', 'lazy', 'lazyScript', 'lazyModule',
   'helperValues', 'helperFold', 'foldLog', 'prerender', 'changesRequests', 'observe', 'embed', 'componentCss', 'base', 'file', 'decided', 'unrolled', 'constants', 'frozen', 'overLimit']);
 
 /**

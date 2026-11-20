@@ -134,8 +134,6 @@ export interface CompileOptions {
   foldLog?: (key: string, args: FoldArg[], result: string, id: number) => void;
   /** SN507: limits for expressions too complex for markup, and the level (default `warn`) */
   complexity?: ComplexityOptions;
-  /** SN509: report `then`/`catch` handlers that start each other again through `run()` (off by default) */
-  checkCycles?: boolean;
   /** write bindings whose value is a build-time constant (literal state, no helpers) into the HTML */
   prerender?: boolean;
   /**
@@ -1445,7 +1443,7 @@ class Compiler {
     }
     this.runTargets();
     if (this.opts.swap && !this.swapOff) this.swapScripts(doc);
-    if (this.opts.checkCycles) this.runCycles();
+    this.runCycles();
     for (const el of this.remove) detach(el);
     this.markLowPriority();
     this.walked = this.diagnostics.length;
@@ -4168,7 +4166,7 @@ class Compiler {
   }
 
   /**
-   * SN509 (opt-in, `checkCycles`): `then`/`catch` handlers that start each other again. Nodes are
+   * SN509: `then`/`catch` handlers that start each other again. Nodes are
    * action elements (by id) and resources; an edge is a `run('id')` in an action's `then`/`catch`
    * or a resource's `then`, or a `refresh('name')` there (a load runs the resource's `then`).
    * Each elementary cycle with at least one `run()` is reported once, at its first step.
@@ -4219,7 +4217,7 @@ class Compiler {
               });
               const first = path[0]!;
               this.report(first.flow.el, first.flow.attr, 'SN509', `\`run()\` cycle: ${steps.join(', then ')}, which starts the first step again`, first.flow.shift + first.offset,
-                'each step starts the next, so the requests never stop; a step that should end needs a condition that becomes false, or one step goes. Reported because the cycle check is on (`sinter check --check-cycles` or `sinter({ checkCycles: true })`)', true);
+                'each step starts the next, so the requests never stop; a step that should end needs a condition that becomes false, or one step goes. A deliberate cycle, a guarded retry, stays a warning with `strict: { allow: { SN509: \'why\' } }`', true);
               reported++;
             }
           } else if (!onPath.has(e.to)) {

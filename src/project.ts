@@ -40,8 +40,6 @@ export interface ProjectOptions {
    * it renders in the browser, with warning SN536 at it.
    */
   expansionLimit?: number;
-  /** SN509: report `then`/`catch` handlers that start each other again through `run()`, in the build, `sinter check` and `sinter lsp` (default off; `sinter check --check-cycles` for one run) */
-  checkCycles?: boolean;
   /**
    * SN322: pages that must ship no JavaScript, by their paths relative to the root (`'about.html'`,
    * `'docs/**'`; `*` within one folder, `**` across folders), or `true` for every page. A matched page
@@ -147,7 +145,6 @@ export interface Project {
   complexity: ComplexityOptions;
   /** `expansionLimit`, checked, or undefined for the default */
   expansionLimit: number | undefined;
-  checkCycles: boolean;
   /** `static`: the pages that must ship no JavaScript (SN322) */
   isStatic: (file: string) => boolean;
   /** `swap`: links swap the next page in */
@@ -308,7 +305,7 @@ export function project(root: string, options: ProjectOptions = {}): Project {
     if (exported.includes('Slot')) diagnostics.push({ severity: 'error', code: 'SN331', message: 'the types module exports a type named `Slot`, which is sinter\'s: `Slot<T>` in a component\'s props declares a slot that passes `T` to its fill', file, line: 1, col: 1, hint: 'rename the type (`TimeSlot`, `SlotInfo`)' });
   }
   return {
-    root, helpers, helpersFile, contentFile: contentRel ? resolve(root, contentRel) : null, actions, actionsFile, readFile, listFiles, openapi, apis, diagnostics, complexity: complexityOf(options.complexity), expansionLimit: expansionLimitOf(options.expansionLimit), checkCycles: !!options.checkCycles,
+    root, helpers, helpersFile, contentFile: contentRel ? resolve(root, contentRel) : null, actions, actionsFile, readFile, listFiles, openapi, apis, diagnostics, complexity: complexityOf(options.complexity), expansionLimit: expansionLimitOf(options.expansionLimit), 
     isStatic: staticPages(root, options.static).has, swap: !!options.swap,
     lazy: lazyOf(options.lazy), strict: strictOf(options.strict),
     componentNames: components, libraries: libs.libraries,
