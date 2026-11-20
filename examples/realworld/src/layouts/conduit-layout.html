@@ -13,12 +13,12 @@
   <link rel="stylesheet" href="/src/styles.css">
   <slot name="head"></slot>
 </head>
-<!-- a failed button (favorite, follow, delete) that nothing else showed: its error under the navbar on every page;
-     a 401 means the session is gone (forms show theirs, including a 401, in their own list) -->
+<!-- a failed button (favorite, follow, delete) that nothing else showed: its error under the navbar on every page
+     (a 401 goes to sign in: the API's `signIn`, apis.js; forms show theirs, including a 401, in their own list) -->
 <body data-sn-state="{ error: null }"
-  data-sn-on-sn-error="$event.detail.error.status == 401 ? navigate('/login') : error = $event.detail.error; $event.preventDefault()">
-<!-- early="off": the auth middleware answers this request without a token, and adds one otherwise -->
-<sn-resource cache name="user" src="/user" early="off"></sn-resource>
+  data-sn-on-sn-error="error = $event.detail.error; $event.preventDefault()">
+<!-- signed out (no token stored): loaded at once, empty, with no request -->
+<sn-resource cache name="user" src="/user"></sn-resource>
 <conduit-header data-sn-with="{ nav }"></conduit-header>
 <div class="container"><error-list data-sn-with="{ error }"></error-list></div>
 <slot></slot>

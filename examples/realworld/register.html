@@ -9,7 +9,7 @@
         <h1 class="text-xs-center">Sign up</h1>
         <p class="text-xs-center"><a href="/login">Have an account?</a></p>
         <form data-sn-post="/users" data-sn-body="{user: {username, email, password}}"
-              data-sn-then="emit('signed-in', {user: $result.user})">
+              data-sn-then="navigate('/')">
           <error-list data-sn-with="{ error: $error }"></error-list>
           <fieldset>
             <fieldset class="form-group"><input class="form-control form-control-lg" type="text" name="username" placeholder="Username" data-sn-model="username"></fieldset>

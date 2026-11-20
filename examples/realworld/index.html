@@ -11,7 +11,7 @@
 <template data-sn-if="$url.feed == 'following' && $meta.user.loadedAt && !user && !$meta.user.error"><conduit-redirect to="/login"></conduit-redirect></template>
 
 <main class="home-page">
-  <template data-sn-if="$meta.user.loadedAt ? !user : signedOut()">
+  <template data-sn-if="$meta.user.loadedAt && !user">
     <div class="banner"><div class="container"><h1 class="logo-font">conduit</h1><p>A place to share your knowledge.</p></div></div>
   </template>
   <div class="container page">
