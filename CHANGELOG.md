@@ -5,6 +5,10 @@ Attribute names, function names and diagnostic codes are public API. Before
 
 ## Unreleased
 
+### Added
+
+- `data-sn-href`: a link's URL as a template, with an action URL's grammar and encoding ([docs/navigation.md](docs/navigation.md#links)): `<a data-sn-href="/profile/{a.author.username}">` instead of `data-sn-attr="{ href: '/profile/' + encodeURIComponent(a.author.username) }"`. Each value is URL-encoded; a whole query value that is `null` or `[]` leaves its parameter out (`?tag={$url.tag}&page={n}`); it starts with a literal path, origin, `?` or `#` (SN207); `sinter check` types its values as an action's. It is a bound `href` in every way (next-page data, Speculation Rules, same-page links, swaps, transitions, first paint; over constants it is written into the HTML as a plain `href`), and SN519 now also reads a query-only template's parameter names. RealWorld, the starter and the docs use it; `data-sn-attr` keeps an `href` that comes whole from data.
+
 ### Changed
 
 A smaller vocabulary, one word per concept ([docs/proposals/vocabulary.md](docs/proposals/vocabulary.md)). Each old name is a build error that names its replacement: `SN101` for an attribute or element, `SN201` for a function, `SN401` for a value (`op="patch"`, `paginate="keyset"`). Those messages stay until 1.0, then an old name is an unknown one. `npx sinter migrate --write` writes every rename the compiler reports, in the pages, components and layouts (`npx sinter migrate` prints them first); the editor's quick fix writes one.

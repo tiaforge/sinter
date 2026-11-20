@@ -134,6 +134,10 @@
       "description": "literal keys; null/false removes, true sets empty; URL values are checked; checked, selected, indeterminate and value also set the live property (object literal {href: …})"
     },
     {
+      "name": "data-sn-href",
+      "description": "on <a>, <area>: the link; may also start with ? or # (URL template)"
+    },
+    {
       "name": "data-sn-class",
       "description": "toggles each class (object literal {unread: …})"
     },

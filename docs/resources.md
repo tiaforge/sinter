@@ -195,7 +195,7 @@ the results into one collection:
 
 <p data-sn-text="intro"></p>
 <h1 data-sn-text="post.title"></h1>
-<ul><template data-sn-for="p in posts"><li><a data-sn-attr="{ href: '/blog/' + p.slug + '/' }" data-sn-text="p.title"></a></li></template></ul>
+<ul><template data-sn-for="p in posts"><li><a data-sn-href="/blog/{p.slug}/" data-sn-text="p.title"></a></li></template></ul>
 ```
 
 | File | Value |

@@ -16,6 +16,37 @@ Within a page, [the URL and the history](#the-url-and-the-history) behave as in 
 Back steps through the filters and pages the user chose. A link that changes only the query is to a
 sinter page what a `#hash` link is to any page: [it stays on the page](#same-page-links).
 
+## Links
+
+A link is an `<a href>`. When its URL is built from data, write it as a URL template, the same as an
+action's URL: `data-sn-href`.
+
+```html
+<a data-sn-href="/profile/{article.author.username}" data-sn-text="article.author.username"></a>
+<a data-sn-href="/article/{a.slug}#comments">Comments</a>
+<a data-sn-href="?tag={$url.tag}&page={n}" data-sn-text="n"></a>
+```
+
+- **Encoded:** each `{…}` value is URL-encoded (`ada lovelace` → `ada%20lovelace`, `a/b` → `a%2Fb`); a value
+  that is exactly `.` or `..` in the path is refused, so it cannot climb a segment. Nothing to forget: no
+  `encodeURIComponent`.
+- **The query:** a whole query value that is `null`, `undefined` or `[]` leaves its parameter out
+  (`?tag={$url.tag}&page={n}` is `?page=2` without a tag); an array repeats it (`?tag={tags}` →
+  `tag=a&tag=b`). An array in the path is refused (`sinter check` types a path value as an action's).
+- **The start** is literal: a path (`/profile/…`), this page's query or fragment (`?…`, `#…`), or an origin
+  with its `/` (`https://example.com/…`), so a value never chooses the scheme or the host (SN207). A URL that
+  comes whole from data (`i.href`, a markdown link's `node.url`) stays `data-sn-attr="{ href: i.href }"`,
+  whose value is checked for its scheme when it is written.
+- It is a bound `href` like that one in every way: next-page data and Speculation Rules match it, a same-page
+  link, a swap and `data-sn-transition` work from it, and a template over constants is written into the HTML
+  as a plain `href` (a page with nothing else to run ships no JavaScript). On `<a>` and `<area>`, or on the tag
+  of a component whose root is one.
+- A link to a page by its file (`/item.html?id={i.id}`) arrives through a redirect once the build gives
+  the page its URL: SN521 names the URL to write (`/item/?id={i.id}`).
+
+`navigate(url)` in a handler takes a URL, not a template: build it there with `encodeURIComponent`
+(`navigate('/article/' + encodeURIComponent($result.article.slug))`).
+
 ## Next-page data
 
 Nothing to write. When a link to another page of the app is about to be followed, sinter requests
@@ -170,7 +201,7 @@ the state you made (`data-sn-state`) and the scroll position stay. Nothing to wr
 `then` or `catch` follows the same rule, `{ replace: true }` in the current entry):
 
 ```html
-<a data-sn-attr="{ href: '?tag=' + encodeURIComponent($url.tag) + '&page=' + n }" data-sn-text="n"></a>
+<a data-sn-href="?tag={$url.tag}&page={n}" data-sn-text="n"></a>
 <a href="?feed=following">Your feed</a>
 ```
 
@@ -190,17 +221,19 @@ the state you made (`data-sn-state`) and the scroll position stay. Nothing to wr
   `<form method="get">` (bind the field instead: `data-sn-model="$url.q"`).
 - **Which pages:** the build loads it (`@tiaforge-ui/sinter/runtime/query-links`, about 0.7 KB gzip) on a
   page that reads a query parameter by name and has a link it can see goes to the page: a static
-  `href` (`?page=3`, the page's own URL or its file, `about.html?q=1`), or a `data-sn-attr` `href`
-  that starts with one (followed through `+`, template literals, `?:`, `||` and `??`). A link it
+  `href` (`?page=3`, the page's own URL or its file, `about.html?q=1`), a `data-sn-href` template
+  that starts with one, or a `data-sn-attr` `href` that does (followed through `+`, template literals,
+  `?:`, `||` and `??`). A link it
   cannot see (an `href` from data, a helper, a link a custom element renders) loads its URL, as before. A
   page that reads `$url` whole or by a computed name (`$url[k]`), or has a `<base href>`, does not
   load it: every link loads. The same link in a layout stays on one page and loads from another: it
   depends on what each page reads. A parameter that is a path parameter (`/tag/:tag`) is not a
   query parameter the page reads, on any of its paths, as for `$url` writes.
 - **Building the query:** `href="?page=3"` keeps only `page`, as any URL resolves: on `?tag=go` it
-  drops the tag. Build the whole query. A pager link (a static query-only `href` that sets a
-  `model` parameter) that drops other parameters the page reads is SN519; a filter or tab
-  link that drops the page is how the list starts at page 1, and needs nothing.
+  drops the tag. Build the whole query: `data-sn-href="?tag={$url.tag}&page={n}"` (a tag that is not
+  set is left out). A pager link (a query-only `href` or `data-sn-href` that sets a `model`
+  parameter) that drops other parameters the page reads is SN519; a filter or tab link that drops the
+  page is how the list starts at page 1, and needs nothing.
 - Next-page data leaves same-page links alone. Speculation Rules on such a page leave out its own
   path with any other query, so a link there that changes a parameter the page does not read
   (and loads) is not prefetched either.
@@ -308,7 +341,7 @@ element it becomes on the detail page:
 ```html
 <!-- list -->
 <template data-sn-for="a in articles">
-  <a data-sn-attr="{href: '/article/' + a.slug}"><h2 data-sn-transition="'article-' + a.slug" data-sn-text="a.title"></h2></a>
+  <a data-sn-href="/article/{a.slug}"><h2 data-sn-transition="'article-' + a.slug" data-sn-text="a.title"></h2></a>
 </template>
 
 <!-- article.html, data-sn-path="/article/:slug" -->

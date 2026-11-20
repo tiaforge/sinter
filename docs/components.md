@@ -7,7 +7,7 @@ every page:
 <!-- src/components/article-preview.html -->
 <template data-sn-props="{ article: Article; compact?: boolean }" data-sn-emits="{ select: Article }">
   <article class="preview" data-sn-class="{ compact }">
-    <a data-sn-attr="{ href: '/article/' + article.slug }" data-sn-on-click="emit('select', article)">
+    <a data-sn-href="/article/{article.slug}" data-sn-on-click="emit('select', article)">
       <h2 data-sn-text="article.title"></h2>
     </a>
     <slot name="meta"></slot>
@@ -52,7 +52,7 @@ child (grid, flex, `data-layout`), with no wrapper.
 
 - `class` on the tag is joined with the root's. Another attribute (`id`, `aria-*`, `data-grow`) moves
   onto the root; the same attribute on both is an error, not a silent override.
-- Handlers (`data-sn-on-*`), an action (`data-sn-post`, …), `data-sn-class`, `-attr`, `-style`,
+- Handlers (`data-sn-on-*`), an action (`data-sn-post`, …), `data-sn-class`, `-attr`, `-href`, `-style`,
   `-show` and `-transition` on the tag move onto the root, in the caller's scope.
 - A component whose root is a `<tr>` or `<li>` is that element. Write its tag inside the row's
   `<template data-sn-for>`: directly in a `<table>`, the HTML parser moves an unknown tag out of the
