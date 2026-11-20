@@ -300,6 +300,7 @@ What the fourth review left of the same kind, across the JavaScript and configur
   sign-in with swapped pages. Not a rename: a string still works.
 - `apis: { main: { default: true } }` (was `sinter({ defaultApi: 'main' })`, a sibling of the APIs it chose from;
   `render({ defaultApi })` too).
+- `configure({ apis })` fails naming `sinter({ apis })`: it was accepted, and each page module overwrote it.
 
 ## Looked at and kept
 

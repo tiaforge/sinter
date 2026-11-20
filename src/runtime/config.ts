@@ -36,9 +36,10 @@ export const config: Config = {
   confirm: null, fieldErrors: null, env: null,
 };
 
-export function configure(options: Partial<Omit<Config, 'env'>>): void {
-  // a typo fails instead of doing nothing, as in `sinter({...})`; `env` is the tests' (`setEnv`), not an option
-  for (const k in options) if (!(k in config) || k == 'env') throw new Error(`configure({ ${k} }) is not an option`);
+export function configure(options: Partial<Omit<Config, 'env' | 'apis'>>): void {
+  // a typo fails instead of doing nothing, as in `sinter({...})`; `env` is the tests' (`setEnv`), and `apis` the
+  // build's (`sinter({ apis })`, which every page module sets after the config module ran): not options
+  for (const k in options) if (!(k in config) || k == 'env' || k == 'apis') throw new Error(`configure({ ${k} }) is not an option${k == 'apis' ? ': the APIs are `sinter({ apis })`' : ''}`);
   Object.assign(config, options);
 }
 
