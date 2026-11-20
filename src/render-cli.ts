@@ -295,7 +295,7 @@ async function forward(backend: string, req: Request): Promise<Response> {
 
 export interface StorageRead { area: 'local' | 'session'; key: string; value: string | null }
 
-const INTERNAL_KEY = /^sn:(?:[pc]:|vt$|return$)/;
+const INTERNAL_KEY = /^sn:(?:[pc]:|vt$|return$|back$)/;
 
 /** A Storage whose reads are recorded: each key once, with the value it had at its first read. */
 export function recordingStorage(area: StorageRead['area'], reads: StorageRead[]): Storage {
@@ -305,7 +305,7 @@ export function recordingStorage(area: StorageRead['area'], reads: StorageRead[]
     key: (i: number) => [...m.keys()][i] ?? null,
     getItem: (k: string) => {
       const v = m.get(String(k)) ?? null;
-      // sinter's own entries (next-page data, the cache, view transitions, the sign-in return) are not the app's keys;
+      // sinter's own entries (next-page data, the cache and its Back mark, view transitions, the sign-in return) are not the app's keys;
       // `data-sn-persist` keys (`sn:<key>`) are, and stay
       if (!INTERNAL_KEY.test(String(k)) && !reads.some((x) => x.area === area && x.key === String(k))) reads.push({ area, key: String(k), value: v });
       return v;

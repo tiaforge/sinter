@@ -53,6 +53,7 @@
     "./runtime/keys": "./dist/keys.js",
     "./runtime/write-through": "./dist/write-through.js",
     "./runtime/cache": "./dist/cache.js",
+    "./runtime/back": "./dist/back.js",
     "./runtime/refresh": "./dist/refresh.js",
     "./runtime/versions": "./dist/versions.js",
     "./runtime/prefetch": "./dist/prefetch.js",

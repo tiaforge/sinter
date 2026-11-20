@@ -2,6 +2,7 @@ import { mount, $k, parsed, relative } from '@tiaforge-ui/sinter/runtime';
 import sn$sse from '@tiaforge-ui/sinter/runtime/sse';
 import sn$optimistic from '@tiaforge-ui/sinter/runtime/optimistic';
 import sn$paginate from '@tiaforge-ui/sinter/runtime/paginate';
+import sn$back from '@tiaforge-ui/sinter/runtime/back';
 import sn$versions from '@tiaforge-ui/sinter/runtime/versions';
 import sn$write_through from '@tiaforge-ui/sinter/runtime/write-through';
 
@@ -35,4 +36,4 @@ const fns = [
 ];
 
 await parsed();
-mount(document, { ir, fns, features: [sn$sse, sn$optimistic, sn$paginate, sn$versions, sn$write_through] });
+mount(document, { ir, fns, features: [sn$sse, sn$optimistic, sn$paginate, sn$back, sn$versions, sn$write_through] });

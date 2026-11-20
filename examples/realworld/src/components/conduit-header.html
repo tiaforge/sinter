@@ -10,7 +10,7 @@
           <li class="nav-item"><a class="nav-link" href="/editor" data-sn-class="{active: nav == 'editor'}"><i class="ion-compose"></i>&nbsp;New Article</a></li>
           <li class="nav-item"><a class="nav-link" href="/settings" data-sn-class="{active: nav == 'settings'}"><i class="ion-gear-a"></i>&nbsp;Settings</a></li>
           <li class="nav-item">
-            <a class="nav-link" data-sn-attr="{href: '/profile/' + encodeURIComponent(user.username)}" data-sn-class="{active: nav == 'profile:' + user.username}">
+            <a class="nav-link" data-sn-href="/profile/{user.username}" data-sn-class="{active: nav == 'profile:' + user.username}">
               <img class="user-pic" alt="" data-sn-attr="{src: avatar(user.image)}"> <span data-sn-text="user.username"></span>
             </a>
           </li>

@@ -27,6 +27,7 @@ import { rewriteCssImages, type CssImageHost } from './css-images.js';
 import { resolveRemote, type RemoteImages } from './remote.js';
 import { devRemote, remoteMiddleware } from './remote-dev.js';
 import type { EmbedSlot, ImageHost, ImageVariant, PrefetchParts, RuntimeReason, StyleSheet } from './compiler/index.js';
+import { moduleEffect } from './prerender-build.js';
 import { hasCspMeta, movesToDirectory, pageFile, pagePaths, pageUrl, prefetchModule, speculationRules, withRulesHash } from './prefetch-build.js';
 import { type SwapPage, swapModule } from './swap-build.js';
 import { pageRoutes, rebaseHtml, redirectHtml, redirectsFile, relocateHtml, type PageEntry, type Route } from './page-urls.js';
@@ -112,12 +113,15 @@ export interface SinterOptions extends ProjectOptions {
    *   streams connect once it is shown); `false`: none. The rules are an inline script in every page, so they need
    *   no server setup; a CSP the page declares in a `<meta>` gets their hash from the build, a CSP sent as a
    *   response header needs `'inline-speculation-rules'` in `script-src` (dev builds warn when it blocks them).
+   *   `{ prerender: 'auto' }`: the build decides per page, prerendering those it can show do nothing on load but read
+   *   (only GET resources, no `then`, `call` or POST loads, no component scripts, custom elements, lazy packages, scripts,
+   *   handlers of events no visitor caused, and app modules without load-time effects) and prefetching the rest.
    *   `{ delivery: 'header' }` (with `prerender: true` to prerender) writes `speculation-rules.json` at the site root for a `Speculation-Rules`
    *   response header instead, which no CSP blocks: the server sends the header with every page and the file as
    *   `application/speculationrules+json` (`vite dev` and `vite preview` do both). See docs/navigation.md.
    * `false`: neither.
    */
-  prefetch?: boolean | { data?: boolean; html?: boolean | { prerender?: boolean; delivery?: 'inline' | 'header' } };
+  prefetch?: boolean | { data?: boolean; html?: boolean | { prerender?: boolean | 'auto'; delivery?: 'inline' | 'header' } };
   /**
    * Builds served by a server that writes each page's data into it (sinter-axum): every resource whose
    * request only the page's URL decides gets a placeholder in the head, and the browser neither preloads
@@ -308,6 +312,8 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     throw new Error(`sinter({ prefetch: { html } }): takes \`true\`, \`false\` or \`{ prerender, delivery }\`, not ${JSON.stringify(html0)}`);
   }
   keysOf('prefetch: { html }', html0, ['prerender', 'delivery']);
+  const pr0 = typeof html0 === 'object' && html0 !== null ? (html0 as { prerender?: unknown }).prerender : undefined;
+  if (pr0 !== undefined && typeof pr0 !== 'boolean' && pr0 !== 'auto') throw new Error(`sinter({ prefetch: { html: { prerender } } }): takes \`true\`, \`false\` or \`'auto'\` (the build decides per page), not ${JSON.stringify(pr0)}`);
   const prefetchData = options.prefetch !== false && (typeof options.prefetch !== 'object' || options.prefetch.data !== false);
   const speculation = options.prefetch === false ? false : typeof options.prefetch === 'object' && options.prefetch.html !== undefined ? options.prefetch.html : true;
   let root = process.cwd();
@@ -624,7 +630,8 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     return { info: (f) => img.info(f), url: (v) => prefix + img.fileName(v), ignore: true, stylesheet: `${IMG_CSS}${rel}.css`, ...(widths ? { widths } : {}), ...(styles?.length ? { styles } : {}) };
   };
   /** next-page data: each page's description, by file (null: nothing to prefetch), and the pages compiled so far */
-  type Described = { parts: PrefetchParts | null; path: string[]; off: boolean; keep: string[]; swapOff: boolean; keptSource: Record<string, string>; keptBound: string[] };
+  /** `effect`: what the page does as it loads besides reading (`CompileResult.loadEffect`), null for nothing */
+  type Described = { parts: PrefetchParts | null; path: string[]; off: boolean; keep: string[]; swapOff: boolean; keptSource: Record<string, string>; keptBound: string[]; effect: string | null };
   const described = new Map<string, Described>();
   /**
    * `<html data-sn-for>`: each template's description (by source and language), from the first of its entries described.
@@ -662,7 +669,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   const sourceDescribed = new Map<string, string[]>();
   /** build: why each page needs the runtime, by its path relative to the root (empty: it ships none) */
   const runtimeOf = new Map<string, RuntimeReason[]>();
-  let pagesCache: Array<{ paths: string[]; parts: PrefetchParts | null; swaps: boolean }> | null = null;
+  let pagesCache: Array<{ paths: string[]; parts: PrefetchParts | null; swaps: boolean; file: string; effect: string | null }> | null = null;
   const attr = (v: string) => v.replace(/[&"<>]/g, (c) => `&#${c.charCodeAt(0)};`);
   /** the tag of the script that starts with the picker: it picks the locale and starts the page's language file */
   const pickerTag = (src: string, files: Record<string, string>, locale?: string) => `<script src="${attr(src)}" data-sn-i18n="${attr(JSON.stringify({ base: locale ?? messages!.base, locales: locale ? [locale] : messages!.locales, storage: 'locale', files: locale ? { [locale]: files[locale]! } : files }))}"></script>`;
@@ -828,9 +835,9 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       try {
         // with the APIs and specs: what is requested ahead is the page's own request (its base, its configured shape)
         const r = compile(readPage(file), { file: v?.source ?? file, root, dev, helpers: p.helpers, actions: p.actions, readFile: readVia(p), listFiles: p.listFiles, ...(dev ? {} : { globCache }), ...contentOpts(v?.locale), lazy: p.lazy, openapi: p.openapi, apis: p.apis, ...(v?.page ? { page: v.page } : {}), describeOnly: true, ...(v?.locale ? { locale: { name: v.locale, urls: null, base: resolved?.base ?? '/' } } : {}) });
-        described.set(file, { parts: r.prefetch, path: r.path, off: !!r.prefetchOff, keep: r.permanent ?? [], swapOff: !!r.swapOff, keptSource: r.keptSource ?? {}, keptBound: r.keptBound ?? [] });
+        described.set(file, { parts: r.prefetch, path: r.path, off: !!r.prefetchOff, keep: r.permanent ?? [], swapOff: !!r.swapOff, keptSource: r.keptSource ?? {}, keptBound: r.keptBound ?? [], effect: r.loadEffect ?? null });
         if (v?.page) entriesDescribed.set(`${v.source}\0${v.locale ?? ''}`, { page: v.page.path, d: described.get(file)! });
-      } catch { described.set(file, { parts: null, path: [], off: false, keep: [], swapOff: true, keptSource: {}, keptBound: [] }); }
+      } catch { described.set(file, { parts: null, path: [], off: false, keep: [], swapOff: true, keptSource: {}, keptBound: [], effect: 'it did not compile' }); }
     }
     return described.get(file)!;
   };
@@ -847,12 +854,12 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   const pageEntries = (): PageEntry[] => entries().map((file) => ({ rel: relOf(file), patterns: describe(file).path }));
   const appPages = () => {
     if (pagesCache) return pagesCache;
-    const out: Array<{ paths: string[]; parts: PrefetchParts | null; swaps: boolean }> = [];
+    const out: Array<{ paths: string[]; parts: PrefetchParts | null; swaps: boolean; file: string; effect: string | null }> = [];
     for (const file of entries()) {
       const d = describe(file);
       // `<html data-sn-prefetch="off">`: neither described nor in the rules
       if (d.off) continue;
-      out.push({ paths: pagePaths(relOf(file), resolved?.base ?? '/', d.path), parts: d.parts, swaps: !!options.swap && !d.swapOff });
+      out.push({ paths: pagePaths(relOf(file), resolved?.base ?? '/', d.path), parts: d.parts, swaps: !!options.swap && !d.swapOff, file, effect: d.effect });
     }
     return (pagesCache = out);
   };
@@ -861,14 +868,14 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     const d = describe(file);
     return d.swapOff ? [] : [{ m: pagePaths(relOf(file), resolved?.base ?? '/', d.path), k: d.keep }];
   });
-  const prefetchPages = () => appPages().filter((x): x is { paths: string[]; parts: PrefetchParts; swaps: boolean } => !!x.parts);
+  const prefetchPages = () => appPages().filter((x): x is { paths: string[]; parts: PrefetchParts; swaps: boolean; file: string; effect: string | null } => !!x.parts);
   /** how the Speculation Rules are delivered, or null for none */
   const spec = () => {
     // inline by default: it works with no server setup (a CSP in the page gets the rules' hash, see withRulesHash)
     const o = speculation;
     if (o === false) return null;
     if (o === true) return { mode: 'prefetch' as const, delivery: 'inline' as const };
-    return { mode: o.prerender ? 'prerender' as const : 'prefetch' as const, delivery: o.delivery ?? 'inline' };
+    return { mode: o.prerender === 'auto' ? 'auto' as const : o.prerender ? 'prerender' as const : 'prefetch' as const, delivery: o.delivery ?? 'inline' };
   };
   /** the rules' JSON for links to the app's pages, or null; `samePage`: a page with same-page links (query-links.ts), whose own URLs are left out */
   /**
@@ -888,10 +895,35 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   };
   // with swaps on, a link to a page that swaps is fetched by the swap, which the browser's prefetch cache does
   // not serve: only the pages that opt out are in the rules
-  const rulesOf = (mode: 'prefetch' | 'prerender', samePage: boolean) => {
-    const entry = new Set<string>(), patterns = new Set<string>(), pages = appPages().filter((x) => !x.swaps);
-    for (const v of virtual.values()) if (v.page) { entry.add(v.page.path); if (pages.some((x) => x.paths.includes(v.page!.path))) patterns.add(templatePattern(v.source)); }
-    return speculationRules(mode, [...pages.flatMap((x) => x.paths).filter((x) => !entry.has(x)), ...patterns], samePage);
+  // `prerender: 'auto'`: the pages that do nothing on load but read are prerendered, the others prefetched
+  const rulesOf = (mode: 'prefetch' | 'prerender' | 'auto', samePage: boolean) => {
+    const entry = new Set<string>(), pages = appPages().filter((x) => !x.swaps);
+    const quiet = (x: { file: string; effect: string | null }) => mode == 'prerender' || (mode == 'auto' && !x.effect && !appEffect());
+    const lists = { prefetch: [] as string[], prerender: [] as string[] };
+    for (const v of virtual.values()) if (v.page) entry.add(v.page.path);
+    for (const x of pages) lists[quiet(x) ? 'prerender' : 'prefetch'].push(...x.paths.filter((p) => !entry.has(p)));
+    // a `<html data-sn-for>` page's entries: its pattern, once, as quiet as the entry the plugin described
+    const patterns = new Set<string>();
+    for (const v of virtual.values()) {
+      const x = v.page && pages.find((y) => y.paths.includes(v.page!.path));
+      const pt = x && templatePattern(v.source);
+      if (x && pt && !patterns.has(pt)) { patterns.add(pt); lists[quiet(x) ? 'prerender' : 'prefetch'].push(pt); }
+    }
+    return speculationRules(lists, samePage);
+  };
+  /**
+   * `prerender: 'auto'`: the first load-time effect of the app's modules every page may import (config, early, helpers,
+   * actions; `prerender-build.ts`), null for none: with one, no page is prerendered. Checked once per build (dev: per change)
+   */
+  let appEffects: { for: unknown; effect: string | null } | null = null;
+  const appEffect = () => {
+    const p = proj();
+    if (appEffects?.for !== p) {
+      const files = [p.config, p.early].filter((x): x is string => !!x).map((u) => resolve(root, u.replace(/^\//, ''))).concat([p.helpersFile, p.actionsFile].filter((x): x is string => !!x));
+      const seen = new Map<string, string | null>();
+      appEffects = { for: p, effect: files.map((f) => moduleEffect(f, root, seen)).find((e) => e) ?? null };
+    }
+    return appEffects.effect;
   };
   /**
    * builds: a link in a finished page to a path a `<html data-sn-for>` pattern matches, but no entry was written at, fails
@@ -1559,6 +1591,13 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       // pages with a CSP <meta> got the hash: nothing to say. The rest may have a CSP header the build cannot see
       if (speculationHash && unhashedPages) resolved?.logger.info(`sinter: Speculation Rules are inline in the pages: nothing to do without a CSP; a CSP sent as a response header must allow them: add 'inline-speculation-rules' to its script-src (or ${[...speculationHashes].map((h) => `'${h}'`).join(' and ')}, which change${speculationHashes.size > 1 ? '' : 's'} with the pages). docs/navigation.md`);
       if (rulesWritten) resolved?.logger.info(`sinter: Speculation Rules in ${RULES_FILE}: send \`Speculation-Rules: "${rulesUrl()}"\` with every page and serve the file as application/speculationrules+json (docs/navigation.md)`);
+      // `prerender: 'auto'`: which pages links prerender, and why each other one is only prefetched
+      if (spec()?.mode == 'auto') {
+        const pages = appPages().filter((x) => !x.swaps), app = appEffect(), quiet = pages.filter((x) => !x.effect && !app);
+        const why = pages.filter((x) => !quiet.includes(x)).map((x) => `${relOf(x.file)} (${x.effect})`);
+        if (app) resolved?.logger.info(`sinter: links prerender no page, since every page runs the app's modules and one of them does something as it loads: ${app} (prerender: 'auto', docs/navigation.md)`);
+        else if (pages.length) resolved?.logger.info(`sinter: links prerender ${quiet.length ? quiet.map((x) => relOf(x.file)).join(', ') : 'no page'}${why.length ? `; they prefetch ${why.slice(0, 10).join(', ')}${why.length > 10 ? `, and ${why.length - 10} more` : ''}` : ''} (prerender: 'auto', docs/navigation.md)`);
+      }
     },
 
     async buildEnd(error) {

@@ -204,7 +204,7 @@ test('the compiler describes only resources whose request the URL decides; helpe
     <sn-resource name="a" src="/api/a/{$url.id}?o={offset($url.page)}" select="a" key="id" when="$url.id"></sn-resource>
     <sn-resource name="b" src="/api/b?q={q}" select="b"></sn-resource>
     <sn-resource name="c" src="/api/c?at={a.length}" select="c"></sn-resource>
-    <sn-resource name="d" src="/api/d" select="d" paginate="{ numbered: true, size: 10 }"></sn-resource>
+    <sn-resource name="d" src="/api/d?at={$now}" select="d" key="id" paginate="{ numbered: true, size: 10 }"></sn-resource>
     <i data-sn-text="a.length + b.length + c.length + d.length"></i></div></body></html>`;
   const parts = compileParts(html, { file: '/t/p.html', root: '/t', dev: false, readFile: () => '', helpers: { module: '/src/h.js', names: ['offset'], namespaces: {} } });
   expect(parts.prefetch!.path).toEqual(['/p/:id']);
@@ -250,4 +250,60 @@ test("the target page's array parameters are read as lists", async () => {
   await r.advance(HOVER);
   await r.settle();
   expect(paths(requests)).toEqual(['GET /api/hits?tag=go&tag=rs']);
+});
+
+// a paginated list: the URL decides its first load's page (the first, or with `model` the page the link names)
+const FEED = `<html data-sn-path="/feed"><head></head><body>
+  <sn-resource name="feed" src="/api/feed?tag={$url.tag}" select="articles" total="count" key="id"
+    paginate="{ numbered: 'offset', size: 2, model: $url.page }"></sn-resource>
+  <ul><template data-sn-for="a in feed"><li data-sn-text="a.title"></li></template></ul>
+  <p data-sn-text="$meta.feed.page + '/' + $meta.feed.pages + ' ' + ($meta.feed.loadedAt ? 'loaded' : 'not loaded')"></p>
+</body></html>`;
+
+test('a paginated resource is prefetched at the page the link names, and the next page shows it, then revalidates', async () => {
+  const session = memoryStorage();
+  const requests = mockRequests({ 'GET /api/feed': { articles: [{ id: 3, title: 'Three' }, { id: 4, title: 'Four' }], count: 5 } });
+  const r = await render('<a id="p2" href="/feed?tag=go&page=2">2</a><a id="p1" href="/feed?tag=js">1</a>', { session, requests, pages: { 'feed.html': FEED } });
+  fire(r.root.querySelector('#p2')!, 'pointerdown');
+  fire(r.root.querySelector('#p1')!, 'pointerdown');
+  await r.settle();
+  expect(paths(requests)).toEqual(['GET /api/feed?tag=go&offset=2&limit=2', 'GET /api/feed?tag=js&offset=0&limit=2']);
+  const next = mockRequests({ 'GET /api/feed': { articles: [{ id: 3, title: 'Three, edited' }], count: 5 } });
+  const page = await render(FEED, { session, requests: next, url: '/feed?tag=go&page=2' });
+  // before any response: the prefetched page, with its pager fields
+  expect([...page.root.querySelectorAll('li')].map((l) => l.textContent)).toEqual(['Three', 'Four']);
+  expect(page.root.querySelector('p')!.textContent).toBe('2/3 not loaded');
+  await page.settle();
+  expect(paths(next)).toEqual(['GET /api/feed?tag=go&offset=2&limit=2']);
+  expect([...page.root.querySelectorAll('li')].map((l) => l.textContent)).toEqual(['Three, edited']);
+  expect(page.root.querySelector('p')!.textContent).toBe('2/3 loaded');
+});
+
+test('keyset and append lists are prefetched at their first page only', async () => {
+  const session = memoryStorage();
+  const inbox = (mode: string) => `<html data-sn-path="/${mode}"><head></head><body>
+    <sn-resource name="m" src="/api/m" select="m" key="id" paginate="{ ${mode}: { before: $item.id }, size: 2 }"></sn-resource>
+    <ul><template data-sn-for="x in m"><li data-sn-text="x.id"></li></template></ul></body></html>`;
+  const requests = mockRequests({ 'GET /api/m': { m: [{ id: 9 }, { id: 8 }] } });
+  const r = await render('<a id="k" href="/keyset?page=3">k</a><a id="a" href="/append">a</a>', { session, requests, pages: { 'keyset.html': inbox('keyset'), 'append.html': inbox('append') } });
+  fire(r.root.querySelector('#k')!, 'pointerdown');
+  await r.settle();
+  fire(r.root.querySelector('#a')!, 'pointerdown');
+  await r.settle();
+  // the same first-page request for both: requested once
+  expect(paths(requests)).toEqual(['GET /api/m?limit=2&direction=first']);
+  for (const mode of ['keyset', 'append']) {
+    const page = await render(inbox(mode), { session, url: `/${mode}`, requests: mockRequests({ 'GET /api/m': { m: [] } }) });
+    if (mode == 'keyset') expect([...page.root.querySelectorAll('li')].map((l) => l.textContent)).toEqual(['9', '8']);
+    await page.settle();
+  }
+});
+
+test('a paginated resource whose page or request reads state is not described', () => {
+  const html = `<html data-sn-path="/p"><head></head><body><div data-sn-state="{ q: '' }">
+    <sn-resource name="a" src="/api/a" select="a" key="id" paginate="{ numbered: true, size: 10 }"></sn-resource>
+    <sn-resource name="b" src="/api/b?q={q}" select="b" key="id" paginate="{ numbered: true, size: 10 }"></sn-resource>
+    <i data-sn-text="a.length + b.length"></i></div></body></html>`;
+  const parts = compileParts(html, { file: '/t/p.html', root: '/t', dev: false, readFile: () => '', helpers: { module: null, names: [], namespaces: {} } });
+  expect(parts.prefetch!.res.map((r) => [r.i, r.q, r.sp])).toEqual([['a', { page: '1', limit: '10' }, undefined]]);
 });
