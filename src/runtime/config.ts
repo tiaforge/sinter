@@ -187,22 +187,30 @@ export interface LoginRedirectOptions {
  */
 export function loginRedirect(options: LoginRedirectOptions) {
   return (): Promise<Response> => {
-    const env = envOf(config);
-    const here = new URL(env.href());
-    const path = here.pathname + here.search + here.hash;
-    let target = options.to;
-    if (options.returnUrl && options.returnUrl.allow.some((p) => here.pathname.startsWith(p))) {
-      try { env.session()?.setItem(RETURN_KEY, path); } catch { /* ignored */ }
-      if (options.returnUrl.param) {
-        const u = new URL(options.to, here);
-        u.searchParams.set(options.returnUrl.param, path);
-        target = u.origin === here.origin ? u.pathname + u.search + u.hash : options.to;
-      }
-    }
+    const env = envOf(config), target = signInTarget(options, env.href(), env.session());
     clearStored();
     env.navigate(target);
     return new Promise<Response>(() => {});
   };
+}
+
+/**
+ * Where `loginRedirect` goes from `href`: `to`, with the return URL stored in `session` (same-origin, under an allowed
+ * prefix) and, with `param`, in that query parameter. Also the sign-in guard's (`data-sn-signed-in`), in the early script.
+ */
+export function signInTarget(options: LoginRedirectOptions, href: string, session: Storage | null): string {
+  const here = new URL(href);
+  const path = here.pathname + here.search + here.hash;
+  let target = options.to;
+  if (options.returnUrl && options.returnUrl.allow.some((p) => here.pathname.startsWith(p))) {
+    try { session?.setItem(RETURN_KEY, path); } catch { /* ignored */ }
+    if (options.returnUrl.param) {
+      const u = new URL(options.to, here);
+      u.searchParams.set(options.returnUrl.param, path);
+      target = u.origin === here.origin ? u.pathname + u.search + u.hash : options.to;
+    }
+  }
+  return target;
 }
 
 /** The return URL stored by loginRedirect, if it is same-origin and allowlisted; removes it. */

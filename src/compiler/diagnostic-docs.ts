@@ -291,6 +291,11 @@ export const DIAGNOSTIC_DOCS: Record<Code, DiagnosticDoc> = {
     means: 'An element with `data-sn-permanent` is kept as it is when a link swaps the next page in (`sinter({ swap: true })`): the same element, playing or scrolled, moves into the next page where it has an element of the same name, and the next page\'s code takes over its bindings. So it is one element of the page, named with letters, digits, `-` and `_`, outside any `<template>`, once per page; its nodes are numbered in a range of their own, from its name (two names that get the same range, or more than 1000 bound nodes, are reported); and when it binds, every page that keeps it has the same markup, written in one place.',
     fix: 'Give the element a plain name; write a kept element that binds once, in the layout or a component every page uses; rename one of two names that clash.',
   },
+  SN347: {
+    example: '`data-sn-signed-in` needs an API with a `token` (`sinter({ apis: { main: { token } } })`)',
+    means: '`data-sn-signed-in` on a page\'s `<html>` (or its layout\'s tag) sends a visitor with no token stored to the API\'s `token.signIn` page, with the return URL, before anything paints. It needs one API with a `token` and a `signIn` (with several, the one the page\'s resources use, and only one), its value reads only `$url` (the early script decides it before the page module runs), and it cannot be on the sign-in page itself (a loop). It is a convenience, not security: the server still refuses the requests.',
+    fix: 'Give the API a `token` with `signIn`; keep the condition to `$url` (`$url.feed == \'following\'`); remove the attribute from the sign-in page.',
+  },
   SN401: {
     example: '`data-sn-for` takes `item in list` or `(item, i) in list`',
     means: 'An attribute value has the wrong form: a JavaScript syntax error (the column points inside the attribute), or a value outside what the attribute accepts, such as `paginate` or `data-sn-concurrency`.',

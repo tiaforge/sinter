@@ -48,6 +48,7 @@
     "./runtime/paginate": "./dist/paginate.js",
     "./runtime/remote": "./dist/remote.js",
     "./runtime/token": "./dist/token.js",
+    "./runtime/signed-in": "./dist/signed-in.js",
     "./runtime/for": "./dist/for.js",
     "./runtime/persist": "./dist/persist.js",
     "./runtime/options": "./dist/options.js",

@@ -86,7 +86,7 @@ export function prefetchModule(pages: Array<{ paths: string[]; parts: PrefetchPa
   lines.push(...helperImports([...user].sort(), Object.fromEntries([...ns].map(([n, m]) => [n, [...m].sort()])), helpers));
   lines.push('', 'void $k;', 'export default prefetch([');
   for (const { paths, parts } of pages) {
-    lines.push(`  { m: ${JSON.stringify(paths)}, r: ${JSON.stringify(parts.res)}, ${parts.a ? `a: ${JSON.stringify(parts.a)}, ` : ''}f: [`);
+    lines.push(`  { m: ${JSON.stringify(paths)}, r: ${JSON.stringify(parts.res)}, ${parts.a ? `a: ${JSON.stringify(parts.a)}, ` : ''}${parts.g ? `g: ${JSON.stringify(parts.g)}, ` : ''}f: [`);
     for (const f of parts.fns) lines.push(`    ${f},`);
     lines.push('  ] },');
   }

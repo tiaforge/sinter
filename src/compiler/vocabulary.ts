@@ -13,6 +13,7 @@ export const ATTRIBUTES: AttrDoc[] = [
   { name: 'show', value: 'value expression', doc: 'toggles the hidden attribute' },
   { name: 'prefetch', value: 'off', doc: 'on <html>: no other page prefetches this one\'s data or the page itself (Speculation Rules), and none prerenders it; for pages that do something when they load' },
   { name: 'permanent', value: 'name', doc: 'with sinter({ swap }): kept as is (playing, scrolled) across a link to a page with the name; its bindings go on' },
+  { name: 'signed-in', value: 'empty, or a condition over $url', doc: 'on <html> (or a layout\'s tag): the page needs a session of its API\'s `token`; with none stored (and the condition true), the visitor goes to its `signIn` with the return URL before anything paints, and again on a 401 that ends the session. Convenience, not security' },
   { name: 'swap', value: 'off', doc: 'on <html>: links here load it; on a link: it loads its page' },
   { name: 'transition', value: 'value expression (a name)', doc: 'the same thing on two pages: following a link from the element (or its row) to a page with an element of the same name morphs one into the other (view transitions; back too)' },
   { name: 'with', value: 'object literal', doc: 'sets JS properties; custom elements only (also one defined later). On a component\'s tag: its props, live and read-only. On a <slot> declared Slot<T>: the values its fill reads as $slot; on a named <slot> its component does not declare, a tree placement, filled by the nearest enclosing component declaring the name' },

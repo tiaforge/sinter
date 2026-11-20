@@ -77,6 +77,8 @@ const hooks: TokenHooks = {
     for (const a of config.apis) if (a.t && read(a.t, env) != null) { had = true; write(a.t, env, null); }
     // nobody was signed in: what the page kept is dropped all the same
     if (!had) clearStored();
+    // the handler says where to go next: not the page's sign-in guard
+    tokens.out = true;
     // the resources of those APIs load again: signed out
     for (const d of app?.ir.resources ?? []) {
       const l = app!.resource(d.name).loader, u = l?.url?.();

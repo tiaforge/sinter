@@ -215,6 +215,8 @@ export interface EarlyIR {
     /** the request settings of the resource's API (`sinter({ apis })`): credentials, static headers, its token's storage and header (`r`: the operation needs it) */
     a?: { c?: RequestCredentials; h?: Record<string, string>; t?: { s: 'l' | 's'; k: string; h: string; p: string }; r?: 1 };
   }>;
+  /** `data-sn-signed-in`: with no token stored (and `f` true), the early script sends the visitor to sign in (index into the early table) */
+  si?: Omit<SignedIn, 'a'>;
   /** `data-sn-path` patterns, when a request reads `$url` */
   path?: string[];
   /** the page's array parameters (`IR.urlArrays`), when something early reads `$url` */
@@ -329,8 +331,17 @@ export interface ApplyDef {
   t?: 1;
 }
 
+/**
+ * `data-sn-signed-in` (src/signed-in.ts): the page needs a session of the API `a` (`sinter({ apis })` name), whose token
+ * is stored at `t` (`l`ocal or `s`ession storage, key); `f` the condition (a function over `$url`; absent: always); `i` the
+ * sign-in page, as `loginRedirect` takes it
+ */
+export interface SignedIn { a: string; t: { s: 'l' | 's'; k: string }; i: { to: string; returnUrl?: { allow: string[]; param?: string } }; f?: number }
+
 export interface IR {
   v: 2;
+  /** `data-sn-signed-in`: the page needs a session */
+  si?: SignedIn;
   resources: ResourceDef[];
   /** absent in a page module without streams */
   syncs?: SyncDef[];

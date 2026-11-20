@@ -383,6 +383,8 @@ export interface PrefetchParts {
   namespaces: Record<string, string[]>;
   /** the page's array parameters (`IR.urlArrays`) */
   a?: string[];
+  /** `data-sn-signed-in`: where its API's token is stored, and the condition (index into `fns`): signed out, nothing is requested ahead */
+  g?: { t: { s: 'l' | 's'; k: string }; f?: number };
 }
 
 /**
@@ -1204,6 +1206,10 @@ class Compiler {
   readonly stateInits: Array<{ sid: number; fields: Array<{ key: string; code: string; deps: string[] }>; persist: string | null }> = [];
   /** `<html data-sn-prefetch="off">`: other pages do not prefetch or prerender this one */
   prefetchOff = false;
+  /** `data-sn-signed-in` on `<html>`: the page needs a session; `f` its condition over `$url` (none: always) */
+  signedIn: { el: P5Element; f: number | null } | null = null;
+  /** the guard, checked against the page's APIs (\`signedInGuard()\`): what the early script and the page module redirect with */
+  guard: NonNullable<IR['si']> | null = null;
   /** `<html data-sn-swap="off">`: links to this page load it */
   swapOff = false;
   /** the kept elements (`data-sn-permanent`) and their names */
@@ -1533,6 +1539,7 @@ class Compiler {
   finishPage({ doc, images, paths }: NonNullable<Compiler['walk']>): CompiledParts & { canonicalOnly?: boolean } {
     if (this.opts.prerender) { this.prerender(); this.embedFolded(); this.dropConstants(); this.dropFiles(); this.foldScriptsOut(); if (this.collecting()) this.collectConstants(); }
     this.anchors();
+    this.guard = this.signedInGuard();
     let early = this.opts.early ? this.earlyParts() : undefined;
     this.placeTemplates(doc, early);
     if (early && this.opts.sourcemap) early.sources = this.sourcesOf(early.fns, this.earlySites);
@@ -1574,6 +1581,7 @@ class Compiler {
     const ir: IR = { v: 2, resources: this.resources, syncs: this.syncs, roots: this.roots, templates: this.templates, actions: this.actions };
     if (styleGroups.length) ir.sg = styleGroups;
     if (this.page.usesNow) ir.now = true;
+    if (this.guard) { ir.si = this.guard; this.features.add('signed-in'); }
     // lets that wait for a lazy helper module (lets.ts), each module loaded by a function of the table
     const lazyHelpers = this.lazyMods.filter((_, i) => this.fns.some((c) => c.includes(`$.$z(${i}, `)));
     if (lazyHelpers.length) {
@@ -1623,7 +1631,7 @@ class Compiler {
       ir, fns: this.fns,
       ...(this.opts.prerender ? { fixedState: this.fixedState() } : {}),
       ...(this.opts.sourcemap ? { sources: this.sourcesOf(this.fns) } : {}),
-      features: [...(this.opts.dev ? ['dev'] : []), ...['sse', 'optimistic', 'paginate', 'persist', 'cache', 'versions', 'refresh', 'for', 'options', 'keys', 'write-through', 'fields', 'form', 'select', 'location', 'typing', 'query-links', 'navigate', 'call', 'debounce', 'confirm', 'models', 'transition', 'components', 'nested', 'lets'].filter((f) => this.features.has(f))],
+      features: [...(this.opts.dev ? ['dev'] : []), ...['sse', 'optimistic', 'paginate', 'persist', 'cache', 'versions', 'refresh', 'for', 'options', 'keys', 'write-through', 'fields', 'form', 'select', 'location', 'typing', 'query-links', 'navigate', 'call', 'debounce', 'confirm', 'models', 'transition', 'components', 'nested', 'lets', 'signed-in'].filter((f) => this.features.has(f))],
       helpers: { user, builtin }, namespaces, calls: [...this.calls].sort(),
       diagnostics: this.diagnostics, files: [...this.files].sort(), ...(this.fileGlobs.length ? { globs: this.fileGlobs } : {}), ...(this.pagesOut ? { pages: this.pagesOut } : {}),
       ...(this.check ? { check: this.check } : {}),
@@ -2195,7 +2203,7 @@ class Compiler {
     // the tag's attributes: plain ones replace the layout's on `<html>` (its defaults), `class` is joined
     for (const a of host.attrs) {
       if (a.name === 'data-sn-with' || a.name === 'data-sn-state') continue;
-      if (a.name === 'data-sn-path' || a.name === 'data-sn-prefetch' || a.name === 'data-sn-for' || a.name === 'data-sn-swap') { setAttr(lhtml, a.name, a.value); continue; }
+      if (a.name === 'data-sn-path' || a.name === 'data-sn-prefetch' || a.name === 'data-sn-for' || a.name === 'data-sn-swap' || a.name === 'data-sn-signed-in') { setAttr(lhtml, a.name, a.value); continue; }
       if (a.name === 'data-sn-pages') { this.report(host, a.name, 'SN101', `\`data-sn-pages\` ${RETIRED['data-sn-pages']}`, 0); continue; }
       if (a.name === 'data-sn-early') { this.report(host, a.name, 'SN318', '`data-sn-early` cannot be on a layout\'s tag: the layout is the whole page', 0, 'leave parts out of the early script on their own tags: `<tag-cloud data-sn-early="off">`'); continue; }
       if (a.name.startsWith('data-sn-')) {
@@ -4456,6 +4464,18 @@ class Compiler {
     }
     if (has('early') && !this.useOf.get(el)) this.report(el, 'data-sn-early', 'SN102', '`data-sn-early` goes on a component\'s tag, `<tag-cloud data-sn-early="off">`', 0);
     if (has('path') && el.tagName !== 'html') this.report(el, 'data-sn-path', 'SN102', '`data-sn-path` belongs on `<html>`', 0);
+    // the page needs a session (src/signed-in.ts): checked against the page's APIs once they are known (`signedInGuard`)
+    if (has('signed-in')) {
+      const v = get('signed-in')!.trim();
+      if (el.tagName !== 'html') this.report(el, 'data-sn-signed-in', 'SN102', '`data-sn-signed-in` belongs on `<html>` (or a layout\'s tag on a page): it guards the whole page', 0);
+      else if (!v) this.signedIn = { el, f: null };
+      else {
+        const r = this.expr(el, 'data-sn-signed-in', ctx.scope, { mode: 'value' });
+        const other = r.deps.find((d) => d !== '$url' && !d.startsWith('$url.'));
+        if (other) this.report(el, 'data-sn-signed-in', 'SN347', `\`data-sn-signed-in\` reads only \`$url\` (the early script decides it before anything paints), not \`${other.replace(/^\$s\d+\./, '')}\``, 0);
+        else if (r.ok) this.signedIn = { el, f: this.fn(r.code) };
+      }
+    }
     if (has('prefetch')) {
       if (el.tagName !== 'html') this.report(el, 'data-sn-prefetch', 'SN102', '`data-sn-prefetch` belongs on `<html>`: it keeps other pages from prefetching or prerendering this one', 0);
       else if (get('prefetch')!.trim() !== 'off') this.report(el, 'data-sn-prefetch', 'SN401', '`data-sn-prefetch` takes `off`; prefetching is on without the attribute', 0);
@@ -8380,7 +8400,7 @@ class Compiler {
       url ||= codes.some((c) => c.includes('$url'));
       res.push({ name: def.name, src: def.src.map((x) => (typeof x === 'number' ? fn(this.fns[x]!) : x)), when: def.when != null ? fn(this.fns[def.when]!) : null, scope, ...(def.paginate ? { q: firstParams(def.paginate) } : {}), ...(def.paginate && start != null ? { sp: startOf(def.paginate, fn(this.fns[start]!)) } : {}), ...(def.lo ? { lo: 1 as const } : {}), ...(where === 'listed' ? { xo: 1 as const } : {}), ...(this.settingsOf(def.name) ? { a: this.settingsOf(def.name)! } : {}) });
     }
-    if (!roots.some((n) => n.b.length) && !res.length) return null;
+    if (!roots.some((n) => n.b.length) && !res.length && !this.guard) return null;
     // only the state fields the early bindings read (and the fields those read): a field whose
     // initializer calls a heavy helper stays out of the early chunk unless something shown needs it
     const need = new Map<number, Set<string> | 'all'>();
@@ -8423,6 +8443,12 @@ class Compiler {
     const ir: EarlyIR = { roots, templates };
     if (usedEmb.size) ir.emb = Object.fromEntries([...usedEmb].map((n) => [n, { id: embedded.get(n)!.data!, items: embedded.get(n)!.items ?? null }]));
     if (res.length) ir.res = res;
+    // the page needs a session: the early script sends a visitor with no token to sign in before anything paints
+    if (this.guard) {
+      const g = this.guard;
+      ir.si = { t: g.t, i: g.i, ...(g.f != null ? { f: fn(this.fns[g.f]!) } : {}) };
+      if (g.f != null) readsUrl = true;
+    }
     if ((url || readsUrl) && this.pathList.length) ir.path = this.pathList;
     const arrays = this.urlArrays();
     if ((url || readsUrl) && arrays.length) ir.urlArrays = arrays;
@@ -8485,7 +8511,9 @@ class Compiler {
       if (used.length) namespaces[ns] = used;
     }
     const arrays = this.urlArrays();
-    return { path: this.pathList, res, fns, helpers: this.opts.helpers.names.filter(calls), namespaces, ...(arrays.length ? { a: arrays } : {}) };
+    // a page that needs a session: a signed-out visitor is sent on from it, so its data is not requested ahead
+    const g = this.guard ? { t: this.guard.t, ...(this.guard.f != null ? { f: fn(this.fns[this.guard.f]!) } : {}) } : null;
+    return { path: this.pathList, res, fns, helpers: this.opts.helpers.names.filter(calls), namespaces, ...(arrays.length ? { a: arrays } : {}), ...(g ? { g } : {}) };
   }
 
   /**
@@ -8903,6 +8931,28 @@ class Compiler {
     return null;
   }
 
+  /**
+   * `data-sn-signed-in`, checked (SN347): the page's API with a \`token\` (one: with several, the one the page's resources
+   * use, and only one), its \`signIn\`, which must not be this page (a loop). Null without the attribute or when it is wrong.
+   */
+  signedInGuard(): NonNullable<IR['si']> | null {
+    const g = this.signedIn;
+    if (!g) return null;
+    const fail = (m: string, hint?: string) => { this.report(g.el, 'data-sn-signed-in', 'SN347', m, 0, hint); return null; };
+    const all = (this.opts.apis?.list ?? []).filter((a) => a.token);
+    if (!all.length) return fail('`data-sn-signed-in` needs an API with a `token` (`sinter({ apis: { main: { token } } })`): with none, the page cannot tell whether the visitor is signed in', 'a session cookie the browser keeps is the server\'s to check: answer the page\'s requests with a 401 and redirect there');
+    const used = new Set([...this.apiOfResource.values()].filter((a) => a.token).map((a) => a.name));
+    const cands = used.size ? all.filter((a) => used.has(a.name)) : all;
+    if (cands.length > 1) return fail(`\`data-sn-signed-in\`: ${cands.map((a) => `\`${a.name}\``).join(' and ')} have a \`token\`${used.size ? ' and the page reads both' : ''}: which session the page needs is not clear`, 'give the token to one API, or keep the page\'s resources on one of them');
+    const a = cands[0]!, to = a.token!.signIn;
+    if (!to) return fail(`\`data-sn-signed-in\`: the API \`${a.name}\` has no \`token.signIn\`, the page a signed-out visitor goes to`);
+    const path = new URL(to.to, 'http://x').pathname, segs = path.split('/').filter(Boolean);
+    const mine = this.pathList.some((p) => { const w = p.split('/').filter(Boolean); return w.length === segs.length && w.every((x, i) => x[0] === ':' || x === segs[i]); });
+    if (mine) return fail(`\`data-sn-signed-in\` on the sign-in page (\`${to.to}\`, the API \`${a.name}\`'s \`token.signIn\`): a signed-out visitor would be sent here again and again`, 'remove it from this page');
+    const t = a.token!;
+    return { a: a.name, t: { s: t.storage === 'local' ? 'l' : 's', k: t.key }, i: to, ...(g.f != null ? { f: g.f } : {}) };
+  }
+
   runtimeReasons(): RuntimeReason[] {
     const out: Array<RuntimeReason & { at: number }> = [];
     const self = this.canonicalLink;
@@ -8946,6 +8996,8 @@ class Compiler {
       const el = this.declAt.get(x);
       out.push({ what: '`<sn-sync>`', ...(el ? at(el, null) : { file: this.opts.file, line: 1, col: 1, at: 0 }) });
     }
+    // the page needs a session: the early script and the page module send a signed-out visitor to sign in
+    if (this.signedIn) out.push({ what: '`data-sn-signed-in` (it sends a signed-out visitor to sign in)', ...at(this.signedIn.el, 'data-sn-signed-in') });
     // a kept element needs the swap's code to be kept (with swaps on)
     if (this.opts.swap) for (const el of this.permanentEls) out.push({ what: '`data-sn-permanent` (links swap the next page in around it)', ...at(el, 'data-sn-permanent') });
     const page = (r: RuntimeReason) => (r.file === this.opts.file ? 0 : 1);

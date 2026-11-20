@@ -66,8 +66,8 @@ export interface TokenHooks {
   /** removes every API's token, and what the page kept with it; `app`'s resources of those APIs load again */
   signOut(env: Env, app?: App): void;
 }
-/** set by `$tokens()` (src/token.ts); unset in apps without a token */
-export const tokens: { on?: TokenHooks } = {};
+/** set by `$tokens()` (src/token.ts); unset in apps without a token. `out`: `signOut()` ran on this page, so its sign-in guard (src/signed-in.ts) leaves the visitor to the handler */
+export const tokens: { on?: TokenHooks; out?: boolean } = {};
 
 export const isAbort = (e: unknown) => (e as Error)?.name == 'AbortError';
 

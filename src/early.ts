@@ -6,7 +6,7 @@
 // adopted, not rendered again). The early file and the page bundle are bundled apart (they share
 // one chunk, `runtime/security` and `url`, and hold copies of the rest), so what they
 // share goes through a global: `start` (early file) and `rendered` (page module, from the core) meet there.
-import { config } from './runtime/config.js';
+import { config, signInTarget } from './runtime/config.js';
 import type { Env } from './runtime/env.js';
 import { meeting, prefetched, setPrefetched, type EarlyApi, type Prefetched } from './runtime/handoff.js';
 import { schemesOf, STYLE_BAD, urlAllowed } from './runtime/security.js';
@@ -83,7 +83,7 @@ type Fn = (...a: any[]) => any;
  * function table, and its compiled renderer (compiler/early-render.ts): `scopes` over the base
  * scope, then `render` with them.
  */
-export type EarlyPage = () => { ir: Pick<EarlyIR, 'res' | 'path' | 'urlArrays' | 'emb'>; fns: Fn[]; scopes(base: any): any[]; render(doc: Document, scopes: any[], base: any): void; locale?: typeof locale; lists?: typeof lists };
+export type EarlyPage = () => { ir: Pick<EarlyIR, 'res' | 'path' | 'urlArrays' | 'emb' | 'si'>; fns: Fn[]; scopes(base: any): any[]; render(doc: Document, scopes: any[], base: any): void; locale?: typeof locale; lists?: typeof lists };
 
 /** the configured locale source, for a page whose early functions read `$locale` (others carry no config) */
 export const locale = () => config.locale;
@@ -100,12 +100,13 @@ export function start(page: EarlyPage | null, messages: { use(): void; ready(): 
 /** Starts the page's early requests at once and returns the render step. */
 function prime(page: EarlyPage | null, messages: { use(): void; ready(): Promise<void> } | null, req: EarlyRequests | null = null, doc: Document = document): () => void {
   messages?.use();
-  let p: ReturnType<typeof prepare> | null = null;
+  let p: ReturnType<typeof prepare> = null, gone = false;
   // the requests need no DOM: they start before anything waits
-  try { if (page) (p = prepare(page(), req)).fetch(); } catch (e) { fail(e); }
+  try { if (page) { p = prepare(page(), req); gone = !p; p?.fetch(); } } catch (e) { fail(e); }
   let ran = false;
   return () => {
-    if (ran) return;
+    // sent to sign in: the page module does not mount
+    if (ran || gone) return;
     ran = true;
     // started only now: a render stub that failed to load leaves the page module to mount by itself
     const m = meeting();
@@ -127,7 +128,7 @@ export function run(page: EarlyPage, doc: Document = document): void {
   const m = meeting();
   m.started = true;
   // a failure is reported, and the page module mounts all the same
-  try { const p = page(), $ = scope(p, null); p.render(doc, p.scopes($), $); } catch (e) { fail(e); }
+  try { const p = page(), $ = scope(p, null); if (away(p, $)) return; p.render(doc, p.scopes($), $); } catch (e) { fail(e); }
   m.finish();
 }
 
@@ -148,8 +149,10 @@ export function observe(page: EarlyPage | null, messages: { use(): void; state?(
   messages?.use();
   const m = meeting();
   m.started = true;
-  let p: ReturnType<typeof prepare> | null = null;
-  try { if (page) (p = prepare(page(), req)).fetch(); } catch (e) { fail(e); }
+  let p: ReturnType<typeof prepare> = null, gone = false;
+  try { if (page) { p = prepare(page(), req); gone = !p; p?.fetch(); } } catch (e) { fail(e); }
+  // sent to sign in: the page module does not mount
+  if (gone) return;
   if (!p) { m.finish(); return; }
   const prep = p, I = messages?.state?.();
   const waiting = () => !!I?.locale && !I.dicts?.[I.locale];
@@ -365,11 +368,30 @@ const token = (t: NonNullable<EarlyApi['t']>): string | null => {
 
 /** Renders a page's early part (tests; the early file goes through `start`). */
 export function early(doc: Document, page: ReturnType<EarlyPage>): void {
-  prepare(page, requests(undefined, configured)).render(doc);
+  prepare(page, requests(undefined, configured))?.render(doc);
+}
+
+/**
+ * `data-sn-signed-in`: with no token stored (and the condition true), the visitor goes to sign in now, in the current
+ * history entry, and nothing is requested or rendered (the page is hidden meanwhile, and the page module never
+ * mounts). A prerendered page renders: the page module sends the visitor on once it is shown.
+ */
+function away(o: ReturnType<EarlyPage>, base: any): boolean {
+  const g = o.ir.si;
+  if (!g || (document as Document & { prerendering?: boolean }).prerendering) return false;
+  try { if (token({ ...g.t, h: '', p: '' }) != null || (g.f != null && !o.fns[g.f]!(base))) return false; } catch { return false; }
+  const e = config.env;
+  if (!e) document.documentElement.hidden = true;
+  let session: Storage | null = null;
+  try { session = e?.session ? e.session() : sessionStorage; } catch { /* none */ }
+  (e?.replace ?? ((u: string) => location.replace(u)))(signInTarget(g.i, e?.href ? e.href() : location.href, session));
+  return true;
 }
 
 function prepare(o: ReturnType<EarlyPage>, req: EarlyRequests | null) {
-  const { ir, fns } = o, base = scope(o, req), roots = o.scopes(base);
+  const { ir, fns } = o, base = scope(o, req);
+  if (away(o, base)) return null;
+  const roots = o.scopes(base);
   return {
     fetch() { req?.send(ir, roots, base, fns); },
     render(doc: Document) { o.render(doc, roots, base); },

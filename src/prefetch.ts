@@ -23,6 +23,8 @@ export interface PrefetchPage {
   f: Array<(s: any) => any>;
   /** the page's array parameters (`IR.urlArrays`), read as lists */
   a?: string[];
+  /** `data-sn-signed-in`: its API's token storage (`l`ocal or `s`ession, key) and condition (`f`): signed out, the visitor is sent on, so nothing is requested */
+  g?: { t: { s: 'l' | 's'; k: string }; f?: number };
 }
 
 /** prefetched data older than this is not shown */
@@ -92,6 +94,8 @@ export function prefetch(pages: PrefetchPage[], l?: typeof lists): Feature {
         const segs = segments(u.pathname), page = pages.find((p) => p.m.some((m) => matches(m, segs)));
         if (!page) return;
         const scope = { $url: l && page.a ? l(u.href, page.a, readUrl(u.href, page.m)) : readUrl(u.href, page.m) };
+        const g = page.g;
+        if (g) try { if (!(g.t.s == 's' ? env.session() : env.storage())?.getItem(g.t.k) && (g.f == null || page.f[g.f]!(scope))) return; } catch { return; }
         // resources that read different parts of one response (`items`) share its request, as on the page
         const sent = new Map<string, Promise<unknown>>();
         for (const r of page.r) {
