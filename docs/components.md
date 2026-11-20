@@ -366,7 +366,7 @@ A component that declares a `value` prop and a `change` event can be bound like 
 <!-- src/components/rating-input.html -->
 <template data-sn-props="{ value: number }" data-sn-emits="{ change: number }">
   <div>
-    <template data-sn-for="i in [1, 2, 3, 4, 5]" data-sn-key="i">
+    <template data-sn-for="i in [1, 2, 3, 4, 5]">
       <button type="button" data-sn-class="{ on: i <= value }" data-sn-on-click="emit('change', i)" data-sn-text="i"></button>
     </template>
   </div>

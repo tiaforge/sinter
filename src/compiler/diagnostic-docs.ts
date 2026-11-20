@@ -22,11 +22,6 @@ export const DIAGNOSTIC_DOCS: Record<Code, DiagnosticDoc> = {
     means: 'The attribute or element is valid, but not here: lists and conditionals render from a `<template>`, `data-sn-path` belongs on `<html>`, `<sn-event>` inside `<sn-sync>`, options such as `data-sn-debounce` need an action on the same element (a method attribute or `data-sn-call`), and `data-sn-attr` cannot bind the `value` or `checked` that a `data-sn-model` on the same control writes.',
     fix: 'Move it to where the message says, wrapping the content in a `<template>` if needed.',
   },
-  SN103: {
-    example: 'a `data-sn-for` over primitive values needs `data-sn-key`',
-    means: 'sinter keys list rows by the resource key or by object identity. Strings and numbers have neither, so rows could not be matched on update.',
-    fix: 'Add `data-sn-key` with an expression that is unique per row, such as the value itself: `data-sn-key="tag"`.',
-  },
   SN104: {
     example: '`data-sn-model` does not support `type="file"`; submit the form instead',
     means: 'Two-way binding has no meaningful value for this input type.',

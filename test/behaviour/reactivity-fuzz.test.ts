@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 // Reactivity under random handlers (CONTRIBUTING.md, Fuzz tests). Random handlers over a page with lets over
 // helpers mix writes in place and reassigned, store functions, refresh(), page() and an each resource, keyed rows
-// moved, rows keyed by index that a reorder gives other items and their own handlers, emit() with listeners that
+// moved, rows keyed by index that a reorder gives other items and their own handlers, rows of strings with duplicates
+// and no key (value and occurrence) with state and handlers of their own, emit() with listeners that
 // write and that read, a synchronous click on another element (a nested handler, read around), an island whose
 // prop setter fires an event in the middle of a flush, `<sn-sync>` upserts, refetches and a dropped stream, an
 // optimistic action, actions whose then and catch read lets, a component's own let and a persisted scope, a plain
@@ -86,6 +87,8 @@ const OPS = [
   "page(pg, 2)", "page(pg, 1)", "refresh(ev)",
   'q.w = q.w + 1', 'q = { w: q.w, h: q.h }', 'q = { ...q, h: q.h + 1 }',
   'ys = [...ys].reverse()', 'ys.length > 1 && ys.shift()', 'ys.push({ n: ys.length + 5 })',
+  // strings with duplicates and no key (value and occurrence): reordered, an equal value inserted and removed
+  'gs = [...gs].reverse()', "gs.splice(1, 0, 'a')", "gs.includes('a') && gs.splice(gs.indexOf('a'), 1)", "gs.unshift('b')", "gs = gs.filter((g) => g != 'b')",
   "$locale = 'de'", "$locale = 'en'",
   // a nested handler (a synchronous click), then a read, a write and a read again in the outer one
   'NEST',
@@ -134,7 +137,7 @@ function page(r: () => number) {
   const rowOps: string[] = [];
   for (let i = 0, n = 2 + Math.floor(r() * (2 * DEPTH + 1)); i < n; i++) rowOps.push(r() < 0.45 ? `r${reads++} = ${pick(ROW_READS)}` : pick(ROW_OPS));
   const rowHandler = rowOps.join('; ');
-  const state = `{ a: 1, xs: [1, 2], o: { items: [1] }, ks: [{ id: 1, n: 1 }, { id: 2, n: 2 }, { id: 3, n: 3 }], go: 0, pk: null, th: null, ct: null, q: { w: 2, h: 3 }, ys: [{ n: 1 }, { n: 2 }, { n: 3 }], sel: null, box: null, arr: [], h: null, u: null, k2: 0, cw: null, cp: null, ${Array.from({ length: reads }, (_, i) => `r${i}: null`).join(', ')} }`;
+  const state = `{ a: 1, xs: [1, 2], o: { items: [1] }, ks: [{ id: 1, n: 1 }, { id: 2, n: 2 }, { id: 3, n: 3 }], go: 0, pk: null, th: null, ct: null, q: { w: 2, h: 3 }, ys: [{ n: 1 }, { n: 2 }, { n: 3 }], gs: ['a', 'b', 'a'], sel: null, box: null, arr: [], h: null, u: null, k2: 0, cw: null, cp: null, ${Array.from({ length: reads }, (_, i) => `r${i}: null`).join(', ')} }`;
   const html = `<sn-resource name="todos" src="/api/todos" key="id"></sn-resource>
 <sn-resource name="pg" src="/api/pg" items="items" total="total" key="id" paginate="{ numbered: true, size: 2 }"></sn-resource>
 <sn-resource name="ev" for="t in todos" src="/api/ev?id={t.id}" key="id"></sn-resource>
@@ -155,6 +158,7 @@ function page(r: () => number) {
   <button id="y" data-sn-on-click="k2 = k2 + 1"></button>
   <button id="unalias" data-sn-on-click="sel = null; box = null; arr = []; h = null; u = null"></button>
   <ol class="ys"><template data-sn-for="(y, i) in ys" data-sn-key="i"><li class="y" data-sn-let="{ YR: pair(y.n, i) }"><span data-sn-text="YR.v + ':' + Q + ':' + L"></span><button class="yb" data-sn-on-click="${rowHandler}"></button></li></template></ol>
+  <ol class="gs"><template data-sn-for="(g, i) in gs"><li class="g" data-sn-state="{ c: 0 }" data-sn-let="{ GR: inc(i) }"><span data-sn-text="g + i + ':' + GR + ':' + c + ':' + T"></span><button class="gb" data-sn-on-click="c = c + GR"></button></li></template></ol>
   <template data-sn-for="t in todos" data-sn-key="t.id"><button class="opt" data-sn-patch="/api/t" data-sn-body="{ id: t.id }" data-sn-optimistic="merge(t, { n: 50 })"></button></template>
   ${handlers.map((h, i) => `<button id="h${i}" data-sn-on-click="${h}"></button>`).join('\n  ')}
 </main>`;
@@ -185,7 +189,7 @@ function memoryStorage(): Storage {
 function seen(v: Awaited<ReturnType<typeof render>>, storage: Storage) {
   const main = v.root.querySelector('main')!, sec = main.querySelector('section')!;
   const text = (sel: string) => [...main.querySelectorAll(sel)].map((x) => x.textContent).join(',');
-  return `${text('p.v')} | ${text('p.f')} | ${text('p.al')} | ${text('ul li')} | ${text('li.y span')} | ${text('li.k')} | ${text('b.cv')} | ${text('b.cl')} | ${text('b.ps')} | ${JSON.stringify(v.state(main).get())} | ${JSON.stringify(v.state(sec).get())} | ${storage.getItem('sn:fz')}`;
+  return `${text('p.v')} | ${text('p.f')} | ${text('p.al')} | ${text('ul li')} | ${text('li.y span')} | ${text('li.g span')} | ${text('li.k')} | ${text('b.cv')} | ${text('b.cl')} | ${text('b.ps')} | ${JSON.stringify(v.state(main).get())} | ${JSON.stringify(v.state(sec).get())} | ${storage.getItem('sn:fz')}`;
 }
 
 const SEEDS = Number(process.env.SN_FUZZ_SEEDS ?? 150);
@@ -202,7 +206,7 @@ test('random handlers: the page with memoized helpers agrees with the plain one,
       // one script of steps for both pages: which button, whether to flush, whether a server message arrives
       const sr = rng(seed * 7919);
       // b: a handler (0-2), the optimistic action (3), the action that succeeds (4) or fails (5), the persisted scope's (6),
-      // a row's own handler (7, the row `row`); msg: an upsert (0-2), a refetch (3), the stream dropped and reconnected (4)
+      // a row's own handler (7, the row `row`), a row of strings' own (9, the row `row`); msg: an upsert (0-2), a refetch (3), the stream dropped and reconnected (4)
       const steps = Array.from({ length: 3 + Math.floor(sr() * (3 * DEPTH + 1)) }, () => ({ b: Math.floor(sr() * 10), row: Math.floor(sr() * 3), flush: sr() < 0.6, msg: sr() < 0.3 ? Math.floor(sr() * 5) : -1 }));
       const early = seed % 3 === 0;
       const stale: string[] = [];
@@ -231,6 +235,7 @@ test('random handlers: the page with memoized helpers agrees with the plain one,
           if (s.msg === 4) { stream.drop(); await v.settle(); }
           else if (s.msg >= 0 && stream.connected) s.msg === 3 ? stream.emit('re', null) : stream.emit('upd', { id: 1 + s.msg, n: 10 * (s.msg + 1) });
           if (s.b === 7) main.querySelectorAll<HTMLElement>('.yb')[s.row]?.click();
+          else if (s.b === 9) main.querySelectorAll<HTMLElement>('.gb')[s.row]?.click();
           else main.querySelector<HTMLElement>(['#h0', '#h1', '#h2', '.opt', '#ok', '#bad', '#pp', '', '#h3', '#h3'][s.b]!)?.click();
           if (s.flush) { await v.settle(); out.push(seen(v, storage)); await fresh(); }
         }

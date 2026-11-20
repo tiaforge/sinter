@@ -15,7 +15,7 @@ Bind values to the page.
 | `data-sn-show` | value expression | toggles the hidden attribute |
 | `data-sn-with` | object literal | sets JS properties; custom elements only (also one defined later). On a component's tag: its props, live and read-only. On a &lt;slot&gt; declared Slot&lt;T&gt;: the values its fill reads as $slot; on a named &lt;slot&gt; its component does not declare, a tree placement, filled by the nearest enclosing component declaring the name |
 | `data-sn-for` | item in list \| (item, i) in list | repeats a &lt;template&gt; per item. On &lt;html&gt;: the page once per entry of a `file:` list, at `data-sn-path` filled from it |
-| `data-sn-key` | value expression | row identity; defaults to the resource key or object identity |
+| `data-sn-key` | value expression | row identity; inferred: resource key, object identity or value |
 | `data-sn-if` | value expression | renders a &lt;template&gt; while truthy. Same id, same control: when the branch with focus is swapped, the element with its id in the new one takes focus (a toggle's two buttons: &lt;button id="follow" data-sn-delete=…&gt; and &lt;button id="follow" data-sn-post=…&gt;) |
 | `data-sn-else` |  | on a &lt;template&gt; directly after an if template; with data-sn-if beside it, an else-if (&lt;template data-sn-else data-sn-if="q"&gt;). Lists, branches and chosen components render between two comments (`<ul><!--sn 4--><li>a</li><!--/sn--></ul>`): CSS sees plain children. Comments that are exactly `<!--sn-->`, `<!--sn 4-->`, `<!--/sn-->` or `<!---->` are reserved (SN105); `$el` in an if, for or use is SN213; keep HTML comments |
 
