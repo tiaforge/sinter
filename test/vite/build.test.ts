@@ -164,7 +164,7 @@ test('`embed: true`: placeholders for the resources only the URL decides, last i
 
 test('`delivery: \'header\'`: a rules file at the site root, no inline script; `vite preview` sends the header and its type', async () => {
   const dir = join(out, 'header');
-  const config = { root, logLevel: 'silent' as const, resolve: { alias }, build: { outDir: dir, emptyOutDir: true, minify: false }, plugins: [sinter({ prefetch: { pages: { mode: 'prerender', delivery: 'header' } } })] };
+  const config = { root, logLevel: 'silent' as const, resolve: { alias }, build: { outDir: dir, emptyOutDir: true, minify: false }, plugins: [sinter({ prefetch: { html: { mode: 'prerender', delivery: 'header' } } })] };
   await build(config);
   expect(readFileSync(join(dir, 'index.html'), 'utf8')).not.toContain('speculationrules');
   expect(JSON.parse(readFileSync(join(dir, 'speculation-rules.json'), 'utf8')).prerender[0].where.and[0].href_matches).toEqual(['/\\?*#*', '/index.html\\?*#*']);
@@ -202,14 +202,14 @@ test('a page that uses data-sn-transition gets the hold script in its own head s
   }
 });
 
-test('by default every page carries inline rules for the app\'s paths; `prefetch: { pages: false }`: neither rules nor file', async () => {
+test('by default every page carries inline rules for the app\'s paths; `prefetch: { html: false }`: neither rules nor file', async () => {
   await run(out);
   const html = readFileSync(join(out, 'index.html'), 'utf8');
   const rules = JSON.parse(/<script type="speculationrules">(.*?)<\/script>/.exec(html)![1]!);
   expect(rules.prefetch[0].where.and[0].href_matches).toEqual(['/\\?*#*', '/index.html\\?*#*']);
   expect(readdirSync(out)).not.toContain('speculation-rules.json');
   const dir = join(out, 'no-speculation');
-  await build({ root, logLevel: 'silent', resolve: { alias }, build: { outDir: dir, emptyOutDir: true, minify: false }, plugins: [sinter({ prefetch: { pages: false } })] });
+  await build({ root, logLevel: 'silent', resolve: { alias }, build: { outDir: dir, emptyOutDir: true, minify: false }, plugins: [sinter({ prefetch: { html: false } })] });
   expect(readFileSync(join(dir, 'index.html'), 'utf8')).not.toContain('speculationrules');
   expect(readdirSync(dir)).not.toContain('speculation-rules.json');
   // `prefetch: false` turns off both, as `<html data-sn-prefetch="off">` does for a page; `data: false` keeps the rules
@@ -221,7 +221,9 @@ test('by default every page carries inline rules for the app\'s paths; `prefetch
 });
 
 test('the renamed options fail naming the new form', () => {
-  expect(() => sinter({ speculation: 'prerender' } as never)).toThrow("sinter({ speculation }) is renamed: it is `prefetch: { pages: \"prerender\" }`");
+  expect(() => sinter({ prefetch: { page: 'prerender' } } as never)).toThrow('sinter({ prefetch }): no option `page`; it takes `data` and `html`');
+  expect(() => sinter({ firstPaint: { budgt: 1 } } as never)).toThrow('sinter({ firstPaint }): no option `budgt`; it takes `budget`');
+  expect(() => sinter({ speculation: 'prerender' } as never)).toThrow("sinter({ speculation }) is renamed: it is `prefetch: { html: \"prerender\" }`");
   expect(() => sinter({ earlyBudget: 20000 } as never)).toThrow('sinter({ earlyBudget }) is renamed: it is `firstPaint: { budget: 20000 }`');
 });
 

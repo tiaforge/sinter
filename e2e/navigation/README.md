@@ -28,7 +28,7 @@ The steps:
    as a response header, which the build cannot see) this step fails and step 2 misses the HTML
    prefetch, checked 2026-11-09.
 
-Not covered: prerendering (`sinter({ prefetch: { pages: 'prerender' } })`). Chrome does not prerender while
+Not covered: prerendering (`sinter({ prefetch: { html: 'prerender' } })`). Chrome does not prerender while
 DevTools drives it (`PrerenderingDisabledByDevTools`); `test/behaviour/speculation.test.ts` covers
 what sinter does when a prerendered page is shown.
 

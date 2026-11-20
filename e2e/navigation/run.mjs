@@ -2,7 +2,7 @@
 // Rules and data-sn-transition morphs. Builds the pages, starts server.mjs, runs the scenarios
 // and exits non-zero on any failure.
 //   CHROME=/path/to/chrome node run.mjs
-// Prerendering (`prefetch: { pages: 'prerender' }`) is not covered: Chrome does not prerender while
+// Prerendering (`prefetch: { html: 'prerender' }`) is not covered: Chrome does not prerender while
 // DevTools drives it (PrerenderingDisabledByDevTools); test/behaviour/speculation.test.ts covers
 // what sinter does on activation.
 import { spawnSync } from 'node:child_process';

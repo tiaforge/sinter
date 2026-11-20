@@ -107,7 +107,7 @@ export interface SinterOptions extends ProjectOptions {
    * Getting the next page ready (default on), as `<html data-sn-prefetch="off">` turns off for one page:
    * - `data` (default true): when a link to another page of the app is about to be followed, that page's data is
    *   requested, and the page shows it at once (then revalidates).
-   * - `pages`: Speculation Rules for links to the app's pages (Chromium): `'prefetch'` (default) fetches the next
+   * - `html`: Speculation Rules for links to the app's pages (Chromium): `'prefetch'` (default) fetches the next
    *   page's HTML while the pointer rests on a link; `'prerender'` loads and runs the whole page (data included,
    *   streams connect once it is shown); `false`: none. The rules are an inline script in every page, so they need
    *   no server setup; a CSP the page declares in a `<meta>` gets their hash from the build, a CSP sent as a
@@ -117,7 +117,7 @@ export interface SinterOptions extends ProjectOptions {
    *   `application/speculationrules+json` (`vite dev` and `vite preview` do both). See docs/navigation.md.
    * `false`: neither.
    */
-  prefetch?: boolean | { data?: boolean; pages?: 'prefetch' | 'prerender' | false | { mode: 'prefetch' | 'prerender'; delivery?: 'inline' | 'header' } };
+  prefetch?: boolean | { data?: boolean; html?: 'prefetch' | 'prerender' | false | { mode: 'prefetch' | 'prerender'; delivery?: 'inline' | 'header' } };
   /**
    * Builds served by a server that writes each page's data into it (sinter-axum): every resource whose
    * request only the page's URL decides gets a placeholder in the head, and the browser neither preloads
@@ -230,7 +230,7 @@ const IMG = `${PREFIX}img/`;
 const PREFETCH = `${PREFIX}prefetch.js`;
 /** with swaps on: the pages that swap (swap-build.ts) */
 const SWAP = `${PREFIX}swap.js`;
-/** `prefetch: { pages: { delivery: 'header' } }`: the rules file, at the site root */
+/** `prefetch: { html: { delivery: 'header' } }`: the rules file, at the site root */
 const RULES_FILE = 'speculation-rules.json';
 /** build: the pages' embedded-data placeholders, for a server that fills them per request (sinter-axum) */
 const EMBED_FILE = 'sinter-embed.json';
@@ -256,10 +256,18 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   if (loadingHelpers()) return [{ name: 'sinter', api: { options, source: (f: string) => f } }, { name: 'sinter:post' }, { name: 'sinter:css-images' }, { name: 'sinter:fonts' }, { name: 'sinter:font-check' }, { name: 'sinter:pages' }];
   // options renamed (docs/proposals/vocabulary.md): what to write instead
   const was = options as { speculation?: unknown; earlyBudget?: unknown };
-  if (was.speculation !== undefined) throw new Error(`sinter({ speculation }) is renamed: it is \`prefetch: { pages: ${JSON.stringify(was.speculation)} }\`, beside the next page's data (\`prefetch: { data }\`)`);
+  if (was.speculation !== undefined) throw new Error(`sinter({ speculation }) is renamed: it is \`prefetch: { html: ${JSON.stringify(was.speculation)} }\`, beside the next page's data (\`prefetch: { data }\`)`);
   if (was.earlyBudget !== undefined) throw new Error(`sinter({ earlyBudget }) is renamed: it is \`firstPaint: { budget: ${JSON.stringify(was.earlyBudget)} }\``);
+  // nested options take known keys only, as markup does: a typo fails the build instead of doing nothing
+  const keysOf = (name: string, v: unknown, keys: string[]) => {
+    if (typeof v !== 'object' || v === null) return;
+    const extra = Object.keys(v).filter((k) => !keys.includes(k));
+    if (extra.length) throw new Error(`sinter({ ${name} }): no option \`${extra[0]}\`; it takes ${keys.map((k) => `\`${k}\``).join(' and ')}`);
+  };
+  keysOf('prefetch', options.prefetch, ['data', 'html']);
+  keysOf('firstPaint', options.firstPaint, ['budget']);
   const prefetchData = options.prefetch !== false && (typeof options.prefetch !== 'object' || options.prefetch.data !== false);
-  const speculation = options.prefetch === false ? false : typeof options.prefetch === 'object' && options.prefetch.pages !== undefined ? options.prefetch.pages : 'prefetch';
+  const speculation = options.prefetch === false ? false : typeof options.prefetch === 'object' && options.prefetch.html !== undefined ? options.prefetch.html : 'prefetch';
   let root = process.cwd();
   /**
    * The project (its helpers, components, libraries, specs) as a build sees it: read once per build, from its start, where

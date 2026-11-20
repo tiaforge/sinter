@@ -38,6 +38,6 @@ test('inline: the page with same-page links leaves out its own URLs; the build n
 
 test('header: one rules file, which leaves out each page\'s own URLs once a page has same-page links', async () => {
   const out = join(dir, 'header');
-  await build({ root, logLevel: 'silent', resolve: { alias }, build: { outDir: out, emptyOutDir: true, minify: false, rollupOptions: { input: [join(root, 'index.html'), join(root, 'other.html')] } }, plugins: [sinter({ prefetch: { pages: { mode: 'prefetch', delivery: 'header' } } })] });
+  await build({ root, logLevel: 'silent', resolve: { alias }, build: { outDir: out, emptyOutDir: true, minify: false, rollupOptions: { input: [join(root, 'index.html'), join(root, 'other.html')] } }, plugins: [sinter({ prefetch: { html: { mode: 'prefetch', delivery: 'header' } } })] });
   expect(JSON.parse(readFileSync(join(out, 'speculation-rules.json'), 'utf8')).prefetch[0].where.and).toContainEqual(EXCLUDE);
 });

@@ -45,10 +45,10 @@ app's pages, with eagerness `moderate` (the pointer rests on a link, or a press 
 that download, open elsewhere (`target`) or are `rel="nofollow"` are left out.
 
 ```js
-sinter({ prefetch: { pages: 'prefetch' } })    // default: the next page's HTML
-sinter({ prefetch: { pages: 'prerender' } })   // the whole page, data included, before the click
-sinter({ prefetch: { pages: false } })         // none
-sinter({ prefetch: { pages: { mode: 'prefetch', delivery: 'header' } } })   // by a response header; see the CSP section
+sinter({ prefetch: { html: 'prefetch' } })    // default: the next page's HTML
+sinter({ prefetch: { html: 'prerender' } })   // the whole page, data included, before the click
+sinter({ prefetch: { html: false } })         // none
+sinter({ prefetch: { html: { mode: 'prefetch', delivery: 'header' } } })   // by a response header; see the CSP section
 ```
 
 `'prerender'` runs the next page before anyone sees it: its requests go out and its islands start.
@@ -84,7 +84,7 @@ Everything else on this page, and the script that holds the first paint, works u
 No CSP blocks rules delivered this way:
 
 ```js
-sinter({ prefetch: { pages: { mode: 'prefetch', delivery: 'header' } } })   // or mode: 'prerender'
+sinter({ prefetch: { html: { mode: 'prefetch', delivery: 'header' } } })   // or mode: 'prerender'
 ```
 
 The build then writes `speculation-rules.json` at the site root and no inline script. Your server
