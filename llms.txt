@@ -17,6 +17,7 @@ This is the short version, small enough for a shell to show whole: the core refe
 - `data-sn-let` (object literal {name: expression}): derived names for the element and its subtree, computed where they are read (a helper call included: keep an expensive one's results with `memo()`, configuration.md); later names may use earlier ones
 - `data-sn-text` (value expression): sets textContent (null and undefined: empty, no `?? ''` needed); never HTML. On a <template>: a text node with no element (a run of text beside elements); no other attribute on that template
 - `data-sn-attr` (object literal {href: …}): literal keys; null/false removes, true sets empty; URL values are checked; checked, selected, indeterminate and value also set the live property
+- `data-sn-href` (URL template): on <a>, <area>: the link; may also start with ? or #
 - `data-sn-class` (object literal {unread: …}): toggles each class
 - `data-sn-style` (object literal {'--color': …}): sets each property with style.setProperty
 - `data-sn-show` (value expression): toggles the hidden attribute
@@ -86,7 +87,7 @@ Key filters (`data-sn-on-keydown-<modifiers->key`, `data-sn-on-keyup-…`): modi
 - A name resolves innermost first: loop variables, then the nearest `data-sn-state`, then resources, then magic names, helpers and store functions, then JavaScript globals. Browser APIs (`window`, `document`, `fetch`, timers, …) are refused: use a component's script.
 - Resources are read-only: copy an item with `structuredClone(c)` to edit it, write with `merge()`.
 - Helpers are plain function calls, never pipes: `date()`, `relative()`, `number()`, `bytes()`. Helper namespaces: `m.inbox_title()`.
-- URL templates: `/api/x?id={c.id}`; interpolations are URL-encoded; the template must start with a literal `/path` or `https://origin`. A whole query value that is `null`/`undefined` or an empty array leaves the parameter out; an array is a repeated key (`?cal={cals}` → `cal=a&cal=b`); an array in the path is refused.
+- URL templates (actions, `src`, `data-sn-href`): `/api/x?id={c.id}`, encoded, after a literal `/path` or `https://origin`; a whole query value `null` or `[]` leaves the parameter out, an array repeats it, refused in the path.
 - Use `$now` instead of `Date.now()` so bindings update. `$now` and `$meta.<name>.loadedAt` are `Date`s: compare and add with numbers through `$now.getTime()` (`$now.getTime() - Date.parse(t.createdAt) < 60_000`), or in a helper.
 
 ## What belongs in markup

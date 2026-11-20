@@ -10,6 +10,7 @@ Bind values to the page.
 | --- | --- | --- |
 | `data-sn-text` | value expression | sets textContent (null and undefined: empty, no `?? ''` needed); never HTML. On a &lt;template&gt;: a text node with no element (a run of text beside elements); no other attribute on that template |
 | `data-sn-attr` | object literal {href: …} | literal keys; null/false removes, true sets empty; URL values are checked; checked, selected, indeterminate and value also set the live property |
+| `data-sn-href` | URL template | on &lt;a&gt;, &lt;area&gt;: the link; may also start with ? or # |
 | `data-sn-class` | object literal {unread: …} | toggles each class |
 | `data-sn-style` | object literal {'--color': …} | sets each property with style.setProperty |
 | `data-sn-show` | value expression | toggles the hidden attribute |

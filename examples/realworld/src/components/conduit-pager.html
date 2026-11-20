@@ -1,10 +1,10 @@
-<!-- The page links of a paginated list (its `$meta`); `query`: what the links keep besides `page`. -->
-<template data-sn-props="{ meta: { pages?: number | null; page?: number | null }; query?: string }">
+<!-- The page links of a paginated list (its `$meta`); `feed`: the feed the links keep besides `page` (none: left out). -->
+<template data-sn-props="{ meta: { pages?: number | null; page?: number | null }; feed?: string | null }">
   <nav>
     <ul class="pagination">
       <template data-sn-for="n in range(meta.pages)">
         <li class="page-item" data-sn-class="{active: n == meta.page}">
-          <a class="page-link" data-sn-text="n" data-sn-attr="{href: '?' + (query ?? '') + 'page=' + n}"></a>
+          <a class="page-link" data-sn-text="n" data-sn-href="?feed={feed}&page={n}"></a>
         </li>
       </template>
     </ul>

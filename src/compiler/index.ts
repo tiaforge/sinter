@@ -110,7 +110,7 @@ function compileOne(html: string, options: CompileOptions): CompileResult {
   const page = pageLines(parts, options);
   const out: CompileResult = {
     html: parts.html, module: css + page.text(), runtime: parts.runtime, preload: parts.preload, ...(parts.static ? { static: true as const } : {}),
-    diagnostics: parts.diagnostics, files: parts.files, ...(parts.globs ? { globs: parts.globs } : {}), ...(parts.pages ? { pages: parts.pages } : {}), styles: parts.styles, prefetch: parts.prefetch, embed: parts.embed, path: parts.ir.path ?? [], ...(parts.ir.urlArrays ? { urlArrays: parts.ir.urlArrays } : {}), ...(parts.prefetchOff ? { prefetchOff: true as const } : {}), ...(parts.permanent ? { permanent: parts.permanent, ...(parts.keptSource ? { keptSource: parts.keptSource } : {}), ...(parts.keptBound ? { keptBound: parts.keptBound } : {}) } : {}), ...(parts.swapOff ? { swapOff: true as const } : {}),
+    diagnostics: parts.diagnostics, files: parts.files, ...(parts.globs ? { globs: parts.globs } : {}), ...(parts.pages ? { pages: parts.pages } : {}), styles: parts.styles, prefetch: parts.prefetch, embed: parts.embed, path: parts.ir.path ?? [], ...(parts.ir.urlArrays ? { urlArrays: parts.ir.urlArrays } : {}), ...(parts.prefetchOff ? { prefetchOff: true as const } : {}), ...(parts.loadEffect ? { loadEffect: parts.loadEffect } : {}), ...(parts.permanent ? { permanent: parts.permanent, ...(parts.keptSource ? { keptSource: parts.keptSource } : {}), ...(parts.keptBound ? { keptBound: parts.keptBound } : {}) } : {}), ...(parts.swapOff ? { swapOff: true as const } : {}),
     ...(parts.ir.urlReads ? { sameLinks: true as const } : {}),
     // the parts of the core the page module uses (a site's core keeps their union: src/core-parts.ts)
     ...(parts.static ? {} : { core: coreParts(parts.ir) }),
@@ -178,11 +178,14 @@ export function earlyPage(early: EarlyParts): { code: string; uses: string[] } {
   const ir = { ...(res ? { res } : {}), ...(early.ir.path ? { path: early.ir.path } : {}), ...(early.ir.urlArrays ? { urlArrays: early.ir.urlArrays } : {}), ...(early.ir.emb ? { emb: early.ir.emb } : {}), ...(early.ir.si ? { si: early.ir.si } : {}) };
   // `$locale` read early: the page passes the configured locale source (else the early file carries no config)
   const lc = early.fns.some((x) => /\$\.\$locale\b/.test(x)), ls = !!early.ir.urlArrays;
+  // a link's URL template (`data-sn-href`) rendered early: the early module fills it as the page module does
+  const hr = ['$href', '$hv'].filter((h) => early.fns.some((x) => x.includes(`${h}(`)));
   // array parameters: the page passes `lists` (else the early file carries none of it)
   const extra = [...(lc ? ['locale'] : []), ...(ls ? ['lists'] : [])];
   // a resource that needs its API's token: its early status reads whether one is stored
   const so = early.fns.some((x) => x.includes('$so(')) ? ['$so'] : [];
-  return { code: `{ ir: ${JSON.stringify(ir)}, fns: f, scopes: ${r.scopes}, render: ${r.render}${extra.map((x) => ', ' + x).join('')} }`, uses: extra.length || so.length ? [...r.uses, ...extra, ...so].sort() : r.uses };
+  const uses = extra.length || hr.length || so.length ? [...r.uses, ...extra, ...hr, ...so].sort() : r.uses;
+  return { code: `{ ir: ${JSON.stringify(ir)}, fns: f, scopes: ${r.scopes}, render: ${r.render}${extra.map((x) => ', ' + x).join('')} }`, uses };
 }
 
 function earlyLines(early: EarlyParts | null, options: Pick<CompileOptions, 'helpers' | 'early' | 'observe' | 'locale' | 'baseMessages'>): MappedLines | null {

@@ -8,20 +8,20 @@ const doc = document as Document & { prerendering?: boolean };
 afterEach(() => { delete (doc as { prerendering?: boolean }).prerendering; });
 
 test('rules: the app\'s paths as URL patterns with any query and fragment; downloads and other targets left out', () => {
-  const rules = JSON.parse(speculationRules('prefetch', ['/article/:slug', '/login.html', '/a*b', '/article/:slug'])!);
+  const rules = JSON.parse(speculationRules({ prefetch: ['/article/:slug', '/login.html', '/a*b', '/article/:slug'] })!);
   const rule = rules.prefetch[0];
   expect(rule.eagerness).toBe('moderate');
   // a pattern with or without a trailing slash
   expect(rule.where.and[0].href_matches).toEqual(['/article/:slug\\?*#*', '/article/:slug/\\?*#*', '/login.html\\?*#*', '/a\\*b\\?*#*']);
   expect(rule.where.and[1].not.selector_matches).toContain('[download]');
-  expect(Object.keys(JSON.parse(speculationRules('prerender', ['/'])!))).toEqual(['prerender']);
-  expect(speculationRules('prefetch', [])).toBeNull();
+  expect(Object.keys(JSON.parse(speculationRules({ prerender: ['/'] })!))).toEqual(['prerender']);
+  expect(speculationRules({ prefetch: [] })).toBeNull();
   expect(rule.where.and).toHaveLength(2);
 });
 
 test('rules on a page with same-page links leave out its own URLs with another query (relative to the document)', () => {
   // verified in Chromium: the preload candidates then list `/other` and not `?page=2` (without it, both)
-  const rule = JSON.parse(speculationRules('prefetch', ['/tag/:tag'], true)!).prefetch[0];
+  const rule = JSON.parse(speculationRules({ prefetch: ['/tag/:tag'] }, true)!).prefetch[0];
   expect(rule.where.and[2]).toEqual({ not: { href_matches: '?*', relative_to: 'document' } });
 });
 

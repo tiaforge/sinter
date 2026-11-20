@@ -29,11 +29,14 @@ export function fixedScheme(code: string): boolean {
   try { e = (parseExpression(code) as any).body; } catch { return false; }
   const str = (x: any): string | null => x.type == 'Literal' && typeof x.value == 'string' ? x.value
     : x.type == 'TemplateLiteral' ? x.quasis[0].value.cooked ?? null
-    : x.type == 'BinaryExpression' && x.operator == '+' ? str(x.left)
+    // a link's URL template's value after its `/` (`"/" + $hv(v)`): encoded, so it never starts another `/` or `\`
+    : x.type == 'BinaryExpression' && x.operator == '+' ? (str(x.left) == '/' && x.right.type == 'CallExpression' && x.right.callee.name == '$hv' ? '/%' : str(x.left))
     : null;
   const safe = (x: any): boolean => {
     if (x.type == 'Literal' && (x.value === null || x.value === false)) return true;
     if (x.type == 'Identifier' && x.name == 'undefined') return false;
+    // a link's URL template (`data-sn-href`): the compiler checked its literal start (SN207), and its values are encoded
+    if (x.type == 'CallExpression' && x.callee.type == 'Identifier' && x.callee.name == '$href') return true;
     if (x.type == 'ConditionalExpression') return safe(x.consequent) && safe(x.alternate);
     if (x.type == 'LogicalExpression') return x.operator == '&&' ? safe(x.right) : safe(x.left) && safe(x.right);
     // tabs and line breaks are removed by the URL parser before anything else: `'/\t' + v` is `'/' + v`

@@ -20,9 +20,11 @@ import { tokens } from '../runtime/request.js';
 import { $tokens } from '../token.js';
 import signedIn from '../signed-in.js';
 import { $k } from '../runtime/security.js';
+import { $href, $hv } from '../runtime/url.js';
 import * as builtins from '../runtime/helpers.js';
 import { remote, resolveRemote, type RemoteImages } from '../remote.js';
 import cache from '../cache.js';
+import back from '../back.js';
 import refresh from '../refresh.js';
 import versions from '../versions.js';
 import dev, { warningSink, type RuntimeWarning } from '../dev.js';
@@ -53,7 +55,7 @@ import sse from '../sse.js';
 import { lists, prefetch, type PrefetchPage } from '../prefetch.js';
 import { pagePaths } from '../prefetch-build.js';
 
-const FEATURES: Record<string, Feature> = { components, nested, lets, dev, sse, optimistic, paginate, persist, cache, versions, refresh, for: fanOut, options, keys, 'write-through': writeThrough, fields, form, select, location, typing, 'query-links': queryLinks, navigate, call, debounce, confirm, models, transition, 'signed-in': signedIn };
+const FEATURES: Record<string, Feature> = { components, nested, lets, dev, sse, optimistic, paginate, persist, cache, back, versions, refresh, for: fanOut, options, keys, 'write-through': writeThrough, fields, form, select, location, typing, 'query-links': queryLinks, navigate, call, debounce, confirm, models, transition, 'signed-in': signedIn };
 
 // ---- requests
 
@@ -253,6 +255,11 @@ export interface RenderOptions {
   /** localStorage and sessionStorage (default: empty ones); pass the previous page's to test what carries over */
   storage?: Storage;
   session?: Storage;
+  /**
+   * the page is reached by Back or Forward, and the back/forward cache did not serve it: its resources show what
+   * `session` holds of them (what the page showed as it was left, `unmount()` writes it) at once, then revalidate
+   */
+  traverse?: boolean;
   /**
    * built-in messages, as the message files hold them: `{ en: { nav_mail: 'Mail' }, de: { … } }`,
    * the base language first. `m.key()` in the page reads them; the locale is `locale`, else the
@@ -577,7 +584,7 @@ export async function render(html: string, options: RenderOptions = {}): Promise
   // function table, with helpers and namespace members in scope
   const names: string[] = ['$k'];
   const values: unknown[] = [$k];
-  for (const h of parts.helpers.builtin) { names.push(h); values.push((builtins as Record<string, unknown>)[h]); }
+  for (const h of parts.helpers.builtin) { names.push(h); values.push(h === '$href' ? $href : h === '$hv' ? $hv : (builtins as Record<string, unknown>)[h]); }
   for (const h of parts.helpers.user) { names.push(h); values.push(helpers[h]); }
   for (const [ns, members] of Object.entries(parts.namespaces)) {
     for (const m of members) { names.push(`${ns}$${m}`); values.push((helpers[ns] as Record<string, unknown>)[m]); }
@@ -640,6 +647,7 @@ export async function render(html: string, options: RenderOptions = {}): Promise
     trusted: (e) => !(e instanceof CustomEvent),
     random: () => 0.5,
     hidden: () => hidden,
+    traversal: () => !!options.traverse,
     ...(options.frames ? { frame: (fn: () => void) => { frameQueue.push(fn); } } : {}),
     listen: (type, fn) => {
       if (!winListeners.has(type)) winListeners.set(type, new Set());

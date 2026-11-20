@@ -18,7 +18,7 @@ Error, for example:
 
 > `data-sn-for` must be on a `<template>`
 
-The attribute or element is valid, but not here: lists and conditionals render from a `<template>`, `data-sn-path` belongs on `<html>`, `<sn-event>` inside `<sn-sync>`, options such as `data-sn-debounce` need an action on the same element (a method attribute or `data-sn-call`), and `data-sn-attr` cannot bind the `value` or `checked` that a `data-sn-model` on the same control writes.
+The attribute or element is valid, but not here: lists and conditionals render from a `<template>`, `data-sn-path` belongs on `<html>`, `<sn-event>` inside `<sn-sync>`, options such as `data-sn-debounce` need an action on the same element (a method attribute or `data-sn-call`), `data-sn-attr` cannot bind the `value` or `checked` that a `data-sn-model` on the same control writes, and `data-sn-href` is on a link (`<a>`, `<area>`) whose `href` nothing else binds.
 
 **Fix:** Move it to where the message says, wrapping the content in a `<template>` if needed.
 
@@ -118,7 +118,7 @@ Error, for example:
 
 > `onclick` cannot be bound with `data-sn-attr`; use `data-sn-on-click`
 
-The binding could run script or inject markup from data: event-handler attributes, `style`, `srcdoc`, `innerHTML`, bindings on `<script>`, `<link>`, `<base>` and similar elements, any binding on a `<meta>` but `data-sn-attr="{ content: … }"` on one with a literal `name`, `property` or `itemprop` (never `http-equiv` or `charset`), URL templates that do not start with a literal path (or with a literal origin that lacks its `/` before a value), persisted password fields, or `constructor`, `__proto__` and `prototype` named in an expression.
+The binding could run script or inject markup from data: event-handler attributes, `style`, `srcdoc`, `innerHTML`, bindings on `<script>`, `<link>`, `<base>` and similar elements, any binding on a `<meta>` but `data-sn-attr="{ content: … }"` on one with a literal `name`, `property` or `itemprop` (never `http-equiv` or `charset`), URL templates that do not start with a literal path (or with a literal origin that lacks its `/` before a value; a link's, `data-sn-href`, may also start with `?` or `#`), persisted password fields, or `constructor`, `__proto__` and `prototype` named in an expression.
 
 **Fix:** Use the safe equivalent the message names: `data-sn-on-*` for events, `data-sn-style` for styles, a literal `/path` (or `https://host/`) at the start of a URL template.
 
@@ -748,9 +748,9 @@ Warning, for example:
 
 > `?page=3` keeps only its own query: `tag`, which this page reads, is dropped when it is followed
 
-A pager link whose `href` is only a query (`?page=3`, setting the parameter a list's `model` (paginate) names) replaces the whole query of the current URL, as any URL resolves: on `/?tag=go` it goes to `/?page=3`, without the tag. The page reads the parameters named, so following the link loses them (in the page, with same-page links, or with a page load). A filter or tab link that drops the page is not reported: that is how a list starts at page 1. Nor is a static `href` kept as the fallback of a bound one.
+A pager link whose `href` is only a query (`?page=3`, or a `data-sn-href` template such as `?page={n}`, setting the parameter a list's `model` (paginate) names) replaces the whole query of the current URL, as any URL resolves: on `/?tag=go` it goes to `/?page=3`, without the tag. The page reads the parameters named, so following the link loses them (in the page, with same-page links, or with a page load). A filter or tab link that drops the page is not reported: that is how a list starts at page 1. Nor is a static `href` kept as the fallback of a bound one.
 
-**Fix:** Build the whole query in `data-sn-attr` (`href: '?page=' + n + '&tag=' + encodeURIComponent($url.tag)`), or leave the parameter out on purpose, for a link that resets it.
+**Fix:** Keep the parameters in the link's template, `data-sn-href="?tag={$url.tag}&page={n}"` (a parameter that is not set is left out), or leave the parameter out on purpose, for a link that resets it.
 
 ## SN520 unused-preload
 
@@ -768,9 +768,9 @@ Warning, for example:
 
 > `list.html` builds a link to `item.html` at run time, which is served at `/item/` now: it arrives through a redirect
 
-An expression builds a URL to another page by its file name (`'/item.html?id=' + i.id`). The build rewrites such links in the markup, but not ones built at run time, so the link costs a redirect to the page's URL. Reported by the build.
+An expression or a link's URL template builds a URL to another page by its file name (`data-sn-href="/item.html?id={i.id}"`, `'/item.html?id=' + i.id`). The build rewrites such links in the markup, but not ones built at run time, so the link costs a redirect to the page's URL. Reported by the build.
 
-**Fix:** Write the page's URL in the expression, as the message shows: `'/item/?id=' + i.id`.
+**Fix:** Write the page's URL, as the message shows: `data-sn-href="/item/?id={i.id}"`.
 
 ## SN522 untranslated-messages
 

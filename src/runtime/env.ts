@@ -26,6 +26,8 @@ export interface Env {
   random(): number;
   /** add a window-level listener (pagehide, pageshow, popstate, visibilitychange); returns the remover */
   listen(type: string, fn: (e: Event) => void): () => void;
+  /** whether the page was reached by Back or Forward (and the back/forward cache did not serve it); absent: as the browser says */
+  traversal?(): boolean;
   /** whether the page is hidden (a background tab, a prerendered page); absent: never */
   hidden?(): boolean;
   /** runs `fn` before the next frame is painted (requestAnimationFrame); absent: changes from server events flush in a microtask */

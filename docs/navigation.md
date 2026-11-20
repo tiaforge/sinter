@@ -16,6 +16,37 @@ Within a page, [the URL and the history](#the-url-and-the-history) behave as in 
 Back steps through the filters and pages the user chose. A link that changes only the query is to a
 sinter page what a `#hash` link is to any page: [it stays on the page](#same-page-links).
 
+## Links
+
+A link is an `<a href>`. When its URL is built from data, write it as a URL template, the same as an
+action's URL: `data-sn-href`.
+
+```html
+<a data-sn-href="/profile/{article.author.username}" data-sn-text="article.author.username"></a>
+<a data-sn-href="/article/{a.slug}#comments">Comments</a>
+<a data-sn-href="?tag={$url.tag}&page={n}" data-sn-text="n"></a>
+```
+
+- **Encoded:** each `{…}` value is URL-encoded (`ada lovelace` → `ada%20lovelace`, `a/b` → `a%2Fb`); a value
+  that is exactly `.` or `..` in the path is refused, so it cannot climb a segment. Nothing to forget: no
+  `encodeURIComponent`.
+- **The query:** a whole query value that is `null`, `undefined` or `[]` leaves its parameter out
+  (`?tag={$url.tag}&page={n}` is `?page=2` without a tag); an array repeats it (`?tag={tags}` →
+  `tag=a&tag=b`). An array in the path is refused (`sinter check` types a path value as an action's).
+- **The start** is literal: a path (`/profile/…`), this page's query or fragment (`?…`, `#…`), or an origin
+  with its `/` (`https://example.com/…`), so a value never chooses the scheme or the host (SN207). A URL that
+  comes whole from data (`i.href`, a markdown link's `node.url`) stays `data-sn-attr="{ href: i.href }"`,
+  whose value is checked for its scheme when it is written.
+- It is a bound `href` like that one in every way: next-page data and Speculation Rules match it, a same-page
+  link, a swap and `data-sn-transition` work from it, and a template over constants is written into the HTML
+  as a plain `href` (a page with nothing else to run ships no JavaScript). On `<a>` and `<area>`, or on the tag
+  of a component whose root is one.
+- A link to a page by its file (`/item.html?id={i.id}`) arrives through a redirect once the build gives
+  the page its URL: SN521 names the URL to write (`/item/?id={i.id}`).
+
+`navigate(url)` in a handler takes a URL, not a template: build it there with `encodeURIComponent`
+(`navigate('/article/' + encodeURIComponent($result.article.slug))`).
+
 ## Next-page data
 
 Nothing to write. When a link to another page of the app is about to be followed, sinter requests
@@ -26,9 +57,11 @@ the data that page loads first. The next page shows it at its first paint, then 
   starts at once. A touch waits 65 ms, and a scroll that starts on the link requests nothing. Skipped
   with `navigator.connection.saveData` or on 2g.
 - **What:** the resources of the target page whose `src` and `when` read only `$url`, constants and
-  your helpers. Resources that read state, other resources, `$now`, or that are paginated, `for`,
-  `call` or embedded, are not prefetched. Data the current page already loaded from the same
-  request is handed over without a new request.
+  your helpers. A paginated one is requested at the page its first load asks for: the page the
+  link's URL names with `model: $url.page` (`/?page=3`: page 3), else the first page (keyset and
+  `append` lists always). Resources that read state, other resources, `$now`, or that are `for`,
+  `call`, `method="POST"` or embedded, are not prefetched. Data the current page already loaded from the
+  same request is handed over without a new request (not a paginated list's page: that one is requested).
 - **Which links:** same-origin links to one of the app's pages, matched by the pages' `data-sn-path`
   patterns (or their file paths). Give pages a `data-sn-path` so that `/article/slug` finds
   `article.html`.
@@ -46,6 +79,7 @@ that download, open elsewhere (`target`) or are `rel="nofollow"` are left out.
 
 ```js
 sinter({ prefetch: { html: true } })          // default: the next page's HTML
+sinter({ prefetch: { html: { prerender: 'auto' } } })   // the build decides per page (below)
 sinter({ prefetch: { html: { prerender: true } } })   // the whole page, data included, before the click
 sinter({ prefetch: { html: false } })         // none
 sinter({ prefetch: { html: { delivery: 'header' } } })   // by a response header; see the CSP section
@@ -53,7 +87,40 @@ sinter({ prefetch: { html: { delivery: 'header' } } })   // by a response header
 
 Prerendering runs the next page before anyone sees it: its requests go out and its custom elements start.
 Streams (`<sn-sync>`) wait until the page is shown, and then every resource is reloaded, since it
-may have loaded minutes earlier. Use it for apps whose pages do nothing on load but read.
+may have loaded minutes earlier. Use it for apps whose pages do nothing on load but read, or let the
+build pick those pages.
+
+### Prerendering chosen per page
+
+`prefetch: { html: { prerender: 'auto' } }` (with `delivery` beside it if you need it) prerenders the
+pages the build can show do nothing on load but read, and prefetches the HTML of the others. A page
+is prerendered when:
+
+- every resource loads with a GET (`src`, also `for`): none has `call`, `method="POST"` or `then`;
+- no handler is for an event the page can fire without a visitor: only clicks, keys, pointer, input,
+  form, drag, clipboard and dialog-closing events, and `data-sn-on-navigate`; not `load`, `error`,
+  `toggle`, `focus`, `scroll`, `sn-error` or a component's own events;
+- it has no component with a script, no other custom element, no lazy package that loads as it renders
+  (`data-sn-import`, a helper of `sinter({ lazy })`; `data-sn-preload` only fetches), and no
+  `<script>` of its own other than data (JSON, JSON-LD, an import map);
+- it is not `<html data-sn-prefetch="off">` (that page is in no rule at all), and with swaps on it is a page
+  that does not swap (those are in no rule either);
+- the app's modules every page runs (`sinter.config`, `sinter.early`, the helpers and actions modules,
+  and what they import) do nothing as they load: their top level only declares (functions, classes,
+  constants from literals and functions, `import.meta.env`) and calls sinter's configuration
+  (`configure()`, `header()`, `onUnauthorized()`, `loginRedirect()`, `memo()`), and a package they
+  import says `"sideEffects": false` in its package.json. One that does more (an analytics call,
+  `customElements.define()`, an import of a package that does not say) turns prerendering off for
+  every page.
+
+A stream (`<sn-sync>`) does not count: it connects once the page is shown. The build prints which pages
+links prerender and, for each other one, what it found. A link whose URL another, prefetched page's
+`data-sn-path` also matches (`/article/new` beside `/article/:slug`) is prefetched. The rules are the same
+inline and by header.
+
+Prerendering costs what the build cannot see: each prerendered page loads its data before anyone asks
+(and, when shown, again), and a server that counts page views counts a page nobody may open (its
+request carries `Sec-Purpose: prefetch;prerender`). That is why `true` stays the default.
 
 ## Speculation Rules and a Content Security Policy
 
@@ -170,7 +237,7 @@ the state you made (`data-sn-state`) and the scroll position stay. Nothing to wr
 `then` or `catch` follows the same rule, `{ replace: true }` in the current entry):
 
 ```html
-<a data-sn-attr="{ href: '?tag=' + encodeURIComponent($url.tag) + '&page=' + n }" data-sn-text="n"></a>
+<a data-sn-href="?tag={$url.tag}&page={n}" data-sn-text="n"></a>
 <a href="?feed=following">Your feed</a>
 ```
 
@@ -190,17 +257,19 @@ the state you made (`data-sn-state`) and the scroll position stay. Nothing to wr
   `<form method="get">` (bind the field instead: `data-sn-model="$url.q"`).
 - **Which pages:** the build loads it (`@tiaforge-ui/sinter/runtime/query-links`, about 0.7 KB gzip) on a
   page that reads a query parameter by name and has a link it can see goes to the page: a static
-  `href` (`?page=3`, the page's own URL or its file, `about.html?q=1`), or a `data-sn-attr` `href`
-  that starts with one (followed through `+`, template literals, `?:`, `||` and `??`). A link it
+  `href` (`?page=3`, the page's own URL or its file, `about.html?q=1`), a `data-sn-href` template
+  that starts with one, or a `data-sn-attr` `href` that does (followed through `+`, template literals,
+  `?:`, `||` and `??`). A link it
   cannot see (an `href` from data, a helper, a link a custom element renders) loads its URL, as before. A
   page that reads `$url` whole or by a computed name (`$url[k]`), or has a `<base href>`, does not
   load it: every link loads. The same link in a layout stays on one page and loads from another: it
   depends on what each page reads. A parameter that is a path parameter (`/tag/:tag`) is not a
   query parameter the page reads, on any of its paths, as for `$url` writes.
 - **Building the query:** `href="?page=3"` keeps only `page`, as any URL resolves: on `?tag=go` it
-  drops the tag. Build the whole query. A pager link (a static query-only `href` that sets a
-  `model` parameter) that drops other parameters the page reads is SN519; a filter or tab
-  link that drops the page is how the list starts at page 1, and needs nothing.
+  drops the tag. Build the whole query: `data-sn-href="?tag={$url.tag}&page={n}"` (a tag that is not
+  set is left out). A pager link (a query-only `href` or `data-sn-href` that sets a `model`
+  parameter) that drops other parameters the page reads is SN519; a filter or tab link that drops the
+  page is how the list starts at page 1, and needs nothing.
 - Next-page data leaves same-page links alone. Speculation Rules on such a page leave out its own
   path with any other query, so a link there that changes a parameter the page does not read
   (and loads) is not prefetched either.
@@ -308,7 +377,7 @@ element it becomes on the detail page:
 ```html
 <!-- list -->
 <template data-sn-for="a in articles">
-  <a data-sn-attr="{href: '/article/' + a.slug}"><h2 data-sn-transition="'article-' + a.slug" data-sn-text="a.title"></h2></a>
+  <a data-sn-href="/article/{a.slug}"><h2 data-sn-transition="'article-' + a.slug" data-sn-text="a.title"></h2></a>
 </template>
 
 <!-- article.html, data-sn-path="/article/:slug" -->
@@ -322,8 +391,10 @@ element it becomes on the detail page:
   (the names themselves are hashes).
 - **The element must be there at the page's first paint**, which is when the browser captures it.
   When a morph is pending, sinter holds that paint until the page has mounted, but not until
-  responses arrive. Render the element from `$url`, `cache`, prefetched or embedded data. A list
-  you morph back into needs `cache` on its resource, or its rows arrive too late and it only fades.
+  responses arrive. Render the element from `$url`, `cache`, prefetched or embedded data. Back to a
+  list needs nothing: its rows come back as it was left ([Back and Forward](resources.md#back-and-forward)).
+  A link to a list (not Back) morphs into it only with `cache` on its resource, or its rows arrive too
+  late and it only fades.
 - One morph per navigation. Navigations sinter starts itself (a redirect) do not morph.
 
 **Swaps** follow the same rule as loads: a swap fades only where the stylesheet asks for page transitions

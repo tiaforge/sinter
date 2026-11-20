@@ -8,7 +8,7 @@ import type { ResourceDef, UrlTemplate } from './ir.js';
 import type { App, Feature } from './runtime/app.js';
 import { PREFETCH_MARK, PREFETCH_PREFIX } from './runtime/config.js';
 import { clean } from './runtime/store.js';
-import { expand, readUrl } from './runtime/url.js';
+import { expand, readUrl, withParams } from './runtime/url.js';
 import type { lists } from './runtime/lists.js';
 
 export { lists } from './runtime/lists.js';
@@ -17,8 +17,11 @@ export { lists } from './runtime/lists.js';
 export interface PrefetchPage {
   /** path patterns (`/article/:slug`), or the paths the page's file is served at */
   m: string[];
-  /** the page's resources whose request only `$url` decides: URL template, `when`, `items`, `total`, `k` for a collection */
-  r: Array<{ s: UrlTemplate; w?: number; i: string | null; t: string | null; k?: 1 }>;
+  /**
+   * the page's resources whose request only `$url` decides: URL template, `when`, `items`, `total`, `k` for a collection;
+   * a paginated one's first page `q`, and with `model` (paginate) `sp`: from page 2 on, `q` with `k` set to the page (`o`: the items to skip, `(n - 1) * s`)
+   */
+  r: Array<{ s: UrlTemplate; w?: number; i: string | null; t: string | null; k?: 1; q?: Record<string, string>; sp?: { f: number; k: string; s: number; o?: 1 } }>;
   /** the functions the templates index */
   f: Array<(s: any) => any>;
   /** the page's array parameters (`IR.urlArrays`), read as lists */
@@ -104,6 +107,11 @@ export function prefetch(pages: PrefetchPage[], l?: typeof lists): Feature {
             if (r.w != null && !page.f[r.w]!(scope)) continue;
             url = expand(r.s, scope, page.f);
           } catch { continue; }
+          // the page its first load requests, as the pager writes it (keyset and append: the first). The page as `toPage`
+          // reads it, written here: importing it would move the pager's parameter module into every page
+          let q = r.q, sp = r.sp, n: number;
+          if (sp && (n = parseInt(page.f[sp.f]!(scope), 10)) > 1) q = { ...q, [sp.k]: String(sp.o ? (n - 1) * sp.s : n) };
+          if (q) url = withParams(url, q);
           const key = keyOf(url, r.i, r.t), had = read(key);
           if (busy.has(key) || (had && env.now() - had.t < MAX_AGE / 3)) continue;
           // data this page has loaded from the same request: handed over, no request

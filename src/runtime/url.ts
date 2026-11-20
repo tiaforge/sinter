@@ -6,6 +6,16 @@ import type { UrlTemplate } from '../ir.js';
 /** Encodes one interpolated URL value. */
 export const encodeSegment = (v: unknown): string => encodeURIComponent(String(v ?? '')).replace(/^\.\.?$/, (d) => d.replace(/\./g, '%2E'));
 
+/**
+ * One value of a URL template that is not a whole query value, encoded; in the path (`q` false) a dot segment or a
+ * list is refused: URL parsers turn %2E%2E back into `..`, so a path value cannot be a dot segment at all. A link's
+ * template whose values are all of this kind compiles to `"/profile/" + $hv(a.author.username)`.
+ */
+export const $hv = (v: unknown, q?: boolean | 1): string => {
+  if (!q && (v == '.' || v == '..' || Array.isArray(v))) throw Error(`refused ${Array.isArray(v) ? 'an array' : `\`${v}\``} as a URL path value`);
+  return encodeSegment(v);
+};
+
 /** Fills a URL template: each value encoded, an array query value a repeated key, null leaves the parameter out. */
 export function expand(tpl: UrlTemplate, s: any, fns: Array<(s: any) => any>): string {
   let out = '', query = false, dropped = false;
@@ -22,11 +32,7 @@ export function expand(tpl: UrlTemplate, s: any, fns: Array<(s: any) => any>): s
     // a whole query value: an array is a repeated key (its null items left out), and null,
     // undefined or an empty array leaves the parameter out
     if (key && Array.isArray(v)) v = (v = v.filter((x) => x != null)).length ? v.map(encodeSegment).join(`&${key[1]}=`) : null;
-    else if (v != null) {
-      // URL parsers turn %2E%2E back into `..`, so a path value cannot be a dot segment at all
-      if (!query && (v == '.' || v == '..' || Array.isArray(v))) throw Error(`refused ${Array.isArray(v) ? 'an array' : `\`${v}\``} as a URL path value`);
-      v = encodeSegment(v);
-    }
+    else if (v != null) v = $hv(v, query);
     if (key && v == null) {
       out = out.replace(/[^?&=#]*=$/, '');
       dropped = true;
@@ -36,6 +42,13 @@ export function expand(tpl: UrlTemplate, s: any, fns: Array<(s: any) => any>): s
   });
   return out.replace(/[?&](?=#|$)/, '');
 }
+
+const at = (i: number) => (v: unknown[]) => v[i];
+/**
+ * A link's URL template (`data-sn-href`), filled as an action's: `tpl`'s numbers index `vals`, the values its
+ * interpolations had. The compiled binding of one with a whole query value calls it (`$href(["?tag=", 0], [t])`).
+ */
+export const $href = (tpl: UrlTemplate, vals: unknown[]): string => expand(tpl, vals, vals.map((_, i) => at(i)));
 
 /** A URL with query parameters set (a paginated resource's page): the runtime's request and the early file's are the same string. */
 export function withParams(url: string, params: Record<string, string> | null): string {
