@@ -35,16 +35,19 @@ function build(o: Partial<CompileOptions> = {}, apis: Record<string, ApiOptions 
   const opts: CompileOptions = { file: '/app/index.html', root: '/app', dev: false, readFile: () => '', moduleSrc: '/page.js', helpers: { module: null, names: [], namespaces: {} }, prerender: true, early: { module: null }, apis: a.apis, openapi: a.openapi, origins: ['https://api.example.com'], ...o } as CompileOptions;
   const out = compile(PAGE, opts);
   expect(out.diagnostics.filter((d) => d.severity === 'error')).toEqual([]);
-  const res = ((compileParts(PAGE, opts).early?.ir as any)?.res ?? []) as Array<{ name: string; a?: { t?: unknown; r?: 1 } }>;
-  return { out, res, preloads: [...out.html.matchAll(/rel="preload" as="fetch"[^>]* href="([^"]+)"/g)].map((m) => m[1]) };
+  const eir = compileParts(PAGE, opts).early?.ir as any;
+  const res = (eir?.res ?? []) as Array<{ name: string; a?: number; r?: 1 }>, as = eir?.as ?? [];
+  return { out, res, as, preloads: [...out.html.matchAll(/rel="preload" as="fetch"[^>]* href="([^"]+)"/g)].map((m) => m[1]) };
 }
 
 describe('an API with a token', () => {
   test('its operations are requested early with the token (those that need it marked), never preloaded; another API is preloaded', () => {
-    const { res, preloads } = build();
+    const { res, as, preloads } = build();
     expect(preloads).toEqual(['/other/stats']);
     const t = { s: 'l', k: 'jwt', h: 'Authorization', p: 'Token ' };
-    expect(res.map((r) => [r.name, r.a])).toEqual([['user', { t, r: 1 }], ['articles', { t }]]);
+    // one table of the API's settings; each request names it, and says whether it needs the token
+    expect(res.map((r) => [r.name, r.a, r.r ?? null])).toEqual([['user', 0, 1], ['articles', 0, null]]);
+    expect(as).toEqual([{ t }]);
   });
 
   test('a request middleware no longer makes it late; another API keeps that rule', () => {

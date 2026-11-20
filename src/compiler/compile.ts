@@ -6260,11 +6260,11 @@ class Compiler {
   readonly apiOfResource = new Map<string, ApiDef>();
 
   /** a resource's API's credentials, static headers and token (where it is stored, how it is sent), as the early file sends them; null for the defaults */
-  settingsOf(name: string): NonNullable<NonNullable<EarlyIR['res']>[number]['a']> | null {
+  settingsOf(name: string): NonNullable<EarlyIR['as']>[number] | null {
     const a = this.apiOfResource.get(name), t = a?.token;
     return a && (a.credentials || a.headers || t) ? {
       ...(a.credentials ? { c: a.credentials } : {}), ...(a.headers ? { h: a.headers } : {}),
-      ...(t ? { t: { s: t.storage === 'local' ? 'l' as const : 's' as const, k: t.key, h: t.header, p: t.scheme ? t.scheme + ' ' : '' }, ...(this.needsToken.has(name) ? { r: 1 as const } : {}) } : {}),
+      ...(t ? { t: { s: t.storage === 'local' ? 'l' as const : 's' as const, k: t.key, h: t.header, p: t.scheme ? t.scheme + ' ' : '' } } : {}),
     } : null;
   }
 
@@ -8649,6 +8649,16 @@ class Compiler {
     // the resources the early file requests: `src` and `when` read only what is known early
     // (state, persisted values, `$url`, `$now`, helpers); not `call`, `each` or embedded data; a
     // paginated one: its first page, with the query parameters the pager sends for it
+    // the APIs' request settings, once per page: each early request names its API's by index
+    const as: NonNullable<EarlyIR['as']> = [], asAt = new Map<string, number>();
+    const settings = (name: string) => {
+      const x = this.settingsOf(name);
+      if (!x) return {};
+      const k = JSON.stringify(x);
+      let i = asAt.get(k);
+      if (i === undefined) asAt.set(k, (i = as.push(x) - 1));
+      return { a: i };
+    };
     const res: NonNullable<EarlyIR['res']> = [];
     let url = false;
     for (const def of this.resources) {
@@ -8664,7 +8674,7 @@ class Compiler {
       if (scope === undefined || codes.some(builtin) || codes.some((c) => /\$(r|meta|el)\b/.test(c))) continue;
       reads.push(...strs(def.deps));
       url ||= codes.some((c) => c.includes('$url'));
-      res.push({ name: def.name, src: def.src.map((x) => (typeof x === 'number' ? fn(this.fns[x]!) : x)), when: def.when != null ? fn(this.fns[def.when]!) : null, scope, ...(def.paginate ? { q: firstParams(def.paginate) } : {}), ...(def.paginate && start != null ? { sp: startOf(def.paginate, fn(this.fns[start]!)) } : {}), ...(def.lo ? { lo: 1 as const } : {}), ...(where === 'listed' ? { xo: 1 as const } : {}), ...(this.settingsOf(def.name) ? { a: this.settingsOf(def.name)! } : {}) });
+      res.push({ name: def.name, src: def.src.map((x) => (typeof x === 'number' ? fn(this.fns[x]!) : x)), when: def.when != null ? fn(this.fns[def.when]!) : null, scope, ...(def.paginate ? { q: firstParams(def.paginate) } : {}), ...(def.paginate && start != null ? { sp: startOf(def.paginate, fn(this.fns[start]!)) } : {}), ...(def.lo ? { lo: 1 as const } : {}), ...(where === 'listed' ? { xo: 1 as const } : {}), ...(settings(def.name)), ...(this.needsToken.has(def.name) ? { r: 1 as const } : {}) });
     }
     if (!roots.some((n) => n.b.length) && !res.length && !this.guard) return null;
     // only the state fields the early bindings read (and the fields those read): a field whose
@@ -8709,6 +8719,7 @@ class Compiler {
     const ir: EarlyIR = { roots, templates };
     if (usedEmb.size) ir.emb = Object.fromEntries([...usedEmb].map((n) => [n, { id: embedded.get(n)!.data!, select: embedded.get(n)!.select ?? null, ...(embedded.get(n)!.ls ? { ls: 1 as const } : {}) }]));
     if (res.length) ir.res = res;
+    if (as.length) ir.as = as;
     // the page needs a session: the early script sends a visitor with no token to sign in before anything paints
     if (this.guard) {
       const g = this.guard;

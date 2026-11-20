@@ -161,7 +161,7 @@ describe('the early script', () => {
     config.apis = [{ n: 'main', b: '/api', t: { s: 'l', k: 'jwt', h: 'Authorization', p: 'Token ', r: ['GET /user'] } }];
     $tokens();
     const t = { s: 'l' as const, k: 'jwt', h: 'Authorization', p: 'Token ' };
-    const ir: Pick<EarlyIR, 'res'> = { res: [{ name: 'user', src: ['/api/user'], when: null, scope: 0, a: { t, r: 1 } }, { name: 'list', src: ['/api/articles'], when: null, scope: 0, a: { t } }] };
+    const ir: Pick<EarlyIR, 'res' | 'as'> = { res: [{ name: 'user', src: ['/api/user'], when: null, scope: 0, a: 0, r: 1 }, { name: 'list', src: ['/api/articles'], when: null, scope: 0, a: 0 }], as: [{ t }] };
     const f = [() => ({})];
     const go = () => start(() => ({ ir, fns: f, scopes: ($) => [st($, f[0]!, 0)], render: () => {} }), null, earlyRequests(undefined, configured));
     go();

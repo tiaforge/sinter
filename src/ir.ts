@@ -215,9 +215,13 @@ export interface EarlyIR {
     /** `model` (paginate): from page 2 on, `qn` with `k` set to the page (`o`: the items to skip, `(n - 1) * s`) */
     sp?: { f: number; k: string; s: number; o?: 1; qn: Record<string, string> };
     lo?: 1; xo?: 1;
-    /** the request settings of the resource's API (`sinter({ apis })`): credentials, static headers, its token's storage and header (`r`: the operation needs it) */
-    a?: { c?: RequestCredentials; h?: Record<string, string>; t?: { s: 'l' | 's'; k: string; h: string; p: string }; r?: 1 };
+    /** the request settings of the resource's API (`sinter({ apis })`): an index into `as` */
+    a?: number;
+    /** the operation needs its API's token: with none stored, it is not requested */
+    r?: 1;
   }>;
+  /** the request settings of the page's APIs, once each: credentials, static headers, its token's storage and header */
+  as?: Array<{ c?: RequestCredentials; h?: Record<string, string>; t?: { s: 'l' | 's'; k: string; h: string; p: string } }>;
   /** `data-sn-signed-in`: with no token stored (and `f` true), the early script sends the visitor to sign in (index into the early table) */
   si?: Omit<SignedIn, 'a'>;
   /** `data-sn-path` patterns, when a request reads `$url` */

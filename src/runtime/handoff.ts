@@ -8,7 +8,7 @@
  */
 export interface Prefetched {
   /** starts the request for a URL (once); `lo`: with low priority; `a`: its API's credentials, static headers and token */
-  add(url: string, lo?: 1, a?: EarlyApi): void;
+  add(url: string, lo?: 1, a?: EarlyApi, r?: 1): void;
   /**
    * the response started for this request, if it is the request the early file sent (method, URL, credentials, headers);
    * null when one was sent for its URL and this request differs (a middleware changed it), undefined when none was
@@ -19,10 +19,10 @@ export interface Prefetched {
 }
 /**
  * What the early file sends a resource's request with: its API's credentials and static headers, and its token
- * (`t`: storage `l`ocal or `s`ession, key, header, what goes before it; `r`: the operation needs it, so without one
- * nothing is sent)
+ * (`t`: storage `l`ocal or `s`ession, key, header, what goes before it). `r` on `add`: the operation needs the token, so
+ * without one nothing is sent
  */
-export interface EarlyApi { c?: RequestCredentials; h?: Record<string, string>; t?: { s: 'l' | 's'; k: string; h: string; p: string }; r?: 1 }
+export interface EarlyApi { c?: RequestCredentials; h?: Record<string, string>; t?: { s: 'l' | 's'; k: string; h: string; p: string } }
 const PREFETCHED = Symbol.for('sinter.prefetched');
 export const prefetched = (): Prefetched | undefined => (globalThis as any)[PREFETCHED];
 export const setPrefetched = (p: Prefetched) => { (globalThis as any)[PREFETCHED] = p; };

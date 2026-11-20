@@ -85,7 +85,7 @@ type Fn = (...a: any[]) => any;
  * function table, and its compiled renderer (compiler/early-render.ts): `scopes` over the base
  * scope, then `render` with them.
  */
-export type EarlyPage = () => { ir: Pick<EarlyIR, 'res' | 'path' | 'urlArrays' | 'emb' | 'si'>; fns: Fn[]; scopes(base: any): any[]; render(doc: Document, scopes: any[], base: any): void; locale?: typeof locale; lists?: typeof lists };
+export type EarlyPage = () => { ir: Pick<EarlyIR, 'res' | 'as' | 'path' | 'urlArrays' | 'emb' | 'si'>; fns: Fn[]; scopes(base: any): any[]; render(doc: Document, scopes: any[], base: any): void; locale?: typeof locale; lists?: typeof lists };
 
 /** the configured locale source, for a page whose early functions read `$locale` (others carry no config) */
 export const locale = () => config.locale;
@@ -286,7 +286,7 @@ function scope(o: ReturnType<EarlyPage>, req: EarlyRequests | null): any {
  */
 export interface EarlyRequests {
   read(key: PropertyKey, path: string[] | undefined, more?: (href: string, url: any) => any): unknown;
-  send(ir: Pick<EarlyIR, 'res'>, scopes: any[], base: any, fns: Fn[]): void;
+  send(ir: Pick<EarlyIR, 'res' | 'as'>, scopes: any[], base: any, fns: Fn[]): void;
 }
 
 /**
@@ -315,7 +315,7 @@ export function requests(params?: typeof withParams, envOf: () => EarlyEnv = bro
           if (r.sp) { const n = toPage(fns[r.sp.f]!(s)); if (n > 1) q = { ...r.sp.qn, [r.sp.k]: String(r.sp.o ? (n - 1) * r.sp.s : n) }; }
           const t = expand(r.src, s, fns), u = new URL(q ? params!(t, q) : t, here);
           // another origin only when the build found it in `sinter({ origins })` (`xo`)
-          if (r.xo || u.origin == new URL(here).origin) (prefetched() ?? own(pending(env()))).add(u.href, r.lo, r.a);
+          if (r.xo || u.origin == new URL(here).origin) (prefetched() ?? own(pending(env()))).add(u.href, r.lo, r.a != null ? ir.as![r.a] : undefined, r.r);
         } catch { /* not known early: the page module requests it */ }
       }
     },
@@ -330,11 +330,11 @@ export function requests(params?: typeof withParams, envOf: () => EarlyEnv = bro
 function pending(env: EarlyEnv): Prefetched {
   const started = new Map<string, { res: Promise<Response>; c: AbortController; cr: RequestCredentials; h: Headers }>();
   return {
-    add(url, lo, a) {
+    add(url, lo, a, need) {
       if (started.has(url)) return;
       const h = new Headers(a?.h), cr = a?.c ?? 'same-origin', t = a?.t, v = t ? token(t) : null;
       // signed out: an operation that needs the token is not requested (the page module reads it as signed out)
-      if (t && v == null && a!.r) return;
+      if (t && v == null && need) return;
       h.has('Accept') || h.set('Accept', 'application/json');
       // the API's token, as the request layer adds it: the page's request is then the same, and takes this response
       if (v != null) h.has(t!.h) || h.set(t!.h, t!.p + v);

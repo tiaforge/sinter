@@ -37,7 +37,7 @@ describe('request settings per API', () => {
   test('the early file sends the same request, so the page module takes its response; a middleware header still gets its own', async () => {
     setEnv({ ...defaultEnv, fetch });
     $apis([{ n: 'main', b: '/api', h: { 'X-Api': '2' } }]);
-    const ir: Pick<EarlyIR, 'res'> = { res: [{ name: 'days', src: ['/api/days'], when: null, scope: 0, a: { h: { 'X-Api': '2' } } }] };
+    const ir: Pick<EarlyIR, 'res' | 'as'> = { res: [{ name: 'days', src: ['/api/days'], when: null, scope: 0, a: 0 }], as: [{ h: { 'X-Api': '2' } }] };
     const f = [() => ({})];
     start(() => ({ ir, fns: f, scopes: ($) => [st($, f[0]!, 0)], render: () => {} }), null, requests(undefined, configured));
     expect(sent.map((r) => [new URL(r.url).pathname, r.headers.get('X-Api')])).toEqual([['/api/days', '2']]);
