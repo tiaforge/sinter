@@ -255,10 +255,11 @@ test('OpenAPI `security` decides preloads and early requests: public and cookie 
   const opts = (changesRequests: boolean): CompileOptions => ({ file: '/app/index.html', root: '/app', dev: false, readFile: () => '', moduleSrc: '/page.js', helpers: { module: null, names: [], namespaces: {} }, prerender: true, early: { module: null }, openapi: [{ file: '/app/openapi.json', doc }], changesRequests });
   const preloaded = (o: CompileOptions) => [...compile(html, o).html.matchAll(/rel="preload" as="fetch" crossorigin="" href="\/api\/(\w+)"/g)].map((m) => m[1]).sort();
   const early = (o: CompileOptions) => ((compileParts(html, o).early?.ir as any)?.res ?? []).map((r: { name: string }) => r.name).sort();
-  // with middleware: public (`[]`, or an alternative `{}`) and cookie operations keep their preload; an undeclared
-  // one is not requested early (the middleware may add a token: an early request would only be sent again), nor
-  // is a token one or a token search
-  expect(preloaded(opts(true))).toEqual(['cart', 'feed', 'tags']);
+  // with middleware: public (`[]`) and cookie operations keep their preload; an undeclared one is not requested early
+  // (the middleware may add a token: an early request would only be sent again), nor is a token one or a token search,
+  // nor one whose token is optional (`[{ bearer: [] }, {}]`): a preload carries no token, and the browser would hand its
+  // anonymous answer to the signed-in visitor's request
+  expect(preloaded(opts(true))).toEqual(['cart', 'tags']);
   expect(early(opts(true))).toEqual([]);
   // without middleware: a token operation still has no early request (it would be refused)
   expect(preloaded(opts(false))).toEqual(['cart', 'feed', 'plain', 'tags']);
