@@ -16,7 +16,7 @@ describe('over a fetched resource', () => {
   test('not while the first load runs; once it answers empty; not beside rows', async () => {
     let answer: unknown[] = [];
     const requests = mockRequests({ 'GET /api/c': () => ({ c: answer }) });
-    const r = await render(LIST('<sn-resource name="c" src="/api/c" items="c" key="id"></sn-resource><button data-sn-on-click="refresh(c)"></button>'), { requests });
+    const r = await render(LIST('<sn-resource name="c" src="/api/c" select="c" key="id"></sn-resource><button data-sn-on-click="refresh(c)"></button>'), { requests });
     await r.flush();
     expect(none(r.root)).toBe(false);
     await r.settle();
@@ -34,7 +34,7 @@ describe('over a fetched resource', () => {
   test('a failed load: never beside its error, also after an empty success', async () => {
     let fail = true;
     const requests = mockRequests({ 'GET /api/c': () => (fail ? { status: 500, body: 'no' } : { c: [] }) });
-    const r = await render(LIST('<sn-resource name="c" src="/api/c" items="c" key="id"></sn-resource><button data-sn-on-click="refresh(c)"></button><p data-sn-text="$meta.c.error ? \'failed\' : \'\'"></p>'), { requests });
+    const r = await render(LIST('<sn-resource name="c" src="/api/c" select="c" key="id"></sn-resource><button data-sn-on-click="refresh(c)"></button><p data-sn-text="$meta.c.error ? \'failed\' : \'\'"></p>'), { requests });
     await r.settle();
     expect(r.root.querySelector('p')!.textContent).toBe('failed');
     expect(none(r.root)).toBe(false);
@@ -51,7 +51,7 @@ describe('over a fetched resource', () => {
 
   test('a filter that leaves nothing, while the resource has rows: empty', async () => {
     const requests = mockRequests({ 'GET /api/c': { c: [{ id: 1, name: 'Ada' }, { id: 2, name: 'Bob' }] } });
-    const r = await render(`<sn-resource name="c" src="/api/c" items="c" key="id"></sn-resource><div data-sn-state="{ q: '' }"><input data-sn-model="q">
+    const r = await render(`<sn-resource name="c" src="/api/c" select="c" key="id"></sn-resource><div data-sn-state="{ q: '' }"><input data-sn-model="q">
       <ul><template data-sn-for="x in c.filter((p) => p.name.includes(q))"><li data-sn-text="x.name"></li></template><template data-sn-else><li id="none">None</li></template></ul></div>`, { requests });
     await r.settle();
     expect(rows(r.root)).toEqual(['Ada', 'Bob']);
@@ -67,7 +67,7 @@ describe('over a fetched resource', () => {
   test('`when` falsy: never loaded, so not empty (a search with nothing typed); typed, then cleared, the same', async () => {
     const requests = mockRequests({ 'GET /api/s': () => ({ c: [] }) });
     const r = await render(`<div data-sn-state="{ q: '' }"><select data-sn-model="q"><option value=""></option><option value="zz">zz</option></select>
-      <sn-resource name="c" src="/api/s?q={q}" when="q" items="c" key="id"></sn-resource>
+      <sn-resource name="c" src="/api/s?q={q}" when="q" select="c" key="id"></sn-resource>
       <ul><template data-sn-for="x in c"><li data-sn-text="x.name"></li></template><template data-sn-else><li id="none">No results</li></template></ul>
       <i data-sn-text="$meta.c.loadedAt ? 'loaded' : 'not loaded'"></i></div>`, { requests });
     await r.settle();
@@ -89,8 +89,8 @@ describe('over a fetched resource', () => {
     const requests = mockRequests({ 'GET /api/recent': { c: [] }, 'GET /api/s': { c: [] } });
     const r = await render(`<div data-sn-state="{ q: '' }" data-sn-let="{ shown: q ? results : recent }">
       <select data-sn-model="q"><option value=""></option><option value="zz">zz</option></select>
-      <sn-resource name="recent" src="/api/recent" items="c" key="id"></sn-resource>
-      <sn-resource name="results" src="/api/s?q={q}" when="q" items="c" key="id"></sn-resource>
+      <sn-resource name="recent" src="/api/recent" select="c" key="id"></sn-resource>
+      <sn-resource name="results" src="/api/s?q={q}" when="q" select="c" key="id"></sn-resource>
       <ul><template data-sn-for="x in shown"><li data-sn-text="x.name"></li></template><template data-sn-else><li id="none">None</li></template></ul></div>`, { requests });
     await r.settle();
     // `results` never loads while nothing is chosen: the empty state is `recent`'s
@@ -101,7 +101,7 @@ describe('over a fetched resource', () => {
     const session = sessionStorage;
     session.setItem('sn:c:["http://localhost/api/c","c",null]', JSON.stringify({ t: Date.now(), items: [], total: null }));
     const requests = mockRequests({ 'GET /api/c': { c: [] } });
-    const r = await render(LIST('<sn-resource name="c" src="/api/c" items="c" key="id" cache></sn-resource>'), { requests, session });
+    const r = await render(LIST('<sn-resource name="c" src="/api/c" select="c" key="id" cache></sn-resource>'), { requests, session });
     await r.flush();
     expect(none(r.root)).toBe(false);
     await r.settle();
@@ -111,7 +111,7 @@ describe('over a fetched resource', () => {
 
   test('a background `refresh`: silent, so the empty state stays', async () => {
     const requests = mockRequests({ 'GET /api/c': { c: [] } });
-    const r = await render(LIST('<sn-resource name="c" src="/api/c" items="c" key="id" refresh="10s"></sn-resource>'), { requests });
+    const r = await render(LIST('<sn-resource name="c" src="/api/c" select="c" key="id" refresh="10s"></sn-resource>'), { requests });
     await r.settle();
     expect(none(r.root)).toBe(true);
     const before = requests.calls.length;
@@ -125,7 +125,7 @@ describe('over a fetched resource', () => {
 
   test('paginated: not while `page()` loads; a page with nothing on it is empty', async () => {
     const requests = mockRequests({ 'GET /api/m': (call: RecordedCall) => (new URL(call.url, 'http://x').searchParams.get('page') === '2' ? { m: [], total: 0 } : { m: [{ id: 1, name: 'Ada' }], total: 1 }) });
-    const r = await render(LIST('<sn-resource name="c" src="/api/m" items="m" total="total" key="id" paginate="{ numbered: true, size: 1 }"></sn-resource><button data-sn-on-click="page(c, 2)"></button>'), { requests });
+    const r = await render(LIST('<sn-resource name="c" src="/api/m" select="m" total="total" key="id" paginate="{ numbered: true, size: 1 }"></sn-resource><button data-sn-on-click="page(c, 2)"></button>'), { requests });
     await r.settle();
     expect(none(r.root)).toBe(false);
     r.root.querySelector('button')!.click();
@@ -140,7 +140,7 @@ describe('over a fetched resource', () => {
     let accounts = [{ id: 1 }];
     const requests = mockRequests({ 'GET /api/accounts': () => accounts, 'GET /api/boxes': { b: [] } });
     const r = await render(LIST(`<sn-resource name="accounts" src="/api/accounts" key="id"></sn-resource>
-      <sn-resource name="c" for="a in accounts" src="/api/boxes?a={a.id}" items="b" key="id"></sn-resource><button data-sn-on-click="refresh(accounts)"></button>`), { requests });
+      <sn-resource name="c" for="a in accounts" src="/api/boxes?a={a.id}" select="b" key="id"></sn-resource><button data-sn-on-click="refresh(accounts)"></button>`), { requests });
     await r.flush();
     expect(none(r.root)).toBe(false);
     await r.settle();
@@ -199,7 +199,7 @@ describe('over a list that is no resource\'s', () => {
 
   test('a prop of a component: the caller\'s resource, waited for', async () => {
     const requests = mockRequests({ 'GET /api/c': { c: [] } });
-    const r = await render(`<sn-resource name="c" src="/api/c" items="c" key="id"></sn-resource><x-list data-sn-with="{ items: c }"></x-list>`, {
+    const r = await render(`<sn-resource name="c" src="/api/c" select="c" key="id"></sn-resource><x-list data-sn-with="{ items: c }"></x-list>`, {
       requests,
       components: { 'x-list': '<template data-sn-props="{ items: { name: string }[] }"><ul><template data-sn-for="x in items"><li data-sn-text="x.name"></li></template><template data-sn-else><li id="none">None</li></template></ul></template>' },
     });
@@ -265,7 +265,7 @@ describe('first paint', () => {
 
   test('never while data is on its way: the early file paints the loading branch, not the empty state', async () => {
     const page = `<!doctype html><html><head></head><body>
-      <sn-resource name="c" src="/api/c" items="c" key="id"></sn-resource>
+      <sn-resource name="c" src="/api/c" select="c" key="id"></sn-resource>
       <template data-sn-if="$meta.c.loading && !c.length"><p id="loading">Loading…</p></template>
       <ul><template data-sn-for="x in c"><li data-sn-text="x.name"></li></template><template data-sn-else><li id="none">None</li></template></ul></body></html>`;
     await firstPaint(page);
