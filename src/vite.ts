@@ -107,17 +107,17 @@ export interface SinterOptions extends ProjectOptions {
    * Getting the next page ready (default on), as `<html data-sn-prefetch="off">` turns off for one page:
    * - `data` (default true): when a link to another page of the app is about to be followed, that page's data is
    *   requested, and the page shows it at once (then revalidates).
-   * - `html`: Speculation Rules for links to the app's pages (Chromium): `'prefetch'` (default) fetches the next
+   * - `html`: Speculation Rules for links to the app's pages (Chromium): `true` (default) fetches the next
    *   page's HTML while the pointer rests on a link; `'prerender'` loads and runs the whole page (data included,
    *   streams connect once it is shown); `false`: none. The rules are an inline script in every page, so they need
    *   no server setup; a CSP the page declares in a `<meta>` gets their hash from the build, a CSP sent as a
    *   response header needs `'inline-speculation-rules'` in `script-src` (dev builds warn when it blocks them).
-   *   `{ mode, delivery: 'header' }` writes `speculation-rules.json` at the site root for a `Speculation-Rules`
+   *   `{ delivery: 'header' }` (with `prerender: true` to prerender) writes `speculation-rules.json` at the site root for a `Speculation-Rules`
    *   response header instead, which no CSP blocks: the server sends the header with every page and the file as
    *   `application/speculationrules+json` (`vite dev` and `vite preview` do both). See docs/navigation.md.
    * `false`: neither.
    */
-  prefetch?: boolean | { data?: boolean; html?: 'prefetch' | 'prerender' | false | { mode: 'prefetch' | 'prerender'; delivery?: 'inline' | 'header' } };
+  prefetch?: boolean | { data?: boolean; html?: boolean | 'prerender' | { prerender?: boolean; delivery?: 'inline' | 'header' } };
   /**
    * Builds served by a server that writes each page's data into it (sinter-axum): every resource whose
    * request only the page's URL decides gets a placeholder in the head, and the browser neither preloads
@@ -231,6 +231,17 @@ const PREFETCH = `${PREFIX}prefetch.js`;
 /** with swaps on: the pages that swap (swap-build.ts) */
 const SWAP = `${PREFIX}swap.js`;
 /** `prefetch: { html: { delivery: 'header' } }`: the rules file, at the site root */
+/** the `prefetch.html` value an old one (`speculation`, `'prefetch'`, `{ mode, delivery }`) is now, as written in the config */
+function htmlOf(v: unknown): string {
+  if (v === 'prefetch') return 'true';
+  if (v === 'prerender' || v === false) return JSON.stringify(v).replace(/"/g, "'");
+  if (typeof v === 'object' && v !== null) {
+    const o = v as { mode?: unknown; delivery?: unknown };
+    const parts = [...(o.mode === 'prerender' ? ['prerender: true'] : []), ...(o.delivery !== undefined ? [`delivery: '${String(o.delivery)}'`] : [])];
+    return parts.length ? `{ ${parts.join(', ')} }` : 'true';
+  }
+  return JSON.stringify(v);
+}
 const RULES_FILE = 'speculation-rules.json';
 /** build: the pages' embedded-data placeholders, for a server that fills them per request (sinter-axum) */
 const EMBED_FILE = 'sinter-embed.json';
@@ -256,7 +267,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   if (loadingHelpers()) return [{ name: 'sinter', api: { options, source: (f: string) => f } }, { name: 'sinter:post' }, { name: 'sinter:css-images' }, { name: 'sinter:fonts' }, { name: 'sinter:font-check' }, { name: 'sinter:pages' }];
   // options renamed (docs/proposals/vocabulary.md): what to write instead
   const was = options as { speculation?: unknown; earlyBudget?: unknown; components?: unknown };
-  if (was.speculation !== undefined) throw new Error(`sinter({ speculation }) is renamed to \`prefetch: { html: ${JSON.stringify(was.speculation)} }\`, beside the next page's data (\`prefetch: { data }\`)`);
+  if (was.speculation !== undefined) throw new Error(`sinter({ speculation }) is renamed to \`prefetch: { html: ${htmlOf(was.speculation)} }\`, beside the next page's data (\`prefetch: { data }\`)`);
   if (was.earlyBudget !== undefined) throw new Error(`sinter({ earlyBudget }) is renamed to \`firstPaint: { budget: ${JSON.stringify(was.earlyBudget)} }\``);
   if (was.components !== undefined) throw new Error(COMPONENTS_RENAMED);
   // nested options take known keys only, as markup does: a typo fails the build instead of doing nothing
@@ -267,8 +278,17 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   };
   keysOf('prefetch', options.prefetch, ['data', 'html']);
   keysOf('firstPaint', options.firstPaint, ['budget']);
+  // `prefetch.html` was `'prefetch'`, `'prerender'` or `{ mode, delivery }`: a value that repeated the option's name
+  const html0 = typeof options.prefetch === 'object' ? (options.prefetch.html as unknown) : undefined;
+  if (html0 === 'prefetch' || (typeof html0 === 'object' && html0 !== null && 'mode' in html0)) {
+    throw new Error(`sinter({ prefetch: { html: ${JSON.stringify(html0).replace(/"(\w+)":/g, '$1: ').replace(/"/g, "'")} } }) is renamed to \`html: ${htmlOf(html0)}\``);
+  }
+  if (html0 !== undefined && typeof html0 !== 'boolean' && html0 !== 'prerender' && (typeof html0 !== 'object' || html0 === null)) {
+    throw new Error(`sinter({ prefetch: { html } }): takes \`true\`, \`'prerender'\`, \`false\` or \`{ prerender, delivery }\`, not ${JSON.stringify(html0)}`);
+  }
+  keysOf('prefetch: { html }', html0, ['prerender', 'delivery']);
   const prefetchData = options.prefetch !== false && (typeof options.prefetch !== 'object' || options.prefetch.data !== false);
-  const speculation = options.prefetch === false ? false : typeof options.prefetch === 'object' && options.prefetch.html !== undefined ? options.prefetch.html : 'prefetch';
+  const speculation = options.prefetch === false ? false : typeof options.prefetch === 'object' && options.prefetch.html !== undefined ? options.prefetch.html : true;
   let root = process.cwd();
   /**
    * The project (its helpers, components, libraries, specs) as a build sees it: read once per build, from its start, where
@@ -816,7 +836,9 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   const spec = () => {
     // inline by default: it works with no server setup (a CSP in the page gets the rules' hash, see withRulesHash)
     const o = speculation;
-    return o === false ? null : typeof o === 'string' ? { mode: o, delivery: 'inline' as const } : { mode: o.mode, delivery: o.delivery ?? 'inline' };
+    if (o === false) return null;
+    if (o === true || o === 'prerender') return { mode: o === true ? 'prefetch' as const : 'prerender' as const, delivery: 'inline' as const };
+    return { mode: o.prerender ? 'prerender' as const : 'prefetch' as const, delivery: o.delivery ?? 'inline' };
   };
   /** the rules' JSON for links to the app's pages, or null; `samePage`: a page with same-page links (query-links.ts), whose own URLs are left out */
   /**

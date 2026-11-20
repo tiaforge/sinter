@@ -164,7 +164,7 @@ test('`embed: true`: placeholders for the resources only the URL decides, last i
 
 test('`delivery: \'header\'`: a rules file at the site root, no inline script; `vite preview` sends the header and its type', async () => {
   const dir = join(out, 'header');
-  const config = { root, logLevel: 'silent' as const, resolve: { alias }, build: { outDir: dir, emptyOutDir: true, minify: false }, plugins: [sinter({ prefetch: { html: { mode: 'prerender', delivery: 'header' } } })] };
+  const config = { root, logLevel: 'silent' as const, resolve: { alias }, build: { outDir: dir, emptyOutDir: true, minify: false }, plugins: [sinter({ prefetch: { html: { prerender: true, delivery: 'header' } } })] };
   await build(config);
   expect(readFileSync(join(dir, 'index.html'), 'utf8')).not.toContain('speculationrules');
   expect(JSON.parse(readFileSync(join(dir, 'speculation-rules.json'), 'utf8')).prerender[0].where.and[0].href_matches).toEqual(['/\\?*#*', '/index.html\\?*#*']);
@@ -223,9 +223,14 @@ test('by default every page carries inline rules for the app\'s paths; `prefetch
 test('the renamed options fail naming the new form', () => {
   expect(() => sinter({ prefetch: { page: 'prerender' } } as never)).toThrow('sinter({ prefetch }): no option `page`; it takes `data` and `html`');
   expect(() => sinter({ firstPaint: { budgt: 1 } } as never)).toThrow('sinter({ firstPaint }): no option `budgt`; it takes `budget`');
-  expect(() => sinter({ speculation: 'prerender' } as never)).toThrow("sinter({ speculation }) is renamed to `prefetch: { html: \"prerender\" }`");
+  expect(() => sinter({ speculation: 'prerender' } as never)).toThrow("sinter({ speculation }) is renamed to `prefetch: { html: 'prerender' }`");
+  expect(() => sinter({ speculation: 'prefetch' } as never)).toThrow('sinter({ speculation }) is renamed to `prefetch: { html: true }`');
+  // `html` no longer repeats the option's name: `true`, and `prerender: true` in the object
+  expect(() => sinter({ prefetch: { html: 'prefetch' } } as never)).toThrow("sinter({ prefetch: { html: 'prefetch' } }) is renamed to `html: true`");
+  expect(() => sinter({ prefetch: { html: { mode: 'prerender', delivery: 'header' } } } as never)).toThrow("is renamed to `html: { prerender: true, delivery: 'header' }`");
+  expect(() => sinter({ prefetch: { html: { delivry: 'header' } } } as never)).toThrow('sinter({ prefetch: { html } }): no option `delivry`; it takes `prerender` and `delivery`');
   expect(() => sinter({ earlyBudget: 20000 } as never)).toThrow('sinter({ earlyBudget }) is renamed to `firstPaint: { budget: 20000 }`');
-  expect(() => sinter({ components: ['@acme/ui'] } as never)).toThrow('sinter({ components }) is renamed to sinter({ libraries })');
+  expect(() => sinter({ components: ['@acme/ui'] } as never)).toThrow('sinter({ components }) is renamed to `libraries`');
 });
 
 /** a logger that keeps the info lines, for the build's hints */

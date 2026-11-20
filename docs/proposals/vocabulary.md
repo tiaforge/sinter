@@ -252,7 +252,8 @@ A second reader's review found bugs in the steps above (fixed, each with a test)
   name, each with its `when` (recipe: partial events). `numbered: 'offset'` (was `params.offset`, which
   switched the request as well as naming it).
 - `sinter({ libraries })` (was `components`): it lists component libraries.
-- `prefetch: { data, html }` (was `prefetch` and `speculation`), with `prefetch: false` turning off both as
+- `prefetch: { data, html }` (was `prefetch` and `speculation`; `html: true | 'prerender' | false | { prerender,
+  delivery }`, after the third review), with `prefetch: false` turning off both as
   `<html data-sn-prefetch="off">` does for a page; `firstPaint: { budget }` (was `earlyBudget`).
 - The feature module `./write-through` (was `./apply`).
 - Renamed attributes report under `SN101`, functions under `SN201`, values under `SN401`.

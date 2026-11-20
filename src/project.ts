@@ -179,7 +179,7 @@ function parseSpec(file: string, text: string): unknown {
 }
 
 /** `sinter({ components })` is the option's old name */
-export const COMPONENTS_RENAMED = 'sinter({ components }) is renamed to sinter({ libraries }): it lists component libraries, e.g. `libraries: [\'@acme/ui\']`';
+export const COMPONENTS_RENAMED = 'sinter({ components }) is renamed to `libraries`: it lists component libraries, e.g. `libraries: [\'@acme/ui\']`';
 
 export function project(root: string, options: ProjectOptions = {}): Project {
   const find = (given: string | undefined, base: string, exts = ['.js', '.ts']): string | null => {

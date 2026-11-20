@@ -61,6 +61,10 @@ A page where all of it is constant has nothing left to run, and ships no JavaScr
 
 ## The early script
 
+Two words, one feature: *first paint* is the goal, and names the option (`sinter({ firstPaint })`, its
+`budget`, SN523); *early* is how sinter gets there, and names the parts that run before the first
+paint: the early script, `src/sinter.early.ts`, `data-sn-early` and `<sn-resource early>`.
+
 Anything that needs a little code, but no data, is rendered by an early script that runs before
 the first paint:
 

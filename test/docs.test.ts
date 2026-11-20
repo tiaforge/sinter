@@ -259,7 +259,7 @@ function customData(): string {
 // Attribute reference for people: the vocabulary grouped by what it does. A new attribute must be placed in a group.
 const ATTRIBUTE_GROUPS: Array<[string, string, string[]]> = [
   ['Show data', 'Bind values to the page.', ['text', 'attr', 'class', 'style', 'show', 'with', 'for', 'key', 'if', 'else']],
-  ['Keep state', 'Local state next to the markup that uses it.', ['state', 'let', 'model', 'model-debounce', 'persist']],
+  ['Keep state', 'Local state next to the markup that uses it. `data-sn-model-<option>` attributes are the model\'s own, on the same field: `data-sn-model-debounce` delays the model, as `data-sn-debounce-<event>` delays a handler and `data-sn-debounce` an action.', ['state', 'let', 'model', 'model-debounce', 'persist']],
   ['Send changes', 'Turn an element into a request. Details: [actions](actions.md).', ['post', 'put', 'patch', 'delete', 'call', 'body', 'trigger', 'debounce', 'encoding', 'concurrency', 'confirm', 'retry', 'write-through']],
   ['After a request', 'What happens on screen around a response. Details: [optimistic updates](actions.md#optimistic-updates).', ['optimistic', 'then', 'catch']],
   ['React to events', 'Handlers without a request. Details: [events](actions.md), [key filters](actions.md).', ['on-<event>', 'debounce-<event>', 'options']],

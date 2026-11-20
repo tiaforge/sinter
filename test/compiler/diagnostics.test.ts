@@ -43,6 +43,10 @@ const R = `<sn-resource name="contacts" src="/api/c" key="id"></sn-resource>
   <sn-resource name="messages" src="/api/m" key="uid" paginate="{ keyset: {uid}, size: 5 }"></sn-resource>`;
 const use = '<p data-sn-text="contacts.length + messages.length"></p>';
 
+test('a helper named like a retired function is the app\'s own, in handlers as in bindings', () => {
+  expect(diags('<form data-sn-post="/api/x" data-sn-then="reset()"><b data-sn-on-click="close(1)" data-sn-text="patch(2)"></b></form>', { helpers: ['reset', 'close', 'patch'] })).toEqual([]);
+});
+
 test('a retired action has its own error: its options do not ask for an action', () => {
   expect(diags('<button data-sn-get="/api/x" data-sn-trigger="click"></button>').map((d) => d.code)).toEqual(['SN101']);
 });

@@ -21,7 +21,7 @@ Bind values to the page.
 
 ## Keep state
 
-Local state next to the markup that uses it.
+Local state next to the markup that uses it. `data-sn-model-<option>` attributes are the model's own, on the same field: `data-sn-model-debounce` delays the model, as `data-sn-debounce-<event>` delays a handler and `data-sn-debounce` an action.
 
 | Attribute | Value | Meaning |
 | --- | --- | --- |

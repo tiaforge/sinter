@@ -508,8 +508,9 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
       return null;
     }
     if (STORE_FNS.includes(name) && storeHere) return { kind: 'store' };
-    // an old store function called where store functions are (an <sn-event> `then` too, where other unknown names are payload fields)
-    if (Object.hasOwn(RETIRED_FNS, name) && storeHere && /^\s*\(/.test(src.slice(offset + name.length))) {
+    // an old store function called where store functions are (an <sn-event> `then` too, where other unknown names are payload fields);
+    // a helper of that name is the app's own, and wins as everywhere else
+    if (Object.hasOwn(RETIRED_FNS, name) && storeHere && !page.helpers.has(name) && /^\s*\(/.test(src.slice(offset + name.length))) {
       report('SN201', RETIRED_FNS[name]!, offset);
       return null;
     }

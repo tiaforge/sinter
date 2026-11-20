@@ -406,6 +406,6 @@ describe('a package namespace by its declaring modules (section 8\'s per-module 
   });
 });
 
-test('sinter({ components }) is renamed to sinter({ libraries })', () => {
-  expect(() => project(app(), { components: ['@fixture/ui'] } as never)).toThrow(/sinter\(\{ components \}\) is renamed to sinter\(\{ libraries \}\)/);
+test('sinter({ components }) is renamed to `libraries`', () => {
+  expect(() => project(app(), { components: ['@fixture/ui'] } as never)).toThrow(/sinter\(\{ components \}\) is renamed to `libraries`/);
 });
