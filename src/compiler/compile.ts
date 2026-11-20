@@ -5,7 +5,7 @@ import { rewriteImages, sourceFile, type ImageHost, type ImageResult } from './i
 import { boxSizesCss, type ReserveTrace, Layout, PLACEHOLDER_BASE, type Affine, type Reserved, type StyleSheet } from './layout.js';
 import { shows } from './status-eval.js';
 import { recordChild, replay as replayUnit, LINK_FIELDS, UNIT_NUMBERING, type Plan, type Refused } from './link.js';
-import { HEAD_ELEMENTS, kindOfComponent, parseDocument } from './head.js';
+import { HEAD_ELEMENTS, kindOfComponent, parseDocument, STRUCTURAL } from './head.js';
 import { minifyMarkup } from './minify.js';
 import type { RemoteConfig } from '../remote.js';
 import { AUTO_FIT_HINT, AUTO_FIT_ROWS, FLUID_WIDTHS } from './images.js';
@@ -15,7 +15,7 @@ import { fullAncestor } from 'acorn-walk';
 import type { DefaultTreeAdapterMap } from 'parse5';
 import { type Code, type Diagnostic, didYouMean, severityOf, suggest } from './diagnostics.js';
 import { analyze, applyEdits, refNames, STORE_FNS, throughField, type SlotScope, type ComponentScope, type ExprOptions, type ExprResult, type LetEntry, type LoopEntry, type PageInfo, type Read, type ResourceInfo, type Scope } from './expr.js';
-import { callerAttribute, COMPONENT_NAME, DOM_EVENTS, LIBRARY_LAYER, rootCss, scopeCss, SLOT_TYPE, typeMembers, withoutSlots, type Member } from './components.js';
+import { callerAttribute, COMPONENT_NAME, DOM_EVENTS, isArrayType, LIBRARY_LAYER, rootCss, scopeCss, SLOT_TYPE, typeMembers, withoutSlots, type Member } from './components.js';
 import type { Node } from 'acorn';
 import type * as acorn from 'acorn';
 import { COMPLEXITY_DEFAULTS, COMPLEXITY_LIMITS, measure, type ComplexityOptions } from './complexity.js';
@@ -2587,17 +2587,32 @@ class Compiler {
     const top = frag.childNodes.filter(isElement);
     for (const t of top) if (t.tagName === 'template') this.declaration(t, def.head ? 'data-sn-head' : 'data-sn-component', ['data-sn-component', 'data-sn-head']);
     const templates = top.filter((t) => t.tagName === 'template' && (attr(t, 'data-sn-component') !== undefined || attr(t, 'data-sn-head') !== undefined));
+    const decl = def.head ? 'data-sn-head' : 'data-sn-component';
+    // without `data-sn-props`, the file's only top-level `<template>` is its declaration: a component without props
+    const bare = templates.length ? [] : top.filter((t) => t.tagName === 'template');
+    if (bare.length > 1) {
+      return fail(bare[1]!, null, `component \`<${name}>\` has ${bare.length} top-level \`<template>\`s and none has \`data-sn-props\`: a component file holds one \`<template>\` around its markup`,
+        'keep one `<template>` at the top and move the others inside it; with props, mark it: `<template data-sn-props="{ article: Article }">`');
+    }
+    const structural = bare.length ? bare[0]!.attrs.find((a) => STRUCTURAL.includes(a.name)) : undefined;
+    if (structural) {
+      return fail(bare[0]!, structural.name, `the top-level \`<template>\` of \`<${name}>\`'s file is its declaration, around its markup: \`${structural.name}\` cannot be on it`,
+        `put it on a template inside: \`<template><template ${structural.name}="…">…</template></template>\``);
+    }
+    if (bare.length) {
+      bare[0]!.attrs.push({ name: decl, value: '' });
+      templates.push(bare[0]!);
+    }
     if (templates.length !== 1) {
-      return fail(templates[1] ?? null, null, `component \`<${name}>\` needs ${templates.length ? 'exactly ' : ''}one \`<template data-sn-props="{ …props }">\` (one root element, or head elements only) around its markup`,
-        '`<template data-sn-props="{ article: Article }"><article>…</article></template>`');
+      return fail(templates[1] ?? null, null, `component \`<${name}>\` needs ${templates.length ? 'exactly ' : ''}one \`<template>\` around its markup (with \`data-sn-props="{ …props }"\` when it takes props; one root element, or head elements only)`,
+        '`<template data-sn-props="{ article: Article }"><article>…</article></template>`, or `<template><footer>…</footer></template>` without props');
     }
     const template = templates[0]!;
     if (attr(template, 'data-sn-component') !== undefined && attr(template, 'data-sn-head') !== undefined) {
       return fail(template, 'data-sn-head', `\`<${name}>\` declares both \`data-sn-component\` and \`data-sn-head\`, which are one \`data-sn-props\` now`, 'its markup says the kind: one root element for a body, head elements only for a head');
     }
-    const decl = def.head ? 'data-sn-head' : 'data-sn-component';
     for (const t of top) {
-      if (t !== template && t.tagName !== 'style') return fail(t, null, `a component file holds its \`<template data-sn-props>\` and \`<style>\`; \`<${t.tagName}>\` belongs inside the template`);
+      if (t !== template && t.tagName !== 'style') return fail(t, null, `a component file holds its \`<template>\` and \`<style>\`; \`<${t.tagName}>\` belongs inside the template`);
     }
     if (def.head && def.css === undefined && top.some((t) => t.tagName === 'style')) {
       def.css = null;
@@ -6451,6 +6466,8 @@ class Compiler {
       ...(then ? { then: then.f, ...(then.w.length ? { w: then.w } : {}) } : {}),
       ...(sch ? { sch: sch.name } : {}),
       ...(body != null ? { body } : {}),
+      // no key, and a list by its type or the OpenAPI response at `items` (a list of strings has no key): empty, it is `[]`
+      ...(!info.key && !each && (type ? isArrayType(type) : !!openapi && 'schema' in openapi && deref(this.opts.openapi![openapi.spec]!.doc, openapi.schema)?.type === 'array') ? { ls: 1 as const } : {}),
     });
     this.declAt.set(this.resources[this.resources.length - 1]!, el);
   }
@@ -6559,7 +6576,7 @@ class Compiler {
       this.check.resources.push({ name, type: type ? `(${type})[]` : null, loc: this.locOf(el, type ? 'type' : null), nameLoc: this.locOf(el, 'name'), ...typed });
       if (!type && !this.opts.contentModule) this.report(el, null, 'SN504', `resource \`${name}\` has no type: expressions using it are not checked`, 0, 'add `type="…"`, one entry\'s type from the types module, or `type="any"` to leave it unchecked');
     }
-    this.resources.push({ name, src: [], key: info.key, items: null, total: null, order: null, when: null, paginate: null, deps: [], scope, data: null, fx: 1 });
+    this.resources.push({ name, src: [], key: info.key, items: null, total: null, order: null, when: null, paginate: null, deps: [], scope, data: null, fx: 1, ...(info.key ? {} : { ls: 1 as const }) });
     this.declAt.set(this.resources[this.resources.length - 1]!, el);
   }
 
@@ -6728,7 +6745,9 @@ class Compiler {
       const md = bodied;
       if (!type && typeof value !== 'string' && !md) this.report(el, null, 'SN504', `resource \`${name}\` has no type: expressions using it are not checked`, 0, 'add `type="…"` with a type from the types module, or `type="any"` to leave it unchecked');
     }
-    this.resources.push({ name, src: [], key: info.key, items, total: null, order: null, when: null, paginate: null, deps: [], scope, data: null, fx: 1 });
+    // a JSON list without `key` (at `items`): `[]` when empty, as a loaded one
+    const listed = Array.isArray(items ? items.split('.').reduce<unknown>((o, k) => (o as Record<string, unknown> | null)?.[k], value) : value);
+    this.resources.push({ name, src: [], key: info.key, items, total: null, order: null, when: null, paginate: null, deps: [], scope, data: null, fx: 1, ...(!info.key && listed ? { ls: 1 as const } : {}) });
     this.declAt.set(this.resources[this.resources.length - 1]!, el);
   }
 
@@ -8372,7 +8391,7 @@ class Compiler {
             checks.add(fn(`() => { for (const k of Object.keys(sessionStorage)) if (/^sn:[cp]:\\[/.test(k) && k.includes(${JSON.stringify(start)}) && k.endsWith(${JSON.stringify(end)})) { let e; try { e = JSON.parse(sessionStorage.getItem(k)); } catch { throw 0; } if (!e || JSON.stringify(e.items) !== ${none} || e.total != null) throw 0; } }`));
           }
           const when = def.when != null ? `!!f[${fn(this.fns[def.when]!)}]($)` : 'true';
-          if (r !== null) { edits.push([n.start, n.end, def.key ? '[]' : 'null']); return; }
+          if (r !== null) { edits.push([n.start, n.end, def.key || def.ls ? '[]' : 'null']); return; }
           const field = parent?.type === 'MemberExpression' && parent.object === n && !parent.computed ? parent.property.name : null;
           if (field === 'loading') { edits.push([parent.start, parent.end, when]); return; }
           if (field === 'error' || field === 'loadedAt') { edits.push([parent.start, parent.end, 'null']); return; }
@@ -8421,7 +8440,7 @@ class Compiler {
       // rows is the page module's either way
       const defs = names.map((n) => this.resources.find((r) => r.name === n));
       if (!names.length || defs.some((d) => !d || embedded.has(d.name) || d.each || d.call)) return false;
-      const data = Object.fromEntries(defs.map((d) => [d!.name, d!.key ? [] : null]));
+      const data = Object.fromEntries(defs.map((d) => [d!.name, d!.key || d!.ls ? [] : null]));
       const code = this.fns[b.f!]!;
       return shows(code, names, { loading: true }, [], data) === false && shows(code, names, { loading: false }, [], data) === false;
     };
@@ -8528,7 +8547,7 @@ class Compiler {
       if (used.length) namespaces[ns] = used;
     }
     const ir: EarlyIR = { roots, templates };
-    if (usedEmb.size) ir.emb = Object.fromEntries([...usedEmb].map((n) => [n, { id: embedded.get(n)!.data!, items: embedded.get(n)!.items ?? null }]));
+    if (usedEmb.size) ir.emb = Object.fromEntries([...usedEmb].map((n) => [n, { id: embedded.get(n)!.data!, items: embedded.get(n)!.items ?? null, ...(embedded.get(n)!.ls ? { ls: 1 as const } : {}) }]));
     if (res.length) ir.res = res;
     if ((url || readsUrl) && this.pathList.length) ir.path = this.pathList;
     const arrays = this.urlArrays();
