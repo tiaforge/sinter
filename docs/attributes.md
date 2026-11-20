@@ -91,6 +91,7 @@ Set on `<html>` or on shared elements; `wait` on a box around a list. Details: [
 | `data-sn-path` | URL patterns /a/:b … | on &lt;html&gt;: the path shapes this page is served for; `:name` segments appear read-only in $url |
 | `data-sn-prefetch` | off | on &lt;html&gt;: no other page prefetches this one's data or the page itself (Speculation Rules), and none prerenders it; for pages that do something when they load |
 | `data-sn-swap` | off | on &lt;html&gt;: links here load it; on a link: it loads its page |
+| `data-sn-signed-in` | empty, or a condition over $url | on &lt;html&gt; (or a layout's tag): the page needs a session of its API's `token`: with none (and the condition true), to its `signIn` before anything paints, or on a 401. Convenience, not security |
 | `data-sn-permanent` | name | with sinter({ swap }): kept as is (playing, scrolled) across a link to a page with the name; its bindings go on |
 | `data-sn-transition` | value expression (a name) | the same thing on two pages: following a link from the element (or its row) to a page with an element of the same name morphs one into the other (view transitions; back too) |
 | `data-sn-resource` | resource name | on &lt;script type="application/json"&gt; in &lt;head&gt;: initial data for a resource |
@@ -141,5 +142,5 @@ A named, page-wide cache of server data. Details: [resources](resources.md).
 ## Names available in expressions
 
 - **Magic names:** `$event`, `$el`, `$url`, `$now`, `$locale`, `$result`, `$error`, `$meta`. Filled in by the build: `$site` and `$canonical` (the site's root and the page's URL, with `sinter({ site })`), `$slot` (in a fill of a slot declared `Slot<T>`, the values it passes) and `localeUrl(locale)` (this page in another language, with `sinter({ localePrefix: true })`). `$item`, in `paginate`'s cursor only, is the item at the page's edge.
-- **Store functions:** `refresh()`, `upsert()`, `merge()`, `remove()`, `page()`, `openDialog()`, `closeDialog()`, `emit()`, `run()`, `navigate()`.
+- **Store functions:** `refresh()`, `upsert()`, `merge()`, `remove()`, `page()`, `openDialog()`, `closeDialog()`, `emit()`, `run()`, `navigate()`, `signOut()`.
 - **Built-in helpers:** `date()`, `relative()`, `number()`, `bytes()`.

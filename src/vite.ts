@@ -121,8 +121,8 @@ export interface SinterOptions extends ProjectOptions {
   /**
    * Builds served by a server that writes each page's data into it (sinter-axum): every resource whose
    * request only the page's URL decides gets a placeholder in the head, and the browser neither preloads
-   * nor requests it early, since the data comes with the page. Not `call`, `each`, or `early="off"` (a
-   * request a middleware changes, such as one with the user's token). `sinter-embed.json` lists them.
+   * nor requests it early, since the data comes with the page. Not `call`, `each`, `early="off"`, or an
+   * operation of an API with a `token` (the server has no visitor's token). `sinter-embed.json` lists them.
    * `vite dev` is unaffected: there is no server there to fill them.
    */
   embed?: boolean;

@@ -132,12 +132,9 @@ import { configure, header, onUnauthorized, loginRedirect } from '@tiaforge-ui/s
 
 configure({
   request: [
-    // a value the browser knows, read for each request (none while signed out); a fixed one
-    // (credentials, a CSRF header) goes on the API: sinter({ apis })
-    header('Authorization', () => {
-      const token = localStorage.getItem('token');
-      return token && `Bearer ${token}`;
-    }),
+    // a value the browser knows, read for each request (none while unset); a fixed one (credentials,
+    // a CSRF header) goes on the API, and so does a token it issues: sinter({ apis: { main: { token } } })
+    header('X-Tenant', () => localStorage.getItem('tenant')),
     onUnauthorized(loginRedirect({ to: '/login/', returnUrl: { allow: ['/app/'] } })),
   ],
   sessionProbe: '/api/user',
@@ -189,11 +186,11 @@ Built in:
 
 | Function | Does |
 | --- | --- |
-| `header(name, value, { origin })` | adds a header to same-origin requests, or only to `origin`: for a value the browser knows (a token). `value` is a function called for each request, `() => string \| null \| undefined` (null or undefined: no header), so a token set after sign-in is sent, also with swapped pages; a string is sent as it is. Fixed credentials and headers go on the API ([docs/apis.md](apis.md)), which keeps early requests |
+| `header(name, value, { origin })` | adds a header to same-origin requests, or only to `origin`: for a value the browser knows. `value` is a function called for each request, `() => string \| null \| undefined` (null or undefined: no header), so a token set after sign-in is sent, also with swapped pages; a string is sent as it is. Fixed credentials and headers, and a token the API issues (`token`, [docs/apis.md](apis.md#a-token)), go on the API, which keeps early requests |
 | `onUnauthorized(handler)` | calls `handler(request, response)` on a 401 |
 | `loginRedirect({ to, returnUrl })` | stores the current URL (same-origin and under an allowed prefix only), clears persisted state, goes to `to`. It never resolves, so `then` and `catch` do not run |
 | `takeReturnUrl(allow)` | on the login page: the stored URL if it is same-origin and under an allowed prefix, else `null`; removes it |
-| `clearStored()` | removes what sinter stored in the browser: `data-sn-persist` values, the page-load cache and next-page data. Call it on sign-in and sign-out |
+| `clearStored()` | removes what sinter stored in the browser: `data-sn-persist` values, the page-load cache and next-page data. Call it on sign-in and sign-out (an API's `token` does it itself, and `signOut()` with it) |
 
 Requests time out after 30 seconds, and nothing is sent twice unless a [retry policy](retry.md) says so.
 
