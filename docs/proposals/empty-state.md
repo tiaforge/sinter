@@ -47,10 +47,11 @@ which works without JavaScript), the second pass, the early file (it paints the 
 not to show and never meets the placeholder), anchors (it renders between its own comments, after the list's,
 so CSS still sees plain children; the minifier, swaps and adoption already know a branch after a list). The
 runtime has no new binding: the if binding renders it. `npm run size`: the core grew by the `when` change
-below only.
+below only (87 B minified, 18 B gzip; the `for` module 98 B, 26 B gzip). A page pays for its conditions: RealWorld's
+index page, whose hand-written condition read a let of the status, is 57 B gzip larger.
 
 The list is evaluated twice, by the list and by its empty state, as a hand-written condition does; an expensive
-helper keeps its result with `memo()`. A plain array (a resource, `filter`/`slice`/`toSorted`/`toReversed`) is
+helper keeps its result with `memo()`. A plain array (a resource, a let choosing between collections, `filter`/`slice`/`toSorted`/`toReversed`) is
 tested with `.length`; anything else (a `Set` in state, a helper's result) with `[...list].length`, since a list
 may be any iterable.
 

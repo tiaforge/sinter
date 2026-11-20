@@ -2610,9 +2610,9 @@ class Compiler {
     };
     const ast = parse(list);
     // the same text twice where it is plain: a resource, or what keeps a list an array
-    const array = !!ast && ((ast.type === 'Identifier' && look(ast.name, lets.length) === 'resource')
+    const array = !!ast && ((ast.type === 'Identifier' && ((x) => x === 'resource' || !!(x?.names?.length && x.names.every((n) => this.page.resources.get(n)?.key)))(look(ast.name, lets.length)))
       || (ast.type === 'CallExpression' && ast.callee.type === 'MemberExpression' && !ast.callee.computed && ast.callee.property.type === 'Identifier' && ['filter', 'slice', 'toSorted', 'toReversed'].includes(ast.callee.property.name)));
-    const empty = array ? `!(${list}).length` : `![...((${list}) || [])].length`;
+    const empty = array ? `!(${list})?.length` : `![...((${list}) || [])].length`;
     const loaded = ast ? walk(ast, list, lets.length) : null;
     // a choice that may not compile here (its test reads a name of the let's own place): wait for every candidate
     if (loaded && !analyze(loaded, scope, this.page, { mode: 'value', report: () => {} }).ok) {
