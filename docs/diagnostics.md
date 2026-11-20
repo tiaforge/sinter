@@ -22,16 +22,6 @@ The attribute or element is valid, but not here: lists and conditionals render f
 
 **Fix:** Move it to where the message says, wrapping the content in a `<template>` if needed.
 
-## SN103 missing-row-key
-
-Error, for example:
-
-> a `data-sn-for` over primitive values needs `data-sn-key`
-
-sinter keys list rows by the resource key or by object identity. Strings and numbers have neither, so rows could not be matched on update.
-
-**Fix:** Add `data-sn-key` with an expression that is unique per row, such as the value itself: `data-sn-key="tag"`.
-
 ## SN104 unsupported-model
 
 Error, for example:

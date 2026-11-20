@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
-// Random small templates of nested lists, branches, texts without an element and elements, inside a row: the page
+// Random small templates of nested lists (of objects, and of strings and numbers with duplicates and no key), branches,
+// texts without an element and elements, inside a row: the page
 // after a state change must equal a fresh render of the new state, and the build over constants.
 import { expect, test } from 'vitest';
 import { render } from '../../src/testing/index.js';
@@ -16,7 +17,7 @@ function template(r: () => number, v: string, depth: number): string {
   const n = 1 + Math.floor(r() * 3);
   let out = '';
   for (let i = 0; i < n; i++) {
-    const kinds = depth > 0 ? ['text', 'lit', 'el', 'if', 'ifelse', 'for', 'static'] : ['text', 'lit', 'el', 'static'];
+    const kinds = depth > 0 ? ['text', 'lit', 'el', 'if', 'ifelse', 'for', 'prims', 'static'] : ['text', 'lit', 'el', 'static'];
     switch (pick(kinds)) {
       case 'text': out += `<template data-sn-text="${v}.t"></template>`; break;
       case 'lit': out += `<template data-sn-text="'~'"></template>`; break;
@@ -25,13 +26,21 @@ function template(r: () => number, v: string, depth: number): string {
       case 'if': out += `<template data-sn-if="${v}.on">${template(r, v, depth - 1)}</template>`; break;
       case 'ifelse': out += `<template data-sn-if="${v}.on">${template(r, v, depth - 1)}</template><template data-sn-else>${template(r, v, depth - 1)}</template>`; break;
       case 'for': { const w = v + 'y'; out += `<template data-sn-for="${w} in ${v}.c">${template(r, w, depth - 1)}</template>`; break; }
+      // strings and numbers with duplicates, no key (value and occurrence): a text, a branch on the value, an element
+      case 'prims': {
+        const w = v + 'g';
+        const row = pick([`<template data-sn-text="${w}"></template>`, `<i data-sn-text="${w}"></i>`, `<template data-sn-if="${w} === 'a'"><b>A</b></template><template data-sn-text="${w}"></template>`, `<template data-sn-text="${w}"></template>-<template data-sn-if="${w} === 1"><u>1</u></template>`]);
+        out += `<template data-sn-for="${w} in ${v}.g">${row}</template>`;
+        break;
+      }
     }
   }
   return out;
 }
 
 function data(r: () => number, depth: number): unknown[] {
-  return Array.from({ length: Math.floor(r() * 3) }, (_, i) => ({ on: r() < 0.5, t: 'T' + i + Math.floor(r() * 9), c: depth > 0 ? data(r, depth - 1) : [] }));
+  const g = () => Array.from({ length: Math.floor(r() * 5) }, () => ['a', 'a', 'b', 1, '1'][Math.floor(r() * 5)]);
+  return Array.from({ length: Math.floor(r() * 3) }, (_, i) => ({ on: r() < 0.5, t: 'T' + i + Math.floor(r() * 9), c: depth > 0 ? data(r, depth - 1) : [], g: g() }));
 }
 
 /** the rendered content as the user sees it: elements and text, no comments */

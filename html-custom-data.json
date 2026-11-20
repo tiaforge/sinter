@@ -207,7 +207,7 @@
     },
     {
       "name": "data-sn-key",
-      "description": "row identity; defaults to the resource key or object identity (value expression)"
+      "description": "row identity; inferred: resource key, object identity or value (value expression)"
     },
     {
       "name": "data-sn-if",

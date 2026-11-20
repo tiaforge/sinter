@@ -5902,8 +5902,12 @@ class Compiler {
       if (k.ok) t.key = this.fn(k.code);
     } else if (resInfo?.key) {
       t.keyFields = resInfo.key;
-    } else if (list.ast && primitiveList(list.ast)) {
-      this.report(el, 'data-sn-for', 'SN103', 'a `data-sn-for` over primitive values needs `data-sn-key`', m[0].length);
+    } else {
+      // a choice between resources (`f ? feed : articles`, through lets, `filter`/`toSorted` and a helper given
+      // one): their key, when every candidate has the same. Primitives key by value at run time (`keysOf`)
+      const names = list.listOf;
+      const keys = names?.length && names.every((n) => /^[\w$]+$/.test(n)) ? names.map((n) => this.page.resources.get(n)?.key) : null;
+      if (keys?.every((k) => k && k.join('\0') === keys[0]!.join('\0'))) t.keyFields = keys[0]!;
     }
     // a plain list path changes the rows only through its structure or replaced elements (`#`), not element fields
     const deps = alias && list.deps.length == 1 && list.deps[0] == list.path!.join('.') ? [list.deps[0] + '.#'] : list.deps;
@@ -9278,17 +9282,6 @@ function detach(el: P5Element) {
   const i = p.childNodes.indexOf(el as never);
   if (i >= 0) p.childNodes.splice(i, 1);
   el.parentNode = null;
-}
-
-function primitiveList(ast: { type: string }): boolean {
-  const a = ast as { type: string; elements?: Array<{ type: string } | null>; callee?: { type: string; object?: { type: string; name?: string }; property?: { name?: string } } };
-  if (a.type === 'ArrayExpression') return (a.elements ?? []).every((e) => e && (e.type === 'Literal' || e.type === 'TemplateLiteral'));
-  if (a.type === 'CallExpression' && a.callee?.type === 'MemberExpression') {
-    const obj = a.callee.object, prop = a.callee.property?.name;
-    if (obj?.type === 'Identifier' && obj.name === 'Object' && prop === 'keys') return true;
-    if (prop === 'split') return true;
-  }
-  return false;
 }
 
 export function normalize(p: string): string {
