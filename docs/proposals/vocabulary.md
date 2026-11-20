@@ -293,6 +293,8 @@ What the fourth review left of the same kind, across the JavaScript and configur
   `{ prerender: true }`. The object's key is the one that has room for another value.
 - `clearStored()` (was `clearPersisted()`, which said half of what it does: it also removes the page-load
   cache and the next-page data). One function, what an app calls on sign-in and sign-out.
+- `@tiaforge-ui/sinter/components` goes: it was `@tiaforge-ui/sinter/runtime/components` under a second name. Only
+  generated code imports it (the page modules, a component script's base in its `.html`, the components' types).
 
 ## Looked at and kept
 
@@ -324,7 +326,7 @@ Every migration error of this proposal goes at 1.0, at once. They live in:
   (`data-sn-on-navigate`, `data-sn-on-dismiss`) and `offset: true` in `paginate`, in `src/compiler/compile.ts`.
 - `retiredOptions` in `src/project.ts` (`components`, the module paths, `content: '<path>'`), the renamed
   options in `src/vite.ts` (`speculation`, `earlyBudget`, the old `prefetch.html` values, `fonts.inline`), `credentials()` in
-  the config module (`configSource`), `clearPersisted` in an app module (`retiredExport` in `src/project.ts`), the old `complexity` keys (`complexityOf`), `--check-cycles` in
+  the config module (`configSource`), `clearPersisted` and `@tiaforge-ui/sinter/components` in an app module (`retiredExport` in `src/project.ts`), the old `complexity` keys (`complexityOf`), `--check-cycles` in
   `src/cli.ts`, and `render({ minify, remoteImages })` in `src/testing/index.ts`.
 - Already deprecated, also going: the top-level `sinter({ openapi })` and `render({ openapi })` (an API's
   `openapi`), and `configure({ origins })` (`sinter({ origins })`).

@@ -396,10 +396,11 @@ function configSource(rel: string, source: string): string {
 }
 
 /**
- * The main entry's exports that are gone or renamed, as an app module imports them: what to write instead, or null.
+ * The package's exports that are gone or renamed, as an app module imports them: what to write instead, or null.
  * (A missing export alone fails the build without naming its replacement.)
  */
 export function retiredExport(source: string): string | null {
+  if (/['"]@tiaforge-ui\/sinter\/components['"]/.test(source)) return '`@tiaforge-ui/sinter/components` is gone: a component\'s script extends its base from its own HTML (`import { TaskRingComponent } from \'./task-ring.html\'`), which imports `@tiaforge-ui/sinter/runtime/components` as compiled pages do';
   if (!/\bclearPersisted\b/.test(source) || !/['"]@tiaforge-ui\/sinter['"]/.test(source)) return null;
   return '`clearPersisted()` is renamed to `clearStored()`: it removes the page-load cache and the next-page data as well as the `data-sn-persist` values';
 }

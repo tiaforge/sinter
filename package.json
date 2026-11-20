@@ -35,7 +35,6 @@
     "./ws": "./dist/ws.js",
     "./retry": "./dist/retry.js",
     "./messages": "./dist/messages.js",
-    "./components": "./dist/components.js",
     "./memo": "./dist/memo.js",
     "./compiler": "./dist/compiler/index.js",
     "./vite": "./dist/vite.js",
