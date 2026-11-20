@@ -52,7 +52,7 @@ test('next-page data: every page shares one module describing the pages; `prefet
   const js = (dir: string) => readdirSync(join(dir, 'assets')).filter((f) => f.endsWith('.js')).map((f) => readFileSync(join(dir, 'assets', f), 'utf8')).join('\n');
   await run(out);
   // the fixture's index page: its people request needs nothing but the URL
-  expect(js(out).replace(/\s+/g, '')).toContain(`prefetch([{m:["/","/index.html"],r:[{"s":["/api/people"],"i":null,"t":null,"k":1}]`);
+  expect(js(out).replace(/\s+/g, '')).toContain(`prefetch([{m:["/","/index.html"],r:[{"s":["/api/people"],"k":1}]`);
   const dir = join(out, 'no-prefetch');
   await build({ root, logLevel: 'silent', resolve: { alias }, build: { outDir: dir, emptyOutDir: true, minify: false }, plugins: [sinter({ prefetch: false })] });
   expect(js(dir)).not.toContain('"/index.html"');
@@ -69,7 +69,7 @@ test('next-page data with `sinter({ apis })`: the request with its API\'s base a
     await build({ root, logLevel: 'silent', resolve: { alias }, build: { outDir: dir, emptyOutDir: true, minify: false },
       plugins: [sinter({ apis: { app: { base: '/api', operations: { 'GET /people': { key: 'id', type: 'any' } } } } })] });
   } finally { writeFileSync(page, original); }
-  expect(js(dir).replace(/\s+/g, '')).toContain(`prefetch([{m:["/","/index.html"],r:[{"s":["/api/people"],"i":null,"t":null,"k":1}]`);
+  expect(js(dir).replace(/\s+/g, '')).toContain(`prefetch([{m:["/","/index.html"],r:[{"s":["/api/people"],"k":1}]`);
 });
 
 test('`<html data-sn-prefetch="off">`: the page is in neither the next-page module nor the rules', async () => {

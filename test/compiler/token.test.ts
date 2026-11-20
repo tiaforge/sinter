@@ -36,7 +36,8 @@ function build(o: Partial<CompileOptions> = {}, apis: Record<string, ApiOptions 
   const out = compile(PAGE, opts);
   expect(out.diagnostics.filter((d) => d.severity === 'error')).toEqual([]);
   const eir = compileParts(PAGE, opts).early?.ir as any;
-  const res = (eir?.res ?? []) as Array<{ name: string; a?: number; r?: 1 }>, as = eir?.as ?? [];
+  // each request by the last segment of its URL
+  const res = ((eir?.res ?? []) as Array<{ src: string[]; a?: number; r?: 1 }>).map((r) => ({ ...r, name: r.src[0]!.split('/').pop()! })), as = eir?.as ?? [];
   return { out, res, as, preloads: [...out.html.matchAll(/rel="preload" as="fetch"[^>]* href="([^"]+)"/g)].map((m) => m[1]) };
 }
 

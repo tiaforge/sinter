@@ -21,9 +21,9 @@ afterEach(() => {
   setEnv(defaultEnv); configure({ retry: null });
 });
 
-/** The early file of a page whose state is `{ week }` and whose resources are given as URL templates over it. */
+/** The early file of a page whose state is `{ week }` and whose resources are given (named, for the reader) as URL templates over it. */
 function earlyFile(res: Array<[string, Array<string | number>, number | null]>, fns: Array<(s: any) => unknown>) {
-  const ir: Pick<EarlyIR, 'res'> = { res: res.map(([name, src, when]) => ({ name, src, when, scope: 0 })) };
+  const ir: Pick<EarlyIR, 'res'> = { res: res.map(([, src, when]) => ({ src, ...(when != null ? { when } : {}), scope: 0 })) };
   const f = [() => ({ week: '2026-11-02', sel: null }), ...fns];
   start(() => ({ ir, fns: f, scopes: ($) => [st($, f[0]!, 0)], render: () => {} }), null, requests(undefined, configured));
 }

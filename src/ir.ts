@@ -209,11 +209,11 @@ export interface EarlyIR {
   templates: Array<{ nodes: NodeDef[]; item?: string; index?: string | null; w?: 1 } | null>;
   /** resources with embedded data the early bindings read (`$r.<name>`): the data element's `data-sn` id and `select` path */
   emb?: Record<string, { id: number; select: string | null; ls?: 1 }>;
-  /** resources the early file requests: URL template and `when` (function indexes into the early table), scope by index into `roots`, -1 for the page; `q`: a paginated resource's first-page query parameters */
+  /** resources the early file requests: URL template and `when` (function indexes into the early table; absent: always), scope by index into `roots`, -1 for the page; `q`: a paginated resource's first-page query parameters */
   res?: Array<{
-    name: string; src: UrlTemplate; when: number | null; scope: number; q?: Record<string, string>;
-    /** `model` (paginate): from page 2 on, `qn` with `k` set to the page (`o`: the items to skip, `(n - 1) * s`) */
-    sp?: { f: number; k: string; s: number; o?: 1; qn: Record<string, string> };
+    src: UrlTemplate; when?: number; scope: number; q?: Record<string, string>;
+    /** `model` (paginate, numbered): from page 2 on, `q` with `k` set to the page (`o`: the items to skip, `(n - 1) * s`) */
+    sp?: { f: number; k: string; s: number; o?: 1 };
     lo?: 1; xo?: 1;
     /** the request settings of the resource's API (`sinter({ apis })`): an index into `as` */
     a?: number;

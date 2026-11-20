@@ -382,7 +382,7 @@ export interface PrefetchParts {
    * a paginated resource's first page: `q` its parameters (`firstParams`), and with `model` (paginate) `sp`, the page the
    * link's URL names, as the early file reads it (`startOf`): from page 2 on, `q` with `k` set to the page (`o`: the items to skip)
    */
-  res: Array<{ s: UrlTemplate; w?: number; i: string | null; t: string | null; k?: 1; q?: Record<string, string>; sp?: { f: number; k: string; s: number; o?: 1 } }>;
+  res: Array<{ s: UrlTemplate; w?: number; i?: string; t?: string; k?: 1; q?: Record<string, string>; sp?: { f: number; k: string; s: number; o?: 1 } }>;
   fns: string[];
   /** helper names and namespace members the functions call */
   helpers: string[];
@@ -8675,7 +8675,7 @@ class Compiler {
       if (scope === undefined || codes.some(builtin) || codes.some((c) => /\$(r|meta|el)\b/.test(c))) continue;
       reads.push(...strs(def.deps));
       url ||= codes.some((c) => c.includes('$url'));
-      res.push({ name: def.name, src: def.src.map((x) => (typeof x === 'number' ? fn(this.fns[x]!) : x)), when: def.when != null ? fn(this.fns[def.when]!) : null, scope, ...(def.paginate ? { q: firstParams(def.paginate) } : {}), ...(def.paginate && start != null ? { sp: startOf(def.paginate, fn(this.fns[start]!)) } : {}), ...(def.lo ? { lo: 1 as const } : {}), ...(where === 'listed' ? { xo: 1 as const } : {}), ...(settings(def.name)), ...(this.needsToken.has(def.name) ? { r: 1 as const } : {}) });
+      res.push({ src: def.src.map((x) => (typeof x === 'number' ? fn(this.fns[x]!) : x)), ...(def.when != null ? { when: fn(this.fns[def.when]!) } : {}), scope, ...(def.paginate ? { q: firstParams(def.paginate) } : {}), ...(def.paginate && start != null ? { sp: startOf(def.paginate, fn(this.fns[start]!)) } : {}), ...(def.lo ? { lo: 1 as const } : {}), ...(where === 'listed' ? { xo: 1 as const } : {}), ...(settings(def.name)), ...(this.needsToken.has(def.name) ? { r: 1 as const } : {}) });
     }
     if (!roots.some((n) => n.b.length) && !res.length && !this.guard) return null;
     // only the state fields the early bindings read (and the fields those read): a field whose
@@ -8778,9 +8778,9 @@ class Compiler {
       res.push({
         s: def.src.map((x) => (typeof x === 'number' ? fn(this.fns[x]!) : x)),
         ...(def.when != null ? { w: fn(this.fns[def.when]!) } : {}),
-        i: def.select ?? null, t: def.total ?? null, ...(def.key ? { k: 1 as const } : {}),
+        ...(def.select != null ? { i: def.select } : {}), ...(def.total != null ? { t: def.total } : {}), ...(def.key ? { k: 1 as const } : {}),
         ...(def.paginate ? { q: firstParams(def.paginate) } : {}),
-        ...(def.paginate?.start != null ? { sp: (({ qn: _, ...sp }) => sp)(startOf(def.paginate, fn(this.fns[def.paginate.start]!))) } : {}),
+        ...(def.paginate?.start != null ? { sp: startOf(def.paginate, fn(this.fns[def.paginate.start]!)) } : {}),
       });
     }
     if (!res.length) return null;
@@ -9821,10 +9821,14 @@ const readsParam = (code: string, name: string) => new RegExp(`\\$\\.\\$url\\.${
 /** a compiled function that is one `$url` read: `($) => ($.$url.page)` */
 const URL_READ = /^\(\$\) => \(\$\.\$url\.([A-Za-z_$][\w$]*)\)$/;
 
-/** the early file's `model` (paginate) start: page n's parameters are `qn` with `k` set (the page, or with `params.offset` the items to skip) */
+/**
+ * the early file's and the next-page data's `model` (paginate) start: page n's parameters are the first page's with `k`
+ * set (the page, or with `params.offset` the items to skip); `model` is for numbered lists, whose pages all send the same
+ * parameters in the same order (`pageParams`)
+ */
 function startOf(cfg: Paginate, f: number): NonNullable<NonNullable<EarlyIR['res']>[number]['sp']> {
   const k = cfg.skipParam ?? cfg.pageParam;
-  return { f, k, s: cfg.size, ...(cfg.skipParam ? { o: 1 as const } : {}), qn: pageParams(cfg, 2) };
+  return { f, k, s: cfg.size, ...(cfg.skipParam ? { o: 1 as const } : {}) };
 }
 
 /** URLs of the resources whose request is fixed at build time (callers pass only those it may request early: same-origin or a listed origin): the page preloads them from its HTML (low priority when every resource of that URL is `lo`). */

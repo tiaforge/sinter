@@ -313,8 +313,8 @@ export function requests(params?: typeof withParams, envOf: () => EarlyEnv = bro
           const s = r.scope < 0 ? base : scopes[r.scope];
           if (r.when != null && !fns[r.when]!(s)) continue;
           let q = r.q;
-          // `model` (paginate): page n's parameters (the pager's pageParams)
-          if (r.sp) { const n = toPage(fns[r.sp.f]!(s)); if (n > 1) q = { ...r.sp.qn, [r.sp.k]: String(r.sp.o ? (n - 1) * r.sp.s : n) }; }
+          // `model` (paginate, numbered): page n's parameters (the pager's pageParams), the first page's with the page set
+          if (r.sp) { const n = toPage(fns[r.sp.f]!(s)); if (n > 1) q = { ...q, [r.sp.k]: String(r.sp.o ? (n - 1) * r.sp.s : n) }; }
           const t = expand(r.src, s, fns), u = new URL(q ? params!(t, q) : t, here);
           // another origin only when the build found it in `sinter({ origins })` (`xo`)
           if (r.xo || u.origin == new URL(here).origin) (prefetched() ?? own(pending(env()))).add(u.href, r.lo, r.a != null ? ir.as![r.a] : undefined, r.r);

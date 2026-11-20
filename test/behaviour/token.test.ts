@@ -161,7 +161,7 @@ describe('the early script', () => {
     config.apis = [{ n: 'main', b: '/api', t: { s: 'l', k: 'jwt', h: 'Authorization', p: 'Token ', r: ['GET /user'] } }];
     $tokens();
     const t = { s: 'l' as const, k: 'jwt', h: 'Authorization', p: 'Token ' };
-    const ir: Pick<EarlyIR, 'res' | 'as'> = { res: [{ name: 'user', src: ['/api/user'], when: null, scope: 0, a: 0, r: 1 }, { name: 'list', src: ['/api/articles'], when: null, scope: 0, a: 0 }], as: [{ t }] };
+    const ir: Pick<EarlyIR, 'res' | 'as'> = { res: [{ src: ['/api/user'], scope: 0, a: 0, r: 1 }, { src: ['/api/articles'], scope: 0, a: 0 }], as: [{ t }] };
     const f = [() => ({})];
     const go = () => start(() => ({ ir, fns: f, scopes: ($) => [st($, f[0]!, 0)], render: () => {} }), null, earlyRequests(undefined, configured));
     go();
@@ -183,7 +183,7 @@ describe('the early script', () => {
     const fetch = async (r: Request) => { sent.push(r); return Response.json({}); };
     setEnv({ ...defaultEnv, fetch });
     config.apis = [{ n: 'main', b: '/api' }];
-    const ir: Pick<EarlyIR, 'res'> = { res: [{ name: 'x', src: ['/api/x'], when: null, scope: 0 }] };
+    const ir: Pick<EarlyIR, 'res'> = { res: [{ src: ['/api/x'], scope: 0 }] };
     const f = [() => ({})];
     start(() => ({ ir, fns: f, scopes: ($) => [st($, f[0]!, 0)], render: () => {} }), null, earlyRequests(undefined, configured));
     const layer = createRequestLayer({ ...defaultEnv, fetch }, [(req, next) => { const h = new Headers(req.headers); h.set('X-Extra', '1'); return next(new Request(req, { headers: h })); }]);

@@ -59,7 +59,7 @@ test('the preload link of a low-priority resource carries fetchpriority="low", t
   const head = out.html.slice(0, out.html.indexOf('<body'));
   expect(head).toContain('<link rel="preload" as="fetch" crossorigin="" href="/api/user">');
   expect(head).toContain('<link rel="preload" as="fetch" crossorigin="" href="/api/tags" fetchpriority="low">');
-  expect(out.early!.ir.res).toEqual([expect.objectContaining({ name: 'detail', lo: 1 })]);
+  expect(out.early!.ir.res).toEqual([expect.objectContaining({ src: ['/api/d/', 0], lo: 1 })]);
 });
 
 test('embedded data: no request, so no mark', () => {

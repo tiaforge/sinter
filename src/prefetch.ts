@@ -18,10 +18,10 @@ export interface PrefetchPage {
   /** path patterns (`/article/:slug`), or the paths the page's file is served at */
   m: string[];
   /**
-   * the page's resources whose request only `$url` decides: URL template, `when`, `select`, `total`, `k` for a collection;
+   * the page's resources whose request only `$url` decides: URL template, `when`, `select`, `total` (absent: none), `k` for a collection;
    * a paginated one's first page `q`, and with `model` (paginate) `sp`: from page 2 on, `q` with `k` set to the page (`o`: the items to skip, `(n - 1) * s`)
    */
-  r: Array<{ s: UrlTemplate; w?: number; i: string | null; t: string | null; k?: 1; q?: Record<string, string>; sp?: { f: number; k: string; s: number; o?: 1 } }>;
+  r: Array<{ s: UrlTemplate; w?: number; i?: string | null; t?: string | null; k?: 1; q?: Record<string, string>; sp?: { f: number; k: string; s: number; o?: 1 } }>;
   /** the functions the templates index */
   f: Array<(s: any) => any>;
   /** the page's array parameters (`IR.urlArrays`), read as lists */

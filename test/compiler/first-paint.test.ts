@@ -133,7 +133,7 @@ test('early requests: resources whose URL reads only what is known early (state,
       <p data-sn-text="dep.x"></p>
     </body></html>`, {}, ['monday']);
   // not: one that reads another resource (paginated or not), one that calls a built-in formatter
-  expect(ir.res.map((r: { name: string }) => r.name)).toEqual(['days', 'detail']);
+  expect(ir.res.map((r: { src: string[] }) => r.src[0])).toEqual(['/api/days?start=', '/api/x/']);
   // `user` is fixed at build time: a preload link in the head, first, and not requested again by the early file
   expect(html).toMatch(/<head><link rel="preload" as="fetch" crossorigin="" href="\/api\/user"><script/);
   expect(html.match(/rel="preload"/g)).toHaveLength(1);
@@ -166,10 +166,10 @@ test('early requests, paginated: the first page, with the query parameters the p
       <ul><template data-sn-for="x in dep"><li data-sn-text="x.id"></li></template></ul>
     </body></html>`);
   // not `dep` (it reads another resource), not `lit` (preloaded from the HTML)
-  expect(ir.res.map((r: { name: string; q: unknown }) => [r.name, r.q])).toEqual([
-    ['mail', { limit: '50', dir: 'forward' }],
-    ['pages', { p: '1', n: '20' }],
-    ['more', { limit: '5', direction: 'first' }],
+  expect(ir.res.map((r: { src: string[]; q: unknown }) => [r.src[0], r.q])).toEqual([
+    ['/api/mail?box=', { limit: '50', dir: 'forward' }],
+    ['/api/pages?box=', { p: '1', n: '20' }],
+    ['/api/more?box=', { limit: '5', direction: 'first' }],
   ]);
   expect(html).toContain('<link rel="preload" as="fetch" crossorigin="" href="/api/lit?a=1&amp;limit=10&amp;direction=first">');
   expect(html.match(/rel="preload"/g)).toHaveLength(2);
@@ -259,7 +259,7 @@ test('OpenAPI `security` decides preloads and early requests: public and cookie 
   </body></html>`;
   const opts = (changesRequests: boolean): CompileOptions => ({ file: '/app/index.html', root: '/app', dev: false, readFile: () => '', moduleSrc: '/page.js', helpers: { module: null, names: [], namespaces: {} }, prerender: true, early: { module: null }, openapi: [{ file: '/app/openapi.json', doc }], changesRequests });
   const preloaded = (o: CompileOptions) => [...compile(html, o).html.matchAll(/rel="preload" as="fetch" crossorigin="" href="\/api\/(\w+)"/g)].map((m) => m[1]).sort();
-  const early = (o: CompileOptions) => ((compileParts(html, o).early?.ir as any)?.res ?? []).map((r: { name: string }) => r.name).sort();
+  const early = (o: CompileOptions) => ((compileParts(html, o).early?.ir as any)?.res ?? []).map((r: { src: string[] }) => r.src[0]).sort();
   // with middleware: public (`[]`) and cookie operations keep their preload; an undeclared one is not requested early
   // (the middleware may add a token: an early request would only be sent again), nor is a token one or a token search,
   // nor one whose token is optional (`[{ bearer: [] }, {}]`): a preload carries no token, and the browser would hand its
