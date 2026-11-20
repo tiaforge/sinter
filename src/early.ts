@@ -22,7 +22,7 @@ type EarlyEnv = Pick<Env, 'now' | 'href' | 'fetch'>;
 /** the browser's: before the first paint only an app early module could have configured another */
 const browser = (): EarlyEnv => ({ now: Date.now, href: () => location.href, fetch: (r) => fetch(r) });
 /**
- * `configure({ env })`, else the browser: for a page whose app has an early module (the compiler
+ * `setEnv()` (tests), else the browser: for a page whose app has an early module (the compiler
  * passes it to `requests`), and for tests; only then does the early file carry the config.
  */
 export const configured = (): EarlyEnv => {

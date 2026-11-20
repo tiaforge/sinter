@@ -8,14 +8,14 @@ import { compileParts } from '../../src/compiler/compile.js';
 import * as earlyExports from '../../src/early.js';
 import { configured, requests, start, withParams } from '../../src/early.js';
 import type { EarlyIR } from '../../src/ir.js';
-import { configure, type Middleware } from '../../src/runtime/config.js';
+import { configure, setEnv, type Middleware } from '../../src/runtime/config.js';
 import { defaultEnv } from '../../src/runtime/env.js';
 import { memoryStorage, mockRequests, render, type MockRequests, type RecordedCall } from '../../src/testing/index.js';
 
 const KEYS = ['sinter.prefetched', 'sinter.early.page'];
 afterEach(() => {
   for (const k of KEYS) delete (globalThis as any)[Symbol.for(k)];
-  configure({ env: defaultEnv });
+  setEnv(defaultEnv);
 });
 
 const ALL = Array.from({ length: 5 }, (_, i) => ({ id: i + 1 }));
@@ -57,7 +57,7 @@ async function load(html: string, o: { storage?: Storage; session?: Storage; ir?
   const page = new Function('$k', ...made.uses, `"use strict"; const f = [${parts.fns.join(',\n')}]; return ${made.code};`)((x: unknown) => x, ...made.uses.map((u) => (earlyExports as Record<string, unknown>)[u]));
   const early: string[] = [];
   const storage = o.storage ?? memoryStorage();
-  configure({ env: { ...defaultEnv, href: () => o.href ?? 'http://localhost/', storage: () => storage, fetch: async (r: Request) => { const u = new URL(r.url); early.push(u.pathname + u.search); await o.hold; return Response.json(server(r.url)); } } });
+  setEnv({ ...defaultEnv, href: () => o.href ?? 'http://localhost/', storage: () => storage, fetch: async (r: Request) => { const u = new URL(r.url); early.push(u.pathname + u.search); await o.hold; return Response.json(server(r.url)); } });
   expect(out.early).toContain(', requests(withParams)');
   start(() => page, null, requests(withParams, configured));
   const mock = mockRequests({ 'GET /api/mail': (c: RecordedCall) => server(c.url) });

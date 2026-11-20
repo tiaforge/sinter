@@ -35,7 +35,7 @@ export interface Env {
 const g = globalThis as typeof globalThis & Window;
 const tryGet = (f: () => Storage) => { try { return f(); } catch { return null; } };
 
-/** The environment the runtime uses: the default, with what `configure({ env })` overrides. */
+/** The environment the runtime uses: the default, with what `setEnv()` (tests) overrides. */
 export const envOf = (c: { env: Partial<Env> | null }): Env => (c.env ? { ...defaultEnv, ...c.env } : defaultEnv);
 
 export const defaultEnv: Env = {

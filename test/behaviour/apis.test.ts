@@ -3,7 +3,7 @@
 import { afterEach, describe, expect, test } from 'vitest';
 import { parse } from 'yaml';
 import { configured, requests, st, start } from '../../src/early.js';
-import { $apis, apiOf, config, configure, header } from '../../src/runtime/config.js';
+import { $apis, apiOf, config, configure, header, setEnv } from '../../src/runtime/config.js';
 import { defaultEnv } from '../../src/runtime/env.js';
 import { createRequestLayer } from '../../src/runtime/request.js';
 import { compile } from '../../src/compiler/index.js';
@@ -17,7 +17,7 @@ const fetch = async (r: Request) => { sent.push(r); return Response.json({ ok: t
 afterEach(() => {
   sent.length = 0;
   for (const k of ['sinter.prefetched', 'sinter.early.page']) delete (globalThis as any)[Symbol.for(k)];
-  configure({ env: defaultEnv, retry: null });
+  setEnv(defaultEnv); configure({ retry: null });
   config.apis = [];
 });
 
@@ -35,7 +35,7 @@ describe('request settings per API', () => {
   });
 
   test('the early file sends the same request, so the page module takes its response; a middleware header still gets its own', async () => {
-    configure({ env: { ...defaultEnv, fetch } });
+    setEnv({ ...defaultEnv, fetch });
     $apis([{ n: 'main', b: '/api', h: { 'X-Api': '2' } }]);
     const ir: Pick<EarlyIR, 'res'> = { res: [{ name: 'days', src: ['/api/days'], when: null, scope: 0, a: { h: { 'X-Api': '2' } } }] };
     const f = [() => ({})];
