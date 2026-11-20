@@ -39,7 +39,7 @@ so nothing after the body moves when it comes in. Raw HTML in a body shows as te
 suite's payloads stay inert. Until 2026-11-17 the body was marked and DOMPurify in an island,
 `<conduit-markdown>`; the comparison is in the [markdown library's docs](../../packages/sinter-markdown/docs/markdown.md#performance).
 The parser loads with the article page. With embedded data (`SINTER_EMBED`), the body renders in the early script
-like the rest of the article, so the parser is in the article's early file (30.5 kB gzip, `earlyBudget` raised to
+like the rest of the article, so the parser is in the article's early file (30.5 kB gzip, `firstPaint.budget` raised to
 40 KB in `vite.config.js`), and the page module takes that instance instead of a copy of its own
 ([own copies](../../docs/first-paint.md#own-copies)). Measured on the article page (Lighthouse mobile, a local
 API, median of 5):

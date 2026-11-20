@@ -71,7 +71,7 @@ file: over twice sinter's early budget (`SN523`). For a page whose main content 
 better trade: on RealWorld's article through sinter-axum (Lighthouse mobile), the early file was 30.5 kB gzip, the
 first paint did not move, and the LCP was the first paint, 1,359 ms, against 2,127 ms with the body rendered when
 the page module mounts. The parser is then downloaded twice (the early file and the page module). Raise the
-budget for it (`sinter({ earlyBudget })`), as the RealWorld example does ([its
+budget for it (`sinter({ firstPaint: { budget } })`), as the RealWorld example does ([its
 README](https://github.com/tiaforge/sinter/blob/main/examples/realworld/README.md)); or keep the body out with
 `data-sn-early="off"` on the `<md-doc>`, and keep what follows the body out of the layout until it renders.
 Measure first: a page whose markdown is not its main content pays the early file for nothing. Markdown from an

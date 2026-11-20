@@ -76,7 +76,7 @@ const n = ${n};
 export default defineConfig({
   logLevel: 'warn',
   plugins: [sinter({
-    components: ['@tiaforge-ui/sinter-markdown'],
+    libraries: ['@tiaforge-ui/sinter-markdown'],
     site: 'https://example.com',
   })],
   build: { rollupOptions: { input: Object.fromEntries([['index', resolve(import.meta.dirname, 'index.html')], ...(${pages} ? [['post', resolve(import.meta.dirname, 'blog/post.html')]] : Array.from({ length: n }, (_, i) => ['post-' + i, resolve(import.meta.dirname, 'blog/post-' + i + '.html')]))]) } },
