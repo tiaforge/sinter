@@ -132,9 +132,13 @@ const entries = {
 // Added on 2026-11-20, after the size pass over the features merged since 0.20 (each a little above where it was then):
 // a link template (11,522 B), a token API (the page module 12,548 B, its early file 2,326 B: the early requests and the
 // token's read) and RealWorld's shared head script on its own (3,706 B), the early runtime every page loads
+// Lowered on 2026-11-20, when the URL templates and the early requests moved to the compiler (`expand()` left the core,
+// the early runtime interprets no request): the minimal page to 11 KB (11,192 B), with swaps to 12.875 KB (13,065 B), with
+// a link to 11.125 KB (11,320 B), with a token to 12.125 KB (12,256 B) and its early file to 1.875 KB (1,770 B), RealWorld's
+// shared head script to 3.375 KB (3,283 B) and the article to 60 KB (61,290 B)
 const BUDGET = {
-  minimal: 12 * 1024, 'minimal, swaps': 13.5 * 1024, 'realworld article': 62 * 1024,
-  'minimal, link': 11.5 * 1024, 'minimal, token': 12.5 * 1024, 'minimal, token, early': 2.375 * 1024, 'realworld early, shared': 3.75 * 1024,
+  minimal: 11 * 1024, 'minimal, swaps': 12.875 * 1024, 'realworld article': 60 * 1024,
+  'minimal, link': 11.125 * 1024, 'minimal, token': 12.125 * 1024, 'minimal, token, early': 1.875 * 1024, 'realworld early, shared': 3.375 * 1024,
 };
 let failed = false;
 const gz = (b) => gzipSync(b, { level: 9 }).length;
