@@ -115,7 +115,7 @@ export interface Project {
   /** root-relative URL of the config module (`/src/sinter.config.js`), or null */
   config: string | null;
   /**
-   * the config module may change requests (request middleware, `header()`, `credentials()`): resources are then
+   * the config module may change requests (request middleware, `header()`): resources are then
    * requested early by the early file, which hands a response over only for an unchanged request, never by a
    * `<link rel="preload">`, whose response the browser gives a later fetch whatever headers it adds
    */
@@ -314,7 +314,7 @@ export function project(root: string, options: ProjectOptions = {}): Project {
     componentNames: components, libraries: libs.libraries,
     messages, messagesTypes, componentsTypes: writeComponentTypes(root, readFile, libs.libraries),
     config: configRel ? url(configRel) : null,
-    changesRequests: configRel ? changesRequests(readFile(resolve(root, configRel))) : false,
+    changesRequests: configRel ? changesRequests(configSource(configRel, readFile(resolve(root, configRel)))) : false,
     early: earlyRel ? url(earlyRel) : null,
     types: typesRel ? resolve(root, typesRel) : null,
   };
@@ -387,7 +387,15 @@ export function lazyOf(list: unknown): string[] {
 
 const VITE_CONFIGS = ['vite.config.ts', 'vite.config.js', 'vite.config.mts', 'vite.config.mjs', 'vite.config.cts', 'vite.config.cjs'];
 
-/** Whether a config module's source may change requests: `configure({ request })`, `header()`, `credentials()`. Errs toward yes. */
+/** The config module's source, refusing what is gone from it: `credentials()`, which `apis.<name>.credentials` does at build time */
+function configSource(rel: string, source: string): string {
+  if (/\bcredentials\s*\(/.test(source.replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, ''))) {
+    throw new Error(`${rel}: \`credentials()\` is gone: the API sets it, \`sinter({ apis: { site: { credentials: 'include' } } })\` (or the API's own name), and early requests keep working`);
+  }
+  return source;
+}
+
+/** Whether a config module's source may change requests: `configure({ request })`, `header()`. Errs toward yes. */
 export function changesRequests(source: string): boolean {
-  return /\brequest\s*[:,}]|\bheader\s*\(|\bcredentials\s*\(/.test(source.replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, ''));
+  return /\brequest\s*[:,}]|\bheader\s*\(/.test(source.replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, ''));
 }

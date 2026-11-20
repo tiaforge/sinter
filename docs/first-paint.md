@@ -232,7 +232,7 @@ exactly the one sent early (a plain GET with no extra headers), so response midd
 ### Request middleware and sign-in
 
 Early requests leave before your request middleware runs, so they cannot carry what it adds. When the
-config module may change requests (`configure({ request })`, `header()`, `credentials()`), the build
+config module may change requests (`configure({ request })`, `header()`), the build
 requests nothing early: an early request without, say, a token would be refused (a 401 in the console)
 and sent again by the page with it, one wasted request per resource. A preload link would be worse: the
 browser gives its response to the page's request whatever headers that adds, so the token would never

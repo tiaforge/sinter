@@ -139,7 +139,7 @@ export interface CompileOptions {
   /** write bindings whose value is a build-time constant (literal state, no helpers) into the HTML */
   prerender?: boolean;
   /**
-   * the app's config may change requests (middleware, `header()`, `credentials()`): nothing is requested before the
+   * the app's config may change requests (middleware, `header()`): nothing is requested before the
    * page module (an early request lacks what the middleware adds: refused, then sent again), unless the spec says the
    * operation is public or answered with cookies
    */
@@ -5970,7 +5970,7 @@ class Compiler {
 
   /**
    * Not requested before the page module, by preload or the early file: \`early="off"\`; the spec says the request
-   * needs a token the app adds; or the config may change requests (middleware, \`header()\`, \`credentials()\`) and
+   * needs a token the app adds; or the config may change requests (middleware, \`header()\`) and
    * the spec does not say the operation is public or answered with cookies. A request sent before the middleware
    * runs would only be refused (a 401, a console error) and sent again with what the middleware adds.
    */

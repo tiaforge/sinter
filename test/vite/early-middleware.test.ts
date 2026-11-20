@@ -11,7 +11,7 @@ import { join, resolve } from 'node:path';
 import { build } from 'vite';
 import { afterAll, beforeAll, expect, test } from 'vitest';
 import sinter from '../../src/vite.js';
-import { changesRequests } from '../../src/project.js';
+import { changesRequests, project } from '../../src/project.js';
 import { chromium } from '../browser.js';
 
 const src = resolve(__dirname, '../../src');
@@ -56,7 +56,6 @@ test('what counts as a config that may change requests', () => {
   expect(changesRequests('configure({ request: [auth] })')).toBe(true);
   expect(changesRequests('const request = [auth]; configure({ request })')).toBe(true);
   expect(changesRequests("configure({ request: [header('X-Key', 'k')] })")).toBe(true);
-  expect(changesRequests("import { configure, credentials } from 'x'; configure({ request: [credentials('include')] })")).toBe(true);
   expect(changesRequests('configure({ onError: () => {} }) // request: none')).toBe(false);
   expect(changesRequests('configure({ sessionProbe: "/api/me" })')).toBe(false);
 });
@@ -93,3 +92,10 @@ test.skipIf(!chromium)('signed in: every resource is requested once, with the to
     site.close();
   }
 }, 60_000);
+
+test('credentials() is gone from the config module: the API sets it', () => {
+  const root = join(dir, 'creds');
+  mkdirSync(join(root, 'src'), { recursive: true });
+  writeFileSync(join(root, 'src/sinter.config.js'), "import { configure, credentials } from '@tiaforge-ui/sinter';\nconfigure({ request: [credentials('include')] });\n");
+  expect(() => project(root, {})).toThrow("src/sinter.config.js: `credentials()` is gone: the API sets it, `sinter({ apis: { site: { credentials: 'include' } } })`");
+});

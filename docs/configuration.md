@@ -123,12 +123,12 @@ pages that run sinter: a page with nothing to run ships no JavaScript, this modu
 
 ```js
 // src/sinter.config.js
-import { configure, credentials, header, onUnauthorized, loginRedirect } from '@tiaforge-ui/sinter';
+import { configure, header, onUnauthorized, loginRedirect } from '@tiaforge-ui/sinter';
 
 configure({
   request: [
-    credentials('same-origin'),
-    header('X-Sinter', '1'),
+    // a value the browser knows; a fixed one (credentials, a CSRF header) goes on the API: sinter({ apis })
+    header('Authorization', `Bearer ${localStorage.getItem('token')}`),
     onUnauthorized(loginRedirect({ to: '/login/', returnUrl: { allow: ['/app/'] } })),
   ],
   sessionProbe: '/api/user',
@@ -173,15 +173,14 @@ const timing = async (request, next) => {
   return response;
 };
 
-configure({ request: [timing, credentials('same-origin')] });
+configure({ request: [timing] });
 ```
 
 Built in:
 
 | Function | Does |
 | --- | --- |
-| `credentials(mode)` | sets the fetch credentials mode |
-| `header(name, value, { origin })` | adds a header to same-origin requests, or only to `origin` |
+| `header(name, value, { origin })` | adds a header to same-origin requests, or only to `origin`: for a value the browser knows (a token). Fixed credentials and headers go on the API ([docs/apis.md](apis.md)), which keeps early requests |
 | `onUnauthorized(handler)` | calls `handler(request, response)` on a 401 |
 | `loginRedirect({ to, returnUrl })` | stores the current URL (same-origin and under an allowed prefix only), clears persisted state, goes to `to`. It never resolves, so `then` and `catch` do not run |
 | `takeReturnUrl(allow)` | on the login page: the stored URL if it is same-origin and under an allowed prefix, else `null`; removes it |

@@ -111,7 +111,7 @@ token) still gets a request of its own.
   `headers` gets none, and the early file's request (which sends them) is its first.
   `credentials: 'include'` writes `crossorigin="use-credentials"`.
 - Early requests leave before request middleware runs. When the config module may change requests
-  (`configure({ request })`, `header()`, `credentials()`), nothing is requested early: a request without
+  (`configure({ request })`, `header()`), nothing is requested early: a request without
   what the middleware adds (a token) would be refused and sent again ([first paint](first-paint.md#request-middleware-and-sign-in)).
 - The spec's `security` refines that per operation (the operation's, else the document's):
   - public (`security: []`, or an alternative `{}`) or a cookie (`apiKey` with `in: cookie`,

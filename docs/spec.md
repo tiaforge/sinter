@@ -894,12 +894,11 @@ A running mutation is never aborted: aborting `fetch` does not stop the server, 
 All requests (resources, actions, the stream session probe) go through one middleware chain, configured once per app:
 ```js
 // src/sinter.config.js
-import { configure, credentials, header, onUnauthorized, loginRedirect } from '@tiaforge-ui/sinter';
+import { configure, onUnauthorized, loginRedirect } from '@tiaforge-ui/sinter';
 
+// fixed request settings (credentials, a CSRF header) go on the API: sinter({ apis: { site: { headers: { 'X-Sinter': '1' } } } })
 configure({
   request: [
-    credentials('same-origin'),
-    header('X-Sinter', '1'),                       // CSRF: backend rejects mutations without it
     onUnauthorized(loginRedirect({ to: '/', returnUrl: { allow: ['/app/'] } })),
   ],
   sessionProbe: '/api/user',

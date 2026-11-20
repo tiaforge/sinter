@@ -139,11 +139,10 @@ export function clearPersisted(): void {
 
 // ---- middleware
 
-export function credentials(mode: RequestCredentials): Middleware {
-  return (req, next) => next(new Request(req, { credentials: mode }));
-}
-
-/** Adds a header to same-origin requests, or to requests to `options.origin` only. */
+/**
+ * Adds a header to same-origin requests, or to requests to `options.origin` only: for a value the browser knows
+ * when the config module runs (a token from storage). A fixed value goes on the API, `sinter({ apis: { … headers } })`.
+ */
 export function header(name: string, value: string, options: { origin?: string } = {}): Middleware {
   return (req, next) => {
     const target = new URL(req.url).origin;
