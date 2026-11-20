@@ -871,6 +871,12 @@ A mutation (`data-sn-post`, `-put`, `-patch`, `-delete`) without `data-sn-catch`
 ### Pending state and concurrency
 - While a request is pending, the element gets `aria-busy="true"`. Pico CSS already styles `aria-busy`. Forms in `block` mode are also disabled.
 - Actions follow a concurrency policy, applied per element instance, so rows in a list never block each other.
+- Same id, same control: when a `data-sn-if`/`data-sn-else` swap removes an element whose action is running or
+  waiting, the element with its `id` in the new branch carries on that state (its queue, `block`, `latest`, and
+  `aria-busy`), as it takes the focus. A toggle's two buttons (a POST and a DELETE, swapped at once by an optimistic
+  change) are then one control: a quick second click queues behind the first instead of racing it, so the server
+  ends as the page shows. The twin's own triggers follow its own policy. Nothing else carries over (an element's
+  field errors, its debounce, a `confirm` it is asking).
 
 | Policy | Behaviour | Default for |
 | --- | --- | --- |
