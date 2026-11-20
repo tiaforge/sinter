@@ -108,7 +108,7 @@ export interface SinterOptions extends ProjectOptions {
    * - `data` (default true): when a link to another page of the app is about to be followed, that page's data is
    *   requested, and the page shows it at once (then revalidates).
    * - `html`: Speculation Rules for links to the app's pages (Chromium): `true` (default) fetches the next
-   *   page's HTML while the pointer rests on a link; `'prerender'` loads and runs the whole page (data included,
+   *   page's HTML while the pointer rests on a link; `{ prerender: true }` loads and runs the whole page (data included,
    *   streams connect once it is shown); `false`: none. The rules are an inline script in every page, so they need
    *   no server setup; a CSP the page declares in a `<meta>` gets their hash from the build, a CSP sent as a
    *   response header needs `'inline-speculation-rules'` in `script-src` (dev builds warn when it blocks them).
@@ -117,7 +117,7 @@ export interface SinterOptions extends ProjectOptions {
    *   `application/speculationrules+json` (`vite dev` and `vite preview` do both). See docs/navigation.md.
    * `false`: neither.
    */
-  prefetch?: boolean | { data?: boolean; html?: boolean | 'prerender' | { prerender?: boolean; delivery?: 'inline' | 'header' } };
+  prefetch?: boolean | { data?: boolean; html?: boolean | { prerender?: boolean; delivery?: 'inline' | 'header' } };
   /**
    * Builds served by a server that writes each page's data into it (sinter-axum): every resource whose
    * request only the page's URL decides gets a placeholder in the head, and the browser neither preloads
@@ -233,10 +233,11 @@ const PREFETCH = `${PREFIX}prefetch.js`;
 /** with swaps on: the pages that swap (swap-build.ts) */
 const SWAP = `${PREFIX}swap.js`;
 /** `prefetch: { html: { delivery: 'header' } }`: the rules file, at the site root */
-/** the `prefetch.html` value an old one (`speculation`, `'prefetch'`, `{ mode, delivery }`) is now, as written in the config */
+/** the `prefetch.html` value an old one (`speculation`, `'prefetch'`, `'prerender'`, `{ mode, delivery }`) is now, as written in the config */
 function htmlOf(v: unknown): string {
   if (v === 'prefetch') return 'true';
-  if (v === 'prerender' || v === false) return JSON.stringify(v).replace(/"/g, "'");
+  if (v === 'prerender') return '{ prerender: true }';
+  if (v === false) return 'false';
   if (typeof v === 'object' && v !== null) {
     const o = v as { mode?: unknown; delivery?: unknown };
     const parts = [...(o.mode === 'prerender' ? ['prerender: true'] : []), ...(o.delivery !== undefined ? [`delivery: '${String(o.delivery)}'`] : [])];
@@ -297,13 +298,14 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   keysOf('images', options.images, ['widths', 'remote']);
   keysOf('prefetch', options.prefetch, ['data', 'html']);
   keysOf('firstPaint', options.firstPaint, ['budget']);
-  // `prefetch.html` was `'prefetch'`, `'prerender'` or `{ mode, delivery }`: a value that repeated the option's name
+  // `prefetch.html` was `'prefetch'` or `{ mode, delivery }`, a value that repeated the option's name, and `'prerender'`,
+  // a second spelling of `{ prerender: true }`
   const html0 = typeof options.prefetch === 'object' ? (options.prefetch.html as unknown) : undefined;
-  if (html0 === 'prefetch' || (typeof html0 === 'object' && html0 !== null && 'mode' in html0)) {
+  if (html0 === 'prefetch' || html0 === 'prerender' || (typeof html0 === 'object' && html0 !== null && 'mode' in html0)) {
     throw new Error(`sinter({ prefetch: { html: ${JSON.stringify(html0).replace(/"(\w+)":/g, '$1: ').replace(/"/g, "'")} } }) is renamed to \`html: ${htmlOf(html0)}\``);
   }
-  if (html0 !== undefined && typeof html0 !== 'boolean' && html0 !== 'prerender' && (typeof html0 !== 'object' || html0 === null)) {
-    throw new Error(`sinter({ prefetch: { html } }): takes \`true\`, \`'prerender'\`, \`false\` or \`{ prerender, delivery }\`, not ${JSON.stringify(html0)}`);
+  if (html0 !== undefined && typeof html0 !== 'boolean' && (typeof html0 !== 'object' || html0 === null)) {
+    throw new Error(`sinter({ prefetch: { html } }): takes \`true\`, \`false\` or \`{ prerender, delivery }\`, not ${JSON.stringify(html0)}`);
   }
   keysOf('prefetch: { html }', html0, ['prerender', 'delivery']);
   const prefetchData = options.prefetch !== false && (typeof options.prefetch !== 'object' || options.prefetch.data !== false);
@@ -865,7 +867,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     // inline by default: it works with no server setup (a CSP in the page gets the rules' hash, see withRulesHash)
     const o = speculation;
     if (o === false) return null;
-    if (o === true || o === 'prerender') return { mode: o === true ? 'prefetch' as const : 'prerender' as const, delivery: 'inline' as const };
+    if (o === true) return { mode: 'prefetch' as const, delivery: 'inline' as const };
     return { mode: o.prerender ? 'prerender' as const : 'prefetch' as const, delivery: o.delivery ?? 'inline' };
   };
   /** the rules' JSON for links to the app's pages, or null; `samePage`: a page with same-page links (query-links.ts), whose own URLs are left out */

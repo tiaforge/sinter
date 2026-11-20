@@ -252,8 +252,8 @@ A second reader's review found bugs in the steps above (fixed, each with a test)
   name, each with its `when` (recipe: partial events). `numbered: 'offset'` (was `params.offset`, which
   switched the request as well as naming it).
 - `sinter({ libraries })` (was `components`): it lists component libraries.
-- `prefetch: { data, html }` (was `prefetch` and `speculation`; `html: true | 'prerender' | false | { prerender,
-  delivery }`, after the third review), with `prefetch: false` turning off both as
+- `prefetch: { data, html }` (was `prefetch` and `speculation`; `html: true | false | { prerender,
+  delivery }`, after the third review and step 19), with `prefetch: false` turning off both as
   `<html data-sn-prefetch="off">` does for a page; `firstPaint: { budget }` (was `earlyBudget`).
 - The feature module `./write-through` (was `./apply`).
 - Renamed attributes report under `SN101`, functions under `SN201`, values under `SN401`.
@@ -289,6 +289,8 @@ What the fourth review left of the same kind, across the JavaScript and configur
 - `fonts: { bundle }` (was `inline`: the build bundles Google Fonts' stylesheets as CSS files and inlines
   nothing), and off is `fonts: false`, the shape of every other feature's switch (`images: false`,
   `sitemap: false`, `prefetch: false`); `fonts: { bundle: false, preload }` keeps the links and the preloads.
+- `prefetch.html` is `true | false | { prerender, delivery }`: `'prerender'` was a second spelling of
+  `{ prerender: true }`. The object's key is the one that has room for another value.
 
 ## Looked at and kept
 

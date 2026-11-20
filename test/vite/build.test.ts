@@ -221,7 +221,10 @@ test('by default every page carries inline rules for the app\'s paths; `prefetch
 test('the renamed options fail naming the new form', () => {
   expect(() => sinter({ prefetch: { page: 'prerender' } } as never)).toThrow('sinter({ prefetch }): no option `page`; it takes `data` and `html`');
   expect(() => sinter({ firstPaint: { budgt: 1 } } as never)).toThrow('sinter({ firstPaint }): no option `budgt`; it takes `budget`');
-  expect(() => sinter({ speculation: 'prerender' } as never)).toThrow("sinter({ speculation }) is renamed to `prefetch: { html: 'prerender' }`");
+  expect(() => sinter({ speculation: 'prerender' } as never)).toThrow('sinter({ speculation }) is renamed to `prefetch: { html: { prerender: true } }`');
+  // one spelling of prerendering: the object's `prerender`, where a value the build decides per page has room
+  expect(() => sinter({ prefetch: { html: 'prerender' } } as never)).toThrow("sinter({ prefetch: { html: 'prerender' } }) is renamed to `html: { prerender: true }`");
+  expect(() => sinter({ prefetch: { html: 'eager' } } as never)).toThrow('sinter({ prefetch: { html } }): takes `true`, `false` or `{ prerender, delivery }`, not "eager"');
   expect(() => sinter({ speculation: 'prefetch' } as never)).toThrow('sinter({ speculation }) is renamed to `prefetch: { html: true }`');
   // `html` no longer repeats the option's name: `true`, and `prerender: true` in the object
   expect(() => sinter({ prefetch: { html: 'prefetch' } } as never)).toThrow("sinter({ prefetch: { html: 'prefetch' } }) is renamed to `html: true`");
