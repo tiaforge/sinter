@@ -386,7 +386,7 @@ export interface PrefetchParts {
 }
 
 /**
- * One embedded-data placeholder (`data-sn-data`), for a server that fills it per request (a
+ * One embedded-data placeholder (`data-sn-resource`), for a server that fills it per request (a
  * middleware: `sinter-embed.json`). `id`: the `data-sn` id the build gives the `<script>`. `src`:
  * the resource's URL template when only literals and plain `$url.<name>` reads make it up (`{ url:
  * name }`), else null and the server must produce the data itself (`call`, `each` too). `when`:
@@ -505,6 +505,7 @@ const ATTRS = ATTRIBUTES.map((a) => a.name);
 const METHODS = ['post', 'put', 'patch', 'delete'] as const;
 /** attributes that are gone or renamed (docs/proposals/vocabulary.md): what to write instead. Removed at 1.0, as SN316 was */
 const RETIRED: Record<string, string> = {
+  'data-sn-data': 'is renamed to `data-sn-resource`, which names the resource the embedded JSON is for: `<script type="application/json" data-sn-resource="people">`',
   'data-sn-prop': 'is renamed to `data-sn-with`, so passing values and declaring them (`data-sn-props`) are different words: `<contact-card data-sn-with="{ contact: c }">`',
   'data-sn-component': 'is renamed to `data-sn-props`, the one declaration of a component\'s or a layout\'s props: `<template data-sn-props="{ article: Article }">`',
   'data-sn-head': 'is renamed to `data-sn-props`: a component whose markup is head elements is a head component, `<template data-sn-props="{ title?: string }"><title …></template>`',
@@ -4485,15 +4486,15 @@ class Compiler {
     }
 
     // embedded data
-    if (has('data')) {
+    if (has('resource')) {
       if (el.tagName !== 'script' || attr(el, 'type') !== 'application/json') {
-        this.report(el, 'data-sn-data', 'SN102', '`data-sn-data` must be on a `<script type="application/json">`', 0);
+        this.report(el, 'data-sn-resource', 'SN102', '`data-sn-resource` must be on a `<script type="application/json">`', 0);
       } else {
-        const name = get('data')!;
+        const name = get('resource')!;
         if (!this.page.resources.has(name)) {
-          this.report(el, 'data-sn-data', 'SN301', `resource \`${name}\` is not declared on this page.${didYouMean(name, this.page.resources.keys())}`, 0);
+          this.report(el, 'data-sn-resource', 'SN301', `resource \`${name}\` is not declared on this page.${didYouMean(name, this.page.resources.keys())}`, 0);
         } else if (ctx.tid >= 0) {
-          this.report(el, 'data-sn-data', 'SN102', 'embedded data cannot be inside a `<template>`', 0);
+          this.report(el, 'data-sn-resource', 'SN102', 'embedded data cannot be inside a `<template>`', 0);
         } else {
           const id = this.nextId++;
           this.embedded.set(name, id);

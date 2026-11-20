@@ -56,7 +56,7 @@ test('not for a list without pages: the build cannot count its rows', async () =
 test('not for a list the build cannot count (a filter), nor one the page embeds', async () => {
   for (const page of [
     PAGE().replace('p in people', 'p in people.filter((x) => x.id > 1)'),
-    `<script type="application/json" data-sn-data="people">{"people":[]}</script>${PAGE()}`,
+    `<script type="application/json" data-sn-resource="people">{"people":[]}</script>${PAGE()}`,
   ]) {
     const { root } = await render(page, { requests: mockRequests({ 'GET /api/people?page=1&limit=3': rows(1) }), css: CSS });
     expect(held(root)).toBeNull();

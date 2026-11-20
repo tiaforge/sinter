@@ -93,7 +93,7 @@ test('embedded data: `sinter-embed.json` lists each placeholder with its `data-s
   const page = join(root, 'index.html');
   const original = readFileSync(page, 'utf8');
   writeFileSync(page, original
-    .replace('<head><title>app</title></head>', '<head><title>app</title><script type="application/json" data-sn-data="people"></script><script type="application/json" data-sn-data="person"></script></head>')
+    .replace('<head><title>app</title></head>', '<head><title>app</title><script type="application/json" data-sn-resource="people"></script><script type="application/json" data-sn-resource="person"></script></head>')
     .replace('<sn-resource name="people"', '<sn-resource name="person" src="/api/people/{$url.id}?full=1" when="$url.id"></sn-resource><p data-sn-text="person.name"></p>\n  <sn-resource name="people"'));
   try {
     const dir = join(out, 'embed');

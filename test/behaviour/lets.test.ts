@@ -252,7 +252,7 @@ describe('a let over a helper: its expression, at every read', () => {
 });
 
 describe('first paint and takeover', () => {
-  const page = (let_: string) => `<!doctype html><html><head><script type="application/json" data-sn-data="post">${JSON.stringify({ body: 'a b c', tags: ['x'] })}</script></head><body>
+  const page = (let_: string) => `<!doctype html><html><head><script type="application/json" data-sn-resource="post">${JSON.stringify({ body: 'a b c', tags: ['x'] })}</script></head><body>
     <sn-resource name="post" src="/api/post"></sn-resource>
     <main data-sn-state="{ rev: 0 }" data-sn-let="{ doc: ${let_} }"><button data-sn-on-click="rev++"></button><ul><template data-sn-for="x in doc.words"><li data-sn-text="x.w"></li></template></ul><p data-sn-text="doc.words.length"></p></main></body></html>`;
 

@@ -78,7 +78,7 @@ describe('injection', () => {
     const requests = mockRequests({ 'GET /api/p': [{ id: 1, n: 'server' }] });
     const { root, settle } = await render(`
       <sn-resource name="p" src="/api/p" key="id"></sn-resource>
-      <script type="application/json" data-sn-data="p">[{"id":1,"n":"forged"}]</script>
+      <script type="application/json" data-sn-resource="p">[{"id":1,"n":"forged"}]</script>
       <template data-sn-for="x in p"><i data-sn-text="x.n"></i></template>`, { requests });
     await settle();
     expect(root.querySelector('i')!.textContent).toBe('server');

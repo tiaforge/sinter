@@ -56,7 +56,7 @@ The runtime reads only the `data-sn` ids the build assigned, and checks them at 
 
 - Each id must appear exactly once, on an element with the tag the build recorded. A missing,
   duplicate or mismatched id is not bound, and dev builds report it.
-- Embedded data (`data-sn-data`) is accepted only from `<head>`, once per resource name. Anything
+- Embedded data (`data-sn-resource`) is accepted only from `<head>`, once per resource name. Anything
   else is ignored with a dev error.
 - The runtime never reads named properties of `window` or `document`, the pattern behind most DOM
   clobbering gadgets.

@@ -215,7 +215,7 @@ A component is an HTML file in `src/components/`. Its file name is its tag:
   handler for Node, Bun, Deno, Workers and Hono) stream the head first, then write each API response into
   its slot. Each checks that every slot can be filled: at compile time in Rust and C#, as a type error in
   TypeScript, and at startup. Other languages are easy to add: the
-  server only writes JSON into the `<script type="application/json" data-sn-data>` slots in the
+  server only writes JSON into the `<script type="application/json" data-sn-resource>` slots in the
   head, listed in the build's `sinter-embed.json` ([contract](docs/first-paint.md)).
 - **Instant navigation.** Next-page data (sinter, all browsers). Generated Speculation Rules and
   CSP handling for HTML prefetch or prerender (the browser fetches; Chromium). `data-sn-transition`

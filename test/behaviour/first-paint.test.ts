@@ -165,7 +165,7 @@ test('first paint: an early binding reads `$locale` from `configure({ locale })`
 
 test('rows over embedded data render early, and the page module adopts them: the same nodes, nothing removed or rewritten', async () => {
   const data = JSON.stringify({ articles: [{ slug: 'a', title: 'First', tags: ['x', 'y'] }, { slug: 'b', title: 'Second', tags: ['z'] }] });
-  const page = `<!doctype html><html><head><script type="application/json" data-sn-data="articles">${data}</script></head>
+  const page = `<!doctype html><html><head><script type="application/json" data-sn-resource="articles">${data}</script></head>
 <body data-sn-state="{ n: 0 }">
   <sn-resource name="articles" src="/api/articles" items="articles" key="slug"></sn-resource>
   <ul><template data-sn-for="a in articles"><li><h2 data-sn-text="a.title"></h2><a data-sn-attr="{href: '/article/' + a.slug}">read</a>
@@ -199,7 +199,7 @@ test('rows over embedded data render early, and the page module adopts them: the
 
 test('early rows whose nested if/else and lists rendered early are adopted with every binding: the else branch, elements after a nested template, and all their nodes go with the row', async () => {
   const data = JSON.stringify([{ id: 1, photo: false, n: 'Ann', tags: ['x'] }, { id: 2, photo: true, n: 'Bob', tags: [] }]);
-  const page = `<!doctype html><html><head><script type="application/json" data-sn-data="cs">${data}</script></head>
+  const page = `<!doctype html><html><head><script type="application/json" data-sn-resource="cs">${data}</script></head>
 <body>
   <sn-resource name="cs" src="/api/cs" key="id"></sn-resource>
   <button id="drop" data-sn-on-click="remove(cs[0])"></button>

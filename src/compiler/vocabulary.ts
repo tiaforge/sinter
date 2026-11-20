@@ -48,7 +48,7 @@ export const ATTRIBUTES: AttrDoc[] = [
   { name: 'retry', value: 'retry policy name', doc: 'sends the request again (with data-sn-call: each request ctx.request sends) as that policy of configure({ retry }) says (after a network error, a 5xx, a 429), with an Idempotency-Key; without it a write is sent once' },
   { name: 'write-through', value: 'off', doc: 'turns write-through off for this mutation: its response is not applied to the resources it is about' },
   { name: 'path', value: 'URL patterns /a/:b …', doc: 'on <html>: the path shapes this page is served for; `:name` segments appear read-only in $url' },
-  { name: 'data', value: 'resource name', doc: 'on <script type="application/json"> in <head>: initial data for a resource' },
+  { name: 'resource', value: 'resource name', doc: 'on <script type="application/json"> in <head>: initial data for a resource' },
 ];
 
 export const ON_DOC: AttrDoc = { name: 'on-<event>', value: 'handler expression', doc: 'plain event handler, no request; e.g. data-sn-on-click' };

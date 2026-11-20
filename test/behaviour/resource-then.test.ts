@@ -90,7 +90,7 @@ describe('<sn-resource then>', () => {
   });
 
   test('embedded data counts as the first load', async () => {
-    const r = await render(`<html><head><script type="application/json" data-sn-data="people">[{"id":1,"name":"Ada"}]</script></head><body>
+    const r = await render(`<html><head><script type="application/json" data-sn-resource="people">[{"id":1,"name":"Ada"}]</script></head><body>
       <main data-sn-state="{ names: '' }">
         <sn-resource name="people" src="/api/people" key="id" then="names = $result.map((p) => p.name).join()"></sn-resource>
         <p data-sn-text="names + ' ' + people.length"></p>

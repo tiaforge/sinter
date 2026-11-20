@@ -93,7 +93,7 @@ Set on `<html>` or on shared elements; `wait` on a box around a list. Details: [
 | `data-sn-swap` | off | on &lt;html&gt;: links here load it; on a link: it loads its page |
 | `data-sn-permanent` | name | with sinter({ swap }): kept as is (playing, scrolled) across a link to a page with the name; its bindings go on |
 | `data-sn-transition` | value expression (a name) | the same thing on two pages: following a link from the element (or its row) to a page with an element of the same name morphs one into the other (view transitions; back too) |
-| `data-sn-data` | resource name | on &lt;script type="application/json"&gt; in &lt;head&gt;: initial data for a resource |
+| `data-sn-resource` | resource name | on &lt;script type="application/json"&gt; in &lt;head&gt;: initial data for a resource |
 | `data-sn-wait` | off | on a box whose width follows its content (a flex item without a basis or width, a float) around a list over late data: what follows the box stays invisible while the list's first rows load (at most 3 s), so nothing shown moves when they widen it (builds, at the widths where it is so); off shows it, and SN529 says it moves |
 
 ## Lazy packages

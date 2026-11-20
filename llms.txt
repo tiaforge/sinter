@@ -57,7 +57,7 @@ This is the short version, small enough for a shell to show whole: the core refe
 - `data-sn-retry` (retry policy name): sends the request again (with data-sn-call: each request ctx.request sends) as that policy of configure({ retry }) says (after a network error, a 5xx, a 429), with an Idempotency-Key; without it a write is sent once
 - `data-sn-write-through` (off): turns write-through off for this mutation: its response is not applied to the resources it is about
 - `data-sn-path` (URL patterns /a/:b …): on <html>: the path shapes this page is served for; `:name` segments appear read-only in $url
-- `data-sn-data` (resource name): on <script type="application/json"> in <head>: initial data for a resource
+- `data-sn-resource` (resource name): on <script type="application/json"> in <head>: initial data for a resource
 - `data-sn-on-<event>` (handler expression): plain event handler, no request; e.g. data-sn-on-click
 - `data-sn-on-keydown-<key>` (handler expression): runs only for that key (also on-keyup-<key>): modifiers first, the key last, e.g. data-sn-on-keydown-j, -shift-n (N), -mod-enter (Ctrl, Cmd on Apple), -escape, -question (?); matches KeyboardEvent.key; other Ctrl/Alt/Meta held do not match; an ancestor's filter skips keys typed into fields; a match calls preventDefault()
 - `data-sn-debounce-<event>` (duration): delays only that event's data-sn-on-<event> handler (it runs with the last event); e.g. data-sn-debounce-input

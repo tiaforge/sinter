@@ -63,7 +63,7 @@ test('the preload link of a low-priority resource carries fetchpriority="low", t
 });
 
 test('embedded data: no request, so no mark', () => {
-  const out = compileParts(`<!doctype html><html><head><script type="application/json" data-sn-data="emb">{"y":1}</script></head><body>
+  const out = compileParts(`<!doctype html><html><head><script type="application/json" data-sn-resource="emb">{"y":1}</script></head><body>
     <sn-resource name="emb" src="/api/emb"></sn-resource><dialog><p data-sn-text="emb.y"></p></dialog></body></html>`, opts(false));
   expect(out.diagnostics.filter((d) => d.severity === 'error')).toEqual([]);
   expect(out.ir.resources[0]!.lo).toBeUndefined();

@@ -405,7 +405,7 @@ test('embedded data is the first page: positions, total and the next cursor come
   // what a server writes for the first page (the request firstParams describes: limit=3&direction=first)
   const first = JSON.stringify({ messages: ALL.slice(0, 3), total: ALL.length });
   const requests = mockRequests({ 'GET /api/m': keyset });
-  const { root, settle } = await render(`<html><head><script type="application/json" data-sn-data="messages">${first}</script></head><body>${PAGE}</body></html>`, { requests });
+  const { root, settle } = await render(`<html><head><script type="application/json" data-sn-resource="messages">${first}</script></head><body>${PAGE}</body></html>`, { requests });
   await settle();
   const state = () => [[...root.querySelectorAll('li')].map((l) => l.textContent).join(','), root.querySelector('span')!.textContent, root.querySelector('b')!.textContent];
   expect(state()).toEqual(['1,2,3', '1–3 of 7 3', 'false,true']);
@@ -422,7 +422,7 @@ test('offset mode: embedded data is page 1, and page(3) asks for page 3', async 
     return { items: ALL.slice((p - 1) * n, p * n), total: ALL.length };
   } });
   const first = JSON.stringify({ items: ALL.slice(0, 3), total: ALL.length });
-  const { root, settle } = await render(`<html><head><script type="application/json" data-sn-data="o">${first}</script></head><body>
+  const { root, settle } = await render(`<html><head><script type="application/json" data-sn-resource="o">${first}</script></head><body>
     <sn-resource name="o" src="/api/o" items="items" total="total" key="uid" paginate="{ numbered: true, size: 3 }"></sn-resource>
     <span data-sn-text="[$meta.o.page, $meta.o.pages, $meta.o.from, $meta.o.to, $meta.o.hasPrev, $meta.o.hasNext].join()"></span>
     <button data-sn-on-click="page(o, 3)"></button></body></html>`, { requests });
@@ -442,7 +442,7 @@ test('page-model with embedded data: the data is the URL\'s page (here 3 of 3), 
   } });
   // what a server writes for /?page=3: the request ?skip=6&limit=3
   const third = JSON.stringify({ items: ALL.slice(6, 9), total: ALL.length });
-  const { root, settle } = await render(`<html><head><script type="application/json" data-sn-data="o">${third}</script></head><body>
+  const { root, settle } = await render(`<html><head><script type="application/json" data-sn-resource="o">${third}</script></head><body>
     <sn-resource name="o" src="/api/o" items="items" total="total" key="uid" paginate="{ numbered: 'offset', size: 3, model: $url.page, params: { offset: 'skip' } }"></sn-resource>
     <span data-sn-text="[$meta.o.page, $meta.o.pages, $meta.o.from, $meta.o.to, $meta.o.hasPrev, $meta.o.hasNext].join()"></span>
     <button data-sn-on-click="page(o, 'prev')"></button></body></html>`, { requests, url: 'http://localhost/?page=3' });

@@ -335,7 +335,7 @@ export const tags = collection({
 Besides fetching `src`, a resource can start from JSON embedded in the page:
 
 ```html
-<script type="application/json" data-sn-data="people">[{"id": 1, "name": "Ada"}]</script>
+<script type="application/json" data-sn-resource="people">[{"id": 1, "name": "Ada"}]</script>
 ```
 
 That payload is the first load and no request is made. An empty placeholder counts as no data, so

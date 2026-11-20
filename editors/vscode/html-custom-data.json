@@ -288,7 +288,7 @@
       "description": "on <html>: the path shapes this page is served for; `:name` segments appear read-only in $url (URL patterns /a/:b …)"
     },
     {
-      "name": "data-sn-data",
+      "name": "data-sn-resource",
       "description": "on <script type=\"application/json\"> in <head>: initial data for a resource (resource name)"
     },
     {

@@ -195,7 +195,7 @@ test('resources with the same src share one request', async () => {
 test('embedded data replaces the first request', async () => {
   const requests = mockRequests({});
   const { root, settle } = await render(`<html><head>
-    <script type="application/json" data-sn-data="people">[{"id":1,"name":"Ada"}]</script></head><body>
+    <script type="application/json" data-sn-resource="people">[{"id":1,"name":"Ada"}]</script></head><body>
     <sn-resource name="people" src="/api/people" key="id"></sn-resource>
     <ul><template data-sn-for="p in people"><li data-sn-text="p.name"></li></template></ul></body></html>`, { requests });
   await settle();
@@ -208,9 +208,9 @@ test('an empty placeholder (the server that fills it did not) is no data: the pa
   const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
   try {
     const { root, settle } = await render(`<html><head>
-      <script type="application/json" data-sn-data="people"></script>
-      <script type="application/json" data-sn-data="tags">  </script>
-      <script type="application/json" data-sn-data="bad">{</script></head><body>
+      <script type="application/json" data-sn-resource="people"></script>
+      <script type="application/json" data-sn-resource="tags">  </script>
+      <script type="application/json" data-sn-resource="bad">{</script></head><body>
       <sn-resource name="people" src="/api/people" key="id"></sn-resource>
       <sn-resource name="tags" src="/api/tags"></sn-resource>
       <sn-resource name="bad" src="/api/bad"></sn-resource>

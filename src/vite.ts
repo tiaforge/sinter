@@ -1328,7 +1328,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     async generateBundle(_, bundle) {
       const r = resolved!;
       guardLazy(this);
-      // the placeholders a server fills (data-sn-data), next to the pages: what a middleware reads to know each page's requests
+      // the placeholders a server fills (data-sn-resource), next to the pages: what a middleware reads to know each page's requests
       if (embedPages.size) {
         const pages = [...embedPages].sort(([a], [b]) => a.localeCompare(b)).map(([, p]) => ({ file: p.file, paths: p.paths, ...(p.arrays ? { arrays: p.arrays } : {}), data: p.data }));
         // the site's URLs, which sinter-axum follows as a host follows _redirects: 301s, and rewrites to a page's file

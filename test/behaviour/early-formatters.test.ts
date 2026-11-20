@@ -4,7 +4,7 @@
 import { afterEach, expect, test, vi } from 'vitest';
 import { firstPaint, render } from '../../src/testing/index.js';
 
-const PAGE = `<!doctype html><html><head><script type="application/json" data-sn-data="a">{"a":{"at":"2026-01-26T10:00:00Z","n":1234.5}}</script></head><body>
+const PAGE = `<!doctype html><html><head><script type="application/json" data-sn-resource="a">{"a":{"at":"2026-01-26T10:00:00Z","n":1234.5}}</script></head><body>
   <sn-resource name="a" src="/api/a" items="a"></sn-resource>
   <p id="d" data-sn-text="date(a.at, 'long')"></p>
   <p id="n" data-sn-text="number(a.n)"></p>

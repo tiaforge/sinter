@@ -358,7 +358,7 @@ test('an event the page shown applies while the next page\'s HTML is fetched: th
     <sn-resource name="items" src="/api/other" items="items" key="id"></sn-resource>
     ${sync('/events', '<sn-event name="item" resource="items" op="upsert"></sn-event>')}
     <ul><template data-sn-for="x in items"><li data-sn-text="x.id"></li></template></ul></div>`,
-  '<script type="application/json" data-sn-data="items">{"items":[{"id":1}]}</script>');
+  '<script type="application/json" data-sn-resource="items">{"items":[{"id":1}]}</script>');
   const t = await onA();
   const c = t.made[0]!;
   // the swap's fetch starts; the page shown applies an event meanwhile
@@ -382,7 +382,7 @@ test('from a page that does not listen to an event the next page maps: its data 
   // caley: settings maps no contact_updated, so EventSource never delivered the one sent during the fetch
   const embedded = compile(`<sn-resource name="items" src="/api/other" items="items" key="id"></sn-resource>
     ${sync('/events', '<sn-event name="item" resource="items" op="upsert"></sn-event>')}`,
-  '<script type="application/json" data-sn-data="items">{"items":[{"id":1}]}</script>');
+  '<script type="application/json" data-sn-resource="items">{"items":[{"id":1}]}</script>');
   const notes = compile(sync('/events', '<sn-event name="note" then="0"></sn-event>'));
   const t = transports();
   show(notes);

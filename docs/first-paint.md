@@ -162,7 +162,7 @@ when sinter sets a prop or on an event.
 A resource can start with its data inside the page. If the head contains
 
 ```html
-<script type="application/json" data-sn-data="contacts">[{"id":1,"name":"Ada"}]</script>
+<script type="application/json" data-sn-resource="contacts">[{"id":1,"name":"Ada"}]</script>
 ```
 
 then `contacts` has that data and makes no first request. The early script reads it too, so

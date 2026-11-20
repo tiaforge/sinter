@@ -8,7 +8,7 @@ import { mockRequests, render } from '../../src/testing/index.js';
 const nodes = (el: Element) => [...el.childNodes].map((n) => (n.nodeType === 8 ? `<!--${(n as Comment).data}-->` : n.nodeType === 3 ? JSON.stringify((n as Text).data) : (n as Element).localName));
 /** the embedded data, changed after the early script ran and before the page module reads it */
 const swap = (data: unknown) => ({ firstPaint: { afterEarly: () => { document.querySelector('script[type="application/json"]')!.textContent = JSON.stringify(data); } } });
-const page = (body: string, data: unknown) => `<!doctype html><html><head><script type="application/json" data-sn-data="all">${JSON.stringify(data)}</script></head><body>
+const page = (body: string, data: unknown) => `<!doctype html><html><head><script type="application/json" data-sn-resource="all">${JSON.stringify(data)}</script></head><body>
   <sn-resource name="all" src="/api/all"></sn-resource><p>${body}</p></body></html>`;
 
 test('a list of text rows: 3 rendered early, 1 by the page module', async () => {

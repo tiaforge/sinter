@@ -99,7 +99,7 @@ internal sealed partial class SinterEngine
         try { text = File.ReadAllText(at); }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
-            throw new SinterException($"{at}: {e.Message} (built with sinter's Vite plugin, with `embed: true` or a `data-sn-data` placeholder?)");
+            throw new SinterException($"{at}: {e.Message} (built with sinter's Vite plugin, with `embed: true` or a `data-sn-resource` placeholder?)");
         }
         if (compiled is not null)
         {

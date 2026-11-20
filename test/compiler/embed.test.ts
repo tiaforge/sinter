@@ -6,7 +6,7 @@ import { compileParts, type CompileOptions } from '../../src/compiler/index.js';
 const opts: CompileOptions = { file: '/app/index.html', root: '/app', dev: false, readFile: () => '', moduleSrc: '/page.js', helpers: { module: '/app/helpers.js', names: ['offset'], namespaces: {} } };
 
 test('a keyset resource: its first page is the size and the `first` direction, under their parameter names', () => {
-  const out = compileParts(`<!doctype html><html><head><script type="application/json" data-sn-data="m"></script></head><body>
+  const out = compileParts(`<!doctype html><html><head><script type="application/json" data-sn-resource="m"></script></head><body>
     <sn-resource name="m" key="uid" src="/api/m?folder=inbox" items="messages" paginate="{ keyset: {at}, size: 50, params: { size: 'n' }, directions: { first: 'top' } }"></sn-resource>
     <p data-sn-text="m.length"></p></body></html>`, opts);
   expect(out.diagnostics.filter((d) => d.severity === 'error')).toEqual([]);
@@ -15,10 +15,10 @@ test('a keyset resource: its first page is the size and the `first` direction, u
 
 test('each placeholder: its id, and the URL template where only the URL decides it; null where a helper or a value of the page does', () => {
   const out = compileParts(`<!doctype html><html data-sn-path="/article/:slug"><head>
-    <script type="application/json" data-sn-data="article"></script>
-    <script type="application/json" data-sn-data="list"></script>
-    <script type="application/json" data-sn-data="mine"></script>
-    <script type="application/json" data-sn-data="rows"></script>
+    <script type="application/json" data-sn-resource="article"></script>
+    <script type="application/json" data-sn-resource="list"></script>
+    <script type="application/json" data-sn-resource="mine"></script>
+    <script type="application/json" data-sn-resource="rows"></script>
   </head><body data-sn-state="{ q: '' }">
     <sn-resource name="article" src="https://api.example/articles/{$url.slug}?v={$url.v}"></sn-resource>
     <sn-resource name="list" key="id" src="/api/list?offset={offset($url.page, 10)}"></sn-resource>
@@ -41,7 +41,7 @@ test('each placeholder: its id, and the URL template where only the URL decides 
 });
 
 test('model: the parameter is described (the page, from page 2 on); it takes a query parameter, on a numbered list; start-page is unknown', () => {
-  const page = (attrs: string, extra = '') => compileParts(`<!doctype html><html><head><script type="application/json" data-sn-data="m"></script></head><body data-sn-state="{ n: 2 }">
+  const page = (attrs: string, extra = '') => compileParts(`<!doctype html><html><head><script type="application/json" data-sn-resource="m"></script></head><body data-sn-state="{ n: 2 }">
     <sn-resource name="m" key="id" src="/api/m" items="items" total="total" ${attrs}></sn-resource>${extra}
     <p data-sn-text="m.length"></p></body></html>`, opts);
   const pg = (o: string) => `paginate="{ ${o} }"`;
@@ -67,7 +67,7 @@ test('model: the parameter is described (the page, from page 2 on); it takes a q
 });
 
 test('when: `$url` values against strings, `!`, `&&`, `||` are a condition a server evaluates; anything else only the browser can', () => {
-  const when = (w: string) => compileParts(`<!doctype html><html><head><script type="application/json" data-sn-data="m"></script></head><body data-sn-state="{ q: '' }">
+  const when = (w: string) => compileParts(`<!doctype html><html><head><script type="application/json" data-sn-resource="m"></script></head><body data-sn-state="{ q: '' }">
     <sn-resource name="m" src="/api/m" when="${w}"></sn-resource><p data-sn-text="m.x"></p></body></html>`, opts).embed[0]!.when;
   expect(when("$url.feed != 'following'")).toEqual({ url: 'feed', ne: 'following' });
   expect(when("'a' === $url.tab")).toEqual({ url: 'tab', eq: 'a' });
@@ -78,7 +78,7 @@ test('when: `$url` values against strings, `!`, `&&`, `||` are a condition a ser
 
 test('array parameters: the page lists them for the server and the early file; a `when` reading one is the browser\'s', () => {
   const out = compileParts(`<!doctype html><html><head>
-    <script type="application/json" data-sn-data="a"></script><script type="application/json" data-sn-data="b"></script>
+    <script type="application/json" data-sn-resource="a"></script><script type="application/json" data-sn-resource="b"></script>
   </head><body>
     <select multiple data-sn-model="$url.tag"><option>go</option></select>
     <sn-resource name="a" key="id" src="/api/a?tag={$url.tag}" when="$url.tag.length"></sn-resource>

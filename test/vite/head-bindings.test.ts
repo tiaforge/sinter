@@ -29,7 +29,7 @@ beforeAll(async () => {
   <title data-sn-text="site() + ' · Blog'">Blog</title>
   <meta name="description" content="Notes" data-sn-attr="{ content: 'About ' + site() }">
   <template data-sn-if="withImage()"><meta property="og:image" data-sn-attr="{ content: '/img/' + site() + '.png' }"></template>
-  <script type="application/json" data-sn-data="post">{ "post": { "title": "Embedded" } }</script>
+  <script type="application/json" data-sn-resource="post">{ "post": { "title": "Embedded" } }</script>
   <meta property="og:title" content="Blog" data-sn-attr="{ content: post ? post.title + ($url.q ? ' ' + $url.q : '') : 'Blog' }">
   <meta property="og:description" content="Blog" data-sn-attr="{ content: other ? other.text : 'Blog' }">
 </head>

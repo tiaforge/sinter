@@ -293,7 +293,7 @@ export async function embed<B extends BuildTypes = BuildTypes>(options: EmbedOpt
     const raw = o.manifest ?? text(await read(FILE));
     m = typeof raw == 'string' ? JSON.parse(raw) : (raw as Manifest);
   } catch (e) {
-    throw Error(`sinter: ${dir ?? ''}${FILE}: ${(e as Error).message} (built with sinter's Vite plugin, with \`embed: true\` or a \`data-sn-data\` placeholder?)`);
+    throw Error(`sinter: ${dir ?? ''}${FILE}: ${(e as Error).message} (built with sinter's Vite plugin, with \`embed: true\` or a \`data-sn-resource\` placeholder?)`);
   }
   if (m?.version !== 2) throw Error(`sinter: ${FILE}: version ${m?.version} (this layer reads version 2: build and layer from the same sinter release)`);
 

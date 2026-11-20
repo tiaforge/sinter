@@ -4,7 +4,7 @@ Serve a [sinter](https://github.com/tiaforge/sinter#readme) app from ASP.NET Cor
 
 You add one middleware. For each page, it calls your API (your minimal APIs and MVC controllers, in-process) and writes the JSON into the HTML as it's sent. It is NativeAOT-compatible, and a source generator compiles the build into your assembly and checks it when your project compiles.
 
-The server layer is optional: without it, sinter pages fetch their data in the browser. It does what [`sinter-axum`](../sinter-axum#readme) does for Rust, option for option: the server only writes JSON into the `<script type="application/json" data-sn-data>` slots in the head of each page, which the build lists in `sinter-embed.json` ([contract](https://github.com/tiaforge/sinter/blob/main/docs/first-paint.md)).
+The server layer is optional: without it, sinter pages fetch their data in the browser. It does what [`sinter-axum`](../sinter-axum#readme) does for Rust, option for option: the server only writes JSON into the `<script type="application/json" data-sn-resource>` slots in the head of each page, which the build lists in `sinter-embed.json` ([contract](https://github.com/tiaforge/sinter/blob/main/docs/first-paint.md)).
 
 ## Quick start
 

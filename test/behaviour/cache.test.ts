@@ -102,7 +102,7 @@ test('embedded data wins over the cache and is cached itself', async () => {
   const session = memoryStorage();
   await visit(session);
   const requests = mockRequests({});
-  const r = await render(`<html><head><script type="application/json" data-sn-data="contacts">{"contacts":[{"id":9,"name":"Edsger"}]}</script></head><body>${LIST()}</body></html>`, { session, requests });
+  const r = await render(`<html><head><script type="application/json" data-sn-resource="contacts">{"contacts":[{"id":9,"name":"Edsger"}]}</script></head><body>${LIST()}</body></html>`, { session, requests });
   await r.settle();
   expect(names(r.root)).toEqual(['Edsger']);
   expect(requests.calls).toHaveLength(0);

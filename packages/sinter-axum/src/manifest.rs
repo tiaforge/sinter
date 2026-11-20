@@ -205,7 +205,7 @@ pub(crate) type Build = (Vec<Page>, Vec<Route>, Option<Locales>);
 pub(crate) fn load(dir: &Path, compiled: Option<&str>) -> Result<Build, Error> {
     let at = dir.join(FILE);
     let text = std::fs::read_to_string(&at).map_err(|e| {
-        Error(format!("{}: {e} (built with sinter's Vite plugin, with `embed: true` or a `data-sn-data` placeholder?)", at.display()))
+        Error(format!("{}: {e} (built with sinter's Vite plugin, with `embed: true` or a `data-sn-resource` placeholder?)", at.display()))
     })?;
     let m: Manifest = parse(&text).map_err(|e| Error(format!("{}: {}", at.display(), e.0)))?;
     if let Some(c) = compiled {

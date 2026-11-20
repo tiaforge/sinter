@@ -195,7 +195,7 @@ describe('components that reach each other through <sn-component use>', () => {
 
   test('first paint over embedded data: each definition is written once into the early file, and the tree renders at any depth', async () => {
     const data = JSON.stringify([{ id: 1, type: 'p', children: [{ type: 'text', value: 'a' }, { type: 'em', children: [{ type: 'em', children: [{ type: 'text', value: 'b' }] }] }] }]);
-    const { root } = await firstPaint(`<!doctype html><html><head><script type="application/json" data-sn-data="blocks">${data}</script></head><body>
+    const { root } = await firstPaint(`<!doctype html><html><head><script type="application/json" data-sn-resource="blocks">${data}</script></head><body>
       <sn-resource name="blocks" src="/api/blocks"></sn-resource>
       <div><template data-sn-for="b in blocks"><sn-component use="{ p: 'x-p' }[b.type]" data-sn-with="{ node: b }"></sn-component></template></div></body></html>`, { components: C });
     expect(shape(root)).toBe('<p><span>a</span><em><em><span>b</span></em></em></p>');

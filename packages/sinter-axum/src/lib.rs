@@ -86,7 +86,7 @@ use tower::{Layer, Service, ServiceExt, util::BoxCloneSyncService};
 pub struct SlotRequest {
     /// the page's file in the build (`index.html`)
     pub page: String,
-    /// the resource's name (`data-sn-data="articles"`)
+    /// the resource's name (`data-sn-resource="articles"`)
     pub resource: String,
     /// the request the build describes, filled from `$url`: the resource's `src`, a paginated
     /// one at its first page (or the page its `model` (paginate) parameter names); None when the build could not
