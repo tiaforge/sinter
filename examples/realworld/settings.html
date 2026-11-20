@@ -1,7 +1,6 @@
-<conduit-layout data-sn-path="/settings"
+<conduit-layout data-sn-path="/settings" data-sn-signed-in
   data-sn-state="{ nav: 'settings' }"
   data-sn-with="{ nav, title: 'Settings', description: 'Your Conduit settings: picture, name, bio, email and password.' }">
-<template data-sn-if="$meta.user.loadedAt && !user && !$meta.user.error"><conduit-redirect to="/login"></conduit-redirect></template>
 
 <main class="settings-page">
   <div class="container page">

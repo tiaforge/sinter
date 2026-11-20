@@ -1,10 +1,5 @@
-// Islands: browser work that sinter expressions cannot do (a redirect from a branch).
-import { instance, navigate } from '@tiaforge-ui/sinter';
-
-/** `<conduit-redirect to="/login">`: replaces the current entry once rendered, e.g. inside a `data-sn-if` (a swap, with swaps on). */
-customElements.define('conduit-redirect', class extends HTMLElement {
-  connectedCallback() { navigate(this.getAttribute('to') ?? '/', { replace: true }); }
-});
+// Islands: browser work that sinter expressions cannot do.
+import { instance } from '@tiaforge-ui/sinter';
 
 /** The debug interface the RealWorld e2e suite reads; the token is where the API's `token.storage` keeps it (apis.js). */
 const token = () => localStorage.getItem('jwtToken');

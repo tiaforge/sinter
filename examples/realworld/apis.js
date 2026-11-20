@@ -9,8 +9,9 @@ export const apis = {
     token: {
       storage: 'local:jwtToken',
       scheme: 'Token',
-      // a button's 401 (favorite, follow, delete) goes to sign in, and back here after (login.html reads `next`)
-      signIn: { to: '/login', returnUrl: { allow: ['/'], param: 'next' } },
+      // where a button's 401 (favorite, follow, delete) and a page that needs a session (`data-sn-signed-in`) send a
+      // signed-out visitor; the suite expects `/login` itself (a link's way back is its own `?next=`, article.html)
+      signIn: '/login',
       from: { 'POST /users/login': 'user.token', 'POST /users': 'user.token', 'PUT /user': 'user.token' },
     },
     defaults: {

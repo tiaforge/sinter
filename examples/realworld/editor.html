@@ -1,7 +1,6 @@
-<conduit-layout data-sn-path="/editor /editor/:slug"
+<conduit-layout data-sn-path="/editor /editor/:slug" data-sn-signed-in
   data-sn-state="{ nav: 'editor' }"
   data-sn-with="{ nav, title: 'Editor', description: 'Write or edit an article on Conduit.' }">
-<template data-sn-if="$meta.user.loadedAt && !user && !$meta.user.error"><conduit-redirect to="/login"></conduit-redirect></template>
 <sn-resource cache name="article" src="/articles/{$url.slug}" when="$url.slug"></sn-resource>
 
 <main class="editor-page">

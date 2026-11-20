@@ -1,14 +1,13 @@
-<conduit-layout data-sn-path="/ /tag/:tag"
+<conduit-layout data-sn-path="/ /tag/:tag" data-sn-signed-in="$url.feed == 'following'"
   data-sn-state="{ nav: 'home' }"
   data-sn-with="{ nav, title: 'Home', description: 'Conduit, a place to share your knowledge: the global feed, your feed and popular tags.' }">
 
 <!-- the page lives in the URL (`model` in paginate): ?page=3 loads the third page (offset 20); the pager's links navigate -->
 <sn-resource cache name="articles" when="$url.feed != 'following'"
   src="/articles?tag={$url.tag}" paginate="{ numbered: 'offset', size: 10, model: $url.page }"></sn-resource>
-<sn-resource cache name="feed" when="$url.feed == 'following' && user"
+<sn-resource cache name="feed" when="$url.feed == 'following'"
   src="/articles/feed" paginate="{ numbered: 'offset', size: 10, model: $url.page }"></sn-resource>
 <sn-resource cache name="tags" src="/tags"></sn-resource>
-<template data-sn-if="$url.feed == 'following' && $meta.user.loadedAt && !user && !$meta.user.error"><conduit-redirect to="/login"></conduit-redirect></template>
 
 <main class="home-page">
   <template data-sn-if="$meta.user.loadedAt && !user">
