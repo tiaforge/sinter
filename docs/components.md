@@ -38,8 +38,10 @@ runtime.
 - One `<template data-sn-props="…">` holds the markup. Its root **renders at most one element**
   ([The root](#the-root)).
 - `data-sn-props` is the props type, written in TypeScript with the names `src/sinter.types.ts`
-  exports (or the schemas of your OpenAPI spec), as `<sn-resource type>` is. `data-sn-props=""`
-  takes no props.
+  exports (or the schemas of your OpenAPI spec), as `<sn-resource type>` is. A component without
+  props needs none: the file's one top-level `<template>` is its declaration (`data-sn-props=""` works
+  too). That template is never a branch, list or text: `data-sn-if`, `data-sn-else`, `data-sn-for` or
+  `data-sn-text` on it, or two top-level templates without `data-sn-props`, is `SN312`.
 - `data-sn-emits` (optional) declares the events the component emits, with their detail types.
 - Together, these two attributes are the component's whole contract.
 
@@ -137,7 +139,7 @@ fallback when it is left empty:
 
 ```html
 <!-- src/components/page-section.html -->
-<template data-sn-props="">
+<template>
   <section><side-card><slot name="aside" slot="side">Nothing here</slot></side-card><slot></slot></section>
 </template>
 ```

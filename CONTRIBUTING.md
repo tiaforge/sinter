@@ -28,7 +28,7 @@ found bugs that hand-written tests missed: wrong output where features meet, ove
 or only after the page module takes over.
 
 - `test/behaviour/component-fuzz.test.ts` nests components of every root shape (plain, `if`/`else`,
-  another component's tag, a slot, a choice, a list), with fills, slot content,
+  another component's tag, a slot, a choice, a list; one without props, declared by its bare `<template>`), with fills, slot content,
   `<sn-component use>`, loops, branches and texts.
 - `test/behaviour/anchor-fuzz.test.ts` nests lists, branches, texts and elements inside a row.
 - `test/behaviour/reactivity-fuzz.test.ts` runs random handlers over a page with lets over helpers: writes

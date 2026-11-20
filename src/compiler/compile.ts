@@ -5,7 +5,7 @@ import { rewriteImages, sourceFile, type ImageHost, type ImageResult } from './i
 import { boxSizesCss, type ReserveTrace, Layout, PLACEHOLDER_BASE, type Affine, type Reserved, type StyleSheet } from './layout.js';
 import { shows } from './status-eval.js';
 import { recordChild, replay as replayUnit, LINK_FIELDS, UNIT_NUMBERING, type Plan, type Refused } from './link.js';
-import { HEAD_ELEMENTS, kindOfComponent, parseDocument } from './head.js';
+import { HEAD_ELEMENTS, kindOfComponent, parseDocument, STRUCTURAL } from './head.js';
 import { minifyMarkup } from './minify.js';
 import type { RemoteConfig } from '../remote.js';
 import { AUTO_FIT_HINT, AUTO_FIT_ROWS, FLUID_WIDTHS } from './images.js';
@@ -2473,17 +2473,32 @@ class Compiler {
     const top = frag.childNodes.filter(isElement);
     for (const t of top) if (t.tagName === 'template') this.declaration(t, def.head ? 'data-sn-head' : 'data-sn-component', ['data-sn-component', 'data-sn-head']);
     const templates = top.filter((t) => t.tagName === 'template' && (attr(t, 'data-sn-component') !== undefined || attr(t, 'data-sn-head') !== undefined));
+    const decl = def.head ? 'data-sn-head' : 'data-sn-component';
+    // without `data-sn-props`, the file's only top-level `<template>` is its declaration: a component without props
+    const bare = templates.length ? [] : top.filter((t) => t.tagName === 'template');
+    if (bare.length > 1) {
+      return fail(bare[1]!, null, `component \`<${name}>\` has ${bare.length} top-level \`<template>\`s and none has \`data-sn-props\`: a component file holds one \`<template>\` around its markup`,
+        'keep one `<template>` at the top and move the others inside it; with props, mark it: `<template data-sn-props="{ article: Article }">`');
+    }
+    const structural = bare.length ? bare[0]!.attrs.find((a) => STRUCTURAL.includes(a.name)) : undefined;
+    if (structural) {
+      return fail(bare[0]!, structural.name, `the top-level \`<template>\` of \`<${name}>\`'s file is its declaration, around its markup: \`${structural.name}\` cannot be on it`,
+        `put it on a template inside: \`<template><template ${structural.name}="…">…</template></template>\``);
+    }
+    if (bare.length) {
+      bare[0]!.attrs.push({ name: decl, value: '' });
+      templates.push(bare[0]!);
+    }
     if (templates.length !== 1) {
-      return fail(templates[1] ?? null, null, `component \`<${name}>\` needs ${templates.length ? 'exactly ' : ''}one \`<template data-sn-props="{ …props }">\` (one root element, or head elements only) around its markup`,
-        '`<template data-sn-props="{ article: Article }"><article>…</article></template>`');
+      return fail(templates[1] ?? null, null, `component \`<${name}>\` needs ${templates.length ? 'exactly ' : ''}one \`<template>\` around its markup (with \`data-sn-props="{ …props }"\` when it takes props; one root element, or head elements only)`,
+        '`<template data-sn-props="{ article: Article }"><article>…</article></template>`, or `<template><footer>…</footer></template>` without props');
     }
     const template = templates[0]!;
     if (attr(template, 'data-sn-component') !== undefined && attr(template, 'data-sn-head') !== undefined) {
       return fail(template, 'data-sn-head', `\`<${name}>\` declares both \`data-sn-component\` and \`data-sn-head\`, which are one \`data-sn-props\` now`, 'its markup says the kind: one root element for a body, head elements only for a head');
     }
-    const decl = def.head ? 'data-sn-head' : 'data-sn-component';
     for (const t of top) {
-      if (t !== template && t.tagName !== 'style') return fail(t, null, `a component file holds its \`<template data-sn-props>\` and \`<style>\`; \`<${t.tagName}>\` belongs inside the template`);
+      if (t !== template && t.tagName !== 'style') return fail(t, null, `a component file holds its \`<template>\` and \`<style>\`; \`<${t.tagName}>\` belongs inside the template`);
     }
     if (def.head && def.css === undefined && top.some((t) => t.tagName === 'style')) {
       def.css = null;
