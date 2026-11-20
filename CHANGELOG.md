@@ -57,6 +57,7 @@ A smaller vocabulary, one word per concept ([docs/proposals/vocabulary.md](docs/
 - **Fixed:** Escape on a `data-sn-options` list stays with the list only when it closes something (a text field's visible options, a marked option, or a `dismiss` handler that cancels); otherwise it goes on, so a `<dialog>` around a menu closes.
 - **Diagnostics:** every pure rename says "`X` is renamed to `Y`" (`item` → `value`, `offset: true` → `numbered: true`, `data-sn-pages` → `data-sn-for`), so the editor's quick fix writes the new name for each, functions included (`patch()` → `merge()`). `start-page` is `SN101`, as other old attributes are.
 - **Removed:** the store function `reset()`. A form's fields follow their `data-sn-model` state, so a form clears by clearing its state (`data-sn-then="body = ''"`). A `<button type="reset">` or `form.reset()` now updates the models of the fields it restores (it left them at the old values before).
+- **Added:** next-page data covers paginated lists. A paginated resource whose `src`, `when` and page read only `$url`, constants and helpers is requested when a link to its page is about to be followed, at the page its first load asks for: the page the link names with `model: $url.page` (`/?page=3`), else the first (keyset and `append` lists always); the next page shows it at once, with its `total` and pager fields, and revalidates. RealWorld's feeds and profile lists are prefetched now (each of its pages +0.2 KB gzip).
 
 ### Fixed
 

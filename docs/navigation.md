@@ -26,9 +26,11 @@ the data that page loads first. The next page shows it at its first paint, then 
   starts at once. A touch waits 65 ms, and a scroll that starts on the link requests nothing. Skipped
   with `navigator.connection.saveData` or on 2g.
 - **What:** the resources of the target page whose `src` and `when` read only `$url`, constants and
-  your helpers. Resources that read state, other resources, `$now`, or that are paginated, `for`,
-  `call` or embedded, are not prefetched. Data the current page already loaded from the same
-  request is handed over without a new request.
+  your helpers. A paginated one is requested at the page its first load asks for: the page the
+  link's URL names with `model: $url.page` (`/?page=3`: page 3), else the first page (keyset and
+  `append` lists always). Resources that read state, other resources, `$now`, or that are `for`,
+  `call`, `method="POST"` or embedded, are not prefetched. Data the current page already loaded from the
+  same request is handed over without a new request (not a paginated list's page: that one is requested).
 - **Which links:** same-origin links to one of the app's pages, matched by the pages' `data-sn-path`
   patterns (or their file paths). Give pages a `data-sn-path` so that `/article/slug` finds
   `article.html`.

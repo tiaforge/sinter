@@ -1832,7 +1832,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
         if (url == null) {
           // the data the previous page prefetched for this request, else the page-load cache: shown
           // now, and changed() revalidates
-          const ahead = app.ext.prefetch && !def.call && !def.each && !def.paginate && def.body == null;
+          const ahead = app.ext.prefetch && !def.call && !def.each && def.body == null;
           const u = ahead || (def.cache != null && app.ext.cache) ? resolve() : null;
           if (u != null) {
             l.pager?.reset(0);

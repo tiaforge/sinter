@@ -376,7 +376,11 @@ export const EARLY_FORMATTERS = ['date', 'number', 'bytes'];
  */
 export interface PrefetchParts {
   path: string[];
-  res: Array<{ s: UrlTemplate; w?: number; i: string | null; t: string | null; k?: 1 }>;
+  /**
+   * a paginated resource's first page: `q` its parameters (`firstParams`), and with `model` (paginate) `sp`, the page the
+   * link's URL names, as the early file reads it (`startOf`): from page 2 on, `q` with `k` set to the page (`o`: the items to skip)
+   */
+  res: Array<{ s: UrlTemplate; w?: number; i: string | null; t: string | null; k?: 1; q?: Record<string, string>; sp?: { f: number; k: string; s: number; o?: 1 } }>;
   fns: string[];
   /** helper names and namespace members the functions call */
   helpers: string[];
@@ -8223,7 +8227,7 @@ class Compiler {
           // data (no rows, a null object: a signed-out visitor's `{user: null}`) fills the resource with what is written in
           // here, and `loadedAt` stays null at mount, so it changes nothing: the binding stays early (otherwise a branch over
           // it renders at mount, after the first paint, in every tab that opened another page first)
-          if (def.cache != null || (this.opts.prefetch && !def.paginate && def.body == null)) {
+          if (def.cache != null || (this.opts.prefetch && def.body == null)) {
             const start = JSON.stringify(typeof def.src[0] === 'string' ? def.src[0] : '').slice(1, -1), end = `,${JSON.stringify(def.items ?? null)},${JSON.stringify(def.total ?? null)}]`;
             const none = JSON.stringify(def.key ? '[]' : 'null');
             checks.add(fn(`() => { for (const k of Object.keys(sessionStorage)) if (/^sn:[cp]:\\[/.test(k) && k.includes(${JSON.stringify(start)}) && k.endsWith(${JSON.stringify(end)})) { let e; try { e = JSON.parse(sessionStorage.getItem(k)); } catch { throw 0; } if (!e || JSON.stringify(e.items) !== ${none} || e.total != null) throw 0; } }`));
@@ -8419,7 +8423,8 @@ class Compiler {
   /**
    * The resources another page can request for this one before it is opened: a `src` and `when`
    * that read only `$url`, constants and the app's helpers (no state, resources, clock, formatters
-   * or messages); not paginated, `each`, `call` or embedded data.
+   * or messages); not `for`, `call`, `method="POST"` or embedded data. A paginated one at the page its
+   * first load requests: the first, or with `model` (paginate) the one the URL names (a `$url` read too).
    */
   prefetchParts(): PrefetchParts | null {
     const userHelpers = new Set(this.opts.helpers.names);
@@ -8430,7 +8435,7 @@ class Compiler {
     const fn = (code: string) => { let i = index.get(code); if (i === undefined) index.set(code, (i = fns.push(code) - 1)); return i; };
     const res: PrefetchParts['res'] = [];
     for (const def of this.resources) {
-      if (def.call || def.each || def.data != null || def.paginate || def.body != null || !def.src.length) continue;
+      if (def.call || def.each || def.data != null || def.body != null || !def.src.length) continue;
       if (!strs(def.deps).every((d) => d === '$url' || d.startsWith('$url.'))) continue;
       const codes = [...def.src.filter((x): x is number => typeof x === 'number'), ...(def.when != null ? [def.when] : [])].map((i) => this.fns[i]!);
       if (codes.some((c) => /\$\.\$(?!url\b)/.test(c) || builtin(c) || messages.some((m) => c.includes(`${m}$`)))) continue;
@@ -8438,6 +8443,8 @@ class Compiler {
         s: def.src.map((x) => (typeof x === 'number' ? fn(this.fns[x]!) : x)),
         ...(def.when != null ? { w: fn(this.fns[def.when]!) } : {}),
         i: def.items ?? null, t: def.total ?? null, ...(def.key ? { k: 1 as const } : {}),
+        ...(def.paginate ? { q: firstParams(def.paginate) } : {}),
+        ...(def.paginate?.start != null ? { sp: (({ qn: _, ...sp }) => sp)(startOf(def.paginate, fn(this.fns[def.paginate.start]!))) } : {}),
       });
     }
     if (!res.length) return null;
