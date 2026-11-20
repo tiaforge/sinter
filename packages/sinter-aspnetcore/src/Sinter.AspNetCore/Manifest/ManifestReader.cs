@@ -38,10 +38,10 @@ internal static class ManifestReader
     }
 
     private static ManifestPage Page(JsonElement p) =>
-        new(Str(p, "file"), Array(p, "paths", true).Select(x => x.GetString()!).ToArray(), Array(p, "data", true).Select(Slot).ToArray(),
+        new(Str(p, "file"), Array(p, "paths", true).Select(x => x.GetString()!).ToArray(), Array(p, "data", true).Select(Placeholder).ToArray(),
             Array(p, "arrays", false).Select(x => x.GetString()!).ToArray());
 
-    private static ManifestSlot Slot(JsonElement d)
+    private static ManifestPlaceholder Placeholder(JsonElement d)
     {
         UrlPart[]? src = null;
         if (d.TryGetProperty("src", out var s) && s.ValueKind == JsonValueKind.Array) src = s.EnumerateArray().Select(Part).ToArray();
@@ -59,7 +59,7 @@ internal static class ManifestReader
         var headers = d.TryGetProperty("headers", out var h) && h.ValueKind == JsonValueKind.Object
             ? h.EnumerateObject().Where(x => x.Value.ValueKind == JsonValueKind.String).Select(x => new KeyValuePair<string, string>(x.Name, x.Value.GetString()!)).ToArray()
             : [];
-        return new ManifestSlot(d.GetProperty("id").GetInt32(), Str(d, "resource"), src, inBrowser, when, Pairs(d, "query"), start, headers);
+        return new ManifestPlaceholder(d.GetProperty("id").GetInt32(), Str(d, "resource"), src, inBrowser, when, Pairs(d, "query"), start, headers);
     }
 
     private static UrlPart Part(JsonElement e) =>

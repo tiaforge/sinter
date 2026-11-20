@@ -19,7 +19,7 @@ public sealed class SinterManifest(ManifestPage[] pages, ManifestRoute[] routes,
 
 /// <summary>A page: its HTML file relative to the build's output, the paths it answers at, its placeholders.</summary>
 [EditorBrowsable(EditorBrowsableState.Never)]
-public sealed class ManifestPage(string file, string[] paths, ManifestSlot[] data, string[]? arrays = null)
+public sealed class ManifestPage(string file, string[] paths, ManifestPlaceholder[] data, string[]? arrays = null)
 {
     /// <summary>Its array parameters: <c>$url</c> values read as lists (repeated keys).</summary>
     public string[] Arrays { get; } = arrays ?? [];
@@ -28,12 +28,12 @@ public sealed class ManifestPage(string file, string[] paths, ManifestSlot[] dat
     /// <summary>The paths it answers at: <c>data-sn-path</c> patterns, else where its file is served.</summary>
     public string[] Paths { get; } = paths;
     /// <summary>Its placeholders.</summary>
-    public ManifestSlot[] Data { get; } = data;
+    public ManifestPlaceholder[] Data { get; } = data;
 }
 
 /// <summary>One placeholder: <c>&lt;script type="application/json" data-sn="{id}"&gt;&lt;/script&gt;</c> in the page's head.</summary>
 [EditorBrowsable(EditorBrowsableState.Never)]
-public sealed class ManifestSlot(int id, string resource, UrlPart[]? src, bool whenInBrowser, Cond? when, KeyValuePair<string, string>[] query, ManifestStart? start, KeyValuePair<string, string>[]? headers = null)
+public sealed class ManifestPlaceholder(int id, string resource, UrlPart[]? src, bool whenInBrowser, Cond? when, KeyValuePair<string, string>[] query, ManifestStart? start, KeyValuePair<string, string>[]? headers = null)
 {
     /// <summary>Its <c>data-sn</c> id.</summary>
     public int Id { get; } = id;

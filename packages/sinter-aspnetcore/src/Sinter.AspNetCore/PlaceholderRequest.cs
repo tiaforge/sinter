@@ -13,12 +13,12 @@ namespace Sinter.AspNetCore;
 /// What a resolver receives: the placeholder's resource, the request the build describes for it (if
 /// any), the page's <c>$url</c> and the page request.
 /// </summary>
-public sealed class SlotRequest : IAsyncDisposable
+public sealed class PlaceholderRequest : IAsyncDisposable
 {
     private readonly IServiceScopeFactory _scopes;
     private AsyncServiceScope? _scope;
 
-    internal SlotRequest(HttpContext context, string page, string resource, string? url, IReadOnlyDictionary<string, UrlParam> @params, CancellationToken cancellation, KeyValuePair<string, string>[]? headers = null)
+    internal PlaceholderRequest(HttpContext context, string page, string resource, string? url, IReadOnlyDictionary<string, UrlParam> @params, CancellationToken cancellation, KeyValuePair<string, string>[]? headers = null)
     {
         StaticHeaders = headers ?? [];
         HttpContext = context;
@@ -73,28 +73,28 @@ public sealed class SlotRequest : IAsyncDisposable
 /// What a resolver gives: the JSON body the API would return (the whole body, as the browser would get
 /// it), or <see cref="None"/> to leave the resource to the browser.
 /// </summary>
-public readonly struct SlotData
+public readonly struct PlaceholderData
 {
-    private SlotData(ReadOnlyMemory<byte> json) { Json = json; HasValue = true; }
+    private PlaceholderData(ReadOnlyMemory<byte> json) { Json = json; HasValue = true; }
 
     /// <summary>No data from the server: the browser requests it.</summary>
-    public static SlotData None => default;
+    public static PlaceholderData None => default;
     /// <summary>Whether there is data.</summary>
     public bool HasValue { get; }
     /// <summary>The JSON body, UTF-8.</summary>
     public ReadOnlyMemory<byte> Json { get; }
 
     /// <summary>A UTF-8 JSON body; null is <see cref="None"/>.</summary>
-    public static SlotData From(byte[]? utf8Json) => utf8Json is null ? None : new(utf8Json);
+    public static PlaceholderData From(byte[]? utf8Json) => utf8Json is null ? None : new(utf8Json);
     /// <summary>A UTF-8 JSON body; null is <see cref="None"/>.</summary>
-    public static SlotData From(ReadOnlyMemory<byte>? utf8Json) => utf8Json is { } j ? new(j) : None;
+    public static PlaceholderData From(ReadOnlyMemory<byte>? utf8Json) => utf8Json is { } j ? new(j) : None;
     /// <summary>A JSON text; null is <see cref="None"/>.</summary>
-    public static SlotData From(string? json) => json is null ? None : new(Encoding.UTF8.GetBytes(json));
+    public static PlaceholderData From(string? json) => json is null ? None : new(Encoding.UTF8.GetBytes(json));
     /// <summary>The same.</summary>
-    public static SlotData From(SlotData data) => data;
+    public static PlaceholderData From(PlaceholderData data) => data;
 
     /// <summary>A value as JSON, with the given type information (System.Text.Json source generation); null is <see cref="None"/>.</summary>
-    public static SlotData Serialize<T>(T? value, JsonTypeInfo<T> type) =>
+    public static PlaceholderData Serialize<T>(T? value, JsonTypeInfo<T> type) =>
         value is null ? None : new(JsonSerializer.SerializeToUtf8Bytes(value, type));
 
     /// <summary>
@@ -103,7 +103,7 @@ public readonly struct SlotData
     /// there for NativeAOT, as for minimal APIs). Null is <see cref="None"/>.
     /// </summary>
     [EditorBrowsable(EditorBrowsableState.Never)]
-    public static SlotData Serialize<T>(T? value, SlotRequest request)
+    public static PlaceholderData Serialize<T>(T? value, PlaceholderRequest request)
     {
         if (value is null) return None;
         var options = request.HttpContext.RequestServices.GetRequiredService<IOptions<Microsoft.AspNetCore.Http.Json.JsonOptions>>().Value.SerializerOptions;

@@ -68,7 +68,7 @@ use bytes::Bytes;
 use futures_util::{FutureExt, StreamExt, future::BoxFuture, stream};
 use http::{HeaderMap, HeaderName, HeaderValue, Method, Request, Response, StatusCode, header};
 use http_body_util::{BodyExt, Limited};
-use manifest::{Page, SlotDesc, When};
+use manifest::{Page, PlaceholderDesc, When};
 use std::{
     collections::{HashMap, HashSet},
     convert::Infallible,
@@ -83,7 +83,7 @@ use tower::{Layer, Service, ServiceExt, util::BoxCloneSyncService};
 /// What a resolver receives: the placeholder's resource, the request the build describes for it
 /// (if any), the page's `$url` and the page request's headers.
 #[derive(Clone, Debug)]
-pub struct SlotRequest {
+pub struct PlaceholderRequest {
     /// the page's file in the build (`index.html`)
     pub page: String,
     /// the resource's name (`data-sn-resource="articles"`)
@@ -98,7 +98,7 @@ pub struct SlotRequest {
     pub headers: Arc<HeaderMap>,
 }
 
-type Resolver = Arc<dyn Fn(SlotRequest) -> BoxFuture<'static, Option<Bytes>> + Send + Sync>;
+type Resolver = Arc<dyn Fn(PlaceholderRequest) -> BoxFuture<'static, Option<Bytes>> + Send + Sync>;
 type Api = BoxCloneSyncService<Request<Body>, Response<Body>, Infallible>;
 
 /// The configuration: a build's output directory and where the data comes from. [`Embed::build`]
@@ -189,7 +189,7 @@ impl Embed {
     /// every page; `"profile.html:articles"` to one.
     pub fn resolve<F, Fut>(mut self, resource: impl Into<String>, f: F) -> Self
     where
-        F: Fn(SlotRequest) -> Fut + Send + Sync + 'static,
+        F: Fn(PlaceholderRequest) -> Fut + Send + Sync + 'static,
         Fut: Future<Output = Option<Bytes>> + Send + 'static,
     {
         self.resolvers.insert(resource.into(), Arc::new(move |s| f(s).boxed()));
@@ -258,14 +258,14 @@ impl Embed {
         let (pages, routes, locales) = manifest::load(&self.dir, self.compiled)?;
         let mut problems = Vec::new();
         let names: HashSet<String> =
-            pages.iter().flat_map(|p| p.slots.iter().flat_map(|s| [s.resource.clone(), format!("{}:{}", p.file, s.resource)])).collect();
+            pages.iter().flat_map(|p| p.placeholders.iter().flat_map(|s| [s.resource.clone(), format!("{}:{}", p.file, s.resource)])).collect();
         for n in self.resolvers.keys().chain(&self.skips) {
             if !names.contains(n) {
                 problems.push(format!("`{n}`: no page of the build has a placeholder for it"));
             }
         }
         for p in &pages {
-            for s in &p.slots {
+            for s in &p.placeholders {
                 let named = |m: &dyn Fn(&str) -> bool| m(&format!("{}:{}", p.file, s.resource)) || m(&s.resource);
                 if named(&|k| self.resolvers.contains_key(k) || self.skips.contains(k)) {
                     continue;
@@ -305,7 +305,7 @@ impl Embed {
     }
 
     /// Whether this configuration can make the request the build describes for a placeholder.
-    fn source(&self, s: &SlotDesc) -> Result<(), String> {
+    fn source(&self, s: &PlaceholderDesc) -> Result<(), String> {
         if !s.described() {
             return Err(if s.src.is_none() {
                 "the build could not describe its request (its `src` calls a helper, or reads something other than `$url`)".into()
@@ -464,7 +464,7 @@ where
 }
 
 /// The request the build describes for a placeholder at this URL, if any and if its `when` holds.
-fn described_url(s: &SlotDesc, params: &HashMap<String, Param>) -> Option<String> {
+fn described_url(s: &PlaceholderDesc, params: &HashMap<String, Param>) -> Option<String> {
     if let Some(When::Cond(c)) = &s.when {
         if !c.holds(params) {
             return None;
@@ -523,10 +523,10 @@ async fn render(embed: EmbedLayer, i: usize, req: http::request::Parts, head: bo
     let headers = Arc::new(req.headers);
     let deadline = Instant::now() + embed.0.timeout;
     let fills: Vec<_> = page
-        .slots
+        .placeholders
         .iter()
         .map(|s| {
-            let r = SlotRequest {
+            let r = PlaceholderRequest {
                 page: page.file.clone(),
                 resource: s.resource.clone(),
                 url: described_url(s, &params),
@@ -597,7 +597,7 @@ fn error_tail(i: &Inner) -> String {
 }
 
 /// The static headers of a resource's API (`sinter({ apis })`); a name or value that is not a valid header is left out.
-fn own_headers(s: &SlotDesc) -> HeaderMap {
+fn own_headers(s: &PlaceholderDesc) -> HeaderMap {
     let mut h = HeaderMap::new();
     for (k, v) in &s.headers {
         if let (Ok(k), Ok(v)) = (HeaderName::try_from(k.as_str()), HeaderValue::try_from(v.as_str())) {
@@ -618,7 +618,7 @@ fn with_own(mut h: HeaderMap, own: &HeaderMap) -> HeaderMap {
 }
 
 /// The data for one placeholder; `own`: the static headers of its API.
-async fn fill(e: &EmbedLayer, r: SlotRequest, own: HeaderMap) -> Fill {
+async fn fill(e: &EmbedLayer, r: PlaceholderRequest, own: HeaderMap) -> Fill {
     let i = &e.0;
     let page_key = format!("{}:{}", r.page, r.resource);
     if let Some(f) = i.resolvers.get(&page_key).or_else(|| i.resolvers.get(&r.resource)) {

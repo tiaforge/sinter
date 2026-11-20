@@ -71,8 +71,8 @@ public sealed class EmbedTests
             {
                 Assert.Equal("index.html", r.Page);
                 Assert.Equal("/api/feed", r.Url);
-                if (r.Headers.Cookie.ToString() is not { Length: > 0 } user) return ValueTask.FromResult(SlotData.None);
-                return ValueTask.FromResult(SlotData.From($$"""{"feed":"{{user}}","page":"{{r.Param("page") ?? "1"}}"}""" ));
+                if (r.Headers.Cookie.ToString() is not { Length: > 0 } user) return ValueTask.FromResult(PlaceholderData.None);
+                return ValueTask.FromResult(PlaceholderData.From($$"""{"feed":"{{user}}","page":"{{r.Param("page") ?? "1"}}"}""" ));
             });
             o.Resolve("tags", _ => ValueTask.FromResult<byte[]?>("""{"tags":["mine"]}"""u8.ToArray()));
         });
@@ -92,9 +92,9 @@ public sealed class EmbedTests
             o.Dir = AppBuild();
             o.Skip("feed");
             o.Timeout = TimeSpan.FromMilliseconds(300);
-            o.Resolve("article", async r => { await release.Task; return SlotData.From("{}"); });
+            o.Resolve("article", async r => { await release.Task; return PlaceholderData.From("{}"); });
             // ignores its token: the page still ends at the time limit
-            o.Resolve("comments", async _ => { await Task.Delay(5000); return SlotData.From("[]"); });
+            o.Resolve("comments", async _ => { await Task.Delay(5000); return PlaceholderData.From("[]"); });
         });
         var t = Stopwatch.StartNew();
         var res = await a.GetTestClient().GetAsync("/article/x", HttpCompletionOption.ResponseHeadersRead);
@@ -147,7 +147,7 @@ public sealed class EmbedTests
         await using var a = await App(api, o =>
         {
             o.Dir = dir;
-            o.Resolve("seen", r => ValueTask.FromResult(SlotData.From($$"""{"tags":"{{string.Join("|", r.ParamValues("tag"))}}","x":"{{r.Param("x")}}","one":"{{r.Param("tag") ?? "-"}}"}""")));
+            o.Resolve("seen", r => ValueTask.FromResult(PlaceholderData.From($$"""{"tags":"{{string.Join("|", r.ParamValues("tag"))}}","x":"{{r.Param("x")}}","one":"{{r.Param("tag") ?? "-"}}"}""")));
         });
         // repeated keys in the request, as the runtime writes them; a list in the resolver's params
         var html = await Html(a, "/?tag=a&tag=b%20c&x=1&x=2");
@@ -176,7 +176,7 @@ public sealed class EmbedTests
             o.Skip("feed");
             o.Stream = false;
             o.Timeout = TimeSpan.FromMilliseconds(50);
-            o.Resolve("tags", async r => { await Task.Delay(5000, r.Cancellation); return SlotData.None; });
+            o.Resolve("tags", async r => { await Task.Delay(5000, r.Cancellation); return PlaceholderData.None; });
         });
         Assert.Equal(HttpStatusCode.GatewayTimeout, (await Send(slow, Get("/"))).Status);
     }
@@ -199,7 +199,7 @@ public sealed class EmbedTests
     public async Task Data_left_to_the_browser_is_no_failure()
     {
         // a resolver's None, a skip, a `when` that does not hold: the page is sent whole, those placeholders empty
-        await using var a = await App(Api.Minimal, o => { o.Dir = AppBuild(); o.Skip("feed"); o.Resolve("comments", _ => ValueTask.FromResult(SlotData.None)); });
+        await using var a = await App(Api.Minimal, o => { o.Dir = AppBuild(); o.Skip("feed"); o.Resolve("comments", _ => ValueTask.FromResult(PlaceholderData.None)); });
         Assert.EndsWith("""<script type="application/json" data-sn="1"></script></head><body></body></html>""", await Html(a, "/article/x"));
     }
 
@@ -271,7 +271,7 @@ public sealed class EmbedTests
         {
             o.Dir = AppBuild();
             o.InProcess = false;
-            o.Resolve("artcles", _ => ValueTask.FromResult(SlotData.None));
+            o.Resolve("artcles", _ => ValueTask.FromResult(PlaceholderData.None));
         }))).Message;
         foreach (var want in new[]
         {
@@ -390,11 +390,11 @@ public sealed class EmbedTests
     {
         var dir = Build("scope", """{ "version": 2, "pages": [ { "file": "index.html", "paths": ["/"], "data": [ { "id": 0, "resource": "a", "src": null }, { "id": 1, "resource": "b", "src": null } ] } ] }""",
             ("index.html", """<head><script type="application/json" data-sn="0"></script><script type="application/json" data-sn="1"></script></head>"""));
-        SlotResolver count = r =>
+        PlaceholderResolver count = r =>
         {
             var c = r.Services.GetRequiredService<Counter>();
             c.N++;
-            return ValueTask.FromResult(SlotData.From($"{c.N}"));
+            return ValueTask.FromResult(PlaceholderData.From($"{c.N}"));
         };
         await using var a = await App(Api.Minimal, o => { o.Dir = dir; o.Resolve("a", count); o.Resolve("b", count); }, services: s => s.AddScoped<Counter>());
         var html = await Html(a, "/");
@@ -407,7 +407,7 @@ public sealed class EmbedTests
     {
         var dir = Build("throws", """{ "version": 2, "pages": [ { "file": "index.html", "paths": ["/"], "data": [ { "id": 0, "resource": "a", "src": null } ] } ] }""",
             ("index.html", """<head><script type="application/json" data-sn="0"></script></head>"""));
-        await using var a = await App(Api.Minimal, o => { o.Dir = dir; o.Resolve("a", (SlotResolver)(_ => throw new InvalidOperationException("no"))); });
+        await using var a = await App(Api.Minimal, o => { o.Dir = dir; o.Resolve("a", (PlaceholderResolver)(_ => throw new InvalidOperationException("no"))); });
         Assert.Contains("data-sn-failed", await Html(a, "/"));
     }
 }

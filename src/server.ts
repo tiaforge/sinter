@@ -13,7 +13,7 @@ import { expand, readUrl, withParams } from './runtime/url.js';
 export type Handler = (request: Request, ...rest: any[]) => Response | Promise<Response>;
 
 /** What a resolver receives: the placeholder's resource, the request the build describes for it (if any), the page's `$url` and the page request. */
-export interface SlotRequest {
+export interface PlaceholderRequest {
   /** the page's file in the build (`index.html`) */
   page: string;
   /** the resource's name */
@@ -37,7 +37,7 @@ export interface SlotRequest {
  * (`string`), its bytes (`Uint8Array`, `ArrayBuffer`), or a `Response` (a 2xx JSON one, as from `fetch`
  * or your API's handler). `null` or `undefined` leaves the resource to the browser.
  */
-export type Resolver = (request: SlotRequest) => unknown;
+export type Resolver = (request: PlaceholderRequest) => unknown;
 
 /** A placeholder's entry in `data`: a resolver, or `'skip'` (the browser requests it). */
 export type Entry = Resolver | 'skip';
@@ -126,10 +126,10 @@ export interface Embed {
 
 type Part = string | { url: string };
 type Cond = { url: string; eq?: string; ne?: string } | { not: Cond } | { and: Cond[] } | { or: Cond[] };
-interface Slot { id: number; resource: string; src: Part[] | null; when?: true | Cond; query?: Array<[string, string]>; start?: { url: string; key: string; size: number; skip?: true; query: Array<[string, string]> }; headers?: Record<string, string> }
+interface Placeholder { id: number; resource: string; src: Part[] | null; when?: true | Cond; query?: Array<[string, string]>; start?: { url: string; key: string; size: number; skip?: true; query: Array<[string, string]> }; headers?: Record<string, string> }
 interface Route { from: string; to: string; status: number; file?: string; choose?: true }
-interface Manifest { version: number; pages: Array<{ file: string; paths: string[]; arrays?: string[]; data: Slot[] }>; routes?: Route[]; locales?: { base: string; list: string[]; at?: string } }
-interface Page { file: string; paths: string[]; arrays?: string[]; parts: Uint8Array[]; slots: Slot[] }
+interface Manifest { version: number; pages: Array<{ file: string; paths: string[]; arrays?: string[]; data: Placeholder[] }>; routes?: Route[]; locales?: { base: string; list: string[]; at?: string } }
+interface Page { file: string; paths: string[]; arrays?: string[]; parts: Uint8Array[]; placeholders: Placeholder[] }
 type Params = Record<string, string | string[]>;
 
 const FILE = 'sinter-embed.json';
@@ -151,7 +151,7 @@ const toPage = (v: string | undefined) => {
 };
 
 /** The request the build describes for a placeholder at this URL, if any and if its `when` holds. */
-export function describedUrl(s: Slot, p: Params): string | null {
+export function describedUrl(s: Placeholder, p: Params): string | null {
   if (s.src == null) return null;
   // a `when` only the browser evaluates is the resolver's to decide (the startup check requires one)
   if (s.when && s.when !== true && !holds(s.when, p)) return null;
@@ -194,8 +194,8 @@ function table(rules: Array<{ pattern: string; exact: boolean }>) {
 }
 
 /** Cuts the page at each placeholder, in document order; one that is missing or not empty means the HTML and the manifest are from different builds. */
-function split(file: string, html: string, slots: Slot[]): Pick<Page, 'parts' | 'slots'> {
-  const at = slots.map((s) => {
+function split(file: string, html: string, placeholders: Placeholder[]): Pick<Page, 'parts' | 'placeholders'> {
+  const at = placeholders.map((s) => {
     const open = `<script type="application/json" data-sn="${s.id}">`, i = html.indexOf(open);
     if (i < 0) throw Error(`sinter: ${file}: no placeholder for \`${s.resource}\` (data-sn="${s.id}"): the page and sinter-embed.json are from different builds`);
     const j = i + open.length;
@@ -206,7 +206,7 @@ function split(file: string, html: string, slots: Slot[]): Pick<Page, 'parts' | 
   let from = 0;
   for (const { j } of at) { parts.push(enc.encode(html.slice(from, j))); from = j; }
   parts.push(enc.encode(html.slice(from)));
-  return { parts, slots: at.map((x) => x.s) };
+  return { parts, placeholders: at.map((x) => x.s) };
 }
 
 /** Every `<` as a JSON unicode escape, so the data cannot close its `<script>` (or open a comment): the same JSON, since in valid JSON `<` is only ever inside a string. */
@@ -385,7 +385,7 @@ export async function embed<B extends BuildTypes = BuildTypes>(options: EmbedOpt
   }
 
   /** the data for one placeholder; never rejects. `own`: the static headers of the resource's API (`sinter({ apis })`) */
-  async function fill(req: SlotRequest, api: Handler, rest: any[], own?: Record<string, string>): Promise<Fill> {
+  async function fill(req: PlaceholderRequest, api: Handler, rest: any[], own?: Record<string, string>): Promise<Fill> {
     const withOwn = (h: Headers) => { for (const k in own) h.has(k) || h.set(k, own[k]!); return h; };
     const entry = data[`${req.page}:${req.resource}`] ?? data[req.resource];
     let got: Uint8Array | string | null;
@@ -423,13 +423,13 @@ export async function embed<B extends BuildTypes = BuildTypes>(options: EmbedOpt
     const left = () => stop.abort(LEFT);
     if (visitor?.aborted) stop.abort(LEFT);
     else visitor?.addEventListener('abort', left, { once: true });
-    let pending = page.slots.length;
+    let pending = page.placeholders.length;
     // the time limit, for every placeholder together: a resolver that ignores its signal does not hold the page
     let timer: ReturnType<typeof setTimeout> | undefined;
     const late = new Promise<Fill>((ok) => { timer = setTimeout(() => { stop.abort(LATE); ok(504); }, timeout); });
     // each placeholder's fill, and whether it is in yet (a promise cannot be asked)
-    const got: Fill[] = new Array(page.slots.length), has: boolean[] = new Array(page.slots.length).fill(false);
-    const fills = page.slots.map((s, k) =>
+    const got: Fill[] = new Array(page.placeholders.length), has: boolean[] = new Array(page.placeholders.length).fill(false);
+    const fills = page.placeholders.map((s, k) =>
       Promise.race([fill({ page: page.file, resource: s.resource, url: describedUrl(s, params), params, request, signal }, api, rest, s.headers).then((f) => { pending--; got[k] = f; has[k] = true; return f; }), late]));
     // the page is out (or ended early): stop whatever is still fetching
     const done = () => {

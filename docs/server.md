@@ -12,7 +12,7 @@ The layer is optional: without it, sinter pages fetch their data in the browser
 ## Quick start
 
 **1. Build the frontend for a server**: `sinter({ embed: true })` in its Vite config. The build leaves an
-empty data slot in each page for every resource whose request the page's URL decides, and lists them in
+empty data placeholder in each page for every resource whose request the page's URL decides, and lists them in
 `dist/sinter-embed.json`, with their types in `dist/sinter-embed.d.ts`.
 
 **2. Wrap your app.** With Hono:
@@ -60,7 +60,7 @@ error TS2322: … Property '"profile.html:articles"' is missing in type '{ user:
 error TS2561: Object literal may only specify known properties, but 'usr' does not exist in type …
 ```
 
-A name applies to every page; `'profile.html:articles'` names one page's slot.
+A name applies to every page; `'profile.html:articles'` names one page's placeholder.
 
 `embed()` makes the same checks when the server starts, against the build it reads, and rejects with
 every problem in one error:
@@ -106,14 +106,14 @@ const sinter = await embed<Build>({
 });
 ```
 
-It receives a `SlotRequest`:
+It receives a `PlaceholderRequest`:
 
 - `params`: the page URL's parameters: query parameters and named path segments (`/article/:slug`
   gives `slug`); an array parameter (one a `<select multiple>` or checkboxes with a `value` bind,
   `?tag=a&tag=b`) is a list of strings, `[]` when absent;
 - `request`: the page request (its headers, cookies included);
 - `url`: the URL the layer would request, if the build describes one;
-- `page`, `resource`: which slot it is;
+- `page`, `resource`: which placeholder it is;
 - `signal`: aborted at the page's time limit, or when the visitor leaves.
 
 It returns the data: any value (serialized as JSON), a JSON text (`string`), its bytes (`Uint8Array`,
@@ -130,7 +130,7 @@ browser sent with its request for the page.
    `authorization` and `accept-language` headers on to in-process and `upstream` requests (`forward` to
    change them). Requests to `origins` get none, as sinter's own requests to another origin don't either.
 3. **Per user, with a token from JavaScript** (`localStorage`). The request for the page doesn't carry
-   it, so leave those resources to the browser: `early="off"` on the resource in the frontend (no slot),
+   it, so leave those resources to the browser: `early="off"` on the resource in the frontend (no placeholder),
    or `'skip'` here.
 
 Pages are sent with `Cache-Control: private, no-cache`, so a shared cache never gives one user's page to
@@ -203,20 +203,20 @@ in-process and use neither. Bun's and Deno's `fetch` are native and need nothing
 
 ## What the layer does
 
-- **At startup (`await embed(…)`):** it reads the manifest, checks that every slot has a source, and
-  splits each page at its slots (the last thing in the page's `<head>`).
-- **On a GET for a page:** it sends the HTML up to the first slot at once, fetches every slot's data in
+- **At startup (`await embed(…)`):** it reads the manifest, checks that every placeholder has a source, and
+  splits each page at its placeholders (the last thing in the page's `<head>`).
+- **On a GET for a page:** it sends the HTML up to the first placeholder at once, fetches every placeholder's data in
   parallel for this URL, and writes each, with `<` escaped so it can't break out of its `<script>`,
   then the rest of the page.
-- **When a slot's data can't be fetched** (an error, a non-2xx or non-JSON response, one over
+- **When a placeholder's data can't be fetched** (an error, a non-2xx or non-JSON response, one over
   `maxBytes`, the time limit, a resolver that throws), the page ends there with the error text in a
   `<body data-sn-failed>`, so its scripts don't start. A resolver that ignores its `signal` doesn't hold
   the page past the time limit.
 - **The site's URLs:** it follows the rules of the build's `_redirects`, from the manifest: a permanent
   redirect from a page's old file URL, a path a page declares in `data-sn-path` answered with that page
-  (or passed on as its file, for a page without slots), and on a site with languages a `302` from an
+  (or passed on as its file, for a page without placeholders), and on a site with languages a `302` from an
   unprefixed URL to the visitor's language.
-- **No data is not a failure:** a resolver's `null`, a skip, or a `when` that doesn't hold leaves the slot
+- **No data is not a failure:** a resolver's `null`, a skip, or a `when` that doesn't hold leaves the placeholder
   empty, and the browser requests that data itself.
 - **What it never does:** fetch a URL whose host comes from the page's URL, or serve `sinter-embed.json`
   or `sinter-embed.d.ts` (it answers 404; a static host without the layer would serve them, so don't

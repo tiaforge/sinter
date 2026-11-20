@@ -32,7 +32,7 @@ public sealed class SinterGenerator : IIncrementalGenerator
     internal static readonly DiagnosticDescriptor NoSource = D(3, "A placeholder has no source", "{0}: `{1}`: {2}. Add [SinterResolve(\"{1}\")] to a method that gives its data, or [SinterSkip(\"{1}\")] to leave it to the browser.");
     internal static readonly DiagnosticDescriptor Unknown = D(4, "No placeholder has this name", "no page of the build has a placeholder for `{0}` (it has {1})");
     internal static readonly DiagnosticDescriptor NotStatic = D(5, "A resolver must be static", "[SinterResolve] method `{0}` must be static and not generic");
-    internal static readonly DiagnosticDescriptor BadReturn = D(6, "A resolver must return data", "[SinterResolve] method `{0}` returns {1}: return (a Task or ValueTask of) a byte[] or string of JSON, a SlotData, or a value to serialize");
+    internal static readonly DiagnosticDescriptor BadReturn = D(6, "A resolver must return data", "[SinterResolve] method `{0}` returns {1}: return (a Task or ValueTask of) a byte[] or string of JSON, a PlaceholderData, or a value to serialize");
     internal static readonly DiagnosticDescriptor NotPartial = D(7, "[SinterEmbed] needs a partial class", "[SinterEmbed] class `{0}` (and the types it is nested in) must be partial and not generic");
 
     public void Initialize(IncrementalGeneratorInitializationContext context)
@@ -133,7 +133,7 @@ public sealed class SinterGenerator : IIncrementalGenerator
 
     private const string Ns = "global::Sinter.AspNetCore.";
 
-    /// <summary>A resolver lambda for the method: its parameters bound, its result as SlotData; or what is wrong with its return type.</summary>
+    /// <summary>A resolver lambda for the method: its parameters bound, its result as PlaceholderData; or what is wrong with its return type.</summary>
     private static (string? Call, string? Bad) Bind(INamedTypeSymbol owner, IMethodSymbol m)
     {
         var args = m.Parameters.Select(p => Arg(p)).ToArray();
@@ -156,15 +156,15 @@ public sealed class SinterGenerator : IIncrementalGenerator
         var bare = ret.WithNullableAnnotation(NullableAnnotation.NotAnnotated).ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
         var wrap = bare switch
         {
-            "byte[]" or "string" or Ns + "SlotData" => $"{Ns}SlotData.From({value})",
-            "global::System.ReadOnlyMemory<byte>" => $"{Ns}SlotData.From((global::System.ReadOnlyMemory<byte>?)({value}))",
+            "byte[]" or "string" or Ns + "PlaceholderData" => $"{Ns}PlaceholderData.From({value})",
+            "global::System.ReadOnlyMemory<byte>" => $"{Ns}PlaceholderData.From((global::System.ReadOnlyMemory<byte>?)({value}))",
             _ when ret.SpecialType == SpecialType.System_Object => null,
-            _ => $"{Ns}SlotData.Serialize<{bare}>({value}, r)",
+            _ => $"{Ns}PlaceholderData.Serialize<{bare}>({value}, r)",
         };
         if (wrap is null) return (null, "object (its type must be known to serialize it)");
         return awaited
-            ? ($"({Ns}SlotResolver)(static async r => {wrap})", null)
-            : ($"({Ns}SlotResolver)(static r => new global::System.Threading.Tasks.ValueTask<{Ns}SlotData>({wrap}))", null);
+            ? ($"({Ns}PlaceholderResolver)(static async r => {wrap})", null)
+            : ($"({Ns}PlaceholderResolver)(static r => new global::System.Threading.Tasks.ValueTask<{Ns}PlaceholderData>({wrap}))", null);
     }
 
     private static string Arg(IParameterSymbol p)
@@ -172,7 +172,7 @@ public sealed class SinterGenerator : IIncrementalGenerator
         var t = p.Type.WithNullableAnnotation(NullableAnnotation.NotAnnotated).ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
         return t switch
         {
-            Ns + "SlotRequest" => "r",
+            Ns + "PlaceholderRequest" => "r",
             "global::Microsoft.AspNetCore.Http.HttpContext" => "r.HttpContext",
             "global::System.Threading.CancellationToken" => "r.Cancellation",
             "global::System.Security.Claims.ClaimsPrincipal" => "r.User",
@@ -186,7 +186,7 @@ public sealed class SinterGenerator : IIncrementalGenerator
 
     // emitting
 
-    private sealed class Slot(string page, string resource, string? undescribed)
+    private sealed class Placeholder(string page, string resource, string? undescribed)
     {
         public string Page = page, Resource = resource;
         public string? Undescribed = undescribed;
@@ -214,11 +214,11 @@ public sealed class SinterGenerator : IIncrementalGenerator
             return;
         }
         object? manifest;
-        List<Slot> slots;
+        List<Placeholder> placeholders;
         try
         {
             manifest = Json.Parse(text);
-            slots = Slots(manifest);
+            placeholders = Placeholders(manifest);
         }
         catch (Exception e) when (e is JsonException or InvalidCastException or KeyNotFoundException or NullReferenceException)
         {
@@ -227,9 +227,9 @@ public sealed class SinterGenerator : IIncrementalGenerator
         }
         var ok = true;
         // a name no placeholder has (a typo)
-        var names = new SortedSet<string>(slots.Select(s => $"`{s.Resource}`"), StringComparer.Ordinal);
+        var names = new SortedSet<string>(placeholders.Select(s => $"`{s.Resource}`"), StringComparer.Ordinal);
         foreach (var (name, loc) in c.Skips.Items.Select(s => (s.Name, s.At)).Concat(c.Resolvers.Items.Select(r => (r.Name, r.At))))
-            if (!slots.Any(s => s.Resource == name || $"{s.Page}:{s.Resource}" == name))
+            if (!placeholders.Any(s => s.Resource == name || $"{s.Page}:{s.Resource}" == name))
             {
                 spc.ReportDiagnostic(Diagnostic.Create(Unknown, loc?.ToLocation() ?? at, name, string.Join(", ", names)));
                 ok = false;
@@ -240,9 +240,9 @@ public sealed class SinterGenerator : IIncrementalGenerator
             else if (r.Error == "return") { spc.ReportDiagnostic(Diagnostic.Create(BadReturn, r.MethodAt?.ToLocation() ?? at, r.Method, r.ErrorArg)); ok = false; }
         }
         // a placeholder without a request the build describes, and no entry
-        bool Covered(Slot s) => c.Skips.Items.Any(k => k.Name == s.Resource || k.Name == $"{s.Page}:{s.Resource}")
+        bool Covered(Placeholder s) => c.Skips.Items.Any(k => k.Name == s.Resource || k.Name == $"{s.Page}:{s.Resource}")
             || c.Resolvers.Items.Any(k => k.Name == s.Resource || k.Name == $"{s.Page}:{s.Resource}");
-        foreach (var s in slots)
+        foreach (var s in placeholders)
             if (s.Undescribed is { } why && !Covered(s))
             {
                 spc.ReportDiagnostic(Diagnostic.Create(NoSource, at, s.Page, s.Resource, why));
@@ -259,11 +259,11 @@ public sealed class SinterGenerator : IIncrementalGenerator
         catch (Exception e) when (e is ArgumentException or NotSupportedException or PathTooLongException) { return false; }
     }
 
-    private static List<Slot> Slots(object? m)
+    private static List<Placeholder> Placeholders(object? m)
     {
         var root = (Dictionary<string, object?>)m!;
         if (!root.TryGetValue("version", out var v) || v is not double d || d != 2) throw new InvalidCastException();
-        var o = new List<Slot>();
+        var o = new List<Placeholder>();
         foreach (var p in Objs(root["pages"]!))
         {
             var page = (string)p["file"]!;
@@ -274,7 +274,7 @@ public sealed class SinterGenerator : IIncrementalGenerator
                     why = "the build could not describe its request (its `src` calls a helper, or reads something other than `$url`)";
                 else if (s.TryGetValue("when", out var w) && w is true)
                     why = "its `when` is a condition only the browser can evaluate";
-                o.Add(new Slot(page, (string)s["resource"]!, why));
+                o.Add(new Placeholder(page, (string)s["resource"]!, why));
             }
         }
         return o;
@@ -321,8 +321,8 @@ public sealed class SinterGenerator : IIncrementalGenerator
         b.Append("        new " + M + "ManifestPage[] { ");
         foreach (var p in Objs(root["pages"]!))
         {
-            b.Append("\n            new(").Append(Lit((string)p["file"]!)).Append(", ").Append(Strs((List<object?>)p["paths"]!)).Append(", new " + M + "ManifestSlot[] { ");
-            foreach (var s in Objs(p["data"])) b.Append("\n                ").Append(SlotExpr(s)).Append(',');
+            b.Append("\n            new(").Append(Lit((string)p["file"]!)).Append(", ").Append(Strs((List<object?>)p["paths"]!)).Append(", new " + M + "ManifestPlaceholder[] { ");
+            foreach (var s in Objs(p["data"])) b.Append("\n                ").Append(PlaceholderExpr(s)).Append(',');
             b.Append(" }");
             if (p.TryGetValue("arrays", out var arr) && arr is List<object?> al && al.Count > 0) b.Append(", ").Append(Strs(al));
             b.Append("),");
@@ -345,7 +345,7 @@ public sealed class SinterGenerator : IIncrementalGenerator
         return b.ToString();
     }
 
-    private static string SlotExpr(Dictionary<string, object?> s)
+    private static string PlaceholderExpr(Dictionary<string, object?> s)
     {
         var src = s.TryGetValue("src", out var v) && v is List<object?> parts
             ? "new global::Sinter.AspNetCore.Manifest.UrlPart[] { " + string.Join(", ", parts.Select(p => p is string lit
