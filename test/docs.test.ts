@@ -61,7 +61,7 @@ Read this once, and not again: to look something up later, run \`npx sinter docs
 `);
   for (const a of [...ATTRIBUTES, ON_DOC, KEY_ON_DOC, DEBOUNCE_ON_DOC]) out.push(`- \`data-sn-${a.name}\`${a.value ? ` (${a.value})` : ''}: ${a.doc}`);
   out.push(`
-Key filters (\`data-sn-on-keydown-<modifiers->key\`, \`data-sn-on-keyup-…\`): modifiers ${Object.keys(MODIFIERS).map((m) => `\`${m}\``).join(', ')}, then one key: \`a\`–\`z\`, \`0\`–\`9\`, ${Object.keys(NAMED_KEYS).filter((k) => !/^f\d/.test(k)).map((k) => `\`${k}\``).join(', ')}, \`f1\`–\`f12\`, and characters by name: ${Object.entries(CHAR_KEYS).map(([n, c]) => `\`${n}\` (${c === '`' ? '``` ` ```' : `\`${c}\``})`).join(', ')}. Names are lowercase (N is \`shift-n\`). Filters on an ancestor skip keys typed into fields and Enter/Space on buttons and links; a match calls \`preventDefault()\`. The nearest element that handles an event wins; a key a plain handler does not \`preventDefault()\` goes on to its ancestors, so page-wide shortcuts go on \`<body>\`. Bubbling custom events (\`emit()\`, islands' events, \`sn-error\`, \`dismiss\`) run every handler from the target up until one calls \`$event.preventDefault()\`; \`stopPropagation()\` does not end the walk.`);
+Key filters (\`data-sn-on-keydown-<modifiers->key\`, \`data-sn-on-keyup-…\`): modifiers ${Object.keys(MODIFIERS).map((m) => `\`${m}\``).join(', ')}, then one key⟪FULL⟫: \`a\`–\`z\`, \`0\`–\`9\`, ${Object.keys(NAMED_KEYS).filter((k) => !/^f\d/.test(k)).map((k) => `\`${k}\``).join(', ')}, \`f1\`–\`f12\`, and characters by name: ${Object.entries(CHAR_KEYS).map(([n, c]) => `\`${n}\` (${c === '`' ? '``` ` ```' : `\`${c}\``})`).join(', ')}. Names are lowercase (N is \`shift-n\`).⟪SHORT⟫, lowercase (\`k\`, \`shift-n\`, \`escape\`, \`enter\`, \`arrowdown\`, \`slash\`, \`f1\`; every name: llms-full.txt).⟪END⟫ Filters on an ancestor skip keys typed into fields and Enter/Space on buttons and links; a match calls \`preventDefault()\`. The nearest element that handles an event wins; a key a plain handler does not \`preventDefault()\` goes on to its ancestors, so page-wide shortcuts go on \`<body>\`. Bubbling custom events (\`emit()\`, islands' events, \`sn-error\`, \`dismiss\`) run every handler from the target up until one calls \`$event.preventDefault()\`; \`stopPropagation()\` does not end the walk.`);
   out.push('\n## Elements\n');
   for (const e of ELEMENTS) out.push(`- \`<${e.name}>\` ${e.attrs.map((x) => `\`${x}\``).join(', ')}: ${e.doc}`);
   out.push(`
@@ -112,7 +112,7 @@ Key filters (\`data-sn-on-keydown-<modifiers->key\`, \`data-sn-on-keyup-…\`): 
 - Markup holds filters, conditions, single assignments and short calls. Logic goes into a helper when it computes a value (pure: unit-test it without a page), or into an action when it has side effects (\`data-sn-call\`).
 - Handlers apply a helper's result to state: \`data-sn-on-click="sel = rowClick($event, sel, f.id, ids)"\`, not branches on \`$event.shiftKey\` in the attribute. See the row selection recipe.
 - One step per condition: \`open && closeDialog('detail')\` is fine; \`a && (b = null, closeDialog())\` is not: split it into statements, let the dialog's \`data-sn-on-close\` reset state, or compute the new state in a helper.
-- Warning SN507 (\`complex-expression\`) flags expressions that outgrew markup and names the limit: statements per handler (4), comma sequences (0), steps behind one \`&&\`/\`||\`/\`?:\` statement (1), \`?:\` nesting (2), operations in an arrow function (8), operations per expression (15). \`complexity: { level: 'error' }\` fails the build on it, \`complexity: false\` turns it off.
+- Warning SN507 (\`complex-expression\`) flags expressions that outgrew markup and names the limit it passes⟪FULL⟫: statements per handler (4), comma sequences (0), steps behind one \`&&\`/\`||\`/\`?:\` statement (1), \`?:\` nesting (2), operations in an arrow function (8), operations per expression (15).⟪SHORT⟫ (the limits: llms-full.txt).⟪END⟫ \`complexity: { level: 'error' }\` fails the build on it, \`complexity: false\` turns it off.
 
 ## Magic names
 
@@ -209,6 +209,66 @@ Each open EventSource holds one HTTP connection, and HTTP/1.1 allows 6 per origi
   out.push(`## Editors
 
 \`npx sinter lsp --stdio\` is a language server for the project's HTML files: sinter's diagnostics as you type (components checked through the pages that use them), and with TypeScript 7 type errors, hover, completion in expressions, go to definition and a did-you-mean quick fix; "Extract to helper" moves an expression into a typed function of the helpers module. VS Code: the extension in \`editors/vscode\`. Setup for Neovim, Helix and Emacs: \`docs/editors.md\`. Every diagnostic links to its explanation in \`docs/diagnostics.md\`.
+`);
+  out.push(`## Resources
+
+\`<sn-resource name src key>\` is a named, page-wide cache of server data: the page reads it by name, it loads by itself (latest wins, shared requests, the typing pause), and \`$meta.<name>\` holds its status. \`when\` delays it, \`cache\` shows the last page load's data at once, \`refresh="30s"\` reloads it in the background, \`for="a in accounts"\` fans out one request per item, \`call\` feeds it from a function, \`src="file:…"\` or \`content:\` from the project at build time. Guide: docs/resources.md.
+`);
+  out.push(`## Actions
+
+\`data-sn-post\`/\`-put\`/\`-patch\`/\`-delete\` or \`data-sn-call\` turn an element into a request: a form sends its fields, other elements \`data-sn-body\`; \`data-sn-then\`/\`data-sn-catch\` run after it, \`data-sn-optimistic\` shows the change at once, write-through applies the response by itself, and \`run('id')\` starts one from a handler. Dialogs, keyboard shortcuts, \`data-sn-options\` lists and row selection are here too. Guide: docs/actions.md.
+`);
+  out.push(`## Pagination
+
+\`paginate="{ keyset: { before: id }, size: 20 }"\` loads a page at a time; \`append\` for load more, \`numbered: true\` (or \`'offset'\`) for page numbers, \`model: $url.page\` keeps the page in the URL. \`page(messages, 'next')\` moves; \`$meta.<name>\` has \`hasPrev\`, \`hasNext\`, \`from\`, \`to\`, \`total\`, \`page\`, \`pages\`. \`params\` and \`directions\` name the server's parameters, once per API. Guide: docs/pagination.md.
+`);
+  out.push(`## Live updates
+
+\`<sn-sync src>\` with \`<sn-event name resource op value when then>\` children turns server events (SSE, WebSocket, SignalR) into store changes: \`upsert\`, \`merge\`, \`remove\`, \`refresh\`. Reconnects go through the session probe, missed events are caught up by a reload, and \`$meta.<name>.live\` is the stream's state. Guide: docs/sync.md.
+`);
+  out.push(`## Navigation
+
+Between pages: the next page's data is requested while the pointer rests on a link (\`prefetch: { data }\`), Speculation Rules fetch or prerender its HTML (\`prefetch: { html }\`), and with \`sinter({ swap: true })\` a link swaps the next page in, keeping \`data-sn-permanent\` elements and streams; \`data-sn-transition\` names the page transitions. Same-page links and \`navigate()\` change only the URL's parameters a page reads. Guide: docs/navigation.md.
+`);
+  out.push(`## APIs
+
+\`sinter({ apis: { main: { base, openapi, credentials, headers, defaults, operations, paginate } } })\`: pages write paths relative to an API (\`src="/contacts"\`, \`billing:/invoices\`), checked against its spec; resources are typed from it and write-through knows its entities. \`sinter migrate\` moves an app's URLs to these paths. Guide: docs/apis.md.
+`);
+  out.push(`## Pages without JavaScript
+
+A page with nothing to run ships no JavaScript: its constant bindings are written into the HTML at build time. \`sinter({ static: ['about.html'] })\` makes that a build error to break (SN322); \`<html data-sn-for="post in posts" data-sn-path="/blog/:slug">\` builds one page per entry; \`localePrefix\` builds each page per language. Guide: docs/static-pages.md.
+`);
+  out.push(`## Strict mode
+
+\`sinter({ strict: true })\` (or \`SINTER_STRICT=1\`) fails \`sinter check\`, \`vite build\`, the dev server's pages and \`render()\` on warnings; \`strict: { allow: { SN504: 'why' } }\` keeps one code a warning. Warnings that depend on the machine or the network, and the heuristic ones, stay warnings. Guide: docs/strict.md.
+`);
+  out.push(`## Configuration
+
+The Vite plugin's options (\`sinter({ … })\`), the project's modules at fixed names (\`src/sinter.helpers.ts\`, \`.actions\`, \`.config\`, \`.early\`, \`.types\`, \`.content\`), \`configure({ request, sessionProbe, onError, locale, transport, retry, confirm, fieldErrors })\` in the config module, helpers and built-in formatters, and built-in messages. Guide: docs/configuration.md.
+`);
+  out.push(`## Lazy packages
+
+\`sinter({ lazy: ['openpgp'] })\` keeps a heavy package out of the page bundle: it loads when an element with \`data-sn-import\` is rendered, or on the first call; \`data-sn-preload\` starts it earlier. The build measures what moved. Guide: docs/lazy.md.
+`);
+  out.push(`## Component libraries
+
+\`sinter({ libraries: ['@acme/ui'] })\` names packages whose \`package.json\` has \`"sinter": "./sinter"\`: their public components are tags in the app, under the library's prefix; their helpers come in through a namespace. A library checks itself through fixture pages in \`fixtures/\`, with its modules beside them. Guide: docs/libraries.md.
+`);
+  out.push(`## Security
+
+Expressions reach only a closed set of names, so markup cannot run arbitrary code; URLs are checked against \`origins\`, bindings to \`href\` and \`src\` refuse \`javascript:\`, and scripts, the early files and fonts are files a CSP can allow. Trusted Types and CSP nonces are supported. Guide: docs/security.md.
+`);
+  out.push(`## The server layer
+
+\`@tiaforge-ui/sinter/server\`'s \`embed()\` (and sinter-axum, Sinter.AspNetCore) fill each page's embedded-data placeholders per request, so the first frame has the data: it reads the build's \`sinter-embed.json\`, fetches each placeholder's request (from the API, or \`data: { name: fn }\`), and streams the page. Guide: docs/server.md.
+`);
+  out.push(`## Components with a script
+
+A component with \`<name>.ts\` beside its HTML has a script: a class over the base the build declares, with \`this.props\`, \`this.refs\`, \`this.emit()\` and the page's store (\`this.app\`), for what markup cannot do (a canvas, a third-party widget). Guide: docs/islands.md.
+`);
+  out.push(`## Minified HTML
+
+Builds minify each page's HTML (\`minifyHtml: false\` turns it off): comments go, and white space the CSS shows to render nothing; \`render(html, { minifyHtml: true, css })\` tests it. Guide: docs/minify.md.
 `);
   out.push(`## Testing
 
@@ -333,8 +393,13 @@ function check(path: string, content: string) {
 }
 
 /** The full reference, `llms-full.txt`: what `sinter docs` reads. */
+/** a passage only one of the two files carries: `⟪FULL⟫ in llms-full.txt ⟪SHORT⟫ in llms.txt ⟪END⟫` */
+function variant(text: string, which: 'full' | 'short'): string {
+  return text.replace(/⟪FULL⟫([\s\S]*?)⟪SHORT⟫([\s\S]*?)⟪END⟫/g, (_, full: string, short: string) => (which === 'full' ? full : short));
+}
+
 function llmsFull(): string {
-  return llms().replace('{{FILES}}', 'This is the full reference, `llms-full.txt`. `llms.txt` beside it is the short version: the core reference and an index of these sections.');
+  return variant(llms(), 'full').replace('{{FILES}}', 'This is the full reference, `llms-full.txt`. `llms.txt` beside it is the short version: the core reference and an index of these sections.');
 }
 
 /** The sections `llms.txt` keeps in full: what every page needs; the rest is an index of `sinter docs` topics. */
@@ -345,10 +410,10 @@ const CORE = ['attributes', 'elements', 'expressions-and-scope', 'what-belongs-i
  * output; a benchmark agent's `cat` of the 57 KB full file showed only a preview, and none of its advice).
  */
 function llmsShort(): string {
-  const full = llmsFull(), all = sections(full);
-  const head = llms().slice(0, llms().indexOf('\n## Attributes\n')).replace('{{FILES}}',
+  const full = llmsFull(), all = sections(full), short = sections(variant(llms(), 'short'));
+  const head = variant(llms(), 'short').slice(0, llms().indexOf('\n## Attributes\n')).replace('{{FILES}}',
     'This is the short version, small enough for a shell to show whole: the core reference, then an index of the other sections. `npx sinter docs <topic>` prints any of them; `llms-full.txt` beside this file has everything.');
-  const core = CORE.map((slug) => all.find((x) => x.level === 2 && x.slug === slug)!.text);
+  const core = CORE.map((slug) => short.find((x) => x.level === 2 && x.slug === slug)!.text);
   const code = (t: string) => '`' + t + '`';
   const index = all.filter((x) => x.level === 2 && !CORE.includes(x.slug)).map((x) => {
     const kids = x.slug === 'recipes' ? all.filter((k) => k.level === 3 && x.text.includes(k.text.split('\n')[0]!)) : [];
@@ -362,7 +427,7 @@ test('llms.txt is current, and small enough for a shell to show whole', () => {
   check('llms.txt', llmsShort());
   expect(Buffer.byteLength(llmsShort())).toBeLessThan(25_000);
   // every section of the full file is in the short one, or in its index
-  for (const x of sections(llmsFull()).filter((x) => x.level === 2)) expect(llmsShort()).toContain(CORE.includes(x.slug) ? x.text : `npx sinter docs ${x.slug}`);
+  for (const x of sections(llmsFull()).filter((x) => x.level === 2)) expect(llmsShort()).toContain(CORE.includes(x.slug) ? sections(variant(llms(), 'short')).find((y) => y.slug === x.slug)!.text : `npx sinter docs ${x.slug}`);
 });
 test('docs/attributes.md is current', () => check('docs/attributes.md', attributes()));
 test('docs/diagnostics.md is current', () => check('docs/diagnostics.md', diagnostics()));

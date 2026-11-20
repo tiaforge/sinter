@@ -65,7 +65,7 @@ Key filters (`data-sn-on-keydown-<modifiers->key`, `data-sn-on-keyup-…`): modi
 
 ## Elements
 
-- `<sn-resource>` `name`, `src`, `method`, `body`, `call`, `for`, `key`, `items`, `total`, `order`, `when`, `paginate`, `type`, `cache`, `refresh`, `then`, `early`, `drafts`: a named, page-wide cache of server data; `cache` (or `cache="10m"`) shows the data from the last page load at once, then revalidates. `refresh="30s"` reloads it once that long has passed since its last load, whatever caused that load (server events, `refresh()`, a reconnect), in the background: `$meta.loading` stays false, and paused while the tab is hidden. `early="off"`: never preloaded or requested before the page module (for a resource a request middleware answers itself; one whose request a middleware changes, such as a token, needs nothing: the build and runtime handle it). `then` is a handler run after each successful load (`$result`: what it loaded; the state around the resource in scope). With `sinter({ apis })`, `src` is a path relative to an API (`/articles`, `billing:/invoices`); `method="POST"` with `body` loads with a POST of that value. `src="file:./intro.txt"` (`file:/…` from the root) reads the project at build time (text, JSON, markdown's frontmatter and `body`; a glob: a list with `slug`, `dir`, `path`), a constant (`order`, `drafts`). Loading needs no attributes: concurrent loads of one URL share a request, a `src` change aborts the running one (latest wins), a change typed into a text field waits 250 ms for the next keystroke, a resource only dialogs read is requested with low priority, and a bfcache restore or going back online reloads. `paginate="{ keyset: { before: id }, size: 20 }"` loads a page at a time (`append`, `numbered: true`; `model: $url.page` keeps a numbered list's page in the URL; `jump`, `params`, `directions`, also per API)
+- `<sn-resource>` `name`, `src`, `method`, `body`, `call`, `for`, `key`, `items`, `total`, `order`, `when`, `paginate`, `type`, `cache`, `refresh`, `then`, `early`, `drafts`: a named, page-wide cache of server data; `cache` (or `cache="10m"`) shows the data from the last page load at once, then revalidates. `early="off"`: never preloaded or requested before the page module (for a resource a request middleware answers itself; one whose request a middleware changes, such as a token, needs nothing: the build and runtime handle it). With `sinter({ apis })`, `src` is a path relative to an API (`/articles`, `billing:/invoices`); `method="POST"` with `body` loads with a POST of that value. `src="file:./intro.txt"` (`file:/…` from the root) reads the project at build time (text, JSON, markdown's frontmatter and `body`; a glob: a list with `slug`, `dir`, `path`), a constant (`order`, `drafts`). Loading needs no attributes: concurrent loads of one URL share a request, a `src` change aborts the running one (latest wins), a change typed into a text field waits 250 ms for the next keystroke, a resource only dialogs read is requested with low priority, and a bfcache restore or going back online reloads. `paginate="{ keyset: { before: id }, size: 20 }"` loads a page at a time (`append`, `numbered: true`; `model: $url.page` keeps a numbered list's page in the URL; `jump`, `params`, `directions`, also per API)
 - `<sn-sync>` `src`: one server event stream
 - `<sn-component>` `use`, `data-sn-with`: a component chosen by data at runtime; `use` names it: ``use="`${b.type}-block`"`` (convention), `use="{ hero: 'hero-block' }[b.type]"` (map) or `use="blockComponent(b)"` (helper); it must fit `ComponentName`, every candidate must exist, props are checked per candidate (narrowed for convention and map); a value outside the candidates renders nothing, or the `data-sn-else` template after it
 - `<sn-event>` `name`, `resource`, `op`, `value`, `when`, `then`, `type`: maps one server event to a change message; child of <sn-sync>. `then`: a handler run after the change
@@ -117,7 +117,7 @@ Key filters (`data-sn-on-keydown-<modifiers->key`, `data-sn-on-keyup-…`): modi
 - Markup holds filters, conditions, single assignments and short calls. Logic goes into a helper when it computes a value (pure: unit-test it without a page), or into an action when it has side effects (`data-sn-call`).
 - Handlers apply a helper's result to state: `data-sn-on-click="sel = rowClick($event, sel, f.id, ids)"`, not branches on `$event.shiftKey` in the attribute. See the row selection recipe.
 - One step per condition: `open && closeDialog('detail')` is fine; `a && (b = null, closeDialog())` is not: split it into statements, let the dialog's `data-sn-on-close` reset state, or compute the new state in a helper.
-- Warning SN507 (`complex-expression`) flags expressions that outgrew markup and names the limit: statements per handler (4), comma sequences (0), steps behind one `&&`/`||`/`?:` statement (1), `?:` nesting (2), operations in an arrow function (8), operations per expression (15). `complexity: { level: 'error' }` fails the build on it, `complexity: false` turns it off.
+- Warning SN507 (`complex-expression`) flags expressions that outgrew markup and names the limit it passes: statements per handler (4), comma sequences (0), steps behind one `&&`/`||`/`?:` statement (1), `?:` nesting (2), operations in an arrow function (8), operations per expression (15). `complexity: { level: 'error' }` fails the build on it, `complexity: false` turns it off.
 
 ## Magic names
 
@@ -431,6 +431,66 @@ Each open EventSource holds one HTTP connection, and HTTP/1.1 allows 6 per origi
 ## Editors
 
 `npx sinter lsp --stdio` is a language server for the project's HTML files: sinter's diagnostics as you type (components checked through the pages that use them), and with TypeScript 7 type errors, hover, completion in expressions, go to definition and a did-you-mean quick fix; "Extract to helper" moves an expression into a typed function of the helpers module. VS Code: the extension in `editors/vscode`. Setup for Neovim, Helix and Emacs: `docs/editors.md`. Every diagnostic links to its explanation in `docs/diagnostics.md`.
+
+## Resources
+
+`<sn-resource name src key>` is a named, page-wide cache of server data: the page reads it by name, it loads by itself (latest wins, shared requests, the typing pause), and `$meta.<name>` holds its status. `when` delays it, `cache` shows the last page load's data at once, `refresh="30s"` reloads it in the background, `for="a in accounts"` fans out one request per item, `call` feeds it from a function, `src="file:…"` or `content:` from the project at build time. Guide: docs/resources.md.
+
+## Actions
+
+`data-sn-post`/`-put`/`-patch`/`-delete` or `data-sn-call` turn an element into a request: a form sends its fields, other elements `data-sn-body`; `data-sn-then`/`data-sn-catch` run after it, `data-sn-optimistic` shows the change at once, write-through applies the response by itself, and `run('id')` starts one from a handler. Dialogs, keyboard shortcuts, `data-sn-options` lists and row selection are here too. Guide: docs/actions.md.
+
+## Pagination
+
+`paginate="{ keyset: { before: id }, size: 20 }"` loads a page at a time; `append` for load more, `numbered: true` (or `'offset'`) for page numbers, `model: $url.page` keeps the page in the URL. `page(messages, 'next')` moves; `$meta.<name>` has `hasPrev`, `hasNext`, `from`, `to`, `total`, `page`, `pages`. `params` and `directions` name the server's parameters, once per API. Guide: docs/pagination.md.
+
+## Live updates
+
+`<sn-sync src>` with `<sn-event name resource op value when then>` children turns server events (SSE, WebSocket, SignalR) into store changes: `upsert`, `merge`, `remove`, `refresh`. Reconnects go through the session probe, missed events are caught up by a reload, and `$meta.<name>.live` is the stream's state. Guide: docs/sync.md.
+
+## Navigation
+
+Between pages: the next page's data is requested while the pointer rests on a link (`prefetch: { data }`), Speculation Rules fetch or prerender its HTML (`prefetch: { html }`), and with `sinter({ swap: true })` a link swaps the next page in, keeping `data-sn-permanent` elements and streams; `data-sn-transition` names the page transitions. Same-page links and `navigate()` change only the URL's parameters a page reads. Guide: docs/navigation.md.
+
+## APIs
+
+`sinter({ apis: { main: { base, openapi, credentials, headers, defaults, operations, paginate } } })`: pages write paths relative to an API (`src="/contacts"`, `billing:/invoices`), checked against its spec; resources are typed from it and write-through knows its entities. `sinter migrate` moves an app's URLs to these paths. Guide: docs/apis.md.
+
+## Pages without JavaScript
+
+A page with nothing to run ships no JavaScript: its constant bindings are written into the HTML at build time. `sinter({ static: ['about.html'] })` makes that a build error to break (SN322); `<html data-sn-for="post in posts" data-sn-path="/blog/:slug">` builds one page per entry; `localePrefix` builds each page per language. Guide: docs/static-pages.md.
+
+## Strict mode
+
+`sinter({ strict: true })` (or `SINTER_STRICT=1`) fails `sinter check`, `vite build`, the dev server's pages and `render()` on warnings; `strict: { allow: { SN504: 'why' } }` keeps one code a warning. Warnings that depend on the machine or the network, and the heuristic ones, stay warnings. Guide: docs/strict.md.
+
+## Configuration
+
+The Vite plugin's options (`sinter({ … })`), the project's modules at fixed names (`src/sinter.helpers.ts`, `.actions`, `.config`, `.early`, `.types`, `.content`), `configure({ request, sessionProbe, onError, locale, transport, retry, confirm, fieldErrors })` in the config module, helpers and built-in formatters, and built-in messages. Guide: docs/configuration.md.
+
+## Lazy packages
+
+`sinter({ lazy: ['openpgp'] })` keeps a heavy package out of the page bundle: it loads when an element with `data-sn-import` is rendered, or on the first call; `data-sn-preload` starts it earlier. The build measures what moved. Guide: docs/lazy.md.
+
+## Component libraries
+
+`sinter({ libraries: ['@acme/ui'] })` names packages whose `package.json` has `"sinter": "./sinter"`: their public components are tags in the app, under the library's prefix; their helpers come in through a namespace. A library checks itself through fixture pages in `fixtures/`, with its modules beside them. Guide: docs/libraries.md.
+
+## Security
+
+Expressions reach only a closed set of names, so markup cannot run arbitrary code; URLs are checked against `origins`, bindings to `href` and `src` refuse `javascript:`, and scripts, the early files and fonts are files a CSP can allow. Trusted Types and CSP nonces are supported. Guide: docs/security.md.
+
+## The server layer
+
+`@tiaforge-ui/sinter/server`'s `embed()` (and sinter-axum, Sinter.AspNetCore) fill each page's embedded-data placeholders per request, so the first frame has the data: it reads the build's `sinter-embed.json`, fetches each placeholder's request (from the API, or `data: { name: fn }`), and streams the page. Guide: docs/server.md.
+
+## Components with a script
+
+A component with `<name>.ts` beside its HTML has a script: a class over the base the build declares, with `this.props`, `this.refs`, `this.emit()` and the page's store (`this.app`), for what markup cannot do (a canvas, a third-party widget). Guide: docs/islands.md.
+
+## Minified HTML
+
+Builds minify each page's HTML (`minifyHtml: false` turns it off): comments go, and white space the CSS shows to render nothing; `render(html, { minifyHtml: true, css })` tests it. Guide: docs/minify.md.
 
 ## Testing
 
