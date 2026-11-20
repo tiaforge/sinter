@@ -120,7 +120,7 @@ A file `src/layouts/<name>.html` (`CompileOptions.layouts`) is a whole document 
 
 ### Page module
 ```js
-import { mount } from '@tiaforge-ui/sinter';
+import { mount } from '@tiaforge-ui/sinter/runtime';
 import sse from '@tiaforge-ui/sinter/runtime/sse';  // only features this page uses
 import optimistic from '@tiaforge-ui/sinter/runtime/optimistic';
 import { date } from '/src/sinter.helpers.js';               // only the helpers this page uses

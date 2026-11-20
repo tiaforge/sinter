@@ -301,6 +301,8 @@ What the fourth review left of the same kind, across the JavaScript and configur
 - `apis: { main: { default: true } }` (was `sinter({ defaultApi: 'main' })`, a sibling of the APIs it chose from;
   `render({ defaultApi })` too).
 - `configure({ apis })` fails naming `sinter({ apis })`: it was accepted, and each page module overwrote it.
+- The main entry is the app's API only: `mount()` (compiled pages import it from `/runtime`) and the types
+  only it and the features use (`MountOptions`, `Feature`, `Intent`, `Navigator`, `IR`, `Env`) are gone from it.
 
 ## Looked at and kept
 
