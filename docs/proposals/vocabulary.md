@@ -252,8 +252,8 @@ A second reader's review found bugs in the steps above (fixed, each with a test)
   name, each with its `when` (recipe: partial events). `numbered: 'offset'` (was `params.offset`, which
   switched the request as well as naming it).
 - `sinter({ libraries })` (was `components`): it lists component libraries.
-- `prefetch: { data, html }` (was `prefetch` and `speculation`; `html: true | 'prerender' | false | { prerender,
-  delivery }`, after the third review), with `prefetch: false` turning off both as
+- `prefetch: { data, html }` (was `prefetch` and `speculation`; `html: true | false | { prerender,
+  delivery }`, after the third review and step 19), with `prefetch: false` turning off both as
   `<html data-sn-prefetch="off">` does for a page; `firstPaint: { budget }` (was `earlyBudget`).
 - The feature module `./write-through` (was `./apply`).
 - Renamed attributes report under `SN101`, functions under `SN201`, values under `SN401`.
@@ -280,6 +280,31 @@ diagnostics and docs. Done:
 - Codes that were one rule merged (SN309, SN318, SN337, SN340); `sinter migrate` writes every rename.
 - Then, decided with examples: the `<sn-event>` payload is `$event`, and `paginate`'s cursor reads `$item` (chosen over
   `$edge`, `$boundary` and an arrow function: plain, and the docs' word for one entry of a resource).
+
+### 19. The fifth review: leftovers (2026-11-20)
+
+What the fourth review left of the same kind, across the JavaScript and configuration surface. Done:
+- `Meta.pending` goes from the runtime and the public `Meta` type, as `$meta.<name>.pending` went from
+  markup: nothing read it but tests, which ask the store (`waiting()`, internal) instead.
+- `fonts: { bundle }` (was `inline`: the build bundles Google Fonts' stylesheets as CSS files and inlines
+  nothing), and off is `fonts: false`, the shape of every other feature's switch (`images: false`,
+  `sitemap: false`, `prefetch: false`); `fonts: { bundle: false, preload }` keeps the links and the preloads.
+- `prefetch.html` is `true | false | { prerender, delivery }`: `'prerender'` was a second spelling of
+  `{ prerender: true }`. The object's key is the one that has room for another value.
+- `clearStored()` (was `clearPersisted()`, which said half of what it does: it also removes the page-load
+  cache and the next-page data). One function, what an app calls on sign-in and sign-out.
+- `@tiaforge-ui/sinter/components` goes: it was `@tiaforge-ui/sinter/runtime/components` under a second name. Only
+  generated code imports it (the page modules, a component script's base in its `.html`, the components' types).
+- `header(name, value)` takes `() => string | null | undefined` for `value`, read per request (null: no header):
+  the docs' own token example read the token once, so it sent `Bearer null` signed out and a stale token after a
+  sign-in with swapped pages. Not a rename: a string still works.
+- `apis: { main: { default: true } }` (was `sinter({ defaultApi: 'main' })`, a sibling of the APIs it chose from;
+  `render({ defaultApi })` too).
+- `configure({ apis })` fails naming `sinter({ apis })`: it was accepted, and each page module overwrote it.
+- The main entry is the app's API only: `mount()` (compiled pages import it from `/runtime`) and the types
+  only it and the features use (`MountOptions`, `Feature`, `Intent`, `Navigator`, `IR`, `Env`) are gone from it.
+- The feature module of `<sn-resource for>` is `@tiaforge-ui/sinter/runtime/for` (was `/runtime/each`), as `./apply`
+  became `./write-through`: only compiled pages import it.
 
 ## Looked at and kept
 
@@ -309,10 +334,10 @@ Every migration error of this proposal goes at 1.0, at once. They live in:
 - `RETIRED_FNS` (`SN201`) in `src/compiler/expr.ts`.
 - The old `<sn-event>` attributes and `op` values (`item`, `set`, `fallback`, `op="patch|refetch"`), `UNPREFIXED`
   (`data-sn-on-navigate`, `data-sn-on-dismiss`) and `offset: true` in `paginate`, in `src/compiler/compile.ts`.
-- `retiredOptions` in `src/project.ts` (`components`, the module paths, `content: '<path>'`), the renamed
-  options in `src/vite.ts` (`speculation`, `earlyBudget`, the old `prefetch.html` values), `credentials()` in
-  the config module (`configSource`), the old `complexity` keys (`complexityOf`), `--check-cycles` in
-  `src/cli.ts`, and `render({ minify, remoteImages })` in `src/testing/index.ts`.
+- `retiredOptions` in `src/project.ts` (`components`, the module paths, `content: '<path>'`, `defaultApi`), the renamed
+  options in `src/vite.ts` (`speculation`, `earlyBudget`, the old `prefetch.html` values, `fonts.inline`), `credentials()` in
+  the config module (`configSource`), `clearPersisted` and `@tiaforge-ui/sinter/components` in an app module (`retiredExport` in `src/project.ts`), the old `complexity` keys (`complexityOf`), `--check-cycles` in
+  `src/cli.ts`, and `render({ minify, remoteImages, defaultApi })` in `src/testing/index.ts`.
 - Already deprecated, also going: the top-level `sinter({ openapi })` and `render({ openapi })` (an API's
   `openapi`), and `configure({ origins })` (`sinter({ origins })`).
 

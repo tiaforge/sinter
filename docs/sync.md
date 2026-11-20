@@ -29,7 +29,7 @@ event: person_removed
 data: {"id": 7}
 ```
 
-`value="person"` reads `payload.person`. For `remove` (and `merge`) the key comes from the payload,
+`value="$event.person"` reads the payload's `person`. For `remove` (and `merge`) the key comes from the payload,
 using the resource's `key` fields: here `id`. See [recipes/sse-sync.html](recipes/sse-sync.html).
 
 ## Change messages
@@ -50,8 +50,8 @@ Whatever the transport, the store only understands four changes:
 | `name` | The event name: the SSE event name, or whatever the transport reports. |
 | `resource` | Target resource. |
 | `op` | `upsert`, `merge`, `remove` or `refresh`. |
-| `value` | What the change writes: for `upsert` the item, an expression (default: the whole payload); for `merge` the fields, an object literal such as `{flags, is_read: flags.includes('\\Seen')}`. |
-| `when` | Skip the event unless this is truthy, e.g. `mailbox === $url.mailbox`. |
+| `value` | What the change writes: for `upsert` the item, an expression (default: the whole payload); for `merge` the fields, an object literal such as `{flags: $event.flags, is_read: $event.flags.includes('\\Seen')}`. |
+| `when` | Skip the event unless this is truthy, e.g. `$event.mailbox === $url.mailbox`. |
 | `then` | Handler run after the change is applied, see [Reacting to events](#reacting-to-events). |
 | `type` | The payload's type, for `sinter check` ([type-checking.md](type-checking.md)). |
 

@@ -15,7 +15,7 @@ const OTHER = {
 
 function apisOf(apis: Record<string, ApiOptions & { openapi?: unknown }>) {
   const openapi: OpenApiSpec[] = [];
-  const r = resolveApis({ apis: apis as Record<string, ApiOptions>, defaultApi: 'main' }, (doc) => (openapi.push({ file: '/app/spec.json', doc }), openapi.length - 1), openapi, '/app/vite.config.js');
+  const r = resolveApis({ apis: Object.fromEntries(Object.entries(apis).map(([k, v]) => [k, k === 'main' ? { ...v, default: true } : v])) as Record<string, ApiOptions> }, (doc) => (openapi.push({ file: '/app/spec.json', doc }), openapi.length - 1), openapi, '/app/vite.config.js');
   return { apis: r.apis!, openapi, diagnostics: r.diagnostics };
 }
 

@@ -55,7 +55,7 @@ describe('paths relative to an API', () => {
   });
 
   test('actions and other APIs: a path, the method from the attribute', () => {
-    const o = { apis: { main: { openapi: 'openapi.yml', defaults: { 'GET /contacts': { items: 'contacts', key: 'id' } } }, files: { base: '/files', operations: { 'POST /upload': {} } } }, defaultApi: 'main' };
+    const o = { apis: { main: { openapi: 'openapi.yml', defaults: { 'GET /contacts': { items: 'contacts', key: 'id' } }, default: true }, files: { base: '/files', operations: { 'POST /upload': {} } } } };
     const html = `<sn-resource name="contacts" src="/contacts"></sn-resource><template data-sn-for="c in contacts"><button data-sn-delete="/contacts/{c.id}">x</button></template><form data-sn-post="files:/upload"></form>`;
     const viaApi = page(html, o);
     expect(viaApi.diagnostics).toEqual([]);

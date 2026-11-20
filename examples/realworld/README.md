@@ -75,7 +75,7 @@ with the reason, in `vite.config.js`. The "Loading articles..." and "Loading tag
 frame ([first paint](../../docs/first-paint.md#loading-branches)).
 
 Every resource has `cache`: a page shows what the previous page loaded at once and revalidates.
-Signing in or out calls `clearPersisted()`, since the cached data belongs to the previous identity.
+Signing in or out calls `clearStored()`, since the cached data belongs to the previous identity.
 Cached data does not set `$meta.<name>.loadedAt`, which stays null until the server answers (the
 login-redirect guards read it).
 

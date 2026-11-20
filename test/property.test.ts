@@ -106,7 +106,7 @@ test('random interleavings of server writes and optimistic layers that fail or s
       // a full stable sort of arrival (Map) order: the store patches its sorted list in place and must agree exactly
       const expected = [...view.values()].sort((a, b) => a.n - b.n).map((i) => `${i.id}:${i.n}`);
       expect(r.all().map((i) => `${i.id}:${i.n}`), `seed ${seed} step ${step}`).toEqual(expected);
-      expect(r.meta.pending).toBe(layers.filter((l) => !l.ok).length);
+      expect(r.waiting()).toBe(layers.filter((l) => !l.ok).length);
       expect(r.meta.total, `seed ${seed} step ${step}`).toBe(Math.max(0, total - removed));
     }
     base = new Map();

@@ -4,7 +4,7 @@
 // out); a 401 clears it; an action's 401 that nothing on the page shows goes to the sign-in page; a response the
 // config names stores a new one.
 // The page module installs this (`$tokens()`) when one of its APIs has a token: other apps carry none of it.
-import { apiFor, config, forgetPersisted, loginRedirect, SinterError, type ApiSettings } from './runtime/config.js';
+import { apiFor, config, clearStored, loginRedirect, SinterError, type ApiSettings } from './runtime/config.js';
 import type { Env } from './runtime/env.js';
 import { tokens, type TokenHooks } from './runtime/request.js';
 
@@ -21,7 +21,7 @@ export function read(t: Token, env: Env): string | null {
 function write(t: Token, env: Env, v: string | null): void {
   const had = read(t, env) != null;
   try { const s = storage(t, env); v == null ? s?.removeItem(t.k) : s?.setItem(t.k, v); } catch { /* storage refused: nothing kept */ }
-  if (had != (v != null)) forgetPersisted(env);
+  if (had != (v != null)) clearStored();
 }
 
 /** the operation of `keys` (`METHOD /path`, a `{…}` segment matching any one) a request calls */
@@ -76,7 +76,7 @@ const hooks: TokenHooks = {
     let had = false;
     for (const a of config.apis) if (a.t && read(a.t, env) != null) { had = true; write(a.t, env, null); }
     // nobody was signed in: what the page kept is dropped all the same
-    if (!had) forgetPersisted(env);
+    if (!had) clearStored();
     // the resources of those APIs load again: signed out
     for (const d of app?.ir.resources ?? []) {
       const l = app!.resource(d.name).loader, u = l?.url?.();

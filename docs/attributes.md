@@ -15,7 +15,7 @@ Bind values to the page.
 | `data-sn-show` | value expression | toggles the hidden attribute |
 | `data-sn-with` | object literal | sets JS properties; custom elements only (also one defined later). On a component's tag: its props, live and read-only. On a &lt;slot&gt; declared Slot&lt;T&gt;: the values its fill reads as $slot; on a named &lt;slot&gt; its component does not declare, a tree placement, filled by the nearest enclosing component declaring the name |
 | `data-sn-for` | item in list \| (item, i) in list | repeats a &lt;template&gt; per item. On &lt;html&gt;: the page once per entry of a `file:` list, at `data-sn-path` filled from it |
-| `data-sn-key` | value expression | row identity; defaults to the resource key or object identity |
+| `data-sn-key` | value expression | row identity; inferred: resource key, object identity or value |
 | `data-sn-if` | value expression | renders a &lt;template&gt; while truthy. Same id, same control: when the branch with focus is swapped, the element with its id in the new one takes focus (a toggle's two buttons: &lt;button id="follow" data-sn-delete=…&gt; and &lt;button id="follow" data-sn-post=…&gt;) |
 | `data-sn-else` |  | on a &lt;template&gt; directly after an if template; with data-sn-if beside it, an else-if (&lt;template data-sn-else data-sn-if="q"&gt;). Lists, branches and chosen components render between two comments (`<ul><!--sn 4--><li>a</li><!--/sn--></ul>`): CSS sees plain children. Comments that are exactly `<!--sn-->`, `<!--sn 4-->`, `<!--/sn-->` or `<!---->` are reserved (SN105); `$el` in an if, for or use is SN213; keep HTML comments |
 
@@ -122,7 +122,7 @@ Attributes sinter writes for CSS to style; writing one in markup is `SN101`.
 A named, page-wide cache of server data. Details: [resources](resources.md).
 
 - **Where the data comes from:** `name`, `src`, `method`, `body`, `call`, `for`, `when`, `early`
-- **What it looks like:** `key`, `items`, `total`, `order`, `drafts`, `type`
+- **What it looks like:** `key`, `items`, `total`, `order`, `drafts`, `fields`, `type`
 - **How fresh it is:** `cache`, `refresh`, `then`
 - **Pagination:** `paginate`
 
@@ -132,7 +132,7 @@ A named, page-wide cache of server data. Details: [resources](resources.md).
 
 ### `<sn-component>`
 
-`use`, `data-sn-with`. A component chosen by data at runtime; `use` names it: ``use="`${b.type}-block`"`` (convention), `use="{ hero: 'hero-block' }[b.type]"` (map) or `use="blockComponent(b)"` (helper); it must fit `ComponentName`, every candidate must exist, props are checked per candidate (narrowed for convention and map); a value outside the candidates renders nothing, or the `data-sn-else` template after it.
+`use`, `data-sn-with`, `data-sn-early`. A component chosen by data at runtime; `use` names it: ``use="`${b.type}-block`"`` (convention), `use="{ hero: 'hero-block' }[b.type]"` (map) or `use="blockComponent(b)"` (helper); it must fit `ComponentName`, every candidate must exist, props are checked per candidate (narrowed for convention and map); a value outside the candidates renders nothing, or the `data-sn-else` template after it; `data-sn-early="off"` leaves it out of the early script.
 
 ### `<sn-event>`
 
@@ -140,6 +140,6 @@ A named, page-wide cache of server data. Details: [resources](resources.md).
 
 ## Names available in expressions
 
-- **Magic names:** `$event`, `$el`, `$url`, `$now`, `$locale`, `$result`, `$error`, `$meta`. Filled in by the build: `$site` and `$canonical` (the site's root and the page's URL, with `sinter({ site })`), `$slot` (in a fill of a slot declared `Slot<T>`, the values it passes) and `localeUrl(locale)` (this page in another language, with `sinter({ localePrefix: true })`).
+- **Magic names:** `$event`, `$el`, `$url`, `$now`, `$locale`, `$result`, `$error`, `$meta`. Filled in by the build: `$site` and `$canonical` (the site's root and the page's URL, with `sinter({ site })`), `$slot` (in a fill of a slot declared `Slot<T>`, the values it passes) and `localeUrl(locale)` (this page in another language, with `sinter({ localePrefix: true })`). `$item`, in `paginate`'s cursor only, is the item at the page's edge.
 - **Store functions:** `refresh()`, `upsert()`, `merge()`, `remove()`, `page()`, `openDialog()`, `closeDialog()`, `emit()`, `run()`, `navigate()`.
 - **Built-in helpers:** `date()`, `relative()`, `number()`, `bytes()`.

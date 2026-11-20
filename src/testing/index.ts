@@ -4,7 +4,7 @@
 import { compileParts } from '../compiler/compile.js';
 import { earlyPage } from '../compiler/index.js';
 import { applyStrict, formatDiagnostic, strictOf, type Strict } from '../compiler/diagnostics.js';
-import { apiOrigins, resolveApis, runtimeApi, type ApiOptions, type ApisDef } from '../compiler/apis.js';
+import { apiOrigins, defaultApiRenamed, resolveApis, runtimeApi, type ApiOptions, type ApisDef } from '../compiler/apis.js';
 import type { OpenApiSpec } from '../compiler/openapi.js';
 import type { Diagnostic } from '../compiler/diagnostics.js';
 import { compactIR } from '../ir.js';
@@ -28,7 +28,7 @@ import dev, { warningSink, type RuntimeWarning } from '../dev.js';
 export type { RuntimeWarning } from '../dev.js';
 import optimistic from '../optimistic.js';
 import paginate from '../paginate.js';
-import each from '../each.js';
+import fanOut from '../for.js';
 import persist from '../persist.js';
 import options from '../options.js';
 import keys from '../keys.js';
@@ -52,7 +52,7 @@ import sse from '../sse.js';
 import { lists, prefetch, type PrefetchPage } from '../prefetch.js';
 import { pagePaths } from '../prefetch-build.js';
 
-const FEATURES: Record<string, Feature> = { components, nested, lets, dev, sse, optimistic, paginate, persist, cache, versions, refresh, each, options, keys, 'write-through': writeThrough, fields, form, select, location, typing, 'query-links': queryLinks, navigate, call, debounce, confirm, models, transition };
+const FEATURES: Record<string, Feature> = { components, nested, lets, dev, sse, optimistic, paginate, persist, cache, versions, refresh, for: fanOut, options, keys, 'write-through': writeThrough, fields, form, select, location, typing, 'query-links': queryLinks, navigate, call, debounce, confirm, models, transition };
 
 // ---- requests
 
@@ -275,7 +275,6 @@ export interface RenderOptions {
    * on the page are relative to them, and requests carry their credentials and headers
    */
   apis?: Record<string, Omit<ApiOptions, 'openapi'> & { openapi?: unknown }>;
-  defaultApi?: string;
   /** as `sinter({ images: { remote } })`: images from the API; a bound `<img src>` gets the service's `srcset` */
   images?: { remote?: RemoteImages };
   /** the page's stylesheets, for the boxes of its images and the space of its lists (as the Vite plugin reads them from the page) */
@@ -432,7 +431,8 @@ function paint(parts: CompiledParts, helpers: Record<string, unknown>, app?: () 
 
 function compilePage(html: string, options: RenderOptions, strict: Strict = { on: false, allow: new Map() }): { parts: CompiledParts; manifest: HelperManifest; actions: Record<string, unknown>; apis: ApisDef | null; diagnostics: Diagnostic[] } {
   // renamed to the Vite plugin's spelling
-  const was = options as { minify?: unknown; remoteImages?: unknown };
+  const was = options as { minify?: unknown; remoteImages?: unknown; defaultApi?: unknown };
+  if (was.defaultApi !== undefined) throw new Error(defaultApiRenamed('render', was.defaultApi));
   if (was.minify !== undefined) throw new Error('render({ minify }) is renamed to `minifyHtml`, as in `sinter({ minifyHtml })`');
   if (was.remoteImages !== undefined) throw new Error('render({ remoteImages }) is renamed to `images: { remote }`, as in `sinter({ images: { remote } })`');
   const helpers = options.helpers ?? {};
@@ -528,7 +528,7 @@ function helpersOf(m: HelperManifest, helpers: Record<string, unknown>, module: 
 /** `apis` of the render options, resolved as the project resolves `sinter({ apis })`; an invalid one throws. */
 function testApis(options: RenderOptions): { specs: OpenApiSpec[]; apis: ApisDef | null } {
   const specs: OpenApiSpec[] = [];
-  const r = resolveApis({ apis: options.apis as Record<string, ApiOptions>, ...(options.defaultApi ? { defaultApi: options.defaultApi } : {}) },
+  const r = resolveApis({ apis: options.apis as Record<string, ApiOptions> },
     (doc) => { specs.push({ file: 'openapi.yml', doc }); return specs.length - 1; }, specs, 'vite.config.js');
   if (r.diagnostics.length) throw new Error(`sinter: ${r.diagnostics.map(formatDiagnostic).join('\n')}`);
   return { specs, apis: r.apis };

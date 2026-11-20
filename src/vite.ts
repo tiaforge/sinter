@@ -13,7 +13,7 @@ import { flagsModule } from './core-parts.js';
 import { loadEnv, type Plugin, type ResolvedConfig, type ViteDevServer } from 'vite';
 import { collectionsIn, loadContent, writeSnapshot, type LoadedContent } from './content-node.js';
 import { applyStrict, CODES, compile, formatDiagnostic, formatWarning, strictPromotes, suggest, type Code, type CheckUnit, type Diagnostic, type CompileResult, type SourceMap } from './compiler/index.js';
-import { lazyOf, project, retiredOptions, staticPages, strictOf, type ProjectOptions } from './project.js';
+import { lazyOf, project, retiredExport, retiredOptions, staticPages, strictOf, type ProjectOptions } from './project.js';
 import { CHUNK_MARK, chainText, isComponentScript, LAZY, lazyHelpers, lazyPackage, lineCol, loaderModule, mentions, parseLazyId, reachLazy, rewriteLazy, scanLazy, stubModule } from './lazy-build.js';
 import { I18N_PICKER, languageFile, moduleKeys, type MessagesProject } from './i18n-build.js';
 import { HOLD_SCRIPT } from './paint-build.js';
@@ -33,7 +33,7 @@ import { pageRoutes, rebaseHtml, redirectHtml, redirectsFile, relocateHtml, type
 import { chooserHtml, hreflangTags, readLocales, type Locales } from './locales-build.js';
 import { canonicalOf, fillPattern, noindex, sitemapFiles, sitemapOf, type SitemapOptions, type SitemapUrl } from './sitemap-build.js';
 import { familyLineHeights, familyZeroWidths } from './font-metrics.js';
-import { faceName, faceOf, fontDownloader, fontFileDownloader, inlineFonts, preloadFonts, preloadLocalFonts, usesFamily, type FontFaceRef, type FontPreload } from './fonts-build.js';
+import { faceName, faceOf, fontDownloader, fontFileDownloader, bundleFonts, preloadFonts, preloadLocalFonts, usesFamily, type FontFaceRef, type FontPreload } from './fonts-build.js';
 import { componentBase } from './components-build.js';
 import { COMPONENT_NAME, LIBRARY_LAYER } from './compiler/components.js';
 import { librariesOf, libraryOf, ownLibrary } from './libraries.js';
@@ -108,7 +108,7 @@ export interface SinterOptions extends ProjectOptions {
    * - `data` (default true): when a link to another page of the app is about to be followed, that page's data is
    *   requested, and the page shows it at once (then revalidates).
    * - `html`: Speculation Rules for links to the app's pages (Chromium): `true` (default) fetches the next
-   *   page's HTML while the pointer rests on a link; `'prerender'` loads and runs the whole page (data included,
+   *   page's HTML while the pointer rests on a link; `{ prerender: true }` loads and runs the whole page (data included,
    *   streams connect once it is shown); `false`: none. The rules are an inline script in every page, so they need
    *   no server setup; a CSP the page declares in a `<meta>` gets their hash from the build, a CSP sent as a
    *   response header needs `'inline-speculation-rules'` in `script-src` (dev builds warn when it blocks them).
@@ -117,7 +117,7 @@ export interface SinterOptions extends ProjectOptions {
    *   `application/speculationrules+json` (`vite dev` and `vite preview` do both). See docs/navigation.md.
    * `false`: neither.
    */
-  prefetch?: boolean | { data?: boolean; html?: boolean | 'prerender' | { prerender?: boolean; delivery?: 'inline' | 'header' } };
+  prefetch?: boolean | { data?: boolean; html?: boolean | { prerender?: boolean; delivery?: 'inline' | 'header' } };
   /**
    * Builds served by a server that writes each page's data into it (sinter-axum): every resource whose
    * request only the page's URL decides gets a placeholder in the head, and the browser neither preloads
@@ -137,13 +137,13 @@ export interface SinterOptions extends ProjectOptions {
    */
   origins?: string[];
   /**
-   * Google Fonts (default `{ inline: true }`, builds only): a page's `<link rel="stylesheet"
+   * Google Fonts (default on, builds only): `bundle` (default true): a page's `<link rel="stylesheet"
    * href="https://fonts.googleapis.com/…">` is downloaded at build time and bundled as one of the app's
    * own CSS assets (a file, not an inline style: no CSP change), and the page preconnects to the
    * origin of its font files. The fonts, their `font-display` and the look stay as they are: one
    * render-blocking request to another origin less, and the font files' connection is open when they
    * are requested (as the Angular CLI does). Downloads are cached in `node_modules/.cache/sinter/fonts`;
-   * a build that cannot download one keeps the link and warns. `{ inline: false }`: off.
+   * a build that cannot download one keeps the link and warns. `{ bundle: false }` keeps the links.
    *
    * `preload` (opt-in, default none): faces to preload, each a family name (its regular face, 400
    * normal) or `{ family, weight, style }`. A page whose Google Fonts stylesheets have the face gets
@@ -154,8 +154,10 @@ export interface SinterOptions extends ProjectOptions {
    * `font-family` or `font` declaration, outside `@font-face`, directly or through a custom property), or when no page has the face at all;
    * in dev, sinter warns when the page did not render with the face in its first frames (a preload
    * competes with what the first paint needs, and when the font is slow it can hold the first paint).
+   *
+   * `false`: neither.
    */
-  fonts?: { inline?: boolean; preload?: FontPreload[] };
+  fonts?: false | { bundle?: boolean; preload?: FontPreload[] };
 }
 
 type SinterPlugins = [Plugin & { api: { options: SinterOptions; source(file: string): string } }, Plugin, Plugin, Plugin, Plugin, Plugin];
@@ -231,10 +233,11 @@ const PREFETCH = `${PREFIX}prefetch.js`;
 /** with swaps on: the pages that swap (swap-build.ts) */
 const SWAP = `${PREFIX}swap.js`;
 /** `prefetch: { html: { delivery: 'header' } }`: the rules file, at the site root */
-/** the `prefetch.html` value an old one (`speculation`, `'prefetch'`, `{ mode, delivery }`) is now, as written in the config */
+/** the `prefetch.html` value an old one (`speculation`, `'prefetch'`, `'prerender'`, `{ mode, delivery }`) is now, as written in the config */
 function htmlOf(v: unknown): string {
   if (v === 'prefetch') return 'true';
-  if (v === 'prerender' || v === false) return JSON.stringify(v).replace(/"/g, "'");
+  if (v === 'prerender') return '{ prerender: true }';
+  if (v === false) return 'false';
   if (typeof v === 'object' && v !== null) {
     const o = v as { mode?: unknown; delivery?: unknown };
     const parts = [...(o.mode === 'prerender' ? ['prerender: true'] : []), ...(o.delivery !== undefined ? [`delivery: '${String(o.delivery)}'`] : [])];
@@ -266,9 +269,14 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   // the Vite server sinter starts to load the helpers module in Node (helpers-node.ts): nothing of sinter runs in it
   if (loadingHelpers()) return [{ name: 'sinter', api: { options, source: (f: string) => f } }, { name: 'sinter:post' }, { name: 'sinter:css-images' }, { name: 'sinter:fonts' }, { name: 'sinter:font-check' }, { name: 'sinter:pages' }];
   // options renamed (docs/proposals/vocabulary.md): what to write instead
-  const was = options as { speculation?: unknown; earlyBudget?: unknown };
+  const was = options as { speculation?: unknown; earlyBudget?: unknown; fonts?: { inline?: unknown; preload?: unknown } };
   if (was.speculation !== undefined) throw new Error(`sinter({ speculation }) is renamed to \`prefetch: { html: ${htmlOf(was.speculation)} }\`, beside the next page's data (\`prefetch: { data }\`)`);
   if (was.earlyBudget !== undefined) throw new Error(`sinter({ earlyBudget }) is renamed to \`firstPaint: { budget: ${JSON.stringify(was.earlyBudget)} }\``);
+  // `fonts: { inline }` bundled a file, it inlined nothing; and it was the one off-switch not written `false`
+  if (typeof was.fonts === 'object' && was.fonts !== null && 'inline' in was.fonts) {
+    const off = was.fonts.inline === false, preload = was.fonts.preload !== undefined;
+    throw new Error(`sinter({ fonts: { inline } }) is renamed to \`${off ? (preload ? 'fonts: { bundle: false, preload }' : 'fonts: false') : 'fonts: { bundle }'}\`: the build bundles Google Fonts' stylesheets as CSS files, it inlines nothing${off || preload ? '' : ' (`bundle: true` is the default: leave it out)'}`);
+  }
   // nested options take known keys only, as markup does: a typo fails the build instead of doing nothing
   const keysOf = (name: string, v: unknown, keys: string[]) => {
     if (typeof v !== 'object' || v === null) return;
@@ -278,23 +286,26 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   // the options themselves, as nested ones: a typo (`typechek`) fails instead of doing nothing
   retiredOptions(options);
   const OPTIONS = ['typecheck', 'firstPaint', 'minifyHtml', 'images', 'redirects', 'site', 'sitemap', 'localePrefix', 'prefetch', 'embed', 'origins', 'fonts',
-    'content', 'messages', 'openapi', 'apis', 'defaultApi', 'complexity', 'expansionLimit', 'static', 'swap', 'lazy', 'libraries', 'strict'];
+    'content', 'messages', 'openapi', 'apis', 'complexity', 'expansionLimit', 'static', 'swap', 'lazy', 'libraries', 'strict'];
   const unknown = Object.keys(options).find((k) => !OPTIONS.includes(k));
   if (unknown) throw new Error(`sinter({ ${unknown} }) is not an option.${didYouMean(unknown, OPTIONS)}`);
-  if (options.fonts !== undefined && (typeof options.fonts !== 'object' || options.fonts === null)) {
-    throw new Error('sinter({ fonts }): takes `{ inline, preload }`; `fonts: { inline: false }` keeps Google Fonts as links');
+  if (options.fonts !== undefined && options.fonts !== false && (typeof options.fonts !== 'object' || options.fonts === null)) {
+    throw new Error(`sinter({ fonts }): takes \`false\` or \`{ bundle, preload }\`, not ${JSON.stringify(options.fonts)}`);
   }
-  keysOf('fonts', options.fonts, ['inline', 'preload']);
+  keysOf('fonts', options.fonts, ['bundle', 'preload']);
+  /** Google Fonts' stylesheets bundled as the app's CSS (builds) */
+  const fontsBundled = options.fonts !== false && options.fonts?.bundle !== false;
   keysOf('images', options.images, ['widths', 'remote']);
   keysOf('prefetch', options.prefetch, ['data', 'html']);
   keysOf('firstPaint', options.firstPaint, ['budget']);
-  // `prefetch.html` was `'prefetch'`, `'prerender'` or `{ mode, delivery }`: a value that repeated the option's name
+  // `prefetch.html` was `'prefetch'` or `{ mode, delivery }`, a value that repeated the option's name, and `'prerender'`,
+  // a second spelling of `{ prerender: true }`
   const html0 = typeof options.prefetch === 'object' ? (options.prefetch.html as unknown) : undefined;
-  if (html0 === 'prefetch' || (typeof html0 === 'object' && html0 !== null && 'mode' in html0)) {
+  if (html0 === 'prefetch' || html0 === 'prerender' || (typeof html0 === 'object' && html0 !== null && 'mode' in html0)) {
     throw new Error(`sinter({ prefetch: { html: ${JSON.stringify(html0).replace(/"(\w+)":/g, '$1: ').replace(/"/g, "'")} } }) is renamed to \`html: ${htmlOf(html0)}\``);
   }
-  if (html0 !== undefined && typeof html0 !== 'boolean' && html0 !== 'prerender' && (typeof html0 !== 'object' || html0 === null)) {
-    throw new Error(`sinter({ prefetch: { html } }): takes \`true\`, \`'prerender'\`, \`false\` or \`{ prerender, delivery }\`, not ${JSON.stringify(html0)}`);
+  if (html0 !== undefined && typeof html0 !== 'boolean' && (typeof html0 !== 'object' || html0 === null)) {
+    throw new Error(`sinter({ prefetch: { html } }): takes \`true\`, \`false\` or \`{ prerender, delivery }\`, not ${JSON.stringify(html0)}`);
   }
   keysOf('prefetch: { html }', html0, ['prerender', 'delivery']);
   const prefetchData = options.prefetch !== false && (typeof options.prefetch !== 'object' || options.prefetch.data !== false);
@@ -601,7 +612,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     const modules = [p.config, p.early, p.helpersFile, p.actionsFile].filter((m): m is string => !!m);
     engines ??= detectEngines(root, resolved!.plugins.map((x) => x.name));
     // Google Fonts' stylesheets only in builds, where their fonts' metrics are read
-    const remote = options.fonts?.inline === false || dev ? undefined : (url: string) => (fontCss ??= fontDownloader(resolve(root, 'node_modules/.cache/sinter/fonts')))(url);
+    const remote = !fontsBundled || dev ? undefined : (url: string) => (fontCss ??= fontDownloader(resolve(root, 'node_modules/.cache/sinter/fonts')))(url);
     return pageStyles(html, file, { root, publicDir: resolved!.publicDir || null, modules, resolve: (id, importer) => r(id, importer), compile: compileCss, engines, warn: (m) => warnOnce(coded('SN527', m)), ...(remote ? { remote } : {}) });
   };
   const imageHost = (rel: string, styles?: StyleSheet[]): ImageHost | undefined => {
@@ -856,7 +867,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     // inline by default: it works with no server setup (a CSP in the page gets the rules' hash, see withRulesHash)
     const o = speculation;
     if (o === false) return null;
-    if (o === true || o === 'prerender') return { mode: o === true ? 'prefetch' as const : 'prerender' as const, delivery: 'inline' as const };
+    if (o === true) return { mode: 'prefetch' as const, delivery: 'inline' as const };
     return { mode: o.prerender ? 'prerender' as const : 'prefetch' as const, delivery: o.delivery ?? 'inline' };
   };
   /** the rules' JSON for links to the app's pages, or null; `samePage`: a page with same-page links (query-links.ts), whose own URLs are left out */
@@ -1453,6 +1464,8 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     },
 
     transform(code, id) {
+      // the app's own modules: a renamed export of the main entry fails naming the new one
+      if (!id.includes('/node_modules/') && /\.[cm]?[jt]sx?(\?|$)/.test(id)) { const gone = retiredExport(code); if (gone) this.error(`${relative(root, id.replace(/[?#].*$/, ''))}: ${gone}`); }
       collect(this, code, id);
       return lazyTransform(this, code, id);
     },
@@ -2019,7 +2032,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   const fontSheets = new Map<string, string>();
   let downloadFont: ((url: string) => Promise<string | null>) | null = null;
   const download = () => (downloadFont ??= fontDownloader(resolve(root, 'node_modules/.cache/sinter/fonts')));
-  const preloads: FontFaceRef[] = (options.fonts?.preload ?? []).map(faceOf);
+  const preloads: FontFaceRef[] = ((options.fonts || undefined)?.preload ?? []).map(faceOf);
   /** build: the faces each page preloads, by its path relative to the root (the HTML file's name in the bundle) */
   const pagePreloads = new Map<string, FontFaceRef[]>();
   const fonts: Plugin = {
@@ -2029,16 +2042,16 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       order: 'pre',
       async handler(html, ctx) {
         const dev = !!ctx.server;
-        // first the preloads: they read the Google Fonts links, which the inlining below rewrites
+        // first the preloads: they read the Google Fonts links, which the bundling below rewrites
         if (preloads.length) {
           const out = await preloadFonts(html, download(), preloads, dev);
           html = out.html;
           if (!dev) pagePreloads.set(relative(root, ctx.filename).split(sep).join('/'), out.preloaded);
         }
-        if (dev || options.fonts?.inline === false) return html;
-        const out = await inlineFonts(html, download());
+        if (dev || !fontsBundled) return html;
+        const out = await bundleFonts(html, download());
         for (const [id, url] of out.ids) fontSheets.set(id, url);
-        for (const url of out.failed) resolved?.logger.warn(coded('SN526', `could not download ${url}; the page keeps the link (sinter({ fonts: { inline: false } }) turns this off)`));
+        for (const url of out.failed) resolved?.logger.warn(coded('SN526', `could not download ${url}; the page keeps the link (sinter({ fonts: { bundle: false } }) turns this off)`));
         return out.html;
       },
     },

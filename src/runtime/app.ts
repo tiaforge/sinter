@@ -3,7 +3,7 @@
 // closure so private state minifies to short local names.
 import type { ActionDef, Binding, Fn, IR, NodeDef, PathRef, ResourceDef, TemplateDef, UrlTemplate } from '../ir.js';
 import { decode, level as reachLevel, passes, type Reach } from '../paths.js';
-import { config, forgetPersisted, SinterError, type Middleware } from './config.js';
+import { config, clearStored, SinterError, type Middleware } from './config.js';
 import { envOf, type Env } from './env.js';
 import { prefetched } from './handoff.js';
 import { createRequestLayer, isAbort, readBody, toError, tokens, type RequestLayer, type SendInit } from './request.js';
@@ -500,7 +500,7 @@ export function navigate(url: string, o?: { replace?: boolean }): void {
 export function signOut(): void {
   const app = instances.get(document);
   if (app) app.storeFns(null).signOut();
-  else tokens.on ? tokens.on.signOut(envOf(config)) : forgetPersisted();
+  else tokens.on ? tokens.on.signOut(envOf(config)) : clearStored();
 }
 
 /** The instance mount() created on `root`; throws if none. */
@@ -879,7 +879,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
         else app.env.navigate(to);
       },
       // every API's token goes (src/token.ts), with what the page kept; the resources of those APIs load again: signed out
-      signOut: () => { tokens.on ? tokens.on.signOut(env, app) : forgetPersisted(env); },
+      signOut: () => { tokens.on ? tokens.on.signOut(env, app) : clearStored(); },
       // the element's action, as if its trigger fired (a form is submitted); disabled or inert: nothing
       run: (id: string) => {
         const t = F.ACTION ? byId(id) : undefined, h = t && handlersOf(t as Tagged), rb = h && (Array.isArray(h) ? h : [h]).find((x) => x.b.x != null);
@@ -1242,16 +1242,16 @@ export function mount(root: Document | Element, o: MountOptions): App {
    * A row's identity: the explicit key, the resource key, or the item object itself. A list the
    * compiler cannot trace to a resource (a helper's result: `t in visible(tasks, q)`) keys an item
    * that is a keyed resource's current item by that resource's key, so a patch (a new object)
-   * keeps its row.
+   * keeps its row. An item without the key fields (a helper's own object) keys by identity. A
+   * string, number or other primitive keys by its type and value (`p…`), to which `reconcile` adds its occurrence.
    */
   function keyOf(t: TemplateDef, item: any, s: any): unknown {
     if (t.key != null) return 'k' + fns[t.key]!(s);
-    if (t.keyFields && item) return 'r' + t.keyFields.map((f) => item[f]).join('\x1f');
     if (Object(item) === item) {
+      if (t.keyFields?.every((f) => item[f] != null)) return 'r' + t.keyFields.map((f) => item[f]).join('\x1f');
       for (const r of resources.values()) if (r.isCollection && keyed(r, item) && r.get(item) === item) return 'o' + r.name + '\x1f' + r.keyOf(item);
       return item;
     }
-    warn(10);
     return 'p' + typeof item + item;
   }
 
@@ -1260,6 +1260,15 @@ export function mount(root: Document | Element, o: MountOptions): App {
     // rows the early script rendered from the page's embedded data: adopted (bound, not cloned again) when there
     // are as many items, else removed; the row's values are written again, so a changed item still renders right
     const pre: { rows: Node[][]; end: Comment } | undefined = (rb.el as any)[EARLY_ROWS];
+    // a primitive's key with its occurrence among equal values (`['a', 'b', 'a']`: `a`, `b`, `a` 1): duplicates are
+    // rows of their own, the first `a` staying the first, so a list of strings needs no `data-sn-key`
+    const seen = new Map<unknown, number>(), key = (item: unknown, s: any) => {
+      const k = keyOf(rb.t!, item, s);
+      if (typeof k != 'string' || k[0] != 'p') return k;
+      const n = seen.get(k) ?? 0;
+      seen.set(k, n + 1);
+      return n ? k + '\x1f' + n : k;
+    };
     if (pre) {
       delete (rb.el as any)[EARLY_ROWS];
       const t = rb.t!, tpl = tplOf(t.id);
@@ -1267,7 +1276,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
         rb.end = pre.end;
         rb.rows = items.map((item, i) => {
           const s = setRow(Object.create(rb.s), t, item, i);
-          return instantiate(tpl, t, s, keyOf(t, item, s), item, i, pre.rows[i]);
+          return instantiate(tpl, t, s, key(item, s), item, i, pre.rows[i]);
         });
         rb.rr = round;
         rb.pf = true;
@@ -1283,7 +1292,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
     const inPlace = !m && !end.isConnected ? end : undefined;
     // a scope is only needed up front for an explicit key expression
     const scopes = t.key != null ? items.map((item, i) => setRow(Object.create(rb.s), t, item, i)) : null;
-    const keys = items.map((item, i) => keyOf(t, item, scopes?.[i]));
+    const keys = items.map((item, i) => key(item, scopes?.[i]));
     app.dupes?.(keys);
     // the takeover: the page module's items for an unkeyed list the early script rendered are new objects with the
     // same contents (a let over a helper, computed again), so the rows it adopted take the new keys and match by

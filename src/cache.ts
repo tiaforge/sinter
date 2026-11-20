@@ -3,7 +3,7 @@
 // sessionStorage (one tab's lifetime) under `sn:c:`, keyed by the request URL and
 // the `items`/`total` paths, so pages that load the same thing share them. Written
 // after every load, on `pagehide` and when the app is destroyed (confirmed data only, never optimistic layers);
-// removed on any 401 and by `clearPersisted()`.
+// removed on any 401 and by `clearStored()`.
 import type { ResourceDef } from './ir.js';
 import type { App, Feature } from './runtime/app.js';
 import { CACHE_PREFIX } from './runtime/config.js';

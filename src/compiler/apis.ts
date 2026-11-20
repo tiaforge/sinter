@@ -32,6 +32,8 @@ export interface ApiOptions {
   operations?: Record<string, OperationShape>;
   /** how this API's lists page: its parameter names and direction values, for every `paginate` of a resource on it */
   paginate?: PaginateWire;
+  /** the API a path without `api:` goes to; with one API (besides `site`) it is that one */
+  default?: boolean;
   /** a token the browser keeps and sends to this API (docs/apis.md#a-token) */
   token?: TokenOptions;
 }
@@ -93,7 +95,7 @@ export interface ApiDef {
 
 export interface ApisDef {
   list: ApiDef[];
-  /** the API a path without `api:` goes to; null when several are configured and none is named */
+  /** the API a path without `api:` goes to (`default: true`, or the only one); null when several are configured and none is the default */
   defaultApi: string | null;
 }
 
@@ -272,7 +274,7 @@ export function apiOf(apis: ApisDef, value: string): { api: ApiDef; path: string
   const m = /^([A-Za-z_][\w-]*):(?=\/)/.exec(value);
   const name = m ? m[1]! : apis.defaultApi;
   const prefix = m ? m[0].length : 0;
-  if (name == null) return { error: `several APIs are configured and \`defaultApi\` names none: write the API, e.g. \`${apis.list.find((a) => a.name !== SITE)?.name ?? 'main'}:/…\``, prefix };
+  if (name == null) return { error: `several APIs are configured and none is the default (\`default: true\`): write the API, e.g. \`${apis.list.find((a) => a.name !== SITE)?.name ?? 'main'}:/…\``, prefix };
   const api = apis.list.find((a) => a.name === name);
   if (!api) return { error: `no API \`${name}\`; the APIs are ${apis.list.map((a) => `\`${a.name}\``).join(', ')}`, prefix };
   return { api, path: value.slice(prefix), prefix };
@@ -301,9 +303,13 @@ export function shapeTemplate(value: string): UrlTemplate {
 /** Specs whose index is in `api.specs`, with their indexes. */
 export const specsOf = (all: OpenApiSpec[], api: ApiDef) => api.specs.map((i) => ({ i, spec: all[i]! })).filter((x) => x.spec);
 
-/** `sinter({ apis, defaultApi })`, checked (SN329) and resolved; each API's specs are loaded into `openapi`. */
+/** `sinter({ defaultApi })` and `render({ defaultApi })`: the default is a setting of the API it names */
+export const defaultApiRenamed = (fn: string, name: unknown) =>
+  `${fn}({ defaultApi }) is renamed to \`apis: { ${typeof name === 'string' && /^[A-Za-z_][\w-]*$/.test(name) ? name : 'main'}: { default: true } }\`: the default is a setting of the API, beside its \`base\` and \`openapi\``;
+
+/** `sinter({ apis })`, checked (SN329) and resolved; each API's specs are loaded into `openapi`. */
 export function resolveApis(
-  options: { apis?: Record<string, ApiOptions>; defaultApi?: string; openapi?: unknown },
+  options: { apis?: Record<string, ApiOptions>; openapi?: unknown },
   loadSpec: (spec: unknown) => number | null, openapi: OpenApiSpec[], configFile: string,
 ): { apis: ApisDef | null; diagnostics: Diagnostic[] } {
   const diagnostics: Diagnostic[] = [];
@@ -316,14 +322,16 @@ export function resolveApis(
   if (options.openapi != null) fail('`openapi` moves into an API: `apis: { main: { openapi: … } }`; remove the top-level `openapi`');
   const entries = Object.entries(given);
   if (!entries.some(([n]) => n === SITE)) entries.push([SITE, {}]);
-  const list: ApiDef[] = [];
+  const list: ApiDef[] = [], defaults: string[] = [];
   for (const [name, raw] of entries) {
     if (!/^[A-Za-z_][\w-]*$/.test(name)) { fail(`\`${name}\` is not an API name: a letter or \`_\`, then letters, digits, \`_\` and \`-\``); continue; }
     if (name === FILE) { fail('`file` is the built-in source of the project\'s own files (`src="file:./post.txt"`): name the API otherwise'); continue; }
     if (name === CONTENT) { fail('`content` is the built-in source of the content module\'s collections (`src="content:posts"`): name the API otherwise'); continue; }
-    if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) { fail(`\`${name}\` takes an object (\`base\`, \`openapi\`, \`credentials\`, \`headers\`, \`defaults\`, \`operations\`, \`paginate\`, \`token\`)`); continue; }
+    if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) { fail(`\`${name}\` takes an object (\`base\`, \`openapi\`, \`credentials\`, \`headers\`, \`defaults\`, \`operations\`, \`paginate\`, \`default\`, \`token\`)`); continue; }
     const a = raw as ApiOptions & Record<string, unknown>;
-    for (const k of Object.keys(a)) if (!['base', 'openapi', 'credentials', 'headers', 'defaults', 'operations', 'paginate', 'token'].includes(k)) fail(`\`${name}.${k}\` is not an API setting; the settings are \`base\`, \`openapi\`, \`credentials\`, \`headers\`, \`defaults\`, \`operations\`, \`paginate\` and \`token\``);
+    for (const k of Object.keys(a)) if (!['base', 'openapi', 'credentials', 'headers', 'defaults', 'operations', 'paginate', 'default', 'token'].includes(k)) fail(`\`${name}.${k}\` is not an API setting; the settings are \`base\`, \`openapi\`, \`credentials\`, \`headers\`, \`defaults\`, \`operations\`, \`paginate\`, \`default\` and \`token\``);
+    if (a.default != null && typeof a.default !== 'boolean') fail(`\`${name}.default\` is \`true\` or \`false\``);
+    if (a.default === true) defaults.push(name);
     const paginate = a.paginate == null ? undefined : paginateWire(a.paginate, `${name}.paginate`, fail);
     const specs: number[] = [];
     for (const rel of (a.openapi == null ? [] : Array.isArray(a.openapi) ? a.openapi : [a.openapi]) as unknown[]) {
@@ -381,7 +389,7 @@ export function resolveApis(
     list.push({ name, base, specs, shapes, ...(paginate ? { paginate } : {}), ...(a.credentials ? { credentials: a.credentials } : {}), ...(a.headers && Object.keys(a.headers).length ? { headers: { ...a.headers } } : {}), ...(token ? { token } : {}) });
   }
   const own = list.filter((x) => x.name !== SITE);
-  let defaultApi: string | null = options.defaultApi ?? (own.length === 1 ? own[0]!.name : null);
-  if (options.defaultApi != null && !list.some((x) => x.name === options.defaultApi)) { fail(`\`defaultApi\` names \`${options.defaultApi}\`, which is no API`); defaultApi = null; }
+  let defaultApi: string | null = defaults[0] ?? (own.length === 1 ? own[0]!.name : null);
+  if (defaults.length > 1) { fail(`one API is the default, not ${defaults.map((n) => `\`${n}\``).join(' and ')} (\`default: true\`)`); defaultApi = null; }
   return { apis: { list, defaultApi }, diagnostics };
 }
