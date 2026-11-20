@@ -24,7 +24,7 @@ export default defineConfig({
       // early file (30.5 kB gzip), and the page module takes that instance (docs/first-paint.md#own-copies): its LCP is its
       // first paint, 1,359 ms on Lighthouse mobile through sinter-axum,
       // against 2,127 ms with the body rendered at mount (README.md). Without embedded data nothing of it is early
-      earlyBudget: 40 * 1024,
+      firstPaint: { budget: 40 * 1024 },
       embed: !!process.env.SINTER_EMBED,
       // warnings fail the build, except SN529 for the tag list: the feed and the tag list sit in the RealWorld theme's
       // columns, which follow their content below 768 px. The build keeps the tag column hidden while the feed's first

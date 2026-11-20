@@ -54,15 +54,13 @@ export interface SinterOptions extends ProjectOptions {
    * those wait for the page module. Build-time constants (and the base language's messages) are written
    * into the HTML either way, and a page with nothing to run ships no JavaScript either way.
    */
-  firstPaint?: boolean;
+  firstPaint?: boolean | { budget?: number };
   /**
    * builds: minify each page's HTML (default true; never in dev): the author's comments out, and the
    * white space the page's stylesheets show to render nothing (docs/minify.md). Before the page is compiled, so
    * sinter's own comments and node paths are counted on the minified markup.
    */
   minifyHtml?: boolean;
-  /** an early file above this many bytes gzip is a build warning (default 10000) */
-  earlyBudget?: number;
   /**
    * static images (default on, needs sharp): every `<img src>` of a local JPEG, PNG, WebP or AVIF
    * becomes a `<picture>` with AVIF or lossless WebP, widths for each screen, dimensions and lazy
@@ -79,18 +77,6 @@ export interface SinterOptions extends ProjectOptions {
      */
     remote?: RemoteImages;
   };
-  /**
-   * Speculation Rules for links to the app's pages (Chromium): `'prefetch'` (default) fetches the
-   * next page's HTML while the pointer rests on a link; `'prerender'` loads and runs the whole page
-   * (data included, streams connect once it is shown); `false`: none. The rules are an inline
-   * script in every page, so they need no server setup; a CSP the page declares in a `<meta>` gets
-   * their hash from the build, a CSP sent as a response header needs `'inline-speculation-rules'`
-   * in `script-src` (dev builds warn when it blocks them). `{ mode, delivery: 'header' }` writes
-   * `speculation-rules.json` at the site root for a `Speculation-Rules` response header instead,
-   * which no CSP blocks: the server sends the header with every page and the file as
-   * `application/speculationrules+json` (`vite dev` and `vite preview` do both). See docs/navigation.md.
-   */
-  speculation?: 'prefetch' | 'prerender' | false | { mode: 'prefetch' | 'prerender'; delivery?: 'inline' | 'header' };
   /**
    * `_redirects` in the build (Netlify, Cloudflare Pages): a 301 from each moved page's old file URL and a
    * rewrite from each path a page declares with `data-sn-path`, after the app's own `public/_redirects`.
@@ -118,10 +104,20 @@ export interface SinterOptions extends ProjectOptions {
    */
   localePrefix?: boolean;
   /**
-   * next-page data (default true): when a link to another page of the app is about to be followed,
-   * that page's data is requested, and the page shows it at once (then revalidates). `false`: off.
+   * Getting the next page ready (default on), as `<html data-sn-prefetch="off">` turns off for one page:
+   * - `data` (default true): when a link to another page of the app is about to be followed, that page's data is
+   *   requested, and the page shows it at once (then revalidates).
+   * - `pages`: Speculation Rules for links to the app's pages (Chromium): `'prefetch'` (default) fetches the next
+   *   page's HTML while the pointer rests on a link; `'prerender'` loads and runs the whole page (data included,
+   *   streams connect once it is shown); `false`: none. The rules are an inline script in every page, so they need
+   *   no server setup; a CSP the page declares in a `<meta>` gets their hash from the build, a CSP sent as a
+   *   response header needs `'inline-speculation-rules'` in `script-src` (dev builds warn when it blocks them).
+   *   `{ mode, delivery: 'header' }` writes `speculation-rules.json` at the site root for a `Speculation-Rules`
+   *   response header instead, which no CSP blocks: the server sends the header with every page and the file as
+   *   `application/speculationrules+json` (`vite dev` and `vite preview` do both). See docs/navigation.md.
+   * `false`: neither.
    */
-  prefetch?: boolean;
+  prefetch?: boolean | { data?: boolean; pages?: 'prefetch' | 'prerender' | false | { mode: 'prefetch' | 'prerender'; delivery?: 'inline' | 'header' } };
   /**
    * Builds served by a server that writes each page's data into it (sinter-axum): every resource whose
    * request only the page's URL decides gets a placeholder in the head, and the browser neither preloads
@@ -234,7 +230,7 @@ const IMG = `${PREFIX}img/`;
 const PREFETCH = `${PREFIX}prefetch.js`;
 /** with swaps on: the pages that swap (swap-build.ts) */
 const SWAP = `${PREFIX}swap.js`;
-/** `speculation: { delivery: 'header' }`: the rules file, at the site root */
+/** `prefetch: { pages: { delivery: 'header' } }`: the rules file, at the site root */
 const RULES_FILE = 'speculation-rules.json';
 /** build: the pages' embedded-data placeholders, for a server that fills them per request (sinter-axum) */
 const EMBED_FILE = 'sinter-embed.json';
@@ -258,6 +254,12 @@ ${pages.map(page).join('\n')}
 export default function sinter(options: SinterOptions = {}): SinterPlugins {
   // the Vite server sinter starts to load the helpers module in Node (helpers-node.ts): nothing of sinter runs in it
   if (loadingHelpers()) return [{ name: 'sinter', api: { options, source: (f: string) => f } }, { name: 'sinter:post' }, { name: 'sinter:css-images' }, { name: 'sinter:fonts' }, { name: 'sinter:font-check' }, { name: 'sinter:pages' }];
+  // options renamed (docs/proposals/vocabulary.md): what to write instead
+  const was = options as { speculation?: unknown; earlyBudget?: unknown };
+  if (was.speculation !== undefined) throw new Error(`sinter({ speculation }) is renamed: it is \`prefetch: { pages: ${JSON.stringify(was.speculation)} }\`, beside the next page's data (\`prefetch: { data }\`)`);
+  if (was.earlyBudget !== undefined) throw new Error(`sinter({ earlyBudget }) is renamed: it is \`firstPaint: { budget: ${JSON.stringify(was.earlyBudget)} }\``);
+  const prefetchData = options.prefetch !== false && (typeof options.prefetch !== 'object' || options.prefetch.data !== false);
+  const speculation = options.prefetch === false ? false : typeof options.prefetch === 'object' && options.prefetch.pages !== undefined ? options.prefetch.pages : 'prefetch';
   let root = process.cwd();
   /**
    * The project (its helpers, components, libraries, specs) as a build sees it: read once per build, from its start, where
@@ -356,6 +358,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   const watched = new Set<string>();
   const units = new Map<string, CheckUnit>();
   const firstPaint = options.firstPaint !== false;
+  const earlyBudget = typeof options.firstPaint === 'object' ? options.firstPaint.budget ?? 10_000 : 10_000;
   /** `lazy`: the packages loaded on first call (checked before Vite starts), and each one's resolved id (its chunk's facade) */
   const lazyPkgs = lazyOf(options.lazy);
   const lazyIds = new Map<string, string>();
@@ -457,7 +460,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   };
   /** the app's early module (`src/sinter.early.ts`), which the shared head script runs */
   let appEarly: string | null = null;
-  const budget = options.earlyBudget ?? 10_000;
+  const budget = earlyBudget;
   /** built-in messages: keys each module calls (`m.key`), keys each page's markup calls, and each page's language files */
   const moduleMessages = new Map<string, string[]>();
   const markupMessages = new Map<string, string[]>();
@@ -803,7 +806,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   /** how the Speculation Rules are delivered, or null for none */
   const spec = () => {
     // inline by default: it works with no server setup (a CSP in the page gets the rules' hash, see withRulesHash)
-    const o = options.speculation ?? 'prefetch';
+    const o = speculation;
     return o === false ? null : typeof o === 'string' ? { mode: o, delivery: 'inline' as const } : { mode: o.mode, delivery: o.delivery ?? 'inline' };
   };
   /** the rules' JSON for links to the app's pages, or null; `samePage`: a page with same-page links (query-links.ts), whose own URLs are left out */
@@ -975,7 +978,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     for (const d of p.diagnostics) if (d.severity === 'warning' && !warnedOptions.has(d.message)) { warnedOptions.add(d.message); resolved?.logger.warn(formatDiagnostic(d)); }
     // a page not seen before may be a new one (dev); a build's pages per entry are all known from the start
     if (!seen.has(file)) { seen.add(file); if (dev || !pageInputs) pagesCache = null; }
-    const prefetch = options.prefetch !== false && prefetchPages().length ? PREFETCH : null;
+    const prefetch = prefetchData && prefetchPages().length ? PREFETCH : null;
     const out = compile(html, {
       file: src, root, dev, sourcemap: dev || !!resolved?.build.sourcemap, helpers: p.helpers, actions: p.actions, moduleSrc: `${PREFIX}${rel}.js`, config: p.config, readFile: readVia(p), listFiles: p.listFiles, ...(dev ? {} : { globCache, templates, ...(process.env.SN_NO_LINK ? {} : { definitions }) }), ...contentOpts(v?.locale), prefetch,
       ...(page ? { page } : {}),

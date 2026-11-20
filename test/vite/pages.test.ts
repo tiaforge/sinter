@@ -36,7 +36,7 @@ const blog = {
 async function run(root: string, input: string[], o: Parameters<typeof sinter>[0] = {}) {
   let error: string | null = null;
   try {
-    await build({ root, logLevel: 'silent', plugins: [sinter({ site: 'https://example.com', speculation: 'prefetch', ...o })], resolve: { alias },
+    await build({ root, logLevel: 'silent', plugins: [sinter({ site: 'https://example.com', prefetch: { pages: 'prefetch' }, ...o })], resolve: { alias },
       build: { outDir: join(root, 'dist'), emptyOutDir: true, rollupOptions: { input: Object.fromEntries(input.map((f) => [f.replace(/\.html$/, ''), join(root, f)])) } } });
   } catch (e) { error = String((e as Error).message); }
   const read = (f: string) => readFileSync(join(root, 'dist', f), 'utf8');

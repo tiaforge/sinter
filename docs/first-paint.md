@@ -106,7 +106,7 @@ configure({ env: { apiVersion: '2' } });
 ```
 
 Because the early files block the parser, keep them small. The build prints each page's early size
-(gzip, the page's script and the shared one together) and warns above `sinter({ earlyBudget })`
+(gzip, the page's script and the shared one together) and warns above `sinter({ firstPaint: { budget } })`
 (default 10000 bytes), naming the largest modules. A heavy import in the early module, or in a
 helper an early binding calls, shows up there.
 

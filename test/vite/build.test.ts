@@ -164,7 +164,7 @@ test('`embed: true`: placeholders for the resources only the URL decides, last i
 
 test('`delivery: \'header\'`: a rules file at the site root, no inline script; `vite preview` sends the header and its type', async () => {
   const dir = join(out, 'header');
-  const config = { root, logLevel: 'silent' as const, resolve: { alias }, build: { outDir: dir, emptyOutDir: true, minify: false }, plugins: [sinter({ speculation: { mode: 'prerender', delivery: 'header' } })] };
+  const config = { root, logLevel: 'silent' as const, resolve: { alias }, build: { outDir: dir, emptyOutDir: true, minify: false }, plugins: [sinter({ prefetch: { pages: { mode: 'prerender', delivery: 'header' } } })] };
   await build(config);
   expect(readFileSync(join(dir, 'index.html'), 'utf8')).not.toContain('speculationrules');
   expect(JSON.parse(readFileSync(join(dir, 'speculation-rules.json'), 'utf8')).prerender[0].where.and[0].href_matches).toEqual(['/\\?*#*', '/index.html\\?*#*']);
@@ -202,16 +202,27 @@ test('a page that uses data-sn-transition gets the hold script in its own head s
   }
 });
 
-test('by default every page carries inline rules for the app\'s paths; `speculation: false`: neither rules nor file', async () => {
+test('by default every page carries inline rules for the app\'s paths; `prefetch: { pages: false }`: neither rules nor file', async () => {
   await run(out);
   const html = readFileSync(join(out, 'index.html'), 'utf8');
   const rules = JSON.parse(/<script type="speculationrules">(.*?)<\/script>/.exec(html)![1]!);
   expect(rules.prefetch[0].where.and[0].href_matches).toEqual(['/\\?*#*', '/index.html\\?*#*']);
   expect(readdirSync(out)).not.toContain('speculation-rules.json');
   const dir = join(out, 'no-speculation');
-  await build({ root, logLevel: 'silent', resolve: { alias }, build: { outDir: dir, emptyOutDir: true, minify: false }, plugins: [sinter({ speculation: false })] });
+  await build({ root, logLevel: 'silent', resolve: { alias }, build: { outDir: dir, emptyOutDir: true, minify: false }, plugins: [sinter({ prefetch: { pages: false } })] });
   expect(readFileSync(join(dir, 'index.html'), 'utf8')).not.toContain('speculationrules');
   expect(readdirSync(dir)).not.toContain('speculation-rules.json');
+  // `prefetch: false` turns off both, as `<html data-sn-prefetch="off">` does for a page; `data: false` keeps the rules
+  const off = join(out, 'no-prefetch'), noData = join(out, 'no-data');
+  await build({ root, logLevel: 'silent', resolve: { alias }, build: { outDir: off, emptyOutDir: true, minify: false }, plugins: [sinter({ prefetch: false })] });
+  expect(readFileSync(join(off, 'index.html'), 'utf8')).not.toContain('speculationrules');
+  await build({ root, logLevel: 'silent', resolve: { alias }, build: { outDir: noData, emptyOutDir: true, minify: false }, plugins: [sinter({ prefetch: { data: false } })] });
+  expect(readFileSync(join(noData, 'index.html'), 'utf8')).toContain('speculationrules');
+});
+
+test('the renamed options fail naming the new form', () => {
+  expect(() => sinter({ speculation: 'prerender' } as never)).toThrow("sinter({ speculation }) is renamed: it is `prefetch: { pages: \"prerender\" }`");
+  expect(() => sinter({ earlyBudget: 20000 } as never)).toThrow('sinter({ earlyBudget }) is renamed: it is `firstPaint: { budget: 20000 }`');
 });
 
 /** a logger that keeps the info lines, for the build's hints */
@@ -293,7 +304,7 @@ test('first paint: a classic head script per page over one shared by every page,
   await build({
     root, resolve: { alias }, build: { outDir: dir, emptyOutDir: true, minify: false },
     customLogger: { info: (m: string) => { logs.push(m); }, warn: (m: string) => { logs.push(m); }, warnOnce: () => {}, error: () => {}, clearScreen: () => {}, hasErrorLogged: () => false, hasWarned: false } as never,
-    plugins: [sinter({ earlyBudget: 1 })],
+    plugins: [sinter({ firstPaint: { budget: 1  }})],
   });
   const html = readFileSync(join(dir, 'index.html'), 'utf8');
   const h = heads(html, dir);
@@ -492,7 +503,7 @@ test('strict: the build\'s warnings fail it after it has run, all of them; `allo
   const quiet = { info: () => {}, warn: () => {}, warnOnce: () => {}, error: () => {}, clearScreen: () => {}, hasErrorLogged: () => false, hasWarned: false } as never;
   const run = (strict: NonNullable<Parameters<typeof sinter>[0]>['strict'], dir: string) => build({
     root, resolve: { alias }, customLogger: quiet, build: { outDir: join(out, dir), emptyOutDir: true, minify: false },
-    plugins: [sinter({ earlyBudget: 1, strict })],
+    plugins: [sinter({ firstPaint: { budget: 1 }, strict })],
   });
   await expect(run(true, 'strict')).rejects.toThrow(/warning\(s\) fail the build in strict mode[\s\S]*sinter: warning SN523 early-budget: early script of index\.html/);
   await run({ allow: { SN523: 'the fixture has no budget' } }, 'strict-allow');

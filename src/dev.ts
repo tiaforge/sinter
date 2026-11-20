@@ -37,7 +37,7 @@ const MESSAGES: Record<number, string> = {
   30: "page('%', 'last') needs a known total",
   31: 'anchor `<!--%-->` has no end comment `<!--/sn-->` after it: one was added. A minifier or CDN that strips HTML comments breaks lists and branches: turn comment stripping off for sinter pages',
   25: 'font % is preloaded (sinter({ fonts: { preload } })), but the page did not render with it in its first % frames: the preload competes with what the first paint needs, and when the font is slow it can hold the first paint. Preload a face the first view uses, or remove it',
-  22: "the page's Content-Security-Policy blocked an inline script (%): sinter's Speculation Rules are one, so the next page's HTML is not prefetched. If the policy comes from a response header, add 'inline-speculation-rules' to its script-src (a CSP in a <meta> gets their hash from the build), or set sinter({ speculation: { mode: 'prefetch', delivery: 'header' } }). See docs/navigation.md",
+  22: "the page's Content-Security-Policy blocked an inline script (%): sinter's Speculation Rules are one, so the next page's HTML is not prefetched. If the policy comes from a response header, add 'inline-speculation-rules' to its script-src (a CSP in a <meta> gets their hash from the build), or set sinter({ prefetch: { pages: { mode: 'prefetch', delivery: 'header' } } }). See docs/navigation.md",
 };
 
 /**

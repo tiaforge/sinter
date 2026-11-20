@@ -124,7 +124,7 @@ What the build adds to the page and how it fits a strict policy:
 - **Speculation Rules** are an inline `<script type="speculationrules">`. A CSP in a `<meta>` gets
   their hash added by the build; a CSP sent as a response header needs
   `'inline-speculation-rules'` in `script-src`, or deliver the rules as a file with
-  `speculation: { delivery: 'header' }`. See [navigation.md](navigation.md#speculation-rules-and-a-content-security-policy).
+  `prefetch: { pages: { delivery: 'header' } }`. See [navigation.md](navigation.md#speculation-rules-and-a-content-security-policy).
 - **Embedded data** (`<script type="application/json">`) is data, not executed, so a script-src
   policy does not apply to it.
 

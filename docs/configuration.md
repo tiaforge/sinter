@@ -61,21 +61,21 @@ Each option names a file relative to the project root. Leave it out and sinter l
 | Option | Default | Purpose |
 | --- | --- | --- |
 | `firstPaint` | `true` | write build-time values into the HTML and render what needs no data as the page loads. `false` waits for the page module ([docs/first-paint.md](first-paint.md)) |
+| `firstPaint.budget` | `10000` | an early script above this many gzipped bytes is a build warning: `firstPaint: { budget: 20000 }` (was `earlyBudget`) |
 | `minifyHtml` | `true` | builds: remove your comments, and the white space your stylesheets show to render nothing, from every page's HTML. Dev never minifies ([docs/minify.md](minify.md)) |
-| `earlyBudget` | `10000` | an early script above this many gzipped bytes is a build warning |
 | `embed` | `false` | for a server that writes each page's data into the HTML: pages get placeholders instead of early requests, and the build writes `sinter-embed.json` listing them. `vite dev` is unaffected |
 | `lazy` | `[]` | packages loaded on first call instead of with the page (`['openpgp']`): your imports of one become stubs that share one `import()`, so it is a chunk of its own. Only awaited calls of its exports work (`SN324`); `data-sn-import` and `data-sn-preload` load it sooner ([docs/lazy.md](lazy.md)) |
 | `origins` | `[]` | other origins your resources, actions and streams may call. Added to every page's allowlist and preloaded like same-origin requests, without credentials. The origins of `apis` are added for you; list here only origins that are no API (an image host). Put them here, not in `configure({ origins })` |
-| `prefetch` | `true` | request the next page's data when a link is about to be followed ([docs/navigation.md](navigation.md)) |
+| `prefetch.data` | `true` | request the next page's data when a link is about to be followed ([docs/navigation.md](navigation.md)). `prefetch: false` turns off this and `prefetch.pages`, as `<html data-sn-prefetch="off">` does for one page |
 | `swap` | `false` | links and `navigate()` to another page of the app swap it in instead of loading it, keeping `data-sn-permanent` elements (an audio player plays on). Read what changes first ([docs/navigation.md](navigation.md#swaps)) |
-| `speculation` | `'prefetch'` | Speculation Rules for links between pages (Chromium): `'prefetch'`, `'prerender'`, `false`, or `{ mode, delivery }` |
+| `prefetch.pages` | `'prefetch'` | Speculation Rules for links between pages (Chromium): `'prefetch'`, `'prerender'`, `false`, or `{ mode, delivery }` (was `speculation`) |
 
-`speculation` is delivered as an inline script in every page, so it needs no server setup. A CSP declared in a `<meta>` gets the script's hash from the build. A CSP sent as a response header needs `'inline-speculation-rules'` in `script-src`, or `delivery: 'header'`: the build then writes `speculation-rules.json` at the site root, and your server sends it as `application/speculationrules+json` in a `Speculation-Rules` header on every page (`vite dev` and `vite preview` do both). Details in [docs/navigation.md](navigation.md).
+`prefetch.pages` is delivered as an inline script in every page, so it needs no server setup. A CSP declared in a `<meta>` gets the script's hash from the build. A CSP sent as a response header needs `'inline-speculation-rules'` in `script-src`, or `delivery: 'header'`: the build then writes `speculation-rules.json` at the site root, and your server sends it as `application/speculationrules+json` in a `Speculation-Rules` header on every page (`vite dev` and `vite preview` do both). Details in [docs/navigation.md](navigation.md).
 
 ```js
 sinter({
   origins: ['https://api.example.com'],
-  speculation: { mode: 'prerender', delivery: 'header' },
+  prefetch: { pages: { mode: 'prerender', delivery: 'header' } },
 })
 ```
 
