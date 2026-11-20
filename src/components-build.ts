@@ -14,8 +14,8 @@ import { modulesDir, type Library } from './libraries.js';
 type El = DefaultTreeAdapterMap['element'];
 type Parent = DefaultTreeAdapterMap['parentNode'];
 
-/** the module components' scripts import their base from */
-export const COMPONENTS_MODULE = '@tiaforge-ui/sinter/components';
+/** the module the generated base classes extend `Component` from: the components feature, which compiled pages import too */
+export const COMPONENTS_MODULE = '@tiaforge-ui/sinter/runtime/components';
 /** a component script's file extensions, in the order they are looked for */
 export const SCRIPT_EXTS = ['.ts', '.js', '.mts', '.mjs'];
 

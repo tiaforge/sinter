@@ -70,7 +70,7 @@ A full document keeps its `<html>` attributes (`lang`, `data-sn-state`, `data-sn
 | `firstPaint` | `true` or `{ early, afterEarly }`: run the early script before mounting, [below](#firstpaint) |
 | `frames` | server-event changes wait for `frame()` instead of flushing in a microtask |
 | `pages` | your other pages by file name, so links to them prefetch their data as in a build |
-| `apis`, `defaultApi` | the app's APIs as `sinter({ apis })` takes them, each `openapi` a parsed document: paths on the page are relative to them, requests carry their credentials and headers ([docs/apis.md](apis.md#in-tests)) |
+| `apis` | the app's APIs as `sinter({ apis })` takes them, each `openapi` a parsed document: paths on the page are relative to them, requests carry their credentials and headers ([docs/apis.md](apis.md#in-tests)) |
 | `openapi` | a parsed OpenAPI document, as the deprecated `sinter({ openapi })` gives the compiler; both go at 1.0, use `apis` |
 | `images`, `css` | `images: { remote }` as `sinter()` takes it, and the page's CSS, for pages with bound images |
 | `minifyHtml` | minify the page as a build does (off by default here), against `css` ([minify.md](minify.md)) |

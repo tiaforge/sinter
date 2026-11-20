@@ -3,7 +3,7 @@ import { addQuery, configReport, followUp, formatReport, migrateMarkup, relative
 import { compile } from '../src/compiler/index.js';
 import { apiProject } from './apis.test.js';
 
-const p = apiProject({ apis: { main: { openapi: 'openapi.yml' }, files: { base: '/files' } }, defaultApi: 'main' });
+const p = apiProject({ apis: { main: { openapi: 'openapi.yml', default: true }, files: { base: '/files' } } });
 
 describe('sinter migrate', () => {
   test('a URL becomes the path relative to the API with the longest base; api: unless it is the default', () => {

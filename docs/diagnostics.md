@@ -398,7 +398,7 @@ Error, for example:
 
 > `GET /contacs` is no operation of the API `main`. Did you mean `/contacts`?
 
-With `sinter({ apis })`, a path in `src`, an action or `<sn-sync src>` is relative to an API, and the API accepts only the operations its spec or its `operations` declare, with the method the place implies (`GET` for a resource unless it has `method`, the attribute's for an action). Also reported: `api:` naming no API, and a path without `api:` when several APIs are configured and `defaultApi` names none.
+With `sinter({ apis })`, a path in `src`, an action or `<sn-sync src>` is relative to an API, and the API accepts only the operations its spec or its `operations` declare, with the method the place implies (`GET` for a resource unless it has `method`, the attribute's for an action). Also reported: `api:` naming no API, and a path without `api:` when several APIs are configured and none is the default (`default: true`).
 
 **Fix:** Use the suggested path (the editor completes them), add the endpoint to the spec, or declare it in the API's `operations`. A path written with the base in it (`/api/contacts` with `base: '/api'`) drops the base.
 
@@ -428,7 +428,7 @@ Error, for example:
 
 > sinter({ apis }): `main.base` is `undefined` (an environment variable that is not set?); it does not fall back to the spec's server
 
-The `apis` option is invalid: an API setting that does not exist, a `base` that is not `''`, a same-origin path or an `https://` URL (or is `undefined`), `defaults` naming an operation the spec does not have, `operations` naming one it has, `defaultApi` naming no API, or a top-level `openapi` next to `apis`.
+The `apis` option is invalid: an API setting that does not exist, a `base` that is not `''`, a same-origin path or an `https://` URL (or is `undefined`), `defaults` naming an operation the spec does not have, `operations` naming one it has, two APIs with `default: true`, or a top-level `openapi` next to `apis`.
 
 **Fix:** Follow the message: set the environment variable, move the endpoint between `defaults` and `operations`, or move `openapi` into an API.
 
@@ -816,11 +816,11 @@ Image optimization needs the `sharp` package, which is not installed, so images 
 
 Warning, for example:
 
-> could not download https://fonts.example/inter.woff2; the page keeps the link (sinter({ fonts: { inline: false } }) turns this off)
+> could not download https://fonts.example/inter.woff2; the page keeps the link (sinter({ fonts: { bundle: false } }) turns this off)
 
-The build self-hosts the fonts a page links to, and one could not be downloaded, so the page keeps the link to the font's host. This depends on the network, so `--strict` leaves it a warning. Reported by the build, without a file and line.
+The build bundles the Google Fonts stylesheets a page links to, and one could not be downloaded, so the page keeps the link to the font's host. This depends on the network, so `--strict` leaves it a warning. Reported by the build, without a file and line.
 
-**Fix:** Build with network access, or turn self-hosting off with `sinter({ fonts: { inline: false } })`.
+**Fix:** Build with network access, or keep the links with `sinter({ fonts: { bundle: false } })`.
 
 ## SN527 css-image-sizes
 

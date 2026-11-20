@@ -20,8 +20,6 @@ export interface Meta {
   error: { status: number | null; body: unknown; message: string; detail: string | null } | null;
   /** when the server last answered, as a `Date` (like `$now`); null before the first load */
   loadedAt: Date | null;
-  /** optimistic layers whose request has not settled (JavaScript only: markup reads `aria-busy`) */
-  pending: number;
   total: number | null;
   /** the server-event stream(s) feeding this resource: null when none does, else the worst state among them */
   live: 'connecting' | 'open' | 'retrying' | null;
@@ -70,6 +68,8 @@ export interface Resource<T extends object = any> {
   startLoad(): number;
   endLoad(mark: number, loaded: boolean): void;
   addLayer(ops: Op[]): number;
+  /** optimistic layers whose request has not settled (tests; markup reads an element's own `aria-busy`) */
+  waiting(): number;
   /** the rollback: the layer's changes are gone */
   dropLayer(id: number): void;
   /** the request succeeded: the layer goes into the base, in order (after the older layers settle) */
@@ -96,7 +96,7 @@ const collators = new Map<string, Intl.Collator>();
 const collator = (l = '') => collators.get(l) ?? (collators.set(l, new Intl.Collator(l || undefined, { numeric: true })), collators.get(l)!);
 
 export function createResource<T extends object = any>(name: string, o: ResourceOptions): Resource<T> {
-  const meta: Meta = { loading: false, error: null, loadedAt: null, pending: 0, total: null, live: null };
+  const meta: Meta = { loading: false, error: null, loadedAt: null, total: null, live: null };
   const coll = !!o.key, field = o.order?.replace(/^-/, ''), dir = o.order?.[0] == '-' ? -1 : 1;
   const subs = new Set<(c: Change<T>) => void>();
   const prep = (x: any) => (o.prep ? o.prep(x) : x);
@@ -207,12 +207,11 @@ export function createResource<T extends object = any>(name: string, o: Resource
     if (meta.total !== t) { meta.total = t; r.onDirty('meta'); }
   }
 
-  /** A data change: readers rebuild their view; `meta` too when the pending count changed. */
-  const changed = (pending?: boolean) => {
+  /** A data change: readers rebuild their view. */
+  const changed = () => {
     view = null;
     sync();
     r.onDirty('data');
-    if (pending) { meta.pending = layers.filter((l) => !l.ok).length; r.onDirty('meta'); }
   };
 
   function visible() {
@@ -254,7 +253,7 @@ export function createResource<T extends object = any>(name: string, o: Resource
       apply(op);
       done.push(op);
     }
-    changed(true);
+    changed();
     for (const op of done) for (const f of subs) f({ resource: name, ...op } as Change<T>);
   }
 
@@ -298,9 +297,10 @@ export function createResource<T extends object = any>(name: string, o: Resource
       for (const op of ops) apply(op);
       changed();
     },
+    waiting: () => layers.filter((l) => !l.ok).length,
     addLayer(ops) {
       layers.push({ id: ++lastLayer, ops });
-      changed(true);
+      changed();
       return lastLayer;
     },
     dropLayer(id) {

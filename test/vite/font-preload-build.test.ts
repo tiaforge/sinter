@@ -53,6 +53,23 @@ test('a used face is preloaded after <meta charset>: its Latin file, as a CORS f
   expect(html.indexOf('rel="preconnect" href="https://fonts.gstatic.com"')).toBeLessThan(html.indexOf('rel="preload" as="font"'));
 });
 
+test('the Google Fonts stylesheet is bundled by default; `bundle: false` keeps the link and the preloads, `fonts: false` turns both off', async () => {
+  const fonts = async (root: string, option: NonNullable<Parameters<typeof sinter>[0]>['fonts']) => {
+    await build({ root, logLevel: 'silent', plugins: [sinter({ fonts: option })], resolve: { alias }, build: { outDir: join(root, 'dist'), emptyOutDir: true, minify: false } });
+    return readFileSync(join(root, 'dist/index.html'), 'utf8');
+  };
+  const styles = "body { font-family: 'Source Sans Pro', sans-serif; }";
+  const bundled = await fonts(project(styles), undefined);
+  expect(bundled).not.toContain('fonts.googleapis.com');
+  expect(bundled).toContain('rel="preconnect" href="https://fonts.gstatic.com"');
+  const linked = await fonts(project(styles), { bundle: false, preload: ['Source Sans Pro'] });
+  expect(linked).toContain(`href="${GOOGLE}"`);
+  expect(linked).toContain('<link rel="preload" as="font" type="font/woff2" href="https://fonts.gstatic.com/s/ssp/latin-400.woff2" crossorigin>');
+  const off = await fonts(project(styles), false);
+  expect(off).toContain(`href="${GOOGLE}"`);
+  expect(off).not.toContain('rel="preload" as="font"');
+});
+
 test('a family the page does not use fails the build', async () => {
   const root = project('body { font-family: serif; }');
   await expect(run(root, ['Source Sans Pro'])).rejects.toThrow(/index\.html preloads Source Sans Pro 400, but no stylesheet of the page uses the family `Source Sans Pro`/);

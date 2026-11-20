@@ -14,4 +14,7 @@ test('each feature the compiler adds, and each module compiled pages import, is 
   expect(features.length).toBeGreaterThan(20);
   for (const f of [...new Set(features), 'early', 'lazy', 'swap', 'prefetch', 'remote', 'dev']) expect(pkg.exports, f).toHaveProperty([`./runtime/${f}`]);
   expect(pkg.exports['./runtime']).toBe('./dist/runtime-entry.js');
+  // one name per module: the components feature (and the `Component` class its generated bases extend) is only under runtime/
+  expect(Object.values(pkg.exports).filter((f) => f === './dist/components.js')).toEqual(['./dist/components.js']);
+  expect(Object.keys(pkg.exports).filter((k, i, all) => all.findIndex((j) => pkg.exports[j] === pkg.exports[k]) !== i)).toEqual([]);
 });

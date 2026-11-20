@@ -4,7 +4,7 @@ type ComponentName = "size-box" | "status-badge";
 /** a slot that passes T to its fill, as a member of a component's props type: `cell: Slot<{ row: Row }>` */
 interface Slot<T> { readonly 'sinter.slot': T }
 declare module '*/size-box.html' {
-  const Base: typeof import('@tiaforge-ui/sinter/components').Component;
+  const Base: typeof import('@tiaforge-ui/sinter/runtime/components').Component;
   /** the base of `src/components/size-box.ts`: props, events, refs and state as `size-box.html` declares them */
   export class SizeBoxComponent extends Base<{ label: string }, {}, {  }, {}> {}
 }

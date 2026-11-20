@@ -118,7 +118,7 @@ revalidation keeps the cached data and sets `error`. See `docs/recipes/cached-li
   and the `items` and `total` paths, so two pages loading the same data share an entry.
 - Only the first load reads the cache; a `src` that changes later does not.
 - An entry over 256 KB is not written.
-- Every entry is removed on any 401 response and by `clearPersisted()`, which apps call on logout.
+- Every entry is removed on any 401 response and by `clearStored()`, which apps call on sign-in and sign-out.
 
 ## Background refresh
 

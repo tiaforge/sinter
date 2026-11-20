@@ -135,7 +135,7 @@ the end (what is built and where it departs from the spec), and
 | `@tiaforge-ui/sinter/ws` | WebSocket transport for `<sn-sync>` |
 | `@tiaforge-ui/sinter/optimistic` | optimistic layers |
 | `@tiaforge-ui/sinter/paginate` | keyset, offset, append |
-| `@tiaforge-ui/sinter/each` | fan-out resources (`each="a in accounts"`) |
+| `@tiaforge-ui/sinter/runtime/for` | fan-out resources (`<sn-resource for="a in accounts">`) |
 | `@tiaforge-ui/sinter/persist` | `data-sn-persist` |
 | `@tiaforge-ui/sinter/prefetch` | next-page data (added by the Vite plugin) |
 | `@tiaforge-ui/sinter/compiler` | `compile()` |

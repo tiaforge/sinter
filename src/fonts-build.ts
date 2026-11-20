@@ -38,7 +38,7 @@ export const fontId = (url: string) => `${FONTS_PREFIX}${createHash('sha256').up
  * files' origin follows `<meta charset>`. `sheet(url)` gives the downloaded CSS, or null (the link
  * stays, and `failed` names it). Returns the page, the ids it now links, and the URLs that failed.
  */
-export async function inlineFonts(html: string, sheet: (url: string) => Promise<string | null>): Promise<{ html: string; ids: Map<string, string>; failed: string[] }> {
+export async function bundleFonts(html: string, sheet: (url: string) => Promise<string | null>): Promise<{ html: string; ids: Map<string, string>; failed: string[] }> {
   const ids = new Map<string, string>(), failed: string[] = [], origins = new Set<string>();
   for (const l of googleFontLinks(html)) {
     const css = await sheet(l.url);

@@ -47,7 +47,6 @@ fixture pages, in `fixtures/` ([docs/libraries.md](libraries.md)).
 | `messages` | `project.inlang`, if it exists | the inlang project for [messages](messages.md); `false` turns them off |
 | `apis` | none | the APIs the app calls: base URL, OpenAPI spec, credentials, headers, and what each endpoint returns. Pages then write paths relative to them (`src="/contacts"`), checked against the spec ([docs/apis.md](apis.md)) |
 | `libraries` | `[]` | component libraries, by package name (`['@acme/ui']`): packages whose `package.json` names a folder of sinter components (`"sinter": "./sinter"`). Their public components are tags in the app; their helpers come in through a namespace re-export in your helpers module ([docs/libraries.md](libraries.md)) |
-| `defaultApi` | the only API | the API a path without `api:` goes to |
 | `openapi` | none | deprecated: one OpenAPI file or a list of them; give each API its spec in `apis` instead ([docs/type-checking.md](type-checking.md#openapi)) |
 
 ### Checks
@@ -82,7 +81,7 @@ What the build writes for the site as a whole: page URLs, languages, and pages w
 | `lazy` | `[]` | packages loaded on first call instead of with the page (`['openpgp']`): your imports of one become stubs that share one `import()`, so it is a chunk of its own. Only awaited calls of its exports work (`SN324`); `data-sn-import` and `data-sn-preload` load it sooner ([docs/lazy.md](lazy.md)) |
 | `origins` | `[]` | other origins your resources, actions and streams may call. Added to every page's allowlist and preloaded like same-origin requests, without credentials. The origins of `apis` are added for you; list here only origins that are no API (an image host). Put them here, not in `configure({ origins })` |
 | `prefetch.data` | `true` | request the next page's data when a link is about to be followed ([docs/navigation.md](navigation.md)). `prefetch: false` turns off this and `prefetch.html`, as `<html data-sn-prefetch="off">` does for one page |
-| `prefetch.html` | `true` | Speculation Rules for links between pages (Chromium): `true` (the next page's HTML), `'prerender'`, `false`, or `{ prerender, delivery }` |
+| `prefetch.html` | `true` | Speculation Rules for links between pages (Chromium): `true` (the next page's HTML), `false`, or `{ prerender, delivery }` (`prerender: true`: the whole page) |
 | `swap` | `false` | links and `navigate()` to another page of the app swap it in instead of loading it, keeping `data-sn-permanent` elements (an audio player plays on). Read what changes first ([docs/navigation.md](navigation.md#swaps)) |
 
 `prefetch.html` is delivered as an inline script in every page, so it needs no server setup. A CSP declared in a `<meta>` gets the script's hash from the build. A CSP sent as a response header needs `'inline-speculation-rules'` in `script-src`, or `delivery: 'header'`: the build then writes `speculation-rules.json` at the site root, and your server sends it as `application/speculationrules+json` in a `Speculation-Rules` header on every page (`vite dev` and `vite preview` do both). Details in [docs/navigation.md](navigation.md).
@@ -100,7 +99,7 @@ Google Fonts stylesheets are downloaded at build time and bundled as one of your
 
 | Option | Default | Purpose |
 | --- | --- | --- |
-| `fonts.inline` | `true` | `false` keeps the `<link>` to Google Fonts |
+| `fonts.bundle` | `true` | `false` keeps the `<link>` to Google Fonts (`fonts: false` turns off `preload` too) |
 | `fonts.preload` | none | faces to preload: a family name (its 400 normal face) or `{ family, weight, style }`, from a Google Fonts stylesheet or the app's own `@font-face` (builds) |
 
 ```js
@@ -133,8 +132,12 @@ import { configure, header, onUnauthorized, loginRedirect } from '@tiaforge-ui/s
 
 configure({
   request: [
-    // a value the browser knows; a fixed one (credentials, a CSRF header) goes on the API: sinter({ apis })
-    header('Authorization', `Bearer ${localStorage.getItem('token')}`),
+    // a value the browser knows, read for each request (none while signed out); a fixed one
+    // (credentials, a CSRF header) goes on the API: sinter({ apis })
+    header('Authorization', () => {
+      const token = localStorage.getItem('token');
+      return token && `Bearer ${token}`;
+    }),
     onUnauthorized(loginRedirect({ to: '/login/', returnUrl: { allow: ['/app/'] } })),
   ],
   sessionProbe: '/api/user',
@@ -186,11 +189,11 @@ Built in:
 
 | Function | Does |
 | --- | --- |
-| `header(name, value, { origin })` | adds a header to same-origin requests, or only to `origin`: for a value the browser knows (a token). Fixed credentials and headers go on the API ([docs/apis.md](apis.md)), which keeps early requests |
+| `header(name, value, { origin })` | adds a header to same-origin requests, or only to `origin`: for a value the browser knows (a token). `value` is a function called for each request, `() => string \| null \| undefined` (null or undefined: no header), so a token set after sign-in is sent, also with swapped pages; a string is sent as it is. Fixed credentials and headers go on the API ([docs/apis.md](apis.md)), which keeps early requests |
 | `onUnauthorized(handler)` | calls `handler(request, response)` on a 401 |
 | `loginRedirect({ to, returnUrl })` | stores the current URL (same-origin and under an allowed prefix only), clears persisted state, goes to `to`. It never resolves, so `then` and `catch` do not run |
 | `takeReturnUrl(allow)` | on the login page: the stored URL if it is same-origin and under an allowed prefix, else `null`; removes it |
-| `clearPersisted()` | removes values stored by `data-sn-persist`, and cached page data. Call it on logout |
+| `clearStored()` | removes what sinter stored in the browser: `data-sn-persist` values, the page-load cache and next-page data. Call it on sign-in and sign-out |
 
 Requests time out after 30 seconds, and nothing is sent twice unless a [retry policy](retry.md) says so.
 

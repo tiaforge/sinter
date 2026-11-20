@@ -1,18 +1,18 @@
 // Islands: browser work that sinter expressions cannot do (the token's storage, a redirect from a branch).
-import { clearPersisted, instance, navigate } from '@tiaforge-ui/sinter';
+import { clearStored, instance, navigate } from '@tiaforge-ui/sinter';
 import { token } from './session.js';
 
 // Events emitted from the pages with `emit(name, detail)`.
-// signing in or out changes whose data this is: drop the page-load cache (`cache` resources)
+// signing in or out changes whose data this is: drop what sinter stored (the page-load cache of `cache` resources)
 document.addEventListener('signed-in', (e) => {
-  clearPersisted();
+  clearStored();
   token.set(e.detail.user.token);
   navigate(e.detail.to ?? '/');
 });
 // the same account with new settings: the token may be new, the cached data is still this account's
 document.addEventListener('settings-saved', (e) => { token.set(e.detail.token); });
 document.addEventListener('signed-out', () => {
-  clearPersisted();
+  clearStored();
   token.clear();
   navigate('/');
 });
