@@ -32,7 +32,7 @@ This is the full reference, `llms-full.txt`. `llms.txt` beside it is the short v
 - `data-sn-ref` (name): in a component's markup: the element its script reads as this.refs.<name>, typed by its tag
 - `data-sn-emits` (events type): on the <template data-sn-props>: the events emit() sends and their detail types, e.g. { select: Article }
 - `data-sn-model` (state path | $url.<param>): two-way binding for form controls; on $url, the URL follows (a history entry; typing at each pause), and a <select multiple> or a checkbox with a value makes the parameter a list
-- `data-sn-model-debounce` (milliseconds): delays the model's write until typing pauses (no second pause after it); Enter writes at once
+- `data-sn-model-debounce` (duration): delays the model's write until typing pauses (no second pause after it); Enter writes at once
 - `data-sn-for` (item in list | (item, i) in list): repeats a <template> per item. On <html>: the page once per entry of a `file:` list, at `data-sn-path` filled from it
 - `data-sn-key` (value expression): row identity; defaults to the resource key or object identity
 - `data-sn-if` (value expression): renders a <template> while truthy. Same id, same control: when the branch with focus is swapped, the element with its id in the new one takes focus (a toggle's two buttons: <button id="follow" data-sn-delete=…> and <button id="follow" data-sn-post=…>)
@@ -46,7 +46,7 @@ This is the full reference, `llms-full.txt`. `llms.txt` beside it is the short v
 - `data-sn-call` (action call): local action: a function of the actions module, e.g. pgp.decrypt(msg); a handler starts it with run('id'). The function gets a trailing context; its `ctx.request(url, { method, body })` encodes `body` as JSON: pass the object, not `JSON.stringify(…)` (a string)
 - `data-sn-body` (value expression): JSON request body; overrides form serialization
 - `data-sn-trigger` (DOM event name): overrides the default trigger
-- `data-sn-debounce` (milliseconds): delays the action's trigger, resets on each event
+- `data-sn-debounce` (duration): delays the action's trigger, resets on each event
 - `data-sn-concurrency` (block | queue | latest): what a trigger does while the action runs; default block for forms, queue otherwise
 - `data-sn-optimistic` (handler expression): merge/upsert/remove calls applied before the request, kept on success, rolled back on failure
 - `data-sn-then` (handler expression): runs after a 2xx response; $result = parsed body
@@ -59,7 +59,7 @@ This is the full reference, `llms-full.txt`. `llms.txt` beside it is the short v
 - `data-sn-data` (resource name): on <script type="application/json"> in <head>: initial data for a resource
 - `data-sn-on-<event>` (handler expression): plain event handler, no request; e.g. data-sn-on-click
 - `data-sn-on-keydown-<key>` (handler expression): runs only for that key (also on-keyup-<key>): modifiers first, the key last, e.g. data-sn-on-keydown-j, -shift-n (N), -mod-enter (Ctrl, Cmd on Apple), -escape, -question (?); matches KeyboardEvent.key; other Ctrl/Alt/Meta held do not match; an ancestor's filter skips keys typed into fields; a match calls preventDefault()
-- `data-sn-debounce-<event>` (milliseconds): delays only that event's data-sn-on-<event> handler (it runs with the last event); e.g. data-sn-debounce-input
+- `data-sn-debounce-<event>` (duration): delays only that event's data-sn-on-<event> handler (it runs with the last event); e.g. data-sn-debounce-input
 
 Key filters (`data-sn-on-keydown-<modifiers->key`, `data-sn-on-keyup-…`): modifiers `ctrl`, `alt`, `shift`, `meta`, `mod`, then one key: `a`–`z`, `0`–`9`, `escape`, `enter`, `tab`, `space`, `backspace`, `delete`, `insert`, `home`, `end`, `pageup`, `pagedown`, `arrowup`, `arrowdown`, `arrowleft`, `arrowright`, `contextmenu`, `f1`–`f12`, and characters by name: `slash` (`/`), `backslash` (`\`), `question` (`?`), `period` (`.`), `comma` (`,`), `semicolon` (`;`), `colon` (`:`), `quote` (`'`), `backquote` (``` ` ```), `minus` (`-`), `plus` (`+`), `equal` (`=`), `asterisk` (`*`), `bracketleft` (`[`), `bracketright` (`]`). Names are lowercase (N is `shift-n`). Filters on an ancestor skip keys typed into fields and Enter/Space on buttons and links; a match calls `preventDefault()`. The nearest element that handles an event wins; a key a plain handler does not `preventDefault()` goes on to its ancestors, so page-wide shortcuts go on `<body>`. Bubbling custom events (`emit()`, islands' events, `sn-error`, `dismiss`) run every handler from the target up until one calls `$event.preventDefault()`; `stopPropagation()` does not end the walk.
 

@@ -286,7 +286,7 @@ function attributes(): string {
   const placed = new Set<string>(ATTRIBUTE_GROUPS.flatMap((g) => g[2]));
   const out = [`# Attribute reference
 
-Every directive is a \`data-sn-*\` attribute or an \`<sn-*>\` element; anything else is a build error with a suggestion. Generated from the compiler's vocabulary (\`npm run docs\`). \`llms.txt\` has the same list for LLMs.
+Every directive is a \`data-sn-*\` attribute or an \`<sn-*>\` element; anything else is a build error with a suggestion. Generated from the compiler's vocabulary (\`npm run docs\`). \`llms.txt\` has the same list for LLMs. A *duration* is a number and \`ms\`, \`s\`, \`m\`, \`h\` or \`d\` (\`300ms\`, \`30s\`, \`1d\`), for \`cache\`, \`refresh\` and the debounces; a debounce also takes a bare number of milliseconds.
 `];
   for (const [title, intro, names] of ATTRIBUTE_GROUPS) {
     out.push(`## ${title}\n\n${intro}\n\n| Attribute | Value | Meaning |\n| --- | --- | --- |`);

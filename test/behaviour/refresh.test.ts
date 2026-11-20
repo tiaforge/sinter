@@ -300,5 +300,7 @@ test('the compiler checks the value and adds the feature only where it is used',
   expect(streamed).not.toContain('sinter/refresh');
   const errors = (v: string) => compile(page(v), opts).diagnostics.map((d) => `${d.code} ${d.message}`);
   expect(errors('0s')).toEqual(['SN401 `refresh` must be at least `1s`']);
-  for (const v of ['500ms', '', 'soon', '1d']) expect(errors(v)).toEqual([expect.stringMatching(/^SN401 `refresh` takes/)]);
+  expect(errors('500ms')).toEqual(['SN401 `refresh` must be at least `1s`']);
+  for (const v of ['', 'soon', '30']) expect(errors(v)).toEqual([expect.stringMatching(/^SN401 `refresh` takes the longest time between loads, a duration/)]);
+  expect(errors('1d')).toEqual([]);
 });

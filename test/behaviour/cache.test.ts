@@ -174,7 +174,9 @@ test('the compiler checks `cache` and adds the feature only where it is used', (
   expect(compile(LIST(''), opts).module).not.toContain('sinter/cache');
   const bad = compile(LIST('cache="soon"'), opts);
   expect(bad.diagnostics.map((d) => d.code)).toEqual(['SN401']);
-  expect(bad.diagnostics[0]!.message).toContain('`30s`, `10m`, `2h` or `1d`');
+  expect(bad.diagnostics[0]!.message).toContain('a duration such as `300ms`, `2s`, `10m`, `2h` or `1d`');
+  // one duration grammar: `1d`, and `500ms`
+  expect(compile(LIST('cache="1d"'), opts).module).toContain('"cache":86400000');
 });
 
 test('a guard on loadedAt does not act on cached data', async () => {

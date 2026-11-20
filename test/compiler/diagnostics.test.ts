@@ -575,7 +575,7 @@ test('data-sn-debounce-<event> needs that handler and milliseconds', () => {
   expect(ds('<div data-sn-state="{ a: 0 }"><input data-sn-debounce-input="200" data-sn-on-change="a++"></div>'))
     .toEqual(['SN102 `data-sn-debounce-input` needs a `data-sn-on-input` handler on the same element']);
   expect(ds('<div data-sn-state="{ a: 0 }"><input data-sn-debounce-input="soon" data-sn-on-input="a++"></div>'))
-    .toEqual(['SN401 `data-sn-debounce-input` takes milliseconds']);
+    .toEqual(['SN401 `data-sn-debounce-input` takes a duration such as `300ms`, `2s`, `10m`, `2h` or `1d`, or milliseconds (`300`)']);
 });
 
 describe('key filters', () => {

@@ -1,6 +1,6 @@
 # Attribute reference
 
-Every directive is a `data-sn-*` attribute or an `<sn-*>` element; anything else is a build error with a suggestion. Generated from the compiler's vocabulary (`npm run docs`). `llms.txt` has the same list for LLMs.
+Every directive is a `data-sn-*` attribute or an `<sn-*>` element; anything else is a build error with a suggestion. Generated from the compiler's vocabulary (`npm run docs`). `llms.txt` has the same list for LLMs. A *duration* is a number and `ms`, `s`, `m`, `h` or `d` (`300ms`, `30s`, `1d`), for `cache`, `refresh` and the debounces; a debounce also takes a bare number of milliseconds.
 
 ## Show data
 
@@ -28,7 +28,7 @@ Local state next to the markup that uses it. `data-sn-model-<option>` attributes
 | `data-sn-state` | object literal | declares local reactive state for the element and its subtree |
 | `data-sn-let` | object literal {name: expression} | derived names for the element and its subtree, computed where they are read (a helper call included: keep an expensive one's results with `memo()`, configuration.md); later names may use earlier ones |
 | `data-sn-model` | state path \| $url.&lt;param&gt; | two-way binding for form controls; on $url, the URL follows (a history entry; typing at each pause), and a &lt;select multiple&gt; or a checkbox with a value makes the parameter a list |
-| `data-sn-model-debounce` | milliseconds | delays the model's write until typing pauses (no second pause after it); Enter writes at once |
+| `data-sn-model-debounce` | duration | delays the model's write until typing pauses (no second pause after it); Enter writes at once |
 | `data-sn-persist` | storage key | persists the model or state in localStorage under sn: |
 
 ## Send changes
@@ -44,7 +44,7 @@ Turn an element into a request. Details: [actions](actions.md).
 | `data-sn-call` | action call | local action: a function of the actions module, e.g. pgp.decrypt(msg); a handler starts it with run('id'). The function gets a trailing context; its `ctx.request(url, { method, body })` encodes `body` as JSON: pass the object, not `JSON.stringify(…)` (a string) |
 | `data-sn-body` | value expression | JSON request body; overrides form serialization |
 | `data-sn-trigger` | DOM event name | overrides the default trigger |
-| `data-sn-debounce` | milliseconds | delays the action's trigger, resets on each event |
+| `data-sn-debounce` | duration | delays the action's trigger, resets on each event |
 | `data-sn-encoding` | form | the body (data-sn-body, arrays as repeated keys, or the form) goes as application/x-www-form-urlencoded |
 | `data-sn-concurrency` | block \| queue \| latest | what a trigger does while the action runs; default block for forms, queue otherwise |
 | `data-sn-confirm` | value expression | asks this question before the action runs (configure({ confirm }), window.confirm by default); no question when falsy |
@@ -68,7 +68,7 @@ Handlers without a request. Details: [events](actions.md), [key filters](actions
 | Attribute | Value | Meaning |
 | --- | --- | --- |
 | `data-sn-on-<event>` | handler expression | plain event handler, no request; e.g. data-sn-on-click |
-| `data-sn-debounce-<event>` | milliseconds | delays only that event's data-sn-on-&lt;event&gt; handler (it runs with the last event); e.g. data-sn-debounce-input |
+| `data-sn-debounce-<event>` | duration | delays only that event's data-sn-on-&lt;event&gt; handler (it runs with the last event); e.g. data-sn-debounce-input |
 | `data-sn-options` | id of the list, or empty | arrows mark a [role=option\|menuitem] of the list (empty: inside the element, else the nearest listbox or menu), Enter clicks it, Escape fires `dismiss`; focus stays on the element. Text field: a combobox |
 
 ## Components

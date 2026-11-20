@@ -54,7 +54,7 @@ then filter by `term`.
 | `order` | Field kept sorted when items are inserted. `-field` sorts descending. Strings compare locale-aware. |
 | `when` | Value expression. While falsy the resource is empty (`null` or `[]`) and a running request is aborted. |
 | `cache` | Show the data from the last page load at once, then revalidate. No value means any age; `30s`, `10m`, `2h` or `1d` ignores older data. |
-| `refresh` | Reload in the background once the data is this old: `30s`, `5m`, `1h` (at least `1s`). |
+| `refresh` | Reload in the background once the data is this old, a duration: `30s`, `5m`, `1h`, `1d` (at least `1s`). |
 | `each` | `item in list`: one request per item of another list, merged into one collection. |
 | `then` | Handler run after each successful load, with `$result`. |
 | `type` | Type of what `items` selects, for the [type checker](type-checking.md). |

@@ -24,7 +24,7 @@ export const ATTRIBUTES: AttrDoc[] = [
   { name: 'ref', value: 'name', doc: 'in a component\'s markup: the element its script reads as this.refs.<name>, typed by its tag' },
   { name: 'emits', value: 'events type', doc: 'on the <template data-sn-props>: the events emit() sends and their detail types, e.g. { select: Article }' },
   { name: 'model', value: 'state path | $url.<param>', doc: 'two-way binding for form controls; on $url, the URL follows (a history entry; typing at each pause), and a <select multiple> or a checkbox with a value makes the parameter a list' },
-  { name: 'model-debounce', value: 'milliseconds', doc: 'delays the model\'s write until typing pauses (no second pause after it); Enter writes at once' },
+  { name: 'model-debounce', value: 'duration', doc: 'delays the model\'s write until typing pauses (no second pause after it); Enter writes at once' },
   { name: 'for', value: 'item in list | (item, i) in list', doc: 'repeats a <template> per item. On <html>: the page once per entry of a `file:` list, at `data-sn-path` filled from it' },
   { name: 'key', value: 'value expression', doc: 'row identity; defaults to the resource key or object identity' },
   { name: 'if', value: 'value expression', doc: 'renders a <template> while truthy. Same id, same control: when the branch with focus is swapped, the element with its id in the new one takes focus (a toggle\'s two buttons: <button id="follow" data-sn-delete=…> and <button id="follow" data-sn-post=…>)' },
@@ -38,7 +38,7 @@ export const ATTRIBUTES: AttrDoc[] = [
   { name: 'call', value: 'action call', doc: 'local action: a function of the actions module, e.g. pgp.decrypt(msg); a handler starts it with run(\'id\'). The function gets a trailing context; its `ctx.request(url, { method, body })` encodes `body` as JSON: pass the object, not `JSON.stringify(…)` (a string)' },
   { name: 'body', value: 'value expression', doc: 'JSON request body; overrides form serialization' },
   { name: 'trigger', value: 'DOM event name', doc: 'overrides the default trigger' },
-  { name: 'debounce', value: 'milliseconds', doc: 'delays the action\'s trigger, resets on each event' },
+  { name: 'debounce', value: 'duration', doc: 'delays the action\'s trigger, resets on each event' },
   { name: 'concurrency', value: 'block | queue | latest', doc: 'what a trigger does while the action runs; default block for forms, queue otherwise' },
   { name: 'optimistic', value: 'handler expression', doc: 'merge/upsert/remove calls applied before the request, kept on success, rolled back on failure' },
   { name: 'then', value: 'handler expression', doc: 'runs after a 2xx response; $result = parsed body' },
@@ -52,7 +52,7 @@ export const ATTRIBUTES: AttrDoc[] = [
 ];
 
 export const ON_DOC: AttrDoc = { name: 'on-<event>', value: 'handler expression', doc: 'plain event handler, no request; e.g. data-sn-on-click' };
-export const DEBOUNCE_ON_DOC: AttrDoc = { name: 'debounce-<event>', value: 'milliseconds', doc: 'delays only that event\'s data-sn-on-<event> handler (it runs with the last event); e.g. data-sn-debounce-input' };
+export const DEBOUNCE_ON_DOC: AttrDoc = { name: 'debounce-<event>', value: 'duration', doc: 'delays only that event\'s data-sn-on-<event> handler (it runs with the last event); e.g. data-sn-debounce-input' };
 
 export const ELEMENTS: Array<{ name: string; attrs: string[]; doc: string }> = [
   { name: 'sn-resource', attrs: ['name', 'src', 'method', 'body', 'call', 'each', 'key', 'items', 'total', 'order', 'when', 'paginate', 'type', 'cache', 'refresh', 'then', 'early', 'drafts'], doc: 'a named, page-wide cache of server data; `cache` (or `cache="10m"`) shows the data from the last page load at once, then revalidates. `refresh="30s"` reloads it once that long has passed since its last load, whatever caused that load (server events, `refresh()`, a reconnect), in the background: `$meta.loading` stays false, and paused while the tab is hidden. `early="off"`: never preloaded or requested before the page module (for a resource a request middleware answers itself; one whose request a middleware changes, such as a token, needs nothing: the build and runtime handle it). `then` is a handler run after each successful load (`$result`: what it loaded; the state around the resource in scope). With `sinter({ apis })`, `src` is a path relative to an API (`/articles`, `billing:/invoices`); `method="POST"` with `body` loads with a POST of that value. `src="file:./intro.txt"` (`file:/…` from the root) reads the project at build time (text, JSON, markdown\'s frontmatter and `body`; a glob: a list with `slug`, `dir`, `path`), a constant (`order`, `drafts`). Loading needs no attributes: concurrent loads of one URL share a request, a `src` change aborts the running one (latest wins), a change typed into a text field waits 250 ms for the next keystroke, a resource only dialogs read is requested with low priority, and a bfcache restore or going back online reloads. `paginate="{ keyset: { before: id }, size: 20 }"` loads a page at a time (`append`, `numbered: true`; `model: $url.page` keeps a numbered list\'s page in the URL; `jump`, `params`, `directions`, also per API)' },

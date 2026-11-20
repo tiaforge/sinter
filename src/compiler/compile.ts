@@ -522,6 +522,16 @@ export const SET_BY_SINTER: Record<string, string> = {
   'data-sn-error': 'on the message it inserts after a field with a server error',
   'data-sn-failed': 'on the `<body>` of a page whose server render failed',
 };
+/**
+ * A duration in markup, one grammar for every attribute that takes one: a number and `ms`, `s`, `m`, `h` or `d`
+ * (`300ms`, `2s`, `10m`, `1d`). `bare: 'ms'`: a number alone is milliseconds (the debounces). Null when malformed.
+ */
+export function duration(v: string, bare: 'ms' | null): number | null {
+  const m = /^\s*(\d+(?:\.\d+)?)\s*(ms|s|m|h|d)?\s*$/.exec(v);
+  if (!m || (!m[2] && bare !== 'ms')) return null;
+  return Number(m[1]) * { ms: 1, s: 1e3, m: 6e4, h: 36e5, d: 864e5 }[(m[2] ?? 'ms') as 'ms'];
+}
+const DURATION = 'a duration such as `300ms`, `2s`, `10m`, `2h` or `1d`';
 const ACTION_ONLY = ['body', 'trigger', 'debounce', 'concurrency', 'optimistic', 'then', 'catch', 'confirm', 'encoding', 'write-through', 'retry'];
 const UNSAFE_ELEMENTS = new Set(['script', 'style', 'iframe', 'object', 'embed', 'base', 'meta', 'link', 'animate', 'set', 'animatemotion', 'animatetransform']);
 const FORM_CONTROLS = new Set(['input', 'select', 'textarea']);
@@ -4708,7 +4718,7 @@ class Compiler {
     }
     if (has('model') && use) this.componentModel(use, node, scope);
     // with `data-sn-debounce` and no action, the model writes once the field pauses (below)
-    else if (has('model')) this.model(el, node, scope, get('persist'), Number(get('model-debounce')) > 0);
+    else if (has('model')) this.model(el, node, scope, get('persist'), (duration(get('model-debounce') ?? '', 'ms') ?? 0) > 0);
     else if (has('persist') && !has('state')) this.report(el, 'data-sn-persist', 'SN102', '`data-sn-persist` needs `data-sn-model` or `data-sn-state` on the same element', 0);
 
     const methods = METHODS.filter((m) => has(m));
@@ -4717,8 +4727,8 @@ class Compiler {
     // the typing pause: the write is not typing, so a resource over it loads at once and a model on `$url` is one
     // history entry); a handler waits by `data-sn-debounce-<event>`
     if (has('model-debounce')) {
-      const v = get('model-debounce')!, ms = Number(v), modelB = !use ? node.b.find((b) => b.k === 'model') : undefined;
-      if (!Number.isFinite(ms) || ms < 0 || v.trim() === '') this.report(el, 'data-sn-model-debounce', 'SN401', '`data-sn-model-debounce` takes milliseconds', 0);
+      const ms = duration(get('model-debounce')!, 'ms'), modelB = !use ? node.b.find((b) => b.k === 'model') : undefined;
+      if (ms === null) this.report(el, 'data-sn-model-debounce', 'SN401', `\`data-sn-model-debounce\` takes ${DURATION}, or milliseconds (\`300\`)`, 0);
       else if (use) { /* a component's tag: reported with its other attributes, `cannot be on a component's tag` */ }
       else if (!modelB) this.report(el, 'data-sn-model-debounce', 'SN102', '`data-sn-model-debounce` needs `data-sn-model` on the same element', 0);
       else if (ms > 0) { modelB.ms = ms; this.features.add('debounce'); }
@@ -4738,8 +4748,8 @@ class Compiler {
     // `data-sn-debounce-<event>`: only that event's handler waits
     for (const a of sn) {
       if (!a.name.startsWith('data-sn-debounce-')) continue;
-      const event = a.name.slice('data-sn-debounce-'.length), ms = Number(a.value);
-      if (!Number.isFinite(ms) || ms < 0 || a.value.trim() === '') this.report(el, a.name, 'SN401', `\`${a.name}\` takes milliseconds`, 0);
+      const event = a.name.slice('data-sn-debounce-'.length);
+      if (duration(a.value, 'ms') === null) this.report(el, a.name, 'SN401', `\`${a.name}\` takes ${DURATION}, or milliseconds (\`300\`)`, 0);
       if (!has(`on-${event}`)) this.report(el, a.name, 'SN102', `\`${a.name}\` needs a \`data-sn-on-${event}\` handler on the same element`, 0);
     }
     for (const a of sn) {
@@ -4770,7 +4780,7 @@ class Compiler {
       // selectOption() dispatches them). A handler higher up hears both: there `input` replaces.
       const choice = (event === 'input' || event === 'change') && (el.tagName === 'select' || (el.tagName === 'input' && /^(checkbox|radio)$/i.test(attr(el, 'type') ?? '')));
       const r = this.expr(el, a.name, scope, { mode: 'handler', magic: ['$event'], ...(choice ? { urlKind: 4 } : {}) });
-      const ms = Number(get(`debounce-${event}`)) || 0;
+      const ms = duration(get(`debounce-${event}`) ?? '', 'ms') ?? 0;
       if (ms > 0) this.features.add('debounce');
       if (r.ok) node.b.push(this.binding({ k: 'on', n: kf ? kf[1]! : event, f: this.fn(r.code), w: r.writes, ...filter, ...(ms > 0 ? { ms } : {}) }));
     }
@@ -5632,8 +5642,8 @@ class Compiler {
     const isForm = tag === 'form';
     const trigger = get('trigger') ?? (isForm ? 'submit' : FORM_CONTROLS.has(tag) ? 'change' : 'click');
     if (!/^[a-z][a-z0-9-]*$/.test(trigger)) this.report(el, 'data-sn-trigger', 'SN401', '`data-sn-trigger` takes a DOM event name', 0);
-    const debounce = get('debounce') !== undefined ? Number(get('debounce')) : 0;
-    if (!Number.isFinite(debounce) || debounce < 0) this.report(el, 'data-sn-debounce', 'SN401', '`data-sn-debounce` takes milliseconds', 0);
+    const debounce = get('debounce') !== undefined ? duration(get('debounce')!, 'ms') ?? -1 : 0;
+    if (debounce < 0) this.report(el, 'data-sn-debounce', 'SN401', `\`data-sn-debounce\` takes ${DURATION}, or milliseconds (\`300\`)`, 0);
     let concurrency = (get('concurrency') ?? (isForm ? 'block' : 'queue')) as ActionDef['concurrency'];
     if (!['block', 'queue', 'latest'].includes(concurrency)) {
       this.report(el, 'data-sn-concurrency', 'SN401', '`data-sn-concurrency` is `block`, `queue` or `latest`', 0);
@@ -6167,10 +6177,10 @@ class Compiler {
     let cache: number | undefined;
     const cacheAttr = attr(el, 'cache');
     if (cacheAttr != null) {
-      const m = /^\s*(?:(\d+)\s*(s|m|h|d))?\s*$/.exec(cacheAttr);
-      if (!m) this.report(el, 'cache', 'SN401', '`cache` takes a maximum age such as `30s`, `10m`, `2h` or `1d`, or no value for any age', 0);
+      const age = cacheAttr.trim() === '' ? 0 : duration(cacheAttr, null);
+      if (age === null) this.report(el, 'cache', 'SN401', `\`cache\` takes the maximum age, ${DURATION}, or no value for any age`, 0);
       else {
-        cache = m[1] ? Number(m[1]) * { s: 1e3, m: 6e4, h: 36e5, d: 864e5 }[m[2] as 's' | 'm' | 'h' | 'd'] : 0;
+        cache = age;
         this.features.add('cache');
       }
     }
@@ -6178,9 +6188,8 @@ class Compiler {
     let refresh: number | undefined;
     const refreshAttr = attr(el, 'refresh');
     if (refreshAttr != null) {
-      const m = /^\s*(\d+)\s*(s|m|h)\s*$/.exec(refreshAttr);
-      const ms = m ? Number(m[1]) * { s: 1e3, m: 6e4, h: 36e5 }[m[2] as 's' | 'm' | 'h'] : 0;
-      if (!m) this.report(el, 'refresh', 'SN401', '`refresh` takes the longest time between loads, such as `30s`, `5m` or `1h`', 0);
+      const ms = duration(refreshAttr, null) ?? 0;
+      if (duration(refreshAttr, null) === null) this.report(el, 'refresh', 'SN401', `\`refresh\` takes the longest time between loads, ${DURATION}`, 0);
       else if (ms < 1000) this.report(el, 'refresh', 'SN401', '`refresh` must be at least `1s`', 0);
       else {
         refresh = ms;

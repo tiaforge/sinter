@@ -67,7 +67,8 @@ test('the compiler: milliseconds; data-sn-debounce stays the action\'s, data-sn-
     file: '/p/x.html', root: '/p', dev: false, readFile: () => '', helpers: { module: null, names: [], namespaces: {} },
   });
   expect(d('<input data-sn-model="q" data-sn-model-debounce="300">').diagnostics).toEqual([]);
-  expect(d('<input data-sn-model="q" data-sn-model-debounce="soon">').diagnostics.map((x) => x.message)).toEqual(['`data-sn-model-debounce` takes milliseconds']);
+  expect(d('<input data-sn-model="q" data-sn-model-debounce="soon">').diagnostics.map((x) => x.message)).toEqual(['`data-sn-model-debounce` takes a duration such as `300ms`, `2s`, `10m`, `2h` or `1d`, or milliseconds (`300`)']);
+  expect(d('<input data-sn-model="q" data-sn-model-debounce="0.3s">').diagnostics).toEqual([]);
   const m = d('<input data-sn-model="q" data-sn-put="/api/q" data-sn-body="{ q }" data-sn-debounce="300">');
   expect(m.diagnostics).toEqual([]);
   expect(m.module).not.toMatch(/"k":"model"[^}]*"ms":300/);
