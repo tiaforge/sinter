@@ -181,12 +181,14 @@ export function earlyPage(early: EarlyParts): { code: string; uses: string[] } {
   // a link's URL template (`data-sn-href`) rendered early: the early module fills it as the page module does
   const hr = ['$href', '$hv'].filter((h) => early.fns.some((x) => x.includes(`${h}(`)));
   // array parameters: the page passes `lists` (else the early file carries none of it)
-  // `data-sn-signed-in`: the page passes the guard (else the early file carries none of it)
-  const extra = [...(lc ? ['locale'] : []), ...(ls ? ['lists'] : []), ...(early.ir.si ? ['away'] : [])];
+  // `data-sn-signed-in`: the page passes the guard (else the early file carries none of it); `signIn` a path, the one
+  // without loginRedirect's options
+  const away = early.ir.si ? (typeof early.ir.si.i == 'string' ? 'away' : 'awayVia') : null;
+  const extra = [...(lc ? ['locale'] : []), ...(ls ? ['lists'] : []), ...(away ? [away] : [])];
   // a resource that needs its API's token: its early status reads whether one is stored
   const so = early.fns.some((x) => x.includes('$so(')) ? ['$so'] : [];
   const uses = extra.length || hr.length || so.length ? [...r.uses, ...extra, ...hr, ...so].sort() : r.uses;
-  return { code: `{ ir: ${JSON.stringify(ir)}, fns: f, scopes: ${r.scopes}, render: ${r.render}${extra.map((x) => ', ' + x).join('')} }`, uses };
+  return { code: `{ ir: ${JSON.stringify(ir)}, fns: f, scopes: ${r.scopes}, render: ${r.render}${extra.map((x) => (x == 'awayVia' ? ', away: awayVia' : ', ' + x)).join('')} }`, uses };
 }
 
 function earlyLines(early: EarlyParts | null, options: Pick<CompileOptions, 'helpers' | 'early' | 'observe' | 'locale' | 'baseMessages'>): MappedLines | null {

@@ -79,6 +79,15 @@ describe('the early script', () => {
     expect(r.navigations).toEqual(['replace /login?next=%2Fsettings']);
     expect(requests.calls).toEqual([]);
   });
+
+  test('signIn a path: to it, the return URL stored as loginRedirect stores it', async () => {
+    const requests = mockRequests({}), session = memoryStorage(), a = api();
+    a.main.token = { ...a.main.token, signIn: '/login' as never };
+    const r = await render(page(), { requests, apis: a, storage: withToken(null), session, url: 'http://localhost/settings?tab=1#x', firstPaint: true });
+    expect(r.navigations).toEqual(['replace /login']);
+    expect(session.getItem('sn:return')).toBe('/settings?tab=1#x');
+    expect(requests.calls).toEqual([]);
+  });
 });
 
 describe('next-page data', () => {

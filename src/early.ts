@@ -383,7 +383,7 @@ export function early(doc: Document, page: ReturnType<EarlyPage>): void {
  * mounts). A prerendered page renders: the page module sends the visitor on once it is shown. Only a page with the
  * guard passes it (`away` on its early page object), so a site without one carries none of it.
  */
-export function away(o: ReturnType<EarlyPage>, base: any): boolean {
+export function away(o: ReturnType<EarlyPage>, base: any, to: (i: any, href: string, session: Storage | null) => string = toPath): boolean {
   const g = o.ir.si;
   if (!g || (document as Document & { prerendering?: boolean }).prerendering) return false;
   try { if (token({ ...g.t, h: '', p: '' }) != null || (g.f != null && !o.fns[g.f]!(base))) return false; } catch { return false; }
@@ -391,9 +391,17 @@ export function away(o: ReturnType<EarlyPage>, base: any): boolean {
   if (!e) document.documentElement.hidden = true;
   let session: Storage | null = null;
   try { session = e?.session ? e.session() : sessionStorage; } catch { /* none */ }
-  (e?.replace ?? ((u: string) => location.replace(u)))(signInTarget(g.i, e?.href ? e.href() : location.href, session));
+  (e?.replace ?? ((u: string) => location.replace(u)))(to(g.i, e?.href ? e.href() : location.href, session));
   return true;
 }
+/** `signIn` a path (signInTarget's path form): the return URL stored, any same-origin path; the path */
+const toPath = (i: string, href: string, s: Storage | null) => {
+  const u = new URL(href);
+  try { s?.setItem('sn:return', u.pathname + u.search + u.hash); } catch { /* ignored */ }
+  return i;
+};
+/** the guard of an API whose `signIn` is loginRedirect's options (`{ to, returnUrl }`) */
+export const awayVia = (o: ReturnType<EarlyPage>, base: any) => away(o, base, signInTarget);
 
 function prepare(o: ReturnType<EarlyPage>, req: EarlyRequests | null) {
   const { ir, fns } = o, base = scope(o, req);

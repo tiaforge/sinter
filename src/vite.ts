@@ -223,6 +223,12 @@ const RT_ID = '\0sinter:early-rt';
 const EARLY_PKG = '@tiaforge-ui/sinter/runtime/early';
 /** the runtime's exports a page's early module imports (the compiler names each it calls) */
 const runtimeNames = (code: string) => /import \{([^}]*)\} from '@tiaforge-ui\/sinter\/runtime\/early'/.exec(code)?.[1]!.split(',').map((x) => x.trim()).filter(Boolean) ?? [];
+/**
+ * The runtime's exports that keep no state of the early runtime's own and share little code with the rest (the first-page
+ * parameters, the array parameters, the token's and the guard's storage reads): when not every page imports one, it is
+ * bundled into the early files of the pages that do, and the shared head script, which every page loads, holds none of it.
+ */
+const PAGE_OWN = new Set(['$so', 'away', 'awayVia', 'lists', 'withParams']);
 /** the page's image rules (a CSS module the page module imports) */
 const IMG_CSS = `${PREFIX}img-css/`;
 /** builds: a page's reserved-space rules (docs/first-paint.md#reserved-space), imported by its module */
@@ -355,7 +361,9 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
    * shared head script's global (`runtimeId`: the runtime's resolved id); null: the runtime is bundled in. `map`: the
    * module's own (dev), carried into the script's (the entry then has a plain id: Rolldown drops a `\0` module's map).
    */
-  const earlyScript = async (code: string, keys: Set<string>, rt: string[] | null, what: string, runtimeId: string | null = null, map?: SourceMap) => {
+  const earlyScript = async (code: string, keys: Set<string>, rt: string[] | null, what: string, runtimeId: string | null = null, map?: SourceMap, own: string[] = []) => {
+        /** the runtime as a page's early file sees it: the shared head script's exports from its global, `own` bundled in (PAGE_OWN) */
+        const runtimeStub = (names: string[], mine: string[]) => `const R = globalThis[Symbol.for(${JSON.stringify(RT_KEY)})];\nexport const { ${names.join(', ')} } = R;\n${mine.length ? `export { ${mine.join(', ')} } from ${JSON.stringify(runtimeId)};\n` : ''}`;
         const r = resolved!, ENTRY = `${PREFIX}early-entry.js`, entryId = map ? ENTRY : '\0' + ENTRY;
         const vite = await appVite(), rolldown = 'rolldownVersion' in vite;
         const out = await vite.build({
@@ -366,13 +374,14 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
             name: 'sinter:early-entry', enforce: 'pre',
             async resolveId(id, importer, o) {
               if (id === ENTRY) return entryId;
-              if (!rt || id === RT_ID) return null;
+              // the page's own exports, from the runtime itself (PAGE_OWN)
+              if (!rt || id === RT_ID || importer === RT_ID) return null;
               // the runtime, however it is named (an alias may resolve the package to its source)
               if (id === EARLY_PKG) return RT_ID;
               const res = await this.resolve(id, importer, { ...o, skipSelf: true });
               return res && runtimeId && res.id === runtimeId ? RT_ID : null;
             },
-            load: (id) => (id === entryId ? (map ? { code, map } : code) : id === RT_ID ? `const R = globalThis[Symbol.for(${JSON.stringify(RT_KEY)})];\nexport const { ${rt!.join(', ')} } = R;\n` : null),
+            load: (id) => (id === entryId ? (map ? { code, map } : code) : id === RT_ID ? runtimeStub(rt!, own) : null),
             transform(src, id) {
               if (messages && !id.includes('/node_modules/') && /\.[cm]?[jt]sx?$/.test(id)) for (const k of moduleKeys(src, id).keys) keys.add(k);
               // the helpers module's re-exports of lazy packages: an early binding calls its own helpers, never
@@ -1396,13 +1405,15 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
         }));
       }
       const earlyKeys = new Map<string, Set<string>>();
-      const bundleEarly = (code: string, keys: Set<string>, rt: string[] | null, what: string) => earlyScript(code, keys, rt, what, runtimeId);
+      const bundleEarly = (code: string, keys: Set<string>, rt: string[] | null, what: string, own: string[] = []) => earlyScript(code, keys, rt, what, runtimeId, undefined, own);
       const runtimeId = earlyPages.size ? (await this.resolve(EARLY_PKG, resolve(root, 'index.html')))?.id ?? null : null;
       if (earlyPages.size) {
         // the app's early module runs once, from the shared script, before any page's bindings
         const app = appEarly ? `import ${JSON.stringify(appEarly)};\n` : '';
         const pages = new Map([...earlyPages].map(([rel, code]) => [rel, app && code.startsWith(app) ? code.slice(app.length) : code]));
-        const names = [...new Set([...pages.values()].flatMap(runtimeNames))].sort();
+        // the shared script: every export a page imports, but an export of PAGE_OWN only when every page imports it
+        const imported = [...pages.values()].map(runtimeNames);
+        const names = [...new Set(imported.flat())].filter((n) => !PAGE_OWN.has(n) || imported.every((x) => x.includes(n))).sort();
         const sharedKeys = new Set<string>();
         sharedHead = { fileName: '', ...await bundleEarly(`${app}import { ${names.join(', ')} } from '${EARLY_PKG}';\nglobalThis[Symbol.for(${JSON.stringify(RT_KEY)})] = { ${names.join(', ')} };\n`, sharedKeys, null, 'every page') };
         for (const [rel, code] of pages) {
@@ -1412,7 +1423,8 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
           const reach = shared.size ? pageModules(bundle, rel) : new Set<string>();
           const regs = [...earlyImports(code).keys()].map((spec) => ({ spec, file: specFile(spec) })).filter((x): x is { spec: string; file: string } => !!x.file && shared.has(x.file) && reach.has(x.file));
           if (regs.length) registered.set(rel, new Set(regs.map((x) => x.file)));
-          earlyFiles.set(rel, await bundleEarly(registration(regs) + code, keys, runtimeNames(code), rel));
+          const rt = runtimeNames(code);
+          earlyFiles.set(rel, await bundleEarly(registration(regs) + code, keys, rt.filter((n) => names.includes(n)), rel, rt.filter((n) => !names.includes(n))));
         }
       }
       // each shared module's key, from its own copy's chunk: in the stubs and in the early files that register it
