@@ -22,7 +22,7 @@ describe('paginate: the server\'s names, once per API', () => {
   const list = (pg: string) => `<sn-resource name="contacts" src="/contacts" paginate="{ ${pg} }"></sn-resource>${USE}`;
   const wire = { paginate: { params: { size: 'per_page', page: 'p', offset: 'skip', direction: 'dir' }, directions: { prev: 'back' } } };
   test('a list on the API sends its names; its own `params` and `directions` win', () => {
-    const own = page(list('numbered: true, size: 5'), main(wire)).module;
+    const own = page(list("numbered: 'offset', size: 5"), main(wire)).module;
     expect(own).toMatch(/"sizeParam":"per_page".*"directionParam":"dir","pageParam":"p".*"offsetParam":"skip"/);
     const keyset = page(list('keyset: { after: id }, size: 5'), main(wire)).module;
     expect(keyset).toContain('"directionValues":{"prev":"back"}');
@@ -75,7 +75,7 @@ describe('paths relative to an API', () => {
     expect(codes(`<sn-resource name="contacts" src="/contacts?qq={q}"></sn-resource>${USE}`)).toEqual(['SN327 `GET /contacts` of the API `main` declares no query parameter `qq`. Did you mean `q`?']);
     expect(codes(`<sn-resource name="contacts" src="/contacts" paginate="{ numbered: true, size: 20, params: { size: 'per' } }"></sn-resource>${USE}`)[0])
       .toMatch(/declares no query parameter `per` \(sent by `paginate`\)/);
-    expect(codes(`<sn-resource name="contacts" src="/contacts" paginate="{ numbered: true, size: 20, params: { size: 'limit', offset: 'q' } }"></sn-resource>${USE}`)).toEqual([]);
+    expect(codes(`<sn-resource name="contacts" src="/contacts" paginate="{ numbered: 'offset', size: 20, params: { size: 'limit', offset: 'q' } }"></sn-resource>${USE}`)).toEqual([]);
     expect(codes('<sn-resource name="r" src="/reports"></sn-resource><p data-sn-text="r.n"></p>')).toEqual(['SN327 `GET /reports` of the API `main` needs the query parameter `from`']);
     expect(codes('<sn-resource name="r" src="/reports?from={q}&filter[name]={q}"></sn-resource><p data-sn-text="r.n"></p>')).toEqual([]);
     const withQuery = main({ defaults: { 'GET /contacts': { items: 'contacts', key: 'id', query: ['tag'] } } });
@@ -106,7 +106,7 @@ describe('paths relative to an API', () => {
   test('a key from the config makes a collection (no SN517, paginate allowed)', () => {
     const o = { apis: { main: { openapi: 'openapi.yml', defaults: { 'GET /contacts': { items: 'contacts' } } } } };
     expect(codes(`<sn-resource name="contacts" src="/contacts"></sn-resource>${USE}`, o)[0]).toMatch(/^SN517/);
-    expect(codes(`<sn-resource name="contacts" src="/contacts" paginate="{ numbered: true, size: 20, params: { size: 'limit', offset: 'q' } }"></sn-resource>${USE}`)).toEqual([]);
+    expect(codes(`<sn-resource name="contacts" src="/contacts" paginate="{ numbered: 'offset', size: 20, params: { size: 'limit', offset: 'q' } }"></sn-resource>${USE}`)).toEqual([]);
   });
 
   test('without apis, nothing changes', () => {

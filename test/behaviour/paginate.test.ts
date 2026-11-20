@@ -162,6 +162,17 @@ describe('paginate diagnostics', () => {
     expect(diags(`paginate="{ numbered: true, size: 5, params: { page: 'a b' } }"`)).toEqual(['SN401 `params.page` is a query parameter name']);
     expect(diags('paginate="offset: true"')[0]).toMatch(/^SN401 `paginate` is an object literal/);
   });
+  test('numbered: \'offset\' sends the items to skip; params.offset only names the parameter', async () => {
+    const { compileParts } = await import('../../src/compiler/index.js');
+    const ir = (pg: string) => compileParts(`<sn-resource name="m" src="/api/m" key="uid" paginate="{ ${pg} }"></sn-resource><p data-sn-text="m.length"></p>`, {
+      file: '/p/page.html', root: '/p', dev: false, readFile: () => '', helpers: { module: null, names: [], namespaces: {} },
+    }).ir.resources[0]!.paginate;
+    expect(ir("numbered: true, size: 5, params: { offset: 'skip' }")!.offsetParam).toBeUndefined();
+    expect(ir("numbered: 'offset', size: 5")!.offsetParam).toBe('offset');
+    expect(ir("numbered: 'offset', size: 5, params: { offset: 'skip' }")!.offsetParam).toBe('skip');
+    expect(diags('paginate="{ numbered: \'pages\', size: 5 }"')[0]).toMatch(/^SN401 `numbered` takes `true` \(sends the page number\) or `'offset'`/);
+    expect(diags('paginate="offset" page-size="5" offset-param="offset"')[0]).toMatch(/`paginate="\{ numbered: 'offset', size: 5 \}"`/);
+  });
   test('offset: true is numbered: true now', () => {
     expect(diags('paginate="{ offset: true, size: 5 }"')).toEqual(['SN401 `offset: true` is `numbered: true` now (pages by number; `params.offset` names a server that skips by offset): `{ numbered: true, size: 10 }`']);
   });
@@ -429,7 +440,7 @@ test('page-model with embedded data: the data is the URL\'s page (here 3 of 3), 
   // what a server writes for /?page=3: the request ?skip=6&limit=3
   const third = JSON.stringify({ items: ALL.slice(6, 9), total: ALL.length });
   const { root, settle } = await render(`<html><head><script type="application/json" data-sn-data="o">${third}</script></head><body>
-    <sn-resource name="o" src="/api/o" items="items" total="total" key="uid" paginate="{ numbered: true, size: 3, model: $url.page, params: { offset: 'skip' } }"></sn-resource>
+    <sn-resource name="o" src="/api/o" items="items" total="total" key="uid" paginate="{ numbered: 'offset', size: 3, model: $url.page, params: { offset: 'skip' } }"></sn-resource>
     <span data-sn-text="[$meta.o.page, $meta.o.pages, $meta.o.from, $meta.o.to, $meta.o.hasPrev, $meta.o.hasNext].join()"></span>
     <button data-sn-on-click="page('o', 'prev')"></button></body></html>`, { requests, url: 'http://localhost/?page=3' });
   await settle();

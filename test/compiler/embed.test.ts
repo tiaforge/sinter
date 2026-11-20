@@ -45,7 +45,7 @@ test('model: the parameter is described (the page, from page 2 on); it takes a q
     <sn-resource name="m" key="id" src="/api/m" items="items" total="total" ${attrs}></sn-resource>${extra}
     <p data-sn-text="m.length"></p></body></html>`, opts);
   const pg = (o: string) => `paginate="{ ${o} }"`;
-  const off = page(pg("numbered: true, size: 10, model: $url.page, params: { size: 'limit', offset: 'offset' }"));
+  const off = page(pg("numbered: 'offset', size: 10, model: $url.page"));
   expect(off.diagnostics.filter((d) => d.severity === 'error')).toEqual([]);
   expect(off.embed[0]).toMatchObject({ src: ['/api/m'], query: [['offset', '0'], ['limit', '10']], start: { url: 'page', key: 'offset', size: 10, skip: true, query: [['offset', '10'], ['limit', '10']] } });
   const num = page(pg('numbered: true, size: 10, model: $url.p'));

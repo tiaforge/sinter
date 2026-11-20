@@ -1116,11 +1116,11 @@ Keyset mode jumps only when the server can skip by offset as well. With `jump: t
 | Key | Meaning |
 | --- | --- |
 | `keyset`, `append` | the mode, and its cursor: an object literal evaluated on the boundary item of the current page, its last item for `next`, its first for `prev`; `first` and `last` send no cursor. Fields that are `null` or `undefined` are left out, as in URL templates. Compiled with `expr(el, 'paginate', …, text, offset)`, so diagnostics point into the attribute |
-| `numbered: true` | numbered (offset) mode: pages by number (was `offset: true` until 2026-11-20, `SN401` naming the rename) |
+| `numbered: true`, `numbered: 'offset'` | numbered (offset) mode: pages by number (was `offset: true` until 2026-11-20, `SN401` naming the rename); `'offset'` sends the items to skip (`params.offset`, default `offset`) instead of the page number. Naming `params.offset` switches nothing (changed 2026-11-20) |
 | `size` | items per page, a positive whole number literal; required |
 | `model` | offset mode: `$url.<param>`, the URL query parameter that holds the page (see above) |
 | `jump: true` | keyset mode: `page(name, n)` and `$meta.<name>.page`, sent as the items to skip (`params.offset`, default `offset`) |
-| `params` | the server's names, string literals: `size` (default `limit`), `page` (default `page`), `offset` (offset mode sends it, `(n - 1) × size`, instead of `page`; keyset sends it to jump), `direction` (default `direction`) |
+| `params` | the server's names, string literals: `size` (default `limit`), `page` (default `page`), `offset` (default `offset`: sent by `numbered: 'offset'`, `(n - 1) × size`, and by a keyset `jump`), `direction` (default `direction`) |
 | `directions` | keyset/append: the value sent for a direction where the server names it differently, e.g. `{first: 'forward', prev: 'backward', next: 'forward'}` (`first` and `next` may share a value: the server tells them apart by the cursor, which `first` does not send); directions not listed are sent by name |
 
 - `params` and `directions` are given once per API in `sinter({ apis: { main: { paginate: { params, directions } } } })` (`PaginateWire`, checked by `resolveApis`, `SN329`); a resource's own keys win, key by key for `params`. The API is the resource's `src` (`apiOf`); `file:` and `content:` resources have none.

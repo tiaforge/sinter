@@ -765,6 +765,8 @@ interface PageSpec {
   cursor: { text: string; at: number } | null;
   model: { name: string | null; at: number } | null;
   jump: boolean;
+  /** numbered: `numbered: 'offset'`, the items to skip are sent instead of the page number */
+  skip: boolean;
   params: { size?: string; page?: string; offset?: string; direction?: string };
   directions: Paginate['directionValues'] | null;
 }
@@ -1774,7 +1776,7 @@ class Compiler {
     try { ast = parseExpression(text); } catch (e) { return fail(`\`paginate\`: ${(e as Error).message.replace(/ \(\d+:\d+\)$/, '')}`, (e as { pos?: number }).pos ?? 0); }
     if (ast.type !== 'ObjectExpression' || ast.end !== text.trimEnd().length) return fail(`\`paginate\` is an object literal: ${EXAMPLE}`);
     const lead = text.length - text.trimStart().length;
-    const spec: PageSpec = { mode: 'keyset', size: 0, cursor: null, model: null, jump: false, params: {}, directions: null };
+    const spec: PageSpec = { mode: 'keyset', size: 0, cursor: null, model: null, jump: false, skip: false, params: {}, directions: null };
     let modes = 0;
     const seen = new Set<string>();
     const strings = (v: acorn.Node, keys: readonly string[], what: string): Record<string, string> | null => {
@@ -1807,7 +1809,9 @@ class Compiler {
       } else if (key === 'numbered') {
         modes++;
         spec.mode = 'offset';
-        if (v.type !== 'Literal' || v.value !== true) return fail('`numbered` takes `true`: `{ numbered: true, size: 10 }`', v.start);
+        // `true`: the page number; `'offset'`: the items to skip (a server that skips by offset)
+        if (v.type !== 'Literal' || (v.value !== true && v.value !== 'offset')) return fail('`numbered` takes `true` (sends the page number) or `\'offset\'` (sends the items to skip): `{ numbered: true, size: 10 }`', v.start);
+        spec.skip = v.value === 'offset';
       } else if (key === 'size') {
         if (v.type !== 'Literal' || typeof v.value !== 'number' || !Number.isInteger(v.value) || v.value <= 0) return fail('`size` is the number of items per page, a positive whole number', v.start);
         spec.size = v.value;
@@ -1847,13 +1851,13 @@ class Compiler {
     if (mode !== 'keyset' && mode !== 'offset' && mode !== 'append') return null;
     const parts: string[] = [];
     const cursor = attr(el, 'cursor')?.trim(), offset = attr(el, 'offset-param')?.trim();
-    parts.push(mode === 'offset' ? 'numbered: true' : `${mode}: ${cursor || '{ … }'}`);
+    parts.push(mode === 'offset' ? (offset ? "numbered: 'offset'" : 'numbered: true') : `${mode}: ${cursor || '{ … }'}`);
     parts.push(`size: ${attr(el, 'page-size')?.trim() || '…'}`);
     const pm = attr(el, 'page-model')?.trim();
     if (pm) parts.push(`model: ${pm}`);
     if (mode === 'keyset' && offset) parts.push('jump: true');
     const params = [['size', 'size-param'], ['page', 'page-param'], ['offset', 'offset-param'], ['direction', 'direction-param']]
-      .map(([k, a]) => [k, attr(el, a!)?.trim()] as const).filter(([, v]) => v).map(([k, v]) => `${k}: '${v}'`);
+      .map(([k, a]) => [k, attr(el, a!)?.trim()] as const).filter(([k, v]) => v && !(k === 'offset' && v === 'offset')).map(([k, v]) => `${k}: '${v}'`);
     if (params.length) parts.push(`params: { ${params.join(', ')} }`);
     const dirs = attr(el, 'direction-values')?.trim();
     if (dirs) parts.push(`directions: ${dirs}`);
@@ -6125,9 +6129,9 @@ class Compiler {
         mode: spec.mode, size: spec.size, sizeParam: params.size ?? 'limit', cursor,
         directionParam: params.direction ?? 'direction', pageParam: params.page ?? 'page',
       };
-      // the items to skip: an offset list sends it instead of the page number where the server skips by offset;
-      // a keyset list sends it to jump (`jump`)
-      if (spec.mode === 'offset' && params.offset) paginate.offsetParam = params.offset;
+      // the items to skip, named by `params.offset`: a numbered list sends them instead of the page number with
+      // `numbered: 'offset'`, a keyset list to jump (`jump`); naming the parameter alone switches nothing
+      if (spec.skip) paginate.offsetParam = params.offset ?? 'offset';
       if (spec.jump) paginate.offsetParam = params.offset ?? 'offset';
       if (directions && spec.mode !== 'offset') paginate.directionValues = directions;
       // `model: $url.page`: the list's page lives in the URL, read at load and written back on every move

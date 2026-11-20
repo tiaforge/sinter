@@ -131,7 +131,7 @@ test('cache: the cached first page shows at once, the early response revalidates
 });
 
 test('page-model, offset mode with offset-param: the early file asks for the URL\'s page as the items to skip; the runtime takes it and pages on from there', async () => {
-  const attrs = `paginate="{ numbered: true, size: 2, model: $url.page, params: { size: 'n', offset: 'off' } }"`;
+  const attrs = `paginate="{ numbered: 'offset', size: 2, model: $url.page, params: { size: 'n', offset: 'off' } }"`;
   const p = await load(PAGE(attrs).replace('<span ', '<b data-sn-text="$meta.mail.page"></b><span '), { href: 'http://localhost/?page=2' });
   await p.settle();
   expect(p.early).toEqual(['/api/mail?box=inbox&off=2&n=2']);

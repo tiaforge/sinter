@@ -27,7 +27,7 @@ See `docs/recipes/pagination.html`.
 | Mode | Request parameters | `page()` targets | Fits |
 | --- | --- | --- | --- |
 | `keyset: { … }` | the cursor's fields, read from the page's boundary item, plus a direction | `first`, `prev`, `next`, `last`; a page number with `jump: true` | Large or live lists where pages must not shift |
-| `numbered: true` | the page (1-based), or the items to skip, and the size | All of the above, and a page number | Lists that need "go to page N" |
+| `numbered: true` or `'offset'` | the page (1-based), or with `'offset'` the items to skip, and the size | All of the above, and a page number | Lists that need "go to page N" |
 | `append: { … }` | Like `keyset`, `next` only | `next` | "Load more" and infinite scroll |
 
 `append` keeps every loaded item in the list; the other modes replace the page.
@@ -43,11 +43,11 @@ See `docs/recipes/pagination.html`.
 | Key | Meaning |
 | --- | --- |
 | `keyset`, `append` | The mode, and its cursor: an object literal evaluated on the boundary item, the last item for `next`, the first for `prev`. `first` and `last` send no cursor. Fields that are `null` or `undefined` are left out. |
-| `numbered: true` | Numbered mode: pages by number. Sent as `params.page`, or the items to skip as `params.offset` where the server skips by offset. |
+| `numbered: true`, `numbered: 'offset'` | Numbered mode: pages by number. `true` sends the page number (`params.page`); `'offset'` sends the items to skip instead, `(n - 1) × size` (`params.offset`), for a server that skips by offset. |
 | `size` | Items per page, a positive whole number. Required. |
 | `model` | Numbered mode: the URL parameter that holds the page, `$url.page`. See [Page in the URL](#page-in-the-url). |
 | `jump: true` | Keyset mode: page numbers too, sent as the items to skip (`params.offset`). See [Jumping to a page number](#jumping-to-a-page-number). |
-| `params` | The server's parameter names: `{ size: 'limit', page: 'page', offset: 'offset', direction: 'direction' }` are the defaults. With `offset`, an offset list sends the items to skip, `(n - 1) × size`, instead of the page number. |
+| `params` | The server's parameter names: `{ size: 'limit', page: 'page', offset: 'offset', direction: 'direction' }` are the defaults. They only name the parameters: whether the items to skip are sent is `numbered: 'offset'` or `jump: true`, on the list. |
 | `directions` | Keyset and append: the values the server gives the directions, such as `{first: 'forward', prev: 'backward', next: 'forward'}`. Unlisted directions are sent by name. `first` and `next` may share a value, since `first` sends no cursor. |
 
 ### The server's names, once per API
@@ -60,7 +60,7 @@ sinter({ apis: { main: { openapi: 'openapi.yml', paginate: { params: { size: 'pe
 ```
 
 ```html
-<sn-resource name="articles" src="/articles" paginate="{ numbered: true, size: 10 }"></sn-resource>   <!-- per_page, skip -->
+<sn-resource name="articles" src="/articles" paginate="{ numbered: 'offset', size: 10 }"></sn-resource>   <!-- per_page, skip -->
 ```
 
 `total`, `items` and `key` work as on any [resource](resources.md).
@@ -87,7 +87,7 @@ written back on every move, so reload, Back and Forward and a shared link show t
 
 ```html
 <sn-resource name="articles" src="/api/articles?tag={$url.tag}" items="articles" total="count"
-  paginate="{ numbered: true, size: 10, model: $url.page, params: { offset: 'offset' } }"></sn-resource>
+  paginate="{ numbered: 'offset', size: 10, model: $url.page }"></sn-resource>
 
 <template data-sn-for="n in [1, 2, 3]">
   <a data-sn-text="n" data-sn-attr="{ href: '?tag=' + encodeURIComponent($url.tag ?? '') + '&page=' + n,
