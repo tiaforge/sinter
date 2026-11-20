@@ -7102,7 +7102,7 @@ class Compiler {
       for (const k of def?.items ? def.items.split('.') : []) v = (v as Record<string, unknown> | null)?.[k];
       // a list a build keeps for every page that reads it is frozen once (`globCache`): shared, not copied per page
       values.set(name, v && typeof v === 'object' ? (DEEP_FROZEN.has(v) ? v : deepFreeze(structuredClone(v) as object)) : v);
-      status.set(name, Object.freeze({ loading: false, error: null, loadedAt: null, pending: 0, total: null, live: null }));
+      status.set(name, Object.freeze({ loading: false, error: null, loadedAt: null, total: null, live: null }));
     }
     const of = (m: Map<string, unknown>) => new Proxy({}, { get: (_, k) => { if (typeof k === 'string' && m.has(k)) return m.get(k); throw NOT; } });
     return { r: of(values), meta: of(status) };
@@ -8237,8 +8237,8 @@ class Compiler {
           // before then, and throw (the page module renders what reads them)
           const open = def.paginate || this.page.fed.has(def.name);
           const make = fn(open
-            ? '(l) => ({ loading: l, error: null, loadedAt: null, pending: 0, get total() { throw 0; }, get live() { throw 0; }, get page() { throw 0; }, get pages() { throw 0; }, get from() { throw 0; }, get to() { throw 0; }, get hasPrev() { throw 0; }, get hasNext() { throw 0; } })'
-            : '(l) => ({ loading: l, error: null, loadedAt: null, pending: 0, total: null, live: null })');
+            ? '(l) => ({ loading: l, error: null, loadedAt: null, get total() { throw 0; }, get live() { throw 0; }, get page() { throw 0; }, get pages() { throw 0; }, get from() { throw 0; }, get to() { throw 0; }, get hasPrev() { throw 0; }, get hasNext() { throw 0; } })'
+            : '(l) => ({ loading: l, error: null, loadedAt: null, total: null, live: null })');
           edits.push([n.start, n.end, `f[${make}](${when})`]);
           return;
         }

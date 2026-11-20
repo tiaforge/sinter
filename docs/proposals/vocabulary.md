@@ -281,6 +281,12 @@ diagnostics and docs. Done:
 - Then, decided with examples: the `<sn-event>` payload is `$event`, and `paginate`'s cursor reads `$item` (chosen over
   `$edge`, `$boundary` and an arrow function: plain, and the docs' word for one entry of a resource).
 
+### 19. The fifth review: leftovers (2026-11-20)
+
+What the fourth review left of the same kind, across the JavaScript and configuration surface. Done:
+- `Meta.pending` goes from the runtime and the public `Meta` type, as `$meta.<name>.pending` went from
+  markup: nothing read it but tests, which ask the store (`waiting()`, internal) instead.
+
 ## Looked at and kept
 
 - `data-sn-wait`: already automatic. The build hides what follows a content-sized box by itself; the
