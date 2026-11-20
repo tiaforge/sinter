@@ -31,7 +31,7 @@ field delays the model's write, while the field shows each keystroke at once.
 
 The pause takes the place of the typing pause, it does not add to it: a resource whose `src` reads `q`
 loads right after the 200 ms, and a model on `$url` writes one history entry then. Enter, or leaving
-the field, writes at once (so a form sent with Enter sends what was typed). `data-sn-debounce` is for a
+the field, writes at once (so a form sent with Enter sends what was typed). `data-sn-model-debounce` is for a
 form field's model; a component waits inside itself. On a field with an action too, `data-sn-debounce`
 still delays the action and `data-sn-model-debounce` the model, each by its own pause.
 
