@@ -87,7 +87,7 @@ type Fn = (...a: any[]) => any;
  * function table, and its compiled renderer (compiler/early-render.ts): `scopes` over the base
  * scope, then `render` with them.
  */
-export type EarlyPage = () => { ir: Pick<EarlyIR, 'res' | 'as' | 'path' | 'urlArrays' | 'emb' | 'si'>; fns: Fn[]; scopes(base: any): any[]; render(doc: Document, scopes: any[], base: any): void; locale?: typeof locale; lists?: typeof lists };
+export type EarlyPage = () => { ir: Pick<EarlyIR, 'res' | 'as' | 'path' | 'urlArrays' | 'emb' | 'si'>; fns: Fn[]; scopes(base: any): any[]; render(doc: Document, scopes: any[], base: any): void; locale?: typeof locale; lists?: typeof lists; away?: typeof away };
 
 /** the configured locale source, for a page whose early functions read `$locale` (others carry no config) */
 export const locale = () => config.locale;
@@ -132,7 +132,7 @@ export function run(page: EarlyPage, doc: Document = document): void {
   const m = meeting();
   m.started = true;
   // a failure is reported, and the page module mounts all the same
-  try { const p = page(), $ = scope(p, null); if (away(p, $)) return; p.render(doc, p.scopes($), $); } catch (e) { fail(e); }
+  try { const p = page(), $ = scope(p, null); if (p.away?.(p, $)) return; p.render(doc, p.scopes($), $); } catch (e) { fail(e); }
   m.finish();
 }
 
@@ -380,9 +380,10 @@ export function early(doc: Document, page: ReturnType<EarlyPage>): void {
 /**
  * `data-sn-signed-in`: with no token stored (and the condition true), the visitor goes to sign in now, in the current
  * history entry, and nothing is requested or rendered (the page is hidden meanwhile, and the page module never
- * mounts). A prerendered page renders: the page module sends the visitor on once it is shown.
+ * mounts). A prerendered page renders: the page module sends the visitor on once it is shown. Only a page with the
+ * guard passes it (`away` on its early page object), so a site without one carries none of it.
  */
-function away(o: ReturnType<EarlyPage>, base: any): boolean {
+export function away(o: ReturnType<EarlyPage>, base: any): boolean {
   const g = o.ir.si;
   if (!g || (document as Document & { prerendering?: boolean }).prerendering) return false;
   try { if (token({ ...g.t, h: '', p: '' }) != null || (g.f != null && !o.fns[g.f]!(base))) return false; } catch { return false; }
@@ -396,7 +397,7 @@ function away(o: ReturnType<EarlyPage>, base: any): boolean {
 
 function prepare(o: ReturnType<EarlyPage>, req: EarlyRequests | null) {
   const { ir, fns } = o, base = scope(o, req);
-  if (away(o, base)) return null;
+  if (o.away?.(o, base)) return null;
   const roots = o.scopes(base);
   return {
     fetch() { req?.send(ir, roots, base, fns); },

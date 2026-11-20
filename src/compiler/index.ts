@@ -181,7 +181,8 @@ export function earlyPage(early: EarlyParts): { code: string; uses: string[] } {
   // a link's URL template (`data-sn-href`) rendered early: the early module fills it as the page module does
   const hr = ['$href', '$hv'].filter((h) => early.fns.some((x) => x.includes(`${h}(`)));
   // array parameters: the page passes `lists` (else the early file carries none of it)
-  const extra = [...(lc ? ['locale'] : []), ...(ls ? ['lists'] : [])];
+  // `data-sn-signed-in`: the page passes the guard (else the early file carries none of it)
+  const extra = [...(lc ? ['locale'] : []), ...(ls ? ['lists'] : []), ...(early.ir.si ? ['away'] : [])];
   // a resource that needs its API's token: its early status reads whether one is stored
   const so = early.fns.some((x) => x.includes('$so(')) ? ['$so'] : [];
   const uses = extra.length || hr.length || so.length ? [...r.uses, ...extra, ...hr, ...so].sort() : r.uses;
