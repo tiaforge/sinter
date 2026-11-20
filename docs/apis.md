@@ -156,6 +156,9 @@ npx sinter migrate --write    # rewrites the pages, components and layouts
 
 What it does:
 
+- **Renames.** First, as without `apis`: every rename the compiler reports is written (`data-sn-prop` →
+  `data-sn-with`, `refresh('people')` → `refresh(people)`, …), until a pass finds none. A change that is
+  not a rename (an old value the message describes) is left for you, as the build reports it.
 - **URLs.** Every URL that starts with an API's base becomes the path relative to it, with `api:` for
   another API than the default.
 - **The page's own paths.** In a file it migrates, a same-origin path under no base (`/config.json`

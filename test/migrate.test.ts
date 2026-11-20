@@ -78,3 +78,24 @@ describe('sinter migrate', () => {
   });
 });
 
+
+describe('sinter migrate: the renames', () => {
+  test('each rename the compiler reports is written, until a pass finds none', async () => {
+    const { compile } = await import('../src/compiler/index.js');
+    const { applyRenames } = await import('../src/migrate.js');
+    const opts = { file: '/p/page.html', root: '/p', dev: false, readFile: () => '', helpers: { module: null, names: [], namespaces: {} } };
+    let text = `<sn-resource name="people" src="/api/people" key="id"></sn-resource>
+<ul data-sn-listbox><template data-sn-for="p in people"><li data-sn-text="p.name"></li></template></ul>
+<button data-sn-on-click="refresh('people')">reload</button>
+<form data-sn-on-dismiss="x = 1"></form>`;
+    const all: string[] = [];
+    for (let pass = 0; pass < 5; pass++) {
+      const r = applyRenames(text, compile(text, opts).diagnostics);
+      if (!r.changes.length) break;
+      all.push(...r.changes.map((c) => `${c.line} ${c.from} → ${c.to}`));
+      text = r.text;
+    }
+    expect(all).toEqual(['2 data-sn-listbox → data-sn-options', "3 'people' → people", '4 data-sn-on-dismiss → data-sn-on-sn-dismiss']);
+    expect(compile(text, opts).diagnostics.filter((d) => / is renamed to |not its name/.test(d.message))).toEqual([]);
+  });
+});

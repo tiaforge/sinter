@@ -25,6 +25,9 @@ export function suggestionOf(message: string): { wrong: string; right: string } 
   // a function's rename names it with its parentheses (`patch()` → `merge()`): the fix replaces the name
   const r = /^`([^`]+)` is renamed to `([^`]+)`/.exec(message);
   if (r) return { wrong: r[1]!.replace(/\(\)$/, ''), right: r[2]!.replace(/\(\)$/, '') };
+  // a resource named by a string: "`refresh()` takes the resource, not its name: `'people'` is `people`"
+  const v = /takes the resource, not its name: `([^`]+)` is `([^`]+)`$/.exec(message);
+  if (v) return { wrong: v[1]!, right: v[2]! };
   const m = /Did you mean [`']([^`']+)[`']\?/.exec(message);
   if (!m) return null;
   const right = m[1]!;

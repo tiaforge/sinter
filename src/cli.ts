@@ -120,9 +120,10 @@ async function docs(args: string[]): Promise<number> {
 }
 
 /**
- * `sinter migrate [--root <dir>] [--write]`: the URLs of the pages, components and layouts become paths
- * relative to the APIs of `sinter({ apis })` (printed; written with `--write`), and what to add to the
- * config is printed: the shapes every page agrees on, and the endpoints no API declares.
+ * `sinter migrate [--root <dir>] [--write]`: every rename the compiler reports is applied to the pages,
+ * components and layouts (`data-sn-prop` → `data-sn-with`, `refresh('people')` → `refresh(people)`, …);
+ * with `sinter({ apis })`, their URLs also become paths relative to the APIs, and what to add to the config
+ * is printed: the shapes every page agrees on, and the endpoints no API declares. Printed; written with `--write`.
  */
 async function migrate(args: string[]): Promise<number> {
   let root = process.cwd(), write = false;
@@ -131,14 +132,38 @@ async function migrate(args: string[]): Promise<number> {
     else if (args[i] === '--write') write = true;
     else { console.error(USAGE); return 2; }
   }
-  const { migrateMarkup, configReport, formatReport, followUp, addQuery, removeAttributes } = await import('./migrate.js');
+  const { migrateMarkup, configReport, formatReport, followUp, addQuery, removeAttributes, applyRenames } = await import('./migrate.js');
   const { pages, options } = await viteProject(root);
+  // 0. the renames, until a pass finds none (a fix can uncover the next, as an old attribute inside an old one)
+  {
+    const p = project(root, options);
+    const html = (dir: string) => { try { return readdirSync(join(root, dir)).filter((f) => f.endsWith('.html')).map((f) => join(root, dir, f)); } catch { return []; } };
+    const files = new Set([...pages, ...html('src/components'), ...html('src/layouts')]);
+    const texts = new Map<string, string>();
+    const read = (f: string) => texts.get(f) ?? p.readFile(f);
+    let total = 0;
+    for (let pass = 0; pass < 5; pass++) {
+      const diagnostics = pages.flatMap((file) => compile(read(file), { file, root, dev: false, helpers: p.helpers, actions: p.actions, config: p.config, readFile: read, listFiles: p.listFiles, openapi: p.openapi, apis: p.apis ?? undefined, componentNames: p.componentNames, libraries: p.libraries, lazy: p.lazy }).diagnostics);
+      let n = 0;
+      for (const file of files) {
+        const r = applyRenames(read(file), diagnostics.filter((d) => d.file === file));
+        if (!r.changes.length) continue;
+        texts.set(file, r.text);
+        n += r.changes.length;
+        for (const c of r.changes) console.log(`${relative(root, file)}:${c.line}  ${c.from}  →  ${c.to}`);
+      }
+      total += n;
+      if (!n) break;
+    }
+    if (write) for (const [file, text] of texts) writeFileSync(file, text);
+    console.log(`sinter migrate: ${total} rename(s) in ${texts.size} file(s)${total && !write ? ' (run with --write to apply them)' : ''}`);
+  }
   if (!options.apis) {
     const specs = options.openapi == null ? [] : ([] as string[]).concat(options.openapi);
-    console.error('sinter migrate: configure the APIs first, in the Vite config (docs/apis.md), then run it again:\n');
-    console.error(`  sinter({ apis: { main: { ${specs.length ? `openapi: ${JSON.stringify(specs.length > 1 ? specs : specs[0])}` : "base: '/api'"} } } })\n`);
-    if (specs.length) console.error('  (the base is the spec\'s first server; set `base` for another; remove the top-level `openapi`' + ((options as { origins?: string[] }).origins?.length ? ', and the API origins from `origins`)' : ')'));
-    return 1;
+    console.log('\nTo make the pages\' URLs paths of your APIs as well, configure them in the Vite config (docs/apis.md), then run it again:\n');
+    console.log(`  sinter({ apis: { main: { ${specs.length ? `openapi: ${JSON.stringify(specs.length > 1 ? specs : specs[0])}` : "base: '/api'"} } } })\n`);
+    if (specs.length) console.log('  (the base is the spec\'s first server; set `base` for another; remove the top-level `openapi`' + ((options as { origins?: string[] }).origins?.length ? ', and the API origins from `origins`)' : ')'));
+    return 0;
   }
   const p = project(root, options);
   const errors = p.diagnostics.filter((d) => d.severity === 'error');
