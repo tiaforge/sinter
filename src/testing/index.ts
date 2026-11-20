@@ -251,6 +251,11 @@ export interface RenderOptions {
   storage?: Storage;
   session?: Storage;
   /**
+   * the page is reached by Back or Forward, and the back/forward cache did not serve it: its resources show what
+   * `session` holds of them (what the page showed as it was left, `unmount()` writes it) at once, then revalidate
+   */
+  traverse?: boolean;
+  /**
    * built-in messages, as the message files hold them: `{ en: { nav_mail: 'Mail' }, de: { … } }`,
    * the base language first. `m.key()` in the page reads them; the locale is `locale`, else the
    * stored choice (`locale` in `storage`), else the base; `$locale = 'de'` switches.
@@ -635,6 +640,7 @@ export async function render(html: string, options: RenderOptions = {}): Promise
     trusted: (e) => !(e instanceof CustomEvent),
     random: () => 0.5,
     hidden: () => hidden,
+    traversal: () => !!options.traverse,
     ...(options.frames ? { frame: (fn: () => void) => { frameQueue.push(fn); } } : {}),
     listen: (type, fn) => {
       if (!winListeners.has(type)) winListeners.set(type, new Set());

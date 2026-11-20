@@ -6265,6 +6265,8 @@ class Compiler {
         this.features.add('cache');
       }
     }
+    // Back and Forward restore what the page showed as it was left (cache.ts), with or without `cache`
+    if (!hasCall && !each && !post) this.features.add('cache');
     // `refresh="30s"`: reloaded once this long has passed since its last load, of any cause
     let refresh: number | undefined;
     const refreshAttr = attr(el, 'refresh');
@@ -8273,10 +8275,12 @@ class Compiler {
           // data (no rows, a null object: a signed-out visitor's `{user: null}`) fills the resource with what is written in
           // here, and `loadedAt` stays null at mount, so it changes nothing: the binding stays early (otherwise a branch over
           // it renders at mount, after the first paint, in every tab that opened another page first)
-          if (def.cache != null || (this.opts.prefetch && def.body == null)) {
+          // without `cache`: its `sn:c:` entry only on Back or Forward (cache.ts), as a load's navigation type or a swap's mark says
+          if (def.body == null) {
             const start = JSON.stringify(typeof def.src[0] === 'string' ? def.src[0] : '').slice(1, -1), end = `,${JSON.stringify(def.items ?? null)},${JSON.stringify(def.total ?? null)}]`;
             const none = JSON.stringify(def.key ? '[]' : 'null');
-            checks.add(fn(`() => { for (const k of Object.keys(sessionStorage)) if (/^sn:[cp]:\\[/.test(k) && k.includes(${JSON.stringify(start)}) && k.endsWith(${JSON.stringify(end)})) { let e; try { e = JSON.parse(sessionStorage.getItem(k)); } catch { throw 0; } if (!e || JSON.stringify(e.items) !== ${none} || e.total != null) throw 0; } }`));
+            const kinds = def.cache != null ? '/^sn:[cp]:\\[/' : `(performance.getEntriesByType?.('navigation')[0]?.type == 'back_forward' || sessionStorage.getItem('sn:back') == location.href ? /^sn:[cp]:\\[/ : /^sn:p:\\[/)`;
+            checks.add(fn(`() => { for (const k of Object.keys(sessionStorage)) if (${kinds}.test(k) && k.includes(${JSON.stringify(start)}) && k.endsWith(${JSON.stringify(end)})) { let e; try { e = JSON.parse(sessionStorage.getItem(k)); } catch { throw 0; } if (!e || JSON.stringify(e.items) !== ${none} || e.total != null) throw 0; } }`));
           }
           const when = def.when != null ? `!!f[${fn(this.fns[def.when]!)}]($)` : 'true';
           if (r !== null) { edits.push([n.start, n.end, def.key ? '[]' : 'null']); return; }

@@ -4,6 +4,13 @@
 // the `items`/`total` paths, so pages that load the same thing share them. Written
 // after every load, on `pagehide` and when the app is destroyed (confirmed data only, never optimistic layers);
 // removed on any 401 and by `clearPersisted()`.
+//
+// Back and Forward: on a page reached by a history traversal (a load of type `back_forward`, which the
+// back/forward cache did not serve, or a swap's traversal), every resource the cache can hold restores
+// its entry, with or without `cache`, at any age, and revalidates. So the compiler adds this module to
+// every page with such a resource (not `for`, `call`, `method="POST"` or `file:`), and a resource
+// without `cache` writes its entry once, as the page is left (`pagehide`, or destroyed for a swap): the
+// page as the visitor left it, which is what they come back to. `append` lists are not written then.
 import type { ResourceDef } from './ir.js';
 import type { App, Feature } from './runtime/app.js';
 import { CACHE_PREFIX } from './runtime/config.js';
@@ -12,12 +19,25 @@ import type { Resource } from './runtime/store.js';
 /** entries larger than this (serialized) are not written */
 export const MAX_ENTRY = 256 * 1024;
 
+/** set by a swap for the page it mounts: whether it is a traversal (Back, Forward), which a load's navigation type cannot say */
+const TRAVERSE = Symbol.for('sinter.traverse');
+/** set by a swap's traversal that reloads its entry instead (swap.ts `back()`): the URL it reloads */
+const BACK = 'sn:back';
+
 interface Tracked { def: ResourceDef; r: Resource; url: string; dirty: boolean; appended: boolean; off: boolean }
+
+/** what the page-load cache never holds: `call`, `for`, `method="POST"` and `file:` resources */
+const never = (d: ResourceDef) => d.call || d.each || d.body != null || d.fx;
 
 const cache: Feature = {
   name: 'cache',
   install(app: App) {
     const tracked = new Map<string, Tracked>();
+    // Back or Forward to this page (decided as it mounts): a swap says so; a load, by its navigation type, or by the mark
+    // of a swap's traversal that reloaded its entry (to a page with nothing to run, or one that could not mount)
+    const g = globalThis as any, s = app.env.session();
+    let back: boolean = app.env.traversal?.() ?? g[TRAVERSE] ?? ((performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming | undefined)?.type == 'back_forward');
+    try { if (s?.getItem(BACK) != null) { back ||= s.getItem(BACK) == app.env.href(); s.removeItem(BACK); } } catch { /* storage failures are ignored */ }
     const keyOf = (def: ResourceDef, url: string) => CACHE_PREFIX + JSON.stringify([url, def.items, def.total]);
 
     /** drops the older half of the cache entries; false when there was nothing to drop */
@@ -50,26 +70,31 @@ const cache: Feature = {
 
     app.ext.cache = {
       read(def, url) {
+        // without `cache`: only coming back, and only what this module writes
+        if (def.cache == null && (!back || never(def))) return null;
         try {
           const v = app.env.session()?.getItem(keyOf(def, url));
           if (!v) return null;
           const e = JSON.parse(v) as { t: number; items: unknown; total: number | null };
-          return def.cache && app.env.now() - e.t > def.cache ? null : e;
+          return !back && def.cache && app.env.now() - e.t > def.cache ? null : e;
         } catch {
           return null;
         }
       },
       loaded(def, r, url, items, total, appended) {
+        if (never(def)) return;
         let t = tracked.get(def.name);
         if (!t) {
-          const entry: Tracked = (t = { def, r, url, dirty: false, appended, off: false });
+          // without `cache`: written as the page is left, so always dirty
+          const entry: Tracked = (t = { def, r, url, dirty: def.cache == null, appended, off: false });
           // confirmed changes after the load (server events, action results); layers never fire this
-          r.subscribe(() => { entry.dirty = true; });
+          if (def.cache != null) r.subscribe(() => { entry.dirty = true; });
           tracked.set(def.name, t);
         }
         t.url = url;
         t.appended = appended;
         t.off = false;
+        if (def.cache == null) return;
         // `append` caches only its first page: later pages would be shown as if they were it
         if (!appended) write(def, url, items, total);
         t.dirty = false;
@@ -86,7 +111,7 @@ const cache: Feature = {
         if (!t.dirty || t.off || t.appended || t.def.paginate?.mode == 'append') continue;
         const b = t.r.base();
         write(t.def, t.url, b.items, b.total);
-        t.dirty = false;
+        t.dirty = t.def.cache == null;
       }
     };
     app.addCleanup(app.env.listen('pagehide', flush));

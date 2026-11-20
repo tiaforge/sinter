@@ -358,8 +358,10 @@ element it becomes on the detail page:
   (the names themselves are hashes).
 - **The element must be there at the page's first paint**, which is when the browser captures it.
   When a morph is pending, sinter holds that paint until the page has mounted, but not until
-  responses arrive. Render the element from `$url`, `cache`, prefetched or embedded data. A list
-  you morph back into needs `cache` on its resource, or its rows arrive too late and it only fades.
+  responses arrive. Render the element from `$url`, `cache`, prefetched or embedded data. Back to a
+  list needs nothing: its rows come back as it was left ([Back and Forward](resources.md#back-and-forward)).
+  A link to a list (not Back) morphs into it only with `cache` on its resource, or its rows arrive too
+  late and it only fades.
 - One morph per navigation. Navigations sinter starts itself (a redirect) do not morph.
 
 **Swaps** follow the same rule as loads: a swap fades only where the stylesheet asks for page transitions
