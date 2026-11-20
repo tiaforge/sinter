@@ -177,10 +177,10 @@ A component is an HTML file in `src/components/`. Its file name is its tag:
 - **Resources.** `<sn-resource>` loads a JSON endpoint, caches it by key and shares the request
   between everything that asks. Loading flags, stale responses and reloading are handled.
   [Resources and store](docs/resources.md)
-- **Live updates.** `<sn-sync>` turns server events into list changes (upsert, remove, patch) with
+- **Live updates.** `<sn-sync>` turns server events into list changes (upsert, merge, remove, refresh) with
   attributes, over SSE, WebSocket or SignalR. Coming back online or from the back button reloads.
   [Sync](docs/sync.md), [recipe](docs/recipes/sse-sync.html)
-- **Pagination.** Keyset, offset and "load more" lists, including a start page from the URL.
+- **Pagination.** Keyset, numbered and "load more" lists, with the page in the URL.
   [Pagination](docs/pagination.md), [recipe](docs/recipes/pagination.html)
 - **Fan-out.** One request per item of another list (`each="a in accounts"`).
   [Fan-out resources](docs/resources.md)
@@ -201,7 +201,7 @@ A component is an HTML file in `src/components/`. Its file name is its tag:
 - **Dialogs, keyboard shortcuts, suggestion lists and row selection** in markup.
   [Form dialog](docs/recipes/form-dialog.html),
   [Shortcuts](docs/recipes/keyboard-shortcuts.html),
-  [Listbox](docs/actions.md),
+  [Suggestion lists](docs/actions.md#lists-you-move-through-with-the-keys),
   [Row select](docs/recipes/row-select.html)
 
 ### Speed

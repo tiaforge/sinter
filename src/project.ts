@@ -150,7 +150,7 @@ export interface Project {
   diagnostics: Diagnostic[];
   /** every component of the app (`src/components/<name>.html`) and the public ones of its libraries: `ComponentName`, the candidates of `<sn-component use>` */
   componentNames: string[];
-  /** `components`: the component libraries, found */
+  /** `libraries`: the component libraries, found */
   libraries: Library[];
   /** the `complexity` option, checked */
   complexity: ComplexityOptions;

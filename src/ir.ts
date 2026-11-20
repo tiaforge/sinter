@@ -304,7 +304,7 @@ export interface ActionDef {
   retry?: string;
 }
 
-/** What a mutation is about and what its response holds, for the `apply` feature (write-through). */
+/** What a mutation is about and what its response holds, for the `write-through` feature. */
 export interface ApplyDef {
   /**
    * provenance: what the URL and body read. `r`: the resource; `v`: the row's name in scope (a loop

@@ -12,7 +12,7 @@ export interface Window { parked: Map<string, Connection>; claimed: Connection[]
 /** the document's registry, shared with swap-run.ts: the window of the swap in progress, and how one closes */
 interface Streams { w: Window | null; close?: (w: Window) => void; at?: number }
 
-/** a held event, then a gap: past this many the oldest go, and the next page refetches what the stream feeds */
+/** a held event, then a gap: past this many the oldest go, and the next page reloads what the stream feeds */
 const CAP = 1000;
 
 const streams = (): Streams | undefined => (globalThis as Record<symbol, Streams | undefined>)[Symbol.for('sinter.streams')];
@@ -66,7 +66,7 @@ export function claim(app: App, url: string, heard: Set<string>, changed: () => 
 
 /**
  * An event the page shown applies while a swap fetches the next page's HTML: the next page's data is from that
- * response, so the names are noted, for its claim to refetch what they feed.
+ * response, so the names are noted, for its claim to reload what they feed.
  */
 export function seen(c: Connection, name: string): void {
   const at = streams()?.at;

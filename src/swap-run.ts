@@ -109,7 +109,7 @@ let swaps = 0;
 
 /**
  * The swap's fetch starts: the next page's data is as old as its HTML, so the streams note which events reach the
- * page shown from now on; the next page refetches what those would have changed of its own (sse-handover.ts).
+ * page shown from now on; the next page reloads what those would have changed of its own (sse-handover.ts).
  */
 export const streamsFrom = () => { streams().at = ++swaps; };
 

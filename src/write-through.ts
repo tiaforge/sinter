@@ -3,7 +3,7 @@
 // entities the URL and body read (provenance), the response's objects of named schemas, and the
 // request body's wrapper. Rules: 1 confirm (response objects of a schema patch same-key items and
 // what the URL named), 2 create (a POST to a list's URL inserts the created item: the response's
-// item, else body + key, else a refetch), 3 update (the body patches what the URL named),
+// item, else body + key, else a reload), 3 update (the body merges into what the URL named),
 // 4 delete (a DELETE of a row's URL removes the row). `then` writes land on top of all of it.
 import type { ApplyDef } from './ir.js';
 import type { App, Feature } from './runtime/app.js';

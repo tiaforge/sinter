@@ -1561,7 +1561,7 @@ class Compiler {
       const ms = [...v].filter((m) => imported(`${k}$${m}`)).sort();
       if (ms.length) namespaces[k] = ms;
     }
-    // unchanged reloads skipped by version, where reloads are routine: refreshes, refetch events and reconnects
+    // unchanged reloads skipped by version, where reloads are routine: refreshes, refresh events and reconnects
     if (this.features.has('refresh') || this.features.has('sse')) this.features.add('versions');
     // a handler or model that writes `$url`: the query string follows (location.ts)
     if (this.page.writesUrl) this.features.add('location');
@@ -6620,7 +6620,7 @@ class Compiler {
   }
 
   /**
-   * The payload type an untyped `<sn-event>` most likely has, for SN506's hint: \`item="incident"\` on a resource
+   * The payload type an untyped `<sn-event>` most likely has, for SN506's hint: \`value="incident"\` on a resource
    * typed \`Incident[]\` is \`{ incident: Incident }\`; anything else gets the shape with a placeholder.
    */
   private payloadTypeHint(el: P5Element, resource: string | null): string {

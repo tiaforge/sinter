@@ -1,5 +1,5 @@
 // <sn-sync>: one connection per stream URL; translates server events into change messages, gates every
-// reconnect with the session probe, refetches after reconnects and steps aside
+// reconnect with the session probe, reloads after reconnects and steps aside
 // for the back/forward cache. The transport is EventSource unless
 // configure({ transport }) picks another for the stream URL.
 import type { EventDef, SyncDef } from './ir.js';
@@ -64,7 +64,7 @@ export class Connection {
   declare parked?: boolean;
   /** events held until the next page's replay */
   declare buf?: Array<[string, unknown]> | null;
-  /** more were held than the cap: the replay refetches */
+  /** more were held than the cap: the replay reloads */
   declare lossy?: boolean;
   /** where the transport came from: `config.transport` as it was (undefined: the default), 1: the app's own option */
   declare via?: unknown;
@@ -116,8 +116,8 @@ export class Connection {
         this.everOpen = true;
         this.set('open');
         if (!custom && !(SWAP && this.parked)) this.app.streamOpened?.(this.url);
-        // events sent while disconnected are lost: refetch everything this stream feeds (the page's as it is
-        // now: a page that took the connection over refetches its own)
+        // events sent while disconnected are lost: reload everything this stream feeds (the page's as it is
+        // now: a page that took the connection over reloads its own)
         if (reconnect) for (const name of new Set(this.subs.map(([e]) => e.resource))) if (name) void this.app.resource(name).refresh();
       } else {
         t.close();

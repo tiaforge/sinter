@@ -111,7 +111,7 @@ Store, 5,000 items ordered by a string field, one write (or a burst), then one r
 | case | median ms |
 | --- | ---: |
 | upsert one (new name) | 0.007 |
-| patch one (field outside the order) | 0.007 |
+| merge one (field outside the order) | 0.007 |
 | remove one | 0.005 |
 | burst of 50 upserts | 0.19 |
 | replace all | 10.1 |

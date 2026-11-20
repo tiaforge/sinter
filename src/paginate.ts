@@ -67,10 +67,10 @@ class PagerImpl implements Pager {
   }
 
   current(): unknown {
-    // `model` (paginate): every request (a refetch, a retry) is the page the URL names
+    // `model` (paginate): every request (a reload, a retry) is the page the URL names
     if (this.cfg.model) return this.at(this.param());
     if (this.cfg.mode === 'append' && this.move.dir !== 'first') {
-      // refetch reloads everything loaded so far in one request
+      // reload reloads everything loaded so far in one request
       const n = Math.max(this.cfg.size, this.loader.res.all().length);
       return { dir: 'all', page: 1, params: base(this.cfg, 'first', n), from: null, to: null } satisfies Move;
     }

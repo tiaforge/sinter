@@ -77,7 +77,7 @@ export interface Resource<T extends object = any> {
   base(): { items: T[] | T | null; total: number | null };
   /** while set, upsert/merge/remove are recorded instead of applied */
   recording: Op[] | null;
-  loader: { refetch(hint?: object): Promise<void>; url?(): string | null } | null;
+  loader: { refresh(hint?: object): Promise<void>; url?(): string | null } | null;
   onDirty(what: 'data' | 'meta'): void;
 }
 
@@ -282,7 +282,7 @@ export function createResource<T extends object = any>(name: string, o: Resource
     upsert: (item) => write({ op: 'upsert', item }),
     merge: (k, fields) => write({ op: 'merge', key: keyOf(k), fields }),
     remove: (k) => write({ op: 'remove', key: keyOf(k) }),
-    refresh: (hint) => r.loader?.refetch(hint) ?? Promise.resolve(),
+    refresh: (hint) => r.loader?.refresh(hint) ?? Promise.resolve(),
     subscribe: (fn) => (subs.add(fn), () => subs.delete(fn)),
     startLoad() {
       loads++;

@@ -1,7 +1,7 @@
 # Live updates
 
 `<sn-sync>` connects a page to a stream of server events and turns each event into a change on a
-[resource](resources.md): add or replace an item, patch fields, remove it, or reload the list. Lists
+[resource](resources.md): add or replace an item, merge fields into it, remove it, or reload the list. Lists
 on screen update by themselves, and optimistic changes stay consistent when an event arrives
 mid-request.
 

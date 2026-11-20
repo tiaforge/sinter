@@ -175,7 +175,7 @@ export const DIAGNOSTIC_DOCS: Record<Code, DiagnosticDoc> = {
   SN317: {
     example: '`selected` has no source: `merge()` acts on an item where it came from, and nothing says which resource `selected` is an item of',
     means: '`merge(item, …)` and `remove(item)` change the item in the resource it came from, found by its key: a row of a `data-sn-for` over a resource (also a filtered one, or one a helper returns), an element of one (`contacts[0]`, `.find(…)`), a single resource, a component prop that is one of those, or state a handler assigned from one (`sel = m`). The item here is none of these. Also reported: the removed forms with a resource name, `merge(\'name\', item, …)` and `remove(\'name\', item)`, and a row of a helper that takes more than one resource.',
-    fix: 'Drop the resource name from the old forms. Otherwise pass the row itself; for `$result`, rely on write-through (with a spec) or patch the row with its fields; a server event\'s payload goes through `<sn-event resource op>`; an island changes the resource through the instance API.',
+    fix: 'Drop the resource name from the old forms. Otherwise pass the row itself; for `$result`, rely on write-through (with a spec) or `merge()` its fields into the row; a server event\'s payload goes through `<sn-event resource op>`; an island changes the resource through the instance API.',
   },
   SN318: {
     example: '`src/layouts/site-layout.html` is not a layout: a layout is a whole document whose `<html>` declares its props, `<html data-sn-props="{ …props }">`',
@@ -394,7 +394,7 @@ export const DIAGNOSTIC_DOCS: Record<Code, DiagnosticDoc> = {
   },
   SN517: {
     example: '`GET /api/contacts` returns a list at `contacts`: resource `contacts` has no `key`, so it is one object holding the list',
-    means: 'Without `key` a resource is a single object. A list of objects loads and renders that way, but nothing can change one item: an `upsert` replaces the whole list, `patch` merges fields into the list and `remove` sets it to `null`. Reported when the OpenAPI response at `items` is a list of objects.',
+    means: 'Without `key` a resource is a single object. A list of objects loads and renders that way, but nothing can change one item: an `upsert` replaces the whole list, `merge` merges fields into the list and `remove` sets it to `null`. Reported when the OpenAPI response at `items` is a list of objects.',
     fix: 'Add `key` with the field that identifies an item, such as `key="id"`. A list that is only read can stay as it is.',
   },
   SN518: {

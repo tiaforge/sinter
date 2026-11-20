@@ -76,7 +76,7 @@ server: { proxy: { '/api': 'http://localhost:3000' } },
 
 In production, serve `dist/` and your API from the same origin. For an API on another origin, list
 it in `sinter({ origins: ['https://api.example.com'] })`. With an OpenAPI spec,
-`sinter({ openapi: 'openapi.yml' })` types resources without `type="…"`, checks request bodies, and
+`sinter({ apis: { main: { openapi: 'openapi.yml' } } })` types resources without `type="…"`, checks request bodies, and
 applies more responses to the lists by itself.
 
 Serve the event stream over HTTP/2: over HTTP/1.1 each open tab holds one of the browser's six

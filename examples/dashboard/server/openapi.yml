@@ -2,7 +2,7 @@ openapi: 3.1.0
 info:
   title: Service metrics API
   description: >
-    The dashboard's backend. The frontend reads this file at build time: `sinter({ openapi })` types
+    The dashboard's backend. The frontend reads this file at build time: its `sinter({ apis })` entry types
     every resource from it and checks the pages against it. The server also serves it at /api/openapi.yml.
     The numbers are samples. GET /samples is the last 30 seconds; after that, each new sample arrives as a
     `sample` event (GET /events) and takes the slot of the oldest one.

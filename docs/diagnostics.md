@@ -330,7 +330,7 @@ Error, for example:
 
 `merge(item, …)` and `remove(item)` change the item in the resource it came from, found by its key: a row of a `data-sn-for` over a resource (also a filtered one, or one a helper returns), an element of one (`contacts[0]`, `.find(…)`), a single resource, a component prop that is one of those, or state a handler assigned from one (`sel = m`). The item here is none of these. Also reported: the removed forms with a resource name, `merge('name', item, …)` and `remove('name', item)`, and a row of a helper that takes more than one resource.
 
-**Fix:** Drop the resource name from the old forms. Otherwise pass the row itself; for `$result`, rely on write-through (with a spec) or patch the row with its fields; a server event's payload goes through `<sn-event resource op>`; an island changes the resource through the instance API.
+**Fix:** Drop the resource name from the old forms. Otherwise pass the row itself; for `$result`, rely on write-through (with a spec) or `merge()` its fields into the row; a server event's payload goes through `<sn-event resource op>`; an island changes the resource through the instance API.
 
 ## SN318 invalid-layout
 
@@ -768,7 +768,7 @@ Warning, for example:
 
 > `GET /api/contacts` returns a list at `contacts`: resource `contacts` has no `key`, so it is one object holding the list
 
-Without `key` a resource is a single object. A list of objects loads and renders that way, but nothing can change one item: an `upsert` replaces the whole list, `patch` merges fields into the list and `remove` sets it to `null`. Reported when the OpenAPI response at `items` is a list of objects.
+Without `key` a resource is a single object. A list of objects loads and renders that way, but nothing can change one item: an `upsert` replaces the whole list, `merge` merges fields into the list and `remove` sets it to `null`. Reported when the OpenAPI response at `items` is a list of objects.
 
 **Fix:** Add `key` with the field that identifies an item, such as `key="id"`. A list that is only read can stay as it is.
 

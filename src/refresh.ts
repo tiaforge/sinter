@@ -1,5 +1,5 @@
 // `refresh` on `<sn-resource>`: the resource is reloaded once that long has passed since its
-// last load, whatever caused that load (the first load, `refresh()`, a server event's refetch, a
+// last load, whatever caused that load (the first load, `refresh()`, a server event's `refresh`, a
 // stream's reconnect, `src` changing), so with a stream feeding it, it rarely reloads by itself:
 // only when nothing else has. A refresh is a background load: `$meta.loading` stays false, and
 // a response with the version (`ETag`, `Last-Modified`) of the data shown is not parsed or stored
@@ -27,7 +27,7 @@ function watch(l: ResourceLoader, app: App) {
     if (env.hidden?.()) { due = true; return; }
     // a running load settles and starts the clock again; with `when` falsy there is nothing to load
     if (l.inflight() || (!l.def.each && l.url() == null)) return;
-    void l.refetch(undefined, true);
+    void l.refresh(undefined, true);
   };
 
   l.settled.push((ok) => {

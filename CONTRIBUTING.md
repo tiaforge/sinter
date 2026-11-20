@@ -35,7 +35,7 @@ or only after the page module takes over.
   in place and reassigned, keyed and index-keyed rows moved and their own handlers, store functions,
   `refresh()`, `page()` on a paginated resource and an `each` resource, `emit()` with listeners that write
   and that read, a nested synchronous click read around, an island whose prop setter fires an event
-  mid-flush, `<sn-sync>` upserts, refetch events and a dropped stream, an optimistic action, actions whose
+  mid-flush, `<sn-sync>` upserts, refresh events and a dropped stream, an optimistic action, actions whose
   `then` and `catch` read lets, a component with a let of its own, a `data-sn-persist` scope and the
   locale, with reads of lets stored between them. Three oracles: the same page with its helpers wrapped
   in `memo()` (page, state and stored reads equal by structure); every state scope marked whole after

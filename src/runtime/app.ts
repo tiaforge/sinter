@@ -66,7 +66,7 @@ export interface MountOptions {
 /**
  * A server event transport (EventSource, WebSocket, SignalR, …). It delivers named events with
  * their parsed payload and reports `open` once connected and `error` when the connection is lost;
- * reconnecting (session probe, backoff, refetch) is the caller's job, so a transport never
+ * reconnecting (session probe, backoff, reload) is the caller's job, so a transport never
  * reconnects by itself. `names` are the event names the page maps; deliver at least those.
  */
 export interface Transport {
@@ -86,7 +86,7 @@ export interface BoundBinding {
   s: any;
 }
 
-/** Pagination state of one resource; a "move" is one page request, repeated exactly by refetch. */
+/** Pagination state of one resource; a "move" is one page request, repeated exactly by reload. */
 export interface Pager {
   /**
    * the resource's URL changed: back to the first page. With `model` (paginate), `why` says what changed it:
@@ -149,7 +149,7 @@ export interface ResourceLoader {
   url(): string | null;
   /** `quiet`: a background reload (`refresh`): `$meta.loading` stays false, and a failure while already failing is not reported again */
   load(move?: unknown, quiet?: boolean): Promise<void>;
-  refetch(hint?: object, quiet?: boolean): Promise<void>;
+  refresh(hint?: object, quiet?: boolean): Promise<void>;
   /** whether a load is in flight */
   inflight(): boolean;
   /** called after each load settles (true: it succeeded, its content changed or not); feature modules add to it */
@@ -512,7 +512,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
   const env = o.env ?? envOf(config);
   const req = createRequestLayer(env, o.request ?? config.request);
   const schemes = schemesOf(config.urlSchemes);
-  const resources = new Map<string, Resource>(), loaders: Array<{ def: ResourceDef; changed(typing?: boolean): void; start(): void; refetch(): Promise<void> }> = [];
+  const resources = new Map<string, Resource>(), loaders: Array<{ def: ResourceDef; changed(typing?: boolean): void; start(): void; refresh(): Promise<void> }> = [];
   const acts = new WeakMap<Element, ActState>();
   /** props set on custom elements not defined yet, by element: the latest value of each */
   const early = new WeakMap<Element, Map<string, unknown>>();
@@ -914,19 +914,19 @@ export function mount(root: Document | Element, o: MountOptions): App {
   for (const id of bad) { found.delete(id); warn(1, id); }
   if (F.RESOURCE) for (const def of ir.resources) createLoader(def);
   // back from the bfcache, or online again: the data may have changed meanwhile. Resources a stream
-  // feeds are refetched by the stream module when it reconnects.
-  const again = () => { for (const l of loaders) if (!l.def.fed) void l.refetch(); };
+  // feeds are reloaded by the stream module when it reconnects.
+  const again = () => { for (const l of loaders) if (!l.def.fed) void l.refresh(); };
   app.addCleanup(env.listen('pageshow', (e) => { if ((e as PageTransitionEvent).persisted) again(); }));
   app.addCleanup(env.listen('online', again));
   // prerendered (Speculation Rules): the page loaded while nobody saw it, maybe minutes ago, and
-  // streams wait (app.shown). Shown: everything is refetched, then the waiting work runs
+  // streams wait (app.shown). Shown: everything is reloaded, then the waiting work runs
   if (waiting) {
     const on = () => {
       if (doc.prerendering) return;
       doc.removeEventListener('prerenderingchange', on);
       const w = waiting!;
       waiting = null;
-      for (const l of loaders) void l.refetch();
+      for (const l of loaders) void l.refresh();
       for (const fn of w) fn();
     };
     doc.addEventListener('prerenderingchange', on);
@@ -1620,7 +1620,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
       // models update state before other handlers on the same event
       const m = F.MODEL ? (el as Tagged)[MODEL] : undefined;
       if (m && /^(input|change)$/.test(e.type) && (m.b.ms || (e.type == 'input') == (m.b.n == 'text'))) {
-        // `data-sn-debounce` on the model (debounce.ts): it writes once the field pauses, as an event's write that is
+        // `data-sn-model-debounce` (debounce.ts): it writes once the field pauses, as an event's write that is
         // not typing (the pause is over), with the value the field has then; a text field's `change` (Enter,
         // leaving it) ends the pause
         if (m.b.ms) {
@@ -1870,7 +1870,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
         loading(false);
       },
       /** Repeats the current request; several calls in one task share one request (quiet only if every call was). */
-      refetch: (_hint, quiet) => {
+      refresh: (_hint, quiet) => {
         if (def.fx) return Promise.resolve();
         if (!quiet) loud = true;
         return (again ??= Promise.resolve().then(() => { again = null; const q = !loud; loud = false; return l.load(undefined, q); }));
