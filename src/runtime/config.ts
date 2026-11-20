@@ -61,7 +61,7 @@ export function $origins(list: string[]): void {
 export interface ApiSettings {
   n: string; b: string; c?: RequestCredentials; h?: Record<string, string>;
   /** `token`: its storage (`l`ocal, `s`ession) and key, header, what goes before it, the GET paths that need it (absent: all), issue it (`f`), and the sign-in page (`i`) */
-  t?: { s: 'l' | 's'; k: string; h: string; p: string; r?: string[]; f?: Record<string, string>; i?: LoginRedirectOptions };
+  t?: { s: 'l' | 's'; k: string; h: string; p: string; r?: string[]; f?: Record<string, string>; i?: string | LoginRedirectOptions };
 }
 
 /** The page module: the build's APIs. */
@@ -198,7 +198,9 @@ export function loginRedirect(options: LoginRedirectOptions) {
  * Where `loginRedirect` goes from `href`: `to`, with the return URL stored in `session` (same-origin, under an allowed
  * prefix) and, with `param`, in that query parameter. Also the sign-in guard's (`data-sn-signed-in`), in the early script.
  */
-export function signInTarget(options: LoginRedirectOptions, href: string, session: Storage | null): string {
+export function signInTarget(o: string | LoginRedirectOptions, href: string, session: Storage | null): string {
+  // a path alone (an API's `token.signIn`): the return URL stored, any same-origin path
+  const options = typeof o == 'string' ? { to: o, returnUrl: { allow: ['/'] } } : o;
   const here = new URL(href);
   const path = here.pathname + here.search + here.hash;
   let target = options.to;

@@ -207,14 +207,19 @@ function tokenOf(raw: unknown, name: string, docs: unknown[], has: (method: stri
  * before the token (`'Token '`), `r` the GET paths that need it (absent: all), `f` the operations
  * whose response issues it and where in the body, `i` where an action's 401 goes. Nothing of the token itself.
  */
-export interface RuntimeToken { s: 'l' | 's'; k: string; h: string; p: string; r?: string[]; f?: Record<string, string>; i?: TokenDef['signIn'] }
+export interface RuntimeToken { s: 'l' | 's'; k: string; h: string; p: string; r?: string[]; f?: Record<string, string>; i?: string | NonNullable<TokenDef['signIn']> }
+
+/** `signIn` as the page carries it: a path alone when it is the path form (its return URL allowed anywhere, stored, no parameter) */
+export function signInWire(s: NonNullable<TokenDef['signIn']>): string | NonNullable<TokenDef['signIn']> {
+  return s.returnUrl && !s.returnUrl.param && s.returnUrl.allow.length === 1 && s.returnUrl.allow[0] === '/' ? s.to : s;
+}
 
 /** What the runtime gets of an API (the page module's `$apis`, the testing module): name, base, credentials, static headers, token. */
 export function runtimeApi(a: ApiDef): { n: string; b: string; c?: 'omit' | 'same-origin' | 'include'; h?: Record<string, string>; t?: RuntimeToken } {
   const t = a.token;
   return {
     n: a.name, b: a.base, ...(a.credentials ? { c: a.credentials } : {}), ...(a.headers ? { h: a.headers } : {}),
-    ...(t ? { t: { s: t.storage === 'local' ? 'l' as const : 's' as const, k: t.key, h: t.header, p: t.scheme ? t.scheme + ' ' : '', ...(t.required ? { r: t.required.filter((k) => k.startsWith('GET ')).map((k) => k.slice(4)) } : {}), ...(Object.keys(t.from).length ? { f: t.from } : {}), ...(t.signIn ? { i: t.signIn } : {}) } } : {}),
+    ...(t ? { t: { s: t.storage === 'local' ? 'l' as const : 's' as const, k: t.key, h: t.header, p: t.scheme ? t.scheme + ' ' : '', ...(t.required ? { r: t.required.filter((k) => k.startsWith('GET ')).map((k) => k.slice(4)) } : {}), ...(Object.keys(t.from).length ? { f: t.from } : {}), ...(t.signIn ? { i: signInWire(t.signIn) } : {}) } } : {}),
   };
 }
 

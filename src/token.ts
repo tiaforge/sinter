@@ -4,7 +4,7 @@
 // out); a 401 clears it; an action's 401 that nothing on the page shows goes to the sign-in page; a response the
 // config names stores a new one.
 // The page module installs this (`$tokens()`) when one of its APIs has a token: other apps carry none of it.
-import { apiFor, config, clearStored, loginRedirect, SinterError, type ApiSettings } from './runtime/config.js';
+import { apiFor, config, clearStored, loginRedirect, SinterError, type ApiSettings, type LoginRedirectOptions } from './runtime/config.js';
 import type { Env } from './runtime/env.js';
 import { tokens, type TokenHooks } from './runtime/request.js';
 
@@ -83,7 +83,8 @@ const hooks: TokenHooks = {
   signIn(url, env) {
     const t = apiFor(url, env.href())?.t;
     if (!t?.i) return false;
-    void loginRedirect(t.i)();
+    // (a path alone is the path form: signInTarget reads it)
+    void loginRedirect(t.i as LoginRedirectOptions)();
     return true;
   },
   signOut(env, app) {

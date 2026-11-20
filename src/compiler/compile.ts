@@ -21,7 +21,7 @@ import type * as acorn from 'acorn';
 import { COMPLEXITY_DEFAULTS, COMPLEXITY_LIMITS, measure, type ComplexityOptions } from './complexity.js';
 import { ATTRIBUTES, CHAR_KEYS, ELEMENTS, KEY_ALIASES, LOOSE_SHIFT, MODIFIERS, NAMED_KEYS } from './vocabulary.js';
 import type { CheckExpr, CheckFrame, CheckLoc, CheckResource, CheckUnit, TypeRef } from './check-unit.js';
-import { apiOf, shapeTemplate, type ApiDef, type ApisDef, type OperationShape } from './apis.js';
+import { apiOf, shapeTemplate, signInWire, type ApiDef, type ApisDef, type OperationShape } from './apis.js';
 import { foldReason, type FoldVerdict } from '../fold-check.js';
 import { BUILD_TIME_ATTRS, buildTimeAttrProblem, FILE_ATTRS, FILE_ENTRY, fileAttrProblem, fileEntry, filePath, fileValue, isContentSource, isFileSource, isGlob, PAGE_ENTRY, scriptJson, setPath, sortList } from './files.js';
 import { deref, matchOperation, matchResource, type Method, type OpenApiMatch, type Auth, namedAt, namedSchema, properties, propertyNames, queryNames, responseEntities, walk, wrapperKey, type OpenApiSpec } from './openapi.js';
@@ -9230,7 +9230,7 @@ class Compiler {
     const mine = this.pathList.some((p) => { const w = p.split('/').filter(Boolean); return w.length === segs.length && w.every((x, i) => x[0] === ':' || x === segs[i]); });
     if (mine) return fail(`\`data-sn-signed-in\` on the sign-in page (\`${to.to}\`, the API \`${a.name}\`'s \`token.signIn\`): a signed-out visitor would be sent here again and again`, 'remove it from this page');
     const t = a.token!;
-    return { a: a.name, t: { s: t.storage === 'local' ? 'l' : 's', k: t.key }, i: to, ...(g.f != null ? { f: g.f } : {}) };
+    return { a: a.name, t: { s: t.storage === 'local' ? 'l' : 's', k: t.key }, i: signInWire(to), ...(g.f != null ? { f: g.f } : {}) };
   }
 
   runtimeReasons(): RuntimeReason[] {

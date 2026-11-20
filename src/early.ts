@@ -19,6 +19,8 @@ import type { EarlyIR } from './ir.js';
 
 /** What the early requests read from the outside world: the clock, the location, fetch. */
 type EarlyEnv = Pick<Env, 'now' | 'href' | 'fetch'>;
+/** `setEnv()`'s environment once `configured` has read it (tests): the token's storage and the guard's redirect use it; else the browser's */
+let io: Partial<Env> | null = null;
 /** the browser's: before the first paint only an app early module could have configured another */
 const browser = (): EarlyEnv => ({ now: Date.now, href: () => location.href, fetch: (r) => fetch(r) });
 /**
@@ -26,7 +28,7 @@ const browser = (): EarlyEnv => ({ now: Date.now, href: () => location.href, fet
  * passes it to `requests`), and for tests; only then does the early file carry the config.
  */
 export const configured = (): EarlyEnv => {
-  const e = config.env;
+  const e = (io = config.env);
   return { now: e?.now ?? Date.now, href: e?.href ?? (() => location.href), fetch: e?.fetch ?? ((r) => fetch(r)) };
 };
 
@@ -366,11 +368,12 @@ export const $so = (s: 'l' | 's', k: string): boolean => token({ s, k, h: '', p:
 
 /** an API's token, from its storage (`setEnv()`'s in tests), as the request layer reads it; null when none is stored */
 const token = (t: NonNullable<EarlyApi['t']>): string | null => {
-  try { return (t.s == 's' ? (config.env?.session ? config.env.session() : globalThis.sessionStorage) : (config.env?.storage ? config.env.storage() : globalThis.localStorage))?.getItem(t.k) || null; } catch { return null; }
+  try { return (t.s == 's' ? (io?.session ? io.session() : sessionStorage) : (io?.storage ? io.storage() : localStorage))?.getItem(t.k) || null; } catch { return null; }
 };
 
 /** Renders a page's early part (tests; the early file goes through `start`). */
 export function early(doc: Document, page: ReturnType<EarlyPage>): void {
+  configured();
   prepare(page, requests(undefined, configured))?.render(doc);
 }
 
@@ -383,7 +386,7 @@ function away(o: ReturnType<EarlyPage>, base: any): boolean {
   const g = o.ir.si;
   if (!g || (document as Document & { prerendering?: boolean }).prerendering) return false;
   try { if (token({ ...g.t, h: '', p: '' }) != null || (g.f != null && !o.fns[g.f]!(base))) return false; } catch { return false; }
-  const e = config.env;
+  const e = io;
   if (!e) document.documentElement.hidden = true;
   let session: Storage | null = null;
   try { session = e?.session ? e.session() : sessionStorage; } catch { /* none */ }

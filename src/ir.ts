@@ -343,7 +343,7 @@ export interface ApplyDef {
  * is stored at `t` (`l`ocal or `s`ession storage, key); `f` the condition (a function over `$url`; absent: always); `i` the
  * sign-in page, as `loginRedirect` takes it
  */
-export interface SignedIn { a: string; t: { s: 'l' | 's'; k: string }; i: { to: string; returnUrl?: { allow: string[]; param?: string } }; f?: number }
+export interface SignedIn { a: string; t: { s: 'l' | 's'; k: string }; i: string | { to: string; returnUrl?: { allow: string[]; param?: string } }; f?: number }
 
 export interface IR {
   v: 2;
