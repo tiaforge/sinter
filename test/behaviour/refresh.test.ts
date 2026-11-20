@@ -50,7 +50,7 @@ test('reloads in the background once the last load is `refresh` old', async () =
   await r.settle();
   expect(states(r.root)).toEqual(['running']);
   expect(text(r.root, 'b')).toBe('2');
-  expect(r.app.page.$meta.jobs.loadedAt).toBe(Date.parse('2026-01-01T09:00:10Z'));
+  expect(r.app.page.$meta.jobs.loadedAt).toEqual(new Date('2026-01-01T09:00:10Z'));
 
   // and again, counted from that load
   await r.advance(10_000);
@@ -153,7 +153,7 @@ test('a response with the version of the data shown is not stored again or re-re
   expect(text(r.root, 'b')).toBe('2');
   expect(text(r.root, 's')).toBe('queued');
   // still counts as a load: loadedAt moves, and the clock starts again from it
-  expect(r.app.page.$meta.jobs.loadedAt).toBe(Date.parse('2026-01-01T09:00:10Z'));
+  expect(r.app.page.$meta.jobs.loadedAt).toEqual(new Date('2026-01-01T09:00:10Z'));
 
   tag = '"v2"';
   s.state.jobs = [{ id: 1, state: 'done' }];

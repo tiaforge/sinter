@@ -599,7 +599,7 @@ Status lives under `$meta.<name>`, never on the data itself. The field set is fi
 | --- | --- | --- |
 | `loading` | boolean | a request for this resource is in flight |
 | `error` | `{status, body, message, detail}` or `null` | the last load failed; cleared on success |
-| `loadedAt` | number (ms) or `null` | time of the last successful load |
+| `loadedAt` | `Date` or `null` | time of the last successful load (a number of ms until 2026-11-20; a `Date` now, as `$now` is) |
 | `total` | number or `null` | from the `total` path; adjusted by optimistic removes |
 | `page` | number | numbered lists, and keyset with `jump` |
 | `pages` | number or `null` | paginated, when `total` is known |

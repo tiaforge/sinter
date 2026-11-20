@@ -412,7 +412,7 @@ describe('completion, definition, quick fixes', () => {
     e.open('index.html', PAGE('$meta.contacts.'));
     await e.diagnostics('index.html', (d) => d.length > 0);
     const r = await e.completion('index.html', 3, 37);
-    expect(r!.items.map((i) => i.label)).toEqual(expect.arrayContaining(['loading', 'error', 'loadedAt', 'pending', 'total', 'live']));
+    expect(r!.items.map((i) => i.label)).toEqual(expect.arrayContaining(['loading', 'error', 'loadedAt', 'total', 'live']));
     const resolved = await e.resolve(r!.items.find((i) => i.label === 'live'));
     expect(JSON.stringify(resolved)).toContain('retrying');
   });

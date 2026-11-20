@@ -33,7 +33,7 @@ test('the next page shows the cached data at once, then revalidates', async () =
   await r.settle();
   expect(names(r.root)).toEqual(['Ada', 'Linus']);
   expect(status(r.root)).toBe('idle');
-  expect(r.app.page.$meta.contacts.loadedAt).toBe(Date.parse('2026-01-01T09:00:00Z'));
+  expect(r.app.page.$meta.contacts.loadedAt).toEqual(new Date('2026-01-01T09:00:00Z'));
   expect(requests.calls).toHaveLength(1);
 });
 

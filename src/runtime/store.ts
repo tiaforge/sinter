@@ -18,7 +18,9 @@ export interface Meta {
   loading: boolean;
   /** as `$error`: `message` is the server's words, else the HTTP status; `detail` the server's words or null */
   error: { status: number | null; body: unknown; message: string; detail: string | null } | null;
-  loadedAt: number | null;
+  /** when the server last answered, as a `Date` (like `$now`); null before the first load */
+  loadedAt: Date | null;
+  /** optimistic layers whose request has not settled (JavaScript only: markup reads `aria-busy`) */
   pending: number;
   total: number | null;
   /** the server-event stream(s) feeding this resource: null when none does, else the worst state among them */

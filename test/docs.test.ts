@@ -80,7 +80,7 @@ Key filters (\`data-sn-on-keydown-<modifiers->key\`, \`data-sn-on-keyup-…\`): 
 - Resources are read-only: copy an item with \`structuredClone(c)\` to edit it, write with \`merge()\`.
 - Helpers are plain function calls, never pipes: ${BUILTIN_HELPERS.map((h) => `\`${h}()\``).join(', ')}. Helper namespaces: \`m.inbox_title()\`.
 - URL templates: \`/api/x?id={c.id}\`; interpolations are URL-encoded; the template must start with a literal \`/path\` or \`https://origin\`. A whole query value that is \`null\`/\`undefined\` or an empty array leaves the parameter out; an array is a repeated key (\`?cal={cals}\` → \`cal=a&cal=b\`); an array in the path is refused.
-- Use \`$now\` instead of \`Date.now()\` so bindings update. \`$now\` is a \`Date\`: compare and add with numbers through \`$now.getTime()\` (\`$now.getTime() - Date.parse(t.createdAt) < 60_000\`), or in a helper.
+- Use \`$now\` instead of \`Date.now()\` so bindings update. \`$now\` and \`$meta.<name>.loadedAt\` are \`Date\`s: compare and add with numbers through \`$now.getTime()\` (\`$now.getTime() - Date.parse(t.createdAt) < 60_000\`), or in a helper.
 
 ## Components
 

@@ -1847,7 +1847,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
         l.pager?.reset(0);
         const v = store(data!.v, request(url));
         // a `file:` resource: a constant read at build time, never loaded (`loadedAt` null)
-        if (!def.fx) r.meta.loadedAt = env.now();
+        if (!def.fx) r.meta.loadedAt = new Date(env.now());
         l.done(v);
         l.settle(true);
       },
@@ -1895,7 +1895,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
           v = loaded ? store(body, req, m) : body;
           ok = true;
           r.meta.error = null;
-          r.meta.loadedAt = env.now();
+          r.meta.loadedAt = new Date(env.now());
         } catch (e) {
           if (n != seq || isAbort(e)) return;
           fail(def.call ? app.ext.call!.error(e) : e, quiet);
