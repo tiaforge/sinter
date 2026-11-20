@@ -252,15 +252,15 @@ The resource matched an operation in the OpenAPI spec, but its `items` or `total
 
 **Fix:** Fix the path in `items` or `total`, or the spec if the API changed.
 
-## SN309 unknown-dialog
+## SN309 unknown-element-id
 
 Error, for example:
 
 > no `<dialog id="compose-dialg">` on this page. Did you mean `compose-dialog`?
 
-`openDialog(id)` and `closeDialog(id)` name a `<dialog>` by its literal `id`, which must be on the page or one of its partials.
+`openDialog(id)` and `closeDialog(id)` name a `<dialog>` by its literal `id`, which must be on the page or one of its partials. `run(id)` starts the action of the element with that literal `id`: an element on the page or one of its partials with `data-sn-post`, `-put`, `-patch`, `-delete` or `data-sn-call`. Also reported: an id that is not a string literal, an element without an action, an element inside a `data-sn-for` row (every row would have the id), and an id that more than one element has.
 
-**Fix:** Fix the id, or add `id` to the `<dialog>`. `closeDialog()` without an argument closes the dialog around the element.
+**Fix:** Fix the id, or add `id` to the `<dialog>`. `closeDialog()` without an argument closes the dialog around the element. Fix the id, or give the action element an `id`. For a row's action, put one action element outside the list and pass the row through state: `open = m; run('mark-read')`.
 
 ## SN310 unknown-action
 
@@ -271,16 +271,6 @@ Error, for example:
 `data-sn-call` and `<sn-resource call>` name a function the actions module (`src/sinter.actions.js` or `.ts`) exports, directly or through `export * as ns`.
 
 **Fix:** Use the suggested name, or export the function from the actions module.
-
-## SN311 unknown-run-target
-
-Error, for example:
-
-> no element `id="mark-raed"` on this page. Did you mean `mark-read`?
-
-`run(id)` starts the action of the element with that literal `id`: an element on the page or one of its partials with `data-sn-post`, `-put`, `-patch`, `-delete` or `data-sn-call`. Also reported: an id that is not a string literal, an element without an action, an element inside a `data-sn-for` row (every row would have the id), and an id that more than one element has.
-
-**Fix:** Fix the id, or give the action element an `id`. For a row's action, put one action element outside the list and pass the row through state: `open = m; run('mark-read')`.
 
 ## SN312 invalid-component
 
@@ -338,19 +328,9 @@ Error, for example:
 
 > `src/layouts/site-layout.html` is not a layout: a layout is a whole document whose `<html>` declares its props, `<html data-sn-props="{ …props }">`
 
-A file in `src/layouts/` is a layout: a whole document (`<html>`, `<head>`, `<body>`) whose `<html>` carries `data-sn-props` with its props type (left out, it takes none). Also reported: a page that passes `data-sn-with` to a layout that declares no props, `data-sn-props` anywhere else, a default slot in the layout's head (the default slot is the page's body), `data-sn-emits` on a layout, a layout with a script beside it, a layout and a component with the same name, and a layout built as a page.
+A file in `src/layouts/` is a layout: a whole document (`<html>`, `<head>`, `<body>`) whose `<html>` carries `data-sn-props` with its props type (left out, it takes none). Also reported: a page that passes `data-sn-with` to a layout that declares no props, `data-sn-props` anywhere else, a default slot in the layout's head (the default slot is the page's body), `data-sn-emits` on a layout, a layout with a script beside it, a layout and a component with the same name, and a layout built as a page. A page that uses a layout is the layout's tag at its top level and nothing else (a doctype and comments are allowed): its content goes into the layout's slots, the attributes of `<html>` on the tag. A layout's tag anywhere else (inside a component, another layout, or other markup) is reported too, and so is `data-sn-early` on it.
 
-**Fix:** Write the layout as a document: `<!doctype html><html lang="en" data-sn-props="{ title?: string }"><head>…<slot name="head"></slot></head><body>…<slot></slot></body></html>`; a layout without props needs no `data-sn-props` (`<html lang="en">`), but one whose pages pass `data-sn-with` must declare those props. Name head slots; leave `src/layouts/` out of the build's inputs (a glob over every `.html` picks it up).
-
-## SN319 layout-use
-
-Error, for example:
-
-> a page that uses the layout `<site-layout>` is only its tag: `<p>` belongs inside it
-
-A page that uses a layout is the layout's tag at its top level and nothing else (a doctype and comments are allowed): its content goes into the layout's slots, the attributes of `<html>` on the tag. A layout's tag anywhere else (inside a component, another layout, or other markup) is reported too, and so is `data-sn-early` on it.
-
-**Fix:** Move the content inside the tag, with `slot="…"` for a named slot; write `lang`, `data-sn-path` and the like on the tag.
+**Fix:** Write the layout as a document: `<!doctype html><html lang="en" data-sn-props="{ title?: string }"><head>…<slot name="head"></slot></head><body>…<slot></slot></body></html>`; a layout without props needs no `data-sn-props` (`<html lang="en">`), but one whose pages pass `data-sn-with` must declare those props. Name head slots; leave `src/layouts/` out of the build's inputs (a glob over every `.html` picks it up). Move the content inside the tag, with `slot="…"` for a named slot; write `lang`, `data-sn-path` and the like on the tag.
 
 ## SN320 head-content
 
@@ -502,25 +482,15 @@ A component whose root may render nothing (an if chain without a `data-sn-else`,
 
 **Fix:** Put the attribute on an element inside the component that is always there, give the chain a `data-sn-else`, or wrap the tag in an element that carries it. For a text root, give an element as the fill, or wrap the tag.
 
-## SN337 library-package
+## SN337 invalid-library
 
 Error, for example:
 
 > `@acme/ui` is in `sinter({ libraries })` and its package.json has no `"sinter"` field: a component library names the folder of its components
 
-A package in `sinter({ libraries })` is a component library (docs/libraries.md): installed, with `"sinter": "./sinter"` in its package.json naming a folder inside the package that has a `components/` folder. Its components share their first segment (`ui-card`, `ui-tree`: `ui`), the prefix it owns, and a name is in `components/` (public) or `components/internal/`, not both.
+A package in `sinter({ libraries })` is a component library (docs/libraries.md): installed, with `"sinter": "./sinter"` in its package.json naming a folder inside the package that has a `components/` folder. Its components share their first segment (`ui-card`, `ui-tree`: `ui`), the prefix it owns, and a name is in `components/` (public) or `components/internal/`, not both. Each component library owns the first segment of its components' names. Two configured libraries with one prefix, or an app component (`src/components/`) whose name starts with a library's prefix, fail the build: a tag names exactly one component, and there is no shadowing.
 
-**Fix:** Install the package, or take it out of `components` if it is not a component library. A library's author adds the `"sinter"` field and folder, and renames components to share one prefix.
-
-## SN338 library-prefix
-
-Error, for example:
-
-> `<ui-button>` starts with `ui-`, the prefix of `@acme/ui` (`sinter({ libraries })`): a library owns its prefix, and an app component cannot shadow or add to it
-
-Each component library owns the first segment of its components' names. Two configured libraries with one prefix, or an app component (`src/components/`) whose name starts with a library's prefix, fail the build: a tag names exactly one component, and there is no shadowing.
-
-**Fix:** Rename the app component (`app-button`). To change how a library component looks or behaves everywhere, write a wrapper component of your own that uses it, with fills for its slots. Two libraries with one prefix cannot be used together.
+**Fix:** Install the package, or take it out of `components` if it is not a component library. A library's author adds the `"sinter"` field and folder, and renames components to share one prefix. Rename the app component (`app-button`). To change how a library component looks or behaves everywhere, write a wrapper component of your own that uses it, with fills for its slots. Two libraries with one prefix cannot be used together.
 
 ## SN339 library-component
 
@@ -532,25 +502,15 @@ A tag with a library's prefix names one of its components. Those in its `compone
 
 **Fix:** Use one of the public components the message lists, or fix the name. A library's author moves a component the app needs out of `components/internal/`.
 
-## SN340 entry-path
+## SN340 invalid-entry-page
 
 Error, for example:
 
 > `data-sn-for` on `<html>` needs `data-sn-path` with exactly one pattern to fill from each entry, e.g. `data-sn-path="/blog/:slug"`
 
-`<html data-sn-for="post in posts">` (or on a layout's tag) builds the page once per entry of `posts`, a `file:` glob the page declares outside any template, and writes each at its `data-sn-path` pattern filled from the entry. The value is `<name> in <list>`; the name is the entry, readable in the whole page as a resource is (not a store function's or a magic name). The page has exactly one pattern, with parameters, and no other path: a fixed path would be written once per entry.
+`<html data-sn-for="post in posts">` (or on a layout's tag) builds the page once per entry of `posts`, a `file:` glob the page declares outside any template, and writes each at its `data-sn-path` pattern filled from the entry. The value is `<name> in <list>`; the name is the entry, readable in the whole page as a resource is (not a store function's or a magic name). The page has exactly one pattern, with parameters, and no other path: a fixed path would be written once per entry. Each entry of an `<html data-sn-for>` list fills the page's pattern: every `:param` takes the entry's field of that name, which must be a string or a number, one path segment (not empty, not `.` or `..`, no `/`). Two entries that fill the same path would be one page.
 
-**Fix:** Write `data-sn-path="/blog/:slug"` beside it, declare the list on the page (`<sn-resource name="posts" src="file:/content/posts/*.md">`), and name the entry `post in posts`.
-
-## SN341 entry-param
-
-Error, for example:
-
-> `content/posts/draft.md` has no `slug` to fill `:slug` (a string or a number): each entry fills `/blog/:slug`
-
-Each entry of an `<html data-sn-for>` list fills the page's pattern: every `:param` takes the entry's field of that name, which must be a string or a number, one path segment (not empty, not `.` or `..`, no `/`). Two entries that fill the same path would be one page.
-
-**Fix:** Give the entry the field (in its frontmatter, or a file name that makes its `slug`), make it one segment, or give two entries different values.
+**Fix:** Write `data-sn-path="/blog/:slug"` beside it, declare the list on the page (`<sn-resource name="posts" src="file:/content/posts/*.md">`), and name the entry `post in posts`. Give the entry the field (in its frontmatter, or a file name that makes its `slug`), make it one segment, or give two entries different values.
 
 ## SN342 unknown-collection
 

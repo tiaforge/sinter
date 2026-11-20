@@ -1255,18 +1255,18 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
     return out.length ? out : null;
   }
 
-  /** `run('id')`: a literal id of one element outside `data-sn-for` rows that carries an action (`SN311`) */
+  /** `run('id')`: a literal id of one element outside `data-sn-for` rows that carries an action (`SN309`) */
   function runCall(first: acorn.CallExpression['arguments'][number] | undefined, n: acorn.CallExpression & Node) {
     if (!first || first.type !== 'Literal' || typeof first.value !== 'string') {
-      report('SN311', "`run()` takes the action element's `id` as a string literal", n.start);
+      report('SN309', "`run()` takes the action element's `id` as a string literal", n.start);
       return;
     }
     const id = first.value, at = (first as Node).start, t = page.ids?.get(id);
     const actionIds = [...(page.ids ?? [])].filter(([, v]) => v.action).map(([k]) => k);
-    if (!t) report('SN311', `no element \`id="${id}"\` on this page.${didYouMean(id, actionIds)}`, at);
-    else if (!t.action) report('SN311', `\`#${id}\` has no action (\`data-sn-post\`, \`-put\`, \`-patch\`, \`-delete\` or \`data-sn-call\`); \`run()\` starts actions, not handlers`, at);
-    else if (t.row) report('SN311', `\`#${id}\` is inside a \`data-sn-for\` row, so every row has it; put the action outside the list and pass the row through state`, at);
-    else if (t.n > 1) report('SN311', `${t.n} elements have \`id="${id}"\`; \`run()\` needs one`, at);
+    if (!t) report('SN309', `no element \`id="${id}"\` on this page.${didYouMean(id, actionIds)}`, at);
+    else if (!t.action) report('SN309', `\`#${id}\` has no action (\`data-sn-post\`, \`-put\`, \`-patch\`, \`-delete\` or \`data-sn-call\`); \`run()\` starts actions, not handlers`, at);
+    else if (t.row) report('SN309', `\`#${id}\` is inside a \`data-sn-for\` row, so every row has it; put the action outside the list and pass the row through state`, at);
+    else if (t.n > 1) report('SN309', `${t.n} elements have \`id="${id}"\`; \`run()\` needs one`, at);
     else runs.push({ id, offset: at });
   }
 

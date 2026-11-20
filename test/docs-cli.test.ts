@@ -42,7 +42,7 @@ test('a diagnostic: its explanation from docs/diagnostics.md', () => {
   expect(r.found).toBe(true);
   expect(r.text).toMatch(/^## SN318 invalid-layout\n/);
   expect(r.text).toContain('a layout without props needs no `data-sn-props`');
-  expect(r.text).not.toContain('## SN319');
+  expect(r.text).not.toContain('## SN320');
   expect(get('SN999').found).toBe(false);
 });
 

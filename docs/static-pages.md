@@ -233,7 +233,7 @@ dist/blog/recap.html      /blog/recap
   `sinter check` types it as one item of the list: `post.titel` is an error.
 - **Its URL**: each `:param` of the pattern is the entry's field of that name, a string or a number that is
   one path segment, encoded as the sitemap encodes it (`A b` is `A%20b`). An entry that cannot fill it, or two
-  that fill one path, are [SN341](diagnostics.md#sn341-entry-param). The page has exactly that one pattern
+  that fill one path, are [SN340](diagnostics.md#sn341-entry-param). The page has exactly that one pattern
   ([SN340](diagnostics.md#sn340-entry-path)).
 - **A file at its path**, as any page with an exact `data-sn-path`: `blog/hello.html` at `/blog/hello`, which
   hosts serve without a rule, so `_redirects` has none for it. Its canonical link is written at build time,

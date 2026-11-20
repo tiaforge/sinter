@@ -387,7 +387,7 @@ for chaining, or for "mark read after the body loads":
 
 - The target is an element in the page (components included) that carries `data-sn-post`,
   `-put`, `-patch`, `-delete` or `data-sn-call`. The id must be a string literal naming exactly one
-  such element, outside any `data-sn-for` row, or the build fails (`SN311`). Pass a row through
+  such element, outside any `data-sn-for` row, or the build fails (`SN309`). Pass a row through
   state: `open = m; run('mark-read')`.
 - It enters where the trigger event would: debounce, confirm, concurrency, optimistic layer, busy
   state, `then`/`catch` all apply. No DOM event is dispatched, so the target's own `data-sn-on-*`

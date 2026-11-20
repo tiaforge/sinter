@@ -104,14 +104,14 @@ const cases: Array<[string, string, RegExp, Opts?]> = [
   ['SN306', '<x-a></x-a>', /`<x-a>` → `<x-b>` → `<x-a>` uses itself with no `data-sn-for` or `data-sn-if` template between/],
   ['SN309', '<dialog id="compose"></dialog><button data-sn-on-click="openDialog(\'compse\')"></button>', /no `<dialog id="compse">` on this page. Did you mean `compose`\?/],
   ['SN310', '<button data-sn-call="archive(1)"></button>', /`archive` is not exported by the actions module/],
-  ['SN311', `<span id="mark-read" data-sn-post="/x"></span><button data-sn-on-click="run('mark-raed')"></button>`, /no element `id="mark-raed"` on this page. Did you mean `mark-read`\?/],
+  ['SN309', `<span id="mark-read" data-sn-post="/x"></span><button data-sn-on-click="run('mark-raed')"></button>`, /no element `id="mark-raed"` on this page. Did you mean `mark-read`\?/],
   ['SN312', '<x-two></x-two>', /a component's root renders at most one element/],
   ['SN313', '<x-card data-sn-with="{ titel: 1 }"></x-card>', /`titel` is not a prop of `<x-card>`/],
   ['SN314', '<x-card data-sn-with="{ title: \'a\' }"><b slot="fot"></b></x-card>', /`<x-card>` has no slot `fot`/],
   ['SN315', '<x-card data-sn-with="{ title: \'a\' }" data-sn-on-pik="1"></x-card>', /`<x-card>` does not emit `pik`/],
   ['SN317', `${R}${use}<template data-sn-for="m in messages"><button data-sn-on-click="remove('messages', m)"></button></template>`, /`remove\(\)` takes the item, not a resource name/],
   ['SN318', '<!doctype html><html data-sn-props=""><head></head><body></body></html>', /`data-sn-props` on `<html>` belongs to a layout file/],
-  ['SN319', '<p>x</p><x-shell></x-shell>', /a page that uses the layout `<x-shell>` is only its tag/],
+  ['SN318', '<p>x</p><x-shell></x-shell>', /a page that uses the layout `<x-shell>` is only its tag/],
   ['SN321', '<!doctype html><html><head><title>a</title><title>b</title></head><body></body></html>', /a second `<title>` in the head/],
   ['SN323', '<p data-sn-text="$site"></p>', /`\$site` is the site's root URL, and the build does not know the site's origin/],
   ['SN320', '<!doctype html><html><head><title>t</title><div></div></head><body></body></html>', /`<div>` cannot be in the `<head>`/],
@@ -128,7 +128,7 @@ const cases: Array<[string, string, RegExp, Opts?]> = [
   ['SN331', '<div><slot></slot></div>', /this `<slot>` is not in a component or a fill, so nothing fills it/],
   ['SN332', '<button data-sn-post="file:./post.txt"></button>', /`file:` is a source for `<sn-resource src>`/],
   ['SN340', '<!doctype html><html data-sn-for="post in posts"><head></head><body><sn-resource name="posts" src="file:/content/posts/*.md"></sn-resource><p data-sn-text="posts.length"></p></body></html>', /`data-sn-for` on `<html>` needs `data-sn-path` with exactly one pattern/],
-  ['SN341', '<!doctype html><html data-sn-path="/blog/:year/:slug" data-sn-for="post in posts"><head></head><body><sn-resource name="posts" src="file:/content/posts/*.md"></sn-resource><p data-sn-text="post.slug"></p></body></html>', /has no `year` to fill `:year`/],
+  ['SN340', '<!doctype html><html data-sn-path="/blog/:year/:slug" data-sn-for="post in posts"><head></head><body><sn-resource name="posts" src="file:/content/posts/*.md"></sn-resource><p data-sn-text="post.slug"></p></body></html>', /has no `year` to fill `:year`/],
   ['SN342', '<sn-resource name="p" src="content:posts"></sn-resource><p data-sn-text="p.length"></p>', /`posts` is not a collection of the content module/, { collections: true }],
   ['SN344', '<sn-resource name="p" src="content:posts"></sn-resource><div data-sn-state="{ n: 0 }"><button data-sn-on-click="n++"></button><b data-sn-text="n + p.length"></b></div>', /browser code reads `p`, a collection/, { collections: true }],
   ['SN345', '<!doctype html><html data-sn-path="/blog/:slug" data-sn-for="post in posts"><head></head><body><sn-resource name="posts" src="file:/content/posts/*.md"></sn-resource><p data-sn-text="$url.slug"></p></body></html>', /`\$url\.slug` on a page per entry \(`data-sn-for` on `<html>`\)/],
@@ -162,8 +162,8 @@ const APIS_ONLY = ['SN326', 'SN327', 'SN328', 'SN329', 'SN330', 'SN518'];
 const STYLES_ONLY = ['SN529', 'SN530'];
 /** Warnings of the Vite plugin, with no page position (`formatWarning`): SN521 in test/vite/page-urls.test.ts, SN523 in test/vite/build.test.ts, SN533 in test/vite/helpers-node.test.ts; SN534 (a helper call that does not fold) in test/behaviour/fold.test.ts, which needs the helpers loaded. */
 const BUILD_ONLY = ['SN343', 'SN534', 'SN533', 'SN520', 'SN521', 'SN522', 'SN523', 'SN524', 'SN525', 'SN526', 'SN527', 'SN528'];
-/** Component libraries (`sinter({ libraries })`): the packages (SN337, SN537) and their prefixes (SN338) are read from disk, uses of their components (SN339) need one. Fixtures in test/libraries.test.ts. */
-const LIBRARY_ONLY = ['SN337', 'SN338', 'SN339', 'SN537'];
+/** Component libraries (`sinter({ libraries })`): the packages (SN337, SN537) and their prefixes (SN337) are read from disk, uses of their components (SN339) need one. Fixtures in test/libraries.test.ts. */
+const LIBRARY_ONLY = ['SN337', 'SN337', 'SN339', 'SN537'];
 /** Codes of build-time expansion, which needs `prerender`: SN536 (the expansion limit) in test/compiler/unroll-nested.test.ts and test/compiler/constant-trees.test.ts. */
 const PRERENDER_ONLY = ['SN536'];
 /** With `sinter({ swap: true })` only: fixtures in test/compiler/permanent.test.ts. */

@@ -66,11 +66,11 @@ describe('data-sn-for on <html>: a page per entry', () => {
     expect(one('data-sn-path="/blog/:slug" data-sn-pages="post in posts"')).toEqual([expect.stringMatching(/^SN101 `data-sn-pages` is renamed to `data-sn-for`, on `<html>`/)]);
   });
 
-  test('SN341: an entry that cannot fill the pattern, or two that fill one path', () => {
+  test('SN340: an entry that cannot fill the pattern, or two that fill one path', () => {
     const one = (pattern: string, more: Record<string, string>) => errors(build(`<!doctype html><html data-sn-path="${pattern}" data-sn-for="post in posts"><head></head><body><sn-resource name="posts" src="file:/d/**/*.md"></sn-resource><p data-sn-text="post.slug"></p></body></html>`, {}, more));
-    expect(one('/blog/:year/:slug', { 'd/a.md': '---\ntitle: A\n---\n' })).toEqual([expect.stringMatching(/^SN341 `d\/a\.md` has no `year` to fill `:year`.*each entry fills `\/blog\/:year\/:slug`/)]);
-    expect(one('/blog/:title', { 'd/a.md': '---\ntitle: a/b\n---\n' })).toEqual([expect.stringMatching(/^SN341 `d\/a\.md` has `title` `a\/b`, which is not one path segment/)]);
-    expect(one('/blog/:title', { 'd/a.md': '---\ntitle: Same\n---\n', 'd/b.md': '---\ntitle: Same\n---\n' })).toEqual([expect.stringMatching(/^SN341 `d\/b\.md` and `d\/a\.md` would both be `\/blog\/Same`/)]);
+    expect(one('/blog/:year/:slug', { 'd/a.md': '---\ntitle: A\n---\n' })).toEqual([expect.stringMatching(/^SN340 `d\/a\.md` has no `year` to fill `:year`.*each entry fills `\/blog\/:year\/:slug`/)]);
+    expect(one('/blog/:title', { 'd/a.md': '---\ntitle: a/b\n---\n' })).toEqual([expect.stringMatching(/^SN340 `d\/a\.md` has `title` `a\/b`, which is not one path segment/)]);
+    expect(one('/blog/:title', { 'd/a.md': '---\ntitle: Same\n---\n', 'd/b.md': '---\ntitle: Same\n---\n' })).toEqual([expect.stringMatching(/^SN340 `d\/b\.md` and `d\/a\.md` would both be `\/blog\/Same`/)]);
     expect(one('/blog/:title', { 'd/a.md': '---\ntitle: A b\n---\n' })).toEqual([]);
     expect(build(`<!doctype html><html data-sn-path="/blog/:title" data-sn-for="post in posts"><head></head><body><sn-resource name="posts" src="file:/d/*.md"></sn-resource></body></html>`, {}, { 'd/a.md': '---\ntitle: A b\n---\n' }).pages!.entries[0]!.path).toBe('/blog/A%20b');
   });

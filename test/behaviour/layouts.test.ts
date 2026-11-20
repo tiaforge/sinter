@@ -14,6 +14,6 @@ describe('layouts in render()', () => {
   });
 
   test('a build error in the page is thrown', async () => {
-    await expect(render(`<app-layout data-sn-with="{ title: 'x' }"></app-layout><p>extra</p>`, { layouts: { 'app-layout': LAYOUT } })).rejects.toThrow(/SN319/);
+    await expect(render(`<app-layout data-sn-with="{ title: 'x' }"></app-layout><p>extra</p>`, { layouts: { 'app-layout': LAYOUT } })).rejects.toThrow(/SN318/);
   });
 });

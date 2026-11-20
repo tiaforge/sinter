@@ -91,7 +91,7 @@ describe('data-sn-for on <html> in a build', () => {
   test('the declaration\'s errors fail the build (the template is no input to report them)', async () => {
     const root = app({ ...blog, 'blog/post.html': blog['blog/post.html'].replace('data-sn-path="/blog/:slug"', 'data-sn-path="/blog/:year/:slug"') });
     const r = await run(root, ['index.html', 'blog/post.html']);
-    expect(r.error).toMatch(/SN341 .*has no `year` to fill `:year`/);
+    expect(r.error).toMatch(/SN340 .*has no `year` to fill `:year`/);
   }, 60_000);
 
   test('with localePrefix: each language\'s entries, paired by key, with alternates, localeUrl() and a chooser', async () => {

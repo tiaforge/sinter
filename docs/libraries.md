@@ -33,7 +33,7 @@ events and fills as for the app's own:
 
 - **A prefix per library.** A library's components share their first segment (`ui-card`, `ui-tree`:
   `ui`), and the library owns it. Two configured libraries with one prefix, or an app component
-  whose name starts with a library's prefix, fail the build (`SN338`). A tag with the prefix names
+  whose name starts with a library's prefix, fail the build (`SN337`). A tag with the prefix names
   one of the library's components, or is an error (`SN339`).
 - **Public and internal.** The app uses the library's public components. Its internal ones are its
   own: an app using one is `SN339`, which lists the public ones. `ComponentName` (the candidates of
@@ -162,7 +162,6 @@ export * as ui from '@acme/ui';
 
 | Code | When |
 | --- | --- |
-| `SN337` (`library-package`) | A package in `components` is not installed, has no `"sinter"` field or folder with `components/`, has a component both public and internal, or names its components with more than one prefix |
-| `SN338` (`library-prefix`) | Two libraries with one prefix, or an app component with a library's prefix |
+| `SN337` (`invalid-library`) | A package in `libraries` is not installed, has no `"sinter"` field or folder with `components/`, has a component both public and internal, or names its components with more than one prefix; two libraries share a prefix, or an app component has a library's prefix |
 | `SN339` (`library-component`) | The app uses an internal component, a tag with a library's prefix names none of its components, or a `<sn-component use>` map in a library names a component outside it |
 | `SN537` (`library-version`, warning) | sinter's version is outside a library's `peerDependencies` range, or the library lists none |

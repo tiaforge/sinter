@@ -68,7 +68,7 @@ hand. Nothing of the layout is left at run time.
 ## The page
 
 - A page that uses a layout is its tag, at the top level, and nothing else (a doctype and comments
-  may be around it). Anything else is `SN319`.
+  may be around it). Anything else is `SN318`.
 - The tag's children fill the slots: `slot="seo"` goes into `<slot name="seo">`, the rest into the
   default slot. A head element (`<title>`, `<meta>`, `<link>`, `<base>`) needs a head slot: given to
   the body, it is `SN320`. A slot takes every child that names it, in order.

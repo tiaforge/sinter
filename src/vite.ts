@@ -711,7 +711,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   const entries = () => pageInputs ?? (locales ? sourceEntries().flatMap((s) => locales!.list.map((l) => virtualOf(s, l))) : sourceEntries());
   /**
    * `<html data-sn-for>` (docs/static-pages.md#a-page-per-entry): a page's entries, from a compile of it as its template, which
-   * reads its `file:` list; null for a page without it. Its errors (SN340, SN341) fail the build: the template is no
+   * reads its `file:` list; null for a page without it. Its errors (SN340, SN340) fail the build: the template is no
    * input of its own, so nothing else would report them.
    */
   const templatesKept = new Map<string, NonNullable<CompileResult['pages']> | null>();

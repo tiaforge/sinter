@@ -2107,11 +2107,11 @@ class Compiler {
     // the page is the tag, and nothing else
     for (const c of [...head.childNodes.filter(real), ...top.filter((c) => c !== host)]) {
       const el = isElement(c) ? c : host;
-      this.report(el, null, 'SN319', `a page that uses the layout \`<${name}>\` is only its tag: ${isElement(c) ? `\`<${c.tagName}>\`` : 'this text'} belongs inside it`, 0,
+      this.report(el, null, 'SN318', `a page that uses the layout \`<${name}>\` is only its tag: ${isElement(c) ? `\`<${c.tagName}>\`` : 'this text'} belongs inside it`, 0,
         `put it in one of the layout's slots: \`<${name}>…</${name}>\` (a head element with \`slot="…"\` for a head slot)`);
     }
     if (html.sourceCodeLocation?.startTag && html.attrs.length) {
-      this.report(html, html.attrs[0]!.name, 'SN319', `a page that uses the layout \`<${name}>\` writes the attributes of \`<html>\` on its tag: \`<${name} ${html.attrs[0]!.name}="…">\``, 0);
+      this.report(html, html.attrs[0]!.name, 'SN318', `a page that uses the layout \`<${name}>\` writes the attributes of \`<html>\` on its tag: \`<${name} ${html.attrs[0]!.name}="…">\``, 0);
     }
     const lroot = normalize(this.opts.root).replace(/\/$/, '');
     for (const ext of ['.ts', '.js', '.mts', '.mjs']) {
@@ -2178,7 +2178,7 @@ class Compiler {
       if (a.name === 'data-sn-with' || a.name === 'data-sn-state') continue;
       if (a.name === 'data-sn-path' || a.name === 'data-sn-prefetch' || a.name === 'data-sn-for' || a.name === 'data-sn-swap') { setAttr(lhtml, a.name, a.value); continue; }
       if (a.name === 'data-sn-pages') { this.report(host, a.name, 'SN101', `\`data-sn-pages\` ${RETIRED['data-sn-pages']}`, 0); continue; }
-      if (a.name === 'data-sn-early') { this.report(host, a.name, 'SN319', '`data-sn-early` cannot be on a layout\'s tag: the layout is the whole page', 0, 'leave parts out of the early script on their own tags: `<tag-cloud data-sn-early="off">`'); continue; }
+      if (a.name === 'data-sn-early') { this.report(host, a.name, 'SN318', '`data-sn-early` cannot be on a layout\'s tag: the layout is the whole page', 0, 'leave parts out of the early script on their own tags: `<tag-cloud data-sn-early="off">`'); continue; }
       if (a.name.startsWith('data-sn-')) {
         if (RETIRED[a.name]) this.report(host, a.name, 'SN101', `\`${a.name}\` ${RETIRED[a.name]}`, 0);
         else if (!callerAttribute(a.name) || a.name === 'data-sn-model' || a.name === 'data-sn-persist') this.report(host, a.name, 'SN102', `\`${a.name}\` cannot be on a layout's tag`, 0, 'a layout\'s tag takes `data-sn-with`, `data-sn-state`, handlers, `data-sn-class`, `-attr` and `-style`, `data-sn-path`, `data-sn-for` (a page per entry), `data-sn-prefetch` and `data-sn-swap`, and the attributes of `<html>`');
@@ -2259,7 +2259,7 @@ class Compiler {
       }
       if (def0 && this.internalUse(child, def0)) { detach(child); continue; }
       if (!def0 && this.layoutFile(child.tagName)) {
-        this.report(child, null, 'SN319', `\`<${child.tagName}>\` is a layout: it is the only tag of a page, at its top level`, 0, 'a layout cannot be inside a component, another layout or other markup');
+        this.report(child, null, 'SN318', `\`<${child.tagName}>\` is a layout: it is the only tag of a page, at its top level`, 0, 'a layout cannot be inside a component, another layout or other markup');
         detach(child);
         continue;
       }
@@ -6422,9 +6422,9 @@ class Compiler {
           if (!bad && (t === '' || t === '.' || t === '..' || t.includes('/'))) bad = `has \`${k}\` \`${t}\`, which is not one path segment`;
           return encodeURIComponent(t);
         });
-        if (bad) { this.report(d.html, 'data-sn-for', 'SN341', `${what} ${bad}: each entry fills \`${d.pattern}\``, 0); continue; }
+        if (bad) { this.report(d.html, 'data-sn-for', 'SN340', `${what} ${bad}: each entry fills \`${d.pattern}\``, 0); continue; }
         const prev = seen.get(path);
-        if (prev) { this.report(d.html, 'data-sn-for', 'SN341', `${what} and ${prev} would both be \`${path}\``, 0); continue; }
+        if (prev) { this.report(d.html, 'data-sn-for', 'SN340', `${what} and ${prev} would both be \`${path}\``, 0); continue; }
         seen.set(path, what);
         out.push({ value: e, path, key: keyOf.map((k) => String(rec[k])).join('\u001f') });
       }

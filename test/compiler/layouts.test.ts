@@ -93,14 +93,14 @@ describe('the merge', () => {
 });
 
 describe('errors', () => {
-  test('SN319: a page that uses a layout is only its tag', () => {
-    expect(errors(run('<p>before</p><site-layout data-sn-with="{ nav: \'x\' }"></site-layout>'))).toEqual([expect.stringMatching(/^SN319 a page that uses the layout `<site-layout>` is only its tag: `<p>` belongs inside it/)]);
-    expect(errors(run('<!doctype html><html><head><title>t</title></head><body><site-layout data-sn-with="{ nav: \'x\' }"></site-layout></body></html>'))).toEqual([expect.stringMatching(/^SN319 .*`<title>` belongs inside it/)]);
-    expect(errors(run('<site-layout data-sn-early="off" data-sn-with="{ nav: \'x\' }"></site-layout>'))).toEqual([expect.stringMatching(/^SN319 `data-sn-early` cannot be on a layout's tag/)]);
+  test('SN318: a page that uses a layout is only its tag', () => {
+    expect(errors(run('<p>before</p><site-layout data-sn-with="{ nav: \'x\' }"></site-layout>'))).toEqual([expect.stringMatching(/^SN318 a page that uses the layout `<site-layout>` is only its tag: `<p>` belongs inside it/)]);
+    expect(errors(run('<!doctype html><html><head><title>t</title></head><body><site-layout data-sn-with="{ nav: \'x\' }"></site-layout></body></html>'))).toEqual([expect.stringMatching(/^SN318 .*`<title>` belongs inside it/)]);
+    expect(errors(run('<site-layout data-sn-early="off" data-sn-with="{ nav: \'x\' }"></site-layout>'))).toEqual([expect.stringMatching(/^SN318 `data-sn-early` cannot be on a layout's tag/)]);
   });
 
-  test('SN319: a layout tag below the top level, or inside a component', () => {
-    expect(errors(run('<site-layout data-sn-with="{ nav: \'x\' }"><div><site-layout></site-layout></div></site-layout>'))).toEqual([expect.stringMatching(/^SN319 `<site-layout>` is a layout: it is the only tag of a page/)]);
+  test('SN318: a layout tag below the top level, or inside a component', () => {
+    expect(errors(run('<site-layout data-sn-with="{ nav: \'x\' }"><div><site-layout></site-layout></div></site-layout>'))).toEqual([expect.stringMatching(/^SN318 `<site-layout>` is a layout: it is the only tag of a page/)]);
   });
 
   test('SN320: a head element given to a body slot', () => {

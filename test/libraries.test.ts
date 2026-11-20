@@ -91,14 +91,14 @@ describe('the packages', () => {
     expect(ds[5]!.message).toMatch(/is outside the package/);
   });
 
-  test('SN338: a prefix belongs to one package, and an app component cannot take a library\'s prefix', () => {
+  test('SN337: a prefix belongs to one package, and an app component cannot take a library\'s prefix', () => {
     const root = app({ 'src/components/ui-button.html': '<template data-sn-props=""><button></button></template>' }, {
       '@t/other': { 'package.json': pkgJson({ name: '@t/other', sinter: './sinter' }), 'sinter/components/ui-box.html': '<template data-sn-props=""><div></div></template>' },
     });
     const ds = project(root, { libraries: ['@fixture/ui', '@t/other'] }).diagnostics;
     expect(ds.map((d) => [d.code, d.message.split(':')[0]])).toEqual([
-      ['SN338', '`@t/other` and `@fixture/ui` both name their components `ui-…`'],
-      ['SN338', '`<ui-button>` starts with `ui-`, the prefix of `@fixture/ui` (`sinter({ libraries })`)'],
+      ['SN337', '`@t/other` and `@fixture/ui` both name their components `ui-…`'],
+      ['SN337', '`<ui-button>` starts with `ui-`, the prefix of `@fixture/ui` (`sinter({ libraries })`)'],
     ]);
     expect(ds[1]!.file).toBe(join(root, 'src/components/ui-button.html'));
     expect(ds[1]!.hint).toMatch(/rename it \(`app-button`\)/);

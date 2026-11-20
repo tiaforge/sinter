@@ -135,7 +135,7 @@ export function readLibrary(name: string, dir: string, diagnostics: Diagnostic[]
 /**
  * The libraries of `sinter({ libraries })`, found from the root, with what is wrong: a package
  * that is not installed, has no `"sinter"` folder or none with `components/` (SN337); two packages,
- * or a package and an app component, with one prefix (SN338); a sinter version outside a library's
+ * or a package and an app component, with one prefix (SN337); a sinter version outside a library's
  * `peerDependencies` range (SN537). `config` is the file problems with the option itself point at.
  */
 export function libraries(root: string, list: string[], appComponents: string[], config: string): { libraries: Library[]; diagnostics: Diagnostic[] } {
@@ -152,7 +152,7 @@ export function libraries(root: string, list: string[], appComponents: string[],
     if (!lib) continue;
     const owner = out.find((l) => l.prefix && l.prefix === lib.prefix);
     if (owner) {
-      diagnostics.push({ severity: 'error', code: 'SN338', message: `\`${lib.name}\` and \`${owner.name}\` both name their components \`${lib.prefix}-…\`: a prefix belongs to one package, and there is no shadowing`, file: config, line: 1, col: 1, hint: 'use one of them, or ask a library\'s author to rename its prefix' });
+      diagnostics.push({ severity: 'error', code: 'SN337', message: `\`${lib.name}\` and \`${owner.name}\` both name their components \`${lib.prefix}-…\`: a prefix belongs to one package, and there is no shadowing`, file: config, line: 1, col: 1, hint: 'use one of them, or ask a library\'s author to rename its prefix' });
       continue;
     }
     if (lib.peer === null) {
@@ -164,7 +164,7 @@ export function libraries(root: string, list: string[], appComponents: string[],
   }
   for (const lib of out) {
     const taken = appComponents.filter((n) => lib.prefix && n.split('-')[0] === lib.prefix);
-    for (const n of taken) diagnostics.push({ severity: 'error', code: 'SN338', message: `\`<${n}>\` starts with \`${lib.prefix}-\`, the prefix of \`${lib.name}\` (\`sinter({ libraries })\`): a library owns its prefix, and an app component cannot shadow or add to it`, file: join(root, 'src', 'components', `${n}.html`), line: 1, col: 1, hint: `rename it (\`app-${n.slice(lib.prefix!.length + 1)}\`); to change how a library component looks everywhere, wrap it in a component of your own` });
+    for (const n of taken) diagnostics.push({ severity: 'error', code: 'SN337', message: `\`<${n}>\` starts with \`${lib.prefix}-\`, the prefix of \`${lib.name}\` (\`sinter({ libraries })\`): a library owns its prefix, and an app component cannot shadow or add to it`, file: join(root, 'src', 'components', `${n}.html`), line: 1, col: 1, hint: `rename it (\`app-${n.slice(lib.prefix!.length + 1)}\`); to change how a library component looks everywhere, wrap it in a component of your own` });
   }
   return { libraries: out, diagnostics };
 }
