@@ -1,6 +1,6 @@
 import { mount, $k, parsed } from '@tiaforge-ui/sinter/runtime';
 import sn$sse from '@tiaforge-ui/sinter/runtime/sse';
-import sn$cache from '@tiaforge-ui/sinter/runtime/cache';
+import sn$back from '@tiaforge-ui/sinter/runtime/back';
 import sn$versions from '@tiaforge-ui/sinter/runtime/versions';
 
 const ir = {"v":2,"resources":[{"name":"articles","src":["/api/articles"],"key":["slug"],"items":"articles","fed":1}],"roots":[{"tag":"main","b":[],"state":0,"sid":0,"id":0},{"tag":"#","p":0,"b":[{"k":"for","f":1,"d":[5],"x":0}],"id":1},{"tag":"button","p":0,"b":[{"k":"text","f":10,"d":[10]},{"k":"on","f":11,"n":"click"},{"k":"on","f":12,"n":"change","w":[10]}],"id":2}],"templates":[{"id":0,"nodes":[{"tag":"article","b":[{"k":"class","f":2,"d":[9],"n":"compact"},{"k":"on","f":3,"n":"select","w":[10]}],"cl":1,"path":[1]},{"tag":"h2","b":[{"k":"text","f":4},{"k":"on","f":5,"n":"click"}],"path":[1,1]},{"tag":"time","b":[{"k":"text","f":6}],"path":[1,3]},{"tag":"#","b":[{"k":"for","f":8,"x":1}],"path":[1,5,0]}],"item":"a","ii":"$i0","keyFields":["slug"],"find":13},{"id":1,"nodes":[{"tag":"li","b":[{"k":"text","f":9}],"path":[0]}],"item":"a$1","ii":"$i1","dv":1,"key":7,"find":14,"make":15,"o":1,"sm":1}],"actions":[],"syncs":[{"src":["/api/events"],"events":[{"name":"article_changed","resource":"articles","op":"refresh"}]}],"ps":{"p":[-1,-1,1,-1,-1,4,-1,6,6,6,6,-1],"k":{"8":"**"},"r":[0,0,0,0,0,[5],0,0,[9,10],0,[10]],"x":{"$locale":0,"$url":11,"$now":3,"$r.articles":5,"$meta.articles":2,"$s0.**":8,"$s0.$error":7}},"ev":["click","change","select"]};
@@ -28,4 +28,4 @@ const fns = [
 ];
 
 await parsed();
-mount(document, { ir, fns, features: [sn$sse, sn$cache, sn$versions] });
+mount(document, { ir, fns, features: [sn$sse, sn$back, sn$versions] });

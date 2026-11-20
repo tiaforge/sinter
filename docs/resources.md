@@ -143,6 +143,7 @@ keeps the data. The scroll position the browser restores then lands on the same 
   same as `cache`'s: the 256 KB limit, the 401 and `clearStored()` apply, and a full
   `sessionStorage` drops the older half of them.
 - An ordinary load of the page (a link, a reload, a typed URL) shows them only with `cache`.
+- Embedded data wins, as with `cache`: a resource whose data the server writes into the page has nothing to restore.
 - On Back and Forward browsers prefer their HTTP cache for the page's requests: an API should send
   `Cache-Control: no-cache` (with an `ETag`), or the revalidation may get the old response again.
 - In tests: `render(html, { session, traverse: true })` after a first `render()` with the same `session`.

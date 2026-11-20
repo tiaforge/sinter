@@ -1620,6 +1620,9 @@ class Compiler {
       eachPath(ir, (p) => { if (typeof p === 'string' && p.startsWith('$url.')) { const n = p.slice(5).split('.')[0]!; if (params.has(n)) read.add(n); } }, () => {});
       for (const n of [...read].sort()) this.report(this.pagesDecl.html, 'data-sn-for', 'SN345', `\`$url.${n}\` on a page per entry (\`data-sn-for\` on \`<html>\`): each entry's page is written at its own path, so \`:${n}\` is the entry's field, \`${this.pagesDecl.name}.${n}\``, 0);
     }
+    // Back and Forward restore what the page showed as it was left: cache.ts with `cache`, else back.ts where a resource can
+    // come back (not `for`, `call`, `method="POST"`, `file:`, embedded data, which wins, or `append`, which is not written)
+    if (!this.features.has('cache') && this.resources.some((r) => !r.call && !r.each && r.body == null && !r.fx && r.data == null && r.paginate?.mode !== 'append')) this.features.add('back');
     const reads = this.urlReads(ir, paths), own = this.ownPaths(paths);
     if (reads) this.checkDroppedQuery(reads, paths);
     // `navigate()` may go to this page with another query too: the build cannot see where, so it loads the module
@@ -1634,7 +1637,7 @@ class Compiler {
       ir, fns: this.fns,
       ...(this.opts.prerender ? { fixedState: this.fixedState() } : {}),
       ...(this.opts.sourcemap ? { sources: this.sourcesOf(this.fns) } : {}),
-      features: [...(this.opts.dev ? ['dev'] : []), ...['sse', 'optimistic', 'paginate', 'persist', 'cache', 'versions', 'refresh', 'for', 'options', 'keys', 'write-through', 'fields', 'form', 'select', 'location', 'typing', 'query-links', 'navigate', 'call', 'debounce', 'confirm', 'models', 'transition', 'components', 'nested', 'lets'].filter((f) => this.features.has(f))],
+      features: [...(this.opts.dev ? ['dev'] : []), ...['sse', 'optimistic', 'paginate', 'persist', 'cache', 'back', 'versions', 'refresh', 'for', 'options', 'keys', 'write-through', 'fields', 'form', 'select', 'location', 'typing', 'query-links', 'navigate', 'call', 'debounce', 'confirm', 'models', 'transition', 'components', 'nested', 'lets'].filter((f) => this.features.has(f))],
       helpers: { user, builtin }, namespaces, calls: [...this.calls].sort(),
       diagnostics: this.diagnostics, files: [...this.files].sort(), ...(this.fileGlobs.length ? { globs: this.fileGlobs } : {}), ...(this.pagesOut ? { pages: this.pagesOut } : {}),
       ...(this.check ? { check: this.check } : {}),
@@ -6285,8 +6288,6 @@ class Compiler {
         this.features.add('cache');
       }
     }
-    // Back and Forward restore what the page showed as it was left (cache.ts), with or without `cache`
-    if (!hasCall && !each && !post) this.features.add('cache');
     // `refresh="30s"`: reloaded once this long has passed since its last load, of any cause
     let refresh: number | undefined;
     const refreshAttr = attr(el, 'refresh');

@@ -283,3 +283,13 @@ test('an entry over 256 KB is not written as the page is left', async () => {
   await r.window('pagehide');
   expect(cacheKeys(session)).toEqual([]);
 });
+
+test('Back\'s module: the cache module with `cache`, the small one without, none where nothing can come back', () => {
+  const opts = { file: '/x/i.html', root: '/x', dev: false, helpers: { module: null, names: [], namespaces: {} }, readFile: () => { throw new Error('none'); }, actions: { module: '/x/a.js', names: ['go'], namespaces: {} } };
+  const features = (body: string, head = '') => [...compile(`<html><head>${head}</head><body>${body}</body></html>`, opts).module.matchAll(/runtime\/(cache|back)'/g)].map((m) => m[1]);
+  expect(features(LIST())).toEqual(['cache']);
+  expect(features(LIST(''))).toEqual(['back']);
+  // embedded data wins over any entry; `call`, POST and `append` lists are never written
+  expect(features('<sn-resource name="a" src="/api/a" key="id"></sn-resource><i data-sn-text="a.length"></i>', '<script type="application/json" data-sn-resource="a">[]</script>')).toEqual([]);
+  expect(features('<sn-resource name="a" call="go()"></sn-resource><sn-resource name="b" src="/api/b" method="POST" body="{ q: 1 }"></sn-resource><sn-resource name="c" src="/api/c" key="id" paginate="{ append: { before: $item.id }, size: 5 }"></sn-resource><i data-sn-text="[a, b, c.length]"></i>')).toEqual([]);
+});

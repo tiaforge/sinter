@@ -7,38 +7,24 @@
 //
 // Back and Forward: on a page reached by a history traversal (a load of type `back_forward`, which the
 // back/forward cache did not serve, or a swap's traversal), every resource the cache can hold restores
-// its entry, with or without `cache`, at any age, and revalidates. So the compiler adds this module to
-// every page with such a resource (not `for`, `call`, `method="POST"` or `file:`), and a resource
-// without `cache` writes its entry once, as the page is left (`pagehide`, or destroyed for a swap): the
-// page as the visitor left it, which is what they come back to. `append` lists are not written then.
+// its entry, with or without `cache`, at any age, and revalidates; a resource without `cache` writes its
+// entry once, as the page is left (`pagehide`, or destroyed for a swap). A page without `cache` gets the
+// smaller src/back.ts for that instead. `append` lists are not written then.
 import type { ResourceDef } from './ir.js';
 import type { App, Feature } from './runtime/app.js';
 import { CACHE_PREFIX } from './runtime/config.js';
 import type { Resource } from './runtime/store.js';
+import { keyOf, MAX_ENTRY, never, traversal } from './back.js';
 
-/** entries larger than this (serialized) are not written */
-export const MAX_ENTRY = 256 * 1024;
-
-/** set by a swap for the page it mounts: whether it is a traversal (Back, Forward), which a load's navigation type cannot say */
-const TRAVERSE = Symbol.for('sinter.traverse');
-/** set by a swap's traversal that reloads its entry instead (swap.ts `back()`): the URL it reloads */
-const BACK = 'sn:back';
+export { MAX_ENTRY };
 
 interface Tracked { def: ResourceDef; r: Resource; url: string; dirty: boolean; appended: boolean; off: boolean }
-
-/** what the page-load cache never holds: `call`, `for`, `method="POST"` and `file:` resources */
-const never = (d: ResourceDef) => d.call || d.each || d.body != null || d.fx;
 
 const cache: Feature = {
   name: 'cache',
   install(app: App) {
     const tracked = new Map<string, Tracked>();
-    // Back or Forward to this page (decided as it mounts): a swap says so; a load, by its navigation type, or by the mark
-    // of a swap's traversal that reloaded its entry (to a page with nothing to run, or one that could not mount)
-    const g = globalThis as any, s = app.env.session();
-    let back: boolean = app.env.traversal?.() ?? g[TRAVERSE] ?? ((performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming | undefined)?.type == 'back_forward');
-    try { if (s?.getItem(BACK) != null) { back ||= s.getItem(BACK) == app.env.href(); s.removeItem(BACK); } } catch { /* storage failures are ignored */ }
-    const keyOf = (def: ResourceDef, url: string) => CACHE_PREFIX + JSON.stringify([url, def.items, def.total]);
+    const back = traversal(app);
 
     /** drops the older half of the cache entries; false when there was nothing to drop */
     const evict = (s: Storage, keep: string): boolean => {
