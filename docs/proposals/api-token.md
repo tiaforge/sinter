@@ -136,13 +136,13 @@ What each page loads, min+gzip (`npm run size`, the work branch before and after
 
 | | Before | After | |
 | --- | ---: | ---: | --- |
-| minimal page (no token) | 11,090 B | 11,232 B | +142: the core's calls into the token module, `signOut()` |
-| RealWorld article | 58,975 B | 61,494 B | budget 63,488 |
-| RealWorld index | 33,278 B | 36,328 B | |
-| RealWorld profile | 32,931 B | 35,559 B | |
-| RealWorld editor | 28,668 B | 31,583 B | |
-| RealWorld settings | 27,859 B | 30,713 B | |
-| RealWorld login, register | 27,712 B | 30,146 B | |
+| minimal page (no token) | 11,500 B | 11,597 B | +97: the core's calls into the token module (`src/token.ts`, `src/signed-in.ts` are their own modules) |
+| RealWorld article | 59,522 B | 62,047 B | +2,525; budget 63,488 |
+| RealWorld index | 33,833 B | 36,872 B | +3,039 |
+| RealWorld profile | 33,527 B | 36,102 B | +2,575 |
+| RealWorld editor | 29,247 B | 32,117 B | +2,870 |
+| RealWorld settings | 28,435 B | 31,249 B | +2,814 |
+| RealWorld login, register | 28,269 B | 30,716 B | +2,447 |
 
 Most of RealWorld's growth is the early script's request code (about 1.3 KB of the shared early runtime, which it
 carried none of while it requested nothing early) and each page's early requests; the token module is about 0.3 KB
