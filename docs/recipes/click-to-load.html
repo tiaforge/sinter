@@ -7,7 +7,7 @@
 
   <button data-sn-on-click="open = true" data-sn-show="!open">Show comments</button>
   <section data-sn-show="open">
-    <p data-sn-show="$meta.comments.loading">Loading…</p>
+    <p data-sn-show="$meta.comments.loading && !comments.length">Loading…</p>
     <ul>
       <template data-sn-for="c in comments"><li data-sn-text="c.body"></li></template>
     </ul>

@@ -60,6 +60,7 @@ A smaller vocabulary, one word per concept ([docs/proposals/vocabulary.md](docs/
 
 ### Fixed
 
+- The starter (`npm create sinter`) no longer shows "No tasks here." beside "Loading…" while an empty list reloads: its empty line waits for `!$meta.tasks.loading`. The resources guide states the three status conditions once (loading `$meta.x.loading && !x.length`, empty `$meta.x.loadedAt && !$meta.x.loading && !shown.length`, error `$meta.x.error`), and its first example and the list-filter and click-to-load recipes no longer show "Loading…" over data a reload keeps on screen.
 - The message for an attribute a `file:` or `content:` resource does not take lists what it takes: it said only `name`, `type`, `items` and `key`, leaving out `src`, `order`, `drafts` and `fields` (and a collection takes neither `drafts` nor `items`).
 - A build-time source's attributes on a fetched resource are one rule: `fields` and `drafts` on `<sn-resource src="/api/…">` are `SN332`, saying they are for `file:` and `content:` sources (`fields` was `SN101` "not an attribute", and `drafts` was accepted and did nothing). `fields` is in the vocabulary, so editors complete it.
 - One mistake in a `$meta` chain is one diagnostic: `$meta[s ? 'people' : 'other'].loading` reported its `SN301` three times, and a bad field followed by more members (`$meta.people.loadng.toString()`, `$meta.people.live.x`) its `SN303` or `SN516` once per member.

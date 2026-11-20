@@ -10,7 +10,7 @@ changes go through store functions.
 
 <section data-sn-state="{ q: '' }">
   <input type="search" data-sn-model="q">
-  <p data-sn-show="$meta.people.loading" aria-busy="true">Loading…</p>
+  <p data-sn-show="$meta.people.loading && !people.length" aria-busy="true">Loading…</p>
   <ul>
     <template data-sn-for="p in people.filter(p => p.name.toLowerCase().includes(q.toLowerCase()))">
       <li data-sn-text="p.name"></li>
@@ -20,7 +20,7 @@ changes go through store functions.
 ```
 
 Loading needs no code. The list stays sorted by `name`, and the old data stays on screen during a
-reload. See `docs/recipes/list-filter.html`.
+reload ([loading, empty and error](#loading-empty-and-error)). See `docs/recipes/list-filter.html`.
 
 A long list or an expensive filter can wait for the typing to pause: `data-sn-model-debounce` on the
 field delays the model's write, while the field shows each keystroke at once.
@@ -84,6 +84,17 @@ build error, and so is a pagination field on a resource that is not paginated
 | `live` | The server-event stream feeding the resource ([sync](sync.md#connection-status)): `'connecting'` until it first opens, `'open'`, `'retrying'` after a failure; `null` when no `<sn-event>` feeds the resource. |
 
 Pagination adds `page`, `pages`, `from`, `to`, `hasPrev` and `hasNext`.
+
+### Loading, empty and error
+
+A list's three status lines, so that at most one of "Loading…" and the empty message shows, also while an
+empty list reloads:
+
+| Line | Condition |
+| --- | --- |
+| Loading | `$meta.people.loading && !people.length` (with data present, `loading` means "updating": the old rows stay) |
+| Empty | `$meta.people.loadedAt && !$meta.people.loading && !shown.length`, where `shown` is what the list shows (the resource, or a filter of it) |
+| Error | `$meta.people.error` |
 
 ## Changing a resource
 
