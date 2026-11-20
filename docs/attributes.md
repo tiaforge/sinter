@@ -122,7 +122,7 @@ Attributes sinter writes for CSS to style; writing one in markup is `SN101`.
 A named, page-wide cache of server data. Details: [resources](resources.md).
 
 - **Where the data comes from:** `name`, `src`, `method`, `body`, `call`, `for`, `when`, `early`
-- **What it looks like:** `key`, `items`, `total`, `order`, `drafts`, `fields`, `type`
+- **What it looks like:** `key`, `select`, `total`, `order`, `drafts`, `fields`, `type`
 - **How fresh it is:** `cache`, `refresh`, `then`
 - **Pagination:** `paginate`
 

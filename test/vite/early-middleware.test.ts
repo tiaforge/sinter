@@ -26,8 +26,8 @@ beforeAll(async () => {
 <html lang="en">
 <head><meta charset="utf-8"><title>Board</title></head>
 <body>
-  <sn-resource name="me" src="/api/me" items="user" type="any"></sn-resource>
-  <sn-resource name="items" src="/api/items?q={$url.q}" items="items" key="id" type="any"></sn-resource>
+  <sn-resource name="me" src="/api/me" select="user" type="any"></sn-resource>
+  <sn-resource name="items" src="/api/items?q={$url.q}" select="items" key="id" type="any"></sn-resource>
   <p id="me" data-sn-text="me ? me.name : ''"></p>
   <ul><template data-sn-for="i in items" data-sn-key="i.id"><li data-sn-text="i.name"></li></template></ul>
 </body>

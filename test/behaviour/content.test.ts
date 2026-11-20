@@ -34,10 +34,11 @@ describe('content: resources', () => {
       .toEqual([expect.stringMatching(/^SN342 `products`: the content module did not load its collections: collection `products`: CMS: 500/)]);
   });
 
-  test('SN332: `drafts` and `items` are the loader\'s business; what would load it', () => {
+  test('SN332: `drafts` and `select` are the loader\'s business; what would load it', () => {
     const one = (a: string) => errors(build(page(`<sn-resource name="p" src="content:products" ${a}></sn-resource><p data-sn-text="p.length"></p>`)));
     expect(one('drafts="draft"')).toEqual([expect.stringMatching(/^SN332 `drafts` is a `file:` glob's; a collection leaves its drafts out in its loader/)]);
-    expect(one('items="x"')).toEqual([expect.stringMatching(/^SN332 `items` picks a list out of a value; a collection is a list already/)]);
+    expect(one('select="x"')).toEqual([expect.stringMatching(/^SN332 `select` picks a part of a value; a collection is a list already/)]);
+    expect(one('items="x"')).toEqual([expect.stringMatching(/^SN101 `items` is renamed to `select`/)]);
     expect(one('refresh="30s"')).toEqual([expect.stringMatching(/^SN332 `refresh` reloads, and a `content:` resource is a constant/)]);
   });
 

@@ -5,7 +5,7 @@ import { memoryStorage, mockRequests, mockStream, render, type RecordedCall } fr
 
 const LIST = (then: string, attrs = '') => `
   <main data-sn-state="{ n: 0, last: '', q: 'a' }">
-    <sn-resource name="contacts" src="/api/contacts?q={q}" items="contacts" key="id" order="name" ${attrs} then="${then}"></sn-resource>
+    <sn-resource name="contacts" src="/api/contacts?q={q}" select="contacts" key="id" order="name" ${attrs} then="${then}"></sn-resource>
     <sn-sync src="/api/events">
       <sn-event name="changed" resource="contacts" op="refresh"></sn-event>
       <sn-event name="updated" resource="contacts" op="upsert" value="$event.contact"></sn-event>
@@ -142,7 +142,7 @@ describe('<sn-resource then>', () => {
     const stream = mockStream();
     const r = await render(`
       <sn-resource name="accounts" src="/api/accounts" key="id"></sn-resource>
-      <sn-resource name="boxes" for="a in accounts" src="/api/boxes?account={a.id}" items="boxes" key="account,name"
+      <sn-resource name="boxes" for="a in accounts" src="/api/boxes?account={a.id}" select="boxes" key="account,name"
         then="seen($result.map((b) => b.account).join())"></sn-resource>
       <sn-sync src="/s"><sn-event name="boxes_changed" resource="boxes" op="refresh"></sn-event></sn-sync>
       <ul><template data-sn-for="b in boxes"><li data-sn-text="b.account"></li></template></ul>`,
@@ -166,7 +166,7 @@ describe('<sn-resource then>', () => {
     });
     const { root, settle } = await render(`
       <main data-sn-state="{ got: [] }">
-        <sn-resource name="m" src="/api/m" items="items" total="total" key="id" paginate="{ numbered: true, size: 2 }"
+        <sn-resource name="m" src="/api/m" select="items" total="total" key="id" paginate="{ numbered: true, size: 2 }"
           then="got = [...got, $result.map((x) => x.id).join('+')]"></sn-resource>
         <button data-sn-on-click="page(m, 'next')"></button>
         <p data-sn-text="got.join(' ') + ' / ' + m.length"></p>

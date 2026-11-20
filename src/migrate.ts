@@ -16,7 +16,7 @@ type P5Element = DefaultTreeAdapterMap['element'];
 type P5Parent = DefaultTreeAdapterMap['parentNode'];
 
 const ACTIONS = ['post', 'put', 'patch', 'delete'] as const;
-const SHAPE = ['items', 'total', 'key', 'type'] as const;
+const SHAPE = ['select', 'total', 'key', 'type'] as const;
 
 export interface Rewrite { line: number; from: string; to: string }
 

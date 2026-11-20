@@ -88,12 +88,12 @@ async function swapTo(next: ReturnType<typeof compile>, between?: () => void) {
 
 const sync = (src: string, events: string) => `<sn-sync src="${src}">${events}</sn-sync>`;
 const A = compile(`<div data-sn-state="{ got: [] }">
-  <sn-resource name="items" src="/api/items" items="items" key="id"></sn-resource>
+  <sn-resource name="items" src="/api/items" select="items" key="id"></sn-resource>
   ${sync('/events', '<sn-event name="item" resource="items" op="upsert"></sn-event><sn-event name="note" then="got = [...got, $event.text]"></sn-event>')}
   <p id="got" data-sn-text="got.join(',')"></p><p id="live" data-sn-text="$meta.items.live"></p>
   <ul><template data-sn-for="x in items"><li data-sn-text="x.id"></li></template></ul></div>`);
 const B = compile(`<div data-sn-state="{ got: [] }">
-  <sn-resource name="items" src="/api/other" items="items" key="id"></sn-resource>
+  <sn-resource name="items" src="/api/other" select="items" key="id"></sn-resource>
   ${sync('/events', '<sn-event name="item" resource="items" op="upsert"></sn-event><sn-event name="note" then="got = [...got, \'B:\' + $event.text]"></sn-event><sn-event name="extra" then="got = [...got, \'x\']"></sn-event>')}
   <p id="got" data-sn-text="got.join(',')"></p><p id="live" data-sn-text="$meta.items.live"></p>
   <ul><template data-sn-for="x in items"><li data-sn-text="x.id"></li></template></ul></div>`);
@@ -355,7 +355,7 @@ test('the page left while the window is open: what is parked closes', async () =
 test('an event the page shown applies while the next page\'s HTML is fetched: the next page refetches what it feeds, if its data came with the HTML', async () => {
   // caley: the contacts page's embedded list was older than a contact_updated sent while its HTML was in flight
   const embedded = compile(`<div data-sn-state="{ got: [] }">
-    <sn-resource name="items" src="/api/other" items="items" key="id"></sn-resource>
+    <sn-resource name="items" src="/api/other" select="items" key="id"></sn-resource>
     ${sync('/events', '<sn-event name="item" resource="items" op="upsert"></sn-event>')}
     <ul><template data-sn-for="x in items"><li data-sn-text="x.id"></li></template></ul></div>`,
   '<script type="application/json" data-sn-resource="items">{"items":[{"id":1}]}</script>');
@@ -380,7 +380,7 @@ test('an event the page shown applies while the next page\'s HTML is fetched: th
 
 test('from a page that does not listen to an event the next page maps: its data from the HTML is refetched, events may have been missed', async () => {
   // caley: settings maps no contact_updated, so EventSource never delivered the one sent during the fetch
-  const embedded = compile(`<sn-resource name="items" src="/api/other" items="items" key="id"></sn-resource>
+  const embedded = compile(`<sn-resource name="items" src="/api/other" select="items" key="id"></sn-resource>
     ${sync('/events', '<sn-event name="item" resource="items" op="upsert"></sn-event>')}`,
   '<script type="application/json" data-sn-resource="items">{"items":[{"id":1}]}</script>');
   const notes = compile(sync('/events', '<sn-event name="note" then="0"></sn-event>'));

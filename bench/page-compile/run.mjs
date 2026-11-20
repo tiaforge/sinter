@@ -8,7 +8,7 @@ const card = `<template data-sn-props="{ title: string; body: string }"><article
 const files = { '/p/src/components/x-card.html': card };
 
 function page(n) {
-  const top = `<sn-resource name="items" src="/api/items" items="items" key="id" order="name"></sn-resource>`;
+  const top = `<sn-resource name="items" src="/api/items" select="items" key="id" order="name"></sn-resource>`;
   const sec = (i) => `
 <section id="s${i}" data-sn-state="{ q${i}: '', open${i}: false, n${i}: ${i} }">
   <h2 data-sn-text="'Section ' + n${i} + ' of ' + ${n}"></h2>

@@ -30,7 +30,7 @@ test('a resource a stream feeds is refetched by the stream module on reconnect, 
   const stream = mockStream();
   configure({ sessionProbe: '/api/user' });
   const { window, settle } = await render(`
-    <sn-resource name="m" src="/api/m" items="m" key="id"></sn-resource>
+    <sn-resource name="m" src="/api/m" select="m" key="id"></sn-resource>
     <sn-sync src="/events"><sn-event name="m" resource="m" op="upsert"></sn-event></sn-sync>
     <template data-sn-for="x in m"><li></li></template>`, { requests, streams: { '/events': stream } });
   await settle();

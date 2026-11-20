@@ -317,7 +317,7 @@ below the list moves down to make room for them. For a list whose size the style
 build holds that room from the first frame:
 
 ```html
-<sn-resource name="people" src="/api/people" items="people" key="id" paginate="{ numbered: true, size: 12 }"></sn-resource>
+<sn-resource name="people" src="/api/people" select="people" key="id" paginate="{ numbered: true, size: 12 }"></sn-resource>
 <ul><template data-sn-for="p in people"><li class="row" data-sn-text="p.name"></li></template></ul>
 ```
 

@@ -2,9 +2,9 @@
 <html>
 <head><title>Contacts</title></head>
 <body>
-<sn-resource name="contacts" src="/api/contacts" items="contacts"
+<sn-resource name="contacts" src="/api/contacts" select="contacts"
              key="account_id,uid,addressbook_href" order="fn_name"></sn-resource>
-<sn-resource name="addressbooks" src="/api/contacts" items="addressbooks"
+<sn-resource name="addressbooks" src="/api/contacts" select="addressbooks"
              key="account_id,href"></sn-resource>
 
 <sn-sync src="/api/events/stream">

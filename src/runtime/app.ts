@@ -165,12 +165,12 @@ export interface ResourceLoader {
   get(url: string, signal: AbortSignal, lo?: number): Promise<unknown>;
   /** for feature modules: the shared GET's response, before its body is read */
   got(url: string, signal: AbortSignal, lo?: number): Promise<Got>;
-  /** for feature modules: the collection items of a response body (`items` path, checked, cleaned) */
+  /** for feature modules: the collection items of a response body (`select` path, checked, cleaned) */
   items(body: unknown): any[];
   /** for feature modules: a failed load: `$meta.error`, then the unhandled-error path (`quiet`: only if it was not failing already) */
   failed(e: unknown, quiet?: boolean): void;
   loading(on: boolean): void;
-  /** for feature modules: a load stored `result` (what `items` selects): runs `then` */
+  /** for feature modules: a load stored `result` (what `select` selects): runs `then` */
   done(result: unknown): void;
 }
 
@@ -1799,8 +1799,8 @@ export function mount(root: Document | Element, o: MountOptions): App {
     };
     /** stores a response; `req` is the URL it came from, for the page-load cache */
     const store = (body: unknown, req: string, m = l.pager?.current()) => {
-      let items = pick(def.items, body);
-      if (r.isCollection && !Array.isArray(items)) { warn(12, def.name, def.items ?? '(response)'); items = []; }
+      let items = pick(def.select, body);
+      if (r.isCollection && !Array.isArray(items)) { warn(12, def.name, def.select ?? '(response)'); items = []; }
       if (Array.isArray(items)) items = items.map(clean);
       const t = def.total ? pick(def.total, body) : null, total = t == null ? null : +t;
       fill(items, total, m);
@@ -1825,8 +1825,8 @@ export function mount(root: Document | Element, o: MountOptions): App {
       // no user event causes a load's `then`: its `$url` writes replace
       done: (v) => def.then != null && as(null, () => app.exec(def.then!, child(scope(), { $result: v }), def.w)),
       items(body) {
-        let items = pick(def.items, body);
-        if (!Array.isArray(items)) { warn(12, def.name, def.items ?? '(response)'); items = []; }
+        let items = pick(def.select, body);
+        if (!Array.isArray(items)) { warn(12, def.name, def.select ?? '(response)'); items = []; }
         return items.map(clean);
       },
       start() {

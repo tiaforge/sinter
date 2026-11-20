@@ -8,7 +8,7 @@
   <link rel="stylesheet" href="/style.css">
 </head>
 <body>
-  <sn-resource name="item" src="/api/items/{$url.id}" items="item"></sn-resource>
+  <sn-resource name="item" src="/api/items/{$url.id}" select="item"></sn-resource>
   <a id="home" href="/">All items</a>
   <h1 id="title" data-sn-transition="'item-' + $url.id" data-sn-text="item?.title ?? ''"></h1>
 </body>

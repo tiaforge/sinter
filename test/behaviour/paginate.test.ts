@@ -19,7 +19,7 @@ function keyset(call: RecordedCall) {
 }
 
 const PAGE = `
-  <sn-resource name="messages" src="/api/m" items="messages" total="total" key="uid"
+  <sn-resource name="messages" src="/api/m" select="messages" total="total" key="uid"
     paginate="{ keyset: {at: $item.at}, size: 3 }" order="-at"></sn-resource>
   <span data-sn-text="\`\${$meta.messages.from}–\${$meta.messages.to} of \${$meta.messages.total} \${$meta.messages.pages}\`"></span>
   <b data-sn-text="[$meta.messages.hasPrev, $meta.messages.hasNext].join()"></b>
@@ -82,7 +82,7 @@ test('offset pagination jumps to page numbers', async () => {
     },
   });
   const { root, settle } = await render(`
-    <sn-resource name="o" src="/api/o" items="items" total="total" key="uid" paginate="{ numbered: true, size: 3 }"></sn-resource>
+    <sn-resource name="o" src="/api/o" select="items" total="total" key="uid" paginate="{ numbered: true, size: 3 }"></sn-resource>
     <span data-sn-text="[$meta.o.page, $meta.o.pages, $meta.o.from, $meta.o.to, $meta.o.hasPrev, $meta.o.hasNext].join()"></span>
     <button data-sn-on-click="page(o, 3)"></button>`, { requests });
   await settle();
@@ -96,7 +96,7 @@ test('append mode keeps loaded items and refetches them in one request', async (
   const requests = mockRequests({ 'GET /api/m': keyset });
   const stream = mockStream();
   const { root, settle } = await render(`
-    <sn-resource name="messages" src="/api/m" items="messages" key="uid" paginate="{ append: {at: $item.at}, size: 3 }" order="-at"></sn-resource>
+    <sn-resource name="messages" src="/api/m" select="messages" key="uid" paginate="{ append: {at: $item.at}, size: 3 }" order="-at"></sn-resource>
     <sn-sync src="/s"><sn-event name="r" resource="messages" op="refresh"></sn-event></sn-sync>
     <button data-sn-on-click="page(messages, 'next')"></button>
     <ul><template data-sn-for="m in messages"><li data-sn-text="m.uid"></li></template></ul>`, { requests, streams: { '/s': stream } });
@@ -302,7 +302,7 @@ describe('jump diagnostics', () => {
 test('cursor fields that are null are left out, like URL template parameters', async () => {
   const requests = mockRequests({ 'GET /api/n': { items: [{ id: 1, sent: null }, { id: 2, sent: null }] } });
   const { root, settle } = await render(`
-    <sn-resource name="n" src="/api/n" items="items" key="id" paginate="{ keyset: {cursor_sent_at: $item.sent, cursor_rowid: $item.id}, size: 2 }"></sn-resource>
+    <sn-resource name="n" src="/api/n" select="items" key="id" paginate="{ keyset: {cursor_sent_at: $item.sent, cursor_rowid: $item.id}, size: 2 }"></sn-resource>
     <button data-sn-on-click="page(n, 'next')"></button><p data-sn-text="n.length"></p>`, { requests });
   await settle();
   root.querySelector('button')!.click();
@@ -314,7 +314,7 @@ test('an empty next page shows no positions; offset prev on page 1 and next on t
   // a full first page, then nothing after it
   const requests = mockRequests({ 'GET /api/e': (call) => ({ items: call.url.includes('after=') ? [] : [{ id: 1 }, { id: 2 }] }) });
   const r = await render(`
-    <sn-resource name="e" src="/api/e" key="id" items="items" paginate="{ keyset: {after: $item.id}, size: 2 }"></sn-resource>
+    <sn-resource name="e" src="/api/e" key="id" select="items" paginate="{ keyset: {after: $item.id}, size: 2 }"></sn-resource>
     <button data-sn-on-click="page(e, 'next')">n</button>
     <p data-sn-text="[$meta.e.from, $meta.e.to, $meta.e.hasPrev, $meta.e.hasNext].join()"></p>`, { requests });
   await r.settle();
@@ -326,7 +326,7 @@ test('an empty next page shows no positions; offset prev on page 1 and next on t
 
   const offset = mockRequests({ 'GET /api/o': { items: [{ id: 1 }], total: 10 } });
   const o = await render(`
-    <sn-resource name="o" src="/api/o" key="id" items="items" total="total" paginate="{ numbered: true, size: 10 }"></sn-resource>
+    <sn-resource name="o" src="/api/o" key="id" select="items" total="total" paginate="{ numbered: true, size: 10 }"></sn-resource>
     <button id="p" data-sn-on-click="page(o, 'prev')">p</button><button id="n" data-sn-on-click="page(o, 'next')">n</button>
     <p data-sn-text="$meta.o.page"></p>`, { requests: offset });
   await o.settle();
@@ -343,9 +343,9 @@ test('page() does nothing past the ends: prev without hasPrev, next without hasN
   const flags = (n: string) => `<b id="${n}-f" data-sn-text="[$meta.${n}.hasPrev, $meta.${n}.hasNext].join()"></b>`;
   const requests = mockRequests({ 'GET /api/m': keyset, 'GET /api/a': keyset, 'GET /api/o': { items: [{ id: 1 }], total: 1 } });
   const r = await render(`
-    <sn-resource name="messages" src="/api/m" items="messages" total="total" key="uid" paginate="{ keyset: {at: $item.at}, size: 3 }"></sn-resource>
-    <sn-resource name="feed" src="/api/a" items="messages" key="uid" paginate="{ append: {at: $item.at}, size: 4 }"></sn-resource>
-    <sn-resource name="o" src="/api/o" items="items" total="total" key="id" paginate="{ numbered: true, size: 10 }"></sn-resource>
+    <sn-resource name="messages" src="/api/m" select="messages" total="total" key="uid" paginate="{ keyset: {at: $item.at}, size: 3 }"></sn-resource>
+    <sn-resource name="feed" src="/api/a" select="messages" key="uid" paginate="{ append: {at: $item.at}, size: 4 }"></sn-resource>
+    <sn-resource name="o" src="/api/o" select="items" total="total" key="id" paginate="{ numbered: true, size: 10 }"></sn-resource>
     ${flags('messages')}${flags('feed')}${flags('o')}
     <div data-sn-state="{ to: 'prev' }">
       <button id="k-dir" data-sn-on-click="page(messages, to)"></button>
@@ -392,7 +392,7 @@ test('page() does nothing past the ends: prev without hasPrev, next without hasN
 test('page() before the first load has come back does nothing for prev and next', async () => {
   const requests = mockRequests({ 'GET /api/m': keyset });
   const r = await render(`
-    <sn-resource name="messages" src="/api/m" items="messages" key="uid" paginate="{ keyset: {at: $item.at}, size: 3 }"></sn-resource>
+    <sn-resource name="messages" src="/api/m" select="messages" key="uid" paginate="{ keyset: {at: $item.at}, size: 3 }"></sn-resource>
     <button data-sn-on-click="page(messages, 'next')"></button>
     <ul><template data-sn-for="m in messages"><li data-sn-text="m.uid"></li></template></ul>`, { requests });
   r.root.querySelector('button')!.click();
@@ -423,7 +423,7 @@ test('offset mode: embedded data is page 1, and page(3) asks for page 3', async 
   } });
   const first = JSON.stringify({ items: ALL.slice(0, 3), total: ALL.length });
   const { root, settle } = await render(`<html><head><script type="application/json" data-sn-resource="o">${first}</script></head><body>
-    <sn-resource name="o" src="/api/o" items="items" total="total" key="uid" paginate="{ numbered: true, size: 3 }"></sn-resource>
+    <sn-resource name="o" src="/api/o" select="items" total="total" key="uid" paginate="{ numbered: true, size: 3 }"></sn-resource>
     <span data-sn-text="[$meta.o.page, $meta.o.pages, $meta.o.from, $meta.o.to, $meta.o.hasPrev, $meta.o.hasNext].join()"></span>
     <button data-sn-on-click="page(o, 3)"></button></body></html>`, { requests });
   await settle();
@@ -443,7 +443,7 @@ test('page-model with embedded data: the data is the URL\'s page (here 3 of 3), 
   // what a server writes for /?page=3: the request ?skip=6&limit=3
   const third = JSON.stringify({ items: ALL.slice(6, 9), total: ALL.length });
   const { root, settle } = await render(`<html><head><script type="application/json" data-sn-resource="o">${third}</script></head><body>
-    <sn-resource name="o" src="/api/o" items="items" total="total" key="uid" paginate="{ numbered: 'offset', size: 3, model: $url.page, params: { offset: 'skip' } }"></sn-resource>
+    <sn-resource name="o" src="/api/o" select="items" total="total" key="uid" paginate="{ numbered: 'offset', size: 3, model: $url.page, params: { offset: 'skip' } }"></sn-resource>
     <span data-sn-text="[$meta.o.page, $meta.o.pages, $meta.o.from, $meta.o.to, $meta.o.hasPrev, $meta.o.hasNext].join()"></span>
     <button data-sn-on-click="page(o, 'prev')"></button></body></html>`, { requests, url: 'http://localhost/?page=3' });
   await settle();

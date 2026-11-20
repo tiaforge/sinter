@@ -5,7 +5,7 @@ import { compile } from '../../src/compiler/index.js';
 import { memoryStorage, mockRequests, mockStream, render, type RouteResponse } from '../../src/testing/index.js';
 
 const LIST = (attrs = 'cache') => `
-  <sn-resource name="contacts" src="/api/contacts" items="contacts" key="id" order="name" ${attrs}></sn-resource>
+  <sn-resource name="contacts" src="/api/contacts" select="contacts" key="id" order="name" ${attrs}></sn-resource>
   <p data-sn-text="$meta.contacts.loading ? 'loading' : 'idle'"></p>
   <ul><template data-sn-for="c in contacts"><li data-sn-text="c.name"></li></template></ul>`;
 
@@ -113,14 +113,14 @@ test('embedded data wins over the cache and is cached itself', async () => {
 test('two pages that load the same thing share the entry, whatever they call it', async () => {
   const session = memoryStorage();
   await visit(session);
-  const r = await render(LIST().replace(/contacts(?=[" .\]])/g, 'people').replace('/api/people', '/api/contacts').replace('items="people"', 'items="contacts"'),
+  const r = await render(LIST().replace(/contacts(?=[" .\]])/g, 'people').replace('/api/people', '/api/contacts').replace('select="people"', 'select="contacts"'),
     { session, requests: mockRequests({ 'GET /api/contacts': { contacts: [] } }) });
   expect(names(r.root)).toEqual(['Ada', 'Grace']);
 });
 
 test('offset pages are cached per page', async () => {
   const session = memoryStorage();
-  const html = `<sn-resource name="rows" src="/api/rows" items="rows" total="total" key="id" paginate="{ numbered: true, size: 2 }" cache></sn-resource>
+  const html = `<sn-resource name="rows" src="/api/rows" select="rows" total="total" key="id" paginate="{ numbered: true, size: 2 }" cache></sn-resource>
     <ul><template data-sn-for="x in rows"><li data-sn-text="x.name"></li></template></ul><b data-sn-text="$meta.rows.pages"></b>`;
   const route = (c: { url: string }) => (new URL(c.url, 'http://x').searchParams.get('offset') === '2'
     ? { rows: [{ id: 3, name: 'c' }], total: 3 } : { rows: [{ id: 1, name: 'a' }, { id: 2, name: 'b' }], total: 3 });
@@ -181,7 +181,7 @@ test('the compiler checks `cache` and adds the feature only where it is used', (
 
 test('a guard on loadedAt does not act on cached data', async () => {
   // RealWorld's pattern: redirect when the server says there is no user
-  const html = `<sn-resource name="user" src="/api/user" items="user" cache></sn-resource>
+  const html = `<sn-resource name="user" src="/api/user" select="user" cache></sn-resource>
     <b data-sn-show="$meta.user.loadedAt && !user">signed out</b>`;
   const session = memoryStorage();
   const first = await render(html, { session, requests: mockRequests({ 'GET /api/user': { user: null } }) });
@@ -195,7 +195,7 @@ test('a guard on loadedAt does not act on cached data', async () => {
 test('a resource turned off by `when` does not replace its cache entry with nothing', async () => {
   const session = memoryStorage();
   const html = `<div data-sn-state="{ on: true }">
-    <sn-resource name="contacts" src="/api/contacts" items="contacts" key="id" when="on" cache></sn-resource>
+    <sn-resource name="contacts" src="/api/contacts" select="contacts" key="id" when="on" cache></sn-resource>
     <button data-sn-on-click="on = false">off</button>
     <ul><template data-sn-for="c in contacts"><li data-sn-text="c.name"></li></template></ul></div>`;
   const first = await visit(session, html);

@@ -17,7 +17,7 @@ export { lists } from './runtime/lists.js';
 export interface PrefetchPage {
   /** path patterns (`/article/:slug`), or the paths the page's file is served at */
   m: string[];
-  /** the page's resources whose request only `$url` decides: URL template, `when`, `items`, `total`, `k` for a collection */
+  /** the page's resources whose request only `$url` decides: URL template, `when`, `select`, `total`, `k` for a collection */
   r: Array<{ s: UrlTemplate; w?: number; i: string | null; t: string | null; k?: 1 }>;
   /** the functions the templates index */
   f: Array<(s: any) => any>;
@@ -71,7 +71,7 @@ export function prefetch(pages: PrefetchPage[], l?: typeof lists): Feature {
 
       app.ext.prefetch = {
         take(def: ResourceDef, url: string) {
-          const key = keyOf(url, def.items, def.total), e = read(key);
+          const key = keyOf(url, def.select, def.total), e = read(key);
           if (!e) return null;
           try { env.session()?.removeItem(key); } catch { /* ignored */ }
           return env.now() - e.t <= MAX_AGE ? e : null;
@@ -92,7 +92,7 @@ export function prefetch(pages: PrefetchPage[], l?: typeof lists): Feature {
         const segs = segments(u.pathname), page = pages.find((p) => p.m.some((m) => matches(m, segs)));
         if (!page) return;
         const scope = { $url: l && page.a ? l(u.href, page.a, readUrl(u.href, page.m)) : readUrl(u.href, page.m) };
-        // resources that read different parts of one response (`items`) share its request, as on the page
+        // resources that read different parts of one response (`select`) share its request, as on the page
         const sent = new Map<string, Promise<unknown>>();
         for (const r of page.r) {
           let url: string;
@@ -103,7 +103,7 @@ export function prefetch(pages: PrefetchPage[], l?: typeof lists): Feature {
           const key = keyOf(url, r.i, r.t), had = read(key);
           if (busy.has(key) || (had && env.now() - had.t < MAX_AGE / 3)) continue;
           // data this page has loaded from the same request: handed over, no request
-          const own = app.ir.resources.find((d) => !d.paginate && d.items == r.i && d.total == r.t && app.resource(d.name).loader?.url?.() == url && app.resource(d.name).meta.loadedAt != null);
+          const own = app.ir.resources.find((d) => !d.paginate && d.select == r.i && d.total == r.t && app.resource(d.name).loader?.url?.() == url && app.resource(d.name).meta.loadedAt != null);
           if (own) { const b = app.resource(own.name).base(); write(key, b.items, b.total); continue; }
           busy.add(key);
           const w = app.req.writes;

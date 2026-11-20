@@ -11,15 +11,15 @@ import { memoryStorage, mockRequests, render, type RouteResponse } from '../../s
 afterEach(() => { config.request = []; });
 
 const ARTICLE = `<html data-sn-path="/article/:slug"><head></head><body>
-  <sn-resource name="article" src="/api/articles/{$url.slug}" items="article"></sn-resource>
-  <sn-resource name="comments" src="/api/articles/{$url.slug}/comments" items="comments" key="id"></sn-resource>
+  <sn-resource name="article" src="/api/articles/{$url.slug}" select="article"></sn-resource>
+  <sn-resource name="comments" src="/api/articles/{$url.slug}/comments" select="comments" key="id"></sn-resource>
   <h1 data-sn-text="article?.title ?? 'loading'"></h1>
   <p data-sn-text="$meta.article.loadedAt ? 'loaded' : 'not loaded'"></p>
   <ul><template data-sn-for="c in comments"><li data-sn-text="c.body"></li></template></ul>
 </body></html>`;
 
 const LIST = `
-  <sn-resource name="articles" src="/api/articles" items="articles" key="slug"></sn-resource>
+  <sn-resource name="articles" src="/api/articles" select="articles" key="slug"></sn-resource>
   <ul><template data-sn-for="a in articles"><li><a data-sn-attr="{href: '/article/' + a.slug}" data-sn-text="a.title"></a></li></template></ul>
   <a id="away" href="https://elsewhere.example/article/x">elsewhere</a>
   <a id="about" href="/about">about</a>`;
@@ -169,8 +169,8 @@ test('a 401 on a prefetch does not start the login redirect', async () => {
 test('resources of the next page that read different parts of one response share one request', async () => {
   const session = memoryStorage();
   const book = `<html data-sn-path="/book"><head></head><body>
-    <sn-resource name="contacts" src="/api/contacts" items="contacts" key="id"></sn-resource>
-    <sn-resource name="books" src="/api/contacts" items="books" key="id"></sn-resource>
+    <sn-resource name="contacts" src="/api/contacts" select="contacts" key="id"></sn-resource>
+    <sn-resource name="books" src="/api/contacts" select="books" key="id"></sn-resource>
     <ul><template data-sn-for="c in contacts"><li data-sn-text="c.name"></li></template></ul>
     <ol><template data-sn-for="b in books"><li data-sn-text="b.name"></li></template></ol>
   </body></html>`;
@@ -187,7 +187,7 @@ test('resources of the next page that read different parts of one response share
 
 test('data this page has from the same request is handed over without a request', async () => {
   const session = memoryStorage();
-  const user = `<sn-resource name="user" src="/api/user" items="user"></sn-resource><b data-sn-text="user?.name"></b>`;
+  const user = `<sn-resource name="user" src="/api/user" select="user"></sn-resource><b data-sn-text="user?.name"></b>`;
   const settings = `<html data-sn-path="/settings"><head></head><body>${user}</body></html>`;
   const requests = mockRequests({ 'GET /api/user': { user: { name: 'Ada' } } });
   const r = await render(`${user}<a href="/settings">settings</a>`, { session, requests, pages: { 'settings.html': settings } });
@@ -201,10 +201,10 @@ test('data this page has from the same request is handed over without a request'
 
 test('the compiler describes only resources whose request the URL decides; helpers come along', () => {
   const html = `<html data-sn-path="/p/:id"><head></head><body><div data-sn-state="{ q: '' }">
-    <sn-resource name="a" src="/api/a/{$url.id}?o={offset($url.page)}" items="a" key="id" when="$url.id"></sn-resource>
-    <sn-resource name="b" src="/api/b?q={q}" items="b"></sn-resource>
-    <sn-resource name="c" src="/api/c?at={a.length}" items="c"></sn-resource>
-    <sn-resource name="d" src="/api/d" items="d" paginate="{ numbered: true, size: 10 }"></sn-resource>
+    <sn-resource name="a" src="/api/a/{$url.id}?o={offset($url.page)}" select="a" key="id" when="$url.id"></sn-resource>
+    <sn-resource name="b" src="/api/b?q={q}" select="b"></sn-resource>
+    <sn-resource name="c" src="/api/c?at={a.length}" select="c"></sn-resource>
+    <sn-resource name="d" src="/api/d" select="d" paginate="{ numbered: true, size: 10 }"></sn-resource>
     <i data-sn-text="a.length + b.length + c.length + d.length"></i></div></body></html>`;
   const parts = compileParts(html, { file: '/t/p.html', root: '/t', dev: false, readFile: () => '', helpers: { module: '/src/h.js', names: ['offset'], namespaces: {} } });
   expect(parts.prefetch!.path).toEqual(['/p/:id']);
@@ -242,7 +242,7 @@ test('`<html data-sn-prefetch="off">`: the page is never described; anywhere els
 test("the target page's array parameters are read as lists", async () => {
   const SEARCH = `<html data-sn-path="/search"><head></head><body>
     <select multiple data-sn-model="$url.tag"><option>go</option></select>
-    <sn-resource name="hits" src="/api/hits?tag={$url.tag}" items="hits" key="id"></sn-resource>
+    <sn-resource name="hits" src="/api/hits?tag={$url.tag}" select="hits" key="id"></sn-resource>
     <ul><template data-sn-for="h in hits"><li data-sn-text="h.id"></li></template></ul></body></html>`;
   const requests = mockRequests({ 'GET /api/hits': { hits: [] } });
   const r = await render('<a href="/search?tag=go&tag=rs">s</a>', { session: memoryStorage(), requests, pages: { 'search.html': SEARCH } });

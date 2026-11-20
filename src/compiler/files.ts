@@ -14,9 +14,9 @@ export const FILE = 'file';
 export const isFileSource = (value: string | undefined) => value != null && /^file:/.test(value.trimStart());
 
 /** the attributes a `file:` resource takes: the others load, refresh, page or write it */
-export const FILE_ATTRS = ['name', 'src', 'type', 'items', 'key', 'order', 'drafts', 'fields'];
+export const FILE_ATTRS = ['name', 'src', 'type', 'select', 'key', 'order', 'drafts', 'fields'];
 
-const ATTR_LIST = '`name`, `src`, `type`, `items`, `key`, `order`, `drafts` and `fields`';
+const ATTR_LIST = '`name`, `src`, `type`, `select`, `key`, `order`, `drafts` and `fields`';
 
 /** Why an attribute of `<sn-resource>` does not apply to a `file:` resource. */
 export function fileAttrProblem(name: string): string {
@@ -27,8 +27,8 @@ export function fileAttrProblem(name: string): string {
   };
   const why = what[name] ?? (/^(page-size|size-param|cursor|direction-param|direction-values|page-param|offset-param|page-model)$/.test(name) ? 'pages a list' : null);
   return why
-    ? `\`${name}\` ${why}, and a \`file:\` resource is a constant: it is read at build time and never loads or changes; it takes only \`name\`, \`type\`, \`items\` and \`key\``
-    : `\`${name}\` is not an attribute of a \`file:\` resource, which takes only \`name\`, \`type\`, \`items\` and \`key\``;
+    ? `\`${name}\` ${why}, and a \`file:\` resource is a constant: it is read at build time and never loads or changes; it takes only \`name\`, \`type\`, \`select\` and \`key\``
+    : `\`${name}\` is not an attribute of a \`file:\` resource, which takes only \`name\`, \`type\`, \`select\` and \`key\``;
 }
 
 /** the built-in name of the content module's collections in `src` (`content:posts`), and so a reserved API name */

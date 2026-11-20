@@ -361,6 +361,10 @@ describe('did-you-mean', () => {
     expect(fix(fn, 'showModal', '`showModal()` is renamed to `openDialog()`, the pair of `closeDialog()`')!.newText).toBe('openDialog');
     const value = '<sn-resource name="a" src="/a" paginate="{ offset: true, size: 2 }"></sn-resource>';
     expect(fix(value, 'offset: true', '`offset: true` is renamed to `numbered: true` (pages by number)')!.newText).toBe('numbered: true');
+    // the attribute, not the same word in the URL or the name
+    const items = '<sn-resource name="items" src="/api/items" items="items"></sn-resource>';
+    expect(fix(items, 'items=', '`items` is renamed to `select`: the path in the response where the data is'))
+      .toEqual({ range: { start: { line: 0, character: 43 }, end: { line: 0, character: 48 } }, newText: 'select' });
   });
 
 
@@ -474,7 +478,7 @@ components:
     const spec = readFileSync(join(process.cwd(), 'test/fixtures/apis-openapi.yml'), 'utf8');
     const config = `import sinter from ${JSON.stringify(join(process.cwd(), 'src/vite.ts'))};
 export default { plugins: [sinter({ apis: {
-  main: { openapi: 'openapi.yml', defaults: { 'GET /contacts': { items: 'contacts', key: 'id' } }, default: true },
+  main: { openapi: 'openapi.yml', defaults: { 'GET /contacts': { select: 'contacts', key: 'id' } }, default: true },
   billing: { base: '/billing', operations: { 'GET /invoices': { type: 'any' } } },
 } })] };
 `;
@@ -513,7 +517,7 @@ export default { plugins: [sinter({ apis: {
       expect(h).toContain('**GET** `https://api.example.com/v1/contacts?q={1}`');
       expect(h).toContain('`/contacts` of the API `main`');
       expect(h).toContain('All contacts');
-      expect(h).toContain('`items`: `contacts` (main.defaults) · `key`: `id` (main.defaults) · `type`: `Contact[]` (spec)');
+      expect(h).toContain('`select`: `contacts` (main.defaults) · `key`: `id` (main.defaults) · `type`: `Contact[]` (spec)');
     });
 
     test('go to definition: the path in the spec, the key in the config', async () => {

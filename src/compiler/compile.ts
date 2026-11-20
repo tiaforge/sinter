@@ -515,6 +515,8 @@ const RETIRED: Record<string, string> = {
   'data-sn-listbox': 'is renamed to `data-sn-options`, which also serves menus and lists: on a text field it works as before; on the element that holds the options, that element takes the focus',
   'data-sn-get': 'is gone: data a GET loads is a resource, `<sn-resource name="hits" src="/api/search?q={q}" when="q">`, which reloads when the values its URL reads change (latest wins); a load a click starts sets the state its `when` reads (docs/recipes/click-to-load.html), or is a `data-sn-call`',
 };
+/** `<sn-resource items>` (docs/proposals/vocabulary.md, step 20): reported on every kind of resource (fetched, `file:`, `content:`) */
+const ITEMS_RENAMED = '`items` is renamed to `select`: the path in the response where the data is, a list or one object: `<sn-resource name="people" src="/api/people" select="people" key="id">`';
 /** an action's expressions evaluated when it triggers, so they see `$event` */
 const TRIGGER_TIME = new Set(['data-sn-post', 'data-sn-put', 'data-sn-patch', 'data-sn-delete', 'data-sn-call', 'data-sn-body', 'data-sn-confirm']);
 /** attributes sinter writes on the page for CSS to style (docs/attributes.md), never written in markup */
@@ -6099,6 +6101,7 @@ class Compiler {
     if (isContentSource(attr(el, 'src'))) return this.contentResource(el, name, ctx.stateIdx);
     for (const a of el.attrs) {
       if (a.name === 'each') this.report(el, a.name, 'SN101', '`each` is renamed to `for`, as in `data-sn-for`: `<sn-resource name="mailboxes" for="a in accounts" src="/api/mailboxes?account={a.id}">`', 0);
+      else if (a.name === 'items') this.report(el, a.name, 'SN101', ITEMS_RENAMED, 0);
       else if (!RESOURCE_ATTRS.includes(a.name) && !PAGINATE_OLD.includes(a.name)) this.report(el, a.name, 'SN101', `\`${a.name}\` is not an attribute of \`<sn-resource>\`.${didYouMean(a.name, RESOURCE_ATTRS)}`, 0);
     }
     const earlyAttr = attr(el, 'early');
@@ -6246,7 +6249,7 @@ class Compiler {
     const target = this.opts.apis && !hasCall ? this.apiCheck(el, 'src', post ? 'post' : 'get', srcPath, paginate ? paginateParams(paginate, spec?.cursor?.text) : []) : null;
     if (target) this.apiOfResource.set(name, target.api);
     const shape = target?.shape ?? null;
-    const shaped = (a: 'items' | 'total' | 'key' | 'type'): string | null => {
+    const shaped = (a: 'select' | 'total' | 'key' | 'type'): string | null => {
       const v = attr(el, a)?.trim(), c = shape?.[a];
       if (c != null && v != null) {
         const where = `\`${target!.api.name}.${target!.match.spec === target!.api.specs[target!.api.specs.length - 1] && this.opts.openapi![target!.match.spec]!.config ? 'operations' : 'defaults'}\``;
@@ -6255,12 +6258,12 @@ class Compiler {
       }
       return c ?? v ?? null;
     };
-    const items = shaped('items'), total = shaped('total');
+    const select = shaped('select'), total = shaped('total');
     shaped('key');
     const type = shaped('type');
     // an operation the config declares has no schema: its type is the config's
     const generated = target ? !!this.opts.openapi![target.match.spec]!.config : false;
-    const openapi = type || hasCall || generated ? null : this.openapi(el, src, items, total, target?.match, post ? 'post' : 'get');
+    const openapi = type || hasCall || generated ? null : this.openapi(el, src, select, total, target?.match, post ? 'post' : 'get');
     if (!post && !hasCall) {
       const m = target?.match ?? (!this.opts.apis && this.opts.openapi?.length ? matchResource(this.opts.openapi, src) : null);
       if (m && 'path' in m && m.auth) this.authOf.set(name, m.auth);
@@ -6283,15 +6286,15 @@ class Compiler {
       const item = list?.type === 'array' ? deref(doc, list.items) : null;
       const fields = item ? propertyNames(doc, item) : [];
       if (item && (item.type === 'object' || fields.length)) {
-        const at = items;
-        this.report(el, attr(el, 'items') != null ? 'items' : 'name', 'SN517', `\`${openapi.label}\` returns a list${at ? ` at \`${at}\`` : ''}: resource \`${name}\` has no \`key\`, so it is one object holding the list`, 0,
+        const at = select;
+        this.report(el, attr(el, 'select') != null ? 'select' : 'name', 'SN517', `\`${openapi.label}\` returns a list${at ? ` at \`${at}\`` : ''}: resource \`${name}\` has no \`key\`, so it is one object holding the list`, 0,
           `add \`key\` with the field that identifies an item${fields.length ? ` (its items have ${fields.map((f) => `\`${f}\``).join(', ')})` : ''}; a list that is only read can stay as it is`);
       }
     }
     if (this.check) {
       const r: CheckResource = { name, type, loc: this.locOf(el, type ? 'type' : null), nameLoc: this.locOf(el, 'name') };
       if (openapi && 'schema' in openapi) r.openapi = openapi;
-      if (call) r.call = { name: call.name, items };
+      if (call) r.call = { name: call.name, select };
       if (paginate?.mode === 'keyset' && !paginate.skipParam) r.directions = true;
       this.check.resources.push(r);
       // a resource fed by an action is typed by the action's result
@@ -6306,7 +6309,7 @@ class Compiler {
     }
     this.resources.push({
       ...(this.opts.dev && then ? this.devAtOf([then.f]) : {}),
-      name, src, key: info.key, items, total,
+      name, src, key: info.key, select, total,
       order: order ? order.trim() : null, when, paginate, deps: [...deps].sort(), scope: ctx.stateIdx, data: null,
       ...(cache !== undefined ? { cache } : {}),
       ...(refresh !== undefined ? { refresh } : {}),
@@ -6383,16 +6386,17 @@ class Compiler {
 
   /**
    * `<sn-resource src="content:posts">`: a collection of the content module, a constant list as a `file:` glob is (`fx`),
-   * its key the collection's unless `key` is given, sorted by `order` here. `drafts` and `items` are the loader's
+   * its key the collection's unless `key` is given, sorted by `order` here. `drafts` and `select` are the loader's
    * business. Without collections (`sinter check`, the editor), an empty list.
    */
   contentResource(el: P5Element, name: string, scope: number) {
     const info = this.page.resources.get(name)!;
-    for (const a of el.attrs) if (!FILE_ATTRS.includes(a.name) || a.name === 'drafts' || a.name === 'items') {
+    for (const a of el.attrs) if (!FILE_ATTRS.includes(a.name) || a.name === 'drafts' || a.name === 'select') {
       const why = a.name === 'drafts' ? '`drafts` is a `file:` glob\'s; a collection leaves its drafts out in its loader (`ctx.files(glob, { drafts })`, `ctx.command`)'
-        : a.name === 'items' ? '`items` picks a list out of a value; a collection is a list already'
+        : a.name === 'select' ? '`select` picks a part of a value; a collection is a list already'
+        : a.name === 'items' ? ITEMS_RENAMED
         : fileAttrProblem(a.name).replace(/a `file:` resource/g, 'a `content:` resource');
-      this.report(el, a.name, RESOURCE_ATTRS.includes(a.name) || a.name === 'drafts' || a.name === 'items' ? 'SN332' : 'SN101', why, 0);
+      this.report(el, a.name, RESOURCE_ATTRS.includes(a.name) || a.name === 'drafts' || a.name === 'select' ? 'SN332' : 'SN101', why, 0);
     }
     const src = attr(el, 'src')!.trim(), cname = src.slice('content:'.length), at = attr(el, 'src')!.indexOf(cname);
     const known = this.opts.collections;
@@ -6423,7 +6427,7 @@ class Compiler {
       this.check.resources.push({ name, type: type ? `(${type})[]` : null, loc: this.locOf(el, type ? 'type' : null), nameLoc: this.locOf(el, 'name'), ...typed });
       if (!type && !this.opts.contentModule) this.report(el, null, 'SN504', `resource \`${name}\` has no type: expressions using it are not checked`, 0, 'add `type="…"`, one entry\'s type from the types module, or `type="any"` to leave it unchecked');
     }
-    this.resources.push({ name, src: [], key: info.key, items: null, total: null, order: null, when: null, paginate: null, deps: [], scope, data: null, fx: 1 });
+    this.resources.push({ name, src: [], key: info.key, select: null, total: null, order: null, when: null, paginate: null, deps: [], scope, data: null, fx: 1 });
     this.declAt.set(this.resources[this.resources.length - 1]!, el);
   }
 
@@ -6467,18 +6471,18 @@ class Compiler {
     const listInfo = this.page.resources.get(d.of);
     if (listInfo) listInfo.used = true;
     if (this.check) this.check.resources.push({ name, type: null, loc: this.locOf(el, null), nameLoc: this.locOf(d.html, 'data-sn-for'), item: d.of });
-    this.resources.push({ name, src: [], key: null, items: null, total: null, order: null, when: null, paginate: null, deps: [], scope, data: null, fx: 1 });
+    this.resources.push({ name, src: [], key: null, select: null, total: null, order: null, when: null, paginate: null, deps: [], scope, data: null, fx: 1 });
     this.declAt.set(this.resources[this.resources.length - 1]!, el);
   }
 
   /**
    * `<sn-resource src="file:./post.md">` (files.ts): the file read at build time, or with a glob every file it matches as
    * a list, sorted by `order` and without drafts in a build; its value embedded in the head, a resource that never loads
-   * (`fx`). Only `name`, `src`, `type`, `items`, `key`, `order` and `drafts` apply (SN332).
+   * (`fx`). Only `name`, `src`, `type`, `select`, `key`, `order` and `drafts` apply (SN332).
    */
   fileResource(el: P5Element, name: string, scope: number) {
     const info = this.page.resources.get(name)!;
-    for (const a of el.attrs) if (!FILE_ATTRS.includes(a.name)) this.report(el, a.name, RESOURCE_ATTRS.includes(a.name) ? 'SN332' : 'SN101', fileAttrProblem(a.name), 0);
+    for (const a of el.attrs) if (!FILE_ATTRS.includes(a.name)) this.report(el, a.name, RESOURCE_ATTRS.includes(a.name) ? 'SN332' : 'SN101', a.name === 'items' ? ITEMS_RENAMED : fileAttrProblem(a.name), 0);
     const written = attr(el, 'src')!, at = written.indexOf('file:');
     // `{$locale}`: each language's build reads its own folder (`localePrefix`); `sinter check` and the editor, the base one
     const lang = /\{\s*\$locale\s*\}/;
@@ -6556,19 +6560,19 @@ class Compiler {
     const drafts = attr(el, 'drafts')?.trim() || null;
     if (drafts && !list) this.report(el, 'drafts', 'SN332', '`drafts` leaves entries out of a list; this `file:` source is one file (a glob gives a list: `file:./posts/*.md`)', 0);
     const order = attr(el, 'order')?.trim() || null;
-    if (order && !Array.isArray(value) && value !== null && !(attr(el, 'items'))) this.report(el, 'order', 'SN332', '`order` sorts a list; this value is not one (a glob gives a list, and `items` picks one out of a JSON file)', 0);
-    if (list && attr(el, 'items')) this.report(el, 'items', 'SN332', '`items` picks a list out of a JSON file; a glob is a list already', 0);
-    if (isMd && attr(el, 'items')) this.report(el, 'items', 'SN332', '`items` picks a list out of a JSON file; a markdown file is one entry', 0);
+    if (order && !Array.isArray(value) && value !== null && !(attr(el, 'select'))) this.report(el, 'order', 'SN332', '`order` sorts a list; this value is not one (a glob gives a list, and `select` picks one out of a JSON file)', 0);
+    if (list && attr(el, 'select')) this.report(el, 'select', 'SN332', '`select` picks a part of one JSON file; a glob is a list already', 0);
+    if (isMd && attr(el, 'select')) this.report(el, 'select', 'SN332', '`select` picks a part of one JSON file; a markdown file is one entry', 0);
     // the key: a glob's entries have a `slug` each, which is unique (two entries with one key are an error)
     const key = info.key ?? (list ? ['slug'] : null);
     if (!info.key && key) info.key = key;
-    const items = attr(el, 'items')?.trim() || null;
-    if (items && typeof value === 'string') this.report(el, 'items', 'SN332', '`items` picks a list out of a JSON file; this file is text', 0);
+    const select = attr(el, 'select')?.trim() || null;
+    if (select && typeof value === 'string') this.report(el, 'select', 'SN332', '`select` picks a part of one JSON file; this file is text', 0);
     // sorted once, here: the page's language decides how strings compare, as the visitor's does for a live resource
     if (order && !list && Array.isArray(value)) value = sortList(value, order, this.opts.locale?.name ?? this.pageLang);
-    else if (order && items && value && typeof value === 'object') {
-      const at = items.split('.').reduce<unknown>((o, k) => (o as Record<string, unknown> | null)?.[k], value);
-      if (Array.isArray(at)) value = setPath(value, items.split('.'), sortList(at, order, this.opts.locale?.name ?? this.pageLang));
+    else if (order && select && value && typeof value === 'object') {
+      const at = select.split('.').reduce<unknown>((o, k) => (o as Record<string, unknown> | null)?.[k], value);
+      if (Array.isArray(at)) value = setPath(value, select.split('.'), sortList(at, order, this.opts.locale?.name ?? this.pageLang));
     }
     const id = this.nextId++;
     this.fileData.set(name, { id, value, at: el, fields: this.fieldsOf(el) });
@@ -6584,7 +6588,7 @@ class Compiler {
       const blank = (v: unknown) => (bodied && v && typeof v === 'object' && !Array.isArray(v) && 'body' in v ? { ...v, body: '' } : v);
       if (type && list) for (const e of value as Array<Record<string, unknown>>) values.push({ file: `${top}${String(e.path)}`, json: JSON.stringify(blank(e)) });
       else if (type && !('error' in where) && !list && value !== null && typeof value === 'object') {
-        const picked = items ? items.split('.').reduce<unknown>((o, k) => (o as Record<string, unknown> | null)?.[k], value) : value;
+        const picked = select ? select.split('.').reduce<unknown>((o, k) => (o as Record<string, unknown> | null)?.[k], value) : value;
         if (picked !== undefined) values.push({ file: where.path, json: JSON.stringify(blank(picked)) });
       }
       const fileInfo = list || isMd || values.length ? { file: { list, adds, values } } : {};
@@ -6592,7 +6596,7 @@ class Compiler {
       const md = bodied;
       if (!type && typeof value !== 'string' && !md) this.report(el, null, 'SN504', `resource \`${name}\` has no type: expressions using it are not checked`, 0, 'add `type="…"` with a type from the types module, or `type="any"` to leave it unchecked');
     }
-    this.resources.push({ name, src: [], key: info.key, items, total: null, order: null, when: null, paginate: null, deps: [], scope, data: null, fx: 1 });
+    this.resources.push({ name, src: [], key: info.key, select, total: null, order: null, when: null, paginate: null, deps: [], scope, data: null, fx: 1 });
     this.declAt.set(this.resources[this.resources.length - 1]!, el);
   }
 
@@ -6619,8 +6623,8 @@ class Compiler {
     }
   }
 
-  /** Matches a resource against the OpenAPI specs; checks `items`, `total` and query parameter names. */
-  openapi(el: P5Element, src: UrlTemplate, items: string | null, total: string | null, matched?: OpenApiMatch, method: Method = 'get'):
+  /** Matches a resource against the OpenAPI specs; checks `select`, `total` and query parameter names. */
+  openapi(el: P5Element, src: UrlTemplate, select: string | null, total: string | null, matched?: OpenApiMatch, method: Method = 'get'):
     { spec: number; label: string; schema: unknown } | { closest: string | null } | null {
     const specs = this.opts.openapi;
     if (!specs?.length) return null;
@@ -6630,14 +6634,14 @@ class Compiler {
     const label = `${method.toUpperCase()} ${m.path}`;
     let schema = m.body;
     if (schema == null) return { closest: m.path };
-    for (const [field, path] of [['items', items], ['total', total]] as const) {
+    for (const [field, path] of [['select', select], ['total', total]] as const) {
       if (!path) continue;
       const w = walk(doc, m.body, path);
       if ('missing' in w) {
         this.report(el, field, 'SN308', `the response of \`${label}\` has no \`${w.missing}\`.${didYouMean(w.missing, w.have)}`, 0,
           w.have.length ? `it has ${w.have.map((h) => `\`${h}\``).join(', ')}` : undefined);
-        if (field === 'items') return { closest: m.path };
-      } else if (field === 'items') schema = w.schema;
+        if (field === 'select') return { closest: m.path };
+      } else if (field === 'select') schema = w.schema;
     }
     const raw = attr(el, 'src') ?? '';
     // a configured API checked the query (SN327)
@@ -7104,7 +7108,7 @@ class Compiler {
     for (const [name, d] of this.fileData) {
       const def = this.resources.find((x) => x.name === name);
       let v = d.value;
-      for (const k of def?.items ? def.items.split('.') : []) v = (v as Record<string, unknown> | null)?.[k];
+      for (const k of def?.select ? def.select.split('.') : []) v = (v as Record<string, unknown> | null)?.[k];
       // a list a build keeps for every page that reads it is frozen once (`globCache`): shared, not copied per page
       values.set(name, v && typeof v === 'object' ? (DEEP_FROZEN.has(v) ? v : deepFreeze(structuredClone(v) as object)) : v);
       status.set(name, Object.freeze({ loading: false, error: null, loadedAt: null, total: null, live: null }));
@@ -8223,13 +8227,13 @@ class Compiler {
         if (!n || typeof n.type !== 'string') return;
         const r = at(n, '$r'), mt = at(n, '$meta'), def = pre.get((r ?? mt)!);
         if (def && (r !== null || mt !== null)) {
-          // cached or prefetched rows would be there at mount: this resource's entries (its URL's literal start, its items
+          // cached or prefetched rows would be there at mount: this resource's entries (its URL's literal start, its select
           // and total paths, as the cache and next-page data key them), checked once per binding (below). An entry without
           // data (no rows, a null object: a signed-out visitor's `{user: null}`) fills the resource with what is written in
           // here, and `loadedAt` stays null at mount, so it changes nothing: the binding stays early (otherwise a branch over
           // it renders at mount, after the first paint, in every tab that opened another page first)
           if (def.cache != null || (this.opts.prefetch && !def.paginate && def.body == null)) {
-            const start = JSON.stringify(typeof def.src[0] === 'string' ? def.src[0] : '').slice(1, -1), end = `,${JSON.stringify(def.items ?? null)},${JSON.stringify(def.total ?? null)}]`;
+            const start = JSON.stringify(typeof def.src[0] === 'string' ? def.src[0] : '').slice(1, -1), end = `,${JSON.stringify(def.select ?? null)},${JSON.stringify(def.total ?? null)}]`;
             const none = JSON.stringify(def.key ? '[]' : 'null');
             checks.add(fn(`() => { for (const k of Object.keys(sessionStorage)) if (/^sn:[cp]:\\[/.test(k) && k.includes(${JSON.stringify(start)}) && k.endsWith(${JSON.stringify(end)})) { let e; try { e = JSON.parse(sessionStorage.getItem(k)); } catch { throw 0; } if (!e || JSON.stringify(e.items) !== ${none} || e.total != null) throw 0; } }`));
           }
@@ -8390,7 +8394,7 @@ class Compiler {
       if (used.length) namespaces[ns] = used;
     }
     const ir: EarlyIR = { roots, templates };
-    if (usedEmb.size) ir.emb = Object.fromEntries([...usedEmb].map((n) => [n, { id: embedded.get(n)!.data!, items: embedded.get(n)!.items ?? null }]));
+    if (usedEmb.size) ir.emb = Object.fromEntries([...usedEmb].map((n) => [n, { id: embedded.get(n)!.data!, select: embedded.get(n)!.select ?? null }]));
     if (res.length) ir.res = res;
     if ((url || readsUrl) && this.pathList.length) ir.path = this.pathList;
     const arrays = this.urlArrays();
@@ -8442,7 +8446,7 @@ class Compiler {
       res.push({
         s: def.src.map((x) => (typeof x === 'number' ? fn(this.fns[x]!) : x)),
         ...(def.when != null ? { w: fn(this.fns[def.when]!) } : {}),
-        i: def.items ?? null, t: def.total ?? null, ...(def.key ? { k: 1 as const } : {}),
+        i: def.select ?? null, t: def.total ?? null, ...(def.key ? { k: 1 as const } : {}),
       });
     }
     if (!res.length) return null;

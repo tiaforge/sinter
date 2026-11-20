@@ -33,7 +33,7 @@ function server(url: string) {
 }
 
 const PAGE = (attrs: string) => `<!doctype html><html data-sn-state="{ box: 'inbox' }" data-sn-persist="box"><head></head><body>
-  <sn-resource name="mail" src="/api/mail?box={box}" items="items" total="total" key="id" ${attrs}></sn-resource>
+  <sn-resource name="mail" src="/api/mail?box={box}" select="items" total="total" key="id" ${attrs}></sn-resource>
   <span data-sn-text="[$meta.mail.from, $meta.mail.to, $meta.mail.total, $meta.mail.pages, $meta.mail.hasPrev, $meta.mail.hasNext].join()"></span>
   <button id="next" data-sn-on-click="page(mail, 'next')"></button>
   <button id="prev" data-sn-on-click="page(mail, 'prev')"></button>

@@ -54,11 +54,11 @@ const messages = (p: ReturnType<typeof project>) => p.diagnostics.map((d) => `${
 
 describe('sinter({ apis })', () => {
   test('an API: base from the spec, its spec, its shapes; `site` built in; one API is the default', () => {
-    const p = apiProject({ apis: { main: { openapi: 'openapi.yml', defaults: { 'GET /contacts': { items: 'contacts', key: 'id' } } } } });
+    const p = apiProject({ apis: { main: { openapi: 'openapi.yml', defaults: { 'GET /contacts': { select: 'contacts', key: 'id' } } } } });
     expect(messages(p)).toEqual([]);
     expect(p.apis!.defaultApi).toBe('main');
     expect(p.apis!.list.map((a) => [a.name, a.base, a.specs.length])).toEqual([['main', 'https://api.example.com/v1', 1], ['site', '', 0]]);
-    expect(p.apis!.list[0]!.shapes['GET /contacts']).toEqual({ items: 'contacts', key: 'id' });
+    expect(p.apis!.list[0]!.shapes['GET /contacts']).toEqual({ select: 'contacts', key: 'id' });
     expect(apiOrigins(p.apis)).toEqual(['https://api.example.com']);
   });
 
@@ -78,6 +78,9 @@ describe('sinter({ apis })', () => {
     expect(bad({ apis: { main: { base: '/api/' } } })[0]).toMatch(/`main.base` must be/);
     expect(bad({ apis: { main: { openapi: 'openapi.yml', defaults: { 'GET /nope': {} } } } })[0]).toMatch(/`main.defaults` names `GET \/nope`, which its spec does not have/);
     expect(bad({ apis: { main: { openapi: 'openapi.yml', operations: { 'GET /contacts': { type: 'X' } } } } })[0]).toMatch(/which the spec has: its shape goes in `main.defaults`/);
+    // `items` is the name before 2026-11-20
+    expect(bad({ apis: { main: { openapi: 'openapi.yml', defaults: { 'GET /contacts': { items: 'contacts' } as never } } } })).toEqual(["SN329 sinter({ apis }): `main.defaults['GET /contacts'].items` is renamed to `select`, as `<sn-resource select>`: the path in the response where the data is, a list or one object (`select: 'articles'`)"]);
+    expect(bad({ apis: { main: { operations: { 'GET /me': { items: 'user' } as never } } } })[0]).toMatch(/`main.operations\['GET \/me'\].items` is renamed to `select`/);
     expect(bad({ apis: { main: { operations: { 'get /x': {} } } } })[0]).toMatch(/as `METHOD \/path`/);
     expect(bad({ apis: { a: { default: true }, b: { default: true } } })[0]).toMatch(/one API is the default, not `a` and `b`/);
     expect(bad({ apis: { a: { default: 'yes' as never } } })[0]).toMatch(/`a.default` is `true` or `false`/);

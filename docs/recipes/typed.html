@@ -1,4 +1,4 @@
-<sn-resource name="contacts" src="/api/contacts" items="contacts" key="id" type="Contact[]"></sn-resource>
+<sn-resource name="contacts" src="/api/contacts" select="contacts" key="id" type="Contact[]"></sn-resource>
 
 <sn-sync src="/api/events">
   <sn-event name="contact_updated" resource="contacts" op="upsert" value="$event.contact" type="ContactEvent"></sn-event>

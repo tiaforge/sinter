@@ -473,10 +473,10 @@ function resources(r: Rendered, typed: Set<string> = new Set()): ResourceReport[
     const meta = page.$meta[def.name], value = page.$r[def.name];
     const rep: ResourceReport = { name: def.name, loading: !!meta?.loading, error: meta?.error ?? null, value };
     // the response's wrapper stored as the value: `{ incident: {…} }` where the page reads `incident.title`
-    if (!def.items && !typed.has(def.name) && value && typeof value === 'object' && !Array.isArray(value)) {
+    if (!def.select && !typed.has(def.name) && value && typeof value === 'object' && !Array.isArray(value)) {
       const keys = Object.keys(value);
       const only = keys.length === 1 ? (value as Record<string, unknown>)[keys[0]!] : null;
-      if (only && typeof only === 'object') rep.hint = `the value is the whole response: items="${keys[0]}" stores its \`${keys[0]}\``;
+      if (only && typeof only === 'object') rep.hint = `the value is the whole response: select="${keys[0]}" stores its \`${keys[0]}\``;
     }
     return rep;
   });

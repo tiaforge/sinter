@@ -31,7 +31,7 @@ and its content fills the layout's slots, in the head and in the body.
 <!-- post.html: the whole page -->
 <site-layout data-sn-path="/post/:slug"
   data-sn-with="{ nav: 'post', title: post?.title, description: post?.summary }">
-  <sn-resource name="post" src="/api/posts/{$url.slug}" items="post"></sn-resource>
+  <sn-resource name="post" src="/api/posts/{$url.slug}" select="post"></sn-resource>
   <meta slot="seo" property="og:type" content="article">
   <link slot="head" rel="stylesheet" href="./post.css">
 
