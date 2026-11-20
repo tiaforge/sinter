@@ -24,6 +24,10 @@ export default defineConfig({
 
 `sinter(options)` returns the list of Vite plugins, so pass it to `plugins` as is.
 
+The pages are the `.html` files under the project root, outside `public/`, the build's output, `node_modules`,
+`src/components/` and `src/layouts/`: `vite build` builds each one, as `vite dev` serves them, and the app is a
+multi-page app (`appType: 'mpa'`). A config that names `build.rollupOptions.input` builds those pages instead.
+
 ### Project files
 
 Each option names a file relative to the project root. Leave it out and sinter looks for the default, `.js` first, then `.ts`.

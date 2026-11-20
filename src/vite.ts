@@ -162,7 +162,7 @@ type SinterPlugins = [Plugin & { api: { options: SinterOptions; source(file: str
 
 /** dev: the pages under the root (not in node_modules, the output, `public/`, hidden folders, or the components' and layouts' folders) */
 function htmlPages(root: string, config: ResolvedConfig | null): string[] {
-  const skip = new Set(['node_modules', resolve(root, config?.build.outDir ?? 'dist'), config?.publicDir ?? resolve(root, 'public'), resolve(root, 'src/components'), resolve(root, 'src/layouts')].map((x) => resolve(root, x)));
+  const skip = new Set(['node_modules', resolve(root, config?.build.outDir ?? 'dist'), resolve(root, 'dist'), config?.publicDir ?? resolve(root, 'public'), resolve(root, 'src/components'), resolve(root, 'src/layouts')].map((x) => resolve(root, x)));
   const out: string[] = [];
   const walk = (dir: string) => {
     let names: string[];
@@ -1120,14 +1120,24 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
      * polyfill is ~400 B gzip in every page's bundle. Without it an older browser loads the same
      * modules, one import after the other.
      */
-    config(user) {
+    config(user, env) {
+      // a sinter app is a multi-page app: every page under the root is an entry, as the dev server serves any
+      // of them, unless the config names its own input
+      const b = user.build as { rollupOptions?: { input?: unknown }; rolldownOptions?: { input?: unknown }; outDir?: string } | undefined;
+      const own = b?.rolldownOptions?.input ?? b?.rollupOptions?.input;
+      const r = resolve(user.root ?? process.cwd());
+      const pages = env.command === 'build' && own === undefined
+        ? Object.fromEntries(htmlPages(r, { build: { outDir: b?.outDir ?? 'dist' }, publicDir: resolve(r, typeof user.publicDir === 'string' ? user.publicDir : 'public') } as ResolvedConfig)
+          .map((f) => [relative(r, f).split(sep).join('/').replace(/\.html$/, ''), f]))
+        : null;
+      const mpa = { ...(user.appType === undefined ? { appType: 'mpa' as const } : {}), ...(pages && Object.keys(pages).length ? { build: { rollupOptions: { input: pages } } } : {}) };
       // dev: the lazy packages are pre-bundled at startup (no page imports them statically, so the scan would not find them)
       // component libraries ship source the plugin compiles: never pre-bundled
       const libs = librariesOf(options.libraries);
       const deps = lazyPkgs.length || libs.length ? { optimizeDeps: { ...(lazyPkgs.length ? { include: lazyPkgs } : {}), ...(libs.length ? { exclude: libs } : {}) } } : {};
       const mp = user.build?.modulePreload;
-      if (mp === false || (typeof mp === 'object' && mp.polyfill !== undefined)) return deps;
-      return { ...deps, build: { modulePreload: { polyfill: false } } };
+      const polyfill = mp === false || (typeof mp === 'object' && mp.polyfill !== undefined) ? {} : { modulePreload: { polyfill: false } };
+      return { ...deps, ...mpa, build: { ...mpa.build, ...polyfill } };
     },
 
     async configResolved(config) {

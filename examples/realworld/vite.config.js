@@ -1,12 +1,8 @@
-import { resolve } from 'node:path';
 import { defineConfig } from 'vite';
 import sinter from '@tiaforge-ui/sinter/vite';
 import { apis } from './apis.js';
 
-const pages = ['index', 'login', 'register', 'settings', 'editor', 'article', 'profile'];
-
 export default defineConfig({
-  appType: 'mpa',
   plugins: [
     // the API and what each endpoint returns: apis.js
     // the pages' data-sn-path patterns are the routes: vite dev, vite preview, the build's _redirects and
@@ -34,7 +30,4 @@ export default defineConfig({
   ],
   // sinter-markdown is linked from packages/ (file:): its imports of sinter resolve to the app's
   resolve: { dedupe: ['@tiaforge-ui/sinter'] },
-  build: {
-    rollupOptions: { input: Object.fromEntries(pages.map((p) => [p, resolve(import.meta.dirname, `${p}.html`)])) },
-  },
 });
