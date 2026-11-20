@@ -266,6 +266,20 @@ Left for 1.0, as already deprecated: the top-level `sinter({ openapi })` (an API
 `configure({ origins })` (`sinter({ origins })`). Kept: `data-sn-with` on `<sn-component>`, where a bare
 `with` would give the word a second spelling.
 
+### 18. The fourth review: the whole API (2026-11-20)
+
+Four reviewers read the markup, the expressions, the JavaScript and configuration surface, and the
+diagnostics and docs. Done:
+- The build's pages are the `.html` files under the root, `appType` is `mpa`; the module-path options are gone
+  (`src/sinter.*`, a library's `fixtures/sinter.*`); `credentials()` is the API's; `typecheck` is on with
+  TypeScript; SN509 always runs; `complexity` is `{ level }` or `false`; `configure({ env })` is the tests'.
+- Compiled pages import `@tiaforge-ui/sinter/runtime`; the main entry is the app's API.
+- One duration grammar; one `date()`; `sn-navigate` and `sn-dismiss`; `loadedAt` a `Date`; no
+  `$meta.pending`; `<sn-resource for>`; `data-sn-resource`; placeholder in the server layer.
+- Store functions and `$meta[…]` take the resource, not its name (`refresh(people)`).
+- Codes that were one rule merged (SN309, SN318, SN337, SN340); `sinter migrate` writes every rename.
+- Open: the `<sn-event>` payload as `$event` instead of bare names, with `paginate`'s cursor (decided apart).
+
 ## Looked at and kept
 
 - `data-sn-wait`: already automatic. The build hides what follows a content-sized box by itself; the
