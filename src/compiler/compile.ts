@@ -339,6 +339,8 @@ export interface CompileResult {
   /** origins of resources that could be requested early but are not in `origins` */
   unlistedOrigins?: string[];
   prefetchOff?: true;
+  /** what the page does as it loads besides reading (`CompiledParts.loadEffect`); absent: nothing */
+  loadEffect?: string;
   /** the names of the page's kept elements (`data-sn-permanent`), in document order */
   permanent?: string[];
   /** where each kept element was written (file, offset, a hash of its source): one markup across the pages, for those that bind */
@@ -481,6 +483,11 @@ export interface CompiledParts {
   embed: EmbedSlot[];
   /** `<html data-sn-prefetch="off">` */
   prefetchOff?: true;
+  /**
+   * what the page does as it loads besides reading data and rendering it, the first the build found (`loadEffects()`);
+   * absent: nothing, so `prefetch: { html: { prerender: 'auto' } }` may prerender it (its app modules permitting)
+   */
+  loadEffect?: string;
   /** the names of the page's kept elements (`data-sn-permanent`), in document order */
   permanent?: string[];
   /** where each kept element was written, and those that bind: one markup across the pages */
@@ -1639,6 +1646,7 @@ class Compiler {
       prefetch: this.prefetchOff ? null : this.prefetchParts(),
       embed: this.embedSlots(),
       ...(this.prefetchOff ? { prefetchOff: true as const } : {}),
+      ...((effect) => (effect ? { loadEffect: effect } : {}))(this.loadEffects(ir, doc)),
       ...(this.permanentNames.length ? { permanent: [...this.permanentNames], keptSource: Object.fromEntries(this.keptSource), ...(this.keptBound.size ? { keptBound: [...this.keptBound] } : {}) } : {}),
       ...(this.swapOff ? { swapOff: true as const } : {}),
       ...(this.unlisted.size ? { unlistedOrigins: [...this.unlisted].sort() } : {}),
@@ -1903,6 +1911,44 @@ class Compiler {
     return `\`paginate="{ ${parts.join(', ')} }"\``;
   }
 
+
+  /**
+   * What the page does as it loads besides reading data and rendering it, the first found, or null: what makes a page unsafe
+   * to prerender (`prefetch: { html: { prerender: 'auto' } }`), since a prerendered page runs for a visitor who may never see
+   * it. Reads are its GET resources (and `for` ones); streams wait until it is shown. Anything else counts: a resource that
+   * loads with `call` or a POST or runs `then`, a handler of an event no user caused (`load`, `toggle`, `sn-error`, a
+   * component's own events), a component script or another custom element, a lazy package loaded as it renders, a script
+   * that is not data. The app's modules (config, early, helpers, actions) are the build's to check (`prerender-build.ts`).
+   */
+  loadEffects(ir: IR, doc: P5Parent): string | null {
+    for (const r of this.resources) {
+      if (r.call) return `resource \`${r.name}\` loads with \`call\``;
+      if (r.body != null) return `resource \`${r.name}\` loads with \`method="POST"\``;
+      if (r.then != null) return `resource \`${r.name}\` runs \`then\``;
+    }
+    for (const n of [...ir.roots, ...ir.templates.flatMap((t) => t.nodes)]) for (const b of n.b) {
+      if (b.k === 'cmp') return 'a component with a script';
+      if (b.k === 'imp') return 'lazy packages loaded as it renders (`data-sn-import`)';
+      if (b.k === 'on' && !USER_EVENTS.has(b.n!)) return `a handler of \`${b.n}\`, which the page may fire as it loads`;
+    }
+    if (ir.lm?.length) return 'a helper that loads lazy packages';
+    const DATA = /^(application\/(ld\+)?json|speculationrules|importmap)$/i;
+    const known = (tag: string) => tag.startsWith('sn-') || !!this.componentFiles.get(tag) || this.uses.has(tag);
+    let found: string | null = null;
+    const visit = (p: P5Parent) => {
+      for (const c of p.childNodes) {
+        if (found || !isElement(c)) continue;
+        if (c.tagName === 'script' && !OWN_SCRIPTS.has(c) && !DATA.test((attr(c, 'type') ?? '').trim())) found = attr(c, 'src') ? `a script (\`${attr(c, 'src')}\`)` : 'an inline script';
+        else if (c.tagName.includes('-') && !known(c.tagName)) found = `a custom element (\`<${c.tagName}>\`)`;
+        visit(c);
+        const t = (c as P5Element & { content?: P5Parent }).content;
+        if (t) visit(t);
+      }
+    };
+    visit(doc);
+    for (const tpl of this.headTemplates.values()) visit(tpl.content);
+    return found;
+  }
 
   /**
    * SN540: with swaps on, a script in the body that a swap would not run (inline or classic: the module
@@ -8983,6 +9029,7 @@ class Compiler {
       const observe = !!this.opts.observe;
       const tag = parse5.parseFragment(observe ? `<script src="${esc(early)}"></script>` : `<script type="module" src="${esc(early)}" blocking="render"></script>`).childNodes[0] as P5Element;
       tag.parentNode = head;
+      OWN_SCRIPTS.add(tag);
       if (observe) {
         let at = 0;
         for (let i = 0; i < head.childNodes.length; i++) { const n = head.childNodes[i]!; if (isElement(n) && n.tagName !== 'meta') break; if (isElement(n)) at = i + 1; }
@@ -8993,6 +9040,7 @@ class Compiler {
     const frag = parse5.parseFragment(`<script type="module" src="${esc(src)}"></script>`);
     const script = frag.childNodes[0] as P5Element;
     script.parentNode = head;
+    OWN_SCRIPTS.add(script);
     head.childNodes.push(script as never);
   }
 }
@@ -9431,6 +9479,19 @@ function condOf(code: string): EmbedCond | null {
   };
   return walk(fn.body);
 }
+
+/** the scripts sinter writes into a page (its early file, its page module): not the page's own (`loadEffects`) */
+const OWN_SCRIPTS = new WeakSet<P5Element>();
+
+/**
+ * The events only a visitor causes (`loadEffects`): a handler of any other may run while a prerendered page loads. Not
+ * `focus` (`autofocus`), `load`, `error`, `toggle` (`<details open>`), `scroll`, `sn-error` or a component's own events.
+ */
+const USER_EVENTS = new Set(['click', 'dblclick', 'auxclick', 'contextmenu', 'input', 'beforeinput', 'change', 'submit', 'reset', 'invalid',
+  'keydown', 'keyup', 'keypress', 'pointerdown', 'pointerup', 'pointermove', 'pointerover', 'pointerout', 'pointerenter', 'pointerleave',
+  'pointercancel', 'mousedown', 'mouseup', 'mousemove', 'mouseover', 'mouseout', 'mouseenter', 'mouseleave', 'touchstart', 'touchend',
+  'touchmove', 'touchcancel', 'wheel', 'dragstart', 'drag', 'dragend', 'dragenter', 'dragover', 'dragleave', 'drop', 'copy', 'cut', 'paste',
+  'close', 'cancel', 'navigate', 'dismiss']);
 
 /** whether compiled code reads `$url.<name>` */
 const readsParam = (code: string, name: string) => new RegExp(`\\$\\.\\$url\\.${name.replace(/\$/g, '\\$')}(?![\\w$])`).test(code);
