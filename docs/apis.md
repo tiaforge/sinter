@@ -82,7 +82,7 @@ A path matches the spec's paths as `src` always did: a literal segment matches t
 `items`, `total`, `key` and `type` come from the API's `defaults` or `operations`, else from the
 element, and the type from the spec. When the config has a value, a resource does not write it:
 the same value is warning `SN518` (it says nothing), a different one error `SN330`. `order`,
-`each`, `paginate`, `when`, `then`, `cache`, `refresh` and `early` stay on the element: they are how
+`for`, `paginate`, `when`, `then`, `cache`, `refresh` and `early` stay on the element: they are how
 the page uses the data.
 
 `key` is never guessed. A list of objects without `key` is warning `SN517`: the resource is one
@@ -97,7 +97,7 @@ would act on the whole list.
 
 A search or report endpoint that takes a request body. The body is sent as JSON, checked against
 the request schema, and the resource reloads when it changes; loads with the same URL and body
-share one request. A POST resource cannot have `cache`, `paginate` or `each`, and loads from the
+share one request. A POST resource cannot have `cache`, `paginate` or `for`, and loads from the
 page module only: it is not preloaded, requested early, prefetched or embedded.
 
 ## Requests

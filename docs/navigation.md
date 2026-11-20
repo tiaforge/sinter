@@ -26,7 +26,7 @@ the data that page loads first. The next page shows it at its first paint, then 
   starts at once. A touch waits 65 ms, and a scroll that starts on the link requests nothing. Skipped
   with `navigator.connection.saveData` or on 2g.
 - **What:** the resources of the target page whose `src` and `when` read only `$url`, constants and
-  your helpers. Resources that read state, other resources, `$now`, or that are paginated, `each`,
+  your helpers. Resources that read state, other resources, `$now`, or that are paginated, `for`,
   `call` or embedded, are not prefetched. Data the current page already loaded from the same
   request is handed over without a new request.
 - **Which links:** same-origin links to one of the app's pages, matched by the pages' `data-sn-path`

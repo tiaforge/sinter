@@ -360,7 +360,7 @@ export async function sha256(file, ctx) {
   belongs. Expressions cannot call them.
 - `<sn-resource call="…">` is a resource fed by a function. It calls again when the arguments
   change, aborting the running call through `ctx.signal` and dropping its late result.
-  `paginate`, `each` and `cache` do not combine with `call`.
+  `paginate`, `for` and `cache` do not combine with `call`.
 - With JSDoc or TypeScript types, `sinter check` checks arguments against the parameters (without
   the trailing context) and `$result` against the return type.
 

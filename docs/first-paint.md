@@ -193,7 +193,7 @@ the stylesheets and scripts before it has the data. The build lists the slots in
 would have made. Those resources are no longer preloaded or requested by the browser; the data comes
 with the page. `vite dev` is unaffected.
 
-Left out of embedding: `call` and `each` resources, resources with `early="off"`, and anything
+Left out of embedding: `call` and `for` resources, resources with `early="off"`, and anything
 whose request reads state, another resource or a non-constant helper (they stay with the browser).
 The manifest is the contract if you write the server in another language. The layer costs about
 2 ms per page and no rendering; see [first-paint-comparison.md](first-paint-comparison.md) for
@@ -215,7 +215,7 @@ docs/resources.md.
 
 Without embedded data, a resource's request still leaves before the page script is running:
 
-- **Preload.** A resource with a literal same-origin `src`, no `when` and not `each`, `call` or
+- **Preload.** A resource with a literal same-origin `src`, no `when` and not `for`, `call` or
   embedded gets `<link rel="preload" as="fetch" crossorigin>` in the head. The request starts while
   the head is parsed. A paginated resource is preloaded at its first page.
 - **Early request.** A resource whose URL reads only things the early script knows (state without
@@ -403,7 +403,7 @@ of one-line rows with collapsed borders; the median of 3 loads):
 Builds only (`vite dev` serves the rules with the page module, after the first paint, so it writes no
 placeholders; it plans them the same way, so `SN529` says what a build says). Not for a resource
 with embedded data (its rows are in the first frame), with a `src` or `when` over state or another
-resource (the build cannot tell whether it loads at mount), `each` or `call`, rows a component's own
+resource (the build cannot tell whether it loads at mount), `for` or `call`, rows a component's own
 `<style>` reaches, or a list that is more than a choice between
 resources (`people.filter(…)`: the build cannot count it), nor for rows side by side without a width of
 their own (or with a `flex-basis`), absolutely positioned, with `content-visibility`, table rows outside
@@ -479,7 +479,7 @@ adopts it:
 <template data-sn-if="$meta.people.loading && !people.length"><p>Loading…</p></template>
 ```
 
-That holds for a resource that is not embedded, `each` or `call`, whose `src` and `when` read only what the
+That holds for a resource that is not embedded, `for` or `call`, whose `src` and `when` read only what the
 early script knows (`$url`, `$now`, `$locale`, your helpers; not state, another resource or the
 built-in formatters such as `date()`). With `cache`, or in an app with next-page data, only
 in a tab that holds no cached or prefetched rows of that resource: otherwise they are there at mount.

@@ -126,7 +126,7 @@ rolled back, then `data-sn-catch`, the form's field errors and `$error`, or `sn-
 
 ## Reads
 
-`retry.get` names the policy for every GET: resource loads, `each` sources and pages.
+`retry.get` names the policy for every GET: resource loads, `for` sources and pages.
 It does not cover background refreshes (`refresh` retries by itself), the session probe or
 next-page data. A GET waiting for a retry is aborted like a running one when `src` changes or `when`
 turns false, and `$meta.<name>.loading` stays true while it waits.

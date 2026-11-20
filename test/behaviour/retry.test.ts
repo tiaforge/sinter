@@ -257,7 +257,7 @@ test('`retry.get` leaves background refreshes of an `each` resource to `refresh`
     'GET /api/boxes': seq([{ id: 'a', account: 1 }], offline(), [{ id: 'b', account: 1 }]),
   });
   const r = await render(`<sn-resource name="accounts" src="/api/accounts" key="id"></sn-resource>
-    <sn-resource name="boxes" each="a in accounts" src="/api/boxes?account={a.id}" key="id" refresh="10s"></sn-resource>
+    <sn-resource name="boxes" for="a in accounts" src="/api/boxes?account={a.id}" key="id" refresh="10s"></sn-resource>
     <p data-sn-text="boxes.map((b) => b.id).join() + ($meta.boxes.error ? ' error' : '')"></p>`, { requests });
   await r.settle();
   expect(r.root.querySelector('p')!.textContent).toBe('a');

@@ -45,7 +45,7 @@ then filter by `term`.
 | --- | --- |
 | `name` | Identifier used in expressions. Required, must be a valid JavaScript identifier. |
 | `src` | URL template, reloaded when its interpolated values change. Required unless `call` is set. With [`sinter({ apis })`](apis.md) a path relative to an API (`/contacts`, `billing:/invoices`), checked against its spec. |
-| `method` | `POST` for an endpoint that loads data with a request body (search, reports). Without it, GET. Not with `cache`, `paginate` or `each` ([docs/apis.md](apis.md#resources-that-load-with-post)). |
+| `method` | `POST` for an endpoint that loads data with a request body (search, reports). Without it, GET. Not with `cache`, `paginate` or `for` ([docs/apis.md](apis.md#resources-that-load-with-post)). |
 | `body` | With `method="POST"`: the request body, a value sent as JSON; the resource reloads when it changes. |
 | `call` | Instead of `src`: one call of a [local action](actions.md), `ns.fn(args)`. Reloads when the arguments' inputs change. |
 | `key` | Comma-separated item fields that form the identity. Required for collections; without it the resource is a single object. |
@@ -55,7 +55,7 @@ then filter by `term`.
 | `when` | Value expression. While falsy the resource is empty (`null` or `[]`) and a running request is aborted. |
 | `cache` | Show the data from the last page load at once, then revalidate. No value means any age; `30s`, `10m`, `2h` or `1d` ignores older data. |
 | `refresh` | Reload in the background once the data is this old, a duration: `30s`, `5m`, `1h`, `1d` (at least `1s`). |
-| `each` | `item in list`: one request per item of another list, merged into one collection. |
+| `for` | `item in list`: one request per item of another list, merged into one collection. |
 | `then` | Handler run after each successful load, with `$result`. |
 | `type` | Type of what `items` selects, for the [type checker](type-checking.md). |
 
@@ -158,19 +158,19 @@ as a safety net for one that might miss events.
   own resource loops.
 - An exception in the handler is logged; the load still counts as successful.
 
-## Fan-out with `each`
+## Fan-out with `for`
 
-Some APIs list a collection per parent. `each` makes one request per item of another list and merges
+Some APIs list a collection per parent. `for` makes one request per item of another list and merges
 the results into one collection:
 
 ```html
 <sn-resource name="accounts" src="/api/accounts" key="account_id"></sn-resource>
-<sn-resource name="mailboxes" each="a in accounts" src="/api/mailboxes?account_id={a.account_id}"
+<sn-resource name="mailboxes" for="a in accounts" src="/api/mailboxes?account_id={a.account_id}"
              key="account_id,name" order="name"></sn-resource>
 ```
 
 - `key` is required and must tell the sources apart, as `account_id` does here. `paginate`, `total`
-  and `cache` do not combine with `each`.
+  and `cache` do not combine with `for`.
 - When the list changes, only new sources load and a removed source's items are dropped.
 - `loading` is true while any source loads. `loadedAt` is set once every current source has answered.
 - `refresh(mailboxes)` reloads every source. `then` runs once per source response.
@@ -229,7 +229,7 @@ the results into one collection:
   With `sinter({ apis })` it is read the same way, and `file` cannot be an API's name (`SN329`).
 - It is a constant: nothing loads, refreshes or changes it. `$meta.<name>.loading` is `false` and the
   other status fields are `null`. It takes only `name`, `src`, `type`, `items`, `key`, `order` and `drafts`;
-  anything that would load or change it is `SN332`: `refresh`, `cache`, `paginate`, `each`, `call`, `when`,
+  anything that would load or change it is `SN332`: `refresh`, `cache`, `paginate`, `for`, `call`, `when`,
   `then`, `early`, store functions that name it or change one of its items, write-through, and
   `<sn-event>`s. `items` picks a list out of one JSON file.
 - Bindings over it are written into the page at build time, and so are helper calls over it (when the

@@ -6075,7 +6075,8 @@ class Compiler {
     if (isFileSource(attr(el, 'src'))) return this.fileResource(el, name, ctx.stateIdx);
     if (isContentSource(attr(el, 'src'))) return this.contentResource(el, name, ctx.stateIdx);
     for (const a of el.attrs) {
-      if (!RESOURCE_ATTRS.includes(a.name) && !PAGINATE_OLD.includes(a.name)) this.report(el, a.name, 'SN101', `\`${a.name}\` is not an attribute of \`<sn-resource>\`.${didYouMean(a.name, RESOURCE_ATTRS)}`, 0);
+      if (a.name === 'each') this.report(el, a.name, 'SN101', '`each` is renamed to `for`, as in `data-sn-for`: `<sn-resource name="mailboxes" for="a in accounts" src="/api/mailboxes?account={a.id}">`', 0);
+      else if (!RESOURCE_ATTRS.includes(a.name) && !PAGINATE_OLD.includes(a.name)) this.report(el, a.name, 'SN101', `\`${a.name}\` is not an attribute of \`<sn-resource>\`.${didYouMean(a.name, RESOURCE_ATTRS)}`, 0);
     }
     const earlyAttr = attr(el, 'early');
     if (earlyAttr != null && earlyAttr !== 'off') this.report(el, 'early', 'SN401', '`early` takes only `off`', 0);
@@ -6085,33 +6086,33 @@ class Compiler {
     if (hasCall && attr(el, 'src') != null) this.report(el, 'call', 'SN102', 'a resource loads from `src` or from `call`, not both', 0);
     else if (!hasCall && attr(el, 'src') == null) this.report(el, null, 'SN401', `resource \`${name}\` needs a \`src\` (or a \`call\`)`, 0);
     if (hasCall) {
-      for (const a of ['paginate', 'each', 'cache']) {
+      for (const a of ['paginate', 'for', 'cache']) {
         if (attr(el, a) != null) this.report(el, a, 'SN401', `\`${a}\` does not combine with \`call\` in v0.2`, 0);
       }
     }
     const deps = new Set<string>();
-    // `each="a in accounts"`: src is evaluated once per list item, with the item in scope
+    // `for="a in accounts"`: src is evaluated once per list item, with the item in scope
     let each: ResourceDef['each'];
     let srcScope = ctx.scope;
-    const eachAttr = attr(el, 'each');
+    const eachAttr = attr(el, 'for');
     if (eachAttr != null) {
       const m = /^\s*([A-Za-z_$][\w$]*)\s+in\s+/.exec(eachAttr);
-      if (!m) this.report(el, 'each', 'SN401', '`each` takes `item in list`, e.g. `a in accounts`', 0);
+      if (!m) this.report(el, 'for', 'SN401', '`for` takes `item in list`, e.g. `a in accounts`', 0);
       else {
-        const list = this.expr(el, 'each', ctx.scope, { mode: 'value' }, eachAttr.slice(m[0].length), m[0].length);
+        const list = this.expr(el, 'for', ctx.scope, { mode: 'value' }, eachAttr.slice(m[0].length), m[0].length);
         const listExpr = this.lastExpr;
         for (const d of list.deps) deps.add(d);
         const loop: LoopEntry = { name: m[1]!, kind: 'item', alias: null, resource: list.resource };
         if (this.check) {
           this.frameOf.set(loop, this.check.frames.length);
-          this.check.frames.push({ kind: 'loop', item: m[1]!, index: null, init: listExpr, loc: this.locOf(el, 'each', eachAttr.indexOf(m[1]!)) });
+          this.check.frames.push({ kind: 'loop', item: m[1]!, index: null, init: listExpr, loc: this.locOf(el, 'for', eachAttr.indexOf(m[1]!)) });
         }
         srcScope = { ...ctx.scope, loops: [...ctx.scope.loops, loop] };
         if (list.ok) each = { item: m[1]!, list: this.fn(list.code), ...(list.resource ? { of: list.resource } : {}) };
         this.features.add('each');
-        if (!info.key) this.report(el, 'each', 'SN401', 'an `each` resource is a collection: it needs `key`, with a field that tells the sources apart', 0);
+        if (!info.key) this.report(el, 'for', 'SN401', 'a `for` resource is a collection: it needs `key`, with a field that tells the sources apart', 0);
         for (const a of ['paginate', 'total', 'cache']) {
-          if (attr(el, a) != null) this.report(el, a, 'SN401', `\`${a}\` does not combine with \`each\`: the items come from several requests`, 0);
+          if (attr(el, a) != null) this.report(el, a, 'SN401', `\`${a}\` does not combine with \`for\`: the items come from several requests`, 0);
         }
       }
     }
@@ -6124,7 +6125,7 @@ class Compiler {
     if (attr(el, 'body') != null && !post) this.report(el, 'body', 'SN102', '`body` needs `method="POST"`: a GET request has no body', 0);
     if (post) {
       if (hasCall) this.report(el, 'method', 'SN102', '`method` is for a resource with `src`', 0);
-      for (const a of ['cache', 'paginate', 'each']) {
+      for (const a of ['cache', 'paginate', 'for']) {
         if (attr(el, a) != null) this.report(el, a, 'SN401', a === 'cache' ? '`cache` does not combine with `method="POST"`: a cached search or report would outlive the request that asked for it' : `\`${a}\` does not combine with \`method="POST"\``, 0);
       }
       // started by the page module only: not preloaded, requested early, prefetched or embedded
@@ -8502,13 +8503,13 @@ class Compiler {
         };
         const lets = around.filter(({ k }) => words(list).has(k)).map(({ v }) => v);
         if (![list, ...lets].every(chooses)) cands = [];
-        if (cands.some((c) => ['each', 'call'].some((x) => attr(resources.get(c)!, x) !== undefined))) cands = [];
+        if (cands.some((c) => ['for', 'call'].some((x) => attr(resources.get(c)!, x) !== undefined))) cands = [];
         waitForm = cands.length === 1 && list === cands[0] && attr(resources.get(cands[0])!, 'when') === undefined ? 'static' : 'if';
         if (![list, ...lets].every(chooses)) { if (why === '') why = 'the list is not a resource or a choice between resources (a filter, a field), whose rows the build could count'; names = []; }
         const rs = names.map((n) => resources.get(n)!);
         // paginated (their size, the least), loading by URL or always: not `each` or `call`, nor data the page has (embedded)
-        const ok = rs.length && rs.every((r) => attr(r, 'paginate') !== undefined && !['each', 'call'].some((x) => attr(r, x) !== undefined));
-        if (rs.length && !ok && why === '') why = 'a resource with `each` or `call`';
+        const ok = rs.length && rs.every((r) => attr(r, 'paginate') !== undefined && !['for', 'call'].some((x) => attr(r, x) !== undefined));
+        if (rs.length && !ok && why === '') why = 'a resource with `for` or `call`';
         // the list is a resource that always loads: the placeholder is page markup; else it shows by its resources' status,
         // which the early file decides (`if`)
         form = names.length === 1 && list === names[0] && attr(rs[0]!, 'when') === undefined ? 'static' : 'if';

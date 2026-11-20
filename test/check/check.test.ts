@@ -510,7 +510,7 @@ export async function rename(c: Contact, name: string, ctx: CallContext): Promis
   });
 
   test('each: the loop variable has the list item type in src', () => {
-    const html = page(`<sn-resource name="emails" each="c in contacts" src="/api/emails?contact={c.nmae}" key="id" type="any"></sn-resource>
+    const html = page(`<sn-resource name="emails" for="c in contacts" src="/api/emails?contact={c.nmae}" key="id" type="any"></sn-resource>
 <p data-sn-text="emails.length"></p>`);
     one(html, /Property 'nmae' does not exist on type 'Contact'/, 'nmae');
   });

@@ -226,7 +226,7 @@ reads `'connecting'` until it is shown. A custom transport sets it through `onSt
 
 On a paginated resource, an `upsert` for an item that isn't on the current page becomes a
 `refresh` of the current page. `merge` and `remove` apply only to items already present. On an
-`each` resource, `refresh` reloads only the source the payload resolves to.
+`for` resource, `refresh` reloads only the source the payload resolves to.
 
 ## Deploying streams
 

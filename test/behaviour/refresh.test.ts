@@ -271,7 +271,7 @@ test('an `each` resource refreshes every source', async () => {
   });
   const html = `
     <sn-resource name="accounts" src="/api/accounts" key="id"></sn-resource>
-    <sn-resource name="boxes" each="a in accounts" src="/api/boxes?account={a.id}" key="account,name" refresh="1m"></sn-resource>
+    <sn-resource name="boxes" for="a in accounts" src="/api/boxes?account={a.id}" key="account,name" refresh="1m"></sn-resource>
     <p data-sn-text="$meta.boxes.loading ? 'loading' : 'idle'"></p>
     <ul><template data-sn-for="b in boxes"><li data-sn-text="b.account"></li></template></ul>`;
   const r = await render(html, { requests });

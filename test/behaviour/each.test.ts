@@ -17,7 +17,7 @@ function server(accounts: string[], boxes = MAILBOXES) {
 
 const PAGE = `
   <sn-resource name="accounts" src="/api/accounts" key="account_id"></sn-resource>
-  <sn-resource name="mailboxes" each="a in accounts" src="/api/mailboxes?account_id={a.account_id}"
+  <sn-resource name="mailboxes" for="a in accounts" src="/api/mailboxes?account_id={a.account_id}"
     items="mailboxes" key="account_id,name" order="name"></sn-resource>
   <sn-sync src="/s">
     <sn-event name="account_added" resource="accounts" op="upsert"></sn-event>
@@ -112,7 +112,7 @@ describe('each: one resource fed by one request per item', () => {
   test('when turns every source off and drops the items; turning it on loads them again', async () => {
     const page = `<div data-sn-state="{ on: true }">
       <sn-resource name="accounts" src="/api/accounts" key="account_id"></sn-resource>
-      <sn-resource name="mailboxes" each="a in accounts" when="on" src="/api/mailboxes?account_id={a.account_id}"
+      <sn-resource name="mailboxes" for="a in accounts" when="on" src="/api/mailboxes?account_id={a.account_id}"
         items="mailboxes" key="account_id,name" order="name"></sn-resource>
       <input type="checkbox" checked data-sn-model="on">
       <ul><template data-sn-for="m in mailboxes"><li data-sn-text="m.account_id + ':' + m.name"></li></template></ul></div>`;
@@ -140,13 +140,15 @@ describe('each diagnostics', () => {
   }).diagnostics.map((d) => `${d.code} ${d.message}`);
 
   test('the loop variable is in scope for src only', () => {
-    expect(diags('each="a in accounts" src="/api/m?id={a.id}" key="id"')).toEqual([]);
+    expect(diags('for="a in accounts" src="/api/m?id={a.id}" key="id"')).toEqual([]);
     expect(diags('src="/api/m?id={a.id}" key="id"')[0]).toMatch(/^SN201 /);
+    // `each` is the name before 2026-11-20
+    expect(diags('each="a in accounts" src="/api/m?id={a.id}" key="id"')).toEqual(expect.arrayContaining(['SN101 `each` is renamed to `for`, as in `data-sn-for`: `<sn-resource name="mailboxes" for="a in accounts" src="/api/mailboxes?account={a.id}">`']));
   });
   test('syntax, key and the attributes it does not combine with', () => {
-    expect(diags('each="accounts" src="/api/m" key="id"')).toEqual(['SN401 `each` takes `item in list`, e.g. `a in accounts`']);
-    expect(diags('each="a in accounts" src="/api/m?id={a.id}"')).toEqual(['SN401 an `each` resource is a collection: it needs `key`, with a field that tells the sources apart']);
-    expect(diags('each="a in accounts" src="/api/m?id={a.id}" key="id" total="n"')).toEqual(['SN401 `total` does not combine with `each`: the items come from several requests']);
-    expect(diags('each="a in accounts" src="/api/m?id={a.id}" key="id" cache')).toEqual(['SN401 `cache` does not combine with `each`: the items come from several requests']);
+    expect(diags('for="accounts" src="/api/m" key="id"')).toEqual(['SN401 `for` takes `item in list`, e.g. `a in accounts`']);
+    expect(diags('for="a in accounts" src="/api/m?id={a.id}"')).toEqual(['SN401 a `for` resource is a collection: it needs `key`, with a field that tells the sources apart']);
+    expect(diags('for="a in accounts" src="/api/m?id={a.id}" key="id" total="n"')).toEqual(['SN401 `total` does not combine with `for`: the items come from several requests']);
+    expect(diags('for="a in accounts" src="/api/m?id={a.id}" key="id" cache')).toEqual(['SN401 `cache` does not combine with `for`: the items come from several requests']);
   });
 });

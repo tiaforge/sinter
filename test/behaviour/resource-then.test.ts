@@ -142,7 +142,7 @@ describe('<sn-resource then>', () => {
     const stream = mockStream();
     const r = await render(`
       <sn-resource name="accounts" src="/api/accounts" key="id"></sn-resource>
-      <sn-resource name="boxes" each="a in accounts" src="/api/boxes?account={a.id}" items="boxes" key="account,name"
+      <sn-resource name="boxes" for="a in accounts" src="/api/boxes?account={a.id}" items="boxes" key="account,name"
         then="seen($result.map((b) => b.account).join())"></sn-resource>
       <sn-sync src="/s"><sn-event name="boxes_changed" resource="boxes" op="refresh"></sn-event></sn-sync>
       <ul><template data-sn-for="b in boxes"><li data-sn-text="b.account"></li></template></ul>`,
