@@ -136,15 +136,18 @@ What each page loads, min+gzip (`npm run size`, the work branch before and after
 
 | | Before | After | |
 | --- | ---: | ---: | --- |
-| minimal page (no token) | 11,500 B | 11,597 B | +97: the core's calls into the token module (`src/token.ts`, `src/signed-in.ts` are their own modules) |
-| RealWorld article | 59,522 B | 62,047 B | +2,525; budget 63,488 |
-| RealWorld index | 33,833 B | 36,872 B | +3,039 |
-| RealWorld profile | 33,527 B | 36,102 B | +2,575 |
-| RealWorld editor | 29,247 B | 32,117 B | +2,870 |
-| RealWorld settings | 28,435 B | 31,249 B | +2,814 |
-| RealWorld login, register | 28,269 B | 30,716 B | +2,447 |
+| minimal page (no token) | 11,522 B | 11,621 B | +99: the core's calls into the token module (`src/token.ts`, `src/signed-in.ts` are their own modules) |
+| RealWorld article | 59,703 B | 62,182 B | +2,479; budget 63,488 |
+| RealWorld index | 34,055 B | 37,013 B | +2,958 |
+| RealWorld profile | 33,718 B | 36,236 B | +2,518 |
+| RealWorld editor | 29,430 B | 32,228 B | +2,798 |
+| RealWorld settings | 28,619 B | 31,364 B | +2,745 |
+| RealWorld login, register | 28,453 / 28,464 B | 30,848 / 30,857 B | +2,395 / +2,393 |
 
-Most of RealWorld's growth is the early script's request code (about 1.3 KB of the shared early runtime, which it
-carried none of while it requested nothing early) and each page's early requests; the token module is about 0.3 KB
-and its table in each page module about 0.15 KB. In exchange the API's requests leave while the head is parsed
+By chunk (gzip): the shared early runtime +1,468 (its request code, which RealWorld carried none of while it requested
+nothing early: the URL templates, a paginated list's first page, the hand-off; and the guard's redirect, about 0.2 KB),
+each page's early file +100 to +330 (its requests, the API's settings once), the token module +530 (one chunk with the
+config module), the core +270, each page module +60 to +90 (the token table), and the guard's module 331 on the three
+guarded pages. Cut after review: the API settings are one table per early file, the early file no longer bundles the
+config object, and `signIn` travels as a path when it is the path form. In exchange the API's requests leave while the head is parsed
 instead of after the page module has loaded.
