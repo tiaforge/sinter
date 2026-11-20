@@ -462,6 +462,8 @@ export interface Store<R, D extends string = never> {
   emit(event: string, detail?: unknown): void;
   run(id: string): void;
   navigate(url: string, options?: { replace?: boolean }): void;
+  /** removes every API's token (\`sinter({ apis: { … token } })\`), with the page's persisted state and cached data */
+  signOut(): void;
 }
 type Style = 'short' | 'medium' | 'long' | 'full';
 export function date(v: unknown, style?: Style | null, timeStyle?: Style): string;

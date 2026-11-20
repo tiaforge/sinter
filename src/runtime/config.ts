@@ -56,8 +56,12 @@ export function $origins(list: string[]): void {
   config.origins = [...new Set([...config.origins, ...list])];
 }
 
-/** An API of `sinter({ apis })` at runtime: name, base (`''` the page's origin), credentials, static headers. */
-export interface ApiSettings { n: string; b: string; c?: RequestCredentials; h?: Record<string, string> }
+/** An API of `sinter({ apis })` at runtime: name, base (`''` the page's origin), credentials, static headers, token (src/token.ts). */
+export interface ApiSettings {
+  n: string; b: string; c?: RequestCredentials; h?: Record<string, string>;
+  /** `token`: its storage (`l`ocal, `s`ession) and key, header, what goes before it, the GET paths that need it (absent: all), issue it (`f`), and the sign-in page (`i`) */
+  t?: { s: 'l' | 's'; k: string; h: string; p: string; r?: string[]; f?: Record<string, string>; i?: LoginRedirectOptions };
+}
 
 /** The page module: the build's APIs. */
 export function $apis(list: ApiSettings[]): void {
@@ -208,3 +212,11 @@ export function takeReturnUrl(allow: string[]): string | null {
   return allow.some((p) => u.pathname.startsWith(p)) ? u.pathname + u.search + u.hash : null;
 }
 
+/**
+ * What `clearPersisted()` removes, for sinter's own calls (a token stored or removed, `signOut()`): every persisted
+ * value and the page-load cache.
+ */
+export function forgetPersisted(env: Env = envOf(config)): void {
+  removeKeys(env.storage(), PERSIST_PREFIX);
+  clearCached(env);
+}

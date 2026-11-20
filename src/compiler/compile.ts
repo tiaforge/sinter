@@ -5981,10 +5981,13 @@ class Compiler {
   /** the API each resource's `src` goes to (`sinter({ apis })`): its request settings for preloads, the early file and embedding */
   readonly apiOfResource = new Map<string, ApiDef>();
 
-  /** a resource's API's credentials and static headers, as the early file sends them; null for the defaults */
-  settingsOf(name: string): { c?: RequestCredentials; h?: Record<string, string> } | null {
-    const a = this.apiOfResource.get(name);
-    return a && (a.credentials || a.headers) ? { ...(a.credentials ? { c: a.credentials } : {}), ...(a.headers ? { h: a.headers } : {}) } : null;
+  /** a resource's API's credentials, static headers and token (where it is stored, how it is sent), as the early file sends them; null for the defaults */
+  settingsOf(name: string): NonNullable<NonNullable<EarlyIR['res']>[number]['a']> | null {
+    const a = this.apiOfResource.get(name), t = a?.token;
+    return a && (a.credentials || a.headers || t) ? {
+      ...(a.credentials ? { c: a.credentials } : {}), ...(a.headers ? { h: a.headers } : {}),
+      ...(t ? { t: { s: t.storage === 'local' ? 'l' as const : 's' as const, k: t.key, h: t.header, p: t.scheme ? t.scheme + ' ' : '' }, ...(this.needsToken.has(name) ? { r: 1 as const } : {}) } : {}),
+    } : null;
   }
 
   /**
@@ -6000,28 +6003,45 @@ class Compiler {
 
   /**
    * A resource the HTML preloads: its URL is fixed at build time, it is requested early (\`late\`), and its
-   * request needs nothing a link cannot say (no static headers, no \`credentials: 'omit'\`).
+   * request needs nothing a link cannot say (no static headers, no \`credentials: 'omit'\`, no token: a link
+   * cannot send one, and the browser gives its answer to the page's request, token or not).
    */
   preloaded(r: ResourceDef): boolean {
     const a = this.apiOfResource.get(r.name);
-    return !this.late(r.name) && fixedRequest(r) && !!this.earlyOrigin(r.src) && !a?.headers && a?.credentials !== 'omit';
+    return !this.late(r.name) && fixedRequest(r) && !!this.earlyOrigin(r.src) && !a?.headers && a?.credentials !== 'omit' && (!a?.token || this.anonymous(r.name));
+  }
+
+  /** The spec says the answer does not depend on a token: public, or answered with cookies. */
+  private anonymous(name: string): boolean {
+    const auth = this.authOf.get(name);
+    return auth === 'public' || auth === 'browser';
   }
 
   /**
-   * Not requested before the page module, by preload or the early file: \`early="off"\`; the spec says the request
-   * needs a token the app adds; or the config may change requests (middleware, \`header()\`) and
-   * the spec does not say the operation is public or answered with cookies. A request sent before the middleware
-   * runs would only be refused (a 401, a console error) and sent again with what the middleware adds.
+   * Not requested before the page module, by preload or the early file: \`early="off"\`; or, on an API without a
+   * \`token\`, the spec says the request needs a token the app adds, or the config may change requests (middleware,
+   * \`header()\`) and the spec does not say the operation is public or answered with cookies. A request sent before the
+   * middleware runs would only be refused (a 401, a console error) and sent again with what the middleware adds. An API's
+   * own \`token\` is sent by the early file too.
    */
   private late(name: string): boolean {
-    const auth = this.authOf.get(name);
-    return this.unembedded(name) || (!!this.opts.changesRequests && auth !== 'public' && auth !== 'browser');
+    if (this.apiOfResource.get(name)?.token) return this.noEarly.has(name);
+    return this.unembedded(name) || (!!this.opts.changesRequests && !this.anonymous(name));
   }
 
-  /** Not embedded by the server layers: \`early="off"\`, or the spec says the request needs a token the app adds (the server has none). */
+  /**
+   * Not embedded by the server layers (they have no visitor's token): \`early="off"\`; the spec says the request
+   * needs a token; it may send one (\`optional\`) and a middleware may add it; or its API has a \`token\` and the spec
+   * does not say the answer is the same without one.
+   */
   private unembedded(name: string): boolean {
-    return this.noEarly.has(name) || this.authOf.get(name) === 'token';
+    const auth = this.authOf.get(name);
+    return this.noEarly.has(name) || auth === 'token' || (auth === 'optional' && !!this.opts.changesRequests)
+      || (!!this.apiOfResource.get(name)?.token && !this.anonymous(name));
   }
+
+  /** the resources whose operation needs their API's token (\`token\`, docs/apis.md#a-token): signed out, they load empty without a request */
+  readonly needsToken = new Set<string>();
 
   /**
    * `<link rel="preload" as="fetch">` for the resources whose URL is fixed at build time. A link cannot
@@ -6260,6 +6280,10 @@ class Compiler {
       const m = target?.match ?? (!this.opts.apis && this.opts.openapi?.length ? matchResource(this.opts.openapi, src) : null);
       if (m && 'path' in m && m.auth) this.authOf.set(name, m.auth);
     }
+    // its API's token: needed when the config's list (from the spec, or the config's own; none: every operation) names it;
+    // signed out, such a GET is not sent (a POST resource is sent all the same)
+    const tk = target?.api.token;
+    if (tk && !post && (!tk.required || tk.required.includes(`GET ${target!.match.path}`))) this.needsToken.add(name);
     let body: number | null = null;
     if (post && attr(el, 'body') != null) {
       const m = target?.match ?? (!this.opts.apis && this.opts.openapi?.length ? matchOperation(this.opts.openapi, src, 'post') : null);
@@ -8228,17 +8252,23 @@ class Compiler {
             const none = JSON.stringify(def.key ? '[]' : 'null');
             checks.add(fn(`() => { for (const k of Object.keys(sessionStorage)) if (/^sn:[cp]:\\[/.test(k) && k.includes(${JSON.stringify(start)}) && k.endsWith(${JSON.stringify(end)})) { let e; try { e = JSON.parse(sessionStorage.getItem(k)); } catch { throw 0; } if (!e || JSON.stringify(e.items) !== ${none} || e.total != null) throw 0; } }`));
           }
-          const when = def.when != null ? `!!f[${fn(this.fns[def.when]!)}]($)` : 'true';
+          // its API's token, when the operation needs it: with none stored the resource is loaded, empty, at mount (signed
+          // out, `$meta.user.loadedAt && !user`), and not loading; the early file reads the storage the request layer reads
+          const t = this.needsToken.has(def.name) ? this.settingsOf(def.name)?.t : undefined;
+          const out = t ? `$so(${JSON.stringify(t.s)}, ${JSON.stringify(t.k)})` : null;
+          const when = (def.when != null ? `!!f[${fn(this.fns[def.when]!)}]($)` : 'true') + (out ? ` && !${out}` : '');
           if (r !== null) { edits.push([n.start, n.end, def.key ? '[]' : 'null']); return; }
           const field = parent?.type === 'MemberExpression' && parent.object === n && !parent.computed ? parent.property.name : null;
-          if (field === 'loading') { edits.push([parent.start, parent.end, when]); return; }
+          if (field === 'loading') { edits.push([parent.start, parent.end, `(${when})`]); return; }
+          if (field === 'loadedAt' && out) { edits.push([parent.start, parent.end, `(${out} ? new Date() : null)`]); return; }
           if (field === 'error' || field === 'loadedAt') { edits.push([parent.start, parent.end, 'null']); return; }
           // the whole status (a `data-sn-let`, a helper): every field as it is at mount; a pager's or a stream's fields are not known
           // before then, and throw (the page module renders what reads them)
           const open = def.paginate || this.page.fed.has(def.name);
+          const at = out ? `${out} ? new Date() : null` : 'null';
           const make = fn(open
-            ? '(l) => ({ loading: l, error: null, loadedAt: null, pending: 0, get total() { throw 0; }, get live() { throw 0; }, get page() { throw 0; }, get pages() { throw 0; }, get from() { throw 0; }, get to() { throw 0; }, get hasPrev() { throw 0; }, get hasNext() { throw 0; } })'
-            : '(l) => ({ loading: l, error: null, loadedAt: null, pending: 0, total: null, live: null })');
+            ? `(l) => ({ loading: l, error: null, loadedAt: ${at}, pending: 0, get total() { throw 0; }, get live() { throw 0; }, get page() { throw 0; }, get pages() { throw 0; }, get from() { throw 0; }, get to() { throw 0; }, get hasPrev() { throw 0; }, get hasNext() { throw 0; } })`
+            : `(l) => ({ loading: l, error: null, loadedAt: ${at}, pending: 0, total: null, live: null })`);
           edits.push([n.start, n.end, `f[${make}](${when})`]);
           return;
         }
@@ -8277,7 +8307,8 @@ class Compiler {
       // any resource without embedded data: whether it loads at mount does not matter (both are tried), and one with cached
       // rows is the page module's either way
       const defs = names.map((n) => this.resources.find((r) => r.name === n));
-      if (!names.length || defs.some((d) => !d || embedded.has(d.name) || d.each || d.call)) return false;
+      // (one that needs a token may be loaded at mount: signed out)
+      if (!names.length || defs.some((d) => !d || embedded.has(d.name) || d.each || d.call || this.needsToken.has(d.name))) return false;
       const data = Object.fromEntries(defs.map((d) => [d!.name, d!.key ? [] : null]));
       const code = this.fns[b.f!]!;
       return shows(code, names, { loading: true }, [], data) === false && shows(code, names, { loading: false }, [], data) === false;

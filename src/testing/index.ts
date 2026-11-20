@@ -4,7 +4,7 @@
 import { compileParts } from '../compiler/compile.js';
 import { earlyPage } from '../compiler/index.js';
 import { applyStrict, formatDiagnostic, strictOf, type Strict } from '../compiler/diagnostics.js';
-import { apiOrigins, resolveApis, type ApiOptions, type ApisDef } from '../compiler/apis.js';
+import { apiOrigins, resolveApis, runtimeApi, type ApiOptions, type ApisDef } from '../compiler/apis.js';
 import type { OpenApiSpec } from '../compiler/openapi.js';
 import type { Diagnostic } from '../compiler/diagnostics.js';
 import { compactIR } from '../ir.js';
@@ -16,6 +16,8 @@ import { t as message, use as useMessages } from '../messages.js';
 import { mount, scopeState, type App, type Feature, type Transport } from '../runtime/app.js';
 import { config, type Middleware } from '../runtime/config.js';
 import type { Env } from '../runtime/env.js';
+import { tokens } from '../runtime/request.js';
+import { $tokens } from '../token.js';
 import { $k } from '../runtime/security.js';
 import * as builtins from '../runtime/helpers.js';
 import { remote, resolveRemote, type RemoteImages } from '../remote.js';
@@ -564,8 +566,10 @@ export async function render(html: string, options: RenderOptions = {}): Promise
     throw new Error(`sinter: ${list.length} runtime warning(s) in strict mode (docs/strict.md; \`render(html, { strict: false })\` turns it off for a test that expects them):\n${list.map((w) => w.message).join('\n')}`);
   };
   const strictly = <A extends unknown[]>(fn: (...a: A) => Promise<void>) => async (...a: A) => { await fn(...a); failOnWarnings(); };
-  // the page module's `$apis`: each API's base, credentials and headers
-  config.apis = apis?.list.map((a) => ({ n: a.name, b: a.base, ...(a.credentials ? { c: a.credentials } : {}), ...(a.headers ? { h: a.headers } : {}) })) ?? [];
+  // the page module's `$apis`: each API's base, credentials, headers and token
+  config.apis = apis?.list.map(runtimeApi) ?? [];
+  // and an API with a token: the request layer sends it, as the page module's `$tokens()` sets up
+  if (config.apis.some((a) => a.t)) $tokens(); else tokens.on = undefined;
   // and their origins join the allowlist, as the page module's `$origins` does
   if (apis) config.origins = [...new Set([...config.origins, ...apiOrigins(apis)])];
 

@@ -304,7 +304,7 @@ const EVERYWHERE_MAGIC = ['$el', '$url', '$now', '$locale', '$meta'];
 export const ALL_MAGIC = ['$event', '$el', '$url', '$now', '$locale', '$result', '$error', '$meta'];
 /** names the build fills in, where they apply: the site's URLs (`sinter({ site })`) and a fill's slot values */
 export const BUILD_NAMES = ['$site', '$canonical', '$slot'];
-export const STORE_FNS = ['refresh', 'upsert', 'merge', 'remove', 'page', 'openDialog', 'closeDialog', 'emit', 'run', 'navigate'];
+export const STORE_FNS = ['refresh', 'upsert', 'merge', 'remove', 'page', 'openDialog', 'closeDialog', 'emit', 'run', 'navigate', 'signOut'];
 /** store functions that are gone or renamed (docs/proposals/vocabulary.md): what to write instead. Removed at 1.0 */
 const RETIRED_FNS: Record<string, string> = {
   showModal: '`showModal()` is renamed to `openDialog()`, the pair of `closeDialog()`: `openDialog(\'edit\')`',

@@ -8,7 +8,7 @@
 // share goes through a global: `start` (early file) and `rendered` (page module, from the core) meet there.
 import { config } from './runtime/config.js';
 import type { Env } from './runtime/env.js';
-import { meeting, prefetched, setPrefetched, type Prefetched } from './runtime/handoff.js';
+import { meeting, prefetched, setPrefetched, type EarlyApi, type Prefetched } from './runtime/handoff.js';
 import { schemesOf, STYLE_BAD, urlAllowed } from './runtime/security.js';
 import { expand, readUrl, type withParams } from './runtime/url.js';
 import type { lists } from './runtime/lists.js';
@@ -326,16 +326,21 @@ function pending(env: EarlyEnv): Prefetched {
   return {
     add(url, lo, a) {
       if (started.has(url)) return;
-      const h = new Headers(a?.h), cr = a?.c ?? 'same-origin';
+      const h = new Headers(a?.h), cr = a?.c ?? 'same-origin', t = a?.t, v = t ? token(t) : null;
+      // signed out: an operation that needs the token is not requested (the page module reads it as signed out)
+      if (t && v == null && a!.r) return;
       h.has('Accept') || h.set('Accept', 'application/json');
+      // the API's token, as the request layer adds it: the page's request is then the same, and takes this response
+      if (v != null) h.has(t!.h) || h.set(t!.h, t!.p + v);
       const c = new AbortController(), res = env.fetch(new Request(url, { headers: h, credentials: cr, signal: c.signal, ...(lo ? { priority: 'low' } : {}) } as RequestInit));
       res.catch(() => {});
       started.set(url, { res, c, cr, h });
     },
     take(req: Request, signal: AbortSignal) {
       const e = started.get(req.url), h = [...req.headers];
+      if (!e) return undefined;
       // a middleware that changed the request (a header, credentials) gets a request of its own
-      if (!e || req.method != 'GET' || req.credentials != e.cr || h.length != [...e.h].length || h.some(([k, v]) => e.h.get(k) !== v)) return null;
+      if (req.method != 'GET' || req.credentials != e.cr || h.length != [...e.h].length || h.some(([k, v]) => e.h.get(k) !== v)) return null;
       started.delete(req.url);
       const abort = () => e.c.abort(signal.reason);
       signal.aborted ? abort() : signal.addEventListener('abort', abort, { once: true });
@@ -349,6 +354,14 @@ function pending(env: EarlyEnv): Prefetched {
 }
 
 const own = (s: Prefetched) => (setPrefetched(s), s);
+
+/** whether no token is stored under `k` (`s`: `l`ocal or `s`ession storage): the resources that need it are loaded, empty, at mount */
+export const $so = (s: 'l' | 's', k: string): boolean => token({ s, k, h: '', p: '' }) == null;
+
+/** an API's token, from its storage (`setEnv()`'s in tests), as the request layer reads it; null when none is stored */
+const token = (t: NonNullable<EarlyApi['t']>): string | null => {
+  try { return (t.s == 's' ? (config.env?.session ? config.env.session() : globalThis.sessionStorage) : (config.env?.storage ? config.env.storage() : globalThis.localStorage))?.getItem(t.k) || null; } catch { return null; }
+};
 
 /** Renders a page's early part (tests; the early file goes through `start`). */
 export function early(doc: Document, page: ReturnType<EarlyPage>): void {

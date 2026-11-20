@@ -1,4 +1,4 @@
-export { mount, instance, navigate, type App, type CallContext, type Feature, type Intent, type MountOptions, type Navigator, type Transport } from './runtime/app.js';
+export { mount, instance, navigate, signOut, type App, type CallContext, type Feature, type Intent, type MountOptions, type Navigator, type Transport } from './runtime/app.js';
 export {
   configure, apiOf, header, onUnauthorized, loginRedirect, takeReturnUrl, clearPersisted, SinterError,
   type Config, type Middleware, type LoginRedirectOptions,

@@ -3,10 +3,10 @@
 // closure so private state minifies to short local names.
 import type { ActionDef, Binding, Fn, IR, NodeDef, PathRef, ResourceDef, TemplateDef, UrlTemplate } from '../ir.js';
 import { decode, level as reachLevel, passes, type Reach } from '../paths.js';
-import { config, SinterError, type Middleware } from './config.js';
+import { config, forgetPersisted, SinterError, type Middleware } from './config.js';
 import { envOf, type Env } from './env.js';
 import { prefetched } from './handoff.js';
-import { createRequestLayer, isAbort, readBody, toError, type RequestLayer, type SendInit } from './request.js';
+import { createRequestLayer, isAbort, readBody, toError, tokens, type RequestLayer, type SendInit } from './request.js';
 import { schemesOf, STYLE_BAD, urlAllowed } from './security.js';
 /** Two objects with the same keys, each the same value (Object.is). */
 const sameEntries = (a: any, b: any): boolean => {
@@ -496,6 +496,13 @@ export function navigate(url: string, o?: { replace?: boolean }): void {
   else if (o?.replace) location.replace(url); else location.assign(url);
 }
 
+/** Signs out as `signOut()` in a handler does, for app code (an island): every API's token goes, with what the page kept. */
+export function signOut(): void {
+  const app = instances.get(document);
+  if (app) app.storeFns(null).signOut();
+  else tokens.on ? tokens.on.signOut(envOf(config)) : forgetPersisted();
+}
+
 /** The instance mount() created on `root`; throws if none. */
 export function instance(root: Document | Element): App {
   const app = instances.get(root);
@@ -871,6 +878,8 @@ export function mount(root: Document | Element, o: MountOptions): App {
         else if (o?.replace) (app.env.replace ?? ((u: string) => location.replace(u)))(to);
         else app.env.navigate(to);
       },
+      // every API's token goes (src/token.ts), with what the page kept; the resources of those APIs load again: signed out
+      signOut: () => { tokens.on ? tokens.on.signOut(env, app) : forgetPersisted(env); },
       // the element's action, as if its trigger fired (a form is submitted); disabled or inert: nothing
       run: (id: string) => {
         const t = F.ACTION ? byId(id) : undefined, h = t && handlersOf(t as Tagged), rb = h && (Array.isArray(h) ? h : [h]).find((x) => x.b.x != null);
@@ -1724,7 +1733,8 @@ export function mount(root: Document | Element, o: MountOptions): App {
       const error = a.call ? app.ext.call!.error(err) : toError(err);
       // shown on the form (every message on its field, or its markup reads `$error`): handled
       if (fs?.(error, { url, method: a.method }) && a.catch == null) return;
-      as(u, () => a.catch != null ? handle(rb, a.catch, null, a.w, { $error: error }) : unhandled(error, el.isConnected ? el : up.find((x) => x.isConnected) ?? null));
+      // a 401 nothing shows, from an API with a token: signed out, to its sign-in page (src/token.ts)
+      as(u, () => a.catch != null ? handle(rb, a.catch, null, a.w, { $error: error }) : (error.status == 401 && !a.call && tokens.on?.signIn(url, env)) || unhandled(error, el.isConnected ? el : up.find((x) => x.isConnected) ?? null));
     } finally {
       st.r = null;
       if (!--st.n) {
@@ -1879,11 +1889,26 @@ export function mount(root: Document | Element, o: MountOptions): App {
         if (url == null) return;
         c?.abort();
         const ctl = (c = new AbortController()), n = ++seq, m = l.pager && (move ?? l.pager.current());
+        const req = withParams(url, m ? l.pager!.params(m) : null);
+        // signed out (src/token.ts): a request that needs the API's token, and none is stored, is not sent; the resource
+        // is loaded, empty, now (the early script's first paint says the same)
+        const out = () => {
+          if (!tokens.on || def.call || def.body != null || !tokens.on.out(req, env)) return false;
+          c = null;
+          fill(r.isCollection ? [] : null, null, m);
+          r.meta.error = null;
+          r.meta.loadedAt = new Date(env.now());
+          loading(false);
+          r.onDirty('meta');
+          l.done(r.value());
+          l.settle(true);
+          return true;
+        };
+        if (out()) return;
         const mark = r.startLoad();
         let loaded = false, ok = false, v;
         if (!quiet) loading(true);
         try {
-          const req = withParams(url, m ? l.pager!.params(m) : null);
           const body = def.call
             ? await app.ext.call!.run(def.call.run, args, null, ctl.signal)
             : def.body != null
@@ -1898,8 +1923,11 @@ export function mount(root: Document | Element, o: MountOptions): App {
           r.meta.loadedAt = new Date(env.now());
         } catch (e) {
           if (n != seq || isAbort(e)) return;
-          fail(def.call ? app.ext.call!.error(e) : e, quiet);
-          l.settle(false);
+          // a 401 that took the token: signed out
+          if ((e as SinterError).status != 401 || !out()) {
+            fail(def.call ? app.ext.call!.error(e) : e, quiet);
+            l.settle(false);
+          }
         } finally {
           // writes made while this load ran win over its (older) response
           r.endLoad(mark, loaded);

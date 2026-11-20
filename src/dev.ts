@@ -36,6 +36,7 @@ const MESSAGES: Record<number, string> = {
   29: 'event `%` payload is missing key field(s) % for `%`',
   30: "page(%, 'last') needs a known total",
   31: 'anchor `<!--%-->` has no end comment `<!--/sn-->` after it: one was added. A minifier or CDN that strips HTML comments breaks lists and branches: turn comment stripping off for sinter pages',
+  32: 'the early script requested `%`, and a request middleware changed the request (a header, its credentials): the response is not used, and the page sent it again. Add what the middleware adds in `sinter({ apis })` (`headers`, `credentials`, `token`) instead, or answer it from the middleware with `early="off"` on the resource',
   25: 'font % is preloaded (sinter({ fonts: { preload } })), but the page did not render with it in its first % frames: the preload competes with what the first paint needs, and when the font is slow it can hold the first paint. Preload a face the first view uses, or remove it',
   22: "the page's Content-Security-Policy blocked an inline script (%): sinter's Speculation Rules are one, so the next page's HTML is not prefetched. If the policy comes from a response header, add 'inline-speculation-rules' to its script-src (a CSP in a <meta> gets their hash from the build), or set sinter({ prefetch: { html: { delivery: 'header' } } }). See docs/navigation.md",
 };
@@ -157,6 +158,7 @@ const dev: Feature = {
     };
     // retries: each failed try, each resend and the outcome
     app.req.log = (m) => console.info(`sinter: retry ${m}`);
+    app.req.resent = (url) => app.warn(32, url);
     for (const a of app.ir.actions) if (a.retry && !config.retry?.has(a.retry)) app.warn(23, a.retry);
     // the Speculation Rules are inline: a CSP from a response header (the build cannot see it) blocks
     // them while the page is parsed, before this runs; a buffered observer still gets that report

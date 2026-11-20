@@ -5,6 +5,7 @@ import { compactIR } from '../ir.js';
 import { coreParts } from '../core-parts.js';
 import { MappedLines, type SourceMap } from './sourcemap.js';
 import { earlyRender } from './early-render.js';
+import { runtimeApi } from './apis.js';
 
 export type { SourceMap };
 export type { CompileOptions, CompileResult, CompiledParts, EarlyParts, FnSource, FnSources, HelperManifest, HelperOrigin, PrefetchParts, EmbedSlot, EmbedCond, RuntimeReason };
@@ -179,7 +180,9 @@ export function earlyPage(early: EarlyParts): { code: string; uses: string[] } {
   const lc = early.fns.some((x) => /\$\.\$locale\b/.test(x)), ls = !!early.ir.urlArrays;
   // array parameters: the page passes `lists` (else the early file carries none of it)
   const extra = [...(lc ? ['locale'] : []), ...(ls ? ['lists'] : [])];
-  return { code: `{ ir: ${JSON.stringify(ir)}, fns: f, scopes: ${r.scopes}, render: ${r.render}${extra.map((x) => ', ' + x).join('')} }`, uses: extra.length ? [...r.uses, ...extra].sort() : r.uses };
+  // a resource that needs its API's token: its early status reads whether one is stored
+  const so = early.fns.some((x) => x.includes('$so(')) ? ['$so'] : [];
+  return { code: `{ ir: ${JSON.stringify(ir)}, fns: f, scopes: ${r.scopes}, render: ${r.render}${extra.map((x) => ', ' + x).join('')} }`, uses: extra.length || so.length ? [...r.uses, ...extra, ...so].sort() : r.uses };
 }
 
 function earlyLines(early: EarlyParts | null, options: Pick<CompileOptions, 'helpers' | 'early' | 'observe' | 'locale' | 'baseMessages'>): MappedLines | null {
@@ -300,8 +303,10 @@ function pageLines(parts: CompiledParts, options: Pick<CompileOptions, 'helpers'
   if (options.origins?.length) lines.push(`import { $origins } from '${RUNTIME}';`, `$origins(${JSON.stringify(options.origins)});`);
   // `sinter({ apis })`: the runtime sends each API's credentials and headers, and `apiOf(url)` names a request's API
   if (options.apis?.list.length) {
-    const table = options.apis.list.map((a) => ({ n: a.name, b: a.base, ...(a.credentials ? { c: a.credentials } : {}), ...(a.headers ? { h: a.headers } : {}) }));
+    const table = options.apis.list.map(runtimeApi);
     lines.push(`import { $apis } from '${RUNTIME}';`, `$apis(${JSON.stringify(table)});`);
+    // an API with a token: the request layer sends it (src/token.ts); other apps carry none of it
+    if (table.some((a) => a.t)) lines.push(`import { $tokens } from '${RUNTIME}/token';`, '$tokens();');
   }
   // images from the API: the resizing service's URLs (docs/images.md, step 2)
   if (parts.remote) lines.push(`import { remote } from '${RUNTIME}/remote';`);

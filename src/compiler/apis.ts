@@ -2,7 +2,7 @@
 // A path written on a page (`src="billing:/invoices"`, `data-sn-delete="/contacts/{c.id}"`) is relative
 // to one of them. Endpoints an API's config declares (`operations`) become a generated OpenAPI
 // document, so matching, types and checks treat them as the spec's own. Pure; the project reads files.
-import type { OpenApiSpec } from './openapi.js';
+import { authOf, deref, type Json, type OpenApiSpec } from './openapi.js';
 import type { Diagnostic } from './diagnostics.js';
 import type { UrlTemplate } from '../ir.js';
 import { CONTENT, FILE } from './files.js';
@@ -32,6 +32,42 @@ export interface ApiOptions {
   operations?: Record<string, OperationShape>;
   /** how this API's lists page: its parameter names and direction values, for every `paginate` of a resource on it */
   paginate?: PaginateWire;
+  /** a token the browser keeps and sends to this API (docs/apis.md#a-token) */
+  token?: TokenOptions;
+}
+
+/**
+ * `apis.<name>.token`: where the token is stored, how it is sent, which responses issue it. Sent only to the API's
+ * own requests; the header name and default scheme come from the spec's `securitySchemes` (`http` bearer, `apiKey`
+ * in a header) when it has them.
+ */
+export interface TokenOptions {
+  /** `'local:<key>'` (localStorage) or `'session:<key>'` (sessionStorage): read on every request */
+  storage: `local:${string}` | `session:${string}`;
+  /** the header the token goes in; default: the spec's scheme's, else `Authorization` */
+  header?: string;
+  /** the word before the token (`'Token'`, `'Bearer'`), `''` for none; default: `Bearer` for an `http` bearer scheme or `Authorization` without a spec, else none */
+  scheme?: string;
+  /** where an action's 401 goes (`loginRedirect`'s options; a path: with the return URL stored for `takeReturnUrl`) */
+  signIn?: string | { to: string; returnUrl?: { allow: string[]; param?: string } };
+  /** the operations whose 2xx response issues a token, and where in the body: `{ 'POST /users/login': 'user.token' }` */
+  from?: Record<string, string>;
+  /** the operations that need the token (`METHOD /path`), besides those the spec's `security` says; default without a spec: all */
+  required?: string[];
+}
+
+/** `token`, resolved. */
+export interface TokenDef {
+  storage: 'local' | 'session';
+  key: string;
+  header: string;
+  /** the word before the token, `''` for none */
+  scheme: string;
+  signIn?: { to: string; returnUrl?: { allow: string[]; param?: string } };
+  /** `METHOD /path` → where the token is in the body */
+  from: Record<string, string>;
+  /** the operations that need the token, `METHOD /path` as the spec writes them; null: every operation */
+  required: string[] | null;
 }
 
 /** A server's pagination parameters (docs/pagination.md): the names it reads, and the values it gives the directions. */
@@ -52,6 +88,7 @@ export interface ApiDef {
   /** shapes by `METHOD /path` (method in capitals), from `defaults` and `operations` */
   shapes: Record<string, OperationShape>;
   paginate?: PaginateWire;
+  token?: TokenDef;
 }
 
 export interface ApisDef {
@@ -77,6 +114,105 @@ function paginateWire(raw: unknown, where: string, fail: (m: string) => void): P
   }
   for (const k of Object.keys(raw)) if (k !== 'params' && k !== 'directions') { fail(`\`${where}.${k}\` is not a setting; it takes \`params\` and \`directions\``); return undefined; }
   return out;
+}
+
+/** The headers a spec's security schemes send a token in (`http` bearer, `apiKey` in a header), with their default scheme word. */
+function specHeaders(docs: unknown[]): Array<{ header: string; scheme: string }> {
+  const out = new Map<string, string>();
+  for (const doc of docs) {
+    const ss = (doc as { components?: { securitySchemes?: Record<string, unknown> } })?.components?.securitySchemes;
+    if (!ss || typeof ss !== 'object') continue;
+    for (const raw of Object.values(ss)) {
+      const x = deref(doc, raw);
+      if (x?.type === 'http' && typeof x.scheme === 'string' && x.scheme.toLowerCase() === 'bearer') out.set('authorization', 'Bearer');
+      else if (x?.type === 'apiKey' && x.in === 'header' && typeof x.name === 'string' && !out.has(x.name.toLowerCase())) out.set(x.name.toLowerCase(), '');
+    }
+  }
+  return [...out].map(([header, scheme]) => ({ header: header === 'authorization' ? 'Authorization' : header, scheme }));
+}
+
+/** The operations of these documents whose `security` needs a token, as `METHOD /path`. */
+function tokenOperations(docs: unknown[]): string[] {
+  const out: string[] = [];
+  for (const doc of docs) {
+    const paths = (doc as { paths?: Record<string, unknown> })?.paths;
+    if (!paths || typeof paths !== 'object') continue;
+    for (const [path, raw] of Object.entries(paths)) {
+      const item = deref(doc, raw);
+      for (const m of METHODS) {
+        const op = item ? deref(doc, item[m.toLowerCase()]) : null;
+        if (op && authOf(doc as Json, op) === 'token') out.push(`${m} ${path}`);
+      }
+    }
+  }
+  return out;
+}
+
+/** `apis.<name>.token`, checked (SN329) and resolved against the API's specs; `has`: whether the API has the operation. */
+function tokenOf(raw: unknown, name: string, docs: unknown[], has: (method: string, path: string) => boolean, fail: (m: string) => void): TokenDef | undefined {
+  const where = `${name}.token`;
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) { fail(`\`${where}\` takes an object: \`{ storage: 'local:token', from: { 'POST /login': 'token' } }\``); return undefined; }
+  const t = raw as Record<string, unknown>;
+  const keys = ['storage', 'header', 'scheme', 'signIn', 'from', 'required'];
+  for (const k of Object.keys(t)) if (!keys.includes(k)) { fail(`\`${where}.${k}\` is not a token setting; the settings are ${keys.map((x) => `\`${x}\``).join(', ')}`); return undefined; }
+  const st = typeof t.storage === 'string' ? /^(local|session):(.+)$/.exec(t.storage) : null;
+  if (!st) { fail(`\`${where}.storage\` is \`'local:<key>'\` (localStorage) or \`'session:<key>'\` (sessionStorage), e.g. \`'local:token'\``); return undefined; }
+  if (t.header != null && (typeof t.header !== 'string' || !/^[!#$%&'*+.^\w|~-]+$/.test(t.header))) { fail(`\`${where}.header\` is a header name, e.g. \`'Authorization'\``); return undefined; }
+  if (t.scheme != null && (typeof t.scheme !== 'string' || !/^([A-Za-z][\w.~+/-]*)?$/.test(t.scheme))) { fail(`\`${where}.scheme\` is the word before the token (\`'Bearer'\`, \`'Token'\`), or \`''\` for none`); return undefined; }
+  let signIn: TokenDef['signIn'];
+  if (t.signIn != null) {
+    const v = t.signIn as { to?: unknown; returnUrl?: { allow?: unknown; param?: unknown } };
+    const path = (x: unknown): x is string => typeof x === 'string' && /^\/(?![/\\])/.test(x);
+    if (path(v)) signIn = { to: v, returnUrl: { allow: ['/'] } };
+    else if (v && typeof v === 'object' && path(v.to) && (v.returnUrl == null || (Array.isArray(v.returnUrl.allow) && v.returnUrl.allow.every(path) && (v.returnUrl.param == null || typeof v.returnUrl.param === 'string')))) {
+      signIn = { to: v.to, ...(v.returnUrl ? { returnUrl: { allow: [...v.returnUrl.allow as string[]], ...(v.returnUrl.param != null ? { param: v.returnUrl.param as string } : {}) } } : {}) };
+    } else { fail(`\`${where}.signIn\` is a same-origin path (\`'/login'\`), or \`loginRedirect\`'s options, \`{ to: '/login', returnUrl: { allow: ['/'], param: 'next' } }\``); return undefined; }
+  }
+  const from: Record<string, string> = {};
+  if (t.from != null) {
+    if (typeof t.from !== 'object' || Array.isArray(t.from)) { fail(`\`${where}.from\` maps operations to where the token is in their response: \`{ 'POST /users/login': 'user.token' }\``); return undefined; }
+    for (const [key, at] of Object.entries(t.from)) {
+      const op = parseOperationKey(key);
+      if (!op) { fail(`\`${where}.from\` names operations as \`METHOD /path\`, not \`${key}\``); return undefined; }
+      if (!has(op.method, op.path)) { fail(`\`${where}.from\` names \`${key}\`, which is no operation of the API \`${name}\``); return undefined; }
+      if (typeof at !== 'string' || !/^[\w$-]+(\.[\w$-]+)*$/.test(at)) { fail(`\`${where}.from['${key}']\` is where the token is in the response body, a dotted path such as \`'user.token'\``); return undefined; }
+      from[key] = at;
+    }
+  }
+  let listed: string[] | null = null;
+  if (t.required != null) {
+    if (!Array.isArray(t.required)) { fail(`\`${where}.required\` is a list of operations, \`['GET /me']\``); return undefined; }
+    listed = [];
+    for (const key of t.required as unknown[]) {
+      const op = typeof key === 'string' ? parseOperationKey(key) : null;
+      if (!op || !has(op.method, op.path)) { fail(`\`${where}.required\` names \`${String(key)}\`, which is no operation of the API \`${name}\` (\`METHOD /path\`)`); return undefined; }
+      listed.push(key as string);
+    }
+  }
+  const found = specHeaders(docs);
+  if (t.header == null && found.length > 1) { fail(`\`${where}.header\`: the spec sends a token in ${found.map((f) => `\`${f.header}\``).join(' or ')}; say which`); return undefined; }
+  const header = (t.header as string | undefined) ?? found[0]?.header ?? 'Authorization';
+  const spec = found.find((f) => f.header.toLowerCase() === header.toLowerCase());
+  const scheme = (t.scheme as string | undefined) ?? spec?.scheme ?? (!found.length && header.toLowerCase() === 'authorization' ? 'Bearer' : '');
+  // without a spec and without a list, every operation needs it
+  const required = listed == null && !docs.length ? null : [...new Set([...tokenOperations(docs), ...(listed ?? [])])];
+  return { storage: st[1] as 'local' | 'session', key: st[2]!, header, scheme, ...(signIn ? { signIn } : {}), from, required };
+}
+
+/**
+ * A token at runtime (`$apis`): `s` its storage (`l`ocal, `s`ession) and `k` its key, `h` the header, `p` what goes
+ * before the token (`'Token '`), `r` the GET paths that need it (absent: all), `f` the operations
+ * whose response issues it and where in the body, `i` where an action's 401 goes. Nothing of the token itself.
+ */
+export interface RuntimeToken { s: 'l' | 's'; k: string; h: string; p: string; r?: string[]; f?: Record<string, string>; i?: TokenDef['signIn'] }
+
+/** What the runtime gets of an API (the page module's `$apis`, the testing module): name, base, credentials, static headers, token. */
+export function runtimeApi(a: ApiDef): { n: string; b: string; c?: 'omit' | 'same-origin' | 'include'; h?: Record<string, string>; t?: RuntimeToken } {
+  const t = a.token;
+  return {
+    n: a.name, b: a.base, ...(a.credentials ? { c: a.credentials } : {}), ...(a.headers ? { h: a.headers } : {}),
+    ...(t ? { t: { s: t.storage === 'local' ? 'l' as const : 's' as const, k: t.key, h: t.header, p: t.scheme ? t.scheme + ' ' : '', ...(t.required ? { r: t.required.filter((k) => k.startsWith('GET ')).map((k) => k.slice(4)) } : {}), ...(Object.keys(t.from).length ? { f: t.from } : {}), ...(t.signIn ? { i: t.signIn } : {}) } } : {}),
+  };
 }
 
 /** The built-in API of the page's own origin. */
@@ -185,9 +321,9 @@ export function resolveApis(
     if (!/^[A-Za-z_][\w-]*$/.test(name)) { fail(`\`${name}\` is not an API name: a letter or \`_\`, then letters, digits, \`_\` and \`-\``); continue; }
     if (name === FILE) { fail('`file` is the built-in source of the project\'s own files (`src="file:./post.txt"`): name the API otherwise'); continue; }
     if (name === CONTENT) { fail('`content` is the built-in source of the content module\'s collections (`src="content:posts"`): name the API otherwise'); continue; }
-    if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) { fail(`\`${name}\` takes an object (\`base\`, \`openapi\`, \`credentials\`, \`headers\`, \`defaults\`, \`operations\`, \`paginate\`)`); continue; }
+    if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) { fail(`\`${name}\` takes an object (\`base\`, \`openapi\`, \`credentials\`, \`headers\`, \`defaults\`, \`operations\`, \`paginate\`, \`token\`)`); continue; }
     const a = raw as ApiOptions & Record<string, unknown>;
-    for (const k of Object.keys(a)) if (!['base', 'openapi', 'credentials', 'headers', 'defaults', 'operations', 'paginate'].includes(k)) fail(`\`${name}.${k}\` is not an API setting; the settings are \`base\`, \`openapi\`, \`credentials\`, \`headers\`, \`defaults\`, \`operations\` and \`paginate\``);
+    for (const k of Object.keys(a)) if (!['base', 'openapi', 'credentials', 'headers', 'defaults', 'operations', 'paginate', 'token'].includes(k)) fail(`\`${name}.${k}\` is not an API setting; the settings are \`base\`, \`openapi\`, \`credentials\`, \`headers\`, \`defaults\`, \`operations\`, \`paginate\` and \`token\``);
     const paginate = a.paginate == null ? undefined : paginateWire(a.paginate, `${name}.paginate`, fail);
     const specs: number[] = [];
     for (const rel of (a.openapi == null ? [] : Array.isArray(a.openapi) ? a.openapi : [a.openapi]) as unknown[]) {
@@ -236,11 +372,13 @@ export function resolveApis(
       ops[key] = shape;
       shapes[key] = shape;
     }
+    const ownSpecs = specs.length;
     if (Object.keys(ops).length) {
       openapi.push({ file: configFile, doc: operationsDoc(ops), config: name });
       specs.push(openapi.length - 1);
     }
-    list.push({ name, base, specs, shapes, ...(paginate ? { paginate } : {}), ...(a.credentials ? { credentials: a.credentials } : {}), ...(a.headers && Object.keys(a.headers).length ? { headers: { ...a.headers } } : {}) });
+    const token = a.token == null ? undefined : tokenOf(a.token, name, specs.slice(0, ownSpecs).map((i) => openapi[i]!.doc), (m, k) => has(m, k) || !!ops[`${m.toUpperCase()} ${k}`], fail);
+    list.push({ name, base, specs, shapes, ...(paginate ? { paginate } : {}), ...(a.credentials ? { credentials: a.credentials } : {}), ...(a.headers && Object.keys(a.headers).length ? { headers: { ...a.headers } } : {}), ...(token ? { token } : {}) });
   }
   const own = list.filter((x) => x.name !== SITE);
   let defaultApi: string | null = options.defaultApi ?? (own.length === 1 ? own[0]!.name : null);

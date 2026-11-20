@@ -138,6 +138,7 @@ export const LINK_FIELDS: Record<string, { kinds: string[]; how: 'table' | 'weak
   markups: { kinds: ['WeakMap'], how: 'weak' },
   measured: { kinds: ['WeakMap'], how: 'weak' },
   needsMarkup: { kinds: ['boolean'], how: 'fixed' },
+  needsToken: { kinds: ['Set'], how: 'table' },
   nextId: { kinds: ['number'], how: 'fixed' },
   nextSid: { kinds: ['number'], how: 'renumbered' },
   noEarly: { kinds: ['Set'], how: 'table' },
