@@ -71,8 +71,9 @@ The runtime reads only the `data-sn` ids the build assigned, and checks them at 
 - At runtime, a resolved URL whose origin is neither the page's nor a listed one is refused and
   reported through `onError`. List origins in `sinter({ origins: [...] })`; see
   docs/configuration.md.
-- Interpolated values are encoded with `encodeURIComponent`; a value that is exactly `.` or `..`
-  becomes `%2E` or `%2E%2E`, so it cannot climb path segments.
+- Interpolated values are encoded with `encodeURIComponent`. In the path, a value that is exactly `.`
+  or `..` (or a list) is refused, and the URL is not built: URL parsers read `%2E%2E` as `..`, so no
+  encoding keeps it from climbing a segment. In a query value, `.` and `..` become `%2E` and `%2E%2E`.
 - A link's URL template (`data-sn-href`) follows the same rules (it may also start with `?` or `#`),
   so a value never chooses a link's scheme or host either.
 - Header middleware such as a CSRF header applies to same-origin requests only, unless you scope it
