@@ -143,10 +143,11 @@ test('early requests: resources whose URL reads only what is known early (state,
   expect(early).toContain('"q": ($.$url.q)');
   expect(early).toContain('import { monday } from "/h.js";');
   // the request machinery only on a page with early requests
-  expect(early).toContain("import { start, $k, sp, st, requests } from '@tiaforge-ui/sinter/runtime/early';");
+  expect(early).toContain("import { start, $k, $hq, $hv, sp, st, requests } from '@tiaforge-ui/sinter/runtime/early';");
   // the requests read the root scopes the compiled `scopes` makes; there is nothing to render
   expect(early).toContain('render: () => {}');
-  expect(early).toContain('ir: {"res":[');
+  // each request compiled: its `when`, then its URL as the page module makes it (a whole query value through `$hq`)
+  expect(early).toContain('req: (q, n, b) => { q(() => f[2](n[1]) && "/api/days" + $hq([["start", f[0](n[1])], ["q", f[1](n[1])]]), 0, 0, 1); q(() => f[4](n[1]) && "/api/x/" + $hv(f[3](n[1])), 0, 0, 1); }');
   expect(early!.endsWith('start(page, null, requests());\n')).toBe(true);
 });
 
@@ -174,8 +175,11 @@ test('early requests, paginated: the first page, with the query parameters the p
   expect(html).toContain('<link rel="preload" as="fetch" crossorigin="" href="/api/lit?a=1&amp;limit=10&amp;direction=first">');
   expect(html.match(/rel="preload"/g)).toHaveLength(2);
   // the parameters are added as the runtime adds them; only a page with such a request imports that
-  expect(early).toContain("import { start, $k, sp, requests, withParams } from '@tiaforge-ui/sinter/runtime/early';");
-  expect(early!.endsWith('start(page, null, requests(withParams));\n')).toBe(true);
+  expect(early).toContain("import { start, $k, $hq, $href, sp, withParams, requests } from '@tiaforge-ui/sinter/runtime/early';");
+  // a template with a query of its own: the parameters merged into it (`withParams`); one with a `#`: `$href`
+  expect(early).toContain('q(() => withParams("/api/mail" + $hq([["box", f[0](n[0])]]), { "limit": "50", "dir": "forward" }));');
+  expect(early).toContain('q(() => withParams($href(["/api/more?box=",0,"#x"], [f[0](n[0])]), { "limit": "5", "direction": "first" }));');
+  expect(early!.endsWith('start(page, null, requests());\n')).toBe(true);
 });
 
 test('preconnect: every origin a literal resource or stream `src` names gets one `<link rel="preconnect" crossorigin>` (anonymous, as the runtime connects), before the preloads; such a `src` is no preload', () => {

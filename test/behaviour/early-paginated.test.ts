@@ -6,7 +6,7 @@ import { afterEach, expect, test } from 'vitest';
 import { compile, earlyPage, type CompileOptions } from '../../src/compiler/index.js';
 import { compileParts } from '../../src/compiler/compile.js';
 import * as earlyExports from '../../src/early.js';
-import { configured, requests, start, withParams } from '../../src/early.js';
+import { configured, requests, start } from '../../src/early.js';
 import type { EarlyIR } from '../../src/ir.js';
 import { configure, setEnv, type Middleware } from '../../src/runtime/config.js';
 import { defaultEnv } from '../../src/runtime/env.js';
@@ -58,8 +58,8 @@ async function load(html: string, o: { storage?: Storage; session?: Storage; ir?
   const early: string[] = [];
   const storage = o.storage ?? memoryStorage();
   setEnv({ ...defaultEnv, href: () => o.href ?? 'http://localhost/', storage: () => storage, fetch: async (r: Request) => { const u = new URL(r.url); early.push(u.pathname + u.search); await o.hold; return Response.json(server(r.url)); } });
-  expect(out.early).toContain(', requests(withParams)');
-  start(() => page, null, requests(withParams, configured));
+  expect(out.early).toContain(', requests());');
+  start(() => page, null, requests(configured));
   const mock = mockRequests({ 'GET /api/mail': (c: RecordedCall) => server(c.url) });
   // the page module's requests: the early response if the request layer takes it, else the mock
   const net = ((req: Request, next: Parameters<Middleware>[1]) => next(req).catch((e: Error) => (/unexpected network request/.test(e.message) ? mock(req, next) : Promise.reject(e)))) as unknown as MockRequests;

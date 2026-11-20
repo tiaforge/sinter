@@ -1,7 +1,7 @@
 import * as acorn from 'acorn';
 import { tsPlugin } from '@sveltejs/acorn-typescript';
-import { compileParts, type CompileOptions, type CompileResult, type CompiledParts, type EarlyParts, type FnSource, type FnSources, type HelperManifest, type HelperOrigin, type PrefetchParts, type EmbedSlot, type EmbedCond, type RuntimeReason } from './compile.js';
-import { compactIR } from '../ir.js';
+import { compileParts, urlCode, type CompileOptions, type CompileResult, type CompiledParts, type EarlyParts, type FnSource, type FnSources, type HelperManifest, type HelperOrigin, type PrefetchParts, type EmbedSlot, type EmbedCond, type RuntimeReason } from './compile.js';
+import { compactIR, type EarlyIR } from '../ir.js';
 import { coreParts } from '../core-parts.js';
 import { MappedLines, type SourceMap } from './sourcemap.js';
 import { earlyRender } from './early-render.js';
@@ -168,6 +168,50 @@ export function earlyModule(early: EarlyParts | null, options: Pick<CompileOptio
 }
 
 /**
+ * The early requests as code (early.ts `Requests`): per request, its URL as the page module's request layer will have
+ * it, written out (`urlCode`: the literals, each value encoded; `$href` for a template of another shape), its `when`
+ * before it, a paginated list's first-page parameters after it (literal text, a numbered list's page from the URL as an
+ * expression; `withParams` when the template has a query of its own, which the pager's parameters are merged into),
+ * and its API's settings. `uses`: the early module's exports it calls.
+ */
+export function earlyRequests(res: NonNullable<EarlyIR['res']>, as: EarlyIR['as']): { code: string; uses: string[] } {
+  const uses = new Set<string>();
+  const call = (name: string) => (uses.add(name), name);
+  const lines = res.map((r) => {
+    const s = r.scope < 0 ? 'b' : `n[${r.scope}]`;
+    const nums = r.src.filter((p): p is number => typeof p === 'number');
+    const vals: string[] = [];
+    for (const p of nums) vals[p] = `f[${p}](${s})`;
+    let u = urlCode(r.src, vals);
+    if (u == null) u = `${call('$href')}(${JSON.stringify(r.src.map((p) => (typeof p === 'number' ? nums.indexOf(p) : p)))}, [${nums.map((p) => `f[${p}](${s})`).join(', ')}])`;
+    for (const h of ['$hv', '$hq']) if (u.includes(`${h}(`)) uses.add(h);
+    if (r.q) {
+      // page n of a numbered list, from what the URL says (the pager's pageParams): the first page's with it set
+      const page = r.sp ? (r.sp.o ? `(${call('toPage')}(f[${r.sp.f}](${s})) - 1) * ${r.sp.s}` : `${call('toPage')}(f[${r.sp.f}](${s}))`) : null;
+      const q: Array<[string, string | null]> = Object.entries(r.q).map(([k, v]) => [k, page != null && k === r.sp!.k ? null : v]);
+      if (page != null && !(r.sp!.k in r.q)) q.push([r.sp!.k, null]);
+      if (r.src.some((p) => typeof p === 'string' && /[?#]/.test(p)) || /^\$href\(/.test(u)) {
+        u = `${call('withParams')}(${u}, { ${q.map(([k, v]) => `${JSON.stringify(k)}: ${v == null ? `String(${page})` : JSON.stringify(v)}`).join(', ')} })`;
+      } else {
+        // as URLSearchParams writes them (withParams), the parameters in their order
+        const parts: Array<string | { c: string }> = [];
+        q.forEach(([k, v], i) => {
+          const t = (i ? '&' : '?') + new URLSearchParams([[k, v ?? '']]).toString();
+          if (typeof parts.at(-1) === 'string') parts[parts.length - 1] += t; else parts.push(t);
+          if (v == null) parts.push({ c: `(${page})` });
+        });
+        u = [u, ...parts.map((p) => (typeof p === 'string' ? JSON.stringify(p) : p.c))].join(' + ');
+      }
+    }
+    if (r.when != null) u = `f[${r.when}](${s}) && ${u}`;
+    const args = [`() => ${u}`, r.a != null ? `a[${r.a}]` : '', r.r ? '1' : '', r.lo ? '1' : ''];
+    while (args.at(-1) === '') args.pop();
+    return `q(${args.map((x) => x || '0').join(', ')})`;
+  });
+  return { code: `(q, n, b${as?.length ? `, a = ${JSON.stringify(as)}` : ''}) => { ${lines.join('; ')}; }`, uses: [...uses] };
+}
+
+/**
  * The early page object's source, over the early table `f`: the early requests (`ir`), the table,
  * and the compiled renderer (early-render.ts); `uses`: the early module's exports it calls.
  */
@@ -175,7 +219,8 @@ export function earlyPage(early: EarlyParts): { code: string; uses: string[] } {
   const r = earlyRender(early.ir, early.fns);
   // a request's scope by the root whose state it is (the renderer keeps a scope only for nodes that open one)
   const res = early.ir.res?.map((x) => ({ ...x, scope: x.scope < 0 ? -1 : r.owner[x.scope]! }));
-  const ir = { ...(res ? { res } : {}), ...(early.ir.path ? { path: early.ir.path } : {}), ...(early.ir.urlArrays ? { urlArrays: early.ir.urlArrays } : {}), ...(early.ir.emb ? { emb: early.ir.emb } : {}), ...(early.ir.si ? { si: early.ir.si } : {}), ...(early.ir.as ? { as: early.ir.as } : {}) };
+  const req = res ? earlyRequests(res, early.ir.as) : null;
+  const ir = { ...(early.ir.path ? { path: early.ir.path } : {}), ...(early.ir.urlArrays ? { urlArrays: early.ir.urlArrays } : {}), ...(early.ir.emb ? { emb: early.ir.emb } : {}), ...(early.ir.si ? { si: early.ir.si } : {}) };
   // `$locale` read early: the page passes the configured locale source (else the early file carries no config)
   const lc = early.fns.some((x) => /\$\.\$locale\b/.test(x)), ls = !!early.ir.urlArrays;
   // a link's URL template (`data-sn-href`) rendered early: the early module fills it as the page module does
@@ -188,8 +233,9 @@ export function earlyPage(early: EarlyParts): { code: string; uses: string[] } {
   // a resource that needs its API's token: its early status reads whether one is stored
   // (and the guard, which the page passes it)
   const so = away || early.fns.some((x) => x.includes('$so(')) ? ['$so'] : [];
-  const uses = extra.length || hr.length || so.length ? [...r.uses, ...extra, ...hr, ...so].sort() : r.uses;
-  return { code: `{ ir: ${JSON.stringify(ir)}, fns: f, scopes: ${r.scopes}, render: ${r.render}${extra.map((x) => (x == away ? `, away: (o, b) => ${x}(o, b, $so)` : ', ' + x)).join('')} }`, uses };
+  const more = [...extra, ...hr, ...so, ...(req?.uses ?? [])];
+  const uses = more.length ? [...new Set([...r.uses, ...more])].sort() : r.uses;
+  return { code: `{ ir: ${JSON.stringify(ir)}, fns: f, scopes: ${r.scopes}, render: ${r.render}${req ? `, req: ${req.code}` : ''}${extra.map((x) => (x == away ? `, away: (o, b) => ${x}(o, b, $so)` : ', ' + x)).join('')} }`, uses };
 }
 
 function earlyLines(early: EarlyParts | null, options: Pick<CompileOptions, 'helpers' | 'early' | 'observe' | 'locale' | 'baseMessages'>): MappedLines | null {
@@ -198,11 +244,11 @@ function earlyLines(early: EarlyParts | null, options: Pick<CompileOptions, 'hel
   if (!early && !app) return null;
   const lines = new MappedLines();
   if (app) lines.push(`import ${JSON.stringify(app)};`);
-  const req = !!early?.ir.res?.length, pages = !!early?.ir.res?.some((r) => r.q);
+  const req = !!early?.ir.res?.length;
   const page = early ? earlyPage(early) : null;
   // a page with nothing to wait for (no requests, no messages, no app early module's dictionary): `run`, one step
   const simple = !!early && !observe && !req && (fixed || !Object.values(options.helpers.namespaces).some((n) => n.module === MESSAGES));
-  lines.push(`import { ${[observe ? 'observe' : simple ? 'run' : 'start', ...(early ? ['$k', ...page!.uses] : []), ...(req ? ['requests', ...(app ? ['configured'] : [])] : []), ...(pages ? ['withParams'] : [])].join(', ')} } from '${RUNTIME}/early';`);
+  lines.push(`import { ${[observe ? 'observe' : simple ? 'run' : 'start', ...(early ? ['$k', ...page!.uses] : []), ...(req ? ['requests', ...(app ? ['configured'] : [])] : [])].join(', ')} } from '${RUNTIME}/early';`);
   let messages: string | null = null;
   const byModule = new Map<string, string[]>();
   if (early) {
@@ -239,7 +285,7 @@ function earlyLines(early: EarlyParts | null, options: Pick<CompileOptions, 'hel
     early.fns.forEach((f, i) => lines.fn('    ', f, ',', early.sources?.fns[i]));
     lines.push('  ];', `  return ${page!.code};`, '};');
   }
-  const args = `${early ? 'page' : 'null'}, ${messages ? `{ use: $use, ready: $ready${observe ? ', state: $state' : ''} }` : 'null'}${req ? `, requests(${pages ? 'withParams' : app ? 'undefined' : ''}${app ? ', configured' : ''})` : ''}`;
+  const args = `${early ? 'page' : 'null'}, ${messages ? `{ use: $use, ready: $ready${observe ? ', state: $state' : ''} }` : 'null'}${req ? `, requests(${app ? 'configured' : ''})` : ''}`;
   // observe (builds): a classic head script, which starts the requests at once and renders as the parser goes
   lines.push(observe ? `observe(${args});` : simple ? 'run(page);' : `start(${args});`);
   return lines;

@@ -10,11 +10,12 @@ import { config, signInTarget } from './runtime/config.js';
 import type { Env } from './runtime/env.js';
 import { meeting, prefetched, setPrefetched, type EarlyApi, type Prefetched } from './runtime/handoff.js';
 import { schemesOf, STYLE_BAD, urlAllowed } from './runtime/security.js';
-import { expand, readUrl, type withParams } from './runtime/url.js';
+import { readUrl } from './runtime/url.js';
 import type { lists } from './runtime/lists.js';
 
 export { lists } from './runtime/lists.js';
-import { toPage } from './runtime/pages.js';
+/** a numbered list's page (`model`), for a page whose early requests start one at the page its URL names */
+export { toPage } from './runtime/pages.js';
 import type { EarlyIR } from './ir.js';
 
 /** What the early requests read from the outside world: the clock, the location, fetch. */
@@ -35,8 +36,8 @@ export const configured = (): EarlyEnv => {
 export { $k } from './runtime/keys.js';
 /** for a page whose early requests include a paginated resource's first page (the compiler passes it to `requests`) */
 export { withParams } from './runtime/url.js';
-/** a link's URL template (`data-sn-href`) the early bindings fill */
-export { $href, $hv } from './runtime/url.js';
+/** a URL template (`data-sn-href`, an early request's `src`) the early file fills, compiled (compile.ts `urlCode`) */
+export { $href, $hq, $hv } from './runtime/url.js';
 
 /** On the start comment of a `data-sn-if` (or a choice) the early chunk rendered: the branch, its nodes and the end comment, for the runtime to adopt. */
 export const EARLY = Symbol.for('sinter.early');
@@ -87,7 +88,15 @@ type Fn = (...a: any[]) => any;
  * function table, and its compiled renderer (compiler/early-render.ts): `scopes` over the base
  * scope, then `render` with them.
  */
-export type EarlyPage = () => { ir: Pick<EarlyIR, 'res' | 'as' | 'path' | 'urlArrays' | 'emb' | 'si'>; fns: Fn[]; scopes(base: any): any[]; render(doc: Document, scopes: any[], base: any): void; locale?: typeof locale; lists?: typeof lists; away?: (o: any, base: any) => boolean };
+export type EarlyPage = () => { ir: Pick<EarlyIR, 'path' | 'urlArrays' | 'emb' | 'si'>; fns: Fn[]; scopes(base: any): any[]; render(doc: Document, scopes: any[], base: any): void; req?: Requests; locale?: typeof locale; lists?: typeof lists; away?: (o: any, base: any) => boolean };
+
+/**
+ * The page's early requests, compiled (compiler/index.ts `earlyRequests`, from `EarlyIR.res`): `q` once per request,
+ * over the root scopes and the base scope. `u` makes its URL as the page module will (or throws, or is false: not
+ * known early, or its `when` is false); `a`: its API's credentials, static headers and token; `r`: it needs the token;
+ * `lo`: low priority.
+ */
+export type Requests = (q: (u: () => string | false, a?: EarlyApi, r?: 0 | 1, lo?: 1) => void, scopes: any[], base: any) => void;
 
 /** the configured locale source, for a page whose early functions read `$locale` (others carry no config) */
 export const locale = () => config.locale;
@@ -288,14 +297,11 @@ function scope(o: ReturnType<EarlyPage>, req: EarlyRequests | null): any {
  */
 export interface EarlyRequests {
   read(key: PropertyKey, path: string[] | undefined, more?: (href: string, url: any) => any): unknown;
-  send(ir: Pick<EarlyIR, 'res' | 'as'>, scopes: any[], base: any, fns: Fn[]): void;
+  send(req: Requests, scopes: any[], base: any): void;
 }
 
-/**
- * `params`: adds a paginated resource's first-page parameters (`withParams`, imported only by a page
- * that has one); `envOf`: where the environment comes from (`configured` where an app early module may set it)
- */
-export function requests(params?: typeof withParams, envOf: () => EarlyEnv = browser): EarlyRequests {
+/** `envOf`: where the environment comes from (`configured` where an app early module may set it) */
+export function requests(envOf: () => EarlyEnv = browser): EarlyRequests {
   let url: Record<string, string | string[]> | null = null, now: Date | null = null, e: EarlyEnv | null = null;
   // the environment only requests read (the clock, the location, fetch): read when first needed, after the app's early module ran
   const env = () => (e ??= envOf());
@@ -305,21 +311,15 @@ export function requests(params?: typeof withParams, envOf: () => EarlyEnv = bro
       if (k == '$url') { const h = env().href(); return (url ??= more(h, readUrl(h, path))); }
       throw Error('sinter: not available early');
     },
-    /** the resources whose URL is known now: `when` holds and every value is there (a paginated one: its first page) */
-    send(ir, scopes, base, fns) {
+    /**
+     * the resources whose URL is known now: `when` holds and every value is there (a paginated one: its first page).
+     * Each URL's origin is the build's: a path, or an origin of `sinter({ origins })` (compile.ts `earlyOrigin`)
+     */
+    send(req, scopes, base) {
       const here = env().href();
-      for (const r of ir.res ?? []) {
-        try {
-          const s = r.scope < 0 ? base : scopes[r.scope];
-          if (r.when != null && !fns[r.when]!(s)) continue;
-          let q = r.q;
-          // `model` (paginate, numbered): page n's parameters (the pager's pageParams), the first page's with the page set
-          if (r.sp) { const n = toPage(fns[r.sp.f]!(s)); if (n > 1) q = { ...q, [r.sp.k]: String(r.sp.o ? (n - 1) * r.sp.s : n) }; }
-          const t = expand(r.src, s, fns), u = new URL(q ? params!(t, q) : t, here);
-          // another origin only when the build found it in `sinter({ origins })` (`xo`)
-          if (r.xo || u.origin == new URL(here).origin) (prefetched() ?? own(pending(env()))).add(u.href, r.lo, r.a != null ? ir.as![r.a] : undefined, r.r);
-        } catch { /* not known early: the page module requests it */ }
-      }
+      req((u, a, r, lo) => {
+        try { const x = u(); if (x) (prefetched() ?? own(pending(env()))).add(new URL(x, here).href, lo, a, r as 1 | undefined); } catch { /* not known early: the page module requests it */ }
+      }, scopes, base);
     },
   };
 }
@@ -374,7 +374,7 @@ const token = (t: NonNullable<EarlyApi['t']>): string | null => {
 /** Renders a page's early part (tests; the early file goes through `start`). */
 export function early(doc: Document, page: ReturnType<EarlyPage>): void {
   configured();
-  prepare(page, requests(undefined, configured))?.render(doc);
+  prepare(page, requests(configured))?.render(doc);
 }
 
 /**
@@ -405,11 +405,11 @@ const toPath = (i: string, href: string, s: Storage | null) => {
 export const awayVia = (o: ReturnType<EarlyPage>, base: any, out: typeof $so) => away(o, base, out, signInTarget);
 
 function prepare(o: ReturnType<EarlyPage>, req: EarlyRequests | null) {
-  const { ir, fns } = o, base = scope(o, req);
+  const base = scope(o, req);
   if (o.away?.(o, base)) return null;
   const roots = o.scopes(base);
   return {
-    fetch() { req?.send(ir, roots, base, fns); },
+    fetch() { if (o.req) req?.send(o.req, roots, base); },
     render(doc: Document) { o.render(doc, roots, base); },
   };
 }

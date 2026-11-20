@@ -16,6 +16,21 @@ export const $hv = (v: unknown, q?: boolean | 1): string => {
   return encodeSegment(v);
 };
 
+/**
+ * A URL template's query whose values include whole query values (`?tag={t}&limit=10`), as the compiler writes it
+ * (compiler/compile.ts `urlCode`): each part either a parameter already written (`"limit=10"`, `"q=" + $hv(v, 1)`)
+ * or `[key, value]`, a whole value: an array repeats the key (its null items left out), null, undefined or an empty
+ * array leaves the parameter out. The same string `expand` makes of that query.
+ */
+export const $hq = (parts: Array<string | [string, unknown]>): string => {
+  const o: string[] = [];
+  for (const p of parts) {
+    if (typeof p == 'string') o.push(p);
+    else for (const x of Array.isArray(p[1]) ? p[1] : [p[1]]) if (x != null) o.push(p[0] + '=' + encodeSegment(x));
+  }
+  return o.length ? '?' + o.join('&') : '';
+};
+
 /** Fills a URL template: each value encoded, an array query value a repeated key, null leaves the parameter out. */
 export function expand(tpl: UrlTemplate, s: any, fns: Array<(s: any) => any>): string {
   let out = '', query = false, dropped = false;

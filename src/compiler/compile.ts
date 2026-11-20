@@ -1172,11 +1172,16 @@ class Compiler {
   private readonly spaces: Array<{ list: P5Element; names: string[]; k: string; space: Reserved; note: (why: string) => void; ph?: P5Element; node?: NodeDef; tpl?: P5Element }> = [];
   /** origins of resources that could be requested early but are not listed in `origins` */
   readonly unlisted = new Set<string>();
-  /** whether a resource's literal `src` may be requested before the page module: same-origin, or a listed origin */
+  /**
+   * whether a resource's literal `src` may be requested before the page module: same-origin, or a listed origin. The
+   * early file requests it with no check of its origin at runtime: its literal start fixes it (a value is encoded, so
+   * it cannot start another `/` or `\`, nor go on with the host), as URL parsers read it (tabs and newlines dropped)
+   */
   private earlyOrigin(src: ResourceDef['src']): 'same' | 'listed' | null {
-    const head = typeof src[0] === 'string' ? src[0] : '';
-    if (/^\/(?!\/)/.test(head)) return 'same';
-    const m = /^https?:\/\/[^/?#]+/i.exec(head);
+    const head = typeof src[0] === 'string' ? src[0].replace(/[\t\n\r]/g, '') : '';
+    // (`/` alone before a value is not enough: an empty value and a `/` after it would make `//host`)
+    if (src.length === 1 ? /^\/(?![/\\])/.test(head) : /^\/[^/\\]/.test(head)) return 'same';
+    const m = /^https?:\/\/[^/?#\\]+(?=[/?#\\])/i.exec(head);
     if (!m) return null;
     const origin = new URL(m[0]).origin;
     if ((this.opts.origins ?? []).some((o) => { try { return new URL(o).origin === origin; } catch { return false; } })) return 'listed';
@@ -9404,6 +9409,54 @@ export function hrefCode(tpl: UrlTemplate, vals: string[]): string {
   });
   if (/[?&](?=#|$)/.test(tpl.map((p) => (typeof p === 'string' ? p : 'v')).join(''))) plain = false;
   return plain ? parts.join(' + ') : `$href(${JSON.stringify(tpl)}, [${vals.join(', ')}])`;
+}
+
+/**
+ * The code that fills a URL template exactly as `expand` (runtime/url.ts) does, with none of `expand`: the literals,
+ * each path value through `$hv` (a dot segment or a list refused), each query value that is part of a parameter
+ * through `$hv(v, 1)`, and a query with whole values (`?tag={t}`: null leaves the parameter out, a list repeats it)
+ * through `$hq`. `vals`: each value's code, by the template's numbers. Null for a template of another shape (a `#`,
+ * an `&` in the path, an empty parameter, two values side by side in the query, a value that may or may not be a whole
+ * value), which `expand` fills (`$href`); test/url-code.test.ts compares the two over random templates.
+ */
+export function urlCode(tpl: UrlTemplate, vals: string[]): string | null {
+  if (tpl.some((p) => typeof p === 'string' && p.includes('#'))) return null;
+  const q = tpl.findIndex((p) => typeof p === 'string' && p.includes('?'));
+  const path: UrlTemplate = q < 0 ? tpl : [...tpl.slice(0, q), (tpl[q] as string).slice(0, (tpl[q] as string).indexOf('?'))];
+  if (path.some((p) => typeof p === 'string' && p.includes('&'))) return null;
+  /** literals (adjacent ones as one) and values, joined by `+` */
+  const concat = (ps: Array<string | { c: string }>) => {
+    const out: Array<string | { c: string }> = [];
+    for (const p of ps) if (p !== '') typeof p === 'string' && typeof out.at(-1) === 'string' ? (out[out.length - 1] += p) : out.push(p);
+    return out.map((p) => (typeof p === 'string' ? JSON.stringify(p) : p.c)).join(' + ') || '""';
+  };
+  const vs = (ps: UrlTemplate, query: boolean) => ps.map((p) => (typeof p === 'string' ? p : { c: `$hv(${vals[p]}${query ? ', 1' : ''})` }));
+  if (q < 0) return concat(vs(path, false));
+  // the query's parameters: split at each `&`
+  const segs: UrlTemplate[] = [[]];
+  for (const p of [(tpl[q] as string).slice((tpl[q] as string).indexOf('?') + 1), ...tpl.slice(q + 1)]) {
+    if (typeof p !== 'string') { segs.at(-1)!.push(p); continue; }
+    if (p.includes('?')) return null;
+    p.split('&').forEach((x, i) => { if (i) segs.push([]); if (x) segs.at(-1)!.push(x); });
+  }
+  let whole = false;
+  const parts: Array<Array<string | { c: string }> | string> = [];
+  for (const s of segs) {
+    // an empty parameter (`?&`, `a=1&`, `?{x}`, which may be empty): `expand`'s own clean-up of separators
+    if (!s.some((p) => typeof p === 'string')) return null;
+    const last = s.at(-1)!, prev = s.at(-2);
+    if (s.length === 2 && typeof prev === 'string' && typeof last === 'number' && /^[^?&=#]*=$/.test(prev)) {
+      whole = true;
+      parts.push(`[${JSON.stringify(prev.slice(0, -1))}, ${vals[last]}]`);
+      continue;
+    }
+    // a value last after `=`, or two values side by side: whether it is a whole value depends on the values
+    if (typeof last === 'number' && (typeof prev === 'number' || (prev as string).endsWith('='))) return null;
+    if (s.some((p, i) => typeof p === 'number' && typeof s[i + 1] === 'number')) return null;
+    parts.push(vs(s, true));
+  }
+  if (whole) return `${concat(vs(path, false))} + $hq([${parts.map((p) => (typeof p === 'string' ? p : concat(p))).join(', ')}])`;
+  return concat([...vs(path, false), '?', ...(parts as Array<Array<string | { c: string }>>).flatMap((p, i) => (i ? ['&', ...p] : p))]);
 }
 
 /** What the build can see of where a link goes: a literal start, and whether it is the whole `href`. */

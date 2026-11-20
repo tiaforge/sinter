@@ -12,6 +12,8 @@ Attribute names, function names and diagnostic codes are public API. Before
 
 ### Changed
 
+- A page's early requests are compiled into its early file (each URL written out, the API's settings as literals) instead of read from a description by the early runtime: RealWorld's shared head script is 423 B gzip smaller, each page's total 170 to 430 B. A resource whose `src` starts with `/` and a value (`/{path}`), or with an origin and a value (`https://api.example.com{path}`), is now requested by the page module, not early: the build cannot see where it goes.
+
 A smaller vocabulary, one word per concept ([docs/proposals/vocabulary.md](docs/proposals/vocabulary.md)). Each old name is a build error that names its replacement: `SN101` for an attribute or element, `SN201` for a function, `SN401` for a value (`op="patch"`, `paginate="keyset"`). Those messages stay until 1.0, then an old name is an unknown one. `npx sinter migrate --write` writes every rename the compiler reports, in the pages, components and layouts (`npx sinter migrate` prints them first); the editor's quick fix writes one.
 
 - **Removed:** `data-sn-get`. Data a GET loads is a resource: `<sn-resource src>` reloads when the values its URL reads change, with latest-wins, the typing pause, `$meta`, `cache` and preloading, none of which a GET action had. A load that a click starts sets the state the resource's `when` reads (recipe: click to load), or is a `data-sn-call`. With it go its special cases: GET's own concurrency, and the exceptions for GET in field errors, write-through and `data-sn-retry`.

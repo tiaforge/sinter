@@ -225,10 +225,11 @@ const EARLY_PKG = '@tiaforge-ui/sinter/runtime/early';
 const runtimeNames = (code: string) => /import \{([^}]*)\} from '@tiaforge-ui\/sinter\/runtime\/early'/.exec(code)?.[1]!.split(',').map((x) => x.trim()).filter(Boolean) ?? [];
 /**
  * The runtime's exports that keep no state of the early runtime's own and share little code with the rest (the first-page
- * parameters, the array parameters, the token's and the guard's storage reads): when not every page imports one, it is
+ * parameters and page, the array parameters, the token's and the guard's storage reads, a query with whole values, a
+ * URL template of another shape): when not every page imports one, it is
  * bundled into the early files of the pages that do, and the shared head script, which every page loads, holds none of it.
  */
-const PAGE_OWN = new Set(['$so', 'away', 'awayVia', 'lists', 'withParams']);
+const PAGE_OWN = new Set(['$so', 'away', 'awayVia', 'lists', 'withParams', 'toPage', '$hq', '$href']);
 /** the page's image rules (a CSS module the page module imports) */
 const IMG_CSS = `${PREFIX}img-css/`;
 /** builds: a page's reserved-space rules (docs/first-paint.md#reserved-space), imported by its module */

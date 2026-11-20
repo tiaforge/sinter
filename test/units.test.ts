@@ -72,6 +72,6 @@ test('readUrl: an array parameter is every value of its name ([] when none); oth
   const href = 'http://x/?tag=a&q=1&tag=b&q=2&constructor=x';
   expect(lists(href, ['tag', 'f'], readUrl(href))).toEqual({ tag: ['a', 'b'], f: [], q: '2' });
   expect(readUrl('http://x/a/s?slug=q', ['/a/:slug'])).toEqual({ slug: 's' });
-  const r = requests(undefined, () => ({ now: () => 0, href: () => 'http://x/?tag=a&tag=b', fetch: () => Promise.reject() }));
+  const r = requests(() => ({ now: () => 0, href: () => 'http://x/?tag=a&tag=b', fetch: () => Promise.reject() }));
   expect(r.read('$url', undefined, (h, u) => lists(h, ['tag'], u))).toEqual({ tag: ['a', 'b'] });
 });

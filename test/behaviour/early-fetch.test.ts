@@ -2,7 +2,8 @@
 // data; the page module's request layer takes each response once, at the end of its middleware
 // chain, when the request is the one the early file sent. Everything else fetches as before.
 import { afterEach, expect, test } from 'vitest';
-import { configured, requests, st, start } from '../../src/early.js';
+import { configured, requests, start } from '../../src/early.js';
+import { earlyPageOf } from '../early-page.js';
 import { configure, header, onUnauthorized, setEnv } from '../../src/runtime/config.js';
 import { defaultEnv } from '../../src/runtime/env.js';
 import { createRequestLayer } from '../../src/runtime/request.js';
@@ -25,7 +26,7 @@ afterEach(() => {
 function earlyFile(res: Array<[string, Array<string | number>, number | null]>, fns: Array<(s: any) => unknown>) {
   const ir: Pick<EarlyIR, 'res'> = { res: res.map(([, src, when]) => ({ src, ...(when != null ? { when } : {}), scope: 0 })) };
   const f = [() => ({ week: '2026-11-02', sel: null }), ...fns];
-  start(() => ({ ir, fns: f, scopes: ($) => [st($, f[0]!, 0)], render: () => {} }), null, requests(undefined, configured));
+  start(earlyPageOf(ir, f), null, requests(configured));
 }
 
 test('a resource the early file requested is not requested again: the runtime takes its response', async () => {

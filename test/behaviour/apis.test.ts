@@ -2,7 +2,8 @@
 // sent the same way by the early file (so its response is taken), POST resources, and `apiOf`.
 import { afterEach, describe, expect, test } from 'vitest';
 import { parse } from 'yaml';
-import { configured, requests, st, start } from '../../src/early.js';
+import { configured, requests, start } from '../../src/early.js';
+import { earlyPageOf } from '../early-page.js';
 import { $apis, apiOf, config, configure, header, setEnv } from '../../src/runtime/config.js';
 import { defaultEnv } from '../../src/runtime/env.js';
 import { createRequestLayer } from '../../src/runtime/request.js';
@@ -39,7 +40,7 @@ describe('request settings per API', () => {
     $apis([{ n: 'main', b: '/api', h: { 'X-Api': '2' } }]);
     const ir: Pick<EarlyIR, 'res' | 'as'> = { res: [{ src: ['/api/days'], scope: 0, a: 0 }], as: [{ h: { 'X-Api': '2' } }] };
     const f = [() => ({})];
-    start(() => ({ ir, fns: f, scopes: ($) => [st($, f[0]!, 0)], render: () => {} }), null, requests(undefined, configured));
+    start(earlyPageOf(ir, f), null, requests(configured));
     expect(sent.map((r) => [new URL(r.url).pathname, r.headers.get('X-Api')])).toEqual([['/api/days', '2']]);
     await createRequestLayer({ ...defaultEnv, fetch }, []).send('/api/days');
     expect(sent).toHaveLength(1);

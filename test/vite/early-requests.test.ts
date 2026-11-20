@@ -71,10 +71,10 @@ test('a listed origin is preloaded and requested early; early="off" and an unlis
   expect(html).not.toContain('other.example/x"');
   const early = /<script src="\/assets\/(index-head-[\w-]+\.js)"><\/script>/.exec(html)![1]!;
   const code = readFileSync(join(out, 'assets', early), 'utf8');
-  expect(code).toContain(`${apiOrigin}/items?q=`);
+  expect(code).toContain(`"${apiOrigin}/items" + $hq([["q", f[0](b)]])`);
   // a paginated resource: its first page
-  expect(code).toContain(`${apiOrigin}/pages?q=`);
-  expect(code).toMatch(/"q": \{\s*"limit": "2",\s*"direction": "down"\s*\}/);
+  expect(code).toContain(`"${apiOrigin}/pages" + $hq([["q", f[0](b)]])`);
+  expect(code).toMatch(/\{\s*"limit": "2",\s*"direction": "down"\s*\}/);
   expect(code).not.toContain('other.example');
   // the build names the origin it could have requested early
   expect(logs.find((l) => l.includes('https://other.example'))).toMatch(/requested when the page module runs; list the origin in sinter\(\{ origins/);

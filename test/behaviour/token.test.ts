@@ -3,7 +3,8 @@
 // (in the early script too); a 401 clears it; an action's 401 goes to the sign-in page; a response the config names
 // stores it, and a change between none and one drops what the page kept.
 import { afterEach, describe, expect, test } from 'vitest';
-import { configured, requests as earlyRequests, st, start } from '../../src/early.js';
+import { configured, requests as earlyRequests, start } from '../../src/early.js';
+import { earlyPageOf } from '../early-page.js';
 import { config, configure, setEnv } from '../../src/runtime/config.js';
 import { defaultEnv } from '../../src/runtime/env.js';
 import { createRequestLayer, tokens } from '../../src/runtime/request.js';
@@ -163,7 +164,7 @@ describe('the early script', () => {
     const t = { s: 'l' as const, k: 'jwt', h: 'Authorization', p: 'Token ' };
     const ir: Pick<EarlyIR, 'res' | 'as'> = { res: [{ src: ['/api/user'], scope: 0, a: 0, r: 1 }, { src: ['/api/articles'], scope: 0, a: 0 }], as: [{ t }] };
     const f = [() => ({})];
-    const go = () => start(() => ({ ir, fns: f, scopes: ($) => [st($, f[0]!, 0)], render: () => {} }), null, earlyRequests(undefined, configured));
+    const go = () => start(earlyPageOf(ir, f), null, earlyRequests(configured));
     go();
     expect(sent.map((r) => [new URL(r.url).pathname, r.headers.get('Authorization')])).toEqual([['/api/user', 'Token t1'], ['/api/articles', 'Token t1']]);
     const layer = createRequestLayer({ ...defaultEnv, fetch, storage: () => storage }, []);
@@ -185,7 +186,7 @@ describe('the early script', () => {
     config.apis = [{ n: 'main', b: '/api' }];
     const ir: Pick<EarlyIR, 'res'> = { res: [{ src: ['/api/x'], scope: 0 }] };
     const f = [() => ({})];
-    start(() => ({ ir, fns: f, scopes: ($) => [st($, f[0]!, 0)], render: () => {} }), null, earlyRequests(undefined, configured));
+    start(earlyPageOf(ir, f), null, earlyRequests(configured));
     const layer = createRequestLayer({ ...defaultEnv, fetch }, [(req, next) => { const h = new Headers(req.headers); h.set('X-Extra', '1'); return next(new Request(req, { headers: h })); }]);
     const seen: string[] = [];
     layer.resent = (u) => seen.push(u);
