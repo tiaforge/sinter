@@ -11,7 +11,7 @@ import type { UrlTemplate } from '../src/ir.js';
 const SEEDS = Number(process.env.SN_FUZZ_SEEDS ?? 3000);
 const rng = (seed: number) => () => ((seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff);
 
-const LITERALS = ['/api/', '/a', '/', 'x', '?', '?a=', '&b=', '&', '=', 'c', '?q=', '&limit=10', '-', '/comments', '?s=1', '&t=', 'é', '%20', '&&', '?&'];
+const LITERALS = ['/api/', '/a', '/', 'x', '?', '?a=', '&b=', '&', '=', 'c', '?q=', '&limit=10', '-', '/comments', '?s=1', '&t=', 'é', '%20', '&&', '?&', '#', '#c-', '&k=v#h', '#a=', '?x#y'];
 const VALUES: unknown[] = [null, undefined, '', 'a', 'a b', 'é', '..', '.', '&', '#', '?', '=', '/', 0, 7, false, true, [], ['x', null, 'y'], [null], ['.', '&'], ['é'], '😀', 'a&b=c#d'];
 
 /** what the compiled code makes, or the error it throws */
@@ -46,7 +46,8 @@ test('the shapes pages write compile, with no helper where nothing can be left o
   expect(urlCode(['/articles?tag=', 0], ['t'])).toBe('"/articles" + $hq([["tag", t]])');
   expect(urlCode(['/a?q=x', 0, '&n=1'], ['v'])).toBe('"/a?q=x" + $hv(v, 1) + "&n=1"');
   expect(urlCode(['/user'], [])).toBe('"/user"');
-  expect(urlCode(['/a?x=', 0, '#h'], ['v'])).toBeNull();
+  expect(urlCode(['/a?x=', 0, '#h'], ['v'])).toBe('"/a" + $hq([["x", v]]) + "#h"');
+  expect(urlCode(['/a#x&', 0], ['v'])).toBeNull();
 });
 
 test('an early request of a numbered list: the URL the early file makes is the one the pager asks for (withParams over expand), at the page the URL names', async () => {

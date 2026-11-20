@@ -2,6 +2,7 @@
 // docs/proposals/swap-navigation.md, step 1): its handlers go, it writes what it would write on pagehide, and
 // it stops its timers and streams. The marks it set on elements that stay (`<html>`, `<body>`, kept elements)
 // are cleared by the swap (swap-run.ts), not by the core.
+import { $hq, $hv } from '../../src/runtime/url.js';
 import { expect, test } from 'vitest';
 import { memoryStorage, mockRequests, mockStream, render } from '../../src/testing/index.js';
 
@@ -33,7 +34,7 @@ test('the first write leaves a value the element already has alone (a playing <a
   const parts = compileParts(`<html><head></head><body><div data-sn-state="{ s: '/a.wav' }"><button data-sn-on-click="s = '/b.wav'"></button><audio data-sn-attr="{ src: s, title: s + '!' }"></audio></div></body></html>`, {
     file: '/p/x.html', root: '/p', dev: false, readFile: () => '', helpers: { module: null, names: [], namespaces: {} },
   });
-  const fns = new Function('$k', `return [${parts.fns.join(',')}]`)((x: unknown) => x);
+  const fns = new Function('$k', '$hv', '$hq', `return [${parts.fns.join(',')}]`)((x: unknown) => x, $hv, $hq);
   const host = document.createElement('div');
   host.innerHTML = /<body>([\s\S]*)<\/body>/i.exec(parts.html)![1]!;
   const audio = host.querySelector('audio')!;

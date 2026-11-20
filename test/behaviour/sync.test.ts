@@ -1,3 +1,4 @@
+import { $hq, $hv } from '../../src/runtime/url.js';
 import { afterEach, expect, test } from 'vitest';
 import { configure, loginRedirect, onUnauthorized } from '../../src/index.js';
 import { render, mockRequests, mockStream } from '../../src/testing/index.js';
@@ -259,7 +260,7 @@ test('an app destroyed before its streams connect opens none', async () => {
   const parts = compileParts(`<html><head></head><body>${PAGE}</body></html>`, {
     file: '/p/x.html', root: '/p', dev: false, readFile: () => '', helpers: { module: null, names: [], namespaces: {} },
   });
-  const fns = new Function('$k', `return [${parts.fns.join(',')}]`)((x: unknown) => x);
+  const fns = new Function('$k', '$hv', '$hq', `return [${parts.fns.join(',')}]`)((x: unknown) => x, $hv, $hq);
   // its own root: the previous test's page is still mounted on the document
   const host = document.createElement('div');
   host.innerHTML = /<body>([\s\S]*)<\/body>/i.exec(parts.html)![1]!;

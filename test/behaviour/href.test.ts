@@ -77,14 +77,17 @@ describe('a link in every way', () => {
     expect(features('<a data-sn-href="/other/{1}">o</a>')).not.toContain('query-links');
   });
 
-  test('the code: values through `$hv`, or the whole template through `$hv`\'s `$href` when a query value may leave its parameter out; imported only when left to the browser', () => {
+  test('the code: values through `$hv`, or a query whose values may leave their parameter out through `$hq`, the whole template through `$href` for another shape; imported only when left to the browser', () => {
     const fns = (href: string) => compileParts(`<sn-resource name="u" src="/api/u"></sn-resource><a data-sn-href="${href}">u</a>`, opts);
     const path = fns('/profile/{u.name}/x?tab=a{u.tab}#c-{u.id}');
     expect(path.fns).toContain('($) => ("/profile/" + $hv(($.$r.u.name)) + "/x?tab=a" + $hv(($.$r.u.tab), 1) + "#c-" + $hv(($.$r.u.id), 1))');
     expect(path.helpers.builtin).toEqual(['$hv']);
     const query = fns('/search?tag={u.tag}&amp;page=2');
-    expect(query.fns).toContain('($) => ($href(["/search?tag=",0,"&page=2"], [($.$r.u.tag)]))');
-    expect(query.helpers.builtin).toEqual(['$href']);
+    expect(query.fns).toContain('($) => ("/search" + $hq([["tag", ($.$r.u.tag)], "page=2"]))');
+    expect(query.helpers.builtin).toEqual(['$hq']);
+    const odd = fns('/search?tag={u.tag}#a&amp;b');
+    expect(odd.fns).toContain('($) => ($href(["/search?tag=",0,"#a&b"], [($.$r.u.tag)]))');
+    expect(odd.helpers.builtin).toEqual(['$href']);
     const folded = compileParts('<div data-sn-state="{ n: 1 }"><a data-sn-href="/n/{n}?p={n}">n</a></div>', { ...opts, prerender: true });
     expect(folded.helpers.builtin).toEqual([]);
   });

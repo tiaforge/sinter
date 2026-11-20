@@ -3,6 +3,7 @@
 // same transport, and the window's close shuts the rest and replays what arrived meanwhile. Each test does what
 // swap-run.ts does at a commit: open the window, destroy the old app, mount the next page on the document,
 // close the window a task later.
+import { $hq, $hv } from '../../src/runtime/url.js';
 import { afterEach, expect, test } from 'vitest';
 import { configure } from '../../src/index.js';
 import { compileParts } from '../../src/compiler/index.js';
@@ -50,7 +51,7 @@ function compile(body: string, head = '') {
   const parts = compileParts(`<html><head>${head}</head><body>${body}</body></html>`, {
     file: '/p/x.html', root: '/p', dev: false, readFile: () => '', helpers: { module: null, names: [], namespaces: {} },
   });
-  const fns = new Function('$k', `return [${parts.fns.join(',')}]`)((x: unknown) => x);
+  const fns = new Function('$k', '$hv', '$hq', `return [${parts.fns.join(',')}]`)((x: unknown) => x, $hv, $hq);
   return { ir: compactIR(parts.ir), fns, html: /<body>([\s\S]*)<\/body>/i.exec(parts.html)![1]!, head: /<head>([\s\S]*)<\/head>/i.exec(parts.html)![1]!.replace(/<script type="module"[^>]*><\/script>/g, '') };
 }
 

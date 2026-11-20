@@ -175,10 +175,10 @@ test('early requests, paginated: the first page, with the query parameters the p
   expect(html).toContain('<link rel="preload" as="fetch" crossorigin="" href="/api/lit?a=1&amp;limit=10&amp;direction=first">');
   expect(html.match(/rel="preload"/g)).toHaveLength(2);
   // the parameters are added as the runtime adds them; only a page with such a request imports that
-  expect(early).toContain("import { start, $k, $hq, $href, sp, withParams, requests } from '@tiaforge-ui/sinter/runtime/early';");
-  // a template with a query of its own: the parameters merged into it (`withParams`); one with a `#`: `$href`
+  expect(early).toContain("import { start, $k, $hq, sp, withParams, requests } from '@tiaforge-ui/sinter/runtime/early';");
+  // a template with a query or a fragment of its own: the parameters merged into it (`withParams`)
   expect(early).toContain('q(() => withParams("/api/mail" + $hq([["box", f[0](n[0])]]), { "limit": "50", "dir": "forward" }));');
-  expect(early).toContain('q(() => withParams($href(["/api/more?box=",0,"#x"], [f[0](n[0])]), { "limit": "5", "direction": "first" }));');
+  expect(early).toContain('q(() => withParams("/api/more" + $hq([["box", f[0](n[0])]]) + "#x", { "limit": "5", "direction": "first" }));');
   expect(early!.endsWith('start(page, null, requests());\n')).toBe(true);
 });
 

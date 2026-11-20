@@ -132,7 +132,9 @@ describe('data-sn-for on <html> in a build', () => {
     await run(root, ['index.html', 'blog/post.html'], { prefetch: true });
     const js = readdirSync(join(root, 'dist/assets')).filter((f) => f.endsWith('.js')).map((f) => readFileSync(join(root, 'dist/assets', f), 'utf8')).join('\n').replace(/\s+/g, '');
     // (minified: either quote)
-    for (const slug of ['hello', 'recap']) expect(js).toMatch(new RegExp(`m:\\[["\`]/blog/${slug}["\`]\\],r:\\[\\{s:\\[["\`]/api/related\\?tag=["\`],0\\]`));
+    for (const slug of ['hello', 'recap']) expect(js).toMatch(new RegExp(`m:\\[["\`]/blog/${slug}["\`]\\],r:\\[\\{u:0,`));
+    // the request as code: its URL template written out
+    expect(js).toMatch(/["`]\/api\/related["`]\+\w+\(\[\[["`]tag["`],\w+\.\$url\.tag\]\]\)/);
   }, 60_000);
 
   test('the dev server: an entry\'s URL is its page', async () => {

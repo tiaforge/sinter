@@ -27,7 +27,7 @@ import { BUILD_TIME_ATTRS, buildTimeAttrProblem, FILE_ATTRS, FILE_ENTRY, fileAtt
 import { deref, matchOperation, matchResource, type Method, type OpenApiMatch, type Auth, namedAt, namedSchema, properties, propertyNames, queryNames, responseEntities, walk, wrapperKey, type OpenApiSpec } from './openapi.js';
 import type { ActionDef, ApplyDef, Binding, EarlyIR, EventDef, IR, NodeDef, Paginate, PathRef, ResourceDef, SyncDef, TemplateDef, UrlTemplate } from '../ir.js';
 import { $k, schemesOf, STYLE_BAD, urlAllowed } from '../runtime/security.js';
-import { $href, $hv, withParams } from '../runtime/url.js';
+import { $href, $hq, $hv, withParams } from '../runtime/url.js';
 import { firstParams, pageParams } from '../runtime/pages.js';
 import { eachPath } from '../paths.js';
 import { pagePaths } from '../page-paths.js';
@@ -382,8 +382,10 @@ export interface PrefetchParts {
    * a paginated resource's first page: `q` its parameters (`firstParams`), and with `model` (paginate) `sp`, the page the
    * link's URL names, as the early file reads it (`startOf`): from page 2 on, `q` with `k` set to the page (`o`: the items to skip)
    */
-  res: Array<{ s: UrlTemplate; w?: number; i?: string; t?: string; k?: 1; q?: Record<string, string>; sp?: { f: number; k: string; s: number; o?: 1 } }>;
+  res: Array<{ u: number; i?: string; t?: string; k?: 1; q?: Record<string, string>; sp?: { k: string; s: number; o?: 1 } }>;
   fns: string[];
+  /** the URL helpers its functions call (`$hv`, `$hq`, `$href`, `withParams`, `toPage`), from the prefetch module */
+  uses: string[];
   /** helper names and namespace members the functions call */
   helpers: string[];
   namespaces: Record<string, string[]>;
@@ -1620,6 +1622,11 @@ class Compiler {
     const arrays = this.urlArrays();
     if (arrays.length) ir.urlArrays = arrays;
     this.checkUrlArrays(new Set(arrays));
+    // each URL template as code (`urlCode`): the page module makes its URLs with none of `expand`
+    for (const d of [...this.resources, ...this.syncs, ...this.actions]) {
+      const t = 'url' in d ? d.url : d.src;
+      if (t.length) d.u = this.fn(`($) => ${this.urlFn(t)}`, null);
+    }
     const builtin: string[] = [];
     const user: string[] = [];
     // a lazy module's helpers are not imported: the module loads when a let needs it
@@ -1628,7 +1635,7 @@ class Compiler {
     const imported = (key: string) => !this.page.lazy?.has(key) && new RegExp(`(?<![\\w$.])${key.replace(/\$/g, '\\$')}(?![\\w$])`).test(live);
     for (const h of [...this.page.usedHelpers].sort()) if (imported(h)) (this.page.helpers.has(h) ? user : builtin).push(h);
     // a link's URL template (`data-sn-href`) that is not written into the HTML
-    for (const h of ['$href', '$hv']) if (imported(h)) builtin.push(h);
+    for (const h of ['$href', '$hq', '$hv']) if (imported(h)) builtin.push(h);
     const namespaces: Record<string, string[]> = {};
     for (const [k, v] of [...this.page.usedNs].sort(([a], [b]) => a.localeCompare(b))) {
       const ms = [...v].filter((m) => imported(`${k}$${m}`)).sort();
@@ -5198,6 +5205,23 @@ class Compiler {
     return tid;
   }
 
+  /**
+   * A URL template's code over the page's scope `$` (`urlCode`), each value the body of its function inlined
+   * (`($) => (x)`, the shape every value has; another shape is called); `$href` (`expand`) for a template of another shape.
+   */
+  urlFn(t: UrlTemplate): string {
+    const vals: string[] = [];
+    for (const p of t) if (typeof p === 'number') vals[p] = this.inline(p);
+    const nums = t.filter((p): p is number => typeof p === 'number');
+    return urlCode(t, vals) ?? `$href(${JSON.stringify(t.map((p) => (typeof p === 'number' ? nums.indexOf(p) : p)))}, [${nums.map((p) => vals[p]).join(', ')}])`;
+  }
+
+  /** function `i` called over the scope `$`, as an expression: its body where it is `($) => (x)`, the shape every value has */
+  inline(i: number): string {
+    const c = this.fns[i]!, m = /^\(\$\) => (\(.*\))$/s.exec(c);
+    return m ? m[1]! : `(${c})($)`;
+  }
+
   /** Index of a function in the page's table; identical code shares one entry (one compile in the engine). */
   fn(code: string, site?: Site | null): number {
     let i = this.fnIndex.get(code);
@@ -7099,7 +7123,7 @@ class Compiler {
     // everything the page could call is shadowed: what is not a constant throws
     const NOT = new Error('not a build-time constant');
     const stub = new Proxy(function () {}, { apply() { throw NOT; }, get() { throw NOT; } });
-    const params = new Map<string, unknown>([['$k', $k], ['$href', $href], ['$hv', $hv]]);
+    const params = new Map<string, unknown>([['$k', $k], ['$href', $href], ['$hq', $hq], ['$hv', $hv]]);
     // (`location`: the browser's, as in a pattern page's `$canonical`; a test environment may have one)
     for (const h of ['Date', 'Intl', 'Math', 'location', 'date', 'relative', 'number', 'bytes', ...this.opts.helpers.names]) params.set(h, stub);
     // the app's helpers: a call over constants runs here when the static check lets it (`helperFold`), else its stub
@@ -8775,17 +8799,24 @@ class Compiler {
     const fns: string[] = [], index = new Map<string, number>();
     const fn = (code: string) => { let i = index.get(code); if (i === undefined) index.set(code, (i = fns.push(code) - 1)); return i; };
     const res: PrefetchParts['res'] = [];
+    const puses = new Set<string>();
     for (const def of this.resources) {
       if (def.call || def.each || def.data != null || def.body != null || !def.src.length) continue;
       if (!strs(def.deps).every((d) => d === '$url' || d.startsWith('$url.'))) continue;
       const codes = [...def.src.filter((x): x is number => typeof x === 'number'), ...(def.when != null ? [def.when] : [])].map((i) => this.fns[i]!);
       if (codes.some((c) => /\$\.\$(?!url\b)/.test(c) || builtin(c) || messages.some((m) => c.includes(`${m}$`)))) continue;
+      // its URL as code over the link's `$url` (its `when` first: false, nothing is requested), the first page's
+      // parameters in it as in the early file
+      const vals: string[] = [];
+      for (const x of def.src) if (typeof x === 'number') vals[x] = this.inline(x);
+      const sp = def.paginate?.start != null ? startOf(def.paginate, 0) : null;
+      let u = requestUrl(def.src, vals, def.paginate ? firstParams(def.paginate) : undefined, sp ? { ...sp, code: this.inline(def.paginate!.start!) } : undefined, puses);
+      if (def.when != null) u = `${this.inline(def.when)} && ${u}`;
       res.push({
-        s: def.src.map((x) => (typeof x === 'number' ? fn(this.fns[x]!) : x)),
-        ...(def.when != null ? { w: fn(this.fns[def.when]!) } : {}),
+        u: fn(`($) => ${u}`),
         ...(def.select != null ? { i: def.select } : {}), ...(def.total != null ? { t: def.total } : {}), ...(def.key ? { k: 1 as const } : {}),
         ...(def.paginate ? { q: firstParams(def.paginate) } : {}),
-        ...(def.paginate?.start != null ? { sp: startOf(def.paginate, fn(this.fns[def.paginate.start]!)) } : {}),
+        ...(sp ? { sp: { k: sp.k, s: sp.s, ...(sp.o ? { o: sp.o } : {}) } } : {}),
       });
     }
     if (!res.length) return null;
@@ -8799,7 +8830,7 @@ class Compiler {
     const arrays = this.urlArrays();
     // a page that needs a session: a signed-out visitor is sent on from it, so its data is not requested ahead
     const g = this.guard ? { t: this.guard.t, ...(this.guard.f != null ? { f: fn(this.fns[this.guard.f]!) } : {}) } : null;
-    return { path: this.pathList, res, fns, helpers: this.opts.helpers.names.filter(calls), namespaces, ...(arrays.length ? { a: arrays } : {}), ...(g ? { g } : {}) };
+    return { path: this.pathList, res, fns, helpers: this.opts.helpers.names.filter(calls), namespaces, uses: [...puses].sort(), ...(arrays.length ? { a: arrays } : {}), ...(g ? { g } : {}) };
   }
 
   /**
@@ -9395,32 +9426,31 @@ function hasBase(n: P5Parent): boolean {
   return n.childNodes.some((c) => isElement(c) && ((c.tagName === 'base' && attr(c, 'href') != null) || hasBase(c.tagName === 'template' ? (c as any).content : c)));
 }
 /**
- * The code that fills a link's URL template, as `expand` (runtime/url.ts) would: `$href(tpl, [values])`, or where no value
- * is a whole query value (none can leave its parameter out) and no `?` or `&` is left trailing, the literals and each
- * value through `$hv` (`"/profile/" + $hv(a.author.username)`), which needs none of `expand`.
+ * The code that fills a link's URL template, as `expand` (runtime/url.ts) would: `urlCode` (`"/profile/" + $hv(a.author.username)`,
+ * `"/" + $hq([["tag", t], ["page", n]])`), which needs none of `expand`, else `$href(tpl, [values])`.
  */
 export function hrefCode(tpl: UrlTemplate, vals: string[]): string {
-  let query = false, plain = true;
-  const parts = tpl.map((p, i) => {
-    if (typeof p === 'string') { query ||= /[?#]/.test(p); return JSON.stringify(p); }
-    const prev = tpl[i - 1], next = tpl[i + 1];
-    if (query && (next === undefined || (typeof next === 'string' && /^[&#]/.test(next))) && typeof prev === 'string' && /[?&][^?&=#]*=$/.test(prev)) plain = false;
-    return `$hv(${vals[p]}${query ? ', 1' : ''})`;
-  });
-  if (/[?&](?=#|$)/.test(tpl.map((p) => (typeof p === 'string' ? p : 'v')).join(''))) plain = false;
-  return plain ? parts.join(' + ') : `$href(${JSON.stringify(tpl)}, [${vals.join(', ')}])`;
+  return urlCode(tpl, vals) ?? `$href(${JSON.stringify(tpl)}, [${vals.join(', ')}])`;
 }
 
 /**
  * The code that fills a URL template exactly as `expand` (runtime/url.ts) does, with none of `expand`: the literals,
  * each path value through `$hv` (a dot segment or a list refused), each query value that is part of a parameter
  * through `$hv(v, 1)`, and a query with whole values (`?tag={t}`: null leaves the parameter out, a list repeats it)
- * through `$hq`. `vals`: each value's code, by the template's numbers. Null for a template of another shape (a `#`,
- * an `&` in the path, an empty parameter, two values side by side in the query, a value that may or may not be a whole
+ * through `$hq`. `vals`: each value's code, by the template's numbers. Null for a template of another shape (a `?` or
+ * `&` in the fragment, an `&` in the path, an empty parameter, two values side by side in the query, a value that may or may not be a whole
  * value), which `expand` fills (`$href`); test/url-code.test.ts compares the two over random templates.
  */
-export function urlCode(tpl: UrlTemplate, vals: string[]): string | null {
-  if (tpl.some((p) => typeof p === 'string' && p.includes('#'))) return null;
+export function urlCode(full: UrlTemplate, vals: string[]): string | null {
+  // the fragment: its values inside it (`#c-{id}`), never whole query values while it has no `?` or `&`
+  const h = full.findIndex((p) => typeof p === 'string' && p.includes('#'));
+  let tpl = full, hash: UrlTemplate = [];
+  if (h >= 0) {
+    const lit = full[h] as string, k = lit.indexOf('#');
+    tpl = [...full.slice(0, h), lit.slice(0, k)];
+    hash = [lit.slice(k), ...full.slice(h + 1)];
+    if (hash.some((p) => typeof p === 'string' && /[?&]/.test(p))) return null;
+  }
   const q = tpl.findIndex((p) => typeof p === 'string' && p.includes('?'));
   const path: UrlTemplate = q < 0 ? tpl : [...tpl.slice(0, q), (tpl[q] as string).slice(0, (tpl[q] as string).indexOf('?'))];
   if (path.some((p) => typeof p === 'string' && p.includes('&'))) return null;
@@ -9431,7 +9461,8 @@ export function urlCode(tpl: UrlTemplate, vals: string[]): string | null {
     return out.map((p) => (typeof p === 'string' ? JSON.stringify(p) : p.c)).join(' + ') || '""';
   };
   const vs = (ps: UrlTemplate, query: boolean) => ps.map((p) => (typeof p === 'string' ? p : { c: `$hv(${vals[p]}${query ? ', 1' : ''})` }));
-  if (q < 0) return concat(vs(path, false));
+  const tail = vs(hash, true);
+  if (q < 0) return concat([...vs(path, false), ...tail]);
   // the query's parameters: split at each `&`
   const segs: UrlTemplate[] = [[]];
   for (const p of [(tpl[q] as string).slice((tpl[q] as string).indexOf('?') + 1), ...tpl.slice(q + 1)]) {
@@ -9455,8 +9486,37 @@ export function urlCode(tpl: UrlTemplate, vals: string[]): string | null {
     if (s.some((p, i) => typeof p === 'number' && typeof s[i + 1] === 'number')) return null;
     parts.push(vs(s, true));
   }
-  if (whole) return `${concat(vs(path, false))} + $hq([${parts.map((p) => (typeof p === 'string' ? p : concat(p))).join(', ')}])`;
-  return concat([...vs(path, false), '?', ...(parts as Array<Array<string | { c: string }>>).flatMap((p, i) => (i ? ['&', ...p] : p))]);
+  if (whole) return concat([...vs(path, false), { c: `$hq([${parts.map((p) => (typeof p === 'string' ? p : concat(p))).join(', ')}])` }, ...tail]);
+  return concat([...vs(path, false), '?', ...(parts as Array<Array<string | { c: string }>>).flatMap((p, i) => (i ? ['&', ...p] : p)), ...tail]);
+}
+
+/**
+ * A resource's request URL as code: its template (`urlCode`; `$href` for a template of another shape) and a paginated
+ * list's first-page parameters after it (`q`), as the pager adds them: literal text in the order `URLSearchParams` writes
+ * them, a numbered list's page (`sp`: `code` reads it) an expression; `withParams` when the template has a query or a
+ * fragment of its own, which the parameters are merged into. `uses`: the helpers it calls.
+ */
+export function requestUrl(src: UrlTemplate, vals: string[], q: Record<string, string> | undefined, sp: { k: string; s: number; o?: 1; code: string } | undefined, uses: Set<string>): string {
+  const nums = src.filter((p): p is number => typeof p === 'number');
+  const call = (name: string) => (uses.add(name), name);
+  let u = urlCode(src, vals);
+  if (u == null) u = `${call('$href')}(${JSON.stringify(src.map((p) => (typeof p === 'number' ? nums.indexOf(p) : p)))}, [${nums.map((p) => vals[p]).join(', ')}])`;
+  for (const h of ['$hv', '$hq']) if (u.includes(`${h}(`)) uses.add(h);
+  if (!q) return u;
+  // page n of a numbered list, from what the URL says (the pager's pageParams): the first page's with it set
+  const page = sp ? (sp.o ? `(${call('toPage')}(${sp.code}) - 1) * ${sp.s}` : `${call('toPage')}(${sp.code})`) : null;
+  const ps: Array<[string, string | null]> = Object.entries(q).map(([k, v]) => [k, page != null && k === sp!.k ? null : v]);
+  if (page != null && !(sp!.k in q)) ps.push([sp!.k, null]);
+  if (src.some((p) => typeof p === 'string' && /[?#]/.test(p)) || u.startsWith('$href(')) {
+    return `${call('withParams')}(${u}, { ${ps.map(([k, v]) => `${JSON.stringify(k)}: ${v == null ? `String(${page})` : JSON.stringify(v)}`).join(', ')} })`;
+  }
+  const parts: Array<string | { c: string }> = [];
+  ps.forEach(([k, v], i) => {
+    const t = (i ? '&' : '?') + new URLSearchParams([[k, v ?? '']]).toString();
+    if (typeof parts.at(-1) === 'string') parts[parts.length - 1] += t; else parts.push(t);
+    if (v == null) parts.push({ c: `(${page})` });
+  });
+  return [u, ...parts.map((p) => (typeof p === 'string' ? JSON.stringify(p) : p.c))].join(' + ');
 }
 
 /** What the build can see of where a link goes: a literal start, and whether it is the whole `href`. */

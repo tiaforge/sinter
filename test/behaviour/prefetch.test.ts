@@ -216,7 +216,10 @@ test('the compiler describes only resources whose request the URL decides; helpe
   // array parameters: only an app with a page that has them passes `lists` (and carries it)
   expect(mod).not.toMatch(/\blists\b/);
   const withLists = prefetchModule([{ paths: ['/s'], parts: { ...parts.prefetch!, a: ['tag'] } }], { module: null, names: [], namespaces: {} });
-  expect(withLists).toContain("import { prefetch, lists } from '@tiaforge-ui/sinter/runtime/prefetch';");
+  expect(withLists).toContain("import { prefetch, lists, $hq, $hv } from '@tiaforge-ui/sinter/runtime/prefetch';");
+  // each request's URL as code, its `when` first: the helpers it calls from the prefetch module
+  expect(mod).toContain("import { prefetch, $hq, $hv } from '@tiaforge-ui/sinter/runtime/prefetch';");
+  expect(mod).toContain('($) => ($.$url.id) && "/api/a/" + $hv(($.$url.id)) + $hq([["o", (offset($.$url.page))]])');
   expect(withLists).toMatch(/\], lists\);\n$/);
 });
 

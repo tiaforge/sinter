@@ -31,7 +31,7 @@ const sameProps = (a: any, b: any): boolean => {
   for (const _ in b) n--;
   return n == 0;
 };
-import { expand, readUrl as readFrom, withParams } from './url.js';
+import { readUrl as readFrom, withParams } from './url.js';
 // the parts of the core this build's pages use (a site's build serves its own: src/core-parts.ts)
 import * as F from './flags.js';
 
@@ -299,7 +299,8 @@ export interface App {
   on(event: string, fn: (payload: any) => void): () => void;
   destroy(): void;
 
-  url(tpl: UrlTemplate, scope: any): string;
+  /** a resource's, a stream's or an action's URL in `scope`: its template, compiled (`u`, compile.ts `urlCode`) */
+  url(def: { u?: number }, scope: any): string;
   /** the scope of root node `i` (its state), or the page scope for -1 */
   scopeOf(i: number): any;
   /** the bindings at the page's level, with their rows' (the swap hands kept elements' rows and branches to the next page) */
@@ -812,7 +813,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
     },
     scopeOf: (i) => (i < 0 ? app.page : rootScopes[i] ?? app.page),
     rbs: rootRbs,
-    url: (tpl, s) => expand(tpl, s, fns),
+    url: (d, s) => fns[d.u!]!(s),
     mark(path, s, typing) {
       const w = typeof path == 'number' ? path : ps.x[path] ?? -1;
       // the written path's `{name}` segments, as the writer's scope has them
@@ -1710,7 +1711,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
       // a call's arguments are taken when it is triggered, like a request's URL and body
       if (a.call) body = fns[a.call.args]!(s);
       else {
-        url = app.url(a.url, s);
+        url = app.url(a, s);
         if (a.body != null) body = fns[a.body]!(s);
         // a form's own fields, and form encoding (form.ts): on pages that have such an action
         if (app.ext.form) body = app.ext.form(rb.el, a, body);
@@ -1810,7 +1811,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
       }
       try {
         if (def.when != null && !fns[def.when]!(s)) return null;
-        const u = app.url(def.src, s);
+        const u = app.url(def, s);
         if (def.body == null) return u;
         // `method="POST"`: a load is its URL and its body
         posted = fns[def.body]!(s);

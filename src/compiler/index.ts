@@ -1,6 +1,6 @@
 import * as acorn from 'acorn';
 import { tsPlugin } from '@sveltejs/acorn-typescript';
-import { compileParts, urlCode, type CompileOptions, type CompileResult, type CompiledParts, type EarlyParts, type FnSource, type FnSources, type HelperManifest, type HelperOrigin, type PrefetchParts, type EmbedSlot, type EmbedCond, type RuntimeReason } from './compile.js';
+import { compileParts, requestUrl, type CompileOptions, type CompileResult, type CompiledParts, type EarlyParts, type FnSource, type FnSources, type HelperManifest, type HelperOrigin, type PrefetchParts, type EmbedSlot, type EmbedCond, type RuntimeReason } from './compile.js';
 import { compactIR, type EarlyIR } from '../ir.js';
 import { coreParts } from '../core-parts.js';
 import { MappedLines, type SourceMap } from './sourcemap.js';
@@ -176,33 +176,11 @@ export function earlyModule(early: EarlyParts | null, options: Pick<CompileOptio
  */
 export function earlyRequests(res: NonNullable<EarlyIR['res']>, as: EarlyIR['as']): { code: string; uses: string[] } {
   const uses = new Set<string>();
-  const call = (name: string) => (uses.add(name), name);
   const lines = res.map((r) => {
     const s = r.scope < 0 ? 'b' : `n[${r.scope}]`;
-    const nums = r.src.filter((p): p is number => typeof p === 'number');
     const vals: string[] = [];
-    for (const p of nums) vals[p] = `f[${p}](${s})`;
-    let u = urlCode(r.src, vals);
-    if (u == null) u = `${call('$href')}(${JSON.stringify(r.src.map((p) => (typeof p === 'number' ? nums.indexOf(p) : p)))}, [${nums.map((p) => `f[${p}](${s})`).join(', ')}])`;
-    for (const h of ['$hv', '$hq']) if (u.includes(`${h}(`)) uses.add(h);
-    if (r.q) {
-      // page n of a numbered list, from what the URL says (the pager's pageParams): the first page's with it set
-      const page = r.sp ? (r.sp.o ? `(${call('toPage')}(f[${r.sp.f}](${s})) - 1) * ${r.sp.s}` : `${call('toPage')}(f[${r.sp.f}](${s}))`) : null;
-      const q: Array<[string, string | null]> = Object.entries(r.q).map(([k, v]) => [k, page != null && k === r.sp!.k ? null : v]);
-      if (page != null && !(r.sp!.k in r.q)) q.push([r.sp!.k, null]);
-      if (r.src.some((p) => typeof p === 'string' && /[?#]/.test(p)) || /^\$href\(/.test(u)) {
-        u = `${call('withParams')}(${u}, { ${q.map(([k, v]) => `${JSON.stringify(k)}: ${v == null ? `String(${page})` : JSON.stringify(v)}`).join(', ')} })`;
-      } else {
-        // as URLSearchParams writes them (withParams), the parameters in their order
-        const parts: Array<string | { c: string }> = [];
-        q.forEach(([k, v], i) => {
-          const t = (i ? '&' : '?') + new URLSearchParams([[k, v ?? '']]).toString();
-          if (typeof parts.at(-1) === 'string') parts[parts.length - 1] += t; else parts.push(t);
-          if (v == null) parts.push({ c: `(${page})` });
-        });
-        u = [u, ...parts.map((p) => (typeof p === 'string' ? JSON.stringify(p) : p.c))].join(' + ');
-      }
-    }
+    for (const p of r.src) if (typeof p === 'number') vals[p] = `f[${p}](${s})`;
+    let u = requestUrl(r.src, vals, r.q, r.sp ? { ...r.sp, code: `f[${r.sp.f}](${s})` } : undefined, uses);
     if (r.when != null) u = `f[${r.when}](${s}) && ${u}`;
     const args = [`() => ${u}`, r.a != null ? `a[${r.a}]` : '', r.r ? '1' : '', r.lo ? '1' : ''];
     while (args.at(-1) === '') args.pop();

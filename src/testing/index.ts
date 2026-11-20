@@ -20,7 +20,7 @@ import { tokens } from '../runtime/request.js';
 import { $tokens, signInTarget } from '../token.js';
 import signedIn from '../signed-in.js';
 import { $k } from '../runtime/security.js';
-import { $href, $hv } from '../runtime/url.js';
+import { $href, $hq, $hv } from '../runtime/url.js';
 import * as builtins from '../runtime/helpers.js';
 import { remote, resolveRemote, type RemoteImages } from '../remote.js';
 import cache from '../cache.js';
@@ -53,6 +53,7 @@ import confirm from '../confirm.js';
 import models from '../models.js';
 import sse from '../sse.js';
 import { lists, prefetch, type PrefetchPage } from '../prefetch.js';
+import * as prefetchExports from '../prefetch.js';
 import { pagePaths } from '../prefetch-build.js';
 
 const FEATURES: Record<string, Feature> = { components, nested, lets, dev, sse, optimistic, paginate, persist, cache, back, versions, refresh, for: fanOut, options, keys, 'write-through': writeThrough, fields, form, select, location, typing, 'query-links': queryLinks, navigate, call, debounce, confirm, models, transition, 'signed-in': signedIn };
@@ -584,7 +585,7 @@ export async function render(html: string, options: RenderOptions = {}): Promise
   // function table, with helpers and namespace members in scope
   const names: string[] = ['$k'];
   const values: unknown[] = [$k];
-  for (const h of parts.helpers.builtin) { names.push(h); values.push(h === '$href' ? $href : h === '$hv' ? $hv : (builtins as Record<string, unknown>)[h]); }
+  for (const h of parts.helpers.builtin) { names.push(h); values.push(h === '$href' ? $href : h === '$hv' ? $hv : h === '$hq' ? $hq : (builtins as Record<string, unknown>)[h]); }
   for (const h of parts.helpers.user) { names.push(h); values.push(helpers[h]); }
   for (const [ns, members] of Object.entries(parts.namespaces)) {
     for (const m of members) { names.push(`${ns}$${m}`); values.push((helpers[ns] as Record<string, unknown>)[m]); }
@@ -682,7 +683,7 @@ export async function render(html: string, options: RenderOptions = {}): Promise
     if (!other) continue;
     const ns = Object.entries(other.namespaces).flatMap(([n, ms]) => ms.map((m) => [`${n}$${m}`, (helpers[n] as Record<string, unknown>)[m]] as const));
     // eslint-disable-next-line no-new-func -- tests only; pages load a compiled module
-    const f = new Function('$k', ...other.helpers, ...ns.map(([k]) => k), `"use strict"; return [\n${other.fns.join(',\n')}\n];`)($k, ...other.helpers.map((h) => helpers[h]), ...ns.map(([, v]) => v));
+    const f = new Function('$k', ...other.uses, ...other.helpers, ...ns.map(([k]) => k), `"use strict"; return [\n${other.fns.join(',\n')}\n];`)($k, ...other.uses.map((u) => (prefetchExports as Record<string, unknown>)[u]), ...other.helpers.map((h) => helpers[h]), ...ns.map(([, v]) => v));
     ahead.push({ m: pagePaths(rel, '/', other.path), r: other.res, f, ...(other.a ? { a: other.a } : {}), ...(other.g ? { g: other.g } : {}) });
   }
 

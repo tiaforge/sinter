@@ -45,7 +45,7 @@ export function claim(app: App, url: string, heard: Set<string>, changed: () => 
   // is stale when, since the fetch started, an event that feeds it reached the page before (`seen`), or could
   // not, the page before not listening to its name (an `EventSource` delivers no other)
   const names = new Set(heard), stale = new Set<string>(), at = streams()!.at, since = at && c.at === at ? c.seen : undefined;
-  for (const def of app.ir.syncs ?? []) if (app.url(def.src, app.scopeOf(def.scope ?? -1)) === url) for (const e of def.events) {
+  for (const def of app.ir.syncs ?? []) if (app.url(def, app.scopeOf(def.scope ?? -1)) === url) for (const e of def.events) {
     names.add(e.name);
     if (at && e.resource && (since?.has(e.name) || !c.names?.has(e.name))) stale.add(e.resource);
   }

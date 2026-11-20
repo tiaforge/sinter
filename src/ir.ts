@@ -53,6 +53,8 @@ export interface ResourceDef {
   at?: Record<number, string>;
   name: string;
   src: UrlTemplate;
+  /** `src` compiled (compile.ts `urlCode`): the function (index) that makes the URL; the page module has it in place of `src` */
+  u?: number;
   /** key fields; null for a single-object resource */
   // absent fields (in the page module: `compactIR`) take their default: null, `deps` [], `scope` -1
   key?: string[] | null;
@@ -112,6 +114,8 @@ export interface EventDef {
 
 export interface SyncDef {
   src: UrlTemplate;
+  /** `src` compiled, as a resource's `u` */
+  u?: number;
   events: EventDef[];
   /** index of the node (in `roots`) whose scope `src` and the events' expressions are evaluated in, -1 (or absent) for page scope */
   scope?: number;
@@ -290,6 +294,8 @@ export interface ActionDef {
   /** `CALL`: `data-sn-call`, with `call` set and an empty `url` */
   method: 'POST' | 'PUT' | 'PATCH' | 'DELETE' | 'CALL';
   url: UrlTemplate;
+  /** `url` compiled, as a resource's `u` */
+  u?: number;
   call?: CallDef;
   // absent fields take their default (the compiler writes only what differs): no body, trigger and
   // so on; the event that triggers it is its `on` binding's
@@ -412,8 +418,9 @@ export function validateIR(ir: unknown, fnCount: number): string[] {
     if (!/^[A-Za-z_]\w*$/.test(r.name)) errs.push(`${at}: bad name`);
     if (names.has(r.name)) errs.push(`${at}: duplicate name ${r.name}`);
     names.add(r.name);
-    if (r.call) { fn(r.call.args, `${at}.call.args`, false); fn(r.call.run, `${at}.call.run`, false); if (r.src.length) errs.push(`${at}: a call resource has no src`); }
-    else if (r.fx) { if (r.src.length || r.data == null) errs.push(`${at}: a file resource has no src, and embedded data`); }
+    if (r.call) { fn(r.call.args, `${at}.call.args`, false); fn(r.call.run, `${at}.call.run`, false); if (r.src?.length) errs.push(`${at}: a call resource has no src`); }
+    else if (r.fx) { if (r.src?.length || r.data == null) errs.push(`${at}: a file resource has no src, and embedded data`); }
+    else if (r.u != null) fn(r.u, `${at}.u`, false);
     else url(r.src, `${at}.src`);
     fn(r.when, `${at}.when`); fn(r.then, `${at}.then`);
     for (const d of [...(r.w ?? []), ...(r.deps ?? [])]) if (bad(d)) errs.push(`${at}: bad path`);
@@ -423,7 +430,7 @@ export function validateIR(ir: unknown, fnCount: number): string[] {
     }
   });
   (o.syncs ?? []).forEach((s, i) => {
-    url(s.src, `syncs[${i}].src`);
+    if (s.u != null) fn(s.u, `syncs[${i}].u`, false); else url(s.src, `syncs[${i}].src`);
     s.events.forEach((e, j) => {
       const at = `syncs[${i}].events[${j}]`;
       // without a resource and op, the event only runs `then`
@@ -486,8 +493,9 @@ export function validateIR(ir: unknown, fnCount: number): string[] {
     if (a.method === 'CALL') {
       if (!a.call) errs.push(`${at}: CALL needs call`);
       else { fn(a.call.args, `${at}.call.args`, false); fn(a.call.run, `${at}.call.run`, false); }
-      if (a.url.length) errs.push(`${at}: a call action has no url`);
-    } else url(a.url, `${at}.url`);
+      if (a.url?.length) errs.push(`${at}: a call action has no url`);
+    } else if (a.u != null) fn(a.u, `${at}.u`, false);
+    else url(a.url, `${at}.url`);
     for (const k of ['body', 'optimistic', 'then', 'catch'] as const) fn(a[k], `${at}.${k}`);
     for (const d of a.w ?? []) if (bad(d)) errs.push(`${at}: bad path`);
   });
@@ -505,6 +513,9 @@ const NULLS = (o: object) => Object.fromEntries(Object.entries(o).filter(([, v])
  * costs no bytes). The runtime reads an absent field as its default; the compiler keeps the full objects.
  * Paths become node ids of the page's path table (`ps`, see `paths.ts`).
  */
+const noSrc = <T extends { src: unknown }>({ src: _, ...rest }: T) => rest;
+const noUrl = ({ url: _, ...rest }: ActionDef) => rest;
+
 export function compactIR(full: IR): IR {
   const ir = structuredClone(full), ps = numberPaths(ir);
   const { syncs, ...rest } = ir;
@@ -524,11 +535,13 @@ export function compactIR(full: IR): IR {
   const fed = new Set((syncs ?? []).flatMap((s) => s.events.map((e) => e.resource)));
   return {
     ...rest,
+    // a URL template the compiler wrote as code (`u`): the page module has only the code
     resources: ir.resources.map((r) => {
-      const { deps, scope, ...rest } = r;
+      const { deps, scope, ...rest } = r.u != null ? noSrc(r) : r;
       return { ...NULLS(rest), ...(deps?.length ? { deps } : {}), ...(scope != null && scope >= 0 ? { scope } : {}), ...(fed.has(r.name) ? { fed: 1 } : {}) } as ResourceDef;
     }),
-    ...(syncs?.length ? { syncs: syncs.map((s) => ({ ...s, events: s.events.map((e) => NULLS(e) as EventDef) })) } : {}),
+    ...(syncs?.length ? { syncs: syncs.map((s) => ({ ...(s.u != null ? noSrc(s) : s), events: s.events.map((e) => NULLS(e) as EventDef) }) as SyncDef) } : {}),
+    actions: ir.actions.map((a) => (a.u != null ? noUrl(a) : a) as ActionDef),
     roots: ir.roots.map(compactNode),
     // a template's absent `index`, `key` and `keyFields` are null
     templates: ir.templates.map((t) => ({ ...NULLS(t), nodes: t.nodes.map(compactNode), ...(simple(t) ? { sm: 1 } : {}), ...(reads(t, new Set()) ? { ri: 1 } : {}) }) as TemplateDef),

@@ -26,7 +26,7 @@ function fanOut(l: ResourceLoader, app: App) {
 
   const urlOf = (item: unknown) => {
     if (!item || typeof item != 'object') return null;
-    try { return app.url(def.src, Object.assign(Object.create(l.scope()), { [each.item]: item })); } catch { return null; }
+    try { return app.url(def, Object.assign(Object.create(l.scope()), { [each.item]: item })); } catch { return null; }
   };
   /** the confirmed items minus those of source `u`, plus `items` */
   const swap = (u: string, s: Source, items: any[]) => {
