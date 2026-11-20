@@ -223,8 +223,8 @@ test('by default every page carries inline rules for the app\'s paths; `prefetch
 test('the renamed options fail naming the new form', () => {
   expect(() => sinter({ prefetch: { page: 'prerender' } } as never)).toThrow('sinter({ prefetch }): no option `page`; it takes `data` and `html`');
   expect(() => sinter({ firstPaint: { budgt: 1 } } as never)).toThrow('sinter({ firstPaint }): no option `budgt`; it takes `budget`');
-  expect(() => sinter({ speculation: 'prerender' } as never)).toThrow("sinter({ speculation }) is renamed: it is `prefetch: { html: \"prerender\" }`");
-  expect(() => sinter({ earlyBudget: 20000 } as never)).toThrow('sinter({ earlyBudget }) is renamed: it is `firstPaint: { budget: 20000 }`');
+  expect(() => sinter({ speculation: 'prerender' } as never)).toThrow("sinter({ speculation }) is renamed to `prefetch: { html: \"prerender\" }`");
+  expect(() => sinter({ earlyBudget: 20000 } as never)).toThrow('sinter({ earlyBudget }) is renamed to `firstPaint: { budget: 20000 }`');
 });
 
 /** a logger that keeps the info lines, for the build's hints */
@@ -337,7 +337,7 @@ test('first paint: a classic head script per page over one shared by every page,
   // the page module (async) mounts once the early script has rendered
   expect(readFileSync(join(dir, 'assets', page![1]!), 'utf8')).toMatch(/await rendered\(\);[\s\S]*mount\(document/);
   // the build reports the early scripts' size, and warns over the budget with the largest modules
-  expect(logs.find((l) => l.includes('early script of index.html'))).toMatch(/^sinter: warning SN523 early-budget: early script of index\.html: assets\/index-head-[\w-]+\.js [\d.]+ kB gzip \+ assets\/sinter-head-[\w-]+\.js [\d.]+ kB gzip \(shared\), over the early budget of 0\.0 kB.*Largest \(before gzip\): /s);
+  expect(logs.find((l) => l.includes('early script of index.html'))).toMatch(/^sinter: warning SN523 first-paint-budget: early script of index\.html: assets\/index-head-[\w-]+\.js [\d.]+ kB gzip \+ assets\/sinter-head-[\w-]+\.js [\d.]+ kB gzip \(shared\), over the first-paint budget of 0\.0 kB.*Largest \(before gzip\): /s);
   // `firstPaint: false`: everything waits for the page module
   await build({ root, logLevel: 'silent', resolve: { alias }, build: { outDir: join(dir, 'off'), emptyOutDir: true, minify: false }, plugins: [sinter({ firstPaint: false })] });
   const off = readFileSync(join(dir, 'off', 'index.html'), 'utf8');
@@ -507,7 +507,7 @@ test('strict: the build\'s warnings fail it after it has run, all of them; `allo
     root, resolve: { alias }, customLogger: quiet, build: { outDir: join(out, dir), emptyOutDir: true, minify: false },
     plugins: [sinter({ firstPaint: { budget: 1 }, strict })],
   });
-  await expect(run(true, 'strict')).rejects.toThrow(/warning\(s\) fail the build in strict mode[\s\S]*sinter: warning SN523 early-budget: early script of index\.html/);
+  await expect(run(true, 'strict')).rejects.toThrow(/warning\(s\) fail the build in strict mode[\s\S]*sinter: warning SN523 first-paint-budget: early script of index\.html/);
   await run({ allow: { SN523: 'the fixture has no budget' } }, 'strict-allow');
   expect(() => sinter({ strict: { allow: { SN523: '' } } })).toThrow(/`allow.SN523` takes the reason/);
   expect(() => sinter({ strict: { allow: { SN999: 'x' } } })).toThrow(/`SN999` in `allow` is not a diagnostic code/);

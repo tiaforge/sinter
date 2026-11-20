@@ -170,7 +170,7 @@ export * as toc from './lib/toc.ts';    // reads a parsed tree, imports no parse
 - Only the app's `lazy` option makes a package lazy. A helper module that reaches none is an ordinary
   helper: loaded with the page, early with embedded data, and in the early file too. For a parser, measure:
   with a 35 kB gzip parser that took 160 ms to parse an article (micromark), the early file was four times the
-  early budget and the first paint waited for the parse; with sinter-markdown's 21.8 kB parser on RealWorld's
+  first-paint budget and the first paint waited for the parse; with sinter-markdown's 21.8 kB parser on RealWorld's
   article (2026-11-17), the first paint did not move and the article's LCP was its first paint
   ([sinter-markdown](../packages/sinter-markdown/docs/markdown.md#three-places-one-function)).
 - The modules between such a helper module and the package load whole with it too. One of them that a

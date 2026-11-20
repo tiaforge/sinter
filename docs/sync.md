@@ -155,11 +155,11 @@ configure({
 ### Your own transport
 
 A transport is an object with `connect(url, onEvent, onState, names)`, an optional `listen(name)`
-and `closeDialog()`:
+and `close()`:
 
 - `onEvent(name, payload)` delivers one event with its **parsed** payload.
 - `onState('open')` once connected; `onState('error')` when the connection is lost, cleanly or not.
-  Nothing is reported after `closeDialog()`.
+  Nothing is reported after `close()`.
 - `names` are the event names the page maps. `listen(name)` adds one an island subscribes to later.
 - A transport never reconnects by itself.
 

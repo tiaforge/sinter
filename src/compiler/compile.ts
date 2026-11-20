@@ -1830,7 +1830,7 @@ class Compiler {
         if (!o) return null;
         spec.directions = o;
       } else {
-        const KEYS = ['keyset', 'append', 'offset', 'size', 'model', 'jump', 'params', 'directions'];
+        const KEYS = ['keyset', 'append', 'numbered', 'size', 'model', 'jump', 'params', 'directions'];
         return fail(`\`${key}\` is not a key of \`paginate\`; it takes ${KEYS.map((x) => `\`${x}\``).join(', ')}.${didYouMean(key, KEYS)}`, p.key.start);
       }
     }

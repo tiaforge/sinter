@@ -95,7 +95,7 @@ export const CODES = {
   SN520: 'unused-preload',
   SN521: 'redirected-link',
   SN522: 'untranslated-messages',
-  SN523: 'early-budget',
+  SN523: 'first-paint-budget',
   SN524: 'redirects-limit',
   SN525: 'images-unoptimized',
   SN526: 'font-download',

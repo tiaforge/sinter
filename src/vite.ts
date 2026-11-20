@@ -256,8 +256,8 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   if (loadingHelpers()) return [{ name: 'sinter', api: { options, source: (f: string) => f } }, { name: 'sinter:post' }, { name: 'sinter:css-images' }, { name: 'sinter:fonts' }, { name: 'sinter:font-check' }, { name: 'sinter:pages' }];
   // options renamed (docs/proposals/vocabulary.md): what to write instead
   const was = options as { speculation?: unknown; earlyBudget?: unknown };
-  if (was.speculation !== undefined) throw new Error(`sinter({ speculation }) is renamed: it is \`prefetch: { html: ${JSON.stringify(was.speculation)} }\`, beside the next page's data (\`prefetch: { data }\`)`);
-  if (was.earlyBudget !== undefined) throw new Error(`sinter({ earlyBudget }) is renamed: it is \`firstPaint: { budget: ${JSON.stringify(was.earlyBudget)} }\``);
+  if (was.speculation !== undefined) throw new Error(`sinter({ speculation }) is renamed to \`prefetch: { html: ${JSON.stringify(was.speculation)} }\`, beside the next page's data (\`prefetch: { data }\`)`);
+  if (was.earlyBudget !== undefined) throw new Error(`sinter({ earlyBudget }) is renamed to \`firstPaint: { budget: ${JSON.stringify(was.earlyBudget)} }\``);
   // nested options take known keys only, as markup does: a typo fails the build instead of doing nothing
   const keysOf = (name: string, v: unknown, keys: string[]) => {
     if (typeof v !== 'object' || v === null) return;
@@ -1956,7 +1956,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     if (!early || gz <= budget) { logger?.info(line); return; }
     const top = Object.entries({ ...sharedHead?.modules, ...early.modules }).sort((a, b) => b[1].renderedLength - a[1].renderedLength).slice(0, 5)
       .map(([id, m]) => `${id.includes(PREFIX) ? `the early bindings of ${rel}` : relative(root, id.replace(/^\0/, '')).split(sep).join('/')} ${kb(m.renderedLength)}`);
-    const msg = `${line}, over the early budget of ${kb(budget)}. It renders before the first paint: keep heavy imports out of src/sinter.early.ts and of the helpers early bindings call. Largest (before gzip): ${top.join(', ')}`;
+    const msg = `${line}, over the first-paint budget of ${kb(budget)}. It renders before the first paint: keep heavy imports out of src/sinter.early.ts and of the helpers early bindings call. Largest (before gzip): ${top.join(', ')}`;
     const warning = coded('SN523', msg.replace(/^sinter: /, ''));
     if (logger) logger.warn(warning); else console.warn(warning);
   }

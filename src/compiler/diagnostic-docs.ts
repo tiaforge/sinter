@@ -423,7 +423,7 @@ export const DIAGNOSTIC_DOCS: Record<Code, DiagnosticDoc> = {
     fix: 'Add the translations to the language\'s message file.',
   },
   SN523: {
-    example: 'early script of index.html: assets/index-head.js 12.4 kB gzip, over the early budget of 10.0 kB',
+    example: 'early script of index.html: assets/index-head.js 12.4 kB gzip, over the first-paint budget of 10.0 kB',
     means: 'The script that renders before the first paint is larger than the budget (`sinter({ firstPaint: { budget } })`, 10 kB gzip by default). It blocks the first frame, so its size is paid on every visit. The message names the largest modules. Reported by the build.',
     fix: 'Keep heavy imports out of `src/sinter.early.ts` and of the helpers that early bindings call, or raise the budget.',
   },

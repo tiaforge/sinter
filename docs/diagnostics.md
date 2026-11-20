@@ -822,11 +822,11 @@ The inlang project has messages without a text in one of its languages, so pages
 
 **Fix:** Add the translations to the language's message file.
 
-## SN523 early-budget
+## SN523 first-paint-budget
 
 Warning, for example:
 
-> early script of index.html: assets/index-head.js 12.4 kB gzip, over the early budget of 10.0 kB
+> early script of index.html: assets/index-head.js 12.4 kB gzip, over the first-paint budget of 10.0 kB
 
 The script that renders before the first paint is larger than the budget (`sinter({ firstPaint: { budget } })`, 10 kB gzip by default). It blocks the first frame, so its size is paid on every visit. The message names the largest modules. Reported by the build.
 
