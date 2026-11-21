@@ -121,7 +121,7 @@ export function chain(app: App): Chain {
     const d = c.decide(i);
     // the fallback is the source's: an event's own (`load`), or none (the browser goes on with it); a call loads
     const load = () => (i.load ? i.load() : i.source == 'event' ? undefined
-      : i.kind == 'replace' ? (env.replace ?? ((u: string) => location.replace(u)))(i.to) : env.navigate(i.to));
+      : i.kind == 'replace' ? env.replace(i.to) : env.navigate(i.to));
     // no decision: a call loads; a link is the browser's to follow, an event the browser's to go on with
     if (!d) i.source == 'call' && load();
     else {

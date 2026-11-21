@@ -3,10 +3,10 @@
 // for the back/forward cache. The transport is EventSource unless
 // configure({ transport }) picks another for the stream URL.
 import type { EventDef, SyncDef } from './ir.js';
-import { config, SinterError } from './runtime/config.js';
+import { config } from './runtime/config.js';
 import type { App, Feature, ResourceLoader, Transport } from './runtime/app.js';
 import { clean } from './runtime/store.js';
-import { doubled, jittered } from './backoff.js';
+import { doubled, jittered, probe as sessionStatus } from './backoff.js';
 import { SWAP } from './runtime/flags.js';
 import { claim, forget, hold, park, seen } from './sse-handover.js';
 
@@ -162,12 +162,7 @@ export function connection(app: App, url: string, changed: () => void, heard: Se
   const probe = async (): Promise<void> => {
     if (c.closed || hidden) return;
     if (!config.sessionProbe) { wait(open); return; }
-    let status: number;
-    try {
-      status = (await c.app.req.raw(config.sessionProbe, { retry: false })).status;
-    } catch (e) {
-      status = e instanceof SinterError ? e.status ?? 0 : 0;
-    }
+    const status = await sessionStatus(c.app.req);
     if (c.closed || hidden) return;
     if (status >= 200 && status < 300) open();
     else if (status !== 401) wait(() => void probe());

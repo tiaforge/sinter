@@ -8,6 +8,7 @@
 import type { ResourceDef } from './ir.js';
 import type { App, Feature } from './runtime/app.js';
 import { CACHE_PREFIX, removeKeys } from './runtime/config.js';
+import type { Env } from './runtime/env.js';
 import { SWAP } from './runtime/flags.js';
 
 /** entries larger than this (serialized) are not written */
@@ -15,6 +16,31 @@ export const MAX_ENTRY = 256 * 1024;
 
 /** what the page-load cache never holds: `call`, `for`, `method="POST"` and `file:` resources */
 export const never = (d: ResourceDef) => d.call || d.each || d.body != null || d.fx;
+
+/** A page-load entry, as the page-load cache, Back and Forward and next-page data store it */
+export interface Entry { t: number; items: unknown; total: number | null }
+
+/** The entry stored at `key`; null when there is none, no storage, or it does not parse. */
+export const readEntry = (env: Env, key: string): Entry | null => {
+  try {
+    const v = env.session()?.getItem(key);
+    return v ? JSON.parse(v) : null;
+  } catch { return null; }
+};
+
+/**
+ * Stores `{t, items, total}` at `key`, unless it does not serialize or there is no storage; the text when it is not
+ * written, over MAX_ENTRY or with the storage full, for the caller's policy (next-page data drops it, the page-load cache
+ * frees room).
+ */
+export function writeEntry(env: Env, key: string, items: unknown, total: number | null): string | void {
+  const s = env.session();
+  let text: string;
+  try { text = JSON.stringify({ t: env.now(), items, total }); } catch { return; }
+  if (!s) return;
+  if (text.length <= MAX_ENTRY) try { return void s.setItem(key, text); } catch { /* full */ }
+  return text;
+}
 
 export const keyOf = (d: ResourceDef, url: string) => CACHE_PREFIX + JSON.stringify([url, d.select, d.total]);
 

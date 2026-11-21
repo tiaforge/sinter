@@ -15,7 +15,7 @@ import type { ResourceDef } from './ir.js';
 import type { App, Feature } from './runtime/app.js';
 import { CACHE_PREFIX } from './runtime/config.js';
 import type { Resource } from './runtime/store.js';
-import { keyOf, MAX_ENTRY, never, traversal } from './back.js';
+import { keyOf, MAX_ENTRY, never, readEntry, traversal, writeEntry } from './back.js';
 
 export { MAX_ENTRY };
 
@@ -44,29 +44,19 @@ const cache: Feature = {
     };
 
     const write = (def: ResourceDef, url: string, items: unknown, total: number | null) => {
-      const s = app.env.session();
-      if (!s) return;
-      let text: string;
-      try { text = JSON.stringify({ t: app.env.now(), items, total }); } catch { return; }
+      const key = keyOf(def, url), text = writeEntry(app.env, key, items, total), s = app.env.session()!;
+      if (!text) return;
       if (text.length > MAX_ENTRY) return app.warn(19, def.name, Math.round(text.length / 1024));
-      const key = keyOf(def, url);
-      for (let tries = 0; tries < 2; tries++) {
-        try { s.setItem(key, text); return; } catch { if (!evict(s, key)) return; }
-      }
+      // full: the older half goes, and it is written once more
+      if (evict(s, key)) try { s.setItem(key, text); } catch { evict(s, key); }
     };
 
     app.ext.cache = {
       read(def, url) {
         // without `cache`: only coming back, and only what this module writes
         if (def.cache == null && (!back || never(def))) return null;
-        try {
-          const v = app.env.session()?.getItem(keyOf(def, url));
-          if (!v) return null;
-          const e = JSON.parse(v) as { t: number; items: unknown; total: number | null };
-          return !back && def.cache && app.env.now() - e.t > def.cache ? null : e;
-        } catch {
-          return null;
-        }
+        const e = readEntry(app.env, keyOf(def, url));
+        return e && !(!back && def.cache && app.env.now() - e.t > def.cache) ? e : null;
       },
       loaded(def, r, url, items, total, appended) {
         if (never(def)) return;
