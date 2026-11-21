@@ -1565,7 +1565,18 @@ To discuss after this lands:
   measured need (helpers over state lists, such as a dashboard's totals) brings it back.
 - **A text slot inside an element of a choice's case** (`<span><template data-sn-text>…</template></span>`
   in a `<sn-component use>` case) is not written by the early script, only at takeover, so the first
-  paint lacks it. Found by the size re-check of PR #51; it predates that change.
+  paint lacks it. Found by the size re-check of PR #51; it predates that change. **Fixed** (unreleased):
+  not the choice but the clone. A text with no element before it is marked by an empty comment, and
+  the early script, which renders each root as the parser closes it, read any comment as an anchor
+  and waited for an end it never finds inside an element; nothing wrote the text later. Rows and
+  `data-sn-if` branches had it too. A comment that is no anchor's start is now ready at once (a clone
+  is whole when it is inserted). The testing module's first paint runs the early script that way,
+  over the page inserted again node by node, and the component fuzz checks the first paint over
+  embedded data itself, before the takeover (`c-span`, a case with this shape). That check found two
+  more first-paint gaps, fixed with it: a text right after an element showing the same expression was
+  skipped as already written, and a `data-sn-href` query whose values may drop their parameter had no
+  `href` early (the early file did not import `$hq`). A list's empty state over an embedded resource
+  (through a prop or `$slot`) still waits for the page module, as that resource's status is not early.
 - **A keyless resource upserted as a list** (found in the markdown recipe during PR #51; decided
   2026-11-21: both checks). Without `key`, a resource is one object, so `upsert(comments, c)` replaces
   the whole list; nothing warned (`SN517` covered only an OpenAPI list at its declaration). Now the

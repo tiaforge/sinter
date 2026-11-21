@@ -60,7 +60,8 @@ or only after the page module takes over.
 
 Each page case compares the page after a state change with a fresh render of the new state, with the
 build over constants (state nothing writes), and (component fuzz) with the early script's first
-paint taken over by the page module.
+paint taken over by the page module, and with the first paint over the list as embedded data, itself
+and taken over.
 
 When you develop a feature:
 - Add its shapes to the generator: a component in `COMPONENTS`, a case in `markup()`, or a field in
