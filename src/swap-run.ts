@@ -147,11 +147,12 @@ const i18n = () => (globalThis as unknown as Record<symbol, I18n | undefined>)[S
  * same language (`fixed`).
  */
 export function inline(doc: Document) {
+  // (before any message was called the module has no state: it reads the swapped-in page's script, in the head now)
+  const g = i18n();
+  if (!g?.locale || !g.dicts) return;
   for (const el of doc.querySelectorAll('script[data-sn-ns]')) {
     let d: Record<string, string>;
     try { d = JSON.parse(el.textContent ?? ''); } catch { continue; }
-    const g = ((globalThis as any)[Symbol.for('sinter.i18n')] ??= { locale: '', base: '', locales: [], dicts: {} });
-    if (!g.locale) { g.locale = g.base = el.getAttribute('lang') || ' '; g.locales = [g.locale]; }
     g.dicts[g.locale] = { ...g.dicts[g.locale], ...d };
   }
 }
