@@ -8,6 +8,7 @@
 // is the one the page would have made.
 import { lists } from './runtime/lists.js';
 import { expand, readUrl, withParams } from './runtime/url.js';
+import { chooseLanguage, requestLanguages, type Locales } from './locales.js';
 
 /** A fetch handler: an app (Hono's `app.fetch`, a framework's handler) or the next one in a chain. Extra arguments (a Worker's `env` and `ctx`) are passed on. */
 export type Handler = (request: Request, ...rest: any[]) => Response | Promise<Response>;
@@ -253,18 +254,7 @@ const isJson = (type: string | null) => {
 };
 
 /** The visitor's language among the site's: the `locale` cookie the pages record, else the first of `Accept-Language` the site has (`de-AT` is `de`), else the base. */
-function choose(l: { base: string; list: string[] }, h: Headers) {
-  const find = (x: string) => {
-    x = x.trim().toLowerCase();
-    return l.list.find((c) => c.toLowerCase() == x) ?? l.list.find((c) => c.toLowerCase() == x.split('-')[0]);
-  };
-  for (const c of (h.get('cookie') ?? '').split(';')) {
-    const t = c.trim();
-    if (t.startsWith('locale=')) { const v = find(t.slice(7)); if (v) return v; }
-  }
-  for (const p of (h.get('accept-language') ?? '').split(',')) { const v = find(p.split(';')[0]!); if (v) return v; }
-  return l.base;
-}
+const choose = (l: Locales, h: Headers) => chooseLanguage(l, requestLanguages(h.get('cookie'), h.get('accept-language')));
 
 const BUN = typeof (globalThis as { Bun?: unknown }).Bun != 'undefined';
 

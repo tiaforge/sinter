@@ -31,7 +31,8 @@ import { moduleEffect } from './prerender-build.js';
 import { hasCspMeta, movesToDirectory, pageFile, pagePaths, pageUrl, prefetchModule, speculationRules, withRulesHash } from './prefetch-build.js';
 import { type SwapPage, swapModule } from './swap-build.js';
 import { pageRoutes, rebaseHtml, redirectHtml, redirectsFile, relocateHtml, type PageEntry, type Route } from './page-urls.js';
-import { chooserHtml, hreflangTags, readLocales, type Locales } from './locales-build.js';
+import { readLocales } from './locales-build.js';
+import { chooserHtml, hreflangTags, manifestLocales, prefixPaths, type Locales } from './locales.js';
 import { canonicalOf, fillPattern, noindex, sitemapFiles, sitemapOf, type SitemapOptions, type SitemapUrl } from './sitemap-build.js';
 import { familyLineHeights, familyZeroWidths } from './font-metrics.js';
 import { faceName, faceOf, fontDownloader, fontFileDownloader, bundleFonts, preloadFonts, preloadLocalFonts, usesFamily, type FontFaceRef, type FontPreload } from './fonts-build.js';
@@ -820,10 +821,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   /** a page's HTML: its file, or for a page in a language its source's */
   const readPage = (file: string) => readFileSync(virtual.get(file)?.source ?? file, 'utf8');
   /** a source page's `data-sn-path` under a language's prefix, after the base (`/de/article/:slug`) */
-  const prefixed = (patterns: string[], locale: string) => {
-    const b = resolved?.base?.startsWith('/') ? resolved.base.replace(/\/?$/, '/') : '/';
-    return patterns.map((p) => (p.startsWith(b) ? b + locale + (p.length > b.length ? '/' + p.slice(b.length) : '/') : p));
-  };
+  const prefixed = (patterns: string[], locale: string) => prefixPaths(patterns, locale, resolved?.base);
   /** a source page's URL in each language (for `localeUrl()` and `hreflang`), or null for a page whose paths all have parameters */
   const localeUrls = (source: string): Record<string, string> | null => {
     const b = resolved?.base?.startsWith('/') ? resolved.base : '/';
@@ -1407,7 +1405,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
         const routes: Array<Route & { choose?: true }> = b.startsWith('/') ? siteRoutes().map((x) => (x.file && !x.choose ? { ...x, file: pageFile(x.file, b, describe(resolve(root, x.file)).path) } : x.file ? { ...x, file: chooserFile(x.file) } : x)) : [];
         // a server picks the language at a fixed unprefixed URL too (`/about/`, `/`), where a host serves the chooser file
         if (locales && b.startsWith('/')) for (const s of sourceEntries()) { const u = pageUrl(relOf(s), b, describeSource(s).path); if (u) routes.push({ from: u, to: u, status: 200, file: chooserFile(relOf(s)), choose: true }); }
-        this.emitFile({ type: 'asset', fileName: EMBED_FILE, source: JSON.stringify({ version: 2, pages, ...(routes.length ? { routes } : {}), ...(locales ? { locales: { ...locales, at: b.replace(/\/?$/, '/') } } : {}) }, null, 2) + '\n' });
+        this.emitFile({ type: 'asset', fileName: EMBED_FILE, source: JSON.stringify({ version: 2, pages, ...(routes.length ? { routes } : {}), ...(locales ? { locales: manifestLocales(locales, b) } : {}) }, null, 2) + '\n' });
         // the same placeholders as types, for `embed<Build>()` from `@tiaforge-ui/sinter/server`: a name no placeholder has, or a
         // placeholder whose request the build cannot describe left without an entry, is a type error in the server's code
         this.emitFile({ type: 'asset', fileName: EMBED_TYPES, source: embedTypes(pages) });

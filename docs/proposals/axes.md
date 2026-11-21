@@ -380,6 +380,11 @@ Each step ships on its own.
    editor. Docs: configuration.md, static-pages.md#languages.
 2. **`src/points.ts` and `src/locales.ts`** (§1, §4). A move of the language functions from vite.ts,
    compile.ts, page-urls.ts and locales-build.ts, with tests of their own. The output does not change.
+   *`src/locales.ts` done 2026-11-21:* `prefixPaths` (the plugin's and the compiler's prefixing, one function),
+   `languageOfFile`, `chooseLanguage` and `requestLanguages` (the server layer's `choose()`, and a test that the
+   chooser page's script answers the same for the same tags), `manifestLocales`, `chooserHtml` and `hreflangTags`.
+   `locales-build.ts` keeps only what reads files (the inlang project, the check's language). What depends on the
+   list of points (`localeUrls`, `entryUrls`, the choosers' URLs) moves with `src/points.ts` in step 3.
 3. **Points in the plugin** (§1). `pointsOf` for the language and a page's entries, one collision check,
    `pointAt` in dev, the special files, manifest, rules and choosers from points. The output does not change.
    Then, as its own commit since it changes output: link templates and `signIn` at the page's point (§5).

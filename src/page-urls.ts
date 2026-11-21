@@ -4,6 +4,7 @@
 // moved one folder down, every other relative URL is rebased so that it still points where it did.
 import { posix } from 'node:path';
 import { directoryUrl, movesToDirectory, pageUrl } from './prefetch-build.js';
+import { languageOfFile } from './locales.js';
 
 /** One page of the app: its file relative to the root, and its `data-sn-path` patterns. */
 export interface PageEntry { rel: string; patterns: string[] }
@@ -87,7 +88,7 @@ export function relocateHtml(html: string, page: PageEntry, pages: PageEntry[], 
   const moved = movesToDirectory(page.rel, base, page.patterns);
   const oldDir = '/' + posix.dirname(page.rel).replace(/^\.$/, '');
   const newDir = moved ? '/' + page.rel.replace(/\.html?$/, '') : oldDir;
-  const lang = locales.includes(page.rel.split('/')[0]!) ? page.rel.split('/')[0]! : null;
+  const lang = languageOfFile(page.rel, locales);
   const targets = targetsOf(pages, base, lang);
   return relocateWith(html, page, base, locales, b, moved, oldDir, newDir, lang, targets);
 }

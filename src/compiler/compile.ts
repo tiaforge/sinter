@@ -30,6 +30,7 @@ import { $k, schemesOf, STYLE_BAD, urlAllowed } from '../runtime/security.js';
 import { $href, $hq, $hv, withParams } from '../runtime/url.js';
 import { firstParams, pageParams } from '../runtime/pages.js';
 import { eachPath } from '../paths.js';
+import { prefixPaths } from '../locales.js';
 import { pagePaths } from '../page-paths.js';
 import { bytes, date, isCalendarDate, number } from '../runtime/helpers.js';
 import { config } from '../runtime/config.js';
@@ -4502,8 +4503,7 @@ class Compiler {
     }
     // a page in one language: its paths under that language's prefix, after the base (`/de/article/:slug`)
     const lp = this.opts.locale;
-    const lb = lp && lp.base.startsWith('/') ? lp.base.replace(/\/?$/, '/') : '/';
-    const prefixed = lp ? patterns.map((p) => (p.startsWith(lb) ? lb + lp.name + (p.length > lb.length ? '/' + p.slice(lb.length) : '/') : p)) : patterns;
+    const prefixed = lp ? prefixPaths(patterns, lp.name, lp.base) : patterns;
     // only the URL the page has anyway: it is a directory's index without data-sn-path (docs/static-pages.md#page-urls)
     const root = this.opts.root.replace(/[\\/]+$/, '').replace(/\\/g, '/') + '/', file = this.opts.file.replace(/\\/g, '/');
     const rel = file.startsWith(root) ? file.slice(root.length) : null;
