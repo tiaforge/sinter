@@ -24,8 +24,9 @@ public sealed class ArticleStore
 }
 
 /// <summary>
-/// The fixture build (fixtures/web, named by &lt;SinterBuild&gt; in the project file): `articles` has no request
-/// the build describes, so without its resolver this would not compile.
+/// The fixture build sinter-axum's tests use too (test/fixtures/server-build at the repository's root, named by
+/// &lt;SinterBuild&gt; in the project file, relative to it): `articles` has no request the build describes, so without
+/// its resolver this would not compile.
 /// </summary>
 [SinterEmbed, SinterSkip("user")]
 public static partial class FixtureWeb
@@ -39,10 +40,19 @@ internal sealed partial class TestJson : JsonSerializerContext;
 
 public sealed class GeneratorTests
 {
+    /// <summary>The project's directory, which &lt;SinterBuild&gt; is relative to: the content root of an app whose build it names.</summary>
+    private static string ProjectDir()
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "Sinter.AspNetCore.Tests.csproj"))) dir = dir.Parent;
+        Assert.NotNull(dir);
+        return dir!.FullName;
+    }
+
     [Fact]
     public async Task A_configuration_the_build_accepts_compiles_and_serves()
     {
-        var b = WebApplication.CreateSlimBuilder(new WebApplicationOptions { ContentRootPath = AppContext.BaseDirectory });
+        var b = WebApplication.CreateSlimBuilder(new WebApplicationOptions { ContentRootPath = ProjectDir() });
         b.WebHost.UseTestServer();
         b.Logging.ClearProviders();
         b.Services.AddSingleton<ArticleStore>();
@@ -57,7 +67,7 @@ public sealed class GeneratorTests
         // the resolver's value, serialized as minimal APIs serialize it
         Assert.Contains("""data-sn="1">{"articles":["from the store"]}</script>""", html);
         Assert.Contains("""<script type="application/json" data-sn="2"></script>""", html);
-        Assert.Equal("fixtures/web", FixtureWeb.Build.Dir);
+        Assert.Equal("../../../../test/fixtures/server-build", FixtureWeb.Build.Dir);
     }
 
     [Fact]

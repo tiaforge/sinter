@@ -7,7 +7,8 @@
 // from the browser runtime's own code (runtime/url.ts), so the request the server makes for a placeholder
 // is the one the page would have made.
 import { lists } from './runtime/lists.js';
-import { expand, readUrl, segments, segsMatch as matches, withParams } from './runtime/url.js';
+import { expand, readUrl, withParams } from './runtime/url.js';
+import { pathTable as table } from './server-table.js';
 import { chooseLanguage, requestLanguages, segmentOf, type Locales } from './locales.js';
 
 /** A fetch handler: an app (Hono's `app.fetch`, a framework's handler) or the next one in a chain. Extra arguments (a Worker's `env` and `ctx`) are passed on. */
@@ -167,26 +168,6 @@ export function describedUrl(s: Placeholder, p: Params): string | null {
     if (n > 1) query = s.start.query.map(([k, v]) => [k, k == s.start!.key ? String(s.start!.skip ? (n - 1) * s.start!.size : n) : v]);
   }
   return query?.length ? withParams(url, Object.fromEntries(query)) : url;
-}
-
-
-/**
- * Paths to rules, the first in their order: exact paths and literal patterns in maps (by the path's
- * non-empty segments), `:name` patterns split once, by segment count.
- */
-function table(rules: Array<{ pattern: string; exact: boolean }>) {
-  const exact = new Map<string, number>(), literal = new Map<string, number>(), patterns: Array<[number, string[]]> = [];
-  rules.forEach(({ pattern, exact: x }, i) => {
-    if (x) { if (!exact.has(pattern)) exact.set(pattern, i); }
-    else if (pattern.includes(':')) patterns.push([i, segments(pattern)]);
-    else { const k = segments(pattern).join('/'); if (!literal.has(k)) literal.set(k, i); }
-  });
-  return (path: string): number => {
-    const segs = segments(path);
-    let best = Math.min(exact.get(path) ?? Infinity, literal.get(segs.join('/')) ?? Infinity);
-    for (const [i, want] of patterns) { if (i >= best) break; if (matches(want, segs)) { best = i; break; } }
-    return best;
-  };
 }
 
 /** Cuts the page at each placeholder, in document order; one that is missing or not empty means the HTML and the manifest are from different builds. */

@@ -375,11 +375,11 @@ pub struct EmbedLayer(Arc<Inner>);
 
 impl EmbedLayer {
     fn page(&self, path: &str) -> Option<usize> {
-        self.0.pages.iter().position(|p| p.paths.iter().any(|pat| url::matches(pat, path)))
+        self.0.pages.iter().position(|p| p.paths.iter().any(|pat| url::rule_for(pat, false, path)))
     }
     /// the rule for a path: a 301 for exactly its `from`, a rewrite for a path its pattern matches
     fn route(&self, path: &str) -> Option<&manifest::Route> {
-        self.0.routes.iter().find(|r| if r.status == 200 { url::matches(&r.from, path) } else { r.from == path })
+        self.0.routes.iter().find(|r| url::rule_for(&r.from, r.status != 200, path))
     }
 }
 
@@ -791,6 +791,161 @@ mod choose_tests {
         for c in cases.cases {
             let got = super::choose_language(&c.list, &c.base, &c.codes, c.tags.iter().map(|t| t.as_str()));
             assert_eq!(got, c.want, "{:?} {:?}", c.list, c.tags);
+        }
+    }
+}
+
+/// The URL rules on the cases src/server.ts and packages/sinter-aspnetcore run too (test/fixtures/server-cases.json).
+#[cfg(test)]
+mod shared_cases {
+    use crate::manifest::{Part, PlaceholderDesc};
+    use crate::url::{Param, expand, rule_for, url_params, with_params};
+    use serde::Deserialize;
+    use std::collections::HashMap;
+
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum Value {
+        One(String),
+        List(Vec<String>),
+    }
+    fn param(v: Value) -> Param {
+        match v {
+            Value::One(v) => Param::One(v),
+            Value::List(l) => Param::List(l),
+        }
+    }
+    fn params(p: HashMap<String, Value>) -> HashMap<String, Param> {
+        p.into_iter().map(|(k, v)| (k, param(v))).collect()
+    }
+
+    #[derive(Deserialize)]
+    struct ParamsCase {
+        path: String,
+        query: Option<String>,
+        patterns: Vec<String>,
+        #[serde(default)]
+        arrays: Vec<String>,
+        want: HashMap<String, Value>,
+    }
+    #[derive(Deserialize)]
+    struct ExpandCase {
+        src: Vec<Part>,
+        params: HashMap<String, Value>,
+        want: Option<String>,
+    }
+    #[derive(Deserialize)]
+    struct WithParamsCase {
+        url: String,
+        set: Vec<(String, String)>,
+        want: String,
+    }
+    #[derive(Deserialize)]
+    struct DescribedCase {
+        placeholder: serde_json::Value,
+        params: HashMap<String, Value>,
+        want: Option<String>,
+    }
+    #[derive(Deserialize)]
+    struct WhenCase {
+        when: serde_json::Value,
+        params: HashMap<String, Value>,
+        holds: bool,
+    }
+    #[derive(Deserialize)]
+    struct Rule {
+        pattern: String,
+        #[serde(default)]
+        exact: bool,
+    }
+    #[derive(Deserialize)]
+    struct MatchCase {
+        rules: Vec<Rule>,
+        paths: Vec<(String, Option<usize>)>,
+    }
+    #[derive(Deserialize)]
+    struct EscapeCase {
+        json: String,
+        want: String,
+    }
+    #[derive(Deserialize)]
+    struct Cases {
+        params: Vec<ParamsCase>,
+        expand: Vec<ExpandCase>,
+        #[serde(rename = "withParams")]
+        with_params: Vec<WithParamsCase>,
+        described: Vec<DescribedCase>,
+        when: Vec<WhenCase>,
+        #[serde(rename = "match")]
+        matches: Vec<MatchCase>,
+        escape: Vec<EscapeCase>,
+    }
+
+    fn cases() -> Cases {
+        let file = concat!(env!("CARGO_MANIFEST_DIR"), "/../../test/fixtures/server-cases.json");
+        serde_json::from_str(&std::fs::read_to_string(file).unwrap()).unwrap()
+    }
+
+    /// a placeholder of the manifest, as the case writes it (without the `id` and `resource` every one has)
+    fn described(mut p: serde_json::Value, params: HashMap<String, Value>) -> Option<String> {
+        p["id"] = 0.into();
+        p["resource"] = "r".into();
+        let p: PlaceholderDesc = serde_json::from_value(p).unwrap();
+        super::described_url(&p, &self::params(params))
+    }
+
+    #[test]
+    fn params_from_the_path_and_the_query() {
+        for c in cases().params {
+            let got = url_params(&c.path, c.query.as_deref(), &c.patterns, &c.arrays);
+            assert_eq!(got, params(c.want), "{} {:?}", c.path, c.query);
+        }
+    }
+
+    #[test]
+    fn expand_fills_a_template() {
+        for c in cases().expand {
+            assert_eq!(expand(&c.src, &params(c.params)), c.want, "{:?}", c.src);
+        }
+    }
+
+    #[test]
+    fn with_params_sets_query_parameters() {
+        for c in cases().with_params {
+            assert_eq!(with_params(&c.url, &c.set), c.want, "{} {:?}", c.url, c.set);
+        }
+    }
+
+    #[test]
+    fn the_described_request() {
+        for c in cases().described {
+            let what = c.placeholder.to_string();
+            assert_eq!(described(c.placeholder, c.params), c.want, "{what}");
+        }
+    }
+
+    #[test]
+    fn when_holds() {
+        for c in cases().when {
+            let what = c.when.to_string();
+            let p = serde_json::json!({ "src": ["/x"], "when": c.when });
+            assert_eq!(described(p, c.params).is_some(), c.holds, "{what}");
+        }
+    }
+
+    #[test]
+    fn the_first_rule_for_a_path() {
+        for c in cases().matches {
+            for (path, want) in c.paths {
+                assert_eq!(c.rules.iter().position(|r| rule_for(&r.pattern, r.exact, &path)), want, "{path}");
+            }
+        }
+    }
+
+    #[test]
+    fn escape_writes_lt_as_a_json_escape() {
+        for c in cases().escape {
+            assert_eq!(super::escape(bytes::Bytes::from(c.json.clone())), c.want.as_bytes(), "{}", c.json);
         }
     }
 }

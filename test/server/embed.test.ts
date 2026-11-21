@@ -317,11 +317,9 @@ test('a Worker: the manifest and pages without a file system, `env` passed on to
   expect(await text(e.fetch(new Request('http://w.test/'), () => json('{"next":1}')))).toContain('data-sn="0">{"next":1}</script>');
 });
 
-test('escape: every `<`, at the start, the end and in a row, and nothing copied without one', async () => {
+// (what it writes: test/fixtures/server-cases.json, run by cases.test.ts)
+test('escape: nothing copied without a `<`, and a view into a larger buffer', async () => {
   const { escape } = await import('../../src/server.js');
-  const s = (v: string) => new TextDecoder().decode(escape(new TextEncoder().encode(v)));
-  expect(s('<a<<b<')).toBe(E('‹a‹‹b‹'));
-  expect(s('"x"')).toBe('"x"');
   const plain = new TextEncoder().encode('{"a":1}');
   expect(escape(plain)).toBe(plain);
   // a view into a larger buffer, as a response's chunk can be
