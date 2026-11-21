@@ -50,6 +50,7 @@ export const LINK_FIELDS: Record<string, { kinds: string[]; how: 'table' | 'weak
   at: { kinds: ['empty', 'object'], how: 'at' },
   attrSources: { kinds: ['Array'], how: 'table' },
   authOf: { kinds: ['Map'], how: 'table' },
+  axisListsOf: { kinds: ['empty', 'Map'], how: 'cache' },
   boundHrefs: { kinds: ['Set'], how: 'table' },
   branchGuard: { kinds: ['WeakMap'], how: 'weak' },
   callAt: { kinds: ['Map'], how: 'replayed' },
