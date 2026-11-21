@@ -476,7 +476,9 @@ In each language's page:
   `$locale` cannot be assigned (`SN203`): each language is its own page.
 - **Links stay in the language.** A link to one of your pages (`/about.html`, `/about/`) is written as that
   page in the same language (`/de/about/`). A link with `hreflang` names a language on purpose and is left
-  as it is.
+  as it is. A link template (`data-sn-href="/article/{a.slug}"`) whose literal start names one of your pages
+  (fixed or a pattern) gets the language's prefix in its code too (`/de/article/…`), as does the API's `token.signIn`
+  when it is one of your pages; a start that names an API, a file or another origin is left as written.
 - **`data-sn-path` is written without the prefix** (`/article/:slug`) and matches under each language
   (`/de/article/hello`); `$url` does not include it.
 - **Search engines see every language.** With `site`, each page's head has `<link rel="alternate"

@@ -76,3 +76,33 @@ ${js}<meta http-equiv="refresh" content="0; url=${esc(o.fallback)}"><meta name="
 </head><body>${links}</body></html>
 `;
 }
+
+/**
+ * A URL's literal start in the page's language, when it names one of the site's pages (docs/proposals/axes.md §5): a
+ * link template's (`/article/{slug}`), whose values are filled in the browser, and the API's `signIn`. `pages` are the
+ * site's page paths as written, without a language (fixed paths, file URLs and patterns: `/about/`, `/article/:slug`).
+ * The start names a page when its complete segments match one's, a `:name` matching any, and a last, partial segment
+ * starts one of that page's or is a `:name`'s; anything else (an API, a file, another origin, a start already in a
+ * language, `/` alone) is left as written.
+ */
+export function inLanguage(start: string, locale: string, l: Locales, base: string | undefined, pages: readonly string[]): string {
+  const b = siteRoot(base);
+  if (!start.startsWith(b) || start.startsWith('//')) return start;
+  const cut = start.search(/[?#]/), path = cut < 0 ? start : start.slice(0, cut);
+  const rest = path.slice(b.length), segs = rest.split('/');
+  if (l.list.includes(segs[0]!) && segs.length > 1) return start;
+  // the last segment is partial unless the path ends there (a `/`, `?` or `#` after it)
+  const partial = cut < 0 && !rest.endsWith('/') ? segs.pop()! : null;
+  if (rest.endsWith('/')) segs.pop();
+  if (!segs.length && !partial) return start;
+  const names = pages.some((p) => {
+    if (!p.startsWith(b)) return false;
+    const ps = p.slice(b.length).split('/');
+    if (ps.at(-1) === '' && ps.length > 1) ps.pop();
+    if (ps.length < segs.length + (partial !== null ? 1 : 0)) return false;
+    if (cut >= 0 && partial === null && ps.length !== segs.length) return false;
+    if (!segs.every((s, i) => ps[i]![0] === ':' || ps[i] === s)) return false;
+    return partial === null || ps[segs.length]![0] === ':' || ps[segs.length]!.startsWith(partial);
+  });
+  return names ? prefixPaths([path], locale, base)[0]! + start.slice(path.length) : start;
+}

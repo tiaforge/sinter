@@ -807,6 +807,8 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   const readPage = (file: string) => readFileSync(virtual.get(file)?.source ?? file, 'utf8');
   /** a source page's `data-sn-path` under a language's prefix, after the base (`/de/article/:slug`) */
   const prefixed = (patterns: string[], locale: string) => prefixPaths(patterns, locale, resolved?.base);
+  /** `localePrefix`: every path a source page answers at, without a language (a link template's start is checked against them) */
+  const sitePaths = () => sourceEntries().flatMap((f) => pagePaths(relOf(f), resolved?.base ?? '/', describeSource(f).path));
   /** a source page's URL in each language (for `localeUrl()` and `hreflang`), or null for a page whose paths all have parameters */
   const localeUrls = (source: string): Record<string, string> | null => {
     const b = resolved?.base?.startsWith('/') ? resolved.base : '/';
@@ -1086,7 +1088,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       ...(p.changesRequests ? { changesRequests: true } : {}),
       ...(firstPaint ? { early: { module: p.early, src: earlySrc } } : {}),
       ...(p.messages ? { baseMessages: lang ?? p.messages.dicts[p.messages.base] ?? {} } : {}),
-      ...(v?.locale ? { locale: { name: v.locale, urls: v.page ? entryUrls(v) : localeUrls(src), base: resolved?.base ?? '/' } } : {}),
+      ...(v?.locale ? { locale: { name: v.locale, urls: v.page ? entryUrls(v) : localeUrls(src), base: resolved?.base ?? '/', list: locales!.list, pages: sitePaths() } } : {}),
       ...(options.origins?.length || apiOrigins(p.apis).length ? { origins: [...(options.origins ?? []), ...apiOrigins(p.apis)] } : {}),
       ...(firstPaint ? { observe: true } : {}),
       ...(options.embed && !dev ? { embed: true } : {}),

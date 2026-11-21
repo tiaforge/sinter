@@ -30,7 +30,7 @@ import { $k, schemesOf, STYLE_BAD, urlAllowed } from '../runtime/security.js';
 import { $href, $hq, $hv, withParams } from '../runtime/url.js';
 import { firstParams, pageParams } from '../runtime/pages.js';
 import { eachPath } from '../paths.js';
-import { prefixPaths } from '../locales.js';
+import { inLanguage, prefixPaths } from '../locales.js';
 import { pagePaths } from '../page-paths.js';
 import { bytes, date, isCalendarDate, number } from '../runtime/helpers.js';
 import { config } from '../runtime/config.js';
@@ -201,9 +201,11 @@ export interface CompileOptions {
    * `localePrefix`: the page in one language (`name`). `baseMessages` is that language's text; the page's
    * `data-sn-path` patterns get its prefix after `base`; `localeUrl(l)` is the page's URL in language `l`, from
    * `urls` (null for a page whose paths all have parameters: from the browser's path); the page module records
-   * the language in the `locale` cookie (docs/static-pages.md#languages)
+   * the language in the `locale` cookie (docs/static-pages.md#languages). `list` and `pages` (the site's languages and
+   * its page paths without a language): a link template's literal start and the API's `signIn` that name one of the
+   * site's pages are written in the page's language (`inLanguage`)
    */
-  locale?: { name: string; urls: Record<string, string> | null; base: string };
+  locale?: { name: string; urls: Record<string, string> | null; base: string; list?: string[]; pages?: readonly string[] };
   /**
    * internal, set by `compileParts` for its second pass: the `data-sn-if` templates (by `file:offset`)
    * whose condition the first pass found constant (state nothing writes), and its value
@@ -5772,6 +5774,9 @@ class Compiler {
     const lits = tpl.filter((p): p is string => typeof p === 'string');
     // what the build sees of where it goes: the literal start, the whole URL without values; the literal query names of a
     // query-only one, which replaces the whole query (SN519)
+    // a page in a language: a start that names one of the site's pages is that page in the language (its values are
+    // filled in the browser, after the build's links are rewritten)
+    if (vals.length && typeof tpl[0] === 'string') tpl[0] = this.inPageLanguage(tpl[0]);
     const first = typeof tpl[0] === 'string' ? tpl[0] : '';
     const query = first[0] === '?' ? [...lits.join('').split('#')[0]!.matchAll(/[?&]([^?&=#]+)=/g)].map((m) => m[1]!) : undefined;
     this.hrefs.push({ el, prefixes: [{ s: first, whole: !vals.length }], literal: false, ...(query ? { query, src: attr(el, 'data-sn-href') } : {}) });
@@ -9434,7 +9439,13 @@ class Compiler {
     const mine = this.pathList.some((p) => { const w = p.split('/').filter(Boolean); return w.length === segs.length && w.every((x, i) => x[0] === ':' || x === segs[i]); });
     if (mine) return fail(`\`data-sn-signed-in\` on the sign-in page (\`${to.to}\`, the API \`${a.name}\`'s \`token.signIn\`): a signed-out visitor would be sent here again and again`, 'remove it from this page');
     const t = a.token!;
-    return { a: a.name, t: { s: t.storage === 'local' ? 'l' : 's', k: t.key }, i: signInWire(to), ...(g.f != null ? { f: g.f } : {}) };
+    return { a: a.name, t: { s: t.storage === 'local' ? 'l' : 's', k: t.key }, i: signInWire(localSignIn(to, this.opts.locale)), ...(g.f != null ? { f: g.f } : {}) };
+  }
+
+  /** a URL's literal start in the page's language when it names one of the site's pages (`inLanguage`); else as written */
+  inPageLanguage(start: string): string {
+    const l = this.opts.locale;
+    return l?.list && l.pages ? inLanguage(start, l.name, { base: l.list[0]!, list: l.list }, l.base, l.pages) : start;
   }
 
   runtimeReasons(): RuntimeReason[] {
@@ -10292,4 +10303,11 @@ function writeFirstPaint(el: P5Element, kind: Kind, name: string | null, v: unkn
     case 'checked': set('checked', v ? '' : null); break;
     case 'value': if (el.tagName === 'textarea') text(v as string); else set('value', v as string); break;
   }
+}
+
+/** an API's `signIn` in the page's language, when it is one of the site's pages (`inLanguage`) */
+export function localSignIn<T extends { to: string }>(s: T, l: CompileOptions['locale']): T {
+  if (!l?.list || !l.pages) return s;
+  const to = inLanguage(s.to, l.name, { base: l.list[0]!, list: l.list }, l.base, l.pages);
+  return to === s.to ? s : { ...s, to };
 }

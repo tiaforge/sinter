@@ -23,7 +23,7 @@ const files: Record<string, string> = {
   'messages/de.json': JSON.stringify({ title: 'Über uns', desc: 'Wer wir sind', hello: 'Hallo' }),
   'index.html': `<!doctype html><html lang="en"><head>${head}</head><body>${switcher}<p data-sn-text="m.hello()"></p><img src="img/logo.svg" alt=""></body></html>`,
   'about.html': `<!doctype html><html lang="en"><head>${head}</head><body>${switcher}<h1 data-sn-text="m.title()"></h1></body></html>`,
-  'article.html': `<!doctype html><html lang="en" data-sn-path="/article/:slug"><head>${head}</head><body>${switcher}<h1 data-sn-text="$url.slug"></h1><p data-sn-text="greet()"></p><p data-sn-text="$url.slug ? m.title() : \'\'"></p></body></html>`,
+  'article.html': `<!doctype html><html lang="en" data-sn-path="/article/:slug"><head>${head}</head><body>${switcher}<h1 data-sn-text="$url.slug"></h1><a id="self" data-sn-href="/article/{$url.slug}">self</a><a id="api" data-sn-href="/api/{$url.slug}">api</a><p data-sn-text="greet()"></p><p data-sn-text="$url.slug ? m.title() : \'\'"></p></body></html>`,
   // an app module that calls a message
   'src/sinter.helpers.js': "import { m } from '@tiaforge-ui/sinter/messages';\nexport const greet = () => m.hello();\n",
   'img/logo.svg': '<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"/>',
@@ -104,6 +104,15 @@ describe('the unprefixed URLs and the rules', () => {
       '/article/:slug  /article  200',
     ]);
   });
+});
+
+test('link templates: a start that names one of the site\'s pages is in the page\'s language; an API\'s is as written', () => {
+  // the article page's module in each language: its two templates, filled in the browser from $url.slug
+  const code = (l: string) => readdirSync(join(out, 'assets')).filter((f) => f.startsWith(`${l}-article-head-`)).map((f) => readFileSync(join(out, 'assets', f), 'utf8')).join('\n');
+  expect(code('de')).toMatch(/[`"]\/de\/article\/[`"]\+/);
+  expect(code('en')).toMatch(/[`"]\/en\/article\/[`"]\+/);
+  expect(code('de')).toMatch(/[`"]\/api\/[`"]\+/);
+  expect(code('de')).not.toContain('/de/api/');
 });
 
 test('the dev server: a page in a language at its URL, a chooser at an unprefixed one', async () => {

@@ -3,7 +3,7 @@
 // choosing a visitor's language, and the chooser page's script applying the same rule as the server layer.
 import { runInNewContext } from 'node:vm';
 import { describe, expect, test } from 'vitest';
-import { chooseLanguage, chooserHtml, languageOfFile, manifestLocales, prefixPaths, requestLanguages, siteRoot } from '../src/locales.js';
+import { chooseLanguage, chooserHtml, inLanguage, languageOfFile, manifestLocales, prefixPaths, requestLanguages, siteRoot } from '../src/locales.js';
 
 const site = { base: 'en', list: ['en', 'de', 'pt-BR'] };
 
@@ -56,4 +56,28 @@ describe('choosing the visitor\'s language', () => {
     for (const [tags, want] of CASES) expect(go('', tags), tags.join()).toBe(`/${want}/a/`);
     expect(go('locale=de', ['pt-BR'])).toBe('/de/a/');
   });
+});
+
+test('inLanguage: a URL\'s start that names one of the site\'s pages, under the language; anything else as written', () => {
+  const pages = ['/', '/index.html', '/about/', '/about.html', '/article/:slug', '/blog/:slug', '/u/:name/posts'];
+  const at = (s: string, base?: string, ps = pages) => inLanguage(s, 'de', site, base, ps);
+  expect(at('/article/')).toBe('/de/article/');
+  expect(at('/article/x-')).toBe('/de/article/x-');
+  expect(at('/u/')).toBe('/de/u/');
+  expect(at('/u/x/posts?tab=')).toBe('/de/u/x/posts?tab=');
+  expect(at('/about/?q=')).toBe('/de/about/?q=');
+  expect(at('/abo')).toBe('/de/abo');
+  // not a page: an API, a file, another folder; `/` alone; already in a language; another origin; query or hash only
+  for (const s of ['/api/', '/img/x', '/other/', '/', '/de/article/', '//cdn.example.com/', 'https://x.org/', '?page=', '#top', '/article?x=']) expect(at(s), s).toBe(s);
+  // under a base
+  expect(at('/docs/article/', '/docs/', ['/docs/article/:slug'])).toBe('/docs/de/article/');
+  expect(at('/article/', '/docs/', ['/docs/article/:slug'])).toBe('/article/');
+});
+
+test('localSignIn: the API\'s sign-in page in the page\'s language, when it is one of the site\'s pages', async () => {
+  const { localSignIn } = await import('../src/compiler/compile.js');
+  const l = { name: 'de', urls: null, base: '/', list: ['en', 'de'], pages: ['/login', '/login.html'] };
+  expect(localSignIn({ to: '/login', returnUrl: { allow: ['/'] } }, l)).toEqual({ to: '/de/login', returnUrl: { allow: ['/'] } });
+  expect(localSignIn({ to: 'https://auth.example.com/' }, l).to).toBe('https://auth.example.com/');
+  expect(localSignIn({ to: '/login' }, undefined).to).toBe('/login');
 });

@@ -388,6 +388,12 @@ Each step ships on its own.
 3. **Points in the plugin** (§1). `pointsOf` for the language and a page's entries, one collision check,
    `pointAt` in dev, the special files, manifest, rules and choosers from points. The output does not change.
    Then, as its own commit since it changes output: link templates and `signIn` at the page's point (§5).
+   *Done 2026-11-21:* `src/points.ts` (`listPoints`: the points, their files, the translations, the collisions in one
+   pass), from which the plugin's inputs, its choosers and the dev server's `pointAt` derive. Then link templates and
+   `signIn` in the page's language: `inLanguage` in src/locales.ts prefixes a literal start that names one of the
+   site's pages (its complete segments matching a page's path, `:name` matching any), at build time; a start that
+   begins with a value is still left as written (the runtime half of §5 comes with step 6, where the point's
+   segments are data).
 4. **Points in the compiler** (§8). `point` in `CompileOptions`, URL tables as data, one walk per page, the
    point-aware component resolver, the fallback log. The output does not change; step 0's timings are measured
    again and written into this proposal.

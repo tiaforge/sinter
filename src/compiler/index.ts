@@ -1,6 +1,6 @@
 import * as acorn from 'acorn';
 import { tsPlugin } from '@sveltejs/acorn-typescript';
-import { compileParts, requestUrl, type CompileOptions, type CompileResult, type CompiledParts, type EarlyParts, type FnSource, type FnSources, type HelperManifest, type HelperOrigin, type PrefetchParts, type EmbedSlot, type EmbedCond, type RuntimeReason } from './compile.js';
+import { compileParts, localSignIn, requestUrl, type CompileOptions, type CompileResult, type CompiledParts, type EarlyParts, type FnSource, type FnSources, type HelperManifest, type HelperOrigin, type PrefetchParts, type EmbedSlot, type EmbedCond, type RuntimeReason } from './compile.js';
 import { compactIR, type EarlyIR } from '../ir.js';
 import { coreParts } from '../core-parts.js';
 import { MappedLines, type SourceMap } from './sourcemap.js';
@@ -334,7 +334,7 @@ function pageLines(parts: CompiledParts, options: Pick<CompileOptions, 'helpers'
   if (options.origins?.length) lines.push(`import { $origins } from '${RUNTIME}';`, `$origins(${JSON.stringify(options.origins)});`);
   // `sinter({ apis })`: the runtime sends each API's credentials and headers, and `apiOf(url)` names a request's API
   if (options.apis?.list.length) {
-    const table = options.apis.list.map(runtimeApi);
+    const table = options.apis.list.map((a) => runtimeApi(a.token?.signIn && options.locale ? { ...a, token: { ...a.token, signIn: localSignIn(a.token.signIn, options.locale) } } : a));
     lines.push(`import { $apis } from '${RUNTIME}';`, `$apis(${JSON.stringify(table)});`);
     // an API with a token: the request layer sends it (src/token.ts); other apps carry none of it
     // (a `signIn` of loginRedirect's options: its target function; a path needs none of it)
