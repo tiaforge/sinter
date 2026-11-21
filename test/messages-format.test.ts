@@ -14,7 +14,13 @@ test('placeholders and escapes', () => {
   expect(parsePattern('Hi {name}, \\{literal\\} \\\\', 'x')).toEqual(['Hi ', { v: 'name' }, ', {literal} \\']);
   expect(format({ m: { p: parsePattern('Hi {name}', 'x') } }, { name: 'Ada' })).toBe('Hi Ada');
   expect(format({ m: { p: parsePattern('Hi {name}', 'x') } }, {})).toBe('Hi {name}');
-  expect(() => parsePattern('{rate: number style=percent}', 'en.json: `rate`')).toThrow(/en\.json: `rate`: `\{rate: number style=percent\}` is not a placeholder sinter reads yet/);
+  expect(() => parsePattern('{#b}bold{/b}', 'en.json: `b`')).toThrow(/en\.json: `b`: `\{#b\}` is not a placeholder sinter reads/);
+  // formatted placeholders: Intl in the page's language
+  const rate = { m: { p: parsePattern('{rate: number style=percent} done', 'x') } };
+  expect(format(rate, { rate: 0.25 }, 'en')).toBe('25% done');
+  expect(format(rate, { rate: 0.25 }, 'de')).toMatch(/^25\s%\sdone$/u);
+  const at = { m: { p: parsePattern('on {at: datetime dateStyle=long timeZone=UTC}', 'x') } };
+  expect(format(at, { at: '2026-11-21T10:00:00Z' }, 'de')).toBe('on 21. November 2026');
 });
 
 test('plurals in each language\'s categories', () => {

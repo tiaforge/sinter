@@ -33,10 +33,13 @@ export function parsePattern(text: string, where: string): Part[] {
     if (c === '{') {
       const end = text.indexOf('}', i);
       const inner = end < 0 ? '' : text.slice(i + 1, end).trim();
-      if (!/^[A-Za-z_$][\w$]*$/.test(inner)) throw new Error(`${where}: \`{${inner}}\` is not a placeholder sinter reads yet (a name, \`{count}\`); formatted placeholders and markup are not supported`);
+      // `{name}`, or a formatted one: `{rate: number style=percent}`, `{at: datetime dateStyle=long}`
+      const m = /^([A-Za-z_$][\w$]*)(?:\s*:\s*(number|datetime)((?:\s+[A-Za-z]+=[\w-]+)*))?$/.exec(inner);
+      if (!m) throw new Error(`${where}: \`{${inner}}\` is not a placeholder sinter reads (\`{count}\`, \`{rate: number style=percent}\`, \`{at: datetime dateStyle=long}\`); markup is not supported`);
       if (lit) out.push(lit);
       lit = '';
-      out.push({ v: inner });
+      const o = m[3] ? Object.fromEntries(m[3].trim().split(/\s+/).map((kv) => kv.split('=') as [string, string])) : null;
+      out.push({ v: m[1]!, ...(m[2] ? { f: m[2] as 'number' | 'datetime' } : {}), ...(o ? { o } : {}) });
       i = end;
       continue;
     }

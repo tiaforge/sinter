@@ -67,8 +67,9 @@ sinter({ localePrefix: true, messages: false })
   `inlang({ per: [tenants, locales], tenantFiles: (t) => './tenants/' + t.key + '/{locale}.json' })` reads a tenant's
   own files over the project's, so a tenant's file holds only the messages it changes.
 - **Types**: `sinter check` types each message from the base language: a plural's input a `number`, a placeholder `string | number`; a wrong parameter is `SN208`.
-- Not yet: `m` in app modules, formatted placeholders
-  (`{x: number}`) and markup in messages, which fail the build at their file and message.
+- **Formatted placeholders**: `{rate: number style=percent}`, `{at: datetime dateStyle=long}`, with `Intl` in the page's
+  language and the options as written.
+- Not yet: `m` in app modules, and markup in messages, which fails the build at its file and message.
 
 Another library works the same way: register your own namespace with your own formatter, and nothing of this module is
 in your build.

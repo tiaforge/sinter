@@ -2,8 +2,8 @@
 // A pure function of a message's compact form (what `inlang()` in ./content.ts parses the inlang files into), its
 // arguments and the page's language, so the build folds a call over constants and the browser runs one over data.
 
-/** a pattern: text, and placeholders by input name */
-export type Part = string | { v: string };
+/** a pattern: text, and placeholders by input name, formatted with `number` or `datetime` and their options */
+export type Part = string | { v: string; f?: 'number' | 'datetime'; o?: Record<string, string> };
 
 /** a selector: an input's value, through `plural` (`Intl.PluralRules`, `ordinal` for `type=ordinal`) or as it is */
 export interface Selector { n: string; f: 'plural' | 'ordinal' | null }
@@ -11,8 +11,15 @@ export interface Selector { n: string; f: 'plural' | 'ordinal' | null }
 /** a message: a pattern (`p`), or selectors and their variants, each its keys (a value or `*`) and its pattern */
 export type Message = { p: Part[] } | { s: Selector[]; v: Array<[string[], Part[]]> };
 
-const fill = (p: Part[], args: Record<string, unknown> | undefined) =>
-  p.map((x) => (typeof x === 'string' ? x : args && x.v in args ? String(args[x.v]) : `{${x.v}}`)).join('');
+const fill = (p: Part[], args: Record<string, unknown> | undefined, locale?: string | null) => p.map((x) => {
+  if (typeof x === 'string') return x;
+  if (!args || !(x.v in args)) return `{${x.v}}`;
+  const v = args[x.v];
+  // a formatted placeholder: `Intl` in the page's language, with the placeholder's options
+  if (x.f === 'number') return new Intl.NumberFormat(locale ?? undefined, x.o as Intl.NumberFormatOptions).format(Number(v));
+  if (x.f === 'datetime') return new Intl.DateTimeFormat(locale ?? undefined, x.o as Intl.DateTimeFormatOptions).format(new Date(v as string | number));
+  return String(v);
+}).join('');
 
 /**
  * The message in `locale` with `args`. A variant is chosen as MessageFormat 2 chooses: each selector gives a value
@@ -22,7 +29,7 @@ const fill = (p: Part[], args: Record<string, unknown> | undefined) =>
  */
 export function format(entry: unknown, args?: Record<string, unknown>, locale?: string | null): string {
   const m = ((entry as { m?: Message } | null)?.m ?? entry) as Message;
-  if ('p' in m) return fill(m.p, args);
+  if ('p' in m) return fill(m.p, args, locale);
   const values = m.s.map((s) => {
     const x = args?.[s.n];
     if (!s.f) return { exact: String(x), category: null as string | null };
@@ -44,5 +51,5 @@ export function format(entry: unknown, args?: Record<string, unknown>, locale?: 
     if (!ok) continue;
     if (!best || score.some((x, i) => x !== best!.score[i] && x > best!.score[i]! && score.slice(0, i).every((y, j) => y === best!.score[j]))) best = { score, p };
   }
-  return best ? fill(best.p, args) : '';
+  return best ? fill(best.p, args, locale) : '';
 }
