@@ -5,7 +5,7 @@
 // read a collection.
 import { mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative, sep } from 'node:path';
-import { isCollection, type Collection, type CollectionContext } from './content.js';
+import { checkLanguages, isCollection, type Collection, type CollectionContext, type Languages } from './content.js';
 import { fileEntry, filePath } from './compiler/files.js';
 import { importModule, type LoadOptions } from './helpers-node.js';
 
@@ -21,7 +21,18 @@ export interface LoadedContent {
   error: string | null;
   /** the files the loaders read through `ctx.files`: a change in one runs them again (dev) */
   files: string[];
+  /** the module's `languages()` export, if it has one */
+  languages: Languages | null;
+  /**
+   * `per` collections (docs/proposals/axes.md §3): for each, the collections it is loaded per (by name) and its list at
+   * each combination of their entries' keys (joined by `\0`, in `per`'s order)
+   */
+  perPoint: PerPoint;
+  /** content namespaces (`namespace()`): by the export's name, the name pages call it by and its formatter module */
+  namespaces: Map<string, { name: string; format: string; type?: string; module?: string }>;
 }
+
+export type PerPoint = Map<string, { key: string; per: string[]; values: Map<string, readonly unknown[]> }>;
 
 export interface ContentOptions extends Omit<LoadOptions, 'helpersFile' | 'manifest' | 'cache'> {
   /** the content module, absolute */
@@ -32,8 +43,11 @@ export interface ContentOptions extends Omit<LoadOptions, 'helpersFile' | 'manif
   listFiles: (dir: string) => string[];
   /** the variables loaders get as `ctx.env` (Vite's `loadEnv`) */
   env: Record<string, string>;
-  /** with `localePrefix`: the languages a `perLocale` collection is loaded for */
-  locales?: readonly string[];
+  /**
+   * with `localePrefix`: the languages a `perLocale` collection is loaded for, when the module declares none
+   * (`languages()`); a function, so the inlang project is read only when needed
+   */
+  locales?: readonly string[] | (() => readonly string[]);
 }
 
 /** a compile's collections in a language: the shared ones, and that language's own */
@@ -48,7 +62,7 @@ export async function loadContent(o: ContentOptions): Promise<LoadedContent> {
   const rel = (f: string) => relative(o.root, f).split(sep).join('/');
   let mod: Record<string, unknown>;
   try { mod = await importModule(o, o.file); } catch (e) {
-    return { collections, perLocale, error: scrub(`the content module could not be loaded (${rel(o.file)}): ${String((e as Error)?.message ?? e).split('\n')[0]}`, o.env), files: [] };
+    return { collections, perLocale, error: scrub(`the content module could not be loaded (${rel(o.file)}): ${String((e as Error)?.message ?? e).split('\n')[0]}`, o.env), files: [], languages: null, perPoint: new Map(), namespaces: new Map() };
   }
   const problems: string[] = [];
   const names = new Map<Collection, string>();
@@ -57,6 +71,11 @@ export async function loadContent(o: ContentOptions): Promise<LoadedContent> {
     if (!isCollection(v)) { problems.push(`${rel(o.file)}: \`${name}\` is exported but not a collection; the content module exports only collections (\`collection({ key, load })\`), and helpers go in the helpers module`); continue; }
     names.set(v, name);
   }
+  const declared = [...names].filter(([c]) => c.languages || c.languagesOf);
+  if (declared.length > 1) problems.push(`${rel(o.file)}: \`${declared.map(([, n]) => n).join('`, `')}\` are each \`languages()\`; the site has one list of languages`);
+  let languages: Languages | null = declared[0]?.[0].languages ?? null;
+  const lazy = declared[0]?.[0].languagesOf;
+  if (lazy) { try { languages = checkLanguages(lazy({ root: o.root })); } catch (e) { problems.push(`\`${declared[0]![1]}\`: ${String((e as Error)?.message ?? e).split('\n')[0]}`); } }
   // one run per collection, and per language for a `perLocale` one: `get` shares it, whoever asks
   const running = new Map<string, Promise<unknown[]>>();
   const run = (c: Collection, chain: string[], locale: string | undefined): Promise<unknown[]> => {
@@ -76,17 +95,22 @@ export async function loadContent(o: ContentOptions): Promise<LoadedContent> {
         },
         env: o.env,
         command: o.command,
+        root: o.root,
         locale: at,
+        value: () => undefined,
       };
       p = Promise.resolve().then(() => c.load(ctx)).then((v) => checked(v, name, c.key));
       running.set(k, p);
     }
     return p;
   };
-  const langs = o.locales ?? [];
-  await Promise.all([...names].map(async ([c, name]) => {
+  // the languages a `perLocale` collection is loaded for: the module's own, else the given ones (read when one needs them)
+  let given: readonly string[] | null = null;
+  const langsOf = (): readonly string[] => languages?.list ?? (given ??= typeof o.locales === 'function' ? o.locales() : o.locales ?? []);
+  await Promise.all([...names].filter(([c]) => !c.per).map(async ([c, name]) => {
     try {
       if (!c.perLocale) { collections.set(name, { key: c.key, value: await run(c, [], undefined) }); return; }
+      const langs = langsOf();
       if (!langs.length) throw new Error('it is loaded per language (`perLocale: true`), and the site has none: `perLocale` needs `sinter({ localePrefix })`');
       for (const l of langs) {
         const value = await run(c, [], l);
@@ -97,7 +121,57 @@ export async function loadContent(o: ContentOptions): Promise<LoadedContent> {
       problems.push(`collection \`${name}\`: ${String((e as Error)?.message ?? e).split('\n')[0]}`);
     }
   }));
-  return { collections, perLocale, error: problems.length ? scrub(problems.join('\n'), o.env) : null, files: [...files].sort() };
+  // `per` collections: once per combination of their lists' entries (each list loaded above, every language's own for a
+  // `perLocale` one: a `per` collection's lists are read in the base language)
+  const perPoint: PerPoint = new Map();
+  for (const [c, name] of names) {
+    if (!c.per) continue;
+    try {
+      const lists = c.per.map((x) => {
+        const n = names.get(x as Collection);
+        if (!n) throw new Error('it is loaded per a collection the content module does not export');
+        if ((x as Collection).per) throw new Error(`it is loaded per \`${n}\`, which is loaded per collections itself`);
+        const got = collections.get(n) ?? perLocale.get(langsOf()[0] ?? '')?.get(n);
+        if (!got) throw new Error(`it is loaded per \`${n}\`, which did not load`);
+        return { c: x as Collection, n, key: got.key, entries: got.value };
+      });
+      const values = new Map<string, readonly unknown[]>();
+      const walk = async (i: number, at: unknown[]) => {
+        if (i === lists.length) {
+          const ctx: CollectionContext = {
+            files: (async (glob: string, opts?: { drafts?: string }) => readGlob(o, glob, opts?.drafts ?? null, files)) as CollectionContext['files'],
+            get: (other) => run(other as Collection, [name], undefined) as never,
+            env: o.env, command: o.command, root: o.root,
+            // a `languages()` list among `per`: its entry's tag is the run's language
+            locale: lists.map((l, j) => (l.c.languages ? (at[j] as { tag: string }).tag : undefined)).find(Boolean),
+            value: ((x: Collection) => { const j = lists.findIndex((l) => l.c === x); return j < 0 ? undefined : at[j]; }) as CollectionContext['value'],
+          };
+          values.set(lists.map((l, j) => String((at[j] as Record<string, unknown>)?.[l.key])).join('\0'), checked(await c.load(ctx), name, c.key));
+          return;
+        }
+        for (const e of lists[i]!.entries) await walk(i + 1, [...at, e]);
+      };
+      await walk(0, []);
+      perPoint.set(name, { key: c.key, per: lists.map((l) => l.n), values });
+    } catch (e) {
+      problems.push(`collection \`${name}\`: ${String((e as Error)?.message ?? e).split('\n')[0]}`);
+    }
+  }
+  const namespaces = new Map<string, { name: string; format: string; type?: string; module?: string }>();
+  for (const [c, n] of names) {
+    if (!c.namespace) continue;
+    // its type, from the base language's entries (the first point's, for one loaded per axis)
+    let type: string | undefined;
+    const base = collections.get(n)?.value ?? perLocale.get(langsOf()[0] ?? '')?.get(n)?.value ?? [...(perPoint.get(n)?.values.values() ?? [])][0];
+    if (c.namespace.types && base) { try { type = c.namespace.types([...base]); } catch (e) { problems.push(`namespace \`${n}\`: its types: ${String((e as Error)?.message ?? e).split('\n')[0]}`); } }
+    namespaces.set(n, { name: c.namespace.name, format: c.namespace.format, ...(type ? { type } : {}), ...(c.namespace.module ? { module: c.namespace.module } : {}) });
+  }
+  const named = new Map<string, string>();
+  for (const [n, d] of namespaces) {
+    if (named.has(d.name)) problems.push(`\`${named.get(d.name)}\` and \`${n}\` are both the namespace \`${d.name}\`: a name calls one namespace`);
+    named.set(d.name, n);
+  }
+  return { collections, perLocale, error: problems.length ? scrub(problems.join('\n'), o.env) : null, files: [...files].sort(), languages, perPoint, namespaces };
 }
 
 /**
@@ -176,8 +250,53 @@ export function writeSnapshot(root: string, file: string, c: LoadedContent, base
   try {
     const out = snapshotFile(root);
     mkdirSync(dirname(out), { recursive: true });
-    writeFileSync(out, JSON.stringify({ version: 1, module: relative(root, file).split(sep).join('/'), mtimeMs: statSync(file).mtimeMs, collections: Object.fromEntries(collectionsIn(c, baseLocale)) }));
+    writeFileSync(out, JSON.stringify({ version: 1, module: relative(root, file).split(sep).join('/'), mtimeMs: statSync(file).mtimeMs, collections: { ...Object.fromEntries(collectionsIn(c, baseLocale)), ...Object.fromEntries([...(c.perPoint ?? new Map())].map(([n, p]) => [n, { key: p.key, value: [...p.values.values()][0] ?? [] }])) }, ...(c.namespaces?.size ? { namespaces: Object.fromEntries(c.namespaces) } : {}), ...(c.languages ? { languages: c.languages } : {}) }));
   } catch { /* a cache: the check goes without it */ }
+}
+
+/**
+ * The types of the content namespaces app code imports (`import { m } from '@tiaforge-ui/sinter/messages'`), written
+ * next to the content module as `sinter.namespaces.d.ts` when a namespace has both a `module` and `types`: each fills
+ * its module's `Entries` interface. Rewritten on every load that worked, so it can be git-ignored.
+ */
+export function writeNamespaceTypes(file: string, c: LoadedContent): void {
+  const typed = [...(c.namespaces ?? new Map()).values()].filter((d) => d.module && d.type).sort((a, b) => a.name.localeCompare(b.name));
+  const out = join(dirname(file), 'sinter.namespaces.d.ts');
+  if (!typed.length) return;
+  const text = '// Generated by sinter from the content module\'s namespaces: do not edit.\nexport {};\n'
+    + typed.map((d) => `declare module '${d.module}' {\n  interface Entries ${d.type}\n}\n`).join('');
+  let current = '';
+  try { current = readFileSync(out, 'utf8'); } catch { /* missing */ }
+  if (current !== text) try { writeFileSync(out, text); } catch { /* the types only */ }
+}
+
+/**
+ * The content namespaces the last snapshot recorded, for `sinter check` and the editor (which run no loaders): the
+ * helpers manifest with each one in it (its ids its members), and the compile's `contentNs` (the base language's
+ * entries; no formatter in Node, so nothing folds)
+ */
+export function snapshotNamespaces<H extends { namespaces: Record<string, { module: string; members: string[] }> }>(root: string, helpers: H): { helpers: H; contentNs?: Record<string, { entries: Record<string, unknown>; format: string | null }> } {
+  try {
+    const s = JSON.parse(readFileSync(snapshotFile(root), 'utf8')) as { version: number; collections: Record<string, { key: string; value: Array<Record<string, unknown>> }>; namespaces?: Record<string, { name: string; format: string; type?: string }> };
+    if (s.version !== 1 || !s.namespaces) return { helpers };
+    const namespaces = { ...helpers.namespaces }, contentNs: Record<string, { entries: Record<string, unknown>; format: string | null }> = {};
+    for (const [exp, d] of Object.entries(s.namespaces)) {
+      if (namespaces[d.name]) continue;
+      const l = s.collections[exp], entries: Record<string, unknown> = {};
+      for (const e of l?.value ?? []) entries[String(e[l!.key])] = e;
+      namespaces[d.name] = { module: `sinter:content/${d.name}`, members: Object.keys(entries).sort(), ...(d.type ? { type: d.type } : {}) };
+      contentNs[d.name] = { entries, format: d.format };
+    }
+    return { helpers: { ...helpers, namespaces }, contentNs };
+  } catch { return { helpers }; }
+}
+
+/** The languages the last snapshot's content module declared (`languages()`), or null. */
+export function snapshotLanguages(root: string): Languages | null {
+  try {
+    const s = JSON.parse(readFileSync(snapshotFile(root), 'utf8')) as { version: number; languages?: Languages };
+    return s.version === 1 && s.languages ? s.languages : null;
+  } catch { return null; }
 }
 
 /** The last snapshot, and whether the content module changed since (`stale`), or null when there is none. */

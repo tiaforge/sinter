@@ -56,7 +56,8 @@ describe('data-sn-for on <html>: a page per entry', () => {
 
   test('SN340: the declaration', () => {
     const one = (html: string, list = '<sn-resource name="posts" src="file:/content/posts/*.md"></sn-resource>') => errors(build(`<!doctype html><html ${html}><head></head><body>${list}<p data-sn-text="posts.length"></p></body></html>`));
-    expect(one('data-sn-for="post in posts"')).toEqual([expect.stringMatching(/^SN340 `data-sn-for` on `<html>` needs `data-sn-path` with exactly one pattern/)]);
+    // without a pattern to fill, the list is an axis (docs/proposals/axes.md): the page once per entry, under its key
+    expect(one('data-sn-for="post in posts"')).toEqual([]);
     expect(one('data-sn-path="/blog /blog/:slug" data-sn-for="post in posts"')).toEqual([expect.stringMatching(/^SN340 .*exactly one pattern.*\(it is `\/blog \/blog\/:slug`\)/)]);
     expect(one('data-sn-path="/blog/:slug" data-sn-for="posts"')).toEqual([expect.stringMatching(/^SN340 `data-sn-for` on `<html>` takes `<name> in <list>`/)]);
     expect(one('data-sn-path="/blog/:slug" data-sn-for="page in posts"')).toEqual([expect.stringMatching(/^SN340 `page` cannot name the entry: it is a store function/)]);

@@ -99,3 +99,18 @@ describe('sinter migrate: the renames', () => {
     expect(compile(text, opts).diagnostics.filter((d) => / is renamed to |not its name/.test(d.message))).toEqual([]);
   });
 });
+
+test('the built-in messages to the content module: inlang() and languages() added, once; a languages() kept', async () => {
+  const { messagesToContent } = await import('../src/migrate.js');
+  const created = messagesToContent(null)!;
+  expect(created).toContain("import { languages } from '@tiaforge-ui/sinter/content';");
+  expect(created).toContain("export const locales = languages(({ root }) => inlangLocales(\"project.inlang\", root));");
+  expect(created).toContain('export const messages = inlang();');
+  expect(messagesToContent(created)).toBeNull();
+  const own = "import { collection, languages } from '@tiaforge-ui/sinter/content';\nexport const locales = languages({ base: 'en', list: ['en', 'de'] });\n";
+  const added = messagesToContent(own, 'i18n/project.inlang')!;
+  expect(added).toContain("import { inlang } from '@tiaforge-ui/sinter/messages/content';");
+  expect(added).not.toContain('inlangLocales');
+  expect(added).toContain('export const messages = inlang({ project: "i18n/project.inlang" });');
+  expect(added).toContain("export const locales = languages({ base: 'en', list: ['en', 'de'] });");
+});

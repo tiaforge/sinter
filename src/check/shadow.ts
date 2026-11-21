@@ -6,7 +6,6 @@ import { dirname, relative } from 'node:path';
 import type { CheckLoc, CheckUnit, TypeRef } from '../compiler/check-unit.js';
 import type { HelperManifest } from '../compiler/compile.js';
 import { STORE_FNS, BUILTIN_HELPERS } from '../compiler/expr.js';
-import { MESSAGES } from '../compiler/index.js';
 import { schemaToTs, typeName } from './openapi-types.js';
 
 export interface ShadowOptions {
@@ -122,8 +121,10 @@ export function shadow(o: ShadowOptions): Shadow {
   const userHelpers = o.helpers.names.filter((h) => !taken.has(h));
   if (o.helpers.module && userHelpers.length) line(`import { ${userHelpers.join(', ')} } from '${moduleSpec(o.helpers.module)}';`);
   for (const [ns, { module }] of Object.entries(o.helpers.namespaces)) {
-    // the built-in messages: `m`, typed by the generated `src/sinter.messages.d.ts`
-    if (!taken.has(ns)) line(module === MESSAGES ? `import { m as ${ns} } from '${MESSAGES}';` : `import * as ${ns} from '${moduleSpec(module)}';`);
+    if (taken.has(ns)) continue;
+    // a content namespace (docs/proposals/messages.md §1): its entries, each called with what its formatter takes
+    if (module.startsWith('sinter:content/')) line(`const ${ns} = /** @type {${o.helpers.namespaces[ns]!.type ?? 'any'}} */ (/** @type {any} */ (null));`);
+    else line(`import * as ${ns} from '${moduleSpec(module)}';`);
   }
   if (o.actions?.module && (unit.resources.some((r) => r.call) || unit.exprs.some((e) => e.returns?.kind === 'call' || e.resultType?.kind === 'call'))) {
     line(`import * as $A from '${moduleSpec(o.actions.module)}';`);
@@ -149,7 +150,7 @@ export function shadow(o: ShadowOptions): Shadow {
     }
     if (r.item) {
       // a `<html data-sn-for>` entry: one item of the list it names
-      const it = `import('./sinter').Item<typeof ${r.item}>`;
+      const it = `${decl('Item')}<typeof ${r.item}>`;
       types[types.length - 1] = `${JSON.stringify(r.name)}: ${it}`;
       line(`/** @type {${it}} */`);
       regions.push({ start: out.length + 1, lines: 1, loc: r.nameLoc ?? r.loc, fixed: true });
@@ -223,6 +224,10 @@ export function shadow(o: ShadowOptions): Shadow {
   if (!userHelpers.includes('localeUrl') && !taken.has('localeUrl') && !('localeUrl' in o.helpers.namespaces)) {
     line('/** @type {(locale: string) => string} */');
     line('const localeUrl = $any;');
+  }
+  if (!userHelpers.includes('axisUrl') && !taken.has('axisUrl') && !('axisUrl' in o.helpers.namespaces)) {
+    line('/** @type {(list: unknown, key: string) => string} */');
+    line('const axisUrl = $any;');
   }
   line('/** @type {string} */');
   line('const $site = $any;');

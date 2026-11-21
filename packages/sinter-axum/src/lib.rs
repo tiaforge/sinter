@@ -255,7 +255,7 @@ impl Embed {
     /// [`Embed::api`] or `Embed::upstream`, an absolute URL its origin allowed). Every problem
     /// is in the error, one line each.
     pub fn build(self) -> Result<EmbedLayer, Error> {
-        let (pages, routes, locales) = manifest::load(&self.dir, self.compiled)?;
+        let (pages, routes, locales, hosts) = manifest::load(&self.dir, self.compiled)?;
         let mut problems = Vec::new();
         let names: HashSet<String> = pages
             .iter()
@@ -287,6 +287,7 @@ impl Embed {
             pages,
             routes,
             locales,
+            hosts,
             resolvers: self.resolvers,
             skips: self.skips,
             api: self.api,
@@ -348,6 +349,8 @@ struct Inner {
     routes: Vec<manifest::Route>,
     /// `localePrefix`: the site's languages
     locales: Option<manifest::Locales>,
+    /// tenants on their own domains: a request on one is its folder's
+    hosts: manifest::Hosts,
     resolvers: HashMap<String, Resolver>,
     skips: HashSet<String>,
     api: Option<Api>,
@@ -408,8 +411,28 @@ where
         self.inner.poll_ready(cx)
     }
 
-    fn call(&mut self, req: Request<B>) -> Self::Future {
+    fn call(&mut self, mut req: Request<B>) -> Self::Future {
         let read = req.method() == Method::GET || req.method() == Method::HEAD;
+        // a tenant on its own domain (docs/static-pages.md#a-site-per-tenant-axes): its folder's files and pages, but for the
+        // shared assets, as the proxy rules in the docs map them
+        if read && !self.embed.0.hosts.origins.is_empty() {
+            let host = req
+                .headers()
+                .get(header::HOST)
+                .and_then(|h| h.to_str().ok())
+                .map(str::to_string)
+                .or_else(|| req.uri().authority().map(|a| a.to_string()));
+            let pq = req.uri().path_and_query().map(|p| p.as_str()).unwrap_or("/").to_string();
+            if let Some(to) = self.embed.0.hosts.path(host.as_deref(), &pq) {
+                if let Ok(pq) = to.parse() {
+                    let mut parts = req.uri().clone().into_parts();
+                    parts.path_and_query = Some(pq);
+                    if let Ok(u) = http::Uri::from_parts(parts) {
+                        *req.uri_mut() = u;
+                    }
+                }
+            }
+        }
         // the manifest describes the app's requests; it is not a page
         if read && req.uri().path().strip_prefix('/') == Some(manifest::FILE) {
             return async { Ok(Response::builder().status(StatusCode::NOT_FOUND).body(Body::empty()).unwrap()) }.boxed();
@@ -419,9 +442,19 @@ where
         // straight to `/de/about/`; a pattern's, the request's); temporary, as it differs per visitor
         if let (Some(l), Some(r)) = (self.embed.0.locales.as_ref(), self.embed.route(req.uri().path()).filter(|r| read && r.choose)) {
             let lang = choose(l, req.headers());
+            // (a language on its own domain: there, without its segment)
+            let (domain, lang) = match l.domains.get(&lang) {
+                Some(d) => (d.clone(), None),
+                None => (String::new(), Some(l.segment(&lang).to_string())),
+            };
             let path = if r.from.contains([':', '*']) { req.uri().path() } else { r.to.as_str() };
             let rest = path.strip_prefix(l.at.as_str()).unwrap_or(path.trim_start_matches('/'));
-            let to = format!("{}{lang}/{rest}{}", l.at, req.uri().query().map(|q| format!("?{q}")).unwrap_or_default());
+            let to = format!(
+                "{domain}{}{}{rest}{}",
+                l.at,
+                lang.map(|x| format!("{x}/")).unwrap_or_default(),
+                req.uri().query().map(|q| format!("?{q}")).unwrap_or_default()
+            );
             return async move {
                 Ok(Response::builder()
                     .status(StatusCode::FOUND)
@@ -491,26 +524,50 @@ enum Fill {
 
 /// The visitor's language among the site's: the `locale` cookie the pages record, else the first of
 /// `Accept-Language` the site has (`de-AT` is `de`), else the base.
-fn choose(l: &manifest::Locales, h: &HeaderMap) -> String {
+/// The visitor's language among the site's (docs/proposals/axes.md §6): for each tag they send, in order (the `locale`
+/// cookie the pages record, then `Accept-Language`), the site's language with that tag (any case), else with the tag
+/// less its last subtag, one at a time, else the first site language with the same language part; else the base. The
+/// rule `chooseLanguage` in src/locales.ts applies, run on the cases of test/fixtures/choose-cases.json. A language's
+/// `codes` are tags of it too (`nb` chooses `no`).
+pub(crate) fn choose_language<'a>(
+    list: &[String],
+    base: &str,
+    codes: &std::collections::HashMap<String, Vec<String>>,
+    tags: impl IntoIterator<Item = &'a str>,
+) -> String {
     let find = |x: &str| {
-        let x = x.trim().to_ascii_lowercase();
-        l.list
-            .iter()
-            .find(|c| c.to_ascii_lowercase() == x)
-            .or_else(|| l.list.iter().find(|c| c.to_ascii_lowercase() == x.split('-').next().unwrap_or("")))
-            .cloned()
+        let mut p = x.trim().to_ascii_lowercase();
+        loop {
+            if let Some(hit) = list
+                .iter()
+                .find(|c| c.to_ascii_lowercase() == p || codes.get(*c).is_some_and(|k| k.iter().any(|k| k.to_ascii_lowercase() == p)))
+            {
+                return Some(hit.clone());
+            }
+            match p.rfind('-') {
+                Some(j) => p.truncate(j),
+                None => break,
+            }
+        }
+        list.iter().find(|c| c.to_ascii_lowercase().split('-').next() == Some(p.as_str())).cloned()
     };
-    let cookie = h
+    tags.into_iter().find_map(find).unwrap_or_else(|| base.to_string())
+}
+
+fn choose(l: &manifest::Locales, h: &HeaderMap) -> String {
+    let cookies = h
         .get_all(header::COOKIE)
         .iter()
         .filter_map(|v| v.to_str().ok())
         .flat_map(|v| v.split(';'))
-        .find_map(|c| c.trim().strip_prefix("locale=").and_then(find));
-    cookie
-        .or_else(|| {
-            h.get(header::ACCEPT_LANGUAGE)?.to_str().ok()?.split(',').filter_map(|p| find(p.split(';').next().unwrap_or(""))).next()
-        })
-        .unwrap_or_else(|| l.base.clone())
+        .filter_map(|c| c.trim().strip_prefix("locale="));
+    let accept = h
+        .get(header::ACCEPT_LANGUAGE)
+        .and_then(|v| v.to_str().ok())
+        .into_iter()
+        .flat_map(|v| v.split(','))
+        .map(|p| p.split(';').next().unwrap_or(""));
+    choose_language(&l.list, &l.base, &l.codes, cookies.chain(accept))
 }
 
 async fn render(embed: EmbedLayer, i: usize, req: http::request::Parts, head: bool) -> Response<Body> {
@@ -709,4 +766,31 @@ pub fn escape(json: Bytes) -> Bytes {
         if b == b'<' { out.extend_from_slice(b"\\u003c") } else { out.push(b) }
     }
     out.into()
+}
+
+#[cfg(test)]
+mod choose_tests {
+    #[derive(serde::Deserialize)]
+    struct Case {
+        base: String,
+        list: Vec<String>,
+        tags: Vec<String>,
+        want: String,
+        #[serde(default)]
+        codes: std::collections::HashMap<String, Vec<String>>,
+    }
+    #[derive(serde::Deserialize)]
+    struct Cases {
+        cases: Vec<Case>,
+    }
+
+    #[test]
+    fn the_shared_cases() {
+        let file = concat!(env!("CARGO_MANIFEST_DIR"), "/../../test/fixtures/choose-cases.json");
+        let cases: Cases = serde_json::from_str(&std::fs::read_to_string(file).unwrap()).unwrap();
+        for c in cases.cases {
+            let got = super::choose_language(&c.list, &c.base, &c.codes, c.tags.iter().map(|t| t.as_str()));
+            assert_eq!(got, c.want, "{:?} {:?}", c.list, c.tags);
+        }
+    }
 }

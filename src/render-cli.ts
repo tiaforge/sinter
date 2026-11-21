@@ -640,7 +640,6 @@ export async function renderPage(a: RenderArgs): Promise<RenderReport> {
         if (existsSync(f)) { scripts[name] = await load(f); break; }
       }
     }
-    const messages = p.messages ? { [p.messages.base]: p.messages.dicts[p.messages.base]!, ...p.messages.dicts } : undefined;
 
     // every stream the page opens connects, and sends what --emit says
     const streams = new Map<string, MockStream>();
@@ -649,7 +648,6 @@ export async function renderPage(a: RenderArgs): Promise<RenderReport> {
       requests, streams: any, url, strict: false, storage: store, session, scripts,
       helpers: pick(helpers, p.helpers.names, Object.keys(p.helpers.namespaces)),
       actions: pick(actions, p.actions.names, Object.keys(p.actions.namespaces)),
-      ...(messages ? { messages } : {}),
       ...(a.now !== null ? { now: a.now } : {}),
       ...(a.locale ? { locale: a.locale } : {}),
       project: { root: a.root, file: a.page, readFile: p.readFile, listFiles: p.listFiles, componentNames: p.componentNames, libraries: p.libraries, openapi: p.openapi, apis: p.apis, helpers: p.helpers, ...(p.lazy.length ? { lazyModule: lazyReachOf(p).reach } : {}) },

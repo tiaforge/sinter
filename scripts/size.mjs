@@ -5,7 +5,7 @@
 // module are reported for reference.
 // `--check` fails on an overrun (CI runs it).
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { gzipSync } from 'node:zlib';
@@ -16,6 +16,7 @@ import { flagsModule } from '../dist/core-parts.js';
 
 const dist = resolve(import.meta.dirname, '../dist');
 const realworld = resolve(import.meta.dirname, '../examples/realworld');
+const multilingual = resolve(import.meta.dirname, '../examples/multilingual-site');
 const dir = mkdtempSync(join(tmpdir(), 'sinter-size-'));
 
 // the RealWorld build needs the example's own dependencies (its config imports sinter through
@@ -143,7 +144,14 @@ const entries = {
 // when templates several shared definitions write alike were kept once (1,039 B: md-doc's loop over a node's children,
 // written in 20 of its components); to 56.625 KB (57,930 B) on 2026-11-21, when a build's last pass over the page's
 // tables took out the templates nothing renders, each template's id and the functions nothing calls (469 B)
+// Added on 2026-11-21 (docs/proposals/axes.md, step 0): a page in two languages, the multilingual example's German status
+// page: the scripts it loads (12,740 B: its page module and the runtime) and its HTML (813 B), so the axes work shows
+// what it changes for a language's page
+// Raised on 2026-11-21 to 12.625 KB (12,873 B): the example moved to `inlang()` (docs/proposals/messages.md, step 4), and
+// the messages module carries both ways until `sinter({ messages })` is removed: `install()`, nested ids and an
+// entry's pattern beside `fixed()` (146 B); the page's own message is inlined (`inline()`), with no formatter
 const BUDGET = {
+  'multilingual de/status': 12.625 * 1024, 'multilingual de/status, html': 0.875 * 1024,
   minimal: 11 * 1024, 'minimal, swaps': 12.875 * 1024, 'realworld article': 56.625 * 1024,
   'minimal, link': 11.125 * 1024, 'minimal, token': 12.125 * 1024, 'minimal, token, early': 1.875 * 1024, 'realworld early, shared': 3.375 * 1024,
 };
@@ -203,6 +211,20 @@ try {
       size += gz(code);
     }
     report(`realworld ${f.replace('.html', '')}`, raw, size);
+  }
+  // a page in two languages (localePrefix): the multilingual example's German status page, its scripts and its HTML.
+  // The example needs nothing but sinter, linked to this checkout as `file:../..` would
+  const mlLink = join(multilingual, 'node_modules/@tiaforge-ui/sinter');
+  try { lstatSync(mlLink); } catch { mkdirSync(join(multilingual, 'node_modules/@tiaforge-ui'), { recursive: true }); symlinkSync(resolve(import.meta.dirname, '..'), mlLink, 'dir'); }
+  const mlOut = join(dir, 'multilingual');
+  await build({ root: multilingual, configFile: join(multilingual, 'vite.config.js'), logLevel: 'silent', build: { outDir: mlOut, emptyOutDir: true } });
+  {
+    const html = readFileSync(join(mlOut, 'de/status/index.html'));
+    const srcs = [...new Set([...html.toString().matchAll(/<script\b[^>]* src="([^"]+)"|<link rel="modulepreload"[^>]* href="([^"]+)"/g)].map((m) => m[1] ?? m[2]))];
+    let raw = 0, size = 0;
+    for (const s of srcs) { const code = readFileSync(join(mlOut, s)); raw += code.length; size += gz(code); }
+    report('multilingual de/status', raw, size);
+    report('multilingual de/status, html', html.length, gz(html));
   }
   // the example's libraries, each as the article page loads it (an entry inside the example, so it resolves there)
   const libDir = join(realworld, 'node_modules/.sinter-size');

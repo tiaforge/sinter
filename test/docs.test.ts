@@ -198,8 +198,8 @@ Write plain \`<img src="./photo.jpg" alt="…">\` (a local JPEG, PNG, WebP or AV
   out.push(`## Messages
 
 - With an inlang project (\`project.inlang/settings.json\`, message files \`messages/{locale}.json\` of plain \`"key": "text with {param}"\`), \`m.key()\` / \`m.key({ param })\` in markup are sinter's built-in messages. App code: \`import { m } from '@tiaforge-ui/sinter/messages'\`, typed by the generated \`src/sinter.messages.d.ts\`. Unknown keys are SN206, wrong or missing params SN208 (\`sinter check\`). Only \`m.key\`: \`m[key]\` or passing \`m\` on fails the build; a dynamic choice is a switch.
-- The build emits one file per page and language with only the keys the page calls (markup and its modules); a missing translation is the base language, reported at build. No plurals or variants.
-- Before the first paint the head script picks the language (localStorage \`locale\`, else \`navigator.languages\`, else the base), sets \`<html lang>\` and starts the page's language file without waiting for it; the base language's text is in the HTML, hidden for other languages until rendered (3 s at most): on every page that calls \`m\`, in its markup or in a helper, action or custom element it bundles. \`$locale = 'de'\` switches without a reload (stores the choice, loads that file, re-renders). Don't \`configure({ locale })\`: sinter is the locale source.
+- A page has one language, chosen at build: with \`sinter({ localePrefix: true })\` each page once per language (\`/de/about/\`, switching is a link: \`localeUrl('de')\`), else the base language. Its text is in the HTML, and a message over data is compiled into its script in that language: nothing is loaded for it. A missing translation is the base language, reported at build. No plurals or variants.
+- \`$locale\` is the page's language and cannot be assigned (SN203). Don't \`configure({ locale })\`: sinter is the locale source.
 - Tests: \`render(html, { messages: { en: {…}, de: {…} }, locale })\`. An app without an inlang project ships none of this.
 `);
   out.push(`## Deploying streams

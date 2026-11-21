@@ -40,7 +40,7 @@ describe('request settings per API', () => {
     $apis([{ n: 'main', b: '/api', h: { 'X-Api': '2' } }]);
     const ir: Pick<EarlyIR, 'res' | 'as'> = { res: [{ src: ['/api/days'], scope: 0, a: 0 }], as: [{ h: { 'X-Api': '2' } }] };
     const f = [() => ({})];
-    start(earlyPageOf(ir, f), null, requests(configured));
+    start(earlyPageOf(ir, f), requests(configured));
     expect(sent.map((r) => [new URL(r.url).pathname, r.headers.get('X-Api')])).toEqual([['/api/days', '2']]);
     await createRequestLayer({ ...defaultEnv, fetch }, []).send('/api/days');
     expect(sent).toHaveLength(1);

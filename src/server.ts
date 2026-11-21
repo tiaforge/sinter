@@ -8,6 +8,7 @@
 // is the one the page would have made.
 import { lists } from './runtime/lists.js';
 import { expand, readUrl, withParams } from './runtime/url.js';
+import { chooseLanguage, requestLanguages, segmentOf, type Locales } from './locales.js';
 
 /** A fetch handler: an app (Hono's `app.fetch`, a framework's handler) or the next one in a chain. Extra arguments (a Worker's `env` and `ctx`) are passed on. */
 export type Handler = (request: Request, ...rest: any[]) => Response | Promise<Response>;
@@ -128,7 +129,7 @@ type Part = string | { url: string };
 type Cond = { url: string; eq?: string; ne?: string } | { not: Cond } | { and: Cond[] } | { or: Cond[] };
 interface Placeholder { id: number; resource: string; src: Part[] | null; when?: true | Cond; query?: Array<[string, string]>; start?: { url: string; key: string; size: number; skip?: true; query: Array<[string, string]> }; headers?: Record<string, string> }
 interface Route { from: string; to: string; status: number; file?: string; choose?: true }
-interface Manifest { version: number; pages: Array<{ file: string; paths: string[]; arrays?: string[]; data: Placeholder[] }>; routes?: Route[]; locales?: { base: string; list: string[]; at?: string } }
+interface Manifest { version: number; pages: Array<{ file: string; paths: string[]; arrays?: string[]; data: Placeholder[] }>; routes?: Route[]; locales?: { base: string; list: string[]; at?: string; paths?: Record<string, string>; codes?: Record<string, string[]>; domains?: Record<string, string> }; origins?: Record<string, { folder: string; top: string[] }> }
 interface Page { file: string; paths: string[]; arrays?: string[]; parts: Uint8Array[]; placeholders: Placeholder[] }
 type Params = Record<string, string | string[]>;
 
@@ -253,18 +254,7 @@ const isJson = (type: string | null) => {
 };
 
 /** The visitor's language among the site's: the `locale` cookie the pages record, else the first of `Accept-Language` the site has (`de-AT` is `de`), else the base. */
-function choose(l: { base: string; list: string[] }, h: Headers) {
-  const find = (x: string) => {
-    x = x.trim().toLowerCase();
-    return l.list.find((c) => c.toLowerCase() == x) ?? l.list.find((c) => c.toLowerCase() == x.split('-')[0]);
-  };
-  for (const c of (h.get('cookie') ?? '').split(';')) {
-    const t = c.trim();
-    if (t.startsWith('locale=')) { const v = find(t.slice(7)); if (v) return v; }
-  }
-  for (const p of (h.get('accept-language') ?? '').split(',')) { const v = find(p.split(';')[0]!); if (v) return v; }
-  return l.base;
-}
+const choose = (l: Locales, h: Headers) => chooseLanguage(l, requestLanguages(h.get('cookie'), h.get('accept-language')));
 
 const BUN = typeof (globalThis as { Bun?: unknown }).Bun != 'undefined';
 
@@ -321,6 +311,9 @@ export async function embed<B extends BuildTypes = BuildTypes>(options: EmbedOpt
   const pages: Page[] = await Promise.all(m.pages.map(async (p) => ({ file: p.file, paths: p.paths, ...(p.arrays ? { arrays: p.arrays } : {}), ...split(p.file, text(await read(p.file)), p.data) })));
   const routes = m.routes ?? [];
   const locales = m.locales && { ...m.locales, at: m.locales.at ?? '/' };
+  // tenants on their own domains (docs/static-pages.md#a-site-per-tenant-axes): a request on one whose first segment is
+  // one of its folder's (`de`, `about`, `sitemap.xml`; `/` too) is that folder's; any other (the shared assets, an API) the site's
+  const hosts = m.origins ?? {};
   const forward = (o.forward ?? ['cookie', 'authorization', 'accept-language']).map((h) => h.toLowerCase());
   const timeout = o.timeout ?? 500, maxBytes = o.maxBytes ?? 2 << 20, stream = o.stream ?? true;
   const cacheControl = o.cacheControl ?? 'private, no-cache';
@@ -488,7 +481,13 @@ export async function embed<B extends BuildTypes = BuildTypes>(options: EmbedOpt
 
   async function handle(request: Request, next: Handler, api: Handler, rest: any[]): Promise<Response> {
     if (request.method != 'GET' && request.method != 'HEAD') return next(request, ...rest);
-    const url = new URL(request.url), path = url.pathname;
+    let url = new URL(request.url);
+    const o = hosts[url.host], first = url.pathname.split('/')[1] ?? '';
+    if (o && (first === '' || o.top.includes(first))) {
+      url = new URL(`/${o.folder}${url.pathname}${url.search}`, url);
+      request = new Request(url, request);
+    }
+    const path = url.pathname;
     // the manifest and its types describe the app's requests; they are not pages
     if (path == '/' + FILE || path == '/sinter-embed.d.ts') return new Response(null, { status: 404 });
     const route = routeOf(path);
@@ -496,7 +495,9 @@ export async function embed<B extends BuildTypes = BuildTypes>(options: EmbedOpt
     if (locales && route?.choose) {
       const p = /[:*]/.test(route.from) ? path : route.to;
       const rest_ = p.startsWith(locales.at) ? p.slice(locales.at.length) : p.replace(/^\/+/, '');
-      return new Response(null, { status: 302, headers: { location: `${locales.at}${choose(locales, request.headers)}/${rest_}${url.search}`, vary: 'Cookie, Accept-Language' } });
+      // (a language on its own domain: there, without its segment)
+      const lang = choose(locales, request.headers), d = locales.domains?.[lang];
+      return new Response(null, { status: 302, headers: { location: d ? `${d}${locales.at}${rest_}${url.search}` : `${locales.at}${segmentOf(lang, locales)}/${rest_}${url.search}`, vary: 'Cookie, Accept-Language' } });
     }
     // an old file URL: a permanent redirect to the page's URL, with the query
     if (route && route.status != 200) return new Response(null, { status: route.status >= 300 && route.status < 400 ? route.status : 301, headers: { location: route.to + url.search } });

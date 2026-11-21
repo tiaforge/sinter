@@ -39,6 +39,8 @@ internal sealed partial class SinterEngine
     public Page[] Pages { get; }
     public ManifestRoute[] Routes { get; }
     public ManifestLocales? Locales { get; }
+    /// <summary>Tenants on their own domains: each domain, its folder and the folder's top-level entries.</summary>
+    public IReadOnlyDictionary<string, ManifestOrigin> Origins { get; } = new Dictionary<string, ManifestOrigin>();
     public SinterOptions Options { get; }
     /// <summary>What ends a streamed page whose data failed, from inside its placeholder's <c>&lt;script&gt;</c>.</summary>
     public byte[] StreamTail { get; }
@@ -75,6 +77,7 @@ internal sealed partial class SinterEngine
         Routes = manifest.Routes;
         for (var i = 0; i < Routes.Length; i++) _routes.Add(i, Routes[i].From, exact: Routes[i].Status != 200);
         Locales = manifest.Locales;
+        Origins = manifest.Origins;
         _forward = options.Forward.ToArray();
         _http = options.HttpClient ?? new HttpClient(new SocketsHttpHandler
         {

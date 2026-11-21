@@ -363,6 +363,47 @@ public sealed class EmbedTests
         Assert.Equal("static file", await Html(a, "/docs/de/about/"));
     }
 
+    /// <summary>
+    /// A tenant on its own domain: a path whose first segment is one of its folder's is that folder's (its pages, its
+    /// redirects, the static files after the middleware); the shared assets and the API stay the site's.
+    /// </summary>
+    [Fact]
+    public async Task Serves_a_tenants_domain_from_its_folder()
+    {
+        var dir = Build("origins", """
+            { "version": 2,
+              "pages": [{ "file": "acme/de/cart/index.html", "paths": ["/acme/de/cart/"], "data": [{ "id": 0, "resource": "tags", "src": ["/api/tags"] }] }],
+              "routes": [{ "from": "/acme/de/cart.html", "to": "/de/cart/", "status": 301 }],
+              "origins": { "acme-shop.com": { "folder": "acme", "top": ["de", "en", "index.html"] } } }
+            """, ("acme/de/cart/index.html", Head + """<script type="application/json" data-sn="0"></script></head><body></body></html>"""));
+        await using var a = await App(Api.Minimal, o => o.Dir = dir, fallback: ctx => "file " + ctx.Request.Path);
+        Assert.Contains("""data-sn="0">{"tags":["a"]}</script>""", await Html(a, "http://acme-shop.com/de/cart/"));
+        var moved = await Send(a, Get("http://acme-shop.com/de/cart.html"));
+        Assert.Equal((HttpStatusCode.MovedPermanently, "/de/cart/"), (moved.Status, moved.Response.Headers.Location!.OriginalString));
+        Assert.Equal("file /acme/de/about/", await Html(a, "http://acme-shop.com/de/about/"));
+        Assert.Equal("file /assets/app.js", await Html(a, "http://acme-shop.com/assets/app.js"));
+        Assert.Equal("file /acme/", await Html(a, "http://acme-shop.com/"));
+        Assert.Equal("""{"tags":["a"]}""", await Html(a, "http://acme-shop.com/api/tags"));
+        Assert.Equal("file /de/about/", await Html(a, "http://example.com/de/about/"));
+    }
+
+    /// <summary>A language's segment (<c>paths</c>) is its URL's prefix, and its <c>codes</c> choose it.</summary>
+    [Fact]
+    public async Task Sends_a_visitor_to_a_languages_segment_and_by_its_codes()
+    {
+        var dir = Build("locale-paths", """
+            { "version": 2, "pages": [],
+              "routes": [ { "from": "/about/", "to": "/about/", "status": 200, "file": "about/index.html", "choose": true } ],
+              "locales": { "base": "en", "list": ["en", "de-AT", "no", "fr"], "at": "/", "paths": { "de-AT": "at" }, "codes": { "no": ["nb", "nn"] }, "domains": { "fr": "https://example.fr" } } }
+            """);
+        await using var a = await App(Api.Minimal, o => o.Dir = dir);
+        async Task<string> Go(string lang) => (await Send(a, Get("/about/").With("Accept-Language", lang))).Response.Headers.Location!.OriginalString;
+        Assert.Equal("/at/about/", await Go("de-AT"));
+        Assert.Equal("/no/about/", await Go("nb-NO, en;q=0.5"));
+        Assert.Equal("https://example.fr/about/", await Go("fr"));
+        Assert.Equal("/en/about/", await Go("it"));
+    }
+
     // ASP.NET Core: what the in-process calls go through
 
     [Theory, MemberData(nameof(Apis))]
