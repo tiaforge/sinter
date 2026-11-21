@@ -5,8 +5,9 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, test } from 'vitest';
-import { lazyDiagnostics, lazyHelpers, parseLazyId, reachLazy, rewriteLazy, scanLazy, stubId, stubModule } from '../src/lazy-build.js';
+import { lazyDiagnostics, lazyHelpers, lineCol, parseLazyId, reachLazy, rewriteLazy, scanLazy, stubId, stubModule } from '../src/lazy-build.js';
 import { lazyOf } from '../src/project.js';
+import { setAppAliases } from '../src/fold-check.js';
 
 const scan = (code: string, file = 'a.ts') => scanLazy(code, file, ['openpgp', 'chart.js']);
 const problems = (code: string) => scan(code).problems.map((p) => p.message);
@@ -151,6 +152,35 @@ describe('the app\'s imports', () => {
     // the types module's misuse is not reached (type-only re-export): put it in the graph
     const d2 = lazyDiagnostics(root, ['openpgp'], [join(root, 'src/lib/types.ts')], new Set(), []);
     expect(d2.map((x) => `${x.line}:${x.col} ${x.code}`)).toEqual(['3:1 SN324']);
+  });
+
+  test('through the app\'s alias, and to a .mts, .cjs or .jsx module, as a relative import of a .ts module', () => {
+    put('src/lib/via.ts', `import { a } from '@lib/a';\nimport { b } from './b';\nimport { c } from './c';\nimport { d } from './d';\nexport const via = (s: string) => a(s) + b(s) + c(s) + d(s);`);
+    put('src/lib/a.ts', `export const a = (s: string) => s;`);
+    put('src/lib/b.mts', `import { readKey } from 'openpgp';\nexport const b = (s: string) => readKey(s);`);
+    put('src/lib/c.cjs', `import { encrypt } from 'chart.js';\nexport const c = (s) => encrypt(s);`);
+    put('src/lib/d.jsx', `export const d = (s) => s;`);
+    expect(lazyHelpers(root, ['openpgp', 'chart.js']).reach('/src/lib/via.ts').sort()).toEqual(['chart.js', 'openpgp']);
+    // the alias as Vite resolved it: `@lib/a` is src/lib/a.ts, which reaches the package through `@lib/pgp`
+    put('src/lib/a.ts', `import { armor } from '@lib/pgp';\nexport const a = (s: string) => armor(s);`);
+    expect(lazyHelpers(root, ['openpgp']).reach('/src/lib/a.ts')).toEqual([]);
+    setAppAliases(root, [{ find: '@lib', replacement: join(root, 'src/lib') }]);
+    try {
+      expect(reachLazy(join(root, 'src/lib/a.ts'), ['openpgp'], root).map((r) => r.chain.map((f) => f.slice(root.length + 1)))).toEqual([['src/lib/a.ts', 'src/lib/pgp.ts']]);
+      expect(lazyHelpers(root, ['openpgp']).reach('/src/lib/a.ts')).toEqual(['openpgp']);
+      // sinter check follows it too: the misuse in a module the alias reaches
+      put('src/lib/e.ts', `import type { Key } from '@lib/types';\nimport '@lib/types';\nexport type K = Key;`);
+      expect(lazyDiagnostics(root, ['openpgp'], [join(root, 'src/lib/e.ts')], new Set(), []).map((x) => `${x.file.slice(root.length + 1)}:${x.line}:${x.col} ${x.code}`)).toEqual(['src/lib/types.ts:3:1 SN324']);
+    } finally {
+      setAppAliases(root, []);
+    }
+  });
+
+  test('positions in messages: line and column of an offset, across sources', () => {
+    const a = 'ab\ncd\n\nef', b = 'x\ny';
+    expect([0, 2, 3, 6, 7, 9, 99].map((o) => lineCol(a, o))).toEqual([{ line: 1, col: 1 }, { line: 1, col: 3 }, { line: 2, col: 1 }, { line: 3, col: 1 }, { line: 4, col: 1 }, { line: 4, col: 3 }, { line: 4, col: 93 }]);
+    expect(lineCol(b, 2)).toEqual({ line: 2, col: 1 });
+    expect(lineCol(a, 4)).toEqual({ line: 2, col: 2 });
   });
 
   test('the option takes package names', () => {

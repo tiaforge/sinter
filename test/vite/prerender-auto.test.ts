@@ -67,6 +67,30 @@ test('an app module that does something as it loads: no page is prerendered', as
   }
 });
 
+test('an app module imported through a Vite alias is checked as a relative import is', async () => {
+  const withAlias = async (out: string) => {
+    const lines: string[] = [], logger = createLogger('silent');
+    logger.info = (m: string) => { lines.push(m); };
+    await build({ root, customLogger: logger, resolve: { alias: [...alias, { find: '@app', replacement: join(root, 'src') }] }, build: { outDir: join(dir, out), emptyOutDir: true, minify: false, rollupOptions: { input: input.map((f) => join(root, f)) } }, plugins: [sinter({ prefetch: { html: { prerender: 'auto' } } as never })] });
+    return lines;
+  };
+  writeFileSync(join(root, 'src', 'sinter.config.js'), "import { configure } from '@tiaforge-ui/sinter';\nimport { API } from '@app/api';\nconfigure({ onError: () => {} });\nexport const base = API;\n");
+  try {
+    // a quiet module through the alias: the quiet pages are still prerendered
+    writeFileSync(join(root, 'src', 'api.js'), 'export const API = "https://api.example";\n');
+    await withAlias('alias-quiet');
+    expect(Object.keys(rulesOf(readFileSync(join(dir, 'alias-quiet', 'index.html'), 'utf8')))).toEqual(['prerender', 'prefetch']);
+    // a loud one: its own effect, where it is
+    writeFileSync(join(root, 'src', 'api.js'), 'export const API = "https://api.example";\nfetch(API);\n');
+    const lines = await withAlias('alias-loud');
+    expect(Object.keys(rulesOf(readFileSync(join(dir, 'alias-loud', 'index.html'), 'utf8')))).toEqual(['prefetch']);
+    expect(lines.find((l) => l.includes("prerender: 'auto'"))).toMatch(/links prerender no page, .*api\.js:2: runs code as it loads/);
+  } finally {
+    rmSync(join(root, 'src', 'sinter.config.js'));
+    rmSync(join(root, 'src', 'api.js'), { force: true });
+  }
+});
+
 test('the default and `prerender: true` are unchanged', async () => {
   await built(true as never, 'default');
   expect(Object.keys(rulesOf(readFileSync(join(dir, 'default', 'index.html'), 'utf8')))).toEqual(['prefetch']);

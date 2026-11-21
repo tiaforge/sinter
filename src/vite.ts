@@ -44,7 +44,7 @@ import { didYouMean, docsUrl } from './compiler/diagnostics.js';
 import { crossCheck, crossMessage, hashOf, type FoldCall } from './fold-cross.js';
 import { apiOrigins } from './compiler/apis.js';
 import { importModule, loadHelpers, loadingHelpers, unloadedMessage, type NodeHelpers } from './helpers-node.js';
-import { FoldCache } from './fold-check.js';
+import { FoldCache, setAppAliases } from './fold-check.js';
 
 export interface SinterOptions extends ProjectOptions {
   /** run `sinter check` at the end of `vite build` and fail it on type errors: on when the project has TypeScript; `false` turns it off */
@@ -1438,6 +1438,8 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       root = config.root;
       dev = config.command === 'serve';
       resolved = config;
+      // the build's walks of the app's modules (the lazy packages' reach, `prerender: 'auto'`) follow its aliases, as Vite does
+      setAppAliases(root, config.resolve.alias);
       // dev: a component library's files are served wherever they really are (a workspace link outside the root)
       if (dev && options.libraries?.length) {
         const allow = (config.server.fs as { allow?: string[] }).allow;

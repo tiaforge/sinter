@@ -6,14 +6,15 @@
 // those, `import.meta.env`, or a call of sinter's configuration functions; what it imports is such a module too, sinter,
 // or a package whose package.json says `"sideEffects": false`. Anything else (a call, `new`, a property read of an
 // import, a package that does not say) counts as an effect: the page is prefetched, not prerendered.
-import { existsSync, readFileSync, statSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { existsSync, readFileSync } from 'node:fs';
+import { dirname, join, resolve, sep } from 'node:path';
 import { parseModule } from './compiler/index.js';
+import { appModule } from './fold-check.js';
+import { lineCol } from './line-col.js';
 
 /** sinter's functions an app calls at the top of its config module: they set configuration and do nothing else */
 const CONFIGURES = new Set(['configure', 'header', 'onUnauthorized', 'loginRedirect', 'apiOf', 'memo', 'date', 'relative', 'number', 'bytes']);
 const SINTER = /^@tiaforge-ui\/sinter(\/|$)/;
-const EXTS = ['', '.ts', '.js', '.mts', '.mjs', '.tsx', '.jsx', '/index.ts', '/index.js'];
 
 /**
  * The first load-time effect of a module or what it imports (`"<file>: <what>"`), or null when it has none the build can
@@ -30,7 +31,7 @@ export function moduleEffect(file: string, root: string, seen: Map<string, strin
 
 function effectOf(file: string, source: string, root: string, seen: Map<string, string | null>): string | null {
   const ast = parseModule(source, file) as any;
-  const at = (n: any, what: string) => `${file}:${lineOf(source, n.start)}: ${what}`;
+  const at = (n: any, what: string) => `${file}:${lineCol(source, n.start).line}: ${what}`;
   const fromSinter = new Set<string>();
   // a module's imports first: what it imports runs before it
   for (const st of ast.body) {
@@ -40,8 +41,11 @@ function effectOf(file: string, source: string, root: string, seen: Map<string, 
       for (const s of st.specifiers ?? []) if (s.type === 'ImportSpecifier' && s.importKind !== 'type') fromSinter.add(s.local.name);
       continue;
     }
-    if (spec.startsWith('.') || spec.startsWith('/')) {
-      const target = resolveFile(spec.startsWith('/') ? join(root, spec) : join(dirname(file), spec));
+    // the app's own module (relative, root-absolute, or through the app's alias), found as the bundler finds it; an
+    // alias to a package's file is the package
+    const bare = !spec.startsWith('.') && !spec.startsWith('/');
+    const target = appModule(spec, file, root);
+    if (!bare || (target && !target.includes(`${sep}node_modules${sep}`))) {
       if (!target) return at(st, `imports \`${spec}\`, which the build cannot find`);
       const e = moduleEffect(target, root, seen);
       if (e) return e;
@@ -91,15 +95,6 @@ function effectOf(file: string, source: string, root: string, seen: Map<string, 
   return null;
 }
 
-/** `./x` as Vite resolves it: the file, or with an extension, or a folder's index (`./x.js` written for `x.ts` too) */
-function resolveFile(path: string): string | null {
-  const ts = path.replace(/\.[mc]?js$/, '.ts');
-  for (const f of [...EXTS.map((e) => path + e), ...(ts !== path ? [ts] : [])]) if (isFile(f)) return f;
-  return null;
-}
-
-const isFile = (f: string) => { try { return statSync(f).isFile(); } catch { return false; } };
-
 /** whether a package says it has no side effects (`"sideEffects": false` in its package.json), found from `dir` up */
 function purePackage(spec: string, dir: string): boolean {
   const name = spec.startsWith('@') ? spec.split('/').slice(0, 2).join('/') : spec.split('/')[0]!;
@@ -111,5 +106,3 @@ function purePackage(spec: string, dir: string): boolean {
     if (dirname(d) === d) return false;
   }
 }
-
-const lineOf = (source: string, at: number) => source.slice(0, at).split('\n').length;

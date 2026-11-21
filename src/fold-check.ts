@@ -8,6 +8,7 @@
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import { parseModule } from './compiler/index.js';
+import { lineCol } from './line-col.js';
 import type { HelperManifest } from './compiler/compile.js';
 
 /** May fold, or why not: the name or member, the file and position where it is reached, and the chain of functions to it. */
@@ -75,8 +76,27 @@ export function resolveImport(spec: string, from: string, root: string, cache?: 
   return out;
 }
 
+type Alias = { find: string | RegExp; replacement: string };
+/** each app's `resolve.alias`, by its root: set from its Vite config (the plugin, a load of the helpers module) */
+const APP_ALIASES = new Map<string, Alias[]>();
+/** The app's `resolve.alias` (Vite's resolved list), for the build's walks of the app's modules (`appModule`). */
+export function setAppAliases(root: string, alias: unknown): void {
+  if (Array.isArray(alias)) APP_ALIASES.set(resolve(root), alias.filter((a): a is Alias => !!a && typeof a.replacement === 'string'));
+}
+
+/**
+ * The app's own module a specifier imported from `from` names, as the bundler finds it: relative, root-absolute, or
+ * either through the app's alias; resolved as `resolveImport` resolves it (one list of extensions). Null for a package
+ * (a bare specifier the alias leaves bare), or a file that is not found.
+ */
+export function appModule(spec: string, from: string, root: string): string | null {
+  const s = aliased(spec, APP_ALIASES.get(resolve(root)) ?? []);
+  if (!s.startsWith('.') && !s.startsWith('/') && !/^[A-Za-z]:[\\/]/.test(s)) return null;
+  return resolveUncached(s, from, root);
+}
+
 /** a specifier with the app's first matching alias applied, as Vite applies them */
-function aliased(spec: string, aliases: Array<{ find: string | RegExp; replacement: string }>): string {
+function aliased(spec: string, aliases: readonly Alias[]): string {
   for (const a of aliases) {
     if (typeof a.find === 'string') { if (spec === a.find || spec.startsWith(a.find + '/')) return a.replacement + spec.slice(a.find.length); }
     else if (a.find.test(spec)) return spec.replace(a.find, a.replacement);
@@ -485,12 +505,6 @@ function moduleOf(file: string, cache: FoldCache): ModuleInfo {
   cache.modules.set(file, { stamp, info });
   return info;
 }
-
-const lineCol = (code: string, at: number) => {
-  let line = 1, last = -1;
-  for (let i = 0; i < at && i < code.length; i++) if (code.charCodeAt(i) === 10) { line++; last = i; }
-  return { line, col: at - last };
-};
 
 /**
  * The verdict for one export of a module: whether everything it can reach (its function, what that calls,
