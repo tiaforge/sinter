@@ -64,3 +64,30 @@ test('`$el` in a simple row, a multi-node row with a handler in its second node,
   await flush();
   expect(on()).toEqual([false, false, true]);
 });
+
+test('an element an event found no handler on: a row made later, a handler bound later, a nested element of a row', async () => {
+  const { root, flush } = await render(`
+    <div data-sn-state="{ rows: [{id: 1, n: 0}], shown: false, log: '' }">
+      <ul><template data-sn-for="r in rows">
+        <li data-sn-on-click="r.n++"><i><b data-sn-text="r.id + ':' + r.n"></b></i></li>
+      </template></ul>
+      <template data-sn-if="shown"><p><button data-sn-on-click="log += 'p'">p</button></p></template>
+      <button id="add" data-sn-on-click="rows.push({id: rows.length + 1, n: 0}); shown = true">add</button>
+      <s data-sn-text="log"></s>
+    </div>`);
+  const text = () => [...root.querySelectorAll('li b')].map((e) => e.textContent);
+  const b = (i: number) => root.querySelectorAll('li b')[i] as HTMLElement;
+  // the <b> and <i> have no handler (found once, kept), their row's <li> has
+  b(0).click(); b(0).click();
+  await flush();
+  expect(text()).toEqual(['1:2']);
+  // ancestors marked without handlers before rows and a branch were made: the new ones still bind
+  root.querySelector('ul')!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+  (root.querySelector('#add') as HTMLElement).click();
+  await flush();
+  b(1).click();
+  (root.querySelector('p button') as HTMLElement).click();
+  await flush();
+  expect(text()).toEqual(['1:2', '2:1']);
+  expect(root.querySelector('s')!.textContent).toBe('p');
+});
