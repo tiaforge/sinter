@@ -1,7 +1,7 @@
 // Expressions parsed once per source text (src/compiler/parse.ts): the same text and options give the same tree,
 // frozen at every depth so that no caller can change it for the next; a syntax error is thrown again, the same.
 import { describe, expect, test } from 'vitest';
-import { parseExpression, parseProgram } from '../../src/compiler/parse.js';
+import { freeRefs, parseExpression, parseProgram } from '../../src/compiler/parse.js';
 
 describe('parse cache', () => {
   test('the same text gives the same tree, frozen at every depth', () => {
@@ -30,5 +30,30 @@ describe('parse cache', () => {
 
   test('a prefix parse ends where the expression does, as acorn would', () => {
     expect(parseExpression('a + b; c').end).toBe(5);
+  });
+});
+
+describe('freeRefs', () => {
+  const free = (src: string, program = false) => {
+    const out: string[] = [];
+    freeRefs(program ? parseProgram(src) : parseExpression(src), (id, shorthand) => out.push(shorthand ? `{${id.name}}` : id.name));
+    return out;
+  };
+  test('not members\' or keys\' names; a shorthand property is its reference', () => {
+    expect(free('{ a: b.c, [d]: e, f, g: h?.[i] }')).toEqual(['b', 'd', 'e', '{f}', 'h', 'i']);
+  });
+  test('not the names functions bind: parameters, destructured, their defaults read in their scope', () => {
+    expect(free('xs.map((x, { y, z: [w] }, ...r) => x + y + w + r + v)')).toEqual(['xs', 'v']);
+    expect(free('(a = b, c = a) => c')).toEqual(['b']);
+    expect(free('function f({ [k]: g }) { return f(g) }')).toEqual(['k']);
+    expect(free('class C extends B { m(p) { return C + p + q } }')).toEqual(['B', 'q']);
+  });
+  test('not the names blocks, catches, loops and function bodies declare, where they are in scope', () => {
+    expect(free('{ let a = 1; a; } a; try { b } catch ({ e }) { e; c } for (const i of is) i; label: for (var j in o) break label; j', true))
+      .toEqual(['a', 'b', 'c', 'is', 'o']);
+    expect(free('() => { if (x) { var v = 1; function g() {} } return v + g + w }')).toEqual(['x', 'w']);
+  });
+  test('a name assigned is a reference', () => {
+    expect(free('(a = 1, b++, [c, { d }] = e)')).toEqual(['a', 'b', 'c', '{d}', 'e']);
   });
 });

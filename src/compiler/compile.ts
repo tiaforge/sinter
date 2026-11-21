@@ -10,8 +10,7 @@ import { minifyMarkup } from './minify.js';
 import type { RemoteConfig } from '../remote.js';
 import { AUTO_FIT_HINT, AUTO_FIT_ROWS, FLUID_WIDTHS } from './images.js';
 import * as parse5 from 'parse5';
-import { parseExpression, parseProgram } from './parse.js';
-import { fullAncestor } from 'acorn-walk';
+import { freeRefs, parseExpression, parseProgram } from './parse.js';
 import type { DefaultTreeAdapterMap } from 'parse5';
 import { type Code, type Diagnostic, didYouMean, severityOf, suggest } from './diagnostics.js';
 import { analyze, applyEdits, nsLocal, refNames, STORE_FNS, throughField, wild, type SlotScope, type ComponentScope, type ExprOptions, type ExprResult, type LetEntry, type LoopEntry, type PageInfo, type Read, type ResourceInfo, type Scope } from './expr.js';
@@ -610,12 +609,10 @@ function itemCursor(text: string): string {
   let ast: acorn.Expression;
   try { ast = parseExpression(text); } catch { return text; }
   const edits: Array<[number, number, string]> = [];
-  fullAncestor(ast as Node, (n, _s, anc) => {
-    if (n.type !== 'Identifier') return;
-    const id = n as acorn.Identifier, p = anc[anc.length - 2] as acorn.Node | undefined;
-    if (id.name.startsWith('$') || (p?.type === 'MemberExpression' && (p as acorn.MemberExpression).property === id && !(p as acorn.MemberExpression).computed)) return;
-    if (p?.type === 'Property' && (p as acorn.Property).key === id && !(p as acorn.Property).shorthand) return;
-    if (p?.type === 'Property' && (p as acorn.Property).shorthand) edits.push([p.start, p.end, `${id.name}: $item.${id.name}`]);
+  // the fields are its free names: not a name a function in it binds (`tags.map((id) => id)`)
+  freeRefs(ast, (id, shorthand) => {
+    if (id.name.startsWith('$')) return;
+    if (shorthand) edits.push([shorthand.start, shorthand.end, `${id.name}: $item.${id.name}`]);
     else edits.push([id.start, id.end, `$item.${id.name}`]);
   });
   let out = text;
@@ -5742,51 +5739,8 @@ class Compiler {
     try { ast = parseExpression(code); } catch { return null; }
     // references to a lazy helper only: not a member's name (`post.title`), an object key (`{ title: s }`; a
     // shorthand `{ title }` is a reference, written out), nor a name a function in the let binds (`(title) => …`)
-    const waits: Array<{ n: any; key?: true }> = [];
-    const names = (p: any, out: Set<string>): Set<string> => {
-      if (!p) return out;
-      if (p.type === 'Identifier') out.add(p.name);
-      else if (p.type === 'ObjectPattern') for (const x of p.properties) names(x.type === 'RestElement' ? x.argument : x.value, out);
-      else if (p.type === 'ArrayPattern') for (const x of p.elements) names(x, out);
-      else if (p.type === 'RestElement') names(p.argument, out);
-      else if (p.type === 'AssignmentPattern') names(p.left, out);
-      return out;
-    };
-    const visit = (n: any, bound: Set<string>) => {
-      if (!n || typeof n.type !== 'string') return;
-      if (n.type === 'Identifier') { if (lazy.has(n.name) && !bound.has(n.name)) waits.push({ n }); return; }
-      if (n.type === 'MemberExpression') { visit(n.object, bound); if (n.computed) visit(n.property, bound); return; }
-      if (n.type === 'Property') {
-        if (n.computed) visit(n.key, bound);
-        if (n.shorthand && n.value.type === 'Identifier') { if (lazy.has(n.value.name) && !bound.has(n.value.name)) waits.push({ n: n.value, key: true }); return; }
-        visit(n.value, bound);
-        return;
-      }
-      if (n.type === 'ArrowFunctionExpression' || n.type === 'FunctionExpression') {
-        const inner = new Set(bound);
-        if (n.id) inner.add(n.id.name);
-        for (const p of n.params) names(p, inner);
-        // defaults are evaluated in the function's scope
-        for (const p of n.params) visit(p, inner);
-        visit(n.body, inner);
-        return;
-      }
-      if (n.type === 'AssignmentPattern') { visit(n.right, bound); return; }
-      if (n.type === 'ObjectPattern' || n.type === 'ArrayPattern' || n.type === 'RestElement') {
-        for (const x of n.type === 'ObjectPattern' ? n.properties : n.type === 'ArrayPattern' ? n.elements : [n.argument]) {
-          if (!x) continue;
-          if (x.type === 'Property') { if (x.computed) visit(x.key, bound); visit(x.value, bound); } else visit(x, bound);
-        }
-        return;
-      }
-      for (const k of Object.keys(n)) {
-        if (k === 'start' || k === 'end' || k === 'type') continue;
-        const v = n[k];
-        if (Array.isArray(v)) for (const c of v) visit(c, bound);
-        else if (v && typeof v === 'object') visit(v, bound);
-      }
-    };
-    visit(ast, new Set());
+    const waits: Array<{ n: acorn.Identifier; key?: true }> = [];
+    freeRefs(ast, (n, shorthand) => { if (lazy.has(n.name)) waits.push(shorthand ? { n, key: true } : { n }); });
     if (!waits.length) return null;
     const mods = new Set<number>();
     let out = code;
@@ -10326,8 +10280,9 @@ function exclusive(a: string[], b: string[]): boolean {
 
 
 /**
- * Whether markup's expressions read `name` (in any `data-sn-*` value): an identifier, not an object
- * literal's key or a member's property name (`{ node: … }`, `x.node`). A value that does not parse
+ * Whether markup's expressions read `name` (in any `data-sn-*` value): a free reference, not an object
+ * literal's key, a member's property name or a function's own parameter (`{ node: … }`, `x.node`,
+ * `(node) => …`). A value that does not parse
  * counts when the name appears in it.
  */
 function reads(nodes: P5Node[], name: string): boolean {
@@ -10339,13 +10294,7 @@ function reads(nodes: P5Node[], name: string): boolean {
       try { ast = parseProgram(v); } catch { return true; }
     }
     let found = false;
-    fullAncestor(ast, (n, _state, ancestors) => {
-      if (found || n.type !== 'Identifier' || (n as acorn.Identifier).name !== name) return;
-      const parent = ancestors[ancestors.length - 2] as acorn.Node | undefined;
-      if (parent?.type === 'Property' && (parent as acorn.Property).key === n && !(parent as acorn.Property).computed && !(parent as acorn.Property).shorthand) return;
-      if (parent?.type === 'MemberExpression' && (parent as acorn.MemberExpression).property === n && !(parent as acorn.MemberExpression).computed) return;
-      found = true;
-    });
+    freeRefs(ast, (id) => { if (id.name === name) found = true; });
     return found;
   };
   const walk = (ns: P5Node[]): boolean => ns.some((c) => isElement(c) && (c.attrs.some((a) => a.name.startsWith('data-sn-') && inValue(a.value)) || walk(c.childNodes) || (c.tagName === 'template' && walk((c as P5Template).content.childNodes))));
