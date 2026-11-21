@@ -2,7 +2,7 @@
 // The content module in a build (docs/resources.md#collections): its collections run once, before any page compiles,
 // with `ctx.files`, `ctx.get` and `ctx.env` (from `.env`); a page reads one with `content:` and a page per entry (`data-sn-for` on `<html>`) is
 // built from one. A loader that throws, or a result that is not a list of plain data with unique keys, fails the build.
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { build } from 'vite';
@@ -13,6 +13,9 @@ import { readSnapshot } from '../../src/content-node.js';
 const src = resolve(__dirname, '../../src');
 const alias = [{ find: /^@tiaforge-ui\/sinter\/runtime$/, replacement: `${src}/runtime-entry.ts` }, { find: /^@tiaforge-ui\/sinter\/(?:runtime\/)?(.+)$/, replacement: `${src}/$1.ts` }, { find: /^@tiaforge-ui\/sinter$/, replacement: `${src}/index.ts` }];
 const tmp = mkdtempSync(join(tmpdir(), 'sinter-content-'));
+// the repository's TypeScript for the apps built here that type-check, as an app has its own
+mkdirSync(join(tmp, 'node_modules'));
+symlinkSync(resolve(__dirname, '../../node_modules/typescript'), join(tmp, 'node_modules/typescript'), 'dir');
 afterAll(() => rmSync(tmp, { recursive: true, force: true }));
 
 let n = 0;
@@ -91,8 +94,9 @@ export const helper = (x) => x;
   }, 60_000);
 
   test('perLocale: a collection loaded once per language, each language\'s pages reading its own', async () => {
-    const lang = { 'project.inlang/settings.json': JSON.stringify({ baseLocale: 'en', locales: ['en', 'de'] }), 'messages/en.json': '{}', 'messages/de.json': '{}' };
-    const content = `import { collection } from '@tiaforge-ui/sinter/content';
+    const lang = {};
+    const content = `import { collection, languages } from '@tiaforge-ui/sinter/content';
+export const locales = languages({ base: 'en', list: ['en', 'de'] });
 const names = { en: ['Bolt', 'Anchor'], de: ['Bolzen', 'Anker'] };
 export const products = collection({ key: 'sku', perLocale: true, load: ({ locale }) => names[locale].map((name, i) => ({ sku: 'p' + i, name })) });
 `;
@@ -106,8 +110,70 @@ export const products = collection({ key: 'sku', perLocale: true, load: ({ local
     // a shared collection built from a per-language one, and perLocale without languages: errors
     const shared = content + "export const all = collection({ key: 'sku', load: ({ get }) => get(products) });\n";
     expect((await run({ ...lang, 'src/sinter.content.ts': shared, 'index.html': page }, ['index.html'], { localePrefix: true })).error).toMatch(/collection `all`: it gets `products`, which is loaded per language \(`perLocale`\): make it `perLocale: true` too/);
-    expect((await run({ 'src/sinter.content.ts': content, 'index.html': page }, ['index.html'])).error).toMatch(/collection `products`: it is loaded per language .* needs `sinter\(\{ localePrefix \}\)`/);
+    const unlisted = content.replace(/export const locales = .*\n/, '');
+    expect((await run({ 'src/sinter.content.ts': unlisted, 'index.html': page }, ['index.html'])).error).toMatch(/collection `products`: it is loaded per language .* needs `sinter\(\{ localePrefix \}\)`/);
   }, 120_000);
+
+  test('languages(): the site\'s languages from the content module, with `messages: false` and no inlang project', async () => {
+    const content = `import { collection, languages } from '@tiaforge-ui/sinter/content';
+export const locales = languages({ base: 'en', list: ['en', 'de'] });
+const names = { en: ['Bolt'], de: ['Bolzen'] };
+export const products = collection({ key: 'sku', perLocale: true, load: ({ locale }) => names[locale].map((name, i) => ({ sku: 'p' + i, name })) });
+`;
+    const page = '<!doctype html><html lang="en"><head><title>x</title></head><body><sn-resource name="products" src="content:products"></sn-resource><p data-sn-text="$locale + \': \' + products[0].name"></p><a data-sn-attr="{ href: localeUrl(\'de\') }">de</a></body></html>';
+    const r = await run({ 'src/sinter.content.ts': content, 'index.html': page }, ['index.html'], { localePrefix: true, messages: false });
+    expect(r.error).toBe(null);
+    expect(r.read('en/index.html')).toContain('<p>en: Bolt</p>');
+    expect(r.read('de/index.html')).toMatch(/<html lang="de">[\s\S]*<p>de: Bolzen<\/p><a href="\/de\/">de<\/a>/);
+    // the unprefixed URL is the chooser, as with the inlang project's languages
+    expect(r.read('index.html')).toContain('url=/en/');
+    // `sinter check` and the editor compile in the base language
+    const { checkLocale } = await import('../../src/locales-build.js');
+    expect(checkLocale(r.root, { localePrefix: true, messages: false })).toEqual({ name: 'en', urls: null, base: '/' });
+  }, 120_000);
+
+  test('languages(): one list; two declarations or none fail the build', async () => {
+    const page = '<!doctype html><html><head><title>x</title></head><body><p>x</p></body></html>';
+    const declared = "import { languages } from '@tiaforge-ui/sinter/content';\nexport const locales = languages({ base: 'en', list: ['en', 'de'] });\n";
+    expect((await run({ 'src/sinter.content.ts': declared, 'index.html': page }, ['index.html'], { localePrefix: true })).error).toBe(null);
+    const twice = declared + "export const more = languages({ base: 'en', list: ['en'] });\n";
+    expect((await run({ 'src/sinter.content.ts': twice, 'index.html': page }, ['index.html'], { localePrefix: true })).error).toMatch(/`locales`, `more` are each `languages\(\)`; the site has one list of languages/);
+    expect((await run({ 'index.html': page }, ['index.html'], { localePrefix: true })).error).toMatch(/the site has no languages\. Export them from the content module/);
+  }, 120_000);
+
+  test('fallback chains: a message missing in de-AT is de\'s, then en\'s; SN522 counts only what reaches en', async () => {
+    const lang = {
+      'project.inlang/settings.json': JSON.stringify({ baseLocale: 'en', locales: ['en', 'de', 'de-AT'] }),
+      'messages/en.json': JSON.stringify({ a: 'Hello', b: 'Bye', c: 'Only English' }),
+      'messages/de.json': JSON.stringify({ a: 'Hallo', b: 'Tschüss' }),
+      'messages/de-AT.json': JSON.stringify({ a: 'Servus' }),
+      'src/sinter.content.ts': "import { languages } from '@tiaforge-ui/sinter/content';\nimport { inlang, inlangLocales } from '@tiaforge-ui/sinter/messages/content';\nexport const locales = languages(({ root }) => inlangLocales('project.inlang', root));\nexport const messages = inlang();\n",
+      'index.html': '<!doctype html><html lang="en"><head><title>x</title></head><body><p data-sn-text="m.a() + \' \' + m.b() + \' \' + m.c()"></p></body></html>',
+    };
+    const r = await run(lang, ['index.html'], { localePrefix: true });
+    expect(r.error).toBe(null);
+    expect(r.read('de-AT/index.html')).toContain('<p>Servus Tschüss Only English</p>');
+    expect(r.read('de/index.html')).toContain('<p>Hallo Tschüss Only English</p>');
+  }, 120_000);
+
+  test('languages({ fallbacks }): a chain of its own, checked', async () => {
+    const { languages } = await import('../../src/content.js');
+    expect(languages({ base: 'en', list: ['en', 'de', 'de-AT', 'de-CH'], fallbacks: { 'de-CH': ['de-AT', 'de'] } }).languages!.fallbacks).toEqual({ 'de-CH': ['de-AT', 'de'] });
+    expect(() => languages({ base: 'en', list: ['en', 'de'], fallbacks: { fr: ['de'] } })).toThrow(/names `fr`, which is not one of `list`/);
+    expect(() => languages({ base: 'en', list: ['en', 'de'], fallbacks: { de: ['de'] } })).toThrow(/`fallbacks.de` is a list of the other languages/);
+    expect(() => languages({ base: 'en', list: ['en', 'fr', 'it'], fallbacks: { fr: ['it'], it: ['fr'] } })).toThrow(/name each other/);
+  });
+
+  test('languages(): a list of tags with its base among them', async () => {
+    const { languages, isCollection } = await import('../../src/content.js');
+    const l = languages({ base: 'de', list: ['en', 'de', 'de-AT'] });
+    expect(isCollection(l)).toBe(true);
+    expect([l.key, l.languages, await l.load({} as never)]).toEqual(['tag', { base: 'de', list: ['en', 'de', 'de-AT'] }, [{ tag: 'en' }, { tag: 'de' }, { tag: 'de-AT' }]]);
+    expect(() => languages({ base: 'en', list: [] })).toThrow(/`list` names the site's languages/);
+    expect(() => languages({ base: 'fr', list: ['en'] })).toThrow(/`base` \(`fr`\) is one of `list` \(en\)/);
+    expect(() => languages({ base: 'en', list: ['en', 'en'] })).toThrow(/`en` is in `list` twice/);
+    expect(() => languages({ base: 'en', list: ['en', 'de/x'] })).toThrow(/`de\/x` in `list` is not a language tag/);
+  });
 
   test('chunks(): an index in pages, as a collection and a data-sn-pages page', async () => {
     const content = `import { collection, chunks } from '@tiaforge-ui/sinter/content';
@@ -124,3 +190,68 @@ export const postPages = collection({ key: 'n', load: async ({ get }) => chunks(
   }, 60_000);
 });
 
+
+describe('languages({ paths, codes }): a language\'s segment, and more tags for it', () => {
+  test('pages under the segment, `<html lang>` and `$locale` the tag; links, localeUrl() and hreflang', async () => {
+    const content = "import { languages } from '@tiaforge-ui/sinter/content';\nexport const locales = languages({ base: 'en', list: ['en', 'de-AT', 'no'], paths: { 'de-AT': 'at' }, codes: { no: ['nb', 'nn'] } });\n";
+    const page = '<!doctype html><html lang="en"><head><title>x</title></head><body><a href="/about.html">About</a><a hreflang="de-AT" data-sn-attr="{ href: localeUrl(\'de-AT\') }">AT</a><p data-sn-text="$locale"></p></body></html>';
+    const r = await run({ 'src/sinter.content.ts': content, 'index.html': page, 'about.html': page }, ['index.html', 'about.html'], { localePrefix: true, site: 'https://example.com' });
+    expect(r.error).toBe(null);
+    const at = r.read('at/about/index.html');
+    expect(at).toContain('<html lang="de-AT">');
+    expect(at).toContain('<p>de-AT</p>');
+    expect(at).toContain('<a href="/at/about/">About</a><a hreflang="de-AT" href="/at/about/">AT</a>');
+    expect(at).toContain('<link rel="alternate" hreflang="de-AT" href="https://example.com/at/about/">');
+    expect(at).toContain('<link rel="alternate" hreflang="nb" href="https://example.com/no/about/">');
+    expect(r.has('de-AT/about/index.html')).toBe(false);
+    // the chooser links each language at its segment (its script, on a site that runs any, knows the codes too)
+    expect(r.read('about/index.html')).toContain('<a href="/at/about/" hreflang="de-AT">de-AT</a>');
+  }, 120_000);
+
+  test('checked: a segment another language has, a code that is a language, a code of two', async () => {
+    const { languages } = await import('../../src/content.js');
+    expect(() => languages({ base: 'en', list: ['en', 'de', 'de-AT'], paths: { 'de-AT': 'de' } })).toThrow(/`paths.de-AT` is `de`, which is `de`'s segment too/);
+    expect(() => languages({ base: 'en', list: ['en', 'de'], paths: { de: 'de/x' } })).toThrow(/`paths.de` is a URL segment/);
+    expect(() => languages({ base: 'en', list: ['en', 'no'], codes: { no: ['en'] } })).toThrow(/`codes.no` has `en`, which is a language of `list`/);
+    expect(() => languages({ base: 'en', list: ['en', 'no', 'da'], codes: { no: ['nb'], da: ['nb'] } })).toThrow(/`codes.da` has `nb`, which `no` has too/);
+  });
+});
+
+test('languages({ domains }): a language on its own domain, its files under its segment, its URLs there', async () => {
+  const content = "import { languages } from '@tiaforge-ui/sinter/content';\nexport const locales = languages({ base: 'en', list: ['en', 'fr'], domains: { fr: 'https://example.fr' } });\n";
+  const page = '<!doctype html><html lang="en"><head><title>x</title></head><body><a href="/about.html">About</a><a hreflang="fr" data-sn-attr="{ href: localeUrl(\'fr\') }">FR</a><a hreflang="en" data-sn-attr="{ href: localeUrl(\'en\') }">EN</a><p data-sn-text="$canonical"></p><sn-resource name="d" src="/api/d"></sn-resource><i data-sn-text="d.x"></i></body></html>';
+  const r = await run({ 'src/sinter.content.ts': content, 'index.html': page, 'about.html': page }, ['index.html', 'about.html'], { localePrefix: true, site: 'https://example.com', embed: true });
+  expect(r.error).toBe(null);
+  const fr = r.read('fr/about/index.html');
+  // links on its domain without the segment; the other language's page absolute
+  expect(fr).toContain('<a href="/about/">About</a><a hreflang="fr" href="/about/">FR</a><a hreflang="en" href="https://example.com/en/about/">EN</a>');
+  expect(fr).toContain('<p>https://example.fr/about/</p>');
+  expect(fr).toContain('<link rel="alternate" hreflang="en" href="https://example.com/en/about/">');
+  expect(fr).toContain('<link rel="alternate" hreflang="fr" href="https://example.fr/about/">');
+  const en = r.read('en/about/index.html');
+  expect(en).toContain('<a hreflang="fr" href="https://example.fr/about/">FR</a>');
+  // a sitemap per domain; the chooser on the site sends French visitors to the domain
+  expect(r.read('fr/sitemap.xml')).toContain('<loc>https://example.fr/about/</loc>');
+  expect(r.read('sitemap.xml')).not.toContain('<loc>https://example.fr');
+  expect(r.read('about/index.html')).toContain('href="https://example.fr/about/"');
+  // the servers: the domain is the language's folder
+  const m = JSON.parse(r.read('sinter-embed.json')) as { origins?: Record<string, { folder: string; top: string[] }>; locales: { domains?: Record<string, string> } };
+  expect(m.locales.domains).toEqual({ fr: 'https://example.fr' });
+  expect(m.origins?.['example.fr']?.folder).toBe('fr');
+  // with a tenant on its own domain too: a page is on one domain
+  const { languages } = await import('../../src/content.js');
+  expect(() => languages({ base: 'en', list: ['en', 'fr'], domains: { fr: 'example.fr' } })).toThrow(/`domains.fr` is an origin/);
+}, 120_000);
+
+test('a page per entry in a build that type-checks: compiled from its template, and a type error is reported once', async () => {
+  const content = "import { collection } from '@tiaforge-ui/sinter/content';\nexport const posts = collection({ key: 'slug', load: () => [{ slug: 'a', title: 'A' }, { slug: 'b', title: 'B' }, { slug: 'c', title: 'C' }] });\n";
+  const types = 'export interface Post { slug: string; title: string }\n';
+  const page = (expr: string) => `<!doctype html><html lang="en" data-sn-for="post in posts" data-sn-path="/blog/:slug"><head><title>x</title></head><body><sn-resource name="posts" src="content:posts" type="Post"></sn-resource><h1 data-sn-text="${expr}"></h1><template data-sn-if="post.slug === 'a'"><b>first</b></template></body></html>`;
+  const ok = await run({ 'src/sinter.content.ts': content, 'src/sinter.types.ts': types, 'blog/post.html': page('post.title') }, ['blog/post.html'], { typecheck: true });
+  expect(ok.error).toBe(null);
+  expect(ok.read('blog/a.html')).toContain('<h1>A</h1><b>first</b>');
+  expect(ok.read('blog/c.html')).toContain('<h1>C</h1>');
+  expect(ok.read('blog/c.html')).not.toContain('first');
+  const bad = await run({ 'src/sinter.content.ts': content, 'src/sinter.types.ts': types, 'blog/post.html': page('post.titel') }, ['blog/post.html'], { typecheck: true });
+  expect(bad.error).toMatch(/1 type error\(s\)[\s\S]*SN208[\s\S]*titel/);
+}, 120_000);

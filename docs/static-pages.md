@@ -263,6 +263,90 @@ A page per entry is for content the repository holds; data that changes on its o
 live resource (one file for every slug, its data loaded in the browser or embedded by the
 [server layer](server.md)).
 
+### A site per tenant: axes
+
+`data-sn-for` on `<html>` takes several lists, outer first, separated by `;`. Every list but the page's own
+entries (the last, when the page has a `data-sn-path` pattern to fill) is an **axis**: the page is built once per
+entry of it, under the entry's key. A layout declares an axis for every page that uses it:
+
+```html
+<!-- src/layouts/shop-layout.html -->
+<html lang="en" data-sn-for="tenant in tenants" data-sn-props="{ title: string }">
+<head><title data-sn-text="tenant.name + ' · ' + title"></title></head>
+<body>
+  <sn-resource name="tenants" src="content:tenants"></sn-resource>
+  <nav><a href="/index.html">Home</a> <a href="/about.html">About</a></nav>
+  <main><slot></slot></main>
+</body>
+</html>
+```
+
+```html
+<!-- blog/post.html: a page per entry inside each tenant -->
+<shop-layout data-sn-path="/blog/:slug" data-sn-for="post in posts" data-sn-with="{ title: post.title }">
+  <sn-resource name="posts" src="file:/content/{tenant.key}/posts/*.md"></sn-resource>
+  <h1 data-sn-text="post.title"></h1>
+</shop-layout>
+```
+
+```
+dist/acme/index.html          /acme/
+dist/acme/about/index.html    /acme/about/
+dist/acme/blog/hello.html     /acme/blog/hello
+dist/globex/index.html        /globex/
+```
+
+- **The list** is a collection (`content:tenants`) or a `file:` glob; each entry's key is its path segment.
+- **The item** (`tenant`) is a constant of the whole page, as an entry is: written into the HTML, readable in an inner
+  list's `file:` path (`{tenant.key}`).
+- **Links stay in the point**: a link to one of your pages from acme's page is acme's (`/about.html` is
+  `/acme/about/`); a page outside the axis (one that does not use the layout) is linked as itself.
+- **Links to a tenant from outside**: in a loop over the axis's list, a link goes to that row's tenant's page, so a
+  portal page needs nothing more:
+
+  ```html
+  <template data-sn-for="t in tenants"><a href="/about.html" data-sn-text="t.name"></a></template>
+  ```
+
+  A loop over part of the list works the same (`t in tenants.filter((x) => x.featured)`, or a let that holds one): a
+  row whose item is one of the tenants links to that tenant. For one tenant, loop over it alone
+  (`t in tenants.filter((x) => x.key === 'acme')`). A link to a page only the tenants have, from a page outside the
+  axis and not in such a loop, fails the build: it names the link and the list.
+- **`axisUrl(tenants, key)`** is this page at another tenant, as `localeUrl()` is at another language: a switcher in
+  the layout is `<template data-sn-for="x in tenants"><a data-sn-attr="{ href: axisUrl(tenants, x.key) }" …>`.
+  It is written into the HTML at build.
+- **With [`localePrefix`](#languages)** the language is outside every axis (`/de/acme/about/`), `hreflang` pairs a
+  tenant's pages across languages, and the chooser is at the tenant's path without a language (`/acme/about/`).
+- **Content per tenant**: `collection({ key, per: [tenants], load: ({ value }) => … })` is loaded once per tenant
+  (`value(tenants)` is the tenant), and each page reads its own tenant's list as `content:<name>`. `per` may name the
+  `languages()` collection too (`per: [tenants, locales]`: `ctx.locale` is the language), and a page reads its
+  language's. The page's axis list must come before such a resource in the merged document (the layout's list before
+  its slot).
+- **A tenant on its own domain**: an entry with an `origin` (`{ key: 'acme', origin: 'https://acme-shop.com' }`) is
+  written under its key's folder, `dist/acme/` (its languages inside, `dist/acme/de/about/index.html`), and every URL
+  in its pages is that domain's: links (`/de/about/`; one to another origin's page, or from its page to a shared one
+  on `site`, is absolute and loads the page), the canonical link and `hreflang` (`https://acme-shop.com/…`),
+  its next-page data and swaps (its own pages only), a sitemap of its own (`dist/acme/sitemap.xml`) and the language
+  chooser at its root. `@tiaforge-ui/sinter/server`, sinter-axum and Sinter.AspNetCore map each such domain to its
+  folder themselves ([docs/server.md](server.md), from `sinter-embed.json`'s `origins`). A static host's reverse proxy
+  does the same, the shared files staying at the root and the API as it is:
+
+  ```nginx
+  server {
+    server_name acme-shop.com;
+    root /srv/site/dist;
+    location /assets/ { }
+    location /api/ { proxy_pass http://127.0.0.1:4000; }
+    location / { try_files /acme$uri /acme$uri/index.html /acme$uri.html =404; }
+  }
+  ```
+
+  The site's `_redirects` leave such a tenant's pages out (a host that reads them serves one domain). In dev, a tenant
+  with an origin is served under its key, as a segment (`/acme/de/about/`).
+- **Special files per tenant**: a `404.html` that uses the tenant's layout is written per tenant, at its domain
+  folder's root (`dist/acme/404.html`) or in its segment's folder (`dist/demo/404.html`), and in each language. One
+  that declares no axis is the site's. Each origin has its own `sitemap.xml`.
+
 ### Redirects and rewrites
 
 The build writes the rules for your pages into `_redirects`, the file Netlify and Cloudflare Pages
@@ -441,9 +525,43 @@ dist/about/index.html       /about/       a language chooser
 dist/index.html             /             a language chooser
 ```
 
-The languages come from the inlang project: `locales` are the prefixes, and `baseLocale` (which must be
-set, and among `locales`) is the language a visitor without a choice gets. Every language is prefixed,
-the base too, so a server routes on the first segment alone.
+The languages are declared in the [content module](resources.md#collections): `list` are the prefixes, and `base`
+(one of `list`) is the language a visitor without a choice gets. Every language is prefixed, the base too, so a
+server routes on the first segment alone.
+
+```ts
+// src/sinter.content.ts
+import { languages } from '@tiaforge-ui/sinter/content';
+export const locales = languages({ base: 'en', list: ['en', 'de'] });
+```
+
+Each is a language tag, and the content module has one `languages()`. A site with [messages](messages.md) takes them
+from its inlang project: `languages(({ root }) => inlangLocales('project.inlang', root))`.
+
+**Segments and codes.** `languages({ …, paths: { 'de-AT': 'at' } })` serves a language under a segment of its own
+(`/at/about/`, written to `dist/at/`); the tag stays the language everywhere else (`<html lang>`, `$locale`,
+`localeUrl('de-AT')`, the `locale` cookie, `hreflang`, the messages' files). `codes: { no: ['nb', 'nn'] }` are more
+tags a visitor may send for a language: they choose it, and `hreflang` lists each at the language's URL. Each segment
+is one language's, and each code one language's, not another language's tag.
+
+**A language on its own domain.** `languages({ …, domains: { fr: 'https://example.fr' } })` serves French at
+`https://example.fr/about/`. Its files stay under its segment's folder (`dist/fr/`), and it is a domain as a
+tenant's is ([below](#a-site-per-tenant-axes)): its pages' links have no segment, a link to another language is
+absolute (`localeUrl('en')` is `https://example.com/en/about/`), `$canonical` and `hreflang` name the domain, it
+has its own `sitemap.xml` (`dist/fr/sitemap.xml`), and the choosers on `site` send French visitors there. The
+server layers map the domain to the folder, and send a visitor to it; a proxy does it with the same rules as a
+tenant's. A page whose tenant has its own domain cannot be in such a language too (the build fails). In dev, it is
+served under its segment.
+
+**Fallback chains.** A message missing in a language is looked up along its chain, at build: its tag less its last
+subtag, one at a time, where the site has that language, then the base (`de-AT → de → en`). `languages({ fallbacks:
+{ 'de-CH': ['de-AT', 'de'] } })` replaces a language's chain before the base. SN522 reports the keys that reach the
+base, and how many came from another language of the chain.
+
+**Choosing a visitor's language** (the chooser pages, `@tiaforge-ui/sinter/server`, sinter-axum, Sinter.AspNetCore):
+for each tag the visitor sends, in order (the `locale` cookie, then `Accept-Language` or `navigator.languages`), the
+site's language with that tag, else with the tag less its subtags (`zh-Hant-TW` reaches `zh-Hant`), else the first
+site language with the same language part (`de` reaches `de-DE`); else the base.
 
 In each language's page:
 
@@ -453,7 +571,7 @@ In each language's page:
   either: a message its code still needs (`m.inbox_count({ count: inbox.unread })`, or `m.loading()` in an
   expression over data) is compiled into its script as that language's text, and the messages your own
   modules call (`m.hello()` in a helper) are written into the page, in `<script type="application/json"
-  data-sn-messages>`. `number()`, `bytes()` and `date()` of a calendar date (`'2026-11-11'`) are written at
+  data-sn-ns="m">`. `number()`, `bytes()` and `date()` of a calendar date (`'2026-11-11'`) are written at
   build time too; a moment (`'2026-11-11T09:00:00Z'`) is the visitor's time zone's, formatted in the browser.
 - **Switching language is a link.** `localeUrl('de')` is this page's URL in German:
 
@@ -464,7 +582,9 @@ In each language's page:
   `$locale` cannot be assigned (`SN203`): each language is its own page.
 - **Links stay in the language.** A link to one of your pages (`/about.html`, `/about/`) is written as that
   page in the same language (`/de/about/`). A link with `hreflang` names a language on purpose and is left
-  as it is.
+  as it is. A link template (`data-sn-href="/article/{a.slug}"`) whose literal start names one of your pages
+  (fixed or a pattern) gets the language's prefix in its code too (`/de/article/…`), as does the API's `token.signIn`
+  when it is one of your pages; a start that names an API, a file or another origin is left as written.
 - **`data-sn-path` is written without the prefix** (`/article/:slug`) and matches under each language
   (`/de/article/hello`); `$url` does not include it.
 - **Search engines see every language.** With `site`, each page's head has `<link rel="alternate"

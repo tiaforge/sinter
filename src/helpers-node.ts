@@ -14,6 +14,12 @@ import { FoldCache, foldVerdicts, type FoldVerdict } from './fold-check.js';
 /** set while sinter loads a helpers module through a Vite server of its own: that server's sinter plugin does nothing */
 const LOADING = Symbol.for('sinter.helpers.loading');
 export const loadingHelpers = () => ((globalThis as Record<symbol, number>)[LOADING] ?? 0) > 0;
+/** Runs `f` (which reads the app's Vite config) with sinter's own plugin inert, as a module runner of the app loads it. */
+export async function withInertPlugin<T>(f: () => Promise<T>): Promise<T> {
+  const g = globalThis as Record<symbol, number>;
+  g[LOADING] = (g[LOADING] ?? 0) + 1;
+  try { return await f(); } finally { g[LOADING]!--; }
+}
 
 export interface NodeHelpers {
   /** the module's exports, or null: no helpers module, or it could not be loaded (`error`) */

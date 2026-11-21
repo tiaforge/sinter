@@ -560,7 +560,7 @@ export function foldVerdicts(manifest: HelperManifest, root: string, helpersFile
   };
   for (const h of manifest.names) { const o = manifest.from?.[h]; one(h, o?.module ?? manifest.module, o?.name ?? h); }
   for (const [ns, v] of Object.entries(manifest.namespaces)) {
-    if (v.module === '@tiaforge-ui/sinter/messages') continue;
+    if (v.module === '@tiaforge-ui/sinter/messages' || v.module.startsWith('sinter:content/')) continue;
     for (const m of v.members) { const o = v.from?.[m]; one(`${ns}$${m}`, o?.module ?? v.module, o?.name ?? m); }
   }
   return out;

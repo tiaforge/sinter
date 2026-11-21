@@ -67,7 +67,7 @@ A full document keeps its `<html>` attributes (`lang`, `data-sn-state`, `data-sn
 | `scripts` | the scripts of components by name: the module (`await import('../src/components/task-ring.ts')`) or the class |
 | `storage`, `session` | `localStorage` and `sessionStorage`. Pass the same `memoryStorage()` to two renders to test what carries over between page loads |
 | `traverse` | the page is reached by Back or Forward (not from the back/forward cache): its resources show what `session` holds of them as the previous page left it (written at `window('pagehide')` or when the next `render()` starts), then revalidate ([resources.md](resources.md#back-and-forward)) |
-| `messages` | built-in messages as the files hold them, base language first: `{ en: {...}, de: {...} }` |
+| `messages` | the messages as the inlang files hold them, base language first: `{ en: {...}, de: {...} }`; the namespace `m` that `inlang()` gives a build |
 | `firstPaint` | `true` or `{ early, afterEarly }`: run the early script before mounting, [below](#firstpaint) |
 | `frames` | server-event changes wait for `frame()` instead of flushing in a microtask |
 | `pages` | your other pages by file name, so links to them prefetch their data as in a build |
@@ -217,7 +217,7 @@ const { root, flush } = await render(page, { messages, locale: 'de' });
 expect(root.querySelector('h1').textContent).toBe('Posteingang');
 ```
 
-The locale is `locale`, else the stored choice (`locale` in `storage`), else the base language. `$locale = 'en'` in a handler switches. See [docs/messages.md](messages.md) and [docs/recipes/messages.html](recipes/messages.html).
+The page is in one language, `locale`, else the base language, compiled in it as a build compiles a page: writing `$locale` is `SN203`. See [docs/messages.md](messages.md) and [docs/recipes/messages.html](recipes/messages.html).
 
 ## Type-checking in tests
 

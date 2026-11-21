@@ -562,6 +562,16 @@ Error, for example:
 
 **Fix:** Give the API a `token` with `signIn`; keep the condition to `$url` (`$url.feed == 'following'`); remove the attribute from the sign-in page. Without a token, sign out as the session works: a request to the server that ends it, then `clearStored()` in app code.
 
+## SN348 removed-option
+
+Error, for example:
+
+> sinter({ messages }) is removed: the messages are a content namespace. Export `inlang()` from the content module, …
+
+The Vite config gives the plugin an option that sinter no longer has. Before 1.0, an option can be removed; the message names what replaces it.
+
+**Fix:** Follow the message, then remove the option. `npx sinter migrate --write` writes the replacement where it can (for `messages`, `inlang()` and `languages()` in the content module).
+
 ## SN401 parse-error
 
 Error, for example:

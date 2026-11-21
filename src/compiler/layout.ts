@@ -283,11 +283,40 @@ const mayChange = (el: P5Element, name: string) => { const b = boundAttrs(el); r
 
 interface Cascaded { value: string | null; ambiguous: boolean; inline: boolean }
 
+/** what a layout takes from its stylesheets alone: shared by every layout of the same sheets, never written to */
+interface Sheets { rules: Rule[]; positional: boolean; webFonts: Set<string> }
+/**
+ * By the sheets' texts: a page builds its layout up to three times (compiling, minifying, the dry run) and
+ * pages share their sheets; one array of rules also keeps its index (`indexOf`) across them.
+ */
+const SHEETS = new Map<string, Sheets>();
+function sheetsOf(sheets: StyleSheet[]): Sheets {
+  const key = sheets.map((s) => s.css).join('\0');
+  let got = SHEETS.get(key);
+  if (got) return got;
+  const webFonts = new Set<string>();
+  for (const s of sheets) for (const m of s.css.matchAll(/@font-face\s*\{[^}]*?font-family\s*:\s*([^;}]+)/gi)) webFonts.add(m[1]!.trim().replace(/^(['"])(.*)\1$/, '$2').toLowerCase());
+  const rules: Rule[] = [];
+  let order = 0;
+  // the browser's own defaults that move a box's edges: below every author rule, as the UA origin is
+  for (const r of rulesOf(UA)) rules.push({ selectors: r.selectors, decls: r.decls.map((d) => ({ ...d, layer: [-1], order: order++ })) });
+  for (const s of sheets) for (const r of rulesOf(s.css)) {
+    // the order counts across sheets: later sheets win at equal layer and specificity
+    rules.push({ selectors: r.selectors, decls: r.decls.map((d) => ({ ...d, order: order++ })) });
+  }
+  const positional = rules.some((r) => r.selectors.some((x) => csstree.find(x.ast, (n) => (n.type === 'Combinator' && /[+~]/.test(n.name)) || (n.type === 'PseudoClassSelector' && STRUCTURAL.has(n.name.toLowerCase()))) !== null));
+  got = { rules, positional, webFonts };
+  // a dev server sees each edit's sheets: the latest few are kept
+  if (SHEETS.size >= 16) SHEETS.delete(SHEETS.keys().next().value!);
+  SHEETS.set(key, got);
+  return got;
+}
+
 /** what a traced `reserve()` read and gave (`Layout.reserveTraced`) */
 export interface ReserveTrace { result: Reserved | null; why: string | null; read: Array<{ el: P5Element; attrs: string; decls: string }> }
 
 export class Layout {
-  private readonly rules: Rule[] = [];
+  private readonly rules: Rule[];
   /** template content → its template, so the content's parent is where it renders */
   private readonly hosts = new Map<P5Parent, P5Element>();
   private readonly cascades = new Map<P5Element, Map<string, Decl[]>>();
@@ -315,20 +344,15 @@ export class Layout {
   /** the width of `0` in a web font (a multiple of its size), when the build has read its files */
   private readonly zero: (family: string) => number | null;
   /** the families the stylesheets declare with `@font-face` (lower case): their `0` only from their files */
-  private readonly webFonts = new Set<string>();
+  private readonly webFonts: Set<string>;
 
   constructor(sheets: StyleSheet[], doc: P5Parent, opts: { normalLineHeight?: (family: string) => number | null; zeroWidth?: (family: string) => number | null } = {}) {
     this.normal = opts.normalLineHeight ?? (() => null);
     this.zero = opts.zeroWidth ?? (() => null);
-    for (const s of sheets) for (const m of s.css.matchAll(/@font-face\s*\{[^}]*?font-family\s*:\s*([^;}]+)/gi)) this.webFonts.add(m[1]!.trim().replace(/^(['"])(.*)\1$/, '$2').toLowerCase());
-    let order = 0;
-    // the browser's own defaults that move a box's edges: below every author rule, as the UA origin is
-    for (const r of rulesOf(UA)) this.rules.push({ selectors: r.selectors, decls: r.decls.map((d) => ({ ...d, layer: [-1], order: order++ })) });
-    for (const s of sheets) for (const r of rulesOf(s.css)) {
-      // the order counts across sheets: later sheets win at equal layer and specificity
-      this.rules.push({ selectors: r.selectors, decls: r.decls.map((d) => ({ ...d, order: order++ })) });
-    }
-    this.positional = this.rules.some((r) => r.selectors.some((x) => csstree.find(x.ast, (n) => (n.type === 'Combinator' && /[+~]/.test(n.name)) || (n.type === 'PseudoClassSelector' && STRUCTURAL.has(n.name.toLowerCase()))) !== null));
+    const own = sheetsOf(sheets);
+    this.rules = own.rules;
+    this.positional = own.positional;
+    this.webFonts = own.webFonts;
     const walk = (p: P5Parent) => {
       for (const c of p.childNodes) {
         if (!isEl(c)) continue;

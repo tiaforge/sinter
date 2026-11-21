@@ -10,8 +10,9 @@ import { format } from 'node:util';
 import { formatDiagnostic } from './compiler/index.js';
 import { componentBase } from './components-build.js';
 import { pagePaths } from './page-paths.js';
-import { project as readProject, viteProject } from './project.js';
-import { isComponentScript, lazyHelpers } from './lazy-build.js';
+import { lazyReachOf, project as readProject, viteProject } from './project.js';
+import { isComponentScript } from './lazy-build.js';
+import { withInertPlugin } from './helpers-node.js';
 import type { Library } from './libraries.js';
 import type { HistoryWrite, MockStream, RecordedCall, Rendered, RouteResponse } from './testing/index.js';
 
@@ -254,11 +255,13 @@ export async function appLoader(root: string, libs: readonly Library[] = []): Pr
       return `const m = ${get};\n${names.map((n) => `export const ${n} = m.${n};`).join('\n')}\n${'default' in mod ? 'export default m.default;' : ''}`;
     },
   };
-  const server = await vite.createServer({
-    root, configFile: false, logLevel: 'silent', appType: 'custom', plugins: [plugin],
+  // with the app's Vite config (its aliases and plugins), as the build and `sinter check` load its modules; sinter's own plugin inert
+  const v = vite;
+  const server = await withInertPlugin(() => v.createServer({
+    root, logLevel: 'silent', clearScreen: false, appType: 'custom', plugins: [plugin],
     server: { middlewareMode: true, hmr: false, watch: null, ws: false },
     optimizeDeps: { noDiscovery: true, include: [] },
-  });
+  }));
   return { load: (f) => server.ssrLoadModule(f) as Promise<Record<string, unknown>>, close: () => server.close() };
 }
 
@@ -637,7 +640,6 @@ export async function renderPage(a: RenderArgs): Promise<RenderReport> {
         if (existsSync(f)) { scripts[name] = await load(f); break; }
       }
     }
-    const messages = p.messages ? { [p.messages.base]: p.messages.dicts[p.messages.base]!, ...p.messages.dicts } : undefined;
 
     // every stream the page opens connects, and sends what --emit says
     const streams = new Map<string, MockStream>();
@@ -646,10 +648,9 @@ export async function renderPage(a: RenderArgs): Promise<RenderReport> {
       requests, streams: any, url, strict: false, storage: store, session, scripts,
       helpers: pick(helpers, p.helpers.names, Object.keys(p.helpers.namespaces)),
       actions: pick(actions, p.actions.names, Object.keys(p.actions.namespaces)),
-      ...(messages ? { messages } : {}),
       ...(a.now !== null ? { now: a.now } : {}),
       ...(a.locale ? { locale: a.locale } : {}),
-      project: { root: a.root, file: a.page, readFile: p.readFile, listFiles: p.listFiles, componentNames: p.componentNames, libraries: p.libraries, openapi: p.openapi, apis: p.apis, helpers: p.helpers, ...(p.lazy.length ? { lazyModule: lazyHelpers(a.root, p.lazy, undefined, p.libraries).reach } : {}) },
+      project: { root: a.root, file: a.page, readFile: p.readFile, listFiles: p.listFiles, componentNames: p.componentNames, libraries: p.libraries, openapi: p.openapi, apis: p.apis, helpers: p.helpers, ...(p.lazy.length ? { lazyModule: lazyReachOf(p).reach } : {}) },
     });
     let error: string | undefined;
     try { await r.settle(); } catch (e) { error = (e as Error).message; }

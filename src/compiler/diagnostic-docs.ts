@@ -296,6 +296,11 @@ export const DIAGNOSTIC_DOCS: Record<Code, DiagnosticDoc> = {
     means: '`data-sn-signed-in` on a page\'s `<html>` (or its layout\'s tag) sends a visitor with no token stored to the API\'s `token.signIn` page, with the return URL, before anything paints. It needs one API with a `token` and a `signIn` (with several, the one the page\'s resources use, and only one), its value reads only `$url` (the early script decides it before the page module runs), and it cannot be on the sign-in page itself (a loop). It is a convenience, not security: the server still refuses the requests. `signOut()` removes the tokens of the APIs that have one: in an app without one it would do nothing, so it is refused too.',
     fix: 'Give the API a `token` with `signIn`; keep the condition to `$url` (`$url.feed == \'following\'`); remove the attribute from the sign-in page. Without a token, sign out as the session works: a request to the server that ends it, then `clearStored()` in app code.',
   },
+  SN348: {
+    example: 'sinter({ messages }) is removed: the messages are a content namespace. Export `inlang()` from the content module, …',
+    means: 'The Vite config gives the plugin an option that sinter no longer has. Before 1.0, an option can be removed; the message names what replaces it.',
+    fix: 'Follow the message, then remove the option. `npx sinter migrate --write` writes the replacement where it can (for `messages`, `inlang()` and `languages()` in the content module).',
+  },
   SN401: {
     example: '`data-sn-for` takes `item in list` or `(item, i) in list`',
     means: 'An attribute value has the wrong form: a JavaScript syntax error (the column points inside the attribute), or a value outside what the attribute accepts, such as `paginate` or `data-sn-concurrency`.',

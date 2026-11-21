@@ -5,14 +5,13 @@ import { existsSync, readFileSync, statSync } from 'node:fs';
 import { basename, dirname, join, resolve, sep } from 'node:path';
 import type { CheckUnit } from '../compiler/check-unit.js';
 import { compile, type Diagnostic, type HelperManifest } from '../compiler/index.js';
-import { modulesDir, project, viteProject, type Project, type ProjectOptions } from '../project.js';
-import { lazyHelpers } from '../lazy-build.js';
+import { compileOptionsOf, modulesDir, project, viteProject, type Project, type ProjectOptions } from '../project.js';
 import { loadHelpers, unloadedMessage, type NodeHelpers } from '../helpers-node.js';
 import { FoldCache } from '../fold-check.js';
 import { writeComponentTypes } from '../components-build.js';
 import { componentKinds } from '../compiler/head.js';
 import { checkLocale } from '../locales-build.js';
-import { readSnapshot } from '../content-node.js';
+import { readSnapshot, snapshotNamespaces } from '../content-node.js';
 
 const VITE_CONFIGS = ['vite.config.ts', 'vite.config.js', 'vite.config.mts', 'vite.config.mjs', 'vite.config.cts', 'vite.config.cjs'];
 
@@ -108,6 +107,8 @@ export class Workspace {
       inputs.add(join(root, `${at}/sinter.helpers${ext}`));
       inputs.add(join(root, `${at}/sinter.actions${ext}`));
       inputs.add(join(root, `${at}/sinter.types${ext}`));
+      // the config module (`changesRequests`, its URL in each page), the early module, the content module (its collections)
+      for (const m of ['sinter.config', 'sinter.early', 'sinter.content']) inputs.add(join(root, `${at}/${m}${ext}`));
     }
     inputs.add(join(root, `${at}/sinter.types.d.ts`));
     for (const m of Object.values(p.helpers.namespaces)) if (m.module.startsWith('/')) inputs.add(join(root, m.module));
@@ -192,7 +193,7 @@ export class Workspace {
     const state = await this.projectFor(file);
     // a component's contract changed: its script's types follow, without the dev server
     if (componentName(state.root, file) || componentName(state.root, file, 'layouts')) {
-      try { writeComponentTypes(state.root, (f) => this.docs.get(resolve(f)) ?? readFileSync(f, 'utf8')); } catch { /* reported by the compiler */ }
+      try { writeComponentTypes(state.root, (f) => this.docs.get(resolve(f)) ?? readFileSync(f, 'utf8'), state.project.libraries); } catch { /* reported by the compiler */ }
     }
     const includers = [...state.includes].filter(([, files]) => files.includes(file)).map(([page]) => page);
     const pages = new Set(includers);
@@ -210,12 +211,18 @@ export class Workspace {
     return this.docs.get(file) ?? readFileSync(file, 'utf8');
   }
 
+  /** the helpers manifest with the content namespaces the build's snapshot records */
+  private helpersOf(state: ProjectState) {
+    return state.project.contentFile ? snapshotNamespaces(state.root, state.project.helpers).helpers : state.project.helpers;
+  }
+
   /** collections from the build's snapshot (the editor runs no loaders), and the content module for their types */
   private contentOpts(state: ProjectState) {
     const file = state.project.contentFile;
     if (!file) return {};
     const snap = readSnapshot(state.root, file);
-    return { contentModule: file, ...(snap ? { collections: snap.collections } : {}) };
+    const ns = snap ? snapshotNamespaces(state.root, state.project.helpers) : null;
+    return { contentModule: file, ...(snap ? { collections: snap.collections } : {}), ...(ns?.contentNs ? { contentNs: ns.contentNs } : {}) };
   }
 
   /** the project's listing of a folder for `file:` globs, kept until a file event (`otherChanged`) */
@@ -240,7 +247,7 @@ export class Workspace {
       if (mtimeMs >= 0 && !path.endsWith('.html')) state.reads.set(path, { mtimeMs, text: disk });
       return open ?? disk;
     };
-    let lh: ReturnType<typeof lazyHelpers> | undefined;
+    const content = this.contentOpts(state);
     for (const page of pages) {
       let html: string;
       try { html = this.read(page); } catch { continue; }
@@ -261,12 +268,10 @@ export class Workspace {
       }
       try {
         const out = compile(html, {
-          // helper modules that reach a lazy package: their helpers outside a let are SN324, as in the build
-          ...(p.lazy.length ? { lazyModule: (lh ??= lazyHelpers(state.root, p.lazy, undefined, p.libraries)).reach } : {}),
+          // (helper modules that reach a lazy package: their helpers outside a let are SN324, as in the build)
+          ...compileOptionsOf(p, component ? undefined : page), ...(p.swap ? { swap: true } : {}),
           helperValues: state.helpers.module, helperFold: state.helpers.fold,
-          file: component ? join(state.root, `.sinter-use-${component}.html`) : page, root: state.root, dev: false, helpers: p.helpers, actions: p.actions, config: p.config, readFile, listFiles: this.lister(state), ...(state.locale ? { locale: state.locale } : {}), ...this.contentOpts(state), check: true, openapi: p.openapi, apis: p.apis, complexity: p.complexity, ...(p.expansionLimit ? { expansionLimit: p.expansionLimit } : {}), componentNames: p.componentNames, libraries: p.libraries, lazy: p.lazy,
-          ...(!component && p.isStatic(page) ? { static: true, prerender: true } : {}),
-          ...(p.swap ? { swap: true } : {}),
+          file: component ? join(state.root, `.sinter-use-${component}.html`) : page, dev: false, helpers: this.helpersOf(state), readFile, listFiles: this.lister(state), ...(state.locale ? { locale: state.locale } : {}), ...content, check: true,
         });
         state.includes.set(page, out.files.map((f) => resolve(f)).filter((f) => f !== page));
         if (out.globs?.length) state.globs.set(page, out.globs.map((g) => ({ dir: g.dir.replace(/\/$/, ''), match: new RegExp(g.match) }))); else state.globs.delete(page);
@@ -294,12 +299,13 @@ export class Workspace {
       return this.docs.get(resolve(path)) ?? disk;
     };
     const pages = state.pages.has(file) ? [file] : [...state.includes].filter(([, files]) => files.includes(file)).map(([page]) => page);
-    const out: Diagnostic[] = [];
+    const out: Diagnostic[] = [], content = this.contentOpts(state);
     for (const page of pages) {
       let html: string;
       try { html = page === file ? text : this.read(page); } catch { continue; }
       try {
-        const r = compile(html, { file: page, root: state.root, dev: false, helpers, actions, config: p.config, readFile, listFiles: this.lister(state), ...(state.locale ? { locale: state.locale } : {}), ...this.contentOpts(state), check: true, openapi: p.openapi, apis: p.apis });
+        // as the page compiles (compilePages), with the helpers and actions the fix would declare
+        const r = compile(html, { ...compileOptionsOf(p, page), helpers, actions, file: page, dev: false, readFile, listFiles: this.lister(state), ...(state.locale ? { locale: state.locale } : {}), ...content, check: true });
         out.push(...r.diagnostics.filter((d) => d.severity === 'error' && d.file === file));
       } catch (e) {
         out.push({ severity: 'error', code: 'SN401', message: (e as Error).message, file, line: 1, col: 1 });

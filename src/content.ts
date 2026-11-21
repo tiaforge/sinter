@@ -23,8 +23,15 @@ export interface CollectionContext {
   env: Record<string, string>;
   /** `'build'` in `vite build`, `'serve'` in `vite dev` */
   command: 'build' | 'serve';
+  /** the project's root, absolute (a loader that reads its own files: `inlang()`) */
+  root: string;
   /** with `perLocale: true` (and `localePrefix`): the language this run loads for; else undefined */
   locale: string | undefined;
+  /**
+   * with `per`: the entry of each of those collections this run loads for (`value(tenants)` is a tenant), or undefined
+   * for a collection that is not in `per`
+   */
+  value<T>(c: Collection<T>): T | undefined;
 }
 
 export interface Collection<T = unknown> {
@@ -34,16 +41,164 @@ export interface Collection<T = unknown> {
   readonly load: (ctx: CollectionContext) => T[] | Promise<T[]>;
   /** loaded once per language (`ctx.locale`), each language's pages reading its own list */
   readonly perLocale?: true;
+  /**
+   * loaded once per entry of each of these collections (docs/proposals/axes.md §3), the axes' lists of the pages that
+   * read it (`per: [tenants]`): each page reads the list of its own tenant
+   */
+  readonly per?: readonly Collection[];
+  /** `languages()`: the site's languages, which `localePrefix` builds every page in (docs/static-pages.md#languages) */
+  readonly languages?: Languages;
+  /** `languages()` of a function: the languages, read from the project when the content module is loaded */
+  readonly languagesOf?: (ctx: { root: string }) => LanguagesDef;
+  /** `namespace()`: the name a page calls its entries by, and its formatter module */
+  readonly namespace?: { readonly name: string; readonly format: string; readonly types?: (entries: any[]) => string; readonly module?: string };
 }
+
+/** The site's languages: `base`, where a visitor without a choice lands, and every language in `list`. */
+export interface Languages {
+  readonly base: string; readonly list: readonly string[]; readonly fallbacks?: Readonly<Record<string, readonly string[]>>;
+  /** a language's URL segment where it is not its tag (`{ 'de-AT': 'at' }`) */
+  readonly paths?: Readonly<Record<string, string>>;
+  /** more tags a visitor may send for a language (`{ no: ['nb', 'nn'] }`) */
+  readonly codes?: Readonly<Record<string, readonly string[]>>;
+  /** a language on its own domain (`{ de: 'https://example.de' }`) */
+  readonly domains?: Readonly<Record<string, string>>;
+}
+
+/** one of the site's languages, as `languages()` lists them: its BCP 47 tag */
+export interface Language { tag: string }
+
+/** a language tag as a URL's first segment takes it (`de`, `de-AT`, `zh-Hant-TW`) */
+export const LANGUAGE_TAG = /^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})*$/;
 
 /**
  * A collection: `key` names the field that tells entries apart, and `load` returns the list, a list of plain data
  * (arrays, objects, strings, numbers, booleans, `null`).
  */
-export function collection<T>(o: { key: keyof T & string; load: (ctx: CollectionContext) => T[] | Promise<T[]>; perLocale?: boolean }): Collection<T> {
+export function collection<T>(o: { key: keyof T & string; load: (ctx: CollectionContext) => T[] | Promise<T[]>; perLocale?: boolean; per?: readonly Collection<any>[] }): Collection<T> {
   if (!o || typeof o.key !== 'string' || !o.key) throw new Error('collection(): `key` names the field that tells entries apart, e.g. `collection({ key: \'slug\', load })`');
   if (typeof o.load !== 'function') throw new Error('collection(): `load` is a function that returns the list, e.g. `load: async () => (await fetch(url)).json()`');
-  return { [COLLECTION]: true, key: o.key, load: o.load, ...(o.perLocale ? { perLocale: true as const } : {}) };
+  if (o.per !== undefined && (!Array.isArray(o.per) || !o.per.length || !o.per.every(isCollection))) throw new Error('collection(): `per` lists the collections it is loaded for, each an axis\'s list (`per: [tenants]`)');
+  return { [COLLECTION]: true, key: o.key, load: o.load, ...(o.perLocale ? { perLocale: true as const } : {}), ...(o.per ? { per: [...o.per] } : {}) };
+}
+
+/**
+ * The site's languages (docs/static-pages.md#languages), exported from the content module:
+ * `export const locales = languages({ base: 'en', list: ['en', 'de'] })`. With `localePrefix`, every page is built
+ * once per language, under its prefix (`/de/about/`). It is a collection of `{ tag }`, one entry per language. Without
+ * it, the languages come from the inlang project of the built-in messages.
+ */
+export function languages(o: LanguagesDef | ((ctx: { root: string }) => LanguagesDef)): Collection<Language> {
+  // read from the project (`languages(({ root }) => inlangLocales('project.inlang', root))`): when the module is loaded
+  if (typeof o === 'function') return { [COLLECTION]: true, key: 'tag', load: (ctx) => checkLanguages(o({ root: ctx.root })).list.map((tag) => ({ tag })), languagesOf: o };
+  const l = checkLanguages(o);
+  return { [COLLECTION]: true, key: 'tag', load: () => l.list.map((tag) => ({ tag })), languages: l };
+}
+
+/** what `languages()` takes */
+export interface LanguagesDef {
+  base: string; list: readonly string[]; fallbacks?: Record<string, readonly string[]>;
+  /** a language's URL segment and output folder where it is not its tag: `{ 'de-AT': 'at' }` serves `de-AT` at `/at/` */
+  paths?: Record<string, string>;
+  /** more tags a visitor may send for a language, which choose it and which `hreflang` lists: `{ no: ['nb', 'nn'] }` */
+  codes?: Record<string, readonly string[]>;
+  /**
+   * a language on its own domain: `{ de: 'https://example.de' }` serves German at `https://example.de/about/`, its files
+   * still under its segment's folder (`dist/de/`), which the proxy or the server layer maps the domain to
+   */
+  domains?: Record<string, string>;
+}
+
+/** `languages()`'s list, checked (its base among them, each a tag, `fallbacks` naming them without a cycle) */
+export function checkLanguages(o: LanguagesDef): Languages {
+  const list = Array.isArray(o?.list) ? [...o.list] : null;
+  if (!list?.length) throw new Error("languages(): `list` names the site's languages, e.g. `languages({ base: 'en', list: ['en', 'de'] })`");
+  for (const l of list) if (typeof l !== 'string' || !LANGUAGE_TAG.test(l)) throw new Error(`languages(): \`${String(l)}\` in \`list\` is not a language tag (it becomes the URL's prefix, \`/${String(l)}/\`)`);
+  const dup = list.find((l, i) => list.indexOf(l) !== i);
+  if (dup) throw new Error(`languages(): \`${dup}\` is in \`list\` twice`);
+  if (typeof o.base !== 'string' || !list.includes(o.base)) throw new Error(`languages(): \`base\` (${typeof o.base === 'string' ? `\`${o.base}\`` : 'missing'}) is one of \`list\` (${list.join(', ')}): it is the language a visitor without a choice is sent to`);
+  // `fallbacks`: a language's chain before the base, where it is not its tag less its subtags (docs/static-pages.md#languages)
+  const fb = o.fallbacks;
+  if (fb !== undefined) {
+    if (!fb || typeof fb !== 'object' || Array.isArray(fb)) throw new Error("languages(): `fallbacks` maps a language to the ones it falls back to before the base, e.g. `{ 'de-CH': ['de-AT', 'de'] }`");
+    for (const [k, v] of Object.entries(fb)) {
+      if (!list.includes(k)) throw new Error(`languages(): \`fallbacks\` names \`${k}\`, which is not one of \`list\` (${list.join(', ')})`);
+      if (!Array.isArray(v) || v.some((x) => !list.includes(x) || x === k)) throw new Error(`languages(): \`fallbacks.${k}\` is a list of the other languages of \`list\` (${list.join(', ')})`);
+      for (const x of v) if (fb[x]?.includes(k)) throw new Error(`languages(): \`fallbacks.${k}\` and \`fallbacks.${x}\` name each other: a chain has no cycle`);
+    }
+  }
+  // `paths`: a language's segment, a URL path segment; one per language, none another language's
+  const paths = o.paths;
+  if (paths !== undefined) {
+    if (!paths || typeof paths !== 'object' || Array.isArray(paths)) throw new Error("languages(): `paths` maps a language to its URL segment, e.g. `{ 'de-AT': 'at' }`");
+    const seg = (l: string) => paths[l] ?? l;
+    for (const [k, v] of Object.entries(paths)) {
+      if (!list.includes(k)) throw new Error(`languages(): \`paths\` names \`${k}\`, which is not one of \`list\` (${list.join(', ')})`);
+      if (typeof v !== 'string' || !/^[a-z0-9][a-z0-9-]*$/i.test(v)) throw new Error(`languages(): \`paths.${k}\` is a URL segment of letters, digits and \`-\`, e.g. \`'at'\``);
+      const other = list.find((l) => l !== k && seg(l).toLowerCase() === v.toLowerCase());
+      if (other) throw new Error(`languages(): \`paths.${k}\` is \`${v}\`, which is \`${other}\`'s segment too: each language has its own`);
+    }
+  }
+  // `codes`: more tags for a language, each a tag no other language has
+  const codes = o.codes;
+  if (codes !== undefined) {
+    if (!codes || typeof codes !== 'object' || Array.isArray(codes)) throw new Error("languages(): `codes` maps a language to more tags a visitor may send for it, e.g. `{ no: ['nb', 'nn'] }`");
+    const seen = new Map<string, string>(list.map((l) => [l.toLowerCase(), l]));
+    for (const [k, v] of Object.entries(codes)) {
+      if (!list.includes(k)) throw new Error(`languages(): \`codes\` names \`${k}\`, which is not one of \`list\` (${list.join(', ')})`);
+      if (!Array.isArray(v) || v.some((x) => typeof x !== 'string' || !LANGUAGE_TAG.test(x))) throw new Error(`languages(): \`codes.${k}\` is a list of language tags, e.g. \`['nb', 'nn']\``);
+      for (const x of v) {
+        const at = seen.get(x.toLowerCase());
+        if (at) throw new Error(`languages(): \`codes.${k}\` has \`${x}\`, which ${at === x ? 'is a language of `list`' : `\`${at}\` has too`}: a tag chooses one language`);
+        seen.set(x.toLowerCase(), k);
+      }
+    }
+  }
+  // `domains`: a language's origin, one per language
+  const domains = o.domains;
+  if (domains !== undefined) {
+    if (!domains || typeof domains !== 'object' || Array.isArray(domains)) throw new Error("languages(): `domains` maps a language to its own origin, e.g. `{ de: 'https://example.de' }`");
+    const seen = new Map<string, string>();
+    for (const [k, v] of Object.entries(domains)) {
+      if (!list.includes(k)) throw new Error(`languages(): \`domains\` names \`${k}\`, which is not one of \`list\` (${list.join(', ')})`);
+      if (typeof v !== 'string' || !/^https?:\/\/[^/?#]+\/?$/.test(v)) throw new Error(`languages(): \`domains.${k}\` is an origin, \`https://\` and a host without a path, e.g. \`'https://example.de'\``);
+      const o = v.replace(/\/$/, '');
+      if (seen.has(o)) throw new Error(`languages(): \`domains.${k}\` is \`${o}\`, \`${seen.get(o)}\`'s too: each language has its own`);
+      seen.set(o, k);
+    }
+  }
+  return {
+    base: o.base, list,
+    ...(domains && Object.keys(domains).length ? { domains: Object.fromEntries(Object.entries(domains).map(([k, v]) => [k, v.replace(/\/$/, '')])) } : {}),
+    ...(fb ? { fallbacks: Object.fromEntries(Object.entries(fb).map(([k, v]) => [k, [...v]])) } : {}),
+    ...(paths && Object.keys(paths).length ? { paths: { ...paths } } : {}),
+    ...(codes && Object.keys(codes).length ? { codes: Object.fromEntries(Object.entries(codes).map(([k, v]) => [k, [...v]])) } : {}),
+  };
+}
+
+/**
+ * A content namespace (docs/proposals/messages.md §1): a collection whose entries a page calls by their key,
+ * `legal.imprint()`, `legal.terms({ shop: tenant.name })`, each through the formatter module's
+ * `format(entry, args, locale)`. A call over constants is written into the HTML at build; one over data is compiled
+ * into the page's script with that entry alone. Each page ships only the entries it calls. `format` is a module
+ * path from the root (`/src/legal-format.ts`) or a package; `key` (default `id`) names an entry's id field.
+ */
+export function namespace<T>(o: {
+  name: string; format: string; key?: keyof T & string; load: (ctx: CollectionContext) => T[] | Promise<T[]>; perLocale?: boolean; per?: readonly Collection<any>[];
+  /** the namespace's type for `sinter check`, a TypeScript type literal, from the base language's entries (`{ imprint(args: { shop: string }): string }`) */
+  types?: (entries: T[]) => string;
+  /**
+   * the module app code imports the namespace from by its name (`import { m } from '@tiaforge-ui/sinter/messages'`): the
+   * build collects the ids a page's modules call through it, writes those entries into the page
+   * (`<script type="application/json" data-sn-ns="<name>">`), and the page module calls the module's
+   * `install(locale, format)` before anything runs
+   */
+  module?: string;
+}): Collection<T> {
+  if (!o || typeof o.name !== 'string' || !/^[A-Za-z_$][\w$]*$/.test(o.name)) throw new Error("namespace(): `name` is what a page calls its entries by, an identifier, e.g. `namespace({ name: 'legal', format, load })`");
+  if (typeof o.format !== 'string' || !o.format) throw new Error("namespace(): `format` names the formatter module, whose `format(entry, args, locale)` makes an entry's value, e.g. `format: '/src/legal-format.ts'`");
+  const c = collection<T>({ key: (o.key ?? 'id') as keyof T & string, load: o.load, ...(o.perLocale ? { perLocale: true } : {}), ...(o.per ? { per: o.per } : {}) });
+  return { ...c, namespace: { name: o.name, format: o.format, ...(o.types ? { types: o.types } : {}), ...(o.module ? { module: o.module } : {}) } };
 }
 
 /** whether a value is a collection (of any instance of this module) */

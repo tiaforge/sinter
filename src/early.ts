@@ -102,17 +102,16 @@ export type Requests = (q: (u: () => string | false, a?: EarlyApi, r?: 0 | 1, lo
 export const locale = () => config.locale;
 
 /**
- * The dev server's early module (builds use `observe`): renders the page's early part once the
- * dictionary (if any) is there. A deferred, render-blocking module: it runs after the parse, and
- * the first paint waits for it where the browser supports `blocking` (dev only; Firefox paints first).
+ * The dev server's early module (builds use `observe`): renders the page's early part. A deferred, render-blocking
+ * module: it runs after the parse, and the first paint waits for it where the browser supports `blocking` (dev only;
+ * Firefox paints first).
  */
-export function start(page: EarlyPage | null, messages: { use(): void; ready(): Promise<void> } | null, req: EarlyRequests | null = null, doc: Document = document): void {
-  prime(page, messages, req, doc)();
+export function start(page: EarlyPage | null, req: EarlyRequests | null = null, doc: Document = document): void {
+  prime(page, req, doc)();
 }
 
 /** Starts the page's early requests at once and returns the render step. */
-function prime(page: EarlyPage | null, messages: { use(): void; ready(): Promise<void> } | null, req: EarlyRequests | null = null, doc: Document = document): () => void {
-  messages?.use();
+function prime(page: EarlyPage | null, req: EarlyRequests | null = null, doc: Document = document): () => void {
   let p: ReturnType<typeof prepare> = null, gone = false;
   // the requests need no DOM: they start before anything waits
   try { if (page) { p = prepare(page(), req); gone = !p; p?.fetch(); } } catch (e) { fail(e); }
@@ -124,17 +123,14 @@ function prime(page: EarlyPage | null, messages: { use(): void; ready(): Promise
     // started only now: a render stub that failed to load leaves the page module to mount by itself
     const m = meeting();
     m.started = true;
-    void (async () => {
-      await messages?.ready();
-      // a failure is reported, and the page module mounts all the same
-      try { p?.render(doc); } catch (e) { fail(e); }
-      m.finish();
-    })();
+    // a failure is reported, and the page module mounts all the same
+    try { p?.render(doc); } catch (e) { fail(e); }
+    m.finish();
   };
 }
 
 /**
- * The early file's entry for a page without early requests or messages: renders at once (the early
+ * The early file's entry for a page without early requests: renders at once (the early
  * file is a deferred module, run after the parse and before the first paint), and tells the page module.
  */
 export function run(page: EarlyPage, doc: Document = document): void {
@@ -152,14 +148,11 @@ const fail = (e: unknown) => { setTimeout(() => { throw e; }); };
  * before any of the body exists. It starts the early requests at once
  * and renders each early root as the parser closes it, from a MutationObserver: its callback is a
  * microtask at the end of the parser's task, so it runs before the browser can paint that element,
- * in every browser and with no `blocking` attribute. Nothing waits for the network: a message
- * binding whose dictionary has not arrived is skipped (the language file is loaded without holding
- * the paint) and tried again if it arrives before the parse ends; else the page module renders it.
+ * in every browser and with no `blocking` attribute. Nothing waits for the network.
  * At DOMContentLoaded a last pass renders what is left, and the page module may mount. Each pass
  * looks only at the elements the parser has added since: no query over the whole document.
  */
-export function observe(page: EarlyPage | null, messages: { use(): void; state?(): I18nLike } | null = null, req: EarlyRequests | null = null, doc: Document = document): void {
-  messages?.use();
+export function observe(page: EarlyPage | null, req: EarlyRequests | null = null, doc: Document = document): void {
   const m = meeting();
   m.started = true;
   let p: ReturnType<typeof prepare> = null, gone = false;
@@ -167,8 +160,7 @@ export function observe(page: EarlyPage | null, messages: { use(): void; state?(
   // sent to sign in: the page module does not mount
   if (gone) return;
   if (!p) { m.finish(); return; }
-  const prep = p, I = messages?.state?.();
-  const waiting = () => !!I?.locale && !I.dicts?.[I.locale];
+  const prep = p;
   /** every root seen, by id: `data-sn` elements and anchors' start comments; `fresh`: any since the last pass */
   const roots = new Map<number, Node>();
   let fresh = false, held = 0;
@@ -187,10 +179,7 @@ export function observe(page: EarlyPage | null, messages: { use(): void; state?(
     fresh = false;
     live = { pick: roots, all, waiting: new Set() };
     const cur = live;
-    // a missing dictionary: `m` throws (its lookup reads this), so those bindings are left for later
-    const trap = waiting() && I!.dicts ? (I!.dicts[I!.locale!] = new Proxy({}, { get() { throw NOT_YET; } })) : null;
     try { prep.render(doc); } catch (e) { fail(e); }
-    if (trap && I!.dicts![I!.locale!] === trap) delete I!.dicts![I!.locale!];
     live = null;
     held = cur.waiting.size;
   };
@@ -201,25 +190,17 @@ export function observe(page: EarlyPage | null, messages: { use(): void; state?(
   rootsIn(doc.documentElement, root);
   o.observe(doc.documentElement, { childList: true, subtree: true });
   pass(false);
-  if (I && waiting()) {
-    const prev = I.loaded;
-    I.loaded = (l) => { prev?.(l); if (!ended && retries.length) { const r = retries.splice(0); for (const f of r) f(); } };
-  }
   const end = () => {
     if (ended) return;
     seen(o.takeRecords());
     o.disconnect();
     pass(true);
     ended = true;
-    retries.length = 0;
     m.finish();
   };
   if (doc.readyState != 'loading') end(); else doc.addEventListener('DOMContentLoaded', end, { once: true });
 }
 
-const NOT_YET = Symbol('not yet');
-/** what `observe` reads of the messages' shared state (messages.ts) */
-interface I18nLike { locale?: string; dicts?: Record<string, unknown>; loaded?: (l: string) => void }
 /** during an observing pass: the roots it renders, by id */
 let live: { pick: Map<number, Node>; all: boolean; waiting: Set<Node> } | null = null;
 /** observing: the bindings already written, by node (a root whose content waits is rendered again by later passes) */
@@ -228,7 +209,6 @@ let fnIds = new WeakMap<Fn, number>(), fnN = 0;
 /** a content binding (text, a control's value, an anchor) waits for the parser to close its element, or to parse the anchor's end */
 const content = (el: Node, wr: unknown) => el.nodeType == 8 || wr === text || wr === model || !!(wr as { c?: 1 }).c;
 /** the bindings skipped for a missing dictionary, tried again when it arrives */
-const retries: Array<() => void> = [];
 
 /** whether the parser has moved past `el`: it, or an ancestor, has a following node */
 const closed = (el: Node): boolean => {
@@ -480,11 +460,7 @@ export function w(el: Node | null, f: Fn, s: any, wr: (el: any, v: any, n: strin
     wrote.set(el, done);
   }
   let v: any;
-  try { v = f(s); } catch (e) {
-    // a message whose dictionary is on its way: tried again when it arrives (observe)
-    if (e === NOT_YET) retries.push(() => w(el, f, s, wr, n));
-    return;
-  }
+  try { v = f(s); } catch { return; }
   // an anchor whose template the parser has not reached yet (one in the head): the next pass tries it again
   if (wr(el, v, n) === WAIT && live) { done!.delete(key); live.waiting.add(el); }
 }

@@ -110,7 +110,7 @@ test('early state: fields that need no data, persisted values, and the branch of
 test('no early module when nothing runs early and the app has no early module', () => {
   expect(build(page('<sn-resource name="u" src="/api/u?d={date(at)}"></sn-resource><p data-sn-text="u.x"></p>')).early).toBeNull();
   // the app's early module, on a page that has something to run (later, not early)
-  expect(build(page('<sn-resource name="u" src="/api/u?d={date(at)}"></sn-resource><p data-sn-text="u.x"></p>'), {}, [], { module: '/src/sinter.early.ts' }).early).toBe('import "/src/sinter.early.ts";\nimport { start } from \'@tiaforge-ui/sinter/runtime/early\';\n\nstart(null, null);\n');
+  expect(build(page('<sn-resource name="u" src="/api/u?d={date(at)}"></sn-resource><p data-sn-text="u.x"></p>'), {}, [], { module: '/src/sinter.early.ts' }).early).toBe('import "/src/sinter.early.ts";\nimport { start } from \'@tiaforge-ui/sinter/runtime/early\';\n\nstart(null);\n');
   // a page with nothing to run ships no JavaScript: not the app's early module either
   expect(build(page('<p data-sn-text="here"></p>'), {}, [], { module: '/src/sinter.early.ts' }).early).toBeNull();
 });
@@ -148,7 +148,7 @@ test('early requests: resources whose URL reads only what is known early (state,
   expect(early).toContain('render: () => {}');
   // each request compiled: its `when`, then its URL as the page module makes it (a whole query value through `$hq`)
   expect(early).toContain('req: (q, n, b) => { q(() => f[2](n[1]) && "/api/days" + $hq([["start", f[0](n[1])], ["q", f[1](n[1])]]), 0, 0, 1); q(() => f[4](n[1]) && "/api/x/" + $hv(f[3](n[1])), 0, 0, 1); }');
-  expect(early!.endsWith('start(page, null, requests());\n')).toBe(true);
+  expect(early!.endsWith('start(page, requests());\n')).toBe(true);
 });
 
 test('early requests, paginated: the first page, with the query parameters the pager sends for it (page size, the `first` direction value, the page number in offset mode, no cursor); a literal `src` is preloaded at its first page', () => {
@@ -179,7 +179,7 @@ test('early requests, paginated: the first page, with the query parameters the p
   // a template with a query or a fragment of its own: the parameters merged into it (`withParams`)
   expect(early).toContain('q(() => withParams("/api/mail" + $hq([["box", f[0](n[0])]]), { "limit": "50", "dir": "forward" }));');
   expect(early).toContain('q(() => withParams("/api/more" + $hq([["box", f[0](n[0])]]) + "#x", { "limit": "5", "direction": "first" }));');
-  expect(early!.endsWith('start(page, null, requests());\n')).toBe(true);
+  expect(early!.endsWith('start(page, requests());\n')).toBe(true);
 });
 
 test('preconnect: every origin a literal resource or stream `src` names gets one `<link rel="preconnect" crossorigin>` (anonymous, as the runtime connects), before the preloads; such a `src` is no preload', () => {
@@ -221,22 +221,21 @@ test('early attributes: the URL check only where the expression does not fix the
   expect(tpl).toContain('set, "href"');
 });
 
-test('prototype baseMessages: a text binding that calls m is written in the base language and marked; it stays the browser\'s', () => {
+test('a content namespace in the page\'s one language: a binding that calls m over constants is written into the HTML', () => {
   const html = page(`<div data-sn-state="{ who: 'Ada' }"><h1 data-sn-text="m.title()"></h1><p data-sn-text="m.hello({ name: who })"></p><a data-sn-attr="{title: m.title()}">x</a><p data-sn-text="m.gone()"></p></div>`);
   const opts: CompileOptions = {
     file: '/app/index.html', root: '/app', dev: false, readFile: () => '', moduleSrc: '/page.js', prerender: true, early: { module: null },
-    helpers: { module: null, names: [], namespaces: { m: { module: '@tiaforge-ui/sinter/messages', members: ['title', 'hello', 'gone'] } } },
-    baseMessages: { title: 'People', hello: 'Hello {name}' },
+    helpers: { module: null, names: [], namespaces: { m: { module: 'sinter:content/m', members: ['title', 'hello', 'gone'] } } },
+    contentNs: { m: { entries: { title: 'People', hello: 'Hello {name}' }, format: null } }, locale: { name: 'en', urls: null, base: '/', prefix: false },
   };
   const out = compile(html, opts);
   const body = out.html.slice(out.html.indexOf('<body'));
-  expect(body).toContain('data-sn-m="">People</h1>');
-  expect(body).toContain('data-sn-m="">Hello Ada</p>');
-  // attributes and unknown keys: left to the browser
-  expect(body).not.toContain('title="People"');
+  expect(body).toContain('People</h1>');
+  expect(body).toContain('Hello Ada</p>');
+  expect(body).toContain('title="People"');
+  expect(body).not.toContain('data-sn-m');
+  // an unknown key: left to the browser
   expect(body).toMatch(/<p data-sn="\d+"><\/p><\/div>/);
-  // still rendered early, in the visitor's language
-  expect(out.early).toContain('m$title');
 });
 
 test('array parameters: only a page that has them passes `lists` to its early file (and carries it)', () => {

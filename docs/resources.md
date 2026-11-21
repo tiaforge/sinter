@@ -370,6 +370,43 @@ export const tags = collection({
   `n` from 1: a collection of pages for a [page per entry](static-pages.md#a-page-per-entry) at `/blog/page/:n`.
 - `sinter({ content: false })` turns the module off. `content` cannot be an API's name (SN329).
 
+
+### Content namespaces
+
+A collection whose entries a page calls by their id, through a formatter of your own:
+
+```ts
+// src/sinter.content.ts
+import { namespace } from '@tiaforge-ui/sinter/content';
+export const legal = namespace({ name: 'legal', format: '/src/legal-format.ts', perLocale: true, load: ({ locale, files }) => files(`content/legal/${locale}/*.md`), key: 'slug' });
+```
+
+```ts
+// src/legal-format.ts
+export function format(entry, args, locale) { return entry.body.replace(/\[(\w+)\]/g, (_, k) => String(args?.[k] ?? '')); }
+```
+
+```html
+<p data-sn-text="legal.imprint({ shop: 'Acme' })"></p>
+```
+
+- A call over constants is written into the HTML at build, in the page's language; one over data is compiled into
+  the page's script with that entry alone and an import of the formatter. Each page ships only the entries it calls.
+- An unknown id is `SN206`, with the namespace's ids as suggestions. A name another namespace has (a helper namespace,
+  another content namespace) fails the build.
+- `format(entry, args, locale)` is a plain function of its arguments, so the build can run it. The formatter module
+  may also export `inline(entry)`, the source of a function the build compiles in place of a call over data (no
+  formatter shipped for it), and `pack(entry)`, the smaller form of an entry written into a page for its modules.
+- `sinter check` and the editor know a namespace's ids from the build's snapshot (`vite build` or `vite dev` writes it).
+- `per: [tenants]` loads a namespace per axis, each page reading its point's entries. `types` gives `sinter check` its type.
+- **App code** calls a namespace through its `module` (`namespace({ module: '/src/legal.ts' })`): the build writes the
+  entries a page's modules call into it, in `<script type="application/json" data-sn-ns="legal" lang="de">` (packed by
+  the formatter's `pack()`), which the module reads the first time it is called. A page whose modules call none gets
+  no script and does not load the module. An app module that calls an entry the formatter cannot inline gets the
+  formatter: the build adds `install(null, format, 'legal')`, which the module exports. A module that declares
+  `export interface Entries {}` is typed from `types` by the generated `sinter.namespaces.d.ts` next to the content
+  module (`declare module '/src/legal.ts' { interface Entries … }`), rewritten on every build and dev load.
+
 ## Loading behavior
 
 - **Shared requests.** Resources with the same resolved `src` share one request, for example one

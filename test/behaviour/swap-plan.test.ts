@@ -28,35 +28,32 @@ test('a marker the page modules do not list keeps nothing (injected markup); a l
 });
 
 test('the head nodes that are the page\'s own: the title, bound nodes, anchors with what they rendered, templates, data', () => {
-  const d = parse('', '<meta charset="utf-8"><title data-sn="0">x</title><meta name="description" data-sn="1"><!--sn 2--><meta name="robots"><!--sn 3--><b></b><!--/sn--><!--/sn--><link rel="icon" href="/i.png"><template id="sn-t-0"></template><script type="application/json" data-sn="4">{}</script><script type="application/json" data-sn-messages>{}</script><meta name="theme-color">');
+  const d = parse('', '<meta charset="utf-8"><title data-sn="0">x</title><meta name="description" data-sn="1"><!--sn 2--><meta name="robots"><!--sn 3--><b></b><!--/sn--><!--/sn--><link rel="icon" href="/i.png"><template id="sn-t-0"></template><script type="application/json" data-sn="4">{}</script><script type="application/json" data-sn-ns="m">{}</script><meta name="theme-color">');
   expect(owned(d.head).map((n) => (n.nodeType == 8 ? `<!--${(n as Comment).data}-->` : (n as Element).localName + ((n as Element).getAttribute('name') ? `[${(n as Element).getAttribute('name')}]` : '')))).toEqual([
     'title', 'meta[description]', '<!--sn 2-->', 'meta[robots]', '<!--sn 3-->', 'b', '<!--/sn-->', '<!--/sn-->', 'template', 'script', 'script',
   ]);
 });
 
-test('what only a load applies: a CSP <meta>, <base>, the language picker', () => {
+test('what only a load applies: a CSP <meta>, <base>, the page\'s language', () => {
   const base = new URL('http://localhost/');
   const plain = fixed(parse('', '<title>a</title>'), base);
   expect(fixed(parse('', '<title>b</title><meta name="x">'), base)).toBe(plain);
   expect(fixed(parse('', '<meta http-equiv="Content-Security-Policy" content="default-src \'self\'">'), base)).not.toBe(plain);
   expect(fixed(parse('', '<base href="/app/">'), base)).not.toBe(plain);
-  expect(fixed(parse('<script data-sn-i18n="de"></script>'), base)).not.toBe(plain);
-  // a page in another language (`localePrefix`: /en/ → /de/); with the picker, `<html lang>` is the visitor's
-  const lang = (l: string, head = '') => { const d = parse('', head); d.documentElement.lang = l; return fixed(d, base); };
+  // a page in another language (`localePrefix`: /en/ → /de/)
+  const lang = (l: string) => { const d = parse(''); d.documentElement.lang = l; return fixed(d, base); };
   expect(lang('en')).not.toBe(lang('de'));
   expect(lang('en')).toBe(lang('EN'));
-  const picker = '<script data-sn-i18n=\'{"base":"en","files":{}}\'></script>';
-  expect(lang('en', picker)).toBe(lang('de', picker));
 });
 
-test('a page in one language: the messages its modules call (data-sn-messages) join the dictionary', () => {
+test('a page in one language: the content namespaces\' entries its modules call (data-sn-ns) join the dictionary', () => {
   const K = Symbol.for('sinter.i18n'), g = globalThis as unknown as Record<symbol, unknown>, was = g[K];
   g[K] = { locale: 'en', dicts: { en: { a: 'A' } } };
   try {
-    inline(parse('', '<script type="application/json" data-sn-messages>{"b":"B"}</script>'));
+    inline(parse('', '<script type="application/json" data-sn-ns="m">{"b":"B"}</script>'));
     expect((g[K] as { dicts: unknown }).dicts).toEqual({ en: { a: 'A', b: 'B' } });
     // none, or unreadable: as it was
-    inline(parse('', '<script type="application/json" data-sn-messages>{</script>'));
+    inline(parse('', '<script type="application/json" data-sn-ns="m">{</script>'));
     expect((g[K] as { dicts: unknown }).dicts).toEqual({ en: { a: 'A', b: 'B' } });
   } finally { g[K] = was; }
 });
