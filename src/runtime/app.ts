@@ -9,9 +9,9 @@ import { prefetched } from './handoff.js';
 import { createRequestLayer, isAbort, readBody, toError, tokens, type RequestLayer, type SendInit } from './request.js';
 import { schemesOf, STYLE_BAD, urlAllowed } from './security.js';
 /** Two objects with the same keys, each the same value (Object.is). */
-const sameEntries = (a: any, b: any): boolean => {
+const sameEntries = (a: any, b: any, same: (x: any, y: any, k: string) => boolean = Object.is): boolean => {
   let n = 0;
-  for (const k in a) { if (!Object.is(a[k], b[k])) return false; n++; }
+  for (const k in a) { if (!same(a[k], b[k], k)) return false; n++; }
   for (const _ in b) n--;
   return n == 0;
 };
@@ -20,17 +20,8 @@ const sameEntries = (a: any, b: any): boolean => {
  * compiler's own entries (`$f`, the tree slots' fills a component passes down; `$a`, its tag's attributes) are objects
  * it builds at each evaluation: those are the same when their entries are.
  */
-const sameProps = (a: any, b: any): boolean => {
-  if (!a || !b || typeof a != 'object' || typeof b != 'object') return false;
-  let n = 0;
-  for (const k in a) {
-    const x = a[k], y = b[k];
-    if (!Object.is(x, y) && !(k[0] == '$' && x && y && typeof x == 'object' && typeof y == 'object' && sameEntries(x, y))) return false;
-    n++;
-  }
-  for (const _ in b) n--;
-  return n == 0;
-};
+const sameProps = (a: any, b: any): boolean => !!a && !!b && typeof a == 'object' && typeof b == 'object'
+  && sameEntries(a, b, (x, y, k) => Object.is(x, y) || (k[0] == '$' && x && y && typeof x == 'object' && typeof y == 'object' && sameEntries(x, y)));
 import { readUrl as readFrom, withParams } from './url.js';
 // the parts of the core this build's pages use (a site's build serves its own: src/core-parts.ts)
 import * as F from './flags.js';
@@ -386,6 +377,8 @@ interface RB extends BoundBinding {
    */
   u?: RB;
   x?: Inst;
+  /** a handler's store functions (`$f`), built on its first run */
+  f?: object;
 }
 
 /** A selection binding's index over one list's rows: rows by row-side value, and the rows the comparison holds for. */
@@ -642,8 +635,6 @@ export function mount(root: Document | Element, o: MountOptions): App {
     } : undefined,
   };
 
-  /** on an element, this app's store functions (`$f`) its handlers run with */
-  const FNS = Symbol();
   /** Elements written through callbacks (`$.$m(row, …)`) since the last flush. */
   const marked = new Set<unknown>();
   /** Per flush round: how dirty paths reach a template's rows (0 not, 1 only marked elements, 2 any row). */
@@ -1030,8 +1021,9 @@ export function mount(root: Document | Element, o: MountOptions): App {
       if (el) for (const b of nd.b) {
         const rb: RB = { b, el, s, v: UNSET, c: !!nd.dl };
         if (b.k == 'on') {
-          const h: RB[] | number | undefined = el[HANDLERS];
-          typeof h == 'object' ? h.push(rb) : (el[HANDLERS] = [rb]);
+          // (a number has no `map`)
+          const h = el[HANDLERS] as RB[] | undefined;
+          h?.map ? h.push(rb) : (el[HANDLERS] = [rb]);
           continue;
         }
         if (F.MODEL && b.k == 'model') {
@@ -1162,16 +1154,16 @@ export function mount(root: Document | Element, o: MountOptions): App {
    */
   function closes(e: Event, el: Element): Element | null {
     let d: Element | null | undefined = null;
+    // a submit by `s` of `f`, through its `formmethod` or the form's `method`
+    const viaForm = (s: Element | null, f: HTMLFormElement | null) => f && (s?.getAttribute('formmethod') ?? f.getAttribute('method'))?.toLowerCase() == 'dialog' ? f.closest('dialog') : null;
     if (e.type == 'click') {
       const b = el.closest('button');
       if (!b || b.disabled) return null;
       const c = b.getAttribute('command'), t = b.getAttribute('commandfor');
       if (t && (c == 'close' || c == 'request-close')) d = (b as any).commandForElement ?? dialog(t);
-      else if (b.type == 'submit' && b.form && (b.getAttribute('formmethod') ?? b.form.getAttribute('method'))?.toLowerCase() == 'dialog') d = b.form.closest('dialog');
-    } else if (e.type == 'submit') {
-      const s = (e as SubmitEvent).submitter, f = el as HTMLFormElement;
-      if ((s?.getAttribute('formmethod') ?? f.getAttribute('method'))?.toLowerCase() == 'dialog') d = f.closest('dialog');
-    } else if (e.type == 'keydown' && (e as KeyboardEvent).key == 'Escape' && !e.defaultPrevented) {
+      else if (b.type == 'submit') d = viaForm(b, b.form);
+    } else if (e.type == 'submit') d = viaForm((e as SubmitEvent).submitter, el as HTMLFormElement);
+    else if (e.type == 'keydown' && (e as KeyboardEvent).key == 'Escape' && !e.defaultPrevented) {
       d = el.closest('dialog[open]');
       let modal = false;
       try { modal = !!d?.matches(':modal'); } catch { /* no :modal */ }
@@ -1634,14 +1626,15 @@ export function mount(root: Document | Element, o: MountOptions): App {
    * An element with none keeps the count of such rows made so far (`made`): while no row is made, none.
    */
   function handlersOf(el: Tagged, up = rowNode(el)): RB[] | undefined {
-    const h = el[HANDLERS];
-    if (typeof h == 'object') return h;
+    const h = el[HANDLERS] as any;
+    if (h?.map) return h;
     // (handlers bound on their first event are in the rows of a simple template: a list's or a branch's)
     if (h === made || !(F.LIST || F.BRANCH)) return;
-    const x = up?.[ROW], k = x ? (fns[x.t!.find!]!(x.first) as Array<Element | null>).indexOf(el) : -1;
-    const rbs = k < 0 ? [] : isSimple(x!.t!)!.hs.filter((y) => y[0] == k).map(([, b]): RB => ({ b, el, s: x!.s, v: UNSET, c: false }));
-    if (!rbs.length) return void (el[HANDLERS] = made);
-    return (el[HANDLERS] = rbs);
+    // (an element not among the row's bound ones, -1, has none)
+    const x = up?.[ROW], k = x && (fns[x.t!.find!]!(x.first) as Array<Element | null>).indexOf(el);
+    const rbs = x ? isSimple(x.t!)!.hs.filter((y) => y[0] == k).map(([, b]): RB => ({ b, el, s: x.s, v: UNSET, c: false })) : [];
+    el[HANDLERS] = rbs.length ? rbs : made;
+    return rbs;
   }
 
   // ---- events
@@ -1667,14 +1660,14 @@ export function mount(root: Document | Element, o: MountOptions): App {
       }
       // models update state before other handlers on the same event
       const m = F.MODEL ? (el as Tagged)[MODEL] : undefined;
-      if (m && /^(input|change)$/.test(e.type) && (m.b.ms || (e.type == 'input') == (m.b.n == 'text'))) {
+      if (m && /^(input|change)$/.test(e.type)) {
+        // a text field writes on `input`, other controls on `change`.
         // `data-sn-model-debounce` (debounce.ts): it writes once the field pauses, as an event's write that is
         // not typing (the pause is over), with the value the field has then; a text field's `change` (Enter,
         // leaving it) ends the pause
-        if (m.b.ms) {
-          const u = ev, now = m.b.n == 'text' && e.type == 'change';
-          if (now || (e.type == 'input') == (m.b.n == 'text')) app.ext.debounce!(m, now ? 0 : m.b.ms, () => m.el.isConnected && as(u, () => setModel(m, readModel(m))));
-        } else setModel(m, readModel(m), e.type == 'input' && !m.el.localName.includes('-'));
+        const text = m.b.n == 'text', input = e.type == 'input', u = ev;
+        if (m.b.ms) { if (text || !input) app.ext.debounce!(m, text && !input ? 0 : m.b.ms, () => m.el.isConnected && as(u, () => setModel(m, readModel(m)))); }
+        else if (input == text) setModel(m, readModel(m), input && !m.el.localName.includes('-'));
       }
       // the node of the simple row above, found once for the elements up to it (the root: none)
       let up = rowNode(el);
@@ -1699,8 +1692,8 @@ export function mount(root: Document | Element, o: MountOptions): App {
 
   /** Runs a handler expression and invalidates what it may have changed. */
   function handle(rb: RB, f: number, e: Event | null, writes: PathRef[] | undefined, extra?: object) {
-    // (built once per element: they read only it and the app)
-    app.exec(f, child(rb.s, { $el: rb.el, $event: e, $f: ((rb.el as any)[FNS] ??= app.storeFns(rb.el)), ...extra }), writes, rb.b);
+    // (built once per binding: they read only its element and the app)
+    app.exec(f, child(rb.s, { $el: rb.el, $event: e, $f: (rb.f ??= app.storeFns(rb.el)), ...extra }), writes, rb.b);
   }
 
   // ---- actions
@@ -1820,15 +1813,12 @@ export function mount(root: Document | Element, o: MountOptions): App {
     let args: unknown[] = [], calls = 0;
     const resolve = () => {
       const s = scope();
-      if (def.call) {
-        try {
-          if (def.when != null && !fns[def.when]!(s)) return null;
-          args = fns[def.call.args]!(s);
-          try { return 'call:' + JSON.stringify(args); } catch { return `call:#${++calls}`; }
-        } catch (e) { warn(17, def.name, (e as Error).message); return null; }
-      }
       try {
         if (def.when != null && !fns[def.when]!(s)) return null;
+        if (def.call) {
+          args = fns[def.call.args]!(s);
+          try { return 'call:' + JSON.stringify(args); } catch { return `call:#${++calls}`; }
+        }
         const u = app.url(def, s);
         if (def.body == null) return u;
         // `method="POST"`: a load is its URL and its body
@@ -1844,9 +1834,8 @@ export function mount(root: Document | Element, o: MountOptions): App {
     };
     /** stores a response; `req` is the URL it came from, for the page-load cache */
     const store = (body: unknown, req: string, m = l.pager?.current()) => {
-      let items = dot(def.select, body);
-      if (r.isCollection && !Array.isArray(items)) { warn(12, def.name, def.select ?? '(response)'); items = []; }
-      if (Array.isArray(items)) items = items.map(clean);
+      // a list (a collection's, else a warning and none) as `items()` reads it; a single item as it is
+      const v = dot(def.select, body), items = r.isCollection || Array.isArray(v) ? l.items(body) : v;
       const t = def.total ? dot(def.total, body) : null, total = t == null ? null : +t, more = def.paginate?.more;
       fill(items, total, m, more ? !!dot(more, body) : null);
       app.ext.cache?.loaded(def, r, req, items, total, !!l.pager?.appends(m));
