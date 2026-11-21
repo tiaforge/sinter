@@ -7,18 +7,18 @@
 // 4 delete (a DELETE of a row's URL removes the row). `then` writes land on top of all of it.
 import type { ApplyDef } from './ir.js';
 import type { App, Feature } from './runtime/app.js';
+import { pick } from './runtime/store.js';
 
 type Target = ApplyDef['tg'][number];
 // (exported for the nested module, which applies write-through to nested items with them)
 export const isObj = (v: unknown): v is Record<string, any> => !!v && typeof v == 'object' && !Array.isArray(v);
-export const at = (o: any, p: string[]): any => p.reduce((x, k) => (x == null ? x : x[k]), o);
 /** `fields` merged into the object at `p` inside `item`, as a patch of the item: `{ author: { ...item.author, ...fields } }`. */
 export const nest = (item: any, p: string[], fields: Record<string, any>): Record<string, any> =>
   p.length ? { [p[0]!]: { ...(isObj(item?.[p[0]!]) ? item[p[0]!] : {}), ...nest(item?.[p[0]!], p.slice(1), fields) } } : fields;
 
 /** The fields of `fields` whose value differs from what `current` holds at `p` (JSON equality); null when none does. */
 export function changed(current: unknown, p: string[], fields: Record<string, any>): Record<string, any> | null {
-  const cur = at(current, p);
+  const cur = p.reduce((x, k) => x?.[k], current as any);
   let out: Record<string, any> | null = null;
   for (const k of Object.keys(fields)) {
     if (!isObj(cur) || !(k in cur) || JSON.stringify(cur[k]) !== JSON.stringify(fields[k])) (out ??= {})[k] = fields[k];
@@ -59,7 +59,7 @@ const apply: Feature = {
       }
       // 1 confirm: objects of a named schema go to what the URL named, and to every list of that schema holding the key
       for (const e of ap.rs ?? []) {
-        const v = at(result, e.p ? e.p.split('.') : []);
+        const v = pick(e.p, result);
         for (const o of e.a ? (Array.isArray(v) ? v : []) : [v]) {
           if (!isObj(o)) continue;
           for (const t of ap.tg) if (t.s == e.s) patchAt(t, o);
@@ -75,7 +75,7 @@ const apply: Feature = {
         if (!r.isCollection || !r.key || r.loader?.url?.() !== url) continue;
         const e = ap.rs?.find((x) => x.s == def.sch);
         if (e) {
-          const v = at(result, e.p ? e.p.split('.') : []);
+          const v = pick(e.p, result);
           for (const o of e.a ? (Array.isArray(v) ? v : []) : [v]) if (isObj(o)) { r.upsert(o); log(def.name, 'upsert'); }
           continue;
         }

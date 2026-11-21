@@ -7,7 +7,7 @@
 import type { ResourceDef } from './ir.js';
 import type { App, Feature } from './runtime/app.js';
 import { PREFETCH_MARK, PREFETCH_PREFIX } from './runtime/config.js';
-import { clean } from './runtime/store.js';
+import { clean, pick } from './runtime/store.js';
 import { readUrl, segments, segsMatch } from './runtime/url.js';
 import type { lists } from './runtime/lists.js';
 
@@ -41,7 +41,6 @@ export const HOVER = 65;
 const MAX_ENTRY = 256 * 1024;
 
 const keyOf = (url: string, select?: string | null, total?: string | null) => PREFETCH_PREFIX + JSON.stringify([url, select, total]);
-const pick = (path: string | null | undefined, body: unknown): any => (path ? path.split('.').reduce((x: any, k) => x?.[k], body) : body);
 
 /** `l`: `lists`, passed by an app with a page that has array parameters (others carry none of it) */
 export function prefetch(pages: PrefetchPage[], l?: typeof lists): Feature {

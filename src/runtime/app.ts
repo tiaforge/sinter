@@ -36,7 +36,7 @@ import { readUrl as readFrom, withParams } from './url.js';
 import * as F from './flags.js';
 
 export { withParams };
-import { clean, createResource, type Resource } from './store.js';
+import { clean, createResource, pick as dot, type Resource } from './store.js';
 
 /** A shared GET's response, and its body, parsed on first read (a non-2xx status rejects there). */
 export interface Got { res: Response; body(): Promise<unknown> }
@@ -1837,7 +1837,6 @@ export function mount(root: Document | Element, o: MountOptions): App {
       } catch (e) { warn(17, def.name, (e as Error).message); return null; }
     };
     const loading = (on: boolean) => { if (r.meta.loading != on) { r.meta.loading = on; r.onDirty('meta'); } };
-    const pick = (path: string | null | undefined, body: unknown): any => (path ? path.split('.').reduce((x: any, k) => x?.[k], body) : body);
     const fill = (items: any, total: number | null, m: unknown, more: boolean | null = null) => {
       l.pager?.appends(m) && r.isCollection ? items.forEach(r.upsert) : r.replace(items);
       r.setTotal(total);
@@ -1845,11 +1844,11 @@ export function mount(root: Document | Element, o: MountOptions): App {
     };
     /** stores a response; `req` is the URL it came from, for the page-load cache */
     const store = (body: unknown, req: string, m = l.pager?.current()) => {
-      let items = pick(def.select, body);
+      let items = dot(def.select, body);
       if (r.isCollection && !Array.isArray(items)) { warn(12, def.name, def.select ?? '(response)'); items = []; }
       if (Array.isArray(items)) items = items.map(clean);
-      const t = def.total ? pick(def.total, body) : null, total = t == null ? null : +t, more = def.paginate?.more;
-      fill(items, total, m, more ? !!pick(more, body) : null);
+      const t = def.total ? dot(def.total, body) : null, total = t == null ? null : +t, more = def.paginate?.more;
+      fill(items, total, m, more ? !!dot(more, body) : null);
       app.ext.cache?.loaded(def, r, req, items, total, !!l.pager?.appends(m));
       return items;
     };
@@ -1871,7 +1870,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
       // no user event causes a load's `then`: its `$url` writes replace
       done: (v) => def.then != null && as(null, () => app.exec(def.then!, child(scope(), { $result: v }), def.w)),
       items(body) {
-        let items = pick(def.select, body);
+        let items = dot(def.select, body);
         if (!Array.isArray(items)) { warn(12, def.name, def.select ?? '(response)'); items = []; }
         return items.map(clean);
       },

@@ -85,6 +85,9 @@ export interface Resource<T extends object = any> {
   onDirty(what: 'data' | 'meta'): void;
 }
 
+/** The value at the dotted `path` inside `body` (`a.b`), undefined past a missing step; `body` itself for no path. */
+export const pick = (path: string | null | undefined, body: unknown): any => (path ? path.split('.').reduce((x: any, k) => x?.[k], body) : body);
+
 /** Copies own enumerable fields, dropping keys that could pollute prototypes. */
 export function clean<T>(obj: T): T {
   if (!obj || typeof obj != 'object' || Array.isArray(obj)) return obj;
