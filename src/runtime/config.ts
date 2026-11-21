@@ -36,9 +36,10 @@ export const config: Config = {
   confirm: null, fieldErrors: null, env: null,
 };
 
-export function configure(options: Partial<Omit<Config, 'env'>>): void {
-  // a typo fails instead of doing nothing, as in `sinter({...})`; `env` is the tests' (`setEnv`), not an option
-  for (const k in options) if (!(k in config) || k == 'env') throw new Error(`configure({ ${k} }) is not an option`);
+export function configure(options: Partial<Omit<Config, 'env' | 'apis'>>): void {
+  // a typo fails instead of doing nothing, as in `sinter({...})`; `env` is the tests' (`setEnv`), and `apis` the
+  // build's (`sinter({ apis })`, which every page module sets after the config module ran): not options
+  for (const k in options) if (!(k in config) || k == 'env' || k == 'apis') throw new Error(`configure({ ${k} }) is not an option${k == 'apis' ? ': the APIs are `sinter({ apis })`' : ''}`);
   Object.assign(config, options);
 }
 
@@ -56,8 +57,12 @@ export function $origins(list: string[]): void {
   config.origins = [...new Set([...config.origins, ...list])];
 }
 
-/** An API of `sinter({ apis })` at runtime: name, base (`''` the page's origin), credentials, static headers. */
-export interface ApiSettings { n: string; b: string; c?: RequestCredentials; h?: Record<string, string> }
+/** An API of `sinter({ apis })` at runtime: name, base (`''` the page's origin), credentials, static headers, token (src/token.ts). */
+export interface ApiSettings {
+  n: string; b: string; c?: RequestCredentials; h?: Record<string, string>;
+  /** `token`: its storage (`l`ocal, `s`ession) and key, header, what goes before it, the GET paths that need it (absent: all), issue it (`f`), and the sign-in page (`i`) */
+  t?: { s: 'l' | 's'; k: string; h: string; p: string; r?: string[]; f?: Record<string, string>; i?: string | LoginRedirectOptions };
+}
 
 /** The page module: the build's APIs. */
 export function $apis(list: ApiSettings[]): void {
@@ -111,7 +116,8 @@ export const PREFETCH_PREFIX = 'sn:p:';
  */
 export const PREFETCH_MARK = 'x-sinter-prefetch';
 
-function removeKeys(s: Storage | null, prefix: string) {
+/** removes every key of `s` under `prefix` (storage failures are ignored) */
+export function removeKeys(s: Storage | null, prefix: string) {
   if (!s) return;
   try {
     const keys: string[] = [];
@@ -134,8 +140,11 @@ export function clearPrefetched(env: Env): void {
   removeKeys(env.session(), PREFETCH_PREFIX);
 }
 
-/** Removes every persisted value (`sn:` keys) and the page-load cache, e.g. on logout. */
-export function clearPersisted(): void {
+/**
+ * Removes everything sinter stored in the browser for whoever is signed in: the `data-sn-persist`
+ * values (`sn:` keys), the page-load cache and the next-page data. An app calls it on sign-in and sign-out.
+ */
+export function clearStored(): void {
   removeKeys(envOf(config).storage(), PERSIST_PREFIX);
   clearCached();
 }
@@ -144,15 +153,19 @@ export function clearPersisted(): void {
 
 /**
  * Adds a header to same-origin requests, or to requests to `options.origin` only: for a value the browser knows
- * when the config module runs (a token from storage). A fixed value goes on the API, `sinter({ apis: { … headers } })`.
+ * (a token from storage). `value` is a string, or a function called for each request, so the value is the current
+ * one (a token set after sign-in, also with swapped pages, where the config module does not run again); a
+ * function that returns null or undefined sends no header (signed out). A fixed value goes on the API,
+ * `sinter({ apis: { … headers } })`.
  */
-export function header(name: string, value: string, options: { origin?: string } = {}): Middleware {
+export function header(name: string, value: string | (() => string | null | undefined), options: { origin?: string } = {}): Middleware {
   return (req, next) => {
     const target = new URL(req.url).origin;
     const allowed = options.origin ? target === new URL(options.origin).origin : target === new URL(envOf(config).href()).origin;
-    if (!allowed) return next(req);
+    const v = allowed ? (typeof value == 'function' ? value() : value) : null;
+    if (v == null) return next(req);
     const headers = new Headers(req.headers);
-    headers.set(name, value);
+    headers.set(name, v);
     return next(new Request(req, { headers }));
   };
 }
@@ -175,22 +188,32 @@ export interface LoginRedirectOptions {
  */
 export function loginRedirect(options: LoginRedirectOptions) {
   return (): Promise<Response> => {
-    const env = envOf(config);
-    const here = new URL(env.href());
-    const path = here.pathname + here.search + here.hash;
-    let target = options.to;
-    if (options.returnUrl && options.returnUrl.allow.some((p) => here.pathname.startsWith(p))) {
-      try { env.session()?.setItem(RETURN_KEY, path); } catch { /* ignored */ }
-      if (options.returnUrl.param) {
-        const u = new URL(options.to, here);
-        u.searchParams.set(options.returnUrl.param, path);
-        target = u.origin === here.origin ? u.pathname + u.search + u.hash : options.to;
-      }
-    }
-    clearPersisted();
+    const env = envOf(config), target = signInTarget(options, env.href(), env.session());
+    clearStored();
     env.navigate(target);
     return new Promise<Response>(() => {});
   };
+}
+
+/**
+ * Where `loginRedirect` goes from `href`: `to`, with the return URL stored in `session` (same-origin, under an allowed
+ * prefix) and, with `param`, in that query parameter. Also the sign-in guard's (`data-sn-signed-in`), in the early script.
+ */
+export function signInTarget(o: string | LoginRedirectOptions, href: string, session: Storage | null): string {
+  // a path alone (an API's `token.signIn`): the return URL stored, any same-origin path
+  const options = typeof o == 'string' ? { to: o, returnUrl: { allow: ['/'] } } : o;
+  const here = new URL(href);
+  const path = here.pathname + here.search + here.hash;
+  let target = options.to;
+  if (options.returnUrl && options.returnUrl.allow.some((p) => here.pathname.startsWith(p))) {
+    try { session?.setItem(RETURN_KEY, path); } catch { /* ignored */ }
+    if (options.returnUrl.param) {
+      const u = new URL(options.to, here);
+      u.searchParams.set(options.returnUrl.param, path);
+      target = u.origin === here.origin ? u.pathname + u.search + u.hash : options.to;
+    }
+  }
+  return target;
 }
 
 /** The return URL stored by loginRedirect, if it is same-origin and allowlisted; removes it. */
@@ -207,4 +230,3 @@ export function takeReturnUrl(allow: string[]): string | null {
   if (u.origin !== new URL(env.href()).origin) return null;
   return allow.some((p) => u.pathname.startsWith(p)) ? u.pathname + u.search + u.hash : null;
 }
-

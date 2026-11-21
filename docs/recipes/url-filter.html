@@ -1,6 +1,6 @@
 <!-- A multi-select filter in the URL: checkboxes with a `value` make `$url.tag` a list, written as
      repeated keys (?tag=go&tag=rust) and sent the same way. -->
-<sn-resource name="posts" src="/api/posts?tag={$url.tag}" items="posts" key="id"></sn-resource>
+<sn-resource name="posts" src="/api/posts?tag={$url.tag}" select="posts" key="id"></sn-resource>
 
 <fieldset>
   <label><input type="checkbox" value="go" data-sn-model="$url.tag"> Go</label>

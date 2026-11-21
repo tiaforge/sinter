@@ -62,7 +62,7 @@ describe('reserved comments: only the exact anchor forms', () => {
 
   test('the page: author comments beside and in a list are left alone, by the runtime and the early script', async () => {
     const page = `<!doctype html><html><head><script type="application/json" data-sn-resource="all">{"c":[{"id":1,"name":"Ada"}]}</script></head><body>
-      <sn-resource name="all" src="/api/all" items="c" key="id"></sn-resource>
+      <sn-resource name="all" src="/api/all" select="c" key="id"></sn-resource>
       <!--snippet--><ul><!-- snapshot --><template data-sn-for="c in all"><li data-sn-text="c.name"></li></template><!-- sn notes --></ul></body></html>`;
     const { root, settle, warnings } = await render(page, { firstPaint: true });
     await settle();
@@ -254,7 +254,7 @@ describe('the runtime', () => {
 describe('first paint and takeover', () => {
   const data = JSON.stringify({ c: [{ id: 1, name: 'Ada' }, { id: 2, name: 'Grace' }] });
   const page = `<!doctype html><html><head><script type="application/json" data-sn-resource="all">${data}</script></head><body>
-    <sn-resource name="all" src="/api/all" items="c" key="id"></sn-resource>
+    <sn-resource name="all" src="/api/all" select="c" key="id"></sn-resource>
     <ul><template data-sn-for="c in all"><li data-sn-text="c.name"></li></template></ul></body></html>`;
 
   test('the early script renders the rows between the comments, and the page module adopts them: the same nodes', async () => {

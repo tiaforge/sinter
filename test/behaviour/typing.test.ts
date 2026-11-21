@@ -10,7 +10,7 @@ test('keystrokes coalesce: the request goes out 250 ms after the last one; the s
   const requests = mockRequests({ 'GET /api/s': (call) => ({ items: [{ id: new URL(call.url, 'http://x').searchParams.get('q') }] }) });
   const { root, flush, advance, settle } = await render(`
     <div data-sn-state="{ q: '' }">
-      <sn-resource name="r" src="/api/s?q={q}" items="items" key="id"></sn-resource>
+      <sn-resource name="r" src="/api/s?q={q}" select="items" key="id"></sn-resource>
       <input type="search" data-sn-model="q">
       <ul><template data-sn-for="it in r"><li data-sn-text="it.id"></li></template></ul>
     </div>`, { requests });
@@ -38,7 +38,7 @@ test('a change not from typing (a select, a handler, `when`) is requested at onc
   const requests = mockRequests({ 'GET /api/s': { items: [] } });
   const { root, flush, settle } = await render(`
     <div data-sn-state="{ q: '', sort: 'a', on: true }">
-      <sn-resource name="r" src="/api/s?q={q}&sort={sort}" items="items" key="id" when="on"></sn-resource>
+      <sn-resource name="r" src="/api/s?q={q}&sort={sort}" select="items" key="id" when="on"></sn-resource>
       <input data-sn-model="q">
       <select data-sn-model="sort"><option value="a">a</option><option value="b">b</option></select>
       <button data-sn-on-click="q = 'set'">set</button>
@@ -64,7 +64,7 @@ test('a textarea types too; a number field, checkbox or radio does not', async (
   const requests = mockRequests({ 'GET /api/s': { items: [] } });
   const { root, flush, settle } = await render(`
     <div data-sn-state="{ t: '', n: 1, c: false }">
-      <sn-resource name="r" src="/api/s?t={t}&n={n}&c={c}" items="items" key="id"></sn-resource>
+      <sn-resource name="r" src="/api/s?t={t}&n={n}&c={c}" select="items" key="id"></sn-resource>
       <textarea data-sn-model="t"></textarea>
       <input type="number" data-sn-model="n">
       <input type="checkbox" data-sn-model="c">

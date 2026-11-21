@@ -170,8 +170,8 @@ bindings over it, `data-sn-for` loops included, are in the first frame. The page
 the rows that are there instead of cloning them again.
 
 Who writes the JSON is up to you. A server that only fetches your API and writes the response
-into the page is enough: it renders nothing. The slots must sit in `<head>`, once per resource;
-anything else is ignored. Empty slot contents mean "no data", and the page requests it itself, so
+into the page is enough: it renders nothing. The placeholders must sit in `<head>`, once per resource;
+anything else is ignored. An empty placeholder means "no data", and the page requests it itself, so
 a server that fails or times out leaves a working page. Invalid JSON is a dev warning.
 
 ### The server layer
@@ -187,9 +187,9 @@ sinter({ embed: true })
 ```
 
 Every resource whose request the page's URL decides (its `src`, `when` and `paginate`'s `model` read only
-`$url`, constants and helpers) gets an empty slot, last in the head, so a streaming server sends
-the stylesheets and scripts before it has the data. The build lists the slots in
-`dist/sinter-embed.json`: per page, its paths and per slot the resource and the request the browser
+`$url`, constants and helpers) gets an empty placeholder, last in the head, so a streaming server sends
+the stylesheets and scripts before it has the data. The build lists the placeholders in
+`dist/sinter-embed.json`: per page, its paths and per placeholder the resource and the request the browser
 would have made. Those resources are no longer preloaded or requested by the browser; the data comes
 with the page. `vite dev` is unaffected.
 
@@ -203,7 +203,8 @@ Two things to know:
 
 - The server fetches without the visitor's credentials. If the user's token lives in
   `localStorage`, the server cannot see it and writes the anonymous view; embedded data is not
-  reloaded. Give such resources a resolver that returns nothing, so the browser requests them.
+  reloaded. Declare the token on the API (`apis.<name>.token`): its operations get no placeholder (unless the
+  spec says the answer is the same for everyone), so the browser requests them, with the token.
 - A server that cannot fetch a page's data may end the page with `<body data-sn-failed>` (what
   `sinter-axum`, `Sinter.AspNetCore` and `@tiaforge-ui/sinter/server` do). The page script then does not mount. Pages never write that attribute
   themselves.
@@ -233,11 +234,18 @@ exactly the one sent early (a plain GET with no extra headers), so response midd
 
 Early requests leave before your request middleware runs, so they cannot carry what it adds. When the
 config module may change requests (`configure({ request })`, `header()`), the build
-requests nothing early: an early request without, say, a token would be refused (a 401 in the console)
-and sent again by the page with it, one wasted request per resource. A preload link would be worse: the
+requests nothing early of an API without a `token`: an early request without, say, a token would be refused
+(a 401 in the console) and sent again by the page with it, one wasted request per resource. A preload link would be worse: the
 browser gives its response to the page's request whatever headers that adds, so the token would never
 be sent. With an OpenAPI spec, operations whose `security` is public or answered with cookies are still
 preloaded ([apis](apis.md#requests)).
+
+A token the page keeps goes on its API instead, `sinter({ apis: { main: { token: { storage: 'local:jwt' } } } })`
+([apis](apis.md#a-token)): the early script reads it from the same storage and sends it, so the API's resources are
+requested early again, with the token, whatever the middleware; never by a preload link, which cannot carry it.
+With none stored, a resource that needs it is not requested at all and is loaded, empty, at mount, which the early
+script knows too: `$meta.user.loadedAt && !user` is the signed-out branch in the first frame. A page that needs a
+session (`data-sn-signed-in`) sends a signed-out visitor to sign in from the early script, before anything paints.
 
 If you control the API, sign in with a session cookie (`HttpOnly`, `Secure`, `SameSite=Lax`) rather
 than a token the page keeps in localStorage and adds in a middleware. The browser sends the cookie with
@@ -262,7 +270,7 @@ left to the page script. Cross-origin early requests are sent without credential
 `<sn-resource early="off">` keeps a resource out of the preload and the early request. Use it when
 a request middleware answers the request itself (a mock, its own cache): the early request would go
 unused. A middleware that changes the request, for example adds an `Authorization` header, needs
-nothing: with such a config nothing is requested early (see above).
+nothing: with such a config nothing of its API is requested early (see above); a token on the API keeps them.
 
 ### Low priority for dialog-only data
 
@@ -277,7 +285,7 @@ origin. The fonts and their look are unchanged; the page loses a render-blocking
 origin. It is a file, not an inline `<style>`, so your CSP needs no change.
 
 Downloads are cached in `node_modules/.cache/sinter/fonts`. If a build cannot download, it keeps
-the link and warns. `sinter({ fonts: { inline: false } })` turns this off.
+the link and warns. `sinter({ fonts: false })` turns this off (`fonts: { bundle: false, preload }` keeps the preloads).
 
 To preload a face, opt in: `sinter({ fonts: { preload: ['Inter', { family: 'Inter', weight: 700 }] } })`
 (a bare family means its regular face, 400 normal). A preload can make the first paint later,
@@ -317,7 +325,7 @@ below the list moves down to make room for them. For a list whose size the style
 build holds that room from the first frame:
 
 ```html
-<sn-resource name="people" src="/api/people" items="people" key="id" paginate="{ numbered: true, size: 12 }"></sn-resource>
+<sn-resource name="people" src="/api/people" select="people" key="id" paginate="{ numbered: true, size: 12 }"></sn-resource>
 <ul><template data-sn-for="p in people"><li class="row" data-sn-text="p.name"></li></template></ul>
 ```
 
@@ -484,7 +492,9 @@ early script knows (`$url`, `$now`, `$locale`, your helpers; not state, another 
 built-in formatters such as `date()`). With `cache`, or in an app with next-page data, only
 in a tab that holds no cached or prefetched rows of that resource: otherwise they are there at mount.
 A branch the status closes at mount whatever the load does (`data-sn-if="user"`, an error, "loaded and
-empty") is left out of the early script: the HTML shows it closed already.
+empty") is left out of the early script: the HTML shows it closed already. A list's empty state (the
+`data-sn-else` after a `data-sn-for`, [resources](resources.md#loading-empty-error)) is such a branch while its
+resources load; over state or a `file:` list, it is painted early or written at build time like any other.
 `loading`, `error` and `loadedAt` are known, also through a `data-sn-let` of the whole status; other status
 fields (a page number) are the page module's, and a binding that reads one renders when it mounts. The values are compiled into the page's early file: its
 runtime is the same.
@@ -512,7 +522,7 @@ Put only what needs data inside the template. The complete version is in
 | --- | --- |
 | Turn off the early script and reserved space for the app | `sinter({ firstPaint: false })`: bindings that need no data wait for the page script; build-time constants are still written into the HTML, and pages with nothing to run still ship no JavaScript |
 | Keep one resource out of preload and early request | `<sn-resource early="off">` |
-| Skip Google Fonts bundling | `sinter({ fonts: { inline: false } })` |
+| Skip Google Fonts bundling | `sinter({ fonts: false })` |
 | Leave out next-page data and Speculation Rules | `sinter({ prefetch: false })` or `<html data-sn-prefetch="off">`, see [navigation.md](navigation.md) |
 
 ## Testing

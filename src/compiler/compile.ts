@@ -5,7 +5,7 @@ import { rewriteImages, sourceFile, type ImageHost, type ImageResult } from './i
 import { boxSizesCss, type ReserveTrace, Layout, PLACEHOLDER_BASE, type Affine, type Reserved, type StyleSheet } from './layout.js';
 import { shows } from './status-eval.js';
 import { recordChild, replay as replayUnit, LINK_FIELDS, UNIT_NUMBERING, type Plan, type Refused } from './link.js';
-import { HEAD_ELEMENTS, kindOfComponent, parseDocument } from './head.js';
+import { HEAD_ELEMENTS, kindOfComponent, parseDocument, STRUCTURAL } from './head.js';
 import { minifyMarkup } from './minify.js';
 import type { RemoteConfig } from '../remote.js';
 import { AUTO_FIT_HINT, AUTO_FIT_ROWS, FLUID_WIDTHS } from './images.js';
@@ -15,19 +15,19 @@ import { fullAncestor } from 'acorn-walk';
 import type { DefaultTreeAdapterMap } from 'parse5';
 import { type Code, type Diagnostic, didYouMean, severityOf, suggest } from './diagnostics.js';
 import { analyze, applyEdits, refNames, STORE_FNS, throughField, type SlotScope, type ComponentScope, type ExprOptions, type ExprResult, type LetEntry, type LoopEntry, type PageInfo, type Read, type ResourceInfo, type Scope } from './expr.js';
-import { callerAttribute, COMPONENT_NAME, DOM_EVENTS, LIBRARY_LAYER, rootCss, scopeCss, SLOT_TYPE, typeMembers, withoutSlots, type Member } from './components.js';
+import { callerAttribute, COMPONENT_NAME, DOM_EVENTS, isArrayType, LIBRARY_LAYER, rootCss, scopeCss, SLOT_TYPE, typeMembers, withoutSlots, type Member } from './components.js';
 import type { Node } from 'acorn';
 import type * as acorn from 'acorn';
 import { COMPLEXITY_DEFAULTS, COMPLEXITY_LIMITS, measure, type ComplexityOptions } from './complexity.js';
 import { ATTRIBUTES, CHAR_KEYS, ELEMENTS, KEY_ALIASES, LOOSE_SHIFT, MODIFIERS, NAMED_KEYS } from './vocabulary.js';
 import type { CheckExpr, CheckFrame, CheckLoc, CheckResource, CheckUnit, TypeRef } from './check-unit.js';
-import { apiOf, shapeTemplate, type ApiDef, type ApisDef, type OperationShape } from './apis.js';
+import { apiOf, shapeTemplate, signInWire, type ApiDef, type ApisDef, type OperationShape } from './apis.js';
 import { foldReason, type FoldVerdict } from '../fold-check.js';
-import { FILE_ATTRS, FILE_ENTRY, fileAttrProblem, fileEntry, filePath, fileValue, isContentSource, isFileSource, isGlob, PAGE_ENTRY, scriptJson, setPath, sortList } from './files.js';
+import { BUILD_TIME_ATTRS, buildTimeAttrProblem, FILE_ATTRS, FILE_ENTRY, fileAttrProblem, fileEntry, filePath, fileValue, isContentSource, isFileSource, isGlob, PAGE_ENTRY, scriptJson, setPath, sortList } from './files.js';
 import { deref, matchOperation, matchResource, type Method, type OpenApiMatch, type Auth, namedAt, namedSchema, properties, propertyNames, queryNames, responseEntities, walk, wrapperKey, type OpenApiSpec } from './openapi.js';
 import type { ActionDef, ApplyDef, Binding, EarlyIR, EventDef, IR, NodeDef, Paginate, PathRef, ResourceDef, SyncDef, TemplateDef, UrlTemplate } from '../ir.js';
 import { $k, schemesOf, STYLE_BAD, urlAllowed } from '../runtime/security.js';
-import { withParams } from '../runtime/url.js';
+import { $href, $hq, $hv, withParams } from '../runtime/url.js';
 import { firstParams, pageParams } from '../runtime/pages.js';
 import { eachPath } from '../paths.js';
 import { pagePaths } from '../page-paths.js';
@@ -339,6 +339,8 @@ export interface CompileResult {
   /** origins of resources that could be requested early but are not in `origins` */
   unlistedOrigins?: string[];
   prefetchOff?: true;
+  /** what the page does as it loads besides reading (`CompiledParts.loadEffect`); absent: nothing */
+  loadEffect?: string;
   /** the names of the page's kept elements (`data-sn-permanent`), in document order */
   permanent?: string[];
   /** where each kept element was written (file, offset, a hash of its source): one markup across the pages, for those that bind */
@@ -376,13 +378,21 @@ export const EARLY_FORMATTERS = ['date', 'number', 'bytes'];
  */
 export interface PrefetchParts {
   path: string[];
-  res: Array<{ s: UrlTemplate; w?: number; i: string | null; t: string | null; k?: 1 }>;
+  /**
+   * a paginated resource's first page: `q` its parameters (`firstParams`), and with `model` (paginate) `sp`, the page the
+   * link's URL names, as the early file reads it (`startOf`): from page 2 on, `q` with `k` set to the page (`o`: the items to skip)
+   */
+  res: Array<{ u: number; i?: string; t?: string; k?: 1; q?: Record<string, string>; sp?: { k: string; s: number; o?: 1 } }>;
   fns: string[];
+  /** the URL helpers its functions call (`$hv`, `$hq`, `$href`, `withParams`, `toPage`), from the prefetch module */
+  uses: string[];
   /** helper names and namespace members the functions call */
   helpers: string[];
   namespaces: Record<string, string[]>;
   /** the page's array parameters (`IR.urlArrays`) */
   a?: string[];
+  /** `data-sn-signed-in`: where its API's token is stored, and the condition (index into `fns`): signed out, nothing is requested ahead */
+  g?: { t: { s: 'l' | 's'; k: string }; f?: number };
 }
 
 /**
@@ -477,6 +487,11 @@ export interface CompiledParts {
   embed: EmbedSlot[];
   /** `<html data-sn-prefetch="off">` */
   prefetchOff?: true;
+  /**
+   * what the page does as it loads besides reading data and rendering it, the first the build found (`loadEffects()`);
+   * absent: nothing, so `prefetch: { html: { prerender: 'auto' } }` may prerender it (its app modules permitting)
+   */
+  loadEffect?: string;
   /** the names of the page's kept elements (`data-sn-permanent`), in document order */
   permanent?: string[];
   /** where each kept element was written, and those that bind: one markup across the pages */
@@ -515,6 +530,8 @@ const RETIRED: Record<string, string> = {
   'data-sn-listbox': 'is renamed to `data-sn-options`, which also serves menus and lists: on a text field it works as before; on the element that holds the options, that element takes the focus',
   'data-sn-get': 'is gone: data a GET loads is a resource, `<sn-resource name="hits" src="/api/search?q={q}" when="q">`, which reloads when the values its URL reads change (latest wins); a load a click starts sets the state its `when` reads (docs/recipes/click-to-load.html), or is a `data-sn-call`',
 };
+/** `<sn-resource items>` (docs/proposals/vocabulary.md, step 20): reported on every kind of resource (fetched, `file:`, `content:`) */
+const ITEMS_RENAMED = '`items` is renamed to `select`: the path in the response where the data is, a list or one object: `<sn-resource name="people" src="/api/people" select="people" key="id">`';
 /** an action's expressions evaluated when it triggers, so they see `$event` */
 const TRIGGER_TIME = new Set(['data-sn-post', 'data-sn-put', 'data-sn-patch', 'data-sn-delete', 'data-sn-call', 'data-sn-body', 'data-sn-confirm']);
 /** attributes sinter writes on the page for CSS to style (docs/attributes.md), never written in markup */
@@ -553,6 +570,7 @@ function itemCursor(text: string): string {
 const ACTION_ONLY = ['body', 'trigger', 'debounce', 'concurrency', 'optimistic', 'then', 'catch', 'confirm', 'encoding', 'write-through', 'retry'];
 const UNSAFE_ELEMENTS = new Set(['script', 'style', 'iframe', 'object', 'embed', 'base', 'meta', 'link', 'animate', 'set', 'animatemotion', 'animatetransform']);
 const FORM_CONTROLS = new Set(['input', 'select', 'textarea']);
+// a build-time source's own attributes (`fields`, `drafts`: BUILD_TIME_ATTRS) are SN332 on a fetched resource
 const RESOURCE_ATTRS = ELEMENTS.find((e) => e.name === 'sn-resource')!.attrs;
 /** the attributes `paginate` replaced (docs/proposals/vocabulary.md): reported with the object they become */
 const PAGINATE_OLD = ['page-size', 'size-param', 'cursor', 'direction-param', 'direction-values', 'page-param', 'offset-param', 'page-model'];
@@ -845,7 +863,7 @@ function constantProps(src: string | undefined, props: Member[] | null): Map<str
 }
 
 /** what a component's tag may not carry: these change its content, which belongs to the component */
-const TAG_ONLY_HINT = 'a component\'s tag takes `data-sn-with`, `data-sn-model`, handlers, actions, `data-sn-class`, `-attr`, `-style`, `-show` and `-transition`; the rest belongs inside the component';
+const TAG_ONLY_HINT = 'a component\'s tag takes `data-sn-with`, `data-sn-model`, handlers, actions, `data-sn-class`, `-attr`, `-href`, `-style`, `-show` and `-transition`; the rest belongs inside the component';
 
 export function compileParts(html: string, options: CompileOptions): CompiledParts {
   let out = compilePasses(html, options);
@@ -982,6 +1000,8 @@ class Compiler {
   readonly fnIndex = new Map<string, number>();
   /** how many times each function's index was handed out: a function no longer used by anything is left out (`dropConstants`) */
   private readonly fnUses: number[] = [];
+  /** an action's element has an id, or bound attributes: `IR.tw` */
+  twin = false;
   /** where each function in `fns` was first written: the expression that compiled to it, else the element being compiled */
   readonly fnAt: Array<Site | null> = [];
   /** the element or expression being compiled: the site of functions the compiler writes itself */
@@ -1156,11 +1176,16 @@ class Compiler {
   private readonly spaces: Array<{ list: P5Element; names: string[]; k: string; space: Reserved; note: (why: string) => void; ph?: P5Element; node?: NodeDef; tpl?: P5Element }> = [];
   /** origins of resources that could be requested early but are not listed in `origins` */
   readonly unlisted = new Set<string>();
-  /** whether a resource's literal `src` may be requested before the page module: same-origin, or a listed origin */
+  /**
+   * whether a resource's literal `src` may be requested before the page module: same-origin, or a listed origin. The
+   * early file requests it with no check of its origin at runtime: its literal start fixes it (a value is encoded, so
+   * it cannot start another `/` or `\`, nor go on with the host), as URL parsers read it (tabs and newlines dropped)
+   */
   private earlyOrigin(src: ResourceDef['src']): 'same' | 'listed' | null {
-    const head = typeof src[0] === 'string' ? src[0] : '';
-    if (/^\/(?!\/)/.test(head)) return 'same';
-    const m = /^https?:\/\/[^/?#]+/i.exec(head);
+    const head = typeof src[0] === 'string' ? src[0].replace(/[\t\n\r]/g, '') : '';
+    // (`/` alone before a value is not enough: an empty value and a `/` after it would make `//host`)
+    if (src.length === 1 ? /^\/(?![/\\])/.test(head) : /^\/[^/\\]/.test(head)) return 'same';
+    const m = /^https?:\/\/[^/?#\\]+(?=[/?#\\])/i.exec(head);
     if (!m) return null;
     const origin = new URL(m[0]).origin;
     if ((this.opts.origins ?? []).some((o) => { try { return new URL(o).origin === origin; } catch { return false; } })) return 'listed';
@@ -1188,6 +1213,10 @@ class Compiler {
   readonly frameOf = new Map<object, number>();
   /** `sinter check`: the condition a branch is checked under, when it is not its own `data-sn-if` (the `data-sn-else` of a choice); and each `if` binding's, for its `data-sn-else` */
   private readonly branchGuard = new WeakMap<object, string>();
+  /** a list's empty state (`emptyStates`): the `data-sn-else` after a `data-sn-for`, now a `data-sn-if`, and the list it is about */
+  /** the second pass: the expressions of the branches it decided and the lists it unrolled to no rows, which read what they name (SN501) */
+  private readonly foldedText: string[] = [];
+  private readonly emptyOf = new WeakMap<P5Element, { list: string; at: P5Element }>();
   /** index in `check.exprs` of the expression `expr()` recorded last, or null */
   lastExpr: number | null = null;
   /** action elements by literal `id` (`run()` targets) */
@@ -1203,6 +1232,10 @@ class Compiler {
   readonly stateInits: Array<{ sid: number; fields: Array<{ key: string; code: string; deps: string[] }>; persist: string | null }> = [];
   /** `<html data-sn-prefetch="off">`: other pages do not prefetch or prerender this one */
   prefetchOff = false;
+  /** `data-sn-signed-in` on `<html>`: the page needs a session; `f` its condition over `$url` (none: always) */
+  signedIn: { el: P5Element; f: number | null } | null = null;
+  /** the guard, checked against the page's APIs (\`signedInGuard()\`): what the early script and the page module redirect with */
+  guard: NonNullable<IR['si']> | null = null;
   /** `<html data-sn-swap="off">`: links to this page load it */
   swapOff = false;
   /** the kept elements (`data-sn-permanent`) and their names */
@@ -1227,7 +1260,7 @@ class Compiler {
   /** models on `$url` parameters: whether each binds a list (`<select multiple>`, a checkbox with a `value`) */
   readonly urlBinds: Array<{ name: string; array: boolean; report: (msg: string) => void }> = [];
   /** links and what the build can see of where they go (static `href`s, the literal starts of bound ones); elements whose `href` is bound */
-  readonly hrefs: Array<{ el: P5Element; prefixes: HrefPrefix[]; literal: boolean }> = [];
+  readonly hrefs: Array<{ el: P5Element; prefixes: HrefPrefix[]; literal: boolean; query?: string[]; src?: string }> = [];
   readonly boundHrefs = new Set<P5Element>();
   /**
    * Same-page links (query-links.ts): the query parameters the page reads, from the IR's dependencies
@@ -1267,9 +1300,9 @@ class Compiler {
     }));
   }
   /**
-   * SN519: a pager link (a static query-only `href` that sets a `model` (paginate) parameter) that drops
-   * query parameters the page reads. A filter or tab link that drops the page is how a list starts
-   * at page 1; a link whose `href` is also bound is its fallback.
+   * SN519: a pager link (a query-only `href` that sets a `model` (paginate) parameter: static, or a `data-sn-href`
+   * template, whose parameter names are literal) that drops query parameters the page reads. A filter or tab
+   * link that drops the page is how a list starts at page 1; a static `href` beside a bound one is its fallback.
    */
   checkDroppedQuery(reads: string[], patterns: string[]): void {
     const models = new Set(this.pageModels.map((m) => m.name));
@@ -1277,12 +1310,14 @@ class Compiler {
     const query = reads.filter((n) => !fromPath.has(n) && !models.has(n));
     for (const h of this.hrefs) {
       const v = h.prefixes[0]?.s;
-      if (!h.literal || v?.[0] !== '?' || this.boundHrefs.has(h.el)) continue;
-      const has = new Set(new URLSearchParams(v.slice(1).split('#')[0]).keys());
-      if (![...has].some((n) => models.has(n))) continue;
+      if (!h.query && (!h.literal || v?.[0] !== '?' || this.boundHrefs.has(h.el))) continue;
+      const has = new Set(h.query ?? new URLSearchParams(v!.slice(1).split('#')[0]).keys());
+      const model = [...has].find((n) => models.has(n));
+      if (model === undefined) continue;
       const dropped = query.filter((n) => !has.has(n));
-      if (dropped.length) this.report(h.el, 'href', 'SN519', `\`${v}\` keeps only its own query: ${dropped.map((n) => `\`${n}\``).join(', ')}, which this page reads, ${dropped.length > 1 ? 'are' : 'is'} dropped when it is followed`, 0,
-        'build the whole query in `data-sn-attr` (`href: \'?page=\' + n + \'&tag=\' + encodeURIComponent($url.tag)`), or leave the parameter out on purpose');
+      const name = h.query ? 'data-sn-href' : 'href', shown = h.src ?? v;
+      if (dropped.length) this.report(h.el, name, 'SN519', `\`${shown}\` keeps only its own query: ${dropped.map((n) => `\`${n}\``).join(', ')}, which this page reads, ${dropped.length > 1 ? 'are' : 'is'} dropped when it is followed`, 0,
+        `keep ${dropped.length > 1 ? 'them' : 'it'} in the link's template (\`data-sn-href="?${dropped.map((n) => `${n}={$url.${n}}&`).join('')}${model}={n}"\`: a parameter that is not set is left out), or leave ${dropped.length > 1 ? 'them' : 'it'} out on purpose`);
     }
   }
   /** `model` (paginate) parameters: one is never a list */
@@ -1345,6 +1380,7 @@ class Compiler {
       resources: new Map(), helpers: new Set(opts.helpers.names), namespaces: ns,
       actions: new Set([...(opts.actions?.names ?? []), ...Object.keys(opts.actions?.namespaces ?? {})]),
       usedHelpers: new Set(), usedNs: new Map(), usesNow: false, pathParams: new Set(), dialogs: new Set(), fed: new Set(), ids: new Map(),
+      ...(opts.apis?.list.some((a) => a.token) ? { tokens: true } : {}),
     };
     const l = opts.locale;
     if (l) {
@@ -1397,6 +1433,7 @@ class Compiler {
     this.pagesOf(doc);
     this.head = findHead(doc);
     this.expandComponents(doc, []);
+    this.emptyStates(doc);
     this.strayAndRepeated(doc);
     this.slotsPlaced();
     // the second pass: what the first decided, per instance, at any depth (decided templates and choices, unrolled loops)
@@ -1465,8 +1502,10 @@ class Compiler {
     this.declareLayers(doc);
     if (this.opts.embed) this.addPlaceholders(doc);
     this.placeholders();
+    // read by what the second pass decided and took out (a branch, a list with no entries): read
+    const folded = new Set(this.foldedText.flatMap((t) => t.match(/[A-Za-z_$][\w$]*/g) ?? []));
     for (const info of this.page.resources.values()) {
-      if (!info.used) {
+      if (!info.used && !folded.has(info.name)) {
         const el = this.resourceEls.get(info.name)!;
         this.report(el, 'name', 'SN501', `resource \`${info.name}\` is declared but never read`, 0);
       }
@@ -1532,6 +1571,7 @@ class Compiler {
   finishPage({ doc, images, paths }: NonNullable<Compiler['walk']>): CompiledParts & { canonicalOnly?: boolean } {
     if (this.opts.prerender) { this.prerender(); this.embedFolded(); this.dropConstants(); this.dropFiles(); this.foldScriptsOut(); if (this.collecting()) this.collectConstants(); }
     this.anchors();
+    this.guard = this.signedInGuard();
     let early = this.opts.early ? this.earlyParts() : undefined;
     this.placeTemplates(doc, early);
     if (early && this.opts.sourcemap) early.sources = this.sourcesOf(early.fns, this.earlySites);
@@ -1573,6 +1613,8 @@ class Compiler {
     const ir: IR = { v: 2, resources: this.resources, syncs: this.syncs, roots: this.roots, templates: this.templates, actions: this.actions };
     if (styleGroups.length) ir.sg = styleGroups;
     if (this.page.usesNow) ir.now = true;
+    if (this.guard) { ir.si = this.guard; this.features.add('signed-in'); }
+    if (this.twin) ir.tw = 1;
     // lets that wait for a lazy helper module (lets.ts), each module loaded by a function of the table
     const lazyHelpers = this.lazyMods.filter((_, i) => this.fns.some((c) => c.includes(`$.$z(${i}, `)));
     if (lazyHelpers.length) {
@@ -1583,6 +1625,11 @@ class Compiler {
     const arrays = this.urlArrays();
     if (arrays.length) ir.urlArrays = arrays;
     this.checkUrlArrays(new Set(arrays));
+    // each URL template as code (`urlCode`): the page module makes its URLs with none of `expand`
+    for (const d of [...this.resources, ...this.syncs, ...this.actions]) {
+      const t = 'url' in d ? d.url : d.src;
+      if (t.length) d.u = this.fn(`($) => ${this.urlFn(t)}`, null);
+    }
     const builtin: string[] = [];
     const user: string[] = [];
     // a lazy module's helpers are not imported: the module loads when a let needs it
@@ -1590,6 +1637,8 @@ class Compiler {
     const live = this.fns.filter((c) => c !== '0').join('\n');
     const imported = (key: string) => !this.page.lazy?.has(key) && new RegExp(`(?<![\\w$.])${key.replace(/\$/g, '\\$')}(?![\\w$])`).test(live);
     for (const h of [...this.page.usedHelpers].sort()) if (imported(h)) (this.page.helpers.has(h) ? user : builtin).push(h);
+    // a link's URL template (`data-sn-href`) that is not written into the HTML
+    for (const h of ['$href', '$hq', '$hv']) if (imported(h)) builtin.push(h);
     const namespaces: Record<string, string[]> = {};
     for (const [k, v] of [...this.page.usedNs].sort(([a], [b]) => a.localeCompare(b))) {
       const ms = [...v].filter((m) => imported(`${k}$${m}`)).sort();
@@ -1608,6 +1657,9 @@ class Compiler {
       eachPath(ir, (p) => { if (typeof p === 'string' && p.startsWith('$url.')) { const n = p.slice(5).split('.')[0]!; if (params.has(n)) read.add(n); } }, () => {});
       for (const n of [...read].sort()) this.report(this.pagesDecl.html, 'data-sn-for', 'SN345', `\`$url.${n}\` on a page per entry (\`data-sn-for\` on \`<html>\`): each entry's page is written at its own path, so \`:${n}\` is the entry's field, \`${this.pagesDecl.name}.${n}\``, 0);
     }
+    // Back and Forward restore what the page showed as it was left: cache.ts with `cache`, else back.ts where a resource can
+    // come back (not `for`, `call`, `method="POST"`, `file:`, embedded data, which wins, or `append`, which is not written)
+    if (!this.features.has('cache') && this.resources.some((r) => !r.call && !r.each && r.body == null && !r.fx && r.data == null && r.paginate?.mode !== 'append')) this.features.add('back');
     const reads = this.urlReads(ir, paths), own = this.ownPaths(paths);
     if (reads) this.checkDroppedQuery(reads, paths);
     // `navigate()` may go to this page with another query too: the build cannot see where, so it loads the module
@@ -1622,7 +1674,7 @@ class Compiler {
       ir, fns: this.fns,
       ...(this.opts.prerender ? { fixedState: this.fixedState() } : {}),
       ...(this.opts.sourcemap ? { sources: this.sourcesOf(this.fns) } : {}),
-      features: [...(this.opts.dev ? ['dev'] : []), ...['sse', 'optimistic', 'paginate', 'persist', 'cache', 'versions', 'refresh', 'each', 'options', 'keys', 'write-through', 'fields', 'form', 'select', 'location', 'typing', 'query-links', 'navigate', 'call', 'debounce', 'confirm', 'models', 'transition', 'components', 'nested', 'lets'].filter((f) => this.features.has(f))],
+      features: [...(this.opts.dev ? ['dev'] : []), ...['sse', 'optimistic', 'paginate', 'persist', 'cache', 'back', 'versions', 'refresh', 'for', 'options', 'keys', 'write-through', 'fields', 'form', 'select', 'location', 'typing', 'query-links', 'navigate', 'call', 'debounce', 'confirm', 'models', 'transition', 'components', 'nested', 'lets', 'signed-in'].filter((f) => this.features.has(f))],
       helpers: { user, builtin }, namespaces, calls: [...this.calls].sort(),
       diagnostics: this.diagnostics, files: [...this.files].sort(), ...(this.fileGlobs.length ? { globs: this.fileGlobs } : {}), ...(this.pagesOut ? { pages: this.pagesOut } : {}),
       ...(this.check ? { check: this.check } : {}),
@@ -1635,6 +1687,7 @@ class Compiler {
       prefetch: this.prefetchOff ? null : this.prefetchParts(),
       embed: this.embedSlots(),
       ...(this.prefetchOff ? { prefetchOff: true as const } : {}),
+      ...((effect) => (effect ? { loadEffect: effect } : {}))(this.loadEffects(ir, doc)),
       ...(this.permanentNames.length ? { permanent: [...this.permanentNames], keptSource: Object.fromEntries(this.keptSource), ...(this.keptBound.size ? { keptBound: [...this.keptBound] } : {}) } : {}),
       ...(this.swapOff ? { swapOff: true as const } : {}),
       ...(this.unlisted.size ? { unlistedOrigins: [...this.unlisted].sort() } : {}),
@@ -1899,6 +1952,46 @@ class Compiler {
     return `\`paginate="{ ${parts.join(', ')} }"\``;
   }
 
+
+  /**
+   * What the page does as it loads besides reading data and rendering it, the first found, or null: what makes a page unsafe
+   * to prerender (`prefetch: { html: { prerender: 'auto' } }`), since a prerendered page runs for a visitor who may never see
+   * it. Reads are its GET resources (and `for` ones); streams wait until it is shown. Anything else counts: a resource that
+   * loads with `call` or a POST or runs `then`, a handler of an event no user caused (`load`, `toggle`, `sn-error`, a
+   * component's own events), a component script or another custom element, a lazy package loaded as it renders, a script
+   * that is not data. The app's modules (config, early, helpers, actions) are the build's to check (`prerender-build.ts`).
+   */
+  loadEffects(ir: IR, doc: P5Parent): string | null {
+    // a page that needs a session sends a signed-out visitor on: prefetched, not prerendered (it would only redirect once shown)
+    if (this.signedIn) return '`data-sn-signed-in` (a signed-out visitor is sent to sign in)';
+    for (const r of this.resources) {
+      if (r.call) return `resource \`${r.name}\` loads with \`call\``;
+      if (r.body != null) return `resource \`${r.name}\` loads with \`method="POST"\``;
+      if (r.then != null) return `resource \`${r.name}\` runs \`then\``;
+    }
+    for (const n of [...ir.roots, ...ir.templates.flatMap((t) => t.nodes)]) for (const b of n.b) {
+      if (b.k === 'cmp') return 'a component with a script';
+      if (b.k === 'imp') return 'lazy packages loaded as it renders (`data-sn-import`)';
+      if (b.k === 'on' && !USER_EVENTS.has(b.n!)) return `a handler of \`${b.n}\`, which the page may fire as it loads`;
+    }
+    if (ir.lm?.length) return 'a helper that loads lazy packages';
+    const DATA = /^(application\/(ld\+)?json|speculationrules|importmap)$/i;
+    const known = (tag: string) => tag.startsWith('sn-') || !!this.componentFiles.get(tag) || this.uses.has(tag);
+    let found: string | null = null;
+    const visit = (p: P5Parent) => {
+      for (const c of p.childNodes) {
+        if (found || !isElement(c)) continue;
+        if (c.tagName === 'script' && !OWN_SCRIPTS.has(c) && !DATA.test((attr(c, 'type') ?? '').trim())) found = attr(c, 'src') ? `a script (\`${attr(c, 'src')}\`)` : 'an inline script';
+        else if (c.tagName.includes('-') && !known(c.tagName)) found = `a custom element (\`<${c.tagName}>\`)`;
+        visit(c);
+        const t = (c as P5Element & { content?: P5Parent }).content;
+        if (t) visit(t);
+      }
+    };
+    visit(doc);
+    for (const tpl of this.headTemplates.values()) visit(tpl.content);
+    return found;
+  }
 
   /**
    * SN540: with swaps on, a script in the body that a swap would not run (inline or classic: the module
@@ -2194,7 +2287,7 @@ class Compiler {
     // the tag's attributes: plain ones replace the layout's on `<html>` (its defaults), `class` is joined
     for (const a of host.attrs) {
       if (a.name === 'data-sn-with' || a.name === 'data-sn-state') continue;
-      if (a.name === 'data-sn-path' || a.name === 'data-sn-prefetch' || a.name === 'data-sn-for' || a.name === 'data-sn-swap') { setAttr(lhtml, a.name, a.value); continue; }
+      if (a.name === 'data-sn-path' || a.name === 'data-sn-prefetch' || a.name === 'data-sn-for' || a.name === 'data-sn-swap' || a.name === 'data-sn-signed-in') { setAttr(lhtml, a.name, a.value); continue; }
       if (a.name === 'data-sn-pages') { this.report(host, a.name, 'SN101', `\`data-sn-pages\` ${RETIRED['data-sn-pages']}`, 0); continue; }
       if (a.name === 'data-sn-early') { this.report(host, a.name, 'SN318', '`data-sn-early` cannot be on a layout\'s tag: the layout is the whole page', 0, 'leave parts out of the early script on their own tags: `<tag-cloud data-sn-early="off">`'); continue; }
       if (a.name.startsWith('data-sn-')) {
@@ -2452,6 +2545,112 @@ class Compiler {
     }
   }
 
+  /**
+   * A list's empty state: the `<template data-sn-else>` directly after a `<template data-sn-for>` becomes a
+   * `data-sn-if`, whose condition the walk writes (`emptyCondition`). From here on it is a branch like a
+   * hand-written one: the second pass, the reserved space, the early file and the build's constants read it as
+   * one (docs/proposals/empty-state.md). Before the second pass for the page; at each level of the walk for the
+   * trees compiled on their own (a shared definition), `deep` false.
+   */
+  emptyStates(parent: P5Parent, deep = true) {
+    let prev: P5Element | null = null;
+    for (const c of parent.childNodes) {
+      if (!isElement(c)) {
+        if (c.nodeName === '#text' && (c as DefaultTreeAdapterMap['textNode']).value.trim() !== '') prev = null;
+        continue;
+      }
+      if (prev && c.tagName === 'template' && attr(c, 'data-sn-else') !== undefined && !this.emptyOf.has(c)) {
+        if (attr(c, 'data-sn-else')) this.report(c, 'data-sn-else', 'SN401', '`data-sn-else` takes no value', 0);
+        if (attr(c, 'data-sn-if') !== undefined) {
+          this.report(c, 'data-sn-if', 'SN102', 'the `data-sn-else` after a `data-sn-for` is the list\'s empty state, which takes no condition', 0,
+            'choose inside it: `<template data-sn-else><template data-sn-if="q">…</template><template data-sn-else>…</template></template>`');
+        }
+        c.attrs = c.attrs.filter((a) => a.name !== 'data-sn-else' && a.name !== 'data-sn-if');
+        c.attrs.push({ name: 'data-sn-if', value: '' });
+        this.emptyOf.set(c, { list: /^\s*(?:\(\s*[A-Za-z_]\w*\s*,\s*[A-Za-z_]\w*\s*\)|[A-Za-z_]\w*)\s+in\s+([\s\S]*)$/.exec(attr(prev, 'data-sn-for')!)?.[1] ?? '', at: prev });
+      }
+      prev = c.tagName === 'template' && attr(c, 'data-sn-for') !== undefined ? c : null;
+      if (deep) this.emptyStates(c.tagName === 'template' ? (c as P5Template).content : c);
+    }
+  }
+
+  /**
+   * The condition of a list's empty state, as source: the list is empty and every resource it may come from (as
+   * `listOf` follows it: lets, `?:`/`||`/`??`, `filter`/`slice`/`toSorted`/`toReversed`, a helper given one) has
+   * loaded, is not loading and has no error. A choice is followed: `q ? results : recent` waits for the one shown.
+   * A constant (`file:`, `content:`) has nothing to wait for; nor has a list that is not a resource's (state, a
+   * prop of none) or a list inside an item (`a.comments`, which came with its row).
+   */
+  emptyCondition(list: string, scope: Scope): string {
+    const fetched = (n: string) => {
+      const el = this.resourceEls.get(n), src = el && attr(el, 'src');
+      return !!el && !isFileSource(src) && !isContentSource(src);
+    };
+    const ld = (n: string) => (fetched(n) ? `$meta.${n}.loadedAt && !$meta.${n}.loading && !$meta.${n}.error` : null);
+    const all = (xs: Array<string | null>) => { const k = [...new Set(xs.filter((x): x is string => !!x))]; return k.length ? k.map((x) => `(${x})`).join(' && ') : null; };
+    // what a name is where the list is read: a let (before `upto`), a loop's or state's name, a resource
+    const lets = scope.lets ?? [];
+    const look = (n: string, upto: number): LetEntry | 'resource' | null => {
+      if (scope.loops.some((l) => l.name === n)) return null;
+      const l = lets.slice(0, upto).findLast((x) => x.name === n);
+      if (l) return l;
+      if (scope.states.some((s) => s.names.has(n))) return null;
+      return this.page.resources.has(n) ? 'resource' : null;
+    };
+    const names = (sources: string[] | null | undefined) => all((sources ?? []).filter((x) => /^[\w$]+$/.test(x)).map(ld));
+    type N = acorn.Expression & { start: number; end: number };
+    const parse = (text: string): N | null => { try { return parseExpression(text) as N; } catch { return null; } };
+    let depth = 0;
+    // `of`: the text the node's offsets are in; `upto`: the lets it may read
+    const walk = (n: N, of: string, upto: number): string | null => {
+      if (++depth > 64) return null;
+      switch (n.type) {
+        case 'ChainExpression': return walk(n.expression as N, of, upto);
+        case 'Identifier': {
+          const x = look(n.name, upto);
+          if (x === 'resource') return ld(n.name);
+          if (!x) return null;
+          const i = lets.indexOf(x), v = x.text !== undefined ? parse(x.text) : null;
+          return v ? walk(v, x.text!, i) : names(x.list);
+        }
+        // an item's list came with its row; a single resource's field waits for it (`feed.items`)
+        case 'MemberExpression': {
+          let o = n.object as N;
+          while (o.type === 'MemberExpression' || o.type === 'ChainExpression') o = (o.type === 'ChainExpression' ? o.expression : o.object) as N;
+          if (o.type !== 'Identifier') return null;
+          if (o.name === '$slot') return names(analyze(of.slice(n.start, n.end), scope, this.page, { mode: 'value', report: () => {} }).listOf?.map((s) => s.split('>')[0]!));
+          const x = look(o.name, upto);
+          return x === 'resource' ? ld(o.name) : x?.resource ? ld(x.resource) : null;
+        }
+        case 'ConditionalExpression': {
+          const a = walk(n.consequent as N, of, upto), b = walk(n.alternate as N, of, upto);
+          return a || b ? `(${of.slice(n.test.start, n.test.end)}) ? (${a ?? 'true'}) : (${b ?? 'true'})` : null;
+        }
+        case 'LogicalExpression': return n.operator === '&&' ? walk(n.right as N, of, upto) : all([walk(n.left as N, of, upto), walk(n.right as N, of, upto)]);
+        case 'ArrayExpression': return all(n.elements.map((e) => (e?.type === 'SpreadElement' ? walk(e.argument as N, of, upto) : null)));
+        case 'CallExpression': {
+          const c = n.callee as N;
+          if (c.type === 'MemberExpression' && !c.computed && c.property.type === 'Identifier' && ['filter', 'slice', 'toSorted', 'toReversed'].includes(c.property.name)) return walk(c.object as N, of, upto);
+          return all(n.arguments.map((a) => (a.type === 'SpreadElement' ? null : walk(a as N, of, upto))));
+        }
+        default: return null;
+      }
+    };
+    const ast = parse(list);
+    // the same text twice where it is plain: a resource, or what keeps a list an array
+    const array = !!ast && ((ast.type === 'Identifier' && ((x) => x === 'resource' || !!(x?.names?.length && x.names.every((n) => this.page.resources.get(n)?.key)))(look(ast.name, lets.length)))
+      || (ast.type === 'CallExpression' && ast.callee.type === 'MemberExpression' && !ast.callee.computed && ast.callee.property.type === 'Identifier' && ['filter', 'slice', 'toSorted', 'toReversed'].includes(ast.callee.property.name)));
+    const empty = array ? `!(${list})?.length` : `![...((${list}) || [])].length`;
+    const loaded = ast ? walk(ast, list, lets.length) : null;
+    // a choice that may not compile here (its test reads a name of the let's own place): wait for every candidate
+    if (loaded && !analyze(loaded, scope, this.page, { mode: 'value', report: () => {} }).ok) {
+      const r = analyze(list, scope, this.page, { mode: 'value', report: () => {} });
+      const every = names(r.listOf);
+      return every ? `(${every}) && ${empty}` : empty;
+    }
+    return loaded ? `(${loaded}) && ${empty}` : empty;
+  }
+
   /** Replaces one component tag by the component's root; null when the component file is invalid. */
   expandUse(host: P5Element, def: ComponentFile, chain: string[]): P5Element | null {
     const name = host.tagName;
@@ -2473,17 +2672,32 @@ class Compiler {
     const top = frag.childNodes.filter(isElement);
     for (const t of top) if (t.tagName === 'template') this.declaration(t, def.head ? 'data-sn-head' : 'data-sn-component', ['data-sn-component', 'data-sn-head']);
     const templates = top.filter((t) => t.tagName === 'template' && (attr(t, 'data-sn-component') !== undefined || attr(t, 'data-sn-head') !== undefined));
+    const decl = def.head ? 'data-sn-head' : 'data-sn-component';
+    // without `data-sn-props`, the file's only top-level `<template>` is its declaration: a component without props
+    const bare = templates.length ? [] : top.filter((t) => t.tagName === 'template');
+    if (bare.length > 1) {
+      return fail(bare[1]!, null, `component \`<${name}>\` has ${bare.length} top-level \`<template>\`s and none has \`data-sn-props\`: a component file holds one \`<template>\` around its markup`,
+        'keep one `<template>` at the top and move the others inside it; with props, mark it: `<template data-sn-props="{ article: Article }">`');
+    }
+    const structural = bare.length ? bare[0]!.attrs.find((a) => STRUCTURAL.includes(a.name)) : undefined;
+    if (structural) {
+      return fail(bare[0]!, structural.name, `the top-level \`<template>\` of \`<${name}>\`'s file is its declaration, around its markup: \`${structural.name}\` cannot be on it`,
+        `put it on a template inside: \`<template><template ${structural.name}="…">…</template></template>\``);
+    }
+    if (bare.length) {
+      bare[0]!.attrs.push({ name: decl, value: '' });
+      templates.push(bare[0]!);
+    }
     if (templates.length !== 1) {
-      return fail(templates[1] ?? null, null, `component \`<${name}>\` needs ${templates.length ? 'exactly ' : ''}one \`<template data-sn-props="{ …props }">\` (one root element, or head elements only) around its markup`,
-        '`<template data-sn-props="{ article: Article }"><article>…</article></template>`');
+      return fail(templates[1] ?? null, null, `component \`<${name}>\` needs ${templates.length ? 'exactly ' : ''}one \`<template>\` around its markup (with \`data-sn-props="{ …props }"\` when it takes props; one root element, or head elements only)`,
+        '`<template data-sn-props="{ article: Article }"><article>…</article></template>`, or `<template><footer>…</footer></template>` without props');
     }
     const template = templates[0]!;
     if (attr(template, 'data-sn-component') !== undefined && attr(template, 'data-sn-head') !== undefined) {
       return fail(template, 'data-sn-head', `\`<${name}>\` declares both \`data-sn-component\` and \`data-sn-head\`, which are one \`data-sn-props\` now`, 'its markup says the kind: one root element for a body, head elements only for a head');
     }
-    const decl = def.head ? 'data-sn-head' : 'data-sn-component';
     for (const t of top) {
-      if (t !== template && t.tagName !== 'style') return fail(t, null, `a component file holds its \`<template data-sn-props>\` and \`<style>\`; \`<${t.tagName}>\` belongs inside the template`);
+      if (t !== template && t.tagName !== 'style') return fail(t, null, `a component file holds its \`<template>\` and \`<style>\`; \`<${t.tagName}>\` belongs inside the template`);
     }
     if (def.head && def.css === undefined && top.some((t) => t.tagName === 'style')) {
       def.css = null;
@@ -2646,6 +2860,9 @@ class Compiler {
       if (typeof x === 'string') return x;
       if (typeof y === 'string') return y;
       return { kind: 'chain', templates: [a!, b!], branches: [x, y], empty: false };
+    }
+    if (els.length === 2 && a!.tagName === 'template' && attr(a!, 'data-sn-for') !== undefined && b!.tagName === 'template' && attr(b!, 'data-sn-else') !== undefined) {
+      return `a component's root renders at most one element: a \`<template data-sn-for>\` and its \`data-sn-else\` cannot be the root of \`<${name}>\``;
     }
     if (els.length !== 1) {
       return `a component's root renders at most one element; \`<${name}>\` has ${els.length} elements at the top of its template`;
@@ -2824,13 +3041,14 @@ class Compiler {
     const { host, name, chain } = use;
     const real = (c: P5Node) => isElement(c) || (c.nodeName === '#text' && (c as DefaultTreeAdapterMap['textNode']).value.trim() !== '');
     const realIn = (nodes: P5Node[] | undefined) => !!nodes?.some(real);
-    // the tag's content by slot name; the `data-sn-else` template after a `<template slot="…" data-sn-if>` is part of its fill
+    // the tag's content by slot name; the `data-sn-else` template after a `<template slot="…" data-sn-if>` (or `data-sn-for`,
+    // its empty state) is part of its fill
     const groups = new Map<string, P5Node[]>();
     let ifSlot: string | null = null;
     for (const c of [...host.childNodes]) {
       let slot = isElement(c) ? attr(c, 'slot') : this.forwarded.get(c);
       if (slot === undefined && ifSlot !== null && isElement(c) && c.tagName === 'template' && attr(c, 'data-sn-else') !== undefined) slot = ifSlot;
-      if (real(c)) ifSlot = isElement(c) && c.tagName === 'template' && attr(c, 'data-sn-if') !== undefined && attr(c, 'slot') !== undefined ? attr(c, 'slot')! : null;
+      if (real(c)) ifSlot = isElement(c) && c.tagName === 'template' && (attr(c, 'data-sn-if') !== undefined || attr(c, 'data-sn-for') !== undefined) && attr(c, 'slot') !== undefined ? attr(c, 'slot')! : null;
       const k = slot ?? '';
       if (!groups.has(k)) groups.set(k, []);
       groups.get(k)!.push(c);
@@ -3961,7 +4179,7 @@ class Compiler {
       // sinter's: compiled as on an element, then moved into the item
       const sn = el.attrs.filter((a) => a.name.startsWith('data-sn-') && !['data-sn-with', 'data-sn-early'].includes(a.name));
       if (!sn.length) continue;
-      const bad = sn.find((a) => !/^data-sn-(class|attr|style|show|on-.+)$/.test(a.name));
+      const bad = sn.find((a) => !/^data-sn-(class|attr|href|style|show|on-.+)$/.test(a.name));
       if (bad) {
         this.report(el, bad.name, 'SN102', `\`${bad.name}\` cannot be on the tag of a component used inside itself or chosen by \`<sn-component>\`: its root is a shared definition, which takes plain attributes, \`data-sn-class\`, \`-attr\`, \`-style\`, \`-show\` and handlers`, 0,
           'wrap the tag in an element that carries it, or move it inside the component');
@@ -4295,6 +4513,7 @@ class Compiler {
 
   walkChildren(parent: P5Parent, ctx: Ctx) {
     for (const chain of this.emptyDefaults.get(parent) ?? []) this.fillScope(chain, ctx.scope, null, this.instOf(parent as P5Node));
+    this.emptyStates(parent, false);
     let lastIf: { node: NodeDef; binding: Binding } | null = null;
     const kids = parent.childNodes;
     for (let i = 0; i < kids.length; i++) {
@@ -4455,6 +4674,18 @@ class Compiler {
     }
     if (has('early') && !this.useOf.get(el)) this.report(el, 'data-sn-early', 'SN102', '`data-sn-early` goes on a component\'s tag, `<tag-cloud data-sn-early="off">`', 0);
     if (has('path') && el.tagName !== 'html') this.report(el, 'data-sn-path', 'SN102', '`data-sn-path` belongs on `<html>`', 0);
+    // the page needs a session (src/signed-in.ts): checked against the page's APIs once they are known (`signedInGuard`)
+    if (has('signed-in')) {
+      const v = get('signed-in')!.trim();
+      if (el.tagName !== 'html') this.report(el, 'data-sn-signed-in', 'SN102', '`data-sn-signed-in` belongs on `<html>` (or a layout\'s tag on a page): it guards the whole page', 0);
+      else if (!v) this.signedIn = { el, f: null };
+      else {
+        const r = this.expr(el, 'data-sn-signed-in', ctx.scope, { mode: 'value' });
+        const other = r.deps.find((d) => d !== '$url' && !d.startsWith('$url.'));
+        if (other) this.report(el, 'data-sn-signed-in', 'SN347', `\`data-sn-signed-in\` reads only \`$url\` (the early script decides it before anything paints), not \`${other.replace(/^\$s\d+\./, '')}\``, 0);
+        else if (r.ok) this.signedIn = { el, f: this.fn(r.code) };
+      }
+    }
     if (has('prefetch')) {
       if (el.tagName !== 'html') this.report(el, 'data-sn-prefetch', 'SN102', '`data-sn-prefetch` belongs on `<html>`: it keeps other pages from prefetching or prerendering this one', 0);
       else if (get('prefetch')!.trim() !== 'off') this.report(el, 'data-sn-prefetch', 'SN401', '`data-sn-prefetch` takes `off`; prefetching is on without the attribute', 0);
@@ -4647,18 +4878,24 @@ class Compiler {
     let content: { tid: number; scope: Scope } | null = null;
     if (isTemplate && has('for')) content = this.forTemplate(el, node, scope, get('for')!, get('key'));
     else if (isTemplate && has('if')) {
-      const r = this.expr(el, 'data-sn-if', scope, { mode: 'value', cond: true });
+      // a list's empty state: its condition is the compiler's, over what the list already reads (compiled quietly: the
+      // list reported its own problems), and no `data-sn-else` follows it
+      const empty = this.emptyOf.get(el);
+      const r = empty ? this.emptyExpr(el, empty.list, scope) : this.expr(el, 'data-sn-if', scope, { mode: 'value', cond: true });
       const tid = this.newTemplate();
       const b = this.binding({ k: 'if', f: this.fn(r.code), d: r.deps, x: tid, ...usesEl(r) });
       if (r.usesEl) this.report(el, 'data-sn-if', 'SN213', '`$el` in a `data-sn-if`: the condition is marked by comments in the page, so there is no element to read', 0, 'read the element in a binding inside the template, or move the condition onto an element with `data-sn-show`');
       node.b.push(b);
-      result = { node, binding: b };
-      const cond = this.branchGuard.get(el) ?? `(${get('if')})`;
-      if (this.check) this.branchGuard.set(b, cond);
-      content = { tid, scope: this.guarded(scope, cond) };
+      if (empty) content = { tid, scope };
+      else {
+        result = { node, binding: b };
+        const cond = this.branchGuard.get(el) ?? `(${get('if')})`;
+        if (this.check) this.branchGuard.set(b, cond);
+        content = { tid, scope: this.guarded(scope, cond) };
+      }
     } else if (isTemplate && has('else')) {
       if (get('else')) this.report(el, 'data-sn-else', 'SN401', '`data-sn-else` takes no value; an else-if is `<template data-sn-else data-sn-if="…">`', 0);
-      if (!prevIf) this.report(el, 'data-sn-else', 'SN102', '`data-sn-else` must be on a `<template>` directly after a `data-sn-if` template', 0);
+      if (!prevIf) this.report(el, 'data-sn-else', 'SN102', '`data-sn-else` must be on a `<template>` directly after a `data-sn-if` template, or after a `data-sn-for` (the list\'s empty state)', 0);
       const tid = this.newTemplate();
       node.b.push(this.binding({ k: 'else', x: tid }));
       if (prevIf) prevIf.binding.y = nodeIdx;
@@ -4731,6 +4968,7 @@ class Compiler {
       if (r.ok) { node.b.push(this.binding({ k: 'attr', n: 'data-sn-vt', f: this.fn(r.code), d: r.deps, ...usesEl(r) })); this.features.add('transition'); }
     }
     if (has('attr')) source('data-sn-attr', () => this.attrBinding(el, node, scope));
+    if (has('href')) source('data-sn-href', () => this.hrefBinding(el, node, scope, use));
     if (has('class')) source('data-sn-class', () => this.objectBinding(el, node, scope, 'class'));
     if (has('style')) source('data-sn-style', () => this.objectBinding(el, node, scope, 'style'));
     if (has('with') && !use) {
@@ -4970,6 +5208,23 @@ class Compiler {
     return tid;
   }
 
+  /**
+   * A URL template's code over the page's scope `$` (`urlCode`), each value the body of its function inlined
+   * (`($) => (x)`, the shape every value has; another shape is called); `$href` (`expand`) for a template of another shape.
+   */
+  urlFn(t: UrlTemplate): string {
+    const vals: string[] = [];
+    for (const p of t) if (typeof p === 'number') vals[p] = this.inline(p);
+    const nums = t.filter((p): p is number => typeof p === 'number');
+    return urlCode(t, vals) ?? `$href(${JSON.stringify(t.map((p) => (typeof p === 'number' ? nums.indexOf(p) : p)))}, [${nums.map((p) => vals[p]).join(', ')}])`;
+  }
+
+  /** function `i` called over the scope `$`, as an expression: its body where it is `($) => (x)`, the shape every value has */
+  inline(i: number): string {
+    const c = this.fns[i]!, m = /^\(\$\) => (\(.*\))$/s.exec(c);
+    return m ? m[1]! : `(${c})($)`;
+  }
+
   /** Index of a function in the page's table; identical code shares one entry (one compile in the engine). */
   fn(code: string, site?: Site | null): number {
     let i = this.fnIndex.get(code);
@@ -5067,6 +5322,18 @@ class Compiler {
       else this.check.exprs[i]!.broken = true;
     }
     return r;
+  }
+
+  /** a list's empty state (`emptyCondition`), compiled quietly where the list is: what is wrong with it, the list says */
+  emptyExpr(el: P5Element, list: string, scope: Scope): ExprResult {
+    const r = analyze(this.emptyCondition(list, scope), scope, this.page, { mode: 'value', cond: true, report: () => {} });
+    this.at = { el, attr: null, shift: 0 };
+    if (r.ok) { if (!this.codeAt.has(r.code)) this.codeAt.set(r.code, this.at); return r; }
+    // a list that reads names of its own template (its `data-sn-let`), which its empty state does not have
+    if (analyze(list, scope, this.page, { mode: 'value', report: () => {} }).ok === false && this.diagnostics.every((d) => d.severity !== 'error')) {
+      this.report(el, null, 'SN102', 'this list\'s empty state cannot read the list here: it reads a name of its own `<template data-sn-for>` (a `data-sn-let` on it)', 0, 'move the `data-sn-let` onto an element around the list and its `data-sn-else`');
+    }
+    return analyze('false', scope, this.page, { mode: 'value', report: () => {} });
   }
 
   /**
@@ -5234,7 +5501,7 @@ class Compiler {
       const v = p.value as import('acorn').Expression & { start: number; end: number };
       const r = this.expr(el, 'data-sn-let', scope, { mode: 'value', waits: true }, src.slice(v.start, v.end), v.start);
       const waiting = r.ok ? this.lazyLet(r.inner, r.deps) : null;
-      const entry: LetEntry = { name, code: waiting?.code ?? r.inner, deps: waiting?.deps ?? r.deps, usesEl: r.usesEl, usesIndex: r.usesIndex, resource: r.resource, src: r.itemOf ?? null, list: r.listOf ?? null };
+      const entry: LetEntry = { name, code: waiting?.code ?? r.inner, deps: waiting?.deps ?? r.deps, usesEl: r.usesEl, usesIndex: r.usesIndex, resource: r.resource, src: r.itemOf ?? null, list: r.listOf ?? null, text: src.slice(v.start, v.end) };
       // the resources it can be, for store calls and `$meta[…]` that take it as one: its value as their names
       // (also when the value has an undeclared name: the use reports it as a resource, with the suggestion)
       {
@@ -5456,11 +5723,44 @@ class Compiler {
         if (files) this.report(el, 'data-sn-attr', 'SN513', `\`src\` is bound to ${files.length > 1 ? 'local images' : 'a local image'} (${files.map((f) => `\`${f}\``).join(', ')}), which ${files.length > 1 ? 'are' : 'is'} not optimized`, e.offset,
           `write each image as a static \`<img src>\` (optimized at build time) and choose with \`data-sn-if\` or \`data-sn-show\`: \`<img src="${files[0]}" data-sn-show="…">\``);
       }
+      if (key === 'href' && attr(el, 'data-sn-href') !== undefined) {
+        this.report(el, 'data-sn-attr', 'SN102', '`href` is bound by `data-sn-href` on this element: bind it once', e.offset);
+        continue;
+      }
       if (key === 'href' && (el.tagName === 'a' || el.tagName === 'area')) { this.hrefs.push({ el, prefixes: hrefPrefixes(entryValue(r, e)), literal: false }); this.boundHrefs.add(el); }
       const remote = key === 'src' ? this.remoteImage(el, e, r.entries.some((x) => x.key.toLowerCase() === 'srcset'), scope) : null;
       node.b.push(this.binding({ k: 'attr', n: e.key, f: this.fn(remote ? remote.src : e.code), d: e.deps, ...usesEl(r), s: this.selection(scope, attr(el, 'data-sn-attr') ?? '', entryValue(r, e), r) }));
       if (remote) node.b.push(this.binding({ k: 'attr', n: 'srcset', f: this.fn(remote.srcset), d: e.deps, ...usesEl(r) }));
     }
+  }
+
+  /**
+   * `data-sn-href`: a link's URL template, the grammar of an action's (`/profile/{a.author.username}`, each value
+   * encoded, a query value that is null or `[]` leaves its parameter out), which may also start with `?` or `#`.
+   * It is a bound `href` in every way (`data-sn-attr="{ href }"`): one binding, whose function fills the template
+   * with `$href` (runtime/url.ts) from its interpolations' values, so a constant one is written into the HTML.
+   */
+  hrefBinding(el: P5Element, node: NodeDef, scope: Scope, use?: Use) {
+    const tag = use?.root.tagName ?? el.tagName;
+    // (the tag of a component used inside itself or chosen by `<sn-component>`: its root is a shared definition's, read when it renders)
+    if (tag !== 'a' && tag !== 'area' && !(!use && this.componentFile(tag))) {
+      this.report(el, 'data-sn-href', 'SN102', `\`data-sn-href\` is a link's URL, on \`<a>\` or \`<area>\`; \`<${tag}>\` binds its URLs with \`data-sn-attr\``, 0);
+      return;
+    }
+    const vals: ExprResult[] = [], deps = new Set<string>();
+    const d0 = this.diagnostics.length;
+    const tpl = this.urlTemplate(el, 'data-sn-href', scope, {}, deps, undefined, vals);
+    if (this.diagnostics.slice(d0).some((d) => d.severity === 'error') || vals.some((v) => !v.ok)) return;
+    const lits = tpl.filter((p): p is string => typeof p === 'string');
+    // what the build sees of where it goes: the literal start, the whole URL without values; the literal query names of a
+    // query-only one, which replaces the whole query (SN519)
+    const first = typeof tpl[0] === 'string' ? tpl[0] : '';
+    const query = first[0] === '?' ? [...lits.join('').split('#')[0]!.matchAll(/[?&]([^?&=#]+)=/g)].map((m) => m[1]!) : undefined;
+    this.hrefs.push({ el, prefixes: [{ s: first, whole: !vals.length }], literal: false, ...(query ? { query, src: attr(el, 'data-sn-href') } : {}) });
+    this.boundHrefs.add(el);
+    const code = `($) => (${hrefCode(tpl, vals.map((v) => `(${v.inner})`))})`;
+    const flags = usesEl({ usesEl: vals.some((v) => v.usesEl), usesIndex: vals.some((v) => v.usesIndex) } as ExprResult);
+    node.b.push(this.binding({ k: 'attr', n: 'href', f: this.fn(code), d: [...deps].sort(), ...flags }));
   }
 
   /**
@@ -5738,6 +6038,8 @@ class Compiler {
       ...(retryAttr ? { retry: retryAttr } : {}),
     };
     this.devAt(def, [def.then, def.catch]);
+    // an element with an id, or bound attributes (an id among them): the core keeps the same-id hand-over (TWIN)
+    if (attr(el, 'id') != null || attr(el, 'data-sn-attr') != null) this.twin = true;
     this.actions.push(def);
     node.b.push(this.binding({ k: 'on', n: trigger, x: this.actions.length - 1 }));
   }
@@ -5901,8 +6203,12 @@ class Compiler {
       if (k.ok) t.key = this.fn(k.code);
     } else if (resInfo?.key) {
       t.keyFields = resInfo.key;
-    } else if (list.ast && primitiveList(list.ast)) {
-      this.report(el, 'data-sn-for', 'SN103', 'a `data-sn-for` over primitive values needs `data-sn-key`', m[0].length);
+    } else {
+      // a choice between resources (`f ? feed : articles`, through lets, `filter`/`toSorted` and a helper given
+      // one): their key, when every candidate has the same. Primitives key by value at run time (`keysOf`)
+      const names = list.listOf;
+      const keys = names?.length && names.every((n) => /^[\w$]+$/.test(n)) ? names.map((n) => this.page.resources.get(n)?.key) : null;
+      if (keys?.every((k) => k && k.join('\0') === keys[0]!.join('\0'))) t.keyFields = keys[0]!;
     }
     // a plain list path changes the rows only through its structure or replaced elements (`#`), not element fields
     const deps = alias && list.deps.length == 1 && list.deps[0] == list.path!.join('.') ? [list.deps[0] + '.#'] : list.deps;
@@ -5911,16 +6217,20 @@ class Compiler {
     return { tid, scope: inner };
   }
 
-  urlTemplate(el: P5Element, attrName: string, scope: Scope, exprOpts: Partial<ExprOptions> = {}, deps?: Set<string>, reads?: Read[]): UrlTemplate {
+  /**
+   * `link`: the template is a link's (`data-sn-href`): no API's, it may also start with `?` or `#` (this page's URL), and its
+   * numbers index `link`, where each interpolation's result is put (no function is made for it).
+   */
+  urlTemplate(el: P5Element, attrName: string, scope: Scope, exprOpts: Partial<ExprOptions> = {}, deps?: Set<string>, reads?: Read[], link?: ExprResult[]): UrlTemplate {
     const value = attr(el, attrName) ?? '';
     const parts: UrlTemplate = [];
     // `file:` reads a file at build time: a resource's source, never a request
-    if (isFileSource(value)) {
+    if (!link && isFileSource(value)) {
       this.report(el, attrName, 'SN332', `\`file:\` is a source for \`<sn-resource src>\`: a file of the project, read at build time. ${el.tagName === 'sn-sync' ? 'A stream' : 'An action'} sends a request; give it a URL`, value.indexOf('file:'));
       return [''];
     }
     // `sinter({ apis })`: `[api:]/path`, relative to the API's base
-    const apis = this.opts.apis;
+    const apis = link ? undefined : this.opts.apis;
     let api: ApiDef | null = null, i = 0;
     if (apis) {
       if (/^https?:\/\//i.test(value)) {
@@ -5958,7 +6268,7 @@ class Compiler {
       const r = this.expr(el, attrName, scope, { mode: 'value', ...exprOpts }, value.slice(i + 1, j), i + 1);
       // an array is a repeated key as a whole query value, and refused in the path
       if (!/[?#]/.test(value.slice(0, i))) this.typeLast({ returns: { kind: 'decl', name: 'PathValue' } });
-      parts.push(this.fn(r.code));
+      parts.push(link ? link.push(r) - 1 : this.fn(r.code));
       if (deps) for (const d of r.deps) deps.add(d);
       reads?.push(...(r.reads ?? []));
       i = j + 1;
@@ -5967,9 +6277,11 @@ class Compiler {
     const first = parts[0];
     // a literal origin followed by a value needs its `/`: `https://api.example.com{x}` lets `x` extend the host
     const origin = parts.length > 1 ? /^https?:\/\/[^/{}]+\//i : /^https?:\/\/[^/{}]+(\/|$)/i;
-    if (typeof first !== 'string' || !(/^\/[^/\\]/.test(first) || first === '/' || (!api && origin.test(first)))) {
-      this.report(el, attrName, 'SN207', api ? 'a path to an API must start with a literal `/` (`/contacts/{c.id}`)' : 'a URL template must start with a literal same-origin path (`/api/…`) or a literal `https://` origin (with a `/` after the host when a value follows)', 0,
-        'a leading interpolation or `//` lets a value choose the host');
+    if (typeof first !== 'string' || !(/^\/[^/\\]/.test(first) || first === '/' || (!api && origin.test(first)) || (link && /^[?#]/.test(first)))) {
+      this.report(el, attrName, 'SN207', api ? 'a path to an API must start with a literal `/` (`/contacts/{c.id}`)'
+        : link ? 'a link\'s URL template must start with a literal same-origin path (`/profile/…`), `?` or `#` (this page\'s URL), or a literal `https://` origin (with a `/` after the host when a value follows)'
+          : 'a URL template must start with a literal same-origin path (`/api/…`) or a literal `https://` origin (with a `/` after the host when a value follows)', 0,
+        link && typeof first !== 'string' ? 'a leading interpolation lets a value choose the scheme and host: a URL that comes whole from data goes in `data-sn-attr="{ href: … }"`, whose URL is checked' : 'a leading interpolation or `//` lets a value choose the host');
     }
     this.lastPath = parts.slice();
     if (api && api.base && typeof parts[0] === 'string') parts[0] = api.base + parts[0];
@@ -5981,10 +6293,13 @@ class Compiler {
   /** the API each resource's `src` goes to (`sinter({ apis })`): its request settings for preloads, the early file and embedding */
   readonly apiOfResource = new Map<string, ApiDef>();
 
-  /** a resource's API's credentials and static headers, as the early file sends them; null for the defaults */
-  settingsOf(name: string): { c?: RequestCredentials; h?: Record<string, string> } | null {
-    const a = this.apiOfResource.get(name);
-    return a && (a.credentials || a.headers) ? { ...(a.credentials ? { c: a.credentials } : {}), ...(a.headers ? { h: a.headers } : {}) } : null;
+  /** a resource's API's credentials, static headers and token (where it is stored, how it is sent), as the early file sends them; null for the defaults */
+  settingsOf(name: string): NonNullable<EarlyIR['as']>[number] | null {
+    const a = this.apiOfResource.get(name), t = a?.token;
+    return a && (a.credentials || a.headers || t) ? {
+      ...(a.credentials ? { c: a.credentials } : {}), ...(a.headers ? { h: a.headers } : {}),
+      ...(t ? { t: { s: t.storage === 'local' ? 'l' as const : 's' as const, k: t.key, h: t.header, p: t.scheme ? t.scheme + ' ' : '' } } : {}),
+    } : null;
   }
 
   /**
@@ -6000,28 +6315,45 @@ class Compiler {
 
   /**
    * A resource the HTML preloads: its URL is fixed at build time, it is requested early (\`late\`), and its
-   * request needs nothing a link cannot say (no static headers, no \`credentials: 'omit'\`).
+   * request needs nothing a link cannot say (no static headers, no \`credentials: 'omit'\`, no token: a link
+   * cannot send one, and the browser gives its answer to the page's request, token or not).
    */
   preloaded(r: ResourceDef): boolean {
     const a = this.apiOfResource.get(r.name);
-    return !this.late(r.name) && fixedRequest(r) && !!this.earlyOrigin(r.src) && !a?.headers && a?.credentials !== 'omit';
+    return !this.late(r.name) && fixedRequest(r) && !!this.earlyOrigin(r.src) && !a?.headers && a?.credentials !== 'omit' && (!a?.token || this.anonymous(r.name));
+  }
+
+  /** The spec says the answer does not depend on a token: public, or answered with cookies. */
+  private anonymous(name: string): boolean {
+    const auth = this.authOf.get(name);
+    return auth === 'public' || auth === 'browser';
   }
 
   /**
-   * Not requested before the page module, by preload or the early file: \`early="off"\`; the spec says the request
-   * needs a token the app adds; or the config may change requests (middleware, \`header()\`) and
-   * the spec does not say the operation is public or answered with cookies. A request sent before the middleware
-   * runs would only be refused (a 401, a console error) and sent again with what the middleware adds.
+   * Not requested before the page module, by preload or the early file: \`early="off"\`; or, on an API without a
+   * \`token\`, the spec says the request needs a token the app adds, or the config may change requests (middleware,
+   * \`header()\`) and the spec does not say the operation is public or answered with cookies. A request sent before the
+   * middleware runs would only be refused (a 401, a console error) and sent again with what the middleware adds. An API's
+   * own \`token\` is sent by the early file too.
    */
   private late(name: string): boolean {
-    const auth = this.authOf.get(name);
-    return this.unembedded(name) || (!!this.opts.changesRequests && auth !== 'public' && auth !== 'browser');
+    if (this.apiOfResource.get(name)?.token) return this.noEarly.has(name);
+    return this.unembedded(name) || (!!this.opts.changesRequests && !this.anonymous(name));
   }
 
-  /** Not embedded by the server layers: \`early="off"\`, or the spec says the request needs a token the app adds (the server has none). */
+  /**
+   * Not embedded by the server layers (they have no visitor's token): \`early="off"\`; the spec says the request
+   * needs a token; it may send one (\`optional\`) and a middleware may add it; or its API has a \`token\` and the spec
+   * does not say the answer is the same without one.
+   */
   private unembedded(name: string): boolean {
-    return this.noEarly.has(name) || this.authOf.get(name) === 'token';
+    const auth = this.authOf.get(name);
+    return this.noEarly.has(name) || auth === 'token' || (auth === 'optional' && !!this.opts.changesRequests)
+      || (!!this.apiOfResource.get(name)?.token && !this.anonymous(name));
   }
+
+  /** the resources whose operation needs their API's token (\`token\`, docs/apis.md#a-token): signed out, they load empty without a request */
+  readonly needsToken = new Set<string>();
 
   /**
    * `<link rel="preload" as="fetch">` for the resources whose URL is fixed at build time. A link cannot
@@ -6094,6 +6426,8 @@ class Compiler {
     if (isContentSource(attr(el, 'src'))) return this.contentResource(el, name, ctx.stateIdx);
     for (const a of el.attrs) {
       if (a.name === 'each') this.report(el, a.name, 'SN101', '`each` is renamed to `for`, as in `data-sn-for`: `<sn-resource name="mailboxes" for="a in accounts" src="/api/mailboxes?account={a.id}">`', 0);
+      else if (BUILD_TIME_ATTRS.includes(a.name)) this.report(el, a.name, 'SN332', buildTimeAttrProblem(a.name), 0);
+      else if (a.name === 'items') this.report(el, a.name, 'SN101', ITEMS_RENAMED, 0);
       else if (!RESOURCE_ATTRS.includes(a.name) && !PAGINATE_OLD.includes(a.name)) this.report(el, a.name, 'SN101', `\`${a.name}\` is not an attribute of \`<sn-resource>\`.${didYouMean(a.name, RESOURCE_ATTRS)}`, 0);
     }
     const earlyAttr = attr(el, 'early');
@@ -6127,7 +6461,7 @@ class Compiler {
         }
         srcScope = { ...ctx.scope, loops: [...ctx.scope.loops, loop] };
         if (list.ok) each = { item: m[1]!, list: this.fn(list.code), ...(list.resource ? { of: list.resource } : {}) };
-        this.features.add('each');
+        this.features.add('for');
         if (!info.key) this.report(el, 'for', 'SN401', 'a `for` resource is a collection: it needs `key`, with a field that tells the sources apart', 0);
         for (const a of ['paginate', 'total', 'cache']) {
           if (attr(el, a) != null) this.report(el, a, 'SN401', `\`${a}\` does not combine with \`for\`: the items come from several requests`, 0);
@@ -6241,7 +6575,7 @@ class Compiler {
     const target = this.opts.apis && !hasCall ? this.apiCheck(el, 'src', post ? 'post' : 'get', srcPath, paginate ? paginateParams(paginate, spec?.cursor?.text) : []) : null;
     if (target) this.apiOfResource.set(name, target.api);
     const shape = target?.shape ?? null;
-    const shaped = (a: 'items' | 'total' | 'key' | 'type'): string | null => {
+    const shaped = (a: 'select' | 'total' | 'key' | 'type'): string | null => {
       const v = attr(el, a)?.trim(), c = shape?.[a];
       if (c != null && v != null) {
         const where = `\`${target!.api.name}.${target!.match.spec === target!.api.specs[target!.api.specs.length - 1] && this.opts.openapi![target!.match.spec]!.config ? 'operations' : 'defaults'}\``;
@@ -6250,16 +6584,20 @@ class Compiler {
       }
       return c ?? v ?? null;
     };
-    const items = shaped('items'), total = shaped('total');
+    const select = shaped('select'), total = shaped('total');
     shaped('key');
     const type = shaped('type');
     // an operation the config declares has no schema: its type is the config's
     const generated = target ? !!this.opts.openapi![target.match.spec]!.config : false;
-    const openapi = type || hasCall || generated ? null : this.openapi(el, src, items, total, target?.match, post ? 'post' : 'get');
+    const openapi = type || hasCall || generated ? null : this.openapi(el, src, select, total, target?.match, post ? 'post' : 'get');
     if (!post && !hasCall) {
       const m = target?.match ?? (!this.opts.apis && this.opts.openapi?.length ? matchResource(this.opts.openapi, src) : null);
       if (m && 'path' in m && m.auth) this.authOf.set(name, m.auth);
     }
+    // its API's token: needed when the config's list (from the spec, or the config's own; none: every operation) names it;
+    // signed out, such a GET is not sent (a POST resource is sent all the same)
+    const tk = target?.api.token;
+    if (tk && !post && (!tk.required || tk.required.includes(`GET ${target!.match.path}`))) this.needsToken.add(name);
     let body: number | null = null;
     if (post && attr(el, 'body') != null) {
       const m = target?.match ?? (!this.opts.apis && this.opts.openapi?.length ? matchOperation(this.opts.openapi, src, 'post') : null);
@@ -6278,15 +6616,15 @@ class Compiler {
       const item = list?.type === 'array' ? deref(doc, list.items) : null;
       const fields = item ? propertyNames(doc, item) : [];
       if (item && (item.type === 'object' || fields.length)) {
-        const at = items;
-        this.report(el, attr(el, 'items') != null ? 'items' : 'name', 'SN517', `\`${openapi.label}\` returns a list${at ? ` at \`${at}\`` : ''}: resource \`${name}\` has no \`key\`, so it is one object holding the list`, 0,
+        const at = select;
+        this.report(el, attr(el, 'select') != null ? 'select' : 'name', 'SN517', `\`${openapi.label}\` returns a list${at ? ` at \`${at}\`` : ''}: resource \`${name}\` has no \`key\`, so it is one object holding the list`, 0,
           `add \`key\` with the field that identifies an item${fields.length ? ` (its items have ${fields.map((f) => `\`${f}\``).join(', ')})` : ''}; a list that is only read can stay as it is`);
       }
     }
     if (this.check) {
       const r: CheckResource = { name, type, loc: this.locOf(el, type ? 'type' : null), nameLoc: this.locOf(el, 'name') };
       if (openapi && 'schema' in openapi) r.openapi = openapi;
-      if (call) r.call = { name: call.name, items };
+      if (call) r.call = { name: call.name, select };
       if (paginate?.mode === 'keyset' && !paginate.skipParam) r.directions = true;
       this.check.resources.push(r);
       // a resource fed by an action is typed by the action's result
@@ -6301,7 +6639,7 @@ class Compiler {
     }
     this.resources.push({
       ...(this.opts.dev && then ? this.devAtOf([then.f]) : {}),
-      name, src, key: info.key, items, total,
+      name, src, key: info.key, select, total,
       order: order ? order.trim() : null, when, paginate, deps: [...deps].sort(), scope: ctx.stateIdx, data: null,
       ...(cache !== undefined ? { cache } : {}),
       ...(refresh !== undefined ? { refresh } : {}),
@@ -6310,6 +6648,8 @@ class Compiler {
       ...(then ? { then: then.f, ...(then.w.length ? { w: then.w } : {}) } : {}),
       ...(sch ? { sch: sch.name } : {}),
       ...(body != null ? { body } : {}),
+      // no key, and a list by its type or the OpenAPI response at `select` (a list of strings has no key): empty, it is `[]`
+      ...(!info.key && !each && (type ? isArrayType(type) : !!openapi && 'schema' in openapi && deref(this.opts.openapi![openapi.spec]!.doc, openapi.schema)?.type === 'array') ? { ls: 1 as const } : {}),
     });
     this.declAt.set(this.resources[this.resources.length - 1]!, el);
   }
@@ -6378,16 +6718,17 @@ class Compiler {
 
   /**
    * `<sn-resource src="content:posts">`: a collection of the content module, a constant list as a `file:` glob is (`fx`),
-   * its key the collection's unless `key` is given, sorted by `order` here. `drafts` and `items` are the loader's
+   * its key the collection's unless `key` is given, sorted by `order` here. `drafts` and `select` are the loader's
    * business. Without collections (`sinter check`, the editor), an empty list.
    */
   contentResource(el: P5Element, name: string, scope: number) {
     const info = this.page.resources.get(name)!;
-    for (const a of el.attrs) if (!FILE_ATTRS.includes(a.name) || a.name === 'drafts' || a.name === 'items') {
+    for (const a of el.attrs) if (!FILE_ATTRS.includes(a.name) || a.name === 'drafts' || a.name === 'select') {
       const why = a.name === 'drafts' ? '`drafts` is a `file:` glob\'s; a collection leaves its drafts out in its loader (`ctx.files(glob, { drafts })`, `ctx.command`)'
-        : a.name === 'items' ? '`items` picks a list out of a value; a collection is a list already'
-        : fileAttrProblem(a.name).replace(/a `file:` resource/g, 'a `content:` resource');
-      this.report(el, a.name, RESOURCE_ATTRS.includes(a.name) || a.name === 'drafts' || a.name === 'items' ? 'SN332' : 'SN101', why, 0);
+        : a.name === 'select' ? '`select` picks a part of a value; a collection is a list already'
+        : a.name === 'items' ? ITEMS_RENAMED
+        : fileAttrProblem(a.name, FILE_ATTRS.filter((x) => x !== 'drafts' && x !== 'select')).replace(/a `file:` resource/g, 'a `content:` resource');
+      this.report(el, a.name, RESOURCE_ATTRS.includes(a.name) || a.name === 'drafts' || a.name === 'select' ? 'SN332' : 'SN101', why, 0);
     }
     const src = attr(el, 'src')!.trim(), cname = src.slice('content:'.length), at = attr(el, 'src')!.indexOf(cname);
     const known = this.opts.collections;
@@ -6418,7 +6759,7 @@ class Compiler {
       this.check.resources.push({ name, type: type ? `(${type})[]` : null, loc: this.locOf(el, type ? 'type' : null), nameLoc: this.locOf(el, 'name'), ...typed });
       if (!type && !this.opts.contentModule) this.report(el, null, 'SN504', `resource \`${name}\` has no type: expressions using it are not checked`, 0, 'add `type="…"`, one entry\'s type from the types module, or `type="any"` to leave it unchecked');
     }
-    this.resources.push({ name, src: [], key: info.key, items: null, total: null, order: null, when: null, paginate: null, deps: [], scope, data: null, fx: 1 });
+    this.resources.push({ name, src: [], key: info.key, select: null, total: null, order: null, when: null, paginate: null, deps: [], scope, data: null, fx: 1, ...(info.key ? {} : { ls: 1 as const }) });
     this.declAt.set(this.resources[this.resources.length - 1]!, el);
   }
 
@@ -6462,18 +6803,18 @@ class Compiler {
     const listInfo = this.page.resources.get(d.of);
     if (listInfo) listInfo.used = true;
     if (this.check) this.check.resources.push({ name, type: null, loc: this.locOf(el, null), nameLoc: this.locOf(d.html, 'data-sn-for'), item: d.of });
-    this.resources.push({ name, src: [], key: null, items: null, total: null, order: null, when: null, paginate: null, deps: [], scope, data: null, fx: 1 });
+    this.resources.push({ name, src: [], key: null, select: null, total: null, order: null, when: null, paginate: null, deps: [], scope, data: null, fx: 1 });
     this.declAt.set(this.resources[this.resources.length - 1]!, el);
   }
 
   /**
    * `<sn-resource src="file:./post.md">` (files.ts): the file read at build time, or with a glob every file it matches as
    * a list, sorted by `order` and without drafts in a build; its value embedded in the head, a resource that never loads
-   * (`fx`). Only `name`, `src`, `type`, `items`, `key`, `order` and `drafts` apply (SN332).
+   * (`fx`). Only `name`, `src`, `type`, `select`, `key`, `order` and `drafts` apply (SN332).
    */
   fileResource(el: P5Element, name: string, scope: number) {
     const info = this.page.resources.get(name)!;
-    for (const a of el.attrs) if (!FILE_ATTRS.includes(a.name)) this.report(el, a.name, RESOURCE_ATTRS.includes(a.name) ? 'SN332' : 'SN101', fileAttrProblem(a.name), 0);
+    for (const a of el.attrs) if (!FILE_ATTRS.includes(a.name)) this.report(el, a.name, RESOURCE_ATTRS.includes(a.name) ? 'SN332' : 'SN101', a.name === 'items' ? ITEMS_RENAMED : fileAttrProblem(a.name), 0);
     const written = attr(el, 'src')!, at = written.indexOf('file:');
     // `{$locale}`: each language's build reads its own folder (`localePrefix`); `sinter check` and the editor, the base one
     const lang = /\{\s*\$locale\s*\}/;
@@ -6551,19 +6892,19 @@ class Compiler {
     const drafts = attr(el, 'drafts')?.trim() || null;
     if (drafts && !list) this.report(el, 'drafts', 'SN332', '`drafts` leaves entries out of a list; this `file:` source is one file (a glob gives a list: `file:./posts/*.md`)', 0);
     const order = attr(el, 'order')?.trim() || null;
-    if (order && !Array.isArray(value) && value !== null && !(attr(el, 'items'))) this.report(el, 'order', 'SN332', '`order` sorts a list; this value is not one (a glob gives a list, and `items` picks one out of a JSON file)', 0);
-    if (list && attr(el, 'items')) this.report(el, 'items', 'SN332', '`items` picks a list out of a JSON file; a glob is a list already', 0);
-    if (isMd && attr(el, 'items')) this.report(el, 'items', 'SN332', '`items` picks a list out of a JSON file; a markdown file is one entry', 0);
+    if (order && !Array.isArray(value) && value !== null && !(attr(el, 'select'))) this.report(el, 'order', 'SN332', '`order` sorts a list; this value is not one (a glob gives a list, and `select` picks one out of a JSON file)', 0);
+    if (list && attr(el, 'select')) this.report(el, 'select', 'SN332', '`select` picks a part of one JSON file; a glob is a list already', 0);
+    if (isMd && attr(el, 'select')) this.report(el, 'select', 'SN332', '`select` picks a part of one JSON file; a markdown file is one entry', 0);
     // the key: a glob's entries have a `slug` each, which is unique (two entries with one key are an error)
     const key = info.key ?? (list ? ['slug'] : null);
     if (!info.key && key) info.key = key;
-    const items = attr(el, 'items')?.trim() || null;
-    if (items && typeof value === 'string') this.report(el, 'items', 'SN332', '`items` picks a list out of a JSON file; this file is text', 0);
+    const select = attr(el, 'select')?.trim() || null;
+    if (select && typeof value === 'string') this.report(el, 'select', 'SN332', '`select` picks a part of one JSON file; this file is text', 0);
     // sorted once, here: the page's language decides how strings compare, as the visitor's does for a live resource
     if (order && !list && Array.isArray(value)) value = sortList(value, order, this.opts.locale?.name ?? this.pageLang);
-    else if (order && items && value && typeof value === 'object') {
-      const at = items.split('.').reduce<unknown>((o, k) => (o as Record<string, unknown> | null)?.[k], value);
-      if (Array.isArray(at)) value = setPath(value, items.split('.'), sortList(at, order, this.opts.locale?.name ?? this.pageLang));
+    else if (order && select && value && typeof value === 'object') {
+      const at = select.split('.').reduce<unknown>((o, k) => (o as Record<string, unknown> | null)?.[k], value);
+      if (Array.isArray(at)) value = setPath(value, select.split('.'), sortList(at, order, this.opts.locale?.name ?? this.pageLang));
     }
     const id = this.nextId++;
     this.fileData.set(name, { id, value, at: el, fields: this.fieldsOf(el) });
@@ -6579,7 +6920,7 @@ class Compiler {
       const blank = (v: unknown) => (bodied && v && typeof v === 'object' && !Array.isArray(v) && 'body' in v ? { ...v, body: '' } : v);
       if (type && list) for (const e of value as Array<Record<string, unknown>>) values.push({ file: `${top}${String(e.path)}`, json: JSON.stringify(blank(e)) });
       else if (type && !('error' in where) && !list && value !== null && typeof value === 'object') {
-        const picked = items ? items.split('.').reduce<unknown>((o, k) => (o as Record<string, unknown> | null)?.[k], value) : value;
+        const picked = select ? select.split('.').reduce<unknown>((o, k) => (o as Record<string, unknown> | null)?.[k], value) : value;
         if (picked !== undefined) values.push({ file: where.path, json: JSON.stringify(blank(picked)) });
       }
       const fileInfo = list || isMd || values.length ? { file: { list, adds, values } } : {};
@@ -6587,7 +6928,9 @@ class Compiler {
       const md = bodied;
       if (!type && typeof value !== 'string' && !md) this.report(el, null, 'SN504', `resource \`${name}\` has no type: expressions using it are not checked`, 0, 'add `type="…"` with a type from the types module, or `type="any"` to leave it unchecked');
     }
-    this.resources.push({ name, src: [], key: info.key, items, total: null, order: null, when: null, paginate: null, deps: [], scope, data: null, fx: 1 });
+    // a JSON list without `key` (at `select`): `[]` when empty, as a loaded one
+    const listed = Array.isArray(select ? select.split('.').reduce<unknown>((o, k) => (o as Record<string, unknown> | null)?.[k], value) : value);
+    this.resources.push({ name, src: [], key: info.key, select, total: null, order: null, when: null, paginate: null, deps: [], scope, data: null, fx: 1, ...(!info.key && listed ? { ls: 1 as const } : {}) });
     this.declAt.set(this.resources[this.resources.length - 1]!, el);
   }
 
@@ -6614,8 +6957,8 @@ class Compiler {
     }
   }
 
-  /** Matches a resource against the OpenAPI specs; checks `items`, `total` and query parameter names. */
-  openapi(el: P5Element, src: UrlTemplate, items: string | null, total: string | null, matched?: OpenApiMatch, method: Method = 'get'):
+  /** Matches a resource against the OpenAPI specs; checks `select`, `total` and query parameter names. */
+  openapi(el: P5Element, src: UrlTemplate, select: string | null, total: string | null, matched?: OpenApiMatch, method: Method = 'get'):
     { spec: number; label: string; schema: unknown } | { closest: string | null } | null {
     const specs = this.opts.openapi;
     if (!specs?.length) return null;
@@ -6625,14 +6968,14 @@ class Compiler {
     const label = `${method.toUpperCase()} ${m.path}`;
     let schema = m.body;
     if (schema == null) return { closest: m.path };
-    for (const [field, path] of [['items', items], ['total', total]] as const) {
+    for (const [field, path] of [['select', select], ['total', total]] as const) {
       if (!path) continue;
       const w = walk(doc, m.body, path);
       if ('missing' in w) {
         this.report(el, field, 'SN308', `the response of \`${label}\` has no \`${w.missing}\`.${didYouMean(w.missing, w.have)}`, 0,
           w.have.length ? `it has ${w.have.map((h) => `\`${h}\``).join(', ')}` : undefined);
-        if (field === 'items') return { closest: m.path };
-      } else if (field === 'items') schema = w.schema;
+        if (field === 'select') return { closest: m.path };
+      } else if (field === 'select') schema = w.schema;
     }
     const raw = attr(el, 'src') ?? '';
     // a configured API checked the query (SN327)
@@ -6785,7 +7128,7 @@ class Compiler {
     // everything the page could call is shadowed: what is not a constant throws
     const NOT = new Error('not a build-time constant');
     const stub = new Proxy(function () {}, { apply() { throw NOT; }, get() { throw NOT; } });
-    const params = new Map<string, unknown>([['$k', $k]]);
+    const params = new Map<string, unknown>([['$k', $k], ['$href', $href], ['$hq', $hq], ['$hv', $hv]]);
     // (`location`: the browser's, as in a pattern page's `$canonical`; a test environment may have one)
     for (const h of ['Date', 'Intl', 'Math', 'location', 'date', 'relative', 'number', 'bytes', ...this.opts.helpers.names]) params.set(h, stub);
     // the app's helpers: a call over constants runs here when the static check lets it (`helperFold`), else its stub
@@ -7099,10 +7442,10 @@ class Compiler {
     for (const [name, d] of this.fileData) {
       const def = this.resources.find((x) => x.name === name);
       let v = d.value;
-      for (const k of def?.items ? def.items.split('.') : []) v = (v as Record<string, unknown> | null)?.[k];
+      for (const k of def?.select ? def.select.split('.') : []) v = (v as Record<string, unknown> | null)?.[k];
       // a list a build keeps for every page that reads it is frozen once (`globCache`): shared, not copied per page
       values.set(name, v && typeof v === 'object' ? (DEEP_FROZEN.has(v) ? v : deepFreeze(structuredClone(v) as object)) : v);
-      status.set(name, Object.freeze({ loading: false, error: null, loadedAt: null, pending: 0, total: null, live: null }));
+      status.set(name, Object.freeze({ loading: false, error: null, loadedAt: null, total: null, live: null }));
     }
     const of = (m: Map<string, unknown>) => new Proxy({}, { get: (_, k) => { if (typeof k === 'string' && m.has(k)) return m.get(k); throw NOT; } });
     return { r: of(values), meta: of(status) };
@@ -7613,6 +7956,8 @@ class Compiler {
   expandConstants(parent: P5Parent, prefix: string, inTemplate: boolean) {
     const decided = this.opts.decided, unrolled = this.opts.unrolled;
     const real = (c: P5Node) => isElement(c) || (c.nodeName === '#text' && (c as DefaultTreeAdapterMap['textNode']).value.trim() !== '');
+    // a tree the page-wide pass did not reach (a shared definition): its empty states, before a list unrolls away
+    this.emptyStates(parent, false);
     let changed = false;
     for (let i = 0; i < parent.childNodes.length; i++) {
       const c = parent.childNodes[i]!;
@@ -7641,6 +7986,7 @@ class Compiler {
       const key = c.tagName === 'template' && attr(c, 'data-sn-if') !== undefined ? this.instKey(c) : null;
       const v = key ? decided?.get(pre + key) : undefined;
       if (v !== undefined) {
+        this.foldedText.push(attr(c, 'data-sn-if')!, this.emptyOf.get(c)?.list ?? '');
         const j = parent.childNodes.findIndex((x, k) => k > i && real(x));
         const other = j >= 0 && isElement(parent.childNodes[j]!) && (parent.childNodes[j] as P5Element).tagName === 'template' && attr(parent.childNodes[j] as P5Element, 'data-sn-else') !== undefined ? parent.childNodes[j] as P5Element : null;
         place([...(v ? (c as P5Template).content.childNodes : other ? (other as P5Template).content.childNodes : [])], (other ? j : i) - i + 1);
@@ -7679,6 +8025,7 @@ class Compiler {
       const items = tkey ? unrolled?.get(pre + tkey) : undefined;
       const m = items !== undefined ? /^\s*(?:\(\s*([A-Za-z_][\w]*)\s*,\s*([A-Za-z_][\w]*)\s*\)|([A-Za-z_][\w]*))\s+in\s+/.exec(value!) : null;
       if (m) {
+        if (!items!.length) this.foldedText.push(value!.slice(m[0].length));
         const rows: P5Node[] = [];
         for (let k = 0; k < items!.length; k++) {
           const info: RowInfo = { tpl: c, item: (m[1] ?? m[3])!, index: m[2] ?? null, list: value!.slice(m[0].length), offset: m[0].length, k, value: items![k], inst: `${pre}${tkey}#${k}/`, ...(row ? { up: row } : {}) };
@@ -8218,27 +8565,36 @@ class Compiler {
         if (!n || typeof n.type !== 'string') return;
         const r = at(n, '$r'), mt = at(n, '$meta'), def = pre.get((r ?? mt)!);
         if (def && (r !== null || mt !== null)) {
-          // cached or prefetched rows would be there at mount: this resource's entries (its URL's literal start, its items
+          // cached or prefetched rows would be there at mount: this resource's entries (its URL's literal start, its select
           // and total paths, as the cache and next-page data key them), checked once per binding (below). An entry without
           // data (no rows, a null object: a signed-out visitor's `{user: null}`) fills the resource with what is written in
           // here, and `loadedAt` stays null at mount, so it changes nothing: the binding stays early (otherwise a branch over
           // it renders at mount, after the first paint, in every tab that opened another page first)
-          if (def.cache != null || (this.opts.prefetch && !def.paginate && def.body == null)) {
-            const start = JSON.stringify(typeof def.src[0] === 'string' ? def.src[0] : '').slice(1, -1), end = `,${JSON.stringify(def.items ?? null)},${JSON.stringify(def.total ?? null)}]`;
+          // without `cache`: its `sn:c:` entry only on Back or Forward (cache.ts), as a load's navigation type or a swap's mark says
+          if (def.body == null) {
+            const start = JSON.stringify(typeof def.src[0] === 'string' ? def.src[0] : '').slice(1, -1), end = `,${JSON.stringify(def.select ?? null)},${JSON.stringify(def.total ?? null)}]`;
             const none = JSON.stringify(def.key ? '[]' : 'null');
-            checks.add(fn(`() => { for (const k of Object.keys(sessionStorage)) if (/^sn:[cp]:\\[/.test(k) && k.includes(${JSON.stringify(start)}) && k.endsWith(${JSON.stringify(end)})) { let e; try { e = JSON.parse(sessionStorage.getItem(k)); } catch { throw 0; } if (!e || JSON.stringify(e.items) !== ${none} || e.total != null) throw 0; } }`));
+            // (the swap's mark only in an app with swaps: no other sets it)
+            const kinds = def.cache != null ? '/^sn:[cp]:\\[/' : `(performance.getEntriesByType?.('navigation')[0]?.type == 'back_forward'${this.opts.swap ? " || sessionStorage.getItem('sn:back') == location.href" : ''} ? /^sn:[cp]:\\[/ : /^sn:p:\\[/)`;
+            checks.add(fn(`() => { for (const k of Object.keys(sessionStorage)) if (${kinds}.test(k) && k.includes(${JSON.stringify(start)}) && k.endsWith(${JSON.stringify(end)})) { let e; try { e = JSON.parse(sessionStorage.getItem(k)); } catch { throw 0; } if (!e || JSON.stringify(e.items) !== ${none} || e.total != null) throw 0; } }`));
           }
-          const when = def.when != null ? `!!f[${fn(this.fns[def.when]!)}]($)` : 'true';
-          if (r !== null) { edits.push([n.start, n.end, def.key ? '[]' : 'null']); return; }
+          // its API's token, when the operation needs it: with none stored the resource is loaded, empty, at mount (signed
+          // out, `$meta.user.loadedAt && !user`), and not loading; the early file reads the storage the request layer reads
+          const t = this.needsToken.has(def.name) ? this.settingsOf(def.name)?.t : undefined;
+          const out = t ? `$so(${JSON.stringify(t.s)}, ${JSON.stringify(t.k)})` : null;
+          const when = (def.when != null ? `!!f[${fn(this.fns[def.when]!)}]($)` : 'true') + (out ? ` && !${out}` : '');
+          if (r !== null) { edits.push([n.start, n.end, def.key || def.ls ? '[]' : 'null']); return; }
           const field = parent?.type === 'MemberExpression' && parent.object === n && !parent.computed ? parent.property.name : null;
-          if (field === 'loading') { edits.push([parent.start, parent.end, when]); return; }
+          if (field === 'loading') { edits.push([parent.start, parent.end, `(${when})`]); return; }
+          if (field === 'loadedAt' && out) { edits.push([parent.start, parent.end, `(${out} ? new Date() : null)`]); return; }
           if (field === 'error' || field === 'loadedAt') { edits.push([parent.start, parent.end, 'null']); return; }
           // the whole status (a `data-sn-let`, a helper): every field as it is at mount; a pager's or a stream's fields are not known
           // before then, and throw (the page module renders what reads them)
           const open = def.paginate || this.page.fed.has(def.name);
+          const at = out ? `${out} ? new Date() : null` : 'null';
           const make = fn(open
-            ? '(l) => ({ loading: l, error: null, loadedAt: null, pending: 0, get total() { throw 0; }, get live() { throw 0; }, get page() { throw 0; }, get pages() { throw 0; }, get from() { throw 0; }, get to() { throw 0; }, get hasPrev() { throw 0; }, get hasNext() { throw 0; } })'
-            : '(l) => ({ loading: l, error: null, loadedAt: null, pending: 0, total: null, live: null })');
+            ? `(l) => ({ loading: l, error: null, loadedAt: ${at}, get total() { throw 0; }, get live() { throw 0; }, get page() { throw 0; }, get pages() { throw 0; }, get from() { throw 0; }, get to() { throw 0; }, get hasPrev() { throw 0; }, get hasNext() { throw 0; } })`
+            : `(l) => ({ loading: l, error: null, loadedAt: ${at}, total: null, live: null })`);
           edits.push([n.start, n.end, `f[${make}](${when})`]);
           return;
         }
@@ -8277,8 +8633,9 @@ class Compiler {
       // any resource without embedded data: whether it loads at mount does not matter (both are tried), and one with cached
       // rows is the page module's either way
       const defs = names.map((n) => this.resources.find((r) => r.name === n));
-      if (!names.length || defs.some((d) => !d || embedded.has(d.name) || d.each || d.call)) return false;
-      const data = Object.fromEntries(defs.map((d) => [d!.name, d!.key ? [] : null]));
+      // (one that needs a token may be loaded at mount: signed out)
+      if (!names.length || defs.some((d) => !d || embedded.has(d.name) || d.each || d.call || this.needsToken.has(d.name))) return false;
+      const data = Object.fromEntries(defs.map((d) => [d!.name, d!.key || d!.ls ? [] : null]));
       const code = this.fns[b.f!]!;
       return shows(code, names, { loading: true }, [], data) === false && shows(code, names, { loading: false }, [], data) === false;
     };
@@ -8327,6 +8684,16 @@ class Compiler {
     // the resources the early file requests: `src` and `when` read only what is known early
     // (state, persisted values, `$url`, `$now`, helpers); not `call`, `each` or embedded data; a
     // paginated one: its first page, with the query parameters the pager sends for it
+    // the APIs' request settings, once per page: each early request names its API's by index
+    const as: NonNullable<EarlyIR['as']> = [], asAt = new Map<string, number>();
+    const settings = (name: string) => {
+      const x = this.settingsOf(name);
+      if (!x) return {};
+      const k = JSON.stringify(x);
+      let i = asAt.get(k);
+      if (i === undefined) asAt.set(k, (i = as.push(x) - 1));
+      return { a: i };
+    };
     const res: NonNullable<EarlyIR['res']> = [];
     let url = false;
     for (const def of this.resources) {
@@ -8342,9 +8709,9 @@ class Compiler {
       if (scope === undefined || codes.some(builtin) || codes.some((c) => /\$(r|meta|el)\b/.test(c))) continue;
       reads.push(...strs(def.deps));
       url ||= codes.some((c) => c.includes('$url'));
-      res.push({ name: def.name, src: def.src.map((x) => (typeof x === 'number' ? fn(this.fns[x]!) : x)), when: def.when != null ? fn(this.fns[def.when]!) : null, scope, ...(def.paginate ? { q: firstParams(def.paginate) } : {}), ...(def.paginate && start != null ? { sp: startOf(def.paginate, fn(this.fns[start]!)) } : {}), ...(def.lo ? { lo: 1 as const } : {}), ...(where === 'listed' ? { xo: 1 as const } : {}), ...(this.settingsOf(def.name) ? { a: this.settingsOf(def.name)! } : {}) });
+      res.push({ src: def.src.map((x) => (typeof x === 'number' ? fn(this.fns[x]!) : x)), ...(def.when != null ? { when: fn(this.fns[def.when]!) } : {}), scope, ...(def.paginate ? { q: firstParams(def.paginate) } : {}), ...(def.paginate && start != null ? { sp: startOf(def.paginate, fn(this.fns[start]!)) } : {}), ...(def.lo ? { lo: 1 as const } : {}), ...(where === 'listed' ? { xo: 1 as const } : {}), ...(settings(def.name)), ...(this.needsToken.has(def.name) ? { r: 1 as const } : {}) });
     }
-    if (!roots.some((n) => n.b.length) && !res.length) return null;
+    if (!roots.some((n) => n.b.length) && !res.length && !this.guard) return null;
     // only the state fields the early bindings read (and the fields those read): a field whose
     // initializer calls a heavy helper stays out of the early chunk unless something shown needs it
     const need = new Map<number, Set<string> | 'all'>();
@@ -8385,8 +8752,15 @@ class Compiler {
       if (used.length) namespaces[ns] = used;
     }
     const ir: EarlyIR = { roots, templates };
-    if (usedEmb.size) ir.emb = Object.fromEntries([...usedEmb].map((n) => [n, { id: embedded.get(n)!.data!, items: embedded.get(n)!.items ?? null }]));
+    if (usedEmb.size) ir.emb = Object.fromEntries([...usedEmb].map((n) => [n, { id: embedded.get(n)!.data!, select: embedded.get(n)!.select ?? null, ...(embedded.get(n)!.ls ? { ls: 1 as const } : {}) }]));
     if (res.length) ir.res = res;
+    if (as.length) ir.as = as;
+    // the page needs a session: the early script sends a visitor with no token to sign in before anything paints
+    if (this.guard) {
+      const g = this.guard;
+      ir.si = { t: g.t, i: g.i, ...(g.f != null ? { f: fn(this.fns[g.f]!) } : {}) };
+      if (g.f != null) readsUrl = true;
+    }
     if ((url || readsUrl) && this.pathList.length) ir.path = this.pathList;
     const arrays = this.urlArrays();
     if ((url || readsUrl) && arrays.length) ir.urlArrays = arrays;
@@ -8419,7 +8793,8 @@ class Compiler {
   /**
    * The resources another page can request for this one before it is opened: a `src` and `when`
    * that read only `$url`, constants and the app's helpers (no state, resources, clock, formatters
-   * or messages); not paginated, `each`, `call` or embedded data.
+   * or messages); not `for`, `call`, `method="POST"` or embedded data. A paginated one at the page its
+   * first load requests: the first, or with `model` (paginate) the one the URL names (a `$url` read too).
    */
   prefetchParts(): PrefetchParts | null {
     const userHelpers = new Set(this.opts.helpers.names);
@@ -8429,15 +8804,24 @@ class Compiler {
     const fns: string[] = [], index = new Map<string, number>();
     const fn = (code: string) => { let i = index.get(code); if (i === undefined) index.set(code, (i = fns.push(code) - 1)); return i; };
     const res: PrefetchParts['res'] = [];
+    const puses = new Set<string>();
     for (const def of this.resources) {
-      if (def.call || def.each || def.data != null || def.paginate || def.body != null || !def.src.length) continue;
+      if (def.call || def.each || def.data != null || def.body != null || !def.src.length) continue;
       if (!strs(def.deps).every((d) => d === '$url' || d.startsWith('$url.'))) continue;
       const codes = [...def.src.filter((x): x is number => typeof x === 'number'), ...(def.when != null ? [def.when] : [])].map((i) => this.fns[i]!);
       if (codes.some((c) => /\$\.\$(?!url\b)/.test(c) || builtin(c) || messages.some((m) => c.includes(`${m}$`)))) continue;
+      // its URL as code over the link's `$url` (its `when` first: false, nothing is requested), the first page's
+      // parameters in it as in the early file
+      const vals: string[] = [];
+      for (const x of def.src) if (typeof x === 'number') vals[x] = this.inline(x);
+      const sp = def.paginate?.start != null ? startOf(def.paginate, 0) : null;
+      let u = requestUrl(def.src, vals, def.paginate ? firstParams(def.paginate) : undefined, sp ? { ...sp, code: this.inline(def.paginate!.start!) } : undefined, puses);
+      if (def.when != null) u = `${this.inline(def.when)} && ${u}`;
       res.push({
-        s: def.src.map((x) => (typeof x === 'number' ? fn(this.fns[x]!) : x)),
-        ...(def.when != null ? { w: fn(this.fns[def.when]!) } : {}),
-        i: def.items ?? null, t: def.total ?? null, ...(def.key ? { k: 1 as const } : {}),
+        u: fn(`($) => ${u}`),
+        ...(def.select != null ? { i: def.select } : {}), ...(def.total != null ? { t: def.total } : {}), ...(def.key ? { k: 1 as const } : {}),
+        ...(def.paginate ? { q: firstParams(def.paginate) } : {}),
+        ...(sp ? { sp: { k: sp.k, s: sp.s, ...(sp.o ? { o: sp.o } : {}) } } : {}),
       });
     }
     if (!res.length) return null;
@@ -8449,7 +8833,9 @@ class Compiler {
       if (used.length) namespaces[ns] = used;
     }
     const arrays = this.urlArrays();
-    return { path: this.pathList, res, fns, helpers: this.opts.helpers.names.filter(calls), namespaces, ...(arrays.length ? { a: arrays } : {}) };
+    // a page that needs a session: a signed-out visitor is sent on from it, so its data is not requested ahead
+    const g = this.guard ? { t: this.guard.t, ...(this.guard.f != null ? { f: fn(this.fns[this.guard.f]!) } : {}) } : null;
+    return { path: this.pathList, res, fns, helpers: this.opts.helpers.names.filter(calls), namespaces, uses: [...puses].sort(), ...(arrays.length ? { a: arrays } : {}), ...(g ? { g } : {}) };
   }
 
   /**
@@ -8867,6 +9253,28 @@ class Compiler {
     return null;
   }
 
+  /**
+   * `data-sn-signed-in`, checked (SN347): the page's API with a \`token\` (one: with several, the one the page's resources
+   * use, and only one), its \`signIn\`, which must not be this page (a loop). Null without the attribute or when it is wrong.
+   */
+  signedInGuard(): NonNullable<IR['si']> | null {
+    const g = this.signedIn;
+    if (!g) return null;
+    const fail = (m: string, hint?: string) => { this.report(g.el, 'data-sn-signed-in', 'SN347', m, 0, hint); return null; };
+    const all = (this.opts.apis?.list ?? []).filter((a) => a.token);
+    if (!all.length) return fail('`data-sn-signed-in` needs an API with a `token` (`sinter({ apis: { main: { token } } })`): with none, the page cannot tell whether the visitor is signed in', 'a session cookie the browser keeps is the server\'s to check: answer the page\'s requests with a 401 and redirect there');
+    const used = new Set([...this.apiOfResource.values()].filter((a) => a.token).map((a) => a.name));
+    const cands = used.size ? all.filter((a) => used.has(a.name)) : all;
+    if (cands.length > 1) return fail(`\`data-sn-signed-in\`: ${cands.map((a) => `\`${a.name}\``).join(' and ')} have a \`token\`${used.size ? ' and the page reads both' : ''}: which session the page needs is not clear`, 'give the token to one API, or keep the page\'s resources on one of them');
+    const a = cands[0]!, to = a.token!.signIn;
+    if (!to) return fail(`\`data-sn-signed-in\`: the API \`${a.name}\` has no \`token.signIn\`, the page a signed-out visitor goes to`);
+    const path = new URL(to.to, 'http://x').pathname, segs = path.split('/').filter(Boolean);
+    const mine = this.pathList.some((p) => { const w = p.split('/').filter(Boolean); return w.length === segs.length && w.every((x, i) => x[0] === ':' || x === segs[i]); });
+    if (mine) return fail(`\`data-sn-signed-in\` on the sign-in page (\`${to.to}\`, the API \`${a.name}\`'s \`token.signIn\`): a signed-out visitor would be sent here again and again`, 'remove it from this page');
+    const t = a.token!;
+    return { a: a.name, t: { s: t.storage === 'local' ? 'l' : 's', k: t.key }, i: signInWire(to), ...(g.f != null ? { f: g.f } : {}) };
+  }
+
   runtimeReasons(): RuntimeReason[] {
     const out: Array<RuntimeReason & { at: number }> = [];
     const self = this.canonicalLink;
@@ -8910,6 +9318,8 @@ class Compiler {
       const el = this.declAt.get(x);
       out.push({ what: '`<sn-sync>`', ...(el ? at(el, null) : { file: this.opts.file, line: 1, col: 1, at: 0 }) });
     }
+    // the page needs a session: the early script and the page module send a signed-out visitor to sign in
+    if (this.signedIn) out.push({ what: '`data-sn-signed-in` (it sends a signed-out visitor to sign in)', ...at(this.signedIn.el, 'data-sn-signed-in') });
     // a kept element needs the swap's code to be kept (with swaps on)
     if (this.opts.swap) for (const el of this.permanentEls) out.push({ what: '`data-sn-permanent` (links swap the next page in around it)', ...at(el, 'data-sn-permanent') });
     const page = (r: RuntimeReason) => (r.file === this.opts.file ? 0 : 1);
@@ -8976,6 +9386,7 @@ class Compiler {
       const observe = !!this.opts.observe;
       const tag = parse5.parseFragment(observe ? `<script src="${esc(early)}"></script>` : `<script type="module" src="${esc(early)}" blocking="render"></script>`).childNodes[0] as P5Element;
       tag.parentNode = head;
+      OWN_SCRIPTS.add(tag);
       if (observe) {
         let at = 0;
         for (let i = 0; i < head.childNodes.length; i++) { const n = head.childNodes[i]!; if (isElement(n) && n.tagName !== 'meta') break; if (isElement(n)) at = i + 1; }
@@ -8986,6 +9397,7 @@ class Compiler {
     const frag = parse5.parseFragment(`<script type="module" src="${esc(src)}"></script>`);
     const script = frag.childNodes[0] as P5Element;
     script.parentNode = head;
+    OWN_SCRIPTS.add(script);
     head.childNodes.push(script as never);
   }
 }
@@ -9018,6 +9430,100 @@ export function stateReaders(fns: readonly string[]): Map<string, Set<string>> {
 function hasBase(n: P5Parent): boolean {
   return n.childNodes.some((c) => isElement(c) && ((c.tagName === 'base' && attr(c, 'href') != null) || hasBase(c.tagName === 'template' ? (c as any).content : c)));
 }
+/**
+ * The code that fills a link's URL template, as `expand` (runtime/url.ts) would: `urlCode` (`"/profile/" + $hv(a.author.username)`,
+ * `"/" + $hq([["tag", t], ["page", n]])`), which needs none of `expand`, else `$href(tpl, [values])`.
+ */
+export function hrefCode(tpl: UrlTemplate, vals: string[]): string {
+  return urlCode(tpl, vals) ?? `$href(${JSON.stringify(tpl)}, [${vals.join(', ')}])`;
+}
+
+/**
+ * The code that fills a URL template exactly as `expand` (runtime/url.ts) does, with none of `expand`: the literals,
+ * each path value through `$hv` (a dot segment or a list refused), each query value that is part of a parameter
+ * through `$hv(v, 1)`, and a query with whole values (`?tag={t}`: null leaves the parameter out, a list repeats it)
+ * through `$hq`. `vals`: each value's code, by the template's numbers. Null for a template of another shape (a `?` or
+ * `&` in the fragment, an `&` in the path, an empty parameter, two values side by side in the query, a value that may or may not be a whole
+ * value), which `expand` fills (`$href`); test/url-code.test.ts compares the two over random templates.
+ */
+export function urlCode(full: UrlTemplate, vals: string[]): string | null {
+  // the fragment: its values inside it (`#c-{id}`), never whole query values while it has no `?` or `&`
+  const h = full.findIndex((p) => typeof p === 'string' && p.includes('#'));
+  let tpl = full, hash: UrlTemplate = [];
+  if (h >= 0) {
+    const lit = full[h] as string, k = lit.indexOf('#');
+    tpl = [...full.slice(0, h), lit.slice(0, k)];
+    hash = [lit.slice(k), ...full.slice(h + 1)];
+    if (hash.some((p) => typeof p === 'string' && /[?&]/.test(p))) return null;
+  }
+  const q = tpl.findIndex((p) => typeof p === 'string' && p.includes('?'));
+  const path: UrlTemplate = q < 0 ? tpl : [...tpl.slice(0, q), (tpl[q] as string).slice(0, (tpl[q] as string).indexOf('?'))];
+  if (path.some((p) => typeof p === 'string' && p.includes('&'))) return null;
+  /** literals (adjacent ones as one) and values, joined by `+` */
+  const concat = (ps: Array<string | { c: string }>) => {
+    const out: Array<string | { c: string }> = [];
+    for (const p of ps) if (p !== '') typeof p === 'string' && typeof out.at(-1) === 'string' ? (out[out.length - 1] += p) : out.push(p);
+    return out.map((p) => (typeof p === 'string' ? JSON.stringify(p) : p.c)).join(' + ') || '""';
+  };
+  const vs = (ps: UrlTemplate, query: boolean) => ps.map((p) => (typeof p === 'string' ? p : { c: `$hv(${vals[p]}${query ? ', 1' : ''})` }));
+  const tail = vs(hash, true);
+  if (q < 0) return concat([...vs(path, false), ...tail]);
+  // the query's parameters: split at each `&`
+  const segs: UrlTemplate[] = [[]];
+  for (const p of [(tpl[q] as string).slice((tpl[q] as string).indexOf('?') + 1), ...tpl.slice(q + 1)]) {
+    if (typeof p !== 'string') { segs.at(-1)!.push(p); continue; }
+    if (p.includes('?')) return null;
+    p.split('&').forEach((x, i) => { if (i) segs.push([]); if (x) segs.at(-1)!.push(x); });
+  }
+  let whole = false;
+  const parts: Array<Array<string | { c: string }> | string> = [];
+  for (const s of segs) {
+    // an empty parameter (`?&`, `a=1&`, `?{x}`, which may be empty): `expand`'s own clean-up of separators
+    if (!s.some((p) => typeof p === 'string')) return null;
+    const last = s.at(-1)!, prev = s.at(-2);
+    if (s.length === 2 && typeof prev === 'string' && typeof last === 'number' && /^[^?&=#]*=$/.test(prev)) {
+      whole = true;
+      parts.push(`[${JSON.stringify(prev.slice(0, -1))}, ${vals[last]}]`);
+      continue;
+    }
+    // a value last after `=`, or two values side by side: whether it is a whole value depends on the values
+    if (typeof last === 'number' && (typeof prev === 'number' || (prev as string).endsWith('='))) return null;
+    if (s.some((p, i) => typeof p === 'number' && typeof s[i + 1] === 'number')) return null;
+    parts.push(vs(s, true));
+  }
+  if (whole) return concat([...vs(path, false), { c: `$hq([${parts.map((p) => (typeof p === 'string' ? p : concat(p))).join(', ')}])` }, ...tail]);
+  return concat([...vs(path, false), '?', ...(parts as Array<Array<string | { c: string }>>).flatMap((p, i) => (i ? ['&', ...p] : p)), ...tail]);
+}
+
+/**
+ * A resource's request URL as code: its template (`urlCode`; `$href` for a template of another shape) and a paginated
+ * list's first-page parameters after it (`q`), as the pager adds them: literal text in the order `URLSearchParams` writes
+ * them, a numbered list's page (`sp`: `code` reads it) an expression; `withParams` when the template has a query or a
+ * fragment of its own, which the parameters are merged into. `uses`: the helpers it calls.
+ */
+export function requestUrl(src: UrlTemplate, vals: string[], q: Record<string, string> | undefined, sp: { k: string; s: number; o?: 1; code: string } | undefined, uses: Set<string>): string {
+  const nums = src.filter((p): p is number => typeof p === 'number');
+  const call = (name: string) => (uses.add(name), name);
+  let u = urlCode(src, vals);
+  if (u == null) u = `${call('$href')}(${JSON.stringify(src.map((p) => (typeof p === 'number' ? nums.indexOf(p) : p)))}, [${nums.map((p) => vals[p]).join(', ')}])`;
+  for (const h of ['$hv', '$hq']) if (u.includes(`${h}(`)) uses.add(h);
+  if (!q) return u;
+  // page n of a numbered list, from what the URL says (the pager's pageParams): the first page's with it set
+  const page = sp ? (sp.o ? `(${call('toPage')}(${sp.code}) - 1) * ${sp.s}` : `${call('toPage')}(${sp.code})`) : null;
+  const ps: Array<[string, string | null]> = Object.entries(q).map(([k, v]) => [k, page != null && k === sp!.k ? null : v]);
+  if (page != null && !(sp!.k in q)) ps.push([sp!.k, null]);
+  if (src.some((p) => typeof p === 'string' && /[?#]/.test(p)) || u.startsWith('$href(')) {
+    return `${call('withParams')}(${u}, { ${ps.map(([k, v]) => `${JSON.stringify(k)}: ${v == null ? `String(${page})` : JSON.stringify(v)}`).join(', ')} })`;
+  }
+  const parts: Array<string | { c: string }> = [];
+  ps.forEach(([k, v], i) => {
+    const t = (i ? '&' : '?') + new URLSearchParams([[k, v ?? '']]).toString();
+    if (typeof parts.at(-1) === 'string') parts[parts.length - 1] += t; else parts.push(t);
+    if (v == null) parts.push({ c: `(${page})` });
+  });
+  return [u, ...parts.map((p) => (typeof p === 'string' ? JSON.stringify(p) : p.c))].join(' + ');
+}
+
 /** What the build can see of where a link goes: a literal start, and whether it is the whole `href`. */
 interface HrefPrefix { s: string; whole: boolean }
 /**
@@ -9279,17 +9785,6 @@ function detach(el: P5Element) {
   el.parentNode = null;
 }
 
-function primitiveList(ast: { type: string }): boolean {
-  const a = ast as { type: string; elements?: Array<{ type: string } | null>; callee?: { type: string; object?: { type: string; name?: string }; property?: { name?: string } } };
-  if (a.type === 'ArrayExpression') return (a.elements ?? []).every((e) => e && (e.type === 'Literal' || e.type === 'TemplateLiteral'));
-  if (a.type === 'CallExpression' && a.callee?.type === 'MemberExpression') {
-    const obj = a.callee.object, prop = a.callee.property?.name;
-    if (obj?.type === 'Identifier' && obj.name === 'Object' && prop === 'keys') return true;
-    if (prop === 'split') return true;
-  }
-  return false;
-}
-
 export function normalize(p: string): string {
   const abs = p.startsWith('/');
   const out: string[] = [];
@@ -9425,16 +9920,33 @@ function condOf(code: string): EmbedCond | null {
   return walk(fn.body);
 }
 
+/** the scripts sinter writes into a page (its early file, its page module): not the page's own (`loadEffects`) */
+const OWN_SCRIPTS = new WeakSet<P5Element>();
+
+/**
+ * The events only a visitor causes (`loadEffects`): a handler of any other may run while a prerendered page loads. Not
+ * `focus` (`autofocus`), `load`, `error`, `toggle` (`<details open>`), `scroll`, `sn-error` or a component's own events.
+ */
+const USER_EVENTS = new Set(['click', 'dblclick', 'auxclick', 'contextmenu', 'input', 'beforeinput', 'change', 'submit', 'reset', 'invalid',
+  'keydown', 'keyup', 'keypress', 'pointerdown', 'pointerup', 'pointermove', 'pointerover', 'pointerout', 'pointerenter', 'pointerleave',
+  'pointercancel', 'mousedown', 'mouseup', 'mousemove', 'mouseover', 'mouseout', 'mouseenter', 'mouseleave', 'touchstart', 'touchend',
+  'touchmove', 'touchcancel', 'wheel', 'dragstart', 'drag', 'dragend', 'dragenter', 'dragover', 'dragleave', 'drop', 'copy', 'cut', 'paste',
+  'close', 'cancel', 'navigate', 'dismiss']);
+
 /** whether compiled code reads `$url.<name>` */
 const readsParam = (code: string, name: string) => new RegExp(`\\$\\.\\$url\\.${name.replace(/\$/g, '\\$')}(?![\\w$])`).test(code);
 
 /** a compiled function that is one `$url` read: `($) => ($.$url.page)` */
 const URL_READ = /^\(\$\) => \(\$\.\$url\.([A-Za-z_$][\w$]*)\)$/;
 
-/** the early file's `model` (paginate) start: page n's parameters are `qn` with `k` set (the page, or with `params.offset` the items to skip) */
+/**
+ * the early file's and the next-page data's `model` (paginate) start: page n's parameters are the first page's with `k`
+ * set (the page, or with `params.offset` the items to skip); `model` is for numbered lists, whose pages all send the same
+ * parameters in the same order (`pageParams`)
+ */
 function startOf(cfg: Paginate, f: number): NonNullable<NonNullable<EarlyIR['res']>[number]['sp']> {
   const k = cfg.skipParam ?? cfg.pageParam;
-  return { f, k, s: cfg.size, ...(cfg.skipParam ? { o: 1 as const } : {}), qn: pageParams(cfg, 2) };
+  return { f, k, s: cfg.size, ...(cfg.skipParam ? { o: 1 as const } : {}) };
 }
 
 /** URLs of the resources whose request is fixed at build time (callers pass only those it may request early: same-origin or a listed origin): the page preloads them from its HTML (low priority when every resource of that URL is `lo`). */

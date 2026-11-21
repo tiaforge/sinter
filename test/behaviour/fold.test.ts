@@ -159,7 +159,7 @@ describe('file: values are constants', () => {
   test('bindings and loops over them fold; when nothing in the browser reads one, it leaves the page, which can ship no JavaScript', () => {
     const out = build(`<!doctype html><html><head></head><body>
       <sn-resource name="intro" src="file:./intro.txt"></sn-resource>
-      <sn-resource name="team" src="file:./team.json" items="people" key="id"></sn-resource>
+      <sn-resource name="team" src="file:./team.json" select="people" key="id"></sn-resource>
       <p data-sn-text="upper(intro)"></p><b data-sn-text="$meta.intro.loading ? '…' : 'ready'"></b>
       <ul><template data-sn-for="p in team"><li data-sn-text="p.name"></li></template></ul></body></html>`, { upper: [upper, yes] }, { static: true }, files);
     expect(errors(out)).toEqual([]);

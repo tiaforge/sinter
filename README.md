@@ -14,7 +14,7 @@ No router or store library to write, and no app JavaScript for typical pages: a 
 each page that needs one (about 16 KB gzipped for a simple page), and a page with nothing to run [ships none](docs/static-pages.md).
 
 ```html
-<sn-resource name="contacts" src="/api/contacts" items="contacts" key="id" order="name"></sn-resource>
+<sn-resource name="contacts" src="/api/contacts" select="contacts" key="id" order="name"></sn-resource>
 
 <sn-sync src="/api/events">
   <sn-event name="contact_updated" resource="contacts" op="upsert" value="$event.contact"></sn-event>
@@ -187,7 +187,7 @@ A component is an HTML file in `src/components/`. Its file name is its tag:
   [Sync](docs/sync.md), [recipe](docs/recipes/sse-sync.html)
 - **Pagination.** Keyset, numbered and "load more" lists, with the page in the URL.
   [Pagination](docs/pagination.md), [recipe](docs/recipes/pagination.html)
-- **Fan-out.** One request per item of another list (`each="a in accounts"`).
+- **Fan-out.** One request per item of another list (`for="a in accounts"`).
   [Fan-out resources](docs/resources.md)
 - **Background refresh and caching.** `cache` shows last visit's data at once, then revalidates;
   `refresh` keeps data current. [Cached list](docs/recipes/cached-list.html),
@@ -218,9 +218,9 @@ A component is an HTML file in `src/components/`. Its file name is its tag:
   layer), [`Sinter.AspNetCore`](packages/sinter-aspnetcore) (.NET, middleware for minimal APIs
   and MVC, NativeAOT-compatible) and [`@tiaforge-ui/sinter/server`](docs/server.md) (JavaScript, a fetch
   handler for Node, Bun, Deno, Workers and Hono) stream the head first, then write each API response into
-  its slot. Each checks that every slot can be filled: at compile time in Rust and C#, as a type error in
+  its placeholder. Each checks that every placeholder can be filled: at compile time in Rust and C#, as a type error in
   TypeScript, and at startup. Other languages are easy to add: the
-  server only writes JSON into the `<script type="application/json" data-sn-resource>` slots in the
+  server only writes JSON into the `<script type="application/json" data-sn-resource>` placeholders in the
   head, listed in the build's `sinter-embed.json` ([contract](docs/first-paint.md)).
 - **Instant navigation.** Next-page data (sinter, all browsers). Generated Speculation Rules and
   CSP handling for HTML prefetch or prerender (the browser fetches; Chromium). `data-sn-transition`

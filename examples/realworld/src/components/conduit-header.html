@@ -1,7 +1,7 @@
 <!-- Navbar. The layout declares the `user` resource; `nav` is the active link, `guest` whether the
-     visitor is signed out (`signedOut()` until `user` has loaded, then whether the server knows them). -->
+     visitor is signed out (`user` loaded, and nobody: with no token stored, known at once). -->
 <template data-sn-props="{ nav: string }">
-  <nav class="navbar navbar-light" data-sn-let="{ guest: $meta.user.loadedAt ? !user : signedOut() }">
+  <nav class="navbar navbar-light" data-sn-let="{ guest: $meta.user.loadedAt && !user }">
     <div class="container">
       <a class="navbar-brand" href="/">conduit</a>
       <ul class="nav navbar-nav pull-xs-right">
@@ -10,7 +10,7 @@
           <li class="nav-item"><a class="nav-link" href="/editor" data-sn-class="{active: nav == 'editor'}"><i class="ion-compose"></i>&nbsp;New Article</a></li>
           <li class="nav-item"><a class="nav-link" href="/settings" data-sn-class="{active: nav == 'settings'}"><i class="ion-gear-a"></i>&nbsp;Settings</a></li>
           <li class="nav-item">
-            <a class="nav-link" data-sn-attr="{href: '/profile/' + encodeURIComponent(user.username)}" data-sn-class="{active: nav == 'profile:' + user.username}">
+            <a class="nav-link" data-sn-href="/profile/{user.username}" data-sn-class="{active: nav == 'profile:' + user.username}">
               <img class="user-pic" alt="" data-sn-attr="{src: avatar(user.image)}"> <span data-sn-text="user.username"></span>
             </a>
           </li>

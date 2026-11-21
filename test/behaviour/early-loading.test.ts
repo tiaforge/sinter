@@ -5,7 +5,7 @@ import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { firstPaint, mockRequests, render } from '../../src/testing/index.js';
 
 const PAGE = (res = '', cond = '$meta.c.loading && !c.length') => `<!doctype html><html><head></head><body>
-  <sn-resource name="c" src="/api/c" items="c" key="id" ${res}></sn-resource>
+  <sn-resource name="c" src="/api/c" select="c" key="id" ${res}></sn-resource>
   <template data-sn-if="${cond}"><p id="loading">Loading…</p></template>
   <template data-sn-if="$meta.c.error"><p id="failed">Could not load.</p></template>
   <ul><template data-sn-for="x in c"><li data-sn-text="x.name"></li></template></ul>
@@ -55,8 +55,8 @@ test('with `cache`: an entry without data is what the early file writes in, so t
   // an object cached as null (RealWorld's signed-out `{user: null}`): the signed-out branch is in the first paint
   // with an embedded resource beside it, as RealWorld's article page served by sinter-axum
   const page = `<!doctype html><html><head><script type="application/json" data-sn-resource="a">{"a":{"title":"T"}}</script></head><body>
-  <sn-resource name="a" src="/api/a" items="a"></sn-resource>
-  <sn-resource cache name="user" src="/api/user" items="user"></sn-resource>
+  <sn-resource name="a" src="/api/a" select="a"></sn-resource>
+  <sn-resource cache name="user" src="/api/user" select="user"></sn-resource>
   <template data-sn-if="user"><p id="in">Signed in</p></template><template data-sn-else><p id="out">Sign in</p></template>
 </body></html>`;
   sessionStorage.setItem('sn:c:["http://localhost/api/user","user",null]', JSON.stringify({ t: 0, items: null, total: null }));
@@ -92,7 +92,7 @@ test('the early function: the status written in field by field, text in strings 
 });
 
 test('the whole status, as a helper reads it: every field as at mount', async () => {
-  const helpers = { idle: (m: { pending: number; total: unknown; live: unknown; loading: boolean }) => m.loading && m.pending === 0 && m.total === null && m.live === null };
+  const helpers = { idle: (m: { total: unknown; live: unknown; loading: boolean }) => m.loading && !('pending' in m) && m.total === null && m.live === null };
   await firstPaint(PAGE('', 'idle($meta.c)'), { helpers });
   expect(loading()).not.toBeNull();
   // paginated: its pager fields are not known early, and a binding that reads one is the page module's
@@ -108,8 +108,11 @@ test('with next-page data in the app, the early binding first checks this tab ho
   const opts = { file: '/app/index.html', root: '/app', dev: false, readFile: () => '', moduleSrc: '/page.js', helpers: { module: null, names: [], namespaces: {} }, prerender: true, early: { module: null }, observe: true };
   const html = PAGE('when="$url.go"');
   const plain = compile(html, opts).early!, ahead = compile(html, { ...opts, prefetch: '/prefetch.js' }).early!;
-  expect(plain).not.toContain('sessionStorage');
-  expect(ahead).toContain('/^sn:[cp]:\\[/');
+  // without `cache`: the page-load cache's entries count only on Back or Forward, which restores them (cache.ts); the
+  // mark a swap's traversal leaves, only in an app with swaps
+  expect(plain).toContain("type == 'back_forward' ? /^sn:[cp]:\\[/ : /^sn:p:\\[/");
+  expect(compile(html, { ...opts, swap: true, swapList: '/swap.js' } as typeof opts).early!).toContain("type == 'back_forward' || sessionStorage.getItem('sn:back') == location.href ? /^sn:[cp]:\\[/ : /^sn:p:\\[/");
+  expect(ahead).toContain('/^sn:p:\\[/');
   // `when` is called from the table, not written out again
   expect(ahead).toMatch(/!!f\[\d+\]\(\$\)/);
 });
@@ -117,8 +120,8 @@ test('with next-page data in the app, the early binding first checks this tab ho
 test('embedded rows chosen by the URL between an embedded resource and one that is not: in the first paint (as before)', async () => {
   const page = `<!doctype html><html><head><script type="application/json" data-sn-resource="all">{"c":[{"id":1,"name":"Ada"},{"id":2,"name":"Grace"}]}</script></head><body>
     <sn-resource name="user" src="/api/user"></sn-resource>
-    <sn-resource name="mine" src="/api/mine" items="c" key="id" when="user"></sn-resource>
-    <sn-resource name="all" src="/api/all" items="c" key="id"></sn-resource>
+    <sn-resource name="mine" src="/api/mine" select="c" key="id" when="user"></sn-resource>
+    <sn-resource name="all" src="/api/all" select="c" key="id"></sn-resource>
     <ul data-sn-let="{ list: $url.feed == 'following' ? mine : all }"><template data-sn-for="x in list"><li data-sn-text="x.name"></li></template></ul>
   </body></html>`;
   await firstPaint(page);

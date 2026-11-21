@@ -1,10 +1,11 @@
 import * as acorn from 'acorn';
 import { tsPlugin } from '@sveltejs/acorn-typescript';
-import { compileParts, type CompileOptions, type CompileResult, type CompiledParts, type EarlyParts, type FnSource, type FnSources, type HelperManifest, type HelperOrigin, type PrefetchParts, type EmbedSlot, type EmbedCond, type RuntimeReason } from './compile.js';
-import { compactIR } from '../ir.js';
+import { compileParts, requestUrl, type CompileOptions, type CompileResult, type CompiledParts, type EarlyParts, type FnSource, type FnSources, type HelperManifest, type HelperOrigin, type PrefetchParts, type EmbedSlot, type EmbedCond, type RuntimeReason } from './compile.js';
+import { compactIR, type EarlyIR } from '../ir.js';
 import { coreParts } from '../core-parts.js';
 import { MappedLines, type SourceMap } from './sourcemap.js';
 import { earlyRender } from './early-render.js';
+import { runtimeApi } from './apis.js';
 
 export type { SourceMap };
 export type { CompileOptions, CompileResult, CompiledParts, EarlyParts, FnSource, FnSources, HelperManifest, HelperOrigin, PrefetchParts, EmbedSlot, EmbedCond, RuntimeReason };
@@ -109,7 +110,7 @@ function compileOne(html: string, options: CompileOptions): CompileResult {
   const page = pageLines(parts, options);
   const out: CompileResult = {
     html: parts.html, module: css + page.text(), runtime: parts.runtime, preload: parts.preload, ...(parts.static ? { static: true as const } : {}),
-    diagnostics: parts.diagnostics, files: parts.files, ...(parts.globs ? { globs: parts.globs } : {}), ...(parts.pages ? { pages: parts.pages } : {}), styles: parts.styles, prefetch: parts.prefetch, embed: parts.embed, path: parts.ir.path ?? [], ...(parts.ir.urlArrays ? { urlArrays: parts.ir.urlArrays } : {}), ...(parts.prefetchOff ? { prefetchOff: true as const } : {}), ...(parts.permanent ? { permanent: parts.permanent, ...(parts.keptSource ? { keptSource: parts.keptSource } : {}), ...(parts.keptBound ? { keptBound: parts.keptBound } : {}) } : {}), ...(parts.swapOff ? { swapOff: true as const } : {}),
+    diagnostics: parts.diagnostics, files: parts.files, ...(parts.globs ? { globs: parts.globs } : {}), ...(parts.pages ? { pages: parts.pages } : {}), styles: parts.styles, prefetch: parts.prefetch, embed: parts.embed, path: parts.ir.path ?? [], ...(parts.ir.urlArrays ? { urlArrays: parts.ir.urlArrays } : {}), ...(parts.prefetchOff ? { prefetchOff: true as const } : {}), ...(parts.loadEffect ? { loadEffect: parts.loadEffect } : {}), ...(parts.permanent ? { permanent: parts.permanent, ...(parts.keptSource ? { keptSource: parts.keptSource } : {}), ...(parts.keptBound ? { keptBound: parts.keptBound } : {}) } : {}), ...(parts.swapOff ? { swapOff: true as const } : {}),
     ...(parts.ir.urlReads ? { sameLinks: true as const } : {}),
     // the parts of the core the page module uses (a site's core keeps their union: src/core-parts.ts)
     ...(parts.static ? {} : { core: coreParts(parts.ir) }),
@@ -167,6 +168,28 @@ export function earlyModule(early: EarlyParts | null, options: Pick<CompileOptio
 }
 
 /**
+ * The early requests as code (early.ts `Requests`): per request, its URL as the page module's request layer will have
+ * it, written out (`urlCode`: the literals, each value encoded; `$href` for a template of another shape), its `when`
+ * before it, a paginated list's first-page parameters after it (literal text, a numbered list's page from the URL as an
+ * expression; `withParams` when the template has a query of its own, which the pager's parameters are merged into),
+ * and its API's settings. `uses`: the early module's exports it calls.
+ */
+export function earlyRequests(res: NonNullable<EarlyIR['res']>, as: EarlyIR['as']): { code: string; uses: string[] } {
+  const uses = new Set<string>();
+  const lines = res.map((r) => {
+    const s = r.scope < 0 ? 'b' : `n[${r.scope}]`;
+    const vals: string[] = [];
+    for (const p of r.src) if (typeof p === 'number') vals[p] = `f[${p}](${s})`;
+    let u = requestUrl(r.src, vals, r.q, r.sp ? { ...r.sp, code: `f[${r.sp.f}](${s})` } : undefined, uses);
+    if (r.when != null) u = `f[${r.when}](${s}) && ${u}`;
+    const args = [`() => ${u}`, r.a != null ? `a[${r.a}]` : '', r.r ? '1' : '', r.lo ? '1' : ''];
+    while (args.at(-1) === '') args.pop();
+    return `q(${args.map((x) => x || '0').join(', ')})`;
+  });
+  return { code: `(q, n, b${as?.length ? `, a = ${JSON.stringify(as)}` : ''}) => { ${lines.join('; ')}; }`, uses: [...uses] };
+}
+
+/**
  * The early page object's source, over the early table `f`: the early requests (`ir`), the table,
  * and the compiled renderer (early-render.ts); `uses`: the early module's exports it calls.
  */
@@ -174,12 +197,23 @@ export function earlyPage(early: EarlyParts): { code: string; uses: string[] } {
   const r = earlyRender(early.ir, early.fns);
   // a request's scope by the root whose state it is (the renderer keeps a scope only for nodes that open one)
   const res = early.ir.res?.map((x) => ({ ...x, scope: x.scope < 0 ? -1 : r.owner[x.scope]! }));
-  const ir = { ...(res ? { res } : {}), ...(early.ir.path ? { path: early.ir.path } : {}), ...(early.ir.urlArrays ? { urlArrays: early.ir.urlArrays } : {}), ...(early.ir.emb ? { emb: early.ir.emb } : {}) };
+  const req = res ? earlyRequests(res, early.ir.as) : null;
+  const ir = { ...(early.ir.path ? { path: early.ir.path } : {}), ...(early.ir.urlArrays ? { urlArrays: early.ir.urlArrays } : {}), ...(early.ir.emb ? { emb: early.ir.emb } : {}), ...(early.ir.si ? { si: early.ir.si } : {}) };
   // `$locale` read early: the page passes the configured locale source (else the early file carries no config)
   const lc = early.fns.some((x) => /\$\.\$locale\b/.test(x)), ls = !!early.ir.urlArrays;
+  // a link's URL template (`data-sn-href`) rendered early: the early module fills it as the page module does
+  const hr = ['$href', '$hv'].filter((h) => early.fns.some((x) => x.includes(`${h}(`)));
   // array parameters: the page passes `lists` (else the early file carries none of it)
-  const extra = [...(lc ? ['locale'] : []), ...(ls ? ['lists'] : [])];
-  return { code: `{ ir: ${JSON.stringify(ir)}, fns: f, scopes: ${r.scopes}, render: ${r.render}${extra.map((x) => ', ' + x).join('')} }`, uses: extra.length ? [...r.uses, ...extra].sort() : r.uses };
+  // `data-sn-signed-in`: the page passes the guard (else the early file carries none of it); `signIn` a path, the one
+  // without loginRedirect's options
+  const away = early.ir.si ? (typeof early.ir.si.i == 'string' ? 'away' : 'awayVia') : null;
+  const extra = [...(lc ? ['locale'] : []), ...(ls ? ['lists'] : []), ...(away ? [away] : [])];
+  // a resource that needs its API's token: its early status reads whether one is stored
+  // (and the guard, which the page passes it)
+  const so = away || early.fns.some((x) => x.includes('$so(')) ? ['$so'] : [];
+  const more = [...extra, ...hr, ...so, ...(req?.uses ?? [])];
+  const uses = more.length ? [...new Set([...r.uses, ...more])].sort() : r.uses;
+  return { code: `{ ir: ${JSON.stringify(ir)}, fns: f, scopes: ${r.scopes}, render: ${r.render}${req ? `, req: ${req.code}` : ''}${extra.map((x) => (x == away ? `, away: (o, b) => ${x}(o, b, $so)` : ', ' + x)).join('')} }`, uses };
 }
 
 function earlyLines(early: EarlyParts | null, options: Pick<CompileOptions, 'helpers' | 'early' | 'observe' | 'locale' | 'baseMessages'>): MappedLines | null {
@@ -188,11 +222,11 @@ function earlyLines(early: EarlyParts | null, options: Pick<CompileOptions, 'hel
   if (!early && !app) return null;
   const lines = new MappedLines();
   if (app) lines.push(`import ${JSON.stringify(app)};`);
-  const req = !!early?.ir.res?.length, pages = !!early?.ir.res?.some((r) => r.q);
+  const req = !!early?.ir.res?.length;
   const page = early ? earlyPage(early) : null;
   // a page with nothing to wait for (no requests, no messages, no app early module's dictionary): `run`, one step
   const simple = !!early && !observe && !req && (fixed || !Object.values(options.helpers.namespaces).some((n) => n.module === MESSAGES));
-  lines.push(`import { ${[observe ? 'observe' : simple ? 'run' : 'start', ...(early ? ['$k', ...page!.uses] : []), ...(req ? ['requests', ...(app ? ['configured'] : [])] : []), ...(pages ? ['withParams'] : [])].join(', ')} } from '${RUNTIME}/early';`);
+  lines.push(`import { ${[observe ? 'observe' : simple ? 'run' : 'start', ...(early ? ['$k', ...page!.uses] : []), ...(req ? ['requests', ...(app ? ['configured'] : [])] : [])].join(', ')} } from '${RUNTIME}/early';`);
   let messages: string | null = null;
   const byModule = new Map<string, string[]>();
   if (early) {
@@ -229,7 +263,7 @@ function earlyLines(early: EarlyParts | null, options: Pick<CompileOptions, 'hel
     early.fns.forEach((f, i) => lines.fn('    ', f, ',', early.sources?.fns[i]));
     lines.push('  ];', `  return ${page!.code};`, '};');
   }
-  const args = `${early ? 'page' : 'null'}, ${messages ? `{ use: $use, ready: $ready${observe ? ', state: $state' : ''} }` : 'null'}${req ? `, requests(${pages ? 'withParams' : app ? 'undefined' : ''}${app ? ', configured' : ''})` : ''}`;
+  const args = `${early ? 'page' : 'null'}, ${messages ? `{ use: $use, ready: $ready${observe ? ', state: $state' : ''} }` : 'null'}${req ? `, requests(${app ? 'configured' : ''})` : ''}`;
   // observe (builds): a classic head script, which starts the requests at once and renders as the parser goes
   lines.push(observe ? `observe(${args});` : simple ? 'run(page);' : `start(${args});`);
   return lines;
@@ -300,8 +334,12 @@ function pageLines(parts: CompiledParts, options: Pick<CompileOptions, 'helpers'
   if (options.origins?.length) lines.push(`import { $origins } from '${RUNTIME}';`, `$origins(${JSON.stringify(options.origins)});`);
   // `sinter({ apis })`: the runtime sends each API's credentials and headers, and `apiOf(url)` names a request's API
   if (options.apis?.list.length) {
-    const table = options.apis.list.map((a) => ({ n: a.name, b: a.base, ...(a.credentials ? { c: a.credentials } : {}), ...(a.headers ? { h: a.headers } : {}) }));
+    const table = options.apis.list.map(runtimeApi);
     lines.push(`import { $apis } from '${RUNTIME}';`, `$apis(${JSON.stringify(table)});`);
+    // an API with a token: the request layer sends it (src/token.ts); other apps carry none of it
+    // (a `signIn` of loginRedirect's options: its target function; a path needs none of it)
+    if (table.some((a) => a.t)) lines.push(...(table.some((a) => typeof a.t?.i == 'object')
+      ? [`import { $tokens, signInTarget } from '${RUNTIME}/token';`, '$tokens(signInTarget);'] : [`import { $tokens } from '${RUNTIME}/token';`, '$tokens();']));
   }
   // images from the API: the resizing service's URLs (docs/images.md, step 2)
   if (parts.remote) lines.push(`import { remote } from '${RUNTIME}/remote';`);

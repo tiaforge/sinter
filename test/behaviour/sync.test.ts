@@ -1,3 +1,4 @@
+import { $hq, $hv } from '../../src/runtime/url.js';
 import { afterEach, expect, test } from 'vitest';
 import { configure, loginRedirect, onUnauthorized } from '../../src/index.js';
 import { render, mockRequests, mockStream } from '../../src/testing/index.js';
@@ -5,7 +6,7 @@ import { render, mockRequests, mockStream } from '../../src/testing/index.js';
 afterEach(() => configure({ request: [], onError: null, sessionProbe: null }));
 
 const PAGE = `
-  <sn-resource name="contacts" src="/api/contacts" items="contacts" key="id" order="name"></sn-resource>
+  <sn-resource name="contacts" src="/api/contacts" select="contacts" key="id" order="name"></sn-resource>
   <sn-sync src="/api/events/stream">
     <sn-event name="contact_updated" resource="contacts" op="upsert" value="$event.contact" when="$event.contact"></sn-event>
     <sn-event name="contact_updated" resource="contacts" op="refresh" when="!$event.contact"></sn-event>
@@ -151,7 +152,7 @@ test('optimistic layers: overlapping actions and server events mid-flight', asyn
   });
   const stream = mockStream();
   const { root, flush, settle } = await render(`
-    <sn-resource name="m" src="/api/m" items="m" key="id"></sn-resource>
+    <sn-resource name="m" src="/api/m" select="m" key="id"></sn-resource>
     <sn-sync src="/s"><sn-event name="msg" resource="m" op="upsert"></sn-event></sn-sync>
     <template data-sn-for="x in m">
       <div>
@@ -184,11 +185,11 @@ test('islands use app.optimistic() with the same layers', async () => {
   const res = app.resource('m');
   const p = app.optimistic(() => res.remove('1'), () => app.request('/api/m', { method: 'DELETE' })).catch((e) => e);
   await flush();
-  expect([root.querySelector('p')!.textContent, app.resource('m').meta.pending]).toEqual(['1', 1]);
+  expect([root.querySelector('p')!.textContent, app.resource('m').waiting()]).toEqual(['1', 1]);
   await settle();
   expect(((await p) as { status: number }).status).toBe(500);
   await flush();
-  expect([root.querySelector('p')!.textContent, app.resource('m').meta.pending]).toEqual(['2', 0]);
+  expect([root.querySelector('p')!.textContent, app.resource('m').waiting()]).toEqual(['2', 0]);
 });
 
 test('<sn-sync> inside a state element: src and event expressions read that state', async () => {
@@ -259,7 +260,7 @@ test('an app destroyed before its streams connect opens none', async () => {
   const parts = compileParts(`<html><head></head><body>${PAGE}</body></html>`, {
     file: '/p/x.html', root: '/p', dev: false, readFile: () => '', helpers: { module: null, names: [], namespaces: {} },
   });
-  const fns = new Function('$k', `return [${parts.fns.join(',')}]`)((x: unknown) => x);
+  const fns = new Function('$k', '$hv', '$hq', `return [${parts.fns.join(',')}]`)((x: unknown) => x, $hv, $hq);
   // its own root: the previous test's page is still mounted on the document
   const host = document.createElement('div');
   host.innerHTML = /<body>([\s\S]*)<\/body>/i.exec(parts.html)![1]!;
@@ -339,7 +340,7 @@ test('<sn-sync>s with different stream URLs keep their own connections', async (
   const b = mockStream();
   const requests = mockRequests({ 'GET /api/contacts': { contacts: [] } });
   const { root, flush, settle } = await render(`
-    <sn-resource name="contacts" src="/api/contacts" items="contacts" key="id"></sn-resource>
+    <sn-resource name="contacts" src="/api/contacts" select="contacts" key="id"></sn-resource>
     <sn-sync src="/s/a"><sn-event name="up" resource="contacts" op="upsert" value="$event.contact"></sn-event></sn-sync>
     <sn-sync src="/s/b"><sn-event name="up" resource="contacts" op="upsert" value="$event.contact"></sn-event></sn-sync>
     <ul><template data-sn-for="c in contacts"><li data-sn-text="c.name"></li></template></ul>`, { requests, streams: { '/s/a': a, '/s/b': b } });
@@ -358,7 +359,7 @@ test('`then` on <sn-event> runs after the change, with the payload and the sync\
   let app: any;
   const seen: unknown[] = [];
   const r = await render(`<main data-sn-state="{ sel: null, removed: 0 }">
-    <sn-resource name="contacts" src="/api/contacts" items="contacts" key="id" order="name"></sn-resource>
+    <sn-resource name="contacts" src="/api/contacts" select="contacts" key="id" order="name"></sn-resource>
     <sn-sync src="/api/events/stream">
       <sn-event name="contact_removed" resource="contacts" op="remove"
                 then="removed++; seen($event.id); sel?.id === $event.id && (sel = null, closeDialog('detail'))"></sn-event>
@@ -394,7 +395,7 @@ test('`then` without resource and op only runs the handler; `when` gates it; a p
   const requests = mockRequests({ 'GET /api/contacts': { contacts: [{ id: 1, name: 'Ada' }] } });
   const stream = mockStream();
   const { root, flush } = await render(`<main data-sn-state="{ last: '', n: 0 }">
-    <sn-resource name="contacts" src="/api/contacts" items="contacts" key="id"></sn-resource>
+    <sn-resource name="contacts" src="/api/contacts" select="contacts" key="id"></sn-resource>
     <sn-sync src="/api/events/stream">
       <sn-event name="notice" then="last = $event.text" when="$event.text !== 'skip'"></sn-event>
       <sn-event name="contact_removed" resource="contacts" op="remove" then="n++"></sn-event>
@@ -414,7 +415,7 @@ test('server events render with the next frame: a burst renders once; a handler 
   const requests = mockRequests({ 'GET /api/contacts': { contacts: [{ id: 1, name: 'Ada' }] } });
   const stream = mockStream();
   const { root, frame, app, settle } = await render(`
-    <sn-resource name="contacts" src="/api/contacts" items="contacts" key="id" order="name"></sn-resource>
+    <sn-resource name="contacts" src="/api/contacts" select="contacts" key="id" order="name"></sn-resource>
     <div data-sn-state="{ n: 0, clicks: 0 }">
       <sn-sync src="/api/events/stream">
         <sn-event name="contact_patched" resource="contacts" op="merge" value="{name: $event.name}" then="n = n + 1"></sn-event>
@@ -460,7 +461,7 @@ test('a hidden page renders server events in a microtask (no frames come)', asyn
 // ---- $meta.<resource>.live
 
 const LIVE = `
-  <sn-resource name="contacts" src="/api/contacts" items="contacts" key="id"></sn-resource>
+  <sn-resource name="contacts" src="/api/contacts" select="contacts" key="id"></sn-resource>
   <sn-resource name="plain" src="/api/plain"></sn-resource>
   <sn-sync src="/api/events/stream">
     <sn-event name="contact_updated" resource="contacts" op="upsert" value="$event.contact"></sn-event>
@@ -499,7 +500,7 @@ test('$meta.<resource>.live is the worst state of the streams feeding the resour
   });
   const a = mockStream(), b = mockStream();
   const { root, settle } = await render(`
-    <sn-resource name="contacts" src="/api/contacts" items="contacts" key="id"></sn-resource>
+    <sn-resource name="contacts" src="/api/contacts" select="contacts" key="id"></sn-resource>
     <sn-sync src="/api/a"><sn-event name="x" resource="contacts" op="refresh"></sn-event></sn-sync>
     <sn-sync src="/api/b"><sn-event name="y" resource="contacts" op="refresh"></sn-event></sn-sync>
     <b data-sn-text="$meta.contacts.live"></b>`, { requests, streams: { '/api/a': a, '/api/b': b } });

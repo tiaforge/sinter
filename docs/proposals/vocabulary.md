@@ -252,8 +252,8 @@ A second reader's review found bugs in the steps above (fixed, each with a test)
   name, each with its `when` (recipe: partial events). `numbered: 'offset'` (was `params.offset`, which
   switched the request as well as naming it).
 - `sinter({ libraries })` (was `components`): it lists component libraries.
-- `prefetch: { data, html }` (was `prefetch` and `speculation`; `html: true | 'prerender' | false | { prerender,
-  delivery }`, after the third review), with `prefetch: false` turning off both as
+- `prefetch: { data, html }` (was `prefetch` and `speculation`; `html: true | false | { prerender,
+  delivery }`, after the third review and step 19), with `prefetch: false` turning off both as
   `<html data-sn-prefetch="off">` does for a page; `firstPaint: { budget }` (was `earlyBudget`).
 - The feature module `./write-through` (was `./apply`).
 - Renamed attributes report under `SN101`, functions under `SN201`, values under `SN401`.
@@ -281,6 +281,54 @@ diagnostics and docs. Done:
 - Then, decided with examples: the `<sn-event>` payload is `$event`, and `paginate`'s cursor reads `$item` (chosen over
   `$edge`, `$boundary` and an arrow function: plain, and the docs' word for one entry of a resource).
 
+### 19. The fifth review: leftovers (2026-11-20)
+
+What the fourth review left of the same kind, across the JavaScript and configuration surface. Done:
+- `Meta.pending` goes from the runtime and the public `Meta` type, as `$meta.<name>.pending` went from
+  markup: nothing read it but tests, which ask the store (`waiting()`, internal) instead.
+- `fonts: { bundle }` (was `inline`: the build bundles Google Fonts' stylesheets as CSS files and inlines
+  nothing), and off is `fonts: false`, the shape of every other feature's switch (`images: false`,
+  `sitemap: false`, `prefetch: false`); `fonts: { bundle: false, preload }` keeps the links and the preloads.
+- `prefetch.html` is `true | false | { prerender, delivery }`: `'prerender'` was a second spelling of
+  `{ prerender: true }`. The object's key is the one that has room for another value.
+- `clearStored()` (was `clearPersisted()`, which said half of what it does: it also removes the page-load
+  cache and the next-page data). One function, what an app calls on sign-in and sign-out.
+- `@tiaforge-ui/sinter/components` goes: it was `@tiaforge-ui/sinter/runtime/components` under a second name. Only
+  generated code imports it (the page modules, a component script's base in its `.html`, the components' types).
+- `header(name, value)` takes `() => string | null | undefined` for `value`, read per request (null: no header):
+  the docs' own token example read the token once, so it sent `Bearer null` signed out and a stale token after a
+  sign-in with swapped pages. Not a rename: a string still works.
+- `apis: { main: { default: true } }` (was `sinter({ defaultApi: 'main' })`, a sibling of the APIs it chose from;
+  `render({ defaultApi })` too).
+- `configure({ apis })` fails naming `sinter({ apis })`: it was accepted, and each page module overwrote it.
+- The main entry is the app's API only: `mount()` (compiled pages import it from `/runtime`) and the types
+  only it and the features use (`MountOptions`, `Feature`, `Intent`, `Navigator`, `IR`, `Env`) are gone from it.
+- The feature module of `<sn-resource for>` is `@tiaforge-ui/sinter/runtime/for` (was `/runtime/each`), as `./apply`
+  became `./write-through`: only compiled pages import it.
+
+### 20. `select` (was `items`) (2026-11-20)
+
+`items` named the path in the response where a resource's data is. It fits a list and reads wrong for one
+object, which is half its uses (`'GET /user': { items: 'user' }`, `items="article"`). `select` says what it does
+whatever the data is:
+
+```js
+'GET /articles': { select: 'articles', total: 'articlesCount', key: 'slug' }
+'GET /user':     { select: 'user' }
+```
+
+and `<sn-resource name="people" src="/api/people" select="people" key="id">`. One word everywhere it is this
+concept: the attribute, the API config's `defaults` and `operations`, `file:` resources (`select` picks a part of one
+JSON file), the editor's hover, the diagnostics' texts, and the IR (`ResourceDef.select`, the early IR's `emb`).
+`<sn-resource items>` is `SN101`, "`items` is renamed to `select`", which `sinter migrate` and the quick fix write;
+`items` in a shape of `sinter({ apis })` (and `render({ apis })`) is `SN329` naming `select`.
+
+Not renamed, being other things: `chunks()`'s page `{ n, items, count }`, the store's `base().items` and the
+page-load cache's and next-page data's stored `{ t, items, total }` (the data, not the path). Those entries are keyed by
+the request URL and the paths' values (`["/api/user","user",null]`), never the attribute's name, so a deploy of the
+rename reads the entries the old build wrote, of the same shape. `select` clashes with nothing a page writes: the
+`<select>` element and the runtime's `select` feature module (the selection index) are not attributes or keys.
+
 ## Looked at and kept
 
 - `data-sn-wait`: already automatic. The build hides what follows a content-sized box by itself; the
@@ -306,13 +354,15 @@ Every migration error of this proposal goes at 1.0, at once. They live in:
 
 - `RETIRED` (attributes and elements, `SN101`) and `PAGINATE_OLD` with `legacyPaginate` (the old pagination
   attributes) in `src/compiler/compile.ts`; `SET_BY_SINTER` stays, it is not a migration.
+- `ITEMS_RENAMED` (`<sn-resource items>`, every kind of resource) in `src/compiler/compile.ts`;
+  `items` in an API's shapes (`shapeOk` in `src/compiler/apis.ts`).
 - `RETIRED_FNS` (`SN201`) in `src/compiler/expr.ts`.
 - The old `<sn-event>` attributes and `op` values (`item`, `set`, `fallback`, `op="patch|refetch"`), `UNPREFIXED`
   (`data-sn-on-navigate`, `data-sn-on-dismiss`) and `offset: true` in `paginate`, in `src/compiler/compile.ts`.
-- `retiredOptions` in `src/project.ts` (`components`, the module paths, `content: '<path>'`), the renamed
-  options in `src/vite.ts` (`speculation`, `earlyBudget`, the old `prefetch.html` values), `credentials()` in
-  the config module (`configSource`), the old `complexity` keys (`complexityOf`), `--check-cycles` in
-  `src/cli.ts`, and `render({ minify, remoteImages })` in `src/testing/index.ts`.
+- `retiredOptions` in `src/project.ts` (`components`, the module paths, `content: '<path>'`, `defaultApi`), the renamed
+  options in `src/vite.ts` (`speculation`, `earlyBudget`, the old `prefetch.html` values, `fonts.inline`), `credentials()` in
+  the config module (`configSource`), `clearPersisted` and `@tiaforge-ui/sinter/components` in an app module (`retiredExport` in `src/project.ts`), the old `complexity` keys (`complexityOf`), `--check-cycles` in
+  `src/cli.ts`, and `render({ minify, remoteImages, defaultApi })` in `src/testing/index.ts`.
 - Already deprecated, also going: the top-level `sinter({ openapi })` and `render({ openapi })` (an API's
   `openapi`), and `configure({ origins })` (`sinter({ origins })`).
 

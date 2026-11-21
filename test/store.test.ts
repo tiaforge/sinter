@@ -62,7 +62,7 @@ test('a sorted list changed in place matches a full sort, ties in arrival order'
 test('a page that shows only the total updates when it loads', async () => {
   const { render, mockRequests } = await import('../src/testing/index.js');
   const requests = mockRequests({ 'GET /api/rows': { rows: [{ id: 1 }], total: 42 } });
-  const { root, settle } = await render(`<sn-resource name="rows" src="/api/rows" items="rows" total="total" key="id"></sn-resource>
+  const { root, settle } = await render(`<sn-resource name="rows" src="/api/rows" select="rows" total="total" key="id"></sn-resource>
     <p data-sn-text="$meta.rows.total"></p>`, { requests });
   await settle();
   expect(root.querySelector('p')!.textContent).toBe('42');

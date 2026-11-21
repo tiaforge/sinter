@@ -127,12 +127,14 @@ describe('data-sn-for on <html> in a build', () => {
 
   test('next-page data: each entry at its own path, with what it requests ahead (one description for all)', async () => {
     const root = app({ ...blog, 'blog/post.html': blog['blog/post.html'].replace('</article>', `</article>
-  <sn-resource name="related" src="/api/related?tag={$url.tag}" key="id" items="posts"></sn-resource>
+  <sn-resource name="related" src="/api/related?tag={$url.tag}" key="id" select="posts"></sn-resource>
   <ul><template data-sn-for="p in related"><li data-sn-text="p.title"></li></template></ul>`) });
     await run(root, ['index.html', 'blog/post.html'], { prefetch: true });
     const js = readdirSync(join(root, 'dist/assets')).filter((f) => f.endsWith('.js')).map((f) => readFileSync(join(root, 'dist/assets', f), 'utf8')).join('\n').replace(/\s+/g, '');
     // (minified: either quote)
-    for (const slug of ['hello', 'recap']) expect(js).toMatch(new RegExp(`m:\\[["\`]/blog/${slug}["\`]\\],r:\\[\\{s:\\[["\`]/api/related\\?tag=["\`],0\\]`));
+    for (const slug of ['hello', 'recap']) expect(js).toMatch(new RegExp(`m:\\[["\`]/blog/${slug}["\`]\\],r:\\[\\{u:0,`));
+    // the request as code: its URL template written out
+    expect(js).toMatch(/["`]\/api\/related["`]\+\w+\(\[\[["`]tag["`],\w+\.\$url\.tag\]\]\)/);
   }, 60_000);
 
   test('the dev server: an entry\'s URL is its page', async () => {

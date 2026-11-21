@@ -5,7 +5,7 @@ import { mkdtempSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, expect, test } from 'vitest';
-import { fontDownloader, fontId, fontOrigins, googleFontLinks, inlineFonts } from '../../src/fonts-build.js';
+import { fontDownloader, fontId, fontOrigins, googleFontLinks, bundleFonts } from '../../src/fonts-build.js';
 
 const URL1 = 'https://fonts.googleapis.com/css?family=Titillium+Web:700|Source+Sans+Pro:400,700';
 const CSS = "@font-face{font-family:'Source Sans Pro';src:url(https://fonts.gstatic.com/s/ssp/a.woff2) format('woff2')}";
@@ -27,7 +27,7 @@ test('the font files\' origins', () => {
 });
 
 test('rewrites the link to its module id and preconnects to the font origin after <meta charset>', async () => {
-  const out = await inlineFonts(page(URL1), async () => CSS);
+  const out = await bundleFonts(page(URL1), async () => CSS);
   expect(out.html).toContain(`<link rel="stylesheet" href="${fontId(URL1)}">`);
   expect(out.html).not.toContain('fonts.googleapis.com/css?family=Titillium');
   expect(out.html).toContain('<meta charset="utf-8"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>');
@@ -39,7 +39,7 @@ test('rewrites the link to its module id and preconnects to the font origin afte
 });
 
 test('a stylesheet that cannot be downloaded keeps its link, and no preconnect is added', async () => {
-  const out = await inlineFonts(page(URL1), async () => null);
+  const out = await bundleFonts(page(URL1), async () => null);
   expect(out.html).toBe(page(URL1));
   expect(out.failed).toEqual([URL1]);
 });

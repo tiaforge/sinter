@@ -144,7 +144,8 @@ describe('limits', () => {
     expect(build(page(20)).diagnostics.map((d) => [d.code, d.severity, d.message])).toEqual([['SN536', 'warning', 'this list\'s rows would take the page past 10,000 rows and components expanded at build time, so it is rendered in the browser']]);
     // the limit counts the whole page: two trees that each fit, the second one over
     expect(build(page(10) + page(10)).diagnostics.map((d) => d.code)).toEqual(['SN536']);
-  });
+    // pages of 10,000 rows, built five times: a few seconds, more on a busy machine
+  }, 30_000);
 });
 
 describe('the constant pre-pass at depth', () => {

@@ -4,7 +4,7 @@
 import { compileParts } from '../compiler/compile.js';
 import { earlyPage } from '../compiler/index.js';
 import { applyStrict, formatDiagnostic, strictOf, type Strict } from '../compiler/diagnostics.js';
-import { apiOrigins, resolveApis, type ApiOptions, type ApisDef } from '../compiler/apis.js';
+import { apiOrigins, defaultApiRenamed, resolveApis, runtimeApi, type ApiOptions, type ApisDef } from '../compiler/apis.js';
 import type { OpenApiSpec } from '../compiler/openapi.js';
 import type { Diagnostic } from '../compiler/diagnostics.js';
 import { compactIR } from '../ir.js';
@@ -16,17 +16,22 @@ import { t as message, use as useMessages } from '../messages.js';
 import { mount, scopeState, type App, type Feature, type Transport } from '../runtime/app.js';
 import { config, type Middleware } from '../runtime/config.js';
 import type { Env } from '../runtime/env.js';
+import { tokens } from '../runtime/request.js';
+import { $tokens, signInTarget } from '../token.js';
+import signedIn from '../signed-in.js';
 import { $k } from '../runtime/security.js';
+import { $href, $hq, $hv } from '../runtime/url.js';
 import * as builtins from '../runtime/helpers.js';
 import { remote, resolveRemote, type RemoteImages } from '../remote.js';
 import cache from '../cache.js';
+import back from '../back.js';
 import refresh from '../refresh.js';
 import versions from '../versions.js';
 import dev, { warningSink, type RuntimeWarning } from '../dev.js';
 export type { RuntimeWarning } from '../dev.js';
 import optimistic from '../optimistic.js';
 import paginate from '../paginate.js';
-import each from '../each.js';
+import fanOut from '../for.js';
 import persist from '../persist.js';
 import options from '../options.js';
 import keys from '../keys.js';
@@ -48,9 +53,10 @@ import confirm from '../confirm.js';
 import models from '../models.js';
 import sse from '../sse.js';
 import { lists, prefetch, type PrefetchPage } from '../prefetch.js';
+import * as prefetchExports from '../prefetch.js';
 import { pagePaths } from '../prefetch-build.js';
 
-const FEATURES: Record<string, Feature> = { components, nested, lets, dev, sse, optimistic, paginate, persist, cache, versions, refresh, each, options, keys, 'write-through': writeThrough, fields, form, select, location, typing, 'query-links': queryLinks, navigate, call, debounce, confirm, models, transition };
+const FEATURES: Record<string, Feature> = { components, nested, lets, dev, sse, optimistic, paginate, persist, cache, back, versions, refresh, for: fanOut, options, keys, 'write-through': writeThrough, fields, form, select, location, typing, 'query-links': queryLinks, navigate, call, debounce, confirm, models, transition, 'signed-in': signedIn };
 
 // ---- requests
 
@@ -251,6 +257,11 @@ export interface RenderOptions {
   storage?: Storage;
   session?: Storage;
   /**
+   * the page is reached by Back or Forward, and the back/forward cache did not serve it: its resources show what
+   * `session` holds of them (what the page showed as it was left, `unmount()` writes it) at once, then revalidate
+   */
+  traverse?: boolean;
+  /**
    * built-in messages, as the message files hold them: `{ en: { nav_mail: 'Mail' }, de: { … } }`,
    * the base language first. `m.key()` in the page reads them; the locale is `locale`, else the
    * stored choice (`locale` in `storage`), else the base; `$locale = 'de'` switches.
@@ -273,7 +284,6 @@ export interface RenderOptions {
    * on the page are relative to them, and requests carry their credentials and headers
    */
   apis?: Record<string, Omit<ApiOptions, 'openapi'> & { openapi?: unknown }>;
-  defaultApi?: string;
   /** as `sinter({ images: { remote } })`: images from the API; a bound `<img src>` gets the service's `srcset` */
   images?: { remote?: RemoteImages };
   /** the page's stylesheets, for the boxes of its images and the space of its lists (as the Vite plugin reads them from the page) */
@@ -430,7 +440,8 @@ function paint(parts: CompiledParts, helpers: Record<string, unknown>, app?: () 
 
 function compilePage(html: string, options: RenderOptions, strict: Strict = { on: false, allow: new Map() }): { parts: CompiledParts; manifest: HelperManifest; actions: Record<string, unknown>; apis: ApisDef | null; diagnostics: Diagnostic[] } {
   // renamed to the Vite plugin's spelling
-  const was = options as { minify?: unknown; remoteImages?: unknown };
+  const was = options as { minify?: unknown; remoteImages?: unknown; defaultApi?: unknown };
+  if (was.defaultApi !== undefined) throw new Error(defaultApiRenamed('render', was.defaultApi));
   if (was.minify !== undefined) throw new Error('render({ minify }) is renamed to `minifyHtml`, as in `sinter({ minifyHtml })`');
   if (was.remoteImages !== undefined) throw new Error('render({ remoteImages }) is renamed to `images: { remote }`, as in `sinter({ images: { remote } })`');
   const helpers = options.helpers ?? {};
@@ -526,7 +537,7 @@ function helpersOf(m: HelperManifest, helpers: Record<string, unknown>, module: 
 /** `apis` of the render options, resolved as the project resolves `sinter({ apis })`; an invalid one throws. */
 function testApis(options: RenderOptions): { specs: OpenApiSpec[]; apis: ApisDef | null } {
   const specs: OpenApiSpec[] = [];
-  const r = resolveApis({ apis: options.apis as Record<string, ApiOptions>, ...(options.defaultApi ? { defaultApi: options.defaultApi } : {}) },
+  const r = resolveApis({ apis: options.apis as Record<string, ApiOptions> },
     (doc) => { specs.push({ file: 'openapi.yml', doc }); return specs.length - 1; }, specs, 'vite.config.js');
   if (r.diagnostics.length) throw new Error(`sinter: ${r.diagnostics.map(formatDiagnostic).join('\n')}`);
   return { specs, apis: r.apis };
@@ -564,15 +575,17 @@ export async function render(html: string, options: RenderOptions = {}): Promise
     throw new Error(`sinter: ${list.length} runtime warning(s) in strict mode (docs/strict.md; \`render(html, { strict: false })\` turns it off for a test that expects them):\n${list.map((w) => w.message).join('\n')}`);
   };
   const strictly = <A extends unknown[]>(fn: (...a: A) => Promise<void>) => async (...a: A) => { await fn(...a); failOnWarnings(); };
-  // the page module's `$apis`: each API's base, credentials and headers
-  config.apis = apis?.list.map((a) => ({ n: a.name, b: a.base, ...(a.credentials ? { c: a.credentials } : {}), ...(a.headers ? { h: a.headers } : {}) })) ?? [];
+  // the page module's `$apis`: each API's base, credentials, headers and token
+  config.apis = apis?.list.map(runtimeApi) ?? [];
+  // and an API with a token: the request layer sends it, as the page module's `$tokens()` sets up
+  if (config.apis.some((a) => a.t)) $tokens(signInTarget); else tokens.on = undefined;
   // and their origins join the allowlist, as the page module's `$origins` does
   if (apis) config.origins = [...new Set([...config.origins, ...apiOrigins(apis)])];
 
   // function table, with helpers and namespace members in scope
   const names: string[] = ['$k'];
   const values: unknown[] = [$k];
-  for (const h of parts.helpers.builtin) { names.push(h); values.push((builtins as Record<string, unknown>)[h]); }
+  for (const h of parts.helpers.builtin) { names.push(h); values.push(h === '$href' ? $href : h === '$hv' ? $hv : h === '$hq' ? $hq : (builtins as Record<string, unknown>)[h]); }
   for (const h of parts.helpers.user) { names.push(h); values.push(helpers[h]); }
   for (const [ns, members] of Object.entries(parts.namespaces)) {
     for (const m of members) { names.push(`${ns}$${m}`); values.push((helpers[ns] as Record<string, unknown>)[m]); }
@@ -612,6 +625,7 @@ export async function render(html: string, options: RenderOptions = {}): Promise
   const timers: Timer[] = [];
   let nextTimer = 1;
   const navigations: string[] = [];
+  let early: string | null = null;
   const store = options.storage ?? memoryStorage(), session = options.session ?? memoryStorage();
   const winListeners = new Map<string, Set<(e: Event) => void>>();
   let hidden = false;
@@ -622,7 +636,8 @@ export async function render(html: string, options: RenderOptions = {}): Promise
     clearTimeout: (id) => { const i = timers.findIndex((t) => t.id === id); if (i >= 0) timers.splice(i, 1); },
     queueMicrotask: (fn) => queueMicrotask(fn),
     navigate: (url) => { navigations.push(url); },
-    replace: (url) => { navigations.push(`replace ${url}`); },
+    // the early script's sign-in redirect (`data-sn-signed-in`) is the page's: in a browser the page module does not mount after it
+    replace: (url) => { if (url === early) { early = null; return; } navigations.push(`replace ${url}`); },
     fetch: (req) => Promise.reject(new Error(`unexpected network request: ${req.method} ${req.url}; pass \`requests: mockRequests({...})\``)),
     storage: () => store,
     session: () => session,
@@ -635,6 +650,7 @@ export async function render(html: string, options: RenderOptions = {}): Promise
     trusted: (e) => !(e instanceof CustomEvent),
     random: () => 0.5,
     hidden: () => hidden,
+    traversal: () => !!options.traverse,
     ...(options.frames ? { frame: (fn: () => void) => { frameQueue.push(fn); } } : {}),
     listen: (type, fn) => {
       if (!winListeners.has(type)) winListeners.set(type, new Set());
@@ -646,7 +662,9 @@ export async function render(html: string, options: RenderOptions = {}): Promise
   if (options.firstPaint) {
     const fp = options.firstPaint === true ? {} : options.firstPaint;
     if (options.messages) { config.locale = null; useMessages(); }
+    const n = navigations.length;
     paint(parts, helpers, fp.early);
+    if (navigations.length > n && navigations.at(-1)!.startsWith('replace ')) early = navigations.at(-1)!.slice(8);
     fp.afterEarly?.();
   }
   if (options.messages) {
@@ -665,8 +683,8 @@ export async function render(html: string, options: RenderOptions = {}): Promise
     if (!other) continue;
     const ns = Object.entries(other.namespaces).flatMap(([n, ms]) => ms.map((m) => [`${n}$${m}`, (helpers[n] as Record<string, unknown>)[m]] as const));
     // eslint-disable-next-line no-new-func -- tests only; pages load a compiled module
-    const f = new Function('$k', ...other.helpers, ...ns.map(([k]) => k), `"use strict"; return [\n${other.fns.join(',\n')}\n];`)($k, ...other.helpers.map((h) => helpers[h]), ...ns.map(([, v]) => v));
-    ahead.push({ m: pagePaths(rel, '/', other.path), r: other.res, f, ...(other.a ? { a: other.a } : {}) });
+    const f = new Function('$k', ...other.uses, ...other.helpers, ...ns.map(([k]) => k), `"use strict"; return [\n${other.fns.join(',\n')}\n];`)($k, ...other.uses.map((u) => (prefetchExports as Record<string, unknown>)[u]), ...other.helpers.map((h) => helpers[h]), ...ns.map(([, v]) => v));
+    ahead.push({ m: pagePaths(rel, '/', other.path), r: other.res, f, ...(other.a ? { a: other.a } : {}), ...(other.g ? { g: other.g } : {}) });
   }
 
   const requests = options.requests;

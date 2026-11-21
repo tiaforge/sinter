@@ -1,9 +1,11 @@
 // The request layer: every request (resources, actions, the session probe,
 // islands) goes through one middleware chain, then fetch with a timeout. Nothing
 // is sent again unless a retry policy says so (`configure({ retry })`, the retry module).
-import { apiFor, clearCached, clearPrefetched, config, PREFETCH_MARK, SinterError, type Middleware } from './config.js';
+import { apiFor, clearCached, clearPrefetched, config, PREFETCH_MARK, SinterError, type ApiSettings, type Middleware } from './config.js';
 import type { Env } from './env.js';
+import type { App, ResourceLoader } from './app.js';
 import { prefetched } from './handoff.js';
+import * as F from './flags.js';
 
 export const TIMEOUT = 30_000;
 
@@ -48,7 +50,23 @@ export interface RequestLayer {
   waiting?: number;
   /** dev builds: retries are logged here */
   log?: ((message: string) => void) | undefined;
+  /** dev builds: a request the early script sent, changed by a middleware, so sent again */
+  resent?: ((url: string) => void) | undefined;
 }
+
+/** What src/token.ts gives the request layer and the loaders, for an app whose APIs have a token (`$tokens()`). */
+export interface TokenHooks {
+  /** signed out: a load of `l` (its request `req`, page `m`) that needs the token is not sent, and the resource is loaded, empty, now (true) */
+  skip(l: ResourceLoader, req: string, m: unknown): boolean;
+  /** sends a request of API `a` (`go`, the whole chain) with its token in `headers`, and reads what the response says of it */
+  send(a: ApiSettings, method: string, url: string, headers: Headers, go: () => Promise<Response>, env: Env): Promise<Response>;
+  /** an action's 401 that nothing on the page showed: to the sign-in page of the URL's API, if it has one (true) */
+  signIn(url: string, env: Env): boolean;
+  /** removes every API's token, and what the page kept with it; `app`'s resources of those APIs load again */
+  signOut(env: Env, app?: App): void;
+}
+/** set by `$tokens()` (src/token.ts); unset in apps without a token. `out`: `signOut()` ran on this page, so its sign-in guard (src/signed-in.ts) leaves the visitor to the handler */
+export const tokens: { on?: TokenHooks; out?: boolean } = {};
 
 export const isAbort = (e: unknown) => (e as Error)?.name == 'AbortError';
 
@@ -67,7 +85,9 @@ export function createRequestLayer(env: Env, chain: Middleware[]): RequestLayer 
       if (ahead) { const h = new Headers(out.headers); h.delete(PREFETCH_MARK); out = new Request(out, { headers: h }); }
       // the response the early file already requested for exactly this request, else a fetch; a
       // failed early request fails this one (a retry policy's next try fetches: it is taken once)
-      const res = await ((!ahead && prefetched()?.take(req, c.signal)) || env.fetch(new Request(out, { signal: c.signal })));
+      const early = ahead ? undefined : prefetched()?.take(req, c.signal);
+      if (early === null) layer.resent?.(req.url);
+      const res = await (early || env.fetch(new Request(out, { signal: c.signal })));
       // the session is gone: cached data must not outlive it, whatever the app does next
       if (res.status == 401) clearCached(env);
       if (ahead && !res.ok) throw new SinterError(res.status, null, 'prefetch failed');
@@ -119,7 +139,9 @@ export function createRequestLayer(env: Env, chain: Middleware[]): RequestLayer 
     inflight++;
     if (write) writing++;
     try {
-      return await (retry ? retry(once) : once());
+      const go = () => (retry ? retry(once) : once());
+      // the API's token, read now (src/token.ts)
+      return await (F.TOKEN && api?.t && tokens.on ? tokens.on.send(api, method, target.href, headers, go, env) : go());
     } catch (e) {
       throw isAbort(e) ? e : toError(e);
     } finally {

@@ -8,20 +8,20 @@ const doc = document as Document & { prerendering?: boolean };
 afterEach(() => { delete (doc as { prerendering?: boolean }).prerendering; });
 
 test('rules: the app\'s paths as URL patterns with any query and fragment; downloads and other targets left out', () => {
-  const rules = JSON.parse(speculationRules('prefetch', ['/article/:slug', '/login.html', '/a*b', '/article/:slug'])!);
+  const rules = JSON.parse(speculationRules({ prefetch: ['/article/:slug', '/login.html', '/a*b', '/article/:slug'] })!);
   const rule = rules.prefetch[0];
   expect(rule.eagerness).toBe('moderate');
   // a pattern with or without a trailing slash
   expect(rule.where.and[0].href_matches).toEqual(['/article/:slug\\?*#*', '/article/:slug/\\?*#*', '/login.html\\?*#*', '/a\\*b\\?*#*']);
   expect(rule.where.and[1].not.selector_matches).toContain('[download]');
-  expect(Object.keys(JSON.parse(speculationRules('prerender', ['/'])!))).toEqual(['prerender']);
-  expect(speculationRules('prefetch', [])).toBeNull();
+  expect(Object.keys(JSON.parse(speculationRules({ prerender: ['/'] })!))).toEqual(['prerender']);
+  expect(speculationRules({ prefetch: [] })).toBeNull();
   expect(rule.where.and).toHaveLength(2);
 });
 
 test('rules on a page with same-page links leave out its own URLs with another query (relative to the document)', () => {
   // verified in Chromium: the preload candidates then list `/other` and not `?page=2` (without it, both)
-  const rule = JSON.parse(speculationRules('prefetch', ['/tag/:tag'], true)!).prefetch[0];
+  const rule = JSON.parse(speculationRules({ prefetch: ['/tag/:tag'] }, true)!).prefetch[0];
   expect(rule.where.and[2]).toEqual({ not: { href_matches: '?*', relative_to: 'document' } });
 });
 
@@ -31,7 +31,7 @@ test('a prerendered page loads, connects its streams once shown, and refetches t
   let n = 0;
   const requests = mockRequests({ 'GET /api/inbox': () => ({ items: [{ id: 1, n: ++n }] }) });
   const r = await render(`
-    <sn-resource name="inbox" src="/api/inbox" items="items" key="id"></sn-resource>
+    <sn-resource name="inbox" src="/api/inbox" select="items" key="id"></sn-resource>
     <sn-sync src="/api/events"><sn-event name="mail" resource="inbox" op="upsert" value="$event.m"></sn-event></sn-sync>
     <template data-sn-for="m in inbox"><p data-sn-text="m.n"></p></template>`, { requests, streams: { '/api/events': stream } });
   await r.settle();
@@ -50,7 +50,7 @@ test('a page that is not prerendered connects at once and loads once', async () 
   const stream = mockStream();
   const requests = mockRequests({ 'GET /api/inbox': { items: [] } });
   const r = await render(`
-    <sn-resource name="inbox" src="/api/inbox" items="items" key="id"></sn-resource>
+    <sn-resource name="inbox" src="/api/inbox" select="items" key="id"></sn-resource>
     <sn-sync src="/api/events"><sn-event name="mail" resource="inbox" op="upsert" value="$event.m"></sn-event></sn-sync>
     <i data-sn-text="inbox.length"></i>`, { requests, streams: { '/api/events': stream } });
   await r.settle();

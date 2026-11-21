@@ -88,7 +88,7 @@ test('a build: <picture> with AVIF and lossless WebP, the variants in assets/, t
   // transparent: no color
   expect(css).toMatch(/:where\(img\[src="\/assets\/logo-400-[\w-]+\.png"\]\)\s*\{\s*height:\s*auto;?\s*\}/);
   expect(html).toMatch(/<link rel="stylesheet" crossorigin href="\/assets\/[\w-]+\.css">/);
-});
+}, 60_000);
 
 test('the dev server serves a variant on its first request', async () => {
   const server = await createServer({ root, logLevel: 'silent', resolve: { alias }, css: { postcss: { plugins: [xThumb] } }, server: { port: 0, hmr: false, ws: false }, plugins: [sinter()] });

@@ -6,7 +6,7 @@ import { dirname, join, relative, resolve, sep } from 'node:path';
 import { readHelperManifest, type Diagnostic, type HelperManifest } from './compiler/index.js';
 import { strictOf, type Strict } from './compiler/diagnostics.js';
 import type { OpenApiSpec } from './compiler/openapi.js';
-import { resolveApis, type ApiOptions, type ApisDef } from './compiler/apis.js';
+import { defaultApiRenamed, resolveApis, type ApiOptions, type ApisDef } from './compiler/apis.js';
 import { COMPLEXITY_LIMITS, type ComplexityOptions } from './compiler/complexity.js';
 import { MESSAGES_MODULE, messagesDts, readMessages, type MessagesProject } from './i18n-build.js';
 import { componentNames, writeComponentTypes } from './components-build.js';
@@ -30,8 +30,6 @@ export interface ProjectOptions {
    * is relative to one of them, and must be an operation it declares.
    */
   apis?: Record<string, ApiOptions>;
-  /** the API a path without `api:` goes to; with one API configured it is that one */
-  defaultApi?: string;
   /** SN507 (`complex-expression`): `false` turns it off, `{ level: 'error' }` makes it an error; the limits are fixed */
   complexity?: false | { level?: 'warn' | 'error' };
   /**
@@ -173,6 +171,7 @@ export const COMPONENTS_RENAMED = 'sinter({ components }) is renamed to `librari
 export function retiredOptions(options: object): void {
   const o = options as Record<string, unknown>;
   if (o.components !== undefined) throw new Error(COMPONENTS_RENAMED);
+  if (o.defaultApi !== undefined) throw new Error(defaultApiRenamed('sinter', o.defaultApi));
   for (const [k, file] of [['helpers', 'sinter.helpers'], ['actions', 'sinter.actions'], ['config', 'sinter.config'], ['early', 'sinter.early'], ['types', 'sinter.types']] as const) {
     if (o[k] !== undefined) throw new Error(`sinter({ ${k} }) is gone: the module is \`src/${file}.ts\` (or \`.js\`), in a component library \`fixtures/${file}.ts\` beside its fixture pages`);
   }
@@ -393,6 +392,16 @@ function configSource(rel: string, source: string): string {
     throw new Error(`${rel}: \`credentials()\` is gone: the API sets it, \`sinter({ apis: { site: { credentials: 'include' } } })\` (or the API's own name), and early requests keep working`);
   }
   return source;
+}
+
+/**
+ * The package's exports that are gone or renamed, as an app module imports them: what to write instead, or null.
+ * (A missing export alone fails the build without naming its replacement.)
+ */
+export function retiredExport(source: string): string | null {
+  if (/['"]@tiaforge-ui\/sinter\/components['"]/.test(source)) return '`@tiaforge-ui/sinter/components` is gone: a component\'s script extends its base from its own HTML (`import { TaskRingComponent } from \'./task-ring.html\'`), which imports `@tiaforge-ui/sinter/runtime/components` as compiled pages do';
+  if (!/\bclearPersisted\b/.test(source) || !/['"]@tiaforge-ui\/sinter['"]/.test(source)) return null;
+  return '`clearPersisted()` is renamed to `clearStored()`: it removes the page-load cache and the next-page data as well as the `data-sn-persist` values';
 }
 
 /** Whether a config module's source may change requests: `configure({ request })`, `header()`. Errs toward yes. */

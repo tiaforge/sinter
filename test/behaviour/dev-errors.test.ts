@@ -60,7 +60,7 @@ test('an action\'s `then` and a resource\'s `then` that throw name their attribu
   const requests = mockRequests({ 'GET /api/items': { items: [] }, 'POST /api/items': {} });
   const page = [
     '<div data-sn-state="{ a: null }">',
-    '  <sn-resource name="items" src="/api/items" items="items" key="id" then="a.b = 1"></sn-resource>',
+    '  <sn-resource name="items" src="/api/items" select="items" key="id" then="a.b = 1"></sn-resource>',
     '  <button data-sn-post="/api/items" data-sn-then="a.b = 2">x</button>',
     '  <p data-sn-text="items.length"></p>',
     '</div>',

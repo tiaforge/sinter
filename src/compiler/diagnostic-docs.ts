@@ -19,13 +19,8 @@ export const DIAGNOSTIC_DOCS: Record<Code, DiagnosticDoc> = {
   },
   SN102: {
     example: '`data-sn-for` must be on a `<template>`',
-    means: 'The attribute or element is valid, but not here: lists and conditionals render from a `<template>`, `data-sn-path` belongs on `<html>`, `<sn-event>` inside `<sn-sync>`, options such as `data-sn-debounce` need an action on the same element (a method attribute or `data-sn-call`), and `data-sn-attr` cannot bind the `value` or `checked` that a `data-sn-model` on the same control writes.',
+    means: 'The attribute or element is valid, but not here: lists and conditionals render from a `<template>`, `data-sn-path` belongs on `<html>`, `<sn-event>` inside `<sn-sync>`, options such as `data-sn-debounce` need an action on the same element (a method attribute or `data-sn-call`), `data-sn-attr` cannot bind the `value` or `checked` that a `data-sn-model` on the same control writes, and `data-sn-href` is on a link (`<a>`, `<area>`) whose `href` nothing else binds. A `data-sn-else` goes directly after a `data-sn-if` template, or after a `data-sn-for` template, where it is the list\'s empty state: that one takes no `data-sn-if` (choose inside it), and the list\'s own `data-sn-let` is not its.',
     fix: 'Move it to where the message says, wrapping the content in a `<template>` if needed.',
-  },
-  SN103: {
-    example: 'a `data-sn-for` over primitive values needs `data-sn-key`',
-    means: 'sinter keys list rows by the resource key or by object identity. Strings and numbers have neither, so rows could not be matched on update.',
-    fix: 'Add `data-sn-key` with an expression that is unique per row, such as the value itself: `data-sn-key="tag"`.',
   },
   SN104: {
     example: '`data-sn-model` does not support `type="file"`; submit the form instead',
@@ -74,7 +69,7 @@ export const DIAGNOSTIC_DOCS: Record<Code, DiagnosticDoc> = {
   },
   SN207: {
     example: '`onclick` cannot be bound with `data-sn-attr`; use `data-sn-on-click`',
-    means: 'The binding could run script or inject markup from data: event-handler attributes, `style`, `srcdoc`, `innerHTML`, bindings on `<script>`, `<link>`, `<base>` and similar elements, any binding on a `<meta>` but `data-sn-attr="{ content: … }"` on one with a literal `name`, `property` or `itemprop` (never `http-equiv` or `charset`), URL templates that do not start with a literal path (or with a literal origin that lacks its `/` before a value), persisted password fields, or `constructor`, `__proto__` and `prototype` named in an expression.',
+    means: 'The binding could run script or inject markup from data: event-handler attributes, `style`, `srcdoc`, `innerHTML`, bindings on `<script>`, `<link>`, `<base>` and similar elements, any binding on a `<meta>` but `data-sn-attr="{ content: … }"` on one with a literal `name`, `property` or `itemprop` (never `http-equiv` or `charset`), URL templates that do not start with a literal path (or with a literal origin that lacks its `/` before a value; a link\'s, `data-sn-href`, may also start with `?` or `#`), persisted password fields, or `constructor`, `__proto__` and `prototype` named in an expression.',
     fix: 'Use the safe equivalent the message names: `data-sn-on-*` for events, `data-sn-style` for styles, a literal `/path` (or `https://host/`) at the start of a URL template.',
   },
   SN208: {
@@ -109,17 +104,17 @@ export const DIAGNOSTIC_DOCS: Record<Code, DiagnosticDoc> = {
   },
   SN301: {
     example: 'resource `mesages` is not declared on this page',
-    means: 'A store call, `$meta` or embedded data (`data-sn-resource`) names a resource that no `<sn-resource>` on the page or its partials declares. A name chosen by an expression (`page(searching ? \'results\' : \'messages\', \'next\')`, or a `data-sn-let` name that is one) is checked for each name it can take. Also reported: a store call whose name argument cannot be listed from the source (a state variable, a helper\'s result, `$event.detail`).',
-    fix: 'Fix the name or add the `<sn-resource>` element. For a name that cannot be listed, write the choice as literals: `?:`, `||` or `??` between string literals, or a `data-sn-let` name whose value is one; a name kept in state becomes `tab === \'inbox\' ? \'inbox\' : \'sent\'`.',
+    means: 'A store call, `$meta` or embedded data (`data-sn-resource`) names a resource that no `<sn-resource>` on the page or its partials declares. Store functions and `$meta[…]` take the resource itself, not its name. A resource chosen by an expression (`page(searching ? results : messages, \'next\')`, `||` or `??` between resources, or a `data-sn-let` name that is one) is checked for each resource it can take. Also reported: a name as a string (`refresh(\'people\')`, `$meta[s ? \'a\' : \'b\']`), and a store call whose resource argument cannot be listed from the source (a state variable, a helper\'s result, `$event.detail`, `a && b`).',
+    fix: 'Fix the name or add the `<sn-resource>` element. Write the resource, not a string: `refresh(people)`. For a choice that cannot be listed, write it between resources: `?:`, `||` or `??`, or a `data-sn-let` name whose value is one (`data-sn-let="{ shown: searching ? results : messages }"`, then `page(shown, \'next\')`); a choice kept in state becomes `tab === \'inbox\' ? inbox : sent`.',
   },
   SN303: {
     example: '`$meta.contacts.loadng` is not a status field. Did you mean `loading`?',
-    means: '`$meta.<resource>` has a fixed set of fields: `loading`, `error`, `loadedAt`, `total`, `live`, and with `paginate` also `pages`, `from`, `to`, `hasPrev`, `hasNext`; `page` on a numbered list (`numbered: true`), or a keyset list with `jump: true`.',
+    means: '`$meta.<resource>` has a fixed set of fields: `loading`, `error`, `loadedAt`, `total`, `live`, and with `paginate` also `pages`, `from`, `to`, `hasPrev`, `hasNext`; `page` on a numbered list (`numbered: true`), or a keyset list with `jump: true`. There is no `pending`: an element shows its own request with `aria-busy`.',
     fix: 'Use the suggested field. A pagination field needs `paginate` on the resource.',
   },
   SN304: {
     example: 'keyset pagination cannot jump to a page number. Add `jump: true` to `paginate` if the server also accepts an offset, or use `numbered: true`',
-    means: 'Keyset (cursor) pagination only knows the next and previous page, so `page(name, 7)` has nothing to jump to, unless the server can also skip items by offset. A computed target (`page(name, dir)`) is not this error: `sinter check` types it as a direction, and at run time a page number is refused without a request. `append` pagination takes only the literal `\'next\'`.',
+    means: 'Keyset (cursor) pagination only knows the next and previous page, so `page(messages, 7)` has nothing to jump to, unless the server can also skip items by offset. A computed target (`page(messages, dir)`) is not this error: `sinter check` types it as a direction, and at run time a page number is refused without a request. `append` pagination takes only the literal `\'next\'`.',
     fix: 'If the API accepts an offset next to its cursor, add `jump: true` to `paginate` (and `params: { offset: \'skip\' }` where the server names it otherwise): the jump is sent as an offset and `prev`/`next` continue by cursor. Otherwise use `numbered: true` in `paginate`, or only step with `first`, `prev`, `next` and `last`.',
   },
   SN306: {
@@ -134,8 +129,8 @@ export const DIAGNOSTIC_DOCS: Record<Code, DiagnosticDoc> = {
   },
   SN308: {
     example: 'the response of `GET /articles` has no `articls`. Did you mean `articles`?',
-    means: 'The resource matched an operation in the OpenAPI spec, but its `items` or `total` path is not in the response schema.',
-    fix: 'Fix the path in `items` or `total`, or the spec if the API changed.',
+    means: 'The resource matched an operation in the OpenAPI spec, but its `select` or `total` path is not in the response schema.',
+    fix: 'Fix the path in `select` or `total`, or the spec if the API changed.',
   },
   SN309: {
     example: 'no `<dialog id="compose-dialg">` on this page. Did you mean `compose-dialog`?',
@@ -150,7 +145,7 @@ export const DIAGNOSTIC_DOCS: Record<Code, DiagnosticDoc> = {
 
   SN312: {
     example: "a component's root renders at most one element; `<article-preview>` has 2 elements at the top of its template",
-    means: 'A file in `src/components/` is not a valid component: it needs one `<template data-sn-props="{ …props }">` (and optionally a `<style>`) whose root renders at most one element: one element, a `data-sn-if`/`data-sn-else` chain of them, a component, `<sn-component use>`, or a `<slot>` whose default and fills are roots. A component whose template holds head elements only is a head component, which holds any number of them. Also reported: two slots with the same name, a head component with a script, and `<sn-component use>` naming a head component.',
+    means: 'A file in `src/components/` is not a valid component: it needs one `<template data-sn-props="{ …props }">` (a plain `<template>` for a component without props; and optionally a `<style>`) whose root renders at most one element: one element, a `data-sn-if`/`data-sn-else` chain of them, a component, `<sn-component use>`, or a `<slot>` whose default and fills are roots. A component whose template holds head elements only is a head component, which holds any number of them. Also reported: two top-level templates where none has `data-sn-props`, `data-sn-if`, `data-sn-else`, `data-sn-for` or `data-sn-text` on the file\'s template without `data-sn-props` (that template is the declaration, not a branch, list or text), two slots with the same name, a head component with a script, and `<sn-component use>` naming a head component.',
     fix: 'Wrap the markup in one element inside `<template data-sn-props>`: the caller\'s classes, attributes and handlers land on it.',
   },
   SN313: {
@@ -211,7 +206,7 @@ export const DIAGNOSTIC_DOCS: Record<Code, DiagnosticDoc> = {
   },
   SN326: {
     example: '`GET /contacs` is no operation of the API `main`. Did you mean `/contacts`?',
-    means: 'With `sinter({ apis })`, a path in `src`, an action or `<sn-sync src>` is relative to an API, and the API accepts only the operations its spec or its `operations` declare, with the method the place implies (`GET` for a resource unless it has `method`, the attribute\'s for an action). Also reported: `api:` naming no API, and a path without `api:` when several APIs are configured and `defaultApi` names none.',
+    means: 'With `sinter({ apis })`, a path in `src`, an action or `<sn-sync src>` is relative to an API, and the API accepts only the operations its spec or its `operations` declare, with the method the place implies (`GET` for a resource unless it has `method`, the attribute\'s for an action). Also reported: `api:` naming no API, and a path without `api:` when several APIs are configured and none is the default (`default: true`).',
     fix: 'Use the suggested path (the editor completes them), add the endpoint to the spec, or declare it in the API\'s `operations`. A path written with the base in it (`/api/contacts` with `base: \'/api\'`) drops the base.',
   },
   SN327: {
@@ -226,12 +221,12 @@ export const DIAGNOSTIC_DOCS: Record<Code, DiagnosticDoc> = {
   },
   SN329: {
     example: 'sinter({ apis }): `main.base` is `undefined` (an environment variable that is not set?); it does not fall back to the spec\'s server',
-    means: 'The `apis` option is invalid: an API setting that does not exist, a `base` that is not `\'\'`, a same-origin path or an `https://` URL (or is `undefined`), `defaults` naming an operation the spec does not have, `operations` naming one it has, `defaultApi` naming no API, or a top-level `openapi` next to `apis`.',
-    fix: 'Follow the message: set the environment variable, move the endpoint between `defaults` and `operations`, or move `openapi` into an API.',
+    means: 'The `apis` option is invalid: an API setting that does not exist, a `base` that is not `\'\'`, a same-origin path or an `https://` URL (or is `undefined`), `defaults` naming an operation the spec does not have, `operations` naming one it has, two APIs with `default: true`, a shape setting renamed (`items` is `select`), or a top-level `openapi` next to `apis`.',
+    fix: 'Follow the message: set the environment variable, move the endpoint between `defaults` and `operations`, write the new name, or move `openapi` into an API.',
   },
   SN330: {
-    example: '`items` of `GET /articles` is `articles` (`main.defaults`), not `posts`: every page reads one shape from an endpoint',
-    means: 'What an endpoint returns (`items`, `total`, `key`, `type`) is said once: when the API\'s `defaults` or `operations` give a value, a resource of that operation does not write a different one, because two pages would read different shapes from one endpoint. The same value is the warning `SN518`.',
+    example: '`select` of `GET /articles` is `articles` (`main.defaults`), not `posts`: every page reads one shape from an endpoint',
+    means: 'What an endpoint returns (`select`, `total`, `key`, `type`) is said once: when the API\'s `defaults` or `operations` give a value, a resource of that operation does not write a different one, because two pages would read different shapes from one endpoint. The same value is the warning `SN518`.',
     fix: 'Remove the attribute, or change the configured value if the page is right.',
   },
   SN331: {
@@ -240,9 +235,9 @@ export const DIAGNOSTIC_DOCS: Record<Code, DiagnosticDoc> = {
     fix: 'Write the slot as `cell: Slot<{ row: Row }>` in the props type literal, place it with `data-sn-with`, give the placement one element as default, and move names the children read onto the `<slot>`\'s `data-sn-with` or inside the element. Remove a `<slot>` from a page.',
   },
   SN332: {
-    example: '`refresh` reloads, and a `file:` resource is a constant: it is read at build time and never loads or changes; it takes only `name`, `src`, `type`, `items`, `key`, `order` and `drafts`',
-    means: 'A `file:` source (`<sn-resource src="file:./post.md">`) reads the project at build time: one file (its text, a `.json` file\'s parsed value, a markdown file\'s frontmatter and `body`), or with a glob (`file:/content/posts/*.md`) a list with one entry per file, each with its `slug`, `dir` and `path`. The path is a literal, relative to the file that writes it (a page, a layout, a component) or `/…` from the project root, and inside the root; the file must exist, a `.json` file must parse, frontmatter must be YAML fields without anchors, aliases or tags, and must not name `body`, `dir` or `path`, which sinter writes. In a glob each `.json` file is one object, and two entries may not share a key (`slug` by default). `order` sorts a list and `drafts` names a field that leaves an entry out of a build; `items` picks a list out of one JSON file. The resource is a constant: what would load, page, refresh, cache or change it is refused (`refresh`, `cache`, `paginate`, `for`, `call`, `when`, `then`, `early`, `method`, store functions that name it or change one of its items, write-through, `<sn-event>`s). `file:` is a source of `<sn-resource src>` only, not of an action or `<sn-sync>`.',
-    fix: 'Write a literal path or glob in the project, or fix the file it names. Give two files with one name a `slug` of their own in their frontmatter (or a `key` that tells them apart). Leave out the attribute that would load or change it; for data that changes, serve it from an API and use a URL. To change the values a page shows, keep them in `data-sn-state`, initialized from the resource.',
+    example: '`refresh` reloads, and a `file:` resource is a constant: it is read at build time and never loads or changes; it takes only `name`, `src`, `type`, `select`, `key`, `order`, `drafts` and `fields`',
+    means: 'A `file:` source (`<sn-resource src="file:./post.md">`) reads the project at build time: one file (its text, a `.json` file\'s parsed value, a markdown file\'s frontmatter and `body`), or with a glob (`file:/content/posts/*.md`) a list with one entry per file, each with its `slug`, `dir` and `path`. The path is a literal, relative to the file that writes it (a page, a layout, a component) or `/…` from the project root, and inside the root; the file must exist, a `.json` file must parse, frontmatter must be YAML fields without anchors, aliases or tags, and must not name `body`, `dir` or `path`, which sinter writes. In a glob each `.json` file is one object, and two entries may not share a key (`slug` by default). `order` sorts a list and `drafts` names a field that leaves an entry out of a build; `items` picks a list out of one JSON file. The resource is a constant: what would load, page, refresh, cache or change it is refused (`refresh`, `cache`, `paginate`, `for`, `call`, `when`, `then`, `early`, `method`, store functions that name it or change one of its items, write-through, `<sn-event>`s). `file:` is a source of `<sn-resource src>` only, not of an action or `<sn-sync>`. `fields` and `drafts` are a build-time source\'s only (`file:`, `content:`): on a fetched resource they would do nothing.',
+    fix: 'Write a literal path or glob in the project, or fix the file it names. Give two files with one name a `slug` of their own in their frontmatter (or a `key` that tells them apart). Leave out the attribute that would load or change it, and a build-time source\'s attribute on a fetched resource; for data that changes, serve it from an API and use a URL. To change the values a page shows, keep them in `data-sn-state`, initialized from the resource.',
   },
   SN340: {
     example: '`data-sn-for` on `<html>` needs `data-sn-path` with exactly one pattern to fill from each entry, e.g. `data-sn-path="/blog/:slug"`',
@@ -295,6 +290,11 @@ export const DIAGNOSTIC_DOCS: Record<Code, DiagnosticDoc> = {
     example: '`data-sn-permanent="player"` binds, and about.html has another element of that name: a kept element that binds is one markup, from one place (a layout or a component), on every page that keeps it',
     means: 'An element with `data-sn-permanent` is kept as it is when a link swaps the next page in (`sinter({ swap: true })`): the same element, playing or scrolled, moves into the next page where it has an element of the same name, and the next page\'s code takes over its bindings. So it is one element of the page, named with letters, digits, `-` and `_`, outside any `<template>`, once per page; its nodes are numbered in a range of their own, from its name (two names that get the same range, or more than 1000 bound nodes, are reported); and when it binds, every page that keeps it has the same markup, written in one place.',
     fix: 'Give the element a plain name; write a kept element that binds once, in the layout or a component every page uses; rename one of two names that clash.',
+  },
+  SN347: {
+    example: '`data-sn-signed-in` needs an API with a `token` (`sinter({ apis: { main: { token } } })`)',
+    means: '`data-sn-signed-in` on a page\'s `<html>` (or its layout\'s tag) sends a visitor with no token stored to the API\'s `token.signIn` page, with the return URL, before anything paints. It needs one API with a `token` and a `signIn` (with several, the one the page\'s resources use, and only one), its value reads only `$url` (the early script decides it before the page module runs), and it cannot be on the sign-in page itself (a loop). It is a convenience, not security: the server still refuses the requests. `signOut()` removes the tokens of the APIs that have one: in an app without one it would do nothing, so it is refused too.',
+    fix: 'Give the API a `token` with `signIn`; keep the condition to `$url` (`$url.feed == \'following\'`); remove the attribute from the sign-in page. Without a token, sign out as the session works: a request to the server that ends it, then `clearStored()` in app code.',
   },
   SN401: {
     example: '`data-sn-for` takes `item in list` or `(item, i) in list`',
@@ -378,18 +378,18 @@ export const DIAGNOSTIC_DOCS: Record<Code, DiagnosticDoc> = {
   },
   SN517: {
     example: '`GET /api/contacts` returns a list at `contacts`: resource `contacts` has no `key`, so it is one object holding the list',
-    means: 'Without `key` a resource is a single object. A list of objects loads and renders that way, but nothing can change one item: an `upsert` replaces the whole list, `merge` merges fields into the list and `remove` sets it to `null`. Reported when the OpenAPI response at `items` is a list of objects.',
+    means: 'Without `key` a resource is a single object. A list of objects loads and renders that way, but nothing can change one item: an `upsert` replaces the whole list, `merge` merges fields into the list and `remove` empties it (`[]`). Reported when the OpenAPI response at `select` is a list of objects.',
     fix: 'Add `key` with the field that identifies an item, such as `key="id"`. A list that is only read can stay as it is.',
   },
   SN518: {
-    example: '`items` of `GET /articles` is configured as `articles` (`main.defaults`): remove it here',
+    example: '`select` of `GET /articles` is configured as `articles` (`main.defaults`): remove it here',
     means: 'The API\'s `defaults` or `operations` already give this value for the endpoint, so the attribute says nothing. A different value is the error `SN330`.',
     fix: 'Remove the attribute.',
   },
   SN519: {
     example: '`?page=3` keeps only its own query: `tag`, which this page reads, is dropped when it is followed',
-    means: 'A pager link whose `href` is only a query (`?page=3`, setting the parameter a list\'s `model` (paginate) names) replaces the whole query of the current URL, as any URL resolves: on `/?tag=go` it goes to `/?page=3`, without the tag. The page reads the parameters named, so following the link loses them (in the page, with same-page links, or with a page load). A filter or tab link that drops the page is not reported: that is how a list starts at page 1. Nor is a static `href` kept as the fallback of a bound one.',
-    fix: 'Build the whole query in `data-sn-attr` (`href: \'?page=\' + n + \'&tag=\' + encodeURIComponent($url.tag)`), or leave the parameter out on purpose, for a link that resets it.',
+    means: 'A pager link whose `href` is only a query (`?page=3`, or a `data-sn-href` template such as `?page={n}`, setting the parameter a list\'s `model` (paginate) names) replaces the whole query of the current URL, as any URL resolves: on `/?tag=go` it goes to `/?page=3`, without the tag. The page reads the parameters named, so following the link loses them (in the page, with same-page links, or with a page load). A filter or tab link that drops the page is not reported: that is how a list starts at page 1. Nor is a static `href` kept as the fallback of a bound one.',
+    fix: 'Keep the parameters in the link\'s template, `data-sn-href="?tag={$url.tag}&page={n}"` (a parameter that is not set is left out), or leave the parameter out on purpose, for a link that resets it.',
   },
   SN520: {
     example: '`index.html` preloads `chart.js` (data-sn-preload), but no module of the app imports it: there is nothing to preload',
@@ -398,8 +398,8 @@ export const DIAGNOSTIC_DOCS: Record<Code, DiagnosticDoc> = {
   },
   SN521: {
     example: '`list.html` builds a link to `item.html` at run time, which is served at `/item/` now: it arrives through a redirect',
-    means: 'An expression builds a URL to another page by its file name (`\'/item.html?id=\' + i.id`). The build rewrites such links in the markup, but not ones built at run time, so the link costs a redirect to the page\'s URL. Reported by the build.',
-    fix: 'Write the page\'s URL in the expression, as the message shows: `\'/item/?id=\' + i.id`.',
+    means: 'An expression or a link\'s URL template builds a URL to another page by its file name (`data-sn-href="/item.html?id={i.id}"`, `\'/item.html?id=\' + i.id`). The build rewrites such links in the markup, but not ones built at run time, so the link costs a redirect to the page\'s URL. Reported by the build.',
+    fix: 'Write the page\'s URL, as the message shows: `data-sn-href="/item/?id={i.id}"`.',
   },
   SN522: {
     example: '3 message(s) not translated to `de` (the en text is used): save, cancel, title',
@@ -422,9 +422,9 @@ export const DIAGNOSTIC_DOCS: Record<Code, DiagnosticDoc> = {
     fix: 'Install it, `npm install -D sharp`, or turn optimization off with `sinter({ images: false })`.',
   },
   SN526: {
-    example: 'could not download https://fonts.example/inter.woff2; the page keeps the link (sinter({ fonts: { inline: false } }) turns this off)',
-    means: 'The build self-hosts the fonts a page links to, and one could not be downloaded, so the page keeps the link to the font\'s host. This depends on the network, so `--strict` leaves it a warning. Reported by the build, without a file and line.',
-    fix: 'Build with network access, or turn self-hosting off with `sinter({ fonts: { inline: false } })`.',
+    example: 'could not download https://fonts.example/inter.woff2; the page keeps the link (sinter({ fonts: { bundle: false } }) turns this off)',
+    means: 'The build bundles the Google Fonts stylesheets a page links to, and one could not be downloaded, so the page keeps the link to the font\'s host. This depends on the network, so `--strict` leaves it a warning. Reported by the build, without a file and line.',
+    fix: 'Build with network access, or keep the links with `sinter({ fonts: { bundle: false } })`.',
   },
   SN527: {
     example: 'image sizes from src/styles.scss are not read: Undefined variable $gap',

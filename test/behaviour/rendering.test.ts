@@ -115,6 +115,86 @@ test('swapping two rows moves only them: adjacent or apart, rows of several node
   expect(root.querySelector('section')!.lastElementChild!.tagName).toBe('P');
 });
 
+test('a list of strings or numbers keys by value and occurrence: duplicates reorder, insert and remove with no key and no warning', async () => {
+  const { root, flush, warnings } = await render(`
+    <div data-sn-state="{ xs: ['a', 'a', 'b'] }">
+      <ul><template data-sn-for="(x, i) in xs"><li data-sn-state="{ n: 0 }"><b data-sn-text="'' + i + x + n"></b><button data-sn-on-click="n++">+</button></li></template></ul>
+      <button id="rev" data-sn-on-click="xs.reverse()">rev</button>
+      <button id="ins" data-sn-on-click="xs.splice(1, 0, 'a', 'c')">ins</button>
+      <button id="del" data-sn-on-click="xs.splice(xs.indexOf('a'), 1)">del</button>
+      <button id="mix" data-sn-on-click="xs = [1, '1', 1, 'b']">mix</button>
+    </div>`, { strict: true });
+  const lis = () => [...root.querySelectorAll('li')];
+  const text = () => lis().map((l) => l.querySelector('b')!.textContent).join(' ');
+  const [a0, a1, b] = lis();
+  expect(text()).toBe('0a0 1a0 2b0');
+  // a row's own state counts the first `a`'s clicks
+  a0!.querySelector('button')!.click();
+  await flush();
+  expect(text()).toBe('0a1 1a0 2b0');
+  // reversed: `b`, then the `a`s, the first `a` (its state with it) still the first one
+  root.querySelector<HTMLElement>('#rev')!.click();
+  await flush();
+  expect(text()).toBe('0b0 1a1 2a0');
+  expect(lis()).toEqual([b, a0, a1]);
+  // `b a a` → `b a c a a`: one new `a` (the last occurrence) and a `c`; the rows there keep their nodes
+  root.querySelector<HTMLElement>('#ins')!.click();
+  await flush();
+  expect(text()).toBe('0b0 1a1 2c0 3a0 4a0');
+  expect(lis()[0]).toBe(b);
+  expect(lis()[1]).toBe(a0);
+  expect(lis()[3]).toBe(a1);
+  // removing the first `a`: the last occurrence's row goes, the first keeps its state
+  root.querySelector<HTMLElement>('#del')!.click();
+  await flush();
+  expect(text()).toBe('0b0 1c0 2a1 3a0');
+  expect(lis()[2]).toBe(a0);
+  expect(lis()[3]).toBe(a1);
+  // a number and the same digits as a string are different rows; equal numbers twice are two rows
+  root.querySelector<HTMLElement>('#mix')!.click();
+  await flush();
+  expect(text()).toBe('010 110 210 3b0');
+  expect(lis()[3]).toBe(b);
+  expect(warnings()).toEqual([]);
+});
+
+test('a resource\'s list of strings with duplicates needs no key', async () => {
+  const requests = mockRequests({ 'GET /api/post': { tags: ['x', 'y', 'x'] } });
+  const { root, settle, warnings } = await render(`
+    <sn-resource name="post" src="/api/post"></sn-resource>
+    <ul><template data-sn-for="t in post?.tags ?? []"><li data-sn-text="t"></li></template></ul>`, { requests, strict: true });
+  await settle();
+  expect([...root.querySelectorAll('li')].map((l) => l.textContent)).toEqual(['x', 'y', 'x']);
+  expect(warnings()).toEqual([]);
+});
+
+test('a list chosen between resources with the same key keys by it: a row in both stays when the choice changes', async () => {
+  const requests = mockRequests({
+    'GET /api/articles': { articles: [{ slug: 'a', t: 'A' }, { slug: 'b', t: 'B' }] },
+    'GET /api/feed': { articles: [{ slug: 'b', t: 'B2' }, { slug: 'c', t: 'C' }] },
+  });
+  const { root, flush, settle, warnings } = await render(`
+    <sn-resource name="articles" src="/api/articles" select="articles" key="slug"></sn-resource>
+    <sn-resource name="feed" src="/api/feed" select="articles" key="slug"></sn-resource>
+    <div data-sn-state="{ mine: false }" data-sn-let="{ list: mine ? feed : articles }">
+      <ul><template data-sn-for="a in list"><li data-sn-text="a.t"></li></template></ul>
+      <ol><template data-sn-for="a in (mine ? feed : articles).toSorted((x, y) => y.slug.localeCompare(x.slug))"><li data-sn-text="a.t"></li></template></ol>
+      <button data-sn-on-click="mine = !mine">switch</button>
+    </div>`, { requests, strict: true });
+  await settle();
+  const lis = (s: string) => [...root.querySelectorAll(`${s} li`)];
+  const b = lis('ul')[1]!, sorted = lis('ol')[0]!;
+  expect(lis('ul').map((l) => l.textContent)).toEqual(['A', 'B']);
+  expect(lis('ol').map((l) => l.textContent)).toEqual(['B', 'A']);
+  root.querySelector('button')!.click();
+  await flush();
+  expect(lis('ul').map((l) => l.textContent)).toEqual(['B2', 'C']);
+  expect(lis('ul')[0]).toBe(b);
+  expect(lis('ol').map((l) => l.textContent)).toEqual(['C', 'B2']);
+  expect(lis('ol')[1]).toBe(sorted);
+  expect(warnings()).toEqual([]);
+});
+
 test('if/else switch branches and nested lists render inside them', async () => {
   const { root, flush } = await render(`
     <div data-sn-state="{ show: false, xs: ['a', 'b'] }">
@@ -139,7 +219,7 @@ test('resources load, order, filter and expose $meta', async () => {
     'GET /api/people': { people: [{ id: 2, name: 'Bob' }, { id: 1, name: 'ada' }], total: 2 },
   });
   const { root, flush, settle } = await render(`
-    <sn-resource name="people" src="/api/people" items="people" total="total" key="id" order="name"></sn-resource>
+    <sn-resource name="people" src="/api/people" select="people" total="total" key="id" order="name"></sn-resource>
     <div data-sn-state="{ q: '' }">
       <input data-sn-model="q">
       <p data-sn-show="$meta.people.loading">loading</p>
@@ -162,7 +242,7 @@ test('state-dependent src refetches, latest wins, when gates loading', async () 
   });
   const { root, flush, settle } = await render(`
     <div data-sn-state="{ q: 'a', on: true }">
-      <sn-resource name="items" src="/api/items?q={q}" items="items" key="id" when="on"></sn-resource>
+      <sn-resource name="items" src="/api/items?q={q}" select="items" key="id" when="on"></sn-resource>
       <input data-sn-model="q">
       <button data-sn-on-click="on = !on">t</button>
       <ul><template data-sn-for="it in items"><li data-sn-text="it.id"></li></template></ul>
@@ -184,8 +264,8 @@ test('state-dependent src refetches, latest wins, when gates loading', async () 
 test('resources with the same src share one request', async () => {
   const requests = mockRequests({ 'GET /api/contacts': { a: [{ id: 1 }], b: [{ id: 2 }] } });
   const { root, settle } = await render(`
-    <sn-resource name="a" src="/api/contacts" items="a" key="id"></sn-resource>
-    <sn-resource name="b" src="/api/contacts" items="b" key="id"></sn-resource>
+    <sn-resource name="a" src="/api/contacts" select="a" key="id"></sn-resource>
+    <sn-resource name="b" src="/api/contacts" select="b" key="id"></sn-resource>
     <p data-sn-text="a.length + b.length"></p>`, { requests });
   await settle();
   expect(root.querySelector('p')!.textContent).toBe('2');

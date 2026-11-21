@@ -9,7 +9,7 @@
 </head>
 <body>
   <!-- cache: going back, the reloaded list has its rows at its first paint, so the title morphs into its row -->
-  <sn-resource cache name="items" src="/api/items" items="items" key="id"></sn-resource>
+  <sn-resource cache name="items" src="/api/items" select="items" key="id"></sn-resource>
   <h1>Items</h1>
   <ul id="items">
     <template data-sn-for="i in items">

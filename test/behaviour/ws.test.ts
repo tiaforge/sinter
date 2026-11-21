@@ -26,7 +26,7 @@ afterEach(() => {
 });
 
 const PAGE = `
-  <sn-resource name="contacts" src="/api/contacts" items="contacts" key="id" order="name"></sn-resource>
+  <sn-resource name="contacts" src="/api/contacts" select="contacts" key="id" order="name"></sn-resource>
   <sn-sync src="/ws/events">
     <sn-event name="contact_updated" resource="contacts" op="upsert" value="$event.contact"></sn-event>
     <sn-event name="contact_removed" resource="contacts" op="remove"></sn-event>

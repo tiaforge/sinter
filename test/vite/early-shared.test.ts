@@ -152,3 +152,54 @@ test('a build target without top-level await shares nothing, says why, and the s
   expect(b.has(b.assets.filter((f) => f.startsWith('swap-run-')), 'data-sn-shared')).toBe(false);
   expect(b.logs.find((l) => l.includes('early script of index.html'))).toContain('src/big.ts is not shared: the build target (es2020) has no top-level await');
 }, 120_000);
+
+describe('the early runtime\'s stateless exports a page alone uses', () => {
+  let b: Awaited<ReturnType<typeof run>>;
+  beforeAll(async () => {
+    b = await run(app('own', {
+      // a numbered list's first page (`withParams`), on this page only
+      'index.html': `<sn-resource name="rows" src="/api/rows?q={$url.q}" key="id" type="any" paginate="{ numbered: true, size: 3 }"></sn-resource><ul><template data-sn-for="r in rows"><li data-sn-text="r.id"></li></template></ul>`,
+      'other.html': `<sn-resource name="one" src="/api/one?q={$url.q}" type="any"></sn-resource><p id="one" data-sn-text="one ? one.v : ''"></p>`,
+    }));
+  }, 120_000);
+
+  test('are in that page\'s early file, not in the head script every page loads', () => {
+    const shared = b.assets.find((f) => f.startsWith('sinter-head-'))!;
+    const table = /sinter\.early\.rt`?\)?\]\s*=\s*\{([^}]*)\}/.exec(b.read(shared))![1]!;
+    expect(table).toContain('requests');
+    expect(table).not.toContain('withParams');
+    // index's early file has its own, and takes the rest from the head script's global
+    const own = b.heads('index.html').find((f) => f.startsWith('index-head-'))!;
+    expect(b.read(own)).toContain('URLSearchParams');
+    expect(b.read(own)).toContain('sinter.early.rt');
+    expect(b.read(b.heads('other/index.html').find((f) => f.startsWith('other-head-'))!)).not.toContain('URLSearchParams');
+  });
+
+  test.skipIf(!chromium)('in a browser: the early request of the first page is the one the page module takes', async () => {
+    const asked: string[] = [];
+    const server: Server = createServer((req, res) => {
+      const u = new URL(req.url!, 'http://x'), path = u.pathname;
+      if (path === '/api/rows') { asked.push(u.search); res.setHeader('Content-Type', 'application/json'); return res.end(JSON.stringify([{ id: 1 }, { id: 2 }])); }
+      try {
+        const body = readFileSync(join(b.out, path === '/' ? 'index.html' : path));
+        res.setHeader('Content-Type', extname(path) === '.js' ? 'text/javascript' : 'text/html');
+        res.end(body);
+      } catch { res.statusCode = 404; res.end(); }
+    });
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+    const browser = await chromium!.launch();
+    try {
+      const page = await browser.newPage();
+      const errors: string[] = [];
+      page.on('pageerror', (e) => errors.push(String(e)));
+      await page.goto(`http://127.0.0.1:${(server.address() as { port: number }).port}/?q=x`);
+      await page.waitForFunction(() => document.querySelectorAll('li').length === 2);
+      await page.waitForLoadState('networkidle');
+      expect(asked).toEqual(['?q=x&page=1&limit=3']);
+      expect(errors).toEqual([]);
+    } finally {
+      await browser.close();
+      server.close();
+    }
+  }, 60_000);
+});

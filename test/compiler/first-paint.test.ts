@@ -133,7 +133,7 @@ test('early requests: resources whose URL reads only what is known early (state,
       <p data-sn-text="dep.x"></p>
     </body></html>`, {}, ['monday']);
   // not: one that reads another resource (paginated or not), one that calls a built-in formatter
-  expect(ir.res.map((r: { name: string }) => r.name)).toEqual(['days', 'detail']);
+  expect(ir.res.map((r: { src: string[] }) => r.src[0])).toEqual(['/api/days?start=', '/api/x/']);
   // `user` is fixed at build time: a preload link in the head, first, and not requested again by the early file
   expect(html).toMatch(/<head><link rel="preload" as="fetch" crossorigin="" href="\/api\/user"><script/);
   expect(html.match(/rel="preload"/g)).toHaveLength(1);
@@ -143,10 +143,11 @@ test('early requests: resources whose URL reads only what is known early (state,
   expect(early).toContain('"q": ($.$url.q)');
   expect(early).toContain('import { monday } from "/h.js";');
   // the request machinery only on a page with early requests
-  expect(early).toContain("import { start, $k, sp, st, requests } from '@tiaforge-ui/sinter/runtime/early';");
+  expect(early).toContain("import { start, $k, $hq, $hv, sp, st, requests } from '@tiaforge-ui/sinter/runtime/early';");
   // the requests read the root scopes the compiled `scopes` makes; there is nothing to render
   expect(early).toContain('render: () => {}');
-  expect(early).toContain('ir: {"res":[');
+  // each request compiled: its `when`, then its URL as the page module makes it (a whole query value through `$hq`)
+  expect(early).toContain('req: (q, n, b) => { q(() => f[2](n[1]) && "/api/days" + $hq([["start", f[0](n[1])], ["q", f[1](n[1])]]), 0, 0, 1); q(() => f[4](n[1]) && "/api/x/" + $hv(f[3](n[1])), 0, 0, 1); }');
   expect(early!.endsWith('start(page, null, requests());\n')).toBe(true);
 });
 
@@ -166,16 +167,19 @@ test('early requests, paginated: the first page, with the query parameters the p
       <ul><template data-sn-for="x in dep"><li data-sn-text="x.id"></li></template></ul>
     </body></html>`);
   // not `dep` (it reads another resource), not `lit` (preloaded from the HTML)
-  expect(ir.res.map((r: { name: string; q: unknown }) => [r.name, r.q])).toEqual([
-    ['mail', { limit: '50', dir: 'forward' }],
-    ['pages', { p: '1', n: '20' }],
-    ['more', { limit: '5', direction: 'first' }],
+  expect(ir.res.map((r: { src: string[]; q: unknown }) => [r.src[0], r.q])).toEqual([
+    ['/api/mail?box=', { limit: '50', dir: 'forward' }],
+    ['/api/pages?box=', { p: '1', n: '20' }],
+    ['/api/more?box=', { limit: '5', direction: 'first' }],
   ]);
   expect(html).toContain('<link rel="preload" as="fetch" crossorigin="" href="/api/lit?a=1&amp;limit=10&amp;direction=first">');
   expect(html.match(/rel="preload"/g)).toHaveLength(2);
   // the parameters are added as the runtime adds them; only a page with such a request imports that
-  expect(early).toContain("import { start, $k, sp, requests, withParams } from '@tiaforge-ui/sinter/runtime/early';");
-  expect(early!.endsWith('start(page, null, requests(withParams));\n')).toBe(true);
+  expect(early).toContain("import { start, $k, $hq, sp, withParams, requests } from '@tiaforge-ui/sinter/runtime/early';");
+  // a template with a query or a fragment of its own: the parameters merged into it (`withParams`)
+  expect(early).toContain('q(() => withParams("/api/mail" + $hq([["box", f[0](n[0])]]), { "limit": "50", "dir": "forward" }));');
+  expect(early).toContain('q(() => withParams("/api/more" + $hq([["box", f[0](n[0])]]) + "#x", { "limit": "5", "direction": "first" }));');
+  expect(early!.endsWith('start(page, null, requests());\n')).toBe(true);
 });
 
 test('preconnect: every origin a literal resource or stream `src` names gets one `<link rel="preconnect" crossorigin>` (anonymous, as the runtime connects), before the preloads; such a `src` is no preload', () => {
@@ -198,10 +202,12 @@ test('preconnect: every origin a literal resource or stream `src` names gets one
 
 test('early attributes: the URL check only where the expression does not fix the scheme', async () => {
   const { fixedScheme } = await import('../../src/compiler/early-render.js');
-  for (const ok of [`($) => ('/article/' + $.a.slug)`, '($) => (`/p/${$.u}`)', `($) => ($.x ? '#top' : null)`, `($) => ($.on && '?q=' + $.q)`, `($) => ('https://cdn.example/' + $.f)`, `($) => ('./x' + $.y || '/home')`, `($) => ('.\\\\' + $.y)`, `($) => ('/a' + $.y)`])
+  for (const ok of [`($) => ('/article/' + $.a.slug)`, '($) => (`/p/${$.u}`)', `($) => ($.x ? '#top' : null)`, `($) => ($.on && '?q=' + $.q)`, `($) => ('https://cdn.example/' + $.f)`, `($) => ('./x' + $.y || '/home')`, `($) => ('.\\\\' + $.y)`, `($) => ('/a' + $.y)`,
+    // a link's URL template: its start checked at build time, its values encoded (a `/` in one is `%2F`)
+    `($) => ($href(["/", 0], [($.u)]))`, `($) => ($href(["?page=", 0], [($.n)]))`, `($) => ("/" + $hv(($.u)) + "/x")`])
     expect(fixedScheme(ok), ok).toBe(true);
   // a lone leading `/` does not count: `'/' + '/evil.com'` and `'/' + '\\evil.com'` are `//evil.com`, another origin
-  for (const no of [`($) => ('/' + $.u)`, '($) => (`/${$.u}`)', `($) => ('/\\\\' + $.u)`, `($) => ('//' + $.u)`, `($) => ('/\t' + $.u)`, `($) => ($.x ? '/' + $.y : null)`])
+  for (const no of [`($) => ('/' + $.u)`, '($) => (`/${$.u}`)', `($) => ('/\\\\' + $.u)`, `($) => ('//' + $.u)`, `($) => ('/\t' + $.u)`, `($) => ($.x ? '/' + $.y : null)`, `($) => ('/' + hv($.u))`])
     expect(fixedScheme(no), no).toBe(false);
   for (const no of [`($) => ($.a.url)`, `($) => (avatar($.a.image))`, `($) => ('' + $.u)`, '($) => (`${$.u}/x`)', `($) => ($.x ? '/a' : $.y)`, `($) => ('java' + 'script:x')`, `($) => ($.u + '/x')`])
     expect(fixedScheme(no), no).toBe(false);
@@ -210,6 +216,9 @@ test('early attributes: the URL check only where the expression does not fix the
   expect(early).toContain('set, "href"');
   expect(early).toContain('set, "title"');
   expect(early).toContain('attr, "src"');
+  // a link's URL template needs no check either: its start is literal, its values encoded
+  const tpl = build(`<!doctype html><html><head></head><body data-sn-state="{ to: 'a' }" data-sn-persist="nav"><a data-sn-href="/{to}">a</a></body></html>`).early;
+  expect(tpl).toContain('set, "href"');
 });
 
 test('prototype baseMessages: a text binding that calls m is written in the base language and marked; it stays the browser\'s', () => {
@@ -254,11 +263,12 @@ test('OpenAPI `security` decides preloads and early requests: public and cookie 
   </body></html>`;
   const opts = (changesRequests: boolean): CompileOptions => ({ file: '/app/index.html', root: '/app', dev: false, readFile: () => '', moduleSrc: '/page.js', helpers: { module: null, names: [], namespaces: {} }, prerender: true, early: { module: null }, openapi: [{ file: '/app/openapi.json', doc }], changesRequests });
   const preloaded = (o: CompileOptions) => [...compile(html, o).html.matchAll(/rel="preload" as="fetch" crossorigin="" href="\/api\/(\w+)"/g)].map((m) => m[1]).sort();
-  const early = (o: CompileOptions) => ((compileParts(html, o).early?.ir as any)?.res ?? []).map((r: { name: string }) => r.name).sort();
-  // with middleware: public (`[]`, or an alternative `{}`) and cookie operations keep their preload; an undeclared
-  // one is not requested early (the middleware may add a token: an early request would only be sent again), nor
-  // is a token one or a token search
-  expect(preloaded(opts(true))).toEqual(['cart', 'feed', 'tags']);
+  const early = (o: CompileOptions) => ((compileParts(html, o).early?.ir as any)?.res ?? []).map((r: { src: string[] }) => r.src[0]).sort();
+  // with middleware: public (`[]`) and cookie operations keep their preload; an undeclared one is not requested early
+  // (the middleware may add a token: an early request would only be sent again), nor is a token one or a token search,
+  // nor one whose token is optional (`[{ bearer: [] }, {}]`): a preload carries no token, and the browser would hand its
+  // anonymous answer to the signed-in visitor's request
+  expect(preloaded(opts(true))).toEqual(['cart', 'tags']);
   expect(early(opts(true))).toEqual([]);
   // without middleware: a token operation still has no early request (it would be refused)
   expect(preloaded(opts(false))).toEqual(['cart', 'feed', 'plain', 'tags']);

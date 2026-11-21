@@ -136,7 +136,7 @@ that renaming a page cannot drop it from the check unnoticed.
   data, sinter's runtime requests that page's data, so it shows at once. A static page has no runtime,
   so a data page opened from it loads its data after one round trip, as on a first visit. Speculation
   Rules still work, since they are not JavaScript: the browser fetches the next page's HTML, and with
-  `sinter({ prefetch: { html: 'prerender' } })` Chromium loads the whole next page, data included, before the
+  `sinter({ prefetch: { html: { prerender: true } } })` Chromium loads the whole next page, data included, before the
   click ([navigation](navigation.md)).
 
 ## Your own scripts
@@ -323,8 +323,8 @@ A host that reads no rules still serves every page at its directory URL, and old
 redirect files; pages with `data-sn-path` then need the host's own rewrites.
 
 A link your page builds at run time is not rewritten: write it as the URL
-(`data-sn-attr="{ href: '/task/?id=' + t.id }"`). The build warns when a page's code still names a page
-by its file (`'/task.html?id='`), which works, but through the redirect.
+(`data-sn-href="/task/?id={t.id}"`). The build warns when a page's code still names a page
+by its file (`/task.html?id=`), which works, but through the redirect.
 
 ## Canonical URLs
 

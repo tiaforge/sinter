@@ -118,10 +118,10 @@ Every attribute value that is not a URL or a name is a JavaScript expression, pa
 
 | Kind | Used in | Allowed | Refused |
 | --- | --- | --- | --- |
-| Value | `text`, `attr`, `class`, `show`, `prop`, `for` (after `in`), `if`, `key`, `body`, `state`, URL interpolations | any expression: template strings, `?.`, `??`, arrow functions as arguments, `new` on allowed globals | assignment, `++`/`--`, `delete`, `await`, `import()` |
+| Value | `text`, `attr`, `class`, `show`, `with`, `for` (after `in`), `if`, `key`, `body`, `state`, URL interpolations | any expression: template strings, `?.`, `??`, arrow functions as arguments, `new` on allowed globals | assignment, `++`/`--`, `delete`, `await`, `import()` |
 | Handler | `on-*`, `then`, `catch`, `optimistic` | statements separated by `;`, assignment to state, calls to store functions | declarations, loops, `await` |
 
-A name resolves to the first match, innermost first: loop variables, state, resources, magic names (`$event`, `$el`, `$url`, `$now`, `$locale`, `$result`, `$error`, `$meta`), then helpers, namespaces and store functions (`refresh`, `upsert`, `merge`, `remove`, `page`, `openDialog`, `closeDialog`, `emit`, `run`, `navigate`), then allowed globals. Anything else is `SN201` with a suggestion.
+A name resolves to the first match, innermost first: loop variables, state, resources, magic names (`$event`, `$el`, `$url`, `$now`, `$locale`, `$result`, `$error`, `$meta`; and where they apply, `$item` in `paginate`'s cursor, `$slot` in a fill of a slot declared `Slot<T>`, `$site` and `$canonical` with `sinter({ site })`), then helpers, namespaces and store functions (`refresh`, `upsert`, `merge`, `remove`, `page`, `openDialog`, `closeDialog`, `emit`, `run`, `navigate`), then allowed globals. Anything else is `SN201` with a suggestion.
 
 Globals are JavaScript, not the browser. `Math`, `JSON`, `Object`, `Array`, `Set`, `Map`, `Date`, `Intl`, `RegExp`, `URL`, `URLSearchParams` and `structuredClone` work. `window`, `document`, `fetch`, `localStorage`, timers, `eval`, `Function`, `Proxy` and `Reflect` do not (`SN202`): browser work belongs in a [component's script](islands.md). In a binding, `Date.now()` and `Math.random()` never update, so use `$now` (`SN502`).
 

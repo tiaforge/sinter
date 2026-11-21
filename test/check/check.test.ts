@@ -42,7 +42,7 @@ function run(html: string, extra: Record<string, string> = {}) {
 }
 
 const page = (body: string) => `<!doctype html><html><head></head><body>
-<sn-resource name="contacts" src="/api/contacts" items="contacts" key="id" type="Contact[]"></sn-resource>
+<sn-resource name="contacts" src="/api/contacts" select="contacts" key="id" type="Contact[]"></sn-resource>
 ${body}
 </body></html>`;
 
@@ -155,7 +155,7 @@ declare global {
 </template>` };
     const html = (use: string) => `<!doctype html><html><head>
 ${use}
-</head><body><sn-resource name="contacts" src="/api/contacts" items="contacts" key="id" type="Contact[]"></sn-resource></body></html>`;
+</head><body><sn-resource name="contacts" src="/api/contacts" select="contacts" key="id" type="Contact[]"></sn-resource></body></html>`;
     expect(run(html('<seo-tags data-sn-with="{ contact: contacts[0] }"></seo-tags>'), seo).diagnostics).toEqual([]);
     one(html(`<seo-tags data-sn-with="{ contact: contacts[0], count: 'x' }"></seo-tags>`), /Type 'string' is not assignable to type 'number'/, "count: 'x'", seo);
     const typo = { 'src/components/seo-tags.html': seo['src/components/seo-tags.html'].replace('contact.name', 'contact.nmae') };
@@ -171,7 +171,7 @@ ${use}
 <body><slot></slot></body>
 </html>` };
     const html = (tag: string, body = '') => `<site-layout ${tag}>
-<sn-resource name="contacts" src="/api/contacts" items="contacts" key="id" type="Contact[]"></sn-resource>
+<sn-resource name="contacts" src="/api/contacts" select="contacts" key="id" type="Contact[]"></sn-resource>
 ${body}
 </site-layout>`;
     expect(run(html('data-sn-with="{ contact: contacts[0] }"'), layout).diagnostics).toEqual([]);
@@ -242,6 +242,19 @@ export type Inline = Plain | Strong | Ref;
     // an error in a condition is reported once, at the condition
     expect(errors(`<template data-sn-if="n.tpye === 'plain'"><span data-sn-text="n.type"></span></template>`))
       .toEqual([expect.stringMatching(/Property 'tpye' does not exist/)]);
+  });
+
+  test('a list\'s empty state: checked where the list is, its problems reported once, at the list', () => {
+    const files = { 'src/sinter.types.ts': 'export interface Contact { id: number; name: string }\n' };
+    const html = (list: string, empty = '<p>None</p>') => `<!doctype html><html><head></head><body data-sn-state="{ q: '' }">
+<sn-resource name="contacts" src="/api/c" key="id" type="Contact[]"></sn-resource><input data-sn-model="q">
+<ul><template data-sn-for="c in ${list}"><li data-sn-text="c.name"></li></template><template data-sn-else>${empty}</template></ul>
+</body></html>`;
+    const errors = (list: string, empty?: string) => checkPage(html(list, empty), { files }).map((d) => `${d.code} ${d.message.replace(/ \(TS\d+\)$/, '')}`);
+    expect(errors('contacts.filter((c) => c.name.includes(q))')).toEqual([]);
+    expect(errors('contacts.filter((c) => c.nmae.includes(q))')).toEqual([expect.stringMatching(/Property 'nmae' does not exist on type 'Contact'/)]);
+    // its content is checked in the list's scope
+    expect(errors('contacts', '<p data-sn-text="q.lenght"></p>')).toEqual([expect.stringMatching(/Property 'lenght' does not exist on type 'string'/)]);
   });
 
   test('SN538: a candidate the branches around rule out is a warning at its key, not an error in generated code', () => {
@@ -424,7 +437,7 @@ export type Block = Para | Quote | Rule;
     };
     const html = (then: string, call = '') => `<!doctype html><html><head></head><body>
 <main data-sn-state="{ sel: /** @type {Contact|null} */ (null), subject: '' }">
-<sn-resource name="contacts" src="/api/contacts" items="contacts" key="id" type="Contact[]" then="${then}"></sn-resource>
+<sn-resource name="contacts" src="/api/contacts" select="contacts" key="id" type="Contact[]" then="${then}"></sn-resource>
 <sn-resource name="p" call="pending()" then="${call}"></sn-resource>
 <dialog id="compose"></dialog><p data-sn-text="contacts.length + (sel?.name ?? subject) + p?.subject"></p></main></body></html>`;
     const errors = (then: string, call = '') => checkPage(html(then, call), { files }).map((d) => `${d.code} ${d.message.replace(/ \(TS\d+\)$/, '')}`);
@@ -442,7 +455,17 @@ export type Block = Para | Quote | Rule;
       .toEqual([expect.stringMatching(/^SN208 Type 'string\[\]' is not assignable to type 'PathValue'/)]);
   });
 
-  test('<sn-resource call>: the result at `items` must fit `type`; without `type` it is the type', () => {
+  test('a link\'s URL template (data-sn-href) is typed as an action\'s: no array in the path, a name it does not know is an error', () => {
+    const html = (href: string) => page(`<main data-sn-state="{ ids: ['a'], id: 'a', o: { x: 1 } }">
+<template data-sn-for="c in contacts"><a data-sn-href="${href}">x</a></template><p data-sn-text="ids + id + o"></p></main>`);
+    const errors = (href: string) => checkPage(html(href), { files: { 'src/sinter.types.ts': TYPES } }).map((d) => d.code + ' ' + d.message);
+    expect(errors('/contacts/{c.id}/{o.x}?tag={ids}&amp;q={id}#n-{c.name}')).toEqual([]);
+    expect(errors('?page={o.x}')).toEqual([]);
+    expect(errors('/contacts/{ids}')).toEqual([expect.stringMatching(/^SN208 Type 'string\[\]' is not assignable to type 'PathValue'/)]);
+    expect(errors('/contacts/{c.nmae}')).toEqual([expect.stringMatching(/^SN208 Property 'nmae' does not exist on type/)]);
+  });
+
+  test('<sn-resource call>: the result at `select` must fit `type`; without `type` it is the type', () => {
     const root = project({
       'src/sinter.types.ts': `${TYPES}export interface Body { text: string }\n`,
       'src/sinter.actions.ts': `export async function body(id: number): Promise<{ text: string }> { return { text: String(id) }; }
@@ -457,7 +480,7 @@ export async function list(): Promise<{ page: { contacts: { id: number; name: st
       return { out, r: check({ root, units: [out.check!], helpers: p.helpers, actions: p.actions, types: p.types, tsc }) };
     };
     const fits = run(`<sn-resource name="b" call="body(1)" type="Body"></sn-resource>
-<sn-resource name="people" call="list()" items="page.contacts" key="id" type="Contact[]"></sn-resource>
+<sn-resource name="people" call="list()" select="page.contacts" key="id" type="Contact[]"></sn-resource>
 <p data-sn-text="b.text + people.length"></p>`);
     expect(fits.out.diagnostics).toEqual([]);
     expect(fits.r.diagnostics).toEqual([]);
@@ -697,7 +720,7 @@ components:
 
   test('a resource without `type` is typed from the spec; messages name the schema', () => {
     const html = `<!doctype html><html><head></head><body>
-<sn-resource name="people" src="/api/contacts" items="contacts" key="id"></sn-resource>
+<sn-resource name="people" src="/api/contacts" select="contacts" key="id"></sn-resource>
 <sn-resource name="other" src="/api/contact"></sn-resource>
 <ul><template data-sn-for="p in people"><li data-sn-text="p.nmae + other"></li></template></ul>
 </body></html>`;
@@ -728,7 +751,7 @@ components:
               schema: { type: object, properties: { person: { $ref: '#/components/schemas/Person' } } }
 components:`);
     const html = `<!doctype html><html><head></head><body>
-<sn-resource name="people" src="/api/contacts" items="contacts" key="id"></sn-resource>
+<sn-resource name="people" src="/api/contacts" select="contacts" key="id"></sn-resource>
 <div data-sn-state="{ saved: '' }"><template data-sn-for="p in people">
   <button data-sn-put="/api/contacts/{p.id}" data-sn-body="{ person: { id: p.id, nam: 'x' } }" data-sn-then="saved = $result.person.nme">x</button>
 </template></div>
@@ -854,10 +877,10 @@ describe('file: resources, checked against their files', () => {
     expect(r.at).toEqual([expect.stringMatching(/^index\.html:1 Property 'title' does not exist on type '\{ body: string; \}'/)]);
   });
 
-  test('one JSON file with `items`: what `items` picks fits `type`', () => {
-    const ok = runFiles('<sn-resource name="people" src="file:/team.json" items="people" type="{ name: string }[]"></sn-resource><p data-sn-text="people.length"></p>', { 'team.json': '{"people":[{"name":"A"}]}' });
+  test('one JSON file with `select`: what `select` picks fits `type`', () => {
+    const ok = runFiles('<sn-resource name="people" src="file:/team.json" select="people" type="{ name: string }[]"></sn-resource><p data-sn-text="people.length"></p>', { 'team.json': '{"people":[{"name":"A"}]}' });
     expect(ok.at).toEqual([]);
-    const bad = runFiles('<sn-resource name="people" src="file:/team.json" items="people" type="{ name: string }[]"></sn-resource><p data-sn-text="people.length"></p>', { 'team.json': '{"people":[{"nmae":"A"}]}' });
+    const bad = runFiles('<sn-resource name="people" src="file:/team.json" select="people" type="{ name: string }[]"></sn-resource><p data-sn-text="people.length"></p>', { 'team.json': '{"people":[{"nmae":"A"}]}' });
     expect(bad.at).toEqual([expect.stringMatching(/^team\.json:1 .*'nmae'/)]);
   });
 

@@ -7,7 +7,7 @@
       data-sn-on-keydown-escape="open = null"
       data-sn-on-keydown-ctrl-space="marked = marked.includes(cursor) ? marked.filter(i => i !== cursor) : [...marked, cursor]"
       data-sn-on-keydown-slash="$el.querySelector('input').focus()">
-  <sn-resource name="messages" src="/api/messages" items="messages" key="id"></sn-resource>
+  <sn-resource name="messages" src="/api/messages" select="messages" key="id"></sn-resource>
   <!-- in the field, j, k and / are typed; its own Escape filter leaves it -->
   <input type="search" placeholder="Search (/)" data-sn-on-keydown-escape="$el.blur()">
   <ul>

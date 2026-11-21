@@ -2,7 +2,8 @@
 // sent the same way by the early file (so its response is taken), POST resources, and `apiOf`.
 import { afterEach, describe, expect, test } from 'vitest';
 import { parse } from 'yaml';
-import { configured, requests, st, start } from '../../src/early.js';
+import { configured, requests, start } from '../../src/early.js';
+import { earlyPageOf } from '../early-page.js';
 import { $apis, apiOf, config, configure, header, setEnv } from '../../src/runtime/config.js';
 import { defaultEnv } from '../../src/runtime/env.js';
 import { createRequestLayer } from '../../src/runtime/request.js';
@@ -37,9 +38,9 @@ describe('request settings per API', () => {
   test('the early file sends the same request, so the page module takes its response; a middleware header still gets its own', async () => {
     setEnv({ ...defaultEnv, fetch });
     $apis([{ n: 'main', b: '/api', h: { 'X-Api': '2' } }]);
-    const ir: Pick<EarlyIR, 'res'> = { res: [{ name: 'days', src: ['/api/days'], when: null, scope: 0, a: { h: { 'X-Api': '2' } } }] };
+    const ir: Pick<EarlyIR, 'res' | 'as'> = { res: [{ src: ['/api/days'], scope: 0, a: 0 }], as: [{ h: { 'X-Api': '2' } }] };
     const f = [() => ({})];
-    start(() => ({ ir, fns: f, scopes: ($) => [st($, f[0]!, 0)], render: () => {} }), null, requests(undefined, configured));
+    start(earlyPageOf(ir, f), null, requests(configured));
     expect(sent.map((r) => [new URL(r.url).pathname, r.headers.get('X-Api')])).toEqual([['/api/days', '2']]);
     await createRequestLayer({ ...defaultEnv, fetch }, []).send('/api/days');
     expect(sent).toHaveLength(1);
@@ -47,10 +48,22 @@ describe('request settings per API', () => {
     expect(sent).toHaveLength(2);
   });
 
+  test('render({ defaultApi }) is renamed to the API\'s own `default: true`', async () => {
+    await expect(render('<p></p>', { apis: { main: { base: '/v1' }, other: { base: '/v2' } }, defaultApi: 'main' } as never)).rejects.toThrow('render({ defaultApi }) is renamed to `apis: { main: { default: true } }`');
+    const requests = mockRequests({ 'GET /v2/x': { n: 1 } });
+    const { root, settle } = await render('<sn-resource name="x" src="/x"></sn-resource><p data-sn-text="x?.n"></p>', { requests, apis: { main: { base: '/v1' }, other: { base: '/v2', default: true, operations: { 'GET /x': {} } } } });
+    await settle();
+    expect(root.querySelector('p')!.textContent).toBe('1');
+  });
+
+  test('render({ apis }): `items` in a shape is renamed to `select`', async () => {
+    await expect(render('<p></p>', { apis: { main: { base: '/v1', operations: { 'GET /me': { items: 'user' } as never } } } })).rejects.toThrow("`main.operations['GET /me'].items` is renamed to `select`");
+  });
+
   test('render: a page written with paths of an API', async () => {
     const requests = mockRequests({ 'GET /v1/contacts': { contacts: [{ id: 1, name: 'Ada' }] } });
     const { root, settle } = await render('<sn-resource name="contacts" src="/contacts"></sn-resource><p data-sn-text="contacts[0].name"></p>', {
-      requests, apis: { main: { openapi: doc, headers: { 'X-Api': '2' }, defaults: { 'GET /contacts': { items: 'contacts', key: 'id' } } } },
+      requests, apis: { main: { openapi: doc, headers: { 'X-Api': '2' }, defaults: { 'GET /contacts': { select: 'contacts', key: 'id' } } } },
     });
     await settle();
     expect(root.querySelector('p')!.textContent).toBe('Ada');
@@ -91,7 +104,7 @@ describe('method="POST" resources', () => {
 
 describe('the build: preloads, the early file, embedding', () => {
   const build = (o: Record<string, unknown>, html: string) => {
-    const p = apiProject({ apis: { main: { openapi: 'openapi.yml', defaults: { 'GET /contacts': { items: 'contacts', key: 'id' } }, ...o } } });
+    const p = apiProject({ apis: { main: { openapi: 'openapi.yml', defaults: { 'GET /contacts': { select: 'contacts', key: 'id' } }, ...o } } });
     return compile(html, { file: `${p.root}/page.html`, root: p.root, dev: false, readFile: p.readFile, helpers: { module: null, names: [], namespaces: {} }, openapi: p.openapi, apis: p.apis, origins: ['https://api.example.com'], embed: !!o.embed, early: { module: null }, moduleSrc: '/x.js' });
   };
   const PAGE = '<html><head></head><body><sn-resource name="contacts" src="/contacts"></sn-resource><p data-sn-text="contacts.length"></p></body></html>';

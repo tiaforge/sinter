@@ -9,7 +9,7 @@ interface LayoutProps {
 }
 declare module '*/task-chart.html' {
   type Task = import('./sinter.types').Task;
-  const Base: typeof import('@tiaforge-ui/sinter/components').Component;
+  const Base: typeof import('@tiaforge-ui/sinter/runtime/components').Component;
   /** the base of `src/components/task-chart.ts`: props, events, refs and state as `task-chart.html` declares them */
   export class TaskChartComponent extends Base<{ tasks: Task[]; show: string }, { pick: 'done' | 'open' | 'all' }, { canvas: HTMLElementTagNameMap["canvas"]; probe: HTMLElementTagNameMap["span"] }, {}> {}
 }

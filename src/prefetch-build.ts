@@ -10,24 +10,33 @@ export { directoryUrl, movesToDirectory, pageFile, pagePaths, pageUrl, redundant
  * Speculation Rules (JSON) for same-origin links to the app's pages: `href_matches` takes URL
  * patterns, so `data-sn-path` patterns (`/article/:slug`) are used as they are, with any query and
  * fragment. Links that download or open elsewhere are left out. Eagerness `moderate`: the pointer
- * rests on the link (200 ms) or a press starts. Null when the app has no paths.
+ * rests on the link (200 ms) or a press starts. `prerender` and `prefetch` list the paths of each:
+ * with both (`prerender: 'auto'`), the prerender rule leaves out what a prefetched page's paths match
+ * (`/article/new` beside `/article/:slug`), so a link is prerendered only when no other page can be its
+ * target. Null when the app has no paths.
  */
-export function speculationRules(mode: 'prefetch' | 'prerender', paths: string[], samePage = false): string | null {
+export function speculationRules(lists: { prefetch?: string[]; prerender?: string[] }, samePage = false): string | null {
   // a pattern matches with or without a trailing slash, as the runtime and the server match it
-  const both = paths.flatMap((p) => (p.includes(':') ? [p.replace(/\/+$/, ''), p.replace(/\/*$/, '/')] : [p]));
-  const patterns = [...new Set(both)].map((p) => p.split('/').map((s) => (s[0] === ':' && /^:\w+$/.test(s) ? s : s.replace(/[*?+(){}:\\]/g, '\\$&'))).join('/') + '\\?*#*');
-  if (!patterns.length) return null;
+  const patternsOf = (paths: string[]) => {
+    const both = paths.flatMap((p) => (p.includes(':') ? [p.replace(/\/+$/, ''), p.replace(/\/*$/, '/')] : [p]));
+    return [...new Set(both)].map((p) => p.split('/').map((s) => (s[0] === ':' && /^:\w+$/.test(s) ? s : s.replace(/[*?+(){}:\\]/g, '\\$&'))).join('/') + '\\?*#*');
+  };
+  const prefetch = patternsOf(lists.prefetch ?? []), prerender = patternsOf(lists.prerender ?? []);
+  const rule = (patterns: string[], not: string[]) => [{
+    where: { and: [
+      { href_matches: patterns },
+      ...(not.length ? [{ not: { href_matches: not } }] : []),
+      { not: { selector_matches: '[download], [target]:not([target="_self"]), [rel~="nofollow"]' } },
+      // same-page links stay in the page (query-links.ts): not the page's own URL with another query.
+      // Relative to the document, `?*` is its own path with any query (and fragment)
+      ...(samePage ? [{ not: { href_matches: '?*', relative_to: 'document' } }] : []),
+    ] },
+    eagerness: 'moderate',
+  }];
+  if (!prefetch.length && !prerender.length) return null;
   return JSON.stringify({
-    [mode]: [{
-      where: { and: [
-        { href_matches: patterns },
-        { not: { selector_matches: '[download], [target]:not([target="_self"]), [rel~="nofollow"]' } },
-        // same-page links stay in the page (query-links.ts): not the page's own URL with another query.
-        // Relative to the document, `?*` is its own path with any query (and fragment)
-        ...(samePage ? [{ not: { href_matches: '?*', relative_to: 'document' } }] : []),
-      ] },
-      eagerness: 'moderate',
-    }],
+    ...(prerender.length ? { prerender: rule(prerender, prefetch) } : {}),
+    ...(prefetch.length ? { prefetch: rule(prefetch, []) } : {}),
   });
 }
 
@@ -82,11 +91,13 @@ export function prefetchModule(pages: Array<{ paths: string[]; parts: PrefetchPa
   }
   // array parameters: only an app with a page that has them passes `lists` (and carries it)
   const ls = pages.some((p) => p.parts.a);
-  const lines = [`import { $k } from '${PACKAGE}/runtime';`, `import { prefetch${ls ? ', lists' : ''} } from '${PACKAGE}/runtime/prefetch';`];
+  // the URL helpers the pages' functions call
+  const uses = [...new Set(pages.flatMap((p) => p.parts.uses ?? []))].sort();
+  const lines = [`import { $k } from '${PACKAGE}/runtime';`, `import { ${['prefetch', ...(ls ? ['lists'] : []), ...uses].join(', ')} } from '${PACKAGE}/runtime/prefetch';`];
   lines.push(...helperImports([...user].sort(), Object.fromEntries([...ns].map(([n, m]) => [n, [...m].sort()])), helpers));
   lines.push('', 'void $k;', 'export default prefetch([');
   for (const { paths, parts } of pages) {
-    lines.push(`  { m: ${JSON.stringify(paths)}, r: ${JSON.stringify(parts.res)}, ${parts.a ? `a: ${JSON.stringify(parts.a)}, ` : ''}f: [`);
+    lines.push(`  { m: ${JSON.stringify(paths)}, r: ${JSON.stringify(parts.res.map(({ q: _q, sp: _sp, ...r }) => r))}, ${parts.a ? `a: ${JSON.stringify(parts.a)}, ` : ''}${parts.g ? `g: ${JSON.stringify(parts.g)}, ` : ''}f: [`);
     for (const f of parts.fns) lines.push(`    ${f},`);
     lines.push('  ] },');
   }

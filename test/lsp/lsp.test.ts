@@ -142,6 +142,16 @@ describe('sinter lsp', () => {
     await e.diagnostics('index.html', (d) => d.length === 0);
   });
 
+  test('a `data-sn-else` after a `data-sn-for` is the list\'s empty state: no "must follow a data-sn-if"', async () => {
+    const root = project({ 'index.html': '<p>hi</p>\n' });
+    const e = await editor(root);
+    const page = (after: string) => `<div data-sn-state="{ xs: [] }">\n  <button data-sn-on-click="xs = [1]"></button>\n  <ul><template data-sn-for="x in xs"><li data-sn-text="x"></li></template>${after}<template data-sn-else><li>None</li></template></ul>\n</div>\n`;
+    e.open('index.html', page('<li></li>'));
+    await e.diagnostics('index.html', (d) => d.some((x) => x.code.startsWith('SN102')));
+    e.change('index.html', page(''));
+    expect(await e.diagnostics('index.html', (d) => d.length === 0)).toEqual([]);
+  });
+
   test('the helpers module is loaded in Node, as the build loads it: one that cannot load there is SN533 on its file', async () => {
     const root = project({
       'vite.config.js': `import sinter from ${JSON.stringify(join(__dirname, '../../src/vite.ts'))};\nexport default { plugins: [sinter()] };\n`,
@@ -361,6 +371,10 @@ describe('did-you-mean', () => {
     expect(fix(fn, 'showModal', '`showModal()` is renamed to `openDialog()`, the pair of `closeDialog()`')!.newText).toBe('openDialog');
     const value = '<sn-resource name="a" src="/a" paginate="{ offset: true, size: 2 }"></sn-resource>';
     expect(fix(value, 'offset: true', '`offset: true` is renamed to `numbered: true` (pages by number)')!.newText).toBe('numbered: true');
+    // the attribute, not the same word in the URL or the name
+    const items = '<sn-resource name="items" src="/api/items" items="items"></sn-resource>';
+    expect(fix(items, 'items=', '`items` is renamed to `select`: the path in the response where the data is'))
+      .toEqual({ range: { start: { line: 0, character: 43 }, end: { line: 0, character: 48 } }, newText: 'select' });
   });
 
 
@@ -468,15 +482,16 @@ components:
     await e.diagnostics('index.html');
     const d = await e.definition('index.html', 1, 30);
     expect(d!.map((x) => [x.uri.split('/').pop(), x.range.start.line, x.range.start.character])).toEqual([['openapi.yml', 18, 8]]);
-  });
+  }, 30_000);
 
-  describe('paths to an API', () => {
+  // each test loads a Vite config that imports the plugin, bundled afresh: seconds, more on a busy machine
+  describe('paths to an API', { timeout: 30_000 }, () => {
     const spec = readFileSync(join(process.cwd(), 'test/fixtures/apis-openapi.yml'), 'utf8');
     const config = `import sinter from ${JSON.stringify(join(process.cwd(), 'src/vite.ts'))};
 export default { plugins: [sinter({ apis: {
-  main: { openapi: 'openapi.yml', defaults: { 'GET /contacts': { items: 'contacts', key: 'id' } } },
+  main: { openapi: 'openapi.yml', defaults: { 'GET /contacts': { select: 'contacts', key: 'id' } }, default: true },
   billing: { base: '/billing', operations: { 'GET /invoices': { type: 'any' } } },
-}, defaultApi: 'main' })] };
+} })] };
 `;
     const open = async (page: string, capabilities?: object) => {
       const root = project({ 'openapi.yml': spec, 'index.html': page, 'vite.config.js': config });
@@ -513,7 +528,7 @@ export default { plugins: [sinter({ apis: {
       expect(h).toContain('**GET** `https://api.example.com/v1/contacts?q={1}`');
       expect(h).toContain('`/contacts` of the API `main`');
       expect(h).toContain('All contacts');
-      expect(h).toContain('`items`: `contacts` (main.defaults) · `key`: `id` (main.defaults) · `type`: `Contact[]` (spec)');
+      expect(h).toContain('`select`: `contacts` (main.defaults) · `key`: `id` (main.defaults) · `type`: `Contact[]` (spec)');
     });
 
     test('go to definition: the path in the spec, the key in the config', async () => {

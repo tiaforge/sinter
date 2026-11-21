@@ -247,7 +247,7 @@ const sse: Feature = {
       const cs = conns;
       for (const def of app.ir.syncs ?? []) {
         const base = app.scopeOf(def.scope ?? -1);
-        const url = app.url(def.src, base);
+        const url = app.url(def, base);
         let c = cs.get(url);
         // with swaps on, the connection the page before had open for the URL, if this page can take it over
         if (!c) cs.set(url, c = (SWAP && claim(app, url, heard, publish)) || new Connection(app, url, publish, heard));

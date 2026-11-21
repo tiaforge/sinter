@@ -50,7 +50,7 @@ const files: Record<string, string> = {
 </site-layout>
 `,
   'blog/post.html': `<site-layout data-sn-path="/blog/post" data-sn-state="{ n: 0 }" data-sn-on-sn-error="n = 99; $event.preventDefault()" data-sn-on-keydown-shift-n="n = 7" data-sn-with="{ nav: 'post', title: post ? post.title + (n ? ' (' + n + ')' : '') : undefined }">
-  <sn-resource name="post" src="/api/post" items="post" type="any"></sn-resource>
+  <sn-resource name="post" src="/api/post" select="post" type="any"></sn-resource>
   <link slot="head" rel="stylesheet" href="../src/styles/site.css">
   <h1 data-sn-text="post ? post.title : ''"></h1>
   <button id="more" data-sn-on-click="n++">more</button>

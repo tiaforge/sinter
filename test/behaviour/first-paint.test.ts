@@ -167,7 +167,7 @@ test('rows over embedded data render early, and the page module adopts them: the
   const data = JSON.stringify({ articles: [{ slug: 'a', title: 'First', tags: ['x', 'y'] }, { slug: 'b', title: 'Second', tags: ['z'] }] });
   const page = `<!doctype html><html><head><script type="application/json" data-sn-resource="articles">${data}</script></head>
 <body data-sn-state="{ n: 0 }">
-  <sn-resource name="articles" src="/api/articles" items="articles" key="slug"></sn-resource>
+  <sn-resource name="articles" src="/api/articles" select="articles" key="slug"></sn-resource>
   <ul><template data-sn-for="a in articles"><li><h2 data-sn-text="a.title"></h2><a data-sn-attr="{href: '/article/' + a.slug}">read</a>
     <template data-sn-for="t in a.tags" data-sn-key="t"><i data-sn-text="t"></i></template></li></template></ul>
 </body></html>`;

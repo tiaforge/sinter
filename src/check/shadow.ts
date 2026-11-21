@@ -129,9 +129,9 @@ export function shadow(o: ShadowOptions): Shadow {
     line(`import * as $A from '${moduleSpec(o.actions.module)}';`);
   }
   line('const $any = /** @type {any} */ (null);');
-  /** what a resource fed by `call` holds: the awaited result, at its `items` path */
-  const callResult = (c: { name: string; items: string | null }) =>
-    `Awaited<ReturnType<typeof $A.${c.name}>>${(c.items ? c.items.split('.') : []).map((k) => `[${JSON.stringify(k)}]`).join('')}`;
+  /** what a resource fed by `call` holds: the awaited result, at its `select` path */
+  const callResult = (c: { name: string; select: string | null }) =>
+    `Awaited<ReturnType<typeof $A.${c.name}>>${(c.select ? c.select.split('.') : []).map((k) => `[${JSON.stringify(k)}]`).join('')}`;
 
   const types: string[] = [];
   let fileTypes = 0;
@@ -200,7 +200,7 @@ export function shadow(o: ShadowOptions): Shadow {
     } else line('/** @type {any} */');
     regions.push({ start: out.length + 1, lines: 1, loc: r.nameLoc ?? r.loc, fixed: true });
     line(`const ${r.name} = $any;`);
-    // with `type`, what the action returns (at `items`) must fit it; reported on `type`
+    // with `type`, what the action returns (at `select`) must fit it; reported on `type`
     if (r.call && r.type) {
       // own line: TypeScript drops a JSDoc tag that follows `{` on the same line
       line('{');
@@ -462,6 +462,8 @@ export interface Store<R, D extends string = never> {
   emit(event: string, detail?: unknown): void;
   run(id: string): void;
   navigate(url: string, options?: { replace?: boolean }): void;
+  /** removes every API's token (\`sinter({ apis: { … token } })\`), with the page's persisted state and cached data */
+  signOut(): void;
 }
 type Style = 'short' | 'medium' | 'long' | 'full';
 export function date(v: unknown, style?: Style | null, timeStyle?: Style): string;

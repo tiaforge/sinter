@@ -1,11 +1,11 @@
 // `cache` on <sn-resource>: the page-load cache in sessionStorage.
 import { expect, test, vi } from 'vitest';
-import { clearPersisted } from '../../src/index.js';
+import { clearStored } from '../../src/index.js';
 import { compile } from '../../src/compiler/index.js';
 import { memoryStorage, mockRequests, mockStream, render, type RouteResponse } from '../../src/testing/index.js';
 
 const LIST = (attrs = 'cache') => `
-  <sn-resource name="contacts" src="/api/contacts" items="contacts" key="id" order="name" ${attrs}></sn-resource>
+  <sn-resource name="contacts" src="/api/contacts" select="contacts" key="id" order="name" ${attrs}></sn-resource>
   <p data-sn-text="$meta.contacts.loading ? 'loading' : 'idle'"></p>
   <ul><template data-sn-for="c in contacts"><li data-sn-text="c.name"></li></template></ul>`;
 
@@ -91,10 +91,10 @@ test('any 401 removes every cache entry', async () => {
   expect(session.getItem('sn:return')).toBe('/inbox');
 });
 
-test('clearPersisted() removes the cache too', async () => {
+test('clearStored() removes the cache too', async () => {
   const session = memoryStorage();
   await visit(session);
-  clearPersisted();
+  clearStored();
   expect(cacheKeys(session)).toEqual([]);
 });
 
@@ -113,14 +113,14 @@ test('embedded data wins over the cache and is cached itself', async () => {
 test('two pages that load the same thing share the entry, whatever they call it', async () => {
   const session = memoryStorage();
   await visit(session);
-  const r = await render(LIST().replace(/contacts(?=[" .\]])/g, 'people').replace('/api/people', '/api/contacts').replace('items="people"', 'items="contacts"'),
+  const r = await render(LIST().replace(/contacts(?=[" .\]])/g, 'people').replace('/api/people', '/api/contacts').replace('select="people"', 'select="contacts"'),
     { session, requests: mockRequests({ 'GET /api/contacts': { contacts: [] } }) });
   expect(names(r.root)).toEqual(['Ada', 'Grace']);
 });
 
 test('offset pages are cached per page', async () => {
   const session = memoryStorage();
-  const html = `<sn-resource name="rows" src="/api/rows" items="rows" total="total" key="id" paginate="{ numbered: true, size: 2 }" cache></sn-resource>
+  const html = `<sn-resource name="rows" src="/api/rows" select="rows" total="total" key="id" paginate="{ numbered: true, size: 2 }" cache></sn-resource>
     <ul><template data-sn-for="x in rows"><li data-sn-text="x.name"></li></template></ul><b data-sn-text="$meta.rows.pages"></b>`;
   const route = (c: { url: string }) => (new URL(c.url, 'http://x').searchParams.get('offset') === '2'
     ? { rows: [{ id: 3, name: 'c' }], total: 3 } : { rows: [{ id: 1, name: 'a' }, { id: 2, name: 'b' }], total: 3 });
@@ -181,7 +181,7 @@ test('the compiler checks `cache` and adds the feature only where it is used', (
 
 test('a guard on loadedAt does not act on cached data', async () => {
   // RealWorld's pattern: redirect when the server says there is no user
-  const html = `<sn-resource name="user" src="/api/user" items="user" cache></sn-resource>
+  const html = `<sn-resource name="user" src="/api/user" select="user" cache></sn-resource>
     <b data-sn-show="$meta.user.loadedAt && !user">signed out</b>`;
   const session = memoryStorage();
   const first = await render(html, { session, requests: mockRequests({ 'GET /api/user': { user: null } }) });
@@ -195,7 +195,7 @@ test('a guard on loadedAt does not act on cached data', async () => {
 test('a resource turned off by `when` does not replace its cache entry with nothing', async () => {
   const session = memoryStorage();
   const html = `<div data-sn-state="{ on: true }">
-    <sn-resource name="contacts" src="/api/contacts" items="contacts" key="id" when="on" cache></sn-resource>
+    <sn-resource name="contacts" src="/api/contacts" select="contacts" key="id" when="on" cache></sn-resource>
     <button data-sn-on-click="on = false">off</button>
     <ul><template data-sn-for="c in contacts"><li data-sn-text="c.name"></li></template></ul></div>`;
   const first = await visit(session, html);
@@ -205,4 +205,91 @@ test('a resource turned off by `when` does not replace its cache entry with noth
   await first.window('pagehide');
   const second = await render(html, { session, requests: mockRequests({ 'GET /api/contacts': { contacts: [] } }) });
   expect(names(second.root)).toEqual(['Ada', 'Grace']);
+});
+
+// Back and Forward: a page reached by a history traversal (no back/forward cache) shows what it showed as it was
+// left, with or without `cache`, then revalidates
+test('Back to a page restores its resources as they were left, without `cache`, then revalidates', async () => {
+  const session = memoryStorage();
+  const stream = mockStream();
+  const html = `${LIST('')}<sn-sync src="/api/events"><sn-event name="added" resource="contacts" op="upsert" value="$event.contact"></sn-event></sn-sync>`;
+  const r = await render(html, { session, streams: { '/api/events': stream }, requests: mockRequests({ 'GET /api/contacts': { contacts: [{ id: 1, name: 'Ada' }] } }) });
+  await r.settle();
+  // nothing written while the page is shown
+  expect(cacheKeys(session)).toEqual([]);
+  stream.emit('added', { contact: { id: 2, name: 'Grace' } });
+  await r.settle();
+  await r.window('pagehide');
+  expect(cacheKeys(session)).toHaveLength(1);
+
+  const requests = mockRequests({ 'GET /api/contacts': { contacts: [{ id: 1, name: 'Ada' }, { id: 3, name: 'Linus' }] } });
+  const back = await render(html, { session, traverse: true, streams: { '/api/events': mockStream() }, requests });
+  expect(names(back.root)).toEqual(['Ada', 'Grace']);
+  expect(back.app.page.$meta.contacts.loadedAt).toBeNull();
+  await back.settle();
+  expect(names(back.root)).toEqual(['Ada', 'Linus']);
+
+  // a link to the page (not Back) does not read it
+  const again = await render(LIST(''), { session, requests: mockRequests({ 'GET /api/contacts': { contacts: [] } }) });
+  expect(names(again.root)).toEqual([]);
+  await again.settle();
+});
+
+test('Back ignores `cache`\'s age; a paginated list comes back at its page; a POST resource is not kept', async () => {
+  const session = memoryStorage();
+  const page = `<sn-resource name="contacts" src="/api/contacts" select="contacts" key="id" cache="1m"></sn-resource>
+    <sn-resource name="feed" src="/api/feed" select="feed" key="id" paginate="{ numbered: true, size: 1, model: $url.page }"></sn-resource>
+    <sn-resource name="hits" src="/api/hits" method="POST" body="{ q: 1 }" select="hits" key="id"></sn-resource>
+    <ul><template data-sn-for="c in contacts"><li data-sn-text="c.name"></li></template></ul>
+    <ol><template data-sn-for="f in feed"><li data-sn-text="f.t"></li></template></ol>
+    <i data-sn-text="hits.length"></i>`;
+  const routes = { 'GET /api/contacts': { contacts: [{ id: 1, name: 'Ada' }] }, 'GET /api/feed': { feed: [{ id: 2, t: 'second' }] }, 'POST /api/hits': { hits: [{ id: 1 }] } };
+  const r = await render(page, { session, url: '/?page=2', requests: mockRequests(routes) });
+  await r.settle();
+  await r.window('pagehide');
+  const keys = cacheKeys(session);
+  expect(keys).toHaveLength(2);
+  expect(keys.some((k) => k.includes('/api/feed?page=2&limit=1'))).toBe(true);
+  // an hour later: `cache="1m"` does not show it on a load; Back does
+  const later = Date.parse('2026-01-01T10:00:00Z'), none = { 'GET /api/contacts': { contacts: [] }, 'GET /api/feed': { feed: [] }, 'POST /api/hits': { hits: [] } };
+  const back = await render(page, { session, now: later, url: '/?page=2', traverse: true, requests: mockRequests(none) });
+  expect(names(back.root)).toEqual(['Ada', 'second']);
+  expect(back.app.page.$meta.feed.page).toBe(2);
+  expect(back.root.querySelector('i')!.textContent).toBe('0');
+  await back.settle();
+  const load = await render(page, { session, now: later + 1000, url: '/?page=2', requests: mockRequests(none) });
+  expect(names(load.root)).toEqual([]);
+  await load.settle();
+});
+
+test('what Back restores is gone after a 401 and after clearStored()', async () => {
+  const session = memoryStorage();
+  const r = await visit(session, LIST(''));
+  await r.window('pagehide');
+  expect(cacheKeys(session)).toHaveLength(1);
+  clearStored();
+  expect(cacheKeys(session)).toEqual([]);
+  const again = await visit(session, LIST(''));
+  await again.window('pagehide');
+  const failed = await render(`${LIST('')}<sn-resource name="me" src="/api/me"></sn-resource><b data-sn-text="me?.n"></b>`, { session, requests: mockRequests({ 'GET /api/contacts': { contacts: [] }, 'GET /api/me': { status: 401 } }) });
+  await failed.settle().catch(() => {});
+  expect(cacheKeys(session)).toEqual([]);
+});
+
+test('an entry over 256 KB is not written as the page is left', async () => {
+  const session = memoryStorage();
+  const big = Array.from({ length: 3000 }, (_, i) => ({ id: i, name: 'x'.repeat(100) }));
+  const r = await visit(session, LIST(''), { contacts: big });
+  await r.window('pagehide');
+  expect(cacheKeys(session)).toEqual([]);
+});
+
+test('Back\'s module: the cache module with `cache`, the small one without, none where nothing can come back', () => {
+  const opts = { file: '/x/i.html', root: '/x', dev: false, helpers: { module: null, names: [], namespaces: {} }, readFile: () => { throw new Error('none'); }, actions: { module: '/x/a.js', names: ['go'], namespaces: {} } };
+  const features = (body: string, head = '') => [...compile(`<html><head>${head}</head><body>${body}</body></html>`, opts).module.matchAll(/runtime\/(cache|back)'/g)].map((m) => m[1]);
+  expect(features(LIST())).toEqual(['cache']);
+  expect(features(LIST(''))).toEqual(['back']);
+  // embedded data wins over any entry; `call`, POST and `append` lists are never written
+  expect(features('<sn-resource name="a" src="/api/a" key="id"></sn-resource><i data-sn-text="a.length"></i>', '<script type="application/json" data-sn-resource="a">[]</script>')).toEqual([]);
+  expect(features('<sn-resource name="a" call="go()"></sn-resource><sn-resource name="b" src="/api/b" method="POST" body="{ q: 1 }"></sn-resource><sn-resource name="c" src="/api/c" key="id" paginate="{ append: { before: $item.id }, size: 5 }"></sn-resource><i data-sn-text="[a, b, c.length]"></i>')).toEqual([]);
 });

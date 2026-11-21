@@ -6,19 +6,22 @@
 // adopted, not rendered again). The early file and the page bundle are bundled apart (they share
 // one chunk, `runtime/security` and `url`, and hold copies of the rest), so what they
 // share goes through a global: `start` (early file) and `rendered` (page module, from the core) meet there.
-import { config } from './runtime/config.js';
+import { config, signInTarget } from './runtime/config.js';
 import type { Env } from './runtime/env.js';
-import { meeting, prefetched, setPrefetched, type Prefetched } from './runtime/handoff.js';
+import { meeting, prefetched, setPrefetched, type EarlyApi, type Prefetched } from './runtime/handoff.js';
 import { schemesOf, STYLE_BAD, urlAllowed } from './runtime/security.js';
-import { expand, readUrl, type withParams } from './runtime/url.js';
+import { readUrl } from './runtime/url.js';
 import type { lists } from './runtime/lists.js';
 
 export { lists } from './runtime/lists.js';
-import { toPage } from './runtime/pages.js';
+/** a numbered list's page (`model`), for a page whose early requests start one at the page its URL names */
+export { toPage } from './runtime/pages.js';
 import type { EarlyIR } from './ir.js';
 
 /** What the early requests read from the outside world: the clock, the location, fetch. */
 type EarlyEnv = Pick<Env, 'now' | 'href' | 'fetch'>;
+/** `setEnv()`'s environment once `configured` has read it (tests): the token's storage and the guard's redirect use it; else the browser's */
+let io: Partial<Env> | null = null;
 /** the browser's: before the first paint only an app early module could have configured another */
 const browser = (): EarlyEnv => ({ now: Date.now, href: () => location.href, fetch: (r) => fetch(r) });
 /**
@@ -26,13 +29,15 @@ const browser = (): EarlyEnv => ({ now: Date.now, href: () => location.href, fet
  * passes it to `requests`), and for tests; only then does the early file carry the config.
  */
 export const configured = (): EarlyEnv => {
-  const e = config.env;
+  const e = (io = config.env);
   return { now: e?.now ?? Date.now, href: e?.href ?? (() => location.href), fetch: e?.fetch ?? ((r) => fetch(r)) };
 };
 
 export { $k } from './runtime/keys.js';
 /** for a page whose early requests include a paginated resource's first page (the compiler passes it to `requests`) */
 export { withParams } from './runtime/url.js';
+/** a URL template (`data-sn-href`, an early request's `src`) the early file fills, compiled (compile.ts `urlCode`) */
+export { $href, $hq, $hv } from './runtime/url.js';
 
 /** On the start comment of a `data-sn-if` (or a choice) the early chunk rendered: the branch, its nodes and the end comment, for the runtime to adopt. */
 export const EARLY = Symbol.for('sinter.early');
@@ -83,7 +88,15 @@ type Fn = (...a: any[]) => any;
  * function table, and its compiled renderer (compiler/early-render.ts): `scopes` over the base
  * scope, then `render` with them.
  */
-export type EarlyPage = () => { ir: Pick<EarlyIR, 'res' | 'path' | 'urlArrays' | 'emb'>; fns: Fn[]; scopes(base: any): any[]; render(doc: Document, scopes: any[], base: any): void; locale?: typeof locale; lists?: typeof lists };
+export type EarlyPage = () => { ir: Pick<EarlyIR, 'path' | 'urlArrays' | 'emb' | 'si'>; fns: Fn[]; scopes(base: any): any[]; render(doc: Document, scopes: any[], base: any): void; req?: Requests; locale?: typeof locale; lists?: typeof lists; away?: (o: any, base: any) => boolean };
+
+/**
+ * The page's early requests, compiled (compiler/index.ts `earlyRequests`, from `EarlyIR.res`): `q` once per request,
+ * over the root scopes and the base scope. `u` makes its URL as the page module will (or throws, or is false: not
+ * known early, or its `when` is false); `a`: its API's credentials, static headers and token; `r`: it needs the token;
+ * `lo`: low priority.
+ */
+export type Requests = (q: (u: () => string | false, a?: EarlyApi, r?: 0 | 1, lo?: 1) => void, scopes: any[], base: any) => void;
 
 /** the configured locale source, for a page whose early functions read `$locale` (others carry no config) */
 export const locale = () => config.locale;
@@ -100,12 +113,13 @@ export function start(page: EarlyPage | null, messages: { use(): void; ready(): 
 /** Starts the page's early requests at once and returns the render step. */
 function prime(page: EarlyPage | null, messages: { use(): void; ready(): Promise<void> } | null, req: EarlyRequests | null = null, doc: Document = document): () => void {
   messages?.use();
-  let p: ReturnType<typeof prepare> | null = null;
+  let p: ReturnType<typeof prepare> = null, gone = false;
   // the requests need no DOM: they start before anything waits
-  try { if (page) (p = prepare(page(), req)).fetch(); } catch (e) { fail(e); }
+  try { if (page) { p = prepare(page(), req); gone = !p; p?.fetch(); } } catch (e) { fail(e); }
   let ran = false;
   return () => {
-    if (ran) return;
+    // sent to sign in: the page module does not mount
+    if (ran || gone) return;
     ran = true;
     // started only now: a render stub that failed to load leaves the page module to mount by itself
     const m = meeting();
@@ -127,7 +141,7 @@ export function run(page: EarlyPage, doc: Document = document): void {
   const m = meeting();
   m.started = true;
   // a failure is reported, and the page module mounts all the same
-  try { const p = page(), $ = scope(p, null); p.render(doc, p.scopes($), $); } catch (e) { fail(e); }
+  try { const p = page(), $ = scope(p, null); if (p.away?.(p, $)) return; p.render(doc, p.scopes($), $); } catch (e) { fail(e); }
   m.finish();
 }
 
@@ -148,8 +162,10 @@ export function observe(page: EarlyPage | null, messages: { use(): void; state?(
   messages?.use();
   const m = meeting();
   m.started = true;
-  let p: ReturnType<typeof prepare> | null = null;
-  try { if (page) (p = prepare(page(), req)).fetch(); } catch (e) { fail(e); }
+  let p: ReturnType<typeof prepare> = null, gone = false;
+  try { if (page) { p = prepare(page(), req); gone = !p; p?.fetch(); } } catch (e) { fail(e); }
+  // sent to sign in: the page module does not mount
+  if (gone) return;
   if (!p) { m.finish(); return; }
   const prep = p, I = messages?.state?.();
   const waiting = () => !!I?.locale && !I.dicts?.[I.locale];
@@ -233,7 +249,7 @@ const ready = (el: Node) => {
 /** the JSON of the head's embedded data element `data-sn="<id>"`, parsed */
 const json = (id: number) => JSON.parse(document.querySelector(`head > script[data-sn="${id}"]`)!.textContent!);
 
-/** `$r` over the page's embedded data: each resource's items (by its `items` path), parsed once; another resource throws */
+/** `$r` over the page's embedded data: each resource's data (by its `select` path), parsed once; another resource throws */
 function embedded(emb: NonNullable<EarlyIR['emb']>): any {
   const got = new Map<string, unknown>();
   return new Proxy(Object.create(null), {
@@ -242,8 +258,9 @@ function embedded(emb: NonNullable<EarlyIR['emb']>): any {
       if (!e) throw Error('sinter: not available early');
       if (!got.has(name as string)) {
         let v: any = json(e.id);
-        for (const k of e.items ? e.items.split('.') : []) v = v?.[k];
-        got.set(name as string, v);
+        for (const k of e.select ? e.select.split('.') : []) v = v?.[k];
+        // a list without `key` (`ls`) is `[]` when empty, as in the page module
+        got.set(name as string, v ?? (e.ls ? [] : v));
       }
       return got.get(name as string);
     },
@@ -280,14 +297,11 @@ function scope(o: ReturnType<EarlyPage>, req: EarlyRequests | null): any {
  */
 export interface EarlyRequests {
   read(key: PropertyKey, path: string[] | undefined, more?: (href: string, url: any) => any): unknown;
-  send(ir: Pick<EarlyIR, 'res'>, scopes: any[], base: any, fns: Fn[]): void;
+  send(req: Requests, scopes: any[], base: any): void;
 }
 
-/**
- * `params`: adds a paginated resource's first-page parameters (`withParams`, imported only by a page
- * that has one); `envOf`: where the environment comes from (`configured` where an app early module may set it)
- */
-export function requests(params?: typeof withParams, envOf: () => EarlyEnv = browser): EarlyRequests {
+/** `envOf`: where the environment comes from (`configured` where an app early module may set it) */
+export function requests(envOf: () => EarlyEnv = browser): EarlyRequests {
   let url: Record<string, string | string[]> | null = null, now: Date | null = null, e: EarlyEnv | null = null;
   // the environment only requests read (the clock, the location, fetch): read when first needed, after the app's early module ran
   const env = () => (e ??= envOf());
@@ -297,21 +311,15 @@ export function requests(params?: typeof withParams, envOf: () => EarlyEnv = bro
       if (k == '$url') { const h = env().href(); return (url ??= more(h, readUrl(h, path))); }
       throw Error('sinter: not available early');
     },
-    /** the resources whose URL is known now: `when` holds and every value is there (a paginated one: its first page) */
-    send(ir, scopes, base, fns) {
+    /**
+     * the resources whose URL is known now: `when` holds and every value is there (a paginated one: its first page).
+     * Each URL's origin is the build's: a path, or an origin of `sinter({ origins })` (compile.ts `earlyOrigin`)
+     */
+    send(req, scopes, base) {
       const here = env().href();
-      for (const r of ir.res ?? []) {
-        try {
-          const s = r.scope < 0 ? base : scopes[r.scope];
-          if (r.when != null && !fns[r.when]!(s)) continue;
-          let q = r.q;
-          // `model` (paginate): page n's parameters (the pager's pageParams)
-          if (r.sp) { const n = toPage(fns[r.sp.f]!(s)); if (n > 1) q = { ...r.sp.qn, [r.sp.k]: String(r.sp.o ? (n - 1) * r.sp.s : n) }; }
-          const t = expand(r.src, s, fns), u = new URL(q ? params!(t, q) : t, here);
-          // another origin only when the build found it in `sinter({ origins })` (`xo`)
-          if (r.xo || u.origin == new URL(here).origin) (prefetched() ?? own(pending(env()))).add(u.href, r.lo, r.a);
-        } catch { /* not known early: the page module requests it */ }
-      }
+      req((u, a, r, lo) => {
+        try { const x = u(); if (x) (prefetched() ?? own(pending(env()))).add(new URL(x, here).href, lo, a, r as 1 | undefined); } catch { /* not known early: the page module requests it */ }
+      }, scopes, base);
     },
   };
 }
@@ -324,18 +332,23 @@ export function requests(params?: typeof withParams, envOf: () => EarlyEnv = bro
 function pending(env: EarlyEnv): Prefetched {
   const started = new Map<string, { res: Promise<Response>; c: AbortController; cr: RequestCredentials; h: Headers }>();
   return {
-    add(url, lo, a) {
+    add(url, lo, a, need) {
       if (started.has(url)) return;
-      const h = new Headers(a?.h), cr = a?.c ?? 'same-origin';
+      const h = new Headers(a?.h), cr = a?.c ?? 'same-origin', t = a?.t, v = t ? token(t) : null;
+      // signed out: an operation that needs the token is not requested (the page module reads it as signed out)
+      if (t && v == null && need) return;
       h.has('Accept') || h.set('Accept', 'application/json');
+      // the API's token, as the request layer adds it: the page's request is then the same, and takes this response
+      if (v != null) h.has(t!.h) || h.set(t!.h, t!.p + v);
       const c = new AbortController(), res = env.fetch(new Request(url, { headers: h, credentials: cr, signal: c.signal, ...(lo ? { priority: 'low' } : {}) } as RequestInit));
       res.catch(() => {});
       started.set(url, { res, c, cr, h });
     },
     take(req: Request, signal: AbortSignal) {
       const e = started.get(req.url), h = [...req.headers];
+      if (!e) return undefined;
       // a middleware that changed the request (a header, credentials) gets a request of its own
-      if (!e || req.method != 'GET' || req.credentials != e.cr || h.length != [...e.h].length || h.some(([k, v]) => e.h.get(k) !== v)) return null;
+      if (req.method != 'GET' || req.credentials != e.cr || h.length != [...e.h].length || h.some(([k, v]) => e.h.get(k) !== v)) return null;
       started.delete(req.url);
       const abort = () => e.c.abort(signal.reason);
       signal.aborted ? abort() : signal.addEventListener('abort', abort, { once: true });
@@ -350,15 +363,53 @@ function pending(env: EarlyEnv): Prefetched {
 
 const own = (s: Prefetched) => (setPrefetched(s), s);
 
+/** whether no token is stored under `k` (`s`: `l`ocal or `s`ession storage): the resources that need it are loaded, empty, at mount */
+export const $so = (s: 'l' | 's', k: string): boolean => token({ s, k, h: '', p: '' }) == null;
+
+/** an API's token, from its storage (`setEnv()`'s in tests), as the request layer reads it; null when none is stored */
+const token = (t: NonNullable<EarlyApi['t']>): string | null => {
+  try { return (t.s == 's' ? (io?.session ? io.session() : sessionStorage) : (io?.storage ? io.storage() : localStorage))?.getItem(t.k) || null; } catch { return null; }
+};
+
 /** Renders a page's early part (tests; the early file goes through `start`). */
 export function early(doc: Document, page: ReturnType<EarlyPage>): void {
-  prepare(page, requests(undefined, configured)).render(doc);
+  configured();
+  prepare(page, requests(configured))?.render(doc);
 }
 
+/**
+ * `data-sn-signed-in`: with no token stored (and the condition true), the visitor goes to sign in now, in the current
+ * history entry, and nothing is requested or rendered (the page is hidden meanwhile, and the page module never
+ * mounts). A prerendered page renders: the page module sends the visitor on once it is shown. Only a page with the
+ * guard passes it (`away` on its early page object), so a site without one carries none of it.
+ */
+export function away(o: ReturnType<EarlyPage>, base: any, out: typeof $so, to: (i: any, href: string, session: Storage | null) => string = toPath): boolean {
+  const g = o.ir.si;
+  if (!g || (document as Document & { prerendering?: boolean }).prerendering) return false;
+  // `out`: `$so`, which the page passes (the shared head script's, when every page reads a token: no second copy here)
+  try { if (!out(g.t.s, g.t.k) || (g.f != null && !o.fns[g.f]!(base))) return false; } catch { return false; }
+  const e = io;
+  if (!e) document.documentElement.hidden = true;
+  let session: Storage | null = null;
+  try { session = e?.session ? e.session() : sessionStorage; } catch { /* none */ }
+  (e?.replace ?? ((u: string) => location.replace(u)))(to(g.i, e?.href ? e.href() : location.href, session));
+  return true;
+}
+/** `signIn` a path (signInTarget's path form): the return URL stored, any same-origin path; the path */
+const toPath = (i: string, href: string, s: Storage | null) => {
+  const u = new URL(href);
+  try { s?.setItem('sn:return', u.pathname + u.search + u.hash); } catch { /* ignored */ }
+  return i;
+};
+/** the guard of an API whose `signIn` is loginRedirect's options (`{ to, returnUrl }`) */
+export const awayVia = (o: ReturnType<EarlyPage>, base: any, out: typeof $so) => away(o, base, out, signInTarget);
+
 function prepare(o: ReturnType<EarlyPage>, req: EarlyRequests | null) {
-  const { ir, fns } = o, base = scope(o, req), roots = o.scopes(base);
+  const base = scope(o, req);
+  if (o.away?.(o, base)) return null;
+  const roots = o.scopes(base);
   return {
-    fetch() { req?.send(ir, roots, base, fns); },
+    fetch() { if (o.req) req?.send(o.req, roots, base); },
     render(doc: Document) { o.render(doc, roots, base); },
   };
 }

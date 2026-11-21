@@ -6,7 +6,7 @@ import { afterEach, expect, test } from 'vitest';
 import { compile, earlyPage, type CompileOptions } from '../../src/compiler/index.js';
 import { compileParts } from '../../src/compiler/compile.js';
 import * as earlyExports from '../../src/early.js';
-import { configured, requests, start, withParams } from '../../src/early.js';
+import { configured, requests, start } from '../../src/early.js';
 import type { EarlyIR } from '../../src/ir.js';
 import { configure, setEnv, type Middleware } from '../../src/runtime/config.js';
 import { defaultEnv } from '../../src/runtime/env.js';
@@ -33,7 +33,7 @@ function server(url: string) {
 }
 
 const PAGE = (attrs: string) => `<!doctype html><html data-sn-state="{ box: 'inbox' }" data-sn-persist="box"><head></head><body>
-  <sn-resource name="mail" src="/api/mail?box={box}" items="items" total="total" key="id" ${attrs}></sn-resource>
+  <sn-resource name="mail" src="/api/mail?box={box}" select="items" total="total" key="id" ${attrs}></sn-resource>
   <span data-sn-text="[$meta.mail.from, $meta.mail.to, $meta.mail.total, $meta.mail.pages, $meta.mail.hasPrev, $meta.mail.hasNext].join()"></span>
   <button id="next" data-sn-on-click="page(mail, 'next')"></button>
   <button id="prev" data-sn-on-click="page(mail, 'prev')"></button>
@@ -58,8 +58,8 @@ async function load(html: string, o: { storage?: Storage; session?: Storage; ir?
   const early: string[] = [];
   const storage = o.storage ?? memoryStorage();
   setEnv({ ...defaultEnv, href: () => o.href ?? 'http://localhost/', storage: () => storage, fetch: async (r: Request) => { const u = new URL(r.url); early.push(u.pathname + u.search); await o.hold; return Response.json(server(r.url)); } });
-  expect(out.early).toContain(', requests(withParams)');
-  start(() => page, null, requests(withParams, configured));
+  expect(out.early).toContain(', requests());');
+  start(() => page, null, requests(configured));
   const mock = mockRequests({ 'GET /api/mail': (c: RecordedCall) => server(c.url) });
   // the page module's requests: the early response if the request layer takes it, else the mock
   const net = ((req: Request, next: Parameters<Middleware>[1]) => next(req).catch((e: Error) => (/unexpected network request/.test(e.message) ? mock(req, next) : Promise.reject(e)))) as unknown as MockRequests;

@@ -186,7 +186,7 @@ The package is trimming- and AOT-safe (`IsAotCompatible`). Nothing in it uses re
 For the frontend, a resource is just a resource:
 
 ```html
-<sn-resource name="articles" src="/api/articles?tag={$url.tag}" key="slug" items="articles"></sn-resource>
+<sn-resource name="articles" src="/api/articles?tag={$url.tag}" key="slug" select="articles"></sn-resource>
 ```
 
 With `embed: true`, the build gives it an empty placeholder at the end of the head and lists its request in `sinter-embed.json`:
@@ -206,7 +206,7 @@ For a request to `/?tag=rust`, the middleware requests `/api/articles?tag=rust` 
 <script type="application/json" data-sn="0">{"articles":[{"slug":"hello","title":"Hello"}],"articlesCount":1}</script>
 ```
 
-The body goes in exactly as the API returned it (`items="articles"` picks the list out of it in the browser), except that every `<` is escaped. The bindings over it, rows included, render while the page is parsed.
+The body goes in exactly as the API returned it (`select="articles"` picks the list out of it in the browser), except that every `<` is escaped. The bindings over it, rows included, render while the page is parsed.
 
 ## Performance
 

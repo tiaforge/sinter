@@ -56,6 +56,8 @@ export interface LetEntry {
   from?: LetEntry[];
   /** a component's prop: the caller's expression */
   prop?: true;
+  /** a `data-sn-let` entry's value as written (a list's empty state follows a choice in it: `emptyCondition`) */
+  text?: string;
   /** the item it is (see `Sources`), or the list */
   src?: Sources | null;
   list?: Sources | null;
@@ -159,6 +161,8 @@ export interface PageInfo {
   lazy?: Map<string, { i: number; name: string }>;
   /** literal `id`s of the page's `<dialog>` elements, for `openDialog()` and `closeDialog()` */
   dialogs: Set<string>;
+  /** an API of the app has a `token` (`signOut()` has something to remove, SN347) */
+  tokens?: boolean;
   /** the resources an `<sn-event resource>` on the page names: the ones a stream feeds (`$meta.<name>.live`, SN516) */
   fed: Set<string>;
   /** literal `id`s of the page's elements, for `run()`: whether one carries an action, sits in a `data-sn-for` row, how many share it */
@@ -304,7 +308,7 @@ const EVERYWHERE_MAGIC = ['$el', '$url', '$now', '$locale', '$meta'];
 export const ALL_MAGIC = ['$event', '$el', '$url', '$now', '$locale', '$result', '$error', '$meta'];
 /** names the build fills in, where they apply: the site's URLs (`sinter({ site })`) and a fill's slot values */
 export const BUILD_NAMES = ['$site', '$canonical', '$slot'];
-export const STORE_FNS = ['refresh', 'upsert', 'merge', 'remove', 'page', 'openDialog', 'closeDialog', 'emit', 'run', 'navigate'];
+export const STORE_FNS = ['refresh', 'upsert', 'merge', 'remove', 'page', 'openDialog', 'closeDialog', 'emit', 'run', 'navigate', 'signOut'];
 /** store functions that are gone or renamed (docs/proposals/vocabulary.md): what to write instead. Removed at 1.0 */
 const RETIRED_FNS: Record<string, string> = {
   showModal: '`showModal()` is renamed to `openDialog()`, the pair of `closeDialog()`: `openDialog(\'edit\')`',
@@ -718,6 +722,7 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
     deps.add(segs.join('.'));
   }
 
+  const metaSeen = new Map<Node, Array<{ name: string; at: number }> | null>();
   /** `$meta[key]` with a key whose resource names can be listed: those names (null otherwise) */
   function metaNames(n: Node, locals: Locals): Array<{ name: string; at: number }> | null {
     let cur: Node = n;
@@ -727,6 +732,14 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
       else break;
     }
     if (cur.type !== 'MemberExpression' || !cur.computed || cur.property.type === 'Literal') return null;
+    // asked once per member of the chain and for its dependencies: worked out (and reported) once
+    if (metaSeen.has(cur)) return metaSeen.get(cur)!;
+    const names = metaKey(cur, locals);
+    metaSeen.set(cur, names);
+    return names;
+  }
+
+  function metaKey(cur: acorn.MemberExpression & Node, locals: Locals): Array<{ name: string; at: number }> | null {
     const lets: LetEntry[] = [];
     const names = refNames(cur.property, (nm) => lookRef(nm, locals), lets);
     if (names === 'string') {
@@ -740,7 +753,9 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
 
   function checkMeta(n: acorn.MemberExpression & Node, locals: Locals) {
     const cp = chainPath(n, locals);
-    if (!cp || cp.root !== '$meta' || cp.res.kind !== 'magic' || !cp.segs) return;
+    // `checkMeta` runs for each member of the chain: the key is checked by the member on `$meta`, the field by the
+    // member that names it, and the members after it (`.loadedAt.getTime`) have nothing to check
+    if (!cp || cp.root !== '$meta' || cp.res.kind !== 'magic' || !cp.segs || cp.segs.length > 3) return;
     const [, key, field] = cp.segs;
     // a computed key is checked for each name it can take, when they can be listed
     const names = key === '*' ? metaNames(n, locals) : key ? [{ name: key, at: n.start }] : null;
@@ -1106,6 +1121,10 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
     }
     if (name === 'run') {
       runCall(first, n);
+      return;
+    }
+    if (name === 'signOut' && !page.tokens) {
+      report('SN347', '`signOut()` removes the tokens of the APIs that have one (`sinter({ apis: { main: { token } } })`), and no API of this app has one', n.start);
       return;
     }
     if (name === 'merge' || name === 'remove') {

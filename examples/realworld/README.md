@@ -22,10 +22,10 @@ CHROME=/path/to/chrome npm run e2e   # the official e2e suite (e2e/, unchanged)
 | `login.html`, `register.html` | auth | `/login`, `/register` |
 | `src/layouts/conduit-layout.html` | the document every page shares: the head, the header and the footer; each page is its tag, with its state, its handlers and its title and description as props | |
 | `src/components/` | header, footer, `conduit-seo` (the head component for the title and description), article meta, byline, preview, error list, favorite button (each page declares the `user` resource the header reads); `merge(article, …)` in the favorite button acts on the article where each use got it | |
-| `src/sinter.config.js` | JWT middleware (`localStorage.jwtToken`), current-user error handling | |
-| `src/islands.js` | sign-in/out (clearing the page-load cache) and navigation events, `<conduit-redirect>`, `window.__conduit_debug__` | |
+| `src/sinter.config.js` | the suite's current-user rules (a response-only middleware: any 4xx from `GET /user` signs out, an empty 200 is an error) | |
+| `src/islands.js` | `window.__conduit_debug__` | |
 | `vite.config.js` | page entries, the dev/preview rewrites for the path patterns, `sinter({ apis })` | |
-| `apis.js` | the API (`sinter({ apis })`): its spec and what each endpoint returns; pages write paths (`src="/articles"`), its origin is allowed on every page and its requests start before the stylesheets | |
+| `apis.js` | the API (`sinter({ apis })`): its spec, what each endpoint returns and its token (`localStorage.jwtToken`, sent as `Authorization: Token …`, stored from sign-in, sign-up and settings); pages write paths (`src="/articles"`), its origin is allowed on every page and its requests start before the stylesheets | |
 | `openapi.yml` | the Conduit API spec ([realworld-apps/realworld](https://github.com/realworld-apps/realworld), MIT), which types every resource for `npx sinter check` | |
 
 Everything the pages' expressions cannot do (storage, navigation) lives in the config module and the
@@ -66,18 +66,20 @@ and the home page's feed tabs are plain links that stay on the page when clicked
 next page, no reload. "Global Feed" from `/tag/go` is another path: the home page is swapped in ([swaps](../../docs/navigation.md#swaps)). The active page is
 `$meta.<name>.page`, the page shown.
 
-The build warns twice, `SN529`, and the warnings stay: below 768 px the Conduit theme gives its grid
-columns no width, so the feed's column is only as wide as its content and the tags sit beside it
-until the articles arrive. That layout shift (0.15 on a phone, with the API answering after 500 ms;
-0.035 with the columns at full width) is the theme's, which every RealWorld implementation shares,
-so the theme stays as it is. The build is strict (warnings fail it) with `SN529` allowed, by name and
-with the reason, in `vite.config.js`. The "Loading articles..." and "Loading tags..." lines are in the first
+The build is strict (warnings fail it) and warns about nothing. Below 768 px the Conduit theme gives its grid
+columns no width, so the feed's column and the tags' are only as wide as their content until their rows arrive;
+the build keeps what follows each of them hidden while its first rows load
+([a box whose width follows the list](../../docs/first-paint.md#a-box-whose-width-follows-the-list)), so nothing
+shown moves, and `SN529`, which says it moves, has nothing to report. The "Loading articles..." and "Loading tags..." lines are in the first
 frame ([first paint](../../docs/first-paint.md#loading-branches)).
 
 Every resource has `cache`: a page shows what the previous page loaded at once and revalidates.
-Signing in or out calls `clearPersisted()`, since the cached data belongs to the previous identity.
-Cached data does not set `$meta.<name>.loadedAt`, which stays null until the server answers (the
-login-redirect guards read it).
+A token stored or removed (signing in or out) drops it, since the cached data belongs to the previous
+identity. Cached data does not set `$meta.<name>.loadedAt`, which stays null until the server answers;
+with no token stored, `user` is loaded at once, empty, without a request, so the header and the home banner
+know `$meta.user.loadedAt && !user` (signed out) before the first paint. The editor and settings pages, and the
+home page's own feed, need a session (`data-sn-signed-in`): a signed-out visitor goes to `/login` before
+anything paints. That is a convenience; the API refuses their requests all the same.
 
 ## Form errors
 
@@ -87,8 +89,7 @@ reading `$error` (the form's last failed send) with the `errors()` helper's line
 pages with a form load the fields module (1.1 KB gzip).
 
 The buttons (favorite, follow, delete) have no catch either: a failed action without one bubbles
-`sn-error`, and one handler on each page's root (home, profile, article) sends a 401 to the login page
-and shows anything else in the page's `.error-messages` list (`<error-list data-sn-with="{ error }">`). Deleting a
+`sn-error`: a 401 goes to the login page (the API's `token.signIn`), and one handler on each page's root (home, profile, article) shows anything else in the page's `.error-messages` list (`<error-list data-sn-with="{ error }">`). Deleting a
 comment keeps its catch: it fills the comments' own list (`commentError`). The comment form's list
 sits inside its card, so `public/styles.css` pads it like the textarea (the one rule of ours next to
 the theme's comment-form rules).
@@ -109,10 +110,9 @@ skipped by the suite. The failures were assumptions in the suite, not app behavi
   (`Network.getResponseBody: No resource`) and the JS context (`Execution context was destroyed`). With
   `sinter({ swap: true })` (vite.config.js) a link or `navigate()` swaps the next page in, in the same
   document ([docs/navigation.md](../../docs/navigation.md#swaps)). The settings form's `then` writes the
-  saved user into `user` (`upsert`), stores the token (`settings-saved` in `src/islands.js`, which keeps
-  the cache: the account is the same) and calls `navigate()`; the profile page shows the cached user at
-  once and revalidates. Every redirect goes the same way: the islands call `navigate` from
-  `@tiaforge-ui/sinter` for signing in and out, and `<conduit-redirect>` calls it with `replace: true`.
+  saved user into `user` (`upsert`) and calls `navigate()` (the API's `token.from` stores the new token; the
+  cache stays: the account is the same); the profile page shows the cached user at once and revalidates.
+  Signing in, up and out navigate the same way.
   Against the shared public API, a run now and then shows another account right after registering
   (`pw` and the time in base 36, `John Doe`, `www.google.com:80/`: other clients' accounts), on paths
   with and without swaps: the API answers a new account's token with another account. Run against a
