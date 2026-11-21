@@ -301,6 +301,11 @@ export interface RenderOptions {
    */
   strict?: boolean | { allow?: Record<string, string> };
   /**
+   * `false`: the page compiles as a production build does, without the dev build's source positions and checks, and with
+   * the build's own passes over the IR (templates several shared definitions write alike kept once). Default `true`.
+   */
+  dev?: boolean;
+  /**
    * @internal `sinter render`: the page is a file of a project, compiled with the project's files, components,
    * layouts and APIs (as `sinter check` reads them) instead of `files`, `components`, `layouts` and `apis`
    */
@@ -476,7 +481,7 @@ function compilePage(html: string, options: RenderOptions, strict: Strict = { on
   const proj = options.project;
   const apis = proj ? { specs: proj.openapi, apis: proj.apis } : options.apis ? testApis(options) : null;
   const parts = compileParts(html, {
-    file: proj?.file ?? PAGE, root: proj?.root ?? '/test', dev: true, helpers: manifest,
+    file: proj?.file ?? PAGE, root: proj?.root ?? '/test', dev: options.dev ?? true, helpers: manifest,
     ...(proj?.lazyModule ? { lazyModule: proj.lazyModule } : {}), actions: actionManifest, moduleSrc: 'about:blank', componentNames: proj?.componentNames ?? Object.keys(options.components ?? {}), ...(proj?.libraries?.length ? { libraries: proj.libraries } : {}),
     // lazy packages: any name, loaded by nothing (a test calls the app's functions, which import what they need)
     lazy: true,

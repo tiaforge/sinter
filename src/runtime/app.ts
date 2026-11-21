@@ -1238,6 +1238,8 @@ export function mount(root: Document | Element, o: MountOptions): App {
 
   function setRow(s: any, t: TemplateDef, item: unknown, i: number) {
     s[t.item!] = item;
+    // a shared definition's row: its props by one more name, which a template it shares with others reads (`shareTemplates`)
+    if (t.item![1] == 'p' && t.item![0] == '$') s.$pp = item;
     if (t.index) s[t.index] = i;
     s[t.ii!] = i;
     return s;
