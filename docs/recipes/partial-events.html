@@ -1,0 +1,13 @@
+<!-- A server whose update events sometimes carry the item and sometimes only say that something changed:
+     two <sn-event> elements for the same event, each with its `when`. The first applies the item when
+     there is one; the second reloads the list when there is none. -->
+<sn-resource name="people" src="/api/people" key="id" order="name"></sn-resource>
+
+<sn-sync src="/api/events">
+  <sn-event name="person_updated" resource="people" op="upsert" value="$event.person" when="$event.person"></sn-event>
+  <sn-event name="person_updated" resource="people" op="refresh" when="!$event.person"></sn-event>
+</sn-sync>
+
+<ul>
+  <template data-sn-for="p in people"><li data-sn-text="p.name"></li></template>
+</ul>

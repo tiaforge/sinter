@@ -15,12 +15,12 @@ const api = (o: { total?: boolean; fail?: Set<string>; wait?: boolean } = {}) =>
   },
 });
 const LIST = (extra = '', total = 'total="total"') => `
-  <sn-resource name="a" src="/api/a?tag={$url.tag}" items="items" ${total} key="id" paginate="offset" page-size="2" page-model="$url.page" ${extra}></sn-resource>
+  <sn-resource name="a" src="/api/a?tag={$url.tag}" select="items" ${total} key="id" paginate="{ numbered: true, size: 2, model: $url.page }" ${extra}></sn-resource>
   <span data-sn-text="[$meta.a.page, $url.page ?? '-', a.map((x) => x.id)].join(' ')"></span>
-  <button id="next" data-sn-on-click="page('a', 'next')">›</button>
-  <button id="prev" data-sn-on-click="page('a', 'prev')">‹</button>
-  <button id="p3" data-sn-on-click="page('a', 3)">3</button>
-  <button id="p9" data-sn-on-click="page('a', 9)">9</button>
+  <button id="next" data-sn-on-click="page(a, 'next')">›</button>
+  <button id="prev" data-sn-on-click="page(a, 'prev')">‹</button>
+  <button id="p3" data-sn-on-click="page(a, 3)">3</button>
+  <button id="p9" data-sn-on-click="page(a, 9)">9</button>
   <button id="js" data-sn-on-click="$url.tag = 'js'">js</button>`;
 const urls = (r: { calls: Array<{ url: string }> }) => r.calls.map((c) => c.url);
 
@@ -163,7 +163,7 @@ describe('`when`', () => {
 });
 
 test('lists bound to the same parameter page together, and reset together', async () => {
-  const html = LIST() + '<sn-resource name="b" src="/api/a" items="items" total="total" key="id" paginate="offset" page-size="2" page-model="$url.page"></sn-resource><b data-sn-text="b.map((x) => x.id).join()"></b>';
+  const html = LIST() + '<sn-resource name="b" src="/api/a" select="items" total="total" key="id" paginate="{ numbered: true, size: 2, model: $url.page }"></sn-resource><b data-sn-text="b.map((x) => x.id).join()"></b>';
   const p = await setup('http://localhost/', {}, html);
   await p.click('next');
   expect(p.root.querySelector('b')!.textContent).toBe('3,4');

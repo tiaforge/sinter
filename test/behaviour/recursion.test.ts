@@ -4,14 +4,14 @@ import { describe, expect, test } from 'vitest';
 import { compile } from '../../src/compiler/index.js';
 import { firstPaint, mockRequests, render } from '../../src/testing/index.js';
 
-const THREAD = `<template data-sn-component="{ comment: { id: number; body: string; replies: any[] } }">
+const THREAD = `<template data-sn-props="{ comment: { id: number; body: string; replies: any[] } }">
   <li>
-    <p data-sn-text="comment.body" data-sn-on-click="patch(comment, { body: comment.body + '!' })"></p>
+    <p data-sn-text="comment.body" data-sn-on-click="merge(comment, { body: comment.body + '!' })"></p>
     <button data-sn-on-click="remove(comment)">x</button>
     <button class="reply" data-sn-on-click="upsert(comment.replies, { id: comment.id * 10, body: 're ' + comment.body, replies: [] })">+</button>
     <ul>
       <template data-sn-for="r in comment.replies" data-sn-key="r.id">
-        <comment-thread data-sn-prop="{ comment: r }"></comment-thread>
+        <comment-thread data-sn-with="{ comment: r }"></comment-thread>
       </template>
     </ul>
   </li>
@@ -26,7 +26,7 @@ const bodies = (root: HTMLElement) => [...root.querySelectorAll('p')].map((p) =>
 test('a tree renders at any depth from one definition in the head', async () => {
   const requests = mockRequests({ 'GET /api/c': TREE });
   const { root, settle } = await render(`<sn-resource name="comments" src="/api/c" key="id"></sn-resource>
-    <ul><template data-sn-for="c in comments"><comment-thread data-sn-prop="{ comment: c }"></comment-thread></template></ul>`,
+    <ul><template data-sn-for="c in comments"><comment-thread data-sn-with="{ comment: c }"></comment-thread></template></ul>`,
   { requests, components: { 'comment-thread': THREAD } });
   await settle();
   expect(bodies(root)).toEqual(['a', 'b', 'c', 'd', 'e']);
@@ -41,7 +41,7 @@ test('a tree renders at any depth from one definition in the head', async () => 
 test('patch, remove and upsert along the path, at any depth', async () => {
   const requests = mockRequests({ 'GET /api/c': TREE });
   const { root, settle, flush } = await render(`<sn-resource name="comments" src="/api/c" key="id"></sn-resource>
-    <ul><template data-sn-for="c in comments"><comment-thread data-sn-prop="{ comment: c }"></comment-thread></template></ul>
+    <ul><template data-sn-for="c in comments"><comment-thread data-sn-with="{ comment: c }"></comment-thread></template></ul>
     <output data-sn-text="comments[0].replies[0].replies[0].body"></output>`,
   { requests, components: { 'comment-thread': THREAD } });
   await settle();
@@ -64,18 +64,18 @@ test('patch, remove and upsert along the path, at any depth', async () => {
 
 test('first paint: a tree over state renders before the page module', async () => {
   const { root } = await firstPaint(`<div data-sn-state="{ tree: { id: 1, body: 'top', replies: [{ id: 2, body: 'child', replies: [] }] } }">
-    <ul><comment-thread data-sn-prop="{ comment: tree }"></comment-thread></ul></div>`, { components: { 'comment-thread': THREAD.replace(/ data-sn-on-click="[^"]*"/g, '') } });
+    <ul><comment-thread data-sn-with="{ comment: tree }"></comment-thread></ul></div>`, { components: { 'comment-thread': THREAD.replace(/ data-sn-on-click="[^"]*"/g, '') } });
   expect(root.querySelector('p')!.textContent).toBe('top');
 });
 
 describe('<sn-component use>: a component chosen by data', () => {
   const BLOCKS = {
-    'hero-block': '<template data-sn-component="{ block: { type: string; title: string } }"><h1 data-sn-text="block.title"></h1></template>',
-    'text-block': '<template data-sn-component="{ block: { type: string; body: string } }"><p data-sn-text="block.body"></p></template>',
-    'rich-text': '<template data-sn-component="{ block: { body: string } }"><p class="rich" data-sn-text="block.body"></p></template>',
+    'hero-block': '<template data-sn-props="{ block: { type: string; title: string } }"><h1 data-sn-text="block.title"></h1></template>',
+    'text-block': '<template data-sn-props="{ block: { type: string; body: string } }"><p data-sn-text="block.body"></p></template>',
+    'rich-text': '<template data-sn-props="{ block: { body: string } }"><p class="rich" data-sn-text="block.body"></p></template>',
   };
   const page = (use: string) => `<div data-sn-state="{ blocks: [{ id: 1, type: 'hero', title: 'Hi', body: '' }, { id: 2, type: 'text', title: '', body: 'Body' }, { id: 3, type: 'image', title: '', body: '' }] }">
-    <template data-sn-for="b in blocks" data-sn-key="b.id"><sn-component use="${use}" data-sn-prop="{ block: b }"></sn-component><template data-sn-else><i data-sn-text="'no ' + b.type"></i></template></template>
+    <template data-sn-for="b in blocks" data-sn-key="b.id"><sn-component use="${use}" data-sn-with="{ block: b }"></sn-component><template data-sn-else><i data-sn-text="'no ' + b.type"></i></template></template>
     <button data-sn-on-click="blocks = []">clear</button>
   </div>`;
   const shown = (root: HTMLElement) => [...root.querySelectorAll('h1, p, i')].map((e) => `${e.localName}${e.className ? '.' + e.className : ''}:${e.textContent}`);
@@ -110,12 +110,12 @@ describe('write-through at any depth', () => {
       delete: { responses: { '204': { description: 'gone' } } },
     },
   }, components: { schemas: { Comment: { type: 'object', properties: { id: { type: 'integer' }, body: { type: 'string' }, replies: { type: 'array', items: { $ref: '#/components/schemas/Comment' } } } } } } };
-  const NODE = `<template data-sn-component="{ comment: { id: number; body: string; replies: any[] } }">
+  const NODE = `<template data-sn-props="{ comment: { id: number; body: string; replies: any[] } }">
   <li>
     <p data-sn-text="comment.body"></p>
     <button class="edit" data-sn-put="/api/c/{comment.id}" data-sn-body="{ body: 'edited' }"></button>
     <button class="del" data-sn-delete="/api/c/{comment.id}"></button>
-    <ul><template data-sn-for="r in comment.replies" data-sn-key="r.id"><comment-node data-sn-prop="{ comment: r }"></comment-node></template></ul>
+    <ul><template data-sn-for="r in comment.replies" data-sn-key="r.id"><comment-node data-sn-with="{ comment: r }"></comment-node></template></ul>
   </li>
 </template>`;
 
@@ -126,7 +126,7 @@ describe('write-through at any depth', () => {
       'DELETE /api/c/4': { status: 204 },
     });
     const { root, settle } = await render(`<sn-resource name="comments" src="/api/c" key="id"></sn-resource>
-      <ul><template data-sn-for="c in comments"><comment-node data-sn-prop="{ comment: c }"></comment-node></template></ul>`,
+      <ul><template data-sn-for="c in comments"><comment-node data-sn-with="{ comment: c }"></comment-node></template></ul>`,
     { requests, openapi: SPEC, components: { 'comment-node': NODE } });
     await settle();
     const li = (t: string) => [...root.querySelectorAll('p')].find((x) => x.textContent === t)!.parentElement!;
@@ -143,9 +143,9 @@ test('<sn-component use>: dev builds warn about a value outside the candidates, 
   const { vi } = await import('vitest');
   const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
   try {
-    const C = { 'hero-block': '<template data-sn-component="{ block: { title: string } }"><h1 data-sn-text="block.title"></h1></template>' };
+    const C = { 'hero-block': '<template data-sn-props="{ block: { title: string } }"><h1 data-sn-text="block.title"></h1></template>' };
     const { root, state, flush } = await render(`<div data-sn-state="{ blocks: [{ id: 1, type: 'hero', title: 'Hi' }, { id: 2, type: 'image', title: '' }, { id: 3, type: 'image', title: '' }] }">
-      <template data-sn-for="b in blocks" data-sn-key="b.id"><sn-component use="\`\${b.type}-block\`" data-sn-prop="{ block: b }"></sn-component></template>
+      <template data-sn-for="b in blocks" data-sn-key="b.id"><sn-component use="\`\${b.type}-block\`" data-sn-with="{ block: b }"></sn-component></template>
       <button data-sn-on-click="blocks = []">clear</button></div>`, { components: C });
     const calls = () => warn.mock.calls.map((c) => String(c[0])).filter((m) => m.includes('<sn-component use>'));
     expect(calls()).toEqual([expect.stringMatching(/^sinter: <sn-component use> at .*page\.html:\d+:\d+ is "image-block", not one of its components \(hero-block\): nothing is rendered/)]);
@@ -154,7 +154,7 @@ test('<sn-component use>: dev builds warn about a value outside the candidates, 
     expect(calls()).toHaveLength(2);
     expect(calls()[1]).toContain('"video-block"');
     warn.mockClear();
-    await render(`<div data-sn-state="{ b: { type: 'image' } }"><sn-component use="\`\${b.type}-block\`" data-sn-prop="{ block: b }"></sn-component><template data-sn-else><i>other</i></template></div>`, { components: C });
+    await render(`<div data-sn-state="{ b: { type: 'image' } }"><sn-component use="\`\${b.type}-block\`" data-sn-with="{ block: b }"></sn-component><template data-sn-else><i>other</i></template></div>`, { components: C });
     expect(calls()).toEqual([]);
   } finally {
     warn.mockRestore();
@@ -162,8 +162,8 @@ test('<sn-component use>: dev builds warn about a value outside the candidates, 
 });
 
 test('<sn-component use>: production builds carry no warning code', () => {
-  const C = '<template data-sn-component="{ block: { title: string } }"><h1 data-sn-text="block.title"></h1></template>';
-  const page = `<div data-sn-state="{ b: { type: 'image' } }"><sn-component use="\`\${b.type}-block\`" data-sn-prop="{ block: b }"></sn-component></div>`;
+  const C = '<template data-sn-props="{ block: { title: string } }"><h1 data-sn-text="block.title"></h1></template>';
+  const page = `<div data-sn-state="{ b: { type: 'image' } }"><sn-component use="\`\${b.type}-block\`" data-sn-with="{ block: b }"></sn-component></div>`;
   const out = (dev: boolean) => compile(page, { file: '/p/i.html', root: '/p', dev, helpers: { module: null, names: [], namespaces: {} }, componentNames: ['hero-block'],
     readFile: (f) => { if (f === '/p/src/components/hero-block.html') return C; throw new Error('missing'); } }).module;
   expect(out(true)).toContain('console.warn');
@@ -173,12 +173,12 @@ test('<sn-component use>: production builds carry no warning code', () => {
 describe('components that reach each other through <sn-component use>', () => {
   // a tree of nodes of two kinds: a block holds inlines, an inline holds inlines
   const C = {
-    'x-p': `<template data-sn-component="{ node: any }"><p><template data-sn-for="n in node.children"><sn-component use="{ text: 'x-text', em: 'x-em' }[n.type]" data-sn-prop="{ node: n }"></sn-component></template></p></template>`,
-    'x-em': `<template data-sn-component="{ node: any }"><em><template data-sn-for="n in node.children"><sn-component use="{ text: 'x-text', em: 'x-em' }[n.type]" data-sn-prop="{ node: n }"></sn-component></template></em></template>`,
-    'x-text': '<template data-sn-component="{ node: any }"><span data-sn-text="node.value"></span></template>',
+    'x-p': `<template data-sn-props="{ node: any }"><p><template data-sn-for="n in node.children"><sn-component use="{ text: 'x-text', em: 'x-em' }[n.type]" data-sn-with="{ node: n }"></sn-component></template></p></template>`,
+    'x-em': `<template data-sn-props="{ node: any }"><em><template data-sn-for="n in node.children"><sn-component use="{ text: 'x-text', em: 'x-em' }[n.type]" data-sn-with="{ node: n }"></sn-component></template></em></template>`,
+    'x-text': '<template data-sn-props="{ node: any }"><span data-sn-text="node.value"></span></template>',
   };
   const DOC = "{ children: [{ type: 'p', children: [{ type: 'text', value: 'a' }, { type: 'em', children: [{ type: 'em', children: [{ type: 'text', value: 'b' }] }] }] }] }";
-  const page = `<div data-sn-state="{ doc: ${DOC} }"><template data-sn-for="b in doc.children"><sn-component use="{ p: 'x-p' }[b.type]" data-sn-prop="{ node: b }"></sn-component></template></div>`;
+  const page = `<div data-sn-state="{ doc: ${DOC} }"><template data-sn-for="b in doc.children"><sn-component use="{ p: 'x-p' }[b.type]" data-sn-with="{ node: b }"></sn-component></template></div>`;
   const shape = (root: HTMLElement) => {
     const p = root.querySelector('p')!.cloneNode(true) as Element;
     p.querySelectorAll('template').forEach((t) => t.remove());
@@ -195,9 +195,9 @@ describe('components that reach each other through <sn-component use>', () => {
 
   test('first paint over embedded data: each definition is written once into the early file, and the tree renders at any depth', async () => {
     const data = JSON.stringify([{ id: 1, type: 'p', children: [{ type: 'text', value: 'a' }, { type: 'em', children: [{ type: 'em', children: [{ type: 'text', value: 'b' }] }] }] }]);
-    const { root } = await firstPaint(`<!doctype html><html><head><script type="application/json" data-sn-data="blocks">${data}</script></head><body>
+    const { root } = await firstPaint(`<!doctype html><html><head><script type="application/json" data-sn-resource="blocks">${data}</script></head><body>
       <sn-resource name="blocks" src="/api/blocks"></sn-resource>
-      <div><template data-sn-for="b in blocks"><sn-component use="{ p: 'x-p' }[b.type]" data-sn-prop="{ node: b }"></sn-component></template></div></body></html>`, { components: C });
+      <div><template data-sn-for="b in blocks"><sn-component use="{ p: 'x-p' }[b.type]" data-sn-with="{ node: b }"></sn-component></template></div></body></html>`, { components: C });
     expect(shape(root)).toBe('<p><span>a</span><em><em><span>b</span></em></em></p>');
   });
 });

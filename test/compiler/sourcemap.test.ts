@@ -3,7 +3,7 @@ import { describe, expect, test } from 'vitest';
 import { compile, type CompileOptions } from '../../src/compiler/index.js';
 
 const files: Record<string, string> = {
-  '/p/src/components/x-row.html': '<template data-sn-component="{ q: string }"><p>\n  <b data-sn-text="q.toUpperCase()"></b></p></template>',
+  '/p/src/components/x-row.html': '<template data-sn-props="{ q: string }"><p>\n  <b data-sn-text="q.toUpperCase()"></b></p></template>',
 };
 
 const opts = (o: Partial<CompileOptions> = {}): CompileOptions => ({
@@ -18,7 +18,7 @@ const PAGE = [
   '  <input data-sn-model="q">',
   '  <p data-sn-text="q.length + n"></p>',
   '  <button data-sn-on-click="n = n + 1">+</button>',
-  '  <x-row data-sn-prop="{ q }"></x-row>',
+  '  <x-row data-sn-with="{ q }"></x-row>',
   '</div>',
 ].join('\n');
 

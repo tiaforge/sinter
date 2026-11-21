@@ -13,7 +13,7 @@ import sinter from '../../src/vite.js';
 import { chromium } from '../browser.js';
 
 const src = resolve(__dirname, '../../src');
-const alias = [{ find: /^@tiaforge-ui\/sinter\/(.+)$/, replacement: `${src}/$1.ts` }, { find: /^@tiaforge-ui\/sinter$/, replacement: `${src}/index.ts` }];
+const alias = [{ find: /^@tiaforge-ui\/sinter\/runtime$/, replacement: `${src}/runtime-entry.ts` }, { find: /^@tiaforge-ui\/sinter\/(?:runtime\/)?(.+)$/, replacement: `${src}/$1.ts` }, { find: /^@tiaforge-ui\/sinter$/, replacement: `${src}/index.ts` }];
 const root = mkdtempSync(join(tmpdir(), 'sinter-lazy-min-'));
 const out = join(root, 'dist');
 afterAll(() => rmSync(root, { recursive: true, force: true }));
@@ -29,7 +29,7 @@ export class Thing { say(n) { return 'thing ' + n; } }
   // an app module (an action) calling the package through its stubs
   put('src/sinter.actions.ts', `import { shout } from 'slowpkg';\nexport async function loud(t: string) { return await shout(t); }\n`);
   // a component script that loads with the package
-  put('src/components/x-ring.html', '<template data-sn-component="{ n: number }"><p data-sn-state="{ said: \'\' }"><span class="said" data-sn-text="said"></span></p></template>\n');
+  put('src/components/x-ring.html', '<template data-sn-props="{ n: number }"><p data-sn-state="{ said: \'\' }"><span class="said" data-sn-text="said"></span></p></template>\n');
   put('src/components/x-ring.ts', `import { XRingComponent } from './x-ring.html';
 import { Thing } from 'slowpkg';
 export class XRing extends XRingComponent { connected() { this.state.said = new Thing().say(this.props.n); } }
@@ -41,7 +41,7 @@ export class XRing extends XRingComponent { connected() { this.state.said = new 
 <div data-sn-state="{ out: '', src: 'hi' }">
   <button id="go" data-sn-call="loud('hi')" data-sn-then="out = $result">go</button>
   <output id="out" data-sn-text="out"></output>
-  <x-ring data-sn-prop="{ n: 3 }"></x-ring>
+  <x-ring data-sn-with="{ n: 3 }"></x-ring>
   <p id="crunched" data-sn-let="{ c: crunch.render(src) }" data-sn-text="c ?? 'waiting'"></p>
 </div>
 </body></html>`);

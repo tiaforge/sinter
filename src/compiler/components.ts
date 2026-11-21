@@ -66,7 +66,7 @@ export function typeMembers(text: string): Member[] | null {
 export const SLOT_TYPE = /(?<![\w$.])Slot\s*</;
 
 /**
- * A props type literal without its `Slot<T>` members: what callers pass with `data-sn-prop`, what a
+ * A props type literal without its `Slot<T>` members: what callers pass with `data-sn-with`, what a
  * script's `this.props` holds. Slots are filled with markup, not passed. The text unchanged when it
  * has none, or is not a type literal.
  */
@@ -103,6 +103,41 @@ function matching(text: string, open: number): number {
   return -1;
 }
 
+/**
+ * Whether a TypeScript type as written is an array, whatever its items: `T[]`, `readonly T[]`, `(A | B)[]`,
+ * `Array<T>`, `ReadonlyArray<T>`. A union, intersection, conditional or function at its top level, a `keyof` or
+ * `typeof`, or a name the build cannot see into (an alias of a list) is not known to be one: false.
+ */
+export function isArrayType(text: string): boolean {
+  let s = text.trim();
+  /** the index of the bracket closing the one at `at` (any kind; `=>` is no bracket), or -1 */
+  const close = (at: number): number => {
+    let depth = 0;
+    for (let i = at; i < s.length; i++) {
+      const c = s[i]!;
+      if (c === '\'' || c === '"' || c === '`') { i = endOfString(s, i) - 1; continue; }
+      if (c === '=' && s[i + 1] === '>') { i++; continue; }
+      if ('([{<'.includes(c)) depth++;
+      else if (')]}>'.includes(c) && --depth === 0) return i;
+    }
+    return -1;
+  };
+  while (s.startsWith('(') && close(0) === s.length - 1) s = s.slice(1, -1).trim();
+  s = s.replace(/^readonly\s+/, '');
+  if (/^(keyof|typeof|unique|infer)\b/.test(s)) return false;
+  const generic = /^(?:Readonly)?Array\s*</.exec(s);
+  if (generic) return close(generic[0].length - 1) === s.length - 1;
+  if (!/\[\s*\]$/.test(s)) return false;
+  // nothing at the top level but the element type and its `[]`s
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i]!;
+    if (c === '\'' || c === '"' || c === '`') { i = endOfString(s, i) - 1; continue; }
+    if ('([{<'.includes(c)) { const j = close(i); if (j < 0) return false; i = j; continue; }
+    if (c === '|' || c === '&' || c === '?' || (c === '=' && s[i + 1] === '>') || /^\s+(extends|is)\s/.test(s.slice(i))) return false;
+  }
+  return true;
+}
+
 /** A component's name: its file name, which must contain a `-` (a valid custom element name). */
 export const COMPONENT_NAME = /^[a-z][a-z0-9]*(-[a-z0-9]+)+$/;
 
@@ -126,7 +161,7 @@ export const DOM_EVENTS = new Set([
  * `data-sn-state`, …) belongs inside the component.
  */
 export function callerAttribute(name: string): boolean {
-  return /^data-sn-(prop|model|persist|early|class|attr|style|show|transition|get|post|put|patch|delete|call|body|trigger|debounce|concurrency|optimistic|then|catch|confirm|encoding|apply|retry)$/.test(name)
+  return /^data-sn-(with|model|persist|early|class|attr|href|style|show|transition|post|put|patch|delete|call|body|trigger|debounce|concurrency|optimistic|then|catch|confirm|encoding|write-through|retry)$/.test(name)
     || name.startsWith('data-sn-on-') || name.startsWith('data-sn-debounce-');
 }
 

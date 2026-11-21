@@ -78,7 +78,7 @@ describe('injection', () => {
     const requests = mockRequests({ 'GET /api/p': [{ id: 1, n: 'server' }] });
     const { root, settle } = await render(`
       <sn-resource name="p" src="/api/p" key="id"></sn-resource>
-      <script type="application/json" data-sn-data="p">[{"id":1,"n":"forged"}]</script>
+      <script type="application/json" data-sn-resource="p">[{"id":1,"n":"forged"}]</script>
       <template data-sn-for="x in p"><i data-sn-text="x.n"></i></template>`, { requests });
     await settle();
     expect(root.querySelector('i')!.textContent).toBe('server');
@@ -102,7 +102,7 @@ describe('prototype pollution', () => {
       <p data-sn-text="x.length"></p>
       <form data-sn-post="/api/f"><input name="__proto__.polluted" value="1"><input name="ok" value="2"></form>`, { requests });
     await settle();
-    app.resource('x').patch('1', JSON.parse('{"__proto__": {"polluted": true}, "a": 1}'));
+    app.resource('x').merge('1', JSON.parse('{"__proto__": {"polluted": true}, "a": 1}'));
     root.querySelector('form')!.requestSubmit();
     await settle();
     expect(({} as Record<string, unknown>).polluted).toBeUndefined();
@@ -155,6 +155,23 @@ describe('requests and origins', () => {
     root.querySelector<HTMLElement>('#b')!.click();
     await settle();
     expect(requests.calls.map((c) => c.headers['x-sinter'] ?? null)).toEqual(['1', null]);
+  });
+  test('a header whose value is a function is read for each request: none while it returns null, the new value once set', async () => {
+    let token: string | null = null, reads = 0;
+    configure({ request: [header('Authorization', () => { reads++; return token && `Bearer ${token}`; }), header('X-Other', () => 'x', { origin: 'https://api.example' })], origins: ['https://api.example'] });
+    const requests = mockRequests({ 'POST /a': null });
+    const { root, settle } = await render(`<button id="a" data-sn-post="/a">a</button>`, { requests });
+    root.querySelector<HTMLElement>('#a')!.click();
+    await settle();
+    token = 't1';
+    root.querySelector<HTMLElement>('#a')!.click();
+    await settle();
+    token = 't2';
+    root.querySelector<HTMLElement>('#a')!.click();
+    await settle();
+    expect(requests.calls.map((c) => [c.headers['authorization'] ?? null, c.headers['x-other'] ?? null])).toEqual([[null, null], ['Bearer t1', null], ['Bearer t2', null]]);
+    // read only for requests it applies to (same-origin here): one read per request
+    expect(reads).toBe(3);
   });
 });
 

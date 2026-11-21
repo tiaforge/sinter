@@ -1,5 +1,5 @@
 // Matches a resource's `src` against OpenAPI specs: which GET operation it calls,
-// the JSON schema of what `items` selects, and the query parameters the operation
+// the JSON schema of what `select` selects, and the query parameters the operation
 // declares. Pure; the adapter parses the spec files.
 import type { UrlTemplate } from '../ir.js';
 import { suggest } from './diagnostics.js';
@@ -29,15 +29,16 @@ export interface OpenApiMatch {
   request: unknown;
   /**
    * how the operation authenticates (`security`, the operation's else the document's, with
-   * `components.securitySchemes`): `public` (`security: []`, or an alternative `{}`), `browser` (an
-   * alternative the browser satisfies alone: an `apiKey` cookie, `mutualTLS`), `token` (every alternative
+   * `components.securitySchemes`): `public` (`security: []`, or only `{}`), `browser` (an
+   * alternative the browser satisfies alone: an `apiKey` cookie, `mutualTLS`), `optional` (an alternative `{}`
+   * beside one that needs a token: the answer may depend on whether the app sends one), `token` (every alternative
    * needs something the app adds: an `Authorization` header, an API key in a header or the query, OAuth),
    * null when the spec does not say (no `security`, or a scheme it does not declare)
    */
   auth: Auth;
 }
 
-export type Auth = 'public' | 'browser' | 'token' | null;
+export type Auth = 'public' | 'browser' | 'optional' | 'token' | null;
 
 /** An operation's authentication, from its security requirements (alternatives of schemes that all apply). */
 export function authOf(doc: Json, op: Json): Auth {
@@ -46,16 +47,19 @@ export function authOf(doc: Json, op: Json): Auth {
   if (!reqs.length) return 'public';
   const comps = isObj(doc.components) ? doc.components : null;
   const schemes = comps && isObj(comps.securitySchemes) ? comps.securitySchemes : {};
-  let browser = false;
+  let browser = false, open = false, token = false;
   for (const r of reqs) {
     if (!isObj(r)) return null;
     const names = Object.keys(r);
-    if (!names.length) return 'public';
+    // `{}`: no credentials at all. Beside a token alternative the operation answers either way, maybe differently
+    // (a signed-in visitor's view): a preload, which carries no token, would hand a signed-in visitor the anonymous answer
+    if (!names.length) { open = true; continue; }
     const kinds = names.map((n) => deref(doc, schemes[n]));
     if (kinds.some((k) => !k)) return null;
     if (kinds.every((k) => (k!.type === 'apiKey' && k!.in === 'cookie') || k!.type === 'mutualTLS')) browser = true;
+    else token = true;
   }
-  return browser ? 'browser' : 'token';
+  return browser ? 'browser' : open ? (token ? 'optional' : 'public') : 'token';
 }
 
 export type Method = 'get' | 'post' | 'put' | 'patch' | 'delete';

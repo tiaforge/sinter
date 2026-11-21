@@ -1,7 +1,7 @@
 <!-- The document every page shares: title and description from its props, the canonical URL for og:url, a nav
      and a language switcher. Every value here is a constant in each language's page. -->
 <!doctype html>
-<html lang="en" data-sn-layout="{ title: string; nav: string }">
+<html lang="en" data-sn-props="{ title: string; nav: string }">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -13,7 +13,7 @@
 <body>
   <header class="site-header">
     <a class="brand" href="/index.html" data-sn-text="m.site()"></a>
-    <nav-list data-sn-prop="{ current: nav, items: [
+    <nav-list data-sn-with="{ current: nav, items: [
       { id: 'home', href: '/index.html', label: m.nav_home() },
       { id: 'about', href: '/about.html', label: m.nav_about() },
       { id: 'docs', href: '/docs/getting-started.html', label: m.nav_docs() },

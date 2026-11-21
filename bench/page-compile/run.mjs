@@ -4,18 +4,18 @@
 import { compile } from '../../dist/compiler/index.js';
 
 const [sections = 200, runs = 10] = process.argv.slice(2).map(Number);
-const card = `<template data-sn-component="{ title: string; body: string }"><article class="card"><h3 data-sn-text="title"></h3><p data-sn-text="body"></p><slot></slot></article></template>`;
+const card = `<template data-sn-props="{ title: string; body: string }"><article class="card"><h3 data-sn-text="title"></h3><p data-sn-text="body"></p><slot></slot></article></template>`;
 const files = { '/p/src/components/x-card.html': card };
 
 function page(n) {
-  const top = `<sn-resource name="items" src="/api/items" items="items" key="id" order="name"></sn-resource>`;
+  const top = `<sn-resource name="items" src="/api/items" select="items" key="id" order="name"></sn-resource>`;
   const sec = (i) => `
 <section id="s${i}" data-sn-state="{ q${i}: '', open${i}: false, n${i}: ${i} }">
   <h2 data-sn-text="'Section ' + n${i} + ' of ' + ${n}"></h2>
   <input type="search" data-sn-model="q${i}">
   <button data-sn-on-click="open${i} = !open${i}" data-sn-attr="{ 'aria-expanded': String(open${i}) }">Toggle</button>
   <p data-sn-show="open${i}" data-sn-class="{ active: open${i}, big: n${i} > 10 }">Details for <span data-sn-text="q${i}.toUpperCase()"></span></p>
-  <x-card data-sn-prop="{ title: 'Card ${i}', body: q${i} }"><em data-sn-text="q${i}.length + ' chars'"></em></x-card>
+  <x-card data-sn-with="{ title: 'Card ${i}', body: q${i} }"><em data-sn-text="q${i}.length + ' chars'"></em></x-card>
   <ul>
     <template data-sn-for="it in items.filter(x => x.name.includes(q${i})).slice(0, 5)">
       <li data-sn-class="{ cheap: it.price < 10 }"><span data-sn-text="it.name"></span> — <b data-sn-text="'$' + it.price.toFixed(2)"></b></li>

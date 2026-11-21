@@ -64,7 +64,8 @@ describe('stateReaders', () => {
     }
     // the cases cover reads, not only misses
     expect(hits).toBeGreaterThan(200);
-  });
+    // a few seconds of seeded cases: more on a busy machine
+  }, 30_000);
 });
 
 describe('state fields nothing reads, on a page with many scopes', () => {

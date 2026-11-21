@@ -41,8 +41,8 @@ test('a diagnostic: its explanation from docs/diagnostics.md', () => {
   const r = get('sn318');
   expect(r.found).toBe(true);
   expect(r.text).toMatch(/^## SN318 invalid-layout\n/);
-  expect(r.text).toContain('a layout without props needs no `data-sn-layout`');
-  expect(r.text).not.toContain('## SN319');
+  expect(r.text).toContain('a layout without props needs no `data-sn-props`');
+  expect(r.text).not.toContain('## SN320');
   expect(get('SN999').found).toBe(false);
 });
 
@@ -52,7 +52,8 @@ test('words: the lines that have all of them, under their section', () => {
   expect(get('zzz-nothing').found).toBe(false);
 });
 
+// a Node process that transpiles the CLI: seconds with jiti's cache cold (a fresh checkout, as in CI), past the default 5 s
 test('the CLI prints it from the files beside dist/', () => {
   const out = execFileSync(process.execPath, [resolve(root, 'node_modules/jiti/lib/jiti-cli.mjs'), resolve(root, 'src/cli.ts'), 'docs', 'SN318'], { encoding: 'utf8' });
   expect(out).toMatch(/^## SN318 invalid-layout/);
-});
+}, 60_000);

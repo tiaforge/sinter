@@ -5,7 +5,7 @@
 import type { App, Intent } from './runtime/app.js';
 import { instance } from './runtime/app.js';
 import { vtTypes } from './vt-types.js';
-import { KEPT, type Prepared, type SwapState, entry, track } from './swap.js';
+import { KEPT, type Prepared, type SwapState, back, entry, track } from './swap.js';
 import { ident } from './transition.js';
 import { SHARED } from './runtime/flags.js';
 
@@ -109,7 +109,7 @@ let swaps = 0;
 
 /**
  * The swap's fetch starts: the next page's data is as old as its HTML, so the streams note which events reach the
- * page shown from now on; the next page refetches what those would have changed of its own (sse-handover.ts).
+ * page shown from now on; the next page reloads what those would have changed of its own (sse-handover.ts).
  */
 export const streamsFrom = () => { streams().at = ++swaps; };
 
@@ -394,7 +394,9 @@ export async function prepare(s: SwapState, i: Intent, signal?: AbortSignal): Pr
       live.textContent = '';
       body.append(live);
       setTimeout(() => { live.textContent = document.title; }, 100);
-      // mount: the new page's code, in the same step (a page with nothing to run has none)
+      // mount: the new page's code, in the same step (a page with nothing to run has none). Whether it is Back or
+      // Forward, for the resources that come back as they were left (cache.ts): the document's own navigation type is its first load's
+      (globalThis as any)[Symbol.for('sinter.traverse')] = i.kind == 'traverse';
       booted = page!.boot?.();
       s.bare = !page!.boot;
     };
@@ -422,7 +424,7 @@ export async function prepare(s: SwapState, i: Intent, signal?: AbortSignal): Pr
     // a page that did not mount is loaded, rather than left unbound
     let app: App | undefined;
     try { app = await booted; } catch { failed = true; }
-    if (failed || (page.boot && !app)) { location.reload(); return; }
+    if (failed || (page.boot && !app)) { if (i.kind == 'traverse') back(); location.reload(); return; }
     document.dispatchEvent(new CustomEvent('sn-page', { detail: { from: i.from, to: final.href, kind: i.kind } }));
     // the next page has taken over the streams it declares (its sse feature, in a microtask of the mount), and
     // what `sn-page` listens to is listening: the rest closes, the events held meanwhile are replayed

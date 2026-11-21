@@ -12,7 +12,7 @@ import sinter from '../../src/vite.js';
 import { chromium } from '../browser.js';
 
 const src = resolve(__dirname, '../../src');
-const alias = [{ find: /^@tiaforge-ui\/sinter\/(.+)$/, replacement: `${src}/$1.ts` }, { find: /^@tiaforge-ui\/sinter$/, replacement: `${src}/index.ts` }];
+const alias = [{ find: /^@tiaforge-ui\/sinter\/runtime$/, replacement: `${src}/runtime-entry.ts` }, { find: /^@tiaforge-ui\/sinter\/(?:runtime\/)?(.+)$/, replacement: `${src}/$1.ts` }, { find: /^@tiaforge-ui\/sinter$/, replacement: `${src}/index.ts` }];
 const root = mkdtempSync(join(tmpdir(), 'sinter-page-urls-'));
 const out = join(root, 'dist');
 afterAll(() => rmSync(root, { recursive: true, force: true }));
@@ -185,10 +185,13 @@ test.skipIf(!chromium)('in the browser: the old URL arrives at the new one, and 
   }
 }, 60_000);
 
-test('a link built at run time that names a moved page by its file: the build says so', async () => {
+test.each([
+  ['an expression', 'data-sn-attr="{ href: \'/item.html?n=\' + n }"'],
+  ['a link\'s URL template', 'data-sn-href="/item.html?n={n}"'],
+])('a link built at run time that names a moved page by its file (%s): the build says so', async (_, link) => {
   const dir = mkdtempSync(join(tmpdir(), 'sinter-page-urls-warn-'));
   try {
-    writeFileSync(join(dir, 'list.html'), page('List', '<div data-sn-state="{ n: 1 }"><a data-sn-attr="{ href: \'/item.html?n=\' + n }">item</a><button data-sn-on-click="n++">+</button></div>'));
+    writeFileSync(join(dir, 'list.html'), page('List', `<div data-sn-state="{ n: 1 }"><a ${link}>item</a><button data-sn-on-click="n++">+</button></div>`));
     writeFileSync(join(dir, 'item.html'), page('Item', '<p>item</p>'));
     const logs: string[] = [];
     const log = (m: string) => { logs.push(m); };

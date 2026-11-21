@@ -1,17 +1,15 @@
-<conduit-layout data-sn-path="/ /tag/:tag"
-  data-sn-state="{ nav: 'home' }"
-  data-sn-prop="{ nav, title: 'Home', description: 'Conduit, a place to share your knowledge: the global feed, your feed and popular tags.' }">
+<conduit-layout data-sn-path="/ /tag/:tag" data-sn-signed-in="$url.feed == 'following'"
+  data-sn-with="{ nav: 'home', title: 'Home', description: 'Conduit, a place to share your knowledge: the global feed, your feed and popular tags.' }">
 
-<!-- the page lives in the URL (page-model): ?page=3 loads the third page (offset 20); the pager's links navigate -->
+<!-- the page lives in the URL (`model` in paginate): ?page=3 loads the third page (offset 20); the pager's links navigate -->
 <sn-resource cache name="articles" when="$url.feed != 'following'"
-  src="/articles?tag={$url.tag}" paginate="offset" page-size="10" size-param="limit" offset-param="offset" page-model="$url.page"></sn-resource>
-<sn-resource cache name="feed" when="$url.feed == 'following' && user"
-  src="/articles/feed" paginate="offset" page-size="10" size-param="limit" offset-param="offset" page-model="$url.page"></sn-resource>
+  src="/articles?tag={$url.tag}" paginate="{ numbered: 'offset', size: 10, model: $url.page }"></sn-resource>
+<sn-resource cache name="feed" when="$url.feed == 'following'"
+  src="/articles/feed" paginate="{ numbered: 'offset', size: 10, model: $url.page }"></sn-resource>
 <sn-resource cache name="tags" src="/tags"></sn-resource>
-<template data-sn-if="$url.feed == 'following' && $meta.user.loadedAt && !user && !$meta.user.error"><conduit-redirect to="/login"></conduit-redirect></template>
 
 <main class="home-page">
-  <template data-sn-if="$meta.user.loadedAt ? !user : signedOut()">
+  <template data-sn-if="$meta.user.loadedAt && !user">
     <div class="banner"><div class="container"><h1 class="logo-font">conduit</h1><p>A place to share your knowledge.</p></div></div>
   </template>
   <div class="container page">
@@ -24,7 +22,7 @@
             </template>
             <li class="nav-item"><a class="nav-link" href="/" data-sn-class="{active: $url.feed != 'following' && !$url.tag}">Global Feed</a></li>
             <template data-sn-if="$url.tag">
-              <li class="nav-item"><a class="nav-link active" data-sn-attr="{href: '/tag/' + encodeURIComponent($url.tag)}"><i class="ion-pound"></i> <span data-sn-text="$url.tag"></span></a></li>
+              <li class="nav-item"><a class="nav-link active" data-sn-href="/tag/{$url.tag}"><i class="ion-pound"></i> <span data-sn-text="$url.tag"></span></a></li>
             </template>
           </ul>
         </div>
@@ -35,25 +33,25 @@
         <template data-sn-if="meta.loading && !list.length">
           <div class="article-preview">Loading articles...</div>
         </template>
-        <template data-sn-for="a in list" data-sn-key="a.slug">
-          <article-preview data-sn-prop="{ article: a }"></article-preview>
+        <template data-sn-for="a in list">
+          <article-preview data-sn-with="{ article: a }"></article-preview>
         </template>
-        <template data-sn-if="!meta.loading && meta.loadedAt && !list.length">
+        <template data-sn-else>
           <template data-sn-if="$url.feed == 'following'">
             <div class="article-preview empty-feed-message">Your feed is empty. Follow some authors or check the <a href="/">Global Feed</a>.</div>
           </template>
           <template data-sn-else><div class="article-preview empty-feed-message">No articles are here... yet.</div></template>
         </template>
-        <template data-sn-if="meta.pages > 1"><conduit-pager data-sn-prop="{ meta, query: $url.feed ? 'feed=' + encodeURIComponent($url.feed) + '&' : '' }"></conduit-pager></template>
+        <template data-sn-if="meta.pages > 1"><conduit-pager data-sn-with="{ meta, feed: $url.feed }"></conduit-pager></template>
       </div>
       <div class="col-md-3">
         <div class="sidebar">
           <p>Popular Tags</p>
-          <template data-sn-if="$meta.tags.loading && !tags?.length"><div>Loading tags...</div></template>
+          <template data-sn-if="$meta.tags.loading && !tags.length"><div>Loading tags...</div></template>
           <template data-sn-if="$meta.tags.error"><div class="error-messages">Could not load tags.</div></template>
           <div class="tag-list">
-            <template data-sn-for="t in tags ?? []" data-sn-key="t">
-              <a class="tag-pill tag-default" data-sn-attr="{href: '/tag/' + encodeURIComponent(t)}" data-sn-text="t"></a>
+            <template data-sn-for="t in tags">
+              <a class="tag-pill tag-default" data-sn-href="/tag/{t}" data-sn-text="t"></a>
             </template>
           </div>
         </div>

@@ -1,5 +1,5 @@
-<two-layout data-sn-prop="{ title: info ? 'B: ' + info.name : 'B', description: info?.about ?? '', kind: 'b' }">
-  <sn-resource name="info" src="/api/b.json" items="info"></sn-resource>
+<two-layout data-sn-with="{ title: info ? 'B: ' + info.name : 'B', description: info?.about ?? '', kind: 'b' }">
+  <sn-resource name="info" src="/api/b.json" select="info"></sn-resource>
   <sn-resource name="items" src="/api/items.json" key="id"></sn-resource>
   <!-- the page's own head: a stylesheet only this page has, and a meta that renders once the data is there -->
   <link slot="head" rel="stylesheet" href="./b.css">

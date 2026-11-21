@@ -106,7 +106,7 @@ test('minified random templates: a state change renders what a fresh render rend
     const tpl = `<template data-sn-for="x in d">${r() < 0.5 ? `<template data-sn-if="x.on || true">${body}</template>` : body}</template>`;
     const a = data(r, 3), b = data(r, 3);
     const page = (init: unknown, writes: boolean) => `<div data-sn-state="{ d: ${lit(init)} }">${writes ? `<button id="w" data-sn-on-click="d = ${lit(b)}">w</button>` : ''}\n  <div id="o">\n    ${tpl}\n  </div>\n</div>`;
-    const opts = { minify: true, css, strict: false } as const;
+    const opts = { minifyHtml: true, css, strict: false } as const;
     try {
       const updated = await render(page(a, true), opts);
       (updated.root.querySelector('#w') as HTMLButtonElement).click();
@@ -139,9 +139,14 @@ test('a row minified: its bound text lands where it is written, across renders',
     </template>
   </ul>
 </div>`;
-  const { root, settle } = await render(html, { minify: true });
+  const { root, settle } = await render(html, { minifyHtml: true });
   expect(root.querySelector('ul')!.innerHTML.replace(/<!--[^>]*-->/g, '')).toBe('\n<li><b>label</b>\n<span>T</span></li>');
   (root.querySelector('#w') as HTMLButtonElement).click();
   await settle();
   expect([...root.querySelectorAll('li span')].map((s) => s.textContent)).toEqual(['U', 'V']);
+});
+
+test('render() spells its options as sinter() does: the old names fail naming the new', async () => {
+  await expect(render('<p></p>', { minify: true } as never)).rejects.toThrow('render({ minify }) is renamed to `minifyHtml`');
+  await expect(render('<p></p>', { remoteImages: {} } as never)).rejects.toThrow('render({ remoteImages }) is renamed to `images: { remote }`');
 });

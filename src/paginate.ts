@@ -1,4 +1,4 @@
-// Pagination: keyset, offset and append modes, driven by page() calls. With `page-model` (offset
+// Pagination: keyset, offset and append modes, driven by page() calls. With `model` (paginate) (offset
 // lists), the URL is the single source: page() writes the parameter and the pager follows it.
 import type { Paginate } from './ir.js';
 import type { App, Feature, Pager, ResourceLoader } from './runtime/app.js';
@@ -21,20 +21,20 @@ export { firstParams } from './runtime/pages.js';
 class PagerImpl implements Pager {
   private move: Move;
   private readonly cfg: Paginate;
-  /** `page-model`: the page of the last request, and whether the last load failed */
+  /** `model` (paginate): the page of the last request, and whether the last load failed */
   private requested = 1;
   private failed = false;
 
   constructor(private readonly loader: ResourceLoader) {
     this.cfg = loader.def.paginate!;
-    this.move = { dir: this.cfg.mode === 'offset' ? 'page' : 'first', page: 1, params: firstParams(this.cfg), from: null, to: null };
+    this.move = { dir: this.cfg.mode === 'numbered' ? 'page' : 'first', page: 1, params: firstParams(this.cfg), from: null, to: null };
     const m = loader.res.meta;
-    if (this.cfg.mode === 'offset' || this.cfg.offsetParam) m.page = 1;
+    if (this.cfg.mode === 'numbered' || this.cfg.skipParam) m.page = 1;
     Object.assign(m, { pages: null, from: null, to: null, hasPrev: false, hasNext: false });
     if (this.cfg.model) loader.settled.push((ok) => { this.failed = !ok; });
   }
 
-  /** `page-model`: the page the parameter names (`?page=abc` is page 1) */
+  /** `model` (paginate): the page the parameter names (`?page=abc` is page 1) */
   private param(): number {
     return toPage(this.loader.app.page.$url[this.cfg.model!]);
   }
@@ -43,14 +43,14 @@ class PagerImpl implements Pager {
     return { dir: 'page', page: n, params: pageParams(this.cfg, n), from: null, to: null };
   }
 
-  /** `page-model`: the parameter set to page `n` (page 1 deletes it); `kind` the history entry (location.ts) */
+  /** `model` (paginate): the parameter set to page `n` (page 1 deletes it); `kind` the history entry (location.ts) */
   private write(n: number, kind: number): void {
     this.loader.app.ext.location!.set(this.cfg.model!, n > 1 ? '' + n : null, kind);
   }
 
   reset(why = 2): void {
     if (!this.cfg.model) {
-      this.move = this.cfg.mode === 'offset' ? this.at(1) : { dir: 'first', page: 1, params: firstParams(this.cfg), from: null, to: null };
+      this.move = this.cfg.mode === 'numbered' ? this.at(1) : { dir: 'first', page: 1, params: firstParams(this.cfg), from: null, to: null };
       return;
     }
     // the first URL after mount restores the URL's page, Back and Forward load it; any other change of
@@ -67,10 +67,10 @@ class PagerImpl implements Pager {
   }
 
   current(): unknown {
-    // `page-model`: every request (a refetch, a retry) is the page the URL names
+    // `model` (paginate): every request (a reload, a retry) is the page the URL names
     if (this.cfg.model) return this.at(this.param());
     if (this.cfg.mode === 'append' && this.move.dir !== 'first') {
-      // refetch reloads everything loaded so far in one request
+      // reload reloads everything loaded so far in one request
       const n = Math.max(this.cfg.size, this.loader.res.all().length);
       return { dir: 'all', page: 1, params: base(this.cfg, 'first', n), from: null, to: null } satisfies Move;
     }
@@ -89,10 +89,10 @@ class PagerImpl implements Pager {
   go(target: string | number): void {
     // a computed target: a direction, or a page number where the resource can jump; else the error path, no request
     const why = typeof target == 'number'
-      ? this.cfg.mode != 'offset' && !this.cfg.offsetParam && 'keyset pagination cannot jump to a page number; add offset-param'
+      ? this.cfg.mode != 'numbered' && !this.cfg.skipParam && 'keyset pagination cannot jump to a page number; add `jump: true` to paginate'
       : !['first', 'prev', 'next', 'last'].includes(target) && 'not a direction';
     if (why) {
-      const l = this.loader, e = new SinterError(null, target, `page('${l.def.name}', ${JSON.stringify(target)}): ${why}`);
+      const l = this.loader, e = new SinterError(null, target, `page(${l.def.name}, ${JSON.stringify(target)}): ${why}`);
       l.app.warn(e.message);
       return l.failed(e);
     }
@@ -113,7 +113,7 @@ class PagerImpl implements Pager {
     };
     let move: Move;
     const from = meta.from ?? null, to = meta.to ?? null;
-    if (this.cfg.mode === 'offset') {
+    if (this.cfg.mode === 'numbered') {
       const page = meta.page ?? 1;
       let n: number;
       if (typeof target === 'number') n = target;
@@ -144,7 +144,7 @@ class PagerImpl implements Pager {
   }
 
   /**
-   * `page-model`: page() loads nothing; it writes the page it moves to (a push) and the pager follows.
+   * `model` (paginate): page() loads nothing; it writes the page it moves to (a push) and the pager follows.
    * `prev`/`next` count from the page last requested (after a failure, the page shown); past the ends,
    * and `next` while a page loads with no total known, they do nothing.
    */
@@ -168,13 +168,14 @@ class PagerImpl implements Pager {
     this.write(n, 4);
   }
 
-  received(items: unknown[], total: number | null, mv: unknown): void {
+  received(items: unknown[], total: number | null, mv: unknown, more: boolean | null): void {
     const move = mv as Move;
     if (move.dir !== 'all') this.move = move;
     const meta = this.loader.res.meta;
     const n = items.length;
     const size = this.cfg.size;
-    const full = n >= size;
+    // more items in the direction asked for: what the server says (`more`), else a guess from a full page
+    const full = more ?? n >= size;
     const pages = total != null ? Math.max(1, Math.ceil(total / size)) : null;
     let from: number | null = null, to: number | null = null, hasPrev = false, hasNext = false;
     switch (move.dir) {
@@ -182,14 +183,14 @@ class PagerImpl implements Pager {
         from = n ? (move.page - 1) * size + 1 : 0;
         to = n ? from + n - 1 : 0;
         hasPrev = move.page > 1;
-        hasNext = pages != null ? move.page < pages : full;
+        hasNext = more ?? (pages != null ? move.page < pages : full);
         meta.page = move.page;
         break;
       case 'first':
         from = n ? 1 : 0; to = n; hasPrev = false; hasNext = full;
         break;
       case 'all':
-        from = n ? 1 : 0; to = n; hasPrev = false; hasNext = meta.hasNext ?? full;
+        from = n ? 1 : 0; to = n; hasPrev = false; hasNext = more ?? meta.hasNext ?? full;
         break;
       case 'next':
         if (this.cfg.mode === 'append') {
@@ -207,7 +208,7 @@ class PagerImpl implements Pager {
         if (!full) { from = n ? 1 : 0; to = n; hasPrev = false; break; }
         to = move.from != null ? move.from - 1 : null;
         from = to != null ? to - n + 1 : null;
-        hasPrev = from == null || from > 1;
+        hasPrev = more ?? (from == null || from > 1);
         break;
       case 'last':
         hasNext = false;
@@ -216,7 +217,7 @@ class PagerImpl implements Pager {
         break;
     }
     // keyset with jumps: the page that holds the last item shown (after `last`, the last page)
-    if (this.cfg.offsetParam && move.dir !== 'page') meta.page = to != null ? Math.max(1, Math.ceil(to / size)) : null;
+    if (this.cfg.skipParam && move.dir !== 'page') meta.page = to != null ? Math.max(1, Math.ceil(to / size)) : null;
     Object.assign(meta, { pages, from, to, hasPrev, hasNext });
     this.loader.res.onDirty('meta');
   }

@@ -96,13 +96,13 @@ internal sealed class SinterMiddleware(RequestDelegate next, SinterEngine engine
         using var deadline = new CancellationTokenSource(o.Timeout);
         using var both = CancellationTokenSource.CreateLinkedTokenSource(cts.Token, deadline.Token);
         var started = TimeProvider.System.GetTimestamp();
-        var slots = page.Slots;
-        var requests = new SlotRequest[slots.Length];
-        var fills = new Task<Fill>[slots.Length];
-        for (var i = 0; i < slots.Length; i++)
+        var placeholders = page.Placeholders;
+        var requests = new PlaceholderRequest[placeholders.Length];
+        var fills = new Task<Fill>[placeholders.Length];
+        for (var i = 0; i < placeholders.Length; i++)
         {
-            var s = slots[i];
-            requests[i] = new SlotRequest(ctx, page.File, s.Resource, SinterEngine.DescribedUrl(s, p), p, both.Token, s.Headers);
+            var s = placeholders[i];
+            requests[i] = new PlaceholderRequest(ctx, page.File, s.Resource, SinterEngine.DescribedUrl(s, p), p, both.Token, s.Headers);
             fills[i] = engine.FillAsync(requests[i]);
         }
         try
@@ -119,7 +119,7 @@ internal sealed class SinterMiddleware(RequestDelegate next, SinterEngine engine
                 var fill = fills[i];
                 var r = requests[i];
                 if (fill.IsCompleted) await r.DisposeAsync().ConfigureAwait(false);
-                else _ = fill.ContinueWith(static (_, x) => ((SlotRequest)x!).DisposeAsync(), r, CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+                else _ = fill.ContinueWith(static (_, x) => ((PlaceholderRequest)x!).DisposeAsync(), r, CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
             }
         }
     }

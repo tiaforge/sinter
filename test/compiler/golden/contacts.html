@@ -2,15 +2,16 @@
 <html>
 <head><title>Contacts</title></head>
 <body>
-<sn-resource name="contacts" src="/api/contacts" items="contacts"
+<sn-resource name="contacts" src="/api/contacts" select="contacts"
              key="account_id,uid,addressbook_href" order="fn_name"></sn-resource>
-<sn-resource name="addressbooks" src="/api/contacts" items="addressbooks"
+<sn-resource name="addressbooks" src="/api/contacts" select="addressbooks"
              key="account_id,href"></sn-resource>
 
 <sn-sync src="/api/events/stream">
-  <sn-event name="contact_updated"  resource="contacts" op="upsert" item="contact" fallback="refetch"></sn-event>
+  <sn-event name="contact_updated"  resource="contacts" op="upsert" value="$event.contact" when="$event.contact"></sn-event>
+  <sn-event name="contact_updated"  resource="contacts" op="refresh" when="!$event.contact"></sn-event>
   <sn-event name="contact_removed"  resource="contacts" op="remove"></sn-event>
-  <sn-event name="contacts_refetch" resource="contacts" op="refetch"></sn-event>
+  <sn-event name="contacts_refetch" resource="contacts" op="refresh"></sn-event>
 </sn-sync>
 
 <section data-sn-state="{ q: '', draft: null }">
@@ -37,7 +38,7 @@
   </ul>
   <dialog id="edit">
     <form data-sn-post="/api/contact" data-sn-body="draft"
-          data-sn-then="upsert('contacts', $result); draft = null; close()"
+          data-sn-then="upsert(contacts, $result); draft = null; closeDialog()"
           data-sn-catch="emit('toast', $error.message)">
       <input data-sn-model="draft.fn_name" required>
       <input data-sn-model="draft.org">

@@ -38,7 +38,7 @@ here were built with partials, before components; the pages' markup did not chan
 
 ## How it works
 
-The middleware fetches the page's API data and writes the JSON into the page's `data-sn-data`
+The middleware fetches the page's API data and writes the JSON into the page's `data-sn-resource`
 placeholders. The head script renders the bindings over it, rows included, as the parser goes, and the
 page module adopts those rows ([first paint](first-paint.md)). The middleware has no DOM
 and no renderer: it does a fetch and a string replacement.
@@ -49,7 +49,7 @@ stylesheets and scripts load while the API answers.
 
 ## Method
 
-- **Apps.** sinter: `examples/realworld` with `data-sn-data` placeholders for `articles` and `tags`
+- **Apps.** sinter: `examples/realworld` with `data-sn-resource` placeholders for `articles` and `tags`
   (home) and `article` and `comments` (article). Qwik: Qwik City 1.20, written for this comparison after
   `joma1021/realworld-qwik` (same markup and CSS, `useResource$` rendered on the server, cookie auth), in
   `bench/first-paint/qwik`. Running the reference app itself was not possible in the measuring environment.
@@ -172,7 +172,7 @@ sit in the `<head>` (the runtime ignores them anywhere else).
 
 ### With `sinter({ embed: true })` and native pagination
 
-RealWorld's lists use native pagination (`page-model="$url.page"`, `start-page` when this was measured), and the build places the
+RealWorld's lists use native pagination (`model: $url.page`, `start-page` when this was measured), and the build places the
 placeholders itself. The example server needs one resolver, for the profile list's ternary. Slow 4G,
 cold, median of 9:
 

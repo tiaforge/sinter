@@ -2,14 +2,14 @@
      search, the filter (kept across page loads by data-sn-persist) and the new task's draft.
      N opens the new-task dialog. -->
 <app-layout data-sn-state="{ q: '', show: 'all', draft: { title: '' } }"
-            data-sn-on-keydown-n="showModal('new-task')">
+            data-sn-on-keydown-n="openDialog('new-task')">
 
   <!-- The data: loaded once, kept sorted, shown at once on the next page load (`cache`), then revalidated. -->
   <sn-resource name="tasks" src="/api/tasks" key="id" order="-createdAt" type="Task[]" cache></sn-resource>
 
   <!-- Live updates: what another tab (or user) changes arrives as server events. -->
   <sn-sync src="/api/events">
-    <sn-event name="task_updated" resource="tasks" op="upsert" item="task" type="TaskEvent"></sn-event>
+    <sn-event name="task_updated" resource="tasks" op="upsert" value="$event.task" type="TaskEvent"></sn-event>
     <sn-event name="task_removed" resource="tasks" op="remove" type="TaskRemoved"></sn-event>
   </sn-sync>
 
@@ -22,7 +22,7 @@
   <div data-layout="split" data-gap="lg" style="--tm-split: 9rem">
     <!-- A component with a script: the tasks in through props, the filter back out through its event. -->
     <aside>
-      <task-chart data-sn-prop="{ tasks, show }" data-sn-on-pick="show = $event.detail"></task-chart>
+      <task-chart data-sn-with="{ tasks, show }" data-sn-on-pick="show = $event.detail"></task-chart>
     </aside>
 
     <section data-layout="stack" data-gap="md" data-sn-let="{ shown: visible(tasks, q, show) }">
@@ -37,19 +37,18 @@
 
       <!-- A busy line: temper gives it a spinner and shows it only after --tm-busy-delay (200ms). -->
       <p data-sn-show="$meta.tasks.loading && !tasks.length" aria-busy="true">Loading…</p>
-      <p data-muted data-sn-show="$meta.tasks.loadedAt && !shown.length">No tasks here.</p>
 
-      <ul data-list data-sn-show="shown.length">
+      <ul data-list>
         <template data-sn-for="t in shown">
           <li data-layout="row" data-gap="sm" data-wrap="none">
             <!-- Optimistic: ticks at once, rolls back if the server refuses. -->
             <input type="checkbox" aria-label="Done"
                    data-sn-patch="/api/tasks/{t.id}" data-sn-body="{ done: !t.done }"
-                   data-sn-optimistic="patch(t, { done: !t.done })"
+                   data-sn-optimistic="merge(t, { done: !t.done })"
                    data-sn-attr="{ checked: t.done }">
             <!-- The title morphs into the heading of the task's page (view transition). -->
             <div data-grow data-layout="stack" data-gap="none">
-              <a data-truncate data-sn-attr="{ href: '/task/?id=' + t.id }"
+              <a data-truncate data-sn-href="/task/?id={t.id}"
                  data-sn-transition="'task-' + t.id" data-sn-text="t.title"></a>
               <small data-muted data-sn-text="relative(t.createdAt)"></small>
             </div>
@@ -57,13 +56,15 @@
                     data-sn-delete="/api/tasks/{t.id}" data-sn-optimistic="remove(t)"></button>
           </li>
         </template>
+        <!-- The empty state: shown once the tasks have loaded and none is shown (not while they load). -->
+        <template data-sn-else><li data-muted>No tasks here.</li></template>
       </ul>
     </section>
   </div>
 
   <dialog id="new-task" closedby="any">
     <form data-layout="stack" data-gap="md" data-sn-post="/api/tasks" data-sn-body="draft"
-          data-sn-then="upsert('tasks', $result); draft = { title: '' }; close()">
+          data-sn-then="upsert(tasks, $result); draft = { title: '' }; closeDialog()">
       <header>
         <h2>New task</h2>
         <button type="button" commandfor="new-task" command="close" aria-label="Close"></button>

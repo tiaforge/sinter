@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 // Reactivity under random handlers (CONTRIBUTING.md, Fuzz tests). Random handlers over a page with lets over
 // helpers mix writes in place and reassigned, store functions, refresh(), page() and an each resource, keyed rows
-// moved, rows keyed by index that a reorder gives other items and their own handlers, emit() with listeners that
+// moved, rows keyed by index that a reorder gives other items and their own handlers, rows of strings with duplicates
+// and no key (value and occurrence) with state and handlers of their own, emit() with listeners that
 // write and that read, a synchronous click on another element (a nested handler, read around), an island whose
 // prop setter fires an event in the middle of a flush, `<sn-sync>` upserts, refetches and a dropped stream, an
 // optimistic action, actions whose then and catch read lets, a component's own let and a persisted scope, a plain
@@ -79,13 +80,15 @@ const OPS = [
   'cw = structuredClone(W); cw.a = cw.a + 1; cw.q.w = cw.q.w + 5', 'cp = structuredClone(P); cp.v = cp.v * 2',
   'a = a + 1', 'a = 7', 'xs.push(3)', 'xs = [...xs, 4]', 'xs.length && (xs[0] = xs[0] + 2)', 'xs.length > 1 && xs.pop()',
   'o.items.push(1)', 'o = { items: [...o.items, 2] }',
-  'todos.length && patch(todos[0], { n: todos[0].n + 3 })', 'todos.length > 1 && remove(todos[todos.length - 1])', "upsert('todos', { id: 9, n: 90 })",
-  "refresh('todos')", "emit('bump')", "emit('peek')", "$el.parentElement.querySelector('#x').click()", 'go = go + 1',
+  'todos.length && merge(todos[0], { n: todos[0].n + 3 })', 'todos.length > 1 && remove(todos[todos.length - 1])', "upsert(todos, { id: 9, n: 90 })",
+  "refresh(todos)", "emit('bump')", "emit('peek')", "$el.parentElement.querySelector('#x').click()", 'go = go + 1',
   // keyed rows moved, and moved then written through
   'ks = [...ks].reverse()', 'ks.length > 1 && (ks = [ks[ks.length - 1], ...ks.slice(0, -1)])', 'ks = [...ks].reverse(); ks[0].n = ks[0].n + 1',
-  "page('pg', 2)", "page('pg', 1)", "refresh('ev')",
+  "page(pg, 2)", "page(pg, 1)", "refresh(ev)",
   'q.w = q.w + 1', 'q = { w: q.w, h: q.h }', 'q = { ...q, h: q.h + 1 }',
   'ys = [...ys].reverse()', 'ys.length > 1 && ys.shift()', 'ys.push({ n: ys.length + 5 })',
+  // strings with duplicates and no key (value and occurrence): reordered, an equal value inserted and removed
+  'gs = [...gs].reverse()', "gs.splice(1, 0, 'a')", "gs.includes('a') && gs.splice(gs.indexOf('a'), 1)", "gs.unshift('b')", "gs = gs.filter((g) => g != 'b')",
   "$locale = 'de'", "$locale = 'en'",
   // a nested handler (a synchronous click), then a read, a write and a read again in the outer one
   'NEST',
@@ -134,19 +137,19 @@ function page(r: () => number) {
   const rowOps: string[] = [];
   for (let i = 0, n = 2 + Math.floor(r() * (2 * DEPTH + 1)); i < n; i++) rowOps.push(r() < 0.45 ? `r${reads++} = ${pick(ROW_READS)}` : pick(ROW_OPS));
   const rowHandler = rowOps.join('; ');
-  const state = `{ a: 1, xs: [1, 2], o: { items: [1] }, ks: [{ id: 1, n: 1 }, { id: 2, n: 2 }, { id: 3, n: 3 }], go: 0, pk: null, th: null, ct: null, q: { w: 2, h: 3 }, ys: [{ n: 1 }, { n: 2 }, { n: 3 }], sel: null, box: null, arr: [], h: null, u: null, k2: 0, cw: null, cp: null, ${Array.from({ length: reads }, (_, i) => `r${i}: null`).join(', ')} }`;
+  const state = `{ a: 1, xs: [1, 2], o: { items: [1] }, ks: [{ id: 1, n: 1 }, { id: 2, n: 2 }, { id: 3, n: 3 }], go: 0, pk: null, th: null, ct: null, q: { w: 2, h: 3 }, ys: [{ n: 1 }, { n: 2 }, { n: 3 }], gs: ['a', 'b', 'a'], sel: null, box: null, arr: [], h: null, u: null, k2: 0, cw: null, cp: null, ${Array.from({ length: reads }, (_, i) => `r${i}: null`).join(', ')} }`;
   const html = `<sn-resource name="todos" src="/api/todos" key="id"></sn-resource>
-<sn-resource name="pg" src="/api/pg" items="items" total="total" key="id" paginate="offset" page-size="2"></sn-resource>
-<sn-resource name="ev" each="t in todos" src="/api/ev?id={t.id}" key="id"></sn-resource>
-<sn-sync src="/s"><sn-event name="upd" resource="todos" op="upsert"></sn-event><sn-event name="re" resource="todos" op="refetch"></sn-event></sn-sync>
+<sn-resource name="pg" src="/api/pg" select="items" total="total" key="id" paginate="{ numbered: true, size: 2 }"></sn-resource>
+<sn-resource name="ev" for="t in todos" src="/api/ev?id={t.id}" key="id"></sn-resource>
+<sn-sync src="/s"><sn-event name="upd" resource="todos" op="upsert"></sn-event><sn-event name="re" resource="todos" op="refresh"></sn-event></sn-sync>
 <main data-sn-state="${state}" data-sn-let="{ ${lets} }" data-sn-on-bump="a = a + 10" data-sn-on-peek="pk = T + P.v" data-sn-on-ping="xs.length && (xs[0] = xs[0] + 5)">
-  <${ISLAND} data-sn-prop="{ n: go }"></${ISLAND}>
+  <${ISLAND} data-sn-with="{ n: go }"></${ISLAND}>
   <p class="v" data-sn-text="[T, P.v, N, TT, TS].join(' ')"></p>
   <p class="f" data-sn-text="W.q.w + ' ' + W.a + ' ' + YS + ' ' + L + ' ' + BG + ' ' + (cw ? cw.a + cw.q.w : '-') + ' ' + (cp ? cp.v : '-')"></p>
   <p class="al"><i data-sn-text="SL"></i> <i data-sn-text="BL"></i> <i data-sn-text="AL"></i> <i data-sn-text="HL"></i> <i data-sn-text="UL"></i> <i data-sn-text="YS"></i></p>
   <ul><template data-sn-for="x in xs"><li data-sn-let="{ R: inc(x) }" data-sn-text="R + T"></li></template></ul>
-  <c-v data-sn-prop="{ v: sum(xs) }"></c-v>
-  <c-l data-sn-prop="{ xs }"></c-l>
+  <c-v data-sn-with="{ v: sum(xs) }"></c-v>
+  <c-l data-sn-with="{ xs }"></c-l>
   <ol><template data-sn-for="k in ks" data-sn-key="k.id"><li class="k" data-sn-let="{ KR: inc(k.n) }" data-sn-text="k.id + ':' + KR + ':' + KS"></li></template></ol>
   <section data-sn-state="{ ps: 1, pr: null }" data-sn-persist="fz" data-sn-let="{ PS: twice(ps) }"><b class="ps" data-sn-text="PS + T"></b><button id="pp" data-sn-on-click="pr = PS; ps = ps + 1; pr = pr + PS"></button></section>
   <button id="ok" data-sn-post="/api/ok" data-sn-body="{}" data-sn-then="th = T + KS + TS"></button>
@@ -155,15 +158,16 @@ function page(r: () => number) {
   <button id="y" data-sn-on-click="k2 = k2 + 1"></button>
   <button id="unalias" data-sn-on-click="sel = null; box = null; arr = []; h = null; u = null"></button>
   <ol class="ys"><template data-sn-for="(y, i) in ys" data-sn-key="i"><li class="y" data-sn-let="{ YR: pair(y.n, i) }"><span data-sn-text="YR.v + ':' + Q + ':' + L"></span><button class="yb" data-sn-on-click="${rowHandler}"></button></li></template></ol>
-  <template data-sn-for="t in todos" data-sn-key="t.id"><button class="opt" data-sn-patch="/api/t" data-sn-body="{ id: t.id }" data-sn-optimistic="patch(t, { n: 50 })"></button></template>
+  <ol class="gs"><template data-sn-for="(g, i) in gs"><li class="g" data-sn-state="{ c: 0 }" data-sn-let="{ GR: inc(i) }"><span data-sn-text="g + i + ':' + GR + ':' + c + ':' + T"></span><button class="gb" data-sn-on-click="c = c + GR"></button></li></template></ol>
+  <template data-sn-for="t in todos" data-sn-key="t.id"><button class="opt" data-sn-patch="/api/t" data-sn-body="{ id: t.id }" data-sn-optimistic="merge(t, { n: 50 })"></button></template>
   ${handlers.map((h, i) => `<button id="h${i}" data-sn-on-click="${h}"></button>`).join('\n  ')}
 </main>`;
   return { html, handlers: [...handlers, rowHandler] };
 }
 /** the components; `c-l` has a let of its own over a helper */
 const COMPONENTS = {
-  'c-v': '<template data-sn-component="{ v: number }"><b class="cv" data-sn-text="v"></b></template>',
-  'c-l': '<template data-sn-component="{ xs: number[] }"><div data-sn-let="{ C: sum(xs) }"><b class="cl" data-sn-text="C + \':\' + xs.length"></b></div></template>',
+  'c-v': '<template data-sn-props="{ v: number }"><b class="cv" data-sn-text="v"></b></template>',
+  'c-l': '<template data-sn-props="{ xs: number[] }"><div data-sn-let="{ C: sum(xs) }"><b class="cl" data-sn-text="C + \':\' + xs.length"></b></div></template>',
 };
 const PAGES = [{ id: 11, n: 1 }, { id: 12, n: 2 }, { id: 13, n: 3 }, { id: 14, n: 4 }, { id: 15, n: 5 }];
 /** the mocked API */
@@ -185,7 +189,7 @@ function memoryStorage(): Storage {
 function seen(v: Awaited<ReturnType<typeof render>>, storage: Storage) {
   const main = v.root.querySelector('main')!, sec = main.querySelector('section')!;
   const text = (sel: string) => [...main.querySelectorAll(sel)].map((x) => x.textContent).join(',');
-  return `${text('p.v')} | ${text('p.f')} | ${text('p.al')} | ${text('ul li')} | ${text('li.y span')} | ${text('li.k')} | ${text('b.cv')} | ${text('b.cl')} | ${text('b.ps')} | ${JSON.stringify(v.state(main).get())} | ${JSON.stringify(v.state(sec).get())} | ${storage.getItem('sn:fz')}`;
+  return `${text('p.v')} | ${text('p.f')} | ${text('p.al')} | ${text('ul li')} | ${text('li.y span')} | ${text('li.g span')} | ${text('li.k')} | ${text('b.cv')} | ${text('b.cl')} | ${text('b.ps')} | ${JSON.stringify(v.state(main).get())} | ${JSON.stringify(v.state(sec).get())} | ${storage.getItem('sn:fz')}`;
 }
 
 const SEEDS = Number(process.env.SN_FUZZ_SEEDS ?? 150);
@@ -202,7 +206,7 @@ test('random handlers: the page with memoized helpers agrees with the plain one,
       // one script of steps for both pages: which button, whether to flush, whether a server message arrives
       const sr = rng(seed * 7919);
       // b: a handler (0-2), the optimistic action (3), the action that succeeds (4) or fails (5), the persisted scope's (6),
-      // a row's own handler (7, the row `row`); msg: an upsert (0-2), a refetch (3), the stream dropped and reconnected (4)
+      // a row's own handler (7, the row `row`), a row of strings' own (9, the row `row`); msg: an upsert (0-2), a refetch (3), the stream dropped and reconnected (4)
       const steps = Array.from({ length: 3 + Math.floor(sr() * (3 * DEPTH + 1)) }, () => ({ b: Math.floor(sr() * 10), row: Math.floor(sr() * 3), flush: sr() < 0.6, msg: sr() < 0.3 ? Math.floor(sr() * 5) : -1 }));
       const early = seed % 3 === 0;
       const stale: string[] = [];
@@ -231,6 +235,7 @@ test('random handlers: the page with memoized helpers agrees with the plain one,
           if (s.msg === 4) { stream.drop(); await v.settle(); }
           else if (s.msg >= 0 && stream.connected) s.msg === 3 ? stream.emit('re', null) : stream.emit('upd', { id: 1 + s.msg, n: 10 * (s.msg + 1) });
           if (s.b === 7) main.querySelectorAll<HTMLElement>('.yb')[s.row]?.click();
+          else if (s.b === 9) main.querySelectorAll<HTMLElement>('.gb')[s.row]?.click();
           else main.querySelector<HTMLElement>(['#h0', '#h1', '#h2', '.opt', '#ok', '#bad', '#pp', '', '#h3', '#h3'][s.b]!)?.click();
           if (s.flush) { await v.settle(); out.push(seen(v, storage)); await fresh(); }
         }

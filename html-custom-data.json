@@ -3,7 +3,7 @@
   "tags": [
     {
       "name": "sn-resource",
-      "description": "a named, page-wide cache of server data; `cache` (or `cache=\"10m\"`) shows the data from the last page load at once, then revalidates. `refresh=\"30s\"` reloads it once that long has passed since its last load, whatever caused that load (server events, `refresh()`, a reconnect), in the background: `$meta.loading` stays false, and paused while the tab is hidden. `early=\"off\"`: never preloaded or requested before the page module (for a resource a request middleware answers itself; one whose request a middleware changes, such as a token, needs nothing: the build and runtime handle it). `then` is a handler run after each successful load (`$result`: what it loaded; the state around the resource in scope). With `sinter({ apis })`, `src` is a path relative to an API (`/articles`, `billing:/invoices`); `method=\"POST\"` with `body` loads with a POST of that value. `src=\"file:./intro.txt\"` (`file:/…` from the root) reads the project at build time (text, JSON, markdown's frontmatter and `body`; a glob: a list with `slug`, `dir`, `path`), a constant (`order`, `drafts`). Loading needs no attributes: concurrent loads of one URL share a request, a `src` change aborts the running one (latest wins), a change typed into a text field waits 250 ms for the next keystroke, a resource only dialogs read is requested with low priority, and a bfcache restore or going back online refetches. `page-model=\"$url.page\"` (offset lists) keeps the page in the URL: read at load, written back by page() (a history entry), followed when the URL changes",
+      "description": "a named, page-wide cache of server data; `cache` (or `cache=\"10m\"`) shows the data from the last page load at once, then revalidates. `early=\"off\"`: never preloaded or requested before the page module (for a resource a request middleware answers itself; a token goes on its API, `apis.<name>.token`). With `sinter({ apis })`, `src` is a path relative to an API (`/articles`, `billing:/invoices`); `method=\"POST\"` with `body` loads with a POST of that value. `src=\"file:./intro.txt\"` (`file:/…` from the root) reads the project at build time (text, JSON, markdown's frontmatter and `body`; a glob: a list with `slug`, `dir`, `path`), a constant (`order`, `drafts`; `fields=\"slug,title\"`: only those fields of each entry ship to the browser, which a `content:` collection that browser code reads needs). Loading needs no attributes: concurrent loads of one URL share a request, a `src` change aborts the running one (latest wins), a change typed into a text field waits 250 ms for the next keystroke, a resource only dialogs read is requested with low priority, and a bfcache restore or going back online reloads⟪FULL⟫, and Back or Forward to a page the bfcache lost shows what it showed as it was left (with or without `cache`), then revalidates⟪SHORT⟫⟪END⟫. `paginate=\"{ keyset: { before: $item.id }, size: 20 }\"` loads a page at a time (`append`, `numbered: true`; `model: $url.page` keeps a numbered list's page in the URL; `jump`, `params`, `directions`, `more: 'has_more'` from the server in place of guessing from a full page, also per API)",
       "attributes": [
         {
           "name": "name"
@@ -21,13 +21,13 @@
           "name": "call"
         },
         {
-          "name": "each"
+          "name": "for"
         },
         {
           "name": "key"
         },
         {
-          "name": "items"
+          "name": "select"
         },
         {
           "name": "total"
@@ -40,30 +40,6 @@
         },
         {
           "name": "paginate"
-        },
-        {
-          "name": "page-size"
-        },
-        {
-          "name": "size-param"
-        },
-        {
-          "name": "cursor"
-        },
-        {
-          "name": "direction-param"
-        },
-        {
-          "name": "direction-values"
-        },
-        {
-          "name": "page-param"
-        },
-        {
-          "name": "offset-param"
-        },
-        {
-          "name": "page-model"
         },
         {
           "name": "type"
@@ -82,6 +58,9 @@
         },
         {
           "name": "drafts"
+        },
+        {
+          "name": "fields"
         }
       ]
     },
@@ -96,19 +75,22 @@
     },
     {
       "name": "sn-component",
-      "description": "a component chosen by data at runtime; `use` names it: ``use=\"`${b.type}-block`\"`` (convention), `use=\"{ hero: 'hero-block' }[b.type]\"` (map) or `use=\"blockComponent(b)\"` (helper); it must fit `ComponentName`, every candidate must exist, props are checked per candidate (narrowed for convention and map); a value outside the candidates renders nothing, or the `data-sn-else` template after it",
+      "description": "a component chosen by data at runtime; `use` names it: ``use=\"`${b.type}-block`\"`` (convention), `use=\"{ hero: 'hero-block' }[b.type]\"` (map) or `use=\"blockComponent(b)\"` (helper); it must fit `ComponentName`, every candidate must exist, props are checked per candidate (narrowed for convention and map); a value outside the candidates renders nothing, or the `data-sn-else` template after it; `data-sn-early=\"off\"` leaves it out of the early script",
       "attributes": [
         {
           "name": "use"
         },
         {
-          "name": "data-sn-prop"
+          "name": "data-sn-with"
+        },
+        {
+          "name": "data-sn-early"
         }
       ]
     },
     {
       "name": "sn-event",
-      "description": "maps one server event to a change message; child of <sn-sync>. `then` is a handler run after the change (payload fields and the state around the sync in scope), e.g. close('detail'); with `then`, `resource` and `op` may be left out",
+      "description": "maps one server event to a change message; child of <sn-sync>. `then`: a handler run after the change",
       "attributes": [
         {
           "name": "name"
@@ -120,16 +102,10 @@
           "name": "op"
         },
         {
-          "name": "item"
-        },
-        {
-          "name": "set"
+          "name": "value"
         },
         {
           "name": "when"
-        },
-        {
-          "name": "fallback"
         },
         {
           "name": "then"
@@ -151,11 +127,15 @@
     },
     {
       "name": "data-sn-text",
-      "description": "sets textContent; never HTML. On a <template>: a text node with no element (a run of text beside elements); no other attribute on that template (value expression)"
+      "description": "sets textContent (null and undefined: empty, no `?? ''` needed); never HTML. On a <template>: a text node with no element (a run of text beside elements); no other attribute on that template (value expression)"
     },
     {
       "name": "data-sn-attr",
       "description": "literal keys; null/false removes, true sets empty; URL values are checked; checked, selected, indeterminate and value also set the live property (object literal {href: …})"
+    },
+    {
+      "name": "data-sn-href",
+      "description": "on <a>, <area>: the link; may also start with ? or # (URL template)"
     },
     {
       "name": "data-sn-class",
@@ -178,6 +158,10 @@
       "description": "with sinter({ swap }): kept as is (playing, scrolled) across a link to a page with the name; its bindings go on (name)"
     },
     {
+      "name": "data-sn-signed-in",
+      "description": "on <html> (or a layout's tag): the page needs a session of its API's `token`: with none (and the condition true), to its `signIn` before anything paints, or on a 401. Convenience, not security (empty, or a condition over $url)"
+    },
+    {
       "name": "data-sn-swap",
       "description": "on <html>: links here load it; on a link: it loads its page (off)"
     },
@@ -186,12 +170,12 @@
       "description": "the same thing on two pages: following a link from the element (or its row) to a page with an element of the same name morphs one into the other (view transitions; back too) (value expression (a name))"
     },
     {
-      "name": "data-sn-prop",
+      "name": "data-sn-with",
       "description": "sets JS properties; custom elements only (also one defined later). On a component's tag: its props, live and read-only. On a <slot> declared Slot<T>: the values its fill reads as $slot; on a named <slot> its component does not declare, a tree placement, filled by the nearest enclosing component declaring the name (object literal)"
     },
     {
-      "name": "data-sn-component",
-      "description": "on the <template> of a component file (src/components/<name>.html, or a component library's components/): the props it takes, a TypeScript type literal, { article: Article; compact?: boolean }; a member cell: Slot<{ row: Row }> is a slot that passes data to its fill. Its root renders at most one element: one element, a data-sn-if/data-sn-else chain of them, a component, <sn-component use> or a <slot> (props type)"
+      "name": "data-sn-props",
+      "description": "the props a component or a layout takes, a TypeScript type literal, { article: Article; compact?: boolean }. On the <template> of a component file (src/components/<name>.html, or a component library's components/): a member cell: Slot<{ row: Row }> is a slot that passes data to its fill; its root renders at most one element (one element, a data-sn-if/data-sn-else chain of them, a component, <sn-component use> or a <slot>), or, a head component, any number of head elements (<title>, <meta>, <link>, …), inlined at its use in a head. On the <html> of a layout file (src/layouts/<name>.html): a page that is only the layout's tag fills its slots, in the head and the body. Either leaves it out when it takes no props (props type)"
     },
     {
       "name": "data-sn-early",
@@ -214,48 +198,40 @@
       "description": "in a component's markup: the element its script reads as this.refs.<name>, typed by its tag (name)"
     },
     {
-      "name": "data-sn-layout",
-      "description": "on the <html> of a layout file (src/layouts/<name>.html): the props it takes; a page that is only the layout's tag fills its slots, in the head and the body (props type)"
-    },
-    {
-      "name": "data-sn-head",
-      "description": "on the <template> of a head component (src/components/<name>.html): its props, as data-sn-component; it holds any number of head elements (<title>, <meta>, <link>, …), inlined at its use in a head (props type)"
-    },
-    {
       "name": "data-sn-emits",
-      "description": "on the <template data-sn-component>: the events emit() sends and their detail types, e.g. { select: Article } (events type)"
+      "description": "on the <template data-sn-props>: the events emit() sends and their detail types, e.g. { select: Article } (events type)"
     },
     {
       "name": "data-sn-model",
       "description": "two-way binding for form controls; on $url, the URL follows (a history entry; typing at each pause), and a <select multiple> or a checkbox with a value makes the parameter a list (state path | $url.<param>)"
     },
     {
+      "name": "data-sn-model-debounce",
+      "description": "delays the model's write until typing pauses (no second pause after it); Enter writes at once (duration)"
+    },
+    {
       "name": "data-sn-for",
-      "description": "repeats a <template> per item (item in list | (item, i) in list)"
+      "description": "repeats a <template> per item. On <html>: the page once per entry of a `file:` list, at `data-sn-path` filled from it (item in list | (item, i) in list)"
     },
     {
       "name": "data-sn-key",
-      "description": "row identity; defaults to the resource key or object identity (value expression)"
+      "description": "row identity; inferred: resource key, object identity or value (value expression)"
     },
     {
       "name": "data-sn-if",
-      "description": "renders a <template> while truthy. Same id, same control: when the branch with focus is swapped, the element with its id in the new one takes focus (a toggle's two buttons: <button id=\"follow\" data-sn-delete=…> and <button id=\"follow\" data-sn-post=…>) (value expression)"
+      "description": "renders a <template> while truthy. Same id, same control: when a branch swaps, the element with an id in the new one takes the old one's focus and running action (a toggle: <button id=\"f\" data-sn-delete=…>, <button id=\"f\" data-sn-post=…>) (value expression)"
     },
     {
       "name": "data-sn-else",
-      "description": "on a <template> directly after an if template. Lists, branches and chosen components render between two comments (`<ul><!--sn 4--><li>a</li><!--/sn--></ul>`): CSS sees plain children. Comments that are exactly `<!--sn-->`, `<!--sn 4-->`, `<!--/sn-->` or `<!---->` are reserved (SN105); `$el` in an if, for or use is SN213; keep HTML comments"
+      "description": "on a <template> directly after an if template; with data-sn-if beside it, an else-if (<template data-sn-else data-sn-if=\"q\">). After a for template: the list's empty state, shown while it is empty and its resources have loaded, are not loading and have no error⟪FULL⟫ (a `when` that is falsy has not loaded; a `file:` list is decided at build time; a list of state, while empty); no else-if there (SN102)⟪SHORT⟫⟪END⟫. Lists, branches and chosen components render between two comments (`<ul><!--sn 4--><li>a</li><!--/sn--></ul>`): CSS sees plain children. Comments that are exactly `<!--sn-->`, `<!--sn 4-->`, `<!--/sn-->` or `<!---->` are reserved (SN105); `$el` in an if, for or use is SN213; keep HTML comments"
     },
     {
-      "name": "data-sn-listbox",
-      "description": "on a text input: arrow keys mark a [role=option] of that list (empty: the nearest [role=listbox]), Enter or Tab clicks it, Escape fires `dismiss` (id of the suggestion list, or empty)"
+      "name": "data-sn-options",
+      "description": "arrows mark a [role=option|menuitem] of the list (empty: inside the element, else the nearest listbox or menu), Enter clicks it, Escape fires `sn-dismiss`; focus stays on the element. Text field: a combobox (id of the list, or empty)"
     },
     {
       "name": "data-sn-persist",
       "description": "persists the model or state in localStorage under sn: (storage key)"
-    },
-    {
-      "name": "data-sn-get",
-      "description": "GET action; latest wins (URL template)"
     },
     {
       "name": "data-sn-post",
@@ -287,15 +263,15 @@
     },
     {
       "name": "data-sn-debounce",
-      "description": "delays the trigger, resets on each event; without a method, delays the element's data-sn-on-* handlers (milliseconds)"
+      "description": "delays the action's trigger, resets on each event (duration)"
     },
     {
       "name": "data-sn-concurrency",
-      "description": "mutations only; default block for forms, queue otherwise (block | queue | latest)"
+      "description": "what a trigger does while the action runs; default block for forms, queue otherwise (block | queue | latest)"
     },
     {
       "name": "data-sn-optimistic",
-      "description": "patch/upsert/remove calls applied before the request, kept on success, rolled back on failure (handler expression)"
+      "description": "merge/upsert/remove calls applied before the request, kept on success, rolled back on failure (handler expression)"
     },
     {
       "name": "data-sn-then",
@@ -311,14 +287,14 @@
     },
     {
       "name": "data-sn-encoding",
-      "description": "form: the body (data-sn-body, arrays as repeated keys, or the form) goes as application/x-www-form-urlencoded (json | form)"
+      "description": "the body (data-sn-body, arrays as repeated keys, or the form) goes as application/x-www-form-urlencoded (form)"
     },
     {
       "name": "data-sn-retry",
-      "description": "mutations only: sends the request again as that policy of configure({ retry }) says (after a network error, a 5xx, a 429), with an Idempotency-Key; without it a write is sent once (retry policy name)"
+      "description": "sends the request again (with data-sn-call: each request ctx.request sends) as that policy of configure({ retry }) says (after a network error, a 5xx, a 429), with an Idempotency-Key; without it a write is sent once (retry policy name)"
     },
     {
-      "name": "data-sn-apply",
+      "name": "data-sn-write-through",
       "description": "turns write-through off for this mutation: its response is not applied to the resources it is about (off)"
     },
     {
@@ -326,11 +302,7 @@
       "description": "on <html>: the path shapes this page is served for; `:name` segments appear read-only in $url (URL patterns /a/:b …)"
     },
     {
-      "name": "data-sn-pages",
-      "description": "on <html>: the page once per entry of a `file:` list, at `data-sn-path` filled from it (entry in list)"
-    },
-    {
-      "name": "data-sn-data",
+      "name": "data-sn-resource",
       "description": "on <script type=\"application/json\"> in <head>: initial data for a resource (resource name)"
     },
     {

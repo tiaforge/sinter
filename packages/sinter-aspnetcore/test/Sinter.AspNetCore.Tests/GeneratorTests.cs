@@ -31,7 +31,7 @@ public sealed class ArticleStore
 public static partial class FixtureWeb
 {
     [SinterResolve("articles")]
-    private static ArticleList? Articles(ArticleStore store, SlotRequest req) => req.Param("none") is null ? store.All() : null;
+    private static ArticleList? Articles(ArticleStore store, PlaceholderRequest req) => req.Param("none") is null ? store.All() : null;
 }
 
 [JsonSerializable(typeof(ArticleList))]
@@ -116,7 +116,7 @@ public sealed class GeneratorTests
             [SinterEmbed, SinterSkip("user")]
             public partial class Web
             {
-                [SinterResolve("articles")] static Task<string?> A(SlotRequest r, System.Threading.CancellationToken ct) => Task.FromResult<string?>("[]");
+                [SinterResolve("articles")] static Task<string?> A(PlaceholderRequest r, System.Threading.CancellationToken ct) => Task.FromResult<string?>("[]");
             }
             namespace N { public static partial class Outer { [SinterEmbed, SinterSkip("index.html:user", "articles")] private partial record Inner; } }
             """);

@@ -115,7 +115,7 @@ test('a history call the browser refuses: a warning, $url keeps the value', asyn
 
 describe('models on $url', () => {
   const page = `
-    <sn-resource name="r" src="/api/s?q={$url.q}&sort={$url.sort}" items="items" key="id"></sn-resource>
+    <sn-resource name="r" src="/api/s?q={$url.q}&sort={$url.sort}" select="items" key="id"></sn-resource>
     <input type="search" data-sn-model="$url.q">
     <select data-sn-model="$url.sort"><option value="">-</option><option value="new">new</option></select>
     <button data-sn-on-click="$url.tag = 'go'">tag</button>`;
@@ -200,7 +200,7 @@ describe('models on $url', () => {
 });
 
 test('a component model on $url pushes, even when its change is not from a user event', async () => {
-  const PICK = `<template data-sn-component="{ value: string }" data-sn-emits="{ change: string }"><b data-sn-text="value"></b></template>`;
+  const PICK = `<template data-sn-props="{ value: string }" data-sn-emits="{ change: string }"><b data-sn-text="value"></b></template>`;
   const { root, flush, history } = await render('<x-pick data-sn-model="$url.p"></x-pick>', { components: { 'x-pick': PICK } });
   root.querySelector('b')!.dispatchEvent(new CustomEvent('change', { detail: 'a' }));
   await flush();
@@ -218,7 +218,7 @@ describe('array parameters', () => {
   test('a <select multiple> or a checkbox group: a list, written as repeated keys, absent as []', async () => {
     const requests = mockRequests({ 'GET /api/a': { items: [] } });
     const { root, flush, settle, url, history } = await render(`
-      <sn-resource name="r" src="/api/a?tag={$url.tag}" items="items" key="id"></sn-resource>
+      <sn-resource name="r" src="/api/a?tag={$url.tag}" select="items" key="id"></sn-resource>
       <select multiple data-sn-model="$url.tag"><option>go</option><option>js</option><option>rs</option></select>
       <input type="checkbox" value="go" data-sn-model="$url.tag"><input type="checkbox" value="rs" data-sn-model="$url.tag">
       <p data-sn-text="JSON.stringify($url.tag) + $url.tag.length"></p>

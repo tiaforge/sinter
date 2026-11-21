@@ -9,7 +9,7 @@ sinter (client-side templates over JSON, no build step).
 | --- | --- | --- | --- |
 | `vanilla-html` | HTML fragment | `innerHTML` | `insertAdjacentHTML('beforeend')` |
 | `vanilla-json` | JSON | a `<template>` row cloned per item, `replaceChildren` | `append` |
-| `sinter` | JSON | `<sn-resource>` + keyed `data-sn-for` ([`sinter/index.html`](sinter/index.html)) | `paginate="append"`, `page('rows', 'next')` ([`sinter/append.html`](sinter/append.html)) |
+| `sinter` | JSON | `<sn-resource>` + keyed `data-sn-for` ([`sinter/index.html`](sinter/index.html)) | `paginate="{ append: … }"`, `page('rows', 'next')` ([`sinter/append.html`](sinter/append.html)) |
 | `htmx-2.0.11` | HTML fragment | `hx-swap="innerHTML"` (npm `latest`) | `hx-swap="beforeend"` |
 | `htmx-4.0.1` | HTML fragment | `hx-swap="innerHTML"` (newest release; npm `next`) | `hx-swap="beforeend"` |
 | `htmx-4.0.1-morph` | HTML fragment | `hx-swap="innerMorph"` | – (same as htmx-4.0.1) |

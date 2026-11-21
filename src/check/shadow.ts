@@ -129,9 +129,9 @@ export function shadow(o: ShadowOptions): Shadow {
     line(`import * as $A from '${moduleSpec(o.actions.module)}';`);
   }
   line('const $any = /** @type {any} */ (null);');
-  /** what a resource fed by `call` holds: the awaited result, at its `items` path */
-  const callResult = (c: { name: string; items: string | null }) =>
-    `Awaited<ReturnType<typeof $A.${c.name}>>${(c.items ? c.items.split('.') : []).map((k) => `[${JSON.stringify(k)}]`).join('')}`;
+  /** what a resource fed by `call` holds: the awaited result, at its `select` path */
+  const callResult = (c: { name: string; select: string | null }) =>
+    `Awaited<ReturnType<typeof $A.${c.name}>>${(c.select ? c.select.split('.') : []).map((k) => `[${JSON.stringify(k)}]`).join('')}`;
 
   const types: string[] = [];
   let fileTypes = 0;
@@ -148,7 +148,7 @@ export function shadow(o: ShadowOptions): Shadow {
       continue;
     }
     if (r.item) {
-      // a `data-sn-pages` entry: one item of the list it names
+      // a `<html data-sn-for>` entry: one item of the list it names
       const it = `import('./sinter').Item<typeof ${r.item}>`;
       types[types.length - 1] = `${JSON.stringify(r.name)}: ${it}`;
       line(`/** @type {${it}} */`);
@@ -200,7 +200,7 @@ export function shadow(o: ShadowOptions): Shadow {
     } else line('/** @type {any} */');
     regions.push({ start: out.length + 1, lines: 1, loc: r.nameLoc ?? r.loc, fixed: true });
     line(`const ${r.name} = $any;`);
-    // with `type`, what the action returns (at `items`) must fit it; reported on `type`
+    // with `type`, what the action returns (at `select`) must fit it; reported on `type`
     if (r.call && r.type) {
       // own line: TypeScript drops a JSDoc tag that follows `{` on the same line
       line('{');
@@ -318,32 +318,21 @@ export function shadow(o: ShadowOptions): Shadow {
     line('');
     if (e.returns) tagged('returns', e.returns);
     line(`function $e${i}() {`);
-    // the payload's block is outside the frames: state and lets shadow its fields, as sinter resolves them
+    // the payload's block is outside the frames
     if (e.payload) {
       line('{');
       if (e.payload.type) tagged('type', e.payload.type, ' const $p = $any;');
       else line('const $p = $any;');
-      // a field the payload type lacks is reported at the start of the expression
-      for (const n of e.payload.names) {
-        regions.push({ start: out.length + 1, lines: 1, loc: e.loc, fixed: true });
-        line(`const ${n} = $p.${n};`);
-      }
-      // a state or let name shadows a payload field of the same name: an error when the payload type has it
-      if (e.payload.type) {
-        const shadowing = [...(e.payload.states ?? []).map((n) => [n, 'state', 'the state'] as const), ...(e.payload.lets ?? []).map((n) => [n, '`data-sn-let` name', 'it'] as const)];
-        for (const [n, what, it] of shadowing) {
-          const msg = `${what} \`${n}\` shadows the payload field \`${n}\`: rename ${it}`;
-          regions.push({ start: out.length + 1, lines: 1, loc: e.loc, fixed: true });
-          line(`/** @type {${JSON.stringify(n)} extends keyof typeof $p ? ${JSON.stringify(msg)} : true} */ const $shadows_${n} = true; void $shadows_${n};`);
-        }
-      }
+      // the payload by its name: `$event` in an `<sn-event>`, `$item` in a cursor
+      line(`const ${e.payload.as} = $p;`);
     }
     const blocks = open(e.frames) + (e.payload ? 1 : 0);
     line(`/** @type {${decl(`El<${JSON.stringify(e.tag)}>`)}} */ const $el = $any;`);
     if (e.mode === 'value') {
       // action arguments and bodies are taken when the trigger fires
       // run('id') starts the action without an event: unguarded reads are reported
-      if (e.detail) tagged('type', { ...e.detail, text: `CustomEvent<${e.detail.kind === 'ts' ? e.detail.text : 'any'}>` } as TypeRef, ' const $event = $any;');
+      if (e.payload?.as === '$event') { /* the payload, declared above */ }
+      else if (e.detail) tagged('type', { ...e.detail, text: `CustomEvent<${e.detail.kind === 'ts' ? e.detail.text : 'any'}>` } as TypeRef, ' const $event = $any;');
       else if (e.event !== null) line(`/** @type {${decl(e.run ? `RunEvent<${decl(`Ev<${JSON.stringify(e.event)}, ${JSON.stringify(e.tag)}>`)}>` : `Ev<${JSON.stringify(e.event)}, ${JSON.stringify(e.tag)}>`)}} */ const $event = $any;`);
       if (e.guard) {
         if (e.guardAt) regions.push({ start: out.length + 1, lines: 1, loc: e.guardAt.loc, fixed: true, candidate: { name: e.guardAt.name, key: e.guardAt.key, keySrc: e.guard.replace(/^\((.*)\) === .*$/s, '$1') } });
@@ -355,7 +344,9 @@ export function shadow(o: ShadowOptions): Shadow {
       verbatim(e.src, e.loc);
       line(');');
     } else {
-      if (e.detail) tagged('type', { ...e.detail, text: `CustomEvent<${e.detail.kind === 'ts' ? e.detail.text : 'any'}>` } as TypeRef, ' const $event = $any;');
+      // an `<sn-event>` handler's `$event` is its payload, declared above
+      if (e.payload?.as === '$event') { /* the payload */ }
+      else if (e.detail) tagged('type', { ...e.detail, text: `CustomEvent<${e.detail.kind === 'ts' ? e.detail.text : 'any'}>` } as TypeRef, ' const $event = $any;');
       else line(`/** @type {${decl(`Ev<${JSON.stringify(e.event ?? '')}, ${JSON.stringify(e.tag)}>`)}} */ const $event = $any;`);
       if (e.result) {
         if (e.resultType) tagged('type', e.resultType, ' const $result = $any;');
@@ -392,8 +383,7 @@ export const DECLARATIONS = `// Generated by \`sinter check\`. Do not edit.
 export interface Meta {
   loading: boolean;
   error: Err | null;
-  loadedAt: number | null;
-  pending: number;
+  loadedAt: Date | null;
   total: number | null;
   /** The server-event stream(s) feeding this resource: 'connecting' until the first open, 'open', 'retrying' after a failure (the worst of them when several feed it); null when no <sn-event> feeds it. */
   live: 'connecting' | 'open' | 'retrying' | null;
@@ -414,12 +404,12 @@ declare global {
   interface SinterAttributes {}
 }
 declare global {
-  /** a slot that passes T to its fill, as a member of the props type in data-sn-component: \`cell: Slot<{ row: Row }>\` */
+  /** a slot that passes T to its fill, as a member of the props type in data-sn-props: \`cell: Slot<{ row: Row }>\` */
   interface Slot<T> { readonly 'sinter.slot': T }
 }
 /** true when no member of the props P is a Slot<T>: a slot is declared in the props type literal, where the compiler sees it */
 export type NoSlots<P> = { [K in keyof P]-?: NonNullable<P[K]> extends Slot<any> ? K : never }[keyof P] extends never ? true
-  : 'a Slot<T> member is in a type alias: write the props as a type literal in data-sn-component, where sinter sees the slot';
+  : 'a Slot<T> member is in a type alias: write the props as a type literal in data-sn-props, where sinter sees the slot';
 /** what data-sn-attr accepts: the keys SinterAttributes types, anything else as before */
 export type Attrs = { [K in keyof SinterAttributes]?: SinterAttributes[K] } & Record<string, unknown>;
 /** what a URL path interpolation accepts: anything but an array (a whole query value may be one, sent as a repeated key) */
@@ -448,9 +438,9 @@ export interface SinterNavigate extends Event {
   readonly trigger: Element | null;
 }
 /** $event of a handler for event K on an element with tag T */
-export type Ev<K extends string, T extends string = string> = K extends 'navigate' ? SinterNavigate : K extends keyof HTMLElementEventMap ? HTMLElementEventMap[K]
+export type Ev<K extends string, T extends string = string> = K extends 'sn-navigate' ? SinterNavigate : K extends keyof HTMLElementEventMap ? HTMLElementEventMap[K]
   : T extends keyof SinterElementEvents ? (K extends keyof SinterElementEvents[T] ? CustomEvent<SinterElementEvents[T][K]> : CustomEvent) : CustomEvent;
-/** what data-sn-prop accepts on a custom element: its own properties when HTMLElementTagNameMap has it, anything otherwise */
+/** what data-sn-with accepts on a custom element: its own properties when HTMLElementTagNameMap has it, anything otherwise */
 export type Props<K extends string> = K extends keyof HTMLElementTagNameMap ? { [P in keyof HTMLElementTagNameMap[K]]?: HTMLElementTagNameMap[K][P] } : Record<string, unknown>;
 /**
  * $event where run('id') can start the action: null then. Checking runs without strictNullChecks, where
@@ -458,26 +448,25 @@ export type Props<K extends string> = K extends keyof HTMLElementTagNameMap ? { 
  */
 export type RunEvent<E> = E | void;
 export type Direction = 'first' | 'prev' | 'next' | 'last';
-/** what TypeScript names when a keyset resource without offset-param is given a page number */
-export type NoPageNumber = 'a keyset resource takes a direction; add offset-param for page numbers';
-/** R: the resources' types; D: the keyset resources without offset-param, which page() moves by direction only */
+/** what TypeScript names when a keyset resource without jump is given a page number */
+export type NoPageNumber = 'a keyset resource takes a direction; add jump: true to paginate for page numbers';
+/** R: the resources' types; D: the keyset resources without jump, which page() moves by direction only */
 export interface Store<R, D extends string = never> {
   refresh(...names: [keyof R & string, ...(keyof R & string)[]]): void;
   upsert<K extends keyof R & string>(name: K, item: Item<R[K]>): void;
-  patch<T>(item: T, set: Partial<NonNullable<T>>): void;
+  merge<T>(item: T, set: Partial<NonNullable<T>>): void;
   remove(item: unknown): void;
   page<K extends keyof R & string>(name: K, to: [Extract<K, D>] extends [never] ? Direction | number : Direction | NoPageNumber): void;
-  showModal(id: string): void;
-  close(id?: string): void;
-  reset(): void;
+  openDialog(id: string): void;
+  closeDialog(id?: string): void;
   emit(event: string, detail?: unknown): void;
   run(id: string): void;
   navigate(url: string, options?: { replace?: boolean }): void;
+  /** removes every API's token (\`sinter({ apis: { … token } })\`), with the page's persisted state and cached data */
+  signOut(): void;
 }
 type Style = 'short' | 'medium' | 'long' | 'full';
-export function date(v: unknown, style?: Style): string;
-export function time(v: unknown, style?: Style): string;
-export function datetime(v: unknown, style?: Style): string;
+export function date(v: unknown, style?: Style | null, timeStyle?: Style): string;
 export function relative(v: unknown, now?: unknown): string;
 export function number(v: unknown, opts?: Intl.NumberFormatOptions): string;
 export function bytes(v: unknown): string;

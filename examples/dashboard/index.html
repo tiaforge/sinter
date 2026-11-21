@@ -1,5 +1,5 @@
 <!-- The page is the layout's tag with its content inside; the layout is src/layouts/app-layout.html. -->
-<app-layout data-sn-prop="{ title: 'Overview' }">
+<app-layout data-sn-with="{ title: 'Overview' }">
 
   <!-- The data. Without `type`, a resource is typed from server/openapi.yml: GET /api/services is listServices. -->
   <sn-resource name="services" src="/services" key="id"></sn-resource>
@@ -10,7 +10,7 @@
   <!-- Live updates, pushed by the server: one new sample at a time, and a service when it is paused. -->
   <sn-sync src="/events">
     <sn-event name="sample" resource="samples" op="upsert"></sn-event>
-    <sn-event name="service_updated" resource="services" op="upsert" item="service" type="ServiceEvent"></sn-event>
+    <sn-event name="service_updated" resource="services" op="upsert" value="$event.service" type="ServiceEvent"></sn-event>
   </sn-sync>
 
   <!-- The layout's `status` slot, in the header. `live` is the state of the stream that feeds `samples`:
@@ -24,23 +24,23 @@
   <!-- The totals and the big chart are computed from the samples by helpers (src/sinter.helpers.ts). -->
   <section data-sn-show="services.length && samples.length" data-layout="stack" data-gap="lg" data-sn-let="{ all: totals(services, samples) }">
     <div data-layout="grid" data-gap="md" style="--tm-min: 10rem">
-      <stat-tile data-sn-prop="{ label: 'Requests / s', value: all.rps }"></stat-tile>
-      <stat-tile data-sn-prop="{ label: 'Median latency', value: all.latencyMs + ' ms' }"></stat-tile>
-      <stat-tile data-sn-prop="{ label: 'Error rate', value: percent(all.errorRate) }"></stat-tile>
+      <stat-tile data-sn-with="{ label: 'Requests / s', value: all.rps }"></stat-tile>
+      <stat-tile data-sn-with="{ label: 'Median latency', value: all.latencyMs + ' ms' }"></stat-tile>
+      <stat-tile data-sn-with="{ label: 'Error rate', value: percent(all.errorRate) }"></stat-tile>
     </div>
 
     <article data-layout="stack" data-gap="sm">
       <small data-muted>Requests per second, all services, the last 30 seconds</small>
-      <spark-line data-sn-prop="{ values: combined(samples), at: all.tick, width: 600, height: 120, label: 'Requests per second over the last 30 seconds' }"></spark-line>
+      <spark-line data-sn-with="{ values: combined(samples), at: all.tick, width: 600, height: 120, label: 'Requests per second over the last 30 seconds' }"></spark-line>
     </article>
 
     <div data-layout="grid" data-gap="md" style="--tm-min: 16rem">
       <template data-sn-for="s in services">
-        <service-card data-sn-prop="{ service: s, samples: of(samples, s.id) }">
+        <service-card data-sn-with="{ service: s, samples: of(samples, s.id) }">
           <!-- Optimistic: shows paused at once, and is taken back if the PATCH fails. The 200 response replaces the service. -->
           <button slot="actions" data-variant="ghost" data-size="sm"
                   data-sn-patch="/services/{s.id}" data-sn-body="{ paused: !s.paused }"
-                  data-sn-optimistic="patch(s, { paused: !s.paused })"
+                  data-sn-optimistic="merge(s, { paused: !s.paused })"
                   data-sn-text="s.paused ? 'Resume' : 'Pause'"></button>
         </service-card>
       </template>

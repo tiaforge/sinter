@@ -1,3 +1,4 @@
+import { $hq, $hv } from '../../src/runtime/url.js';
 import { afterEach, expect, test } from 'vitest';
 import { configure, loginRedirect, onUnauthorized } from '../../src/index.js';
 import { render, mockRequests, mockStream } from '../../src/testing/index.js';
@@ -5,12 +6,13 @@ import { render, mockRequests, mockStream } from '../../src/testing/index.js';
 afterEach(() => configure({ request: [], onError: null, sessionProbe: null }));
 
 const PAGE = `
-  <sn-resource name="contacts" src="/api/contacts" items="contacts" key="id" order="name"></sn-resource>
+  <sn-resource name="contacts" src="/api/contacts" select="contacts" key="id" order="name"></sn-resource>
   <sn-sync src="/api/events/stream">
-    <sn-event name="contact_updated" resource="contacts" op="upsert" item="contact" fallback="refetch"></sn-event>
-    <sn-event name="contact_patched" resource="contacts" op="patch" set="{name}"></sn-event>
+    <sn-event name="contact_updated" resource="contacts" op="upsert" value="$event.contact" when="$event.contact"></sn-event>
+    <sn-event name="contact_updated" resource="contacts" op="refresh" when="!$event.contact"></sn-event>
+    <sn-event name="contact_patched" resource="contacts" op="merge" value="{name: $event.name}"></sn-event>
     <sn-event name="contact_removed" resource="contacts" op="remove"></sn-event>
-    <sn-event name="contacts_refetch" resource="contacts" op="refetch"></sn-event>
+    <sn-event name="contacts_refetch" resource="contacts" op="refresh"></sn-event>
   </sn-sync>
   <ul><template data-sn-for="c in contacts"><li data-sn-text="c.name"></li></template></ul>`;
 
@@ -39,7 +41,7 @@ test('server events upsert, patch and remove', async () => {
   expect(names(root)).toEqual(['Zed']);
 });
 
-test('fallback refetch when the event has no body; refetches coalesce', async () => {
+test('an event without the item refreshes through its second <sn-event> (when); refreshes coalesce', async () => {
   const { root, stream, settle, requests, set } = await setup();
   set([{ id: 1, name: 'Ada' }, { id: 3, name: 'Cy' }]);
   stream.emit('contact_updated', { contact: null });
@@ -150,13 +152,13 @@ test('optimistic layers: overlapping actions and server events mid-flight', asyn
   });
   const stream = mockStream();
   const { root, flush, settle } = await render(`
-    <sn-resource name="m" src="/api/m" items="m" key="id"></sn-resource>
+    <sn-resource name="m" src="/api/m" select="m" key="id"></sn-resource>
     <sn-sync src="/s"><sn-event name="msg" resource="m" op="upsert"></sn-event></sn-sync>
     <template data-sn-for="x in m">
       <div>
         <span data-sn-text="[x.subject, x.read ? 'read' : 'unread', x.flagged ? 'flag' : '-'].join(' ')"></span>
-        <button id="read" data-sn-patch="/api/read" data-sn-body="{id: x.id}" data-sn-optimistic="patch(x, {read: true})">r</button>
-        <button id="flag" data-sn-patch="/api/flag" data-sn-body="{id: x.id}" data-sn-optimistic="patch(x, {flagged: true})">f</button>
+        <button id="read" data-sn-patch="/api/read" data-sn-body="{id: x.id}" data-sn-optimistic="merge(x, {read: true})">r</button>
+        <button id="flag" data-sn-patch="/api/flag" data-sn-body="{id: x.id}" data-sn-optimistic="merge(x, {flagged: true})">f</button>
       </div>
     </template>`, { requests, streams: { '/s': stream } });
   await settle();
@@ -178,16 +180,16 @@ test('islands use app.optimistic() with the same layers', async () => {
   const requests = mockRequests({ 'GET /api/m': [{ id: 1 }, { id: 2 }], 'DELETE /api/m': { status: 500 } });
   const { root, flush, settle, app } = await render(`
     <sn-resource name="m" src="/api/m" key="id"></sn-resource>
-    <p data-sn-text="m.length + ' ' + $meta.m.pending"></p>`, { requests });
+    <p data-sn-text="m.length"></p>`, { requests });
   await settle();
   const res = app.resource('m');
   const p = app.optimistic(() => res.remove('1'), () => app.request('/api/m', { method: 'DELETE' })).catch((e) => e);
   await flush();
-  expect(root.querySelector('p')!.textContent).toBe('1 1');
+  expect([root.querySelector('p')!.textContent, app.resource('m').waiting()]).toEqual(['1', 1]);
   await settle();
   expect(((await p) as { status: number }).status).toBe(500);
   await flush();
-  expect(root.querySelector('p')!.textContent).toBe('2 0');
+  expect([root.querySelector('p')!.textContent, app.resource('m').waiting()]).toEqual(['2', 0]);
 });
 
 test('<sn-sync> inside a state element: src and event expressions read that state', async () => {
@@ -197,7 +199,7 @@ test('<sn-sync> inside a state element: src and event expressions read that stat
   const { root, settle } = await render(`<main data-sn-state="{ sel: 'inbox', topic: 'mail' }">
     <sn-resource name="m" src="/api/m" key="id"></sn-resource>
     <sn-sync src="/s/{topic}">
-      <sn-event name="refetch" resource="m" op="refetch" when="mailbox === sel"></sn-event>
+      <sn-event name="refetch" resource="m" op="refresh" when="$event.mailbox === sel"></sn-event>
     </sn-sync>
     <button data-sn-on-click="sel = 'sent'"></button>
     <p data-sn-text="m.length"></p></main>`, { requests, streams: { '/s/mail': stream } });
@@ -217,14 +219,14 @@ test('<sn-sync> inside a state element: src and event expressions read that stat
   expect(loads()).toBe(3);
 });
 
-test('<sn-event> reads data-sn-let names around the sync in when and then; a let wins over a payload field', async () => {
+test('<sn-event> reads data-sn-let names around the sync in when and then, beside the payload, $event', async () => {
   // Caley's mail page: `open` is derived from state on an ancestor of the <sn-sync>
   const stream = mockStream();
   const { root, settle } = await render(`<main data-sn-state="{ sel: { uid: 1, mailbox: 'inbox' }, seen: 0 }" data-sn-let="{ open: sel, box: sel.mailbox, items: m.length }">
     <sn-resource name="m" src="/api/m" key="id"></sn-resource>
     <div data-sn-state="{ hits: '' }">
       <sn-sync src="/s">
-        <sn-event name="updated" when="mailbox === box" then="open.uid === uid && seen++; hits = hits + items"></sn-event>
+        <sn-event name="updated" when="$event.mailbox === box" then="open.uid === $event.uid && seen++; hits = hits + items"></sn-event>
         <sn-event name="named" then="hits = hits + open.uid"></sn-event>
       </sn-sync>
       <button data-sn-on-click="sel = { uid: 2, mailbox: 'sent' }"></button>
@@ -258,7 +260,7 @@ test('an app destroyed before its streams connect opens none', async () => {
   const parts = compileParts(`<html><head></head><body>${PAGE}</body></html>`, {
     file: '/p/x.html', root: '/p', dev: false, readFile: () => '', helpers: { module: null, names: [], namespaces: {} },
   });
-  const fns = new Function('$k', `return [${parts.fns.join(',')}]`)((x: unknown) => x);
+  const fns = new Function('$k', '$hv', '$hq', `return [${parts.fns.join(',')}]`)((x: unknown) => x, $hv, $hq);
   // its own root: the previous test's page is still mounted on the document
   const host = document.createElement('div');
   host.innerHTML = /<body>([\s\S]*)<\/body>/i.exec(parts.html)![1]!;
@@ -295,10 +297,10 @@ test('<sn-sync>s that share a stream URL share one connection, and all their eve
       ${PAGE}
       <p data-sn-text="n.unread"></p>`, {
       requests,
-      components: { 'nav-sync': `<template data-sn-component=""><div><sn-resource name="n" src="/api/n"></sn-resource>
+      components: { 'nav-sync': `<template data-sn-props=""><div><sn-resource name="n" src="/api/n"></sn-resource>
         <sn-sync src="/api/events/stream">
           <sn-event name="unread" resource="n" op="upsert"></sn-event>
-          <sn-event name="contacts_refetch" resource="n" op="refetch"></sn-event>
+          <sn-event name="contacts_refetch" resource="n" op="refresh"></sn-event>
         </sn-sync></div></template>` },
     });
     await settle();
@@ -338,9 +340,9 @@ test('<sn-sync>s with different stream URLs keep their own connections', async (
   const b = mockStream();
   const requests = mockRequests({ 'GET /api/contacts': { contacts: [] } });
   const { root, flush, settle } = await render(`
-    <sn-resource name="contacts" src="/api/contacts" items="contacts" key="id"></sn-resource>
-    <sn-sync src="/s/a"><sn-event name="up" resource="contacts" op="upsert" item="contact"></sn-event></sn-sync>
-    <sn-sync src="/s/b"><sn-event name="up" resource="contacts" op="upsert" item="contact"></sn-event></sn-sync>
+    <sn-resource name="contacts" src="/api/contacts" select="contacts" key="id"></sn-resource>
+    <sn-sync src="/s/a"><sn-event name="up" resource="contacts" op="upsert" value="$event.contact"></sn-event></sn-sync>
+    <sn-sync src="/s/b"><sn-event name="up" resource="contacts" op="upsert" value="$event.contact"></sn-event></sn-sync>
     <ul><template data-sn-for="c in contacts"><li data-sn-text="c.name"></li></template></ul>`, { requests, streams: { '/s/a': a, '/s/b': b } });
   await settle();
   expect(a.connected && b.connected).toBe(true);
@@ -357,12 +359,12 @@ test('`then` on <sn-event> runs after the change, with the payload and the sync\
   let app: any;
   const seen: unknown[] = [];
   const r = await render(`<main data-sn-state="{ sel: null, removed: 0 }">
-    <sn-resource name="contacts" src="/api/contacts" items="contacts" key="id" order="name"></sn-resource>
+    <sn-resource name="contacts" src="/api/contacts" select="contacts" key="id" order="name"></sn-resource>
     <sn-sync src="/api/events/stream">
       <sn-event name="contact_removed" resource="contacts" op="remove"
-                then="removed++; seen(id); sel?.id === id && (sel = null, close('detail'))"></sn-event>
+                then="removed++; seen($event.id); sel?.id === $event.id && (sel = null, closeDialog('detail'))"></sn-event>
     </sn-sync>
-    <ul><template data-sn-for="c in contacts"><li data-sn-on-click="sel = c; showModal('detail')" data-sn-text="c.name"></li></template></ul>
+    <ul><template data-sn-for="c in contacts"><li data-sn-on-click="sel = c; openDialog('detail')" data-sn-text="c.name"></li></template></ul>
     <p data-sn-text="removed + ' ' + (sel?.name ?? '-')"></p>
     <dialog id="detail"><h2 data-sn-text="sel?.name"></h2></dialog></main>`, {
     requests, streams: { '/api/events/stream': stream },
@@ -393,9 +395,9 @@ test('`then` without resource and op only runs the handler; `when` gates it; a p
   const requests = mockRequests({ 'GET /api/contacts': { contacts: [{ id: 1, name: 'Ada' }] } });
   const stream = mockStream();
   const { root, flush } = await render(`<main data-sn-state="{ last: '', n: 0 }">
-    <sn-resource name="contacts" src="/api/contacts" items="contacts" key="id"></sn-resource>
+    <sn-resource name="contacts" src="/api/contacts" select="contacts" key="id"></sn-resource>
     <sn-sync src="/api/events/stream">
-      <sn-event name="notice" then="last = text" when="text !== 'skip'"></sn-event>
+      <sn-event name="notice" then="last = $event.text" when="$event.text !== 'skip'"></sn-event>
       <sn-event name="contact_removed" resource="contacts" op="remove" then="n++"></sn-event>
     </sn-sync>
     <p data-sn-text="last + ' ' + n + ' ' + contacts.length"></p></main>`, { requests, streams: { '/api/events/stream': stream } });
@@ -413,10 +415,10 @@ test('server events render with the next frame: a burst renders once; a handler 
   const requests = mockRequests({ 'GET /api/contacts': { contacts: [{ id: 1, name: 'Ada' }] } });
   const stream = mockStream();
   const { root, frame, app, settle } = await render(`
-    <sn-resource name="contacts" src="/api/contacts" items="contacts" key="id" order="name"></sn-resource>
+    <sn-resource name="contacts" src="/api/contacts" select="contacts" key="id" order="name"></sn-resource>
     <div data-sn-state="{ n: 0, clicks: 0 }">
       <sn-sync src="/api/events/stream">
-        <sn-event name="contact_patched" resource="contacts" op="patch" set="{name}" then="n = n + 1"></sn-event>
+        <sn-event name="contact_patched" resource="contacts" op="merge" value="{name: $event.name}" then="n = n + 1"></sn-event>
       </sn-sync>
       <b data-sn-text="n"></b> <i data-sn-text="clicks"></i>
       <button data-sn-on-click="clicks = clicks + 1"></button>
@@ -459,10 +461,10 @@ test('a hidden page renders server events in a microtask (no frames come)', asyn
 // ---- $meta.<resource>.live
 
 const LIVE = `
-  <sn-resource name="contacts" src="/api/contacts" items="contacts" key="id"></sn-resource>
+  <sn-resource name="contacts" src="/api/contacts" select="contacts" key="id"></sn-resource>
   <sn-resource name="plain" src="/api/plain"></sn-resource>
   <sn-sync src="/api/events/stream">
-    <sn-event name="contact_updated" resource="contacts" op="upsert" item="contact"></sn-event>
+    <sn-event name="contact_updated" resource="contacts" op="upsert" value="$event.contact"></sn-event>
   </sn-sync>
   <b data-sn-text="[$meta.contacts.live, $meta.plain.live].join()"></b>`;
 
@@ -498,9 +500,9 @@ test('$meta.<resource>.live is the worst state of the streams feeding the resour
   });
   const a = mockStream(), b = mockStream();
   const { root, settle } = await render(`
-    <sn-resource name="contacts" src="/api/contacts" items="contacts" key="id"></sn-resource>
-    <sn-sync src="/api/a"><sn-event name="x" resource="contacts" op="refetch"></sn-event></sn-sync>
-    <sn-sync src="/api/b"><sn-event name="y" resource="contacts" op="refetch"></sn-event></sn-sync>
+    <sn-resource name="contacts" src="/api/contacts" select="contacts" key="id"></sn-resource>
+    <sn-sync src="/api/a"><sn-event name="x" resource="contacts" op="refresh"></sn-event></sn-sync>
+    <sn-sync src="/api/b"><sn-event name="y" resource="contacts" op="refresh"></sn-event></sn-sync>
     <b data-sn-text="$meta.contacts.live"></b>`, { requests, streams: { '/api/a': a, '/api/b': b } });
   await settle();
   const live = () => root.querySelector('b')!.textContent;

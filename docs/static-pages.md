@@ -20,7 +20,7 @@ written: in the page, a component or the layout.
 Whatever can never change is written into the HTML at build time and carries nothing in the
 browser ([build-time constants](first-paint.md#build-time-constants)):
 
-- literals, and a component's props given as literals: `<site-header data-sn-prop="{ title: 'About' }">`
+- literals, and a component's props given as literals: `<site-header data-sn-with="{ title: 'About' }">`
 - `data-sn-state` fields that nothing on the page writes: `{ nav: 'about' }` read by a nav link's class
 - `data-sn-if` over those, decided at build time
 - `data-sn-for` over a constant list, unrolled into its rows, when the rows read only the item, its
@@ -28,12 +28,12 @@ browser ([build-time constants](first-paint.md#build-time-constants)):
 
   ```html
   <!-- src/components/nav-list.html -->
-  <template data-sn-component="{ items: { href: string; label: string }[] }">
+  <template data-sn-props="{ items: { href: string; label: string }[] }">
     <ul><template data-sn-for="i in items"><li><a data-sn-attr="{ href: i.href }" data-sn-text="i.label"></a></li></template></ul>
   </template>
 
   <!-- the page -->
-  <nav-list data-sn-prop="{ items: [{ href: '/', label: 'Home' }, { href: '/about.html', label: 'About' }] }"></nav-list>
+  <nav-list data-sn-with="{ items: [{ href: '/', label: 'Home' }, { href: '/about.html', label: 'About' }] }"></nav-list>
   ```
 
   is `<ul><li><a href="/">Home</a></li><li><a href="/about.html">About</a></li></ul>` in the built page.
@@ -95,7 +95,7 @@ Anything that runs in the browser keeps the runtime on its page:
 | a binding over `$url`, `$now`, `$locale` or a built-in formatter | the browser computes it |
 | a binding that calls a helper that cannot run at build time (it reads the clock, the locale, the browser, …) | the browser computes it; `SN322` names the helper and what it reaches |
 | `<sn-resource>`, `<sn-sync>`, an action (`data-sn-post`, `data-sn-call`, …) | it talks to your API |
-| a handler (`data-sn-on-click`, key shortcuts), `data-sn-model`, `data-sn-persist`, `data-sn-listbox` | it reacts to the visitor |
+| a handler (`data-sn-on-click`, key shortcuts), `data-sn-model`, `data-sn-persist`, `data-sn-options` | it reacts to the visitor |
 | a component with a script (`src/components/<name>.ts`) | its script runs |
 | messages that switch language in the browser (`m.*`) | the language is picked in the browser |
 | `data-sn-transition`, images from the API through a resizing service | they need code |
@@ -136,7 +136,7 @@ that renaming a page cannot drop it from the check unnoticed.
   data, sinter's runtime requests that page's data, so it shows at once. A static page has no runtime,
   so a data page opened from it loads its data after one round trip, as on a first visit. Speculation
   Rules still work, since they are not JavaScript: the browser fetches the next page's HTML, and with
-  `sinter({ speculation: 'prerender' })` Chromium loads the whole next page, data included, before the
+  `sinter({ prefetch: { html: { prerender: true } } })` Chromium loads the whole next page, data included, before the
   click ([navigation](navigation.md)).
 
 ## Your own scripts
@@ -206,16 +206,16 @@ proxy's business.
 
 ### A page per entry
 
-`data-sn-pages` builds a page once per entry of a list the page reads from the repository, and writes each at
+`data-sn-for` on `<html>` builds a page once per entry of a list the page reads from the repository, and writes each at
 its `data-sn-path` pattern filled from the entry:
 
 ```html
 <!-- blog/post.html -->
-<site-layout data-sn-path="/blog/:slug" data-sn-pages="post in posts" data-sn-prop="{ title: post.title }">
+<site-layout data-sn-path="/blog/:slug" data-sn-for="post in posts" data-sn-with="{ title: post.title }">
   <sn-resource name="posts" src="file:/content/posts/*.md" type="Post"></sn-resource>
   <article>
     <h1 data-sn-text="post.title"></h1>
-    <md-doc data-sn-prop="{ doc: md.parse(post.body) }"></md-doc>
+    <md-doc data-sn-with="{ doc: md.parse(post.body) }"></md-doc>
   </article>
 </site-layout>
 ```
@@ -233,19 +233,19 @@ dist/blog/recap.html      /blog/recap
   `sinter check` types it as one item of the list: `post.titel` is an error.
 - **Its URL**: each `:param` of the pattern is the entry's field of that name, a string or a number that is
   one path segment, encoded as the sitemap encodes it (`A b` is `A%20b`). An entry that cannot fill it, or two
-  that fill one path, are [SN341](diagnostics.md#sn341-pages-param). The page has exactly that one pattern
-  ([SN340](diagnostics.md#sn340-pages-path)).
+  that fill one path, are [SN340](diagnostics.md#sn341-entry-param). The page has exactly that one pattern
+  ([SN340](diagnostics.md#sn340-entry-path)).
 - **A file at its path**, as any page with an exact `data-sn-path`: `blog/hello.html` at `/blog/hello`, which
   hosts serve without a rule, so `_redirects` has none for it. Its canonical link is written at build time,
   and the sitemap lists every entry (no `sitemap.paths` for the pattern). The template (`blog/post.html`) is
   not written: nothing answers at it. A path another page or a file in `public/` has fails the build.
 - **Speculation Rules** name the pattern once (`/blog/:slug`), not each entry.
 - **The pattern's parameters are the entry's.** `$url.slug` on such a page is
-  [SN345](diagnostics.md#sn345-url-param-pages): read `post.slug`, known at build time (a query parameter, `$url.tab`,
+  [SN345](diagnostics.md#sn345-url-param-entry): read `post.slug`, known at build time (a query parameter, `$url.tab`,
   is fine). A list or tree on it too long to write at build time ([SN536](diagnostics.md#sn536-expansion-limit)) is an error here,
   not a warning: one long entry would ship its content and the runtime.
 - **An index in pages** is a collection of pages, built with `chunks()`
-  ([collections](resources.md#collections)), and a `data-sn-pages` page at `/blog/page/:n`; the front page
+  ([collections](resources.md#collections)), and a page per entry (`data-sn-for` on `<html>`) at `/blog/page/:n`; the front page
   (`/blog/`) is a page of its own.
 - **Links to entries are checked**: a link in a built page to a path the pattern matches but no entry has
   (`/blog/helo`) fails the build with the entry it was likely meant for
@@ -323,8 +323,8 @@ A host that reads no rules still serves every page at its directory URL, and old
 redirect files; pages with `data-sn-path` then need the host's own rewrites.
 
 A link your page builds at run time is not rewritten: write it as the URL
-(`data-sn-attr="{ href: '/task/?id=' + t.id }"`). The build warns when a page's code still names a page
-by its file (`'/task.html?id='`), which works, but through the redirect.
+(`data-sn-href="/task/?id={t.id}"`). The build warns when a page's code still names a page
+by its file (`/task.html?id=`), which works, but through the redirect.
 
 ## Canonical URLs
 
@@ -426,7 +426,7 @@ Sitemap: https://example.com/sitemap.xml
 
 ## Languages
 
-With [messages](configuration.md#messages) in more than one language, `localePrefix` builds each page once
+With [messages](messages.md) in more than one language, `localePrefix` builds each page once
 per language, under that language's prefix, with its text in the HTML:
 
 ```js

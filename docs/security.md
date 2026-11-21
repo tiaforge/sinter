@@ -17,16 +17,16 @@ error or the removed attribute means, and what stays your job.
 | `data-sn-attr` `style`, `srcdoc` | CSS injection, HTML | `SN207`; styles go through `data-sn-style` |
 | `data-sn-attr` `id`, `name` from data | DOM clobbering of other scripts | warning `SN503` |
 | `data-sn-style` | CSS that loads URLs | literal property names, no spread; values set with `style.setProperty`; values containing `url(`, `image(`, `image-set(` or a backslash are rejected at runtime |
-| `data-sn-prop` | `innerHTML` and friends | only on custom elements; literal keys, no spread; `innerHTML`, `outerHTML`, `srcdoc` are `SN207` |
+| `data-sn-with` | `innerHTML` and friends | only on custom elements; literal keys, no spread; `innerHTML`, `outerHTML`, `srcdoc` are `SN207` |
 | `data-sn-class` | applying arbitrary existing classes | computed keys allowed (low risk); sets classes only, never other attributes |
 | any binding on `<script>`, `<style>`, `<iframe>`, `<object>`, `<embed>`, `<base>`, `<meta>`, `<link>` or SVG `<animate>`, `<set>`, `<animateMotion>`, `<animateTransform>` | script execution, page takeover | `SN207` |
 | `data-sn-attr="{ content: … }"` on a `<meta>` with a literal `name`, `property` or `itemprop` | none: a description or `og:title` is text to the browser | allowed; any other key, any other attribute, and any binding on a `<meta http-equiv>` (a refresh, a policy) or `<meta charset>` is `SN207` |
 | URL templates of resources, actions and streams | requests to an attacker-chosen origin, leaked headers | see [Requests and origins](#requests-and-origins) |
-| store merges, form serialization, `patch` fields, `$url` | prototype pollution | keys `__proto__`, `constructor` and `prototype` are dropped; objects built from input have a null prototype |
+| store merges, form serialization, `merge` fields, `$url` | prototype pollution | keys `__proto__`, `constructor` and `prototype` are dropped; objects built from input have a null prototype |
 | `data-sn-persist` | secrets left in localStorage | `SN207` on `type="password"` and on fields with `autocomplete` `cc-*`, `one-time-code`, `current-password` or `new-password` |
 
 Build errors carry a code; see docs/diagnostics.md. To show markup, bind data to a custom element's
-property with `data-sn-prop`, and let that element decide how to render it.
+property with `data-sn-with`, and let that element decide how to render it.
 
 ## URL attributes
 
@@ -56,7 +56,7 @@ The runtime reads only the `data-sn` ids the build assigned, and checks them at 
 
 - Each id must appear exactly once, on an element with the tag the build recorded. A missing,
   duplicate or mismatched id is not bound, and dev builds report it.
-- Embedded data (`data-sn-data`) is accepted only from `<head>`, once per resource name. Anything
+- Embedded data (`data-sn-resource`) is accepted only from `<head>`, once per resource name. Anything
   else is ignored with a dev error.
 - The runtime never reads named properties of `window` or `document`, the pattern behind most DOM
   clobbering gadgets.
@@ -71,8 +71,11 @@ The runtime reads only the `data-sn` ids the build assigned, and checks them at 
 - At runtime, a resolved URL whose origin is neither the page's nor a listed one is refused and
   reported through `onError`. List origins in `sinter({ origins: [...] })`; see
   docs/configuration.md.
-- Interpolated values are encoded with `encodeURIComponent`; a value that is exactly `.` or `..`
-  becomes `%2E` or `%2E%2E`, so it cannot climb path segments.
+- Interpolated values are encoded with `encodeURIComponent`. In the path, a value that is exactly `.`
+  or `..` (or a list) is refused, and the URL is not built: URL parsers read `%2E%2E` as `..`, so no
+  encoding keeps it from climbing a segment. In a query value, `.` and `..` become `%2E` and `%2E%2E`.
+- A link's URL template (`data-sn-href`) follows the same rules (it may also start with `?` or `#`),
+  so a value never chooses a link's scheme or host either.
 - Header middleware such as a CSRF header applies to same-origin requests only, unless you scope it
   to a listed origin. A CSRF token does not leak to third-party hosts.
 - Stream URLs of `<sn-sync>` follow the same rules.
@@ -82,17 +85,17 @@ The runtime reads only the `data-sn` ids the build assigned, and checks them at 
 `data-sn-state`, `$url` and persisted values can be changed by the visitor in the browser, and
 `$url` by anyone who sends them a link. Validate every request on the server as if the page did not
 exist. URL values also reach models (a field bound to `$url.q` shows what the link says) and
-`page-model` (`?page=99999` asks the API for that page): the text is set as a value, never as markup,
+a list's `model` (`?page=99999` asks the API for that page): the text is set as a value, never as markup,
 and the page number is parsed as a whole number, but the server decides what a request may ask for.
 Names that could reach prototypes (`__proto__`, `constructor`, `prototype`) are dropped from `$url`.
 
-Persisted keys are namespaced `sn:`. They are cleared by `loginRedirect`; call `clearPersisted()`
-on logout. The page-load cache and next-page data entries (in `sessionStorage`) are cleared on any
-401 and by `clearPersisted()` too.
+Persisted keys are namespaced `sn:`. They are cleared by `loginRedirect`; call `clearStored()`
+on sign-in and sign-out. The page-load cache and next-page data entries (in `sessionStorage`) are cleared on any
+401 and by `clearStored()` too.
 
 ## Outside sinter's control
 
-- Islands, your helpers and `onError` handlers are trusted code. Do not pass server data, including
+- Custom elements, your helpers and `onError` handlers are trusted code. Do not pass server data, including
   `$error.message`, to HTML sinks (`innerHTML`) from them.
 - Embedded JSON must be serialized with `<` written as `<`, so it cannot close its
   `<script>`. `sinter-axum` does this.
@@ -124,7 +127,7 @@ What the build adds to the page and how it fits a strict policy:
 - **Speculation Rules** are an inline `<script type="speculationrules">`. A CSP in a `<meta>` gets
   their hash added by the build; a CSP sent as a response header needs
   `'inline-speculation-rules'` in `script-src`, or deliver the rules as a file with
-  `speculation: { delivery: 'header' }`. See [navigation.md](navigation.md#speculation-rules-and-a-content-security-policy).
+  `prefetch: { html: { delivery: 'header' } }`. See [navigation.md](navigation.md#speculation-rules-and-a-content-security-policy).
 - **Embedded data** (`<script type="application/json">`) is data, not executed, so a script-src
   policy does not apply to it.
 

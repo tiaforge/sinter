@@ -8,7 +8,7 @@ export interface ComplexityLimits {
   statements: number;
   /** comma sequences `(a, b)` in one expression */
   sequences: number;
-  /** steps one `&&`, `||`, `??` or `?:` used as a statement may run: `a && close()` is 1, `a && (b = 1, close())` is 2 */
+  /** steps one `&&`, `||`, `??` or `?:` used as a statement may run: `a && closeDialog()` is 1, `a && (b = 1, closeDialog())` is 2 */
   guarded: number;
   /** nesting of `?:`: `a ? b : c` is 1, `a ? b : c ? d : e` is 2 */
   ternaries: number;

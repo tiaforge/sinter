@@ -13,9 +13,7 @@ import sinter from '../../src/vite.js';
 import { chromium } from '../browser.js';
 
 const src = resolve(__dirname, '../../src');
-const alias = ['sse', 'optimistic', 'paginate', 'persist', 'early', 'prefetch', 'transition', 'cache', 'apply', 'form', 'select', 'location', 'call', 'debounce', 'confirm', 'models']
-  .map((f) => ({ find: `@tiaforge-ui/sinter/${f}`, replacement: `${src}/${f}.ts` }))
-  .concat([{ find: '@tiaforge-ui/sinter', replacement: `${src}/index.ts` }]);
+const alias = [{ find: /^@tiaforge-ui\/sinter\/runtime$/, replacement: `${src}/runtime-entry.ts` }, { find: /^@tiaforge-ui\/sinter\/(?:runtime\/)?([\w-]+)$/, replacement: `${src}/$1.ts` }, { find: /^@tiaforge-ui\/sinter$/, replacement: `${src}/index.ts` }];
 
 const dir = mkdtempSync(join(tmpdir(), 'sinter-early-req-'));
 const root = join(dir, 'app'), out = join(dir, 'dist');
@@ -43,10 +41,10 @@ beforeAll(async () => {
 <html data-sn-path="/">
 <head><meta charset="utf-8"><title>early</title><link rel="stylesheet" href="/slow.css"></head>
 <body>
-  <sn-resource name="items" src="${apiOrigin}/items?q={$url.q}" items="items" key="id" type="any"></sn-resource>
-  <sn-resource name="tags" src="${apiOrigin}/tags" items="tags" type="any"></sn-resource>
-  <sn-resource name="pages" src="${apiOrigin}/pages?q={$url.q}" items="items" total="total" key="id" type="any" paginate="keyset" page-size="2" cursor="{after: id}" direction-values="{first: 'down'}"></sn-resource>
-  <sn-resource name="me" src="${apiOrigin}/me" items="me" type="any" early="off"></sn-resource>
+  <sn-resource name="items" src="${apiOrigin}/items?q={$url.q}" select="items" key="id" type="any"></sn-resource>
+  <sn-resource name="tags" src="${apiOrigin}/tags" select="tags" type="any"></sn-resource>
+  <sn-resource name="pages" src="${apiOrigin}/pages?q={$url.q}" select="items" total="total" key="id" type="any" paginate="{ keyset: {after: $item.id}, size: 2, directions: {first: 'down'} }"></sn-resource>
+  <sn-resource name="me" src="${apiOrigin}/me" select="me" type="any" early="off"></sn-resource>
   <sn-resource name="other" src="https://other.example/x" type="any" when="false"></sn-resource>
   <ul><template data-sn-for="i in items"><li data-sn-text="i.name"></li></template></ul>
   <p id="tags" data-sn-text="tags ? tags.length : ''"></p>
@@ -73,10 +71,10 @@ test('a listed origin is preloaded and requested early; early="off" and an unlis
   expect(html).not.toContain('other.example/x"');
   const early = /<script src="\/assets\/(index-head-[\w-]+\.js)"><\/script>/.exec(html)![1]!;
   const code = readFileSync(join(out, 'assets', early), 'utf8');
-  expect(code).toContain(`${apiOrigin}/items?q=`);
+  expect(code).toContain(`"${apiOrigin}/items" + $hq([["q", f[0](b)]])`);
   // a paginated resource: its first page
-  expect(code).toContain(`${apiOrigin}/pages?q=`);
-  expect(code).toMatch(/"q": \{\s*"limit": "2",\s*"direction": "down"\s*\}/);
+  expect(code).toContain(`"${apiOrigin}/pages" + $hq([["q", f[0](b)]])`);
+  expect(code).toMatch(/\{\s*"limit": "2",\s*"direction": "down"\s*\}/);
   expect(code).not.toContain('other.example');
   // the build names the origin it could have requested early
   expect(logs.find((l) => l.includes('https://other.example'))).toMatch(/requested when the page module runs; list the origin in sinter\(\{ origins/);

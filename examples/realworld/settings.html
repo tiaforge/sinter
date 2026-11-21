@@ -1,7 +1,5 @@
-<conduit-layout data-sn-path="/settings"
-  data-sn-state="{ nav: 'settings' }"
-  data-sn-prop="{ nav, title: 'Settings', description: 'Your Conduit settings: picture, name, bio, email and password.' }">
-<template data-sn-if="$meta.user.loadedAt && !user && !$meta.user.error"><conduit-redirect to="/login"></conduit-redirect></template>
+<conduit-layout data-sn-path="/settings" data-sn-signed-in
+  data-sn-with="{ nav: 'settings', title: 'Settings', description: 'Your Conduit settings: picture, name, bio, email and password.' }">
 
 <main class="settings-page">
   <div class="container page">
@@ -13,8 +11,8 @@
           <form data-sn-state="{ s: {image: user.image ?? '', username: user.username, bio: user.bio ?? '', email: user.email, password: ''} }"
                 data-sn-put="/user"
                 data-sn-body="{user: {image: s.image, username: s.username, bio: s.bio, email: s.email, password: s.password || undefined}}"
-                data-sn-then="upsert('user', $result.user); emit('settings-saved', $result.user); navigate('/profile/' + encodeURIComponent($result.user.username))">
-            <error-list data-sn-prop="{ error: $error }"></error-list>
+                data-sn-then="upsert(user, $result.user); navigate('/profile/' + encodeURIComponent($result.user.username))">
+            <error-list data-sn-with="{ error: $error }"></error-list>
             <fieldset>
               <fieldset class="form-group"><input class="form-control" type="text" name="image" placeholder="URL of profile picture" data-sn-model="s.image"></fieldset>
               <fieldset class="form-group"><input class="form-control form-control-lg" type="text" name="username" placeholder="Your Name" data-sn-model="s.username"></fieldset>
@@ -25,7 +23,7 @@
             </fieldset>
           </form>
           <hr>
-          <button class="btn btn-outline-danger" type="button" data-sn-on-click="emit('signed-out')">Or click here to logout.</button>
+          <button class="btn btn-outline-danger" type="button" data-sn-on-click="signOut(); navigate('/')">Or click here to logout.</button>
         </template>
       </div>
     </div>

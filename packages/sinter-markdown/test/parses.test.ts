@@ -17,8 +17,8 @@ const RECIPE = readFileSync(join(PKG, 'docs/recipes/article-with-comments.html')
 // `&amp;amp;` in an attribute is the text `&amp;`: the same body as the first comment
 const CONTROLS = `<div data-sn-state="{ n: 0 }">
   <button id="bump" data-sn-on-click="n = n + 1" data-sn-text="n"></button>
-  <button id="same" data-sn-on-click="upsert('comments', { id: 4, author: 'Ada again', body: 'Great post &amp;amp; thanks!' })">same</button>
-  <button id="new" data-sn-on-click="upsert('comments', { id: 5, author: 'Kim', body: 'A *new* comment' })">new</button>
+  <button id="same" data-sn-on-click="upsert(comments, { id: 4, author: 'Ada again', body: 'Great post &amp;amp; thanks!' })">same</button>
+  <button id="new" data-sn-on-click="upsert(comments, { id: 5, author: 'Kim', body: 'A *new* comment' })">new</button>
 </div>`;
 const a = app({ 'index.html': page(`${RECIPE}\n${CONTROLS}`, `<meta http-equiv="Content-Security-Policy" content="${CSP}">`) });
 const out = join(a.root, 'dist');
@@ -28,7 +28,7 @@ beforeAll(async () => {
   await build({
     root: a.root, logLevel: 'silent',
     resolve: { alias: [{ find: /^@tiaforge-ui\/sinter-markdown\/parser$/, replacement: join(PKG, 'test/count-parser.js') }] },
-    plugins: [sinter({ components: ['@tiaforge-ui/sinter-markdown'] })],
+    plugins: [sinter({ libraries: ['@tiaforge-ui/sinter-markdown'] })],
     build: { outDir: out, emptyOutDir: true },
   });
   server = createServer((req, res) => {

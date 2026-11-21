@@ -12,7 +12,7 @@ import sinter from '../../src/vite.js';
 import { chromium } from '../browser.js';
 
 const src = resolve(__dirname, '../../src');
-const alias = [{ find: /^@tiaforge-ui\/sinter\/(.+)$/, replacement: `${src}/$1.ts` }, { find: /^@tiaforge-ui\/sinter$/, replacement: `${src}/index.ts` }];
+const alias = [{ find: /^@tiaforge-ui\/sinter\/runtime$/, replacement: `${src}/runtime-entry.ts` }, { find: /^@tiaforge-ui\/sinter\/(?:runtime\/)?(.+)$/, replacement: `${src}/$1.ts` }, { find: /^@tiaforge-ui\/sinter$/, replacement: `${src}/index.ts` }];
 const UI = resolve(__dirname, '../fixtures/ui');
 const root = mkdtempSync(join(tmpdir(), 'sinter-library-app-'));
 const out = join(root, 'dist');
@@ -29,7 +29,7 @@ beforeAll(() => {
 `);
 });
 
-const plugins = () => [sinter({ components: ['@fixture/ui'] })];
+const plugins = () => [sinter({ libraries: ['@fixture/ui'] })];
 
 test.skipIf(!chromium)('a build: the libraries\' layer is declared first, their scoped styles are in it, the app\'s CSS wins', async () => {
   await build({ root, logLevel: 'silent', plugins: plugins(), resolve: { alias }, build: { outDir: out, emptyOutDir: true, minify: false } });
@@ -83,7 +83,7 @@ test.skipIf(!chromium)('a package namespace by its declaring modules: the plain 
   <p id="w" data-sn-let="{ w: ui.words(s) }" data-sn-text="w ? w.length : 'waiting'"></p>
 </div></body></html>`);
   const lout = join(lroot, 'dist');
-  await build({ root: lroot, logLevel: 'silent', plugins: [sinter({ components: ['@fixture/ui'], lazy: ['@fixture/heavy'] })], resolve: { alias }, build: { outDir: lout, emptyOutDir: true, minify: false } });
+  await build({ root: lroot, logLevel: 'silent', plugins: [sinter({ libraries: ['@fixture/ui'], lazy: ['@fixture/heavy'] })], resolve: { alias }, build: { outDir: lout, emptyOutDir: true, minify: false } });
   const html = readFileSync(join(lout, 'index.html'), 'utf8');
   const entry = html.match(/<script type="module"[^>]*src="([^"]+)"/)![1]!;
   const files = readdirSync(join(lout, 'assets')).filter((f) => f.endsWith('.js'));
@@ -133,7 +133,7 @@ test.skipIf(!chromium)('the library itself in `lazy`, and a page that calls anot
   <p id="w" data-sn-let="{ w: ui.words(s) }" data-sn-text="w ? w.length : 'waiting'"></p>
 </div></body></html>`);
   const lout = join(lroot, 'dist');
-  await build({ root: lroot, logLevel: 'silent', plugins: [sinter({ components: ['@fixture/ui'], lazy: ['@fixture/ui', '@fixture/heavy'] })], resolve: { alias }, build: { outDir: lout, emptyOutDir: true, minify: false } });
+  await build({ root: lroot, logLevel: 'silent', plugins: [sinter({ libraries: ['@fixture/ui'], lazy: ['@fixture/ui', '@fixture/heavy'] })], resolve: { alias }, build: { outDir: lout, emptyOutDir: true, minify: false } });
   const html = readFileSync(join(lout, 'index.html'), 'utf8');
   const entry = html.match(/<script type="module"[^>]*src="([^"]+)"/)![1]!;
   const files = readdirSync(join(lout, 'assets')).filter((f) => f.endsWith('.js'));

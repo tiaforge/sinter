@@ -3,16 +3,18 @@ import { compile, compileParts, CODES, type ComplexityOptions } from '../../src/
 import { complexityOf } from '../../src/project.js';
 
 const files: Record<string, string> = {
-  '/p/src/components/x-a.html': '<template data-sn-component=""><div><x-b></x-b></div></template>',
-  '/p/src/components/x-b.html': '<template data-sn-component=""><div><x-a></x-a></div></template>',
-  '/p/src/components/x-bad.html': '<template data-sn-component=""><p>\n  <b data-sn-txt="x"></b></p></template>',
-  '/p/src/components/x-card.html': '<template data-sn-component="{ title: string }" data-sn-emits="{ pick: number }"><div><slot name="foot"></slot></div></template>',
+  '/p/src/components/x-a.html': '<template data-sn-props=""><div><x-b></x-b></div></template>',
+  '/p/src/components/x-b.html': '<template data-sn-props=""><div><x-a></x-a></div></template>',
+  '/p/src/components/x-bad.html': '<template data-sn-props=""><p>\n  <b data-sn-txt="x"></b></p></template>',
+  '/p/src/components/x-card.html': '<template data-sn-props="{ title: string }" data-sn-emits="{ pick: number }"><div><slot name="foot"></slot></div></template>',
   '/p/partials/old.html': '<p></p>',
   '/p/content/posts/a.md': '---\ntitle: A\n---\n',
-  '/p/src/layouts/x-shell.html': '<!doctype html><html data-sn-layout=""><head></head><body><slot></slot></body></html>',
-  '/p/src/components/x-close.html': '<template data-sn-component="{ cell: Slot<{ n: number }> }"><div><slot name="cell" data-sn-prop="{ n: 1 }"><b></b></slot><slot name="cel" data-sn-prop="{ n: 2 }"><i></i></slot></div></template>',
-  '/p/src/components/x-two.html': '<template data-sn-component=""><p></p><p></p></template>',
-  '/p/src/components/x-maybe.html': '<template data-sn-component="{ on?: boolean }"><template data-sn-if="on"><p></p></template></template>',
+  '/p/src/layouts/x-shell.html': '<!doctype html><html data-sn-props=""><head></head><body><slot></slot></body></html>',
+  '/p/src/components/x-close.html': '<template data-sn-props="{ cell: Slot<{ n: number }> }"><div><slot name="cell" data-sn-with="{ n: 1 }"><b></b></slot><slot name="cel" data-sn-with="{ n: 2 }"><i></i></slot></div></template>',
+  '/p/src/components/x-oldslot.html': '<template data-sn-props=""><div><slot name="cell" data-sn-prop="{ n: 1 }"></slot></div></template>',
+  '/p/src/components/x-cls.html': '<template data-sn-props="" class="x"><div></div></template>',
+  '/p/src/components/x-two.html': '<template data-sn-props=""><p></p><p></p></template>',
+  '/p/src/components/x-maybe.html': '<template data-sn-props="{ on?: boolean }"><template data-sn-if="on"><p></p></template></template>',
 };
 
 const SPEC = { file: '/p/openapi.json', doc: {
@@ -25,35 +27,68 @@ const SPEC = { file: '/p/openapi.json', doc: {
   components: { schemas: { Contact: { type: 'object', properties: { id: { type: 'integer' }, name: { type: 'string' }, starred: { type: 'boolean' } } } } },
 } };
 
-interface Opts { check?: boolean; openapi?: boolean; complexity?: ComplexityOptions; checkCycles?: boolean; collections?: boolean }
+interface Opts { check?: boolean; openapi?: boolean; complexity?: ComplexityOptions; collections?: boolean; helpers?: string[] }
 
 function diags(html: string, o: Opts = {}) {
   return compile(html, {
-    file: '/p/page.html', root: '/p', dev: false, check: o.check, openapi: o.openapi ? [SPEC] : undefined, complexity: o.complexity, checkCycles: o.checkCycles,
+    file: '/p/page.html', root: '/p', dev: false, check: o.check, openapi: o.openapi ? [SPEC] : undefined, complexity: o.complexity, 
     readFile: (p) => { if (!(p in files)) throw new Error('missing'); return files[p]!; },
     listFiles: (d) => Object.keys(files).filter((f) => f.startsWith(d.replace(/\/$/, '') + '/')),
     ...(o.collections ? { collections: new Map() } : {}),
-    helpers: { module: '/h.js', names: ['fmt'], namespaces: { m: { module: '/m.js', members: ['inbox_title'] } } },
+    helpers: { module: '/h.js', names: ['fmt', ...(o.helpers ?? [])], namespaces: { m: { module: '/m.js', members: ['inbox_title'] } } },
   }).diagnostics;
 }
 
 const R = `<sn-resource name="contacts" src="/api/c" key="id"></sn-resource>
-  <sn-resource name="messages" src="/api/m" key="uid" paginate="keyset" page-size="5" cursor="{uid}"></sn-resource>`;
+  <sn-resource name="messages" src="/api/m" key="uid" paginate="{ keyset: {uid: $item.uid}, size: 5 }"></sn-resource>`;
 const use = '<p data-sn-text="contacts.length + messages.length"></p>';
+
+test('a helper named like a retired function is the app\'s own, in handlers as in bindings', () => {
+  expect(diags('<form data-sn-post="/api/x" data-sn-then="reset()"><b data-sn-on-click="close(1)" data-sn-text="patch(2)"></b></form>', { helpers: ['reset', 'close', 'patch'] })).toEqual([]);
+});
+
+test('a bare name nothing defines: the hint names the row field and the string', () => {
+  const d = diags('<ul><template data-sn-for="r in [{ id: 1 }]" data-sn-key="id"><li></li></template></ul>').find((x) => x.code === 'SN201');
+  expect(d!.hint).toBe("a row's field is read through its loop variable: `r.id`");
+  expect(diags('<div data-sn-transition="hero"></div>').find((x) => x.code === 'SN201')!.hint).toBe("a fixed name is a string: `'hero'`");
+});
+
+test('a retired action has its own error: its options do not ask for an action', () => {
+  expect(diags('<button data-sn-get="/api/x" data-sn-trigger="click"></button>').map((d) => d.code)).toEqual(['SN101']);
+});
 
 /** One failing fixture per diagnostic code; the message text is part of the public API. */
 const cases: Array<[string, string, RegExp, Opts?]> = [
   ['SN101', '<p data-sn-txt="1"></p>', /`data-sn-txt` is not a sinter attribute. Did you mean `data-sn-text`\?/],
+  ['SN101', '<button data-sn-post="/api/x" data-sn-apply="off"></button>', /`data-sn-apply` is renamed to `data-sn-write-through`/],
+  ['SN101', '<x-card data-sn-prop="{ a: 1 }"></x-card>', /`data-sn-prop` is renamed to `data-sn-with`/],
+  ['SN101', '<sn-resource name="p" src="/api/p" key="id"></sn-resource><p data-sn-text="p.length"></p><sn-sync src="/s"><sn-event name="e" resource="p" op="upsert" item="person"></sn-event></sn-sync>', /`item` is renamed to `value`, the value the change writes/],
+  ['SN201', '<dialog id="d"></dialog><sn-sync src="/s"><sn-event name="x" then="close(\'d\')"></sn-event></sn-sync>', /`close\(\)` is renamed to `closeDialog\(\)`/],
+  ['SN101', '<p data-sn-component="{}"></p>', /`data-sn-component` is renamed to `data-sn-props`/],
+  ['SN101', '<sn-resource name="p" src="/api/p" key="id"></sn-resource><p data-sn-text="p.length"></p><sn-sync src="/s"><sn-event name="e" resource="p" op="upsert" value="$event.person" fallback></sn-event></sn-sync>', /`fallback` is gone: write the refresh as a second event of the same name/],
+  ['SN101', '<button data-sn-get="/api/x"></button>', /`data-sn-get` is gone: data a GET loads is a resource/],
+  ['SN101', '<form data-sn-on-dismiss="x = 1"></form>', /`data-sn-on-dismiss` is renamed to `data-sn-on-sn-dismiss`, as sinter's events are all `sn-…`/],
+  ['SN101', '<script type="application/json" data-sn-data="contacts"></script>', /`data-sn-data` is renamed to `data-sn-resource`/],
+  ['SN101', '<li data-sn-marked></li>', /`data-sn-marked` is set by sinter \(on the option a `data-sn-options` list marks\): style it with `\[data-sn-marked\]`/],
+  ['SN303', `${R}<p data-sn-text="$meta.contacts.pending"></p>${use}`, /`\$meta\.contacts\.pending` is gone: an element shows its own request with `aria-busy`/],
+  ['SN401', '<div data-sn-wait="on"></div>', /`data-sn-wait` takes `off`/],
+  ['SN101', '<x-oldslot></x-oldslot>', /`data-sn-prop` is renamed to `data-sn-with`/],
+  ['SN101', '<sn-component use="\'x-card\'" data-sn-prop="{ title: \'t\' }"></sn-component>', /`data-sn-prop` is renamed to `data-sn-with`/],
+  ['SN101', '<x-cls></x-cls>', /`class` is not an attribute of `<template data-sn-props>`; it takes `data-sn-props` and `data-sn-emits`/],
+  ['SN201', '<dialog id="d"></dialog><button data-sn-on-click="showModal(\'d\')"></button>', /`showModal\(\)` is renamed to `openDialog\(\)`/],
+  ['SN201', '<dialog><button data-sn-on-click="close()"></button></dialog>', /`close\(\)` is renamed to `closeDialog\(\)`/],
+  ['SN201', `${R}${use}<template data-sn-for="c in contacts"><b data-sn-on-click="patch(c, {})"></b></template>`, /`patch\(\)` is renamed to `merge\(\)`/],
+  ['SN201', '<b data-sn-on-click="merge(x, {})"></b>', /`merge` is both a store function and a helper/, { helpers: ['merge'] }],
+  ['SN201', '<form data-sn-post="/api/x" data-sn-then="reset()"></form>', /`reset\(\)` is gone: a form's fields follow their `data-sn-model` state/],
   ['SN102', '<div data-sn-for="x in [1]"></div>', /`data-sn-for` must be on a `<template>`/],
-  ['SN103', '<template data-sn-for="x in [1, 2]"><i></i></template>', /needs `data-sn-key`/],
   ['SN104', '<div data-sn-state="{f: null}"><input type="file" data-sn-model="f"></div>', /does not support `type="file"`/],
   ['SN105', '<ul><!--sn 3--></ul>', /this comment is one of the forms sinter marks lists and branches with/],
   ['SN106', '<div data-sn-state="{ xs: [1] }"><textarea><template data-sn-for="x in xs"><i></i></template></textarea></div>', /a `<template data-sn-for>` inside `<textarea>` is text to the HTML parser/],
   ['SN201', `${R}${use}<p data-sn-text="contcts.length"></p>`, /`contcts` is not defined here. Did you mean `contacts`\?/],
   ['SN202', '<p data-sn-text="window.x"></p>', /`window` is a browser API/],
   ['SN203', '<div data-sn-state="{a: 1}"><p data-sn-text="a = 2"></p></div>', /value expressions cannot assign; move this to `data-sn-on-\*`/],
-  ['SN204', '<div data-sn-state="{a: 1}"><button data-sn-post="/x" data-sn-optimistic="a = 2"></button></div>', /may only call `patch`, `upsert`, `remove`/],
-  ['SN205', `${R}${use}<template data-sn-for="m in messages"><button data-sn-on-click="m.is_read = true"></button></template>`, /`m.is_read` mutates a resource. Use `patch\(m, \{…\}\)`/],
+  ['SN204', '<div data-sn-state="{a: 1}"><button data-sn-post="/x" data-sn-optimistic="a = 2"></button></div>', /may only call `merge`, `upsert`, `remove`/],
+  ['SN205', `${R}${use}<template data-sn-for="m in messages"><button data-sn-on-click="m.is_read = true"></button></template>`, /`m.is_read` mutates a resource. Use `merge\(m, \{…\}\)`/],
   ['SN206', '<p data-sn-text="m.inbox_titel()"></p>', /`m.inbox_titel` is not exported by namespace `m`. Did you mean `inbox_title`\?/],
   ['SN207', '<a data-sn-attr="{onclick: 1}"></a>', /`onclick` cannot be bound with `data-sn-attr`; use `data-sn-on-click`/],
   ['SN209', '<div data-sn-state="{ s: 1 }" data-sn-let="{ s: 2 }"><p data-sn-text="s"></p></div>', /`s` is already defined here; use another name/],
@@ -62,23 +97,22 @@ const cases: Array<[string, string, RegExp, Opts?]> = [
   ['SN211', '<select multiple data-sn-model="$url.tag"></select><p data-sn-show="$url.tag"></p>', /`\$url.tag` is a list and always truthy; use `\$url.tag.length`/],
   ['SN212', `<button data-sn-on-click="$url.f = { a: 1 }"></button>`, /`\$url.f` holds a string \(or a list of strings\); an object cannot be written to it/],
   ['SN213', '<div data-sn-state="{ n: 1 }"><template data-sn-if="$el.isConnected"><i></i></template></div>', /`\$el` in a `data-sn-if`: the condition is marked by comments/],
-  ['SN301', `${R}${use}<button data-sn-on-click="refresh('mesages')"></button>`, /resource `mesages` is not declared on this page/],
-  ['SN302', `${R}${use}<sn-resource name="contacts" src="/x" key="id"></sn-resource>`, /resource `contacts` is declared twice/],
+  ['SN301', `${R}${use}<button data-sn-on-click="refresh(mesages)"></button>`, /resource `mesages` is not declared on this page/],
+  ['SN209', `${R}${use}<sn-resource name="contacts" src="/x" key="id"></sn-resource>`, /resource `contacts` is declared twice/],
   ['SN303', `${R}${use}<p data-sn-text="$meta.contacts.loadng"></p>`, /`\$meta.contacts.loadng` is not a status field. Did you mean `loading`\?/],
-  ['SN304', `${R}${use}<button data-sn-on-click="page('messages', 7)"></button>`, /keyset pagination cannot jump to a page number/],
-  ['SN308', '<sn-resource name="c" src="/api/c" items="contcts"></sn-resource><p data-sn-text="c"></p>', /the response of `GET \/api\/c` has no `contcts`. Did you mean `contacts`\?/, { openapi: true }],
+  ['SN304', `${R}${use}<button data-sn-on-click="page(messages, 7)"></button>`, /keyset pagination cannot jump to a page number/],
+  ['SN308', '<sn-resource name="c" src="/api/c" select="contcts"></sn-resource><p data-sn-text="c"></p>', /the response of `GET \/api\/c` has no `contcts`. Did you mean `contacts`\?/, { openapi: true }],
   ['SN306', '<x-a></x-a>', /`<x-a>` → `<x-b>` → `<x-a>` uses itself with no `data-sn-for` or `data-sn-if` template between/],
-  ['SN309', '<dialog id="compose"></dialog><button data-sn-on-click="showModal(\'compse\')"></button>', /no `<dialog id="compse">` on this page. Did you mean `compose`\?/],
+  ['SN309', '<dialog id="compose"></dialog><button data-sn-on-click="openDialog(\'compse\')"></button>', /no `<dialog id="compse">` on this page. Did you mean `compose`\?/],
   ['SN310', '<button data-sn-call="archive(1)"></button>', /`archive` is not exported by the actions module/],
-  ['SN311', `<span id="mark-read" data-sn-post="/x"></span><button data-sn-on-click="run('mark-raed')"></button>`, /no element `id="mark-raed"` on this page. Did you mean `mark-read`\?/],
+  ['SN309', `<span id="mark-read" data-sn-post="/x"></span><button data-sn-on-click="run('mark-raed')"></button>`, /no element `id="mark-raed"` on this page. Did you mean `mark-read`\?/],
   ['SN312', '<x-two></x-two>', /a component's root renders at most one element/],
-  ['SN313', '<x-card data-sn-prop="{ titel: 1 }"></x-card>', /`titel` is not a prop of `<x-card>`/],
-  ['SN314', '<x-card data-sn-prop="{ title: \'a\' }"><b slot="fot"></b></x-card>', /`<x-card>` has no slot `fot`/],
-  ['SN315', '<x-card data-sn-prop="{ title: \'a\' }" data-sn-on-pik="1"></x-card>', /`<x-card>` does not emit `pik`/],
-  ['SN316', '<sn-include src="./partials/old.html"></sn-include>', /`<sn-include>` is removed: a partial is a component/],
+  ['SN313', '<x-card data-sn-with="{ titel: 1 }"></x-card>', /`titel` is not a prop of `<x-card>`/],
+  ['SN314', '<x-card data-sn-with="{ title: \'a\' }"><b slot="fot"></b></x-card>', /`<x-card>` has no slot `fot`/],
+  ['SN315', '<x-card data-sn-with="{ title: \'a\' }" data-sn-on-pik="1"></x-card>', /`<x-card>` does not emit `pik`/],
   ['SN317', `${R}${use}<template data-sn-for="m in messages"><button data-sn-on-click="remove('messages', m)"></button></template>`, /`remove\(\)` takes the item, not a resource name/],
-  ['SN318', '<p data-sn-layout=""></p>', /`data-sn-layout` belongs on the `<html>` of a layout file/],
-  ['SN319', '<p>x</p><x-shell></x-shell>', /a page that uses the layout `<x-shell>` is only its tag/],
+  ['SN318', '<!doctype html><html data-sn-props=""><head></head><body></body></html>', /`data-sn-props` on `<html>` belongs to a layout file/],
+  ['SN318', '<p>x</p><x-shell></x-shell>', /a page that uses the layout `<x-shell>` is only its tag/],
   ['SN321', '<!doctype html><html><head><title>a</title><title>b</title></head><body></body></html>', /a second `<title>` in the head/],
   ['SN323', '<p data-sn-text="$site"></p>', /`\$site` is the site's root URL, and the build does not know the site's origin/],
   ['SN320', '<!doctype html><html><head><title>t</title><div></div></head><body></body></html>', /`<div>` cannot be in the `<head>`/],
@@ -87,32 +121,34 @@ const cases: Array<[string, string, RegExp, Opts?]> = [
   ['SN502', '<p data-sn-text="Date.now()"></p>', /`Date.now\(\)` in a binding never updates. Use `\$now`/],
   ['SN503', `${R}${use}<template data-sn-for="c in contacts"><a data-sn-attr="{id: c.id}"></a></template>`, /`id` bound from data can shadow globals/],
   ['SN504', `${R}${use}`, /resource `contacts` has no type: expressions using it are not checked/, { check: true }],
-  ['SN506', `${R}${use}<sn-sync src="/api/events"><sn-event name="contact_updated" resource="contacts" op="upsert" item="contact"></sn-event></sn-sync>`, /event `contact_updated` has no type: expressions reading its payload are not checked/, { check: true }],
+  ['SN506', `${R}${use}<sn-sync src="/api/events"><sn-event name="contact_updated" resource="contacts" op="upsert" value="$event.contact"></sn-event></sn-sync>`, /event `contact_updated` has no type: expressions reading its payload are not checked/, { check: true }],
   ['SN507', '<div data-sn-state="{ a: 0 }"><button data-sn-on-click="a = 1; a = 2; a = 3; a = 4; a = 5" data-sn-text="a"></button></div>', /`data-sn-on-click` is too complex for markup: 5 statements in one handler \(limit `statements`: 4\)\. Move the logic into a helper/],
-  ['SN334', '<div data-sn-state="{ v: true }"><x-maybe id="m" data-sn-prop="{ on: v }"></x-maybe></div>', /`<x-maybe>`'s root may render nothing, so `id` on its tag would point at an element that may not exist/],
+  ['SN334', '<div data-sn-state="{ v: true }"><x-maybe id="m" data-sn-with="{ on: v }"></x-maybe></div>', /`<x-maybe>`'s root may render nothing, so `id` on its tag would point at an element that may not exist/],
   ['SN333', '<div data-sn-state="{ v: 1 }"><template data-sn-text="v" data-sn-if="v"></template></div>', /`data-sn-text` and `data-sn-if` on one `<template>`/],
   ['SN535', '<x-close></x-close>', /`<slot name="cel">` in `<x-close>` is a tree placement.*Did you mean `cell`/],
   ['SN331', '<div><slot></slot></div>', /this `<slot>` is not in a component or a fill, so nothing fills it/],
   ['SN332', '<button data-sn-post="file:./post.txt"></button>', /`file:` is a source for `<sn-resource src>`/],
-  ['SN340', '<!doctype html><html data-sn-pages="post in posts"><head></head><body><sn-resource name="posts" src="file:/content/posts/*.md"></sn-resource><p data-sn-text="posts.length"></p></body></html>', /`data-sn-pages` needs `data-sn-path` with exactly one pattern/],
-  ['SN341', '<!doctype html><html data-sn-path="/blog/:year/:slug" data-sn-pages="post in posts"><head></head><body><sn-resource name="posts" src="file:/content/posts/*.md"></sn-resource><p data-sn-text="post.slug"></p></body></html>', /has no `year` to fill `:year`/],
+  ['SN340', '<!doctype html><html data-sn-for="post in posts"><head></head><body><sn-resource name="posts" src="file:/content/posts/*.md"></sn-resource><p data-sn-text="posts.length"></p></body></html>', /`data-sn-for` on `<html>` needs `data-sn-path` with exactly one pattern/],
+  ['SN340', '<!doctype html><html data-sn-path="/blog/:year/:slug" data-sn-for="post in posts"><head></head><body><sn-resource name="posts" src="file:/content/posts/*.md"></sn-resource><p data-sn-text="post.slug"></p></body></html>', /has no `year` to fill `:year`/],
   ['SN342', '<sn-resource name="p" src="content:posts"></sn-resource><p data-sn-text="p.length"></p>', /`posts` is not a collection of the content module/, { collections: true }],
   ['SN344', '<sn-resource name="p" src="content:posts"></sn-resource><div data-sn-state="{ n: 0 }"><button data-sn-on-click="n++"></button><b data-sn-text="n + p.length"></b></div>', /browser code reads `p`, a collection/, { collections: true }],
-  ['SN345', '<!doctype html><html data-sn-path="/blog/:slug" data-sn-pages="post in posts"><head></head><body><sn-resource name="posts" src="file:/content/posts/*.md"></sn-resource><p data-sn-text="$url.slug"></p></body></html>', /`\$url\.slug` on a `data-sn-pages` page/],
+  ['SN345', '<!doctype html><html data-sn-path="/blog/:slug" data-sn-for="post in posts"><head></head><body><sn-resource name="posts" src="file:/content/posts/*.md"></sn-resource><p data-sn-text="$url.slug"></p></body></html>', /`\$url\.slug` on a page per entry \(`data-sn-for` on `<html>`\)/],
+  ['SN347', '<button data-sn-on-click="signOut()">out</button>', /no API of this app has one/],
+  ['SN347', '<!doctype html><html data-sn-signed-in><head></head><body><p>x</p></body></html>', /`data-sn-signed-in` needs an API with a `token`/],
   ['SN346', '<aside data-sn-permanent="p"></aside><nav data-sn-permanent="p"></nav>', /is on two elements of this page/],
   ['SN541', '<aside data-sn-permanent="p" data-sn-state="{ t: 0 }"><audio data-sn-attr="{ muted: t }"></audio></aside>', /in a kept element is bound/],
   ['SN539', '<sn-resource name="r" src="file:/content/none/*.md"></sn-resource><p data-sn-text="r.length"></p>', /`file:\/content\/none\/\*\.md` matches no file/],
   ['SN532', '<div data-sn-state="{ xs: [1] }"><template data-sn-for="x in xs"><p id="row" data-sn-text="x"></p></template></div>', /`id="row"` is in markup that renders more than once \(a `data-sn-for` row\)/],
   ['SN531', '<div data-sn-state="{ u: \'a\' }"><button data-sn-post="/api/login" data-sn-body="JSON.stringify({ username: u })"></button></div>', /`data-sn-body` is already JSON text \(`JSON\.stringify\(…\)`\): sinter encodes the body, so the server would get a JSON string, not the object/],
-  ['SN509', `<button id="save" data-sn-post="/x" data-sn-catch="run('save')"></button>`, /`run\(\)` cycle: `#save` `data-sn-catch` \(page.html:1\) runs `#save`, which starts the first step again/, { checkCycles: true }],
+  ['SN509', `<button id="save" data-sn-post="/x" data-sn-catch="run('save')"></button>`, /`run\(\)` cycle: `#save` `data-sn-catch` \(page.html:1\) runs `#save`, which starts the first step again/],
   ['SN513', '<div data-sn-state="{ dark: false }"><img alt="" data-sn-attr="{src: dark ? \'./logo-dark.png\' : \'./logo.png\'}"></div>', /`src` is bound to local images \(`\.\/logo-dark\.png`, `\.\/logo\.png`\), which are not optimized/],
-  ['SN517', '<sn-resource name="c" src="/api/c" items="contacts"></sn-resource><p data-sn-text="c"></p>', /`GET \/api\/c` returns a list at `contacts`: resource `c` has no `key`, so it is one object holding the list/, { openapi: true }],
-  ['SN516', '<sn-resource name="c" src="/api/c" items="contacts"></sn-resource><p data-sn-text="$meta.c.live"></p>', /`\$meta\.c\.live` is always `null`: no `<sn-event resource="c">` on this page feeds `c`/],
-  ['SN519', '<sn-resource name="a" src="/api/a?tag={$url.tag}" items="a" key="id" paginate="offset" page-size="2" page-model="$url.page"></sn-resource><p data-sn-text="a.length"></p><a href="?page=2">2</a>', /`\?page=2` keeps only its own query: `tag`, which this page reads, is dropped when it is followed/],
+  ['SN517', '<sn-resource name="c" src="/api/c" select="contacts"></sn-resource><p data-sn-text="c"></p>', /`GET \/api\/c` returns a list at `contacts`: resource `c` has no `key`, so it is one object holding the list/, { openapi: true }],
+  ['SN516', '<sn-resource name="c" src="/api/c" select="contacts"></sn-resource><p data-sn-text="$meta.c.live"></p>', /`\$meta\.c\.live` is always `null`: no `<sn-event resource="c">` on this page feeds `c`/],
+  ['SN519', '<sn-resource name="a" src="/api/a?tag={$url.tag}" select="a" key="id" paginate="{ numbered: true, size: 2, model: $url.page }"></sn-resource><p data-sn-text="a.length"></p><a href="?page=2">2</a>', /`\?page=2` keeps only its own query: `tag`, which this page reads, is dropped when it is followed/],
   ['SN515', '<!doctype html><html data-sn-path="/page/"><head></head><body></body></html>', /`data-sn-path="\/page\/"` is the URL this page has anyway/],
-  ['SN505', '<sn-resource name="c" src="/api/c?qq=1" items="contacts"></sn-resource><p data-sn-text="c"></p>', /`GET \/api\/c` declares no query parameter `qq`. Did you mean `q`\?/, { openapi: true }],
-  ['SN510', `<sn-resource name="c" src="/api/c" items="contacts" key="id"></sn-resource><template data-sn-for="x in c"><button data-sn-post="/api/c/{x.id}/star" data-sn-then="patch(x, $result.contact)"></button></template>`,
-    /`patch\(x, \$result\.contact\)` is what write-through does: the response of `POST \/api\/c\/\{id\}\/star` is `Contact`, which `c` holds; remove this write, or add `data-sn-apply="off"` to keep it/, { openapi: true }],
+  ['SN505', '<sn-resource name="c" src="/api/c?qq=1" select="contacts"></sn-resource><p data-sn-text="c"></p>', /`GET \/api\/c` declares no query parameter `qq`. Did you mean `q`\?/, { openapi: true }],
+  ['SN510', `<sn-resource name="c" src="/api/c" select="contacts" key="id"></sn-resource><template data-sn-for="x in c"><button data-sn-post="/api/c/{x.id}/star" data-sn-then="merge(x, $result.contact)"></button></template>`,
+    /`merge\(x, \$result\.contact\)` is what write-through does: the response of `POST \/api\/c\/\{id\}\/star` is `Contact`, which `c` holds; remove this write, or add `data-sn-write-through="off"` to keep it/, { openapi: true }],
 ];
 
 /** Codes that do not come from compile(): `sinter check` runs TypeScript (SN208), loading a spec fails (SN307). Fixtures in test/check. */
@@ -129,8 +165,8 @@ const APIS_ONLY = ['SN326', 'SN327', 'SN328', 'SN329', 'SN330', 'SN518'];
 const STYLES_ONLY = ['SN529', 'SN530'];
 /** Warnings of the Vite plugin, with no page position (`formatWarning`): SN521 in test/vite/page-urls.test.ts, SN523 in test/vite/build.test.ts, SN533 in test/vite/helpers-node.test.ts; SN534 (a helper call that does not fold) in test/behaviour/fold.test.ts, which needs the helpers loaded. */
 const BUILD_ONLY = ['SN343', 'SN534', 'SN533', 'SN520', 'SN521', 'SN522', 'SN523', 'SN524', 'SN525', 'SN526', 'SN527', 'SN528'];
-/** Component libraries (`sinter({ components })`): the packages (SN337, SN537) and their prefixes (SN338) are read from disk, uses of their components (SN339) need one. Fixtures in test/libraries.test.ts. */
-const LIBRARY_ONLY = ['SN337', 'SN338', 'SN339', 'SN537'];
+/** Component libraries (`sinter({ libraries })`): the packages (SN337, SN537) and their prefixes (SN337) are read from disk, uses of their components (SN339) need one. Fixtures in test/libraries.test.ts. */
+const LIBRARY_ONLY = ['SN337', 'SN337', 'SN339', 'SN537'];
 /** Codes of build-time expansion, which needs `prerender`: SN536 (the expansion limit) in test/compiler/unroll-nested.test.ts and test/compiler/constant-trees.test.ts. */
 const PRERENDER_ONLY = ['SN536'];
 /** With `sinter({ swap: true })` only: fixtures in test/compiler/permanent.test.ts. */
@@ -170,9 +206,9 @@ test('SN503 passes a value with a literal prefix', () => {
 describe('sandbox gaps closed', () => {
   const codes = (html: string) => diags(html).filter((d) => d.severity === 'error').map((d) => `${d.code} ${d.message}`);
   test('a literal origin followed by a value needs its `/`', () => {
-    expect(codes('<div data-sn-state="{x: 1}"><button data-sn-get="https://api.example.com{x}/p"></button></div>')).toEqual([expect.stringMatching(/^SN207 a URL template must start/)]);
-    expect(codes('<div data-sn-state="{x: 1}"><button data-sn-get="https://api.example.com/{x}"></button></div>')).toEqual([]);
-    expect(codes('<button data-sn-get="https://api.example.com"></button>')).toEqual([]);
+    expect(codes('<div data-sn-state="{x: 1}"><button data-sn-post="https://api.example.com{x}/p"></button></div>')).toEqual([expect.stringMatching(/^SN207 a URL template must start/)]);
+    expect(codes('<div data-sn-state="{x: 1}"><button data-sn-post="https://api.example.com/{x}"></button></div>')).toEqual([]);
+    expect(codes('<button data-sn-post="https://api.example.com"></button>')).toEqual([]);
   });
   test('Object.assign() on a resource item is a mutation; on state it is a write', () => {
     expect(codes(`${R}${use}<template data-sn-for="c in contacts"><button data-sn-on-click="Object.assign(c, {name: 'x'})"></button></template>`))
@@ -187,69 +223,86 @@ describe('sandbox gaps closed', () => {
   });
 });
 
-test('refresh() with several names: each is a literal, declared resource', () => {
+test('refresh() with several resources: each a declared one', () => {
   const msgs = (h: string) => diags(`${R}${use}${h}`).map((d) => `${d.code} ${d.message}`);
-  expect(msgs(`<button data-sn-on-click="refresh('contacts', 'messages')"></button>`)).toEqual([]);
-  expect(msgs(`<button data-sn-on-click="refresh('contacts', 'mesages')"></button>`)).toEqual(['SN301 resource `mesages` is not declared on this page. Did you mean `messages`?']);
-  expect(msgs(`<div data-sn-state="{ r: 'contacts' }"><button data-sn-on-click="refresh('contacts', r)"></button></div>`)).toEqual([`SN301 ${FORMS('refresh')}`]);
+  expect(msgs(`<button data-sn-on-click="refresh(contacts, messages)"></button>`)).toEqual([]);
+  expect(msgs(`<button data-sn-on-click="refresh(contacts, mesages)"></button>`)).toEqual(['SN301 resource `mesages` is not declared on this page. Did you mean `messages`?']);
+  expect(msgs(`<div data-sn-state="{ r: 'contacts' }"><button data-sn-on-click="refresh(contacts, r)"></button></div>`)).toEqual([`SN301 ${FORMS('refresh')}`]);
+  // the form before 2026-11-20, a name as a string, says what to write
+  expect(msgs(`<button data-sn-on-click="refresh('contacts', 'messages')"></button>`)).toEqual(["SN301 `refresh()` takes the resource, not its name: `'contacts'` is `contacts`", "SN301 `refresh()` takes the resource, not its name: `'messages'` is `messages`"]);
   expect(msgs(`<button data-sn-on-click="refresh()"></button>`)).toEqual([`SN301 ${FORMS('refresh')}`]);
 });
 
-const FORMS = (fn: string) => `\`${fn}()\` takes ${fn === 'refresh' ? 'resource names' : 'a resource name'}: a string literal, \`?:\`, \`||\` or \`??\` between them, or a \`data-sn-let\` name that is one`;
+const FORMS = (fn: string) => `\`${fn}()\` takes ${fn === 'refresh' ? 'resources' : 'a resource'}: a resource (\`refresh(people)\`), \`?:\`, \`||\` or \`??\` between resources, or a \`data-sn-let\` name that is one`;
 
-describe('resource names from a closed set of literals', () => {
-  const P = `<sn-resource name="messages" src="/api/m" key="uid" paginate="keyset" page-size="5" cursor="{uid}"></sn-resource>
-  <sn-resource name="results" src="/api/r" key="uid" paginate="offset" page-size="5"></sn-resource>
-  <sn-resource name="jumps" src="/api/j" key="uid" paginate="keyset" page-size="5" cursor="{uid}" offset-param="offset"></sn-resource>
-  <sn-resource name="feed" src="/api/f" key="uid" paginate="append" page-size="5" cursor="{uid}"></sn-resource>
+describe('resource references: resources, ?:, ||, ?? and lets that are one', () => {
+  const P = `<sn-resource name="messages" src="/api/m" key="uid" paginate="{ keyset: {uid: $item.uid}, size: 5 }"></sn-resource>
+  <sn-resource name="results" src="/api/r" key="uid" paginate="{ numbered: true, size: 5 }"></sn-resource>
+  <sn-resource name="jumps" src="/api/j" key="uid" paginate="{ keyset: {uid: $item.uid}, size: 5, jump: true }"></sn-resource>
+  <sn-resource name="feed" src="/api/f" key="uid" paginate="{ append: {uid: $item.uid}, size: 5 }"></sn-resource>
   <sn-resource name="other" src="/api/o" key="id"></sn-resource>`;
   const msgs = (h: string, o: Opts = {}) => diags(`${P}<main data-sn-state="{ s: false, tab: 'messages' }">${h}</main>`, o).map((d) => `${d.code} ${d.message}`);
-  const on = (h: string, lets = `{ shown: s ? 'results' : 'messages' }`) => msgs(`<div data-sn-let="${lets}"><button data-sn-on-click="${h}"></button></div>`).filter((m) => !m.startsWith('SN501'));
+  const on = (h: string, lets = `{ shown: s ? results : messages }`) => msgs(`<div data-sn-let="${lets}"><button data-sn-on-click="${h}"></button></div>`).filter((m) => !m.startsWith('SN501'));
 
   test('?:, ||, ?? and lets: every name is checked like a literal, and counts as used', () => {
-    expect(msgs(`<div data-sn-let="{ shown: s ? 'results' : 'messages', list: s ? results : messages }"><p data-sn-text="list.length"></p>
-      <button data-sn-on-click="page(shown, 'next'); refresh(shown, s ? 'jumps' : 'feed'); upsert(shown, $event.detail)"></button>
-      <button data-sn-on-click="upsert((s ? 'other' : 'messages') || 'other', 1); upsert((s ? 'messages' : 'jumps') ?? 'feed', 1)"></button></div>`)).toEqual([]);
-    expect(on(`page(s ? 'reslts' : 'messages', 'next')`)).toEqual(expect.arrayContaining(['SN301 resource `reslts` is not declared on this page. Did you mean `results`?']));
+    expect(msgs(`<div data-sn-let="{ shown: s ? results : messages, list: s ? results : messages }"><p data-sn-text="list.length"></p>
+      <button data-sn-on-click="page(shown, 'next'); refresh(shown, s ? jumps : feed); upsert(shown, $event.detail)"></button>
+      <button data-sn-on-click="upsert((s ? other : messages) || other, 1); upsert((s ? messages : jumps) ?? feed, 1)"></button></div>`)).toEqual([]);
+    expect(on(`page(s ? reslts : messages, 'next')`)).toEqual(expect.arrayContaining(['SN301 resource `reslts` is not declared on this page. Did you mean `results`?']));
     // a let's names: an unknown one is reported where the let is read
-    expect(on(`refresh(shown)`, `{ shown: s ? 'mesages' : 'results' }`).filter((m) => m.startsWith('SN301'))).toEqual(['SN301 resource `mesages` is not declared on this page. Did you mean `messages`?']);
+    expect(on(`refresh(shown)`, `{ shown: s ? mesages : results }`).filter((m) => m.startsWith('SN301'))).toEqual(['SN301 resource `mesages` is not declared on this page. Did you mean `messages`?']);
     // lets built from lets
-    expect(on(`page(both, 'next')`, `{ a: 'results', both: s ? a : 'messages' }`)).toEqual([]);
+    expect(on(`page(both, 'next')`, `{ a: results, both: s ? a : messages }`)).toEqual([]);
   });
 
   test('names that cannot be listed stay SN301, with the forms allowed', () => {
     expect(on(`page(tab, 'next')`)).toEqual([`SN301 ${FORMS('page')}`]);
-    expect(on(`refresh(s && 'messages')`)).toEqual([`SN301 ${FORMS('refresh')}`]);
+    expect(on(`refresh(s && messages)`)).toEqual([`SN301 ${FORMS('refresh')}`]);
     expect(on(`upsert($event.detail, 1)`)).toEqual([`SN301 ${FORMS('upsert')}`]);
-    expect(on(`upsert(s ? tab : 'messages', 1)`)).toEqual([`SN301 ${FORMS('upsert')}`]);
+    expect(on(`upsert(s ? tab : messages, 1)`)).toEqual([`SN301 ${FORMS('upsert')}`]);
     expect(on(`upsert(String('messages'), 1)`)).toEqual([`SN301 ${FORMS('upsert')}`]);
   });
 
   test('page(): SN303 and SN304 for each name it can take', () => {
-    expect(on(`page(s ? 'other' : 'messages', 'next')`)).toEqual(['SN303 `other` has no `paginate`; `page()` needs a paginated resource']);
-    // a page number: fine where every name can jump, SN304 where one is keyset without offset-param
-    expect(on(`page(s ? 'results' : 'jumps', 3)`)).toEqual([]);
-    expect(on(`page(shown, 3)`)).toEqual(['SN304 keyset pagination cannot jump to a page number. Add `offset-param` if the server also accepts an offset, or use `paginate="offset"`']);
-    expect(on(`page(s ? 'feed' : 'messages', 'prev')`)).toEqual(['SN304 `append` pagination only supports `page(…, \'next\')`']);
-    expect(on(`page(s ? 'feed' : 'messages', 'next')`)).toEqual([]);
+    expect(on(`page(s ? other : messages, 'next')`)).toEqual(['SN303 `other` has no `paginate`; `page()` needs a paginated resource']);
+    // a page number: fine where every name can jump, SN304 where one is keyset without jump
+    expect(on(`page(s ? results : jumps, 3)`)).toEqual([]);
+    expect(on(`page(shown, 3)`)).toEqual(['SN304 keyset pagination cannot jump to a page number. Add `jump: true` to `paginate` if the server also accepts an offset, or use `numbered: true`']);
+    expect(on(`page(s ? feed : messages, 'prev')`)).toEqual(['SN304 `append` pagination only supports `page(…, \'next\')`']);
+    expect(on(`page(s ? feed : messages, 'next')`)).toEqual([]);
   });
 
   test('computed $meta keys: checked for each name when they can be listed, otherwise accepted', () => {
-    const text = (x: string, lets?: string) => msgs(`<div data-sn-let="${lets ?? `{ shown: s ? 'results' : 'messages' }`}"><p data-sn-text="${x}"></p></div>`).filter((m) => !m.startsWith('SN501'));
+    const text = (x: string, lets?: string) => msgs(`<div data-sn-let="${lets ?? `{ shown: s ? results : messages }`}"><p data-sn-text="${x}"></p></div>`).filter((m) => !m.startsWith('SN501'));
     expect(text(`$meta[shown].hasNext`)).toEqual([]);
     expect(text(`$meta[shown].hasNxt`)).toEqual([
       'SN303 `$meta.results.hasNxt` is not a status field. Did you mean `hasNext`?',
       'SN303 `$meta.messages.hasNxt` is not a status field. Did you mean `hasNext`?',
     ]);
-    expect(text(`$meta[s ? 'reslts' : 'messages'].loading`)).toEqual(['SN301 resource `reslts` is not declared on this page. Did you mean `results`?']);
-    expect(text(`$meta[s ? 'other' : 'results'].page`)).toEqual(['SN303 `$meta.other.page` is a pagination field, but `other` has no `paginate`']);
-    expect(text(`$meta[s ? 'jumps' : 'messages'].page`)).toEqual(['SN303 `$meta.messages.page` exists only with `paginate="offset"`, or `paginate="keyset"` with `offset-param`']);
+    expect(text(`$meta[s ? reslts : messages].loading`)).toEqual(['SN301 resource `reslts` is not declared on this page. Did you mean `results`?']);
+    expect(text(`$meta[s ? other : results].page`)).toEqual(['SN303 `$meta.other.page` is a pagination field, but `other` has no `paginate`']);
+    expect(text(`$meta[s ? jumps : messages].page`)).toEqual(['SN303 `$meta.messages.page` exists only on a numbered list (`paginate="{ numbered: true, … }"`), or a keyset list with `jump: true`']);
     // other computed keys: accepted, unchecked
     expect(text(`$meta[tab].hasNxt`)).toEqual([]);
   });
 
+  test('one mistake in a $meta chain, one diagnostic, however long the chain', () => {
+    const text = (x: string) => msgs(`<p data-sn-text="${x}"></p><p data-sn-text="other.length"></p>`).filter((m) => !m.startsWith('SN501'));
+    const named = 'SN301 `$meta[…]` takes the resource, not its name: `$meta[s ? \'messages\' : \'other\']` is `$meta[s ? messages : other]`';
+    expect(text(`$meta[s ? 'messages' : 'other'].loading`)).toEqual([named]);
+    expect(text(`$meta[s ? 'messages' : 'other']?.loading.x`)).toEqual([named]);
+    expect(text(`$meta[s ? mesages : other].loading.x`)).toEqual(['SN301 resource `mesages` is not declared on this page. Did you mean `messages`?']);
+    expect(text(`$meta.other.loadng.toString()`)).toEqual(['SN303 `$meta.other.loadng` is not a status field. Did you mean `loading`?']);
+    expect(text(`$meta.other.pending.x.y`)).toEqual(['SN303 `$meta.other.pending` is gone: an element shows its own request with `aria-busy` (`[aria-busy=true]` in CSS), optimistic or not']);
+    expect(text(`$meta.other.live.x`)).toEqual(['SN516 `$meta.other.live` is always `null`: no `<sn-event resource="other">` on this page feeds `other`']);
+    expect(text(`$meta[s ? other : messages].loadng.x`)).toEqual([
+      'SN303 `$meta.other.loadng` is not a status field. Did you mean `loading`?',
+      'SN303 `$meta.messages.loadng` is not a status field. Did you mean `loading`?',
+    ]);
+  });
+
   test('dependencies: a listable $meta key reads only those resources\' status', () => {
-    const r = compileParts(`${P}<main data-sn-state="{ s: false, tab: 'x' }" data-sn-let="{ shown: s ? 'results' : 'messages' }"><p data-sn-text="$meta[shown].hasNext"></p><p data-sn-text="$meta[tab].loading"></p><p data-sn-text="results.length + messages.length + jumps.length + feed.length + other.length"></p></main>`, {
+    const r = compileParts(`${P}<main data-sn-state="{ s: false, tab: 'x' }" data-sn-let="{ shown: s ? results : messages }"><p data-sn-text="$meta[shown].hasNext"></p><p data-sn-text="$meta[tab].loading"></p><p data-sn-text="results.length + messages.length + jumps.length + feed.length + other.length"></p></main>`, {
       file: '/p/page.html', root: '/p', dev: false, readFile: () => '', helpers: { module: '/h.js', names: [], namespaces: {} },
     });
     expect(r.diagnostics).toEqual([]);
@@ -262,47 +315,46 @@ describe('resource names from a closed set of literals', () => {
   test('SN501: a resource only named through a store call or a listable $meta key is used', () => {
     const unused = (h: string) => diags(`<sn-resource name="a" src="/a" key="id"></sn-resource><sn-resource name="b" src="/b" key="id"></sn-resource>
       <div data-sn-state="{ s: false }">${h}</div>`).filter((d) => d.code === 'SN501').map((d) => d.message);
-    expect(unused(`<button data-sn-on-click="refresh(s ? 'a' : 'b')"></button>`)).toEqual([]);
-    expect(unused(`<p data-sn-text="$meta[s ? 'a' : 'b'].loading"></p>`)).toEqual([]);
-    expect(unused(`<button data-sn-on-click="refresh('a')"></button>`)).toEqual(['resource `b` is declared but never read']);
+    expect(unused(`<button data-sn-on-click="refresh(s ? a : b)"></button>`)).toEqual([]);
+    expect(unused(`<p data-sn-text="$meta[s ? a : b].loading"></p>`)).toEqual([]);
+    expect(unused(`<button data-sn-on-click="refresh(a)"></button>`)).toEqual(['resource `b` is declared but never read']);
   });
 
   test('SN509: refresh() through a let adds an edge for each name', () => {
     const html = `<sn-resource name="a" src="/a" key="id" then="run('go')"></sn-resource><sn-resource name="b" src="/b" key="id"></sn-resource>
-      <div data-sn-state="{ s: false }" data-sn-let="{ which: s ? 'b' : 'a' }"><span id="go" data-sn-post="/x" data-sn-then="refresh(which)"></span><p data-sn-text="b.length"></p></div>`;
-    expect(diags(html, { checkCycles: true }).filter((d) => d.code === 'SN509').map((d) => d.message)).toEqual([expect.stringMatching(/cycle/)]);
+      <div data-sn-state="{ s: false }" data-sn-let="{ which: s ? b : a }"><span id="go" data-sn-post="/x" data-sn-then="refresh(which)"></span><p data-sn-text="b.length"></p></div>`;
+    expect(diags(html).filter((d) => d.code === 'SN509').map((d) => d.message)).toEqual([expect.stringMatching(/cycle/)]);
   });
 });
 
 describe('<sn-event then>', () => {
   const codes = (events: string) => diags(`${R}${use}<dialog id="detail"></dialog><main data-sn-state="{ sel: null }"><p data-sn-text="sel"></p>
     <sn-sync src="/api/events">${events}</sn-sync></main>`).filter((d) => d.severity === 'error').map((d) => `${d.code} ${d.message}`);
-  test('a handler: state writes, store functions and payload fields; with `then`, resource and op may be left out', () => {
-    expect(codes(`<sn-event name="r" resource="contacts" op="remove" then="sel?.id === id && (sel = null, close('detail')); refresh('messages')"></sn-event>`)).toEqual([]);
-    expect(codes(`<sn-event name="n" then="sel = id"></sn-event>`)).toEqual([]);
-    expect(codes(`<sn-event name="n" when="id = 1"></sn-event>`)).toEqual([expect.stringMatching(/^SN301 resource `` is not declared/)]);
+  test('a handler: state writes, store functions and the payload, $event; with `then`, resource and op may be left out', () => {
+    expect(codes(`<sn-event name="r" resource="contacts" op="remove" then="sel?.id === $event.id && (sel = null, closeDialog('detail')); refresh(messages)"></sn-event>`)).toEqual([]);
+    expect(codes(`<sn-event name="n" then="sel = $event.id"></sn-event>`)).toEqual([]);
+    // a payload field read bare, the form before 2026-11-20, names `$event`
+    expect(codes(`<sn-event name="n" then="sel = id"></sn-event>`)).toEqual(["SN201 `id` is renamed to `$event.id`: an `<sn-event>`'s payload is `$event`"]);
   });
-  test('data-sn-let names around the sync resolve like state, before payload fields; they cannot be assigned', () => {
+  test('data-sn-let names around the sync resolve as anywhere; they cannot be assigned', () => {
     const lets = (events: string) => diags(`${R}${use}<main data-sn-state="{ sel: null }" data-sn-let="{ open: sel, tag: $el.id }"><p data-sn-text="open + tag"></p>
       <sn-sync src="/api/events">${events}</sn-sync></main>`).filter((d) => d.severity === 'error').map((d) => `${d.code} ${d.message}`);
-    expect(lets(`<sn-event name="n" when="open && open.id === id" then="open && sel === open && refresh('messages')"></sn-event>`)).toEqual([]);
-    expect(lets(`<sn-event name="n" then="open = id"></sn-event>`)).toEqual(['SN203 `open` is derived (`data-sn-let`) and cannot be assigned; assign the state it is computed from']);
+    expect(lets(`<sn-event name="n" when="open && open.id === $event.id" then="open && sel === open && refresh(messages)"></sn-event>`)).toEqual([]);
+    expect(lets(`<sn-event name="n" then="open = $event.id"></sn-event>`)).toEqual(['SN203 `open` is derived (`data-sn-let`) and cannot be assigned; assign the state it is computed from']);
     expect(lets(`<sn-event name="n" then="sel = tag"></sn-event>`)).toEqual(['SN201 `tag` (`data-sn-let`) reads `$el`, and `<sn-event>` has no element']);
     const parts = compileParts(`${R}${use}<main data-sn-state="{ sel: null }" data-sn-let="{ open: sel }"><p data-sn-text="open"></p>
-      <sn-sync src="/api/events"><sn-event name="n" then="sel = open || id"></sn-event></sn-sync></main>`, {
+      <sn-sync src="/api/events"><sn-event name="n" then="sel = open || $event.id"></sn-event></sn-sync></main>`, {
       file: '/p/page.html', root: '/p', dev: false, readFile: () => '', helpers: { module: null, names: [], namespaces: {} },
     });
     expect(parts.fns.find((f) => f.includes('$.$p.id'))).toContain('$.$s0.sel || $.$p.id');
   });
   test('errors: unknown dialogs, element-less store functions, payload writes, a misspelt attribute', () => {
-    expect(codes(`<sn-event name="n" then="close('detial')"></sn-event>`)).toEqual([expect.stringMatching(/^SN309 no `<dialog id="detial">` on this page. Did you mean `detail`\?/)]);
-    expect(codes(`<sn-event name="n" then="close(); reset(); emit('x')"></sn-event>`)).toEqual([
-      "SN203 `close()` needs an element; an `<sn-event>` handler has none: name the dialog, `close('id')`",
-      'SN203 `reset()` needs an element; an `<sn-event>` handler has none',
+    expect(codes(`<sn-event name="n" then="closeDialog('detial')"></sn-event>`)).toEqual([expect.stringMatching(/^SN309 no `<dialog id="detial">` on this page. Did you mean `detail`\?/)]);
+    expect(codes(`<sn-event name="n" then="closeDialog(); emit('x')"></sn-event>`)).toEqual([
+      "SN203 `closeDialog()` needs an element; an `<sn-event>` handler has none: name the dialog, `closeDialog('id')`",
       'SN203 `emit()` needs an element; an `<sn-event>` handler has none',
     ]);
-    expect(codes(`<sn-event name="n" then="id = 2"></sn-event>`)).toEqual([expect.stringMatching(/^SN203 `id` cannot be assigned/)]);
-    expect(codes(`<sn-event name="n" then="$event.x"></sn-event>`)).toEqual([expect.stringMatching(/^SN201 `\$event` is not available here/)]);
+    expect(codes(`<sn-event name="n" then="$event.id = 2"></sn-event>`)).toEqual([expect.stringMatching(/^SN203 `\$event\.id` cannot be assigned/)]);
     expect(codes(`<sn-event name="r" resource="contacts" op="remove" thn="sel = null"></sn-event>`))
       .toEqual(['SN101 `thn` is not an attribute of `<sn-event>`. Did you mean `then`?']);
   });
@@ -325,17 +377,16 @@ describe('<sn-resource then>', () => {
   const codes = (then: string, attrs = '') => diags(`<dialog id="detail"></dialog><main data-sn-state="{ sel: null }"><p data-sn-text="sel + c.length"></p>
     <sn-resource name="c" src="/api/c" key="id" ${attrs} then="${then}"></sn-resource></main>`).filter((d) => d.severity === 'error').map((d) => `${d.code} ${d.message}`);
   test('a handler: $result, state writes, store functions and resources', () => {
-    expect(codes("sel = $result[0]; c.length && showModal('detail'); close('detail'); refresh('c')")).toEqual([]);
+    expect(codes("sel = $result[0]; c.length && openDialog('detail'); closeDialog('detail'); refresh(c)")).toEqual([]);
   });
   test('errors: element-less store functions, $event, value-only places, a misspelt attribute', () => {
-    expect(codes("close(); reset(); emit('x')")).toEqual([
-      "SN203 `close()` needs an element; an `<sn-resource>` handler has none: name the dialog, `close('id')`",
-      'SN203 `reset()` needs an element; an `<sn-resource>` handler has none',
+    expect(codes("closeDialog(); emit('x')")).toEqual([
+      "SN203 `closeDialog()` needs an element; an `<sn-resource>` handler has none: name the dialog, `closeDialog('id')`",
       'SN203 `emit()` needs an element; an `<sn-resource>` handler has none',
     ]);
     expect(codes('$event.x')).toEqual([expect.stringMatching(/^SN201 `\$event` is not available here/)]);
     expect(codes('$error')).toEqual([expect.stringMatching(/^SN201 `\$error` is not available here/)]);
-    expect(codes("showModal('detial')")).toEqual([expect.stringMatching(/^SN309 no `<dialog id="detial">` on this page/)]);
+    expect(codes("openDialog('detial')")).toEqual([expect.stringMatching(/^SN309 no `<dialog id="detial">` on this page/)]);
     expect(codes('let x = 1')).toEqual([expect.stringMatching(/^SN203 handlers cannot contain declarations/)]);
     expect(diags('<sn-resource name="c" src="/api/c" key="id" thn="x"></sn-resource><p data-sn-text="c.length"></p>').map((d) => `${d.code} ${d.message}`))
       .toEqual(['SN101 `thn` is not an attribute of `<sn-resource>`. Did you mean `then`?']);
@@ -344,7 +395,7 @@ describe('<sn-resource then>', () => {
     // the spec's pattern: a resource loaded only for its `then`
     const sn501 = (then: string) => diags(`<dialog id="mail-compose"></dialog><main data-sn-state="{ compose: null, seen: false }">
       <sn-resource name="pending" src="/api/pending" then="${then}"></sn-resource><p data-sn-text="compose"></p></main>`).filter((d) => d.code === 'SN501');
-    expect(sn501("compose = $result ?? compose; $result && showModal('mail-compose')")).toEqual([]);
+    expect(sn501("compose = $result ?? compose; $result && openDialog('mail-compose')")).toEqual([]);
     expect(sn501('seen = true')).toEqual([]);
     expect(diags('<sn-resource name="pending" src="/api/pending"></sn-resource><p data-sn-text="1"></p>').map((d) => d.code)).toEqual(['SN501']);
   });
@@ -373,7 +424,7 @@ describe('SN207 unsafe sinks', () => {
     ['<a data-sn-attr="{style: 1}"></a>', /use `data-sn-style`/],
     ['<iframe data-sn-attr="{srcdoc: 1}"></iframe>', /cannot carry sinter bindings/],
     ['<div data-sn-attr="{srcdoc: 1}"></div>', /`srcdoc` cannot be bound/],
-    ['<x-el data-sn-prop="{innerHTML: 1}"></x-el>', /`innerHTML` cannot be set/],
+    ['<x-el data-sn-with="{innerHTML: 1}"></x-el>', /`innerHTML` cannot be set/],
     ['<div data-sn-style="{[k]: 1}"></div>', /keys must be literal/],
     ['<script data-sn-text="1"></script>', /cannot carry sinter bindings/],
     ['<svg><animate data-sn-attr="{to: 1}"></animate></svg>', /cannot carry sinter bindings/],
@@ -498,14 +549,14 @@ describe('expressions', () => {
     const hint = (resource: string, ev: string) => diags(`${resource}<p data-sn-text="contacts.length"></p><sn-sync src="/api/events">${ev}</sn-sync>`, { check: true })
       .find((d) => d.code === 'SN506')?.hint;
     const typed = '<sn-resource name="contacts" src="/api/c" key="id" type="Contact[]"></sn-resource>';
-    expect(hint(typed, '<sn-event name="contact.updated" resource="contacts" op="upsert" item="contact"></sn-event>'))
+    expect(hint(typed, '<sn-event name="contact.updated" resource="contacts" op="upsert" value="$event.contact"></sn-event>'))
       .toBe('add `type="{ contact: Contact }"`, the payload\'s fields (a type from the types module may be named), or `type="any"` to leave it unchecked');
-    expect(hint(typed.replace('Contact[]', 'Array<Contact>'), '<sn-event name="u" resource="contacts" op="upsert" item="contact"></sn-event>')).toMatch(/^add `type="\{ contact: Contact \}"`/);
+    expect(hint(typed.replace('Contact[]', 'Array<Contact>'), '<sn-event name="u" resource="contacts" op="upsert" value="$event.contact"></sn-event>')).toMatch(/^add `type="\{ contact: Contact \}"`/);
     // the sync before the resource it feeds
-    expect(diags(`<sn-sync src="/api/events"><sn-event name="u" resource="contacts" op="upsert" item="contact"></sn-event></sn-sync>${typed}<p data-sn-text="contacts.length"></p>`, { check: true })
+    expect(diags(`<sn-sync src="/api/events"><sn-event name="u" resource="contacts" op="upsert" value="$event.contact"></sn-event></sn-sync>${typed}<p data-sn-text="contacts.length"></p>`, { check: true })
       .find((d) => d.code === 'SN506')?.hint).toMatch(/^add `type="\{ contact: Contact \}"`/);
     // an untyped resource, and an item that is not one payload field
-    expect(hint(typed.replace(' type="Contact[]"', ''), '<sn-event name="u" resource="contacts" op="upsert" item="contact"></sn-event>')).toMatch(/^add `type="\{ contact: … \}"`/);
+    expect(hint(typed.replace(' type="Contact[]"', ''), '<sn-event name="u" resource="contacts" op="upsert" value="$event.contact"></sn-event>')).toMatch(/^add `type="\{ contact: … \}"`/);
     expect(hint(typed, '<sn-event name="d" resource="contacts" op="remove" when="id > 0"></sn-event>')).toMatch(/^add `type="\{ id: number; … \}"`/);
   });
   test('SN531 only for a body that is a JSON.stringify call: objects and other strings pass; a POST resource\'s body too', () => {
@@ -514,7 +565,7 @@ describe('expressions', () => {
     expect(codes('<div data-sn-state="{ u: \'a\' }"><button data-sn-post="/api/notes" data-sn-body="u + \'!\'"></button></div>')).not.toContain('SN531');
     expect(codes('<div data-sn-state="{ q: \'a\' }"><sn-resource name="found" src="/api/find" method="POST" body="JSON.stringify({ q })"></sn-resource><p data-sn-text="found"></p></div>')).toContain('SN531');
   });
-  test('resource mutators are SN205 with the patch() hint', () => {
+  test('resource mutators are SN205 with the merge() hint', () => {
     const d = diags(`${R}${use}<button data-sn-on-click="contacts.push(1)"></button>`);
     expect(d.find((x) => x.code === 'SN205')).toBeDefined();
   });
@@ -545,7 +596,7 @@ test('data-sn-debounce-<event> needs that handler and milliseconds', () => {
   expect(ds('<div data-sn-state="{ a: 0 }"><input data-sn-debounce-input="200" data-sn-on-change="a++"></div>'))
     .toEqual(['SN102 `data-sn-debounce-input` needs a `data-sn-on-input` handler on the same element']);
   expect(ds('<div data-sn-state="{ a: 0 }"><input data-sn-debounce-input="soon" data-sn-on-input="a++"></div>'))
-    .toEqual(['SN401 `data-sn-debounce-input` takes milliseconds']);
+    .toEqual(['SN401 `data-sn-debounce-input` takes a duration such as `300ms`, `2s`, `10m`, `2h` or `1d`, or milliseconds (`300`)']);
 });
 
 describe('key filters', () => {
@@ -594,26 +645,26 @@ describe('SN507 complex expressions', () => {
 
   test('idiomatic expressions are left alone', () => {
     for (const body of [
-      `<template data-sn-for="p in people.filter(p => p.name.toLowerCase().includes(q.toLowerCase()))"><li data-sn-on-click="sel = p; showModal('person')" data-sn-text="p.name"></li></template>`,
-      `<dialog id="person" data-sn-on-close="sel = null"></dialog><button data-sn-on-click="open && close('person')"></button>`,
-      `<button data-sn-on-click="sel = fmt(sel, n)"></button><button data-sn-on-click="n++; open = !open; sel = null; refresh('people')"></button>`,
+      `<template data-sn-for="p in people.filter(p => p.name.toLowerCase().includes(q.toLowerCase()))"><li data-sn-on-click="sel = p; openDialog('person')" data-sn-text="p.name"></li></template>`,
+      `<dialog id="person" data-sn-on-close="sel = null"></dialog><button data-sn-on-click="open && closeDialog('person')"></button>`,
+      `<button data-sn-on-click="sel = fmt(sel, n)"></button><button data-sn-on-click="n++; open = !open; sel = null; refresh(people)"></button>`,
       `<p data-sn-class="{active: sel === q, muted: !open, big: n > 10 && !open}" data-sn-attr="{title: n ? fmt(n) : null, 'aria-pressed': open ? 'true' : 'false'}"></p>`,
       `<p data-sn-text="n === 0 ? 'none' : n === 1 ? 'one' : 'many'"></p>`,
       `<p data-sn-text="people.find(p => p.id === sel?.id && p.name !== q)?.name ?? ''"></p>`,
       `<template data-sn-for="c in people.filter(c => !q || (c.fn_name + ' ' + c.org).toLowerCase().includes(q.toLowerCase()))"><i></i></template>`,
-      `<button data-sn-on-click="open ? close('person') : showModal('person')"></button>`,
+      `<button data-sn-on-click="open ? closeDialog('person') : openDialog('person')"></button>`,
       `<div data-sn-state="{ draft: { name: '', emails: [{ value: '', type: 'home' }], phones: [], tags: ['a', 'b', 'c'], nested: { a: 1, b: { c: 2 } } } }"><p data-sn-text="draft.name"></p></div>`,
       `<button data-sn-on-click="d = { tags: [...d.tags, q.trim()], title: q, size: n + 1, open: !open }"></button>`,
       // a resource list is one call: one statement, however many names
-      `<sn-resource name="a" src="/a"></sn-resource><sn-resource name="b" src="/b"></sn-resource><sn-resource name="c" src="/c"></sn-resource><p data-sn-text="a + b + c"></p><button data-sn-on-click="n++; open = false; sel = null; refresh('people', 'a', 'b', 'c')"></button>`,
+      `<sn-resource name="a" src="/a"></sn-resource><sn-resource name="b" src="/b"></sn-resource><sn-resource name="c" src="/c"></sn-resource><p data-sn-text="a + b + c"></p><button data-sn-on-click="n++; open = false; sel = null; refresh(people, a, b, c)"></button>`,
     ]) expect(warned(body), body).toEqual([]);
   });
 
   test('each limit, named in the message', () => {
     expect(warned(`<button data-sn-on-click="n = 1; n = 2; n = 3; n = 4; n = 5"></button>`)).toEqual(['`data-sn-on-click` is too complex for markup: 5 statements in one handler (limit `statements`: 4).']);
-    expect(warned(`<button data-sn-on-click="open && (sel = null, close())"></button>`)).toEqual(['`data-sn-on-click` is too complex for markup: a condition used as a statement runs 2 steps (limit `guarded`: 1).']);
-    expect(warned(`<button data-sn-on-click="open && (n ? close() : refresh('people'))"></button>`)).toEqual(['`data-sn-on-click` is too complex for markup: a condition used as a statement runs 2 steps (limit `guarded`: 1).']);
-    expect(warned(`<button data-sn-on-click="(sel = null, close())"></button>`)).toEqual(['`data-sn-on-click` is too complex for markup: 1 comma sequence `(a, b)` (limit `sequences`: 0).']);
+    expect(warned(`<button data-sn-on-click="open && (sel = null, closeDialog())"></button>`)).toEqual(['`data-sn-on-click` is too complex for markup: a condition used as a statement runs 2 steps (limit `guarded`: 1).']);
+    expect(warned(`<button data-sn-on-click="open && (n ? closeDialog() : refresh(people))"></button>`)).toEqual(['`data-sn-on-click` is too complex for markup: a condition used as a statement runs 2 steps (limit `guarded`: 1).']);
+    expect(warned(`<button data-sn-on-click="(sel = null, closeDialog())"></button>`)).toEqual(['`data-sn-on-click` is too complex for markup: 1 comma sequence `(a, b)` (limit `sequences`: 0).']);
     expect(warned(`<p data-sn-text="n === 0 ? 'a' : n === 1 ? 'b' : n === 2 ? 'c' : 'd'"></p>`)).toEqual(['`data-sn-text` is too complex for markup: `?:` nested 3 deep (limit `ternaries`: 2).']);
     expect(warned(`<p data-sn-text="people.filter(p => p.name.trim().toLowerCase().startsWith(q.trim().toLowerCase()) && !p.hidden && p.age * 2 > n).length"></p>`))
       .toEqual(['`data-sn-text` is too complex for markup: 10 operations in one arrow function (limit `arrow`: 8).']);
@@ -630,7 +681,7 @@ describe('SN507 complex expressions', () => {
   test('limits and the level are configurable', () => {
     const body = `<button data-sn-on-click="n = 1; n = 2; n = 3; n = 4; n = 5"></button>`;
     expect(warned(body, { complexity: { statements: 5 } })).toEqual([]);
-    expect(warned(`<button data-sn-on-click="open && (sel = null, close())"></button>`, { complexity: { guarded: 2, sequences: 1 } })).toEqual([]);
+    expect(warned(`<button data-sn-on-click="open && (sel = null, closeDialog())"></button>`, { complexity: { guarded: 2, sequences: 1 } })).toEqual([]);
     expect(diags(page(body), { complexity: { level: 'off' } }).filter((d) => d.code === 'SN507')).toEqual([]);
     const err = diags(page(body), { complexity: { level: 'error' } }).filter((d) => d.code === 'SN507');
     expect(err.map((d) => d.severity)).toEqual(['error']);
@@ -638,24 +689,26 @@ describe('SN507 complex expressions', () => {
   });
 
   test('the option is checked', () => {
-    expect(complexityOf({ statements: 2, level: 'error' })).toEqual({ statements: 2, level: 'error' });
-    expect(() => complexityOf({ statments: 2 } as ComplexityOptions)).toThrow(/`statments` is not a limit; the limits are `statements`/);
-    expect(() => complexityOf({ level: 'loud' } as unknown as ComplexityOptions)).toThrow(/`level` is `warn`, `error` or `off`/);
-    expect(() => complexityOf({ arrow: -1 })).toThrow(/`arrow` takes a number of 0 or more/);
+    expect(complexityOf({ level: 'error' })).toEqual({ level: 'error' });
+    expect(complexityOf(false)).toEqual({ level: 'off' });
+    expect(() => complexityOf({ statements: 2 })).toThrow(/`statements` is gone: the limits are fixed/);
+    expect(() => complexityOf({ level: 'off' })).toThrow("`level: 'off'` is `complexity: false`");
+    expect(() => complexityOf({ level: 'loud' })).toThrow(/`level` is `'warn'` or `'error'`/);
+    expect(() => complexityOf({ levl: 'error' })).toThrow(/`levl` is not an option; it takes `level`/);
   });
 });
 
 describe('SN516: $meta.<resource>.live of a resource no stream feeds', () => {
-  const R = '<sn-resource name="c" src="/api/c" items="contacts" key="id"></sn-resource>';
+  const R = '<sn-resource name="c" src="/api/c" select="contacts" key="id"></sn-resource>';
   const badge = '<p data-sn-text="$meta.c.live"></p>';
-  const sync = '<sn-sync src="/api/events"><sn-event name="x" resource="c" op="refetch"></sn-event></sn-sync>';
+  const sync = '<sn-sync src="/api/events"><sn-event name="x" resource="c" op="refresh"></sn-event></sn-sync>';
   const codes = (html: string) => diags(html).map((d) => d.code);
   test('no warning when an <sn-event> names the resource, wherever the sync is on the page', () => {
     expect(codes(R + sync + badge)).not.toContain('SN516');
     expect(codes(badge + R + sync)).not.toContain('SN516');
   });
   test('a sync whose events name another resource, or only run `then`, does not feed it', () => {
-    expect(codes(R + '<sn-sync src="/api/events"><sn-event name="x" resource="d" op="refetch"></sn-event></sn-sync>' + badge)).toContain('SN516');
+    expect(codes(R + '<sn-sync src="/api/events"><sn-event name="x" resource="d" op="refresh"></sn-event></sn-sync>' + badge)).toContain('SN516');
     expect(codes(R + '<sn-sync src="/api/events"><sn-event name="x" then="1"></sn-event></sn-sync>' + badge)).toContain('SN516');
   });
 });

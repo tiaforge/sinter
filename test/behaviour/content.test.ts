@@ -1,6 +1,6 @@
 // `content:` resources (docs/resources.md#collections): a collection of the content module, loaded before the compile
 // (`collections`), is a constant list as a `file:` glob is: it folds, sorts by `order`, keys by the collection's key,
-// and a `data-sn-pages` page can be built from it. An unknown name is SN342.
+// and a page per entry (`data-sn-for` on `<html>`) can be built from it. An unknown name is SN342.
 import { describe, expect, test } from 'vitest';
 import { compile } from '../../src/compiler/index.js';
 import { scrub } from '../../src/content-node.js';
@@ -34,15 +34,18 @@ describe('content: resources', () => {
       .toEqual([expect.stringMatching(/^SN342 `products`: the content module did not load its collections: collection `products`: CMS: 500/)]);
   });
 
-  test('SN332: `drafts` and `items` are the loader\'s business; what would load it', () => {
+  test('SN332: `drafts` and `select` are the loader\'s business; what would load it', () => {
     const one = (a: string) => errors(build(page(`<sn-resource name="p" src="content:products" ${a}></sn-resource><p data-sn-text="p.length"></p>`)));
     expect(one('drafts="draft"')).toEqual([expect.stringMatching(/^SN332 `drafts` is a `file:` glob's; a collection leaves its drafts out in its loader/)]);
-    expect(one('items="x"')).toEqual([expect.stringMatching(/^SN332 `items` picks a list out of a value; a collection is a list already/)]);
+    expect(one('select="x"')).toEqual([expect.stringMatching(/^SN332 `select` picks a part of a value; a collection is a list already/)]);
+    expect(one('items="x"')).toEqual([expect.stringMatching(/^SN101 `items` is renamed to `select`/)]);
     expect(one('refresh="30s"')).toEqual([expect.stringMatching(/^SN332 `refresh` reloads, and a `content:` resource is a constant/)]);
+    // the attributes it takes, without the two a `file:` resource has and a collection does not
+    expect(one('sort="x"')).toEqual(['SN101 `sort` is not an attribute of a `content:` resource, which takes only `name`, `src`, `type`, `key`, `order` and `fields`']);
   });
 
   test('a page per entry of a collection', () => {
-    const html = '<!doctype html><html data-sn-path="/shop/:sku" data-sn-pages="product in products"><head><title data-sn-text="product.name"></title></head><body><sn-resource name="products" src="content:products"></sn-resource><h1 data-sn-text="product.name"></h1></body></html>';
+    const html = '<!doctype html><html data-sn-path="/shop/:sku" data-sn-for="product in products"><head><title data-sn-text="product.name"></title></head><body><sn-resource name="products" src="content:products"></sn-resource><h1 data-sn-text="product.name"></h1></body></html>';
     const t = build(html);
     expect(errors(t)).toEqual([]);
     expect(t.pages!.entries.map((e) => e.path)).toEqual(['/shop/b-2', '/shop/a-1']);

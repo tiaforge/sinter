@@ -28,7 +28,7 @@ afterAll(() => rmSync(root, { recursive: true, force: true }));
 mkdirSync(join(root, 'node_modules'));
 symlinkSync(resolve(__dirname, '../node_modules/typescript'), join(root, 'node_modules/typescript'));
 writeFileSync(join(root, 'index.html'), `<!doctype html><html lang="en"><head><title>t</title></head><body>
-<sn-resource name="contacts" src="/api/contacts" items="contacts" key="id" type="any"></sn-resource>
+<sn-resource name="contacts" src="/api/contacts" select="contacts" key="id" type="any"></sn-resource>
 </body></html>`);
 
 const cli = (args: string[], env: Record<string, string> = {}) => {
@@ -64,6 +64,9 @@ test('strictOf: SINTER_STRICT wins over the option; allow takes known codes with
   expect([s.on, [...s.allow]]).toEqual([true, [['SN504', 'no types yet']]]);
   expect(() => strictOf({ allow: { SN504: ' ' } }, undefined)).toThrow(/takes the reason/);
   expect(() => strictOf({ allow: { SN1: 'x' } }, undefined)).toThrow(/not a diagnostic code/);
+  // only warnings strict mode would fail on: an error fails anyway, and SN507 or SN525 stay warnings already
+  expect(() => strictOf({ allow: { SN101: 'x' } }, undefined)).toThrow('`SN101` is an error');
+  expect(() => strictOf({ allow: { SN507: 'x' } }, undefined)).toThrow('`SN507` stays a warning in strict mode already');
   expect(() => strictOf({ alow: {} }, undefined)).toThrow(/`alow` is not an option/);
   expect(() => strictOf('yes', undefined)).toThrow(/takes `true`, `false`/);
 });

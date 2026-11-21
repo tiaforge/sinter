@@ -2,36 +2,26 @@
 // way by the Vite plugin and by `sinter check`.
 import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { dirname, relative, resolve, sep } from 'node:path';
+import { dirname, join, relative, resolve, sep } from 'node:path';
 import { readHelperManifest, type Diagnostic, type HelperManifest } from './compiler/index.js';
 import { strictOf, type Strict } from './compiler/diagnostics.js';
 import type { OpenApiSpec } from './compiler/openapi.js';
-import { resolveApis, type ApiOptions, type ApisDef } from './compiler/apis.js';
+import { defaultApiRenamed, resolveApis, type ApiOptions, type ApisDef } from './compiler/apis.js';
 import { COMPLEXITY_LIMITS, type ComplexityOptions } from './compiler/complexity.js';
 import { MESSAGES_MODULE, messagesDts, readMessages, type MessagesProject } from './i18n-build.js';
 import { componentNames, writeComponentTypes } from './components-build.js';
 import { typeExports } from './check/index.js';
-import { componentsOf, libraries as findLibraries, libraryOf, ownLibrary, type Library } from './libraries.js';
+import { librariesOf, libraries as findLibraries, libraryOf, modulesDir, ownLibrary, type Library } from './libraries.js';
 import { isSelfReference, resolveImport } from './fold-check.js';
 
 export interface ProjectOptions {
-  /** helpers module, relative to the root (default `src/sinter.helpers.js`, or `.ts`) */
-  helpers?: string;
-  /** actions module for `data-sn-call` and `<sn-resource call>` (default `src/sinter.actions.js`, or `.ts`) */
-  actions?: string;
-  /** content module: collections for `<sn-resource src="content:…">` (default `src/sinter.content.ts`, or `.js`); `false`: none */
-  content?: string | false;
-  /** app configuration module imported before mount (default `src/sinter.config.js`, or `.ts`) */
-  config?: string;
-  /** app module the early chunk runs before the first paint (default `src/sinter.early.js`, or `.ts`) */
-  early?: string;
+  /** content module: collections for `<sn-resource src="content:…">` (`src/sinter.content.ts`, or `.js`); `false`: none */
+  content?: false;
   /**
    * built-in messages: the inlang project (default `project.inlang`, if it exists) whose message
    * files give `m.key()` in markup and `m` from `@tiaforge-ui/sinter/messages`; `false`: none
    */
   messages?: string | false;
-  /** module whose exported types `type="…"` on `<sn-resource>` may name (default `src/sinter.types.ts`, `.d.ts` or `.js`) */
-  types?: string;
   /** OpenAPI specs (JSON or YAML, inside the root) that resources without `type` are matched against; deprecated: give each API its spec in `apis` */
   openapi?: string | string[];
   /**
@@ -40,18 +30,14 @@ export interface ProjectOptions {
    * is relative to one of them, and must be an operation it declares.
    */
   apis?: Record<string, ApiOptions>;
-  /** the API a path without `api:` goes to; with one API configured it is that one */
-  defaultApi?: string;
-  /** SN507: limits for expressions too complex for markup (`statements`, `sequences`, `guarded`, `ternaries`, `arrow`, `operations`) and `level`: `warn` (default), `error` or `off` */
-  complexity?: ComplexityOptions;
+  /** SN507 (`complex-expression`): `false` turns it off, `{ level: 'error' }` makes it an error; the limits are fixed */
+  complexity?: false | { level?: 'warn' | 'error' };
   /**
    * The most rows and component instances a page expands at build time, in all (default 10,000: each costs about
    * 0.2 ms of compile, in the build and in the editor, which compiles on every edit). A list or tree that would cross
    * it renders in the browser, with warning SN536 at it.
    */
   expansionLimit?: number;
-  /** SN509: report `then`/`catch` handlers that start each other again through `run()`, in the build, `sinter check` and `sinter lsp` (default off; `sinter check --check-cycles` for one run) */
-  checkCycles?: boolean;
   /**
    * SN322: pages that must ship no JavaScript, by their paths relative to the root (`'about.html'`,
    * `'docs/**'`; `*` within one folder, `**` across folders), or `true` for every page. A matched page
@@ -75,7 +61,7 @@ export interface ProjectOptions {
    * folder their package.json names (`"sinter": "./sinter"`). The app uses their public components
    * by name, and their helpers through a namespace (`export * as ui from '@acme/ui'`).
    */
-  components?: string[];
+  libraries?: string[];
   /**
    * Strict mode (docs/strict.md): warnings fail `vite build`, `sinter check` and pages in the dev
    * server, and runtime warnings show in the dev server's terminal and overlay. `allow` keeps codes
@@ -86,6 +72,7 @@ export interface ProjectOptions {
 }
 
 export { strictEnv, strictOf, type Strict } from './compiler/diagnostics.js';
+export { modulesDir } from './libraries.js';
 
 /** A path pattern of `static`: `**` any folders, `*` within one name, `?` one character. */
 export function staticPattern(pattern: string): RegExp {
@@ -124,7 +111,7 @@ export interface Project {
   /** root-relative URL of the config module (`/src/sinter.config.js`), or null */
   config: string | null;
   /**
-   * the config module may change requests (request middleware, `header()`, `credentials()`): resources are then
+   * the config module may change requests (request middleware, `header()`): resources are then
    * requested early by the early file, which hands a response over only for an unchanged request, never by a
    * `<link rel="preload">`, whose response the browser gives a later fetch whatever headers it adds
    */
@@ -150,13 +137,12 @@ export interface Project {
   diagnostics: Diagnostic[];
   /** every component of the app (`src/components/<name>.html`) and the public ones of its libraries: `ComponentName`, the candidates of `<sn-component use>` */
   componentNames: string[];
-  /** `components`: the component libraries, found */
+  /** `libraries`: the component libraries, found */
   libraries: Library[];
   /** the `complexity` option, checked */
   complexity: ComplexityOptions;
   /** `expansionLimit`, checked, or undefined for the default */
   expansionLimit: number | undefined;
-  checkCycles: boolean;
   /** `static`: the pages that must ship no JavaScript (SN322) */
   isStatic: (file: string) => boolean;
   /** `swap`: links swap the next page in */
@@ -178,6 +164,20 @@ function parseSpec(file: string, text: string): unknown {
   return doc;
 }
 
+/** `sinter({ components })` is the option's old name */
+export const COMPONENTS_RENAMED = 'sinter({ components }) is renamed to `libraries`: it lists component libraries, e.g. `libraries: [\'@acme/ui\']`';
+
+/** options that are gone or renamed: each fails naming what replaces it */
+export function retiredOptions(options: object): void {
+  const o = options as Record<string, unknown>;
+  if (o.components !== undefined) throw new Error(COMPONENTS_RENAMED);
+  if (o.defaultApi !== undefined) throw new Error(defaultApiRenamed('sinter', o.defaultApi));
+  for (const [k, file] of [['helpers', 'sinter.helpers'], ['actions', 'sinter.actions'], ['config', 'sinter.config'], ['early', 'sinter.early'], ['types', 'sinter.types']] as const) {
+    if (o[k] !== undefined) throw new Error(`sinter({ ${k} }) is gone: the module is \`src/${file}.ts\` (or \`.js\`), in a component library \`fixtures/${file}.ts\` beside its fixture pages`);
+  }
+  if (typeof o.content === 'string') throw new Error('sinter({ content }) takes only `false`: the content module is `src/sinter.content.ts` (or `.js`)');
+}
+
 export function project(root: string, options: ProjectOptions = {}): Project {
   const find = (given: string | undefined, base: string, exts = ['.js', '.ts']): string | null => {
     const candidates = given ? [given] : exts.map((e) => base + e);
@@ -187,7 +187,8 @@ export function project(root: string, options: ProjectOptions = {}): Project {
   // the component libraries: their files are read wherever they really are (a workspace link)
   const configFile = resolve(root, VITE_CONFIGS.find((f) => existsSync(resolve(root, f))) ?? 'vite.config.js');
   const appComponents = componentNames(root);
-  const libs = findLibraries(root, componentsOf(options.components), appComponents, configFile);
+  retiredOptions(options);
+  const libs = findLibraries(root, librariesOf(options.libraries), appComponents, configFile);
   let realRoot: string | undefined;
   const readFile = (path: string): string => {
     const real = realpathSync(path);
@@ -241,12 +242,14 @@ export function project(root: string, options: ProjectOptions = {}): Project {
       },
     }), file];
   };
-  const [helpers, helpersFile] = manifest(options.helpers, 'src/sinter.helpers');
-  const [actions, actionsFile] = manifest(options.actions, 'src/sinter.actions');
-  const contentRel = options.content === false ? null : find(options.content, 'src/sinter.content', ['.ts', '.js']);
-  const configRel = find(options.config, 'src/sinter.config');
-  const earlyRel = find(options.early, 'src/sinter.early');
-  const typesRel = find(options.types, 'src/sinter.types', ['.ts', '.d.ts', '.js']);
+  // the project modules are files at fixed names: `src/sinter.*`, or in a component library, beside its fixture pages
+  const at = modulesDir(root);
+  const [helpers, helpersFile] = manifest(undefined, `${at}/sinter.helpers`);
+  const [actions, actionsFile] = manifest(undefined, `${at}/sinter.actions`);
+  const contentRel = options.content === false ? null : find(undefined, `${at}/sinter.content`, ['.ts', '.js']);
+  const configRel = find(undefined, `${at}/sinter.config`);
+  const earlyRel = find(undefined, `${at}/sinter.early`);
+  const typesRel = find(undefined, `${at}/sinter.types`, ['.ts', '.d.ts', '.js']);
   const openapi: OpenApiSpec[] = [];
   const diagnostics: Diagnostic[] = [...libs.diagnostics];
   const loadSpec = (rel: string): number | null => {
@@ -301,13 +304,13 @@ export function project(root: string, options: ProjectOptions = {}): Project {
     if (exported.includes('Slot')) diagnostics.push({ severity: 'error', code: 'SN331', message: 'the types module exports a type named `Slot`, which is sinter\'s: `Slot<T>` in a component\'s props declares a slot that passes `T` to its fill', file, line: 1, col: 1, hint: 'rename the type (`TimeSlot`, `SlotInfo`)' });
   }
   return {
-    root, helpers, helpersFile, contentFile: contentRel ? resolve(root, contentRel) : null, actions, actionsFile, readFile, listFiles, openapi, apis, diagnostics, complexity: complexityOf(options.complexity), expansionLimit: expansionLimitOf(options.expansionLimit), checkCycles: !!options.checkCycles,
+    root, helpers, helpersFile, contentFile: contentRel ? resolve(root, contentRel) : null, actions, actionsFile, readFile, listFiles, openapi, apis, diagnostics, complexity: complexityOf(options.complexity), expansionLimit: expansionLimitOf(options.expansionLimit), 
     isStatic: staticPages(root, options.static).has, swap: !!options.swap,
     lazy: lazyOf(options.lazy), strict: strictOf(options.strict),
     componentNames: components, libraries: libs.libraries,
     messages, messagesTypes, componentsTypes: writeComponentTypes(root, readFile, libs.libraries),
     config: configRel ? url(configRel) : null,
-    changesRequests: configRel ? changesRequests(readFile(resolve(root, configRel))) : false,
+    changesRequests: configRel ? changesRequests(configSource(configRel, readFile(resolve(root, configRel)))) : false,
     early: earlyRel ? url(earlyRel) : null,
     types: typesRel ? resolve(root, typesRel) : null,
   };
@@ -343,7 +346,7 @@ export async function viteProject(root: string): Promise<{ pages: string[]; opti
 function withOwnLibrary(root: string, p: { pages: string[]; options: ProjectOptions }): { pages: string[]; options: ProjectOptions } {
   const own = ownLibrary(root);
   if (!own) return p;
-  const options = { ...p.options, components: [...new Set([...(p.options.components ?? []), own.name])] };
+  const options = { ...p.options, libraries: [...new Set([...(p.options.libraries ?? []), own.name])] };
   const onlyIndex = p.pages.length === 1 && p.pages[0] === resolve(root, 'index.html') && own.pages.length;
   return { pages: p.pages.length && !onlyIndex ? p.pages : own.pages, options };
 }
@@ -356,16 +359,19 @@ export function expansionLimitOf(n: number | undefined): number | undefined {
 }
 
 /** The `complexity` option, refused when it names an unknown limit or level, or a limit is not a number of 0 or more. */
-export function complexityOf(c: ComplexityOptions | undefined): ComplexityOptions {
+/** The `complexity` option, checked: `false` turns SN507 off, `{ level: 'error' }` makes it an error; the limits are fixed. */
+export function complexityOf(c: unknown): ComplexityOptions {
   if (c == null) return {};
-  const bad = (m: string) => { throw new Error(`sinter: complexity: ${m}`); };
-  if (typeof c !== 'object') bad('takes an object, e.g. `{ statements: 4, level: \'warn\' }`');
-  for (const [k, v] of Object.entries(c)) {
-    if (k === 'level') { if (!['warn', 'error', 'off'].includes(v as string)) bad(`\`level\` is \`warn\`, \`error\` or \`off\`, not \`${String(v)}\``); }
-    else if (!(COMPLEXITY_LIMITS as string[]).includes(k)) bad(`\`${k}\` is not a limit; the limits are ${COMPLEXITY_LIMITS.map((l) => `\`${l}\``).join(', ')}`);
-    else if (typeof v !== 'number' || !(v >= 0)) bad(`\`${k}\` takes a number of 0 or more`);
+  const bad = (m: string): never => { throw new Error(`sinter({ complexity }): ${m}`); };
+  if (c === false) return { level: 'off' };
+  if (typeof c !== 'object') bad('takes `false` (no SN507) or `{ level: \'error\' }`');
+  for (const [k, v] of Object.entries(c as object)) {
+    if ((COMPLEXITY_LIMITS as string[]).includes(k)) bad(`\`${k}\` is gone: the limits are fixed, so markup reads alike in every project (docs/expressions.md#what-belongs-in-markup)`);
+    if (k !== 'level') bad(`\`${k}\` is not an option; it takes \`level\``);
+    if (v === 'off') bad('`level: \'off\'` is `complexity: false`');
+    if (v !== 'warn' && v !== 'error') bad(`\`level\` is \`'warn'\` or \`'error'\`, not \`${String(v)}\``);
   }
-  return c;
+  return c as ComplexityOptions;
 }
 
 /** The `lazy` option, checked: package names (`openpgp`, `@scope/pkg`), not paths. */
@@ -380,7 +386,25 @@ export function lazyOf(list: unknown): string[] {
 
 const VITE_CONFIGS = ['vite.config.ts', 'vite.config.js', 'vite.config.mts', 'vite.config.mjs', 'vite.config.cts', 'vite.config.cjs'];
 
-/** Whether a config module's source may change requests: `configure({ request })`, `header()`, `credentials()`. Errs toward yes. */
+/** The config module's source, refusing what is gone from it: `credentials()`, which `apis.<name>.credentials` does at build time */
+function configSource(rel: string, source: string): string {
+  if (/\bcredentials\s*\(/.test(source.replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, ''))) {
+    throw new Error(`${rel}: \`credentials()\` is gone: the API sets it, \`sinter({ apis: { site: { credentials: 'include' } } })\` (or the API's own name), and early requests keep working`);
+  }
+  return source;
+}
+
+/**
+ * The package's exports that are gone or renamed, as an app module imports them: what to write instead, or null.
+ * (A missing export alone fails the build without naming its replacement.)
+ */
+export function retiredExport(source: string): string | null {
+  if (/['"]@tiaforge-ui\/sinter\/components['"]/.test(source)) return '`@tiaforge-ui/sinter/components` is gone: a component\'s script extends its base from its own HTML (`import { TaskRingComponent } from \'./task-ring.html\'`), which imports `@tiaforge-ui/sinter/runtime/components` as compiled pages do';
+  if (!/\bclearPersisted\b/.test(source) || !/['"]@tiaforge-ui\/sinter['"]/.test(source)) return null;
+  return '`clearPersisted()` is renamed to `clearStored()`: it removes the page-load cache and the next-page data as well as the `data-sn-persist` values';
+}
+
+/** Whether a config module's source may change requests: `configure({ request })`, `header()`. Errs toward yes. */
 export function changesRequests(source: string): boolean {
-  return /\brequest\s*[:,}]|\bheader\s*\(|\bcredentials\s*\(/.test(source.replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, ''));
+  return /\brequest\s*[:,}]|\bheader\s*\(/.test(source.replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, ''));
 }

@@ -1,7 +1,5 @@
-<conduit-layout data-sn-path="/editor /editor/:slug"
-  data-sn-state="{ nav: 'editor' }"
-  data-sn-prop="{ nav, title: 'Editor', description: 'Write or edit an article on Conduit.' }">
-<template data-sn-if="$meta.user.loadedAt && !user && !$meta.user.error"><conduit-redirect to="/login"></conduit-redirect></template>
+<conduit-layout data-sn-path="/editor /editor/:slug" data-sn-signed-in
+  data-sn-with="{ nav: 'editor', title: 'Editor', description: 'Write or edit an article on Conduit.' }">
 <sn-resource cache name="article" src="/articles/{$url.slug}" when="$url.slug"></sn-resource>
 
 <main class="editor-page">
@@ -12,7 +10,7 @@
         <template data-sn-if="user && (!$url.slug || article)">
           <form data-sn-on-submit="$event.preventDefault()"
                 data-sn-state="{ d: article ? {title: article.title, description: article.description, body: article.body, tagList: [...article.tagList]} : {title: '', description: '', body: '', tagList: []}, tag: '' }">
-            <error-list data-sn-prop="{ error: $error }"></error-list>
+            <error-list data-sn-with="{ error: $error }"></error-list>
             <fieldset>
               <fieldset class="form-group"><input type="text" class="form-control form-control-lg" name="title" placeholder="Article Title" data-sn-model="d.title"></fieldset>
               <fieldset class="form-group"><input type="text" class="form-control" name="description" placeholder="What's this article about?" data-sn-model="d.description"></fieldset>
@@ -21,7 +19,7 @@
                 <input type="text" class="form-control" placeholder="Enter tags" data-sn-model="tag"
                        data-sn-on-keydown-enter="d.tagList = withTag(d.tagList, tag); tag = ''">
                 <div class="tag-list">
-                  <template data-sn-for="(t, i) in d.tagList" data-sn-key="t">
+                  <template data-sn-for="(t, i) in d.tagList">
                     <span class="tag-default tag-pill"><i class="ion-close-round" data-sn-on-click="d.tagList.splice(i, 1)"></i> <span data-sn-text="t"></span></span>
                   </template>
                 </div>

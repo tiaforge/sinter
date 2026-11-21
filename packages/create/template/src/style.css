@@ -9,3 +9,8 @@
   --tm-chroma: 0.16;
 }
 
+
+/* The task list's frame is around its rows: with none, its empty state is a muted line, and while it loads, nothing. */
+[data-list]:not(:has(> li)) { display: none; }
+[data-list]:has(> [data-muted]) { border: 0; background: none; }
+[data-list] > [data-muted] { padding: 0; }

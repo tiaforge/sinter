@@ -12,7 +12,7 @@ import sinter from '../../src/vite.js';
 import { chromium } from '../browser.js';
 
 const src = resolve(__dirname, '../../src');
-const alias = [{ find: /^@tiaforge-ui\/sinter\/(.+)$/, replacement: `${src}/$1.ts` }, { find: /^@tiaforge-ui\/sinter$/, replacement: `${src}/index.ts` }];
+const alias = [{ find: /^@tiaforge-ui\/sinter\/runtime$/, replacement: `${src}/runtime-entry.ts` }, { find: /^@tiaforge-ui\/sinter\/(?:runtime\/)?(.+)$/, replacement: `${src}/$1.ts` }, { find: /^@tiaforge-ui\/sinter$/, replacement: `${src}/index.ts` }];
 const dir = mkdtempSync(join(tmpdir(), 'sinter-url-history-'));
 const root = join(dir, 'app'), out = join(dir, 'dist');
 const listen = (s: Server) => new Promise<number>((r) => s.listen(0, '127.0.0.1', () => r((s.address() as { port: number }).port)));
@@ -25,13 +25,13 @@ beforeAll(async () => {
 <html lang="en">
 <head><meta charset="utf-8"><title>Search</title></head>
 <body>
-  <sn-resource name="hits" src="/api/hits?q={$url.q}&tag={$url.tag}" items="hits" total="total" key="id"
-    paginate="offset" page-size="2" page-model="$url.page" type="any"></sn-resource>
+  <sn-resource name="hits" src="/api/hits?q={$url.q}&tag={$url.tag}" select="hits" total="total" key="id"
+    paginate="{ numbered: true, size: 2, model: $url.page }" type="any"></sn-resource>
   <input id="q" type="search" data-sn-model="$url.q">
   <select id="tag" data-sn-model="$url.tag"><option value="">all</option><option>go</option><option>js</option></select>
   <select id="sort" data-sn-on-change="$url.sort = $event.target.value"><option value="">-</option><option>new</option><option>old</option></select>
   <ul id="list"><template data-sn-for="h in hits"><li data-sn-text="h.title"></li></template></ul>
-  <button id="next" data-sn-on-click="page('hits', 'next')" data-sn-attr="{ disabled: !$meta.hits.hasNext }">next</button>
+  <button id="next" data-sn-on-click="page(hits, 'next')" data-sn-attr="{ disabled: !$meta.hits.hasNext }">next</button>
   <p id="page" data-sn-text="$meta.hits.page"></p>
   <div style="height: 3000px"></div>
   <a id="p2" data-sn-attr="{ href: '?tag=' + ($url.tag ?? '') + '&page=' + 2 }">2</a>

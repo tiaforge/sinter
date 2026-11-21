@@ -6,7 +6,7 @@ import { decode, level as reachLevel, passes, type Reach } from '../paths.js';
 import { config, SinterError, type Middleware } from './config.js';
 import { envOf, type Env } from './env.js';
 import { prefetched } from './handoff.js';
-import { createRequestLayer, isAbort, readBody, toError, type RequestLayer, type SendInit } from './request.js';
+import { createRequestLayer, isAbort, readBody, toError, tokens, type RequestLayer, type SendInit } from './request.js';
 import { schemesOf, STYLE_BAD, urlAllowed } from './security.js';
 /** Two objects with the same keys, each the same value (Object.is). */
 const sameEntries = (a: any, b: any): boolean => {
@@ -31,7 +31,7 @@ const sameProps = (a: any, b: any): boolean => {
   for (const _ in b) n--;
   return n == 0;
 };
-import { expand, readUrl as readFrom, withParams } from './url.js';
+import { readUrl as readFrom, withParams } from './url.js';
 // the parts of the core this build's pages use (a site's build serves its own: src/core-parts.ts)
 import * as F from './flags.js';
 
@@ -66,7 +66,7 @@ export interface MountOptions {
 /**
  * A server event transport (EventSource, WebSocket, SignalR, …). It delivers named events with
  * their parsed payload and reports `open` once connected and `error` when the connection is lost;
- * reconnecting (session probe, backoff, refetch) is the caller's job, so a transport never
+ * reconnecting (session probe, backoff, reload) is the caller's job, so a transport never
  * reconnects by itself. `names` are the event names the page maps; deliver at least those.
  */
 export interface Transport {
@@ -86,20 +86,21 @@ export interface BoundBinding {
   s: any;
 }
 
-/** Pagination state of one resource; a "move" is one page request, repeated exactly by refetch. */
+/** Pagination state of one resource; a "move" is one page request, repeated exactly by reload. */
 export interface Pager {
   /**
-   * the resource's URL changed: back to the first page. With `page-model`, `why` says what changed it:
+   * the resource's URL changed: back to the first page. With `model` (paginate), `why` says what changed it:
    * 0 its first URL after mount (the URL's page, restored), 2 anything later (page 1 and the parameter
    * deleted, unless Back or Forward caused it: then the URL's page)
    */
   reset(why?: number): void;
-  /** `page-model`: the parameter may have changed (the URL did not): loads the page it names */
+  /** `model` (paginate): the parameter may have changed (the URL did not): loads the page it names */
   follow?(): void;
   current(): unknown;
   params(move: unknown): Record<string, string> | null;
   appends(move: unknown): boolean;
-  received(items: unknown[], total: number | null, move: unknown): void;
+  /** `more`: the response's `more` path (paginate), read as a boolean; null without one, and for data from a cache */
+  received(items: unknown[], total: number | null, move: unknown, more: boolean | null): void;
 }
 
 /**
@@ -130,7 +131,7 @@ export type Navigator = (i: Intent) => Decision | void | undefined;
 export interface CallContext {
   /** aborts when the page is hidden (pagehide) or, for a resource, when its inputs change */
   signal: AbortSignal;
-  /** a request through the app's middleware chain (401 handling, origins, timeout) */
+  /** a request through the app's middleware chain (401 handling, origins, timeout); with the action's `data-sn-retry`, sent again as its policy says (its own `init.retry` wins) */
   request(url: string, init?: SendInit): Promise<unknown>;
   /** the element whose action this is; null for a resource */
   el: Element | null;
@@ -149,7 +150,7 @@ export interface ResourceLoader {
   url(): string | null;
   /** `quiet`: a background reload (`refresh`): `$meta.loading` stays false, and a failure while already failing is not reported again */
   load(move?: unknown, quiet?: boolean): Promise<void>;
-  refetch(hint?: object, quiet?: boolean): Promise<void>;
+  refresh(hint?: object, quiet?: boolean): Promise<void>;
   /** whether a load is in flight */
   inflight(): boolean;
   /** called after each load settles (true: it succeeded, its content changed or not); feature modules add to it */
@@ -165,12 +166,12 @@ export interface ResourceLoader {
   get(url: string, signal: AbortSignal, lo?: number): Promise<unknown>;
   /** for feature modules: the shared GET's response, before its body is read */
   got(url: string, signal: AbortSignal, lo?: number): Promise<Got>;
-  /** for feature modules: the collection items of a response body (`items` path, checked, cleaned) */
+  /** for feature modules: the collection items of a response body (`select` path, checked, cleaned) */
   items(body: unknown): any[];
   /** for feature modules: a failed load: `$meta.error`, then the unhandled-error path (`quiet`: only if it was not failing already) */
   failed(e: unknown, quiet?: boolean): void;
   loading(on: boolean): void;
-  /** for feature modules: a load stored `result` (what `items` selects): runs `then` */
+  /** for feature modules: a load stored `result` (what `select` selects): runs `then` */
   done(result: unknown): void;
 }
 
@@ -194,7 +195,7 @@ export interface App {
       state(key: string, obj: Record<string, unknown>, sid: number): void;
     };
     cache?: {
-      /** the cached data for a request, if any and not older than the resource allows */
+      /** the cached data for a request, if any and not older than the resource allows; without `cache`, only on Back or Forward */
       read(def: ResourceDef, url: string): { t: number; items: unknown; total: number | null } | null;
       /** a load (or embedded data) stored `items`: cache them, and the resource's later changes */
       loaded(def: ResourceDef, r: Resource, url: string, items: unknown, total: number | null, appended: boolean): void;
@@ -213,7 +214,8 @@ export interface App {
     apply?: (a: ActionDef, scope: any, url: string, body: unknown, result: unknown) => void;
     /** an action is sent: the form's marks and `$error` are cleared; the function reports a failure, true when the form shows it */
     /** action functions (call.ts): runs one with its context (an action's signal aborts on pagehide); what one throws as an `$error` */
-    call?: { run(f: number, args: unknown, el: Element | null, signal?: AbortSignal): Promise<unknown>; error(e: unknown): SinterError };
+    /** `retry`: the action's `data-sn-retry`, for each request the function sends (`ctx.request`), `stop` ending its tries */
+    call?: { run(f: number, args: unknown, el: Element | null, signal?: AbortSignal, retry?: { retry: string; stop: AbortSignal }): Promise<unknown>; error(e: unknown): SinterError };
     /** debounced handlers and actions (debounce.ts): runs `run` once, `ms` after the last call for `key` */
     debounce?: (key: object, ms: number, run: () => void) => void;
     /** `data-sn-confirm` (confirm.ts): runs `go` once the user agrees to `question` (at once when it is falsy) */
@@ -230,7 +232,7 @@ export interface App {
       commit(kind: number): boolean;
       readonly kind: number;
       readonly back: boolean;
-      /** `page-model` (paginate.ts): sets a parameter (null deletes it) and writes it with `kind` */
+      /** `model` (paginate) (paginate.ts): sets a parameter (null deletes it) and writes it with `kind` */
       set(name: string, value: string | null, kind: number): void;
       /** a same-page link was followed (query-links.ts): its entry is pushed, `$url` read again; the flush is as after Back */
       arrive(): void;
@@ -258,8 +260,8 @@ export interface App {
     /** nested items (nested.ts): changes an item under a resource's rows, through `fields`; the list `upsert(c.replies, x)` gives */
     nested?: {
       /** applies one change to an item from `names`; for write-through, one under `r` through `fields` (true when found) */
-      change(res: (n: string) => Resource, op: 'patch' | 'remove', names: string[], item: unknown, set: any): void;
-      apply(r: Resource, fields: string[], op: 'patch' | 'remove', item: unknown, set: any, byId: boolean): boolean;
+      change(res: (n: string) => Resource, op: 'merge' | 'remove', names: string[], item: unknown, set: any): void;
+      apply(r: Resource, fields: string[], op: 'merge' | 'remove', item: unknown, set: any, byId: boolean): boolean;
       /** `upsert(c.replies, x)`: `owner` (from `names`) gets its list `field` with `item` in it */
       upsert(res: (n: string) => Resource, names: string[], owner: any, field: string, item: unknown): void;
     };
@@ -298,7 +300,8 @@ export interface App {
   on(event: string, fn: (payload: any) => void): () => void;
   destroy(): void;
 
-  url(tpl: UrlTemplate, scope: any): string;
+  /** a resource's, a stream's or an action's URL in `scope`: its template, compiled (`u`, compile.ts `urlCode`) */
+  url(def: { u?: number }, scope: any): string;
   /** the scope of root node `i` (its state), or the page scope for -1 */
   scopeOf(i: number): any;
   /** the bindings at the page's level, with their rows' (the swap hands kept elements' rows and branches to the next page) */
@@ -415,10 +418,11 @@ interface Inst {
 }
 
 interface ActState {
+  /** the element whose action this is: its twin in a swapped-in branch takes it over (same id, same control) */
+  el: Element;
   n: number;
   q: Array<() => void>;
   w: { run: () => void; drop: () => void } | null;
-  c: AbortController | null;
   /** the running write's retry: aborted when a newer `latest` trigger replaces it while it waits */
   r: AbortController | null;
   off: HTMLInputElement[] | null;
@@ -478,7 +482,7 @@ export type Tagged = Element & { [HANDLERS]?: RB | RB[]; [MODEL]?: RB; [STATE]?:
 const others = new WeakMap<TemplateDef, number[]>(), allDeps = new WeakMap<TemplateDef, number[]>();
 /** set by the early script on the start comment of a `data-sn-for` whose rows it rendered from embedded data: each row's nodes, the end comment */
 const EARLY_ROWS = Symbol.for('sinter.early.rows');
-/** set by the early chunk (@tiaforge-ui/sinter/early) on the start comment of a `data-sn-if` or choice whose branch it rendered */
+/** set by the early chunk (@tiaforge-ui/sinter/runtime/early) on the start comment of a `data-sn-if` or choice whose branch it rendered */
 const EARLY = Symbol.for('sinter.early');
 const simple = new WeakMap<TemplateDef, Simple | null>();
 /** ROW: on each node of a simple row with handlers, its instance */
@@ -494,6 +498,13 @@ export function navigate(url: string, o?: { replace?: boolean }): void {
   const app = instances.get(document);
   if (app) app.storeFns(null).navigate(url, o);
   else if (o?.replace) location.replace(url); else location.assign(url);
+}
+
+/** Signs out as `signOut()` in a handler does, for app code (an island): every API's token goes, with what the page kept. */
+export function signOut(): void {
+  const app = instances.get(document);
+  if (app) app.storeFns(null).signOut();
+  else tokens.on?.signOut(envOf(config));
 }
 
 /** The instance mount() created on `root`; throws if none. */
@@ -512,8 +523,10 @@ export function mount(root: Document | Element, o: MountOptions): App {
   const env = o.env ?? envOf(config);
   const req = createRequestLayer(env, o.request ?? config.request);
   const schemes = schemesOf(config.urlSchemes);
-  const resources = new Map<string, Resource>(), loaders: Array<{ def: ResourceDef; changed(typing?: boolean): void; start(): void; refetch(): Promise<void> }> = [];
+  const resources = new Map<string, Resource>(), loaders: Array<{ def: ResourceDef; changed(typing?: boolean): void; start(): void; refresh(): Promise<void> }> = [];
   const acts = new WeakMap<Element, ActState>();
+  /** the action states with a request running or waiting, for a branch swap to hand on */
+  const live = new Set<ActState>();
   /** props set on custom elements not defined yet, by element: the latest value of each */
   const early = new WeakMap<Element, Map<string, unknown>>();
   const deferred = new Set<RB>();
@@ -525,7 +538,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
   const closing = new Set<Element>();
   const listeners = new Map<string, Set<(p: unknown) => void>>(), cleanups: Array<() => void> = [];
   const shared = new Map<string, { n: number; c: AbortController; p: Promise<Got> }>();
-  /** `showModal(id)`, `close(id)`: the dialog of this mount root with that id; `run(id)`: any element */
+  /** `openDialog(id)`, `closeDialog(id)`: the dialog of this mount root with that id; `run(id)`: any element */
   const byId = (id: string, s = '[id]') => [...root.querySelectorAll(s)].find((d) => d.id === id);
   const dialog = (id: string) => byId(id, 'dialog') as HTMLDialogElement | undefined;
   const rootRbs: RB[] = [], rootScopes: any[] = [], found = new Map<number, Element | Comment>();
@@ -546,19 +559,19 @@ export function mount(root: Document | Element, o: MountOptions): App {
     if (!r) throw Error(`sinter: no resource ${name}`);
     return r;
   };
-  /** The item has `r`'s key fields: a list or a `patch()` that may come from several resources tries only those it can be in (the others would warn 14). */
+  /** The item has `r`'s key fields: a list or a `merge()` that may come from several resources tries only those it can be in (the others would warn 14). */
   const keyed = (r: Resource, item: any) => item != null && r.key!.every((f) => item[f] !== undefined);
   /**
-   * `patch(item, …)`, `remove(item)`: the compiler passes the resources the item can come from; it is
+   * `merge(item, …)`, `remove(item)`: the compiler passes the resources the item can come from; it is
    * changed in the one that holds it, by key (a single resource is the item itself)
    */
-  const byItem = (m: 'patch' | 'remove') => (names: string[], item: any, set?: any) => {
+  const byItem = (m: 'merge' | 'remove') => (names: string[], item: any, set?: any) => {
     // a source under a row (`comments>replies`): the nested module, loaded with it, does it all (the rows too:
     // a few bytes there, which pages without nested lists do not load, rather than in the core)
     if (app.ext.nested) return app.ext.nested.change(res, m, names, item, set);
     for (const n of names) {
       const r = res(n);
-      if (r.isCollection ? keyed(r, item) && r.has(item) : true) return void (m == 'patch' ? r.patch(item, set) : r.remove(item));
+      if (r.isCollection ? keyed(r, item) && r.has(item) : true) return void (m == 'merge' ? r.merge(item, set) : r.remove(item));
     }
   };
   const warn = (code: number | string, ...args: unknown[]) => app.warn(code, ...args);
@@ -801,7 +814,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
     },
     scopeOf: (i) => (i < 0 ? app.page : rootScopes[i] ?? app.page),
     rbs: rootRbs,
-    url: (tpl, s) => expand(tpl, s, fns),
+    url: (d, s) => fns[d.u!]!(s),
     mark(path, s, typing) {
       const w = typeof path == 'number' ? path : ps.x[path] ?? -1;
       // the written path's `{name}` segments, as the writer's scope has them
@@ -854,20 +867,14 @@ export function mount(root: Document | Element, o: MountOptions): App {
       return (ok) => { if (!done) { done = true; for (const [r, id] of ids) ok ? r.commitLayer(id) : r.dropLayer(id); } };
     },
     storeFns: (el) => ({
-      showModal: (id: string) => { const d = dialog(id); if (d && !d.open) d.showModal(); },
-      refresh: (...n: string[]) => { for (const x of n) res(x).refetch(); },
+      openDialog: (id: string) => { const d = dialog(id); if (d && !d.open) d.showModal(); },
+      refresh: (...n: string[]) => { for (const x of n) res(x).refresh(); },
       // `upsert(c.replies, x)`: the item that holds the list gets it as a patch
       upsert: (n: string | string[], a: any, f?: string, x?: any) => Array.isArray(n) ? app.ext.nested!.upsert(res, n, a, f!, x) : res(n).upsert(a),
-      patch: byItem('patch'),
+      merge: byItem('merge'),
       remove: byItem('remove'),
       page: (n: string, t: string | number) => app.ext.paginate!.page(n, t),
-      close: (id?: string) => (id ? dialog(id) : el?.closest('dialog'))?.close(),
-      reset: () => {
-        const form = el?.closest('form');
-        if (!form) return;
-        form.reset();
-        if (F.MODEL) for (const c of form.elements) { const rb = (c as Tagged)[MODEL]; if (rb) setModel(rb, readModel(rb)); }
-      },
+      closeDialog: (id?: string) => (id ? dialog(id) : el?.closest('dialog'))?.close(),
       emit: (n: string, detail?: unknown) => el?.dispatchEvent(new CustomEvent(n, { detail, bubbles: true, cancelable: true })),
       // to this page with only parameters it reads changed: as a same-page link (no load); else the browser navigates
       // the navigation chain where a feature installed one (links.ts), else the page loads
@@ -877,6 +884,8 @@ export function mount(root: Document | Element, o: MountOptions): App {
         else if (o?.replace) (app.env.replace ?? ((u: string) => location.replace(u)))(to);
         else app.env.navigate(to);
       },
+      // every API's token goes (src/token.ts), with what the page kept; the resources of those APIs load again: signed out
+      signOut: () => { if (F.TOKEN) tokens.on?.signOut(env, app); },
       // the element's action, as if its trigger fired (a form is submitted); disabled or inert: nothing
       run: (id: string) => {
         const t = F.ACTION ? byId(id) : undefined, h = t && handlersOf(t as Tagged), rb = h && (Array.isArray(h) ? h : [h]).find((x) => x.b.x != null);
@@ -920,23 +929,36 @@ export function mount(root: Document | Element, o: MountOptions): App {
   for (const id of bad) { found.delete(id); warn(1, id); }
   if (F.RESOURCE) for (const def of ir.resources) createLoader(def);
   // back from the bfcache, or online again: the data may have changed meanwhile. Resources a stream
-  // feeds are refetched by the stream module when it reconnects.
-  const again = () => { for (const l of loaders) if (!l.def.fed) void l.refetch(); };
+  // feeds are reloaded by the stream module when it reconnects.
+  const again = () => { for (const l of loaders) if (!l.def.fed) void l.refresh(); };
   app.addCleanup(env.listen('pageshow', (e) => { if ((e as PageTransitionEvent).persisted) again(); }));
   app.addCleanup(env.listen('online', again));
   // prerendered (Speculation Rules): the page loaded while nobody saw it, maybe minutes ago, and
-  // streams wait (app.shown). Shown: everything is refetched, then the waiting work runs
+  // streams wait (app.shown). Shown: everything is reloaded, then the waiting work runs
   if (waiting) {
     const on = () => {
       if (doc.prerendering) return;
       doc.removeEventListener('prerenderingchange', on);
       const w = waiting!;
       waiting = null;
-      for (const l of loaders) void l.refetch();
+      for (const l of loaders) void l.refresh();
       for (const fn of w) fn();
     };
     doc.addEventListener('prerenderingchange', on);
     app.addCleanup(() => doc.removeEventListener('prerenderingchange', on));
+  }
+  // a form's reset (`<button type="reset">`, `form.reset()`): its models take the values it restored. The event comes
+  // before the browser restores them, so the models read the fields once it has
+  if (F.MODEL) {
+    const on = (e: Event) => {
+      const form = e.target as HTMLFormElement;
+      env.setTimeout(() => {
+        if (destroyed || e.defaultPrevented) return;
+        for (const c of form.elements ?? []) { const rb = (c as Tagged)[MODEL]; if (rb) setModel(rb, readModel(rb)); }
+      }, 0, 'task');
+    };
+    ET.addEventListener.call(root, 'reset', on, true);
+    cleanups.push(() => ET.removeEventListener.call(root, 'reset', on, true));
   }
   // one delegated capture listener per event type the page binds, rows included, at the mount root: the compiler listed them
   if (F.EVENTS) for (const type of ir.ev ?? []) {
@@ -1226,16 +1248,16 @@ export function mount(root: Document | Element, o: MountOptions): App {
    * A row's identity: the explicit key, the resource key, or the item object itself. A list the
    * compiler cannot trace to a resource (a helper's result: `t in visible(tasks, q)`) keys an item
    * that is a keyed resource's current item by that resource's key, so a patch (a new object)
-   * keeps its row.
+   * keeps its row. An item without the key fields (a helper's own object) keys by identity. A
+   * string, number or other primitive keys by its type and value (`p…`), to which `reconcile` adds its occurrence.
    */
   function keyOf(t: TemplateDef, item: any, s: any): unknown {
     if (t.key != null) return 'k' + fns[t.key]!(s);
-    if (t.keyFields && item) return 'r' + t.keyFields.map((f) => item[f]).join('\x1f');
     if (Object(item) === item) {
+      if (t.keyFields?.every((f) => item[f] != null)) return 'r' + t.keyFields.map((f) => item[f]).join('\x1f');
       for (const r of resources.values()) if (r.isCollection && keyed(r, item) && r.get(item) === item) return 'o' + r.name + '\x1f' + r.keyOf(item);
       return item;
     }
-    warn(10);
     return 'p' + typeof item + item;
   }
 
@@ -1244,6 +1266,13 @@ export function mount(root: Document | Element, o: MountOptions): App {
     // rows the early script rendered from the page's embedded data: adopted (bound, not cloned again) when there
     // are as many items, else removed; the row's values are written again, so a changed item still renders right
     const pre: { rows: Node[][]; end: Comment } | undefined = (rb.el as any)[EARLY_ROWS];
+    // a primitive's key with its occurrence among equal values (`['a', 'b', 'a']`: `a`, `b`, `a` 1): duplicates are
+    // rows of their own, the first `a` staying the first, so a list of strings needs no `data-sn-key`
+    const seen = new Map<unknown, number>(), key = (item: unknown, s: any) => {
+      let k = keyOf(rb.t!, item, s), n;
+      if (typeof k == 'string' && k[0] == 'p') { seen.set(k, (n = seen.get(k) ?? 0) + 1); if (n) k += '\x1f' + n; }
+      return k;
+    };
     if (pre) {
       delete (rb.el as any)[EARLY_ROWS];
       const t = rb.t!, tpl = tplOf(t.id);
@@ -1251,7 +1280,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
         rb.end = pre.end;
         rb.rows = items.map((item, i) => {
           const s = setRow(Object.create(rb.s), t, item, i);
-          return instantiate(tpl, t, s, keyOf(t, item, s), item, i, pre.rows[i]);
+          return instantiate(tpl, t, s, key(item, s), item, i, pre.rows[i]);
         });
         rb.rr = round;
         rb.pf = true;
@@ -1267,7 +1296,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
     const inPlace = !m && !end.isConnected ? end : undefined;
     // a scope is only needed up front for an explicit key expression
     const scopes = t.key != null ? items.map((item, i) => setRow(Object.create(rb.s), t, item, i)) : null;
-    const keys = items.map((item, i) => keyOf(t, item, scopes?.[i]));
+    const keys = items.map((item, i) => key(item, scopes?.[i]));
     app.dupes?.(keys);
     // the takeover: the page module's items for an unkeyed list the early script rendered are new objects with the
     // same contents (a let over a helper, computed again), so the rows it adopted take the new keys and match by
@@ -1396,8 +1425,9 @@ export function mount(root: Document | Element, o: MountOptions): App {
     }
     // a wrapper's anchor has no end comment: its branch ends where its row or branch does
     const end: ChildNode = rb.u ? after(rb) : rb.end ?? endFor(rb);
-    // same id, same control: the focused element of an if's old branch goes with it, its twin in the new one takes focus
-    const f = doc.activeElement;
+    // same id, same control: the focused element of an if's old branch goes with it, its twin in the new one takes focus,
+    // and an action still running or waiting on an element of it goes on as its twin's (below)
+    const f = doc.activeElement, held = F.TWIN && !ch && live.size ? [...live].filter((st) => st.el.id && st.el.isConnected) : null;
     // what is between the start and the end (a wrapper's anchor: from its row's first node), its bindings forgotten
     for (const n of range(rb.u ? rb.x!.first : rb.el.nextSibling, end)) (n as ChildNode).remove();
     forget([rb]);
@@ -1412,6 +1442,18 @@ export function mount(root: Document | Element, o: MountOptions): App {
       let n = rb.rows[0]?.first;
       if (!n) end.before((n = new Comment()));
       for (let q: RB | undefined = rb; q?.x; q = q.u) q.x.first = n;
+    }
+    // same id, same control: an action state whose element went goes on as the state of the element with its id in the
+    // new branch: a toggle's second click queues behind the first (or is blocked, or kept as the latest), and the twin is
+    // busy while it runs. The twin's own triggers follow its own policy
+    if (held && rb.rows[0]) for (const st of held) {
+      const twin = doc.getElementById(st.el.id);
+      if (!twin || st.el.isConnected || acts.has(twin) || !rowNodes(rb.rows[0]).some((n) => n.contains(twin))) continue;
+      acts.set(twin, st);
+      st.el = twin;
+      twin.setAttribute('aria-busy', 'true');
+      // a blocked form's controls stay disabled on its twin until the request ends
+      if (st.off) for (const x of (st.off = 'elements' in twin ? ([...(twin as HTMLFormElement).elements] as HTMLInputElement[]).filter((x) => !x.disabled) : [])) x.disabled = true;
     }
     if (!ch && f?.id && !f.isConnected) (doc.getElementById(f.id) as HTMLElement | null)?.focus();
   }
@@ -1612,7 +1654,15 @@ export function mount(root: Document | Element, o: MountOptions): App {
       }
       // models update state before other handlers on the same event
       const m = F.MODEL ? (el as Tagged)[MODEL] : undefined;
-      if (m && /^(input|change)$/.test(e.type) && (e.type == 'input') == (m.b.n == 'text')) setModel(m, readModel(m), e.type == 'input' && !m.el.localName.includes('-'));
+      if (m && /^(input|change)$/.test(e.type) && (m.b.ms || (e.type == 'input') == (m.b.n == 'text'))) {
+        // `data-sn-model-debounce` (debounce.ts): it writes once the field pauses, as an event's write that is
+        // not typing (the pause is over), with the value the field has then; a text field's `change` (Enter,
+        // leaving it) ends the pause
+        if (m.b.ms) {
+          const u = ev, now = m.b.n == 'text' && e.type == 'change';
+          if (now || (e.type == 'input') == (m.b.n == 'text')) app.ext.debounce!(m, now ? 0 : m.b.ms, () => m.el.isConnected && as(u, () => setModel(m, readModel(m))));
+        } else setModel(m, readModel(m), e.type == 'input' && !m.el.localName.includes('-'));
+      }
       for (; el; el = el.parentElement) {
         const h = handlersOf(el as Tagged), hs = h && (Array.isArray(h) ? h : [h]).filter((x) => x.b.n == e.type && (x.b.q == null || app.ext.keys!(x, e as KeyboardEvent)));
         if (hs?.length) {
@@ -1648,21 +1698,21 @@ export function mount(root: Document | Element, o: MountOptions): App {
   }
 
   function act(el: Element): ActState {
-    if (!acts.has(el)) acts.set(el, { n: 0, q: [], w: null, c: null, r: null, off: null });
+    if (!acts.has(el)) acts.set(el, { el, n: 0, q: [], w: null, r: null, off: null });
     return acts.get(el)!;
   }
 
   function fire(rb: RB, a: ActionDef, e: Event | null) {
     // `then` and `catch` run in the context of what triggered the action (a user's event, or not)
-    const st = act(rb.el), get = a.method == 'GET', u = ev;
-    if (!get && a.concurrency == 'block' && st.n) return;
+    const st = act(rb.el), u = ev;
+    if (a.concurrency == 'block' && st.n) return;
     const s = child(rb.s, { $el: rb.el, $event: e });
     let url = '', body: unknown;
     try {
       // a call's arguments are taken when it is triggered, like a request's URL and body
       if (a.call) body = fns[a.call.args]!(s);
       else {
-        url = app.url(a.url, s);
+        url = app.url(a, s);
         if (a.body != null) body = fns[a.body]!(s);
         // a form's own fields, and form encoding (form.ts): on pages that have such an action
         if (app.ext.form) body = app.ext.form(rb.el, a, body);
@@ -1674,10 +1724,6 @@ export function mount(root: Document | Element, o: MountOptions): App {
     a.confirm != null ? app.ext.confirm!(fns[a.confirm]!(s), go) : go();
     function go() {
     const drop = a.optimistic != null ? app.ext.optimistic!.begin(a.optimistic, s) : () => {};
-    if (get) {
-      st.c?.abort();
-      return void send(rb, a, st, url, body, drop, u, (st.c = new AbortController()));
-    }
     const run = () => void send(rb, a, st, url, body, drop, u);
     if (!st.n) run();
     else if (a.concurrency == 'latest') { st.w ? st.w.drop() : app.busy++; st.w = { run, drop }; st.r?.abort(); }
@@ -1685,45 +1731,46 @@ export function mount(root: Document | Element, o: MountOptions): App {
     }
   }
 
-  async function send(rb: RB, a: ActionDef, st: ActState, url: string, body: unknown, drop: (ok?: boolean) => void, u: Event | null, c?: AbortController) {
-    const el = rb.el as HTMLFormElement, s = rb.s;
+  async function send(rb: RB, a: ActionDef, st: ActState, url: string, body: unknown, drop: (ok?: boolean) => void, u: Event | null) {
+    // the element that holds the action now: a queued trigger of a control its twin has replaced runs on the twin
+    const el = st.el as HTMLFormElement, s = rb.s;
     // where the element is now: an optimistic remove may take its row away before an error reports
     const up: Element[] = [];
     for (let x = el.parentElement; x; x = x.parentElement) up.push(x);
     st.n++;
+    if (F.TWIN) live.add(st);
     // server errors on the form (fields.ts): its marks cleared and its `$error` null while it is sent again
     const fs = app.ext.fields?.sent(el, a);
     el.setAttribute('aria-busy', 'true');
-    if (a.form && a.concurrency == 'block' && !c && !st.off) {
+    if (a.form && a.concurrency == 'block' && !st.off) {
       st.off = ([...el.elements] as HTMLInputElement[]).filter((x) => !x.disabled);
       for (const x of st.off) x.disabled = true;
     }
     try {
       const result = a.call
-        ? await app.ext.call!.run(a.call.run, body, el)
-        : await req.send(url, { method: a.method, body, signal: c?.signal, ...(a.retry ? { retry: a.retry, stop: (st.r = new AbortController()).signal } : {}) });
-      // a superseded GET's change is rolled back; a success keeps it, under what `then` writes
-      if (c && st.c != c) return drop();
+        ? await app.ext.call!.run(a.call.run, body, el, undefined, a.retry ? { retry: a.retry, stop: (st.r = new AbortController()).signal } : undefined)
+        : await req.send(url, { method: a.method, body, ...(a.retry ? { retry: a.retry, stop: (st.r = new AbortController()).signal } : {}) });
+      // a success keeps the optimistic change, under what `then` writes
       drop(true);
       // write-through lands between the commit and `then`, so `then` still has the last word
       if (a.ap) app.ext.apply?.(a, s, url, body, result);
       if (a.then != null) as(u, () => handle(rb, a.then!, null, a.w, { $result: result }));
     } catch (err) {
       drop();
-      if (isAbort(err) || (c && st.c != c)) return;
+      if (isAbort(err)) return;
       const error = a.call ? app.ext.call!.error(err) : toError(err);
       // shown on the form (every message on its field, or its markup reads `$error`): handled
       if (fs?.(error, { url, method: a.method }) && a.catch == null) return;
-      as(u, () => a.catch != null ? handle(rb, a.catch, null, a.w, { $error: error }) : unhandled(error, el.isConnected ? el : up.find((x) => x.isConnected) ?? null));
+      // a 401 nothing shows, from an API with a token: signed out, to its sign-in page (src/token.ts)
+      as(u, () => a.catch != null ? handle(rb, a.catch, null, a.w, { $error: error }) : (F.TOKEN && error.status == 401 && !a.call && tokens.on?.signIn(url, env)) || unhandled(error, st.el.isConnected ? st.el : up.find((x) => x.isConnected) ?? null));
     } finally {
-      if (c && st.c == c) st.c = null;
       st.r = null;
       if (!--st.n) {
         for (const x of st.off ?? []) x.disabled = false;
         st.off = null;
         const next = st.q.shift() ?? st.w?.run;
         if (next && next == st.w?.run) st.w = null;
-        if (next) { app.busy--; next(); } else el.removeAttribute('aria-busy');
+        if (next) { app.busy--; next(); } else { st.el.removeAttribute('aria-busy'); if (F.TWIN) live.delete(st); }
       }
     }
   }
@@ -1741,14 +1788,14 @@ export function mount(root: Document | Element, o: MountOptions): App {
   // ---- resources
 
   function createLoader(def: ResourceDef) {
-    const r = createResource(def.name, { key: def.key ?? null, order: def.order ?? null, locale: () => config.locale?.get(), warn, prep: (x) => (app.prep ? app.prep(x) : x), freeze: app.dev });
+    const r = createResource(def.name, { key: def.key ?? null, order: def.order ?? null, locale: () => config.locale?.get(), warn, prep: (x) => (app.prep ? app.prep(x) : x), freeze: app.dev, list: def.ls });
     r.onDirty = (what) => app.mark((what == 'data' ? '$r.' : '$meta.') + def.name);
     resources.set(def.name, r);
     Object.defineProperty(app.page.$r, def.name, { get: r.value, enumerable: true });
     app.page.$meta[def.name] = r.meta;
     // fed by a server-event stream: connecting until its first open (src/sse.ts keeps it current)
     if (def.fed) r.meta.live = 'connecting';
-    /** `had`: the resource has had a URL (its first one after mount restores a `page-model` page) */
+    /** `had`: the resource has had a URL (its first one after mount restores a `model` (paginate) page) */
     let url: string | null = null, c: AbortController | null = null, seq = 0, again: Promise<void> | null = null, loud = false, had = false, typing: unknown = null, posted: unknown;
 
     const scope = () => app.scopeOf(def.scope ?? -1);
@@ -1765,7 +1812,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
       }
       try {
         if (def.when != null && !fns[def.when]!(s)) return null;
-        const u = app.url(def.src, s);
+        const u = app.url(def, s);
         if (def.body == null) return u;
         // `method="POST"`: a load is its URL and its body
         posted = fns[def.body]!(s);
@@ -1774,19 +1821,19 @@ export function mount(root: Document | Element, o: MountOptions): App {
     };
     const loading = (on: boolean) => { if (r.meta.loading != on) { r.meta.loading = on; r.onDirty('meta'); } };
     const pick = (path: string | null | undefined, body: unknown): any => (path ? path.split('.').reduce((x: any, k) => x?.[k], body) : body);
-    const fill = (items: any, total: number | null, m: unknown) => {
+    const fill = (items: any, total: number | null, m: unknown, more: boolean | null = null) => {
       l.pager?.appends(m) && r.isCollection ? items.forEach(r.upsert) : r.replace(items);
       r.setTotal(total);
-      l.pager?.received(items, total, m);
+      l.pager?.received(items, total, m, more);
     };
     /** stores a response; `req` is the URL it came from, for the page-load cache */
     const store = (body: unknown, req: string, m = l.pager?.current()) => {
-      let items = pick(def.items, body);
-      if (r.isCollection && !Array.isArray(items)) { warn(12, def.name, def.items ?? '(response)'); items = []; }
+      let items = pick(def.select, body);
+      if (r.isCollection && !Array.isArray(items)) { warn(12, def.name, def.select ?? '(response)'); items = []; }
       if (Array.isArray(items)) items = items.map(clean);
-      const t = def.total ? pick(def.total, body) : null, total = t == null ? null : +t;
-      fill(items, total, m);
-      if (def.cache != null) app.ext.cache?.loaded(def, r, req, items, total, !!l.pager?.appends(m));
+      const t = def.total ? pick(def.total, body) : null, total = t == null ? null : +t, more = def.paginate?.more;
+      fill(items, total, m, more ? !!pick(more, body) : null);
+      app.ext.cache?.loaded(def, r, req, items, total, !!l.pager?.appends(m));
       return items;
     };
     /** the request URL for the current page of `u` */
@@ -1807,8 +1854,8 @@ export function mount(root: Document | Element, o: MountOptions): App {
       // no user event causes a load's `then`: its `$url` writes replace
       done: (v) => def.then != null && as(null, () => app.exec(def.then!, child(scope(), { $result: v }), def.w)),
       items(body) {
-        let items = pick(def.items, body);
-        if (!Array.isArray(items)) { warn(12, def.name, def.items ?? '(response)'); items = []; }
+        let items = pick(def.select, body);
+        if (!Array.isArray(items)) { warn(12, def.name, def.select ?? '(response)'); items = []; }
         return items.map(clean);
       },
       start() {
@@ -1823,11 +1870,11 @@ export function mount(root: Document | Element, o: MountOptions): App {
         if (url == null) {
           // the data the previous page prefetched for this request, else the page-load cache: shown
           // now, and changed() revalidates
-          const ahead = app.ext.prefetch && !def.call && !def.each && !def.paginate && def.body == null;
-          const u = ahead || (def.cache != null && app.ext.cache) ? resolve() : null;
+          const ahead = app.ext.prefetch && !def.call && !def.each && def.body == null;
+          const u = ahead || app.ext.cache ? resolve() : null;
           if (u != null) {
             l.pager?.reset(0);
-            const q = request(u), hit = (ahead && app.ext.prefetch!.take(def, q)) || (def.cache != null && app.ext.cache?.read(def, q));
+            const q = request(u), hit = (ahead && app.ext.prefetch!.take(def, q)) || app.ext.cache?.read(def, q);
             // loadedAt stays null: it means the server answered during this page load, and
             // guards such as `$meta.user.loadedAt && !user` must not act on another page's data
             if (hit) fill(hit.items, hit.total, l.pager?.current());
@@ -1838,7 +1885,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
         l.pager?.reset(0);
         const v = store(data!.v, request(url));
         // a `file:` resource: a constant read at build time, never loaded (`loadedAt` null)
-        if (!def.fx) r.meta.loadedAt = env.now();
+        if (!def.fx) r.meta.loadedAt = new Date(env.now());
         l.done(v);
         l.settle(true);
       },
@@ -1857,11 +1904,13 @@ export function mount(root: Document | Element, o: MountOptions): App {
         }
         c?.abort();
         r.replace(r.isCollection ? [] : null);
-        if (def.cache != null) app.ext.cache?.cleared(def);
+        app.ext.cache?.cleared(def);
+        // nothing from the server now: not loaded, as before the first load (a list's empty state waits for one)
+        if (r.meta.loadedAt || r.meta.error) { r.meta.loadedAt = r.meta.error = null; r.onDirty('meta'); }
         loading(false);
       },
       /** Repeats the current request; several calls in one task share one request (quiet only if every call was). */
-      refetch: (_hint, quiet) => {
+      refresh: (_hint, quiet) => {
         if (def.fx) return Promise.resolve();
         if (!quiet) loud = true;
         return (again ??= Promise.resolve().then(() => { again = null; const q = !loud; loud = false; return l.load(undefined, q); }));
@@ -1870,11 +1919,15 @@ export function mount(root: Document | Element, o: MountOptions): App {
         if (url == null) return;
         c?.abort();
         const ctl = (c = new AbortController()), n = ++seq, m = l.pager && (move ?? l.pager.current());
+        const req = withParams(url, m ? l.pager!.params(m) : null);
+        // signed out (src/token.ts): a request that needs the API's token, and none is stored, is not sent; the resource
+        // is loaded, empty, now (the early script's first paint says the same)
+        const out = () => F.TOKEN && !!tokens.on?.skip(l, req, m) && !(c = null);
+        if (out()) return;
         const mark = r.startLoad();
         let loaded = false, ok = false, v;
         if (!quiet) loading(true);
         try {
-          const req = withParams(url, m ? l.pager!.params(m) : null);
           const body = def.call
             ? await app.ext.call!.run(def.call.run, args, null, ctl.signal)
             : def.body != null
@@ -1886,11 +1939,14 @@ export function mount(root: Document | Element, o: MountOptions): App {
           v = loaded ? store(body, req, m) : body;
           ok = true;
           r.meta.error = null;
-          r.meta.loadedAt = env.now();
+          r.meta.loadedAt = new Date(env.now());
         } catch (e) {
           if (n != seq || isAbort(e)) return;
-          fail(def.call ? app.ext.call!.error(e) : e, quiet);
-          l.settle(false);
+          // a 401 that took the token: signed out
+          if (!F.TOKEN || (e as SinterError).status != 401 || !out()) {
+            fail(def.call ? app.ext.call!.error(e) : e, quiet);
+            l.settle(false);
+          }
         } finally {
           // writes made while this load ran win over its (older) response
           r.endLoad(mark, loaded);

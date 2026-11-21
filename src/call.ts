@@ -12,9 +12,16 @@ const feature: Feature = {
     let hide = new AbortController();
     app.addCleanup(app.env.listen('pagehide', () => { hide.abort(); hide = new AbortController(); }));
     app.ext.call = {
-      async run(f, args, el, signal) {
+      async run(f, args, el, signal, retry) {
         app.busy++;
-        const ctx: CallContext = { signal: signal ?? hide.signal, request: (u, i) => app.req.send(u, i), el };
+        // the action's retry policy goes to each request the function sends, each with its own Idempotency-Key: the
+        // function itself runs once (it may do more than send, and its requests differ)
+        // while it is inside a request, the request layer counts it (and knows when it only waits between tries)
+        const request = async (u: string, i?: Parameters<CallContext['request']>[1]) => {
+          app.busy--;
+          try { return await app.req.send(u, retry ? { ...retry, ...i } : i); } finally { app.busy++; }
+        };
+        const ctx: CallContext = { signal: signal ?? hide.signal, request, el };
         try { return await app.fns[f]!(args, ctx); }
         catch (e) {
           // an `import()` of the app's that failed: the browser names the module (Chromium, Firefox), which is

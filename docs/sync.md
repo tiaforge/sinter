@@ -1,7 +1,7 @@
 # Live updates
 
 `<sn-sync>` connects a page to a stream of server events and turns each event into a change on a
-[resource](resources.md): add or replace an item, patch fields, remove it, or reload the list. Lists
+[resource](resources.md): add or replace an item, merge fields into it, remove it, or reload the list. Lists
 on screen update by themselves, and optimistic changes stay consistent when an event arrives
 mid-request.
 
@@ -9,7 +9,7 @@ mid-request.
 <sn-resource name="people" src="/api/people" key="id" order="name"></sn-resource>
 
 <sn-sync src="/api/events">
-  <sn-event name="person_updated" resource="people" op="upsert" item="person"></sn-event>
+  <sn-event name="person_updated" resource="people" op="upsert" value="$event.person"></sn-event>
   <sn-event name="person_removed" resource="people" op="remove"></sn-event>
 </sn-sync>
 
@@ -29,7 +29,7 @@ event: person_removed
 data: {"id": 7}
 ```
 
-`item="person"` reads `payload.person`. For `remove` (and `patch`) the key comes from the payload,
+`value="$event.person"` reads the payload's `person`. For `remove` (and `merge`) the key comes from the payload,
 using the resource's `key` fields: here `id`. See [recipes/sse-sync.html](recipes/sse-sync.html).
 
 ## Change messages
@@ -38,10 +38,10 @@ Whatever the transport, the store only understands four changes:
 
 | `op` | Effect | Needs |
 | --- | --- | --- |
-| `upsert` | add the item, or replace the one with the same key | `item` (default: the whole payload) |
-| `patch` | merge fields into the item with that key | `set`, key in the payload |
+| `upsert` | add the item, or replace the one with the same key | `value`, the item (default: the whole payload) |
+| `merge` | merge fields into the item with that key | `value`, the fields; key in the payload |
 | `remove` | delete the item with that key | key in the payload |
-| `refetch` | reload the resource | nothing |
+| `refresh` | reload the resource | nothing |
 
 ## `<sn-event>` attributes
 
@@ -49,54 +49,60 @@ Whatever the transport, the store only understands four changes:
 | --- | --- |
 | `name` | The event name: the SSE event name, or whatever the transport reports. |
 | `resource` | Target resource. |
-| `op` | `upsert`, `patch`, `remove` or `refetch`. |
-| `item` | Expression for `upsert`. Default: the whole payload. |
-| `set` | Object literal for `patch`, e.g. `{flags, is_read: flags.includes('\\Seen')}`. |
-| `when` | Skip the event unless this is truthy, e.g. `mailbox === $url.mailbox`. |
-| `fallback` | `refetch`: reload when `item` evaluates to null, for servers that send some updates without a body. |
+| `op` | `upsert`, `merge`, `remove` or `refresh`. |
+| `value` | What the change writes: for `upsert` the item, an expression (default: the whole payload); for `merge` the fields, an object literal such as `{flags: $event.flags, is_read: $event.flags.includes('\\Seen')}`. |
+| `when` | Skip the event unless this is truthy, e.g. `$event.mailbox === $url.mailbox`. |
 | `then` | Handler run after the change is applied, see [Reacting to events](#reacting-to-events). |
 | `type` | The payload's type, for `sinter check` ([type-checking.md](type-checking.md)). |
 
-Attributes are expressions evaluated against the event's parsed payload: its fields are bare names.
-State declared around the `<sn-sync>` is in scope too, and `src` of `<sn-sync>` is evaluated the
-same way. Loop variables and resources are not in scope.
+Attributes are expressions, and the event's parsed payload is `$event` in them. The state and
+`data-sn-let` names around the `<sn-sync>` are in scope as anywhere (`src` of `<sn-sync>` reads them
+too); loop variables are not, and a resource is named only where a store function takes one.
 
 ```html
-<sn-event name="message_changed" resource="messages" op="patch"
-          set="{flags, is_read: flags.includes('\\Seen')}"
-          when="mailbox === sel.mailbox"></sn-event>
+<sn-event name="message_changed" resource="messages" op="merge"
+          value="{flags: $event.flags, is_read: $event.flags.includes('\\Seen')}"
+          when="$event.mailbox === sel.mailbox"></sn-event>
 ```
 
-Here `mailbox` is a payload field and `sel` is state. Events with no `<sn-event>` are still
-delivered to [islands](islands.md).
+Here `$event.mailbox` is the payload's field and `sel` is state. A payload field written bare, the
+form before 2026-11-20, is `SN201` naming `$event.<field>`. Events with no `<sn-event>` are still
+delivered to [custom elements](islands.md).
+
+Several `<sn-event>` elements may name the same event; each applies when its `when` holds. A server
+whose updates sometimes carry the item and sometimes only an id writes both cases:
+
+```html
+<sn-event name="person_updated" resource="people" op="upsert" value="$event.person" when="$event.person"></sn-event>
+<sn-event name="person_updated" resource="people" op="refresh" when="!$event.person"></sn-event>
+```
+
+See [recipes/partial-events.html](recipes/partial-events.html).
 
 ## Reacting to events
 
 `then` is a handler expression, like `data-sn-then` on an [action](actions.md). It runs after the
-change is applied (for `refetch`: once the reload is requested, not when it finishes), and may
+change is applied (for `refresh`: once the reload is requested, not when it finishes), and may
 assign state. With `then`, `resource` and `op` can be left out: the event only runs its handler.
 
 ```html
 <body data-sn-state="{ sel: null, notice: '' }">
   <sn-sync src="/api/events">
     <sn-event name="person_removed" resource="people" op="remove"
-              then="sel?.id === id && close('person')"></sn-event>
-    <sn-event name="notice" then="notice = text"></sn-event>
+              then="sel?.id === $event.id && closeDialog('person')"></sn-event>
+    <sn-event name="notice" then="notice = $event.text"></sn-event>
   </sn-sync>
 </body>
 ```
 
 - The handler runs for every event that passes `when`. It does not run when the payload can't be
-  applied: a `patch` or `remove` without the key fields, or an `upsert` without an item and no
-  `fallback`.
-- Store functions are in scope (`refresh`, `upsert`, `patch`, `remove`, `page`, `showModal`,
-  `close('id')`, `run('id')`) and win over payload fields of the same name.
-- There is no element, so `close()` must name its dialog, and `reset()` and `emit()` are errors
-  (`SN203`). `$event` and `$result` are not defined, and assigning to a payload field is an error.
-- A state name wins over a payload field of the same name. With a typed payload (`type`), such a
-  clash is a `sinter check` error; without a type, pick names the payloads don't use.
-- `data-sn-let` names declared around the `<sn-sync>` resolve like state, before payload fields.
-  A `data-sn-let` that reads `$el` is `SN201` here, since there is no element.
+  applied: a `merge` or `remove` without the key fields, or an `upsert` without an item.
+- Store functions are in scope (`refresh`, `upsert`, `merge`, `remove`, `page`, `openDialog`,
+  `closeDialog('id')`, `run('id')`).
+- There is no element, so `closeDialog()` must name its dialog, and `emit()` is an error
+  (`SN203`). `$event` is the payload, not a DOM event; `$result` is not defined, and assigning to
+  the payload (`$event.id = 1`) is an error.
+- A `data-sn-let` that reads `$el` is `SN201` here, since there is no element.
 
 ## Transports
 
@@ -153,7 +159,7 @@ and `close()`:
 - `onEvent(name, payload)` delivers one event with its **parsed** payload.
 - `onState('open')` once connected; `onState('error')` when the connection is lost, cleanly or not.
   Nothing is reported after `close()`.
-- `names` are the event names the page maps. `listen(name)` adds one an island subscribes to later.
+- `names` are the event names the page maps. `listen(name)` adds one a custom element subscribes to later.
 - A transport never reconnects by itself.
 
 Actions always go over HTTP, so `then`/`catch`, optimistic updates and 401 handling work the same
@@ -169,7 +175,7 @@ when one of its `<sn-event>` elements names it in `resource`):
 | --- | --- |
 | `'connecting'` | Until the stream first opens, and while a page restored from the back/forward cache reconnects. |
 | `'open'` | The stream is connected. |
-| `'retrying'` | The stream failed; sinter is probing the session and backing off. It is `'open'` again after a reconnect, and the resource is refetched once. |
+| `'retrying'` | The stream failed; sinter is probing the session and backing off. It is `'open'` again after a reconnect, and the resource is reloaded once. |
 | `null` | No `<sn-event>` feeds this resource. |
 
 When several streams feed a resource, `live` is the worst of their states, so an indicator never says
@@ -182,7 +188,7 @@ When several streams feed a resource, `live` is the worst of their states, so an
 
 Reading `live` of a resource that no `<sn-event>` feeds is the warning [SN516](diagnostics.md#sn516-unfed-live): it is always `null`.
 
-The state is not an error: events sent while the stream was down are caught up by the refetch, and
+The state is not an error: events sent while the stream was down are caught up by the reload, and
 the data stays on screen. A page that never reads `live` pays nothing for it. A prerendered page
 reads `'connecting'` until it is shown. A custom transport sets it through `onState('open' | 'error')`.
 
@@ -190,7 +196,7 @@ reads `'connecting'` until it is shown. A custom transport sets it through `onSt
 
 - **One connection per URL.** `<sn-sync>` elements whose `src` resolves to the same URL share one
   connection, and all their `<sn-event>` mappings apply, each in its own `<sn-sync>`'s scope. An
-  event mapped twice applies twice; islands receive it once.
+  event mapped twice applies twice; custom elements receive it once.
 - **Reconnects go through the session probe.** `EventSource` can't see the HTTP status, so after an
   error sinter calls the `sessionProbe` URL from the config module through the request layer: 2xx
   reconnects, 401 follows the normal login redirect, a network error waits and probes again.
@@ -198,11 +204,11 @@ reads `'connecting'` until it is shown. A custom transport sets it through `onSt
 - **Backoff** starts at 1 s, doubles up to 30 s with jitter, and resets after a successful
   reconnect.
 - **Missed events are caught up.** After a reconnect, every resource fed by that stream is
-  refetched once, because events sent while disconnected are lost.
+  reloaded once, because events sent while disconnected are lost.
 - **Back/forward cache.** The connection closes on `pagehide` and reopens on `pageshow`, so an open
   stream doesn't keep the page out of the cache. Reopening goes through the probe, so a page
   restored after logout is redirected to login.
-- **Refetches coalesce.** Several `refetch` messages for one resource in the same task cause one
+- **Reloads coalesce.** Several `refresh` messages for one resource in the same task cause one
   request.
 - **Swaps keep a stream open.** With [swaps](navigation.md#swaps) on, a stream whose URL the next
   page also declares (the same resolved `src`, the same transport) stays connected: the next page's
@@ -210,7 +216,7 @@ reads `'connecting'` until it is shown. A custom transport sets it through `onSt
   in order, after it has mounted and its `sn-page` listeners have run. Other streams close. With
   `EventSource`, an event whose name the old page did not listen to is not delivered during the swap;
   a server that sends one event name with the kind in the payload avoids that. A resource of the next
-  page whose data came with its HTML is refetched when an event that feeds it may have arrived while
+  page whose data came with its HTML is reloaded when an event that feeds it may have arrived while
   that HTML was fetched. Apps without swaps
   carry none of this.
 - **Streams aren't shared across tabs.** Each tab opens its own connection.
@@ -218,8 +224,8 @@ reads `'connecting'` until it is shown. A custom transport sets it through `onSt
 ### Paginated resources
 
 On a paginated resource, an `upsert` for an item that isn't on the current page becomes a
-`refetch` of the current page. `patch` and `remove` apply only to items already present. On an
-`each` resource, `refetch` reloads only the source the payload resolves to.
+`refresh` of the current page. `merge` and `remove` apply only to items already present. On an
+`for` resource, `refresh` reloads only the source the payload resolves to.
 
 ## Deploying streams
 

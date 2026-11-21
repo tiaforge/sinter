@@ -3,13 +3,13 @@
 type ComponentName = "app-header" | "task-chart";
 /** every layout of the app, by its tag */
 type LayoutName = "app-layout";
-/** the props each layout declares (`data-sn-layout`) */
+/** the props each layout declares (`data-sn-props`) */
 interface LayoutProps {
   "app-layout": { title?: string };
 }
 declare module '*/task-chart.html' {
   type Task = import('./sinter.types').Task;
-  const Base: typeof import('@tiaforge-ui/sinter/components').Component;
+  const Base: typeof import('@tiaforge-ui/sinter/runtime/components').Component;
   /** the base of `src/components/task-chart.ts`: props, events, refs and state as `task-chart.html` declares them */
   export class TaskChartComponent extends Base<{ tasks: Task[]; show: string }, { pick: 'done' | 'open' | 'all' }, { canvas: HTMLElementTagNameMap["canvas"]; probe: HTMLElementTagNameMap["span"] }, {}> {}
 }

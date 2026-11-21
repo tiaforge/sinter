@@ -3,7 +3,7 @@
 Give a resource a type and `sinter check` verifies every expression that touches it: fields, request bodies and event payloads. `article.titel` becomes a build error with a suggestion.
 
 ```html
-<sn-resource name="contacts" src="/api/contacts" items="contacts" key="id" type="Contact[]"></sn-resource>
+<sn-resource name="contacts" src="/api/contacts" select="contacts" key="id" type="Contact[]"></sn-resource>
 
 <template data-sn-for="c in contacts">
   <span data-sn-text="c.emial"></span>
@@ -27,17 +27,13 @@ npx sinter check page.html       # or name the pages
 npx sinter check --root app      # another project root
 ```
 
-It needs TypeScript in the project, uses your version of it, and never runs in the dev server. To fail the production build on type errors:
-
-```js
-sinter({ typecheck: true })
-```
-
-The check runs at the end of `vite build`. Without types, the compiler still checks every name, state variable and helper: [docs/diagnostics.md](diagnostics.md).
+It needs TypeScript in the project, uses your version of it, and never runs in the dev server. With
+TypeScript installed, `vite build` runs it at the end and fails on type errors; `sinter({ typecheck: false })`
+turns that off. Without types, the compiler still checks every name, state variable and helper: [docs/diagnostics.md](diagnostics.md).
 
 ## Types on resources
 
-`type` names the type of what `items` selects. The names come from your types module, `src/sinter.types.ts` (or `.d.ts`, `.js`; set `sinter({ types })` to move it).
+`type` names the type of what `select` picks. The names come from your types module, `src/sinter.types.ts` (or `.d.ts`, `.js`).
 
 | Attribute | Meaning |
 | --- | --- |
@@ -57,7 +53,7 @@ Custom elements are typed by the app's own declarations. A module under `src/` t
 `HTMLElementTagNameMap`, or its events in `SinterElementEvents`, is part of every check:
 
 ```ts
-// src/islands/mail-reader.ts
+// src/custom elements/mail-reader.ts
 export class MailReader extends HTMLElement { message: Message | null = null; readonly = false; }
 declare global {
   interface HTMLElementTagNameMap { 'mail-reader': MailReader }
@@ -65,7 +61,7 @@ declare global {
 }
 ```
 
-Then `data-sn-prop` on `<mail-reader>` takes only its properties, with their types; `$el` is a `MailReader`; and in
+Then `data-sn-with` on `<mail-reader>` takes only its properties, with their types; `$el` is a `MailReader`; and in
 `data-sn-on-reader-flag`, `$event.detail` is a `boolean`. An element the app does not declare takes any property,
 and its events' `detail` is `any`.
 
@@ -79,7 +75,7 @@ Branches do narrow. What is inside a `data-sn-if` template is checked where its 
 
 ```html
 <sn-sync src="/api/events">
-  <sn-event name="contact_updated" resource="contacts" op="upsert" item="contact" type="ContactEvent"></sn-event>
+  <sn-event name="contact_updated" resource="contacts" op="upsert" value="$event.contact" type="ContactEvent"></sn-event>
 </sn-sync>
 ```
 
@@ -87,7 +83,7 @@ Branches do narrow. What is inside a `data-sn-if` template is checked where its 
 export interface ContactEvent { contact: Contact }
 ```
 
-`item` must be assignable to the resource's item, and `set` to a part of it, so a payload that does not fit the resource is an error:
+An `upsert`'s `value` must be assignable to the resource's item, and a `merge`'s to a part of it, so a payload that does not fit the resource is an error:
 
 ```text
 Type 'string' is not assignable to type 'Contact'.
@@ -111,7 +107,7 @@ A resource with no `type` is matched to a `GET` operation:
 
 - The `servers` URL prefix is stripped from `src` and the query string is dropped.
 - Literal segments match literally; a segment that is one interpolation (`/api/contacts/{id}`) matches a `{param}`. A literal path beats a templated one.
-- The type is the first 2xx JSON response's schema at `items`. Named schemas become named types.
+- The type is the first 2xx JSON response's schema at `select`. Named schemas become named types.
 
 Actions are matched the same way with their own method: `data-sn-body` must fit the JSON request schema, and `$result` in `then` has the response type. No match leaves the resource or action untyped (`any`), and `SN504` names the closest path.
 
@@ -119,10 +115,10 @@ The match runs in every build, not only in the check:
 
 ```text
 SN308 unknown-schema-field: the response of `GET /articles` has no `articls`. Did you mean `articles`?
-SN505 unknown-query-param: `GET /articles` declares no query parameter `tagg`. Did you mean `tag`?
+SN505 undeclared-query-in-spec: `GET /articles` declares no query parameter `tagg`. Did you mean `tag`?
 ```
 
-`SN308` means `items` or `total` is not in the schema. `SN505` is a warning for a literal query parameter the operation does not declare, with the older `openapi` option; with `apis` it is the error `SN327`.
+`SN308` means `select` or `total` is not in the schema. `SN505` is a warning for a literal query parameter the operation does not declare, with the older `openapi` option; with `apis` it is the error `SN327`.
 
 ## Examples of errors
 
@@ -142,7 +138,7 @@ SN505 unknown-query-param: `GET /articles` declares no query parameter `tagg`. D
 sinter check: 4 page(s), 0 error(s), 1 warning(s); 7 of 8 resources typed (3 via OpenAPI)
 ```
 
-`--check-cycles` also reports `then`/`catch` handlers that start each other through `run()` (`SN509`).
+It also reports `then`/`catch` handlers that start each other through `run()` (`SN509`).
 
 `--strict` fails the check on warnings too, `--allow SN504,SN517` keeps codes warnings for one run: [docs/strict.md](strict.md).
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// `sinter check [--root <dir>] [--check-cycles] [--strict [--allow <codes>]] [page.html …]`: compiles the
+// `sinter check [--root <dir>] [--strict [--allow <codes>]] [page.html …]`: compiles the
 // pages and type-checks their expressions; `--strict` (or `SINTER_STRICT=1`) fails on warnings too. Without pages, it reads them and the plugin options from the
 // Vite config. `sinter render page.html`: the page with mocked data, driven by steps, without a browser. `sinter docs [topic]`: one part of llms.txt or a diagnostic's explanation. `sinter lsp`: the language server for editors.
 import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -12,8 +12,9 @@ import { loadHelpers, unloadedMessage } from './helpers-node.js';
 import { checkLocale } from './locales-build.js';
 import { readSnapshot } from './content-node.js';
 import { componentScript } from './components-build.js';
+import { CODES, severityOf, strictPromotes, type Code } from './compiler/diagnostics.js';
 
-const USAGE = 'usage: sinter check [--root <dir>] [--check-cycles] [--strict [--allow SN501,…]] [page.html …]\n       sinter docs [topic | data-sn-… | SN318 | words]\n       sinter render <page.html> [--url …] [--api mocks.json | http://…] [--click …] (sinter render --help)\n       sinter migrate [--root <dir>] [--write]\n       sinter lsp [--stdio]';
+const USAGE = 'usage: sinter check [--root <dir>] [--strict [--allow SN501,…]] [page.html …]\n       sinter docs [topic | data-sn-… | SN318 | words]\n       sinter render <page.html> [--url …] [--api mocks.json | http://…] [--click …] (sinter render --help)\n       sinter migrate [--root <dir>] [--write]\n       sinter lsp [--stdio]';
 
 async function main(argv: string[]): Promise<number> {
   const [command, ...rest] = argv;
@@ -27,20 +28,19 @@ async function main(argv: string[]): Promise<number> {
   }
   let root = process.cwd();
   const pages: string[] = [];
-  let cycles = false;
   let strictFlag: boolean | null = null;
   const allow = new Set<string>();
   for (let i = 0; i < rest.length; i++) {
     const a = rest[i]!;
     if (a === '--root') root = resolve(rest[++i] ?? '.');
-    else if (a === '--check-cycles') cycles = true;
+    else if (a === '--check-cycles') { console.error('sinter check: --check-cycles is gone: SN509 is reported on every run, and `--allow SN509` (or `strict: { allow }`) keeps a deliberate cycle a warning'); return 2; }
     else if (a === '--strict') strictFlag = true;
     else if (a === '--no-strict') strictFlag = false;
     else if (a === '--allow' || a.startsWith('--allow=')) {
       const list = a === '--allow' ? rest[++i] : a.slice('--allow='.length);
       const codes = (list ?? '').split(',').map((c) => c.trim().toUpperCase()).filter(Boolean);
-      const bad = codes.filter((c) => !/^SN\d{3}$/.test(c));
-      if (!codes.length || bad.length) { console.error(`sinter check: --allow takes diagnostic codes, such as --allow SN501,SN518${bad.length ? ` (not a code: ${bad.join(', ')})` : ''}\n${USAGE}`); return 2; }
+      const bad = codes.filter((c) => !(c in CODES) || severityOf(c as Code) === 'error' || !strictPromotes(c));
+      if (!codes.length || bad.length) { console.error(`sinter check: --allow takes the codes of warnings strict mode fails on, such as --allow SN501,SN518${bad.length ? ` (not one: ${bad.join(', ')})` : ''}\n${USAGE}`); return 2; }
       for (const c of codes) allow.add(c);
     } else if (a.startsWith('--')) { console.error(`sinter check: unknown option ${a}\n${USAGE}`); return 2; }
     else pages.push(a);
@@ -71,7 +71,7 @@ async function main(argv: string[]): Promise<number> {
   const nh = await loadHelpers({ root, helpersFile: p.helpersFile, manifest: p.helpers });
   if (nh.error && p.helpersFile) diagnostics.push({ severity: 'warning', code: 'SN533', message: unloadedMessage(root, p.helpersFile, nh.error), file: p.helpersFile, line: 1, col: 1 });
   for (const file of files) {
-    const out = compile(readFileSync(file, 'utf8'), { ...(lh ? { lazyModule: lh.reach } : {}), helperValues: nh.module, helperFold: nh.fold, ...contentOpts, file, root, dev: false, helpers: p.helpers, actions: p.actions, config: p.config, readFile: p.readFile, listFiles: p.listFiles, check: true, openapi: p.openapi, apis: p.apis, complexity: p.complexity, ...(p.expansionLimit ? { expansionLimit: p.expansionLimit } : {}), componentNames: p.componentNames, libraries: p.libraries, checkCycles: p.checkCycles || cycles, lazy: p.lazy, ...(p.isStatic(file) ? { static: true, prerender: true } : {}), ...(p.swap ? { swap: true } : {}), ...(locale ? { locale } : {}) });
+    const out = compile(readFileSync(file, 'utf8'), { ...(lh ? { lazyModule: lh.reach } : {}), helperValues: nh.module, helperFold: nh.fold, ...contentOpts, file, root, dev: false, helpers: p.helpers, actions: p.actions, config: p.config, readFile: p.readFile, listFiles: p.listFiles, check: true, openapi: p.openapi, apis: p.apis, complexity: p.complexity, ...(p.expansionLimit ? { expansionLimit: p.expansionLimit } : {}), componentNames: p.componentNames, libraries: p.libraries, lazy: p.lazy, ...(p.isStatic(file) ? { static: true, prerender: true } : {}), ...(p.swap ? { swap: true } : {}), ...(locale ? { locale } : {}) });
     diagnostics.push(...out.diagnostics);
     if (out.check) units.push(out.check);
   }
@@ -120,9 +120,10 @@ async function docs(args: string[]): Promise<number> {
 }
 
 /**
- * `sinter migrate [--root <dir>] [--write]`: the URLs of the pages, components and layouts become paths
- * relative to the APIs of `sinter({ apis })` (printed; written with `--write`), and what to add to the
- * config is printed: the shapes every page agrees on, and the endpoints no API declares.
+ * `sinter migrate [--root <dir>] [--write]`: every rename the compiler reports is applied to the pages,
+ * components and layouts (`data-sn-prop` → `data-sn-with`, `refresh('people')` → `refresh(people)`, …);
+ * with `sinter({ apis })`, their URLs also become paths relative to the APIs, and what to add to the config
+ * is printed: the shapes every page agrees on, and the endpoints no API declares. Printed; written with `--write`.
  */
 async function migrate(args: string[]): Promise<number> {
   let root = process.cwd(), write = false;
@@ -131,14 +132,38 @@ async function migrate(args: string[]): Promise<number> {
     else if (args[i] === '--write') write = true;
     else { console.error(USAGE); return 2; }
   }
-  const { migrateMarkup, configReport, formatReport, followUp, addQuery, removeAttributes } = await import('./migrate.js');
+  const { migrateMarkup, configReport, formatReport, followUp, addQuery, removeAttributes, applyRenames } = await import('./migrate.js');
   const { pages, options } = await viteProject(root);
+  // 0. the renames, until a pass finds none (a fix can uncover the next, as an old attribute inside an old one)
+  {
+    const p = project(root, options);
+    const html = (dir: string) => { try { return readdirSync(join(root, dir)).filter((f) => f.endsWith('.html')).map((f) => join(root, dir, f)); } catch { return []; } };
+    const files = new Set([...pages, ...html('src/components'), ...html('src/layouts')]);
+    const texts = new Map<string, string>();
+    const read = (f: string) => texts.get(f) ?? p.readFile(f);
+    let total = 0;
+    for (let pass = 0; pass < 5; pass++) {
+      const diagnostics = pages.flatMap((file) => compile(read(file), { file, root, dev: false, helpers: p.helpers, actions: p.actions, config: p.config, readFile: read, listFiles: p.listFiles, openapi: p.openapi, apis: p.apis ?? undefined, componentNames: p.componentNames, libraries: p.libraries, lazy: p.lazy }).diagnostics);
+      let n = 0;
+      for (const file of files) {
+        const r = applyRenames(read(file), diagnostics.filter((d) => d.file === file));
+        if (!r.changes.length) continue;
+        texts.set(file, r.text);
+        n += r.changes.length;
+        for (const c of r.changes) console.log(`${relative(root, file)}:${c.line}  ${c.from}  →  ${c.to}`);
+      }
+      total += n;
+      if (!n) break;
+    }
+    if (write) for (const [file, text] of texts) writeFileSync(file, text);
+    console.log(`sinter migrate: ${total} rename(s) in ${texts.size} file(s)${total && !write ? ' (run with --write to apply them)' : ''}`);
+  }
   if (!options.apis) {
     const specs = options.openapi == null ? [] : ([] as string[]).concat(options.openapi);
-    console.error('sinter migrate: configure the APIs first, in the Vite config (docs/apis.md), then run it again:\n');
-    console.error(`  sinter({ apis: { main: { ${specs.length ? `openapi: ${JSON.stringify(specs.length > 1 ? specs : specs[0])}` : "base: '/api'"} } } })\n`);
-    if (specs.length) console.error('  (the base is the spec\'s first server; set `base` for another; remove the top-level `openapi`' + ((options as { origins?: string[] }).origins?.length ? ', and the API origins from `origins`)' : ')'));
-    return 1;
+    console.log('\nTo make the pages\' URLs paths of your APIs as well, configure them in the Vite config (docs/apis.md), then run it again:\n');
+    console.log(`  sinter({ apis: { main: { ${specs.length ? `openapi: ${JSON.stringify(specs.length > 1 ? specs : specs[0])}` : "base: '/api'"} } } })\n`);
+    if (specs.length) console.log('  (the base is the spec\'s first server; set `base` for another; remove the top-level `openapi`' + ((options as { origins?: string[] }).origins?.length ? ', and the API origins from `origins`)' : ')'));
+    return 0;
   }
   const p = project(root, options);
   const errors = p.diagnostics.filter((d) => d.severity === 'error');

@@ -66,12 +66,12 @@ test('random interleavings of server writes and optimistic layers that fail or s
     const randomOp = (): Op => {
       const k = int(3);
       if (k === 0) return { op: 'upsert', item: { id: key(), n: int(100) } };
-      if (k === 1) return { op: 'patch', key: key(), fields: { n: int(100) } };
+      if (k === 1) return { op: 'merge', key: key(), fields: { n: int(100) } };
       return { op: 'remove', key: key() };
     };
     const apply = (m: Map<string, Item>, op: Op) => {
       if (op.op === 'upsert') m.set(op.item.id, op.item);
-      else if (op.op === 'patch') { const c = m.get(op.key); if (c) m.set(op.key, { ...c, ...op.fields }); }
+      else if (op.op === 'merge') { const c = m.get(op.key); if (c) m.set(op.key, { ...c, ...op.fields }); }
       else m.delete(op.key);
     };
     for (let step = 0; step < 200; step++) {
@@ -84,7 +84,7 @@ test('random interleavings of server writes and optimistic layers that fail or s
         for (const l of layers) if (l.ok) l.ops = l.ops.filter((x) => (x.op === 'upsert' ? x.item.id : x.key) !== k);
         apply(base, op);
         if (op.op === 'upsert') r.upsert(op.item);
-        else if (op.op === 'patch') r.patch(op.key, op.fields);
+        else if (op.op === 'merge') r.merge(op.key, op.fields);
         else r.remove(op.key);
       } else if (action === 2) {
         const ops = Array.from({ length: 1 + int(3) }, randomOp);
@@ -106,7 +106,7 @@ test('random interleavings of server writes and optimistic layers that fail or s
       // a full stable sort of arrival (Map) order: the store patches its sorted list in place and must agree exactly
       const expected = [...view.values()].sort((a, b) => a.n - b.n).map((i) => `${i.id}:${i.n}`);
       expect(r.all().map((i) => `${i.id}:${i.n}`), `seed ${seed} step ${step}`).toEqual(expected);
-      expect(r.meta.pending).toBe(layers.filter((l) => !l.ok).length);
+      expect(r.waiting()).toBe(layers.filter((l) => !l.ok).length);
       expect(r.meta.total, `seed ${seed} step ${step}`).toBe(Math.max(0, total - removed));
     }
     base = new Map();

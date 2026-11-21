@@ -110,14 +110,14 @@ test('rows in a closed dialog catch up when it opens', async () => {
     <dialog id="d"><template data-sn-for="(r, i) in rows"><p><b data-sn-text="i + rows[i].v"></b></p></template></dialog>
     <button id="x" data-sn-on-click="rows.splice(0, 1); rows[1].v = 'z'">x</button>
     <button id="y" data-sn-on-click="rows[0].v = 'y'">y</button>
-    <button id="o" data-sn-on-click="showModal('d')">o</button></div>`);
+    <button id="o" data-sn-on-click="openDialog('d')">o</button></div>`);
   root.querySelector<HTMLButtonElement>('#x')!.click();
   await flush();
   root.querySelector<HTMLButtonElement>('#y')!.click();
   await flush();
   root.querySelector<HTMLButtonElement>('#o')!.click();
   await flush();
-  // happy-dom does not fire `toggle` for showModal()
+  // happy-dom does not fire `toggle` for openDialog()
   root.querySelector('dialog')!.dispatchEvent(new Event('toggle'));
   await flush();
   expect(texts(root)).toEqual(['0y', '1z']);

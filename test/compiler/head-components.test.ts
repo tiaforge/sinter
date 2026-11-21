@@ -1,15 +1,15 @@
-// Head components (docs/proposals/layouts.md): `<template data-sn-head>` holds any number of head
+// Head components (docs/proposals/layouts.md): `<template data-sn-props>` holds any number of head
 // elements, inlined at the use in a head, with no wrapper.
 import { describe, expect, test } from 'vitest';
 import { compile } from '../../src/compiler/index.js';
 
-const SEO = `<template data-sn-head="{ title?: string; image?: string }">
+const SEO = `<template data-sn-props="{ title?: string; image?: string }">
   <title data-sn-text="title ? title + ' · Blog' : 'Blog'">Blog</title>
   <template data-sn-if="image"><link rel="image_src" href="/x.png"></template>
-  <og-tags data-sn-prop="{ t: title }"><meta name="x" content="in-og"></og-tags>
+  <og-tags data-sn-with="{ t: title }"><meta name="x" content="in-og"></og-tags>
   <slot name="extra"></slot>
 </template>`;
-const OG = '<template data-sn-head="{ t?: string }"><template data-sn-if="t"><meta property="og:title" content="og"></template><slot></slot></template>';
+const OG = '<template data-sn-props="{ t?: string }"><template data-sn-if="t"><meta property="og:title" content="og"></template><slot></slot></template>';
 
 function run(html: string, components: Record<string, string> = {}) {
   const files: Record<string, string> = {};
@@ -20,9 +20,25 @@ const page = (head: string, body = '<p data-sn-text="post.title"></p>') =>
   `<!doctype html><html><head><meta charset="utf-8">${head}<link rel="stylesheet" href="/a.css"></head><body><sn-resource name="post" src="/api/post"></sn-resource>${body}</body></html>`;
 const codes = (html: string, c?: Record<string, string>) => run(html, c).diagnostics.filter((d) => d.severity === 'error').map((d) => `${d.code} ${d.message}`);
 
+describe('a component\'s kind', () => {
+  test('markup both may hold (a JSON-LD script, a slot) takes the kind of where it is used', () => {
+    const ld = { 'x-ld': '<template data-sn-props=""><script type="application/ld+json">{}</script></template>' };
+    expect(codes(page('', '<x-ld></x-ld>'), ld)).toEqual([]);
+    expect(codes(page('<x-ld></x-ld>'), ld)).toEqual([]);
+    const slot = { 'x-slot': '<template data-sn-props=""><slot></slot></template>' };
+    expect(codes(page('<x-slot><meta name="a" content="b"></x-slot>'), slot)).toEqual([]);
+  });
+  test('the editor and the types read a head component made of head components as one', async () => {
+    const { componentKinds } = await import('../../src/compiler/head.js');
+    const files: Record<string, string> = { 'x-outer': '<template data-sn-props=""><og-tags></og-tags></template>', 'og-tags': OG, 'x-body': '<template data-sn-props=""><div><og-tags></og-tags></div></template>' };
+    const kind = componentKinds((t) => files[t] ?? null);
+    expect([kind('x-outer'), kind('og-tags'), kind('x-body'), kind('none')]).toEqual(['head', 'head', 'body', null]);
+  });
+});
+
 describe('head components', () => {
   test('their elements take the tag\'s place in the head, with slots, nested head components and the caller\'s props', () => {
-    const out = run(page('<seo-tags data-sn-prop="{ title: post?.title, image: false }"><meta slot="extra" name="robots" content="noindex"></seo-tags>'));
+    const out = run(page('<seo-tags data-sn-with="{ title: post?.title, image: false }"><meta slot="extra" name="robots" content="noindex"></seo-tags>'));
     expect(out.diagnostics).toEqual([]);
     const head = /<head>([\s\S]*)<\/head>/.exec(out.html)![1]!;
     expect(head).not.toMatch(/seo-tags|og-tags|<slot/);
@@ -37,34 +53,43 @@ describe('head components', () => {
   });
 
   test('a constant prop that is true keeps its branch', () => {
-    expect(run(page('<seo-tags data-sn-prop="{ image: \'/a.png\' }"></seo-tags>')).html).toContain('<link rel="image_src" href="/x.png">');
+    expect(run(page('<seo-tags data-sn-with="{ image: \'/a.png\' }"></seo-tags>')).html).toContain('<link rel="image_src" href="/x.png">');
   });
 
   test('a head component in a body, and a component in a head, are SN320', () => {
-    expect(codes(page('', '<seo-tags></seo-tags>'))).toEqual([expect.stringMatching(/^SN320 `<seo-tags>` is a head component \(`data-sn-head`\): it goes in a `<head>`/)]);
-    expect(codes(page('<x-box></x-box>', ''), { 'x-box': '<template data-sn-component=""><div></div></template>' })).toEqual([expect.stringMatching(/^SN320 `<x-box>` is a component with one root element, which cannot be in the `<head>`/)]);
+    expect(codes(page('', '<seo-tags></seo-tags>'))).toEqual([expect.stringMatching(/^SN320 `<seo-tags>` is a head component \(`data-sn-props`\): it goes in a `<head>`/)]);
+    expect(codes(page('<x-box></x-box>', ''), { 'x-box': '<template data-sn-props=""><div></div></template>' })).toEqual([expect.stringMatching(/^SN320 `<x-box>` is a component with one root element, which cannot be in the `<head>`/)]);
   });
 
-  test('a body element in a head component is SN320', () => {
-    expect(codes(page('<x-bad></x-bad>', ''), { 'x-bad': '<template data-sn-head=""><title>t</title><div></div></template>' })).toEqual([expect.stringMatching(/^SN320 a head component holds head elements: `<div>` cannot be in `<x-bad>`/)]);
+  test('markup that is not only head elements is a body component, which a head cannot hold: SN320 with the rule', () => {
+    const d = run(page('<x-bad></x-bad>', ''), { 'x-bad': '<template data-sn-props=""><title>t</title><div></div></template>' }).diagnostics.filter((x) => x.severity === 'error');
+    expect(d.map((x) => `${x.code} ${x.message}`)).toEqual([expect.stringMatching(/^SN320 `<x-bad>` is a component with one root element, which cannot be in the `<head>`/)]);
+    expect(d[0]!.hint).toMatch(/a head component is a `<template data-sn-props>` whose markup is head elements only/);
   });
 
-  test('head elements in a data-sn-component: SN312 with the hint to declare it with data-sn-head', () => {
-    const d = run(page('', '<x-two></x-two>'), { 'x-two': '<template data-sn-component=""><title>t</title><meta name="a" content="b"></template>' }).diagnostics.filter((x) => x.severity === 'error');
-    expect(d.map((x) => x.code)).toEqual(['SN312']);
-    expect(d[0]!.hint).toMatch(/declare it with `<template data-sn-head/);
+  test('head elements only make a head component, whatever its use: in a body it is SN320', () => {
+    expect(codes(page('', '<x-two></x-two>'), { 'x-two': '<template data-sn-props=""><title>t</title><meta name="a" content="b"></template>' }))
+      .toEqual([expect.stringMatching(/^SN320 `<x-two>` is a head component \(`data-sn-props`\): it goes in a `<head>`/)]);
   });
 
-  test('the tag takes only data-sn-prop and slot content; a style beside it and a second declaration are errors', () => {
+  test('a head component made of head components is one too', () => {
+    expect(codes(page('<x-outer></x-outer>'), { 'x-outer': '<template data-sn-props=""><og-tags data-sn-with="{ t: \'a\' }"></og-tags></template>' })).toEqual([]);
+  });
+
+  test('the tag takes only data-sn-with and slot content; a style beside it and the old two declarations are errors', () => {
     expect(codes(page('<seo-tags class="a" data-sn-show="1"></seo-tags>'))).toEqual([
       expect.stringMatching(/^SN102 `class` cannot be on the tag of a head component/),
       expect.stringMatching(/^SN102 `data-sn-show` cannot be on the tag of a head component/),
     ]);
-    expect(codes(page('<x-s></x-s>'), { 'x-s': '<template data-sn-head=""><title>t</title></template><style>title { color: red }</style>' })).toEqual([expect.stringMatching(/^SN320 the head component `<x-s>` has a `<style>` beside its template/)]);
-    expect(codes(page('<x-d></x-d>'), { 'x-d': '<template data-sn-head="" data-sn-component=""><title>t</title></template>' })).toEqual([expect.stringMatching(/^SN312 `<x-d>` declares both/)]);
+    expect(codes(page('<x-s></x-s>'), { 'x-s': '<template data-sn-props=""><title>t</title></template><style>title { color: red }</style>' })).toEqual([expect.stringMatching(/^SN320 the head component `<x-s>` has a `<style>` beside its template/)]);
+    expect(codes(page('<x-d></x-d>'), { 'x-d': '<template data-sn-component="" data-sn-head=""><title>t</title></template>' })).toEqual([
+      expect.stringMatching(/^SN101 `data-sn-component` is renamed to `data-sn-props`/),
+      expect.stringMatching(/^SN101 `data-sn-head` is renamed to `data-sn-props`/),
+      expect.stringMatching(/^SN312 `<x-d>` declares both `data-sn-component` and `data-sn-head`, which are one `data-sn-props` now/),
+    ]);
   });
 
   test('a wrong prop is SN313, as for every component', () => {
-    expect(codes(page('<seo-tags data-sn-prop="{ titel: 1 }"></seo-tags>'))).toEqual([expect.stringMatching(/^SN313 `titel` is not a prop of `<seo-tags>`/)]);
+    expect(codes(page('<seo-tags data-sn-with="{ titel: 1 }"></seo-tags>'))).toEqual([expect.stringMatching(/^SN313 `titel` is not a prop of `<seo-tags>`/)]);
   });
 });

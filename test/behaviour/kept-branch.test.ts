@@ -1,6 +1,7 @@
 // A kept element's branches across swaps (docs/proposals/swap-navigation.md §3): the old page's code hands what it
 // rendered in a kept element to the next page's (`handOver`), which adopts it when the same branch is to show.
 // caley: a branch the page before showed as none, and the next page too, reloaded the page (`make` of branch 0).
+import { $hq, $hv } from '../../src/runtime/url.js';
 import { afterEach, expect, test } from 'vitest';
 import { compileParts } from '../../src/compiler/index.js';
 import { compactIR } from '../../src/ir.js';
@@ -14,7 +15,7 @@ const source = (flag: boolean) => `<html><head></head><body><nav data-sn-permane
 const compiled = (flag: boolean) => compileParts(source(flag), { file: '/p/x.html', root: '/p', dev: false, swap: true, readFile: () => '', helpers: { module: null, names: [], namespaces: {} } });
 const page = (flag: boolean) => {
   const parts = compiled(flag);
-  const fns = new Function('$k', `return [${parts.fns.join(',')}]`)((x: unknown) => x);
+  const fns = new Function('$k', '$hv', '$hq', `return [${parts.fns.join(',')}]`)((x: unknown) => x, $hv, $hq);
   return { ir: compactIR(parts.ir), fns };
 };
 const html = (flag: boolean) => /<body>([\s\S]*)<\/body>/i.exec(compiled(flag).html)![1]!;

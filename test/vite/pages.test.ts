@@ -1,5 +1,5 @@
 // @vitest-environment node
-// `data-sn-pages` in a build (docs/static-pages.md#a-page-per-entry): one HTML file per entry of a `file:` glob, at the
+// `data-sn-for` on `<html>` in a build (docs/static-pages.md#a-page-per-entry): one HTML file per entry of a `file:` glob, at the
 // page's pattern filled from the entry, with its canonical link and in the sitemap; the template is no page of its own;
 // the Speculation Rules name the pattern once; a path another page has fails the build.
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -10,7 +10,7 @@ import { afterAll, describe, expect, test } from 'vitest';
 import sinter from '../../src/vite.js';
 
 const src = resolve(__dirname, '../../src');
-const alias = [{ find: /^@tiaforge-ui\/sinter\/(.+)$/, replacement: `${src}/$1.ts` }, { find: /^@tiaforge-ui\/sinter$/, replacement: `${src}/index.ts` }];
+const alias = [{ find: /^@tiaforge-ui\/sinter\/runtime$/, replacement: `${src}/runtime-entry.ts` }, { find: /^@tiaforge-ui\/sinter\/(?:runtime\/)?(.+)$/, replacement: `${src}/$1.ts` }, { find: /^@tiaforge-ui\/sinter$/, replacement: `${src}/index.ts` }];
 const tmp = mkdtempSync(join(tmpdir(), 'sinter-pages-'));
 afterAll(() => rmSync(tmp, { recursive: true, force: true }));
 
@@ -23,12 +23,12 @@ function app(files: Record<string, string>) {
 const blog = {
   'content/posts/hello.md': '---\ntitle: Hello\ndate: 2026-11-02\n---\nHi.\n',
   'content/posts/recap.md': '---\ntitle: Recap\ndate: 2026-12-30\n---\nThe year.\n',
-  'src/layouts/site-layout.html': '<!doctype html><html lang="en" data-sn-layout="{ title: string }"><head><title data-sn-text="title"></title></head><body><slot></slot></body></html>',
-  'blog/post.html': `<site-layout data-sn-path="/blog/:slug" data-sn-pages="post in posts" data-sn-prop="{ title: post.title }">
+  'src/layouts/site-layout.html': '<!doctype html><html lang="en" data-sn-props="{ title: string }"><head><title data-sn-text="title"></title></head><body><slot></slot></body></html>',
+  'blog/post.html': `<site-layout data-sn-path="/blog/:slug" data-sn-for="post in posts" data-sn-with="{ title: post.title }">
   <sn-resource name="posts" src="file:/content/posts/*.md" order="-date"></sn-resource>
   <article><h1 data-sn-text="post.title"></h1><time data-sn-text="post.date"></time></article>
 </site-layout>`,
-  'index.html': `<site-layout data-sn-prop="{ title: 'Blog' }">
+  'index.html': `<site-layout data-sn-with="{ title: 'Blog' }">
   <sn-resource name="posts" src="file:/content/posts/*.md" order="-date"></sn-resource>
   <ul><template data-sn-for="p in posts"><li><a data-sn-attr="{ href: '/blog/' + p.slug }" data-sn-text="p.title"></a></li></template></ul>
 </site-layout>`,
@@ -36,14 +36,21 @@ const blog = {
 async function run(root: string, input: string[], o: Parameters<typeof sinter>[0] = {}) {
   let error: string | null = null;
   try {
-    await build({ root, logLevel: 'silent', plugins: [sinter({ site: 'https://example.com', speculation: 'prefetch', ...o })], resolve: { alias },
+    await build({ root, logLevel: 'silent', plugins: [sinter({ site: 'https://example.com', prefetch: { html: true }, ...o })], resolve: { alias },
       build: { outDir: join(root, 'dist'), emptyOutDir: true, rollupOptions: { input: Object.fromEntries(input.map((f) => [f.replace(/\.html$/, ''), join(root, f)])) } } });
   } catch (e) { error = String((e as Error).message); }
   const read = (f: string) => readFileSync(join(root, 'dist', f), 'utf8');
   return { error, read, has: (f: string) => existsSync(join(root, 'dist', f)) };
 }
 
-describe('data-sn-pages in a build', () => {
+describe('data-sn-for on <html> in a build', () => {
+  test('an attribute before data-sn-for that holds a `>` (an arrow, a comparison): still a page per entry', async () => {
+    const root = app({ ...blog, 'blog/post.html': blog['blog/post.html'].replace('<site-layout data-sn-path', '<site-layout data-sn-with="{ title: [1].some((n) => n > 0) ? post.title : \'\' }" data-sn-path').replace(' data-sn-with="{ title: post.title }"', '') });
+    const r = await run(root, ['index.html', 'blog/post.html']);
+    expect(r.error).toBe(null);
+    expect(r.read('blog/hello.html')).toContain('<title>Hello</title>');
+    expect(r.read('blog/recap.html')).toContain('<h1>Recap</h1>');
+  });
   test('a file per entry at its path, its entry folded in, the template not written, no JavaScript', async () => {
     const root = app(blog);
     const r = await run(root, ['index.html', 'blog/post.html']);
@@ -71,11 +78,11 @@ describe('data-sn-pages in a build', () => {
   test('an entry whose path another page has: the build fails, naming both', async () => {
     const root = app({ ...blog, 'blog/hello.html': '<!doctype html><html><head><title>x</title></head><body>mine</body></html>' });
     const r = await run(root, ['index.html', 'blog/post.html', 'blog/hello.html']);
-    expect(r.error).toMatch(/blog\/post\.html: the entry at `\/blog\/hello` would be written where `blog\/hello\.html` is \(data-sn-pages\)/);
+    expect(r.error).toMatch(/blog\/post\.html: the entry at `\/blog\/hello` would be written where `blog\/hello\.html` is \(data-sn-for on <html>\)/);
   }, 60_000);
 
   test('a link to an entry that does not exist fails the build (SN343), with the one it was likely meant for', async () => {
-    const root = app({ ...blog, 'about.html': '<site-layout data-sn-prop="{ title: \'About\' }"><p>See <a href="/blog/helo">the first post</a>, or <a href="/blog/recap?x=1#top">the recap</a>.</p></site-layout>' });
+    const root = app({ ...blog, 'about.html': '<site-layout data-sn-with="{ title: \'About\' }"><p>See <a href="/blog/helo">the first post</a>, or <a href="/blog/recap?x=1#top">the recap</a>.</p></site-layout>' });
     const r = await run(root, ['index.html', 'blog/post.html', 'about.html']);
     expect(r.error).toMatch(/SN343 broken-entry-link: about\.html links to `\/blog\/helo`, which `\/blog\/:slug` \(blog\/post\.html\) matches, but no entry is there\. Did you mean `\/blog\/hello`\?/);
     expect(r.error).not.toMatch(/recap/);
@@ -84,7 +91,7 @@ describe('data-sn-pages in a build', () => {
   test('the declaration\'s errors fail the build (the template is no input to report them)', async () => {
     const root = app({ ...blog, 'blog/post.html': blog['blog/post.html'].replace('data-sn-path="/blog/:slug"', 'data-sn-path="/blog/:year/:slug"') });
     const r = await run(root, ['index.html', 'blog/post.html']);
-    expect(r.error).toMatch(/SN341 .*has no `year` to fill `:year`/);
+    expect(r.error).toMatch(/SN340 .*has no `year` to fill `:year`/);
   }, 60_000);
 
   test('with localePrefix: each language\'s entries, paired by key, with alternates, localeUrl() and a chooser', async () => {
@@ -92,7 +99,7 @@ describe('data-sn-pages in a build', () => {
       'project.inlang/settings.json': JSON.stringify({ baseLocale: 'en', locales: ['en', 'de'] }), 'messages/en.json': '{}', 'messages/de.json': '{}',
       'content/en/posts/hello.md': '---\nid: 1\ntitle: Hello\n---\n', 'content/en/posts/only.md': '---\nid: 2\ntitle: English only\n---\n',
       'content/de/posts/hallo.md': '---\nid: 1\ntitle: Hallo\n---\n',
-      'blog/post.html': `<!doctype html><html data-sn-path="/blog/:slug" data-sn-pages="post in posts"><head><title data-sn-text="post.title"></title></head><body>
+      'blog/post.html': `<!doctype html><html data-sn-path="/blog/:slug" data-sn-for="post in posts"><head><title data-sn-text="post.title"></title></head><body>
 <sn-resource name="posts" src="file:/content/{$locale}/posts/*.md" key="id"></sn-resource>
 <h1 data-sn-text="post.title"></h1><a hreflang="de" data-sn-attr="{ href: localeUrl('de') }">Deutsch</a></body></html>`,
       'index.html': '<!doctype html><html><head><title>x</title></head><body>x</body></html>',
@@ -120,12 +127,14 @@ describe('data-sn-pages in a build', () => {
 
   test('next-page data: each entry at its own path, with what it requests ahead (one description for all)', async () => {
     const root = app({ ...blog, 'blog/post.html': blog['blog/post.html'].replace('</article>', `</article>
-  <sn-resource name="related" src="/api/related?tag={$url.tag}" key="id" items="posts"></sn-resource>
+  <sn-resource name="related" src="/api/related?tag={$url.tag}" key="id" select="posts"></sn-resource>
   <ul><template data-sn-for="p in related"><li data-sn-text="p.title"></li></template></ul>`) });
     await run(root, ['index.html', 'blog/post.html'], { prefetch: true });
     const js = readdirSync(join(root, 'dist/assets')).filter((f) => f.endsWith('.js')).map((f) => readFileSync(join(root, 'dist/assets', f), 'utf8')).join('\n').replace(/\s+/g, '');
     // (minified: either quote)
-    for (const slug of ['hello', 'recap']) expect(js).toMatch(new RegExp(`m:\\[["\`]/blog/${slug}["\`]\\],r:\\[\\{s:\\[["\`]/api/related\\?tag=["\`],0\\]`));
+    for (const slug of ['hello', 'recap']) expect(js).toMatch(new RegExp(`m:\\[["\`]/blog/${slug}["\`]\\],r:\\[\\{u:0,`));
+    // the request as code: its URL template written out
+    expect(js).toMatch(/["`]\/api\/related["`]\+\w+\(\[\[["`]tag["`],\w+\.\$url\.tag\]\]\)/);
   }, 60_000);
 
   test('the dev server: an entry\'s URL is its page', async () => {

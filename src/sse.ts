@@ -1,5 +1,5 @@
 // <sn-sync>: one connection per stream URL; translates server events into change messages, gates every
-// reconnect with the session probe, refetches after reconnects and steps aside
+// reconnect with the session probe, reloads after reconnects and steps aside
 // for the back/forward cache. The transport is EventSource unless
 // configure({ transport }) picks another for the stream URL.
 import type { EventDef, SyncDef } from './ir.js';
@@ -64,7 +64,7 @@ export class Connection {
   declare parked?: boolean;
   /** events held until the next page's replay */
   declare buf?: Array<[string, unknown]> | null;
-  /** more were held than the cap: the replay refetches */
+  /** more were held than the cap: the replay reloads */
   declare lossy?: boolean;
   /** where the transport came from: `config.transport` as it was (undefined: the default), 1: the app's own option */
   declare via?: unknown;
@@ -116,9 +116,9 @@ export class Connection {
         this.everOpen = true;
         this.set('open');
         if (!custom && !(SWAP && this.parked)) this.app.streamOpened?.(this.url);
-        // events sent while disconnected are lost: refetch everything this stream feeds (the page's as it is
-        // now: a page that took the connection over refetches its own)
-        if (reconnect) for (const name of new Set(this.subs.map(([e]) => e.resource))) if (name) void this.app.resource(name).refetch();
+        // events sent while disconnected are lost: reload everything this stream feeds (the page's as it is
+        // now: a page that took the connection over reloads its own)
+        if (reconnect) for (const name of new Set(this.subs.map(([e]) => e.resource))) if (name) void this.app.resource(name).refresh();
       } else {
         t.close();
         this.t = null;
@@ -173,7 +173,7 @@ export class Connection {
     scope.$p = payload && typeof payload === 'object' ? payload : {};
     try {
       if (def.when != null && !app.fns[def.when]!(scope)) return;
-      // `then` runs once the change is applied (a refetch: requested), unless the payload could not be applied
+      // `then` runs once the change is applied (a refresh: requested), unless the payload could not be applied
       if (def.resource && !this.change(def, def.resource, scope, payload)) return;
       if (def.then != null) app.exec(def.then, scope, def.w);
     } catch (e) {
@@ -187,22 +187,21 @@ export class Connection {
     const r = app.resource(name);
     const paginated = !!app.ir.resources.find((x) => x.name === name)?.paginate;
     switch (def.op) {
-      case 'refetch':
-        void r.refetch(scope.$p);
+      case 'refresh':
+        void r.refresh(scope.$p);
         break;
       case 'upsert': {
-        const item = def.item != null ? app.fns[def.item]!(scope) : payload;
-        if (item == null || typeof item !== 'object') {
-          if (def.fallback !== 'refetch') return false;
-          void r.refetch(scope.$p);
-        } else if (paginated && !r.has(item as object)) void r.refetch();
+        const item = def.value != null ? app.fns[def.value]!(scope) : payload;
+        // no item in the payload: nothing to apply (a second `<sn-event>` with `when` can refresh instead)
+        if (item == null || typeof item !== 'object') return false;
+        else if (paginated && !r.has(item as object)) void r.refresh();
         else r.upsert(clean(item) as object);
         break;
       }
-      case 'patch': {
+      case 'merge': {
         if (r.isCollection && !this.hasKey(r.key!, scope.$p, def)) return false;
         const key = r.keyOf(scope.$p);
-        if (!r.isCollection || r.has(key)) r.patch(key, clean(app.fns[def.set!]!(scope)));
+        if (!r.isCollection || r.has(key)) r.merge(key, clean(app.fns[def.value!]!(scope)));
         break;
       }
       case 'remove': {
@@ -248,7 +247,7 @@ const sse: Feature = {
       const cs = conns;
       for (const def of app.ir.syncs ?? []) {
         const base = app.scopeOf(def.scope ?? -1);
-        const url = app.url(def.src, base);
+        const url = app.url(def, base);
         let c = cs.get(url);
         // with swaps on, the connection the page before had open for the URL, if this page can take it over
         if (!c) cs.set(url, c = (SWAP && claim(app, url, heard, publish)) || new Connection(app, url, publish, heard));

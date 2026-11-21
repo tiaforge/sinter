@@ -24,7 +24,7 @@ export type CheckFrame =
   | { kind: 'let'; name: string; init: number | null; loc?: CheckLoc; waits?: true }
   /** a form's `$error`: its last failed send, or null */
   | { kind: 'formError' }
-  /** a component's props, typed by its `data-sn-component`; `alias`: written as a type the compiler cannot list, which may not hold a `Slot<T>` */
+  /** a component's props, typed by its `data-sn-props`; `alias`: written as a type the compiler cannot list, which may not hold a `Slot<T>` */
   | { kind: 'props'; component: string; type: TypeRef; names: string[]; alias?: boolean }
   /** `$slot` in a fill: the `T` of the slot's `Slot<T>`, and which slot of which component it is */
   | { kind: 'slot'; type: TypeRef; name: string; component: string }
@@ -69,7 +69,7 @@ export interface CheckExpr {
   /** the value must be assignable to this (`data-sn-body`, `<sn-event>` `item` and `set`) */
   returns?: TypeRef;
   /** payload expressions (`<sn-event>`, `cursor`): the payload fields read, and the payload's type (null: any) */
-  payload?: { names: string[]; type: TypeRef | null; states?: string[]; lets?: string[] };
+  payload?: { as: '$event' | '$item'; type: TypeRef | null };
   /** checked only where this holds (`<sn-component>`: the data names this candidate), so the data is narrowed */
   guard?: string;
   /** the candidate the guard is for, and where its key is written: a guard that can never hold is SN538 there */
@@ -88,18 +88,18 @@ export interface CheckResource {
   loc: CheckLoc;
   /** start of the `name` value, where go to definition lands */
   nameLoc?: CheckLoc;
-  /** without `type`: the OpenAPI operation `src` matched and the schema of what `items` selects */
+  /** without `type`: the OpenAPI operation `src` matched and the schema of what `select` selects */
   openapi?: { spec: number; label: string; schema: unknown };
-  /** `call`: the action and the `items` path into its result; with `type`, the result must fit it */
-  call?: { name: string; items: string | null };
-  /** keyset without `offset-param`: `page()` takes a direction, not a page number */
+  /** `call`: the action and the `select` path into its result; with `type`, the result must fit it */
+  call?: { name: string; select: string | null };
+  /** keyset without `jump`: `page()` takes a direction, not a page number */
   directions?: boolean;
   /**
    * a `file:` resource: `list` for a glob (`type` names one entry); `adds`, the fields sinter writes into each entry
    * (`slug`, `dir`, `path`, `body`), as a type; `values`, each file's value, which must fit the entry's type (with `type`)
    */
   file?: { list: boolean; adds: string | null; values: Array<{ file: string; json: string }> };
-  /** `data-sn-pages`: the entry, typed as one item of the resource it names */
+  /** `<html data-sn-for>`: the entry, typed as one item of the resource it names */
   item?: string;
   /** `content:` without `type`: the content module (absolute) and the collection, typed from its loader */
   content?: { module: string; name: string };

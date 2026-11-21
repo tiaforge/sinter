@@ -53,7 +53,7 @@ const one = (run: string) => (/[\n\r]/.test(run) ? '\n' : ' ');
 export function minifyMarkup(doc: P5Parent, hooks: MinifyHooks): { comments: number; bytes: number } {
   const stats = { comments: 0, bytes: 0 };
   const layout = hooks.layout;
-  const owns = (el: P5Element) => el.attrs.some((a) => OWNS_CONTENT.has(a.name) || (a.name === 'data-sn-prop' && /\b(innerHTML|textContent|innerText|outerHTML)\b/.test(a.value)));
+  const owns = (el: P5Element) => el.attrs.some((a) => OWNS_CONTENT.has(a.name) || (a.name === 'data-sn-with' && /\b(innerHTML|textContent|innerText|outerHTML)\b/.test(a.value)));
 
   /** the author's comments out of `p`, and text nodes that meet merged */
   const comments = (p: P5Parent) => {

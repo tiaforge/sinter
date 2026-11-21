@@ -11,11 +11,11 @@ import { join, resolve } from 'node:path';
 import { build } from 'vite';
 import { afterAll, beforeAll, expect, test } from 'vitest';
 import sinter from '../../src/vite.js';
-import { changesRequests } from '../../src/project.js';
+import { changesRequests, project } from '../../src/project.js';
 import { chromium } from '../browser.js';
 
 const src = resolve(__dirname, '../../src');
-const alias = [{ find: /^@tiaforge-ui\/sinter\/(.+)$/, replacement: `${src}/$1.ts` }, { find: /^@tiaforge-ui\/sinter$/, replacement: `${src}/index.ts` }];
+const alias = [{ find: /^@tiaforge-ui\/sinter\/runtime$/, replacement: `${src}/runtime-entry.ts` }, { find: /^@tiaforge-ui\/sinter\/(?:runtime\/)?(.+)$/, replacement: `${src}/$1.ts` }, { find: /^@tiaforge-ui\/sinter$/, replacement: `${src}/index.ts` }];
 const dir = mkdtempSync(join(tmpdir(), 'sinter-early-mw-'));
 const root = join(dir, 'app'), out = join(dir, 'dist');
 const listen = (s: Server) => new Promise<number>((r) => s.listen(0, '127.0.0.1', () => r((s.address() as { port: number }).port)));
@@ -26,8 +26,8 @@ beforeAll(async () => {
 <html lang="en">
 <head><meta charset="utf-8"><title>Board</title></head>
 <body>
-  <sn-resource name="me" src="/api/me" items="user" type="any"></sn-resource>
-  <sn-resource name="items" src="/api/items?q={$url.q}" items="items" key="id" type="any"></sn-resource>
+  <sn-resource name="me" src="/api/me" select="user" type="any"></sn-resource>
+  <sn-resource name="items" src="/api/items?q={$url.q}" select="items" key="id" type="any"></sn-resource>
   <p id="me" data-sn-text="me ? me.name : ''"></p>
   <ul><template data-sn-for="i in items" data-sn-key="i.id"><li data-sn-text="i.name"></li></template></ul>
 </body>
@@ -56,7 +56,6 @@ test('what counts as a config that may change requests', () => {
   expect(changesRequests('configure({ request: [auth] })')).toBe(true);
   expect(changesRequests('const request = [auth]; configure({ request })')).toBe(true);
   expect(changesRequests("configure({ request: [header('X-Key', 'k')] })")).toBe(true);
-  expect(changesRequests("import { configure, credentials } from 'x'; configure({ request: [credentials('include')] })")).toBe(true);
   expect(changesRequests('configure({ onError: () => {} }) // request: none')).toBe(false);
   expect(changesRequests('configure({ sessionProbe: "/api/me" })')).toBe(false);
 });
@@ -93,3 +92,10 @@ test.skipIf(!chromium)('signed in: every resource is requested once, with the to
     site.close();
   }
 }, 60_000);
+
+test('credentials() is gone from the config module: the API sets it', () => {
+  const root = join(dir, 'creds');
+  mkdirSync(join(root, 'src'), { recursive: true });
+  writeFileSync(join(root, 'src/sinter.config.js'), "import { configure, credentials } from '@tiaforge-ui/sinter';\nconfigure({ request: [credentials('include')] });\n");
+  expect(() => project(root, {})).toThrow("src/sinter.config.js: `credentials()` is gone: the API sets it, `sinter({ apis: { site: { credentials: 'include' } } })`");
+});

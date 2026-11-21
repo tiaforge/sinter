@@ -9,15 +9,15 @@ import { render } from '../../src/testing/index.js';
 // a generic document tree: blocks and inlines by `type`, links anywhere
 const BLOCKS = "{ para: 'x-para', list: 'x-list' }";
 const INLINES = "{ text: 'x-text', em: 'x-em', link: 'x-link' }";
-const inl = (list = 'node.children') => `<template data-sn-for="n in ${list}"><sn-component use="${INLINES}[n.type]" data-sn-prop="{ node: n }"></sn-component></template>`;
+const inl = (list = 'node.children') => `<template data-sn-for="n in ${list}"><sn-component use="${INLINES}[n.type]" data-sn-with="{ node: n }"></sn-component></template>`;
 const TREE = {
-  'x-doc': `<template data-sn-component="{ doc: any; link: Slot<{ node: any }>; emph: Slot<{ node: any }> }"><div class="doc"><template data-sn-for="b in doc.children"><sn-component use="${BLOCKS}[b.type]" data-sn-prop="{ node: b }"></sn-component></template></div></template>`,
-  'x-para': `<template data-sn-component="{ node: any }"><p>${inl()}</p></template>`,
-  'x-list': `<template data-sn-component="{ node: any }"><ul><template data-sn-for="i in node.children"><li><template data-sn-for="b in i.children"><sn-component use="${BLOCKS}[b.type]" data-sn-prop="{ node: b }"></sn-component></template></li></template></ul></template>`,
-  'x-text': '<template data-sn-component="{ node: any }"><span data-sn-text="node.value"></span></template>',
-  'x-em': `<template data-sn-component="{ node: any }"><slot name="emph" data-sn-prop="{ node }"><em>${inl()}</em></slot></template>`,
+  'x-doc': `<template data-sn-props="{ doc: any; link: Slot<{ node: any }>; emph: Slot<{ node: any }> }"><div class="doc"><template data-sn-for="b in doc.children"><sn-component use="${BLOCKS}[b.type]" data-sn-with="{ node: b }"></sn-component></template></div></template>`,
+  'x-para': `<template data-sn-props="{ node: any }"><p>${inl()}</p></template>`,
+  'x-list': `<template data-sn-props="{ node: any }"><ul><template data-sn-for="i in node.children"><li><template data-sn-for="b in i.children"><sn-component use="${BLOCKS}[b.type]" data-sn-with="{ node: b }"></sn-component></template></li></template></ul></template>`,
+  'x-text': '<template data-sn-props="{ node: any }"><span data-sn-text="node.value"></span></template>',
+  'x-em': `<template data-sn-props="{ node: any }"><slot name="emph" data-sn-with="{ node }"><em>${inl()}</em></slot></template>`,
   // deep inside: its root is the tree placement
-  'x-link': `<template data-sn-component="{ node: any }"><slot name="link" data-sn-prop="{ node }"><a data-sn-attr="{ href: node.url }">${inl()}</a></slot></template>`,
+  'x-link': `<template data-sn-props="{ node: any }"><slot name="link" data-sn-with="{ node }"><a data-sn-attr="{ href: node.url }">${inl()}</a></slot></template>`,
 };
 const t = (value: string) => ({ type: 'text', value });
 const link = (url: string, ...children: any[]) => ({ type: 'link', url, children });
@@ -29,7 +29,7 @@ const docState = JSON.stringify(DOC).replace(/"/g, "'");
 
 describe('a recursive tree with a link fill', () => {
   test('the fill reaches every depth, with the children; the default renders without one', async () => {
-    const page = (fill: string) => `<div data-sn-state="{ doc: ${docState}, rel: 'ugc' }"><x-doc data-sn-prop="{ doc }">${fill}</x-doc></div>`;
+    const page = (fill: string) => `<div data-sn-state="{ doc: ${docState}, rel: 'ugc' }"><x-doc data-sn-with="{ doc }">${fill}</x-doc></div>`;
     const { root } = await render(page('<a slot="link" data-sn-attr="{ href: $slot.node.url, rel }"><slot></slot> ↗</a>'), { components: TREE });
     expect([...root.querySelectorAll('a')].map((a) => `${a.getAttribute('href')}|${a.getAttribute('rel')}|${a.textContent}`)).toEqual(['/1|ugc|one ↗', '/2|ugc|two ↗']);
     // depth: the second link is in a list item's paragraph's emphasis
@@ -40,7 +40,7 @@ describe('a recursive tree with a link fill', () => {
 
   test('a fill that writes the caller\'s state, and reads it: a change renders the fills', async () => {
     const page = `<div data-sn-state="{ doc: ${docState}, seen: '', mark: '' }"><p id="seen" data-sn-text="seen"></p><button id="m" data-sn-on-click="mark = '*'"></button>
-      <x-doc data-sn-prop="{ doc }"><b slot="link" data-sn-on-click="seen = seen + $slot.node.url" data-sn-text="mark + $slot.node.url"></b></x-doc></div>`;
+      <x-doc data-sn-with="{ doc }"><b slot="link" data-sn-on-click="seen = seen + $slot.node.url" data-sn-text="mark + $slot.node.url"></b></x-doc></div>`;
     const { root, flush } = await render(page, { components: TREE });
     const bs = () => [...root.querySelectorAll('b')];
     expect(bs().map((b) => b.textContent)).toEqual(['/1', '/2']);
@@ -54,7 +54,7 @@ describe('a recursive tree with a link fill', () => {
 
   test('a fill in the caller\'s row writes that row\'s state', async () => {
     const page = `<main><template data-sn-for="d in [{ id: 1, doc: ${docState} }, { id: 2, doc: ${docState} }]"><section data-sn-state="{ n: 0 }"><i data-sn-text="d.id + ':' + n"></i>
-      <x-doc data-sn-prop="{ doc: d.doc }"><b slot="link" data-sn-on-click="n = n + 1"></b></x-doc></section></template></main>`;
+      <x-doc data-sn-with="{ doc: d.doc }"><b slot="link" data-sn-on-click="n = n + 1"></b></x-doc></section></template></main>`;
     const { root, flush } = await render(page, { components: TREE });
     const sections = [...root.querySelectorAll('section')];
     (sections[1]!.querySelectorAll('b')[1] as HTMLElement).click();
@@ -67,8 +67,8 @@ describe('a recursive tree with a link fill', () => {
 
 describe('app-wide looks: a wrapper', () => {
   test('its root is the tree root: its own link fill everywhere, a forwarded slot the page fills, the page\'s class on the root', async () => {
-    const WRAP = `<template data-sn-component="{ doc: any; emph: Slot<{ node: any }> }"><x-doc data-sn-prop="{ doc }"><a slot="link" class="w" data-sn-attr="{ href: $slot.node.url }"><slot></slot></a><slot name="emph" slot="emph" data-sn-prop="{ node: $slot.node }"></slot></x-doc></template>`;
-    const page = (fill: string) => `<div data-sn-state="{ doc: ${docState} }"><x-wrap class="page" data-sn-prop="{ doc }">${fill}</x-wrap></div>`;
+    const WRAP = `<template data-sn-props="{ doc: any; emph: Slot<{ node: any }> }"><x-doc data-sn-with="{ doc }"><a slot="link" class="w" data-sn-attr="{ href: $slot.node.url }"><slot></slot></a><slot name="emph" slot="emph" data-sn-with="{ node: $slot.node }"></slot></x-doc></template>`;
+    const page = (fill: string) => `<div data-sn-state="{ doc: ${docState} }"><x-wrap class="page" data-sn-with="{ doc }">${fill}</x-wrap></div>`;
     const { root } = await render(page('<strong slot="emph"><slot></slot></strong>'), { components: { ...TREE, 'x-wrap': WRAP } });
     expect(root.querySelector('div.doc.page')).not.toBeNull();
     expect([...root.querySelectorAll('a.w')].map((a) => `${a.getAttribute('href')}:${a.textContent}`)).toEqual(['/1:one', '/2:two']);
@@ -84,7 +84,7 @@ describe('app-wide looks: a wrapper', () => {
 describe('a nested root boundary', () => {
   test('a root written in a fill starts a new contract: the outer fill does not reach its tree', async () => {
     const inner = JSON.stringify({ children: [{ type: 'para', children: [link('/in', t('in'))] }] }).replace(/"/g, "'");
-    const page = `<div data-sn-state="{ doc: ${docState}, inner: ${inner} }"><x-doc data-sn-prop="{ doc }"><span slot="link" class="outer"><x-doc data-sn-prop="{ doc: inner }"></x-doc></span></x-doc></div>`;
+    const page = `<div data-sn-state="{ doc: ${docState}, inner: ${inner} }"><x-doc data-sn-with="{ doc }"><span slot="link" class="outer"><x-doc data-sn-with="{ doc: inner }"></x-doc></span></x-doc></div>`;
     const { root } = await render(page, { components: TREE });
     expect(root.querySelectorAll('span.outer')).toHaveLength(2);
     // inside each outer fill, the inner tree's link is its default
@@ -94,7 +94,7 @@ describe('a nested root boundary', () => {
 
 test('state a fill reads reaches it through components used inside one another (a link in an emphasis in an emphasis)', async () => {
   const deep = JSON.stringify({ children: [{ type: 'para', children: [{ type: 'em', children: [{ type: 'em', children: [link('/d', t('d'))] }] }] }] }).replace(/"/g, "'");
-  const { root, flush } = await render(`<div data-sn-state="{ doc: ${deep}, rel: 'a' }"><button id="r" data-sn-on-click="rel = 'b'"></button><x-doc data-sn-prop="{ doc }"><a slot="link" data-sn-attr="{ rel }"><slot></slot></a></x-doc></div>`, { components: TREE });
+  const { root, flush } = await render(`<div data-sn-state="{ doc: ${deep}, rel: 'a' }"><button id="r" data-sn-on-click="rel = 'b'"></button><x-doc data-sn-with="{ doc }"><a slot="link" data-sn-attr="{ rel }"><slot></slot></a></x-doc></div>`, { components: TREE });
   expect(root.querySelector('em em a')!.getAttribute('rel')).toBe('a');
   (root.querySelector('#r') as HTMLElement).click();
   await flush();

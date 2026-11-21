@@ -11,7 +11,7 @@ import sinter from '../../src/vite.js';
 import { engines } from '../browser.js';
 
 const src = resolve(__dirname, '../../src');
-const alias = [{ find: /^@tiaforge-ui\/sinter\/(.+)$/, replacement: `${src}/$1.ts` }, { find: /^@tiaforge-ui\/sinter$/, replacement: `${src}/index.ts` }];
+const alias = [{ find: /^@tiaforge-ui\/sinter\/runtime$/, replacement: `${src}/runtime-entry.ts` }, { find: /^@tiaforge-ui\/sinter\/(?:runtime\/)?(.+)$/, replacement: `${src}/$1.ts` }, { find: /^@tiaforge-ui\/sinter$/, replacement: `${src}/index.ts` }];
 const dirs: string[] = [];
 afterAll(() => { for (const d of dirs) rmSync(d, { recursive: true, force: true }); });
 
@@ -34,17 +34,17 @@ async function site(files: Record<string, string>, options: Parameters<typeof si
   return { root, out, read, assets, logs };
 }
 
-const HEADER = `<template data-sn-component="{ title: string; nav: string }">
-  <header class="h"><h1 data-sn-text="title"></h1><nav-list data-sn-prop="{ nav, items: [{ id: 'home', href: '/', label: 'Home' }, { id: 'about', href: '/about.html', label: 'About' }] }"></nav-list></header>
+const HEADER = `<template data-sn-props="{ title: string; nav: string }">
+  <header class="h"><h1 data-sn-text="title"></h1><nav-list data-sn-with="{ nav, items: [{ id: 'home', href: '/', label: 'Home' }, { id: 'about', href: '/about.html', label: 'About' }] }"></nav-list></header>
 </template>
 <style>.h { padding: 7px; }</style>
 `;
-const NAV = `<template data-sn-component="{ nav: string; items: { id: string; href: string; label: string }[] }">
+const NAV = `<template data-sn-props="{ nav: string; items: { id: string; href: string; label: string }[] }">
   <ul><template data-sn-for="i in items"><li><a data-sn-attr="{ href: i.href }" data-sn-class="{ active: i.id === nav }" data-sn-text="i.label"></a></li></template></ul>
 </template>
 `;
 const PAGE = (title: string, nav: string, body: string) => `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>${title}</title></head><body>
-<site-header data-sn-prop="{ title: '${title}', nav: '${nav}' }"></site-header>
+<site-header data-sn-with="{ title: '${title}', nav: '${nav}' }"></site-header>
 <main data-sn-state="{ year: 2026 }">${body}<footer data-sn-text="'© ' + year"></footer></main>
 </body></html>`;
 const STATIC = {
@@ -164,7 +164,7 @@ test('the dev server: no page module on a static page, the scoped styles served 
 }, 60_000);
 
 describe('sinter({ static })', () => {
-  const footer = '<template data-sn-component="">\n<footer>\n  <button data-sn-on-click="$el.blur()">top</button>\n</footer>\n</template>\n';
+  const footer = '<template data-sn-props="">\n<footer>\n  <button data-sn-on-click="$el.blur()">top</button>\n</footer>\n</template>\n';
 
   test('a matched page with nothing to run builds; one that needs the runtime fails with SN322 where it was written', async () => {
     await expect(site(STATIC, { static: ['index.html', 'about.html'] })).resolves.toBeDefined();

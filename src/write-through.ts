@@ -3,7 +3,7 @@
 // entities the URL and body read (provenance), the response's objects of named schemas, and the
 // request body's wrapper. Rules: 1 confirm (response objects of a schema patch same-key items and
 // what the URL named), 2 create (a POST to a list's URL inserts the created item: the response's
-// item, else body + key, else a refetch), 3 update (the body patches what the URL named),
+// item, else body + key, else a reload), 3 update (the body merges into what the URL named),
 // 4 delete (a DELETE of a row's URL removes the row). `then` writes land on top of all of it.
 import type { ApplyDef } from './ir.js';
 import type { App, Feature } from './runtime/app.js';
@@ -27,7 +27,7 @@ export function changed(current: unknown, p: string[], fields: Record<string, an
 }
 
 const apply: Feature = {
-  name: 'apply',
+  name: 'write-through',
   install(app: App) {
     const schemaOf = new Map(app.ir.resources.filter((r) => r.sch).map((r) => [r.name, r.sch!]));
     app.ext.apply = (a, s, url, body, result) => {
@@ -47,8 +47,8 @@ const apply: Feature = {
         if (!isObj(item) || !isObj(fields) || (r.isCollection && !r.has(item))) return;
         const diff = changed(r.isCollection ? r.get(item) : r.value(), t.p ?? [], fields);
         if (!diff) return;
-        r.patch(item, nest(item, t.p ?? [], diff));
-        log(t.r, `patch${t.p?.length ? ' .' + t.p.join('.') : ''}`);
+        r.merge(item, nest(item, t.p ?? [], diff));
+        log(t.r, `merge${t.p?.length ? ' .' + t.p.join('.') : ''}`);
       };
       // 3 update: the body describes the entity the URL named
       if ((m == 'PUT' || m == 'PATCH') && isObj(body)) {
@@ -65,7 +65,7 @@ const apply: Feature = {
           for (const t of ap.tg) if (t.s == e.s) patchAt(t, o);
           for (const [name, sch] of schemaOf) {
             const r = res(name);
-            if (sch == e.s && r.isCollection && r.key?.every((k) => k in o) && r.has(o)) { const d = changed(r.get(o), [], o); if (d) { r.patch(o, d); log(name, 'patch'); } }
+            if (sch == e.s && r.isCollection && r.key?.every((k) => k in o) && r.has(o)) { const d = changed(r.get(o), [], o); if (d) { r.merge(o, d); log(name, 'merge'); } }
           }
         }
       }
@@ -82,7 +82,7 @@ const apply: Feature = {
         // the key came back (`{id: 42}`, or wrapped): the item is what was sent plus the response
         const b = unwrap(body), key = [result, ...(isObj(result) ? Object.values(result) : [])].find((c) => isObj(c) && r.key!.every((k) => k in c));
         if (key && isObj(b)) { r.upsert({ ...b, ...key }); log(def.name, 'upsert body+key'); }
-        else { void r.refetch(); log(def.name, 'refetch'); }
+        else { void r.refresh(); log(def.name, 'refresh'); }
       }
       // 4 delete: the row whose URL this was
       if (m == 'DELETE') for (const t of ap.tg) {

@@ -13,23 +13,23 @@ export function base(cfg: Cfg, dir: Dir | null, size = cfg.size): Record<string,
 }
 
 /**
- * Page `n` (1-based) by number: offset mode sends `page-param`, or with `offset-param` the number
- * of items to skip; keyset (with `offset-param`) sends the skip with the `first` direction.
+ * Page `n` (1-based) by number: a numbered list sends `params.page`, or with `numbered: 'offset'`
+ * the number of items to skip; keyset (with `params.offset`) sends the skip with the `first` direction.
  */
 export function pageParams(cfg: Cfg, n: number): Record<string, string> {
-  if (cfg.mode === 'offset') return cfg.offsetParam ? { [cfg.offsetParam]: String((n - 1) * cfg.size), ...base(cfg, null) } : { [cfg.pageParam]: String(n), ...base(cfg, null) };
-  return { [cfg.offsetParam!]: String((n - 1) * cfg.size), ...base(cfg, 'first') };
+  if (cfg.mode === 'numbered') return cfg.skipParam ? { [cfg.skipParam]: String((n - 1) * cfg.size), ...base(cfg, null) } : { [cfg.pageParam]: String(n), ...base(cfg, null) };
+  return { [cfg.skipParam!]: String((n - 1) * cfg.size), ...base(cfg, 'first') };
 }
 
 /**
  * The query parameters of the first page, as the pager sends them on the first load (and after a
- * `src` change); with `page-model`, the page the URL names (`pageParams`) from page 2 on.
+ * `src` change); with `model` (paginate), the page the URL names (`pageParams`) from page 2 on.
  */
 export function firstParams(cfg: Cfg): Record<string, string> {
-  return cfg.mode === 'offset' ? pageParams(cfg, 1) : base(cfg, 'first');
+  return cfg.mode === 'numbered' ? pageParams(cfg, 1) : base(cfg, 'first');
 }
 
-/** a `page-model` parameter as a page: a whole number from 1 (`"3"`, `3`), anything else page 1 */
+/** a `model` (paginate) parameter as a page: a whole number from 1 (`"3"`, `3`), anything else page 1 */
 export function toPage(v: unknown): number {
   const n = typeof v == 'number' ? Math.floor(v) : Number.parseInt(String(v ?? ''), 10);
   return Number.isFinite(n) && n >= 1 ? n : 1;

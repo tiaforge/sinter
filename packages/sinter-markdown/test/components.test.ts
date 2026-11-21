@@ -36,7 +36,7 @@ test('md-block maps every block type, md-phrasing every inline type but text, ea
 });
 
 test('every loop over phrasing content renders text runs itself, and passes every other node to md-phrasing', () => {
-  const RUN = /<template data-sn-for="n in ([^"]+)"><template data-sn-if="n\.type === 'text'"><template data-sn-text="n\.value"><\/template><\/template><template data-sn-else><md-phrasing data-sn-prop="\{ node: n \}"><\/md-phrasing><\/template><\/template>/g;
+  const RUN = /<template data-sn-for="n in ([^"]+)"><template data-sn-if="n\.type === 'text'"><template data-sn-text="n\.value"><\/template><\/template><template data-sn-else><md-phrasing data-sn-with="\{ node: n \}"><\/md-phrasing><\/template><\/template>/g;
   let loops = 0;
   for (const f of files) {
     const src = read(f);

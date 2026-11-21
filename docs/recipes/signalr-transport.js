@@ -14,7 +14,7 @@
 // Server: `await Clients.All.SendAsync("person_updated", new { person })`; the first argument is
 // the payload. Hub method names are case-insensitive in SignalR, so keep event names distinct in
 // more than case. Do not call withAutomaticReconnect(): sinter reconnects (session probe, backoff,
-// refetch of everything the stream feeds), and two reconnect loops would race. Auth is the hub's:
+// reload of everything the stream feeds), and two reconnect loops would race. Auth is the hub's:
 // cookies, or withUrl(url, { accessTokenFactory }); request middleware does not apply.
 
 /** @param {() => import('@microsoft/signalr').HubConnection} build a new, unstarted connection */

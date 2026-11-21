@@ -7,7 +7,7 @@ browser work and writes the component's state.
 
 ```html
 <!-- src/components/task-ring.html: the only contract -->
-<template data-sn-component="{ done: number; open: number }" data-sn-emits="{ pick: 'done' | 'open' }">
+<template data-sn-props="{ done: number; open: number }" data-sn-emits="{ pick: 'done' | 'open' }">
   <figure>
     <canvas data-sn-ref="canvas" role="img" data-sn-attr="{ 'aria-label': done + ' of ' + (done + open) + ' done' }"></canvas>
     <figcaption data-sn-text="done + ' / ' + (done + open)"></figcaption>
@@ -42,7 +42,7 @@ export class TaskRing extends TaskRingComponent {
 
 ```html
 <!-- any page -->
-<task-ring data-sn-prop="{ done: doneCount(tasks), open: openCount(tasks) }"
+<task-ring data-sn-with="{ done: doneCount(tasks), open: openCount(tasks) }"
            data-sn-on-pick="show = $event.detail"></task-ring>
 ```
 
@@ -88,7 +88,7 @@ may commit it or git-ignore it; the starter template commits it. Types it names 
 ## Plain custom elements
 
 Your own or third-party web components keep working without a component file: data goes in through
-properties (`data-sn-prop`), events come out as DOM events. The rest of this page is about them.
+properties (`data-sn-with`), events come out as DOM events. The rest of this page is about them.
 
 An example:
 
@@ -107,8 +107,8 @@ An example:
   </ul>
 
   <template data-sn-if="selected">
-    <mail-reader data-sn-prop="{message: selected, readonly: !selected.can_edit}"
-                 data-sn-on-reader-flag="patch(selected, {is_flagged: $event.detail})"
+    <mail-reader data-sn-with="{message: selected, readonly: !selected.can_edit}"
+                 data-sn-on-reader-flag="merge(selected, {is_flagged: $event.detail})"
                  data-sn-on-reader-note="draft = $event.detail"></mail-reader>
     <p>Note: <span data-sn-text="draft.length"></span> characters</p>
   </template>
@@ -133,7 +133,7 @@ class MailReader extends HTMLElement {
     this.replaceChildren(this.#title, this.#flag, this.#note);
   }
 
-  // sinter assigns these from data-sn-prop, each time the value changes
+  // sinter assigns these from data-sn-with, each time the value changes
   set message(m) {
     this.#message = m;
     this.#title.textContent = m.subject;
@@ -151,24 +151,24 @@ customElements.define('mail-reader', MailReader);
 ```
 The round trip:
 
-1. Clicking a row sets `selectedId`; `selected` is derived from the resource, so it is always the current item. `data-sn-prop` assigns `message` and `readonly` on the island, and its setters update the
+1. Clicking a row sets `selectedId`; `selected` is derived from the resource, so it is always the current item. `data-sn-with` assigns `message` and `readonly` on the custom element, and its setters update the
    elements it built.
 2. Clicking Flag dispatches `reader-flag` with the new value. The template's handler calls
-   `patch(selected, {...})`, which updates the resource, so the `flagged` label in the
-   list changes, and `selected` is the patched item, which `data-sn-prop` passes to the island again, and it
+   `merge(selected, {...})`, which updates the resource, so the `flagged` label in the
+   list changes, and `selected` is the patched item, which `data-sn-with` passes to the custom element again, and it
    re-renders with "Unflag".
 3. Typing dispatches `reader-note` with the text. The handler writes it to the `draft` state, and the
-   `<span data-sn-text="draft.length">` next to the island updates on every keystroke.
+   `<span data-sn-text="draft.length">` next to the custom element updates on every keystroke.
 
-The island owns the elements it builds; sinter owns the bindings around it. Data flows in
+The custom element owns the elements it builds; sinter owns the bindings around it. Data flows in
 through properties and out through events, never through the DOM in between.
 
 ### Data in
 
-`data-sn-prop` takes an object literal and assigns each entry as a JavaScript property, so the
-island receives objects and arrays, not strings. It works on custom elements only.
+`data-sn-with` takes an object literal and assigns each entry as a JavaScript property, so the
+custom element receives objects and arrays, not strings. It works on custom elements only.
 
-The island's module may define the element after the page has mounted (a lazy `import()`). Values
+The custom element's module may define the element after the page has mounted (a lazy `import()`). Values
 set before that are not lost: when the element is defined, sinter sets the latest value of each
 property again through your class's setter.
 
@@ -177,7 +177,7 @@ element's properties ([type-checking.md](type-checking.md)).
 
 ### Events out
 
-An island dispatches `CustomEvent`s with lowercase kebab-case names (`reader-flag`) that bubble.
+A custom element dispatches `CustomEvent`s with lowercase kebab-case names (`reader-flag`) that bubble.
 `data-sn-on-<name>` handles them like any other event, with the payload in `$event.detail`.
 
 Declare the details in `SinterElementEvents` and `$event.detail` is typed:
@@ -188,7 +188,7 @@ If an event may be final at some level, dispatch it with `cancelable: true`.
 
 ### Instance API
 
-An island can also use the store directly:
+A custom element can also use the store directly:
 
 ```js
 import { instance } from '@tiaforge-ui/sinter';
@@ -197,7 +197,7 @@ const app = instance(document);              // the instance mounted on the docu
 
 const messages = app.resource('messages');
 messages.subscribe(change => { /* ... */ });
-messages.patch(msg, { is_read: true });
+messages.merge(msg, { is_read: true });
 
 app.request('/api/email/raw?id=7');          // fetch through the request layer
 app.optimistic(() => messages.remove(msg), () => app.request(url, { method: 'DELETE' }));
@@ -218,9 +218,9 @@ all mappings have run.
 
 ### Rules
 
-- Islands never write to nodes sinter manages. Markup written inside a custom element in the page is bound like the
-  rest of the page, so an island that replaces its children (as `<mail-reader>` does) should be written empty.
-- Store writes from an island go to the base data, like server events. For a change the server
+- Custom elements never write to nodes sinter manages. Markup written inside a custom element in the page is bound like the
+  rest of the page, so a custom element that replaces its children (as `<mail-reader>` does) should be written empty.
+- Store writes from a custom element go to the base data, like server events. For a change the server
   hasn't confirmed, use `app.optimistic()`, so it rolls back on failure and stays consistent with
   incoming events.
 - There can be several instances, one per mount root. There is no global one, so always pass the

@@ -3,7 +3,7 @@
 // (value expressions) and written paths (handlers), and emits a function.
 import type * as acorn from 'acorn';
 import { parseExpression, parseProgram } from './parse.js';
-import { type Code, didYouMean } from './diagnostics.js';
+import { type Code, didYouMean, suggest } from './diagnostics.js';
 
 type Node = acorn.AnyNode & { start: number; end: number };
 
@@ -22,12 +22,12 @@ export interface LoopEntry {
   of?: string[] | null;
   /** the name the runtime gives it, when not `name`: loops inside a component, so a prop read in them cannot be shadowed */
   rt?: string;
-  /** item: the resources its list is (see `Sources`): where `patch(item, …)` and `remove(item)` act */
+  /** item: the resources its list is (see `Sources`): where `merge(item, …)` and `remove(item)` act */
   src?: string[] | null;
 }
 
 /**
- * Where an item or a list comes from, for `patch(item, …)` and `remove(item)`: resource names, and
+ * Where an item or a list comes from, for `merge(item, …)` and `remove(item)`: resource names, and
  * references the compiler resolves once the page is compiled: `@$s3.sel` (what handlers assign to
  * a state path) and `@ev:<use>:<event>` (what a component emits). `!<helper>`: a helper that takes
  * more than one resource, whose rows have no single source.
@@ -45,12 +45,19 @@ export interface LetEntry {
   usesEl: boolean;
   usesIndex: boolean;
   resource: string | null;
-  /** the resource names the value can be (literals through `?:`, `||`, `??` and lets), or null when they cannot be listed */
+  /** the resources the value can be (through `?:`, `||`, `??` and lets), by name, or null when they cannot be listed */
   names?: string[] | null;
+  /** with `names`: the value as names, where a store function or `$meta[…]` takes it (`s ? "a" : "b"`), and what that reads */
+  nameCode?: string;
+  nameDeps?: string[];
+  /** the same as source text, for `sinter check` */
+  nameSrc?: string;
   /** the lets those names come from */
   from?: LetEntry[];
   /** a component's prop: the caller's expression */
   prop?: true;
+  /** a `data-sn-let` entry's value as written (a list's empty state follows a choice in it: `emptyCondition`) */
+  text?: string;
   /** the item it is (see `Sources`), or the list */
   src?: Sources | null;
   list?: Sources | null;
@@ -58,7 +65,7 @@ export interface LetEntry {
 
 export interface ResourceInfo {
   name: string; key: string[] | null; paginate: string | null; used: boolean;
-  /** keyset with `offset-param`: `page(name, n)` and `$meta.<name>.page` are available */
+  /** keyset with `jump`: `page(name, n)` and `$meta.<name>.page` are available */
   jumps?: boolean;
 }
 
@@ -75,14 +82,14 @@ export interface Scope {
   guards?: Array<{ cond: string }>;
 }
 
-/** `$slot` in a fill: the placement's `data-sn-prop`, each value inlined where it is read, as props are. */
+/** `$slot` in a fill: the placement's `data-sn-with`, each value inlined where it is read, as props are. */
 export interface SlotScope {
   /** the slot's name and its component, for messages */
   name: string;
   component: string;
   /** `$slot` as a whole: the object the placement passes */
   whole: LetEntry;
-  /** `$slot.<key>`: each value, with its sources, so `patch($slot.row, …)` acts on the caller's resource */
+  /** `$slot.<key>`: each value, with its sources, so `merge($slot.row, …)` acts on the caller's resource */
   members: Map<string, LetEntry>;
 }
 
@@ -126,7 +133,7 @@ export interface PageInfo {
   locale?: { name: string; messages: string | null; localeUrl: string; ownUrls?: boolean };
   /**
    * Set when an expression compiled the page's own URL into its code: `$canonical` of a page at a fixed path, or
-   * `localeUrl()` from the page's translations (`ownUrls`). A `data-sn-pages` template doing so has a program per entry
+   * `localeUrl()` from the page's translations (`ownUrls`). A `<html data-sn-for>` template doing so has a program per entry
    */
   readsUrl?: boolean;
   helpers: Set<string>;
@@ -152,8 +159,10 @@ export interface PageInfo {
    * export's name in it. Only a `data-sn-let` or a prop may call one (SN324)
    */
   lazy?: Map<string, { i: number; name: string }>;
-  /** literal `id`s of the page's `<dialog>` elements, for `showModal()` and `close()` */
+  /** literal `id`s of the page's `<dialog>` elements, for `openDialog()` and `closeDialog()` */
   dialogs: Set<string>;
+  /** an API of the app has a `token` (`signOut()` has something to remove, SN347) */
+  tokens?: boolean;
   /** the resources an `<sn-event resource>` on the page names: the ones a stream feeds (`$meta.<name>.live`, SN516) */
   fed: Set<string>;
   /** literal `id`s of the page's elements, for `run()`: whether one carries an action, sits in a `data-sn-for` row, how many share it */
@@ -164,11 +173,13 @@ export interface ExprOptions {
   mode: Mode;
   /** magic names allowed here besides the everywhere ones */
   magic?: string[];
-  /** free identifiers resolve to fields of `$.$p` (sn-event, cursor) */
+  /** the expression reads a payload, `$.$p`, by a magic name: an `<sn-event>`'s (`$event`) or the cursor's item (`$item`) */
   payload?: boolean;
-  /** with `payload`: state names in scope resolve to the state first (`<sn-event>`) */
+  /** the payload's name: `$event` (default) or `$item` */
+  payloadAs?: '$event' | '$item';
+  /** with `payload`: the state and lets around the `<sn-sync>` are in scope (`<sn-event>`) */
   payloadState?: boolean;
-  /** a handler with no element (`<sn-event>`, `<sn-resource>` `then`): `close()` names its dialog, no `reset()` or `emit()` */
+  /** a handler with no element (`<sn-event>`, `<sn-resource>` `then`): `closeDialog()` names its dialog, no `emit()` */
   noElement?: string;
   /** parse as `{...}` object literal; returns its entries */
   object?: 'literal-keys' | 'any-keys' | 'state';
@@ -203,17 +214,13 @@ export interface ExprResult {
   /** a `?:` (or `||`, `??`) between expressions rooted at resources: each of them */
   resources?: string[];
   ast: Node | null;
-  /** names resolved to payload fields (`payload` mode) */
-  payloadNames?: string[];
-  /** state names read where the payload is the scope (they shadow payload fields of the same name) */
-  payloadStates?: string[];
-  /** `data-sn-let` names read where the payload is the scope (they shadow payload fields of the same name) */
-  payloadLets?: string[];
-  /** handlers: the action elements `run('id')` starts and the resources `refresh('name')` reloads, with offsets (for `SN509`) */
+  /** handlers: the action elements `run('id')` starts and the resources `refresh(name)` reloads, with offsets (for `SN509`) */
   runs?: Array<{ id: string; offset: number }>;
   refreshes?: Array<{ name: string; offset: number }>;
   /** lets read as a resource name (store calls, `$meta[…]`), with the lets their names come from: `sinter check` types them as those names */
   nameLets?: LetEntry[];
+  /** where the source names resources by value, the same text with their names (`refresh(people)` as `refresh('people')`), for `sinter check` */
+  nameEdits?: Edit[];
   /** member chains rooted at a resource or at a row of one (`article.author.username`, `a.slug`): what the expression is about */
   reads?: Read[];
   /** a value expression: the item it is, or the list, by source (see `Sources`) */
@@ -223,9 +230,9 @@ export interface ExprResult {
   assigns?: Array<{ path: string; src: Sources }>;
   /** `emit(event, item)`: the item's sources, by event */
   emitted?: Array<{ event: string; src: Sources }>;
-  /** every `patch()`/`remove()` call, at its start, with its item's sources */
+  /** every `merge()`/`remove()` call, at its start, with its item's sources */
   itemCalls?: Array<{ start: number; src: Sources }>;
-  /** `patch()`/`remove()` calls whose item has sources the compiler resolves later (references), at `offset` */
+  /** `merge()`/`remove()` calls whose item has sources the compiler resolves later (references), at `offset` */
   srcRefs?: Array<{ fn: string; offset: number; src: Sources; text: string }>;
 }
 
@@ -264,14 +271,53 @@ export function literalNames(n: acorn.AnyNode, letOf: (name: string) => LetEntry
   }
 }
 
-/** what a resource name argument may be, for `SN301` */
-const NAME_FORMS = 'a string literal, `?:`, `||` or `??` between them, or a `data-sn-let` name that is one';
+/**
+ * A reference to resources, where a store function or `$meta[…]` takes one (`refresh(people)`,
+ * `page(shown, 'next')`): a resource, `?:`, `||` or `??` between references, or a let that is one. Each
+ * leaf is the identifier the compiler turns into the resource's name. `'string'`: a name written as a
+ * string, the form before 2026-11-20. Null when the names cannot be listed.
+ */
+export type NameLeaf = { name: string; at: number; node: acorn.Identifier; let?: LetEntry };
+export function refNames(n: acorn.AnyNode, look: (name: string) => 'resource' | LetEntry | null, lets?: LetEntry[]): NameLeaf[] | 'string' | null {
+  const both = (a: acorn.AnyNode, b: acorn.AnyNode) => {
+    const x = refNames(a, look, lets);
+    if (x === 'string' || x === null) return x;
+    const y = refNames(b, look, lets);
+    return y === 'string' || y === null ? y : [...x, ...y];
+  };
+  switch (n.type) {
+    case 'Literal': return typeof n.value == 'string' ? 'string' : null;
+    case 'TemplateLiteral': return n.expressions.length ? null : 'string';
+    case 'ConditionalExpression': return both(n.consequent, n.alternate);
+    case 'LogicalExpression': return n.operator == '&&' ? null : both(n.left, n.right);
+    case 'Identifier': {
+      const l = look(n.name);
+      if (l === 'resource') return [{ name: n.name, at: n.start, node: n }];
+      if (!l?.names || l.nameCode == null) return null;
+      lets?.push(l, ...(l.from ?? []));
+      return l.names.map((name) => ({ name, at: n.start, node: n, let: l }));
+    }
+    default: return null;
+  }
+}
+
+/** what a resource argument may be, for `SN301` */
+const NAME_FORMS = 'a resource (`refresh(people)`), `?:`, `||` or `??` between resources, or a `data-sn-let` name that is one';
 
 const EVERYWHERE_MAGIC = ['$el', '$url', '$now', '$locale', '$meta'];
 export const ALL_MAGIC = ['$event', '$el', '$url', '$now', '$locale', '$result', '$error', '$meta'];
-export const STORE_FNS = ['refresh', 'upsert', 'patch', 'remove', 'page', 'showModal', 'close', 'reset', 'emit', 'run', 'navigate'];
-export const BUILTIN_HELPERS = ['date', 'time', 'datetime', 'relative', 'number', 'bytes'];
-export const META_FIELDS = ['loading', 'error', 'loadedAt', 'pending', 'total', 'live', 'page', 'pages', 'from', 'to', 'hasPrev', 'hasNext'];
+/** names the build fills in, where they apply: the site's URLs (`sinter({ site })`) and a fill's slot values */
+export const BUILD_NAMES = ['$site', '$canonical', '$slot'];
+export const STORE_FNS = ['refresh', 'upsert', 'merge', 'remove', 'page', 'openDialog', 'closeDialog', 'emit', 'run', 'navigate', 'signOut'];
+/** store functions that are gone or renamed (docs/proposals/vocabulary.md): what to write instead. Removed at 1.0 */
+const RETIRED_FNS: Record<string, string> = {
+  showModal: '`showModal()` is renamed to `openDialog()`, the pair of `closeDialog()`: `openDialog(\'edit\')`',
+  close: '`close()` is renamed to `closeDialog()`, the pair of `openDialog()`: `closeDialog()` closes the nearest dialog, `closeDialog(\'edit\')` that one',
+  patch: '`patch()` is renamed to `merge()`, which says what it does (fields left out stay) and is not the HTTP method: `merge(item, {…})`',
+  reset: '`reset()` is gone: a form\'s fields follow their `data-sn-model` state, so clear the state (`data-sn-then="draft = { title: \'\' }"`); `<button type="reset">` restores the fields and their models',
+};
+export const BUILTIN_HELPERS = ['date', 'relative', 'number', 'bytes'];
+export const META_FIELDS = ['loading', 'error', 'loadedAt', 'total', 'live', 'page', 'pages', 'from', 'to', 'hasPrev', 'hasNext'];
 const PAGE_FIELDS = ['page', 'pages', 'from', 'to', 'hasPrev', 'hasNext'];
 
 export const GLOBALS = new Set([
@@ -364,12 +410,20 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
   let usesEl = false;
   let usesIndex = false;
   let ok = true;
-  const payloadNames = new Set<string>();
-  const payloadStates = new Set<string>();
-  const payloadLets = new Set<string>();
   const runs: NonNullable<ExprResult['runs']> = [];
   const refreshes: NonNullable<ExprResult['refreshes']> = [];
   const nameLets: LetEntry[] = [];
+  // the identifiers that name resources where a store function or `$meta[…]` takes them: compiled to the names
+  const nameNodes = new Map<acorn.Identifier, NameLeaf>();
+  const nameEdits: Edit[] = [];
+  /** registers a reference's leaves (`refNames`): the compiled code and the checked source get the names */
+  const nameLeaves = (leaves: NameLeaf[]) => {
+    for (const l of leaves) {
+      if (nameNodes.has(l.node)) continue;
+      nameNodes.set(l.node, l);
+      nameEdits.push({ start: l.node.start, end: l.node.end, text: l.let ? `(${l.let.nameSrc})` : `'${l.name}'` });
+    }
+  };
   const assigns: NonNullable<ExprResult['assigns']> = [];
   const emitted: NonNullable<ExprResult['emitted']> = [];
   const srcRefs: NonNullable<ExprResult['srcRefs']> = [];
@@ -443,6 +497,7 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
       report('SN201', '`$slot` is not available here: it is the values a placement passes, in a fill of a slot declared `Slot<T>` (`<span slot="cell" data-sn-text="$slot.row.name">`)', offset);
       return null;
     }
+    if (opts.payload && name === (opts.payloadAs ?? '$event')) return { kind: 'payload' };
     if (name.startsWith('$')) {
       if (ALL_MAGIC.includes(name)) {
         // outside `catch`, `$error` is the form's: a state field the compiler gives a form that reads it
@@ -461,21 +516,20 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
         if (name === '$now') page.usesNow = true;
         return { kind: 'magic' };
       }
-      report('SN201', `\`${name}\` is not defined.${didYouMean(name, [...ALL_MAGIC, '$slot'])}`, offset);
+      report('SN201', `\`${name}\` is not defined.${didYouMean(name, [...ALL_MAGIC, ...BUILD_NAMES])}`, offset);
       return null;
     }
     if (opts.payload && opts.payloadState) {
-      // lets and state around the <sn-sync> win over payload fields of the same name
+      // the lets and state around the <sn-sync>, as anywhere (the payload is `$event`)
       const lets = scope.lets ?? [];
       for (let i = lets.length - 1; i >= 0; i--) {
         if (lets[i]!.name !== name) continue;
         // an element-less handler has no element for a let that reads `$el`
         if (lets[i]!.usesEl) { report('SN201', `\`${name}\` (\`data-sn-let\`) reads \`$el\`, and \`<sn-event>\` has no element`, offset); return null; }
-        payloadLets.add(name);
         return { kind: 'let', entry: lets[i]! };
       }
       for (let i = scope.states.length - 1; i >= 0; i--) {
-        if (scope.states[i]!.names.has(name)) { payloadStates.add(name); return { kind: 'state', sid: scope.states[i]!.sid }; }
+        if (scope.states[i]!.names.has(name)) return { kind: 'state', sid: scope.states[i]!.sid };
       }
     }
     if (!opts.payload) {
@@ -494,7 +548,19 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
       if (r) { r.used = true; return { kind: 'resource' }; }
     }
     // an <sn-event> `then` calls store functions; its value expressions do not
-    if (STORE_FNS.includes(name) && (!opts.payload || mode === 'handler')) return { kind: 'store' };
+    // store functions are callable where they are in scope: handlers, not an <sn-event>'s value expressions
+    const storeHere = !opts.payload || mode === 'handler';
+    if (STORE_FNS.includes(name) && page.helpers.has(name) && storeHere) {
+      report('SN201', `\`${name}\` is both a store function and a helper; rename the helper, which expressions cannot reach`, offset);
+      return null;
+    }
+    if (STORE_FNS.includes(name) && storeHere) return { kind: 'store' };
+    // an old store function called where store functions are (an <sn-event> `then` too, where other unknown names are payload fields);
+    // a helper of that name is the app's own, and wins as everywhere else
+    if (Object.hasOwn(RETIRED_FNS, name) && storeHere && !page.helpers.has(name) && /^\s*\(/.test(src.slice(offset + name.length))) {
+      report('SN201', RETIRED_FNS[name]!, offset);
+      return null;
+    }
     if (page.namespaces.has(name)) return { kind: 'ns' };
     if (page.helpers.has(name) || BUILTIN_HELPERS.includes(name)) return { kind: 'helper' };
     if (GLOBALS.has(name)) return { kind: 'global' };
@@ -502,7 +568,6 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
       report('SN202', `\`${name}\` is not allowed in expressions`, offset);
       return null;
     }
-    if (opts.payload) { payloadNames.add(name); return { kind: 'payload' }; }
     if (page.actions?.has(name)) {
       if (mode === 'value') report('SN203', `\`${name}\` is an action: actions run through \`data-sn-call\` or \`<sn-resource call>\`, not inside expressions`, offset);
       else {
@@ -518,17 +583,38 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
       report('SN202', `\`${name}\` is a browser API; expressions may use JavaScript, not the browser. Use a component's script`, offset);
       return null;
     }
-    if (opts.payload) { payloadNames.add(name); return { kind: 'payload' }; }
+    // a payload field read bare, the form before 2026-11-20: it is a field of the payload's name
+    if (opts.payload) {
+      const as = opts.payloadAs ?? '$event';
+      report('SN201', `\`${name}\` is renamed to \`${as}.${name}\`: ${as === '$event' ? 'an `<sn-event>`\'s payload is `$event`' : 'the cursor reads the item at the page\'s edge as `$item`'}`, offset);
+      return null;
+    }
+    if (Object.hasOwn(RETIRED_FNS, name)) {
+      report('SN201', RETIRED_FNS[name]!, offset);
+      return null;
+    }
     const candidates = [
       ...(scope.lets ?? []).map((l) => l.name), ...scope.loops.map((l) => l.name), ...scope.states.flatMap((s) => [...s.names]),
       ...page.resources.keys(), ...page.helpers, ...page.namespaces.keys(), ...STORE_FNS, ...BUILTIN_HELPERS,
     ];
-    if (scope.component?.outer.has(name)) {
-      report('SN201', `\`${name}\` is not defined in component \`<${scope.component.name}>\`, which sees only its props, its own state and the page's resources and helpers`, offset,
-        `add \`${name}\` to \`data-sn-component\` and pass it from the caller: \`data-sn-prop="{ ${name}: ${name} }"\``);
+    // the formatters before one `date()` (2026-11-20)
+    if (name === 'time' || name === 'datetime') {
+      report('SN201', name === 'time' ? '`time(v)` is `date(v, null, \'short\')`: one formatter for dates and times' : '`datetime(v)` is `date(v, \'medium\', \'short\')`: one formatter for dates and times', offset);
       return null;
     }
-    report('SN201', `\`${name}\` is not defined here.${didYouMean(name, candidates)}`, offset);
+    if (scope.component?.outer.has(name)) {
+      report('SN201', `\`${name}\` is not defined in component \`<${scope.component.name}>\`, which sees only its props, its own state and the page's resources and helpers`, offset,
+        `add \`${name}\` to \`data-sn-props\` and pass it from the caller: \`data-sn-with="{ ${name}: ${name} }"\``);
+      return null;
+    }
+    // the two slips this message meets most: a row's field without its loop variable, and a fixed name written bare
+    const row = scope.loops.length ? scope.loops[scope.loops.length - 1]!.name : null;
+    const parts = [
+      ...(row ? [`a row's field is read through its loop variable: \`${row}.${name}\``] : []),
+      ...(mode === 'value' && !suggest(name, candidates) ? [`a fixed name is a string: \`'${name}'\``] : []),
+    ];
+    const hint = parts.length ? parts.join('; ') : undefined;
+    report('SN201', `\`${name}\` is not defined here.${didYouMean(name, candidates)}`, offset, hint);
     void member;
     return null;
   }
@@ -544,7 +630,7 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
       case 'magic': return `$.${name}`;
       case 'const': return res.code;
       case 'store': return `$.$f.${name}`;
-      case 'payload': return `$.$p.${name}`;
+      case 'payload': return '$.$p';
       case 'ns': return name;
     }
   }
@@ -607,6 +693,15 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
     return { root: name, res, segs, resource: base.resource, props };
   }
 
+  /** what a name is in a resource reference: a resource, a let that names resources, or neither */
+  function lookRef(nm: string, locals: Locals): 'resource' | LetEntry | null {
+    const res = resolveQuiet(nm, locals);
+    // a name nothing defines: taken as a resource, so it is reported as an undeclared one, with the suggestion;
+    // in an `<sn-event>` handler, where bare names are payload fields, a resource's name is the resource here
+    if (!res || res.kind === 'resource' || (res.kind === 'payload' && page.resources.has(nm))) return 'resource';
+    return res.kind === 'let' ? res.entry : null;
+  }
+
   /** Resolution without diagnostics, for chains already resolved by the walker. */
   function resolveQuiet(name: string, locals: Locals): Resolved | null {
     const saved = opts.report;
@@ -627,6 +722,7 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
     deps.add(segs.join('.'));
   }
 
+  const metaSeen = new Map<Node, Array<{ name: string; at: number }> | null>();
   /** `$meta[key]` with a key whose resource names can be listed: those names (null otherwise) */
   function metaNames(n: Node, locals: Locals): Array<{ name: string; at: number }> | null {
     let cur: Node = n;
@@ -636,15 +732,30 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
       else break;
     }
     if (cur.type !== 'MemberExpression' || !cur.computed || cur.property.type === 'Literal') return null;
+    // asked once per member of the chain and for its dependencies: worked out (and reported) once
+    if (metaSeen.has(cur)) return metaSeen.get(cur)!;
+    const names = metaKey(cur, locals);
+    metaSeen.set(cur, names);
+    return names;
+  }
+
+  function metaKey(cur: acorn.MemberExpression & Node, locals: Locals): Array<{ name: string; at: number }> | null {
     const lets: LetEntry[] = [];
-    const names = literalNames(cur.property, (nm) => { const res = resolveQuiet(nm, locals); return res?.kind === 'let' ? res.entry : null; }, lets);
-    if (names) nameLets.push(...lets);
+    const names = refNames(cur.property, (nm) => lookRef(nm, locals), lets);
+    if (names === 'string') {
+      const text = src.slice(cur.property.start, cur.property.end);
+      report('SN301', `\`$meta[…]\` takes the resource, not its name: \`$meta[${text}]\` is \`$meta[${text.replace(/(['"`])([A-Za-z_$][\w$]*)\1/g, '$2')}]\``, cur.property.start);
+      return null;
+    }
+    if (names) { nameLets.push(...lets); nameLeaves(names); }
     return names;
   }
 
   function checkMeta(n: acorn.MemberExpression & Node, locals: Locals) {
     const cp = chainPath(n, locals);
-    if (!cp || cp.root !== '$meta' || cp.res.kind !== 'magic' || !cp.segs) return;
+    // `checkMeta` runs for each member of the chain: the key is checked by the member on `$meta`, the field by the
+    // member that names it, and the members after it (`.loadedAt.getTime`) have nothing to check
+    if (!cp || cp.root !== '$meta' || cp.res.kind !== 'magic' || !cp.segs || cp.segs.length > 3) return;
     const [, key, field] = cp.segs;
     // a computed key is checked for each name it can take, when they can be listed
     const names = key === '*' ? metaNames(n, locals) : key ? [{ name: key, at: n.start }] : null;
@@ -657,14 +768,16 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
       }
       r.used = true;
       if (field && field !== '*') {
-        if (!META_FIELDS.includes(field)) {
+        if (field === 'pending') {
+          report('SN303', `\`$meta.${rname}.pending\` is gone: an element shows its own request with \`aria-busy\` (\`[aria-busy=true]\` in CSS), optimistic or not`, n.start);
+        } else if (!META_FIELDS.includes(field)) {
           report('SN303', `\`$meta.${rname}.${field}\` is not a status field.${didYouMean(field, META_FIELDS)}`, n.start);
         } else if (PAGE_FIELDS.includes(field) && !r.paginate) {
           report('SN303', `\`$meta.${rname}.${field}\` is a pagination field, but \`${rname}\` has no \`paginate\``, n.start);
         } else if (field === 'live' && !page.fed.has(rname)) {
           report('SN516', `\`$meta.${rname}.live\` is always \`null\`: no \`<sn-event resource="${rname}">\` on this page feeds \`${rname}\``, n.start, `add an \`<sn-event>\` for \`${rname}\` to the \`<sn-sync>\`, or remove this`);
-        } else if (field === 'page' && r.paginate !== 'offset' && !r.jumps) {
-          report('SN303', `\`$meta.${rname}.page\` exists only with \`paginate="offset"\`, or \`paginate="keyset"\` with \`offset-param\``, n.start);
+        } else if (field === 'page' && r.paginate !== 'numbered' && !r.jumps) {
+          report('SN303', `\`$meta.${rname}.page\` exists only on a numbered list (\`paginate="{ numbered: true, … }"\`), or a keyset list with \`jump: true\``, n.start);
         }
       }
     }
@@ -672,6 +785,12 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
 
   // ---- walking
   function ident(n: acorn.Identifier & Node, locals: Locals, shorthand = false) {
+    const leaf = nameNodes.get(n);
+    if (leaf) {
+      if (leaf.let) for (const d of leaf.let.nameDeps ?? []) deps.add(d);
+      edits.push({ start: n.start, end: n.end, text: leaf.let ? `(${leaf.let.nameCode})` : JSON.stringify(leaf.name) });
+      return;
+    }
     const res = resolve(n.name, locals, n.start);
     if (!res) return;
     if (res.kind === 'ns') {
@@ -880,7 +999,7 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
     const cp = chainPath(target, locals);
     if (!cp) { report('SN203', 'only state variables and their properties can be assigned', at); return; }
     if (cp.res.kind === 'let' && cp.root === '$slot') {
-      report('SN203', '`$slot` is what the placement passes, and cannot be assigned; change it with `patch()` on its item, or in the component', at);
+      report('SN203', '`$slot` is what the placement passes, and cannot be assigned; change it with `merge()` on its item, or in the component', at);
       return;
     }
     if (cp.res.kind === 'let') {
@@ -888,7 +1007,7 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
       return;
     }
     if (cp.resource) {
-      report('SN205', `\`${src.slice(target.start, target.end)}\` mutates a resource. Use \`patch(${src.slice(target.start, target.end).replace(/\.[^.]*$/, '')}, {…})\``, at,
+      report('SN205', `\`${src.slice(target.start, target.end)}\` mutates a resource. Use \`merge(${src.slice(target.start, target.end).replace(/\.[^.]*$/, '')}, {…})\``, at,
         'resources are read-only in expressions; copy with structuredClone() to edit');
       return;
     }
@@ -925,7 +1044,7 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
           }
           if (!READ_ONLY.has(method)) {
             if (recv.resource && MUTATORS.has(method)) {
-              report('SN205', `\`${src.slice(m.start, m.end)}()\` mutates a resource. Use \`patch(item, …)\` or copy with structuredClone()`, n.start);
+              report('SN205', `\`${src.slice(m.start, m.end)}()\` mutates a resource. Use \`merge(item, …)\` or copy with structuredClone()`, n.start);
             } else if (mode === 'value' && MUTATORS.has(method) && recv.segs && recv.res.kind === 'state') {
               report('SN203', `value expressions cannot change state; move \`${method}()\` to \`data-sn-on-*\``, n.start);
             } else if (mode === 'handler' && recv.segs && recv.res.kind !== 'magic' && !recv.resource) {
@@ -946,7 +1065,7 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
           const target = n.arguments[0];
           const cp = OBJECT_MUTATORS.has(method) && target && (target.type === 'Identifier' || target.type === 'MemberExpression') ? chainPath(target as Node, locals) : null;
           if (cp) {
-            if (cp.resource) report('SN205', `\`Object.${method}(${src.slice(target!.start, target!.end)}, …)\` mutates a resource. Use \`patch(item, …)\` or copy with structuredClone()`, n.start);
+            if (cp.resource) report('SN205', `\`Object.${method}(${src.slice(target!.start, target!.end)}, …)\` mutates a resource. Use \`merge(item, …)\` or copy with structuredClone()`, n.start);
             else if (cp.segs && cp.res.kind === 'state') {
               if (mode === 'value') report('SN203', `value expressions cannot change state; move \`Object.${method}()\` to \`data-sn-on-*\``, n.start);
               else if (mode === 'handler') writes.add(track(cp, cp.segs, n).join('.'));
@@ -968,7 +1087,11 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
       if (res?.kind === 'store') storeCall(callee.name, n, locals);
       else if (res?.kind === 'helper') {
         // (a page built in one language: the locale never changes)
-        if (BUILTIN_HELPERS.includes(callee.name)) { if (!page.locale) addDep(['$locale']); }
+        if (BUILTIN_HELPERS.includes(callee.name)) {
+          if (!page.locale) addDep(['$locale']);
+          // `relative(v)` reads the clock: it follows `$now`, so "3 minutes ago" moves on
+          if (callee.name === 'relative' && n.arguments.length < 2 && mode === 'value') { addDep(['$now']); page.usesNow = true; }
+        }
         else if (mode === 'handler') {
           for (const a of n.arguments) {
             const cp = a.type === 'Identifier' || a.type === 'MemberExpression' ? chainPath(a as Node, locals) : null;
@@ -992,15 +1115,19 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
     }
     const first = n.arguments[0];
     // an element-less handler has no nearest dialog or form, nothing to dispatch from
-    if (opts.noElement && (name === 'reset' || name === 'emit' || (name === 'close' && !first))) {
-      report('SN203', `\`${name}()\` needs an element; an \`<${opts.noElement}>\` handler has none${name === 'close' ? `: name the dialog, \`close('id')\`` : ''}`, n.start);
+    if (opts.noElement && (name === 'emit' || (name === 'closeDialog' && !first))) {
+      report('SN203', `\`${name}()\` needs an element; an \`<${opts.noElement}>\` handler has none${name === 'closeDialog' ? `: name the dialog, \`closeDialog('id')\`` : ''}`, n.start);
       return;
     }
     if (name === 'run') {
       runCall(first, n);
       return;
     }
-    if (name === 'patch' || name === 'remove') {
+    if (name === 'signOut' && !page.tokens) {
+      report('SN347', '`signOut()` removes the tokens of the APIs that have one (`sinter({ apis: { main: { token } } })`), and no API of this app has one', n.start);
+      return;
+    }
+    if (name === 'merge' || name === 'remove') {
       itemCall(name, n, locals);
       return;
     }
@@ -1015,11 +1142,11 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
       if (!first || first.type !== 'Literal' || typeof first.value !== 'string') report('SN315', `\`emit()\` in component \`<${c.name}>\` takes the event's name as a string literal`, n.start);
       else if (!c.emits?.includes(first.value)) {
         report('SN315', c.emits ? `\`<${c.name}>\` does not declare the event \`${first.value}\`; \`data-sn-emits\` declares ${c.emits.map((e) => `\`${e}\``).join(', ') || 'none'}.${didYouMean(first.value, c.emits)}`
-          : `\`<${c.name}>\` declares no events; add \`data-sn-emits="{ ${first.value}: … }"\` to its \`<template data-sn-component>\``, (first as Node).start);
+          : `\`<${c.name}>\` declares no events; add \`data-sn-emits="{ ${first.value}: … }"\` to its \`<template data-sn-props>\``, (first as Node).start);
       }
       return;
     }
-    if (name === 'showModal' || (name === 'close' && first)) {
+    if (name === 'openDialog' || (name === 'closeDialog' && first)) {
       if (!first || first.type !== 'Literal' || typeof first.value !== 'string') {
         report('SN309', `\`${name}()\` takes the dialog's \`id\` as a string literal`, n.start);
       } else if (!page.dialogs.has(first.value)) {
@@ -1028,8 +1155,8 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
       return;
     }
     if (name === 'refresh') {
-      // `refresh('a', 'b')`: every argument names resources
-      if (!first) report('SN301', `\`refresh()\` takes resource names: ${NAME_FORMS}`, n.start);
+      // `refresh(a, b)`: every argument names resources
+      if (!first) report('SN301', `\`refresh()\` takes resources: ${NAME_FORMS}`, n.start);
       for (const a of n.arguments) for (const c of resourcesOf(a as Node, name, locals) ?? []) refreshes.push({ name: c.name, offset: c.at });
       return;
     }
@@ -1049,7 +1176,7 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
       }
     }
     if (['upsert', 'page'].includes(name)) {
-      const cands = first ? resourcesOf(first as Node, name, locals) : (report('SN301', `\`${name}()\` takes a resource name: ${NAME_FORMS}`, n.start), null);
+      const cands = first ? resourcesOf(first as Node, name, locals) : (report('SN301', `\`${name}()\` takes a resource: ${NAME_FORMS}`, n.start), null);
       if (!cands || name !== 'page') return;
       const target = n.arguments[1];
       const named = target?.type === 'Literal' && typeof target.value === 'string' ? target.value : null;
@@ -1062,7 +1189,7 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
         if (!r.paginate) once('SN303', `\`${r.name}\` has no \`paginate\`; \`page()\` needs a paginated resource`, n.start);
         else if (r.paginate === 'append' && named !== 'next') once('SN304', '`append` pagination only supports `page(…, \'next\')`', target?.start ?? n.start);
         else if (r.paginate === 'keyset' && !named && !computed && !r.jumps) {
-          once('SN304', 'keyset pagination cannot jump to a page number. Add `offset-param` if the server also accepts an offset, or use `paginate="offset"`', target?.start ?? n.start);
+          once('SN304', 'keyset pagination cannot jump to a page number. Add `jump: true` to `paginate` if the server also accepts an offset, or use `numbered: true`', target?.start ?? n.start);
         }
       }
       if (named && !['first', 'prev', 'next', 'last'].includes(named) && !cands.some((c) => c.r.paginate === 'append')) {
@@ -1072,26 +1199,26 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
   }
 
   /**
-   * `patch(item, …)`, `remove(item)`: act on the item in the resource it came from, found by its key.
+   * `merge(item, …)`, `remove(item)`: act on the item in the resource it came from, found by its key.
    * The compiler passes the item's sources as a first argument the runtime reads (resource names;
    * references are resolved once the page is compiled). The forms with a resource name are removed.
    */
-  function itemCall(name: 'patch' | 'remove', n: acorn.CallExpression & Node, locals: Locals) {
+  function itemCall(name: 'merge' | 'remove', n: acorn.CallExpression & Node, locals: Locals) {
     const args = n.arguments as Node[];
     const first = args[0];
     const literal = (a: Node | undefined) => !!a && ((a.type === 'Literal' && typeof (a as acorn.Literal).value === 'string') || (a.type === 'TemplateLiteral' && !(a as acorn.TemplateLiteral).expressions.length));
-    if (literal(first) && args.length === (name === 'patch' ? 3 : 2)) {
+    if (literal(first) && args.length === (name === 'merge' ? 3 : 2)) {
       const rest = args.slice(1).map((a) => src.slice(a.start, a.end)).join(', ');
       report('SN317', `\`${name}()\` takes the item, not a resource name: \`${name}(${rest})\` acts on the resource the item came from`, first!.start,
         'drop the first argument; to change an item in a list other than its own, use refresh(\'name\') or leave it to write-through and server events');
       return;
     }
-    if (!first) { report('SN317', `\`${name}()\` takes the item it ${name === 'patch' ? 'changes, then the fields to set' : 'removes'}`, n.start); return; }
+    if (!first) { report('SN317', `\`${name}()\` takes the item it ${name === 'merge' ? 'changes, then the fields to set' : 'removes'}`, n.start); return; }
     const sources = itemSource(first, locals);
     const text = src.slice(first.start, first.end);
     if (!sources?.length) {
       const why = first.type === 'Identifier' && (first as acorn.Identifier).name === '$result'
-        ? 'with a spec, write-through already applies the response; else patch the row with `$result`\'s fields'
+        ? 'with a spec, write-through already applies the response; else merge into the row `$result`\'s fields'
         : opts.payload ? 'a server event\'s payload has no source: use `<sn-event resource op>`, which names its resource'
         : /\$event\b/.test(text) ? 'an island\'s event detail has no source: change the resource in the island through the instance API, which holds its handle'
         : 'pass a row of a `data-sn-for` over a resource, an element of one (`list[0]`), a single resource, a prop that is one, or state assigned from one of those';
@@ -1204,12 +1331,18 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
    */
   function resourcesOf(a: Node, fn: string, locals: Locals): Array<{ name: string; at: number; r: ResourceInfo }> | null {
     const lets: LetEntry[] = [];
-    const names = literalNames(a, (nm) => { const res = resolveQuiet(nm, locals); return res?.kind === 'let' ? res.entry : null; }, lets);
+    const names = refNames(a, (nm) => lookRef(nm, locals), lets);
+    if (names === 'string') {
+      const text = src.slice(a.start, a.end), fixed = text.replace(/(['"`])([A-Za-z_$][\w$]*)\1/g, '$2');
+      report('SN301', `\`${fn}()\` takes the resource, not its name: \`${text}\` is \`${fixed}\``, a.start);
+      return null;
+    }
     if (!names) {
-      report('SN301', fn === 'refresh' ? `\`refresh()\` takes resource names: ${NAME_FORMS}` : `\`${fn}()\` takes a resource name: ${NAME_FORMS}`, a.start);
+      report('SN301', fn === 'refresh' ? `\`refresh()\` takes resources: ${NAME_FORMS}` : `\`${fn}()\` takes a resource: ${NAME_FORMS}`, a.start);
       return null;
     }
     nameLets.push(...lets);
+    nameLeaves(names);
     const out: Array<{ name: string; at: number; r: ResourceInfo }> = [];
     for (const c of names) {
       const r = page.resources.get(c.name);
@@ -1219,18 +1352,18 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
     return out.length ? out : null;
   }
 
-  /** `run('id')`: a literal id of one element outside `data-sn-for` rows that carries an action (`SN311`) */
+  /** `run('id')`: a literal id of one element outside `data-sn-for` rows that carries an action (`SN309`) */
   function runCall(first: acorn.CallExpression['arguments'][number] | undefined, n: acorn.CallExpression & Node) {
     if (!first || first.type !== 'Literal' || typeof first.value !== 'string') {
-      report('SN311', "`run()` takes the action element's `id` as a string literal", n.start);
+      report('SN309', "`run()` takes the action element's `id` as a string literal", n.start);
       return;
     }
     const id = first.value, at = (first as Node).start, t = page.ids?.get(id);
     const actionIds = [...(page.ids ?? [])].filter(([, v]) => v.action).map(([k]) => k);
-    if (!t) report('SN311', `no element \`id="${id}"\` on this page.${didYouMean(id, actionIds)}`, at);
-    else if (!t.action) report('SN311', `\`#${id}\` has no action (\`data-sn-get\`, \`-post\`, \`-put\`, \`-patch\`, \`-delete\` or \`data-sn-call\`); \`run()\` starts actions, not handlers`, at);
-    else if (t.row) report('SN311', `\`#${id}\` is inside a \`data-sn-for\` row, so every row has it; put the action outside the list and pass the row through state`, at);
-    else if (t.n > 1) report('SN311', `${t.n} elements have \`id="${id}"\`; \`run()\` needs one`, at);
+    if (!t) report('SN309', `no element \`id="${id}"\` on this page.${didYouMean(id, actionIds)}`, at);
+    else if (!t.action) report('SN309', `\`#${id}\` has no action (\`data-sn-post\`, \`-put\`, \`-patch\`, \`-delete\` or \`data-sn-call\`); \`run()\` starts actions, not handlers`, at);
+    else if (t.row) report('SN309', `\`#${id}\` is inside a \`data-sn-for\` row, so every row has it; put the action outside the list and pass the row through state`, at);
+    else if (t.n > 1) report('SN309', `${t.n} elements have \`id="${id}"\`; \`run()\` needs one`, at);
     else runs.push({ id, offset: at });
   }
 
@@ -1271,7 +1404,7 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
         return;
       case 'AssignmentExpression': {
         if (mode !== 'handler') {
-          report('SN203', mode === 'optimistic' ? '`data-sn-optimistic` may only call `patch`, `upsert`, `remove`' : 'value expressions cannot assign; move this to `data-sn-on-*`', n.start);
+          report('SN203', mode === 'optimistic' ? '`data-sn-optimistic` may only call `merge`, `upsert`, `remove`' : 'value expressions cannot assign; move this to `data-sn-on-*`', n.start);
           return;
         }
         if (n.left.type === 'ObjectPattern' || n.left.type === 'ArrayPattern') {
@@ -1357,10 +1490,10 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
     }
   }
 
-  // ---- optimistic: only patch/upsert/remove calls
+  // ---- optimistic: only merge/upsert/remove calls
   function checkOptimistic(e: Node) {
-    if (e.type !== 'CallExpression' || e.callee.type !== 'Identifier' || !['patch', 'upsert', 'remove'].includes(e.callee.name)) {
-      report('SN204', '`data-sn-optimistic` may only call `patch`, `upsert`, `remove`', e.start, 'local state and side effects cannot be rolled back; put them in `data-sn-then`');
+    if (e.type !== 'CallExpression' || e.callee.type !== 'Identifier' || !['merge', 'upsert', 'remove'].includes(e.callee.name)) {
+      report('SN204', '`data-sn-optimistic` may only call `merge`, `upsert`, `remove`', e.start, 'local state and side effects cannot be rolled back; put them in `data-sn-then`');
       return false;
     }
     return true;
@@ -1467,11 +1600,11 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
     if (!resource) { const c = choices(e); if (c && c.length > 1) resources = [...new Set(c)]; }
   }
 
-  // what the value is an item or a list of, for `patch()` and `remove()` through rows, lets and props
+  // what the value is an item or a list of, for `merge()` and `remove()` through rows, lets and props
   const value = body.length === 1 && !opts.object && mode === 'value' && ok ? body[0]! : null;
   const sources = value ? { itemOf: itemSource(value, root), listOf: listSource(value, root) } : {};
   return { ok, code, inner: out, deps: [...deps].sort(), writes: [...writes].sort(), usesEl, usesIndex, entries, path, resource, ast, ...sources,
-    ...(assigns.length ? { assigns } : {}), ...(emitted.length ? { emitted } : {}), ...(srcRefs.length ? { srcRefs } : {}), ...(itemCalls.length ? { itemCalls } : {}), ...(opts.payload ? { payloadNames: [...payloadNames].sort(), payloadStates: [...payloadStates].sort(), payloadLets: [...payloadLets].sort() } : {}), ...(runs.length ? { runs } : {}), ...(refreshes.length ? { refreshes } : {}), ...(nameLets.length ? { nameLets: [...new Set(nameLets)] } : {}), ...(reads.length ? { reads } : {}), ...(resources ? { resources } : {}) };
+    ...(nameEdits.length ? { nameEdits } : {}), ...(assigns.length ? { assigns } : {}), ...(emitted.length ? { emitted } : {}), ...(srcRefs.length ? { srcRefs } : {}), ...(itemCalls.length ? { itemCalls } : {}), ...(runs.length ? { runs } : {}), ...(refreshes.length ? { refreshes } : {}), ...(nameLets.length ? { nameLets: [...new Set(nameLets)] } : {}), ...(reads.length ? { reads } : {}), ...(resources ? { resources } : {}) };
 }
 
 export function applyEdits(src: string, edits: Edit[]): string {

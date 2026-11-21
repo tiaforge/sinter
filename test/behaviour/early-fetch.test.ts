@@ -2,8 +2,9 @@
 // data; the page module's request layer takes each response once, at the end of its middleware
 // chain, when the request is the one the early file sent. Everything else fetches as before.
 import { afterEach, expect, test } from 'vitest';
-import { configured, requests, st, start } from '../../src/early.js';
-import { configure, header, onUnauthorized } from '../../src/runtime/config.js';
+import { configured, requests, start } from '../../src/early.js';
+import { earlyPageOf } from '../early-page.js';
+import { configure, header, onUnauthorized, setEnv } from '../../src/runtime/config.js';
 import { defaultEnv } from '../../src/runtime/env.js';
 import { createRequestLayer } from '../../src/runtime/request.js';
 import { retry } from '../../src/retry.js';
@@ -18,18 +19,18 @@ const KEYS = ['sinter.prefetched', 'sinter.early.page'];
 afterEach(() => {
   sent.length = 0;
   for (const k of KEYS) delete (globalThis as any)[Symbol.for(k)];
-  configure({ env: defaultEnv, retry: null });
+  setEnv(defaultEnv); configure({ retry: null });
 });
 
-/** The early file of a page whose state is `{ week }` and whose resources are given as URL templates over it. */
+/** The early file of a page whose state is `{ week }` and whose resources are given (named, for the reader) as URL templates over it. */
 function earlyFile(res: Array<[string, Array<string | number>, number | null]>, fns: Array<(s: any) => unknown>) {
-  const ir: Pick<EarlyIR, 'res'> = { res: res.map(([name, src, when]) => ({ name, src, when, scope: 0 })) };
+  const ir: Pick<EarlyIR, 'res'> = { res: res.map(([, src, when]) => ({ src, ...(when != null ? { when } : {}), scope: 0 })) };
   const f = [() => ({ week: '2026-11-02', sel: null }), ...fns];
-  start(() => ({ ir, fns: f, scopes: ($) => [st($, f[0]!, 0)], render: () => {} }), null, requests(undefined, configured));
+  start(earlyPageOf(ir, f), null, requests(configured));
 }
 
 test('a resource the early file requested is not requested again: the runtime takes its response', async () => {
-  configure({ env: { ...defaultEnv, fetch } });
+  setEnv({ ...defaultEnv, fetch });
   earlyFile([['days', ['/api/days?start=', 1], null], ['detail', ['/api/x/', 2], 3]], [(s) => s.$s0.week, (s) => s.$s0.sel.id, (s) => s.$s0.sel]);
   // `detail`: its `when` is false early, so only `days` is requested
   expect(sent.map((r) => r.url)).toEqual(['http://localhost:3000/api/days?start=2026-11-02']);
@@ -43,7 +44,7 @@ test('a resource the early file requested is not requested again: the runtime ta
 });
 
 test('middleware: response middleware runs on the early response; a request middleware that changes the request gets a request of its own', async () => {
-  configure({ env: { ...defaultEnv, fetch } });
+  setEnv({ ...defaultEnv, fetch });
   earlyFile([['gone', ['/api/gone'], null], ['days', ['/api/days'], null]], []);
   expect(sent).toHaveLength(2);
   let unauthorized = 0;
@@ -59,7 +60,7 @@ test('middleware: response middleware runs on the early response; a request midd
 });
 
 test('what no resource took is aborted after mount (sweep)', async () => {
-  configure({ env: { ...defaultEnv, fetch } });
+  setEnv({ ...defaultEnv, fetch });
   earlyFile([['days', ['/api/days'], null]], []);
   const signal = sent[0]!.signal;
   expect(signal.aborted).toBe(false);
@@ -70,7 +71,7 @@ test('what no resource took is aborted after mount (sweep)', async () => {
 test('a failed early request fails its load; a retry policy\'s next try fetches for real', async () => {
   let down = true;
   const flaky = async (r: Request) => { sent.push(r); if (down) throw new TypeError('Failed to fetch'); return Response.json({ ok: 1 }); };
-  configure({ env: { ...defaultEnv, fetch: flaky } });
+  setEnv({ ...defaultEnv, fetch: flaky });
   earlyFile([['days', ['/api/days'], null], ['weeks', ['/api/weeks'], null]], []);
   expect(sent).toHaveLength(2);
   down = false;

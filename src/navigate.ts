@@ -1,4 +1,4 @@
-// `data-sn-on-navigate`: a handler for every navigation while its element is on the page (a link,
+// `data-sn-on-sn-navigate`: a handler for every navigation while its element is on the page (a link,
 // `navigate()`, `location.assign`, Back and Forward), run before anything acts. Its `$event` has `to`,
 // `from`, `kind` and `trigger`; `$event.preventDefault()` refuses the navigation (unsaved changes). It does
 // not run for what can no longer be refused: Back without the Navigation API, or the browser's own Back
@@ -15,7 +15,7 @@ const feature: Feature = {
       // one event to each marked element, not bubbling: its own handler runs (the core's capture listener
       // at the root hears it), each element once however they nest
       for (const el of app.root.querySelectorAll('[data-sn-navigate]')) {
-        const e = Object.assign(new Event('navigate', { cancelable: true }), { to: i.to, from: i.from!, kind: i.kind, trigger: i.trigger ?? null });
+        const e = Object.assign(new Event('sn-navigate', { cancelable: true }), { to: i.to, from: i.from!, kind: i.kind, trigger: i.trigger ?? null });
         el.dispatchEvent(e);
         no ||= e.defaultPrevented;
       }

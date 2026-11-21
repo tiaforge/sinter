@@ -10,7 +10,7 @@ import sinter from '../../src/vite.js';
 import { chromium } from '../browser.js';
 
 const src = resolve(__dirname, '../../src');
-const alias = [{ find: /^@tiaforge-ui\/sinter\/(.+)$/, replacement: `${src}/$1.ts` }, { find: /^@tiaforge-ui\/sinter$/, replacement: `${src}/index.ts` }];
+const alias = [{ find: /^@tiaforge-ui\/sinter\/runtime$/, replacement: `${src}/runtime-entry.ts` }, { find: /^@tiaforge-ui\/sinter\/(?:runtime\/)?(.+)$/, replacement: `${src}/$1.ts` }, { find: /^@tiaforge-ui\/sinter$/, replacement: `${src}/index.ts` }];
 const root = mkdtempSync(join(tmpdir(), 'sinter-lazy-app-'));
 const out = join(root, 'dist');
 afterAll(() => rmSync(root, { recursive: true, force: true }));
@@ -28,7 +28,7 @@ export const enums = { aes: 1 };
 export class Thing { say(n) { return 'thing ' + n; } }
 `);
   // a component built around one of the package's classes: its script loads with the package
-  put('src/components/x-ring.html', `<template data-sn-component="{ n: number }"><p data-sn-state="{ said: '' }"><span data-sn-text="said"></span></p></template>\n`);
+  put('src/components/x-ring.html', `<template data-sn-props="{ n: number }"><p data-sn-state="{ said: '' }"><span data-sn-text="said"></span></p></template>\n`);
   put('src/components/x-ring.ts', `import { XRingComponent } from './x-ring.html';
 import { Thing } from 'fakepgp';
 export class XRing extends XRingComponent {
@@ -39,8 +39,8 @@ export class XRing extends XRingComponent {
 `);
   put('comp.html', `<!doctype html><html><head><title>comp</title></head><body>
 <div data-sn-state="{ n: 1, show: true }" data-sn-preload="fakepgp">
-  <template data-sn-if="show"><div id="a"><x-ring data-sn-prop="{ n }"></x-ring></div></template>
-  <div id="b"><x-ring data-sn-prop="{ n }"></x-ring></div>
+  <template data-sn-if="show"><div id="a"><x-ring data-sn-with="{ n }"></x-ring></div></template>
+  <div id="b"><x-ring data-sn-with="{ n }"></x-ring></div>
   <button id="inc" data-sn-on-click="n = n + 1">inc</button>
   <button id="hide" data-sn-on-click="show = false">hide</button>
 </div>

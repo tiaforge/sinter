@@ -64,7 +64,7 @@ async function tab(): Promise<{ page: Page; check: () => Promise<void> }> {
 const make = (lazy: boolean) => build({
   root: a.root, logLevel: 'silent',
   // a resizing service for the app's own images from the API: md-image does not use it
-  plugins: [sinter({ components: ['@tiaforge-ui/sinter-markdown'], images: { remote: { url: 'cloudflare', origins: ['self'] } }, ...(lazy ? { lazy: ['@tiaforge-ui/sinter-markdown'] } : {}) })],
+  plugins: [sinter({ libraries: ['@tiaforge-ui/sinter-markdown'], images: { remote: { url: 'cloudflare', origins: ['self'] } }, ...(lazy ? { lazy: ['@tiaforge-ui/sinter-markdown'] } : {}) })],
   build: { outDir: lazy ? builds.lazy : builds.eager, emptyOutDir: true },
 });
 beforeAll(async () => {

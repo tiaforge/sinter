@@ -7,12 +7,12 @@ the build, it fixes them, or says why a code should stay a warning.
 
 ```js
 // vite.config.js
-sinter({ typecheck: true, strict: true })
+sinter({ strict: true })
 ```
 
-`typecheck` matters with it: without it `vite build` does not type-check, so type errors (SN208) and
-the type-checker's warnings, `SN504` (untyped resource) and `SN506` (untyped event), come only from
-`sinter check`, and a strict build passes with them.
+`vite build` type-checks when the project has TypeScript (`typecheck: false` turns it off). Without
+TypeScript, type errors (SN208) and the type-checker's warnings, `SN504` (untyped resource) and
+`SN506` (untyped event), come only from `sinter check`, and a strict build passes with them.
 
 `SINTER_STRICT=1` turns it on without changing the config, and `SINTER_STRICT=0` turns it off. Set
 it where the agent or the CI job runs, so the config cannot quietly opt out.
@@ -22,7 +22,7 @@ it where the agent or the CI job runs, so the config cannot quietly opt out.
 | Where | In strict mode |
 | --- | --- |
 | `sinter check` | a page's warnings are printed as errors, exit code 1 (`--strict`, `--no-strict` and `--allow SN504,SN517` for one run) |
-| `vite build` | a page's warnings fail it as its errors do (`SN504` and `SN506` only with `typecheck: true`); the build's own warnings (`SN520` and up: an unused preload, a link through a redirect, missing translations, the early budget, …) fail it once it has run, all of them listed |
+| `vite build` | a page's warnings fail it as its errors do (`SN504` and `SN506` when it type-checks); the build's own warnings (an unused preload, a link through a redirect, missing translations, the first-paint budget, …) fail it once it has run, all of them listed |
 | dev server | a page's warnings fail the page in Vite's overlay, as its errors do; the runtime's warnings in the browser (a duplicate key, an item without its key field, state changed outside sinter, a binding that threw, …) are printed in the terminal and shown in the overlay |
 | `render()` | a page's warnings throw as its errors do; a runtime warning makes the call that ran it reject (`render`, `flush`, `settle`, `advance`, `frame`, `back`, …) |
 
@@ -37,8 +37,10 @@ index.html:3:1 error SN501 unused-resource: resource `addressbooks` is declared 
 
 - Warnings that depend on the machine or the network, not on the project: `SN525` (sharp not
   installed), `SN526` (a font that could not be downloaded), `SN527` (a stylesheet the CSS tools
-  could not compile), `SN528` (an image the API did not serve). A strict build would otherwise pass
-  or fail with the network.
+  could not compile), `SN528` (an image the API did not serve), `SN533` (the helpers module could not be loaded in
+  Node). A strict build would otherwise pass or fail with the network.
+- `SN536` (a list too large to render at build time, so it renders in the browser), which is a
+  limit sinter keeps rather than a mistake.
 - `SN507` (`complex-expression`), which is a measure rather than a mistake. Failing on it pushes code
   into odd shapes to get under a limit. `sinter({ complexity: { level: 'error' } })` makes it an error
   when you want that.

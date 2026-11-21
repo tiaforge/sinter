@@ -215,7 +215,8 @@ const SHARED = Symbol.for('sinter.render.shared');
 async function ownModule(sub: string): Promise<Record<string, unknown>> {
   // (paths, not URL objects: a simulated DOM may have replaced the global URL)
   const here = dirname(fileURLToPath(import.meta.url)), ext = import.meta.url.endsWith('.ts') ? '.ts' : '.js';
-  const name = sub || 'index';
+  // the compiled modules' `runtime` and `runtime/<feature>` are files beside this one
+  const name = sub === 'runtime' ? 'runtime-entry' : sub.startsWith('runtime/') ? sub.slice('runtime/'.length) : sub || 'index';
   for (const f of [`${name}${ext}`, `${name}/index${ext}`]) {
     const file = resolve(here, f);
     if (existsSync(file)) return import(pathToFileURL(file).href) as Promise<Record<string, unknown>>;
@@ -294,7 +295,7 @@ async function forward(backend: string, req: Request): Promise<Response> {
 
 export interface StorageRead { area: 'local' | 'session'; key: string; value: string | null }
 
-const INTERNAL_KEY = /^sn:(?:[pc]:|vt$|return$)/;
+const INTERNAL_KEY = /^sn:(?:[pc]:|vt$|return$|back$)/;
 
 /** A Storage whose reads are recorded: each key once, with the value it had at its first read. */
 export function recordingStorage(area: StorageRead['area'], reads: StorageRead[]): Storage {
@@ -304,7 +305,7 @@ export function recordingStorage(area: StorageRead['area'], reads: StorageRead[]
     key: (i: number) => [...m.keys()][i] ?? null,
     getItem: (k: string) => {
       const v = m.get(String(k)) ?? null;
-      // sinter's own entries (next-page data, the cache, view transitions, the sign-in return) are not the app's keys;
+      // sinter's own entries (next-page data, the cache and its Back mark, view transitions, the sign-in return) are not the app's keys;
       // `data-sn-persist` keys (`sn:<key>`) are, and stay
       if (!INTERNAL_KEY.test(String(k)) && !reads.some((x) => x.area === area && x.key === String(k))) reads.push({ area, key: String(k), value: v });
       return v;
@@ -472,10 +473,10 @@ function resources(r: Rendered, typed: Set<string> = new Set()): ResourceReport[
     const meta = page.$meta[def.name], value = page.$r[def.name];
     const rep: ResourceReport = { name: def.name, loading: !!meta?.loading, error: meta?.error ?? null, value };
     // the response's wrapper stored as the value: `{ incident: {…} }` where the page reads `incident.title`
-    if (!def.items && !typed.has(def.name) && value && typeof value === 'object' && !Array.isArray(value)) {
+    if (!def.select && !typed.has(def.name) && value && typeof value === 'object' && !Array.isArray(value)) {
       const keys = Object.keys(value);
       const only = keys.length === 1 ? (value as Record<string, unknown>)[keys[0]!] : null;
-      if (only && typeof only === 'object') rep.hint = `the value is the whole response: items="${keys[0]}" stores its \`${keys[0]}\``;
+      if (only && typeof only === 'object') rep.hint = `the value is the whole response: select="${keys[0]}" stores its \`${keys[0]}\``;
     }
     return rep;
   });

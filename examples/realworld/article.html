@@ -1,6 +1,6 @@
 <conduit-layout data-sn-path="/article/:slug"
-  data-sn-state="{ nav: '', commentError: null }"
-  data-sn-prop="{ nav, title: 'Article', description: 'An article on Conduit, with its comments.' }">
+  data-sn-state="{ commentError: null }"
+  data-sn-with="{ nav: '', title: 'Article', description: 'An article on Conduit, with its comments.' }">
 <sn-resource cache name="article" src="/articles/{$url.slug}"></sn-resource>
 <sn-resource cache name="comments" src="/articles/{$url.slug}/comments" order="-createdAt"></sn-resource>
 
@@ -15,28 +15,28 @@
     <div class="banner">
       <div class="container">
         <h1 data-sn-text="article.title" data-sn-transition="'article-' + $url.slug"></h1>
-        <article-meta data-sn-prop="{ article, place: 'banner' }"></article-meta>
+        <article-meta data-sn-with="{ article, place: 'banner' }"></article-meta>
       </div>
     </div>
     <div class="container page">
       <div class="row article-content">
         <div class="col-md-12">
-          <md-doc data-sn-prop="{ doc: md.parse(article.body) }"></md-doc>
+          <md-doc data-sn-with="{ doc: md.parse(article.body) }"></md-doc>
           <ul class="tag-list">
-            <template data-sn-for="t in article.tagList" data-sn-key="t"><li class="tag-default tag-pill tag-outline" data-sn-text="t"></li></template>
+            <template data-sn-for="t in article.tagList"><li class="tag-default tag-pill tag-outline" data-sn-text="t"></li></template>
           </ul>
         </div>
       </div>
       <hr>
-      <div class="article-actions"><article-meta data-sn-prop="{ article, place: 'actions' }"></article-meta></div>
+      <div class="article-actions"><article-meta data-sn-with="{ article, place: 'actions' }"></article-meta></div>
       <div class="row">
         <div class="col-xs-12 col-md-8 offset-md-2">
-          <error-list data-sn-prop="{ error: commentError }"></error-list>
+          <error-list data-sn-with="{ error: commentError }"></error-list>
           <template data-sn-if="user">
             <form class="card comment-form" data-sn-state="{ body: '' }"
                   data-sn-post="/articles/{article.slug}/comments" data-sn-body="{comment: {body}}"
                   data-sn-then="body = ''; commentError = null">
-              <error-list data-sn-prop="{ error: $error }"></error-list>
+              <error-list data-sn-with="{ error: $error }"></error-list>
               <div class="card-block"><textarea class="form-control" name="body" placeholder="Write a comment..." rows="3" data-sn-model="body"></textarea></div>
               <div class="card-footer">
                 <img class="comment-author-img" alt="" data-sn-attr="{src: avatar(user.image)}">
@@ -45,15 +45,15 @@
             </form>
           </template>
           <template data-sn-else>
-            <p><a data-sn-attr="{href: '/login?next=' + encodeURIComponent('/article/' + $url.slug)}">Sign in</a> or <a href="/register">sign up</a> to add comments on this article.</p>
+            <p><a data-sn-href="/login?next=/article/{$url.slug}">Sign in</a> or <a href="/register">sign up</a> to add comments on this article.</p>
           </template>
           <template data-sn-for="c in comments">
             <div class="card">
               <div class="card-block"><p class="card-text" data-sn-text="c.body"></p></div>
               <div class="card-footer">
-                <a class="comment-author" data-sn-attr="{href: '/profile/' + encodeURIComponent(c.author.username)}"><img class="comment-author-img" data-sn-attr="{src: avatar(c.author.image), alt: c.author.username}"></a>
+                <a class="comment-author" data-sn-href="/profile/{c.author.username}"><img class="comment-author-img" data-sn-attr="{src: avatar(c.author.image), alt: c.author.username}"></a>
                 &nbsp;
-                <a class="comment-author" data-sn-attr="{href: '/profile/' + encodeURIComponent(c.author.username)}" data-sn-text="c.author.username"></a>
+                <a class="comment-author" data-sn-href="/profile/{c.author.username}" data-sn-text="c.author.username"></a>
                 <span class="date-posted" data-sn-text="date(c.createdAt, 'long')"></span>
                 <template data-sn-if="user && user.username == c.author.username">
                   <span class="mod-options">

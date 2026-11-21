@@ -60,7 +60,7 @@ test('an action\'s `then` and a resource\'s `then` that throw name their attribu
   const requests = mockRequests({ 'GET /api/items': { items: [] }, 'POST /api/items': {} });
   const page = [
     '<div data-sn-state="{ a: null }">',
-    '  <sn-resource name="items" src="/api/items" items="items" key="id" then="a.b = 1"></sn-resource>',
+    '  <sn-resource name="items" src="/api/items" select="items" key="id" then="a.b = 1"></sn-resource>',
     '  <button data-sn-post="/api/items" data-sn-then="a.b = 2">x</button>',
     '  <p data-sn-text="items.length"></p>',
     '</div>',
@@ -78,13 +78,13 @@ test('an action\'s `then` and a resource\'s `then` that throw name their attribu
 test('a stream event that cannot be applied and `page(…, \'last\')` without a total warn by code, with the same text', async () => {
   const stream = mockStream();
   const r = await render(`
-    <sn-resource name="rows" src="/api/rows" key="id" paginate="offset" page-size="2"></sn-resource>
+    <sn-resource name="rows" src="/api/rows" key="id" paginate="{ numbered: true, size: 2 }"></sn-resource>
     <sn-sync src="/events">
-      <sn-event name="patched" resource="rows" op="patch" set="{name}"></sn-event>
-      <sn-event name="broken" resource="rows" op="upsert" item="a.b"></sn-event>
+      <sn-event name="patched" resource="rows" op="merge" value="{name: $event.name}"></sn-event>
+      <sn-event name="broken" resource="rows" op="upsert" value="$event.a.b"></sn-event>
     </sn-sync>
     <template data-sn-for="x in rows"><li data-sn-text="x.id"></li></template>
-    <button data-sn-on-click="page('rows', 'last')">last</button>`, {
+    <button data-sn-on-click="page(rows, 'last')">last</button>`, {
     requests: mockRequests({ 'GET /api/rows?page=1&limit=2': [{ id: 1 }, { id: 2 }] }), streams: { '/events': stream },
   });
   await r.settle();
@@ -95,7 +95,7 @@ test('a stream event that cannot be applied and `page(…, \'last\')` without a 
   const w = r.warnings().map((x) => [x.code, x.message.replace(/applied: .*/, 'applied: …')]);
   expect(w).toContainEqual([29, 'sinter: event `patched` payload is missing key field(s) id for `rows`']);
   expect(w).toContainEqual([28, 'sinter: event `broken` could not be applied: …']);
-  expect(w).toContainEqual([30, "sinter: page('rows', 'last') needs a known total"]);
+  expect(w).toContainEqual([30, "sinter: page(rows, 'last') needs a known total"]);
   // the payload follows the message, as before
   expect(said(warn, 'missing key field(s)')[0]![1]).toEqual({ name: 'x' });
 });

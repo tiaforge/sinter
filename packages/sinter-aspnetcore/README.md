@@ -4,11 +4,11 @@ Serve a [sinter](https://github.com/tiaforge/sinter#readme) app from ASP.NET Cor
 
 You add one middleware. For each page, it calls your API (your minimal APIs and MVC controllers, in-process) and writes the JSON into the HTML as it's sent. It is NativeAOT-compatible, and a source generator compiles the build into your assembly and checks it when your project compiles.
 
-The server layer is optional: without it, sinter pages fetch their data in the browser. It does what [`sinter-axum`](../sinter-axum#readme) does for Rust, option for option: the server only writes JSON into the `<script type="application/json" data-sn-data>` slots in the head of each page, which the build lists in `sinter-embed.json` ([contract](https://github.com/tiaforge/sinter/blob/main/docs/first-paint.md)).
+The server layer is optional: without it, sinter pages fetch their data in the browser. It does what [`sinter-axum`](../sinter-axum#readme) does for Rust, option for option: the server only writes JSON into the `<script type="application/json" data-sn-resource>` placeholders in the head of each page, which the build lists in `sinter-embed.json` ([contract](https://github.com/tiaforge/sinter/blob/main/docs/first-paint.md)).
 
 ## Quick start
 
-**1. Build the frontend for a server.** In its Vite config, `sinter({ embed: true })` (needs `@tiaforge-ui/sinter` 0.13 or newer). The build then leaves an empty data slot in each page for every resource whose request the page's URL decides, and lists them in `dist/sinter-embed.json`. The browser no longer requests those itself: their data comes with the page.
+**1. Build the frontend for a server.** In its Vite config, `sinter({ embed: true })` (needs `@tiaforge-ui/sinter` 0.13 or newer). The build then leaves an empty data placeholder in each page for every resource whose request the page's URL decides, and lists them in `dist/sinter-embed.json`. The browser no longer requests those itself: their data comes with the page.
 
 **2. Add the package**, and name the build in your project file:
 
@@ -48,7 +48,7 @@ The page is sent head first, before the data is in, so its status is `200` from 
 
 ## The compile-time check
 
-`[SinterEmbed]` reads the build's `sinter-embed.json` when your project compiles (the `<SinterBuild>` directory). It's a compile error when the build has a slot your configuration can't fill, and the error names the page, the resource and the fix:
+`[SinterEmbed]` reads the build's `sinter-embed.json` when your project compiles (the `<SinterBuild>` directory). It's a compile error when the build has a placeholder your configuration can't fill, and the error names the page, the resource and the fix:
 
 ```text
 error SINTER003: index.html: `articles`: the build could not describe its request (its `src`
@@ -56,14 +56,14 @@ calls a helper, or reads something other than `$url`). Add [SinterResolve("artic
 method that gives its data, or [SinterSkip("articles")] to leave it to the browser.
 ```
 
-A name that no slot has (a typo) is an error too, at the name. A name applies to every page; `"profile.html:articles"` names one page's slot. The diagnostics:
+A name that no placeholder has (a typo) is an error too, at the name. A name applies to every page; `"profile.html:articles"` names one page's placeholder. The diagnostics:
 
 | Code | When |
 | --- | --- |
 | `SINTER001` | no `<SinterBuild>`, or no `sinter-embed.json` there (build the frontend first) |
 | `SINTER002` | the manifest can't be read (not version 2) |
-| `SINTER003` | a slot without a source |
-| `SINTER004` | a name no slot has |
+| `SINTER003` | a placeholder without a source |
+| `SINTER004` | a name no placeholder has |
 | `SINTER005`, `SINTER006` | a resolver that isn't static, or doesn't return data |
 | `SINTER007` | the class (or a class it is nested in) isn't `partial` |
 
@@ -95,7 +95,7 @@ A resolver is your code for one resource; it produces that resource's data inste
 
 You need one when the build can't describe the request: the frontend's `src` calls a helper or chooses between parameters with a ternary, or its `when` is more than a comparison of URL values with strings. The compile-time check tells you which ones.
 
-With the generator, a resolver is a static method. Its parameters are bound when the project compiles (no reflection): `SlotRequest`, `HttpContext`, `CancellationToken`, `ClaimsPrincipal`, `IServiceProvider`, or any service. It returns the value, or a `Task` or `ValueTask` of it:
+With the generator, a resolver is a static method. Its parameters are bound when the project compiles (no reflection): `PlaceholderRequest`, `HttpContext`, `CancellationToken`, `ClaimsPrincipal`, `IServiceProvider`, or any service. It returns the value, or a `Task` or `ValueTask` of it:
 
 ```csharp
 [SinterEmbed, SinterSkip("user")]
@@ -103,20 +103,20 @@ static partial class Web
 {
     // the API handler and the resolver share one service
     [SinterResolve("profile.html:articles")]
-    static Task<ArticleList?> ProfileArticles(SlotRequest req, ArticleStore store, CancellationToken ct) =>
+    static Task<ArticleList?> ProfileArticles(PlaceholderRequest req, ArticleStore store, CancellationToken ct) =>
         store.ByAuthor(req.Param("username"), (int)SinterUrl.ToPage(req.Param("page")), ct);
 }
 ```
 
 A value is serialized as minimal APIs serialize it, with the app's `JsonOptions` (under NativeAOT, add your `JsonSerializerContext` there, as for minimal APIs). A `byte[]` or `string` is taken as the JSON body. `null` leaves the resource to the browser.
 
-A `SlotRequest` has:
+A `PlaceholderRequest` has:
 
 - `Params` (and `Param(name)`, `ParamValues(name)`): the page URL's parameters, each a `UrlParam`: query parameters and named path segments (`/article/:slug` gives `slug`); an array parameter (one a `<select multiple>` or a checkbox with a `value` binds: `?tag=a&tag=b`) is a list, `Values` (`Param(name)` is null for it);
 - `HttpContext`, `Headers`, `User`: the page request;
 - `Url`: the URL the middleware would request, if the build describes one;
-- `Page`, `Resource`: which slot it is;
-- `Services`: a service scope of this slot's own. A page's slots are filled in parallel, so a scoped `DbContext` is never shared between them;
+- `Page`, `Resource`: which placeholder it is;
+- `Services`: a service scope of this placeholder's own. A page's placeholders are filled in parallel, so a scoped `DbContext` is never shared between them;
 - `Cancellation`: cancelled at the page's time limit, or when the visitor leaves.
 
 Without the generator, register resolvers on the options:
@@ -142,7 +142,7 @@ Which case are you in?
 1. **The data is the same for everyone** (public articles, tags). Nothing to do.
 2. **The data is per user, and the session is a cookie** (cookie authentication, Identity). Nothing to do. The browser's request for the page includes the session cookie, and the middleware passes it on to the in-process call (which authenticates it as any request) and to `Upstream`, so your API sees the same user. Requests to `AllowOrigin` URLs get no cookies, as sinter's own requests to another origin don't either.
 3. **The data is per user, and the frontend sends a token from JavaScript** (kept in `localStorage`, sent as `Authorization`). The request for the page doesn't include the token, so the API would answer as if signed out, and a signed-in user would see signed-out data on every page load. Leave these resources to the browser:
-   - in the frontend, `early="off"` on the resource. It already means "a request middleware changes this request", so the build gives it no slot;
+   - in the frontend, `early="off"` on the resource. It already means "a request middleware changes this request", so the build gives it no placeholder;
    - or on the server, `[SinterSkip("articles")]` (`o.Skip("articles")`).
 
 Pages are sent with `Cache-Control: private, no-cache`, so a shared cache never gives one user's page to another.
@@ -165,14 +165,14 @@ Pages are sent with `Cache-Control: private, no-cache`, so a shared cache never 
 
 ## What the middleware does
 
-- **At startup (`UseSinter()`):** it takes the manifest (compiled in, or read from `sinter-embed.json`), checks that every slot has a source, and splits each page at its slots. The slots are the last thing in the page's `<head>`, after the stylesheets and scripts.
+- **At startup (`UseSinter()`):** it takes the manifest (compiled in, or read from `sinter-embed.json`), checks that every placeholder has a source, and splits each page at its placeholders. The placeholders are the last thing in the page's `<head>`, after the stylesheets and scripts.
 - **On a GET for a page:**
-  - it sends the HTML up to the first slot right away, so the browser loads stylesheets and scripts while the data is fetched;
-  - it fetches every slot's data in parallel, for this URL: the URL's values in the request, the page a paginated list starts at, and no request when the resource's `when` doesn't hold;
+  - it sends the HTML up to the first placeholder right away, so the browser loads stylesheets and scripts while the data is fetched;
+  - it fetches every placeholder's data in parallel, for this URL: the URL's values in the request, the page a paginated list starts at, and no request when the resource's `when` doesn't hold;
   - it writes the data, with `<` escaped so it can't break out of its `<script>`, then the rest of the page.
-- **When a slot's data can't be fetched** (the API errors or can't be reached, a non-2xx or non-JSON response, one over `MaxBytes`, the time limit, a resolver that throws), the page is not sent: the middleware ends the response there with the error text in the page's body, marked so the page's scripts don't start, and with `o.ErrorRedirect` sends the browser to your error page. It logs a warning with the page, the resource and why. A 404 from the API counts too, so a missing article shows the error text, not the page's own not-found state. A resolver that ignores its `CancellationToken` doesn't hold the page past the time limit.
+- **When a placeholder's data can't be fetched** (the API errors or can't be reached, a non-2xx or non-JSON response, one over `MaxBytes`, the time limit, a resolver that throws), the page is not sent: the middleware ends the response there with the error text in the page's body, marked so the page's scripts don't start, and with `o.ErrorRedirect` sends the browser to your error page. It logs a warning with the page, the resource and why. A 404 from the API counts too, so a missing article shows the error text, not the page's own not-found state. A resolver that ignores its `CancellationToken` doesn't hold the page past the time limit.
 - **The site's URLs:** it follows the same rules as the build's `_redirects`, which it reads from the manifest: a permanent redirect from a page's old file URL (`/about.html` to `/about/`, with the query); a path a page declares in `data-sn-path` (`/article/hello`) answered from that page's file, with its data written in, or passed on as that file to the next middleware (the static files); and, on a site with languages, a `302` from an unprefixed URL to the visitor's language (the `locale` cookie, else `Accept-Language`, else the base). So the app needs no routes of its own for its pages ([page URLs](../../docs/static-pages.md#page-urls)).
-- **No data is not a failure:** a resolver's `null`, a skip, or a `when` that doesn't hold leaves the slot empty, and the browser requests that data itself.
+- **No data is not a failure:** a resolver's `null`, a skip, or a `when` that doesn't hold leaves the placeholder empty, and the browser requests that data itself.
 - **What it never does:** fetch a URL whose host comes from the page's URL, or serve `sinter-embed.json` (it answers 404).
 
 Put `UseSinter()` before the static files. It can come before or after `UseRouting()`, `UseAuthentication()` and `UseAuthorization()`: its in-process calls have routing and authentication of their own. With endpoint-based static files (`MapStaticAssets`), call `UseRouting()` after `UseSinter()`, so that a rewritten path is routed to its file.
@@ -186,10 +186,10 @@ The package is trimming- and AOT-safe (`IsAotCompatible`). Nothing in it uses re
 For the frontend, a resource is just a resource:
 
 ```html
-<sn-resource name="articles" src="/api/articles?tag={$url.tag}" key="slug" items="articles"></sn-resource>
+<sn-resource name="articles" src="/api/articles?tag={$url.tag}" key="slug" select="articles"></sn-resource>
 ```
 
-With `embed: true`, the build gives it an empty slot at the end of the head and lists its request in `sinter-embed.json`:
+With `embed: true`, the build gives it an empty placeholder at the end of the head and lists its request in `sinter-embed.json`:
 
 ```html
 <!-- dist/index.html -->
@@ -200,17 +200,17 @@ With `embed: true`, the build gives it an empty slot at the end of the head and 
 { "id": 0, "resource": "articles", "src": ["/api/articles?tag=", { "url": "tag" }] }
 ```
 
-For a request to `/?tag=rust`, the middleware requests `/api/articles?tag=rust` from your API and writes the response body into the slot:
+For a request to `/?tag=rust`, the middleware requests `/api/articles?tag=rust` from your API and writes the response body into the placeholder:
 
 ```html
 <script type="application/json" data-sn="0">{"articles":[{"slug":"hello","title":"Hello"}],"articlesCount":1}</script>
 ```
 
-The body goes in exactly as the API returned it (`items="articles"` picks the list out of it in the browser), except that every `<` is escaped. The bindings over it, rows included, render while the page is parsed.
+The body goes in exactly as the API returned it (`select="articles"` picks the list out of it in the browser), except that every `<` is escaped. The bindings over it, rows included, render while the page is parsed.
 
 ## Performance
 
-With the API in the same app, one core serves 22,562 RealWorld home pages per second uncompressed (4,619 with gzip), published with NativeAOT: 79% of sinter-axum's 28,621 on the same machine (method and numbers in [docs/first-paint-comparison.md](https://github.com/tiaforge/sinter/blob/main/docs/first-paint-comparison.md#with-the-api-in-the-same-app)). At startup, a build compiled in by `[SinterEmbed]` parses no JSON: the pages are read and cut at their slots, and that's all.
+With the API in the same app, one core serves 22,562 RealWorld home pages per second uncompressed (4,619 with gzip), published with NativeAOT: 79% of sinter-axum's 28,621 on the same machine (method and numbers in [docs/first-paint-comparison.md](https://github.com/tiaforge/sinter/blob/main/docs/first-paint-comparison.md#with-the-api-in-the-same-app)). At startup, a build compiled in by `[SinterEmbed]` parses no JSON: the pages are read and cut at their placeholders, and that's all.
 
 ## Development
 

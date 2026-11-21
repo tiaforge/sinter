@@ -16,7 +16,7 @@ import { defineConfig } from 'vite';
 import sinter from '@tiaforge-ui/sinter/vite';
 
 export default defineConfig({
-  plugins: [sinter({ components: ['@acme/ui'] })],
+  plugins: [sinter({ libraries: ['@acme/ui'] })],
 });
 ```
 
@@ -24,16 +24,16 @@ Its public components are then tags on any page, layout or component of the app,
 events and fills as for the app's own:
 
 ```html
-<ui-card data-sn-prop="{ title: post.title }"><p data-sn-text="post.summary"></p></ui-card>
+<ui-card data-sn-with="{ title: post.title }"><p data-sn-text="post.summary"></p></ui-card>
 
-<ui-tree data-sn-prop="{ items: folders }">
+<ui-tree data-sn-with="{ items: folders }">
   <button slot="node" data-sn-text="$slot.item.label" data-sn-on-click="open = $slot.item.id"></button>
 </ui-tree>
 ```
 
 - **A prefix per library.** A library's components share their first segment (`ui-card`, `ui-tree`:
   `ui`), and the library owns it. Two configured libraries with one prefix, or an app component
-  whose name starts with a library's prefix, fail the build (`SN338`). A tag with the prefix names
+  whose name starts with a library's prefix, fail the build (`SN337`). A tag with the prefix names
   one of the library's components, or is an error (`SN339`).
 - **Public and internal.** The app uses the library's public components. Its internal ones are its
   own: an app using one is `SN339`, which lists the public ones. `ComponentName` (the candidates of
@@ -60,7 +60,7 @@ events and fills as for the app's own:
 - **Helpers that feed components run at every read.** A prop is its expression, evaluated wherever the
   component reads it, at every read; in a recursive component (a tree that renders its children with
   itself) a helper in a prop runs again on each level and each render. Make such a helper cheap on repeat
-  calls with `memo()` ([configuration.md](configuration.md#memoized-helpers)): `export const parse =
+  calls with `memo()` ([expressions.md](expressions.md#memoized-helpers)): `export const parse =
   memo(parseImpl)`. Its results are frozen and shared by every caller, so a component that needs to change
   one works on a copy.
 - **Types.** A library's props, slot data and helper results are typed by the library's own types
@@ -120,7 +120,7 @@ fixtures/
 - **Components** are written as in an app ([components](components.md)). Every name starts with the
   library's prefix (`SN337` otherwise). Internal components may be used by any component of the
   library, public or internal.
-- **Type names** in `data-sn-component`, `Slot<T>` and `data-sn-emits` resolve against
+- **Type names** in `data-sn-props`, `Slot<T>` and `data-sn-emits` resolve against
   `sinter.types.ts`, whatever the app's types module exports.
 - **Scripts** work as in the app: `import { UiCardComponent } from './ui-card.html'`, a class per
   instance, with `this.props`, `this.state`, `this.refs` and `this.root`. `sinter check` in the
@@ -143,17 +143,18 @@ fixtures/
 A library has no pages of its own, and `sinter check` checks a component through the pages that use
 it. Keep fixture pages in `fixtures/` beside the `sinter` folder, using the public components with
 the cases you support. `npx sinter check` in the library's repository finds them when there is no
-Vite config with pages, configures the library as the app's `components` would, and compiles and
+Vite config with pages, configures the library as the app's `libraries` would, and compiles and
 type-checks them, the declared-slot and `<sn-component use>` rules included. The same rules are
 checked again in each app's build.
 
-The fixtures call the library's helpers as an app does, through a namespace. Their helpers module
-(`src/sinter.helpers.ts` in the library's repository) imports the library by its own name, which a
+The fixtures call the library's helpers as an app does, through a namespace. Their modules sit beside
+them, as an app's sit in `src/`: `fixtures/sinter.helpers.ts`, `fixtures/sinter.types.ts`, and so on.
+The helpers module imports the library by its own name, which a
 package with `exports` may do (Node's self-reference), resolved through its own `exports` with
 production conditions:
 
 ```ts
-// src/sinter.helpers.ts in @acme/ui's repository
+// fixtures/sinter.helpers.ts in @acme/ui's repository
 export * as ui from '@acme/ui';
 ```
 
@@ -161,7 +162,6 @@ export * as ui from '@acme/ui';
 
 | Code | When |
 | --- | --- |
-| `SN337` (`library-package`) | A package in `components` is not installed, has no `"sinter"` field or folder with `components/`, has a component both public and internal, or names its components with more than one prefix |
-| `SN338` (`library-prefix`) | Two libraries with one prefix, or an app component with a library's prefix |
+| `SN337` (`invalid-library`) | A package in `libraries` is not installed, has no `"sinter"` field or folder with `components/`, has a component both public and internal, or names its components with more than one prefix; two libraries share a prefix, or an app component has a library's prefix |
 | `SN339` (`library-component`) | The app uses an internal component, a tag with a library's prefix names none of its components, or a `<sn-component use>` map in a library names a component outside it |
 | `SN537` (`library-version`, warning) | sinter's version is outside a library's `peerDependencies` range, or the library lists none |

@@ -6,13 +6,13 @@ import { compile } from '../../src/compiler/index.js';
 
 const INL = "{ text: 'x-text', link: 'x-link' }";
 const BASE: Record<string, string> = {
-  'x-doc': `<template data-sn-component="{ doc: any }"><div><template data-sn-for="n in doc.children"><sn-component use="${INL}[n.type]" data-sn-prop="{ node: n }"></sn-component></template></div></template>`,
-  'x-text': '<template data-sn-component="{ node: any }"><span data-sn-text="node.value"></span></template>',
-  'x-link': `<template data-sn-component="{ node: any }"><a data-sn-attr="{ href: node.url }"><template data-sn-for="n in node.children"><sn-component use="${INL}[n.type]" data-sn-prop="{ node: n }"></sn-component></template></a></template>`,
+  'x-doc': `<template data-sn-props="{ doc: any }"><div><template data-sn-for="n in doc.children"><sn-component use="${INL}[n.type]" data-sn-with="{ node: n }"></sn-component></template></div></template>`,
+  'x-text': '<template data-sn-props="{ node: any }"><span data-sn-text="node.value"></span></template>',
+  'x-link': `<template data-sn-props="{ node: any }"><a data-sn-attr="{ href: node.url }"><template data-sn-for="n in node.children"><sn-component use="${INL}[n.type]" data-sn-with="{ node: n }"></sn-component></template></a></template>`,
 };
 /** `x-text` (the first definition a page needs) with `extra` inside its one root */
-const textWith = (extra: string) => ({ 'x-text': `<template data-sn-component="{ node: any }"><span class="tx"><span data-sn-text="node.value"></span>${extra}</span></template>` });
-const TREE = '<x-doc data-sn-prop="{ doc }"></x-doc>';
+const textWith = (extra: string) => ({ 'x-text': `<template data-sn-props="{ node: any }"><span class="tx"><span data-sn-text="node.value"></span>${extra}</span></template>` });
+const TREE = '<x-doc data-sn-with="{ doc }"></x-doc>';
 const DOC = '<sn-resource name="doc" src="/api/doc"></sn-resource>';
 
 type Page = { name: string; body?: string; res?: string; opts?: Record<string, unknown> };
@@ -59,13 +59,13 @@ test('2a. a definition loops over a page resource: recorded where it has no `key
   linked(abc({ res: other('') }, { res: other('key="slug"') }), textWith(rows));
 });
 
-test('2b. `page(\'other\', 3)` in a definition: recorded where the resource has `offset-param`, linked where it has not (SN304 is lost)', () => {
-  const pg = 'key="id" paginate="keyset" page-size="10" cursor="{ after: $last.id }"';
-  linked(abc({ res: other(`${pg} offset-param="o"`) }, { res: other(pg) }), textWith('<button data-sn-on-click="page(\'other\', 3)">3</button>'));
+test('2b. `page(\'other\', 3)` in a definition: recorded where the resource has `jump`, linked where it has not (SN304 is lost)', () => {
+  const pg = (jump = '') => `key="id" paginate="{ keyset: { after: $last.id }, size: 10${jump} }"`;
+  linked(abc({ res: other(pg(", jump: true, params: { offset: 'o' }")) }, { res: other(pg()) }), textWith('<button data-sn-on-click="page(other, 3)">3</button>'));
 });
 
-test('2c. `run(\'save\')` in a definition: `#save` carries an action on the recording page and none on the linked one (SN311 is lost), and the other way round (SN311 is invented)', () => {
-  const action = TREE + '<button id="save" data-sn-post="/api/s">s</button>', none = TREE + '<button id="save" data-sn-on-click="refresh(\'doc\')">s</button>';
+test('2c. `run(\'save\')` in a definition: `#save` carries an action on the recording page and none on the linked one (SN309 is lost), and the other way round (SN309 is invented)', () => {
+  const action = TREE + '<button id="save" data-sn-post="/api/s">s</button>', none = TREE + '<button id="save" data-sn-on-click="refresh(doc)">s</button>';
   const run = textWith('<button data-sn-on-click="run(\'save\')">go</button>');
   linked(abc({ body: action }, { body: none }), run);
   linked(abc({ body: none }, { body: action }), run);
@@ -116,9 +116,9 @@ const loop1 = '<ul><template data-sn-for="x in doc.a"><li data-sn-text="x.q"></l
 const loop3 = '<ul><template data-sn-for="x in doc.a"><li><template data-sn-for="y in x.b"><i data-sn-text="y.c"></i><template data-sn-if="y.d"><b data-sn-text="y.e"></b></template></template></li></template></ul>';
 
 test('6a. a property named `v$2` in a definition whose template is number 2 where recorded and 4 where linked', () => {
-  linked(abc({ body: loop1 + TREE }, { body: loop3 + TREE }), { 'x-text': '<template data-sn-component="{ node: any }"><p class="tx" data-sn-text="node.v$1 + node.v$2 + node.v$3">' });
+  linked(abc({ body: loop1 + TREE }, { body: loop3 + TREE }), { 'x-text': '<template data-sn-props="{ node: any }"><p class="tx" data-sn-text="node.v$1 + node.v$2 + node.v$3">' });
 });
 
 test('6b. text and an attribute that say `$p2` and `sn-t-2` (written with a character reference)', () => {
-  linked(abc({ body: loop1 + TREE }, { body: loop3 + TREE }), { 'x-text': '<template data-sn-component="{ node: any }"><p class="tx" title="&#36;p2 sn-t&#45;2"><b data-sn-text="node.v"></b>&#36;p2 each</p></template>' });
+  linked(abc({ body: loop1 + TREE }, { body: loop3 + TREE }), { 'x-text': '<template data-sn-props="{ node: any }"><p class="tx" title="&#36;p2 sn-t&#45;2"><b data-sn-text="node.v"></b>&#36;p2 each</p></template>' });
 });

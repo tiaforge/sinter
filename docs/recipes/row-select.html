@@ -1,4 +1,4 @@
-<sn-resource name="files" src="/api/files" items="files" key="id"></sn-resource>
+<sn-resource name="files" src="/api/files" select="files" key="id"></sn-resource>
 
 <!-- the logic is in rowClick() (row-select.helpers.js); the handler only applies its result -->
 <section data-sn-state="{ sel: noSelection() }" data-sn-let="{ ids: files.map(f => f.id) }">

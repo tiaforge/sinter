@@ -212,7 +212,7 @@ describe('<sn-resource call>: resources fed by a function', () => {
     const { root, settle } = await render(`
       <section data-sn-on-sn-error="$event.preventDefault()">
         <sn-resource name="body" call="load()"></sn-resource>
-        <button data-sn-on-click="refresh('body')"></button>
+        <button data-sn-on-click="refresh(body)"></button>
         <p data-sn-text="$meta.body.error ? $meta.body.error.status + ':' + $meta.body.error.message : body?.text"></p>
       </section>`, { actions });
     await settle();
@@ -231,7 +231,7 @@ test('refresh() with several names reloads each', async () => {
     <sn-resource name="b" src="/api/b" key="id"></sn-resource>
     <sn-resource name="c" src="/api/c" key="id"></sn-resource>
     <p data-sn-text="a.length + b.length + c.length"></p>
-    <button data-sn-on-click="refresh('a', 'c')"></button>`, { requests });
+    <button data-sn-on-click="refresh(a, c)"></button>`, { requests });
   await settle();
   requests.calls.length = 0;
   root.querySelector('button')!.click();
@@ -281,7 +281,7 @@ describe('call diagnostics', () => {
   test('resources: src or call; call does not combine with paginate, each, cache', () => {
     expect(diags('<sn-resource name="b" src="/x" call="archive(1)"></sn-resource><p data-sn-text="b"></p>')).toContain('SN102 a resource loads from `src` or from `call`, not both');
     expect(diags('<sn-resource name="b"></sn-resource><p data-sn-text="b"></p>')).toContain('SN401 resource `b` needs a `src` (or a `call`)');
-    expect(diags('<sn-resource name="b" call="archive(1)" key="id" paginate="keyset" page-size="5" cursor="{id}"></sn-resource><p data-sn-text="b"></p>'))
+    expect(diags('<sn-resource name="b" call="archive(1)" key="id" paginate="{ keyset: {id: $item.id}, size: 5 }"></sn-resource><p data-sn-text="b"></p>'))
       .toContain('SN401 `paginate` does not combine with `call` in v0.2');
   });
 });

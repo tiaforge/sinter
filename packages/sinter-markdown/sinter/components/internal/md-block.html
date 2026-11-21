@@ -2,6 +2,6 @@
   One block, by its type: the only place block content is dispatched. To add a block type, add it to
   Block in sinter.types.ts, write its component in this folder, and add it to this map.
 -->
-<template data-sn-component="{ node: Block }">
-  <sn-component use="{ paragraph: 'md-paragraph', heading: 'md-heading', thematicBreak: 'md-thematic-break', blockquote: 'md-blockquote', list: 'md-list', code: 'md-code', table: 'md-table', details: 'md-details' }[node.type]" data-sn-prop="{ node }"></sn-component>
+<template data-sn-props="{ node: Block }">
+  <sn-component use="{ paragraph: 'md-paragraph', heading: 'md-heading', thematicBreak: 'md-thematic-break', blockquote: 'md-blockquote', list: 'md-list', code: 'md-code', table: 'md-table', details: 'md-details' }[node.type]" data-sn-with="{ node }"></sn-component>
 </template>

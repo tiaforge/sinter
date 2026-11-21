@@ -24,11 +24,11 @@ test('requests with the headers the app\'s middleware adds, what rendered, and e
   // the helper and the component, from the project's files
   expect(r.rendered).toContain('<p class="who">ADA</p>');
   expect(r.rendered).toContain('<span class="badge" data-sn-c="status-badge">open</span>');
-  // the resource has no `items`: the response's wrapper is its value, and the heading stays empty
+  // the resource has no `select`: the response's wrapper is its value, and the heading stays empty
   expect(r.rendered).toContain('<h1></h1>');
   const inc = r.resources.find((x) => x.name === 'incident')!;
   expect(inc.value).toEqual({ incident: { id: 3, title: 'Disk full' } });
-  expect(inc.hint).toContain('items="incident"');
+  expect(inc.hint).toContain('select="incident"');
   const text = formatReport(r);
   expect(text).toMatch(/GET \/api\/me\s+Authorization: Bearer abc {2}→ 200 \(mock\)/);
   expect(text).toContain('← the value is the whole response');

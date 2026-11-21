@@ -18,22 +18,23 @@ async function page(attrs = '', extra = '', items: object[] = [ITEM]) {
   const stream = mockStream();
   const requests = mockRequests({ 'GET /api/m': () => ({ m: items, total: 10 }) });
   const r = await render(`
-    <sn-resource name="m" src="/api/m" items="m" total="total" key="id"></sn-resource>
+    <sn-resource name="m" src="/api/m" select="m" total="total" key="id"></sn-resource>
     <sn-sync src="/s"><sn-event name="msg" resource="m" op="upsert"></sn-event><sn-event name="gone" resource="m" op="remove"></sn-event></sn-sync>
     <template data-sn-for="x in m">
       <div>
         <span data-sn-text="[x.subject, x.flagged ? 'flag' : '-'].join(' ')"></span>
-        <button id="on" data-sn-call="flag(x.id, true)" data-sn-optimistic="patch(x, {flagged: true})" ${attrs}>on</button>
-        <button id="off" data-sn-call="flag(x.id, false)" data-sn-optimistic="patch(x, {flagged: false})">off</button>
-        <button id="toggle" data-sn-call="flag(x.id, !x.flagged)" data-sn-optimistic="patch(x, {flagged: !x.flagged})" ${attrs}>t</button>
+        <button id="on" data-sn-call="flag(x.id, true)" data-sn-optimistic="merge(x, {flagged: true})" ${attrs}>on</button>
+        <button id="off" data-sn-call="flag(x.id, false)" data-sn-optimistic="merge(x, {flagged: false})">off</button>
+        <button id="toggle" data-sn-call="flag(x.id, !x.flagged)" data-sn-optimistic="merge(x, {flagged: !x.flagged})" ${attrs}>t</button>
         <button id="del" data-sn-call="flag(x.id, null)" data-sn-optimistic="remove(x)">del</button>
       </div>
     </template>
-    <p data-sn-text="$meta.m.pending + ' ' + $meta.m.total + ' ' + m.length"></p>${extra}`,
+    <p data-sn-text="$meta.m.total + ' ' + m.length"></p>${extra}`,
   { requests, streams: { '/s': stream }, actions: { flag: flag.fn } });
   await r.settle();
   const text = () => r.root.querySelector('span')?.textContent ?? '';
-  const meta = () => r.root.querySelector('p')!.textContent;
+  // the layers still waiting (the store's count; markup has no field for it), then what the page shows
+  const meta = () => `${r.app.resource('m').waiting()} ${r.root.querySelector('p')!.textContent}`;
   const click = async (id: string) => { r.root.querySelector<HTMLElement>(`#${id}`)!.click(); await r.flush(); };
   /** settles a call and lets its handlers and the flush run */
   const settle = async (i: number, ok = true) => { ok ? flag.calls[i]!.ok() : flag.calls[i]!.fail(); await r.settle().catch(() => {}); };
@@ -57,7 +58,7 @@ describe('a successful request keeps its optimistic change', () => {
   });
 
   test('`then` writes win over the committed change', async () => {
-    const p = await page(`data-sn-then="patch(x, {subject: 'server', flagged: false})"`);
+    const p = await page(`data-sn-then="merge(x, {subject: 'server', flagged: false})"`);
     await p.click('on');
     p.calls[0]!.ok({ id: 1 });
     await p.settle();
@@ -88,7 +89,7 @@ describe('a successful request keeps its optimistic change', () => {
   test('a load that answers after the success replays the change on its (older) response', async () => {
     const p = await page();
     await p.click('on');
-    p.app.resource('m').refetch();
+    p.app.resource('m').refresh();
     await p.flush();
     expect(p.requests.pending).toBe(1);
     // the call succeeds while the refetch is in flight; the refetch answers with the old item
@@ -97,7 +98,7 @@ describe('a successful request keeps its optimistic change', () => {
     await p.settle();
     expect(p.text()).toBe('hi flag');
     // a refetch that starts after the success is newer: it wins
-    p.app.resource('m').refetch();
+    p.app.resource('m').refresh();
     await p.settle();
     expect(p.text()).toBe('hi -');
   });
@@ -187,15 +188,15 @@ test('islands: app.optimistic() keeps the change when `run` resolves', async () 
   const requests = mockRequests({ 'GET /api/m': [{ id: 1 }, { id: 2 }], 'DELETE /api/m': null });
   const { root, flush, settle, app } = await render(`
     <sn-resource name="m" src="/api/m" key="id"></sn-resource>
-    <p data-sn-text="m.length + ' ' + $meta.m.pending"></p>`, { requests });
+    <p data-sn-text="m.length"></p>`, { requests });
   await settle();
   const done = app.optimistic(() => app.resource('m').remove('1'), () => app.request('/api/m', { method: 'DELETE' }));
   await flush();
-  expect(root.querySelector('p')!.textContent).toBe('1 1');
+  expect([root.querySelector('p')!.textContent, app.resource('m').waiting()]).toEqual(['1', 1]);
   await settle();
   await done;
   await flush();
-  expect(root.querySelector('p')!.textContent).toBe('1 0');
+  expect([root.querySelector('p')!.textContent, app.resource('m').waiting()]).toEqual(['1', 0]);
 });
 
 describe('data-sn-attr sets the live form state', () => {
@@ -205,7 +206,7 @@ describe('data-sn-attr sets the live form state', () => {
       <sn-resource name="t" src="/api/t" key="id"></sn-resource>
       <template data-sn-for="x in t">
         <input type="checkbox" data-sn-attr="{checked: x.done}" data-sn-trigger="change"
-          data-sn-patch="/api/t/{x.id}" data-sn-body="{done: !x.done}" data-sn-optimistic="patch(x, {done: !x.done})" data-sn-catch="0">
+          data-sn-patch="/api/t/{x.id}" data-sn-body="{done: !x.done}" data-sn-optimistic="merge(x, {done: !x.done})" data-sn-catch="0">
       </template>`, { requests });
     await settle();
     const box = root.querySelector('input')!;
@@ -262,7 +263,7 @@ describe('rows of a list sinter cannot trace to a resource (a helper\'s result)'
         <template data-sn-for="t in open(tasks)">
           <li>
             <input type="checkbox" data-sn-patch="/api/tasks/{t.id}" data-sn-body="{ done: !t.done }"
-                   data-sn-optimistic="patch(t, { done: !t.done })" data-sn-attr="{ checked: t.done }">
+                   data-sn-optimistic="merge(t, { done: !t.done })" data-sn-attr="{ checked: t.done }">
             <button data-sn-delete="/api/tasks/{t.id}" data-sn-optimistic="remove(t)">Delete</button>
           </li>
         </template>

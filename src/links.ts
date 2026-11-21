@@ -17,7 +17,7 @@ type Chain = App & Required<Pick<App, 'onGo' | 'decide' | 'go'>> & {
   add(h: Navigator, rank: number): void;
   /**
    * Guards, run when a navigation goes (never when the chain is only asked, as next-page data does): one
-   * that returns true refuses it (`data-sn-on-navigate` and `$event.preventDefault()`, navigate.ts). Not run
+   * that returns true refuses it (`data-sn-on-sn-navigate` and `$event.preventDefault()`, navigate.ts). Not run
    * for what cannot be refused any more: a traversal without the Navigation API, or an event that cannot
    * be canceled (the browser's own Back without activation).
    */

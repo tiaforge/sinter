@@ -6,11 +6,11 @@ reloads, [server events](sync.md) and [optimistic updates](actions.md). Template
 changes go through store functions.
 
 ```html
-<sn-resource name="people" src="/api/people" items="people" key="id" order="name"></sn-resource>
+<sn-resource name="people" src="/api/people" select="people" key="id" order="name"></sn-resource>
 
 <section data-sn-state="{ q: '' }">
   <input type="search" data-sn-model="q">
-  <p data-sn-show="$meta.people.loading" aria-busy="true">Loading…</p>
+  <p data-sn-show="$meta.people.loading && !people.length" aria-busy="true">Loading…</p>
   <ul>
     <template data-sn-for="p in people.filter(p => p.name.toLowerCase().includes(q.toLowerCase()))">
       <li data-sn-text="p.name"></li>
@@ -20,27 +20,44 @@ changes go through store functions.
 ```
 
 Loading needs no code. The list stays sorted by `name`, and the old data stays on screen during a
-reload. See `docs/recipes/list-filter.html`.
+reload ([loading, empty, error](#loading-empty-error)). See `docs/recipes/list-filter.html`.
+
+A long list or an expensive filter can wait for the typing to pause: `data-sn-model-debounce` on the
+field delays the model's write, while the field shows each keystroke at once.
+
+```html
+<input type="search" data-sn-model="q" data-sn-model-debounce="200">
+```
+
+The pause takes the place of the typing pause, it does not add to it: a resource whose `src` reads `q`
+loads right after the 200 ms, and a model on `$url` writes one history entry then. Enter, or leaving
+the field, writes at once (so a form sent with Enter sends what was typed). `data-sn-model-debounce` is for a
+form field's model; a component waits inside itself. On a field with an action too, `data-sn-debounce`
+still delays the action and `data-sn-model-debounce` the model, each by its own pause.
+
+To show the text at once in one place and filter after the pause in another, keep the model instant and
+delay a handler that copies it: `<input data-sn-model="q" data-sn-on-input="term = q" data-sn-debounce-input="200">`,
+then filter by `term`.
 
 ## Attributes
 
 | Attribute | Meaning |
 | --- | --- |
 | `name` | Identifier used in expressions. Required, must be a valid JavaScript identifier. |
-| `src` | URL template, refetched when its interpolated values change. Required unless `call` is set. With [`sinter({ apis })`](apis.md) a path relative to an API (`/contacts`, `billing:/invoices`), checked against its spec. |
-| `method` | `POST` for an endpoint that loads data with a request body (search, reports). Default `GET`. Not with `cache`, `paginate` or `each` ([docs/apis.md](apis.md#resources-that-load-with-post)). |
+| `src` | URL template, reloaded when its interpolated values change. Required unless `call` is set. With [`sinter({ apis })`](apis.md) a path relative to an API (`/contacts`, `billing:/invoices`), checked against its spec. |
+| `method` | `POST` for an endpoint that loads data with a request body (search, reports). Without it, GET. Not with `cache`, `paginate` or `for` ([docs/apis.md](apis.md#resources-that-load-with-post)). |
 | `body` | With `method="POST"`: the request body, a value sent as JSON; the resource reloads when it changes. |
 | `call` | Instead of `src`: one call of a [local action](actions.md), `ns.fn(args)`. Reloads when the arguments' inputs change. |
 | `key` | Comma-separated item fields that form the identity. Required for collections; without it the resource is a single object. |
-| `items` | Path to the array in the response. Default: the response itself. |
+| `select` | Path in the response to the data: the array of a collection, or the object (`select="user"` of `{ user: … }`). Default: the response itself. |
 | `total` | Path to a total count, exposed as `$meta.<name>.total`. |
 | `order` | Field kept sorted when items are inserted. `-field` sorts descending. Strings compare locale-aware. |
-| `when` | Value expression. While falsy the resource is empty (`null` or `[]`) and a running request is aborted. |
+| `when` | Value expression. While falsy the resource is empty (`[]` for a list, else `null`: [single objects](#single-objects)), not loaded (`loadedAt` and `error` are `null`), and a running request is aborted. |
 | `cache` | Show the data from the last page load at once, then revalidate. No value means any age; `30s`, `10m`, `2h` or `1d` ignores older data. |
-| `refresh` | Reload in the background once the data is this old: `30s`, `5m`, `1h` (at least `1s`). |
-| `each` | `item in list`: one request per item of another list, merged into one collection. |
+| `refresh` | Reload in the background once the data is this old, a duration: `30s`, `5m`, `1h`, `1d` (at least `1s`). |
+| `for` | `item in list`: one request per item of another list, merged into one collection. |
 | `then` | Handler run after each successful load, with `$result`. |
-| `type` | Type of what `items` selects, for the [type checker](type-checking.md). |
+| `type` | Type of what `select` picks, for the [type checker](type-checking.md). |
 
 Paginated resources add more attributes; see [pagination](pagination.md).
 
@@ -49,8 +66,15 @@ duplicate key in a response keeps the last item (with a warning in dev builds).
 
 ## Single objects
 
-Without `key` the resource is one object, such as the signed-in user. `upsert` replaces it, `patch`
+Without `key` the resource is one object, such as the signed-in user. `upsert` replaces it, `merge`
 merges fields into it and `remove` sets it to `null`.
+
+A list that cannot have a key, such as a list of strings (`["go", "rust"]`), is such a resource too. When
+the build knows its value is a list, it is `[]` instead of `null` while it has no data (loading, while
+`when` is falsy, after `remove`), in the first paint as after it, so markup reads it as any list:
+`tags.length`, `data-sn-for="t in tags"`, with no `?.` or `?? []`. The build knows it from `type`
+(`type="string[]"`, `Array<Tag>`; not an alias that names a list), the OpenAPI response at `select`, or a
+`file:` or `content:` list. Otherwise it stays `null` until loaded.
 
 ## Status: `$meta`
 
@@ -61,13 +85,38 @@ build error, and so is a pagination field on a resource that is not paginated
 | Field | Meaning |
 | --- | --- |
 | `loading` | A request for this resource is in flight. |
-| `error` | `{status, body, message}` after a failed load, `null` once a load succeeds. |
-| `loadedAt` | Time (ms) of the last successful load, `null` before the server has answered on this page. |
-| `pending` | Number of optimistic changes whose request has not settled. |
+| `error` | `{status, body, message, detail}` after a failed load (as [`$error`](actions.md#then-and-catch)), `null` once a load succeeds. |
+| `loadedAt` | When the last load succeeded, a `Date` like `$now` (`relative($meta.x.loadedAt)`), `null` before the server has answered on this page and while `when` is falsy. |
 | `total` | From the `total` path, adjusted by optimistic removes. `null` if unknown. |
 | `live` | The server-event stream feeding the resource ([sync](sync.md#connection-status)): `'connecting'` until it first opens, `'open'`, `'retrying'` after a failure; `null` when no `<sn-event>` feeds the resource. |
 
 Pagination adds `page`, `pages`, `from`, `to`, `hasPrev` and `hasNext`.
+
+## Loading, empty, error
+
+A list has three states besides its rows. Loading and error read `$meta`; empty is the `data-sn-else` after the
+list:
+
+```html
+<template data-sn-if="$meta.tasks.loading && !tasks.length"><p aria-busy="true">Loading…</p></template>
+<template data-sn-if="$meta.tasks.error"><p>Could not load the tasks.</p></template>
+<ul>
+  <template data-sn-for="t in tasks.filter((t) => !t.done)"><li data-sn-text="t.title"></li></template>
+  <template data-sn-else><li>Nothing left to do.</li></template>
+</ul>
+```
+
+- **Loading** is `$meta.x.loading && !x.length`: a reload with rows on screen keeps them, without a spinner.
+- **Error** is `$meta.x.error`.
+- **Empty** renders while the list is empty and every resource it may come from has loaded, is not loading and
+  has no error, so it never shows beside the other two. A filter that leaves nothing is empty too, while the
+  resource has rows. The resources are found as `merge()` finds them: through lets, `?:`/`||`/`??`, `filter`,
+  `slice`, `toSorted`, `toReversed` and a helper given one; at a choice, the one shown (`q ? results : recent`).
+- A resource whose `when` is falsy has not loaded: a search with nothing typed shows no "No results". Cached data
+  shown early is not empty yet (`loadedAt` waits for the server), a background `refresh` keeps it, `page()` hides it
+  while the page loads. A `file:` or `content:` list is decided at build time: the empty state is in the page, or
+  not. A list of state, or a list inside a row (`a.comments`), is empty when it is empty.
+- The else after a list takes no `data-sn-if` (SN102): choose inside it.
 
 ## Changing a resource
 
@@ -76,9 +125,9 @@ with these store functions, usable in any handler:
 
 | Function | Effect |
 | --- | --- |
-| `refresh('a', 'b')` | Reload the named resources. |
-| `upsert('name', item)` | Insert or replace by key. |
-| `patch(item, {…})` | Merge fields into an item. |
+| `refresh(people)`, `refresh(a, b)` | Reload these resources. |
+| `upsert(people, item)` | Insert or replace by key. |
+| `merge(item, {…})` | Merge fields into an item. |
 | `remove(item)` | Remove an item. |
 
 A successful mutation's response is already applied to the right resources, so these are mostly
@@ -99,10 +148,31 @@ answered, so guards like `$meta.user.loadedAt && !user` never act on cached data
 revalidation keeps the cached data and sets `error`. See `docs/recipes/cached-list.html`.
 
 - Entries live in `sessionStorage`, so they last one tab's lifetime. They are keyed by request URL
-  and the `items` and `total` paths, so two pages loading the same data share an entry.
+  and the `select` and `total` paths, so two pages loading the same data share an entry.
 - Only the first load reads the cache; a `src` that changes later does not.
 - An entry over 256 KB is not written.
-- Every entry is removed on any 401 response and by `clearPersisted()`, which apps call on logout.
+- Every entry is removed on any 401 response and by `clearStored()`, which apps call on sign-in and sign-out.
+
+### Back and Forward
+
+Nothing to write. When the visitor comes back to a page with Back or Forward and the browser's
+back/forward cache does not have it (it loads the page again, or a [swap](navigation.md#swaps) swaps it
+in), every resource shows what the page showed when they left it, at once, and revalidates as with
+`cache`: `loading` is true, `loadedAt` stays `null` until the server answers, a failed revalidation
+keeps the data. The scroll position the browser restores then lands on the same rows.
+
+- Every resource but `for`, `call` and `method="POST"` ones, with or without `cache`; with `cache`, at any
+  age (`cache="10m"` limits only ordinary loads). A paginated list comes back at the page it showed; an
+  `append` list loads again.
+- A resource without `cache` writes its entry once, as the page is left (`pagehide`, or the swap), so
+  it costs nothing while the page is shown; it is read only on Back and Forward. The entries are the
+  same as `cache`'s: the 256 KB limit, the 401 and `clearStored()` apply, and a full
+  `sessionStorage` drops the older half of them.
+- An ordinary load of the page (a link, a reload, a typed URL) shows them only with `cache`.
+- Embedded data wins, as with `cache`: a resource whose data the server writes into the page has nothing to restore.
+- On Back and Forward browsers prefer their HTTP cache for the page's requests: an API should send
+  `Cache-Control: no-cache` (with an `ETag`), or the revalidation may get the old response again.
+- In tests: `render(html, { session, traverse: true })` after a first `render()` with the same `session`.
 
 ## Background refresh
 
@@ -113,7 +183,7 @@ as a safety net for one that might miss events.
 <sn-resource name="jobs" src="/api/jobs" key="id" refresh="30s"></sn-resource>
 ```
 
-- The clock restarts after every load, whatever caused it: a server event refetch, `refresh()`, a
+- The clock restarts after every load, whatever caused it: a server event reload, `refresh()`, a
   reconnect, a changed `src`. A resource a stream reloads often is rarely refreshed.
 - The reload is silent: `loading` stays false, so a spinner binding does not flicker every 30 s.
 - Nothing is reloaded while the tab is hidden; a refresh that fell due runs when it is shown again.
@@ -127,7 +197,7 @@ as a safety net for one that might miss events.
 ## After a load: `then`
 
 `then` is a handler run after every successful load, with `$result` set to what was stored (what
-`items` selects, or the whole response).
+`select` picks, or the whole response).
 
 ```html
 <sn-resource name="body" src="/api/messages/{open.id}/body" when="open"
@@ -135,29 +205,29 @@ as a safety net for one that might miss events.
 ```
 
 - It sees the state around the resource and may assign it. Store functions and `run('id')` work.
-- It runs on every load: the first, `refresh()`, refetches from events, a changed `src`, each page of
+- It runs on every load: the first, `refresh()`, reloads from events, a changed `src`, each page of
   a paginated resource, and embedded data. It does not run for cached data shown early, failed loads,
   or changes that are not loads (optimistic updates, `upsert` from events).
 - So a handler meant to run once must guard itself, one step per guard. A handler that refreshes its
   own resource loops.
 - An exception in the handler is logged; the load still counts as successful.
 
-## Fan-out with `each`
+## Fan-out with `for`
 
-Some APIs list a collection per parent. `each` makes one request per item of another list and merges
+Some APIs list a collection per parent. `for` makes one request per item of another list and merges
 the results into one collection:
 
 ```html
 <sn-resource name="accounts" src="/api/accounts" key="account_id"></sn-resource>
-<sn-resource name="mailboxes" each="a in accounts" src="/api/mailboxes?account_id={a.account_id}"
+<sn-resource name="mailboxes" for="a in accounts" src="/api/mailboxes?account_id={a.account_id}"
              key="account_id,name" order="name"></sn-resource>
 ```
 
 - `key` is required and must tell the sources apart, as `account_id` does here. `paginate`, `total`
-  and `cache` do not combine with `each`.
+  and `cache` do not combine with `for`.
 - When the list changes, only new sources load and a removed source's items are dropped.
 - `loading` is true while any source loads. `loadedAt` is set once every current source has answered.
-- `refresh('mailboxes')` reloads every source. `then` runs once per source response.
+- `refresh(mailboxes)` reloads every source. `then` runs once per source response.
 - If you control the server, prefer one endpoint for the whole collection.
 
 ## Files
@@ -166,13 +236,13 @@ the results into one collection:
 
 ```html
 <sn-resource name="intro" src="file:./intro.txt"></sn-resource>
-<sn-resource name="team" src="file:/content/team.json" items="people" key="id" type="Person[]"></sn-resource>
+<sn-resource name="team" src="file:/content/team.json" select="people" key="id" type="Person[]"></sn-resource>
 <sn-resource name="post" src="file:./hello.md" type="Post"></sn-resource>
 <sn-resource name="posts" src="file:/content/posts/*.md" type="Post" order="-date" drafts="draft"></sn-resource>
 
 <p data-sn-text="intro"></p>
 <h1 data-sn-text="post.title"></h1>
-<ul><template data-sn-for="p in posts"><li><a data-sn-attr="{ href: '/blog/' + p.slug + '/' }" data-sn-text="p.title"></a></li></template></ul>
+<ul><template data-sn-for="p in posts"><li><a data-sn-href="/blog/{p.slug}/" data-sn-text="p.title"></a></li></template></ul>
 ```
 
 | File | Value |
@@ -212,10 +282,10 @@ the results into one collection:
   and a single file must exist; an interpolation (`{…}`, other than a glob's `{a,b}`) is an error (`SN332`).
   With `sinter({ apis })` it is read the same way, and `file` cannot be an API's name (`SN329`).
 - It is a constant: nothing loads, refreshes or changes it. `$meta.<name>.loading` is `false` and the
-  other status fields are `null`. It takes only `name`, `src`, `type`, `items`, `key`, `order` and `drafts`;
-  anything that would load or change it is `SN332`: `refresh`, `cache`, `paginate`, `each`, `call`, `when`,
+  other status fields are `null`. It takes only `name`, `src`, `type`, `select`, `key`, `order`, `drafts` and `fields`;
+  anything that would load or change it is `SN332`: `refresh`, `cache`, `paginate`, `for`, `call`, `when`,
   `then`, `early`, store functions that name it or change one of its items, write-through, and
-  `<sn-event>`s. `items` picks a list out of one JSON file.
+  `<sn-event>`s. `select` picks a part of one JSON file.
 - Bindings over it are written into the page at build time, and so are helper calls over it (when the
   helper can run at build time: [static pages](static-pages.md#helpers-and-files-at-build-time)). What
   still runs in the browser reads it from embedded data in the page's head, so the first frame has it
@@ -277,13 +347,14 @@ export const tags = collection({
   of `env`, since they are printed and shown in the browser in dev.
 - **On a page** it is a constant list, as a `file:` glob is: bindings over it are written at build time, `order`
   sorts it in the page's language, `key` is the collection's, and a [page per entry](static-pages.md#a-page-per-entry)
-  can be built from it. `drafts` and `items` are the loader's business.
+  can be built from it. `drafts` and `select` are the loader's business.
 - **What ships is named.** Bindings over a collection are written into the HTML and ship nothing. When code in the
   browser reads it (a filter as you type), it is embedded in the page, and only with `fields="sku,name,price"`:
   those fields of each entry. Without `fields` that is [SN344](diagnostics.md#sn344-content-fields), so what a CMS
   returns and no page shows never ships by accident. Fields left out are `undefined` in the browser (`sinter check`
-  does not narrow the type to them). A `data-sn-pages` page follows its list's `fields`. A `file:` resource takes
-  `fields` too, and without it ships whole.
+  does not narrow the type to them). A page per entry (`data-sn-for` on `<html>`) follows its list's `fields`. A `file:` resource takes
+  `fields` too, and without it ships whole. `fields` and `drafts` are a build-time source's only: on a fetched
+  resource they would do nothing, and are `SN332`.
 - **`vite dev`** runs the loaders at startup and again when the content module or a file `files()` read changes,
   then reloads the page. A change in the CMS needs a restart, or a rebuild in production (a webhook to the CI).
 - **`sinter check` and the editor never run loaders** (a CMS fetch per keystroke or per CI check would be slow,
@@ -297,8 +368,7 @@ export const tags = collection({
   shares cannot `get` one that differs per language. Without `localePrefix`, `perLocale` is an error.
 - **An index in pages**: `chunks(list, size)` from `@tiaforge-ui/sinter/content` gives `{ n, items, count }` per page,
   `n` from 1: a collection of pages for a [page per entry](static-pages.md#a-page-per-entry) at `/blog/page/:n`.
-- `sinter({ content: 'src/data.ts' })` moves the module; `content: false` turns it off. `content` cannot be an
-  API's name (SN329).
+- `sinter({ content: false })` turns the module off. `content` cannot be an API's name (SN329).
 
 ## Loading behavior
 
@@ -311,7 +381,7 @@ export const tags = collection({
   `loading` is not set. A select, checkbox or handler triggers the request at once. A text field
   bound to the URL (`data-sn-model="$url.q"`) waits the same, and writes the URL at that pause too.
 - **Priority.** A resource read only inside `<dialog>` elements is requested with low priority.
-- **Coming back.** Restoring a page from the back/forward cache, or going back online, refetches
+- **Coming back.** Restoring a page from the back/forward cache, or going back online, reloads
   every resource. Resources a stream feeds are left to the stream's reconnect.
 - **Immutable data.** Items are frozen in dev builds. Changes always replace the item object.
 
@@ -320,7 +390,7 @@ export const tags = collection({
 Besides fetching `src`, a resource can start from JSON embedded in the page:
 
 ```html
-<script type="application/json" data-sn-data="people">[{"id": 1, "name": "Ada"}]</script>
+<script type="application/json" data-sn-resource="people">[{"id": 1, "name": "Ada"}]</script>
 ```
 
 That payload is the first load and no request is made. An empty placeholder counts as no data, so

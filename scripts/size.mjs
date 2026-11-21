@@ -11,6 +11,7 @@ import { join, resolve } from 'node:path';
 import { gzipSync } from 'node:zlib';
 import { build, minify } from 'vite';
 import { compile } from '../dist/compiler/index.js';
+import { resolveApis } from '../dist/compiler/apis.js';
 import { flagsModule } from '../dist/core-parts.js';
 
 const dist = resolve(import.meta.dirname, '../dist');
@@ -28,7 +29,7 @@ if (!existsSync(join(realworld, 'node_modules/@tiaforge-ui/sinter/package.json')
 const minimalOut = compile('<html><body><sn-resource name="user" src="/api/user"></sn-resource><p data-sn-text="user.name"></p></body></html>', {
   file: '/min/index.html', root: '/min', dev: false, helpers: { module: null, names: [], namespaces: {} }, readFile: () => '', moduleSrc: '/m.js',
 });
-const minimal = minimalOut.module.replace(/'@tiaforge-ui\/sinter(\/[a-z]+)?'/g, (_, sub) => `'${dist}${sub ?? '/index'}.js'`);
+const minimal = minimalOut.module.replace(/'@tiaforge-ui\/sinter(\/runtime)?(\/[a-z-]+)?'/g, (_, rt, sub) => `'${dist}${sub ?? (rt ? '/runtime-entry' : '/index')}.js'`);
 
 /** The same page in an app with swaps on: the stub and the build's list (`sinter({ swap: true })`) */
 const swapList = join(dir, 'swap-list.js');
@@ -36,32 +37,59 @@ writeFileSync(swapList, `import { swap } from '${dist}/swap.js';\nexport default
 const minimalSwapOut = compile('<html><body><sn-resource name="user" src="/api/user"></sn-resource><p data-sn-text="user.name"></p></body></html>', {
   file: '/min/index.html', root: '/min', dev: false, helpers: { module: null, names: [], namespaces: {} }, readFile: () => '', moduleSrc: '/m.js', swap: true, swapList,
 });
-const minimalSwap = minimalSwapOut.module.replace(/'@tiaforge-ui\/sinter(\/[a-z]+)?'/g, (_, sub) => `'${dist}${sub ?? '/index'}.js'`);
+const minimalSwap = minimalSwapOut.module.replace(/'@tiaforge-ui\/sinter(\/runtime)?(\/[a-z-]+)?'/g, (_, rt, sub) => `'${dist}${sub ?? (rt ? '/runtime-entry' : '/index')}.js'`);
+
+const toDist = (code) => code.replace(/'@tiaforge-ui\/sinter(\/runtime)?(\/[a-z-]+)?'/g, (_, rt, sub) => `'${dist}${sub ?? (rt ? '/runtime-entry' : '/index')}.js'`);
+const minOptions = { file: '/min/index.html', root: '/min', dev: false, helpers: { module: null, names: [], namespaces: {} }, readFile: () => '', moduleSrc: '/m.js' };
+/** The minimal page with a link template (`data-sn-href`, 2026-11-20): what the page module adds for it */
+const minimalLinkOut = compile('<html><body><sn-resource name="user" src="/api/user"></sn-resource><p data-sn-text="user.name"></p><a data-sn-href="/u/{user.name}">me</a></body></html>', minOptions);
+/**
+ * The minimal page with its resource on an API with a token (2026-11-20): the page module (the token module, the core's
+ * token calls) and its early file, the head script a one-page site loads (the early runtime with the early requests
+ * and the token's read)
+ */
+const tokenSpec = {
+  openapi: '3.1.0', info: { title: 'size', version: '1' }, servers: [{ url: '/api' }],
+  paths: { '/user': { get: { security: [{ Token: [] }], responses: { 200: { description: 'ok', content: { 'application/json': { schema: { type: 'object', properties: { user: { type: 'object', properties: { name: { type: 'string' } } } } } } } } } } } },
+  components: { securitySchemes: { Token: { type: 'apiKey', in: 'header', name: 'Authorization' } } },
+};
+const tokenSpecs = [];
+const tokenApis = resolveApis({ apis: { main: { openapi: tokenSpec, default: true, defaults: { 'GET /user': { select: 'user' } }, token: { storage: 'local:jwt', scheme: 'Token', signIn: '/login' } } } },
+  (doc) => tokenSpecs.push({ file: '/min/openapi.json', doc }) - 1, tokenSpecs, '/min/vite.config.js');
+if (tokenApis.diagnostics.length) throw new Error(`size: the token page's API: ${tokenApis.diagnostics.map((d) => d.message).join('; ')}`);
+const minimalTokenOut = compile('<html><body><sn-resource name="user" src="/user"></sn-resource><p data-sn-text="user.name"></p></body></html>', { ...minOptions, apis: tokenApis.apis, openapi: tokenSpecs, early: { module: null } });
 
 /**
  * The core as a build keeps it (docs/proposals/site-core.md), by entry: the parts that stay on. A minimal page's are its
  * own, read from its IR, as in an app whose only page it is; `core, no parts` is the floor every page loads. `core`
  * is the core with every part on, for reference (what dev serves).
  */
-const siteCore = { minimal: minimalOut.core, 'minimal, swaps': minimalSwapOut.core, 'core, no parts': [] };
+const siteCore = { minimal: minimalOut.core, 'minimal, swaps': minimalSwapOut.core, 'minimal, link': minimalLinkOut.core, 'minimal, token': minimalTokenOut.core, 'core, no parts': [] };
+/** a build with an API's token sets the core's TOKEN flag */
+const tokenCore = new Set(['minimal, token']);
 const flagsFile = resolve(dist, 'runtime/flags.js');
 const entries = {
   minimal,
   'minimal, swaps': minimalSwap,
-  core: `export { mount, $k } from '${dist}/index.js';`,
-  'core, no parts': `export { mount, $k } from '${dist}/index.js';`,
+  'minimal, link': toDist(minimalLinkOut.module),
+  'minimal, token': toDist(minimalTokenOut.module),
+  // its early file, the early runtime bundled in (a site's shared head script and the page's own, in one)
+  'minimal, token, early': toDist(minimalTokenOut.early),
+  core: `export { mount, $k } from '${dist}/runtime-entry.js';`,
+  'core, no parts': `export { mount, $k } from '${dist}/runtime-entry.js';`,
   sse: `export { default } from '${dist}/sse.js';`,
   ws: `export { webSocketTransport } from '${dist}/ws.js';`,
   optimistic: `export { default } from '${dist}/optimistic.js';`,
   paginate: `export { default } from '${dist}/paginate.js';`,
-  each: `export { default } from '${dist}/each.js';`,
+  for: `export { default } from '${dist}/for.js';`,
   persist: `export { default } from '${dist}/persist.js';`,
   cache: `export { default } from '${dist}/cache.js';`,
+  back: `export { default } from '${dist}/back.js';`,
   refresh: `export { default } from '${dist}/refresh.js';`,
   retry: `export { retry } from '${dist}/retry.js';`,
   versions: `export { default } from '${dist}/versions.js';`,
   keys: `export { default } from '${dist}/keys.js';`,
-  apply: `export { default } from '${dist}/apply.js';`,
+  'write-through': `export { default } from '${dist}/write-through.js';`,
   prefetch: `export { prefetch } from '${dist}/prefetch.js';`,
   fields: `export { default } from '${dist}/fields.js';`,
   form: `export { default } from '${dist}/form.js';`,
@@ -85,7 +113,7 @@ const entries = {
   remote: `export { remote } from '${dist}/remote.js';`,
   dev: `export { default } from '${dist}/dev.js';`,
   // what the contacts example loads: core + sse + optimistic + persist
-  page: `export { mount, $k } from '${dist}/index.js'; export { default as a } from '${dist}/sse.js'; export { default as b } from '${dist}/optimistic.js'; export { default as c } from '${dist}/persist.js';`,
+  page: `export { mount, $k } from '${dist}/runtime-entry.js'; export { default as a } from '${dist}/sse.js'; export { default as b } from '${dist}/optimistic.js'; export { default as c } from '${dist}/persist.js';`,
 };
 // bytes, gzip -9; article: what the page loads, its page module and the app's own code included
 // the minimal page in an app with swaps on (2026-11-16): the stub every page that swaps carries (1.7 KB, the
@@ -101,14 +129,24 @@ const entries = {
 // Lowered on 2026-11-17 with the site's core (docs/proposals/site-core.md): a build keeps only the parts of the core its
 // pages use. The minimal page to 12 KB (11,046 B: the resource part alone over the 7.4 KB floor), with swaps to 13.5 KB
 // (12,860 B); the article stays at 62 KB (59,231 B: RealWorld keeps 6 of the 9 parts)
-const BUDGET = { minimal: 12 * 1024, 'minimal, swaps': 13.5 * 1024, 'realworld article': 62 * 1024 };
+// Added on 2026-11-20, after the size pass over the features merged since 0.20 (each a little above where it was then):
+// a link template (11,522 B), a token API (the page module 12,548 B, its early file 2,326 B: the early requests and the
+// token's read) and RealWorld's shared head script on its own (3,706 B), the early runtime every page loads
+// Lowered on 2026-11-20, when the URL templates and the early requests moved to the compiler (`expand()` left the core,
+// the early runtime interprets no request): the minimal page to 11 KB (11,192 B), with swaps to 12.875 KB (13,065 B), with
+// a link to 11.125 KB (11,320 B), with a token to 12.125 KB (12,256 B) and its early file to 1.875 KB (1,770 B), RealWorld's
+// shared head script to 3.375 KB (3,283 B) and the article to 60 KB (61,290 B)
+const BUDGET = {
+  minimal: 11 * 1024, 'minimal, swaps': 12.875 * 1024, 'realworld article': 60 * 1024,
+  'minimal, link': 11.125 * 1024, 'minimal, token': 12.125 * 1024, 'minimal, token, early': 1.875 * 1024, 'realworld early, shared': 3.375 * 1024,
+};
 let failed = false;
 const gz = (b) => gzipSync(b, { level: 9 }).length;
 function report(name, min, size) {
   const budget = BUDGET[name];
   const over = budget && size > budget;
   if (over) failed = true;
-  console.log(`${name.padEnd(19)} ${String(min).padStart(6)} B min  ${String(size).padStart(6)} B gzip${budget ? `  (budget ${budget})${over ? '  OVER' : ''}` : ''}`);
+  console.log(`${name.padEnd(23)} ${String(min).padStart(6)} B min  ${String(size).padStart(6)} B gzip${budget ? `  (budget ${budget})${over ? '  OVER' : ''}` : ''}`);
 }
 try {
   for (const [name, code] of Object.entries(entries)) {
@@ -118,7 +156,7 @@ try {
     await build({
       logLevel: 'silent', configFile: false,
       build: { outDir: join(dir, 'out', name), lib: { entry, formats: ['es'], fileName: name }, minify: false, rollupOptions: { external } },
-      plugins: siteCore[name] ? [{ name: 'site-core', load: (id) => (id === flagsFile ? flagsModule(siteCore[name]) : null) }] : [],
+      plugins: siteCore[name] ? [{ name: 'site-core', load: (id) => (id === flagsFile ? flagsModule(siteCore[name], false, false, tokenCore.has(name)) : null) }] : [],
     });
     // lib mode keeps whitespace in ES output; minify fully, as an app build would. A module with an
     // `import()` (the swap's rest) is split: what the entry imports statically is counted, the rest is not
@@ -143,6 +181,9 @@ try {
   const libs = Object.keys(JSON.parse(readFileSync(join(realworld, 'package.json'), 'utf8')).dependencies ?? {}).filter((d) => !d.startsWith('@tiaforge-ui/'));
   const out = join(dir, 'realworld');
   await build({ root: realworld, configFile: join(realworld, 'vite.config.js'), logLevel: 'silent', build: { outDir: out, emptyOutDir: true, rollupOptions: { external: libs } } });
+  // the shared head script on its own (2026-11-20): the early runtime every page loads (its early requests, the token's read)
+  const head = readdirSync(join(out, 'assets')).find((f) => /^sinter-head-.*\.js$/.test(f));
+  if (head) { const code = readFileSync(join(out, 'assets', head)); report('realworld early, shared', code.length, gz(code)); }
   for (const f of readdirSync(out).filter((f) => f.endsWith('.html')).sort()) {
     const html = readFileSync(join(out, f), 'utf8');
     // each file once: the early file's shared chunk is preloaded with it and for the page bundle; the

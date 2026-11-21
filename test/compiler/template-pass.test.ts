@@ -1,4 +1,4 @@
-// `data-sn-pages` in a build (compile's `templates`): a template's first pass is walked once and kept, and each entry
+// `data-sn-for` on `<html>` in a build (compile's `templates`): a template's first pass is walked once and kept, and each entry
 // is only evaluated again before its second pass. Every entry's page must be what it is compiled on its own: its HTML,
 // module, early script, diagnostics and the helper calls it logs. Some templates cannot share their walk (an entry's URL
 // in the program) and some entries are compiled the usual way (nothing to decide, constants for the layout, errors).
@@ -19,14 +19,14 @@ const docs: Record<string, string> = {
 };
 const INL = "{ text: 'x-text', link: 'x-link' }";
 const components: Record<string, string> = {
-  'x-doc': `<template data-sn-component="{ doc: any }"><div><template data-sn-for="n in doc.children"><sn-component use="${INL}[n.type]" data-sn-prop="{ node: n }"></sn-component></template></div></template>`,
-  'x-text': '<template data-sn-component="{ node: any }"><span data-sn-text="node.value"></span></template>',
-  'x-link': `<template data-sn-component="{ node: any }"><a data-sn-attr="{ href: node.url }"><template data-sn-for="n in node.children"><sn-component use="${INL}[n.type]" data-sn-prop="{ node: n }"></sn-component></template></a></template>`,
+  'x-doc': `<template data-sn-props="{ doc: any }"><div><template data-sn-for="n in doc.children"><sn-component use="${INL}[n.type]" data-sn-with="{ node: n }"></sn-component></template></div></template>`,
+  'x-text': '<template data-sn-props="{ node: any }"><span data-sn-text="node.value"></span></template>',
+  'x-link': `<template data-sn-props="{ node: any }"><a data-sn-attr="{ href: node.url }"><template data-sn-for="n in node.children"><sn-component use="${INL}[n.type]" data-sn-with="{ node: n }"></sn-component></template></a></template>`,
 };
 // a tree with images: a post with one, and posts without
 const IMG = "{ text: 'x-text', image: 'x-image' }";
-components['x-idoc'] = `<template data-sn-component="{ doc: any }"><div><template data-sn-for="n in doc.children"><sn-component use="${IMG}[n.type]" data-sn-prop="{ node: n }"></sn-component></template></div></template>`;
-components['x-image'] = '<template data-sn-component="{ node: any }"><img data-sn-attr="{ src: node.url, alt: node.alt }"></template>';
+components['x-idoc'] = `<template data-sn-props="{ doc: any }"><div><template data-sn-for="n in doc.children"><sn-component use="${IMG}[n.type]" data-sn-with="{ node: n }"></sn-component></template></div></template>`;
+components['x-image'] = '<template data-sn-props="{ node: any }"><img data-sn-attr="{ src: node.url, alt: node.alt }"></template>';
 const idocs: Record<string, string> = {
   'content/idocs/one.json': JSON.stringify({ slug: 'one', doc: { children: [{ type: 'text', value: 'no image' }] } }),
   'content/idocs/two.json': JSON.stringify({ slug: 'two', doc: { children: [{ type: 'image', url: '/img/photo.jpg', alt: 'A photo' }] } }),
@@ -45,7 +45,7 @@ const base = (o: Partial<Options>): Options => ({
   listFiles: (d) => Object.keys(files).map((f) => `/p/${f}`).filter((f) => f.startsWith(d.replace(/\/$/, '') + '/')),
   ...o,
 } as Options);
-const page = (body: string, list = 'file:/content/posts/*.md', name = 'post', of = 'posts') => `<!doctype html><html lang="en" data-sn-path="/blog/:slug" data-sn-pages="${name} in ${of}"><head><title data-sn-text="${name}.slug"></title></head><body>
+const page = (body: string, list = 'file:/content/posts/*.md', name = 'post', of = 'posts') => `<!doctype html><html lang="en" data-sn-path="/blog/:slug" data-sn-for="${name} in ${of}"><head><title data-sn-text="${name}.slug"></title></head><body>
 <sn-resource name="${of}" src="${list}"></sn-resource>
 ${body}
 </body></html>`;
@@ -85,7 +85,7 @@ describe('a data-sn-pages template walked once for all its entries', () => {
   });
 
   test('a tree of components that use each other: what each entry renders of it differs', () => {
-    const r = both(page('<x-doc data-sn-prop="{ doc: d.doc }"></x-doc>', 'file:/content/docs/*.json', 'd', 'ds'));
+    const r = both(page('<x-doc data-sn-with="{ doc: d.doc }"></x-doc>', 'file:/content/docs/*.json', 'd', 'ds'));
     same(r);
     expect(r.hits).toBe(3);
     expect(r.kept.find((x) => x.path === '/blog/two')!.html).toContain('<a href="/a"><span>a</span><a href="/b"><span>b</span></a></a>');
@@ -151,7 +151,7 @@ describe('what is compiled the usual way', () => {
   });
 
   test('images in a tree, where an entry has one: its constants from the evaluation, shared', () => {
-    const r = both(page('<x-idoc data-sn-prop="{ doc: d.doc }"></x-idoc>', 'file:/content/idocs/*.json', 'd', 'ds'), { images: host });
+    const r = both(page('<x-idoc data-sn-with="{ doc: d.doc }"></x-idoc>', 'file:/content/idocs/*.json', 'd', 'ds'), { images: host });
     same(r);
     expect(r.hits).toBe(3);
     expect(r.kept.find((x) => x.path === '/blog/two')!.html).toMatch(/<img[^>]*srcset="[^"]*\/i\/photo-/);
@@ -169,8 +169,8 @@ describe('what is compiled the usual way', () => {
   test('the second entry walks the template too: a program that differs from the kept one is not shared', () => {
     // (what an entry may not change, changed: `<x-flag>` is a component for the later entries only, so only their
     // programs hold its condition; decided from the first entry's program, it would stay in the browser)
-    const flag = '<template data-sn-component="{ on: boolean }"><template data-sn-if="on"><b>Draft</b></template><template data-sn-else><b>Live</b></template></template>';
-    const r = both(page('<x-flag data-sn-prop="{ on: post.draft }"></x-flag><template data-sn-if="post.draft"><i>d</i></template>'), {}, (e) => ({
+    const flag = '<template data-sn-props="{ on: boolean }"><template data-sn-if="on"><b>Draft</b></template><template data-sn-else><b>Live</b></template></template>';
+    const r = both(page('<x-flag data-sn-with="{ on: post.draft }"></x-flag><template data-sn-if="post.draft"><i>d</i></template>'), {}, (e) => ({
       readFile: (f: string) => { const t = f === '/p/src/components/x-flag.html' && e.path !== '/blog/a' ? flag : files[f.replace(/^\/p\//, '')]; if (t === undefined) throw new Error(`no such file: ${f}`); return t; },
       componentNames: [...Object.keys(components), ...(e.path === '/blog/a' ? [] : ['x-flag'])],
     }));
@@ -190,8 +190,8 @@ describe('an entry\'s description is its template\'s, at the entry\'s path', () 
   const swapped = (d: ReturnType<typeof describeAll>) => d.map((x) => JSON.stringify({ ...x, page: 0, path: x.path.map((p) => (p.endsWith(x.page) ? p.slice(0, -x.page.length) + '<entry>' : p)), parts: x.parts && { ...x.parts, path: x.parts.path.map((p) => (p.endsWith(x.page) ? p.slice(0, -x.page.length) + '<entry>' : p)) } }));
   // (with what a page swap keeps: an element as it is, and one that binds the entry)
   const BODY = `<nav data-sn-permanent="menu"><a href="/">home</a></nav><aside data-sn-permanent="side"><b data-sn-text="post.title"></b></aside>
-<sn-resource name="c" src="/api/comments?tag={$url.tag}" key="id" items="comments"></sn-resource>
-<sn-resource name="mine" src="/api/comments?post={post.slug}" key="id" items="comments"></sn-resource>
+<sn-resource name="c" src="/api/comments?tag={$url.tag}" key="id" select="comments"></sn-resource>
+<sn-resource name="mine" src="/api/comments?post={post.slug}" key="id" select="comments"></sn-resource>
 <template data-sn-if="post.draft"><p>Draft</p></template><ul><template data-sn-for="x in c"><li data-sn-text="x.id"></li></template><template data-sn-for="x in mine"><li data-sn-text="x.id"></li></template></ul>`;
 
   test('a request over the URL, ahead; one over the entry, not: the same for every entry', () => {

@@ -67,5 +67,5 @@ test('E archives the open mail through the button; with no mail open the button 
 test('sinter check: run() names an element with an action', () => {
   expect(checkPage(page).filter((d) => d.severity === 'error')).toEqual([]);
   const [d] = checkPage(page.replace("run('mark-read')", "run('mark-raed')")).filter((x) => x.severity === 'error');
-  expect([d!.code, d!.message]).toEqual(['SN311', 'no element `id="mark-raed"` on this page. Did you mean `mark-read`?']);
+  expect([d!.code, d!.message]).toEqual(['SN309', 'no element `id="mark-raed"` on this page. Did you mean `mark-read`?']);
 });

@@ -1,4 +1,5 @@
-// Fan-out resources: `each="a in accounts"` loads one request per list item into one collection.
+// Fan-out resources (`@tiaforge-ui/sinter/runtime/for`): `<sn-resource for="a in accounts">` loads one request per
+// list item into one collection.
 import type { App, Feature, ResourceLoader } from './runtime/app.js';
 
 interface Source {
@@ -25,7 +26,7 @@ function fanOut(l: ResourceLoader, app: App) {
 
   const urlOf = (item: unknown) => {
     if (!item || typeof item != 'object') return null;
-    try { return app.url(def.src, Object.assign(Object.create(l.scope()), { [each.item]: item })); } catch { return null; }
+    try { return app.url(def, Object.assign(Object.create(l.scope()), { [each.item]: item })); } catch { return null; }
   };
   /** the confirmed items minus those of source `u`, plus `items` */
   const swap = (u: string, s: Source, items: any[]) => {
@@ -51,7 +52,7 @@ function fanOut(l: ResourceLoader, app: App) {
       s.answered = loaded = true;
       r.meta.error = null;
       // loadedAt: every current source has answered once
-      if ([...sources.values()].every((x) => x.answered)) r.meta.loadedAt = app.env.now();
+      if ([...sources.values()].every((x) => x.answered)) r.meta.loadedAt = new Date(app.env.now());
     } catch (e) {
       if (n != s.seq || isAbort(e)) return;
       s.answered = failed = true;
@@ -69,9 +70,9 @@ function fanOut(l: ResourceLoader, app: App) {
 
   l.changed = () => {
     const scope = l.scope();
-    let list: unknown = [];
+    let list: unknown = [], on = false;
     try {
-      if (def.when == null || app.fns[def.when]!(scope)) list = app.fns[each.list]!(scope) ?? [];
+      if ((on = def.when == null || !!app.fns[def.when]!(scope))) list = app.fns[each.list]!(scope) ?? [];
     } catch (e) { app.warn(17, def.name, (e as Error).message); }
     const want = new Set<string>();
     for (const item of Array.isArray(list) ? list : [...(list as Iterable<unknown>)]) {
@@ -90,9 +91,11 @@ function fanOut(l: ResourceLoader, app: App) {
       sources.set(u, { c: null, seq: 0, keys: new Set(), answered: false });
       void load(u);
     }
-    // nothing to load: loaded once the list itself is (an empty list is an answer, a pending one is not)
-    if (!sources.size && r.meta.loadedAt == null && (!each.of || app.resource(each.of).meta.loadedAt != null)) {
-      r.meta.loadedAt = app.env.now();
+    // `when` falsy: not loaded, as before the first load; else nothing to load: loaded once the list itself is (an empty
+    // list is an answer, a pending one is not)
+    if (!on) { if (r.meta.loadedAt || r.meta.error) { r.meta.loadedAt = r.meta.error = null; r.onDirty('meta'); } }
+    else if (!sources.size && r.meta.loadedAt == null && (!each.of || app.resource(each.of).meta.loadedAt != null)) {
+      r.meta.loadedAt = new Date(app.env.now());
       r.onDirty('meta');
     }
     l.loading(pending > 0);
@@ -100,8 +103,8 @@ function fanOut(l: ResourceLoader, app: App) {
   l.start = () => l.changed();
   l.load = () => Promise.all([...sources.keys()].map((u) => load(u))).then(() => {});
   // a hint (an event's payload) that resolves to one source's URL reloads only that source;
-  // several refetches in one task share one round of requests
-  l.refetch = (hint?: object, quiet?: boolean) => {
+  // several reloads in one task share one round of requests
+  l.refresh = (hint?: object, quiet?: boolean) => {
     const u = hint ? urlOf(hint) : null;
     queued.add(u != null && sources.has(u) ? u : '*');
     if (!quiet) loud = true;
@@ -117,7 +120,7 @@ function fanOut(l: ResourceLoader, app: App) {
 }
 
 const each: Feature = {
-  name: 'each',
+  name: 'for',
   install(app: App) {
     app.ext.each = { fanOut: (loader) => fanOut(loader, app) };
   },

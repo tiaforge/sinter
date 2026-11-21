@@ -4,7 +4,7 @@ Three places configure a sinter app, and each has one job:
 
 | Where | What it configures |
 | --- | --- |
-| `sinter({...})` in `vite.config.js` | the build: checks, first paint, prefetching, fonts, images |
+| `sinter({...})` in `vite.config.js` | the build: checks, page URLs, first paint, prefetching, fonts, images |
 | `src/sinter.config.js` | the running page: requests, auth, errors, locale |
 | `src/sinter.helpers.js` | functions your markup can call |
 
@@ -16,7 +16,7 @@ import { defineConfig } from 'vite';
 import sinter from '@tiaforge-ui/sinter/vite';
 
 export default defineConfig({
-  plugins: sinter({ openapi: 'openapi.yml', typecheck: true }),
+  plugins: sinter({ apis: { main: { openapi: 'openapi.yml' } } }),
 });
 ```
 
@@ -24,35 +24,49 @@ export default defineConfig({
 
 `sinter(options)` returns the list of Vite plugins, so pass it to `plugins` as is.
 
+The pages are the `.html` files under the project root, outside `public/`, the build's output, `node_modules`,
+`src/components/` and `src/layouts/`: `vite build` builds each one, as `vite dev` serves them, and the app is a
+multi-page app (`appType: 'mpa'`). A config that names `build.rollupOptions.input` builds those pages instead.
+
 ### Project files
 
-Each option names a file relative to the project root. Leave it out and sinter looks for the default, `.js` first, then `.ts`.
+The app's modules have fixed names in `src/`, each optional, `.js` or `.ts`. A component library's are beside its
+fixture pages, in `fixtures/` ([docs/libraries.md](libraries.md)).
+
+| File | Purpose |
+| --- | --- |
+| `src/sinter.helpers.js` | functions and namespaces for expressions, [below](expressions.md#helpers) |
+| `src/sinter.actions.js` | functions for `data-sn-call` and `<sn-resource call>` ([docs/actions.md](actions.md)) |
+| `src/sinter.config.js` | the module that calls `configure()`, [below](#the-config-module) |
+| `src/sinter.early.js` | code that runs before the first paint ([docs/first-paint.md](first-paint.md)) |
+| `src/sinter.types.ts` (or `.d.ts`, `.js`) | the types `type="..."` may name ([docs/type-checking.md](type-checking.md)) |
+| `src/sinter.content.ts` | collections for `src="content:…"` ([docs/resources.md](resources.md)); `sinter({ content: false })` turns it off |
 
 | Option | Default | Purpose |
 | --- | --- | --- |
-| `helpers` | `src/sinter.helpers.js` | functions and namespaces for expressions, [below](#helpers) |
-| `actions` | `src/sinter.actions.js` | functions for `data-sn-call` and `<sn-resource call>` ([docs/actions.md](actions.md)) |
-| `config` | `src/sinter.config.js` | the module that calls `configure()`, [below](#the-config-module) |
-| `early` | `src/sinter.early.js` | code that runs before the first paint ([docs/first-paint.md](first-paint.md)) |
-| `types` | `src/sinter.types.ts` (then `.d.ts`, `.js`) | the types `type="..."` may name ([docs/type-checking.md](type-checking.md)) |
-| `messages` | `project.inlang`, if it exists | the inlang project for [messages](#messages); `false` turns them off |
+| `messages` | `project.inlang`, if it exists | the inlang project for [messages](messages.md); `false` turns them off |
 | `apis` | none | the APIs the app calls: base URL, OpenAPI spec, credentials, headers, and what each endpoint returns. Pages then write paths relative to them (`src="/contacts"`), checked against the spec ([docs/apis.md](apis.md)) |
-| `components` | `[]` | component libraries, by package name (`['@acme/ui']`): packages whose `package.json` names a folder of sinter components (`"sinter": "./sinter"`). Their public components are tags in the app; their helpers come in through a namespace re-export in your helpers module ([docs/libraries.md](libraries.md)) |
-| `defaultApi` | the only API | the API a path without `api:` goes to |
+| `libraries` | `[]` | component libraries, by package name (`['@acme/ui']`): packages whose `package.json` names a folder of sinter components (`"sinter": "./sinter"`). Their public components are tags in the app; their helpers come in through a namespace re-export in your helpers module ([docs/libraries.md](libraries.md)) |
 | `openapi` | none | deprecated: one OpenAPI file or a list of them; give each API its spec in `apis` instead ([docs/type-checking.md](type-checking.md#openapi)) |
 
 ### Checks
 
 | Option | Default | Purpose |
 | --- | --- | --- |
-| `typecheck` | `false` | run `sinter check` at the end of `vite build` and fail the build on type errors. Needs TypeScript |
-| `complexity` | see [below](#what-belongs-in-markup) | limits for the `SN507` warning, and its level |
+| `typecheck` | on with TypeScript | run `sinter check` at the end of `vite build` and fail the build on type errors; `false` turns it off |
+| `complexity` | warnings | `SN507`, expressions that outgrew markup ([below](expressions.md#what-belongs-in-markup)): `{ level: 'error' }` fails the build, `false` turns it off |
 | `expansionLimit` | `10000` | the most rows and component instances a page expands at build time; past it the list or tree renders in the browser, with `SN536` ([docs/static-pages.md](static-pages.md#what-is-static)) |
 | `strict` | `false` | warnings fail `sinter check`, `vite build`, pages in the dev server and `render()`; runtime warnings show in the dev server's terminal and overlay. `{ allow: { SN504: 'reason' } }` keeps codes warnings. `SINTER_STRICT=1`/`0` overrides it ([docs/strict.md](strict.md)) |
-| `checkCycles` | `false` | report `then`/`catch` handlers that start each other through `run()` (`SN509`) |
+
+### Pages and URLs
+
+What the build writes for the site as a whole: page URLs, languages, and pages without JavaScript.
+
+| Option | Default | Purpose |
+| --- | --- | --- |
 | `site` | none | the site's origin (`'https://example.com'`, no path): every page whose URL is known gets a canonical link, and expressions get `$site` and `$canonical` ([docs/static-pages.md](static-pages.md#canonical-urls)) |
 | `sitemap` | on with `site` | `sitemap.xml` with every page that may be indexed; `{ paths: { '/article/:slug': () => slugs() } }` gives the values of pages whose path has parameters; `false` leaves it out ([docs/static-pages.md](static-pages.md#sitemap)) |
-| `localePrefix` | `false` | each page once per language of the [messages](#messages), under its prefix (`/de/about/`), its text in the HTML; unprefixed URLs choose a language ([docs/static-pages.md](static-pages.md#languages)) |
+| `localePrefix` | `false` | each page once per language of the [messages](messages.md), under its prefix (`/de/about/`), its text in the HTML; unprefixed URLs choose a language ([docs/static-pages.md](static-pages.md#languages)) |
 | `redirects` | `true` | write `_redirects` (Netlify, Cloudflare Pages) with the pages' URLs ([docs/static-pages.md](static-pages.md#redirects-and-rewrites)) |
 | `static` | none | pages that must ship no JavaScript, by path from the root (`['about.html', 'docs/**']`), or `true` for all: one that needs the runtime is `SN322` ([docs/static-pages.md](static-pages.md)) |
 
@@ -61,21 +75,21 @@ Each option names a file relative to the project root. Leave it out and sinter l
 | Option | Default | Purpose |
 | --- | --- | --- |
 | `firstPaint` | `true` | write build-time values into the HTML and render what needs no data as the page loads. `false` waits for the page module ([docs/first-paint.md](first-paint.md)) |
+| `firstPaint.budget` | `10000` | an early script above this many gzipped bytes is a build warning: `firstPaint: { budget: 20000 }` |
 | `minifyHtml` | `true` | builds: remove your comments, and the white space your stylesheets show to render nothing, from every page's HTML. Dev never minifies ([docs/minify.md](minify.md)) |
-| `earlyBudget` | `10000` | an early script above this many gzipped bytes is a build warning |
 | `embed` | `false` | for a server that writes each page's data into the HTML: pages get placeholders instead of early requests, and the build writes `sinter-embed.json` listing them. `vite dev` is unaffected |
 | `lazy` | `[]` | packages loaded on first call instead of with the page (`['openpgp']`): your imports of one become stubs that share one `import()`, so it is a chunk of its own. Only awaited calls of its exports work (`SN324`); `data-sn-import` and `data-sn-preload` load it sooner ([docs/lazy.md](lazy.md)) |
 | `origins` | `[]` | other origins your resources, actions and streams may call. Added to every page's allowlist and preloaded like same-origin requests, without credentials. The origins of `apis` are added for you; list here only origins that are no API (an image host). Put them here, not in `configure({ origins })` |
-| `prefetch` | `true` | request the next page's data when a link is about to be followed ([docs/navigation.md](navigation.md)) |
+| `prefetch.data` | `true` | request the next page's data when a link is about to be followed ([docs/navigation.md](navigation.md)). `prefetch: false` turns off this and `prefetch.html`, as `<html data-sn-prefetch="off">` does for one page |
+| `prefetch.html` | `true` | Speculation Rules for links between pages (Chromium): `true` (the next page's HTML), `false`, or `{ prerender, delivery }` (`prerender: true`: the whole page; `prerender: 'auto'`: the pages the build can show do nothing on load but read, the rest prefetched, [docs/navigation.md](navigation.md#prerendering-chosen-per-page)) |
 | `swap` | `false` | links and `navigate()` to another page of the app swap it in instead of loading it, keeping `data-sn-permanent` elements (an audio player plays on). Read what changes first ([docs/navigation.md](navigation.md#swaps)) |
-| `speculation` | `'prefetch'` | Speculation Rules for links between pages (Chromium): `'prefetch'`, `'prerender'`, `false`, or `{ mode, delivery }` |
 
-`speculation` is delivered as an inline script in every page, so it needs no server setup. A CSP declared in a `<meta>` gets the script's hash from the build. A CSP sent as a response header needs `'inline-speculation-rules'` in `script-src`, or `delivery: 'header'`: the build then writes `speculation-rules.json` at the site root, and your server sends it as `application/speculationrules+json` in a `Speculation-Rules` header on every page (`vite dev` and `vite preview` do both). Details in [docs/navigation.md](navigation.md).
+`prefetch.html` is delivered as an inline script in every page, so it needs no server setup. A CSP declared in a `<meta>` gets the script's hash from the build. A CSP sent as a response header needs `'inline-speculation-rules'` in `script-src`, or `delivery: 'header'`: the build then writes `speculation-rules.json` at the site root, and your server sends it as `application/speculationrules+json` in a `Speculation-Rules` header on every page (`vite dev` and `vite preview` do both). Details in [docs/navigation.md](navigation.md).
 
 ```js
 sinter({
   origins: ['https://api.example.com'],
-  speculation: { mode: 'prerender', delivery: 'header' },
+  prefetch: { html: { prerender: true, delivery: 'header' } },
 })
 ```
 
@@ -85,7 +99,7 @@ Google Fonts stylesheets are downloaded at build time and bundled as one of your
 
 | Option | Default | Purpose |
 | --- | --- | --- |
-| `fonts.inline` | `true` | `false` keeps the `<link>` to Google Fonts |
+| `fonts.bundle` | `true` | `false` keeps the `<link>` to Google Fonts (`fonts: false` turns off `preload` too) |
 | `fonts.preload` | none | faces to preload: a family name (its 400 normal face) or `{ family, weight, style }`, from a Google Fonts stylesheet or the app's own `@font-face` (builds) |
 
 ```js
@@ -114,12 +128,13 @@ pages that run sinter: a page with nothing to run ships no JavaScript, this modu
 
 ```js
 // src/sinter.config.js
-import { configure, credentials, header, onUnauthorized, loginRedirect } from '@tiaforge-ui/sinter';
+import { configure, header, onUnauthorized, loginRedirect } from '@tiaforge-ui/sinter';
 
 configure({
   request: [
-    credentials('same-origin'),
-    header('X-Sinter', '1'),
+    // a value the browser knows, read for each request (none while unset); a fixed one (credentials,
+    // a CSRF header) goes on the API, and so does a token it issues: sinter({ apis: { main: { token } } })
+    header('X-Tenant', () => localStorage.getItem('tenant')),
     onUnauthorized(loginRedirect({ to: '/login/', returnUrl: { allow: ['/app/'] } })),
   ],
   sessionProbe: '/api/user',
@@ -134,7 +149,7 @@ configure({
 | `request` | `Middleware[]` | the [request layer](#the-request-layer) |
 | `sessionProbe` | URL | a cheap authenticated endpoint. After a network error, and before a stream reconnects, sinter requests it: a 2xx means go on, a 401 goes to your login handler, anything else waits and tries again ([docs/retry.md](retry.md), [docs/sync.md](sync.md)) |
 | `onError` | `(error, element) => void` | called for an action or load error nothing else handled. `element` is the element that started it, or `null` |
-| `locale` | `{ get(), set(locale) }` | connects your own locale source to `$locale` and the date and number helpers. Not needed with [built-in messages](#messages) |
+| `locale` | `{ get(), set(locale) }` | connects your own locale source to `$locale` and the date and number helpers. Not needed with [built-in messages](messages.md) |
 | `origins` | `string[]` | allowed origins besides the page's own. Replaces the list; prefer `sinter({ origins })` |
 | `urlSchemes` | `string[]` | extra URL schemes allowed in bound `href` and `src`, e.g. `['sms']`. `http`, `https`, `mailto` and `tel` are always allowed; `javascript:`, `vbscript:` and `data:` never are |
 | `transport` | `(url) => Transport \| undefined` | the connection for a `<sn-sync src>`. Return `undefined` for the default `EventSource` ([docs/sync.md](sync.md)) |
@@ -164,19 +179,18 @@ const timing = async (request, next) => {
   return response;
 };
 
-configure({ request: [timing, credentials('same-origin')] });
+configure({ request: [timing] });
 ```
 
 Built in:
 
 | Function | Does |
 | --- | --- |
-| `credentials(mode)` | sets the fetch credentials mode |
-| `header(name, value, { origin })` | adds a header to same-origin requests, or only to `origin` |
+| `header(name, value, { origin })` | adds a header to same-origin requests, or only to `origin`: for a value the browser knows. `value` is a function called for each request, `() => string \| null \| undefined` (null or undefined: no header), so a token set after sign-in is sent, also with swapped pages; a string is sent as it is. Fixed credentials and headers, and a token the API issues (`token`, [docs/apis.md](apis.md#a-token)), go on the API, which keeps early requests |
 | `onUnauthorized(handler)` | calls `handler(request, response)` on a 401 |
 | `loginRedirect({ to, returnUrl })` | stores the current URL (same-origin and under an allowed prefix only), clears persisted state, goes to `to`. It never resolves, so `then` and `catch` do not run |
 | `takeReturnUrl(allow)` | on the login page: the stored URL if it is same-origin and under an allowed prefix, else `null`; removes it |
-| `clearPersisted()` | removes values stored by `data-sn-persist`, and cached page data. Call it on logout |
+| `clearStored()` | removes what sinter stored in the browser: `data-sn-persist` values, the page-load cache and next-page data. Call it on sign-in and sign-out (an API's `token` does it itself, and `signOut()` with it) |
 
 Requests time out after 30 seconds, and nothing is sent twice unless a [retry policy](retry.md) says so.
 
@@ -192,190 +206,6 @@ Response bodies: 204 or empty gives `null`, a JSON content type is parsed (inval
 
 A request to an origin that is neither the page's nor listed in `origins` is refused.
 
-## Helpers
+## Moved
 
-`src/sinter.helpers.js` exports the functions your expressions call. Keep them pure: same arguments, same result, nothing read or changed elsewhere.
-
-```js
-// src/sinter.helpers.js
-export const initials = (name) => name.split(' ').map((w) => w[0]).join('');
-export * as fmt from './format.js';
-```
-
-```html
-<span data-sn-text="initials(c.name)"></span>
-<span data-sn-text="fmt.price(c.total)"></span>
-```
-
-- Exported names become functions. Type-only exports are skipped.
-- `export * as ns from './module.js'` makes a namespace. The compiler reads its members, so `fmt.pirce(...)` is `SN206` with a suggestion. Members must be named literally: `fmt[key]` is refused. Only the members a page uses reach its bundle: the page module and the early file import each helper from the module that declares it, not through the helpers module.
-- A `data-sn-let` (or a prop) is its expression, evaluated at every read, a helper call included ([spec.md](spec.md#derived-names)): a parse that three bindings read runs three times. Keep an expensive helper's results with `memo()` (below).
-- A helper module that reaches a package of `lazy` loads only when a let first needs it ([lazy.md](lazy.md#helpers-that-wait)).
-- The helpers module also runs in Node: the build, the dev server, `sinter check` and the language server
-  load it before compiling, through Vite with your config (aliases and plugins apply), and a call over
-  values known at build time runs there: its result is written into the page. Its top-level code runs in Node too: keep what needs the
-  browser (`window`, `document`) inside the functions that use it. A module that cannot load in Node
-  only warns (`SN533`, which strict mode does not fail on); the page works as before. Loading it takes
-  one extra Vite server per build, a few hundred milliseconds.
-- Whether a helper's calls can run at build time is decided from its code: it, and everything it calls
-  and imports, may use only JavaScript's own deterministic globals (`Math`, `JSON`, `Array`, `Map`, …)
-  and `TextEncoder`, `TextDecoder`, `URL`, `URLSearchParams` and `structuredClone`, not `Date`, `Intl`,
-  `Math.random`, `toLocale…`, `fetch`, `window` or `process`. Each exported function
-  counts on its own: one date formatter does not stop the others in its module. Its result must be plain
-  data; a call that throws or returns anything else stays in the browser (`SN534` in dev builds, which
-  also run each call twice: a helper that returns another result the second time is not pure).
-- Re-exports follow relative paths only.
-
-### Memoized helpers
-
-A helper that does real work (a document parse, a search index, a layout) can keep its results with `memo()`:
-
-```ts
-// src/sinter.helpers.ts
-import { memo } from '@tiaforge-ui/sinter/memo';
-import { parseDocument } from './parser.ts';
-
-export const parse = memo(parseDocument);
-export const toc = memo((body: string, depth: number) => headings(parseDocument(body), depth), { maxSize: 2 * 1024 * 1024 });
-```
-
-- It keeps a result by its arguments when each is a primitive, or a plain object or array of primitives
-  (`{ strict: true }`, `['a', 'b']`), compared by content: equal arguments return the same result. The
-  order of an object's keys is part of the key (`{ a, b }` and `{ b, a }` are two calls), and so are an
-  array's holes and an object's null prototype. Anything else calls through every time, uncached: a
-  nested object, a `Map`, a class instance, a function, a symbol, an object with a symbol key, a getter
-  or a non-enumerable property, an array with properties besides its elements. Such a call gets your
-  arguments as they are, and its result is neither copied nor frozen. `this` is passed on and is not part
-  of the key.
-- **It takes everything it depends on as arguments.** A memoized function must not read anything that
-  changes (the locale, the time, a global, another module's state): pass it in (`parse(body, $locale)`).
-- A kept call's object arguments are copied before the call (each own key, `__proto__` included), so its
-  result never holds your object (state you change later). Its result is then frozen in place, at every
-  depth, in production too, and shared by every caller: change a copy (`structuredClone(doc)`). A result
-  that holds anything but plain data (a `Map`, a `Set`, a `Date`, a typed array, a class instance, a
-  function) is returned as it is: not frozen, not kept.
-- The cache is bounded by an approximate size (`maxSize`, in bytes, 4 MiB by default: a string counts
-  2 bytes a character, every value and entry a few more): the least recently used results go first. The
-  most recent result is always kept, even one larger than `maxSize`, alone then, so a page that reads a
-  huge parse at every node does not parse it again at every read; the next result takes its place.
-  `parse.clear()` forgets them all. A call that throws keeps nothing.
-- It works in the page module, the early file and in Node: a memoized helper's calls over build-time
-  values run at build time as the function it calls would (its cache is the memo's own state, which the
-  build's checks allow). Each bundle has its own cache: the early file and the page module each parse once.
-
-### Built-in formatters
-
-Always available, no import. They read the current locale, so a locale switch updates them. Each `Intl` formatter is built once per locale and options, then reused.
-
-| Helper | Example | Result in `en` |
-| --- | --- | --- |
-| `date(v, style)` | `date(c.born, 'long')` | `March 4, 1990` |
-| `time(v, style)` | `time(c.at)` | `9:30 AM` |
-| `datetime(v, style)` | `datetime(c.at)` | `Mar 4, 1990, 9:30 AM` |
-| `relative(v)` | `relative(c.at)` | `3 days ago` |
-| `number(v, opts)` | `number(c.total, { style: 'currency', currency: 'EUR' })` | `€12.50` |
-| `bytes(v)` | `bytes(f.size)` | `1.5 MB` |
-
-`style` is `'full'`, `'long'`, `'medium'` or `'short'`; `date` and `datetime` default to `'medium'`, `time` to `'short'`. `opts` are `Intl.NumberFormat` options. Missing or invalid values give an empty string, not `Invalid Date`.
-
-A calendar date, a string `YYYY-MM-DD` (`'2026-11-11'`), is the same day for every visitor: `date()` formats it in UTC,
-where it was parsed, so it never shows the day before west of Greenwich. A moment (a timestamp, a `Date`,
-`'2026-11-11T09:00:00Z'`) is shown in the visitor's time zone. In a page built in one language
-([`localePrefix`](static-pages.md#languages)), `number()`, `bytes()` and `date()` of a calendar date over constants
-are written into the HTML at build time; moments, `time()`, `datetime()` and `relative()` are formatted in the browser.
-
-## State, briefly
-
-`data-sn-state` declares local variables for an element and what is inside it. The value is an object literal, so the compiler knows every name:
-
-```html
-<section data-sn-state="{ q: '', editing: null }">…</section>
-```
-
-`data-sn-let` names values computed from state, resources and loop variables, for use inside the element. Names are read-only and may not reuse a state or loop variable name (`SN209`):
-
-```html
-<div data-sn-let="{ hits: contacts.filter(c => c.name.includes(q)), n: hits.length }">
-  <p data-sn-show="n" data-sn-text="n + ' found'"></p>
-</div>
-```
-
-State lives with the page. `data-sn-persist="key"` on an element with a model or state stores it in `localStorage` under `sn:key`. See [docs/attributes.md](attributes.md).
-
-## Messages
-
-Messages come from an inlang project, so the inlang tools (VS Code extension, Fink, machine translation) keep working on the same files.
-
-```
-project.inlang/settings.json
-messages/en.json      { "inbox_title": "Inbox", "inbox_count": "{count} unread" }
-messages/de.json      { "inbox_title": "Posteingang", "inbox_count": "{count} ungelesen" }
-```
-
-```html
-<h1 data-sn-text="m.inbox_title()"></h1>
-<p data-sn-text="m.inbox_count({ count: inbox.unread })"></p>
-<button data-sn-on-click="$locale = 'de'">Deutsch</button>
-```
-
-See [docs/recipes/messages.html](recipes/messages.html).
-
-- The project is read from `project.inlang/settings.json` (`baseLocale`, `locales`, and the message-format `pathPattern`, default `./messages/{locale}.json`). Each file maps keys to plain strings with `{param}` placeholders. Plurals and variants are not supported, and a non-string message is a build error. Keys must be identifiers.
-- An unknown key is `SN206` with a suggestion. Wrong or missing parameters are `SN208` in `sinter check`; a parameter is `string | number`.
-- In app code, `import { m } from '@tiaforge-ui/sinter/messages'`, typed by the generated `src/sinter.messages.d.ts` (rewritten on every build and `sinter check`, so you can git-ignore it). Only `m.key` is allowed: `m[key]`, and passing or aliasing `m`, are build errors. For a dynamic choice use a map of `() => m.key()` functions.
-- Your helpers module must not also export a namespace `m`.
-- A missing translation falls back to the base language and is reported once per locale at build.
-- Each page gets one small file per language holding only the keys it uses. Before the first paint the page picks the language: the stored choice (`localStorage` key `locale`), else the first match in `navigator.languages` (`de-AT` matches `de`), else the base. The base language's text is in the HTML, so visitors in that language see it in the first frame. For another language those elements stay hidden, keeping their space, until the page has rendered them.
-- `$locale = 'de'` (or `setLocale('de')` from the messages module) stores the choice, loads the page's file for that language once, sets `<html lang>` and re-renders every message and every `date()` and `number()`. `onLocale(fn)` tells app code.
-- With built-in messages sinter is the locale source: do not also call `configure({ locale })`.
-- With `sinter({ localePrefix: true })` the language is in the URL instead (`/de/about/`): each page is built once per language with its text in the HTML, switching is a link (`localeUrl('de')`), and `$locale` cannot be assigned. See [docs/static-pages.md](static-pages.md#languages).
-
-An app without an inlang project pays nothing for this: no picker, no language files.
-
-To use another i18n library, export its message functions as a namespace from the helpers module (`export * as m from './paraglide/messages.js'`) and connect its locale with `configure({ locale: { get, set } })`.
-
-## What belongs in markup
-
-Every attribute value that is not a URL or a name is a JavaScript expression, parsed at build time and checked against a closed set of names.
-
-| Kind | Used in | Allowed | Refused |
-| --- | --- | --- | --- |
-| Value | `text`, `attr`, `class`, `show`, `prop`, `for` (after `in`), `if`, `key`, `body`, `state`, URL interpolations | any expression: template strings, `?.`, `??`, arrow functions as arguments, `new` on allowed globals | assignment, `++`/`--`, `delete`, `await`, `import()` |
-| Handler | `on-*`, `then`, `catch`, `optimistic` | statements separated by `;`, assignment to state, calls to store functions | declarations, loops, `await` |
-
-A name resolves to the first match, innermost first: loop variables, state, resources, magic names (`$event`, `$el`, `$url`, `$now`, `$locale`, `$result`, `$error`, `$meta`), then helpers, namespaces and store functions (`refresh`, `upsert`, `patch`, `remove`, `page`, `showModal`, `close`, `reset`, `emit`, `run`), then allowed globals. Anything else is `SN201` with a suggestion.
-
-Globals are JavaScript, not the browser. `Math`, `JSON`, `Object`, `Array`, `Set`, `Map`, `Date`, `Intl`, `RegExp`, `URL`, `URLSearchParams` and `structuredClone` work. `window`, `document`, `fetch`, `localStorage`, timers, `eval`, `Function`, `Proxy` and `Reflect` do not (`SN202`): browser work belongs in a [component's script](islands.md). In a binding, `Date.now()` and `Math.random()` never update, so use `$now` (`SN502`).
-
-Markup holds filters, conditions, single assignments and short calls. Logic that computes a value goes into a helper; logic with side effects goes into an action ([docs/actions.md](actions.md)). The handler applies the result:
-
-```html
-<!-- not four lines of if/else on $event.shiftKey -->
-<li data-sn-on-click="sel = rowClick($event, sel, f.id, ids)">
-
-<!-- a guard over one step is fine -->
-<button data-sn-on-click="open && close('detail')">
-```
-
-One condition per step. `a && (b = null, close())` is two steps behind one guard: write them as separate statements, or compute the new state in a helper.
-
-### Complexity limits (`SN507`)
-
-Expressions that outgrow markup get warning `SN507`, naming the limit they exceed. The measure is structure, not length.
-
-| Limit | Default | Counts |
-| --- | --- | --- |
-| `statements` | 4 | `;`-separated statements in one handler |
-| `sequences` | 0 | comma sequences `(a, b)` |
-| `guarded` | 1 | steps one `&&`, `\|\|`, `??` or `?:` statement runs: `a && close()` is 1, `a && (b = 1, close())` is 2 |
-| `ternaries` | 2 | nesting of `?:` |
-| `arrow` | 8 | operations in one arrow function body; a block body is always too many |
-| `operations` | 15 | operations in one expression, the backstop |
-
-Operations are calls, `new`, operators, assignments, computed member access and functions. Names, member paths (`a.b.c`), literals and object and array structure are free, so a draft object of plain fields costs nothing. Filters like `people.filter(p => p.name.includes(q))` stay under the limits.
-
-```js
-sinter({ complexity: { statements: 6, ternaries: 1, level: 'error' } })
-```
-
-Set any limit alone. `level` is `'warn'` (default), `'error'` (fails the build) or `'off'`. An unknown limit or level is refused when the config loads. The setting also applies to `sinter check` and the editor. In an editor, the quick fix for `SN507` extracts the expression into a helper ([docs/editors.md](editors.md)).
+Helpers, built-in formatters, state and what belongs in markup are in [expressions.md](expressions.md); built-in messages in [messages.md](messages.md).

@@ -31,7 +31,7 @@ export interface PathTable {
 export type UrlTemplate = Array<string | number>;
 
 export interface Paginate {
-  mode: 'keyset' | 'offset' | 'append';
+  mode: 'keyset' | 'numbered' | 'append';
   size: number;
   sizeParam: string;
   /** keyset/append: object literal evaluated with the boundary item as `$.$p` */
@@ -40,9 +40,14 @@ export interface Paginate {
   /** keyset/append: the value sent for each direction, where it differs from the direction's name */
   directionValues?: Partial<Record<'first' | 'prev' | 'next' | 'last', string>>;
   pageParam: string;
-  /** the number of items to skip, (n - 1) * size: offset mode sends it instead of `pageParam`; keyset, to let `page(name, n)` jump */
-  offsetParam?: string;
-  /** `page-model="$url.page"`: the query parameter that holds the page (offset mode) */
+  /**
+   * `more: 'has_more'`: the path in the response that says whether there are more items in the direction asked for
+   * (`hasNext` after `first`, `next` and a page number; `hasPrev` after `prev` and `last`), in place of guessing from a full page
+   */
+  more?: string;
+  /** the number of items to skip, (n - 1) * size: a `numbered: 'offset'` list sends it instead of `pageParam`; keyset, to let `page(name, n)` jump */
+  skipParam?: string;
+  /** `model: $url.page`: the query parameter that holds the page (numbered lists) */
   model?: string;
   /** with `model`: the function that reads it (`$.$url.page`), where the early file and embedded data read the start page */
   start?: number;
@@ -53,10 +58,13 @@ export interface ResourceDef {
   at?: Record<number, string>;
   name: string;
   src: UrlTemplate;
+  /** `src` compiled (compile.ts `urlCode`): the function (index) that makes the URL; the page module has it in place of `src` */
+  u?: number;
   /** key fields; null for a single-object resource */
   // absent fields (in the page module: `compactIR`) take their default: null, `deps` [], `scope` -1
   key?: string[] | null;
-  items?: string | null;
+  /** `select`: the path in the response where the data is; null: the response itself */
+  select?: string | null;
   total?: string | null;
   /** field, `-field` for descending */
   order?: string | null;
@@ -89,6 +97,8 @@ export interface ResourceDef {
   fed?: 1;
   /** a `file:` resource: its value is the page's embedded data (`data`), read at build time; it never loads or changes */
   fx?: 1;
+  /** no `key`, and the build knows its value is a list (its `type`, the OpenAPI response at `select`, a `file:` or `content:` list): empty, it is `[]` */
+  ls?: 1;
 }
 
 export interface EventDef {
@@ -98,11 +108,10 @@ export interface EventDef {
   // absent fields (in the page module: `compactIR`) are null
   /** null for an event that only runs `then` */
   resource?: string | null;
-  op?: 'upsert' | 'patch' | 'remove' | 'refetch' | null;
-  item?: number | null;
-  set?: number | null;
+  op?: 'upsert' | 'merge' | 'remove' | 'refresh' | null;
+  /** what the change writes: the item (`upsert`; absent: the whole payload) or the fields (`merge`) */
+  value?: number | null;
   when?: number | null;
-  fallback?: 'refetch' | null;
   /** `then`: handler run after the change is applied; `w`: the state paths it writes */
   then?: number;
   w?: PathRef[];
@@ -110,6 +119,8 @@ export interface EventDef {
 
 export interface SyncDef {
   src: UrlTemplate;
+  /** `src` compiled, as a resource's `u` */
+  u?: number;
   events: EventDef[];
   /** index of the node (in `roots`) whose scope `src` and the events' expressions are evaluated in, -1 (or absent) for page scope */
   scope?: number;
@@ -155,7 +166,7 @@ export interface Binding {
   e?: 1;
   /** the expression reads a loop index, so it re-runs when only the row's position changed */
   i?: 1;
-  /** handler on an element without a method: `data-sn-debounce` milliseconds */
+  /** a handler's `data-sn-debounce-<event>` milliseconds; a model's `data-sn-debounce` (its element has no action): it writes after that pause */
   ms?: number;
   /** key filter (`on` for keydown/keyup): the `KeyboardEvent.key` to match, letters in lowercase */
   q?: string;
@@ -205,17 +216,23 @@ export interface EarlyIR {
   /** by template id; null for templates the early chunk does not render */
   /** by template id; null for templates the early chunk does not render; `w`: inside `<svg>` or `<math>` (`TemplateDef.w`) */
   templates: Array<{ nodes: NodeDef[]; item?: string; index?: string | null; w?: 1 } | null>;
-  /** resources with embedded data the early bindings read (`$r.<name>`): the data element's `data-sn` id and `items` path */
-  emb?: Record<string, { id: number; items: string | null }>;
-  /** resources the early file requests: URL template and `when` (function indexes into the early table), scope by index into `roots`, -1 for the page; `q`: a paginated resource's first-page query parameters */
+  /** resources with embedded data the early bindings read (`$r.<name>`): the data element's `data-sn` id and `select` path */
+  emb?: Record<string, { id: number; select: string | null; ls?: 1 }>;
+  /** resources the early file requests: URL template and `when` (function indexes into the early table; absent: always), scope by index into `roots`, -1 for the page; `q`: a paginated resource's first-page query parameters */
   res?: Array<{
-    name: string; src: UrlTemplate; when: number | null; scope: number; q?: Record<string, string>;
-    /** `page-model`: from page 2 on, `qn` with `k` set to the page (`o`: the items to skip, `(n - 1) * s`) */
-    sp?: { f: number; k: string; s: number; o?: 1; qn: Record<string, string> };
+    src: UrlTemplate; when?: number; scope: number; q?: Record<string, string>;
+    /** `model` (paginate, numbered): from page 2 on, `q` with `k` set to the page (`o`: the items to skip, `(n - 1) * s`) */
+    sp?: { f: number; k: string; s: number; o?: 1 };
     lo?: 1; xo?: 1;
-    /** the request settings of the resource's API (`sinter({ apis })`): credentials and static headers */
-    a?: { c?: RequestCredentials; h?: Record<string, string> };
+    /** the request settings of the resource's API (`sinter({ apis })`): an index into `as` */
+    a?: number;
+    /** the operation needs its API's token: with none stored, it is not requested */
+    r?: 1;
   }>;
+  /** the request settings of the page's APIs, once each: credentials, static headers, its token's storage and header */
+  as?: Array<{ c?: RequestCredentials; h?: Record<string, string>; t?: { s: 'l' | 's'; k: string; h: string; p: string } }>;
+  /** `data-sn-signed-in`: with no token stored (and `f` true), the early script sends the visitor to sign in (index into the early table) */
+  si?: Omit<SignedIn, 'a'>;
   /** `data-sn-path` patterns, when a request reads `$url` */
   path?: string[];
   /** the page's array parameters (`IR.urlArrays`), when something early reads `$url` */
@@ -280,8 +297,10 @@ export interface ActionDef {
   /** dev builds: where each function it uses was written in the markup (`"file:line:col"`, by function index) */
   at?: Record<number, string>;
   /** `CALL`: `data-sn-call`, with `call` set and an empty `url` */
-  method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' | 'CALL';
+  method: 'POST' | 'PUT' | 'PATCH' | 'DELETE' | 'CALL';
   url: UrlTemplate;
+  /** `url` compiled, as a resource's `u` */
+  u?: number;
   call?: CallDef;
   // absent fields take their default (the compiler writes only what differs): no body, trigger and
   // so on; the event that triggers it is its `on` binding's
@@ -299,13 +318,13 @@ export interface ActionDef {
   confirm?: number;
   /** `data-sn-encoding="form"`: the body goes as application/x-www-form-urlencoded */
   enc?: 'form';
-  /** write-through of the response (absent with `data-sn-apply="off"`, for GET and `call`) */
+  /** write-through of the response (absent with `data-sn-write-through="off"`, and for `call`) */
   ap?: ApplyDef;
   /** `data-sn-retry`: the retry policy of a mutation */
   retry?: string;
 }
 
-/** What a mutation is about and what its response holds, for the `apply` feature (write-through). */
+/** What a mutation is about and what its response holds, for the `write-through` feature. */
 export interface ApplyDef {
   /**
    * provenance: what the URL and body read. `r`: the resource; `v`: the row's name in scope (a loop
@@ -330,8 +349,19 @@ export interface ApplyDef {
   t?: 1;
 }
 
+/**
+ * `data-sn-signed-in` (src/signed-in.ts): the page needs a session of the API `a` (`sinter({ apis })` name), whose token
+ * is stored at `t` (`l`ocal or `s`ession storage, key); `f` the condition (a function over `$url`; absent: always); `i` the
+ * sign-in page, as `loginRedirect` takes it
+ */
+export interface SignedIn { a: string; t: { s: 'l' | 's'; k: string }; i: string | { to: string; returnUrl?: { allow: string[]; param?: string } }; f?: number }
+
 export interface IR {
   v: 2;
+  /** `data-sn-signed-in`: the page needs a session */
+  si?: SignedIn;
+  /** an action's element has an `id` or bound attributes (`data-sn-attr`): the core keeps the same-id hand-over of a running action (the `TWIN` part) */
+  tw?: 1;
   resources: ResourceDef[];
   /** absent in a page module without streams */
   syncs?: SyncDef[];
@@ -395,27 +425,28 @@ export function validateIR(ir: unknown, fnCount: number): string[] {
     if (!/^[A-Za-z_]\w*$/.test(r.name)) errs.push(`${at}: bad name`);
     if (names.has(r.name)) errs.push(`${at}: duplicate name ${r.name}`);
     names.add(r.name);
-    if (r.call) { fn(r.call.args, `${at}.call.args`, false); fn(r.call.run, `${at}.call.run`, false); if (r.src.length) errs.push(`${at}: a call resource has no src`); }
-    else if (r.fx) { if (r.src.length || r.data == null) errs.push(`${at}: a file resource has no src, and embedded data`); }
+    if (r.call) { fn(r.call.args, `${at}.call.args`, false); fn(r.call.run, `${at}.call.run`, false); if (r.src?.length) errs.push(`${at}: a call resource has no src`); }
+    else if (r.fx) { if (r.src?.length || r.data == null) errs.push(`${at}: a file resource has no src, and embedded data`); }
+    else if (r.u != null) fn(r.u, `${at}.u`, false);
     else url(r.src, `${at}.src`);
     fn(r.when, `${at}.when`); fn(r.then, `${at}.then`);
     for (const d of [...(r.w ?? []), ...(r.deps ?? [])]) if (bad(d)) errs.push(`${at}: bad path`);
     if (r.paginate) {
-      if (!['keyset', 'offset', 'append'].includes(r.paginate.mode)) errs.push(`${at}: bad paginate mode`);
+      if (!['keyset', 'numbered', 'append'].includes(r.paginate.mode)) errs.push(`${at}: bad paginate mode`);
       fn(r.paginate.cursor, `${at}.paginate.cursor`);
     }
   });
   (o.syncs ?? []).forEach((s, i) => {
-    url(s.src, `syncs[${i}].src`);
+    if (s.u != null) fn(s.u, `syncs[${i}].u`, false); else url(s.src, `syncs[${i}].src`);
     s.events.forEach((e, j) => {
       const at = `syncs[${i}].events[${j}]`;
       // without a resource and op, the event only runs `then`
       if (e.resource == null && e.op == null) { if (e.then === undefined) errs.push(`${at}: needs a resource or then`); }
       else {
         if (!names.has(e.resource!)) errs.push(`${at}: unknown resource ${e.resource}`);
-        if (!['upsert', 'patch', 'remove', 'refetch'].includes(e.op!)) errs.push(`${at}: bad op`);
+        if (!['upsert', 'merge', 'remove', 'refresh'].includes(e.op!)) errs.push(`${at}: bad op`);
       }
-      fn(e.item, `${at}.item`); fn(e.set, `${at}.set`); fn(e.when, `${at}.when`); fn(e.then, `${at}.then`);
+      fn(e.value, `${at}.value`); fn(e.when, `${at}.when`); fn(e.then, `${at}.then`);
       for (const d of e.w ?? []) if (bad(d)) errs.push(`${at}: bad path`);
     });
   });
@@ -463,14 +494,15 @@ export function validateIR(ir: unknown, fnCount: number): string[] {
   (o.lm ?? []).forEach((f, i) => fn(f, `lm[${i}]`, false));
   o.actions.forEach((a, i) => {
     const at = `actions[${i}]`;
-    if (!['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'CALL'].includes(a.method)) errs.push(`${at}: bad method`);
+    if (!['POST', 'PUT', 'PATCH', 'DELETE', 'CALL'].includes(a.method)) errs.push(`${at}: bad method`);
     if (!['block', 'queue', 'latest'].includes(a.concurrency)) errs.push(`${at}: bad concurrency`);
-    if (a.retry !== undefined && (typeof a.retry !== 'string' || !a.retry || a.method === 'GET' || a.method === 'CALL')) errs.push(`${at}: retry is a policy name, on a mutation`);
+    if (a.retry !== undefined && (typeof a.retry !== 'string' || !a.retry)) errs.push(`${at}: retry is a policy name`);
     if (a.method === 'CALL') {
       if (!a.call) errs.push(`${at}: CALL needs call`);
       else { fn(a.call.args, `${at}.call.args`, false); fn(a.call.run, `${at}.call.run`, false); }
-      if (a.url.length) errs.push(`${at}: a call action has no url`);
-    } else url(a.url, `${at}.url`);
+      if (a.url?.length) errs.push(`${at}: a call action has no url`);
+    } else if (a.u != null) fn(a.u, `${at}.u`, false);
+    else url(a.url, `${at}.url`);
     for (const k of ['body', 'optimistic', 'then', 'catch'] as const) fn(a[k], `${at}.${k}`);
     for (const d of a.w ?? []) if (bad(d)) errs.push(`${at}: bad path`);
   });
@@ -488,6 +520,9 @@ const NULLS = (o: object) => Object.fromEntries(Object.entries(o).filter(([, v])
  * costs no bytes). The runtime reads an absent field as its default; the compiler keeps the full objects.
  * Paths become node ids of the page's path table (`ps`, see `paths.ts`).
  */
+const noSrc = <T extends { src: unknown }>({ src: _, ...rest }: T) => rest;
+const noUrl = ({ url: _, ...rest }: ActionDef) => rest;
+
 export function compactIR(full: IR): IR {
   const ir = structuredClone(full), ps = numberPaths(ir);
   const { syncs, ...rest } = ir;
@@ -507,11 +542,13 @@ export function compactIR(full: IR): IR {
   const fed = new Set((syncs ?? []).flatMap((s) => s.events.map((e) => e.resource)));
   return {
     ...rest,
+    // a URL template the compiler wrote as code (`u`): the page module has only the code
     resources: ir.resources.map((r) => {
-      const { deps, scope, ...rest } = r;
+      const { deps, scope, ...rest } = r.u != null ? noSrc(r) : r;
       return { ...NULLS(rest), ...(deps?.length ? { deps } : {}), ...(scope != null && scope >= 0 ? { scope } : {}), ...(fed.has(r.name) ? { fed: 1 } : {}) } as ResourceDef;
     }),
-    ...(syncs?.length ? { syncs: syncs.map((s) => ({ ...s, events: s.events.map((e) => NULLS(e) as EventDef) })) } : {}),
+    ...(syncs?.length ? { syncs: syncs.map((s) => ({ ...(s.u != null ? noSrc(s) : s), events: s.events.map((e) => NULLS(e) as EventDef) }) as SyncDef) } : {}),
+    actions: ir.actions.map((a) => (a.u != null ? noUrl(a) : a) as ActionDef),
     roots: ir.roots.map(compactNode),
     // a template's absent `index`, `key` and `keyFields` are null
     templates: ir.templates.map((t) => ({ ...NULLS(t), nodes: t.nodes.map(compactNode), ...(simple(t) ? { sm: 1 } : {}), ...(reads(t, new Set()) ? { ri: 1 } : {}) }) as TemplateDef),

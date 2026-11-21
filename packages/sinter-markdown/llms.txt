@@ -4,16 +4,16 @@
 
 ## Setup
 
-- vite.config: `sinter({ components: ['@tiaforge-ui/sinter-markdown'] })`; to load the parser on demand, also `lazy: ['@tiaforge-ui/sinter-markdown']`.
+- vite.config: `sinter({ libraries: ['@tiaforge-ui/sinter-markdown'] })`; to load the parser on demand, also `lazy: ['@tiaforge-ui/sinter-markdown']`.
 - src/sinter.helpers.ts: `export * as md from '@tiaforge-ui/sinter-markdown';`
 - src/sinter.types.ts: `export type { Root, Heading, Link, Image, Code, Table, TocEntry } from '@tiaforge-ui/sinter-markdown';`
 
 ## Pages
 
-- From a file (static, no JavaScript): `<sn-resource name="post" src="file:./post.md"></sn-resource><main data-sn-let="{ doc: md.parse(post, { base: '/posts/' }) }"><md-doc data-sn-prop="{ doc }"></md-doc></main>`. `base` (a folder from the project root) makes relative image and link URLs root paths, so local images are optimized.
-- From an API: `<article data-sn-let="{ doc: md.parse(post?.body) }"><md-doc data-sn-prop="{ doc }"></md-doc></article>`. md.parse keeps its trees (frozen, shared): one parse per source and options, whatever reads it. With the parser lazy, `doc` is undefined until it loads; <md-doc> renders an empty root meanwhile.
+- From a file (static, no JavaScript): `<sn-resource name="post" src="file:./post.md"></sn-resource><main data-sn-let="{ doc: md.parse(post, { base: '/posts/' }) }"><md-doc data-sn-with="{ doc }"></md-doc></main>`. `base` (a folder from the project root) makes relative image and link URLs root paths, so local images are optimized.
+- From an API: `<article data-sn-let="{ doc: md.parse(post?.body) }"><md-doc data-sn-with="{ doc }"></md-doc></article>`. md.parse keeps its trees (frozen, shared): one parse per source and options, whatever reads it. With the parser lazy, `doc` is undefined until it loads; <md-doc> renders an empty root meanwhile.
 - Readers' content: `md.parse(c.body, { headings: 'strong', images: 'link', html: 'text' })`, and a link fill with `rel="nofollow ugc"`.
-- One line (a title, a label): `<h1><md-inline data-sn-prop="{ doc: md.parse(post.title) }"></md-inline></h1>`: a `<span class="md">` with the paragraphs' and headings' content (phrasing content only; other blocks left out).
+- One line (a title, a label): `<h1><md-inline data-sn-with="{ doc: md.parse(post.title) }"></md-inline></h1>`: a `<span class="md">` with the paragraphs' and headings' content (phrasing content only; other blocks left out).
 
 ## md.parse options
 

@@ -12,7 +12,7 @@ export interface Window { parked: Map<string, Connection>; claimed: Connection[]
 /** the document's registry, shared with swap-run.ts: the window of the swap in progress, and how one closes */
 interface Streams { w: Window | null; close?: (w: Window) => void; at?: number }
 
-/** a held event, then a gap: past this many the oldest go, and the next page refetches what the stream feeds */
+/** a held event, then a gap: past this many the oldest go, and the next page reloads what the stream feeds */
 const CAP = 1000;
 
 const streams = (): Streams | undefined => (globalThis as Record<symbol, Streams | undefined>)[Symbol.for('sinter.streams')];
@@ -45,7 +45,7 @@ export function claim(app: App, url: string, heard: Set<string>, changed: () => 
   // is stale when, since the fetch started, an event that feeds it reached the page before (`seen`), or could
   // not, the page before not listening to its name (an `EventSource` delivers no other)
   const names = new Set(heard), stale = new Set<string>(), at = streams()!.at, since = at && c.at === at ? c.seen : undefined;
-  for (const def of app.ir.syncs ?? []) if (app.url(def.src, app.scopeOf(def.scope ?? -1)) === url) for (const e of def.events) {
+  for (const def of app.ir.syncs ?? []) if (app.url(def, app.scopeOf(def.scope ?? -1)) === url) for (const e of def.events) {
     names.add(e.name);
     if (at && e.resource && (since?.has(e.name) || !c.names?.has(e.name))) stale.add(e.resource);
   }
@@ -60,13 +60,13 @@ export function claim(app: App, url: string, heard: Set<string>, changed: () => 
   c.names = new Set([...(c.names ?? []), ...names]);
   c.seen = undefined;
   // its data came with its HTML, older than those events: fetched again (one loading already asks the server now)
-  for (const r of stale) { const x = app.resource(r); if (!x.meta.loading) void x.refetch(); }
+  for (const r of stale) { const x = app.resource(r); if (!x.meta.loading) void x.refresh(); }
   return c;
 }
 
 /**
  * An event the page shown applies while a swap fetches the next page's HTML: the next page's data is from that
- * response, so the names are noted, for its claim to refetch what they feed.
+ * response, so the names are noted, for its claim to reload what they feed.
  */
 export function seen(c: Connection, name: string): void {
   const at = streams()?.at;
@@ -97,7 +97,7 @@ function close(w: Window): void {
     const held = c.buf ?? [];
     c.buf = null;
     // more than the cap arrived: what the stream feeds is fetched again, as after a reconnect
-    if (c.lossy) { c.lossy = false; for (const r of new Set(c.subs.map(([e]) => e.resource))) if (r) void c.app.resource(r).refetch(); }
+    if (c.lossy) { c.lossy = false; for (const r of new Set(c.subs.map(([e]) => e.resource))) if (r) void c.app.resource(r).refresh(); }
     for (const [n, p] of held) c.event(n, p);
   }
 }

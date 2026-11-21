@@ -8,7 +8,7 @@ write.
 
 | | |
 | --- | --- |
-| Opt in | per element: `data-sn-retry="drafts"` on a `data-sn-post`, `-put`, `-patch` or `-delete` |
+| Opt in | per element: `data-sn-retry="drafts"` on an action (`data-sn-post`, `-put`, `-patch`, `-delete`, or `data-sn-call`) |
 | Policies | named in the config module: how long to wait, how often, for how long |
 | Reads | one policy for every GET (`retry.get`), optional |
 | While waiting | the element stays `aria-busy`, its optimistic change stays, leaving the page asks first |
@@ -37,7 +37,7 @@ configure({
 
 ```html
 <form data-sn-put="/api/notes/{note.id}" data-sn-retry="drafts" data-sn-concurrency="latest"
-      data-sn-optimistic="patch(note, draft)">
+      data-sn-optimistic="merge(note, draft)">
 ```
 
 | Policy field | Default | Meaning |
@@ -63,6 +63,11 @@ response was lost". A retry may therefore reach a server that has already done t
 | `PATCH` that sets fields | yes |
 | `PATCH` that increments or appends | no |
 | **`POST` that creates** | **no: a lost response and a retry make a duplicate** |
+
+On a [local action](actions.md#local-actions) (`data-sn-call`), the policy goes to each request the
+function sends with `ctx.request`, each with its own key. The function itself runs once, so work it does
+around its requests (hashing a file, encrypting) is not repeated. A request can say otherwise in its own
+init: `ctx.request(url, { method: 'POST', body, retry: false })` is sent once.
 
 For creates, let the client choose the id and `PUT` it (`PUT /api/notes/{uuid}`): a second `PUT` of
 the same note changes nothing, whatever the server does with the key. A `POST` with a policy is
@@ -121,14 +126,14 @@ rolled back, then `data-sn-catch`, the form's field errors and `$error`, or `sn-
 
 ## Reads
 
-`retry.get` names the policy for every GET: resource loads, `each` sources, pages and GET actions.
+`retry.get` names the policy for every GET: resource loads, `for` sources and pages.
 It does not cover background refreshes (`refresh` retries by itself), the session probe or
 next-page data. A GET waiting for a retry is aborted like a running one when `src` changes or `when`
 turns false, and `$meta.<name>.loading` stays true while it waits.
 
 Without `retry.get`, a failed load sets `$meta.<name>.error` at once and nothing is sent again by
 itself. Pages still recover on their own: on `online`, after a stream reconnects, on the next
-`refresh`, or with `refresh('name')`.
+`refresh`, or with `refresh(name)`.
 
 ## Development and tests
 

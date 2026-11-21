@@ -42,7 +42,7 @@ function run(html: string, extra: Record<string, string> = {}) {
 }
 
 const page = (body: string) => `<!doctype html><html><head></head><body>
-<sn-resource name="contacts" src="/api/contacts" items="contacts" key="id" type="Contact[]"></sn-resource>
+<sn-resource name="contacts" src="/api/contacts" select="contacts" key="id" type="Contact[]"></sn-resource>
 ${body}
 </body></html>`;
 
@@ -109,12 +109,12 @@ describe('sinter check', () => {
     one(page(`<div data-sn-state="{ q: '' }"><input data-sn-on-input="q = $el.valu"></div>`), /Did you mean 'value'\?/, 'valu');
   });
 
-  test('data-sn-on-navigate: $event is the navigation (to, from, kind, trigger)', () => {
-    one(page(`<form data-sn-state="{ n: 0 }" data-sn-on-navigate="n = $event.to; $event.kind == 'traverse' && $event.preventDefault()"></form>`), /Type 'string' is not assignable to type 'number'/, 'n = $event');
-    one(page(`<form data-sn-state="{ s: '' }" data-sn-on-navigate="s = $event.too"></form>`), /Property 'too' does not exist/, 'too');
+  test('data-sn-on-sn-navigate: $event is the navigation (to, from, kind, trigger)', () => {
+    one(page(`<form data-sn-state="{ n: 0 }" data-sn-on-sn-navigate="n = $event.to; $event.kind == 'traverse' && $event.preventDefault()"></form>`), /Type 'string' is not assignable to type 'number'/, 'n = $event');
+    one(page(`<form data-sn-state="{ s: '' }" data-sn-on-sn-navigate="s = $event.too"></form>`), /Property 'too' does not exist/, 'too');
   });
 
-  test('custom elements: data-sn-prop, $el and $event.detail are typed by the app\'s declarations under src/', () => {
+  test('custom elements: data-sn-with, $el and $event.detail are typed by the app\'s declarations under src/', () => {
     const island = { 'src/islands/mail-reader.ts': `export class MailReader extends HTMLElement { message: Contact | null = null; readonly = false; }
 import type { Contact } from '../sinter.types';
 declare global {
@@ -123,62 +123,62 @@ declare global {
 }
 ` };
     const ok = page(`<div data-sn-state="{ flag: false, name: '' }">
-  <mail-reader data-sn-prop="{ message: contacts[0], readonly: true }" data-sn-on-reader-flag="flag = $event.detail; name = $el.message.name"></mail-reader>
-  <other-thing data-sn-prop="{ anything: 1 }" data-sn-on-ping="name = $event.detail"></other-thing>
+  <mail-reader data-sn-with="{ message: contacts[0], readonly: true }" data-sn-on-reader-flag="flag = $event.detail; name = $el.message.name"></mail-reader>
+  <other-thing data-sn-with="{ anything: 1 }" data-sn-on-ping="name = $event.detail"></other-thing>
 </div>`);
     expect(run(ok, island).diagnostics).toEqual([]);
-    one(page(`<mail-reader data-sn-prop="{ mesage: contacts[0] }"></mail-reader>`), /'mesage' does not exist/, 'mesage', island);
-    one(page(`<mail-reader data-sn-prop="{ readonly: 'yes' }"></mail-reader>`), /Type 'string' is not assignable to type 'boolean'/, "readonly: 'yes'", island);
+    one(page(`<mail-reader data-sn-with="{ mesage: contacts[0] }"></mail-reader>`), /'mesage' does not exist/, 'mesage', island);
+    one(page(`<mail-reader data-sn-with="{ readonly: 'yes' }"></mail-reader>`), /Type 'string' is not assignable to type 'boolean'/, "readonly: 'yes'", island);
     one(page(`<div data-sn-state="{ n: 0 }"><mail-reader data-sn-on-reader-flag="n = $event.detail"></mail-reader></div>`), /Type 'boolean' is not assignable to type 'number'/, 'n = $event', island);
   });
 
-  test('components: props typed by data-sn-component at the call site and inside, $event.detail by data-sn-emits', () => {
-    const card = { 'src/components/contact-card.html': `<template data-sn-component="{ contact: Contact; compact?: boolean }" data-sn-emits="{ pick: Contact }">
+  test('components: props typed by data-sn-props at the call site and inside, $event.detail by data-sn-emits', () => {
+    const card = { 'src/components/contact-card.html': `<template data-sn-props="{ contact: Contact; compact?: boolean }" data-sn-emits="{ pick: Contact }">
   <div><h2 data-sn-text="contact.name"></h2><button data-sn-on-click="emit('pick', contact)"></button></div>
 </template>` };
     const ok = page(`<div data-sn-state="{ sel: /** @type {Contact|null} */ (null) }">
-  <template data-sn-for="c in contacts"><contact-card data-sn-prop="{ contact: c }" data-sn-on-pick="sel = $event.detail"></contact-card></template>
+  <template data-sn-for="c in contacts"><contact-card data-sn-with="{ contact: c }" data-sn-on-pick="sel = $event.detail"></contact-card></template>
 </div>`);
     expect(run(ok, card).diagnostics).toEqual([]);
-    one(page(`<contact-card data-sn-prop="{ contact: contacts[0], compact: 'yes' }"></contact-card>`), /Type 'string' is not assignable to type 'boolean'/, "compact: 'yes'", card);
-    one(page(`<div data-sn-state="{ n: 0 }"><contact-card data-sn-prop="{ contact: contacts[0] }" data-sn-on-pick="n = $event.detail"></contact-card></div>`),
+    one(page(`<contact-card data-sn-with="{ contact: contacts[0], compact: 'yes' }"></contact-card>`), /Type 'string' is not assignable to type 'boolean'/, "compact: 'yes'", card);
+    one(page(`<div data-sn-state="{ n: 0 }"><contact-card data-sn-with="{ contact: contacts[0] }" data-sn-on-pick="n = $event.detail"></contact-card></div>`),
       /Type 'Contact' is not assignable to type 'number'/, 'n = $event', card);
     const typo = { 'src/components/contact-card.html': card['src/components/contact-card.html'].replace('contact.name', 'contact.nmae') };
-    const r = run(page(`<contact-card data-sn-prop="{ contact: contacts[0] }"></contact-card>`), typo);
+    const r = run(page(`<contact-card data-sn-with="{ contact: contacts[0] }"></contact-card>`), typo);
     expect(r.diagnostics.map((d) => d.message)).toEqual([expect.stringMatching(/Property 'nmae' does not exist on type 'Contact'/)]);
     expect(r.diagnostics[0]!.file).toMatch(/src\/components\/contact-card.html$/);
   });
 
-  test('head components: props typed by data-sn-head at the call site and inside', () => {
-    const seo = { 'src/components/seo-tags.html': `<template data-sn-head="{ contact: Contact; count?: number }">
+  test('head components: props typed by data-sn-props at the call site and inside', () => {
+    const seo = { 'src/components/seo-tags.html': `<template data-sn-props="{ contact: Contact; count?: number }">
   <title data-sn-text="contact.name"></title>
 </template>` };
     const html = (use: string) => `<!doctype html><html><head>
 ${use}
-</head><body><sn-resource name="contacts" src="/api/contacts" items="contacts" key="id" type="Contact[]"></sn-resource></body></html>`;
-    expect(run(html('<seo-tags data-sn-prop="{ contact: contacts[0] }"></seo-tags>'), seo).diagnostics).toEqual([]);
-    one(html(`<seo-tags data-sn-prop="{ contact: contacts[0], count: 'x' }"></seo-tags>`), /Type 'string' is not assignable to type 'number'/, "count: 'x'", seo);
+</head><body><sn-resource name="contacts" src="/api/contacts" select="contacts" key="id" type="Contact[]"></sn-resource></body></html>`;
+    expect(run(html('<seo-tags data-sn-with="{ contact: contacts[0] }"></seo-tags>'), seo).diagnostics).toEqual([]);
+    one(html(`<seo-tags data-sn-with="{ contact: contacts[0], count: 'x' }"></seo-tags>`), /Type 'string' is not assignable to type 'number'/, "count: 'x'", seo);
     const typo = { 'src/components/seo-tags.html': seo['src/components/seo-tags.html'].replace('contact.name', 'contact.nmae') };
-    const r = run(html('<seo-tags data-sn-prop="{ contact: contacts[0] }"></seo-tags>'), typo);
+    const r = run(html('<seo-tags data-sn-with="{ contact: contacts[0] }"></seo-tags>'), typo);
     expect(r.diagnostics.map((d) => d.message)).toEqual([expect.stringMatching(/Property 'nmae' does not exist on type 'Contact'/)]);
     expect(r.diagnostics[0]!.file).toMatch(/src\/components\/seo-tags.html$/);
   });
 
-  test('layouts: props typed by data-sn-layout at the page\'s tag and inside the layout, the page\'s state in its slots', () => {
+  test('layouts: props typed by data-sn-props at the page\'s tag and inside the layout, the page\'s state in its slots', () => {
     const layout = { 'src/layouts/site-layout.html': `<!doctype html>
-<html data-sn-layout="{ contact: Contact; count?: number }">
+<html data-sn-props="{ contact: Contact; count?: number }">
 <head><title data-sn-text="contact.name"></title><slot name="head"></slot></head>
 <body><slot></slot></body>
 </html>` };
     const html = (tag: string, body = '') => `<site-layout ${tag}>
-<sn-resource name="contacts" src="/api/contacts" items="contacts" key="id" type="Contact[]"></sn-resource>
+<sn-resource name="contacts" src="/api/contacts" select="contacts" key="id" type="Contact[]"></sn-resource>
 ${body}
 </site-layout>`;
-    expect(run(html('data-sn-prop="{ contact: contacts[0] }"'), layout).diagnostics).toEqual([]);
-    one(html(`data-sn-prop="{ contact: contacts[0], count: 'x' }"`), /Type 'string' is not assignable to type 'number'/, "count: 'x'", layout);
-    one(html('data-sn-state="{ n: 0 }" data-sn-prop="{ contact: contacts[0] }"', '<p data-sn-text="n.toFixed(1).nope"></p>'), /Property 'nope' does not exist on type 'string'/, 'nope', layout);
+    expect(run(html('data-sn-with="{ contact: contacts[0] }"'), layout).diagnostics).toEqual([]);
+    one(html(`data-sn-with="{ contact: contacts[0], count: 'x' }"`), /Type 'string' is not assignable to type 'number'/, "count: 'x'", layout);
+    one(html('data-sn-state="{ n: 0 }" data-sn-with="{ contact: contacts[0] }"', '<p data-sn-text="n.toFixed(1).nope"></p>'), /Property 'nope' does not exist on type 'string'/, 'nope', layout);
     const typo = { 'src/layouts/site-layout.html': layout['src/layouts/site-layout.html'].replace('contact.name', 'contact.nmae') };
-    const r = run(html('data-sn-prop="{ contact: contacts[0] }"'), typo);
+    const r = run(html('data-sn-with="{ contact: contacts[0] }"'), typo);
     expect(r.diagnostics.map((d) => d.message)).toEqual([expect.stringMatching(/Property 'nmae' does not exist on type 'Contact'/)]);
     expect(r.diagnostics[0]!.file).toMatch(/src\/layouts\/site-layout.html$/);
   });
@@ -192,12 +192,12 @@ export type AnyBlock = Hero | Text | Image;
 `;
     const files = {
       'src/sinter.types.ts': types,
-      'src/components/hero-block.html': '<template data-sn-component="{ block: Hero }"><h1 data-sn-text="block.title"></h1></template>',
-      'src/components/text-block.html': '<template data-sn-component="{ block: Text }"><p data-sn-text="block.body"></p></template>',
+      'src/components/hero-block.html': '<template data-sn-props="{ block: Hero }"><h1 data-sn-text="block.title"></h1></template>',
+      'src/components/text-block.html': '<template data-sn-props="{ block: Text }"><p data-sn-text="block.body"></p></template>',
     };
     const html = (t: string, use: string) => `<!doctype html><html><head></head><body>
 <sn-resource name="blocks" src="/api/b" key="id" type="${t}[]"></sn-resource>
-<template data-sn-for="b in blocks"><sn-component use="${use}" data-sn-prop="{ block: b }"></sn-component></template>
+<template data-sn-for="b in blocks"><sn-component use="${use}" data-sn-with="{ block: b }"></sn-component></template>
 </body></html>`;
     const run2 = (t: string, use: string) => checkPage(html(t, use), { files }).map((d) => `${d.code} ${d.message.replace(/ \(TS\d+\)$/, '')}`);
     // narrowed per candidate: hero-block gets a Hero, text-block a Text
@@ -216,8 +216,8 @@ export type Inline = Plain | Strong | Ref;
 `;
     const files = {
       'src/sinter.types.ts': types,
-      'src/components/x-strong.html': '<template data-sn-component="{ node: Strong }"><b data-sn-text="node.children.length"></b></template>',
-      'src/components/x-ref.html': '<template data-sn-component="{ node: Ref }"><a data-sn-attr="{ href: node.url }"></a></template>',
+      'src/components/x-strong.html': '<template data-sn-props="{ node: Strong }"><b data-sn-text="node.children.length"></b></template>',
+      'src/components/x-ref.html': '<template data-sn-props="{ node: Ref }"><a data-sn-attr="{ href: node.url }"></a></template>',
     };
     const html = (body: string) => `<!doctype html><html><head></head><body>
 <sn-resource name="nodes" src="/api/n" type="Inline[]"></sn-resource>
@@ -225,13 +225,13 @@ export type Inline = Plain | Strong | Ref;
 </body></html>`;
     const errors = (body: string) => checkPage(html(body), { files }).map((d) => `${d.code} ${d.message.replace(/ \(TS\d+\)$/, '')}`);
     // the map's other keys render the else, where n is the union's other member
-    const choice = `<sn-component use="{ strong: 'x-strong', ref: 'x-ref' }[n.type]" data-sn-prop="{ node: n }"></sn-component><template data-sn-else><template data-sn-text="n.value"></template></template>`;
+    const choice = `<sn-component use="{ strong: 'x-strong', ref: 'x-ref' }[n.type]" data-sn-with="{ node: n }"></sn-component><template data-sn-else><template data-sn-text="n.value"></template></template>`;
     expect(errors(choice)).toEqual([]);
     // without a data-sn-else, a key outside the map is still an error
-    expect(errors(`<sn-component use="{ strong: 'x-strong', ref: 'x-ref' }[n.type]" data-sn-prop="{ node: n }"></sn-component>`))
+    expect(errors(`<sn-component use="{ strong: 'x-strong', ref: 'x-ref' }[n.type]" data-sn-with="{ node: n }"></sn-component>`))
       .toEqual([expect.stringMatching(/Type '"plain"' is not assignable to type '"ref" \| "strong"'/)]);
     // an else is not a candidate: n there is not narrowed to a candidate's member
-    expect(errors(`<sn-component use="{ strong: 'x-strong' }[n.type]" data-sn-prop="{ node: n }"></sn-component><template data-sn-else><template data-sn-text="n.value"></template></template>`))
+    expect(errors(`<sn-component use="{ strong: 'x-strong' }[n.type]" data-sn-with="{ node: n }"></sn-component><template data-sn-else><template data-sn-text="n.value"></template></template>`))
       .toEqual([expect.stringMatching(/Property 'value' does not exist on type 'Ref'/)]);
     // an if chain: each branch under its condition, the else under the negation of the ones before
     const chain = `<template data-sn-if="n.type === 'plain'"><span data-sn-text="n.value"></span></template><template data-sn-else><template data-sn-if="n.type === 'ref'"><a data-sn-attr="{ href: n.url }" data-sn-text="n.children.length"></a></template><template data-sn-else><b data-sn-state="{ k: 0 }" data-sn-on-click="k = n.children.length" data-sn-text="k"></b></template></template>`;
@@ -244,6 +244,19 @@ export type Inline = Plain | Strong | Ref;
       .toEqual([expect.stringMatching(/Property 'tpye' does not exist/)]);
   });
 
+  test('a list\'s empty state: checked where the list is, its problems reported once, at the list', () => {
+    const files = { 'src/sinter.types.ts': 'export interface Contact { id: number; name: string }\n' };
+    const html = (list: string, empty = '<p>None</p>') => `<!doctype html><html><head></head><body data-sn-state="{ q: '' }">
+<sn-resource name="contacts" src="/api/c" key="id" type="Contact[]"></sn-resource><input data-sn-model="q">
+<ul><template data-sn-for="c in ${list}"><li data-sn-text="c.name"></li></template><template data-sn-else>${empty}</template></ul>
+</body></html>`;
+    const errors = (list: string, empty?: string) => checkPage(html(list, empty), { files }).map((d) => `${d.code} ${d.message.replace(/ \(TS\d+\)$/, '')}`);
+    expect(errors('contacts.filter((c) => c.name.includes(q))')).toEqual([]);
+    expect(errors('contacts.filter((c) => c.nmae.includes(q))')).toEqual([expect.stringMatching(/Property 'nmae' does not exist on type 'Contact'/)]);
+    // its content is checked in the list's scope
+    expect(errors('contacts', '<p data-sn-text="q.lenght"></p>')).toEqual([expect.stringMatching(/Property 'lenght' does not exist on type 'string'/)]);
+  });
+
   test('SN538: a candidate the branches around rule out is a warning at its key, not an error in generated code', () => {
     const types = `export interface Para { type: 'para'; text: string }
 export interface Quote { type: 'quote'; text: string }
@@ -252,13 +265,13 @@ export type Block = Para | Quote | Rule;
 `;
     const files = {
       'src/sinter.types.ts': types,
-      'src/components/x-para.html': '<template data-sn-component="{ node: Para }"><p data-sn-text="node.text"></p></template>',
-      'src/components/x-quote.html': '<template data-sn-component="{ node: Quote }"><blockquote data-sn-text="node.text"></blockquote></template>',
+      'src/components/x-para.html': '<template data-sn-props="{ node: Para }"><p data-sn-text="node.text"></p></template>',
+      'src/components/x-quote.html': '<template data-sn-props="{ node: Quote }"><blockquote data-sn-text="node.text"></blockquote></template>',
     };
     const use = `{ para: 'x-para', quote: 'x-quote' }[b.type]`;
     const html = `<!doctype html><html><head></head><body>
 <sn-resource name="blocks" src="/api/b" type="Block[]"></sn-resource>
-<template data-sn-for="b in blocks"><template data-sn-if="b.type === 'para'"><p data-sn-text="b.text"></p></template><template data-sn-else><sn-component use="${use}" data-sn-prop="{ node: b }"></sn-component><template data-sn-else><hr></template></template></template>
+<template data-sn-for="b in blocks"><template data-sn-if="b.type === 'para'"><p data-sn-text="b.text"></p></template><template data-sn-else><sn-component use="${use}" data-sn-with="{ node: b }"></sn-component><template data-sn-else><hr></template></template></template>
 </body></html>`;
     const d = checkPage(html, { files });
     expect(d.map((x) => `${x.severity} ${x.code} ${x.message}`)).toEqual(['warning SN538 `x-para` can never be chosen here: `b.type` cannot be `"para"` where this `<sn-component>` is (a branch around it rules it out)']);
@@ -272,7 +285,8 @@ export type Block = Para | Quote | Rule;
     const d = checkPage(html, { files: { 'src/sinter.types.ts': TYPES } });
     expect(d.map((x) => `${x.severity} ${x.code} ${x.file}:${x.line}`)).toEqual(['warning SN507 index.html:3']);
     expect(checkPage(html, { files: { 'src/sinter.types.ts': TYPES }, complexity: { level: 'error' } }).map((x) => x.severity)).toEqual(['error']);
-    expect(checkPage(html, { files: { 'src/sinter.types.ts': TYPES }, complexity: { statements: 5 } })).toEqual([]);
+    expect(checkPage(html, { files: { 'src/sinter.types.ts': TYPES }, complexity: false })).toEqual([]);
+    expect(() => checkPage(html, { complexity: { statements: 5 } } as never)).toThrow('sinter({ complexity }): `statements` is gone: the limits are fixed');
   });
 
   test('$error passes to a helper that takes a SinterError (an Error: name, stack)', () => {
@@ -286,14 +300,14 @@ export type Block = Para | Quote | Rule;
   });
 
   test('refresh() with several names types each against the page\'s resources', () => {
-    const html = page(`<sn-resource name="other" src="/api/o" type="any"></sn-resource><button data-sn-on-click="refresh('contacts', 'other')" data-sn-text="contacts.length + other"></button>`);
+    const html = page(`<sn-resource name="other" src="/api/o" type="any"></sn-resource><button data-sn-on-click="refresh(contacts, other)" data-sn-text="contacts.length + other"></button>`);
     expect(checkPage(html, { files: { 'src/sinter.types.ts': TYPES } })).toEqual([]);
   });
 
   test('a static page: a component prop in a loop over constants keeps its loop variable (the check reads the page as written, not unrolled)', () => {
     // a benchmark agent's `sinter check` failed 13 times with "Cannot find name 'p'" and it dropped `static: true` to pass
-    const root = project({ 'src/components/post-item.html': '<template data-sn-component="{ post: { title: string } }"><li data-sn-text="post.title"></li></template>' });
-    const page = (prop: string) => `<!doctype html><html><head><title>x</title></head><body><ul data-sn-state="{ posts: [{ title: 'a' }, { title: 'b' }] }"><template data-sn-for="p in posts"><post-item data-sn-prop="{ post: ${prop} }"></post-item></template></ul></body></html>`;
+    const root = project({ 'src/components/post-item.html': '<template data-sn-props="{ post: { title: string } }"><li data-sn-text="post.title"></li></template>' });
+    const page = (prop: string) => `<!doctype html><html><head><title>x</title></head><body><ul data-sn-state="{ posts: [{ title: 'a' }, { title: 'b' }] }"><template data-sn-for="p in posts"><post-item data-sn-with="{ post: ${prop} }"></post-item></template></ul></body></html>`;
     const errors = (prop: string) => {
       const file = join(root, 'index.html'), html = page(prop);
       writeFileSync(file, html);
@@ -320,36 +334,36 @@ export type Block = Para | Quote | Rule;
     expect(checkPage(page(`<div data-sn-state="{ q: '' }"><form data-sn-on-input="q = /** @type {HTMLInputElement} */ ($event.target).value"><input name="a"></form><p data-sn-text="q + contacts.length"></p></div>`), { files: { 'src/sinter.types.ts': TYPES } })).toEqual([]);
   });
 
-  test('page() with a computed target: a direction on keyset; a page number needs offset-param', () => {
+  test('page() with a computed target: a direction on keyset; a page number needs jump', () => {
     const helpers = `/** @param {boolean} back @returns {'next' | 'prev'} */\nexport function step(back) { return back ? 'prev' : 'next'; }\n`;
-    const html = (to: string, attrs = '') => page(`<sn-resource name="list" src="/api/l" key="id" type="Contact[]" paginate="keyset" page-size="5" cursor="{id}" ${attrs}></sn-resource>
-<div data-sn-state="{ n: 2, word: 'next' }"><button data-sn-on-click="page('list', ${to})" data-sn-text="contacts.length + list.length + n + word"></button></div>`);
-    const errors = (to: string, attrs = '') => checkPage(html(to, attrs), { files: { 'src/sinter.types.ts': TYPES, 'src/sinter.helpers.js': helpers } }).map((d) => `${d.code} ${d.message.replace(/ \(TS\d+\)$/, '')}`);
+    const html = (to: string, more = '') => page(`<sn-resource name="list" src="/api/l" key="id" type="Contact[]" paginate="{ keyset: {id: $item.id}, size: 5${more} }"></sn-resource>
+<div data-sn-state="{ n: 2, word: 'next' }"><button data-sn-on-click="page(list, ${to})" data-sn-text="contacts.length + list.length + n + word"></button></div>`);
+    const errors = (to: string, more = '') => checkPage(html(to, more), { files: { 'src/sinter.types.ts': TYPES, 'src/sinter.helpers.js': helpers } }).map((d) => `${d.code} ${d.message.replace(/ \(TS\d+\)$/, '')}`);
     expect(errors(`$event.shiftKey ? 'prev' : 'next'`)).toEqual([]);
     expect(errors('step($event.shiftKey)')).toEqual([]);
-    expect(errors('n')).toEqual([`SN208 Argument of type 'number' is not assignable to parameter of type '"a keyset resource takes a direction; add offset-param for page numbers" | Direction'.`]);
-    expect(errors('word')).toEqual([`SN208 Argument of type 'string' is not assignable to parameter of type '"a keyset resource takes a direction; add offset-param for page numbers" | Direction'.`]);
-    // with offset-param, a page number is a target too
-    expect(errors('n', 'offset-param="offset"')).toEqual([]);
-    expect(errors('word', 'offset-param="offset"')).toEqual([`SN208 Argument of type 'string' is not assignable to parameter of type 'number | Direction'.`]);
+    expect(errors('n')).toEqual([`SN208 Argument of type 'number' is not assignable to parameter of type '"a keyset resource takes a direction; add jump: true to paginate for page numbers" | Direction'.`]);
+    expect(errors('word')).toEqual([`SN208 Argument of type 'string' is not assignable to parameter of type '"a keyset resource takes a direction; add jump: true to paginate for page numbers" | Direction'.`]);
+    // with jump, a page number is a target too
+    expect(errors('n', ', jump: true')).toEqual([]);
+    expect(errors('word', ', jump: true')).toEqual([`SN208 Argument of type 'string' is not assignable to parameter of type 'number | Direction'.`]);
   });
 
   test('resource names from ?: and lets: page() targets suit every name; items fit any of them', () => {
     const types = TYPES + 'export interface Message { uid: number; subject: string }\n';
-    const html = (lets: string, h: string) => page(`<sn-resource name="messages" src="/api/m" key="uid" type="Message[]" paginate="keyset" page-size="5" cursor="{uid}"></sn-resource>
-<sn-resource name="results" src="/api/r" key="uid" type="Message[]" paginate="offset" page-size="5"></sn-resource>
-<sn-resource name="jumps" src="/api/j" key="uid" type="Message[]" paginate="keyset" page-size="5" cursor="{uid}" offset-param="offset"></sn-resource>
+    const html = (lets: string, h: string) => page(`<sn-resource name="messages" src="/api/m" key="uid" type="Message[]" paginate="{ keyset: {uid: $item.uid}, size: 5 }"></sn-resource>
+<sn-resource name="results" src="/api/r" key="uid" type="Message[]" paginate="{ numbered: true, size: 5 }"></sn-resource>
+<sn-resource name="jumps" src="/api/j" key="uid" type="Message[]" paginate="{ keyset: {uid: $item.uid}, size: 5, jump: true }"></sn-resource>
 <div data-sn-state="{ s: false, n: 2, m: /** @type {Message} */ ({ uid: 1, subject: '' }) }" data-sn-let="${lets}"><button data-sn-on-click="${h}" data-sn-text="contacts.length + messages.length + results.length + jumps.length"></button></div>`);
     const errors = (lets: string, h: string) => checkPage(html(lets, h), { files: { 'src/sinter.types.ts': types } }).map((d) => `${d.code} ${d.message.replace(/ \(TS\d+\)$/, '')}`);
     // a let of one literal is that name, not \`string\`
-    expect(errors(`{ one: 'messages' }`, `page(one, 'next'); refresh(one)`)).toEqual([]);
-    expect(errors(`{ shown: s ? 'results' : 'messages' }`, `page(shown, s ? 'prev' : 'next'); refresh(shown, 'contacts'); upsert(shown, m)`)).toEqual([]);
-    expect(errors(`{ a: 'results', b: s ? a : 'jumps' }`, `page(b, n)`)).toEqual([]);
-    // a page number where one of the names is keyset without offset-param
-    expect(errors(`{ shown: s ? 'results' : 'messages' }`, `page(shown, n)`)).toEqual([`SN208 Argument of type 'number' is not assignable to parameter of type '"a keyset resource takes a direction; add offset-param for page numbers" | Direction'.`]);
+    expect(errors(`{ one: messages }`, `page(one, 'next'); refresh(one)`)).toEqual([]);
+    expect(errors(`{ shown: s ? results : messages }`, `page(shown, s ? 'prev' : 'next'); refresh(shown, contacts); upsert(shown, m)`)).toEqual([]);
+    expect(errors(`{ a: results, b: s ? a : jumps }`, `page(b, n)`)).toEqual([]);
+    // a page number where one of the names is keyset without jump
+    expect(errors(`{ shown: s ? results : messages }`, `page(shown, n)`)).toEqual([`SN208 Argument of type 'number' is not assignable to parameter of type '"a keyset resource takes a direction; add jump: true to paginate for page numbers" | Direction'.`]);
     // an item that fits one of the names
-    expect(errors(`{ shown: s ? 'contacts' : 'messages' }`, `upsert(shown, m); remove(contacts[0])`)).toEqual([]);
-    expect(errors(`{ shown: s ? 'results' : 'messages' }`, `upsert(shown, contacts[0])`)).toHaveLength(1);
+    expect(errors(`{ shown: s ? contacts : messages }`, `upsert(shown, m); remove(contacts[0])`)).toEqual([]);
+    expect(errors(`{ shown: s ? results : messages }`, `upsert(shown, contacts[0])`)).toHaveLength(1);
   });
 
   test('a key filter\'s $event is the KeyboardEvent of its keydown or keyup', () => {
@@ -372,18 +386,18 @@ export type Block = Para | Quote | Rule;
     one(page(`<p data-sn-text="m.items_count({ count: 'x' })"></p>`), /Type 'string' is not assignable to type 'number'/, 'count:');
   });
 
-  test('sn-event: state around the sync is in scope; shadowing a typed payload field is an error', () => {
+  test('sn-event: state around the sync is in scope, the payload is $event: a state may share a field\'s name', () => {
     const types = `${TYPES}export interface Refetch { mailbox: string; account_id: string }\n`;
     const sync = (when: string) => page(`<main data-sn-state="{ sel: 'inbox', account_id: 'a' }">
-<sn-sync src="/api/events"><sn-event name="r" resource="contacts" op="refetch" type="Refetch" when="${when}"></sn-event></sn-sync>
+<sn-sync src="/api/events"><sn-event name="r" resource="contacts" op="refresh" type="Refetch" when="${when}"></sn-event></sn-sync>
 <p data-sn-text="contacts.length + sel"></p></main>`);
-    expect(run(sync('mailbox === sel'), { 'src/sinter.types.ts': types }).diagnostics).toEqual([]);
-    expect(run(sync('mailbox === sel.lenght'), { 'src/sinter.types.ts': types }).diagnostics.map((d) => d.message))
+    expect(run(sync('$event.mailbox === sel'), { 'src/sinter.types.ts': types }).diagnostics).toEqual([]);
+    expect(run(sync('$event.mailbox === sel.lenght'), { 'src/sinter.types.ts': types }).diagnostics.map((d) => d.message))
       .toEqual([expect.stringMatching(/Property 'lenght' does not exist on type 'string'/)]);
-    // `account_id` is state here, so it cannot also mean the payload field
-    const d = run(sync('account_id === sel'), { 'src/sinter.types.ts': types }).diagnostics;
-    expect(d).toHaveLength(1);
-    expect(d[0]!.message).toMatch(/state `account_id` shadows the payload field `account_id`: rename the state/);
+    // the state `account_id` and the payload's `$event.account_id` are two names
+    expect(run(sync('$event.account_id === account_id'), { 'src/sinter.types.ts': types }).diagnostics).toEqual([]);
+    expect(run(sync('$event.acount_id === account_id'), { 'src/sinter.types.ts': types }).diagnostics.map((d) => d.message))
+      .toEqual([expect.stringMatching(/Property 'acount_id' does not exist on type 'Refetch'/)]);
   });
 
   test('sn-event: `data-sn-let` names around the sync are in scope like state, in `when` and `then`', () => {
@@ -394,15 +408,14 @@ export type Block = Para | Quote | Rule;
 <sn-sync src="/api/events"><sn-event name="u" type="Updated" ${attrs}></sn-event></sn-sync>
 <p data-sn-text="contacts.length + n + last + open?.name + box"></p></div></main>`);
     const errors = (attrs: string) => checkPage(sync(attrs), { files: { 'src/sinter.types.ts': types } }).map((d) => `${d.code} ${d.message.replace(/ \(TS\d+\)$/, '')}`);
-    expect(errors(`when="mailbox === box" then="open && open.id === uid && n++; last = open?.name ?? last"`)).toEqual([]);
+    expect(errors(`when="$event.mailbox === box" then="open && open.id === $event.uid && n++; last = open?.name ?? last"`)).toEqual([]);
     expect(errors(`then="last = open.id"`)).toEqual(["SN208 Type 'number' is not assignable to type 'string'."]);
     expect(errors(`then="n = box.lenght"`)).toEqual([expect.stringMatching(/^SN208 Property 'lenght' does not exist on type 'string'/)]);
-    // a let named like a field of the typed payload hides it: an error, as for state
-    const shadowing = page(`<main data-sn-state="{ n: 0 }" data-sn-let="{ seen: n > 0 }">
-<sn-sync src="/api/events"><sn-event name="u" type="Updated" then="seen && n++"></sn-event></sn-sync>
+    // a let named like a field of the payload: the let, and `$event.seen` the field
+    const both = page(`<main data-sn-state="{ n: 0 }" data-sn-let="{ seen: n > 0 }">
+<sn-sync src="/api/events"><sn-event name="u" type="Updated" then="seen && $event.seen && n++"></sn-event></sn-sync>
 <p data-sn-text="contacts.length + n + (seen ? 1 : 0)"></p></main>`);
-    expect(checkPage(shadowing, { files: { 'src/sinter.types.ts': types } }).map((d) => d.message))
-      .toEqual([expect.stringMatching(/`data-sn-let` name `seen` shadows the payload field `seen`: rename it/)]);
+    expect(checkPage(both, { files: { 'src/sinter.types.ts': types } })).toEqual([]);
   });
 
   test('sn-event `then`: the typed payload and the state are checked; SN506 without a type', () => {
@@ -410,11 +423,11 @@ export type Block = Para | Quote | Rule;
     const html = (then: string, type = ' type="Removed"') => page(`<main data-sn-state="{ sel: /** @type {Contact|null} */ (null), last: '' }">
 <sn-sync src="/api/events"><sn-event name="r" resource="contacts" op="remove"${type} then="${then}"></sn-event></sn-sync>
 <dialog id="detail"></dialog><p data-sn-text="contacts.length + (sel?.name ?? last)"></p></main>`);
-    expect(checkPage(html("sel?.id === id && close('detail'); sel = sel?.id === id ? null : sel"), { files })).toEqual([]);
+    expect(checkPage(html("sel?.id === $event.id && closeDialog('detail'); sel = sel?.id === $event.id ? null : sel"), { files })).toEqual([]);
     const errors = (then: string, type?: string) => checkPage(html(then, type), { files }).map((d) => `${d.code} ${d.message.replace(/ \(TS\d+\)$/, '')}`);
-    expect(errors('last = id')).toEqual(["SN208 Type 'number' is not assignable to type 'string'."]);
-    expect(errors('sel?.id === uid && close(\'detail\')')).toEqual([expect.stringMatching(/^SN208 Property 'uid' does not exist on type 'Removed'/)]);
-    expect(errors('last = id', '')).toEqual(['SN506 event `r` has no type: expressions reading its payload are not checked']);
+    expect(errors('last = $event.id')).toEqual(["SN208 Type 'number' is not assignable to type 'string'."]);
+    expect(errors('sel?.id === $event.uid && closeDialog(\'detail\')')).toEqual([expect.stringMatching(/^SN208 Property 'uid' does not exist on type 'Removed'/)]);
+    expect(errors('last = $event.id', '')).toEqual(['SN506 event `r` has no type: expressions reading its payload are not checked']);
   });
 
   test('<sn-resource then>: `$result` has the resource\'s type (`type`, or the action\'s result); state is checked', () => {
@@ -424,11 +437,11 @@ export type Block = Para | Quote | Rule;
     };
     const html = (then: string, call = '') => `<!doctype html><html><head></head><body>
 <main data-sn-state="{ sel: /** @type {Contact|null} */ (null), subject: '' }">
-<sn-resource name="contacts" src="/api/contacts" items="contacts" key="id" type="Contact[]" then="${then}"></sn-resource>
+<sn-resource name="contacts" src="/api/contacts" select="contacts" key="id" type="Contact[]" then="${then}"></sn-resource>
 <sn-resource name="p" call="pending()" then="${call}"></sn-resource>
 <dialog id="compose"></dialog><p data-sn-text="contacts.length + (sel?.name ?? subject) + p?.subject"></p></main></body></html>`;
     const errors = (then: string, call = '') => checkPage(html(then, call), { files }).map((d) => `${d.code} ${d.message.replace(/ \(TS\d+\)$/, '')}`);
-    expect(errors('sel = $result[0]', "subject = $result?.subject ?? subject; $result && showModal('compose')")).toEqual([]);
+    expect(errors('sel = $result[0]', "subject = $result?.subject ?? subject; $result && openDialog('compose')")).toEqual([]);
     expect(errors('subject = $result[0].id')).toEqual(["SN208 Type 'number' is not assignable to type 'string'."]);
     expect(errors('sel = $result')).toEqual([expect.stringMatching(/^SN208 Type 'Contact\[\]' is missing the following properties from type 'Contact'/)]);
     expect(errors('', 'subject = $result.files')).toEqual(["SN208 Type 'string[]' is not assignable to type 'string'."]);
@@ -442,7 +455,17 @@ export type Block = Para | Quote | Rule;
       .toEqual([expect.stringMatching(/^SN208 Type 'string\[\]' is not assignable to type 'PathValue'/)]);
   });
 
-  test('<sn-resource call>: the result at `items` must fit `type`; without `type` it is the type', () => {
+  test('a link\'s URL template (data-sn-href) is typed as an action\'s: no array in the path, a name it does not know is an error', () => {
+    const html = (href: string) => page(`<main data-sn-state="{ ids: ['a'], id: 'a', o: { x: 1 } }">
+<template data-sn-for="c in contacts"><a data-sn-href="${href}">x</a></template><p data-sn-text="ids + id + o"></p></main>`);
+    const errors = (href: string) => checkPage(html(href), { files: { 'src/sinter.types.ts': TYPES } }).map((d) => d.code + ' ' + d.message);
+    expect(errors('/contacts/{c.id}/{o.x}?tag={ids}&amp;q={id}#n-{c.name}')).toEqual([]);
+    expect(errors('?page={o.x}')).toEqual([]);
+    expect(errors('/contacts/{ids}')).toEqual([expect.stringMatching(/^SN208 Type 'string\[\]' is not assignable to type 'PathValue'/)]);
+    expect(errors('/contacts/{c.nmae}')).toEqual([expect.stringMatching(/^SN208 Property 'nmae' does not exist on type/)]);
+  });
+
+  test('<sn-resource call>: the result at `select` must fit `type`; without `type` it is the type', () => {
     const root = project({
       'src/sinter.types.ts': `${TYPES}export interface Body { text: string }\n`,
       'src/sinter.actions.ts': `export async function body(id: number): Promise<{ text: string }> { return { text: String(id) }; }
@@ -457,7 +480,7 @@ export async function list(): Promise<{ page: { contacts: { id: number; name: st
       return { out, r: check({ root, units: [out.check!], helpers: p.helpers, actions: p.actions, types: p.types, tsc }) };
     };
     const fits = run(`<sn-resource name="b" call="body(1)" type="Body"></sn-resource>
-<sn-resource name="people" call="list()" items="page.contacts" key="id" type="Contact[]"></sn-resource>
+<sn-resource name="people" call="list()" select="page.contacts" key="id" type="Contact[]"></sn-resource>
 <p data-sn-text="b.text + people.length"></p>`);
     expect(fits.out.diagnostics).toEqual([]);
     expect(fits.r.diagnostics).toEqual([]);
@@ -509,7 +532,7 @@ export async function rename(c: Contact, name: string, ctx: CallContext): Promis
   });
 
   test('each: the loop variable has the list item type in src', () => {
-    const html = page(`<sn-resource name="emails" each="c in contacts" src="/api/emails?contact={c.nmae}" key="id" type="any"></sn-resource>
+    const html = page(`<sn-resource name="emails" for="c in contacts" src="/api/emails?contact={c.nmae}" key="id" type="any"></sn-resource>
 <p data-sn-text="emails.length"></p>`);
     one(html, /Property 'nmae' does not exist on type 'Contact'/, 'nmae');
   });
@@ -551,8 +574,8 @@ export const initial = (c: Contact): string => (c.name[0] ?? '?').toUpperCase();
   test('loop index, state inside a row and store functions', () => {
     const html = page(`<ul><template data-sn-for="(c, i) in contacts"><li data-sn-state="{ first: i == 0 }">
   <b data-sn-text="first.toFixed()"></b>
-  <button data-sn-on-click="patch(c, { name: 'x' })">ok</button>
-  <button data-sn-on-click="patch(c, { nme: 'x' })">typo</button>
+  <button data-sn-on-click="merge(c, { name: 'x' })">ok</button>
+  <button data-sn-on-click="merge(c, { nme: 'x' })">typo</button>
 </li></template></ul>`);
     const r = run(html);
     expect(r.diagnostics.map((d) => [d.message.match(/TS\d+/)![0], d.line, d.col])).toEqual([
@@ -568,8 +591,8 @@ export const initial = (c: Contact): string => (c.name[0] ?? '?').toUpperCase();
   });
 
   test('a component maps to its own file, with where it is used', () => {
-    const row = '<template data-sn-component="{ c: Contact }"><li>\n  <b data-sn-text="c.emial"></b></li></template>';
-    const r = run(page('<ul><template data-sn-for="c in contacts"><contact-row data-sn-prop="{ c }"></contact-row></template></ul>'), { 'src/components/contact-row.html': row });
+    const row = '<template data-sn-props="{ c: Contact }"><li>\n  <b data-sn-text="c.emial"></b></li></template>';
+    const r = run(page('<ul><template data-sn-for="c in contacts"><contact-row data-sn-with="{ c }"></contact-row></template></ul>'), { 'src/components/contact-row.html': row });
     expect(r.compile).toEqual([]);
     expect(r.diagnostics).toHaveLength(1);
     const d = r.diagnostics[0]!;
@@ -589,21 +612,21 @@ export const initial = (c: Contact): string => (c.name[0] ?? '?').toUpperCase();
 
   test('events: typed payloads; `item` must fit the resource, `set` a part of it; cursor reads the item', () => {
     const types = TYPES + 'export interface ContactEvent { contact: Contact; id: number; patch: { name: number } }\n';
-    const html = page(`<sn-resource name="feed" src="/api/feed" key="id" type="Contact[]" paginate="keyset" page-size="10" cursor="{ after: idd }"></sn-resource>
+    const html = page(`<sn-resource name="feed" src="/api/feed" key="id" type="Contact[]" paginate="{ keyset: { after: $item.idd }, size: 10 }"></sn-resource>
 <p data-sn-text="contacts.length + feed.length"></p>
 <sn-sync src="/api/events">
-  <sn-event name="a" resource="contacts" op="upsert" item="contact" type="ContactEvent"></sn-event>
-  <sn-event name="b" resource="contacts" op="upsert" item="id" type="ContactEvent"></sn-event>
-  <sn-event name="c" resource="contacts" op="patch" set="{ name: patch.name }" type="ContactEvent"></sn-event>
-  <sn-event name="d" resource="contacts" op="upsert" item="contct" type="ContactEvent"></sn-event>
-  <sn-event name="e" resource="contacts" op="upsert" item="whatever" type="any"></sn-event>
+  <sn-event name="a" resource="contacts" op="upsert" value="$event.contact" type="ContactEvent"></sn-event>
+  <sn-event name="b" resource="contacts" op="upsert" value="$event.id" type="ContactEvent"></sn-event>
+  <sn-event name="c" resource="contacts" op="merge" value="{ name: $event.patch.name }" type="ContactEvent"></sn-event>
+  <sn-event name="d" resource="contacts" op="upsert" value="$event.contct" type="ContactEvent"></sn-event>
+  <sn-event name="e" resource="contacts" op="upsert" value="$event.whatever" type="any"></sn-event>
 </sn-sync>`);
     const r = run(html, { 'src/sinter.types.ts': types });
     expect(r.compile.filter((d) => d.severity === 'error' || d.code === 'SN506')).toEqual([]);
     expect(r.diagnostics.map((d) => [d.message.replace(/ (Did you mean .*)?\(TS\d+\)$/, ''), d.line, d.col])).toEqual([
-      ["Property 'idd' does not exist on type 'Contact'.", ...at(html, '{ after: idd }')],
-      ["Type 'number' is not assignable to type 'Contact'.", ...at(html, 'id" type="ContactEvent"></sn-event>\n  <sn-event name="c"')],
-      ["Type 'number' is not assignable to type 'string'.", ...at(html, 'name: patch')],
+      ["Property 'idd' does not exist on type 'Contact'.", ...at(html, 'idd }')],
+      ["Type 'number' is not assignable to type 'Contact'.", ...at(html, '$event.id" type="ContactEvent"></sn-event>\n  <sn-event name="c"')],
+      ["Type 'number' is not assignable to type 'string'.", ...at(html, 'name: $event.patch')],
       ["Property 'contct' does not exist on type 'ContactEvent'.", ...at(html, 'contct')],
     ]);
   });
@@ -645,7 +668,7 @@ export type Also = '*/';`)).toEqual(['Also', 'H', 'Kept', 'Real']);
       symlinkSync('../../../../packages/sinter-markdown', lib, 'dir');
     }
     // as its Vite config sets them (without SINTER_EMBED): the library, loaded with the page
-    const p = projectOf(root, { apis, components: ['@tiaforge-ui/sinter-markdown'] });
+    const p = projectOf(root, { apis, libraries: ['@tiaforge-ui/sinter-markdown'] });
     const lazyModule = lazyHelpers(root, p.lazy, undefined, p.libraries).reach;
     expect(p.diagnostics).toEqual([]);
     const out = pages.map((f) => compile(p.readFile(join(root, f)), {
@@ -697,7 +720,7 @@ components:
 
   test('a resource without `type` is typed from the spec; messages name the schema', () => {
     const html = `<!doctype html><html><head></head><body>
-<sn-resource name="people" src="/api/contacts" items="contacts" key="id"></sn-resource>
+<sn-resource name="people" src="/api/contacts" select="contacts" key="id"></sn-resource>
 <sn-resource name="other" src="/api/contact"></sn-resource>
 <ul><template data-sn-for="p in people"><li data-sn-text="p.nmae + other"></li></template></ul>
 </body></html>`;
@@ -728,7 +751,7 @@ components:
               schema: { type: object, properties: { person: { $ref: '#/components/schemas/Person' } } }
 components:`);
     const html = `<!doctype html><html><head></head><body>
-<sn-resource name="people" src="/api/contacts" items="contacts" key="id"></sn-resource>
+<sn-resource name="people" src="/api/contacts" select="contacts" key="id"></sn-resource>
 <div data-sn-state="{ saved: '' }"><template data-sn-for="p in people">
   <button data-sn-put="/api/contacts/{p.id}" data-sn-body="{ person: { id: p.id, nam: 'x' } }" data-sn-then="saved = $result.person.nme">x</button>
 </template></div>
@@ -755,10 +778,10 @@ components:`);
 
 
 describe('slots that pass data', () => {
-  const table = (placement = '{ contact: c, column: k }') => ({ 'src/components/contact-table.html': `<template data-sn-component="{ rows: Contact[]; columns: (keyof Contact)[]; cell: Slot<{ contact: Contact; column: keyof Contact }> }">
-  <table><template data-sn-for="c in rows"><tr><template data-sn-for="k in columns"><td><slot name="cell" data-sn-prop="${placement}"><span data-sn-text="c[k]"></span></slot></td></template></tr></template></table>
+  const table = (placement = '{ contact: c, column: k }') => ({ 'src/components/contact-table.html': `<template data-sn-props="{ rows: Contact[]; columns: (keyof Contact)[]; cell: Slot<{ contact: Contact; column: keyof Contact }> }">
+  <table><template data-sn-for="c in rows"><tr><template data-sn-for="k in columns"><td><slot name="cell" data-sn-with="${placement}"><span data-sn-text="c[k]"></span></slot></td></template></tr></template></table>
 </template>` });
-  const use = (fill: string) => page(`<contact-table data-sn-prop="{ rows: contacts, columns: ['name'] }">${fill}</contact-table>`);
+  const use = (fill: string) => page(`<contact-table data-sn-with="{ rows: contacts, columns: ['name'] }">${fill}</contact-table>`);
 
   test('`$slot` in the fill is typed by the slot\'s T', () => {
     expect(run(use('<b slot="cell" data-sn-text="$slot.contact.name + $slot.column"></b>'), table()).diagnostics).toEqual([]);
@@ -766,7 +789,7 @@ describe('slots that pass data', () => {
     one(use('<b slot="cell" data-sn-text="$slot.contact.nmae"></b>'), /Property 'nmae' does not exist on type 'Contact'/, 'nmae', table());
   });
 
-  test('the placement\'s data-sn-prop is checked against T, in the component', () => {
+  test('the placement\'s data-sn-with is checked against T, in the component', () => {
     const r = run(use(''), table('{ contact: c, column: 1 }'));
     expect(r.diagnostics.map((d) => d.message)).toEqual([expect.stringMatching(/Type 'number' is not assignable to type 'keyof Contact'/)]);
     expect(r.diagnostics[0]!.file).toMatch(/src\/components\/contact-table.html$/);
@@ -774,7 +797,7 @@ describe('slots that pass data', () => {
 
   test('a Slot<T> in a type alias is an error', () => {
     const types = `${TYPES}export type CellProps = { cell: Slot<{ n: number }> };\n`;
-    const r = run(page('<x-cell></x-cell>'), { 'src/sinter.types.ts': types, 'src/components/x-cell.html': '<template data-sn-component="CellProps"><div data-sn-text="1"></div></template>' });
+    const r = run(page('<x-cell></x-cell>'), { 'src/sinter.types.ts': types, 'src/components/x-cell.html': '<template data-sn-props="CellProps"><div data-sn-text="1"></div></template>' });
     expect(r.diagnostics.map((d) => d.message)).toEqual([expect.stringMatching(/a Slot<T> member is in a type alias: write the props as a type literal/)]);
   });
 });
@@ -854,15 +877,15 @@ describe('file: resources, checked against their files', () => {
     expect(r.at).toEqual([expect.stringMatching(/^index\.html:1 Property 'title' does not exist on type '\{ body: string; \}'/)]);
   });
 
-  test('one JSON file with `items`: what `items` picks fits `type`', () => {
-    const ok = runFiles('<sn-resource name="people" src="file:/team.json" items="people" type="{ name: string }[]"></sn-resource><p data-sn-text="people.length"></p>', { 'team.json': '{"people":[{"name":"A"}]}' });
+  test('one JSON file with `select`: what `select` picks fits `type`', () => {
+    const ok = runFiles('<sn-resource name="people" src="file:/team.json" select="people" type="{ name: string }[]"></sn-resource><p data-sn-text="people.length"></p>', { 'team.json': '{"people":[{"name":"A"}]}' });
     expect(ok.at).toEqual([]);
-    const bad = runFiles('<sn-resource name="people" src="file:/team.json" items="people" type="{ name: string }[]"></sn-resource><p data-sn-text="people.length"></p>', { 'team.json': '{"people":[{"nmae":"A"}]}' });
+    const bad = runFiles('<sn-resource name="people" src="file:/team.json" select="people" type="{ name: string }[]"></sn-resource><p data-sn-text="people.length"></p>', { 'team.json': '{"people":[{"nmae":"A"}]}' });
     expect(bad.at).toEqual([expect.stringMatching(/^team\.json:1 .*'nmae'/)]);
   });
 
-  test('a `data-sn-pages` entry is one item of its list: a typo through it is an error', () => {
-    const page = (expr: string) => `<!doctype html><html data-sn-path="/blog/:slug" data-sn-pages="post in posts"><head></head><body><sn-resource name="posts" src="file:/content/posts/*.md" type="Post"></sn-resource><h1 data-sn-text="${expr}"></h1></body></html>`;
+  test('a `data-sn-for` on `<html>` entry is one item of its list: a typo through it is an error', () => {
+    const page = (expr: string) => `<!doctype html><html data-sn-path="/blog/:slug" data-sn-for="post in posts"><head></head><body><sn-resource name="posts" src="file:/content/posts/*.md" type="Post"></sn-resource><h1 data-sn-text="${expr}"></h1></body></html>`;
     expect(runFiles(page('post.title + post.slug + post.body.length'), posts).at).toEqual([]);
     expect(runFiles(page('post.titel'), posts).at).toEqual([expect.stringMatching(/^index\.html:1 Property 'titel' does not exist on type .*Did you mean 'title'\?/)]);
   });

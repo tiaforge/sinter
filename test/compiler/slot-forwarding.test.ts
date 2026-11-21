@@ -11,11 +11,11 @@ function run(page: string, files: Record<string, string>) {
 }
 const errors = (out: ReturnType<typeof run>) => out.diagnostics.filter((d) => d.severity === 'error').map((d) => `${d.code} ${d.message}`);
 
-const SEO = '<template data-sn-head="{ title?: string }"><title data-sn-text="title ?? \'Blog\'">Blog</title><slot name="extra"><meta name="x" content="seo-fallback"></slot></template>';
-const LAYOUT = `<!doctype html><html data-sn-layout="{ title?: string }"><head>
-<seo-tags data-sn-prop="{ title }"><slot name="seo" slot="extra"></slot></seo-tags>
+const SEO = '<template data-sn-props="{ title?: string }"><title data-sn-text="title ?? \'Blog\'">Blog</title><slot name="extra"><meta name="x" content="seo-fallback"></slot></template>';
+const LAYOUT = `<!doctype html><html data-sn-props="{ title?: string }"><head>
+<seo-tags data-sn-with="{ title }"><slot name="seo" slot="extra"></slot></seo-tags>
 </head><body><x-card><slot name="aside" slot="side"><em>layout fallback</em></slot></x-card><main><slot></slot></main></body></html>`;
-const CARD = '<template data-sn-component=""><section><div class="side"><slot name="side">card fallback</slot></div><slot></slot></section></template>';
+const CARD = '<template data-sn-props=""><section><div class="side"><slot name="side">card fallback</slot></div><slot></slot></section></template>';
 const files = { 'layouts/site-layout.html': LAYOUT, 'components/seo-tags.html': SEO, 'components/x-card.html': CARD };
 
 describe('slot forwarding', () => {
@@ -42,7 +42,7 @@ describe('slot forwarding', () => {
   });
 
   test('a component\'s own slot forwarded into a component it uses', () => {
-    const outer = '<template data-sn-component=""><div class="outer"><x-card><slot name="head" slot="side"></slot></x-card></div></template>';
+    const outer = '<template data-sn-props=""><div class="outer"><x-card><slot name="head" slot="side"></slot></x-card></div></template>';
     const out = run('<div data-sn-state="{ k: 2 }"><x-outer><i slot="head" data-sn-text="k"></i></x-outer></div>', { 'components/x-card.html': CARD, 'components/x-outer.html': outer });
     expect(errors(out)).toEqual([]);
     expect(out.html).toMatch(/<div class="side"><i data-sn="\d+"><\/i><\/div>/);

@@ -75,7 +75,7 @@ otherwise for the pages that need it sooner:
 
 ```html
 <!-- src/components/mail-reader.html: every page with a reader loads openpgp once it has taken over -->
-<template data-sn-component="{ message: Message | null }">
+<template data-sn-props="{ message: Message | null }">
   <div class="reader" data-sn-import="openpgp">…</div>
 </template>
 ```
@@ -124,7 +124,7 @@ export class TaskRing extends TaskRingComponent {
   with chart.js, when its component first renders: src/components/x.ts → src/lib/chart.ts → chart.js`),
   so an innocent import that makes a component wait does not go unnoticed. A script that should run at
   once reaches the package only through `await import()`.
-- Islands (custom elements your app defines and imports) are your modules: they get the stubs.
+- Custom elements (custom elements your app defines and imports) are your modules: they get the stubs.
 
 ## Helpers that wait
 
@@ -142,7 +142,7 @@ export * as toc from './lib/toc.ts';    // reads a parsed tree, imports no parse
 ```html
 <!-- vite.config.ts: sinter({ lazy: ['some-parser'] }) -->
 <article data-sn-let="{ tree: doc.parse(post.body) }">
-  <template data-sn-if="tree"><doc-view data-sn-prop="{ tree }"></doc-view></template>
+  <template data-sn-if="tree"><doc-view data-sn-with="{ tree }"></doc-view></template>
   <template data-sn-else><p class="placeholder">…</p></template>
   <nav data-sn-text="toc.title(post)"></nav>
 </article>
@@ -152,7 +152,7 @@ export * as toc from './lib/toc.ts';    // reads a parsed tree, imports no parse
   check runs without `strictNullChecks`, so it does not report an unguarded read (`doc.words`): guard
   every read (`data-sn-if="doc"`, `doc?.words`, `doc ?? fallback`). The arrival renders what reads it. Show something else meanwhile with `data-sn-if` on the let, or `??`. A
   let has no `$meta`: an app that needs loading and error states uses `<sn-resource call>`.
-- A component prop is a let: `data-sn-prop="{ tree: doc.parse(x) }"` waits the same way.
+- A component prop is a let: `data-sn-with="{ tree: doc.parse(x) }"` waits the same way.
 - Anywhere else (a binding, a handler, a state initializer) calling a helper of such a module is `SN324`,
   with the hint to name it in a let. The rule is per module: keep the helpers that do not need the
   package (`toc.title`, a reading time) in a module that does not import it, and they stay ordinary
@@ -170,7 +170,7 @@ export * as toc from './lib/toc.ts';    // reads a parsed tree, imports no parse
 - Only the app's `lazy` option makes a package lazy. A helper module that reaches none is an ordinary
   helper: loaded with the page, early with embedded data, and in the early file too. For a parser, measure:
   with a 35 kB gzip parser that took 160 ms to parse an article (micromark), the early file was four times the
-  early budget and the first paint waited for the parse; with sinter-markdown's 21.8 kB parser on RealWorld's
+  first-paint budget and the first paint waited for the parse; with sinter-markdown's 21.8 kB parser on RealWorld's
   article (2026-11-17), the first paint did not move and the article's LCP was its first paint
   ([sinter-markdown](../packages/sinter-markdown/docs/markdown.md#three-places-one-function)).
 - The modules between such a helper module and the package load whole with it too. One of them that a
@@ -212,7 +212,7 @@ from other failures: when a lazy load fails, it requests the chunk's URL again.
 ```html
 <button data-sn-call="pgp.decrypt(msg)" data-sn-catch="error = $error.stale ? m.page_outdated() : $error.message">…</button>
 <!-- or once for the page: the unhandled-error path carries the flag -->
-<body data-sn-on-sn-error="$event.detail.error.stale && showModal('outdated')">
+<body data-sn-on-sn-error="$event.detail.error.stale && openDialog('outdated')">
 ```
 
 - Lazy packages, lazy component scripts, and an `import()` in an action function (when the browser names
