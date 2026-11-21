@@ -2,8 +2,8 @@
 // Firefox and WebKit (Playwright). The server answers each page with a fresh nonce, as a server that issues
 // nonces does: on every inline <style> and <script>, in the policy it sends, and in <meta name="csp-nonce">.
 // A swap runs under the first page's policy (docs/navigation.md#swaps), so the styles it inserts get the
-// document's nonce; B's inline style is one. The pages' text is the app's messages (messages/*.json); in
-// German the next page's own dictionary must be loaded before it mounts (B's title is a key only B has).
+// document's nonce; B's inline style is one. The pages' text is the app's messages (messages/*.json), each
+// language's pages under its prefix (`localePrefix`: /en/, /de/), so B's title is in B's HTML in its language.
 // Checked in each language: one page load, B's style applied, no policy violation but the injected markup's
 // (B has a style and a module script with a guessed nonce, blocked on a load: a swap must block them too, under
 // 'strict-dynamic'), the messages rendered by the mounted page, the kept notes. Under CI a browser that does
@@ -30,7 +30,7 @@ const server = createServer(async (req, res) => {
   if (path === '/control/nometa') { nometa = true; res.writeHead(204); return res.end(); }
   // what an injection would run: it must not, on a load or a swap
   if (path === '/evil.js') { res.writeHead(200, { 'Content-Type': TYPES['.js'] }); return res.end('window.__evil = 1;'); }
-  const file = path === '/' ? 'index.html' : path === '/b/' ? 'b/index.html' : normalize(path).replace(/^\/+/, '');
+  const file = normalize(path.endsWith('/') ? `${path}index.html` : path).replace(/^\/+/, '');
   let body;
   try { body = await readFile(join(here, 'dist', file)); } catch { res.writeHead(404); return res.end(); }
   if (extname(file) !== '.html') { res.writeHead(200, { 'Content-Type': TYPES[extname(file)] ?? 'application/octet-stream' }); return res.end(body); }
@@ -38,10 +38,10 @@ const server = createServer(async (req, res) => {
   // the server's own styles and scripts get the nonce; B also has markup injected with a guessed one (a stored
   // XSS), which the policy blocks on a load and a swap must block too
   let html = String(body).replace(/<(style|script)\b(?![^>]*\snonce=)/g, `<$1 nonce="${nonce}"`).replace('<head>', `<head><meta name="csp-nonce" content="${nonce}">`);
-  if (file === 'b/index.html' && nometa) {
+  if (/^\w+\/b\/index\.html$/.test(file) && nometa) {
     nometa = false;
     html = String(body).replace(/<(style|script)\b(?![^>]*\snonce=)/g, `<$1 nonce="${nonce}"`).replace('</main>', '<script type="module" src="/evil.js"></script></main>');
-  } else if (file === 'b/index.html') html = html.replace('</main>', '<style nonce="guess">#heading { text-decoration-line: underline; }</style><script type="module" nonce="guess" src="/evil.js"></script></main>');
+  } else if (/^\w+\/b\/index\.html$/.test(file)) html = html.replace('</main>', '<style nonce="guess">#heading { text-decoration-line: underline; }</style><script type="module" nonce="guess" src="/evil.js"></script></main>');
   res.writeHead(200, {
     'Content-Type': TYPES['.html'], 'Cache-Control': 'no-store',
     // 'strict-dynamic': a script runs by its nonce (or because a trusted script loads it), not by its origin
@@ -74,12 +74,12 @@ for (const name of browsers) {
     // (the browsers' notices of the injected style and script being blocked: the policy's, checked below)
     page.on('console', (m) => { if (m.type() === 'error' && !/favicon/.test(m.location().url ?? '') && !/Content.Security.Policy|Refused to (apply|load|execute)/.test(m.text())) errors.push(m.text()); });
     page.on('request', (r) => { if (r.isNavigationRequest() && r.frame() === page.mainFrame()) loads.push(new URL(r.url()).pathname); });
-    // the language the picker chooses (the stored choice), and every policy violation the page sees
-    await page.addInitScript((l) => {
-      try { localStorage.setItem('locale', l); } catch { /* none */ }
+    // every policy violation the page sees
+    await page.addInitScript(() => {
       window.__violations = [];
       addEventListener('securitypolicyviolation', (e) => window.__violations.push(`${e.violatedDirective} ${e.blockedURI || e.sample || ''}`.trim()));
-    }, locale);
+    });
+    const at = `/${locale}/`;
     const read = () => page.evaluate(() => ({
       path: location.pathname, title: document.title, heading: document.getElementById('heading')?.textContent ?? null,
       toA: document.getElementById('to-a')?.textContent ?? null, notes: document.querySelector('aside textarea').value,
@@ -88,30 +88,30 @@ for (const name of browsers) {
       lang: document.documentElement.lang,
     }));
     try {
-      await page.goto(base + '/');
+      await page.goto(base + at);
       await page.waitForFunction((a) => document.title === a, t.a, { timeout: 10000 }).catch(() => {});
       check(`${locale}: A loads`, await read(), { title: t.a, heading: `${t.hello} A`, toA: t.toA, violations: [] });
       await page.evaluate(() => { window.__marker = 1; });
       await page.fill('aside textarea', 'kept');
       await page.click('#to-b');
-      await page.waitForFunction((b) => location.pathname === '/b/' && document.title === b, t.b, { timeout: 10000 }).catch(() => {});
+      await page.waitForFunction(([b, p]) => location.pathname === p && document.title === b, [t.b, `${at}b/`], { timeout: 10000 }).catch(() => {});
       // (the injected style and script are blocked: their violations are the policy's, as on a load of B)
       const b = await read();
       check(`${locale}: the link swaps B in, its style allowed by the server's nonce, its messages rendered, the injected style and script blocked`, { ...b, violations: b.violations.filter((v) => !/^(style-src-elem|script-src-elem)\b/.test(v)) }, {
-        path: '/b/', marker: 1, title: t.b, heading: `${t.hello} B`, toA: t.toA, notes: 'kept', color: 'rgb(0, 128, 0)', violations: [], injected: { style: false, script: false }, lang: locale,
+        path: `${at}b/`, marker: 1, title: t.b, heading: `${t.hello} B`, toA: t.toA, notes: 'kept', color: 'rgb(0, 128, 0)', violations: [], injected: { style: false, script: false }, lang: locale,
       });
       await page.goBack();
-      await page.waitForFunction((a) => location.pathname === '/' && document.title === a, t.a, { timeout: 10000 }).catch(() => {});
+      await page.waitForFunction(([a, p]) => location.pathname === p && document.title === a, [t.a, at], { timeout: 10000 }).catch(() => {});
       const a = await read();
-      check(`${locale}: Back swaps A in, B's style gone`, { ...a, violations: a.violations.filter((v) => !/^(style-src-elem|script-src-elem)\b/.test(v)) }, { path: '/', marker: 1, title: t.a, heading: `${t.hello} A`, notes: 'kept', violations: [] });
-      check(`${locale}: one page load`, { loads }, { loads: ['/'] });
+      check(`${locale}: Back swaps A in, B's style gone`, { ...a, violations: a.violations.filter((v) => !/^(style-src-elem|script-src-elem)\b/.test(v)) }, { path: at, marker: 1, title: t.a, heading: `${t.hello} A`, notes: 'kept', violations: [] });
+      check(`${locale}: one page load`, { loads }, { loads: [at] });
       // a next page that names no nonce of its own: nothing in it is trusted, it is loaded (the script blocked)
       await fetch(base + '/control/nometa');
       await page.click('#to-b');
-      await page.waitForFunction((b) => location.pathname === '/b/' && document.title === b, t.b, { timeout: 10000 }).catch(() => {});
+      await page.waitForFunction(([b, p]) => location.pathname === p && document.title === b, [t.b, `${at}b/`], { timeout: 10000 }).catch(() => {});
       const nm = await read();
-      check(`${locale}: a page without its own nonce is loaded, its injected script not run`, { path: nm.path, marker: nm.marker, script: nm.injected.script }, { path: '/b/', marker: null, script: false });
-      await page.goto(base + '/');
+      check(`${locale}: a page without its own nonce is loaded, its injected script not run`, { path: nm.path, marker: nm.marker, script: nm.injected.script }, { path: `${at}b/`, marker: null, script: false });
+      await page.goto(base + at);
       await page.waitForFunction((a) => document.title === a, t.a, { timeout: 10000 }).catch(() => {});
       const color = (await read()).color;
       if (color === 'rgb(0, 128, 0)') { steps.push(`✗ ${locale}: B's style stayed on A`); failed++; }

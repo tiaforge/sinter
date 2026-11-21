@@ -88,7 +88,8 @@ public sealed class GeneratorTests
           { "id": 2, "resource": "user", "src": ["/api/user"] },
           { "id": 3, "resource": "feed", "src": ["/api/feed?tag=", { "url": "tag" }], "when": { "and": [{ "url": "tag" }, { "not": { "url": "x", "eq": "y" } }] },
             "query": [["page", "1"]], "start": { "url": "page", "key": "page", "size": 10, "query": [["page", "2"]] } } ] } ],
-          "routes": [ { "from": "/a.html", "to": "/a/", "status": 301 } ], "locales": { "base": "en", "list": ["en", "de"] } }
+          "routes": [ { "from": "/a.html", "to": "/a/", "status": 301 } ], "locales": { "base": "en", "list": ["en", "de"] },
+          "origins": { "acme-shop.com": { "folder": "acme", "top": ["de", "en"] } } }
         """;
 
     private static (ImmutableArray<Diagnostic> Generator, ImmutableArray<Diagnostic> Compiled, string? Source) Run(string code, string? manifest = Fixture, string? build = "../web/dist")
@@ -127,6 +128,7 @@ public sealed class GeneratorTests
         // the API's static headers, compiled in
         Assert.Contains("new global::System.Collections.Generic.KeyValuePair<string, string>[] { new(\"X-Api\", \"2\") })", source);
         Assert.Contains("new global::Sinter.AspNetCore.Manifest.ManifestLocales(\"en\", new string[] { \"en\", \"de\" }, \"/\")", source);
+        Assert.Contains("new global::Sinter.AspNetCore.Manifest.ManifestOrigin(\"acme\", new string[] { \"de\", \"en\" })", source);
     }
 
     [Fact]

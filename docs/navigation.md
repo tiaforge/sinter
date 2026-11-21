@@ -320,7 +320,7 @@ link's `#hash` is scrolled to, and the new title is announced to screen readers.
 - Every page runs under the first page's response headers, its Content-Security-Policy included: one
   policy for the app. With a nonce policy, put each response's nonce in `<meta name="csp-nonce"
   content="…">` too: the swap trusts what the server gave the next page's nonce (its styles, its module
-  scripts, its language file) and gives it the document's; markup with any other nonce stays blocked, as
+  scripts) and gives it the document's; markup with any other nonce stays blocked, as
   on a load.
 - The attributes of `<html>` and `<body>` are the next page's: one that a script set at run time (a theme
   class) is set again in `sn-page`.

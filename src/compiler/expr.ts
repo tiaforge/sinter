@@ -67,6 +67,8 @@ export interface ResourceInfo {
   name: string; key: string[] | null; paginate: string | null; used: boolean;
   /** keyset with `jump`: `page(name, n)` and `$meta.<name>.page` are available */
   jumps?: boolean;
+  /** its `src` as written (`axisUrl(tenants, …)` names an axis by its list's) */
+  src?: string;
 }
 
 export interface Scope {
@@ -130,12 +132,19 @@ export interface PageInfo {
    * `localePrefix`: the page is built in one language (docs/static-pages.md#languages): `$locale` is `name`, the
    * built-in messages (namespace `messages`) are that language's text, and `localeUrl` compiles to `localeUrl`
    */
-  locale?: { name: string; messages: string | null; localeUrl: string; ownUrls?: boolean };
+  locale?: { name: string; messages: string | null; localeUrl: string; ownUrls?: boolean; prefix?: false };
+  /** content namespaces (docs/proposals/messages.md §1): entries in the page's language, so a call reads no `$locale` */
+  contentNs?: Set<string>;
   /**
    * Set when an expression compiled the page's own URL into its code: `$canonical` of a page at a fixed path, or
    * `localeUrl()` from the page's translations (`ownUrls`). A `<html data-sn-for>` template doing so has a program per entry
    */
   readsUrl?: boolean;
+  /**
+   * `axisUrl(list, key)`: this page's URL at another value of one of its axes (docs/proposals/axes.md §5), by the list's
+   * `src` and the value's key; the call's list argument compiles to its `src`
+   */
+  axisUrl?: string;
   helpers: Set<string>;
   /** action functions and namespaces: only `data-sn-call` and `<sn-resource call>` may name them */
   actions?: Set<string>;
@@ -480,7 +489,9 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
     const local = locals.get(name);
     if (local) return { kind: 'local', info: local };
     if (page.locale && name === '$locale') return { kind: 'const', code: JSON.stringify(page.locale.name) };
-    if (page.locale && name === 'localeUrl') { if (page.locale.ownUrls) page.readsUrl = true; return { kind: 'const', code: page.locale.localeUrl }; }
+    // (the page's own URLs: a `<html data-sn-for>` template that reads them has a program per entry)
+    if (page.axisUrl && name === 'axisUrl') { page.readsUrl = true; return { kind: 'const', code: page.axisUrl }; }
+    if (page.locale && page.locale.prefix !== false && name === 'localeUrl') { if (page.locale.ownUrls) page.readsUrl = true; return { kind: 'const', code: page.locale.localeUrl }; }
     if (name === '$site' || name === '$canonical') {
       const u = page.urls;
       if (!u) {
@@ -897,6 +908,8 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
     if (n.type === 'ChainExpression') return visitMemberParts((n as acorn.ChainExpression).expression as Node, locals);
     if (n.type !== 'MemberExpression') return visit(n, locals);
     const m = n as acorn.MemberExpression & Node;
+    // a content namespace's nested id (`m.inbox.title`): the whole chain names one entry
+    if (m.object.type === 'MemberExpression' && nestedMember(m, locals)) return;
     if (m.object.type === 'Identifier' && page.namespaces.has(m.object.name) && !locals.has(m.object.name)) {
       nsMember(m, locals);
       return;
@@ -930,6 +943,35 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
     return cur;
   }
 
+  /** `ns.a.b`: the entry `a.b` of a namespace that has it (a content namespace's nested ids); false when it is not one */
+  function nestedMember(m: acorn.MemberExpression & Node, locals: Locals): boolean {
+    const parts: string[] = [];
+    let cur: Node = m;
+    while (cur.type === 'MemberExpression') {
+      const x = cur as acorn.MemberExpression & Node;
+      if (x.computed || x.property.type !== 'Identifier') return false;
+      parts.unshift((x.property as acorn.Identifier).name);
+      cur = x.object as Node;
+    }
+    if (cur.type !== 'Identifier' || locals.has((cur as acorn.Identifier).name)) return false;
+    const ns = (cur as acorn.Identifier).name, members = page.namespaces.get(ns);
+    if (!members) return false;
+    const id = parts.join('.');
+    if (!members.has(id)) {
+      // a group of ids (`m.inbox` of `m.inbox.title`) or a typo in one: named with the ids that start like it
+      if ([...members].some((k) => k.includes('.'))) {
+        report('SN206', `\`${ns}.${id}\` is not an entry of namespace \`${ns}\`.${didYouMean(id, [...members])}`, m.start);
+        return true;
+      }
+      return false;
+    }
+    if (!page.usedNs.has(ns)) page.usedNs.set(ns, new Set());
+    page.usedNs.get(ns)!.add(id);
+    if (!(page.locale && ns === page.locale.messages) && !page.contentNs?.has(ns)) addDep(['$locale']);
+    edits.push({ start: m.start, end: m.end, text: nsLocal(ns, id) });
+    return true;
+  }
+
   function nsMember(m: acorn.MemberExpression & Node, _locals: Locals) {
     const ns = (m.object as acorn.Identifier).name;
     if (m.computed) {
@@ -946,8 +988,8 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
     page.usedNs.get(ns)!.add(member);
     lazyUse(`${ns}$${member}`, `${ns}.${member}`, m.start);
     // a message in a page built in one language is that language's text: no dependency
-    if (!(page.locale && ns === page.locale.messages)) addDep(['$locale']);
-    edits.push({ start: m.start, end: m.end, text: `${ns}$${member}` });
+    if (!(page.locale && ns === page.locale.messages) && !page.contentNs?.has(ns)) addDep(['$locale']);
+    edits.push({ start: m.start, end: m.end, text: nsLocal(ns, member) });
   }
 
   /** a helper of a module that reaches a lazy package, outside a let or a prop: SN324 */
@@ -988,6 +1030,7 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
 
   function writePath(target: Node, locals: Locals, at: number, expr: Node) {
     if (target.type === 'Identifier' && target.name === '$locale') {
+      if (page.locale?.prefix === false) { report('SN203', `\`$locale\` is this page's language (\`${page.locale.name}\`, the messages' base): a page has one language, chosen at build. For a page in each language, turn on \`sinter({ localePrefix: true })\` and link to it: \`<a data-sn-attr="{ href: localeUrl('…') }">\``, target.start); return; }
       if (page.locale) { report('SN203', `\`$locale\` is this page's language (\`${page.locale.name}\`): with \`localePrefix\` each language is its own page. Link to it: \`<a data-sn-attr="{ href: localeUrl('…') }">\``, target.start); return; }
       writes.add('$locale');
       return;
@@ -1031,6 +1074,15 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
 
   function visitCall(n: acorn.CallExpression & Node, locals: Locals) {
     const callee = (n.callee.type === 'ChainExpression' ? n.callee.expression : n.callee) as Node;
+    // `axisUrl(tenants, key)`: the list names the axis, by its `src`; it is not read
+    if (callee.type === 'Identifier' && (callee as acorn.Identifier).name === 'axisUrl' && page.axisUrl && !locals.has('axisUrl')) {
+      const a0 = n.arguments[0] as Node | undefined, r = a0?.type === 'Identifier' && !locals.has((a0 as acorn.Identifier & Node).name) ? page.resources.get((a0 as acorn.Identifier & Node).name) : undefined;
+      if (!r?.src) report('SN301', `\`axisUrl()\` takes the list of one of this page's axes (\`axisUrl(tenants, 'acme')\`, a \`<sn-resource>\` its \`data-sn-for\` on \`<html>\` is over)`, a0?.start ?? n.start);
+      else { r.used = true; edits.push({ start: a0!.start, end: a0!.end, text: JSON.stringify(r.src) }); }
+      ident(callee as acorn.Identifier & Node, locals);
+      for (const a of n.arguments.slice(1)) visit(a as Node, locals);
+      return;
+    }
     let elementInfo: LocalInfo | null = null;
     if (callee.type === 'MemberExpression') {
       const m = callee as acorn.MemberExpression & Node;
@@ -1613,3 +1665,6 @@ export function applyEdits(src: string, edits: Edit[]): string {
   for (const e of sorted) out = out.slice(0, e.start) + e.text + out.slice(e.end);
   return out;
 }
+
+/** the name compiled code calls a namespace's member by: `m$title`, and a nested id's parts joined by `$$` (`m$inbox$$title`) */
+export const nsLocal = (ns: string, member: string) => `${ns}$${member.split('.').join('$$')}`;

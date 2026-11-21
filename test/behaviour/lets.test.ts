@@ -445,14 +445,11 @@ describe('the locale, and results that are their arguments', () => {
     } finally { configure({ locale: null }); }
   });
 
-  test('the built-in messages in a let: render() switches them, as a build does', async () => {
-    const r = await render(`<main data-sn-let="{ K: fmt.plain(1) + m.hi() }"><p data-sn-text="K"></p><button data-sn-on-click="$locale = 'de'"></button></main>`, {
-      helpers: { fmt: { plain: (n: number) => n + 1 } }, messages: { en: { hi: 'Hello' }, de: { hi: 'Hallo' } },
-    });
-    expect(r.root.querySelector('p')!.textContent).toBe('2Hello');
-    r.root.querySelector('button')!.click();
-    await r.settle();
-    expect(r.root.querySelector('p')!.textContent).toBe('2Hallo');
+  test('the built-in messages in a let: in the page\'s language, as a build compiles it', async () => {
+    const page = '<main data-sn-let="{ K: fmt.plain(1) + m.hi() }"><p data-sn-text="K"></p></main>';
+    const o = { helpers: { fmt: { plain: (n: number) => n + 1 } }, messages: { en: { hi: 'Hello' }, de: { hi: 'Hallo' } } };
+    expect((await render(page, o)).root.querySelector('p')!.textContent).toBe('2Hello');
+    expect((await render(page, { ...o, locale: 'de' })).root.querySelector('p')!.textContent).toBe('2Hallo');
   });
 
   test('a result that is its argument, or holds it, is the new object after an equal copy', async () => {

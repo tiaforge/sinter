@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest';
-import { memoryStorage, mockRequests, render } from '@tiaforge-ui/sinter/testing';
+import { mockRequests, render } from '@tiaforge-ui/sinter/testing';
 import page from './messages.html?raw';
 
 // messages/en.json and messages/de.json (the base language first)
@@ -8,23 +8,19 @@ const messages = {
   de: { inbox_title: 'Posteingang', inbox_count: '{count} ungelesen', language: 'Sprache' },
 };
 
-test('the stored language, with parameters; switching re-renders without a reload', async () => {
-  const storage = memoryStorage();
-  storage.setItem('locale', 'de');
+test('the page in its language, with parameters from data', async () => {
   const requests = mockRequests({ 'GET /api/inbox': { unread: 3 } });
-  const { root, settle, flush, navigations } = await render(page, { messages, storage, requests });
+  // the German page (`localePrefix` builds one per language; without it, the base language's)
+  const { root, settle } = await render(page, { messages, requests, locale: 'de' });
   await settle();
   expect(root.querySelector('h1')!.textContent).toBe('Posteingang');
-  expect(root.querySelector('p')!.textContent).toBe('3 ungelesen');
+  expect([...root.querySelectorAll('p')].map((p) => p.textContent)).toEqual(['3 ungelesen', 'Sprache: de']);
+});
 
-  const select = root.querySelector('select')!;
-  select.value = 'en';
-  select.dispatchEvent(new Event('change', { bubbles: true }));
-  await flush();
-  await new Promise((r) => setTimeout(r, 0));
-  await flush();
+test('without a language, the base language\'s page', async () => {
+  const requests = mockRequests({ 'GET /api/inbox': { unread: 1 } });
+  const { root, settle } = await render(page, { messages, requests });
+  await settle();
   expect(root.querySelector('h1')!.textContent).toBe('Inbox');
-  expect(root.querySelector('p')!.textContent).toBe('3 unread');
-  expect(document.documentElement.lang).toBe('en');
-  expect(navigations).toEqual([]);
+  expect(root.querySelector('p')!.textContent).toBe('1 unread');
 });

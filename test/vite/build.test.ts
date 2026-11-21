@@ -458,48 +458,48 @@ test('source maps in a build with build.sourcemap: the page bundle\'s map lists 
 });
 
 const i18nRoot = resolve(__dirname, '../fixtures/vite-i18n');
-const i18nAlias = [...alias.slice(0, -1), { find: '@tiaforge-ui/sinter/messages', replacement: `${src}/messages.ts` }, alias.at(-1)!];
+const i18nAlias = [{ find: /^@tiaforge-ui\/sinter\/messages\/(.+)$/, replacement: `${src}/messages/$1.ts` }, ...alias.slice(0, -1), { find: /^@tiaforge-ui\/sinter\/messages$/, replacement: `${src}/messages.ts` }, alias.at(-1)!];
 
-test('messages: one file per page and language with only the keys it calls (markup and modules), loaded before the first paint', async () => {
+test('messages without localePrefix: the build is in the base language, its text in the HTML; no picker, no language file', async () => {
   const dir = join(out, 'i18n');
   await build({ root: i18nRoot, logLevel: 'silent', resolve: { alias: i18nAlias }, build: { outDir: dir, emptyOutDir: true, minify: false }, plugins: [sinter({ typecheck: true })] });
   const html = readFileSync(join(dir, 'index.html'), 'utf8');
-  // the picker starts the shared head script, its data on the tag; the page's own follows
-  const h = heads(html, dir);
-  expect(h.i18n).not.toBeNull();
-  expect(h.own).not.toBeNull();
-  expect(h.sharedCode).toContain('/* sinter i18n */');
-  expect(html).not.toContain('blocking=');
-  const data = h.i18n;
-  expect(data).toMatchObject({ base: 'en', locales: ['en', 'de'], storage: 'locale' });
-  const lang = (l: string) => readFileSync(join(dir, data.files[l].slice(1)), 'utf8');
-  // markup's title, hello, only_en; the config module's bye; not `unused`; German falls back for only_en
-  expect(lang('de')).toContain('{"bye":"Tschüss","hello":"Hallo {name}","only_en":"Only in English","title":"Leute"}');
-  expect(lang('en')).not.toContain('Never shown');
-  // the bundles hold no message text: they read the dictionary the language file left
-  const js = readdirSync(join(dir, 'assets')).filter((f) => /^index-(?!en-|de-)/.test(f)).map((f) => readFileSync(join(dir, 'assets', f), 'utf8')).join('\n');
-  expect(js).not.toMatch(/People|Leute|Tschüss/);
-  expect(js).toContain('await ready()');
-  // the base language's text is in the HTML, marked: hidden for other languages until the page module has rendered
-  expect(html).toContain('data-sn-m="">People</h1>');
-  expect(html).toContain('data-sn-m="">Hello Ada</p>');
+  // the base language's text, written as text (nothing hidden, nothing marked), `$locale` the base, the page's own lang
+  expect(html).toContain('<h1>People</h1>');
+  expect(html).toContain('<p>Hello Ada</p>');
+  expect(html).toContain('<p>en</p>');
+  expect(html).not.toMatch(/data-sn-m|data-sn-i18n|blocking=/);
+  // the message the config module calls is written into the page, in the base language: nothing is loaded
+  // nothing left to run: the page ships no script (the config module's messages with it)
+  expect(html).not.toMatch(/<script(?! type="speculationrules")/);
+  const files = readdirSync(join(dir, 'assets'));
+  expect(files.filter((f) => /-(en|de)-/.test(f))).toEqual([]);
+  const js = files.filter((f) => f.endsWith('.js')).map((f) => readFileSync(join(dir, 'assets', f), 'utf8')).join('\n');
+  expect(js).not.toMatch(/Leute|Tschüss|sinter i18n|await ready\(\)/);
   // the app's modules are typed: generated declarations for `m`
-  expect(readFileSync(join(i18nRoot, 'src/sinter.messages.d.ts'), 'utf8')).toContain('hello(params: { name: string | number }): string;');
+  const dts = readFileSync(join(i18nRoot, 'src/sinter.namespaces.d.ts'), 'utf8');
+  expect(dts).toContain("declare module '@tiaforge-ui/sinter/messages' {\n  interface Entries {");
+  expect(dts).toContain('"hello": (args: { "name": string | number }) => string');
 });
 
-test('messages: a page whose markup has no `m` but whose modules call it gets the picker, its language file, and waits for it', async () => {
+test('messages without localePrefix: a page whose markup has no `m` gets the messages its modules call, in the base language', async () => {
   const dir = join(out, 'i18n-other');
   await build({ root: i18nRoot, logLevel: 'silent', resolve: { alias: i18nAlias }, build: { outDir: dir, emptyOutDir: true, minify: false, rollupOptions: { input: join(i18nRoot, 'other.html') } }, plugins: [sinter({ typecheck: true })] });
   const html = readFileSync(join(dir, 'other/index.html'), 'utf8');
-  const data = heads(html, dir, 'other').i18n;
-  expect(data).not.toBeNull();
-  const lang = (l: string) => readFileSync(join(dir, data.files[l].slice(1)), 'utf8');
   // the helper's only_en and the config module's bye; nothing the other page's markup calls
-  expect(lang('de')).toContain('{"bye":"Tschüss","only_en":"Only in English"}');
-  expect(lang('en')).not.toContain('People');
-  // the page bundle renders once the dictionary is there, so farewell() returns text, not the key
-  const js = readdirSync(join(dir, 'assets')).filter((f) => /^other-(?!en-|de-)/.test(f)).map((f) => readFileSync(join(dir, 'assets', f), 'utf8')).join('\n');
-  expect(js).toMatch(/await ready\(\);\s*use\(mount\(/);
+  expect(html).toContain('<script type="application/json" data-sn-ns="m" lang="en">{"bye":"Bye","only_en":"Only in English"}</script>');
+  expect(html).not.toMatch(/data-sn-i18n|People/);
+});
+
+test('messages without localePrefix: `$locale` is the page\'s one language, and writing it is SN203', async () => {
+  const page = join(i18nRoot, 'index.html'), p0 = readFileSync(page, 'utf8');
+  try {
+    writeFileSync(page, p0.replace('<p data-sn-text="$locale"></p>', '<button data-sn-on-click="$locale = \'de\'">de</button>'));
+    await expect(build({ root: i18nRoot, logLevel: 'silent', resolve: { alias: i18nAlias }, build: { outDir: join(out, 'i18n-203'), emptyOutDir: true }, plugins: [sinter({ typecheck: false })] }))
+      .rejects.toThrow(/SN203.*`\$locale` is this page's language \(`en`, the messages' base\): a page has one language, chosen at build/s);
+  } finally {
+    writeFileSync(page, p0);
+  }
 });
 
 test('messages: unknown keys, wrong parameters and `m[key]` in a module fail the build', async () => {

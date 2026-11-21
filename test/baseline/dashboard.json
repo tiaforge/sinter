@@ -1,0 +1,50 @@
+{
+ "_redirects": {
+  "sha256": "38da2098909d0905de0d02f579f638a7405b1bc87504f938bcce40ea47a00242",
+  "bytes": 100
+ },
+ "assets/index-BQFk9Fkg.js": {
+  "sha256": "76a3dce88e1cc26426ee043e56277712f5c60a0074d3b44b790934912e44953b",
+  "bytes": 9551
+ },
+ "assets/index-head-HcoujoRB.js": {
+  "sha256": "1dca2e8e84413b3b41dc02405c4a238e1048a2c753f1c6606441f146c91cb62a",
+  "bytes": 1043
+ },
+ "assets/latency-CO06zBNY.js": {
+  "sha256": "8b1fe6e7bcdfd30529c3901774e4c239e66fc363448a4229bb171f0115e7c913",
+  "bytes": 2042
+ },
+ "assets/sinter-head-7Z997u4i.js": {
+  "sha256": "ed9f7deeee22704834c748afeb6b9355a36c1f50d8d537b81a91e2b452d0954d",
+  "bytes": 4068
+ },
+ "assets/sinter-iE_vJo9b.css": {
+  "sha256": "2f8927cdf9fec9693c238cda5fff05c63b65feee03f51d38a7646e36f34f4fea",
+  "bytes": 54212
+ },
+ "assets/sinter.config-CntUmb7h.js": {
+  "sha256": "a6f81024aa4c875437d00432e3ca7a5b610812db2e835e78bc797f95a75d6284",
+  "bytes": 11352
+ },
+ "assets/swap-run-3G3nEZ1H.js": {
+  "sha256": "cd60066b0d5f1d3009e3a76088daee765d8a82abe1a2a0f2e4df1154c20eb571",
+  "bytes": 8834
+ },
+ "assets/swap-xiEUFQFN.js": {
+  "sha256": "ec4c74f9c5b169c32b1c60af824ed1ae096f7120ec999819fef842aa5d544dd4",
+  "bytes": 41644
+ },
+ "index.html": {
+  "sha256": "058c0ad3b8d37d0604eef932968b6461b27df294bb1ad6f19aaf0a0b1540e573",
+  "bytes": 3069
+ },
+ "latency.html": {
+  "sha256": "ab91fb6a6e36ed584c2990e7e094db010da483b1c1aa92dde57b9ab9924293bc",
+  "bytes": 345
+ },
+ "latency/index.html": {
+  "sha256": "3ea25f6a5e503dcfc098b216997cb91c80d801c5dd6184cb3f450277ea63ac3e",
+  "bytes": 1671
+ }
+}

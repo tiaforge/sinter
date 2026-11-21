@@ -59,7 +59,7 @@ async function load(html: string, o: { storage?: Storage; session?: Storage; ir?
   const storage = o.storage ?? memoryStorage();
   setEnv({ ...defaultEnv, href: () => o.href ?? 'http://localhost/', storage: () => storage, fetch: async (r: Request) => { const u = new URL(r.url); early.push(u.pathname + u.search); await o.hold; return Response.json(server(r.url)); } });
   expect(out.early).toContain(', requests());');
-  start(() => page, null, requests(configured));
+  start(() => page, requests(configured));
   const mock = mockRequests({ 'GET /api/mail': (c: RecordedCall) => server(c.url) });
   // the page module's requests: the early response if the request layer takes it, else the mock
   const net = ((req: Request, next: Parameters<Middleware>[1]) => next(req).catch((e: Error) => (/unexpected network request/.test(e.message) ? mock(req, next) : Promise.reject(e)))) as unknown as MockRequests;

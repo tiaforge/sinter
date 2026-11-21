@@ -100,7 +100,7 @@ export function startServer(input: Readable, output: Writable, o: ServerOptions 
     if (mode === 'none') return;
     if (mode === 'cli') {
       const p = state.project;
-      const r = check({ root: state.root, units: [...state.units.values()], helpers: p.helpers, types: p.types, openapi: p.openapi, tsc: o.tsc ?? findTsc(state.root), messagesTypes: p.messagesTypes });
+      const r = check({ root: state.root, units: [...state.units.values()], helpers: p.helpers, types: p.types, openapi: p.openapi, tsc: o.tsc ?? findTsc(state.root) });
       await workspace.setTypes(state, '*', r.diagnostics);
       return;
     }
