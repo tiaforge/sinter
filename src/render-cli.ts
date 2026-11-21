@@ -14,6 +14,7 @@ import { lazyReachOf, project as readProject, viteProject } from './project.js';
 import { isComponentScript } from './lazy-build.js';
 import { segments, segsMatch } from './runtime/url.js';
 import { withInertPlugin } from './helpers-node.js';
+import { args } from './args.js';
 import { componentScript } from './components-build.js';
 import type { Library } from './libraries.js';
 import type { HistoryWrite, MockStream, RecordedCall, Rendered, RouteResponse } from './testing/index.js';
@@ -83,45 +84,42 @@ export function duration(s: string): number | null {
 export function parseRenderArgs(argv: string[], cwd = process.cwd()): RenderArgs | string {
   const a: RenderArgs = { page: '', root: cwd, url: null, mocks: [], backends: [], storage: [], session: [], now: null, locale: null, show: null, raw: false, json: false, steps: [] };
   const pages: string[] = [];
-  for (let i = 0; i < argv.length; i++) {
-    const flag = argv[i]!;
-    const [name, inline] = flag.startsWith('--') && flag.includes('=') && !/^--(input|select|storage|session)=/.test(flag) ? [flag.slice(0, flag.indexOf('=')), flag.slice(flag.indexOf('=') + 1)] : [flag, undefined];
-    const value = (): string | null => inline ?? argv[++i] ?? null;
-    const need = (v: string | null) => { if (v === null || v === '') throw `${name} needs a value`; return v; };
+  // (`--input`, `--select`, `--storage` and `--session` take a value with `=` in it: never split there)
+  for (const { flag, name, need } of args(argv, /^--(input|select|storage|session)=/)) {
     try {
       switch (name) {
-        case '--root': a.root = resolve(cwd, need(value())); break;
-        case '--url': a.url = need(value()); break;
+        case '--root': a.root = resolve(cwd, need()); break;
+        case '--url': a.url = need(); break;
         case '--api': {
-          const v = need(value());
+          const v = need();
           (/^https?:\/\//.test(v) ? a.backends : a.mocks).push(v);
           break;
         }
         case '--storage': case '--session': {
-          const v = need(value()), eq = v.indexOf('=');
+          const v = need(), eq = v.indexOf('=');
           if (eq <= 0) throw `${name} takes key=value, such as ${name} token=abc`;
           (name === '--storage' ? a.storage : a.session).push([v.slice(0, eq), v.slice(eq + 1)]);
           break;
         }
         case '--now': {
-          const v = need(value()), t = /^\d+$/.test(v) ? Number(v) : Date.parse(v);
+          const v = need(), t = /^\d+$/.test(v) ? Number(v) : Date.parse(v);
           if (Number.isNaN(t)) throw `--now takes a date, such as 2026-03-01T12:00:00Z`;
           a.now = t;
           break;
         }
-        case '--locale': a.locale = need(value()); break;
-        case '--show': a.show = need(value()); break;
+        case '--locale': a.locale = need(); break;
+        case '--show': a.show = need(); break;
         case '--raw': a.raw = true; break;
         case '--json': a.json = true; break;
-        case '--click': case '--check': case '--submit': a.steps.push({ kind: name.slice(2) as 'click', selector: need(value()) }); break;
+        case '--click': case '--check': case '--submit': a.steps.push({ kind: name.slice(2) as 'click', selector: need() }); break;
         case '--input': case '--select': {
-          const v = need(value()), kv = splitAssignment(v);
+          const v = need(), kv = splitAssignment(v);
           if (!kv) throw `${name} takes <selector>=<value>, such as ${name} "#q=${name === '--input' ? 'milk' : 'open'}"`;
           a.steps.push({ kind: name.slice(2) as 'input', selector: kv[0], value: kv[1] });
           break;
         }
         case '--emit': {
-          const v = need(value()), eq = v.indexOf('=');
+          const v = need(), eq = v.indexOf('=');
           const name = eq < 0 ? v : v.slice(0, eq);
           let payload: unknown = null;
           if (eq >= 0) { try { payload = JSON.parse(v.slice(eq + 1)); } catch { throw `--emit ${name}=…: the payload is JSON, such as --emit 'contact_updated={"contact":{"id":1}}'`; } }
@@ -131,7 +129,7 @@ export function parseRenderArgs(argv: string[], cwd = process.cwd()): RenderArgs
         case '--back': a.steps.push({ kind: 'back' }); break;
         case '--forward': a.steps.push({ kind: 'forward' }); break;
         case '--wait': {
-          const ms = duration(need(value()));
+          const ms = duration(need());
           if (ms === null) throw '--wait takes a duration: 500, 500ms, 5s or 1m';
           a.steps.push({ kind: 'wait', ms });
           break;

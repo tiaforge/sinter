@@ -8,9 +8,10 @@ import { check } from './check/index.js';
 import { applyStrict, compile, formatDiagnostic, type CheckUnit, type Diagnostic } from './compiler/index.js';
 import { checkOptionsOf, compileOptionsOf, lazyReachOf, project, staticPages, strictEnv, viteProject, type ProjectOptions } from './project.js';
 import { lazyDiagnostics, resolveFile } from './lazy-build.js';
-import { loadHelpers, unloadedMessage } from './helpers-node.js';
+import { loadHelpers, unloadedDiagnostic } from './helpers-node.js';
 import { checkLocale } from './locales-build.js';
-import { readSnapshot, snapshotNamespaces } from './content-node.js';
+import { snapshotOptions } from './content-node.js';
+import { args } from './args.js';
 import { componentScript } from './components-build.js';
 import { CODES, severityOf, strictPromotes, type Code } from './compiler/diagnostics.js';
 
@@ -30,15 +31,13 @@ async function main(argv: string[]): Promise<number> {
   const pages: string[] = [];
   let strictFlag: boolean | null = null;
   const allow = new Set<string>();
-  for (let i = 0; i < rest.length; i++) {
-    const a = rest[i]!;
-    if (a === '--root') root = resolve(rest[++i] ?? '.');
+  for (const { flag: a, name, value } of args(rest)) {
+    if (name === '--root') root = resolve(value() ?? '.');
     else if (a === '--check-cycles') { console.error('sinter check: --check-cycles is gone: SN509 is reported on every run, and `--allow SN509` (or `strict: { allow }`) keeps a deliberate cycle a warning'); return 2; }
     else if (a === '--strict') strictFlag = true;
     else if (a === '--no-strict') strictFlag = false;
-    else if (a === '--allow' || a.startsWith('--allow=')) {
-      const list = a === '--allow' ? rest[++i] : a.slice('--allow='.length);
-      const codes = (list ?? '').split(',').map((c) => c.trim().toUpperCase()).filter(Boolean);
+    else if (name === '--allow') {
+      const codes = (value() ?? '').split(',').map((c) => c.trim().toUpperCase()).filter(Boolean);
       const bad = codes.filter((c) => !(c in CODES) || severityOf(c as Code) === 'error' || !strictPromotes(c));
       if (!codes.length || bad.length) { console.error(`sinter check: --allow takes the codes of warnings strict mode fails on, such as --allow SN501,SN518${bad.length ? ` (not one: ${bad.join(', ')})` : ''}\n${USAGE}`); return 2; }
       for (const c of codes) allow.add(c);
@@ -62,17 +61,16 @@ async function main(argv: string[]): Promise<number> {
   // `localePrefix`: the build compiles each page in a language (`$locale` fixed, `localeUrl()`); checked in the base one
   const locale = checkLocale(root, options as ProjectOptions & { localePrefix?: boolean });
   // collections: from the build's snapshot (the check runs no loaders); typed from the content module
-  const snap = p.contentFile ? readSnapshot(root, p.contentFile) : null;
+  // (and the content namespaces' ids, so a page's calls are checked as the build checks them)
+  const { snap, helpers, content: contentOpts } = snapshotOptions(root, p.contentFile, p.helpers);
   if (p.contentFile && !snap) console.error('sinter check: the content module\'s collections have no snapshot yet (vite build or vite dev writes one): what pages read of them is typed, not checked against their values');
   else if (snap?.stale) console.error('sinter check: the content module changed since the collections\' snapshot (vite build or vite dev writes a new one): their values may be out of date');
-  // content namespaces: their ids from the snapshot, so a page's calls are checked as the build checks them
-  const ns = p.contentFile && snap ? snapshotNamespaces(root, p.helpers) : { helpers: p.helpers };
-  const contentOpts = p.contentFile ? { contentModule: p.contentFile, ...(snap ? { collections: snap.collections } : {}), ...(ns.contentNs ? { contentNs: ns.contentNs } : {}) } : {};
   // the helpers module in Node, as the build loads it: what folds, and so SN322, agrees with the build
   const nh = await loadHelpers({ root, helpersFile: p.helpersFile, manifest: p.helpers });
-  if (nh.error && p.helpersFile) diagnostics.push({ severity: 'warning', code: 'SN533', message: unloadedMessage(root, p.helpersFile, nh.error), file: p.helpersFile, line: 1, col: 1 });
+  const unloaded = unloadedDiagnostic(root, p.helpersFile, nh);
+  if (unloaded) diagnostics.push(unloaded);
   for (const file of files) {
-    const out = compile(readFileSync(file, 'utf8'), { ...compileOptionsOf(p, file), helpers: ns.helpers, helperValues: nh.module, helperFold: nh.fold, ...contentOpts, file, dev: false, check: true, ...(locale ? { locale } : {}) });
+    const out = compile(readFileSync(file, 'utf8'), { ...compileOptionsOf(p, file), helpers, helperValues: nh.module, helperFold: nh.fold, ...contentOpts, file, dev: false, check: true, ...(locale ? { locale } : {}) });
     diagnostics.push(...out.diagnostics);
     if (out.check) units.push(out.check);
   }
@@ -88,7 +86,7 @@ async function main(argv: string[]): Promise<number> {
       ...p.libraries.flatMap((l) => [...l.public.map((n) => join(l.folder, 'components', n)), ...l.internal.map((n) => join(l.folder, 'components', 'internal', n))])].map((b) => componentScript(b + '.html')).filter((f): f is string => !!f);
     diagnostics.push(...lazyDiagnostics(root, p.lazy, [p.helpersFile, p.actionsFile, mod(p.config), mod(p.early)], lazyReachOf(p).whole(p.helpers), scripts, p.libraries, p.helpersFile));
   }
-  const r = check({ ...checkOptionsOf(p), helpers: ns.helpers, units });
+  const r = check({ ...checkOptionsOf(p), helpers, units });
   diagnostics.push(...r.diagnostics);
 
   const warned = diagnostics.filter((d) => d.severity === 'warning').length;
@@ -127,11 +125,11 @@ async function docs(args: string[]): Promise<number> {
  * with `sinter({ apis })`, their URLs also become paths relative to the APIs, and what to add to the config
  * is printed: the shapes every page agrees on, and the endpoints no API declares. Printed; written with `--write`.
  */
-async function migrate(args: string[]): Promise<number> {
+async function migrate(argv: string[]): Promise<number> {
   let root = process.cwd(), write = false;
-  for (let i = 0; i < args.length; i++) {
-    if (args[i] === '--root') root = resolve(args[++i] ?? '.');
-    else if (args[i] === '--write') write = true;
+  for (const { flag, name, value } of args(argv)) {
+    if (name === '--root') root = resolve(value() ?? '.');
+    else if (flag === '--write') write = true;
     else { console.error(USAGE); return 2; }
   }
   const { migrateMarkup, configReport, formatReport, followUp, addQuery, removeAttributes, applyRenames } = await import('./migrate.js');

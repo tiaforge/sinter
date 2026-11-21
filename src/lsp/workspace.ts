@@ -5,15 +5,14 @@ import { existsSync, readFileSync, statSync } from 'node:fs';
 import { basename, dirname, join, resolve, sep } from 'node:path';
 import type { CheckUnit } from '../compiler/check-unit.js';
 import { compile, type Diagnostic, type HelperManifest } from '../compiler/index.js';
-import { compileOptionsOf, modulesDir, project, viteProject, type Project, type ProjectOptions } from '../project.js';
-import { loadHelpers, unloadedMessage, type NodeHelpers } from '../helpers-node.js';
+import { compileOptionsOf, modulesDir, project, VITE_CONFIGS, viteProject, type Project, type ProjectOptions } from '../project.js';
+import { loadHelpers, unloadedDiagnostic, type NodeHelpers } from '../helpers-node.js';
 import { FoldCache } from '../fold-check.js';
 import { writeComponentTypes } from '../components-build.js';
 import { componentKinds } from '../compiler/head.js';
 import { checkLocale } from '../locales-build.js';
-import { readSnapshot, snapshotNamespaces } from '../content-node.js';
+import { snapshotOptions } from '../content-node.js';
 
-const VITE_CONFIGS = ['vite.config.ts', 'vite.config.js', 'vite.config.mts', 'vite.config.mjs', 'vite.config.cts', 'vite.config.cjs'];
 
 export interface ProjectState {
   root: string;
@@ -115,7 +114,8 @@ export class Workspace {
     // the helpers module in Node, as the build loads it (with the app's Vite config); the files it reaches reload the project
     const helpers = await loadHelpers({ root, helpersFile: p.helpersFile, manifest: p.helpers, cache: this.foldCache });
     for (const f of helpers.files) inputs.add(f);
-    if (helpers.error && p.helpersFile) p.diagnostics.push({ severity: 'warning', code: 'SN533', message: unloadedMessage(root, p.helpersFile, helpers.error), file: p.helpersFile, line: 1, col: 1 });
+    const unloaded = unloadedDiagnostic(root, p.helpersFile, helpers);
+    if (unloaded) p.diagnostics.push(unloaded);
     let locale: ProjectState['locale'] = null;
     try { locale = checkLocale(root, options as ProjectOptions & { localePrefix?: boolean }); } catch (e) {
       process.stderr.write(`sinter lsp: ${(e as Error).message}\n`);
@@ -211,18 +211,9 @@ export class Workspace {
     return this.docs.get(file) ?? readFileSync(file, 'utf8');
   }
 
-  /** the helpers manifest with the content namespaces the build's snapshot records */
-  private helpersOf(state: ProjectState) {
-    return state.project.contentFile ? snapshotNamespaces(state.root, state.project.helpers).helpers : state.project.helpers;
-  }
-
-  /** collections from the build's snapshot (the editor runs no loaders), and the content module for their types */
-  private contentOpts(state: ProjectState) {
-    const file = state.project.contentFile;
-    if (!file) return {};
-    const snap = readSnapshot(state.root, file);
-    const ns = snap ? snapshotNamespaces(state.root, state.project.helpers) : null;
-    return { contentModule: file, ...(snap ? { collections: snap.collections } : {}), ...(ns?.contentNs ? { contentNs: ns.contentNs } : {}) };
+  /** what the build's snapshot gives a compile (the editor runs no loaders): the collections, the content namespaces with the helpers, the content module */
+  private snapshotOf(state: ProjectState) {
+    return snapshotOptions(state.root, state.project.contentFile, state.project.helpers);
   }
 
   /** the project's listing of a folder for `file:` globs, kept until a file event (`otherChanged`) */
@@ -247,7 +238,7 @@ export class Workspace {
       if (mtimeMs >= 0 && !path.endsWith('.html')) state.reads.set(path, { mtimeMs, text: disk });
       return open ?? disk;
     };
-    const content = this.contentOpts(state);
+    const { helpers, content } = this.snapshotOf(state);
     for (const page of pages) {
       let html: string;
       try { html = this.read(page); } catch { continue; }
@@ -271,7 +262,7 @@ export class Workspace {
           // (helper modules that reach a lazy package: their helpers outside a let are SN324, as in the build)
           ...compileOptionsOf(p, component ? undefined : page), ...(p.swap ? { swap: true } : {}),
           helperValues: state.helpers.module, helperFold: state.helpers.fold,
-          file: component ? join(state.root, `.sinter-use-${component}.html`) : page, dev: false, helpers: this.helpersOf(state), readFile, listFiles: this.lister(state), ...(state.locale ? { locale: state.locale } : {}), ...content, check: true,
+          file: component ? join(state.root, `.sinter-use-${component}.html`) : page, dev: false, helpers, readFile, listFiles: this.lister(state), ...(state.locale ? { locale: state.locale } : {}), ...content, check: true,
         });
         state.includes.set(page, out.files.map((f) => resolve(f)).filter((f) => f !== page));
         if (out.globs?.length) state.globs.set(page, out.globs.map((g) => ({ dir: g.dir.replace(/\/$/, ''), match: new RegExp(g.match) }))); else state.globs.delete(page);
@@ -299,7 +290,7 @@ export class Workspace {
       return this.docs.get(resolve(path)) ?? disk;
     };
     const pages = state.pages.has(file) ? [file] : [...state.includes].filter(([, files]) => files.includes(file)).map(([page]) => page);
-    const out: Diagnostic[] = [], content = this.contentOpts(state);
+    const out: Diagnostic[] = [], { content } = this.snapshotOf(state);
     for (const page of pages) {
       let html: string;
       try { html = page === file ? text : this.read(page); } catch { continue; }
