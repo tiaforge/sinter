@@ -455,7 +455,7 @@ async function paint(parts: CompiledParts, helpers: Record<string, unknown>, app
   for (const u of page.uses) { names.push(u); values.push((earlyExports as Record<string, unknown>)[u]); }
   // eslint-disable-next-line no-new-func -- tests only; pages load a compiled module
   const made = new Function(...names, `"use strict"; const f = [\n${parts.early.fns.join(',\n')}\n]; return ${page.code};`)(...values);
-  await parse(() => { configured(); observe(() => made, null, requests(configured)); });
+  await parse(() => { configured(); observe(() => made, requests(configured)); });
 }
 
 /**
