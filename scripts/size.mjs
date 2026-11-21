@@ -142,7 +142,8 @@ const entries = {
 // table keyed by the map's keys (250 B: md-doc's dispatch, in each of its 25 places); to 58.125 KB (59,419 B) the same
 // day, when the parser's entity table grouped the names that share a value (178 B); to 57.125 KB (58,374 B) the same day,
 // when templates several shared definitions write alike were kept once (1,039 B: md-doc's loop over a node's children,
-// written in 20 of its components)
+// written in 20 of its components); to 56.5 KB (57,767 B) on 2026-11-21, when a build's last pass over the page's
+// tables took out the templates nothing renders, each template's id and the functions nothing calls (466 B)
 // Added on 2026-11-21 (docs/proposals/axes.md, step 0): a page in two languages, the multilingual example's German status
 // page: the scripts it loads (12,740 B: its page module and the runtime) and its HTML (813 B), so the axes work shows
 // what it changes for a language's page
@@ -151,7 +152,7 @@ const entries = {
 // entry's pattern beside `fixed()` (146 B); the page's own message is inlined (`inline()`), with no formatter
 const BUDGET = {
   'multilingual de/status': 12.625 * 1024, 'multilingual de/status, html': 0.875 * 1024,
-  minimal: 11 * 1024, 'minimal, swaps': 12.875 * 1024, 'realworld article': 57.125 * 1024,
+  minimal: 11 * 1024, 'minimal, swaps': 12.875 * 1024, 'realworld article': 56.5 * 1024,
   'minimal, link': 11.125 * 1024, 'minimal, token': 12.125 * 1024, 'minimal, token, early': 1.875 * 1024, 'realworld early, shared': 3.375 * 1024,
 };
 let failed = false;

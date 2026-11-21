@@ -1064,7 +1064,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
       if (r == null) {
         r = 0;
         // a mark counts as "only marked rows" for dependencies on this list's own element; others (outer rows) reach any row
-        for (const n of otherDeps(t!)) each(n, (d, e) => { const x = level(e, d); r = Math.max(r!, x == 1 && ownOf(n) != t!.id ? 2 : x); });
+        for (const n of otherDeps(t!)) each(n, (d, e) => { const x = level(e, d); r = Math.max(r!, x == 1 && ownOf(n) != rb.b.x ? 2 : x); });
         rowHits.set(t!, r);
       }
       // only a selection's outer side changed: the rows it concerns, through the index; rows that were
@@ -1282,7 +1282,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
     };
     if (pre) {
       delete (rb.el as any)[EARLY_ROWS];
-      const t = rb.t!, tpl = tplOf(t.id);
+      const t = rb.t!, tpl = tplOf(rb.b.x!);
       if (!rb.rows!.length && pre.rows.length == items.length) {
         rb.end = pre.end;
         rb.rows = items.map((item, i) => {
@@ -1297,7 +1297,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
       cut(rb.el, pre.end);
       rb.end = pre.end;
     }
-    const t = rb.t!, old = rb.rows!, end = rb.end ?? endFor(rb), tpl = tplOf(t.id), start = rb.el as unknown as Comment;
+    const t = rb.t!, old = rb.rows!, end = rb.end ?? endFor(rb), tpl = tplOf(rb.b.x!), start = rb.el as unknown as Comment;
     const n = items.length, m = old.length, rows: Inst[] = new Array(n), moved = t.ri;
     // a first render inside a branch or row still being built: each row renders in place, in order, before the end
     const inPlace = !m && !end.isConnected ? end : undefined;
@@ -1473,9 +1473,9 @@ export function mount(root: Document | Element, o: MountOptions): App {
   /** The branch `br` of an if or choice (`item`: the case's props): an instance of its template, its only row. */
   function make(rb: RB, br: number, item: unknown, nodes?: Node[], at?: Node): Inst {
     // an if's branch adds no names to the scope (a choice's case adds its props): it reads its anchor's own
-    const ch = rb.b.k == 'ch', t = ir.templates[ch ? rb.b.c![br - 1]! : br == 1 ? rb.b.x! : rb.b.z!]!, s = ch ? Object.create(rb.s) : rb.s;
+    const ch = rb.b.k == 'ch', x = ch ? rb.b.c![br - 1]! : br == 1 ? rb.b.x! : rb.b.z!, t = ir.templates[x]!, s = ch ? Object.create(rb.s) : rb.s;
     if (ch) setRow(s, (rb.t = t), item, 0);
-    return (rb.rows = [instantiate(tplOf(t.id), t, s, ch ? keyOf(t, item, s) : '', ch ? item : null, 0, nodes, at, rb)])[0]!;
+    return (rb.rows = [instantiate(tplOf(x), t, s, ch ? keyOf(t, item, s) : '', ch ? item : null, 0, nodes, at, rb)])[0]!;
   }
 
   /**
