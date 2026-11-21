@@ -7,7 +7,7 @@
 // from the browser runtime's own code (runtime/url.ts), so the request the server makes for a placeholder
 // is the one the page would have made.
 import { lists } from './runtime/lists.js';
-import { expand, readUrl, withParams } from './runtime/url.js';
+import { expand, readUrl, segments, segsMatch as matches, withParams } from './runtime/url.js';
 import { chooseLanguage, requestLanguages, segmentOf, type Locales } from './locales.js';
 
 /** A fetch handler: an app (Hono's `app.fetch`, a framework's handler) or the next one in a chain. Extra arguments (a Worker's `env` and `ctx`) are passed on. */
@@ -169,11 +169,6 @@ export function describedUrl(s: Placeholder, p: Params): string | null {
   return query?.length ? withParams(url, Object.fromEntries(query)) : url;
 }
 
-/** A path's non-empty segments. */
-const segments = (path: string) => path.split('/').filter(Boolean);
-
-/** Whether a `data-sn-path` pattern's segments (`/article/:slug`) match a path's: as many, and the literal ones equal. */
-const matches = (want: string[], segs: string[]) => want.length == segs.length && want.every((x, i) => x[0] == ':' || x == segs[i]);
 
 /**
  * Paths to rules, the first in their order: exact paths and literal patterns in maps (by the path's

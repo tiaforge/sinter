@@ -12,7 +12,9 @@ import { componentBase } from './components-build.js';
 import { pagePaths } from './page-paths.js';
 import { lazyReachOf, project as readProject, viteProject } from './project.js';
 import { isComponentScript } from './lazy-build.js';
+import { segments, segsMatch } from './runtime/url.js';
 import { withInertPlugin } from './helpers-node.js';
+import { componentScript } from './components-build.js';
 import type { Library } from './libraries.js';
 import type { HistoryWrite, MockStream, RecordedCall, Rendered, RouteResponse } from './testing/index.js';
 
@@ -399,14 +401,11 @@ function requestReport(l: Logged, origin: string): RequestReport {
   return { method: l.call.method, url: shown, headers, ...(l.call.body != null ? { body: l.call.body instanceof FormData ? '(form data)' : l.call.body } : {}), status: l.call.status ?? null, source: l.source, ...(l.error ? { error: l.error } : {}) };
 }
 
-/** A path pattern (`/incidents/:id`) or a page path matches the URL's path; a pattern also matches with a trailing slash. */
+/** A path pattern (`/incidents/:id`) or a page path matches the URL's path, by its non-empty segments (a trailing slash too). */
 export function pathMatches(patterns: string[], path: string): boolean {
-  const bare = path.length > 1 ? path.replace(/\/$/, '') : path;
-  return patterns.some((p) => {
-    if (p === path) return true;
-    const a = p.split('/'), b = bare.split('/');
-    return a.length === b.length && a.every((s, i) => (s[0] === ':' ? b[i] !== '' : s === b[i]));
-  });
+  // as the browser's `$url`, swaps, next-page data and the server match it: by the path's non-empty segments
+  const segs = segments(path);
+  return patterns.some((p) => segsMatch(segments(p), segs));
 }
 
 /** The element tree as indented markup: one element a line, its text inline, comments and scripts left out. */
@@ -635,10 +634,9 @@ export async function renderPage(a: RenderArgs): Promise<RenderReport> {
       return l ? join(l.folder, 'components', l.internal.includes(name) ? 'internal' : '') : resolve(a.root, 'src/components');
     };
     for (const name of [...p.componentNames, ...p.libraries.flatMap((l) => l.internal)]) {
-      for (const ext of ['.ts', '.js']) {
-        const f = join(dirOf(name), name + ext);
-        if (existsSync(f)) { scripts[name] = await load(f); break; }
-      }
+      // (any of the script extensions the compiler takes: `.ts`, `.js`, `.mts`, `.mjs`)
+      const f = componentScript(join(dirOf(name), name + '.html'));
+      if (f) scripts[name] = await load(f);
     }
 
     // every stream the page opens connects, and sends what --emit says

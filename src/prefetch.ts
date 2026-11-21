@@ -8,7 +8,7 @@ import type { ResourceDef } from './ir.js';
 import type { App, Feature } from './runtime/app.js';
 import { PREFETCH_MARK, PREFETCH_PREFIX } from './runtime/config.js';
 import { clean } from './runtime/store.js';
-import { readUrl } from './runtime/url.js';
+import { readUrl, segments, segsMatch } from './runtime/url.js';
 import type { lists } from './runtime/lists.js';
 
 export { lists } from './runtime/lists.js';
@@ -42,11 +42,6 @@ const MAX_ENTRY = 256 * 1024;
 
 const keyOf = (url: string, select?: string | null, total?: string | null) => PREFETCH_PREFIX + JSON.stringify([url, select, total]);
 const pick = (path: string | null | undefined, body: unknown): any => (path ? path.split('.').reduce((x: any, k) => x?.[k], body) : body);
-const segments = (p: string) => p.split('/').filter(Boolean);
-const matches = (pattern: string, segs: string[]) => {
-  const want = segments(pattern);
-  return want.length == segs.length && want.every((w, i) => w[0] == ':' || w == segs[i]);
-};
 
 /** `l`: `lists`, passed by an app with a page that has array parameters (others carry none of it) */
 export function prefetch(pages: PrefetchPage[], l?: typeof lists): Feature {
@@ -97,7 +92,7 @@ export function prefetch(pages: PrefetchPage[], l?: typeof lists): Feature {
         if (u.pathname == here.pathname && u.search == here.search) return;
         const net = (globalThis as any).navigator?.connection;
         if (net?.saveData || /2g/.test(net?.effectiveType ?? '')) return;
-        const segs = segments(u.pathname), page = pages.find((p) => p.m.some((m) => matches(m, segs)));
+        const segs = segments(u.pathname), page = pages.find((p) => p.m.some((m) => segsMatch(segments(m), segs)));
         if (!page) return;
         const scope = { $url: l && page.a ? l(u.href, page.a, readUrl(u.href, page.m)) : readUrl(u.href, page.m) };
         const g = page.g;

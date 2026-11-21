@@ -73,14 +73,19 @@ export function withParams(url: string, params: Record<string, string> | null): 
   return `${base}?${q}${hash ? '#' + hash : ''}`;
 }
 
+/** A path's non-empty segments: `/a//b/` is `a`, `b`, as a page's `data-sn-path` patterns match it everywhere. */
+export const segments = (path: string) => path.split('/').filter(Boolean);
+/** Whether a pattern's segments (`/article/:slug`) match a path's: as many, the literal ones equal (`:name` is any one segment). */
+export const segsMatch = (want: string[], segs: string[]) => want.length == segs.length && want.every((w, i) => w[0] == ':' || w == segs[i]);
+
 /** `$url`: the query parameters (the last of a repeated name), and the `:name` segments of the first path pattern that matches. */
 export function readUrl(href: string, patterns: string[] = []): Record<string, string | string[]> {
   const out = Object.create(null), u = new URL(href);
   for (const [k, v] of u.searchParams) if (!BAD_KEY.test(k)) out[k] = v;
-  const segs = u.pathname.split('/').filter(Boolean);
+  const segs = segments(u.pathname);
   for (const p of patterns) {
-    const want = p.split('/').filter(Boolean);
-    if (want.length != segs.length || want.some((w, i) => w[0] != ':' && w != segs[i])) continue;
+    const want = segments(p);
+    if (!segsMatch(want, segs)) continue;
     want.forEach((w, i) => {
       if (w[0] != ':') return;
       try { out[w.slice(1)] = decodeURIComponent(segs[i]!); } catch { out[w.slice(1)] = segs[i]; }

@@ -3,6 +3,7 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { readUrl } from '../src/runtime/url.js';
 import { expect, test } from 'vitest';
 import { failed, formatReport, lineDiff, parseRenderArgs, pathMatches, renderPage, splitAssignment, type RenderArgs } from '../src/render-cli.js';
 
@@ -128,6 +129,11 @@ test('arguments', () => {
   // a pattern also matches with a trailing slash (docs/static-pages.md)
   expect(pathMatches(['/incidents/:id'], '/incidents/3/')).toBe(true);
   expect(pathMatches(['/', '/index.html'], '/')).toBe(true);
+  // empty segments are skipped, as the browser's `$url`, swaps, next-page data and the server skip them: the page they choose
+  for (const path of ['//incidents/3', '/incidents//3', '/incidents/3//']) {
+    expect(pathMatches(['/incidents/:id'], path)).toBe(true);
+    expect(readUrl(`http://x${path}`, ['/incidents/:id']).id).toBe('3');
+  }
   expect(lineDiff('a\nb\nc', 'a\nx\nc')).toEqual(['- b', '+ x']);
 });
 
@@ -175,6 +181,25 @@ test('the app\'s modules load with its Vite config: a helper imports through one
     const r = await renderPage(a as RenderArgs);
     expect(failed(r)).toBe(false);
     expect(r.rendered).toContain('<p id="p">HI!</p>');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}, 30_000);
+
+test('a component\'s script written as `.mts` runs, as the build runs it', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'sinter-render-mts-'));
+  try {
+    const files: Record<string, string> = {
+      'package.json': '{"type":"module"}',
+      'src/components/x-hi.html': '<template data-sn-props="{}">\n  <p data-sn-state="{ said: \'\' }" data-sn-text="said"></p>\n</template>\n',
+      'src/components/x-hi.mts': "import { XHiComponent } from './x-hi.html';\nexport class XHi extends XHiComponent {\n  connected() { this.state.said = 'from the script'; }\n}\n",
+      'index.html': '<!doctype html><html><head><title>t</title></head><body><x-hi></x-hi></body></html>\n',
+    };
+    for (const [f, text] of Object.entries(files)) { mkdirSync(join(dir, f, '..'), { recursive: true }); writeFileSync(join(dir, f), text); }
+    const a = parseRenderArgs(['index.html'], dir);
+    if (typeof a === 'string') throw new Error(a);
+    const r = await renderPage(a as RenderArgs);
+    expect(r.rendered).toContain('from the script');
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

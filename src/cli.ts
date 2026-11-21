@@ -83,8 +83,9 @@ async function main(argv: string[]): Promise<number> {
   // lazy packages: uses a stub cannot serve, in the app's modules (SN324)
   if (p.lazy.length) {
     const mod = (url: string | null) => (url ? resolveFile(url, resolve(root, 'index.html'), root) : null);
-    const scripts = [...p.componentNames.filter((n) => !p.libraries.some((l) => l.public.includes(n))).map((n) => resolveFile(`/src/components/${n}.ts`, root, root) ?? resolveFile(`/src/components/${n}.js`, root, root)),
-      ...p.libraries.flatMap((l) => [...l.public.map((n) => join(l.folder, 'components', n)), ...l.internal.map((n) => join(l.folder, 'components', 'internal', n))]).map((b) => componentScript(b + '.html'))].filter((f): f is string => !!f);
+    // each component's script, with any extension the compiler takes (componentScript)
+    const scripts = [...p.componentNames.filter((n) => !p.libraries.some((l) => l.public.includes(n))).map((n) => join(root, 'src/components', n)),
+      ...p.libraries.flatMap((l) => [...l.public.map((n) => join(l.folder, 'components', n)), ...l.internal.map((n) => join(l.folder, 'components', 'internal', n))])].map((b) => componentScript(b + '.html')).filter((f): f is string => !!f);
     diagnostics.push(...lazyDiagnostics(root, p.lazy, [p.helpersFile, p.actionsFile, mod(p.config), mod(p.early)], lazyReachOf(p).whole(p.helpers), scripts, p.libraries, p.helpersFile));
   }
   const r = check({ ...checkOptionsOf(p), helpers: ns.helpers, units });

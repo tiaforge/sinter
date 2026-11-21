@@ -306,7 +306,8 @@ export function isComponentScript(root: string, file: string, libs: readonly Lib
   const dirs = [resolve(root, 'src/components'), ...libs.flatMap((l) => [l.folder, l.real + l.folder.slice(l.dir.length)].flatMap((f) => [join(f, 'components'), join(f, 'components', 'internal')]))];
   const dir = dirname(file);
   if (!dirs.includes(dir)) return false;
-  const m = /^([a-z][a-z0-9]*-[a-z0-9-]*)\.[cm]?[jt]s$/.exec(file.slice(dir.length + 1));
+  // the extensions the compiler takes a component's script with (components-build.ts SCRIPT_EXTS)
+  const m = /^([a-z][a-z0-9]*-[a-z0-9-]*)\.m?[jt]s$/.exec(file.slice(dir.length + 1));
   return !!m && existsSync(resolve(dir, `${m[1]}.html`));
 }
 

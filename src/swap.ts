@@ -7,6 +7,7 @@
 // stays a page load.
 import { RANK, api, ask, asked, chain } from './links.js';
 import type { App, Feature, Intent } from './runtime/app.js';
+import { segments, segsMatch } from './runtime/url.js';
 
 /** one page of the build's list (swap-build.ts): the paths it answers at, the names it keeps */
 export interface SwapPage { m: string[]; k?: string[] }
@@ -57,12 +58,8 @@ export const entry = () => nav()?.currentEntry?.key ?? '';
 /** records the page's position on the current entry */
 export const track = (s: SwapState) => { s.y.set(entry(), scrollY); };
 
-const segs = (p: string) => p.split('/').filter(Boolean);
 /** the page of the list that answers at `path` (a pattern's `:name` is one segment) */
-export const pageAt = (list: SwapPage[], path: string) => list.find((p) => p.m.some((m) => {
-  const w = segs(m), h = segs(path);
-  return w.length == h.length && w.every((x, i) => x[0] == ':' || x == h[i]);
-}));
+export const pageAt = (list: SwapPage[], path: string) => { const h = segments(path); return list.find((p) => p.m.some((m) => segsMatch(segments(m), h))); };
 
 /** a traversal that loads its page (a reload of the entry): marked for the page that loads (cache.ts reads it once) */
 export const back = () => { try { sessionStorage.setItem('sn:back', location.href); } catch { /* no storage: a plain load */ } };
