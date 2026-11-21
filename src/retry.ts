@@ -7,7 +7,7 @@
 import { config, SinterError } from './runtime/config.js';
 import type { Env } from './runtime/env.js';
 import { isAbort, toError, type RequestLayer, type Retry } from './runtime/request.js';
-import { doubled, jittered } from './backoff.js';
+import { doubled, jittered, probe } from './backoff.js';
 
 /** A duration as in `refresh` and `cache`: a number and `s`, `m`, `h` or `d`. */
 type Duration = `${number}${'s' | 'm' | 'h' | 'd'}`;
@@ -90,8 +90,6 @@ export function retry(options: RetryOptions): Retry {
   };
 }
 
-/** the session probe's status (0: a network error); it has no retry policy of its own */
-const probe = (layer: RequestLayer) => layer.raw(config.sessionProbe!, { retry: false }).then((r) => r.status, (e) => e?.status ?? 0);
 
 async function send(p: Policy, method: string, write: boolean, once: () => Promise<Response>, url: string, signal: AbortSignal | undefined, stop: AbortSignal | undefined, layer: RequestLayer, env: Env): Promise<Response> {
   const deadline = env.now() + p.maxAge, log = (m: string) => layer.log?.(`(${p.name}): ${method} ${url} ${m}`);
