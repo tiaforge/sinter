@@ -51,3 +51,118 @@ export function parseExpression(src: string, options: Options = { ecmaVersion: '
 export function parseProgram(src: string, options: Options = { ecmaVersion: 'latest' }): acorn.Program {
   return cached('p', src, options, () => acorn.parse(src, options as acorn.Options));
 }
+
+/** names a binding pattern binds (`x`, `{ a, b: [c] }`, `...rest`, `d = 1`), added to `out` */
+export function patternNames(p: any, out: Set<string> = new Set()): Set<string> {
+  if (!p) return out;
+  if (p.type === 'Identifier') out.add(p.name);
+  else if (p.type === 'ObjectPattern') for (const x of p.properties) patternNames(x.type === 'RestElement' ? x.argument : x.value, out);
+  else if (p.type === 'ArrayPattern') for (const x of p.elements) patternNames(x, out);
+  else if (p.type === 'RestElement') patternNames(p.argument, out);
+  else if (p.type === 'AssignmentPattern') patternNames(p.left, out);
+  return out;
+}
+
+/**
+ * Each free reference in a tree: an identifier that names something outside it. Not a member's name (`x.node`), an
+ * object literal's or a class's key (`{ node: … }`), a label, nor a name the tree binds itself where it is in scope
+ * (a function's parameters and own name, a catch's parameter, a block's `let`/`const`/classes/functions, a
+ * function's `var`s; destructured or not). `shorthand`: the property `{ node }` whose value it is, where writing the
+ * reference out takes the key too. A name assigned (`x = 1`, `x++`) is a reference.
+ */
+export function freeRefs(ast: acorn.Node, ref: (id: acorn.Identifier, shorthand: acorn.Property | null) => void): void {
+  /** the names declared directly in `stmts`; `vars`: also the `var`s and functions of a function's body (not of the functions in it) */
+  const declared = (stmts: any[], into: Set<string>, vars: boolean): Set<string> => {
+    for (const s of stmts) {
+      if (s.type === 'VariableDeclaration' && s.kind !== 'var') for (const d of s.declarations) patternNames(d.id, into);
+      else if ((s.type === 'ClassDeclaration' || s.type === 'FunctionDeclaration') && s.id) into.add(s.id.name);
+    }
+    if (vars) {
+      const go = (n: any): void => {
+        if (!n || typeof n.type !== 'string') return;
+        if (n.type === 'VariableDeclaration' && n.kind === 'var') for (const d of n.declarations) patternNames(d.id, into);
+        if (n.type === 'FunctionDeclaration') { if (n.id) into.add(n.id.name); return; }
+        if (n.type === 'FunctionExpression' || n.type === 'ArrowFunctionExpression' || n.type === 'ClassDeclaration' || n.type === 'ClassExpression') return;
+        for (const k of Object.keys(n)) {
+          const v = n[k];
+          if (Array.isArray(v)) v.forEach(go); else if (v && typeof v.type === 'string') go(v);
+        }
+      };
+      stmts.forEach(go);
+    }
+    return into;
+  };
+  /** a binding pattern: its names are bound by the caller; its defaults and computed keys are read */
+  const pattern = (p: any, bound: Set<string>): void => {
+    if (!p || p.type === 'Identifier') return;
+    if (p.type === 'ObjectPattern') {
+      for (const x of p.properties) {
+        if (x.type === 'RestElement') pattern(x.argument, bound);
+        else { if (x.computed) visit(x.key, bound); pattern(x.value, bound); }
+      }
+    } else if (p.type === 'ArrayPattern') for (const x of p.elements) pattern(x, bound);
+    else if (p.type === 'RestElement') pattern(p.argument, bound);
+    else if (p.type === 'AssignmentPattern') { pattern(p.left, bound); visit(p.right, bound); }
+    else visit(p, bound);
+  };
+  const visit = (n: any, bound: Set<string>): void => {
+    if (!n || typeof n.type !== 'string') return;
+    switch (n.type) {
+      case 'Identifier': if (!bound.has(n.name)) ref(n, null); return;
+      case 'MemberExpression': visit(n.object, bound); if (n.computed) visit(n.property, bound); return;
+      case 'Property': case 'PropertyDefinition': case 'MethodDefinition':
+        if (n.computed) visit(n.key, bound);
+        if (n.shorthand && n.value.type === 'Identifier') { if (!bound.has(n.value.name)) ref(n.value, n); return; }
+        visit(n.value, bound);
+        return;
+      case 'LabeledStatement': visit(n.body, bound); return;
+      case 'BreakStatement': case 'ContinueStatement': case 'MetaProperty': case 'ImportDeclaration': case 'ExportAllDeclaration': return;
+      case 'ExportNamedDeclaration': visit(n.declaration, bound); if (!n.source) for (const s of n.specifiers) visit(s.local, bound); return;
+      case 'Program': { const inner = declared(n.body, new Set(bound), true); for (const s of n.body) visit(s, inner); return; }
+      case 'BlockStatement': case 'StaticBlock': { const inner = declared(n.body, new Set(bound), false); for (const s of n.body) visit(s, inner); return; }
+      case 'SwitchStatement': {
+        visit(n.discriminant, bound);
+        const inner = declared(n.cases.flatMap((c: any) => c.consequent), new Set(bound), false);
+        for (const c of n.cases) { visit(c.test, inner); for (const s of c.consequent) visit(s, inner); }
+        return;
+      }
+      case 'ForStatement': case 'ForInStatement': case 'ForOfStatement': {
+        const head = n.type === 'ForStatement' ? n.init : n.left;
+        const inner = head?.type === 'VariableDeclaration' ? declared([head], new Set(bound), false) : bound;
+        for (const k of ['init', 'test', 'update', 'left', 'right', 'body']) visit(n[k], inner);
+        return;
+      }
+      case 'VariableDeclarator': pattern(n.id, bound); visit(n.init, bound); return;
+      case 'CatchClause': {
+        const inner = patternNames(n.param, new Set(bound));
+        pattern(n.param, inner);
+        visit(n.body, inner);
+        return;
+      }
+      case 'FunctionDeclaration': case 'FunctionExpression': case 'ArrowFunctionExpression': {
+        const inner = new Set(bound);
+        if (n.type === 'FunctionExpression' && n.id) inner.add(n.id.name);
+        for (const p of n.params) patternNames(p, inner);
+        // defaults are evaluated in the function's scope
+        for (const p of n.params) pattern(p, inner);
+        if (n.body.type !== 'BlockStatement') { visit(n.body, inner); return; }
+        const body = declared(n.body.body, inner, true);
+        for (const s of n.body.body) visit(s, body);
+        return;
+      }
+      case 'ClassDeclaration': case 'ClassExpression': {
+        const inner = n.type === 'ClassExpression' && n.id ? new Set([...bound, n.id.name]) : bound;
+        visit(n.superClass, inner);
+        visit(n.body, inner);
+        return;
+      }
+    }
+    for (const k of Object.keys(n)) {
+      if (k === 'type' || k === 'start' || k === 'end') continue;
+      const v = n[k];
+      if (Array.isArray(v)) for (const c of v) visit(c, bound);
+      else if (v && typeof v === 'object') visit(v, bound);
+    }
+  };
+  visit(ast, new Set());
+}

@@ -199,6 +199,11 @@ describe('paginate diagnostics', () => {
     expect(diags('paginate="offset" page-size="10" page-model="$url.page"')).toEqual(['SN401 `paginate` is one object literal now: `paginate="{ numbered: true, size: 10, model: $url.page }"`']);
     expect(diags(`${keyset()} page-size="5"`)).toEqual([expect.stringMatching(/^SN101 `page-size` is a key of `paginate` now/)]);
   });
+  test('the old cursor becomes `$item`\'s fields: a name a function in it binds stays the function\'s', () => {
+    expect(diags('paginate="append" page-size="5" cursor="{ ids: tags.map((id) => id).join(), first: tags.find(function f({ uid }) { return f && uid }) }"')).toEqual([
+      'SN401 `paginate` is one object literal now: `paginate="{ append: { ids: $item.tags.map((id) => id).join(), first: $item.tags.find(function f({ uid }) { return f && uid }) }, size: 5 }"`',
+    ]);
+  });
 });
 
 test('jump: keyset pages jump with an offset, then continue by cursor', async () => {

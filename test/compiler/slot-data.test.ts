@@ -226,6 +226,11 @@ describe('a <slot> inside a fill', () => {
     expect(errors(run('<x-c data-sn-with="{ v: \'a\' }"></x-c><x-c data-sn-with="{ v: \'b\' }"></x-c>', { 'x-c': C }))).toEqual([expect.stringMatching(/^SN331 the default of `<slot name="label">` declares `big` on its element, and its children read it/)]);
   });
 
+  test('a name a function in the children binds is not a read of the default\'s element\'s name', () => {
+    const C = '<template data-sn-props="{ v: string[]; label: Slot<{ v: string[] }> }"><p><slot name="label" data-sn-with="{ v }"><span data-sn-let="{ big: v.length }"><b data-sn-text="v.map((big) => big.toUpperCase()).join()"></b><i data-sn-text="v.map(([big, ...rest] = \'\') => big + rest).join()"></i></span></slot></p></template>';
+    expect(errors(run('<x-c data-sn-with="{ v: [\'a\'] }"></x-c><x-c data-sn-with="{ v: [\'b\'] }"></x-c>', { 'x-c': C }))).toEqual([]);
+  });
+
   test('a fill of a slot that passes nothing is given nothing: its `<slot>`s are the enclosing component\'s, as today', () => {
     const CARD = '<template data-sn-props=""><section><slot name="side"></slot></section></template>';
     const OUTER = '<template data-sn-props=""><div><x-card><aside slot="side"><slot></slot></aside></x-card></div></template>';
