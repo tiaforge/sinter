@@ -248,19 +248,23 @@ page module and each page (bytes, gzip), in `scripts/size.mjs` with budgets.
    `0`, English ordinals. New recipes for a plural, for nested keys and for a tenant's texts.
    *Done 2026-11-21* as `src/messages/content.ts` (`inlang()`, `inlangLocales()`, `flatten`, `parseComplex`) and
    `src/messages/format.ts`, on content namespaces (with nested ids and chains in the core), tested per construct
-   and per language (`test/messages-format.test.ts`) and in a build (`test/vite/namespaces.test.ts`). Not yet: the
-   generated types, `m` in app modules, per-tenant files (`tenantFiles`); the built-in `sinter({ messages })` stays
-   until step 4 moves it onto `inlang()`.
+   and per language (`test/messages-format.test.ts`) and in a build (`test/vite/namespaces.test.ts`). *Then, the
+   same day:* the generated types (`sinter.namespaces.d.ts` next to the content module, `writeNamespaceTypes` in
+   src/content-node.ts), `m` in app modules (`@tiaforge-ui/sinter/messages`) and per-tenant files (`tenantFiles`,
+   tested in `test/vite/axes.test.ts`).
 4. **The switch.** `sinter({ messages })` is deprecated (a warning, as `openapi` is), and `npx sinter migrate`
    adds the content module export. The starter (`packages/create`) and the examples move. The option is removed
    in the release after (Breaking in the changelog), and with it the last name of the module in the core.
    *Started 2026-11-21:* the build warns when the built-in messages are on; `examples/multilingual-site` and
    `e2e/swap-csp` moved to `inlang()` (the static pages byte for byte the same, the others but asset names; the
    two-language page's budget 12.625 KB while the messages module carries both ways). A formatter's `inline(entry)`
-   lets the core compile a plain message in place, so a page whose messages are plain imports no formatter. Not
-   yet: `npx sinter migrate` writing the change, and the removal release.
+   lets the core compile a plain message in place, so a page whose messages are plain imports no formatter.
+   *Done 2026-11-21:* `npx sinter migrate` writes the content module's export (`messagesToContent` in src/migrate.ts,
+   `test/migrate.test.ts`), and the option is removed (Breaking in the changelog; its error names the replacement).
+   The removal went into the same release as the warning rather than the one after: no release shipped the warning,
+   so an app upgrading from 0.20 meets the error and runs `npx sinter migrate`.
 5. **Formatted placeholders.** `{x: number style=percent}` and `{x: datetime …}`, onto the core's formatters, so
-   they fold the same way.
+   they fold the same way. *Done 2026-11-21:* src/messages/parse.ts, tested in `test/messages-format.test.ts`.
 
 ## Not in this proposal
 

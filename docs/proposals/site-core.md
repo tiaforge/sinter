@@ -1,6 +1,6 @@
 # Spike: a core per site, without the parts its pages do not use
 
-Status: spike (2026-11-17), on the branch `ccr-609d209b-vp07x6`, on main after #71 and #72. **On in every build, with no option**: a build keeps the parts of the core its pages use and
+Status: implemented (2026-11-17), merged after #71 and #72 (the 0.19.0 changelog). **On in every build, with no option**: a build keeps the parts of the core its pages use and
 compiles away the rest. Dev serves the whole core. Nothing changes for an app's markup or code. It takes a quarter
 off a content site's JavaScript and 0.6 KB off each RealWorld page. The whole test suite, the fuzz tests included,
 runs every page on the smallest core for that page.

@@ -1,7 +1,10 @@
 # Proposal: axes of pages, with languages and tenants on one engine
 
-Status: proposed 2026-11-18 as "languages as an axis of pages"; rewritten 2026-11-21 around a generic axis, after
-review: tenants are in, runtime switching is removed (not deprecated), fallback chains are in. Every file and line
+Status: implemented 2026-11-21, steps 0 to 9 of the [Plan](#plan), but for step 4 (measured, not built: one walk per
+page saved nothing), a link under a variable that holds an axis's entry (§5 case 2), fallback chains of axes other
+than languages and `fallback: true` for content. Proposed 2026-11-18 as "languages as an axis of pages"; rewritten
+2026-11-21 around a generic axis, after review: tenants are in, runtime switching is removed (not deprecated),
+fallback chains are in. The guide is [static-pages.md](../static-pages.md). Every file and line
 reference below is main's at `65a6a32`. It is the groundwork for [messages.md](messages.md), which builds content
 namespaces and the messages on top of it.
 
@@ -449,7 +452,7 @@ Each step ships on its own.
    another value of an axis, from a table per point (`axisUrls`), folded at build. The special files per point (§9)
    needed nothing new: a 404 page over the tenants is copied per tenant by the choosers' pass, at an origin's folder's
    root and in a segment's folder (tested in `test/vite/origins.test.ts`). Not yet: case 2 (a variable that holds an
-   entry), and the server layers' host map (§10).
+   entry); the server layers' host map (§10) is step 9's.
 7. **Fallback chains** (§6): `chain`, the new direction in `choose`, the shared test cases in the three server
    layers, the manifest's `fallbacks`, chains of other axes, `fallback: true` for content.
    *Languages done 2026-11-21:* `chain` and `checkFallbacks` in src/locales.ts, `languages({ fallbacks })`, messages
