@@ -1,0 +1,7 @@
+{
+  "name": "live-dashboard-avenx",
+  "private": true,
+  "description": "The Avenx variant of the live dashboard; ../../build.mjs builds it into dist/avenx/",
+  "scripts": { "build": "avenx build" },
+  "dependencies": { "avenx-core": "1.0.0-rc.1" }
+}

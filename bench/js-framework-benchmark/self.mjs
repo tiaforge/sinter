@@ -1,11 +1,12 @@
-// sinter against itself (and ivi as a reference), without a js-framework-benchmark checkout: builds of
+// sinter against itself (and ivi and Avenx as references), without a js-framework-benchmark checkout: builds of
 // this entry's page in headless Chrome, page loads alternating between them, each operation timed
 // from click() until the render's microtasks are done and the result is laid out (offsetHeight).
 // Memory: JS heap after a forced GC, ready / 1,000 rows / five create-and-clear cycles.
 //
 //   npm run build (repo root) && npx vite build --outDir dist-a     # one build per variant
 //   npx vite build -c vite.ivi.config.js                             # dist-ivi
-//   CHROME=… node self.mjs dist-a dist-b [dist-ivi] [--loads 6] [--reps 10]
+//   (cd avenx && npm install && npm run build)                       # avenx (pass the folder itself)
+//   CHROME=… node self.mjs dist-a dist-b [dist-ivi] [avenx] [--loads 6] [--reps 10]
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { extname, join, resolve } from 'node:path';

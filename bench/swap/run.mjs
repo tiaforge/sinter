@@ -4,7 +4,7 @@
 // Environment: N=100,1000,5000  S=replace,update,append  ROUNDS=3  ITER=50  WARMUP=10  CPU=1 (throttling
 // rate)  ONLY=sinter,htmx-4.0.1 (variant name substrings)
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { copyFileSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { gzipSync } from 'node:zlib';
@@ -31,6 +31,7 @@ const VARIANTS = [
   ['datastar-1.0.4', '/datastar-1.0.4.html', ['vendor/datastar-1.0.4.js']],
   ['alpine-3.17.5', '/alpine-3.17.5.html', ['vendor/alpinejs-3.17.5.min.js']],
   ['petite-vue-0.4.1', '/petite-vue-0.4.1.html', ['vendor/petite-vue-0.4.1.iife.js']],
+  ['avenx-1.0.0-rc.1', '/avenx-1.0.0-rc.1.html', ['vendor/avenx-1.0.0-rc.1-app.js']],
   ['datastar-1.0.4-replace', { replace: '/datastar-1.0.4-replace.html', update: '/datastar-1.0.4-replace.html', ...NO_APPEND }, ['vendor/datastar-1.0.4.js']],
 ].filter(([name]) => !ONLY || ONLY.some((o) => name.includes(o)));
 const pageFor = (paths, s) => (typeof paths === 'string' ? paths : paths[s]);
@@ -61,6 +62,12 @@ function libBytes(files) {
 
 // the sinter page bundles the harness: rebuild so it never runs a stale copy
 if (spawnSync('npx', ['vite', 'build', '--logLevel', 'warn'], { cwd: here, stdio: 'inherit' }).status) process.exit(1);
+// Avenx builds the runtime and the page's component into one script with its own CLI (avenx/, npm install there first)
+if (VARIANTS.some(([name]) => name.startsWith('avenx'))) {
+  if (spawnSync('npx', ['avenx', 'build'], { cwd: join(here, 'avenx'), stdio: ['ignore', 'ignore', 'inherit'] }).status) process.exit(1);
+  mkdirSync(join(here, 'vendor'), { recursive: true });
+  copyFileSync(join(here, 'avenx/dist/bundle.js'), join(here, 'vendor/avenx-1.0.0-rc.1-app.js'));
+}
 const server = await start();
 const chrome = await launch();
 const samples = {}; // scenario → n → variant → { dom: [], layout: [] }
