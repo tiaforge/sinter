@@ -33,6 +33,7 @@ import { type SwapPage, swapModule } from './swap-build.js';
 import { pageRoutes, rebaseHtml, redirectHtml, redirectsFile, relocateHtml, type PageEntry, type Route } from './page-urls.js';
 import { readLocales } from './locales-build.js';
 import { chooserHtml, hreflangTags, manifestLocales, prefixPaths, type Locales } from './locales.js';
+import { entryChooserPath, listPoints, type Point, type Points } from './points.js';
 import { canonicalOf, fillPattern, noindex, sitemapFiles, sitemapOf, type SitemapOptions, type SitemapUrl } from './sitemap-build.js';
 import { familyLineHeights, familyZeroWidths } from './font-metrics.js';
 import { faceName, faceOf, fontDownloader, fontFileDownloader, bundleFonts, preloadFonts, preloadLocalFonts, usesFamily, type FontFaceRef, type FontPreload } from './fonts-build.js';
@@ -672,7 +673,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   let locales: Locales | null = null;
   const virtual = new Map<string, { source: string; locale: string; page?: { value: unknown; path: string; key: string } }>();
   /** `<html data-sn-for>` with languages: each template's entries by key, each language's path (an entry's translations) */
-  const entryLangs = new Map<string, Map<string, string>>();
+  let translations: Points['translations'] = new Map();
   /** `<html data-sn-for>`: the build's inputs, each template page replaced by a page per entry (`pageInputs()`), or null */
   let pageInputs: string[] | null = null;
   /** the build's input as the app wrote it, before `localePrefix` turns it into one input per page and language */
@@ -730,14 +731,30 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     if (!files.length && existsSync(resolve(root, 'index.html'))) files.push(resolve(root, 'index.html'));
     return [...new Set([...files, ...[...seen].map((f) => virtual.get(f)?.source ?? f)])].sort();
   };
-  /** `localePrefix`: a source page in a language, `<root>/<locale>/<page>`, which the build and the dev server serve as a page */
-  const virtualOf = (source: string, locale: string) => {
-    const v = resolve(root, locale, relOf(source));
-    virtual.set(v, { source, locale });
+  /**
+   * a point's file (points.ts): the source page itself, or a virtual page (`<root>/<locale>/<page>`, an entry's
+   * `<root>/blog/hello.html`) that the build and the dev server serve from its source
+   */
+  const fileOf = (pt: Point) => {
+    if (!pt.locale && !pt.entry) return pt.source;
+    const v = resolve(root, pt.rel);
+    virtual.set(v, { source: pt.source, locale: (pt.locale ?? undefined) as unknown as string, ...(pt.entry ? { page: pt.entry } : {}) });
     return v;
   };
+  /**
+   * the points of the source pages: each in each language, and a page per entry's entries (a build's; dev compiles a
+   * template per URL, `devEntry`). `withEntries` lists them only when a source is a template (the build's inputs).
+   */
+  const points = (withEntries: boolean): Points => listPoints({
+    sources: sourceEntries().map((f) => {
+      const pg = withEntries ? templatePages(f) : null;
+      return { source: f, rel: relOf(f), entries: pg ? (l: string | null) => (l ? templatePages(f, l)!.entries : pg.entries) : null };
+    }),
+    locales: locales?.list ?? null, base: base(),
+    inPublic: (rel) => !!resolved?.publicDir && existsSync(resolve(resolved.publicDir, rel + '.html')),
+  });
   /** the app's HTML entries: its pages, or with `localePrefix` each page in each language */
-  const entries = () => pageInputs ?? (locales ? sourceEntries().flatMap((s) => locales!.list.map((l) => virtualOf(s, l))) : sourceEntries());
+  const entries = () => pageInputs ?? (locales ? points(false).points.map(fileOf) : sourceEntries());
   /**
    * `<html data-sn-for>` (docs/static-pages.md#a-page-per-entry): a page's entries, from a compile of it as its template, which
    * reads its `file:` list; null for a page without it. Its errors (SN340, SN340) fail the build: the template is no
@@ -760,15 +777,12 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   };
   /** an entry's URL in each language that has it (the entry with its key in that language's list) */
   const entryUrls = (v: { source: string; page?: { key: string } }): Record<string, string> | null => {
-    const by = v.page ? entryLangs.get(`${v.source}\0${v.page.key}`) : undefined;
+    const by = v.page ? translations.get(`${v.source}\0${v.page.key}`) : undefined;
     if (!by) return null;
     return Object.fromEntries([...by].map(([l, path]) => [l, prefixed([path], l)[0]!]));
   };
   /** where an entry's language chooser is, at its unprefixed path: the base language's entry's, else the first's */
-  const entryChooser = (source: string, key: string): string | null => {
-    const by = entryLangs.get(`${source}\0${key}`);
-    return by ? (by.get(locales!.base) ?? [...by.values()][0]!) : null;
-  };
+  const entryChooser = (source: string, key: string): string | null => entryChooserPath(translations, source, key, locales!.base);
   /** dev: the entry a URL names on a `<html data-sn-for>` page (its path, under `base`), else its first */
   const devEntry = (file: string, url: string, locale?: string): { value: unknown; path: string; key: string } | undefined => {
     let pages: ReturnType<typeof templatePages>;
@@ -784,39 +798,10 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
    * `public/` has fails the build.
    */
   const pagesInputs = (): string[] | null => {
-    const sources = sourceEntries();
-    const found = sources.map((f) => [f, templatePages(f)] as const);
-    if (!found.some(([, pg]) => pg)) return null;
-    const b = base().startsWith('/') ? base().replace(/\/?$/, '/') : '/';
-    const relOfPath = (path: string) => decodeURIComponent(path.startsWith(b) ? path.slice(b.length) : path.replace(/^\//, ''));
-    // the pages that are not templates, in every language: where an entry may not be written
-    const plain = sources.filter((f) => !found.find(([g, pg]) => g === f && pg));
-    const taken = new Map<string, string>();
-    for (const f of plain) for (const l of locales ? locales.list : [null]) {
-      const rel = (l ? `${l}/` : '') + relOf(f);
-      taken.set(rel.replace(/(^|\/)index\.html$/, '$1').replace(/\.html$/, ''), rel);
-    }
-    const out: string[] = [];
-    entryLangs.clear();
-    for (const [f, pg] of found) {
-      if (!pg) { if (locales) out.push(...locales.list.map((l) => virtualOf(f, l))); else out.push(f); continue; }
-      // each language's entries (its own list with `{$locale}`), at its prefix; their keys pair the translations
-      for (const l of locales ? locales.list : [null]) {
-        const entries = l ? templatePages(f, l)!.entries : pg.entries;
-        for (const e of entries) {
-          const rel = (l ? `${l}/` : '') + relOfPath(e.path);
-          const other = taken.get(rel) ?? taken.get(rel + '/');
-          if (other) throw new Error(`sinter: ${relOf(f)}: the entry at \`${l ? `/${l}` : ''}${e.path}\` would be written where \`${other}\` is (data-sn-for on <html>)`);
-          if (resolved?.publicDir && existsSync(resolve(resolved.publicDir, rel + '.html'))) throw new Error(`sinter: ${relOf(f)}: the entry at \`${e.path}\` would be written where \`public/${rel}.html\` is (data-sn-for on <html>)`);
-          taken.set(rel, `${relOf(f)} (${e.path})`);
-          const v = resolve(root, rel + '.html');
-          virtual.set(v, { source: f, locale: (l ?? undefined) as unknown as string, page: e });
-          out.push(v);
-          if (l) { const k = `${f}\0${e.key}`; if (!entryLangs.has(k)) entryLangs.set(k, new Map()); entryLangs.get(k)!.set(l, e.path); }
-        }
-      }
-    }
-    return out;
+    if (!sourceEntries().some((f) => templatePages(f))) return null;
+    const pl = points(true);
+    translations = pl.translations;
+    return pl.points.map(fileOf);
   };
   /** a page's HTML: its file, or for a page in a language its source's */
   const readPage = (file: string) => readFileSync(virtual.get(file)?.source ?? file, 'utf8');
@@ -2209,6 +2194,37 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       hreflang: siteOrigin && urls ? hreflangTags(siteOrigin, urls, chooserUrl(source)) : '',
     });
   };
+  /**
+   * `localePrefix`: what the build writes at the unprefixed URLs, from the points: a chooser at each entry's unprefixed
+   * path (to the visitor's language's translation, else the base's; only where no page is), a chooser at each other
+   * source page's unprefixed file and old file URL, and at `404.html` and `200.html` a copy of the base language's
+   * page, which hosts look for there
+   */
+  const choosers = (script: boolean): Array<{ fileName: string; source: string; ifFree?: true } | { fileName: string; copyOf: string }> => {
+    const out: Array<{ fileName: string; source: string; ifFree?: true } | { fileName: string; copyOf: string }> = [];
+    const b = base().startsWith('/') ? base().replace(/\/?$/, '/') : '/';
+    const templates = new Set<string>(), done = new Set<string>();
+    for (const v of virtual.values()) {
+      if (!v.page) continue;
+      templates.add(v.source);
+      const k = `${v.source}\0${v.page.key}`;
+      if (done.has(k)) continue;
+      done.add(k);
+      const urls = entryUrls(v)!, at = entryChooser(v.source, v.page.key)!;
+      const fallback = urls[locales!.base] ?? Object.values(urls)[0]!;
+      const full = Object.fromEntries(locales!.list.map((l) => [l, urls[l] ?? fallback]));
+      const fileName = decodeURIComponent(at.startsWith(b) ? at.slice(b.length) : at.replace(/^\//, '')) + '.html';
+      out.push({ fileName, source: chooserHtml({ base: b, locales: locales!, urls: full, script, fallback, hreflang: siteOrigin ? hreflangTags(siteOrigin, urls, at) : '' }), ifFree: true });
+    }
+    for (const src of sourceEntries()) {
+      if (templates.has(src)) continue;
+      const rel = relOf(src), file = chooserFile(rel);
+      if (/(^|\/)(404|200)\.html?$/.test(rel)) { out.push({ fileName: rel, copyOf: `${locales!.base}/${rel}` }); continue; }
+      out.push({ fileName: file, source: chooserFor(src, script) });
+      if (file !== rel) out.push({ fileName: rel, source: chooserFor(src, script) });
+    }
+    return out;
+  };
   /** a rule's path against a request's: literal segments, `:name` for any one, a trailing slash either way */
   const matches = (from: string, path: string) => {
     const a = from.split('/').filter(Boolean), b = path.split('/').filter(Boolean);
@@ -2245,19 +2261,28 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     const b = base().startsWith('/') ? base() : '/';
     const send = (html: string) => { res.statusCode = 200; res.setHeader('Content-Type', 'text/html'); res.end(html); };
     const moved = (to: string) => { res.statusCode = 301; res.setHeader('Location', to + q); res.end(); };
+    const at = pointAt(path);
+    if (!at) return next();
+    if ('chooser' in at) return send(chooserFor(at.chooser, true));
+    if (at.moved) return moved(at.moved);
+    server!.transformIndexHtml(b + relOf(at.file), readPage(at.file), req.originalUrl).then(send, next);
+  };
+  /**
+   * dev with `localePrefix`: the point a URL names (a page in a language, its file; `moved` when it is a page's other
+   * form), else the source page whose unprefixed URL it is (its chooser), else null
+   */
+  const pointAt = (path: string): { file: string; moved?: string } | { chooser: string } | null => {
+    const b = base().startsWith('/') ? base() : '/';
     for (const f of entries()) {
       const rel = relOf(f), pats = describe(f).path, url = pageUrl(rel, b, pats);
-      const hit = path === b + rel || pagePaths(rel, b, pats).some((x) => matches(x, path));
-      if (!hit) continue;
-      if (movesToDirectory(rel, b, pats) && path !== url) return moved(url!);
-      server!.transformIndexHtml(b + rel, readPage(f), req.originalUrl).then(send, next);
-      return;
+      if (!(path === b + rel || pagePaths(rel, b, pats).some((x) => matches(x, path)))) continue;
+      return movesToDirectory(rel, b, pats) && path !== url ? { file: f, moved: url! } : { file: f };
     }
     for (const s of sourceEntries()) {
       const rel = relOf(s), pats = describeSource(s).path;
-      if (path === b + rel || pagePaths(rel, b, pats).some((x) => matches(x, path))) return send(chooserFor(s, true));
+      if (path === b + rel || pagePaths(rel, b, pats).some((x) => matches(x, path))) return { chooser: s };
     }
-    next();
+    return null;
   };
   /**
    * builds with `site`: the sitemap's files (sitemap-build.ts), from each page's finished HTML (`built`, by its file):
@@ -2410,30 +2435,11 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       // which hosts look for there); at a moved source page's old file URL, the chooser too (one hop to a language)
       if (locales) {
         const script = [...runtimeOf.values()].some((r) => r.length);
-        // a page per entry: a chooser at each entry's unprefixed path, to the visitor's language's translation (else the base's)
-        const templates = new Set<string>(), done = new Set<string>();
-        for (const v of virtual.values()) {
-          if (!v.page) continue;
-          templates.add(v.source);
-          const k = `${v.source}\0${v.page.key}`;
-          if (done.has(k)) continue;
-          done.add(k);
-          const urls = entryUrls(v)!, at = entryChooser(v.source, v.page.key)!, b = base().startsWith('/') ? base().replace(/\/?$/, '/') : '/';
-          const fallback = urls[locales.base] ?? Object.values(urls)[0]!;
-          const full = Object.fromEntries(locales.list.map((l) => [l, urls[l] ?? fallback]));
-          const fileName = decodeURIComponent(at.startsWith(b) ? at.slice(b.length) : at.replace(/^\//, '')) + '.html';
-          if (!bundle[fileName]) this.emitFile({ type: 'asset', fileName, source: chooserHtml({ base: b, locales, urls: full, script, fallback, hreflang: siteOrigin ? hreflangTags(siteOrigin, urls, at) : '' }) });
-        }
-        for (const src of sourceEntries()) {
-          if (templates.has(src)) continue;
-          const rel = relOf(src), file = chooserFile(rel);
-          if (/(^|\/)(404|200)\.html?$/.test(rel)) {
-            const a = bundle[`${locales.base}/${rel}`];
-            if (a?.type === 'asset') this.emitFile({ type: 'asset', fileName: rel, source: rebaseHtml(String(a.source), '/' + posix.dirname(`${locales.base}/${rel}`), '/' + posix.dirname(rel).replace(/^\.$/, '')) });
-            continue;
-          }
-          this.emitFile({ type: 'asset', fileName: file, source: chooserFor(src, script) });
-          if (file !== rel) this.emitFile({ type: 'asset', fileName: rel, source: chooserFor(src, script) });
+        for (const c of choosers(script)) {
+          if ('copyOf' in c) {
+            const a = bundle[c.copyOf];
+            if (a?.type === 'asset') this.emitFile({ type: 'asset', fileName: c.fileName, source: rebaseHtml(String(a.source), '/' + posix.dirname(c.copyOf), '/' + posix.dirname(c.fileName).replace(/^\.$/, '')) });
+          } else if (!c.ifFree || !bundle[c.fileName]) this.emitFile({ type: 'asset', fileName: c.fileName, source: c.source });
         }
       }
       brokenEntryLinks((m) => this.error(m), built);

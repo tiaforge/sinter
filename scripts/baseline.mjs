@@ -26,6 +26,8 @@ const APPS = {
   dashboard: { root: 'examples/dashboard' },
   'swap-csp': { root: 'e2e/swap-csp' },
   'vite-i18n': { root: 'test/fixtures/vite-i18n', options: { typecheck: true } },
+  // bench/axes's app, small: plain pages and a page per entry (`{$locale}` lists) in two languages, one layout
+  axes: { generate: { pages: 3, posts: 2, langs: 2 } },
 };
 
 const args = process.argv.slice(2);
@@ -50,7 +52,12 @@ const sha = (b) => createHash('sha256').update(b).digest('hex');
 
 /** builds one app into a fresh folder and returns { file: { sha256, bytes } }, sorted by path */
 async function buildApp(name, app) {
-  const root = join(REPO, app.root);
+  let root = app.root && join(REPO, app.root);
+  if (app.generate) {
+    // inside the repository, so its config resolves vite (bench/axes/out/ is ignored by git)
+    root = join(REPO, 'bench/axes/out', `baseline-${name}`);
+    (await import(join(REPO, 'bench/axes/app.mjs'))).writeApp(root, app.generate);
+  }
   link(root, '@tiaforge-ui/sinter', REPO);
   if (app.markdown) {
     link(root, '@tiaforge-ui/sinter-markdown', join(REPO, 'packages/sinter-markdown'));
@@ -71,6 +78,7 @@ async function buildApp(name, app) {
     return { files, ms: Math.round(performance.now() - t0) };
   } finally {
     if (!keep) rmSync(outDir, { recursive: true, force: true });
+    if (app.generate) rmSync(root, { recursive: true, force: true });
   }
 }
 
