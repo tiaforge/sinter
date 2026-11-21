@@ -115,7 +115,9 @@ list:
 - A resource whose `when` is falsy has not loaded: a search with nothing typed shows no "No results". Cached data
   shown early is not empty yet (`loadedAt` waits for the server), a background `refresh` keeps it, `page()` hides it
   while the page loads. A `file:` or `content:` list is decided at build time: the empty state is in the page, or
-  not. A list of state, or a list inside a row (`a.comments`), is empty when it is empty.
+  not. A list of state, or a list inside a row (`a.comments`), is empty when it is empty. Over embedded data
+  (`data-sn-resource`, `embed: true`) the resource has loaded when the page starts, so the empty state is in the
+  first paint ([first paint](first-paint.md#loading-branches)).
 - The else after a list takes no `data-sn-if` (SN102): choose inside it.
 
 ## Changing a resource
