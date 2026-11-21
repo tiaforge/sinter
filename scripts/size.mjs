@@ -138,9 +138,10 @@ const entries = {
 // shared head script to 3.375 KB (3,283 B) and the article to 60 KB (61,290 B)
 // Lowered on 2026-11-21: the article to 58.375 KB (59,597 B), when sinter-markdown's parser drove markdown-it's parsers
 // without its class (1,443 B: the presets, the renderer, the plugin API) and a map's `<sn-component use>` became one
-// table keyed by the map's keys (250 B: md-doc's dispatch, in each of its 25 places)
+// table keyed by the map's keys (250 B: md-doc's dispatch, in each of its 25 places); to 58.125 KB (59,419 B) the same
+// day, when the parser's entity table grouped the names that share a value (178 B)
 const BUDGET = {
-  minimal: 11 * 1024, 'minimal, swaps': 12.875 * 1024, 'realworld article': 58.375 * 1024,
+  minimal: 11 * 1024, 'minimal, swaps': 12.875 * 1024, 'realworld article': 58.125 * 1024,
   'minimal, link': 11.125 * 1024, 'minimal, token': 12.125 * 1024, 'minimal, token, early': 1.875 * 1024, 'realworld early, shared': 3.375 * 1024,
 };
 let failed = false;

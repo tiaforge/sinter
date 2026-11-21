@@ -18,18 +18,24 @@ const OUT = here('../sinter/parser.js');
 const pkg = (name) => JSON.parse(readFileSync(here(`../node_modules/${name}/package.json`), 'utf8')).version;
 const VERSIONS = ['markdown-it', 'character-entities'].map((n) => `${n} ${pkg(n)}`).join(', ');
 
-// character-entities packed (scripts/entities.js unpacks it): sorted by code point, each entry its first code
-// point's distance from the one before in base 36, `+` and its second in base 36 if it has one, then its name
+// character-entities packed (scripts/entities.js unpacks it): the names of each value together, sorted by code point;
+// each group its first code point's distance from the one before in base 36 (nothing for 1), `+` and its second in
+// base 36 if it has one, `:` and its names joined by `,`; the groups joined by `;`
 let last = 0;
-const PACKED = Object.entries(characterEntities)
+const groups = new Map();
+for (const [name, [first, second, more]] of Object.entries(characterEntities)
   .map(([name, value]) => [name, [...value].map((c) => c.codePointAt(0))])
-  .sort(([an, a], [bn, b]) => a[0] - b[0] || (a[1] ?? -1) - (b[1] ?? -1) || (an < bn ? -1 : 1))
-  .map(([name, [first, second, more]]) => {
-    if (more !== undefined || !/^[a-z\d]+$/i.test(name)) throw new Error(`character-entities: cannot pack ${name}`);
-    const delta = first - last;
-    last = first;
-    return `${delta.toString(36)}${second === undefined ? '' : '+' + second.toString(36)} ${name}`;
-  }).join(' ');
+  .sort(([an, a], [bn, b]) => a[0] - b[0] || (a[1] ?? -1) - (b[1] ?? -1) || (an < bn ? -1 : 1))) {
+  if (more !== undefined || !/^[a-z\d]+$/i.test(name)) throw new Error(`character-entities: cannot pack ${name}`);
+  const key = `${first},${second}`;
+  if (groups.has(key)) groups.get(key).names.push(name);
+  else groups.set(key, { first, second, names: [name] });
+}
+const PACKED = [...groups.values()].map(({ first, second, names }) => {
+  const delta = first - last;
+  last = first;
+  return `${delta === 1 ? '' : delta.toString(36)}${second === undefined ? '' : '+' + second.toString(36)}:${names.join(',')}`;
+}).join(';');
 
 // markdown-it's modules that md.parse never runs, by their path inside markdown-it
 const UNUSED = /\/markdown-it\/lib\/(?:rules_core\/(?:linkify|replacements|smartquotes)|rules_inline\/linkify)\.mjs$/;

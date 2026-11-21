@@ -268,7 +268,7 @@ describe('the modules', () => {
   test('the parser decodes entities with its packed table: no DOM, no innerHTML, no debug', () => {
     const src = readFileSync(join(PKG, 'sinter/parser.js'), 'utf8');
     expect(src).not.toMatch(/innerHTML|document\.createElement|createDebug|localStorage|navigator/);
-    expect(src).toMatch(/var _packed_entities_default = "9 Tab 1 NewLine /);
+    expect(src).toMatch(/var _packed_entities_default = "9:Tab;:NewLine;n:excl;:QUOT,quot;/);
     expect(src).not.toMatch(/decode_data_html|Uint16Array|const characterEntities = \{/);
   });
 

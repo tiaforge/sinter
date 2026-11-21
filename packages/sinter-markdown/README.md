@@ -178,7 +178,7 @@ docs/                     the docs page and the recipe
 
 `parser.js` is markdown-it (CommonMark, GFM tables and `~~strikethrough~~`) with GFM's autolinks
 (`scripts/autolink.js`), configured for `md.parse` and bundled into one file by `scripts/build-parser.mjs`:
-20.3 kB minified and gzipped (18.0 kB brotli). It returns markdown-it's tokens, and `parse.ts` builds the
+20.1 kB minified and gzipped (17.9 kB brotli). It returns markdown-it's tokens, and `parse.ts` builds the
 tree from them in one pass, task lists and the options included: there is no intermediate tree (an mdast
 before the library's own, and a walk over it).
 
@@ -208,9 +208,12 @@ before the library's own, and a walk over it).
   takes under 0.1 s).
 - **Entities decode from a table** (`character-entities`, through `scripts/entities.js`), never through
   the DOM, so the parser works under Trusted Types (`require-trusted-types-for 'script'`). It is the
-  table micromark used, packed by `scripts/build-parser.mjs`: sorted by code point, each entry its
-  distance from the one before, about 7.5 kB gzip where the table as an object is 11.5 and
-  markdown-it's own (`entities`, a packed trie) 21. It is unpacked once, when the parser loads.
+  table micromark used, packed by `scripts/build-parser.mjs`: the names that share a value grouped, the
+  groups sorted by code point, each its distance from the one before, about 7.3 kB gzip where the table
+  as an object is 11.5 and markdown-it's own (`entities`, a packed trie) 21. The names alone gzip to
+  6.6 kB, so the code points cost under 0.7; generating the regular families instead (`Afr`…`zscr`,
+  the Cyrillic `…cy`, the accented Latin letters) would save under 1 kB before the rules and their
+  exceptions. It is unpacked once, when the parser loads.
 - sinter's build-time check follows one module that uses no browser global, so `md.parse` folds over
   a `file:` resource.
 
