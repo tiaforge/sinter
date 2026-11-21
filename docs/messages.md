@@ -69,7 +69,9 @@ sinter({ localePrefix: true, messages: false })
 - **Types**: `sinter check` types each message from the base language: a plural's input a `number`, a placeholder `string | number`; a wrong parameter is `SN208`.
 - **Formatted placeholders**: `{rate: number style=percent}`, `{at: datetime dateStyle=long}`, with `Intl` in the page's
   language and the options as written.
-- Not yet: `m` in app modules, and markup in messages, which fails the build at its file and message.
+- **App code**: `import { m } from '@tiaforge-ui/sinter/messages'` and `m.inbox.title()`, as with the built-in messages: the
+  build writes the messages a page's modules call into the page, in its language.
+- Not yet: markup in messages, which fails the build at its file and message.
 
 Another library works the same way: register your own namespace with your own formatter, and nothing of this module is
 in your build.

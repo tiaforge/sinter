@@ -127,7 +127,7 @@ function compileOne(html: string, options0: CompileOptions): CompileResult {
   const page = pageLines(parts, options);
   const out: CompileResult = {
     html: parts.html, module: css + page.text(), runtime: parts.runtime, preload: parts.preload, ...(parts.static ? { static: true as const } : {}),
-    diagnostics: parts.diagnostics, files: parts.files, ...(parts.globs ? { globs: parts.globs } : {}), ...(parts.pages ? { pages: parts.pages } : {}), ...(parts.axes ? { axes: parts.axes } : {}), styles: parts.styles, prefetch: parts.prefetch, embed: parts.embed, path: parts.ir.path ?? [], ...(parts.ir.urlArrays ? { urlArrays: parts.ir.urlArrays } : {}), ...(parts.prefetchOff ? { prefetchOff: true as const } : {}), ...(parts.loadEffect ? { loadEffect: parts.loadEffect } : {}), ...(parts.permanent ? { permanent: parts.permanent, ...(parts.keptSource ? { keptSource: parts.keptSource } : {}), ...(parts.keptBound ? { keptBound: parts.keptBound } : {}) } : {}), ...(parts.swapOff ? { swapOff: true as const } : {}),
+    diagnostics: parts.diagnostics, files: parts.files, ...(parts.globs ? { globs: parts.globs } : {}), ...(parts.pages ? { pages: parts.pages } : {}), ...(parts.axes ? { axes: parts.axes } : {}), ...(options.contentNs ? { contentNs: options.contentNs } : {}), styles: parts.styles, prefetch: parts.prefetch, embed: parts.embed, path: parts.ir.path ?? [], ...(parts.ir.urlArrays ? { urlArrays: parts.ir.urlArrays } : {}), ...(parts.prefetchOff ? { prefetchOff: true as const } : {}), ...(parts.loadEffect ? { loadEffect: parts.loadEffect } : {}), ...(parts.permanent ? { permanent: parts.permanent, ...(parts.keptSource ? { keptSource: parts.keptSource } : {}), ...(parts.keptBound ? { keptBound: parts.keptBound } : {}) } : {}), ...(parts.swapOff ? { swapOff: true as const } : {}),
     ...(parts.ir.urlReads ? { sameLinks: true as const } : {}),
     // the parts of the core the page module uses (a site's core keeps their union: src/core-parts.ts)
     ...(parts.static ? {} : { core: coreParts(parts.ir) }),
@@ -326,6 +326,8 @@ function pageLines(parts: CompiledParts, options: Pick<CompileOptions, 'helpers'
   // an app with built-in messages: the page's modules (helpers, actions, islands) may call `m` although its markup
   // does not; the page's language is fixed and its messages compiled in, so nothing waits for a dictionary
   if (!messages && Object.values(options.helpers.namespaces).some((n) => n.module === MESSAGES)) lines.push(isFixed(options) ? fixedMessages('m', [], options) : messagesImport('m', []));
+  // a content namespace app code imports (`module`): its module gets the page's language and the formatter first
+  lines.push(...installLines(options));
   // actions (`data-sn-call`): imported as `$a$name` / `$a$ns$member`, only those the page calls
   const acts = options.actions;
   if (acts?.module) {
@@ -413,6 +415,15 @@ const isFixed = (o: Pick<CompileOptions, 'locale' | 'baseMessages' | 'contentNs'
  * its entry in the page's language, through the namespace's formatter module (`format(entry, args, locale)`), or for
  * the built-in `{param}` form a function of its text, as the messages are.
  */
+/** `install(locale, format)` of each content namespace app code imports by name (`module`), before the page's code runs */
+function installLines(options: Pick<CompileOptions, 'contentNs' | 'locale'>): string[] {
+  return Object.entries(options.contentNs ?? {}).flatMap(([ns, spec]) => (spec.module && spec.format ? [
+    `import { install as $install$${ns} } from ${JSON.stringify(spec.module)};`,
+    `import { format as $fmti$${ns} } from ${JSON.stringify(spec.format)};`,
+    `$install$${ns}(${JSON.stringify(options.locale?.name ?? '')}, $fmti$${ns}, ${JSON.stringify(ns)});`,
+  ] : []));
+}
+
 function contentLines(ns: string, members: string[], options: Pick<CompileOptions, 'contentNs' | 'locale'>): string {
   const spec = options.contentNs?.[ns];
   if (!spec || !members.length) return '';

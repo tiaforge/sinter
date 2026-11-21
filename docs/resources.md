@@ -396,7 +396,10 @@ export function format(entry, args, locale) { return entry.body.replace(/\[(\w+)
   another content namespace) fails the build.
 - `format(entry, args, locale)` is a plain function of its arguments, so the build can run it.
 - `sinter check` and the editor know a namespace's ids from the build's snapshot (`vite build` or `vite dev` writes it).
-- Not yet ([docs/proposals/messages.md](proposals/messages.md)): `per` namespaces and calls from app modules.
+- `per: [tenants]` loads a namespace per axis, each page reading its point's entries. `types` gives `sinter check` its type.
+- **App code** calls a namespace through its `module` (`namespace({ module: '/src/legal.ts' })`, whose `install(locale, format)`
+  the page module calls first): the build writes the entries a page's modules call into it, in
+  `<script type="application/json" data-sn-ns="legal">`, which the module reads.
 
 ## Loading behavior
 

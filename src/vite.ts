@@ -695,8 +695,27 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   const runtimeOf = new Map<string, RuntimeReason[]>();
   let pagesCache: Array<{ paths: string[]; parts: PrefetchParts | null; swaps: boolean; file: string; effect: string | null }> | null = null;
   const attr = (v: string) => v.replace(/[&"<>]/g, (c) => `&#${c.charCodeAt(0)};`);
+  /** each page's content namespaces as its compile resolved them (its point's), for the entries its modules call */
+  const pageNs = new Map<string, NonNullable<Parameters<typeof compile>[1]['contentNs']>>();
+  /** a content namespace's ids each app module calls through the namespace's `module` (`m.inbox.title()`), by module */
+  const moduleNs = new Map<string, Map<string, string[]>>();
+  const collectNs = (ctx: { error(m: string): never }, code: string, id: string) => {
+    if (!content?.namespaces.size || id.includes('/node_modules/') || !/\.[cm]?[jt]sx?(\?|$)/.test(id)) return;
+    const file = id.replace(/\?.*$/, ''), by = new Map<string, string[]>();
+    for (const d of content.namespaces.values()) {
+      if (!d.module) continue;
+      const r = moduleKeys(code, id, d.module, d.name, true);
+      if (r.errors.length) ctx.error(`sinter: ${r.errors.join('\n')}`);
+      const known = new Set(helpersOf(proj().helpers).namespaces[d.name]?.members ?? []);
+      const unknown = r.keys.filter((k) => !known.has(k));
+      if (unknown.length) ctx.error(`sinter: ${id}: no entry ${unknown.map((k) => `\`${d.name}.${k}\``).join(', ')} in the namespace \`${d.name}\``);
+      if (r.keys.length) by.set(d.name, r.keys);
+    }
+    if (by.size) moduleNs.set(file, by); else moduleNs.delete(file);
+  };
   /** `m.key` in a module: collected for the page's language file; any other use of `m` is refused */
   const collect = (ctx: { error(m: string): never }, code: string, id: string) => {
+    collectNs(ctx, code, id);
     if (!messages || id.includes('/node_modules/') || !/\.[cm]?[jt]sx?(\?|$)/.test(id)) return;
     const r = moduleKeys(code, id);
     if (r.errors.length) ctx.error(`sinter: ${r.errors.join('\n')}`);
@@ -1235,6 +1254,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     if (out.module.includes(`/transition';`)) holdPages.add(rel); else holdPages.delete(rel);
     messages = p.messages;
     if (out.messages) markupMessages.set(rel, out.messages);
+    if (out.contentNs) pageNs.set(rel, out.contentNs);
     return { out, p };
   };
   const invalidate = (id: string) => {
@@ -1600,6 +1620,23 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
           headFiles.set(rel, fileName);
         }
       };
+      // a content namespace app code imports: the entries a page's modules call, in its language, written into the page
+      if (moduleNs.size) for (const rel of new Set([...markupMessages.keys(), ...earlyFiles.keys(), ...[...runtimeOf.keys()]])) {
+        if (runtimeOf.get(rel)?.length === 0) continue;
+        const entry = Object.values(bundle).find((c) => c.type === 'chunk' && c.isEntry && c.facadeModuleId === resolve(root, rel));
+        const want = new Map<string, Set<string>>(), seen = new Set<string>(), todo = entry ? [entry.fileName] : [];
+        while (todo.length) {
+          const c = bundle[todo.pop()!];
+          if (!c || c.type !== 'chunk' || seen.has(c.fileName)) continue;
+          seen.add(c.fileName);
+          for (const id of c.moduleIds) for (const [ns, keys] of moduleNs.get(id) ?? []) { if (!want.has(ns)) want.set(ns, new Set()); for (const k of keys) want.get(ns)!.add(k); }
+          todo.push(...c.imports, ...c.dynamicImports);
+        }
+        if (!want.size) continue;
+        const at = pageNs.get(rel) ?? contentNsAt(pageLang(resolve(root, rel)));
+        const tags = [...want].map(([ns, keys]) => `<script type="application/json" data-sn-ns="${attr(ns)}">${JSON.stringify(Object.fromEntries([...keys].sort().map((k) => [k, at[ns]?.entries[k] ?? null]))).replace(/</g, '\\u003c')}</script>`);
+        pageMessages.set(rel, (pageMessages.get(rel) ?? '') + tags.join(''));
+      }
       if (!messages) return heads();
       // per page and language, the keys the page calls: its markup, the modules of its bundle, its early file
       for (const [rel, own] of markupMessages) {

@@ -75,3 +75,16 @@ test('the inlang project: locales, base, path pattern; types from the base langu
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('the messages as a namespace: install() reads the page\'s entries, `m.inbox.unread()` formats one', async () => {
+  const { install, state } = await import('../../src/messages.js');
+  const { format } = await import('../../src/messages/format.js');
+  const { parseComplex } = await import('../../src/messages/content.js');
+  const unread = parseComplex([{ declarations: ['local n = count: plural'], selectors: ['n'], match: { 'n=one': '{count} Nachricht', 'n=*': '{count} Nachrichten' } }], 'x');
+  (globalThis as any)[Symbol.for('sinter.i18n')] = undefined;
+  document.body.innerHTML = `<script type="application/json" data-sn-ns="m">${JSON.stringify({ 'inbox.unread': { id: 'inbox.unread', m: unread } })}</script>`;
+  install('de', format as never);
+  const mm = m as unknown as { inbox: { unread(p: { count: number }): string } };
+  expect([mm.inbox.unread({ count: 1 }), mm.inbox.unread({ count: 3 })]).toEqual(['1 Nachricht', '3 Nachrichten']);
+  expect(state().locale).toBe('de');
+});

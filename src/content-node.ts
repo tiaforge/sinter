@@ -29,7 +29,7 @@ export interface LoadedContent {
    */
   perPoint: PerPoint;
   /** content namespaces (`namespace()`): by the export's name, the name pages call it by and its formatter module */
-  namespaces: Map<string, { name: string; format: string; type?: string }>;
+  namespaces: Map<string, { name: string; format: string; type?: string; module?: string }>;
 }
 
 export type PerPoint = Map<string, { key: string; per: string[]; values: Map<string, readonly unknown[]> }>;
@@ -155,14 +155,14 @@ export async function loadContent(o: ContentOptions): Promise<LoadedContent> {
       problems.push(`collection \`${name}\`: ${String((e as Error)?.message ?? e).split('\n')[0]}`);
     }
   }
-  const namespaces = new Map<string, { name: string; format: string; type?: string }>();
+  const namespaces = new Map<string, { name: string; format: string; type?: string; module?: string }>();
   for (const [c, n] of names) {
     if (!c.namespace) continue;
     // its type, from the base language's entries (the first point's, for one loaded per axis)
     let type: string | undefined;
     const base = collections.get(n)?.value ?? perLocale.get(langsOf()[0] ?? '')?.get(n)?.value ?? [...(perPoint.get(n)?.values.values() ?? [])][0];
     if (c.namespace.types && base) { try { type = c.namespace.types([...base]); } catch (e) { problems.push(`namespace \`${n}\`: its types: ${String((e as Error)?.message ?? e).split('\n')[0]}`); } }
-    namespaces.set(n, { name: c.namespace.name, format: c.namespace.format, ...(type ? { type } : {}) });
+    namespaces.set(n, { name: c.namespace.name, format: c.namespace.format, ...(type ? { type } : {}), ...(c.namespace.module ? { module: c.namespace.module } : {}) });
   }
   const named = new Map<string, string>();
   for (const [n, d] of namespaces) {

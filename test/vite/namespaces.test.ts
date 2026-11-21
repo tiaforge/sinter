@@ -81,8 +81,10 @@ import { inlang, inlangLocales } from '@tiaforge-ui/sinter/messages/content';
 export const locales = languages(inlangLocales('project.inlang', ${JSON.stringify(app)}));
 export const messages = inlang();
 `,
+      // app code calls the messages through the module, nested
+      'src/sinter.helpers.ts': `import { m } from '@tiaforge-ui/sinter/messages';\nexport const shout = (n: number) => m.inbox.title().toUpperCase() + ' ' + n;\n`,
       'index.html': `<!doctype html><html lang="en"><head><title>x</title></head><body><sn-resource name="inbox" src="/api/inbox"></sn-resource>
-<h1 data-sn-text="m.inbox.title()"></h1><p data-sn-text="m.inbox.unread({ count: 1 })"></p><b data-sn-text="m.inbox.unread({ count: inbox.n })"></b></body></html>`,
+<h1 data-sn-text="m.inbox.title()"></h1><p data-sn-text="m.inbox.unread({ count: 1 })"></p><b data-sn-text="m.inbox.unread({ count: inbox.n })"></b><i data-sn-text="shout(inbox.n)"></i></body></html>`,
     };
     for (const [k, v] of Object.entries(f)) { mkdirSync(dirname(join(app, k)), { recursive: true }); writeFileSync(join(app, k), v); }
     const dist = join(app, 'dist');
@@ -95,7 +97,9 @@ export const messages = inlang();
     // the one over data: compiled with the messages formatter and its message alone
     const js = readdirSync(join(dist, 'assets')).filter((x) => x.endsWith('.js')).map((x) => readFileSync(join(dist, 'assets', x), 'utf8')).join('\n');
     expect(js).toContain('ungelesene Nachrichten');
-    expect(js).not.toContain('Posteingang');
+    // the message the helper calls: written into the German page, in German; the page module installs the formatter
+    expect(page('de')).toContain('<script type="application/json" data-sn-ns="m">{"inbox.title":{"id":"inbox.title","m":{"p":["Posteingang"]}}}</script>');
+    expect(js).toMatch(/install/);
   } finally {
     rmSync(app, { recursive: true, force: true });
   }

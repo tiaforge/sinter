@@ -174,7 +174,7 @@ export interface CompileOptions {
    * reads (the built-in messages'). The namespace is in the helpers manifest with its entries' ids as its members.
    * The built-in messages are one (`baseMessages` is their alias).
    */
-  contentNs?: Record<string, { entries: Record<string, unknown>; format: string | null; formatFn?: (entry: unknown, args: unknown, locale: string | null) => unknown; runtime?: string; export?: string }>;
+  contentNs?: Record<string, { entries: Record<string, unknown>; format: string | null; formatFn?: (entry: unknown, args: unknown, locale: string | null) => unknown; runtime?: string; export?: string; module?: string }>;
   /**
    * the early chunk: a second, render-blocking page entry that runs the app's early module and
    * the bindings outside templates whose inputs exist before any data has loaded. `module`: the
@@ -338,6 +338,8 @@ export interface CompileResult {
   pages?: { name: string; of: string; pattern: string; entries: Array<{ value: unknown; path: string; key: string }> };
   /** a compile without `axes`: each axis the page is built over (its item's name, its list) and the list's entries */
   axes?: Array<{ name: string; of: string; entries: Array<{ value: unknown; key: string }> }>;
+  /** the content namespaces the page was compiled with, at its point (the entries its app modules call are read there) */
+  contentNs?: CompileOptions['contentNs'];
   /** @internal the embedded values, by id, whose JSON `compileParts` writes into the page */
   json?: Map<number, unknown>;
   /** @internal a first pass's diagnostics about the page as it ends, for when no second pass follows */

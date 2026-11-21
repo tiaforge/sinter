@@ -17,7 +17,9 @@ export interface I18nState {
   locale: string;
   base: string;
   locales: string[];
-  dicts: Record<string, Record<string, string>>;
+  dicts: Record<string, Record<string, unknown>>;
+  /** the content namespace's formatter (`inlang()`'s), for an entry that is not a plain text */
+  format?: (entry: unknown, args: unknown, locale: string) => string;
 }
 
 const KEY = Symbol.for('sinter.i18n');
@@ -28,13 +30,15 @@ const fill = (s: string, p?: Record<string, unknown>) => (p ? s.replace(/\{(\w+)
 
 /** The message `key` in the page's language (the build filled in the base language where a translation is missing). */
 export function t(key: string, params?: Record<string, unknown>): string {
-  const s = state();
-  return fill(s.dicts[s.locale]?.[key] ?? s.dicts[s.base]?.[key] ?? key, params);
+  const s = state(), e = s.dicts[s.locale]?.[key] ?? s.dicts[s.base]?.[key] ?? key;
+  return typeof e == 'string' ? fill(e, params) : s.format ? s.format(e, params, s.locale) : key;
 }
 
-export const m = new Proxy({}, {
-  get: (_, k) => (typeof k == 'string' ? (p?: Record<string, unknown>) => t(k, p) : undefined),
-}) as Messages;
+/** `m.key()`, and a nested id's `m.inbox.title()` */
+const at = (path: string): unknown => new Proxy((p?: Record<string, unknown>) => t(path, p), {
+  get: (f, k) => (typeof k == 'string' ? at(path ? `${path}.${k}` : k) : (f as any)[k]),
+});
+export const m = at('') as Messages;
 
 export const getLocale = (): string => state().locale;
 
@@ -54,4 +58,18 @@ export function fixed(locale: string): void {
     s.dicts[locale] = d;
   }
   config.locale ??= { get: () => locale, set: () => {} };
+}
+
+/**
+ * The messages as a content namespace (`inlang()`, docs/proposals/messages.md §2): the page module calls it with the
+ * page's language and the namespace's formatter; the entries the app's modules call are in the page, in
+ * `<script type="application/json" data-sn-ns="m">`.
+ */
+export function install(locale: string, format: I18nState['format'], name = 'm'): void {
+  const s = state();
+  s.format = format;
+  if (!s.dicts[locale]) {
+    try { const e = document.querySelector(`script[data-sn-ns="${name}"]`); if (e?.textContent) s.dicts[locale] = JSON.parse(e.textContent); } catch { /* none */ }
+  }
+  fixed(locale);
 }

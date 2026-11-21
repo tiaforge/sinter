@@ -110,6 +110,8 @@ export function inlang<Tn = never>(o: {
   return namespace<{ id: string; m: Message }>({
     name: o.namespace ?? 'm', format: '@tiaforge-ui/sinter/messages/format', ...(o.per ? { per: o.per } : { perLocale: true }),
     types: (entries) => messagesType(entries),
+    // app code: `import { m } from '@tiaforge-ui/sinter/messages'`, `m.inbox.title()`
+    module: '@tiaforge-ui/sinter/messages',
     load: ({ locale, root, value }) => {
       const s = read(root, project);
       const pp = s['plugin.inlang.messageFormat']?.pathPattern ?? './messages/{locale}.json';
