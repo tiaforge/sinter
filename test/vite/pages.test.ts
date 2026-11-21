@@ -96,7 +96,7 @@ describe('data-sn-for on <html> in a build', () => {
 
   test('with localePrefix: each language\'s entries, paired by key, with alternates, localeUrl() and a chooser', async () => {
     const root = app({
-      'project.inlang/settings.json': JSON.stringify({ baseLocale: 'en', locales: ['en', 'de'] }), 'messages/en.json': '{}', 'messages/de.json': '{}',
+      'src/sinter.content.ts': `import { languages } from '@tiaforge-ui/sinter/content';\nexport const locales = languages({ base: 'en', list: ['en', 'de'] });\n`,
       'content/en/posts/hello.md': '---\nid: 1\ntitle: Hello\n---\n', 'content/en/posts/only.md': '---\nid: 2\ntitle: English only\n---\n',
       'content/de/posts/hallo.md': '---\nid: 1\ntitle: Hallo\n---\n',
       'blog/post.html': `<!doctype html><html data-sn-path="/blog/:slug" data-sn-for="post in posts"><head><title data-sn-text="post.title"></title></head><body>

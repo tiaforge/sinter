@@ -128,7 +128,8 @@ const cases: Array<[string, string, RegExp, Opts?]> = [
   ['SN535', '<x-close></x-close>', /`<slot name="cel">` in `<x-close>` is a tree placement.*Did you mean `cell`/],
   ['SN331', '<div><slot></slot></div>', /this `<slot>` is not in a component or a fill, so nothing fills it/],
   ['SN332', '<button data-sn-post="file:./post.txt"></button>', /`file:` is a source for `<sn-resource src>`/],
-  ['SN340', '<!doctype html><html data-sn-for="post in posts"><head></head><body><sn-resource name="posts" src="file:/content/posts/*.md"></sn-resource><p data-sn-text="posts.length"></p></body></html>', /`data-sn-for` on `<html>` needs `data-sn-path` with exactly one pattern/],
+  ['SN340', '<!doctype html><html data-sn-path="/a/:x /b/:x" data-sn-for="post in posts"><head></head><body><sn-resource name="posts" src="file:/content/posts/*.md"></sn-resource><p data-sn-text="posts.length"></p></body></html>', /`data-sn-for` on `<html>` needs `data-sn-path` with exactly one pattern/],
+  ['SN340', '<!doctype html><html data-sn-for="tenant in tenants"><head></head><body><sn-resource name="tenants" src="/api/tenants"></sn-resource><p data-sn-text="tenant.name"></p></body></html>', /`tenants` is not a build-time list of this page: an axis/],
   ['SN340', '<!doctype html><html data-sn-path="/blog/:year/:slug" data-sn-for="post in posts"><head></head><body><sn-resource name="posts" src="file:/content/posts/*.md"></sn-resource><p data-sn-text="post.slug"></p></body></html>', /has no `year` to fill `:year`/],
   ['SN342', '<sn-resource name="p" src="content:posts"></sn-resource><p data-sn-text="p.length"></p>', /`posts` is not a collection of the content module/, { collections: true }],
   ['SN344', '<sn-resource name="p" src="content:posts"></sn-resource><div data-sn-state="{ n: 0 }"><button data-sn-on-click="n++"></button><b data-sn-text="n + p.length"></b></div>', /browser code reads `p`, a collection/, { collections: true }],
@@ -171,10 +172,12 @@ const LIBRARY_ONLY = ['SN337', 'SN337', 'SN339', 'SN537'];
 const PRERENDER_ONLY = ['SN536'];
 /** With `sinter({ swap: true })` only: fixtures in test/compiler/permanent.test.ts. */
 const SWAP_ONLY = ['SN540'];
+/** The plugin's options, checked by `project()`: SN348 (an option that is removed) in test/apis.test.ts. */
+const OPTIONS_ONLY = ['SN348'];
 
 describe('every diagnostic code has a failing fixture', () => {
   test('all codes covered', () => {
-    expect(new Set([...cases.map((c) => c[0]), ...CHECK_ONLY, ...IMAGES_ONLY, ...STATIC_ONLY, ...LAZY_ONLY, ...APIS_ONLY, ...BUILD_ONLY, ...STYLES_ONLY, ...PRERENDER_ONLY, ...LIBRARY_ONLY, ...SWAP_ONLY])).toEqual(new Set(Object.keys(CODES)));
+    expect(new Set([...cases.map((c) => c[0]), ...CHECK_ONLY, ...IMAGES_ONLY, ...STATIC_ONLY, ...LAZY_ONLY, ...APIS_ONLY, ...BUILD_ONLY, ...STYLES_ONLY, ...PRERENDER_ONLY, ...LIBRARY_ONLY, ...SWAP_ONLY, ...OPTIONS_ONLY])).toEqual(new Set(Object.keys(CODES)));
   });
   for (const [code, html, message, check] of cases) {
     test(code, () => {

@@ -2,15 +2,15 @@
 // `sinter check [--root <dir>] [--strict [--allow <codes>]] [page.html …]`: compiles the
 // pages and type-checks their expressions; `--strict` (or `SINTER_STRICT=1`) fails on warnings too. Without pages, it reads them and the plugin options from the
 // Vite config. `sinter render page.html`: the page with mocked data, driven by steps, without a browser. `sinter docs [topic]`: one part of llms.txt or a diagnostic's explanation. `sinter lsp`: the language server for editors.
-import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { join, relative, resolve } from 'node:path';
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { dirname, join, relative, resolve } from 'node:path';
 import { check } from './check/index.js';
 import { applyStrict, compile, formatDiagnostic, type CheckUnit, type Diagnostic } from './compiler/index.js';
 import { checkOptionsOf, compileOptionsOf, lazyReachOf, project, staticPages, strictEnv, viteProject, type ProjectOptions } from './project.js';
 import { lazyDiagnostics, resolveFile } from './lazy-build.js';
 import { loadHelpers, unloadedMessage } from './helpers-node.js';
 import { checkLocale } from './locales-build.js';
-import { readSnapshot } from './content-node.js';
+import { readSnapshot, snapshotNamespaces } from './content-node.js';
 import { componentScript } from './components-build.js';
 import { CODES, severityOf, strictPromotes, type Code } from './compiler/diagnostics.js';
 
@@ -65,12 +65,14 @@ async function main(argv: string[]): Promise<number> {
   const snap = p.contentFile ? readSnapshot(root, p.contentFile) : null;
   if (p.contentFile && !snap) console.error('sinter check: the content module\'s collections have no snapshot yet (vite build or vite dev writes one): what pages read of them is typed, not checked against their values');
   else if (snap?.stale) console.error('sinter check: the content module changed since the collections\' snapshot (vite build or vite dev writes a new one): their values may be out of date');
-  const contentOpts = p.contentFile ? { contentModule: p.contentFile, ...(snap ? { collections: snap.collections } : {}) } : {};
+  // content namespaces: their ids from the snapshot, so a page's calls are checked as the build checks them
+  const ns = p.contentFile && snap ? snapshotNamespaces(root, p.helpers) : { helpers: p.helpers };
+  const contentOpts = p.contentFile ? { contentModule: p.contentFile, ...(snap ? { collections: snap.collections } : {}), ...(ns.contentNs ? { contentNs: ns.contentNs } : {}) } : {};
   // the helpers module in Node, as the build loads it: what folds, and so SN322, agrees with the build
   const nh = await loadHelpers({ root, helpersFile: p.helpersFile, manifest: p.helpers });
   if (nh.error && p.helpersFile) diagnostics.push({ severity: 'warning', code: 'SN533', message: unloadedMessage(root, p.helpersFile, nh.error), file: p.helpersFile, line: 1, col: 1 });
   for (const file of files) {
-    const out = compile(readFileSync(file, 'utf8'), { ...compileOptionsOf(p, file), helperValues: nh.module, helperFold: nh.fold, ...contentOpts, file, dev: false, check: true, ...(locale ? { locale } : {}) });
+    const out = compile(readFileSync(file, 'utf8'), { ...compileOptionsOf(p, file), helpers: ns.helpers, helperValues: nh.module, helperFold: nh.fold, ...contentOpts, file, dev: false, check: true, ...(locale ? { locale } : {}) });
     diagnostics.push(...out.diagnostics);
     if (out.check) units.push(out.check);
   }
@@ -85,7 +87,7 @@ async function main(argv: string[]): Promise<number> {
       ...p.libraries.flatMap((l) => [...l.public.map((n) => join(l.folder, 'components', n)), ...l.internal.map((n) => join(l.folder, 'components', 'internal', n))]).map((b) => componentScript(b + '.html'))].filter((f): f is string => !!f);
     diagnostics.push(...lazyDiagnostics(root, p.lazy, [p.helpersFile, p.actionsFile, mod(p.config), mod(p.early)], lazyReachOf(p).whole(p.helpers), scripts, p.libraries, p.helpersFile));
   }
-  const r = check({ ...checkOptionsOf(p), units });
+  const r = check({ ...checkOptionsOf(p), helpers: ns.helpers, units });
   diagnostics.push(...r.diagnostics);
 
   const warned = diagnostics.filter((d) => d.severity === 'warning').length;
@@ -156,6 +158,18 @@ async function migrate(args: string[]): Promise<number> {
     }
     if (write) for (const [file, text] of texts) writeFileSync(file, text);
     console.log(`sinter migrate: ${total} rename(s) in ${texts.size} file(s)${total && !write ? ' (run with --write to apply them)' : ''}`);
+  }
+  // 0b. the built-in messages: the content module reads the inlang project with `inlang()` (docs/messages.md)
+  {
+    const inlangProject = typeof options.messages === 'string' ? options.messages : 'project.inlang';
+    if (existsSync(join(root, inlangProject, 'settings.json')) && !(project(root, options).contentFile && /\binlang\s*\(/.test(readFileSync(project(root, options).contentFile!, 'utf8')))) {
+      const { messagesToContent } = await import('./migrate.js');
+      const file = project(root, options).contentFile ?? join(root, 'src/sinter.content.ts');
+      const was = existsSync(file) ? readFileSync(file, 'utf8') : null;
+      const text = messagesToContent(was, inlangProject);
+      if (text && write) { mkdirSync(dirname(file), { recursive: true }); writeFileSync(file, text); }
+      if (text) console.log(`\nsinter migrate: the built-in messages are removed; ${relative(root, file)} ${write ? 'now reads' : 'would read (run with --write)'} the inlang project with inlang(). Remove \`messages\` from sinter()'s options in the Vite config if it is there, and src/sinter.messages.d.ts: the messages' types are now sinter.namespaces.d.ts, next to the content module`);
+    }
   }
   if (!options.apis) {
     const specs = options.openapi == null ? [] : ([] as string[]).concat(options.openapi);

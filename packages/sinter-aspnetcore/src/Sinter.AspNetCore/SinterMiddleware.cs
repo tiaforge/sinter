@@ -17,6 +17,15 @@ internal sealed class SinterMiddleware(RequestDelegate next, SinterEngine engine
         var req = ctx.Request;
         var head = HttpMethods.IsHead(req.Method);
         if (!head && !HttpMethods.IsGet(req.Method)) return next(ctx);
+        // a tenant on its own domain (docs/static-pages.md#a-site-per-tenant-axes): a path whose first segment is one of its
+        // folder's (`de`, `about`; `/` too) is that folder's, for the static files after this middleware too; any other
+        // (the shared assets, an API) is the site's
+        if (engine.Origins.Count > 0 && engine.Origins.TryGetValue(req.Host.Value ?? "", out var origin))
+        {
+            var p0 = req.Path.Value is { Length: > 0 } x ? x : "/";
+            var first = p0.TrimStart('/').Split('/')[0];
+            if (first.Length == 0 || origin.Top.Contains(first)) req.Path = "/" + origin.Folder + p0;
+        }
         var path = req.Path.Value is { Length: > 0 } v ? v : "/";
         // the manifest describes the app's requests; it is not a page
         if (path == "/" + ManifestReader.File)
@@ -34,7 +43,8 @@ internal sealed class SinterMiddleware(RequestDelegate next, SinterEngine engine
             var p = r.From.AsSpan().IndexOfAny(':', '*') >= 0 ? req.Path.ToUriComponent() : r.To;
             var rest = p.StartsWith(l.At, StringComparison.Ordinal) ? p[l.At.Length..] : p.TrimStart('/');
             ctx.Response.StatusCode = StatusCodes.Status302Found;
-            ctx.Response.Headers.Location = $"{l.At}{lang}/{rest}{req.QueryString}";
+            // (a language on its own domain: there, without its segment)
+            ctx.Response.Headers.Location = l.Domains.TryGetValue(lang, out var domain) ? $"{domain}{l.At}{rest}{req.QueryString}" : $"{l.At}{l.Segment(lang)}/{rest}{req.QueryString}";
             ctx.Response.Headers.Vary = "Cookie, Accept-Language";
             return Task.CompletedTask;
         }
@@ -58,29 +68,53 @@ internal sealed class SinterMiddleware(RequestDelegate next, SinterEngine engine
         return next(ctx);
     }
 
-    /// <summary>The visitor's language among the site's: the <c>locale</c> cookie the pages record, else the first of <c>Accept-Language</c> the site has (<c>de-AT</c> is <c>de</c>), else the base.</summary>
-    internal static string Choose(ManifestLocales l, IHeaderDictionary h)
+    /// <summary>
+    /// The visitor's language among the site's (docs/proposals/axes.md §6): for each tag they send, in order (the
+    /// <c>locale</c> cookie the pages record, then <c>Accept-Language</c>), the site's language with that tag (any case),
+    /// else with the tag less its last subtag, one at a time, else the first site language with the same language part;
+    /// else the base. The rule <c>chooseLanguage</c> in src/locales.ts applies, run on test/fixtures/choose-cases.json.
+    /// </summary>
+    internal static string ChooseLanguage(IReadOnlyList<string> list, string @base, IEnumerable<string> tags, IReadOnlyDictionary<string, string[]>? codes = null)
     {
+        // a language's `codes` are tags of it too (`nb` chooses `no`)
+        bool Is(string c, string p) => string.Equals(c, p, StringComparison.OrdinalIgnoreCase)
+            || (codes is not null && codes.TryGetValue(c, out var k) && k.Any(x => string.Equals(x, p, StringComparison.OrdinalIgnoreCase)));
         string? Find(string x)
         {
-            x = x.Trim();
-            foreach (var c in l.List)
-                if (string.Equals(c, x, StringComparison.OrdinalIgnoreCase)) return c;
-            var dash = x.IndexOf('-');
-            var primary = dash >= 0 ? x[..dash] : x;
-            foreach (var c in l.List)
-                if (string.Equals(c, primary, StringComparison.OrdinalIgnoreCase)) return c;
+            var p = x.Trim();
+            while (true)
+            {
+                foreach (var c in list)
+                    if (Is(c, p)) return c;
+                var j = p.LastIndexOf('-');
+                if (j < 0) break;
+                p = p[..j];
+            }
+            foreach (var c in list)
+            {
+                var dash = c.IndexOf('-');
+                if (string.Equals(dash >= 0 ? c[..dash] : c, p, StringComparison.OrdinalIgnoreCase)) return c;
+            }
             return null;
         }
-        foreach (var header in h.Cookie)
-            foreach (var c in (header ?? "").Split(';'))
-                if (c.Trim() is var t && t.StartsWith("locale=", StringComparison.Ordinal) && Find(t["locale=".Length..]) is { } lang)
-                    return lang;
-        if (h.AcceptLanguage.ToString() is { Length: > 0 } al)
-            foreach (var part in al.Split(','))
-                if (Find(part.Split(';')[0]) is { } lang)
-                    return lang;
-        return l.Base;
+        foreach (var t in tags)
+            if (Find(t) is { } lang) return lang;
+        return @base;
+    }
+
+    /// <summary>A request's language: its <c>locale</c> cookies, then <c>Accept-Language</c>'s tags, by <see cref="ChooseLanguage"/>.</summary>
+    internal static string Choose(ManifestLocales l, IHeaderDictionary h)
+    {
+        IEnumerable<string> Tags()
+        {
+            foreach (var header in h.Cookie)
+                foreach (var c in (header ?? "").Split(';'))
+                    if (c.Trim() is var t && t.StartsWith("locale=", StringComparison.Ordinal)) yield return t["locale=".Length..];
+            if (h.AcceptLanguage.ToString() is { Length: > 0 } al)
+                foreach (var part in al.Split(','))
+                    yield return part.Split(';')[0];
+        }
+        return ChooseLanguage(l.List, l.Base, Tags(), l.Codes);
     }
 
     private async Task Render(HttpContext ctx, Page page, bool head)

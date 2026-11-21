@@ -112,3 +112,10 @@ test('sinter({ openapi }) still works, with a deprecation warning', () => {
   expect(p.openapi).toHaveLength(1);
   expect(p.diagnostics.map((d) => [d.severity, d.code, d.message.split(':')[0]])).toEqual([['warning', 'SN329', 'sinter({ openapi }) is deprecated']]);
 });
+
+test('sinter({ messages }) is removed: SN348, naming inlang(); `false` is accepted', () => {
+  const p = apiProject({ messages: 'project.inlang' } as ProjectOptions);
+  expect(p.diagnostics.map((d) => [d.severity, d.code, d.message.split(':')[0]])).toEqual([['error', 'SN348', 'sinter({ messages }) is removed']]);
+  expect(p.diagnostics[0]!.message).toMatch(/Export `inlang\(\)` from the content module/);
+  expect(apiProject({ messages: false } as ProjectOptions).diagnostics).toEqual([]);
+});

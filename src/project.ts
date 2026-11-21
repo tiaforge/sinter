@@ -9,7 +9,6 @@ import { strictOf, type Strict } from './compiler/diagnostics.js';
 import type { OpenApiSpec } from './compiler/openapi.js';
 import { defaultApiRenamed, resolveApis, type ApiOptions, type ApisDef } from './compiler/apis.js';
 import { COMPLEXITY_LIMITS, type ComplexityOptions } from './compiler/complexity.js';
-import { MESSAGES_MODULE, messagesDts, readMessages, type MessagesProject } from './i18n-build.js';
 import { componentNames, writeComponentTypes } from './components-build.js';
 import { typeExports } from './check/index.js';
 import { librariesOf, libraries as findLibraries, libraryOf, modulesDir, ownLibrary, type Library } from './libraries.js';
@@ -19,8 +18,7 @@ export interface ProjectOptions {
   /** content module: collections for `<sn-resource src="content:…">` (`src/sinter.content.ts`, or `.js`); `false`: none */
   content?: false;
   /**
-   * built-in messages: the inlang project (default `project.inlang`, if it exists) whose message
-   * files give `m.key()` in markup and `m` from `@tiaforge-ui/sinter/messages`; `false`: none
+   * removed (the messages are a content namespace, `inlang()`: docs/messages.md); `false` is accepted and does nothing
    */
   messages?: string | false;
   /** OpenAPI specs (JSON or YAML, inside the root) that resources without `type` are matched against; deprecated: give each API its spec in `apis` */
@@ -119,10 +117,6 @@ export interface Project {
   changesRequests: boolean;
   /** root-relative URL of the early module (`/src/sinter.early.ts`), or null */
   early: string | null;
-  /** the built-in messages, or null without an inlang project */
-  messages: MessagesProject | null;
-  /** the generated `src/sinter.messages.d.ts` (written when there are messages), or null */
-  messagesTypes: string | null;
   /** the generated `src/sinter.components.d.ts` (written when a component has a script), or null */
   componentsTypes: string | null;
   /** absolute path of the types module, or null */
@@ -281,20 +275,11 @@ export function project(root: string, options: ProjectOptions = {}): Project {
         message: 'sinter({ openapi }) is deprecated: give the spec to an API, `sinter({ apis: { main: { openapi: … } } })`, and run `npx sinter migrate` (docs/apis.md)' });
     }
   }
-  // built-in messages: `m` is theirs, typed by a generated declaration file
-  const messages = options.messages === false ? null : readMessages(root, options.messages ?? 'project.inlang');
-  let messagesTypes: string | null = null;
-  if (messages) {
-    diagnostics.push(...messages.diagnostics);
-    if (helpers.namespaces.m && helpers.namespaces.m.module !== MESSAGES_MODULE) {
-      diagnostics.push({ severity: 'error', code: 'SN307', message: 'the helpers module exports a namespace `m`, and the inlang project gives sinter\'s built-in `m`: remove the re-export (`export * as m from …`)', file: helpersFile ?? root, line: 1, col: 1 });
-    }
-    helpers.namespaces.m = { module: MESSAGES_MODULE, members: Object.keys(messages.keys).sort() };
-    messagesTypes = resolve(root, 'src/sinter.messages.d.ts');
-    const text = messagesDts(messages);
-    let current = '';
-    try { current = readFileSync(messagesTypes, 'utf8'); } catch { /* missing */ }
-    if (current !== text) { mkdirSync(dirname(messagesTypes), { recursive: true }); writeFileSync(messagesTypes, text); }
+  // the built-in messages are gone: the messages are a content namespace (`inlang()`, docs/messages.md)
+  if (options.messages !== undefined && options.messages !== false) {
+    const file = resolve(root, VITE_CONFIGS.find((f) => existsSync(resolve(root, f))) ?? 'vite.config.js');
+    diagnostics.push({ severity: 'error', code: 'SN348', file, line: 1, col: 1,
+      message: 'sinter({ messages }) is removed: the messages are a content namespace. Export `inlang()` from the content module, with `languages(({ root }) => inlangLocales(\'project.inlang\', root))` (`@tiaforge-ui/sinter/messages/content`), and remove the option; `npx sinter migrate --write` writes it (docs/messages.md)' });
   }
   // `Slot` is the type sinter generates for slots that pass data (`Slot<T>` in a component's props)
   const components = [...appComponents, ...libs.libraries.flatMap((l) => l.public)].sort();
@@ -309,7 +294,7 @@ export function project(root: string, options: ProjectOptions = {}): Project {
     isStatic: staticPages(root, options.static).has, swap: !!options.swap,
     lazy: lazyOf(options.lazy), strict: strictOf(options.strict),
     componentNames: components, libraries: libs.libraries,
-    messages, messagesTypes, componentsTypes: writeComponentTypes(root, readFile, libs.libraries),
+    componentsTypes: writeComponentTypes(root, readFile, libs.libraries),
     config: configRel ? url(configRel) : null,
     changesRequests: configRel ? changesRequests(configSource(configRel, readFile(resolve(root, configRel)))) : false,
     early: earlyRel ? url(earlyRel) : null,
@@ -344,7 +329,7 @@ export function compileOptionsOf(p: Project, file?: string) {
 
 /** What `check()` and `writeSupport()` take from the project, the same for `sinter check`, the editor and the build. */
 export function checkOptionsOf(p: Project) {
-  return { root: p.root, helpers: p.helpers, actions: p.actions, types: p.types, openapi: p.openapi, messagesTypes: p.messagesTypes, libraries: p.libraries };
+  return { root: p.root, helpers: p.helpers, actions: p.actions, types: p.types, openapi: p.openapi, libraries: p.libraries };
 }
 
 /**

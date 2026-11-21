@@ -5,8 +5,9 @@ import { compile } from '../../src/compiler/index.js';
 
 const de = { greeting: 'Hallo {name}', title: 'Über uns', label: 'Menü' };
 const build = (html: string, locale: Record<string, unknown> = { name: 'de', urls: { en: '/en/about/', de: '/de/about/' }, base: '/' }, file = '/p/about.html') => compile(html, {
-  file, root: '/p', dev: false, prerender: true, baseMessages: de, locale,
-  helpers: { module: null, names: [], namespaces: { m: { module: '@tiaforge-ui/sinter/messages', members: Object.keys(de) } } },
+  file, root: '/p', dev: false, prerender: true, locale,
+  contentNs: { m: { entries: de, format: null } },
+  helpers: { module: null, names: [], namespaces: { m: { module: 'sinter:content/m', members: Object.keys(de) } } },
   readFile: () => { throw new Error('missing'); },
 } as never);
 const page = (head: string, body: string, html = '<html lang="de">') => `<!doctype html>${html}<head><title>x</title>${head}</head><body>${body}</body></html>`;
@@ -25,12 +26,12 @@ describe('a page in one language', () => {
   test('a message over data: a function of the language\'s text in the page module; no dictionary, no wait', () => {
     const out = build(page('', '<p data-sn-text="m.greeting({ name: $url.who })"></p><p data-sn-text="$url.who ? m.title() : \'\'"></p>', '<html lang="de" data-sn-path="/hi/:who">'), { name: 'de', urls: null, base: '/' }, '/p/hi.html');
     expect(out.diagnostics).toEqual([]);
-    expect(out.module).toContain("import { fixed as $fixed } from '@tiaforge-ui/sinter/messages';\n$fixed(\"de\");");
+    // (a namespace app code does not import: no runtime module, nothing installed)
+    expect(out.module).not.toContain('@tiaforge-ui/sinter/messages');
     expect(out.module).toContain('m$greeting = (p = {}) => "Hallo " + ("name" in p ? p["name"] : "{name}") + ""');
     expect(out.module).toContain('m$title = () => "Über uns"');
     expect(out.module).not.toContain('$ready');
     expect(out.module).not.toContain('$m.');
-    expect(out.messages).toEqual(['greeting', 'title']);
   });
 
   test('number(), bytes() and a calendar date are written at build time; a moment stays the browser\'s', () => {

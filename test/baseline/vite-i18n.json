@@ -1,0 +1,30 @@
+{
+ "_redirects": {
+  "sha256": "e37f8354d5a5e82c275876cb00462682a96b587a256a04443ad190827b813904",
+  "bytes": 96
+ },
+ "assets/other-BviDVCoQ.js": {
+  "sha256": "0ef9236369f61aaf73d0514d1081a465990aa4484f8fdf8941879c0b91041182",
+  "bytes": 17708
+ },
+ "assets/other-head-i1V0FHcO.js": {
+  "sha256": "8b557414770ec57a288e22b5263c5ab3501b52c3e079246a6765388808ecbe8f",
+  "bytes": 952
+ },
+ "assets/sinter-head-aIMFXm-E.js": {
+  "sha256": "6883055e6f8448368a618da7f52e56cbe82ab2f989f40c62d6465b1dc592d60b",
+  "bytes": 3942
+ },
+ "index.html": {
+  "sha256": "2142f23209763de29c5db8b28d0be923ad6f788d3fe950f71af68aeb6e131262",
+  "bytes": 413
+ },
+ "other.html": {
+  "sha256": "37a03b85158f2a9d63b8335d3a3ceba3362f3ddae1518cbc89d7caaa101bc852",
+  "bytes": 335
+ },
+ "other/index.html": {
+  "sha256": "1dc98b35bcea3699914ecab323508697728d8d94f3d87468e8f2f7b2c9e9600f",
+  "bytes": 703
+ }
+}

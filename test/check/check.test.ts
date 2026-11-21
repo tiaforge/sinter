@@ -149,6 +149,14 @@ declare global {
     expect(r.diagnostics[0]!.file).toMatch(/src\/components\/contact-card.html$/);
   });
 
+  test('data-sn-model on a component: $event.detail is its `change` detail, whatever its root element', () => {
+    const field = { 'src/components/note-field.html': `<template data-sn-props="{ value: string }" data-sn-emits="{ change: string }">
+  <div><textarea data-sn-attr="{ value }" data-sn-on-input="emit('change', $el.value)"></textarea></div>
+</template>` };
+    expect(run(page(`<div data-sn-state="{ note: '' }"><note-field data-sn-model="note"></note-field></div>`), field).diagnostics).toEqual([]);
+    one(page(`<div data-sn-state="{ n: 0 }"><note-field data-sn-model="n"></note-field></div>`), /Type 'string' is not assignable to type 'number'/, 'n"></note-field>', field);
+  });
+
   test('head components: props typed by data-sn-props at the call site and inside', () => {
     const seo = { 'src/components/seo-tags.html': `<template data-sn-props="{ contact: Contact; count?: number }">
   <title data-sn-text="contact.name"></title>
@@ -834,9 +842,10 @@ describe('a let that waits for a lazy helper module (docs/lazy.md#helpers-that-w
 
 describe('file: resources, checked against their files', () => {
   const POST_TYPES = 'export interface Post { title: string; date: string; tags?: string[] }\n';
-  function runFiles(html: string, files: Record<string, string>) {
+  function runFiles(html: string, files: Record<string, string>, page = 'index.html') {
     const root = project({ 'src/sinter.types.ts': POST_TYPES, ...files });
-    const file = join(root, 'index.html');
+    const file = join(root, page);
+    mkdirSync(dirname(file), { recursive: true });
     writeFileSync(file, html);
     const p = projectOf(root);
     const out = compile(html, { file, root, dev: false, helpers: p.helpers, readFile: p.readFile, listFiles: p.listFiles, check: true });
@@ -888,6 +897,11 @@ describe('file: resources, checked against their files', () => {
     const page = (expr: string) => `<!doctype html><html data-sn-path="/blog/:slug" data-sn-for="post in posts"><head></head><body><sn-resource name="posts" src="file:/content/posts/*.md" type="Post"></sn-resource><h1 data-sn-text="${expr}"></h1></body></html>`;
     expect(runFiles(page('post.title + post.slug + post.body.length'), posts).at).toEqual([]);
     expect(runFiles(page('post.titel'), posts).at).toEqual([expect.stringMatching(/^index\.html:1 Property 'titel' does not exist on type .*Did you mean 'title'\?/)]);
+  });
+
+  test('a `data-sn-for` on `<html>` page in a subfolder finds the declarations (blog/post.html)', () => {
+    const page = '<!doctype html><html data-sn-path="/blog/:slug" data-sn-for="post in posts"><head></head><body><sn-resource name="posts" src="file:/content/posts/*.md" type="Post"></sn-resource><h1 data-sn-text="post.title"></h1></body></html>';
+    expect(runFiles(page, posts, 'blog/post.html').at).toEqual([]);
   });
 });
 

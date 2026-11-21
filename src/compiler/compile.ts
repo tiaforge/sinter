@@ -14,7 +14,7 @@ import { parseExpression, parseProgram } from './parse.js';
 import { fullAncestor } from 'acorn-walk';
 import type { DefaultTreeAdapterMap } from 'parse5';
 import { type Code, type Diagnostic, didYouMean, severityOf, suggest } from './diagnostics.js';
-import { analyze, applyEdits, refNames, STORE_FNS, throughField, type SlotScope, type ComponentScope, type ExprOptions, type ExprResult, type LetEntry, type LoopEntry, type PageInfo, type Read, type ResourceInfo, type Scope } from './expr.js';
+import { analyze, applyEdits, nsLocal, refNames, STORE_FNS, throughField, type SlotScope, type ComponentScope, type ExprOptions, type ExprResult, type LetEntry, type LoopEntry, type PageInfo, type Read, type ResourceInfo, type Scope } from './expr.js';
 import { callerAttribute, COMPONENT_NAME, DOM_EVENTS, isArrayType, LIBRARY_LAYER, rootCss, scopeCss, SLOT_TYPE, typeMembers, withoutSlots, type Member } from './components.js';
 import type { Node } from 'acorn';
 import type * as acorn from 'acorn';
@@ -30,6 +30,10 @@ import { $k, schemesOf, STYLE_BAD, urlAllowed } from '../runtime/security.js';
 import { $href, $hq, $hv, withParams } from '../runtime/url.js';
 import { firstParams, pageParams } from '../runtime/pages.js';
 import { eachPath } from '../paths.js';
+import { inLanguage, inPoint, prefixPaths } from '../locales.js';
+
+/** the built-in messages' module, and a content namespace's (as compiler/index.ts names them) */
+const isContentNsModule = (m: string) => m.startsWith('sinter:content/');
 import { pagePaths } from '../page-paths.js';
 import { bytes, date, isCalendarDate, number } from '../runtime/helpers.js';
 import { config } from '../runtime/config.js';
@@ -50,7 +54,7 @@ export interface HelperManifest {
   names: string[];
   /** where a re-exported helper is declared (`export { x } from './lib.js'`, `export * from`): the early chunk imports it from there */
   from?: Record<string, HelperOrigin>;
-  namespaces: Record<string, { module: string; members: string[]; from?: Record<string, HelperOrigin> }>;
+  namespaces: Record<string, { module: string; members: string[]; from?: Record<string, HelperOrigin>; type?: string }>;
 }
 
 export interface CompileOptions {
@@ -70,6 +74,31 @@ export interface CompileOptions {
    */
   page?: { value: unknown; path: string; key?: string };
   /**
+   * Axes (docs/proposals/axes.md): `data-sn-for` on `<html>` (or a layout's) lists, before the page's own entries, that
+   * the page is built over, outer first (`tenant in tenants; post in posts`). This compile's value of each, and the path
+   * segment it writes the page under (after the language's). Without it, each axis is its list's first entry and the
+   * compile lists every axis's entries (`axes`).
+   */
+  axes?: Array<{ value: unknown; key: string; segment: string | null }>;
+  /**
+   * Builds: the lists some page is built over (their `src`: `content:tenants`). A link in a row of a loop over one
+   * (`<template data-sn-for="t in tenants"><a href="/shop/">`) goes to that row's entry's page (docs/proposals/axes.md
+   * §5): the compiler marks it with `data-sinter-pt`, which the build's link pass reads and removes.
+   */
+  axisLists?: readonly string[];
+  /**
+   * Builds: this page's URL at each value of each axis it is built over, by the list's `src` and the value's key
+   * (`{ 'content:tenants': { acme: 'https://acme-shop.com/de/about/', demo: '/de/demo/about/' } }`): `axisUrl(tenants, key)`
+   */
+  axisUrls?: Record<string, Record<string, string>>;
+  /**
+   * Builds: the page's point's prefixes, most specific first, each with the paths of the pages under it, without it
+   * (`[{ prefix: 'de/acme', pages: [the tenants' pages] }, { prefix: 'de', pages: [the shared ones] }]`): a link
+   * template's literal start that names one is written under its prefix (docs/proposals/axes.md §5; a template always
+   * starts with one, SN207, and a URL that comes whole from data is left as written)
+   */
+  points?: ReadonlyArray<{ prefix: string; pages: readonly string[] }>;
+  /**
    * Builds: where a `<html data-sn-for>` template's first pass is kept, so its other entries are not walked again
    * (`fromTemplate`). The compiles that share one must differ only in what each entry changes: `page`, `foldLog`,
    * `urls`, `moduleSrc`, `paintCss`, `images` and `locale.urls`. Cleared with the build's reads.
@@ -83,6 +112,12 @@ export interface CompileOptions {
    * why loading failed (dev), reported where a page reads a collection.
    */
   collections?: ReadonlyMap<string, { key: string; value: readonly unknown[] }>;
+  /**
+   * Collections loaded per axis (`collection({ per: [tenants] })`): the collections each is loaded per, and its list at
+   * each combination of their entries' keys (`\0`-joined); a page reads the one of its point, its axes' items (and its
+   * language, for a `languages()` collection among them)
+   */
+  perCollections?: ReadonlyMap<string, { key: string; per: string[]; values: ReadonlyMap<string, readonly unknown[]> }>;
   collectionsError?: string;
   /** the content module, absolute: `sinter check` types a `content:` resource without `type` from its loader */
   contentModule?: string;
@@ -143,11 +178,13 @@ export interface CompileOptions {
    */
   changesRequests?: boolean;
   /**
-   * builds: the base language's messages. With `prerender`, a text binding
-   * that calls `m` is written into the HTML in the base language and marked `data-sn-m`; it is still
-   * rendered in the browser (early file, page module), which writes the visitor's language
+   * Content namespaces (docs/proposals/messages.md §1): by name, the entries a page may call as `ns.id(args)` in the
+   * page's language (or at its point), and how they are formatted: `format`, a formatter module whose
+   * `format(entry, args, locale)` makes the value (absolute, or a package), or null for the built-in `{param}` text;
+   * `formatFn` that function, for the build to fold a call over constants; `runtime`, the module whose state app code
+   * reads (the built-in messages'). The namespace is in the helpers manifest with its entries' ids as its members.
    */
-  baseMessages?: Record<string, string>;
+  contentNs?: Record<string, { entries: Record<string, unknown>; format: string | null; formatFn?: (entry: unknown, args: unknown, locale: string | null) => unknown; runtime?: string; export?: string; module?: string; inlineFn?: (entry: unknown) => string | null }>;
   /**
    * the early chunk: a second, render-blocking page entry that runs the app's early module and
    * the bindings outside templates whose inputs exist before any data has loaded. `module`: the
@@ -197,12 +234,16 @@ export interface CompileOptions {
    */
   urls?: { site: string; canonical: string | null; origin: string };
   /**
-   * `localePrefix`: the page in one language (`name`). `baseMessages` is that language's text; the page's
+   * `localePrefix`: the page in one language (`name`). The page's
    * `data-sn-path` patterns get its prefix after `base`; `localeUrl(l)` is the page's URL in language `l`, from
    * `urls` (null for a page whose paths all have parameters: from the browser's path); the page module records
-   * the language in the `locale` cookie (docs/static-pages.md#languages)
+   * the language in the `locale` cookie (docs/static-pages.md#languages). `list` and `pages` (the site's languages and
+   * its page paths without a language): a link template's literal start and the API's `signIn` that name one of the
+   * site's pages are written in the page's language (`inLanguage`). `prefix: false`: a build without `localePrefix`,
+   * whose one language is the messages' base: its text and `$locale` as here, its paths, `<html lang>` and links as
+   * written, no `localeUrl()` and no `locale` cookie
    */
-  locale?: { name: string; urls: Record<string, string> | null; base: string };
+  locale?: { name: string; urls: Record<string, string> | null; base: string; list?: string[]; pages?: readonly string[]; prefix?: false; paths?: Record<string, string> };
   /**
    * internal, set by `compileParts` for its second pass: the `data-sn-if` templates (by `file:offset`)
    * whose condition the first pass found constant (state nothing writes), and its value
@@ -305,6 +346,13 @@ export interface CompileResult {
    * template: no `page` option). A build writes one page per entry.
    */
   pages?: { name: string; of: string; pattern: string; entries: Array<{ value: unknown; path: string; key: string }> };
+  /**
+   * a compile without `axes`: each axis the page is built over (its item's name, its list, the list's `src`, which names
+   * it across pages) and the list's entries
+   */
+  axes?: Array<{ name: string; of: string; src: string; entries: Array<{ value: unknown; key: string }> }>;
+  /** the content namespaces the page was compiled with, at its point (the entries its app modules call are read there) */
+  contentNs?: CompileOptions['contentNs'];
   /** @internal the embedded values, by id, whose JSON `compileParts` writes into the page */
   json?: Map<number, unknown>;
   /** @internal a first pass's diagnostics about the page as it ends, for when no second pass follows */
@@ -459,6 +507,13 @@ export interface CompiledParts {
    * template: no `page` option). A build writes one page per entry.
    */
   pages?: { name: string; of: string; pattern: string; entries: Array<{ value: unknown; path: string; key: string }> };
+  /**
+   * a compile without `axes`: each axis the page is built over (its item's name, its list, the list's `src`, which names
+   * it across pages) and the list's entries
+   */
+  axes?: Array<{ name: string; of: string; src: string; entries: Array<{ value: unknown; key: string }> }>;
+  /** the content namespaces at the page's point, where one is loaded per axis (its entries the point's) */
+  contentNs?: CompileOptions['contentNs'];
   /** @internal the embedded values, by id, whose JSON `compileParts` writes into the page */
   json?: Map<number, unknown>;
   /** @internal a first pass's diagnostics about the page as it ends, for when no second pass follows */
@@ -912,7 +967,7 @@ export function compilerFields(html: string, options: CompileOptions): Array<[st
 const UNIT_SHARED = new Set(['page', 'componentFiles']);
 
 /** a `<html data-sn-for>` template walked once (`fromTemplate`): its first pass, kept for each entry's evaluation */
-type KeptTemplate = { c: Compiler; path: string; checked: boolean; hits: number; misses: number };
+type KeptTemplate = { c: Compiler; path: string; checked: boolean; hits: number; misses: number; typed?: boolean };
 
 /** the template walked as one entry's first pass, up to its evaluation; null when its entries cannot share it */
 function keepTemplate(html: string, options: CompileOptions): KeptTemplate | null {
@@ -935,7 +990,7 @@ function keepTemplate(html: string, options: CompileOptions): KeptTemplate | nul
  */
 function fromTemplate(html: string, options: CompileOptions): CompiledParts | null {
   const cache = options.templates as Map<string, KeptTemplate | null> | undefined;
-  if (!cache || !options.page || !options.prerender || options.check || options.describeOnly || options.canonicalLink === false
+  if (!cache || !options.page || !options.prerender || options.describeOnly || options.canonicalLink === false
     || options.decided || options.unrolled || options.constants) return null;
   const key = [options.file, options.locale?.name ?? '', html].join('\0');
   let t = cache.get(key);
@@ -966,7 +1021,11 @@ function fromTemplate(html: string, options: CompileOptions): CompiledParts | nu
   // a page with errors: the usual way, which reports them as it always does
   if (out.diagnostics.some((d) => d.severity === 'error')) return null;
   t.hits++;
-  return out;
+  // the type check reads the page as written, as `compilePasses` hands it on: the kept first pass's, once per template
+  // (every entry's is the same page; checking it again per entry only repeats it)
+  if (options.check && !t.typed && c.check) { t.typed = true; return { ...out, check: c.check }; }
+  const { check: _, ...rest } = out;
+  return rest;
 }
 
 function compilePasses(html: string, options: CompileOptions): CompiledParts & { canonicalOnly?: boolean } {
@@ -1390,9 +1449,17 @@ class Compiler {
     if (l) {
       const b = l.base.startsWith('/') ? l.base.replace(/\/?$/, '/') : '/';
       // a page whose paths have parameters: its path in another language is the browser's, with that language's prefix
-      const localeUrl = l.urls ? `((l) => (${JSON.stringify(l.urls)})[l])` : `((l) => ${JSON.stringify(b)} + l + location.pathname.slice(${b.length + l.name.length}))`;
-      this.page.locale = { name: l.name, messages: Object.entries(opts.helpers.namespaces).find(([, v]) => v.module === '@tiaforge-ui/sinter/messages')?.[0] ?? null, localeUrl, ...(l.urls ? { ownUrls: true } : {}) };
+      // (a language's segment: its `paths` entry, else its tag)
+      // ('' for a language on its own domain: its paths have none)
+      const own = l.paths?.[l.name] ?? l.name, seg = l.paths ? `((${JSON.stringify(l.paths)})[l] ?? l)` : 'l';
+      const localeUrl = l.urls ? `((l) => (${JSON.stringify(l.urls)})[l])`
+        : !l.paths ? `((l) => ${JSON.stringify(b)} + l + location.pathname.slice(${b.length + l.name.length}))`
+        : `((l, s = ${seg}) => ${JSON.stringify(b)} + (s ? s + '/' : '') + location.pathname.slice(${b.length + (own ? own.length + 1 : 0)}))`;
+      this.page.locale = { name: l.name, messages: null, localeUrl, ...(l.urls ? { ownUrls: true } : {}), ...(l.prefix === false ? { prefix: false as const } : {}) };
     }
+    const cns = Object.keys(opts.contentNs ?? {});
+    if (cns.length) this.page.contentNs = new Set(cns);
+    if (opts.axisUrls && Object.keys(opts.axisUrls).length) this.page.axisUrl = `((s, k) => (${JSON.stringify(opts.axisUrls)})[s]?.[k])`;
     // helpers whose declaring module reaches a lazy package: each module loads whole, when a let first needs it
     const reach = opts.lazyModule;
     if (reach) {
@@ -1409,7 +1476,7 @@ class Compiler {
       };
       for (const h of opts.helpers.names) { const o = opts.helpers.from?.[h]; add(h, o?.module ?? opts.helpers.module, o?.name ?? h); }
       for (const [k, v] of Object.entries(opts.helpers.namespaces)) {
-        if (v.module === '@tiaforge-ui/sinter/messages') continue;
+        if (isContentNsModule(v.module)) continue;
         for (const m of v.members) { const o = v.from?.[m]; add(`${k}$${m}`, o?.module ?? v.module, o?.name ?? m); }
       }
       if (lazy.size) this.page.lazy = lazy;
@@ -1444,7 +1511,7 @@ class Compiler {
     if (this.opts.decided?.size || this.opts.unrolled?.size) this.expandConstants(doc, '', false);
     if (this.opts.urls) this.canonical(doc);
     // a page in one language says which: `<html lang="de">`
-    if (this.opts.locale) { const h = doc.childNodes.find((n): n is P5Element => isElement(n) && n.tagName === 'html'); if (h) setAttr(h, 'lang', this.opts.locale.name); }
+    if (this.opts.locale && this.opts.locale.prefix !== false) { const h = doc.childNodes.find((n): n is P5Element => isElement(n) && n.tagName === 'html'); if (h) setAttr(h, 'lang', this.opts.locale.name); }
     // the page's language, for what the build sorts (`order` on a `file:` list): its `<html lang>`, the layout's included
     { const h = doc.childNodes.find((n): n is P5Element => isElement(n) && n.tagName === 'html'); this.pageLang = (h && attr(h, 'lang')) || undefined; }
     this.checkHead();
@@ -1647,7 +1714,7 @@ class Compiler {
     for (const h of ['$href', '$hq', '$hv']) if (imported(h)) builtin.push(h);
     const namespaces: Record<string, string[]> = {};
     for (const [k, v] of [...this.page.usedNs].sort(([a], [b]) => a.localeCompare(b))) {
-      const ms = [...v].filter((m) => imported(`${k}$${m}`)).sort();
+      const ms = [...v].filter((m) => imported(nsLocal(k, m))).sort();
       if (ms.length) namespaces[k] = ms;
     }
     // unchanged reloads skipped by version, where reloads are routine: refreshes, refresh events and reconnects
@@ -1682,7 +1749,7 @@ class Compiler {
       ...(this.opts.sourcemap ? { sources: this.sourcesOf(this.fns) } : {}),
       features: [...(this.opts.dev ? ['dev'] : []), ...['sse', 'optimistic', 'paginate', 'persist', 'cache', 'back', 'versions', 'refresh', 'for', 'options', 'keys', 'write-through', 'fields', 'form', 'select', 'location', 'typing', 'query-links', 'navigate', 'call', 'debounce', 'confirm', 'models', 'transition', 'components', 'nested', 'lets', 'signed-in'].filter((f) => this.features.has(f))],
       helpers: { user, builtin }, namespaces, calls: [...this.calls].sort(),
-      diagnostics: this.diagnostics, files: [...this.files].sort(), ...(this.fileGlobs.length ? { globs: this.fileGlobs } : {}), ...(this.pagesOut ? { pages: this.pagesOut } : {}),
+      diagnostics: this.diagnostics, files: [...this.files].sort(), ...(this.fileGlobs.length ? { globs: this.fileGlobs } : {}), ...(this.pagesOut ? { pages: this.pagesOut } : {}), ...(this.axesOut.length && (this.opts.axes?.length ?? 0) < this.axisDecls.length ? { axes: this.axesOut } : {}), ...(Object.values(this.opts.contentNs ?? {}).some((x) => x.export && this.opts.perCollections?.has(x.export)) ? { contentNs: this.contentNs() } : {}),
       ...(this.check ? { check: this.check } : {}),
       ...(early !== undefined ? { early } : {}),
       ...(images ? { images } : {}),
@@ -2296,7 +2363,9 @@ class Compiler {
     // the tag's attributes: plain ones replace the layout's on `<html>` (its defaults), `class` is joined
     for (const a of host.attrs) {
       if (a.name === 'data-sn-with' || a.name === 'data-sn-state') continue;
-      if (a.name === 'data-sn-path' || a.name === 'data-sn-prefetch' || a.name === 'data-sn-for' || a.name === 'data-sn-swap' || a.name === 'data-sn-signed-in') { setAttr(lhtml, a.name, a.value); continue; }
+      // `data-sn-for`: the layout's lists (its axes, `tenant in tenants`) are outside the page's own
+      if (a.name === 'data-sn-for') { const own = attr(lhtml, 'data-sn-for'); setAttr(lhtml, a.name, own ? `${own}; ${a.value}` : a.value); continue; }
+      if (a.name === 'data-sn-path' || a.name === 'data-sn-prefetch' || a.name === 'data-sn-swap' || a.name === 'data-sn-signed-in') { setAttr(lhtml, a.name, a.value); continue; }
       if (a.name === 'data-sn-pages') { this.report(host, a.name, 'SN101', `\`data-sn-pages\` ${RETIRED['data-sn-pages']}`, 0); continue; }
       if (a.name === 'data-sn-early') { this.report(host, a.name, 'SN318', '`data-sn-early` cannot be on a layout\'s tag: the layout is the whole page', 0, 'leave parts out of the early script on their own tags: `<tag-cloud data-sn-early="off">`'); continue; }
       if (a.name.startsWith('data-sn-')) {
@@ -4394,6 +4463,8 @@ class Compiler {
         const paginate = attr(child, 'paginate') != null ? this.pageSpec(child) : null;
         const info: ResourceInfo = { name, key: key ? key.split(',').map((s) => s.trim()).filter(Boolean) : null, paginate: paginate?.mode ?? null, used: false };
         if (paginate?.jump) info.jumps = true;
+        const rsrc = attr(child, 'src')?.trim();
+        if (rsrc && this.opts.axisUrls?.[rsrc]) info.src = rsrc;
         this.page.resources.set(name, info);
         this.resourceEls.set(name, child);
         continue;
@@ -4515,8 +4586,9 @@ class Compiler {
     }
     // a page in one language: its paths under that language's prefix, after the base (`/de/article/:slug`)
     const lp = this.opts.locale;
-    const lb = lp && lp.base.startsWith('/') ? lp.base.replace(/\/?$/, '/') : '/';
-    const prefixed = lp ? patterns.map((p) => (p.startsWith(lb) ? lb + lp.name + (p.length > lb.length ? '/' + p.slice(lb.length) : '/') : p)) : patterns;
+    // a point's folder: its language's (`localePrefix`), then each axis's segment
+    const segs = [...(lp && lp.prefix !== false && (lp.paths?.[lp.name] ?? lp.name) ? [lp.paths?.[lp.name] ?? lp.name] : []), ...(this.opts.axes ?? []).flatMap((a) => (a.segment ? [a.segment] : []))];
+    const prefixed = segs.length ? prefixPaths(patterns, segs.join('/'), this.opts.locale?.base ?? this.opts.base) : patterns;
     // only the URL the page has anyway: it is a directory's index without data-sn-path (docs/static-pages.md#page-urls)
     const root = this.opts.root.replace(/[\\/]+$/, '').replace(/\\/g, '/') + '/', file = this.opts.file.replace(/\\/g, '/');
     const rel = file.startsWith(root) ? file.slice(root.length) : null;
@@ -4577,6 +4649,7 @@ class Compiler {
     this.at = { el, attr: null, shift: 0 };
     // a link the build can see: same-page links (query-links.ts) are decided once the page is read
     if ((el.tagName === 'a' || el.tagName === 'area') && attr(el, 'href') != null) this.hrefs.push({ el, prefixes: [{ s: attr(el, 'href')!.trim(), whole: true }], literal: true });
+    if ((el.tagName === 'a' || el.tagName === 'area') && this.opts.axisLists?.length) this.markAxisLink(el);
     // a row of an unrolled loop: its item and index, as derived names over the constant list, on the
     // scope of the loop's writer (before a component's root takes its props from this scope). The
     // component's own loop: before its slot content or fill switches to its caller's scope (which
@@ -5666,16 +5739,18 @@ class Compiler {
       const i = this.frameOf.get(f);
       if (i !== undefined && !frames.includes(i)) frames.push(i);
     }
+    // a component's tag: the element is its root; its events have the detail `data-sn-emits` declares
+    const use = this.hostUse.get(el);
     let event: string | null = null;
     // a key filter's handler runs for its keydown or keyup
     if (attrName.startsWith('data-sn-on-')) event = attrName.slice('data-sn-on-'.length).replace(/^(key(?:down|up))-.*/s, '$1');
+    // a component's model writes on its own `change`, whatever its root element
+    else if (use && attrName === 'data-sn-model') event = 'change';
     // an element-less handler (<sn-event>, <sn-resource then>) runs for no DOM event
     else if ((o.mode !== 'value' || o.magic?.includes('$event')) && !o.noElement) {
-      const tag = this.hostUse.get(el)?.root.tagName ?? el.tagName;
+      const tag = use?.root.tagName ?? el.tagName;
       event = attr(el, 'data-sn-trigger') ?? (tag === 'form' ? 'submit' : FORM_CONTROLS.has(tag) ? 'change' : 'click');
     }
-    // a component's tag: the element is its root; its events have the detail `data-sn-emits` declares
-    const use = this.hostUse.get(el);
     const e: CheckExpr = {
       src, mode: o.mode === 'value' ? 'value' : 'handler', loc: this.locOf(el, attrName, shift), frames, tag: use?.root.tagName ?? el.tagName, event,
       result: attrName === 'data-sn-then' || !!o.magic?.includes('$result'), error: attrName === 'data-sn-catch',
@@ -5772,6 +5847,9 @@ class Compiler {
     const lits = tpl.filter((p): p is string => typeof p === 'string');
     // what the build sees of where it goes: the literal start, the whole URL without values; the literal query names of a
     // query-only one, which replaces the whole query (SN519)
+    // a page in a language: a start that names one of the site's pages is that page in the language (its values are
+    // filled in the browser, after the build's links are rewritten)
+    if (vals.length && typeof tpl[0] === 'string') tpl[0] = this.inPageLanguage(tpl[0]);
     const first = typeof tpl[0] === 'string' ? tpl[0] : '';
     const query = first[0] === '?' ? [...lits.join('').split('#')[0]!.matchAll(/[?&]([^?&=#]+)=/g)].map((m) => m[1]!) : undefined;
     this.hrefs.push({ el, prefixes: [{ s: first, whole: !vals.length }], literal: false, ...(query ? { query, src: attr(el, 'data-sn-href') } : {}) });
@@ -6440,6 +6518,8 @@ class Compiler {
     if (!name || !this.page.resources.has(name) || this.resourceEls.get(name) !== el) return;
     if (ctx.tid >= 0) return;
     if (attr(el, PAGE_ENTRY) !== undefined && el === this.pagesDecl?.entry) return this.entryResource(el, name, ctx.stateIdx);
+    const axis = this.axisDecls.findIndex((d) => d.entry === el);
+    if (axis >= 0) return this.axisResource(el, name, ctx.stateIdx, axis);
     if (isFileSource(attr(el, 'src'))) return this.fileResource(el, name, ctx.stateIdx);
     if (isContentSource(attr(el, 'src'))) return this.contentResource(el, name, ctx.stateIdx);
     for (const a of el.attrs) {
@@ -6706,9 +6786,17 @@ class Compiler {
       this.report(html, 'data-sn-pages', 'SN101', `\`data-sn-pages\` ${RETIRED['data-sn-pages']}`, 0);
       html.attrs = html.attrs.filter((a) => a.name !== 'data-sn-pages');
     }
-    const v = html && attr(html, 'data-sn-for');
-    if (!html || v === undefined) return;
+    const all = html && attr(html, 'data-sn-for');
+    if (!html || all === undefined) return;
     html.attrs = html.attrs.filter((a) => a.name !== 'data-sn-for');
+    // outer lists first (`tenant in tenants; post in posts`): each but the page's own entries is an axis. The last is the
+    // page's entries when the page has a pattern to fill from it (`data-sn-path="/blog/:slug"`), else an axis too
+    const items = all.split(';').map((x) => x.trim()).filter(Boolean);
+    const own = /\/:/.test(attr(html, 'data-sn-path') ?? '');
+    const axisItems = own ? items.slice(0, -1) : items;
+    for (const it of axisItems) if (!this.axisOf(doc, html, it, all)) return;
+    if (!own) return;
+    const v = items.at(-1) ?? '';
     const m = /^\s*([A-Za-z_$][\w$]*)\s+in\s+([A-Za-z_$][\w$]*)\s*$/.exec(v);
     if (!m) { this.report(html, 'data-sn-for', 'SN340', '`data-sn-for` on `<html>` takes `<name> in <list>`, e.g. `post in posts`, where `posts` is a `file:` resource of this page', 0); return; }
     const [, name, of] = m as unknown as [string, string, string];
@@ -6737,6 +6825,143 @@ class Compiler {
   }
 
   /**
+   * A collection loaded per axis (`per`), at this page's point: for each collection it is loaded per, the key of the
+   * page's item of the axis over it (a `content:` list), or its language for a `languages()` one; undefined for one that
+   * is not, or a point the page cannot name (no axis over a collection it is loaded per: SN342)
+   */
+  perCollection(cname: string): { key: string; value: readonly unknown[]; point: string } | undefined {
+    const pc = this.opts.perCollections?.get(cname);
+    if (!pc) return undefined;
+    const keys: string[] = [];
+    for (const n of pc.per) {
+      const d = this.axisDecls.find((x) => attr(this.resourceEls.get(x.of)!, 'src')?.trim() === `content:${n}`);
+      const item = d ? this.fileData.get(d.name)?.value as Record<string, unknown> | undefined : undefined;
+      const k = d ? this.opts.collections?.get(n)?.key : undefined;
+      if (item && k) { keys.push(String(item[k])); continue; }
+      const tags = this.opts.collections?.get(n)?.value as Array<{ tag?: unknown }> | undefined;
+      if (tags?.length && tags.every((t) => typeof t?.tag === 'string') && this.opts.locale) { keys.push(this.opts.locale.name); continue; }
+      return { key: pc.key, value: [], point: '' };
+    }
+    return { key: pc.key, value: pc.values.get(keys.join('\0')) ?? [], point: keys.join('\0') };
+  }
+
+  /** the compile's content namespaces (`contentNs`), each at the page's point */
+  contentNs(): NonNullable<CompileOptions['contentNs']> {
+    const out: NonNullable<CompileOptions['contentNs']> = { ...this.opts.contentNs };
+    // one loaded per axis (`per: [tenants]`): its entries at the page's point
+    for (const [ns, spec] of Object.entries(out)) {
+      const at = spec.export ? this.perCollection(spec.export) : undefined;
+      if (!at) continue;
+      const entries: Record<string, unknown> = {};
+      for (const e of at.value as Array<Record<string, unknown>>) entries[String(e[at.key])] = e;
+      out[ns] = { ...spec, entries };
+    }
+    return out;
+  }
+
+  /** `data-sn-for` on `<html>`: the axes the page is built over, outer first (`axisOf`) */
+  private readonly axisDecls: Array<{ name: string; of: string; html: P5Element; entry: P5Element }> = [];
+  private readonly axesOut: NonNullable<CompiledParts['axes']> = [];
+
+  /**
+   * One axis of `data-sn-for` on `<html>` (`tenant in tenants`): a build-time list the page (or its layout) declares, and
+   * its item, an internal resource beside the list as a page per entry's entry is. False when it is wrong (SN340).
+   */
+  axisOf(doc: DefaultTreeAdapterMap['document'], html: P5Element, item: string, all: string): boolean {
+    const m = /^\s*([A-Za-z_$][\w$]*)\s+in\s+([A-Za-z_$][\w$]*)\s*$/.exec(item);
+    if (!m) { this.report(html, 'data-sn-for', 'SN340', `\`data-sn-for\` on \`<html>\` takes \`<name> in <list>\`, several separated by \`;\` (\`tenant in tenants; post in posts\`), where each list is a build-time resource of the page`, all.indexOf(item)); return false; }
+    const [, name, of] = m as unknown as [string, string, string];
+    if (STORE_FNS.includes(name) || name.startsWith('$')) { this.report(html, 'data-sn-for', 'SN340', `\`${name}\` cannot name an item: it is ${name.startsWith('$') ? 'a magic name' : 'a store function'}`, all.indexOf(item)); return false; }
+    let list: P5Element | null = null;
+    const find = (p: P5Parent) => { for (const c of p.childNodes) { if (!isElement(c) || list) continue; if (c.tagName === 'template') continue; if (c.tagName === 'sn-resource' && attr(c, 'name') === of) { list = c; return; } find(c); } };
+    find(doc);
+    const el = list as P5Element | null;
+    const src = el ? attr(el, 'src') ?? '' : '';
+    if (!el || (!isContentSource(src) && (!isFileSource(src) || !isGlob(src.trim().slice('file:'.length))))) {
+      this.report(html, 'data-sn-for', 'SN340', `\`${of}\` is not a build-time list of this page: an axis of \`data-sn-for\` on \`<html>\` takes a collection (\`<sn-resource name="${of}" src="content:${of}">\`) or a \`file:\` glob, declared outside any template`, all.indexOf(of));
+      return false;
+    }
+    const entry = parse5.defaultTreeAdapter.createElement('sn-resource', parse5.html.NS.HTML, [{ name: 'name', value: name }, { name: PAGE_ENTRY, value: of }]);
+    const parent = el.parentNode as P5Parent;
+    parent.childNodes.splice(parent.childNodes.indexOf(el) + 1, 0, entry);
+    (entry as { parentNode: P5Parent }).parentNode = parent;
+    const o = this.origins.get(el);
+    if (o) this.origins.set(entry, o);
+    this.axisDecls.push({ name, of, html, entry });
+    return true;
+  }
+
+  /**
+   * A link in rows of loops over axis lists (`axisLists`): `data-sinter-pt` names each list's entry (its `src` and key,
+   * the nearest row's for a list), for the build's link pass, which sends the link to that entry's page.
+   */
+  markAxisLink(el: P5Element) {
+    const at = new Map<string, string>();
+    for (let x: P5Node | null = el; x; x = (x as { parentNode: P5Node | null }).parentNode) {
+      for (let r = isElement(x) ? this.rowOf.get(x) : undefined; r; r = r.up) {
+        // the list itself, or any list whose item is one of its entries (`tenants.filter(…)`, a let over it)
+        const hit = this.axisEntryOf(r.list.trim(), r.value);
+        if (hit && !at.has(hit.src)) at.set(hit.src, hit.key);
+      }
+    }
+    if (at.size && !el.attrs.some((a) => a.name === 'data-sinter-pt')) el.attrs.push({ name: 'data-sinter-pt', value: [...at].map(([s, k]) => `${encodeURIComponent(s)} ${encodeURIComponent(k)}`).join(' ') });
+  }
+
+  /** the axis lists of this page (`axisLists`), each its `src`, its entries as JSON and its key fields, by resource name */
+  private axisListsOf: Map<string, { src: string; json: Set<string>; key: string[] }> | null = null;
+  /** a row's item as an entry of an axis list: that list's `src` and the entry's key; by the loop's list, else by its value */
+  axisEntryOf(list: string, value: unknown): { src: string; key: string } | null {
+    if (!this.axisListsOf) {
+      this.axisListsOf = new Map();
+      for (const [name, el] of this.resourceEls) {
+        const src = attr(el, 'src')?.trim(), v = this.fileData.get(name)?.value;
+        if (src && this.opts.axisLists!.includes(src) && Array.isArray(v)) this.axisListsOf.set(name, { src, json: new Set(v.map((e) => JSON.stringify(e))), key: this.page.resources.get(name)?.key ?? ['key'] });
+      }
+    }
+    const keyOf = (l: { key: string[] }) => l.key.map((f) => String((value as Record<string, unknown>)?.[f])).join('/');
+    const own = /^[A-Za-z_$][\w$]*$/.test(list) ? this.axisListsOf.get(list) : undefined;
+    if (own) return { src: own.src, key: keyOf(own) };
+    const j = JSON.stringify(value);
+    for (const l of this.axisListsOf.values()) if (l.json.has(j)) return { src: l.src, key: keyOf(l) };
+    return null;
+  }
+
+  /** an axis's item: this compile's value (`axes`), or its list's first entry, listing the entries for the build */
+  axisResource(el: P5Element, name: string, scope: number, i: number) {
+    const d = this.axisDecls[i]!;
+    const list = this.fileData.get(d.of)?.value;
+    const entries = Array.isArray(list) ? list : [];
+    // a compile given the outer axes' values only (the build lists an inner list at each outer value): this one's entries
+    if (!this.opts.axes?.[i]) {
+      const keyOf = this.page.resources.get(d.of)?.key ?? ['key'];
+      this.axesOut[i] = { name: d.name, of: d.of, src: attr(this.resourceEls.get(d.of)!, 'src')!.trim(), entries: entries.map((e) => ({ value: e, key: keyOf.map((f) => String((e as Record<string, unknown>)?.[f])).join('/') })) };
+    }
+    const value = this.opts.axes?.[i] ? this.opts.axes[i]!.value : entries[0] ?? null;
+    const id = this.nextId++;
+    const listEl = this.resourceEls.get(d.of);
+    this.fileData.set(name, { id, value, at: d.html, fields: listEl ? this.fieldsOf(listEl, false) : null, content: !!listEl && isContentSource(attr(listEl, 'src')) });
+    this.embedded.set(name, id);
+    this.page.resources.get(name)!.used = true;
+    const listInfo = this.page.resources.get(d.of);
+    if (listInfo) listInfo.used = true;
+    if (this.check) this.check.resources.push({ name, type: null, loc: this.locOf(el, null), nameLoc: this.locOf(d.html, 'data-sn-for'), item: d.of });
+    this.resources.push({ name, src: [], key: null, select: null, total: null, order: null, when: null, paginate: null, deps: [], scope, data: null, fx: 1 });
+    this.declAt.set(this.resources[this.resources.length - 1]!, el);
+  }
+
+  /** a `file:` path with an axis's item in it (`file:/content/{tenant.key}/posts/*.md`): this point's value there */
+  axisPath(src: string): string {
+    if (!this.axisDecls.length) return src;
+    return src.replace(/\{\s*([A-Za-z_$][\w$]*)\.([A-Za-z_$][\w$]*)\s*\}/g, (x, n: string, f: string) => {
+      const i = this.axisDecls.findIndex((d) => d.name === n);
+      if (i < 0) return x;
+      const v = this.fileData.get(n)?.value as Record<string, unknown> | undefined;
+      const at = v?.[f];
+      return typeof at === 'string' || typeof at === 'number' ? String(at) : x;
+    });
+  }
+
+  /**
    * `<sn-resource src="content:posts">`: a collection of the content module, a constant list as a `file:` glob is (`fx`),
    * its key the collection's unless `key` is given, sorted by `order` here. `drafts` and `select` are the loader's
    * business. Without collections (`sinter check`, the editor), an empty list.
@@ -6752,7 +6977,7 @@ class Compiler {
     }
     const src = attr(el, 'src')!.trim(), cname = src.slice('content:'.length), at = attr(el, 'src')!.indexOf(cname);
     const known = this.opts.collections;
-    const c = known?.get(cname);
+    const c = this.perCollection(cname) ?? known?.get(cname);
     if (known && !c) {
       if (this.opts.collectionsError) this.report(el, 'src', 'SN342', `\`${cname}\`: the content module did not load its collections: ${this.opts.collectionsError.split('\n')[0]}`, at);
       else {
@@ -6763,7 +6988,7 @@ class Compiler {
     if (!info.key) info.key = [c?.key ?? (attr(el, 'key')?.trim() || 'id')];
     // the list as this page reads it (sorted in its language): built once per build, frozen, shared by every page
     const order = attr(el, 'order')?.trim() || null, lang = this.opts.locale?.name ?? this.pageLang;
-    const cacheKey = ['content', cname, order, lang].join('\0');
+    const cacheKey = ['content', cname, order, lang, (c as { point?: string } | undefined)?.point ?? ''].join('\0');
     let kept = c ? this.opts.globCache?.get(cacheKey) : undefined;
     if (c && !kept) {
       kept = { value: deepFreeze(order ? sortList([...c.value], order, lang) : [...c.value]), files: [], said: [] };
@@ -6835,7 +7060,7 @@ class Compiler {
   fileResource(el: P5Element, name: string, scope: number) {
     const info = this.page.resources.get(name)!;
     for (const a of el.attrs) if (!FILE_ATTRS.includes(a.name)) this.report(el, a.name, RESOURCE_ATTRS.includes(a.name) ? 'SN332' : 'SN101', a.name === 'items' ? ITEMS_RENAMED : fileAttrProblem(a.name), 0);
-    const written = attr(el, 'src')!, at = written.indexOf('file:');
+    const written = this.axisPath(attr(el, 'src')!), at = written.indexOf('file:');
     // `{$locale}`: each language's build reads its own folder (`localePrefix`); `sinter check` and the editor, the base one
     const lang = /\{\s*\$locale\s*\}/;
     if (lang.test(written) && !this.opts.locale) this.report(el, 'src', 'SN332', '`{$locale}` in a `file:` path needs `sinter({ localePrefix })`: each language\'s build reads its own folder there; without it, the language is the visitor\'s, picked in the browser', written.search(lang));
@@ -7165,17 +7390,20 @@ class Compiler {
       params.set('bytes', (v: unknown) => inLang(() => bytes(v)));
       params.set('date', (v: unknown, style?: 'full' | 'long' | 'medium' | 'short') => { if (!isCalendarDate(v)) throw NOT; return inLang(() => date(v, style)); });
     }
-    for (const [ns, { members, module }] of Object.entries(this.opts.helpers.namespaces)) for (const m of members) params.set(`${ns}$${m}`, module === '@tiaforge-ui/sinter/messages' ? stub : folding.fn(`${ns}$${m}`));
-    // the base language's text, for a text binding: the binding is marked and stays the browser's
-    const base = this.opts.baseMessages;
-    let usedMessage = false;
-    const msgNs = base ? Object.entries(this.opts.helpers.namespaces).find(([, v]) => v.module === '@tiaforge-ui/sinter/messages') : undefined;
-    if (base && msgNs) for (const m of msgNs[1].members) {
-      params.set(`${msgNs[0]}$${m}`, (p?: Record<string, unknown>) => {
-        const t = base[m];
-        if (typeof t !== 'string') throw NOT;
-        usedMessage = true;
-        return p ? t.replace(/\{(\w+)\}/g, (x, n) => (n in p ? String(p[n]) : x)) : t;
+    for (const [ns, { members, module }] of Object.entries(this.opts.helpers.namespaces)) for (const m of members) params.set(nsLocal(ns, m), isContentNsModule(module) ? stub : folding.fn(`${ns}$${m}`));
+    // content namespaces (the built-in messages too): an entry in the page's language, formatted as the browser would
+    const cns = this.contentNs();
+    for (const [ns, spec] of Object.entries(cns)) for (const m of this.opts.helpers.namespaces[ns]?.members ?? []) {
+      params.set(nsLocal(ns, m), (p?: Record<string, unknown>) => {
+        const t = spec.entries[m];
+        if (spec.format === null) {
+          if (typeof t !== 'string') throw NOT;
+          return p ? t.replace(/\{(\w+)\}/g, (x, n) => (n in p ? String(p[n]) : x)) : t;
+        }
+        if (!spec.formatFn || t === undefined) throw NOT;
+        const v = spec.formatFn(t, p, this.opts.locale?.name ?? null);
+        if (!plainData(v)) throw NOT;
+        return v;
       });
     }
     // the worklist evaluates the rows' templates and bindings too, and which component each choice renders
@@ -7199,7 +7427,6 @@ class Compiler {
     const states = new Map<number, unknown>();
     const known = (deps: string[]) => deps.every((d) => {
       // a message re-renders on `$locale`: its base text is what is written
-      if (d === '$locale' && msgNs) return true;
       if (d === '$locale' && this.opts.helperFold) return true;
       if (this.fileConstant(d)) return true;
       // a waiting let's module: evaluated, so its call (`$z`) records why it does not fold
@@ -7237,43 +7464,37 @@ class Compiler {
       }));
     }
     const schemes = schemesOf([]);
-    const work = this.worklist(fnOf, known, fixed, schemes, () => usedMessage, () => { usedMessage = false; }, ROW);
+    const work = this.worklist(fnOf, known, fixed, schemes, ROW);
     for (const c of cands) {
       own = c.b.k === 'model' && c.b.p !== undefined ? (c.b.w![0] as string).split('.').slice(0, 2).join('.') : null;
-      usedMessage = false;
       const v = known(strs(c.b.d)) ? run(this.fns[c.f]!) : FAIL;
       if (c.for) {
-        work.unroll(this.instKey(c.el)!, c.b, (usedMessage && !this.opts.locale) ? FAIL : v, scope, c.el);
+        work.unroll(this.instKey(c.el)!, c.b, v, scope, c.el);
         continue;
       }
       if (c.if) {
         // per instance (its uses too); one template in two instances nothing tells apart: decided only when they agree
         const key = this.instKey(c.el)!;
-        if (v === FAIL || usedMessage) { this.decided.delete(key); this.undecided.add(key); continue; }
+        if (v === FAIL) { this.decided.delete(key); this.undecided.add(key); continue; }
         if (this.undecided.has(key)) continue;
         if (this.decided.has(key) && this.decided.get(key) !== !!v) { this.decided.delete(key); this.undecided.add(key); continue; }
         this.decided.set(key, !!v);
         this.foldReads.set(key, this.stateSites(c.b.d));
         continue;
       }
-      // in a page built in one language a message is that language's text, a constant like any other
-      const msg = usedMessage && !this.opts.locale;
-      if (c.tpl && (v === FAIL || msg)) continue;
-      if (msg && c.b.k !== 'text') continue;
+      if (c.tpl && v === FAIL) continue;
       const w = v === FAIL ? FAIL : firstPaintValue(c.el, c.b, v, schemes);
       if (w === FAIL) continue;
       // (deciding only: what would be written is recorded, for `collectConstants`, and the markup left as walked)
       if (!decideOnly) writeFirstPaint(c.el, w[0], c.b.n ?? null, w[1]);
       if (c.tpl) { this.tplPainted.add(c.b); this.paintValue.set(c.b, { k: w[0], n: c.b.n ?? null, v: w[1] }); continue; }
-      if (msg) { if (!decideOnly) setAttr(c.el, 'data-sn-m', ''); continue; }
       // a persisted model's written value is the fallback: the early chunk still applies the stored one
       if (own === null) { this.painted.add(c.b); this.paintValue.set(c.b, { k: w[0], n: c.b.n ?? null, v: w[1] }); }
     }
     // a text node over constants: plain text in the HTML, its anchor pair gone, its binding and node dropped
     for (const t of texts) {
-      usedMessage = false;
       const v = known(strs(t.b.d)) ? run(this.fns[t.b.f!]!) : FAIL;
-      if (decideOnly || v === FAIL || usedMessage || (v !== null && v !== undefined && typeof v === 'object')) continue;
+      if (decideOnly || v === FAIL || (v !== null && v !== undefined && typeof v === 'object')) continue;
       const text = '' + (v ?? '');
       const at = t.parent.childNodes.indexOf(t.nodes[0] as never);
       if (at < 0) continue;
@@ -7500,7 +7721,7 @@ class Compiler {
    * Two instances with one key (no way to tell them apart) leave it. At most `EXPANSION_LIMIT` rows and component
    * instances per page, any list's rows counted (`SN536` past it, at the loop or the tree that crosses it).
    */
-  worklist(fnOf: Map<string, ($: unknown) => unknown>, known: (deps: string[]) => boolean, fixed: (ds: PathRef[] | undefined) => boolean, schemes: Set<string>, usedMessage: () => boolean, reset: () => void, ROW: Set<string>) {
+  worklist(fnOf: Map<string, ($: unknown) => unknown>, known: (deps: string[]) => boolean, fixed: (ds: PathRef[] | undefined) => boolean, schemes: Set<string>, ROW: Set<string>) {
     type Found = { unrolls: Array<[string, unknown[], PathRef[] | undefined]>; decided: Array<[string, boolean, PathRef[] | undefined]>; paints: Array<[Binding, string, ConstantWrite | null]>; rows: number; over?: true };
     /** `pick`: a choice's case expanded (decided true), else a loop unrolled */
     const pending = new Map<string, { items: unknown[]; d: PathRef[] | undefined; found: Found; pick?: true; el: P5Element } | null>();
@@ -7522,9 +7743,8 @@ class Compiler {
     const run = (sc: object, code: string): unknown => {
       const f = fnOf.get(code);
       if (!f) return FAIL;
-      reset();
       this.folding?.start(code);
-      try { const v = f(sc); return usedMessage() && !this.opts.locale ? FAIL : v; } catch { return FAIL; } finally { this.folding?.end(); }
+      try { return f(sc); } catch { return FAIL; } finally { this.folding?.end(); }
     };
     const listOf = (v: unknown): unknown[] | null => (Array.isArray(v) && v.every((x) => plainData(x)) ? v : null);
     // (a placement's element is its `<slot>`; an anchor's, its template)
@@ -8916,7 +9136,7 @@ class Compiler {
     const formatters = EARLY_FORMATTERS.filter((n) => !userHelpers.has(n) && calls(n));
     const namespaces: Record<string, string[]> = {};
     for (const [ns, { members }] of Object.entries(this.opts.helpers.namespaces)) {
-      const used = members.filter((m) => calls(`${ns}$${m}`));
+      const used = members.filter((m) => calls(nsLocal(ns, m)));
       if (used.length) namespaces[ns] = used;
     }
     const ir: EarlyIR = { roots, templates };
@@ -8968,7 +9188,7 @@ class Compiler {
     const userHelpers = new Set(this.opts.helpers.names);
     const BUILTIN = /(?<![\w$.])(date|relative|number|bytes)\(/g;
     const builtin = (code: string) => [...code.matchAll(BUILTIN)].some((m) => !userHelpers.has(m[1]!));
-    const messages = Object.entries(this.opts.helpers.namespaces).filter(([, v]) => v.module === '@tiaforge-ui/sinter/messages').map(([k]) => k);
+    const messages = Object.entries(this.opts.helpers.namespaces).filter(([, v]) => isContentNsModule(v.module)).map(([k]) => k);
     const fns: string[] = [], index = new Map<string, number>();
     const fn = (code: string) => { let i = index.get(code); if (i === undefined) index.set(code, (i = fns.push(code) - 1)); return i; };
     const res: PrefetchParts['res'] = [];
@@ -8996,7 +9216,7 @@ class Compiler {
     const calls = namesIn(fns.join('\n'), [...memberNames(this.opts.helpers.namespaces), ...this.opts.helpers.names]);
     const namespaces: Record<string, string[]> = {};
     for (const [ns, { members }] of Object.entries(this.opts.helpers.namespaces)) {
-      const used = members.filter((m) => calls(`${ns}$${m}`));
+      const used = members.filter((m) => calls(nsLocal(ns, m)));
       if (used.length) namespaces[ns] = used;
     }
     const arrays = this.urlArrays();
@@ -9452,7 +9672,17 @@ class Compiler {
     const mine = this.pathList.some((p) => { const w = p.split('/').filter(Boolean); return w.length === segs.length && w.every((x, i) => x[0] === ':' || x === segs[i]); });
     if (mine) return fail(`\`data-sn-signed-in\` on the sign-in page (\`${to.to}\`, the API \`${a.name}\`'s \`token.signIn\`): a signed-out visitor would be sent here again and again`, 'remove it from this page');
     const t = a.token!;
-    return { a: a.name, t: { s: t.storage === 'local' ? 'l' : 's', k: t.key }, i: signInWire(to), ...(g.f != null ? { f: g.f } : {}) };
+    return { a: a.name, t: { s: t.storage === 'local' ? 'l' : 's', k: t.key }, i: signInWire(localSignIn(to, this.opts.locale)), ...(g.f != null ? { f: g.f } : {}) };
+  }
+
+  /** a URL's literal start in the page's language when it names one of the site's pages (`inLanguage`); else as written */
+  inPageLanguage(start: string): string {
+    const l = this.opts.locale;
+    if (this.opts.points) {
+      for (const x of this.opts.points) { const r = inPoint(start, x.prefix, this.opts.base ?? l?.base, x.pages); if (r !== start) return r; }
+      return start;
+    }
+    return l?.list && l.pages ? inLanguage(start, l.name, { base: l.list[0]!, list: l.list, ...(l.paths ? { paths: l.paths } : {}) }, l.base, l.pages) : start;
   }
 
   runtimeReasons(): RuntimeReason[] {
@@ -10329,4 +10559,11 @@ function writeFirstPaint(el: P5Element, kind: Kind, name: string | null, v: unkn
     case 'checked': set('checked', v ? '' : null); break;
     case 'value': if (el.tagName === 'textarea') text(v as string); else set('value', v as string); break;
   }
+}
+
+/** an API's `signIn` in the page's language, when it is one of the site's pages (`inLanguage`) */
+export function localSignIn<T extends { to: string }>(s: T, l: CompileOptions['locale']): T {
+  if (!l?.list || !l.pages) return s;
+  const to = inLanguage(s.to, l.name, { base: l.list[0]!, list: l.list, ...(l.paths ? { paths: l.paths } : {}) }, l.base, l.pages);
+  return to === s.to ? s : { ...s, to };
 }

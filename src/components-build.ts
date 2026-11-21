@@ -1,6 +1,6 @@
 // Components with a script, at build time: the generated base class a script extends
 // (`import { TaskRingComponent } from './task-ring.html'`, served by the Vite plugin) and its
-// types, `src/sinter.components.d.ts`, written like `src/sinter.messages.d.ts`.
+// types, `src/sinter.components.d.ts`.
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative, sep } from 'node:path';
 import * as parse5 from 'parse5';
