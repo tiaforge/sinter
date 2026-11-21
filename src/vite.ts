@@ -1048,7 +1048,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     return c;
   };
   /** what every compile gets of the collections */
-  const contentOpts = (locale?: string) => (content ? { collections: collectionsIn(content, locale), ...(content.error ? { collectionsError: content.error } : {}) } : {});
+  const contentOpts = (locale?: string) => (content ? { collections: collectionsIn(content, locale), ...(content.perPoint.size ? { perCollections: content.perPoint } : {}), ...(content.error ? { collectionsError: content.error } : {}) } : {});
   /** builds: the `file:` lists already built (compile's `globCache`), cleared with the reads */
   const globCache: NonNullable<Parameters<typeof compile>[1]['globCache']> = new Map();
   /** builds: each `<html data-sn-for>` template's first pass, walked once for all its entries (compile's `templates`), cleared with the reads */

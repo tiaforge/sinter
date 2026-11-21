@@ -25,6 +25,11 @@ export interface CollectionContext {
   command: 'build' | 'serve';
   /** with `perLocale: true` (and `localePrefix`): the language this run loads for; else undefined */
   locale: string | undefined;
+  /**
+   * with `per`: the entry of each of those collections this run loads for (`value(tenants)` is a tenant), or undefined
+   * for a collection that is not in `per`
+   */
+  value<T>(c: Collection<T>): T | undefined;
 }
 
 export interface Collection<T = unknown> {
@@ -34,6 +39,11 @@ export interface Collection<T = unknown> {
   readonly load: (ctx: CollectionContext) => T[] | Promise<T[]>;
   /** loaded once per language (`ctx.locale`), each language's pages reading its own list */
   readonly perLocale?: true;
+  /**
+   * loaded once per entry of each of these collections (docs/proposals/axes.md §3), the axes' lists of the pages that
+   * read it (`per: [tenants]`): each page reads the list of its own tenant
+   */
+  readonly per?: readonly Collection[];
   /** `languages()`: the site's languages, which `localePrefix` builds every page in (docs/static-pages.md#languages) */
   readonly languages?: Languages;
 }
@@ -51,10 +61,11 @@ export const LANGUAGE_TAG = /^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})*$/;
  * A collection: `key` names the field that tells entries apart, and `load` returns the list, a list of plain data
  * (arrays, objects, strings, numbers, booleans, `null`).
  */
-export function collection<T>(o: { key: keyof T & string; load: (ctx: CollectionContext) => T[] | Promise<T[]>; perLocale?: boolean }): Collection<T> {
+export function collection<T>(o: { key: keyof T & string; load: (ctx: CollectionContext) => T[] | Promise<T[]>; perLocale?: boolean; per?: readonly Collection<any>[] }): Collection<T> {
   if (!o || typeof o.key !== 'string' || !o.key) throw new Error('collection(): `key` names the field that tells entries apart, e.g. `collection({ key: \'slug\', load })`');
   if (typeof o.load !== 'function') throw new Error('collection(): `load` is a function that returns the list, e.g. `load: async () => (await fetch(url)).json()`');
-  return { [COLLECTION]: true, key: o.key, load: o.load, ...(o.perLocale ? { perLocale: true as const } : {}) };
+  if (o.per !== undefined && (!Array.isArray(o.per) || !o.per.length || !o.per.every(isCollection))) throw new Error('collection(): `per` lists the collections it is loaded for, each an axis\'s list (`per: [tenants]`)');
+  return { [COLLECTION]: true, key: o.key, load: o.load, ...(o.perLocale ? { perLocale: true as const } : {}), ...(o.per ? { per: [...o.per] } : {}) };
 }
 
 /**

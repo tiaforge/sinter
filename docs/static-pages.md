@@ -303,8 +303,13 @@ dist/globex/index.html        /globex/
   `/acme/about/`); a page outside the axis (one that does not use the layout) is linked as itself.
 - **With [`localePrefix`](#languages)** the language is outside every axis (`/de/acme/about/`), `hreflang` pairs a
   tenant's pages across languages, and the chooser is at the tenant's path without a language (`/acme/about/`).
-- Not yet ([docs/proposals/axes.md](proposals/axes.md), step 6): a tenant on its own domain (`origin`), collections
-  loaded per tenant (`per`), and a build error for a link from a page outside the axis to a page only an axis has.
+- **Content per tenant**: `collection({ key, per: [tenants], load: ({ value }) => … })` is loaded once per tenant
+  (`value(tenants)` is the tenant), and each page reads its own tenant's list as `content:<name>`. `per` may name the
+  `languages()` collection too (`per: [tenants, locales]`: `ctx.locale` is the language), and a page reads its
+  language's. The page's axis list must come before such a resource in the merged document (the layout's list before
+  its slot).
+- Not yet ([docs/proposals/axes.md](proposals/axes.md), step 6): a tenant on its own domain (`origin`), and a build
+  error for a link from a page outside the axis to a page only an axis has.
 
 ### Redirects and rewrites
 

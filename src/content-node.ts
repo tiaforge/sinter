@@ -23,7 +23,14 @@ export interface LoadedContent {
   files: string[];
   /** the module's `languages()` export, if it has one */
   languages: Languages | null;
+  /**
+   * `per` collections (docs/proposals/axes.md §3): for each, the collections it is loaded per (by name) and its list at
+   * each combination of their entries' keys (joined by `\0`, in `per`'s order)
+   */
+  perPoint: PerPoint;
 }
+
+export type PerPoint = Map<string, { key: string; per: string[]; values: Map<string, readonly unknown[]> }>;
 
 export interface ContentOptions extends Omit<LoadOptions, 'helpersFile' | 'manifest' | 'cache'> {
   /** the content module, absolute */
@@ -53,7 +60,7 @@ export async function loadContent(o: ContentOptions): Promise<LoadedContent> {
   const rel = (f: string) => relative(o.root, f).split(sep).join('/');
   let mod: Record<string, unknown>;
   try { mod = await importModule(o, o.file); } catch (e) {
-    return { collections, perLocale, error: scrub(`the content module could not be loaded (${rel(o.file)}): ${String((e as Error)?.message ?? e).split('\n')[0]}`, o.env), files: [], languages: null };
+    return { collections, perLocale, error: scrub(`the content module could not be loaded (${rel(o.file)}): ${String((e as Error)?.message ?? e).split('\n')[0]}`, o.env), files: [], languages: null, perPoint: new Map() };
   }
   const problems: string[] = [];
   const names = new Map<Collection, string>();
@@ -85,6 +92,7 @@ export async function loadContent(o: ContentOptions): Promise<LoadedContent> {
         env: o.env,
         command: o.command,
         locale: at,
+        value: () => undefined,
       };
       p = Promise.resolve().then(() => c.load(ctx)).then((v) => checked(v, name, c.key));
       running.set(k, p);
@@ -94,7 +102,7 @@ export async function loadContent(o: ContentOptions): Promise<LoadedContent> {
   // the languages a `perLocale` collection is loaded for: the module's own, else the given ones (read when one needs them)
   let given: readonly string[] | null = null;
   const langsOf = (): readonly string[] => languages?.list ?? (given ??= typeof o.locales === 'function' ? o.locales() : o.locales ?? []);
-  await Promise.all([...names].map(async ([c, name]) => {
+  await Promise.all([...names].filter(([c]) => !c.per).map(async ([c, name]) => {
     try {
       if (!c.perLocale) { collections.set(name, { key: c.key, value: await run(c, [], undefined) }); return; }
       const langs = langsOf();
@@ -108,7 +116,43 @@ export async function loadContent(o: ContentOptions): Promise<LoadedContent> {
       problems.push(`collection \`${name}\`: ${String((e as Error)?.message ?? e).split('\n')[0]}`);
     }
   }));
-  return { collections, perLocale, error: problems.length ? scrub(problems.join('\n'), o.env) : null, files: [...files].sort(), languages };
+  // `per` collections: once per combination of their lists' entries (each list loaded above, every language's own for a
+  // `perLocale` one: a `per` collection's lists are read in the base language)
+  const perPoint: PerPoint = new Map();
+  for (const [c, name] of names) {
+    if (!c.per) continue;
+    try {
+      const lists = c.per.map((x) => {
+        const n = names.get(x as Collection);
+        if (!n) throw new Error('it is loaded per a collection the content module does not export');
+        if ((x as Collection).per) throw new Error(`it is loaded per \`${n}\`, which is loaded per collections itself`);
+        const got = collections.get(n) ?? perLocale.get(langsOf()[0] ?? '')?.get(n);
+        if (!got) throw new Error(`it is loaded per \`${n}\`, which did not load`);
+        return { c: x as Collection, n, key: got.key, entries: got.value };
+      });
+      const values = new Map<string, readonly unknown[]>();
+      const walk = async (i: number, at: unknown[]) => {
+        if (i === lists.length) {
+          const ctx: CollectionContext = {
+            files: (async (glob: string, opts?: { drafts?: string }) => readGlob(o, glob, opts?.drafts ?? null, files)) as CollectionContext['files'],
+            get: (other) => run(other as Collection, [name], undefined) as never,
+            env: o.env, command: o.command,
+            // a `languages()` list among `per`: its entry's tag is the run's language
+            locale: lists.map((l, j) => (l.c.languages ? (at[j] as { tag: string }).tag : undefined)).find(Boolean),
+            value: ((x: Collection) => { const j = lists.findIndex((l) => l.c === x); return j < 0 ? undefined : at[j]; }) as CollectionContext['value'],
+          };
+          values.set(lists.map((l, j) => String((at[j] as Record<string, unknown>)?.[l.key])).join('\0'), checked(await c.load(ctx), name, c.key));
+          return;
+        }
+        for (const e of lists[i]!.entries) await walk(i + 1, [...at, e]);
+      };
+      await walk(0, []);
+      perPoint.set(name, { key: c.key, per: lists.map((l) => l.n), values });
+    } catch (e) {
+      problems.push(`collection \`${name}\`: ${String((e as Error)?.message ?? e).split('\n')[0]}`);
+    }
+  }
+  return { collections, perLocale, error: problems.length ? scrub(problems.join('\n'), o.env) : null, files: [...files].sort(), languages, perPoint };
 }
 
 /**
@@ -187,7 +231,7 @@ export function writeSnapshot(root: string, file: string, c: LoadedContent, base
   try {
     const out = snapshotFile(root);
     mkdirSync(dirname(out), { recursive: true });
-    writeFileSync(out, JSON.stringify({ version: 1, module: relative(root, file).split(sep).join('/'), mtimeMs: statSync(file).mtimeMs, collections: Object.fromEntries(collectionsIn(c, baseLocale)), ...(c.languages ? { languages: c.languages } : {}) }));
+    writeFileSync(out, JSON.stringify({ version: 1, module: relative(root, file).split(sep).join('/'), mtimeMs: statSync(file).mtimeMs, collections: { ...Object.fromEntries(collectionsIn(c, baseLocale)), ...Object.fromEntries([...(c.perPoint ?? new Map())].map(([n, p]) => [n, { key: p.key, value: [...p.values.values()][0] ?? [] }])) }, ...(c.languages ? { languages: c.languages } : {}) }));
   } catch { /* a cache: the check goes without it */ }
 }
 

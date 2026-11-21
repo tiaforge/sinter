@@ -91,6 +91,12 @@ export interface CompileOptions {
    * why loading failed (dev), reported where a page reads a collection.
    */
   collections?: ReadonlyMap<string, { key: string; value: readonly unknown[] }>;
+  /**
+   * Collections loaded per axis (`collection({ per: [tenants] })`): the collections each is loaded per, and its list at
+   * each combination of their entries' keys (`\0`-joined); a page reads the one of its point, its axes' items (and its
+   * language, for a `languages()` collection among them)
+   */
+  perCollections?: ReadonlyMap<string, { key: string; per: string[]; values: ReadonlyMap<string, readonly unknown[]> }>;
   collectionsError?: string;
   /** the content module, absolute: `sinter check` types a `content:` resource without `type` from its loader */
   contentModule?: string;
@@ -6768,6 +6774,27 @@ class Compiler {
     this.pagesDecl = { name, of, pattern: pats[0]!, html, entry };
   }
 
+  /**
+   * A collection loaded per axis (`per`), at this page's point: for each collection it is loaded per, the key of the
+   * page's item of the axis over it (a `content:` list), or its language for a `languages()` one; undefined for one that
+   * is not, or a point the page cannot name (no axis over a collection it is loaded per: SN342)
+   */
+  perCollection(cname: string): { key: string; value: readonly unknown[]; point: string } | undefined {
+    const pc = this.opts.perCollections?.get(cname);
+    if (!pc) return undefined;
+    const keys: string[] = [];
+    for (const n of pc.per) {
+      const d = this.axisDecls.find((x) => attr(this.resourceEls.get(x.of)!, 'src')?.trim() === `content:${n}`);
+      const item = d ? this.fileData.get(d.name)?.value as Record<string, unknown> | undefined : undefined;
+      const k = d ? this.opts.collections?.get(n)?.key : undefined;
+      if (item && k) { keys.push(String(item[k])); continue; }
+      const tags = this.opts.collections?.get(n)?.value as Array<{ tag?: unknown }> | undefined;
+      if (tags?.length && tags.every((t) => typeof t?.tag === 'string') && this.opts.locale) { keys.push(this.opts.locale.name); continue; }
+      return { key: pc.key, value: [], point: '' };
+    }
+    return { key: pc.key, value: pc.values.get(keys.join('\0')) ?? [], point: keys.join('\0') };
+  }
+
   /** `data-sn-for` on `<html>`: the axes the page is built over, outer first (`axisOf`) */
   private readonly axisDecls: Array<{ name: string; of: string; html: P5Element; entry: P5Element }> = [];
   private readonly axesOut: NonNullable<CompiledParts['axes']> = [];
@@ -6851,7 +6878,7 @@ class Compiler {
     }
     const src = attr(el, 'src')!.trim(), cname = src.slice('content:'.length), at = attr(el, 'src')!.indexOf(cname);
     const known = this.opts.collections;
-    const c = known?.get(cname);
+    const c = this.perCollection(cname) ?? known?.get(cname);
     if (known && !c) {
       if (this.opts.collectionsError) this.report(el, 'src', 'SN342', `\`${cname}\`: the content module did not load its collections: ${this.opts.collectionsError.split('\n')[0]}`, at);
       else {
@@ -6862,7 +6889,7 @@ class Compiler {
     if (!info.key) info.key = [c?.key ?? (attr(el, 'key')?.trim() || 'id')];
     // the list as this page reads it (sorted in its language): built once per build, frozen, shared by every page
     const order = attr(el, 'order')?.trim() || null, lang = this.opts.locale?.name ?? this.pageLang;
-    const cacheKey = ['content', cname, order, lang].join('\0');
+    const cacheKey = ['content', cname, order, lang, (c as { point?: string } | undefined)?.point ?? ''].join('\0');
     let kept = c ? this.opts.globCache?.get(cacheKey) : undefined;
     if (c && !kept) {
       kept = { value: deepFreeze(order ? sortList([...c.value], order, lang) : [...c.value]), files: [], said: [] };

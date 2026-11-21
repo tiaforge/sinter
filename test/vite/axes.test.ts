@@ -20,6 +20,8 @@ const files: Record<string, string> = {
   'src/sinter.content.ts': `import { collection, languages } from '@tiaforge-ui/sinter/content';
 export const locales = languages({ base: 'en', list: ['en', 'de'] });
 export const tenants = collection({ key: 'key', load: () => [{ key: 'acme', name: 'Acme' }, { key: 'globex', name: 'Globex' }] });
+// each tenant's products in each language, as a CMS would answer per tenant
+export const products = collection({ key: 'sku', per: [tenants, locales], load: ({ value, locale }) => [{ sku: value(tenants).key + '-1', name: value(tenants).name + ' ' + locale + ' product' }] });
 `,
   'src/layouts/shop-layout.html': `<!doctype html>
 <html lang="en" data-sn-for="tenant in tenants" data-sn-props="{ title: string }">
@@ -32,6 +34,7 @@ export const tenants = collection({ key: 'key', load: () => [{ key: 'acme', name
 </html>`,
   'index.html': `<shop-layout data-sn-with="{ title: 'Home' }"><h1 data-sn-text="tenant.name + ' (' + $locale + ')'"></h1></shop-layout>`,
   'about.html': `<shop-layout data-sn-with="{ title: 'About' }"><p data-sn-text="'About ' + tenant.name"></p></shop-layout>`,
+  'shop.html': `<shop-layout data-sn-with="{ title: 'Shop' }"><sn-resource name="products" src="content:products"></sn-resource><ul><template data-sn-for="p in products"><li data-sn-text="p.name"></li></template></ul></shop-layout>`,
   'blog/post.html': `<shop-layout data-sn-path="/blog/:slug" data-sn-for="post in posts" data-sn-with="{ title: post.title }">
   <sn-resource name="posts" src="file:/content/{tenant.key}/{$locale}/*.md" key="id"></sn-resource>
   <h1 data-sn-text="post.title"></h1>
@@ -48,13 +51,19 @@ beforeAll(async () => {
   await build({
     root, logLevel: 'silent', resolve: { alias },
     plugins: [sinter({ localePrefix: true, messages: false, typecheck: false, site: 'https://example.com' })],
-    build: { outDir: out, emptyOutDir: true, rollupOptions: { input: ['index.html', 'about.html', 'blog/post.html', 'portal.html'].map((f) => join(root, f)) } },
+    build: { outDir: out, emptyOutDir: true, rollupOptions: { input: ['index.html', 'about.html', 'shop.html', 'blog/post.html', 'portal.html'].map((f) => join(root, f)) } },
   });
 }, 120_000);
 const read = (f: string) => readFileSync(join(out, f), 'utf8');
 const walk = (d: string, p = ''): string[] => readdirSync(d, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(join(d, e.name), `${p}${e.name}/`) : [`${p}${e.name}`]));
 
 describe('a tenant axis inside each language', () => {
+  test('a collection loaded per tenant and language: each page reads its own point\'s list', () => {
+    expect(read('de/globex/shop/index.html')).toContain('<li>Globex de product</li>');
+    expect(read('en/acme/shop/index.html')).toContain('<li>Acme en product</li>');
+    expect(read('en/acme/shop/index.html')).not.toContain('Globex');
+  });
+
   test('the files: each page that uses the layout once per tenant and language; the portal once per language', () => {
     const html = walk(out).filter((f) => f.endsWith('.html')).sort();
     for (const f of ['en/acme/index.html', 'en/globex/index.html', 'de/acme/index.html', 'de/globex/index.html', 'en/acme/about/index.html', 'de/globex/about/index.html',
