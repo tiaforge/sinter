@@ -1640,8 +1640,8 @@ class Compiler {
     const user: string[] = [];
     // a lazy module's helpers are not imported: the module loads when a let needs it
     // and a helper whose every call ran at build time (written into the HTML) is not imported either
-    const live = this.fns.filter((c) => c !== '0').join('\n');
-    const imported = (key: string) => !this.page.lazy?.has(key) && new RegExp(`(?<![\\w$.])${key.replace(/\$/g, '\\$')}(?![\\w$])`).test(live);
+    const live = namesIn(this.fns.filter((c) => c !== '0').join('\n'), [...this.page.usedHelpers, '$href', '$hq', '$hv', ...[...this.page.usedNs].flatMap(([k, v]) => [...v].map((m) => `${k}$${m}`))]);
+    const imported = (key: string) => !this.page.lazy?.has(key) && live(key);
     for (const h of [...this.page.usedHelpers].sort()) if (imported(h)) (this.page.helpers.has(h) ? user : builtin).push(h);
     // a link's URL template (`data-sn-href`) that is not written into the HTML
     for (const h of ['$href', '$hq', '$hv']) if (imported(h)) builtin.push(h);
@@ -8320,6 +8320,13 @@ class Compiler {
     const esc = (n: string) => n.replace(/\$/g, '\\$');
     const names = (ns: Map<string, string>) => new RegExp(`(?<![\\w$])(${[...ns.keys()].map(esc).join('|')})(?![\\w$])`, 'g');
     const KINDS = new Set(['text', 'attr', 'class', 'style', 'show', 'prop', 'for', 'if', 'ch']);
+    // a head template's markup, serialized once: every subtree around it has it in its form
+    const htmls = new Map<number, string | null>();
+    const htmlOf = (id: number) => {
+      let h = htmls.get(id);
+      if (h === undefined) htmls.set(id, (h = this.headTemplates.has(id) ? parse5.serialize(this.headTemplates.get(id)!.content) : null));
+      return h;
+    };
     // the subtree's form with its names numbered, or null when it is not a candidate
     const formOf = (root: number): string | null => {
       const d = owner.get(root);
@@ -8336,7 +8343,7 @@ class Compiler {
         const t = T[id]!;
         const { id: _i, nodes, item: _a, index: _b, ii: _c, key, find: _f, make: _m, ...rest } = t;
         return {
-          ...rest, key: code(key), html: this.headTemplates.has(id) ? parse5.serialize(this.headTemplates.get(id)!.content) : null,
+          ...rest, key: code(key), html: htmlOf(id),
           nodes: nodes.map((n) => {
             if (n.state !== undefined || n.sid !== undefined || n.persist !== undefined || n.dl) bad = true;
             return {
@@ -8903,9 +8910,8 @@ class Compiler {
       if (at) this.earlySites.set(code, { ...at.site, parts: keep.map(([k, c]) => ({ code: `${JSON.stringify(k)}: (${c})`, site: at.fields.get(k) ?? null })) });
     }
     // the helpers and namespace members the early functions call
-    const all = fns.join('\n');
-    const calls = (name: string) => new RegExp(`(?<![\\w$.])${name.replace(/\$/g, '\\$')}(?![\\w$])`).test(all);
-    const helpers = this.opts.helpers.names.filter(calls);
+    const calls = namesIn(fns.join('\n'), [...this.opts.helpers.names, ...EARLY_FORMATTERS, ...memberNames(this.opts.helpers.namespaces)]);
+    const helpers = this.opts.helpers.names.filter((n) => calls(n));
     // the built-in formatters the early functions call, and only those: the page's early file bundles each
     const formatters = EARLY_FORMATTERS.filter((n) => !userHelpers.has(n) && calls(n));
     const namespaces: Record<string, string[]> = {};
@@ -8987,8 +8993,7 @@ class Compiler {
       });
     }
     if (!res.length) return null;
-    const all = fns.join('\n');
-    const calls = (name: string) => new RegExp(`(?<![\\w$.])${name.replace(/\$/g, '\\$')}(?![\\w$])`).test(all);
+    const calls = namesIn(fns.join('\n'), [...memberNames(this.opts.helpers.namespaces), ...this.opts.helpers.names]);
     const namespaces: Record<string, string[]> = {};
     for (const [ns, { members }] of Object.entries(this.opts.helpers.namespaces)) {
       const used = members.filter((m) => calls(`${ns}$${m}`));
@@ -9147,32 +9152,57 @@ class Compiler {
     if (plan.why && !waits) note(plan.why);
     else if (plan.space && !held) note(!names.every((n) => (plan.form === 'static' ? starts(n) : pre.has(n))) ? 'a resource\'s `src` or `when` reads more than the URL (state, another resource): its load may not start when the page module mounts' : 'the list reads more than its resources and the URL');
     if (!held || !plan.space || !this.opts.paintCss) return;
-    const parent = el.parentNode as P5Element;
-    // unique across pages, should two pages' rules end up in one stylesheet
-    let hash = 0x811c9dc5;
-    const rel = this.opts.file.slice(this.opts.root.length).replace(/^[\\/]+/, '');
-    for (const ch of rel) hash = Math.imul(hash ^ ch.charCodeAt(0), 0x01000193);
-    const k = `snr${(hash >>> 0).toString(36).slice(0, 4)}${this.spaceN++}`;
+    const k = `snr${this.pageKey()}${this.spaceN++}`;
     const tag = plan.space.tag, markup = `<${tag} class="sn-reserve ${k}" aria-hidden="true"></${tag}>`;
-    const at = parent.childNodes.indexOf(el) + 1;
     if (plan.form === 'static') {
-      const ph = parse5.parseFragment(markup).childNodes[0] as P5Element;
-      ph.parentNode = parent;
-      parent.childNodes.splice(at, 0, ph as never);
-      const r = `.${names[0]!}`;
-      // rows, or no load running: it ended (empty, failed) or never started (a `src` that cannot be built); the load starts at mount, before this runs
-      const code = `($) => ($.$r${r}?.length || !$.$meta${r}.loading) && $.$el.remove()`;
-      this.spaces.push({ list: el, names, k, space: plan.space, note, ph, node: { tag, p: ctx.stateIdx, b: [this.binding({ k: 'imp', f: this.fn(code, { el, attr: 'data-sn-for', shift: 0 }), d: [`$r.${names[0]!}`, `$meta.${names[0]!}`], e: 1 })] } });
+      const ph = this.afterList(el, markup);
+      this.spaces.push({ list: el, names, k, space: plan.space, note, ph, node: this.goneWithRows(el, tag, names[0]!, ctx) });
     } else {
       // no rows yet, and one of the resources loading: the walk compiles it next, as page markup
-      const cond = `!(${plan.list})?.length && (${names.map((n) => `$meta.${n}.loading`).join(' || ')})`;
-      const t = parse5.parseFragment(`<template data-sn-if="${cond.replace(/&/g, '&amp;').replace(/"/g, '&quot;')}">${markup}</template>`).childNodes[0] as P5Element;
-      t.parentNode = parent;
-      parent.childNodes.splice(at, 0, t as never);
-      const origin = this.origins.get(el);
-      if (origin) this.tag(t, origin);
+      const t = this.branchAfterList(el, `!(${plan.list})?.length && (${names.map((n) => `$meta.${n}.loading`).join(' || ')})`, markup);
       this.spaces.push({ list: el, names, k, space: plan.space, note, tpl: t });
     }
+  }
+
+  /**
+   * The page's part of the classes a build adds after a list (`snr…`, `snw…`): unique across pages, should two pages'
+   * rules end up in one stylesheet. By the page's path, once (not a field: the compiler's fields are LINK_FIELDS')
+   */
+  private pageKey(): string {
+    const rel = this.opts.file.slice(this.opts.root.length).replace(/^[\\/]+/, '');
+    let k = PAGE_KEYS.get(rel);
+    if (k === undefined) {
+      let hash = 0x811c9dc5;
+      for (const ch of rel) hash = Math.imul(hash ^ ch.charCodeAt(0), 0x01000193);
+      PAGE_KEYS.set(rel, (k = (hash >>> 0).toString(36).slice(0, 4)));
+    }
+    return k;
+  }
+
+  /** `markup`'s element, put right after the list's template `el` */
+  private afterList(el: P5Element, markup: string): P5Element {
+    const parent = el.parentNode as P5Element, at = parent.childNodes.indexOf(el) + 1;
+    const x = parse5.parseFragment(markup).childNodes[0] as P5Element;
+    x.parentNode = parent;
+    parent.childNodes.splice(at, 0, x as never);
+    return x;
+  }
+
+  /** a `data-sn-if` template over `cond` holding `markup`, right after the list's template `el`: the walk compiles it next, as page markup */
+  private branchAfterList(el: P5Element, cond: string, markup: string): P5Element {
+    const t = this.afterList(el, `<template data-sn-if="${cond.replace(/&/g, '&amp;').replace(/"/g, '&quot;')}">${markup}</template>`);
+    const origin = this.origins.get(el);
+    if (origin) this.tag(t, origin);
+    return t;
+  }
+
+  /**
+   * The node of an element after the list `el` that removes itself once the resource `name` has rows or no load
+   * is running: it ended (empty, failed) or never started (a `src` that cannot be built); the load starts at mount, before this runs
+   */
+  private goneWithRows(el: P5Element, tag: string, name: string, ctx: Ctx): NodeDef {
+    const r = `.${name}`;
+    return { tag, p: ctx.stateIdx, b: [this.binding({ k: 'imp', f: this.fn(`($) => ($.$r${r}?.length || !$.$meta${r}.loading) && $.$el.remove()`, { el, attr: 'data-sn-for', shift: 0 }), d: [`$r.${name}`, `$meta.${name}`], e: 1 })] };
   }
 
   /**
@@ -9197,25 +9227,13 @@ class Compiler {
     const what = box.tagName + (attr(box, 'class') ? `.${attr(box, 'class')!.trim().split(/\s+/).join('.')}` : '');
     this.waits.push({ file: o?.file ?? this.opts.file, line: at.line, col: at.col, what, widths: plan.sized!.widths });
     if (!this.opts.paintCss) return true;
-    let hash = 0x811c9dc5;
-    const rel = this.opts.file.slice(this.opts.root.length).replace(/^[\\/]+/, '');
-    for (const ch of rel) hash = Math.imul(hash ^ ch.charCodeAt(0), 0x01000193);
-    const k = `snw${(hash >>> 0).toString(36).slice(0, 4)}${this.spaceN++}`;
+    const k = `snw${this.pageKey()}${this.spaceN++}`;
     setAttr(box, 'class', [attr(box, 'class'), k].filter(Boolean).join(' '));
-    const parent = el.parentNode as P5Element, i = parent.childNodes.indexOf(el) + 1, markup = `<i class="${k}m" hidden></i>`;
+    const markup = `<i class="${k}m" hidden></i>`;
     if (plan.waitForm === 'static') {
-      const mk = parse5.parseFragment(markup).childNodes[0] as P5Element;
-      mk.parentNode = parent;
-      parent.childNodes.splice(i, 0, mk as never);
-      const r = `.${names[0]!}`;
-      this.pendingSpace.push({ el: mk, node: { tag: 'i', p: ctx.stateIdx, b: [this.binding({ k: 'imp', f: this.fn(`($) => ($.$r${r}?.length || !$.$meta${r}.loading) && $.$el.remove()`, { el, attr: 'data-sn-for', shift: 0 }), d: [`$r.${names[0]!}`, `$meta.${names[0]!}`], e: 1 })] } });
-    } else {
-      const cond = `!(${plan.list})?.length && (${known.map((n) => `$meta.${n}.loading && !$meta.${n}.loadedAt`).join(' || ')})`;
-      const t = parse5.parseFragment(`<template data-sn-if="${cond.replace(/&/g, '&amp;').replace(/"/g, '&quot;')}">${markup}</template>`).childNodes[0] as P5Element;
-      t.parentNode = parent;
-      parent.childNodes.splice(i, 0, t as never);
-      if (o) this.tag(t, o);
-    }
+      const mk = this.afterList(el, markup);
+      this.pendingSpace.push({ el: mk, node: this.goneWithRows(el, 'i', names[0]!, ctx) });
+    } else this.branchAfterList(el, `!(${plan.list})?.length && (${known.map((n) => `$meta.${n}.loading && !$meta.${n}.loadedAt`).join(' || ')})`, markup);
     if (!this.waitRules.length) this.waitRules.push('@keyframes sn-wait { to { visibility: visible } }');
     // `:not(#_)`: an id's weight, over the author's rules for those boxes; the animation shows them after 3 s whatever happens
     // only at the widths where the box follows its content: elsewhere nothing moves, and nothing is hidden
@@ -9846,6 +9864,9 @@ function exclusive(a: string[], b: string[]): boolean {
   return b.some((x) => { const [c, k] = x.split(':') as [string, string]; return branch.has(c) && branch.get(c) !== k; });
 }
 
+/** each page's key in the classes a build adds after its lists (`pageKey()`), by its path from the root */
+const PAGE_KEYS = new Map<string, string>();
+
 /**
  * Whether markup's expressions read `name` (in any `data-sn-*` value): an identifier, not an object
  * literal's key or a member's property name (`{ node: … }`, `x.node`). A value that does not parse
@@ -9872,6 +9893,22 @@ function reads(nodes: P5Node[], name: string): boolean {
   const walk = (ns: P5Node[]): boolean => ns.some((c) => isElement(c) && (c.attrs.some((a) => a.name.startsWith('data-sn-') && inValue(a.value)) || walk(c.childNodes) || (c.tagName === 'template' && walk((c as P5Template).content.childNodes))));
   return walk(nodes);
 }
+
+/**
+ * Whether `code` names an identifier, as `(?<![\w$.])name(?![\w$])` finds it: a run of `[\w$]` not after a `.` (a
+ * member's property is not the helper). The `names` to be asked are looked for in one pass, one pattern of them all
+ * (a match is a whole run, so it is the one name equal to it), where a pattern per name was a pass per name; a name
+ * asked that is not among them, or not such a run, is tested as its own pattern.
+ */
+export function namesIn(code: string, names: Iterable<string>): (name: string) => boolean {
+  const pattern = (n: string) => `(?<![\\w$.])${n.replace(/\$/g, '\\$')}(?![\\w$])`;
+  const asked = new Set([...names].filter((n) => /^[\w$]+$/.test(n))), found = new Set<string>();
+  if (asked.size) for (const m of code.matchAll(new RegExp(pattern(`(?:${[...asked].join('|')})`), 'g'))) found.add(m[0]);
+  return (name) => (asked.has(name) ? found.has(name) : new RegExp(pattern(name)).test(code));
+}
+
+/** each member of the helper modules' namespaces as the compiled code names it, `ns$member` */
+const memberNames = (namespaces: Record<string, { members: string[] }>) => Object.entries(namespaces).flatMap(([ns, { members }]) => members.map((m) => `${ns}$${m}`));
 
 function isElement(n: P5Node): n is P5Element {
   return 'tagName' in n;
