@@ -146,8 +146,11 @@ const entries = {
 // Added on 2026-11-21 (docs/proposals/axes.md, step 0): a page in two languages, the multilingual example's German status
 // page: the scripts it loads (12,740 B: its page module and the runtime) and its HTML (813 B), so the axes work shows
 // what it changes for a language's page
+// Raised on 2026-11-21 to 12.625 KB (12,873 B): the example moved to `inlang()` (docs/proposals/messages.md, step 4), and
+// the messages module carries both ways until `sinter({ messages })` is removed: `install()`, nested ids and an
+// entry's pattern beside `fixed()` (146 B); the page's own message is inlined (`inline()`), with no formatter
 const BUDGET = {
-  'multilingual de/status': 12.5 * 1024, 'multilingual de/status, html': 0.875 * 1024,
+  'multilingual de/status': 12.625 * 1024, 'multilingual de/status, html': 0.875 * 1024,
   minimal: 11 * 1024, 'minimal, swaps': 12.875 * 1024, 'realworld article': 57.125 * 1024,
   'minimal, link': 11.125 * 1024, 'minimal, token': 12.125 * 1024, 'minimal, token, early': 1.875 * 1024, 'realworld early, shared': 3.375 * 1024,
 };

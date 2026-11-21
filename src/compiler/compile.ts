@@ -174,7 +174,7 @@ export interface CompileOptions {
    * reads (the built-in messages'). The namespace is in the helpers manifest with its entries' ids as its members.
    * The built-in messages are one (`baseMessages` is their alias).
    */
-  contentNs?: Record<string, { entries: Record<string, unknown>; format: string | null; formatFn?: (entry: unknown, args: unknown, locale: string | null) => unknown; runtime?: string; export?: string; module?: string }>;
+  contentNs?: Record<string, { entries: Record<string, unknown>; format: string | null; formatFn?: (entry: unknown, args: unknown, locale: string | null) => unknown; runtime?: string; export?: string; module?: string; inlineFn?: (entry: unknown) => string | null }>;
   /**
    * the early chunk: a second, render-blocking page entry that runs the app's early module and
    * the bindings outside templates whose inputs exist before any data has loaded. `module`: the

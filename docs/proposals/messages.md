@@ -253,6 +253,11 @@ page module and each page (bytes, gzip), in `scripts/size.mjs` with budgets.
 4. **The switch.** `sinter({ messages })` is deprecated (a warning, as `openapi` is), and `npx sinter migrate`
    adds the content module export. The starter (`packages/create`) and the examples move. The option is removed
    in the release after (Breaking in the changelog), and with it the last name of the module in the core.
+   *Started 2026-11-21:* the build warns when the built-in messages are on; `examples/multilingual-site` and
+   `e2e/swap-csp` moved to `inlang()` (the static pages byte for byte the same, the others but asset names; the
+   two-language page's budget 12.625 KB while the messages module carries both ways). A formatter's `inline(entry)`
+   lets the core compile a plain message in place, so a page whose messages are plain imports no formatter. Not
+   yet: `npx sinter migrate` writing the change, and the removal release.
 5. **Formatted placeholders.** `{x: number style=percent}` and `{x: datetime …}`, onto the core's formatters, so
    they fold the same way.
 

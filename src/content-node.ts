@@ -5,7 +5,7 @@
 // read a collection.
 import { mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative, sep } from 'node:path';
-import { isCollection, type Collection, type CollectionContext, type Languages } from './content.js';
+import { checkLanguages, isCollection, type Collection, type CollectionContext, type Languages } from './content.js';
 import { fileEntry, filePath } from './compiler/files.js';
 import { importModule, type LoadOptions } from './helpers-node.js';
 
@@ -71,9 +71,11 @@ export async function loadContent(o: ContentOptions): Promise<LoadedContent> {
     if (!isCollection(v)) { problems.push(`${rel(o.file)}: \`${name}\` is exported but not a collection; the content module exports only collections (\`collection({ key, load })\`), and helpers go in the helpers module`); continue; }
     names.set(v, name);
   }
-  const declared = [...names].filter(([c]) => c.languages);
+  const declared = [...names].filter(([c]) => c.languages || c.languagesOf);
   if (declared.length > 1) problems.push(`${rel(o.file)}: \`${declared.map(([, n]) => n).join('`, `')}\` are each \`languages()\`; the site has one list of languages`);
-  const languages = declared[0]?.[0].languages ?? null;
+  let languages: Languages | null = declared[0]?.[0].languages ?? null;
+  const lazy = declared[0]?.[0].languagesOf;
+  if (lazy) { try { languages = checkLanguages(lazy({ root: o.root })); } catch (e) { problems.push(`\`${declared[0]![1]}\`: ${String((e as Error)?.message ?? e).split('\n')[0]}`); } }
   // one run per collection, and per language for a `perLocale` one: `get` shares it, whoever asks
   const running = new Map<string, Promise<unknown[]>>();
   const run = (c: Collection, chain: string[], locale: string | undefined): Promise<unknown[]> => {

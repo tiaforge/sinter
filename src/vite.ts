@@ -1103,6 +1103,8 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   } : {});
   /** the content namespaces' formatters, loaded in Node (a build folds a call over constants with it) */
   const formatters = new Map<string, (entry: unknown, args: unknown, locale: string | null) => unknown>();
+  /** a formatter module's `inline(entry)`, when it has one: the source of a function the build compiles in place of a call */
+  const inliners = new Map<string, (entry: unknown) => string | null>();
   /** a namespace's formatter module, as the page imports it: a path from the root as written, or a package */
   const formatSpec = (f: string) => f;
   /** the content namespaces in a language: each one's entries by id (docs/proposals/messages.md §1) */
@@ -1117,7 +1119,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
         const l = collectionsIn(content, x ?? undefined).get(exp);
         for (const e of (l?.value ?? []) as Array<Record<string, unknown>>) entries[String(e[l!.key])] = e;
       }
-      out[d.name] = { entries, format: formatSpec(d.format), export: exp, ...(formatters.get(d.format) ? { formatFn: formatters.get(d.format)! } : {}) };
+      out[d.name] = { entries, format: formatSpec(d.format), export: exp, ...(d.module ? { module: d.module } : {}), ...(formatters.get(d.format) ? { formatFn: formatters.get(d.format)! } : {}), ...(inliners.get(d.format) ? { inlineFn: inliners.get(d.format)! } : {}) };
     }
     return out;
   };
@@ -1349,6 +1351,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
         try {
           const file = d.format.startsWith('/') ? resolve(root, `.${d.format}`) : d.format;
           const mod = await importModule({ root, configFile: config.configFile ?? false, mode: config.mode, ...(config.configFile ? {} : { alias: config.resolve.alias }) }, file);
+          if (typeof mod.inline === 'function') inliners.set(d.format, mod.inline as (entry: unknown) => string | null);
           if (typeof mod.format === 'function') formatters.set(d.format, mod.format as (entry: unknown, args: unknown, locale: string | null) => unknown);
           else throw new Error('it exports no `format(entry, args, locale)`');
         } catch (e) {
@@ -1358,6 +1361,11 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
         }
       }
       const declared = content?.languages ?? null;
+      // the built-in messages: a content namespace replaces them (docs/proposals/messages.md, step 4)
+      if (options.messages !== false && existsSync(resolve(root, typeof options.messages === 'string' ? options.messages : 'project.inlang', 'settings.json')) && !warnedOptions.has('messages')) {
+        warnedOptions.add('messages');
+        config.logger.warn('sinter: the built-in messages (`sinter({ messages })`, an inlang project) are deprecated: export `inlang()` from the content module (`export const messages = inlang()`, from `@tiaforge-ui/sinter/messages/content`, with `languages(inlangLocales(\'project.inlang\'))`) and set `sinter({ messages: false })` (docs/messages.md#messages-as-a-content-namespace)');
+      }
       if (declared && !options.localePrefix) config.logger.warn(`sinter: the content module declares languages (${declared.list.join(', ')}), and \`localePrefix\` is off: no page is built per language. Turn it on, \`sinter({ localePrefix: true })\`.`);
       if (options.localePrefix) {
         if (declared) {
@@ -1508,6 +1516,20 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       if (!helperFiles.size || !entries().length) pagesReady();
       messages = p.messages;
       appEarly = p.early;
+      // a content namespace loaded per language: an entry missing in a language, through its chain, is the base's (SN522)
+      if (content && locales) for (const [exp, d] of content.namespaces) {
+        const lists = (l: string) => (content!.perLocale.get(l)?.get(exp)?.value ?? []) as Array<Record<string, unknown>>;
+        const key = content.perLocale.get(locales.base)?.get(exp)?.key;
+        if (!key) continue;
+        const ids = (l: string) => new Set(lists(l).map((e) => String(e[key])));
+        const base = ids(locales.base);
+        for (const l of locales.list) {
+          if (l === locales.base) continue;
+          const order = chain(l, locales).filter((x) => x !== locales!.base), have = order.map(ids);
+          const missing = [...base].filter((k) => !have.some((h) => h.has(k)));
+          if (missing.length) this.warn(coded('SN522', `${missing.length} entr${missing.length === 1 ? 'y' : 'ies'} of \`${d.name}\` not in \`${l}\` (the ${locales.base} one is used): ${missing.slice(0, 10).join(', ')}${missing.length > 10 ? ', …' : ''}`));
+        }
+      }
       // a missing translation is looked up along the language's chain (`de-AT`, then `de`): what reaches the base
       // language is reported, once per locale, with how many came from another language of the chain
       if (messages) {

@@ -48,6 +48,8 @@ export interface Collection<T = unknown> {
   readonly per?: readonly Collection[];
   /** `languages()`: the site's languages, which `localePrefix` builds every page in (docs/static-pages.md#languages) */
   readonly languages?: Languages;
+  /** `languages()` of a function: the languages, read from the project when the content module is loaded */
+  readonly languagesOf?: (ctx: { root: string }) => LanguagesDef;
   /** `namespace()`: the name a page calls its entries by, and its formatter module */
   readonly namespace?: { readonly name: string; readonly format: string; readonly types?: (entries: any[]) => string; readonly module?: string };
 }
@@ -78,7 +80,18 @@ export function collection<T>(o: { key: keyof T & string; load: (ctx: Collection
  * once per language, under its prefix (`/de/about/`). It is a collection of `{ tag }`, one entry per language. Without
  * it, the languages come from the inlang project of the built-in messages.
  */
-export function languages(o: { base: string; list: readonly string[]; fallbacks?: Record<string, readonly string[]> }): Collection<Language> {
+export function languages(o: LanguagesDef | ((ctx: { root: string }) => LanguagesDef)): Collection<Language> {
+  // read from the project (`languages(({ root }) => inlangLocales('project.inlang', root))`): when the module is loaded
+  if (typeof o === 'function') return { [COLLECTION]: true, key: 'tag', load: (ctx) => checkLanguages(o({ root: ctx.root })).list.map((tag) => ({ tag })), languagesOf: o };
+  const l = checkLanguages(o);
+  return { [COLLECTION]: true, key: 'tag', load: () => l.list.map((tag) => ({ tag })), languages: l };
+}
+
+/** what `languages()` takes */
+export interface LanguagesDef { base: string; list: readonly string[]; fallbacks?: Record<string, readonly string[]> }
+
+/** `languages()`'s list, checked (its base among them, each a tag, `fallbacks` naming them without a cycle) */
+export function checkLanguages(o: LanguagesDef): Languages {
   const list = Array.isArray(o?.list) ? [...o.list] : null;
   if (!list?.length) throw new Error("languages(): `list` names the site's languages, e.g. `languages({ base: 'en', list: ['en', 'de'] })`");
   for (const l of list) if (typeof l !== 'string' || !LANGUAGE_TAG.test(l)) throw new Error(`languages(): \`${String(l)}\` in \`list\` is not a language tag (it becomes the URL's prefix, \`/${String(l)}/\`)`);
@@ -95,7 +108,7 @@ export function languages(o: { base: string; list: readonly string[]; fallbacks?
       for (const x of v) if (fb[x]?.includes(k)) throw new Error(`languages(): \`fallbacks.${k}\` and \`fallbacks.${x}\` name each other: a chain has no cycle`);
     }
   }
-  return { [COLLECTION]: true, key: 'tag', load: () => list.map((tag) => ({ tag })), languages: { base: o.base, list, ...(fb ? { fallbacks: Object.fromEntries(Object.entries(fb).map(([k, v]) => [k, [...v]])) } : {}) } };
+  return { base: o.base, list, ...(fb ? { fallbacks: Object.fromEntries(Object.entries(fb).map(([k, v]) => [k, [...v]])) } : {}) };
 }
 
 /**

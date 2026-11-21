@@ -417,11 +417,16 @@ const isFixed = (o: Pick<CompileOptions, 'locale' | 'baseMessages' | 'contentNs'
  */
 /** `install(locale, format)` of each content namespace app code imports by name (`module`), before the page's code runs */
 function installLines(options: Pick<CompileOptions, 'contentNs' | 'locale'>): string[] {
-  return Object.entries(options.contentNs ?? {}).flatMap(([ns, spec]) => (spec.module && spec.format ? [
-    `import { install as $install$${ns} } from ${JSON.stringify(spec.module)};`,
-    `import { format as $fmti$${ns} } from ${JSON.stringify(spec.format)};`,
-    `$install$${ns}(${JSON.stringify(options.locale?.name ?? '')}, $fmti$${ns}, ${JSON.stringify(ns)});`,
-  ] : []));
+  return Object.entries(options.contentNs ?? {}).flatMap(([ns, spec]) => {
+    if (!spec.module || !spec.format) return [];
+    // every entry plain (the formatter inlines it): the module reads them without the formatter
+    const plain = !!spec.inlineFn && Object.values(spec.entries).every((e) => spec.inlineFn!(e) !== null);
+    return [
+      `import { install as $install$${ns} } from ${JSON.stringify(spec.module)};`,
+      ...(plain ? [] : [`import { format as $fmti$${ns} } from ${JSON.stringify(spec.format)};`]),
+      `$install$${ns}(${JSON.stringify(options.locale?.name ?? '')}, ${plain ? 'null' : `$fmti$${ns}`}, ${JSON.stringify(ns)});`,
+    ];
+  });
 }
 
 function contentLines(ns: string, members: string[], options: Pick<CompileOptions, 'contentNs' | 'locale'>): string {
@@ -429,7 +434,10 @@ function contentLines(ns: string, members: string[], options: Pick<CompileOption
   if (!spec || !members.length) return '';
   if (spec.format === null) return `const ${members.map((m) => `${nsLocal(ns, m)} = ${fillFn(typeof spec.entries[m] === 'string' ? spec.entries[m] as string : m)}`).join(', ')};`;
   const f = `$fmt$${ns}`, l = JSON.stringify(options.locale?.name ?? null);
-  return `import { format as ${f} } from ${JSON.stringify(spec.format)};\nconst ${members.map((m) => `${nsLocal(ns, m)} = (p) => ${f}(${JSON.stringify(spec.entries[m] ?? null).replace(/</g, '\\u003c')}, p, ${l})`).join(', ')};`;
+  // what the formatter compiles in place (`inline`), else a call of it with the entry
+  const code = members.map((m) => [m, spec.inlineFn?.(spec.entries[m]) ?? null] as const);
+  const call = (m: string) => `(p) => ${f}(${JSON.stringify(spec.entries[m] ?? null).replace(/</g, '\\u003c')}, p, ${l})`;
+  return `${code.some(([, c]) => c === null) ? `import { format as ${f} } from ${JSON.stringify(spec.format)};\n` : ''}const ${code.map(([m, c]) => `${nsLocal(ns, m)} = ${c ?? call(m)}`).join(', ')};`;
 }
 
 /** a `{param}` text as a function of its parameters (a parameter missing at run time stays as written, as `t()` does) */

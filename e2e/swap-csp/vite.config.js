@@ -7,6 +7,6 @@ const pages = ['index', 'b'];
 export default defineConfig({
   appType: 'mpa',
   // each language its own pages (/en/, /de/): the pages' text is in their HTML, nothing is loaded for it
-  plugins: [sinter({ swap: true, localePrefix: true })],
+  plugins: [sinter({ swap: true, localePrefix: true, messages: false })],
   build: { rollupOptions: { input: Object.fromEntries(pages.map((p) => [p, resolve(import.meta.dirname, `${p}.html`)])) } },
 });

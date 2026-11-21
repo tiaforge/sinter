@@ -22,6 +22,18 @@ const fill = (p: Part[], args: Record<string, unknown> | undefined, locale?: str
 }).join('');
 
 /**
+ * A message as the source of a function of its arguments, for the build to compile in place of a `format` call, or
+ * null when it needs `format`: a plain pattern (no selectors, no formatted placeholders) is its text and parameters,
+ * a parameter missing at run time as written.
+ */
+export function inline(entry: unknown): string | null {
+  const m = ((entry as { m?: Message } | null)?.m ?? entry) as Message;
+  if (!m || !('p' in m) || m.p.some((x) => typeof x !== 'string' && x.f)) return null;
+  if (m.p.every((x) => typeof x === 'string')) return `() => ${JSON.stringify(m.p.join(''))}`;
+  return `(p = {}) => ${m.p.map((x) => (typeof x === 'string' ? JSON.stringify(x) : `(${JSON.stringify(x.v)} in p ? p[${JSON.stringify(x.v)}] : ${JSON.stringify(`{${x.v}}`)})`)).join(' + ')}`;
+}
+
+/**
  * The message in `locale` with `args`. A variant is chosen as MessageFormat 2 chooses: each selector gives a value
  * (an input's string; for a plural, its exact number and its category in the language); a variant matches when each of
  * its keys is that value or `*`; of the matches, the best at the first selector where they differ wins (an exact number

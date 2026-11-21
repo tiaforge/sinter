@@ -30,8 +30,12 @@ const fill = (s: string, p?: Record<string, unknown>) => (p ? s.replace(/\{(\w+)
 
 /** The message `key` in the page's language (the build filled in the base language where a translation is missing). */
 export function t(key: string, params?: Record<string, unknown>): string {
-  const s = state(), e = s.dicts[s.locale]?.[key] ?? s.dicts[s.base]?.[key] ?? key;
-  return typeof e == 'string' ? fill(e, params) : s.format ? s.format(e, params, s.locale) : key;
+  const s = state(), e: any = s.dicts[s.locale]?.[key] ?? s.dicts[s.base]?.[key] ?? key;
+  if (typeof e == 'string') return fill(e, params);
+  // a content namespace's entry (`inlang()`'s): a plain pattern as it is, else through its formatter
+  const p = e?.m?.p as Array<string | { v: string }> | undefined;
+  if (p && !s.format) return p.map((x) => (typeof x == 'string' ? x : params && x.v in params ? String(params[x.v]) : `{${x.v}}`)).join('');
+  return s.format ? s.format(e, params, s.locale) : key;
 }
 
 /** `m.key()`, and a nested id's `m.inbox.title()` */
@@ -65,9 +69,9 @@ export function fixed(locale: string): void {
  * page's language and the namespace's formatter; the entries the app's modules call are in the page, in
  * `<script type="application/json" data-sn-ns="m">`.
  */
-export function install(locale: string, format: I18nState['format'], name = 'm'): void {
+export function install(locale: string, format: I18nState['format'] | null, name = 'm'): void {
   const s = state();
-  s.format = format;
+  if (format) s.format = format;
   if (!s.dicts[locale]) {
     try { const e = document.querySelector(`script[data-sn-ns="${name}"]`); if (e?.textContent) s.dicts[locale] = JSON.parse(e.textContent); } catch { /* none */ }
   }
