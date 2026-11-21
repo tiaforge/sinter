@@ -35,9 +35,9 @@
   "sha256": "dcca0b2ba31a58a91fe320986051df04db8ca480b2522348384092d4b88c465e",
   "bytes": 762
  },
- "assets/status-Cvd2app8.js": {
-  "sha256": "85b1d3ab1dca12e3dd1e8d2015eecd3983482ad3fd67320f8af929e12124d9dc",
-  "bytes": 34329
+ "assets/status-pQEN_BQ7.js": {
+  "sha256": "818912516df1cebf89c742ea588bf88ef46601eafaa720c6d80066ebcd6a2272",
+  "bytes": 34371
  },
  "docs/getting-started.html": {
   "sha256": "a79f7510a8b9663f76d081d1a065d08e6f66edfe6643581d52122effdcde5023",
@@ -64,7 +64,7 @@
   "bytes": 340
  },
  "status/index.html": {
-  "sha256": "2724f736b895ba824a79e1e076592a3c81f1488d8be876729bbb815c4f20273c",
+  "sha256": "8552fa6b41b1a352f829824889babd9df14698d5f826aaf7b59f9dba3f2ea911",
   "bytes": 1512
  }
 }
