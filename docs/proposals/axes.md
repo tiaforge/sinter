@@ -364,11 +364,16 @@ guide.
 
 Each step ships on its own.
 
-0. **Baseline.** A test that builds `examples/multilingual-site`, `examples/static-site`, `examples/realworld`,
-   `examples/dashboard`, `e2e/swap-csp` and `test/fixtures/vite-i18n` and compares every emitted file with a
-   recorded copy, so steps 1 to 4 are checked byte for byte. Compile timings for `examples/multilingual-site`,
-   `bench/collections` and a new `bench/axes` (50 pages, 20 tenants × 10 languages), each with and without
-   `SN_NO_LINK`. `scripts/size.mjs` gets a page in two languages with a budget.
+0. **Baseline.** *Done 2026-11-21.* `npm run baseline` (scripts/baseline.mjs) builds `examples/multilingual-site`,
+   `examples/static-site`, `examples/realworld`, `examples/dashboard`, `e2e/swap-csp` and `test/fixtures/vite-i18n`
+   and compares every emitted file with the hashes recorded in `test/baseline/` (`--record` records, `--keep <dir>`
+   keeps the builds to diff), so steps 1 to 4 are checked byte for byte. It is a script, not part of `npm test` or
+   CI: the baseline is this work's, and other changes on main re-record it. Compile timings are in
+   [bench/axes](../../bench/axes/README.md) (50 pages and a blog, 1, 2 and 10 languages, 1 and 20 tenants, with and
+   without `SN_NO_LINK`): a language costs about 10 ms per page, the linker saves 3 to 9% across languages, and 20
+   tenants × 10 languages take 139 s, 20 times one tenant. `scripts/size.mjs` budgets the multilingual example's
+   German status page (its scripts and its HTML). Found on the way and fixed: `sinter check` on a page per entry in
+   a subfolder failed in generated code.
 1. **`languages()` in the core** (§3). The language list without the messages; `localePrefix` with
    `messages: false`. Docs: configuration.md, static-pages.md#languages.
 2. **`src/points.ts` and `src/locales.ts`** (§1, §4). A move of the language functions from vite.ts,

@@ -15,3 +15,4 @@ test/fixtures/vite-i18n/src/sinter.messages.d.ts
 packages/sinter-axum/target/
 bench/static/out/
 bench/collections/out/
+bench/axes/out/

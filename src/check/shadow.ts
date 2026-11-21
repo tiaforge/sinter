@@ -149,7 +149,7 @@ export function shadow(o: ShadowOptions): Shadow {
     }
     if (r.item) {
       // a `<html data-sn-for>` entry: one item of the list it names
-      const it = `import('./sinter').Item<typeof ${r.item}>`;
+      const it = `${decl('Item')}<typeof ${r.item}>`;
       types[types.length - 1] = `${JSON.stringify(r.name)}: ${it}`;
       line(`/** @type {${it}} */`);
       regions.push({ start: out.length + 1, lines: 1, loc: r.nameLoc ?? r.loc, fixed: true });
