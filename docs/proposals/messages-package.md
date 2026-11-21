@@ -1,10 +1,12 @@
 # Proposal: per-language content and content namespaces, with messages as a package on them
 
-Status: proposed 2026-11-18, not started. It builds on [locale-axis.md](locale-axis.md), which is its
-groundwork: the locale in the core (step 1 here) is that proposal's step 1, and if that proposal drops runtime
-switching (its decision 4), the runtime parts of §2 and step 2 here fall away. It revisits the decision "i18n source" in
-[spec.md](../spec.md#decisions) (2026-11-08: built-in messages from the inlang files, one file per page and
-language loaded before the first paint), but keeps every reason given there. Paraglide was considered as the
+Status: proposed 2026-11-18, not started; brought up to date with main on 2026-11-21 (file and line references
+are main's at `65a6a32`). It builds on [locale-axis.md](locale-axis.md), which is its groundwork: the locale in the
+core (step 1 here) is that proposal's step 1, and if that proposal drops runtime switching (its decision 4,
+still to be confirmed), the runtime parts of §2 and step 2 here fall away. It revisits the built-in messages as
+[spec.md](../spec.md#messages) describes them (from the inlang files, one file per page and language, the
+language picked before the first paint without waiting for it, decided 2026-11-08 and 2026-11-10), but keeps every
+reason given there. Paraglide was considered as the
 package's engine and dropped: its message functions carry every language's text, its runtime picks the locale
 on its own, and its runtime was most of the early chunk when the built-in messages were decided.
 
@@ -24,8 +26,10 @@ Decisions proposed:
   the browser needs it) does it for messages too. The core learns two general things, none of them about
   messages: per-language content without `localePrefix`, and **content namespaces**: a loader's entries called
   as `ns.a.b(args)` through the loader's own formatter, cut down to the entries a page calls.
-- **Runtime switching stays**, through the general mechanism: `$locale = 'de'` loads the page's German data for
-  every per-language resource, messages included.
+- **Runtime switching follows [locale-axis.md](locale-axis.md)'s decision 4.** If it stays, it stays through the
+  general mechanism of §2: `$locale = 'de'` loads the page's German data for every per-language resource,
+  messages included. If it goes (that proposal's recommendation), §2 is not built and every per-language
+  resource is a constant of its language's page, as with `localePrefix` today.
 - **The package has variants, plurals and dot notation** from the start: the inlang message format's nested
   keys (`m.navigation.contact.email()`), complex messages with `declarations`, `selectors` and `match`
   (plural, ordinal, exact numbers, a choice on an input), and `\{` escapes.
@@ -39,7 +43,7 @@ The built-in messages (`src/messages.ts`, `src/i18n-build.ts`, `src/locales-buil
 for the module `@tiaforge-ui/sinter/messages` in the compiler and the Vite plugin) do two jobs at once:
 
 1. **They define the locale.** `localePrefix` takes its languages from the inlang project: with
-   `messages: false` it throws "the languages come from the built-in messages" (vite.ts:1097–1099). The picker
+   `messages: false` it throws "the languages come from the built-in messages" (vite.ts:1216–1218). The picker
    that chooses the visitor's language before the first paint is the messages' (`I18N_PICKER`,
    i18n-build.ts:143): the stored choice (`localStorage` key `locale`), then `navigator.languages`, then the base.
 2. **They load per-language data before the first paint**, in a way only messages can use: the picker adds the
@@ -59,6 +63,12 @@ plain strings with `{param}` placeholders:
 | `pathPattern` as a list of files, merged | one pattern |
 | formatted placeholders (`{rate: number style=percent}`) | none: format in markup and pass text |
 | markup (`{#b}…{/b}`, `{#icon/}`) | none |
+
+The messages module is also known by name in more places than when this was first drafted: the compiler's
+language setup and lazy helpers (compile.ts:1392, 1410), its evaluation stubs and base text (compile.ts:7155–7166,
+7188–7189), the next-page module's parts (compile.ts:8810), the page module's imports (compiler/index.ts:414–420),
+the Vite plugin's `collect` and language files (vite.ts:686–694, 1459–1506), the per-page early file's dictionary
+wait (early.ts:171–193) and the swap's dictionary merge (swap-run.ts:142–175). Goal 6 is that none of them is.
 
 Plurals are the gap teams hit first: `count === 1 ? m.one() : m.many()` in markup is wrong for most languages
 (Polish, Russian and Arabic have three to six plural forms). Dot notation is the second: most existing
@@ -84,7 +94,7 @@ translation files are nested.
 
 ```js
 // vite.config.js
-sinter({ locales: { base: 'en', all: ['en', 'de', 'pl'] }, localePrefix: true })
+sinter({ locales: { base: 'en', list: ['en', 'de', 'pl'] }, localePrefix: true })
 ```
 
 - `locales` is the core's own option. The picker (stored choice, `navigator.languages`, the base), the `locale`
@@ -111,7 +121,8 @@ content namespace over one) is a **per-language constant**:
   space, as `data-sn-m` elements are today (renamed `data-sn-l`, same 3 s limit). Bindings over plain data are
   never hidden.
 - The page module waits for the file before it mounts, as `$boot` awaits `$ready()` today
-  (compiler/index.ts).
+  (compiler/index.ts:363–373), and so does the per-page early file (early.ts:171–193) and a swap into the page
+  (swap-run.ts:142–175).
 
 ### 3. Content cut down to what the page reads
 
@@ -168,7 +179,7 @@ export const messages = inlang({ project: 'project.inlang', namespace: 'm' });
   `src/sinter.messages.d.ts`, and its ids are collected per page as `moduleKeys` does now.
 - **At build time** the formatter is a pure helper: a call over the build's language and constant
   parameters is folded into the HTML, as helper calls over constants are (static-pages.md). The compiler's
-  special case for the messages module (compile.ts:6681–6715) becomes this rule: the namespace's calls depend
+  special cases for the messages module (compile.ts:7155–7166 and 7188–7189) become this rule: the namespace's calls depend
   on `$locale`, and fold with the build's language (`localePrefix`) or the base language (runtime switching,
   hidden until the visitor's file is there).
 - A namespace without `perLocale` works the same, without the language.
@@ -247,14 +258,41 @@ per-language file holds only the page's ids.
 resolved at build. SN522 reports the keys that reach the base language, once per language. A translation whose inputs are not a subset of the base language's is an error at that file.
 A dotted id that is both a message and a group (`a` and `a.b`) is an error.
 
+## Against other libraries
+
+What an app gets for its texts and languages, after step 6 here and step 8 of [locale-axis.md](locale-axis.md),
+next to the libraries apps compare it with. From their documentation as of November 2026; checked again before
+step 4, since these move.
+
+| | sinter after both plans | Paraglide JS | next-intl | Astro i18n |
+| --- | --- | --- | --- | --- |
+| message format | inlang message format | inlang message format | ICU MessageFormat | none (routing only) |
+| plurals, ordinals, select on inputs | yes (step 4) | yes | yes | — |
+| nested keys | yes (step 4), as `m.inbox.title()` | yes since format 4.0, as `m["inbox.title"]()`; flat keys recommended | yes | — |
+| typed parameters | yes, `sinter check` | yes | yes (with its type augmentation) | — |
+| text written into the HTML at build | yes, per language, with no JS for a static page | through the framework's SSR/SSG | through Next's rendering | through Astro's |
+| only the messages a page uses ship | yes, per page | yes, per message function (tree-shaken) | per namespace, chosen by the app | — |
+| fallback chains | `de-AT → de → en`, messages and opt-in content | base locale | per-locale config | per locale, routing |
+| formatted placeholders | yes (step 6) | yes | yes | — |
+| markup inside a message | not in these plans | yes | yes (rich text) | — |
+| prefixed URLs, choosers, `hreflang`, sitemap alternates | yes, built in | URL strategies; `hreflang` by the app | middleware routing; alternates by the app | prefixes; sitemap through an integration |
+| a language per domain | static, through the proxy (step 8) | yes (`urlPatterns`) | yes (`domains`) | with server rendering only |
+| translated path segments | not in these plans | yes (`urlPatterns`) | yes (`pathnames`) | no |
+
+What sinter does that these do not: the text is folded into each language's HTML at build time with everything
+else that is constant, so a page with nothing live ships no script in any language, and one that runs carries
+only its own messages' text, compiled into its module. What it still lacks after both plans is markup inside a
+message and translated path segments, each a later proposal ([Not in this proposal](#not-in-this-proposal)).
+
 ## Plan
 
 Each step ships on its own and leaves every example app and the e2e pages as they were.
 
-0. **Baseline.** Record what the step-1 to step-4 refactors must keep: for the messages recipe, RealWorld and
-   a `localePrefix` page, the early file, the page module and each language file (bytes, gzip), and the
-   rendered HTML. A test compares them after each step (`test/vite/messages-size.test.ts`, like the size budget
-   tests).
+0. **Baseline.** Record what the step-1 to step-4 refactors must keep: for the messages recipe,
+   `examples/multilingual-site`, `e2e/swap-csp` and `test/fixtures/vite-i18n`, the early file, the page module and
+   each language file (bytes, gzip), and the rendered HTML. The sizes go into `scripts/size.mjs` with budgets, as
+   the token and link pages' did (2026-11-20), and a test compares the files after each step. It is one baseline
+   with [locale-axis.md](locale-axis.md)'s step 0.
 1. **`locales` in the core** (design §1; done as [locale-axis.md](locale-axis.md)'s step 1). The picker moves into the early script and reads `sinter({ locales })`,
    or the inlang project when the option is absent (the built-in messages still supply it). `localePrefix`
    works with `messages: false` when `locales` is given. Docs: configuration.md, static-pages.md#languages.
@@ -304,3 +342,5 @@ Each step ships on its own and leaves every example app and the e2e pages as the
    article). Keep it, or show the base language's text at once for content and hide only messages?
 5. **caley**: it builds with `localePrefix` and built-in messages; step 0's baseline should include one of its
    pages, so the move in step 5 is known to change nothing but the config.
+6. **Markup in messages.** Of the gaps left after step 6 (see "Against other libraries"), it is the one an app
+   meets most (a link or bold word inside a sentence). Is it the next proposal, before translated paths?
