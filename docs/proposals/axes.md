@@ -397,6 +397,19 @@ Each step ships on its own.
 4. **Points in the compiler** (§8). `point` in `CompileOptions`, URL tables as data, one walk per page, the
    point-aware component resolver, the fallback log. The output does not change; step 0's timings are measured
    again and written into this proposal.
+   *Measured 2026-11-21, not built.* A prototype made the kept walk read the point (`$locale`, `localeUrl()` and
+   `$canonical` as `$.$pt`, `{$locale}` lists and per-language collections loaded again per point) and let
+   `fromTemplate` share it across a page's languages; the baseline held. On bench/axes's 10-language app it saved
+   nothing (7.2 s against 7.0 s): every page there reports nothing left to decide after its walk (its messages and
+   `$locale` fold during it), so it compiles in one pass already, and the shared walk is the deciding walk, not the
+   one that writes each point. What remains per point is that writing walk (27% of the build) and the page's
+   description (13%, a describe-only compile per point), whose outputs differ per language. Sharing them needs a
+   compile whose output is parametric in the point, which is a proposal of its own; open question 1 is answered: the
+   speed claim goes, and step 6 (one build over tenants, sharing the build's start and the project) is where a
+   site with tenants gains. Found on the way: `fromTemplate` is off whenever the compile type-checks (`check`), which
+   the build does whenever TypeScript is installed, so the page-per-entry sharing of compile-once.md (3) does not
+   run in most apps' builds. The type check's unit must come from a first pass (compilePasses' note on unrolled
+   rows), so that needs its own fix. The point-aware component resolver moves to step 6, where tenants need it.
 5. **Runtime switching removed** (§7). Breaking in the changelog. The messages recipe, llms.txt and the tests
    move. The baseline is recorded again.
 6. **Axes declared in markup** (§2, §3): `;` lists in `data-sn-for`, collections as lists, outer variables in
