@@ -14,7 +14,7 @@ The server layer is optional: without it, sinter pages fetch their data in the b
 
 ```xml
 <ItemGroup>
-  <PackageReference Include="Sinter.AspNetCore" Version="0.20.0" />
+  <PackageReference Include="Sinter.AspNetCore" Version="0.21.0" />
 </ItemGroup>
 <PropertyGroup>
   <!-- the frontend's build output, relative to this project -->

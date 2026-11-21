@@ -3,7 +3,7 @@
 Attribute names, function names and diagnostic codes are public API. Before
 1.0, renames are allowed but listed here.
 
-## Unreleased
+## 0.21.0 (2026-11-21)
 
 Upgrading from 0.20: run `npx sinter migrate` to see what changes, then `npx sinter migrate --write`. It applies every rename below (each old name is a build error that names its replacement) and moves the built-in messages (`sinter({ messages })`, removed in this release without a deprecation release) into the content module as `inlang()`.
 
