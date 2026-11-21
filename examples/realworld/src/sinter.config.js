@@ -21,7 +21,6 @@ async function currentUser(req, next) {
 // the API's origin is allowed by sinter({ apis }) (apis.js): every page adds it
 configure({
   request: [currentUser],
-  onError: () => {},
   // the forms show the server's errors in their `.error-messages` list (`$error`), no field marked
   fieldErrors: () => null,
 });
