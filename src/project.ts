@@ -12,7 +12,7 @@ import { COMPLEXITY_LIMITS, type ComplexityOptions } from './compiler/complexity
 import { componentNames, writeComponentTypes } from './components-build.js';
 import { typeExports } from './check/index.js';
 import { librariesOf, libraries as findLibraries, libraryOf, modulesDir, ownLibrary, type Library } from './libraries.js';
-import { isSelfReference, resolveImport } from './fold-check.js';
+import { isSelfReference, resolveImport, setAppAliases } from './fold-check.js';
 
 export interface ProjectOptions {
   /** content module: collections for `<sn-resource src="content:…">` (`src/sinter.content.ts`, or `.js`); `false`: none */
@@ -345,6 +345,8 @@ export async function viteProject(root: string): Promise<{ pages: string[]; opti
     return withOwnLibrary(root, { pages: fallback(), options: {} });
   }
   const config = await vite.resolveConfig({ root, logLevel: 'silent' }, 'build', 'production');
+  // its aliases, for the walks of the app's modules (the lazy packages' reach, prerendering) wherever the project is read
+  setAppAliases(root, config.resolve.alias);
   const plugin = config.plugins.find((x) => x.name === 'sinter') as { api?: { options?: ProjectOptions; source?(file: string): string } } | undefined;
   const build = config.build as { rollupOptions?: { input?: unknown }; rolldownOptions?: { input?: unknown } };
   const input = build.rolldownOptions?.input ?? build.rollupOptions?.input;

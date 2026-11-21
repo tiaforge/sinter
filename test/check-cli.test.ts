@@ -34,3 +34,23 @@ test('a component\'s `.mts` script is one of the modules the lazy packages\' che
     }
   }
 }, 60_000);
+
+test('the lazy packages\' check follows the app\'s Vite aliases in a project without a helpers module (SN324)', () => {
+  const root = app({
+    'package.json': '{"type":"module"}',
+    'vite.config.js': `import sinter from ${JSON.stringify(resolve(__dirname, '../src/vite.ts'))};\nimport { fileURLToPath } from 'node:url';\nexport default { resolve: { alias: { '@lib': fileURLToPath(new URL('./src/lib', import.meta.url)) } }, plugins: [sinter({ lazy: ['fakelib'] })] };\n`,
+    'node_modules/fakelib/package.json': '{"name":"fakelib","type":"module","main":"index.js"}',
+    'node_modules/fakelib/index.js': 'export const twice = (s) => s + s;\n',
+    'src/components/x-a.ts': "import { XAComponent } from './x-a.html';\nimport '@lib/setup.js';\nexport class XA extends XAComponent {}\n",
+    'src/lib/setup.js': "import 'fakelib';\n",
+    'src/components/x-a.html': '<template data-sn-props="{}"><p>a</p></template>\n',
+    'index.html': '<!doctype html><html><head><title>t</title></head><body><x-a></x-a></body></html>\n',
+  });
+  try {
+    const r = check(root);
+    expect(r.stdout).toContain('SN324');
+    expect(r.stdout).toContain('src/lib/setup.js');
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}, 60_000);
