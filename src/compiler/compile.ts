@@ -55,7 +55,7 @@ export interface HelperManifest {
   names: string[];
   /** where a re-exported helper is declared (`export { x } from './lib.js'`, `export * from`): the early chunk imports it from there */
   from?: Record<string, HelperOrigin>;
-  namespaces: Record<string, { module: string; members: string[]; from?: Record<string, HelperOrigin> }>;
+  namespaces: Record<string, { module: string; members: string[]; from?: Record<string, HelperOrigin>; type?: string }>;
 }
 
 export interface CompileOptions {

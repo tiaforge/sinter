@@ -106,6 +106,7 @@ export function inlang<Tn = never>(o: {
   const project = o.project ?? 'project.inlang';
   return namespace<{ id: string; m: Message }>({
     name: o.namespace ?? 'm', format: '@tiaforge-ui/sinter/messages/format', ...(o.per ? { per: o.per } : { perLocale: true }),
+    types: (entries) => messagesType(entries),
     load: ({ locale, root, value }) => {
       const s = read(root, project);
       const pp = s['plugin.inlang.messageFormat']?.pathPattern ?? './messages/{locale}.json';
@@ -123,4 +124,26 @@ export function inlang<Tn = never>(o: {
       return [...all].map(([id, m]) => ({ id, m }));
     },
   });
+}
+
+/**
+ * The messages' type for `sinter check`, from the base language's: nested objects for dotted ids, each message a function
+ * of its inputs (a plural's `number`, a selector's or a placeholder's `string | number`), without arguments when it has none
+ */
+export function messagesType(entries: Array<{ id: string; m: Message }>): string {
+  type Tree = { [k: string]: Tree | string };
+  const tree: Tree = {};
+  for (const { id, m } of entries) {
+    const inputs = new Map<string, string>();
+    const parts = 'p' in m ? m.p : m.v.flatMap(([, p]) => p);
+    for (const x of parts) if (typeof x !== 'string') inputs.set(x.v, 'string | number');
+    if ('s' in m) for (const sel of m.s) inputs.set(sel.n, sel.f ? 'number' : 'string | number');
+    const fn = inputs.size ? `(args: { ${[...inputs].map(([k, t]) => `${JSON.stringify(k)}: ${t}`).join('; ')} }) => string` : '() => string';
+    const path = id.split('.');
+    let at = tree;
+    for (const k of path.slice(0, -1)) at = (at[k] ??= {}) as Tree;
+    at[path.at(-1)!] = fn;
+  }
+  const show = (t: Tree): string => `{ ${Object.entries(t).map(([k, v]) => `${JSON.stringify(k)}: ${typeof v === 'string' ? v : show(v)}`).join('; ')} }`;
+  return show(tree);
 }

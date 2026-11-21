@@ -49,7 +49,7 @@ export interface Collection<T = unknown> {
   /** `languages()`: the site's languages, which `localePrefix` builds every page in (docs/static-pages.md#languages) */
   readonly languages?: Languages;
   /** `namespace()`: the name a page calls its entries by, and its formatter module */
-  readonly namespace?: { readonly name: string; readonly format: string };
+  readonly namespace?: { readonly name: string; readonly format: string; readonly types?: (entries: any[]) => string };
 }
 
 /** The site's languages: `base`, where a visitor without a choice lands, and every language in `list`. */
@@ -105,11 +105,15 @@ export function languages(o: { base: string; list: readonly string[]; fallbacks?
  * into the page's script with that entry alone. Each page ships only the entries it calls. `format` is a module
  * path from the root (`/src/legal-format.ts`) or a package; `key` (default `id`) names an entry's id field.
  */
-export function namespace<T>(o: { name: string; format: string; key?: keyof T & string; load: (ctx: CollectionContext) => T[] | Promise<T[]>; perLocale?: boolean; per?: readonly Collection<any>[] }): Collection<T> {
+export function namespace<T>(o: {
+  name: string; format: string; key?: keyof T & string; load: (ctx: CollectionContext) => T[] | Promise<T[]>; perLocale?: boolean; per?: readonly Collection<any>[];
+  /** the namespace's type for `sinter check`, a TypeScript type literal, from the base language's entries (`{ imprint(args: { shop: string }): string }`) */
+  types?: (entries: T[]) => string;
+}): Collection<T> {
   if (!o || typeof o.name !== 'string' || !/^[A-Za-z_$][\w$]*$/.test(o.name)) throw new Error("namespace(): `name` is what a page calls its entries by, an identifier, e.g. `namespace({ name: 'legal', format, load })`");
   if (typeof o.format !== 'string' || !o.format) throw new Error("namespace(): `format` names the formatter module, whose `format(entry, args, locale)` makes an entry's value, e.g. `format: '/src/legal-format.ts'`");
   const c = collection<T>({ key: (o.key ?? 'id') as keyof T & string, load: o.load, ...(o.perLocale ? { perLocale: true } : {}), ...(o.per ? { per: o.per } : {}) });
-  return { ...c, namespace: { name: o.name, format: o.format } };
+  return { ...c, namespace: { name: o.name, format: o.format, ...(o.types ? { types: o.types } : {}) } };
 }
 
 /** whether a value is a collection (of any instance of this module) */

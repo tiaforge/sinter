@@ -29,7 +29,7 @@ export interface LoadedContent {
    */
   perPoint: PerPoint;
   /** content namespaces (`namespace()`): by the export's name, the name pages call it by and its formatter module */
-  namespaces: Map<string, { name: string; format: string }>;
+  namespaces: Map<string, { name: string; format: string; type?: string }>;
 }
 
 export type PerPoint = Map<string, { key: string; per: string[]; values: Map<string, readonly unknown[]> }>;
@@ -155,7 +155,15 @@ export async function loadContent(o: ContentOptions): Promise<LoadedContent> {
       problems.push(`collection \`${name}\`: ${String((e as Error)?.message ?? e).split('\n')[0]}`);
     }
   }
-  const namespaces = new Map([...names].flatMap(([c, n]) => (c.namespace ? [[n, { name: c.namespace.name, format: c.namespace.format }] as const] : [])));
+  const namespaces = new Map<string, { name: string; format: string; type?: string }>();
+  for (const [c, n] of names) {
+    if (!c.namespace) continue;
+    // its type, from the base language's entries (the first point's, for one loaded per axis)
+    let type: string | undefined;
+    const base = collections.get(n)?.value ?? perLocale.get(langsOf()[0] ?? '')?.get(n)?.value ?? [...(perPoint.get(n)?.values.values() ?? [])][0];
+    if (c.namespace.types && base) { try { type = c.namespace.types([...base]); } catch (e) { problems.push(`namespace \`${n}\`: its types: ${String((e as Error)?.message ?? e).split('\n')[0]}`); } }
+    namespaces.set(n, { name: c.namespace.name, format: c.namespace.format, ...(type ? { type } : {}) });
+  }
   const named = new Map<string, string>();
   for (const [n, d] of namespaces) {
     if (named.has(d.name)) problems.push(`\`${named.get(d.name)}\` and \`${n}\` are both the namespace \`${d.name}\`: a name calls one namespace`);
@@ -251,14 +259,14 @@ export function writeSnapshot(root: string, file: string, c: LoadedContent, base
  */
 export function snapshotNamespaces<H extends { namespaces: Record<string, { module: string; members: string[] }> }>(root: string, helpers: H): { helpers: H; contentNs?: Record<string, { entries: Record<string, unknown>; format: string | null }> } {
   try {
-    const s = JSON.parse(readFileSync(snapshotFile(root), 'utf8')) as { version: number; collections: Record<string, { key: string; value: Array<Record<string, unknown>> }>; namespaces?: Record<string, { name: string; format: string }> };
+    const s = JSON.parse(readFileSync(snapshotFile(root), 'utf8')) as { version: number; collections: Record<string, { key: string; value: Array<Record<string, unknown>> }>; namespaces?: Record<string, { name: string; format: string; type?: string }> };
     if (s.version !== 1 || !s.namespaces) return { helpers };
     const namespaces = { ...helpers.namespaces }, contentNs: Record<string, { entries: Record<string, unknown>; format: string | null }> = {};
     for (const [exp, d] of Object.entries(s.namespaces)) {
       if (namespaces[d.name]) continue;
       const l = s.collections[exp], entries: Record<string, unknown> = {};
       for (const e of l?.value ?? []) entries[String(e[l!.key])] = e;
-      namespaces[d.name] = { module: `sinter:content/${d.name}`, members: Object.keys(entries).sort() };
+      namespaces[d.name] = { module: `sinter:content/${d.name}`, members: Object.keys(entries).sort(), ...(d.type ? { type: d.type } : {}) };
       contentNs[d.name] = { entries, format: d.format };
     }
     return { helpers: { ...helpers, namespaces }, contentNs };

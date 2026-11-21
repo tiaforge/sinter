@@ -44,3 +44,31 @@ test('nested objects are dotted ids; a message and a group at one id fail', () =
   expect(() => parseComplex([{ selectors: ['x'] }], 'en.json: `a`')).toThrow(/a complex message is/);
   expect(() => parseComplex([{ declarations: ['local y = x: datetime'], selectors: ['y'], match: {} }], 'en.json: `a`')).toThrow(/`datetime` in `local y = x: datetime` is not a function sinter reads/);
 });
+
+test('the messages\' type: nested, a plural\'s input a number, a placeholder string or number', async () => {
+  const { messagesType } = await import('../src/messages/content.js');
+  const m = flatten({ inbox: { title: 'Inbox', unread: [{ declarations: ['local n = count: plural'], selectors: ['n'], match: { 'n=*': '{count} new, {who}' } }] } }, 'en.json');
+  expect(messagesType([...m].map(([id, x]) => ({ id, m: x })))).toBe('{ "inbox": { "title": () => string; "unread": (args: { "count": number; "who": string | number }) => string } }');
+});
+
+test('sinter check: a wrong parameter of a namespace\'s message is a type error', async () => {
+  const { compile } = await import('../src/compiler/index.js');
+  const { check, findTsc } = await import('../src/check/index.js');
+  const { mkdtempSync, rmSync, writeFileSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const { tmpdir } = await import('node:os');
+  const root = mkdtempSync(join(tmpdir(), 'sinter-nstype-'));
+  try {
+    const helpers = { module: null, names: [] as string[], namespaces: { m: { module: 'sinter:content/m', members: ['inbox.unread'], type: '{ "inbox": { "unread": (args: { "count": number }) => string } }' } } };
+    const run = (expr: string) => {
+      const html = `<p data-sn-text="${expr}"></p>`;
+      writeFileSync(join(root, 'index.html'), html);
+      const out = compile(html, { file: join(root, 'index.html'), root, dev: false, readFile: () => '', helpers, check: true, contentNs: { m: { entries: { 'inbox.unread': { m: { p: ['x'] } } }, format: '/f.ts' } } });
+      return check({ root, units: [out.check!], helpers, types: null, tsc: findTsc(root)! }).diagnostics.map((d) => d.message);
+    };
+    expect(run('m.inbox.unread({ count: 2 })').join(' | ')).toBe('');
+    expect(run("m.inbox.unread({ cnt: 2 })").join()).toMatch(/cnt/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}, 60_000);

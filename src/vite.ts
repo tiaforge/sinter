@@ -1113,7 +1113,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       const pp = content.perPoint.get(exp);
       const ids = pp ? [...new Set([...pp.values.values()].flatMap((v) => (v as Array<Record<string, unknown>>).map((e) => String(e[pp.key]))))]
         : (() => { const l = lists.get(exp); return ((l?.value ?? []) as Array<Record<string, unknown>>).map((e) => String(e[l!.key])); })();
-      namespaces[d.name] = { module: `${CONTENT_NS}${d.name}`, members: ids.sort() };
+      namespaces[d.name] = { module: `${CONTENT_NS}${d.name}`, members: ids.sort(), ...(d.type ? { type: d.type } : {}) };
     }
     return { ...h, namespaces };
   };
