@@ -82,10 +82,11 @@ export const segsMatch = (want: string[], segs: string[]) => want.length == segs
 export function readUrl(href: string, patterns: string[] = []): Record<string, string | string[]> {
   const out = Object.create(null), u = new URL(href);
   for (const [k, v] of u.searchParams) if (!BAD_KEY.test(k)) out[k] = v;
-  const segs = segments(u.pathname);
+  // (the rule of `segsMatch`, written out: the early file reads `$url` and takes none of the rest)
+  const segs = u.pathname.split('/').filter(Boolean);
   for (const p of patterns) {
-    const want = segments(p);
-    if (!segsMatch(want, segs)) continue;
+    const want = p.split('/').filter(Boolean);
+    if (want.length != segs.length || want.some((w, i) => w[0] != ':' && w != segs[i])) continue;
     want.forEach((w, i) => {
       if (w[0] != ':') return;
       try { out[w.slice(1)] = decodeURIComponent(segs[i]!); } catch { out[w.slice(1)] = segs[i]; }
