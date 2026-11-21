@@ -252,3 +252,24 @@ export function applyRenames(text: string, diagnostics: Diagnostic[]): { text: s
   }
   return { text: lines.join('\n'), changes: changes.reverse() };
 }
+
+/**
+ * The built-in messages moved to the content module (docs/messages.md#messages-as-a-content-namespace): the content
+ * module's text with `inlang()` and `languages()` from the inlang project added (or created), or null when it has them.
+ * A `languages()` it has already is kept.
+ */
+export function messagesToContent(existing: string | null, project = 'project.inlang'): string | null {
+  const text = existing ?? '';
+  if (/\binlang\s*\(/.test(text)) return null;
+  const hasLanguages = /\blanguages\s*\(/.test(text);
+  const lines = [
+    ...(hasLanguages ? [] : ["import { languages } from '@tiaforge-ui/sinter/content';"]),
+    `import { inlang${hasLanguages ? '' : ', inlangLocales'} } from '@tiaforge-ui/sinter/messages/content';`,
+  ];
+  const exports = [
+    ...(hasLanguages ? [] : [`export const locales = languages(({ root }) => inlangLocales(${JSON.stringify(project)}, root));`]),
+    `export const messages = inlang(${project === 'project.inlang' ? '' : `{ project: ${JSON.stringify(project)} }`});`,
+  ];
+  return existing ? `${lines.join('\n')}\n${text.replace(/\s*$/, '\n')}\n// the messages (moved from \`sinter({ messages })\` by \`sinter migrate\`)\n${exports.join('\n')}\n`
+    : `// the site's languages and messages, from the inlang project (written by \`sinter migrate\`)\n${lines.join('\n')}\n\n${exports.join('\n')}\n`;
+}

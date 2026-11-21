@@ -2,8 +2,8 @@
 // `sinter check [--root <dir>] [--strict [--allow <codes>]] [page.html …]`: compiles the
 // pages and type-checks their expressions; `--strict` (or `SINTER_STRICT=1`) fails on warnings too. Without pages, it reads them and the plugin options from the
 // Vite config. `sinter render page.html`: the page with mocked data, driven by steps, without a browser. `sinter docs [topic]`: one part of llms.txt or a diagnostic's explanation. `sinter lsp`: the language server for editors.
-import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { join, relative, resolve } from 'node:path';
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { dirname, join, relative, resolve } from 'node:path';
 import { check } from './check/index.js';
 import { applyStrict, compile, formatDiagnostic, type CheckUnit, type Diagnostic } from './compiler/index.js';
 import { project, staticPages, strictEnv, viteProject, type ProjectOptions } from './project.js';
@@ -159,6 +159,18 @@ async function migrate(args: string[]): Promise<number> {
     }
     if (write) for (const [file, text] of texts) writeFileSync(file, text);
     console.log(`sinter migrate: ${total} rename(s) in ${texts.size} file(s)${total && !write ? ' (run with --write to apply them)' : ''}`);
+  }
+  // 0b. the built-in messages: the content module reads the inlang project with `inlang()` (docs/messages.md)
+  {
+    const inlangProject = typeof options.messages === 'string' ? options.messages : 'project.inlang';
+    if (options.messages !== false && existsSync(join(root, inlangProject, 'settings.json'))) {
+      const { messagesToContent } = await import('./migrate.js');
+      const file = project(root, options).contentFile ?? join(root, 'src/sinter.content.ts');
+      const was = existsSync(file) ? readFileSync(file, 'utf8') : null;
+      const text = messagesToContent(was, inlangProject);
+      if (text && write) { mkdirSync(dirname(file), { recursive: true }); writeFileSync(file, text); }
+      if (text) console.log(`\nsinter migrate: the built-in messages are deprecated; ${relative(root, file)} ${write ? 'now reads' : 'would read (run with --write)'} the inlang project with inlang(). Then turn the built-in messages off in the Vite config:\n\n  sinter({ messages: false, … })\n\n  (src/sinter.messages.d.ts is no longer generated: remove it)`);
+    }
   }
   if (!options.apis) {
     const specs = options.openapi == null ? [] : ([] as string[]).concat(options.openapi);

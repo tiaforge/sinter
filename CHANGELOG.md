@@ -19,7 +19,7 @@ Attribute names, function names and diagnostic codes are public API. Before
 
 ### Deprecated
 
-- The built-in messages (`sinter({ messages })`, an inlang project read by the plugin): export `inlang()` from the content module (`export const messages = inlang()` with `languages(({ root }) => inlangLocales('project.inlang', root))`, from `@tiaforge-ui/sinter/messages/content`) and set `sinter({ messages: false })`. A build that uses them warns. `examples/multilingual-site` and `e2e/swap-csp` have moved; their pages are the same, byte for byte for those with nothing to run. `languages()` also takes a function of the loader's context (`({ root })`).
+- The built-in messages (`sinter({ messages })`, an inlang project read by the plugin): export `inlang()` from the content module (`export const messages = inlang()` with `languages(({ root }) => inlangLocales('project.inlang', root))`, from `@tiaforge-ui/sinter/messages/content`) and set `sinter({ messages: false })`. A build that uses them warns, and `npx sinter migrate --write` adds `inlang()` and `languages()` to the content module (creating it if needed). `examples/multilingual-site` and `e2e/swap-csp` have moved; their pages are the same, byte for byte for those with nothing to run. `languages()` also takes a function of the loader's context (`({ root })`).
 
 ### Changed
 

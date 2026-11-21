@@ -2,7 +2,8 @@
 
 > The built-in messages (`sinter({ messages })`) are deprecated: read the same inlang files with
 > [`inlang()`](#messages-as-a-content-namespace), which adds nested keys, plurals, formatted placeholders and fallback
-> chains. A build with the built-in messages warns, naming the two lines to change.
+> chains. A build with the built-in messages warns, naming the two lines to change; `npx sinter migrate --write` writes the
+> content module's part.
 
 Messages come from an inlang project, so the inlang tools (VS Code extension, Fink, machine translation) keep working on the same files.
 
