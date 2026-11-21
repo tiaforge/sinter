@@ -99,3 +99,28 @@ test('a stream event that cannot be applied and `page(…, \'last\')` without a 
   // the payload follows the message, as before
   expect(said(warn, 'missing key field(s)')[0]![1]).toEqual({ name: 'x' });
 });
+
+test('an upsert or merge of a resource without `key` that holds a list warns: it changes the whole list', async () => {
+  const stream = mockStream();
+  const r = await render(`
+    <sn-resource name="comments" src="/api/comments"></sn-resource>
+    <sn-resource name="user" src="/api/user"></sn-resource>
+    <sn-sync src="/events"><sn-event name="comment" resource="comments" op="upsert"></sn-event></sn-sync>
+    <div data-sn-state="{ c: { id: 3 } }">
+      <button id="all" data-sn-on-click="upsert(comments, [c])">all</button>
+      <button id="user" data-sn-on-click="upsert(user, { name: 'b' })">user</button>
+    </div>
+    <p data-sn-text="comments.length + user.name"></p>`, {
+    requests: mockRequests({ 'GET /api/comments': [{ id: 1 }, { id: 2 }], 'GET /api/user': { name: 'a' } }), streams: { '/events': stream },
+  });
+  await r.settle();
+  const of = () => r.warnings().filter((x) => x.code === 33).map((x) => x.message);
+  // a whole list in place of the list, and a single object: what a keyless resource is for
+  r.root.querySelector<HTMLElement>('#all')!.click();
+  r.root.querySelector<HTMLElement>('#user')!.click();
+  await r.settle();
+  expect(of()).toEqual([]);
+  stream.emit('comment', { id: 4 });
+  await r.settle();
+  expect(of()).toEqual(['sinter: `upsert` of resource `comments`, which has no `key` and holds a list, changes the whole list, not one item (SN542): add `key` with the field that identifies an item']);
+});

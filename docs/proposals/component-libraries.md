@@ -1566,10 +1566,15 @@ To discuss after this lands:
 - **A text slot inside an element of a choice's case** (`<span><template data-sn-text>…</template></span>`
   in a `<sn-component use>` case) is not written by the early script, only at takeover, so the first
   paint lacks it. Found by the size re-check of PR #51; it predates that change.
-- **A keyless resource upserted as a list.** Without `key`, a resource is one object, so
-  `upsert('comments', c)` replaces the whole list. Nothing warns. A dev warning when a keyless
-  resource whose value is an array is upserted or patched, or a check for a keyless resource typed
-  as an array (`type="Comment[]"`), would catch it. Found in the markdown recipe during PR #51.
+- **A keyless resource upserted as a list** (found in the markdown recipe during PR #51; decided
+  2026-11-21: both checks). Without `key`, a resource is one object, so `upsert(comments, c)` replaces
+  the whole list; nothing warned (`SN517` covered only an OpenAPI list at its declaration). Now the
+  warning `SN542` (`unkeyed-list-write`) is reported where `upsert`, `merge` or `remove` (a handler, an
+  action's `then`, an `<sn-event op>` in a `<sn-sync>`) targets a keyless resource typed as a list: a
+  `type` that ends in `[]` or is `Array<…>`, or an OpenAPI response that is a list. A named alias of an
+  array type is not seen by the compiler. Dev builds also warn (runtime warning 32) when an `upsert` of
+  one item or a `merge` reaches a keyless resource whose value is an array, typed or not; the check is
+  in the dev module, so production builds carry none of it.
 
 ## Decisions
 

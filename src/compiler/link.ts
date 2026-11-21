@@ -136,6 +136,7 @@ export const LINK_FIELDS: Record<string, { kinds: string[]; how: 'table' | 'weak
   layoutFiles: { kinds: ['Map'], how: 'table' },
   lazyLoads: { kinds: ['Map'], how: 'table' },
   lazyMods: { kinds: ['Array'], how: 'table' },
+  listTyped: { kinds: ['Map'], how: 'table' },
   lineStarts: { kinds: ['Map'], how: 'cache' },
   listCompiled: { kinds: ['WeakSet'], how: 'weak' },
   markups: { kinds: ['WeakMap'], how: 'weak' },

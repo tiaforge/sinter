@@ -169,6 +169,11 @@ export interface PageInfo {
    * to it (`list`), or the bare parameter tested as a condition (`test`)
    */
   urlWrites?: Array<{ name: string; list?: true; test?: true; report: (code: Code, message: string) => void }>;
+  /**
+   * `upsert`, `patch` and `remove` of a resource without `key`, checked once every resource's type is known: one
+   * typed as a list is one object holding it, which the change replaces (SN542)
+   */
+  listWrites?: Array<{ name: string; fn: string; report: (code: Code, message: string, hint?: string) => void }>;
   /** `:name` segments of the page's `data-sn-path` patterns */
   pathParams: Set<string>;
   /**
@@ -1434,6 +1439,7 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
     }
     if (['upsert', 'page'].includes(name)) {
       const cands = first ? resourcesOf(first as Node, name, locals) : (report('SN301', `\`${name}()\` takes a resource: ${NAME_FORMS}`, n.start), null);
+      if (name === 'upsert') for (const c of cands ?? []) if (!c.r.key) (page.listWrites ??= []).push({ name: c.name, fn: name, report: (code, m, h) => report(code, m, c.at, h) });
       if (!cands || name !== 'page') return;
       const target = n.arguments[1];
       const named = target?.type === 'Literal' && typeof target.value === 'string' ? target.value : null;
@@ -1487,7 +1493,12 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
       report('SN317', `\`${text}\` comes from \`${bad.slice(1)}()\`, which takes more than one resource, so its rows have no single source`, first.start, 'pass one resource to the helper, or patch the item through a row of that resource');
       return;
     }
-    for (const r of sources) if (!r.startsWith('@')) { const info = page.resources.get(r); if (info) info.used = true; }
+    for (const r of sources) if (!r.startsWith('@')) {
+      const info = page.resources.get(r);
+      if (info) info.used = true;
+      // an item of a resource without `key`: the change applies to the whole value
+      if (info && !info.key) (page.listWrites ??= []).push({ name: r, fn: name, report: (code, m, h) => report(code, m, first.start, h) });
+    }
     itemCalls.push({ start: n.start, src: sources });
     if (sources.some((x) => x.startsWith('@'))) {
       srcRefs.push({ fn: name, offset: first.start, src: sources, text });

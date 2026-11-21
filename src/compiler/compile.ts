@@ -1403,6 +1403,17 @@ class Compiler {
       if (w.test && arrays.has(w.name)) w.report('SN211', `\`$url.${w.name}\` is a list and always truthy; use \`$url.${w.name}.length\``);
     }
   }
+  /** resources without `key` typed as a list (`type="Comment[]"`, an OpenAPI list), with what says so */
+  readonly listTyped = new Map<string, string>();
+  /** SN542: `upsert`, `patch` or `remove` of a resource without `key` that holds a list changes the whole list */
+  checkListWrites() {
+    const what: Record<string, string> = { upsert: 'replaces the whole list with the item', merge: 'merges the fields into the list', remove: 'sets the whole list to `null`' };
+    for (const w of this.page.listWrites ?? []) {
+      const why = this.listTyped.get(w.name);
+      if (why) w.report('SN542', `\`${w.fn}\` on \`${w.name}\` ${what[w.fn] ?? 'changes the whole list'}: resource \`${w.name}\` has no \`key\`, and ${why}`,
+        'add `key` with the field that identifies an item, such as `key="id"`; to replace the list, reload it with `refresh()`');
+    }
+  }
   /** the page's array parameters (`IR.urlArrays`), sorted */
   urlArrays(): string[] { return [...new Set(this.urlBinds.filter((b) => b.array).map((b) => b.name))].sort(); }
   /** bindings `prerender()` wrote into the HTML as constants: the early chunk leaves them out */
@@ -1704,6 +1715,7 @@ class Compiler {
       const t = 'url' in d ? d.url : d.src;
       if (t.length) d.u = this.fn(`($) => ${this.urlFn(t)}`, null);
     }
+    this.checkListWrites();
     const builtin: string[] = [];
     const user: string[] = [];
     // a lazy module's helpers are not imported: the module loads when a let needs it
@@ -6729,7 +6741,11 @@ class Compiler {
         this.report(el, attr(el, 'select') != null ? 'select' : 'name', 'SN517', `\`${openapi.label}\` returns a list${at ? ` at \`${at}\`` : ''}: resource \`${name}\` has no \`key\`, so it is one object holding the list`, 0,
           `add \`key\` with the field that identifies an item${fields.length ? ` (its items have ${fields.map((f) => `\`${f}\``).join(', ')})` : ''}; a list that is only read can stay as it is`);
       }
+      if (list?.type === 'array') this.listTyped.set(name, `\`${openapi.label}\` returns a list${select ? ` at \`${select}\`` : ''}`);
     }
+    // `type="Comment[]"`: what a change to one item of it does is SN542's (`checkListWrites`)
+    const t = type?.replace(/\s*\|\s*(?:null|undefined)\b/g, '').trim();
+    if (t && !info.key && !each && (/\[\]$/.test(t) || /^(?:Readonly)?Array\s*</.test(t))) this.listTyped.set(name, `its \`type\` is \`${type!.trim()}\``);
     if (this.check) {
       const r: CheckResource = { name, type, loc: this.locOf(el, type ? 'type' : null), nameLoc: this.locOf(el, 'name') };
       if (openapi && 'schema' in openapi) r.openapi = openapi;
@@ -7297,6 +7313,9 @@ class Compiler {
       const was = { patch: 'merge', refetch: 'refresh' }[op as string];
       this.report(el, 'op', 'SN401', was ? `\`op="${op}"\` is renamed to \`op="${was}"\`` : '`op` is `upsert`, `merge`, `remove` or `refresh`', 0);
       return null;
+    }
+    if (resource && op && op !== 'refresh' && !this.page.resources.get(resource)!.key) {
+      (this.page.listWrites ??= []).push({ name: resource, fn: op, report: (code, m, h) => this.report(el, 'op', code, m, 0, h) });
     }
     const scope = ctx.scope;
     const typeAttr = attr(el, 'type')?.trim() || null;
