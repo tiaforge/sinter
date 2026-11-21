@@ -364,3 +364,27 @@ test('the static headers of the resource\'s API (`sinter({ apis })`) go with its
   const get = await app({ dir }, (req) => json(`{"x":"${req.headers.get('x-api') ?? '-'}"}`));
   expect(await text(get('/'))).toContain('<script type="application/json" data-sn="0">{"x":"2"}</script>');
 });
+
+test('a tenant on its own domain: a request there is its folder\'s files and pages, but for the shared assets', async () => {
+  const dir = build(`{ "version": 2,
+    "pages": [{ "file": "acme/de/cart/index.html", "paths": ["/acme/de/cart/"], "data": [{ "id": 0, "resource": "tags", "src": ["/api/tags"] }] }],
+    "routes": [{ "from": "/acme/de/cart.html", "to": "/de/cart/", "status": 301 }],
+    "origins": { "acme-shop.com": { "folder": "acme", "top": ["de", "en", "index.html"] } } }`, { 'acme/de/cart/index.html': `${HEAD}<script type="application/json" data-sn="0"></script></head><body></body></html>` });
+  const e = await embed({ onError: () => {}, dir });
+  const seen: string[] = [];
+  const files: Handler = (req) => { const u = new URL(req.url); if (!u.pathname.startsWith('/api/')) { seen.push(u.pathname); return new Response('static file'); } return api(req); };
+  const get = (url: string) => e.wrap(files)(new Request(url));
+  // the domain's page, with its data
+  expect(await text(get('https://acme-shop.com/de/cart/'))).toContain('data-sn="0">{"tags":');
+  // its old file URL: to the domain's URL
+  const moved = await get('https://acme-shop.com/de/cart.html');
+  expect([moved.status, moved.headers.get('location')]).toEqual([301, '/de/cart/']);
+  // a file of its folder, and a shared asset at the root; the site's own domain as it was
+  await get('https://acme-shop.com/de/about/');
+  await get('https://acme-shop.com/assets/app.js');
+  await get('https://acme-shop.com/');
+  await get('https://example.com/de/about/');
+  expect(seen).toEqual(['/acme/de/about/', '/assets/app.js', '/acme/', '/de/about/']);
+  // the API on that domain: not the folder's
+  expect(await text(get('https://acme-shop.com/api/tags'))).toBe('{"tags":["a"]}');
+});

@@ -17,6 +17,15 @@ internal sealed class SinterMiddleware(RequestDelegate next, SinterEngine engine
         var req = ctx.Request;
         var head = HttpMethods.IsHead(req.Method);
         if (!head && !HttpMethods.IsGet(req.Method)) return next(ctx);
+        // a tenant on its own domain (docs/static-pages.md#a-site-per-tenant-axes): a path whose first segment is one of its
+        // folder's (`de`, `about`; `/` too) is that folder's, for the static files after this middleware too; any other
+        // (the shared assets, an API) is the site's
+        if (engine.Origins.Count > 0 && engine.Origins.TryGetValue(req.Host.Value ?? "", out var origin))
+        {
+            var p0 = req.Path.Value is { Length: > 0 } x ? x : "/";
+            var first = p0.TrimStart('/').Split('/')[0];
+            if (first.Length == 0 || origin.Top.Contains(first)) req.Path = "/" + origin.Folder + p0;
+        }
         var path = req.Path.Value is { Length: > 0 } v ? v : "/";
         // the manifest describes the app's requests; it is not a page
         if (path == "/" + ManifestReader.File)

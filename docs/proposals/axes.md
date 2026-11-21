@@ -461,6 +461,12 @@ Each step ships on its own.
    `locales.codes`, which `server.ts`, sinter-axum and Sinter.AspNetCore read (a code chooses its language, the
    redirect goes to the segment; choose-cases.json has cases with `codes`). Not yet: `domains`.
 9. **Server layers**, if §10 finds work beyond the manifest they read today.
+   *Done 2026-11-21:* the manifest's `origins` (each domain: its folder and the folder's top-level entries; an
+   origin's pages' paths and its routes' `from` under its folder, their `to` the domain's URLs), and `server.ts`,
+   sinter-axum and Sinter.AspNetCore rewrite a request on such a domain into its folder when its first segment is
+   one of those entries (or it is `/`), so the shared assets and the app's API stay the site's. A list of entries
+   rather than "everything but the assets": a server cannot ask a static host whether a file exists, and an API on
+   the domain must not land in the folder.
 
 ## Not in this proposal
 

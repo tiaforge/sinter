@@ -325,13 +325,16 @@ dist/globex/index.html        /globex/
   in its pages is that domain's: links (`/de/about/`; one to another origin's page, or from its page to a shared one
   on `site`, is absolute and loads the page), the canonical link and `hreflang` (`https://acme-shop.com/…`),
   its next-page data and swaps (its own pages only), a sitemap of its own (`dist/acme/sitemap.xml`) and the language
-  chooser at its root. The reverse proxy maps the domain to the folder; the shared files stay at the root:
+  chooser at its root. `@tiaforge-ui/sinter/server`, sinter-axum and Sinter.AspNetCore map each such domain to its
+  folder themselves ([docs/server.md](server.md), from `sinter-embed.json`'s `origins`). A static host's reverse proxy
+  does the same, the shared files staying at the root and the API as it is:
 
   ```nginx
   server {
     server_name acme-shop.com;
     root /srv/site/dist;
     location /assets/ { }
+    location /api/ { proxy_pass http://127.0.0.1:4000; }
     location / { try_files /acme$uri /acme$uri/index.html /acme$uri.html =404; }
   }
   ```
@@ -341,7 +344,7 @@ dist/globex/index.html        /globex/
 - **Special files per tenant**: a `404.html` that uses the tenant's layout is written per tenant, at its domain
   folder's root (`dist/acme/404.html`) or in its segment's folder (`dist/demo/404.html`), and in each language. One
   that declares no axis is the site's. Each origin has its own `sitemap.xml`.
-- Not yet ([docs/proposals/axes.md](proposals/axes.md)): the server layers' host map, and a link through a variable
+- Not yet ([docs/proposals/axes.md](proposals/axes.md)): languages on their own domains, and a link through a variable
   that holds a tenant (`data-sn-with`) rather than a loop.
 
 ### Redirects and rewrites

@@ -131,3 +131,21 @@ describe('a tenant on its own domain, and one on the site', () => {
     if (existsSync(join(out, '_redirects'))) expect(read('_redirects')).not.toContain('acme');
   });
 });
+
+test('the embed manifest: an origin\'s pages under its folder, its routes to its domain\'s URLs, its domain\'s top-level entries', async () => {
+  const dist = join(root, 'dist-embed');
+  await build({
+    root, logLevel: 'silent', resolve: { alias },
+    plugins: [sinter({ localePrefix: true, typecheck: false, site: 'https://example.com', embed: true })],
+    build: { outDir: dist, emptyOutDir: true, rollupOptions: { input: ['index.html', 'about.html', 'cart.html'].map((f) => join(root, f)) } },
+  });
+  const m = JSON.parse(readFileSync(join(dist, 'sinter-embed.json'), 'utf8')) as { pages: Array<{ file: string; paths: string[] }>; routes: Array<{ from: string; to: string; status: number }>; origins: Record<string, { folder: string; top: string[] }> };
+  expect(m.origins['acme-shop.com']!.folder).toBe('acme');
+  expect(m.origins['acme-shop.com']!.top).toEqual(expect.arrayContaining(['de', 'en', 'sitemap.xml', 'about']));
+  expect(m.origins['acme-shop.com']!.top).not.toContain('assets');
+  const cart = m.pages.find((p) => p.file === 'acme/de/cart/index.html')!;
+  expect(cart.paths.every((x) => x.startsWith('/acme/de/'))).toBe(true);
+  expect(m.routes).toContainEqual({ from: '/acme/de/cart.html', to: '/de/cart/', status: 301 });
+  // the site's own pages as they were
+  expect(m.pages.some((p) => p.file === 'de/demo/cart/index.html' && p.paths.includes('/de/demo/cart/'))).toBe(true);
+}, 120_000);

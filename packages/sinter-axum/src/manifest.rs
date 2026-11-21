@@ -17,6 +17,33 @@ pub(crate) struct Manifest {
     /// `localePrefix`: the site's languages; an unprefixed URL (a `choose` route) is sent to one of them
     #[serde(default)]
     pub locales: Option<Locales>,
+    /// tenants on their own domains: each domain (`acme-shop.com`), the folder its files are in, and that folder's
+    /// top-level entries
+    #[serde(default)]
+    pub origins: std::collections::HashMap<String, Origin>,
+}
+
+/// A tenant's domain: its folder, and the first segments of the paths that are that folder's (`de`, `about`).
+#[derive(Debug, Clone, Deserialize)]
+pub(crate) struct Origin {
+    pub folder: String,
+    pub top: Vec<String>,
+}
+
+/// The domains of the tenants that have their own (`origins`).
+#[derive(Debug, Default)]
+pub(crate) struct Hosts {
+    pub origins: std::collections::HashMap<String, Origin>,
+}
+
+impl Hosts {
+    /// a request's path on its domain: under the domain's folder (`/acme/de/about/`) when its first segment is one of
+    /// the folder's (or it is `/`); any other (the shared assets, an API) is the site's
+    pub fn path(&self, host: Option<&str>, path_and_query: &str) -> Option<String> {
+        let o = self.origins.get(host?)?;
+        let first = path_and_query.trim_start_matches('/').split(['/', '?']).next().unwrap_or("");
+        (first.is_empty() || o.top.iter().any(|t| t == first)).then(|| format!("/{}{path_and_query}", o.folder))
+    }
 }
 
 /// The site's languages, each a prefix of its URLs (`/de/…`), and the one a visitor without a choice gets.
@@ -213,7 +240,7 @@ pub(crate) fn parse(text: &str) -> Result<Manifest, Error> {
 /// Reads the manifest of a build; with `compiled`, the one the binary was compiled against (`embed!`),
 /// which the build must still have.
 /// A build as the layer uses it: its pages, its routes and its languages.
-pub(crate) type Build = (Vec<Page>, Vec<Route>, Option<Locales>);
+pub(crate) type Build = (Vec<Page>, Vec<Route>, Option<Locales>, Hosts);
 
 pub(crate) fn load(dir: &Path, compiled: Option<&str>) -> Result<Build, Error> {
     let at = dir.join(FILE);
@@ -241,7 +268,7 @@ pub(crate) fn load(dir: &Path, compiled: Option<&str>) -> Result<Build, Error> {
                 .map_err(|e| Error(format!("{}: {}", file.display(), e.0)))
         })
         .collect::<Result<Vec<_>, _>>()?;
-    Ok((pages, m.routes, m.locales))
+    Ok((pages, m.routes, m.locales, Hosts { origins: m.origins }))
 }
 
 /// Cuts the page at each placeholder, in document order; a placeholder that is missing or already

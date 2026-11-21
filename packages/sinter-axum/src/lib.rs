@@ -255,7 +255,7 @@ impl Embed {
     /// [`Embed::api`] or `Embed::upstream`, an absolute URL its origin allowed). Every problem
     /// is in the error, one line each.
     pub fn build(self) -> Result<EmbedLayer, Error> {
-        let (pages, routes, locales) = manifest::load(&self.dir, self.compiled)?;
+        let (pages, routes, locales, hosts) = manifest::load(&self.dir, self.compiled)?;
         let mut problems = Vec::new();
         let names: HashSet<String> = pages
             .iter()
@@ -287,6 +287,7 @@ impl Embed {
             pages,
             routes,
             locales,
+            hosts,
             resolvers: self.resolvers,
             skips: self.skips,
             api: self.api,
@@ -348,6 +349,8 @@ struct Inner {
     routes: Vec<manifest::Route>,
     /// `localePrefix`: the site's languages
     locales: Option<manifest::Locales>,
+    /// tenants on their own domains: a request on one is its folder's
+    hosts: manifest::Hosts,
     resolvers: HashMap<String, Resolver>,
     skips: HashSet<String>,
     api: Option<Api>,
@@ -408,8 +411,28 @@ where
         self.inner.poll_ready(cx)
     }
 
-    fn call(&mut self, req: Request<B>) -> Self::Future {
+    fn call(&mut self, mut req: Request<B>) -> Self::Future {
         let read = req.method() == Method::GET || req.method() == Method::HEAD;
+        // a tenant on its own domain (docs/static-pages.md#a-site-per-tenant-axes): its folder's files and pages, but for the
+        // shared assets, as the proxy rules in the docs map them
+        if read && !self.embed.0.hosts.origins.is_empty() {
+            let host = req
+                .headers()
+                .get(header::HOST)
+                .and_then(|h| h.to_str().ok())
+                .map(str::to_string)
+                .or_else(|| req.uri().authority().map(|a| a.to_string()));
+            let pq = req.uri().path_and_query().map(|p| p.as_str()).unwrap_or("/").to_string();
+            if let Some(to) = self.embed.0.hosts.path(host.as_deref(), &pq) {
+                if let Ok(pq) = to.parse() {
+                    let mut parts = req.uri().clone().into_parts();
+                    parts.path_and_query = Some(pq);
+                    if let Ok(u) = http::Uri::from_parts(parts) {
+                        *req.uri_mut() = u;
+                    }
+                }
+            }
+        }
         // the manifest describes the app's requests; it is not a page
         if read && req.uri().path().strip_prefix('/') == Some(manifest::FILE) {
             return async { Ok(Response::builder().status(StatusCode::NOT_FOUND).body(Body::empty()).unwrap()) }.boxed();

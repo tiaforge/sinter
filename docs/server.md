@@ -215,7 +215,12 @@ in-process and use neither. Bun's and Deno's `fetch` are native and need nothing
 - **The site's URLs:** it follows the rules of the build's `_redirects`, from the manifest: a permanent
   redirect from a page's old file URL, a path a page declares in `data-sn-path` answered with that page
   (or passed on as its file, for a page without placeholders), and on a site with languages a `302` from an
-  unprefixed URL to the visitor's language.
+  unprefixed URL to the visitor's language (at its segment, `languages({ paths })`; a tag of `codes` chooses its
+  language).
+- **Tenants on their own domains** ([docs/static-pages.md](static-pages.md#a-site-per-tenant-axes)): a request on
+  such a domain (by its `Host`) whose first path segment is one of that tenant's folder's (`de`, `about`,
+  `sitemap.xml`; `/` too) is the folder's: its pages, its redirects (to the domain's URLs) and, passed on, its files.
+  Any other path on the domain, the shared assets and your API, is the site's. One server serves every domain.
 - **No data is not a failure:** a resolver's `null`, a skip, or a `when` that doesn't hold leaves the placeholder
   empty, and the browser requests that data itself.
 - **What it never does:** fetch a URL whose host comes from the page's URL, or serve `sinter-embed.json`

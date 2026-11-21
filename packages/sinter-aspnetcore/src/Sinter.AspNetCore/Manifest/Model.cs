@@ -7,7 +7,7 @@ namespace Sinter.AspNetCore.Manifest;
 
 /// <summary>A build's <c>sinter-embed.json</c> (version 2).</summary>
 [EditorBrowsable(EditorBrowsableState.Never)]
-public sealed class SinterManifest(ManifestPage[] pages, ManifestRoute[] routes, ManifestLocales? locales)
+public sealed class SinterManifest(ManifestPage[] pages, ManifestRoute[] routes, ManifestLocales? locales, IReadOnlyDictionary<string, ManifestOrigin>? origins = null)
 {
     /// <summary>The pages that have placeholders.</summary>
     public ManifestPage[] Pages { get; } = pages;
@@ -15,6 +15,18 @@ public sealed class SinterManifest(ManifestPage[] pages, ManifestRoute[] routes,
     public ManifestRoute[] Routes { get; } = routes;
     /// <summary><c>localePrefix</c>: the site's languages; an unprefixed URL (a <c>choose</c> route) is sent to one of them.</summary>
     public ManifestLocales? Locales { get; } = locales;
+    /// <summary>Tenants on their own domains: each domain (<c>acme-shop.com</c>), its folder, and the folder's top-level entries.</summary>
+    public IReadOnlyDictionary<string, ManifestOrigin> Origins { get; } = origins ?? new Dictionary<string, ManifestOrigin>();
+}
+
+/// <summary>A tenant's domain: its folder, and the first segments of the paths that are that folder's (<c>de</c>, <c>about</c>).</summary>
+[EditorBrowsable(EditorBrowsableState.Never)]
+public sealed class ManifestOrigin(string folder, string[] top)
+{
+    /// <summary>The folder its files are in.</summary>
+    public string Folder { get; } = folder;
+    /// <summary>The folder's top-level entries: a request whose first segment is one of them (or <c>/</c>) is the folder's.</summary>
+    public string[] Top { get; } = top;
 }
 
 /// <summary>A page: its HTML file relative to the build's output, the paths it answers at, its placeholders.</summary>

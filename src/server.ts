@@ -129,7 +129,7 @@ type Part = string | { url: string };
 type Cond = { url: string; eq?: string; ne?: string } | { not: Cond } | { and: Cond[] } | { or: Cond[] };
 interface Placeholder { id: number; resource: string; src: Part[] | null; when?: true | Cond; query?: Array<[string, string]>; start?: { url: string; key: string; size: number; skip?: true; query: Array<[string, string]> }; headers?: Record<string, string> }
 interface Route { from: string; to: string; status: number; file?: string; choose?: true }
-interface Manifest { version: number; pages: Array<{ file: string; paths: string[]; arrays?: string[]; data: Placeholder[] }>; routes?: Route[]; locales?: { base: string; list: string[]; at?: string; paths?: Record<string, string>; codes?: Record<string, string[]> } }
+interface Manifest { version: number; pages: Array<{ file: string; paths: string[]; arrays?: string[]; data: Placeholder[] }>; routes?: Route[]; locales?: { base: string; list: string[]; at?: string; paths?: Record<string, string>; codes?: Record<string, string[]> }; origins?: Record<string, { folder: string; top: string[] }> }
 interface Page { file: string; paths: string[]; arrays?: string[]; parts: Uint8Array[]; placeholders: Placeholder[] }
 type Params = Record<string, string | string[]>;
 
@@ -311,6 +311,9 @@ export async function embed<B extends BuildTypes = BuildTypes>(options: EmbedOpt
   const pages: Page[] = await Promise.all(m.pages.map(async (p) => ({ file: p.file, paths: p.paths, ...(p.arrays ? { arrays: p.arrays } : {}), ...split(p.file, text(await read(p.file)), p.data) })));
   const routes = m.routes ?? [];
   const locales = m.locales && { ...m.locales, at: m.locales.at ?? '/' };
+  // tenants on their own domains (docs/static-pages.md#a-site-per-tenant-axes): a request on one whose first segment is
+  // one of its folder's (`de`, `about`, `sitemap.xml`; `/` too) is that folder's; any other (the shared assets, an API) the site's
+  const hosts = m.origins ?? {};
   const forward = (o.forward ?? ['cookie', 'authorization', 'accept-language']).map((h) => h.toLowerCase());
   const timeout = o.timeout ?? 500, maxBytes = o.maxBytes ?? 2 << 20, stream = o.stream ?? true;
   const cacheControl = o.cacheControl ?? 'private, no-cache';
@@ -478,7 +481,13 @@ export async function embed<B extends BuildTypes = BuildTypes>(options: EmbedOpt
 
   async function handle(request: Request, next: Handler, api: Handler, rest: any[]): Promise<Response> {
     if (request.method != 'GET' && request.method != 'HEAD') return next(request, ...rest);
-    const url = new URL(request.url), path = url.pathname;
+    let url = new URL(request.url);
+    const o = hosts[url.host], first = url.pathname.split('/')[1] ?? '';
+    if (o && (first === '' || o.top.includes(first))) {
+      url = new URL(`/${o.folder}${url.pathname}${url.search}`, url);
+      request = new Request(url, request);
+    }
+    const path = url.pathname;
     // the manifest and its types describe the app's requests; they are not pages
     if (path == '/' + FILE || path == '/sinter-embed.d.ts') return new Response(null, { status: 404 });
     const route = routeOf(path);

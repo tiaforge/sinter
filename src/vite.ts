@@ -1628,13 +1628,30 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       guardLazy(this);
       // the placeholders a server fills (data-sn-resource), next to the pages: what a middleware reads to know each page's requests
       if (embedPages.size) {
-        const pages = [...embedPages].sort(([a], [b]) => a.localeCompare(b)).map(([, p]) => ({ file: p.file, paths: p.paths, ...(p.arrays ? { arrays: p.arrays } : {}), data: p.data }));
+        const b = resolved?.base ?? '/', root_ = b.startsWith('/') ? b.replace(/\/?$/, '/') : '/';
+        // a page on its own domain: its paths under its folder, as the server sees a request it rewrote there (`origins`)
+        const under = (rel: string, paths: string[]) => { const g = groupOf(rel); return g ? paths.map((x) => (x.startsWith(`${root_}${g.folder}/`) ? x : `${root_}${g.folder}/${x.slice(root_.length)}`)) : paths; };
+        const pages = [...embedPages].sort(([a], [b]) => a.localeCompare(b)).map(([rel, p]) => ({ file: p.file, paths: under(rel, p.paths), ...(p.arrays ? { arrays: p.arrays } : {}), data: p.data }));
         // the site's URLs, which sinter-axum follows as a host follows _redirects: 301s, and rewrites to a page's file
-        const b = resolved?.base ?? '/';
         const routes: Array<Route & { choose?: true }> = b.startsWith('/') ? siteRoutes().map((x) => (x.file && !x.choose ? { ...x, file: pageFile(x.file, b, describe(resolve(root, x.file)).path) } : x.file ? { ...x, file: chooserFile(x.file) } : x)) : [];
+        // each origin's: matched under its folder, to its domain's URL (a redirect's location), from the file in its folder
+        if (b.startsWith('/')) for (const folder of groups()) {
+          const own = pageEntries().filter((x) => groupOf(x.rel)?.folder === folder);
+          for (const r of pageRoutes(own.map((x) => ({ rel: urlRel(x.rel), patterns: x.patterns })), b)) routes.push({ ...r, from: `${root_}${folder}/${r.from.slice(root_.length)}`, ...(r.file ? { file: `${folder}/${pageFile(r.file, b, own.find((x) => urlRel(x.rel) === r.file)?.patterns ?? [])}` } : {}) });
+        }
+        // a request on an origin's domain whose first segment is one of its folder's (`de`, `about`, `sitemap.xml`) is that
+        // folder's file; any other (the shared assets, an API) is the site's
+        const origins: Record<string, { folder: string; top: string[] }> = {};
+        if (b.startsWith('/')) for (const folder of groups()) {
+          const v = [...virtual.values()].find((x) => pointOrigin(x.axes ?? [])?.folder === folder)!;
+          const top = new Set<string>(['sitemap.xml']);
+          for (const x of pageEntries().filter((y) => groupOf(y.rel)?.folder === folder)) for (const f of [urlRel(x.rel), pageFile(urlRel(x.rel), b, x.patterns)]) top.add(f.split('/')[0]!);
+          if (locales) for (const c of choosers(false)) if (c.fileName.startsWith(`${folder}/`)) top.add(c.fileName.slice(folder.length + 1).split('/')[0]!);
+          origins[new URL(pointOrigin(v.axes!)!.origin).host] = { folder, top: [...top].sort() };
+        }
         // a server picks the language at a fixed unprefixed URL too (`/about/`, `/`), where a host serves the chooser file
         if (locales && b.startsWith('/')) for (const s of sourceEntries()) { const u = pageUrl(relOf(s), b, describeSource(s).path); if (u) routes.push({ from: u, to: u, status: 200, file: chooserFile(relOf(s)), choose: true }); }
-        this.emitFile({ type: 'asset', fileName: EMBED_FILE, source: JSON.stringify({ version: 2, pages, ...(routes.length ? { routes } : {}), ...(locales ? { locales: manifestLocales(locales, b) } : {}) }, null, 2) + '\n' });
+        this.emitFile({ type: 'asset', fileName: EMBED_FILE, source: JSON.stringify({ version: 2, pages, ...(routes.length ? { routes } : {}), ...(locales ? { locales: manifestLocales(locales, b) } : {}), ...(Object.keys(origins).length ? { origins } : {}) }, null, 2) + '\n' });
         // the same placeholders as types, for `embed<Build>()` from `@tiaforge-ui/sinter/server`: a name no placeholder has, or a
         // placeholder whose request the build cannot describe left without an entry, is a type error in the server's code
         this.emitFile({ type: 'asset', fileName: EMBED_TYPES, source: embedTypes(pages) });

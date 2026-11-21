@@ -508,3 +508,30 @@ async fn sends_a_visitor_to_a_languages_segment_and_by_its_codes() {
     assert_eq!(text(a.clone(), go("nb-NO, en;q=0.5")).await.1[header::LOCATION], "/no/about/");
     assert_eq!(text(a, go("fr")).await.1[header::LOCATION], "/en/about/");
 }
+
+/// A tenant on its own domain: a request there is its folder's pages and files, but for the shared assets; its
+/// old file URL goes to the domain's URL; the site's own domain is as it was.
+#[tokio::test]
+async fn serves_a_tenants_domain_from_its_folder() {
+    let dir = build(
+        "origins",
+        r#"{ "version": 2,
+      "pages": [{ "file": "acme-cart.html", "paths": ["/acme/de/cart/"], "data": [{ "id": 0, "resource": "tags", "src": ["/api/tags"] }] }],
+      "routes": [{ "from": "/acme/de/cart.html", "to": "/de/cart/", "status": 301 }],
+      "origins": { "acme-shop.com": { "folder": "acme", "top": ["de", "en", "index.html"] } } }"#,
+        &[("acme-cart.html", r#"<head><script type="application/json" data-sn="0"></script></head>"#)],
+    );
+    let a = Router::new()
+        .merge(api())
+        .fallback(|uri: axum::http::Uri| async move { format!("file {}", uri.path()) })
+        .layer(Embed::from_dir(dir).api(api()).build().unwrap());
+    let on = |host: &'static str, path: &'static str| Request::get(path).header(header::HOST, host).body(Body::empty()).unwrap();
+    assert!(text(a.clone(), on("acme-shop.com", "/de/cart/")).await.2.contains(r#"data-sn="0">{"#));
+    let (s, h, _) = text(a.clone(), on("acme-shop.com", "/de/cart.html")).await;
+    assert_eq!((s, &h[header::LOCATION]), (StatusCode::MOVED_PERMANENTLY, &"/de/cart/".parse::<axum::http::HeaderValue>().unwrap()));
+    assert_eq!(text(a.clone(), on("acme-shop.com", "/de/about/")).await.2, "file /acme/de/about/");
+    assert_eq!(text(a.clone(), on("acme-shop.com", "/assets/app.js")).await.2, "file /assets/app.js");
+    assert_eq!(text(a.clone(), on("acme-shop.com", "/")).await.2, "file /acme/");
+    assert_eq!(text(a.clone(), on("acme-shop.com", "/api/tags")).await.2, r#"{"tags":["a"]}"#);
+    assert_eq!(text(a, on("example.com", "/de/about/")).await.2, "file /de/about/");
+}

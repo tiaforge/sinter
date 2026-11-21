@@ -23,7 +23,10 @@ internal static class ManifestReader
             var codes = l.TryGetProperty("codes", out var cs) && cs.ValueKind == JsonValueKind.Object ? cs.EnumerateObject().ToDictionary(x => x.Name, x => x.Value.EnumerateArray().Select(y => y.GetString()!).ToArray()) : null;
             locales = new ManifestLocales(Str(l, "base"), Array(l, "list", true).Select(x => x.GetString()!).ToArray(), OptStr(l, "at") ?? "/", paths, codes);
         }
-        return new SinterManifest(pages, routes, locales);
+        var origins = root.TryGetProperty("origins", out var os) && os.ValueKind == JsonValueKind.Object
+            ? os.EnumerateObject().ToDictionary(x => x.Name, x => new ManifestOrigin(Str(x.Value, "folder"), Array(x.Value, "top", true).Select(y => y.GetString()!).ToArray()))
+            : null;
+        return new SinterManifest(pages, routes, locales, origins);
     }
 
     /// <summary>
