@@ -239,3 +239,16 @@ test('languages({ domains }): a language on its own domain, its files under its 
   const { languages } = await import('../../src/content.js');
   expect(() => languages({ base: 'en', list: ['en', 'fr'], domains: { fr: 'example.fr' } })).toThrow(/`domains.fr` is an origin/);
 }, 120_000);
+
+test('a page per entry in a build that type-checks: compiled from its template, and a type error is reported once', async () => {
+  const content = "import { collection } from '@tiaforge-ui/sinter/content';\nexport const posts = collection({ key: 'slug', load: () => [{ slug: 'a', title: 'A' }, { slug: 'b', title: 'B' }, { slug: 'c', title: 'C' }] });\n";
+  const types = 'export interface Post { slug: string; title: string }\n';
+  const page = (expr: string) => `<!doctype html><html lang="en" data-sn-for="post in posts" data-sn-path="/blog/:slug"><head><title>x</title></head><body><sn-resource name="posts" src="content:posts" type="Post"></sn-resource><h1 data-sn-text="${expr}"></h1><template data-sn-if="post.slug === 'a'"><b>first</b></template></body></html>`;
+  const ok = await run({ 'src/sinter.content.ts': content, 'src/sinter.types.ts': types, 'blog/post.html': page('post.title') }, ['blog/post.html'], { typecheck: true });
+  expect(ok.error).toBe(null);
+  expect(ok.read('blog/a.html')).toContain('<h1>A</h1><b>first</b>');
+  expect(ok.read('blog/c.html')).toContain('<h1>C</h1>');
+  expect(ok.read('blog/c.html')).not.toContain('first');
+  const bad = await run({ 'src/sinter.content.ts': content, 'src/sinter.types.ts': types, 'blog/post.html': page('post.titel') }, ['blog/post.html'], { typecheck: true });
+  expect(bad.error).toMatch(/1 type error\(s\)[\s\S]*SN208[\s\S]*titel/);
+}, 120_000);

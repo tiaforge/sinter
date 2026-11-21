@@ -412,7 +412,10 @@ Each step ships on its own.
    site with tenants gains. Found on the way: `fromTemplate` is off whenever the compile type-checks (`check`), which
    the build does whenever TypeScript is installed, so the page-per-entry sharing of compile-once.md (3) does not
    run in most apps' builds. The type check's unit must come from a first pass (compilePasses' note on unrolled
-   rows), so that needs its own fix. The point-aware component resolver moves to step 6, where tenants need it.
+   rows), so that needs its own fix. *Fixed 2026-11-21:* the kept template is such a first pass, so `fromTemplate` runs
+   in a build that checks and hands its unit on once per template (every entry's is the same page): a page of 200
+   entries with a branch and a loop built in 1.86–1.89 s instead of 2.35–2.62 s (three runs each), the output the same.
+   The point-aware component resolver moves to step 6, where tenants need it.
 5. **Runtime switching removed** (§7). Breaking in the changelog. The messages recipe, llms.txt and the tests
    move. The baseline is recorded again.
    *Done 2026-11-21*, in two commits: (a) a build without `localePrefix` compiles every page in the messages' base

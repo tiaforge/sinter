@@ -967,7 +967,7 @@ export function compilerFields(html: string, options: CompileOptions): Array<[st
 const UNIT_SHARED = new Set(['page', 'componentFiles']);
 
 /** a `<html data-sn-for>` template walked once (`fromTemplate`): its first pass, kept for each entry's evaluation */
-type KeptTemplate = { c: Compiler; path: string; checked: boolean; hits: number; misses: number };
+type KeptTemplate = { c: Compiler; path: string; checked: boolean; hits: number; misses: number; typed?: boolean };
 
 /** the template walked as one entry's first pass, up to its evaluation; null when its entries cannot share it */
 function keepTemplate(html: string, options: CompileOptions): KeptTemplate | null {
@@ -990,7 +990,7 @@ function keepTemplate(html: string, options: CompileOptions): KeptTemplate | nul
  */
 function fromTemplate(html: string, options: CompileOptions): CompiledParts | null {
   const cache = options.templates as Map<string, KeptTemplate | null> | undefined;
-  if (!cache || !options.page || !options.prerender || options.check || options.describeOnly || options.canonicalLink === false
+  if (!cache || !options.page || !options.prerender || options.describeOnly || options.canonicalLink === false
     || options.decided || options.unrolled || options.constants) return null;
   const key = [options.file, options.locale?.name ?? '', html].join('\0');
   let t = cache.get(key);
@@ -1021,7 +1021,11 @@ function fromTemplate(html: string, options: CompileOptions): CompiledParts | nu
   // a page with errors: the usual way, which reports them as it always does
   if (out.diagnostics.some((d) => d.severity === 'error')) return null;
   t.hits++;
-  return out;
+  // the type check reads the page as written, as `compilePasses` hands it on: the kept first pass's, once per template
+  // (every entry's is the same page; checking it again per entry only repeats it)
+  if (options.check && !t.typed && c.check) { t.typed = true; return { ...out, check: c.check }; }
+  const { check: _, ...rest } = out;
+  return rest;
 }
 
 function compilePasses(html: string, options: CompileOptions): CompiledParts & { canonicalOnly?: boolean } {
