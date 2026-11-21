@@ -5,7 +5,7 @@
     <PublishAot>true</PublishAot>
     <InvariantGlobalization>true</InvariantGlobalization>
     <IsPackable>false</IsPackable>
-    <SinterBuild>../Sinter.AspNetCore.Tests/fixtures/web</SinterBuild>
+    <SinterBuild>../../../../test/fixtures/server-build</SinterBuild>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../../src/Sinter.AspNetCore/Sinter.AspNetCore.csproj" />

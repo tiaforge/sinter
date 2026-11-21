@@ -180,7 +180,7 @@ export function project(root: string, options: ProjectOptions = {}): Project {
     return null;
   };
   // the component libraries: their files are read wherever they really are (a workspace link)
-  const configFile = resolve(root, VITE_CONFIGS.find((f) => existsSync(resolve(root, f))) ?? 'vite.config.js');
+  const configFile = configFileOf(root);
   const appComponents = componentNames(root);
   retiredOptions(options);
   const libs = findLibraries(root, librariesOf(options.libraries), appComponents, configFile);
@@ -270,14 +270,14 @@ export function project(root: string, options: ProjectOptions = {}): Project {
   } else {
     for (const rel of listOf(options.openapi)) loadSpec(rel);
     if (options.openapi != null) {
-      const file = resolve(root, VITE_CONFIGS.find((f) => existsSync(resolve(root, f))) ?? 'vite.config.js');
+      const file = configFileOf(root);
       diagnostics.push({ severity: 'warning', code: 'SN329', file, line: 1, col: 1,
         message: 'sinter({ openapi }) is deprecated: give the spec to an API, `sinter({ apis: { main: { openapi: … } } })`, and run `npx sinter migrate` (docs/apis.md)' });
     }
   }
   // the built-in messages are gone: the messages are a content namespace (`inlang()`, docs/messages.md)
   if (options.messages !== undefined && options.messages !== false) {
-    const file = resolve(root, VITE_CONFIGS.find((f) => existsSync(resolve(root, f))) ?? 'vite.config.js');
+    const file = configFileOf(root);
     diagnostics.push({ severity: 'error', code: 'SN348', file, line: 1, col: 1,
       message: 'sinter({ messages }) is removed: the messages are a content namespace. Export `inlang()` from the content module, with `languages(({ root }) => inlangLocales(\'project.inlang\', root))` (`@tiaforge-ui/sinter/messages/content`), and remove the option; `npx sinter migrate --write` writes it (docs/messages.md)' });
   }
@@ -348,11 +348,8 @@ export async function viteProject(root: string): Promise<{ pages: string[]; opti
   // its aliases, for the walks of the app's modules (the lazy packages' reach, prerendering) wherever the project is read
   setAppAliases(root, config.resolve.alias);
   const plugin = config.plugins.find((x) => x.name === 'sinter') as { api?: { options?: ProjectOptions; source?(file: string): string } } | undefined;
-  const build = config.build as { rollupOptions?: { input?: unknown }; rolldownOptions?: { input?: unknown } };
-  const input = build.rolldownOptions?.input ?? build.rollupOptions?.input;
-  const list = typeof input === 'string' ? [input] : Array.isArray(input) ? input : input && typeof input === 'object' ? Object.values(input) : [];
   // with `localePrefix`, the input is each page once per language: its source, once
-  let pages = [...new Set((list as string[]).filter((f) => typeof f === 'string' && f.endsWith('.html')).map((f) => plugin?.api?.source?.(resolve(config.root, f)) ?? resolve(config.root, f)))];
+  let pages = [...new Set(htmlInputs(buildInput(config.build)).map((f) => plugin?.api?.source?.(resolve(config.root, f)) ?? resolve(config.root, f)))];
   if (!pages.length) pages = fallback();
   return withOwnLibrary(root, { pages, options: plugin?.api?.options ?? {} });
 }
@@ -402,7 +399,20 @@ export function lazyOf(list: unknown): string[] {
   return [...new Set(list as string[])];
 }
 
-const VITE_CONFIGS = ['vite.config.ts', 'vite.config.js', 'vite.config.mts', 'vite.config.mjs', 'vite.config.cts', 'vite.config.cjs'];
+/** The names Vite finds its config by, in its order. */
+export const VITE_CONFIGS = ['vite.config.ts', 'vite.config.js', 'vite.config.mts', 'vite.config.mjs', 'vite.config.cts', 'vite.config.cjs'];
+/** The root's Vite config file (`vite.config.js` when there is none: where a diagnostic about the options points). */
+export const configFileOf = (root: string): string => resolve(root, VITE_CONFIGS.find((f) => existsSync(resolve(root, f))) ?? 'vite.config.js');
+/** A Vite config's build input (Rolldown's option, else Rollup's). */
+export const buildInput = (build: unknown) => {
+  const b = build as { rollupOptions?: { input?: unknown }; rolldownOptions?: { input?: unknown } } | undefined;
+  return b?.rolldownOptions?.input ?? b?.rollupOptions?.input;
+};
+/** The HTML entries of a build input (a file, a list or a map of them), as written. */
+export function htmlInputs(input: unknown): string[] {
+  const list = typeof input === 'string' ? [input] : Array.isArray(input) ? input : input && typeof input === 'object' ? Object.values(input) : [];
+  return (list as unknown[]).filter((f): f is string => typeof f === 'string' && f.endsWith('.html'));
+}
 
 /** The config module's source, refusing what is gone from it: `credentials()`, which `apis.<name>.credentials` does at build time */
 function configSource(rel: string, source: string): string {

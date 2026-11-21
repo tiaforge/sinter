@@ -11,7 +11,7 @@ function app(files: Record<string, string>): string {
   symlinkSync(resolve(__dirname, '../node_modules/typescript'), join(root, 'node_modules/typescript'), 'dir');
   return root;
 }
-const check = (root: string) => spawnSync(process.execPath, [resolve(__dirname, '../node_modules/jiti/lib/jiti-cli.mjs'), resolve(__dirname, '../src/cli.ts'), 'check', '--root', root], { encoding: 'utf8', env: { ...process.env, SINTER_STRICT: '' } });
+const check = (root: string, inline = false) => spawnSync(process.execPath, [resolve(__dirname, '../node_modules/jiti/lib/jiti-cli.mjs'), resolve(__dirname, '../src/cli.ts'), 'check', ...(inline ? [`--root=${root}`] : ['--root', root])], { encoding: 'utf8', env: { ...process.env, SINTER_STRICT: '' } });
 
 test('a component\'s `.mts` script is one of the modules the lazy packages\' check walks, as a `.ts` one is (SN324)', () => {
   for (const ext of ['.ts', '.mts']) {
@@ -47,7 +47,8 @@ test('the lazy packages\' check follows the app\'s Vite aliases in a project wit
     'index.html': '<!doctype html><html><head><title>t</title></head><body><x-a></x-a></body></html>\n',
   });
   try {
-    const r = check(root);
+    // (`--root=dir` as `--root dir`, as every command takes its flags)
+    const r = check(root, true);
     expect(r.stdout).toContain('SN324');
     expect(r.stdout).toContain('src/lib/setup.js');
   } finally {

@@ -1,0 +1,132 @@
+{
+  "about": "The URL rules a server layer for an embed build follows (docs/server.md), as the browser runtime applies them (src/runtime/url.ts is the reference). `params`: `$url` from a page request's path and query, the `:name` segments of the first pattern that matches (a string, or a list for an array parameter); `expand`: a placeholder's `src` filled from `$url` (null: refused, a path value of `.` or `..` or a list); `withParams`: query parameters set on a URL, as a paginated resource's page; `described`: the request the build describes for a placeholder (its `when`, its first page); `when`: whether a placeholder's `when` holds; `match`: the first rule in order for a path (`exact`: a redirect, for exactly its path; else a page's path or a rewrite, by its non-empty segments, `:name` any one); `escape`: the JSON written into a placeholder. Run by test/server/cases.test.ts (@tiaforge-ui/sinter/server), packages/sinter-axum (src/lib.rs, `shared_cases`) and packages/sinter-aspnetcore (test/Sinter.AspNetCore.Tests/ServerCasesTests.cs).",
+  "params": [
+    { "path": "/article/a%20b", "query": "x=1&x=2&q=a+b&constructor=1", "patterns": ["/", "/article/:slug"], "want": { "slug": "a b", "x": "2", "q": "a b" } },
+    { "path": "/article/s", "query": "slug=q", "patterns": ["/", "/article/:slug"], "want": { "slug": "s" } },
+    { "path": "/other/s", "patterns": ["/", "/article/:slug"], "want": {} },
+    { "path": "/", "patterns": ["/", "/article/:slug"], "want": {} },
+    { "path": "//article//x/", "patterns": ["/article/:slug"], "want": { "slug": "x" } },
+    { "path": "/article/x", "patterns": ["article/:slug/"], "want": { "slug": "x" } },
+    { "path": "/article/a%2Fb", "patterns": ["/article/:slug"], "want": { "slug": "a/b" } },
+    { "path": "/article/%C3%A9t%C3%A9", "patterns": ["/article/:slug"], "want": { "slug": "été" } },
+    { "path": "/u/ann/posts", "patterns": ["/u/:name/posts", "/u/:id/:tab"], "want": { "name": "ann" } },
+    { "path": "/u/ann/likes", "patterns": ["/u/:name/posts", "/u/:id/:tab"], "want": { "id": "ann", "tab": "likes" } },
+    { "path": "/u/ann", "patterns": ["/u/:name/posts", "/u/:id/:tab"], "want": {} },
+    { "path": "/", "query": "a&b=&c=%E2%9C%93&&d=100%", "patterns": [], "want": { "a": "", "b": "", "c": "✓", "d": "100%" } },
+    { "path": "/", "query": "__proto__=1&prototype=2&constructor=3&ok=4", "patterns": [], "arrays": ["__proto__"], "want": { "ok": "4" } },
+    { "path": "/", "query": "tag=a&q=1&tag=b+c", "patterns": [], "arrays": ["tag", "f"], "want": { "tag": ["a", "b c"], "f": [], "q": "1" } },
+    { "path": "/t/x", "query": "tag=a", "patterns": ["/t/:slug"], "arrays": ["tag"], "want": { "tag": ["a"], "slug": "x" } }
+  ],
+  "expand": [
+    { "src": ["/api/articles?tag=", { "url": "tag" }, "&limit=10"], "params": { "tag": "a&b" }, "want": "/api/articles?tag=a%26b&limit=10" },
+    { "src": ["/api/articles?tag=", { "url": "tag" }, "&limit=10"], "params": {}, "want": "/api/articles?limit=10" },
+    { "src": ["/api/articles?tag=", { "url": "tag" }, "&limit=10"], "params": { "tag": "" }, "want": "/api/articles?tag=&limit=10" },
+    { "src": ["/api/x?a=1&b=", { "url": "b" }], "params": {}, "want": "/api/x?a=1" },
+    { "src": ["/api/x?b=", { "url": "b" }], "params": {}, "want": "/api/x" },
+    { "src": ["/api/x?a=", { "url": "a" }, "&b=", { "url": "b" }], "params": { "b": "2" }, "want": "/api/x?b=2" },
+    { "src": ["/api/x?a=", { "url": "a" }, "#top"], "params": {}, "want": "/api/x#top" },
+    { "src": ["/api/x?q=pre-", { "url": "q" }, "-post"], "params": {}, "want": "/api/x?q=pre--post" },
+    { "src": ["/api/x?q=", { "url": "a" }, { "url": "b" }], "params": { "a": "1" }, "want": "/api/x?q=1" },
+    { "src": ["/api/x?q=", { "url": "a" }, { "url": "b" }], "params": {}, "want": "/api/x" },
+    { "src": ["/api/x#top?y=", { "url": "y" }], "params": {}, "want": "/api/x#top" },
+    { "src": ["/api/x?q=", { "url": "q" }], "params": { "q": ".." }, "want": "/api/x?q=%2E%2E" },
+    { "src": ["/api/articles/", { "url": "slug" }, "/comments"], "params": { "slug": "é/x" }, "want": "/api/articles/%C3%A9%2Fx/comments" },
+    { "src": ["/api/articles/", { "url": "slug" }, "/comments"], "params": { "slug": "a#b?c&d e" }, "want": "/api/articles/a%23b%3Fc%26d%20e/comments" },
+    { "src": ["/api/articles/", { "url": "slug" }, "/comments"], "params": { "slug": ".." }, "want": null },
+    { "src": ["/api/articles/", { "url": "slug" }, "/comments"], "params": { "slug": "." }, "want": null },
+    { "src": ["/api/articles/", { "url": "slug" }, "/comments"], "params": { "slug": "..." }, "want": "/api/articles/.../comments" },
+    { "src": ["/api/articles/", { "url": "slug" }, "/comments"], "params": {}, "want": "/api/articles//comments" },
+    { "src": ["/api/", { "url": "s" }], "params": { "s": "a'b(c)*!~-_." }, "want": "/api/a'b(c)*!~-_." },
+    { "src": ["/api/", { "url": "s" }], "params": { "s": "😀" }, "want": "/api/%F0%9F%98%80" },
+    { "src": ["/api/a?tag=", { "url": "tag" }, "&f=", { "url": "f" }, "&n=1"], "params": { "tag": ["a", "b c"], "f": [] }, "want": "/api/a?tag=a&tag=b%20c&n=1" },
+    { "src": ["/api/a?f=", { "url": "f" }], "params": { "f": [] }, "want": "/api/a" },
+    { "src": ["/api/a?x=t-", { "url": "tag" }], "params": { "tag": ["a", "b c"] }, "want": "/api/a?x=t-a%2Cb%20c" },
+    { "src": ["/api/", { "url": "tag" }], "params": { "tag": ["a"] }, "want": null }
+  ],
+  "withParams": [
+    { "url": "/api/m", "set": [["page", "1"], ["limit", "10"]], "want": "/api/m?page=1&limit=10" },
+    { "url": "/api/m?tag=a%20b", "set": [["limit", "10"]], "want": "/api/m?tag=a+b&limit=10" },
+    { "url": "/api/m?limit=5&x=1&limit=6", "set": [["limit", "10"]], "want": "/api/m?limit=10&x=1" },
+    { "url": "/api/m#top", "set": [["n", "1"]], "want": "/api/m?n=1#top" },
+    { "url": "/api/m?a#x#y", "set": [["n", "1"]], "want": "/api/m?a=&n=1#x" },
+    { "url": "/api/m?q=é*~'()!", "set": [["n", "1"]], "want": "/api/m?q=%C3%A9*%7E%27%28%29%21&n=1" },
+    { "url": "/api/m", "set": [["q", "a b&c=d"]], "want": "/api/m?q=a+b%26c%3Dd" }
+  ],
+  "described": [
+    { "placeholder": { "src": ["/api/articles?tag=", { "url": "tag" }], "when": { "url": "feed", "ne": "following" }, "query": [["offset", "0"], ["limit", "10"]], "start": { "url": "page", "key": "offset", "size": 10, "skip": true, "query": [["offset", "10"], ["limit", "10"]] } }, "params": { "tag": "x" }, "want": "/api/articles?tag=x&offset=0&limit=10" },
+    { "placeholder": { "src": ["/api/articles?tag=", { "url": "tag" }], "when": { "url": "feed", "ne": "following" }, "query": [["offset", "0"], ["limit", "10"]], "start": { "url": "page", "key": "offset", "size": 10, "skip": true, "query": [["offset", "10"], ["limit", "10"]] } }, "params": { "page": "3" }, "want": "/api/articles?offset=20&limit=10" },
+    { "placeholder": { "src": ["/api/articles?tag=", { "url": "tag" }], "when": { "url": "feed", "ne": "following" }, "query": [["offset", "0"], ["limit", "10"]], "start": { "url": "page", "key": "offset", "size": 10, "skip": true, "query": [["offset", "10"], ["limit", "10"]] } }, "params": { "page": "abc" }, "want": "/api/articles?offset=0&limit=10" },
+    { "placeholder": { "src": ["/api/articles?tag=", { "url": "tag" }], "when": { "url": "feed", "ne": "following" }, "query": [["offset", "0"], ["limit", "10"]], "start": { "url": "page", "key": "offset", "size": 10, "skip": true, "query": [["offset", "10"], ["limit", "10"]] } }, "params": { "feed": "following", "page": "3" }, "want": null },
+    { "placeholder": { "src": ["/api/m?sort=new"], "query": [["page", "1"]], "start": { "url": "p", "key": "page", "size": 20, "query": [["page", "1"], ["size", "20"]] } }, "params": { "p": "2" }, "want": "/api/m?sort=new&page=2&size=20" },
+    { "placeholder": { "src": ["/api/m"], "query": [["page", "1"]], "start": { "url": "p", "key": "page", "size": 20, "query": [["page", "1"]] } }, "params": { "p": "3" }, "want": "/api/m?page=3" },
+    { "placeholder": { "src": ["/api/m"], "query": [["page", "1"]], "start": { "url": "p", "key": "page", "size": 20, "query": [["page", "1"]] } }, "params": { "p": " 3x" }, "want": "/api/m?page=3" },
+    { "placeholder": { "src": ["/api/m"], "query": [["page", "1"]], "start": { "url": "p", "key": "page", "size": 20, "query": [["page", "1"]] } }, "params": { "p": "\t7" }, "want": "/api/m?page=7" },
+    { "placeholder": { "src": ["/api/m"], "query": [["page", "1"]], "start": { "url": "p", "key": "page", "size": 20, "query": [["page", "1"]] } }, "params": { "p": "+2" }, "want": "/api/m?page=2" },
+    { "placeholder": { "src": ["/api/m"], "query": [["page", "1"]], "start": { "url": "p", "key": "page", "size": 20, "query": [["page", "1"]] } }, "params": { "p": "007" }, "want": "/api/m?page=7" },
+    { "placeholder": { "src": ["/api/m"], "query": [["page", "1"]], "start": { "url": "p", "key": "page", "size": 20, "query": [["page", "1"]] } }, "params": { "p": "2.9" }, "want": "/api/m?page=2" },
+    { "placeholder": { "src": ["/api/m"], "query": [["page", "1"]], "start": { "url": "p", "key": "page", "size": 20, "query": [["page", "1"]] } }, "params": { "p": "1e3" }, "want": "/api/m?page=1" },
+    { "placeholder": { "src": ["/api/m"], "query": [["page", "1"]], "start": { "url": "p", "key": "page", "size": 20, "query": [["page", "1"]] } }, "params": { "p": "0x1A" }, "want": "/api/m?page=1" },
+    { "placeholder": { "src": ["/api/m"], "query": [["page", "1"]], "start": { "url": "p", "key": "page", "size": 20, "query": [["page", "1"]] } }, "params": { "p": "0" }, "want": "/api/m?page=1" },
+    { "placeholder": { "src": ["/api/m"], "query": [["page", "1"]], "start": { "url": "p", "key": "page", "size": 20, "query": [["page", "1"]] } }, "params": { "p": "-4" }, "want": "/api/m?page=1" },
+    { "placeholder": { "src": ["/api/m"], "query": [["page", "1"]], "start": { "url": "p", "key": "page", "size": 20, "query": [["page", "1"]] } }, "params": { "p": "+-2" }, "want": "/api/m?page=1" },
+    { "placeholder": { "src": ["/api/m"], "query": [["page", "1"]], "start": { "url": "p", "key": "page", "size": 20, "query": [["page", "1"]] } }, "params": { "p": "" }, "want": "/api/m?page=1" },
+    { "placeholder": { "src": ["/api/m"], "query": [["page", "1"]], "start": { "url": "p", "key": "page", "size": 20, "query": [["page", "1"]] } }, "params": {}, "want": "/api/m?page=1" },
+    { "placeholder": { "src": ["/api/m?tag=a%20b"] }, "params": {}, "want": "/api/m?tag=a%20b" },
+    { "placeholder": { "src": ["/api/m?tag=a%20b"], "query": [["limit", "5"]] }, "params": {}, "want": "/api/m?tag=a+b&limit=5" },
+    { "placeholder": { "src": ["/api/feed"], "when": true }, "params": {}, "want": "/api/feed" },
+    { "placeholder": { "src": null }, "params": {}, "want": null },
+    { "placeholder": { "src": ["/api/a/", { "url": "slug" }], "query": [["n", "1"]] }, "params": { "slug": ".." }, "want": null }
+  ],
+  "when": [
+    { "when": { "url": "a" }, "params": {}, "holds": false },
+    { "when": { "url": "a" }, "params": { "a": "" }, "holds": false },
+    { "when": { "url": "a" }, "params": { "a": "0" }, "holds": true },
+    { "when": { "url": "a" }, "params": { "a": "false" }, "holds": true },
+    { "when": { "url": "a", "eq": "x" }, "params": { "a": "x" }, "holds": true },
+    { "when": { "url": "a", "eq": "x" }, "params": { "a": "X" }, "holds": false },
+    { "when": { "url": "a", "eq": "x" }, "params": {}, "holds": false },
+    { "when": { "url": "a", "eq": "" }, "params": { "a": "" }, "holds": true },
+    { "when": { "url": "a", "eq": "" }, "params": {}, "holds": false },
+    { "when": { "url": "a", "ne": "x" }, "params": {}, "holds": true },
+    { "when": { "url": "a", "ne": "x" }, "params": { "a": "x" }, "holds": false },
+    { "when": { "url": "a", "ne": "x" }, "params": { "a": "" }, "holds": true },
+    { "when": { "not": { "url": "a" } }, "params": {}, "holds": true },
+    { "when": { "not": { "url": "a" } }, "params": { "a": "1" }, "holds": false },
+    { "when": { "and": [{ "url": "a" }, { "url": "b", "eq": "1" }] }, "params": { "a": "y", "b": "1" }, "holds": true },
+    { "when": { "and": [{ "url": "a" }, { "url": "b", "eq": "1" }] }, "params": { "a": "y", "b": "2" }, "holds": false },
+    { "when": { "or": [{ "url": "a" }, { "url": "b", "eq": "1" }] }, "params": { "b": "1" }, "holds": true },
+    { "when": { "or": [{ "url": "a" }, { "url": "b", "eq": "1" }] }, "params": { "b": "2" }, "holds": false },
+    { "when": { "or": [{ "not": { "url": "a" } }, { "and": [{ "url": "b" }, { "url": "c", "ne": "z" }] }] }, "params": { "a": "1", "b": "1", "c": "y" }, "holds": true },
+    { "when": { "or": [{ "not": { "url": "a" } }, { "and": [{ "url": "b" }, { "url": "c", "ne": "z" }] }] }, "params": { "a": "1", "b": "1", "c": "z" }, "holds": false },
+    { "when": { "and": [] }, "params": {}, "holds": true },
+    { "when": { "or": [] }, "params": {}, "holds": false }
+  ],
+  "match": [
+    {
+      "rules": [{ "pattern": "/article/:slug" }, { "pattern": "/article/new" }, { "pattern": "/about/" }, { "pattern": "/x.html", "exact": true }],
+      "paths": [["/article/new", 0], ["/article/x", 0], ["/about", 2], ["/about/", 2], ["//about/", 2], ["/About/", null], ["/x.html", 3], ["/x.html/", null], ["/article", null], ["/article/x/y", null]]
+    },
+    {
+      "rules": [
+        { "pattern": "/about.html", "exact": true }, { "pattern": "/support" }, { "pattern": "/article/:slug" }, { "pattern": "/x.html", "exact": true },
+        { "pattern": "/x.html", "exact": true }, { "pattern": "/u/:name/:tab" }, { "pattern": "/u/:name/posts" }, { "pattern": "/" }
+      ],
+      "paths": [["/about.html", 0], ["/about.html/", null], ["/support/", 1], ["/support", 1], ["/article/hello", 2], ["/article/hello/more", null], ["/x.html", 3], ["/u/a/posts", 5], ["/u/a", null], ["/", 7], ["//", 7]]
+    },
+    {
+      "rules": [{ "pattern": "/p/q" }, { "pattern": "/p/:a" }, { "pattern": "/p/x", "exact": true }, { "pattern": "/p/:a/:b" }, { "pattern": "/p/q/r" }],
+      "paths": [["/p/q", 0], ["/p/r", 1], ["/p/x", 1], ["/p/q/r", 3], ["/p", null]]
+    },
+    {
+      "rules": [{ "pattern": "/p/x", "exact": true }, { "pattern": "/p/:a" }, { "pattern": "/p/x" }],
+      "paths": [["/p/x", 0], ["/p/x/", 1], ["/p//x", 1]]
+    }
+  ],
+  "escape": [
+    { "json": "{\"a\":\"</script><b>x\"}", "want": "{\"a\":\"\\u003c/script>\\u003cb>x\"}" },
+    { "json": "<a<<b<", "want": "\\u003ca\\u003c\\u003cb\\u003c" },
+    { "json": "{\"a\":\"<!--é😀\"}", "want": "{\"a\":\"\\u003c!--é😀\"}" },
+    { "json": "{\"a\":1}", "want": "{\"a\":1}" },
+    { "json": "", "want": "" }
+  ]
+}

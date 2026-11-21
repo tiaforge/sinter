@@ -9,6 +9,7 @@
 import { relative, sep } from 'node:path';
 import type { Plugin, ViteDevServer } from 'vite';
 import type { HelperManifest } from './compiler/compile.js';
+import type { Diagnostic } from './compiler/diagnostics.js';
 import { FoldCache, foldVerdicts, setAppAliases, type FoldVerdict } from './fold-check.js';
 
 /** set while sinter loads a helpers module through a Vite server of its own: that server's sinter plugin does nothing */
@@ -120,6 +121,11 @@ async function hook(p: Plugin | null, name: 'buildStart' | 'buildEnd'): Promise<
   const h = p?.[name] as unknown;
   const f = (typeof h == 'function' ? h : (h as { handler?: unknown } | undefined)?.handler) as ((...a: unknown[]) => unknown) | undefined;
   await f?.call({}, {});
+}
+
+/** SN533 for a helpers module that could not be loaded in Node, as `sinter check` and the editor report it; else null */
+export function unloadedDiagnostic(root: string, helpersFile: string | null, h: Pick<NodeHelpers, 'error'>): Diagnostic | null {
+  return h.error && helpersFile ? { severity: 'warning', code: 'SN533', message: unloadedMessage(root, helpersFile, h.error), file: helpersFile, line: 1, col: 1 } : null;
 }
 
 /** SN533's message: the helpers module could not be loaded in Node, so nothing folds */

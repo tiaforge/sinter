@@ -18,6 +18,12 @@ pub(crate) fn matches(pattern: &str, path: &str) -> bool {
     want.len() == segs.len() && want.iter().zip(&segs).all(|(w, s)| w.starts_with(':') || w == s)
 }
 
+/// Whether a rule of the site's URLs is for a path: an `exact` one (a redirect) for exactly its
+/// pattern, any other (a page's path, a rewrite) for a path the pattern [`matches`].
+pub(crate) fn rule_for(pattern: &str, exact: bool, path: &str) -> bool {
+    if exact { pattern == path } else { matches(pattern, path) }
+}
+
 /// A `$url` parameter: one value, or a list for an array parameter (bound to a `<select multiple>`
 /// or a checkbox with a `value`, written as repeated keys: `?tag=a&tag=b`).
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -74,12 +80,25 @@ pub fn url_params(path: &str, query: Option<&str>, patterns: &[String], arrays: 
     if let Some(p) = patterns.iter().find(|p| matches(p, path)) {
         for (w, s) in p.split('/').filter(|s| !s.is_empty()).zip(&segs) {
             if let Some(name) = w.strip_prefix(':') {
-                let v = percent_decode_str(s).decode_utf8().map(|c| c.into_owned()).unwrap_or_else(|_| s.to_string());
-                out.insert(name.to_string(), Param::One(v));
+                out.insert(name.to_string(), Param::One(decode_segment(s)));
             }
         }
     }
     out
+}
+
+/// A path segment as `decodeURIComponent` decodes it, else (a `%` without two hex digits after it, or
+/// escapes that are not UTF-8) as it is: the runtime's `readUrl` keeps such a segment whole.
+fn decode_segment(s: &str) -> String {
+    let b = s.as_bytes();
+    let well_formed = b
+        .iter()
+        .enumerate()
+        .all(|(i, &c)| c != b'%' || (b.get(i + 1).is_some_and(u8::is_ascii_hexdigit) && b.get(i + 2).is_some_and(u8::is_ascii_hexdigit)));
+    if !well_formed {
+        return s.to_string();
+    }
+    percent_decode_str(s).decode_utf8().map(|c| c.into_owned()).unwrap_or_else(|_| s.to_string())
 }
 
 /// One interpolated value, encoded: a whole `.` or `..` is encoded too, so it cannot be a dot segment.
@@ -215,99 +234,40 @@ pub fn to_page(v: Option<&str>) -> u64 {
     }
 }
 
+// The rules themselves run on the cases src/server.ts and packages/sinter-aspnetcore run too (lib.rs, `shared_cases`);
+// these are this crate's own API.
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn lit(s: &str) -> Part {
-        Part::Lit(s.into())
-    }
-    fn var(s: &str) -> Part {
-        Part::Url { url: s.into() }
-    }
-    fn p(kv: &[(&str, &str)]) -> HashMap<String, Param> {
-        kv.iter().map(|(k, v)| (k.to_string(), Param::One(v.to_string()))).collect()
-    }
-    fn one(s: &str) -> Param {
-        Param::One(s.into())
-    }
-
     #[test]
-    fn params_from_query_and_path() {
-        let pats = vec!["/".to_string(), "/article/:slug".to_string()];
-        let u = url_params("/article/a%20b", Some("x=1&x=2&q=a+b&constructor=1"), &pats, &[]);
-        assert_eq!(u["slug"], one("a b"));
-        assert_eq!(u["x"], one("2"));
-        assert_eq!(u["q"], one("a b"));
-        assert!(!u.contains_key("constructor"));
-        // a path segment wins over a query parameter of the same name
-        assert_eq!(url_params("/article/s", Some("slug=q"), &pats, &[])["slug"], one("s"));
-        assert!(url_params("/other/s", None, &pats, &[]).is_empty());
-    }
-
-    #[test]
-    fn array_parameters_are_lists() {
-        let arrays = vec!["tag".to_string(), "f".to_string()];
-        let u = url_params("/", Some("tag=a&q=1&tag=b+c"), &[], &arrays);
-        assert_eq!(u["tag"], Param::List(vec!["a".into(), "b c".into()]));
-        assert_eq!(u["f"], Param::List(vec![]));
+    fn a_param_is_one_value_or_a_list() {
+        let u = url_params("/", Some("tag=a&q=1&tag=b+c"), &[], &["tag".to_string()]);
         assert_eq!(u["q"].as_str(), Some("1"));
         assert_eq!(u["tag"].as_str(), None);
         assert_eq!(u["q"].values(), ["1".to_string()]);
-        // a whole query value: a repeated key; an empty list leaves it out; elsewhere joined with `,`; refused in a path
-        let t = [lit("/api/a?tag="), var("tag"), lit("&f="), var("f"), lit("&n=1")];
-        assert_eq!(expand(&t, &u).unwrap(), "/api/a?tag=a&tag=b%20c&n=1");
-        let t = [lit("/api/a?x=t-"), var("tag")];
-        assert_eq!(expand(&t, &u).unwrap(), "/api/a?x=t-a%2Cb%20c");
-        assert_eq!(expand(&[lit("/api/"), var("tag")], &u), None);
+        assert_eq!(u["tag"].values(), ["a".to_string(), "b c".to_string()]);
     }
 
     #[test]
-    fn expand_as_the_runtime() {
-        let t = [lit("/api/articles?tag="), var("tag"), lit("&limit=10")];
-        assert_eq!(expand(&t, &p(&[("tag", "a&b")])).unwrap(), "/api/articles?tag=a%26b&limit=10");
-        // absent: the parameter and its separator go
-        assert_eq!(expand(&t, &p(&[])).unwrap(), "/api/articles?limit=10");
-        let t = [lit("/api/x?a=1&b="), var("b")];
-        assert_eq!(expand(&t, &p(&[])).unwrap(), "/api/x?a=1");
-        let t = [lit("/api/x?b="), var("b")];
-        assert_eq!(expand(&t, &p(&[])).unwrap(), "/api/x");
-        // path values: encoded, a dot segment refused
-        let t = [lit("/api/articles/"), var("slug"), lit("/comments")];
-        assert_eq!(expand(&t, &p(&[("slug", "é/x")])).unwrap(), "/api/articles/%C3%A9%2Fx/comments");
-        assert_eq!(expand(&t, &p(&[("slug", "..")])), None);
-        assert_eq!(expand(&t, &p(&[])).unwrap(), "/api/articles//comments");
-        assert_eq!(encode_segment("a'b(c)*!~"), "a'b(c)*!~");
-    }
-
-    #[test]
-    fn to_page_as_parse_int() {
-        for (v, n) in [
-            (Some("3"), 3),
-            (Some(" 3x"), 3),
-            (Some("+2"), 2),
-            (Some("0"), 1),
-            (Some("-4"), 1),
-            (Some("abc"), 1),
-            (Some(""), 1),
-            (None, 1),
-            (Some("2.9"), 2),
-        ] {
-            assert_eq!(to_page(v), n, "{v:?}");
+    fn a_segment_decodeuricomponent_refuses_is_kept_whole() {
+        // (not in the shared cases: ASP.NET Core gives sinter-aspnetcore the path already decoded, `%20` included)
+        let pats = vec!["/a/:x".to_string()];
+        for (path, want) in
+            [("/a/a%20%zz", "a%20%zz"), ("/a/b%20%FF", "b%20%FF"), ("/a/a%2", "a%2"), ("/a/%25", "%"), ("/a/a%252Fb", "a%2Fb")]
+        {
+            assert_eq!(url_params(path, None, &pats, &[])["x"], Param::One(want.into()), "{path}");
         }
     }
 
     #[test]
-    fn with_params_as_the_runtime() {
-        let q = |kv: &[(&str, &str)]| kv.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect::<Vec<_>>();
-        // added in order; the query written as a form (a space as `+`)
-        assert_eq!(with_params("/api/m", &q(&[("page", "1"), ("limit", "10")])), "/api/m?page=1&limit=10");
-        assert_eq!(with_params("/api/m?tag=a%20b", &q(&[("limit", "10")])), "/api/m?tag=a+b&limit=10");
-        // a parameter of the same name: replaced where it was, its repeats dropped
-        assert_eq!(with_params("/api/m?limit=5&x=1&limit=6", &q(&[("limit", "10")])), "/api/m?limit=10&x=1");
-        assert_eq!(with_params("/api/m#top", &q(&[("n", "1")])), "/api/m?n=1#top");
-        assert_eq!(with_params("/api/m?x=1", &[]), "/api/m?x=1");
-        // the form's own encoding, as URLSearchParams writes it
-        assert_eq!(with_params("/api/m?q=é*~'()!", &q(&[("n", "1")])), "/api/m?q=%C3%A9*%7E%27%28%29%21&n=1");
+    fn with_no_parameters_the_url_is_as_it_was() {
+        // (no layer sets none: a placeholder without `query` is not given to withParams in src/server.ts)
+        assert_eq!(with_params("/api/m?tag=a%20b", &[]), "/api/m?tag=a%20b");
+    }
+
+    #[test]
+    fn a_page_past_u64_is_the_largest() {
+        assert_eq!(to_page(Some("99999999999999999999999")), u64::MAX);
     }
 }

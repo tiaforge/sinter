@@ -152,10 +152,12 @@ const entries = {
 // Raised on 2026-11-21 to 12.625 KB (12,873 B): the example moved to `inlang()` (docs/proposals/messages.md, step 4), and
 // the messages module carries both ways until `sinter({ messages })` is removed: `install()`, nested ids and an
 // entry's pattern beside `fixed()` (146 B); the page's own message is inlined (`inline()`), with no formatter
+// Lowered on 2026-11-21, when the core gave back what #94's event caches cost and more (59 B): the minimal page with a
+// token to 12 KB (12,263 B), the article to 56.375 KB (57,711 B)
 const BUDGET = {
   'multilingual de/status': 12.625 * 1024, 'multilingual de/status, html': 0.875 * 1024,
-  minimal: 11 * 1024, 'minimal, swaps': 12.875 * 1024, 'realworld article': 56.5 * 1024,
-  'minimal, link': 11.125 * 1024, 'minimal, token': 12.125 * 1024, 'minimal, token, early': 1.875 * 1024, 'realworld early, shared': 3.375 * 1024,
+  minimal: 11 * 1024, 'minimal, swaps': 12.875 * 1024, 'realworld article': 56.375 * 1024,
+  'minimal, link': 11.125 * 1024, 'minimal, token': 12 * 1024, 'minimal, token, early': 1.875 * 1024, 'realworld early, shared': 3.375 * 1024,
 };
 let failed = false;
 const gz = (b) => gzipSync(b, { level: 9 }).length;

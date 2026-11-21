@@ -13,8 +13,8 @@ import { flagsModule } from './core-parts.js';
 import { loadEnv, type Plugin, type ResolvedConfig, type ViteDevServer } from 'vite';
 import { collectionsIn, loadContent, writeNamespaceTypes, writeSnapshot, type LoadedContent } from './content-node.js';
 import { applyStrict, CODES, compile, CONTENT_NS, formatDiagnostic, formatWarning, strictPromotes, suggest, type Code, type CheckUnit, type Diagnostic, type CompileResult, type SourceMap } from './compiler/index.js';
-import { checkOptionsOf, compileOptionsOf, lazyOf, lazyReachOf, project, retiredExport, retiredOptions, staticPages, strictOf, type ProjectOptions } from './project.js';
-import { CHUNK_MARK, chainText, isComponentScript, LAZY, lazyPackage, lineCol, loaderModule, mentions, parseLazyId, reachLazy, rewriteLazy, scanLazy, stubModule } from './lazy-build.js';
+import { buildInput, checkOptionsOf, compileOptionsOf, htmlInputs, lazyOf, lazyReachOf, project, retiredExport, retiredOptions, staticPages, strictOf, type ProjectOptions } from './project.js';
+import { CHUNK_MARK, chainText, isComponentScript, LAZY, lazyPackage, type LazyScan, lineCol, loaderModule, mentions, parseLazyId, reachLazy, rewriteLazy, scanLazy, stubModule } from './lazy-build.js';
 import { moduleKeys } from './i18n-build.js';
 import { HOLD_SCRIPT } from './paint-build.js';
 import { earlyImports, OWN, registration, SHARED_MARKS, sharedKey, sharedMark, stubModule as sharedStub, topLevelAwait } from './shared-build.js';
@@ -457,9 +457,14 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   /** builds: the component scripts that load with lazy packages, logged once each with the chain that made them lazy */
   const loggedScripts = new Set<string>();
   /** the lazy packages a component script reaches (`/src/components/x.ts`); a build logs why it loads with them */
+  const lazyScans = new WeakMap<ReturnType<typeof project>, Map<string, LazyScan | null>>();
   const lazyScript = (module: string): string[] => {
     const file = resolve(root, '.' + module);
-    const r = reachLazy(file, lazyPkgs, root, undefined, undefined, false, proj().libraries);
+    // (the modules' scans kept with the project: a build reads each once for all its component scripts, dev again after a change)
+    const p = proj();
+    let scans = lazyScans.get(p);
+    if (!scans) lazyScans.set(p, (scans = new Map()));
+    const r = reachLazy(file, lazyPkgs, root, scans, undefined, false, p.libraries);
     if (r.length && !dev && !loggedScripts.has(module)) {
       loggedScripts.add(module);
       resolved?.logger.info(`sinter: ${relOf(file)} loads with ${r.map((x) => x.spec).join(', ')}, when its component first renders: ${r.map((x) => chainText(root, x)).join('; ')}`);
@@ -765,10 +770,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   /** the app's HTML entries: the build input, else `index.html`, and every page compiled so far */
   /** the app's source pages: the build input, else `index.html`, and every page compiled so far */
   const sourceEntries = () => {
-    const b = resolved?.build as { rollupOptions?: { input?: unknown }; rolldownOptions?: { input?: unknown } } | undefined;
-    const input = sourceInput ?? b?.rolldownOptions?.input ?? b?.rollupOptions?.input;
-    const list = typeof input === 'string' ? [input] : Array.isArray(input) ? input : input && typeof input === 'object' ? Object.values(input) : [];
-    const files = (list as unknown[]).filter((f): f is string => typeof f === 'string' && f.endsWith('.html')).map((f) => resolve(root, f));
+    const files = htmlInputs(sourceInput ?? buildInput(resolved?.build)).map((f) => resolve(root, f));
     // dev without a build input: every page under the root, as the dev server serves any of them
     if (!files.length && dev) files.push(...htmlPages(root, resolved));
     if (!files.length && existsSync(resolve(root, 'index.html'))) files.push(resolve(root, 'index.html'));
@@ -1416,7 +1418,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       // a sinter app is a multi-page app: every page under the root is an entry, as the dev server serves any
       // of them, unless the config names its own input
       const b = user.build as { rollupOptions?: { input?: unknown }; rolldownOptions?: { input?: unknown }; outDir?: string } | undefined;
-      const own = b?.rolldownOptions?.input ?? b?.rollupOptions?.input;
+      const own = buildInput(b);
       const r = resolve(user.root ?? process.cwd());
       // a component library's own repository: its fixture pages, not its components' files
       const lib = ownLibrary(r);
@@ -1488,7 +1490,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
         lurls = locales.paths || (locales.domains && !dev) ? { ...(locales.paths ? { paths: locales.paths } : {}), ...(locales.domains && !dev ? { domains: locales.domains } : {}) } : null;
         // the build: each page once per language, as `<root>/<locale>/<page>` (resolved and loaded below)
         const b = config.build as { rollupOptions?: { input?: unknown }; rolldownOptions?: { input?: unknown } };
-        sourceInput = b.rolldownOptions?.input ?? b.rollupOptions?.input;
+        sourceInput = buildInput(b);
         if (!dev) {
           const input = entries();
           if (b.rolldownOptions) b.rolldownOptions.input = input;
@@ -1498,7 +1500,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       // `<html data-sn-for>`: one input per entry, before the build starts (its inputs are fixed from here)
       if (!dev) {
         const b = config.build as { rollupOptions?: { input?: unknown }; rolldownOptions?: { input?: unknown } };
-        sourceInput ??= b.rolldownOptions?.input ?? b.rollupOptions?.input;
+        sourceInput ??= buildInput(b);
         pageInputs = pagesInputs();
         if (pageInputs) {
           const input = Object.fromEntries(pageInputs.map((f) => [relOf(f).replace(/\.html$/, ''), f]));

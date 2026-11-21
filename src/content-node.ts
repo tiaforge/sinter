@@ -299,6 +299,17 @@ export function snapshotLanguages(root: string): Languages | null {
   } catch { return null; }
 }
 
+/**
+ * What a compile that runs no loaders (`sinter check`, the editor) takes from the build's snapshot: the collections, the
+ * content namespaces' ids (the helpers with them) and the content module, for its types. `snap`: the snapshot read.
+ */
+export function snapshotOptions<H extends { namespaces: Record<string, { module: string; members: string[] }> }>(root: string, contentFile: string | null, helpers: H) {
+  if (!contentFile) return { snap: null, helpers, content: {} };
+  const snap = readSnapshot(root, contentFile);
+  const ns = snap ? snapshotNamespaces(root, helpers) : { helpers };
+  return { snap, helpers: ns.helpers, content: { contentModule: contentFile, ...(snap ? { collections: snap.collections } : {}), ...(ns.contentNs ? { contentNs: ns.contentNs } : {}) } };
+}
+
 /** The last snapshot, and whether the content module changed since (`stale`), or null when there is none. */
 export function readSnapshot(root: string, file: string): { collections: Collections; stale: boolean } | null {
   try {
