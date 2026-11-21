@@ -33,7 +33,7 @@ import { type SwapPage, swapModule } from './swap-build.js';
 import { pageRoutes, rebaseHtml, redirectHtml, redirectsFile, relocateHtml, type PageEntry, type Route } from './page-urls.js';
 import { readLocales } from './locales-build.js';
 import { chooserHtml, hreflangTags, manifestLocales, prefixPaths, type Locales } from './locales.js';
-import { entryChooserPath, listPoints, pointPrefix, translationKey, type AxisValue, type Point, type Points, type Variant } from './points.js';
+import { entryChooserPath, listPoints, pointFolder, pointOrigin, pointPrefix, translationKey, type AxisValue, type Point, type Points, type Variant } from './points.js';
 import { canonicalOf, fillPattern, noindex, sitemapFiles, sitemapOf, type SitemapOptions, type SitemapUrl } from './sitemap-build.js';
 import { familyLineHeights, familyZeroWidths } from './font-metrics.js';
 import { faceName, faceOf, fontDownloader, fontFileDownloader, bundleFonts, preloadFonts, preloadLocalFonts, usesFamily, type FontFaceRef, type FontPreload } from './fonts-build.js';
@@ -462,13 +462,16 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     if (!/^https?:$/.test(u.protocol) || u.pathname !== '/' || u.search || u.hash) throw new Error(`sinter({ site }): \`${options.site}\` is not an origin; write it without a path (a site served under a path sets Vite's \`base\`), e.g. '${u.origin}'`);
     return u.origin;
   })();
+  const siteOriginOf = () => siteOrigin;
   /** `sitemap`, checked */
   const sitemapOptions = sitemapOf(options.sitemap, siteOrigin);
   /** the page's `$site`, `$canonical` (null for a page whose paths all have parameters) and origin */
   const urlsOf = (rel: string, patterns: string[]) => {
     const b = resolved?.base?.startsWith('/') ? resolved.base : '/';
-    const url = pageUrl(rel, b, patterns);
-    return { site: siteOrigin! + b.replace(/\/$/, ''), canonical: url === null ? null : siteOrigin! + url, origin: siteOrigin! };
+    // a page on its own domain: that origin's URLs, without its folder
+    const g = groupOf(rel), site = g?.origin ?? siteOrigin!;
+    const url = pageUrl(g ? urlRel(rel) : rel, b, patterns);
+    return { site: site + b.replace(/\/$/, ''), canonical: url === null ? null : site + url, origin: site };
   };
   /** a page's `data-sn-path` patterns, from its description */
   const out0Path = (file: string) => describe(file).path;
@@ -743,6 +746,17 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     virtual.set(v, { source: pt.source, locale: (pt.locale ?? undefined) as unknown as string, ...(pt.entry ? { page: pt.entry } : {}), ...(pt.axes.length ? { axes: pt.axes } : {}) });
     return v;
   };
+  /** the origin a page (by its output path) is served from, when one of its axes' values has one (`pointOrigin`) */
+  const groupOf = (rel: string): { folder: string; origin: string } | null => {
+    const v = virtual.get(resolve(root, rel));
+    return v?.axes ? pointOrigin(v.axes) : null;
+  };
+  /** a page's path as its origin serves it: without its origin's folder */
+  const urlRel = (rel: string) => { const g = groupOf(rel); return g ? rel.slice(g.folder.length + 1) : rel; };
+  /** every origin's folder, from the points */
+  const groups = () => new Set([...virtual.values()].flatMap((v) => (v.axes ? [pointOrigin(v.axes)?.folder].filter((x): x is string => !!x) : [])));
+  /** the pages that link and are listed together: one origin's, or those of the site's own */
+  const sameGroup = (a: string, b: string) => groupOf(a)?.folder === groupOf(b)?.folder;
   /**
    * a source's variants (points.ts): every combination of its axes' values, outer first (an inner list may read an outer
    * item: `file:/content/{tenant.key}/…`), each with its own entries (`withEntries`, a build's) or none; null for a
@@ -755,7 +769,13 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     const walk = (vals: AxisValue[]) => {
       const here = vals.length ? templateOf(f, l ?? undefined, vals) : t;
       if (vals.length === t.axes!.length) { out.push({ axes: vals, entries: withEntries && here?.pages ? here.pages.entries : null }); return; }
-      for (const e of here?.axes?.[vals.length]?.entries ?? []) walk([...vals, { value: e.value, key: e.key, segment: e.key }]);
+      for (const e of here?.axes?.[vals.length]?.entries ?? []) {
+        // an entry with an `origin` (`https://acme-shop.com`): its pages on that domain, written under its key's folder
+        // (a build's; dev serves it under its key, as a segment)
+        const o = (e.value as { origin?: unknown } | null)?.origin;
+        const origin = !dev && typeof o === 'string' && /^https?:\/\/[^/]+\/?$/.test(o) ? o.replace(/\/$/, '') : null;
+        walk([...vals, { value: e.value, key: e.key, segment: origin ? null : e.key, ...(origin ? { folder: e.key, origin } : {}) }]);
+      }
     };
     walk([]);
     return out;
@@ -896,16 +916,21 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       const d = describe(file);
       // `<html data-sn-prefetch="off">`: neither described nor in the rules
       if (d.off) continue;
-      out.push({ paths: pagePaths(relOf(file), resolved?.base ?? '/', d.path), parts: d.parts, swaps: !!options.swap && !d.swapOff, file, effect: d.effect });
+      out.push({ paths: pagePaths(urlRel(relOf(file)), resolved?.base ?? '/', d.path), parts: d.parts, swaps: !!options.swap && !d.swapOff, file, effect: d.effect });
     }
     return (pagesCache = out);
   };
+  /** the pages one page's lists name (next-page data, swaps): its origin's, or the site's own (`group`: an origin's folder) */
+  const inGroup = (file: string, group: string | undefined) => groupOf(relOf(file))?.folder === group;
+  /** the module of a group's next-page data and its swap list: one per origin, as two origins' pages share paths */
+  const prefetchId = (group?: string) => (group ? `${PREFIX}prefetch-${group}.js` : PREFETCH);
+  const swapId = (group?: string) => (group ? `${PREFIX}swap-${group}.js` : SWAP);
   /** with swaps on: the pages that swap and the names each keeps (swap-build.ts); a page with `data-sn-swap="off"` is not one */
-  const swapPages = (): SwapPage[] => entries().flatMap((file) => {
+  const swapPages = (group?: string): SwapPage[] => entries().filter((file) => inGroup(file, group)).flatMap((file) => {
     const d = describe(file);
-    return d.swapOff ? [] : [{ m: pagePaths(relOf(file), resolved?.base ?? '/', d.path), k: d.keep }];
+    return d.swapOff ? [] : [{ m: pagePaths(urlRel(relOf(file)), resolved?.base ?? '/', d.path), k: d.keep }];
   });
-  const prefetchPages = () => appPages().filter((x): x is { paths: string[]; parts: PrefetchParts; swaps: boolean; file: string; effect: string | null } => !!x.parts);
+  const prefetchPages = (group?: string) => appPages().filter((x): x is { paths: string[]; parts: PrefetchParts; swaps: boolean; file: string; effect: string | null } => !!x.parts && inGroup(x.file, group));
   /** how the Speculation Rules are delivered, or null for none */
   const spec = () => {
     // inline by default: it works with no server setup (a CSP in the page gets the rules' hash, see withRulesHash)
@@ -1110,7 +1135,8 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     for (const d of p.diagnostics) if (d.severity === 'warning' && !warnedOptions.has(d.message)) { warnedOptions.add(d.message); resolved?.logger.warn(formatDiagnostic(d)); }
     // a page not seen before may be a new one (dev); a build's pages per entry are all known from the start
     if (!seen.has(file)) { seen.add(file); if (dev || !pageInputs) pagesCache = null; }
-    const prefetch = prefetchData && prefetchPages().length ? PREFETCH : null;
+    const group = groupOf(rel)?.folder;
+    const prefetch = prefetchData && prefetchPages(group).length ? prefetchId(group) : null;
     const out = compile(html, {
       file: src, root, dev, sourcemap: dev || !!resolved?.build.sourcemap, helpers: p.helpers, actions: p.actions, moduleSrc: `${PREFIX}${rel}.js`, config: p.config, readFile: readVia(p), listFiles: p.listFiles, ...(dev ? {} : { globCache, templates, ...(process.env.SN_NO_LINK ? {} : { definitions }) }), ...contentOpts(v?.locale), prefetch,
       ...(page ? { page } : {}), ...(v?.axes ? { axes: v.axes } : {}),
@@ -1138,9 +1164,9 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       ...(options.embed && !dev ? { embed: true } : {}),
       componentCss: (name) => `${COMPONENT_CSS}${name}.css`,
       ...(p.isStatic(src) ? { static: true } : {}),
-      ...(p.swap ? { swap: true, swapList: SWAP } : {}),
+      ...(p.swap ? { swap: true, swapList: swapId(group) } : {}),
       ...(resolved?.base?.startsWith('/') ? { base: resolved.base } : {}),
-      ...(siteOrigin ? { urls: urlsOf(rel, out0Path(file)) } : {}),
+      ...(siteOrigin || groupOf(rel) ? { urls: urlsOf(rel, out0Path(file)) } : {}),
     });
     // with swaps on, a kept element that binds is one markup on every page that keeps it: the next page's code
     // takes over the element the swap keeps (docs/proposals/swap-navigation.md §3)
@@ -1548,7 +1574,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
 
     resolveId(id, importer) {
       // a page in a language: no file of its own (load gives its source's HTML)
-      if ((locales || pageInputs) && id.endsWith('.html')) { const abs = resolve(root, id.replace(/^\//, '')); if (virtual.has(id) || virtual.has(abs)) return virtual.has(id) ? id : abs; }
+      if ((locales || pageInputs || virtual.size) && id.endsWith('.html')) { const abs = resolve(root, id.replace(/^\//, '')); if (virtual.has(id) || virtual.has(abs)) return virtual.has(id) ? id : abs; }
       // a component's script imports its generated base from its own HTML file
       if (importer && id.endsWith('.html') && !importer.endsWith('.html')) {
         const file = resolve(dirname(importer.replace(/[?#].*$/, '')), id);
@@ -1606,6 +1632,9 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       if (id === `\0${PREFIX}warn-relay.js`) return WARN_RELAY;
       if (id === `\0${PREFETCH}`) return prefetchModule(prefetchPages(), proj().helpers);
       if (id === `\0${SWAP}`) return swapModule(swapPages());
+      // an origin's own (`prefetch-acme.js`, `swap-acme.js`)
+      const og = id.startsWith(`\0${PREFIX}`) ? /^(prefetch|swap)-([\w-]+)\.js$/.exec(id.slice(1 + PREFIX.length)) : null;
+      if (og && groups().has(og[2]!)) return og[1] === 'prefetch' ? prefetchModule(prefetchPages(og[2]), proj().helpers) : swapModule(swapPages(og[2]));
       const key = id.startsWith('\0' + PREFIX) ? id.slice(1) : !dev && maps.has(id) ? id : null;
       if (key === null) return null;
       const code = modules.get(key);
@@ -2196,7 +2225,8 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
    */
   const siteRoutes = (): Array<Route & { choose?: true }> => {
     const b = base();
-    const pages = pageRoutes(pageEntries(), b);
+    // the site's own pages: an origin's are served by the proxy that maps its domain to its folder
+    const pages = pageRoutes(pageEntries().filter((x) => !groupOf(x.rel)), b);
     if (!locales) return pages;
     const choosers = pageRoutes(sourceEntries().map((f) => ({ rel: relOf(f), patterns: describeSource(f).path })), b).map((r) => ({ ...r, status: 200 as const, file: r.file ?? r.from.slice((b.startsWith('/') ? b.replace(/\/?$/, '/') : '/').length), choose: true as const }));
     const dynamic = (r: Route) => /[:*]/.test(r.from);
@@ -2215,10 +2245,11 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   /** a source page's language chooser (under its axes' segments): its languages' URLs, the base language's when nothing else decides */
   const chooserFor = (source: string, script: boolean, axes: AxisValue[] = []) => {
     const b = base().startsWith('/') ? base().replace(/\/?$/, '/') : '/', urls = localeUrls(source, axes);
+    const site = pointOrigin(axes)?.origin ?? siteOrigin;
     return chooserHtml({
       base: b, locales: locales!, urls, script,
       fallback: urls ? urls[locales!.base]! : b + locales!.base + '/',
-      hreflang: siteOrigin && urls ? hreflangTags(siteOrigin, urls, chooserUrl(source, axes)) : '',
+      hreflang: site && urls ? hreflangTags(site, urls, chooserUrl(source, axes)) : '',
     });
   };
   /**
@@ -2240,8 +2271,9 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       const urls = entryUrls(v)!, at = entryChooser(v)!;
       const fallback = urls[locales!.base] ?? Object.values(urls)[0]!;
       const full = Object.fromEntries(locales!.list.map((l) => [l, urls[l] ?? fallback]));
-      const fileName = decodeURIComponent(at.startsWith(b) ? at.slice(b.length) : at.replace(/^\//, '')) + '.html';
-      out.push({ fileName, source: chooserHtml({ base: b, locales: locales!, urls: full, script, fallback, hreflang: siteOrigin ? hreflangTags(siteOrigin, urls, at) : '' }), ifFree: true });
+      const og = pointOrigin(v.axes ?? []), site = og?.origin ?? siteOrigin;
+      const fileName = (og ? `${og.folder}/` : '') + decodeURIComponent(at.startsWith(b) ? at.slice(b.length) : at.replace(/^\//, '')) + '.html';
+      out.push({ fileName, source: chooserHtml({ base: b, locales: locales!, urls: full, script, fallback, hreflang: site ? hreflangTags(site, urls, at) : '' }), ifFree: true });
     }
     // each other source page, at each variant of its axes (the base language's points list them)
     const variants = new Map<string, AxisValue[][]>();
@@ -2253,8 +2285,10 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       if (templates.has(src)) continue;
       const rel = relOf(src);
       for (const axes of variants.get(src) ?? [[]]) {
-        const at = pointPrefix(null, axes), file = chooserFile(rel, axes), own = at ? `${at}/${rel}` : rel;
-        if (/(^|\/)(404|200)\.html?$/.test(rel)) { out.push({ fileName: own, copyOf: `${pointPrefix(locales!.base, axes)}/${rel}` }); continue; }
+        // under the point's folder without its language: an origin's folder first (`acme/about/index.html`, its `/about/`)
+        const og = pointOrigin(axes), under = (f: string) => (og ? `${og.folder}/${f}` : f);
+        const at = pointPrefix(null, axes), file = under(chooserFile(rel, axes)), own = under(at ? `${at}/${rel}` : rel);
+        if (/(^|\/)(404|200)\.html?$/.test(rel)) { out.push({ fileName: own, copyOf: `${pointFolder(locales!.base, axes)}/${rel}` }); continue; }
         out.push({ fileName: file, source: chooserFor(src, script, axes) });
         if (file !== own) out.push({ fileName: own, source: chooserFor(src, script, axes) });
       }
@@ -2272,7 +2306,8 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   const devPages = (req: { url?: string; originalUrl?: string }, res: { statusCode: number; setHeader(k: string, v: string): void; end(s?: string): void }, next: (e?: unknown) => void) => {
     const [path, query = ''] = (req.url ?? '/').split(/\?(.*)/s, 2) as [string, string?];
     const q = query ? `?${query}` : '';
-    if (locales) return devLocales(path, q, req, res, next);
+    // a page in a language, or at an axis's value (`/acme/about/`): its point
+    if (locales || entries().some((f) => virtual.get(f)?.axes)) return devLocales(path, q, req, res, next);
     const file = movedPage(path);
     // `/login/` for login.html (a page that stays in its file): to `/login`, as hosts do
     if (!file && path.length > 1 && path.endsWith('/') && base().startsWith('/') && path.startsWith(base()) && !existsSync(join(root, path.slice(base().length), 'index.html')) && existsSync(join(root, `${path.slice(base().length, -1)}.html`))) {
@@ -2334,7 +2369,10 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
    * a pattern's URLs from `sitemap.paths`. 404.html, 200.html, `noindex` pages, pages whose canonical link names
    * another URL and patterns without values are left out, and the build's line names them.
    */
-  const sitemap = async (fail: (m: string) => never, all: PageEntry[], built: Map<string, string>): Promise<Array<{ fileName: string; source: string }>> => {
+  const sitemap = async (fail: (m: string) => never, all: PageEntry[], built: Map<string, string>, g: { folder: string; origin: string } | null = null): Promise<Array<{ fileName: string; source: string }>> => {
+    // one per origin: its own pages, at its URLs, at its folder's root
+    const siteOrigin = g?.origin ?? siteOriginOf();
+    const served = (rel: string) => (g ? rel.slice(g.folder.length + 1) : rel);
     if (!siteOrigin || sitemapOptions === false) return [];
     const info = (m: string) => resolved?.logger.info(`sinter: ${m}`);
     if (relativeBase(base())) { info('no sitemap.xml with a relative base: the build does not know the URLs the site is served at'); return []; }
@@ -2376,7 +2414,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       });
       const fixed: Array<{ locale: string | null; loc: string }> = [];
       for (const x of pages) {
-        const url = pageUrl(x.page.rel, base(), x.page.patterns);
+        const url = pageUrl(served(x.page.rel), base(), x.page.patterns);
         if (url === null) continue;
         const loc = siteOrigin + url, canonical = canonicalOf(x.html);
         if (canonical !== null && canonical !== loc) { left.push(`${x.page.rel} (its canonical link names ${canonical})`); continue; }
@@ -2394,7 +2432,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
         if (has) used.add(pattern);
         if (!pages.length) continue;
         // a page with a fixed URL too: its canonical link names that URL at every path it answers at
-        const fixedUrl = pageUrl(pages[0]!.page.rel, base(), pages[0]!.page.patterns);
+        const fixedUrl = pageUrl(served(pages[0]!.page.rel), base(), pages[0]!.page.patterns);
         if (fixedUrl !== null) { left.push(`${src} ${pattern} (its canonical link names ${siteOrigin + fixedUrl})`); continue; }
         const own = pages.map((x) => canonicalOf(x.html)).find((c) => c !== null);
         if (own) { left.push(`${src} ${pattern} (its canonical link names ${own})`); continue; }
@@ -2408,8 +2446,8 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     }
     const unknown = Object.keys(given).filter((k) => !used.has(k));
     if (unknown.length) fail(`sinter({ sitemap: { paths } }): no page has the pattern \`${unknown[0]}\`; ${known.size ? `the patterns with parameters are ${[...known].map((p) => `\`${p}\``).join(', ')}` : 'no page has a pattern with parameters'}`);
-    const files = sitemapFiles(urls, siteOrigin + b);
-    info(`sitemap.xml: ${urls.length} URL${urls.length === 1 ? '' : 's'}${files.length > 1 ? ` in ${files.length - 1} files` : ''}${left.length ? `; left out: ${left.slice(0, 10).join(', ')}${left.length > 10 ? `, and ${left.length - 10} more` : ''}` : ''}`);
+    const files = sitemapFiles(urls, siteOrigin + b).map((f) => (g ? { ...f, fileName: `${g.folder}/${f.fileName}` } : f));
+    info(`${g ? `${g.folder}/` : ''}sitemap.xml: ${urls.length} URL${urls.length === 1 ? '' : 's'}${files.length > 1 ? ` in ${files.length - 1} files` : ''}${left.length ? `; left out: ${left.slice(0, 10).join(', ')}${left.length > 10 ? `, and ${left.length - 10} more` : ''}` : ''}`);
     return files;
   };
   const pages: Plugin = {
@@ -2451,18 +2489,28 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     async generateBundle(_, bundle) {
       if (dev) return;
       const all = pageEntries(), by = new Map<string, string>(), built = new Map<string, string>();
+      // a page on its own domain is written under its origin's folder, at its URL there; the pages it links to are its origin's
+      const asServed = (x: PageEntry): PageEntry => ({ rel: urlRel(x.rel), patterns: x.patterns });
+      const linked = new Map<string, PageEntry[]>();
+      const linkedOf = (rel: string) => {
+        const k = groupOf(rel)?.folder ?? '';
+        if (!linked.has(k)) linked.set(k, all.filter((x) => sameGroup(x.rel, rel)).map(asServed));
+        return linked.get(k)!;
+      };
       for (const page of all) {
-        const to = pageFile(page.rel, base(), page.patterns), a = bundle[page.rel];
+        const g = groupOf(page.rel), served = g ? asServed(page) : page;
+        const to = (g ? `${g.folder}/` : '') + pageFile(served.rel, base(), page.patterns), a = bundle[page.rel];
         if (a?.type !== 'asset') continue;
         let html = typeof a.source === 'string' ? a.source : Buffer.from(a.source).toString('utf8');
         // a page in a language with a URL: its other languages' URLs, and its chooser's, for search engines
-        const v = virtual.get(resolve(root, page.rel)), urls = v?.locale && siteOrigin ? (v.page ? entryUrls(v) : localeUrls(v.source, v.axes)) : null;
-        if (v && urls) html = html.replace('</head>', `  ${hreflangTags(siteOrigin!, urls, v.page ? entryChooser(v)! : chooserUrl(v.source, v.axes))}\n</head>`);
+        const site = g?.origin ?? siteOrigin;
+        const v = virtual.get(resolve(root, page.rel)), urls = v?.locale && site ? (v.page ? entryUrls(v) : localeUrls(v.source, v.axes)) : null;
+        if (v && urls) html = html.replace('</head>', `  ${hreflangTags(site!, urls, v.page ? entryChooser(v)! : chooserUrl(v.source, v.axes))}\n</head>`);
         // links stay in the page's point: its language and its axes' values (`/cart/` on acme's German page is theirs)
-        const source = relocateHtml(html, page, all, base(), locales?.list, v ? pointPrefix(v.locale ?? null, v.axes ?? []) || null : undefined);
+        const source = relocateHtml(html, served, g ? linkedOf(page.rel) : all, base(), locales?.list, v ? pointPrefix(v.locale ?? null, v.axes ?? []) || null : undefined);
         built.set(page.rel, source);
         if (to === page.rel) { a.source = source; continue; }
-        if (bundle[to]) this.error(`sinter: ${page.rel} is written as ${to}, its URL ${pageUrl(page.rel, base(), page.patterns)}, and ${by.get(to) ?? to} is there too: rename one of them`);
+        if (bundle[to]) this.error(`sinter: ${page.rel} is written as ${to}, its URL ${pageUrl(served.rel, base(), page.patterns)}, and ${by.get(to) ?? to} is there too: rename one of them`);
         by.set(to, page.rel);
         delete bundle[page.rel];
         this.emitFile({ type: 'asset', fileName: to, source });
@@ -2475,7 +2523,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
           }
         }
         // the old URL still arrives: a redirect to the page's URL (relative under a relative base)
-        const url = relativeBase(base()) ? `./${posix.basename(to, '/index.html')}/` : pageUrl(page.rel, base(), page.patterns)!;
+        const url = relativeBase(base()) ? `./${posix.basename(to, '/index.html')}/` : pageUrl(served.rel, base(), page.patterns)!;
         this.emitFile({ type: 'asset', fileName: page.rel, source: redirectHtml(url) });
       }
       // languages: at each source page's unprefixed URL, a chooser (404.html and 200.html: the base language's page,
@@ -2490,7 +2538,11 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
         }
       }
       brokenEntryLinks((m) => this.error(m), built);
-      for (const f of await sitemap((m) => this.error(m), all, built)) this.emitFile({ type: 'asset', ...f });
+      for (const f of await sitemap((m) => this.error(m), all.filter((x) => !groupOf(x.rel)), built)) this.emitFile({ type: 'asset', ...f });
+      for (const folder of groups()) {
+        const own = all.filter((x) => groupOf(x.rel)?.folder === folder);
+        for (const f of await sitemap((m) => this.error(m), own, built, groupOf(own[0]!.rel))) this.emitFile({ type: 'asset', ...f });
+      }
       // _redirects: the same rules for hosts that read them (Netlify, Cloudflare Pages), after the app's own
       if (options.redirects === false) return;
       if (relativeBase(base())) { resolved?.logger.info('sinter: no _redirects with a relative base: the build does not know the paths the site is served at'); return; }

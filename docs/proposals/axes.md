@@ -429,9 +429,13 @@ Each step ships on its own.
    folder's pages first, then the folders around it), `hreflang`, choosers and the dev server per variant
    (`test/vite/axes.test.ts`). *6.3 done the same day:* `collection({ per: [tenants, locales] })`, loaded once per
    combination of its lists' entries (`ctx.value(tenants)`, `ctx.locale` for a `languages()` list), each page reading
-   its point's (the snapshot holds the first point's, for `sinter check`). Next: origins (6.2: the shared prefetch and
-   swap lists and the routing tables have to be per origin, since two tenants' pages share paths), the link rules
-   of §5 beyond the point's own pages, `axisUrl()`, and the special files per point.
+   its point's (the snapshot holds the first point's, for `sinter check`). *6.2 done the same day:* an entry's `origin`
+   gives its pages a folder (`pointFolder`, outermost) and that domain's URLs: links resolve among its own pages,
+   canonical and `hreflang` name the origin, the next-page data and swap lists are per origin
+   (`prefetch-<key>.js`), a sitemap and choosers per origin; the root `_redirects` leave its pages out
+   (`test/vite/origins.test.ts`). Also fixed: the sitemap's alternates pair a page's languages at its own axes'
+   values. Next: absolute links across origins and from shared pages (§5's derived links and the build error),
+   `axisUrl()`, the special files per point (404 per origin), and the server layers' host map (§10).
 7. **Fallback chains** (§6): `chain`, the new direction in `choose`, the shared test cases in the three server
    layers, the manifest's `fallbacks`, chains of other axes, `fallback: true` for content.
 8. **Language segments and domains** (§4 "URL segments", §3 `domains`): `paths`, `codes`, and languages on

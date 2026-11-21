@@ -308,8 +308,25 @@ dist/globex/index.html        /globex/
   `languages()` collection too (`per: [tenants, locales]`: `ctx.locale` is the language), and a page reads its
   language's. The page's axis list must come before such a resource in the merged document (the layout's list before
   its slot).
-- Not yet ([docs/proposals/axes.md](proposals/axes.md), step 6): a tenant on its own domain (`origin`), and a build
-  error for a link from a page outside the axis to a page only an axis has.
+- **A tenant on its own domain**: an entry with an `origin` (`{ key: 'acme', origin: 'https://acme-shop.com' }`) is
+  written under its key's folder, `dist/acme/` (its languages inside, `dist/acme/de/about/index.html`), and every URL
+  in its pages is that domain's: links (`/de/about/`), the canonical link and `hreflang` (`https://acme-shop.com/…`),
+  its next-page data and swaps (its own pages only), a sitemap of its own (`dist/acme/sitemap.xml`) and the language
+  chooser at its root. The reverse proxy maps the domain to the folder; the shared files stay at the root:
+
+  ```nginx
+  server {
+    server_name acme-shop.com;
+    root /srv/site/dist;
+    location /assets/ { }
+    location / { try_files /acme$uri /acme$uri/index.html /acme$uri.html =404; }
+  }
+  ```
+
+  The site's `_redirects` leave such a tenant's pages out (a host that reads them serves one domain). In dev, a tenant
+  with an origin is served under its key, as a segment (`/acme/de/about/`).
+- Not yet ([docs/proposals/axes.md](proposals/axes.md), step 6): absolute links between origins, the server layers'
+  host map, and a build error for a link from a page outside the axis to a page only an axis has.
 
 ### Redirects and rewrites
 
