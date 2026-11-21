@@ -144,7 +144,8 @@ const entries = {
 // when templates several shared definitions write alike were kept once (1,039 B: md-doc's loop over a node's children,
 // written in 20 of its components); to 56.5 KB (57,767 B) on 2026-11-21, when a build's last pass over the page's
 // tables took out the templates nothing renders, each template's id and the functions nothing calls (466 B); to
-// 56.625 KB (57,887 B) the same day, with #92's fixes (alias writes, swaps, the first paint: 97 B)
+// 56.625 KB (57,887 B) the same day, with #92's fixes (alias writes, swaps, the first paint: 97 B); to 56.5 KB (57,784 B) the
+// same day, when the runtime's duplicated helpers were kept once (80 B: the dotted-path read, a page-load entry's write, `env.replace`)
 // Added on 2026-11-21 (docs/proposals/axes.md, step 0): a page in two languages, the multilingual example's German status
 // page: the scripts it loads (12,740 B: its page module and the runtime) and its HTML (813 B), so the axes work shows
 // what it changes for a language's page
@@ -153,7 +154,7 @@ const entries = {
 // entry's pattern beside `fixed()` (146 B); the page's own message is inlined (`inline()`), with no formatter
 const BUDGET = {
   'multilingual de/status': 12.625 * 1024, 'multilingual de/status, html': 0.875 * 1024,
-  minimal: 11 * 1024, 'minimal, swaps': 12.875 * 1024, 'realworld article': 56.625 * 1024,
+  minimal: 11 * 1024, 'minimal, swaps': 12.875 * 1024, 'realworld article': 56.5 * 1024,
   'minimal, link': 11.125 * 1024, 'minimal, token': 12.125 * 1024, 'minimal, token, early': 1.875 * 1024, 'realworld early, shared': 3.375 * 1024,
 };
 let failed = false;
