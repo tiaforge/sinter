@@ -1554,22 +1554,38 @@ To discuss after this lands:
   guess. It costs one more attribute and an update of the markdown package's placements. Making it
   the inner component's own `Slot<T>` instead would mean forwarding at every level, which tree slots
   exist to avoid. Raised by an external review of PR #51.
-- **Writes through an alias** (`sel = ys[1]; sel.n = 50`) leave what reads the original path stale:
-  the compiled write list has `sel.n` only. That is `main`'s behaviour too. Compile-time alias tracking
-  (a write through either name also marks the other, with a conservative mark for aliases the compiler
-  cannot trace) was built and tested during PR #51's review and is kept on the branch
-  `parked/cached-lets-and-aliases` (commit 261cec7), for a PR of its own. The reactivity fuzz turns
-  its alias writes on with `SN_FUZZ_ALIAS=1`; with the tracking they come on by default.
+- **Writes through an alias** (`sel = ys[1]; sel.n = 50`) left what reads the original path stale:
+  the compiled write list had `sel.n` only. Resolved: compile-time alias tracking (a write through
+  either name also marks the other, with a conservative mark for aliases the compiler cannot trace),
+  built and tested during PR #51's review on `parked/cached-lets-and-aliases` (commit 261cec7), was
+  ported on its own, without the cached lets (docs/spec.md, Aliases). The reactivity fuzz writes
+  through aliases by default.
 - **Automatic caching of lets over helpers** was built, hardened over five review rounds and taken
   out (step 10, as built). It stays on the same parked branch with its fuzz and tests, in case a
   measured need (helpers over state lists, such as a dashboard's totals) brings it back.
 - **A text slot inside an element of a choice's case** (`<span><template data-sn-text>…</template></span>`
   in a `<sn-component use>` case) is not written by the early script, only at takeover, so the first
-  paint lacks it. Found by the size re-check of PR #51; it predates that change.
-- **A keyless resource upserted as a list.** Without `key`, a resource is one object, so
-  `upsert('comments', c)` replaces the whole list. Nothing warns. A dev warning when a keyless
-  resource whose value is an array is upserted or patched, or a check for a keyless resource typed
-  as an array (`type="Comment[]"`), would catch it. Found in the markdown recipe during PR #51.
+  paint lacks it. Found by the size re-check of PR #51; it predates that change. **Fixed** (unreleased):
+  not the choice but the clone. A text with no element before it is marked by an empty comment, and
+  the early script, which renders each root as the parser closes it, read any comment as an anchor
+  and waited for an end it never finds inside an element; nothing wrote the text later. Rows and
+  `data-sn-if` branches had it too. A comment that is no anchor's start is now ready at once (a clone
+  is whole when it is inserted). The testing module's first paint runs the early script that way,
+  over the page inserted again node by node, and the component fuzz checks the first paint over
+  embedded data itself, before the takeover (`c-span`, a case with this shape). That check found two
+  more first-paint gaps, fixed with it: a text right after an element showing the same expression was
+  skipped as already written, and a `data-sn-href` query whose values may drop their parameter had no
+  `href` early (the early file did not import `$hq`). A list's empty state over an embedded resource
+  (through a prop or `$slot`) still waits for the page module, as that resource's status is not early.
+- **A keyless resource upserted as a list** (found in the markdown recipe during PR #51; decided
+  2026-11-21: both checks). Without `key`, a resource is one object, so `upsert(comments, c)` replaces
+  the whole list; nothing warned (`SN517` covered only an OpenAPI list at its declaration). Now the
+  warning `SN542` (`unkeyed-list-write`) is reported where `upsert`, `merge` or `remove` (a handler, an
+  action's `then`, an `<sn-event op>` in a `<sn-sync>`) targets a keyless resource typed as a list: a
+  `type` that ends in `[]` or is `Array<…>`, or an OpenAPI response that is a list. A named alias of an
+  array type is not seen by the compiler. Dev builds also warn (runtime warning 33) when an `upsert` of
+  one item or a `merge` reaches a keyless resource whose value is an array, typed or not; the check is
+  in the dev module, so production builds carry none of it.
 
 ## Decisions
 

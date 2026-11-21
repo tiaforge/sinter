@@ -5,7 +5,7 @@
 // origin, `download`, a `target`, `rel="external"`, a modifier key, a prevented default, or a
 // parameter the page does not read. Loaded only by pages with a link the build sees goes to the page
 // (its list of read parameters is `IR.urlReads`).
-import { RANK, chain, links } from './links.js';
+import { RANK, ask, chain, links } from './links.js';
 import type { App, Feature } from './runtime/app.js';
 import { readUrl } from './runtime/url.js';
 
@@ -58,10 +58,11 @@ const feature: Feature = {
     const take = (e: Event & { intercept(o: object): void; preventDefault(): void }, to: URL, replace: boolean): boolean | void => {
       const typing = app.ext.typing;
       // what typing waits to commit goes into its own entry first, which a history call inside this event
-      // would abort: this one is cancelled, typing commits, and the link is followed again
+      // would abort: this one is cancelled, typing commits, and the link is followed again (its guards were asked)
       if (typing?.waits()) {
         e.preventDefault();
         typing.finish();
+        ask(to.href);
         (globalThis as { navigation?: { navigate(u: string, o: object): void } }).navigation?.navigate(to.href, { history: replace ? 'replace' : 'push' });
         return;
       }

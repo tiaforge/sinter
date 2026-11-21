@@ -14,7 +14,7 @@ import { parseExpression, parseProgram } from './parse.js';
 import { fullAncestor } from 'acorn-walk';
 import type { DefaultTreeAdapterMap } from 'parse5';
 import { type Code, type Diagnostic, didYouMean, severityOf, suggest } from './diagnostics.js';
-import { analyze, applyEdits, nsLocal, refNames, STORE_FNS, throughField, type SlotScope, type ComponentScope, type ExprOptions, type ExprResult, type LetEntry, type LoopEntry, type PageInfo, type Read, type ResourceInfo, type Scope } from './expr.js';
+import { analyze, applyEdits, nsLocal, refNames, STORE_FNS, throughField, wild, type SlotScope, type ComponentScope, type ExprOptions, type ExprResult, type LetEntry, type LoopEntry, type PageInfo, type Read, type ResourceInfo, type Scope } from './expr.js';
 import { callerAttribute, COMPONENT_NAME, DOM_EVENTS, isArrayType, LIBRARY_LAYER, rootCss, scopeCss, SLOT_TYPE, typeMembers, withoutSlots, type Member } from './components.js';
 import type { Node } from 'acorn';
 import type * as acorn from 'acorn';
@@ -1308,10 +1308,15 @@ class Compiler {
   private keptDepth = 0;
   /** with swaps on, whether `n` is a kept element or inside one */
   inKept(n: P5Node): boolean {
-    if (!this.opts.swap) return false;
-    for (let p: P5Node | null = n; p; p = (p as P5Element).parentNode as P5Node | null) if (this.permanentEls.includes(p as P5Element)) return true;
-    return false;
+    return this.keptOf(n) !== undefined;
   }
+  /** with swaps on, the name of the kept element `n` is or is in */
+  keptOf(n: P5Node): string | undefined {
+    if (!this.opts.swap) return;
+    for (let p: P5Node | null = n; p; p = (p as P5Element).parentNode as P5Node | null) if (this.permanentEls.includes(p as P5Element)) return this.permanentNames[this.permanentEls.indexOf(p as P5Element)];
+  }
+  /** each kept element's next id once its walk is done (its placeholders are numbered after the walk, in its range) */
+  private readonly keptNext = new Map<string, number>();
   /** the kept elements that bind (their ids from their range), and where each kept element was written */
   readonly keptBound = new Set<string>();
   readonly keptSource = new Map<string, string>();
@@ -1401,6 +1406,17 @@ class Compiler {
     for (const w of this.page.urlWrites ?? []) {
       if (w.list && !arrays.has(w.name)) w.report('SN210', `\`$url.${w.name}\` is one value (no \`<select multiple>\` or checkbox with a \`value\` binds it), and a list is written to it; write one value`);
       if (w.test && arrays.has(w.name)) w.report('SN211', `\`$url.${w.name}\` is a list and always truthy; use \`$url.${w.name}.length\``);
+    }
+  }
+  /** resources without `key` typed as a list (`type="Comment[]"`, an OpenAPI list), with what says so */
+  readonly listTyped = new Map<string, string>();
+  /** SN542: `upsert`, `patch` or `remove` of a resource without `key` that holds a list changes the whole list */
+  checkListWrites() {
+    const what: Record<string, string> = { upsert: 'replaces the whole list with the item', merge: 'merges the fields into the list', remove: 'sets the whole list to `null`' };
+    for (const w of this.page.listWrites ?? []) {
+      const why = this.listTyped.get(w.name);
+      if (why) w.report('SN542', `\`${w.fn}\` on \`${w.name}\` ${what[w.fn] ?? 'changes the whole list'}: resource \`${w.name}\` has no \`key\`, and ${why}`,
+        'add `key` with the field that identifies an item, such as `key="id"`; to replace the list, reload it with `refresh()`');
     }
   }
   /** the page's array parameters (`IR.urlArrays`), sorted */
@@ -1550,6 +1566,7 @@ class Compiler {
     this.finishChoices();
     this.resolveSources();
     this.fileUses();
+    this.applyAliases();
     // the component's name on its root: in dev builds for devtools, and on pages with scoped styles,
     // which start at the roots and stop at other components' roots and at slot content (`data-sn-s`)
     const styled = [...this.uses.keys()].filter((n) => this.componentFiles.get(n)?.css);
@@ -1703,6 +1720,7 @@ class Compiler {
       const t = 'url' in d ? d.url : d.src;
       if (t.length) d.u = this.fn(`($) => ${this.urlFn(t)}`, null);
     }
+    this.checkListWrites();
     const builtin: string[] = [];
     const user: string[] = [];
     // a lazy module's helpers are not imported: the module loads when a let needs it
@@ -2074,13 +2092,15 @@ class Compiler {
    * of the next page is the only script a swap runs), on a page that does not opt out
    */
   private swapScripts(doc: P5Parent) {
-    const DATA = /^(application\/(ld\+)?json|speculationrules|importmap)$/i;
+    // what the browser runs: no type, a JavaScript MIME type (HTML's list) or `module`; any other is data (JSON, an
+    // import map, Speculation Rules, `text/plain`, a template's text)
+    const JS = /^((text|application)\/(x-)?(java|ecma)script|text\/(javascript1\.[0-5]|jscript|livescript)|module)?$/i;
     const visit = (n: P5Parent) => {
       for (const c of n.childNodes) {
         if (!isElement(c)) continue;
         if (c.tagName === 'script') {
           const type = (attr(c, 'type') ?? '').trim(), src = attr(c, 'src');
-          if (DATA.test(type)) continue;
+          if (!JS.test(type)) continue;
           if (src === undefined || !/^module$/i.test(type)) {
             this.report(c, null, 'SN540', `${src === undefined ? 'an inline' : 'a classic'} script${src === undefined ? '' : ` (\`${src}\`)`} in the body does not run when a link swaps this page in (\`sinter({ swap: true })\`), only on a page load`, 0,
               'move what it does into the page\'s code (a component script or the actions module), load it as `<script type="module" src>` in the head, or take the page out with `<html data-sn-swap="off">`');
@@ -3803,6 +3823,11 @@ class Compiler {
         this.features.add('persist');
       }
       this.stateInits.push({ sid, fields: r.entries!.map((e) => ({ key: e.key, code: e.code, deps: e.deps })), persist: node.persist ?? null });
+      // a field initialized with one of the page's objects (a prop, a resource's item) is an alias of it
+      for (const e of r.entries!) {
+        for (const p of e.pieces ?? []) (this.page.aliases ??= []).push({ t: wild([`$s${sid}`, e.key, ...p.sub]), s: p.src && wild(p.src) });
+        if (!e.prim) (this.page.objectFields ??= new Set()).add(`$s${sid}.${e.key}`);
+      }
       const site: Site = { el, attr: 'data-sn-state', shift: 0 };
       this.stateAt.set(sid, { site, fields: new Map(r.entries!.map((e) => [e.key, { ...site, shift: e.offset }])) });
     }
@@ -4632,6 +4657,7 @@ class Compiler {
       const res = this.element(child, ctx, i, lastIf);
       if (kept) this.keptDepth--;
       if (kept && this.nextId !== saved) {
+        this.keptNext.set(kept, this.nextId);
         if (this.nextId - keptBase(kept) > KEPT_IDS) this.report(child, 'data-sn-permanent', 'SN346', `a kept element binds at most ${KEPT_IDS} nodes (\`${kept}\` binds ${this.nextId - keptBase(kept)})`, 0);
         if (this.nextId > keptBase(kept)) {
           this.keptBound.add(kept);
@@ -5134,7 +5160,8 @@ class Compiler {
       // is a choice, a new history entry (4), decided here, so it holds for untrusted events too (Playwright's
       // selectOption() dispatches them). A handler higher up hears both: there `input` replaces.
       const choice = (event === 'input' || event === 'change') && (el.tagName === 'select' || (el.tagName === 'input' && /^(checkbox|radio)$/i.test(attr(el, 'type') ?? '')));
-      const r = this.expr(el, a.name, scope, { mode: 'handler', magic: ['$event'], ...(choice ? { urlKind: 4 } : {}) });
+      // sinter's own events (`sn-error`) carry a detail it made: none of the page's objects
+      const r = this.expr(el, a.name, scope, { mode: 'handler', magic: ['$event'], ...(choice ? { urlKind: 4 } : {}), ...(SINTER_EVENTS.includes(event) ? { freshDetail: true } : {}) });
       const ms = duration(get(`debounce-${event}`) ?? '', 'ms') ?? 0;
       if (ms > 0) this.features.add('debounce');
       if (r.ok) node.b.push(this.binding({ k: 'on', n: kf ? kf[1]! : event, f: this.fn(r.code), w: r.writes, ...filter, ...(ms > 0 ? { ms } : {}) }));
@@ -6051,6 +6078,8 @@ class Compiler {
       setter = this.fn(`($, v) => (${h.code})(Object.assign(Object.create($), { $event: v }))`);
     } else setter = this.fn(`($, v) => { ${r.code.slice('($) => ('.length, -1)} = v; }`);
     const b = this.binding({ k: 'model', n: kind, f: this.fn(r.code), a: setter, d: r.deps, w: [r.path.join('.')], ...usesEl(r) });
+    // a model that binds a list writes one (a fresh array): its field holds an object
+    if (kind === 'multi' || (kind === 'checkbox' && attr(el, 'value') !== undefined) || r.path.length > 2) (this.page.objectFields ??= new Set()).add(r.path.slice(0, 2).join('.'));
     if (persist !== undefined) {
       b.p = persist;
       this.persisted.add(r.path.slice(0, 2).join('.'));
@@ -6720,7 +6749,11 @@ class Compiler {
         this.report(el, attr(el, 'select') != null ? 'select' : 'name', 'SN517', `\`${openapi.label}\` returns a list${at ? ` at \`${at}\`` : ''}: resource \`${name}\` has no \`key\`, so it is one object holding the list`, 0,
           `add \`key\` with the field that identifies an item${fields.length ? ` (its items have ${fields.map((f) => `\`${f}\``).join(', ')})` : ''}; a list that is only read can stay as it is`);
       }
+      if (list?.type === 'array') this.listTyped.set(name, `\`${openapi.label}\` returns a list${select ? ` at \`${select}\`` : ''}`);
     }
+    // `type="Comment[]"`: what a change to one item of it does is SN542's (`checkListWrites`)
+    const t = type?.replace(/\s*\|\s*(?:null|undefined)\b/g, '').trim();
+    if (t && !info.key && !each && (/\[\]$/.test(t) || /^(?:Readonly)?Array\s*</.test(t))) this.listTyped.set(name, `its \`type\` is \`${type!.trim()}\``);
     if (this.check) {
       const r: CheckResource = { name, type, loc: this.locOf(el, type ? 'type' : null), nameLoc: this.locOf(el, 'name') };
       if (openapi && 'schema' in openapi) r.openapi = openapi;
@@ -7288,6 +7321,9 @@ class Compiler {
       const was = { patch: 'merge', refetch: 'refresh' }[op as string];
       this.report(el, 'op', 'SN401', was ? `\`op="${op}"\` is renamed to \`op="${was}"\`` : '`op` is `upsert`, `merge`, `remove` or `refresh`', 0);
       return null;
+    }
+    if (resource && op && op !== 'refresh' && !this.page.resources.get(resource)!.key) {
+      (this.page.listWrites ??= []).push({ name: resource, fn: op, report: (code, m, h) => this.report(el, 'op', code, m, 0, h) });
     }
     const scope = ctx.scope;
     const typeAttr = attr(el, 'type')?.trim() || null;
@@ -8834,6 +8870,85 @@ class Compiler {
     return [...out].sort();
   }
 
+  /**
+   * Writes through an alias (docs/spec.md, Aliases): a compiled write also marks the paths whose objects it may
+   * change through an alias the page's handlers and state initializers made (`sel = y`, `box.a = y`,
+   * `list.push(y)`), in both directions and through chains of them; one the compiler cannot trace (a helper's
+   * result, a let, an event's detail) marks every state scope and resource, and any change inside an object
+   * marks everything under it. Before anything reads the writes (`writtenState`, folding, the IR).
+   */
+  applyAliases() {
+    // a component's script assigns its state's fields anything, a prop's object included
+    for (const us of this.uses.values()) for (const u of us) if (u.sid !== undefined && this.componentFiles.get(u.name)?.script) {
+      (this.page.aliases ??= []).push({ t: [`$s${u.sid}`, '*'], s: null });
+      (this.page.objectFields ??= new Set()).add(`$s${u.sid}.*`);
+    }
+    // a field only ever given primitives (its initializer and every assignment) holds none of the page's objects
+    const objects = this.page.objectFields ?? new Set<string>();
+    const fields = new Set(this.stateInits.flatMap((x) => x.fields.map((f) => `$s${x.sid}.${f.key}`)));
+    const prim = (p: string[] | null) => !!p && p.length >= 2 && fields.has(`${p[0]}.${p[1]}`) && !objects.has(`${p[0]}.${p[1]}`) && !objects.has(`${p[0]}.*`);
+    const seen = new Set<string>();
+    const list = (this.page.aliases ?? []).filter((a) => {
+      const k = `${a.t.join('.')}\0${a.s?.join('.') ?? '?'}`;
+      if (seen.has(k) || (a.s && a.s.join('.') === a.t.join('.')) || prim(a.t) || prim(a.s)) return false;
+      seen.add(k);
+      return true;
+    });
+    if (!list.length) return;
+    const mutated = this.page.mutated ?? new Set<string>();
+    const sids = [...new Set(this.stateInits.map((x) => x.sid))].sort((a, b) => a - b);
+    const ALL = [...sids.map((x) => `$s${x}.**`), ...this.resources.map((r) => `$r.${r.name}.**`)];
+    // a segment of `p` stands for one of `x`: equal, or either is any key or row; a list's structure (`#`) only for itself
+    const seg = (a: string, b: string) => a === b || (a !== '#' && b !== '#' && (a === '*' || b === '*' || b[0] === '{' || b === '~' || a[0] === '{' || a === '~'));
+    // `**`: anything below, at any depth
+    const under = (p: string[], x: string[]) => { const k = p.indexOf('**'), q = k < 0 ? p : p.slice(0, k); return q.length <= x.length && q.every((y, i) => seg(y, x[i]!)); };
+    const deep = (p: string[]) => { const k = p.indexOf('**'); return k < 0 ? p : p.slice(0, k + 1); };
+    const extend = (ws: string[]): string[] => {
+      // each path with the alias it came through, which it does not go back through
+      const out = new Set(ws), queue: Array<[string, number]> = ws.map((w) => [w, -1]);
+      while (queue.length) {
+        if (out.size > 400) { for (const a of ALL) out.add(a); break; }
+        const [w, from] = queue.shift()!, W = w.split('.'), end = W[W.length - 1]!;
+        // the object the write changes: the one holding the field it assigns, or the one a method changes
+        const whole = (mutated.has(w) && end !== '#') || end === '**', O = end === '#' || end === '**' ? W.slice(0, -1) : whole ? W : W.slice(0, -1);
+        let via = -1;
+        const add = (p: string[]) => { const k = p.join('.'); if (!out.has(k)) { out.add(k); queue.push([k, via]); } };
+        const changes = (t: string[], s: string[] | null) => {
+          if (under(t, O)) {
+            if (!s) return ALL.forEach((a) => add([a]));
+            const out = t.includes('**') ? [...s, '**'] : [...s, ...W.slice(t.length)];
+            // the object written is a marked row element (`~`, by identity): the rows that hold it, not all of them
+            if (!t.includes('**') && O[t.length - 1] === '~' && out[s.length - 1] === '*') out[s.length - 1] = '~';
+            add(deep(out));
+          } else if (whole && O.length < t.length && under(O, t)) {
+            // a change of everything inside an object that holds the alias (a list's order, `#`, changes no object in it)
+            if (s) add(deep([...s, '**'])); else ALL.forEach((a) => add([a]));
+          }
+        };
+        for (const [i, a] of list.entries()) {
+          if (i === from) continue;
+          via = i;
+          changes(a.t, a.s);
+          if (a.s) changes(a.s, a.t);
+          // an untraceable object may be any of the page's: a change inside one may be inside it
+          else if (O.length >= 2) add([...a.t, '**']);
+        }
+      }
+      return [...out];
+    };
+    const done = new WeakSet<PathRef[]>();
+    const fix = (ws: PathRef[] | undefined) => {
+      if (!ws?.length || done.has(ws)) return;
+      done.add(ws);
+      const next = extend(strs(ws));
+      if (next.length !== ws.length) ws.splice(0, ws.length, ...next);
+    };
+    for (const n of [...this.roots, ...this.templates.flatMap((t) => t.nodes)]) for (const b of n.b) fix(b.w);
+    for (const a of this.actions) fix(a.w);
+    for (const r of this.resources) fix(r.w);
+    for (const x of this.syncs) for (const e of x.events) fix(e.w);
+  }
+
   writtenState(): Set<string> {
     const out = new Set<string>();
     const add = (ws: PathRef[] | undefined) => {
@@ -9330,6 +9445,20 @@ class Compiler {
   }
 
   /**
+   * A placeholder's class: unique across pages, should two pages' rules end up in one stylesheet; in a kept element,
+   * from its name and its own count, the same on every page that keeps it (the next page's rule sizes the one kept)
+   */
+  private spaceKey(pre: string, el: P5Element): string {
+    const kn = this.keptOf(el), rel = kn !== undefined ? `kept:${kn}` : this.opts.file.slice(this.opts.root.length).replace(/^[\\/]+/, '');
+    let hash = 0x811c9dc5;
+    for (const ch of rel) hash = Math.imul(hash ^ ch.charCodeAt(0), 0x01000193);
+    const n = kn !== undefined ? this.keptSpaceN.get(kn) ?? 0 : this.spaceN++;
+    if (kn !== undefined) this.keptSpaceN.set(kn, n + 1);
+    return `${pre}${(hash >>> 0).toString(36).slice(0, 4)}${kn !== undefined ? 'k' : ''}${n}`;
+  }
+  private readonly keptSpaceN = new Map<string, number>();
+
+  /**
    * After a list's template is compiled: SN529 for a list over late data in a box whose width its rows
    * decide, and the planned placeholder after the template. `static` (the list is a resource that always
    * loads): an element whose one binding removes it once the resource has rows or no load is running.
@@ -9368,11 +9497,7 @@ class Compiler {
     else if (plan.space && !held) note(!names.every((n) => (plan.form === 'static' ? starts(n) : pre.has(n))) ? 'a resource\'s `src` or `when` reads more than the URL (state, another resource): its load may not start when the page module mounts' : 'the list reads more than its resources and the URL');
     if (!held || !plan.space || !this.opts.paintCss) return;
     const parent = el.parentNode as P5Element;
-    // unique across pages, should two pages' rules end up in one stylesheet
-    let hash = 0x811c9dc5;
-    const rel = this.opts.file.slice(this.opts.root.length).replace(/^[\\/]+/, '');
-    for (const ch of rel) hash = Math.imul(hash ^ ch.charCodeAt(0), 0x01000193);
-    const k = `snr${(hash >>> 0).toString(36).slice(0, 4)}${this.spaceN++}`;
+    const k = this.spaceKey('snr', el);
     const tag = plan.space.tag, markup = `<${tag} class="sn-reserve ${k}" aria-hidden="true"></${tag}>`;
     const at = parent.childNodes.indexOf(el) + 1;
     if (plan.form === 'static') {
@@ -9417,10 +9542,7 @@ class Compiler {
     const what = box.tagName + (attr(box, 'class') ? `.${attr(box, 'class')!.trim().split(/\s+/).join('.')}` : '');
     this.waits.push({ file: o?.file ?? this.opts.file, line: at.line, col: at.col, what, widths: plan.sized!.widths });
     if (!this.opts.paintCss) return true;
-    let hash = 0x811c9dc5;
-    const rel = this.opts.file.slice(this.opts.root.length).replace(/^[\\/]+/, '');
-    for (const ch of rel) hash = Math.imul(hash ^ ch.charCodeAt(0), 0x01000193);
-    const k = `snw${(hash >>> 0).toString(36).slice(0, 4)}${this.spaceN++}`;
+    const k = this.spaceKey('snw', el);
     setAttr(box, 'class', [attr(box, 'class'), k].filter(Boolean).join(' '));
     const parent = el.parentNode as P5Element, i = parent.childNodes.indexOf(el) + 1, markup = `<i class="${k}m" hidden></i>`;
     if (plan.waitForm === 'static') {
@@ -9501,7 +9623,14 @@ class Compiler {
   placeholders() {
     this.settleSpace();
     for (const { el, node } of this.pendingSpace) {
-      node.id = this.nextId++;
+      // in a kept element, from its range: the next page's code finds it there, where its own id would be another node's
+      const kept = this.keptOf(el), at = kept !== undefined ? this.keptNext.get(kept) : undefined;
+      if (kept !== undefined && at !== undefined) {
+        node.id = at;
+        this.keptNext.set(kept, at + 1);
+        if (at + 1 - keptBase(kept) > KEPT_IDS) this.report(el, null, 'SN346', `a kept element binds at most ${KEPT_IDS} nodes (\`${kept}\` binds ${at + 1 - keptBase(kept)})`, 0);
+        this.keptBound.add(kept);
+      } else node.id = this.nextId++;
       setAttr(el, 'data-sn', String(node.id));
       this.roots.push(node);
     }

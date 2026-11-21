@@ -243,7 +243,9 @@ Each event is applied once, by the next page only:
   dropped.
 - **A cap:** at most 1000 events, along with the 10 s cap on the window (§4). If the buffer overflows,
   the connection keeps the newest 1000 and is marked lossy. At the replay it then refetches every resource
-  it feeds once, through the existing catch-up path that `everOpen` uses after a reconnect.
+  it feeds once, through the existing catch-up path that `everOpen` uses after a reconnect (a resource
+  whose load is in flight only if an event was dropped after the takeover). `then` handlers and `app.on`
+  listeners get the newest 1000 only ([Open questions](#open-questions)).
 
 Event names the old page never listened to and the next page does: with `EventSource`, events of such a
 name sent during the gap are not delivered, because there was no listener. The next page gets them from
@@ -408,8 +410,22 @@ One commit each:
 
 ## Open questions
 
-- **The cap's value** (1000) and whether overflow should keep the newest or stop buffering. Keeping the
-  newest plus a refetch seems right for resources, but `then` handlers lose the oldest events.
-- **A `refetch` replayed while the next page's first fetch is in flight**: whether it coalesces with that
-  fetch or sends a second request. The behaviour tests should pin it down. Today the same happens with a
-  live event during a first load.
+Both decided 2026-11-21 (`test/behaviour/stream-handover.test.ts`):
+
+- **The cap's value and the overflow policy: kept as built, 1000, the newest kept plus a refetch.** Overflow
+  was never silent: the replay refetches every resource the next page's `<sn-event>`s feed, so no resource
+  stays stale. Dropping the whole buffer instead would not save the refetch and would lose every `then`
+  handler's events rather than the oldest. The consequence for handlers, documented here and in §5: past
+  1000, the `then` handlers and `app.on` listeners of the next page get the newest 1000 events only; the
+  oldest are not replayed to them, and nothing tells them so (a handler that must see every event, such as a
+  counter, recounts from the refetched data). 1000 events in a window capped at 10 s is a burst no page here
+  comes near; the value stays until a measurement says otherwise. One change: the overflow's refetch skips
+  a resource whose load is in flight when every dropped event was held before the takeover, since that load
+  was requested after them (see the next point).
+- **A `refresh` replayed while the next page's first fetch is in flight: it coalesces when it was held before
+  the takeover, and asks again when it was held after.** On `main` it always sent a second request (aborting
+  the first), as a live event during a first load does. An event held while parked arrived before the
+  next page's mount sent its requests, so the load in flight answers it; one held between the claim and the
+  close may be newer than that response, so it is treated as the live event it is: a second request. The
+  connection counts the events held at the claim (`pre`) and the replay marks those (`early`); a `refresh` of
+  a resource whose `$meta.loading` is true is then skipped. A live event during a first load is unchanged.

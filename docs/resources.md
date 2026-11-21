@@ -48,7 +48,7 @@ then filter by `term`.
 | `method` | `POST` for an endpoint that loads data with a request body (search, reports). Without it, GET. Not with `cache`, `paginate` or `for` ([docs/apis.md](apis.md#resources-that-load-with-post)). |
 | `body` | With `method="POST"`: the request body, a value sent as JSON; the resource reloads when it changes. |
 | `call` | Instead of `src`: one call of a [local action](actions.md), `ns.fn(args)`. Reloads when the arguments' inputs change. |
-| `key` | Comma-separated item fields that form the identity. Required for collections; without it the resource is a single object. |
+| `key` | Comma-separated item fields that form the identity. Required for collections; without it the resource is a single object, and `upsert`, `merge` or `remove` change all of it: on one typed as a list (`type="Comment[]"`) they are SN542. |
 | `select` | Path in the response to the data: the array of a collection, or the object (`select="user"` of `{ user: … }`). Default: the response itself. |
 | `total` | Path to a total count, exposed as `$meta.<name>.total`. |
 | `order` | Field kept sorted when items are inserted. `-field` sorts descending. Strings compare locale-aware. |

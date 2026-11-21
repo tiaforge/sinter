@@ -34,6 +34,7 @@ const MESSAGES: Record<number, string> = {
   28: 'event `%` could not be applied: %',
   29: 'event `%` payload is missing key field(s) % for `%`',
   30: "page(%, 'last') needs a known total",
+  33: '`%` of resource `%`, which has no `key` and holds a list, changes the whole list, not one item (SN542): add `key` with the field that identifies an item',
   31: 'anchor `<!--%-->` has no end comment `<!--/sn-->` after it: one was added. A minifier or CDN that strips HTML comments breaks lists and branches: turn comment stripping off for sinter pages',
   32: 'the early script requested `%`, and a request middleware changed the request (a header, its credentials): the response is not used, and the page sent it again. Add what the middleware adds in `sinter({ apis })` (`headers`, `credentials`, `token`) instead, or answer it from the middleware with `early="off"` on the resource',
   25: 'font % is preloaded (sinter({ fonts: { preload } })), but the page did not render with it in its first % frames: the preload competes with what the first paint needs, and when the font is slow it can hold the first paint. Preload a face the first view uses, or remove it',
@@ -150,6 +151,19 @@ const dev: Feature = {
       report({ code: n, message: msg, error: n == 16, environment: n != null && ENVIRONMENT_WARNINGS.has(n) });
     };
     app.prep = deepFreeze;
+    // a resource without `key` is one object: an `upsert` of one item or a `merge` of one that holds a list replaces
+    // or spoils the list (SN542 at build time, where its type says it is a list). Resources exist after install
+    queueMicrotask(() => {
+      for (const def of app.ir.resources ?? []) {
+        if (def.key || def.each) continue;
+        const r = app.resource(def.name);
+        let list = Array.isArray(r.value());
+        app.addCleanup(r.subscribe((c) => {
+          if (list && (c.op == 'merge' || (c.op == 'upsert' && !Array.isArray(c.item)))) app.warn(33, c.op, def.name);
+          list = Array.isArray(r.value());
+        }));
+      }
+    });
     app.dupes = (keys) => {
       if (new Set(keys).size == keys.length) return;
       const k = keys.find((k, i) => keys.indexOf(k) != i);

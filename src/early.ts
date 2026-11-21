@@ -218,10 +218,11 @@ const closed = (el: Node): boolean => {
 /**
  * A root to render now: an element closed, an anchor whose end comment is parsed. `<html>` and
  * `<body>` at once: their attributes are all there when they are created, and no early binding
- * writes their content.
+ * writes their content. Any other comment is a text's own marker (`<!---->` before a `<template data-sn-text>`
+ * that no element precedes), which only a row's or branch's clone has: whole when it is inserted, so at once.
  */
 const ready = (el: Node) => {
-  if (el.nodeType == 8) return !!endOf(el);
+  if (el.nodeType == 8) return !isStart(el) || !!endOf(el);
   const n = (el as Element).localName;
   return n == 'html' || n == 'body' || closed(el);
 };
@@ -449,10 +450,11 @@ export function w(el: Node | null, f: Fn, s: any, wr: (el: any, v: any, n: strin
   if (!el) return;
   let done: Set<string> | null = null, key = '';
   if (live) {
-    // observing: each binding once; a content binding of an element the parser has not closed yet waits
+    // observing: each binding once; a content binding of an element the parser has not closed yet waits. The text after
+    // an element (`slot`) is a binding of its own beside the element's text, even over the same function
     let id = fnIds.get(f);
     if (id == null) fnIds.set(f, (id = fnN++));
-    key = id + ' ' + n + ' ' + (content(el, wr) ? 'c' : 'a');
+    key = id + ' ' + n + ' ' + ((wr as { c?: 1 }).c ? 's' : content(el, wr) ? 'c' : 'a');
     done = wrote.get(el) ?? new Set<string>();
     if (done.has(key)) return;
     if (!live.all && content(el, wr) && !ready(el)) { live.waiting.add(el); return; }

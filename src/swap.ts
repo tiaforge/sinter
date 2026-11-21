@@ -3,8 +3,9 @@
 // in, keeping the elements both pages name with `data-sn-permanent`; the new page's code mounts in the
 // same step. This is the stub every page that swaps carries: it decides, intercepts the browser's
 // `navigate` event, and loads the rest (swap-run.ts) when a navigation needs it. Where the browser has no
-// Navigation API it does nothing: every navigation stays a page load.
-import { RANK, ask, asked, chain } from './links.js';
+// Navigation API, or one without `sourceElement` (Chromium 102 to 134, links.ts), it does nothing: every navigation
+// stays a page load.
+import { RANK, api, ask, asked, chain } from './links.js';
 import type { App, Feature, Intent } from './runtime/app.js';
 
 /** one page of the build's list (swap-build.ts): the paths it answers at, the names it keeps */
@@ -31,6 +32,8 @@ export interface SwapState {
   at?: number;
   /** the swap in progress (a newer one replaces it; cleared when it commits) */
   run?: object;
+  /** a swap a history write aborted before the URL committed: the navigation to `to` again takes it on */
+  held?: { to: string; c: AbortController; p: Promise<Prepared> };
   /** a page with nothing to run is shown (swapped in, no app mounted): Back and Forward load their entry */
   bare?: boolean;
 }
@@ -88,7 +91,7 @@ export function swap(list: SwapPage[]): Feature {
     name: 'swap',
     install(app: App) {
       // the page's app swaps the page (an app mounted on an element of it does not); none without the Navigation API
-      if (!nav() || app.root !== document) return;
+      if (!api() || app.root !== document) return;
       const s = state(list), c = chain(app);
       // the position of the entry each navigation leaves (a swap's, a same-page link's, Back's), before
       // another entry is current
@@ -107,13 +110,20 @@ export function swap(list: SwapPage[]): Feature {
           name: 'swap',
           run: () => {
             const me = (s.run = {});
+            // the swap this navigation takes on (a history write aborted it before, see below), or its own: what is
+            // fetched and prepared goes on, aborted by `c` (another navigation, Stop), not by a history write
+            const held = s.held?.to == i.to ? s.held : undefined, c = held?.c ?? new AbortController();
+            let p = held?.p;
+            s.held = undefined;
             // aborted by a history write (a `$url` write, a script's `replaceState`), not by another navigation: the
-            // swap goes on, as a page load would; before the URL committed, the navigation again, after (Back) a load
+            // swap goes on, as a page load would; before the URL committed, the navigation again, which takes on what
+            // this one fetched (it is not fetched again at each write), after (Back) a load
             e.signal.addEventListener('abort', () => setTimeout(() => {
               const l = asked.last as NavigateLike & { navigationType?: string; destination: { sameDocument?: boolean } } | undefined;
-              if (s.run !== me || !l?.destination.sameDocument || l.navigationType == 'traverse') return;
+              if (s.run !== me || !l?.destination.sameDocument || l.navigationType == 'traverse') return c.abort();
               if (location.pathname != s.shown) location.reload();
               else {
+                s.held = p && { to: i.to, c, p };
                 ask(i.to);
                 (nav() as unknown as { navigate(u: string, o: object): { finished?: Promise<unknown> } }).navigate(i.to, { history: i.kind == 'replace' ? 'replace' : 'push' }).finished?.catch(() => {});
               }
@@ -128,10 +138,9 @@ export function swap(list: SwapPage[]): Feature {
               });
               throw Error('sinter: loaded instead');
             };
-            let p: Promise<Prepared> | undefined;
             // the fetch and the plan before the URL changes where the browser waits (a second click before the page
             // is ready replaces this navigation, as with loads); else in the handler, after it changed
-            const ready = () => (p ??= import('./swap-run.js').then((m) => m.prepare(s, i, e.signal)).catch(() => (e.signal.aborted ? null : false)));
+            const ready = () => (p ??= import('./swap-run.js').then((m) => m.prepare(s, i, c.signal)).catch(() => (c.signal.aborted ? null : false)));
             // false: a load instead; null: a newer navigation has the page
             e.intercept({
               scroll: 'manual',
@@ -140,10 +149,11 @@ export function swap(list: SwapPage[]): Feature {
               // the URL held until the page is ready, where the browser can (one without it ignores the option); none
               // for a traversal (one that cannot swap must not become a new entry), nor for a navigation that cannot
               // be canceled (the browser's own Back without activation)
-              ...(i.kind != 'traverse' && e.cancelable ? { async precommitHandler() { if ((await ready()) === false) fail(); } } : {}),
+              // (an aborted navigation's: the one that takes it on loads instead, if one does)
+              ...(i.kind != 'traverse' && e.cancelable ? { async precommitHandler() { if ((await ready()) === false && !e.signal.aborted) fail(); } } : {}),
               async handler() {
                 const commit = await ready();
-                if (commit === false) fail();
+                if (commit === false && !e.signal.aborted) fail();
                 if (commit) await commit();
               },
             });

@@ -1,7 +1,8 @@
 // The swap's plan on parsed documents (docs/proposals/swap-navigation.md §3, §4): which elements are kept,
 // which head nodes are the page's own, what only a load applies, and which URLs the build's list swaps to.
 import { expect, test } from 'vitest';
-import { fixed, inline, owned, pairs } from '../../src/swap-run.js';
+import { fixed, heads, inline, owned, pairs } from '../../src/swap-run.js';
+import type { SwapState } from '../../src/swap.js';
 import { pageAt } from '../../src/swap.js';
 
 const parse = (body: string, head = '') => new DOMParser().parseFromString(`<!doctype html><html><head>${head}</head><body>${body}</body></html>`, 'text/html');
@@ -65,4 +66,23 @@ test('the build\'s list: a URL swaps only to a page that answers at its path', (
   expect(pageAt(list, '/post/hello')?.m[0]).toBe('/post/:slug');
   expect(pageAt(list, '/post/hello/comments')).toBeUndefined();
   expect(pageAt(list, '/logout')).toBeUndefined();
+});
+
+test('the next page\'s stylesheets go in before the commit, applied only from it on; undone, they go', () => {
+  const was = document.head.innerHTML;
+  try {
+    document.head.innerHTML = '<style>p { color: red }</style>';
+    const s = { sheets: new Set(document.head.querySelectorAll('style')) } as unknown as SwapState;
+    const next = parse('', '<style>p { color: red }</style><style>b { color: blue }</style><style media="print">i { color: blue }</style>');
+    const h = heads(s, next, new URL(location.href))!;
+    const media = () => [...document.head.querySelectorAll('style')].map((x) => x.getAttribute('media'));
+    // the shared one stays as it is; the new ones are there (loading) but match nothing
+    expect(media()).toEqual([null, 'not all', 'not all']);
+    h.done();
+    expect(media()).toEqual([null, null, 'print']);
+    const again = heads({ sheets: new Set(document.head.querySelectorAll('style')) } as unknown as SwapState, parse('', '<style>i { color: green }</style>'), new URL(location.href))!;
+    expect(document.head.querySelectorAll('style')).toHaveLength(4);
+    again.undo();
+    expect(document.head.querySelectorAll('style')).toHaveLength(3);
+  } finally { document.head.innerHTML = was; }
 });

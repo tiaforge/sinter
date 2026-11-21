@@ -31,7 +31,15 @@ interface NavigateLike extends Event {
   destination: { url: string; key: string; index: number; sameDocument: boolean };
 }
 type Nav = EventTarget & { currentEntry: { key: string } | null; navigate(url: string, o: { history: 'auto' | 'replace'; info: unknown }): unknown };
-const api = (): Nav | undefined => (globalThis as { navigation?: Nav }).navigation;
+/**
+ * The Navigation API, where its `navigate` event says which element started it (`sourceElement`): Chromium 102
+ * to 134 have the API without it (no link's `data-sn-swap="off"`, `rel="external"`, form or trigger), and take
+ * the path of browsers without the API (links by their click, Back by `popstate`, every other page a load)
+ */
+export const api = (): Nav | undefined => {
+  const g = globalThis as { navigation?: Nav; NavigateEvent?: { prototype: object } };
+  return g.NavigateEvent && 'sourceElement' in g.NavigateEvent.prototype ? g.navigation : undefined;
+};
 const none = () => {};
 /** what a `navigate()` call hands its event: the element of its handler */
 const INFO = Symbol('sinter.trigger');

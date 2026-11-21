@@ -528,7 +528,8 @@ Put only what needs data inside the template. The complete version is in
 ## Testing
 
 `firstPaint` from the testing module returns the page as the browser shows it before the page
-script runs: build-time constants, then the early script.
+script runs: build-time constants, then the early script, run as a build runs it: from the head,
+rendering each part as the parser closes it (the test inserts the page again one node at a time).
 
 ```ts
 import { firstPaint } from '@tiaforge-ui/sinter/testing';
