@@ -9152,32 +9152,57 @@ class Compiler {
     if (plan.why && !waits) note(plan.why);
     else if (plan.space && !held) note(!names.every((n) => (plan.form === 'static' ? starts(n) : pre.has(n))) ? 'a resource\'s `src` or `when` reads more than the URL (state, another resource): its load may not start when the page module mounts' : 'the list reads more than its resources and the URL');
     if (!held || !plan.space || !this.opts.paintCss) return;
-    const parent = el.parentNode as P5Element;
-    // unique across pages, should two pages' rules end up in one stylesheet
-    let hash = 0x811c9dc5;
-    const rel = this.opts.file.slice(this.opts.root.length).replace(/^[\\/]+/, '');
-    for (const ch of rel) hash = Math.imul(hash ^ ch.charCodeAt(0), 0x01000193);
-    const k = `snr${(hash >>> 0).toString(36).slice(0, 4)}${this.spaceN++}`;
+    const k = `snr${this.pageKey()}${this.spaceN++}`;
     const tag = plan.space.tag, markup = `<${tag} class="sn-reserve ${k}" aria-hidden="true"></${tag}>`;
-    const at = parent.childNodes.indexOf(el) + 1;
     if (plan.form === 'static') {
-      const ph = parse5.parseFragment(markup).childNodes[0] as P5Element;
-      ph.parentNode = parent;
-      parent.childNodes.splice(at, 0, ph as never);
-      const r = `.${names[0]!}`;
-      // rows, or no load running: it ended (empty, failed) or never started (a `src` that cannot be built); the load starts at mount, before this runs
-      const code = `($) => ($.$r${r}?.length || !$.$meta${r}.loading) && $.$el.remove()`;
-      this.spaces.push({ list: el, names, k, space: plan.space, note, ph, node: { tag, p: ctx.stateIdx, b: [this.binding({ k: 'imp', f: this.fn(code, { el, attr: 'data-sn-for', shift: 0 }), d: [`$r.${names[0]!}`, `$meta.${names[0]!}`], e: 1 })] } });
+      const ph = this.afterList(el, markup);
+      this.spaces.push({ list: el, names, k, space: plan.space, note, ph, node: this.goneWithRows(el, tag, names[0]!, ctx) });
     } else {
       // no rows yet, and one of the resources loading: the walk compiles it next, as page markup
-      const cond = `!(${plan.list})?.length && (${names.map((n) => `$meta.${n}.loading`).join(' || ')})`;
-      const t = parse5.parseFragment(`<template data-sn-if="${cond.replace(/&/g, '&amp;').replace(/"/g, '&quot;')}">${markup}</template>`).childNodes[0] as P5Element;
-      t.parentNode = parent;
-      parent.childNodes.splice(at, 0, t as never);
-      const origin = this.origins.get(el);
-      if (origin) this.tag(t, origin);
+      const t = this.branchAfterList(el, `!(${plan.list})?.length && (${names.map((n) => `$meta.${n}.loading`).join(' || ')})`, markup);
       this.spaces.push({ list: el, names, k, space: plan.space, note, tpl: t });
     }
+  }
+
+  /**
+   * The page's part of the classes a build adds after a list (`snr…`, `snw…`): unique across pages, should two pages'
+   * rules end up in one stylesheet. By the page's path, once (not a field: the compiler's fields are LINK_FIELDS')
+   */
+  private pageKey(): string {
+    const rel = this.opts.file.slice(this.opts.root.length).replace(/^[\\/]+/, '');
+    let k = PAGE_KEYS.get(rel);
+    if (k === undefined) {
+      let hash = 0x811c9dc5;
+      for (const ch of rel) hash = Math.imul(hash ^ ch.charCodeAt(0), 0x01000193);
+      PAGE_KEYS.set(rel, (k = (hash >>> 0).toString(36).slice(0, 4)));
+    }
+    return k;
+  }
+
+  /** `markup`'s element, put right after the list's template `el` */
+  private afterList(el: P5Element, markup: string): P5Element {
+    const parent = el.parentNode as P5Element, at = parent.childNodes.indexOf(el) + 1;
+    const x = parse5.parseFragment(markup).childNodes[0] as P5Element;
+    x.parentNode = parent;
+    parent.childNodes.splice(at, 0, x as never);
+    return x;
+  }
+
+  /** a `data-sn-if` template over `cond` holding `markup`, right after the list's template `el`: the walk compiles it next, as page markup */
+  private branchAfterList(el: P5Element, cond: string, markup: string): P5Element {
+    const t = this.afterList(el, `<template data-sn-if="${cond.replace(/&/g, '&amp;').replace(/"/g, '&quot;')}">${markup}</template>`);
+    const origin = this.origins.get(el);
+    if (origin) this.tag(t, origin);
+    return t;
+  }
+
+  /**
+   * The node of an element after the list `el` that removes itself once the resource `name` has rows or no load
+   * is running: it ended (empty, failed) or never started (a `src` that cannot be built); the load starts at mount, before this runs
+   */
+  private goneWithRows(el: P5Element, tag: string, name: string, ctx: Ctx): NodeDef {
+    const r = `.${name}`;
+    return { tag, p: ctx.stateIdx, b: [this.binding({ k: 'imp', f: this.fn(`($) => ($.$r${r}?.length || !$.$meta${r}.loading) && $.$el.remove()`, { el, attr: 'data-sn-for', shift: 0 }), d: [`$r.${name}`, `$meta.${name}`], e: 1 })] };
   }
 
   /**
@@ -9202,25 +9227,13 @@ class Compiler {
     const what = box.tagName + (attr(box, 'class') ? `.${attr(box, 'class')!.trim().split(/\s+/).join('.')}` : '');
     this.waits.push({ file: o?.file ?? this.opts.file, line: at.line, col: at.col, what, widths: plan.sized!.widths });
     if (!this.opts.paintCss) return true;
-    let hash = 0x811c9dc5;
-    const rel = this.opts.file.slice(this.opts.root.length).replace(/^[\\/]+/, '');
-    for (const ch of rel) hash = Math.imul(hash ^ ch.charCodeAt(0), 0x01000193);
-    const k = `snw${(hash >>> 0).toString(36).slice(0, 4)}${this.spaceN++}`;
+    const k = `snw${this.pageKey()}${this.spaceN++}`;
     setAttr(box, 'class', [attr(box, 'class'), k].filter(Boolean).join(' '));
-    const parent = el.parentNode as P5Element, i = parent.childNodes.indexOf(el) + 1, markup = `<i class="${k}m" hidden></i>`;
+    const markup = `<i class="${k}m" hidden></i>`;
     if (plan.waitForm === 'static') {
-      const mk = parse5.parseFragment(markup).childNodes[0] as P5Element;
-      mk.parentNode = parent;
-      parent.childNodes.splice(i, 0, mk as never);
-      const r = `.${names[0]!}`;
-      this.pendingSpace.push({ el: mk, node: { tag: 'i', p: ctx.stateIdx, b: [this.binding({ k: 'imp', f: this.fn(`($) => ($.$r${r}?.length || !$.$meta${r}.loading) && $.$el.remove()`, { el, attr: 'data-sn-for', shift: 0 }), d: [`$r.${names[0]!}`, `$meta.${names[0]!}`], e: 1 })] } });
-    } else {
-      const cond = `!(${plan.list})?.length && (${known.map((n) => `$meta.${n}.loading && !$meta.${n}.loadedAt`).join(' || ')})`;
-      const t = parse5.parseFragment(`<template data-sn-if="${cond.replace(/&/g, '&amp;').replace(/"/g, '&quot;')}">${markup}</template>`).childNodes[0] as P5Element;
-      t.parentNode = parent;
-      parent.childNodes.splice(i, 0, t as never);
-      if (o) this.tag(t, o);
-    }
+      const mk = this.afterList(el, markup);
+      this.pendingSpace.push({ el: mk, node: this.goneWithRows(el, 'i', names[0]!, ctx) });
+    } else this.branchAfterList(el, `!(${plan.list})?.length && (${known.map((n) => `$meta.${n}.loading && !$meta.${n}.loadedAt`).join(' || ')})`, markup);
     if (!this.waitRules.length) this.waitRules.push('@keyframes sn-wait { to { visibility: visible } }');
     // `:not(#_)`: an id's weight, over the author's rules for those boxes; the animation shows them after 3 s whatever happens
     // only at the widths where the box follows its content: elsewhere nothing moves, and nothing is hidden
@@ -9850,6 +9863,9 @@ function exclusive(a: string[], b: string[]): boolean {
   const branch = new Map(a.map((x) => x.split(':') as [string, string]));
   return b.some((x) => { const [c, k] = x.split(':') as [string, string]; return branch.has(c) && branch.get(c) !== k; });
 }
+
+/** each page's key in the classes a build adds after its lists (`pageKey()`), by its path from the root */
+const PAGE_KEYS = new Map<string, string>();
 
 /**
  * Whether markup's expressions read `name` (in any `data-sn-*` value): an identifier, not an object
