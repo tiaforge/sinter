@@ -5739,16 +5739,18 @@ class Compiler {
       const i = this.frameOf.get(f);
       if (i !== undefined && !frames.includes(i)) frames.push(i);
     }
+    // a component's tag: the element is its root; its events have the detail `data-sn-emits` declares
+    const use = this.hostUse.get(el);
     let event: string | null = null;
     // a key filter's handler runs for its keydown or keyup
     if (attrName.startsWith('data-sn-on-')) event = attrName.slice('data-sn-on-'.length).replace(/^(key(?:down|up))-.*/s, '$1');
+    // a component's model writes on its own `change`, whatever its root element
+    else if (use && attrName === 'data-sn-model') event = 'change';
     // an element-less handler (<sn-event>, <sn-resource then>) runs for no DOM event
     else if ((o.mode !== 'value' || o.magic?.includes('$event')) && !o.noElement) {
-      const tag = this.hostUse.get(el)?.root.tagName ?? el.tagName;
+      const tag = use?.root.tagName ?? el.tagName;
       event = attr(el, 'data-sn-trigger') ?? (tag === 'form' ? 'submit' : FORM_CONTROLS.has(tag) ? 'change' : 'click');
     }
-    // a component's tag: the element is its root; its events have the detail `data-sn-emits` declares
-    const use = this.hostUse.get(el);
     const e: CheckExpr = {
       src, mode: o.mode === 'value' ? 'value' : 'handler', loc: this.locOf(el, attrName, shift), frames, tag: use?.root.tagName ?? el.tagName, event,
       result: attrName === 'data-sn-then' || !!o.magic?.includes('$result'), error: attrName === 'data-sn-catch',
