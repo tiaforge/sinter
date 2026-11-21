@@ -385,17 +385,25 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
             },
             load: (id) => (id === entryId ? (map ? { code, map } : code) : id === RT_ID ? runtimeStub(rt!, own) : null),
             transform(src, id) {
-              // a content namespace the early modules call through its module: its ids (`ns \0 id`), written into the page
+              // a content namespace the early modules call through its module: its ids (`ns \0 id`), written into the page,
+              // and the formatter for one that is not plain text (`withFormatter`)
+              let fmt: { code: string; map: null } | undefined;
               if (content?.namespaces.size && !id.includes('/node_modules/') && /\.[cm]?[jt]sx?$/.test(id)) {
-                for (const d of content.namespaces.values()) if (d.module) for (const k of moduleKeys(src, id, d.module, d.name, true).keys) keys.add(`${d.name}\0${k}`);
+                const by = new Map<string, string[]>();
+                for (const d of content.namespaces.values()) if (d.module) {
+                  const ks = moduleKeys(src, id, d.module, d.name, true).keys;
+                  for (const k of ks) keys.add(`${d.name}\0${k}`);
+                  if (ks.length) by.set(d.name, ks);
+                }
+                fmt = withFormatter(src, by);
               }
               // the helpers module's re-exports of lazy packages: an early binding calls its own helpers, never
               // the barrel's copy of a namespace, which would put the package in the early file (as lazyTransform)
               if (lazyPkgs.length && sameFile(id.replace(/[?#].*$/, ''), proj().helpersFile) && mentions(src, lazyPkgs)) {
                 const s = scanLazy(src, id, lazyPkgs, true);
-                if (s.drop?.length) return { code: rewriteLazy(src, { ...s, lazy: [] }), map: null };
+                if (s.drop?.length) return { code: rewriteLazy(fmt?.code ?? src, { ...s, lazy: [] }), map: null };
               }
-              return null;
+              return fmt ?? null;
             },
           }],
           build: {
@@ -704,6 +712,23 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       if (r.keys.length) by.set(d.name, r.keys);
     }
     if (by.size) moduleNs.set(file, by); else moduleNs.delete(file);
+    return withFormatter(code, by);
+  };
+  /**
+   * An app module that calls an entry its formatter cannot inline (a plural, a formatted placeholder) in any language:
+   * it registers the formatter with the namespace's module (`install(null, format, name)`), so a page whose modules call
+   * only plain texts ships no formatter
+   */
+  const withFormatter = (code: string, by: Map<string, string[]>): { code: string; map: null } | undefined => {
+    const lines: string[] = [];
+    for (const [ns, keys] of by) {
+      const d = [...(content?.namespaces.values() ?? [])].find((x) => x.name === ns);
+      const inl = d ? inliners.get(d.format) : undefined;
+      if (!d?.module) continue;
+      const complex = keys.some((k) => (locales?.list ?? [undefined]).some((l) => { const e = contentNsAt(l)[ns]?.entries[k]; return e != null && (!inl || inl(e) === null); }));
+      if (complex) lines.push(`import { format as $snf$${ns} } from ${JSON.stringify(formatSpec(d.format))};`, `import { install as $sni$${ns} } from ${JSON.stringify(d.module)};`, `$sni$${ns}(null, $snf$${ns}, ${JSON.stringify(ns)});`);
+    }
+    return lines.length ? { code: `${code}\n${lines.join('\n')}\n`, map: null } : undefined;
   };
   const collect = collectNs;
 
@@ -1704,7 +1729,8 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
         }
         if (!want.size) continue;
         const at = pageNs.get(rel) ?? contentNsAt(pageLang(resolve(root, rel)));
-        const tags = [...want].map(([ns, keys]) => `<script type="application/json" data-sn-ns="${attr(ns)}">${JSON.stringify(packed(at[ns]?.format ?? '', Object.fromEntries([...keys].sort().map((k) => [k, at[ns]?.entries[k] ?? null])))).replace(/</g, '\\u003c')}</script>`);
+        const lang = pageLang(resolve(root, rel));
+        const tags = [...want].map(([ns, keys]) => `<script type="application/json" data-sn-ns="${attr(ns)}"${lang ? ` lang="${attr(lang)}"` : ''}>${JSON.stringify(packed(at[ns]?.format ?? '', Object.fromEntries([...keys].sort().map((k) => [k, at[ns]?.entries[k] ?? null])))).replace(/</g, '\\u003c')}</script>`);
         pageMessages.set(rel, tags.join(''));
       }
       heads();
@@ -1713,8 +1739,9 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     transform(code, id) {
       // the app's own modules: a renamed export of the main entry fails naming the new one
       if (!id.includes('/node_modules/') && /\.[cm]?[jt]sx?(\?|$)/.test(id)) { const gone = retiredExport(code); if (gone) this.error(`${relative(root, id.replace(/[?#].*$/, ''))}: ${gone}`); }
-      collect(this, code, id);
-      return lazyTransform(this, code, id);
+      // (an app module that calls a message that is not plain text gets the formatter: `withFormatter`)
+      const f = collect(this, code, id);
+      return lazyTransform(this, f?.code ?? code, id) ?? f ?? null;
     },
 
     resolveId(id, importer) {

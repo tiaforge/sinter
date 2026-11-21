@@ -45,7 +45,9 @@ part for a project that had the built-in messages (`sinter({ messages })`, remov
   `sinter.namespaces.d.ts` next to the content module (rewritten on every build and dev load, so you can git-ignore
   it). Only `m.key` is allowed: `m[key]`, and passing or aliasing `m`, are build errors. For a dynamic choice use a map
   of `() => m.key()` functions. The build writes the messages a page's modules call into the page, in its language
-  (`<script type="application/json" data-sn-ns="m">`): nothing is loaded.
+  (`<script type="application/json" data-sn-ns="m" lang="de">`), a plain message as its text: nothing is loaded. A page
+  whose modules call no message ships none of this module, and a module brings the formatter only when it calls a
+  plural or a formatted placeholder.
 - Your helpers module must not also export a namespace `m`: one name calls one namespace.
 - **Per tenant** ([docs/static-pages.md](static-pages.md#a-site-per-tenant-axes)):
   `inlang({ per: [tenants, locales], tenantFiles: (t) => './tenants/' + t.key + '/{locale}.json' })` reads a tenant's
@@ -61,7 +63,8 @@ A page has one language, chosen at build:
   switching is a link (`localeUrl('de')`). See [docs/static-pages.md](static-pages.md#languages).
 - Without `localePrefix`, the build is in the base language only, and the other languages' files are not used.
 - `$locale` is the page's language and cannot be assigned (`SN203`).
-- The messages are the locale source of `date()` and `number()`: do not also call `configure({ locale })`.
+- The page's language is the locale of `date()` and `number()`, messages or not, unless the app's
+  `configure({ locale })` sets one.
 
 An app without `inlang()` in its content module ships none of this.
 

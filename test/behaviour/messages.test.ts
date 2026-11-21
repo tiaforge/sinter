@@ -64,3 +64,12 @@ test('the messages as a namespace: install() reads the page\'s entries, `m.inbox
   expect([mm.inbox.unread({ count: 1 }), mm.inbox.unread({ count: 3 })]).toEqual(['1 Nachricht', '3 Nachrichten']);
   expect(state().locale).toBe('de');
 });
+
+test('the messages module starts on its first call: the page\'s entries and their language, with no install()', async () => {
+  const { state } = await import('../../src/messages.js');
+  (globalThis as any)[Symbol.for('sinter.i18n')] = undefined;
+  document.body.innerHTML = '<script type="application/json" data-sn-ns="m" lang="de">{"bye":"Tschüss {name}"}</script>';
+  expect((m as unknown as { bye(p: { name: string }): string }).bye({ name: 'Ada' })).toBe('Tschüss Ada');
+  expect(state().locale).toBe('de');
+  (globalThis as any)[Symbol.for('sinter.i18n')] = undefined;
+});

@@ -255,12 +255,14 @@ function earlyLines(early: EarlyParts | null, options: Pick<CompileOptions, 'hel
       }
     }
   }
-  // a content namespace app code imports: its module gets the page's language (the early bindings' formatters read it)
-  if (early) lines.push(...installLines(options));
   for (const [mod, specs] of byModule) lines.push(`import { ${specs.join(', ')} } from ${JSON.stringify(mod)};`);
   // the built-in formatters the early bindings call, from the package (not the early runtime, which the build shares
   // between pages): each early file bundles only those it calls, beside the messages module that sets its locale
-  if (early?.formatters?.length) lines.push(`import { ${early.formatters.join(', ')} } from '${RUNTIME}';`);
+  // (in the page's language, when it has one: `$lang`)
+  if (early?.formatters?.length) {
+    lines.push(`import { ${[...early.formatters, ...(options.locale ? ['$lang'] : [])].join(', ')} } from '${RUNTIME}';`);
+    if (options.locale) lines.push(`$lang(${JSON.stringify(options.locale.name)});`);
+  }
   lines.push('');
   if (early) {
     lines.push('const page = () => {', '  const f = [');
@@ -280,8 +282,10 @@ export function pageModule(parts: CompiledParts, options: Pick<CompileOptions, '
 function pageLines(parts: CompiledParts, options: Pick<CompileOptions, 'helpers' | 'dev' | 'config' | 'actions' | 'prefetch' | 'origins' | 'locale' | 'apis' | 'swap' | 'swapList'> & Partial<Pick<CompileOptions, 'root'>>): MappedLines {
   const lines = new MappedLines();
   // the page module is `async`: it waits for the parse, and for the early file if the page has one
-  const core = ['mount', '$k', parts.early ? 'rendered' : 'parsed', ...parts.helpers.builtin];
+  const core = ['mount', '$k', parts.early ? 'rendered' : 'parsed', ...parts.helpers.builtin, ...(options.locale ? ['$lang'] : [])];
   lines.push(`import { ${core.join(', ')} } from '${RUNTIME}';`);
+  // a page in one language: the locale the formatters use, the app's and the page's
+  if (options.locale) lines.push(`$lang(${JSON.stringify(options.locale.name)});`);
   // prefixed (a helper may be named as a feature: `keys`, `form`, …), and an identifier (`query-links` is `sn$query_links`)
   const local = (f: string) => `sn$${f.replace(/-/g, '_')}`;
   for (const f of parts.features) lines.push(`import ${local(f)} from '${RUNTIME}/${f}';`);
@@ -304,8 +308,6 @@ function pageLines(parts: CompiledParts, options: Pick<CompileOptions, 'helpers'
     for (const s of specs) lines.push(`import { load as ${loader(s)} } from ${JSON.stringify(`${LAZY_PREFIX}${s}.js`)};`);
     for (const x of parts.lazyHelpers) lines.push(`const ${x.local} = $laterH(() => import(${JSON.stringify(x.module)}), [${x.lazy.map(loader).join(', ')}], ${options.dev || !x.module.startsWith('/') ? 'null' : JSON.stringify(`__SN_CHUNK__${file(x.module)}__`)}, import.meta.url);`);
   }
-  // a content namespace app code imports (`module`): its module gets the page's language and the formatter first
-  lines.push(...installLines(options));
   // actions (`data-sn-call`): imported as `$a$name` / `$a$ns$member`, only those the page calls
   const acts = options.actions;
   if (acts?.module) {
@@ -391,19 +393,6 @@ export function helperImports(user: Iterable<string>, namespaces: Record<string,
  * its entry in the page's language, through the namespace's formatter module (`format(entry, args, locale)`), or for
  * the built-in `{param}` form a function of its text, as the messages are.
  */
-/** `install(locale, format)` of each content namespace app code imports by name (`module`), before the page's code runs */
-function installLines(options: Pick<CompileOptions, 'contentNs' | 'locale'>): string[] {
-  return Object.entries(options.contentNs ?? {}).flatMap(([ns, spec]) => {
-    if (!spec.module || !spec.format) return [];
-    // every entry plain (the formatter inlines it): the module reads them without the formatter
-    const plain = !!spec.inlineFn && Object.values(spec.entries).every((e) => spec.inlineFn!(e) !== null);
-    return [
-      `import { install as $install$${ns} } from ${JSON.stringify(spec.module)};`,
-      ...(plain ? [] : [`import { format as $fmti$${ns} } from ${JSON.stringify(spec.format)};`]),
-      `$install$${ns}(${[JSON.stringify(options.locale?.name ?? ''), ...(plain && ns === 'm' ? [] : [plain ? 'null' : `$fmti$${ns}`]), ...(ns === 'm' ? [] : [JSON.stringify(ns)])].join(', ')});`,
-    ];
-  });
-}
 
 function contentLines(ns: string, members: string[], options: Pick<CompileOptions, 'contentNs' | 'locale'>): string {
   const spec = options.contentNs?.[ns];

@@ -97,9 +97,57 @@ export const messages = inlang();
     // the one over data: compiled with the messages formatter and its message alone
     const js = readdirSync(join(dist, 'assets')).filter((x) => x.endsWith('.js')).map((x) => readFileSync(join(dist, 'assets', x), 'utf8')).join('\n');
     expect(js).toContain('ungelesene Nachrichten');
-    // the message the helper calls: written into the German page, in German; the page module installs the formatter
-    expect(page('de')).toContain('<script type="application/json" data-sn-ns="m">{"inbox.title":"Posteingang"}</script>');
-    expect(js).toMatch(/install/);
+    // the message the helper calls: written into the German page, in German, with its language
+    expect(page('de')).toContain('<script type="application/json" data-sn-ns="m" lang="de">{"inbox.title":"Posteingang"}</script>');
+  } finally {
+    rmSync(app, { recursive: true, force: true });
+  }
+}, 120_000);
+
+test('what a page ships of the messages: nothing without a call; the module alone for plain texts; the formatter for a plural', async () => {
+  const app = mkdtempSync(join(tmpdir(), 'sinter-inlang-ship-'));
+  try {
+    const plural = (one: string, other: string) => [{ declarations: ['input count', 'local n = count: plural'], selectors: ['n'], match: { 'n=one': one, 'n=*': other } }];
+    const page = (body: string) => `<!doctype html><html lang="en"><head><title>x</title></head><body><sn-resource name="d" src="/api/d"></sn-resource>${body}</body></html>`;
+    const f: Record<string, string> = {
+      'project.inlang/settings.json': JSON.stringify({ baseLocale: 'en', locales: ['en', 'de'] }),
+      'messages/en.json': JSON.stringify({ title: 'Inbox', items: plural('{count} item', '{count} items') }),
+      'messages/de.json': JSON.stringify({ title: 'Eingang', items: plural('{count} Eintrag', '{count} Einträge') }),
+      'src/sinter.content.ts': "import { languages } from '@tiaforge-ui/sinter/content';\nimport { inlang, inlangLocales } from '@tiaforge-ui/sinter/messages/content';\nexport const locales = languages(({ root }) => inlangLocales('project.inlang', root));\nexport const messages = inlang();\n",
+      'src/plain.ts': "import { m } from '@tiaforge-ui/sinter/messages';\nexport const shout = (x: unknown) => m.title().toUpperCase() + String(x);\n",
+      'src/count.ts': "import { m } from '@tiaforge-ui/sinter/messages';\nexport const many = (n: number) => m.items({ count: n });\n",
+      'src/sinter.helpers.ts': "export { shout } from './plain.ts';\nexport { many } from './count.ts';\n",
+      'none.html': page('<p data-sn-text="d.n"></p>'),
+      'plain.html': page('<p data-sn-text="shout(d.n)"></p>'),
+      'count.html': page('<p data-sn-text="many(d.n)"></p>'),
+    };
+    for (const [k, v] of Object.entries(f)) { mkdirSync(dirname(join(app, k)), { recursive: true }); writeFileSync(join(app, k), v); }
+    const dist = join(app, 'dist');
+    await build({ root: app, logLevel: 'silent', resolve: { alias }, plugins: [sinter({ localePrefix: true, typecheck: false })], build: { outDir: dist, emptyOutDir: true, rollupOptions: { input: ['none.html', 'plain.html', 'count.html'].map((x) => join(app, x)) } } });
+    // a page's scripts: its own, and every chunk they import
+    const shipped = (rel: string) => {
+      const html = readFileSync(join(dist, rel), 'utf8'), seen = new Set<string>(), todo = [...html.matchAll(/(?:src|href)="\/(assets\/[^"]+\.js)"/g)].map((x) => x[1]!);
+      let js = '';
+      while (todo.length) {
+        const a = todo.pop()!;
+        if (seen.has(a)) continue;
+        seen.add(a);
+        const c = readFileSync(join(dist, a), 'utf8');
+        js += c;
+        for (const x of c.matchAll(/from\s*["'`]\.\/([^"'`]+\.js)["'`]/g)) todo.push(`assets/${x[1]}`);
+      }
+      return { html, js };
+    };
+    const none = shipped('de/none/index.html'), plain = shipped('de/plain/index.html'), count = shipped('de/count/index.html');
+    expect(none.html).not.toContain('data-sn-ns');
+    expect(none.js).not.toContain('sinter.i18n');
+    expect(plain.html).toContain('<script type="application/json" data-sn-ns="m" lang="de">{"title":"Eingang"}</script>');
+    expect(plain.js).toContain('sinter.i18n');
+    expect(plain.js).not.toContain('PluralRules');
+    expect(count.html).toMatch(/data-sn-ns="m" lang="de">\{"items":\{"s":/);
+    expect(count.js).toContain('PluralRules');
+    // the page's language is the formatters' locale, without messages too
+    expect(none.js).toMatch(/\(`de`\)/);
   } finally {
     rmSync(app, { recursive: true, force: true });
   }

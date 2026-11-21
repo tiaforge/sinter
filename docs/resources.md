@@ -399,9 +399,11 @@ export function format(entry, args, locale) { return entry.body.replace(/\[(\w+)
   formatter shipped for it), and `pack(entry)`, the smaller form of an entry written into a page for its modules.
 - `sinter check` and the editor know a namespace's ids from the build's snapshot (`vite build` or `vite dev` writes it).
 - `per: [tenants]` loads a namespace per axis, each page reading its point's entries. `types` gives `sinter check` its type.
-- **App code** calls a namespace through its `module` (`namespace({ module: '/src/legal.ts' })`, whose `install(locale, format)`
-  the page module calls first): the build writes the entries a page's modules call into it, in
-  `<script type="application/json" data-sn-ns="legal">`, which the module reads. A module that declares
+- **App code** calls a namespace through its `module` (`namespace({ module: '/src/legal.ts' })`): the build writes the
+  entries a page's modules call into it, in `<script type="application/json" data-sn-ns="legal" lang="de">` (packed by
+  the formatter's `pack()`), which the module reads the first time it is called. A page whose modules call none gets
+  no script and does not load the module. An app module that calls an entry the formatter cannot inline gets the
+  formatter: the build adds `install(null, format, 'legal')`, which the module exports. A module that declares
   `export interface Entries {}` is typed from `types` by the generated `sinter.namespaces.d.ts` next to the content
   module (`declare module '/src/legal.ts' { interface Entries … }`), rewritten on every build and dev load.
 

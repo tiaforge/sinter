@@ -5,6 +5,14 @@ import { envOf } from './env.js';
 
 const locale = () => config.locale?.get();
 
+/**
+ * A page in one language (`localePrefix`, or a build in its content's base language): the locale the built-in
+ * formatters use, unless the app's `configure({ locale })` set one. The page module and the early file call it.
+ */
+export function $lang(l: string): void {
+  config.locale ??= { get: () => l, set: () => {} };
+}
+
 // Building an Intl formatter costs far more than formatting with it: one per kind, locale and
 // options, reused. A locale switch reads another key, so nothing needs clearing.
 const cache = new Map<string, Intl.DateTimeFormat | Intl.RelativeTimeFormat | Intl.NumberFormat>();
