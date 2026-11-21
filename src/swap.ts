@@ -3,8 +3,9 @@
 // in, keeping the elements both pages name with `data-sn-permanent`; the new page's code mounts in the
 // same step. This is the stub every page that swaps carries: it decides, intercepts the browser's
 // `navigate` event, and loads the rest (swap-run.ts) when a navigation needs it. Where the browser has no
-// Navigation API it does nothing: every navigation stays a page load.
-import { RANK, ask, asked, chain } from './links.js';
+// Navigation API, or one without `sourceElement` (Chromium 102 to 134, links.ts), it does nothing: every navigation
+// stays a page load.
+import { RANK, api, ask, asked, chain } from './links.js';
 import type { App, Feature, Intent } from './runtime/app.js';
 
 /** one page of the build's list (swap-build.ts): the paths it answers at, the names it keeps */
@@ -88,7 +89,7 @@ export function swap(list: SwapPage[]): Feature {
     name: 'swap',
     install(app: App) {
       // the page's app swaps the page (an app mounted on an element of it does not); none without the Navigation API
-      if (!nav() || app.root !== document) return;
+      if (!api() || app.root !== document) return;
       const s = state(list), c = chain(app);
       // the position of the entry each navigation leaves (a swap's, a same-page link's, Back's), before
       // another entry is current
