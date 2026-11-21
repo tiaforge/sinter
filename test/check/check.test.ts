@@ -149,6 +149,14 @@ declare global {
     expect(r.diagnostics[0]!.file).toMatch(/src\/components\/contact-card.html$/);
   });
 
+  test('data-sn-model on a component: $event.detail is its `change` detail, whatever its root element', () => {
+    const field = { 'src/components/note-field.html': `<template data-sn-props="{ value: string }" data-sn-emits="{ change: string }">
+  <div><textarea data-sn-attr="{ value }" data-sn-on-input="emit('change', $el.value)"></textarea></div>
+</template>` };
+    expect(run(page(`<div data-sn-state="{ note: '' }"><note-field data-sn-model="note"></note-field></div>`), field).diagnostics).toEqual([]);
+    one(page(`<div data-sn-state="{ n: 0 }"><note-field data-sn-model="n"></note-field></div>`), /Type 'string' is not assignable to type 'number'/, 'n"></note-field>', field);
+  });
+
   test('head components: props typed by data-sn-props at the call site and inside', () => {
     const seo = { 'src/components/seo-tags.html': `<template data-sn-props="{ contact: Contact; count?: number }">
   <title data-sn-text="contact.name"></title>
