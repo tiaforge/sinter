@@ -2,7 +2,7 @@
 // (compile.ts, finishChoices): a component library's dispatch over its node types, used in every place its
 // tree recurses. It must choose exactly what the chain chose: a name's first candidate, nothing for a value
 // outside the names (an inherited key like `toString` included, and anything not a string),
-// and follow a change of the value.
+// and follow a change of the value. A map's choice is one table keyed by the map's own keys.
 import { describe, expect, test } from 'vitest';
 import { firstPaint, render } from '../../src/testing/index.js';
 
@@ -26,6 +26,13 @@ describe('a choice among many candidates', () => {
     const { root, flush } = await render(page(`[{ type: 'toString', text: 't' }, { type: 'valueOf', text: 'v' }, { type: 5, text: 'n' }, { type: null, text: 'z' }, { type: 'c3', text: 'ok' }]`), { components });
     await flush();
     expect(shape(root)).toEqual(['-:t', '-:v', '-:n', '-:z', '3:ok']);
+  });
+
+  test('a key that reaches a prototype is refused, as the map\'s computed access refuses it: neither a candidate nor the else', async () => {
+    // the table is keyed by the map's keys (the map folded into it), so it keeps the map's `$k` guard
+    const { root, flush } = await render(page(`[{ type: 'constructor', text: 'k' }, { type: '__proto__', text: 'p' }, { type: 'c2', text: 'ok' }]`), { components });
+    await flush();
+    expect(shape(root)).toEqual(['2:ok']);
   });
 
   test('a change of the value renders the other candidate', async () => {

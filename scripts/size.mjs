@@ -136,8 +136,14 @@ const entries = {
 // the early runtime interprets no request): the minimal page to 11 KB (11,192 B), with swaps to 12.875 KB (13,065 B), with
 // a link to 11.125 KB (11,320 B), with a token to 12.125 KB (12,256 B) and its early file to 1.875 KB (1,770 B), RealWorld's
 // shared head script to 3.375 KB (3,283 B) and the article to 60 KB (61,290 B)
+// Lowered on 2026-11-21: the article to 58.375 KB (59,597 B), when sinter-markdown's parser drove markdown-it's parsers
+// without its class (1,443 B: the presets, the renderer, the plugin API) and a map's `<sn-component use>` became one
+// table keyed by the map's keys (250 B: md-doc's dispatch, in each of its 25 places); to 58.125 KB (59,419 B) the same
+// day, when the parser's entity table grouped the names that share a value (178 B); to 57.125 KB (58,374 B) the same day,
+// when templates several shared definitions write alike were kept once (1,039 B: md-doc's loop over a node's children,
+// written in 20 of its components)
 const BUDGET = {
-  minimal: 11 * 1024, 'minimal, swaps': 12.875 * 1024, 'realworld article': 60 * 1024,
+  minimal: 11 * 1024, 'minimal, swaps': 12.875 * 1024, 'realworld article': 57.125 * 1024,
   'minimal, link': 11.125 * 1024, 'minimal, token': 12.125 * 1024, 'minimal, token, early': 1.875 * 1024, 'realworld early, shared': 3.375 * 1024,
 };
 let failed = false;

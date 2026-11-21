@@ -76,6 +76,7 @@ A full document keeps its `<html>` attributes (`lang`, `data-sn-state`, `data-sn
 | `images`, `css` | `images: { remote }` as `sinter()` takes it, and the page's CSS, for pages with bound images |
 | `minifyHtml` | minify the page as a build does (off by default here), against `css` ([minify.md](minify.md)) |
 | `strict` | `true` or `{ allow }`: the page's warnings throw and a runtime warning rejects the call that ran it; default `SINTER_STRICT`, which `false` overrides ([docs/strict.md](strict.md#in-tests)) |
+| `dev` | `false`: the page compiles as a production build does, without the dev build's source positions and checks, and with the build's own passes (templates several shared definitions write alike kept once); default `true` |
 
 Pass your real helpers and actions rather than copies:
 

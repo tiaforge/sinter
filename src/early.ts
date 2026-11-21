@@ -518,7 +518,8 @@ export function iff(start: Comment, v: unknown, x: number, z: number | null, a: 
 export function ch(start: Comment, v: [number, unknown] | null, ts: number[], items: string[], rs: Array<Branch | 0>, s: any): void | typeof WAIT {
   if (!v || ts[v[0]] == null) return;
   const k = v[0], sc = Object.create(s);
-  sc[items[k]!] = v[1];
+  // a case is a shared definition: its props also as `$pp`, as the page module's rows have them
+  sc[items[k]!] = sc.$pp = v[1];
   return branch(start, k + 1, ts[k]!, rs[k], sc);
 }
 
@@ -541,7 +542,7 @@ export function each(start: Comment, list: unknown, x: number, r: Branch | 0, it
     const nodes = cloneOf(x);
     end.before(...nodes);
     rows.push(nodes);
-    if (r) { const sc = Object.create(s); sc[item] = v; if (index) sc[index] = i; r(nodes, sc); fixer?.(nodes); }
+    if (r) { const sc = Object.create(s); sc[item] = v; if (item[1] == 'p' && item[0] == '$') sc.$pp = v; if (index) sc[index] = i; r(nodes, sc); fixer?.(nodes); }
   });
   (start as any)[EARLY_ROWS] = { rows, end } satisfies EarlyRows;
 }
