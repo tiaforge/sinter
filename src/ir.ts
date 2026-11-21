@@ -240,6 +240,7 @@ export interface EarlyIR {
 }
 
 export interface TemplateDef {
+  /** its index in `templates`: the compiler's; the page module leaves it out (`compactIR`), the runtime has the index */
   id: number;
   nodes: NodeDef[];
   /** its content is inside `<svg>` or `<math>` (foreign content): the head template holds that element, and a row is made of its children */
@@ -395,6 +396,31 @@ export interface IR {
 
 export type Fn = (scope: any, value?: any) => any;
 
+/**
+ * Every function index of the IR, each replaced by what `f` returns for it (return it unchanged to only read them): the
+ * fields `validateIR` checks, which this and it keep alike. An object two fields share is visited once. The compiler's
+ * last pass renumbers the table with it (compile.ts, `compactTables`); the dev builds' `at` maps are not visited.
+ */
+export function mapFns(ir: IR, f: (i: number) => number): void {
+  const seen = new Set<object>();
+  const once = (o: object | null | undefined): o is object => !!o && !seen.has(o) && !!seen.add(o);
+  const m = <T extends object>(o: T, ...ks: Array<keyof T>) => { for (const k of ks) if (typeof o[k] == 'number') (o as Record<keyof T, unknown>)[k] = f(o[k] as number); };
+  const url = (u: UrlTemplate | undefined) => { if (once(u)) u.forEach((p, i) => { if (typeof p == 'number') u[i] = f(p); }); };
+  const call = (c: CallDef | undefined) => { if (once(c)) m(c, 'args', 'run'); };
+  for (const r of ir.resources) if (once(r)) {
+    m(r, 'u', 'when', 'then', 'body'); url(r.src); call(r.call);
+    if (once(r.paginate)) m(r.paginate, 'cursor', 'start');
+    if (once(r.each)) m(r.each, 'list');
+  }
+  for (const s of ir.syncs ?? []) if (once(s)) { m(s, 'u'); url(s.src); for (const e of s.events) if (once(e)) m(e, 'value', 'when', 'then'); }
+  const nodes = (ns: NodeDef[]) => { for (const n of ns) if (once(n)) { m(n, 'state'); for (const b of n.b) if (once(b)) { m(b, 'f', 'a'); if (once(b.s)) m(b.s, 'r', 'o'); } } };
+  nodes(ir.roots);
+  for (const t of ir.templates) if (once(t)) { nodes(t.nodes); m(t, 'key', 'find', 'make'); }
+  if (ir.lm) ir.lm = ir.lm.map(f);
+  for (const a of ir.actions) if (once(a)) { m(a, 'u', 'body', 'optimistic', 'then', 'catch', 'confirm'); url(a.url); call(a.call); }
+  if (once(ir.si)) m(ir.si, 'f');
+}
+
 /** Structural check of an IR against v2; returns problems (empty when valid). */
 export function validateIR(ir: unknown, fnCount: number): string[] {
   const errs: string[] = [];
@@ -434,7 +460,9 @@ export function validateIR(ir: unknown, fnCount: number): string[] {
     if (r.paginate) {
       if (!['keyset', 'numbered', 'append'].includes(r.paginate.mode)) errs.push(`${at}: bad paginate mode`);
       fn(r.paginate.cursor, `${at}.paginate.cursor`);
+      fn(r.paginate.start, `${at}.paginate.start`);
     }
+    if (r.each) fn(r.each.list, `${at}.each.list`, false);
   });
   (o.syncs ?? []).forEach((s, i) => {
     if (s.u != null) fn(s.u, `syncs[${i}].u`, false); else url(s.src, `syncs[${i}].src`);
@@ -485,7 +513,8 @@ export function validateIR(ir: unknown, fnCount: number): string[] {
   });
   nodes(o.roots, 'roots', false);
   o.templates.forEach((t, i) => {
-    if (t.id !== i) errs.push(`templates[${i}]: id must equal its index`);
+    // (absent in the page module's)
+    if (t.id !== undefined && t.id !== i) errs.push(`templates[${i}]: id must equal its index`);
     nodes(t.nodes, `templates[${i}].nodes`, true);
     fn(t.key, `templates[${i}].key`);
     fn(t.find, `templates[${i}].find`);
@@ -503,9 +532,10 @@ export function validateIR(ir: unknown, fnCount: number): string[] {
       if (a.url?.length) errs.push(`${at}: a call action has no url`);
     } else if (a.u != null) fn(a.u, `${at}.u`, false);
     else url(a.url, `${at}.url`);
-    for (const k of ['body', 'optimistic', 'then', 'catch'] as const) fn(a[k], `${at}.${k}`);
+    for (const k of ['body', 'optimistic', 'then', 'catch', 'confirm'] as const) fn(a[k], `${at}.${k}`);
     for (const d of a.w ?? []) if (bad(d)) errs.push(`${at}: bad path`);
   });
+  if (o.si) fn(o.si.f, 'si.f');
   return errs;
 }
 
@@ -522,6 +552,7 @@ const NULLS = (o: object) => Object.fromEntries(Object.entries(o).filter(([, v])
  */
 const noSrc = <T extends { src: unknown }>({ src: _, ...rest }: T) => rest;
 const noUrl = ({ url: _, ...rest }: ActionDef) => rest;
+const noId = ({ id: _, ...rest }: TemplateDef) => rest;
 
 export function compactIR(full: IR): IR {
   const ir = structuredClone(full), ps = numberPaths(ir);
@@ -550,8 +581,8 @@ export function compactIR(full: IR): IR {
     ...(syncs?.length ? { syncs: syncs.map((s) => ({ ...(s.u != null ? noSrc(s) : s), events: s.events.map((e) => NULLS(e) as EventDef) }) as SyncDef) } : {}),
     actions: ir.actions.map((a) => (a.u != null ? noUrl(a) : a) as ActionDef),
     roots: ir.roots.map(compactNode),
-    // a template's absent `index`, `key` and `keyFields` are null
-    templates: ir.templates.map((t) => ({ ...NULLS(t), nodes: t.nodes.map(compactNode), ...(simple(t) ? { sm: 1 } : {}), ...(reads(t, new Set()) ? { ri: 1 } : {}) }) as TemplateDef),
+    // a template's absent `index`, `key` and `keyFields` are null; its `id` is its index, which the runtime reads instead
+    templates: ir.templates.map((t) => ({ ...NULLS(noId(t)), nodes: t.nodes.map(compactNode), ...(simple(t) ? { sm: 1 } : {}), ...(reads(t, new Set()) ? { ri: 1 } : {}) }) as TemplateDef),
     ps,
     ...(ev.length ? { ev } : {}),
   };

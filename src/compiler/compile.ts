@@ -25,7 +25,7 @@ import { apiOf, RESPONSE_PATH, shapeTemplate, signInWire, type ApiDef, type Apis
 import { foldReason, type FoldVerdict } from '../fold-check.js';
 import { BUILD_TIME_ATTRS, buildTimeAttrProblem, FILE_ATTRS, FILE_ENTRY, fileAttrProblem, fileEntry, filePath, fileValue, isContentSource, isFileSource, isGlob, PAGE_ENTRY, scriptJson, setPath, sortList } from './files.js';
 import { deref, matchOperation, matchResource, type Method, type OpenApiMatch, type Auth, namedAt, namedSchema, properties, propertyNames, queryNames, responseEntities, walk, wrapperKey, type OpenApiSpec } from './openapi.js';
-import { templatesOf, type ActionDef, type ApplyDef, type Binding, type EarlyIR, type EventDef, type IR, type NodeDef, type Paginate, type PathRef, type ResourceDef, type SyncDef, type TemplateDef, type UrlTemplate } from '../ir.js';
+import { mapFns, templatesOf, type ActionDef, type ApplyDef, type Binding, type EarlyIR, type EventDef, type IR, type NodeDef, type Paginate, type PathRef, type ResourceDef, type SyncDef, type TemplateDef, type UrlTemplate } from '../ir.js';
 import { $k, schemesOf, STYLE_BAD, urlAllowed } from '../runtime/security.js';
 import { $href, $hq, $hv, withParams } from '../runtime/url.js';
 import { firstParams, pageParams } from '../runtime/pages.js';
@@ -1672,6 +1672,8 @@ class Compiler {
     const navigates = this.fns.some((c) => c.includes('$f.navigate('));
     if (reads && !hasBase(doc) && (navigates || this.seesSameLink(own))) { ir.urlReads = reads; this.features.add('query-links'); this.features.add('location'); }
     this.fileJson();
+    // builds: the last pass over the tables, after every pass that leaves a template or a function unused
+    if (!this.opts.dev) this.compactTables(ir, early);
     return {
       ...(this.jsonOut.size ? { json: this.jsonOut } : {}),
       ...(this.lateDiags.length ? { lateDiagnostics: this.lateDiags } : {}),
@@ -1709,6 +1711,89 @@ class Compiler {
       lazyHelpers,
       preload: [...this.preloads].sort(),
     };
+  }
+
+  /**
+   * Builds: the templates nothing renders and the functions nothing calls leave the page, and the rest are numbered
+   * again, in their order. The passes before leave them in place to keep the others' indexes: a template `shareTemplates`
+   * pointed elsewhere (`{ id, nodes: [] }`), one under a branch or loop the build decided, a function that is `'0'`
+   * (`groupStyles`, `dropConstants`, `fixedDeps`, the shared templates' copies) or only a dropped template's. A template
+   * is kept when an anchor of the page's or the early file's reaches it; a function when a field of the IR names it
+   * (`mapFns`, the fields `validateIR` checks), one copy of each code. What holds the numbers follows: the anchors'
+   * `x`, `z` and `c` (the early file's too, and its table by template), the head templates' `sn-t-<id>`, the loop index
+   * names `$i<id>` (in paths, where the runtime reads the template from them, and in code), the function table's
+   * sites (the source map's `fns`), uses and index. The early file's own table is apart, and has no gaps.
+   */
+  compactTables(ir: IR, early: EarlyParts | null | undefined) {
+    const T = this.templates, E = early?.ir.templates;
+    const live = new Set<number>();
+    const todo = [...ir.roots, ...(early?.ir.roots ?? [])].flatMap((n) => n.b.flatMap(templatesOf));
+    while (todo.length) {
+      const x = todo.pop()!;
+      if (live.has(x) || !T[x]) continue;
+      live.add(x);
+      for (const n of [...T[x]!.nodes, ...(E?.[x]?.nodes ?? [])]) for (const b of n.b) todo.push(...templatesOf(b));
+    }
+    const tmap = new Map<number, number>();
+    T.forEach((_, i) => { if (live.has(i)) tmap.set(i, tmap.size); });
+    if (tmap.size < T.length || [...tmap].some(([a, b]) => a !== b)) {
+      const point = (n: NodeDef) => {
+        for (const b of n.b) {
+          if (b.k === 'for' || b.k === 'if') { b.x = tmap.get(b.x!)!; if (b.z != null) b.z = tmap.get(b.z)!; }
+          if (b.k === 'ch') b.c = b.c!.map((x) => tmap.get(x)!);
+        }
+      };
+      // a loop's index name holds its template's id (`$i<id>`): its paths (`{$i<id>}`) tell the runtime the row's template
+      const names = new Map<string, string>();
+      for (const [a, b] of tmap) if (a !== b && T[a]!.ii === `$i${a}`) names.set(`$i${a}`, `$i${b}`);
+      const re = /(?<![\w$])\$i\d+(?![\w$])/g;
+      const rename = <S extends string | number>(x: S): S => (typeof x === 'string' && names.size ? x.replace(re, (m) => names.get(m) ?? m) as S : x);
+      const heads = [...this.headTemplates];
+      this.headTemplates.clear();
+      for (const [tid, tpl] of heads) {
+        const j = tmap.get(tid);
+        if (j === undefined) { detach(tpl); continue; }
+        tpl.attrs = tpl.attrs.map((a) => (a.name === 'id' ? { ...a, value: `sn-t-${j}` } : a));
+        this.headTemplates.set(j, tpl);
+      }
+      const kept = T.filter((_, i) => live.has(i));
+      T.splice(0, T.length, ...kept);
+      T.forEach((t, i) => { t.id = i; if (t.ii) t.ii = rename(t.ii); });
+      for (const n of [...ir.roots, ...T.flatMap((t) => t.nodes)]) point(n);
+      if (early) {
+        const et: EarlyIR['templates'] = [];
+        for (const [a, b] of tmap) et[b] = E![a] ?? null;
+        for (let i = 0; i < et.length; i++) et[i] ??= null;
+        while (et.length && et[et.length - 1] === null) et.pop();
+        early.ir.templates = et;
+        for (const n of [...early.ir.roots, ...et.flatMap((t) => t?.nodes ?? [])]) point(n);
+        if (names.size) early.fns.forEach((c, i) => { early.fns[i] = rename(c); });
+      }
+      if (names.size) {
+        eachPath(ir, (p, set) => set(rename(p)), (p, set) => set(rename(p)));
+        this.fns.forEach((c, i) => { this.fns[i] = rename(c); });
+      }
+    }
+    // the functions the IR names, in their order, each code once
+    const used = new Set<number>();
+    mapFns(ir, (i) => (used.add(i), i));
+    const fmap = new Map<number, number>(), byCode = new Map<string, number>();
+    const fns: string[] = [], at: Array<Site | null> = [], uses: number[] = [];
+    for (let i = 0; i < this.fns.length; i++) {
+      if (!used.has(i)) continue;
+      const code = this.fns[i]!;
+      let j = byCode.get(code);
+      if (j === undefined) { byCode.set(code, (j = fns.push(code) - 1)); at[j] = this.fnAt[i] ?? null; uses[j] = 0; }
+      uses[j]! += this.fnUses[i] ?? 1;
+      fmap.set(i, j);
+    }
+    if (fns.length === this.fns.length && [...fmap].every(([a, b]) => a === b)) return;
+    mapFns(ir, (i) => fmap.get(i)!);
+    this.fns.splice(0, this.fns.length, ...fns);
+    this.fnAt.splice(0, this.fnAt.length, ...at);
+    this.fnUses.splice(0, this.fnUses.length, ...uses);
+    this.fnIndex.clear();
+    for (const [code, j] of byCode) this.fnIndex.set(code, j);
   }
 
   /** A kept template (`fromTemplate`): whether its program is the same for every entry (no entry's URL in it). */

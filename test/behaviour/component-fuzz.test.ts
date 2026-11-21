@@ -127,7 +127,12 @@ test('random nested components: a state change renders what a fresh render, the 
       const early = await render(page(b, true), { components: COMPONENTS, firstPaint: true });
       await early.settle();
       const took = seen(early.root);
-      for (const [what, got] of [['after a change', after], ['over constants', built], ['early, taken over', took]] as const) {
+      // as a build compiles it (shared templates kept once, the tables compacted), early and after a change
+      const build = await render(page(a, true), { components: COMPONENTS, dev: false, firstPaint: true });
+      (build.root.querySelector('#w') as HTMLButtonElement).click();
+      await build.settle();
+      const inBuild = seen(build.root);
+      for (const [what, got] of [['after a change', after], ['over constants', built], ['early, taken over', took], ['in a build, after a change', inBuild]] as const) {
         if (got !== fresh) failures.push(`seed ${seed} ${what}: ${tpl}\n  data ${lit(b)}\n  got   ${got}\n  fresh ${fresh}`);
       }
     } catch (e) {

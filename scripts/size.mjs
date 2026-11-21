@@ -141,9 +141,10 @@ const entries = {
 // table keyed by the map's keys (250 B: md-doc's dispatch, in each of its 25 places); to 58.125 KB (59,419 B) the same
 // day, when the parser's entity table grouped the names that share a value (178 B); to 57.125 KB (58,374 B) the same day,
 // when templates several shared definitions write alike were kept once (1,039 B: md-doc's loop over a node's children,
-// written in 20 of its components)
+// written in 20 of its components); to 56.625 KB (57,930 B) on 2026-11-21, when a build's last pass over the page's
+// tables took out the templates nothing renders, each template's id and the functions nothing calls (469 B)
 const BUDGET = {
-  minimal: 11 * 1024, 'minimal, swaps': 12.875 * 1024, 'realworld article': 57.125 * 1024,
+  minimal: 11 * 1024, 'minimal, swaps': 12.875 * 1024, 'realworld article': 56.625 * 1024,
   'minimal, link': 11.125 * 1024, 'minimal, token': 12.125 * 1024, 'minimal, token, early': 1.875 * 1024, 'realworld early, shared': 3.375 * 1024,
 };
 let failed = false;

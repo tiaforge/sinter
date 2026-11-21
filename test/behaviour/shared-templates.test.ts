@@ -29,9 +29,9 @@ const shape = (root: ParentNode) => root.querySelector('.doc')!.innerHTML.replac
 describe('templates shared by several definitions', () => {
   test('the copies are kept once, and read their definition\'s props as `$pp`', async () => {
     const { app } = await render(page(DOC), { components: TREE, dev: false });
-    const empty = app.ir.templates.filter((x) => !x.nodes.length && x.item === undefined).length;
-    // x-em, x-strong and x-link each had the loop; two of them now point at the first
-    expect(empty).toBeGreaterThanOrEqual(2);
+    const { app: dev } = await render(page(DOC), { components: TREE });
+    // x-em, x-strong and x-link each had the loop; two of them now point at the first, and theirs are out of the page
+    expect(dev.ir.templates.length - app.ir.templates.length).toBeGreaterThanOrEqual(2);
     expect(app.fns.some((f) => String(f).includes('$pp'))).toBe(true);
   });
 
