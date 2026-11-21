@@ -1554,12 +1554,12 @@ To discuss after this lands:
   guess. It costs one more attribute and an update of the markdown package's placements. Making it
   the inner component's own `Slot<T>` instead would mean forwarding at every level, which tree slots
   exist to avoid. Raised by an external review of PR #51.
-- **Writes through an alias** (`sel = ys[1]; sel.n = 50`) leave what reads the original path stale:
-  the compiled write list has `sel.n` only. That is `main`'s behaviour too. Compile-time alias tracking
-  (a write through either name also marks the other, with a conservative mark for aliases the compiler
-  cannot trace) was built and tested during PR #51's review and is kept on the branch
-  `parked/cached-lets-and-aliases` (commit 261cec7), for a PR of its own. The reactivity fuzz turns
-  its alias writes on with `SN_FUZZ_ALIAS=1`; with the tracking they come on by default.
+- **Writes through an alias** (`sel = ys[1]; sel.n = 50`) left what reads the original path stale:
+  the compiled write list had `sel.n` only. Resolved: compile-time alias tracking (a write through
+  either name also marks the other, with a conservative mark for aliases the compiler cannot trace),
+  built and tested during PR #51's review on `parked/cached-lets-and-aliases` (commit 261cec7), was
+  ported on its own, without the cached lets (docs/spec.md, Aliases). The reactivity fuzz writes
+  through aliases by default.
 - **Automatic caching of lets over helpers** was built, hardened over five review rounds and taken
   out (step 10, as built). It stays on the same parked branch with its fuzz and tests, in case a
   measured need (helpers over state lists, such as a dashboard's totals) brings it back.

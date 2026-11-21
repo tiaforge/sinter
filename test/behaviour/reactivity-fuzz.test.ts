@@ -14,8 +14,8 @@
 // - the truth: after each settle, every state scope marked whole changes nothing on the page (a write path that
 //   marks too little shows here, lets or not);
 // - the first paint: on a third of the seeds the memoized page is the early script's first paint taken over.
-// Writes through an alias (`sel = y; sel.n += 10`) are main's known gap (a write marks the alias's path, not the
-// item's): `SN_FUZZ_ALIAS=1` turns them on; they come on by default with the alias tracking (its own PR).
+// Writes through aliases (`sel = y; sel.n += 10`; docs/spec.md, Aliases): direct, inside another object, in another
+// list, a helper's element, one from reduce() the compiler cannot follow, and writes through the list they alias.
 import { expect, test } from 'vitest';
 import { configure } from '../../src/index.js';
 import { memo } from '../../src/memo.js';
@@ -24,8 +24,6 @@ import { reset as resetCore } from '../core-flags.js';
 
 /** how long the handlers and the click scripts get (`SN_FUZZ_DEPTH`, default 1) */
 const DEPTH = Number(process.env.SN_FUZZ_DEPTH ?? 1);
-/** writes through aliases (`SN_FUZZ_ALIAS=1`): see above */
-const ALIASES = !!process.env.SN_FUZZ_ALIAS;
 
 /** a small seeded PRNG, so a failure names its case */
 function rng(seed: number) {
@@ -70,7 +68,7 @@ const LETS: Array<[string, string]> = [
   // memo()'s call-through path (an argument it does not key)
   ['BG', 'big(ys)'],
   ['L', 'tr.word(a, $locale)'],
-  // over what each alias holds (`SN_FUZZ_ALIAS`)
+  // over what each alias holds
   ['SL', 'twice(sel ? sel.n : 0)'], ['BL', 'twice(box ? box.it.n : 0)'], ['AL', 'sum(arr.map((x) => x.n))'], ['HL', 'twice(h ? h.n : 0)'], ['UL', 'twice(u ? u.n : 0)'],
 ];
 const READS = ['T', 'P.v', 'N', 'TT', 'TS', 'T + N', 'P.v + TT', 'KS', 'PG', 'EV', 'KS + PG + EV', 'YS + SL', 'BL + YS', 'AL + YS', 'HL + UL + YS',
@@ -95,10 +93,10 @@ const OPS = [
 ];
 /** what a row's own handler does: through its item, the list it is in, an alias to its item */
 const ROW_OPS = ['y.n = y.n + 1', 'ys = [...ys].reverse()', 'ys.length > 1 && ys.shift()', 'q.w = q.w + 1', 'y.n = y.n + 1; ys = [...ys].reverse()',
-  // aliases to the row's item (`SN_FUZZ_ALIAS`): a write through one in the same handler, stored inside another object, pushed to another list
-  ...(ALIASES ? ['sel = y', 'sel = y; sel.n = sel.n + 10', 'box = { it: y }', 'arr.push(y)'] : [])];
+  // aliases to the row's item: a write through one in the same handler, stored inside another object, pushed to another list
+  'sel = y', 'sel = y; sel.n = sel.n + 10', 'box = { it: y }', 'arr.push(y)'];
 const ROW_READS = ['YR.v', 'YR.v + YS', 'YR.v + Q', 'YS + T'];
-/** aliases made from the page (a helper's element, `reduce()`), and writes through each kind (`SN_FUZZ_ALIAS`) */
+/** aliases made from the page (a helper's element, `reduce()`), and writes through each kind */
 const ALIAS = ['sel && (sel.n = sel.n + 10)', 'box && (box.it.n = box.it.n + 3)', 'arr.length && (arr[arr.length - 1].n = arr[arr.length - 1].n + 4)',
   'box = ys.length ? { it: ys[ys.length - 1] } : null',
   // one field per kind, so that each rule is what keeps it right: `h` a helper's element, `u` one from reduce()
@@ -127,12 +125,12 @@ function page(r: () => number) {
   const handlers = Array.from({ length: 3 }, () => {
     const ops: string[] = [];
     for (let i = 0, n = 2 + Math.floor(r() * (3 * DEPTH + 2)); i < n; i++) ops.push(r() < 0.4 ? `r${reads++} = ${pick(READS)}` : op(pick(OPS)));
-    if (ALIASES && r() < 0.35) ops.push(pick(ALIAS));
+    if (r() < 0.35) ops.push(pick(ALIAS));
     return ops.join('; ');
   });
-  // a handler of aliases only: made, written through either name, read (without aliases: one more of the others)
+  // a handler of aliases only: made, written through either name, read
   const aliasOps: string[] = [];
-  for (let i = 0, n = 3 + Math.floor(r() * (2 * DEPTH + 2)); i < n; i++) aliasOps.push(r() < 0.3 ? `r${reads++} = ${pick(READS.slice(-4))}` : ALIASES ? pick(ALIAS) : op(pick(OPS)));
+  for (let i = 0, n = 3 + Math.floor(r() * (2 * DEPTH + 2)); i < n; i++) aliasOps.push(r() < 0.3 ? `r${reads++} = ${pick(READS.slice(-4))}` : pick(ALIAS));
   handlers.push(aliasOps.join('; '));
   const rowOps: string[] = [];
   for (let i = 0, n = 2 + Math.floor(r() * (2 * DEPTH + 1)); i < n; i++) rowOps.push(r() < 0.45 ? `r${reads++} = ${pick(ROW_READS)}` : pick(ROW_OPS));
