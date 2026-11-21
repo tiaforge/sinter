@@ -203,9 +203,11 @@ export interface CompileOptions {
    * `urls` (null for a page whose paths all have parameters: from the browser's path); the page module records
    * the language in the `locale` cookie (docs/static-pages.md#languages). `list` and `pages` (the site's languages and
    * its page paths without a language): a link template's literal start and the API's `signIn` that name one of the
-   * site's pages are written in the page's language (`inLanguage`)
+   * site's pages are written in the page's language (`inLanguage`). `prefix: false`: a build without `localePrefix`,
+   * whose one language is the messages' base: its text and `$locale` as here, its paths, `<html lang>` and links as
+   * written, no `localeUrl()` and no `locale` cookie
    */
-  locale?: { name: string; urls: Record<string, string> | null; base: string; list?: string[]; pages?: readonly string[] };
+  locale?: { name: string; urls: Record<string, string> | null; base: string; list?: string[]; pages?: readonly string[]; prefix?: false };
   /**
    * internal, set by `compileParts` for its second pass: the `data-sn-if` templates (by `file:offset`)
    * whose condition the first pass found constant (state nothing writes), and its value
@@ -1394,7 +1396,7 @@ class Compiler {
       const b = l.base.startsWith('/') ? l.base.replace(/\/?$/, '/') : '/';
       // a page whose paths have parameters: its path in another language is the browser's, with that language's prefix
       const localeUrl = l.urls ? `((l) => (${JSON.stringify(l.urls)})[l])` : `((l) => ${JSON.stringify(b)} + l + location.pathname.slice(${b.length + l.name.length}))`;
-      this.page.locale = { name: l.name, messages: Object.entries(opts.helpers.namespaces).find(([, v]) => v.module === '@tiaforge-ui/sinter/messages')?.[0] ?? null, localeUrl, ...(l.urls ? { ownUrls: true } : {}) };
+      this.page.locale = { name: l.name, messages: Object.entries(opts.helpers.namespaces).find(([, v]) => v.module === '@tiaforge-ui/sinter/messages')?.[0] ?? null, localeUrl, ...(l.urls ? { ownUrls: true } : {}), ...(l.prefix === false ? { prefix: false as const } : {}) };
     }
     // helpers whose declaring module reaches a lazy package: each module loads whole, when a let first needs it
     const reach = opts.lazyModule;
@@ -1447,7 +1449,7 @@ class Compiler {
     if (this.opts.decided?.size || this.opts.unrolled?.size) this.expandConstants(doc, '', false);
     if (this.opts.urls) this.canonical(doc);
     // a page in one language says which: `<html lang="de">`
-    if (this.opts.locale) { const h = doc.childNodes.find((n): n is P5Element => isElement(n) && n.tagName === 'html'); if (h) setAttr(h, 'lang', this.opts.locale.name); }
+    if (this.opts.locale && this.opts.locale.prefix !== false) { const h = doc.childNodes.find((n): n is P5Element => isElement(n) && n.tagName === 'html'); if (h) setAttr(h, 'lang', this.opts.locale.name); }
     // the page's language, for what the build sorts (`order` on a `file:` list): its `<html lang>`, the layout's included
     { const h = doc.childNodes.find((n): n is P5Element => isElement(n) && n.tagName === 'html'); this.pageLang = (h && attr(h, 'lang')) || undefined; }
     this.checkHead();
@@ -4518,7 +4520,7 @@ class Compiler {
     }
     // a page in one language: its paths under that language's prefix, after the base (`/de/article/:slug`)
     const lp = this.opts.locale;
-    const prefixed = lp ? prefixPaths(patterns, lp.name, lp.base) : patterns;
+    const prefixed = lp && lp.prefix !== false ? prefixPaths(patterns, lp.name, lp.base) : patterns;
     // only the URL the page has anyway: it is a directory's index without data-sn-path (docs/static-pages.md#page-urls)
     const root = this.opts.root.replace(/[\\/]+$/, '').replace(/\\/g, '/') + '/', file = this.opts.file.replace(/\\/g, '/');
     const rel = file.startsWith(root) ? file.slice(root.length) : null;

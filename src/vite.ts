@@ -15,7 +15,7 @@ import { collectionsIn, loadContent, writeSnapshot, type LoadedContent } from '.
 import { applyStrict, CODES, compile, formatDiagnostic, formatWarning, strictPromotes, suggest, type Code, type CheckUnit, type Diagnostic, type CompileResult, type SourceMap } from './compiler/index.js';
 import { lazyOf, project, retiredExport, retiredOptions, staticPages, strictOf, type ProjectOptions } from './project.js';
 import { CHUNK_MARK, chainText, isComponentScript, LAZY, lazyHelpers, lazyPackage, lineCol, loaderModule, mentions, parseLazyId, reachLazy, rewriteLazy, scanLazy, stubModule } from './lazy-build.js';
-import { I18N_PICKER, languageFile, moduleKeys, type MessagesProject } from './i18n-build.js';
+import { moduleKeys, type MessagesProject } from './i18n-build.js';
 import { HOLD_SCRIPT } from './paint-build.js';
 import { earlyImports, OWN, registration, SHARED_MARKS, sharedKey, sharedMark, stubModule as sharedStub, topLevelAwait } from './shared-build.js';
 import { loadImages, MIME, type Images } from './images.js';
@@ -538,11 +538,10 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   /** the app's early module (`src/sinter.early.ts`), which the shared head script runs */
   let appEarly: string | null = null;
   const budget = earlyBudget;
-  /** built-in messages: keys each module calls (`m.key`), keys each page's markup calls, and each page's language files */
+  /** built-in messages: keys each module calls (`m.key`), and keys each page's markup calls */
   const moduleMessages = new Map<string, string[]>();
   const markupMessages = new Map<string, string[]>();
-  const languageFiles = new Map<string, Record<string, { fileName: string; code: string }>>();
-  /** `localePrefix`: a page's messages its app modules call (its own are compiled in), written into its head */
+  /** a page's messages its app modules call (its own are compiled in), written into its head in its language */
   const pageMessages = new Map<string, string>();
   const messagesTag = (dict: Record<string, string>) => `<script type="application/json" data-sn-messages>${JSON.stringify(dict).replace(/</g, '\\u003c')}</script>`;
   let messages: MessagesProject | null = null;
@@ -672,6 +671,11 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   /** `localePrefix`: the languages, and each page in a language (`<root>/<locale>/<page>`) with its source and language */
   let locales: Locales | null = null;
   const virtual = new Map<string, { source: string; locale: string; page?: { value: unknown; path: string; key: string } }>();
+  /**
+   * a page's one language: its point's (`localePrefix`), else with the built-in messages their base, the build's one
+   * language (a page is in one language, chosen at build: docs/proposals/axes.md §7)
+   */
+  const pageLang = (file: string): string | undefined => virtual.get(file)?.locale ?? (messages && !locales ? messages.base : undefined);
   /** `<html data-sn-for>` with languages: each template's entries by key, each language's path (an entry's translations) */
   let translations: Points['translations'] = new Map();
   /** `<html data-sn-for>`: the build's inputs, each template page replaced by a page per entry (`pageInputs()`), or null */
@@ -683,8 +687,6 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   const runtimeOf = new Map<string, RuntimeReason[]>();
   let pagesCache: Array<{ paths: string[]; parts: PrefetchParts | null; swaps: boolean; file: string; effect: string | null }> | null = null;
   const attr = (v: string) => v.replace(/[&"<>]/g, (c) => `&#${c.charCodeAt(0)};`);
-  /** the tag of the script that starts with the picker: it picks the locale and starts the page's language file */
-  const pickerTag = (src: string, files: Record<string, string>, locale?: string) => `<script src="${attr(src)}" data-sn-i18n="${attr(JSON.stringify({ base: locale ?? messages!.base, locales: locale ? [locale] : messages!.locales, storage: 'locale', files: locale ? { [locale]: files[locale]! } : files }))}"></script>`;
   /** `m.key` in a module: collected for the page's language file; any other use of `m` is refused */
   const collect = (ctx: { error(m: string): never }, code: string, id: string) => {
     if (!messages || id.includes('/node_modules/') || !/\.[cm]?[jt]sx?(\?|$)/.test(id)) return;
@@ -1058,7 +1060,8 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     const p = proj();
     // a page in a language: compiled from its source (diagnostics, components, layouts as written), in that language
     const v = virtual.get(file), src = v?.source ?? file;
-    const lang = v?.locale && p.messages ? { ...p.messages.dicts[p.messages.base], ...p.messages.dicts[v.locale] } : null;
+    const one = v?.locale ?? (p.messages && !locales ? p.messages.base : undefined);
+    const lang = one && p.messages ? { ...p.messages.dicts[p.messages.base], ...p.messages.dicts[one] } : null;
     // `<html data-sn-for>`: an entry's page (a build's input), or in dev the entry the URL names
     const page = v?.page ?? (dev && url ? devEntry(src, url, v?.locale) : undefined);
     const fatal = strictly(p.diagnostics).filter((d) => d.severity === 'error');
@@ -1088,7 +1091,8 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       ...(p.changesRequests ? { changesRequests: true } : {}),
       ...(firstPaint ? { early: { module: p.early, src: earlySrc } } : {}),
       ...(p.messages ? { baseMessages: lang ?? p.messages.dicts[p.messages.base] ?? {} } : {}),
-      ...(v?.locale ? { locale: { name: v.locale, urls: v.page ? entryUrls(v) : localeUrls(src), base: resolved?.base ?? '/', list: locales!.list, pages: sitePaths() } } : {}),
+      ...(v?.locale ? { locale: { name: v.locale, urls: v.page ? entryUrls(v) : localeUrls(src), base: resolved?.base ?? '/', list: locales!.list, pages: sitePaths() } }
+        : one ? { locale: { name: one, urls: null, base: resolved?.base ?? '/', prefix: false as const } } : {}),
       ...(options.origins?.length || apiOrigins(p.apis).length ? { origins: [...(options.origins ?? []), ...apiOrigins(p.apis)] } : {}),
       ...(firstPaint ? { observe: true } : {}),
       ...(options.embed && !dev ? { embed: true } : {}),
@@ -1325,7 +1329,6 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       earlyPages.clear();
       unlisted.clear();
       earlyFiles.clear();
-      languageFiles.clear();
       pageMessages.clear();
       described.clear(); entriesDescribed.clear();
       pagesCache = null;
@@ -1457,7 +1460,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       }
       const heads = () => {
         headFiles.clear();
-        const common = [languageFiles.size ? I18N_PICKER : '', sharedHead?.code ?? ''].filter(Boolean).join('\n');
+        const common = sharedHead?.code ?? '';
         if (common) {
           sharedHead = { code: common, modules: sharedHead?.modules ?? {}, fileName: `${r.build.assetsDir}/sinter-head-${hash(common)}.js` };
           this.emitFile({ type: 'asset', fileName: sharedHead.fileName, source: common });
@@ -1476,9 +1479,10 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
         // a page with nothing to run (its messages written into the HTML in its language): no picker, no language file
         if (runtimeOf.get(rel)?.length === 0) continue;
         const entry = Object.values(bundle).find((c) => c.type === 'chunk' && c.isEntry && c.facadeModuleId === resolve(root, rel));
-        // a page in one language: its markup's messages are compiled into it, so only the app's modules' are needed
-        const one = virtual.get(resolve(root, rel))?.locale;
-        const keys = new Set([...(one ? [] : own), ...(earlyKeys.get(rel) ?? [])]);
+        // a page is in one language: its markup's messages are compiled into it, so only the app's modules' are needed
+        const one = pageLang(resolve(root, rel))!;
+        void own;
+        const keys = new Set(earlyKeys.get(rel) ?? []);
         const seen = new Set<string>(), todo = entry ? [entry.fileName] : [];
         while (todo.length) {
           const c = bundle[todo.pop()!];
@@ -1488,23 +1492,9 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
           todo.push(...c.imports, ...c.dynamicImports);
         }
         if (!keys.size) continue;
-        if (one) {
-          const dict: Record<string, string> = {};
-          for (const k of [...keys].sort()) dict[k] = messages.dicts[one]?.[k] ?? messages.dicts[messages.base]![k]!;
-          pageMessages.set(rel, messagesTag(dict));
-          continue;
-        }
-        const name = rel.replace(/(^|\/)index\.html$/, '').replace(/\.html$/, '').replace(/\//g, '-') || 'index';
-        const files: Record<string, { fileName: string; code: string }> = {};
-        for (const l of virtual.get(resolve(root, rel))?.locale ? [virtual.get(resolve(root, rel))!.locale] : messages.locales) {
-          const dict: Record<string, string> = {};
-          for (const k of [...keys].sort()) dict[k] = messages.dicts[l]?.[k] ?? messages.dicts[messages.base]![k]!;
-          const code = languageFile(l, dict);
-          const fileName = `${r.build.assetsDir}/${name}-${l}-${createHash('sha256').update(code).digest('base64url').slice(0, 8)}.js`;
-          this.emitFile({ type: 'asset', fileName, source: code });
-          files[l] = { fileName, code };
-        }
-        languageFiles.set(rel, files);
+        const dict: Record<string, string> = {};
+        for (const k of [...keys].sort()) dict[k] = messages.dicts[one]?.[k] ?? messages.dicts[messages.base]![k]!;
+        pageMessages.set(rel, messagesTag(dict));
       }
       heads();
     },
@@ -1572,14 +1562,10 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
         if (r) lazyIds.set(lz.spec, r.id);
         return loaderModule(spec, r?.id ?? null);
       }
-      // dev: the picker, and each language's whole dictionary
-      if (id === `\0${PREFIX}i18n.js`) return I18N_PICKER;
       if (id === `\0${PREFIX}img-check.js`) return IMAGE_CHECK;
       if (id === `\0${PREFIX}warn-relay.js`) return WARN_RELAY;
       if (id === `\0${PREFETCH}`) return prefetchModule(prefetchPages(), proj().helpers);
       if (id === `\0${SWAP}`) return swapModule(swapPages());
-      const lang = id.startsWith(`\0${PREFIX}messages/`) && messages ? id.slice(`\0${PREFIX}messages/`.length, -3) : null;
-      if (lang && messages?.dicts[lang]) return languageFile(lang, { ...messages.dicts[messages.base], ...messages.dicts[lang] });
       const key = id.startsWith('\0' + PREFIX) ? id.slice(1) : !dev && maps.has(id) ? id : null;
       if (key === null) return null;
       const code = modules.get(key);
@@ -1712,15 +1698,10 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
         const rules = speculationTag(samePage), page = rules ? withRulesHash(checked.replace('</head>', `  ${rules}\n</head>`), speculationHash!) : checked;
         if (rules && !dev && !hasCspMeta(checked)) unhashedPages++;
         // dev, a page in one language: its messages compiled in; the app's modules may call any of that language's
-        const one = virtual.get(file)?.locale;
+        const one = pageLang(file);
         if (dev && one && messages) {
           for (const f of Object.values(messages.files)) watch(f);
           const tag = messagesTag({ ...messages.dicts[messages.base], ...messages.dicts[one] });
-          return page.replace(/<head[^>]*>/, (h) => h + tag);
-        }
-        if (dev && out.messages && messages) {
-          for (const f of Object.values(messages.files)) watch(f);
-          const tag = pickerTag(`${base}${PREFIX.slice(1)}i18n.js`, Object.fromEntries(messages.locales.map((l) => [l, `${base}${PREFIX.slice(1)}messages/${l}.js`])), virtual.get(file)?.locale);
           return page.replace(/<head[^>]*>/, (h) => h + tag);
         }
         return page;
@@ -1805,7 +1786,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     transformIndexHtml: {
       order: 'post',
       handler(html, ctx) {
-        const rel = relOf(ctx.filename), early = earlyFiles.get(rel), langs = languageFiles.get(rel), own = headFiles.get(rel);
+        const rel = relOf(ctx.filename), early = earlyFiles.get(rel), own = headFiles.get(rel);
         reportRuntime(rel, ctx.chunk, ctx.bundle);
         // a relative base: URLs relative to the page, as Vite writes its own (`../assets/…` from `blog/post.html`)
         const base = pageBase(resolved?.base ?? '/', rel);
@@ -1833,15 +1814,13 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
         // shared helper modules the page's bundle reaches: their own copies, for a swap or fetched with the page
         if (shared.size && ctx.bundle) html = withShared(html, rel, ctx.bundle, base);
         const inline = pageMessages.get(rel);
-        if (!early && !langs && !own && !inline) return html;
+        if (!early && !own && !inline) return html;
         // a page in one language: the messages its app modules call, before any script that reads them
         const tags: string[] = inline ? [inline] : [];
-        // the shared head script (with the picker, its data on the tag), then the page's: classic scripts, run in order
-        if ((early || langs) && sharedHead) {
-          tags.push(langs ? pickerTag(base + sharedHead.fileName, Object.fromEntries(Object.entries(langs).map(([l, f]) => [l, base + f.fileName])), virtual.get(resolve(root, rel))?.locale) : `<script src="${attr(base + sharedHead.fileName)}"></script>`);
-        }
+        // the shared head script, then the page's: classic scripts, run in order
+        if (early && sharedHead) tags.push(`<script src="${attr(base + sharedHead.fileName)}"></script>`);
         if (own) tags.push(`<script src="${attr(base + own)}"></script>`);
-        if (early || langs) report(rel, early ? { fileName: own!, ...early } : null, langs ?? null, ctx.bundle ? pageModules(ctx.bundle, rel) : null);
+        if (early) report(rel, { fileName: own!, ...early }, null, ctx.bundle ? pageModules(ctx.bundle, rel) : null);
         // first in the head, before the stylesheets (a classic script waits for the stylesheets before it) and the page
         // module (which the hold script changes as the parser inserts it): the early requests leave at once
         const at = html.search(/<link\b[^>]*\brel=["']?(stylesheet|modulepreload)|<script\b/i);

@@ -3,56 +3,28 @@
   "sha256": "e37f8354d5a5e82c275876cb00462682a96b587a256a04443ad190827b813904",
   "bytes": 96
  },
- "assets/index-DLE0VAEu.js": {
-  "sha256": "62b91f7a36e8cf2f853d1fc22c4e42dbf57cea8c2eb40f2c5af96c78decb7110",
-  "bytes": 1750
+ "assets/other-B8oytGu_.js": {
+  "sha256": "895da50069e433accdca9f6cbcbf968468aca2cb6a6114ee5f92dfe8538c86c4",
+  "bytes": 17504
  },
- "assets/index-de-g6zDfGcV.js": {
-  "sha256": "83acc37c671557dd608ea638fb1ffbe57d0c3d01a25f3c437491a0106707752a",
-  "bytes": 240
+ "assets/other-head-EDZImICb.js": {
+  "sha256": "10364898809b3ee0416cff6b864548439e2c31691ad893e1b711212ba18bba22",
+  "bytes": 966
  },
- "assets/index-en-yG4YsOU4.js": {
-  "sha256": "c86e18b0e538e21c97a818d19d877afb744cf6c3b684c5080e2684509d8a0daf",
-  "bytes": 236
- },
- "assets/index-head-0maKqv8y.js": {
-  "sha256": "d2668aaaff32073df2c869af95a65851e815e727d824ba5bf10d5af29b241515",
-  "bytes": 1600
- },
- "assets/other-Cxmqzrxk.js": {
-  "sha256": "26a73d03143ce8c1c14adab3d7b3535caa409e97d3002fe745d0a06a52cc5632",
-  "bytes": 293
- },
- "assets/other-de-dlJrg-jh.js": {
-  "sha256": "76526b83e8e13d5a25158449182683fc25f06877a16cf0df37c155e9d62bb3bc",
-  "bytes": 201
- },
- "assets/other-en-7_XPkm6W.js": {
-  "sha256": "eff5cf926e964f81e05325b391fc691d7fe9a3e81782f029eb8be530698caa2b",
-  "bytes": 196
- },
- "assets/other-head-djNSF2J6.js": {
-  "sha256": "76335217627a0328b70eba31e74e15e809a9aac9d1284d677c0882397562ff82",
-  "bytes": 1336
- },
- "assets/sinter-head-eR61lPaC.js": {
-  "sha256": "791eb594f682ba6a596c1054eabe5460cb3bb777184f38579ed1f07e8bef4991",
-  "bytes": 5765
- },
- "assets/sinter.config-Dm-gRK3b.js": {
-  "sha256": "1344e75496c6a578e7d8c326101b86f0aa6f98cd11403f9a0d5ed858c81eed55",
-  "bytes": 19476
+ "assets/sinter-head-ITW6QrxD.js": {
+  "sha256": "2135ba42bc4325daabc515291bf22bb209b8329f2ed377674056932e64b141f0",
+  "bytes": 4306
  },
  "index.html": {
-  "sha256": "4c5df173260ea8564bc055f53b9971b80f2b24a802e103c9b0e325cad6ee5e5e",
-  "bytes": 1087
+  "sha256": "2142f23209763de29c5db8b28d0be923ad6f788d3fe950f71af68aeb6e131262",
+  "bytes": 413
  },
  "other.html": {
   "sha256": "37a03b85158f2a9d63b8335d3a3ceba3362f3ddae1518cbc89d7caaa101bc852",
   "bytes": 335
  },
  "other/index.html": {
-  "sha256": "292111293b562d5809d7704995540c2fb15f046396cfd045edcdb0e57508ef66",
-  "bytes": 923
+  "sha256": "453dbf2ad0a97ac443ab62e86f528c5daac7d38b87e36dad36aa3f3d710be46c",
+  "bytes": 695
  }
 }

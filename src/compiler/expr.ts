@@ -130,7 +130,7 @@ export interface PageInfo {
    * `localePrefix`: the page is built in one language (docs/static-pages.md#languages): `$locale` is `name`, the
    * built-in messages (namespace `messages`) are that language's text, and `localeUrl` compiles to `localeUrl`
    */
-  locale?: { name: string; messages: string | null; localeUrl: string; ownUrls?: boolean };
+  locale?: { name: string; messages: string | null; localeUrl: string; ownUrls?: boolean; prefix?: false };
   /**
    * Set when an expression compiled the page's own URL into its code: `$canonical` of a page at a fixed path, or
    * `localeUrl()` from the page's translations (`ownUrls`). A `<html data-sn-for>` template doing so has a program per entry
@@ -480,7 +480,7 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
     const local = locals.get(name);
     if (local) return { kind: 'local', info: local };
     if (page.locale && name === '$locale') return { kind: 'const', code: JSON.stringify(page.locale.name) };
-    if (page.locale && name === 'localeUrl') { if (page.locale.ownUrls) page.readsUrl = true; return { kind: 'const', code: page.locale.localeUrl }; }
+    if (page.locale && page.locale.prefix !== false && name === 'localeUrl') { if (page.locale.ownUrls) page.readsUrl = true; return { kind: 'const', code: page.locale.localeUrl }; }
     if (name === '$site' || name === '$canonical') {
       const u = page.urls;
       if (!u) {
@@ -988,6 +988,7 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
 
   function writePath(target: Node, locals: Locals, at: number, expr: Node) {
     if (target.type === 'Identifier' && target.name === '$locale') {
+      if (page.locale?.prefix === false) { report('SN203', `\`$locale\` is this page's language (\`${page.locale.name}\`, the messages' base): a page has one language, chosen at build. For a page in each language, turn on \`sinter({ localePrefix: true })\` and link to it: \`<a data-sn-attr="{ href: localeUrl('…') }">\``, target.start); return; }
       if (page.locale) { report('SN203', `\`$locale\` is this page's language (\`${page.locale.name}\`): with \`localePrefix\` each language is its own page. Link to it: \`<a data-sn-attr="{ href: localeUrl('…') }">\``, target.start); return; }
       writes.add('$locale');
       return;

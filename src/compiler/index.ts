@@ -351,7 +351,7 @@ function pageLines(parts: CompiledParts, options: Pick<CompileOptions, 'helpers'
   lines.push('];');
   lines.push('');
   // a page in one language records it: a language chooser at an unprefixed URL, or a server, sends the visitor back to it
-  const cookie = options.locale ? `document.cookie = ${JSON.stringify(`locale=${encodeURIComponent(options.locale.name)}; Path=/; Max-Age=31536000; SameSite=Lax`)};` : null;
+  const cookie = options.locale && options.locale.prefix !== false ? `document.cookie = ${JSON.stringify(`locale=${encodeURIComponent(options.locale.name)}; Path=/; Max-Age=31536000; SameSite=Lax`)};` : null;
   const opts = `{ ir, fns, features: [${features.join(', ')}] }`;
   // the early file renders part of this page: mount once it has (they meet through a global)
   const wait = parts.early ? 'await rendered();' : 'await parsed();';
