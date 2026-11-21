@@ -1308,10 +1308,15 @@ class Compiler {
   private keptDepth = 0;
   /** with swaps on, whether `n` is a kept element or inside one */
   inKept(n: P5Node): boolean {
-    if (!this.opts.swap) return false;
-    for (let p: P5Node | null = n; p; p = (p as P5Element).parentNode as P5Node | null) if (this.permanentEls.includes(p as P5Element)) return true;
-    return false;
+    return this.keptOf(n) !== undefined;
   }
+  /** with swaps on, the name of the kept element `n` is or is in */
+  keptOf(n: P5Node): string | undefined {
+    if (!this.opts.swap) return;
+    for (let p: P5Node | null = n; p; p = (p as P5Element).parentNode as P5Node | null) if (this.permanentEls.includes(p as P5Element)) return this.permanentNames[this.permanentEls.indexOf(p as P5Element)];
+  }
+  /** each kept element's next id once its walk is done (its placeholders are numbered after the walk, in its range) */
+  private readonly keptNext = new Map<string, number>();
   /** the kept elements that bind (their ids from their range), and where each kept element was written */
   readonly keptBound = new Set<string>();
   readonly keptSource = new Map<string, string>();
@@ -4650,6 +4655,7 @@ class Compiler {
       const res = this.element(child, ctx, i, lastIf);
       if (kept) this.keptDepth--;
       if (kept && this.nextId !== saved) {
+        this.keptNext.set(kept, this.nextId);
         if (this.nextId - keptBase(kept) > KEPT_IDS) this.report(child, 'data-sn-permanent', 'SN346', `a kept element binds at most ${KEPT_IDS} nodes (\`${kept}\` binds ${this.nextId - keptBase(kept)})`, 0);
         if (this.nextId > keptBase(kept)) {
           this.keptBound.add(kept);
@@ -9437,6 +9443,20 @@ class Compiler {
   }
 
   /**
+   * A placeholder's class: unique across pages, should two pages' rules end up in one stylesheet; in a kept element,
+   * from its name and its own count, the same on every page that keeps it (the next page's rule sizes the one kept)
+   */
+  private spaceKey(pre: string, el: P5Element): string {
+    const kn = this.keptOf(el), rel = kn !== undefined ? `kept:${kn}` : this.opts.file.slice(this.opts.root.length).replace(/^[\\/]+/, '');
+    let hash = 0x811c9dc5;
+    for (const ch of rel) hash = Math.imul(hash ^ ch.charCodeAt(0), 0x01000193);
+    const n = kn !== undefined ? this.keptSpaceN.get(kn) ?? 0 : this.spaceN++;
+    if (kn !== undefined) this.keptSpaceN.set(kn, n + 1);
+    return `${pre}${(hash >>> 0).toString(36).slice(0, 4)}${kn !== undefined ? 'k' : ''}${n}`;
+  }
+  private readonly keptSpaceN = new Map<string, number>();
+
+  /**
    * After a list's template is compiled: SN529 for a list over late data in a box whose width its rows
    * decide, and the planned placeholder after the template. `static` (the list is a resource that always
    * loads): an element whose one binding removes it once the resource has rows or no load is running.
@@ -9475,11 +9495,7 @@ class Compiler {
     else if (plan.space && !held) note(!names.every((n) => (plan.form === 'static' ? starts(n) : pre.has(n))) ? 'a resource\'s `src` or `when` reads more than the URL (state, another resource): its load may not start when the page module mounts' : 'the list reads more than its resources and the URL');
     if (!held || !plan.space || !this.opts.paintCss) return;
     const parent = el.parentNode as P5Element;
-    // unique across pages, should two pages' rules end up in one stylesheet
-    let hash = 0x811c9dc5;
-    const rel = this.opts.file.slice(this.opts.root.length).replace(/^[\\/]+/, '');
-    for (const ch of rel) hash = Math.imul(hash ^ ch.charCodeAt(0), 0x01000193);
-    const k = `snr${(hash >>> 0).toString(36).slice(0, 4)}${this.spaceN++}`;
+    const k = this.spaceKey('snr', el);
     const tag = plan.space.tag, markup = `<${tag} class="sn-reserve ${k}" aria-hidden="true"></${tag}>`;
     const at = parent.childNodes.indexOf(el) + 1;
     if (plan.form === 'static') {
@@ -9524,10 +9540,7 @@ class Compiler {
     const what = box.tagName + (attr(box, 'class') ? `.${attr(box, 'class')!.trim().split(/\s+/).join('.')}` : '');
     this.waits.push({ file: o?.file ?? this.opts.file, line: at.line, col: at.col, what, widths: plan.sized!.widths });
     if (!this.opts.paintCss) return true;
-    let hash = 0x811c9dc5;
-    const rel = this.opts.file.slice(this.opts.root.length).replace(/^[\\/]+/, '');
-    for (const ch of rel) hash = Math.imul(hash ^ ch.charCodeAt(0), 0x01000193);
-    const k = `snw${(hash >>> 0).toString(36).slice(0, 4)}${this.spaceN++}`;
+    const k = this.spaceKey('snw', el);
     setAttr(box, 'class', [attr(box, 'class'), k].filter(Boolean).join(' '));
     const parent = el.parentNode as P5Element, i = parent.childNodes.indexOf(el) + 1, markup = `<i class="${k}m" hidden></i>`;
     if (plan.waitForm === 'static') {
@@ -9608,7 +9621,14 @@ class Compiler {
   placeholders() {
     this.settleSpace();
     for (const { el, node } of this.pendingSpace) {
-      node.id = this.nextId++;
+      // in a kept element, from its range: the next page's code finds it there, where its own id would be another node's
+      const kept = this.keptOf(el), at = kept !== undefined ? this.keptNext.get(kept) : undefined;
+      if (kept !== undefined && at !== undefined) {
+        node.id = at;
+        this.keptNext.set(kept, at + 1);
+        if (at + 1 - keptBase(kept) > KEPT_IDS) this.report(el, null, 'SN346', `a kept element binds at most ${KEPT_IDS} nodes (\`${kept}\` binds ${at + 1 - keptBase(kept)})`, 0);
+        this.keptBound.add(kept);
+      } else node.id = this.nextId++;
       setAttr(el, 'data-sn', String(node.id));
       this.roots.push(node);
     }
