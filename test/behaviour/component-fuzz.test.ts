@@ -138,16 +138,14 @@ test('random nested components: a state change renders what a fresh render, the 
       const emb = await render(embedded(b), { components: COMPONENTS, firstPaint: { afterEarly: () => { painted = seen(document.body); } } });
       await emb.settle();
       const embTook = seen(emb.root);
-      // an empty state whose list the compiler follows to the resource (`c-empty`'s, through its prop; a fill's over
-      // `$slot`) waits for that resource to have loaded, and an embedded resource's status is the page module's
-      // (docs/spec.md, "Resource status early"): such a first paint has no empty state yet, so only the takeover is compared
-      const waits = tpl.includes('<c-empty') || tpl.includes('$slot.x.c') || (/<c-choice|<sn-component use/.test(tpl) && JSON.stringify(b).includes('"k":"e"'));
+      // (an empty state whose list the compiler follows to the resource, `c-empty`'s through its prop or a fill's over `$slot`,
+      // is in it too: the early file knows an embedded resource's status at mount, docs/spec.md "Resource status early")
       // as a build compiles it (shared templates kept once, the tables compacted), early and after a change
       const build = await render(page(a, true), { components: COMPONENTS, dev: false, firstPaint: true });
       (build.root.querySelector('#w') as HTMLButtonElement).click();
       await build.settle();
       const inBuild = seen(build.root);
-      for (const [what, got] of [['after a change', after], ['over constants', built], ['early, taken over', took], ['first paint over embedded data', waits ? fresh : painted], ['embedded, taken over', embTook], ['in a build, after a change', inBuild]] as const) {
+      for (const [what, got] of [['after a change', after], ['over constants', built], ['early, taken over', took], ['first paint over embedded data', painted], ['embedded, taken over', embTook], ['in a build, after a change', inBuild]] as const) {
         if (got !== fresh) failures.push(`seed ${seed} ${what}: ${tpl}\n  data ${lit(b)}\n  got   ${got}\n  fresh ${fresh}`);
       }
     } catch (e) {

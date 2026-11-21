@@ -9086,6 +9086,11 @@ class Compiler {
     // `.error` and `.loadedAt`): not embedded, `each` or `call`, and a `when` the early file can evaluate. With `cache`, only in a tab
     // that has cached nothing (the early file checks): cached rows would be there at mount
     const pre = this.predictable();
+    // embedded resources whose status at mount the build knows (`$meta.<name>.loading`, `.error`, `.loadedAt`): the embedded
+    // payload is their first load (`loadedAt` the mount's time; a `file:` or `content:` constant's null), nothing loads at
+    // mount and nothing failed. Not with `when` (falsy at mount, the payload is not stored), `paginate` (a `model` page
+    // the URL names loads at mount), `each`, `call` or a stream (an event replayed at the takeover refreshes it)
+    const fixed = new Map([...embedded].filter(([n, d]) => d.when == null && !d.paginate && !d.each && !d.call && !this.page.fed.has(n)));
     const known = (deps: string[], status = true) => deps.every((d) => {
       if (d === '$locale') return true;
       // the URL: the browser knows it as the head is parsed
@@ -9097,7 +9102,11 @@ class Compiler {
       // a status field, or the whole status (a `data-sn-let` of it); another resource's throws early
       const mt = /^\$meta\.([^.]+)(?:\.([^.]+))?$/.exec(d);
       if (mt) {
-        if (!status || !pre.size) return false;
+        if (!status) return false;
+        // an embedded one: its data is read with the status (an empty placeholder throws early, and the page module loads it)
+        const e = fixed.get(mt[1]!);
+        if (e) { if (!e.fx) usedEmb.add(e.name); return ['loading', 'error', 'loadedAt'].includes(mt[2]!); }
+        if (!pre.size) return false;
         // a field the early file knows, or the whole status (its pager and stream fields throw early)
         return mt[2] === undefined || ['loading', 'error', 'loadedAt'].includes(mt[2]);
       }
@@ -9145,14 +9154,27 @@ class Compiler {
       let ast: acorn.Node;
       try { ast = parseExpression(code); } catch { return code; }
       const edits: Array<[number, number, string]> = [];
-      const checks = new Set<number>();
+      const checks = new Set<number>(), reads = new Set<string>(), up = new Map<any, any>();
       const name = (m: any): string | null => (m.computed ? (m.property.type === 'Literal' && typeof m.property.value === 'string' ? m.property.value : null) : m.property.name);
       // `$.$meta.<name>` or `$.$r.<name>`, with `$` the function's parameter
       const at = (m: any, kind: string) => m?.type === 'MemberExpression' && m.object.type === 'MemberExpression' && !m.object.computed && m.object.object.type === 'Identifier'
         && m.object.object.name === '$' && m.object.property.name === kind ? name(m) : null;
       const visit = (n: any, parent: any) => {
         if (!n || typeof n.type !== 'string') return;
-        const r = at(n, '$r'), mt = at(n, '$meta'), def = pre.get((r ?? mt)!);
+        const r = at(n, '$r'), mt = at(n, '$meta'), def = pre.get((r ?? mt)!), e = mt !== null ? fixed.get(mt) : undefined;
+        if (e) {
+          // an embedded resource's status at mount (above): `loading` false, `error` null, `loadedAt` null for a constant, else
+          // the mount's time, which the build cannot write: `true` where only its truth counts (`!`, a `?:` test, the left of
+          // `&&`, as the empty state's condition reads it). Any other read, or the whole status, is left as written: it throws
+          // early, and the page module renders the binding
+          const field = parent?.type === 'MemberExpression' && parent.object === n && !parent.computed ? parent.property.name : null;
+          const gp = up.get(parent);
+          const truth = gp && ((gp.type === 'UnaryExpression' && gp.operator === '!') || (gp.type === 'ConditionalExpression' && gp.test === parent)
+            || (gp.type === 'LogicalExpression' && gp.operator === '&&' && gp.left === parent));
+          const v = field === 'loading' ? 'false' : field === 'error' || (field === 'loadedAt' && e.fx) ? 'null' : field === 'loadedAt' && truth ? 'true' : null;
+          if (v) { edits.push([parent.start, parent.end, v]); if (!e.fx) reads.add(e.name); }
+          return;
+        }
         if (def && (r !== null || mt !== null)) {
           // cached or prefetched rows would be there at mount: this resource's entries (its URL's literal start, its select
           // and total paths, as the cache and next-page data key them), checked once per binding (below). An entry without
@@ -9190,16 +9212,18 @@ class Compiler {
         for (const k of Object.keys(n)) {
           if (k === 'start' || k === 'end' || k === 'type') continue;
           const v = n[k];
-          if (Array.isArray(v)) for (const c of v) visit(c, n);
-          else if (v && typeof v === 'object') visit(v, n);
+          if (Array.isArray(v)) for (const c of v) { up.set(c, n); visit(c, n); }
+          else if (v && typeof v === 'object') { up.set(v, n); visit(v, n); }
         }
       };
       visit(ast, null);
       if (!edits.length) return code;
       let out = code;
       for (const [a, b, t] of edits.sort((x, y) => y[0] - x[0])) out = out.slice(0, a) + t + out.slice(b);
-      // a tab that has cached or prefetched rows of these: the binding throws, and the page module renders it
-      return checks.size ? `($) => (${[...checks].map((i) => `f[${i}](), `).join('')}(${out})($))` : out;
+      // a tab that has cached or prefetched rows of these: the binding throws, and the page module renders it; an embedded
+      // resource's data, read first: a placeholder the server left empty throws, and the page module loads it
+      const first = [...[...checks].map((i) => `f[${i}]()`), ...[...reads].map((n) => `$.$r${/^[A-Za-z_$][\w$]*$/.test(n) ? `.${n}` : `[${JSON.stringify(n)}]`}`)];
+      return first.length ? `($) => (${first.map((x) => `${x}, `).join('')}(${out})($))` : out;
     };
     const templates: EarlyIR['templates'] = this.templates.map(() => null);
     // a binding over a resource without data is early only when it reads a status the early file knows (a loading branch):
