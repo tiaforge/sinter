@@ -25,6 +25,7 @@ export const RUNTIME = `${PACKAGE}/runtime`;
 /** lazy packages' generated modules (lazy-build.ts): `<pkg>.js` is the loader */
 const LAZY_PREFIX = '/@sinter/lazy/';
 /** the built-in messages: a helper namespace with this module is sinter's `m` */
+import { nsLocal } from './expr.js';
 export const MESSAGES = `${PACKAGE}/messages`;
 /**
  * The module a content namespace (`namespace()` in the content module, docs/proposals/messages.md §1) is registered
@@ -413,9 +414,9 @@ const isFixed = (o: Pick<CompileOptions, 'locale' | 'baseMessages' | 'contentNs'
 function contentLines(ns: string, members: string[], options: Pick<CompileOptions, 'contentNs' | 'locale'>): string {
   const spec = options.contentNs?.[ns];
   if (!spec || !members.length) return '';
-  if (spec.format === null) return `const ${members.map((m) => `${ns}$${m} = ${fillFn(typeof spec.entries[m] === 'string' ? spec.entries[m] as string : m)}`).join(', ')};`;
+  if (spec.format === null) return `const ${members.map((m) => `${nsLocal(ns, m)} = ${fillFn(typeof spec.entries[m] === 'string' ? spec.entries[m] as string : m)}`).join(', ')};`;
   const f = `$fmt$${ns}`, l = JSON.stringify(options.locale?.name ?? null);
-  return `import { format as ${f} } from ${JSON.stringify(spec.format)};\nconst ${members.map((m) => `${ns}$${m} = (p) => ${f}(${JSON.stringify(spec.entries[m] ?? null).replace(/</g, '\\u003c')}, p, ${l})`).join(', ')};`;
+  return `import { format as ${f} } from ${JSON.stringify(spec.format)};\nconst ${members.map((m) => `${nsLocal(ns, m)} = (p) => ${f}(${JSON.stringify(spec.entries[m] ?? null).replace(/</g, '\\u003c')}, p, ${l})`).join(', ')};`;
 }
 
 /** a `{param}` text as a function of its parameters (a parameter missing at run time stays as written, as `t()` does) */

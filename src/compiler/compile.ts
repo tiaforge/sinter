@@ -14,7 +14,7 @@ import { parseExpression, parseProgram } from './parse.js';
 import { fullAncestor } from 'acorn-walk';
 import type { DefaultTreeAdapterMap } from 'parse5';
 import { type Code, type Diagnostic, didYouMean, severityOf, suggest } from './diagnostics.js';
-import { analyze, applyEdits, refNames, STORE_FNS, throughField, type SlotScope, type ComponentScope, type ExprOptions, type ExprResult, type LetEntry, type LoopEntry, type PageInfo, type Read, type ResourceInfo, type Scope } from './expr.js';
+import { analyze, applyEdits, nsLocal, refNames, STORE_FNS, throughField, type SlotScope, type ComponentScope, type ExprOptions, type ExprResult, type LetEntry, type LoopEntry, type PageInfo, type Read, type ResourceInfo, type Scope } from './expr.js';
 import { callerAttribute, COMPONENT_NAME, DOM_EVENTS, isArrayType, LIBRARY_LAYER, rootCss, scopeCss, SLOT_TYPE, typeMembers, withoutSlots, type Member } from './components.js';
 import type { Node } from 'acorn';
 import type * as acorn from 'acorn';
@@ -1684,7 +1684,7 @@ class Compiler {
     for (const h of ['$href', '$hq', '$hv']) if (imported(h)) builtin.push(h);
     const namespaces: Record<string, string[]> = {};
     for (const [k, v] of [...this.page.usedNs].sort(([a], [b]) => a.localeCompare(b))) {
-      const ms = [...v].filter((m) => imported(`${k}$${m}`)).sort();
+      const ms = [...v].filter((m) => imported(nsLocal(k, m))).sort();
       if (ms.length) namespaces[k] = ms;
     }
     // unchanged reloads skipped by version, where reloads are routine: refreshes, refresh events and reconnects
@@ -7314,13 +7314,13 @@ class Compiler {
       params.set('bytes', (v: unknown) => inLang(() => bytes(v)));
       params.set('date', (v: unknown, style?: 'full' | 'long' | 'medium' | 'short') => { if (!isCalendarDate(v)) throw NOT; return inLang(() => date(v, style)); });
     }
-    for (const [ns, { members, module }] of Object.entries(this.opts.helpers.namespaces)) for (const m of members) params.set(`${ns}$${m}`, isContentNsModule(module) ? stub : folding.fn(`${ns}$${m}`));
+    for (const [ns, { members, module }] of Object.entries(this.opts.helpers.namespaces)) for (const m of members) params.set(nsLocal(ns, m), isContentNsModule(module) ? stub : folding.fn(`${ns}$${m}`));
     // content namespaces (the built-in messages too): an entry in the page's language, formatted as the browser would
     const cns = this.contentNs();
     let usedMessage = false;
     const msgNs = Object.entries(this.opts.helpers.namespaces).find(([ns, v]) => v.module === MESSAGES_MODULE && cns[ns]);
     for (const [ns, spec] of Object.entries(cns)) for (const m of this.opts.helpers.namespaces[ns]?.members ?? []) {
-      params.set(`${ns}$${m}`, (p?: Record<string, unknown>) => {
+      params.set(nsLocal(ns, m), (p?: Record<string, unknown>) => {
         const t = spec.entries[m];
         if (spec.format === null) {
           if (typeof t !== 'string') throw NOT;
@@ -9066,7 +9066,7 @@ class Compiler {
     const formatters = EARLY_FORMATTERS.filter((n) => !userHelpers.has(n) && calls(n));
     const namespaces: Record<string, string[]> = {};
     for (const [ns, { members }] of Object.entries(this.opts.helpers.namespaces)) {
-      const used = members.filter((m) => calls(`${ns}$${m}`));
+      const used = members.filter((m) => calls(nsLocal(ns, m)));
       if (used.length) namespaces[ns] = used;
     }
     const ir: EarlyIR = { roots, templates };
@@ -9147,7 +9147,7 @@ class Compiler {
     const calls = (name: string) => new RegExp(`(?<![\\w$.])${name.replace(/\$/g, '\\$')}(?![\\w$])`).test(all);
     const namespaces: Record<string, string[]> = {};
     for (const [ns, { members }] of Object.entries(this.opts.helpers.namespaces)) {
-      const used = members.filter((m) => calls(`${ns}$${m}`));
+      const used = members.filter((m) => calls(nsLocal(ns, m)));
       if (used.length) namespaces[ns] = used;
     }
     const arrays = this.urlArrays();

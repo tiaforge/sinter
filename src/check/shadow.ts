@@ -125,7 +125,7 @@ export function shadow(o: ShadowOptions): Shadow {
     // the built-in messages: `m`, typed by the generated `src/sinter.messages.d.ts`
     if (taken.has(ns)) continue;
     // a content namespace (docs/proposals/messages.md §1): its entries, each called with what its formatter takes
-    if (module.startsWith('sinter:content/')) line(`/** @type {Record<string, (args?: any) => any>} */ const ${ns} = $any;`);
+    if (module.startsWith('sinter:content/')) line(`/** @type {any} */ const ${ns} = $any;`);
     else line(module === MESSAGES ? `import { m as ${ns} } from '${MESSAGES}';` : `import * as ${ns} from '${moduleSpec(module)}';`);
   }
   if (o.actions?.module && (unit.resources.some((r) => r.call) || unit.exprs.some((e) => e.returns?.kind === 'call' || e.resultType?.kind === 'call'))) {

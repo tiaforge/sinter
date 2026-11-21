@@ -899,6 +899,8 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
     if (n.type === 'ChainExpression') return visitMemberParts((n as acorn.ChainExpression).expression as Node, locals);
     if (n.type !== 'MemberExpression') return visit(n, locals);
     const m = n as acorn.MemberExpression & Node;
+    // a content namespace's nested id (`m.inbox.title`): the whole chain names one entry
+    if (m.object.type === 'MemberExpression' && nestedMember(m, locals)) return;
     if (m.object.type === 'Identifier' && page.namespaces.has(m.object.name) && !locals.has(m.object.name)) {
       nsMember(m, locals);
       return;
@@ -932,6 +934,35 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
     return cur;
   }
 
+  /** `ns.a.b`: the entry `a.b` of a namespace that has it (a content namespace's nested ids); false when it is not one */
+  function nestedMember(m: acorn.MemberExpression & Node, locals: Locals): boolean {
+    const parts: string[] = [];
+    let cur: Node = m;
+    while (cur.type === 'MemberExpression') {
+      const x = cur as acorn.MemberExpression & Node;
+      if (x.computed || x.property.type !== 'Identifier') return false;
+      parts.unshift((x.property as acorn.Identifier).name);
+      cur = x.object as Node;
+    }
+    if (cur.type !== 'Identifier' || locals.has((cur as acorn.Identifier).name)) return false;
+    const ns = (cur as acorn.Identifier).name, members = page.namespaces.get(ns);
+    if (!members) return false;
+    const id = parts.join('.');
+    if (!members.has(id)) {
+      // a group of ids (`m.inbox` of `m.inbox.title`) or a typo in one: named with the ids that start like it
+      if ([...members].some((k) => k.includes('.'))) {
+        report('SN206', `\`${ns}.${id}\` is not an entry of namespace \`${ns}\`.${didYouMean(id, [...members])}`, m.start);
+        return true;
+      }
+      return false;
+    }
+    if (!page.usedNs.has(ns)) page.usedNs.set(ns, new Set());
+    page.usedNs.get(ns)!.add(id);
+    if (!(page.locale && ns === page.locale.messages) && !page.contentNs?.has(ns)) addDep(['$locale']);
+    edits.push({ start: m.start, end: m.end, text: nsLocal(ns, id) });
+    return true;
+  }
+
   function nsMember(m: acorn.MemberExpression & Node, _locals: Locals) {
     const ns = (m.object as acorn.Identifier).name;
     if (m.computed) {
@@ -949,7 +980,7 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
     lazyUse(`${ns}$${member}`, `${ns}.${member}`, m.start);
     // a message in a page built in one language is that language's text: no dependency
     if (!(page.locale && ns === page.locale.messages) && !page.contentNs?.has(ns)) addDep(['$locale']);
-    edits.push({ start: m.start, end: m.end, text: `${ns}$${member}` });
+    edits.push({ start: m.start, end: m.end, text: nsLocal(ns, member) });
   }
 
   /** a helper of a module that reaches a lazy package, outside a let or a prop: SN324 */
@@ -1616,3 +1647,6 @@ export function applyEdits(src: string, edits: Edit[]): string {
   for (const e of sorted) out = out.slice(0, e.start) + e.text + out.slice(e.end);
   return out;
 }
+
+/** the name compiled code calls a namespace's member by: `m$title`, and a nested id's parts joined by `$$` (`m$inbox$$title`) */
+export const nsLocal = (ns: string, member: string) => `${ns}$${member.split('.').join('$$')}`;
