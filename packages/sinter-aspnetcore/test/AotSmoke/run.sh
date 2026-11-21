@@ -26,7 +26,7 @@ cat > "$work/app/AotSmoke.csproj" <<XML
     <PublishAot>true</PublishAot>
     <InvariantGlobalization>true</InvariantGlobalization>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
-    <SinterBuild>$here/../Sinter.AspNetCore.Tests/fixtures/web</SinterBuild>
+    <SinterBuild>$here/../../../../test/fixtures/server-build</SinterBuild>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Sinter.AspNetCore" Version="$version" />
@@ -35,7 +35,7 @@ cat > "$work/app/AotSmoke.csproj" <<XML
 XML
 dotnet publish "$work/app" -c Release -o "$work/out" -p:IlcTreatWarningsAsErrors=true
 port=$((20000 + RANDOM % 20000))
-"$work/out/AotSmoke" "$here/../Sinter.AspNetCore.Tests/fixtures/web" "$port" > "$work/log" 2>&1 &
+"$work/out/AotSmoke" "$here/../../../../test/fixtures/server-build" "$port" > "$work/log" 2>&1 &
 pid=$!
 trap 'kill $pid 2>/dev/null || true; rm -rf "$work"' EXIT
 for _ in $(seq 50); do curl -fs "http://127.0.0.1:$port/api/tags" >/dev/null && break; sleep 0.1; done

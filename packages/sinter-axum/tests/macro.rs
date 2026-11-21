@@ -7,7 +7,7 @@ use tower::ServiceExt;
 #[tokio::test]
 async fn a_configuration_the_build_accepts_compiles_and_serves() {
     // `articles` has no request the build describes: without its entry this would not compile
-    let embed = sinter_axum::embed!("tests/fixtures/web", {
+    let embed = sinter_axum::embed!("../../test/fixtures/server-build", {
         "articles" => |_req| async { Some(Bytes::from_static(br#"{"articles":[]}"#)) },
         "user" => skip,
     });
@@ -25,8 +25,12 @@ fn a_build_directory_from_another_build_is_refused() {
     let other = std::env::temp_dir().join(format!("sinter-axum-other-{}", std::process::id()));
     std::fs::create_dir_all(&other).unwrap();
     std::fs::write(other.join("sinter-embed.json"), r#"{ "version": 2, "pages": [] }"#).unwrap();
-    let err =
-        sinter_axum::embed!("tests/fixtures/web", { "articles" => skip, "user" => skip }).dir(&other).build().err().unwrap().to_string();
+    let err = sinter_axum::embed!("../../test/fixtures/server-build", { "articles" => skip, "user" => skip })
+        .dir(&other)
+        .build()
+        .err()
+        .unwrap()
+        .to_string();
     assert!(err.contains("is not the build this binary was compiled against"), "{err}");
 }
 

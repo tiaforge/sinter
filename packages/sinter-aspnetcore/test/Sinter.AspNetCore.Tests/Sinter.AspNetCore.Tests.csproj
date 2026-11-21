@@ -21,12 +21,10 @@
     <ProjectReference Include="../../src/Sinter.AspNetCore/Sinter.AspNetCore.csproj" />
     <ProjectReference Include="../../src/Sinter.AspNetCore.Generator/Sinter.AspNetCore.Generator.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="true" />
   </ItemGroup>
-  <!-- [SinterEmbed] over the fixture build, as a package consumer gets it -->
+  <!-- [SinterEmbed] over the fixture build sinter-axum's tests use too, as a package consumer gets it: a frontend's
+       build outside the project -->
   <PropertyGroup>
-    <SinterBuild>fixtures/web</SinterBuild>
+    <SinterBuild>../../../../test/fixtures/server-build</SinterBuild>
   </PropertyGroup>
   <Import Project="../../src/Sinter.AspNetCore/build/Sinter.AspNetCore.targets" />
-  <ItemGroup>
-    <Content Include="fixtures/**" CopyToOutputDirectory="PreserveNewest" />
-  </ItemGroup>
 </Project>
