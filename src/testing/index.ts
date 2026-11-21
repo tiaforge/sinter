@@ -12,7 +12,7 @@ import type { CompileLibrary, CompiledParts, HelperManifest } from '../compiler/
 import { functionVerdict, type FoldVerdict } from '../fold-check.js';
 import * as earlyExports from '../early.js';
 import { early as runEarly } from '../early.js';
-import { t as message, use as useMessages } from '../messages.js';
+import { t as message } from '../messages.js';
 import { mount, scopeState, type App, type Feature, type Transport } from '../runtime/app.js';
 import { config, type Middleware } from '../runtime/config.js';
 import type { Env } from '../runtime/env.js';
@@ -263,8 +263,8 @@ export interface RenderOptions {
   traverse?: boolean;
   /**
    * built-in messages, as the message files hold them: `{ en: { nav_mail: 'Mail' }, de: { … } }`,
-   * the base language first. `m.key()` in the page reads them; the locale is `locale`, else the
-   * stored choice (`locale` in `storage`), else the base; `$locale = 'de'` switches.
+   * the base language first. The page is in one language, `locale`, else the base, as a build compiles
+   * it: `m.key()` reads that language's text, and writing `$locale` is SN203.
    */
   messages?: Record<string, Record<string, string>>;
   /**
@@ -400,28 +400,33 @@ export async function firstPaint(html: string, options: Pick<RenderOptions, 'hel
   if (current) { current.destroy(); current = null; }
   const { files, components } = options;
   const helpers = withMessages(options);
-  const { parts } = compilePage(html, { helpers, ...(files ? { files } : {}), ...(components ? { components } : {}), ...(options.lazyHelpers ? { lazyHelpers: options.lazyHelpers } : {}), ...(options.messages ? { messages: options.messages } : {}), firstPaint: true });
+  const { parts } = compilePage(html, { helpers, ...(files ? { files } : {}), ...(components ? { components } : {}), ...(options.lazyHelpers ? { lazyHelpers: options.lazyHelpers } : {}), ...(options.messages ? { messages: options.messages, ...(options.locale ? { locale: options.locale } : {}) } : {}), firstPaint: true });
   writePage(parts.html, options.messages);
   const env = config.env;
   config.env = { ...env, storage: () => options.storage ?? null };
-  if (options.messages) { config.locale = null; useMessages(); }
+  if (options.messages) messagesLocale();
   try { paint(parts, helpers, options.early); } finally { config.env = env; }
   return { root: document.body, html: parts.html };
 }
 
+/** the page's one language with built-in messages: `locale`, else the base (the messages' first) */
+const messagesLang = (o: Pick<RenderOptions, 'messages' | 'locale'>) => o.locale ?? Object.keys(o.messages!)[0]!;
+
 /**
- * Built-in messages: the shared state the picker and a language file would leave (locale picked
- * from `locale`, else the stored choice, else the base), and `m` as a helper namespace.
+ * Built-in messages: the shared state a built page's messages module has (its language and messages), and `m` as a
+ * helper namespace.
  */
 function withMessages(o: Pick<RenderOptions, 'helpers' | 'messages' | 'locale' | 'storage'>): Record<string, unknown> {
   if (!o.messages) return o.helpers ?? {};
   const locales = Object.keys(o.messages), base = locales[0]!;
-  let stored: string | null = null;
-  try { stored = o.storage?.getItem('locale') ?? null; } catch { /* none */ }
-  const locale = o.locale ?? (stored && locales.includes(stored) ? stored : base);
-  (globalThis as any)[Symbol.for('sinter.i18n')] = { locale, base, locales, storage: 'locale', files: {}, dicts: structuredClone(o.messages) };
-  document.documentElement.lang = locale;
+  (globalThis as any)[Symbol.for('sinter.i18n')] = { locale: messagesLang(o), base, locales, dicts: structuredClone(o.messages) };
   return { ...o.helpers, m: Object.fromEntries(Object.keys(o.messages[base]!).map((k) => [k, (p?: Record<string, unknown>) => message(k, p)])) };
+}
+
+/** the messages' language is the locale source, as in a built page: `date()` and `number()` format in it */
+function messagesLocale() {
+  const l = (globalThis as any)[Symbol.for('sinter.i18n')].locale as string;
+  config.locale = { get: () => l, set: () => {} };
 }
 
 /** The early chunk: the app's early module, then the early bindings with the helpers in scope. */
@@ -480,7 +485,10 @@ function compilePage(html: string, options: RenderOptions, strict: Strict = { on
   for (const name of Object.keys(options.scripts ?? {})) files[`src/components/${name}.ts`] ??= 'export default class {}';
   const proj = options.project;
   const apis = proj ? { specs: proj.openapi, apis: proj.apis } : options.apis ? testApis(options) : null;
+  // built-in messages: compiled in the page's one language, as a build compiles it
+  const lang = options.messages ? messagesLang(options) : null;
   const parts = compileParts(html, {
+    ...(lang ? { locale: { name: lang, urls: null, base: '/', prefix: false as const }, baseMessages: { ...Object.values(options.messages!)[0], ...options.messages![lang] } } : {}),
     file: proj?.file ?? PAGE, root: proj?.root ?? '/test', dev: options.dev ?? true, helpers: manifest,
     ...(proj?.lazyModule ? { lazyModule: proj.lazyModule } : {}), actions: actionManifest, moduleSrc: 'about:blank', componentNames: proj?.componentNames ?? Object.keys(options.components ?? {}), ...(proj?.libraries?.length ? { libraries: proj.libraries } : {}),
     // lazy packages: any name, loaded by nothing (a test calls the app's functions, which import what they need)
@@ -558,8 +566,7 @@ function writePage(html: string, messages?: unknown) {
   for (const a of [...top.attributes]) top.removeAttribute(a.name);
   for (const a of [...page.attributes]) top.setAttribute(a.name, a.value);
   top.innerHTML = page.innerHTML;
-  // as the picker script does: <html lang> is the picked locale
-  if (messages) top.lang = (globalThis as any)[Symbol.for('sinter.i18n')].locale;
+  void messages;
 }
 
 export async function render(html: string, options: RenderOptions = {}): Promise<Rendered> {
@@ -666,17 +673,14 @@ export async function render(html: string, options: RenderOptions = {}): Promise
   config.env = env;
   if (options.firstPaint) {
     const fp = options.firstPaint === true ? {} : options.firstPaint;
-    if (options.messages) { config.locale = null; useMessages(); }
+    if (options.messages) messagesLocale();
     const n = navigations.length;
     paint(parts, helpers, fp.early);
     if (navigations.length > n && navigations.at(-1)!.startsWith('replace ')) early = navigations.at(-1)!.slice(8);
     fp.afterEarly?.();
   }
-  if (options.messages) {
-    // sinter's messages are the locale source, as in a built page
-    config.locale = null;
-    useMessages();
-  } else if (options.locale !== undefined) {
+  if (options.messages) messagesLocale();
+  else if (options.locale !== undefined) {
     let locale = options.locale;
     config.locale = { get: () => locale, set: (l) => { locale = l; } };
   }
@@ -710,7 +714,6 @@ export async function render(html: string, options: RenderOptions = {}): Promise
     },
   });
   current = app;
-  if (options.messages) useMessages(app);
 
   const check = () => {
     if (requests?.errors.length) throw requests.errors[0];

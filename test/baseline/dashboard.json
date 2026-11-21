@@ -3,40 +3,40 @@
   "sha256": "38da2098909d0905de0d02f579f638a7405b1bc87504f938bcce40ea47a00242",
   "bytes": 100
  },
- "assets/index-CiN7vrKo.js": {
-  "sha256": "3cdf8b2dd37e12f7b97f3d0ce80695b361906fb5cf841c930b81b3a2880ae1e5",
+ "assets/index-76DoEf8-.js": {
+  "sha256": "ac88702d4e875ba838f3dc84c95d96c9cf870ebc9174f8d33ac08298b9d34bab",
   "bytes": 9551
  },
- "assets/index-head-STmWgF3C.js": {
-  "sha256": "493996805dc2fc8fcc6252009d397248253c2dd9cdfad63ec92ede67393f2373",
-  "bytes": 1048
+ "assets/index-head-HcoujoRB.js": {
+  "sha256": "1dca2e8e84413b3b41dc02405c4a238e1048a2c753f1c6606441f146c91cb62a",
+  "bytes": 1043
  },
- "assets/latency-BT2cBruJ.js": {
-  "sha256": "746840ecc40c5fd10c7d6ddf6d1c89eabe394a47aee1f260ab1e2ec34c346aa5",
+ "assets/latency-BhU8HQ4O.js": {
+  "sha256": "6ba5d22a53e1e54a8ac4aeb584de662ee31b2330dbaa5543bd4291942a08230d",
   "bytes": 2042
  },
- "assets/sinter-head-R9xIfbcB.js": {
-  "sha256": "47dc487db701625baab8e2caf25d3a733d7c70d2050231a09a23d36b2ce6222e",
-  "bytes": 4434
+ "assets/sinter-head-7Z997u4i.js": {
+  "sha256": "ed9f7deeee22704834c748afeb6b9355a36c1f50d8d537b81a91e2b452d0954d",
+  "bytes": 4068
  },
  "assets/sinter-iE_vJo9b.css": {
   "sha256": "2f8927cdf9fec9693c238cda5fff05c63b65feee03f51d38a7646e36f34f4fea",
   "bytes": 54212
  },
- "assets/sinter.config-BgYEFTvL.js": {
-  "sha256": "bd67dc2e593752b966ecd11986edf3cd40f03513944efdb1a1af832f8ce14033",
+ "assets/sinter.config-CPFx9Zdl.js": {
+  "sha256": "5c4884d7ac210eccce6cfc12f6fd5c5a70dcee7b77aa290906c52f6154c8b4c9",
   "bytes": 11352
  },
- "assets/swap-9gLL2p0H.js": {
-  "sha256": "088ad79493c17aa4afe5144d6280fe8b5a117f6729ddb89e85c8fa36b63addfc",
+ "assets/swap-DE81YVFH.js": {
+  "sha256": "99b685106e43fd6dcf47d53800268e74449cecd1137e9a3af17a89158e10057f",
   "bytes": 41644
  },
- "assets/swap-run-CowZ0Dfa.js": {
-  "sha256": "78e1af21cc2fc171ce252eb774b0cc34390ff6c1ecd7d6967d3070ad9d5fad1d",
-  "bytes": 9607
+ "assets/swap-run-CdnHHZY-.js": {
+  "sha256": "28b1440c245fadddced44d55ecfbdc4f8f7f0737009bec31e12dbdaef16ae6cb",
+  "bytes": 8850
  },
  "index.html": {
-  "sha256": "ccc9ca9cd7385e78879cdd89982847235d33d37a980978e46c9a4dc6ab52d5be",
+  "sha256": "e88908950922fc617e3c842e82ac6e2258c26dd83921f22fb5fb40341e70f731",
   "bytes": 3069
  },
  "latency.html": {
@@ -44,7 +44,7 @@
   "bytes": 345
  },
  "latency/index.html": {
-  "sha256": "03bd552f4b1634fbdff104266a0ef6de98337e6e9902f6bb9ca86ac7826d687c",
+  "sha256": "d92be1b463ada1aa4668783404906a009b0171bdae5954aaab83ae5a79fc3966",
   "bytes": 1671
  }
 }

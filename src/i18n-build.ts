@@ -122,22 +122,3 @@ const tsBase = new Proxy(base as Record<string, unknown>, {
     return () => {};
   },
 });
-
-/** One page's file for one language: an ES module that stores the dictionary on the shared state. */
-export function languageFile(locale: string, dict: Record<string, string>): string {
-  const g = 'globalThis[Symbol.for("sinter.i18n")]';
-  return `const g=${g}||(${g}={dicts:{}});(g.dicts||(g.dicts={}))[${JSON.stringify(locale)}]=${JSON.stringify(dict)};g.loaded&&g.loaded(${JSON.stringify(locale)});\n`;
-}
-
-/**
- * The picker: the start of the shared head script (vite.ts), first in the head. It runs while the
- * head is parsed, picks the locale (the stored choice, then navigator.languages, exactly or by
- * language, then the base), sets `<html lang>` and adds the page's language file as a module
- * script: nothing waits for it. Its data is in `data-sn-i18n` on its own tag (on a page without
- * messages there is none, and it does nothing). The HTML has the base language's text
- * (`data-sn-m`, see `baseMessages` in the compiler): for another language those elements keep
- * their space but stay invisible until the page module has rendered them (`use(app)` in the
- * messages module), so no visitor sees one language replaced by another. If the page module has not
- * mounted after 3 s (it failed or stalls), the elements show again, in the base language.
- */
-export const I18N_PICKER = `/* sinter i18n */(function(){try{var e=document.currentScript,c=JSON.parse(e.getAttribute("data-sn-i18n")),K=Symbol.for("sinter.i18n"),g=globalThis[K]||(globalThis[K]={dicts:{}}),L=c.locales,s=null;try{s=localStorage.getItem(c.storage)}catch(x){}function f(l){if(!l)return;l=l.toLowerCase();for(var i=0;i<L.length;i++)if(L[i].toLowerCase()==l)return L[i];for(i=0;i<L.length;i++)if(L[i].toLowerCase()==l.split("-")[0])return L[i]}var n=navigator.languages&&navigator.languages.length?navigator.languages:[navigator.language],r=f(s);for(var i=0;!r&&i<n.length;i++)r=f(n[i]);g.locale=r||c.base;g.base=c.base;g.locales=L;g.storage=c.storage;g.files=c.files;g.dicts=g.dicts||{};document.documentElement.lang=g.locale;if(g.locale!=c.base)try{var h=new CSSStyleSheet;h.replaceSync("[data-sn-m]{visibility:hidden}");document.adoptedStyleSheets=document.adoptedStyleSheets.concat(h);g.hide=h;setTimeout(function(){if(g.hide===h){document.adoptedStyleSheets=document.adoptedStyleSheets.filter(function(y){return y!==h});delete g.hide}},3e3)}catch(x){}var t=document.createElement("script");t.type="module";t.src=c.files[g.locale];document.head.appendChild(t)}catch(x){}})();\n`;

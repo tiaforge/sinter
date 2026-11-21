@@ -217,15 +217,15 @@ export function earlyPage(early: EarlyParts): { code: string; uses: string[] } {
 }
 
 function earlyLines(early: EarlyParts | null, options: Pick<CompileOptions, 'helpers' | 'early' | 'observe' | 'locale' | 'baseMessages'>): MappedLines | null {
-  const observe = !!options.observe, fixed = isFixed(options);
+  const observe = !!options.observe;
   const app = options.early?.module ?? null;
   if (!early && !app) return null;
   const lines = new MappedLines();
   if (app) lines.push(`import ${JSON.stringify(app)};`);
   const req = !!early?.ir.res?.length;
   const page = early ? earlyPage(early) : null;
-  // a page with nothing to wait for (no requests, no messages, no app early module's dictionary): `run`, one step
-  const simple = !!early && !observe && !req && (fixed || !Object.values(options.helpers.namespaces).some((n) => n.module === MESSAGES));
+  // a page with nothing to wait for (no requests): `run`, one step
+  const simple = !!early && !observe && !req;
   lines.push(`import { ${[observe ? 'observe' : simple ? 'run' : 'start', ...(early ? ['$k', ...page!.uses] : []), ...(req ? ['requests', ...(app ? ['configured'] : [])] : [])].join(', ')} } from '${RUNTIME}/early';`);
   let messages: string | null = null;
   const byModule = new Map<string, string[]>();
@@ -240,30 +240,28 @@ function earlyLines(early: EarlyParts | null, options: Pick<CompileOptions, 'hel
     }
     for (const [ns, members] of Object.entries(early.namespaces)) {
       const info = options.helpers.namespaces[ns]!;
-      if (info.module === MESSAGES) { messages = fixed ? fixedMessages(ns, members, options) : messagesImport(ns, members); continue; }
+      if (info.module === MESSAGES) { messages = isFixed(options) ? fixedMessages(ns, members, options) : messagesImport(ns, members); continue; }
       for (const m of members) {
         const o = info.from?.[m];
         add(o?.module ?? info.module, `${o?.name ?? m} as ${ns}$${m}`);
       }
     }
   }
-  // an app with built-in messages: the first paint waits for the dictionary (helpers may call `m` too)
-  if (!messages && Object.values(options.helpers.namespaces).some((n) => n.module === MESSAGES)) messages = fixed ? fixedMessages('m', [], options) : messagesImport('m', []);
+  // an app with built-in messages: the page's language, for the helpers that call `m` too
+  if (!messages && Object.values(options.helpers.namespaces).some((n) => n.module === MESSAGES)) messages = isFixed(options) ? fixedMessages('m', [], options) : messagesImport('m', []);
   for (const [mod, specs] of byModule) lines.push(`import { ${specs.join(', ')} } from ${JSON.stringify(mod)};`);
   // the built-in formatters the early bindings call, from the package (not the early runtime, which the build shares
   // between pages): each early file bundles only those it calls, beside the messages module that sets its locale
   if (early?.formatters?.length) lines.push(`import { ${early.formatters.join(', ')} } from '${RUNTIME}';`);
-  // observe: the early script reads the dictionary's state (has it arrived?) from the messages module
-  if (messages) lines.push(observe && !fixed ? messages.replace('ready as $ready }', 'ready as $ready, state as $state }') : messages);
   // a page in one language: its text is compiled in, nothing to wait for
-  if (fixed) messages = null;
+  if (messages) lines.push(messages);
   lines.push('');
   if (early) {
     lines.push('const page = () => {', '  const f = [');
     early.fns.forEach((f, i) => lines.fn('    ', f, ',', early.sources?.fns[i]));
     lines.push('  ];', `  return ${page!.code};`, '};');
   }
-  const args = `${early ? 'page' : 'null'}, ${messages ? `{ use: $use, ready: $ready${observe ? ', state: $state' : ''} }` : 'null'}${req ? `, requests(${app ? 'configured' : ''})` : ''}`;
+  const args = `${early ? 'page' : 'null'}${req ? `, requests(${app ? 'configured' : ''})` : ''}`;
   // observe (builds): a classic head script, which starts the requests at once and renders as the parser goes
   lines.push(observe ? `observe(${args});` : simple ? 'run(page);' : `start(${args});`);
   return lines;
@@ -305,14 +303,9 @@ function pageLines(parts: CompiledParts, options: Pick<CompileOptions, 'helpers'
     for (const s of specs) lines.push(`import { load as ${loader(s)} } from ${JSON.stringify(`${LAZY_PREFIX}${s}.js`)};`);
     for (const x of parts.lazyHelpers) lines.push(`const ${x.local} = $laterH(() => import(${JSON.stringify(x.module)}), [${x.lazy.map(loader).join(', ')}], ${options.dev || !x.module.startsWith('/') ? 'null' : JSON.stringify(`__SN_CHUNK__${file(x.module)}__`)}, import.meta.url);`);
   }
-  // an app with built-in messages: the page's modules (helpers, actions, islands) may call `m` although
-  // its markup does not, so every page waits for the dictionary (and sinter is the locale source)
-  if (!messages && Object.values(options.helpers.namespaces).some((n) => n.module === MESSAGES)) {
-    lines.push(isFixed(options) ? fixedMessages('m', [], options) : messagesImport('m', []));
-    messages = true;
-  }
-  // a page in one language: the locale is fixed and its messages compiled in, so nothing waits for a dictionary
-  if (isFixed(options)) messages = false;
+  // an app with built-in messages: the page's modules (helpers, actions, islands) may call `m` although its markup
+  // does not; the page's language is fixed and its messages compiled in, so nothing waits for a dictionary
+  if (!messages && Object.values(options.helpers.namespaces).some((n) => n.module === MESSAGES)) lines.push(isFixed(options) ? fixedMessages('m', [], options) : messagesImport('m', []));
   // actions (`data-sn-call`): imported as `$a$name` / `$a$ns$member`, only those the page calls
   const acts = options.actions;
   if (acts?.module) {
@@ -360,18 +353,15 @@ function pageLines(parts: CompiledParts, options: Pick<CompileOptions, 'helpers'
     // build keeps no exports of a page's entry), for the swap to call when it swaps this page in (the module
     // imported once, the mount run per visit), with the names the page keeps; the module mounts itself only
     // on a load, not when the swap imports it
-    const body = `${cookie ? `${cookie} ` : ''}${messages ? '$use(); await $ready(); const a = mount(document, $page); $use(a); return a;' : 'return mount(document, $page);'}`;
-    lines.push(`const $page = ${opts};`, `const $boot = ${messages ? 'async ' : ''}() => { ${body} };`);
+    const body = `${cookie ? `${cookie} ` : ''}return mount(document, $page);`;
+    lines.push(`const $page = ${opts};`, `const $boot = () => { ${body} };`);
     lines.push(`(globalThis[Symbol.for('sinter.pages')] ??= {})[import.meta.url] = { boot: $boot, kept: ${JSON.stringify(parts.permanent ?? [])} };`);
     lines.push(`if (!globalThis[Symbol.for('sinter.swapping')]) { ${wait} await $boot(); }`);
     return lines;
   }
   if (cookie) lines.push(cookie);
   lines.push(wait);
-  if (messages) {
-    // sinter's messages are the locale source; the dictionary the early step loaded, once it is there
-    lines.push('$use();', 'await $ready();', `$use(mount(document, ${opts}));`);
-  } else lines.push(`mount(document, ${opts});`);
+  lines.push(`mount(document, ${opts});`);
   return lines;
 }
 
@@ -415,10 +405,12 @@ function fixedMessages(ns: string, members: string[], options: Pick<CompileOptio
   return members.length ? `${imp}\nconst ${members.map((m) => `${ns}$${m} = ${fn(d[m] ?? m)}`).join(', ')};` : imp;
 }
 
-/** The built-in messages a module calls: `m.key` bound to the names compiled code uses (`m$key`). */
+/**
+ * The built-in messages a compile without a language calls (not a build's: each page is built in one): `m.key` bound
+ * to the names compiled code uses (`m$key`), read from the messages module's state.
+ */
 function messagesImport(ns: string, members: string[]): string {
-  const imp = `import { ${members.length ? 'm as $m, ' : ''}use as $use, ready as $ready } from '${MESSAGES}';`;
-  return members.length ? `${imp}\nconst ${members.map((m) => `${ns}$${m} = $m.${m}`).join(', ')};` : imp;
+  return members.length ? `import { m as $m } from '${MESSAGES}';\nconst ${members.map((m) => `${ns}$${m} = $m.${m}`).join(', ')};` : `import '${MESSAGES}';`;
 }
 
 /**

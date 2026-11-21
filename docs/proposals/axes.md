@@ -412,6 +412,12 @@ Each step ships on its own.
    rows), so that needs its own fix. The point-aware component resolver moves to step 6, where tenants need it.
 5. **Runtime switching removed** (§7). Breaking in the changelog. The messages recipe, llms.txt and the tests
    move. The baseline is recorded again.
+   *Done 2026-11-21*, in two commits: (a) a build without `localePrefix` compiles every page in the messages' base
+   language (the compiler's `locale` with `prefix: false`), with no picker and no language files, changing only
+   `e2e/swap-csp` (moved to `localePrefix`) and `test/fixtures/vite-i18n`; (b) the runtime that served switching
+   goes (`setLocale`, `onLocale`, `ready`, `use`, the early file's and the swap's dictionary waits, the picker),
+   which only shrank files: the shared head script by 364 B, the swap's rest by 757 B, each page's head script by
+   5 B. `render()` compiles a page with messages in its one language, as a build does.
 6. **Axes declared in markup** (§2, §3): `;` lists in `data-sn-for`, collections as lists, outer variables in
    `file:` paths, `per`, `origin` (files under a folder, URLs without it, absolute links across origins, a sitemap
    per origin), links between points (§5), `axisUrl()`, the special files per point (§9). A test site with

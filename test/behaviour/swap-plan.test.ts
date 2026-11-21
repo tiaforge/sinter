@@ -34,19 +34,16 @@ test('the head nodes that are the page\'s own: the title, bound nodes, anchors w
   ]);
 });
 
-test('what only a load applies: a CSP <meta>, <base>, the language picker', () => {
+test('what only a load applies: a CSP <meta>, <base>, the page\'s language', () => {
   const base = new URL('http://localhost/');
   const plain = fixed(parse('', '<title>a</title>'), base);
   expect(fixed(parse('', '<title>b</title><meta name="x">'), base)).toBe(plain);
   expect(fixed(parse('', '<meta http-equiv="Content-Security-Policy" content="default-src \'self\'">'), base)).not.toBe(plain);
   expect(fixed(parse('', '<base href="/app/">'), base)).not.toBe(plain);
-  expect(fixed(parse('<script data-sn-i18n="de"></script>'), base)).not.toBe(plain);
-  // a page in another language (`localePrefix`: /en/ → /de/); with the picker, `<html lang>` is the visitor's
-  const lang = (l: string, head = '') => { const d = parse('', head); d.documentElement.lang = l; return fixed(d, base); };
+  // a page in another language (`localePrefix`: /en/ → /de/)
+  const lang = (l: string) => { const d = parse(''); d.documentElement.lang = l; return fixed(d, base); };
   expect(lang('en')).not.toBe(lang('de'));
   expect(lang('en')).toBe(lang('EN'));
-  const picker = '<script data-sn-i18n=\'{"base":"en","files":{}}\'></script>';
-  expect(lang('en', picker)).toBe(lang('de', picker));
 });
 
 test('a page in one language: the messages its modules call (data-sn-messages) join the dictionary', () => {

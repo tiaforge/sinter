@@ -26,7 +26,7 @@ afterEach(() => {
 function earlyFile(res: Array<[string, Array<string | number>, number | null]>, fns: Array<(s: any) => unknown>) {
   const ir: Pick<EarlyIR, 'res'> = { res: res.map(([, src, when]) => ({ src, ...(when != null ? { when } : {}), scope: 0 })) };
   const f = [() => ({ week: '2026-11-02', sel: null }), ...fns];
-  start(earlyPageOf(ir, f), null, requests(configured));
+  start(earlyPageOf(ir, f), requests(configured));
 }
 
 test('a resource the early file requested is not requested again: the runtime takes its response', async () => {

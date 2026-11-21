@@ -72,33 +72,6 @@ test('each root is rendered once the parser has moved past it, before DOMContent
   expect(p.textContent).toBe('early');
 });
 
-test('a message waits for its dictionary without holding anything, and is rendered if it arrives during the parse', async () => {
-  const doc = parsing();
-  const g = ((globalThis as any)[I18N] = { locale: 'de', base: 'en', dicts: {} as Record<string, any> });
-  observe(page(true), { use() {}, state: () => g });
-  document.body.innerHTML = '<p data-sn="1"></p>\n';
-  await tick();
-  expect(document.querySelector('p')!.textContent).toBe('');
-  // the language file arrives
-  g.dicts.de = { hi: 'Hallo' };
-  (g as any).loaded('de');
-  expect(document.querySelector('p')!.textContent).toBe('Hallo');
-  doc.end();
-});
-
-test('a dictionary arriving after the parse is left to the page module', async () => {
-  const doc = parsing();
-  const g = ((globalThis as any)[I18N] = { locale: 'de', base: 'en', dicts: {} as Record<string, any> });
-  observe(page(true), { use() {}, state: () => g });
-  document.body.innerHTML = '<p data-sn="1"></p>\n';
-  doc.end();
-  await tick();
-  expect(g.dicts.de).toBeUndefined();
-  g.dicts.de = { hi: 'Hallo' };
-  (g as any).loaded?.('de');
-  expect(document.querySelector('p')!.textContent).toBe('');
-});
-
 const yes = () => true, txt = () => 'text';
 test('an element\'s own attributes are written when the parser inserts it; its content once it has closed it', async () => {
   const doc = parsing();

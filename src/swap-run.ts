@@ -85,16 +85,13 @@ const sheets = (els: Iterable<Element>, base: URL) => new Map([...els].flatMap((
   : []));
 
 /**
- * what only a load applies (a CSP `<meta>`, `<base>`, the language picker, the language of a page without the
- * picker: a page in another language, `localePrefix`'s `/de/` from `/en/`): a page that differs here is loaded
+ * what only a load applies (a CSP `<meta>`, `<base>`, the page's language: a page in another language,
+ * `localePrefix`'s `/de/` from `/en/`): a page that differs here is loaded
  */
 export const fixed = (d: Document, base: URL) => JSON.stringify([
   [...d.querySelectorAll('head meta[http-equiv]')].map((m) => [m.getAttribute('http-equiv')!.toLowerCase(), m.getAttribute('content')]),
   [...d.querySelectorAll('head base[href]')].map((b) => new URL(b.getAttribute('href')!, base).href),
-  // the language picker's settings, not its files: each page has its own dictionary files (loaded by `language`)
-  [...d.querySelectorAll('script[data-sn-i18n]')].map((x) => { try { const { files: _, ...c } = JSON.parse(x.getAttribute('data-sn-i18n')!); return c; } catch { return x.getAttribute('data-sn-i18n'); } }),
-  // (the picker sets `<html lang>` to the visitor's language on every page: its settings above are the key there)
-  d.querySelector('script[data-sn-i18n]') ? null : d.documentElement.getAttribute('lang')?.toLowerCase() ?? '',
+  d.documentElement.getAttribute('lang')?.toLowerCase() ?? '',
 ]);
 
 /** one swap's window for the streams (sse-handover.ts): parked connections and those taken over, by the sse feature */
@@ -138,16 +135,15 @@ export function streamWindow(): () => void {
   return close;
 }
 
-/** the built-in messages' state the picker, the language files and the messages module share (messages.ts) */
-interface I18n { locale?: string; files?: Record<string, string>; dicts?: Record<string, Record<string, string>> }
+/** the built-in messages' state, which every copy of the messages module shares (messages.ts) */
+interface I18n { locale?: string; dicts?: Record<string, Record<string, string>> }
 
 /** the built-in messages' state (messages.ts) */
 const i18n = () => (globalThis as unknown as Record<symbol, I18n | undefined>)[Symbol.for('sinter.i18n')];
 
 /**
- * A page in one language (`localePrefix`): the messages its modules call are in the page (`data-sn-messages`,
- * read once by the first page), merged into the dictionary before its code runs. Both pages are in the same
- * language (`fixed`).
+ * A page in its one language: the messages its modules call are in the page (`data-sn-messages`, read once by the
+ * first page), merged into the dictionary before its code runs. Both pages are in the same language (`fixed`).
  */
 export function inline(doc: Document) {
   const el = doc.querySelector('script[data-sn-messages]'), g = i18n();
@@ -155,24 +151,6 @@ export function inline(doc: Document) {
   let d: Record<string, string>;
   try { d = JSON.parse(el.textContent); } catch { return; }
   g.dicts[g.locale] = { ...g.dicts[g.locale], ...d };
-}
-
-/**
- * Built-in messages: the next page's dictionary for the current language (its language file holds that page's
- * keys) is loaded before it mounts, merged with what the page shown reads until the swap; its files, which
- * `setLocale()` loads, are given back for the commit. Under a nonce policy, only a picker the server gave the
- * page's nonce names files to load.
- */
-async function language(doc: Document, base: URL, trusted: (el: Element) => boolean) {
-  inline(doc);
-  const tag = doc.querySelector('script[data-sn-i18n]'), g = i18n();
-  if (!tag || !g?.locale || !trusted(tag)) return;
-  const files: Record<string, string> = {};
-  for (const [l, f] of Object.entries((JSON.parse(tag.getAttribute('data-sn-i18n')!) as { files?: Record<string, string> }).files ?? {})) files[l] = new URL(f, base).href;
-  const was = g.dicts?.[g.locale], file = files[g.locale];
-  if (file) await import(/* @vite-ignore */ file);
-  if (g.dicts) g.dicts[g.locale] = { ...was, ...g.dicts[g.locale] };
-  return files;
 }
 
 /**
@@ -299,10 +277,9 @@ export async function prepare(s: SwapState, i: Intent, signal?: AbortSignal): Pr
   const doc = P.parseHTMLUnsafe ? P.parseHTMLUnsafe(html, { sanitizer: {} }) : new DOMParser().parseFromString(html, 'text/html');
   if (doc.body.hasAttribute('data-sn-failed') || doc.documentElement.getAttribute('data-sn-swap') == 'off') return false;
   for (const n of doc.querySelectorAll('noscript')) n.remove();
-  // the next page's dictionary, then its page module (with the app's other modules: each runs once per
+  // the messages its modules call, then its page module (with the app's other modules: each runs once per
   // document), imported without mounting
-  let files: Record<string, string> | undefined;
-  try { files = await language(doc, final, trusted); } catch { return no(); }
+  inline(doc);
   const g = globalThis as unknown as Record<symbol, number>;
   let page: PageModule | undefined;
   g[SWAPPING] = (g[SWAPPING] ?? 0) + 1;
@@ -342,8 +319,6 @@ export async function prepare(s: SwapState, i: Intent, signal?: AbortSignal): Pr
       // committed: a history write from here on (the redirect's address below, `sn-page` code) is no reason to
       // navigate again
       s.run = undefined;
-      const g = i18n();
-      if (files && g) g.files = files;
       // anything that throws past this point leaves a page half swapped: it is loaded instead (below)
       try { swap(); } catch { failed = true; }
       return booted;
@@ -375,9 +350,6 @@ export async function prepare(s: SwapState, i: Intent, signal?: AbortSignal): Pr
         for (const a of [...to.attributes]) if (!from.hasAttribute(a.name)) to.removeAttribute(a.name);
         for (const a of from.attributes) to.setAttribute(a.name, a.value);
       }
-      // the visitor's language, which the picker set on the first page, not the build's
-      const g2 = i18n();
-      if (g2?.locale && document.querySelector('script[data-sn-i18n]')) document.documentElement.lang = g2.locale;
       s.shown = final.pathname;
       s.kept = page!.kept;
       // the top, as after a load, or the entry's position; then a link's `#hash` target, if the page has it

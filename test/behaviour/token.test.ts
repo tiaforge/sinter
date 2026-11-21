@@ -164,7 +164,7 @@ describe('the early script', () => {
     const t = { s: 'l' as const, k: 'jwt', h: 'Authorization', p: 'Token ' };
     const ir: Pick<EarlyIR, 'res' | 'as'> = { res: [{ src: ['/api/user'], scope: 0, a: 0, r: 1 }, { src: ['/api/articles'], scope: 0, a: 0 }], as: [{ t }] };
     const f = [() => ({})];
-    const go = () => start(earlyPageOf(ir, f), null, earlyRequests(configured));
+    const go = () => start(earlyPageOf(ir, f), earlyRequests(configured));
     go();
     expect(sent.map((r) => [new URL(r.url).pathname, r.headers.get('Authorization')])).toEqual([['/api/user', 'Token t1'], ['/api/articles', 'Token t1']]);
     const layer = createRequestLayer({ ...defaultEnv, fetch, storage: () => storage }, []);
@@ -186,7 +186,7 @@ describe('the early script', () => {
     config.apis = [{ n: 'main', b: '/api' }];
     const ir: Pick<EarlyIR, 'res'> = { res: [{ src: ['/api/x'], scope: 0 }] };
     const f = [() => ({})];
-    start(earlyPageOf(ir, f), null, earlyRequests(configured));
+    start(earlyPageOf(ir, f), earlyRequests(configured));
     const layer = createRequestLayer({ ...defaultEnv, fetch }, [(req, next) => { const h = new Headers(req.headers); h.set('X-Extra', '1'); return next(new Request(req, { headers: h })); }]);
     const seen: string[] = [];
     layer.resent = (u) => seen.push(u);

@@ -144,9 +144,9 @@ export interface CompileOptions {
    */
   changesRequests?: boolean;
   /**
-   * builds: the base language's messages. With `prerender`, a text binding
-   * that calls `m` is written into the HTML in the base language and marked `data-sn-m`; it is still
-   * rendered in the browser (early file, page module), which writes the visitor's language
+   * builds: the messages in the page's one language (`locale`). With `prerender`, a binding that calls `m` over
+   * constants is written into the HTML in that language; one over data is compiled into the page's script with that
+   * language's text
    */
   baseMessages?: Record<string, string>;
   /**
@@ -7272,7 +7272,8 @@ class Compiler {
       // (deciding only: what would be written is recorded, for `collectConstants`, and the markup left as walked)
       if (!decideOnly) writeFirstPaint(c.el, w[0], c.b.n ?? null, w[1]);
       if (c.tpl) { this.tplPainted.add(c.b); this.paintValue.set(c.b, { k: w[0], n: c.b.n ?? null, v: w[1] }); continue; }
-      if (msg) { if (!decideOnly) setAttr(c.el, 'data-sn-m', ''); continue; }
+      // a message in a compile without a language (none of a build's): left to the browser
+      if (msg) continue;
       // a persisted model's written value is the fallback: the early chunk still applies the stored one
       if (own === null) { this.painted.add(c.b); this.paintValue.set(c.b, { k: w[0], n: c.b.n ?? null, v: w[1] }); }
     }
