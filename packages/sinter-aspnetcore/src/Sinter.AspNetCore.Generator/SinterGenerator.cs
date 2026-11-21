@@ -391,7 +391,9 @@ public sealed class SinterGenerator : IIncrementalGenerator
             ? "new global::System.Collections.Generic.Dictionary<string, string> { " + string.Join(", ", pd.Select(kv => "[" + Lit(kv.Key) + "] = " + Lit((string)kv.Value!))) + " }" : null;
         var codes = ld.TryGetValue("codes", out var co) && co is Dictionary<string, object?> cd
             ? "new global::System.Collections.Generic.Dictionary<string, string[]> { " + string.Join(", ", cd.Select(kv => "[" + Lit(kv.Key) + "] = " + Strs((List<object?>)kv.Value!))) + " }" : null;
-        return paths is null && codes is null ? "" : ", " + (paths ?? "null") + ", " + (codes ?? "null");
+        var domains = ld.TryGetValue("domains", out var dm) && dm is Dictionary<string, object?> dd
+            ? "new global::System.Collections.Generic.Dictionary<string, string> { " + string.Join(", ", dd.Select(kv => "[" + Lit(kv.Key) + "] = " + Lit((string)kv.Value!))) + " }" : null;
+        return paths is null && codes is null && domains is null ? "" : ", " + (paths ?? "null") + ", " + (codes ?? "null") + (domains is null ? "" : ", " + domains);
     }
 
     /// <summary>The tenants' domains and the shared paths, when the manifest has them: the constructor's optional arguments.</summary>

@@ -346,7 +346,6 @@ dist/globex/index.html        /globex/
 - **Special files per tenant**: a `404.html` that uses the tenant's layout is written per tenant, at its domain
   folder's root (`dist/acme/404.html`) or in its segment's folder (`dist/demo/404.html`), and in each language. One
   that declares no axis is the site's. Each origin has its own `sitemap.xml`.
-- Not yet ([docs/proposals/axes.md](proposals/axes.md)): languages on their own domains.
 
 ### Redirects and rewrites
 
@@ -544,6 +543,15 @@ from its inlang project: `languages(({ root }) => inlangLocales('project.inlang'
 `localeUrl('de-AT')`, the `locale` cookie, `hreflang`, the messages' files). `codes: { no: ['nb', 'nn'] }` are more
 tags a visitor may send for a language: they choose it, and `hreflang` lists each at the language's URL. Each segment
 is one language's, and each code one language's, not another language's tag.
+
+**A language on its own domain.** `languages({ …, domains: { fr: 'https://example.fr' } })` serves French at
+`https://example.fr/about/`. Its files stay under its segment's folder (`dist/fr/`), and it is a domain as a
+tenant's is ([below](#a-site-per-tenant-axes)): its pages' links have no segment, a link to another language is
+absolute (`localeUrl('en')` is `https://example.com/en/about/`), `$canonical` and `hreflang` name the domain, it
+has its own `sitemap.xml` (`dist/fr/sitemap.xml`), and the choosers on `site` send French visitors there. The
+server layers map the domain to the folder, and send a visitor to it; a proxy does it with the same rules as a
+tenant's. A page whose tenant has its own domain cannot be in such a language too (the build fails). In dev, it is
+served under its segment.
 
 **Fallback chains.** A message missing in a language is looked up along its chain, at build: its tag less its last
 subtag, one at a time, where the site has that language, then the base (`de-AT → de → en`). `languages({ fallbacks:

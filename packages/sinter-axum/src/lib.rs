@@ -442,10 +442,19 @@ where
         // straight to `/de/about/`; a pattern's, the request's); temporary, as it differs per visitor
         if let (Some(l), Some(r)) = (self.embed.0.locales.as_ref(), self.embed.route(req.uri().path()).filter(|r| read && r.choose)) {
             let lang = choose(l, req.headers());
-            let lang = l.segment(&lang).to_string();
+            // (a language on its own domain: there, without its segment)
+            let (domain, lang) = match l.domains.get(&lang) {
+                Some(d) => (d.clone(), None),
+                None => (String::new(), Some(l.segment(&lang).to_string())),
+            };
             let path = if r.from.contains([':', '*']) { req.uri().path() } else { r.to.as_str() };
             let rest = path.strip_prefix(l.at.as_str()).unwrap_or(path.trim_start_matches('/'));
-            let to = format!("{}{lang}/{rest}{}", l.at, req.uri().query().map(|q| format!("?{q}")).unwrap_or_default());
+            let to = format!(
+                "{domain}{}{}{rest}{}",
+                l.at,
+                lang.map(|x| format!("{x}/")).unwrap_or_default(),
+                req.uri().query().map(|q| format!("?{q}")).unwrap_or_default()
+            );
             return async move {
                 Ok(Response::builder()
                     .status(StatusCode::FOUND)

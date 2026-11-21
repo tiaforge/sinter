@@ -213,3 +213,29 @@ describe('languages({ paths, codes }): a language\'s segment, and more tags for 
     expect(() => languages({ base: 'en', list: ['en', 'no', 'da'], codes: { no: ['nb'], da: ['nb'] } })).toThrow(/`codes.da` has `nb`, which `no` has too/);
   });
 });
+
+test('languages({ domains }): a language on its own domain, its files under its segment, its URLs there', async () => {
+  const content = "import { languages } from '@tiaforge-ui/sinter/content';\nexport const locales = languages({ base: 'en', list: ['en', 'fr'], domains: { fr: 'https://example.fr' } });\n";
+  const page = '<!doctype html><html lang="en"><head><title>x</title></head><body><a href="/about.html">About</a><a hreflang="fr" data-sn-attr="{ href: localeUrl(\'fr\') }">FR</a><a hreflang="en" data-sn-attr="{ href: localeUrl(\'en\') }">EN</a><p data-sn-text="$canonical"></p><sn-resource name="d" src="/api/d"></sn-resource><i data-sn-text="d.x"></i></body></html>';
+  const r = await run({ 'src/sinter.content.ts': content, 'index.html': page, 'about.html': page }, ['index.html', 'about.html'], { localePrefix: true, site: 'https://example.com', embed: true });
+  expect(r.error).toBe(null);
+  const fr = r.read('fr/about/index.html');
+  // links on its domain without the segment; the other language's page absolute
+  expect(fr).toContain('<a href="/about/">About</a><a hreflang="fr" href="/about/">FR</a><a hreflang="en" href="https://example.com/en/about/">EN</a>');
+  expect(fr).toContain('<p>https://example.fr/about/</p>');
+  expect(fr).toContain('<link rel="alternate" hreflang="en" href="https://example.com/en/about/">');
+  expect(fr).toContain('<link rel="alternate" hreflang="fr" href="https://example.fr/about/">');
+  const en = r.read('en/about/index.html');
+  expect(en).toContain('<a hreflang="fr" href="https://example.fr/about/">FR</a>');
+  // a sitemap per domain; the chooser on the site sends French visitors to the domain
+  expect(r.read('fr/sitemap.xml')).toContain('<loc>https://example.fr/about/</loc>');
+  expect(r.read('sitemap.xml')).not.toContain('<loc>https://example.fr');
+  expect(r.read('about/index.html')).toContain('href="https://example.fr/about/"');
+  // the servers: the domain is the language's folder
+  const m = JSON.parse(r.read('sinter-embed.json')) as { origins?: Record<string, { folder: string; top: string[] }>; locales: { domains?: Record<string, string> } };
+  expect(m.locales.domains).toEqual({ fr: 'https://example.fr' });
+  expect(m.origins?.['example.fr']?.folder).toBe('fr');
+  // with a tenant on its own domain too: a page is on one domain
+  const { languages } = await import('../../src/content.js');
+  expect(() => languages({ base: 'en', list: ['en', 'fr'], domains: { fr: 'example.fr' } })).toThrow(/`domains.fr` is an origin/);
+}, 120_000);

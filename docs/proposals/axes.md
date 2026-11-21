@@ -462,7 +462,11 @@ Each step ships on its own.
    take the segments; the compiler's `locale.paths` (link templates, `localeUrl()` on a page whose paths have
    parameters, `inLanguage`); the chooser's script (`S`, `K`), `hreflang` per code; the manifest's `locales.paths` and
    `locales.codes`, which `server.ts`, sinter-axum and Sinter.AspNetCore read (a code chooses its language, the
-   redirect goes to the segment; choose-cases.json has cases with `codes`). Not yet: `domains`.
+   redirect goes to the segment; choose-cases.json has cases with `codes`). *`domains` done the same day:* a language
+   on its own domain is an origin group as a tenant on one is (`pointOrigin` with the language, `LanguageUrls` in
+   points.ts): its files under its segment's folder, its URLs without the segment; `localeUrls`, `entryUrls` and the
+   sitemap's alternates are absolute for a point on another origin than the page's; the manifest's `locales.domains`,
+   and the three servers' redirect there. A tenant with its own domain in such a language fails the build.
 9. **Server layers**, if §10 finds work beyond the manifest they read today.
    *Done 2026-11-21:* the manifest's `origins` (each domain: its folder and the folder's top-level entries; an
    origin's pages' paths and its routes' `from` under its folder, their `to` the domain's URLs), and `server.ts`,

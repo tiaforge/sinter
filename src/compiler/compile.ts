@@ -1446,8 +1446,11 @@ class Compiler {
       const b = l.base.startsWith('/') ? l.base.replace(/\/?$/, '/') : '/';
       // a page whose paths have parameters: its path in another language is the browser's, with that language's prefix
       // (a language's segment: its `paths` entry, else its tag)
+      // ('' for a language on its own domain: its paths have none)
       const own = l.paths?.[l.name] ?? l.name, seg = l.paths ? `((${JSON.stringify(l.paths)})[l] ?? l)` : 'l';
-      const localeUrl = l.urls ? `((l) => (${JSON.stringify(l.urls)})[l])` : `((l) => ${JSON.stringify(b)} + ${seg} + location.pathname.slice(${b.length + own.length}))`;
+      const localeUrl = l.urls ? `((l) => (${JSON.stringify(l.urls)})[l])`
+        : !l.paths ? `((l) => ${JSON.stringify(b)} + l + location.pathname.slice(${b.length + l.name.length}))`
+        : `((l, s = ${seg}) => ${JSON.stringify(b)} + (s ? s + '/' : '') + location.pathname.slice(${b.length + (own ? own.length + 1 : 0)}))`;
       this.page.locale = { name: l.name, messages: null, localeUrl, ...(l.urls ? { ownUrls: true } : {}), ...(l.prefix === false ? { prefix: false as const } : {}) };
     }
     const cns = Object.keys(opts.contentNs ?? {});
@@ -4580,7 +4583,7 @@ class Compiler {
     // a page in one language: its paths under that language's prefix, after the base (`/de/article/:slug`)
     const lp = this.opts.locale;
     // a point's folder: its language's (`localePrefix`), then each axis's segment
-    const segs = [...(lp && lp.prefix !== false ? [lp.paths?.[lp.name] ?? lp.name] : []), ...(this.opts.axes ?? []).flatMap((a) => (a.segment ? [a.segment] : []))];
+    const segs = [...(lp && lp.prefix !== false && (lp.paths?.[lp.name] ?? lp.name) ? [lp.paths?.[lp.name] ?? lp.name] : []), ...(this.opts.axes ?? []).flatMap((a) => (a.segment ? [a.segment] : []))];
     const prefixed = segs.length ? prefixPaths(patterns, segs.join('/'), this.opts.locale?.base ?? this.opts.base) : patterns;
     // only the URL the page has anyway: it is a directory's index without data-sn-path (docs/static-pages.md#page-urls)
     const root = this.opts.root.replace(/[\\/]+$/, '').replace(/\\/g, '/') + '/', file = this.opts.file.replace(/\\/g, '/');

@@ -43,7 +43,8 @@ internal sealed class SinterMiddleware(RequestDelegate next, SinterEngine engine
             var p = r.From.AsSpan().IndexOfAny(':', '*') >= 0 ? req.Path.ToUriComponent() : r.To;
             var rest = p.StartsWith(l.At, StringComparison.Ordinal) ? p[l.At.Length..] : p.TrimStart('/');
             ctx.Response.StatusCode = StatusCodes.Status302Found;
-            ctx.Response.Headers.Location = $"{l.At}{l.Segment(lang)}/{rest}{req.QueryString}";
+            // (a language on its own domain: there, without its segment)
+            ctx.Response.Headers.Location = l.Domains.TryGetValue(lang, out var domain) ? $"{domain}{l.At}{rest}{req.QueryString}" : $"{l.At}{l.Segment(lang)}/{rest}{req.QueryString}";
             ctx.Response.Headers.Vary = "Cookie, Accept-Language";
             return Task.CompletedTask;
         }

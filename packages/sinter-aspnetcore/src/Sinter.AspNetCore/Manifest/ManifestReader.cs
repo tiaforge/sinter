@@ -21,7 +21,8 @@ internal static class ManifestReader
         {
             var paths = l.TryGetProperty("paths", out var ps) && ps.ValueKind == JsonValueKind.Object ? ps.EnumerateObject().ToDictionary(x => x.Name, x => x.Value.GetString()!) : null;
             var codes = l.TryGetProperty("codes", out var cs) && cs.ValueKind == JsonValueKind.Object ? cs.EnumerateObject().ToDictionary(x => x.Name, x => x.Value.EnumerateArray().Select(y => y.GetString()!).ToArray()) : null;
-            locales = new ManifestLocales(Str(l, "base"), Array(l, "list", true).Select(x => x.GetString()!).ToArray(), OptStr(l, "at") ?? "/", paths, codes);
+            var domains = l.TryGetProperty("domains", out var ds) && ds.ValueKind == JsonValueKind.Object ? ds.EnumerateObject().ToDictionary(x => x.Name, x => x.Value.GetString()!) : null;
+            locales = new ManifestLocales(Str(l, "base"), Array(l, "list", true).Select(x => x.GetString()!).ToArray(), OptStr(l, "at") ?? "/", paths, codes, domains);
         }
         var origins = root.TryGetProperty("origins", out var os) && os.ValueKind == JsonValueKind.Object
             ? os.EnumerateObject().ToDictionary(x => x.Name, x => new ManifestOrigin(Str(x.Value, "folder"), Array(x.Value, "top", true).Select(y => y.GetString()!).ToArray()))

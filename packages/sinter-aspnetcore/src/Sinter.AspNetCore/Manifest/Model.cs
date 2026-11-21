@@ -172,7 +172,7 @@ public sealed class ManifestRoute(string from, string to, int status, string? fi
 
 /// <summary>The site's languages, each a prefix of its URLs (<c>/de/…</c>), and the one a visitor without a choice gets.</summary>
 [EditorBrowsable(EditorBrowsableState.Never)]
-public sealed class ManifestLocales(string @base, string[] list, string at, IReadOnlyDictionary<string, string>? paths = null, IReadOnlyDictionary<string, string[]>? codes = null)
+public sealed class ManifestLocales(string @base, string[] list, string at, IReadOnlyDictionary<string, string>? paths = null, IReadOnlyDictionary<string, string[]>? codes = null, IReadOnlyDictionary<string, string>? domains = null)
 {
     /// <summary>The language a visitor without a choice gets.</summary>
     public string Base { get; } = @base;
@@ -184,6 +184,8 @@ public sealed class ManifestLocales(string @base, string[] list, string at, IRea
     public IReadOnlyDictionary<string, string> Paths { get; } = paths ?? new Dictionary<string, string>();
     /// <summary>More tags a visitor may send for a language (<c>languages({ codes })</c>).</summary>
     public IReadOnlyDictionary<string, string[]> Codes { get; } = codes ?? new Dictionary<string, string[]>();
+    /// <summary>A language on its own domain (<c>languages({ domains })</c>): there, without its segment.</summary>
+    public IReadOnlyDictionary<string, string> Domains { get; } = domains ?? new Dictionary<string, string>();
     /// <summary>A language's URL segment: its <see cref="Paths"/> entry, else its tag.</summary>
     public string Segment(string lang) => Paths.TryGetValue(lang, out var s) ? s : lang;
 }

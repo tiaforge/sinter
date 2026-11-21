@@ -12,6 +12,8 @@ export interface Locales {
   paths?: Record<string, string>;
   /** more tags a visitor may send for a language (`{ no: ['nb', 'nn'] }`): they choose it, and `hreflang` lists them */
   codes?: Record<string, string[]>;
+  /** a language on its own domain (`{ de: 'https://example.de' }`): its URLs there, without its segment */
+  domains?: Record<string, string>;
 }
 
 /** a language's URL segment and folder: its `paths` entry, else its tag */
@@ -95,7 +97,7 @@ export function requestLanguages(cookie: string | null, acceptLanguage: string |
 }
 
 /** the embed manifest's `locales`: the languages, the base their prefixes are under, and their segments and codes */
-export const manifestLocales = (l: Locales, base: string): Locales & { at: string } => ({ base: l.base, list: l.list, at: base.replace(/\/?$/, '/'), ...(l.paths ? { paths: l.paths } : {}), ...(l.codes ? { codes: l.codes } : {}) });
+export const manifestLocales = (l: Locales, base: string): Locales & { at: string } => ({ base: l.base, list: l.list, at: base.replace(/\/?$/, '/'), ...(l.paths ? { paths: l.paths } : {}), ...(l.codes ? { codes: l.codes } : {}), ...(l.domains ? { domains: l.domains } : {}) });
 
 const esc = (v: string) => v.replace(/[&"<>]/g, (c) => `&#${c.charCodeAt(0)};`);
 
@@ -104,7 +106,7 @@ const esc = (v: string) => v.replace(/[&"<>]/g, (c) => `&#${c.charCodeAt(0)};`);
  * (the chooser); absolute (`origin`), as search engines want them.
  */
 export function hreflangTags(origin: string, urls: Record<string, string>, unprefixed: string, codes?: Record<string, string[]>): string {
-  return [...Object.entries(urls).flatMap(([l, u]) => [l, ...(codes?.[l] ?? [])].map((t) => `<link rel="alternate" hreflang="${esc(t)}" href="${esc(origin + u)}">`)), `<link rel="alternate" hreflang="x-default" href="${esc(origin + unprefixed)}">`].join('\n  ');
+  return [...Object.entries(urls).flatMap(([l, u]) => [l, ...(codes?.[l] ?? [])].map((t) => `<link rel="alternate" hreflang="${esc(t)}" href="${esc(/^https?:/.test(u) ? u : origin + u)}">`)), `<link rel="alternate" hreflang="x-default" href="${esc(origin + unprefixed)}">`].join('\n  ');
 }
 
 /**

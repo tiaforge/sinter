@@ -29,24 +29,38 @@ export interface Points {
   translations: Map<string, Map<string, string>>;
 }
 
-/** the folder a point's files are under: its language's segment (`paths`, else its tag), then each axis's (`de/acme`), or '' */
-export const pointPrefix = (locale: string | null, axes: readonly AxisValue[], paths?: Record<string, string>) => [locale ? paths?.[locale] ?? locale : null, ...axes.map((a) => a.segment)].filter(Boolean).join('/');
+/** how the languages are in URLs: a language's segment where it is not its tag (`paths`), and a language on its own domain */
+export interface LanguageUrls { paths?: Record<string, string>; domains?: Record<string, string> }
+
+/** a language's segment: its `paths` entry, else its tag */
+const segOf = (locale: string, l?: LanguageUrls | null) => l?.paths?.[locale] ?? locale;
+
+/**
+ * the prefix of a point's URLs: its language's segment (none for a language on its own domain), then each axis's
+ * (`de/acme`), or ''
+ */
+export const pointPrefix = (locale: string | null, axes: readonly AxisValue[], l?: LanguageUrls | null) => [locale && !l?.domains?.[locale] ? segOf(locale, l) : null, ...axes.map((a) => a.segment)].filter(Boolean).join('/');
 
 /** which entries are translations of each other: one source, the same axes' values, the same key */
 export const translationKey = (source: string, axes: readonly AxisValue[], key: string) => [source, ...axes.map((a) => a.key), key].join('\0');
 
 /** the folder a point's files are written under: its origins' folders, then `pointPrefix` (`acme/de`) */
-export const pointFolder = (locale: string | null, axes: readonly AxisValue[], paths?: Record<string, string>) => [...axes.flatMap((a) => (a.folder ? [a.folder] : [])), pointPrefix(locale, axes, paths)].filter(Boolean).join('/');
+export const pointFolder = (locale: string | null, axes: readonly AxisValue[], l?: LanguageUrls | null) => [locale && l?.domains?.[locale] ? segOf(locale, l) : null, ...axes.flatMap((a) => (a.folder ? [a.folder] : [])), pointPrefix(locale, axes, l)].filter(Boolean).join('/');
 
-/** the origin a point is served from, when one of its axes' values has its own (`https://acme-shop.com`) */
-export const pointOrigin = (axes: readonly AxisValue[]): { folder: string; origin: string } | null => {
+/**
+ * the origin a point is served from: one of its axes' values' own (`https://acme-shop.com`), or its language's
+ * (`languages({ domains })`), with the folder its files are under
+ */
+export const pointOrigin = (axes: readonly AxisValue[], locale?: string | null, l?: LanguageUrls | null): { folder: string; origin: string } | null => {
   const a = axes.find((x) => x.folder && x.origin);
-  return a ? { folder: a.folder!, origin: a.origin! } : null;
+  if (a) return { folder: a.folder!, origin: a.origin! };
+  const d = locale ? l?.domains?.[locale] : undefined;
+  return d ? { folder: segOf(locale!, l), origin: d } : null;
 };
 
 /** where a point is written: under its folder (`pointFolder`), at its entry's path (from the base) or its source's file */
-export function pointRel(sourceRel: string, locale: string | null, entryRel: string | null, axes: readonly AxisValue[] = [], paths?: Record<string, string>): string {
-  const at = pointFolder(locale, axes, paths);
+export function pointRel(sourceRel: string, locale: string | null, entryRel: string | null, axes: readonly AxisValue[] = [], l?: LanguageUrls | null): string {
+  const at = pointFolder(locale, axes, l);
   return (at ? `${at}/` : '') + (entryRel !== null ? `${entryRel}.html` : sourceRel);
 }
 
@@ -59,8 +73,8 @@ export function pointRel(sourceRel: string, locale: string | null, entryRel: str
 export function listPoints(o: {
   sources: Array<{ source: string; rel: string; entries?: ((locale: string | null) => Entry[]) | null; variants?: ((locale: string | null) => Variant[]) | null }>;
   locales: readonly string[] | null;
-  /** the languages' segments where they are not their tags (`languages({ paths })`) */
-  paths?: Record<string, string>;
+  /** the languages' segments where they are not their tags, and their domains (`languages({ paths, domains })`) */
+  languages?: LanguageUrls;
   /** the site's base, for an entry's path relative to it */
   base: string;
   inPublic?: (rel: string) => boolean;
@@ -75,16 +89,17 @@ export function listPoints(o: {
   const taken = new Map<string, string>();
   for (const { s, by } of all) for (const [l, vs] of by) for (const v of vs) {
     if (v.entries) continue;
-    const rel = pointRel(s.rel, l, null, v.axes, o.paths);
+    if (l && o.languages?.domains?.[l] && v.axes.some((a) => a.origin)) throw new Error(`sinter: ${s.rel}: the language \`${l}\` has its own domain, and a tenant of this page has its own too; a page is on one domain`);
+    const rel = pointRel(s.rel, l, null, v.axes, o.languages);
     taken.set(rel.replace(/(^|\/)index\.html$/, '$1').replace(/\.html$/, ''), rel);
   }
   const points: Point[] = [], translations = new Map<string, Map<string, string>>();
   for (const { s, by } of all) for (const [l, vs] of by) for (const v of vs) {
-    if (!v.entries) { points.push({ source: s.source, locale: l, axes: v.axes, entry: null, rel: pointRel(s.rel, l, null, v.axes, o.paths) }); continue; }
+    if (!v.entries) { points.push({ source: s.source, locale: l, axes: v.axes, entry: null, rel: pointRel(s.rel, l, null, v.axes, o.languages) }); continue; }
     // each entry at its path under the point's folder; their keys pair the translations
     for (const e of v.entries) {
-      const at = pointRel('', l, relOfPath(e.path), v.axes, o.paths).replace(/\.html$/, '');
-      const shown = `${v.axes.map((a) => (a.folder ? `${a.origin ?? a.folder} ` : '')).join('')}${l ? `/${o.paths?.[l] ?? l}` : ''}${v.axes.map((a) => (a.segment ? `/${a.segment}` : '')).join('')}${e.path}`;
+      const at = pointRel('', l, relOfPath(e.path), v.axes, o.languages).replace(/\.html$/, '');
+      const shown = `${v.axes.map((a) => (a.folder ? `${a.origin ?? a.folder} ` : '')).join('')}${l ? `/${segOf(l, o.languages)}` : ''}${v.axes.map((a) => (a.segment ? `/${a.segment}` : '')).join('')}${e.path}`;
       const other = taken.get(at) ?? taken.get(at + '/');
       if (other) throw new Error(`sinter: ${s.rel}: the entry at \`${shown}\` would be written where \`${other}\` is (data-sn-for on <html>)`);
       if (o.inPublic?.(at)) throw new Error(`sinter: ${s.rel}: the entry at \`${e.path}\` would be written where \`public/${at}.html\` is (data-sn-for on <html>)`);

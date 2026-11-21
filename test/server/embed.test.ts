@@ -388,3 +388,13 @@ test('a tenant on its own domain: a request there is its folder\'s files and pag
   // the API on that domain: not the folder's
   expect(await text(get('https://acme-shop.com/api/tags'))).toBe('{"tags":["a"]}');
 });
+
+test('a language on its own domain: the visitor is sent there, without its segment', async () => {
+  const dir = build(`{ "version": 2, "pages": [],
+    "routes": [{ "from": "/about/", "to": "/about/", "status": 200, "file": "about/index.html", "choose": true }],
+    "locales": { "base": "en", "list": ["en", "fr"], "at": "/", "domains": { "fr": "https://example.fr" } } }`);
+  const get = await app({ dir });
+  const go = (lang: string) => get('/about/?x=1', { headers: { 'accept-language': lang } });
+  expect((await go('fr-CA')).headers.get('location')).toBe('https://example.fr/about/?x=1');
+  expect((await go('de')).headers.get('location')).toBe('/en/about/?x=1');
+});

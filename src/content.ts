@@ -61,6 +61,8 @@ export interface Languages {
   readonly paths?: Readonly<Record<string, string>>;
   /** more tags a visitor may send for a language (`{ no: ['nb', 'nn'] }`) */
   readonly codes?: Readonly<Record<string, readonly string[]>>;
+  /** a language on its own domain (`{ de: 'https://example.de' }`) */
+  readonly domains?: Readonly<Record<string, string>>;
 }
 
 /** one of the site's languages, as `languages()` lists them: its BCP 47 tag */
@@ -100,6 +102,11 @@ export interface LanguagesDef {
   paths?: Record<string, string>;
   /** more tags a visitor may send for a language, which choose it and which `hreflang` lists: `{ no: ['nb', 'nn'] }` */
   codes?: Record<string, readonly string[]>;
+  /**
+   * a language on its own domain: `{ de: 'https://example.de' }` serves German at `https://example.de/about/`, its files
+   * still under its segment's folder (`dist/de/`), which the proxy or the server layer maps the domain to
+   */
+  domains?: Record<string, string>;
 }
 
 /** `languages()`'s list, checked (its base among them, each a tag, `fallbacks` naming them without a cycle) */
@@ -147,8 +154,22 @@ export function checkLanguages(o: LanguagesDef): Languages {
       }
     }
   }
+  // `domains`: a language's origin, one per language
+  const domains = o.domains;
+  if (domains !== undefined) {
+    if (!domains || typeof domains !== 'object' || Array.isArray(domains)) throw new Error("languages(): `domains` maps a language to its own origin, e.g. `{ de: 'https://example.de' }`");
+    const seen = new Map<string, string>();
+    for (const [k, v] of Object.entries(domains)) {
+      if (!list.includes(k)) throw new Error(`languages(): \`domains\` names \`${k}\`, which is not one of \`list\` (${list.join(', ')})`);
+      if (typeof v !== 'string' || !/^https?:\/\/[^/?#]+\/?$/.test(v)) throw new Error(`languages(): \`domains.${k}\` is an origin, \`https://\` and a host without a path, e.g. \`'https://example.de'\``);
+      const o = v.replace(/\/$/, '');
+      if (seen.has(o)) throw new Error(`languages(): \`domains.${k}\` is \`${o}\`, \`${seen.get(o)}\`'s too: each language has its own`);
+      seen.set(o, k);
+    }
+  }
   return {
     base: o.base, list,
+    ...(domains && Object.keys(domains).length ? { domains: Object.fromEntries(Object.entries(domains).map(([k, v]) => [k, v.replace(/\/$/, '')])) } : {}),
     ...(fb ? { fallbacks: Object.fromEntries(Object.entries(fb).map(([k, v]) => [k, [...v]])) } : {}),
     ...(paths && Object.keys(paths).length ? { paths: { ...paths } } : {}),
     ...(codes && Object.keys(codes).length ? { codes: Object.fromEntries(Object.entries(codes).map(([k, v]) => [k, [...v]])) } : {}),

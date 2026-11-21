@@ -60,6 +60,9 @@ pub(crate) struct Locales {
     /// more tags a visitor may send for a language (`languages({ codes })`)
     #[serde(default)]
     pub codes: std::collections::HashMap<String, Vec<String>>,
+    /// a language on its own domain (`languages({ domains })`): there, without its segment
+    #[serde(default)]
+    pub domains: std::collections::HashMap<String, String>,
 }
 
 impl Locales {

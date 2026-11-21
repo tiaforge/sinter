@@ -499,14 +499,15 @@ async fn sends_a_visitor_to_a_languages_segment_and_by_its_codes() {
         "locale-paths",
         r#"{ "version": 2, "pages": [],
       "routes": [ { "from": "/about/", "to": "/about/", "status": 200, "file": "about/index.html", "choose": true } ],
-      "locales": { "base": "en", "list": ["en", "de-AT", "no"], "at": "/", "paths": { "de-AT": "at" }, "codes": { "no": ["nb", "nn"] } } }"#,
+      "locales": { "base": "en", "list": ["en", "de-AT", "no", "fr"], "at": "/", "paths": { "de-AT": "at" }, "codes": { "no": ["nb", "nn"] }, "domains": { "fr": "https://example.fr" } } }"#,
         &[],
     );
     let a = app(Embed::from_dir(dir).api(api()).build().unwrap());
     let go = |lang: &'static str| Request::get("/about/").header(header::ACCEPT_LANGUAGE, lang).body(Body::empty()).unwrap();
     assert_eq!(text(a.clone(), go("de-AT")).await.1[header::LOCATION], "/at/about/");
     assert_eq!(text(a.clone(), go("nb-NO, en;q=0.5")).await.1[header::LOCATION], "/no/about/");
-    assert_eq!(text(a, go("fr")).await.1[header::LOCATION], "/en/about/");
+    assert_eq!(text(a.clone(), go("fr")).await.1[header::LOCATION], "https://example.fr/about/");
+    assert_eq!(text(a, go("it")).await.1[header::LOCATION], "/en/about/");
 }
 
 /// A tenant on its own domain: a request there is its folder's pages and files, but for the shared assets; its
