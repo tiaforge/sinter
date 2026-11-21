@@ -374,8 +374,10 @@ Each step ships on its own.
    tenants × 10 languages take 139 s, 20 times one tenant. `scripts/size.mjs` budgets the multilingual example's
    German status page (its scripts and its HTML). Found on the way and fixed: `sinter check` on a page per entry in
    a subfolder failed in generated code.
-1. **`languages()` in the core** (§3). The language list without the messages; `localePrefix` with
-   `messages: false`. Docs: configuration.md, static-pages.md#languages.
+1. **`languages()` in the core** (§3). *Done 2026-11-21.* The language list without the messages; `localePrefix` with
+   `messages: false`. The content module is loaded before the build's inputs are listed, so its `languages()` decides
+   them; `perLocale` collections load for its languages, and the snapshot records them for `sinter check` and the
+   editor. Docs: configuration.md, static-pages.md#languages.
 2. **`src/points.ts` and `src/locales.ts`** (§1, §4). A move of the language functions from vite.ts,
    compile.ts, page-urls.ts and locales-build.ts, with tests of their own. The output does not change.
 3. **Points in the plugin** (§1). `pointsOf` for the language and a page's entries, one collision check,

@@ -109,6 +109,48 @@ export const products = collection({ key: 'sku', perLocale: true, load: ({ local
     expect((await run({ 'src/sinter.content.ts': content, 'index.html': page }, ['index.html'])).error).toMatch(/collection `products`: it is loaded per language .* needs `sinter\(\{ localePrefix \}\)`/);
   }, 120_000);
 
+  test('languages(): the site\'s languages from the content module, with `messages: false` and no inlang project', async () => {
+    const content = `import { collection, languages } from '@tiaforge-ui/sinter/content';
+export const locales = languages({ base: 'en', list: ['en', 'de'] });
+const names = { en: ['Bolt'], de: ['Bolzen'] };
+export const products = collection({ key: 'sku', perLocale: true, load: ({ locale }) => names[locale].map((name, i) => ({ sku: 'p' + i, name })) });
+`;
+    const page = '<!doctype html><html lang="en"><head><title>x</title></head><body><sn-resource name="products" src="content:products"></sn-resource><p data-sn-text="$locale + \': \' + products[0].name"></p><a data-sn-attr="{ href: localeUrl(\'de\') }">de</a></body></html>';
+    const r = await run({ 'src/sinter.content.ts': content, 'index.html': page }, ['index.html'], { localePrefix: true, messages: false });
+    expect(r.error).toBe(null);
+    expect(r.read('en/index.html')).toContain('<p>en: Bolt</p>');
+    expect(r.read('de/index.html')).toMatch(/<html lang="de">[\s\S]*<p>de: Bolzen<\/p><a href="\/de\/">de<\/a>/);
+    // the unprefixed URL is the chooser, as with the inlang project's languages
+    expect(r.read('index.html')).toContain('url=/en/');
+    // `sinter check` and the editor compile in the base language
+    const { checkLocale } = await import('../../src/locales-build.js');
+    expect(checkLocale(r.root, { localePrefix: true, messages: false })).toEqual({ name: 'en', urls: null, base: '/' });
+  }, 120_000);
+
+  test('languages(): one list; an inlang project that differs, two declarations or none with `messages: false` fail the build', async () => {
+    const page = '<!doctype html><html><head><title>x</title></head><body><p>x</p></body></html>';
+    const declared = "import { languages } from '@tiaforge-ui/sinter/content';\nexport const locales = languages({ base: 'en', list: ['en', 'de'] });\n";
+    const same = { 'project.inlang/settings.json': JSON.stringify({ baseLocale: 'en', locales: ['en', 'de'] }), 'messages/en.json': '{}', 'messages/de.json': '{}' };
+    expect((await run({ ...same, 'src/sinter.content.ts': declared, 'index.html': page }, ['index.html'], { localePrefix: true })).error).toBe(null);
+    const other = { ...same, 'project.inlang/settings.json': JSON.stringify({ baseLocale: 'en', locales: ['en', 'fr'] }), 'messages/fr.json': '{}' };
+    expect((await run({ ...other, 'src/sinter.content.ts': declared, 'index.html': page }, ['index.html'], { localePrefix: true })).error)
+      .toMatch(/the content module's `languages\(\)` \(base en: en, de\) and project\.inlang\/settings\.json \(base en: en, fr\) differ/);
+    const twice = declared + "export const more = languages({ base: 'en', list: ['en'] });\n";
+    expect((await run({ 'src/sinter.content.ts': twice, 'index.html': page }, ['index.html'], { localePrefix: true, messages: false })).error).toMatch(/`locales`, `more` are each `languages\(\)`; the site has one list of languages/);
+    expect((await run({ 'index.html': page }, ['index.html'], { localePrefix: true, messages: false })).error).toMatch(/the site has no languages\. Export them from the content module/);
+  }, 120_000);
+
+  test('languages(): a list of tags with its base among them', async () => {
+    const { languages, isCollection } = await import('../../src/content.js');
+    const l = languages({ base: 'de', list: ['en', 'de', 'de-AT'] });
+    expect(isCollection(l)).toBe(true);
+    expect([l.key, l.languages, await l.load({} as never)]).toEqual(['tag', { base: 'de', list: ['en', 'de', 'de-AT'] }, [{ tag: 'en' }, { tag: 'de' }, { tag: 'de-AT' }]]);
+    expect(() => languages({ base: 'en', list: [] })).toThrow(/`list` names the site's languages/);
+    expect(() => languages({ base: 'fr', list: ['en'] })).toThrow(/`base` \(`fr`\) is one of `list` \(en\)/);
+    expect(() => languages({ base: 'en', list: ['en', 'en'] })).toThrow(/`en` is in `list` twice/);
+    expect(() => languages({ base: 'en', list: ['en', 'de/x'] })).toThrow(/`de\/x` in `list` is not a language tag/);
+  });
+
   test('chunks(): an index in pages, as a collection and a data-sn-pages page', async () => {
     const content = `import { collection, chunks } from '@tiaforge-ui/sinter/content';
 export const posts = collection({ key: 'slug', load: ({ files }) => files('content/posts/*.md') });

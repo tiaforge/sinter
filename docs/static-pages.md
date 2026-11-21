@@ -445,6 +445,18 @@ The languages come from the inlang project: `locales` are the prefixes, and `bas
 set, and among `locales`) is the language a visitor without a choice gets. Every language is prefixed,
 the base too, so a server routes on the first segment alone.
 
+A site without messages declares its languages in the [content module](resources.md#collections) instead, and
+`localePrefix` works with `messages: false`:
+
+```ts
+// src/sinter.content.ts
+import { languages } from '@tiaforge-ui/sinter/content';
+export const locales = languages({ base: 'en', list: ['en', 'de'] });
+```
+
+`base` must be one of `list`, and each is a language tag. With the built-in messages too, the inlang project must
+list the same languages, or the build fails naming both lists. The content module has one `languages()`.
+
 In each language's page:
 
 - **Its text is in the HTML.** `m.title()`, `$locale`, and anything built from them and constants are

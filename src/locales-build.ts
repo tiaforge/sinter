@@ -4,6 +4,8 @@
 // the languages, where a page in a language is, the chooser, and the `hreflang` links.
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { LANGUAGE_TAG } from './content.js';
+import { snapshotLanguages } from './content-node.js';
 
 /** The site's languages: the inlang project's `locales`, its `baseLocale` the default. */
 export interface Locales { base: string; list: string[] }
@@ -19,16 +21,21 @@ export function readLocales(root: string, project = 'project.inlang'): Locales {
   const list = Array.isArray(s.locales) ? s.locales.filter((l): l is string => typeof l === 'string') : [];
   if (typeof s.baseLocale !== 'string') throw new Error(`sinter({ localePrefix }): ${project}/settings.json has no \`baseLocale\`: it is the language a visitor without a choice is sent to`);
   if (!list.includes(s.baseLocale)) throw new Error(`sinter({ localePrefix }): \`baseLocale\` \`${s.baseLocale}\` is not among \`locales\` (${list.join(', ') || 'none'}) in ${project}/settings.json`);
-  for (const l of list) if (!/^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})*$/.test(l)) throw new Error(`sinter({ localePrefix }): \`${l}\` in \`locales\` is not a language tag (it becomes the URL's prefix, \`/${l}/\`)`);
+  for (const l of list) if (!LANGUAGE_TAG.test(l)) throw new Error(`sinter({ localePrefix }): \`${l}\` in \`locales\` is not a language tag (it becomes the URL's prefix, \`/${l}/\`)`);
   return { base: s.baseLocale, list };
 }
 
 /**
  * The language `sinter check` and the editor compile a page in: with `localePrefix` the build compiles each page once
- * per language, and the check uses the base one (`$locale`, `{$locale}` in a `file:` path); without it, none.
+ * per language, and the check uses the base one (`$locale`, `{$locale}` in a `file:` path); without it, none. The
+ * languages are the content module's `languages()`, as the last build or dev server recorded them, else the inlang
+ * project's.
  */
 export function checkLocale(root: string, options: { localePrefix?: boolean; messages?: unknown }): { name: string; urls: null; base: string } | null {
-  if (!options.localePrefix || options.messages === false) return null;
+  if (!options.localePrefix) return null;
+  const declared = snapshotLanguages(root);
+  if (declared) return { name: declared.base, urls: null, base: '/' };
+  if (options.messages === false) return null;
   return { name: readLocales(root, typeof options.messages === 'string' ? options.messages : 'project.inlang').base, urls: null, base: '/' };
 }
 

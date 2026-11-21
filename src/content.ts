@@ -34,7 +34,18 @@ export interface Collection<T = unknown> {
   readonly load: (ctx: CollectionContext) => T[] | Promise<T[]>;
   /** loaded once per language (`ctx.locale`), each language's pages reading its own list */
   readonly perLocale?: true;
+  /** `languages()`: the site's languages, which `localePrefix` builds every page in (docs/static-pages.md#languages) */
+  readonly languages?: Languages;
 }
+
+/** The site's languages: `base`, where a visitor without a choice lands, and every language in `list`. */
+export interface Languages { readonly base: string; readonly list: readonly string[] }
+
+/** one of the site's languages, as `languages()` lists them: its BCP 47 tag */
+export interface Language { tag: string }
+
+/** a language tag as a URL's first segment takes it (`de`, `de-AT`, `zh-Hant-TW`) */
+export const LANGUAGE_TAG = /^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})*$/;
 
 /**
  * A collection: `key` names the field that tells entries apart, and `load` returns the list, a list of plain data
@@ -44,6 +55,22 @@ export function collection<T>(o: { key: keyof T & string; load: (ctx: Collection
   if (!o || typeof o.key !== 'string' || !o.key) throw new Error('collection(): `key` names the field that tells entries apart, e.g. `collection({ key: \'slug\', load })`');
   if (typeof o.load !== 'function') throw new Error('collection(): `load` is a function that returns the list, e.g. `load: async () => (await fetch(url)).json()`');
   return { [COLLECTION]: true, key: o.key, load: o.load, ...(o.perLocale ? { perLocale: true as const } : {}) };
+}
+
+/**
+ * The site's languages (docs/static-pages.md#languages), exported from the content module:
+ * `export const locales = languages({ base: 'en', list: ['en', 'de'] })`. With `localePrefix`, every page is built
+ * once per language, under its prefix (`/de/about/`). It is a collection of `{ tag }`, one entry per language. Without
+ * it, the languages come from the inlang project of the built-in messages.
+ */
+export function languages(o: { base: string; list: readonly string[] }): Collection<Language> {
+  const list = Array.isArray(o?.list) ? [...o.list] : null;
+  if (!list?.length) throw new Error("languages(): `list` names the site's languages, e.g. `languages({ base: 'en', list: ['en', 'de'] })`");
+  for (const l of list) if (typeof l !== 'string' || !LANGUAGE_TAG.test(l)) throw new Error(`languages(): \`${String(l)}\` in \`list\` is not a language tag (it becomes the URL's prefix, \`/${String(l)}/\`)`);
+  const dup = list.find((l, i) => list.indexOf(l) !== i);
+  if (dup) throw new Error(`languages(): \`${dup}\` is in \`list\` twice`);
+  if (typeof o.base !== 'string' || !list.includes(o.base)) throw new Error(`languages(): \`base\` (${typeof o.base === 'string' ? `\`${o.base}\`` : 'missing'}) is one of \`list\` (${list.join(', ')}): it is the language a visitor without a choice is sent to`);
+  return { [COLLECTION]: true, key: 'tag', load: () => list.map((tag) => ({ tag })), languages: { base: o.base, list } };
 }
 
 /** whether a value is a collection (of any instance of this module) */

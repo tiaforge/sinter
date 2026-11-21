@@ -1006,17 +1006,18 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
    * error; dev reports it on the pages that read a collection.
    */
   let content: LoadedContent | null = null;
-  const loadCollections = async (): Promise<LoadedContent | null> => {
+  const loadCollections = async (inlang?: () => Locales): Promise<LoadedContent | null> => {
     const p = proj();
     if (!p.contentFile || !resolved) return null;
     const c = await loadContent({
       root, file: p.contentFile, command: dev ? 'serve' : 'build', readFile: p.readFile, listFiles: p.listFiles,
       env: loadEnv(resolved.mode, resolved.envDir === false ? root : resolved.envDir ?? root, ''),
       configFile: resolved.configFile ?? false, mode: resolved.mode, ...(resolved.configFile ? {} : { alias: resolved.resolve.alias }),
-      ...(locales ? { locales: locales.list } : {}),
+      ...(locales ? { locales: locales.list } : inlang ? { locales: () => inlang().list } : {}),
     });
-    // what `sinter check` and the editor compile against (the last load that worked; with languages, the base one's)
-    if (!c.error) writeSnapshot(root, p.contentFile, c, locales?.base);
+    // what `sinter check` and the editor compile against (the last load that worked; with languages, the base one's:
+    // the module's own, or the inlang project's when a collection was loaded per its languages)
+    if (!c.error) writeSnapshot(root, p.contentFile, c, locales?.base ?? c.languages?.base ?? (c.perLocale.size && inlang ? inlang().base : undefined));
     return c;
   };
   /** what every compile gets of the collections */
@@ -1213,9 +1214,30 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
         const allow = (config.server.fs as { allow?: string[] }).allow;
         if (Array.isArray(allow)) for (const l of proj().libraries) if (!allow.includes(l.real)) allow.push(l.real);
       }
+      // the content module's collections, before anything compiles (a build's errors stop it here). With `localePrefix`,
+      // it may declare the languages (`languages()`); else they are the inlang project's, read when first needed
+      const project = typeof options.messages === 'string' ? options.messages : 'project.inlang';
+      let inlang: Locales | null = null;
+      const inlangLocales = () => (inlang ??= readLocales(root, project));
+      content = await loadCollections(options.localePrefix && options.messages !== false ? inlangLocales : undefined);
+      if (content?.error) {
+        if (!dev) throw new Error(`sinter: ${content.error}`);
+        config.logger.error(`sinter: ${content.error}`);
+      }
+      const declared = content?.languages ?? null;
+      if (declared && !options.localePrefix) config.logger.warn(`sinter: the content module declares languages (${declared.list.join(', ')}), and \`localePrefix\` is off: no page is built per language. Turn it on, \`sinter({ localePrefix: true })\`.`);
       if (options.localePrefix) {
-        if (options.messages === false) throw new Error('sinter({ localePrefix }): the languages come from the built-in messages, which `messages: false` turns off');
-        locales = readLocales(root, typeof options.messages === 'string' ? options.messages : 'project.inlang');
+        if (declared) {
+          // the built-in messages read the inlang project's languages: one list, or the build says where they differ
+          if (options.messages !== false && existsSync(resolve(root, project, 'settings.json'))) {
+            const i = inlangLocales();
+            if (i.base !== declared.base || i.list.join() !== declared.list.join()) throw new Error(`sinter({ localePrefix }): the content module's \`languages()\` (base ${declared.base}: ${declared.list.join(', ')}) and ${project}/settings.json (base ${i.base}: ${i.list.join(', ')}) differ; the site has one list of languages`);
+          }
+          locales = { base: declared.base, list: [...declared.list] };
+        } else {
+          if (options.messages === false) throw new Error('sinter({ localePrefix }): the site has no languages. Export them from the content module (src/sinter.content.ts): `export const locales = languages({ base: \'en\', list: [\'en\', \'de\'] })`, from `@tiaforge-ui/sinter/content`; or keep the built-in messages, whose inlang project lists them');
+          locales = inlangLocales();
+        }
         // the build: each page once per language, as `<root>/<locale>/<page>` (resolved and loaded below)
         const b = config.build as { rollupOptions?: { input?: unknown }; rolldownOptions?: { input?: unknown } };
         sourceInput = b.rolldownOptions?.input ?? b.rollupOptions?.input;
@@ -1224,12 +1246,6 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
           if (b.rolldownOptions) b.rolldownOptions.input = input;
           if (b.rollupOptions) b.rollupOptions.input = input;
         }
-      }
-      // the content module's collections, before anything compiles (a build's errors stop it here)
-      content = await loadCollections();
-      if (content?.error) {
-        if (!dev) throw new Error(`sinter: ${content.error}`);
-        config.logger.error(`sinter: ${content.error}`);
       }
       // `<html data-sn-for>`: one input per entry, before the build starts (its inputs are fixed from here)
       if (!dev) {

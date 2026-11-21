@@ -5,7 +5,7 @@
 // read a collection.
 import { mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative, sep } from 'node:path';
-import { isCollection, type Collection, type CollectionContext } from './content.js';
+import { isCollection, type Collection, type CollectionContext, type Languages } from './content.js';
 import { fileEntry, filePath } from './compiler/files.js';
 import { importModule, type LoadOptions } from './helpers-node.js';
 
@@ -21,6 +21,8 @@ export interface LoadedContent {
   error: string | null;
   /** the files the loaders read through `ctx.files`: a change in one runs them again (dev) */
   files: string[];
+  /** the module's `languages()` export, if it has one */
+  languages: Languages | null;
 }
 
 export interface ContentOptions extends Omit<LoadOptions, 'helpersFile' | 'manifest' | 'cache'> {
@@ -32,8 +34,11 @@ export interface ContentOptions extends Omit<LoadOptions, 'helpersFile' | 'manif
   listFiles: (dir: string) => string[];
   /** the variables loaders get as `ctx.env` (Vite's `loadEnv`) */
   env: Record<string, string>;
-  /** with `localePrefix`: the languages a `perLocale` collection is loaded for */
-  locales?: readonly string[];
+  /**
+   * with `localePrefix`: the languages a `perLocale` collection is loaded for, when the module declares none
+   * (`languages()`); a function, so the inlang project is read only when needed
+   */
+  locales?: readonly string[] | (() => readonly string[]);
 }
 
 /** a compile's collections in a language: the shared ones, and that language's own */
@@ -48,7 +53,7 @@ export async function loadContent(o: ContentOptions): Promise<LoadedContent> {
   const rel = (f: string) => relative(o.root, f).split(sep).join('/');
   let mod: Record<string, unknown>;
   try { mod = await importModule(o, o.file); } catch (e) {
-    return { collections, perLocale, error: scrub(`the content module could not be loaded (${rel(o.file)}): ${String((e as Error)?.message ?? e).split('\n')[0]}`, o.env), files: [] };
+    return { collections, perLocale, error: scrub(`the content module could not be loaded (${rel(o.file)}): ${String((e as Error)?.message ?? e).split('\n')[0]}`, o.env), files: [], languages: null };
   }
   const problems: string[] = [];
   const names = new Map<Collection, string>();
@@ -57,6 +62,9 @@ export async function loadContent(o: ContentOptions): Promise<LoadedContent> {
     if (!isCollection(v)) { problems.push(`${rel(o.file)}: \`${name}\` is exported but not a collection; the content module exports only collections (\`collection({ key, load })\`), and helpers go in the helpers module`); continue; }
     names.set(v, name);
   }
+  const declared = [...names].filter(([c]) => c.languages);
+  if (declared.length > 1) problems.push(`${rel(o.file)}: \`${declared.map(([, n]) => n).join('`, `')}\` are each \`languages()\`; the site has one list of languages`);
+  const languages = declared[0]?.[0].languages ?? null;
   // one run per collection, and per language for a `perLocale` one: `get` shares it, whoever asks
   const running = new Map<string, Promise<unknown[]>>();
   const run = (c: Collection, chain: string[], locale: string | undefined): Promise<unknown[]> => {
@@ -83,10 +91,13 @@ export async function loadContent(o: ContentOptions): Promise<LoadedContent> {
     }
     return p;
   };
-  const langs = o.locales ?? [];
+  // the languages a `perLocale` collection is loaded for: the module's own, else the given ones (read when one needs them)
+  let given: readonly string[] | null = null;
+  const langsOf = (): readonly string[] => languages?.list ?? (given ??= typeof o.locales === 'function' ? o.locales() : o.locales ?? []);
   await Promise.all([...names].map(async ([c, name]) => {
     try {
       if (!c.perLocale) { collections.set(name, { key: c.key, value: await run(c, [], undefined) }); return; }
+      const langs = langsOf();
       if (!langs.length) throw new Error('it is loaded per language (`perLocale: true`), and the site has none: `perLocale` needs `sinter({ localePrefix })`');
       for (const l of langs) {
         const value = await run(c, [], l);
@@ -97,7 +108,7 @@ export async function loadContent(o: ContentOptions): Promise<LoadedContent> {
       problems.push(`collection \`${name}\`: ${String((e as Error)?.message ?? e).split('\n')[0]}`);
     }
   }));
-  return { collections, perLocale, error: problems.length ? scrub(problems.join('\n'), o.env) : null, files: [...files].sort() };
+  return { collections, perLocale, error: problems.length ? scrub(problems.join('\n'), o.env) : null, files: [...files].sort(), languages };
 }
 
 /**
@@ -176,8 +187,16 @@ export function writeSnapshot(root: string, file: string, c: LoadedContent, base
   try {
     const out = snapshotFile(root);
     mkdirSync(dirname(out), { recursive: true });
-    writeFileSync(out, JSON.stringify({ version: 1, module: relative(root, file).split(sep).join('/'), mtimeMs: statSync(file).mtimeMs, collections: Object.fromEntries(collectionsIn(c, baseLocale)) }));
+    writeFileSync(out, JSON.stringify({ version: 1, module: relative(root, file).split(sep).join('/'), mtimeMs: statSync(file).mtimeMs, collections: Object.fromEntries(collectionsIn(c, baseLocale)), ...(c.languages ? { languages: c.languages } : {}) }));
   } catch { /* a cache: the check goes without it */ }
+}
+
+/** The languages the last snapshot's content module declared (`languages()`), or null. */
+export function snapshotLanguages(root: string): Languages | null {
+  try {
+    const s = JSON.parse(readFileSync(snapshotFile(root), 'utf8')) as { version: number; languages?: Languages };
+    return s.version === 1 && s.languages ? s.languages : null;
+  } catch { return null; }
 }
 
 /** The last snapshot, and whether the content module changed since (`stale`), or null when there is none. */
