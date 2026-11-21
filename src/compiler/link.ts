@@ -152,6 +152,8 @@ export const LINK_FIELDS: Record<string, { kinds: string[]; how: 'table' | 'weak
   pageLang: { kinds: ['empty', 'string'], how: 'fixed' },
   pageModels: { kinds: ['Array'], how: 'table' },
   pagesDecl: { kinds: ['empty', 'object'], how: 'fixed' },
+  axisDecls: { kinds: ['Array'], how: 'fixed' },
+  axesOut: { kinds: ['Array'], how: 'fixed' },
   pagesOut: { kinds: ['empty', 'object'], how: 'fixed' },
   painted: { kinds: ['Set'], how: 'table' },
   paintRules: { kinds: ['Array'], how: 'table' },

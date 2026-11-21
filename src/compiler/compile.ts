@@ -71,6 +71,13 @@ export interface CompileOptions {
    */
   page?: { value: unknown; path: string; key?: string };
   /**
+   * Axes (docs/proposals/axes.md): `data-sn-for` on `<html>` (or a layout's) lists, before the page's own entries, that
+   * the page is built over, outer first (`tenant in tenants; post in posts`). This compile's value of each, and the path
+   * segment it writes the page under (after the language's). Without it, each axis is its list's first entry and the
+   * compile lists every axis's entries (`axes`).
+   */
+  axes?: Array<{ value: unknown; key: string; segment: string | null }>;
+  /**
    * Builds: where a `<html data-sn-for>` template's first pass is kept, so its other entries are not walked again
    * (`fromTemplate`). The compiles that share one must differ only in what each entry changes: `page`, `foldLog`,
    * `urls`, `moduleSrc`, `paintCss`, `images` and `locale.urls`. Cleared with the build's reads.
@@ -310,6 +317,8 @@ export interface CompileResult {
    * template: no `page` option). A build writes one page per entry.
    */
   pages?: { name: string; of: string; pattern: string; entries: Array<{ value: unknown; path: string; key: string }> };
+  /** a compile without `axes`: each axis the page is built over (its item's name, its list) and the list's entries */
+  axes?: Array<{ name: string; of: string; entries: Array<{ value: unknown; key: string }> }>;
   /** @internal the embedded values, by id, whose JSON `compileParts` writes into the page */
   json?: Map<number, unknown>;
   /** @internal a first pass's diagnostics about the page as it ends, for when no second pass follows */
@@ -464,6 +473,8 @@ export interface CompiledParts {
    * template: no `page` option). A build writes one page per entry.
    */
   pages?: { name: string; of: string; pattern: string; entries: Array<{ value: unknown; path: string; key: string }> };
+  /** a compile without `axes`: each axis the page is built over (its item's name, its list) and the list's entries */
+  axes?: Array<{ name: string; of: string; entries: Array<{ value: unknown; key: string }> }>;
   /** @internal the embedded values, by id, whose JSON `compileParts` writes into the page */
   json?: Map<number, unknown>;
   /** @internal a first pass's diagnostics about the page as it ends, for when no second pass follows */
@@ -1687,7 +1698,7 @@ class Compiler {
       ...(this.opts.sourcemap ? { sources: this.sourcesOf(this.fns) } : {}),
       features: [...(this.opts.dev ? ['dev'] : []), ...['sse', 'optimistic', 'paginate', 'persist', 'cache', 'back', 'versions', 'refresh', 'for', 'options', 'keys', 'write-through', 'fields', 'form', 'select', 'location', 'typing', 'query-links', 'navigate', 'call', 'debounce', 'confirm', 'models', 'transition', 'components', 'nested', 'lets', 'signed-in'].filter((f) => this.features.has(f))],
       helpers: { user, builtin }, namespaces, calls: [...this.calls].sort(),
-      diagnostics: this.diagnostics, files: [...this.files].sort(), ...(this.fileGlobs.length ? { globs: this.fileGlobs } : {}), ...(this.pagesOut ? { pages: this.pagesOut } : {}),
+      diagnostics: this.diagnostics, files: [...this.files].sort(), ...(this.fileGlobs.length ? { globs: this.fileGlobs } : {}), ...(this.pagesOut ? { pages: this.pagesOut } : {}), ...(this.axesOut.length && !this.opts.axes ? { axes: this.axesOut } : {}),
       ...(this.check ? { check: this.check } : {}),
       ...(early !== undefined ? { early } : {}),
       ...(images ? { images } : {}),
@@ -2301,7 +2312,9 @@ class Compiler {
     // the tag's attributes: plain ones replace the layout's on `<html>` (its defaults), `class` is joined
     for (const a of host.attrs) {
       if (a.name === 'data-sn-with' || a.name === 'data-sn-state') continue;
-      if (a.name === 'data-sn-path' || a.name === 'data-sn-prefetch' || a.name === 'data-sn-for' || a.name === 'data-sn-swap' || a.name === 'data-sn-signed-in') { setAttr(lhtml, a.name, a.value); continue; }
+      // `data-sn-for`: the layout's lists (its axes, `tenant in tenants`) are outside the page's own
+      if (a.name === 'data-sn-for') { const own = attr(lhtml, 'data-sn-for'); setAttr(lhtml, a.name, own ? `${own}; ${a.value}` : a.value); continue; }
+      if (a.name === 'data-sn-path' || a.name === 'data-sn-prefetch' || a.name === 'data-sn-swap' || a.name === 'data-sn-signed-in') { setAttr(lhtml, a.name, a.value); continue; }
       if (a.name === 'data-sn-pages') { this.report(host, a.name, 'SN101', `\`data-sn-pages\` ${RETIRED['data-sn-pages']}`, 0); continue; }
       if (a.name === 'data-sn-early') { this.report(host, a.name, 'SN318', '`data-sn-early` cannot be on a layout\'s tag: the layout is the whole page', 0, 'leave parts out of the early script on their own tags: `<tag-cloud data-sn-early="off">`'); continue; }
       if (a.name.startsWith('data-sn-')) {
@@ -4520,7 +4533,9 @@ class Compiler {
     }
     // a page in one language: its paths under that language's prefix, after the base (`/de/article/:slug`)
     const lp = this.opts.locale;
-    const prefixed = lp && lp.prefix !== false ? prefixPaths(patterns, lp.name, lp.base) : patterns;
+    // a point's folder: its language's (`localePrefix`), then each axis's segment
+    const segs = [...(lp && lp.prefix !== false ? [lp.name] : []), ...(this.opts.axes ?? []).flatMap((a) => (a.segment ? [a.segment] : []))];
+    const prefixed = segs.length ? prefixPaths(patterns, segs.join('/'), this.opts.locale?.base ?? this.opts.base) : patterns;
     // only the URL the page has anyway: it is a directory's index without data-sn-path (docs/static-pages.md#page-urls)
     const root = this.opts.root.replace(/[\\/]+$/, '').replace(/\\/g, '/') + '/', file = this.opts.file.replace(/\\/g, '/');
     const rel = file.startsWith(root) ? file.slice(root.length) : null;
@@ -6447,6 +6462,8 @@ class Compiler {
     if (!name || !this.page.resources.has(name) || this.resourceEls.get(name) !== el) return;
     if (ctx.tid >= 0) return;
     if (attr(el, PAGE_ENTRY) !== undefined && el === this.pagesDecl?.entry) return this.entryResource(el, name, ctx.stateIdx);
+    const axis = this.axisDecls.findIndex((d) => d.entry === el);
+    if (axis >= 0) return this.axisResource(el, name, ctx.stateIdx, axis);
     if (isFileSource(attr(el, 'src'))) return this.fileResource(el, name, ctx.stateIdx);
     if (isContentSource(attr(el, 'src'))) return this.contentResource(el, name, ctx.stateIdx);
     for (const a of el.attrs) {
@@ -6713,9 +6730,17 @@ class Compiler {
       this.report(html, 'data-sn-pages', 'SN101', `\`data-sn-pages\` ${RETIRED['data-sn-pages']}`, 0);
       html.attrs = html.attrs.filter((a) => a.name !== 'data-sn-pages');
     }
-    const v = html && attr(html, 'data-sn-for');
-    if (!html || v === undefined) return;
+    const all = html && attr(html, 'data-sn-for');
+    if (!html || all === undefined) return;
     html.attrs = html.attrs.filter((a) => a.name !== 'data-sn-for');
+    // outer lists first (`tenant in tenants; post in posts`): each but the page's own entries is an axis. The last is the
+    // page's entries when the page has a pattern to fill from it (`data-sn-path="/blog/:slug"`), else an axis too
+    const items = all.split(';').map((x) => x.trim()).filter(Boolean);
+    const own = /\/:/.test(attr(html, 'data-sn-path') ?? '');
+    const axisItems = own ? items.slice(0, -1) : items;
+    for (const it of axisItems) if (!this.axisOf(doc, html, it, all)) return;
+    if (!own) return;
+    const v = items.at(-1) ?? '';
     const m = /^\s*([A-Za-z_$][\w$]*)\s+in\s+([A-Za-z_$][\w$]*)\s*$/.exec(v);
     if (!m) { this.report(html, 'data-sn-for', 'SN340', '`data-sn-for` on `<html>` takes `<name> in <list>`, e.g. `post in posts`, where `posts` is a `file:` resource of this page', 0); return; }
     const [, name, of] = m as unknown as [string, string, string];
@@ -6741,6 +6766,72 @@ class Compiler {
     // a page per entry is written at its own path: a fixed one, as any page with an exact `data-sn-path`
     if (this.opts.page) setAttr(html, 'data-sn-path', this.opts.page.path);
     this.pagesDecl = { name, of, pattern: pats[0]!, html, entry };
+  }
+
+  /** `data-sn-for` on `<html>`: the axes the page is built over, outer first (`axisOf`) */
+  private readonly axisDecls: Array<{ name: string; of: string; html: P5Element; entry: P5Element }> = [];
+  private readonly axesOut: NonNullable<CompiledParts['axes']> = [];
+
+  /**
+   * One axis of `data-sn-for` on `<html>` (`tenant in tenants`): a build-time list the page (or its layout) declares, and
+   * its item, an internal resource beside the list as a page per entry's entry is. False when it is wrong (SN340).
+   */
+  axisOf(doc: DefaultTreeAdapterMap['document'], html: P5Element, item: string, all: string): boolean {
+    const m = /^\s*([A-Za-z_$][\w$]*)\s+in\s+([A-Za-z_$][\w$]*)\s*$/.exec(item);
+    if (!m) { this.report(html, 'data-sn-for', 'SN340', `\`data-sn-for\` on \`<html>\` takes \`<name> in <list>\`, several separated by \`;\` (\`tenant in tenants; post in posts\`), where each list is a build-time resource of the page`, all.indexOf(item)); return false; }
+    const [, name, of] = m as unknown as [string, string, string];
+    if (STORE_FNS.includes(name) || name.startsWith('$')) { this.report(html, 'data-sn-for', 'SN340', `\`${name}\` cannot name an item: it is ${name.startsWith('$') ? 'a magic name' : 'a store function'}`, all.indexOf(item)); return false; }
+    let list: P5Element | null = null;
+    const find = (p: P5Parent) => { for (const c of p.childNodes) { if (!isElement(c) || list) continue; if (c.tagName === 'template') continue; if (c.tagName === 'sn-resource' && attr(c, 'name') === of) { list = c; return; } find(c); } };
+    find(doc);
+    const el = list as P5Element | null;
+    const src = el ? attr(el, 'src') ?? '' : '';
+    if (!el || (!isContentSource(src) && (!isFileSource(src) || !isGlob(src.trim().slice('file:'.length))))) {
+      this.report(html, 'data-sn-for', 'SN340', `\`${of}\` is not a build-time list of this page: an axis of \`data-sn-for\` on \`<html>\` takes a collection (\`<sn-resource name="${of}" src="content:${of}">\`) or a \`file:\` glob, declared outside any template`, all.indexOf(of));
+      return false;
+    }
+    const entry = parse5.defaultTreeAdapter.createElement('sn-resource', parse5.html.NS.HTML, [{ name: 'name', value: name }, { name: PAGE_ENTRY, value: of }]);
+    const parent = el.parentNode as P5Parent;
+    parent.childNodes.splice(parent.childNodes.indexOf(el) + 1, 0, entry);
+    (entry as { parentNode: P5Parent }).parentNode = parent;
+    const o = this.origins.get(el);
+    if (o) this.origins.set(entry, o);
+    this.axisDecls.push({ name, of, html, entry });
+    return true;
+  }
+
+  /** an axis's item: this compile's value (`axes`), or its list's first entry, listing the entries for the build */
+  axisResource(el: P5Element, name: string, scope: number, i: number) {
+    const d = this.axisDecls[i]!;
+    const list = this.fileData.get(d.of)?.value;
+    const entries = Array.isArray(list) ? list : [];
+    if (!this.opts.axes) {
+      const keyOf = this.page.resources.get(d.of)?.key ?? ['key'];
+      this.axesOut[i] = { name: d.name, of: d.of, entries: entries.map((e) => ({ value: e, key: keyOf.map((f) => String((e as Record<string, unknown>)?.[f])).join('/') })) };
+    }
+    const value = this.opts.axes?.[i] ? this.opts.axes[i]!.value : entries[0] ?? null;
+    const id = this.nextId++;
+    const listEl = this.resourceEls.get(d.of);
+    this.fileData.set(name, { id, value, at: d.html, fields: listEl ? this.fieldsOf(listEl, false) : null, content: !!listEl && isContentSource(attr(listEl, 'src')) });
+    this.embedded.set(name, id);
+    this.page.resources.get(name)!.used = true;
+    const listInfo = this.page.resources.get(d.of);
+    if (listInfo) listInfo.used = true;
+    if (this.check) this.check.resources.push({ name, type: null, loc: this.locOf(el, null), nameLoc: this.locOf(d.html, 'data-sn-for'), item: d.of });
+    this.resources.push({ name, src: [], key: null, select: null, total: null, order: null, when: null, paginate: null, deps: [], scope, data: null, fx: 1 });
+    this.declAt.set(this.resources[this.resources.length - 1]!, el);
+  }
+
+  /** a `file:` path with an axis's item in it (`file:/content/{tenant.key}/posts/*.md`): this point's value there */
+  axisPath(src: string): string {
+    if (!this.axisDecls.length) return src;
+    return src.replace(/\{\s*([A-Za-z_$][\w$]*)\.([A-Za-z_$][\w$]*)\s*\}/g, (x, n: string, f: string) => {
+      const i = this.axisDecls.findIndex((d) => d.name === n);
+      if (i < 0) return x;
+      const v = this.fileData.get(n)?.value as Record<string, unknown> | undefined;
+      const at = v?.[f];
+      return typeof at === 'string' || typeof at === 'number' ? String(at) : x;
+    });
   }
 
   /**
@@ -6842,7 +6933,7 @@ class Compiler {
   fileResource(el: P5Element, name: string, scope: number) {
     const info = this.page.resources.get(name)!;
     for (const a of el.attrs) if (!FILE_ATTRS.includes(a.name)) this.report(el, a.name, RESOURCE_ATTRS.includes(a.name) ? 'SN332' : 'SN101', a.name === 'items' ? ITEMS_RENAMED : fileAttrProblem(a.name), 0);
-    const written = attr(el, 'src')!, at = written.indexOf('file:');
+    const written = this.axisPath(attr(el, 'src')!), at = written.indexOf('file:');
     // `{$locale}`: each language's build reads its own folder (`localePrefix`); `sinter check` and the editor, the base one
     const lang = /\{\s*\$locale\s*\}/;
     if (lang.test(written) && !this.opts.locale) this.report(el, 'src', 'SN332', '`{$locale}` in a `file:` path needs `sinter({ localePrefix })`: each language\'s build reads its own folder there; without it, the language is the visitor\'s, picked in the browser', written.search(lang));
