@@ -46,6 +46,8 @@ export interface Collection<T = unknown> {
   readonly per?: readonly Collection[];
   /** `languages()`: the site's languages, which `localePrefix` builds every page in (docs/static-pages.md#languages) */
   readonly languages?: Languages;
+  /** `namespace()`: the name a page calls its entries by, and its formatter module */
+  readonly namespace?: { readonly name: string; readonly format: string };
 }
 
 /** The site's languages: `base`, where a visitor without a choice lands, and every language in `list`. */
@@ -92,6 +94,20 @@ export function languages(o: { base: string; list: readonly string[]; fallbacks?
     }
   }
   return { [COLLECTION]: true, key: 'tag', load: () => list.map((tag) => ({ tag })), languages: { base: o.base, list, ...(fb ? { fallbacks: Object.fromEntries(Object.entries(fb).map(([k, v]) => [k, [...v]])) } : {}) } };
+}
+
+/**
+ * A content namespace (docs/proposals/messages.md §1): a collection whose entries a page calls by their key,
+ * `legal.imprint()`, `legal.terms({ shop: tenant.name })`, each through the formatter module's
+ * `format(entry, args, locale)`. A call over constants is written into the HTML at build; one over data is compiled
+ * into the page's script with that entry alone. Each page ships only the entries it calls. `format` is a module
+ * path from the root (`/src/legal-format.ts`) or a package; `key` (default `id`) names an entry's id field.
+ */
+export function namespace<T>(o: { name: string; format: string; key?: keyof T & string; load: (ctx: CollectionContext) => T[] | Promise<T[]>; perLocale?: boolean }): Collection<T> {
+  if (!o || typeof o.name !== 'string' || !/^[A-Za-z_$][\w$]*$/.test(o.name)) throw new Error("namespace(): `name` is what a page calls its entries by, an identifier, e.g. `namespace({ name: 'legal', format, load })`");
+  if (typeof o.format !== 'string' || !o.format) throw new Error("namespace(): `format` names the formatter module, whose `format(entry, args, locale)` makes an entry's value, e.g. `format: '/src/legal-format.ts'`");
+  const c = collection<T>({ key: (o.key ?? 'id') as keyof T & string, load: o.load, ...(o.perLocale ? { perLocale: true } : {}) });
+  return { ...c, namespace: { name: o.name, format: o.format } };
 }
 
 /** whether a value is a collection (of any instance of this module) */

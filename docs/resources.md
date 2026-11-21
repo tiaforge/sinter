@@ -370,6 +370,34 @@ export const tags = collection({
   `n` from 1: a collection of pages for a [page per entry](static-pages.md#a-page-per-entry) at `/blog/page/:n`.
 - `sinter({ content: false })` turns the module off. `content` cannot be an API's name (SN329).
 
+
+### Content namespaces
+
+A collection whose entries a page calls by their id, through a formatter of your own:
+
+```ts
+// src/sinter.content.ts
+import { namespace } from '@tiaforge-ui/sinter/content';
+export const legal = namespace({ name: 'legal', format: '/src/legal-format.ts', perLocale: true, load: ({ locale, files }) => files(`content/legal/${locale}/*.md`), key: 'slug' });
+```
+
+```ts
+// src/legal-format.ts
+export function format(entry, args, locale) { return entry.body.replace(/\[(\w+)\]/g, (_, k) => String(args?.[k] ?? '')); }
+```
+
+```html
+<p data-sn-text="legal.imprint({ shop: 'Acme' })"></p>
+```
+
+- A call over constants is written into the HTML at build, in the page's language; one over data is compiled into
+  the page's script with that entry alone and an import of the formatter. Each page ships only the entries it calls.
+- An unknown id is `SN206`, with the namespace's ids as suggestions. A name another namespace has (a helper namespace,
+  another content namespace) fails the build.
+- `format(entry, args, locale)` is a plain function of its arguments, so the build can run it.
+- Not yet ([docs/proposals/messages.md](proposals/messages.md)): `per` namespaces, nested ids (`ns.a.b()`), calls
+  from app modules, and `sinter check` and the editor knowing a namespace's ids (they report its calls as unknown).
+
 ## Loading behavior
 
 - **Shared requests.** Resources with the same resolved `src` share one request, for example one

@@ -123,7 +123,10 @@ export function shadow(o: ShadowOptions): Shadow {
   if (o.helpers.module && userHelpers.length) line(`import { ${userHelpers.join(', ')} } from '${moduleSpec(o.helpers.module)}';`);
   for (const [ns, { module }] of Object.entries(o.helpers.namespaces)) {
     // the built-in messages: `m`, typed by the generated `src/sinter.messages.d.ts`
-    if (!taken.has(ns)) line(module === MESSAGES ? `import { m as ${ns} } from '${MESSAGES}';` : `import * as ${ns} from '${moduleSpec(module)}';`);
+    if (taken.has(ns)) continue;
+    // a content namespace (docs/proposals/messages.md §1): its entries, each called with what its formatter takes
+    if (module.startsWith('sinter:content/')) line(`/** @type {Record<string, (args?: any) => any>} */ const ${ns} = $any;`);
+    else line(module === MESSAGES ? `import { m as ${ns} } from '${MESSAGES}';` : `import * as ${ns} from '${moduleSpec(module)}';`);
   }
   if (o.actions?.module && (unit.resources.some((r) => r.call) || unit.exprs.some((e) => e.returns?.kind === 'call' || e.resultType?.kind === 'call'))) {
     line(`import * as $A from '${moduleSpec(o.actions.module)}';`);

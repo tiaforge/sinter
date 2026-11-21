@@ -12,7 +12,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { flagsModule } from './core-parts.js';
 import { loadEnv, type Plugin, type ResolvedConfig, type ViteDevServer } from 'vite';
 import { collectionsIn, loadContent, writeSnapshot, type LoadedContent } from './content-node.js';
-import { applyStrict, CODES, compile, formatDiagnostic, formatWarning, strictPromotes, suggest, type Code, type CheckUnit, type Diagnostic, type CompileResult, type SourceMap } from './compiler/index.js';
+import { applyStrict, CODES, compile, CONTENT_NS, formatDiagnostic, formatWarning, strictPromotes, suggest, type Code, type CheckUnit, type Diagnostic, type CompileResult, type SourceMap } from './compiler/index.js';
 import { lazyOf, project, retiredExport, retiredOptions, staticPages, strictOf, type ProjectOptions } from './project.js';
 import { CHUNK_MARK, chainText, isComponentScript, LAZY, lazyHelpers, lazyPackage, lineCol, loaderModule, mentions, parseLazyId, reachLazy, rewriteLazy, scanLazy, stubModule } from './lazy-build.js';
 import { moduleKeys, type MessagesProject } from './i18n-build.js';
@@ -44,7 +44,7 @@ import { LAYERS_SHEET, type FoldArg } from './compiler/compile.js';
 import { didYouMean, docsUrl } from './compiler/diagnostics.js';
 import { crossCheck, crossMessage, hashOf, type FoldCall } from './fold-cross.js';
 import { apiOrigins } from './compiler/apis.js';
-import { loadHelpers, loadingHelpers, unloadedMessage, type NodeHelpers } from './helpers-node.js';
+import { importModule, loadHelpers, loadingHelpers, unloadedMessage, type NodeHelpers } from './helpers-node.js';
 import { FoldCache } from './fold-check.js';
 
 export interface SinterOptions extends ProjectOptions {
@@ -825,7 +825,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     const html = readFileSync(file, 'utf8');
     if (!declaresFor(html)) { templatesKept.set(k, null); return null; }
     const p = proj();
-    const out = compile(html, { file, root, dev, helpers: p.helpers, actions: p.actions, readFile: readVia(p), listFiles: p.listFiles, ...(dev ? {} : { globCache }), ...contentOpts(locale), lazy: p.lazy, openapi: p.openapi, apis: p.apis, prerender: true, ...(locale ? { locale: { name: locale, urls: null, base: resolved?.base ?? '/' } } : {}), ...(vals.length ? { axes: vals } : {}) });
+    const out = compile(html, { file, root, dev, helpers: helpersOf(p.helpers), actions: p.actions, readFile: readVia(p), listFiles: p.listFiles, ...(dev ? {} : { globCache }), ...contentOpts(locale), lazy: p.lazy, openapi: p.openapi, apis: p.apis, prerender: true, ...(locale ? { locale: { name: locale, urls: null, base: resolved?.base ?? '/' } } : {}), ...(vals.length ? { axes: vals } : {}) });
     const fatal = out.diagnostics.filter((d) => d.severity === 'error' && /^SN34[01]$/.test(d.code));
     if (fatal.length) throw new Error(`sinter: ${fatal.map(formatDiagnostic).join('\n')}`);
     const t = { pages: out.pages ?? null, axes: out.axes ?? null };
@@ -896,7 +896,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       if (kept) { described.set(file, kept); return kept; }
       try {
         // with the APIs and specs: what is requested ahead is the page's own request (its base, its configured shape)
-        const r = compile(readPage(file), { file: v?.source ?? file, root, dev, helpers: p.helpers, actions: p.actions, readFile: readVia(p), listFiles: p.listFiles, ...(dev ? {} : { globCache }), ...contentOpts(v?.locale), lazy: p.lazy, openapi: p.openapi, apis: p.apis, ...(v?.page ? { page: v.page } : {}), ...(v?.axes ? { axes: v.axes } : {}), describeOnly: true, ...(v?.locale ? { locale: { name: v.locale, urls: null, base: resolved?.base ?? '/' } } : {}) });
+        const r = compile(readPage(file), { file: v?.source ?? file, root, dev, helpers: helpersOf(p.helpers), actions: p.actions, readFile: readVia(p), listFiles: p.listFiles, ...(dev ? {} : { globCache }), ...contentOpts(v?.locale), lazy: p.lazy, openapi: p.openapi, apis: p.apis, ...(v?.page ? { page: v.page } : {}), ...(v?.axes ? { axes: v.axes } : {}), describeOnly: true, ...(v?.locale ? { locale: { name: v.locale, urls: null, base: resolved?.base ?? '/' } } : {}) });
         described.set(file, { parts: r.prefetch, path: r.path, off: !!r.prefetchOff, keep: r.permanent ?? [], swapOff: !!r.swapOff, keptSource: r.keptSource ?? {}, keptBound: r.keptBound ?? [], effect: r.loadEffect ?? null });
         if (v?.page) entriesDescribed.set(`${v.source}\0${v.locale ?? ''}`, { page: v.page.path, d: described.get(file)! });
       } catch { described.set(file, { parts: null, path: [], off: false, keep: [], swapOff: true, keptSource: {}, keptBound: [], effect: 'it did not compile' }); }
@@ -907,7 +907,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   const describeSource = (source: string) => {
     if (!sourceDescribed.has(source)) {
       const p = proj();
-      try { sourceDescribed.set(source, compile(readFileSync(source, 'utf8'), { file: source, root, dev, helpers: p.helpers, actions: p.actions, readFile: readVia(p), listFiles: p.listFiles, ...(dev ? {} : { globCache }), ...contentOpts(), lazy: p.lazy, openapi: p.openapi, apis: p.apis }).path); }
+      try { sourceDescribed.set(source, compile(readFileSync(source, 'utf8'), { file: source, root, dev, helpers: helpersOf(p.helpers), actions: p.actions, readFile: readVia(p), listFiles: p.listFiles, ...(dev ? {} : { globCache }), ...contentOpts(), lazy: p.lazy, openapi: p.openapi, apis: p.apis }).path); }
       catch { sourceDescribed.set(source, []); }
     }
     return { path: sourceDescribed.get(source)! };
@@ -1078,7 +1078,39 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     return c;
   };
   /** what every compile gets of the collections */
-  const contentOpts = (locale?: string) => (content ? { collections: collectionsIn(content, locale), ...(content.perPoint.size ? { perCollections: content.perPoint } : {}), ...(content.error ? { collectionsError: content.error } : {}) } : {});
+  const contentOpts = (locale?: string) => (content ? {
+    collections: collectionsIn(content, locale), ...(content.perPoint.size ? { perCollections: content.perPoint } : {}), ...(content.error ? { collectionsError: content.error } : {}),
+    ...(content.namespaces.size ? { contentNs: contentNsAt(locale) } : {}),
+  } : {});
+  /** the content namespaces' formatters, loaded in Node (a build folds a call over constants with it) */
+  const formatters = new Map<string, (entry: unknown, args: unknown, locale: string | null) => unknown>();
+  /** a namespace's formatter module, as the page imports it: a path from the root as written, or a package */
+  const formatSpec = (f: string) => f;
+  /** the content namespaces in a language: each one's entries by id (docs/proposals/messages.md §1) */
+  const contentNsAt = (locale?: string): NonNullable<Parameters<typeof compile>[1]['contentNs']> => {
+    const out: NonNullable<Parameters<typeof compile>[1]['contentNs']> = {};
+    if (!content) return out;
+    const lists = collectionsIn(content, locale);
+    for (const [exp, d] of content.namespaces) {
+      const l = lists.get(exp);
+      const entries: Record<string, unknown> = {};
+      for (const e of (l?.value ?? []) as Array<Record<string, unknown>>) entries[String(e[l!.key])] = e;
+      out[d.name] = { entries, format: formatSpec(d.format), ...(formatters.get(d.format) ? { formatFn: formatters.get(d.format)! } : {}) };
+    }
+    return out;
+  };
+  /** the helpers manifest with the content namespaces in it: each one's entries' ids its members (the base language's) */
+  const helpersOf = (h: ReturnType<typeof proj>['helpers']): ReturnType<typeof proj>['helpers'] => {
+    if (!content?.namespaces.size) return h;
+    const lists = collectionsIn(content, locales?.base);
+    const namespaces = { ...h.namespaces };
+    for (const [exp, d] of content.namespaces) {
+      if (namespaces[d.name]) throw new Error(`sinter: the content module's namespace \`${d.name}\` (\`${exp}\`) and the helpers module's \`${d.name}\` have one name: a name calls one namespace`);
+      const l = lists.get(exp);
+      namespaces[d.name] = { module: `${CONTENT_NS}${d.name}`, members: ((l?.value ?? []) as Array<Record<string, unknown>>).map((e) => String(e[l!.key])).sort() };
+    }
+    return { ...h, namespaces };
+  };
   /** builds: the `file:` lists already built (compile's `globCache`), cleared with the reads */
   const globCache: NonNullable<Parameters<typeof compile>[1]['globCache']> = new Map();
   /** builds: each `<html data-sn-for>` template's first pass, walked once for all its entries (compile's `templates`), cleared with the reads */
@@ -1143,7 +1175,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     const group = groupOf(rel)?.folder;
     const prefetch = prefetchData && prefetchPages(group).length ? prefetchId(group) : null;
     const out = compile(html, {
-      file: src, root, dev, sourcemap: dev || !!resolved?.build.sourcemap, helpers: p.helpers, actions: p.actions, moduleSrc: `${PREFIX}${rel}.js`, config: p.config, readFile: readVia(p), listFiles: p.listFiles, ...(dev ? {} : { globCache, templates, ...(process.env.SN_NO_LINK ? {} : { definitions }) }), ...contentOpts(v?.locale), prefetch,
+      file: src, root, dev, sourcemap: dev || !!resolved?.build.sourcemap, helpers: helpersOf(p.helpers), actions: p.actions, moduleSrc: `${PREFIX}${rel}.js`, config: p.config, readFile: readVia(p), listFiles: p.listFiles, ...(dev ? {} : { globCache, templates, ...(process.env.SN_NO_LINK ? {} : { definitions }) }), ...contentOpts(v?.locale), prefetch,
       ...(page ? { page } : {}), ...(v?.axes ? { axes: v.axes } : {}),
       check: typecheckOn() && !dev, openapi: p.openapi, apis: p.apis, complexity: p.complexity, ...(p.expansionLimit ? { expansionLimit: p.expansionLimit } : {}), componentNames: p.componentNames, libraries: p.libraries, lazy: p.lazy,
       ...(lazyPkgs.length ? { lazyScript, lazyModule: (m: string) => lazyHelpers(root, lazyPkgs, undefined, p.libraries).reach(m) } : {}),
@@ -1283,6 +1315,21 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       if (content?.error) {
         if (!dev) throw new Error(`sinter: ${content.error}`);
         config.logger.error(`sinter: ${content.error}`);
+      }
+      // the content namespaces' formatters, in Node: a build folds a call over constants with them
+      formatters.clear();
+      for (const d of content?.namespaces.values() ?? []) {
+        if (formatters.has(d.format)) continue;
+        try {
+          const file = d.format.startsWith('/') ? resolve(root, `.${d.format}`) : d.format;
+          const mod = await importModule({ root, configFile: config.configFile ?? false, mode: config.mode, ...(config.configFile ? {} : { alias: config.resolve.alias }) }, file);
+          if (typeof mod.format === 'function') formatters.set(d.format, mod.format as (entry: unknown, args: unknown, locale: string | null) => unknown);
+          else throw new Error('it exports no `format(entry, args, locale)`');
+        } catch (e) {
+          const m = `sinter: the content namespace \`${d.name}\`'s formatter \`${d.format}\` could not be loaded: ${String((e as Error)?.message ?? e).split('\n')[0]}`;
+          if (!dev) throw new Error(m);
+          config.logger.error(m);
+        }
       }
       const declared = content?.languages ?? null;
       if (declared && !options.localePrefix) config.logger.warn(`sinter: the content module declares languages (${declared.list.join(', ')}), and \`localePrefix\` is off: no page is built per language. Turn it on, \`sinter({ localePrefix: true })\`.`);
@@ -1698,7 +1745,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       if (error || !typecheckOn() || dev || !units.size) return;
       const { check } = await import('./check/index.js');
       const p = proj();
-      const r = check({ root, units: [...units.values()], helpers: p.helpers, actions: p.actions, types: p.types, openapi: p.openapi, messagesTypes: p.messagesTypes, libraries: p.libraries });
+      const r = check({ root, units: [...units.values()], helpers: helpersOf(p.helpers), actions: p.actions, types: p.types, openapi: p.openapi, messagesTypes: p.messagesTypes, libraries: p.libraries });
       units.clear();
       if (r.diagnostics.length) this.error(`sinter check: ${r.diagnostics.length} type error(s)\n${r.diagnostics.map(formatDiagnostic).join('\n')}`);
     },

@@ -28,6 +28,8 @@ export interface LoadedContent {
    * each combination of their entries' keys (joined by `\0`, in `per`'s order)
    */
   perPoint: PerPoint;
+  /** content namespaces (`namespace()`): by the export's name, the name pages call it by and its formatter module */
+  namespaces: Map<string, { name: string; format: string }>;
 }
 
 export type PerPoint = Map<string, { key: string; per: string[]; values: Map<string, readonly unknown[]> }>;
@@ -60,7 +62,7 @@ export async function loadContent(o: ContentOptions): Promise<LoadedContent> {
   const rel = (f: string) => relative(o.root, f).split(sep).join('/');
   let mod: Record<string, unknown>;
   try { mod = await importModule(o, o.file); } catch (e) {
-    return { collections, perLocale, error: scrub(`the content module could not be loaded (${rel(o.file)}): ${String((e as Error)?.message ?? e).split('\n')[0]}`, o.env), files: [], languages: null, perPoint: new Map() };
+    return { collections, perLocale, error: scrub(`the content module could not be loaded (${rel(o.file)}): ${String((e as Error)?.message ?? e).split('\n')[0]}`, o.env), files: [], languages: null, perPoint: new Map(), namespaces: new Map() };
   }
   const problems: string[] = [];
   const names = new Map<Collection, string>();
@@ -152,7 +154,13 @@ export async function loadContent(o: ContentOptions): Promise<LoadedContent> {
       problems.push(`collection \`${name}\`: ${String((e as Error)?.message ?? e).split('\n')[0]}`);
     }
   }
-  return { collections, perLocale, error: problems.length ? scrub(problems.join('\n'), o.env) : null, files: [...files].sort(), languages, perPoint };
+  const namespaces = new Map([...names].flatMap(([c, n]) => (c.namespace ? [[n, { name: c.namespace.name, format: c.namespace.format }] as const] : [])));
+  const named = new Map<string, string>();
+  for (const [n, d] of namespaces) {
+    if (named.has(d.name)) problems.push(`\`${named.get(d.name)}\` and \`${n}\` are both the namespace \`${d.name}\`: a name calls one namespace`);
+    named.set(d.name, n);
+  }
+  return { collections, perLocale, error: problems.length ? scrub(problems.join('\n'), o.env) : null, files: [...files].sort(), languages, perPoint, namespaces };
 }
 
 /**

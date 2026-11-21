@@ -131,6 +131,8 @@ export interface PageInfo {
    * built-in messages (namespace `messages`) are that language's text, and `localeUrl` compiles to `localeUrl`
    */
   locale?: { name: string; messages: string | null; localeUrl: string; ownUrls?: boolean; prefix?: false };
+  /** content namespaces (docs/proposals/messages.md §1): entries in the page's language, so a call reads no `$locale` */
+  contentNs?: Set<string>;
   /**
    * Set when an expression compiled the page's own URL into its code: `$canonical` of a page at a fixed path, or
    * `localeUrl()` from the page's translations (`ownUrls`). A `<html data-sn-for>` template doing so has a program per entry
@@ -946,7 +948,7 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
     page.usedNs.get(ns)!.add(member);
     lazyUse(`${ns}$${member}`, `${ns}.${member}`, m.start);
     // a message in a page built in one language is that language's text: no dependency
-    if (!(page.locale && ns === page.locale.messages)) addDep(['$locale']);
+    if (!(page.locale && ns === page.locale.messages) && !page.contentNs?.has(ns)) addDep(['$locale']);
     edits.push({ start: m.start, end: m.end, text: `${ns}$${member}` });
   }
 

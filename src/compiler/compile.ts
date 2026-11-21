@@ -31,6 +31,10 @@ import { $href, $hq, $hv, withParams } from '../runtime/url.js';
 import { firstParams, pageParams } from '../runtime/pages.js';
 import { eachPath } from '../paths.js';
 import { inLanguage, prefixPaths } from '../locales.js';
+
+/** the built-in messages' module, and a content namespace's (as compiler/index.ts names them) */
+const MESSAGES_MODULE = '@tiaforge-ui/sinter/messages';
+const isContentNsModule = (m: string) => m === MESSAGES_MODULE || m.startsWith('sinter:content/');
 import { pagePaths } from '../page-paths.js';
 import { bytes, date, isCalendarDate, number } from '../runtime/helpers.js';
 import { config } from '../runtime/config.js';
@@ -162,6 +166,15 @@ export interface CompileOptions {
    * language's text
    */
   baseMessages?: Record<string, string>;
+  /**
+   * Content namespaces (docs/proposals/messages.md §1): by name, the entries a page may call as `ns.id(args)` in the
+   * page's language (or at its point), and how they are formatted: `format`, a formatter module whose
+   * `format(entry, args, locale)` makes the value (absolute, or a package), or null for the built-in `{param}` text;
+   * `formatFn` that function, for the build to fold a call over constants; `runtime`, the module whose state app code
+   * reads (the built-in messages'). The namespace is in the helpers manifest with its entries' ids as its members.
+   * The built-in messages are one (`baseMessages` is their alias).
+   */
+  contentNs?: Record<string, { entries: Record<string, unknown>; format: string | null; formatFn?: (entry: unknown, args: unknown, locale: string | null) => unknown; runtime?: string }>;
   /**
    * the early chunk: a second, render-blocking page entry that runs the app's early module and
    * the bindings outside templates whose inputs exist before any data has loaded. `module`: the
@@ -1413,8 +1426,10 @@ class Compiler {
       const b = l.base.startsWith('/') ? l.base.replace(/\/?$/, '/') : '/';
       // a page whose paths have parameters: its path in another language is the browser's, with that language's prefix
       const localeUrl = l.urls ? `((l) => (${JSON.stringify(l.urls)})[l])` : `((l) => ${JSON.stringify(b)} + l + location.pathname.slice(${b.length + l.name.length}))`;
-      this.page.locale = { name: l.name, messages: Object.entries(opts.helpers.namespaces).find(([, v]) => v.module === '@tiaforge-ui/sinter/messages')?.[0] ?? null, localeUrl, ...(l.urls ? { ownUrls: true } : {}), ...(l.prefix === false ? { prefix: false as const } : {}) };
+      this.page.locale = { name: l.name, messages: Object.entries(opts.helpers.namespaces).find(([, v]) => v.module === MESSAGES_MODULE)?.[0] ?? null, localeUrl, ...(l.urls ? { ownUrls: true } : {}), ...(l.prefix === false ? { prefix: false as const } : {}) };
     }
+    const cns = Object.keys(opts.contentNs ?? {});
+    if (cns.length) this.page.contentNs = new Set(cns);
     // helpers whose declaring module reaches a lazy package: each module loads whole, when a let first needs it
     const reach = opts.lazyModule;
     if (reach) {
@@ -1431,7 +1446,7 @@ class Compiler {
       };
       for (const h of opts.helpers.names) { const o = opts.helpers.from?.[h]; add(h, o?.module ?? opts.helpers.module, o?.name ?? h); }
       for (const [k, v] of Object.entries(opts.helpers.namespaces)) {
-        if (v.module === '@tiaforge-ui/sinter/messages') continue;
+        if (isContentNsModule(v.module)) continue;
         for (const m of v.members) { const o = v.from?.[m]; add(`${k}$${m}`, o?.module ?? v.module, o?.name ?? m); }
       }
       if (lazy.size) this.page.lazy = lazy;
@@ -6795,6 +6810,14 @@ class Compiler {
     return { key: pc.key, value: pc.values.get(keys.join('\0')) ?? [], point: keys.join('\0') };
   }
 
+  /** the compile's content namespaces: `contentNs`, and the built-in messages' through `baseMessages` */
+  contentNs(): NonNullable<CompileOptions['contentNs']> {
+    const out: NonNullable<CompileOptions['contentNs']> = { ...this.opts.contentNs };
+    const b = this.opts.baseMessages;
+    if (b) for (const [ns, v] of Object.entries(this.opts.helpers.namespaces)) if (v.module === MESSAGES_MODULE && !out[ns]) out[ns] = { entries: b, format: null, runtime: MESSAGES_MODULE };
+    return out;
+  }
+
   /** `data-sn-for` on `<html>`: the axes the page is built over, outer first (`axisOf`) */
   private readonly axisDecls: Array<{ name: string; of: string; html: P5Element; entry: P5Element }> = [];
   private readonly axesOut: NonNullable<CompiledParts['axes']> = [];
@@ -7291,17 +7314,23 @@ class Compiler {
       params.set('bytes', (v: unknown) => inLang(() => bytes(v)));
       params.set('date', (v: unknown, style?: 'full' | 'long' | 'medium' | 'short') => { if (!isCalendarDate(v)) throw NOT; return inLang(() => date(v, style)); });
     }
-    for (const [ns, { members, module }] of Object.entries(this.opts.helpers.namespaces)) for (const m of members) params.set(`${ns}$${m}`, module === '@tiaforge-ui/sinter/messages' ? stub : folding.fn(`${ns}$${m}`));
-    // the base language's text, for a text binding: the binding is marked and stays the browser's
-    const base = this.opts.baseMessages;
+    for (const [ns, { members, module }] of Object.entries(this.opts.helpers.namespaces)) for (const m of members) params.set(`${ns}$${m}`, isContentNsModule(module) ? stub : folding.fn(`${ns}$${m}`));
+    // content namespaces (the built-in messages too): an entry in the page's language, formatted as the browser would
+    const cns = this.contentNs();
     let usedMessage = false;
-    const msgNs = base ? Object.entries(this.opts.helpers.namespaces).find(([, v]) => v.module === '@tiaforge-ui/sinter/messages') : undefined;
-    if (base && msgNs) for (const m of msgNs[1].members) {
-      params.set(`${msgNs[0]}$${m}`, (p?: Record<string, unknown>) => {
-        const t = base[m];
-        if (typeof t !== 'string') throw NOT;
-        usedMessage = true;
-        return p ? t.replace(/\{(\w+)\}/g, (x, n) => (n in p ? String(p[n]) : x)) : t;
+    const msgNs = Object.entries(this.opts.helpers.namespaces).find(([ns, v]) => v.module === MESSAGES_MODULE && cns[ns]);
+    for (const [ns, spec] of Object.entries(cns)) for (const m of this.opts.helpers.namespaces[ns]?.members ?? []) {
+      params.set(`${ns}$${m}`, (p?: Record<string, unknown>) => {
+        const t = spec.entries[m];
+        if (spec.format === null) {
+          if (typeof t !== 'string') throw NOT;
+          if (spec.runtime) usedMessage = true;
+          return p ? t.replace(/\{(\w+)\}/g, (x, n) => (n in p ? String(p[n]) : x)) : t;
+        }
+        if (!spec.formatFn || t === undefined) throw NOT;
+        const v = spec.formatFn(t, p, this.opts.locale?.name ?? null);
+        if (!plainData(v)) throw NOT;
+        return v;
       });
     }
     // the worklist evaluates the rows' templates and bindings too, and which component each choice renders
@@ -9089,7 +9118,7 @@ class Compiler {
     const userHelpers = new Set(this.opts.helpers.names);
     const BUILTIN = /(?<![\w$.])(date|relative|number|bytes)\(/g;
     const builtin = (code: string) => [...code.matchAll(BUILTIN)].some((m) => !userHelpers.has(m[1]!));
-    const messages = Object.entries(this.opts.helpers.namespaces).filter(([, v]) => v.module === '@tiaforge-ui/sinter/messages').map(([k]) => k);
+    const messages = Object.entries(this.opts.helpers.namespaces).filter(([, v]) => isContentNsModule(v.module)).map(([k]) => k);
     const fns: string[] = [], index = new Map<string, number>();
     const fn = (code: string) => { let i = index.get(code); if (i === undefined) index.set(code, (i = fns.push(code) - 1)); return i; };
     const res: PrefetchParts['res'] = [];

@@ -231,6 +231,12 @@ page module and each page (bytes, gzip), in `scripts/size.mjs` with budgets.
 1. **Content namespaces** (§1). `namespace()` in `@tiaforge-ui/sinter/content`, entries cut per page, folding at
    the point, lookup along the chain, `static` loaders in check and the editor. Tested with a loader that is not
    messages (the legal snippets above). A recipe for an app's own namespace.
+   *Started 2026-11-21:* `namespace({ name, format, load, perLocale })` and the compiler's `contentNs` option, which the
+   built-in messages now go through too (their output unchanged, byte for byte): entries per language, a call over
+   constants folded with the formatter loaded in Node, one over data compiled with its entry and the formatter's
+   import, SN206 over the ids, a name clash an error (`test/vite/namespaces.test.ts`). Left in this step: `per`,
+   nested ids, calls from app modules (`moduleKeys` generalized), and `static` loaders for `sinter check` and the
+   editor.
 2. **The messages onto a namespace.** `src/messages/` with `inlang()` for today's format (flat strings), and
    `inlangLocales()`. The compiler's and the Vite plugin's special cases for the messages module go; the
    `messages` option of `sinter()` becomes a shorthand that adds `inlang()` (the one place left that names the
