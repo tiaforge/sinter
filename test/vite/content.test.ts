@@ -2,7 +2,7 @@
 // The content module in a build (docs/resources.md#collections): its collections run once, before any page compiles,
 // with `ctx.files`, `ctx.get` and `ctx.env` (from `.env`); a page reads one with `content:` and a page per entry (`data-sn-for` on `<html>`) is
 // built from one. A loader that throws, or a result that is not a list of plain data with unique keys, fails the build.
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { build } from 'vite';
@@ -13,6 +13,9 @@ import { readSnapshot } from '../../src/content-node.js';
 const src = resolve(__dirname, '../../src');
 const alias = [{ find: /^@tiaforge-ui\/sinter\/runtime$/, replacement: `${src}/runtime-entry.ts` }, { find: /^@tiaforge-ui\/sinter\/(?:runtime\/)?(.+)$/, replacement: `${src}/$1.ts` }, { find: /^@tiaforge-ui\/sinter$/, replacement: `${src}/index.ts` }];
 const tmp = mkdtempSync(join(tmpdir(), 'sinter-content-'));
+// the repository's TypeScript for the apps built here that type-check, as an app has its own
+mkdirSync(join(tmp, 'node_modules'));
+symlinkSync(resolve(__dirname, '../../node_modules/typescript'), join(tmp, 'node_modules/typescript'), 'dir');
 afterAll(() => rmSync(tmp, { recursive: true, force: true }));
 
 let n = 0;

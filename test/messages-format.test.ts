@@ -60,10 +60,13 @@ test('the messages\' type: nested, a plural\'s input a number, a placeholder str
 test('sinter check: a wrong parameter of a namespace\'s message is a type error', async () => {
   const { compile } = await import('../src/compiler/index.js');
   const { check, findTsc } = await import('../src/check/index.js');
-  const { mkdtempSync, rmSync, writeFileSync } = await import('node:fs');
-  const { join } = await import('node:path');
+  const { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } = await import('node:fs');
+  const { join, resolve } = await import('node:path');
   const { tmpdir } = await import('node:os');
   const root = mkdtempSync(join(tmpdir(), 'sinter-nstype-'));
+  // the repository's TypeScript, as an app has its own
+  mkdirSync(join(root, 'node_modules'));
+  symlinkSync(resolve(__dirname, '../node_modules/typescript'), join(root, 'node_modules/typescript'), 'dir');
   try {
     const helpers = { module: null, names: [] as string[], namespaces: { m: { module: 'sinter:content/m', members: ['inbox.unread'], type: '{ "inbox": { "unread": (args: { "count": number }) => string } }' } } };
     const run = (expr: string) => {
