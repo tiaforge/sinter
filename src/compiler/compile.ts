@@ -2092,13 +2092,15 @@ class Compiler {
    * of the next page is the only script a swap runs), on a page that does not opt out
    */
   private swapScripts(doc: P5Parent) {
-    const DATA = /^(application\/(ld\+)?json|speculationrules|importmap)$/i;
+    // what the browser runs: no type, a JavaScript MIME type (HTML's list) or `module`; any other is data (JSON, an
+    // import map, Speculation Rules, `text/plain`, a template's text)
+    const JS = /^((text|application)\/(x-)?(java|ecma)script|text\/(javascript1\.[0-5]|jscript|livescript)|module)?$/i;
     const visit = (n: P5Parent) => {
       for (const c of n.childNodes) {
         if (!isElement(c)) continue;
         if (c.tagName === 'script') {
           const type = (attr(c, 'type') ?? '').trim(), src = attr(c, 'src');
-          if (DATA.test(type)) continue;
+          if (!JS.test(type)) continue;
           if (src === undefined || !/^module$/i.test(type)) {
             this.report(c, null, 'SN540', `${src === undefined ? 'an inline' : 'a classic'} script${src === undefined ? '' : ` (\`${src}\`)`} in the body does not run when a link swaps this page in (\`sinter({ swap: true })\`), only on a page load`, 0,
               'move what it does into the page\'s code (a component script or the actions module), load it as `<script type="module" src>` in the head, or take the page out with `<html data-sn-swap="off">`');

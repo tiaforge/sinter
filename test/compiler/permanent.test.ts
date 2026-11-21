@@ -86,6 +86,11 @@ describe('SN540: a script a swap would not run', () => {
       'warning SN540 a classic script (`/legacy.js`) in the body does not run when a link swaps this page in (`sinter({ swap: true })`), only on a page load',
     ]);
   });
+  test('only what the browser runs: no type, a JavaScript MIME type, a module; not data (`text/plain`, a template\'s text)', () => {
+    const codes = (b: string) => build(b, { swap: true }).diagnostics.filter((d) => d.code === 'SN540').length;
+    for (const t of ['text/javascript', 'Application/JavaScript', 'text/ecmascript', 'application/x-javascript', 'text/javascript1.5', 'text/jscript', ' module ']) expect(codes(`<script type="${t}">x()</script>`), t).toBe(1);
+    for (const t of ['text/plain', 'text/x-template', 'application/json', 'importmap', 'speculationrules', 'text/javascript; charset=utf-8', 'text/markdown']) expect(codes(`<script type="${t}">x</script>`), t).toBe(0);
+  });
   test('none with swaps off, or on a page that opts out', () => {
     expect(build(body).diagnostics).toEqual([]);
     expect(build(body, { swap: true }, '<html data-sn-swap="off">').diagnostics).toEqual([]);
