@@ -71,6 +71,14 @@ describe('a link in every way', () => {
     expect(r.root.querySelector('a')!.getAttribute('href')).toBe('/tag/a%20b?page=2');
   });
 
+  test('first paint: a template whose query values may leave their parameter out (`$hq`), in rows over embedded data', async () => {
+    // the early file imported `$href` and `$hv` but not `$hq`: the binding threw early and only the page module wrote it
+    const page = `<!doctype html><html><head><script type="application/json" data-sn-resource="d">${JSON.stringify([{ t: 'a b', on: true }, { t: 'c', on: false }])}</script></head><body>
+      <sn-resource name="d" src="/api/d"></sn-resource><template data-sn-for="x in d"><a data-sn-href="/x/{x.t}?on={x.on ? 'y' : null}">t</a></template></body></html>`;
+    const { root } = await firstPaint(page);
+    expect([...root.querySelectorAll('a')].map((a) => a.getAttribute('href'))).toEqual(['/x/a%20b?on=y', '/x/c']);
+  });
+
   test('a link to this page with other parameters is a same-page link', () => {
     const features = (link: string) => compileParts(`<p data-sn-text="$url.page"></p>${link}`, opts).features;
     expect(features('<a data-sn-href="?page={1 + 1}">2</a>')).toContain('query-links');

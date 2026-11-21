@@ -11,7 +11,7 @@ import { compactIR } from '../ir.js';
 import type { CompileLibrary, CompiledParts, HelperManifest } from '../compiler/compile.js';
 import { functionVerdict, type FoldVerdict } from '../fold-check.js';
 import * as earlyExports from '../early.js';
-import { early as runEarly } from '../early.js';
+import { configured, observe, requests } from '../early.js';
 import { install as installMessages } from '../messages.js';
 import { format as formatMessage, inline as inlineMessage } from '../messages/format.js';
 import { flatten as flattenMessages } from '../messages/parse.js';
@@ -409,7 +409,7 @@ export async function firstPaint(html: string, options: Pick<RenderOptions, 'hel
   const env = config.env;
   config.env = { ...env, storage: () => options.storage ?? null };
   if (options.messages) messagesLocale(options);
-  try { paint(parts, helpers, options.early); } finally { config.env = env; }
+  try { await paint(parts, helpers, options.early); } finally { config.env = env; }
   return { root: document.body, html: parts.html };
 }
 
@@ -439,8 +439,8 @@ function messagesLocale(o: Pick<RenderOptions, 'messages' | 'locale'>) {
   (globalThis as any)[Symbol.for('sinter.i18n')].dicts[lang] = messageEntries(o);
 }
 
-/** The early chunk: the app's early module, then the early bindings with the helpers in scope. */
-function paint(parts: CompiledParts, helpers: Record<string, unknown>, app?: () => void) {
+/** The early chunk: the app's early module, then the early bindings with the helpers in scope, as the page is parsed. */
+async function paint(parts: CompiledParts, helpers: Record<string, unknown>, app?: () => void) {
   app?.();
   if (!parts.early) return;
   const names: string[] = ['$k'], values: unknown[] = [$k];
@@ -455,7 +455,39 @@ function paint(parts: CompiledParts, helpers: Record<string, unknown>, app?: () 
   for (const u of page.uses) { names.push(u); values.push((earlyExports as Record<string, unknown>)[u]); }
   // eslint-disable-next-line no-new-func -- tests only; pages load a compiled module
   const made = new Function(...names, `"use strict"; const f = [\n${parts.early.fns.join(',\n')}\n]; return ${page.code};`)(...values);
-  runEarly(document, made);
+  await parse(() => { configured(); observe(() => made, requests(configured)); });
+}
+
+/**
+ * The document parsed again with `early` run from its head, as a build runs the early file (`observe`): the
+ * written page's nodes are taken out and inserted again one by one in document order, an element before its
+ * children, as the parser inserts them, each insertion's observer callback run before the next; then
+ * DOMContentLoaded. One node per parser chunk is the order that leaves the most elements open at each pass.
+ */
+async function parse(early: () => void) {
+  const doc = document, top = doc.documentElement;
+  const kids = [...top.childNodes];
+  top.replaceChildren();
+  let state: DocumentReadyState = 'loading';
+  Object.defineProperty(doc, 'readyState', { configurable: true, get: () => state });
+  const put = async (n: Node, parent: Node) => {
+    const inner = [...n.childNodes];
+    for (const c of inner) c.remove();
+    parent.appendChild(n);
+    // the observer's callback, a microtask queued by the insertion
+    await Promise.resolve();
+    for (const c of inner) await put(c, n);
+  };
+  try {
+    early();
+    for (const k of kids) await put(k, top);
+    state = 'interactive';
+    doc.dispatchEvent(new Event('DOMContentLoaded'));
+  } finally {
+    delete (doc as { readyState?: unknown }).readyState;
+    // the early file's meeting with the page module: the next page starts without one
+    delete (globalThis as Record<symbol, unknown>)[Symbol.for('sinter.early.page')];
+  }
 }
 
 function compilePage(html: string, options: RenderOptions, strict: Strict = { on: false, allow: new Map() }): { parts: CompiledParts; manifest: HelperManifest; actions: Record<string, unknown>; apis: ApisDef | null; diagnostics: Diagnostic[] } {
@@ -688,7 +720,7 @@ export async function render(html: string, options: RenderOptions = {}): Promise
     const fp = options.firstPaint === true ? {} : options.firstPaint;
     if (options.messages) messagesLocale(options);
     const n = navigations.length;
-    paint(parts, helpers, fp.early);
+    await paint(parts, helpers, fp.early);
     if (navigations.length > n && navigations.at(-1)!.startsWith('replace ')) early = navigations.at(-1)!.slice(8);
     fp.afterEarly?.();
   }

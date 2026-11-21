@@ -2,7 +2,8 @@
 // Random nested components (plain, if/else, component-tag, slot and choice roots, with fills and slot content; one
 // without props, declared by its bare `<template>`; lists with an empty state: in a root, a fill, slot content, rows),
 // loops, branches and texts, over one list: after a state change the page must equal a fresh render of the new
-// state, the build over constants, and the early script's first paint taken over by the page module.
+// state, the build over constants, the early script's first paint taken over by the page module, and the first
+// paint over the list as embedded data (which the early script renders), before and after the takeover.
 import { expect, test } from 'vitest';
 import { render } from '../../src/testing/index.js';
 import { reset as resetCore } from '../core-flags.js';
@@ -13,9 +14,11 @@ function rng(seed: number) {
   return () => ((s = (s * 1664525 + 1013904223) >>> 0) / 2 ** 32);
 }
 
-const CHOICE = "{ p: 'c-plain', c: 'c-chain', t: 'c-tag', l: 'c-list', e: 'c-empty' }";
+const CHOICE = "{ p: 'c-plain', c: 'c-chain', t: 'c-tag', l: 'c-list', e: 'c-empty', s: 'c-span' }";
 const COMPONENTS: Record<string, string> = {
   'c-plain': `<template data-sn-props="{ x: any }"><b data-sn-text="x.t"></b></template>`,
+  // a text without an element of its own, inside the root element
+  'c-span': `<template data-sn-props="{ x: any }"><span><template data-sn-text="x.t"></template></span></template>`,
   'c-chain': `<template data-sn-props="{ x: any }"><template data-sn-if="x.on"><i data-sn-text="x.t"></i></template><template data-sn-else><u data-sn-text="x.t + '!'"></u></template></template>`,
   'c-tag': `<template data-sn-props="{ x: any }"><c-chain class="t" data-sn-with="{ x }"></c-chain></template>`,
   'c-slot': `<template data-sn-props="{ x: any; item: Slot<{ x: any }> }"><slot name="item" data-sn-with="{ x }"><s data-sn-text="x.t"></s></slot></template>`,
@@ -50,10 +53,11 @@ function markup(r: () => number, v: string, depth: number): string {
   let out = '';
   for (let i = 0; i < n; i++) {
     const kinds = depth > 0
-      ? ['text', 'el', 'plain', 'chain', 'tag', 'choice', 'out', 'list', 'href', 'link', 'slot', 'slot-tag', 'wrap', 'if', 'for', 'use', 'wrap-for-fill', 'wrap-if-fill', 'bare', 'bare-empty', 'forelse', 'wrap-forelse', 'empty']
-      : ['text', 'el', 'plain', 'chain', 'tag', 'choice', 'out', 'list', 'href', 'link', 'bare-empty', 'empty'];
+      ? ['text', 'el-text', 'el', 'plain', 'chain', 'tag', 'choice', 'out', 'list', 'href', 'link', 'slot', 'slot-tag', 'wrap', 'if', 'for', 'use', 'wrap-for-fill', 'wrap-if-fill', 'bare', 'bare-empty', 'forelse', 'wrap-forelse', 'empty']
+      : ['text', 'el-text', 'el', 'plain', 'chain', 'tag', 'choice', 'out', 'list', 'href', 'link', 'bare-empty', 'empty'];
     switch (pick(kinds)) {
       case 'text': out += `<template data-sn-text="${v}.t"></template>`; break;
+      case 'el-text': out += `<span><template data-sn-text="${v}.t"></template></span>`; break;
       case 'el': out += `<p data-sn-text="${v}.t"></p>`; break;
       // a link's URL template: a path value, a query value left out when null, a list as a repeated key
       case 'href': out += `<a data-sn-href="/x/{${v}.t}?on={${v}.on ? 'y' : null}&amp;k={${v}.c.map((c) => c.k)}#{${v}.k}" data-sn-text="${v}.k"></a>`; break;
@@ -86,7 +90,7 @@ function markup(r: () => number, v: string, depth: number): string {
 
 function data(r: () => number, depth: number): unknown[] {
   return Array.from({ length: Math.floor(r() * 3) }, (_, i) => ({
-    on: r() < 0.5, t: 'T' + i + Math.floor(r() * 9), k: ['p', 'c', 't', 'l', 'e'][Math.floor(r() * 5)], c: depth > 0 ? data(r, depth - 1) : [],
+    on: r() < 0.5, t: 'T' + i + Math.floor(r() * 9), k: ['p', 'c', 't', 'l', 'e', 's'][Math.floor(r() * 6)], c: depth > 0 ? data(r, depth - 1) : [],
   }));
 }
 
@@ -116,6 +120,8 @@ test('random nested components: a state change renders what a fresh render, the 
     const tpl = `<template data-sn-for="x in d">${body}</template>`;
     const a = data(r, 2), b = data(r, 2);
     const page = (init: unknown, writes: boolean) => `<div data-sn-state="{ d: ${lit(init)} }">${writes ? `<button id="w" data-sn-on-click="d = ${lit(b)}">w</button>` : ''}<main>${tpl}</main></div>`;
+    const embedded = (init: unknown) => `<!doctype html><html><head><script type="application/json" data-sn-resource="d">${JSON.stringify(init)}</script></head><body>`
+      + `<sn-resource name="d" src="/api/d"></sn-resource><main>${tpl}</main></body></html>`;
     const seen = (root: Element) => shape(root.querySelector('main')!);
     try {
       const updated = await render(page(a, true), { components: COMPONENTS });
@@ -127,12 +133,21 @@ test('random nested components: a state change renders what a fresh render, the 
       const early = await render(page(b, true), { components: COMPONENTS, firstPaint: true });
       await early.settle();
       const took = seen(early.root);
+      // the list as a resource's embedded data, which the early script renders: its first paint, and that taken over
+      let painted = '';
+      const emb = await render(embedded(b), { components: COMPONENTS, firstPaint: { afterEarly: () => { painted = seen(document.body); } } });
+      await emb.settle();
+      const embTook = seen(emb.root);
+      // an empty state whose list the compiler follows to the resource (`c-empty`'s, through its prop; a fill's over
+      // `$slot`) waits for that resource to have loaded, and an embedded resource's status is the page module's
+      // (docs/spec.md, "Resource status early"): such a first paint has no empty state yet, so only the takeover is compared
+      const waits = tpl.includes('<c-empty') || tpl.includes('$slot.x.c') || (/<c-choice|<sn-component use/.test(tpl) && JSON.stringify(b).includes('"k":"e"'));
       // as a build compiles it (shared templates kept once, the tables compacted), early and after a change
       const build = await render(page(a, true), { components: COMPONENTS, dev: false, firstPaint: true });
       (build.root.querySelector('#w') as HTMLButtonElement).click();
       await build.settle();
       const inBuild = seen(build.root);
-      for (const [what, got] of [['after a change', after], ['over constants', built], ['early, taken over', took], ['in a build, after a change', inBuild]] as const) {
+      for (const [what, got] of [['after a change', after], ['over constants', built], ['early, taken over', took], ['first paint over embedded data', waits ? fresh : painted], ['embedded, taken over', embTook], ['in a build, after a change', inBuild]] as const) {
         if (got !== fresh) failures.push(`seed ${seed} ${what}: ${tpl}\n  data ${lit(b)}\n  got   ${got}\n  fresh ${fresh}`);
       }
     } catch (e) {

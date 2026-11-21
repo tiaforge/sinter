@@ -505,4 +505,9 @@ export const DIAGNOSTIC_DOCS: Record<Code, DiagnosticDoc> = {
     means: 'A kept element (`data-sn-permanent`) moves into the next page as it is, and the next page\'s code takes over its bindings: each binding is written once when it mounts. For `currentTime`, `paused`, `volume`, `muted` or `playbackRate` of a playing `<audio>` or `<video>`, that write is a jump, a pause or a change of volume in the middle of playback.',
     fix: 'Leave playback to the element: its controls, or a handler that calls `play()` and `pause()`. Bind `src`, which the next page writes only when it changes (another track starts, as it should).',
   },
+  SN542: {
+    example: '`upsert(comments, …)` replaces the whole list: resource `comments` has no `key`, and its `type` is `Comment[]`',
+    means: 'Without `key` a resource is one object, here one holding a list. A change aimed at one item changes the whole value: `upsert` replaces the list with the item, `merge` merges fields into the list and `remove` sets it to `null`. Reported where `upsert`, `merge` or `remove` (in a handler, or an `<sn-event op>` in a `<sn-sync>`) targets a resource without `key` whose `type` is a list (`Comment[]`, `Array<Comment>`) or whose OpenAPI response is a list (that declaration is also `SN517`). Dev builds also warn at runtime when an `upsert` or `merge` reaches a resource without `key` that holds a list, typed or not.',
+    fix: 'Add `key` with the field that identifies an item, such as `key="id"`: the resource becomes a list of items, and each change applies to one. To replace the whole list on purpose, reload it with `refresh(name)` or `op="refresh"`.',
+  },
 };

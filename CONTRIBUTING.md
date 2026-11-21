@@ -44,8 +44,8 @@ or only after the page module takes over.
   each settle changes nothing on the page (a write path that marks too little); and, on a third of the
   seeds, the early script's first paint taken over. `SN_FUZZ_DEPTH` makes the handlers and click scripts
   longer, `SN_FUZZ_FIRST` starts at another seed (run a long sweep in chunks side by side).
-  `SN_FUZZ_ALIAS=1` adds writes through aliases (`sel = y; sel.n += 10`), which fail: a write marks the
-  alias's path, not the item's (main's known gap); they come on by default with the alias-tracking PR.
+  It also writes through aliases (`sel = y; sel.n += 10`): direct, inside another object, in another list, a
+  helper's element, one from `reduce()` the compiler cannot follow, and through the list they alias.
 - `test/memo-fuzz.test.ts` calls `memo()` with random argument lists: primitives that look alike (`0` and
   `-0`, `NaN`, `''` and `undefined`, strings that run into each other), plain objects and arrays of them in
   other orders, with holes or a null prototype, look-alikes of each list, and arguments that call through.
@@ -60,7 +60,8 @@ or only after the page module takes over.
 
 Each page case compares the page after a state change with a fresh render of the new state, with the
 build over constants (state nothing writes), and (component fuzz) with the early script's first
-paint taken over by the page module.
+paint taken over by the page module, and with the first paint over the list as embedded data, itself
+and taken over.
 
 When you develop a feature:
 - Add its shapes to the generator: a component in `COMPONENTS`, a case in `markup()`, or a field in

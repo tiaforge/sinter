@@ -159,8 +159,8 @@ export function inline(doc: Document) {
 
 /**
  * The head: the title and sinter's own nodes are the new page's; its stylesheets that the page shown lacks go
- * in before the swap (loaded), those of the page shown's HTML that it lacks go at `done()`; styles added at run
- * time stay. Everything else (metas, links, scripts) stays as the first page had it: crawlers and link
+ * in before the swap (loaded, applied from `done()` on), those of the page shown's HTML that it lacks go at
+ * `done()`; styles added at run time stay. Everything else (metas, links, scripts) stays as the first page had it: crawlers and link
  * previews load each page. Inserted styles the server gave the page's nonce get the document's (`<meta
  * name="csp-nonce">`): the policy is the first page's. null: what only a load applies differs.
  */
@@ -168,7 +168,7 @@ export function heads(s: SwapState, doc: Document, base: URL): { ready: Promise<
   const here = new URL(location.href);
   if (fixed(document, here) != fixed(doc, base)) return null;
   const nonce = document.querySelector<HTMLMetaElement>('meta[name=csp-nonce]')?.content;
-  const old = owned(document.head), have = sheets(s.sheets, here), keep = new Set<Element>(), added: Element[] = [], loads: Promise<unknown>[] = [];
+  const old = owned(document.head), have = sheets(s.sheets, here), keep = new Set<Element>(), added: Element[] = [], loads: Promise<unknown>[] = [], media: Array<[Element, string | null]> = [];
   const add = (n: Node) => {
     // (a nonce the fetched page carries as the document's: the server's, see `prepare`; read before it is inserted)
     const ok = nonce && (n as Element).getAttribute?.('nonce') == nonce, x = document.adoptNode(n) as Element;
@@ -180,14 +180,20 @@ export function heads(s: SwapState, doc: Document, base: URL): { ready: Promise<
   for (const [k, el] of sheets(doc.head.children, base)) {
     const same = have.get(k);
     if (same) { keep.add(same); continue; }
+    // loaded, but applied only at the commit: the page shown keeps its look until then (each engine loads a
+    // stylesheet whose media does not match, as the `media="print"` pattern relies on)
+    const m = el.getAttribute('media');
+    el.setAttribute('media', 'not all');
     const x = add(el) as HTMLLinkElement;
     added.push(x);
+    media.push([x, m]);
     if (x.localName == 'link') loads.push(new Promise((r) => { x.onload = x.onerror = r; }));
   }
   const own = owned(doc.head).map(add);
   return {
     ready: Promise.all(loads),
     done: () => {
+      for (const [x, m] of media) m == null ? x.removeAttribute('media') : x.setAttribute('media', m);
       for (const n of old) (n as ChildNode).remove();
       for (const el of s.sheets) if (!keep.has(el)) el.remove();
       s.sheets = new Set([...keep, ...added]);

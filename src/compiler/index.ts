@@ -211,7 +211,7 @@ export function earlyPage(early: EarlyParts): { code: string; uses: string[] } {
   // `$locale` read early: the page passes the configured locale source (else the early file carries no config)
   const lc = early.fns.some((x) => /\$\.\$locale\b/.test(x)), ls = !!early.ir.urlArrays;
   // a link's URL template (`data-sn-href`) rendered early: the early module fills it as the page module does
-  const hr = ['$href', '$hv'].filter((h) => early.fns.some((x) => x.includes(`${h}(`)));
+  const hr = ['$href', '$hq', '$hv'].filter((h) => early.fns.some((x) => x.includes(`${h}(`)));
   // array parameters: the page passes `lists` (else the early file carries none of it)
   // `data-sn-signed-in`: the page passes the guard (else the early file carries none of it); `signIn` a path, the one
   // without loginRedirect's options

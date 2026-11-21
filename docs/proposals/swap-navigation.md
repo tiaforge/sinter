@@ -792,14 +792,20 @@ manifest, the stub and the exported mount together: they are the unproven half.
      `data-sn-on-navigate` captured a component's own `navigate` event (SN209 for `navigate` in
      `data-sn-emits`); the nonce check trusted everything when the next page named no nonce of its own (it is
      a load, and only the page's head names it); `<html lang>` was the build's language after a swap (the
-     visitor's). Follow-ups, not fixed: the build's placeholders for reserved space in a kept element are
-     numbered per page (a swap while that list loads breaks the next page's node of that id); with
-     `localePrefix`, a swap to the page in another language keeps the first page's locale for formatting (a
-     load, as documented, is the fix); the resume after a history write fetches again on every write, so a
-     write every 150 ms holds the swap back until the writes stop; the next page's stylesheets apply to the
-     page shown from the plan to the commit; browsers with the Navigation API but no `sourceElement`
-     (Chromium 102 to 134) have no trigger; `take()` asks the guards twice when typing waits; SN540 reports an
-     inline `<script type="text/plain">`.
+     visitor's). Follow-ups, fixed since (each with a test that fails without its
+     fix): the build's placeholders for reserved space in a kept element are numbered in its range, with a class
+     from its name (a swap while that list loaded broke the next page's node of that id:
+     `test/behaviour/kept-reserve.test.ts`); the resume after a history write takes on what the aborted
+     navigation fetched, so a write every 150 ms no longer fetches again and holds the swap back
+     (`swap-resume.test.ts`); the next page's stylesheets load with `media="not all"` and get their own media at
+     the commit (they applied to the page shown from the plan on: `swap-plan.test.ts`); browsers with the
+     Navigation API but no `sourceElement` (Chromium 102 to 134) take the path of browsers without the API, so
+     their links have a trigger and every other page is a load (`navigate-event.test.ts`); `take()` asks the
+     guards once when typing waits (`navigate-event.test.ts`); SN540 reports only scripts the browser runs, not
+     an inline `<script type="text/plain">` (`test/compiler/permanent.test.ts`). Already fixed before this list was
+     checked: with `localePrefix`, a swap to the page in another language is a load (`fixed()` compares
+     `<html lang>`, which such a page carries; `623c354`).
    - **Left:** a `data-sn-model` field inside shows its state's value again (the state starts again);
-     rows over data that is not there at mount (no `cache`) are built again; a stream both pages use
-     reconnects.
+     rows over data that is not there at mount (no `cache`) are built again (the takeover adopts rows only
+     when the list has as many items at its first render). A stream both pages use no longer reconnects: it
+     is handed over ([stream-handover.md](stream-handover.md)).

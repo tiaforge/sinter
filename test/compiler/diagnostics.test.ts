@@ -144,6 +144,7 @@ const cases: Array<[string, string, RegExp, Opts?]> = [
   ['SN509', `<button id="save" data-sn-post="/x" data-sn-catch="run('save')"></button>`, /`run\(\)` cycle: `#save` `data-sn-catch` \(page.html:1\) runs `#save`, which starts the first step again/],
   ['SN513', '<div data-sn-state="{ dark: false }"><img alt="" data-sn-attr="{src: dark ? \'./logo-dark.png\' : \'./logo.png\'}"></div>', /`src` is bound to local images \(`\.\/logo-dark\.png`, `\.\/logo\.png`\), which are not optimized/],
   ['SN517', '<sn-resource name="c" src="/api/c" select="contacts"></sn-resource><p data-sn-text="c"></p>', /`GET \/api\/c` returns a list at `contacts`: resource `c` has no `key`, so it is one object holding the list/, { openapi: true }],
+  ['SN542', '<sn-resource name="comments" src="/api/x" type="Comment[]"></sn-resource><div data-sn-state="{ c: null }"><button data-sn-on-click="upsert(comments, c)"></button></div>', /`upsert` on `comments` replaces the whole list with the item: resource `comments` has no `key`, and its `type` is `Comment\[\]`/],
   ['SN516', '<sn-resource name="c" src="/api/c" select="contacts"></sn-resource><p data-sn-text="$meta.c.live"></p>', /`\$meta\.c\.live` is always `null`: no `<sn-event resource="c">` on this page feeds `c`/],
   ['SN519', '<sn-resource name="a" src="/api/a?tag={$url.tag}" select="a" key="id" paginate="{ numbered: true, size: 2, model: $url.page }"></sn-resource><p data-sn-text="a.length"></p><a href="?page=2">2</a>', /`\?page=2` keeps only its own query: `tag`, which this page reads, is dropped when it is followed/],
   ['SN515', '<!doctype html><html data-sn-path="/page/"><head></head><body></body></html>', /`data-sn-path="\/page\/"` is the URL this page has anyway/],
@@ -698,6 +699,36 @@ describe('SN507 complex expressions', () => {
     expect(() => complexityOf({ level: 'off' })).toThrow("`level: 'off'` is `complexity: false`");
     expect(() => complexityOf({ level: 'loud' })).toThrow(/`level` is `'warn'` or `'error'`/);
     expect(() => complexityOf({ levl: 'error' })).toThrow(/`levl` is not an option; it takes `level`/);
+  });
+});
+
+describe('SN542: a change to one item of a resource without key that holds a list', () => {
+  const R = (attrs: string) => `<sn-resource name="comments" src="/api/x" ${attrs}></sn-resource>`;
+  const click = (h: string) => `<div data-sn-state="{ c: null }"><button data-sn-on-click="${h}"></button></div>`;
+  const row = (h: string) => `<template data-sn-for="x in comments"><button data-sn-on-click="${h}"></button></template>`;
+  const sync = (op: string) => `<sn-sync src="/api/events"><sn-event name="e" resource="comments" op="${op}"${op === 'merge' ? ' value="{ n: 1 }"' : ''}></sn-event></sn-sync>`;
+  const sn542 = (html: string, o?: Opts) => diags(html, o).filter((d) => d.code === 'SN542');
+  test('upsert, merge and remove in handlers, and <sn-event op> in a <sn-sync>, of a keyless resource typed as a list', () => {
+    expect(sn542(R('type="Comment[]"') + click("upsert(comments, c)"))).toHaveLength(1);
+    expect(sn542(R('type="Array<Comment>"') + row('merge(x, { n: 1 })'))[0]!.message).toMatch(/`merge` on `comments` merges the fields into the list/);
+    expect(sn542(R('type="Comment[] | null"') + row('remove(x)'))[0]!.message).toMatch(/`remove` on `comments` sets the whole list to `null`/);
+    for (const op of ['upsert', 'merge', 'remove']) expect(sn542(R('type="Comment[]"') + sync(op)), op).toHaveLength(1);
+    // the resource declared after the markup that writes it
+    expect(sn542(click("upsert(comments, c)") + R('type="Comment[]"'))).toHaveLength(1);
+    // an action's `then`
+    expect(sn542(R('type="Comment[]"') + '<form data-sn-post="/api/x" data-sn-then="upsert(comments, $result)"></form>')).toHaveLength(1);
+  });
+  test('an OpenAPI response that is a list (SN517 at the declaration, SN542 at the write)', () => {
+    const d = diags('<sn-resource name="c" src="/api/c" select="contacts"></sn-resource><sn-sync src="/api/events"><sn-event name="e" resource="c" op="upsert"></sn-event></sn-sync>', { openapi: true });
+    expect(d.map((x) => x.code)).toEqual(expect.arrayContaining(['SN517', 'SN542']));
+    expect(d.find((x) => x.code === 'SN542')!.message).toMatch(/`GET \/api\/c` returns a list at `contacts`/);
+    expect(d.find((x) => x.code === 'SN542')!.severity).toBe('warning');
+  });
+  test('not reported with a key, for a single object, for a refresh, or when the list is only read', () => {
+    expect(sn542(R('type="Comment[]" key="id"') + click("upsert(comments, c)") + sync('remove'))).toEqual([]);
+    expect(sn542(R('type="Comment"') + click("upsert(comments, c)") + sync('upsert'))).toEqual([]);
+    expect(sn542(R('') + click("upsert(comments, c)"))).toEqual([]);
+    expect(sn542(R('type="Comment[]"') + sync('refresh') + click("refresh(comments)") + '<p data-sn-text="comments.length"></p>')).toEqual([]);
   });
 });
 
