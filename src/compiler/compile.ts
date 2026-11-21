@@ -1698,7 +1698,7 @@ class Compiler {
       ...(this.opts.sourcemap ? { sources: this.sourcesOf(this.fns) } : {}),
       features: [...(this.opts.dev ? ['dev'] : []), ...['sse', 'optimistic', 'paginate', 'persist', 'cache', 'back', 'versions', 'refresh', 'for', 'options', 'keys', 'write-through', 'fields', 'form', 'select', 'location', 'typing', 'query-links', 'navigate', 'call', 'debounce', 'confirm', 'models', 'transition', 'components', 'nested', 'lets', 'signed-in'].filter((f) => this.features.has(f))],
       helpers: { user, builtin }, namespaces, calls: [...this.calls].sort(),
-      diagnostics: this.diagnostics, files: [...this.files].sort(), ...(this.fileGlobs.length ? { globs: this.fileGlobs } : {}), ...(this.pagesOut ? { pages: this.pagesOut } : {}), ...(this.axesOut.length && !this.opts.axes ? { axes: this.axesOut } : {}),
+      diagnostics: this.diagnostics, files: [...this.files].sort(), ...(this.fileGlobs.length ? { globs: this.fileGlobs } : {}), ...(this.pagesOut ? { pages: this.pagesOut } : {}), ...(this.axesOut.length && (this.opts.axes?.length ?? 0) < this.axisDecls.length ? { axes: this.axesOut } : {}),
       ...(this.check ? { check: this.check } : {}),
       ...(early !== undefined ? { early } : {}),
       ...(images ? { images } : {}),
@@ -6805,7 +6805,8 @@ class Compiler {
     const d = this.axisDecls[i]!;
     const list = this.fileData.get(d.of)?.value;
     const entries = Array.isArray(list) ? list : [];
-    if (!this.opts.axes) {
+    // a compile given the outer axes' values only (the build lists an inner list at each outer value): this one's entries
+    if (!this.opts.axes?.[i]) {
       const keyOf = this.page.resources.get(d.of)?.key ?? ['key'];
       this.axesOut[i] = { name: d.name, of: d.of, entries: entries.map((e) => ({ value: e, key: keyOf.map((f) => String((e as Record<string, unknown>)?.[f])).join('/') })) };
     }

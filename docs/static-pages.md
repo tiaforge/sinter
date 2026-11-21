@@ -263,6 +263,49 @@ A page per entry is for content the repository holds; data that changes on its o
 live resource (one file for every slug, its data loaded in the browser or embedded by the
 [server layer](server.md)).
 
+### A site per tenant: axes
+
+`data-sn-for` on `<html>` takes several lists, outer first, separated by `;`. Every list but the page's own
+entries (the last, when the page has a `data-sn-path` pattern to fill) is an **axis**: the page is built once per
+entry of it, under the entry's key. A layout declares an axis for every page that uses it:
+
+```html
+<!-- src/layouts/shop-layout.html -->
+<html lang="en" data-sn-for="tenant in tenants" data-sn-props="{ title: string }">
+<head><title data-sn-text="tenant.name + ' · ' + title"></title></head>
+<body>
+  <sn-resource name="tenants" src="content:tenants"></sn-resource>
+  <nav><a href="/index.html">Home</a> <a href="/about.html">About</a></nav>
+  <main><slot></slot></main>
+</body>
+</html>
+```
+
+```html
+<!-- blog/post.html: a page per entry inside each tenant -->
+<shop-layout data-sn-path="/blog/:slug" data-sn-for="post in posts" data-sn-with="{ title: post.title }">
+  <sn-resource name="posts" src="file:/content/{tenant.key}/posts/*.md"></sn-resource>
+  <h1 data-sn-text="post.title"></h1>
+</shop-layout>
+```
+
+```
+dist/acme/index.html          /acme/
+dist/acme/about/index.html    /acme/about/
+dist/acme/blog/hello.html     /acme/blog/hello
+dist/globex/index.html        /globex/
+```
+
+- **The list** is a collection (`content:tenants`) or a `file:` glob; each entry's key is its path segment.
+- **The item** (`tenant`) is a constant of the whole page, as an entry is: written into the HTML, readable in an inner
+  list's `file:` path (`{tenant.key}`).
+- **Links stay in the point**: a link to one of your pages from acme's page is acme's (`/about.html` is
+  `/acme/about/`); a page outside the axis (one that does not use the layout) is linked as itself.
+- **With [`localePrefix`](#languages)** the language is outside every axis (`/de/acme/about/`), `hreflang` pairs a
+  tenant's pages across languages, and the chooser is at the tenant's path without a language (`/acme/about/`).
+- Not yet ([docs/proposals/axes.md](proposals/axes.md), step 6): a tenant on its own domain (`origin`), collections
+  loaded per tenant (`per`), and a build error for a link from a page outside the axis to a page only an axis has.
+
 ### Redirects and rewrites
 
 The build writes the rules for your pages into `_redirects`, the file Netlify and Cloudflare Pages

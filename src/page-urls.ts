@@ -81,14 +81,16 @@ export function rebaseHtml(html: string, from: string, to: string): string {
  * with a fixed path are written as those pages' URLs, root-relative ones root-relative, relative ones
  * relative; and when the page itself moves into a directory, its other relative URLs are rebased to it.
  * With `locales`, a page in a language (`de/about.html`) links to that language's pages: `/about.html` is
- * `/de/about/`.
+ * `/de/about/`; with `prefix`, a point's folder (`de/acme`: a language and an axis's value), to that folder's pages, which
+ * a link names first.
  */
-export function relocateHtml(html: string, page: PageEntry, pages: PageEntry[], base: string, locales: string[] = []): string {
+export function relocateHtml(html: string, page: PageEntry, pages: PageEntry[], base: string, locales: string[] = [], prefix?: string | null): string {
   const b = rootOf(base);
   const moved = movesToDirectory(page.rel, base, page.patterns);
   const oldDir = '/' + posix.dirname(page.rel).replace(/^\.$/, '');
   const newDir = moved ? '/' + page.rel.replace(/\.html?$/, '') : oldDir;
-  const lang = languageOfFile(page.rel, locales);
+  // the page's point's folder (`de`, `de/acme`): given, else its language from its first folder
+  const lang = prefix !== undefined ? prefix : languageOfFile(page.rel, locales);
   const targets = targetsOf(pages, base, lang);
   return relocateWith(html, page, base, locales, b, moved, oldDir, newDir, lang, targets);
 }
@@ -108,16 +110,23 @@ function targetsOf(pages: PageEntry[], base: string, lang: string | null): Map<s
   const b = rootOf(base);
   const targets = new Map<string, string>();
   const add = (k: string, site: string) => { if (!targets.has(k)) targets.set(k, site); };
-  for (const p of pages) {
+  const keysOf = (p: PageEntry) => {
     const url = pageUrl(p.rel, base, p.patterns);
-    if (url === null) continue;
+    if (url === null) return null;
     const site = '/' + url.slice(b.length), noExt = '/' + p.rel.replace(/\.html?$/, '');
     const keys = [site, '/' + p.rel, noExt, noExt + '/'];
     if (/(^|\/)index\.html?$/.test(p.rel)) keys.push(site.replace(/\/?$/, '/'));
-    for (const k of keys) add(k, site);
-    // the page's language: its pages also by their paths without the prefix
-    if (lang && p.rel.startsWith(lang + '/')) for (const k of keys) if (k.startsWith(`/${lang}/`) || k === `/${lang}`) add(k.slice(lang.length + 1) || '/', site);
+    return { site, keys };
+  };
+  // the page's folder (its language, its axes' values): its pages also by their paths without it, before any other
+  // page's (a page outside the folder at the same path, `/about/` beside `/acme/about/`)
+  // then the folders around it, nearest first: a page outside an axis is its language's (`de/acme`, then `de`)
+  const folders = lang ? lang.split('/').map((_, i, a) => a.slice(0, a.length - i).join('/')) : [];
+  for (const f of folders) for (const p of pages) {
+    const k = keysOf(p);
+    if (k && p.rel.startsWith(f + '/')) for (const x of k.keys) if (x.startsWith(`/${f}/`) || x === `/${f}`) add(x.slice(f.length + 1) || '/', k.site);
   }
+  for (const p of pages) { const k = keysOf(p); if (k) for (const x of k.keys) add(x, k.site); }
   byKey.set(k, targets);
   return targets;
 }

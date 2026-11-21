@@ -423,6 +423,12 @@ Each step ships on its own.
    per origin), links between points (§5), `axisUrl()`, the special files per point (§9). A test site with
    tenants on origins and on path segments, each in three languages, built and served through a proxy config in
    e2e. A recipe: a shop per tenant. Docs: static-pages.md, with the proxy rules.
+   *6.1 done 2026-11-21:* `;` lists in `data-sn-for` (every list but the page's own entries is an axis; a layout's
+   lists are outside the page's), collections and `file:` globs as lists, outer items in `file:` paths, each axis's
+   key as its path segment after the language's, links that stay in the point (relocate maps a link to the point's
+   folder's pages first, then the folders around it), `hreflang`, choosers and the dev server per variant
+   (`test/vite/axes.test.ts`). Next: origins (6.2), `per` collections (6.3), the link rules of §5 beyond the
+   point's own pages, `axisUrl()`, and the special files per point.
 7. **Fallback chains** (§6): `chain`, the new direction in `choose`, the shared test cases in the three server
    layers, the manifest's `fallbacks`, chains of other axes, `fallback: true` for content.
 8. **Language segments and domains** (§4 "URL segments", §3 `domains`): `paths`, `codes`, and languages on
