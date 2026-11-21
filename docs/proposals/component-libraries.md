@@ -1583,7 +1583,7 @@ To discuss after this lands:
   warning `SN542` (`unkeyed-list-write`) is reported where `upsert`, `merge` or `remove` (a handler, an
   action's `then`, an `<sn-event op>` in a `<sn-sync>`) targets a keyless resource typed as a list: a
   `type` that ends in `[]` or is `Array<…>`, or an OpenAPI response that is a list. A named alias of an
-  array type is not seen by the compiler. Dev builds also warn (runtime warning 32) when an `upsert` of
+  array type is not seen by the compiler. Dev builds also warn (runtime warning 33) when an `upsert` of
   one item or a `merge` reaches a keyless resource whose value is an array, typed or not; the check is
   in the dev module, so production builds carry none of it.
 
