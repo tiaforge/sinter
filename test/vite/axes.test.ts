@@ -21,6 +21,9 @@ const files: Record<string, string> = {
 export const locales = languages({ base: 'en', list: ['en', 'de'] });
 export const tenants = collection({ key: 'key', load: () => [{ key: 'acme', name: 'Acme' }, { key: 'globex', name: 'Globex' }] });
 // each tenant's products in each language, as a CMS would answer per tenant
+// the shop's texts: shared, and a tenant's own over them (only what it changes)
+import { inlang } from '@tiaforge-ui/sinter/messages/content';
+export const messages = inlang({ per: [tenants, locales], tenantFiles: (t) => './tenants/' + t.key + '/{locale}.json' });
 export const products = collection({ key: 'sku', per: [tenants, locales], load: ({ value, locale }) => [{ sku: value(tenants).key + '-1', name: value(tenants).name + ' ' + locale + ' product' }] });
 `,
   'src/layouts/shop-layout.html': `<!doctype html>
@@ -41,6 +44,11 @@ export const products = collection({ key: 'sku', per: [tenants, locales], load: 
 </shop-layout>`,
   // outside the tenant axis: built once per language
   'portal.html': `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Shops</title></head><body><h1>All shops</h1></body></html>`,
+  'project.inlang/settings.json': JSON.stringify({ baseLocale: 'en', locales: ['en', 'de'], 'plugin.inlang.messageFormat': { pathPattern: './messages/{locale}.json' } }),
+  'messages/en.json': JSON.stringify({ cart: { title: 'Cart' }, hello: 'Welcome' }),
+  'messages/de.json': JSON.stringify({ cart: { title: 'Warenkorb' }, hello: 'Willkommen' }),
+  'tenants/acme/de.json': JSON.stringify({ hello: 'Servus bei Acme' }),
+  'cart.html': `<shop-layout data-sn-with="{ title: m.cart.title() }"><p data-sn-text="m.hello()"></p></shop-layout>`,
   'content/acme/en/hello.md': '---\nid: hello\ntitle: Acme hello\n---\n',
   'content/acme/de/hallo.md': '---\nid: hello\ntitle: Acme hallo\n---\n',
   'content/globex/en/news.md': '---\nid: news\ntitle: Globex news\n---\n',
@@ -51,13 +59,19 @@ beforeAll(async () => {
   await build({
     root, logLevel: 'silent', resolve: { alias },
     plugins: [sinter({ localePrefix: true, messages: false, typecheck: false, site: 'https://example.com' })],
-    build: { outDir: out, emptyOutDir: true, rollupOptions: { input: ['index.html', 'about.html', 'shop.html', 'blog/post.html', 'portal.html'].map((f) => join(root, f)) } },
+    build: { outDir: out, emptyOutDir: true, rollupOptions: { input: ['index.html', 'about.html', 'shop.html', 'cart.html', 'blog/post.html', 'portal.html'].map((f) => join(root, f)) } },
   });
 }, 120_000);
 const read = (f: string) => readFileSync(join(out, f), 'utf8');
 const walk = (d: string, p = ''): string[] => readdirSync(d, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(join(d, e.name), `${p}${e.name}/`) : [`${p}${e.name}`]));
 
 describe('a tenant axis inside each language', () => {
+  test('messages per tenant: the shared texts, a tenant\'s own over them, in each language', () => {
+    expect(read('de/acme/cart/index.html')).toMatch(/<title>Acme · Warenkorb<\/title>[\s\S]*<p>Servus bei Acme<\/p>/);
+    expect(read('de/globex/cart/index.html')).toContain('<p>Willkommen</p>');
+    expect(read('en/acme/cart/index.html')).toContain('<p>Welcome</p>');
+  });
+
   test('a collection loaded per tenant and language: each page reads its own point\'s list', () => {
     expect(read('de/globex/shop/index.html')).toContain('<li>Globex de product</li>');
     expect(read('en/acme/shop/index.html')).toContain('<li>Acme en product</li>');

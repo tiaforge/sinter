@@ -112,8 +112,10 @@ function audited(html: string, options: CompileOptions): CompileResult {
   return plain;
 }
 
-function compileOne(html: string, options: CompileOptions): CompileResult {
-  const parts = compileParts(html, options);
+function compileOne(html: string, options0: CompileOptions): CompileResult {
+  const parts = compileParts(html, options0);
+  // a content namespace loaded per axis: its entries at the page's point, as the compile resolved them
+  const options = parts.contentNs ? { ...options0, contentNs: parts.contentNs } : options0;
   // the images' rules: imported, so the bundler puts them in the page's stylesheet (no request, no inline style)
   // and the components' scoped styles, the same way
   const css = (parts.images?.css && options.images?.stylesheet ? `import ${JSON.stringify(options.images.stylesheet)};\n` : '')

@@ -1098,7 +1098,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
         const l = collectionsIn(content, x ?? undefined).get(exp);
         for (const e of (l?.value ?? []) as Array<Record<string, unknown>>) entries[String(e[l!.key])] = e;
       }
-      out[d.name] = { entries, format: formatSpec(d.format), ...(formatters.get(d.format) ? { formatFn: formatters.get(d.format)! } : {}) };
+      out[d.name] = { entries, format: formatSpec(d.format), export: exp, ...(formatters.get(d.format) ? { formatFn: formatters.get(d.format)! } : {}) };
     }
     return out;
   };
@@ -1109,8 +1109,11 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     const namespaces = { ...h.namespaces };
     for (const [exp, d] of content.namespaces) {
       if (namespaces[d.name]) throw new Error(`sinter: the content module's namespace \`${d.name}\` (\`${exp}\`) and the helpers module's \`${d.name}\` have one name: a name calls one namespace`);
-      const l = lists.get(exp);
-      namespaces[d.name] = { module: `${CONTENT_NS}${d.name}`, members: ((l?.value ?? []) as Array<Record<string, unknown>>).map((e) => String(e[l!.key])).sort() };
+      // one loaded per axis: every point's ids (a page's calls are checked against its point's at compile)
+      const pp = content.perPoint.get(exp);
+      const ids = pp ? [...new Set([...pp.values.values()].flatMap((v) => (v as Array<Record<string, unknown>>).map((e) => String(e[pp.key]))))]
+        : (() => { const l = lists.get(exp); return ((l?.value ?? []) as Array<Record<string, unknown>>).map((e) => String(e[l!.key])); })();
+      namespaces[d.name] = { module: `${CONTENT_NS}${d.name}`, members: ids.sort() };
     }
     return { ...h, namespaces };
   };

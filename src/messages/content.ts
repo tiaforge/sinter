@@ -94,14 +94,25 @@ export function flatten(json: Record<string, unknown>, where: string, prefix = '
  * same project (`inlangLocales`). `pathPattern` may be a list: its files are merged in order. Turn the built-in
  * messages off (`sinter({ messages: false })`): one name calls one namespace.
  */
-export function inlang(o: { project?: string; namespace?: string } = {}): Collection<{ id: string; m: Message }> {
+export function inlang<Tn = never>(o: {
+  project?: string; namespace?: string;
+  /**
+   * per tenant (docs/proposals/axes.md §6): the tenants' list, and a tenant's own files (`{locale}` in them), merged over
+   * the project's: a tenant's file holds only the messages it changes. The languages are then `languages()`'s list,
+   * which `per` names too: `per: [tenants, locales]`
+   */
+  per?: readonly Collection<any>[]; tenantFiles?: (tenant: Tn) => string;
+} = {}): Collection<{ id: string; m: Message }> {
   const project = o.project ?? 'project.inlang';
   return namespace<{ id: string; m: Message }>({
-    name: o.namespace ?? 'm', format: '@tiaforge-ui/sinter/messages/format', perLocale: true,
-    load: ({ locale, root }) => {
+    name: o.namespace ?? 'm', format: '@tiaforge-ui/sinter/messages/format', ...(o.per ? { per: o.per } : { perLocale: true }),
+    load: ({ locale, root, value }) => {
       const s = read(root, project);
       const pp = s['plugin.inlang.messageFormat']?.pathPattern ?? './messages/{locale}.json';
       const patterns = (Array.isArray(pp) ? pp : [pp]).map(String);
+      // a tenant's own files after the project's: what it changes wins
+      const t = o.per && o.tenantFiles ? o.per.map((c) => value(c)).find((x) => x && !(x as { tag?: unknown }).tag) : undefined;
+      if (t !== undefined && o.tenantFiles) patterns.push(o.tenantFiles(t as Tn));
       const all = new Map<string, Message>();
       for (const p of patterns) {
         const file = resolve(root, project, '..', p.replace('{locale}', locale ?? String(s.baseLocale)));

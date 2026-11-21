@@ -174,7 +174,7 @@ export interface CompileOptions {
    * reads (the built-in messages'). The namespace is in the helpers manifest with its entries' ids as its members.
    * The built-in messages are one (`baseMessages` is their alias).
    */
-  contentNs?: Record<string, { entries: Record<string, unknown>; format: string | null; formatFn?: (entry: unknown, args: unknown, locale: string | null) => unknown; runtime?: string }>;
+  contentNs?: Record<string, { entries: Record<string, unknown>; format: string | null; formatFn?: (entry: unknown, args: unknown, locale: string | null) => unknown; runtime?: string; export?: string }>;
   /**
    * the early chunk: a second, render-blocking page entry that runs the app's early module and
    * the bindings outside templates whose inputs exist before any data has loaded. `module`: the
@@ -494,6 +494,8 @@ export interface CompiledParts {
   pages?: { name: string; of: string; pattern: string; entries: Array<{ value: unknown; path: string; key: string }> };
   /** a compile without `axes`: each axis the page is built over (its item's name, its list) and the list's entries */
   axes?: Array<{ name: string; of: string; entries: Array<{ value: unknown; key: string }> }>;
+  /** the content namespaces at the page's point, where one is loaded per axis (its entries the point's) */
+  contentNs?: CompileOptions['contentNs'];
   /** @internal the embedded values, by id, whose JSON `compileParts` writes into the page */
   json?: Map<number, unknown>;
   /** @internal a first pass's diagnostics about the page as it ends, for when no second pass follows */
@@ -1719,7 +1721,7 @@ class Compiler {
       ...(this.opts.sourcemap ? { sources: this.sourcesOf(this.fns) } : {}),
       features: [...(this.opts.dev ? ['dev'] : []), ...['sse', 'optimistic', 'paginate', 'persist', 'cache', 'back', 'versions', 'refresh', 'for', 'options', 'keys', 'write-through', 'fields', 'form', 'select', 'location', 'typing', 'query-links', 'navigate', 'call', 'debounce', 'confirm', 'models', 'transition', 'components', 'nested', 'lets', 'signed-in'].filter((f) => this.features.has(f))],
       helpers: { user, builtin }, namespaces, calls: [...this.calls].sort(),
-      diagnostics: this.diagnostics, files: [...this.files].sort(), ...(this.fileGlobs.length ? { globs: this.fileGlobs } : {}), ...(this.pagesOut ? { pages: this.pagesOut } : {}), ...(this.axesOut.length && (this.opts.axes?.length ?? 0) < this.axisDecls.length ? { axes: this.axesOut } : {}),
+      diagnostics: this.diagnostics, files: [...this.files].sort(), ...(this.fileGlobs.length ? { globs: this.fileGlobs } : {}), ...(this.pagesOut ? { pages: this.pagesOut } : {}), ...(this.axesOut.length && (this.opts.axes?.length ?? 0) < this.axisDecls.length ? { axes: this.axesOut } : {}), ...(Object.values(this.opts.contentNs ?? {}).some((x) => x.export && this.opts.perCollections?.has(x.export)) ? { contentNs: this.contentNs() } : {}),
       ...(this.check ? { check: this.check } : {}),
       ...(early !== undefined ? { early } : {}),
       ...(images ? { images } : {}),
@@ -6813,6 +6815,14 @@ class Compiler {
   /** the compile's content namespaces: `contentNs`, and the built-in messages' through `baseMessages` */
   contentNs(): NonNullable<CompileOptions['contentNs']> {
     const out: NonNullable<CompileOptions['contentNs']> = { ...this.opts.contentNs };
+    // one loaded per axis (`per: [tenants]`): its entries at the page's point
+    for (const [ns, spec] of Object.entries(out)) {
+      const at = spec.export ? this.perCollection(spec.export) : undefined;
+      if (!at) continue;
+      const entries: Record<string, unknown> = {};
+      for (const e of at.value as Array<Record<string, unknown>>) entries[String(e[at.key])] = e;
+      out[ns] = { ...spec, entries };
+    }
     const b = this.opts.baseMessages;
     if (b) for (const [ns, v] of Object.entries(this.opts.helpers.namespaces)) if (v.module === MESSAGES_MODULE && !out[ns]) out[ns] = { entries: b, format: null, runtime: MESSAGES_MODULE };
     return out;

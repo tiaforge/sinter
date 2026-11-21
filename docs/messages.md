@@ -63,6 +63,9 @@ sinter({ localePrefix: true, messages: false })
 - **Fallback chains**: a message missing in `de-AT` is `de`'s, then the base language's.
 - A message over constants is written into the HTML; one over data is compiled into the page with that message alone
   and the formatter (`@tiaforge-ui/sinter/messages/format`).
+- **Per tenant** ([docs/static-pages.md](static-pages.md#a-site-per-tenant-axes)):
+  `inlang({ per: [tenants, locales], tenantFiles: (t) => './tenants/' + t.key + '/{locale}.json' })` reads a tenant's
+  own files over the project's, so a tenant's file holds only the messages it changes.
 - Not yet: `m` in app modules, generated types (`sinter check` types `m` as `any`), formatted placeholders
   (`{x: number}`) and markup in messages, which fail the build at their file and message.
 
