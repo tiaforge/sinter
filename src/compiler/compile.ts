@@ -1640,8 +1640,8 @@ class Compiler {
     const user: string[] = [];
     // a lazy module's helpers are not imported: the module loads when a let needs it
     // and a helper whose every call ran at build time (written into the HTML) is not imported either
-    const live = this.fns.filter((c) => c !== '0').join('\n');
-    const imported = (key: string) => !this.page.lazy?.has(key) && new RegExp(`(?<![\\w$.])${key.replace(/\$/g, '\\$')}(?![\\w$])`).test(live);
+    const live = namesIn(this.fns.filter((c) => c !== '0').join('\n'), [...this.page.usedHelpers, '$href', '$hq', '$hv', ...[...this.page.usedNs].flatMap(([k, v]) => [...v].map((m) => `${k}$${m}`))]);
+    const imported = (key: string) => !this.page.lazy?.has(key) && live(key);
     for (const h of [...this.page.usedHelpers].sort()) if (imported(h)) (this.page.helpers.has(h) ? user : builtin).push(h);
     // a link's URL template (`data-sn-href`) that is not written into the HTML
     for (const h of ['$href', '$hq', '$hv']) if (imported(h)) builtin.push(h);
@@ -8903,9 +8903,8 @@ class Compiler {
       if (at) this.earlySites.set(code, { ...at.site, parts: keep.map(([k, c]) => ({ code: `${JSON.stringify(k)}: (${c})`, site: at.fields.get(k) ?? null })) });
     }
     // the helpers and namespace members the early functions call
-    const all = fns.join('\n');
-    const calls = (name: string) => new RegExp(`(?<![\\w$.])${name.replace(/\$/g, '\\$')}(?![\\w$])`).test(all);
-    const helpers = this.opts.helpers.names.filter(calls);
+    const calls = namesIn(fns.join('\n'), [...this.opts.helpers.names, ...EARLY_FORMATTERS, ...memberNames(this.opts.helpers.namespaces)]);
+    const helpers = this.opts.helpers.names.filter((n) => calls(n));
     // the built-in formatters the early functions call, and only those: the page's early file bundles each
     const formatters = EARLY_FORMATTERS.filter((n) => !userHelpers.has(n) && calls(n));
     const namespaces: Record<string, string[]> = {};
@@ -8987,8 +8986,7 @@ class Compiler {
       });
     }
     if (!res.length) return null;
-    const all = fns.join('\n');
-    const calls = (name: string) => new RegExp(`(?<![\\w$.])${name.replace(/\$/g, '\\$')}(?![\\w$])`).test(all);
+    const calls = namesIn(fns.join('\n'), [...memberNames(this.opts.helpers.namespaces), ...this.opts.helpers.names]);
     const namespaces: Record<string, string[]> = {};
     for (const [ns, { members }] of Object.entries(this.opts.helpers.namespaces)) {
       const used = members.filter((m) => calls(`${ns}$${m}`));
@@ -9872,6 +9870,22 @@ function reads(nodes: P5Node[], name: string): boolean {
   const walk = (ns: P5Node[]): boolean => ns.some((c) => isElement(c) && (c.attrs.some((a) => a.name.startsWith('data-sn-') && inValue(a.value)) || walk(c.childNodes) || (c.tagName === 'template' && walk((c as P5Template).content.childNodes))));
   return walk(nodes);
 }
+
+/**
+ * Whether `code` names an identifier, as `(?<![\w$.])name(?![\w$])` finds it: a run of `[\w$]` not after a `.` (a
+ * member's property is not the helper). The `names` to be asked are looked for in one pass, one pattern of them all
+ * (a match is a whole run, so it is the one name equal to it), where a pattern per name was a pass per name; a name
+ * asked that is not among them, or not such a run, is tested as its own pattern.
+ */
+export function namesIn(code: string, names: Iterable<string>): (name: string) => boolean {
+  const pattern = (n: string) => `(?<![\\w$.])${n.replace(/\$/g, '\\$')}(?![\\w$])`;
+  const asked = new Set([...names].filter((n) => /^[\w$]+$/.test(n))), found = new Set<string>();
+  if (asked.size) for (const m of code.matchAll(new RegExp(pattern(`(?:${[...asked].join('|')})`), 'g'))) found.add(m[0]);
+  return (name) => (asked.has(name) ? found.has(name) : new RegExp(pattern(name)).test(code));
+}
+
+/** each member of the helper modules' namespaces as the compiled code names it, `ns$member` */
+const memberNames = (namespaces: Record<string, { members: string[] }>) => Object.entries(namespaces).flatMap(([ns, { members }]) => members.map((m) => `${ns}$${m}`));
 
 function isElement(n: P5Node): n is P5Element {
   return 'tagName' in n;
