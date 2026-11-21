@@ -28,6 +28,8 @@ export function park(c: Connection): boolean {
   c.parked = true;
   // a connection the old page had taken over keeps what it held (a newer swap came before its replay)
   c.buf ??= [];
+  // what it dropped is older than any load of the page that takes it over next
+  if (c.lossy) c.lossy = 1;
   c.subs = [];
   c.changed = () => {};
   w.parked.set(c.url, c);
@@ -59,6 +61,8 @@ export function claim(app: App, url: string, heard: Set<string>, changed: () => 
   for (const n of names) t.listen?.(n);
   c.names = new Set([...(c.names ?? []), ...names]);
   c.seen = undefined;
+  // what is held so far came before this page's mount sent its requests
+  c.pre = c.buf!.length;
   // its data came with its HTML, older than those events: fetched again (one loading already asks the server now)
   for (const r of stale) { const x = app.resource(r); if (!x.meta.loading) void x.refresh(); }
   return c;
@@ -79,7 +83,8 @@ export function seen(c: Connection, name: string): void {
 export function hold(c: Connection, name: string, payload: unknown): void {
   const b = c.buf!;
   b.push([name, payload]);
-  if (b.length > CAP) { b.shift(); c.lossy = true; }
+  // the oldest goes: held while parked or before the takeover (`pre`), it is older than the next page's loads
+  if (b.length > CAP) { b.shift(); c.lossy = c.parked || c.pre ? c.lossy ?? 1 : 2; if (c.pre) c.pre--; }
 }
 
 /** a parked connection that failed: the next page connects anew */
@@ -94,10 +99,16 @@ function close(w: Window): void {
   for (const c of w.parked.values()) { c.buf = null; c.closed = true; c.t?.close(); c.t = null; }
   w.parked.clear();
   for (const c of w.claimed.splice(0)) {
-    const held = c.buf ?? [];
+    const held = c.buf ?? [], pre = c.pre ?? 0;
     c.buf = null;
-    // more than the cap arrived: what the stream feeds is fetched again, as after a reconnect
-    if (c.lossy) { c.lossy = false; for (const r of new Set(c.subs.map(([e]) => e.resource))) if (r) void c.app.resource(r).refresh(); }
-    for (const [n, p] of held) c.event(n, p);
+    // more than the cap arrived: what the stream feeds is fetched again, as after a reconnect, unless it is
+    // loading and every event dropped came before the takeover, so before that load was requested
+    const lossy = c.lossy;
+    c.lossy = undefined;
+    if (lossy) for (const r of new Set(c.subs.map(([e]) => e.resource))) if (r) { const x = c.app.resource(r); if (lossy > 1 || !x.meta.loading) void x.refresh(); }
+    // a `refresh` held before the takeover coalesces with the next page's load in flight; one held after it may
+    // be newer than that load's response, and asks again, as a live event during a first load does
+    held.forEach(([n, p], i) => { c.early = i < pre; c.event(n, p); });
+    c.early = false;
   }
 }
