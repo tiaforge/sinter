@@ -9,8 +9,8 @@ export interface Env {
   queueMicrotask(fn: () => void): void;
   /** the only way sinter navigates */
   navigate(url: string): void;
-  /** `navigate(url, { replace: true })`: a navigation that replaces the current entry; absent: `location.replace` */
-  replace?(url: string): void;
+  /** `navigate(url, { replace: true })`: a navigation that replaces the current entry (`location.replace`) */
+  replace(url: string): void;
   fetch(request: Request): Promise<Response>;
   storage(): Storage | null;
   session(): Storage | null;
@@ -46,6 +46,7 @@ export const defaultEnv: Env = {
   clearTimeout: (h) => clearTimeout(h as number),
   queueMicrotask: (fn) => queueMicrotask(fn),
   navigate: (url) => g.location.assign(url),
+  replace: (url) => g.location.replace(url),
   fetch: (req) => fetch(req),
   storage: () => tryGet(() => g.localStorage),
   session: () => tryGet(() => g.sessionStorage),

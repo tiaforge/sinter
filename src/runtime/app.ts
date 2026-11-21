@@ -885,7 +885,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
       navigate: (url: string, o?: { replace?: boolean }) => {
         const to = new URL(url, app.env.href()).href;
         if (app.go) app.go({ to, kind: o?.replace ? 'replace' : 'push', source: 'call', trigger: el });
-        else if (o?.replace) (app.env.replace ?? ((u: string) => location.replace(u)))(to);
+        else if (o?.replace) app.env.replace(to);
         else app.env.navigate(to);
       },
       // every API's token goes (src/token.ts), with what the page kept; the resources of those APIs load again: signed out
