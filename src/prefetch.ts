@@ -8,6 +8,7 @@ import type { ResourceDef } from './ir.js';
 import type { App, Feature } from './runtime/app.js';
 import { PREFETCH_MARK, PREFETCH_PREFIX } from './runtime/config.js';
 import { clean, pick } from './runtime/store.js';
+import { readEntry, writeEntry } from './back.js';
 import { readUrl, segments, segsMatch } from './runtime/url.js';
 import type { lists } from './runtime/lists.js';
 
@@ -37,8 +38,6 @@ export interface PrefetchPage {
 export const MAX_AGE = 30_000;
 /** how long the pointer rests on a link (or a link has focus) before its page's data is requested */
 export const HOVER = 65;
-/** entries larger than this (serialized) are not written */
-const MAX_ENTRY = 256 * 1024;
 
 const keyOf = (url: string, select?: string | null, total?: string | null) => PREFETCH_PREFIX + JSON.stringify([url, select, total]);
 
@@ -48,32 +47,19 @@ export function prefetch(pages: PrefetchPage[], l?: typeof lists): Feature {
     name: 'prefetch',
     install(app: App) {
       const env = app.env, busy = new Set<string>();
-      const read = (key: string) => {
-        try {
-          const v = env.session()?.getItem(key);
-          return v ? (JSON.parse(v) as { t: number; items: unknown; total: number | null }) : null;
-        } catch { return null; }
-      };
-      const write = (key: string, items: unknown, total: number | null) => {
-        const s = env.session();
-        let text: string;
-        try { text = JSON.stringify({ t: env.now(), items, total }); } catch { return; }
-        if (!s || text.length > MAX_ENTRY) return;
-        try { s.setItem(key, text); } catch { /* full: next-page data is a hint, not worth evicting the cache for */ }
-      };
       // what an earlier page prefetched and no page took
       try {
         const s = env.session(), old: string[] = [];
         for (let i = 0; s && i < s.length; i++) {
           const k = s.key(i);
-          if (k?.startsWith(PREFETCH_PREFIX) && !((env.now() - (read(k)?.t ?? 0)) <= MAX_AGE)) old.push(k);
+          if (k?.startsWith(PREFETCH_PREFIX) && !((env.now() - (readEntry(env, k)?.t ?? 0)) <= MAX_AGE)) old.push(k);
         }
         for (const k of old) s!.removeItem(k);
       } catch { /* storage failures are ignored */ }
 
       app.ext.prefetch = {
         take(def: ResourceDef, url: string) {
-          const key = keyOf(url, def.select, def.total), e = read(key);
+          const key = keyOf(url, def.select, def.total), e = readEntry(env, key);
           if (!e) return null;
           try { env.session()?.removeItem(key); } catch { /* ignored */ }
           return env.now() - e.t <= MAX_AGE ? e : null;
@@ -103,11 +89,11 @@ export function prefetch(pages: PrefetchPage[], l?: typeof lists): Feature {
           let url: string | false;
           try { url = page.f[r.u]!(scope); } catch { continue; }
           if (!url) continue;
-          const key = keyOf(url, r.i, r.t), had = read(key);
+          const key = keyOf(url, r.i, r.t), had = readEntry(env, key);
           if (busy.has(key) || (had && env.now() - had.t < MAX_AGE / 3)) continue;
           // data this page has loaded from the same request: handed over, no request
           const own = app.ir.resources.find((d) => !d.paginate && d.select == r.i && d.total == r.t && app.resource(d.name).loader?.url?.() == url && app.resource(d.name).meta.loadedAt != null);
-          if (own) { const b = app.resource(own.name).base(); write(key, b.items, b.total); continue; }
+          if (own) { const b = app.resource(own.name).base(); writeEntry(env, key, b.items, b.total); continue; }
           busy.add(key);
           const w = app.req.writes;
           let req = sent.get(url);
@@ -119,7 +105,8 @@ export function prefetch(pages: PrefetchPage[], l?: typeof lists): Feature {
             if (r.k && !Array.isArray(items)) return;
             if (Array.isArray(items)) items = items.map(clean);
             const t = r.t ? pick(r.t, body) : null;
-            write(key, items, t == null ? null : +t);
+            // not written when the storage is full: next-page data is a hint, not worth evicting the cache for
+            writeEntry(env, key, items, t == null ? null : +t);
           }, () => {}).finally(() => busy.delete(key));
         }
       };
