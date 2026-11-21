@@ -9,9 +9,10 @@ export interface Entry { value: unknown; path: string; key: string }
 
 /**
  * one axis's value at a point: the entry of its list, its key, and the path segment its pages' URLs are under; for a
- * value on its own domain (`origin`), no segment, and the folder its files are written under (outermost: `dist/acme/`)
+ * value on its own domain (`origin`), no segment, and the folder its files are written under (outermost: `dist/acme/`).
+ * `list` is the list's `src` (`content:tenants`), which names the axis across pages.
  */
-export interface AxisValue { value: unknown; key: string; segment: string | null; folder?: string; origin?: string }
+export interface AxisValue { value: unknown; key: string; segment: string | null; folder?: string; origin?: string; list?: string }
 
 /**
  * one page to build: its source, its language (or null), its axes' values (outer first) and its entry (or null),

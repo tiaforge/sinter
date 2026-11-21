@@ -301,6 +301,18 @@ dist/globex/index.html        /globex/
   list's `file:` path (`{tenant.key}`).
 - **Links stay in the point**: a link to one of your pages from acme's page is acme's (`/about.html` is
   `/acme/about/`); a page outside the axis (one that does not use the layout) is linked as itself.
+- **Links to a tenant from outside**: in a loop over the axis's list, a link goes to that row's tenant's page, so a
+  portal page needs nothing more:
+
+  ```html
+  <template data-sn-for="t in tenants"><a href="/about.html" data-sn-text="t.name"></a></template>
+  ```
+
+  A link to a page only the tenants have, from a page outside the axis and not in such a loop, fails the build: it
+  names the link and the list.
+- **`axisUrl(tenants, key)`** is this page at another tenant, as `localeUrl()` is at another language: a switcher in
+  the layout is `<template data-sn-for="x in tenants"><a data-sn-attr="{ href: axisUrl(tenants, x.key) }" …>`.
+  It is written into the HTML at build.
 - **With [`localePrefix`](#languages)** the language is outside every axis (`/de/acme/about/`), `hreflang` pairs a
   tenant's pages across languages, and the chooser is at the tenant's path without a language (`/acme/about/`).
 - **Content per tenant**: `collection({ key, per: [tenants], load: ({ value }) => … })` is loaded once per tenant
@@ -310,7 +322,8 @@ dist/globex/index.html        /globex/
   its slot).
 - **A tenant on its own domain**: an entry with an `origin` (`{ key: 'acme', origin: 'https://acme-shop.com' }`) is
   written under its key's folder, `dist/acme/` (its languages inside, `dist/acme/de/about/index.html`), and every URL
-  in its pages is that domain's: links (`/de/about/`), the canonical link and `hreflang` (`https://acme-shop.com/…`),
+  in its pages is that domain's: links (`/de/about/`; one to another origin's page, or from its page to a shared one
+  on `site`, is absolute and loads the page), the canonical link and `hreflang` (`https://acme-shop.com/…`),
   its next-page data and swaps (its own pages only), a sitemap of its own (`dist/acme/sitemap.xml`) and the language
   chooser at its root. The reverse proxy maps the domain to the folder; the shared files stay at the root:
 
@@ -325,8 +338,8 @@ dist/globex/index.html        /globex/
 
   The site's `_redirects` leave such a tenant's pages out (a host that reads them serves one domain). In dev, a tenant
   with an origin is served under its key, as a segment (`/acme/de/about/`).
-- Not yet ([docs/proposals/axes.md](proposals/axes.md), step 6): absolute links between origins, the server layers'
-  host map, and a build error for a link from a page outside the axis to a page only an axis has.
+- Not yet ([docs/proposals/axes.md](proposals/axes.md)): a 404 page per origin, the server layers' host map, and a
+  link through a variable that holds a tenant (`data-sn-with`) rather than a loop.
 
 ### Redirects and rewrites
 

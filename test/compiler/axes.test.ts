@@ -22,7 +22,7 @@ const page = `<!doctype html><html data-sn-for="tenant in tenants; post in posts
 test('a template compile lists each axis\'s entries, and the page\'s own entries at the first axis\'s value', () => {
   const out = compile(page, base);
   expect(out.diagnostics.filter((d) => d.severity === 'error')).toEqual([]);
-  expect(out.axes).toEqual([{ name: 'tenant', of: 'tenants', entries: [{ key: 'acme', value: { key: 'acme', name: 'Acme' } }, { key: 'globex', value: { key: 'globex', name: 'Globex' } }] }]);
+  expect(out.axes).toEqual([{ name: 'tenant', of: 'tenants', src: 'content:tenants', entries: [{ key: 'acme', value: { key: 'acme', name: 'Acme' } }, { key: 'globex', value: { key: 'globex', name: 'Globex' } }] }]);
   // the posts are the first tenant's folder's
   expect(out.pages!.entries.map((e) => e.path)).toEqual(['/blog/a']);
 });
@@ -56,4 +56,23 @@ test('a layout\'s `data-sn-for` is outside the page\'s own: the layout declares 
   const plain = compile('<shop-layout><p data-sn-text="tenant.name"></p></shop-layout>', { ...withLayout, file: '/app/about.html', axes: [{ value: { key: 'globex', name: 'Globex' }, key: 'globex', segment: 'globex' }] });
   expect(plain.html).toContain('<p>Globex</p>');
   expect(plain.html).toContain('<title>Globex</title>');
+});
+
+test('a link in a row of a loop over an axis list is marked with the row\'s entry, for the build\'s link pass', () => {
+  const portal = '<!doctype html><html><head><title>x</title></head><body><sn-resource name="tenants" src="content:tenants"></sn-resource><template data-sn-for="t in tenants"><a href="/about.html" data-sn-text="t.name"></a></template><a href="/faq.html">FAQ</a></body></html>';
+  const out = compile(portal, { ...base, file: '/app/portal.html', axisLists: ['content:tenants'] });
+  expect(out.diagnostics.filter((d) => d.severity === 'error')).toEqual([]);
+  expect(out.html).toContain('<a href="/about.html" data-sinter-pt="content%3Atenants acme">Acme</a><a href="/about.html" data-sinter-pt="content%3Atenants globex">Globex</a><a href="/faq.html">FAQ</a>');
+  // not an axis list: no mark
+  expect(compile(portal, { ...base, file: '/app/portal.html' }).html).not.toContain('data-sinter-pt');
+});
+
+test('axisUrl(list, key): this page at another value of an axis, folded at build; another argument is SN301', () => {
+  const plain = '<!doctype html><html data-sn-for="tenant in tenants"><head><title>x</title></head><body><sn-resource name="tenants" src="content:tenants"></sn-resource><template data-sn-for="t in tenants"><a data-sn-attr="{ href: axisUrl(tenants, t.key) }" data-sn-text="t.name"></a></template></body></html>';
+  const axisUrls = { 'content:tenants': { acme: '/acme/', globex: 'https://globex.example/' } };
+  const out = compile(plain, { ...base, file: '/app/index.html', axes: [{ value: { key: 'acme', name: 'Acme' }, key: 'acme', segment: 'acme' }], axisUrls });
+  expect(out.diagnostics.filter((d) => d.severity === 'error')).toEqual([]);
+  expect(out.html).toContain('<a href="/acme/">Acme</a><a href="https://globex.example/">Globex</a>');
+  const bad = compile(plain.replace('axisUrl(tenants, t.key)', "axisUrl('tenants', t.key)"), { ...base, file: '/app/index.html', axes: [{ value: { key: 'acme', name: 'Acme' }, key: 'acme', segment: 'acme' }], axisUrls });
+  expect(bad.diagnostics.map((d) => `${d.code} ${d.message}`)).toContainEqual(expect.stringMatching(/^SN301 `axisUrl\(\)` takes the list of one of this page's axes/));
 });

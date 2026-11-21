@@ -67,6 +67,8 @@ export interface ResourceInfo {
   name: string; key: string[] | null; paginate: string | null; used: boolean;
   /** keyset with `jump`: `page(name, n)` and `$meta.<name>.page` are available */
   jumps?: boolean;
+  /** its `src` as written (`axisUrl(tenants, …)` names an axis by its list's) */
+  src?: string;
 }
 
 export interface Scope {
@@ -138,6 +140,11 @@ export interface PageInfo {
    * `localeUrl()` from the page's translations (`ownUrls`). A `<html data-sn-for>` template doing so has a program per entry
    */
   readsUrl?: boolean;
+  /**
+   * `axisUrl(list, key)`: this page's URL at another value of one of its axes (docs/proposals/axes.md §5), by the list's
+   * `src` and the value's key; the call's list argument compiles to its `src`
+   */
+  axisUrl?: string;
   helpers: Set<string>;
   /** action functions and namespaces: only `data-sn-call` and `<sn-resource call>` may name them */
   actions?: Set<string>;
@@ -482,6 +489,8 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
     const local = locals.get(name);
     if (local) return { kind: 'local', info: local };
     if (page.locale && name === '$locale') return { kind: 'const', code: JSON.stringify(page.locale.name) };
+    // (the page's own URLs: a `<html data-sn-for>` template that reads them has a program per entry)
+    if (page.axisUrl && name === 'axisUrl') { page.readsUrl = true; return { kind: 'const', code: page.axisUrl }; }
     if (page.locale && page.locale.prefix !== false && name === 'localeUrl') { if (page.locale.ownUrls) page.readsUrl = true; return { kind: 'const', code: page.locale.localeUrl }; }
     if (name === '$site' || name === '$canonical') {
       const u = page.urls;
@@ -1065,6 +1074,15 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
 
   function visitCall(n: acorn.CallExpression & Node, locals: Locals) {
     const callee = (n.callee.type === 'ChainExpression' ? n.callee.expression : n.callee) as Node;
+    // `axisUrl(tenants, key)`: the list names the axis, by its `src`; it is not read
+    if (callee.type === 'Identifier' && (callee as acorn.Identifier).name === 'axisUrl' && page.axisUrl && !locals.has('axisUrl')) {
+      const a0 = n.arguments[0] as Node | undefined, r = a0?.type === 'Identifier' && !locals.has((a0 as acorn.Identifier & Node).name) ? page.resources.get((a0 as acorn.Identifier & Node).name) : undefined;
+      if (!r?.src) report('SN301', `\`axisUrl()\` takes the list of one of this page's axes (\`axisUrl(tenants, 'acme')\`, a \`<sn-resource>\` its \`data-sn-for\` on \`<html>\` is over)`, a0?.start ?? n.start);
+      else { r.used = true; edits.push({ start: a0!.start, end: a0!.end, text: JSON.stringify(r.src) }); }
+      ident(callee as acorn.Identifier & Node, locals);
+      for (const a of n.arguments.slice(1)) visit(a as Node, locals);
+      return;
+    }
     let elementInfo: LocalInfo | null = null;
     if (callee.type === 'MemberExpression') {
       const m = callee as acorn.MemberExpression & Node;

@@ -434,8 +434,14 @@ Each step ships on its own.
    canonical and `hreflang` name the origin, the next-page data and swap lists are per origin
    (`prefetch-<key>.js`), a sitemap and choosers per origin; the root `_redirects` leave its pages out
    (`test/vite/origins.test.ts`). Also fixed: the sitemap's alternates pair a page's languages at its own axes'
-   values. Next: absolute links across origins and from shared pages (§5's derived links and the build error),
-   `axisUrl()`, the special files per point (404 per origin), and the server layers' host map (§10).
+   values. *6.4 done the same day:* links between points (§5). A link in a row of a loop over an axis list is
+   marked by the compiler (`data-sinter-pt`, the list's `src` and the row's key; `axisLists`), and the build's link
+   pass (`relocateHtml` with `OtherPoint`, the plugin's `pointLinks`) sends it to that entry's page; a link the page's
+   own point does not answer goes to the page at that path at its point; a page on another origin is absolute (an
+   origin's link to a shared page too, on `site`); a link to a page only an axis's values have, from a page outside
+   that axis and not in a loop over it, fails the build (in dev, a warning). `axisUrl(list, key)`: the page at
+   another value of an axis, from a table per point (`axisUrls`), folded at build. Not yet: case 2 (a variable that
+   holds an entry), the special files per point (404 per origin), and the server layers' host map (§10).
 7. **Fallback chains** (§6): `chain`, the new direction in `choose`, the shared test cases in the three server
    layers, the manifest's `fallbacks`, chains of other axes, `fallback: true` for content.
    *Languages done 2026-11-21:* `chain` and `checkFallbacks` in src/locales.ts, `languages({ fallbacks })`, messages

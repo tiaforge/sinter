@@ -225,6 +225,10 @@ export function shadow(o: ShadowOptions): Shadow {
     line('/** @type {(locale: string) => string} */');
     line('const localeUrl = $any;');
   }
+  if (!userHelpers.includes('axisUrl') && !taken.has('axisUrl') && !('axisUrl' in o.helpers.namespaces)) {
+    line('/** @type {(list: unknown, key: string) => string} */');
+    line('const axisUrl = $any;');
+  }
   line('/** @type {string} */');
   line('const $site = $any;');
   line('/** @type {string} */');

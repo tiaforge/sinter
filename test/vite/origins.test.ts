@@ -28,21 +28,28 @@ export const tenants = collection({ key: 'key', load: () => [
 <head><meta charset="utf-8"><title data-sn-text="tenant.name + ' · ' + title"></title></head>
 <body>
   <sn-resource name="tenants" src="content:tenants"></sn-resource>
-  <nav><a href="/index.html">Home</a> <a href="/about.html">About</a></nav>
+  <nav><a href="/index.html">Home</a> <a href="/about.html">About</a> <a href="/faq.html">FAQ</a></nav>
+  <ol class="shops"><template data-sn-for="x in tenants"><li><a data-sn-attr="{ href: axisUrl(tenants, x.key) }" data-sn-text="x.name"></a></li></template></ol>
   <main><slot></slot></main>
 </body>
 </html>`,
   'index.html': `<shop-layout data-sn-with="{ title: 'Home' }"><h1 data-sn-text="tenant.name"></h1><p data-sn-text="$canonical"></p></shop-layout>`,
   'about.html': `<shop-layout data-sn-with="{ title: 'About' }"><p data-sn-text="'About ' + tenant.name"></p></shop-layout>`,
   // a page that runs: its next-page data names its origin's pages
+  // pages outside the tenant axis: a portal that links to each tenant's page from a loop over them, and a shared FAQ
+  'portal.html': `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Shops</title></head><body>
+<sn-resource name="tenants" src="content:tenants"></sn-resource>
+<ul><template data-sn-for="t in tenants"><li><a href="/about.html" data-sn-text="t.name"></a></li></template></ul>
+<a href="/faq.html">FAQ</a></body></html>`,
+  'faq.html': `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>FAQ</title></head><body><a href="/portal.html">Shops</a></body></html>`,
   'cart.html': `<shop-layout data-sn-with="{ title: 'Cart' }"><sn-resource name="cart" src="/api/cart"></sn-resource><p data-sn-text="cart.n"></p></shop-layout>`,
 };
 beforeAll(async () => {
   for (const [f, text] of Object.entries(files)) { mkdirSync(dirname(join(root, f)), { recursive: true }); writeFileSync(join(root, f), text); }
   await build({
     root, logLevel: 'silent', resolve: { alias },
-    plugins: [sinter({ localePrefix: true, messages: false, typecheck: false, site: 'https://example.com' })],
-    build: { outDir: out, emptyOutDir: true, rollupOptions: { input: ['index.html', 'about.html', 'cart.html'].map((f) => join(root, f)) } },
+    plugins: [sinter({ localePrefix: true, typecheck: false, site: 'https://example.com' })],
+    build: { outDir: out, emptyOutDir: true, rollupOptions: { input: ['index.html', 'about.html', 'cart.html', 'portal.html', 'faq.html'].map((f) => join(root, f)) } },
   });
 }, 120_000);
 const read = (f: string) => readFileSync(join(out, f), 'utf8');
@@ -83,6 +90,35 @@ describe('a tenant on its own domain, and one on the site', () => {
     expect(lists.some((c) => c.includes('/de/demo/cart/'))).toBe(true);
     expect(lists.every((c) => !(c.includes('/de/demo/cart/') && /["`']\/de\/cart\//.test(c)))).toBe(true);
   });
+
+  test('links across points: a loop over the tenants names each one\'s page, absolute on its domain; a tenant\'s link to a shared page, absolute on the site', () => {
+    const portal = read('de/portal/index.html');
+    expect(portal).toContain('<li><a href="https://acme-shop.com/de/about/">Acme</a></li><li><a href="/de/demo/about/">Demo</a></li>');
+    expect(portal).toContain('<a href="/de/faq/">FAQ</a>');
+    expect(portal).not.toContain('data-sinter-pt');
+    // from the domain: the site's page is absolute; from the tenant on the site, a path
+    expect(read('acme/de/about/index.html')).toContain('<a href="https://example.com/de/faq/">FAQ</a>');
+    expect(read('de/demo/about/index.html')).toContain('<a href="/de/faq/">FAQ</a>');
+    expect(read('de/faq/index.html')).toContain('<a href="/de/portal/">Shops</a>');
+  });
+
+  test('axisUrl(): this page at each tenant, absolute on another origin', () => {
+    expect(read('acme/de/about/index.html')).toContain('<li><a href="/de/about/">Acme</a></li><li><a href="https://example.com/de/demo/about/">Demo</a></li>');
+    expect(read('de/demo/about/index.html')).toContain('<li><a href="https://acme-shop.com/de/about/">Acme</a></li><li><a href="/de/demo/about/">Demo</a></li>');
+  });
+
+  test('a link to a tenant\'s page from a page outside the tenants, not in a loop over them, fails the build', async () => {
+    writeFileSync(join(root, 'faq.html'), files['faq.html']!.replace('<a href="/portal.html">', '<a href="/about.html">About</a><a href="/portal.html">'));
+    try {
+      await expect(build({
+        root, logLevel: 'silent', resolve: { alias },
+        plugins: [sinter({ localePrefix: true, typecheck: false, site: 'https://example.com' })],
+        build: { outDir: join(root, 'dist-bad'), emptyOutDir: true, rollupOptions: { input: ['about.html', 'faq.html'].map((f) => join(root, f)) } },
+      })).rejects.toThrow(/faq\.html \(en\/faq\.html\): the link to `\/about\.html` goes to a page built per entry of `content:tenants`, and this page is not, nor is the link in a loop over that list/);
+    } finally {
+      writeFileSync(join(root, 'faq.html'), files['faq.html']!);
+    }
+  }, 120_000);
 
   test('the site\'s _redirects leave the domain\'s pages to its proxy', () => {
     if (existsSync(join(out, '_redirects'))) expect(read('_redirects')).not.toContain('acme');

@@ -20,20 +20,27 @@ const split = (u: string) => { const i = u.search(/[?#]/); return i < 0 ? [u, ''
  * `<object data>`, CSS `url()` in `style` and `<style>`, the language picker's files). A script's text and a
  * comment are left as they are; so is a link with `hreflang`, which names a language on purpose.
  */
-function rewriteUrls(html: string, url: (u: string, link: boolean) => string, all: boolean): string {
+function rewriteUrls(html: string, url: (u: string, link: boolean, at?: Map<string, string>) => string, all: boolean, marks = false): string {
   const srcset = (v: string) => v.split(',').map((c) => c.replace(/^(\s*)(\S+)/, (_, ws: string, u: string) => ws + url(u, false))).join(',');
   const css = (text: string) => (all ? text.replace(/url\(\s*(['"]?)([^'")]+)\1\s*\)/g, (m, q: string, u: string) => `url(${q}${url(u, false)}${q})`) : text);
   const decode = (v: string) => v.replace(/&#34;|&quot;/g, '"').replace(/&amp;/g, '&');
   const encode = (v: string) => v.replace(/&/g, '&amp;').replace(/"/g, '&#34;');
-  const tag = (t: string) => {
-    const name = /^<([a-zA-Z][\w-]*)/.exec(t)?.[1]?.toLowerCase() ?? '';
+  const tag = (t0: string) => {
+    const name = /^<([a-zA-Z][\w-]*)/.exec(t0)?.[1]?.toLowerCase() ?? '';
+    // the compiler's mark on a link in a row of a loop over an axis list (`data-sinter-pt`): read, and removed
+    let at: Map<string, string> | undefined;
+    const t = marks && (name === 'a' || name === 'area') && t0.includes(' data-sinter-pt=') ? t0.replace(/\sdata-sinter-pt="([^"]*)"/, (_, v: string) => {
+      const w = v.split(' ');
+      at = new Map(w.flatMap((x, i) => (i % 2 ? [] : [[decodeURIComponent(x), decodeURIComponent(w[i + 1] ?? '')] as [string, string]])));
+      return '';
+    }) : t0;
     const link = (name === 'a' || name === 'area') && !/\shreflang=/i.test(t);
     return t.replace(/(\s)(href|src|srcset|poster|action|formaction|data|style|data-sn-i18n)=("([^"]*)"|'([^']*)')/gi, (m, ws: string, attr: string, _q: string, d?: string, sq?: string) => {
       const v = d ?? sq ?? '', q = d !== undefined ? '"' : "'", a = attr.toLowerCase();
       let out = v;
       if (a === 'href') {
         if ((name === 'a' || name === 'area') && !link) return m;
-        out = url(v, link);
+        out = url(v, link, at);
       } else if (!all) return m;
       else if (a === 'srcset') out = srcset(v);
       else if (a === 'style') out = css(v);
@@ -84,7 +91,7 @@ export function rebaseHtml(html: string, from: string, to: string): string {
  * `/de/about/`; with `prefix`, a point's folder (`de/acme`: a language and an axis's value), to that folder's pages, which
  * a link names first.
  */
-export function relocateHtml(html: string, page: PageEntry, pages: PageEntry[], base: string, locales: string[] = [], prefix?: string | null): string {
+export function relocateHtml(html: string, page: PageEntry, pages: PageEntry[], base: string, locales: string[] = [], prefix?: string | null, other?: OtherPoint): string {
   const b = rootOf(base);
   const moved = movesToDirectory(page.rel, base, page.patterns);
   const oldDir = '/' + posix.dirname(page.rel).replace(/^\.$/, '');
@@ -92,8 +99,16 @@ export function relocateHtml(html: string, page: PageEntry, pages: PageEntry[], 
   // the page's point's folder (`de`, `de/acme`): given, else its language from its first folder
   const lang = prefix !== undefined ? prefix : languageOfFile(page.rel, locales);
   const targets = targetsOf(pages, base, lang);
-  return relocateWith(html, page, base, locales, b, moved, oldDir, newDir, lang, targets);
+  return relocateWith(html, page, base, locales, b, moved, oldDir, newDir, lang, targets, other);
 }
+
+/**
+ * A link the page's own pages do not have (`pages`): a page at another point (docs/proposals/axes.md §5), given the
+ * link's site path (from the base) and the entries of the axis lists the link's row names (`data-sinter-pt`): its site
+ * path, an absolute URL (another origin's page), or null to leave the link as written. It throws for a link the page
+ * cannot derive.
+ */
+export type OtherPoint = (site: string, at: Map<string, string> | null) => string | null;
 
 /**
  * where each page with a fixed path is, by every path a link may name it with (site paths: from the base): one map
@@ -131,22 +146,25 @@ function targetsOf(pages: PageEntry[], base: string, lang: string | null): Map<s
   return targets;
 }
 
-function relocateWith(html: string, page: PageEntry, base: string, locales: string[], b: string, moved: boolean, oldDir: string, newDir: string, lang: string | null, targets: Map<string, string>): string {
-  return rewriteUrls(html, (u, link) => {
+function relocateWith(html: string, page: PageEntry, base: string, locales: string[], b: string, moved: boolean, oldDir: string, newDir: string, lang: string | null, targets: Map<string, string>, other?: OtherPoint): string {
+  // a link's target: a row's entry's page first, then the page's own pages, then another point's
+  const target = (site: string, at?: Map<string, string>) => (other && at?.size ? other(site, at) : null) ?? targets.get(site) ?? (other ? other(site, null) : null);
+  const absolute = (t: string) => /^[a-z][a-z\d+.-]*:/i.test(t);
+  return rewriteUrls(html, (u, link, at) => {
     const value = u.trim();
     if (OUTSIDE.test(value)) return u;
     const [path, rest] = split(value);
     if (path.startsWith('/')) {
       // root-relative: only a link to a page changes (a page moving does not change where `/x` points)
       if (!link || !path.startsWith(b)) return u;
-      const t = targets.get('/' + path.slice(b.length));
-      return t ? b + t.slice(1) + rest : u;
+      const t = target('/' + path.slice(b.length), at);
+      return t ? (absolute(t) ? t : b + t.slice(1)) + rest : u;
     }
     const site = posix.join(oldDir, path);
-    const t = link ? targets.get(site) : undefined;
-    if (t) return fromDir(newDir, t) + rest;
+    const t = link ? target(site, at) : undefined;
+    if (t) return (absolute(t) ? t : fromDir(newDir, t)) + rest;
     return moved ? fromDir(newDir, site) + rest : u;
-  }, moved);
+  }, moved, true);
 }
 
 /**

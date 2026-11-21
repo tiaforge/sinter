@@ -81,6 +81,17 @@ export interface CompileOptions {
    */
   axes?: Array<{ value: unknown; key: string; segment: string | null }>;
   /**
+   * Builds: the lists some page is built over (their `src`: `content:tenants`). A link in a row of a loop over one
+   * (`<template data-sn-for="t in tenants"><a href="/shop/">`) goes to that row's entry's page (docs/proposals/axes.md
+   * §5): the compiler marks it with `data-sinter-pt`, which the build's link pass reads and removes.
+   */
+  axisLists?: readonly string[];
+  /**
+   * Builds: this page's URL at each value of each axis it is built over, by the list's `src` and the value's key
+   * (`{ 'content:tenants': { acme: 'https://acme-shop.com/de/about/', demo: '/de/demo/about/' } }`): `axisUrl(tenants, key)`
+   */
+  axisUrls?: Record<string, Record<string, string>>;
+  /**
    * Builds: where a `<html data-sn-for>` template's first pass is kept, so its other entries are not walked again
    * (`fromTemplate`). The compiles that share one must differ only in what each entry changes: `page`, `foldLog`,
    * `urls`, `moduleSrc`, `paintCss`, `images` and `locale.urls`. Cleared with the build's reads.
@@ -328,8 +339,11 @@ export interface CompileResult {
    * template: no `page` option). A build writes one page per entry.
    */
   pages?: { name: string; of: string; pattern: string; entries: Array<{ value: unknown; path: string; key: string }> };
-  /** a compile without `axes`: each axis the page is built over (its item's name, its list) and the list's entries */
-  axes?: Array<{ name: string; of: string; entries: Array<{ value: unknown; key: string }> }>;
+  /**
+   * a compile without `axes`: each axis the page is built over (its item's name, its list, the list's `src`, which names
+   * it across pages) and the list's entries
+   */
+  axes?: Array<{ name: string; of: string; src: string; entries: Array<{ value: unknown; key: string }> }>;
   /** the content namespaces the page was compiled with, at its point (the entries its app modules call are read there) */
   contentNs?: CompileOptions['contentNs'];
   /** @internal the embedded values, by id, whose JSON `compileParts` writes into the page */
@@ -486,8 +500,11 @@ export interface CompiledParts {
    * template: no `page` option). A build writes one page per entry.
    */
   pages?: { name: string; of: string; pattern: string; entries: Array<{ value: unknown; path: string; key: string }> };
-  /** a compile without `axes`: each axis the page is built over (its item's name, its list) and the list's entries */
-  axes?: Array<{ name: string; of: string; entries: Array<{ value: unknown; key: string }> }>;
+  /**
+   * a compile without `axes`: each axis the page is built over (its item's name, its list, the list's `src`, which names
+   * it across pages) and the list's entries
+   */
+  axes?: Array<{ name: string; of: string; src: string; entries: Array<{ value: unknown; key: string }> }>;
   /** the content namespaces at the page's point, where one is loaded per axis (its entries the point's) */
   contentNs?: CompileOptions['contentNs'];
   /** @internal the embedded values, by id, whose JSON `compileParts` writes into the page */
@@ -1426,6 +1443,7 @@ class Compiler {
     }
     const cns = Object.keys(opts.contentNs ?? {});
     if (cns.length) this.page.contentNs = new Set(cns);
+    if (opts.axisUrls && Object.keys(opts.axisUrls).length) this.page.axisUrl = `((s, k) => (${JSON.stringify(opts.axisUrls)})[s]?.[k])`;
     // helpers whose declaring module reaches a lazy package: each module loads whole, when a let first needs it
     const reach = opts.lazyModule;
     if (reach) {
@@ -4429,6 +4447,8 @@ class Compiler {
         const paginate = attr(child, 'paginate') != null ? this.pageSpec(child) : null;
         const info: ResourceInfo = { name, key: key ? key.split(',').map((s) => s.trim()).filter(Boolean) : null, paginate: paginate?.mode ?? null, used: false };
         if (paginate?.jump) info.jumps = true;
+        const rsrc = attr(child, 'src')?.trim();
+        if (rsrc && this.opts.axisUrls?.[rsrc]) info.src = rsrc;
         this.page.resources.set(name, info);
         this.resourceEls.set(name, child);
         continue;
@@ -4613,6 +4633,7 @@ class Compiler {
     this.at = { el, attr: null, shift: 0 };
     // a link the build can see: same-page links (query-links.ts) are decided once the page is read
     if ((el.tagName === 'a' || el.tagName === 'area') && attr(el, 'href') != null) this.hrefs.push({ el, prefixes: [{ s: attr(el, 'href')!.trim(), whole: true }], literal: true });
+    if ((el.tagName === 'a' || el.tagName === 'area') && this.opts.axisLists?.length) this.markAxisLink(el);
     // a row of an unrolled loop: its item and index, as derived names over the constant list, on the
     // scope of the loop's writer (before a component's root takes its props from this scope). The
     // component's own loop: before its slot content or fill switches to its caller's scope (which
@@ -6852,6 +6873,24 @@ class Compiler {
     return true;
   }
 
+  /**
+   * A link in rows of loops over axis lists (`axisLists`): `data-sinter-pt` names each list's entry (its `src` and key,
+   * the nearest row's for a list), for the build's link pass, which sends the link to that entry's page.
+   */
+  markAxisLink(el: P5Element) {
+    const at = new Map<string, string>();
+    for (let x: P5Node | null = el; x; x = (x as { parentNode: P5Node | null }).parentNode) {
+      for (let r = isElement(x) ? this.rowOf.get(x) : undefined; r; r = r.up) {
+        const name = r.list.trim(), listEl = /^[A-Za-z_$][\w$]*$/.test(name) ? this.resourceEls.get(name) : undefined;
+        const src = listEl ? attr(listEl, 'src')?.trim() : undefined;
+        if (!src || !this.opts.axisLists!.includes(src) || at.has(src)) continue;
+        const keyOf = this.page.resources.get(name)?.key ?? ['key'];
+        at.set(src, keyOf.map((f) => String((r!.value as Record<string, unknown>)?.[f])).join('/'));
+      }
+    }
+    if (at.size && !el.attrs.some((a) => a.name === 'data-sinter-pt')) el.attrs.push({ name: 'data-sinter-pt', value: [...at].map(([s, k]) => `${encodeURIComponent(s)} ${encodeURIComponent(k)}`).join(' ') });
+  }
+
   /** an axis's item: this compile's value (`axes`), or its list's first entry, listing the entries for the build */
   axisResource(el: P5Element, name: string, scope: number, i: number) {
     const d = this.axisDecls[i]!;
@@ -6860,7 +6899,7 @@ class Compiler {
     // a compile given the outer axes' values only (the build lists an inner list at each outer value): this one's entries
     if (!this.opts.axes?.[i]) {
       const keyOf = this.page.resources.get(d.of)?.key ?? ['key'];
-      this.axesOut[i] = { name: d.name, of: d.of, entries: entries.map((e) => ({ value: e, key: keyOf.map((f) => String((e as Record<string, unknown>)?.[f])).join('/') })) };
+      this.axesOut[i] = { name: d.name, of: d.of, src: attr(this.resourceEls.get(d.of)!, 'src')!.trim(), entries: entries.map((e) => ({ value: e, key: keyOf.map((f) => String((e as Record<string, unknown>)?.[f])).join('/') })) };
     }
     const value = this.opts.axes?.[i] ? this.opts.axes[i]!.value : entries[0] ?? null;
     const id = this.nextId++;
