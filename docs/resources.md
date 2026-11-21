@@ -395,8 +395,8 @@ export function format(entry, args, locale) { return entry.body.replace(/\[(\w+)
 - An unknown id is `SN206`, with the namespace's ids as suggestions. A name another namespace has (a helper namespace,
   another content namespace) fails the build.
 - `format(entry, args, locale)` is a plain function of its arguments, so the build can run it.
-- Not yet ([docs/proposals/messages.md](proposals/messages.md)): `per` namespaces, nested ids (`ns.a.b()`), calls
-  from app modules, and `sinter check` and the editor knowing a namespace's ids (they report its calls as unknown).
+- `sinter check` and the editor know a namespace's ids from the build's snapshot (`vite build` or `vite dev` writes it).
+- Not yet ([docs/proposals/messages.md](proposals/messages.md)): `per` namespaces and calls from app modules.
 
 ## Loading behavior
 

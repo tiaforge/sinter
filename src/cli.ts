@@ -10,7 +10,7 @@ import { project, staticPages, strictEnv, viteProject, type ProjectOptions } fro
 import { lazyDiagnostics, lazyHelpers, resolveFile } from './lazy-build.js';
 import { loadHelpers, unloadedMessage } from './helpers-node.js';
 import { checkLocale } from './locales-build.js';
-import { readSnapshot } from './content-node.js';
+import { readSnapshot, snapshotNamespaces } from './content-node.js';
 import { componentScript } from './components-build.js';
 import { CODES, severityOf, strictPromotes, type Code } from './compiler/diagnostics.js';
 
@@ -65,13 +65,15 @@ async function main(argv: string[]): Promise<number> {
   const snap = p.contentFile ? readSnapshot(root, p.contentFile) : null;
   if (p.contentFile && !snap) console.error('sinter check: the content module\'s collections have no snapshot yet (vite build or vite dev writes one): what pages read of them is typed, not checked against their values');
   else if (snap?.stale) console.error('sinter check: the content module changed since the collections\' snapshot (vite build or vite dev writes a new one): their values may be out of date');
-  const contentOpts = p.contentFile ? { contentModule: p.contentFile, ...(snap ? { collections: snap.collections } : {}) } : {};
+  // content namespaces: their ids from the snapshot, so a page's calls are checked as the build checks them
+  const ns = p.contentFile && snap ? snapshotNamespaces(root, p.helpers) : { helpers: p.helpers };
+  const contentOpts = p.contentFile ? { contentModule: p.contentFile, ...(snap ? { collections: snap.collections } : {}), ...(ns.contentNs ? { contentNs: ns.contentNs } : {}) } : {};
   const lh = p.lazy.length ? lazyHelpers(root, p.lazy, undefined, p.libraries) : null;
   // the helpers module in Node, as the build loads it: what folds, and so SN322, agrees with the build
   const nh = await loadHelpers({ root, helpersFile: p.helpersFile, manifest: p.helpers });
   if (nh.error && p.helpersFile) diagnostics.push({ severity: 'warning', code: 'SN533', message: unloadedMessage(root, p.helpersFile, nh.error), file: p.helpersFile, line: 1, col: 1 });
   for (const file of files) {
-    const out = compile(readFileSync(file, 'utf8'), { ...(lh ? { lazyModule: lh.reach } : {}), helperValues: nh.module, helperFold: nh.fold, ...contentOpts, file, root, dev: false, helpers: p.helpers, actions: p.actions, config: p.config, readFile: p.readFile, listFiles: p.listFiles, check: true, openapi: p.openapi, apis: p.apis, complexity: p.complexity, ...(p.expansionLimit ? { expansionLimit: p.expansionLimit } : {}), componentNames: p.componentNames, libraries: p.libraries, lazy: p.lazy, ...(p.isStatic(file) ? { static: true, prerender: true } : {}), ...(p.swap ? { swap: true } : {}), ...(locale ? { locale } : {}) });
+    const out = compile(readFileSync(file, 'utf8'), { ...(lh ? { lazyModule: lh.reach } : {}), helperValues: nh.module, helperFold: nh.fold, ...contentOpts, file, root, dev: false, helpers: ns.helpers, actions: p.actions, config: p.config, readFile: p.readFile, listFiles: p.listFiles, check: true, openapi: p.openapi, apis: p.apis, complexity: p.complexity, ...(p.expansionLimit ? { expansionLimit: p.expansionLimit } : {}), componentNames: p.componentNames, libraries: p.libraries, lazy: p.lazy, ...(p.isStatic(file) ? { static: true, prerender: true } : {}), ...(p.swap ? { swap: true } : {}), ...(locale ? { locale } : {}) });
     diagnostics.push(...out.diagnostics);
     if (out.check) units.push(out.check);
   }
@@ -86,7 +88,7 @@ async function main(argv: string[]): Promise<number> {
       ...p.libraries.flatMap((l) => [...l.public.map((n) => join(l.folder, 'components', n)), ...l.internal.map((n) => join(l.folder, 'components', 'internal', n))]).map((b) => componentScript(b + '.html'))].filter((f): f is string => !!f);
     diagnostics.push(...lazyDiagnostics(root, p.lazy, [p.helpersFile, p.actionsFile, mod(p.config), mod(p.early)], lh!.whole(p.helpers), scripts, p.libraries, p.helpersFile));
   }
-  const r = check({ root, units, helpers: p.helpers, actions: p.actions, types: p.types, openapi: p.openapi, messagesTypes: p.messagesTypes, libraries: p.libraries });
+  const r = check({ root, units, helpers: ns.helpers, actions: p.actions, types: p.types, openapi: p.openapi, messagesTypes: p.messagesTypes, libraries: p.libraries });
   diagnostics.push(...r.diagnostics);
 
   const warned = diagnostics.filter((d) => d.severity === 'warning').length;

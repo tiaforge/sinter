@@ -57,3 +57,13 @@ test('an unknown entry is SN206, with the namespace\'s ids as suggestions', asyn
   await expect(build({ root, logLevel: 'silent', resolve: { alias }, plugins: [sinter({ localePrefix: true, messages: false, typecheck: false })], build: { outDir: join(root, 'dist-bad'), emptyOutDir: true, rollupOptions: { input: [join(root, 'bad.html')] } } }))
     .rejects.toThrow(/SN206.*`legal\.imprnt` is not exported by namespace `legal`.*imprint/s);
 }, 120_000);
+
+test('sinter check and the editor: the namespace\'s ids from the build\'s snapshot', async () => {
+  const { snapshotNamespaces } = await import('../../src/content-node.js');
+  const { compile } = await import('../../src/compiler/index.js');
+  const ns = snapshotNamespaces(root, { module: null, names: [], namespaces: {} });
+  expect(ns.helpers.namespaces.legal).toEqual({ module: 'sinter:content/legal', members: ['imprint', 'terms', 'unused'] });
+  const opts = { file: join(root, 'x.html'), root, dev: false, readFile: () => '', helpers: ns.helpers, contentNs: ns.contentNs, check: true };
+  expect(compile('<p data-sn-text="legal.terms({ n: 1 })"></p>', opts).diagnostics.filter((d) => d.severity === 'error')).toEqual([]);
+  expect(compile('<p data-sn-text="legal.term()"></p>', opts).diagnostics.map((d) => d.code)).toContain('SN206');
+});

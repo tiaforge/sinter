@@ -239,8 +239,29 @@ export function writeSnapshot(root: string, file: string, c: LoadedContent, base
   try {
     const out = snapshotFile(root);
     mkdirSync(dirname(out), { recursive: true });
-    writeFileSync(out, JSON.stringify({ version: 1, module: relative(root, file).split(sep).join('/'), mtimeMs: statSync(file).mtimeMs, collections: { ...Object.fromEntries(collectionsIn(c, baseLocale)), ...Object.fromEntries([...(c.perPoint ?? new Map())].map(([n, p]) => [n, { key: p.key, value: [...p.values.values()][0] ?? [] }])) }, ...(c.languages ? { languages: c.languages } : {}) }));
+    writeFileSync(out, JSON.stringify({ version: 1, module: relative(root, file).split(sep).join('/'), mtimeMs: statSync(file).mtimeMs, collections: { ...Object.fromEntries(collectionsIn(c, baseLocale)), ...Object.fromEntries([...(c.perPoint ?? new Map())].map(([n, p]) => [n, { key: p.key, value: [...p.values.values()][0] ?? [] }])) }, ...(c.namespaces?.size ? { namespaces: Object.fromEntries(c.namespaces) } : {}), ...(c.languages ? { languages: c.languages } : {}) }));
   } catch { /* a cache: the check goes without it */ }
+}
+
+/**
+ * The content namespaces the last snapshot recorded, for `sinter check` and the editor (which run no loaders): the
+ * helpers manifest with each one in it (its ids its members), and the compile's `contentNs` (the base language's
+ * entries; no formatter in Node, so nothing folds)
+ */
+export function snapshotNamespaces<H extends { namespaces: Record<string, { module: string; members: string[] }> }>(root: string, helpers: H): { helpers: H; contentNs?: Record<string, { entries: Record<string, unknown>; format: string | null }> } {
+  try {
+    const s = JSON.parse(readFileSync(snapshotFile(root), 'utf8')) as { version: number; collections: Record<string, { key: string; value: Array<Record<string, unknown>> }>; namespaces?: Record<string, { name: string; format: string }> };
+    if (s.version !== 1 || !s.namespaces) return { helpers };
+    const namespaces = { ...helpers.namespaces }, contentNs: Record<string, { entries: Record<string, unknown>; format: string | null }> = {};
+    for (const [exp, d] of Object.entries(s.namespaces)) {
+      if (namespaces[d.name]) continue;
+      const l = s.collections[exp], entries: Record<string, unknown> = {};
+      for (const e of l?.value ?? []) entries[String(e[l!.key])] = e;
+      namespaces[d.name] = { module: `sinter:content/${d.name}`, members: Object.keys(entries).sort() };
+      contentNs[d.name] = { entries, format: d.format };
+    }
+    return { helpers: { ...helpers, namespaces }, contentNs };
+  } catch { return { helpers }; }
 }
 
 /** The languages the last snapshot's content module declared (`languages()`), or null. */
