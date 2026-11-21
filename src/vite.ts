@@ -2343,14 +2343,14 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     const b = base().replace(/\/?$/, '/'), given = sitemapOptions.paths ?? {}, used = new Set<string>();
     const urls: SitemapUrl[] = [], seen = new Set<string>(), left: string[] = [], known = new Set<string>();
     const add = (u: SitemapUrl) => { if (!seen.has(u.loc)) { seen.add(u.loc); urls.push(u); } };
-    // the pages of each source page: one, or one per language
-    const groups = new Map<string, Array<{ page: PageEntry; locale: string | null; html: string }>>();
+    // the pages of each source page at each value of its axes: one, or one per language (its alternates)
+    const groups = new Map<string, Array<{ page: PageEntry; locale: string | null; html: string; axes: AxisValue[] }>>();
     for (const page of all) {
       const html = built.get(page.rel), v = virtual.get(resolve(root, page.rel));
       if (html === undefined) continue;
-      const src = v ? relOf(v.source) : page.rel;
-      if (!groups.has(src)) groups.set(src, []);
-      groups.get(src)!.push({ page, locale: v?.locale ?? null, html });
+      const g = [v ? relOf(v.source) : page.rel, ...(v?.axes ?? []).map((a) => a.key)].join('\0');
+      if (!groups.has(g)) groups.set(g, []);
+      groups.get(g)!.push({ page, locale: v?.locale ?? null, html, axes: v?.axes ?? [] });
     }
     const valuesOf = async (pattern: string) => {
       const v = given[pattern]!;
@@ -2364,7 +2364,8 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       if (typeof r !== 'string') fail(`sinter({ sitemap: { paths } }): ${src}: ${r.error}`);
       return r;
     };
-    for (const [src, list] of [...groups].sort(([x], [y]) => x.localeCompare(y))) {
+    for (const [g, list] of [...groups].sort(([x], [y]) => x.localeCompare(y))) {
+      const src = g.split('\0')[0]!, axes = list[0]!.axes;
       if (/(^|\/)(404|200)\.html?$/.test(src)) continue;
       const source = resolve(root, src);
       // each language's page that may be indexed, with its URL when it has a fixed one
@@ -2383,7 +2384,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       }
       const alternates = (locs: Array<{ locale: string | null; loc: string }>, unprefixed: string) =>
         locales && locs.length ? { ...Object.fromEntries(locs.map((l) => [l.locale!, l.loc])), 'x-default': siteOrigin + unprefixed } : undefined;
-      const alt = alternates(fixed, locales ? chooserUrl(source) : '');
+      const alt = alternates(fixed, locales ? chooserUrl(source, axes) : '');
       for (const f of fixed) add({ loc: f.loc, ...(alt ? { alternates: alt } : {}) });
       // the patterns with parameters, as the page writes them (without a language's prefix)
       const patterns = (locales ? describeSource(source).path : list[0]!.page.patterns).filter((p) => p.includes(':'));

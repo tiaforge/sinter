@@ -83,6 +83,15 @@ describe('a tenant axis inside each language', () => {
     expect(read('en/globex/index.html')).toContain('<a href="/en/globex/">Home</a> <a href="/en/globex/about/">About</a>');
   });
 
+  test('the sitemap: each tenant\'s page with its own languages as alternates', () => {
+    const xml = read('sitemap.xml');
+    const at = xml.indexOf('<loc>https://example.com/de/globex/about/</loc>');
+    expect(at).toBeGreaterThan(-1);
+    const entry = xml.slice(at, xml.indexOf('</url>', at));
+    expect(entry).toContain('hreflang="en" href="https://example.com/en/globex/about/"');
+    expect(entry).not.toContain('acme');
+  });
+
   test('hreflang pairs a tenant\'s page across languages; the chooser is at the tenant\'s unprefixed path', () => {
     const de = read('de/acme/about/index.html');
     expect(de).toContain('<link rel="alternate" hreflang="en" href="https://example.com/en/acme/about/">');
