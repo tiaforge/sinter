@@ -157,11 +157,18 @@ describe('paginate diagnostics', () => {
     expect(diags('paginate="{ keyset: {uid: $item.uid}, numbered: true, size: 5 }"')[0]).toMatch(/^SN401 `paginate` names one mode/);
     expect(diags('paginate="{ keyset: uid, size: 5 }"')).toEqual(['SN401 `keyset` is the cursor, an object literal read on the boundary item, `$item`: `keyset: { before: $item.id }`']);
     expect(diags('paginate="{ numbered: true, size: 0 }"')).toEqual(['SN401 `size` is the number of items per page, a positive whole number']);
-    expect(diags('paginate="{ numbered: true, sise: 5 }"')).toEqual(['SN401 `sise` is not a key of `paginate`; it takes `keyset`, `append`, `numbered`, `size`, `model`, `jump`, `params`, `directions`. Did you mean `size`?']);
-    expect(diags('paginate="{ number: true, size: 5 }"')).toEqual(['SN401 `number` is not a key of `paginate`; it takes `keyset`, `append`, `numbered`, `size`, `model`, `jump`, `params`, `directions`. Did you mean `numbered`?']);
+    expect(diags('paginate="{ numbered: true, sise: 5 }"')).toEqual(['SN401 `sise` is not a key of `paginate`; it takes `keyset`, `append`, `numbered`, `size`, `model`, `jump`, `params`, `directions`, `more`. Did you mean `size`?']);
+    expect(diags('paginate="{ number: true, size: 5 }"')).toEqual(['SN401 `number` is not a key of `paginate`; it takes `keyset`, `append`, `numbered`, `size`, `model`, `jump`, `params`, `directions`, `more`. Did you mean `numbered`?']);
     expect(diags(`paginate="{ numbered: true, size: 5, params: { pge: 'p' } }"`)[0]).toMatch(/^SN401 `pge` is not a key of `params`; .*Did you mean `page`\?/);
     expect(diags(`paginate="{ numbered: true, size: 5, params: { page: 'a b' } }"`)).toEqual(['SN401 `params.page` is a query parameter name']);
     expect(diags('paginate="offset: true"')[0]).toMatch(/^SN401 `paginate` is an object literal/);
+  });
+  test('`more` is a response path, a string literal', () => {
+    const msg = "SN401 `more` is the path in the response that says whether there are more items, a string literal: `more: 'has_more'`";
+    expect(diags('paginate="{ numbered: true, size: 5, more: has_more }"')).toEqual([msg]);
+    expect(diags(`paginate="{ numbered: true, size: 5, more: '' }"`)).toEqual([msg]);
+    expect(diags(`paginate="{ numbered: true, size: 5, more: 'a..b' }"`)).toEqual([msg]);
+    expect(diags(`paginate="{ numbered: true, size: 5, more: 'meta.has_more' }"`)).toEqual([]);
   });
   test('numbered: \'offset\' sends the items to skip; params.offset only names the parameter', async () => {
     const { compileParts } = await import('../../src/compiler/index.js');
@@ -453,4 +460,80 @@ test('page-model with embedded data: the data is the URL\'s page (here 3 of 3), 
   await settle();
   expect(root.querySelector('span')!.textContent).toBe('2,3,4,6,true,true');
   expect(requests.calls.map((c) => c.url)).toEqual(['/api/o?skip=3&limit=3']);
+});
+
+describe('`more`: the server says whether there are more items', () => {
+  // six items, an exact multiple of the page size: guessing from a full page offers a page that is empty
+  const SIX = ALL.slice(0, 6);
+  function server(call: RecordedCall) {
+    const q = new URL(call.url, 'http://x').searchParams;
+    const limit = Number(q.get('limit')), dir = q.get('direction'), at = Number(q.get('at'));
+    const skip = q.has('offset') ? Number(q.get('offset')) : (Number(q.get('page') || 1) - 1) * limit;
+    // the items in the direction asked for, nearest first, then put back in display order
+    const run = dir === 'last' ? [...SIX].reverse() : dir === 'prev' ? SIX.filter((m) => m.at > at).reverse()
+      : dir === 'next' ? SIX.filter((m) => m.at < at) : SIX.slice(skip);
+    const page = run.slice(0, limit);
+    if (dir === 'last' || dir === 'prev') page.reverse();
+    return { messages: page, meta: { has_more: run.length > limit } };
+  }
+  const pager = (pg: string, targets: Array<string | number>) => `
+    <sn-resource name="messages" src="/api/m" select="messages" key="uid" order="-at" paginate="{ ${pg} }"></sn-resource>
+    <span data-sn-text="[$meta.messages.from, $meta.messages.to, $meta.messages.hasPrev, $meta.messages.hasNext].join()"></span>
+    ${targets.map((d) => `<button id="t${d}" data-sn-on-click="page(messages, ${JSON.stringify(d).replace(/"/g, "'")})"></button>`).join('')}
+    <ul><template data-sn-for="m in messages"><li data-sn-text="m.uid"></li></template></ul>`;
+  async function run(pg: string, targets: Array<string | number> = ['first', 'prev', 'next', 'last']) {
+    const requests = mockRequests({ 'GET /api/m': server });
+    const { root, settle } = await render(pager(pg, targets), { requests });
+    await settle();
+    const state = () => [[...root.querySelectorAll('li')].map((l) => l.textContent).join(','), root.querySelector('span')!.textContent];
+    const go = async (id: string | number) => { root.querySelector<HTMLElement>(`#t${id}`)!.click(); await settle(); return state(); };
+    return { state, go, requests };
+  }
+
+  test('keyset: exact in both directions, without a total', async () => {
+    const { state, go } = await run("keyset: { at: $item.at }, size: 3, more: 'meta.has_more'");
+    expect(state()).toEqual(['1,2,3', '1,3,false,true']);
+    // the last page is full, and the server says nothing follows
+    expect(await go('next')).toEqual(['4,5,6', '4,6,true,false']);
+    expect(await go('prev')).toEqual(['1,2,3', '1,3,false,true']);
+    // after `last`, more before it; `prev` from there reaches the start and says so
+    expect(await go('last')).toEqual(['4,5,6', ',,true,false']);
+    expect(await go('prev')).toEqual(['1,2,3', '1,3,false,true']);
+  });
+
+  test('without `more`, a full last page offers a next page that is empty', async () => {
+    const { go } = await run('keyset: { at: $item.at }, size: 3');
+    expect(await go('next')).toEqual(['4,5,6', '4,6,true,true']);
+    expect(await go('next')).toEqual(['', '0,0,true,false']);
+  });
+
+  test('numbered and append', async () => {
+    const numbered = await run("numbered: true, size: 3, more: 'meta.has_more'", [2]);
+    expect(numbered.state()).toEqual(['1,2,3', '1,3,false,true']);
+    expect(await numbered.go(2)).toEqual(['4,5,6', '4,6,true,false']);
+    const append = await run("append: { at: $item.at }, size: 3, more: 'meta.has_more'", ['next']);
+    expect(await append.go('next')).toEqual(['1,2,3,4,5,6', '1,6,false,false']);
+    // nothing more: no request
+    const n = append.requests.calls.length;
+    await append.go('next');
+    expect(append.requests.calls.length).toBe(n);
+  });
+
+  test('any value: a next cursor counts as more while it is set', async () => {
+    const requests = mockRequests({
+      'GET /api/c': (c) => {
+        const after = Number(new URL(c.url, 'http://x').searchParams.get('after') ?? 0);
+        const page = SIX.filter((m) => m.uid > after).slice(0, 3), last = page.at(-1)!.uid;
+        return { items: page, next: last < 6 ? String(last) : null };
+      },
+    });
+    const { root, settle } = await render(`
+      <sn-resource name="c" src="/api/c" select="items" key="uid" paginate="{ append: { after: $item.uid }, size: 3, more: 'next' }"></sn-resource>
+      <b data-sn-text="$meta.c.hasNext"></b><button data-sn-on-click="page(c, 'next')"></button>`, { requests });
+    await settle();
+    expect(root.querySelector('b')!.textContent).toBe('true');
+    root.querySelector('button')!.click();
+    await settle();
+    expect(root.querySelector('b')!.textContent).toBe('false');
+  });
 });

@@ -40,6 +40,11 @@ export interface Paginate {
   /** keyset/append: the value sent for each direction, where it differs from the direction's name */
   directionValues?: Partial<Record<'first' | 'prev' | 'next' | 'last', string>>;
   pageParam: string;
+  /**
+   * `more: 'has_more'`: the path in the response that says whether there are more items in the direction asked for
+   * (`hasNext` after `first`, `next` and a page number; `hasPrev` after `prev` and `last`), in place of guessing from a full page
+   */
+  more?: string;
   /** the number of items to skip, (n - 1) * size: a `numbered: 'offset'` list sends it instead of `pageParam`; keyset, to let `page(name, n)` jump */
   skipParam?: string;
   /** `model: $url.page`: the query parameter that holds the page (numbered lists) */
