@@ -4,8 +4,8 @@
 //   npm run build:parser -- --check fail if sinter/parser.js is not what this script writes
 //
 // Why one prebundled module (README.md, "The parser"): every app gets the same parser, with entities
-// decoded from a packed table (scripts/entities.js), and without what md.parse never runs: punycode, mdurl,
-// linkify-it, uc.micro's tables (scripts/punycode.js, mdurl.js, uc-micro.js), the renderer and the
+// decoded from a packed table (scripts/entities.js), and without what md.parse never runs: markdown-it's class
+// (parser-entry.js drives the parsers), mdurl, uc.micro's tables (scripts/mdurl.js, uc-micro.js), and the
 // typographer's and linkify's rules (scripts/unused.js), whatever the app's bundler's conditions; and sinter's
 // build-time check sees one module that uses no browser global.
 import { readFileSync, writeFileSync } from 'node:fs';
@@ -32,7 +32,7 @@ const PACKED = Object.entries(characterEntities)
   }).join(' ');
 
 // markdown-it's modules that md.parse never runs, by their path inside markdown-it
-const UNUSED = /\/markdown-it\/lib\/(?:renderer|rules_core\/(?:linkify|replacements|smartquotes)|rules_inline\/linkify)\.mjs$/;
+const UNUSED = /\/markdown-it\/lib\/(?:rules_core\/(?:linkify|replacements|smartquotes)|rules_inline\/linkify)\.mjs$/;
 
 const bundle = await rolldown({
   input: here('./parser-entry.js'),
@@ -40,8 +40,7 @@ const bundle = await rolldown({
   resolve: {
     conditionNames: ['production', 'import', 'module', 'default'], mainFields: ['module', 'main'],
     alias: {
-      entities: here('./entities.js'), 'punycode.js': here('./punycode.js'), mdurl: here('./mdurl.js'),
-      'uc.micro': here('./uc-micro.js'), 'linkify-it': here('./unused.js'),
+      entities: here('./entities.js'), mdurl: here('./mdurl.js'), 'uc.micro': here('./uc-micro.js'),
     },
   },
   plugins: [{

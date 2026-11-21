@@ -272,11 +272,11 @@ describe('the modules', () => {
     expect(src).not.toMatch(/decode_data_html|Uint16Array|const characterEntities = \{/);
   });
 
-  test('the parser leaves out what md.parse never runs: linkify-it, the renderer, the typographer, mdurl, punycode', () => {
+  test('the parser leaves out what md.parse never runs: markdown-it\'s class and presets, linkify-it, the renderer, the typographer, mdurl, punycode', () => {
     const src = readFileSync(join(PKG, 'sinter/parser.js'), 'utf8');
     const modules = [...src.matchAll(/^\/\/ (node_modules\/\S+)$/gm)].map((m) => m[1]);
     expect(modules.length).toBeGreaterThan(40);
     expect(modules.filter((m) => !m.startsWith('node_modules/markdown-it/lib/'))).toEqual([]);
-    expect(modules.filter((m) => /renderer|linkify|smartquotes|replacements/.test(m))).toEqual([]);
+    expect(modules.filter((m) => /renderer|linkify|smartquotes|replacements|presets\/|\/lib\/index\.mjs$/.test(m))).toEqual([]);
   });
 });

@@ -178,7 +178,7 @@ docs/                     the docs page and the recipe
 
 `parser.js` is markdown-it (CommonMark, GFM tables and `~~strikethrough~~`) with GFM's autolinks
 (`scripts/autolink.js`), configured for `md.parse` and bundled into one file by `scripts/build-parser.mjs`:
-21.8 kB minified and gzipped (19.5 kB brotli). It returns markdown-it's tokens, and `parse.ts` builds the
+20.3 kB minified and gzipped (18.0 kB brotli). It returns markdown-it's tokens, and `parse.ts` builds the
 tree from them in one pass, task lists and the options included: there is no intermediate tree (an mdast
 before the library's own, and a walk over it).
 
@@ -188,9 +188,11 @@ before the library's own, and a walk over it).
   specifies gives the same tree as micromark did, except a code span's line endings, which are spaces,
   as CommonMark renders them.
 - **What `md.parse` never runs is left out**, so the bundle holds markdown-it's parsers and rules and
-  no more: its renderer, the typographer's rules (`typographer` is off) and its linkify are
-  `scripts/unused.js`; mdurl (`scripts/mdurl.js`) and punycode (`scripts/punycode.js`) are left out
-  because the tree keeps a link's destination as written, so the parser normalizes no URL; uc.micro's
+  no more: `scripts/parser-entry.js` drives the parsers itself rather than through `new MarkdownIt()`,
+  whose class brings the presets, the renderer, the plugin API and the default link normalizers (with
+  punycode); the typographer's rules (`typographer` is off) and its linkify are `scripts/unused.js`;
+  mdurl (`scripts/mdurl.js`) is left out because the tree keeps a link's destination as written, so the
+  parser normalizes no URL; uc.micro's
   tables are two regexes (`scripts/uc-micro.js`: emphasis needs Unicode punctuation and symbols, `\p{P}`
   and `\p{S}`). The parser was 34.5 kB with them. `test/parse.test.ts` checks which of markdown-it's
   modules are in it.

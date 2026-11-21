@@ -763,9 +763,11 @@ interface Site { el: P5Element; attr: string | null; shift: number; parts?: Arra
 /** `<sn-component use>`: its one choice node, and each candidate's case (its definition and props), in order */
 interface ChoiceGroup {
   node: NodeDef | null;
-  cases: Array<{ name: string; tid: number; props: string; deps: string[] }>;
+  cases: Array<{ name: string; tid: number; props: string; deps: string[]; keys?: string[] }>;
   /** `use`, compiled once, and its dev warning for a value outside the candidates */
   pick: string | null;
+  /** a map's key (`use="{ … }[key]"`), compiled once: a lookup table is keyed by the map's keys, not its names */
+  key?: string | null;
   warn: string;
   site: Site | null;
 }
@@ -3832,10 +3834,14 @@ class Compiler {
       if (choice.first && pick?.usesEl) this.report(host, 'use', 'SN213', '`$el` in `use`: a component chosen by data is marked by comments in the page, so there is no element to read', 0, 'choose with the data alone');
       // one choice anchor for the whole `<sn-component use>`: each candidate adds its case; the first makes the node
       const g = choice.group;
-      g.cases.push({ name: choice.name, tid: def.tid, props: props.slice(1, -1), deps });
+      g.cases.push({ name: choice.name, tid: def.tid, props: props.slice(1, -1), deps, ...(choice.keys && choice.key !== null ? { keys: [choice.key, ...(choice.also ?? [])] } : {}) });
       // (removed after the walk: detaching it now would make the walk skip the node after it)
       if (g.node) { this.remove.push(host); return null; }
       g.pick = pick!.ok ? pick!.inner : 'undefined';
+      if (pick!.ok && choice.keys && choice.keySrc !== null) {
+        const k = analyze(choice.keySrc, ctx.scope, this.page, { mode: 'value', report: () => {} });
+        g.key = k.ok ? k.inner : null;
+      }
       g.warn = warn;
       g.site = { el: host, attr: 'data-sn-with', shift: 0 };
       this.choiceGroups.push(g);
@@ -4234,15 +4240,20 @@ class Compiler {
       // the chain would. A component used in many places repeats this per place, so it must stay small.
       const variants = [...new Set(g.cases.map((c) => c.props))];
       if (g.cases.length >= CHOICE_TABLE && variants.length <= 3) {
+        // a map with no dev warning (which reads the name) is one table keyed by the map's own keys: the map's values
+        // are the names, so the table it would be read through is folded into it. `$k` guards the key as the map's
+        // computed access did, and the table, with no prototype, holds the map's own keys only
+        const byKey = !g.warn && g.key != null && g.cases.every((c) => c.keys);
         const entries = new Map<string, string>();
         g.cases.forEach((c, i) => {
-          if (!entries.has(c.name)) entries.set(c.name, variants.length > 1 ? `[${i}, ${variants.indexOf(c.props)}]` : String(i));
+          for (const n of byKey ? c.keys! : [c.name]) if (!entries.has(n)) entries.set(n, variants.length > 1 ? `[${i}, ${variants.indexOf(c.props)}]` : String(i));
         });
         const table = `{ __proto__: null, ${[...entries].map(([n, e]) => `${JSON.stringify(n)}: ${e}`).join(', ')} }`;
+        const read = byKey ? `${table}[$k(${g.key})]` : `typeof v === 'string' ? ${table}[v] : undefined`;
         const pick = variants.length > 1
-          ? `const e = typeof v === 'string' ? ${table}[v] : undefined; return e === undefined ? null : [e[0], ${variants.map((p, k) => (k < variants.length - 1 ? `e[1] === ${k} ? ${p} : ` : p)).join('')}];`
-          : `const i = typeof v === 'string' ? ${table}[v] : undefined; return i === undefined ? null : [i, ${variants[0]}];`;
-        b.f = this.fn(`($) => { const v = (${g.pick}); ${g.warn}${pick} }`, g.site);
+          ? `const e = ${read}; return e === undefined ? null : [e[0], ${variants.map((p, k) => (k < variants.length - 1 ? `e[1] === ${k} ? ${p} : ` : p)).join('')}];`
+          : `const i = ${read}; return i === undefined ? null : [i, ${variants[0]}];`;
+        b.f = this.fn(byKey ? `($) => { ${pick} }` : `($) => { const v = (${g.pick}); ${g.warn}${pick} }`, g.site);
       } else {
         const cases = g.cases.map((c, i) => `v === ${JSON.stringify(c.name)} ? [${i}, ${c.props}]`).join(' : ');
         b.f = this.fn(`($) => { const v = (${g.pick}); ${g.warn}return ${cases} : null; }`, g.site);
