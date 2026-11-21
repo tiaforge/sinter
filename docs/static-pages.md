@@ -522,6 +522,16 @@ export const locales = languages({ base: 'en', list: ['en', 'de'] });
 `base` must be one of `list`, and each is a language tag. With the built-in messages too, the inlang project must
 list the same languages, or the build fails naming both lists. The content module has one `languages()`.
 
+**Fallback chains.** A message missing in a language is looked up along its chain, at build: its tag less its last
+subtag, one at a time, where the site has that language, then the base (`de-AT → de → en`). `languages({ fallbacks:
+{ 'de-CH': ['de-AT', 'de'] } })` replaces a language's chain before the base. SN522 reports the keys that reach the
+base, and how many came from another language of the chain.
+
+**Choosing a visitor's language** (the chooser pages, `@tiaforge-ui/sinter/server`, sinter-axum, Sinter.AspNetCore):
+for each tag the visitor sends, in order (the `locale` cookie, then `Accept-Language` or `navigator.languages`), the
+site's language with that tag, else with the tag less its subtags (`zh-Hant-TW` reaches `zh-Hant`), else the first
+site language with the same language part (`de` reaches `de-DE`); else the base.
+
 In each language's page:
 
 - **Its text is in the HTML.** `m.title()`, `$locale`, and anything built from them and constants are

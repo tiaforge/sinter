@@ -1,9 +1,11 @@
 // @vitest-environment node
 // The language axis's own rules (src/locales.ts, docs/proposals/axes.md §4): prefixes, the language of an output file,
 // choosing a visitor's language, and the chooser page's script applying the same rule as the server layer.
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { runInNewContext } from 'node:vm';
 import { describe, expect, test } from 'vitest';
-import { chooseLanguage, chooserHtml, inLanguage, languageOfFile, manifestLocales, prefixPaths, requestLanguages, siteRoot } from '../src/locales.js';
+import { chain, checkFallbacks, chooseLanguage, chooserHtml, inLanguage, languageOfFile, manifestLocales, prefixPaths, requestLanguages, siteRoot } from '../src/locales.js';
 
 const site = { base: 'en', list: ['en', 'de', 'pt-BR'] };
 
@@ -22,21 +24,12 @@ test('manifestLocales: the languages and the base they are under', () => {
   expect(manifestLocales(site, '/docs')).toEqual({ ...site, at: '/docs/' });
 });
 
-/** tags in order → the language: exact (any case), else the language part, else the base */
-const CASES: Array<[string[], string]> = [
-  [[], 'en'],
-  [['de'], 'de'],
-  [['DE'], 'de'],
-  [['de-AT'], 'de'],
-  [['pt-br'], 'pt-BR'],
-  [['pt'], 'en'],
-  [['fr', 'de'], 'de'],
-  [['fr-FR', 'fr'], 'en'],
-];
+/** the cases every implementation of the rule runs (test/fixtures/choose-cases.json) */
+const CASES: Array<{ base: string; list: string[]; tags: string[]; want: string }> = JSON.parse(readFileSync(join(import.meta.dirname, 'fixtures/choose-cases.json'), 'utf8')).cases;
 
 describe('choosing the visitor\'s language', () => {
-  test('chooseLanguage', () => {
-    for (const [tags, want] of CASES) expect(chooseLanguage(site, tags), tags.join()).toBe(want);
+  test('chooseLanguage: the shared cases', () => {
+    for (const c of CASES) expect(chooseLanguage(c, c.tags), `${c.list} ${c.tags}`).toBe(c.want);
   });
 
   test('a request: the `locale` cookie first, then Accept-Language in its order', () => {
@@ -45,16 +38,17 @@ describe('choosing the visitor\'s language', () => {
     expect(chooseLanguage(site, requestLanguages(null, null))).toBe('en');
   });
 
-  test('the chooser page\'s script applies the same rule, to the language\'s URL', () => {
-    const html = chooserHtml({ base: '/', locales: site, fallback: '/en/', urls: { en: '/en/a/', de: '/de/a/', 'pt-BR': '/pt-BR/a/' }, hreflang: '', script: true });
-    const script = /<script>([\s\S]*?)<\/script>/.exec(html)![1]!;
-    const go = (cookie: string, languages: string[]) => {
+  test('the chooser page\'s script applies the same rule, to the language\'s URL: the shared cases', () => {
+    const go = (c: { base: string; list: string[] }, cookie: string, languages: string[]) => {
+      const html = chooserHtml({ base: '/', locales: c, fallback: `/${c.base}/`, urls: Object.fromEntries(c.list.map((l) => [l, `/${l}/a/`])), hreflang: '', script: true });
+      const script = /<script>([\s\S]*?)<\/script>/.exec(html)![1]!;
       let to = '';
       runInNewContext(script, { document: { cookie }, navigator: { languages }, location: { search: '', hash: '', pathname: '/a/', replace: (u: string) => { to = u; } } });
       return to;
     };
-    for (const [tags, want] of CASES) expect(go('', tags), tags.join()).toBe(`/${want}/a/`);
-    expect(go('locale=de', ['pt-BR'])).toBe('/de/a/');
+    // (Accept-Language's `;q=` is a server's to read: the browser's list has none)
+    for (const c of CASES.filter((x) => !x.tags.some((t) => t.includes(';')))) expect(go(c, '', c.tags), `${c.list} ${c.tags}`).toBe(`/${c.want}/a/`);
+    expect(go(site, 'locale=de', ['pt-BR'])).toBe('/de/a/');
   });
 });
 
@@ -80,4 +74,16 @@ test('localSignIn: the API\'s sign-in page in the page\'s language, when it is o
   expect(localSignIn({ to: '/login', returnUrl: { allow: ['/'] } }, l)).toEqual({ to: '/de/login', returnUrl: { allow: ['/'] } });
   expect(localSignIn({ to: 'https://auth.example.com/' }, l).to).toBe('https://auth.example.com/');
   expect(localSignIn({ to: '/login' }, undefined).to).toBe('/login');
+});
+
+test('chain: the tag less its subtags where the site has them, then the base; `fallbacks` replaces the middle', () => {
+  const l = { base: 'en', list: ['en', 'de', 'de-AT', 'de-CH', 'zh-Hant', 'zh-Hant-TW'] };
+  expect(chain('de-AT', l)).toEqual(['de-AT', 'de', 'en']);
+  expect(chain('zh-Hant-TW', l)).toEqual(['zh-Hant-TW', 'zh-Hant', 'en']);
+  expect(chain('en', l)).toEqual(['en']);
+  expect(chain('de-CH', { ...l, fallbacks: { 'de-CH': ['de-AT', 'de'] } })).toEqual(['de-CH', 'de-AT', 'de', 'en']);
+  expect(checkFallbacks({ ...l, fallbacks: { 'de-CH': ['de-AT'] } })).toBeNull();
+  expect(checkFallbacks({ ...l, fallbacks: { fr: ['de'] } })).toMatch(/names `fr`, which is not one of the site's languages/);
+  expect(checkFallbacks({ ...l, fallbacks: { 'de-CH': ['it'] } })).toMatch(/names `it`/);
+  expect(checkFallbacks({ ...l, fallbacks: { 'de-CH': ['de-AT'], 'de-AT': ['de-CH'] } })).toMatch(/name each other/);
 });

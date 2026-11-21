@@ -140,6 +140,28 @@ export const products = collection({ key: 'sku', perLocale: true, load: ({ local
     expect((await run({ 'index.html': page }, ['index.html'], { localePrefix: true, messages: false })).error).toMatch(/the site has no languages\. Export them from the content module/);
   }, 120_000);
 
+  test('fallback chains: a message missing in de-AT is de\'s, then en\'s; SN522 counts only what reaches en', async () => {
+    const lang = {
+      'project.inlang/settings.json': JSON.stringify({ baseLocale: 'en', locales: ['en', 'de', 'de-AT'] }),
+      'messages/en.json': JSON.stringify({ a: 'Hello', b: 'Bye', c: 'Only English' }),
+      'messages/de.json': JSON.stringify({ a: 'Hallo', b: 'Tschüss' }),
+      'messages/de-AT.json': JSON.stringify({ a: 'Servus' }),
+      'index.html': '<!doctype html><html lang="en"><head><title>x</title></head><body><p data-sn-text="m.a() + \' \' + m.b() + \' \' + m.c()"></p></body></html>',
+    };
+    const r = await run(lang, ['index.html'], { localePrefix: true });
+    expect(r.error).toBe(null);
+    expect(r.read('de-AT/index.html')).toContain('<p>Servus Tschüss Only English</p>');
+    expect(r.read('de/index.html')).toContain('<p>Hallo Tschüss Only English</p>');
+  }, 120_000);
+
+  test('languages({ fallbacks }): a chain of its own, checked', async () => {
+    const { languages } = await import('../../src/content.js');
+    expect(languages({ base: 'en', list: ['en', 'de', 'de-AT', 'de-CH'], fallbacks: { 'de-CH': ['de-AT', 'de'] } }).languages!.fallbacks).toEqual({ 'de-CH': ['de-AT', 'de'] });
+    expect(() => languages({ base: 'en', list: ['en', 'de'], fallbacks: { fr: ['de'] } })).toThrow(/names `fr`, which is not one of `list`/);
+    expect(() => languages({ base: 'en', list: ['en', 'de'], fallbacks: { de: ['de'] } })).toThrow(/`fallbacks.de` is a list of the other languages/);
+    expect(() => languages({ base: 'en', list: ['en', 'fr', 'it'], fallbacks: { fr: ['it'], it: ['fr'] } })).toThrow(/name each other/);
+  });
+
   test('languages(): a list of tags with its base among them', async () => {
     const { languages, isCollection } = await import('../../src/content.js');
     const l = languages({ base: 'de', list: ['en', 'de', 'de-AT'] });

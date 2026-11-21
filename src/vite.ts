@@ -32,7 +32,7 @@ import { hasCspMeta, movesToDirectory, pageFile, pagePaths, pageUrl, prefetchMod
 import { type SwapPage, swapModule } from './swap-build.js';
 import { pageRoutes, rebaseHtml, redirectHtml, redirectsFile, relocateHtml, type PageEntry, type Route } from './page-urls.js';
 import { readLocales } from './locales-build.js';
-import { chooserHtml, hreflangTags, manifestLocales, prefixPaths, type Locales } from './locales.js';
+import { chain, chooserHtml, hreflangTags, manifestLocales, prefixPaths, type Locales } from './locales.js';
 import { entryChooserPath, listPoints, pointFolder, pointOrigin, pointPrefix, translationKey, type AxisValue, type Point, type Points, type Variant } from './points.js';
 import { canonicalOf, fillPattern, noindex, sitemapFiles, sitemapOf, type SitemapOptions, type SitemapUrl } from './sitemap-build.js';
 import { familyLineHeights, familyZeroWidths } from './font-metrics.js';
@@ -674,6 +674,11 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   /** `localePrefix`: the languages, and each page in a language (`<root>/<locale>/<page>`) with its source and language */
   let locales: Locales | null = null;
   const virtual = new Map<string, { source: string; locale: string; page?: { value: unknown; path: string; key: string }; axes?: AxisValue[] }>();
+  /** a language's messages, each looked up along its chain (`de-AT`, then `de`, then the base: docs/proposals/axes.md §6) */
+  const dictOf = (m: { base: string; dicts: Record<string, Record<string, string>> }, l: string): Record<string, string> => {
+    const order = chain(l, locales ?? { base: m.base, list: Object.keys(m.dicts) });
+    return Object.assign({}, m.dicts[m.base], ...order.slice().reverse().map((x) => m.dicts[x] ?? {}));
+  };
   /**
    * a page's one language: its point's (`localePrefix`), else with the built-in messages their base, the build's one
    * language (a page is in one language, chosen at build: docs/proposals/axes.md §7)
@@ -1126,7 +1131,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     // a page in a language: compiled from its source (diagnostics, components, layouts as written), in that language
     const v = virtual.get(file), src = v?.source ?? file;
     const one = v?.locale ?? (p.messages && !locales ? p.messages.base : undefined);
-    const lang = one && p.messages ? { ...p.messages.dicts[p.messages.base], ...p.messages.dicts[one] } : null;
+    const lang = one && p.messages ? dictOf(p.messages, one) : null;
     // `<html data-sn-for>`: an entry's page (a build's input), or in dev the entry the URL names
     const page = v?.page ?? (dev && url ? devEntry(src, url, v?.locale, v?.axes) : undefined);
     const fatal = strictly(p.diagnostics).filter((d) => d.severity === 'error');
@@ -1288,7 +1293,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
             const i = inlangLocales();
             if (i.base !== declared.base || i.list.join() !== declared.list.join()) throw new Error(`sinter({ localePrefix }): the content module's \`languages()\` (base ${declared.base}: ${declared.list.join(', ')}) and ${project}/settings.json (base ${i.base}: ${i.list.join(', ')}) differ; the site has one list of languages`);
           }
-          locales = { base: declared.base, list: [...declared.list] };
+          locales = { base: declared.base, list: [...declared.list], ...(declared.fallbacks ? { fallbacks: Object.fromEntries(Object.entries(declared.fallbacks).map(([k, v]) => [k, [...v]])) } : {}) };
         } else {
           if (options.messages === false) throw new Error('sinter({ localePrefix }): the site has no languages. Export them from the content module (src/sinter.content.ts): `export const locales = languages({ base: \'en\', list: [\'en\', \'de\'] })`, from `@tiaforge-ui/sinter/content`; or keep the built-in messages, whose inlang project lists them');
           locales = inlangLocales();
@@ -1430,12 +1435,15 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       if (!helperFiles.size || !entries().length) pagesReady();
       messages = p.messages;
       appEarly = p.early;
-      // a missing translation falls back to the base language: reported once per locale
+      // a missing translation is looked up along the language's chain (`de-AT`, then `de`): what reaches the base
+      // language is reported, once per locale, with how many came from another language of the chain
       if (messages) {
         for (const l of messages.locales) {
           if (l === messages.base) continue;
-          const missing = Object.keys(messages.keys).filter((k) => !(k in (messages!.dicts[l] ?? {})));
-          if (missing.length) this.warn(coded('SN522', `${missing.length} message(s) not translated to \`${l}\` (the ${messages.base} text is used): ${missing.slice(0, 10).join(', ')}${missing.length > 10 ? ', …' : ''}`));
+          const order = chain(l, locales ?? { base: messages.base, list: messages.locales }).filter((x) => x !== messages!.base);
+          const missing = Object.keys(messages.keys).filter((k) => !order.some((x) => k in (messages!.dicts[x] ?? {})));
+          const borrowed = Object.keys(messages.keys).filter((k) => !(k in (messages!.dicts[l] ?? {})) && order.some((x) => k in (messages!.dicts[x] ?? {}))).length;
+          if (missing.length) this.warn(coded('SN522', `${missing.length} message(s) not translated to \`${l}\` (the ${messages.base} text is used): ${missing.slice(0, 10).join(', ')}${missing.length > 10 ? ', …' : ''}${borrowed ? `; ${borrowed} more from ${order.slice(1).join(', ')}` : ''}`));
         }
       }
       // Each page is compiled once, by its `transformIndexHtml`: that compile writes the page, its early file and every
@@ -1559,7 +1567,8 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
         }
         if (!keys.size) continue;
         const dict: Record<string, string> = {};
-        for (const k of [...keys].sort()) dict[k] = messages.dicts[one]?.[k] ?? messages.dicts[messages.base]![k]!;
+        const all = dictOf(messages, one);
+        for (const k of [...keys].sort()) dict[k] = all[k]!;
         pageMessages.set(rel, messagesTag(dict));
       }
       heads();
@@ -1770,7 +1779,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
         const one = pageLang(file);
         if (dev && one && messages) {
           for (const f of Object.values(messages.files)) watch(f);
-          const tag = messagesTag({ ...messages.dicts[messages.base], ...messages.dicts[one] });
+          const tag = messagesTag(dictOf(messages, one));
           return page.replace(/<head[^>]*>/, (h) => h + tag);
         }
         return page;

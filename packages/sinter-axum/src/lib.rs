@@ -491,26 +491,41 @@ enum Fill {
 
 /// The visitor's language among the site's: the `locale` cookie the pages record, else the first of
 /// `Accept-Language` the site has (`de-AT` is `de`), else the base.
-fn choose(l: &manifest::Locales, h: &HeaderMap) -> String {
+/// The visitor's language among the site's (docs/proposals/axes.md §6): for each tag they send, in order (the `locale`
+/// cookie the pages record, then `Accept-Language`), the site's language with that tag (any case), else with the tag
+/// less its last subtag, one at a time, else the first site language with the same language part; else the base. The
+/// rule `chooseLanguage` in src/locales.ts applies, run on the cases of test/fixtures/choose-cases.json.
+pub(crate) fn choose_language<'a>(list: &[String], base: &str, tags: impl IntoIterator<Item = &'a str>) -> String {
     let find = |x: &str| {
-        let x = x.trim().to_ascii_lowercase();
-        l.list
-            .iter()
-            .find(|c| c.to_ascii_lowercase() == x)
-            .or_else(|| l.list.iter().find(|c| c.to_ascii_lowercase() == x.split('-').next().unwrap_or("")))
-            .cloned()
+        let mut p = x.trim().to_ascii_lowercase();
+        loop {
+            if let Some(hit) = list.iter().find(|c| c.to_ascii_lowercase() == p) {
+                return Some(hit.clone());
+            }
+            match p.rfind('-') {
+                Some(j) => p.truncate(j),
+                None => break,
+            }
+        }
+        list.iter().find(|c| c.to_ascii_lowercase().split('-').next() == Some(p.as_str())).cloned()
     };
-    let cookie = h
+    tags.into_iter().find_map(find).unwrap_or_else(|| base.to_string())
+}
+
+fn choose(l: &manifest::Locales, h: &HeaderMap) -> String {
+    let cookies = h
         .get_all(header::COOKIE)
         .iter()
         .filter_map(|v| v.to_str().ok())
         .flat_map(|v| v.split(';'))
-        .find_map(|c| c.trim().strip_prefix("locale=").and_then(find));
-    cookie
-        .or_else(|| {
-            h.get(header::ACCEPT_LANGUAGE)?.to_str().ok()?.split(',').filter_map(|p| find(p.split(';').next().unwrap_or(""))).next()
-        })
-        .unwrap_or_else(|| l.base.clone())
+        .filter_map(|c| c.trim().strip_prefix("locale="));
+    let accept = h
+        .get(header::ACCEPT_LANGUAGE)
+        .and_then(|v| v.to_str().ok())
+        .into_iter()
+        .flat_map(|v| v.split(','))
+        .map(|p| p.split(';').next().unwrap_or(""));
+    choose_language(&l.list, &l.base, cookies.chain(accept))
 }
 
 async fn render(embed: EmbedLayer, i: usize, req: http::request::Parts, head: bool) -> Response<Body> {
@@ -709,4 +724,29 @@ pub fn escape(json: Bytes) -> Bytes {
         if b == b'<' { out.extend_from_slice(b"\\u003c") } else { out.push(b) }
     }
     out.into()
+}
+
+#[cfg(test)]
+mod choose_tests {
+    #[derive(serde::Deserialize)]
+    struct Case {
+        base: String,
+        list: Vec<String>,
+        tags: Vec<String>,
+        want: String,
+    }
+    #[derive(serde::Deserialize)]
+    struct Cases {
+        cases: Vec<Case>,
+    }
+
+    #[test]
+    fn the_shared_cases() {
+        let file = concat!(env!("CARGO_MANIFEST_DIR"), "/../../test/fixtures/choose-cases.json");
+        let cases: Cases = serde_json::from_str(&std::fs::read_to_string(file).unwrap()).unwrap();
+        for c in cases.cases {
+            let got = super::choose_language(&c.list, &c.base, c.tags.iter().map(|t| t.as_str()));
+            assert_eq!(got, c.want, "{:?} {:?}", c.list, c.tags);
+        }
+    }
 }

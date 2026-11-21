@@ -49,7 +49,7 @@ export interface Collection<T = unknown> {
 }
 
 /** The site's languages: `base`, where a visitor without a choice lands, and every language in `list`. */
-export interface Languages { readonly base: string; readonly list: readonly string[] }
+export interface Languages { readonly base: string; readonly list: readonly string[]; readonly fallbacks?: Readonly<Record<string, readonly string[]>> }
 
 /** one of the site's languages, as `languages()` lists them: its BCP 47 tag */
 export interface Language { tag: string }
@@ -74,14 +74,24 @@ export function collection<T>(o: { key: keyof T & string; load: (ctx: Collection
  * once per language, under its prefix (`/de/about/`). It is a collection of `{ tag }`, one entry per language. Without
  * it, the languages come from the inlang project of the built-in messages.
  */
-export function languages(o: { base: string; list: readonly string[] }): Collection<Language> {
+export function languages(o: { base: string; list: readonly string[]; fallbacks?: Record<string, readonly string[]> }): Collection<Language> {
   const list = Array.isArray(o?.list) ? [...o.list] : null;
   if (!list?.length) throw new Error("languages(): `list` names the site's languages, e.g. `languages({ base: 'en', list: ['en', 'de'] })`");
   for (const l of list) if (typeof l !== 'string' || !LANGUAGE_TAG.test(l)) throw new Error(`languages(): \`${String(l)}\` in \`list\` is not a language tag (it becomes the URL's prefix, \`/${String(l)}/\`)`);
   const dup = list.find((l, i) => list.indexOf(l) !== i);
   if (dup) throw new Error(`languages(): \`${dup}\` is in \`list\` twice`);
   if (typeof o.base !== 'string' || !list.includes(o.base)) throw new Error(`languages(): \`base\` (${typeof o.base === 'string' ? `\`${o.base}\`` : 'missing'}) is one of \`list\` (${list.join(', ')}): it is the language a visitor without a choice is sent to`);
-  return { [COLLECTION]: true, key: 'tag', load: () => list.map((tag) => ({ tag })), languages: { base: o.base, list } };
+  // `fallbacks`: a language's chain before the base, where it is not its tag less its subtags (docs/static-pages.md#languages)
+  const fb = o.fallbacks;
+  if (fb !== undefined) {
+    if (!fb || typeof fb !== 'object' || Array.isArray(fb)) throw new Error("languages(): `fallbacks` maps a language to the ones it falls back to before the base, e.g. `{ 'de-CH': ['de-AT', 'de'] }`");
+    for (const [k, v] of Object.entries(fb)) {
+      if (!list.includes(k)) throw new Error(`languages(): \`fallbacks\` names \`${k}\`, which is not one of \`list\` (${list.join(', ')})`);
+      if (!Array.isArray(v) || v.some((x) => !list.includes(x) || x === k)) throw new Error(`languages(): \`fallbacks.${k}\` is a list of the other languages of \`list\` (${list.join(', ')})`);
+      for (const x of v) if (fb[x]?.includes(k)) throw new Error(`languages(): \`fallbacks.${k}\` and \`fallbacks.${x}\` name each other: a chain has no cycle`);
+    }
+  }
+  return { [COLLECTION]: true, key: 'tag', load: () => list.map((tag) => ({ tag })), languages: { base: o.base, list, ...(fb ? { fallbacks: Object.fromEntries(Object.entries(fb).map(([k, v]) => [k, [...v]])) } : {}) } };
 }
 
 /** whether a value is a collection (of any instance of this module) */

@@ -438,6 +438,13 @@ Each step ships on its own.
    `axisUrl()`, the special files per point (404 per origin), and the server layers' host map (§10).
 7. **Fallback chains** (§6): `chain`, the new direction in `choose`, the shared test cases in the three server
    layers, the manifest's `fallbacks`, chains of other axes, `fallback: true` for content.
+   *Languages done 2026-11-21:* `chain` and `checkFallbacks` in src/locales.ts, `languages({ fallbacks })`, messages
+   along the chain at build with SN522 counting only what reaches the base, and the choosing rule (subtags dropped
+   one at a time, then the same language part, the missing direction) in the chooser script, `server.ts`, sinter-axum
+   and Sinter.AspNetCore, each running test/fixtures/choose-cases.json. A configured chain does not change which
+   language a visitor gets, so the manifest needs no `fallbacks` and no version bump. Not yet: chains of other axes
+   (a tenant → the shared texts, which needs the messages module's per-tenant files of messages.md) and
+   `fallback: true` for content.
 8. **Language segments and domains** (§4 "URL segments", §3 `domains`): `paths`, `codes`, and languages on
    their own domains, on step 6's origins.
 9. **Server layers**, if §10 finds work beyond the manifest they read today.

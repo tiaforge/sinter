@@ -4,12 +4,12 @@
   "bytes": 436
  },
  "about.html": {
-  "sha256": "b360e8364d33460dbf27d7e5c764234ca775d2284f7b40465a4dd2f41d6eab79",
-  "bytes": 1018
+  "sha256": "ce1c86325ee6a9765bbe315d018775a6cc8f13cbd5fa2895d2b515b90babbeac",
+  "bytes": 1086
  },
  "about/index.html": {
-  "sha256": "b360e8364d33460dbf27d7e5c764234ca775d2284f7b40465a4dd2f41d6eab79",
-  "bytes": 1018
+  "sha256": "ce1c86325ee6a9765bbe315d018775a6cc8f13cbd5fa2895d2b515b90babbeac",
+  "bytes": 1086
  },
  "api/status.json": {
   "sha256": "e5358c7387cc198fa9d98efc11882b8d473d6a6b3b133b965ffa9d8394ac5f69",
@@ -60,12 +60,12 @@
   "bytes": 2023
  },
  "docs/getting-started.html": {
-  "sha256": "1888cfc8b80827903e7be832e2be92c5177f7bd6ecfddc66ddcca04a4e1e89a4",
-  "bytes": 1138
+  "sha256": "6ebba7f6d2381406b4ab1607972ad2e3ec4a5c20a60c7f7d5ffdf91fd00bb65e",
+  "bytes": 1206
  },
  "docs/getting-started/index.html": {
-  "sha256": "1888cfc8b80827903e7be832e2be92c5177f7bd6ecfddc66ddcca04a4e1e89a4",
-  "bytes": 1138
+  "sha256": "6ebba7f6d2381406b4ab1607972ad2e3ec4a5c20a60c7f7d5ffdf91fd00bb65e",
+  "bytes": 1206
  },
  "en/about.html": {
   "sha256": "f6ece9837e88ce2377ac3e4b35ef3dbff34706858040b35e08bb765a942f8833",
@@ -96,19 +96,19 @@
   "bytes": 2011
  },
  "index.html": {
-  "sha256": "59c8b35c7fc073e6905e61cf2b528b6a7d1b6320d06e449dc456c89e81629005",
-  "bytes": 970
+  "sha256": "892102ae083d078d4d0f4c5ff7afac62620160300312d459e9ad455dab9536ed",
+  "bytes": 1038
  },
  "sitemap.xml": {
   "sha256": "80d207138bf4c53fb7f63457ca06efac7f3acc150aae88591d0b50731aad4c93",
   "bytes": 2801
  },
  "status.html": {
-  "sha256": "2c977ab4cc71307488f890386ace59e55f625ad13ce601bdde8dd9c8e2f0f8c5",
-  "bytes": 1026
+  "sha256": "599b8c8ab6b0afaee208edb03f867bb2a53d3332cdd68ea457185db5275c198a",
+  "bytes": 1094
  },
  "status/index.html": {
-  "sha256": "2c977ab4cc71307488f890386ace59e55f625ad13ce601bdde8dd9c8e2f0f8c5",
-  "bytes": 1026
+  "sha256": "599b8c8ab6b0afaee208edb03f867bb2a53d3332cdd68ea457185db5275c198a",
+  "bytes": 1094
  }
 }

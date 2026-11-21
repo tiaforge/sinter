@@ -2,8 +2,11 @@
 // Vite plugin, the compiler and the server layer (`@tiaforge-ui/sinter/server`). Nothing here reads a file; the
 // languages themselves come from the content module's `languages()` or the inlang project (`locales-build.ts`).
 
-/** The site's languages: `base`, where a visitor without a choice lands, and every language in `list`. */
-export interface Locales { base: string; list: string[] }
+/**
+ * The site's languages: `base`, where a visitor without a choice lands, and every language in `list`; `fallbacks`, a
+ * language's chain before the base where it is not the default (`chain`)
+ */
+export interface Locales { base: string; list: string[]; fallbacks?: Record<string, string[]> }
 
 /** a site's base as the root of its paths: `/docs/` for `/docs`, and `/` for a relative base (`./`) or none */
 export const siteRoot = (base: string | undefined): string => (base?.startsWith('/') ? base.replace(/\/?$/, '/') : '/');
@@ -24,17 +27,53 @@ export function languageOfFile(rel: string, list: readonly string[]): string | n
 }
 
 /**
- * The visitor's language among the site's, from the tags they send in order: for each, the site's language with that
- * tag (any case), else the one with its language part (`de-AT` is `de`); else the base. The chooser page's script
- * (`chooserHtml`) and the server layers apply the same rule.
+ * The visitor's language among the site's (docs/proposals/axes.md §6), from the tags they send in order: for each, the
+ * site's language with that tag (any case), else with the tag less its last subtag, one at a time (`zh-Hant-TW`, then
+ * `zh-Hant`, then `zh`), else the first site language with the same language part (`de` reaches `de-DE`); else the
+ * base. The chooser page's script (`chooserHtml`), `@tiaforge-ui/sinter/server`, sinter-axum and Sinter.AspNetCore
+ * apply this rule, and test/fixtures/choose-cases.json is the cases each runs.
  */
 export function chooseLanguage(l: Locales, tags: Iterable<string>): string {
   const find = (x: string) => {
-    x = x.trim().toLowerCase();
-    return l.list.find((c) => c.toLowerCase() == x) ?? l.list.find((c) => c.toLowerCase() == x.split('-')[0]);
+    let p = x.trim().toLowerCase();
+    for (;;) {
+      const hit = l.list.find((c) => c.toLowerCase() == p);
+      if (hit) return hit;
+      const j = p.lastIndexOf('-');
+      if (j < 0) break;
+      p = p.slice(0, j);
+    }
+    return l.list.find((c) => c.toLowerCase().split('-')[0] == p);
   };
   for (const t of tags) { const v = find(t); if (v) return v; }
   return l.base;
+}
+
+/**
+ * A language's chain (docs/proposals/axes.md §6): the languages a value missing in it is looked up in, in order, itself
+ * first. By default its tag less its last subtag, one at a time, where the site has that language (`de-AT → de`), as
+ * BCP 47 lookup does (RFC 4647); `fallbacks` replaces that part. The base always ends it.
+ */
+export function chain(locale: string, l: Locales): string[] {
+  const own = l.fallbacks?.[locale];
+  const mid: string[] = [];
+  if (own) mid.push(...own);
+  else for (let p = locale, j = p.lastIndexOf('-'); j > 0; j = p.lastIndexOf('-')) { p = p.slice(0, j); const hit = l.list.find((c) => c.toLowerCase() == p.toLowerCase()); if (hit) mid.push(hit); }
+  return [...new Set([locale, ...mid, l.base])];
+}
+
+/** `fallbacks`, checked: each a site language's, naming site languages, without a cycle (an error names what is wrong) */
+export function checkFallbacks(l: Locales): string | null {
+  for (const [k, v] of Object.entries(l.fallbacks ?? {})) {
+    if (!l.list.includes(k)) return `\`fallbacks\` names \`${k}\`, which is not one of the site's languages (${l.list.join(', ')})`;
+    if (!Array.isArray(v) || v.some((x) => typeof x !== 'string')) return `\`fallbacks.${k}\` is a list of the site's languages, e.g. \`['de-AT', 'de']\``;
+    for (const x of v) {
+      if (!l.list.includes(x)) return `\`fallbacks.${k}\` names \`${x}\`, which is not one of the site's languages (${l.list.join(', ')})`;
+      if (x === k) return `\`fallbacks.${k}\` names \`${k}\` itself`;
+      if (l.fallbacks?.[x]?.includes(k)) return `\`fallbacks.${k}\` and \`fallbacks.${x}\` name each other: a chain has no cycle`;
+    }
+  }
+  return null;
 }
 
 /** a request's language tags, in the order they decide: the `locale` cookie the pages record, then `Accept-Language` */
@@ -46,7 +85,7 @@ export function requestLanguages(cookie: string | null, acceptLanguage: string |
 }
 
 /** the embed manifest's `locales`: the languages and the base their prefixes are under */
-export const manifestLocales = (l: Locales, base: string): Locales & { at: string } => ({ ...l, at: base.replace(/\/?$/, '/') });
+export const manifestLocales = (l: Locales, base: string): Locales & { at: string } => ({ base: l.base, list: l.list, at: base.replace(/\/?$/, '/') });
 
 const esc = (v: string) => v.replace(/[&"<>]/g, (c) => `&#${c.charCodeAt(0)};`);
 
@@ -62,13 +101,13 @@ export function hreflangTags(origin: string, urls: Record<string, string>, unpre
  * The page at an unprefixed URL: it sends the visitor to a language. Without scripts (or on a site where no page
  * ships any), to the base language's URL (`fallback`). With `script`, first to the language the site's pages
  * recorded in the `locale` cookie, else the first of `navigator.languages` the site has (`de-AT` is `de`), else the
- * base (`chooseLanguage`'s rule), at the same path under that language's prefix (`/article/hello` →
+ * base (`chooseLanguage`'s rule: a tag less its subtags, then `de` for `de-DE`), at the same path under that language's prefix (`/article/hello` →
  * `/de/article/hello`), query and fragment kept. `noindex`: search engines index the languages' pages, which
  * `hreflang` names.
  */
 export function chooserHtml(o: { base: string; locales: Locales; fallback: string; urls: Record<string, string> | null; hreflang: string; script: boolean }): string {
   const links = o.locales.list.map((l) => `<a href="${esc(o.urls?.[l] ?? o.base + l + '/')}" hreflang="${esc(l)}">${esc(l)}</a>`).join(' ');
-  const js = o.script ? `<script>(function(){var L=${JSON.stringify(o.locales.list)},B=${JSON.stringify(o.base)},c=/(?:^|; )locale=([^;]*)/.exec(document.cookie),f=function(x){if(!x)return;x=decodeURIComponent(x).toLowerCase();for(var i=0;i<L.length;i++)if(L[i].toLowerCase()==x)return L[i];for(i=0;i<L.length;i++)if(L[i].toLowerCase()==x.split("-")[0])return L[i]},l=f(c&&c[1]),n=navigator.languages||[navigator.language];for(var i=0;!l&&i<n.length;i++)l=f(n[i]);l=l||${JSON.stringify(o.locales.base)};${o.urls ? `location.replace(${JSON.stringify(o.urls)}[l]+location.search+location.hash)` : `var p=location.pathname;location.replace(B+l+"/"+(p.indexOf(B)==0?p.slice(B.length):p.replace(/^\\//,""))+location.search+location.hash)`}})()</script>\n` : '';
+  const js = o.script ? `<script>(function(){var L=${JSON.stringify(o.locales.list)},B=${JSON.stringify(o.base)},c=/(?:^|; )locale=([^;]*)/.exec(document.cookie),f=function(x){if(!x)return;var p=decodeURIComponent(x).trim().toLowerCase(),i,j;for(;;){for(i=0;i<L.length;i++)if(L[i].toLowerCase()==p)return L[i];j=p.lastIndexOf("-");if(j<0)break;p=p.slice(0,j)}for(i=0;i<L.length;i++)if(L[i].toLowerCase().split("-")[0]==p)return L[i]},l=f(c&&c[1]),n=navigator.languages||[navigator.language];for(var i=0;!l&&i<n.length;i++)l=f(n[i]);l=l||${JSON.stringify(o.locales.base)};${o.urls ? `location.replace(${JSON.stringify(o.urls)}[l]+location.search+location.hash)` : `var p=location.pathname;location.replace(B+l+"/"+(p.indexOf(B)==0?p.slice(B.length):p.replace(/^\\//,""))+location.search+location.hash)`}})()</script>\n` : '';
   return `<!doctype html>
 <html><head><meta charset="utf-8"><title>${esc(o.locales.list.join(' · '))}</title>
 ${js}<meta http-equiv="refresh" content="0; url=${esc(o.fallback)}"><meta name="robots" content="noindex">

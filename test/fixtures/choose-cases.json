@@ -1,0 +1,21 @@
+{
+  "about": "Choosing a visitor's language (docs/proposals/axes.md §6): the tags they send in order, and the site's language each answer gives. Run by test/locales.test.ts (chooseLanguage, the chooser page's script, @tiaforge-ui/sinter/server), packages/sinter-axum and packages/sinter-aspnetcore.",
+  "cases": [
+    { "base": "en", "list": ["en", "de", "pt-BR"], "tags": [], "want": "en" },
+    { "base": "en", "list": ["en", "de", "pt-BR"], "tags": ["de"], "want": "de" },
+    { "base": "en", "list": ["en", "de", "pt-BR"], "tags": ["DE"], "want": "de" },
+    { "base": "en", "list": ["en", "de", "pt-BR"], "tags": ["de-AT"], "want": "de" },
+    { "base": "en", "list": ["en", "de", "pt-BR"], "tags": ["pt-br"], "want": "pt-BR" },
+    { "base": "en", "list": ["en", "de", "pt-BR"], "tags": ["pt"], "want": "pt-BR" },
+    { "base": "en", "list": ["en", "de", "pt-BR"], "tags": ["fr", "de"], "want": "de" },
+    { "base": "en", "list": ["en", "de", "pt-BR"], "tags": ["fr-FR", "fr"], "want": "en" },
+    { "base": "en", "list": ["en", "zh-Hant", "zh-Hans"], "tags": ["zh-Hant-TW"], "want": "zh-Hant" },
+    { "base": "en", "list": ["en", "zh-Hant", "zh-Hans"], "tags": ["zh-Hans-CN"], "want": "zh-Hans" },
+    { "base": "en", "list": ["en", "zh-Hant", "zh-Hans"], "tags": ["zh"], "want": "zh-Hant" },
+    { "base": "en", "list": ["en", "de-DE", "de-AT"], "tags": ["de"], "want": "de-DE" },
+    { "base": "en", "list": ["en", "de-DE", "de-AT"], "tags": ["de-CH"], "want": "de-DE" },
+    { "base": "en", "list": ["en", "de-DE", "de-AT"], "tags": ["de-AT"], "want": "de-AT" },
+    { "base": "de", "list": ["en", "de"], "tags": ["x-unknown", "en-GB"], "want": "en" },
+    { "base": "de", "list": ["en", "de"], "tags": [" en ;q=0.5"], "want": "de" }
+  ]
+}
