@@ -3,7 +3,8 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join, relative, resolve, sep } from 'node:path';
-import { readHelperManifest, type Diagnostic, type HelperManifest } from './compiler/index.js';
+import { readHelperManifest, type CompileOptions, type Diagnostic, type HelperManifest } from './compiler/index.js';
+import { lazyHelpers } from './lazy-build.js';
 import { strictOf, type Strict } from './compiler/diagnostics.js';
 import type { OpenApiSpec } from './compiler/openapi.js';
 import { defaultApiRenamed, resolveApis, type ApiOptions, type ApisDef } from './compiler/apis.js';
@@ -11,7 +12,7 @@ import { COMPLEXITY_LIMITS, type ComplexityOptions } from './compiler/complexity
 import { componentNames, writeComponentTypes } from './components-build.js';
 import { typeExports } from './check/index.js';
 import { librariesOf, libraries as findLibraries, libraryOf, modulesDir, ownLibrary, type Library } from './libraries.js';
-import { isSelfReference, resolveImport } from './fold-check.js';
+import { isSelfReference, resolveImport, setAppAliases } from './fold-check.js';
 
 export interface ProjectOptions {
   /** content module: collections for `<sn-resource src="content:…">` (`src/sinter.content.ts`, or `.js`); `false`: none */
@@ -301,6 +302,36 @@ export function project(root: string, options: ProjectOptions = {}): Project {
   };
 }
 
+/** One reach of the lazy packages per project: each helper module is scanned once for all its pages. */
+const LAZY_REACH = new WeakMap<Project, ReturnType<typeof lazyHelpers>>();
+/** The lazy packages' reach through the project's modules (`lazyHelpers`), kept with the project. */
+export function lazyReachOf(p: Project): ReturnType<typeof lazyHelpers> {
+  let lh = LAZY_REACH.get(p);
+  if (!lh) LAZY_REACH.set(p, (lh = lazyHelpers(p.root, p.lazy, undefined, p.libraries)));
+  return lh;
+}
+
+/**
+ * What every compile of the project's pages takes from the project: its helpers, components, libraries, APIs, limits and
+ * lazy packages, the same for `sinter check`, the editor, `sinter render` and the build. With `file`, a page: also what
+ * only some pages take (`static`, `swap`). Each caller adds its own (`dev`, `check`, its reads, the content, the locale).
+ */
+export function compileOptionsOf(p: Project, file?: string) {
+  return {
+    root: p.root, helpers: p.helpers, actions: p.actions, config: p.config, readFile: p.readFile, listFiles: p.listFiles,
+    openapi: p.openapi, apis: p.apis, complexity: p.complexity, ...(p.expansionLimit ? { expansionLimit: p.expansionLimit } : {}),
+    componentNames: p.componentNames, libraries: p.libraries, lazy: p.lazy,
+    ...(p.lazy.length ? { lazyModule: lazyReachOf(p).reach } : {}),
+    ...(file !== undefined && p.isStatic(file) ? { static: true, prerender: true } : {}),
+    ...(file !== undefined && p.swap ? { swap: true } : {}),
+  } satisfies Partial<CompileOptions>;
+}
+
+/** What `check()` and `writeSupport()` take from the project, the same for `sinter check`, the editor and the build. */
+export function checkOptionsOf(p: Project) {
+  return { root: p.root, helpers: p.helpers, actions: p.actions, types: p.types, openapi: p.openapi, libraries: p.libraries };
+}
+
 /**
  * The pages (HTML entries) and sinter plugin options from the root's Vite config. Without
  * Vite or entries, `index.html` if it exists.
@@ -314,6 +345,8 @@ export async function viteProject(root: string): Promise<{ pages: string[]; opti
     return withOwnLibrary(root, { pages: fallback(), options: {} });
   }
   const config = await vite.resolveConfig({ root, logLevel: 'silent' }, 'build', 'production');
+  // its aliases, for the walks of the app's modules (the lazy packages' reach, prerendering) wherever the project is read
+  setAppAliases(root, config.resolve.alias);
   const plugin = config.plugins.find((x) => x.name === 'sinter') as { api?: { options?: ProjectOptions; source?(file: string): string } } | undefined;
   const build = config.build as { rollupOptions?: { input?: unknown }; rolldownOptions?: { input?: unknown } };
   const input = build.rolldownOptions?.input ?? build.rollupOptions?.input;

@@ -3,10 +3,10 @@
 // for the back/forward cache. The transport is EventSource unless
 // configure({ transport }) picks another for the stream URL.
 import type { EventDef, SyncDef } from './ir.js';
-import { config, SinterError } from './runtime/config.js';
-import type { App, Feature, Transport } from './runtime/app.js';
+import { config } from './runtime/config.js';
+import type { App, Feature, ResourceLoader, Transport } from './runtime/app.js';
 import { clean } from './runtime/store.js';
-import { doubled, jittered } from './backoff.js';
+import { doubled, jittered, probe as sessionStatus } from './backoff.js';
 import { SWAP } from './runtime/flags.js';
 import { claim, forget, hold, park, seen } from './sse-handover.js';
 
@@ -48,152 +48,157 @@ export function eventSourceTransport(): Transport {
  * page (`app`, `subs`, `changed`, `heard`) is set by each page that uses it: with swaps on, the next page takes
  * an open connection over (sse-handover.ts, docs/proposals/stream-handover.md); the rest is the connection's.
  */
-export class Connection {
-  t: Transport | null = null;
-  private backoff = MIN_BACKOFF;
-  private timer: unknown = null;
-  closed = false;
-  private hidden = false;
-  everOpen = false;
+export interface Connection {
+  t: Transport | null;
+  closed: boolean;
   /** `connecting` until the first open, `retrying` from a failure until it is open again */
-  state: Live = 'connecting';
+  state: Live;
   /** each mapped event with the scope its expressions are evaluated in: its `<sn-sync>`'s state, or the page */
-  subs: Array<[EventDef, any]> = [];
-  // with swaps on (sse-handover.ts; `declare`d: nothing of them in a build without swaps)
+  subs: Array<[EventDef, any]>;
+  app: App;
+  readonly url: string;
+  changed: () => void;
+  /** the names the app's islands and component scripts listen to (`app.on`), the feature's since install */
+  heard: Set<string>;
+  // with swaps on (sse-handover.ts; never set in a build without swaps)
   /** parked: the old page's app is gone, the next page has not taken it over */
-  declare parked?: boolean;
+  parked?: boolean;
   /** events held until the next page's replay */
-  declare buf?: Array<[string, unknown]> | null;
+  buf?: Array<[string, unknown]> | null;
   /** more were held than the cap: the replay reloads (1: every event dropped came before the takeover) */
-  declare lossy?: 1 | 2;
+  lossy?: 1 | 2;
   /** how many of `buf` were held before the takeover, older than the requests the next page's mount sent */
-  declare pre?: number;
+  pre?: number;
   /** the event being replayed was held before the takeover: a `refresh` of a resource loading is covered by that load */
-  declare early?: boolean;
+  early?: boolean;
   /** where the transport came from: `config.transport` as it was (undefined: the default), 1: the app's own option */
-  declare via?: unknown;
+  via?: unknown;
   /** the names the transport connected with */
-  declare names?: Set<string>;
+  names?: Set<string>;
   /** the names delivered while swap `at` fetched the next page's HTML */
-  declare seen?: Set<string>;
-  declare at?: number;
+  seen?: Set<string>;
+  at?: number;
+  listen(name: string): void;
+  start(): void;
+  event(name: string, payload: unknown): void;
+}
 
-  /** `heard`: the names the app's islands and component scripts listen to (`app.on`), the feature's since install */
-  constructor(public app: App, readonly url: string, public changed: () => void, public heard: Set<string>) {}
+/** A connection for `url`; it connects on `start()`. */
+export function connection(app: App, url: string, changed: () => void, heard: Set<string>): Connection {
+  let backoff = MIN_BACKOFF, timer: unknown = null, hidden = false, everOpen = false;
+  // (what a page that takes the connection over replaces is read from `c`: its `app`, `changed`, `subs`, `heard`)
+  const c: Connection = {
+    t: null, closed: false, state: 'connecting', subs: [], app, url, changed, heard,
 
-  listen(name: string): void { this.t?.listen?.(name); if (SWAP) this.names?.add(name); }
+    listen(name) { c.t?.listen?.(name); if (SWAP) c.names?.add(name); },
 
-  private set(state: Live): void {
-    if (this.state === state) return;
-    this.state = state;
-    this.changed();
-  }
+    start() {
+      const env = c.app.env;
+      c.app.addCleanup(env.listen('pagehide', () => { hidden = true; stop(); }));
+      c.app.addCleanup(env.listen('pageshow', () => {
+        if (!hidden) return;
+        hidden = false;
+        c.closed = false;
+        set('connecting');
+        void probe();
+      }));
+      c.app.addCleanup(() => { if (SWAP && park(c)) return; c.closed = true; stop(); });
+      // taken over from the page before (a swap): open already; its state shows on this page's resources
+      if (SWAP && c.t) c.changed();
+      else open();
+    },
 
-  start(): void {
-    const env = this.app.env;
-    this.app.addCleanup(env.listen('pagehide', () => { this.hidden = true; this.stop(); }));
-    this.app.addCleanup(env.listen('pageshow', () => {
-      if (!this.hidden) return;
-      this.hidden = false;
-      this.closed = false;
-      this.set('connecting');
-      void this.probe();
-    }));
-    this.app.addCleanup(() => { if (SWAP && park(this)) return; this.closed = true; this.stop(); });
-    // taken over from the page before (a swap): open already; its state shows on this page's resources
-    if (SWAP && this.t) this.changed();
-    else this.open();
-  }
+    event(name, payload) {
+      if (SWAP) { if (c.buf) return hold(c, name, payload); seen(c, name); }
+      // rendered with the next frame: a burst of events renders once
+      c.app.streamed(() => { for (const [def, base] of c.subs) if (def.name === name) apply(def, base, payload); });
+      c.app.serverEvent(name, payload);
+    },
+  };
 
+  const set = (state: Live) => {
+    if (c.state === state) return;
+    c.state = state;
+    c.changed();
+  };
 
-  private open(): void {
-    if (this.closed && !this.hidden) return;
-    const own = this.app.transport(this.url), custom = own ?? config.transport?.(this.url);
+  const open = () => {
+    if (c.closed && !hidden) return;
+    const own = c.app.transport(url), custom = own ?? config.transport?.(url);
     const t = custom ?? eventSourceTransport();
-    this.t = t;
-    if (SWAP) { this.via = own ? 1 : config.transport; this.names = new Set([...this.subs.map(([e]) => e.name), ...this.heard]); }
-    t.connect(this.url, (name, data) => this.event(name, data), (state) => {
-      if (this.t !== t) return;
+    c.t = t;
+    if (SWAP) { c.via = own ? 1 : config.transport; c.names = new Set([...c.subs.map(([e]) => e.name), ...c.heard]); }
+    t.connect(url, (name, data) => c.event(name, data), (state) => {
+      if (c.t !== t) return;
       if (state === 'open') {
-        const reconnect = this.everOpen;
-        this.backoff = MIN_BACKOFF;
-        this.everOpen = true;
-        this.set('open');
-        if (!custom && !(SWAP && this.parked)) this.app.streamOpened?.(this.url);
+        const reconnect = everOpen;
+        backoff = MIN_BACKOFF;
+        everOpen = true;
+        set('open');
+        if (!custom && !(SWAP && c.parked)) c.app.streamOpened?.(url);
         // events sent while disconnected are lost: reload everything this stream feeds (the page's as it is
         // now: a page that took the connection over reloads its own)
-        if (reconnect) for (const name of new Set(this.subs.map(([e]) => e.resource))) if (name) void this.app.resource(name).refresh();
+        if (reconnect) for (const name of new Set(c.subs.map(([e]) => e.resource))) if (name) void c.app.resource(name).refresh();
       } else {
         t.close();
-        this.t = null;
+        c.t = null;
         // parked: no app to probe with; the next page connects anew
-        if (SWAP && this.parked) { this.closed = true; forget(this); return; }
-        this.set('retrying');
-        void this.probe();
+        if (SWAP && c.parked) { c.closed = true; forget(c); return; }
+        set('retrying');
+        void probe();
       }
       // every connect (the first, a reconnect, after the back/forward cache) subscribes the mapped names and
       // those `app.on` listens to, whenever its listener came
-    }, [...new Set([...this.subs.map(([e]) => e.name), ...this.heard])]);
-  }
+    }, [...new Set([...c.subs.map(([e]) => e.name), ...c.heard])]);
+  };
 
-  private stop(): void {
-    this.t?.close();
-    this.t = null;
-    if (this.timer != null) { this.app.env.clearTimeout(this.timer); this.timer = null; }
-  }
+  const stop = () => {
+    c.t?.close();
+    c.t = null;
+    if (timer != null) { c.app.env.clearTimeout(timer); timer = null; }
+  };
 
   /** The session probe gates every reconnect: 2xx reconnects, 401 leads to login, an outage backs off. */
-  private async probe(): Promise<void> {
-    if (this.closed || this.hidden) return;
-    if (!config.sessionProbe) { this.wait(() => this.open()); return; }
-    let status: number;
-    try {
-      status = (await this.app.req.raw(config.sessionProbe, { retry: false })).status;
-    } catch (e) {
-      status = e instanceof SinterError ? e.status ?? 0 : 0;
-    }
-    if (this.closed || this.hidden) return;
-    if (status >= 200 && status < 300) this.open();
-    else if (status !== 401) this.wait(() => void this.probe());
+  const probe = async (): Promise<void> => {
+    if (c.closed || hidden) return;
+    if (!config.sessionProbe) { wait(open); return; }
+    const status = await sessionStatus(c.app.req);
+    if (c.closed || hidden) return;
+    if (status >= 200 && status < 300) open();
+    else if (status !== 401) wait(() => void probe());
     // 401: the request layer's onUnauthorized handles login
-  }
+  };
 
-  private wait(fn: () => void): void {
-    const delay = jittered(this.backoff, this.app.env.random, 0.25);
-    this.backoff = doubled(this.backoff);
-    this.timer = this.app.env.setTimeout(() => { this.timer = null; fn(); }, delay, 'backoff');
-  }
+  const wait = (fn: () => void) => {
+    const delay = jittered(backoff, c.app.env.random, 0.25);
+    backoff = doubled(backoff);
+    timer = c.app.env.setTimeout(() => { timer = null; fn(); }, delay, 'backoff');
+  };
 
-  event(name: string, payload: unknown): void {
-    if (SWAP) { if (this.buf) return hold(this, name, payload); seen(this, name); }
-    // rendered with the next frame: a burst of events renders once
-    this.app.streamed(() => { for (const [def, base] of this.subs) if (def.name === name) this.apply(def, base, payload); });
-    this.app.serverEvent(name, payload);
-  }
-
-  private apply(def: EventDef, base: any, payload: unknown): void {
-    const app = this.app;
+  const apply = (def: EventDef, base: any, payload: unknown) => {
+    const app = c.app;
     const scope = Object.create(base);
     scope.$p = payload && typeof payload === 'object' ? payload : {};
     try {
       if (def.when != null && !app.fns[def.when]!(scope)) return;
       // `then` runs once the change is applied (a refresh: requested), unless the payload could not be applied
-      if (def.resource && !this.change(def, def.resource, scope, payload)) return;
+      if (def.resource && !change(def, def.resource, scope, payload)) return;
       if (def.then != null) app.exec(def.then, scope, def.w);
     } catch (e) {
       app.warn(28, def.name, (e as Error).message, payload);
     }
-  }
+  };
 
   /** Applies the event's change message; false when the payload lacks what it needs. */
-  private change(def: EventDef, name: string, scope: any, payload: unknown): boolean {
-    const app = this.app;
+  const change = (def: EventDef, name: string, scope: any, payload: unknown): boolean => {
+    const app = c.app;
     const r = app.resource(name);
-    const paginated = !!app.ir.resources.find((x) => x.name === name)?.paginate;
+    // (every resource of the page has its loader, with its definition)
+    const paginated = !!(r.loader as ResourceLoader | null)?.def.paginate;
     switch (def.op) {
       case 'refresh':
         // replayed from before the takeover: a load in flight was requested after it (sse-handover.ts)
-        if (!(SWAP && this.early && r.meta.loading)) void r.refresh(scope.$p);
+        if (!(SWAP && c.early && r.meta.loading)) void r.refresh(scope.$p);
         break;
       case 'upsert': {
         const item = def.value != null ? app.fns[def.value]!(scope) : payload;
@@ -204,25 +209,27 @@ export class Connection {
         break;
       }
       case 'merge': {
-        if (r.isCollection && !this.hasKey(r.key!, scope.$p, def)) return false;
+        if (r.isCollection && !hasKey(r.key!, scope.$p, def)) return false;
         const key = r.keyOf(scope.$p);
         if (!r.isCollection || r.has(key)) r.merge(key, clean(app.fns[def.value!]!(scope)));
         break;
       }
       case 'remove': {
-        if (r.isCollection && !this.hasKey(r.key!, scope.$p, def)) return false;
+        if (r.isCollection && !hasKey(r.key!, scope.$p, def)) return false;
         r.remove(r.keyOf(scope.$p));
         break;
       }
     }
     return true;
-  }
+  };
 
-  private hasKey(fields: string[], payload: Record<string, unknown>, def: EventDef): boolean {
+  const hasKey = (fields: string[], payload: Record<string, unknown>, def: EventDef): boolean => {
     const missing = fields.filter((f) => payload[f] === undefined);
-    if (missing.length) this.app.warn(29, def.name, missing.join(', '), def.resource, payload);
+    if (missing.length) c.app.warn(29, def.name, missing.join(', '), def.resource, payload);
     return missing.length === 0;
-  }
+  };
+
+  return c;
 }
 
 const sse: Feature = {
@@ -255,7 +262,7 @@ const sse: Feature = {
         const url = app.url(def, base);
         let c = cs.get(url);
         // with swaps on, the connection the page before had open for the URL, if this page can take it over
-        if (!c) cs.set(url, c = (SWAP && claim(app, url, heard, publish)) || new Connection(app, url, publish, heard));
+        if (!c) cs.set(url, c = (SWAP && claim(app, url, heard, publish)) || connection(app, url, publish, heard));
         for (const e of def.events) {
           c.subs.push([e, base]);
           if (e.resource) (feeders.get(e.resource) ?? feeders.set(e.resource, new Set()).get(e.resource)!).add(c);

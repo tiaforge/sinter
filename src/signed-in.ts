@@ -18,7 +18,7 @@ const feature: Feature = {
       if (gone || tokens.out || read(g.t as Parameters<typeof read>[0], env) != null) return;
       try { if (g.f != null && !app.fns[g.f]!(app.page)) return; } catch { return; }
       gone = true;
-      (env.replace ?? ((u: string) => location.replace(u)))(signInOf(g.i, env));
+      env.replace(signInOf(g.i, env));
     };
     app.shown(check);
     // after each change: a 401 that took the token, `$url` that makes the condition true

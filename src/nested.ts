@@ -4,7 +4,8 @@
 // along its path are replaced, and the row is patched. Loaded only by pages that change nested items.
 import type { App, Feature } from './runtime/app.js';
 import type { Resource } from './runtime/store.js';
-import { at, changed, isObj, nest } from './write-through.js';
+import { changed, isObj, nest } from './write-through.js';
+import { pick } from './runtime/store.js';
 
 type Obj = Record<string, any>;
 
@@ -56,7 +57,7 @@ const feature: Feature = {
       if (!nt) return;
       const log = (name: string, what: string) => done.push(`${name}: ${what}`);
       const wt = (t: (typeof nt)[number], fields: unknown) => {
-        const r = app.resource(t.r), item = at(s, t.v!.split('.'));
+        const r = app.resource(t.r), item = pick(t.v, s);
         if (!isObj(item)) return;
         if (fields === null) { if (apply(r, t.n!, 'remove', item, undefined, false)) log(t.r, 'remove nested'); return; }
         if (!isObj(fields)) return;
@@ -69,11 +70,11 @@ const feature: Feature = {
       if ((m == 'PUT' || m == 'PATCH') && isObj(body)) {
         const b = ap.rq && isObj(body) ? body[ap.rq] : body;
         if (ap.nu != null) wt(nt[ap.nu]!, b);
-        else if (!ap.t && isObj(b)) for (const t of nt) { const item = at(s, t.v!.split('.')); if (!t.p && isObj(item) && Object.keys(b).every((k) => k in item)) wt(t, b); }
+        else if (!ap.t && isObj(b)) for (const t of nt) { const item = pick(t.v, s); if (!t.p && isObj(item) && Object.keys(b).every((k) => k in item)) wt(t, b); }
       }
       // 1 confirm: objects of a named schema go to the items of that schema the URL named
       for (const e of ap.rs ?? []) {
-        const v = at(result, e.p ? e.p.split('.') : []);
+        const v = pick(e.p, result);
         for (const o of e.a ? (Array.isArray(v) ? v : []) : [v]) if (isObj(o)) for (const t of nt) if (t.s == e.s) wt(t, o);
       }
       // 4 delete: the item whose URL this was (its list's URL plus one segment)

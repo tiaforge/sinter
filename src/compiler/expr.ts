@@ -500,8 +500,10 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
   try {
     if (mode === 'value' || opts.object) {
       ast = parseExpression(src, parseOpts) as Node;
-      // without preserveParens, `(a ? b : c)` ends inside its parentheses; find the real end
-      const end = (parseExpression(src, { ...parseOpts, preserveParens: true }) as Node).end;
+      // without preserveParens, `(a ? b : c)` ends inside its parentheses; find the real end. Only when more than
+      // white space follows that end: the real one is at or after it (the same tokens, only closing parentheses
+      // past it), so a blank rest there is blank from the real end too, and the parse with parentheses kept is skipped
+      const end = src.slice(ast.end).trim() ? (parseExpression(src, { ...parseOpts, preserveParens: true }) as Node).end : src.length;
       const rest = src.slice(end).trim();
       if (rest) {
         const at = src.indexOf(rest, end);

@@ -10,8 +10,7 @@ import { minifyMarkup } from './minify.js';
 import type { RemoteConfig } from '../remote.js';
 import { AUTO_FIT_HINT, AUTO_FIT_ROWS, FLUID_WIDTHS } from './images.js';
 import * as parse5 from 'parse5';
-import { parseExpression, parseProgram } from './parse.js';
-import { fullAncestor } from 'acorn-walk';
+import { freeRefs, parseExpression, parseProgram } from './parse.js';
 import type { DefaultTreeAdapterMap } from 'parse5';
 import { type Code, type Diagnostic, didYouMean, severityOf, suggest } from './diagnostics.js';
 import { analyze, applyEdits, nsLocal, refNames, STORE_FNS, throughField, wild, type SlotScope, type ComponentScope, type ExprOptions, type ExprResult, type LetEntry, type LoopEntry, type PageInfo, type Read, type ResourceInfo, type Scope } from './expr.js';
@@ -25,7 +24,7 @@ import { apiOf, RESPONSE_PATH, shapeTemplate, signInWire, type ApiDef, type Apis
 import { foldReason, type FoldVerdict } from '../fold-check.js';
 import { BUILD_TIME_ATTRS, buildTimeAttrProblem, FILE_ATTRS, FILE_ENTRY, fileAttrProblem, fileEntry, filePath, fileValue, isContentSource, isFileSource, isGlob, PAGE_ENTRY, scriptJson, setPath, sortList } from './files.js';
 import { deref, matchOperation, matchResource, type Method, type OpenApiMatch, type Auth, namedAt, namedSchema, properties, propertyNames, queryNames, responseEntities, walk, wrapperKey, type OpenApiSpec } from './openapi.js';
-import { templatesOf, type ActionDef, type ApplyDef, type Binding, type EarlyIR, type EventDef, type IR, type NodeDef, type Paginate, type PathRef, type ResourceDef, type SyncDef, type TemplateDef, type UrlTemplate } from '../ir.js';
+import { mapFns, templatesOf, type ActionDef, type ApplyDef, type Binding, type EarlyIR, type EventDef, type IR, type NodeDef, type Paginate, type PathRef, type ResourceDef, type SyncDef, type TemplateDef, type UrlTemplate } from '../ir.js';
 import { $k, schemesOf, STYLE_BAD, urlAllowed } from '../runtime/security.js';
 import { $href, $hq, $hv, withParams } from '../runtime/url.js';
 import { firstParams, pageParams } from '../runtime/pages.js';
@@ -610,12 +609,10 @@ function itemCursor(text: string): string {
   let ast: acorn.Expression;
   try { ast = parseExpression(text); } catch { return text; }
   const edits: Array<[number, number, string]> = [];
-  fullAncestor(ast as Node, (n, _s, anc) => {
-    if (n.type !== 'Identifier') return;
-    const id = n as acorn.Identifier, p = anc[anc.length - 2] as acorn.Node | undefined;
-    if (id.name.startsWith('$') || (p?.type === 'MemberExpression' && (p as acorn.MemberExpression).property === id && !(p as acorn.MemberExpression).computed)) return;
-    if (p?.type === 'Property' && (p as acorn.Property).key === id && !(p as acorn.Property).shorthand) return;
-    if (p?.type === 'Property' && (p as acorn.Property).shorthand) edits.push([p.start, p.end, `${id.name}: $item.${id.name}`]);
+  // the fields are its free names: not a name a function in it binds (`tags.map((id) => id)`)
+  freeRefs(ast, (id, shorthand) => {
+    if (id.name.startsWith('$')) return;
+    if (shorthand) edits.push([shorthand.start, shorthand.end, `${id.name}: $item.${id.name}`]);
     else edits.push([id.start, id.end, `$item.${id.name}`]);
   });
   let out = text;
@@ -1725,8 +1722,8 @@ class Compiler {
     const user: string[] = [];
     // a lazy module's helpers are not imported: the module loads when a let needs it
     // and a helper whose every call ran at build time (written into the HTML) is not imported either
-    const live = this.fns.filter((c) => c !== '0').join('\n');
-    const imported = (key: string) => !this.page.lazy?.has(key) && new RegExp(`(?<![\\w$.])${key.replace(/\$/g, '\\$')}(?![\\w$])`).test(live);
+    const live = namesIn(this.fns.filter((c) => c !== '0').join('\n'), [...this.page.usedHelpers, '$href', '$hq', '$hv', ...[...this.page.usedNs].flatMap(([k, v]) => [...v].map((m) => `${k}$${m}`))]);
+    const imported = (key: string) => !this.page.lazy?.has(key) && live(key);
     for (const h of [...this.page.usedHelpers].sort()) if (imported(h)) (this.page.helpers.has(h) ? user : builtin).push(h);
     // a link's URL template (`data-sn-href`) that is not written into the HTML
     for (const h of ['$href', '$hq', '$hv']) if (imported(h)) builtin.push(h);
@@ -1757,6 +1754,8 @@ class Compiler {
     const navigates = this.fns.some((c) => c.includes('$f.navigate('));
     if (reads && !hasBase(doc) && (navigates || this.seesSameLink(own))) { ir.urlReads = reads; this.features.add('query-links'); this.features.add('location'); }
     this.fileJson();
+    // builds: the last pass over the tables, after every pass that leaves a template or a function unused
+    if (!this.opts.dev) this.compactTables(ir, early);
     return {
       ...(this.jsonOut.size ? { json: this.jsonOut } : {}),
       ...(this.lateDiags.length ? { lateDiagnostics: this.lateDiags } : {}),
@@ -1794,6 +1793,89 @@ class Compiler {
       lazyHelpers,
       preload: [...this.preloads].sort(),
     };
+  }
+
+  /**
+   * Builds: the templates nothing renders and the functions nothing calls leave the page, and the rest are numbered
+   * again, in their order. The passes before leave them in place to keep the others' indexes: a template `shareTemplates`
+   * pointed elsewhere (`{ id, nodes: [] }`), one under a branch or loop the build decided, a function that is `'0'`
+   * (`groupStyles`, `dropConstants`, `fixedDeps`, the shared templates' copies) or only a dropped template's. A template
+   * is kept when an anchor of the page's or the early file's reaches it; a function when a field of the IR names it
+   * (`mapFns`, the fields `validateIR` checks), one copy of each code. What holds the numbers follows: the anchors'
+   * `x`, `z` and `c` (the early file's too, and its table by template), the head templates' `sn-t-<id>`, the loop index
+   * names `$i<id>` (in paths, where the runtime reads the template from them, and in code), the function table's
+   * sites (the source map's `fns`), uses and index. The early file's own table is apart, and has no gaps.
+   */
+  compactTables(ir: IR, early: EarlyParts | null | undefined) {
+    const T = this.templates, E = early?.ir.templates;
+    const live = new Set<number>();
+    const todo = [...ir.roots, ...(early?.ir.roots ?? [])].flatMap((n) => n.b.flatMap(templatesOf));
+    while (todo.length) {
+      const x = todo.pop()!;
+      if (live.has(x) || !T[x]) continue;
+      live.add(x);
+      for (const n of [...T[x]!.nodes, ...(E?.[x]?.nodes ?? [])]) for (const b of n.b) todo.push(...templatesOf(b));
+    }
+    const tmap = new Map<number, number>();
+    T.forEach((_, i) => { if (live.has(i)) tmap.set(i, tmap.size); });
+    if (tmap.size < T.length || [...tmap].some(([a, b]) => a !== b)) {
+      const point = (n: NodeDef) => {
+        for (const b of n.b) {
+          if (b.k === 'for' || b.k === 'if') { b.x = tmap.get(b.x!)!; if (b.z != null) b.z = tmap.get(b.z)!; }
+          if (b.k === 'ch') b.c = b.c!.map((x) => tmap.get(x)!);
+        }
+      };
+      // a loop's index name holds its template's id (`$i<id>`): its paths (`{$i<id>}`) tell the runtime the row's template
+      const names = new Map<string, string>();
+      for (const [a, b] of tmap) if (a !== b && T[a]!.ii === `$i${a}`) names.set(`$i${a}`, `$i${b}`);
+      const re = /(?<![\w$])\$i\d+(?![\w$])/g;
+      const rename = <S extends string | number>(x: S): S => (typeof x === 'string' && names.size ? x.replace(re, (m) => names.get(m) ?? m) as S : x);
+      const heads = [...this.headTemplates];
+      this.headTemplates.clear();
+      for (const [tid, tpl] of heads) {
+        const j = tmap.get(tid);
+        if (j === undefined) { detach(tpl); continue; }
+        tpl.attrs = tpl.attrs.map((a) => (a.name === 'id' ? { ...a, value: `sn-t-${j}` } : a));
+        this.headTemplates.set(j, tpl);
+      }
+      const kept = T.filter((_, i) => live.has(i));
+      T.splice(0, T.length, ...kept);
+      T.forEach((t, i) => { t.id = i; if (t.ii) t.ii = rename(t.ii); });
+      for (const n of [...ir.roots, ...T.flatMap((t) => t.nodes)]) point(n);
+      if (early) {
+        const et: EarlyIR['templates'] = [];
+        for (const [a, b] of tmap) et[b] = E![a] ?? null;
+        for (let i = 0; i < et.length; i++) et[i] ??= null;
+        while (et.length && et[et.length - 1] === null) et.pop();
+        early.ir.templates = et;
+        for (const n of [...early.ir.roots, ...et.flatMap((t) => t?.nodes ?? [])]) point(n);
+        if (names.size) early.fns.forEach((c, i) => { early.fns[i] = rename(c); });
+      }
+      if (names.size) {
+        eachPath(ir, (p, set) => set(rename(p)), (p, set) => set(rename(p)));
+        this.fns.forEach((c, i) => { this.fns[i] = rename(c); });
+      }
+    }
+    // the functions the IR names, in their order, each code once
+    const used = new Set<number>();
+    mapFns(ir, (i) => (used.add(i), i));
+    const fmap = new Map<number, number>(), byCode = new Map<string, number>();
+    const fns: string[] = [], at: Array<Site | null> = [], uses: number[] = [];
+    for (let i = 0; i < this.fns.length; i++) {
+      if (!used.has(i)) continue;
+      const code = this.fns[i]!;
+      let j = byCode.get(code);
+      if (j === undefined) { byCode.set(code, (j = fns.push(code) - 1)); at[j] = this.fnAt[i] ?? null; uses[j] = 0; }
+      uses[j]! += this.fnUses[i] ?? 1;
+      fmap.set(i, j);
+    }
+    if (fns.length === this.fns.length && [...fmap].every(([a, b]) => a === b)) return;
+    mapFns(ir, (i) => fmap.get(i)!);
+    this.fns.splice(0, this.fns.length, ...fns);
+    this.fnAt.splice(0, this.fnAt.length, ...at);
+    this.fnUses.splice(0, this.fnUses.length, ...uses);
+    this.fnIndex.clear();
+    for (const [code, j] of byCode) this.fnIndex.set(code, j);
   }
 
   /** A kept template (`fromTemplate`): whether its program is the same for every entry (no entry's URL in it). */
@@ -5657,51 +5739,8 @@ class Compiler {
     try { ast = parseExpression(code); } catch { return null; }
     // references to a lazy helper only: not a member's name (`post.title`), an object key (`{ title: s }`; a
     // shorthand `{ title }` is a reference, written out), nor a name a function in the let binds (`(title) => …`)
-    const waits: Array<{ n: any; key?: true }> = [];
-    const names = (p: any, out: Set<string>): Set<string> => {
-      if (!p) return out;
-      if (p.type === 'Identifier') out.add(p.name);
-      else if (p.type === 'ObjectPattern') for (const x of p.properties) names(x.type === 'RestElement' ? x.argument : x.value, out);
-      else if (p.type === 'ArrayPattern') for (const x of p.elements) names(x, out);
-      else if (p.type === 'RestElement') names(p.argument, out);
-      else if (p.type === 'AssignmentPattern') names(p.left, out);
-      return out;
-    };
-    const visit = (n: any, bound: Set<string>) => {
-      if (!n || typeof n.type !== 'string') return;
-      if (n.type === 'Identifier') { if (lazy.has(n.name) && !bound.has(n.name)) waits.push({ n }); return; }
-      if (n.type === 'MemberExpression') { visit(n.object, bound); if (n.computed) visit(n.property, bound); return; }
-      if (n.type === 'Property') {
-        if (n.computed) visit(n.key, bound);
-        if (n.shorthand && n.value.type === 'Identifier') { if (lazy.has(n.value.name) && !bound.has(n.value.name)) waits.push({ n: n.value, key: true }); return; }
-        visit(n.value, bound);
-        return;
-      }
-      if (n.type === 'ArrowFunctionExpression' || n.type === 'FunctionExpression') {
-        const inner = new Set(bound);
-        if (n.id) inner.add(n.id.name);
-        for (const p of n.params) names(p, inner);
-        // defaults are evaluated in the function's scope
-        for (const p of n.params) visit(p, inner);
-        visit(n.body, inner);
-        return;
-      }
-      if (n.type === 'AssignmentPattern') { visit(n.right, bound); return; }
-      if (n.type === 'ObjectPattern' || n.type === 'ArrayPattern' || n.type === 'RestElement') {
-        for (const x of n.type === 'ObjectPattern' ? n.properties : n.type === 'ArrayPattern' ? n.elements : [n.argument]) {
-          if (!x) continue;
-          if (x.type === 'Property') { if (x.computed) visit(x.key, bound); visit(x.value, bound); } else visit(x, bound);
-        }
-        return;
-      }
-      for (const k of Object.keys(n)) {
-        if (k === 'start' || k === 'end' || k === 'type') continue;
-        const v = n[k];
-        if (Array.isArray(v)) for (const c of v) visit(c, bound);
-        else if (v && typeof v === 'object') visit(v, bound);
-      }
-    };
-    visit(ast, new Set());
+    const waits: Array<{ n: acorn.Identifier; key?: true }> = [];
+    freeRefs(ast, (n, shorthand) => { if (lazy.has(n.name)) waits.push(shorthand ? { n, key: true } : { n }); });
     if (!waits.length) return null;
     const mods = new Set<number>();
     let out = code;
@@ -8576,6 +8615,13 @@ class Compiler {
     const esc = (n: string) => n.replace(/\$/g, '\\$');
     const names = (ns: Map<string, string>) => new RegExp(`(?<![\\w$])(${[...ns.keys()].map(esc).join('|')})(?![\\w$])`, 'g');
     const KINDS = new Set(['text', 'attr', 'class', 'style', 'show', 'prop', 'for', 'if', 'ch']);
+    // a head template's markup, serialized once: every subtree around it has it in its form
+    const htmls = new Map<number, string | null>();
+    const htmlOf = (id: number) => {
+      let h = htmls.get(id);
+      if (h === undefined) htmls.set(id, (h = this.headTemplates.has(id) ? parse5.serialize(this.headTemplates.get(id)!.content) : null));
+      return h;
+    };
     // the subtree's form with its names numbered, or null when it is not a candidate
     const formOf = (root: number): string | null => {
       const d = owner.get(root);
@@ -8592,7 +8638,7 @@ class Compiler {
         const t = T[id]!;
         const { id: _i, nodes, item: _a, index: _b, ii: _c, key, find: _f, make: _m, ...rest } = t;
         return {
-          ...rest, key: code(key), html: this.headTemplates.has(id) ? parse5.serialize(this.headTemplates.get(id)!.content) : null,
+          ...rest, key: code(key), html: htmlOf(id),
           nodes: nodes.map((n) => {
             if (n.state !== undefined || n.sid !== undefined || n.persist !== undefined || n.dl) bad = true;
             return {
@@ -9262,9 +9308,8 @@ class Compiler {
       if (at) this.earlySites.set(code, { ...at.site, parts: keep.map(([k, c]) => ({ code: `${JSON.stringify(k)}: (${c})`, site: at.fields.get(k) ?? null })) });
     }
     // the helpers and namespace members the early functions call
-    const all = fns.join('\n');
-    const calls = (name: string) => new RegExp(`(?<![\\w$.])${name.replace(/\$/g, '\\$')}(?![\\w$])`).test(all);
-    const helpers = this.opts.helpers.names.filter(calls);
+    const calls = namesIn(fns.join('\n'), [...this.opts.helpers.names, ...EARLY_FORMATTERS, ...memberNames(this.opts.helpers.namespaces)]);
+    const helpers = this.opts.helpers.names.filter((n) => calls(n));
     // the built-in formatters the early functions call, and only those: the page's early file bundles each
     const formatters = EARLY_FORMATTERS.filter((n) => !userHelpers.has(n) && calls(n));
     const namespaces: Record<string, string[]> = {};
@@ -9346,8 +9391,7 @@ class Compiler {
       });
     }
     if (!res.length) return null;
-    const all = fns.join('\n');
-    const calls = (name: string) => new RegExp(`(?<![\\w$.])${name.replace(/\$/g, '\\$')}(?![\\w$])`).test(all);
+    const calls = namesIn(fns.join('\n'), [...memberNames(this.opts.helpers.namespaces), ...this.opts.helpers.names]);
     const namespaces: Record<string, string[]> = {};
     for (const [ns, { members }] of Object.entries(this.opts.helpers.namespaces)) {
       const used = members.filter((m) => calls(nsLocal(ns, m)));
@@ -9520,28 +9564,42 @@ class Compiler {
     if (plan.why && !waits) note(plan.why);
     else if (plan.space && !held) note(!names.every((n) => (plan.form === 'static' ? starts(n) : pre.has(n))) ? 'a resource\'s `src` or `when` reads more than the URL (state, another resource): its load may not start when the page module mounts' : 'the list reads more than its resources and the URL');
     if (!held || !plan.space || !this.opts.paintCss) return;
-    const parent = el.parentNode as P5Element;
     const k = this.spaceKey('snr', el);
     const tag = plan.space.tag, markup = `<${tag} class="sn-reserve ${k}" aria-hidden="true"></${tag}>`;
-    const at = parent.childNodes.indexOf(el) + 1;
     if (plan.form === 'static') {
-      const ph = parse5.parseFragment(markup).childNodes[0] as P5Element;
-      ph.parentNode = parent;
-      parent.childNodes.splice(at, 0, ph as never);
-      const r = `.${names[0]!}`;
-      // rows, or no load running: it ended (empty, failed) or never started (a `src` that cannot be built); the load starts at mount, before this runs
-      const code = `($) => ($.$r${r}?.length || !$.$meta${r}.loading) && $.$el.remove()`;
-      this.spaces.push({ list: el, names, k, space: plan.space, note, ph, node: { tag, p: ctx.stateIdx, b: [this.binding({ k: 'imp', f: this.fn(code, { el, attr: 'data-sn-for', shift: 0 }), d: [`$r.${names[0]!}`, `$meta.${names[0]!}`], e: 1 })] } });
+      const ph = this.afterList(el, markup);
+      this.spaces.push({ list: el, names, k, space: plan.space, note, ph, node: this.goneWithRows(el, tag, names[0]!, ctx) });
     } else {
       // no rows yet, and one of the resources loading: the walk compiles it next, as page markup
-      const cond = `!(${plan.list})?.length && (${names.map((n) => `$meta.${n}.loading`).join(' || ')})`;
-      const t = parse5.parseFragment(`<template data-sn-if="${cond.replace(/&/g, '&amp;').replace(/"/g, '&quot;')}">${markup}</template>`).childNodes[0] as P5Element;
-      t.parentNode = parent;
-      parent.childNodes.splice(at, 0, t as never);
-      const origin = this.origins.get(el);
-      if (origin) this.tag(t, origin);
+      const t = this.branchAfterList(el, `!(${plan.list})?.length && (${names.map((n) => `$meta.${n}.loading`).join(' || ')})`, markup);
       this.spaces.push({ list: el, names, k, space: plan.space, note, tpl: t });
     }
+  }
+
+  /** `markup`'s element, put right after the list's template `el` */
+  private afterList(el: P5Element, markup: string): P5Element {
+    const parent = el.parentNode as P5Element, at = parent.childNodes.indexOf(el) + 1;
+    const x = parse5.parseFragment(markup).childNodes[0] as P5Element;
+    x.parentNode = parent;
+    parent.childNodes.splice(at, 0, x as never);
+    return x;
+  }
+
+  /** a `data-sn-if` template over `cond` holding `markup`, right after the list's template `el`: the walk compiles it next, as page markup */
+  private branchAfterList(el: P5Element, cond: string, markup: string): P5Element {
+    const t = this.afterList(el, `<template data-sn-if="${cond.replace(/&/g, '&amp;').replace(/"/g, '&quot;')}">${markup}</template>`);
+    const origin = this.origins.get(el);
+    if (origin) this.tag(t, origin);
+    return t;
+  }
+
+  /**
+   * The node of an element after the list `el` that removes itself once the resource `name` has rows or no load
+   * is running: it ended (empty, failed) or never started (a `src` that cannot be built); the load starts at mount, before this runs
+   */
+  private goneWithRows(el: P5Element, tag: string, name: string, ctx: Ctx): NodeDef {
+    const r = `.${name}`;
+    return { tag, p: ctx.stateIdx, b: [this.binding({ k: 'imp', f: this.fn(`($) => ($.$r${r}?.length || !$.$meta${r}.loading) && $.$el.remove()`, { el, attr: 'data-sn-for', shift: 0 }), d: [`$r.${name}`, `$meta.${name}`], e: 1 })] };
   }
 
   /**
@@ -9568,20 +9626,11 @@ class Compiler {
     if (!this.opts.paintCss) return true;
     const k = this.spaceKey('snw', el);
     setAttr(box, 'class', [attr(box, 'class'), k].filter(Boolean).join(' '));
-    const parent = el.parentNode as P5Element, i = parent.childNodes.indexOf(el) + 1, markup = `<i class="${k}m" hidden></i>`;
+    const markup = `<i class="${k}m" hidden></i>`;
     if (plan.waitForm === 'static') {
-      const mk = parse5.parseFragment(markup).childNodes[0] as P5Element;
-      mk.parentNode = parent;
-      parent.childNodes.splice(i, 0, mk as never);
-      const r = `.${names[0]!}`;
-      this.pendingSpace.push({ el: mk, node: { tag: 'i', p: ctx.stateIdx, b: [this.binding({ k: 'imp', f: this.fn(`($) => ($.$r${r}?.length || !$.$meta${r}.loading) && $.$el.remove()`, { el, attr: 'data-sn-for', shift: 0 }), d: [`$r.${names[0]!}`, `$meta.${names[0]!}`], e: 1 })] } });
-    } else {
-      const cond = `!(${plan.list})?.length && (${known.map((n) => `$meta.${n}.loading && !$meta.${n}.loadedAt`).join(' || ')})`;
-      const t = parse5.parseFragment(`<template data-sn-if="${cond.replace(/&/g, '&amp;').replace(/"/g, '&quot;')}">${markup}</template>`).childNodes[0] as P5Element;
-      t.parentNode = parent;
-      parent.childNodes.splice(i, 0, t as never);
-      if (o) this.tag(t, o);
-    }
+      const mk = this.afterList(el, markup);
+      this.pendingSpace.push({ el: mk, node: this.goneWithRows(el, 'i', names[0]!, ctx) });
+    } else this.branchAfterList(el, `!(${plan.list})?.length && (${known.map((n) => `$meta.${n}.loading && !$meta.${n}.loadedAt`).join(' || ')})`, markup);
     if (!this.waitRules.length) this.waitRules.push('@keyframes sn-wait { to { visibility: visible } }');
     // `:not(#_)`: an id's weight, over the author's rules for those boxes; the animation shows them after 3 s whatever happens
     // only at the widths where the box follows its content: elsewhere nothing moves, and nothing is hidden
@@ -10229,9 +10278,11 @@ function exclusive(a: string[], b: string[]): boolean {
   return b.some((x) => { const [c, k] = x.split(':') as [string, string]; return branch.has(c) && branch.get(c) !== k; });
 }
 
+
 /**
- * Whether markup's expressions read `name` (in any `data-sn-*` value): an identifier, not an object
- * literal's key or a member's property name (`{ node: … }`, `x.node`). A value that does not parse
+ * Whether markup's expressions read `name` (in any `data-sn-*` value): a free reference, not an object
+ * literal's key, a member's property name or a function's own parameter (`{ node: … }`, `x.node`,
+ * `(node) => …`). A value that does not parse
  * counts when the name appears in it.
  */
 function reads(nodes: P5Node[], name: string): boolean {
@@ -10243,18 +10294,28 @@ function reads(nodes: P5Node[], name: string): boolean {
       try { ast = parseProgram(v); } catch { return true; }
     }
     let found = false;
-    fullAncestor(ast, (n, _state, ancestors) => {
-      if (found || n.type !== 'Identifier' || (n as acorn.Identifier).name !== name) return;
-      const parent = ancestors[ancestors.length - 2] as acorn.Node | undefined;
-      if (parent?.type === 'Property' && (parent as acorn.Property).key === n && !(parent as acorn.Property).computed && !(parent as acorn.Property).shorthand) return;
-      if (parent?.type === 'MemberExpression' && (parent as acorn.MemberExpression).property === n && !(parent as acorn.MemberExpression).computed) return;
-      found = true;
-    });
+    freeRefs(ast, (id) => { if (id.name === name) found = true; });
     return found;
   };
   const walk = (ns: P5Node[]): boolean => ns.some((c) => isElement(c) && (c.attrs.some((a) => a.name.startsWith('data-sn-') && inValue(a.value)) || walk(c.childNodes) || (c.tagName === 'template' && walk((c as P5Template).content.childNodes))));
   return walk(nodes);
 }
+
+/**
+ * Whether `code` names an identifier, as `(?<![\w$.])name(?![\w$])` finds it: a run of `[\w$]` not after a `.` (a
+ * member's property is not the helper). The `names` to be asked are looked for in one pass, one pattern of them all
+ * (a match is a whole run, so it is the one name equal to it), where a pattern per name was a pass per name; a name
+ * asked that is not among them, or not such a run, is tested as its own pattern.
+ */
+export function namesIn(code: string, names: Iterable<string>): (name: string) => boolean {
+  const pattern = (n: string) => `(?<![\\w$.])${n.replace(/\$/g, '\\$')}(?![\\w$])`;
+  const asked = new Set([...names].filter((n) => /^[\w$]+$/.test(n))), found = new Set<string>();
+  if (asked.size) for (const m of code.matchAll(new RegExp(pattern(`(?:${[...asked].join('|')})`), 'g'))) found.add(m[0]);
+  return (name) => (asked.has(name) ? found.has(name) : new RegExp(pattern(name)).test(code));
+}
+
+/** each member of the helper modules' namespaces as the compiled code names it, `ns$member` */
+const memberNames = (namespaces: Record<string, { members: string[] }>) => Object.entries(namespaces).flatMap(([ns, { members }]) => members.map((m) => `${ns}$${m}`));
 
 function isElement(n: P5Node): n is P5Element {
   return 'tagName' in n;

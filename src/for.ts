@@ -1,6 +1,7 @@
 // Fan-out resources (`@tiaforge-ui/sinter/runtime/for`): `<sn-resource for="a in accounts">` loads one request per
 // list item into one collection.
 import type { App, Feature, ResourceLoader } from './runtime/app.js';
+import { isAbort } from './runtime/request.js';
 
 interface Source {
   c: AbortController | null;
@@ -9,8 +10,6 @@ interface Source {
   keys: Set<string>;
   answered: boolean;
 }
-
-const isAbort = (e: unknown) => e instanceof DOMException && e.name == 'AbortError';
 
 /**
  * Sources are keyed by their resolved URL. An item belongs to a source when it came in that

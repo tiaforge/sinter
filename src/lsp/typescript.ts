@@ -9,7 +9,7 @@ import { COMPILER_OPTIONS, shadowOf, shadowPath, typeDiagnostic, writeSupport, t
 import { mapPosition, quietLine, shadowPosition, type Region } from '../check/shadow.js';
 import type { CheckUnit } from '../compiler/check-unit.js';
 import type { Diagnostic } from '../compiler/index.js';
-import type { Project } from '../project.js';
+import { checkOptionsOf, type Project } from '../project.js';
 import { Connection } from './rpc.js';
 import { specLocation } from './spec-location.js';
 
@@ -74,7 +74,7 @@ export class TypeScriptBridge {
   /** Brings the shadows in line with the pages' latest check units. */
   async update(project: Project, units: Map<string, CheckUnit>): Promise<void> {
     await this.ready;
-    const support = writeSupport({ root: this.root, outDir: this.outDir, types: project.types, openapi: project.openapi });
+    const support = writeSupport({ ...checkOptionsOf(project), root: this.root, outDir: this.outDir });
     // a reloaded project may have new type names or spec declarations
     if (this.support && JSON.stringify(support) !== JSON.stringify(this.support)) this.filesChanged([support.declarations, ...support.openapi]);
     this.support = support;

@@ -10,8 +10,7 @@ import type { CheckUnit } from '../compiler/check-unit.js';
 import type { HelperManifest } from '../compiler/compile.js';
 import type { Diagnostic } from '../compiler/diagnostics.js';
 import { compile } from '../compiler/index.js';
-import { lazyHelpers } from '../lazy-build.js';
-import { project, type ProjectOptions } from '../project.js';
+import { checkOptionsOf, compileOptionsOf, project, type ProjectOptions } from '../project.js';
 import type { OpenApiSpec } from '../compiler/openapi.js';
 import { specDeclarations, typeName } from './openapi-types.js';
 import type { LibraryTypes } from './shadow.js';
@@ -205,8 +204,8 @@ export function checkPage(html: string, o: ProjectOptions & { files?: Record<str
     const file = join(root, 'index.html');
     writeFileSync(file, html);
     const p = project(root, o);
-    const out = compile(html, { ...(p.lazy.length ? { lazyModule: lazyHelpers(root, p.lazy, undefined, p.libraries).reach } : {}), file, root, dev: false, helpers: p.helpers, actions: p.actions, readFile: p.readFile, listFiles: p.listFiles, check: true, openapi: p.openapi, apis: p.apis, complexity: p.complexity, ...(p.expansionLimit ? { expansionLimit: p.expansionLimit } : {}), componentNames: p.componentNames, libraries: p.libraries });
-    const r = check({ root, units: out.check ? [out.check] : [], helpers: p.helpers, actions: p.actions, types: p.types, openapi: p.openapi, tsc: findTsc(process.cwd()), libraries: p.libraries });
+    const out = compile(html, { ...compileOptionsOf(p, file), file, dev: false, check: true });
+    const r = check({ ...checkOptionsOf(p), units: out.check ? [out.check] : [], tsc: findTsc(process.cwd()) });
     return [...p.diagnostics, ...out.diagnostics, ...r.diagnostics].map((d) => ({ ...d, file: relative(root, d.file) }));
   } finally {
     rmSync(root, { recursive: true, force: true });

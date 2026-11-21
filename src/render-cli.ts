@@ -10,8 +10,11 @@ import { format } from 'node:util';
 import { formatDiagnostic } from './compiler/index.js';
 import { componentBase } from './components-build.js';
 import { pagePaths } from './page-paths.js';
-import { project as readProject, viteProject } from './project.js';
-import { isComponentScript, lazyHelpers } from './lazy-build.js';
+import { lazyReachOf, project as readProject, viteProject } from './project.js';
+import { isComponentScript } from './lazy-build.js';
+import { segments, segsMatch } from './runtime/url.js';
+import { withInertPlugin } from './helpers-node.js';
+import { componentScript } from './components-build.js';
 import type { Library } from './libraries.js';
 import type { HistoryWrite, MockStream, RecordedCall, Rendered, RouteResponse } from './testing/index.js';
 
@@ -254,11 +257,13 @@ export async function appLoader(root: string, libs: readonly Library[] = []): Pr
       return `const m = ${get};\n${names.map((n) => `export const ${n} = m.${n};`).join('\n')}\n${'default' in mod ? 'export default m.default;' : ''}`;
     },
   };
-  const server = await vite.createServer({
-    root, configFile: false, logLevel: 'silent', appType: 'custom', plugins: [plugin],
+  // with the app's Vite config (its aliases and plugins), as the build and `sinter check` load its modules; sinter's own plugin inert
+  const v = vite;
+  const server = await withInertPlugin(() => v.createServer({
+    root, logLevel: 'silent', clearScreen: false, appType: 'custom', plugins: [plugin],
     server: { middlewareMode: true, hmr: false, watch: null, ws: false },
     optimizeDeps: { noDiscovery: true, include: [] },
-  });
+  }));
   return { load: (f) => server.ssrLoadModule(f) as Promise<Record<string, unknown>>, close: () => server.close() };
 }
 
@@ -396,14 +401,11 @@ function requestReport(l: Logged, origin: string): RequestReport {
   return { method: l.call.method, url: shown, headers, ...(l.call.body != null ? { body: l.call.body instanceof FormData ? '(form data)' : l.call.body } : {}), status: l.call.status ?? null, source: l.source, ...(l.error ? { error: l.error } : {}) };
 }
 
-/** A path pattern (`/incidents/:id`) or a page path matches the URL's path; a pattern also matches with a trailing slash. */
+/** A path pattern (`/incidents/:id`) or a page path matches the URL's path, by its non-empty segments (a trailing slash too). */
 export function pathMatches(patterns: string[], path: string): boolean {
-  const bare = path.length > 1 ? path.replace(/\/$/, '') : path;
-  return patterns.some((p) => {
-    if (p === path) return true;
-    const a = p.split('/'), b = bare.split('/');
-    return a.length === b.length && a.every((s, i) => (s[0] === ':' ? b[i] !== '' : s === b[i]));
-  });
+  // as the browser's `$url`, swaps, next-page data and the server match it: by the path's non-empty segments
+  const segs = segments(path);
+  return patterns.some((p) => segsMatch(segments(p), segs));
 }
 
 /** The element tree as indented markup: one element a line, its text inline, comments and scripts left out. */
@@ -632,10 +634,9 @@ export async function renderPage(a: RenderArgs): Promise<RenderReport> {
       return l ? join(l.folder, 'components', l.internal.includes(name) ? 'internal' : '') : resolve(a.root, 'src/components');
     };
     for (const name of [...p.componentNames, ...p.libraries.flatMap((l) => l.internal)]) {
-      for (const ext of ['.ts', '.js']) {
-        const f = join(dirOf(name), name + ext);
-        if (existsSync(f)) { scripts[name] = await load(f); break; }
-      }
+      // (any of the script extensions the compiler takes: `.ts`, `.js`, `.mts`, `.mjs`)
+      const f = componentScript(join(dirOf(name), name + '.html'));
+      if (f) scripts[name] = await load(f);
     }
 
     // every stream the page opens connects, and sends what --emit says
@@ -647,7 +648,7 @@ export async function renderPage(a: RenderArgs): Promise<RenderReport> {
       actions: pick(actions, p.actions.names, Object.keys(p.actions.namespaces)),
       ...(a.now !== null ? { now: a.now } : {}),
       ...(a.locale ? { locale: a.locale } : {}),
-      project: { root: a.root, file: a.page, readFile: p.readFile, listFiles: p.listFiles, componentNames: p.componentNames, libraries: p.libraries, openapi: p.openapi, apis: p.apis, helpers: p.helpers, ...(p.lazy.length ? { lazyModule: lazyHelpers(a.root, p.lazy, undefined, p.libraries).reach } : {}) },
+      project: { root: a.root, file: a.page, readFile: p.readFile, listFiles: p.listFiles, componentNames: p.componentNames, libraries: p.libraries, openapi: p.openapi, apis: p.apis, helpers: p.helpers, ...(p.lazy.length ? { lazyModule: lazyReachOf(p).reach } : {}) },
     });
     let error: string | undefined;
     try { await r.settle(); } catch (e) { error = (e as Error).message; }

@@ -3,6 +3,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { ancestor, base, simple } from 'acorn-walk';
+import { lineCol } from './line-col.js';
 import { parseModule } from './compiler/index.js';
 import type { Diagnostic } from './compiler/index.js';
 
@@ -27,7 +28,7 @@ export function moduleKeys(code: string, id: string, from: string = MESSAGES_MOD
   }
   if (!names.size) return { keys: [], errors: [] };
   const keys = new Set<string>(), errors: string[] = [], ok = new Set<unknown>(locals);
-  const where = (pos: number) => { const before = code.slice(0, pos).split('\n'); return `${id}:${before.length}:${before.at(-1)!.length + 1}`; };
+  const where = (pos: number) => { const { line, col } = lineCol(code, pos); return `${id}:${line}:${col}`; };
   ancestor(ast as never, {
     MemberExpression(n: any, _st: unknown, anc: any[]) {
       if (n.object.type === 'Identifier' && names.has(n.object.name)) {

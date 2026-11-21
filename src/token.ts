@@ -7,6 +7,7 @@
 import { apiFor, config, clearStored, SinterError, type ApiSettings, type LoginRedirectOptions } from './runtime/config.js';
 import type { Env } from './runtime/env.js';
 import { tokens, type TokenHooks } from './runtime/request.js';
+import { pick } from './runtime/store.js';
 
 type Token = NonNullable<ApiSettings['t']>;
 /** where a sign-in goes from `href`: `signInTarget`'s (runtime/config.ts) */
@@ -51,8 +52,6 @@ const pathOf = (a: ApiSettings, url: string, href: string) => url.slice(new URL(
 
 /** whether a GET needs the token (`r`: the paths that do; absent, every one): signed out, it is not sent */
 const needs = (t: Token, method: string, path: string) => method == 'GET' && (!t.r || !!match(t.r.map((p) => 'GET ' + p), method, path));
-
-const pick = (at: string, body: any) => at.split('.').reduce((x, k) => x?.[k], body);
 
 /** whether a GET of this URL needs a token that is not stored: not sent, the resource reads as signed out */
 const out = (url: string, env: Env) => {

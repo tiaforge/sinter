@@ -13,8 +13,8 @@ import { flagsModule } from './core-parts.js';
 import { loadEnv, type Plugin, type ResolvedConfig, type ViteDevServer } from 'vite';
 import { collectionsIn, loadContent, writeNamespaceTypes, writeSnapshot, type LoadedContent } from './content-node.js';
 import { applyStrict, CODES, compile, CONTENT_NS, formatDiagnostic, formatWarning, strictPromotes, suggest, type Code, type CheckUnit, type Diagnostic, type CompileResult, type SourceMap } from './compiler/index.js';
-import { lazyOf, project, retiredExport, retiredOptions, staticPages, strictOf, type ProjectOptions } from './project.js';
-import { CHUNK_MARK, chainText, isComponentScript, LAZY, lazyHelpers, lazyPackage, lineCol, loaderModule, mentions, parseLazyId, reachLazy, rewriteLazy, scanLazy, stubModule } from './lazy-build.js';
+import { checkOptionsOf, compileOptionsOf, lazyOf, lazyReachOf, project, retiredExport, retiredOptions, staticPages, strictOf, type ProjectOptions } from './project.js';
+import { CHUNK_MARK, chainText, isComponentScript, LAZY, lazyPackage, lineCol, loaderModule, mentions, parseLazyId, reachLazy, rewriteLazy, scanLazy, stubModule } from './lazy-build.js';
 import { moduleKeys } from './i18n-build.js';
 import { HOLD_SCRIPT } from './paint-build.js';
 import { earlyImports, OWN, registration, SHARED_MARKS, sharedKey, sharedMark, stubModule as sharedStub, topLevelAwait } from './shared-build.js';
@@ -44,7 +44,7 @@ import { didYouMean, docsUrl } from './compiler/diagnostics.js';
 import { crossCheck, crossMessage, hashOf, type FoldCall } from './fold-cross.js';
 import { apiOrigins } from './compiler/apis.js';
 import { importModule, loadHelpers, loadingHelpers, unloadedMessage, type NodeHelpers } from './helpers-node.js';
-import { FoldCache } from './fold-check.js';
+import { FoldCache, setAppAliases } from './fold-check.js';
 
 export interface SinterOptions extends ProjectOptions {
   /** run `sinter check` at the end of `vite build` and fail it on type errors: on when the project has TypeScript; `false` turns it off */
@@ -340,7 +340,9 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
    * starts and in dev, read afresh, as files change.
    */
   let buildProject: ReturnType<typeof project> | null = null;
-  const proj = () => buildProject ?? project(root, options);
+  /** dev: the project as last read, until the watcher reports a file changed, added or removed (configureServer) */
+  let devProject: ReturnType<typeof project> | null = null;
+  const proj = () => buildProject ?? (server ? (devProject ??= project(root, options)) : project(root, options));
   let dev = false;
   let server: ViteDevServer | null = null;
   let resolved: ResolvedConfig | null = null;
@@ -857,7 +859,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     const html = readFileSync(file, 'utf8');
     if (!declaresFor(html)) { templatesKept.set(k, null); return null; }
     const p = proj();
-    const out = compile(html, { file, root, dev, helpers: helpersOf(p.helpers), actions: p.actions, readFile: readVia(p), listFiles: p.listFiles, ...(dev ? {} : { globCache }), ...contentOpts(locale), lazy: p.lazy, openapi: p.openapi, apis: p.apis, prerender: true, ...(locale ? { locale: { name: locale, urls: null, base: resolved?.base ?? '/', ...(cpaths() ? { paths: cpaths()! } : {}) } } : {}), ...(vals.length ? { axes: vals } : {}) });
+    const out = compile(html, { ...compileOptionsOf(p), file, dev, helpers: helpersOf(p.helpers), readFile: readVia(p), ...(dev ? {} : { globCache }), ...contentOpts(locale), prerender: true, ...(locale ? { locale: { name: locale, urls: null, base: resolved?.base ?? '/', ...(cpaths() ? { paths: cpaths()! } : {}) } } : {}), ...(vals.length ? { axes: vals } : {}) });
     const fatal = out.diagnostics.filter((d) => d.severity === 'error' && /^SN34[01]$/.test(d.code));
     if (fatal.length) throw new Error(`sinter: ${fatal.map(formatDiagnostic).join('\n')}`);
     const t = { pages: out.pages ?? null, axes: out.axes ?? null };
@@ -1021,7 +1023,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       if (kept) { described.set(file, kept); return kept; }
       try {
         // with the APIs and specs: what is requested ahead is the page's own request (its base, its configured shape)
-        const r = compile(readPage(file), { file: v?.source ?? file, root, dev, helpers: helpersOf(p.helpers), actions: p.actions, readFile: readVia(p), listFiles: p.listFiles, ...(dev ? {} : { globCache }), ...contentOpts(v?.locale), lazy: p.lazy, openapi: p.openapi, apis: p.apis, ...(v?.page ? { page: v.page } : {}), ...(v?.axes ? { axes: v.axes } : {}), describeOnly: true, ...(v?.locale ? { locale: { name: v.locale, urls: null, base: resolved?.base ?? '/', ...(cpaths() ? { paths: cpaths()! } : {}) } } : {}) });
+        const r = compile(readPage(file), { ...compileOptionsOf(p), file: v?.source ?? file, dev, helpers: helpersOf(p.helpers), readFile: readVia(p), ...(dev ? {} : { globCache }), ...contentOpts(v?.locale), ...(v?.page ? { page: v.page } : {}), ...(v?.axes ? { axes: v.axes } : {}), describeOnly: true, ...(v?.locale ? { locale: { name: v.locale, urls: null, base: resolved?.base ?? '/', ...(cpaths() ? { paths: cpaths()! } : {}) } } : {}) });
         described.set(file, { parts: r.prefetch, path: r.path, off: !!r.prefetchOff, keep: r.permanent ?? [], swapOff: !!r.swapOff, keptSource: r.keptSource ?? {}, keptBound: r.keptBound ?? [], effect: r.loadEffect ?? null });
         if (v?.page) entriesDescribed.set(`${v.source}\0${v.locale ?? ''}`, { page: v.page.path, d: described.get(file)! });
       } catch { described.set(file, { parts: null, path: [], off: false, keep: [], swapOff: true, keptSource: {}, keptBound: [], effect: 'it did not compile' }); }
@@ -1032,7 +1034,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   const describeSource = (source: string) => {
     if (!sourceDescribed.has(source)) {
       const p = proj();
-      try { sourceDescribed.set(source, compile(readFileSync(source, 'utf8'), { file: source, root, dev, helpers: helpersOf(p.helpers), actions: p.actions, readFile: readVia(p), listFiles: p.listFiles, ...(dev ? {} : { globCache }), ...contentOpts(), lazy: p.lazy, openapi: p.openapi, apis: p.apis }).path); }
+      try { sourceDescribed.set(source, compile(readFileSync(source, 'utf8'), { ...compileOptionsOf(p), file: source, dev, helpers: helpersOf(p.helpers), readFile: readVia(p), ...(dev ? {} : { globCache }), ...contentOpts() }).path); }
       catch { sourceDescribed.set(source, []); }
     }
     return { path: sourceDescribed.get(source)! };
@@ -1312,10 +1314,11 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     const group = groupOf(rel)?.folder;
     const prefetch = prefetchData && prefetchPages(group).length ? prefetchId(group) : null;
     const out = compile(html, {
-      file: src, root, dev, sourcemap: dev || !!resolved?.build.sourcemap, helpers: helpersOf(p.helpers), actions: p.actions, moduleSrc: `${PREFIX}${rel}.js`, config: p.config, readFile: readVia(p), listFiles: p.listFiles, ...(dev ? {} : { globCache, templates, ...(process.env.SN_NO_LINK ? {} : { definitions }) }), ...contentOpts(v?.locale), prefetch,
+      ...compileOptionsOf(p, src),
+      file: src, dev, sourcemap: dev || !!resolved?.build.sourcemap, helpers: helpersOf(p.helpers), moduleSrc: `${PREFIX}${rel}.js`, readFile: readVia(p), ...(dev ? {} : { globCache, templates, ...(process.env.SN_NO_LINK ? {} : { definitions }) }), ...contentOpts(v?.locale), prefetch,
       ...(page ? { page } : {}), ...(v?.axes ? { axes: v.axes } : {}), ...(axisLists().length ? { axisLists: axisLists() } : {}), ...(axisUrlsOf(file) ? { axisUrls: axisUrlsOf(file)! } : {}), ...(pointLevels(file) ? { points: pointLevels(file)! } : {}),
-      check: typecheckOn() && !dev, openapi: p.openapi, apis: p.apis, complexity: p.complexity, ...(p.expansionLimit ? { expansionLimit: p.expansionLimit } : {}), componentNames: p.componentNames, libraries: p.libraries, lazy: p.lazy,
-      ...(lazyPkgs.length ? { lazyScript, lazyModule: (m: string) => lazyHelpers(root, lazyPkgs, undefined, p.libraries).reach(m) } : {}),
+      check: typecheckOn() && !dev,
+      ...(lazyPkgs.length ? { lazyScript } : {}),
       ...(helpersNow ? { helperValues: helpersNow.module, helperFold: helpersNow.fold } : {}),
       // a build: each distinct call that folds is run again at its end in a fresh copy of the module (fold-cross.ts)
       ...(helpersNow?.module && !dev ? { foldLog: (key: string, args: FoldArg[], result: string, id: number) => logFold(v?.page ? rel : relOf(src), key, args, result, id) } : {}),
@@ -1336,8 +1339,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       ...(firstPaint ? { observe: true } : {}),
       ...(options.embed && !dev ? { embed: true } : {}),
       componentCss: (name) => `${COMPONENT_CSS}${name}.css`,
-      ...(p.isStatic(src) ? { static: true } : {}),
-      ...(p.swap ? { swap: true, swapList: swapId(group) } : {}),
+      ...(p.swap ? { swapList: swapId(group) } : {}),
       ...(resolved?.base?.startsWith('/') ? { base: resolved.base } : {}),
       ...(siteOrigin || groupOf(rel) ? { urls: urlsOf(rel, out0Path(file)) } : {}),
     });
@@ -1390,7 +1392,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     if (!s.lazy.length && !s.problems.length && !s.drop?.length) return null;
     if (isComponentScript(root, file, libs)) return null;
     // a helper module that reaches the package, and the modules between: they load whole with it, when a let first needs them
-    if (lazyHelpers(root, lazyPkgs, undefined, libs).whole(proj().helpers).has(file)) return null;
+    if (lazyReachOf(proj()).whole(proj().helpers).has(file)) return null;
     if (s.problems.length) {
       const at = lineCol(code, s.problems[0]!.offset);
       ctx.error({ message: `sinter: ${s.problems.map((p) => { const l = lineCol(code, p.offset); return `SN324 ${relOf(file)}:${l.line}:${l.col} ${p.message}`; }).join('\n')}`, id: file, loc: { line: at.line, column: at.col - 1 } });
@@ -1436,6 +1438,8 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       root = config.root;
       dev = config.command === 'serve';
       resolved = config;
+      // the build's walks of the app's modules (the lazy packages' reach, `prerender: 'auto'`) follow its aliases, as Vite does
+      setAppAliases(root, config.resolve.alias);
       // dev: a component library's files are served wherever they really are (a workspace link outside the root)
       if (dev && options.libraries?.length) {
         const allow = (config.server.fs as { allow?: string[] }).allow;
@@ -1544,6 +1548,10 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
           res.end(map ? `${code}\n//# sourceMappingURL=data:application/json;base64,${Buffer.from(JSON.stringify(map)).toString('base64')}\n` : code);
         }, next);
       });
+      // the project (its components, libraries, helpers' manifest, specs, messages) is read again after any change on disk:
+      // registered first, so the listeners below see the new one; a library outside the root is watched for it
+      for (const ev of ['change', 'add', 'unlink'] as const) s.watcher.on(ev, () => { devProject = null; });
+      for (const l of proj().libraries) if (l.dir !== root) s.watcher.add(join(l.real, relative(l.dir, l.folder)));
       // an HTML, component or helpers change triggers a full reload in v0.1
       s.watcher.on('change', (file) => {
         // the helpers module, or a file it reaches: loaded again before the next page compiles
@@ -1899,7 +1907,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       if (error || !typecheckOn() || dev || !units.size) return;
       const { check } = await import('./check/index.js');
       const p = proj();
-      const r = check({ root, units: [...units.values()], helpers: helpersOf(p.helpers), actions: p.actions, types: p.types, openapi: p.openapi, libraries: p.libraries });
+      const r = check({ ...checkOptionsOf(p), helpers: helpersOf(p.helpers), units: [...units.values()] });
       units.clear();
       if (r.diagnostics.length) this.error(`sinter check: ${r.diagnostics.length} type error(s)\n${r.diagnostics.map(formatDiagnostic).join('\n')}`);
     },

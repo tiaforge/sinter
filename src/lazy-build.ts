@@ -7,9 +7,12 @@
 import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import { libraryOf, type Library } from './libraries.js';
-import { isSelfReference, resolveImport } from './fold-check.js';
+import { appModule, isSelfReference, resolveImport } from './fold-check.js';
+import { lineCol } from './line-col.js';
 import { parseModule } from './compiler/index.js';
 import type { Diagnostic } from './compiler/diagnostics.js';
+
+export { lineCol };
 
 /** where the generated modules are served: `<pkg>.js` the loader, `<pkg>.js?n=a,b` the stubs of one importer */
 export const LAZY = '/@sinter/lazy/';
@@ -236,23 +239,11 @@ export function rewriteLazy(code: string, scan: LazyScan): string {
   return out;
 }
 
-/** 1-based line and column of an offset */
-export function lineCol(code: string, offset: number): { line: number; col: number } {
-  let line = 1, last = -1;
-  for (let i = 0; i < offset && i < code.length; i++) if (code.charCodeAt(i) === 10) { line++; last = i; }
-  return { line, col: offset - last };
-}
-
-/** a relative or root-absolute specifier as a file, the way the app's modules are found */
+/** an app module's file a specifier names (relative, root-absolute, or through the app's alias), the way the bundler
+ * finds it (`appModule`, as the fold check does); only a module of code (not JSON or CSS) */
 export function resolveFile(spec: string, from: string, root: string): string | null {
-  if (!spec.startsWith('.') && !spec.startsWith('/')) return null;
-  // an absolute path outside the root: a component library's module, found in a folder above the root
-  if (spec.startsWith('/') && !existsSync(resolve(root, '.' + spec.replace(/[?#].*$/, ''))) && existsSync(spec.replace(/[?#].*$/, ''))) return /\.[cm]?[jt]sx?$/.test(spec) ? spec.replace(/[?#].*$/, '') : null;
-  const b = spec.startsWith('/') ? resolve(root, '.' + spec.replace(/[?#].*$/, '')) : resolve(dirname(from), spec.replace(/[?#].*$/, ''));
-  for (const q of [b, b.replace(/\.js$/, '.ts'), b.replace(/\.mjs$/, '.mts'), `${b}.ts`, `${b}.js`, `${b}.tsx`, `${b}.mjs`, `${b}/index.ts`, `${b}/index.js`]) {
-    if (/\.[cm]?[jt]sx?$/.test(q) && existsSync(q)) return q;
-  }
-  return null;
+  const f = appModule(spec, from, root);
+  return f && /\.[cm]?[jt]sx?$/.test(f) ? f : null;
 }
 
 export interface Reach {
@@ -306,7 +297,8 @@ export function isComponentScript(root: string, file: string, libs: readonly Lib
   const dirs = [resolve(root, 'src/components'), ...libs.flatMap((l) => [l.folder, l.real + l.folder.slice(l.dir.length)].flatMap((f) => [join(f, 'components'), join(f, 'components', 'internal')]))];
   const dir = dirname(file);
   if (!dirs.includes(dir)) return false;
-  const m = /^([a-z][a-z0-9]*-[a-z0-9-]*)\.[cm]?[jt]s$/.exec(file.slice(dir.length + 1));
+  // the extensions the compiler takes a component's script with (components-build.ts SCRIPT_EXTS)
+  const m = /^([a-z][a-z0-9]*-[a-z0-9-]*)\.m?[jt]s$/.exec(file.slice(dir.length + 1));
   return !!m && existsSync(resolve(dir, `${m[1]}.html`));
 }
 

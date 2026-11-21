@@ -8,11 +8,8 @@ const optimistic: Feature = {
   install(app: App) {
     app.ext.optimistic = {
       begin(fn, scope) {
-        return app.record(() => {
-          const s = Object.create(scope);
-          s.$f = app.storeFns(null);
-          app.fns[fn]!(s);
-        });
+        // (`$f`, the page's, through the scope: an action's scope is its element's, under the page)
+        return app.record(() => app.fns[fn]!(Object.create(scope)));
       },
     };
   },

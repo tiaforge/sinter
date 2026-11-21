@@ -9,11 +9,17 @@
 import { relative, sep } from 'node:path';
 import type { Plugin, ViteDevServer } from 'vite';
 import type { HelperManifest } from './compiler/compile.js';
-import { FoldCache, foldVerdicts, type FoldVerdict } from './fold-check.js';
+import { FoldCache, foldVerdicts, setAppAliases, type FoldVerdict } from './fold-check.js';
 
 /** set while sinter loads a helpers module through a Vite server of its own: that server's sinter plugin does nothing */
 const LOADING = Symbol.for('sinter.helpers.loading');
 export const loadingHelpers = () => ((globalThis as Record<symbol, number>)[LOADING] ?? 0) > 0;
+/** Runs `f` (which reads the app's Vite config) with sinter's own plugin inert, as a module runner of the app loads it. */
+export async function withInertPlugin<T>(f: () => Promise<T>): Promise<T> {
+  const g = globalThis as Record<symbol, number>;
+  g[LOADING] = (g[LOADING] ?? 0) + 1;
+  try { return await f(); } finally { g[LOADING]!--; }
+}
 
 export interface NodeHelpers {
   /** the module's exports, or null: no helpers module, or it could not be loaded (`error`) */
@@ -74,6 +80,7 @@ export async function importModule(o: Omit<LoadOptions, 'helpersFile' | 'manifes
   const server = o.fresh ? null : o.server ?? null;
   if (server) {
     aliases?.(server.config.resolve.alias);
+    setAppAliases(o.root, server.config.resolve.alias);
     return (await server.ssrLoadModule(file)) as Record<string, unknown>;
   }
   // a module runner of its own, with no dev server: the app's `configureServer` hooks never run
@@ -91,6 +98,8 @@ export async function importModule(o: Omit<LoadOptions, 'helpersFile' | 'manifes
       ...(o.fresh ? { ssr: { noExternal: true } } : {}),
     }, 'serve', o.mode ?? 'production');
     aliases?.(config.resolve.alias);
+    // and to the walks of the app's modules (`sinter check`'s SN324)
+    setAppAliases(o.root, config.resolve.alias);
     const e = createRunnableDevEnvironment('ssr', config, { runnerOptions: { hmr: { logger: false } }, hot: false });
     env = e;
     // Vite's CSS plugin sets itself up at the client's start in a dev server, which there is none of here: a

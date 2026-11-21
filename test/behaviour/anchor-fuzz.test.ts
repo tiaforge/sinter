@@ -77,6 +77,12 @@ test('random templates: a state change renders what a fresh render and the const
       const after = shape(updated.root.querySelector('p')!);
       const fresh = shape((await render(page(b, true))).root.querySelector('p')!);
       if (after !== fresh) failures.push(`seed ${seed}: ${tpl}\n  after ${after}\n  fresh ${fresh}`);
+      // as a build compiles it (its tables compacted: the templates nothing renders out, the rest numbered again)
+      const build = await render(page(a, true), { dev: false });
+      (build.root.querySelector('#w') as HTMLButtonElement).click();
+      await build.settle();
+      const inBuild = shape(build.root.querySelector('p')!);
+      if (inBuild !== fresh) failures.push(`seed ${seed} in a build: ${tpl}\n  after ${inBuild}\n  fresh ${fresh}`);
       const built = shape((await render(page(b, false))).root.querySelector('p')!);
       if (built !== fresh) constant.add(seed);
     } catch (e) {

@@ -1,7 +1,7 @@
 // The language server, driven over in-memory streams the way an editor drives it.
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { PassThrough } from 'node:stream';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { afterEach, describe, expect, test } from 'vitest';
@@ -108,6 +108,36 @@ async function editor(root: string, options: { tsc?: string; capabilities?: obje
     },
   };
 }
+
+/** test/fixtures/ui-app with `@fixture/ui` linked into its node_modules and listed in its Vite config (as test/libraries.test.ts) */
+function libraryApp(files: Record<string, string> = {}): string {
+  const root = mkdtempSync(join(tmpdir(), 'sinter-lsp-lib-'));
+  cpSync(resolve(__dirname, '../fixtures/ui-app'), root, { recursive: true });
+  mkdirSync(join(root, 'node_modules/@fixture'), { recursive: true });
+  symlinkSync(resolve(__dirname, '../fixtures/ui'), join(root, 'node_modules/@fixture/ui'), 'dir');
+  writeFileSync(join(root, 'vite.config.js'), `import sinter from ${JSON.stringify(join(__dirname, '../../src/vite.ts'))};\nexport default { plugins: [sinter({ libraries: ['@fixture/ui'] })] };\n`);
+  for (const [f, text] of Object.entries(files)) { mkdirSync(join(root, f, '..'), { recursive: true }); writeFileSync(join(root, f), text); }
+  return root;
+}
+
+describe('a project with a component library', () => {
+  test('editing an app component writes the components\' types with the library\'s still in them', async () => {
+    const root = libraryApp({ 'src/components/app-frame.ts': "import { AppFrameComponent } from './app-frame.html';\nexport class AppFrame extends AppFrameComponent {}\n" });
+    const dts = join(root, 'src/sinter.components.d.ts');
+    const e = await editor(root);
+    e.open('index.html', readFileSync(join(root, 'index.html'), 'utf8'));
+    await e.diagnostics('index.html');
+    const frame = readFileSync(join(root, 'src/components/app-frame.html'), 'utf8').replace('{ heading: string }', '{ heading: string; subtitle?: string }');
+    e.open('src/components/app-frame.html', frame);
+    e.change('src/components/app-frame.html', frame);
+    const deadline = Date.now() + 10_000;
+    while (!readFileSync(dts, 'utf8').includes('subtitle') && Date.now() < deadline) await new Promise((r) => setTimeout(r, 50));
+    const text = readFileSync(dts, 'utf8');
+    expect(text).toContain('subtitle');
+    expect(text).toContain('ui-card');
+  }, 30_000);
+
+});
 
 describe('rangeOf', () => {
   test('covers the name at a 1-based position', () => {

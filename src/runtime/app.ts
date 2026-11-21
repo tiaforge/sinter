@@ -36,7 +36,7 @@ import { readUrl as readFrom, withParams } from './url.js';
 import * as F from './flags.js';
 
 export { withParams };
-import { clean, createResource, type Resource } from './store.js';
+import { clean, createResource, pick as dot, type Resource } from './store.js';
 
 /** A shared GET's response, and its body, parsed on first read (a non-2xx status rejects there). */
 export interface Got { res: Response; body(): Promise<unknown> }
@@ -477,8 +477,8 @@ export function scopeState(el: Element): [number, any] | null {
   }
   return null;
 }
-/** HANDLERS: one handler binding, or an array when the element has several */
-export type Tagged = Element & { [HANDLERS]?: RB | RB[]; [MODEL]?: RB; [STATE]?: [number, any] };
+/** HANDLERS: the element's handler bindings; a number when an event found it none (see `handlersOf`) */
+export type Tagged = Element & { [HANDLERS]?: RB[] | number; [MODEL]?: RB; [STATE]?: [number, any] };
 const others = new WeakMap<TemplateDef, number[]>(), allDeps = new WeakMap<TemplateDef, number[]>();
 /** set by the early script on the start comment of a `data-sn-for` whose rows it rendered from embedded data: each row's nodes, the end comment */
 const EARLY_ROWS = Symbol.for('sinter.early.rows');
@@ -488,6 +488,8 @@ const simple = new WeakMap<TemplateDef, Simple | null>();
 /** ROW: on each node of a simple row with handlers, its instance */
 const ROW = Symbol('sinter.row');
 type RowNode = Node & { [ROW]?: Inst };
+/** Simple rows with handlers made so far, by every app: an element's HANDLERS when an event found it none (see `handlersOf`). */
+let made = 0;
 const rowNodes = (x: Inst) => x.nodes ?? [x.first!];
 
 /**
@@ -640,12 +642,14 @@ export function mount(root: Document | Element, o: MountOptions): App {
     } : undefined,
   };
 
+  /** on an element, this app's store functions (`$f`) its handlers run with */
+  const FNS = Symbol();
   /** Elements written through callbacks (`$.$m(row, …)`) since the last flush. */
   const marked = new Set<unknown>();
   /** Per flush round: how dirty paths reach a template's rows (0 not, 1 only marked elements, 2 any row). */
-  let rowHits = new Map<TemplateDef, number>();
+  const rowHits = new Map<TemplateDef, number>();
   /** Per flush round: the rows of a template the round's changes select by their index (null: any row). */
-  let rowSel = new Map<TemplateDef, Set<number> | null>();
+  const rowSel = new Map<TemplateDef, Set<number> | null>();
 
   // ---- dependency paths: the compiler numbered them and decided which written path reaches which
   // dependency (`paths.ts`); what is left here are the checks against runtime values
@@ -842,8 +846,8 @@ export function mount(root: Document | Element, o: MountOptions): App {
           dirty = [];
           for (const h of app.beforeFlush) h(cur);
           round++;
-          rowHits = new Map();
-          rowSel = new Map();
+          rowHits.clear();
+          rowSel.clear();
           index(cur);
           for (const l of loaders) { const k = hits(l.def.deps); if (k) l.changed(k == 1); }
           walk(rootRbs, 0);
@@ -881,14 +885,14 @@ export function mount(root: Document | Element, o: MountOptions): App {
       navigate: (url: string, o?: { replace?: boolean }) => {
         const to = new URL(url, app.env.href()).href;
         if (app.go) app.go({ to, kind: o?.replace ? 'replace' : 'push', source: 'call', trigger: el });
-        else if (o?.replace) (app.env.replace ?? ((u: string) => location.replace(u)))(to);
+        else if (o?.replace) app.env.replace(to);
         else app.env.navigate(to);
       },
       // every API's token goes (src/token.ts), with what the page kept; the resources of those APIs load again: signed out
       signOut: () => { if (F.TOKEN) tokens.on?.signOut(env, app); },
       // the element's action, as if its trigger fired (a form is submitted); disabled or inert: nothing
       run: (id: string) => {
-        const t = F.ACTION ? byId(id) : undefined, h = t && handlersOf(t as Tagged), rb = h && (Array.isArray(h) ? h : [h]).find((x) => x.b.x != null);
+        const t = F.ACTION ? byId(id) : undefined, rb = t && handlersOf(t as Tagged)?.find((x) => x.b.x != null);
         if (!rb) return warn(20, id);
         if (t.matches(':disabled') || t.closest('[inert]')) return;
         if (t.localName != 'form') return trigger(rb, null);
@@ -1026,8 +1030,8 @@ export function mount(root: Document | Element, o: MountOptions): App {
       if (el) for (const b of nd.b) {
         const rb: RB = { b, el, s, v: UNSET, c: !!nd.dl };
         if (b.k == 'on') {
-          const h: RB | RB[] | undefined = el[HANDLERS];
-          el[HANDLERS] = h == null ? rb : Array.isArray(h) ? (h.push(rb), h) : [h, rb];
+          const h: RB[] | number | undefined = el[HANDLERS];
+          typeof h == 'object' ? h.push(rb) : (el[HANDLERS] = [rb]);
           continue;
         }
         if (F.MODEL && b.k == 'model') {
@@ -1060,7 +1064,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
       if (r == null) {
         r = 0;
         // a mark counts as "only marked rows" for dependencies on this list's own element; others (outer rows) reach any row
-        for (const n of otherDeps(t!)) each(n, (d, e) => { const x = level(e, d); r = Math.max(r!, x == 1 && ownOf(n) != t!.id ? 2 : x); });
+        for (const n of otherDeps(t!)) each(n, (d, e) => { const x = level(e, d); r = Math.max(r!, x == 1 && ownOf(n) != rb.b.x ? 2 : x); });
         rowHits.set(t!, r);
       }
       // only a selection's outer side changed: the rows it concerns, through the index; rows that were
@@ -1257,7 +1261,8 @@ export function mount(root: Document | Element, o: MountOptions): App {
     if (t.key != null) return 'k' + fns[t.key]!(s);
     if (Object(item) === item) {
       if (t.keyFields?.every((f) => item[f] != null)) return 'r' + t.keyFields.map((f) => item[f]).join('\x1f');
-      for (const r of resources.values()) if (r.isCollection && keyed(r, item) && r.get(item) === item) return 'o' + r.name + '\x1f' + r.keyOf(item);
+      // (the store looks a key string up as it is: built once)
+      for (const r of resources.values()) if (r.isCollection && keyed(r, item)) { const k = r.keyOf(item); if (r.get(k) === item) return 'o' + r.name + '\x1f' + k; }
       return item;
     }
     return 'p' + typeof item + item;
@@ -1277,7 +1282,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
     };
     if (pre) {
       delete (rb.el as any)[EARLY_ROWS];
-      const t = rb.t!, tpl = tplOf(t.id);
+      const t = rb.t!, tpl = tplOf(rb.b.x!);
       if (!rb.rows!.length && pre.rows.length == items.length) {
         rb.end = pre.end;
         rb.rows = items.map((item, i) => {
@@ -1292,7 +1297,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
       cut(rb.el, pre.end);
       rb.end = pre.end;
     }
-    const t = rb.t!, old = rb.rows!, end = rb.end ?? endFor(rb), tpl = tplOf(t.id), start = rb.el as unknown as Comment;
+    const t = rb.t!, old = rb.rows!, end = rb.end ?? endFor(rb), tpl = tplOf(rb.b.x!), start = rb.el as unknown as Comment;
     const n = items.length, m = old.length, rows: Inst[] = new Array(n), moved = t.ri;
     // a first render inside a branch or row still being built: each row renders in place, in order, before the end
     const inPlace = !m && !end.isConnected ? end : undefined;
@@ -1468,9 +1473,9 @@ export function mount(root: Document | Element, o: MountOptions): App {
   /** The branch `br` of an if or choice (`item`: the case's props): an instance of its template, its only row. */
   function make(rb: RB, br: number, item: unknown, nodes?: Node[], at?: Node): Inst {
     // an if's branch adds no names to the scope (a choice's case adds its props): it reads its anchor's own
-    const ch = rb.b.k == 'ch', t = ir.templates[ch ? rb.b.c![br - 1]! : br == 1 ? rb.b.x! : rb.b.z!]!, s = ch ? Object.create(rb.s) : rb.s;
+    const ch = rb.b.k == 'ch', x = ch ? rb.b.c![br - 1]! : br == 1 ? rb.b.x! : rb.b.z!, t = ir.templates[x]!, s = ch ? Object.create(rb.s) : rb.s;
     if (ch) setRow(s, (rb.t = t), item, 0);
-    return (rb.rows = [instantiate(tplOf(t.id), t, s, ch ? keyOf(t, item, s) : '', ch ? item : null, 0, nodes, at, rb)])[0]!;
+    return (rb.rows = [instantiate(tplOf(x), t, s, ch ? keyOf(t, item, s) : '', ch ? item : null, 0, nodes, at, rb)])[0]!;
   }
 
   /**
@@ -1588,7 +1593,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
         }
       }
       const nodes = one ? null : collect(), x: Inst = { first, nodes, rbs: null, v, t, s, key, item, i, f: 0, r: round };
-      if (meta.hs.length) for (const n of nodes ?? [top]) if (n.nodeType == 1) (n as RowNode)[ROW] = x;
+      if (meta.hs.length) { made++; for (const n of nodes ?? [top]) if (n.nodeType == 1) (n as RowNode)[ROW] = x; }
       return x;
     }
     bindNodes(defs, find(), s, rbs);
@@ -1617,20 +1622,26 @@ export function mount(root: Document | Element, o: MountOptions): App {
     }
   }
 
+  /** The node of the simple row `a` is in (or `a`): the nearest that carries its row; else the root, or null. */
+  function rowNode(a: Element | null): RowNode | null {
+    while (a && a != root && !(a as RowNode)[ROW]) a = a.parentElement;
+    return a;
+  }
+
   /**
    * The element's handler bindings: bound at mount, or, for an element in a row of a simple template,
-   * on its first event (the row is found above it, the element among the row's bound elements).
+   * on its first event (the row is found above it, at `up`, the element among the row's bound elements).
+   * An element with none keeps the count of such rows made so far (`made`): while no row is made, none.
    */
-  function handlersOf(el: Tagged): RB | RB[] | undefined {
+  function handlersOf(el: Tagged, up = rowNode(el)): RB[] | undefined {
     const h = el[HANDLERS];
+    if (typeof h == 'object') return h;
     // (handlers bound on their first event are in the rows of a simple template: a list's or a branch's)
-    if (h != null || !(F.LIST || F.BRANCH)) return h;
-    let a: Element | null = el, x: Inst | undefined;
-    while (a && a != root && !(x = (a as RowNode)[ROW])) a = a.parentElement;
-    if (!x) return undefined;
-    const t = x.t!, els: Array<Element | null> = fns[t.find!]!(x.first), k = els.indexOf(el);
-    const rbs = k < 0 ? [] : isSimple(t)!.hs.filter((y) => y[0] == k).map(([, b]): RB => ({ b, el, s: x!.s, v: UNSET, c: false }));
-    return rbs.length ? (el[HANDLERS] = rbs.length == 1 ? rbs[0]! : rbs) : undefined;
+    if (h === made || !(F.LIST || F.BRANCH)) return;
+    const x = up?.[ROW], k = x ? (fns[x.t!.find!]!(x.first) as Array<Element | null>).indexOf(el) : -1;
+    const rbs = k < 0 ? [] : isSimple(x!.t!)!.hs.filter((y) => y[0] == k).map(([, b]): RB => ({ b, el, s: x!.s, v: UNSET, c: false }));
+    if (!rbs.length) return void (el[HANDLERS] = made);
+    return (el[HANDLERS] = rbs);
   }
 
   // ---- events
@@ -1665,8 +1676,10 @@ export function mount(root: Document | Element, o: MountOptions): App {
           if (now || (e.type == 'input') == (m.b.n == 'text')) app.ext.debounce!(m, now ? 0 : m.b.ms, () => m.el.isConnected && as(u, () => setModel(m, readModel(m))));
         } else setModel(m, readModel(m), e.type == 'input' && !m.el.localName.includes('-'));
       }
+      // the node of the simple row above, found once for the elements up to it (the root: none)
+      let up = rowNode(el);
       for (; el; el = el.parentElement) {
-        const h = handlersOf(el as Tagged), hs = h && (Array.isArray(h) ? h : [h]).filter((x) => x.b.n == e.type && (x.b.q == null || app.ext.keys!(x, e as KeyboardEvent)));
+        const h = handlersOf(el as Tagged, up), hs = h?.filter((x) => x.b.n == e.type && (x.b.q == null || app.ext.keys!(x, e as KeyboardEvent)));
         if (hs?.length) {
           // a debounced handler (debounce.ts) runs once, with the last event, if its element is still on the page
           const u = ev;
@@ -1677,6 +1690,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
           if (e instanceof CustomEvent && e.bubbles ? e.defaultPrevented : !/^key/.test(e.type) || e.defaultPrevented || hs.some((h) => h.b.x != null || h.b.ms)) return;
         }
         if (el == root) return;
+        if (el == up) up = rowNode(el.parentElement);
       }
     } finally {
       ev = was;
@@ -1685,7 +1699,8 @@ export function mount(root: Document | Element, o: MountOptions): App {
 
   /** Runs a handler expression and invalidates what it may have changed. */
   function handle(rb: RB, f: number, e: Event | null, writes: PathRef[] | undefined, extra?: object) {
-    app.exec(f, child(rb.s, { $el: rb.el, $event: e, $f: app.storeFns(rb.el), ...extra }), writes, rb.b);
+    // (built once per element: they read only it and the app)
+    app.exec(f, child(rb.s, { $el: rb.el, $event: e, $f: ((rb.el as any)[FNS] ??= app.storeFns(rb.el)), ...extra }), writes, rb.b);
   }
 
   // ---- actions
@@ -1822,7 +1837,6 @@ export function mount(root: Document | Element, o: MountOptions): App {
       } catch (e) { warn(17, def.name, (e as Error).message); return null; }
     };
     const loading = (on: boolean) => { if (r.meta.loading != on) { r.meta.loading = on; r.onDirty('meta'); } };
-    const pick = (path: string | null | undefined, body: unknown): any => (path ? path.split('.').reduce((x: any, k) => x?.[k], body) : body);
     const fill = (items: any, total: number | null, m: unknown, more: boolean | null = null) => {
       l.pager?.appends(m) && r.isCollection ? items.forEach(r.upsert) : r.replace(items);
       r.setTotal(total);
@@ -1830,11 +1844,11 @@ export function mount(root: Document | Element, o: MountOptions): App {
     };
     /** stores a response; `req` is the URL it came from, for the page-load cache */
     const store = (body: unknown, req: string, m = l.pager?.current()) => {
-      let items = pick(def.select, body);
+      let items = dot(def.select, body);
       if (r.isCollection && !Array.isArray(items)) { warn(12, def.name, def.select ?? '(response)'); items = []; }
       if (Array.isArray(items)) items = items.map(clean);
-      const t = def.total ? pick(def.total, body) : null, total = t == null ? null : +t, more = def.paginate?.more;
-      fill(items, total, m, more ? !!pick(more, body) : null);
+      const t = def.total ? dot(def.total, body) : null, total = t == null ? null : +t, more = def.paginate?.more;
+      fill(items, total, m, more ? !!dot(more, body) : null);
       app.ext.cache?.loaded(def, r, req, items, total, !!l.pager?.appends(m));
       return items;
     };
@@ -1856,7 +1870,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
       // no user event causes a load's `then`: its `$url` writes replace
       done: (v) => def.then != null && as(null, () => app.exec(def.then!, child(scope(), { $result: v }), def.w)),
       items(body) {
-        let items = pick(def.select, body);
+        let items = dot(def.select, body);
         if (!Array.isArray(items)) { warn(12, def.name, def.select ?? '(response)'); items = []; }
         return items.map(clean);
       },
