@@ -7,7 +7,7 @@ load feel instant, and none needs code in the pages:
 | --- | --- | --- |
 | [Next-page data](#next-page-data) | The next page's data is requested while the pointer rests on its link, and the page shows it at first paint. sinter does this. | all |
 | [Speculation Rules](#speculation-rules) | The browser fetches the next page's HTML, or prerenders the whole page. sinter generates the rules and [handles your CSP](#speculation-rules-and-a-content-security-policy). | Chromium |
-| [Swaps](#swaps) (opt-in) | A link fetches the next page and swaps it in instead of loading it, so marked elements stay: an audio player plays on, a drawer stays open, a scroll position is kept. | Chromium, Firefox 147+, Safari 26.2+ (the Navigation API) |
+| [Swaps](#swaps) (opt-in) | A link fetches the next page and swaps it in instead of loading it, so marked elements stay: an audio player plays on, a drawer stays open, a scroll position is kept. | Chromium 135+, Firefox 147+, Safari 26.2+ (the Navigation API with `sourceElement`) |
 | [Page transitions](#page-transitions) | Pages cross-fade (a CSS rule that temper enables). `data-sn-transition` morphs a list row into its detail page. Both use the browser's view transitions. | Chromium, Safari 18.2+ |
 
 Where a browser lacks a feature, navigation is a normal page load.
@@ -330,7 +330,7 @@ link's `#hash` is scrolled to, and the new title is announced to screen readers.
 
 **What stays a page load:** a page that answers with an error or something other than HTML, a page with
 another CSP `<meta>`, `<base>` or language, a form's navigation, a link with `rel="external"`,
-`download` or another `target`, a reload, and anything where the browser has no Navigation API. Take a
+`download` or another `target`, a reload, and anything where the browser has no Navigation API (or one without `sourceElement`: Chromium 102 to 134). Take a
 page out with `<html data-sn-swap="off">` (links to it load it, and links from it are page loads), and a
 single link with `<a data-sn-swap="off">`. The build lists the pages that swap: any other URL, such as an
 API's logout link, is the browser's.
