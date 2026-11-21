@@ -20,6 +20,7 @@ const tick = () => new Promise((r) => setTimeout(r, 0));
 afterEach(() => {
   try { instance(document).destroy(); } catch { /* none */ }
   (globalThis as Record<symbol, unknown>)[STREAMS] = undefined;
+  gate = null;
   configure({ transport: null as never, sessionProbe: null });
 });
 
@@ -56,6 +57,8 @@ function compile(body: string, head = '') {
 }
 
 let fetched: string[] = [];
+/** set: every response waits for it (a first fetch still in flight) */
+let gate: Promise<void> | null = null;
 const env = {
   ...defaultEnv,
   href: () => 'http://localhost/',
@@ -63,6 +66,7 @@ const env = {
   setTimeout: (fn: () => void, ms: number, kind?: string) => setTimeout(fn, kind === 'backoff' ? 0 : ms),
   fetch: async (r: Request) => {
     fetched.push(new URL(r.url).pathname);
+    if (gate) await gate;
     return new Response('{"items":[]}', { headers: { 'Content-Type': 'application/json' } });
   },
 };
@@ -307,6 +311,92 @@ test('more than the cap held: the newest kept, what the stream feeds refetched o
   expect(got).toHaveLength(1000);
   expect(got[0]).toBe('B:5');
   expect(fetched).toEqual(['/api/other']);
+});
+
+test('a refresh replayed while the next page\'s first fetch is in flight: one request if it was held before the takeover, a second if after', async () => {
+  // a `refresh` held while parked came before the mount sent its request, whose response covers it; one held
+  // after the takeover may be newer than the response, as a live event during a first load
+  const R = compile(`<sn-resource name="items" src="/api/other" select="items" key="id"></sn-resource>
+    ${sync('/events', '<sn-event name="item" resource="items" op="refresh"></sn-event>')}`);
+  const t = await onA();
+  const c = t.made[0]!;
+  let release!: () => void;
+  gate = new Promise((r) => { release = r; });
+  const close = streamWindow();
+  instance(document).destroy();
+  fetched = [];
+  c.emit('item', { id: 1 });
+  show(R);
+  await Promise.resolve(); await Promise.resolve();
+  await tick();
+  expect(fetched).toEqual(['/api/other']);
+  close();
+  await settle();
+  expect(fetched).toEqual(['/api/other']);
+  release();
+  await settle();
+  expect(fetched).toEqual(['/api/other']);
+
+  // the same with the event held after the takeover: a second request, the first one aborted
+  gate = new Promise((r) => { release = r; });
+  const close2 = streamWindow();
+  instance(document).destroy();
+  fetched = [];
+  show(R);
+  await Promise.resolve(); await Promise.resolve();
+  c.emit('item', { id: 2 });
+  await tick();
+  close2();
+  await settle();
+  expect(fetched).toEqual(['/api/other', '/api/other']);
+  release();
+  await settle();
+
+  // a live event during a first load does the same
+  gate = new Promise((r) => { release = r; });
+  await swapTo(B);
+  fetched = [];
+  await swapTo(R);
+  c.emit('item', { id: 3 });
+  await settle();
+  expect(fetched).toEqual(['/api/other', '/api/other']);
+  release();
+  await settle();
+});
+
+test('more than the cap held while the next page\'s first fetch is in flight: that load covers what was dropped before the takeover, not after', async () => {
+  const t = await onA();
+  const c = t.made[0]!;
+  let release!: () => void;
+  gate = new Promise((r) => { release = r; });
+  const close = streamWindow();
+  instance(document).destroy();
+  for (let i = 0; i < 1005; i++) c.emit('note', { text: String(i) });
+  fetched = [];
+  show(B);
+  await Promise.resolve(); await Promise.resolve();
+  await tick();
+  close();
+  await settle();
+  // the `then` handlers get the newest 1000; the load requested at the mount is newer than the five dropped
+  expect(text('got')!.split(',')).toHaveLength(1000);
+  expect(fetched).toEqual(['/api/other']);
+  release();
+  await settle();
+
+  // dropped after the takeover: newer than the load in flight, so fetched again
+  gate = new Promise((r) => { release = r; });
+  const close2 = streamWindow();
+  instance(document).destroy();
+  fetched = [];
+  show(B);
+  await Promise.resolve(); await Promise.resolve();
+  for (let i = 0; i < 1005; i++) c.emit('note', { text: String(i) });
+  close2();
+  await settle();
+  expect(fetched).toEqual(['/api/other', '/api/other']);
+  release();
+  await settle();
 });
 
 test('no window: destroy closes as before', async () => {

@@ -217,8 +217,10 @@ reads `'connecting'` until it is shown. A custom transport sets it through `onSt
   `EventSource`, an event whose name the old page did not listen to is not delivered during the swap;
   a server that sends one event name with the kind in the payload avoids that. A resource of the next
   page whose data came with its HTML is reloaded when an event that feeds it may have arrived while
-  that HTML was fetched. Apps without swaps
-  carry none of this.
+  that HTML was fetched. A `refresh` that arrived before the next page mounted does not ask again for a
+  resource whose first load is still in flight. At most 1000 events are held: past that, the oldest are
+  not delivered (`then` handlers and `app.on` listeners get the newest 1000) and every resource the
+  stream feeds is reloaded. Apps without swaps carry none of this.
 - **Streams aren't shared across tabs.** Each tab opens its own connection.
 
 ### Paginated resources

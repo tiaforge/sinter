@@ -64,8 +64,12 @@ export class Connection {
   declare parked?: boolean;
   /** events held until the next page's replay */
   declare buf?: Array<[string, unknown]> | null;
-  /** more were held than the cap: the replay reloads */
-  declare lossy?: boolean;
+  /** more were held than the cap: the replay reloads (1: every event dropped came before the takeover) */
+  declare lossy?: 1 | 2;
+  /** how many of `buf` were held before the takeover, older than the requests the next page's mount sent */
+  declare pre?: number;
+  /** the event being replayed was held before the takeover: a `refresh` of a resource loading is covered by that load */
+  declare early?: boolean;
   /** where the transport came from: `config.transport` as it was (undefined: the default), 1: the app's own option */
   declare via?: unknown;
   /** the names the transport connected with */
@@ -188,7 +192,8 @@ export class Connection {
     const paginated = !!app.ir.resources.find((x) => x.name === name)?.paginate;
     switch (def.op) {
       case 'refresh':
-        void r.refresh(scope.$p);
+        // replayed from before the takeover: a load in flight was requested after it (sse-handover.ts)
+        if (!(SWAP && this.early && r.meta.loading)) void r.refresh(scope.$p);
         break;
       case 'upsert': {
         const item = def.value != null ? app.fns[def.value]!(scope) : payload;
