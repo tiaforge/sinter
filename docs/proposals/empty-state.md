@@ -75,7 +75,7 @@ reads a name of the let's own place), every candidate is waited for.
 | `for` fan-out | once every current source answered | `loadedAt` is set then, and also when the list it fans out over is loaded and empty (no source: empty). |
 | `call` | once the call returned | the same loader: `loading`, `loadedAt`, `error`. |
 | `file:`, `content:` | nothing to wait for | A constant: empty means empty. Its `loadedAt` is always null, so it is left out of the condition, which the build then folds: the empty state is page markup or nothing. |
-| embedded data (`data-sn-resource`) | at once | The embedded payload is the first load (`loadedAt` set at mount). |
+| embedded data (`data-sn-resource`) | at once | The embedded payload is the first load (`loadedAt` set at mount). The early file knows that status, so the empty state is in the first paint (without `when`, `paginate` or a stream feeding it). |
 | a list inside an item (`a.comments`) | nothing to wait for | It came with its row. Waiting for the row's resource would hide "No comments" in every row during each reload of the list. A field of a single resource (`feed.items`) waits for that resource. |
 | state, a prop given state | nothing to wait for | Empty is empty from the first render. A prop given a resource waits for it (the prop's sources are the caller's). |
 

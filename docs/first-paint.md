@@ -495,6 +495,11 @@ A branch the status closes at mount whatever the load does (`data-sn-if="user"`,
 empty") is left out of the early script: the HTML shows it closed already. A list's empty state (the
 `data-sn-else` after a `data-sn-for`, [resources](resources.md#loading-empty-error)) is such a branch while its
 resources load; over state or a `file:` list, it is painted early or written at build time like any other.
+An embedded resource (its data in the page: `data-sn-resource`, `embed: true`) has loaded when the page module
+mounts, is not loading and has no error, so a branch over that status is painted early too, and a list's empty
+state over embedded data (also through a component's prop or a slot's `$slot`) is in the first paint. Not with
+`when`, `paginate` or an `<sn-event>` feeding it, and not a binding that shows `loadedAt` itself (the time of the
+mount), only one that tests it.
 `loading`, `error` and `loadedAt` are known, also through a `data-sn-let` of the whole status; other status
 fields (a page number) are the page module's, and a binding that reads one renders when it mounts. The values are compiled into the page's early file: its
 runtime is the same.

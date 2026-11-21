@@ -1576,7 +1576,9 @@ To discuss after this lands:
   more first-paint gaps, fixed with it: a text right after an element showing the same expression was
   skipped as already written, and a `data-sn-href` query whose values may drop their parameter had no
   `href` early (the early file did not import `$hq`). A list's empty state over an embedded resource
-  (through a prop or `$slot`) still waits for the page module, as that resource's status is not early.
+  (through a prop or `$slot`) waited for the page module, as that resource's status was not early; since
+  2026-11-21 the early file writes an embedded resource's status at mount in (docs/spec.md, "Resource status
+  early"), and the fuzz compares that first paint too.
 - **A keyless resource upserted as a list** (found in the markdown recipe during PR #51; decided
   2026-11-21: both checks). Without `key`, a resource is one object, so `upsert(comments, c)` replaces
   the whole list; nothing warned (`SN517` covered only an OpenAPI list at its declaration). Now the
