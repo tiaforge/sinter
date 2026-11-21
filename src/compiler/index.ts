@@ -400,7 +400,7 @@ function installLines(options: Pick<CompileOptions, 'contentNs' | 'locale'>): st
     return [
       `import { install as $install$${ns} } from ${JSON.stringify(spec.module)};`,
       ...(plain ? [] : [`import { format as $fmti$${ns} } from ${JSON.stringify(spec.format)};`]),
-      `$install$${ns}(${JSON.stringify(options.locale?.name ?? '')}, ${plain ? 'null' : `$fmti$${ns}`}, ${JSON.stringify(ns)});`,
+      `$install$${ns}(${[JSON.stringify(options.locale?.name ?? ''), ...(plain && ns === 'm' ? [] : [plain ? 'null' : `$fmti$${ns}`]), ...(ns === 'm' ? [] : [JSON.stringify(ns)])].join(', ')});`,
     ];
   });
 }

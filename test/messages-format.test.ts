@@ -78,3 +78,20 @@ test('sinter check: a wrong parameter of a namespace\'s message is a type error'
     rmSync(root, { recursive: true, force: true });
   }
 }, 60_000);
+
+test('pack(): a plain message is its text for a page\'s modules; a brace of its own, a formatted placeholder or a plural stays the message', async () => {
+  const { pack } = await import('../src/messages/format.js');
+  const { t, install } = await import('../src/messages.js');
+  expect(pack({ id: 'a', m: { p: ['Hello ', { v: 'name' }] } })).toBe('Hello {name}');
+  expect(pack({ id: 'a', m: { p: ['Set {x}'] } })).toEqual({ p: ['Set {x}'] });
+  expect(pack({ id: 'a', m: { p: [{ v: 'rate', f: 'number' }] } })).toEqual({ p: [{ v: 'rate', f: 'number' }] });
+  const plural = { s: [{ n: 'count', f: 'plural' }], v: [[['one'], ['1 item']], [['*'], [{ v: 'count' }, ' items']]] };
+  expect(pack({ id: 'n', m: plural })).toEqual(plural);
+  // the runtime reads both forms
+  const { format } = await import('../src/messages/format.js');
+  install('en', format as never);
+  Object.assign((globalThis as any)[Symbol.for('sinter.i18n')].dicts.en, { a: pack({ id: 'a', m: { p: ['Hello ', { v: 'name' }] } }), n: pack({ id: 'n', m: plural }) });
+  expect(t('a', { name: 'Ada' })).toBe('Hello Ada');
+  expect(t('n', { count: 3 })).toBe('3 items');
+  (globalThis as any)[Symbol.for('sinter.i18n')] = undefined;
+});

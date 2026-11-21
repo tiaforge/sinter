@@ -98,7 +98,7 @@ export const messages = inlang();
     const js = readdirSync(join(dist, 'assets')).filter((x) => x.endsWith('.js')).map((x) => readFileSync(join(dist, 'assets', x), 'utf8')).join('\n');
     expect(js).toContain('ungelesene Nachrichten');
     // the message the helper calls: written into the German page, in German; the page module installs the formatter
-    expect(page('de')).toContain('<script type="application/json" data-sn-ns="m">{"inbox.title":{"id":"inbox.title","m":{"p":["Posteingang"]}}}</script>');
+    expect(page('de')).toContain('<script type="application/json" data-sn-ns="m">{"inbox.title":"Posteingang"}</script>');
     expect(js).toMatch(/install/);
   } finally {
     rmSync(app, { recursive: true, force: true });

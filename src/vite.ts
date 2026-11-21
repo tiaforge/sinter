@@ -1089,6 +1089,10 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   const formatters = new Map<string, (entry: unknown, args: unknown, locale: string | null) => unknown>();
   /** a formatter module's `inline(entry)`, when it has one: the source of a function the build compiles in place of a call */
   const inliners = new Map<string, (entry: unknown) => string | null>();
+  /** a formatter module's `pack(entry)`, when it has one: the smaller form of an entry written into a page for its modules */
+  const packers = new Map<string, (entry: unknown) => unknown>();
+  /** a namespace's entries as a page's `data-sn-ns` holds them: each packed by its formatter */
+  const packed = (format: string, entries: Record<string, unknown>) => { const p = packers.get(format); return p ? Object.fromEntries(Object.entries(entries).map(([k, e]) => [k, e == null ? e : p(e)])) : entries; };
   /** a namespace's formatter module, as the page imports it: a path from the root as written, or a package */
   const formatSpec = (f: string) => f;
   /** the content namespaces in a language: each one's entries by id (docs/proposals/messages.md §1) */
@@ -1329,6 +1333,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
           const file = d.format.startsWith('/') ? resolve(root, `.${d.format}`) : d.format;
           const mod = await importModule({ root, configFile: config.configFile ?? false, mode: config.mode, ...(config.configFile ? {} : { alias: config.resolve.alias }) }, file);
           if (typeof mod.inline === 'function') inliners.set(d.format, mod.inline as (entry: unknown) => string | null);
+          if (typeof mod.pack === 'function') packers.set(d.format, mod.pack as (entry: unknown) => unknown);
           if (typeof mod.format === 'function') formatters.set(d.format, mod.format as (entry: unknown, args: unknown, locale: string | null) => unknown);
           else throw new Error('it exports no `format(entry, args, locale)`');
         } catch (e) {
@@ -1615,7 +1620,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
         }
         if (!want.size) continue;
         const at = pageNs.get(rel) ?? contentNsAt(pageLang(resolve(root, rel)));
-        const tags = [...want].map(([ns, keys]) => `<script type="application/json" data-sn-ns="${attr(ns)}">${JSON.stringify(Object.fromEntries([...keys].sort().map((k) => [k, at[ns]?.entries[k] ?? null]))).replace(/</g, '\\u003c')}</script>`);
+        const tags = [...want].map(([ns, keys]) => `<script type="application/json" data-sn-ns="${attr(ns)}">${JSON.stringify(packed(at[ns]?.format ?? '', Object.fromEntries([...keys].sort().map((k) => [k, at[ns]?.entries[k] ?? null])))).replace(/</g, '\\u003c')}</script>`);
         pageMessages.set(rel, tags.join(''));
       }
       heads();
@@ -1824,7 +1829,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
         if (rules && !dev && !hasCspMeta(checked)) unhashedPages++;
         // dev: the app's modules may call any entry of a content namespace they import, in the page's language
         const at = dev && content?.namespaces.size ? (out.contentNs ?? contentNsAt(pageLang(file))) : null;
-        const tags = at ? Object.entries(at).filter(([, d]) => d.module).map(([ns, d]) => `<script type="application/json" data-sn-ns="${attr(ns)}">${JSON.stringify(d.entries).replace(/</g, '\\u003c')}</script>`).join('') : '';
+        const tags = at ? Object.entries(at).filter(([, d]) => d.module).map(([ns, d]) => `<script type="application/json" data-sn-ns="${attr(ns)}">${JSON.stringify(packed(d.format ?? '', d.entries)).replace(/</g, '\\u003c')}</script>`).join('') : '';
         return tags ? page.replace(/<head[^>]*>/, (h) => h + tags) : page;
         }
       },

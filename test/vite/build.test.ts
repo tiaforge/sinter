@@ -487,7 +487,7 @@ test('messages without localePrefix: a page whose markup has no `m` gets the mes
   await build({ root: i18nRoot, logLevel: 'silent', resolve: { alias: i18nAlias }, build: { outDir: dir, emptyOutDir: true, minify: false, rollupOptions: { input: join(i18nRoot, 'other.html') } }, plugins: [sinter({ typecheck: true })] });
   const html = readFileSync(join(dir, 'other/index.html'), 'utf8');
   // the helper's only_en and the config module's bye; nothing the other page's markup calls
-  expect(html).toContain('<script type="application/json" data-sn-ns="m">{"bye":{"id":"bye","m":{"p":["Bye"]}},"only_en":{"id":"only_en","m":{"p":["Only in English"]}}}</script>');
+  expect(html).toContain('<script type="application/json" data-sn-ns="m">{"bye":"Bye","only_en":"Only in English"}</script>');
   expect(html).not.toMatch(/data-sn-i18n|People/);
 });
 

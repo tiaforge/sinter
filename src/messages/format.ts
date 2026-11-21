@@ -34,6 +34,16 @@ export function inline(entry: unknown): string | null {
 }
 
 /**
+ * The entry as a page holds it for its modules (`data-sn-ns`): a plain message is its text, `{name}` for a placeholder
+ * (unless its text has a brace of its own); any other is the message alone, without its id.
+ */
+export function pack(entry: unknown): unknown {
+  const m = ((entry as { m?: Message } | null)?.m ?? entry) as Message;
+  if (m && 'p' in m && m.p.every((x) => (typeof x === 'string' ? !/[{}]/.test(x) : !x.f))) return m.p.map((x) => (typeof x === 'string' ? x : `{${x.v}}`)).join('');
+  return m;
+}
+
+/**
  * The message in `locale` with `args`. A variant is chosen as MessageFormat 2 chooses: each selector gives a value
  * (an input's string; for a plural, its exact number and its category in the language); a variant matches when each of
  * its keys is that value or `*`; of the matches, the best at the first selector where they differ wins (an exact number

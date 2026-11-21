@@ -73,7 +73,7 @@ describe('each page in each language', () => {
   test('a page that runs: its messages compiled in, the app modules\' in the page; no picker, no language file', () => {
     const de = read('de/article.html');
     expect(de).not.toContain('data-sn-i18n');
-    expect(de).toContain('<script type="application/json" data-sn-ns="m">{"hello":{"id":"hello","m":{"p":["Hallo"]}}}</script>');
+    expect(de).toContain('<script type="application/json" data-sn-ns="m">{"hello":"Hallo"}</script>');
     expect(readdirSync(join(out, 'assets')).filter((f) => /-(en|de)-[\w-]+\.js$/.test(f))).toEqual([]);
     const js = readdirSync(join(out, 'assets')).filter((f) => f.endsWith('.js')).map((f) => read(`assets/${f}`)).join('\n');
     expect(js).toContain('Über uns');

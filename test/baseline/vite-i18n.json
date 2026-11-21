@@ -3,13 +3,13 @@
   "sha256": "e37f8354d5a5e82c275876cb00462682a96b587a256a04443ad190827b813904",
   "bytes": 96
  },
- "assets/other-CPruJx6c.js": {
-  "sha256": "704b27f583a8c962028be95a66c0f78992e5a70694890ea3477c031704b110e9",
-  "bytes": 17741
+ "assets/other-BTlrHvGX.js": {
+  "sha256": "419e5f2eddc42d97e19f67db0bb33533e67419779b39339fb24c072bd96f6053",
+  "bytes": 17588
  },
- "assets/other-head-T4S-_k3z.js": {
-  "sha256": "4f84befe4df3bf9070a76016438d9e40b53ac89c28f28d3e5b6898aca0940f96",
-  "bytes": 1197
+ "assets/other-head-OdWa2w66.js": {
+  "sha256": "39d59adb0eba6fd382778537393b7fc9895f3a709ef41315276450ce7f461846",
+  "bytes": 1044
  },
  "assets/sinter-head-aIMFXm-E.js": {
   "sha256": "6883055e6f8448368a618da7f52e56cbe82ab2f989f40c62d6465b1dc592d60b",
@@ -24,7 +24,7 @@
   "bytes": 335
  },
  "other/index.html": {
-  "sha256": "443bcd8a51f3e6c9ef7b0d490f229637ba59a0d68fe5ecbcf2b4bf995a3b2751",
-  "bytes": 747
+  "sha256": "705365c8ce3da1e2a937f5f17672a6f9223328448fe08119eb8045d5a86dd786",
+  "bytes": 693
  }
 }

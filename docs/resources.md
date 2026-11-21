@@ -394,7 +394,9 @@ export function format(entry, args, locale) { return entry.body.replace(/\[(\w+)
   the page's script with that entry alone and an import of the formatter. Each page ships only the entries it calls.
 - An unknown id is `SN206`, with the namespace's ids as suggestions. A name another namespace has (a helper namespace,
   another content namespace) fails the build.
-- `format(entry, args, locale)` is a plain function of its arguments, so the build can run it.
+- `format(entry, args, locale)` is a plain function of its arguments, so the build can run it. The formatter module
+  may also export `inline(entry)`, the source of a function the build compiles in place of a call over data (no
+  formatter shipped for it), and `pack(entry)`, the smaller form of an entry written into a page for its modules.
 - `sinter check` and the editor know a namespace's ids from the build's snapshot (`vite build` or `vite dev` writes it).
 - `per: [tenants]` loads a namespace per axis, each page reading its point's entries. `types` gives `sinter check` its type.
 - **App code** calls a namespace through its `module` (`namespace({ module: '/src/legal.ts' })`, whose `install(locale, format)`

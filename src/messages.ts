@@ -37,11 +37,8 @@ const fill = (s: string, p?: Record<string, unknown>) => (p ? s.replace(/\{(\w+)
 /** The message `key` in the page's language (the build filled in the base language where a translation is missing). */
 export function t(key: string, params?: Record<string, unknown>): string {
   const s = state(), e: any = s.dicts[s.locale]?.[key] ?? s.dicts[s.base]?.[key] ?? key;
-  if (typeof e == 'string') return fill(e, params);
-  // a content namespace's entry (`inlang()`'s): a plain pattern as it is, else through its formatter
-  const p = e?.m?.p as Array<string | { v: string }> | undefined;
-  if (p && !s.format) return p.map((x) => (typeof x == 'string' ? x : params && x.v in params ? String(params[x.v]) : `{${x.v}}`)).join('');
-  return s.format ? s.format(e, params, s.locale) : key;
+  // a plain message is its text (`pack()`); any other goes through the namespace's formatter
+  return typeof e == 'string' ? fill(e, params) : s.format ? s.format(e, params, s.locale) : key;
 }
 
 /** `m.key()`, and a nested id's `m.inbox.title()` */
@@ -52,25 +49,20 @@ export const m = at('') as Messages;
 
 export const getLocale = (): string => state().locale;
 
-/** the page's one language: the locale `date()` and `number()` format in, unless the app's `configure({ locale })` set one */
-function fixed(locale: string): void {
-  const s = state();
-  s.locale = s.base = locale;
-  s.locales = [locale];
-  s.dicts[locale] ??= {};
-  config.locale ??= { get: () => locale, set: () => {} };
-}
-
 /**
  * The messages as a content namespace (`inlang()`, docs/proposals/messages.md §2): the page module calls it with the
  * page's language and the namespace's formatter; the entries the app's modules call are in the page, in
- * `<script type="application/json" data-sn-ns="m">`.
+ * `<script type="application/json" data-sn-ns="m">`, packed (`pack()`). The page's one language is the locale
+ * `date()` and `number()` format in, unless the app's `configure({ locale })` set one.
  */
-export function install(locale: string, format: I18nState['format'] | null, name = 'm'): void {
+export function install(locale: string, format?: I18nState['format'] | null, name = 'm'): void {
   const s = state();
   if (format) s.format = format;
+  s.locale = s.base = locale;
+  s.locales = [locale];
   if (!s.dicts[locale]) {
+    s.dicts[locale] = {};
     try { const e = document.querySelector(`script[data-sn-ns="${name}"]`); if (e?.textContent) s.dicts[locale] = JSON.parse(e.textContent); } catch { /* none */ }
   }
-  fixed(locale);
+  config.locale ??= { get: () => locale, set: () => {} };
 }
