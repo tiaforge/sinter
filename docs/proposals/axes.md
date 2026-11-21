@@ -455,6 +455,11 @@ Each step ships on its own.
    `fallback: true` for content.
 8. **Language segments and domains** (§4 "URL segments", §3 `domains`): `paths`, `codes`, and languages on
    their own domains, on step 6's origins.
+   *`paths` and `codes` done 2026-11-21:* `segmentOf` in src/locales.ts; `pointPrefix`, `pointFolder` and `listPoints`
+   take the segments; the compiler's `locale.paths` (link templates, `localeUrl()` on a page whose paths have
+   parameters, `inLanguage`); the chooser's script (`S`, `K`), `hreflang` per code; the manifest's `locales.paths` and
+   `locales.codes`, which `server.ts`, sinter-axum and Sinter.AspNetCore read (a code chooses its language, the
+   redirect goes to the segment; choose-cases.json has cases with `codes`). Not yet: `domains`.
 9. **Server layers**, if §10 finds work beyond the manifest they read today.
 
 ## Not in this proposal

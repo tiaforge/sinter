@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { runInNewContext } from 'node:vm';
 import { describe, expect, test } from 'vitest';
-import { chain, checkFallbacks, chooseLanguage, chooserHtml, inLanguage, languageOfFile, manifestLocales, prefixPaths, requestLanguages, siteRoot } from '../src/locales.js';
+import { chain, checkFallbacks, chooseLanguage, chooserHtml, hreflangTags, inLanguage, languageOfFile, manifestLocales, prefixPaths, requestLanguages, segmentOf, siteRoot } from '../src/locales.js';
 
 const site = { base: 'en', list: ['en', 'de', 'pt-BR'] };
 
@@ -86,4 +86,22 @@ test('chain: the tag less its subtags where the site has them, then the base; `f
   expect(checkFallbacks({ ...l, fallbacks: { fr: ['de'] } })).toMatch(/names `fr`, which is not one of the site's languages/);
   expect(checkFallbacks({ ...l, fallbacks: { 'de-CH': ['it'] } })).toMatch(/names `it`/);
   expect(checkFallbacks({ ...l, fallbacks: { 'de-CH': ['de-AT'], 'de-AT': ['de-CH'] } })).toMatch(/name each other/);
+});
+
+test('a language\'s segment (`paths`) and its codes: the chooser\'s URLs and rule, hreflang, the prefixes', () => {
+  const l = { base: 'en', list: ['en', 'de-AT', 'no'], paths: { 'de-AT': 'at' }, codes: { no: ['nb', 'nn'] } };
+  expect(segmentOf('de-AT', l)).toBe('at');
+  expect(segmentOf('no', l)).toBe('no');
+  expect(languageOfFile('at/about.html', l.list, l.paths)).toBe('de-AT');
+  expect(inLanguage('/about/', 'de-AT', l, '/', ['/about/'])).toBe('/at/about/');
+  expect(inLanguage('/at/about/', 'de-AT', l, '/', ['/about/'])).toBe('/at/about/');
+  // a page whose paths have parameters: the chooser goes to the same path under the segment
+  const html = chooserHtml({ base: '/', locales: l, fallback: '/en/', urls: null, hreflang: '', script: true });
+  expect(html).toContain('<a href="/at/" hreflang="de-AT">de-AT</a>');
+  const script = /<script>([\s\S]*?)<\/script>/.exec(html)![1]!;
+  const go = (languages: string[]) => { let to = ''; runInNewContext(script, { document: { cookie: '' }, navigator: { languages }, location: { search: '', hash: '', pathname: '/u/1', replace: (u: string) => { to = u; } } }); return to; };
+  expect(go(['de-AT'])).toBe('/at/u/1');
+  expect(go(['nb-NO'])).toBe('/no/u/1');
+  expect(hreflangTags('https://x.org', { no: '/no/' }, '/', l.codes)).toBe('<link rel="alternate" hreflang="no" href="https://x.org/no/">\n  <link rel="alternate" hreflang="nb" href="https://x.org/no/">\n  <link rel="alternate" hreflang="nn" href="https://x.org/no/">\n  <link rel="alternate" hreflang="x-default" href="https://x.org/">');
+  expect(manifestLocales(l, '/')).toEqual({ ...l, at: '/' });
 });

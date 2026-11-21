@@ -236,7 +236,7 @@ export interface CompileOptions {
    * whose one language is the messages' base: its text and `$locale` as here, its paths, `<html lang>` and links as
    * written, no `localeUrl()` and no `locale` cookie
    */
-  locale?: { name: string; urls: Record<string, string> | null; base: string; list?: string[]; pages?: readonly string[]; prefix?: false };
+  locale?: { name: string; urls: Record<string, string> | null; base: string; list?: string[]; pages?: readonly string[]; prefix?: false; paths?: Record<string, string> };
   /**
    * internal, set by `compileParts` for its second pass: the `data-sn-if` templates (by `file:offset`)
    * whose condition the first pass found constant (state nothing writes), and its value
@@ -1438,7 +1438,9 @@ class Compiler {
     if (l) {
       const b = l.base.startsWith('/') ? l.base.replace(/\/?$/, '/') : '/';
       // a page whose paths have parameters: its path in another language is the browser's, with that language's prefix
-      const localeUrl = l.urls ? `((l) => (${JSON.stringify(l.urls)})[l])` : `((l) => ${JSON.stringify(b)} + l + location.pathname.slice(${b.length + l.name.length}))`;
+      // (a language's segment: its `paths` entry, else its tag)
+      const own = l.paths?.[l.name] ?? l.name, seg = l.paths ? `((${JSON.stringify(l.paths)})[l] ?? l)` : 'l';
+      const localeUrl = l.urls ? `((l) => (${JSON.stringify(l.urls)})[l])` : `((l) => ${JSON.stringify(b)} + ${seg} + location.pathname.slice(${b.length + own.length}))`;
       this.page.locale = { name: l.name, messages: null, localeUrl, ...(l.urls ? { ownUrls: true } : {}), ...(l.prefix === false ? { prefix: false as const } : {}) };
     }
     const cns = Object.keys(opts.contentNs ?? {});
@@ -4571,7 +4573,7 @@ class Compiler {
     // a page in one language: its paths under that language's prefix, after the base (`/de/article/:slug`)
     const lp = this.opts.locale;
     // a point's folder: its language's (`localePrefix`), then each axis's segment
-    const segs = [...(lp && lp.prefix !== false ? [lp.name] : []), ...(this.opts.axes ?? []).flatMap((a) => (a.segment ? [a.segment] : []))];
+    const segs = [...(lp && lp.prefix !== false ? [lp.paths?.[lp.name] ?? lp.name] : []), ...(this.opts.axes ?? []).flatMap((a) => (a.segment ? [a.segment] : []))];
     const prefixed = segs.length ? prefixPaths(patterns, segs.join('/'), this.opts.locale?.base ?? this.opts.base) : patterns;
     // only the URL the page has anyway: it is a directory's index without data-sn-path (docs/static-pages.md#page-urls)
     const root = this.opts.root.replace(/[\\/]+$/, '').replace(/\\/g, '/') + '/', file = this.opts.file.replace(/\\/g, '/');
@@ -9625,7 +9627,7 @@ class Compiler {
   /** a URL's literal start in the page's language when it names one of the site's pages (`inLanguage`); else as written */
   inPageLanguage(start: string): string {
     const l = this.opts.locale;
-    return l?.list && l.pages ? inLanguage(start, l.name, { base: l.list[0]!, list: l.list }, l.base, l.pages) : start;
+    return l?.list && l.pages ? inLanguage(start, l.name, { base: l.list[0]!, list: l.list, ...(l.paths ? { paths: l.paths } : {}) }, l.base, l.pages) : start;
   }
 
   runtimeReasons(): RuntimeReason[] {
@@ -10488,6 +10490,6 @@ function writeFirstPaint(el: P5Element, kind: Kind, name: string | null, v: unkn
 /** an API's `signIn` in the page's language, when it is one of the site's pages (`inLanguage`) */
 export function localSignIn<T extends { to: string }>(s: T, l: CompileOptions['locale']): T {
   if (!l?.list || !l.pages) return s;
-  const to = inLanguage(s.to, l.name, { base: l.list[0]!, list: l.list }, l.base, l.pages);
+  const to = inLanguage(s.to, l.name, { base: l.list[0]!, list: l.list, ...(l.paths ? { paths: l.paths } : {}) }, l.base, l.pages);
   return to === s.to ? s : { ...s, to };
 }

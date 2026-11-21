@@ -18,7 +18,11 @@ internal static class ManifestReader
         var routes = Array(root, "routes", required: false).Select(Route).ToArray();
         ManifestLocales? locales = null;
         if (root.TryGetProperty("locales", out var l) && l.ValueKind == JsonValueKind.Object)
-            locales = new ManifestLocales(Str(l, "base"), Array(l, "list", true).Select(x => x.GetString()!).ToArray(), OptStr(l, "at") ?? "/");
+        {
+            var paths = l.TryGetProperty("paths", out var ps) && ps.ValueKind == JsonValueKind.Object ? ps.EnumerateObject().ToDictionary(x => x.Name, x => x.Value.GetString()!) : null;
+            var codes = l.TryGetProperty("codes", out var cs) && cs.ValueKind == JsonValueKind.Object ? cs.EnumerateObject().ToDictionary(x => x.Name, x => x.Value.EnumerateArray().Select(y => y.GetString()!).ToArray()) : null;
+            locales = new ManifestLocales(Str(l, "base"), Array(l, "list", true).Select(x => x.GetString()!).ToArray(), OptStr(l, "at") ?? "/", paths, codes);
+        }
         return new SinterManifest(pages, routes, locales);
     }
 

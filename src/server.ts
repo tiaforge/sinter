@@ -8,7 +8,7 @@
 // is the one the page would have made.
 import { lists } from './runtime/lists.js';
 import { expand, readUrl, withParams } from './runtime/url.js';
-import { chooseLanguage, requestLanguages, type Locales } from './locales.js';
+import { chooseLanguage, requestLanguages, segmentOf, type Locales } from './locales.js';
 
 /** A fetch handler: an app (Hono's `app.fetch`, a framework's handler) or the next one in a chain. Extra arguments (a Worker's `env` and `ctx`) are passed on. */
 export type Handler = (request: Request, ...rest: any[]) => Response | Promise<Response>;
@@ -129,7 +129,7 @@ type Part = string | { url: string };
 type Cond = { url: string; eq?: string; ne?: string } | { not: Cond } | { and: Cond[] } | { or: Cond[] };
 interface Placeholder { id: number; resource: string; src: Part[] | null; when?: true | Cond; query?: Array<[string, string]>; start?: { url: string; key: string; size: number; skip?: true; query: Array<[string, string]> }; headers?: Record<string, string> }
 interface Route { from: string; to: string; status: number; file?: string; choose?: true }
-interface Manifest { version: number; pages: Array<{ file: string; paths: string[]; arrays?: string[]; data: Placeholder[] }>; routes?: Route[]; locales?: { base: string; list: string[]; at?: string } }
+interface Manifest { version: number; pages: Array<{ file: string; paths: string[]; arrays?: string[]; data: Placeholder[] }>; routes?: Route[]; locales?: { base: string; list: string[]; at?: string; paths?: Record<string, string>; codes?: Record<string, string[]> } }
 interface Page { file: string; paths: string[]; arrays?: string[]; parts: Uint8Array[]; placeholders: Placeholder[] }
 type Params = Record<string, string | string[]>;
 
@@ -486,7 +486,7 @@ export async function embed<B extends BuildTypes = BuildTypes>(options: EmbedOpt
     if (locales && route?.choose) {
       const p = /[:*]/.test(route.from) ? path : route.to;
       const rest_ = p.startsWith(locales.at) ? p.slice(locales.at.length) : p.replace(/^\/+/, '');
-      return new Response(null, { status: 302, headers: { location: `${locales.at}${choose(locales, request.headers)}/${rest_}${url.search}`, vary: 'Cookie, Accept-Language' } });
+      return new Response(null, { status: 302, headers: { location: `${locales.at}${segmentOf(choose(locales, request.headers), locales)}/${rest_}${url.search}`, vary: 'Cookie, Accept-Language' } });
     }
     // an old file URL: a permanent redirect to the page's URL, with the query
     if (route && route.status != 200) return new Response(null, { status: route.status >= 300 && route.status < 400 ? route.status : 301, headers: { location: route.to + url.search } });

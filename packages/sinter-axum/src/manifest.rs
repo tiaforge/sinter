@@ -27,6 +27,19 @@ pub(crate) struct Locales {
     /// where the site's paths start (Vite's `base`): the language's prefix goes after it
     #[serde(default = "root")]
     pub at: String,
+    /// a language's URL segment where it is not its tag (`languages({ paths })`)
+    #[serde(default)]
+    pub paths: std::collections::HashMap<String, String>,
+    /// more tags a visitor may send for a language (`languages({ codes })`)
+    #[serde(default)]
+    pub codes: std::collections::HashMap<String, Vec<String>>,
+}
+
+impl Locales {
+    /// a language's URL segment: its `paths` entry, else its tag
+    pub fn segment<'a>(&'a self, lang: &'a str) -> &'a str {
+        self.paths.get(lang).map(String::as_str).unwrap_or(lang)
+    }
 }
 
 fn root() -> String {

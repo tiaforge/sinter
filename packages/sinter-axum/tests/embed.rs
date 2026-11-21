@@ -491,3 +491,20 @@ async fn sends_an_unprefixed_url_to_the_visitors_language() {
     // a page in a language: not a chooser
     assert_eq!(text(a, get_("/docs/de/about/")).await.2, "static file");
 }
+
+/// A language's segment (`paths`) is its URL's prefix, and its `codes` choose it.
+#[tokio::test]
+async fn sends_a_visitor_to_a_languages_segment_and_by_its_codes() {
+    let dir = build(
+        "locale-paths",
+        r#"{ "version": 2, "pages": [],
+      "routes": [ { "from": "/about/", "to": "/about/", "status": 200, "file": "about/index.html", "choose": true } ],
+      "locales": { "base": "en", "list": ["en", "de-AT", "no"], "at": "/", "paths": { "de-AT": "at" }, "codes": { "no": ["nb", "nn"] } } }"#,
+        &[],
+    );
+    let a = app(Embed::from_dir(dir).api(api()).build().unwrap());
+    let go = |lang: &'static str| Request::get("/about/").header(header::ACCEPT_LANGUAGE, lang).body(Body::empty()).unwrap();
+    assert_eq!(text(a.clone(), go("de-AT")).await.1[header::LOCATION], "/at/about/");
+    assert_eq!(text(a.clone(), go("nb-NO, en;q=0.5")).await.1[header::LOCATION], "/no/about/");
+    assert_eq!(text(a, go("fr")).await.1[header::LOCATION], "/en/about/");
+}

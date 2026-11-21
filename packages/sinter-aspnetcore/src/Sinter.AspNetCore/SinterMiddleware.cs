@@ -34,7 +34,7 @@ internal sealed class SinterMiddleware(RequestDelegate next, SinterEngine engine
             var p = r.From.AsSpan().IndexOfAny(':', '*') >= 0 ? req.Path.ToUriComponent() : r.To;
             var rest = p.StartsWith(l.At, StringComparison.Ordinal) ? p[l.At.Length..] : p.TrimStart('/');
             ctx.Response.StatusCode = StatusCodes.Status302Found;
-            ctx.Response.Headers.Location = $"{l.At}{lang}/{rest}{req.QueryString}";
+            ctx.Response.Headers.Location = $"{l.At}{l.Segment(lang)}/{rest}{req.QueryString}";
             ctx.Response.Headers.Vary = "Cookie, Accept-Language";
             return Task.CompletedTask;
         }
@@ -64,15 +64,18 @@ internal sealed class SinterMiddleware(RequestDelegate next, SinterEngine engine
     /// else with the tag less its last subtag, one at a time, else the first site language with the same language part;
     /// else the base. The rule <c>chooseLanguage</c> in src/locales.ts applies, run on test/fixtures/choose-cases.json.
     /// </summary>
-    internal static string ChooseLanguage(IReadOnlyList<string> list, string @base, IEnumerable<string> tags)
+    internal static string ChooseLanguage(IReadOnlyList<string> list, string @base, IEnumerable<string> tags, IReadOnlyDictionary<string, string[]>? codes = null)
     {
+        // a language's `codes` are tags of it too (`nb` chooses `no`)
+        bool Is(string c, string p) => string.Equals(c, p, StringComparison.OrdinalIgnoreCase)
+            || (codes is not null && codes.TryGetValue(c, out var k) && k.Any(x => string.Equals(x, p, StringComparison.OrdinalIgnoreCase)));
         string? Find(string x)
         {
             var p = x.Trim();
             while (true)
             {
                 foreach (var c in list)
-                    if (string.Equals(c, p, StringComparison.OrdinalIgnoreCase)) return c;
+                    if (Is(c, p)) return c;
                 var j = p.LastIndexOf('-');
                 if (j < 0) break;
                 p = p[..j];
@@ -101,7 +104,7 @@ internal sealed class SinterMiddleware(RequestDelegate next, SinterEngine engine
                 foreach (var part in al.Split(','))
                     yield return part.Split(';')[0];
         }
-        return ChooseLanguage(l.List, l.Base, Tags());
+        return ChooseLanguage(l.List, l.Base, Tags(), l.Codes);
     }
 
     private async Task Render(HttpContext ctx, Page page, bool head)

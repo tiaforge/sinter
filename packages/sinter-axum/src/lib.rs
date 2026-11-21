@@ -419,6 +419,7 @@ where
         // straight to `/de/about/`; a pattern's, the request's); temporary, as it differs per visitor
         if let (Some(l), Some(r)) = (self.embed.0.locales.as_ref(), self.embed.route(req.uri().path()).filter(|r| read && r.choose)) {
             let lang = choose(l, req.headers());
+            let lang = l.segment(&lang).to_string();
             let path = if r.from.contains([':', '*']) { req.uri().path() } else { r.to.as_str() };
             let rest = path.strip_prefix(l.at.as_str()).unwrap_or(path.trim_start_matches('/'));
             let to = format!("{}{lang}/{rest}{}", l.at, req.uri().query().map(|q| format!("?{q}")).unwrap_or_default());
@@ -494,12 +495,21 @@ enum Fill {
 /// The visitor's language among the site's (docs/proposals/axes.md §6): for each tag they send, in order (the `locale`
 /// cookie the pages record, then `Accept-Language`), the site's language with that tag (any case), else with the tag
 /// less its last subtag, one at a time, else the first site language with the same language part; else the base. The
-/// rule `chooseLanguage` in src/locales.ts applies, run on the cases of test/fixtures/choose-cases.json.
-pub(crate) fn choose_language<'a>(list: &[String], base: &str, tags: impl IntoIterator<Item = &'a str>) -> String {
+/// rule `chooseLanguage` in src/locales.ts applies, run on the cases of test/fixtures/choose-cases.json. A language's
+/// `codes` are tags of it too (`nb` chooses `no`).
+pub(crate) fn choose_language<'a>(
+    list: &[String],
+    base: &str,
+    codes: &std::collections::HashMap<String, Vec<String>>,
+    tags: impl IntoIterator<Item = &'a str>,
+) -> String {
     let find = |x: &str| {
         let mut p = x.trim().to_ascii_lowercase();
         loop {
-            if let Some(hit) = list.iter().find(|c| c.to_ascii_lowercase() == p) {
+            if let Some(hit) = list
+                .iter()
+                .find(|c| c.to_ascii_lowercase() == p || codes.get(*c).is_some_and(|k| k.iter().any(|k| k.to_ascii_lowercase() == p)))
+            {
                 return Some(hit.clone());
             }
             match p.rfind('-') {
@@ -525,7 +535,7 @@ fn choose(l: &manifest::Locales, h: &HeaderMap) -> String {
         .into_iter()
         .flat_map(|v| v.split(','))
         .map(|p| p.split(';').next().unwrap_or(""));
-    choose_language(&l.list, &l.base, cookies.chain(accept))
+    choose_language(&l.list, &l.base, &l.codes, cookies.chain(accept))
 }
 
 async fn render(embed: EmbedLayer, i: usize, req: http::request::Parts, head: bool) -> Response<Body> {
@@ -734,6 +744,8 @@ mod choose_tests {
         list: Vec<String>,
         tags: Vec<String>,
         want: String,
+        #[serde(default)]
+        codes: std::collections::HashMap<String, Vec<String>>,
     }
     #[derive(serde::Deserialize)]
     struct Cases {
@@ -745,7 +757,7 @@ mod choose_tests {
         let file = concat!(env!("CARGO_MANIFEST_DIR"), "/../../test/fixtures/choose-cases.json");
         let cases: Cases = serde_json::from_str(&std::fs::read_to_string(file).unwrap()).unwrap();
         for c in cases.cases {
-            let got = super::choose_language(&c.list, &c.base, c.tags.iter().map(|t| t.as_str()));
+            let got = super::choose_language(&c.list, &c.base, &c.codes, c.tags.iter().map(|t| t.as_str()));
             assert_eq!(got, c.want, "{:?} {:?}", c.list, c.tags);
         }
     }

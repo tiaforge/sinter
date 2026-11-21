@@ -363,6 +363,22 @@ public sealed class EmbedTests
         Assert.Equal("static file", await Html(a, "/docs/de/about/"));
     }
 
+    /// <summary>A language's segment (<c>paths</c>) is its URL's prefix, and its <c>codes</c> choose it.</summary>
+    [Fact]
+    public async Task Sends_a_visitor_to_a_languages_segment_and_by_its_codes()
+    {
+        var dir = Build("locale-paths", """
+            { "version": 2, "pages": [],
+              "routes": [ { "from": "/about/", "to": "/about/", "status": 200, "file": "about/index.html", "choose": true } ],
+              "locales": { "base": "en", "list": ["en", "de-AT", "no"], "at": "/", "paths": { "de-AT": "at" }, "codes": { "no": ["nb", "nn"] } } }
+            """);
+        await using var a = await App(Api.Minimal, o => o.Dir = dir);
+        async Task<string> Go(string lang) => (await Send(a, Get("/about/").With("Accept-Language", lang))).Response.Headers.Location!.OriginalString;
+        Assert.Equal("/at/about/", await Go("de-AT"));
+        Assert.Equal("/no/about/", await Go("nb-NO, en;q=0.5"));
+        Assert.Equal("/en/about/", await Go("fr"));
+    }
+
     // ASP.NET Core: what the in-process calls go through
 
     [Theory, MemberData(nameof(Apis))]

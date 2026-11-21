@@ -6,7 +6,16 @@
  * The site's languages: `base`, where a visitor without a choice lands, and every language in `list`; `fallbacks`, a
  * language's chain before the base where it is not the default (`chain`)
  */
-export interface Locales { base: string; list: string[]; fallbacks?: Record<string, string[]> }
+export interface Locales {
+  base: string; list: string[]; fallbacks?: Record<string, string[]>;
+  /** a language's URL segment and output folder where it is not its tag (`{ 'de-AT': 'at' }`) */
+  paths?: Record<string, string>;
+  /** more tags a visitor may send for a language (`{ no: ['nb', 'nn'] }`): they choose it, and `hreflang` lists them */
+  codes?: Record<string, string[]>;
+}
+
+/** a language's URL segment and folder: its `paths` entry, else its tag */
+export const segmentOf = (locale: string, l: Pick<Locales, 'paths'> | null | undefined): string => l?.paths?.[locale] ?? locale;
 
 /** a site's base as the root of its paths: `/docs/` for `/docs`, and `/` for a relative base (`./`) or none */
 export const siteRoot = (base: string | undefined): string => (base?.startsWith('/') ? base.replace(/\/?$/, '/') : '/');
@@ -21,23 +30,24 @@ export function prefixPaths(paths: readonly string[], locale: string, base?: str
 }
 
 /** the language a page's output file is in, from its first folder (`de/about.html` is `de`), or null */
-export function languageOfFile(rel: string, list: readonly string[]): string | null {
+export function languageOfFile(rel: string, list: readonly string[], paths?: Record<string, string>): string | null {
   const first = rel.split('/')[0]!;
-  return list.includes(first) ? first : null;
+  return list.find((l) => (paths?.[l] ?? l) === first) ?? null;
 }
 
 /**
  * The visitor's language among the site's (docs/proposals/axes.md §6), from the tags they send in order: for each, the
  * site's language with that tag (any case), else with the tag less its last subtag, one at a time (`zh-Hant-TW`, then
  * `zh-Hant`, then `zh`), else the first site language with the same language part (`de` reaches `de-DE`); else the
- * base. The chooser page's script (`chooserHtml`), `@tiaforge-ui/sinter/server`, sinter-axum and Sinter.AspNetCore
- * apply this rule, and test/fixtures/choose-cases.json is the cases each runs.
+ * base. A language's `codes` are tags of it too (`nb` chooses `no`). The chooser page's script (`chooserHtml`),
+ * `@tiaforge-ui/sinter/server`, sinter-axum and Sinter.AspNetCore apply this rule, and test/fixtures/choose-cases.json
+ * is the cases each runs.
  */
-export function chooseLanguage(l: Locales, tags: Iterable<string>): string {
+export function chooseLanguage(l: Pick<Locales, 'base' | 'list' | 'codes'>, tags: Iterable<string>): string {
   const find = (x: string) => {
     let p = x.trim().toLowerCase();
     for (;;) {
-      const hit = l.list.find((c) => c.toLowerCase() == p);
+      const hit = l.list.find((c) => c.toLowerCase() == p || !!l.codes?.[c]?.some((k) => k.toLowerCase() == p));
       if (hit) return hit;
       const j = p.lastIndexOf('-');
       if (j < 0) break;
@@ -84,8 +94,8 @@ export function requestLanguages(cookie: string | null, acceptLanguage: string |
   return out;
 }
 
-/** the embed manifest's `locales`: the languages and the base their prefixes are under */
-export const manifestLocales = (l: Locales, base: string): Locales & { at: string } => ({ base: l.base, list: l.list, at: base.replace(/\/?$/, '/') });
+/** the embed manifest's `locales`: the languages, the base their prefixes are under, and their segments and codes */
+export const manifestLocales = (l: Locales, base: string): Locales & { at: string } => ({ base: l.base, list: l.list, at: base.replace(/\/?$/, '/'), ...(l.paths ? { paths: l.paths } : {}), ...(l.codes ? { codes: l.codes } : {}) });
 
 const esc = (v: string) => v.replace(/[&"<>]/g, (c) => `&#${c.charCodeAt(0)};`);
 
@@ -93,8 +103,8 @@ const esc = (v: string) => v.replace(/[&"<>]/g, (c) => `&#${c.charCodeAt(0)};`);
  * `<link rel="alternate" hreflang>` for each language's URL of a page, and `x-default` for its unprefixed URL
  * (the chooser); absolute (`origin`), as search engines want them.
  */
-export function hreflangTags(origin: string, urls: Record<string, string>, unprefixed: string): string {
-  return [...Object.entries(urls).map(([l, u]) => `<link rel="alternate" hreflang="${esc(l)}" href="${esc(origin + u)}">`), `<link rel="alternate" hreflang="x-default" href="${esc(origin + unprefixed)}">`].join('\n  ');
+export function hreflangTags(origin: string, urls: Record<string, string>, unprefixed: string, codes?: Record<string, string[]>): string {
+  return [...Object.entries(urls).flatMap(([l, u]) => [l, ...(codes?.[l] ?? [])].map((t) => `<link rel="alternate" hreflang="${esc(t)}" href="${esc(origin + u)}">`)), `<link rel="alternate" hreflang="x-default" href="${esc(origin + unprefixed)}">`].join('\n  ');
 }
 
 /**
@@ -106,8 +116,11 @@ export function hreflangTags(origin: string, urls: Record<string, string>, unpre
  * `hreflang` names.
  */
 export function chooserHtml(o: { base: string; locales: Locales; fallback: string; urls: Record<string, string> | null; hreflang: string; script: boolean }): string {
-  const links = o.locales.list.map((l) => `<a href="${esc(o.urls?.[l] ?? o.base + l + '/')}" hreflang="${esc(l)}">${esc(l)}</a>`).join(' ');
-  const js = o.script ? `<script>(function(){var L=${JSON.stringify(o.locales.list)},B=${JSON.stringify(o.base)},c=/(?:^|; )locale=([^;]*)/.exec(document.cookie),f=function(x){if(!x)return;var p=decodeURIComponent(x).trim().toLowerCase(),i,j;for(;;){for(i=0;i<L.length;i++)if(L[i].toLowerCase()==p)return L[i];j=p.lastIndexOf("-");if(j<0)break;p=p.slice(0,j)}for(i=0;i<L.length;i++)if(L[i].toLowerCase().split("-")[0]==p)return L[i]},l=f(c&&c[1]),n=navigator.languages||[navigator.language];for(var i=0;!l&&i<n.length;i++)l=f(n[i]);l=l||${JSON.stringify(o.locales.base)};${o.urls ? `location.replace(${JSON.stringify(o.urls)}[l]+location.search+location.hash)` : `var p=location.pathname;location.replace(B+l+"/"+(p.indexOf(B)==0?p.slice(B.length):p.replace(/^\\//,""))+location.search+location.hash)`}})()</script>\n` : '';
+  const seg = (l: string) => segmentOf(l, o.locales);
+  const links = o.locales.list.map((l) => `<a href="${esc(o.urls?.[l] ?? o.base + seg(l) + '/')}" hreflang="${esc(l)}">${esc(l)}</a>`).join(' ');
+  // the rule's tables: each language's codes (`chooseLanguage`) and, for a page at the same path, each one's segment
+  const codes = o.locales.codes ? `,K=${JSON.stringify(o.locales.codes)}` : '', segs = o.locales.paths ? `,S=${JSON.stringify(o.locales.paths)}` : '';
+  const js = o.script ? `<script>(function(){var L=${JSON.stringify(o.locales.list)},B=${JSON.stringify(o.base)}${codes}${segs},c=/(?:^|; )locale=([^;]*)/.exec(document.cookie),f=function(x){if(!x)return;var p=decodeURIComponent(x).trim().toLowerCase(),i,j;for(;;){for(i=0;i<L.length;i++)if(L[i].toLowerCase()==p${codes ? '||(K[L[i]]||[]).some(function(k){return k.toLowerCase()==p})' : ''})return L[i];j=p.lastIndexOf("-");if(j<0)break;p=p.slice(0,j)}for(i=0;i<L.length;i++)if(L[i].toLowerCase().split("-")[0]==p)return L[i]},l=f(c&&c[1]),n=navigator.languages||[navigator.language];for(var i=0;!l&&i<n.length;i++)l=f(n[i]);l=l||${JSON.stringify(o.locales.base)};${o.urls ? `location.replace(${JSON.stringify(o.urls)}[l]+location.search+location.hash)` : `var p=location.pathname;location.replace(B+${segs ? '(S[l]||l)' : 'l'}+"/"+(p.indexOf(B)==0?p.slice(B.length):p.replace(/^\\//,""))+location.search+location.hash)`}})()</script>\n` : '';
   return `<!doctype html>
 <html><head><meta charset="utf-8"><title>${esc(o.locales.list.join(' · '))}</title>
 ${js}<meta http-equiv="refresh" content="0; url=${esc(o.fallback)}"><meta name="robots" content="noindex">
@@ -129,7 +142,7 @@ export function inLanguage(start: string, locale: string, l: Locales, base: stri
   if (!start.startsWith(b) || start.startsWith('//')) return start;
   const cut = start.search(/[?#]/), path = cut < 0 ? start : start.slice(0, cut);
   const rest = path.slice(b.length), segs = rest.split('/');
-  if (l.list.includes(segs[0]!) && segs.length > 1) return start;
+  if (l.list.some((x) => segmentOf(x, l) === segs[0]) && segs.length > 1) return start;
   // the last segment is partial unless the path ends there (a `/`, `?` or `#` after it)
   const partial = cut < 0 && !rest.endsWith('/') ? segs.pop()! : null;
   if (rest.endsWith('/')) segs.pop();
@@ -143,5 +156,5 @@ export function inLanguage(start: string, locale: string, l: Locales, base: stri
     if (!segs.every((s, i) => ps[i]![0] === ':' || ps[i] === s)) return false;
     return partial === null || ps[segs.length]![0] === ':' || ps[segs.length]!.startsWith(partial);
   });
-  return names ? prefixPaths([path], locale, base)[0]! + start.slice(path.length) : start;
+  return names ? prefixPaths([path], segmentOf(locale, l), base)[0]! + start.slice(path.length) : start;
 }

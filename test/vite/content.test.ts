@@ -187,3 +187,29 @@ export const postPages = collection({ key: 'n', load: async ({ get }) => chunks(
   }, 60_000);
 });
 
+
+describe('languages({ paths, codes }): a language\'s segment, and more tags for it', () => {
+  test('pages under the segment, `<html lang>` and `$locale` the tag; links, localeUrl() and hreflang', async () => {
+    const content = "import { languages } from '@tiaforge-ui/sinter/content';\nexport const locales = languages({ base: 'en', list: ['en', 'de-AT', 'no'], paths: { 'de-AT': 'at' }, codes: { no: ['nb', 'nn'] } });\n";
+    const page = '<!doctype html><html lang="en"><head><title>x</title></head><body><a href="/about.html">About</a><a hreflang="de-AT" data-sn-attr="{ href: localeUrl(\'de-AT\') }">AT</a><p data-sn-text="$locale"></p></body></html>';
+    const r = await run({ 'src/sinter.content.ts': content, 'index.html': page, 'about.html': page }, ['index.html', 'about.html'], { localePrefix: true, site: 'https://example.com' });
+    expect(r.error).toBe(null);
+    const at = r.read('at/about/index.html');
+    expect(at).toContain('<html lang="de-AT">');
+    expect(at).toContain('<p>de-AT</p>');
+    expect(at).toContain('<a href="/at/about/">About</a><a hreflang="de-AT" href="/at/about/">AT</a>');
+    expect(at).toContain('<link rel="alternate" hreflang="de-AT" href="https://example.com/at/about/">');
+    expect(at).toContain('<link rel="alternate" hreflang="nb" href="https://example.com/no/about/">');
+    expect(r.has('de-AT/about/index.html')).toBe(false);
+    // the chooser links each language at its segment (its script, on a site that runs any, knows the codes too)
+    expect(r.read('about/index.html')).toContain('<a href="/at/about/" hreflang="de-AT">de-AT</a>');
+  }, 120_000);
+
+  test('checked: a segment another language has, a code that is a language, a code of two', async () => {
+    const { languages } = await import('../../src/content.js');
+    expect(() => languages({ base: 'en', list: ['en', 'de', 'de-AT'], paths: { 'de-AT': 'de' } })).toThrow(/`paths.de-AT` is `de`, which is `de`'s segment too/);
+    expect(() => languages({ base: 'en', list: ['en', 'de'], paths: { de: 'de/x' } })).toThrow(/`paths.de` is a URL segment/);
+    expect(() => languages({ base: 'en', list: ['en', 'no'], codes: { no: ['en'] } })).toThrow(/`codes.no` has `en`, which is a language of `list`/);
+    expect(() => languages({ base: 'en', list: ['en', 'no', 'da'], codes: { no: ['nb'], da: ['nb'] } })).toThrow(/`codes.da` has `nb`, which `no` has too/);
+  });
+});

@@ -31,7 +31,7 @@ import { moduleEffect } from './prerender-build.js';
 import { hasCspMeta, movesToDirectory, pageFile, pagePaths, pageUrl, prefetchModule, speculationRules, withRulesHash } from './prefetch-build.js';
 import { type SwapPage, swapModule } from './swap-build.js';
 import { pageRoutes, rebaseHtml, redirectHtml, redirectsFile, relocateHtml, type OtherPoint, type PageEntry, type Route } from './page-urls.js';
-import { chain, chooserHtml, hreflangTags, manifestLocales, prefixPaths, type Locales } from './locales.js';
+import { chain, chooserHtml, hreflangTags, manifestLocales, prefixPaths, segmentOf, type Locales } from './locales.js';
 import { entryChooserPath, listPoints, pointFolder, pointOrigin, pointPrefix, translationKey, type AxisValue, type Point, type Points, type Variant } from './points.js';
 import { canonicalOf, fillPattern, noindex, sitemapFiles, sitemapOf, type SitemapOptions, type SitemapUrl } from './sitemap-build.js';
 import { familyLineHeights, familyZeroWidths } from './font-metrics.js';
@@ -799,7 +799,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       if (axes) return { source: f, rel: relOf(f), variants: (l: string | null) => variantsOf(f, l, withEntries)! };
       return { source: f, rel: relOf(f), entries: pg ? (l: string | null) => (l ? templatePages(f, l)!.entries : pg.entries) : null };
     }),
-    locales: locales?.list ?? null, base: base(),
+    locales: locales?.list ?? null, ...(locales?.paths ? { paths: locales.paths } : {}), base: base(),
     inPublic: (rel) => !!resolved?.publicDir && existsSync(resolve(resolved.publicDir, rel + '.html')),
   });
   /** the app's HTML entries: its pages, or with `localePrefix` each page in each language */
@@ -828,7 +828,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     const html = readFileSync(file, 'utf8');
     if (!declaresFor(html)) { templatesKept.set(k, null); return null; }
     const p = proj();
-    const out = compile(html, { file, root, dev, helpers: helpersOf(p.helpers), actions: p.actions, readFile: readVia(p), listFiles: p.listFiles, ...(dev ? {} : { globCache }), ...contentOpts(locale), lazy: p.lazy, openapi: p.openapi, apis: p.apis, prerender: true, ...(locale ? { locale: { name: locale, urls: null, base: resolved?.base ?? '/' } } : {}), ...(vals.length ? { axes: vals } : {}) });
+    const out = compile(html, { file, root, dev, helpers: helpersOf(p.helpers), actions: p.actions, readFile: readVia(p), listFiles: p.listFiles, ...(dev ? {} : { globCache }), ...contentOpts(locale), lazy: p.lazy, openapi: p.openapi, apis: p.apis, prerender: true, ...(locale ? { locale: { name: locale, urls: null, base: resolved?.base ?? '/', ...(locales?.paths ? { paths: locales.paths } : {}) } } : {}), ...(vals.length ? { axes: vals } : {}) });
     const fatal = out.diagnostics.filter((d) => d.severity === 'error' && /^SN34[01]$/.test(d.code));
     if (fatal.length) throw new Error(`sinter: ${fatal.map(formatDiagnostic).join('\n')}`);
     const t = { pages: out.pages ?? null, axes: out.axes ?? null };
@@ -883,7 +883,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     const by = new Map<string, Array<{ rel: string; patterns: string[]; locale: string | null; axes: AxisValue[] }>>();
     for (const x of all) {
       const v = virtual.get(resolve(root, x.rel)), locale = v?.locale ?? null, axes = v?.axes ?? [];
-      const folder = pointFolder(locale, axes);
+      const folder = pointFolder(locale, axes, locales?.paths);
       const bare = folder && x.rel.startsWith(`${folder}/`) ? x.rel.slice(folder.length + 1) : x.rel;
       const noExt = '/' + bare.replace(/\.html?$/, '');
       const keys = new Set(['/' + bare, noExt, `${noExt}/`]);
@@ -920,13 +920,13 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   const entryUrls = (v: { source: string; page?: { key: string }; axes?: AxisValue[] }): Record<string, string> | null => {
     const by = v.page ? translations.get(translationKey(v.source, v.axes ?? [], v.page.key)) : undefined;
     if (!by) return null;
-    return Object.fromEntries([...by].map(([l, path]) => [l, prefixed([path], pointPrefix(l, v.axes ?? []))[0]!]));
+    return Object.fromEntries([...by].map(([l, path]) => [l, prefixed([path], pointPrefix(l, v.axes ?? [], locales?.paths))[0]!]));
   };
   /** where an entry's language chooser is, at its unprefixed path: the base language's entry's, else the first's */
   const entryChooser = (v: { source: string; page?: { key: string }; axes?: AxisValue[] }): string | null => {
     const at = entryChooserPath(translations, translationKey(v.source, v.axes ?? [], v.page!.key), locales!.base);
     // under its axes' segments (`/acme/blog/hello`), the language's chooser
-    const segs = pointPrefix(null, v.axes ?? []);
+    const segs = pointPrefix(null, v.axes ?? [], locales?.paths);
     return at && segs ? prefixed([at], segs)[0]! : at;
   };
   /** dev: the entry a URL names on a `<html data-sn-for>` page (its path, under `base`), else its first */
@@ -935,7 +935,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     try { pages = (axes.length ? templateOf(file, locale, axes) : templateOf(file, locale))?.pages; } catch { return undefined; }
     if (!pages) return undefined;
     let path = decodeURIComponent(url.split(/[?#]/)[0]!).replace(/\/$/, '');
-    const at = pointPrefix(locale ?? null, axes);
+    const at = pointPrefix(locale ?? null, axes, locales?.paths);
     if (at) { const b = base().replace(/\/?$/, '/'); if (path.startsWith(`${b}${at}/`)) path = b.replace(/\/$/, '') + path.slice(b.length + at.length); }
     return pages.entries.find((e) => decodeURIComponent(e.path) === path) ?? pages.entries[0];
   };
@@ -961,7 +961,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     const b = resolved?.base?.startsWith('/') ? resolved.base : '/';
     const pats = describeSource(source).path, out: Record<string, string> = {};
     for (const l of locales!.list) {
-      const at = pointPrefix(l, axes);
+      const at = pointPrefix(l, axes, locales?.paths);
       const u = pageUrl(`${at}/${relOf(source)}`, b, prefixed(pats, at));
       if (u === null) return null;
       out[l] = u;
@@ -977,7 +977,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       if (kept) { described.set(file, kept); return kept; }
       try {
         // with the APIs and specs: what is requested ahead is the page's own request (its base, its configured shape)
-        const r = compile(readPage(file), { file: v?.source ?? file, root, dev, helpers: helpersOf(p.helpers), actions: p.actions, readFile: readVia(p), listFiles: p.listFiles, ...(dev ? {} : { globCache }), ...contentOpts(v?.locale), lazy: p.lazy, openapi: p.openapi, apis: p.apis, ...(v?.page ? { page: v.page } : {}), ...(v?.axes ? { axes: v.axes } : {}), describeOnly: true, ...(v?.locale ? { locale: { name: v.locale, urls: null, base: resolved?.base ?? '/' } } : {}) });
+        const r = compile(readPage(file), { file: v?.source ?? file, root, dev, helpers: helpersOf(p.helpers), actions: p.actions, readFile: readVia(p), listFiles: p.listFiles, ...(dev ? {} : { globCache }), ...contentOpts(v?.locale), lazy: p.lazy, openapi: p.openapi, apis: p.apis, ...(v?.page ? { page: v.page } : {}), ...(v?.axes ? { axes: v.axes } : {}), describeOnly: true, ...(v?.locale ? { locale: { name: v.locale, urls: null, base: resolved?.base ?? '/', ...(locales?.paths ? { paths: locales.paths } : {}) } } : {}) });
         described.set(file, { parts: r.prefetch, path: r.path, off: !!r.prefetchOff, keep: r.permanent ?? [], swapOff: !!r.swapOff, keptSource: r.keptSource ?? {}, keptBound: r.keptBound ?? [], effect: r.loadEffect ?? null });
         if (v?.page) entriesDescribed.set(`${v.source}\0${v.locale ?? ''}`, { page: v.page.path, d: described.get(file)! });
       } catch { described.set(file, { parts: null, path: [], off: false, keep: [], swapOff: true, keptSource: {}, keptBound: [], effect: 'it did not compile' }); }
@@ -1286,7 +1286,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       prerender: true,
       ...(p.changesRequests ? { changesRequests: true } : {}),
       ...(firstPaint ? { early: { module: p.early, src: earlySrc } } : {}),
-      ...(v?.locale ? { locale: { name: v.locale, urls: v.page ? entryUrls(v) : localeUrls(src, v.axes), base: resolved?.base ?? '/', list: locales!.list, pages: sitePaths() } }
+      ...(v?.locale ? { locale: { name: v.locale, urls: v.page ? entryUrls(v) : localeUrls(src, v.axes), base: resolved?.base ?? '/', list: locales!.list, pages: sitePaths(), ...(locales!.paths ? { paths: locales!.paths } : {}) } }
         : one ? { locale: { name: one, urls: null, base: resolved?.base ?? '/', prefix: false as const } } : {}),
       ...(options.origins?.length || apiOrigins(p.apis).length ? { origins: [...(options.origins ?? []), ...apiOrigins(p.apis)] } : {}),
       ...(firstPaint ? { observe: true } : {}),
@@ -1430,7 +1430,12 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       if (declared && !options.localePrefix) config.logger.warn(`sinter: the content module declares languages (${declared.list.join(', ')}), and \`localePrefix\` is off: no page is built per language. Turn it on, \`sinter({ localePrefix: true })\`.`);
       if (options.localePrefix) {
         if (!declared) throw new Error('sinter({ localePrefix }): the site has no languages. Export them from the content module (src/sinter.content.ts): `export const locales = languages({ base: \'en\', list: [\'en\', \'de\'] })` from `@tiaforge-ui/sinter/content`, or from an inlang project, `languages(({ root }) => inlangLocales(\'project.inlang\', root))` from `@tiaforge-ui/sinter/messages/content`');
-        locales = { base: declared.base, list: [...declared.list], ...(declared.fallbacks ? { fallbacks: Object.fromEntries(Object.entries(declared.fallbacks).map(([k, v]) => [k, [...v]])) } : {}) };
+        locales = {
+          base: declared.base, list: [...declared.list],
+          ...(declared.fallbacks ? { fallbacks: Object.fromEntries(Object.entries(declared.fallbacks).map(([k, v]) => [k, [...v]])) } : {}),
+          ...(declared.paths ? { paths: { ...declared.paths } } : {}),
+          ...(declared.codes ? { codes: Object.fromEntries(Object.entries(declared.codes).map(([k, v]) => [k, [...v]])) } : {}),
+        };
         // the build: each page once per language, as `<root>/<locale>/<page>` (resolved and loaded below)
         const b = config.build as { rollupOptions?: { input?: unknown }; rolldownOptions?: { input?: unknown } };
         sourceInput = b.rolldownOptions?.input ?? b.rollupOptions?.input;
@@ -2371,11 +2376,11 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   };
   /** `localePrefix`: where a source page's language chooser is written (its unprefixed URL's file), and that URL */
   const chooserFile = (rel: string, axes: AxisValue[] = []) => {
-    const at = pointPrefix(null, axes);
+    const at = pointPrefix(null, axes, locales?.paths);
     return at ? pageFile(`${at}/${rel}`, base(), prefixed(describeSource(resolve(root, rel)).path, at)) : pageFile(rel, base(), describeSource(resolve(root, rel)).path);
   };
   const chooserUrl = (source: string, axes: AxisValue[] = []) => {
-    const at = pointPrefix(null, axes);
+    const at = pointPrefix(null, axes, locales?.paths);
     return (at ? pageUrl(`${at}/${relOf(source)}`, base(), prefixed(describeSource(source).path, at)) : pageUrl(relOf(source), base(), describeSource(source).path)) ?? base();
   };
   /** a source page's language chooser (under its axes' segments): its languages' URLs, the base language's when nothing else decides */
@@ -2385,7 +2390,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     return chooserHtml({
       base: b, locales: locales!, urls, script,
       fallback: urls ? urls[locales!.base]! : b + locales!.base + '/',
-      hreflang: site && urls ? hreflangTags(site, urls, chooserUrl(source, axes)) : '',
+      hreflang: site && urls ? hreflangTags(site, urls, chooserUrl(source, axes), locales!.codes) : '',
     });
   };
   /**
@@ -2409,7 +2414,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       const full = Object.fromEntries(locales!.list.map((l) => [l, urls[l] ?? fallback]));
       const og = pointOrigin(v.axes ?? []), site = og?.origin ?? siteOrigin;
       const fileName = (og ? `${og.folder}/` : '') + decodeURIComponent(at.startsWith(b) ? at.slice(b.length) : at.replace(/^\//, '')) + '.html';
-      out.push({ fileName, source: chooserHtml({ base: b, locales: locales!, urls: full, script, fallback, hreflang: site ? hreflangTags(site, urls, at) : '' }), ifFree: true });
+      out.push({ fileName, source: chooserHtml({ base: b, locales: locales!, urls: full, script, fallback, hreflang: site ? hreflangTags(site, urls, at, locales!.codes) : '' }), ifFree: true });
     }
     // each other source page, at each variant of its axes (the base language's points list them)
     const variants = new Map<string, AxisValue[][]>();
@@ -2423,8 +2428,8 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       for (const axes of variants.get(src) ?? [[]]) {
         // under the point's folder without its language: an origin's folder first (`acme/about/index.html`, its `/about/`)
         const og = pointOrigin(axes), under = (f: string) => (og ? `${og.folder}/${f}` : f);
-        const at = pointPrefix(null, axes), file = under(chooserFile(rel, axes)), own = under(at ? `${at}/${rel}` : rel);
-        if (/(^|\/)(404|200)\.html?$/.test(rel)) { out.push({ fileName: own, copyOf: `${pointFolder(locales!.base, axes)}/${rel}` }); continue; }
+        const at = pointPrefix(null, axes, locales?.paths), file = under(chooserFile(rel, axes)), own = under(at ? `${at}/${rel}` : rel);
+        if (/(^|\/)(404|200)\.html?$/.test(rel)) { out.push({ fileName: own, copyOf: `${pointFolder(locales!.base, axes, locales?.paths)}/${rel}` }); continue; }
         out.push({ fileName: file, source: chooserFor(src, script, axes) });
         if (file !== own) out.push({ fileName: own, source: chooserFor(src, script, axes) });
       }
@@ -2493,7 +2498,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     }
     for (const s of sourceEntries()) {
       for (const axes of variants.get(s) ?? [[]]) {
-        const at = pointPrefix(null, axes), rel = at ? `${at}/${relOf(s)}` : relOf(s), pats = at ? prefixed(describeSource(s).path, at) : describeSource(s).path;
+        const at = pointPrefix(null, axes, locales?.paths), rel = at ? `${at}/${relOf(s)}` : relOf(s), pats = at ? prefixed(describeSource(s).path, at) : describeSource(s).path;
         if (path === b + rel || pagePaths(rel, b, pats).some((x) => matches(x, path))) return { chooser: s, axes };
       }
     }
@@ -2574,7 +2579,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
         if (own) { left.push(`${src} ${pattern} (its canonical link names ${own})`); continue; }
         if (!has) { left.push(`${src} ${pattern} (no values in sitemap.paths)`); continue; }
         for (const value of await valuesOf(pattern)) {
-          const locs = pages.map((x) => ({ locale: x.locale, loc: siteOrigin + fill(x.locale ? prefixed([pattern], x.locale)[0]! : pattern, value, src) }));
+          const locs = pages.map((x) => ({ locale: x.locale, loc: siteOrigin + fill(x.locale ? prefixed([pattern], segmentOf(x.locale, locales))[0]! : pattern, value, src) }));
           const a = alternates(locs, locales ? fill(pattern, value, src) : '');
           for (const l of locs) add({ loc: l.loc, ...(a ? { alternates: a } : {}) });
         }
@@ -2616,7 +2621,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
         const page = all.find((x) => x.rel === rel) ?? { rel, patterns: describe(ctx.filename).path };
         const v = virtual.get(ctx.filename), list = all.some((x) => x.rel === rel) ? all : [...all, page];
         const other = axisLists().length ? pointLinks(list)(rel, (why) => resolved?.logger.warn(`sinter: ${rel}: ${why}`)) : undefined;
-        return relocateHtml(html, page, list, base(), locales?.list, v ? pointPrefix(v.locale ?? null, v.axes ?? []) || null : undefined, other);
+        return relocateHtml(html, page, list, base(), locales?.list, v ? pointPrefix(v.locale ?? null, v.axes ?? [], locales?.paths) || null : undefined, other);
       },
     },
     /**
@@ -2643,10 +2648,10 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
         // a page in a language with a URL: its other languages' URLs, and its chooser's, for search engines
         const site = g?.origin ?? siteOrigin;
         const v = virtual.get(resolve(root, page.rel)), urls = v?.locale && site ? (v.page ? entryUrls(v) : localeUrls(v.source, v.axes)) : null;
-        if (v && urls) html = html.replace('</head>', `  ${hreflangTags(site!, urls, v.page ? entryChooser(v)! : chooserUrl(v.source, v.axes))}\n</head>`);
+        if (v && urls) html = html.replace('</head>', `  ${hreflangTags(site!, urls, v.page ? entryChooser(v)! : chooserUrl(v.source, v.axes), locales!.codes)}\n</head>`);
         // links stay in the page's point: its language and its axes' values (`/cart/` on acme's German page is theirs)
         const other = links?.(page.rel, (why) => this.error(`sinter: ${v ? relOf(v.source) : page.rel} (${page.rel}): ${why}`));
-        const source = relocateHtml(html, served, g ? linkedOf(page.rel) : all, base(), locales?.list, v ? pointPrefix(v.locale ?? null, v.axes ?? []) || null : undefined, other);
+        const source = relocateHtml(html, served, g ? linkedOf(page.rel) : all, base(), locales?.list, v ? pointPrefix(v.locale ?? null, v.axes ?? [], locales?.paths) || null : undefined, other);
         built.set(page.rel, source);
         if (to === page.rel) { a.source = source; continue; }
         if (bundle[to]) this.error(`sinter: ${page.rel} is written as ${to}, its URL ${pageUrl(served.rel, base(), page.patterns)}, and ${by.get(to) ?? to} is there too: rename one of them`);

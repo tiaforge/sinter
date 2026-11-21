@@ -160,7 +160,7 @@ public sealed class ManifestRoute(string from, string to, int status, string? fi
 
 /// <summary>The site's languages, each a prefix of its URLs (<c>/de/…</c>), and the one a visitor without a choice gets.</summary>
 [EditorBrowsable(EditorBrowsableState.Never)]
-public sealed class ManifestLocales(string @base, string[] list, string at)
+public sealed class ManifestLocales(string @base, string[] list, string at, IReadOnlyDictionary<string, string>? paths = null, IReadOnlyDictionary<string, string[]>? codes = null)
 {
     /// <summary>The language a visitor without a choice gets.</summary>
     public string Base { get; } = @base;
@@ -168,4 +168,10 @@ public sealed class ManifestLocales(string @base, string[] list, string at)
     public string[] List { get; } = list;
     /// <summary>Where the site's paths start (Vite's <c>base</c>): the language's prefix goes after it.</summary>
     public string At { get; } = at;
+    /// <summary>A language's URL segment where it is not its tag (<c>languages({ paths })</c>).</summary>
+    public IReadOnlyDictionary<string, string> Paths { get; } = paths ?? new Dictionary<string, string>();
+    /// <summary>More tags a visitor may send for a language (<c>languages({ codes })</c>).</summary>
+    public IReadOnlyDictionary<string, string[]> Codes { get; } = codes ?? new Dictionary<string, string[]>();
+    /// <summary>A language's URL segment: its <see cref="Paths"/> entry, else its tag.</summary>
+    public string Segment(string lang) => Paths.TryGetValue(lang, out var s) ? s : lang;
 }

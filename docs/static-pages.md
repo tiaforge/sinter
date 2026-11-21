@@ -535,6 +535,12 @@ export const locales = languages({ base: 'en', list: ['en', 'de'] });
 Each is a language tag, and the content module has one `languages()`. A site with [messages](messages.md) takes them
 from its inlang project: `languages(({ root }) => inlangLocales('project.inlang', root))`.
 
+**Segments and codes.** `languages({ …, paths: { 'de-AT': 'at' } })` serves a language under a segment of its own
+(`/at/about/`, written to `dist/at/`); the tag stays the language everywhere else (`<html lang>`, `$locale`,
+`localeUrl('de-AT')`, the `locale` cookie, `hreflang`, the messages' files). `codes: { no: ['nb', 'nn'] }` are more
+tags a visitor may send for a language: they choose it, and `hreflang` lists each at the language's URL. Each segment
+is one language's, and each code one language's, not another language's tag.
+
 **Fallback chains.** A message missing in a language is looked up along its chain, at build: its tag less its last
 subtag, one at a time, where the site has that language, then the base (`de-AT → de → en`). `languages({ fallbacks:
 { 'de-CH': ['de-AT', 'de'] } })` replaces a language's chain before the base. SN522 reports the keys that reach the

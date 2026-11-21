@@ -338,7 +338,8 @@ public sealed class SinterGenerator : IIncrementalGenerator
         b.AppendLine(" },");
         if (root.TryGetValue("locales", out var l) && l is Dictionary<string, object?> ld)
             b.Append("        new " + M + "ManifestLocales(").Append(Lit((string)ld["base"]!)).Append(", ").Append(Strs((List<object?>)ld["list"]!)).Append(", ")
-                .Append(Lit(ld.TryGetValue("at", out var a) && a is string s2 ? s2 : "/")).AppendLine("));");
+                .Append(Lit(ld.TryGetValue("at", out var a) && a is string s2 ? s2 : "/"))
+                .Append(LocalesExtra(ld)).AppendLine("));");
         else b.AppendLine("        null);");
         b.AppendLine("}");
         foreach (var _ in c.Containers.Items) b.AppendLine("}");
@@ -382,6 +383,16 @@ public sealed class SinterGenerator : IIncrementalGenerator
                 return $"new({Lit((string)kv[0]!)}, {Lit((string)kv[1]!)})";
             })) + " }"
             : "global::System.Array.Empty<global::System.Collections.Generic.KeyValuePair<string, string>>()";
+
+    /// <summary>The languages' segments and codes, when the manifest has them: the constructor's optional arguments.</summary>
+    private static string LocalesExtra(Dictionary<string, object?> ld)
+    {
+        var paths = ld.TryGetValue("paths", out var pa) && pa is Dictionary<string, object?> pd
+            ? "new global::System.Collections.Generic.Dictionary<string, string> { " + string.Join(", ", pd.Select(kv => "[" + Lit(kv.Key) + "] = " + Lit((string)kv.Value!))) + " }" : null;
+        var codes = ld.TryGetValue("codes", out var co) && co is Dictionary<string, object?> cd
+            ? "new global::System.Collections.Generic.Dictionary<string, string[]> { " + string.Join(", ", cd.Select(kv => "[" + Lit(kv.Key) + "] = " + Strs((List<object?>)kv.Value!))) + " }" : null;
+        return paths is null && codes is null ? "" : ", " + (paths ?? "null") + ", " + (codes ?? "null");
+    }
 
     private static string Strs(List<object?> l) => "new string[] { " + string.Join(", ", l.Select(x => Lit((string)x!))) + " }";
 

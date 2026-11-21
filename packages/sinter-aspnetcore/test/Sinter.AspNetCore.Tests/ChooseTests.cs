@@ -7,7 +7,7 @@ namespace Sinter.AspNetCore.Tests;
 
 public sealed class ChooseTests
 {
-    private sealed record Case(string Base, string[] List, string[] Tags, string Want);
+    private sealed record Case(string Base, string[] List, string[] Tags, string Want, Dictionary<string, string[]>? Codes);
     private sealed record Cases(Case[] cases);
 
     [Fact]
@@ -20,6 +20,6 @@ public sealed class ChooseTests
         var cases = JsonSerializer.Deserialize<Cases>(json, new JsonSerializerOptions { PropertyNameCaseInsensitive = true })!;
         Assert.NotEmpty(cases.cases);
         foreach (var c in cases.cases)
-            Assert.True(SinterMiddleware.ChooseLanguage(c.List, c.Base, c.Tags) == c.Want, $"{string.Join(",", c.List)} {string.Join(",", c.Tags)}: want {c.Want}");
+            Assert.True(SinterMiddleware.ChooseLanguage(c.List, c.Base, c.Tags, c.Codes) == c.Want, $"{string.Join(",", c.List)} {string.Join(",", c.Tags)}: want {c.Want}");
     }
 }

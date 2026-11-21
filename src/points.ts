@@ -29,14 +29,14 @@ export interface Points {
   translations: Map<string, Map<string, string>>;
 }
 
-/** the folder a point's files are under: its language's, then each axis's segment (`de/acme`), or '' */
-export const pointPrefix = (locale: string | null, axes: readonly AxisValue[]) => [locale, ...axes.map((a) => a.segment)].filter(Boolean).join('/');
+/** the folder a point's files are under: its language's segment (`paths`, else its tag), then each axis's (`de/acme`), or '' */
+export const pointPrefix = (locale: string | null, axes: readonly AxisValue[], paths?: Record<string, string>) => [locale ? paths?.[locale] ?? locale : null, ...axes.map((a) => a.segment)].filter(Boolean).join('/');
 
 /** which entries are translations of each other: one source, the same axes' values, the same key */
 export const translationKey = (source: string, axes: readonly AxisValue[], key: string) => [source, ...axes.map((a) => a.key), key].join('\0');
 
 /** the folder a point's files are written under: its origins' folders, then `pointPrefix` (`acme/de`) */
-export const pointFolder = (locale: string | null, axes: readonly AxisValue[]) => [...axes.flatMap((a) => (a.folder ? [a.folder] : [])), pointPrefix(locale, axes)].filter(Boolean).join('/');
+export const pointFolder = (locale: string | null, axes: readonly AxisValue[], paths?: Record<string, string>) => [...axes.flatMap((a) => (a.folder ? [a.folder] : [])), pointPrefix(locale, axes, paths)].filter(Boolean).join('/');
 
 /** the origin a point is served from, when one of its axes' values has its own (`https://acme-shop.com`) */
 export const pointOrigin = (axes: readonly AxisValue[]): { folder: string; origin: string } | null => {
@@ -45,8 +45,8 @@ export const pointOrigin = (axes: readonly AxisValue[]): { folder: string; origi
 };
 
 /** where a point is written: under its folder (`pointFolder`), at its entry's path (from the base) or its source's file */
-export function pointRel(sourceRel: string, locale: string | null, entryRel: string | null, axes: readonly AxisValue[] = []): string {
-  const at = pointFolder(locale, axes);
+export function pointRel(sourceRel: string, locale: string | null, entryRel: string | null, axes: readonly AxisValue[] = [], paths?: Record<string, string>): string {
+  const at = pointFolder(locale, axes, paths);
   return (at ? `${at}/` : '') + (entryRel !== null ? `${entryRel}.html` : sourceRel);
 }
 
@@ -59,6 +59,8 @@ export function pointRel(sourceRel: string, locale: string | null, entryRel: str
 export function listPoints(o: {
   sources: Array<{ source: string; rel: string; entries?: ((locale: string | null) => Entry[]) | null; variants?: ((locale: string | null) => Variant[]) | null }>;
   locales: readonly string[] | null;
+  /** the languages' segments where they are not their tags (`languages({ paths })`) */
+  paths?: Record<string, string>;
   /** the site's base, for an entry's path relative to it */
   base: string;
   inPublic?: (rel: string) => boolean;
@@ -73,16 +75,16 @@ export function listPoints(o: {
   const taken = new Map<string, string>();
   for (const { s, by } of all) for (const [l, vs] of by) for (const v of vs) {
     if (v.entries) continue;
-    const rel = pointRel(s.rel, l, null, v.axes);
+    const rel = pointRel(s.rel, l, null, v.axes, o.paths);
     taken.set(rel.replace(/(^|\/)index\.html$/, '$1').replace(/\.html$/, ''), rel);
   }
   const points: Point[] = [], translations = new Map<string, Map<string, string>>();
   for (const { s, by } of all) for (const [l, vs] of by) for (const v of vs) {
-    if (!v.entries) { points.push({ source: s.source, locale: l, axes: v.axes, entry: null, rel: pointRel(s.rel, l, null, v.axes) }); continue; }
+    if (!v.entries) { points.push({ source: s.source, locale: l, axes: v.axes, entry: null, rel: pointRel(s.rel, l, null, v.axes, o.paths) }); continue; }
     // each entry at its path under the point's folder; their keys pair the translations
     for (const e of v.entries) {
-      const at = pointRel('', l, relOfPath(e.path), v.axes).replace(/\.html$/, '');
-      const shown = `${v.axes.map((a) => (a.folder ? `${a.origin ?? a.folder} ` : '')).join('')}${l ? `/${l}` : ''}${v.axes.map((a) => (a.segment ? `/${a.segment}` : '')).join('')}${e.path}`;
+      const at = pointRel('', l, relOfPath(e.path), v.axes, o.paths).replace(/\.html$/, '');
+      const shown = `${v.axes.map((a) => (a.folder ? `${a.origin ?? a.folder} ` : '')).join('')}${l ? `/${o.paths?.[l] ?? l}` : ''}${v.axes.map((a) => (a.segment ? `/${a.segment}` : '')).join('')}${e.path}`;
       const other = taken.get(at) ?? taken.get(at + '/');
       if (other) throw new Error(`sinter: ${s.rel}: the entry at \`${shown}\` would be written where \`${other}\` is (data-sn-for on <html>)`);
       if (o.inPublic?.(at)) throw new Error(`sinter: ${s.rel}: the entry at \`${e.path}\` would be written where \`public/${at}.html\` is (data-sn-for on <html>)`);

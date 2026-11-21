@@ -55,7 +55,13 @@ export interface Collection<T = unknown> {
 }
 
 /** The site's languages: `base`, where a visitor without a choice lands, and every language in `list`. */
-export interface Languages { readonly base: string; readonly list: readonly string[]; readonly fallbacks?: Readonly<Record<string, readonly string[]>> }
+export interface Languages {
+  readonly base: string; readonly list: readonly string[]; readonly fallbacks?: Readonly<Record<string, readonly string[]>>;
+  /** a language's URL segment where it is not its tag (`{ 'de-AT': 'at' }`) */
+  readonly paths?: Readonly<Record<string, string>>;
+  /** more tags a visitor may send for a language (`{ no: ['nb', 'nn'] }`) */
+  readonly codes?: Readonly<Record<string, readonly string[]>>;
+}
 
 /** one of the site's languages, as `languages()` lists them: its BCP 47 tag */
 export interface Language { tag: string }
@@ -88,7 +94,13 @@ export function languages(o: LanguagesDef | ((ctx: { root: string }) => Language
 }
 
 /** what `languages()` takes */
-export interface LanguagesDef { base: string; list: readonly string[]; fallbacks?: Record<string, readonly string[]> }
+export interface LanguagesDef {
+  base: string; list: readonly string[]; fallbacks?: Record<string, readonly string[]>;
+  /** a language's URL segment and output folder where it is not its tag: `{ 'de-AT': 'at' }` serves `de-AT` at `/at/` */
+  paths?: Record<string, string>;
+  /** more tags a visitor may send for a language, which choose it and which `hreflang` lists: `{ no: ['nb', 'nn'] }` */
+  codes?: Record<string, readonly string[]>;
+}
 
 /** `languages()`'s list, checked (its base among them, each a tag, `fallbacks` naming them without a cycle) */
 export function checkLanguages(o: LanguagesDef): Languages {
@@ -108,7 +120,39 @@ export function checkLanguages(o: LanguagesDef): Languages {
       for (const x of v) if (fb[x]?.includes(k)) throw new Error(`languages(): \`fallbacks.${k}\` and \`fallbacks.${x}\` name each other: a chain has no cycle`);
     }
   }
-  return { base: o.base, list, ...(fb ? { fallbacks: Object.fromEntries(Object.entries(fb).map(([k, v]) => [k, [...v]])) } : {}) };
+  // `paths`: a language's segment, a URL path segment; one per language, none another language's
+  const paths = o.paths;
+  if (paths !== undefined) {
+    if (!paths || typeof paths !== 'object' || Array.isArray(paths)) throw new Error("languages(): `paths` maps a language to its URL segment, e.g. `{ 'de-AT': 'at' }`");
+    const seg = (l: string) => paths[l] ?? l;
+    for (const [k, v] of Object.entries(paths)) {
+      if (!list.includes(k)) throw new Error(`languages(): \`paths\` names \`${k}\`, which is not one of \`list\` (${list.join(', ')})`);
+      if (typeof v !== 'string' || !/^[a-z0-9][a-z0-9-]*$/i.test(v)) throw new Error(`languages(): \`paths.${k}\` is a URL segment of letters, digits and \`-\`, e.g. \`'at'\``);
+      const other = list.find((l) => l !== k && seg(l).toLowerCase() === v.toLowerCase());
+      if (other) throw new Error(`languages(): \`paths.${k}\` is \`${v}\`, which is \`${other}\`'s segment too: each language has its own`);
+    }
+  }
+  // `codes`: more tags for a language, each a tag no other language has
+  const codes = o.codes;
+  if (codes !== undefined) {
+    if (!codes || typeof codes !== 'object' || Array.isArray(codes)) throw new Error("languages(): `codes` maps a language to more tags a visitor may send for it, e.g. `{ no: ['nb', 'nn'] }`");
+    const seen = new Map<string, string>(list.map((l) => [l.toLowerCase(), l]));
+    for (const [k, v] of Object.entries(codes)) {
+      if (!list.includes(k)) throw new Error(`languages(): \`codes\` names \`${k}\`, which is not one of \`list\` (${list.join(', ')})`);
+      if (!Array.isArray(v) || v.some((x) => typeof x !== 'string' || !LANGUAGE_TAG.test(x))) throw new Error(`languages(): \`codes.${k}\` is a list of language tags, e.g. \`['nb', 'nn']\``);
+      for (const x of v) {
+        const at = seen.get(x.toLowerCase());
+        if (at) throw new Error(`languages(): \`codes.${k}\` has \`${x}\`, which ${at === x ? 'is a language of `list`' : `\`${at}\` has too`}: a tag chooses one language`);
+        seen.set(x.toLowerCase(), k);
+      }
+    }
+  }
+  return {
+    base: o.base, list,
+    ...(fb ? { fallbacks: Object.fromEntries(Object.entries(fb).map(([k, v]) => [k, [...v]])) } : {}),
+    ...(paths && Object.keys(paths).length ? { paths: { ...paths } } : {}),
+    ...(codes && Object.keys(codes).length ? { codes: Object.fromEntries(Object.entries(codes).map(([k, v]) => [k, [...v]])) } : {}),
+  };
 }
 
 /**
