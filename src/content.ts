@@ -23,6 +23,8 @@ export interface CollectionContext {
   env: Record<string, string>;
   /** `'build'` in `vite build`, `'serve'` in `vite dev` */
   command: 'build' | 'serve';
+  /** the project's root, absolute (a loader that reads its own files: `inlang()`) */
+  root: string;
   /** with `perLocale: true` (and `localePrefix`): the language this run loads for; else undefined */
   locale: string | undefined;
   /**

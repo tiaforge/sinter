@@ -1,0 +1,48 @@
+// @tiaforge-ui/sinter/messages/format: the formatter of the messages' content namespace (docs/proposals/messages.md §2).
+// A pure function of a message's compact form (what `inlang()` in ./content.ts parses the inlang files into), its
+// arguments and the page's language, so the build folds a call over constants and the browser runs one over data.
+
+/** a pattern: text, and placeholders by input name */
+export type Part = string | { v: string };
+
+/** a selector: an input's value, through `plural` (`Intl.PluralRules`, `ordinal` for `type=ordinal`) or as it is */
+export interface Selector { n: string; f: 'plural' | 'ordinal' | null }
+
+/** a message: a pattern (`p`), or selectors and their variants, each its keys (a value or `*`) and its pattern */
+export type Message = { p: Part[] } | { s: Selector[]; v: Array<[string[], Part[]]> };
+
+const fill = (p: Part[], args: Record<string, unknown> | undefined) =>
+  p.map((x) => (typeof x === 'string' ? x : args && x.v in args ? String(args[x.v]) : `{${x.v}}`)).join('');
+
+/**
+ * The message in `locale` with `args`. A variant is chosen as MessageFormat 2 chooses: each selector gives a value
+ * (an input's string; for a plural, its exact number and its category in the language); a variant matches when each of
+ * its keys is that value or `*`; of the matches, the best at the first selector where they differ wins (an exact number
+ * over a category over `*`).
+ */
+export function format(entry: unknown, args?: Record<string, unknown>, locale?: string | null): string {
+  const m = ((entry as { m?: Message } | null)?.m ?? entry) as Message;
+  if ('p' in m) return fill(m.p, args);
+  const values = m.s.map((s) => {
+    const x = args?.[s.n];
+    if (!s.f) return { exact: String(x), category: null as string | null };
+    const n = Number(x);
+    const rules = new Intl.PluralRules(locale ?? undefined, { type: s.f === 'ordinal' ? 'ordinal' : 'cardinal' });
+    return { exact: String(n), category: Number.isFinite(n) ? rules.select(n) : null };
+  });
+  let best: { score: number[]; p: Part[] } | null = null;
+  for (const [keys, p] of m.v) {
+    const score: number[] = [];
+    let ok = true;
+    keys.forEach((k, i) => {
+      const v = values[i]!;
+      if (k === '*') score.push(0);
+      else if (k === v.exact) score.push(2);
+      else if (k === v.category) score.push(1);
+      else ok = false;
+    });
+    if (!ok) continue;
+    if (!best || score.some((x, i) => x !== best!.score[i] && x > best!.score[i]! && score.slice(0, i).every((y, j) => y === best!.score[j]))) best = { score, p };
+  }
+  return best ? fill(best.p, args) : '';
+}

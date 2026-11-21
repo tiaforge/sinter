@@ -30,3 +30,41 @@ See [docs/recipes/messages.html](recipes/messages.html).
 An app without an inlang project pays nothing for this.
 
 To switch the language in place without prefixed URLs, use another i18n library: export its message functions as a namespace from the helpers module (`export * as m from './paraglide/messages.js'`) and connect its locale with `configure({ locale: { get, set } })`; `$locale = 'de'` then sets it.
+
+## Messages as a content namespace
+
+The same inlang files can be read by `inlang()`, a [content namespace](resources.md#content-namespaces) loader that
+ships in this package, `@tiaforge-ui/sinter/messages/content`. It reads the inlang message format 4 with what the
+built-in messages refuse:
+
+```ts
+// src/sinter.content.ts
+import { languages } from '@tiaforge-ui/sinter/content';
+import { inlang, inlangLocales } from '@tiaforge-ui/sinter/messages/content';
+export const locales = languages(inlangLocales('project.inlang'));
+export const messages = inlang();          // the namespace `m`
+```
+
+```js
+// vite.config.js: one name calls one namespace, so the built-in messages are off
+sinter({ localePrefix: true, messages: false })
+```
+
+```html
+<h1 data-sn-text="m.inbox.title()"></h1>
+<p data-sn-text="m.inbox.unread({ count: inbox.unread })"></p>
+```
+
+- **Nested keys** (`{ "inbox": { "title": "Inbox" } }`) are dotted ids, called as `m.inbox.title()`.
+- **Complex messages**: `[{ declarations, selectors, match }]` with `input x`, `local n = x: plural` (with
+  `type=ordinal`), `local y = x` for an exact value, selectors on inputs, `*` and several selectors. Plurals use the
+  page's language's categories (`Intl.PluralRules`); an exact number wins over the category that also selects it.
+- **Escapes**: `\{`, `\}`, `\\`. **Several files**: `pathPattern` may be a list, merged in order.
+- **Fallback chains**: a message missing in `de-AT` is `de`'s, then the base language's.
+- A message over constants is written into the HTML; one over data is compiled into the page with that message alone
+  and the formatter (`@tiaforge-ui/sinter/messages/format`).
+- Not yet: `m` in app modules, generated types (`sinter check` types `m` as `any`), formatted placeholders
+  (`{x: number}`) and markup in messages, which fail the build at their file and message.
+
+Another library works the same way: register your own namespace with your own formatter, and nothing of this module is
+in your build.

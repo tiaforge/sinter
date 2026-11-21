@@ -93,6 +93,7 @@ export async function loadContent(o: ContentOptions): Promise<LoadedContent> {
         },
         env: o.env,
         command: o.command,
+        root: o.root,
         locale: at,
         value: () => undefined,
       };
@@ -138,7 +139,7 @@ export async function loadContent(o: ContentOptions): Promise<LoadedContent> {
           const ctx: CollectionContext = {
             files: (async (glob: string, opts?: { drafts?: string }) => readGlob(o, glob, opts?.drafts ?? null, files)) as CollectionContext['files'],
             get: (other) => run(other as Collection, [name], undefined) as never,
-            env: o.env, command: o.command,
+            env: o.env, command: o.command, root: o.root,
             // a `languages()` list among `per`: its entry's tag is the run's language
             locale: lists.map((l, j) => (l.c.languages ? (at[j] as { tag: string }).tag : undefined)).find(Boolean),
             value: ((x: Collection) => { const j = lists.findIndex((l) => l.c === x); return j < 0 ? undefined : at[j]; }) as CollectionContext['value'],

@@ -245,6 +245,11 @@ page module and each page (bytes, gzip), in `scripts/size.mjs` with budgets.
    (simple and selecting, apart), the types, the diagnostics. Tests per construct, and per language for plurals:
    English (`one`, `other`), Polish (`one`, `few`, `many`), Arabic (six categories), French `one` with an exact
    `0`, English ordinals. New recipes for a plural, for nested keys and for a tenant's texts.
+   *Done 2026-11-21* as `src/messages/content.ts` (`inlang()`, `inlangLocales()`, `flatten`, `parseComplex`) and
+   `src/messages/format.ts`, on content namespaces (with nested ids and chains in the core), tested per construct
+   and per language (`test/messages-format.test.ts`) and in a build (`test/vite/namespaces.test.ts`). Not yet: the
+   generated types, `m` in app modules, per-tenant files (`tenantFiles`); the built-in `sinter({ messages })` stays
+   until step 4 moves it onto `inlang()`.
 4. **The switch.** `sinter({ messages })` is deprecated (a warning, as `openapi` is), and `npx sinter migrate`
    adds the content module export. The starter (`packages/create`) and the examples move. The option is removed
    in the release after (Breaking in the changelog), and with it the last name of the module in the core.

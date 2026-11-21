@@ -67,3 +67,36 @@ test('sinter check and the editor: the namespace\'s ids from the build\'s snapsh
   expect(compile('<p data-sn-text="legal.terms({ n: 1 })"></p>', opts).diagnostics.filter((d) => d.severity === 'error')).toEqual([]);
   expect(compile('<p data-sn-text="legal.term()"></p>', opts).diagnostics.map((d) => d.code)).toContain('SN206');
 });
+
+test('the messages as a namespace: inlang() with nested keys, plurals and the chain, through the messages formatter', async () => {
+  const app = mkdtempSync(join(tmpdir(), 'sinter-inlang-'));
+  try {
+    const f: Record<string, string> = {
+      'project.inlang/settings.json': JSON.stringify({ baseLocale: 'en', locales: ['en', 'de', 'de-AT'], 'plugin.inlang.messageFormat': { pathPattern: './messages/{locale}.json' } }),
+      'messages/en.json': JSON.stringify({ inbox: { title: 'Inbox', unread: [{ declarations: ['input count', 'local n = count: plural'], selectors: ['n'], match: { 'n=one': '{count} unread message', 'n=*': '{count} unread messages' } }] } }),
+      'messages/de.json': JSON.stringify({ inbox: { title: 'Posteingang', unread: [{ declarations: ['input count', 'local n = count: plural'], selectors: ['n'], match: { 'n=one': '{count} ungelesene Nachricht', 'n=*': '{count} ungelesene Nachrichten' } }] } }),
+      'messages/de-AT.json': JSON.stringify({ inbox: { title: 'Eingang' } }),
+      'src/sinter.content.ts': `import { languages } from '@tiaforge-ui/sinter/content';
+import { inlang, inlangLocales } from '@tiaforge-ui/sinter/messages/content';
+export const locales = languages(inlangLocales('project.inlang', ${JSON.stringify(app)}));
+export const messages = inlang();
+`,
+      'index.html': `<!doctype html><html lang="en"><head><title>x</title></head><body><sn-resource name="inbox" src="/api/inbox"></sn-resource>
+<h1 data-sn-text="m.inbox.title()"></h1><p data-sn-text="m.inbox.unread({ count: 1 })"></p><b data-sn-text="m.inbox.unread({ count: inbox.n })"></b></body></html>`,
+    };
+    for (const [k, v] of Object.entries(f)) { mkdirSync(dirname(join(app, k)), { recursive: true }); writeFileSync(join(app, k), v); }
+    const dist = join(app, 'dist');
+    await build({ root: app, logLevel: 'silent', resolve: { alias }, plugins: [sinter({ localePrefix: true, messages: false, typecheck: false })], build: { outDir: dist, emptyOutDir: true, rollupOptions: { input: [join(app, 'index.html')] } } });
+    const page = (l: string) => readFileSync(join(dist, l, 'index.html'), 'utf8');
+    expect(page('en')).toMatch(/<h1>Inbox<\/h1><p>1 unread message<\/p>/);
+    expect(page('de')).toMatch(/<h1>Posteingang<\/h1><p>1 ungelesene Nachricht<\/p>/);
+    // de-AT has its own title, and de's plural (its chain)
+    expect(page('de-AT')).toMatch(/<h1>Eingang<\/h1><p>1 ungelesene Nachricht<\/p>/);
+    // the one over data: compiled with the messages formatter and its message alone
+    const js = readdirSync(join(dist, 'assets')).filter((x) => x.endsWith('.js')).map((x) => readFileSync(join(dist, 'assets', x), 'utf8')).join('\n');
+    expect(js).toContain('ungelesene Nachrichten');
+    expect(js).not.toContain('Posteingang');
+  } finally {
+    rmSync(app, { recursive: true, force: true });
+  }
+}, 120_000);

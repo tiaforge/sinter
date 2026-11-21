@@ -1090,11 +1090,14 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   const contentNsAt = (locale?: string): NonNullable<Parameters<typeof compile>[1]['contentNs']> => {
     const out: NonNullable<Parameters<typeof compile>[1]['contentNs']> = {};
     if (!content) return out;
-    const lists = collectionsIn(content, locale);
+    // a namespace loaded per language: an entry missing in the page's is its chain's (`de-AT`, then `de`, then the base)
+    const order = locale && locales ? chain(locale, locales).reverse() : [locale];
     for (const [exp, d] of content.namespaces) {
-      const l = lists.get(exp);
       const entries: Record<string, unknown> = {};
-      for (const e of (l?.value ?? []) as Array<Record<string, unknown>>) entries[String(e[l!.key])] = e;
+      for (const x of order) {
+        const l = collectionsIn(content, x ?? undefined).get(exp);
+        for (const e of (l?.value ?? []) as Array<Record<string, unknown>>) entries[String(e[l!.key])] = e;
+      }
       out[d.name] = { entries, format: formatSpec(d.format), ...(formatters.get(d.format) ? { formatFn: formatters.get(d.format)! } : {}) };
     }
     return out;
