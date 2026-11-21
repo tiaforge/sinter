@@ -49,14 +49,15 @@ See `docs/recipes/pagination.html`.
 | `jump: true` | Keyset mode: page numbers too, sent as the items to skip (`params.offset`). See [Jumping to a page number](#jumping-to-a-page-number). |
 | `params` | The server's parameter names: `{ size: 'limit', page: 'page', offset: 'offset', direction: 'direction' }` are the defaults. They only name the parameters: whether the items to skip are sent is `numbered: 'offset'` or `jump: true`, on the list. |
 | `directions` | Keyset and append: the values the server gives the directions, such as `{first: 'forward', prev: 'backward', next: 'forward'}`. Unlisted directions are sent by name. `first` and `next` may share a value, since `first` sends no cursor. |
+| `more` | The path in the response that says whether there are more items in the direction asked for, such as `'has_more'` or `'meta.has_more'`. See [Whether there are more](#whether-there-are-more). |
 
 ### The server's names, once per API
 
-`params` and `directions` are the same for every list of one API. Give them once, in its config, and
-on a resource only where it differs:
+`params`, `directions` and `more` are the same for every list of one API. Give them once, in its
+config, and on a resource only where it differs:
 
 ```js
-sinter({ apis: { main: { openapi: 'openapi.yml', paginate: { params: { size: 'per_page', offset: 'skip' }, directions: { prev: 'backward' } } } } })
+sinter({ apis: { main: { openapi: 'openapi.yml', paginate: { params: { size: 'per_page', offset: 'skip' }, directions: { prev: 'backward' }, more: 'has_more' } } } })
 ```
 
 ```html
@@ -64,6 +65,32 @@ sinter({ apis: { main: { openapi: 'openapi.yml', paginate: { params: { size: 'pe
 ```
 
 `total`, `select` and `key` work as on any [resource](resources.md).
+
+## Whether there are more
+
+Without a `total`, sinter guesses: a page that came back full may have more after it. When the
+list ends on a full page (exactly 50 items at size 50), `hasNext` is true and `next` loads an empty
+page. A server that knows can say so, and `more` names where:
+
+```html
+<sn-resource name="messages" src="/api/messages" select="messages" key="id"
+  paginate="{ keyset: { before: $item.id }, size: 50, more: 'has_more' }"></sn-resource>
+```
+
+```json
+{ "messages": [ … ], "has_more": false }
+```
+
+- The value means "more in the direction asked for": `hasNext` after `first`, `next` and a page
+  number, `hasPrev` after `prev` and `last`. A server usually gets it by reading one row past the
+  page (`LIMIT size + 1`).
+- Any value works: a truthy one is more, so a next cursor (`more: 'next_cursor'`) counts while it is
+  set, and `null` or `''` is the end.
+- It replaces the guess from a full page.
+- Data shown from `cache` or prefetched by the previous page has no `more`: it is guessed until the
+  revalidation answers.
+- The path is read from the whole response, like `total`, not from what `select` picks. With an
+  OpenAPI spec it is checked against the response schema (SN308).
 
 ## Server requirements for keyset
 
@@ -140,7 +167,7 @@ See `docs/recipes/url-pagination.html`.
 | `loading`, `error` | As for any [resource](resources.md). |
 
 In keyset mode, `hasNext` is true when the page came back full, and `hasPrev` is false after `first`
-or when a `prev` page comes back short. `from` and `to` are `null` after `last` without a `total`.
+or when a `prev` page comes back short; with `more`, both are what the server says. `from` and `to` are `null` after `last` without a `total`.
 `page` is `ceil(to / size)`: exact after a jump, approximate after cursor steps on a list that
 gained items meanwhile.
 

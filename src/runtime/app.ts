@@ -99,7 +99,8 @@ export interface Pager {
   current(): unknown;
   params(move: unknown): Record<string, string> | null;
   appends(move: unknown): boolean;
-  received(items: unknown[], total: number | null, move: unknown): void;
+  /** `more`: the response's `more` path (paginate), read as a boolean; null without one, and for data from a cache */
+  received(items: unknown[], total: number | null, move: unknown, more: boolean | null): void;
 }
 
 /**
@@ -1822,18 +1823,18 @@ export function mount(root: Document | Element, o: MountOptions): App {
     };
     const loading = (on: boolean) => { if (r.meta.loading != on) { r.meta.loading = on; r.onDirty('meta'); } };
     const pick = (path: string | null | undefined, body: unknown): any => (path ? path.split('.').reduce((x: any, k) => x?.[k], body) : body);
-    const fill = (items: any, total: number | null, m: unknown) => {
+    const fill = (items: any, total: number | null, m: unknown, more: boolean | null = null) => {
       l.pager?.appends(m) && r.isCollection ? items.forEach(r.upsert) : r.replace(items);
       r.setTotal(total);
-      l.pager?.received(items, total, m);
+      l.pager?.received(items, total, m, more);
     };
     /** stores a response; `req` is the URL it came from, for the page-load cache */
     const store = (body: unknown, req: string, m = l.pager?.current()) => {
       let items = pick(def.select, body);
       if (r.isCollection && !Array.isArray(items)) { warn(12, def.name, def.select ?? '(response)'); items = []; }
       if (Array.isArray(items)) items = items.map(clean);
-      const t = def.total ? pick(def.total, body) : null, total = t == null ? null : +t;
-      fill(items, total, m);
+      const t = def.total ? pick(def.total, body) : null, total = t == null ? null : +t, more = def.paginate?.more;
+      fill(items, total, m, more ? !!pick(more, body) : null);
       app.ext.cache?.loaded(def, r, req, items, total, !!l.pager?.appends(m));
       return items;
     };

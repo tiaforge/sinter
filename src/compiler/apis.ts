@@ -73,11 +73,18 @@ export interface TokenDef {
   required: string[] | null;
 }
 
-/** A server's pagination parameters (docs/pagination.md): the names it reads, and the values it gives the directions. */
+/**
+ * A server's pagination parameters (docs/pagination.md): the names it reads, the values it gives the directions, and
+ * the path in its response that says whether there are more items in the direction asked for.
+ */
 export interface PaginateWire {
   params?: { size?: string; page?: string; offset?: string; direction?: string };
   directions?: Partial<Record<'first' | 'prev' | 'next' | 'last', string>>;
+  more?: string;
 }
+
+/** A response path, as `select` and `total` take them: dot-separated field names (`has_more`, `meta.has_more`). */
+export const RESPONSE_PATH = /^[^.\s]+(\.[^.\s]+)*$/;
 
 /** One API, resolved. */
 export interface ApiDef {
@@ -115,7 +122,11 @@ function paginateWire(raw: unknown, where: string, fail: (m: string) => void): P
     }
     (out as Record<string, unknown>)[k] = { ...v };
   }
-  for (const k of Object.keys(raw)) if (k !== 'params' && k !== 'directions') { fail(`\`${where}.${k}\` is not a setting; it takes \`params\` and \`directions\``); return undefined; }
+  if (raw.more !== undefined) {
+    if (typeof raw.more !== 'string' || !RESPONSE_PATH.test(raw.more)) { fail(`\`${where}.more\` is a path in the response, such as \`'has_more'\``); return undefined; }
+    out.more = raw.more;
+  }
+  for (const k of Object.keys(raw)) if (k !== 'params' && k !== 'directions' && k !== 'more') { fail(`\`${where}.${k}\` is not a setting; it takes \`params\`, \`directions\` and \`more\``); return undefined; }
   return out;
 }
 
