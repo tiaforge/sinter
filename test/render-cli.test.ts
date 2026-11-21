@@ -1,6 +1,8 @@
 // `sinter render`: the testing module's render() on the command line, over a project on disk
 // (test/fixtures/render-app: a config module with request middleware, a helper, a component).
-import { resolve } from 'node:path';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
 import { expect, test } from 'vitest';
 import { failed, formatReport, lineDiff, parseRenderArgs, pathMatches, renderPage, splitAssignment, type RenderArgs } from '../src/render-cli.js';
 
@@ -152,6 +154,27 @@ test('a let that waits for a helper module that reaches a lazy package: rendered
     const b = parseRenderArgs(['bad.html'], dir);
     if (typeof b === 'string') throw new Error(b);
     await expect(renderPage(b as RenderArgs)).rejects.toThrow(/SN324/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}, 30_000);
+
+test('the app\'s modules load with its Vite config: a helper imports through one of its aliases', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'sinter-render-alias-'));
+  try {
+    const files: Record<string, string> = {
+      'package.json': '{"type":"module"}',
+      'vite.config.js': `import sinter from ${JSON.stringify(resolve(__dirname, '../src/vite.ts'))};\nexport default { resolve: { alias: { '~text': ${JSON.stringify(join(dir, 'src/lib'))} } }, plugins: [sinter()] };\n`,
+      'src/lib/shout.js': 'export const shout = (s) => s.toUpperCase() + \'!\';\n',
+      'src/sinter.helpers.js': "export { shout } from '~text/shout.js';\n",
+      'index.html': '<!doctype html><html><head><title>t</title></head><body><p data-sn-state="{ s: \'hi\' }" id="p" data-sn-text="shout(s)"></p></body></html>\n',
+    };
+    for (const [f, text] of Object.entries(files)) { mkdirSync(join(dir, f, '..'), { recursive: true }); writeFileSync(join(dir, f), text); }
+    const a = parseRenderArgs(['index.html'], dir);
+    if (typeof a === 'string') throw new Error(a);
+    const r = await renderPage(a as RenderArgs);
+    expect(failed(r)).toBe(false);
+    expect(r.rendered).toContain('<p id="p">HI!</p>');
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

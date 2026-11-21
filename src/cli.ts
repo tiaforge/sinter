@@ -6,8 +6,8 @@ import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
 import { check } from './check/index.js';
 import { applyStrict, compile, formatDiagnostic, type CheckUnit, type Diagnostic } from './compiler/index.js';
-import { project, staticPages, strictEnv, viteProject, type ProjectOptions } from './project.js';
-import { lazyDiagnostics, lazyHelpers, resolveFile } from './lazy-build.js';
+import { checkOptionsOf, compileOptionsOf, lazyReachOf, project, staticPages, strictEnv, viteProject, type ProjectOptions } from './project.js';
+import { lazyDiagnostics, resolveFile } from './lazy-build.js';
 import { loadHelpers, unloadedMessage } from './helpers-node.js';
 import { checkLocale } from './locales-build.js';
 import { readSnapshot } from './content-node.js';
@@ -66,12 +66,11 @@ async function main(argv: string[]): Promise<number> {
   if (p.contentFile && !snap) console.error('sinter check: the content module\'s collections have no snapshot yet (vite build or vite dev writes one): what pages read of them is typed, not checked against their values');
   else if (snap?.stale) console.error('sinter check: the content module changed since the collections\' snapshot (vite build or vite dev writes a new one): their values may be out of date');
   const contentOpts = p.contentFile ? { contentModule: p.contentFile, ...(snap ? { collections: snap.collections } : {}) } : {};
-  const lh = p.lazy.length ? lazyHelpers(root, p.lazy, undefined, p.libraries) : null;
   // the helpers module in Node, as the build loads it: what folds, and so SN322, agrees with the build
   const nh = await loadHelpers({ root, helpersFile: p.helpersFile, manifest: p.helpers });
   if (nh.error && p.helpersFile) diagnostics.push({ severity: 'warning', code: 'SN533', message: unloadedMessage(root, p.helpersFile, nh.error), file: p.helpersFile, line: 1, col: 1 });
   for (const file of files) {
-    const out = compile(readFileSync(file, 'utf8'), { ...(lh ? { lazyModule: lh.reach } : {}), helperValues: nh.module, helperFold: nh.fold, ...contentOpts, file, root, dev: false, helpers: p.helpers, actions: p.actions, config: p.config, readFile: p.readFile, listFiles: p.listFiles, check: true, openapi: p.openapi, apis: p.apis, complexity: p.complexity, ...(p.expansionLimit ? { expansionLimit: p.expansionLimit } : {}), componentNames: p.componentNames, libraries: p.libraries, lazy: p.lazy, ...(p.isStatic(file) ? { static: true, prerender: true } : {}), ...(p.swap ? { swap: true } : {}), ...(locale ? { locale } : {}) });
+    const out = compile(readFileSync(file, 'utf8'), { ...compileOptionsOf(p, file), helperValues: nh.module, helperFold: nh.fold, ...contentOpts, file, dev: false, check: true, ...(locale ? { locale } : {}) });
     diagnostics.push(...out.diagnostics);
     if (out.check) units.push(out.check);
   }
@@ -84,9 +83,9 @@ async function main(argv: string[]): Promise<number> {
     const mod = (url: string | null) => (url ? resolveFile(url, resolve(root, 'index.html'), root) : null);
     const scripts = [...p.componentNames.filter((n) => !p.libraries.some((l) => l.public.includes(n))).map((n) => resolveFile(`/src/components/${n}.ts`, root, root) ?? resolveFile(`/src/components/${n}.js`, root, root)),
       ...p.libraries.flatMap((l) => [...l.public.map((n) => join(l.folder, 'components', n)), ...l.internal.map((n) => join(l.folder, 'components', 'internal', n))]).map((b) => componentScript(b + '.html'))].filter((f): f is string => !!f);
-    diagnostics.push(...lazyDiagnostics(root, p.lazy, [p.helpersFile, p.actionsFile, mod(p.config), mod(p.early)], lh!.whole(p.helpers), scripts, p.libraries, p.helpersFile));
+    diagnostics.push(...lazyDiagnostics(root, p.lazy, [p.helpersFile, p.actionsFile, mod(p.config), mod(p.early)], lazyReachOf(p).whole(p.helpers), scripts, p.libraries, p.helpersFile));
   }
-  const r = check({ root, units, helpers: p.helpers, actions: p.actions, types: p.types, openapi: p.openapi, messagesTypes: p.messagesTypes, libraries: p.libraries });
+  const r = check({ ...checkOptionsOf(p), units });
   diagnostics.push(...r.diagnostics);
 
   const warned = diagnostics.filter((d) => d.severity === 'warning').length;
@@ -134,16 +133,16 @@ async function migrate(args: string[]): Promise<number> {
   }
   const { migrateMarkup, configReport, formatReport, followUp, addQuery, removeAttributes, applyRenames } = await import('./migrate.js');
   const { pages, options } = await viteProject(root);
+  const html = (dir: string) => { try { return readdirSync(join(root, dir)).filter((f) => f.endsWith('.html')).map((f) => join(root, dir, f)); } catch { return []; } };
   // 0. the renames, until a pass finds none (a fix can uncover the next, as an old attribute inside an old one)
   {
     const p = project(root, options);
-    const html = (dir: string) => { try { return readdirSync(join(root, dir)).filter((f) => f.endsWith('.html')).map((f) => join(root, dir, f)); } catch { return []; } };
     const files = new Set([...pages, ...html('src/components'), ...html('src/layouts')]);
     const texts = new Map<string, string>();
     const read = (f: string) => texts.get(f) ?? p.readFile(f);
     let total = 0;
     for (let pass = 0; pass < 5; pass++) {
-      const diagnostics = pages.flatMap((file) => compile(read(file), { file, root, dev: false, helpers: p.helpers, actions: p.actions, config: p.config, readFile: read, listFiles: p.listFiles, openapi: p.openapi, apis: p.apis ?? undefined, componentNames: p.componentNames, libraries: p.libraries, lazy: p.lazy }).diagnostics);
+      const diagnostics = pages.flatMap((file) => compile(read(file), { ...compileOptionsOf(p, file), file, dev: false, readFile: read }).diagnostics);
       let n = 0;
       for (const file of files) {
         const r = applyRenames(read(file), diagnostics.filter((d) => d.file === file));
@@ -168,7 +167,6 @@ async function migrate(args: string[]): Promise<number> {
   const p = project(root, options);
   const errors = p.diagnostics.filter((d) => d.severity === 'error');
   if (errors.length || !p.apis) { for (const d of errors) console.error(formatDiagnostic(d)); return 1; }
-  const html = (dir: string) => { try { return readdirSync(join(root, dir)).filter((f) => f.endsWith('.html')).map((f) => join(root, dir, f)); } catch { return []; } };
   const files = [...new Set([...pages, ...html('src/components'), ...html('src/layouts')])];
   // 1. the URLs, in memory
   const texts = new Map<string, string>(), changed = new Set<string>();
@@ -184,7 +182,7 @@ async function migrate(args: string[]): Promise<number> {
   }
   // 2. the migrated pages, compiled: the query parameters to declare, the attributes the config makes redundant
   const read = (f: string) => texts.get(f) ?? p.readFile(f);
-  const diagnostics = pages.flatMap((file) => compile(read(file), { file, root, dev: false, helpers: p.helpers, actions: p.actions, config: p.config, readFile: read, listFiles: p.listFiles, openapi: p.openapi, apis: p.apis, componentNames: p.componentNames, libraries: p.libraries, lazy: p.lazy }).diagnostics);
+  const diagnostics = pages.flatMap((file) => compile(read(file), { ...compileOptionsOf(p, file), file, dev: false, readFile: read }).diagnostics);
   const fu = followUp(diagnostics);
   const report = configReport(uses, p.apis, p.openapi);
   addQuery(report, fu.query, p.apis, p.openapi);

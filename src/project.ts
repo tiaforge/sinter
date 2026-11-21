@@ -3,7 +3,8 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join, relative, resolve, sep } from 'node:path';
-import { readHelperManifest, type Diagnostic, type HelperManifest } from './compiler/index.js';
+import { readHelperManifest, type CompileOptions, type Diagnostic, type HelperManifest } from './compiler/index.js';
+import { lazyHelpers } from './lazy-build.js';
 import { strictOf, type Strict } from './compiler/diagnostics.js';
 import type { OpenApiSpec } from './compiler/openapi.js';
 import { defaultApiRenamed, resolveApis, type ApiOptions, type ApisDef } from './compiler/apis.js';
@@ -314,6 +315,36 @@ export function project(root: string, options: ProjectOptions = {}): Project {
     early: earlyRel ? url(earlyRel) : null,
     types: typesRel ? resolve(root, typesRel) : null,
   };
+}
+
+/** One reach of the lazy packages per project: each helper module is scanned once for all its pages. */
+const LAZY_REACH = new WeakMap<Project, ReturnType<typeof lazyHelpers>>();
+/** The lazy packages' reach through the project's modules (`lazyHelpers`), kept with the project. */
+export function lazyReachOf(p: Project): ReturnType<typeof lazyHelpers> {
+  let lh = LAZY_REACH.get(p);
+  if (!lh) LAZY_REACH.set(p, (lh = lazyHelpers(p.root, p.lazy, undefined, p.libraries)));
+  return lh;
+}
+
+/**
+ * What every compile of the project's pages takes from the project: its helpers, components, libraries, APIs, limits and
+ * lazy packages, the same for `sinter check`, the editor, `sinter render` and the build. With `file`, a page: also what
+ * only some pages take (`static`, `swap`). Each caller adds its own (`dev`, `check`, its reads, the content, the locale).
+ */
+export function compileOptionsOf(p: Project, file?: string) {
+  return {
+    root: p.root, helpers: p.helpers, actions: p.actions, config: p.config, readFile: p.readFile, listFiles: p.listFiles,
+    openapi: p.openapi, apis: p.apis, complexity: p.complexity, ...(p.expansionLimit ? { expansionLimit: p.expansionLimit } : {}),
+    componentNames: p.componentNames, libraries: p.libraries, lazy: p.lazy,
+    ...(p.lazy.length ? { lazyModule: lazyReachOf(p).reach } : {}),
+    ...(file !== undefined && p.isStatic(file) ? { static: true, prerender: true } : {}),
+    ...(file !== undefined && p.swap ? { swap: true } : {}),
+  } satisfies Partial<CompileOptions>;
+}
+
+/** What `check()` and `writeSupport()` take from the project, the same for `sinter check`, the editor and the build. */
+export function checkOptionsOf(p: Project) {
+  return { root: p.root, helpers: p.helpers, actions: p.actions, types: p.types, openapi: p.openapi, messagesTypes: p.messagesTypes, libraries: p.libraries };
 }
 
 /**

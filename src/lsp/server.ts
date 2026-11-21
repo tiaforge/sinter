@@ -15,6 +15,7 @@ import { pathCompletions, pathDefinition, pathFix, pathHover } from './paths.js'
 import { editFor, fixPlans, plans, type ExtractContext, type Plan } from './extract.js';
 import { TypeScriptBridge, typescriptMajor, type Target } from './typescript.js';
 import { Workspace, type ProjectState } from './workspace.js';
+import { checkOptionsOf } from '../project.js';
 
 /** How long typing must pause before TypeScript checks the pages. */
 export const TYPECHECK_DELAY = 300;
@@ -100,7 +101,7 @@ export function startServer(input: Readable, output: Writable, o: ServerOptions 
     if (mode === 'none') return;
     if (mode === 'cli') {
       const p = state.project;
-      const r = check({ root: state.root, units: [...state.units.values()], helpers: p.helpers, types: p.types, openapi: p.openapi, tsc: o.tsc ?? findTsc(state.root), messagesTypes: p.messagesTypes });
+      const r = check({ ...checkOptionsOf(p), units: [...state.units.values()], tsc: o.tsc ?? findTsc(state.root) });
       await workspace.setTypes(state, '*', r.diagnostics);
       return;
     }
