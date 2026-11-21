@@ -270,11 +270,10 @@ is on an origin). What a link needs beyond that comes from where it is written:
    in dev, one that lands on a path only an axis has logs a warning naming it.
 
 - **Link templates** are prefixed like literal links. When the template's literal start fixes the page
-  (`/article/{slug}`), the prefix is compiled in. When it starts with a value (`{base}/article`), the compiled
-  template calls `prefix()` on what it produces, with the point's segments as a constant: a same-origin path
-  that is one of the site's page patterns (the runtime has them for swaps and same-page links) and does not
-  start with a segment already gets the point's; anything else (another origin, the API, `public/`) is left as
-  written. Only pages with such a link ship that function.
+  (`/article/{slug}`), the prefix is compiled in: the point's whole prefix (`/de/acme/`) for a page built over the
+  same axes, the language's for a shared one. *(Decided 2026-11-21: a template that starts with a value cannot be
+  written: `data-sn-href` takes a literal start, SN207, and a URL that comes whole from data goes in
+  `data-sn-attr`, which is case 5. So no browser-side `prefix()` is needed.)*
 - **The API's `signIn`**, when it is one of the site's pages, is that page at the current point.
 - **Across origins**, a link is absolute and loads the page, as any cross-origin link (no same-page link, no
   swap).
@@ -392,8 +391,9 @@ Each step ships on its own.
    pass), from which the plugin's inputs, its choosers and the dev server's `pointAt` derive. Then link templates and
    `signIn` in the page's language: `inLanguage` in src/locales.ts prefixes a literal start that names one of the
    site's pages (its complete segments matching a page's path, `:name` matching any), at build time; a start that
-   begins with a value is still left as written (the runtime half of §5 comes with step 6, where the point's
-   segments are data).
+   begins with a value cannot be written (SN207). *Since 6.4 (2026-11-21)* a literal start gets the point's whole
+   prefix, the axes' segments too (`/de/acme/blog/…`; it had the language's alone, and none without languages):
+   the compiler's `points`, each prefix with the pages under it, most specific first (`inPoint`).
 4. **Points in the compiler** (§8). `point` in `CompileOptions`, URL tables as data, one walk per page, the
    point-aware component resolver, the fallback log. The output does not change; step 0's timings are measured
    again and written into this proposal.

@@ -76,3 +76,13 @@ test('axisUrl(list, key): this page at another value of an axis, folded at build
   const bad = compile(plain.replace('axisUrl(tenants, t.key)', "axisUrl('tenants', t.key)"), { ...base, file: '/app/index.html', axes: [{ value: { key: 'acme', name: 'Acme' }, key: 'acme', segment: 'acme' }], axisUrls });
   expect(bad.diagnostics.map((d) => `${d.code} ${d.message}`)).toContainEqual(expect.stringMatching(/^SN301 `axisUrl\(\)` takes the list of one of this page's axes/));
 });
+
+test('link templates at a point: a literal start under the most specific prefix whose pages it names, at build', () => {
+  const points = [{ prefix: 'de/acme', pages: ['/about/', '/blog/:slug'] }, { prefix: 'de', pages: ['/faq/'] }];
+  const html = '<!doctype html><html><head><title>x</title></head><body><sn-resource name="d" src="/api/d"></sn-resource><a data-sn-href="/blog/{d.slug}">a</a><a data-sn-href="/faq/?q={d.q}">b</a><a data-sn-href="/api/{d.id}">c</a></body></html>';
+  const out = compile(html, { ...base, file: '/app/index.html', points });
+  expect(out.diagnostics.filter((d) => d.severity === 'error')).toEqual([]);
+  expect(out.module).toContain('"/de/acme/blog/"');
+  expect(out.module).toContain('"/de/faq/" + $hq(');
+  expect(out.module).toContain('"/api/"');
+});

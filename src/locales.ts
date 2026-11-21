@@ -138,11 +138,21 @@ ${js}<meta http-equiv="refresh" content="0; url=${esc(o.fallback)}"><meta name="
  * language, `/` alone) is left as written.
  */
 export function inLanguage(start: string, locale: string, l: Locales, base: string | undefined, pages: readonly string[]): string {
+  const segs = siteRoot(base) && start.slice(siteRoot(base).length).split('/');
+  if (start.startsWith(siteRoot(base)) && l.list.some((x) => segmentOf(x, l) === segs[0]) && segs.length > 1) return start;
+  return inPoint(start, segmentOf(locale, l), base, pages);
+}
+
+/**
+ * A URL's literal start under a point's prefix (`de/acme`: its language's segment and its axes'), when it names one of
+ * the pages there (`pages`, their paths without the prefix): as `inLanguage`, for every axis of the point; a start
+ * already under the prefix is left as written
+ */
+export function inPoint(start: string, prefix: string, base: string | undefined, pages: readonly string[]): string {
   const b = siteRoot(base);
-  if (!start.startsWith(b) || start.startsWith('//')) return start;
+  if (!prefix || !start.startsWith(b) || start.startsWith('//') || start.startsWith(`${b}${prefix}/`)) return start;
   const cut = start.search(/[?#]/), path = cut < 0 ? start : start.slice(0, cut);
   const rest = path.slice(b.length), segs = rest.split('/');
-  if (l.list.some((x) => segmentOf(x, l) === segs[0]) && segs.length > 1) return start;
   // the last segment is partial unless the path ends there (a `/`, `?` or `#` after it)
   const partial = cut < 0 && !rest.endsWith('/') ? segs.pop()! : null;
   if (rest.endsWith('/')) segs.pop();
@@ -156,5 +166,5 @@ export function inLanguage(start: string, locale: string, l: Locales, base: stri
     if (!segs.every((s, i) => ps[i]![0] === ':' || ps[i] === s)) return false;
     return partial === null || ps[segs.length]![0] === ':' || ps[segs.length]!.startsWith(partial);
   });
-  return names ? prefixPaths([path], segmentOf(locale, l), base)[0]! + start.slice(path.length) : start;
+  return names ? prefixPaths([path], prefix, base)[0]! + start.slice(path.length) : start;
 }

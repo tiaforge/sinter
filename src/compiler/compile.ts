@@ -30,7 +30,7 @@ import { $k, schemesOf, STYLE_BAD, urlAllowed } from '../runtime/security.js';
 import { $href, $hq, $hv, withParams } from '../runtime/url.js';
 import { firstParams, pageParams } from '../runtime/pages.js';
 import { eachPath } from '../paths.js';
-import { inLanguage, prefixPaths } from '../locales.js';
+import { inLanguage, inPoint, prefixPaths } from '../locales.js';
 
 /** the built-in messages' module, and a content namespace's (as compiler/index.ts names them) */
 const isContentNsModule = (m: string) => m.startsWith('sinter:content/');
@@ -91,6 +91,13 @@ export interface CompileOptions {
    * (`{ 'content:tenants': { acme: 'https://acme-shop.com/de/about/', demo: '/de/demo/about/' } }`): `axisUrl(tenants, key)`
    */
   axisUrls?: Record<string, Record<string, string>>;
+  /**
+   * Builds: the page's point's prefixes, most specific first, each with the paths of the pages under it, without it
+   * (`[{ prefix: 'de/acme', pages: [the tenants' pages] }, { prefix: 'de', pages: [the shared ones] }]`): a link
+   * template's literal start that names one is written under its prefix (docs/proposals/axes.md §5; a template always
+   * starts with one, SN207, and a URL that comes whole from data is left as written)
+   */
+  points?: ReadonlyArray<{ prefix: string; pages: readonly string[] }>;
   /**
    * Builds: where a `<html data-sn-for>` template's first pass is kept, so its other entries are not walked again
    * (`fromTemplate`). The compiles that share one must differ only in what each entry changes: `page`, `foldLog`,
@@ -9627,6 +9634,10 @@ class Compiler {
   /** a URL's literal start in the page's language when it names one of the site's pages (`inLanguage`); else as written */
   inPageLanguage(start: string): string {
     const l = this.opts.locale;
+    if (this.opts.points) {
+      for (const x of this.opts.points) { const r = inPoint(start, x.prefix, this.opts.base ?? l?.base, x.pages); if (r !== start) return r; }
+      return start;
+    }
     return l?.list && l.pages ? inLanguage(start, l.name, { base: l.list[0]!, list: l.list, ...(l.paths ? { paths: l.paths } : {}) }, l.base, l.pages) : start;
   }
 

@@ -979,6 +979,19 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   const readPage = (file: string) => readFileSync(virtual.get(file)?.source ?? file, 'utf8');
   /** a source page's `data-sn-path` under a language's prefix, after the base (`/de/article/:slug`) */
   const prefixed = (patterns: string[], locale: string) => prefixPaths(patterns, locale, resolved?.base);
+  /**
+   * A page's point's prefixes for its link templates (the compiler's `points`): its whole prefix (`de/acme`) with the
+   * pages built over the same axes, then its language's (`de`) with the others; null for a page under no prefix
+   */
+  const pointLevels = (file: string): Array<{ prefix: string; pages: string[] }> | null => {
+    const v = virtual.get(file);
+    if (!v?.locale && !v?.axes?.some((a) => a.segment)) return null;
+    const lists = (f: string) => (templateOf(f)?.axes ?? []).map((a) => a.src).join('\0'), mine = lists(v.source);
+    const paths = (fs: string[]) => fs.flatMap((f) => pagePaths(relOf(f), resolved?.base ?? '/', describeSource(f).path));
+    const same = sourceEntries().filter((f) => mine && lists(f) === mine), rest = sourceEntries().filter((f) => !same.includes(f));
+    const out = [{ prefix: pointPrefix(v.locale ?? null, v.axes ?? [], locales?.paths), pages: paths(same) }, { prefix: v.locale ? segmentOf(v.locale, locales) : '', pages: paths(rest) }];
+    return out.filter((x) => x.prefix && x.pages.length);
+  };
   /** `localePrefix`: every path a source page answers at, without a language (a link template's start is checked against them) */
   const sitePaths = () => sourceEntries().flatMap((f) => pagePaths(relOf(f), resolved?.base ?? '/', describeSource(f).path));
   /** a source page's URL in each language (for `localeUrl()` and `hreflang`), or null for a page whose paths all have parameters */
@@ -1294,7 +1307,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     const prefetch = prefetchData && prefetchPages(group).length ? prefetchId(group) : null;
     const out = compile(html, {
       file: src, root, dev, sourcemap: dev || !!resolved?.build.sourcemap, helpers: helpersOf(p.helpers), actions: p.actions, moduleSrc: `${PREFIX}${rel}.js`, config: p.config, readFile: readVia(p), listFiles: p.listFiles, ...(dev ? {} : { globCache, templates, ...(process.env.SN_NO_LINK ? {} : { definitions }) }), ...contentOpts(v?.locale), prefetch,
-      ...(page ? { page } : {}), ...(v?.axes ? { axes: v.axes } : {}), ...(axisLists().length ? { axisLists: axisLists() } : {}), ...(axisUrlsOf(file) ? { axisUrls: axisUrlsOf(file)! } : {}),
+      ...(page ? { page } : {}), ...(v?.axes ? { axes: v.axes } : {}), ...(axisLists().length ? { axisLists: axisLists() } : {}), ...(axisUrlsOf(file) ? { axisUrls: axisUrlsOf(file)! } : {}), ...(pointLevels(file) ? { points: pointLevels(file)! } : {}),
       check: typecheckOn() && !dev, openapi: p.openapi, apis: p.apis, complexity: p.complexity, ...(p.expansionLimit ? { expansionLimit: p.expansionLimit } : {}), componentNames: p.componentNames, libraries: p.libraries, lazy: p.lazy,
       ...(lazyPkgs.length ? { lazyScript, lazyModule: (m: string) => lazyHelpers(root, lazyPkgs, undefined, p.libraries).reach(m) } : {}),
       ...(helpersNow ? { helperValues: helpersNow.module, helperFold: helpersNow.fold } : {}),

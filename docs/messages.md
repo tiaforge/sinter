@@ -52,7 +52,7 @@ part for a project that had the built-in messages (`sinter({ messages })`, remov
 - **Per tenant** ([docs/static-pages.md](static-pages.md#a-site-per-tenant-axes)):
   `inlang({ per: [tenants, locales], tenantFiles: (t) => './tenants/' + t.key + '/{locale}.json' })` reads a tenant's
   own files over the project's, so a tenant's file holds only the messages it changes.
-- Not yet: markup in messages, which fails the build at its file and message.
+- Markup in a message is not supported: it fails the build at its file and message.
 
 A page has one language, chosen at build:
 

@@ -43,7 +43,7 @@ export const tenants = collection({ key: 'key', load: () => [
 <a href="/faq.html">FAQ</a></body></html>`,
   'faq.html': `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>FAQ</title></head><body><a href="/portal.html">Shops</a></body></html>`,
   '404.html': `<shop-layout data-sn-with="{ title: 'Not found' }"><p data-sn-text="tenant.name + ' has no such page'"></p></shop-layout>`,
-  'cart.html': `<shop-layout data-sn-with="{ title: 'Cart' }"><sn-resource name="cart" src="/api/cart"></sn-resource><p data-sn-text="cart.n"></p></shop-layout>`,
+  'cart.html': `<shop-layout data-sn-with="{ title: 'Cart' }"><sn-resource name="cart" src="/api/cart"></sn-resource><p data-sn-text="cart.n"></p><a data-sn-href="/about/?from={cart.n}">About</a></shop-layout>`,
 };
 beforeAll(async () => {
   for (const [f, text] of Object.entries(files)) { mkdirSync(dirname(join(root, f)), { recursive: true }); writeFileSync(join(root, f), text); }
@@ -101,6 +101,12 @@ describe('a tenant on its own domain, and one on the site', () => {
     expect(read('acme/de/about/index.html')).toContain('<a href="https://example.com/de/faq/">FAQ</a>');
     expect(read('de/demo/about/index.html')).toContain('<a href="/de/faq/">FAQ</a>');
     expect(read('de/faq/index.html')).toContain('<a href="/de/portal/">Shops</a>');
+  });
+
+  test('a link template over data: its start under the page\'s point (the tenant\'s segment too), in its code', () => {
+    const js = walk(join(out, 'assets')).filter((f) => f.endsWith('.js')).map((f) => readFileSync(join(out, 'assets', f), 'utf8')).join('\n');
+    expect(js).toContain('`/de/demo/about/`');
+    expect(js).toContain('`/en/demo/about/`');
   });
 
   test('axisUrl(): this page at each tenant, absolute on another origin', () => {

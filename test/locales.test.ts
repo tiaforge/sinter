@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { runInNewContext } from 'node:vm';
 import { describe, expect, test } from 'vitest';
-import { chain, checkFallbacks, chooseLanguage, chooserHtml, hreflangTags, inLanguage, languageOfFile, manifestLocales, prefixPaths, requestLanguages, segmentOf, siteRoot } from '../src/locales.js';
+import { chain, checkFallbacks, chooseLanguage, chooserHtml, hreflangTags, inLanguage, inPoint, languageOfFile, manifestLocales, prefixPaths, requestLanguages, segmentOf, siteRoot } from '../src/locales.js';
 
 const site = { base: 'en', list: ['en', 'de', 'pt-BR'] };
 
@@ -104,4 +104,12 @@ test('a language\'s segment (`paths`) and its codes: the chooser\'s URLs and rul
   expect(go(['nb-NO'])).toBe('/no/u/1');
   expect(hreflangTags('https://x.org', { no: '/no/' }, '/', l.codes)).toBe('<link rel="alternate" hreflang="no" href="https://x.org/no/">\n  <link rel="alternate" hreflang="nb" href="https://x.org/no/">\n  <link rel="alternate" hreflang="nn" href="https://x.org/no/">\n  <link rel="alternate" hreflang="x-default" href="https://x.org/">');
   expect(manifestLocales(l, '/')).toEqual({ ...l, at: '/' });
+});
+
+test('a point\'s prefixes: a literal start under the most specific one whose pages it names (inPoint)', () => {
+  const levels = [{ prefix: 'de/acme', pages: ['/about/', '/blog/:slug'] }, { prefix: 'de', pages: ['/faq/'] }];
+  const at = (s: string) => levels.map((l) => inPoint(s, l.prefix, '/', l.pages)).find((r) => r !== s) ?? s;
+  expect(at('/blog/')).toBe('/de/acme/blog/');
+  expect(at('/faq/?q=')).toBe('/de/faq/?q=');
+  for (const s of ['/api/x', '/de/acme/blog/', 'https://x.org/blog/']) expect(at(s), s).toBe(s);
 });
