@@ -261,6 +261,9 @@ is on an origin). What a link needs beyond that comes from where it is written:
 1. **Inside a loop over an axis's list**, a link to a page with that axis takes the loop's item:
    `<template data-sn-for="t in tenants"><a href="/shop/">` on a portal links to each tenant's shop.
 2. **Under a variable that holds an entry of the axis's list** (`data-sn-with="t = tenants.acme"`), likewise.
+   *(Decided 2026-11-21: a loop's row whose item is an entry of the list, whatever the loop's list is
+   (`tenants.filter(…)`, a let over it); one tenant is a loop over it alone. A single variable's value is known only
+   after the compiler's walk, where links are marked, and the loop says the same thing.)*
 3. **A switcher** (the same page for every tenant, or every language) is case 1 with a link to the current
    page. `localeUrl('de')` stays for the language, and `axisUrl(tenants, 'acme')` is its general form.
 4. **A link the page cannot derive** (to a tenant's page, from a page outside the tenant axis, with no loop or

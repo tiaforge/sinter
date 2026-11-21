@@ -63,6 +63,9 @@ test('a link in a row of a loop over an axis list is marked with the row\'s entr
   const out = compile(portal, { ...base, file: '/app/portal.html', axisLists: ['content:tenants'] });
   expect(out.diagnostics.filter((d) => d.severity === 'error')).toEqual([]);
   expect(out.html).toContain('<a href="/about.html" data-sinter-pt="content%3Atenants acme">Acme</a><a href="/about.html" data-sinter-pt="content%3Atenants globex">Globex</a><a href="/faq.html">FAQ</a>');
+  // a list over its entries (a filter, a let that holds one): the row's entry
+  const one = portal.replace('t in tenants', "t in tenants.filter((x) => x.key === 'globex')");
+  expect(compile(one, { ...base, file: '/app/portal.html', axisLists: ['content:tenants'] }).html).toContain('<a href="/about.html" data-sinter-pt="content%3Atenants globex">Globex</a><a href="/faq.html">FAQ</a>');
   // not an axis list: no mark
   expect(compile(portal, { ...base, file: '/app/portal.html' }).html).not.toContain('data-sinter-pt');
 });

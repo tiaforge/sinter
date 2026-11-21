@@ -6890,14 +6890,31 @@ class Compiler {
     const at = new Map<string, string>();
     for (let x: P5Node | null = el; x; x = (x as { parentNode: P5Node | null }).parentNode) {
       for (let r = isElement(x) ? this.rowOf.get(x) : undefined; r; r = r.up) {
-        const name = r.list.trim(), listEl = /^[A-Za-z_$][\w$]*$/.test(name) ? this.resourceEls.get(name) : undefined;
-        const src = listEl ? attr(listEl, 'src')?.trim() : undefined;
-        if (!src || !this.opts.axisLists!.includes(src) || at.has(src)) continue;
-        const keyOf = this.page.resources.get(name)?.key ?? ['key'];
-        at.set(src, keyOf.map((f) => String((r!.value as Record<string, unknown>)?.[f])).join('/'));
+        // the list itself, or any list whose item is one of its entries (`tenants.filter(…)`, a let over it)
+        const hit = this.axisEntryOf(r.list.trim(), r.value);
+        if (hit && !at.has(hit.src)) at.set(hit.src, hit.key);
       }
     }
     if (at.size && !el.attrs.some((a) => a.name === 'data-sinter-pt')) el.attrs.push({ name: 'data-sinter-pt', value: [...at].map(([s, k]) => `${encodeURIComponent(s)} ${encodeURIComponent(k)}`).join(' ') });
+  }
+
+  /** the axis lists of this page (`axisLists`), each its `src`, its entries as JSON and its key fields, by resource name */
+  private axisListsOf: Map<string, { src: string; json: Set<string>; key: string[] }> | null = null;
+  /** a row's item as an entry of an axis list: that list's `src` and the entry's key; by the loop's list, else by its value */
+  axisEntryOf(list: string, value: unknown): { src: string; key: string } | null {
+    if (!this.axisListsOf) {
+      this.axisListsOf = new Map();
+      for (const [name, el] of this.resourceEls) {
+        const src = attr(el, 'src')?.trim(), v = this.fileData.get(name)?.value;
+        if (src && this.opts.axisLists!.includes(src) && Array.isArray(v)) this.axisListsOf.set(name, { src, json: new Set(v.map((e) => JSON.stringify(e))), key: this.page.resources.get(name)?.key ?? ['key'] });
+      }
+    }
+    const keyOf = (l: { key: string[] }) => l.key.map((f) => String((value as Record<string, unknown>)?.[f])).join('/');
+    const own = /^[A-Za-z_$][\w$]*$/.test(list) ? this.axisListsOf.get(list) : undefined;
+    if (own) return { src: own.src, key: keyOf(own) };
+    const j = JSON.stringify(value);
+    for (const l of this.axisListsOf.values()) if (l.json.has(j)) return { src: l.src, key: keyOf(l) };
+    return null;
   }
 
   /** an axis's item: this compile's value (`axes`), or its list's first entry, listing the entries for the build */

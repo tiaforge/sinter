@@ -308,8 +308,10 @@ dist/globex/index.html        /globex/
   <template data-sn-for="t in tenants"><a href="/about.html" data-sn-text="t.name"></a></template>
   ```
 
-  A link to a page only the tenants have, from a page outside the axis and not in such a loop, fails the build: it
-  names the link and the list.
+  A loop over part of the list works the same (`t in tenants.filter((x) => x.featured)`, or a let that holds one): a
+  row whose item is one of the tenants links to that tenant. For one tenant, loop over it alone
+  (`t in tenants.filter((x) => x.key === 'acme')`). A link to a page only the tenants have, from a page outside the
+  axis and not in such a loop, fails the build: it names the link and the list.
 - **`axisUrl(tenants, key)`** is this page at another tenant, as `localeUrl()` is at another language: a switcher in
   the layout is `<template data-sn-for="x in tenants"><a data-sn-attr="{ href: axisUrl(tenants, x.key) }" …>`.
   It is written into the HTML at build.
@@ -344,8 +346,7 @@ dist/globex/index.html        /globex/
 - **Special files per tenant**: a `404.html` that uses the tenant's layout is written per tenant, at its domain
   folder's root (`dist/acme/404.html`) or in its segment's folder (`dist/demo/404.html`), and in each language. One
   that declares no axis is the site's. Each origin has its own `sitemap.xml`.
-- Not yet ([docs/proposals/axes.md](proposals/axes.md)): languages on their own domains, and a link through a variable
-  that holds a tenant (`data-sn-with`) rather than a loop.
+- Not yet ([docs/proposals/axes.md](proposals/axes.md)): languages on their own domains.
 
 ### Redirects and rewrites
 
