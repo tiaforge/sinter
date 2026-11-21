@@ -33,14 +33,8 @@ export const MESSAGES = `${PACKAGE}/messages`;
  */
 export const CONTENT_NS = 'sinter:content/';
 /** whether a helpers manifest namespace's module is a content namespace's (the built-in messages included) */
-export const isContentModule = (module: string) => module === MESSAGES || module.startsWith(CONTENT_NS);
+export const isContentModule = (module: string) => module.startsWith(CONTENT_NS);
 
-/** the content namespaces of a compile: `contentNs`, and the built-in messages' through `baseMessages` (their alias) */
-export function contentNamespaces(o: Pick<CompileOptions, 'helpers' | 'contentNs' | 'baseMessages'>): NonNullable<CompileOptions['contentNs']> {
-  const out: NonNullable<CompileOptions['contentNs']> = { ...o.contentNs };
-  if (o.baseMessages) for (const [ns, v] of Object.entries(o.helpers.namespaces)) if (v.module === MESSAGES && !out[ns]) out[ns] = { entries: o.baseMessages, format: null, runtime: MESSAGES };
-  return out;
-}
 
 /** Compiles annotated HTML into a rewritten page and its page module. Pure and deterministic. */
 export function compile(html: string, options: CompileOptions): CompileResult {
@@ -146,8 +140,6 @@ function compileOne(html: string, options0: CompileOptions): CompileResult {
   if (parts.static && parts.early !== undefined) out.early = null;
   else if (parts.early !== undefined) setEarly(out, parts.early, options);
   if (parts.unlistedOrigins) out.unlistedOrigins = parts.unlistedOrigins;
-  const ns = Object.entries(options.helpers.namespaces).find(([, v]) => v.module === MESSAGES)?.[0];
-  if (ns) out.messages = parts.namespaces[ns] ?? [];
   return out;
 }
 
@@ -233,7 +225,7 @@ export function earlyPage(early: EarlyParts): { code: string; uses: string[] } {
   return { code: `{ ir: ${JSON.stringify(ir)}, fns: f, scopes: ${r.scopes}, render: ${r.render}${req ? `, req: ${req.code}` : ''}${extra.map((x) => (x == away ? `, away: (o, b) => ${x}(o, b, $so)` : ', ' + x)).join('')} }`, uses };
 }
 
-function earlyLines(early: EarlyParts | null, options: Pick<CompileOptions, 'helpers' | 'early' | 'observe' | 'locale' | 'baseMessages' | 'contentNs'>): MappedLines | null {
+function earlyLines(early: EarlyParts | null, options: Pick<CompileOptions, 'helpers' | 'early' | 'observe' | 'locale' | 'contentNs'>): MappedLines | null {
   const observe = !!options.observe;
   const app = options.early?.module ?? null;
   if (!early && !app) return null;
@@ -244,7 +236,6 @@ function earlyLines(early: EarlyParts | null, options: Pick<CompileOptions, 'hel
   // a page with nothing to wait for (no requests): `run`, one step
   const simple = !!early && !observe && !req;
   lines.push(`import { ${[observe ? 'observe' : simple ? 'run' : 'start', ...(early ? ['$k', ...page!.uses] : []), ...(req ? ['requests', ...(app ? ['configured'] : [])] : [])].join(', ')} } from '${RUNTIME}/early';`);
-  let messages: string | null = null;
   const byModule = new Map<string, string[]>();
   if (early) {
     // each from the module that declares it: past the helpers module and barrels, whose other
@@ -257,7 +248,6 @@ function earlyLines(early: EarlyParts | null, options: Pick<CompileOptions, 'hel
     }
     for (const [ns, members] of Object.entries(early.namespaces)) {
       const info = options.helpers.namespaces[ns]!;
-      if (info.module === MESSAGES) { messages = isFixed(options) ? fixedMessages(ns, members, options) : messagesImport(ns, members); continue; }
       if (isContentModule(info.module)) { lines.push(contentLines(ns, members, options)); continue; }
       for (const m of members) {
         const o = info.from?.[m];
@@ -265,14 +255,12 @@ function earlyLines(early: EarlyParts | null, options: Pick<CompileOptions, 'hel
       }
     }
   }
-  // an app with built-in messages: the page's language, for the helpers that call `m` too
-  if (!messages && Object.values(options.helpers.namespaces).some((n) => n.module === MESSAGES)) messages = isFixed(options) ? fixedMessages('m', [], options) : messagesImport('m', []);
+  // a content namespace app code imports: its module gets the page's language (the early bindings' formatters read it)
+  if (early) lines.push(...installLines(options));
   for (const [mod, specs] of byModule) lines.push(`import { ${specs.join(', ')} } from ${JSON.stringify(mod)};`);
   // the built-in formatters the early bindings call, from the package (not the early runtime, which the build shares
   // between pages): each early file bundles only those it calls, beside the messages module that sets its locale
   if (early?.formatters?.length) lines.push(`import { ${early.formatters.join(', ')} } from '${RUNTIME}';`);
-  // a page in one language: its text is compiled in, nothing to wait for
-  if (messages) lines.push(messages);
   lines.push('');
   if (early) {
     lines.push('const page = () => {', '  const f = [');
@@ -305,14 +293,7 @@ function pageLines(parts: CompiledParts, options: Pick<CompileOptions, 'helpers'
   if (swaps && options.swapList) lines.push(`import $swap from ${JSON.stringify(options.swapList)};`);
   // each helper from the module that declares it, as the early file imports them: past the helpers module and
   // barrels, so a module that reaches a lazy package loads only when a let needs it (docs/lazy.md)
-  let messages = false;
-  for (const [ns, members] of Object.entries(parts.namespaces)) {
-    const module = options.helpers.namespaces[ns]!.module;
-    if (!isContentModule(module)) continue;
-    if (module !== MESSAGES) { lines.push(contentLines(ns, members, options)); continue; }
-    lines.push(isFixed(options) ? fixedMessages(ns, members, options) : messagesImport(ns, members));
-    messages = true;
-  }
+  for (const [ns, members] of Object.entries(parts.namespaces)) if (isContentModule(options.helpers.namespaces[ns]!.module)) lines.push(contentLines(ns, members, options));
   lines.push(...helperImports(parts.helpers.user, parts.namespaces, options.helpers));
   // helper modules that reach lazy packages: each loads whole, with its packages, when a let first needs it
   if (parts.lazyHelpers.length) {
@@ -323,9 +304,6 @@ function pageLines(parts: CompiledParts, options: Pick<CompileOptions, 'helpers'
     for (const s of specs) lines.push(`import { load as ${loader(s)} } from ${JSON.stringify(`${LAZY_PREFIX}${s}.js`)};`);
     for (const x of parts.lazyHelpers) lines.push(`const ${x.local} = $laterH(() => import(${JSON.stringify(x.module)}), [${x.lazy.map(loader).join(', ')}], ${options.dev || !x.module.startsWith('/') ? 'null' : JSON.stringify(`__SN_CHUNK__${file(x.module)}__`)}, import.meta.url);`);
   }
-  // an app with built-in messages: the page's modules (helpers, actions, islands) may call `m` although its markup
-  // does not; the page's language is fixed and its messages compiled in, so nothing waits for a dictionary
-  if (!messages && Object.values(options.helpers.namespaces).some((n) => n.module === MESSAGES)) lines.push(isFixed(options) ? fixedMessages('m', [], options) : messagesImport('m', []));
   // a content namespace app code imports (`module`): its module gets the page's language and the formatter first
   lines.push(...installLines(options));
   // actions (`data-sn-call`): imported as `$a$name` / `$a$ns$member`, only those the page calls
@@ -407,8 +385,6 @@ export function helperImports(user: Iterable<string>, namespaces: Record<string,
   return [...byModule].map(([mod, specs]) => `import { ${specs.join(', ')} } from ${JSON.stringify(mod)};`);
 }
 
-/** a page built in one language, with that language's text (`localePrefix`) */
-const isFixed = (o: Pick<CompileOptions, 'locale' | 'baseMessages' | 'contentNs' | 'helpers'>) => !!o.locale && !!(o.baseMessages ?? Object.entries(o.contentNs ?? {}).find(([, v]) => v.runtime === MESSAGES));
 
 /**
  * A content namespace's entries the page calls (docs/proposals/messages.md §1), compiled in: each `ns$id` a function of
@@ -445,26 +421,6 @@ function fillFn(s: string): string {
   const parts = s.split(/\{(\w+)\}/);
   if (parts.length === 1) return `() => ${JSON.stringify(s)}`;
   return `(p = {}) => ${parts.map((x, i) => (i % 2 ? `(${JSON.stringify(x)} in p ? p[${JSON.stringify(x)}] : ${JSON.stringify(`{${x}}`)})` : JSON.stringify(x))).join(' + ')}`;
-}
-
-/**
- * A page in one language: each message it calls is a function of that language's text (`m$title = () => "Über uns"`,
- * `m$hi = (p = {}) => "Hallo " + …`), so no dictionary is loaded; `fixed` sets the locale (for `date()`, `number()`,
- * and the app's modules, whose messages the build writes into the page).
- */
-function fixedMessages(ns: string, members: string[], options: Pick<CompileOptions, 'locale' | 'baseMessages' | 'contentNs' | 'helpers'>): string {
-  const d = (contentNamespaces(options)[ns]?.entries ?? {}) as Record<string, string>;
-  const fn = fillFn;
-  const imp = `import { fixed as $fixed } from '${MESSAGES}';\n$fixed(${JSON.stringify(options.locale!.name)});`;
-  return members.length ? `${imp}\nconst ${members.map((m) => `${ns}$${m} = ${fn(d[m] ?? m)}`).join(', ')};` : imp;
-}
-
-/**
- * The built-in messages a compile without a language calls (not a build's: each page is built in one): `m.key` bound
- * to the names compiled code uses (`m$key`), read from the messages module's state.
- */
-function messagesImport(ns: string, members: string[]): string {
-  return members.length ? `import { m as $m } from '${MESSAGES}';\nconst ${members.map((m) => `${ns}$${m} = $m.${m}`).join(', ')};` : `import '${MESSAGES}';`;
 }
 
 /**

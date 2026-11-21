@@ -9,7 +9,7 @@ coverage/
 
 # VS Code extension packages
 *.vsix
-test/fixtures/vite-i18n/src/sinter.messages.d.ts
+sinter.namespaces.d.ts
 
 # Rust
 packages/sinter-axum/target/

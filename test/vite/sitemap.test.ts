@@ -73,6 +73,7 @@ describe('a site', () => {
 test('languages: each language\'s URL, with every language and the chooser as alternates', async () => {
   const { read } = await site({
     'project.inlang/settings.json': JSON.stringify({ baseLocale: 'en', locales: ['en', 'de'] }),
+    'src/sinter.content.ts': `import { languages } from '@tiaforge-ui/sinter/content';\nimport { inlang, inlangLocales } from '@tiaforge-ui/sinter/messages/content';\nexport const locales = languages(({ root }) => inlangLocales('project.inlang', root));\nexport const messages = inlang();\n`,
     'messages/en.json': JSON.stringify({ title: 'About' }),
     'messages/de.json': JSON.stringify({ title: 'Über uns' }),
     'index.html': page('Home'),

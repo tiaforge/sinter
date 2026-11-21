@@ -88,7 +88,7 @@ async function main(argv: string[]): Promise<number> {
       ...p.libraries.flatMap((l) => [...l.public.map((n) => join(l.folder, 'components', n)), ...l.internal.map((n) => join(l.folder, 'components', 'internal', n))]).map((b) => componentScript(b + '.html'))].filter((f): f is string => !!f);
     diagnostics.push(...lazyDiagnostics(root, p.lazy, [p.helpersFile, p.actionsFile, mod(p.config), mod(p.early)], lh!.whole(p.helpers), scripts, p.libraries, p.helpersFile));
   }
-  const r = check({ root, units, helpers: ns.helpers, actions: p.actions, types: p.types, openapi: p.openapi, messagesTypes: p.messagesTypes, libraries: p.libraries });
+  const r = check({ root, units, helpers: ns.helpers, actions: p.actions, types: p.types, openapi: p.openapi, libraries: p.libraries });
   diagnostics.push(...r.diagnostics);
 
   const warned = diagnostics.filter((d) => d.severity === 'warning').length;
@@ -163,13 +163,13 @@ async function migrate(args: string[]): Promise<number> {
   // 0b. the built-in messages: the content module reads the inlang project with `inlang()` (docs/messages.md)
   {
     const inlangProject = typeof options.messages === 'string' ? options.messages : 'project.inlang';
-    if (options.messages !== false && existsSync(join(root, inlangProject, 'settings.json'))) {
+    if (existsSync(join(root, inlangProject, 'settings.json')) && !(project(root, options).contentFile && /\binlang\s*\(/.test(readFileSync(project(root, options).contentFile!, 'utf8')))) {
       const { messagesToContent } = await import('./migrate.js');
       const file = project(root, options).contentFile ?? join(root, 'src/sinter.content.ts');
       const was = existsSync(file) ? readFileSync(file, 'utf8') : null;
       const text = messagesToContent(was, inlangProject);
       if (text && write) { mkdirSync(dirname(file), { recursive: true }); writeFileSync(file, text); }
-      if (text) console.log(`\nsinter migrate: the built-in messages are deprecated; ${relative(root, file)} ${write ? 'now reads' : 'would read (run with --write)'} the inlang project with inlang(). Then turn the built-in messages off in the Vite config:\n\n  sinter({ messages: false, … })\n\n  (src/sinter.messages.d.ts is no longer generated: remove it)`);
+      if (text) console.log(`\nsinter migrate: the built-in messages are removed; ${relative(root, file)} ${write ? 'now reads' : 'would read (run with --write)'} the inlang project with inlang(). Remove \`messages\` from sinter()'s options in the Vite config if it is there, and src/sinter.messages.d.ts: the messages' types are now sinter.namespaces.d.ts, next to the content module`);
     }
   }
   if (!options.apis) {

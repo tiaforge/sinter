@@ -72,7 +72,7 @@ export function owned(head: HTMLHeadElement): Node[] {
       }
     } else if (n.nodeType == 1) {
       const el = n as Element;
-      if (el.localName == 'title' || el.hasAttribute('data-sn') || el.hasAttribute('data-sn-messages') || (el.localName == 'template' && /^sn-t-/.test(el.id))) out.push(el);
+      if (el.localName == 'title' || el.hasAttribute('data-sn') || el.hasAttribute('data-sn-ns') || (el.localName == 'template' && /^sn-t-/.test(el.id))) out.push(el);
     }
   }
   return out;
@@ -142,15 +142,18 @@ interface I18n { locale?: string; dicts?: Record<string, Record<string, string>>
 const i18n = () => (globalThis as unknown as Record<symbol, I18n | undefined>)[Symbol.for('sinter.i18n')];
 
 /**
- * A page in its one language: the messages its modules call are in the page (`data-sn-messages`, read once by the
- * first page), merged into the dictionary before its code runs. Both pages are in the same language (`fixed`).
+ * A page in its one language: the content namespaces' entries its modules call are in the page (`data-sn-ns`, read once
+ * by the first page's `install()`), merged into the messages module's state before its code runs. Both pages are in the
+ * same language (`fixed`).
  */
 export function inline(doc: Document) {
-  const el = doc.querySelector('script[data-sn-messages]'), g = i18n();
-  if (!el?.textContent || !g?.locale || !g.dicts) return;
-  let d: Record<string, string>;
-  try { d = JSON.parse(el.textContent); } catch { return; }
-  g.dicts[g.locale] = { ...g.dicts[g.locale], ...d };
+  const g = i18n();
+  if (!g?.locale || !g.dicts) return;
+  for (const el of doc.querySelectorAll('script[data-sn-ns]')) {
+    let d: Record<string, string>;
+    try { d = JSON.parse(el.textContent ?? ''); } catch { continue; }
+    g.dicts[g.locale] = { ...g.dicts[g.locale], ...d };
+  }
 }
 
 /**

@@ -1,12 +1,9 @@
 // Built-in messages: `m.key()` in markup and app code, `{param}`s, the base language for missing translations, a
 // page in one language (`$locale` cannot be written); and the build side (inlang files, types, keys per module).
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { expect, test } from 'vitest';
 import { firstPaint, render } from '@tiaforge-ui/sinter/testing';
 import { m } from '../../src/messages.js';
-import { messagesDts, moduleKeys, readMessages } from '../../src/i18n-build.js';
+import { moduleKeys } from '../../src/i18n-build.js';
 
 const messages = {
   en: { title: 'People', hello: 'Hello {name}', only_en: 'Only in English' },
@@ -54,27 +51,6 @@ test('modules: `m.key` is collected; `m[key]` and passing `m` on are refused', (
   expect(moduleKeys(`export const m = { x: 1 };\nm.x;\n`, '/d.js')).toEqual({ keys: [], errors: [] });
 });
 
-test('the inlang project: locales, base, path pattern; types from the base language\'s placeholders', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'sinter-inlang-'));
-  try {
-    mkdirSync(join(dir, 'project.inlang'));
-    mkdirSync(join(dir, 'msg'));
-    writeFileSync(join(dir, 'project.inlang/settings.json'), JSON.stringify({ baseLocale: 'en', locales: ['en', 'de'], 'plugin.inlang.messageFormat': { pathPattern: './msg/{locale}.json' } }));
-    writeFileSync(join(dir, 'msg/en.json'), JSON.stringify({ $schema: 'x', a: 'A', b: 'Hi {name}, {count} new', c: { plural: true } }));
-    writeFileSync(join(dir, 'msg/de.json'), JSON.stringify({ a: 'Ä' }));
-    const p = readMessages(dir)!;
-    expect(p.base).toBe('en');
-    expect(p.locales).toEqual(['en', 'de']);
-    expect(p.keys).toEqual({ a: [], b: ['name', 'count'] });
-    expect(p.diagnostics.map((d) => d.message)).toEqual(['message `c` (en) is not a plain string: sinter\'s messages have no plurals or variants yet']);
-    const dts = messagesDts(p);
-    expect(dts).toContain('    a(): string;');
-    expect(dts).toContain('    b(params: { name: string | number; count: string | number }): string;');
-    expect(readMessages(join(dir, 'msg'))).toBeNull();
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
-});
 
 test('the messages as a namespace: install() reads the page\'s entries, `m.inbox.unread()` formats one', async () => {
   const { install, state } = await import('../../src/messages.js');

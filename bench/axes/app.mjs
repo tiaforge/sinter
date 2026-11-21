@@ -71,6 +71,7 @@ export default defineConfig({
 });
 `,
     'project.inlang/settings.json': JSON.stringify({ baseLocale: 'en', locales: tags, 'plugin.inlang.messageFormat': { pathPattern: './messages/{locale}.json' } }, null, 2),
+    'src/sinter.content.ts': "import { languages } from '@tiaforge-ui/sinter/content';\nimport { inlang, inlangLocales } from '@tiaforge-ui/sinter/messages/content';\nexport const locales = languages(({ root }) => inlangLocales('project.inlang', root));\nexport const messages = inlang();\n",
     'src/layouts/site-layout.html': LAYOUT(tags),
     'src/sinter.types.ts': 'export interface Post { id: string; title: string; author: string }\n',
     'index.html': PAGE(0, pages).replace("nav: 'page'", "nav: 'home'"),

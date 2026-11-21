@@ -1,6 +1,7 @@
 # Proposal: content namespaces, with the messages as one replaceable loader on them
 
-Status: proposed 2026-11-18 as "messages as a package"; rewritten 2026-11-21 after review: the messages stay in
+Status: implemented 2026-11-21; the built-in messages are removed, `inlang()` is the one path (markup in messages is not
+planned yet). Proposed 2026-11-18 as "messages as a package"; rewritten 2026-11-21 after review: the messages stay in
 this repository and in the core package, at `@tiaforge-ui/sinter/messages`, but the core reaches them only through
 a general mechanism, so an app can replace them with its own loader and ship nothing of them. File and line
 references are main's at `65a6a32`. It builds on [axes.md](axes.md): languages and tenants are axes, a page has one

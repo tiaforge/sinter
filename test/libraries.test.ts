@@ -251,7 +251,7 @@ describe('tree slots across packages', () => {
 describe('types', () => {
   const typecheck = (root: string, html: string) => {
     const { p, out, diagnostics } = build(root, html, { libraries: ['@fixture/ui'] }, { check: true });
-    const r = check({ root, units: out.check ? [out.check] : [], helpers: p.helpers, actions: p.actions, types: p.types, openapi: p.openapi, tsc: findTsc(process.cwd()), messagesTypes: p.messagesTypes, libraries: p.libraries });
+    const r = check({ root, units: out.check ? [out.check] : [], helpers: p.helpers, actions: p.actions, types: p.types, openapi: p.openapi, tsc: findTsc(process.cwd()), libraries: p.libraries });
     return [...diagnostics, ...r.diagnostics];
   };
 

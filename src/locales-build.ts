@@ -34,6 +34,5 @@ export function checkLocale(root: string, options: { localePrefix?: boolean; mes
   if (!options.localePrefix) return null;
   const declared = snapshotLanguages(root);
   if (declared) return { name: declared.base, urls: null, base: '/' };
-  if (options.messages === false) return null;
-  return { name: readLocales(root, typeof options.messages === 'string' ? options.messages : 'project.inlang').base, urls: null, base: '/' };
+  return null;
 }

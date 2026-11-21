@@ -172,10 +172,12 @@ const LIBRARY_ONLY = ['SN337', 'SN337', 'SN339', 'SN537'];
 const PRERENDER_ONLY = ['SN536'];
 /** With `sinter({ swap: true })` only: fixtures in test/compiler/permanent.test.ts. */
 const SWAP_ONLY = ['SN540'];
+/** The plugin's options, checked by `project()`: SN348 (an option that is removed) in test/apis.test.ts. */
+const OPTIONS_ONLY = ['SN348'];
 
 describe('every diagnostic code has a failing fixture', () => {
   test('all codes covered', () => {
-    expect(new Set([...cases.map((c) => c[0]), ...CHECK_ONLY, ...IMAGES_ONLY, ...STATIC_ONLY, ...LAZY_ONLY, ...APIS_ONLY, ...BUILD_ONLY, ...STYLES_ONLY, ...PRERENDER_ONLY, ...LIBRARY_ONLY, ...SWAP_ONLY])).toEqual(new Set(Object.keys(CODES)));
+    expect(new Set([...cases.map((c) => c[0]), ...CHECK_ONLY, ...IMAGES_ONLY, ...STATIC_ONLY, ...LAZY_ONLY, ...APIS_ONLY, ...BUILD_ONLY, ...STYLES_ONLY, ...PRERENDER_ONLY, ...LIBRARY_ONLY, ...SWAP_ONLY, ...OPTIONS_ONLY])).toEqual(new Set(Object.keys(CODES)));
   });
   for (const [code, html, message, check] of cases) {
     test(code, () => {

@@ -91,8 +91,9 @@ export const helper = (x) => x;
   }, 60_000);
 
   test('perLocale: a collection loaded once per language, each language\'s pages reading its own', async () => {
-    const lang = { 'project.inlang/settings.json': JSON.stringify({ baseLocale: 'en', locales: ['en', 'de'] }), 'messages/en.json': '{}', 'messages/de.json': '{}' };
-    const content = `import { collection } from '@tiaforge-ui/sinter/content';
+    const lang = {};
+    const content = `import { collection, languages } from '@tiaforge-ui/sinter/content';
+export const locales = languages({ base: 'en', list: ['en', 'de'] });
 const names = { en: ['Bolt', 'Anchor'], de: ['Bolzen', 'Anker'] };
 export const products = collection({ key: 'sku', perLocale: true, load: ({ locale }) => names[locale].map((name, i) => ({ sku: 'p' + i, name })) });
 `;
@@ -106,7 +107,8 @@ export const products = collection({ key: 'sku', perLocale: true, load: ({ local
     // a shared collection built from a per-language one, and perLocale without languages: errors
     const shared = content + "export const all = collection({ key: 'sku', load: ({ get }) => get(products) });\n";
     expect((await run({ ...lang, 'src/sinter.content.ts': shared, 'index.html': page }, ['index.html'], { localePrefix: true })).error).toMatch(/collection `all`: it gets `products`, which is loaded per language \(`perLocale`\): make it `perLocale: true` too/);
-    expect((await run({ 'src/sinter.content.ts': content, 'index.html': page }, ['index.html'])).error).toMatch(/collection `products`: it is loaded per language .* needs `sinter\(\{ localePrefix \}\)`/);
+    const unlisted = content.replace(/export const locales = .*\n/, '');
+    expect((await run({ 'src/sinter.content.ts': unlisted, 'index.html': page }, ['index.html'])).error).toMatch(/collection `products`: it is loaded per language .* needs `sinter\(\{ localePrefix \}\)`/);
   }, 120_000);
 
   test('languages(): the site\'s languages from the content module, with `messages: false` and no inlang project', async () => {
@@ -127,17 +129,13 @@ export const products = collection({ key: 'sku', perLocale: true, load: ({ local
     expect(checkLocale(r.root, { localePrefix: true, messages: false })).toEqual({ name: 'en', urls: null, base: '/' });
   }, 120_000);
 
-  test('languages(): one list; an inlang project that differs, two declarations or none with `messages: false` fail the build', async () => {
+  test('languages(): one list; two declarations or none fail the build', async () => {
     const page = '<!doctype html><html><head><title>x</title></head><body><p>x</p></body></html>';
     const declared = "import { languages } from '@tiaforge-ui/sinter/content';\nexport const locales = languages({ base: 'en', list: ['en', 'de'] });\n";
-    const same = { 'project.inlang/settings.json': JSON.stringify({ baseLocale: 'en', locales: ['en', 'de'] }), 'messages/en.json': '{}', 'messages/de.json': '{}' };
-    expect((await run({ ...same, 'src/sinter.content.ts': declared, 'index.html': page }, ['index.html'], { localePrefix: true })).error).toBe(null);
-    const other = { ...same, 'project.inlang/settings.json': JSON.stringify({ baseLocale: 'en', locales: ['en', 'fr'] }), 'messages/fr.json': '{}' };
-    expect((await run({ ...other, 'src/sinter.content.ts': declared, 'index.html': page }, ['index.html'], { localePrefix: true })).error)
-      .toMatch(/the content module's `languages\(\)` \(base en: en, de\) and project\.inlang\/settings\.json \(base en: en, fr\) differ/);
+    expect((await run({ 'src/sinter.content.ts': declared, 'index.html': page }, ['index.html'], { localePrefix: true })).error).toBe(null);
     const twice = declared + "export const more = languages({ base: 'en', list: ['en'] });\n";
-    expect((await run({ 'src/sinter.content.ts': twice, 'index.html': page }, ['index.html'], { localePrefix: true, messages: false })).error).toMatch(/`locales`, `more` are each `languages\(\)`; the site has one list of languages/);
-    expect((await run({ 'index.html': page }, ['index.html'], { localePrefix: true, messages: false })).error).toMatch(/the site has no languages\. Export them from the content module/);
+    expect((await run({ 'src/sinter.content.ts': twice, 'index.html': page }, ['index.html'], { localePrefix: true })).error).toMatch(/`locales`, `more` are each `languages\(\)`; the site has one list of languages/);
+    expect((await run({ 'index.html': page }, ['index.html'], { localePrefix: true })).error).toMatch(/the site has no languages\. Export them from the content module/);
   }, 120_000);
 
   test('fallback chains: a message missing in de-AT is de\'s, then en\'s; SN522 counts only what reaches en', async () => {
@@ -146,6 +144,7 @@ export const products = collection({ key: 'sku', perLocale: true, load: ({ local
       'messages/en.json': JSON.stringify({ a: 'Hello', b: 'Bye', c: 'Only English' }),
       'messages/de.json': JSON.stringify({ a: 'Hallo', b: 'Tschüss' }),
       'messages/de-AT.json': JSON.stringify({ a: 'Servus' }),
+      'src/sinter.content.ts': "import { languages } from '@tiaforge-ui/sinter/content';\nimport { inlang, inlangLocales } from '@tiaforge-ui/sinter/messages/content';\nexport const locales = languages(({ root }) => inlangLocales('project.inlang', root));\nexport const messages = inlang();\n",
       'index.html': '<!doctype html><html lang="en"><head><title>x</title></head><body><p data-sn-text="m.a() + \' \' + m.b() + \' \' + m.c()"></p></body></html>',
     };
     const r = await run(lang, ['index.html'], { localePrefix: true });

@@ -458,7 +458,7 @@ test('source maps in a build with build.sourcemap: the page bundle\'s map lists 
 });
 
 const i18nRoot = resolve(__dirname, '../fixtures/vite-i18n');
-const i18nAlias = [...alias.slice(0, -1), { find: '@tiaforge-ui/sinter/messages', replacement: `${src}/messages.ts` }, alias.at(-1)!];
+const i18nAlias = [{ find: /^@tiaforge-ui\/sinter\/messages\/(.+)$/, replacement: `${src}/messages/$1.ts` }, ...alias.slice(0, -1), { find: /^@tiaforge-ui\/sinter\/messages$/, replacement: `${src}/messages.ts` }, alias.at(-1)!];
 
 test('messages without localePrefix: the build is in the base language, its text in the HTML; no picker, no language file', async () => {
   const dir = join(out, 'i18n');
@@ -477,7 +477,9 @@ test('messages without localePrefix: the build is in the base language, its text
   const js = files.filter((f) => f.endsWith('.js')).map((f) => readFileSync(join(dir, 'assets', f), 'utf8')).join('\n');
   expect(js).not.toMatch(/Leute|Tschüss|sinter i18n|await ready\(\)/);
   // the app's modules are typed: generated declarations for `m`
-  expect(readFileSync(join(i18nRoot, 'src/sinter.messages.d.ts'), 'utf8')).toContain('hello(params: { name: string | number }): string;');
+  const dts = readFileSync(join(i18nRoot, 'src/sinter.namespaces.d.ts'), 'utf8');
+  expect(dts).toContain("declare module '@tiaforge-ui/sinter/messages' {\n  interface Entries {");
+  expect(dts).toContain('"hello": (args: { "name": string | number }) => string');
 });
 
 test('messages without localePrefix: a page whose markup has no `m` gets the messages its modules call, in the base language', async () => {
@@ -485,7 +487,7 @@ test('messages without localePrefix: a page whose markup has no `m` gets the mes
   await build({ root: i18nRoot, logLevel: 'silent', resolve: { alias: i18nAlias }, build: { outDir: dir, emptyOutDir: true, minify: false, rollupOptions: { input: join(i18nRoot, 'other.html') } }, plugins: [sinter({ typecheck: true })] });
   const html = readFileSync(join(dir, 'other/index.html'), 'utf8');
   // the helper's only_en and the config module's bye; nothing the other page's markup calls
-  expect(html).toContain('<script type="application/json" data-sn-messages>{"bye":"Bye","only_en":"Only in English"}</script>');
+  expect(html).toContain('<script type="application/json" data-sn-ns="m">{"bye":{"id":"bye","m":{"p":["Bye"]}},"only_en":{"id":"only_en","m":{"p":["Only in English"]}}}</script>');
   expect(html).not.toMatch(/data-sn-i18n|People/);
 });
 

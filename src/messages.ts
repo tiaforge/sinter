@@ -1,16 +1,22 @@
-// @tiaforge-ui/sinter/messages: the built-in messages. Imported only by pages and modules that
+// @tiaforge-ui/sinter/messages: the messages' runtime. Imported only by pages and modules that
 // use `m` (the compiler adds it for `m.key()` in markup; app code imports `m` from here), so an
 // app without messages ships none of it.
 //
-// A page has one language, chosen at build (docs/proposals/axes.md §7): its markup's messages are compiled into it,
-// and the messages its app modules call are written into the page (`<script type="application/json"
-// data-sn-messages>`), which `fixed()` reads. State lives on a global, shared by every copy of this module (the early
-// file and the page bundle are bundled apart), and a swap adds the next page's messages to it.
+// The runtime of the messages' content namespace (`inlang()`, docs/messages.md): a page has one language, chosen at
+// build; its markup's messages are compiled into it, and the messages its app modules call are written into the page
+// (`<script type="application/json" data-sn-ns="m">`), which `install()` reads. State lives on a global, shared by
+// every copy of this module (the early file and the page bundle are bundled apart), and a swap adds the next page's
+// entries to it.
 import { config } from './runtime/config.js';
 
-/** The messages, typed by the generated `src/sinter.messages.d.ts` (one method per key, `{param}`s as its argument). */
+/**
+ * The messages, typed by the generated `sinter.namespaces.d.ts` next to the content module (`inlang()`'s types: nested
+ * objects for dotted ids, each message a function of its inputs).
+ */
 // eslint-disable-next-line @typescript-eslint/no-empty-object-type -- filled in by declaration merging
-export interface Messages {}
+export interface Entries {}
+/** the messages' type: `Entries` */
+export type Messages = Entries;
 
 /** What every copy of this module shares: the page's language and its messages. */
 export interface I18nState {
@@ -46,21 +52,12 @@ export const m = at('') as Messages;
 
 export const getLocale = (): string => state().locale;
 
-/**
- * A page in its one language: the locale is fixed, and the page's own messages are compiled into it. The messages
- * the app's modules call (`m.key()` in a helper) are in the page, in `<script type="application/json"
- * data-sn-messages>`: nothing is loaded. The page module and the early script call it before anything renders; an
- * app's own `configure({ locale })` wins.
- */
-export function fixed(locale: string): void {
+/** the page's one language: the locale `date()` and `number()` format in, unless the app's `configure({ locale })` set one */
+function fixed(locale: string): void {
   const s = state();
   s.locale = s.base = locale;
   s.locales = [locale];
-  if (!s.dicts[locale]) {
-    let d: Record<string, string> = {};
-    try { const e = document.querySelector('script[data-sn-messages]'); if (e?.textContent) d = JSON.parse(e.textContent); } catch { /* none */ }
-    s.dicts[locale] = d;
-  }
+  s.dicts[locale] ??= {};
   config.locale ??= { get: () => locale, set: () => {} };
 }
 

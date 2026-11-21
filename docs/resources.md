@@ -399,7 +399,9 @@ export function format(entry, args, locale) { return entry.body.replace(/\[(\w+)
 - `per: [tenants]` loads a namespace per axis, each page reading its point's entries. `types` gives `sinter check` its type.
 - **App code** calls a namespace through its `module` (`namespace({ module: '/src/legal.ts' })`, whose `install(locale, format)`
   the page module calls first): the build writes the entries a page's modules call into it, in
-  `<script type="application/json" data-sn-ns="legal">`, which the module reads.
+  `<script type="application/json" data-sn-ns="legal">`, which the module reads. A module that declares
+  `export interface Entries {}` is typed from `types` by the generated `sinter.namespaces.d.ts` next to the content
+  module (`declare module '/src/legal.ts' { interface Entries … }`), rewritten on every build and dev load.
 
 ## Loading behavior
 

@@ -12,7 +12,10 @@ import type { CompileLibrary, CompiledParts, HelperManifest } from '../compiler/
 import { functionVerdict, type FoldVerdict } from '../fold-check.js';
 import * as earlyExports from '../early.js';
 import { early as runEarly } from '../early.js';
-import { t as message } from '../messages.js';
+import { install as installMessages } from '../messages.js';
+import { format as formatMessage, inline as inlineMessage } from '../messages/format.js';
+import { flatten as flattenMessages } from '../messages/parse.js';
+import { nsLocal } from '../compiler/expr.js';
 import { mount, scopeState, type App, type Feature, type Transport } from '../runtime/app.js';
 import { config, type Middleware } from '../runtime/config.js';
 import type { Env } from '../runtime/env.js';
@@ -262,9 +265,10 @@ export interface RenderOptions {
    */
   traverse?: boolean;
   /**
-   * built-in messages, as the message files hold them: `{ en: { nav_mail: 'Mail' }, de: { … } }`,
-   * the base language first. The page is in one language, `locale`, else the base, as a build compiles
-   * it: `m.key()` reads that language's text, and writing `$locale` is SN203.
+   * the messages, as the inlang message files hold them: `{ en: { nav_mail: 'Mail' }, de: { … } }`, the base
+   * language first (nested keys and complex messages too). They are the content namespace `m` `inlang()` gives a
+   * build, and the page is in one language, `locale`, else the base: `m.key()` reads that language's message, and
+   * writing `$locale` is SN203.
    */
   messages?: Record<string, Record<string, string>>;
   /**
@@ -404,29 +408,35 @@ export async function firstPaint(html: string, options: Pick<RenderOptions, 'hel
   writePage(parts.html, options.messages);
   const env = config.env;
   config.env = { ...env, storage: () => options.storage ?? null };
-  if (options.messages) messagesLocale();
+  if (options.messages) messagesLocale(options);
   try { paint(parts, helpers, options.early); } finally { config.env = env; }
   return { root: document.body, html: parts.html };
 }
 
-/** the page's one language with built-in messages: `locale`, else the base (the messages' first) */
+/** the page's one language with messages: `locale`, else the base (the messages' first) */
 const messagesLang = (o: Pick<RenderOptions, 'messages' | 'locale'>) => o.locale ?? Object.keys(o.messages!)[0]!;
 
-/**
- * Built-in messages: the shared state a built page's messages module has (its language and messages), and `m` as a
- * helper namespace.
- */
-function withMessages(o: Pick<RenderOptions, 'helpers' | 'messages' | 'locale' | 'storage'>): Record<string, unknown> {
-  if (!o.messages) return o.helpers ?? {};
-  const locales = Object.keys(o.messages), base = locales[0]!;
-  (globalThis as any)[Symbol.for('sinter.i18n')] = { locale: messagesLang(o), base, locales, dicts: structuredClone(o.messages) };
-  return { ...o.helpers, m: Object.fromEntries(Object.keys(o.messages[base]!).map((k) => [k, (p?: Record<string, unknown>) => message(k, p)])) };
+/** the messages' entries in the page's language, as `inlang()` gives them: the base language's, then the page's over them */
+function messageEntries(o: Pick<RenderOptions, 'messages' | 'locale'>): Record<string, { id: string; m: unknown }> {
+  const all = Object.entries(o.messages!), lang = messagesLang(o), out: Record<string, { id: string; m: unknown }> = {};
+  for (const [l, dict] of [all[0]!, ...all.filter(([l]) => l === lang)]) for (const [id, m] of flattenMessages(dict as Record<string, unknown>, `${l}.json`)) out[id] = { id, m };
+  return out;
 }
 
-/** the messages' language is the locale source, as in a built page: `date()` and `number()` format in it */
-function messagesLocale() {
-  const l = (globalThis as any)[Symbol.for('sinter.i18n')].locale as string;
-  config.locale = { get: () => l, set: () => {} };
+/** the messages: the namespace `m` as a helper (each of its functions the message in the page's language) */
+function withMessages(o: Pick<RenderOptions, 'helpers' | 'messages' | 'locale' | 'storage'>): Record<string, unknown> {
+  if (!o.messages) return o.helpers ?? {};
+  const entries = messageEntries(o), lang = messagesLang(o);
+  return { ...o.helpers, m: Object.fromEntries(Object.entries(entries).map(([k, e]) => [k, (p?: Record<string, unknown>) => formatMessage(e, p, lang)])) };
+}
+
+/** the messages module, as a built page's module installs it: the page's language (the locale source) and its entries */
+function messagesLocale(o: Pick<RenderOptions, 'messages' | 'locale'>) {
+  (globalThis as any)[Symbol.for('sinter.i18n')] = undefined;
+  config.locale = null;
+  const lang = messagesLang(o);
+  installMessages(lang, formatMessage as never);
+  (globalThis as any)[Symbol.for('sinter.i18n')].dicts[lang] = messageEntries(o);
 }
 
 /** The early chunk: the app's early module, then the early bindings with the helpers in scope. */
@@ -438,7 +448,7 @@ function paint(parts: CompiledParts, helpers: Record<string, unknown>, app?: () 
   // the built-in formatters the early bindings call, the package's, as a build imports them
   for (const x of parts.early.formatters ?? []) { names.push(x); values.push((builtins as Record<string, unknown>)[x]); }
   for (const [ns, members] of Object.entries(parts.early.namespaces)) {
-    for (const m of members) { names.push(`${ns}$${m}`); values.push((helpers[ns] as Record<string, unknown>)[m]); }
+    for (const m of members) { names.push(nsLocal(ns, m)); values.push((helpers[ns] as Record<string, unknown>)[m]); }
   }
   // the compiled renderer, as the early file has it, with the early module's exports it calls
   const page = earlyPage(parts.early);
@@ -461,8 +471,8 @@ function compilePage(html: string, options: RenderOptions, strict: Strict = { on
     else if (v && typeof v === 'object') manifest.namespaces[k] = { module: k, members: Object.keys(v) };
   }
   for (const [k, v] of Object.entries(options.lazyHelpers ?? {})) manifest.namespaces[k] = { module: `lazy:${k}`, members: v.members };
-  // the built-in messages are sinter's module, as in a build: not a namespace of the app's
-  if (options.messages && manifest.namespaces.m) manifest.namespaces.m.module = '@tiaforge-ui/sinter/messages';
+  // the messages are the content namespace `m`, as `inlang()` gives a build: not a namespace of the app's
+  if (options.messages && manifest.namespaces.m) manifest.namespaces.m.module = 'sinter:content/m';
   // `sinter render`: where each helper is declared, so the helper modules that reach a lazy package are known (not the built-in messages)
   const real = options.project?.helpers;
   if (real) {
@@ -470,7 +480,7 @@ function compilePage(html: string, options: RenderOptions, strict: Strict = { on
     if (real.from) manifest.from = real.from;
     for (const [k, v] of Object.entries(manifest.namespaces)) {
       const r = real.namespaces[k];
-      if (r && r.module !== '@tiaforge-ui/sinter/messages') manifest.namespaces[k] = { ...v, module: r.module, ...(r.from ? { from: r.from } : {}) };
+      if (r && !r.module.startsWith('sinter:content/')) manifest.namespaces[k] = { ...v, module: r.module, ...(r.from ? { from: r.from } : {}) };
     }
   }
   const actions = options.actions ?? {};
@@ -485,10 +495,13 @@ function compilePage(html: string, options: RenderOptions, strict: Strict = { on
   for (const name of Object.keys(options.scripts ?? {})) files[`src/components/${name}.ts`] ??= 'export default class {}';
   const proj = options.project;
   const apis = proj ? { specs: proj.openapi, apis: proj.apis } : options.apis ? testApis(options) : null;
-  // built-in messages: compiled in the page's one language, as a build compiles it
+  // the messages: compiled in the page's one language, as a build compiles them
   const lang = options.messages ? messagesLang(options) : null;
   const parts = compileParts(html, {
-    ...(lang ? { locale: { name: lang, urls: null, base: '/', prefix: false as const }, baseMessages: { ...Object.values(options.messages!)[0], ...options.messages![lang] } } : {}),
+    ...(lang ? {
+      locale: { name: lang, urls: null, base: '/', prefix: false as const },
+      contentNs: { m: { entries: messageEntries(options), format: '@tiaforge-ui/sinter/messages/format', formatFn: formatMessage as never, inlineFn: inlineMessage, module: '@tiaforge-ui/sinter/messages' } },
+    } : {}),
     file: proj?.file ?? PAGE, root: proj?.root ?? '/test', dev: options.dev ?? true, helpers: manifest,
     ...(proj?.lazyModule ? { lazyModule: proj.lazyModule } : {}), actions: actionManifest, moduleSrc: 'about:blank', componentNames: proj?.componentNames ?? Object.keys(options.components ?? {}), ...(proj?.libraries?.length ? { libraries: proj.libraries } : {}),
     // lazy packages: any name, loaded by nothing (a test calls the app's functions, which import what they need)
@@ -600,7 +613,7 @@ export async function render(html: string, options: RenderOptions = {}): Promise
   for (const h of parts.helpers.builtin) { names.push(h); values.push(h === '$href' ? $href : h === '$hv' ? $hv : h === '$hq' ? $hq : (builtins as Record<string, unknown>)[h]); }
   for (const h of parts.helpers.user) { names.push(h); values.push(helpers[h]); }
   for (const [ns, members] of Object.entries(parts.namespaces)) {
-    for (const m of members) { names.push(`${ns}$${m}`); values.push((helpers[ns] as Record<string, unknown>)[m]); }
+    for (const m of members) { names.push(nsLocal(ns, m)); values.push((helpers[ns] as Record<string, unknown>)[m]); }
   }
   for (const c of parts.calls) {
     const [a, b] = c.split('.') as [string, string | undefined];
@@ -673,13 +686,13 @@ export async function render(html: string, options: RenderOptions = {}): Promise
   config.env = env;
   if (options.firstPaint) {
     const fp = options.firstPaint === true ? {} : options.firstPaint;
-    if (options.messages) messagesLocale();
+    if (options.messages) messagesLocale(options);
     const n = navigations.length;
     paint(parts, helpers, fp.early);
     if (navigations.length > n && navigations.at(-1)!.startsWith('replace ')) early = navigations.at(-1)!.slice(8);
     fp.afterEarly?.();
   }
-  if (options.messages) messagesLocale();
+  if (options.messages) messagesLocale(options);
   else if (options.locale !== undefined) {
     let locale = options.locale;
     config.locale = { get: () => locale, set: (l) => { locale = l; } };

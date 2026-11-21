@@ -1,7 +1,7 @@
 // @vitest-environment node
 // Languages in the URL (`sinter({ localePrefix: true })`, docs/static-pages.md#languages): each page once per
 // language under its prefix, its text in the HTML; a chooser at each unprefixed URL; hreflang; the rules.
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { build, createServer } from 'vite';
@@ -19,6 +19,7 @@ const head = '<meta charset="utf-8"><title data-sn-text="m.title()">x</title><me
 const switcher = '<nav><a hreflang="en" data-sn-attr="{ href: localeUrl(\'en\') }">English</a> <a hreflang="de" data-sn-attr="{ href: localeUrl(\'de\') }">Deutsch</a> <a href="/index.html">Home</a> <a href="/article/hello">Article</a></nav>';
 const files: Record<string, string> = {
   'project.inlang/settings.json': JSON.stringify({ baseLocale: 'en', locales: ['en', 'de'] }),
+  'src/sinter.content.ts': `import { languages } from '@tiaforge-ui/sinter/content';\nimport { inlang, inlangLocales } from '@tiaforge-ui/sinter/messages/content';\nexport const locales = languages(({ root }) => inlangLocales('project.inlang', root));\nexport const messages = inlang();\n`,
   'messages/en.json': JSON.stringify({ title: 'About', desc: 'Who we are', hello: 'Hello' }),
   'messages/de.json': JSON.stringify({ title: 'Über uns', desc: 'Wer wir sind', hello: 'Hallo' }),
   'index.html': `<!doctype html><html lang="en"><head>${head}</head><body>${switcher}<p data-sn-text="m.hello()"></p><img src="img/logo.svg" alt=""></body></html>`,
@@ -72,7 +73,7 @@ describe('each page in each language', () => {
   test('a page that runs: its messages compiled in, the app modules\' in the page; no picker, no language file', () => {
     const de = read('de/article.html');
     expect(de).not.toContain('data-sn-i18n');
-    expect(de).toContain('<script type="application/json" data-sn-messages>{"hello":"Hallo"}</script>');
+    expect(de).toContain('<script type="application/json" data-sn-ns="m">{"hello":{"id":"hello","m":{"p":["Hallo"]}}}</script>');
     expect(readdirSync(join(out, 'assets')).filter((f) => /-(en|de)-[\w-]+\.js$/.test(f))).toEqual([]);
     const js = readdirSync(join(out, 'assets')).filter((f) => f.endsWith('.js')).map((f) => read(`assets/${f}`)).join('\n');
     expect(js).toContain('Über uns');
@@ -137,6 +138,11 @@ test('sinter check: the pages from the Vite config are the sources, once each, n
   const dir = mkdtempSync(join(tmpdir(), 'sinter-locales-check-'));
   try {
     for (const f of ['project.inlang/settings.json', 'messages/en.json', 'messages/de.json', 'index.html', 'about.html']) { mkdirSync(dirname(join(dir, f)), { recursive: true }); writeFileSync(join(dir, f), files[f]!); }
+    // the content module's languages: the package, linked as an install would
+    mkdirSync(join(dir, 'src'), { recursive: true });
+    writeFileSync(join(dir, 'src/sinter.content.ts'), "import { languages } from '@tiaforge-ui/sinter/content';\nexport const locales = languages({ base: 'en', list: ['en', 'de'] });\n");
+    mkdirSync(join(dir, 'node_modules/@tiaforge-ui'), { recursive: true });
+    symlinkSync(resolve(__dirname, '../..'), join(dir, 'node_modules/@tiaforge-ui/sinter'), 'dir');
     writeFileSync(join(dir, 'vite.config.js'), `import sinter from ${JSON.stringify(join(src, 'vite.ts'))};\nexport default { plugins: [sinter({ localePrefix: true })], build: { rollupOptions: { input: ['index.html', 'about.html'] } } };\n`);
     const { pages } = await viteProject(dir);
     expect(pages.sort()).toEqual([join(dir, 'about.html'), join(dir, 'index.html')]);

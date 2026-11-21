@@ -221,12 +221,12 @@ test('early attributes: the URL check only where the expression does not fix the
   expect(tpl).toContain('set, "href"');
 });
 
-test('baseMessages in the page\'s one language: a binding that calls m over constants is written into the HTML', () => {
+test('a content namespace in the page\'s one language: a binding that calls m over constants is written into the HTML', () => {
   const html = page(`<div data-sn-state="{ who: 'Ada' }"><h1 data-sn-text="m.title()"></h1><p data-sn-text="m.hello({ name: who })"></p><a data-sn-attr="{title: m.title()}">x</a><p data-sn-text="m.gone()"></p></div>`);
   const opts: CompileOptions = {
     file: '/app/index.html', root: '/app', dev: false, readFile: () => '', moduleSrc: '/page.js', prerender: true, early: { module: null },
-    helpers: { module: null, names: [], namespaces: { m: { module: '@tiaforge-ui/sinter/messages', members: ['title', 'hello', 'gone'] } } },
-    baseMessages: { title: 'People', hello: 'Hello {name}' }, locale: { name: 'en', urls: null, base: '/', prefix: false },
+    helpers: { module: null, names: [], namespaces: { m: { module: 'sinter:content/m', members: ['title', 'hello', 'gone'] } } },
+    contentNs: { m: { entries: { title: 'People', hello: 'Hello {name}' }, format: null } }, locale: { name: 'en', urls: null, base: '/', prefix: false },
   };
   const out = compile(html, opts);
   const body = out.html.slice(out.html.indexOf('<body'));

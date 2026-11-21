@@ -33,8 +33,7 @@ import { eachPath } from '../paths.js';
 import { inLanguage, prefixPaths } from '../locales.js';
 
 /** the built-in messages' module, and a content namespace's (as compiler/index.ts names them) */
-const MESSAGES_MODULE = '@tiaforge-ui/sinter/messages';
-const isContentNsModule = (m: string) => m === MESSAGES_MODULE || m.startsWith('sinter:content/');
+const isContentNsModule = (m: string) => m.startsWith('sinter:content/');
 import { pagePaths } from '../page-paths.js';
 import { bytes, date, isCalendarDate, number } from '../runtime/helpers.js';
 import { config } from '../runtime/config.js';
@@ -161,18 +160,11 @@ export interface CompileOptions {
    */
   changesRequests?: boolean;
   /**
-   * builds: the messages in the page's one language (`locale`). With `prerender`, a binding that calls `m` over
-   * constants is written into the HTML in that language; one over data is compiled into the page's script with that
-   * language's text
-   */
-  baseMessages?: Record<string, string>;
-  /**
    * Content namespaces (docs/proposals/messages.md §1): by name, the entries a page may call as `ns.id(args)` in the
    * page's language (or at its point), and how they are formatted: `format`, a formatter module whose
    * `format(entry, args, locale)` makes the value (absolute, or a package), or null for the built-in `{param}` text;
    * `formatFn` that function, for the build to fold a call over constants; `runtime`, the module whose state app code
    * reads (the built-in messages'). The namespace is in the helpers manifest with its entries' ids as its members.
-   * The built-in messages are one (`baseMessages` is their alias).
    */
   contentNs?: Record<string, { entries: Record<string, unknown>; format: string | null; formatFn?: (entry: unknown, args: unknown, locale: string | null) => unknown; runtime?: string; export?: string; module?: string; inlineFn?: (entry: unknown) => string | null }>;
   /**
@@ -224,7 +216,7 @@ export interface CompileOptions {
    */
   urls?: { site: string; canonical: string | null; origin: string };
   /**
-   * `localePrefix`: the page in one language (`name`). `baseMessages` is that language's text; the page's
+   * `localePrefix`: the page in one language (`name`). The page's
    * `data-sn-path` patterns get its prefix after `base`; `localeUrl(l)` is the page's URL in language `l`, from
    * `urls` (null for a page whose paths all have parameters: from the browser's path); the page module records
    * the language in the `locale` cookie (docs/static-pages.md#languages). `list` and `pages` (the site's languages and
@@ -1430,7 +1422,7 @@ class Compiler {
       const b = l.base.startsWith('/') ? l.base.replace(/\/?$/, '/') : '/';
       // a page whose paths have parameters: its path in another language is the browser's, with that language's prefix
       const localeUrl = l.urls ? `((l) => (${JSON.stringify(l.urls)})[l])` : `((l) => ${JSON.stringify(b)} + l + location.pathname.slice(${b.length + l.name.length}))`;
-      this.page.locale = { name: l.name, messages: Object.entries(opts.helpers.namespaces).find(([, v]) => v.module === MESSAGES_MODULE)?.[0] ?? null, localeUrl, ...(l.urls ? { ownUrls: true } : {}), ...(l.prefix === false ? { prefix: false as const } : {}) };
+      this.page.locale = { name: l.name, messages: null, localeUrl, ...(l.urls ? { ownUrls: true } : {}), ...(l.prefix === false ? { prefix: false as const } : {}) };
     }
     const cns = Object.keys(opts.contentNs ?? {});
     if (cns.length) this.page.contentNs = new Set(cns);
@@ -6814,7 +6806,7 @@ class Compiler {
     return { key: pc.key, value: pc.values.get(keys.join('\0')) ?? [], point: keys.join('\0') };
   }
 
-  /** the compile's content namespaces: `contentNs`, and the built-in messages' through `baseMessages` */
+  /** the compile's content namespaces (`contentNs`), each at the page's point */
   contentNs(): NonNullable<CompileOptions['contentNs']> {
     const out: NonNullable<CompileOptions['contentNs']> = { ...this.opts.contentNs };
     // one loaded per axis (`per: [tenants]`): its entries at the page's point
@@ -6825,8 +6817,6 @@ class Compiler {
       for (const e of at.value as Array<Record<string, unknown>>) entries[String(e[at.key])] = e;
       out[ns] = { ...spec, entries };
     }
-    const b = this.opts.baseMessages;
-    if (b) for (const [ns, v] of Object.entries(this.opts.helpers.namespaces)) if (v.module === MESSAGES_MODULE && !out[ns]) out[ns] = { entries: b, format: null, runtime: MESSAGES_MODULE };
     return out;
   }
 
@@ -7329,14 +7319,11 @@ class Compiler {
     for (const [ns, { members, module }] of Object.entries(this.opts.helpers.namespaces)) for (const m of members) params.set(nsLocal(ns, m), isContentNsModule(module) ? stub : folding.fn(`${ns}$${m}`));
     // content namespaces (the built-in messages too): an entry in the page's language, formatted as the browser would
     const cns = this.contentNs();
-    let usedMessage = false;
-    const msgNs = Object.entries(this.opts.helpers.namespaces).find(([ns, v]) => v.module === MESSAGES_MODULE && cns[ns]);
     for (const [ns, spec] of Object.entries(cns)) for (const m of this.opts.helpers.namespaces[ns]?.members ?? []) {
       params.set(nsLocal(ns, m), (p?: Record<string, unknown>) => {
         const t = spec.entries[m];
         if (spec.format === null) {
           if (typeof t !== 'string') throw NOT;
-          if (spec.runtime) usedMessage = true;
           return p ? t.replace(/\{(\w+)\}/g, (x, n) => (n in p ? String(p[n]) : x)) : t;
         }
         if (!spec.formatFn || t === undefined) throw NOT;
@@ -7366,7 +7353,6 @@ class Compiler {
     const states = new Map<number, unknown>();
     const known = (deps: string[]) => deps.every((d) => {
       // a message re-renders on `$locale`: its base text is what is written
-      if (d === '$locale' && msgNs) return true;
       if (d === '$locale' && this.opts.helperFold) return true;
       if (this.fileConstant(d)) return true;
       // a waiting let's module: evaluated, so its call (`$z`) records why it does not fold
@@ -7404,44 +7390,37 @@ class Compiler {
       }));
     }
     const schemes = schemesOf([]);
-    const work = this.worklist(fnOf, known, fixed, schemes, () => usedMessage, () => { usedMessage = false; }, ROW);
+    const work = this.worklist(fnOf, known, fixed, schemes, ROW);
     for (const c of cands) {
       own = c.b.k === 'model' && c.b.p !== undefined ? (c.b.w![0] as string).split('.').slice(0, 2).join('.') : null;
-      usedMessage = false;
       const v = known(strs(c.b.d)) ? run(this.fns[c.f]!) : FAIL;
       if (c.for) {
-        work.unroll(this.instKey(c.el)!, c.b, (usedMessage && !this.opts.locale) ? FAIL : v, scope, c.el);
+        work.unroll(this.instKey(c.el)!, c.b, v, scope, c.el);
         continue;
       }
       if (c.if) {
         // per instance (its uses too); one template in two instances nothing tells apart: decided only when they agree
         const key = this.instKey(c.el)!;
-        if (v === FAIL || usedMessage) { this.decided.delete(key); this.undecided.add(key); continue; }
+        if (v === FAIL) { this.decided.delete(key); this.undecided.add(key); continue; }
         if (this.undecided.has(key)) continue;
         if (this.decided.has(key) && this.decided.get(key) !== !!v) { this.decided.delete(key); this.undecided.add(key); continue; }
         this.decided.set(key, !!v);
         this.foldReads.set(key, this.stateSites(c.b.d));
         continue;
       }
-      // in a page built in one language a message is that language's text, a constant like any other
-      const msg = usedMessage && !this.opts.locale;
-      if (c.tpl && (v === FAIL || msg)) continue;
-      if (msg && c.b.k !== 'text') continue;
+      if (c.tpl && v === FAIL) continue;
       const w = v === FAIL ? FAIL : firstPaintValue(c.el, c.b, v, schemes);
       if (w === FAIL) continue;
       // (deciding only: what would be written is recorded, for `collectConstants`, and the markup left as walked)
       if (!decideOnly) writeFirstPaint(c.el, w[0], c.b.n ?? null, w[1]);
       if (c.tpl) { this.tplPainted.add(c.b); this.paintValue.set(c.b, { k: w[0], n: c.b.n ?? null, v: w[1] }); continue; }
-      // a message in a compile without a language (none of a build's): left to the browser
-      if (msg) continue;
       // a persisted model's written value is the fallback: the early chunk still applies the stored one
       if (own === null) { this.painted.add(c.b); this.paintValue.set(c.b, { k: w[0], n: c.b.n ?? null, v: w[1] }); }
     }
     // a text node over constants: plain text in the HTML, its anchor pair gone, its binding and node dropped
     for (const t of texts) {
-      usedMessage = false;
       const v = known(strs(t.b.d)) ? run(this.fns[t.b.f!]!) : FAIL;
-      if (decideOnly || v === FAIL || usedMessage || (v !== null && v !== undefined && typeof v === 'object')) continue;
+      if (decideOnly || v === FAIL || (v !== null && v !== undefined && typeof v === 'object')) continue;
       const text = '' + (v ?? '');
       const at = t.parent.childNodes.indexOf(t.nodes[0] as never);
       if (at < 0) continue;
@@ -7668,7 +7647,7 @@ class Compiler {
    * Two instances with one key (no way to tell them apart) leave it. At most `EXPANSION_LIMIT` rows and component
    * instances per page, any list's rows counted (`SN536` past it, at the loop or the tree that crosses it).
    */
-  worklist(fnOf: Map<string, ($: unknown) => unknown>, known: (deps: string[]) => boolean, fixed: (ds: PathRef[] | undefined) => boolean, schemes: Set<string>, usedMessage: () => boolean, reset: () => void, ROW: Set<string>) {
+  worklist(fnOf: Map<string, ($: unknown) => unknown>, known: (deps: string[]) => boolean, fixed: (ds: PathRef[] | undefined) => boolean, schemes: Set<string>, ROW: Set<string>) {
     type Found = { unrolls: Array<[string, unknown[], PathRef[] | undefined]>; decided: Array<[string, boolean, PathRef[] | undefined]>; paints: Array<[Binding, string, ConstantWrite | null]>; rows: number; over?: true };
     /** `pick`: a choice's case expanded (decided true), else a loop unrolled */
     const pending = new Map<string, { items: unknown[]; d: PathRef[] | undefined; found: Found; pick?: true; el: P5Element } | null>();
@@ -7690,9 +7669,8 @@ class Compiler {
     const run = (sc: object, code: string): unknown => {
       const f = fnOf.get(code);
       if (!f) return FAIL;
-      reset();
       this.folding?.start(code);
-      try { const v = f(sc); return usedMessage() && !this.opts.locale ? FAIL : v; } catch { return FAIL; } finally { this.folding?.end(); }
+      try { return f(sc); } catch { return FAIL; } finally { this.folding?.end(); }
     };
     const listOf = (v: unknown): unknown[] | null => (Array.isArray(v) && v.every((x) => plainData(x)) ? v : null);
     // (a placement's element is its `<slot>`; an anchor's, its template)

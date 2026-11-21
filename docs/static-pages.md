@@ -506,12 +506,9 @@ dist/about/index.html       /about/       a language chooser
 dist/index.html             /             a language chooser
 ```
 
-The languages come from the inlang project: `locales` are the prefixes, and `baseLocale` (which must be
-set, and among `locales`) is the language a visitor without a choice gets. Every language is prefixed,
-the base too, so a server routes on the first segment alone.
-
-A site without messages declares its languages in the [content module](resources.md#collections) instead, and
-`localePrefix` works with `messages: false`:
+The languages are declared in the [content module](resources.md#collections): `list` are the prefixes, and `base`
+(one of `list`) is the language a visitor without a choice gets. Every language is prefixed, the base too, so a
+server routes on the first segment alone.
 
 ```ts
 // src/sinter.content.ts
@@ -519,8 +516,8 @@ import { languages } from '@tiaforge-ui/sinter/content';
 export const locales = languages({ base: 'en', list: ['en', 'de'] });
 ```
 
-`base` must be one of `list`, and each is a language tag. With the built-in messages too, the inlang project must
-list the same languages, or the build fails naming both lists. The content module has one `languages()`.
+Each is a language tag, and the content module has one `languages()`. A site with [messages](messages.md) takes them
+from its inlang project: `languages(({ root }) => inlangLocales('project.inlang', root))`.
 
 **Fallback chains.** A message missing in a language is looked up along its chain, at build: its tag less its last
 subtag, one at a time, where the site has that language, then the base (`de-AT → de → en`). `languages({ fallbacks:
@@ -540,7 +537,7 @@ In each language's page:
   either: a message its code still needs (`m.inbox_count({ count: inbox.unread })`, or `m.loading()` in an
   expression over data) is compiled into its script as that language's text, and the messages your own
   modules call (`m.hello()` in a helper) are written into the page, in `<script type="application/json"
-  data-sn-messages>`. `number()`, `bytes()` and `date()` of a calendar date (`'2026-11-11'`) are written at
+  data-sn-ns="m">`. `number()`, `bytes()` and `date()` of a calendar date (`'2026-11-11'`) are written at
   build time too; a moment (`'2026-11-11T09:00:00Z'`) is the visitor's time zone's, formatted in the browser.
 - **Switching language is a link.** `localeUrl('de')` is this page's URL in German:
 
