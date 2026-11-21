@@ -141,6 +141,8 @@ const dev: Feature = {
           return true;
         }
       }
+      // what write-through applied is a trace, not a warning: logged at debug level each time, never reported to strict mode
+      if (code == 21) { console.debug(`sinter: ${MESSAGES[21]!.replace(/%/g, () => String(args.shift()))}`); return; }
       let i = 0;
       const text = typeof code == 'string' ? code : MESSAGES[code]!.replace(/%/g, () => String(args[i++]).replace(/\x1f/g, ','));
       const msg = `sinter: ${text}`;

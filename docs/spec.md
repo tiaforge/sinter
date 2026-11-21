@@ -821,7 +821,7 @@ A mutation's 2xx response is applied to the resources it is about, by the `write
 - Never by type alone: a response `Article` does not replace the single `article` unless the URL read it; a response `Profile` does not touch `article.author` unless the URL read it. A `DELETE` on a sub-resource (`/articles/{slug}/favorite`) removes nothing; a `DELETE` of a single-object resource's URL leaves it (the page usually navigates).
 - Rules 1 to 3 need the spec (`sinter({ apis })`); untyped pages get rule 4 and the body-only form of rule 3.
 - `data-sn-write-through="off"` turns it off for one element. `data-sn-call` has no write-through.
-- `SN510 redundant-write` (warning): a `then` that `merge`s or `upsert`s a resource with `$result.<path>` a rule applies, or `remove`s the row a rule 4 removes. Dev builds log each application: `write-through after POST /api/articles/x/favorite: articles: merge, feed: merge`.
+- `SN510 redundant-write` (warning): a `then` that `merge`s or `upsert`s a resource with `$result.<path>` a rule applies, or `remove`s the row a rule 4 removes. Dev builds log each application with `console.debug` (a trace, which strict mode does not fail on): `write-through after POST /api/articles/x/favorite: articles: merge, feed: merge`.
 - RealWorld (2026-11-08): 12 of 19 `then` handlers went, among them every favorite and follow button and the comment form's `upsert`.
 
 ### Resource names
