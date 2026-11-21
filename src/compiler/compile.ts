@@ -8320,6 +8320,13 @@ class Compiler {
     const esc = (n: string) => n.replace(/\$/g, '\\$');
     const names = (ns: Map<string, string>) => new RegExp(`(?<![\\w$])(${[...ns.keys()].map(esc).join('|')})(?![\\w$])`, 'g');
     const KINDS = new Set(['text', 'attr', 'class', 'style', 'show', 'prop', 'for', 'if', 'ch']);
+    // a head template's markup, serialized once: every subtree around it has it in its form
+    const htmls = new Map<number, string | null>();
+    const htmlOf = (id: number) => {
+      let h = htmls.get(id);
+      if (h === undefined) htmls.set(id, (h = this.headTemplates.has(id) ? parse5.serialize(this.headTemplates.get(id)!.content) : null));
+      return h;
+    };
     // the subtree's form with its names numbered, or null when it is not a candidate
     const formOf = (root: number): string | null => {
       const d = owner.get(root);
@@ -8336,7 +8343,7 @@ class Compiler {
         const t = T[id]!;
         const { id: _i, nodes, item: _a, index: _b, ii: _c, key, find: _f, make: _m, ...rest } = t;
         return {
-          ...rest, key: code(key), html: this.headTemplates.has(id) ? parse5.serialize(this.headTemplates.get(id)!.content) : null,
+          ...rest, key: code(key), html: htmlOf(id),
           nodes: nodes.map((n) => {
             if (n.state !== undefined || n.sid !== undefined || n.persist !== undefined || n.dl) bad = true;
             return {
