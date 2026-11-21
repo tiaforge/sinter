@@ -268,15 +268,15 @@ describe('the modules', () => {
   test('the parser decodes entities with its packed table: no DOM, no innerHTML, no debug', () => {
     const src = readFileSync(join(PKG, 'sinter/parser.js'), 'utf8');
     expect(src).not.toMatch(/innerHTML|document\.createElement|createDebug|localStorage|navigator/);
-    expect(src).toMatch(/var _packed_entities_default = "9 Tab 1 NewLine /);
+    expect(src).toMatch(/var _packed_entities_default = "9:Tab;:NewLine;n:excl;:QUOT,quot;/);
     expect(src).not.toMatch(/decode_data_html|Uint16Array|const characterEntities = \{/);
   });
 
-  test('the parser leaves out what md.parse never runs: linkify-it, the renderer, the typographer, mdurl, punycode', () => {
+  test('the parser leaves out what md.parse never runs: markdown-it\'s class and presets, linkify-it, the renderer, the typographer, mdurl, punycode', () => {
     const src = readFileSync(join(PKG, 'sinter/parser.js'), 'utf8');
     const modules = [...src.matchAll(/^\/\/ (node_modules\/\S+)$/gm)].map((m) => m[1]);
     expect(modules.length).toBeGreaterThan(40);
     expect(modules.filter((m) => !m.startsWith('node_modules/markdown-it/lib/'))).toEqual([]);
-    expect(modules.filter((m) => /renderer|linkify|smartquotes|replacements/.test(m))).toEqual([]);
+    expect(modules.filter((m) => /renderer|linkify|smartquotes|replacements|presets\/|\/lib\/index\.mjs$/.test(m))).toEqual([]);
   });
 });

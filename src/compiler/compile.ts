@@ -25,7 +25,7 @@ import { apiOf, RESPONSE_PATH, shapeTemplate, signInWire, type ApiDef, type Apis
 import { foldReason, type FoldVerdict } from '../fold-check.js';
 import { BUILD_TIME_ATTRS, buildTimeAttrProblem, FILE_ATTRS, FILE_ENTRY, fileAttrProblem, fileEntry, filePath, fileValue, isContentSource, isFileSource, isGlob, PAGE_ENTRY, scriptJson, setPath, sortList } from './files.js';
 import { deref, matchOperation, matchResource, type Method, type OpenApiMatch, type Auth, namedAt, namedSchema, properties, propertyNames, queryNames, responseEntities, walk, wrapperKey, type OpenApiSpec } from './openapi.js';
-import type { ActionDef, ApplyDef, Binding, EarlyIR, EventDef, IR, NodeDef, Paginate, PathRef, ResourceDef, SyncDef, TemplateDef, UrlTemplate } from '../ir.js';
+import { templatesOf, type ActionDef, type ApplyDef, type Binding, type EarlyIR, type EventDef, type IR, type NodeDef, type Paginate, type PathRef, type ResourceDef, type SyncDef, type TemplateDef, type UrlTemplate } from '../ir.js';
 import { $k, schemesOf, STYLE_BAD, urlAllowed } from '../runtime/security.js';
 import { $href, $hq, $hv, withParams } from '../runtime/url.js';
 import { firstParams, pageParams } from '../runtime/pages.js';
@@ -764,9 +764,11 @@ interface Site { el: P5Element; attr: string | null; shift: number; parts?: Arra
 /** `<sn-component use>`: its one choice node, and each candidate's case (its definition and props), in order */
 interface ChoiceGroup {
   node: NodeDef | null;
-  cases: Array<{ name: string; tid: number; props: string; deps: string[] }>;
+  cases: Array<{ name: string; tid: number; props: string; deps: string[]; keys?: string[] }>;
   /** `use`, compiled once, and its dev warning for a value outside the candidates */
   pick: string | null;
+  /** a map's key (`use="{ … }[key]"`), compiled once: a lookup table is keyed by the map's keys, not its names */
+  key?: string | null;
   warn: string;
   site: Site | null;
 }
@@ -1574,6 +1576,8 @@ class Compiler {
   finishPage({ doc, images, paths }: NonNullable<Compiler['walk']>): CompiledParts & { canonicalOnly?: boolean } {
     if (this.opts.prerender) { this.prerender(); this.embedFolded(); this.dropConstants(); this.dropFiles(); this.foldScriptsOut(); if (this.collecting()) this.collectConstants(); }
     this.anchors();
+    // (before the early file and the head templates: both number the templates that are left)
+    if (this.opts.prerender && !this.opts.dev) this.shareTemplates();
     this.guard = this.signedInGuard();
     let early = this.opts.early ? this.earlyParts() : undefined;
     this.placeTemplates(doc, early);
@@ -3838,10 +3842,14 @@ class Compiler {
       if (choice.first && pick?.usesEl) this.report(host, 'use', 'SN213', '`$el` in `use`: a component chosen by data is marked by comments in the page, so there is no element to read', 0, 'choose with the data alone');
       // one choice anchor for the whole `<sn-component use>`: each candidate adds its case; the first makes the node
       const g = choice.group;
-      g.cases.push({ name: choice.name, tid: def.tid, props: props.slice(1, -1), deps });
+      g.cases.push({ name: choice.name, tid: def.tid, props: props.slice(1, -1), deps, ...(choice.keys && choice.key !== null ? { keys: [choice.key, ...(choice.also ?? [])] } : {}) });
       // (removed after the walk: detaching it now would make the walk skip the node after it)
       if (g.node) { this.remove.push(host); return null; }
       g.pick = pick!.ok ? pick!.inner : 'undefined';
+      if (pick!.ok && choice.keys && choice.keySrc !== null) {
+        const k = analyze(choice.keySrc, ctx.scope, this.page, { mode: 'value', report: () => {} });
+        g.key = k.ok ? k.inner : null;
+      }
       g.warn = warn;
       g.site = { el: host, attr: 'data-sn-with', shift: 0 };
       this.choiceGroups.push(g);
@@ -4240,15 +4248,20 @@ class Compiler {
       // the chain would. A component used in many places repeats this per place, so it must stay small.
       const variants = [...new Set(g.cases.map((c) => c.props))];
       if (g.cases.length >= CHOICE_TABLE && variants.length <= 3) {
+        // a map with no dev warning (which reads the name) is one table keyed by the map's own keys: the map's values
+        // are the names, so the table it would be read through is folded into it. `$k` guards the key as the map's
+        // computed access did, and the table, with no prototype, holds the map's own keys only
+        const byKey = !g.warn && g.key != null && g.cases.every((c) => c.keys);
         const entries = new Map<string, string>();
         g.cases.forEach((c, i) => {
-          if (!entries.has(c.name)) entries.set(c.name, variants.length > 1 ? `[${i}, ${variants.indexOf(c.props)}]` : String(i));
+          for (const n of byKey ? c.keys! : [c.name]) if (!entries.has(n)) entries.set(n, variants.length > 1 ? `[${i}, ${variants.indexOf(c.props)}]` : String(i));
         });
         const table = `{ __proto__: null, ${[...entries].map(([n, e]) => `${JSON.stringify(n)}: ${e}`).join(', ')} }`;
+        const read = byKey ? `${table}[$k(${g.key})]` : `typeof v === 'string' ? ${table}[v] : undefined`;
         const pick = variants.length > 1
-          ? `const e = typeof v === 'string' ? ${table}[v] : undefined; return e === undefined ? null : [e[0], ${variants.map((p, k) => (k < variants.length - 1 ? `e[1] === ${k} ? ${p} : ` : p)).join('')}];`
-          : `const i = typeof v === 'string' ? ${table}[v] : undefined; return i === undefined ? null : [i, ${variants[0]}];`;
-        b.f = this.fn(`($) => { const v = (${g.pick}); ${g.warn}${pick} }`, g.site);
+          ? `const e = ${read}; return e === undefined ? null : [e[0], ${variants.map((p, k) => (k < variants.length - 1 ? `e[1] === ${k} ? ${p} : ` : p)).join('')}];`
+          : `const i = ${read}; return i === undefined ? null : [i, ${variants[0]}];`;
+        b.f = this.fn(byKey ? `($) => { ${pick} }` : `($) => { const v = (${g.pick}); ${g.warn}${pick} }`, g.site);
       } else {
         const cases = g.cases.map((c, i) => `v === ${JSON.stringify(c.name)} ? [${i}, ${c.props}]`).join(' : ');
         b.f = this.fn(`($) => { const v = (${g.pick}); ${g.warn}return ${cases} : null; }`, g.site);
@@ -8266,6 +8279,148 @@ class Compiler {
       if (!into) continue;
       tpl.parentNode = into as never;
       into.childNodes.push(tpl as never);
+    }
+  }
+
+  /**
+   * Templates written alike in several shared definitions (a markdown library's loop over a node's children, in each
+   * component that has children) are kept once. Inside a definition every name a row adds is the template's own
+   * (`n$17`, `$i17`: rows chain to the caller's scope), so the same markup compiles to other names in each; two
+   * subtrees (a template and the templates under it, up to the next definition) are the same when they are equal
+   * with the names they bind numbered by position, and the props of the definition around each (`$p16`) read as
+   * that definition's: the runtime gives every definition's row its props under one more name, `$pp`, which the kept
+   * subtree's functions read instead. A subtree is a candidate only when nothing else in it names its definition or
+   * a template: no state, no handler or action, no model, no fills of its own (their case templates' ids), no
+   * dependency path through the props. The others point at the one kept, and theirs are left empty.
+   */
+  shareTemplates() {
+    const T = this.templates;
+    const isDef = (t: TemplateDef | undefined) => !!t?.item?.startsWith('$p');
+    const kids = (t: TemplateDef) => t.nodes.flatMap((n) => n.b.flatMap(templatesOf));
+    // each template's definition: the one whose markup it is in; -1 for one reached from two
+    const owner = new Map<number, number>();
+    for (const d of T) {
+      if (!isDef(d)) continue;
+      const todo = kids(d);
+      while (todo.length) {
+        const id = todo.pop()!, t = T[id];
+        if (!t || isDef(t) || owner.get(id) === d.id) continue;
+        owner.set(id, owner.has(id) ? -1 : d.id);
+        todo.push(...kids(t));
+      }
+    }
+    for (const [id, o] of [...owner]) if (o === -1) { const todo = [id]; while (todo.length) { const x = todo.pop()!; if (owner.get(x) === -1 && x !== id) continue; owner.set(x, -1); for (const k of kids(T[x]!)) if (!isDef(T[k])) todo.push(k); } }
+    // a subtree's templates, in order (none past a definition)
+    const subtree = (root: number) => {
+      const out: number[] = [], seen = new Set<number>();
+      const go = (id: number) => { if (seen.has(id) || isDef(T[id])) return; seen.add(id); out.push(id); for (const k of kids(T[id]!)) go(k); };
+      go(root);
+      return out;
+    };
+    const esc = (n: string) => n.replace(/\$/g, '\\$');
+    const names = (ns: Map<string, string>) => new RegExp(`(?<![\\w$])(${[...ns.keys()].map(esc).join('|')})(?![\\w$])`, 'g');
+    const KINDS = new Set(['text', 'attr', 'class', 'style', 'show', 'prop', 'for', 'if', 'ch']);
+    // the subtree's form with its names numbered, or null when it is not a candidate
+    const formOf = (root: number): string | null => {
+      const d = owner.get(root);
+      if (d === undefined || d < 0) return null;
+      const ids = subtree(root), pos = new Map(ids.map((id, i) => [id, i]));
+      const ns = new Map<string, string>([[T[d]!.item!, '@D']]);
+      ids.forEach((id, i) => { const t = T[id]!; if (t.item) ns.set(t.item, `@${i}i`); if (t.index) ns.set(t.index, `@${i}x`); if (t.ii) ns.set(t.ii, `@${i}n`); });
+      const re = names(ns), own = new RegExp(`(?<![\\w$])${esc(T[d]!.item!)}(?![\\w$])`);
+      const code = (i: number | null | undefined) => (i == null ? null : this.fns[i]!.replace(re, (m) => ns.get(m)!));
+      let bad = false;
+      const path = (p: PathRef) => { if (typeof p === 'string' && own.test(p)) bad = true; return typeof p === 'string' ? p.replace(re, (m) => ns.get(m)!) : p; };
+      const ref = (x: number) => (pos.has(x) ? `T${pos.get(x)}` : `A${x}`);
+      const form = ids.map((id) => {
+        const t = T[id]!;
+        const { id: _i, nodes, item: _a, index: _b, ii: _c, key, find: _f, make: _m, ...rest } = t;
+        return {
+          ...rest, key: code(key), html: this.headTemplates.has(id) ? parse5.serialize(this.headTemplates.get(id)!.content) : null,
+          nodes: nodes.map((n) => {
+            if (n.state !== undefined || n.sid !== undefined || n.persist !== undefined || n.dl) bad = true;
+            return {
+              ...n, b: n.b.map((b) => {
+                if (!KINDS.has(b.k) || b.at) bad = true;
+                if (b.f !== undefined && /"\$f": \{/.test(this.fns[b.f]!)) bad = true;
+                const { at: _t, ...o } = b;
+                return {
+                  ...o, f: code(b.f), d: b.d?.map(path), w: b.w?.map(path),
+                  ...(b.s ? { s: { ...b.s, r: code(b.s.r), o: code(b.s.o), d: b.s.d.map(path) } } : {}),
+                  ...(b.k === 'for' || b.k === 'if' ? { x: ref(b.x!), ...(b.z != null ? { z: ref(b.z) } : {}) } : {}),
+                  ...(b.k === 'ch' ? { c: b.c!.map(ref) } : {}),
+                };
+              }),
+            };
+          }),
+        };
+      });
+        return bad ? null : JSON.stringify(form);
+    };
+    // from each definition, outer subtrees first: the first of a form is kept, a later one points at it
+    const kept = new Map<string, number>(), to = new Map<number, number>(), visited = new Set<number>(), sharedBy = new Set<number>();
+    for (const d of T) {
+      if (!isDef(d)) continue;
+      const go = (id: number) => {
+        if (visited.has(id) || isDef(T[id])) return;
+        visited.add(id);
+        const f = formOf(id), k = f === null ? undefined : kept.get(f);
+        if (k !== undefined && k !== id) { to.set(id, k); sharedBy.add(k); return; }
+        if (f !== null) kept.set(f, id);
+        for (const x of kids(T[id]!)) go(x);
+      };
+      for (const x of kids(d)) go(x);
+    }
+    if (!to.size) return;
+    const point = (n: NodeDef) => {
+      for (const b of n.b) {
+        if ((b.k === 'for' || b.k === 'if') && to.has(b.x!)) b.x = to.get(b.x!);
+        if ((b.k === 'for' || b.k === 'if') && b.z != null && to.has(b.z)) b.z = to.get(b.z);
+        if (b.k === 'ch') b.c = b.c!.map((x) => to.get(x) ?? x);
+      }
+    };
+    // what the others held goes: their functions (unless used elsewhere), their head templates
+    const drop = (i: number | null | undefined) => {
+      if (i == null || --this.fnUses[i]! > 0) return;
+      this.fnIndex.delete(this.fns[i]!);
+      this.fns[i] = '0';
+    };
+    for (const from of to.keys()) {
+      for (const id of subtree(from)) {
+        const t = T[id]!;
+        drop(t.key);
+        for (const n of t.nodes) for (const b of n.b) { drop(b.f); drop(b.a); if (b.s) { drop(b.s.r); drop(b.s.o); } }
+        T[id] = { id, nodes: [] };
+        this.headTemplates.delete(id);
+      }
+    }
+    for (const n of this.roots) point(n);
+    for (const t of T) for (const n of t.nodes) point(n);
+    // the kept subtrees read their definition's props as `$pp`: they render inside other definitions too
+    const fresh = (code: string, at: Site | null) => {
+      const i = this.fn(code, at);
+      if (this.fns[i] !== '0') return i;
+      this.fnUses[i]!--;
+      this.fnIndex.set(code, (this.fns.push(code) - 1));
+      const j = this.fns.length - 1;
+      this.fnUses[j] = 1;
+      this.fnAt[j] = at;
+      return j;
+    };
+    for (const k of sharedBy) {
+      const own = new RegExp(`(?<![\\w$])${esc(T[owner.get(k)!]!.item!)}(?![\\w$])`, 'g');
+      const swap = (i: number | undefined) => {
+        if (i === undefined || !own.test(this.fns[i]!)) return i;
+        own.lastIndex = 0;
+        const j = fresh(this.fns[i]!.replace(own, '$pp'), this.fnAt[i] ?? null);
+        drop(i);
+        return j;
+      };
+      for (const id of subtree(k)) {
+        const t = T[id]!;
+        if (t.key != null) t.key = swap(t.key) ?? null;
+        for (const n of t.nodes) for (const b of n.b) { if (b.f !== undefined) b.f = swap(b.f); if (b.s) { b.s.r = swap(b.s.r)!; b.s.o = swap(b.s.o)!; } }
+      }
     }
   }
 

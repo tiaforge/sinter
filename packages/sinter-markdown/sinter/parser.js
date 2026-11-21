@@ -16,367 +16,6 @@ var __exportAll = (all, no_symbols) => {
 	return target;
 };
 
-// scripts/mdurl.js
-var mdurl_exports = /* @__PURE__ */ __exportAll({
-	decode: () => decode,
-	encode: () => encode,
-	format: () => format,
-	parse: () => parse
-});
-const unused$1 = () => {
-	throw new Error("mdurl is not bundled into sinter/parser.js");
-};
-const decode = unused$1;
-const encode = unused$1;
-const parse = unused$1;
-const format = unused$1;
-
-// scripts/uc-micro.js
-var uc_micro_exports = /* @__PURE__ */ __exportAll({
-	P: () => P,
-	S: () => S
-});
-const P = /\p{P}/u;
-const S = /\p{S}/u;
-
-// \0packed-entities
-var _packed_entities_default = "9 Tab 1 NewLine n excl 1 QUOT 0 quot 1 num 1 dollar 1 percnt 1 AMP 0 amp 1 apos 1 lpar 1 rpar 1 ast 0 midast 1 plus 1 comma 2 period 1 sol b colon 1 semi 1 LT 0 lt 0+6he nvlt 1 equals 0+6hx bne 1 GT 0 gt 0+6he nvgt 1 quest 1 commat r lbrack 0 lsqb 1 bsol 1 rbrack 0 rsqb 1 Hat 1 UnderBar 0 lowbar 1 DiacriticalGrave 0 grave 6+2y fjlig l lbrace 0 lcub 1 VerticalLine 0 verbar 0 vert 1 rbrace 0 rcub z NonBreakingSpace 0 nbsp 1 iexcl 1 cent 1 pound 1 curren 1 yen 1 brvbar 1 sect 1 Dot 0 DoubleDot 0 die 0 uml 1 COPY 0 copy 1 ordf 1 laquo 1 not 1 shy 1 REG 0 circledR 0 reg 1 macr 0 strns 1 deg 1 PlusMinus 0 plusmn 0 pm 1 sup2 1 sup3 1 DiacriticalAcute 0 acute 1 micro 1 para 1 CenterDot 0 centerdot 0 middot 1 Cedilla 0 cedil 1 sup1 1 ordm 1 raquo 1 frac14 1 frac12 0 half 1 frac34 1 iquest 1 Agrave 1 Aacute 1 Acirc 1 Atilde 1 Auml 1 Aring 0 angst 1 AElig 1 Ccedil 1 Egrave 1 Eacute 1 Ecirc 1 Euml 1 Igrave 1 Iacute 1 Icirc 1 Iuml 1 ETH 1 Ntilde 1 Ograve 1 Oacute 1 Ocirc 1 Otilde 1 Ouml 1 times 1 Oslash 1 Ugrave 1 Uacute 1 Ucirc 1 Uuml 1 Yacute 1 THORN 1 szlig 1 agrave 1 aacute 1 acirc 1 atilde 1 auml 1 aring 1 aelig 1 ccedil 1 egrave 1 eacute 1 ecirc 1 euml 1 igrave 1 iacute 1 icirc 1 iuml 1 eth 1 ntilde 1 ograve 1 oacute 1 ocirc 1 otilde 1 ouml 1 div 0 divide 1 oslash 1 ugrave 1 uacute 1 ucirc 1 uuml 1 yacute 1 thorn 1 yuml 1 Amacr 1 amacr 1 Abreve 1 abreve 1 Aogon 1 aogon 1 Cacute 1 cacute 1 Ccirc 1 ccirc 1 Cdot 1 cdot 1 Ccaron 1 ccaron 1 Dcaron 1 dcaron 1 Dstrok 1 dstrok 1 Emacr 1 emacr 3 Edot 1 edot 1 Eogon 1 eogon 1 Ecaron 1 ecaron 1 Gcirc 1 gcirc 1 Gbreve 1 gbreve 1 Gdot 1 gdot 1 Gcedil 2 Hcirc 1 hcirc 1 Hstrok 1 hstrok 1 Itilde 1 itilde 1 Imacr 1 imacr 3 Iogon 1 iogon 1 Idot 1 imath 0 inodot 1 IJlig 1 ijlig 1 Jcirc 1 jcirc 1 Kcedil 1 kcedil 1 kgreen 1 Lacute 1 lacute 1 Lcedil 1 lcedil 1 Lcaron 1 lcaron 1 Lmidot 1 lmidot 1 Lstrok 1 lstrok 1 Nacute 1 nacute 1 Ncedil 1 ncedil 1 Ncaron 1 ncaron 1 napos 1 ENG 1 eng 1 Omacr 1 omacr 3 Odblac 1 odblac 1 OElig 1 oelig 1 Racute 1 racute 1 Rcedil 1 rcedil 1 Rcaron 1 rcaron 1 Sacute 1 sacute 1 Scirc 1 scirc 1 Scedil 1 scedil 1 Scaron 1 scaron 1 Tcedil 1 tcedil 1 Tcaron 1 tcaron 1 Tstrok 1 tstrok 1 Utilde 1 utilde 1 Umacr 1 umacr 1 Ubreve 1 ubreve 1 Uring 1 uring 1 Udblac 1 udblac 1 Uogon 1 uogon 1 Wcirc 1 wcirc 1 Ycirc 1 ycirc 1 Yuml 1 Zacute 1 zacute 1 Zdot 1 zdot 1 Zcaron 1 zcaron k fnof z imped 1s gacute 1u jmath 3z circ 1 Hacek 0 caron h Breve 0 breve 1 DiacriticalDot 0 dot 1 ring 1 ogon 1 DiacriticalTilde 0 tilde 1 DiacriticalDoubleAcute 0 dblac 1g DownBreve 3k Alpha 1 Beta 1 Gamma 1 Delta 1 Epsilon 1 Zeta 1 Eta 1 Theta 1 Iota 1 Kappa 1 Lambda 1 Mu 1 Nu 1 Xi 1 Omicron 1 Pi 1 Rho 2 Sigma 1 Tau 1 Upsilon 1 Phi 1 Chi 1 Psi 1 Omega 0 ohm 8 alpha 1 beta 1 gamma 1 delta 1 epsi 0 epsilon 1 zeta 1 eta 1 theta 1 iota 1 kappa 1 lambda 1 mu 1 nu 1 xi 1 omicron 1 pi 1 rho 1 sigmaf 0 sigmav 0 varsigma 1 sigma 1 tau 1 upsi 0 upsilon 1 phi 1 chi 1 psi 1 omega 8 thetasym 0 thetav 0 vartheta 1 Upsi 0 upsih 3 phiv 0 straightphi 0 varphi 1 piv 0 varpi 6 Gammad 1 digamma 0 gammad j kappav 0 varkappa 1 rhov 0 varrho 4 epsiv 0 straightepsilon 0 varepsilon 1 backepsilon 0 bepsi b IOcy 1 DJcy 1 GJcy 1 Jukcy 1 DScy 1 Iukcy 1 YIcy 1 Jsercy 1 LJcy 1 NJcy 1 TSHcy 1 KJcy 2 Ubrcy 1 DZcy 1 Acy 1 Bcy 1 Vcy 1 Gcy 1 Dcy 1 IEcy 1 ZHcy 1 Zcy 1 Icy 1 Jcy 1 Kcy 1 Lcy 1 Mcy 1 Ncy 1 Ocy 1 Pcy 1 Rcy 1 Scy 1 Tcy 1 Ucy 1 Fcy 1 KHcy 1 TScy 1 CHcy 1 SHcy 1 SHCHcy 1 HARDcy 1 Ycy 1 SOFTcy 1 Ecy 1 YUcy 1 YAcy 1 acy 1 bcy 1 vcy 1 gcy 1 dcy 1 iecy 1 zhcy 1 zcy 1 icy 1 jcy 1 kcy 1 lcy 1 mcy 1 ncy 1 ocy 1 pcy 1 rcy 1 scy 1 tcy 1 ucy 1 fcy 1 khcy 1 tscy 1 chcy 1 shcy 1 shchcy 1 hardcy 1 ycy 1 softcy 1 ecy 1 yucy 1 yacy 2 iocy 1 djcy 1 gjcy 1 jukcy 1 dscy 1 iukcy 1 yicy 1 jsercy 1 ljcy 1 njcy 1 tshcy 1 kjcy 2 ubrcy 1 dzcy 5gj ensp 1 emsp 1 emsp13 1 emsp14 2 numsp 1 puncsp 1 ThinSpace 0 thinsp 1 VeryThinSpace 0 hairsp 1 NegativeMediumSpace 0 NegativeThickSpace 0 NegativeThinSpace 0 NegativeVeryThinSpace 0 ZeroWidthSpace 1 zwnj 1 zwj 1 lrm 1 rlm 1 dash 0 hyphen 3 ndash 1 mdash 1 horbar 1 Verbar 0 Vert 2 OpenCurlyQuote 0 lsquo 1 CloseCurlyQuote 0 rsquo 0 rsquor 1 lsquor 0 sbquo 2 OpenCurlyDoubleQuote 0 ldquo 1 CloseCurlyDoubleQuote 0 rdquo 0 rdquor 1 bdquo 0 ldquor 2 dagger 1 Dagger 0 ddagger 1 bull 0 bullet 3 nldr 1 hellip 0 mldr a permil 1 pertenk 1 prime 1 Prime 1 tprime 1 backprime 0 bprime 4 lsaquo 1 rsaquo 4 OverBar 0 oline 3 caret 2 hybull 1 frasl b bsemi 8 qprime 8 MediumSpace 0+6bu ThickSpace 1 NoBreak 1 ApplyFunction 0 af 1 InvisibleTimes 0 it 1 InvisibleComma 0 ic 21 euro 1b TripleDot 0 tdot 1 DotDot 12 Copf 0 complexes 3 incare 5 gscr 1 HilbertSpace 0 Hscr 0 hamilt 1 Hfr 0 Poincareplane 1 Hopf 0 quaternions 1 planckh 1 hbar 0 hslash 0 planck 0 plankv 1 Iscr 0 imagline 1 Ifr 0 Im 0 image 0 imagpart 1 Laplacetrf 0 Lscr 0 lagran 1 ell 2 Nopf 0 naturals 1 numero 1 copysr 1 weierp 0 wp 1 Popf 0 primes 1 Qopf 0 rationals 1 Rscr 0 realine 1 Re 0 Rfr 0 real 0 realpart 1 Ropf 0 reals 1 rx 4 TRADE 0 trade 2 Zopf 0 integers 3 mho 1 Zfr 0 zeetrf 1 iiota 3 Bernoullis 0 Bscr 0 bernou 1 Cayleys 0 Cfr 2 escr 1 Escr 0 expectation 1 Fouriertrf 0 Fscr 2 Mellintrf 0 Mscr 0 phmmat 1 order 0 orderof 0 oscr 1 alefsym 0 aleph 1 beth 1 gimel 1 daleth d CapitalDifferentialD 0 DD 1 DifferentialD 0 dd 1 ExponentialE 0 ee 0 exponentiale 1 ImaginaryI 0 ii b frac13 1 frac23 1 frac15 1 frac25 1 frac35 1 frac45 1 frac16 1 frac56 1 frac18 1 frac38 1 frac58 1 frac78 1e LeftArrow 0 ShortLeftArrow 0 larr 0 leftarrow 0 slarr 1 ShortUpArrow 0 UpArrow 0 uarr 0 uparrow 1 RightArrow 0 ShortRightArrow 0 rarr 0 rightarrow 0 srarr 1 DownArrow 0 ShortDownArrow 0 darr 0 downarrow 1 LeftRightArrow 0 harr 0 leftrightarrow 1 UpDownArrow 0 updownarrow 0 varr 1 UpperLeftArrow 0 nwarr 0 nwarrow 1 UpperRightArrow 0 nearr 0 nearrow 1 LowerRightArrow 0 searr 0 searrow 1 LowerLeftArrow 0 swarr 0 swarrow 1 nlarr 0 nleftarrow 1 nrarr 0 nrightarrow 2 rarrw 0 rightsquigarrow 0+mw nrarrw 1 Larr 0 twoheadleftarrow 1 Uarr 1 Rarr 0 twoheadrightarrow 1 Darr 1 larrtl 0 leftarrowtail 1 rarrtl 0 rightarrowtail 1 LeftTeeArrow 0 mapstoleft 1 UpTeeArrow 0 mapstoup 1 RightTeeArrow 0 map 0 mapsto 1 DownTeeArrow 0 mapstodown 2 hookleftarrow 0 larrhk 1 hookrightarrow 0 rarrhk 1 larrlp 0 looparrowleft 1 looparrowright 0 rarrlp 1 harrw 0 leftrightsquigarrow 1 nharr 0 nleftrightarrow 2 Lsh 0 lsh 1 Rsh 0 rsh 1 ldsh 1 rdsh 2 crarr 1 cularr 0 curvearrowleft 1 curarr 0 curvearrowright 3 circlearrowleft 0 olarr 1 circlearrowright 0 orarr 1 LeftVector 0 leftharpoonup 0 lharu 1 DownLeftVector 0 leftharpoondown 0 lhard 1 RightUpVector 0 uharr 0 upharpoonright 1 LeftUpVector 0 uharl 0 upharpoonleft 1 RightVector 0 rharu 0 rightharpoonup 1 DownRightVector 0 rhard 0 rightharpoondown 1 RightDownVector 0 dharr 0 downharpoonright 1 LeftDownVector 0 dharl 0 downharpoonleft 1 RightArrowLeftArrow 0 rightleftarrows 0 rlarr 1 UpArrowDownArrow 0 udarr 1 LeftArrowRightArrow 0 leftrightarrows 0 lrarr 1 leftleftarrows 0 llarr 1 upuparrows 0 uuarr 1 rightrightarrows 0 rrarr 1 ddarr 0 downdownarrows 1 ReverseEquilibrium 0 leftrightharpoons 0 lrhar 1 Equilibrium 0 rightleftharpoons 0 rlhar 1 nLeftarrow 0 nlArr 1 nLeftrightarrow 0 nhArr 1 nRightarrow 0 nrArr 1 DoubleLeftArrow 0 Leftarrow 0 lArr 1 DoubleUpArrow 0 Uparrow 0 uArr 1 DoubleRightArrow 0 Implies 0 Rightarrow 0 rArr 1 DoubleDownArrow 0 Downarrow 0 dArr 1 DoubleLeftRightArrow 0 Leftrightarrow 0 hArr 0 iff 1 DoubleUpDownArrow 0 Updownarrow 0 vArr 1 nwArr 1 neArr 1 seArr 1 swArr 1 Lleftarrow 0 lAarr 1 Rrightarrow 0 rAarr 2 zigrarr 7 LeftArrowBar 0 larrb 1 RightArrowBar 0 rarrb g DownArrowUpArrow 0 duarr 8 loarr 1 roarr 1 hoarr 1 ForAll 0 forall 1 comp 0 complement 1 PartialD 0 part 0+mw npart 1 Exists 0 exist 1 NotExists 0 nexist 0 nexists 1 empty 0 emptyset 0 emptyv 0 varnothing 2 Del 0 nabla 1 Element 0 in 0 isin 0 isinv 1 NotElement 0 notin 0 notinva 2 ReverseElement 0 SuchThat 0 ni 0 niv 1 NotReverseElement 0 notni 0 notniva 3 Product 0 prod 1 Coproduct 0 coprod 1 Sum 0 sum 1 minus 1 MinusPlus 0 mnplus 0 mp 1 dotplus 0 plusdo 2 Backslash 0 setminus 0 setmn 0 smallsetminus 0 ssetmn 1 lowast 1 SmallCircle 0 compfn 2 Sqrt 0 radic 3 Proportional 0 prop 0 propto 0 varpropto 0 vprop 1 infin 1 angrt 1 ang 0 angle 0+6he nang 1 angmsd 0 measuredangle 1 angsph 1 VerticalBar 0 mid 0 shortmid 0 smid 1 NotVerticalBar 0 nmid 0 nshortmid 0 nsmid 1 DoubleVerticalBar 0 par 0 parallel 0 shortparallel 0 spar 1 NotDoubleVerticalBar 0 npar 0 nparallel 0 nshortparallel 0 nspar 1 and 0 wedge 1 or 0 vee 1 cap 0+1e68 caps 1 cup 0+1e68 cups 1 Integral 0 int 1 Int 1 iiint 0 tint 1 ContourIntegral 0 conint 0 oint 1 Conint 0 DoubleContourIntegral 1 Cconint 1 cwint 1 ClockwiseContourIntegral 0 cwconint 1 CounterClockwiseContourIntegral 0 awconint 1 Therefore 0 there4 0 therefore 1 Because 0 becaus 0 because 1 ratio 1 Colon 0 Proportion 1 dotminus 0 minusd 2 mDDot 1 homtht 1 Tilde 0 sim 0 thicksim 0 thksim 0+6he nvsim 1 backsim 0 bsim 0+mp race 1 ac 0 mstpos 0+mr acE 1 acd 1 VerticalTilde 0 wr 0 wreath 1 NotTilde 0 nsim 1 EqualTilde 0 eqsim 0 esim 0+mw NotEqualTilde 0+mw nesim 1 TildeEqual 0 sime 0 simeq 1 NotTildeEqual 0 nsime 0 nsimeq 1 TildeFullEqual 0 cong 1 simne 1 NotTildeFullEqual 0 ncong 1 TildeTilde 0 ap 0 approx 0 asymp 0 thickapprox 0 thkap 1 NotTildeTilde 0 nap 0 napprox 1 ape 0 approxeq 1 apid 0+mw napid 1 backcong 0 bcong 1 CupCap 0 asympeq 0+6he nvap 1 Bumpeq 0 HumpDownHump 0 bump 0+mw NotHumpDownHump 0+mw nbump 1 HumpEqual 0 bumpe 0 bumpeq 0+mw NotHumpEqual 0+mw nbumpe 1 DotEqual 0 doteq 0 esdot 0+mw nedot 1 doteqdot 0 eDot 1 efDot 0 fallingdotseq 1 erDot 0 risingdotseq 1 Assign 0 colone 0 coloneq 1 ecolon 0 eqcolon 1 ecir 0 eqcirc 1 circeq 0 cire 2 wedgeq 1 veeeq 2 triangleq 0 trie 3 equest 0 questeq 1 NotEqual 0 ne 1 Congruent 0 equiv 0+6hx bnequiv 1 NotCongruent 0 nequiv 2 le 0 leq 0+6he nvle 1 GreaterEqual 0 ge 0 geq 0+6he nvge 1 LessFullEqual 0 lE 0 leqq 0+mw nlE 0+mw nleqq 1 GreaterFullEqual 0 gE 0 geqq 0+mw NotGreaterFullEqual 0+mw ngE 0+mw ngeqq 1 lnE 0 lneqq 0+1e68 lvertneqq 0+1e68 lvnE 1 gnE 0 gneqq 0+1e68 gvertneqq 0+1e68 gvnE 1 Lt 0 NestedLessLess 0 ll 0+mw NotLessLess 0+mw nLtv 0+6he nLt 1 Gt 0 NestedGreaterGreater 0 gg 0+mw NotGreaterGreater 0+mw nGtv 0+6he nGt 1 between 0 twixt 1 NotCupCap 1 NotLess 0 nless 0 nlt 1 NotGreater 0 ngt 0 ngtr 1 NotLessEqual 0 nle 0 nleq 1 NotGreaterEqual 0 nge 0 ngeq 1 LessTilde 0 lesssim 0 lsim 1 GreaterTilde 0 gsim 0 gtrsim 1 NotLessTilde 0 nlsim 1 NotGreaterTilde 0 ngsim 1 LessGreater 0 lessgtr 0 lg 1 GreaterLess 0 gl 0 gtrless 1 NotLessGreater 0 ntlg 1 NotGreaterLess 0 ntgl 1 Precedes 0 pr 0 prec 1 Succeeds 0 sc 0 succ 1 PrecedesSlantEqual 0 prcue 0 preccurlyeq 1 SucceedsSlantEqual 0 sccue 0 succcurlyeq 1 PrecedesTilde 0 precsim 0 prsim 1 SucceedsTilde 0 scsim 0 succsim 0+mw NotSucceedsTilde 1 NotPrecedes 0 npr 0 nprec 1 NotSucceeds 0 nsc 0 nsucc 1 sub 0 subset 0+6he NotSubset 0+6he nsubset 0+6he vnsub 1 Superset 0 sup 0 supset 0+6he NotSuperset 0+6he nsupset 0+6he vnsup 1 nsub 1 nsup 1 SubsetEqual 0 sube 0 subseteq 1 SupersetEqual 0 supe 0 supseteq 1 NotSubsetEqual 0 nsube 0 nsubseteq 1 NotSupersetEqual 0 nsupe 0 nsupseteq 1 subne 0 subsetneq 0+1e68 varsubsetneq 0+1e68 vsubne 1 supne 0 supsetneq 0+1e68 varsupsetneq 0+1e68 vsupne 2 cupdot 1 UnionPlus 0 uplus 1 SquareSubset 0 sqsub 0 sqsubset 0+mw NotSquareSubset 1 SquareSuperset 0 sqsup 0 sqsupset 0+mw NotSquareSuperset 1 SquareSubsetEqual 0 sqsube 0 sqsubseteq 1 SquareSupersetEqual 0 sqsupe 0 sqsupseteq 1 SquareIntersection 0 sqcap 0+1e68 sqcaps 1 SquareUnion 0 sqcup 0+1e68 sqcups 1 CirclePlus 0 oplus 1 CircleMinus 0 ominus 1 CircleTimes 0 otimes 1 osol 1 CircleDot 0 odot 1 circledcirc 0 ocir 1 circledast 0 oast 2 circleddash 0 odash 1 boxplus 0 plusb 1 boxminus 0 minusb 1 boxtimes 0 timesb 1 dotsquare 0 sdotb 1 RightTee 0 vdash 1 LeftTee 0 dashv 1 DownTee 0 top 1 UpTee 0 bot 0 bottom 0 perp 2 models 1 DoubleRightTee 0 vDash 1 Vdash 1 Vvdash 1 VDash 1 nvdash 1 nvDash 1 nVdash 1 nVDash 1 prurel 2 LeftTriangle 0 vartriangleleft 0 vltri 1 RightTriangle 0 vartriangleright 0 vrtri 1 LeftTriangleEqual 0 ltrie 0 trianglelefteq 0+6he nvltrie 1 RightTriangleEqual 0 rtrie 0 trianglerighteq 0+6he nvrtrie 1 origof 1 imof 1 multimap 0 mumap 1 hercon 1 intcal 0 intercal 1 veebar 2 barvee 1 angrtvb 1 lrtri 1 Wedge 0 bigwedge 0 xwedge 1 Vee 0 bigvee 0 xvee 1 Intersection 0 bigcap 0 xcap 1 Union 0 bigcup 0 xcup 1 Diamond 0 diam 0 diamond 1 sdot 1 Star 0 sstarf 1 divideontimes 0 divonx 1 bowtie 1 ltimes 1 rtimes 1 leftthreetimes 0 lthree 1 rightthreetimes 0 rthree 1 backsimeq 0 bsime 1 curlyvee 0 cuvee 1 curlywedge 0 cuwed 1 Sub 0 Subset 1 Sup 0 Supset 1 Cap 1 Cup 1 fork 0 pitchfork 1 epar 1 lessdot 0 ltdot 1 gtdot 0 gtrdot 1 Ll 0+mw nLl 1 Gg 0 ggg 0+mw nGg 1 LessEqualGreater 0 leg 0 lesseqgtr 0+1e68 lesg 1 GreaterEqualLess 0 gel 0 gtreqless 0+1e68 gesl 3 cuepr 0 curlyeqprec 1 cuesc 0 curlyeqsucc 1 NotPrecedesSlantEqual 0 nprcue 1 NotSucceedsSlantEqual 0 nsccue 1 NotSquareSubsetEqual 0 nsqsube 1 NotSquareSupersetEqual 0 nsqsupe 3 lnsim 1 gnsim 1 precnsim 0 prnsim 1 scnsim 0 succnsim 1 NotLeftTriangle 0 nltri 0 ntriangleleft 1 NotRightTriangle 0 nrtri 0 ntriangleright 1 NotLeftTriangleEqual 0 nltrie 0 ntrianglelefteq 1 NotRightTriangleEqual 0 nrtrie 0 ntrianglerighteq 1 vellip 1 ctdot 1 utdot 1 dtdot 1 disin 1 isinsv 1 isins 1 isindot 0+mw notindot 1 notinvc 1 notinvb 2 isinE 0+mw notinE 1 nisd 1 xnis 1 nis 1 notnivc 1 notnivb 7 barwed 0 barwedge 1 Barwed 0 doublebarwedge 2 LeftCeiling 0 lceil 1 RightCeiling 0 rceil 1 LeftFloor 0 lfloor 1 RightFloor 0 rfloor 1 drcrop 1 dlcrop 1 urcrop 1 ulcrop 1 bnot 2 profline 1 profsurf 2 telrec 1 target 6 ulcorn 0 ulcorner 1 urcorn 0 urcorner 1 dlcorn 0 llcorner 1 drcorn 0 lrcorner 3 frown 0 sfrown 1 smile 0 ssmile a cylcty 1 profalar 8 topbot 7 ovbar 2 solbar 1p angzarr 1g lmoust 0 lmoustache 1 rmoust 0 rmoustache 3 OverBracket 0 tbrk 1 UnderBracket 0 bbrk 1 bbrktbrk 12 OverParenthesis 1 UnderParenthesis 1 OverBrace 1 UnderBrace 3 trpezium 5 elinters 1o blank 4l circledS 0 oS 1k HorizontalLine 0 boxh 2 boxv a boxdr 4 boxdl 4 boxur 4 boxul 4 boxvr 8 boxvl 8 boxhd 8 boxhu 8 boxvh k boxH 1 boxV 1 boxdR 1 boxDr 1 boxDR 1 boxdL 1 boxDl 1 boxDL 1 boxuR 1 boxUr 1 boxUR 1 boxuL 1 boxUl 1 boxUL 1 boxvR 1 boxVr 1 boxVR 1 boxvL 1 boxVl 1 boxVL 1 boxHd 1 boxhD 1 boxHD 1 boxHu 1 boxhU 1 boxHU 1 boxvH 1 boxVh 1 boxVH k uhblk 4 lhblk 4 block 9 blk14 1 blk12 1 blk34 e Square 0 squ 0 square 9 FilledVerySmallSquare 0 blacksquare 0 squarf 0 squf 1 EmptyVerySmallSquare 2 rect 1 marker 3 fltns 2 bigtriangleup 0 xutri 1 blacktriangle 0 utrif 1 triangle 0 utri 3 blacktriangleright 0 rtrif 1 rtri 0 triangleright 4 bigtriangledown 0 xdtri 1 blacktriangledown 0 dtrif 1 dtri 0 triangledown 3 blacktriangleleft 0 ltrif 1 ltri 0 triangleleft 7 loz 0 lozenge 1 cir x tridot 3 bigcirc 0 xcirc 9 ultri 1 urtri 1 lltri 1 EmptySmallSquare 1 FilledSmallSquare 9 bigstar 0 starf 1 star 8 phone 1e female 2 male u spades 0 spadesuit 3 clubs 0 clubsuit 2 hearts 0 heartsuit 1 diamondsuit 0 diams 4 sung 3 flat 1 natur 0 natural 1 sharp 4k check 0 checkmark 4 cross 9 malt 0 maltese m sext y VerticalSeparator q lbbrk 1 rbbrk 2d bsolhsub 1 suphsol t LeftDoubleBracket 0 lobrk 1 RightDoubleBracket 0 robrk 1 LeftAngleBracket 0 lang 0 langle 1 RightAngleBracket 0 rang 0 rangle 1 Lang 1 Rang 1 loang 1 roang 8 LongLeftArrow 0 longleftarrow 0 xlarr 1 LongRightArrow 0 longrightarrow 0 xrarr 1 LongLeftRightArrow 0 longleftrightarrow 0 xharr 1 DoubleLongLeftArrow 0 Longleftarrow 0 xlArr 1 DoubleLongRightArrow 0 Longrightarrow 0 xrArr 1 DoubleLongLeftRightArrow 0 Longleftrightarrow 0 xhArr 2 longmapsto 0 xmap 3 dzigrarr 77 nvlArr 1 nvrArr 1 nvHarr 1 Map 7 lbarr 1 bkarow 0 rbarr 1 lBarr 1 dbkarow 0 rBarr 1 RBarr 0 drbkarow 1 DDotrahd 1 UpArrowBar 1 DownArrowBar 3 Rarrtl 3 latail 1 ratail 1 lAtail 1 rAtail 1 larrfs 1 rarrfs 1 larrbfs 1 rarrbfs 3 nwarhk 1 nearhk 1 hksearow 0 searhk 1 hkswarow 0 swarhk 1 nwnear 1 nesear 0 toea 1 seswar 0 tosa 1 swnwar 9 rarrc 0+mw nrarrc 2 cudarrr 1 ldca 1 rdca 1 cudarrl 1 larrpl 3 curarrm 1 cularrp 8 rarrpl 3 harrcir 1 Uarrocir 1 lurdshar 1 ldrushar 3 LeftRightVector 1 RightUpDownVector 1 DownLeftRightVector 1 LeftUpDownVector 1 LeftVectorBar 1 RightVectorBar 1 RightUpVectorBar 1 RightDownVectorBar 1 DownLeftVectorBar 1 DownRightVectorBar 1 LeftUpVectorBar 1 LeftDownVectorBar 1 LeftTeeVector 1 RightTeeVector 1 RightUpTeeVector 1 RightDownTeeVector 1 DownLeftTeeVector 1 DownRightTeeVector 1 LeftUpTeeVector 1 LeftDownTeeVector 1 lHar 1 uHar 1 rHar 1 dHar 1 luruhar 1 ldrdhar 1 ruluhar 1 rdldhar 1 lharul 1 llhard 1 rharul 1 lrhard 1 UpEquilibrium 0 udhar 1 ReverseUpEquilibrium 0 duhar 1 RoundImplies 1 erarr 1 simrarr 1 larrsim 1 rarrsim 1 rarrap 1 ltlarr 2 gtrarr 1 subrarr 2 suplarr 1 lfisht 1 rfisht 1 ufisht 1 dfisht 6 lopar 1 ropar 5 lbrke 1 rbrke 1 lbrkslu 1 rbrksld 1 lbrksld 1 rbrkslu 1 langd 1 rangd 1 lparlt 1 rpargt 1 gtlPar 1 ltrPar 4 vzigzag 2 vangrt 1 angrtvbd 7 ange 1 range 1 dwangle 1 uwangle 1 angmsdaa 1 angmsdab 1 angmsdac 1 angmsdad 1 angmsdae 1 angmsdaf 1 angmsdag 1 angmsdah 1 bemptyv 1 demptyv 1 cemptyv 1 raemptyv 1 laemptyv 1 ohbar 1 omid 1 opar 2 operp 2 olcross 1 odsold 2 olcir 1 ofcir 1 olt 1 ogt 1 cirscir 1 cirE 1 solb 1 bsolb 4 boxbox 4 trisb 1 rtriltri 1 LeftTriangleBar 0+mw NotLeftTriangleBar 1 RightTriangleBar 0+mw NotRightTriangleBar c iinfin 1 infintie 1 nvinfin 5 eparsl 1 smeparsl 1 eqvparsl 6 blacklozenge 0 lozf 9 RuleDelayed 2 dsol a bigodot 0 xodot 1 bigoplus 0 xoplus 1 bigotimes 0 xotime 2 biguplus 0 xuplus 2 bigsqcup 0 xsqcup 6 iiiint 0 qint 1 fpartint 3 cirfnint 1 awint 1 rppolint 1 scpolint 1 npolint 1 pointint 1 quatint 1 intlarhk b pluscir 1 plusacir 1 simplus 1 plusdu 1 plussim 1 plustwo 2 mcomma 1 minusdu 3 loplus 1 roplus 1 Cross 1 timesd 1 timesbar 2 smashp 1 lotimes 1 rotimes 1 otimesas 1 Otimes 1 odiv 1 triplus 1 triminus 1 tritime 1 intprod 0 iprod 3 amalg 1 capdot 2 ncup 1 ncap 1 capand 1 cupor 1 cupcap 1 capcup 1 cupbrcap 1 capbrcup 1 cupcup 1 capcap 1 ccups 1 ccaps 3 ccupssm 3 And 1 Or 1 andand 1 oror 1 orslope 1 andslope 2 andv 1 orv 1 andd 1 ord 2 wedbar 7 sdote 4 simdot 3 congdot 0+mw ncongdot 1 easter 1 apacir 1 apE 0+mw napE 1 eplus 1 pluse 1 Esim 1 Colone 1 Equal 2 ddotseq 0 eDDot 1 equivDD 1 ltcir 1 gtcir 1 ltquest 1 gtquest 1 LessSlantEqual 0 leqslant 0 les 0+mw NotLessSlantEqual 0+mw nleqslant 0+mw nles 1 GreaterSlantEqual 0 geqslant 0 ges 0+mw NotGreaterSlantEqual 0+mw ngeqslant 0+mw nges 1 lesdot 1 gesdot 1 lesdoto 1 gesdoto 1 lesdotor 1 gesdotol 1 lap 0 lessapprox 1 gap 0 gtrapprox 1 lne 0 lneq 1 gne 0 gneq 1 lnap 0 lnapprox 1 gnap 0 gnapprox 1 lEg 0 lesseqqgtr 1 gEl 0 gtreqqless 1 lsime 1 gsime 1 lsimg 1 gsiml 1 lgE 1 glE 1 lesges 1 gesles 1 els 0 eqslantless 1 egs 0 eqslantgtr 1 elsdot 1 egsdot 1 el 1 eg 3 siml 1 simg 1 simlE 1 simgE 1 LessLess 0+mw NotNestedLessLess 1 GreaterGreater 0+mw NotNestedGreaterGreater 2 glj 1 gla 1 ltcc 1 gtcc 1 lescc 1 gescc 1 smt 1 lat 1 smte 0+1e68 smtes 1 late 0+1e68 lates 1 bumpE 1 PrecedesEqual 0 pre 0 preceq 0+mw NotPrecedesEqual 0+mw npre 0+mw npreceq 1 SucceedsEqual 0 sce 0 succeq 0+mw NotSucceedsEqual 0+mw nsce 0+mw nsucceq 3 prE 1 scE 1 precneqq 0 prnE 1 scnE 0 succneqq 1 prap 0 precapprox 1 scap 0 succapprox 1 precnapprox 0 prnap 1 scnap 0 succnapprox 1 Pr 1 Sc 1 subdot 1 supdot 1 subplus 1 supplus 1 submult 1 supmult 1 subedot 1 supedot 1 subE 0 subseteqq 0+mw nsubE 0+mw nsubseteqq 1 supE 0 supseteqq 0+mw nsupE 0+mw nsupseteqq 1 subsim 1 supsim 3 subnE 0 subsetneqq 0+1e68 varsubsetneqq 0+1e68 vsubnE 1 supnE 0 supsetneqq 0+1e68 varsupsetneqq 0+1e68 vsupnE 3 csub 1 csup 1 csube 1 csupe 1 subsup 1 supsub 1 subsub 1 supsup 1 suphsub 1 supdsub 1 forkv 1 topfork 1 mlcp 9 Dashv 0 DoubleLeftTee 2 Vdashl 1 Barv 1 vBar 1 vBarv 2 Vbar 1 Not 1 bNot 1 rnmid 1 cirmid 1 midcir 1 topcir 1 nhpar 1 parsim a parsl 0+6hx nparsl 1537 fflig 1 filig 1 fllig 1 ffilig 1 ffllig 16zc Ascr 2 Cscr 1 Dscr 3 Gscr 3 Jscr 1 Kscr 3 Nscr 1 Oscr 1 Pscr 1 Qscr 2 Sscr 1 Tscr 1 Uscr 1 Vscr 1 Wscr 1 Xscr 1 Yscr 1 Zscr 1 ascr 1 bscr 1 cscr 1 dscr 2 fscr 2 hscr 1 iscr 1 jscr 1 kscr 1 lscr 1 mscr 1 nscr 2 pscr 1 qscr 1 rscr 1 sscr 1 tscr 1 uscr 1 vscr 1 wscr 1 xscr 1 yscr 1 zscr 1h Afr 1 Bfr 2 Dfr 1 Efr 1 Ffr 1 Gfr 3 Jfr 1 Kfr 1 Lfr 1 Mfr 1 Nfr 1 Ofr 1 Pfr 1 Qfr 2 Sfr 1 Tfr 1 Ufr 1 Vfr 1 Wfr 1 Xfr 1 Yfr 2 afr 1 bfr 1 cfr 1 dfr 1 efr 1 ffr 1 gfr 1 hfr 1 ifr 1 jfr 1 kfr 1 lfr 1 mfr 1 nfr 1 ofr 1 pfr 1 qfr 1 rfr 1 sfr 1 tfr 1 ufr 1 vfr 1 wfr 1 xfr 1 yfr 1 zfr 1 Aopf 1 Bopf 2 Dopf 1 Eopf 1 Fopf 1 Gopf 2 Iopf 1 Jopf 1 Kopf 1 Lopf 1 Mopf 2 Oopf 4 Sopf 1 Topf 1 Uopf 1 Vopf 1 Wopf 1 Xopf 1 Yopf 2 aopf 1 bopf 1 copf 1 dopf 1 eopf 1 fopf 1 gopf 1 hopf 1 iopf 1 jopf 1 kopf 1 lopf 1 mopf 1 nopf 1 oopf 1 popf 1 qopf 1 ropf 1 sopf 1 topf 1 uopf 1 vopf 1 wopf 1 xopf 1 yopf 1 zopf";
-
-// scripts/entities.js
-function unpack(packed) {
-	const table = /* @__PURE__ */ new Map(), fields = packed.split(" ");
-	let code = 0;
-	for (let i = 0; i < fields.length; i += 2) {
-		const [delta, second] = fields[i].split("+");
-		code += parseInt(delta, 36);
-		table.set(fields[i + 1], String.fromCodePoint(code) + (second ? String.fromCodePoint(parseInt(second, 36)) : ""));
-	}
-	return table;
-}
-const ENTITIES = unpack(_packed_entities_default);
-function decodeHTML(match) {
-	return match[0] === "&" && match[match.length - 1] === ";" && ENTITIES.get(match.slice(1, -1)) || match;
-}
-
-// node_modules/markdown-it/lib/common/utils.mjs
-var utils_exports = /* @__PURE__ */ __exportAll({
-	arrayReplaceAt: () => arrayReplaceAt,
-	assign: () => assign,
-	escapeHtml: () => escapeHtml,
-	escapeRE: () => escapeRE,
-	fromCodePoint: () => fromCodePoint,
-	has: () => has,
-	isMdAsciiPunct: () => isMdAsciiPunct,
-	isPunctChar: () => isPunctChar,
-	isSpace: () => isSpace,
-	isString: () => isString,
-	isValidEntityCode: () => isValidEntityCode,
-	isWhiteSpace: () => isWhiteSpace,
-	lib: () => lib,
-	normalizeReference: () => normalizeReference,
-	unescapeAll: () => unescapeAll$1,
-	unescapeMd: () => unescapeMd
-});
-function _class(obj) {
-	return Object.prototype.toString.call(obj);
-}
-function isString(obj) {
-	return _class(obj) === "[object String]";
-}
-const _hasOwnProperty = Object.prototype.hasOwnProperty;
-function has(object, key) {
-	return _hasOwnProperty.call(object, key);
-}
-function assign(obj) {
-	Array.prototype.slice.call(arguments, 1).forEach(function(source) {
-		if (!source) return;
-		if (typeof source !== "object") throw new TypeError(source + "must be object");
-		Object.keys(source).forEach(function(key) {
-			obj[key] = source[key];
-		});
-	});
-	return obj;
-}
-function arrayReplaceAt(src, pos, newElements) {
-	return [].concat(src.slice(0, pos), newElements, src.slice(pos + 1));
-}
-function isValidEntityCode(c) {
-	if (c >= 55296 && c <= 57343) return false;
-	if (c >= 64976 && c <= 65007) return false;
-	if ((c & 65535) === 65535 || (c & 65535) === 65534) return false;
-	if (c >= 0 && c <= 8) return false;
-	if (c === 11) return false;
-	if (c >= 14 && c <= 31) return false;
-	if (c >= 127 && c <= 159) return false;
-	if (c > 1114111) return false;
-	return true;
-}
-function fromCodePoint(c) {
-	if (c > 65535) {
-		c -= 65536;
-		const surrogate1 = 55296 + (c >> 10);
-		const surrogate2 = 56320 + (c & 1023);
-		return String.fromCharCode(surrogate1, surrogate2);
-	}
-	return String.fromCharCode(c);
-}
-const UNESCAPE_MD_RE = /\\([!"#$%&'()*+,\-./:;<=>?@[\\\]^_`{|}~])/g;
-const UNESCAPE_ALL_RE = new RegExp(UNESCAPE_MD_RE.source + "|" + /&([a-z#][a-z0-9]{1,31});/gi.source, "gi");
-const DIGITAL_ENTITY_TEST_RE = /^#((?:x[a-f0-9]{1,8}|[0-9]{1,8}))$/i;
-function replaceEntityPattern(match, name) {
-	if (name.charCodeAt(0) === 35 && DIGITAL_ENTITY_TEST_RE.test(name)) {
-		const code = name[1].toLowerCase() === "x" ? parseInt(name.slice(2), 16) : parseInt(name.slice(1), 10);
-		if (isValidEntityCode(code)) return fromCodePoint(code);
-		return match;
-	}
-	const decoded = decodeHTML(match);
-	if (decoded !== match) return decoded;
-	return match;
-}
-function unescapeMd(str) {
-	if (str.indexOf("\\") < 0) return str;
-	return str.replace(UNESCAPE_MD_RE, "$1");
-}
-function unescapeAll$1(str) {
-	if (str.indexOf("\\") < 0 && str.indexOf("&") < 0) return str;
-	return str.replace(UNESCAPE_ALL_RE, function(match, escaped, entity) {
-		if (escaped) return escaped;
-		return replaceEntityPattern(match, entity);
-	});
-}
-const HTML_ESCAPE_TEST_RE = /[&<>"]/;
-const HTML_ESCAPE_REPLACE_RE = /[&<>"]/g;
-const HTML_REPLACEMENTS = {
-	"&": "&amp;",
-	"<": "&lt;",
-	">": "&gt;",
-	"\"": "&quot;"
-};
-function replaceUnsafeChar(ch) {
-	return HTML_REPLACEMENTS[ch];
-}
-function escapeHtml(str) {
-	if (HTML_ESCAPE_TEST_RE.test(str)) return str.replace(HTML_ESCAPE_REPLACE_RE, replaceUnsafeChar);
-	return str;
-}
-const REGEXP_ESCAPE_RE = /[.?*+^$[\]\\(){}|-]/g;
-function escapeRE(str) {
-	return str.replace(REGEXP_ESCAPE_RE, "\\$&");
-}
-function isSpace(code) {
-	switch (code) {
-		case 9:
-		case 32: return true;
-	}
-	return false;
-}
-function isWhiteSpace(code) {
-	if (code >= 8192 && code <= 8202) return true;
-	switch (code) {
-		case 9:
-		case 10:
-		case 11:
-		case 12:
-		case 13:
-		case 32:
-		case 160:
-		case 5760:
-		case 8239:
-		case 8287:
-		case 12288: return true;
-	}
-	return false;
-}
-function isPunctChar(ch) {
-	return P.test(ch) || S.test(ch);
-}
-function isMdAsciiPunct(ch) {
-	switch (ch) {
-		case 33:
-		case 34:
-		case 35:
-		case 36:
-		case 37:
-		case 38:
-		case 39:
-		case 40:
-		case 41:
-		case 42:
-		case 43:
-		case 44:
-		case 45:
-		case 46:
-		case 47:
-		case 58:
-		case 59:
-		case 60:
-		case 61:
-		case 62:
-		case 63:
-		case 64:
-		case 91:
-		case 92:
-		case 93:
-		case 94:
-		case 95:
-		case 96:
-		case 123:
-		case 124:
-		case 125:
-		case 126: return true;
-		default: return false;
-	}
-}
-function normalizeReference(str) {
-	str = str.trim().replace(/\s+/g, " ");
-	if ("ẞ".toLowerCase() === "Ṿ") str = str.replace(/ẞ/g, "ß");
-	return str.toLowerCase().toUpperCase();
-}
-const lib = {
-	mdurl: mdurl_exports,
-	ucmicro: uc_micro_exports
-};
-
-// node_modules/markdown-it/lib/helpers/parse_link_label.mjs
-function parseLinkLabel(state, start, disableNested) {
-	let level, found, marker, prevPos;
-	const max = state.posMax;
-	const oldPos = state.pos;
-	state.pos = start + 1;
-	level = 1;
-	while (state.pos < max) {
-		marker = state.src.charCodeAt(state.pos);
-		if (marker === 93) {
-			level--;
-			if (level === 0) {
-				found = true;
-				break;
-			}
-		}
-		prevPos = state.pos;
-		state.md.inline.skipToken(state);
-		if (marker === 91) {
-			if (prevPos === state.pos - 1) level++;
-			else if (disableNested) {
-				state.pos = oldPos;
-				return -1;
-			}
-		}
-	}
-	let labelEnd = -1;
-	if (found) labelEnd = state.pos;
-	state.pos = oldPos;
-	return labelEnd;
-}
-
-// node_modules/markdown-it/lib/helpers/parse_link_destination.mjs
-function parseLinkDestination(str, start, max) {
-	let code;
-	let pos = start;
-	const result = {
-		ok: false,
-		pos: 0,
-		str: ""
-	};
-	if (str.charCodeAt(pos) === 60) {
-		pos++;
-		while (pos < max) {
-			code = str.charCodeAt(pos);
-			if (code === 10) return result;
-			if (code === 60) return result;
-			if (code === 62) {
-				result.pos = pos + 1;
-				result.str = unescapeAll$1(str.slice(start + 1, pos));
-				result.ok = true;
-				return result;
-			}
-			if (code === 92 && pos + 1 < max) {
-				pos += 2;
-				continue;
-			}
-			pos++;
-		}
-		return result;
-	}
-	let level = 0;
-	while (pos < max) {
-		code = str.charCodeAt(pos);
-		if (code === 32) break;
-		if (code < 32 || code === 127) break;
-		if (code === 92 && pos + 1 < max) {
-			if (str.charCodeAt(pos + 1) === 32) break;
-			pos += 2;
-			continue;
-		}
-		if (code === 40) {
-			level++;
-			if (level > 32) return result;
-		}
-		if (code === 41) {
-			if (level === 0) break;
-			level--;
-		}
-		pos++;
-	}
-	if (start === pos) return result;
-	if (level !== 0) return result;
-	result.str = unescapeAll$1(str.slice(start, pos));
-	result.pos = pos;
-	result.ok = true;
-	return result;
-}
-
-// node_modules/markdown-it/lib/helpers/parse_link_title.mjs
-function parseLinkTitle(str, start, max, prev_state) {
-	let code;
-	let pos = start;
-	const state = {
-		ok: false,
-		can_continue: false,
-		pos: 0,
-		str: "",
-		marker: 0
-	};
-	if (prev_state) {
-		state.str = prev_state.str;
-		state.marker = prev_state.marker;
-	} else {
-		if (pos >= max) return state;
-		let marker = str.charCodeAt(pos);
-		if (marker !== 34 && marker !== 39 && marker !== 40) return state;
-		start++;
-		pos++;
-		if (marker === 40) marker = 41;
-		state.marker = marker;
-	}
-	while (pos < max) {
-		code = str.charCodeAt(pos);
-		if (code === state.marker) {
-			state.pos = pos + 1;
-			state.str += unescapeAll$1(str.slice(start, pos));
-			state.ok = true;
-			return state;
-		} else if (code === 40 && state.marker === 41) return state;
-		else if (code === 92 && pos + 1 < max) pos++;
-		pos++;
-	}
-	state.can_continue = true;
-	state.str += unescapeAll$1(str.slice(start, pos));
-	return state;
-}
-
-// node_modules/markdown-it/lib/helpers/index.mjs
-var helpers_exports = /* @__PURE__ */ __exportAll({
-	parseLinkDestination: () => parseLinkDestination,
-	parseLinkLabel: () => parseLinkLabel,
-	parseLinkTitle: () => parseLinkTitle
-});
-
-// scripts/unused.js
-function unused() {
-	return false;
-}
-
 // node_modules/markdown-it/lib/ruler.mjs
 function Ruler() {
 	this.__rules__ = [];
@@ -574,6 +213,11 @@ function inline(state) {
 	}
 }
 
+// scripts/unused.js
+function unused() {
+	return false;
+}
+
 // node_modules/markdown-it/lib/rules_core/text_join.mjs
 function text_join(state) {
 	let curr, last;
@@ -612,6 +256,141 @@ Core.prototype.process = function(state) {
 	for (let i = 0, l = rules.length; i < l; i++) rules[i](state);
 };
 Core.prototype.State = StateCore;
+
+// scripts/uc-micro.js
+const P = /\p{P}/u;
+const S = /\p{S}/u;
+
+// \0packed-entities
+var _packed_entities_default = "9:Tab;:NewLine;n:excl;:QUOT,quot;:num;:dollar;:percnt;:AMP,amp;:apos;:lpar;:rpar;:ast,midast;:plus;:comma;2:period;:sol;b:colon;:semi;:LT,lt;0+6he:nvlt;:equals;0+6hx:bne;:GT,gt;0+6he:nvgt;:quest;:commat;r:lbrack,lsqb;:bsol;:rbrack,rsqb;:Hat;:UnderBar,lowbar;:DiacriticalGrave,grave;6+2y:fjlig;l:lbrace,lcub;:VerticalLine,verbar,vert;:rbrace,rcub;z:NonBreakingSpace,nbsp;:iexcl;:cent;:pound;:curren;:yen;:brvbar;:sect;:Dot,DoubleDot,die,uml;:COPY,copy;:ordf;:laquo;:not;:shy;:REG,circledR,reg;:macr,strns;:deg;:PlusMinus,plusmn,pm;:sup2;:sup3;:DiacriticalAcute,acute;:micro;:para;:CenterDot,centerdot,middot;:Cedilla,cedil;:sup1;:ordm;:raquo;:frac14;:frac12,half;:frac34;:iquest;:Agrave;:Aacute;:Acirc;:Atilde;:Auml;:Aring,angst;:AElig;:Ccedil;:Egrave;:Eacute;:Ecirc;:Euml;:Igrave;:Iacute;:Icirc;:Iuml;:ETH;:Ntilde;:Ograve;:Oacute;:Ocirc;:Otilde;:Ouml;:times;:Oslash;:Ugrave;:Uacute;:Ucirc;:Uuml;:Yacute;:THORN;:szlig;:agrave;:aacute;:acirc;:atilde;:auml;:aring;:aelig;:ccedil;:egrave;:eacute;:ecirc;:euml;:igrave;:iacute;:icirc;:iuml;:eth;:ntilde;:ograve;:oacute;:ocirc;:otilde;:ouml;:div,divide;:oslash;:ugrave;:uacute;:ucirc;:uuml;:yacute;:thorn;:yuml;:Amacr;:amacr;:Abreve;:abreve;:Aogon;:aogon;:Cacute;:cacute;:Ccirc;:ccirc;:Cdot;:cdot;:Ccaron;:ccaron;:Dcaron;:dcaron;:Dstrok;:dstrok;:Emacr;:emacr;3:Edot;:edot;:Eogon;:eogon;:Ecaron;:ecaron;:Gcirc;:gcirc;:Gbreve;:gbreve;:Gdot;:gdot;:Gcedil;2:Hcirc;:hcirc;:Hstrok;:hstrok;:Itilde;:itilde;:Imacr;:imacr;3:Iogon;:iogon;:Idot;:imath,inodot;:IJlig;:ijlig;:Jcirc;:jcirc;:Kcedil;:kcedil;:kgreen;:Lacute;:lacute;:Lcedil;:lcedil;:Lcaron;:lcaron;:Lmidot;:lmidot;:Lstrok;:lstrok;:Nacute;:nacute;:Ncedil;:ncedil;:Ncaron;:ncaron;:napos;:ENG;:eng;:Omacr;:omacr;3:Odblac;:odblac;:OElig;:oelig;:Racute;:racute;:Rcedil;:rcedil;:Rcaron;:rcaron;:Sacute;:sacute;:Scirc;:scirc;:Scedil;:scedil;:Scaron;:scaron;:Tcedil;:tcedil;:Tcaron;:tcaron;:Tstrok;:tstrok;:Utilde;:utilde;:Umacr;:umacr;:Ubreve;:ubreve;:Uring;:uring;:Udblac;:udblac;:Uogon;:uogon;:Wcirc;:wcirc;:Ycirc;:ycirc;:Yuml;:Zacute;:zacute;:Zdot;:zdot;:Zcaron;:zcaron;k:fnof;z:imped;1s:gacute;1u:jmath;3z:circ;:Hacek,caron;h:Breve,breve;:DiacriticalDot,dot;:ring;:ogon;:DiacriticalTilde,tilde;:DiacriticalDoubleAcute,dblac;1g:DownBreve;3k:Alpha;:Beta;:Gamma;:Delta;:Epsilon;:Zeta;:Eta;:Theta;:Iota;:Kappa;:Lambda;:Mu;:Nu;:Xi;:Omicron;:Pi;:Rho;2:Sigma;:Tau;:Upsilon;:Phi;:Chi;:Psi;:Omega,ohm;8:alpha;:beta;:gamma;:delta;:epsi,epsilon;:zeta;:eta;:theta;:iota;:kappa;:lambda;:mu;:nu;:xi;:omicron;:pi;:rho;:sigmaf,sigmav,varsigma;:sigma;:tau;:upsi,upsilon;:phi;:chi;:psi;:omega;8:thetasym,thetav,vartheta;:Upsi,upsih;3:phiv,straightphi,varphi;:piv,varpi;6:Gammad;:digamma,gammad;j:kappav,varkappa;:rhov,varrho;4:epsiv,straightepsilon,varepsilon;:backepsilon,bepsi;b:IOcy;:DJcy;:GJcy;:Jukcy;:DScy;:Iukcy;:YIcy;:Jsercy;:LJcy;:NJcy;:TSHcy;:KJcy;2:Ubrcy;:DZcy;:Acy;:Bcy;:Vcy;:Gcy;:Dcy;:IEcy;:ZHcy;:Zcy;:Icy;:Jcy;:Kcy;:Lcy;:Mcy;:Ncy;:Ocy;:Pcy;:Rcy;:Scy;:Tcy;:Ucy;:Fcy;:KHcy;:TScy;:CHcy;:SHcy;:SHCHcy;:HARDcy;:Ycy;:SOFTcy;:Ecy;:YUcy;:YAcy;:acy;:bcy;:vcy;:gcy;:dcy;:iecy;:zhcy;:zcy;:icy;:jcy;:kcy;:lcy;:mcy;:ncy;:ocy;:pcy;:rcy;:scy;:tcy;:ucy;:fcy;:khcy;:tscy;:chcy;:shcy;:shchcy;:hardcy;:ycy;:softcy;:ecy;:yucy;:yacy;2:iocy;:djcy;:gjcy;:jukcy;:dscy;:iukcy;:yicy;:jsercy;:ljcy;:njcy;:tshcy;:kjcy;2:ubrcy;:dzcy;5gj:ensp;:emsp;:emsp13;:emsp14;2:numsp;:puncsp;:ThinSpace,thinsp;:VeryThinSpace,hairsp;:NegativeMediumSpace,NegativeThickSpace,NegativeThinSpace,NegativeVeryThinSpace,ZeroWidthSpace;:zwnj;:zwj;:lrm;:rlm;:dash,hyphen;3:ndash;:mdash;:horbar;:Verbar,Vert;2:OpenCurlyQuote,lsquo;:CloseCurlyQuote,rsquo,rsquor;:lsquor,sbquo;2:OpenCurlyDoubleQuote,ldquo;:CloseCurlyDoubleQuote,rdquo,rdquor;:bdquo,ldquor;2:dagger;:Dagger,ddagger;:bull,bullet;3:nldr;:hellip,mldr;a:permil;:pertenk;:prime;:Prime;:tprime;:backprime,bprime;4:lsaquo;:rsaquo;4:OverBar,oline;3:caret;2:hybull;:frasl;b:bsemi;8:qprime;8:MediumSpace;0+6bu:ThickSpace;:NoBreak;:ApplyFunction,af;:InvisibleTimes,it;:InvisibleComma,ic;21:euro;1b:TripleDot,tdot;:DotDot;12:Copf,complexes;3:incare;5:gscr;:HilbertSpace,Hscr,hamilt;:Hfr,Poincareplane;:Hopf,quaternions;:planckh;:hbar,hslash,planck,plankv;:Iscr,imagline;:Ifr,Im,image,imagpart;:Laplacetrf,Lscr,lagran;:ell;2:Nopf,naturals;:numero;:copysr;:weierp,wp;:Popf,primes;:Qopf,rationals;:Rscr,realine;:Re,Rfr,real,realpart;:Ropf,reals;:rx;4:TRADE,trade;2:Zopf,integers;3:mho;:Zfr,zeetrf;:iiota;3:Bernoullis,Bscr,bernou;:Cayleys,Cfr;2:escr;:Escr,expectation;:Fouriertrf,Fscr;2:Mellintrf,Mscr,phmmat;:order,orderof,oscr;:alefsym,aleph;:beth;:gimel;:daleth;d:CapitalDifferentialD,DD;:DifferentialD,dd;:ExponentialE,ee,exponentiale;:ImaginaryI,ii;b:frac13;:frac23;:frac15;:frac25;:frac35;:frac45;:frac16;:frac56;:frac18;:frac38;:frac58;:frac78;1e:LeftArrow,ShortLeftArrow,larr,leftarrow,slarr;:ShortUpArrow,UpArrow,uarr,uparrow;:RightArrow,ShortRightArrow,rarr,rightarrow,srarr;:DownArrow,ShortDownArrow,darr,downarrow;:LeftRightArrow,harr,leftrightarrow;:UpDownArrow,updownarrow,varr;:UpperLeftArrow,nwarr,nwarrow;:UpperRightArrow,nearr,nearrow;:LowerRightArrow,searr,searrow;:LowerLeftArrow,swarr,swarrow;:nlarr,nleftarrow;:nrarr,nrightarrow;2:rarrw,rightsquigarrow;0+mw:nrarrw;:Larr,twoheadleftarrow;:Uarr;:Rarr,twoheadrightarrow;:Darr;:larrtl,leftarrowtail;:rarrtl,rightarrowtail;:LeftTeeArrow,mapstoleft;:UpTeeArrow,mapstoup;:RightTeeArrow,map,mapsto;:DownTeeArrow,mapstodown;2:hookleftarrow,larrhk;:hookrightarrow,rarrhk;:larrlp,looparrowleft;:looparrowright,rarrlp;:harrw,leftrightsquigarrow;:nharr,nleftrightarrow;2:Lsh,lsh;:Rsh,rsh;:ldsh;:rdsh;2:crarr;:cularr,curvearrowleft;:curarr,curvearrowright;3:circlearrowleft,olarr;:circlearrowright,orarr;:LeftVector,leftharpoonup,lharu;:DownLeftVector,leftharpoondown,lhard;:RightUpVector,uharr,upharpoonright;:LeftUpVector,uharl,upharpoonleft;:RightVector,rharu,rightharpoonup;:DownRightVector,rhard,rightharpoondown;:RightDownVector,dharr,downharpoonright;:LeftDownVector,dharl,downharpoonleft;:RightArrowLeftArrow,rightleftarrows,rlarr;:UpArrowDownArrow,udarr;:LeftArrowRightArrow,leftrightarrows,lrarr;:leftleftarrows,llarr;:upuparrows,uuarr;:rightrightarrows,rrarr;:ddarr,downdownarrows;:ReverseEquilibrium,leftrightharpoons,lrhar;:Equilibrium,rightleftharpoons,rlhar;:nLeftarrow,nlArr;:nLeftrightarrow,nhArr;:nRightarrow,nrArr;:DoubleLeftArrow,Leftarrow,lArr;:DoubleUpArrow,Uparrow,uArr;:DoubleRightArrow,Implies,Rightarrow,rArr;:DoubleDownArrow,Downarrow,dArr;:DoubleLeftRightArrow,Leftrightarrow,hArr,iff;:DoubleUpDownArrow,Updownarrow,vArr;:nwArr;:neArr;:seArr;:swArr;:Lleftarrow,lAarr;:Rrightarrow,rAarr;2:zigrarr;7:LeftArrowBar,larrb;:RightArrowBar,rarrb;g:DownArrowUpArrow,duarr;8:loarr;:roarr;:hoarr;:ForAll,forall;:comp,complement;:PartialD,part;0+mw:npart;:Exists,exist;:NotExists,nexist,nexists;:empty,emptyset,emptyv,varnothing;2:Del,nabla;:Element,in,isin,isinv;:NotElement,notin,notinva;2:ReverseElement,SuchThat,ni,niv;:NotReverseElement,notni,notniva;3:Product,prod;:Coproduct,coprod;:Sum,sum;:minus;:MinusPlus,mnplus,mp;:dotplus,plusdo;2:Backslash,setminus,setmn,smallsetminus,ssetmn;:lowast;:SmallCircle,compfn;2:Sqrt,radic;3:Proportional,prop,propto,varpropto,vprop;:infin;:angrt;:ang,angle;0+6he:nang;:angmsd,measuredangle;:angsph;:VerticalBar,mid,shortmid,smid;:NotVerticalBar,nmid,nshortmid,nsmid;:DoubleVerticalBar,par,parallel,shortparallel,spar;:NotDoubleVerticalBar,npar,nparallel,nshortparallel,nspar;:and,wedge;:or,vee;:cap;0+1e68:caps;:cup;0+1e68:cups;:Integral,int;:Int;:iiint,tint;:ContourIntegral,conint,oint;:Conint,DoubleContourIntegral;:Cconint;:cwint;:ClockwiseContourIntegral,cwconint;:CounterClockwiseContourIntegral,awconint;:Therefore,there4,therefore;:Because,becaus,because;:ratio;:Colon,Proportion;:dotminus,minusd;2:mDDot;:homtht;:Tilde,sim,thicksim,thksim;0+6he:nvsim;:backsim,bsim;0+mp:race;:ac,mstpos;0+mr:acE;:acd;:VerticalTilde,wr,wreath;:NotTilde,nsim;:EqualTilde,eqsim,esim;0+mw:NotEqualTilde,nesim;:TildeEqual,sime,simeq;:NotTildeEqual,nsime,nsimeq;:TildeFullEqual,cong;:simne;:NotTildeFullEqual,ncong;:TildeTilde,ap,approx,asymp,thickapprox,thkap;:NotTildeTilde,nap,napprox;:ape,approxeq;:apid;0+mw:napid;:backcong,bcong;:CupCap,asympeq;0+6he:nvap;:Bumpeq,HumpDownHump,bump;0+mw:NotHumpDownHump,nbump;:HumpEqual,bumpe,bumpeq;0+mw:NotHumpEqual,nbumpe;:DotEqual,doteq,esdot;0+mw:nedot;:doteqdot,eDot;:efDot,fallingdotseq;:erDot,risingdotseq;:Assign,colone,coloneq;:ecolon,eqcolon;:ecir,eqcirc;:circeq,cire;2:wedgeq;:veeeq;2:triangleq,trie;3:equest,questeq;:NotEqual,ne;:Congruent,equiv;0+6hx:bnequiv;:NotCongruent,nequiv;2:le,leq;0+6he:nvle;:GreaterEqual,ge,geq;0+6he:nvge;:LessFullEqual,lE,leqq;0+mw:nlE,nleqq;:GreaterFullEqual,gE,geqq;0+mw:NotGreaterFullEqual,ngE,ngeqq;:lnE,lneqq;0+1e68:lvertneqq,lvnE;:gnE,gneqq;0+1e68:gvertneqq,gvnE;:Lt,NestedLessLess,ll;0+mw:NotLessLess,nLtv;0+6he:nLt;:Gt,NestedGreaterGreater,gg;0+mw:NotGreaterGreater,nGtv;0+6he:nGt;:between,twixt;:NotCupCap;:NotLess,nless,nlt;:NotGreater,ngt,ngtr;:NotLessEqual,nle,nleq;:NotGreaterEqual,nge,ngeq;:LessTilde,lesssim,lsim;:GreaterTilde,gsim,gtrsim;:NotLessTilde,nlsim;:NotGreaterTilde,ngsim;:LessGreater,lessgtr,lg;:GreaterLess,gl,gtrless;:NotLessGreater,ntlg;:NotGreaterLess,ntgl;:Precedes,pr,prec;:Succeeds,sc,succ;:PrecedesSlantEqual,prcue,preccurlyeq;:SucceedsSlantEqual,sccue,succcurlyeq;:PrecedesTilde,precsim,prsim;:SucceedsTilde,scsim,succsim;0+mw:NotSucceedsTilde;:NotPrecedes,npr,nprec;:NotSucceeds,nsc,nsucc;:sub,subset;0+6he:NotSubset,nsubset,vnsub;:Superset,sup,supset;0+6he:NotSuperset,nsupset,vnsup;:nsub;:nsup;:SubsetEqual,sube,subseteq;:SupersetEqual,supe,supseteq;:NotSubsetEqual,nsube,nsubseteq;:NotSupersetEqual,nsupe,nsupseteq;:subne,subsetneq;0+1e68:varsubsetneq,vsubne;:supne,supsetneq;0+1e68:varsupsetneq,vsupne;2:cupdot;:UnionPlus,uplus;:SquareSubset,sqsub,sqsubset;0+mw:NotSquareSubset;:SquareSuperset,sqsup,sqsupset;0+mw:NotSquareSuperset;:SquareSubsetEqual,sqsube,sqsubseteq;:SquareSupersetEqual,sqsupe,sqsupseteq;:SquareIntersection,sqcap;0+1e68:sqcaps;:SquareUnion,sqcup;0+1e68:sqcups;:CirclePlus,oplus;:CircleMinus,ominus;:CircleTimes,otimes;:osol;:CircleDot,odot;:circledcirc,ocir;:circledast,oast;2:circleddash,odash;:boxplus,plusb;:boxminus,minusb;:boxtimes,timesb;:dotsquare,sdotb;:RightTee,vdash;:LeftTee,dashv;:DownTee,top;:UpTee,bot,bottom,perp;2:models;:DoubleRightTee,vDash;:Vdash;:Vvdash;:VDash;:nvdash;:nvDash;:nVdash;:nVDash;:prurel;2:LeftTriangle,vartriangleleft,vltri;:RightTriangle,vartriangleright,vrtri;:LeftTriangleEqual,ltrie,trianglelefteq;0+6he:nvltrie;:RightTriangleEqual,rtrie,trianglerighteq;0+6he:nvrtrie;:origof;:imof;:multimap,mumap;:hercon;:intcal,intercal;:veebar;2:barvee;:angrtvb;:lrtri;:Wedge,bigwedge,xwedge;:Vee,bigvee,xvee;:Intersection,bigcap,xcap;:Union,bigcup,xcup;:Diamond,diam,diamond;:sdot;:Star,sstarf;:divideontimes,divonx;:bowtie;:ltimes;:rtimes;:leftthreetimes,lthree;:rightthreetimes,rthree;:backsimeq,bsime;:curlyvee,cuvee;:curlywedge,cuwed;:Sub,Subset;:Sup,Supset;:Cap;:Cup;:fork,pitchfork;:epar;:lessdot,ltdot;:gtdot,gtrdot;:Ll;0+mw:nLl;:Gg,ggg;0+mw:nGg;:LessEqualGreater,leg,lesseqgtr;0+1e68:lesg;:GreaterEqualLess,gel,gtreqless;0+1e68:gesl;3:cuepr,curlyeqprec;:cuesc,curlyeqsucc;:NotPrecedesSlantEqual,nprcue;:NotSucceedsSlantEqual,nsccue;:NotSquareSubsetEqual,nsqsube;:NotSquareSupersetEqual,nsqsupe;3:lnsim;:gnsim;:precnsim,prnsim;:scnsim,succnsim;:NotLeftTriangle,nltri,ntriangleleft;:NotRightTriangle,nrtri,ntriangleright;:NotLeftTriangleEqual,nltrie,ntrianglelefteq;:NotRightTriangleEqual,nrtrie,ntrianglerighteq;:vellip;:ctdot;:utdot;:dtdot;:disin;:isinsv;:isins;:isindot;0+mw:notindot;:notinvc;:notinvb;2:isinE;0+mw:notinE;:nisd;:xnis;:nis;:notnivc;:notnivb;7:barwed,barwedge;:Barwed,doublebarwedge;2:LeftCeiling,lceil;:RightCeiling,rceil;:LeftFloor,lfloor;:RightFloor,rfloor;:drcrop;:dlcrop;:urcrop;:ulcrop;:bnot;2:profline;:profsurf;2:telrec;:target;6:ulcorn,ulcorner;:urcorn,urcorner;:dlcorn,llcorner;:drcorn,lrcorner;3:frown,sfrown;:smile,ssmile;a:cylcty;:profalar;8:topbot;7:ovbar;2:solbar;1p:angzarr;1g:lmoust,lmoustache;:rmoust,rmoustache;3:OverBracket,tbrk;:UnderBracket,bbrk;:bbrktbrk;12:OverParenthesis;:UnderParenthesis;:OverBrace;:UnderBrace;3:trpezium;5:elinters;1o:blank;4l:circledS,oS;1k:HorizontalLine,boxh;2:boxv;a:boxdr;4:boxdl;4:boxur;4:boxul;4:boxvr;8:boxvl;8:boxhd;8:boxhu;8:boxvh;k:boxH;:boxV;:boxdR;:boxDr;:boxDR;:boxdL;:boxDl;:boxDL;:boxuR;:boxUr;:boxUR;:boxuL;:boxUl;:boxUL;:boxvR;:boxVr;:boxVR;:boxvL;:boxVl;:boxVL;:boxHd;:boxhD;:boxHD;:boxHu;:boxhU;:boxHU;:boxvH;:boxVh;:boxVH;k:uhblk;4:lhblk;4:block;9:blk14;:blk12;:blk34;e:Square,squ,square;9:FilledVerySmallSquare,blacksquare,squarf,squf;:EmptyVerySmallSquare;2:rect;:marker;3:fltns;2:bigtriangleup,xutri;:blacktriangle,utrif;:triangle,utri;3:blacktriangleright,rtrif;:rtri,triangleright;4:bigtriangledown,xdtri;:blacktriangledown,dtrif;:dtri,triangledown;3:blacktriangleleft,ltrif;:ltri,triangleleft;7:loz,lozenge;:cir;x:tridot;3:bigcirc,xcirc;9:ultri;:urtri;:lltri;:EmptySmallSquare;:FilledSmallSquare;9:bigstar,starf;:star;8:phone;1e:female;2:male;u:spades,spadesuit;3:clubs,clubsuit;2:hearts,heartsuit;:diamondsuit,diams;4:sung;3:flat;:natur,natural;:sharp;4k:check,checkmark;4:cross;9:malt,maltese;m:sext;y:VerticalSeparator;q:lbbrk;:rbbrk;2d:bsolhsub;:suphsol;t:LeftDoubleBracket,lobrk;:RightDoubleBracket,robrk;:LeftAngleBracket,lang,langle;:RightAngleBracket,rang,rangle;:Lang;:Rang;:loang;:roang;8:LongLeftArrow,longleftarrow,xlarr;:LongRightArrow,longrightarrow,xrarr;:LongLeftRightArrow,longleftrightarrow,xharr;:DoubleLongLeftArrow,Longleftarrow,xlArr;:DoubleLongRightArrow,Longrightarrow,xrArr;:DoubleLongLeftRightArrow,Longleftrightarrow,xhArr;2:longmapsto,xmap;3:dzigrarr;77:nvlArr;:nvrArr;:nvHarr;:Map;7:lbarr;:bkarow,rbarr;:lBarr;:dbkarow,rBarr;:RBarr,drbkarow;:DDotrahd;:UpArrowBar;:DownArrowBar;3:Rarrtl;3:latail;:ratail;:lAtail;:rAtail;:larrfs;:rarrfs;:larrbfs;:rarrbfs;3:nwarhk;:nearhk;:hksearow,searhk;:hkswarow,swarhk;:nwnear;:nesear,toea;:seswar,tosa;:swnwar;9:rarrc;0+mw:nrarrc;2:cudarrr;:ldca;:rdca;:cudarrl;:larrpl;3:curarrm;:cularrp;8:rarrpl;3:harrcir;:Uarrocir;:lurdshar;:ldrushar;3:LeftRightVector;:RightUpDownVector;:DownLeftRightVector;:LeftUpDownVector;:LeftVectorBar;:RightVectorBar;:RightUpVectorBar;:RightDownVectorBar;:DownLeftVectorBar;:DownRightVectorBar;:LeftUpVectorBar;:LeftDownVectorBar;:LeftTeeVector;:RightTeeVector;:RightUpTeeVector;:RightDownTeeVector;:DownLeftTeeVector;:DownRightTeeVector;:LeftUpTeeVector;:LeftDownTeeVector;:lHar;:uHar;:rHar;:dHar;:luruhar;:ldrdhar;:ruluhar;:rdldhar;:lharul;:llhard;:rharul;:lrhard;:UpEquilibrium,udhar;:ReverseUpEquilibrium,duhar;:RoundImplies;:erarr;:simrarr;:larrsim;:rarrsim;:rarrap;:ltlarr;2:gtrarr;:subrarr;2:suplarr;:lfisht;:rfisht;:ufisht;:dfisht;6:lopar;:ropar;5:lbrke;:rbrke;:lbrkslu;:rbrksld;:lbrksld;:rbrkslu;:langd;:rangd;:lparlt;:rpargt;:gtlPar;:ltrPar;4:vzigzag;2:vangrt;:angrtvbd;7:ange;:range;:dwangle;:uwangle;:angmsdaa;:angmsdab;:angmsdac;:angmsdad;:angmsdae;:angmsdaf;:angmsdag;:angmsdah;:bemptyv;:demptyv;:cemptyv;:raemptyv;:laemptyv;:ohbar;:omid;:opar;2:operp;2:olcross;:odsold;2:olcir;:ofcir;:olt;:ogt;:cirscir;:cirE;:solb;:bsolb;4:boxbox;4:trisb;:rtriltri;:LeftTriangleBar;0+mw:NotLeftTriangleBar;:RightTriangleBar;0+mw:NotRightTriangleBar;c:iinfin;:infintie;:nvinfin;5:eparsl;:smeparsl;:eqvparsl;6:blacklozenge,lozf;9:RuleDelayed;2:dsol;a:bigodot,xodot;:bigoplus,xoplus;:bigotimes,xotime;2:biguplus,xuplus;2:bigsqcup,xsqcup;6:iiiint,qint;:fpartint;3:cirfnint;:awint;:rppolint;:scpolint;:npolint;:pointint;:quatint;:intlarhk;b:pluscir;:plusacir;:simplus;:plusdu;:plussim;:plustwo;2:mcomma;:minusdu;3:loplus;:roplus;:Cross;:timesd;:timesbar;2:smashp;:lotimes;:rotimes;:otimesas;:Otimes;:odiv;:triplus;:triminus;:tritime;:intprod,iprod;3:amalg;:capdot;2:ncup;:ncap;:capand;:cupor;:cupcap;:capcup;:cupbrcap;:capbrcup;:cupcup;:capcap;:ccups;:ccaps;3:ccupssm;3:And;:Or;:andand;:oror;:orslope;:andslope;2:andv;:orv;:andd;:ord;2:wedbar;7:sdote;4:simdot;3:congdot;0+mw:ncongdot;:easter;:apacir;:apE;0+mw:napE;:eplus;:pluse;:Esim;:Colone;:Equal;2:ddotseq,eDDot;:equivDD;:ltcir;:gtcir;:ltquest;:gtquest;:LessSlantEqual,leqslant,les;0+mw:NotLessSlantEqual,nleqslant,nles;:GreaterSlantEqual,geqslant,ges;0+mw:NotGreaterSlantEqual,ngeqslant,nges;:lesdot;:gesdot;:lesdoto;:gesdoto;:lesdotor;:gesdotol;:lap,lessapprox;:gap,gtrapprox;:lne,lneq;:gne,gneq;:lnap,lnapprox;:gnap,gnapprox;:lEg,lesseqqgtr;:gEl,gtreqqless;:lsime;:gsime;:lsimg;:gsiml;:lgE;:glE;:lesges;:gesles;:els,eqslantless;:egs,eqslantgtr;:elsdot;:egsdot;:el;:eg;3:siml;:simg;:simlE;:simgE;:LessLess;0+mw:NotNestedLessLess;:GreaterGreater;0+mw:NotNestedGreaterGreater;2:glj;:gla;:ltcc;:gtcc;:lescc;:gescc;:smt;:lat;:smte;0+1e68:smtes;:late;0+1e68:lates;:bumpE;:PrecedesEqual,pre,preceq;0+mw:NotPrecedesEqual,npre,npreceq;:SucceedsEqual,sce,succeq;0+mw:NotSucceedsEqual,nsce,nsucceq;3:prE;:scE;:precneqq,prnE;:scnE,succneqq;:prap,precapprox;:scap,succapprox;:precnapprox,prnap;:scnap,succnapprox;:Pr;:Sc;:subdot;:supdot;:subplus;:supplus;:submult;:supmult;:subedot;:supedot;:subE,subseteqq;0+mw:nsubE,nsubseteqq;:supE,supseteqq;0+mw:nsupE,nsupseteqq;:subsim;:supsim;3:subnE,subsetneqq;0+1e68:varsubsetneqq,vsubnE;:supnE,supsetneqq;0+1e68:varsupsetneqq,vsupnE;3:csub;:csup;:csube;:csupe;:subsup;:supsub;:subsub;:supsup;:suphsub;:supdsub;:forkv;:topfork;:mlcp;9:Dashv,DoubleLeftTee;2:Vdashl;:Barv;:vBar;:vBarv;2:Vbar;:Not;:bNot;:rnmid;:cirmid;:midcir;:topcir;:nhpar;:parsim;a:parsl;0+6hx:nparsl;1537:fflig;:filig;:fllig;:ffilig;:ffllig;16zc:Ascr;2:Cscr;:Dscr;3:Gscr;3:Jscr;:Kscr;3:Nscr;:Oscr;:Pscr;:Qscr;2:Sscr;:Tscr;:Uscr;:Vscr;:Wscr;:Xscr;:Yscr;:Zscr;:ascr;:bscr;:cscr;:dscr;2:fscr;2:hscr;:iscr;:jscr;:kscr;:lscr;:mscr;:nscr;2:pscr;:qscr;:rscr;:sscr;:tscr;:uscr;:vscr;:wscr;:xscr;:yscr;:zscr;1h:Afr;:Bfr;2:Dfr;:Efr;:Ffr;:Gfr;3:Jfr;:Kfr;:Lfr;:Mfr;:Nfr;:Ofr;:Pfr;:Qfr;2:Sfr;:Tfr;:Ufr;:Vfr;:Wfr;:Xfr;:Yfr;2:afr;:bfr;:cfr;:dfr;:efr;:ffr;:gfr;:hfr;:ifr;:jfr;:kfr;:lfr;:mfr;:nfr;:ofr;:pfr;:qfr;:rfr;:sfr;:tfr;:ufr;:vfr;:wfr;:xfr;:yfr;:zfr;:Aopf;:Bopf;2:Dopf;:Eopf;:Fopf;:Gopf;2:Iopf;:Jopf;:Kopf;:Lopf;:Mopf;2:Oopf;4:Sopf;:Topf;:Uopf;:Vopf;:Wopf;:Xopf;:Yopf;2:aopf;:bopf;:copf;:dopf;:eopf;:fopf;:gopf;:hopf;:iopf;:jopf;:kopf;:lopf;:mopf;:nopf;:oopf;:popf;:qopf;:ropf;:sopf;:topf;:uopf;:vopf;:wopf;:xopf;:yopf;:zopf";
+
+// scripts/entities.js
+function unpack(packed) {
+	const table = /* @__PURE__ */ new Map();
+	let code = 0;
+	for (const group of packed.split(";")) {
+		const [cps, names] = group.split(":"), [delta, second] = cps.split("+");
+		code += delta ? parseInt(delta, 36) : 1;
+		const value = String.fromCodePoint(code) + (second ? String.fromCodePoint(parseInt(second, 36)) : "");
+		for (const name of names.split(",")) table.set(name, value);
+	}
+	return table;
+}
+const ENTITIES = unpack(_packed_entities_default);
+function decodeHTML(match) {
+	return match[0] === "&" && match[match.length - 1] === ";" && ENTITIES.get(match.slice(1, -1)) || match;
+}
+
+// node_modules/markdown-it/lib/common/utils.mjs
+function isValidEntityCode(c) {
+	if (c >= 55296 && c <= 57343) return false;
+	if (c >= 64976 && c <= 65007) return false;
+	if ((c & 65535) === 65535 || (c & 65535) === 65534) return false;
+	if (c >= 0 && c <= 8) return false;
+	if (c === 11) return false;
+	if (c >= 14 && c <= 31) return false;
+	if (c >= 127 && c <= 159) return false;
+	if (c > 1114111) return false;
+	return true;
+}
+function fromCodePoint(c) {
+	if (c > 65535) {
+		c -= 65536;
+		const surrogate1 = 55296 + (c >> 10);
+		const surrogate2 = 56320 + (c & 1023);
+		return String.fromCharCode(surrogate1, surrogate2);
+	}
+	return String.fromCharCode(c);
+}
+const UNESCAPE_MD_RE = /\\([!"#$%&'()*+,\-./:;<=>?@[\\\]^_`{|}~])/g;
+const UNESCAPE_ALL_RE = new RegExp(UNESCAPE_MD_RE.source + "|" + /&([a-z#][a-z0-9]{1,31});/gi.source, "gi");
+const DIGITAL_ENTITY_TEST_RE = /^#((?:x[a-f0-9]{1,8}|[0-9]{1,8}))$/i;
+function replaceEntityPattern(match, name) {
+	if (name.charCodeAt(0) === 35 && DIGITAL_ENTITY_TEST_RE.test(name)) {
+		const code = name[1].toLowerCase() === "x" ? parseInt(name.slice(2), 16) : parseInt(name.slice(1), 10);
+		if (isValidEntityCode(code)) return fromCodePoint(code);
+		return match;
+	}
+	const decoded = decodeHTML(match);
+	if (decoded !== match) return decoded;
+	return match;
+}
+function unescapeAll(str) {
+	if (str.indexOf("\\") < 0 && str.indexOf("&") < 0) return str;
+	return str.replace(UNESCAPE_ALL_RE, function(match, escaped, entity) {
+		if (escaped) return escaped;
+		return replaceEntityPattern(match, entity);
+	});
+}
+function isSpace(code) {
+	switch (code) {
+		case 9:
+		case 32: return true;
+	}
+	return false;
+}
+function isWhiteSpace(code) {
+	if (code >= 8192 && code <= 8202) return true;
+	switch (code) {
+		case 9:
+		case 10:
+		case 11:
+		case 12:
+		case 13:
+		case 32:
+		case 160:
+		case 5760:
+		case 8239:
+		case 8287:
+		case 12288: return true;
+	}
+	return false;
+}
+function isPunctChar(ch) {
+	return P.test(ch) || S.test(ch);
+}
+function isMdAsciiPunct(ch) {
+	switch (ch) {
+		case 33:
+		case 34:
+		case 35:
+		case 36:
+		case 37:
+		case 38:
+		case 39:
+		case 40:
+		case 41:
+		case 42:
+		case 43:
+		case 44:
+		case 45:
+		case 46:
+		case 47:
+		case 58:
+		case 59:
+		case 60:
+		case 61:
+		case 62:
+		case 63:
+		case 64:
+		case 91:
+		case 92:
+		case 93:
+		case 94:
+		case 95:
+		case 96:
+		case 123:
+		case 124:
+		case 125:
+		case 126: return true;
+		default: return false;
+	}
+}
+function normalizeReference(str) {
+	str = str.trim().replace(/\s+/g, " ");
+	if ("ẞ".toLowerCase() === "Ṿ") str = str.replace(/ẞ/g, "ß");
+	return str.toLowerCase().toUpperCase();
+}
 
 // node_modules/markdown-it/lib/rules_block/state_block.mjs
 function StateBlock(src, md, env, tokens) {
@@ -2508,249 +2287,140 @@ ParserInline.prototype.parse = function(str, md, env, outTokens) {
 };
 ParserInline.prototype.State = StateInline;
 
-// scripts/punycode.js
-var punycode_default = {
-	toASCII: (s) => s,
-	toUnicode: (s) => s
-};
-
-// node_modules/markdown-it/lib/presets/default.mjs
-var default_default = {
-	options: {
-		html: false,
-		xhtmlOut: false,
-		breaks: false,
-		langPrefix: "language-",
-		linkify: false,
-		typographer: false,
-		quotes: "“”‘’",
-		highlight: null,
-		maxNesting: 100
-	},
-	components: {
-		core: {},
-		block: {},
-		inline: {}
-	}
-};
-
-// node_modules/markdown-it/lib/presets/zero.mjs
-var zero_default = {
-	options: {
-		html: false,
-		xhtmlOut: false,
-		breaks: false,
-		langPrefix: "language-",
-		linkify: false,
-		typographer: false,
-		quotes: "“”‘’",
-		highlight: null,
-		maxNesting: 20
-	},
-	components: {
-		core: { rules: [
-			"normalize",
-			"block",
-			"inline",
-			"text_join"
-		] },
-		block: { rules: ["paragraph"] },
-		inline: {
-			rules: ["text"],
-			rules2: ["balance_pairs", "fragments_join"]
+// node_modules/markdown-it/lib/helpers/parse_link_label.mjs
+function parseLinkLabel(state, start, disableNested) {
+	let level, found, marker, prevPos;
+	const max = state.posMax;
+	const oldPos = state.pos;
+	state.pos = start + 1;
+	level = 1;
+	while (state.pos < max) {
+		marker = state.src.charCodeAt(state.pos);
+		if (marker === 93) {
+			level--;
+			if (level === 0) {
+				found = true;
+				break;
+			}
+		}
+		prevPos = state.pos;
+		state.md.inline.skipToken(state);
+		if (marker === 91) {
+			if (prevPos === state.pos - 1) level++;
+			else if (disableNested) {
+				state.pos = oldPos;
+				return -1;
+			}
 		}
 	}
-};
+	let labelEnd = -1;
+	if (found) labelEnd = state.pos;
+	state.pos = oldPos;
+	return labelEnd;
+}
 
-// node_modules/markdown-it/lib/presets/commonmark.mjs
-var commonmark_default = {
-	options: {
-		html: true,
-		xhtmlOut: true,
-		breaks: false,
-		langPrefix: "language-",
-		linkify: false,
-		typographer: false,
-		quotes: "“”‘’",
-		highlight: null,
-		maxNesting: 20
-	},
-	components: {
-		core: { rules: [
-			"normalize",
-			"block",
-			"inline",
-			"text_join"
-		] },
-		block: { rules: [
-			"blockquote",
-			"code",
-			"fence",
-			"heading",
-			"hr",
-			"html_block",
-			"lheading",
-			"list",
-			"reference",
-			"paragraph"
-		] },
-		inline: {
-			rules: [
-				"autolink",
-				"backticks",
-				"emphasis",
-				"entity",
-				"escape",
-				"html_inline",
-				"image",
-				"link",
-				"newline",
-				"text"
-			],
-			rules2: [
-				"balance_pairs",
-				"emphasis",
-				"fragments_join"
-			]
+// node_modules/markdown-it/lib/helpers/parse_link_destination.mjs
+function parseLinkDestination(str, start, max) {
+	let code;
+	let pos = start;
+	const result = {
+		ok: false,
+		pos: 0,
+		str: ""
+	};
+	if (str.charCodeAt(pos) === 60) {
+		pos++;
+		while (pos < max) {
+			code = str.charCodeAt(pos);
+			if (code === 10) return result;
+			if (code === 60) return result;
+			if (code === 62) {
+				result.pos = pos + 1;
+				result.str = unescapeAll(str.slice(start + 1, pos));
+				result.ok = true;
+				return result;
+			}
+			if (code === 92 && pos + 1 < max) {
+				pos += 2;
+				continue;
+			}
+			pos++;
 		}
+		return result;
 	}
-};
+	let level = 0;
+	while (pos < max) {
+		code = str.charCodeAt(pos);
+		if (code === 32) break;
+		if (code < 32 || code === 127) break;
+		if (code === 92 && pos + 1 < max) {
+			if (str.charCodeAt(pos + 1) === 32) break;
+			pos += 2;
+			continue;
+		}
+		if (code === 40) {
+			level++;
+			if (level > 32) return result;
+		}
+		if (code === 41) {
+			if (level === 0) break;
+			level--;
+		}
+		pos++;
+	}
+	if (start === pos) return result;
+	if (level !== 0) return result;
+	result.str = unescapeAll(str.slice(start, pos));
+	result.pos = pos;
+	result.ok = true;
+	return result;
+}
 
-// node_modules/markdown-it/lib/index.mjs
-const config = {
-	default: default_default,
-	zero: zero_default,
-	commonmark: commonmark_default
-};
-const BAD_PROTO_RE = /^(vbscript|javascript|file|data):/;
-const GOOD_DATA_RE = /^data:image\/(gif|png|jpeg|webp);/;
-function validateLink(url) {
-	const str = url.trim().toLowerCase();
-	return BAD_PROTO_RE.test(str) ? GOOD_DATA_RE.test(str) : true;
-}
-const RECODE_HOSTNAME_FOR = [
-	"http:",
-	"https:",
-	"mailto:"
-];
-function normalizeLink(url) {
-	const parsed = parse(url, true);
-	if (parsed.hostname) {
-		if (!parsed.protocol || RECODE_HOSTNAME_FOR.indexOf(parsed.protocol) >= 0) try {
-			parsed.hostname = punycode_default.toASCII(parsed.hostname);
-		} catch (er) {}
+// node_modules/markdown-it/lib/helpers/parse_link_title.mjs
+function parseLinkTitle(str, start, max, prev_state) {
+	let code;
+	let pos = start;
+	const state = {
+		ok: false,
+		can_continue: false,
+		pos: 0,
+		str: "",
+		marker: 0
+	};
+	if (prev_state) {
+		state.str = prev_state.str;
+		state.marker = prev_state.marker;
+	} else {
+		if (pos >= max) return state;
+		let marker = str.charCodeAt(pos);
+		if (marker !== 34 && marker !== 39 && marker !== 40) return state;
+		start++;
+		pos++;
+		if (marker === 40) marker = 41;
+		state.marker = marker;
 	}
-	return encode(format(parsed));
-}
-function normalizeLinkText(url) {
-	const parsed = parse(url, true);
-	if (parsed.hostname) {
-		if (!parsed.protocol || RECODE_HOSTNAME_FOR.indexOf(parsed.protocol) >= 0) try {
-			parsed.hostname = punycode_default.toUnicode(parsed.hostname);
-		} catch (er) {}
+	while (pos < max) {
+		code = str.charCodeAt(pos);
+		if (code === state.marker) {
+			state.pos = pos + 1;
+			state.str += unescapeAll(str.slice(start, pos));
+			state.ok = true;
+			return state;
+		} else if (code === 40 && state.marker === 41) return state;
+		else if (code === 92 && pos + 1 < max) pos++;
+		pos++;
 	}
-	return decode(format(parsed), decode.defaultChars + "%");
+	state.can_continue = true;
+	state.str += unescapeAll(str.slice(start, pos));
+	return state;
 }
-function MarkdownIt(presetName, options) {
-	if (!(this instanceof MarkdownIt)) return new MarkdownIt(presetName, options);
-	if (!options) {
-		if (!isString(presetName)) {
-			options = presetName || {};
-			presetName = "default";
-		}
-	}
-	this.inline = new ParserInline();
-	this.block = new ParserBlock();
-	this.core = new Core();
-	this.renderer = new unused();
-	this.linkify = new unused();
-	this.validateLink = validateLink;
-	this.normalizeLink = normalizeLink;
-	this.normalizeLinkText = normalizeLinkText;
-	this.utils = utils_exports;
-	this.helpers = assign({}, helpers_exports);
-	this.options = {};
-	this.configure(presetName);
-	if (options) this.set(options);
-}
-MarkdownIt.prototype.set = function(options) {
-	assign(this.options, options);
-	return this;
-};
-MarkdownIt.prototype.configure = function(presets) {
-	const self = this;
-	if (isString(presets)) {
-		const presetName = presets;
-		presets = config[presetName];
-		if (!presets) throw new Error("Wrong `markdown-it` preset \"" + presetName + "\", check name");
-	}
-	if (!presets) throw new Error("Wrong `markdown-it` preset, can't be empty");
-	if (presets.options) self.set(presets.options);
-	if (presets.components) Object.keys(presets.components).forEach(function(name) {
-		if (presets.components[name].rules) self[name].ruler.enableOnly(presets.components[name].rules);
-		if (presets.components[name].rules2) self[name].ruler2.enableOnly(presets.components[name].rules2);
-	});
-	return this;
-};
-MarkdownIt.prototype.enable = function(list, ignoreInvalid) {
-	let result = [];
-	if (!Array.isArray(list)) list = [list];
-	[
-		"core",
-		"block",
-		"inline"
-	].forEach(function(chain) {
-		result = result.concat(this[chain].ruler.enable(list, true));
-	}, this);
-	result = result.concat(this.inline.ruler2.enable(list, true));
-	const missed = list.filter(function(name) {
-		return result.indexOf(name) < 0;
-	});
-	if (missed.length && !ignoreInvalid) throw new Error("MarkdownIt. Failed to enable unknown rule(s): " + missed);
-	return this;
-};
-MarkdownIt.prototype.disable = function(list, ignoreInvalid) {
-	let result = [];
-	if (!Array.isArray(list)) list = [list];
-	[
-		"core",
-		"block",
-		"inline"
-	].forEach(function(chain) {
-		result = result.concat(this[chain].ruler.disable(list, true));
-	}, this);
-	result = result.concat(this.inline.ruler2.disable(list, true));
-	const missed = list.filter(function(name) {
-		return result.indexOf(name) < 0;
-	});
-	if (missed.length && !ignoreInvalid) throw new Error("MarkdownIt. Failed to disable unknown rule(s): " + missed);
-	return this;
-};
-MarkdownIt.prototype.use = function(plugin) {
-	const args = [this].concat(Array.prototype.slice.call(arguments, 1));
-	plugin.apply(plugin, args);
-	return this;
-};
-MarkdownIt.prototype.parse = function(src, env) {
-	if (typeof src !== "string") throw new Error("Input data should be a String");
-	const state = new this.core.State(src, this, env);
-	this.core.process(state);
-	return state.tokens;
-};
-MarkdownIt.prototype.render = function(src, env) {
-	env = env || {};
-	return this.renderer.render(this.parse(src, env), this.options, env);
-};
-MarkdownIt.prototype.parseInline = function(src, env) {
-	const state = new this.core.State(src, this, env);
-	state.inlineMode = true;
-	this.core.process(state);
-	return state.tokens;
-};
-MarkdownIt.prototype.renderInline = function(src, env) {
-	env = env || {};
-	return this.renderer.render(this.parseInline(src, env), this.options, env);
-};
+
+// node_modules/markdown-it/lib/helpers/index.mjs
+var helpers_exports = /* @__PURE__ */ __exportAll({
+	parseLinkDestination: () => parseLinkDestination,
+	parseLinkLabel: () => parseLinkLabel,
+	parseLinkTitle: () => parseLinkTitle
+});
 
 // scripts/autolink.js
 const D = "[^\\s!-,./:-@[-^`{-~]";
@@ -2854,19 +2524,26 @@ function token(state, type, tag, nesting, level, content) {
 }
 
 // scripts/parser-entry.js
-const md = new MarkdownIt({
-	html: true,
-	linkify: false
-});
-md.validateLink = () => true;
-md.normalizeLink = (u) => u;
-md.normalizeLinkText = (u) => u;
+const keep = (u) => u;
+const md = {
+	options: {
+		html: true,
+		maxNesting: 100
+	},
+	core: new Core(),
+	block: new ParserBlock(),
+	inline: new ParserInline(),
+	helpers: helpers_exports,
+	validateLink: () => true,
+	normalizeLink: keep,
+	normalizeLinkText: keep
+};
 md.core.ruler.push("autolink", autolink);
-const { unescapeAll } = md.utils;
 function tokenize(source) {
-	const tokens = md.parse(source, {});
-	for (const t of tokens) if (t.type === "fence") t.info = unescapeAll(t.info);
-	return tokens;
+	const state = new md.core.State(source, md, {});
+	md.core.process(state);
+	for (const t of state.tokens) if (t.type === "fence") t.info = unescapeAll(t.info);
+	return state.tokens;
 }
 
 export { tokenize };
