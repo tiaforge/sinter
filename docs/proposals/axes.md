@@ -440,8 +440,10 @@ Each step ships on its own.
    own point does not answer goes to the page at that path at its point; a page on another origin is absolute (an
    origin's link to a shared page too, on `site`); a link to a page only an axis's values have, from a page outside
    that axis and not in a loop over it, fails the build (in dev, a warning). `axisUrl(list, key)`: the page at
-   another value of an axis, from a table per point (`axisUrls`), folded at build. Not yet: case 2 (a variable that
-   holds an entry), the special files per point (404 per origin), and the server layers' host map (§10).
+   another value of an axis, from a table per point (`axisUrls`), folded at build. The special files per point (§9)
+   needed nothing new: a 404 page over the tenants is copied per tenant by the choosers' pass, at an origin's folder's
+   root and in a segment's folder (tested in `test/vite/origins.test.ts`). Not yet: case 2 (a variable that holds an
+   entry), and the server layers' host map (§10).
 7. **Fallback chains** (§6): `chain`, the new direction in `choose`, the shared test cases in the three server
    layers, the manifest's `fallbacks`, chains of other axes, `fallback: true` for content.
    *Languages done 2026-11-21:* `chain` and `checkFallbacks` in src/locales.ts, `languages({ fallbacks })`, messages

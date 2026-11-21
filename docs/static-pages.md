@@ -338,8 +338,11 @@ dist/globex/index.html        /globex/
 
   The site's `_redirects` leave such a tenant's pages out (a host that reads them serves one domain). In dev, a tenant
   with an origin is served under its key, as a segment (`/acme/de/about/`).
-- Not yet ([docs/proposals/axes.md](proposals/axes.md)): a 404 page per origin, the server layers' host map, and a
-  link through a variable that holds a tenant (`data-sn-with`) rather than a loop.
+- **Special files per tenant**: a `404.html` that uses the tenant's layout is written per tenant, at its domain
+  folder's root (`dist/acme/404.html`) or in its segment's folder (`dist/demo/404.html`), and in each language. One
+  that declares no axis is the site's. Each origin has its own `sitemap.xml`.
+- Not yet ([docs/proposals/axes.md](proposals/axes.md)): the server layers' host map, and a link through a variable
+  that holds a tenant (`data-sn-with`) rather than a loop.
 
 ### Redirects and rewrites
 

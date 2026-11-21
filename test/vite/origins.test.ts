@@ -42,6 +42,7 @@ export const tenants = collection({ key: 'key', load: () => [
 <ul><template data-sn-for="t in tenants"><li><a href="/about.html" data-sn-text="t.name"></a></li></template></ul>
 <a href="/faq.html">FAQ</a></body></html>`,
   'faq.html': `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>FAQ</title></head><body><a href="/portal.html">Shops</a></body></html>`,
+  '404.html': `<shop-layout data-sn-with="{ title: 'Not found' }"><p data-sn-text="tenant.name + ' has no such page'"></p></shop-layout>`,
   'cart.html': `<shop-layout data-sn-with="{ title: 'Cart' }"><sn-resource name="cart" src="/api/cart"></sn-resource><p data-sn-text="cart.n"></p></shop-layout>`,
 };
 beforeAll(async () => {
@@ -49,7 +50,7 @@ beforeAll(async () => {
   await build({
     root, logLevel: 'silent', resolve: { alias },
     plugins: [sinter({ localePrefix: true, typecheck: false, site: 'https://example.com' })],
-    build: { outDir: out, emptyOutDir: true, rollupOptions: { input: ['index.html', 'about.html', 'cart.html', 'portal.html', 'faq.html'].map((f) => join(root, f)) } },
+    build: { outDir: out, emptyOutDir: true, rollupOptions: { input: ['index.html', 'about.html', 'cart.html', 'portal.html', 'faq.html', '404.html'].map((f) => join(root, f)) } },
   });
 }, 120_000);
 const read = (f: string) => readFileSync(join(out, f), 'utf8');
@@ -119,6 +120,12 @@ describe('a tenant on its own domain, and one on the site', () => {
       writeFileSync(join(root, 'faq.html'), files['faq.html']!);
     }
   }, 120_000);
+
+  test('a 404 page per tenant: at the domain\'s folder\'s root, and in the segment tenant\'s folder', () => {
+    expect(read('acme/404.html')).toContain('<p>Acme has no such page</p>');
+    expect(read('demo/404.html')).toContain('<p>Demo has no such page</p>');
+    expect(read('acme/de/404.html')).toContain('<p>Acme has no such page</p>');
+  });
 
   test('the site\'s _redirects leave the domain\'s pages to its proxy', () => {
     if (existsSync(join(out, '_redirects'))) expect(read('_redirects')).not.toContain('acme');
