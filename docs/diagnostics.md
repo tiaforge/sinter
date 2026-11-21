@@ -238,9 +238,9 @@ Error, for example:
 
 > the response of `GET /articles` has no `articls`. Did you mean `articles`?
 
-The resource matched an operation in the OpenAPI spec, but its `select` or `total` path is not in the response schema.
+The resource matched an operation in the OpenAPI spec, but its `select` or `total` path, or `more` in `paginate`, is not in the response schema.
 
-**Fix:** Fix the path in `select` or `total`, or the spec if the API changed.
+**Fix:** Fix the path in `select`, `total` or `more`, or the spec if the API changed.
 
 ## SN309 unknown-element-id
 

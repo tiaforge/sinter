@@ -34,11 +34,19 @@ describe('paginate: the server\'s names, once per API', () => {
     const over = page(list("numbered: true, size: 5, params: { size: 'n' }"), main(wire)).module;
     expect(over).toMatch(/"sizeParam":"n".*"pageParam":"p"/);
   });
+  test('`more` from the API, a list\'s own wins; checked against the response (SN308)', () => {
+    const more = main({ paginate: { more: 'total' } });
+    expect(page(list("numbered: true, size: 5"), more).module).toContain('"more":"total"');
+    expect(page(list("numbered: true, size: 5, more: 'contacts'"), more).module).toContain('"more":"contacts"');
+    expect(page(list("numbered: true, size: 5"), main()).module).not.toContain('"more"');
+    expect(codes(list("numbered: true, size: 5, more: 'has_more'"))).toContain('SN308 the response of `GET /contacts` has no `has_more`.');
+  });
   test('the API\'s setting is checked', () => {
     const bad = (pg: unknown) => apiProject(main({ paginate: pg })).diagnostics.map((d) => d.message);
     expect(bad({ params: { sise: 'n' } })).toEqual(['sinter({ apis }): `main.paginate.params.sise` is not a key; the keys are `size`, `page`, `offset`, `direction`']);
     expect(bad({ params: { size: 'a b' } })).toEqual(['sinter({ apis }): `main.paginate.params.size` is a query parameter name']);
-    expect(bad({ order: 'x' })).toEqual(['sinter({ apis }): `main.paginate.order` is not a setting; it takes `params` and `directions`']);
+    expect(bad({ order: 'x' })).toEqual(['sinter({ apis }): `main.paginate.order` is not a setting; it takes `params`, `directions` and `more`']);
+    expect(bad({ more: 1 })).toEqual(["sinter({ apis }): `main.paginate.more` is a path in the response, such as `'has_more'`"]);
     expect(bad('limit')).toEqual(["sinter({ apis }): `main.paginate` takes an object: `{ params: { size: 'per_page' }, directions: { prev: 'backward' } }`"]);
   });
 });

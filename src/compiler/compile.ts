@@ -21,7 +21,7 @@ import type * as acorn from 'acorn';
 import { COMPLEXITY_DEFAULTS, COMPLEXITY_LIMITS, measure, type ComplexityOptions } from './complexity.js';
 import { ATTRIBUTES, CHAR_KEYS, ELEMENTS, KEY_ALIASES, LOOSE_SHIFT, MODIFIERS, NAMED_KEYS } from './vocabulary.js';
 import type { CheckExpr, CheckFrame, CheckLoc, CheckResource, CheckUnit, TypeRef } from './check-unit.js';
-import { apiOf, shapeTemplate, signInWire, type ApiDef, type ApisDef, type OperationShape } from './apis.js';
+import { apiOf, RESPONSE_PATH, shapeTemplate, signInWire, type ApiDef, type ApisDef, type OperationShape } from './apis.js';
 import { foldReason, type FoldVerdict } from '../fold-check.js';
 import { BUILD_TIME_ATTRS, buildTimeAttrProblem, FILE_ATTRS, FILE_ENTRY, fileAttrProblem, fileEntry, filePath, fileValue, isContentSource, isFileSource, isGlob, PAGE_ENTRY, scriptJson, setPath, sortList } from './files.js';
 import { deref, matchOperation, matchResource, type Method, type OpenApiMatch, type Auth, namedAt, namedSchema, properties, propertyNames, queryNames, responseEntities, walk, wrapperKey, type OpenApiSpec } from './openapi.js';
@@ -821,6 +821,8 @@ interface PageSpec {
   skip: boolean;
   params: { size?: string; page?: string; offset?: string; direction?: string };
   directions: Paginate['directionValues'] | null;
+  /** `more: 'has_more'`: the response path that says whether there are more items */
+  more: string | null;
 }
 
 function paginateParams(p: Paginate, cursor: string | undefined): string[] {
@@ -1843,7 +1845,7 @@ class Compiler {
   /**
    * `paginate="{ keyset: { before: $item.id }, size: 20 }"` (docs/pagination.md): how a list pages, as one object literal.
    * The mode is the key (`keyset` or `append` with the cursor, `numbered: true`); `size`; `model: $url.page` (numbered);
-   * `jump: true` (keyset, by `params.offset`); `params` and `directions`, the server's names, over the API's
+   * `jump: true` (keyset, by `params.offset`); `params`, `directions` and `more`, the server's names, over the API's
    * (`sinter({ apis: { main: { paginate } } })`). Parsed once per element; null after reporting what is wrong.
    */
   pageSpec(el: P5Element): PageSpec | null {
@@ -1863,7 +1865,7 @@ class Compiler {
     try { ast = parseExpression(text); } catch (e) { return fail(`\`paginate\`: ${(e as Error).message.replace(/ \(\d+:\d+\)$/, '')}`, (e as { pos?: number }).pos ?? 0); }
     if (ast.type !== 'ObjectExpression' || ast.end !== text.trimEnd().length) return fail(`\`paginate\` is an object literal: ${EXAMPLE}`);
     const lead = text.length - text.trimStart().length;
-    const spec: PageSpec = { mode: 'keyset', size: 0, cursor: null, model: null, jump: false, skip: false, params: {}, directions: null };
+    const spec: PageSpec = { mode: 'keyset', size: 0, cursor: null, model: null, jump: false, skip: false, params: {}, directions: null, more: null };
     let modes = 0;
     const seen = new Set<string>();
     const strings = (v: acorn.Node, keys: readonly string[], what: string): Record<string, string> | null => {
@@ -1916,8 +1918,11 @@ class Compiler {
         const o = strings(v, ['first', 'prev', 'next', 'last'], 'directions');
         if (!o) return null;
         spec.directions = o;
+      } else if (key === 'more') {
+        if (v.type !== 'Literal' || typeof v.value !== 'string' || !RESPONSE_PATH.test(v.value)) return fail('`more` is the path in the response that says whether there are more items, a string literal: `more: \'has_more\'`', v.start);
+        spec.more = v.value;
       } else {
-        const KEYS = ['keyset', 'append', 'numbered', 'size', 'model', 'jump', 'params', 'directions'];
+        const KEYS = ['keyset', 'append', 'numbered', 'size', 'model', 'jump', 'params', 'directions', 'more'];
         return fail(`\`${key}\` is not a key of \`paginate\`; it takes ${KEYS.map((x) => `\`${x}\``).join(', ')}.${didYouMean(key, KEYS)}`, p.key.start);
       }
     }
@@ -6520,6 +6525,8 @@ class Compiler {
       if (spec.skip) paginate.skipParam = params.offset ?? 'offset';
       if (spec.jump) paginate.skipParam = params.offset ?? 'offset';
       if (directions && spec.mode !== 'numbered') paginate.directionValues = directions;
+      const more = spec.more ?? wire?.more;
+      if (more) paginate.more = more;
       // `model: $url.page`: the list's page lives in the URL, read at load and written back on every move
       if (spec.model) {
         const pm = spec.model.name;
@@ -6589,7 +6596,7 @@ class Compiler {
     const type = shaped('type');
     // an operation the config declares has no schema: its type is the config's
     const generated = target ? !!this.opts.openapi![target.match.spec]!.config : false;
-    const openapi = type || hasCall || generated ? null : this.openapi(el, src, select, total, target?.match, post ? 'post' : 'get');
+    const openapi = type || hasCall || generated ? null : this.openapi(el, src, select, total, target?.match, post ? 'post' : 'get', paginate?.more);
     if (!post && !hasCall) {
       const m = target?.match ?? (!this.opts.apis && this.opts.openapi?.length ? matchResource(this.opts.openapi, src) : null);
       if (m && 'path' in m && m.auth) this.authOf.set(name, m.auth);
@@ -6957,8 +6964,8 @@ class Compiler {
     }
   }
 
-  /** Matches a resource against the OpenAPI specs; checks `select`, `total` and query parameter names. */
-  openapi(el: P5Element, src: UrlTemplate, select: string | null, total: string | null, matched?: OpenApiMatch, method: Method = 'get'):
+  /** Matches a resource against the OpenAPI specs; checks `select`, `total`, paginate's `more` and query parameter names. */
+  openapi(el: P5Element, src: UrlTemplate, select: string | null, total: string | null, matched?: OpenApiMatch, method: Method = 'get', more?: string):
     { spec: number; label: string; schema: unknown } | { closest: string | null } | null {
     const specs = this.opts.openapi;
     if (!specs?.length) return null;
@@ -6968,11 +6975,11 @@ class Compiler {
     const label = `${method.toUpperCase()} ${m.path}`;
     let schema = m.body;
     if (schema == null) return { closest: m.path };
-    for (const [field, path] of [['select', select], ['total', total]] as const) {
+    for (const [field, path] of [['select', select], ['total', total], ['more', more]] as const) {
       if (!path) continue;
       const w = walk(doc, m.body, path);
       if ('missing' in w) {
-        this.report(el, field, 'SN308', `the response of \`${label}\` has no \`${w.missing}\`.${didYouMean(w.missing, w.have)}`, 0,
+        this.report(el, field === 'more' ? 'paginate' : field, 'SN308', `the response of \`${label}\` has no \`${w.missing}\`.${didYouMean(w.missing, w.have)}`, 0,
           w.have.length ? `it has ${w.have.map((h) => `\`${h}\``).join(', ')}` : undefined);
         if (field === 'select') return { closest: m.path };
       } else if (field === 'select') schema = w.schema;

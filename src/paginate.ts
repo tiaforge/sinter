@@ -168,13 +168,14 @@ class PagerImpl implements Pager {
     this.write(n, 4);
   }
 
-  received(items: unknown[], total: number | null, mv: unknown): void {
+  received(items: unknown[], total: number | null, mv: unknown, more: boolean | null): void {
     const move = mv as Move;
     if (move.dir !== 'all') this.move = move;
     const meta = this.loader.res.meta;
     const n = items.length;
     const size = this.cfg.size;
-    const full = n >= size;
+    // more items in the direction asked for: what the server says (`more`), else a guess from a full page
+    const full = more ?? n >= size;
     const pages = total != null ? Math.max(1, Math.ceil(total / size)) : null;
     let from: number | null = null, to: number | null = null, hasPrev = false, hasNext = false;
     switch (move.dir) {
@@ -182,14 +183,14 @@ class PagerImpl implements Pager {
         from = n ? (move.page - 1) * size + 1 : 0;
         to = n ? from + n - 1 : 0;
         hasPrev = move.page > 1;
-        hasNext = pages != null ? move.page < pages : full;
+        hasNext = more ?? (pages != null ? move.page < pages : full);
         meta.page = move.page;
         break;
       case 'first':
         from = n ? 1 : 0; to = n; hasPrev = false; hasNext = full;
         break;
       case 'all':
-        from = n ? 1 : 0; to = n; hasPrev = false; hasNext = meta.hasNext ?? full;
+        from = n ? 1 : 0; to = n; hasPrev = false; hasNext = more ?? meta.hasNext ?? full;
         break;
       case 'next':
         if (this.cfg.mode === 'append') {
@@ -207,7 +208,7 @@ class PagerImpl implements Pager {
         if (!full) { from = n ? 1 : 0; to = n; hasPrev = false; break; }
         to = move.from != null ? move.from - 1 : null;
         from = to != null ? to - n + 1 : null;
-        hasPrev = from == null || from > 1;
+        hasPrev = more ?? (from == null || from > 1);
         break;
       case 'last':
         hasNext = false;

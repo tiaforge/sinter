@@ -129,8 +129,8 @@ export const DIAGNOSTIC_DOCS: Record<Code, DiagnosticDoc> = {
   },
   SN308: {
     example: 'the response of `GET /articles` has no `articls`. Did you mean `articles`?',
-    means: 'The resource matched an operation in the OpenAPI spec, but its `select` or `total` path is not in the response schema.',
-    fix: 'Fix the path in `select` or `total`, or the spec if the API changed.',
+    means: 'The resource matched an operation in the OpenAPI spec, but its `select` or `total` path, or `more` in `paginate`, is not in the response schema.',
+    fix: 'Fix the path in `select`, `total` or `more`, or the spec if the API changed.',
   },
   SN309: {
     example: 'no `<dialog id="compose-dialg">` on this page. Did you mean `compose-dialog`?',

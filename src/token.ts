@@ -66,7 +66,7 @@ const hooks: TokenHooks = {
     if (d.call || d.body != null || !out(req, env)) return false;
     if (!l.pager?.appends(m)) r.replace(r.isCollection ? [] : null);
     r.setTotal(null);
-    l.pager?.received([], null, m);
+    l.pager?.received([], null, m, null);
     r.meta.error = null;
     r.meta.loadedAt = new Date(env.now());
     l.loading(false);
