@@ -76,6 +76,13 @@ export class TaskRing extends TaskRingComponent {
   The markup does not wait.
 - **The script writes only state.** It never writes to nodes sinter renders. A ref is for handing an
   element to code that owns it (a canvas, a map container, an editor), not for setting its text.
+- **A script that builds elements itself** (a renderer for a large tree, faster than a template per node) writes
+  them into an element sinter renders empty, and holds what it writes to the rules of markup with
+  `attrAllowed(el, name, value)` and `styleAllowed(value)` from `@tiaforge-ui/sinter`: a URL attribute only with an
+  allowed scheme (the app's `configure({ urlSchemes })` included), no style value that can load a URL. It creates
+  elements with `createElement` and text with `new Text()`, never parses markup, so the page's CSP and Trusted
+  Types need nothing. A component can keep its template for what the build renders and use such a script for the
+  rest ([choosing how it renders](components.md#choosing-how-it-renders-per-use-build-and-slots)).
 
 ## `src/sinter.components.d.ts`
 

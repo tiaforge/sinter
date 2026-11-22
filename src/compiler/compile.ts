@@ -1709,8 +1709,24 @@ class Compiler {
     return lists;
   }
 
+  /**
+   * `$build` decides a `data-sn-if` (the build writes the branch it chooses, or decides as the browser will see it):
+   * anywhere else it would be `true` in what the build writes and undefined in the browser, so it is SN201 there.
+   * Checked before the build evaluates anything, which drops the bindings it wrote.
+   */
+  buildOnlyInIfs() {
+    for (const n of [...this.roots, ...this.templates.flatMap((t) => t.nodes)]) for (const b of n.b) {
+      for (const f of [b.f, b.a]) {
+        if (f === undefined || b.k === 'if' && f === b.f || !this.fns[f]?.includes('$.$build')) continue;
+        const at = this.fnAt[f];
+        if (at?.el) this.report(at.el, at.attr, 'SN201', '`$build` is only for `data-sn-if`: it is true where the build evaluates and undefined in the browser, so anywhere else the page would show one thing and the browser another', 0, 'decide a branch with it: `data-sn-if="$build && item"` renders the branch at build time when `item` is a build-time constant');
+      }
+    }
+  }
+
   /** The walked page evaluated, its constants written and dropped, and its HTML, IR and module parts. */
   finishPage({ doc, images, paths }: NonNullable<Compiler['walk']>): CompiledParts & { canonicalOnly?: boolean } {
+    this.buildOnlyInIfs();
     if (this.opts.prerender) { this.prerender(); this.embedFolded(); this.dropConstants(); this.dropFiles(); this.foldScriptsOut(); if (this.collecting()) this.collectConstants(); }
     this.anchors();
     // (before the early file and the head templates: both number the templates that are left)
@@ -3033,7 +3049,10 @@ class Compiler {
       else if (a.name.startsWith('data-sn-') && !callerAttribute(a.name)) this.report(host, a.name, 'SN102', `\`${a.name}\` cannot be on a component's tag`, 0, TAG_ONLY_HINT);
     }
     const plain = host.attrs.filter((a) => !a.name.startsWith('data-sn-') && a.name !== 'slot');
-    for (const el of shape.kind === 'tag' ? [shape.el] : shape.kind === 'choice' ? [] : lands) {
+    // a component tag that is a branch of an if/else root takes them as a root component tag does
+    const tagsOf = (sh: RootShape): P5Element[] => (sh.kind === 'tag' ? [sh.el] : sh.kind === 'chain' ? sh.branches.flatMap(tagsOf) : []);
+    const branchTags = shape.kind === 'chain' ? tagsOf(shape) : [];
+    for (const el of shape.kind === 'tag' ? [shape.el] : shape.kind === 'choice' ? [] : [...lands, ...branchTags]) {
       for (const a of plain) {
         if (a.name === 'class') {
           const cls = attr(el, 'class');
@@ -3053,7 +3072,7 @@ class Compiler {
     }
     // a component tag (or a choice) as root: the outer uses pass on to it
     if (shape.kind === 'tag' || shape.kind === 'choice') this.passOn.set(shape.el, all);
-    else for (const el of lands) {
+    else for (const el of (branchTags.forEach((t) => this.passOn.set(t, all)), lands)) {
       if (el === root && !outer.length) continue;
       const list = this.landing.get(el) ?? [];
       list.push(...(el === root ? outer : all));
@@ -7552,7 +7571,8 @@ class Compiler {
       cands.push({ el, b, f: b.f, ...(tpl ? { tpl: true as const } : {}) });
     };
     const decide = (el: P5Element, b: Binding) => {
-      if (this.opts.decided || b.k !== 'if' || b.f === undefined || !fixed(b.d) || !this.instKey(el)) return;
+      // an if over `$build` is a candidate whatever it reads: it may be decided as the browser will see it (below)
+      if (this.opts.decided || b.k !== 'if' || b.f === undefined || (!fixed(b.d) && !this.fns[b.f]!.includes('$.$build')) || !this.instKey(el)) return;
       cands.push({ el, b, f: b.f, if: true });
     };
     // a loop over a constant list whose rows need nothing at run time: each row's bindings read only the item, its
@@ -7625,6 +7645,7 @@ class Compiler {
     let own: string | null = null;
     const isPersisted = (p: string) => p !== own && this.persisted.has(p);
     const states = new Map<number, unknown>();
+    let asBrowser = false;
     const known = (deps: string[]) => deps.every((d) => {
       // a message re-renders on `$locale`: its base text is what is written
       if (d === '$locale' && this.opts.helperFold) return true;
@@ -7639,11 +7660,17 @@ class Compiler {
     const scope = new Proxy({}, {
       get: (_, k) => {
         const m = typeof k === 'string' ? /^\$s(\d+)$/.exec(k) : null;
-        if (m && states.has(Number(m[1]))) return states.get(Number(m[1]));
+        if (m && states.has(Number(m[1]))) {
+          // as the browser will see it: a field that something writes is not its initial value there
+          const st = states.get(Number(m[1])) as object, sid = m[1];
+          return asBrowser ? new Proxy(st, { get: (t, f) => { if (typeof f === 'string' && (written.has(`$s${sid}`) || written.has(`$s${sid}.${f}`))) throw NOT; return Reflect.get(t, f); } }) : st;
+        }
         // `file:` resources: their values and constant status; a waiting let's wrapper lets its helper decide
         if (k === '$r') return files.r;
         if (k === '$meta') return files.meta;
         if (k === '$w') return (f: () => unknown) => f();
+        // `$build` (expr.ts): true where the build evaluates; undefined when it evaluates as the browser will
+        if (k === '$build') return asBrowser ? undefined : true;
         // a waiting let's helper (its module reaches a lazy package): never at build time, and SN322 says so
         if (k === '$z') return (_i: number, name: string) => folding.lazy(name);
         throw NOT;
@@ -7667,7 +7694,11 @@ class Compiler {
     const work = this.worklist(fnOf, known, fixed, schemes, ROW);
     for (const c of cands) {
       own = c.b.k === 'model' && c.b.p !== undefined ? (c.b.w![0] as string).split('.').slice(0, 2).join('.') : null;
-      const v = known(strs(c.b.d)) ? run(this.fns[c.f]!) : FAIL;
+      let v = known(strs(c.b.d)) ? run(this.fns[c.f]!) : FAIL;
+      // an if over `$build` the build cannot decide (it reads data only the browser has): evaluated as the browser will see
+      // it, `$build` undefined and anything not a build-time constant unreadable; one that comes out without reading such
+      // data is what every visitor gets, so it is decided and the page ships that branch alone (docs/static-pages.md)
+      if (c.if && v === FAIL && this.fns[c.f]!.includes('$.$build')) { asBrowser = true; try { v = run(this.fns[c.f]!); } finally { asBrowser = false; } }
       if (c.for) {
         work.unroll(this.instKey(c.el)!, c.b, v, scope, c.el);
         continue;

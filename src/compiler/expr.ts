@@ -553,6 +553,15 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
       if (u.canonical !== null) page.readsUrl = true;
       return { kind: 'const', code: u.canonical !== null ? JSON.stringify(u.canonical) : `(${JSON.stringify(u.origin)} + location.pathname.replace(/\\/+$/, ''))` };
     }
+    // `$build`: true where the build evaluates (an expression whose inputs are build-time constants), undefined in the
+    // browser; only in `data-sn-if` (compile.ts `buildOnlyInIfs`). `$slots`: which slots of the component this use fills,
+    // by name, as constants; not in a component used inside itself, whose markup is one definition for every use
+    if (name === '$build') return { kind: 'const', code: '$.$build' };
+    if (name === '$slots') {
+      const f = scope.component?.fills;
+      if (!scope.component || (f && f.expr)) { report('SN201', '`$slots` is not available here: it is which slots a use of the component fills, in its markup, and not in a component used inside itself', offset); return null; }
+      return { kind: 'const', code: `({ ${[...(f?.own ?? new Map<string, number | null>())].map(([k, id]) => `${JSON.stringify(k)}: ${id !== null}`).join(', ')} })` };
+    }
     if (name === '$slot') {
       if (scope.slot) return { kind: 'let', entry: scope.slot.whole };
       report('SN201', '`$slot` is not available here: it is the values a placement passes, in a fill of a slot declared `Slot<T>` (`<span slot="cell" data-sn-text="$slot.row.name">`)', offset);

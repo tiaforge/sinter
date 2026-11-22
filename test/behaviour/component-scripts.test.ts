@@ -1,6 +1,6 @@
 // Components with a script: sinter creates the script's object per instance on its root,
 // with live props, its state, refs and emit(), and runs connected / propsChanged / disconnected.
-import { expect, test } from 'vitest';
+import { expect, test, vi } from 'vitest';
 import { render } from '../../src/testing/index.js';
 import { Component } from '../../src/components.js';
 
@@ -78,4 +78,16 @@ test('a script without the class named after the component, or a default export,
   const ok = compile('<task-ring></task-ring>', { file: '/p/i.html', root: '/p', dev: false, helpers: { module: null, names: [], namespaces: {} }, readFile: (f) => { if (f in files) return files[f]!; throw new Error('missing'); } });
   expect(ok.diagnostics).toEqual([]);
   expect(ok.module).toContain("import { TaskRing as $cm$task_ring } from \"/src/components/task-ring.ts\";");
+});
+
+test('a script that throws in production: the error reaches the console, the rest of the page renders', async () => {
+  const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+  try {
+    class XBad extends Component { connected() { throw new Error('broken renderer'); } }
+    const { root } = await render('<div><x-bad></x-bad><p>after</p></div>', {
+      components: { 'x-bad': '<template data-sn-props="{}"><section></section></template>' }, scripts: { 'x-bad': { XBad } }, dev: false, strict: false,
+    });
+    expect(error.mock.calls.some((c: unknown[]) => c.some((x) => x instanceof Error && x.message === 'broken renderer'))).toBe(true);
+    expect(root.querySelector('p')!.textContent).toBe('after');
+  } finally { error.mockRestore(); }
 });

@@ -114,7 +114,7 @@ export function shadow(o: ShadowOptions): Shadow {
 
   // names a page can see besides its own frames; resources first, as sinter resolves them
   const taken = new Set<string>(unit.resources.map((r) => r.name));
-  for (const n of ['$any', '$item', '$waits', '$el', '$event', '$slot', '$result', '$error', '$meta', '$url', '$now', '$locale', '$site', '$canonical', ...STORE_FNS]) taken.add(n);
+  for (const n of ['$any', '$item', '$waits', '$el', '$event', '$slot', '$result', '$error', '$meta', '$url', '$now', '$locale', '$site', '$canonical', '$build', '$slots', ...STORE_FNS]) taken.add(n);
   const builtin = BUILTIN_HELPERS.filter((h) => !taken.has(h));
   for (const h of builtin) taken.add(h);
   line(`import { ${builtin.join(', ')} } from '${sinter}';`);
@@ -217,6 +217,11 @@ export function shadow(o: ShadowOptions): Shadow {
   line('const $url = $any;');
   line('/** @type {Date} */');
   line('const $now = $any;');
+  // `$build` (true where the build evaluates, in `data-sn-if`) and `$slots` (which slots a component's use fills)
+  line('/** @type {boolean | undefined} */');
+  line('const $build = $any;');
+  line('/** @type {Record<string, boolean>} */');
+  line('const $slots = $any;');
   line('/** @type {string} */');
   line('let $locale = $any;');
   // with `localePrefix`, this page's URL in another language; the check does not know whether the build has

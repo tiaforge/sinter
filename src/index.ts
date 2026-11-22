@@ -10,3 +10,5 @@ import type { Resource as StoreResource } from './runtime/store.js';
 export type Resource<T extends object = any> = Pick<StoreResource<T>, 'name' | 'meta' | 'key' | 'isCollection' | 'get' | 'has' | 'all' | 'value'
   | 'replace' | 'upsert' | 'merge' | 'remove' | 'refresh' | 'subscribe' | 'keyOf'>;
 export { date, relative, number, bytes } from './runtime/helpers.js';
+// for a component script that writes elements itself: the checks its markup's bindings would apply (docs/islands.md)
+export { attrAllowed, styleAllowed } from './runtime/safe.js';
