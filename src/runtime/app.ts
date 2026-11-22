@@ -1864,7 +1864,9 @@ export function mount(root: Document | Element, o: MountOptions): App {
         return items.map(clean);
       },
       start() {
-        const el = def.data != null ? found.get(def.data) as Element | undefined : null;
+        let el = def.data != null ? found.get(def.data) as Element | undefined : null;
+        // the signed-out answer, embedded: with a token stored, the page's own (the early file requested it with the token)
+        if (F.SIGNEDOUT && F.TOKEN && def.so && tokens.on?.signedIn(resolve() ?? '', app.env)) el = null;
         let data;
         if (el) {
           // empty: the server that fills it did not (no data, an error, its time ran out), so the page requests it

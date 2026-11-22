@@ -62,6 +62,26 @@ describe('an API with a token', () => {
     expect((out.embed ?? []).map((s) => s.resource)).toEqual(['stats']);
   });
 
+  test('embedding: an operation whose token is optional gets a placeholder for the signed-out answer, requested early only with a token', () => {
+    // GET /articles: no credentials, or the token (`[{}, { Token: [] }]`): a signed-in visitor's answer may differ
+    const spec = structuredClone(TOKEN_SPEC) as any;
+    spec.paths['/articles'].get.security = [{}, { Token: [] }];
+    const apis = { main: { ...MAIN, openapi: spec as unknown as string }, other: { openapi: OTHER as unknown as string } };
+    const { out, res } = build({ embed: true, changesRequests: true }, apis);
+    // the token's own operation is still not embedded; the other API's is
+    expect((out.embed ?? []).map((s) => s.resource).sort()).toEqual(['articles', 'stats']);
+    const ir = compileParts(PAGE, { file: '/app/index.html', root: '/app', dev: false, readFile: () => '', moduleSrc: '/page.js', helpers: { module: null, names: [], namespaces: {} }, prerender: true, early: { module: null }, ...apisOf(apis), origins: ['https://api.example.com'], embed: true } as CompileOptions);
+    expect((ir.ir.resources.find((r) => r.name === 'articles') as any).so).toBe(1);
+    // requested early when a token is stored (`r`: not without one), as the page's own answer
+    expect(res.map((r) => [r.name, r.r ?? null])).toEqual([['user', 1], ['articles', 1]]);
+    // the early bindings read the embedded rows only while no token is stored
+    const emb = (ir.early?.ir as any).emb.articles;
+    expect(emb.t).toEqual({ s: 'l', k: 'jwt', h: 'Authorization', p: 'Token ' });
+    // without the spec saying so, nothing changes
+    const plain = build({ embed: true });
+    expect((plain.out.embed ?? []).map((s) => s.resource)).toEqual(['stats']);
+  });
+
   test('the page module installs the token module; the early file reads whether one is stored for the signed-out branch', () => {
     const { out } = build();
     expect(out.module).toContain("import { $tokens } from '@tiaforge-ui/sinter/runtime/token';");

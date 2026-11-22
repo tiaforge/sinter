@@ -237,6 +237,8 @@ function embedded(emb: NonNullable<EarlyIR['emb']>): any {
     get(_, name) {
       const e = typeof name == 'string' ? emb[name] : undefined;
       if (!e) throw Error('sinter: not available early');
+      // the signed-out answer, with a token stored: not this visitor's (the page module renders theirs)
+      if (e.t && token(e.t) != null) throw Error('sinter: not available early');
       if (!got.has(name as string)) {
         let v: any = json(e.id);
         for (const k of e.select ? e.select.split('.') : []) v = v?.[k];

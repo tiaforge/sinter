@@ -156,7 +156,10 @@ is frozen, at every depth, and shared: to change one, change a copy (`structured
   any use that fills a slot, or that passes `templates: true`. Any other use, a document from an API, is built by
   a script that creates the same elements directly, several times faster on a long document (about 55 → 19 ms for
   the article of [Performance](#performance)). A new document replaces the old one whole; pass `templates: true`
-  for a document that changes as it is typed (a live preview), which the components update in place.
+  for a document that changes as it is typed (a live preview), which the components update in place, and for a
+  document whose data is embedded in the page (`embed: true`, `data-sn-resource`): the components render it in the
+  first paint with the rest of the page, the script only at mount, after it, moving what follows (RealWorld's article
+  page: CLS 0.444 with the script, 0 with the components).
 - Lists and branches rendered by the components are marked by comments in the page, as everywhere in sinter,
   so prose CSS sees plain HTML: `.md h2 + p`, `.md li:first-child` and `.md > * + *` match as they would in
   static HTML. The script writes no comments.

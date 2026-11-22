@@ -60,6 +60,8 @@ export interface TokenHooks {
   skip(l: ResourceLoader, req: string, m: unknown): boolean;
   /** sends a request of API `a` (`go`, the whole chain) with its token in `headers`, and reads what the response says of it */
   send(a: ApiSettings, method: string, url: string, headers: Headers, go: () => Promise<Response>, env: Env): Promise<Response>;
+  /** whether a token is stored for the API of `url`: a resource embedded signed out (`ResourceDef.so`) is then requested, its embedded data not used */
+  signedIn(url: string, env: Env): boolean;
   /** an action's 401 that nothing on the page showed: to the sign-in page of the URL's API, if it has one (true) */
   signIn(url: string, env: Env): boolean;
   /** removes every API's token, and what the page kept with it; `app`'s resources of those APIs load again */

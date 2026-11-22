@@ -93,6 +93,10 @@ const hooks: TokenHooks = {
     }
     return res;
   },
+  signedIn(url, env) {
+    const t = apiFor(url, env.href())?.t;
+    return !!(t && read(t, env));
+  },
   signIn(url, env) {
     const t = apiFor(url, env.href())?.t;
     if (!t?.i) return false;

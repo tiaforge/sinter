@@ -93,6 +93,10 @@ paths:
       summary: Get a profile
       description: Get a profile of a user of the system. Auth is optional
       operationId: GetProfileByUsername
+      # the answer differs with a token (favorited, following): optional, so sinter embeds the signed-out one only
+      security:
+        - {}
+        - Token: [ ]
       parameters:
         - name: username
           in: path
@@ -186,6 +190,10 @@ paths:
       description: Get most recent articles globally. Use query parameters to filter
         results. Auth is optional
       operationId: GetArticles
+      # the answer differs with a token (favorited, following): optional, so sinter embeds the signed-out one only
+      security:
+        - {}
+        - Token: [ ]
       parameters:
         - name: tag
           in: query
@@ -238,6 +246,10 @@ paths:
       summary: Get an article
       description: Get an article. Auth not required
       operationId: GetArticle
+      # the answer differs with a token (favorited, following): optional, so sinter embeds the signed-out one only
+      security:
+        - {}
+        - Token: [ ]
       parameters:
         - name: slug
           in: path
@@ -314,6 +326,10 @@ paths:
       summary: Get comments for an article
       description: Get the comments for an article. Auth is optional
       operationId: GetArticleComments
+      # the answer differs with a token (favorited, following): optional, so sinter embeds the signed-out one only
+      security:
+        - {}
+        - Token: [ ]
       parameters:
         - name: slug
           in: path
@@ -446,6 +462,8 @@ paths:
       summary: Get tags
       description: Get tags. Auth not required
       operationId: GetTags
+      # the same for every visitor
+      security: [ ]
       responses:
         '200':
           $ref: '#/components/responses/TagsResponse'
