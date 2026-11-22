@@ -1053,6 +1053,12 @@ function compilePasses(html: string, options: CompileOptions): CompiledParts & {
   return out.check ? { ...second, check: out.check } : second;
 }
 
+/**
+ * `inertFill`'s answers, by fill (an entry of a compiler's `fillDefs`). Kept outside the compiler: a field of its own
+ * would have to be one of `LINK_FIELDS`, and the linker refuses to record a definition while one is not.
+ */
+const INERT_FILLS = new WeakMap<object, boolean>();
+
 class Compiler {
   readonly diagnostics: Diagnostic[] = [];
   readonly files = new Set<string>();
@@ -4357,12 +4363,38 @@ class Compiler {
    * the page is then the same without the definition. Conservative: markup is matched as text.
    */
   describesNothing(host: P5Element, name: string, ctx: Ctx): boolean {
-    // (a fill passed: one from further out, in the item, or one of this root's own; `{ link: null }` passes none)
+    // a fill passed down: compiled where the definition places it, so it must add nothing either (`inertFill`); one from
+    // further out (in the item, inside a definition) is not looked at. `{ link: null }` passes none
     const fills = ctx.scope.component?.fills;
-    if (this.lazyMods.length || fills && (fills.expr || [...fills.own.values()].some((id) => id !== null))) return false;
+    if (this.lazyMods.length || fills && (fills.expr || [...fills.own.values()].some((id) => id !== null && !this.inertFill(id)))) return false;
     if (host.attrs.some((a) => /^data-sn-(on|import|ref|permanent|signed-in)\b/.test(a.name))) return false;
     const choice = this.choices.get(host);
     return (choice ? choice.names : [name]).every((n) => this.inertComponent(n));
+  }
+
+  /**
+   * A root's fill (`fillDefs`, its markup with the components in it expanded) that adds nothing to a description: what
+   * `inertComponent` refuses in a component's text, refused in its elements and their templates' content, and each
+   * component expanded in it inert.
+   */
+  inertFill(id: number): boolean {
+    const fd = this.fillDefs[id];
+    if (!fd) return false;
+    const known = INERT_FILLS.get(fd);
+    if (known !== undefined) return known;
+    const ok = (nodes: readonly P5Node[]): boolean => nodes.every((c) => {
+      if (!isElement(c)) return true;
+      const tag = c.tagName.toLowerCase();
+      if (tag === 'script' || tag.includes('-')) return false;
+      if (c.attrs.some((a) => /^data-sn-(on|import|ref|permanent|signed-in)\b/.test(a.name))) return false;
+      const u = this.useOf.get(c) ?? this.hostUse.get(c);
+      if (u && !this.inertComponent(u.name)) return false;
+      const t = (c as P5Element & { content?: P5Parent }).content;
+      return ok(c.childNodes) && (!t || ok(t.childNodes));
+    });
+    const r = ok(fd.nodes);
+    INERT_FILLS.set(fd, r);
+    return r;
   }
 
   /** A component that, with all it reaches, adds nothing to a description (`describesNothing`); kept on its graph. */

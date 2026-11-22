@@ -45,16 +45,44 @@ test('a definition that adds nothing is left out of the description, which is th
   expect(r.full.effect).toBeNull();
 });
 
-test('a fill passed down the tree is compiled where the definition places it: the description walks it', () => {
+test('a fill passed down the tree that does something as the page loads: the description walks the definition that places it', () => {
   const r = compiled('<x-doc data-sn-with="{ doc }"><img slot="link" alt="" data-sn-state="{ n: 0 }" data-sn-on-load="n = 1"></x-doc>');
   expect(r.errors).toEqual([]);
   expect(r.skipped).toBe(false);
   expect(r.full.effect).toBe('a handler of `load`, which the page may fire as it loads');
   expect(r.described).toEqual(r.full);
-  // a fill that does nothing as the page loads: walked all the same (a fill is not scanned)
-  const quiet = compiled('<x-doc data-sn-with="{ doc }"><a slot="link" data-sn-attr="{ href: $slot.node.url }"><slot></slot></a></x-doc>');
-  expect(quiet.errors).toEqual([]);
-  expect(quiet.described).toEqual(quiet.full);
+});
+
+test.each([
+  ['a link', '<a slot="link" data-sn-attr="{ href: $slot.node.url }"><slot></slot></a>'],
+  ['a branch and its else', '<template slot="link" data-sn-if="$slot.node.url"><a data-sn-attr="{ href: $slot.node.url }"><slot></slot></a></template><template data-sn-else><span><slot></slot></span></template>'],
+  ['a component without a script', '<x-pill slot="link" data-sn-with="{ node: $slot.node }"></x-pill>'],
+])('a fill that adds nothing (%s): the definition is left out, the description is the page\'s', (_, fill) => {
+  const r = compiled(`<x-doc data-sn-with="{ doc }">${fill}</x-doc>`, { 'x-pill': '<template data-sn-props="{ node: any }"><b data-sn-text="node.url"></b></template>' });
+  expect(r.errors).toEqual([]);
+  expect(r.skipped).toBe(true);
+  expect(r.described).toEqual(r.full);
+});
+
+test('a fill with a handler of a visitor\'s event: walked all the same (any handler is), and described as the page', () => {
+  const r = compiled('<x-doc data-sn-with="{ doc }"><a slot="link" data-sn-state="{ n: 0 }" data-sn-on-click="n = 1"><slot></slot></a></x-doc>');
+  expect(r.errors).toEqual([]);
+  expect(r.skipped).toBe(false);
+  expect(r.full.effect).toBeNull();
+  expect(r.described).toEqual(r.full);
+});
+
+test.each([
+  ['a custom element', '<my-chip slot="link"></my-chip>', {}, {}, 'a custom element (`<my-chip>`)'],
+  ['an inline script', '<span slot="link"><slot></slot><script>track()</script></span>', {}, {}, 'an inline script'],
+  ['a load handler in a branch', '<template slot="link" data-sn-if="$slot.node.url"><img alt="" data-sn-state="{ n: 0 }" data-sn-on-load="n = 1"></template>', {}, {}, 'a handler of `load`'],
+  ['a component with a script', '<x-pill slot="link" data-sn-with="{ node: $slot.node }"></x-pill>', { 'x-pill': '<template data-sn-props="{ node: any }"><b data-sn-text="node.url"></b></template>' }, { 'x-pill': 'export class XPill {}' }, 'a component with a script'],
+] as Array<[string, string, Record<string, string>, Record<string, string>, string]>)('a fill holding %s: the description walks the definition that places it', (_, fill, components, scripts, effect) => {
+  const r = compiled(`<x-doc data-sn-with="{ doc }">${fill}</x-doc>`, components, scripts);
+  expect(r.errors).toEqual([]);
+  expect(r.skipped).toBe(false);
+  expect(r.full.effect).toContain(effect);
+  expect(r.described).toEqual(r.full);
 });
 
 test.each([
