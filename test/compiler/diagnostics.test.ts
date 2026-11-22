@@ -15,6 +15,8 @@ const files: Record<string, string> = {
   '/p/src/components/x-cls.html': '<template data-sn-props="" class="x"><div></div></template>',
   '/p/src/components/x-two.html': '<template data-sn-props=""><p></p><p></p></template>',
   '/p/src/components/x-maybe.html': '<template data-sn-props="{ on?: boolean }"><template data-sn-if="on"><p></p></template></template>',
+  '/p/src/components/x-fill.html': '<template data-sn-props="{ n: number }"><div></div></template>',
+  '/p/src/components/x-fill.ts': 'export class XFill {}',
 };
 
 const SPEC = { file: '/p/openapi.json', doc: {
@@ -27,7 +29,7 @@ const SPEC = { file: '/p/openapi.json', doc: {
   components: { schemas: { Contact: { type: 'object', properties: { id: { type: 'integer' }, name: { type: 'string' }, starred: { type: 'boolean' } } } } },
 } };
 
-interface Opts { check?: boolean; openapi?: boolean; complexity?: ComplexityOptions; collections?: boolean; helpers?: string[] }
+interface Opts { check?: boolean; openapi?: boolean; complexity?: ComplexityOptions; collections?: boolean; helpers?: string[]; early?: boolean }
 
 function diags(html: string, o: Opts = {}) {
   return compile(html, {
@@ -35,6 +37,8 @@ function diags(html: string, o: Opts = {}) {
     readFile: (p) => { if (!(p in files)) throw new Error('missing'); return files[p]!; },
     listFiles: (d) => Object.keys(files).filter((f) => f.startsWith(d.replace(/\/$/, '') + '/')),
     ...(o.collections ? { collections: new Map() } : {}),
+    // the early file, as a build compiles it (`sinter check` does not)
+    ...(o.early ? { early: { module: null }, observe: true } : {}),
     helpers: { module: '/h.js', names: ['fmt', ...(o.helpers ?? [])], namespaces: { m: { module: '/m.js', members: ['inbox_title'] } } },
   }).diagnostics;
 }
@@ -144,6 +148,7 @@ const cases: Array<[string, string, RegExp, Opts?]> = [
   ['SN509', `<button id="save" data-sn-post="/x" data-sn-catch="run('save')"></button>`, /`run\(\)` cycle: `#save` `data-sn-catch` \(page.html:1\) runs `#save`, which starts the first step again/],
   ['SN513', '<div data-sn-state="{ dark: false }"><img alt="" data-sn-attr="{src: dark ? \'./logo-dark.png\' : \'./logo.png\'}"></div>', /`src` is bound to local images \(`\.\/logo-dark\.png`, `\.\/logo\.png`\), which are not optimized/],
   ['SN517', '<sn-resource name="c" src="/api/c" select="contacts"></sn-resource><p data-sn-text="c"></p>', /`GET \/api\/c` returns a list at `contacts`: resource `c` has no `key`, so it is one object holding the list/, { openapi: true }],
+  ['SN543', '<x-fill data-sn-with="{ n: 1 }"></x-fill><p>after</p>', /`<x-fill>` is filled by its script at mount, after the first paint, where the early script renders what is around it/, { early: true }],
   ['SN542', '<sn-resource name="comments" src="/api/x" type="Comment[]"></sn-resource><div data-sn-state="{ c: null }"><button data-sn-on-click="upsert(comments, c)"></button></div>', /`upsert` on `comments` replaces the whole list with the item: resource `comments` has no `key`, and its `type` is `Comment\[\]`/],
   ['SN516', '<sn-resource name="c" src="/api/c" select="contacts"></sn-resource><p data-sn-text="$meta.c.live"></p>', /`\$meta\.c\.live` is always `null`: no `<sn-event resource="c">` on this page feeds `c`/],
   ['SN519', '<sn-resource name="a" src="/api/a?tag={$url.tag}" select="a" key="id" paginate="{ numbered: true, size: 2, model: $url.page }"></sn-resource><p data-sn-text="a.length"></p><a href="?page=2">2</a>', /`\?page=2` keeps only its own query: `tag`, which this page reads, is dropped when it is followed/],

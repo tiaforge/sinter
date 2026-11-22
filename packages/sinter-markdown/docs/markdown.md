@@ -156,10 +156,14 @@ is frozen, at every depth, and shared: to change one, change a copy (`structured
   any use that fills a slot, or that passes `templates: true`. Any other use, a document from an API, is built by
   a script that creates the same elements directly, several times faster on a long document (about 55 → 19 ms for
   the article of [Performance](#performance)). A new document replaces the old one whole; pass `templates: true`
-  for a document that changes as it is typed (a live preview), which the components update in place, and for a
-  document whose data is embedded in the page (`embed: true`, `data-sn-resource`): the components render it in the
-  first paint with the rest of the page, the script only at mount, after it, moving what follows (RealWorld's article
-  page: CLS 0.444 with the script, 0 with the components).
+  for a document that changes as it is typed (a live preview), which the components update in place. A document
+  whose data is embedded in the page (`embed: true`, `data-sn-resource`) is built in the first paint, with the rest
+  of the page, by the script's early renderer (`md-view.early.ts`, the same builder, in the page's early file only on
+  the pages that render a use of it early), and the script keeps those elements at mount
+  ([early renderers](../../../docs/components.md#early-renderers)); a visitor whose data the browser requests (a
+  token stored, a placeholder the server left empty) gets the document built at mount. RealWorld's article page
+  through sinter-axum: CLS 0.444 and a Lighthouse mobile score of 79 with the script alone, 0.001 and 100 with the
+  early renderer.
 - Lists and branches rendered by the components are marked by comments in the page, as everywhere in sinter,
   so prose CSS sees plain HTML: `.md h2 + p`, `.md li:first-child` and `.md > * + *` match as they would in
   static HTML. The script writes no comments.

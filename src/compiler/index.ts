@@ -256,6 +256,8 @@ function earlyLines(early: EarlyParts | null, options: Pick<CompileOptions, 'hel
     }
   }
   for (const [mod, specs] of byModule) lines.push(`import { ${specs.join(', ')} } from ${JSON.stringify(mod)};`);
+  // the early renderers of the components whose uses render early (docs/components.md#early-renderers): only this page's
+  for (const [local, mod] of Object.entries(early?.renderers ?? {})) lines.push(`import ${local} from ${JSON.stringify(mod)};`);
   // the built-in formatters the early bindings call, from the package (not the early runtime, which the build shares
   // between pages): each early file bundles only those it calls, beside the messages module that sets its locale
   // (in the page's language, when it has one: `$lang`)

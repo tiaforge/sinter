@@ -2,7 +2,8 @@
   md-view: <md-doc>'s rendering of a document that arrives at run time (internal). Its script (md-view.ts) builds the
   document's elements with createElement and setAttribute, as the components write them, held to sinter's check of
   URL attributes (attrAllowed): no markup is parsed, so the page's CSP and Trusted Types need nothing. It has no
-  slots (a use with a fill renders through <md-tree>), and a new document is built again whole. Its root is the same
+  slots (a use with a fill renders through <md-tree>), and a new document is built again whole; an embedded one is built
+  by its early renderer (md-view.early.ts) before the first paint, and kept. Its root is the same
   <div class="md">; its children are the script's.
 -->
 <template data-sn-props="{ doc?: Root | null }"><div class="md"></div></template>

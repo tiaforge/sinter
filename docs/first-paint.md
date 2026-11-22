@@ -76,6 +76,9 @@ the first paint:
 - a resource's status before its data: no rows yet, and loading when it will load (`$meta.<name>.loading`,
   `.error`, `.loadedAt`), so a "Loading…" branch is in the first frame ([below](#loading-branches))
 - your own code in `src/sinter.early.ts`
+- a component's [early renderer](components.md#early-renderers) (`<name>.early.ts` beside its script), for a use
+  whose props are known early: what the script would build at mount, built before the first paint, on the pages
+  that use it so
 
 Each page gets two small classic scripts first in the head, before the stylesheets: one shared by
 every page (so it is cached across pages) and one with the page's own bindings. Nothing hides the
