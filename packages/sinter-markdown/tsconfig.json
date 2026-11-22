@@ -11,6 +11,5 @@
     "types": ["node"],
     "verbatimModuleSyntax": true
   },
-  "include": ["sinter", "test", "scripts/*.d.ts"],
-  "exclude": ["sinter/sinter.components.d.ts"]
+  "include": ["sinter", "test", "scripts/*.d.ts"]
 }

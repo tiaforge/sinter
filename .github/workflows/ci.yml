@@ -156,8 +156,9 @@ jobs:
         working-directory: .
       - run: npm ci
       - run: npx playwright install --with-deps chromium
-      - run: npm run typecheck
+      # sinter check writes sinter/sinter.components.d.ts, which md-view.ts's types come from
       - run: npx sinter check
+      - run: npm run typecheck
       - run: npm test
 
   # the dashboard example built against this repository's sinter. Its package.json depends on sinter from
