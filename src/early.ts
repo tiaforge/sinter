@@ -554,6 +554,18 @@ export const slot = /* @__PURE__ */ Object.assign((el: ChildNode, v: any) => {
   else if (v) { const t = new Text(v); if (s?.nodeType == 8 && !s.data) { s.replaceWith(t); texts.set(s, t); } else { el.after(t); texts.set(t, t); } }
 }, { c: 1 as const });
 export const show = (el: HTMLElement, v: any) => { el.hidden = !v; };
+/**
+ * On the root of a component instance whose early renderer filled it (`<name>.early.ts`, docs/components.md#early-renderers):
+ * the components feature reads it when it creates the instance (`this.early`), and leaves the root to it
+ */
+export const EARLY_CMP = Symbol.for('sinter.early.cmp');
+/**
+ * A component's early renderer `r` as a writer: it fills the root (a content binding: once the parser has closed it) from
+ * the use's props. One that returns `false` (it left something out) or throws (reported) leaves the root to the script.
+ */
+export const cr = (r: (root: Element, props: any) => unknown) => Object.assign((el: Element, v: any) => {
+  try { if (r(el, v) !== false) (el as any)[EARLY_CMP] = true; } catch (e) { fail(e); }
+}, { c: 1 as const });
 export const cls = (el: HTMLElement, v: any, n: string) => { if (v || el.hasAttribute('class')) el.classList.toggle(n, !!v); };
 /** a class binding without a name: `[name, on]` */
 export const pair = (el: HTMLElement, v: any) => { if (v?.[0]) el.classList.toggle(v[0], !!v[1]); };

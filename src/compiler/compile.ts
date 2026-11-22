@@ -5,7 +5,7 @@ import { rewriteImages, sourceFile, type ImageHost, type ImageResult } from './i
 import { boxSizesCss, type ReserveTrace, Layout, PLACEHOLDER_BASE, type Affine, type Reserved, type StyleSheet } from './layout.js';
 import { shows } from './status-eval.js';
 import { recordChild, replay as replayUnit, LINK_FIELDS, UNIT_NUMBERING, type Plan, type Refused } from './link.js';
-import { HEAD_ELEMENTS, kindOfComponent, parseDocument, STRUCTURAL } from './head.js';
+import { declaringTemplate, HEAD_ELEMENTS, kindOfComponent, parseDocument, STRUCTURAL } from './head.js';
 import { minifyMarkup } from './minify.js';
 import type { RemoteConfig } from '../remote.js';
 import { AUTO_FIT_HINT, AUTO_FIT_ROWS, FLUID_WIDTHS } from './images.js';
@@ -409,6 +409,8 @@ export interface EarlyParts {
   namespaces: Record<string, string[]>;
   /** the built-in formatters the early bindings call (EARLY_FORMATTERS), imported from the package */
   formatters?: string[];
+  /** the early renderers of the components whose uses render early (their `cmp` bindings): by local name, the module */
+  renderers?: Record<string, string>;
 }
 
 /**
@@ -731,6 +733,14 @@ interface ComponentFile {
   script?: string | null;
   /** the class it exports: `TaskRing` for `task-ring`, else `default`; null when it exports neither */
   exported?: string | null;
+  /**
+   * its early renderer, beside the script (`/src/components/md-view.early.ts`): imported by the early files of the
+   * pages where a use of it renders early (docs/components.md#early-renderers); `earlyDefault`: it has a default export
+   */
+  early?: string | null;
+  earlyDefault?: boolean;
+  /** its root element has no content of its own (no child but white space): what it shows is the script's */
+  scriptFilled?: boolean;
   /** `<template data-sn-props>`: a head component */
   head?: boolean;
   /** its markup is only what a head and a body both hold (slots, `<script>`, `<style>`, `<noscript>`): a head
@@ -2354,6 +2364,24 @@ class Compiler {
         c.exported = new RegExp(`export\\s+(?:abstract\\s+)?class\\s+${pascal}\\b|export\\s*\\{[^}]*\\b${pascal}\\b[^}]*\\}`).test(text) ? pascal
           : /export\s+default\b|export\s*\{[^}]*\bas\s+default\b/.test(text) ? 'default' : null;
         break;
+      }
+      // its early renderer: `<tag>.early.ts` beside it, run by the early script where the use's props are known before
+      // the page module (only with a script: the instance adopts what it rendered)
+      if (c.script) for (const ext of ['.ts', '.js', '.mts', '.mjs']) {
+        const f = file.replace(/\.html$/, `.early${ext}`);
+        let text: string;
+        try { text = this.opts.readFile(f); } catch { continue; }
+        c.early = f.startsWith(root + '/') ? f.slice(root.length) : f;
+        c.earlyDefault = /export\s+default\b|export\s*\{[^}]*\bas\s+default\b/.test(text);
+        break;
+      }
+      // a root element with no content of its own (white space at most): what the component shows is its script's
+      // (SN543 where a use of it would render early)
+      if (c.script) {
+        const t = declaringTemplate(parse5.parseFragment(c.text).childNodes) as DefaultTreeAdapterMap['template'] | null;
+        const roots = t ? t.content.childNodes.filter((n): n is P5Element => 'tagName' in n) : [];
+        if (roots.length === 1 && roots[0]!.tagName !== 'template' && !roots[0]!.tagName.includes('-') && roots[0]!.tagName !== 'slot'
+          && roots[0]!.childNodes.every((n) => n.nodeName === '#text' && !(n as DefaultTreeAdapterMap['textNode']).value.trim())) c.scriptFilled = true;
       }
     }
     this.componentFiles.set(tag, c);
@@ -5209,7 +5237,10 @@ class Compiler {
       const keys = node.sid !== undefined ? [...stateKeys(attr(use.root, 'data-sn-state') ?? '{}')] : [];
       const writes = keys.map((k) => `$s${node.sid}.${k}`);
       const code = `($) => [${local}, { ${props.map((l) => `${JSON.stringify(l.name)}: (${l.code})`).join(', ')} }, ${JSON.stringify(keys)}]`;
-      node.b.push(this.binding({ k: 'cmp', f: this.fn(code, { el, attr: null, shift: 0 }), d: [...new Set(props.flatMap((l) => l.deps))].sort(), ...(writes.length ? { w: writes } : {}) }));
+      const cmp = this.binding({ k: 'cmp', f: this.fn(code, { el, attr: null, shift: 0 }), d: [...new Set(props.flatMap((l) => l.deps))].sort(), ...(writes.length ? { w: writes } : {}) });
+      node.b.push(cmp);
+      const file = this.componentFiles.get(use.name)!;
+      if (file.early && !file.earlyDefault) this.report(use.template, null, 'SN312', `the early renderer of \`<${use.name}>\` (\`${file.early}\`) has no default export`, 0, '`export default function (root: Element, props) { … }`: it fills the component\'s root before the page module loads');
     }
     // `data-sn-ref="name"`: an element of a component's markup, for its script (`this.refs.name`)
     if (has('ref')) this.ref(el, scope, node);
@@ -9351,9 +9382,46 @@ class Compiler {
     // `$url.feed ? feed : articles`)
     const statusOnly = (deps: string[]) => embedded.size > 0 || !deps.some((d) => { const r = /^\$r\.([^.]+)/.exec(d); return r && !embedded.has(r[1]!); })
       || deps.some((d) => { const m = /^\$meta\.([^.]+)/.exec(d); return !!m && pre.has(m[1]!); });
-    const eligible = (b: Binding) => ['text', 'attr', 'class', 'style', 'show', 'model', 'if', ...(embedded.size ? ['for', 'ch'] : [])].includes(b.k) && !b.e && b.f !== undefined && statusOnly(strs(b.d)) && known(strs(b.d)) && !late(this.fns[b.f]!) && !this.painted.has(b)
+    /**
+     * A use of a component with a script (its `cmp` binding, `[class, props, keys]`): the component, and its props as a
+     * value function (`($) => ({ … })`); null for a ref's binding (`[state, name]`)
+     */
+    const cmpOf = (b: Binding) => {
+      if (b.k !== 'cmp' || b.f === undefined) return null;
+      const code = this.fns[b.f]!;
+      let e: any;
+      try { e = (parseExpression(code) as any).body; } catch { return null; }
+      if (e?.type !== 'ArrayExpression' || e.elements.length !== 3 || e.elements[0]?.type !== 'Identifier' || e.elements[1]?.type !== 'ObjectExpression') return null;
+      const local = e.elements[0].name as string;
+      const name = [...this.scripts].find(([, x]) => x.local === local)?.[0];
+      const file = name !== undefined ? this.componentFiles.get(name) : null;
+      if (!file) return null;
+      return { name: name!, file, props: `($) => (${code.slice(e.elements[1].start, e.elements[1].end)})` };
+    };
+    const value = (b: Binding) => !b.e && b.f !== undefined && statusOnly(strs(b.d)) && known(strs(b.d)) && !late(this.fns[b.f]!) && !this.painted.has(b)
       // a let that waits for a lazy helper module is not early
       && !this.fns[b.f]!.includes('$.$z(');
+    // a component's early renderer, where the use's props are known early: it fills the root, and the instance adopts it
+    const eligible = (b: Binding) => (['text', 'attr', 'class', 'style', 'show', 'model', 'if', ...(embedded.size ? ['for', 'ch'] : [])].includes(b.k)
+      || (b.k === 'cmp' && !!cmpOf(b)?.file.earlyDefault)) && value(b);
+    /** the early renderers the page's early file imports: by local name, the module */
+    const renderers: Record<string, string> = {};
+    /**
+     * SN543: a component whose script fills its root (the root has no content of its own) and that has no early
+     * renderer, used where the early script renders (its props are known early, inside the page's roots or an early
+     * branch or row): its content appears at mount, after the first paint, and moves what follows it
+     */
+    const unrendered = (b: Binding) => {
+      const c = cmpOf(b);
+      if (!c || c.file.early || !c.file.scriptFilled) return;
+      // (asked without what `known` notes of the reads: nothing of this binding goes into the early file)
+      const emb = [...usedEmb], url = readsUrl, early = value(b);
+      usedEmb.clear(); emb.forEach((n) => usedEmb.add(n)); readsUrl = url;
+      if (!early) return;
+      // reported at the use's tag (the binding's site is the component's root)
+      const root = this.fnAt[b.f!]?.el, host = (root && this.useOf.get(root)?.host) ?? root;
+      if (host) this.report(host, null, 'SN543', `\`<${c.name}>\` is filled by its script at mount, after the first paint, where the early script renders what is around it: its content moves what follows it`, 0, `give it an early renderer, \`${(c.file.script ?? '').replace(/\.[cm]?[jt]s$/, '.early.ts')}\` (\`export default (root, props) => { … }\`), which the early script runs with the same props, or reserve its space with CSS`);
+    };
     /**
      * A `data-sn-if` (without a `data-sn-else`) that the resources' state at mount closes, whether or not they load
      * (no data, not loading or loading): what the HTML shows already, so nothing to render early. One that reads
@@ -9374,6 +9442,7 @@ class Compiler {
     const list = (defs: NodeDef[]): NodeDef[] => {
       // a dialog's bindings wait until it opens (as in the runtime): nothing of a closed dialog is painted
       const bs = defs.map((nd) => (nd.dl || this.lateNodes.has(nd) ? [] : nd.b.filter(eligible).filter((b) => !closedAtMount(b))));
+      for (const nd of defs) if (!nd.dl && !this.lateNodes.has(nd)) for (const b of nd.b) unrendered(b);
       const keep = new Map<number, number>();
       defs.forEach((nd, i) => { if (nd.state !== undefined || bs[i]!.length) keep.set(i, keep.size); });
       if (defs === this.roots) rootKeep = keep;
@@ -9395,6 +9464,13 @@ class Compiler {
           if (b.k === 'if') { nb.x = tpl(b.x!); if (b.z !== undefined) nb.z = tpl(b.z); }
           if (b.k === 'for') nb.x = tpl(b.x!);
           if (b.k === 'ch') nb.c = b.c!.map(tpl);
+          // a component's early renderer: over its props alone (`n`: the module's local name in the early file)
+          if (b.k === 'cmp') {
+            const c = cmpOf(b)!, local = `$er$${c.name.replace(/-/g, '_')}`;
+            nb.f = fn(status(c.props));
+            nb.n = local;
+            renderers[local] = c.file.early!;
+          }
           o.b.push(nb);
         }
         out[j] = o;
@@ -9496,7 +9572,7 @@ class Compiler {
     if ((url || readsUrl) && this.pathList.length) ir.path = this.pathList;
     const arrays = this.urlArrays();
     if ((url || readsUrl) && arrays.length) ir.urlArrays = arrays;
-    return { ir, fns, helpers, namespaces, ...(formatters.length ? { formatters } : {}) };
+    return { ir, fns, helpers, namespaces, ...(formatters.length ? { formatters } : {}), ...(Object.keys(renderers).length ? { renderers } : {}) };
   }
 
   /**

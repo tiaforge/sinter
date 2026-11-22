@@ -395,6 +395,56 @@ HTML: `src/components/task-ring.ts`. sinter runs it once per instance, on the in
 `this.state`, reaches elements through `data-sn-ref` and emits declared events. See
 [components with a script](islands.md).
 
+## Early renderers
+
+A script runs in the page module, after the first paint. A component whose script builds what it shows (its root
+is empty in the markup: a document renderer, a highlighted code block) is painted empty first and filled at mount,
+which moves everything after it. Where the use's props are known before the page module loads (constants, the
+URL, [embedded data](first-paint.md#embedded-data)), the component can render in the first paint instead, with an
+early renderer: a module beside the script, `<name>.early.ts` (or `.js`, `.mts`, `.mjs`), whose default export
+fills the root from the props:
+
+```ts
+// src/components/doc-fast.early.ts: no import of './doc-fast.html' or of the runtime, to keep the early file small
+import { build } from '../doc-build.js';
+import type { Doc } from '../sinter.types.js';
+
+export default function (root: Element, props: { doc?: Doc | null }) {
+  if (props.doc) root.replaceChildren(build(props.doc));
+}
+```
+
+```ts
+// src/components/doc-fast.ts: the first connect keeps what the early renderer built
+export class DocFast extends DocFastComponent {
+  connected() { if (!this.early) this.render(); }
+  propsChanged() { this.render(); }
+  // …
+}
+```
+
+- **Only where it is used.** The early script runs it for a use whose props the early script knows, as it would
+  any binding (in the page, or in a branch or row it renders), once the parser has closed the root, with the props
+  the page module will pass. The module is bundled into the early files of those pages alone; other pages, and
+  pages whose use of it waits for data, do not carry it.
+- **Adoption.** `this.early` is `true` when the early renderer filled this instance's root: the script then keeps
+  what is there instead of building it again (the page module's props come from the same data). It is `false`
+  when the early script did not run it: the data was not in the page (a placeholder the server left empty, a
+  visitor with a token, whose data the browser requests), a [swap](navigation.md#swaps), which runs no head
+  script, or a renderer that returned `false` or threw (reported).
+- **Small and self-contained.** It is in the page's early file, which blocks the parse: import only what it needs
+  to render (the same builder as the script, not the script, its `.html` base class or the runtime). Modules it
+  shares with the script are [own copies](first-paint.md#own-copies). A copy of `attrAllowed` there has not seen
+  the app's `configure({ urlSchemes })`: a renderer that left an attribute out for that reason returns `false`,
+  and the script renders at mount.
+- **What it writes** is held to the rules of a script that builds elements ([islands.md](islands.md)):
+  `createElement`, text nodes, `attrAllowed` for URL attributes. It runs once, keeps no listeners and writes only
+  the root's children.
+
+A component with a script whose root is empty, no early renderer, and a use whose props the early script knows
+is `SN543`. `<md-doc>` of [sinter-markdown](../packages/sinter-markdown/docs/markdown.md) renders an embedded
+document this way.
+
 ## Choosing how it renders, per use: `$build` and `$slots`
 
 Two constants let a component's markup choose how a use renders, at build time:

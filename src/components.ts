@@ -21,6 +21,12 @@ export class Component<P = Record<string, unknown>, E = Record<string, unknown>,
   declare readonly refs: Readonly<R>;
   /** the instance's root element */
   declare readonly root: HTMLElement;
+  /**
+   * true when the component's early renderer (`<name>.early.ts`) filled the root before the page module loaded, from the
+   * props of the data in the page: the script keeps what is there instead of building it again. False when the early
+   * script did not render it (a swap, data the early script does not have, a renderer that returned false)
+   */
+  declare readonly early: boolean;
   /** dispatches a declared event (`data-sn-emits`) from the root: bubbling and cancelable, as `emit()` in markup */
   emit<K extends keyof E & string>(name: K, ...detail: undefined extends E[K] ? [E[K]?] : [E[K]]): boolean {
     return this.root.dispatchEvent(new CustomEvent(name, { detail: detail[0], bubbles: true, cancelable: true }));
@@ -32,6 +38,8 @@ export class Component<P = Record<string, unknown>, E = Record<string, unknown>,
 }
 
 type Hook = 'connected' | 'propsChanged' | 'disconnected';
+/** early.ts `EARLY_CMP`: the early file and the page module are bundled apart, so they meet on the symbol's key */
+const EARLY_CMP = Symbol.for('sinter.early.cmp');
 interface Inst { o: any; p: Record<string, unknown>; c: 0 | 1 | 2 }
 
 const feature: Feature = {
@@ -79,9 +87,12 @@ const feature: Feature = {
     };
     const create = (el: Element, a: any, b: Record<string, unknown>, keys: string[], w: unknown[] | undefined) => {
       const obj = (el as Tagged)[STATE]![1], state = {}, o = new a(), x: Inst = { o, p: b, c: 0 };
+      // filled by its early renderer (early.ts `cr`): once, for the instance that adopts the root
+      const early = !!(el as any)[EARLY_CMP];
+      if (early) delete (el as any)[EARLY_CMP];
       // the root's state, each field written through: an assignment marks that field (`w`: its path, by the order of `keys`)
       keys.forEach((k, j) => Object.defineProperty(state, k, { get: () => obj[k], set: (v) => { obj[k] = v; app.mark(w![j] as number); } }));
-      Object.defineProperties(o, { props: { get: () => x.p }, state: { value: state }, refs: { value: refs(obj) }, root: { value: el } });
+      Object.defineProperties(o, { props: { get: () => x.p }, state: { value: state }, refs: { value: refs(obj) }, root: { value: el }, early: { value: early } });
       live.set(el, x);
       return x;
     };

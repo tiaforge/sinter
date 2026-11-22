@@ -61,6 +61,8 @@ export class TaskRing extends TaskRingComponent {
   rendered, and its type says so. Elements of nested components and of slot content are not refs.
 - **`this.root`** is the instance's root element; `this.emit(name, detail)` dispatches a declared event
   from it (bubbling, cancelable). `this` is not an element: it is an object sinter creates per instance.
+- **`this.early`** is `true` when the component's [early renderer](components.md#early-renderers) filled the root
+  before the page module loaded: keep what is there.
 - **`this.state`** is the root's `data-sn-state` (a component with a script always has one). Assigning
   a field renders, as a handler does: `this.state.loaded = true`.
 - **Lifecycle, driven by sinter:**
@@ -82,7 +84,9 @@ export class TaskRing extends TaskRingComponent {
   allowed scheme (the app's `configure({ urlSchemes })` included), no style value that can load a URL. It creates
   elements with `createElement` and text with `new Text()`, never parses markup, so the page's CSP and Trusted
   Types need nothing. A component can keep its template for what the build renders and use such a script for the
-  rest ([choosing how it renders](components.md#choosing-how-it-renders-per-use-build-and-slots)).
+  rest ([choosing how it renders](components.md#choosing-how-it-renders-per-use-build-and-slots)). Where its
+  props are in the page before the page module loads (embedded data), give it an
+  [early renderer](components.md#early-renderers), or what it builds appears after the first paint (`SN543`).
 
 ## `src/sinter.components.d.ts`
 

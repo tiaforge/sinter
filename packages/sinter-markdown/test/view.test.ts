@@ -146,3 +146,75 @@ test('the script and the components write the same DOM for every document, under
   expect(errors).toEqual([]);
   await p.close();
 }, 120_000);
+
+// A document embedded in the page (`data-sn-resource`, what sinter-axum writes): <md-view>'s early renderer
+// (md-view.early.ts) builds it before the first paint, and the page module's instance keeps those elements.
+test('an embedded document renders in the first paint through the early renderer, and the page module adopts it', async () => {
+  const tree = trees[1]![1];
+  const head = (data: string) => `<meta http-equiv="Content-Security-Policy" content="${CSP}"><script type="application/json" data-sn-resource="doc">${data}</script>`;
+  const body = '<sn-resource name="doc" src="/api/doc" type="Root"></sn-resource><md-doc id="b" data-sn-with="{ doc }"></md-doc><p>after it</p>';
+  const e = app({ 'index.html': page(body, head(tree.replace(/</g, '\\u003c'))), 'empty.html': page(body, head('')), 'other.html': page('<p>no document</p>') });
+  const dir = join(e.root, 'dist');
+  try {
+    await build({ root: e.root, logLevel: 'silent', plugins: [sinter({ libraries: ['@tiaforge-ui/sinter-markdown'] })], build: { outDir: dir, emptyOutDir: true } });
+    // the renderer is in this page's early file only
+    const heads = (f: string) => [...readFileSync(join(dir, f), 'utf8').matchAll(/src="\/(assets\/[^"]+-head-[^"]+\.js)"/g)].map((m) => readFileSync(join(dir, m[1]!), 'utf8')).join('\n');
+    expect(heads('index.html')).toContain('md-table');
+    expect(heads('other.html')).not.toContain('md-table');
+    const srv = createServer((req, res) => {
+      const path = new URL(req.url ?? '/', 'http://x').pathname;
+      if (path === '/api/doc') { res.setHeader('Content-Type', 'application/json'); return res.end(tree); }
+      try {
+        const b = readFileSync(join(dir, path.endsWith('/') ? path + 'index.html' : path));
+        res.setHeader('Content-Type', path.endsWith('.js') ? 'text/javascript' : 'text/html');
+        res.end(b);
+      } catch { res.statusCode = 404; res.end(); }
+    });
+    await new Promise<void>((r) => srv.listen(0, '127.0.0.1', () => r()));
+    const base = `http://127.0.0.1:${(srv.address() as { port: number }).port}/`;
+    try {
+      for (const [file, early] of [['', true], ['empty/', false]] as const) {
+        const p = await browser.newPage();
+        const errors: string[] = [];
+        p.on('pageerror', (x) => errors.push(x.message));
+        // what the first paint has: the document as the parse ends (the page module mounts after it; the early script
+        // rendered the root when the parser closed it, as the paragraph after it began), and every change
+        // to the root's children from then on
+        await p.addInitScript(() => {
+          const w = window as never as { __at: { n: number; first: Element | null } | null; __changes: number };
+          w.__changes = 0;
+          document.addEventListener('DOMContentLoaded', () => {
+            const md = document.getElementById('b')!;
+            w.__at = { n: md.children.length, first: md.firstElementChild };
+            new MutationObserver((rs) => { w.__changes += rs.length; }).observe(md, { childList: true });
+          });
+        });
+        await p.goto(base + file);
+        await p.waitForFunction(() => document.querySelectorAll('#b > *').length > 5);
+        // the page module has mounted, and its instance has connected
+        await p.waitForTimeout(300);
+        const r = await p.evaluate(() => {
+          const w = window as never as { __at: { n: number; first: Element | null }; __changes: number };
+          const md = document.getElementById('b')!;
+          let comments = 0;
+          const tw = document.createTreeWalker(md, NodeFilter.SHOW_COMMENT);
+          while (tw.nextNode()) comments++;
+          return { first: w.__at.n, same: w.__at.first === md.firstElementChild, changes: w.__changes, comments, n: md.children.length };
+        });
+        if (early) {
+          // in the first paint, without anchors (the script's elements), and the same elements after the mount
+          expect(r.first, 'first paint').toBe(r.n);
+          expect(r.same, 'same elements').toBe(true);
+          expect(r.changes, 'changes after the parse').toBe(0);
+        } else {
+          // a placeholder the server left empty: the page module requests the document and builds it
+          expect(r.first, file).toBe(0);
+          expect(r.changes, file).toBeGreaterThan(0);
+        }
+        expect(r.comments, file).toBe(0);
+        expect(errors, file).toEqual([]);
+        await p.close();
+      }
+    } finally { srv.close(); }
+  } finally { e.remove(); }
+}, 120_000);

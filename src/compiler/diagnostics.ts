@@ -112,6 +112,7 @@ export const CODES = {
   SN540: 'swap-script',
   SN541: 'kept-playback',
   SN542: 'unkeyed-list-write',
+  SN543: 'filled-at-mount',
 } as const;
 
 export type Code = keyof typeof CODES;

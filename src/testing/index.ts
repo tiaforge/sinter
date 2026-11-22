@@ -256,6 +256,11 @@ export interface RenderOptions {
   layouts?: Record<string, string>;
   /** the scripts of components, by name: the module (`await import('../src/components/task-ring.ts')`) or the class */
   scripts?: Record<string, unknown>;
+  /**
+   * the early renderers of components, by name (docs/components.md#early-renderers): the module
+   * (`await import('../src/components/doc-view.early.ts')`) or its default export; run by the early chunk (`firstPaint`)
+   */
+  earlyRenderers?: Record<string, unknown>;
   /** localStorage and sessionStorage (default: empty ones); pass the previous page's to test what carries over */
   storage?: Storage;
   session?: Storage;
@@ -400,16 +405,16 @@ const PAGE = '/test/page.html';
  * constants, written into the document, and its early chunk run over it. Nothing is mounted:
  * bindings that wait for data are as the HTML has them.
  */
-export async function firstPaint(html: string, options: Pick<RenderOptions, 'helpers' | 'files' | 'components' | 'storage' | 'messages' | 'locale' | 'lazyHelpers'> & FirstPaintTestOptions = {}): Promise<{ root: HTMLElement; html: string }> {
+export async function firstPaint(html: string, options: Pick<RenderOptions, 'helpers' | 'files' | 'components' | 'scripts' | 'earlyRenderers' | 'storage' | 'messages' | 'locale' | 'lazyHelpers'> & FirstPaintTestOptions = {}): Promise<{ root: HTMLElement; html: string }> {
   if (current) { current.destroy(); current = null; }
-  const { files, components } = options;
+  const { files, components, scripts, earlyRenderers } = options;
   const helpers = withMessages(options);
-  const { parts } = compilePage(html, { helpers, ...(files ? { files } : {}), ...(components ? { components } : {}), ...(options.lazyHelpers ? { lazyHelpers: options.lazyHelpers } : {}), ...(options.messages ? { messages: options.messages, ...(options.locale ? { locale: options.locale } : {}) } : {}), firstPaint: true });
+  const { parts } = compilePage(html, { helpers, ...(files ? { files } : {}), ...(components ? { components } : {}), ...(scripts ? { scripts } : {}), ...(earlyRenderers ? { earlyRenderers } : {}), ...(options.lazyHelpers ? { lazyHelpers: options.lazyHelpers } : {}), ...(options.messages ? { messages: options.messages, ...(options.locale ? { locale: options.locale } : {}) } : {}), firstPaint: true });
   writePage(parts.html, options.messages);
   const env = config.env;
   config.env = { ...env, storage: () => options.storage ?? null };
   if (options.messages) messagesLocale(options);
-  try { await paint(parts, helpers, options.early); } finally { config.env = env; }
+  try { await paint(parts, helpers, options.early, earlyRenderers); } finally { config.env = env; }
   return { root: document.body, html: parts.html };
 }
 
@@ -440,10 +445,16 @@ function messagesLocale(o: Pick<RenderOptions, 'messages' | 'locale'>) {
 }
 
 /** The early chunk: the app's early module, then the early bindings with the helpers in scope, as the page is parsed. */
-async function paint(parts: CompiledParts, helpers: Record<string, unknown>, app?: () => void) {
+async function paint(parts: CompiledParts, helpers: Record<string, unknown>, app?: () => void, renderers: Record<string, unknown> = {}) {
   app?.();
   if (!parts.early) return;
   const names: string[] = ['$k'], values: unknown[] = [$k];
+  // the components' early renderers, by the component's name (the module's file name)
+  for (const [local, mod] of Object.entries(parts.early.renderers ?? {})) {
+    const m = renderers[/([^/]+)\.early\.[cm]?[jt]s$/.exec(mod)?.[1] ?? ''] as { default?: unknown } | undefined;
+    names.push(local);
+    values.push(typeof m === 'function' ? m : m?.default);
+  }
   for (const h of parts.early.helpers) { names.push(h); values.push(helpers[h]); }
   // the built-in formatters the early bindings call, the package's, as a build imports them
   for (const x of parts.early.formatters ?? []) { names.push(x); values.push((builtins as Record<string, unknown>)[x]); }
@@ -525,6 +536,7 @@ function compilePage(html: string, options: RenderOptions, strict: Strict = { on
   for (const [name, text] of Object.entries(options.components ?? {})) files[`src/components/${name}.html`] = text;
   for (const [name, text] of Object.entries(options.layouts ?? {})) files[`src/layouts/${name}.html`] = text;
   for (const name of Object.keys(options.scripts ?? {})) files[`src/components/${name}.ts`] ??= 'export default class {}';
+  for (const name of Object.keys(options.earlyRenderers ?? {})) files[`src/components/${name}.early.ts`] ??= 'export default () => {};';
   const proj = options.project;
   const apis = proj ? { specs: proj.openapi, apis: proj.apis } : options.apis ? testApis(options) : null;
   // the messages: compiled in the page's one language, as a build compiles them
@@ -720,7 +732,7 @@ export async function render(html: string, options: RenderOptions = {}): Promise
     const fp = options.firstPaint === true ? {} : options.firstPaint;
     if (options.messages) messagesLocale(options);
     const n = navigations.length;
-    await paint(parts, helpers, fp.early);
+    await paint(parts, helpers, fp.early, options.earlyRenderers);
     if (navigations.length > n && navigations.at(-1)!.startsWith('replace ')) early = navigations.at(-1)!.slice(8);
     fp.afterEarly?.();
   }

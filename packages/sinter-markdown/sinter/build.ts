@@ -3,17 +3,23 @@
 // It writes what the components write, element for element: the same tags, the same attributes (a URL attribute
 // only with an allowed scheme: sinter's attrAllowed, as data-sn-attr checks it), text as text nodes. No markup is
 // parsed. A change to a component's markup is a change here too: test/view.test.ts compares the two.
+//
+// The early script runs it too (components/internal/md-view.early.ts), so it imports nothing but sinter's URL check
+// (its module, the config it reads and the scheme rules: well under a kilobyte in a page's early file).
 import { attrAllowed } from '@tiaforge-ui/sinter';
 import type { Block, Inline, ListItem, Root, Table } from './sinter.types.js';
 
 const WRAP: Record<string, string> = { emphasis: 'em', strong: 'strong', delete: 'del', kbd: 'kbd', sub: 'sub', sup: 'sup', mark: 'mark' };
 
 const el = (tag: string) => document.createElement(tag);
+/** during `build`: what it calls for a URL attribute the check refused */
+let refused: (() => void) | undefined;
 /** an attribute as data-sn-attr writes it: none for null, undefined and false, '' for true */
 function attr(e: Element, name: string, v: unknown): void {
   if (v == null || v === false) return;
   const s = v === true ? '' : '' + v;
   if (attrAllowed(e, name, s)) e.setAttribute(name, s);
+  else refused?.();
 }
 /** phrasing content into `into`: text as text nodes, the rest by type */
 function inline(list: readonly Inline[], into: Node): void {
@@ -84,9 +90,13 @@ function block(n: Block, into: Node): void {
   into.appendChild(e);
 }
 
-/** the blocks of `doc` as a fragment */
-export function build(doc: Root): DocumentFragment {
+/**
+ * the blocks of `doc` as a fragment; `onRefused`: called for each URL attribute the check left out (the early renderer's:
+ * its copy of the check has not seen the app's `configure({ urlSchemes })`, so it leaves such a document to the page module)
+ */
+export function build(doc: Root, onRefused?: () => void): DocumentFragment {
   const f = document.createDocumentFragment();
-  for (const b of doc.children) block(b, f);
+  refused = onRefused;
+  try { for (const b of doc.children) block(b, f); } finally { refused = undefined; }
   return f;
 }

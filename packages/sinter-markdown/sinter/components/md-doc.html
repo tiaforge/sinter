@@ -6,6 +6,7 @@
   wherever it is in the tree.
   How it renders is chosen per use, at build time, and the page ships only that way: through the components
   (<md-tree>) where the build knows the document, where a use fills a slot, or with `templates: true`; otherwise
-  through a script that creates the elements directly (<md-view>), several times faster on a long document.
+  through a script that creates the elements directly (<md-view>), several times faster on a long document, and
+  with the document embedded in the page, before the first paint (md-view.early.ts).
 -->
 <template data-sn-props="{ doc?: Root | null; templates?: boolean; heading: Slot<{ node: Heading }>; link: Slot<{ node: Link }>; image: Slot<{ node: Image }>; code: Slot<{ node: Code }>; inlineCode: Slot<{ node: InlineCode }>; blockquote: Slot<{ node: Blockquote }>; table: Slot<{ node: Table }> }"><template data-sn-if="($build && (!!doc || !doc)) || $slots.heading || $slots.link || $slots.image || $slots.code || $slots.inlineCode || $slots.blockquote || $slots.table || !!templates"><md-tree data-sn-with="{ doc }"></md-tree></template><template data-sn-else><md-view data-sn-with="{ doc }"></md-view></template></template>

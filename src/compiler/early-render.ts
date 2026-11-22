@@ -93,6 +93,8 @@ export function earlyRender(ir: EarlyIR, fns: string[] = []): EarlyRender {
         else if (b.k == 'for') { const t = ir.templates[b.x!]; out.push(call(`(t, v) => ${use('each')}(t, v, ${tid(b.x!)}, ${branch(b.x!)}, ${str(t?.item ?? 'item')}, ${str(t?.index ?? null)}, ${sc[i]})`)); }
         // a choice over embedded data: the case's definition, its props as the definition's item
         else if (b.k == 'ch') out.push(call(`(t, v) => ${use('ch')}(t, v, [${b.c!.map(tid).join(', ')}], ${str(b.c!.map((x) => ir.templates[x]?.item ?? 'item'))}, [${b.c!.map(branch).join(', ')}], ${sc[i]})`));
+        // a component's early renderer (`n`: its local name in the early file), over the use's props
+        else if (b.k == 'cmp') out.push(call(`${use('cr')}(${b.n})`));
         else if (b.k == 'class') out.push(b.n ? call(use('cls'), b.n) : call(use('pair')));
         // an attribute needs the browser's URL check only if it is a URL attribute and its scheme is not fixed by the expression
         else if (b.k == 'attr') out.push(call(use(URL_ATTR.test(b.n!.toLowerCase()) || b.n!.toLowerCase().endsWith('srcset') ? (fns[b.f!] != null && fixedScheme(fns[b.f!]!) ? 'set' : 'attr') : 'set'), b.n));
