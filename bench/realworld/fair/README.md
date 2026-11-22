@@ -35,6 +35,30 @@ CHROME=/path/to/chrome node fair/run.mjs --runs 5     # the tables: fair/work/re
 Scores still vary from run to run (Lighthouse simulates the network from what it observed, and the CPU is the
 machine's): compare runs from the same machine and session, and report the range.
 
+## Results (2026-11-22)
+
+Only implementations that pass the official RealWorld e2e suite in their mode are audited now
+([docs/realworld-comparison.md](../../../docs/realworld-comparison.md#official-e2e-suite) has the suite's results for
+every implementation listed in `implementations.mjs`, and why Vue 3 (mutoe), Solid and SvelteKit are no longer in
+the table). Added: Solid + Backtick (backtickjs/backtick-solid-realworld-example-app 24976ac, Solid 1.9.17, SSR on
+Hono), the only Solid RealWorld that passes the suite. It is not in `implementations.mjs` yet: its pages load Solid
+from cdn.jsdelivr.net through an import map, which this run's machine could not reach, so it was served from minified
+local copies of the same Solid files by a scratch copy of this harness; its own server's API base is `API_BASE`.
+
+Chrome for Testing 153.0.8010.12, Lighthouse 13.6.0, API delay 150 ms, one cloud VM; median of 5 interleaved runs
+(range of the 5). sinter at 2fb0ea3. No failed request but Backtick's `/_vercel/insights/script.js` (a 404 off Vercel,
+once per audit).
+
+| implementation | mobile | FCP | LCP | TBT | CLS | desktop | CLS |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| **sinter** | **100** (100–100) | 1.38 s | **1.38 s** | 0 ms | 0.000 | **100** (100–100) | 0 |
+| Solid + Backtick | 89 (89–99) | 1.42 s | 3.66 s | 27 ms | 0.002 | 99 (99–99) | 0 |
+| Angular | 88 (87–93) | 1.51 s | 2.89 s | 125 ms | 0.138 | 76 (76–76) | 0.767 |
+| Vue 3 (official) | 79 (67–80) | 1.65 s | 3.76 s | 0 ms | 0.191 | 76 (76–76) | 0.794 |
+
+An earlier run the same day with sinter at cfaec9d (before its web fonts loaded after the page) gave sinter mobile 100
+(99–100), FCP and LCP 1.39 s; the others within a point or two (Backtick 89, Angular 87, Vue 3 (official) 79).
+
 ## Results (2026-11-14)
 
 Chrome for Testing 153.0.8010.12, Lighthouse 13.6.0, API delay 150 ms, one cloud VM; median of 5 interleaved runs

@@ -1,78 +1,70 @@
 # RealWorld: sinter compared with other implementations
 
 **How does a sinter app compare with the same app written with other tools?** RealWorld is a public
-spec for a blogging app (Conduit) that many frameworks implement against the same API. sinter's version
-has the fewest source lines and, of the apps that show articles, the least JavaScript on the home page (with
-the first article, Vue 3 loads 4.3 KB less: sinter's article page carries a Markdown parser), and when every
-implementation is built from source and served under the same conditions, the best Lighthouse score:
-100 on mobile and on desktop.
+spec for a blogging app (Conduit) that many frameworks implement against the same API, with an official
+end-to-end suite. Only implementations that pass that suite are compared here: a smaller or faster app that
+does less is not the same app ([which were tested, and why some are not here](#official-e2e-suite)). Of those,
+sinter has the fewest source lines, the best Lighthouse scores (100 on mobile and on desktop, its largest paint
+in its first frame and no layout shift) and, with the first article, the least JavaScript but Backtick's
+(an SSR app that ships almost none, at a cost: its largest paint waits for the server).
 
-| implementation | source lines | JS, home + article (gz KB) | Lighthouse mobile perf, same conditions |
-| --- | ---: | ---: | ---: |
-| **sinter** | **670** | **68.2** | **100** |
-| SvelteKit | 1153 | - | 93 |
-| Solid | 1281 | - | 90 |
-| Vue 3 | 1848 | 63.9 | 86 |
-| React + Redux | 2087 | - | - |
-| Angular | 2210 | 110.9 | 88 |
+| implementation | e2e, spa / ssr mode | source lines (gz KB) | JS, home + article (gz KB) | Lighthouse mobile / desktop |
+| --- | --- | ---: | ---: | ---: |
+| **sinter** | **140/140** / **92 of 92** | **606** (8.8) | 67.5 | **100** / **100** |
+| Angular | 140/140 / 91 of 92 | 2210 (15.5) | 123.1 | 88 / 76 |
+| Vue 3 (official) | 140/140 / 91 of 92 | 1913 (11.9) | 72.3 | 79 / 76 |
+| Solid + Backtick (SSR) | 105/140 / **92 of 92** | 1741 (13.0) | 14.9 | 89 / 99 |
 
-A dash means the number could not be measured (see the notes under each table below). Lighthouse: the
-median of 5 runs on 2026-11-14 with every implementation built from its latest commit, served by one local
-server against the same local API, [below](#the-same-conditions); on their public demos the same day,
-sinter scored 98, SvelteKit 95, Solid 98 (an empty feed), Vue 3 86 and Angular 82. sinter's source lines
-are counted on 2026-11-14 (after the theme moved into `src/`, and the `user` resource, the pager, the feed row and the button errors were written once); its download size is from before components;
-[Components](#components) compares the two builds on one machine. Scripts:
-[`bench/realworld/loc.mjs`](../bench/realworld/loc.mjs) (source lines),
+Measured on 2026-11-22, every implementation built from source and served on one machine against the same
+local API (Lighthouse: the median of 5 runs under [the same conditions](#the-same-conditions); e2e: the official
+suite against a local backend, in both of its modes, [below](#official-e2e-suite)). In ssr mode the suite skips
+48 spa-only tests; an SSR app like Backtick cannot pass those by design, and sinter (a browser client) passes
+both. Scripts: [`bench/realworld/loc.mjs`](../bench/realworld/loc.mjs) (source lines),
 [`bench/realworld/weight.mjs`](../bench/realworld/weight.mjs) (what the browser downloads),
 [`bench/realworld/fair/run.mjs`](../bench/realworld/fair/README.md) (Lighthouse under the same conditions),
 [`bench/realworld/lighthouse.mjs`](../bench/realworld/lighthouse.mjs) (Lighthouse on the public demos).
 
-| implementation | repo (commit) | architecture |
-| --- | --- | --- |
-| sinter | `examples/realworld` | multi-page, compiled HTML |
-| Angular | realworld-apps/angular-realworld-example-app (d426ec8, 2026-11-02) - the official demo | SPA |
-| Vue 3 | mutoe/vue3-realworld-example-app (741c215, 2026-08-29) | SPA |
-| SvelteKit | sveltejs/realworld (df79670, 2026-08-10) | SSR + hydration |
-| Solid | solidjs/solid-realworld (f6e77ec, 2022-04-24) | SPA |
-| React + Redux | gothinkster/react-redux-realworld-example-app (ee72eba, 2021-09-07) | SPA |
+| implementation | repo (commit) | framework (latest major on 2026-11-22) | architecture |
+| --- | --- | --- | --- |
+| sinter | `examples/realworld` (2fb0ea3) | sinter | multi-page, compiled HTML |
+| Angular | realworld-apps/angular-realworld-example-app (d426ec8) - the official demo | Angular 21.2 (22) | SPA |
+| Vue 3 (official) | realworld-apps/vue-realworld-example-app (db749e3) | Vue 3.5 (3) | SPA |
+| Solid + Backtick | backtickjs/backtick-solid-realworld-example-app (24976ac) | Solid 1.9 (2) | SSR (Hono) |
+
+No RealWorld on Solid 2 or on Svelte 5 without SvelteKit was found; Backtick is the only Solid one that passes the
+suite, and the only one still maintained.
 
 ## Source size
 
-Non-blank lines of app source; tests, mocks, type declarations, generated code (Vue 3's 790-line
-generated API client) and the shared theme CSS excluded. sinter's count includes its 26-line Vite
-config (page entries and path rewrites) and its `apis.js` (the API config), and leaves out its generated
-`src/sinter.components.d.ts`.
-Before components, with partials, the same script counts 765 lines (html 593, js 172): the components'
-`<template data-sn-props>` wrappers and their props cost more lines than the favorite button they
-deduplicate saves.
+Non-blank lines of app source (`loc.mjs`, the app's `src/`); tests, mocks, type declarations, generated code and
+the shared theme CSS excluded. sinter's pages are at its app's root, so its count also takes them, its Vite config
+and its `apis.js` (the API config); the others' root config files are not counted. The gzip of the counted source
+does not depend on how long a line is.
 
-| implementation | files | lines | by type |
-| --- | ---: | ---: | --- |
-| **sinter** | 23 | **670** | html 495, js 175 |
-| SvelteKit | 41 | 1153 | svelte 816, js 312, html 25 |
-| Solid | 27 | 1281 | js 1248, html 33 |
-| Vue 3 | 41 | 1848 | vue 1344, ts 488, html 16 |
-| React + Redux | 39 | 2087 | js 2056, html 31 |
-| Angular | 53 | 2210 | ts 1658, html 546, css 6 |
+| implementation | files | lines | gzip (KB) |
+| --- | ---: | ---: | ---: |
+| **sinter** | 21 | **606** | **8.8** |
+| Solid + Backtick | 21 | 1741 | 13.0 |
+| Vue 3 (official) | 32 | 1913 | 11.9 |
+| Angular | 53 | 2210 | 15.5 |
+
+sinter's 606 are html 486 and js 120; 50 of them are comment lines.
 
 ## Download size
 
 Headless Chrome loads the home page, then opens the first article. Every JS and CSS response is
-gzipped at level 9 by the script, so different CDN compression does not skew the numbers. The others
-are measured on their live demos (which may be built from other commits than the ones above); sinter
-on `vite preview` of its production build, against the live API. Measured on 2026-11-17.
+gzipped at level 9 by the script, so different compression does not skew the numbers. Every implementation is
+served locally from its production build by the [same harness](#the-same-conditions). Measured on 2026-11-22.
 
 | implementation | JS, home (gz KB) | JS, home + article (gz KB) | JS, home + article (raw KB) | CSS (gz KB) | note |
 | --- | ---: | ---: | ---: | ---: | --- |
-| **sinter** | **32.6** | **68.2** | 205.9 | 13.3 | the Markdown parser (`@tiaforge-ui/sinter-markdown`, 21.8 KB) loads with the first article; measured again on 2026-11-17 after the article moved to it from marked and DOMPurify (59.6 KB, 160.2 raw, the same day) |
-| Angular | 98.4 | 110.9 | 351.6 | 11.9 | |
-| Vue 3 | 46.8 | 63.9 | 171.9 | 14.4 | |
-| SvelteKit | 42.9 | - | 105.9 | 14.8 | the article did not open in the script |
-| Solid | 11.5 | - | 30.4 | 9.2 | demo shows no articles (backend gone); lazy route code not loaded |
-| React + Redux | - | - | - | - | demo no longer online |
+| **sinter** | 35.5 | 67.5 | 177.6 | 13.6 | the Markdown parser (`@tiaforge-ui/sinter-markdown`) loads with the first article |
+| Angular | 98.4 | 123.1 | 392.0 | 11.9 | |
+| Vue 3 (official) | 48.7 | 72.3 | 201.6 | 13.6 | |
+| Solid + Backtick | 14.9 | 14.9 | 38.6 | 14.8 | server-rendered, inline modules; Solid 1.9.17 from a CDN (import map), here served locally as minified copies of the same files, so the KB are approximate |
 
-Every sinter page loads 27.8-33.3 KB of JS when opened (`npm run size`), the article 59.8 KB with the Markdown
-library: 21.7-24.4 KB of it is sinter (the core, the early script, the swap stub and the features the page uses),
+Every sinter page loads 29.3-35.5 KB of JS when opened (`npm run size`, 2026-11-22), the article 56.8 KB with the
+Markdown library: most of it is sinter (the core, the early script, the swap stub and the features the page uses),
 the rest the app's page module, config and helpers, and on the article the parser and the md-* components. RealWorld runs with [swaps](navigation.md#swaps) on, so opening the article
 fetches its HTML and only the scripts the home page did not load (the article's page module, the rest of
 the swap code and the Markdown parser); the shared chunks come from the browser cache.
@@ -85,59 +77,47 @@ their range.
 
 ### The same conditions
 
-Every implementation built from its latest commit on 2026-11-14, served on one machine by the same server,
-against the same local API (25 articles, 10 per page, every answer after 150 ms) and the same recorded copies
-of Ionicons and Google Fonts, so none gets a host, a CDN or an API latency the others don't. The runs are
-interleaved across implementations; every audit is checked for failed requests (there were none).
-[bench/realworld/fair](../bench/realworld/fair/README.md) has the method, the exact commits and the edits
-(the API's host for Solid, whose `api.realworld.io` is gone, and its theme, whose host answers 404;
-SvelteKit on its Node adapter). sinter at 4b64084.
-
-| implementation | repo (commit) |
-| --- | --- |
-| Angular | realworld-apps/angular-realworld-example-app (d426ec8) |
-| Vue 3 (official) | realworld-apps/vue-realworld-example-app (db749e3) |
-| Vue 3 (mutoe) | mutoe/vue3-realworld-example-app (741c215) |
-| SvelteKit | sveltejs/realworld (df79670) |
-| Solid | solidjs/solid-realworld (f6e77ec) |
+Every implementation built from source, served on one machine by the same server, against the same local API
+(25 articles, 10 per page, every answer after 150 ms) and the same recorded copies of Ionicons and Google Fonts, so
+none gets a host, a CDN or an API latency the others don't. The runs are interleaved across implementations. Measured
+on 2026-11-22 (Chrome for Testing 153.0.8010.12, Lighthouse 13.6.0), sinter at 2fb0ea3,
+[bench/realworld/fair](../bench/realworld/fair/README.md) has the method. Only implementations that pass the
+[e2e suite](#official-e2e-suite) in their mode are audited.
 
 Mobile:
 
 | implementation | perf (range) | FCP | LCP | TBT | CLS | JS (KB) |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| **sinter** | **100** (100-100) | **1.38 s** | **1.38 s** | 0 ms | **0** | 27.7 |
-| SvelteKit | 93 (92-93) | 1.81 s | 3.01 s | 0 ms | 0.002 | 44.4 |
-| Solid | 90 (90-90) | 1.65 s | 2.55 s | 0 ms | 0.151 | 11.3 |
-| Angular | 88 (81-95) | 1.50 s | 2.81 s | 162 ms | 0.138 | 89.9 |
-| Vue 3 (mutoe) | 86 (85-86) | 1.44 s | 2.34 s | 0 ms | 0.227 | 45.0 |
-| Vue 3 (official) | 80 (77-80) | 1.51 s | 3.76 s | 44 ms | 0.191 | 45.9 |
+| **sinter** | **100** (100-100) | **1.38 s** | **1.38 s** | 0 ms | **0** | 34.7 |
+| Solid + Backtick | 89 (89-99) | 1.42 s | 3.66 s | 27 ms | 0.002 | 39.2 |
+| Angular | 88 (87-93) | 1.51 s | 2.89 s | 125 ms | 0.138 | 89.8 |
+| Vue 3 (official) | 79 (67-80) | 1.65 s | 3.76 s | 0 ms | 0.191 | 45.8 |
 
 Desktop:
 
-| implementation | perf (range) | FCP | LCP | TBT | CLS | JS (KB) |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| **sinter** | **100** (100-100) | **391 ms** | **391 ms** | 0 ms | 0 | 27.7 |
-| SvelteKit | 100 (100-100) | 449 ms | 776 ms | 0 ms | 0 | 44.4 |
-| Solid | 100 (100-100) | 404 ms | 646 ms | 0 ms | 0 | 11.3 |
-| Angular | 76 (76-76) | 450 ms | 691 ms | 0 ms | 0.767 | 89.9 |
-| Vue 3 (official) | 76 (76-76) | 407 ms | 817 ms | 0 ms | 0.793 | 45.9 |
-| Vue 3 (mutoe) | 76 (76-76) | 483 ms | 726 ms | 0 ms | 0.790 | 45.0 |
+| implementation | perf (range) | FCP | LCP | CLS |
+| --- | ---: | ---: | ---: | ---: |
+| **sinter** | **100** (100-100) | **390 ms** | **390 ms** | 0 |
+| Solid + Backtick | 99 (99-99) | 452 ms | 869 ms | 0 |
+| Angular | 76 (76-76) | 406 ms | 673 ms | 0.767 |
+| Vue 3 (official) | 76 (76-76) | 408 ms | 817 ms | 0.794 |
 
-JS is what was transferred (brotli). sinter's largest paint is in its first frame; SvelteKit, which
-renders the feed on its server, has no shift, and its first paint waits for the API. The client-rendered
-apps shift when the feed arrives: on a phone the tag list below the feed moves down (Solid), on desktop
-the page's content (Angular, both Vue apps). sinter's home page did the same on a phone (CLS 0.151,
-mobile 93) until the build kept the tag list hidden while the feed's first rows load
-([first paint](first-paint.md#a-box-whose-width-follows-the-list)); moving the theme into the build's CSS
-(minified and hashed with the Google Fonts CSS, one stylesheet less) took the first paint from 1.53 s to
-1.38 s.
+JS is what was transferred (brotli). sinter's largest paint is in its first frame; Backtick renders the feed on its
+server, so it has no shift, but its largest paint waits for its server's fetch of the API. The client-rendered apps
+shift when the feed arrives (Angular, Vue 3). Backtick requests a Vercel-only script (`/_vercel/insights/script.js`),
+a 404 off Vercel, once per audit; its Solid files were served locally (above).
 
 Not the same, still: each app's own markup, scripts and fonts; server rendering on this machine; one
-machine's CPU and Lighthouse's simulated network, not a CDN at the edge with HTTP/2.
+machine's CPU and Lighthouse's simulated network, not a CDN at the edge with HTTP/2. Earlier runs of this harness
+(2026-11-14, with implementations that do not pass the e2e suite) are in its
+[README](../bench/realworld/fair/README.md).
 
 ### On the public demos
 
-The same day, with [`bench/realworld/lighthouse.mjs`](../bench/realworld/lighthouse.mjs): the others on their
+The implementations as they were compared on 2026-11-14, before the e2e suite decided which are compared; kept for the record.
+
+
+On 2026-11-14, with [`bench/realworld/lighthouse.mjs`](../bench/realworld/lighthouse.mjs): the others on their
 live demos, sinter's build (before the two changes above) served by
 [`bench/realworld/serve.mjs`](../bench/realworld/serve.mjs) (brotli, immutable assets, HTTP/1.1), all through
 this machine's network proxy.
@@ -212,10 +192,26 @@ petite-vue has no CSP build. sinter compiles expressions at build time, so it ru
 
 ## Official e2e suite
 
-sinter, against a local backend: 135 of 140 in the suite's spa mode, 91 passed and 48 skipped in ssr
-mode, with 1 failure. The failures come from assumptions in the suite (the settings page surviving its
-redirect; a strict locator that matches the reference markup's second "Sign in" link); see
-`examples/realworld/README.md`. The other implementations were not run against the suite here.
+The RealWorld project's own suite (140 tests, Playwright, `examples/realworld/e2e`), against a local backend
+(realworld-django-ninja, SQLite), on 2026-11-22. `spa` mode is for an app that calls the API from the browser and
+holds the token there; `ssr` mode for one whose server calls the API, and it skips the 48 tests that intercept the
+browser's API calls or read a token it holds. Every implementation was run in both. Failures are classed as broken
+or missing behaviour, markup the suite's selector contract (`e2e/SELECTORS.md`) does not find, or an assumption of
+the suite.
+
+| implementation | spa (passed of 140) | ssr (passed of 92, 48 skipped) | in the comparison |
+| --- | ---: | ---: | --- |
+| **sinter** | **140** | **92** | yes |
+| Angular | 140 | 91 | yes; its 1 ssr failure is a locator of the suite that matches two "Sign in" links |
+| Vue 3 (official) | 140 | 91 | yes; its 1 ssr failure needs two authors on the first feed page, which the seeded data did not have |
+| Solid + Backtick | 105 | 92 | yes, in its mode: 35 spa failures are the suite intercepting browser API calls an SSR app does not make, and about 4 editor selectors |
+| SvelteKit (sveltejs/realworld df79670) | 47 | 31 | no: after one documented edit (`type="submit"` on the register button), 61 ssr failures remain: no `?page=N` in the URL, no `?feed=following`, no user info or Follow button on the profile page, login errors not in `.error-messages`, the settings button |
+| Vue 3 (mutoe/vue3-realworld-example-app 741c215) | 19 | - | no: its inputs have no `name`, which the selector contract needs, so every test that signs in fails |
+| Solid (solidjs/solid-realworld f6e77ec, Solid 1.3) | 8 | - | no: the same, no `name` on inputs |
+| Solid (stevej2608/solid-realworld 40dab23, Solid 1.7) | 8 | - | no: the same |
+
+React + Redux (gothinkster/react-redux-realworld-example-app, last commit 2021) was not attempted. No Svelte 5
+implementation without SvelteKit exists; the ones found are Svelte 3 on SvelteKit 1 and 3-5 years old.
 
 ## The same feature: the favorite button
 
