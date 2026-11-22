@@ -822,6 +822,8 @@ interface ChoiceGroup {
   key?: string | null;
   warn: string;
   site: Site | null;
+  /** `use` analyzed for the candidates after the first, in the scope they share: one analysis, not one per candidate */
+  later?: { scope: Scope; src: string; r: ExprResult };
 }
 
 interface Ctx {
@@ -1150,7 +1152,7 @@ class Compiler {
   private readonly runtimePlacements: Array<{ el: P5Element; node: NodeDef; k: string; at: Scope; data: string; deps: string[]; members: Map<string, LetEntry>; shape: DefaultShape | null; cases: number[]; map: Record<number, number> }> = [];
   /** the top nodes of a fill's case template and the children it places: the scope each is walked in */
   private readonly caseScopes = new WeakMap<object, Scope>();
-  private graphs?: Map<string, { uses: Set<string>; declares: Set<string>; places: Set<string>; data: Set<string>; helperChoice: boolean }>;
+  private graphs?: Map<string, { uses: Set<string>; declares: Set<string>; places: Set<string>; data: Set<string>; helperChoice: boolean; reach?: Set<string>; tree?: boolean }>;
   /** a component tag (or `<sn-component>`) that is another component's root: the outer uses, outer first, whose tag's attributes pass on to it */
   private readonly passOn = new WeakMap<P5Element, Use[]>();
   /** where a component's markup starts when its root is not one plain element (a chain's templates, a fill), or the outer components whose root an element also is: the uses, outer first */
@@ -2699,6 +2701,8 @@ class Compiler {
     const at = parent.childNodes.indexOf(el as never);
     const clones: P5Element[] = [];
     const group: ChoiceGroup = { node: null, cases: [], pick: null, warn: '', site: null };
+    // (one list for every candidate: only the first reads it, for the type of `use`)
+    const pool = lib ? [...lib.public, ...lib.internal] : null;
     for (const c of cands) {
       const x: P5Element = { ...el, attrs: el.attrs.map((a) => ({ ...a })), childNodes: [], parentNode: parent };
       if (this.passOn.has(el)) this.passOn.set(x, this.passOn.get(el)!);
@@ -2709,7 +2713,7 @@ class Compiler {
       for (const map of [this.slotOf, this.fillOf, this.defaultOf, this.childrenOf] as Array<WeakMap<object, unknown>>) if (map.has(el)) map.set(x, map.get(el));
       this.points.set(x, c.name);
       if (this.pointCtx.has(el)) this.pointCtx.set(x, this.pointCtx.get(el)!);
-      this.choices.set(x, { name: c.name, key: c.key, keySrc, names, ...(lib ? { pool: [...lib.public, ...lib.internal] } : {}), first: !clones.length, group, ...(map ? { keys: allKeys } : {}), ...(c.also?.length ? { also: c.also } : {}), ...(c.at !== undefined ? { keyAt: c.at } : keySrc !== null ? { keyAt: use!.indexOf(keySrc) } : {}) });
+      this.choices.set(x, { name: c.name, key: c.key, keySrc, names, ...(pool ? { pool } : {}), first: !clones.length, group, ...(map ? { keys: allKeys } : {}), ...(c.also?.length ? { also: c.also } : {}), ...(c.at !== undefined ? { keyAt: c.at } : keySrc !== null ? { keyAt: use!.indexOf(keySrc) } : {}) });
       clones.push(x);
     }
     if (!clones.length) this.report(el, 'use', 'SN312', '`use` names no component of the app', 0);
@@ -3985,7 +3989,12 @@ class Compiler {
     // `<sn-component use>`: the name, checked once against `ComponentName` (the app's components)
     let pick: ExprResult | null = null;
     if (choice) {
-      pick = choice.first ? this.expr(host, 'use', ctx.scope, { mode: 'value' }) : analyze(attr(host, 'use')!, ctx.scope, this.page, { mode: 'value', report: () => {} });
+      if (choice.first) pick = this.expr(host, 'use', ctx.scope, { mode: 'value' });
+      else {
+        // the candidates are clones of one tag, walked in one scope: `use` reads the same there for each
+        const src = attr(host, 'use')!, l = choice.group.later;
+        pick = l && l.scope === ctx.scope && l.src === src ? l.r : (choice.group.later = { scope: ctx.scope, src, r: analyze(src, ctx.scope, this.page, { mode: 'value', report: () => {} }) }).r;
+      }
       // a map in the markup: TypeScript types its values as strings, so the key is what must fit (its keys); the values are checked above.
       // With a `data-sn-else` after it, any other key renders the else: the key is checked, of any value
       if (choice.first && this.check && choice.keys) {
@@ -4283,11 +4292,11 @@ class Compiler {
   }
 
   /** A component file's markup, read for the graph of what uses what: its tags, its choices' candidates, the slots it declares and places. */
-  fileGraph(name: string): { uses: Set<string>; declares: Set<string>; places: Set<string>; data: Set<string>; helperChoice: boolean } {
+  fileGraph(name: string): { uses: Set<string>; declares: Set<string>; places: Set<string>; data: Set<string>; helperChoice: boolean; reach?: Set<string>; tree?: boolean } {
     const cache = (this.graphs ??= new Map());
     const known = cache.get(name);
     if (known) return known;
-    const out = { uses: new Set<string>(), declares: new Set<string>(), places: new Set<string>(), data: new Set<string>(), helperChoice: false };
+    const out: { uses: Set<string>; declares: Set<string>; places: Set<string>; data: Set<string>; helperChoice: boolean; reach?: Set<string>; tree?: boolean } = { uses: new Set<string>(), declares: new Set<string>(), places: new Set<string>(), data: new Set<string>(), helperChoice: false };
     cache.set(name, out);
     const f = this.componentFile(name);
     if (!f || f.head) return out;
@@ -4325,15 +4334,20 @@ class Compiler {
 
   /** The components a component reaches, itself included: what its markup uses, at any depth. */
   reach(name: string): Set<string> {
+    // kept on the component's graph: every graph it walks is cached once read, so the walk gives the same set each time
+    // (a recursion point asks for each candidate of each `<sn-component use>`: a library's node dispatch, in every definition)
+    const g = this.fileGraph(name);
+    if (g.reach) return g.reach;
     const out = new Set<string>([name]);
     const todo = [name];
     while (todo.length) for (const u of this.fileGraph(todo.pop()!).uses) if (!out.has(u)) { out.add(u); todo.push(u); }
-    return out;
+    return (g.reach = out);
   }
 
   /** Whether a component, or one it reaches, has a tree placement: a placement of a name its own component does not declare. */
   reachesTree(name: string): boolean {
-    return [...this.reach(name)].some((n) => { const g = this.fileGraph(n); return [...g.data].some((k) => !g.declares.has(k)); });
+    const g = this.fileGraph(name);
+    return (g.tree ??= [...this.reach(name)].some((n) => { const h = this.fileGraph(n); return [...h.data].some((k) => !h.declares.has(k)); }));
   }
 
   /**

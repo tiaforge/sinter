@@ -566,9 +566,15 @@ export function compactIR(full: IR): IR {
   // a template's kind, decided here: the runtime reads a flag where it walked the template's bindings
   const SIMPLE = new Set(['text', 'attr', 'class', 'style', 'show', 'prop', 'on']);
   const simple = (t: TemplateDef) => t.find != null && t.nodes.every((nd) => !nd.dl && nd.state == null && nd.b.every((b) => SIMPLE.has(b.k)));
-  // (a component used inside itself makes a template its own descendant: a template being visited adds nothing)
-  const reads = (t: TemplateDef, seen: Set<TemplateDef>): boolean => !seen.has(t) && (seen.add(t), t.nodes.some((nd) => nd.b.some((b) =>
-    !!b.i || templatesOf(b).some((x) => reads(ir.templates[x]!, seen)))));
+  // the templates that read the row's index (`b.i`), or reach one that does: found backwards from those that do, in one walk
+  // (a component used inside itself makes a template its own descendant, and every template of a library's dispatch reaches
+  // the others: a walk forwards from each template was the square of their number)
+  const into = new Map<TemplateDef, TemplateDef[]>(), reads = new Set<TemplateDef>(), todo: TemplateDef[] = [];
+  for (const t of ir.templates) for (const nd of t.nodes) for (const b of nd.b) {
+    if (b.i && !reads.has(t)) { reads.add(t); todo.push(t); }
+    for (const x of templatesOf(b)) { const k = ir.templates[x]!; let l = into.get(k); if (!l) into.set(k, (l = [])); l.push(t); }
+  }
+  while (todo.length) for (const t of into.get(todo.pop()!) ?? []) if (!reads.has(t)) { reads.add(t); todo.push(t); }
   // the resources a stream feeds: the runtime reads a flag where it searched every stream's events, per resource
   const fed = new Set((syncs ?? []).flatMap((s) => s.events.map((e) => e.resource)));
   return {
@@ -582,7 +588,7 @@ export function compactIR(full: IR): IR {
     actions: ir.actions.map((a) => (a.u != null ? noUrl(a) : a) as ActionDef),
     roots: ir.roots.map(compactNode),
     // a template's absent `index`, `key` and `keyFields` are null; its `id` is its index, which the runtime reads instead
-    templates: ir.templates.map((t) => ({ ...NULLS(noId(t)), nodes: t.nodes.map(compactNode), ...(simple(t) ? { sm: 1 } : {}), ...(reads(t, new Set()) ? { ri: 1 } : {}) }) as TemplateDef),
+    templates: ir.templates.map((t) => ({ ...NULLS(noId(t)), nodes: t.nodes.map(compactNode), ...(simple(t) ? { sm: 1 } : {}), ...(reads.has(t) ? { ri: 1 } : {}) }) as TemplateDef),
     ps,
     ...(ev.length ? { ev } : {}),
   };

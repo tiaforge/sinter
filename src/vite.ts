@@ -202,6 +202,8 @@ const relativeBase = (base: string) => base === '' || base.startsWith('.');
 const pageBase = (base: string, rel: string) => (relativeBase(base) ? '../'.repeat(rel.split('/').length - 1) || './' : base);
 
 const PREFIX = '/@sinter/';
+/** the pages a build describes from which their descriptions link their shared definitions (`describedDefinitions`) */
+const LINK_DESCRIPTIONS = 8;
 
 /**
  * Dev, strict: sends the page's runtime warnings to the dev server, which prints them in the terminal
@@ -660,6 +662,13 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   type Described = { parts: PrefetchParts | null; path: string[]; off: boolean; keep: string[]; swapOff: boolean; keptSource: Record<string, string>; keptBound: string[]; effect: string | null };
   const described = new Map<string, Described>();
   /**
+   * builds of many pages: the shared definitions of their descriptions, linked from one page's description into the next
+   * (as `definitions` links their compiles; a description's options are not a compile's, so each has its own). Recording
+   * one costs about two compiles of it in place and each page after saves most of one, so it is worth it from a few pages
+   * on: below `LINK_DESCRIPTIONS`, every description compiles its definitions in place
+   */
+  const describedDefinitions = new Map<string, unknown>();
+  /**
    * `<html data-sn-for>`: each template's description (by source and language), from the first of its entries described.
    * Another entry's is that one at its own path: what an entry can request ahead reads only the URL (`$url`), never
    * the entry, so it is the same for every entry, as what a swap keeps is. Cleared with `described`.
@@ -1025,7 +1034,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       if (kept) { described.set(file, kept); return kept; }
       try {
         // with the APIs and specs: what is requested ahead is the page's own request (its base, its configured shape)
-        const r = compile(readPage(file), { ...compileOptionsOf(p), file: v?.source ?? file, dev, helpers: helpersOf(p.helpers), readFile: readVia(p), ...(dev ? {} : { globCache }), ...contentOpts(v?.locale), ...(v?.page ? { page: v.page } : {}), ...(v?.axes ? { axes: v.axes } : {}), describeOnly: true, ...(v?.locale ? { locale: { name: v.locale, urls: null, base: resolved?.base ?? '/', ...(cpaths() ? { paths: cpaths()! } : {}) } } : {}) });
+        const r = compile(readPage(file), { ...compileOptionsOf(p), file: v?.source ?? file, dev, helpers: helpersOf(p.helpers), readFile: readVia(p), ...(dev ? {} : { globCache, ...(entries().length >= LINK_DESCRIPTIONS ? { definitions: describedDefinitions } : {}) }), ...contentOpts(v?.locale), ...(v?.page ? { page: v.page } : {}), ...(v?.axes ? { axes: v.axes } : {}), describeOnly: true, ...(v?.locale ? { locale: { name: v.locale, urls: null, base: resolved?.base ?? '/', ...(cpaths() ? { paths: cpaths()! } : {}) } } : {}) });
         described.set(file, { parts: r.prefetch, path: r.path, off: !!r.prefetchOff, keep: r.permanent ?? [], swapOff: !!r.swapOff, keptSource: r.keptSource ?? {}, keptBound: r.keptBound ?? [], effect: r.loadEffect ?? null });
         if (v?.page) entriesDescribed.set(`${v.source}\0${v.locale ?? ''}`, { page: v.page.path, d: described.get(file)! });
       } catch { described.set(file, { parts: null, path: [], off: false, keep: [], swapOff: true, keptSource: {}, keptBound: [], effect: 'it did not compile' }); }
@@ -1601,6 +1610,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       globCache.clear();
       templates.clear();
       definitions.clear();
+      describedDefinitions.clear();
       templatesKept.clear();
       buildProject = null;
       if (dev) return;

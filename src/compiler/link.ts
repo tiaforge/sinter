@@ -237,6 +237,19 @@ const container = (v: unknown) => v instanceof Map || v instanceof Set || Array.
 const shared = (o: object) => Object.isFrozen(o) || ('startOffset' in o && 'endOffset' in o);
 
 
+/**
+ * Whether a read of a plain value (not an object) at a place sees what the last read there saw (`last`, by the place's
+ * key): the read would add nothing, as `Rec.read` keeps the first of a place and a plain value is always data. A unit reads
+ * some places of its page thousands of times (`page.locale` for every name an expression resolves): they are let through
+ * without their JSON.
+ */
+function again(last: Map<unknown, unknown>, key: unknown, v: unknown): boolean {
+  if (v !== null && (typeof v === 'object' || typeof v === 'function')) return false;
+  if (last.has(key) && last.get(key) === v) return true;
+  last.set(key, v);
+  return false;
+}
+
 /** a step from a compiler field to an old object: a property, a map's key, a list's index */
 type Step = { p: string } | { k: unknown } | { i: number };
 
@@ -352,6 +365,8 @@ function readValue(rec: Rec, path: Step[], v: unknown) {
 class LoggedMap extends Map<unknown, unknown> {
   private readonly mine = new Set<unknown>();
   private readonly wraps = new Map<unknown, unknown>();
+  /** a cache's entries, by the `bad` each last read showed (`again`) */
+  private readonly bads = new Map<unknown, unknown>();
   constructor(private readonly base: Map<unknown, unknown>, private readonly path: Step[], private readonly rec: Rec, private readonly cache: boolean) {
     super();
     for (const [k, v] of base) Map.prototype.set.call(this, k, v);
@@ -361,7 +376,7 @@ class LoggedMap extends Map<unknown, unknown> {
     if (!this.cache) { look(this.rec, this.base, this.path, k); return; }
     // a cache's entry is the same on every page, but for what a page learns of it as it compiles (a file found `bad`)
     const v = this.base.get(k);
-    if (v && typeof v === 'object') this.rec.read({ at: [...this.path, { k }, { p: 'bad' }], value: shape((v as { bad?: unknown }).bad) ?? 'undefined' });
+    if (v && typeof v === 'object' && !again(this.bads, v, (v as { bad?: unknown }).bad)) this.rec.read({ at: [...this.path, { k }, { p: 'bad' }], value: shape((v as { bad?: unknown }).bad) ?? 'undefined' });
   }
   private whole() { if (!this.cache) this.rec.read({ at: this.path, size: this.base.size, keys: keysOf(this.base) }); }
   /** what the page has at a key: a table a wrapper too (what the unit adds to it is logged), a value read by its shape */
@@ -524,8 +539,9 @@ function runUnit(c: any, name: string, compile: (child: any) => unknown, prior: 
     }
     return w;
   };
+  const pageLast = new Map<unknown, unknown>(), fieldLast = new Map<unknown, unknown>();
   child.page = new Proxy(info, {
-    get(t, k) { if (typeof k === 'string' && !container(t[k]) && !rec.page.has(t[k] as object)) return viewOf(t[k], [{ p: 'page' }, { p: k }]); return t[k as string]; },
+    get(t, k) { if (typeof k === 'string' && !container(t[k]) && !rec.page.has(t[k] as object)) return again(pageLast, k, t[k]) ? t[k] : viewOf(t[k], [{ p: 'page' }, { p: k }]); return t[k as string]; },
     set(t, k, v) { rec.write([{ p: 'page' }], { kind: 'prop', key: k as string, value: v }); t[k as string] = v; return true; },
   });
   rec.page.set(child.page, c.page);
@@ -542,7 +558,7 @@ function runUnit(c: any, name: string, compile: (child: any) => unknown, prior: 
     Object.defineProperty(child, k, {
       configurable: true, enumerable: true,
       // (what it reads after writing it is its own)
-      get() { if (!mine) { rec.hand(v, [{ p: k }]); readValue(rec, [{ p: k }], v); } return v; },
+      get() { if (!mine && !again(fieldLast, k, v)) { rec.hand(v, [{ p: k }]); readValue(rec, [{ p: k }], v); } return v; },
       set(x) { rec.write([], { kind: 'prop', key: k, value: x }); v = x; mine = true; },
     });
   }
