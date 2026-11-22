@@ -151,10 +151,18 @@ is frozen, at every depth, and shared: to change one, change a copy (`structured
   `<p>`, `<em>`, `<a href title>`, `<pre><code class="language-ts">`, `<ul>`/`<ol start>`, a task's
   `<input type="checkbox" disabled>` in an `<li class="task-list-item">`, `<blockquote>`, `<hr>`, and a
   table in a `<div class="md-table">` (the one wrapper, see the `table` slot).
-- Lists and branches are marked by comments in the page, as everywhere in sinter, so prose CSS sees
-  plain HTML: `.md h2 + p`, `.md li:first-child` and `.md > * + *` match as they would in static HTML.
+- How `<md-doc>` renders is chosen per use, at build time, and the page ships only that way. A document the
+  build knows (markdown from a file) is written into the page through the components, with no JavaScript; so is
+  any use that fills a slot, or that passes `templates: true`. Any other use, a document from an API, is built by
+  a script that creates the same elements directly, several times faster on a long document (about 55 → 19 ms for
+  the article of [Performance](#performance)). A new document replaces the old one whole; pass `templates: true`
+  for a document that changes as it is typed (a live preview), which the components update in place.
+- Lists and branches rendered by the components are marked by comments in the page, as everywhere in sinter,
+  so prose CSS sees plain HTML: `.md h2 + p`, `.md li:first-child` and `.md > * + *` match as they would in
+  static HTML. The script writes no comments.
 - A link's and an image's URL are attribute bindings, so sinter refuses `javascript:` and other unsafe
-  schemes, in the browser and at build time, whatever the parser let through.
+  schemes, in the browser and at build time, whatever the parser let through. The script applies the same
+  check (sinter's `attrAllowed`).
 - An image is a plain `<img>`. From a file it is a local image, optimized as any image in a page
   (`<picture>`, `srcset`, `width` and `height`). From an API it is written as given, and is not sent
   through the app's resizing service (`images.remote`): readers' content may name any image. Fill the

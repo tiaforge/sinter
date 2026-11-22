@@ -5,6 +5,7 @@
 // Signed out only: GETs of articles, an article, its comments, tags and a profile; stylesheets empty.
 // The same API over plain HTTP at `api.http`, for a server that fetches the pages' data (sinter-axum).
 //   const api = await mockApi(); … api.flags (Chrome flags) … await api.close();
+// `delay` (ms, default API_DELAY or 0): each API response waits that long, as a real API's round trip would.
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { createServer as createHttpServer } from 'node:http';
@@ -46,7 +47,7 @@ function route(url) {
   return null;
 }
 
-export async function mockApi({ port = 0 } = {}) {
+export async function mockApi({ port = 0, delay = Number(process.env.API_DELAY ?? 0) } = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'mock-api-'));
   execFileSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', '1', '-subj', '/CN=localhost',
     '-keyout', join(dir, 'key.pem'), '-out', join(dir, 'cert.pem')], { stdio: 'ignore' });
@@ -55,6 +56,7 @@ export async function mockApi({ port = 0 } = {}) {
     if (req.method === 'OPTIONS') { res.writeHead(204, cors); return res.end(); }
     if (api || req.headers.host?.startsWith('api.')) {
       const out = route(req.url);
+      if (delay) return void setTimeout(() => { res.writeHead(out ? 200 : 404, { ...cors, 'Content-Type': 'application/json', 'Cache-Control': 'no-cache' }); res.end(JSON.stringify(out ?? { errors: { body: ['not found'] } })); }, delay);
       res.writeHead(out ? 200 : 404, { ...cors, 'Content-Type': 'application/json', 'Cache-Control': 'no-cache' });
       return res.end(JSON.stringify(out ?? { errors: { body: ['not found'] } }));
     }

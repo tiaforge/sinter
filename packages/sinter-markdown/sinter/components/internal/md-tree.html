@@ -1,0 +1,8 @@
+<!--
+  md-tree: <md-doc>'s template rendering, the document through the components (internal). <md-doc> renders it where
+  the build knows the document (markdown from a file, written into the page with no script), where a use fills a
+  slot, or with `templates: true`; elsewhere <md-view>'s script builds the same elements.
+-->
+<template data-sn-props="{ doc?: Root | null; heading: Slot<{ node: Heading }>; link: Slot<{ node: Link }>; image: Slot<{ node: Image }>; code: Slot<{ node: Code }>; inlineCode: Slot<{ node: InlineCode }>; blockquote: Slot<{ node: Blockquote }>; table: Slot<{ node: Table }> }">
+  <div class="md"><template data-sn-for="b in doc ? doc.children : []"><md-block data-sn-with="{ node: b }"></md-block></template></div>
+</template>
