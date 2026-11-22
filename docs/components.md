@@ -54,6 +54,8 @@ child (grid, flex, `data-layout`), with no wrapper.
   onto the root; the same attribute on both is an error, not a silent override.
 - Handlers (`data-sn-on-*`), an action (`data-sn-post`, …), `data-sn-class`, `-attr`, `-href`, `-style`,
   `-show` and `-transition` on the tag move onto the root, in the caller's scope.
+- A root that is an if/else chain takes them on each branch's element, and on a branch that is another component's
+  tag, whose root takes them in turn.
 - A component whose root is a `<tr>` or `<li>` is that element. Write its tag inside the row's
   `<template data-sn-for>`: directly in a `<table>`, the HTML parser moves an unknown tag out of the
   table, which is a build error with the fix.
@@ -392,6 +394,41 @@ HTML: `src/components/task-ring.ts`. sinter runs it once per instance, on the in
 `connected()`, `propsChanged()` and `disconnected()`; the script reads `this.props`, writes
 `this.state`, reaches elements through `data-sn-ref` and emits declared events. See
 [components with a script](islands.md).
+
+## Choosing how it renders, per use: `$build` and `$slots`
+
+Two constants let a component's markup choose how a use renders, at build time:
+
+- `$slots` is which of the component's slots this use fills, by name: `$slots.link` is `true` when the tag
+  passes a `slot="link"` fill. It is not available in a component used inside itself, whose markup is one
+  definition for every use.
+- `$build` is `true` where the build evaluates an expression, that is when everything it reads is a build-time
+  constant, and `undefined` in the browser. It may only decide a `data-sn-if` (`SN201` elsewhere, where the page
+  would show one thing and the browser another).
+
+A `data-sn-if` over `$build` is decided at build time when its inputs are constants. When it reads data only the
+browser has, the build evaluates it once more as the browser will see it (`$build` undefined, that data
+unreadable); if it comes out without that data, that is what every visitor gets, and the page ships that branch
+alone. So a component can keep its template for what the build can render, and render the rest another way:
+
+```html
+<!-- src/components/doc-view.html: the template for a document the build knows or a use with a fill,
+     a script renderer (doc-fast, a component with a script) for a document that arrives at run time -->
+<template data-sn-props="{ doc: Doc; link: Slot<{ node: Node }> }">
+  <template data-sn-if="($build && (!!doc || !doc)) || $slots.link"><doc-tree data-sn-with="{ doc }"></doc-tree></template>
+  <template data-sn-else><doc-fast data-sn-with="{ doc }"></doc-fast></template>
+</template>
+```
+
+- `doc` from a `file:` resource: the condition is decided `true` at build, and `<doc-tree>` is written into the
+  HTML; the page ships no script for it.
+- `doc` from an API, no fill: in the browser the condition is `undefined || false`, whatever `doc` is, so it is
+  decided `false` and only `<doc-fast>` ships.
+- A use with a `link` fill: `$slots.link` is `true`, and only `<doc-tree>` ships.
+
+`(!!doc || !doc)` is always true; it makes the condition read `doc`, so that the build decides it only when `doc`
+is a build-time constant. A condition that reads state a handler writes is never decided by that state's initial
+value: both branches ship, and it switches in the browser.
 
 ## Text without an element
 

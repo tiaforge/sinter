@@ -44,7 +44,9 @@ const feature: Feature = {
     const refsOf = new WeakMap<object, Record<string, Element>>();
     const refs = (st: object) => refsOf.get(st) ?? (refsOf.set(st, {}), refsOf.get(st)!);
     const run = (el: Element, i: Inst, hook: Hook) => {
-      try { i.o[hook]?.(); } catch (e) { app.warn('component', hook, el, e); }
+      // a production build warns nothing: the error still reaches the console, or a broken script would leave its
+      // component empty without a word
+      try { i.o[hook]?.(); } catch (e) { app.warn('component', hook, el, e) ?? console.error(e); }
     };
     app.ext.components = ({ el, b: { w } }, v) => {
       const [a, b, keys] = v as [any, any, string[] | undefined];

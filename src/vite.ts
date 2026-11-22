@@ -50,6 +50,13 @@ export interface SinterOptions extends ProjectOptions {
   /** run `sinter check` at the end of `vite build` and fail it on type errors: on when the project has TypeScript; `false` turns it off */
   typecheck?: boolean;
   /**
+   * V8's explicit compile hints (default false): each page module starts with `//# allFunctionsCalledOnLoad`, so
+   * Chromium compiles all of it as the page loads instead of each function on its first call. Worth it where a
+   * page runs much of its code at once on its first render (a large parse in the browser: sinter-mail's mail.parse);
+   * a large page module compiles longer up front. Browsers that do not know the comment ignore it.
+   */
+  compileHints?: boolean;
+  /**
    * first paint (default true): each page gets an early script (the app's `src/sinter.early.ts`, then
    * the bindings that need no data): classic scripts first in the head, which render each element as
    * the parser inserts it (`observe` in early.ts), and paginated lists hold their rows' space. `false`:
@@ -165,7 +172,7 @@ export interface SinterOptions extends ProjectOptions {
   fonts?: false | { bundle?: boolean; preload?: FontPreload[] };
 }
 
-type SinterPlugins = [Plugin & { api: { options: SinterOptions; source(file: string): string } }, Plugin, Plugin, Plugin, Plugin, Plugin];
+type SinterPlugins = [Plugin & { api: { options: SinterOptions; source(file: string): string } }, Plugin, Plugin, Plugin, Plugin, Plugin, Plugin];
 
 /** dev: the pages under the root (not in node_modules, the output, `public/`, hidden folders, or the components' and layouts' folders) */
 function htmlPages(root: string, config: ResolvedConfig | null): string[] {
@@ -281,7 +288,7 @@ ${pages.map(page).join('\n')}
 
 export default function sinter(options: SinterOptions = {}): SinterPlugins {
   // the Vite server sinter starts to load the helpers module in Node (helpers-node.ts): nothing of sinter runs in it
-  if (loadingHelpers()) return [{ name: 'sinter', api: { options, source: (f: string) => f } }, { name: 'sinter:post' }, { name: 'sinter:css-images' }, { name: 'sinter:fonts' }, { name: 'sinter:font-check' }, { name: 'sinter:pages' }];
+  if (loadingHelpers()) return [{ name: 'sinter', api: { options, source: (f: string) => f } }, { name: 'sinter:post' }, { name: 'sinter:css-images' }, { name: 'sinter:fonts' }, { name: 'sinter:font-check' }, { name: 'sinter:pages' }, { name: 'sinter:compile-hints' }];
   // options renamed (docs/proposals/vocabulary.md): what to write instead
   const was = options as { speculation?: unknown; earlyBudget?: unknown; fonts?: { inline?: unknown; preload?: unknown } };
   if (was.speculation !== undefined) throw new Error(`sinter({ speculation }) is renamed to \`prefetch: { html: ${htmlOf(was.speculation)} }\`, beside the next page's data (\`prefetch: { data }\`)`);
@@ -299,7 +306,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   };
   // the options themselves, as nested ones: a typo (`typechek`) fails instead of doing nothing
   retiredOptions(options);
-  const OPTIONS = ['typecheck', 'firstPaint', 'minifyHtml', 'images', 'redirects', 'site', 'sitemap', 'localePrefix', 'prefetch', 'embed', 'origins', 'fonts',
+  const OPTIONS = ['typecheck', 'compileHints', 'firstPaint', 'minifyHtml', 'images', 'redirects', 'site', 'sitemap', 'localePrefix', 'prefetch', 'embed', 'origins', 'fonts',
     'content', 'messages', 'openapi', 'apis', 'complexity', 'expansionLimit', 'static', 'swap', 'lazy', 'libraries', 'strict'];
   const unknown = Object.keys(options).find((k) => !OPTIONS.includes(k));
   if (unknown) throw new Error(`sinter({ ${unknown} }) is not an option.${didYouMean(unknown, OPTIONS)}`);
@@ -2787,7 +2794,24 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       this.emitFile({ type: 'asset', fileName: '_redirects', source: redirectsFile(routes, own) });
     },
   };
-  return [main, post, cssImages, fonts, fontCheck, pages];
+  // `compileHints`: the hint first in each page module, its source map a line further down
+  const compileHints: Plugin = {
+    name: 'sinter:compile-hints',
+    enforce: 'post',
+    apply: 'build',
+    generateBundle(_, bundle) {
+      if (!options.compileHints) return;
+      const HINT = '//# allFunctionsCalledOnLoad\n';
+      for (const c of Object.values(bundle)) {
+        if (c.type !== 'chunk' || !c.isEntry || c.code.startsWith(HINT)) continue;
+        c.code = HINT + c.code;
+        if (c.map) c.map.mappings = ';' + c.map.mappings;
+        const m = bundle[c.fileName + '.map'];
+        if (m?.type === 'asset' && typeof m.source === 'string') { const j = JSON.parse(m.source) as { mappings: string }; j.mappings = ';' + j.mappings; m.source = JSON.stringify(j); }
+      }
+    },
+  };
+  return [main, post, cssImages, fonts, fontCheck, pages, compileHints];
 }
 
 /**
