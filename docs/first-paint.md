@@ -312,6 +312,57 @@ whose `unicode-range` covers Latin letters). Use the family name the package dec
 `sinter({ fonts: { preload: ['Figtree Variable'] } })`. A variable face covers every weight in
 its range with one file, so one preload covers them all. In dev, local faces are not preloaded.
 
+### Fonts after the load
+
+Text does not wait for its web font, and the font's file does not compete with what the first paint
+needs. In a build, on a page with an early script, sinter moves these `@font-face` rules of the page's
+bundled CSS (Google Fonts stylesheets it bundles, Fontsource or any self-hosted font, your own
+rules) into a stylesheet of their own, which the early script links after the window's `load` event,
+or 2 s after the first contentful paint when the load takes longer:
+
+- a face with `font-display: swap`;
+- a face of a **text font** with no `font-display` (or `auto`). The browser's default hides text for
+  up to 3 s while the font loads; deferred, such a face gets `font-display: swap`.
+
+Whether a font is a text font is read from its file: it has a glyph for each of a–z and fewer than
+200 private-use code points. An **icon font** (its icons on private-use code points, with or without
+letters for ligatures: Material Icons, Font Awesome, Ionicons) stays exactly as it is: in a fallback
+font its text would be boxes or the icons' names. A face whose file the build cannot read stays as
+it is too. For a family in subsets (`unicode-range`), the Latin face's file decides.
+
+Until a font arrives, its text is painted in a **fitted fallback**: for each deferred face of Latin
+text, of a text font, the page's stylesheet gets a face of the same weight and style in a family
+named after it (`Inter Fallback`), made of a system font (`local("Arial")` or
+`local("Times New Roman")`, Liberation on Linux; serif when a font list names the family before
+`serif`) with `size-adjust`, `ascent-override`, `descent-override` and `line-gap-override` computed
+from the web font's file. Sinter names that family right after the web font wherever the page's
+bundled stylesheets list it (`font-family`, the `font` shorthand, a custom property):
+`font-family: Inter, sans-serif` becomes `font-family: Inter, "Inter Fallback", sans-serif`. Lines
+keep their height and nearly their width, so the swap moves little or nothing; where the font never
+loads, the fitted face stays. A font list set from a `style` attribute or from a script is not
+rewritten: its text waits in the next font it names. A family no font list of the build's
+stylesheets names gets no fitted face (a Google Fonts URL often asks for more than the CSS uses),
+nor does a monospace family, nor
+does Android, which has neither system font (the face does not apply there).
+
+- A reader who has had the fonts gets them at once: when the faces a page uses have loaded, the early
+  script notes the fonts stylesheet's name in `localStorage` (`sn-fonts`), and the next page load links
+  it right away, so cached fonts are there for the first paint.
+- The faces in `fonts.preload` stay where they are: you asked for them early.
+- A face with `font-display` `block`, `fallback` or `optional` stays.
+- A rule inside `@media`, `@supports` or `@layer` stays where it is.
+- The page links the stylesheet inside `<noscript data-sn-fonts>` at the start of its head, so the fonts load without
+  JavaScript too, and its stylesheets lose the rules: each one becomes a copy without them (a
+  hashed file like any other; one fonts file per distinct set of faces).
+- A page without an early script (a page with nothing to run, or `firstPaint: false`) keeps its
+  stylesheets as they were and loads its fonts as before. A stylesheet it shares with a page that
+  defers stays as it is for it.
+- No inline script, style or `onload` attribute: the early script adds a `<link>` element, so
+  `script-src 'self'; style-src 'self'` needs no change. A [swap](navigation.md#swaps) adds the next
+  page's fonts stylesheet with its other stylesheets.
+
+Nothing changes in dev (`vite dev`), where the fonts load with the stylesheets. There is no option.
+
 ## Heavy packages
 
 A package only some interactions need (crypto, charts, a PDF renderer) does not have to be on the

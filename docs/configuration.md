@@ -109,6 +109,8 @@ sinter({ fonts: { preload: ['Inter', { family: 'Inter', weight: 700 }] } })
 
 The build fails when a page preloads a face of a family its stylesheets never use, or when no page has the face at all. In dev, sinter warns when a page did not render with the face in its first frames: a preload competes with what the first paint needs.
 
+Whatever this option says, on pages with an early script a build loads these faces of the page's bundled CSS (Google Fonts, self-hosted or your own `@font-face`), other than those in `preload`, after the window's `load` event (or 2 s after the first contentful paint): faces with `font-display: swap`, and faces of text fonts without a `font-display`, which become `swap` (icon fonts, told apart by their files, stay as they are). They move into a stylesheet of their own, which the page links in `<noscript>` and its early script adds, so they do not compete with the first paint's files; the text painted before them is in a fitted fallback family (a system font with the web font's metrics, named after the web font in the stylesheets' font lists). Builds only; there is no option. See [first paint](first-paint.md#fonts-after-the-load).
+
 To self-host fonts (no requests to Google, `font-src 'self'`), use a local package such as Fontsource instead of the Google Fonts link; `preload` finds its faces in the bundled CSS. See [first paint](first-paint.md#self-hosted-fonts).
 
 ### Images

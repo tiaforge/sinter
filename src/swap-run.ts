@@ -158,6 +158,18 @@ export function inline(doc: Document) {
 }
 
 /**
+ * The web fonts the build moved to after `load` (`<noscript data-sn-fonts>`, docs/first-paint.md#fonts-after-the-load),
+ * which the next page's early file, not run by a swap, would add: a stylesheet of its head (parsed without scripting,
+ * the `<noscript>` holds the link element), which `heads` brings in with the others, unless the page shown has it already.
+ */
+export function fonts(doc: Document, base: URL) {
+  for (const l of doc.querySelectorAll<HTMLLinkElement>('head noscript[data-sn-fonts] link')) {
+    const href = new URL(l.getAttribute('href')!, base).href;
+    if (![...document.querySelectorAll<HTMLLinkElement>('link[rel~=stylesheet]')].some((x) => x.href == href)) doc.head.append(l);
+  }
+}
+
+/**
  * The head: the title and sinter's own nodes are the new page's; its stylesheets that the page shown lacks go
  * in before the swap (loaded, applied from `done()` on), those of the page shown's HTML that it lacks go at
  * `done()`; styles added at run time stay. Everything else (metas, links, scripts) stays as the first page had it: crawlers and link
@@ -286,6 +298,7 @@ export async function prepare(s: SwapState, i: Intent, signal?: AbortSignal): Pr
   const P = Document as unknown as { parseHTMLUnsafe?: (h: string, o: object) => Document };
   const doc = P.parseHTMLUnsafe ? P.parseHTMLUnsafe(html, { sanitizer: {} }) : new DOMParser().parseFromString(html, 'text/html');
   if (doc.body.hasAttribute('data-sn-failed') || doc.documentElement.getAttribute('data-sn-swap') == 'off') return false;
+  fonts(doc, final);
   for (const n of doc.querySelectorAll('noscript')) n.remove();
   // the messages its modules call, then its page module (with the app's other modules: each runs once per
   // document), imported without mounting

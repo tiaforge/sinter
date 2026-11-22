@@ -1,7 +1,7 @@
 // The swap's plan on parsed documents (docs/proposals/swap-navigation.md §3, §4): which elements are kept,
 // which head nodes are the page's own, what only a load applies, and which URLs the build's list swaps to.
 import { expect, test } from 'vitest';
-import { fixed, heads, inline, owned, pairs } from '../../src/swap-run.js';
+import { fixed, fonts, heads, inline, owned, pairs } from '../../src/swap-run.js';
 import type { SwapState } from '../../src/swap.js';
 import { pageAt } from '../../src/swap.js';
 
@@ -85,4 +85,27 @@ test('the next page\'s stylesheets go in before the commit, applied only from it
     again.undo();
     expect(document.head.querySelectorAll('style')).toHaveLength(3);
   } finally { document.head.innerHTML = was; }
+});
+
+test('the next page\'s fonts after `load` (<noscript data-sn-fonts>): a stylesheet of its head, unless the page shown has it', () => {
+  const was = document.head.innerHTML, base = new URL('/next/', location.href);
+  // happy-dom loads no stylesheet: a link it does not load counts as loaded, with no error printed
+  const settings = (window as unknown as { happyDOM: { settings: { handleDisabledFileLoadingAsSuccess: boolean } } }).happyDOM.settings, quiet = settings.handleDisabledFileLoadingAsSuccess;
+  settings.handleDisabledFileLoadingAsSuccess = true;
+  try {
+    document.head.innerHTML = '';
+    const next = () => parse('', '<link rel="stylesheet" href="/assets/app.css"><noscript data-sn-fonts><link rel="stylesheet" href="../assets/fonts-a.css"></noscript><noscript><link rel="stylesheet" href="/other.css"></noscript>');
+    const d = next();
+    fonts(d, base);
+    expect([...d.head.children].map((x) => x.localName)).toEqual(['link', 'noscript', 'noscript', 'link']);
+    expect(d.head.lastElementChild!.getAttribute('href')).toBe('../assets/fonts-a.css');
+    // the page shown has it (its early file added it after its load): not again
+    const l = document.createElement('link');
+    l.rel = 'stylesheet';
+    l.href = new URL('../assets/fonts-a.css', base).href;
+    document.head.append(l);
+    const d2 = next();
+    fonts(d2, base);
+    expect(d2.head.querySelectorAll(':scope > link')).toHaveLength(1);
+  } finally { document.head.innerHTML = was; settings.handleDisabledFileLoadingAsSuccess = quiet; }
 });

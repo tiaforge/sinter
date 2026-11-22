@@ -156,9 +156,11 @@ const entries = {
 // token to 12 KB (12,263 B), the article to 56.375 KB (57,711 B)
 // Raised on 2026-11-22 to 56.625 KB (57,853 B): <md-doc> renders the article's body with a script (<md-view>, sinter-markdown's
 // build.ts) instead of the components: 4.5 kB smaller minified, 142 B larger gzip (code compresses less than template markup)
+// Raised on 2026-11-22 to 56.875 KB (58,191 B): text web fonts load after the page (`fonts()` in early.ts, its <noscript>, the
+// returning-reader note and the 2 s cap: about 230 B gzip), which takes the profile page's Lighthouse score from 99 to 100
 const BUDGET = {
   'multilingual de/status': 12.625 * 1024, 'multilingual de/status, html': 0.875 * 1024,
-  minimal: 11 * 1024, 'minimal, swaps': 12.875 * 1024, 'realworld article': 56.625 * 1024,
+  minimal: 11 * 1024, 'minimal, swaps': 12.875 * 1024, 'realworld article': 56.875 * 1024,
   'minimal, link': 11.125 * 1024, 'minimal, token': 12 * 1024, 'minimal, token, early': 1.875 * 1024, 'realworld early, shared': 3.375 * 1024,
 };
 let failed = false;
