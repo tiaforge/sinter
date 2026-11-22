@@ -401,9 +401,17 @@ export async function prepare(s: SwapState, i: Intent, signal?: AbortSignal): Pr
       // the moments of a load's transition, for morphs (transition.ts): the page left before its snapshot,
       // the next once it is mounted; each kept element named, so it stays still while the page changes
       const activation = { navigationType: i.kind, entry: { url: final.href, index: i.index } }, none = () => {};
-      const moment = (n: string) => dispatchEvent(Object.assign(new Event(n), { viewTransition: t, activation }));
+      // `waitUntil` (the reveal only): unlike a load, a swap can hold the old page on screen a little longer, for
+      // a morph whose element the new page renders from its first response (transition.ts)
+      const moment = (n: string, w?: unknown[]) => dispatchEvent(Object.assign(new Event(n), { viewTransition: t, activation }, w && { waitUntil: (p: unknown) => w.push(p) }));
       // a transition another navigation skips rejects all three: nothing to report
-      const t: VT = vt.call(document, { update: async () => { commit(); if (committed) { await Promise.resolve(booted).catch(none); moment('sn-pagereveal'); } }, types: vtTypes(i.kind, s.at, i.index) });
+      const t: VT = vt.call(document, {
+        update: async () => {
+          commit();
+          if (committed) { const w: unknown[] = []; await Promise.resolve(booted).catch(none); moment('sn-pagereveal', w); await Promise.all(w).catch(none); }
+        },
+        types: vtTypes(i.kind, s.at, i.index),
+      });
       t.ready.catch(none);
       const named = kept.map(([o]) => o as HTMLElement);
       for (const el of named) {

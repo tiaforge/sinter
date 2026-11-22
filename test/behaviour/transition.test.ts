@@ -2,7 +2,7 @@
 // get one view-transition-name, only for the transition.
 import { expect, test } from 'vitest';
 import { compileParts } from '../../src/compiler/compile.js';
-import { ident } from '../../src/transition.js';
+import { REVEAL_MAX, ident } from '../../src/transition.js';
 import { memoryStorage, mockRequests, render, type Rendered } from '../../src/testing/index.js';
 
 const LIST = `
@@ -97,4 +97,52 @@ test('with reduced motion asked for, nothing is named on either page and no pend
   await fire(page, 'pagereveal', { viewTransition: transition().vt });
   expect(page.root.querySelector('h1')!.style.viewTransitionName).toBe('');
   expect(session.getItem('sn:vt')).toBeNull();
+});
+
+// the detail page's element renders only from its response (an article's title inside its `if`)
+const GATED = `<html data-sn-path="/article/:slug"><head></head><body>
+  <sn-resource name="article" src="/api/articles/{$url.slug}" select="article"></sn-resource>
+  <template data-sn-if="article"><h1 data-sn-transition="'article-' + $url.slug" data-sn-text="article.title"></h1></template>
+</body></html>`;
+
+test('a swap\'s reveal waits for the response its element renders from, then names it', async () => {
+  const session = memoryStorage();
+  session.setItem('sn:vt', JSON.stringify({ v: 'article-two', t: Date.parse('2026-01-01T09:00:00Z') }));
+  const page = await render(GATED, { session, url: '/article/two', requests: mockRequests({ 'GET /api/articles/two': { article: { title: 'Two' } } }) });
+  const waits: Promise<unknown>[] = [];
+  await fire(page, 'pagereveal', { viewTransition: transition().vt, waitUntil: (p: Promise<unknown>) => waits.push(p) });
+  expect(page.root.querySelector('h1')).toBeNull();
+  expect(waits).toHaveLength(1);
+  let done = false;
+  void waits[0]!.then(() => { done = true; });
+  await Promise.resolve();
+  expect(done).toBe(false);
+  await page.settle();
+  await waits[0];
+  expect(page.root.querySelector('h1')!.style.viewTransitionName).toBe(ident('article-two'));
+});
+
+test('a swap\'s reveal waits at most REVEAL_MAX; a load\'s (no waitUntil) and one with its element there wait for nothing', async () => {
+  const session = memoryStorage(), pending = () => session.setItem('sn:vt', JSON.stringify({ v: 'article-two', t: Date.parse('2026-01-01T09:00:00Z') }));
+  pending();
+  const slow = await render(GATED, { session, url: '/article/two', requests: mockRequests({ 'GET /api/articles/two': { article: { title: 'Two' } } }) });
+  const waits: Promise<unknown>[] = [];
+  await fire(slow, 'pagereveal', { viewTransition: transition().vt, waitUntil: (p: Promise<unknown>) => waits.push(p) });
+  await slow.advance(REVEAL_MAX);
+  await waits[0];
+  await slow.settle();
+  expect(slow.root.querySelector('h1')!.style.viewTransitionName).toBe('');
+
+  pending();
+  const load = await render(GATED, { session, url: '/article/two', requests: mockRequests({ 'GET /api/articles/two': { article: { title: 'Two' } } }) });
+  await fire(load, 'pagereveal', { viewTransition: transition().vt });
+  await load.settle();
+  expect(load.root.querySelector('h1')!.style.viewTransitionName).toBe('');
+
+  pending();
+  const ready = await render(DETAIL, { session, url: '/article/two', requests: mockRequests({ 'GET /api/articles/two': { article: { title: 'Two' } } }) });
+  const none: unknown[] = [];
+  await fire(ready, 'pagereveal', { viewTransition: transition().vt, waitUntil: (p: unknown) => none.push(p) });
+  expect(none).toHaveLength(0);
+  expect(ready.root.querySelector('h1')!.style.viewTransitionName).toBe(ident('article-two'));
 });
