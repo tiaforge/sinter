@@ -2701,6 +2701,8 @@ class Compiler {
     const at = parent.childNodes.indexOf(el as never);
     const clones: P5Element[] = [];
     const group: ChoiceGroup = { node: null, cases: [], pick: null, warn: '', site: null };
+    // (one list for every candidate: only the first reads it, for the type of `use`)
+    const pool = lib ? [...lib.public, ...lib.internal] : null;
     for (const c of cands) {
       const x: P5Element = { ...el, attrs: el.attrs.map((a) => ({ ...a })), childNodes: [], parentNode: parent };
       if (this.passOn.has(el)) this.passOn.set(x, this.passOn.get(el)!);
@@ -2711,7 +2713,7 @@ class Compiler {
       for (const map of [this.slotOf, this.fillOf, this.defaultOf, this.childrenOf] as Array<WeakMap<object, unknown>>) if (map.has(el)) map.set(x, map.get(el));
       this.points.set(x, c.name);
       if (this.pointCtx.has(el)) this.pointCtx.set(x, this.pointCtx.get(el)!);
-      this.choices.set(x, { name: c.name, key: c.key, keySrc, names, ...(lib ? { pool: [...lib.public, ...lib.internal] } : {}), first: !clones.length, group, ...(map ? { keys: allKeys } : {}), ...(c.also?.length ? { also: c.also } : {}), ...(c.at !== undefined ? { keyAt: c.at } : keySrc !== null ? { keyAt: use!.indexOf(keySrc) } : {}) });
+      this.choices.set(x, { name: c.name, key: c.key, keySrc, names, ...(pool ? { pool } : {}), first: !clones.length, group, ...(map ? { keys: allKeys } : {}), ...(c.also?.length ? { also: c.also } : {}), ...(c.at !== undefined ? { keyAt: c.at } : keySrc !== null ? { keyAt: use!.indexOf(keySrc) } : {}) });
       clones.push(x);
     }
     if (!clones.length) this.report(el, 'use', 'SN312', '`use` names no component of the app', 0);
