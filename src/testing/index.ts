@@ -269,6 +269,8 @@ export interface RenderOptions {
    * `session` holds of them (what the page showed as it was left, `unmount()` writes it) at once, then revalidate
    */
   traverse?: boolean;
+  /** the person asked for less motion (`prefers-reduced-motion: reduce`): `data-sn-transition` morphs nothing */
+  reducedMotion?: boolean;
   /**
    * the messages, as the inlang message files hold them: `{ en: { nav_mail: 'Mail' }, de: { … } }`, the base
    * language first (nested keys and complex messages too). They are the content namespace `m` `inlang()` gives a
@@ -720,6 +722,7 @@ export async function render(html: string, options: RenderOptions = {}): Promise
     random: () => 0.5,
     hidden: () => hidden,
     traversal: () => !!options.traverse,
+    reducedMotion: () => !!options.reducedMotion,
     ...(options.frames ? { frame: (fn: () => void) => { frameQueue.push(fn); } } : {}),
     listen: (type, fn) => {
       if (!winListeners.has(type)) winListeners.set(type, new Set());

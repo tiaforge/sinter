@@ -80,3 +80,21 @@ test('a pending name older than PENDING_MAX is ignored (a page without the featu
   expect(page.root.querySelector('h1')!.style.viewTransitionName).toBe('');
   expect(session.getItem('sn:vt')).toBeNull();
 });
+
+test('with reduced motion asked for, nothing is named on either page and no pending name is kept', async () => {
+  const session = memoryStorage();
+  const r = await render(LIST, { session, reducedMotion: true, requests: mockRequests({ 'GET /api/articles': { articles: [{ slug: 'one', title: 'One' }] } }) });
+  await r.settle();
+  r.root.querySelectorAll('a')[0]!.click();
+  await fire(r, 'pageswap', { viewTransition: transition().vt, activation: { entry: { url: 'http://localhost/article/one' }, navigationType: 'push' } });
+  expect(r.root.querySelector('img')!.style.viewTransitionName).toBe('');
+  expect(session.getItem('sn:vt')).toBeNull();
+
+  // a name left by a page that allowed motion: taken, not used
+  session.setItem('sn:vt', JSON.stringify({ v: 'article-one', t: Date.parse('2026-01-01T09:00:00Z') }));
+  const page = await render(DETAIL, { session, reducedMotion: true, url: '/article/one', requests: mockRequests({ 'GET /api/articles/one': { article: { title: 'One' } } }) });
+  await page.settle();
+  await fire(page, 'pagereveal', { viewTransition: transition().vt });
+  expect(page.root.querySelector('h1')!.style.viewTransitionName).toBe('');
+  expect(session.getItem('sn:vt')).toBeNull();
+});

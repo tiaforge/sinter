@@ -32,6 +32,8 @@ export interface Env {
   hidden?(): boolean;
   /** runs `fn` before the next frame is painted (requestAnimationFrame); absent: changes from server events flush in a microtask */
   frame?(fn: () => void): void;
+  /** whether the person asked for less motion (`prefers-reduced-motion: reduce`); absent: never */
+  reducedMotion?(): boolean;
 }
 
 const g = globalThis as typeof globalThis & Window;
@@ -57,6 +59,7 @@ export const defaultEnv: Env = {
   // visibilitychange fires at the document and bubbles to the window
   hidden: () => g.document?.visibilityState == 'hidden',
   frame: g.requestAnimationFrame ? (fn) => { g.requestAnimationFrame(fn); } : undefined,
+  reducedMotion: () => !!g.matchMedia?.('(prefers-reduced-motion: reduce)').matches,
 };
 
 /**

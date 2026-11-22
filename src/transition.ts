@@ -67,7 +67,8 @@ const transition: Feature = {
         el = els.find((x) => x.contains(a) || a.contains(x)) ?? ofRow(a, els);
       } else if (activation?.navigationType == 'traverse' && els.length == 1) el = els[0];
       last = null;
-      const v = el?.getAttribute(ATTR);
+      // less motion asked for: no morph (the page's own fade is its CSS's, which temper turns off too)
+      const v = env.reducedMotion?.() ? null : el?.getAttribute(ATTR);
       // with the time: a page without this feature never takes it, and a later page must not act on it
       try { v ? env.session()?.setItem(KEY, JSON.stringify({ v, t: env.now() })) : env.session()?.removeItem(KEY); } catch { /* ignored */ }
       if (el && v) name(el, v, vt);
@@ -81,6 +82,7 @@ const transition: Feature = {
         if (e && env.now() - e.t <= PENDING_MAX) v = e.v;
       } catch { /* ignored */ }
       // one element only: two with one name would end the transition
+      if (env.reducedMotion?.()) v = null;
       const el = v ? named().find((x) => x.getAttribute(ATTR) == v) : undefined;
       if (vt && el) name(el, v!, vt);
     };
