@@ -127,6 +127,9 @@ still gets a request of its own (a dev warning says so); a token goes on the API
   - no `security`: the config decides, as without a spec.
 - With a `token` on the API: everything but public and cookie operations is requested early by the early file,
   with the token, never by a preload link, and not embedded by the server layers (they have no visitor's token).
+  An optional operation is the exception under `embed: true`: the server embeds its signed-out answer, which a
+  visitor with no token stored is shown in the first paint, with no request; with a token stored, the early file
+  requests it with the token and the page shows that answer instead (the embedded one is not used, early or at mount).
 - A session cookie needs none of this: the browser sends it with preloads and early requests. Prefer it
   to a token in localStorage when you control the API.
 - The server layers send the static headers with their own requests: the build's manifest lists

@@ -6660,6 +6660,15 @@ class Compiler {
       || (!!this.apiOfResource.get(name)?.token && !this.anonymous(name));
   }
 
+  /**
+   * Embedded by the server layers as the signed-out answer: its API has a `token`, the spec says one is optional (an alternative
+   * `{}` beside one with the token), and not `early="off"`. With a token stored the page requests it instead (`so`), early, with
+   * the token. Middleware does not matter: the token is the API's own, as for its early requests (`late`).
+   */
+  private signedOut(name: string): boolean {
+    return !!this.apiOfResource.get(name)?.token && this.authOf.get(name) === 'optional' && !this.noEarly.has(name);
+  }
+
   /** the resources whose operation needs their API's token (\`token\`, docs/apis.md#a-token): signed out, they load empty without a request */
   readonly needsToken = new Set<string>();
 
@@ -9420,7 +9429,8 @@ class Compiler {
     const res: NonNullable<EarlyIR['res']> = [];
     let url = false;
     for (const def of this.resources) {
-      if (def.call || def.each || def.data != null || !def.src.length || !knownReq(strs(def.deps))) continue;
+      // embedded signed out (`so`): requested early with the token, when one is stored (`r`: not without one)
+      if (def.call || def.each || (def.data != null && !def.so) || !def.src.length || !knownReq(strs(def.deps))) continue;
       // a URL the HTML preloads (see injectScript) leaves earlier than this file runs
       if (this.preloaded(def) || this.late(def.name)) continue;
       // another origin only when listed in `origins` (the runtime's allowlist, known at build time)
@@ -9432,7 +9442,7 @@ class Compiler {
       if (scope === undefined || codes.some(builtin) || codes.some((c) => /\$(r|meta|el)\b/.test(c))) continue;
       reads.push(...strs(def.deps));
       url ||= codes.some((c) => c.includes('$url'));
-      res.push({ src: def.src.map((x) => (typeof x === 'number' ? fn(this.fns[x]!) : x)), ...(def.when != null ? { when: fn(this.fns[def.when]!) } : {}), scope, ...(def.paginate ? { q: firstParams(def.paginate) } : {}), ...(def.paginate && start != null ? { sp: startOf(def.paginate, fn(this.fns[start]!)) } : {}), ...(def.lo ? { lo: 1 as const } : {}), ...(where === 'listed' ? { xo: 1 as const } : {}), ...(settings(def.name)), ...(this.needsToken.has(def.name) ? { r: 1 as const } : {}) });
+      res.push({ src: def.src.map((x) => (typeof x === 'number' ? fn(this.fns[x]!) : x)), ...(def.when != null ? { when: fn(this.fns[def.when]!) } : {}), scope, ...(def.paginate ? { q: firstParams(def.paginate) } : {}), ...(def.paginate && start != null ? { sp: startOf(def.paginate, fn(this.fns[start]!)) } : {}), ...(def.lo ? { lo: 1 as const } : {}), ...(where === 'listed' ? { xo: 1 as const } : {}), ...(settings(def.name)), ...(this.needsToken.has(def.name) || def.so ? { r: 1 as const } : {}) });
     }
     if (!roots.some((n) => n.b.length) && !res.length && !this.guard) return null;
     // only the state fields the early bindings read (and the fields those read): a field whose
@@ -9474,7 +9484,7 @@ class Compiler {
       if (used.length) namespaces[ns] = used;
     }
     const ir: EarlyIR = { roots, templates };
-    if (usedEmb.size) ir.emb = Object.fromEntries([...usedEmb].map((n) => [n, { id: embedded.get(n)!.data!, select: embedded.get(n)!.select ?? null, ...(embedded.get(n)!.ls ? { ls: 1 as const } : {}) }]));
+    if (usedEmb.size) ir.emb = Object.fromEntries([...usedEmb].map((n) => [n, { id: embedded.get(n)!.data!, select: embedded.get(n)!.select ?? null, ...(embedded.get(n)!.ls ? { ls: 1 as const } : {}), ...(embedded.get(n)!.so ? { t: this.settingsOf(n)!.t! } : {}) }]));
     if (res.length) ir.res = res;
     if (as.length) ir.as = as;
     // the page needs a session: the early script sends a visitor with no token to sign in before anything paints
@@ -9915,12 +9925,13 @@ class Compiler {
     const head = html?.childNodes.find((n) => isElement(n) && n.tagName === 'head') as P5Element | undefined;
     if (!head) return;
     for (const def of this.resources) {
-      if (def.data != null || def.call || def.each || this.unembedded(def.name) || !def.src.length) continue;
+      if (def.data != null || def.call || def.each || (this.unembedded(def.name) && !this.signedOut(def.name)) || !def.src.length) continue;
       if (!strs(def.deps).every((d) => d === '$url' || d.startsWith('$url.'))) continue;
       const codes = [...def.src.filter((x): x is number => typeof x === 'number'), ...(def.when != null ? [def.when] : []), ...(def.paginate?.start != null ? [def.paginate.start] : [])].map((i) => this.fns[i]!);
       if (codes.some((c) => /\$\.\$(?!url\b)/.test(c))) continue;
       const id = this.nextId++;
       def.data = id;
+      if (this.unembedded(def.name)) def.so = 1;
       this.embedded.set(def.name, id);
       const el = parse5.parseFragment(`<script type="application/json" data-sn="${id}"></script>`).childNodes[0] as P5Element;
       el.parentNode = head;

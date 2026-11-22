@@ -38,7 +38,13 @@ so nothing after the body moves when it comes in. Raw HTML in a body shows as te
 `html: 'text'`), and sinter refuses a link's or an image's `javascript:` URL (it renders without it): the XSS
 suite's payloads stay inert. Until 2026-11-17 the body was marked and DOMPurify in an island,
 `<conduit-markdown>`; the comparison is in the [markdown library's docs](../../packages/sinter-markdown/docs/markdown.md#performance).
-The parser loads with the article page. With embedded data (`SINTER_EMBED`), the body renders in the early script
+The parser loads with the article page. Its `<md-doc>` passes `templates: true`: with embedded data the components render the body
+in the first paint, where `<md-doc>`'s script renderer would add it at mount and move the comments below it (Lighthouse mobile
+through sinter-axum, 2026-11-22: CLS 0.444 and a score of 79 that way, CLS 0.001 and 100 with the components; the articles are
+short, so the script's speed does not show). The API has a `token`, so what sinter-axum embeds is the signed-out answer:
+`openapi.yml` marks the article, comments, list and profile reads as optional (`security: [{}, { Token: [] }]`) and the tags
+public, and a visitor with a token stored gets those from the API, with it (until 2026-11-22 the spec said neither, and
+nothing was embedded). With embedded data (`SINTER_EMBED`), the body renders in the early script
 like the rest of the article, so the parser is in the article's early file (30.5 kB gzip, `firstPaint.budget` raised to
 40 KB in `vite.config.js`), and the page module takes that instance instead of a copy of its own
 ([own copies](../../docs/first-paint.md#own-copies)). Measured on the article page (Lighthouse mobile, a local

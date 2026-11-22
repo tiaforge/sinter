@@ -76,6 +76,11 @@ export interface ResourceDef {
   scope?: number;
   /** `data-sn` id of an embedded `<script type="application/json">`, or null */
   data?: number | null;
+  /**
+   * the embedded data is the signed-out answer (an operation whose spec says a token is optional, on an API with a `token`): a
+   * server has no visitor's token, so with one stored the page requests it (early, with the token) and does not use the data
+   */
+  so?: 1;
   /** `cache`: the oldest cached data to show, in ms (0: any age); absent when not cached */
   cache?: number;
   /** `refresh`: reload when this many ms have passed since the last load (whatever caused it) */
@@ -217,7 +222,7 @@ export interface EarlyIR {
   /** by template id; null for templates the early chunk does not render; `w`: inside `<svg>` or `<math>` (`TemplateDef.w`) */
   templates: Array<{ nodes: NodeDef[]; item?: string; index?: string | null; w?: 1 } | null>;
   /** resources with embedded data the early bindings read (`$r.<name>`): the data element's `data-sn` id and `select` path */
-  emb?: Record<string, { id: number; select: string | null; ls?: 1 }>;
+  emb?: Record<string, { id: number; select: string | null; ls?: 1; t?: { s: 'l' | 's'; k: string; h: string; p: string } }>;
   /** resources the early file requests: URL template and `when` (function indexes into the early table; absent: always), scope by index into `roots`, -1 for the page; `q`: a paginated resource's first-page query parameters */
   res?: Array<{
     src: UrlTemplate; when?: number; scope: number; q?: Record<string, string>;
