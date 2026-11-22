@@ -3,6 +3,10 @@
 Attribute names, function names and diagnostic codes are public API. Before
 1.0, renames are allowed but listed here.
 
+## Unreleased
+
+- A build with a component library whose node dispatch (`<sn-component use="{ … }[node.type]">`) is in each of its components is faster again: a recursion point analyzed `use` and walked the component graph (`reach`) once per candidate, in every definition, so the work grew with the square of the library's components. 0.21's description of each page (what other pages request ahead) now reads the libraries, so it walks those definitions as well, which doubled the cost. `use` is analyzed once for a choice's other candidates and what a component reaches is kept on its graph. A one-page build with a 65-component library: 0.20.0 ~480 ms, 0.21.0 ~740 ms, now ~530 ms; with 130 components 3.45 s, now 1.63 s (0.20.0: 2.14 s). The output is unchanged.
+
 ## 0.21.0 (2026-11-21)
 
 Upgrading from 0.20: run `npx sinter migrate` to see what changes, then `npx sinter migrate --write`. It applies every rename below (each old name is a build error that names its replacement) and moves the built-in messages (`sinter({ messages })`, removed in this release without a deprecation release) into the content module as `inlang()`.
