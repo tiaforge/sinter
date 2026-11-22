@@ -1059,6 +1059,55 @@ function compilePasses(html: string, options: CompileOptions): CompiledParts & {
  */
 const INERT_FILLS = new WeakMap<object, boolean>();
 
+/**
+ * Whether an attribute can add to a page's description (`describesNothing`): a handler (`data-sn-on-<event>`, a key
+ * filter's `keydown-…` counting as `keydown`) or an action's `data-sn-trigger` of an event no visitor causes, which
+ * `loadEffects` reports (an event in `USER_EVENTS` it does not); `data-sn-import`, `data-sn-ref`, `data-sn-permanent`
+ * and `data-sn-signed-in`, and the attributes of their families.
+ */
+function describedAttr(name: string, value: string): boolean {
+  if (/^data-sn-(import|ref|permanent|signed-in)(-|$)/.test(name)) return true;
+  if (name.startsWith('data-sn-on-')) {
+    const event = name.slice('data-sn-on-'.length), kf = /^(key(?:down|up))-/.exec(event);
+    return !USER_EVENTS.has(kf ? kf[1]! : event);
+  }
+  if (name === 'data-sn-trigger') return !USER_EVENTS.has(value.trim());
+  return false;
+}
+
+/** An element that by itself adds nothing to a description: no `<script>`, no `sn-` element but `<sn-component>`, no attribute `describedAttr` counts. */
+function quietElement(el: P5Element): boolean {
+  const tag = el.tagName.toLowerCase();
+  if (tag === 'script' || tag.startsWith('sn-') && tag !== 'sn-component') return false;
+  return !el.attrs.some((a) => describedAttr(a.name, a.value));
+}
+
+/**
+ * A component's markup, every element of it quiet (`quietElement`, in templates' content too): the custom elements it
+ * uses (each must be a component), or null when one is not quiet or it does not parse. By its text, for the process
+ * (as `parsedText`): a build's descriptions ask it once per component, not once per page.
+ */
+function quietMarkup(text: string): Set<string> | null {
+  const known = QUIET_MARKUP.get(text);
+  if (known !== undefined) return known;
+  let frag: P5Parent | null;
+  try { frag = parsedText(text); } catch { frag = null; }
+  const tags = new Set<string>();
+  const walk = (n: P5Parent): boolean => n.childNodes.every((c) => {
+    if (!isElement(c)) return true;
+    if (!quietElement(c)) return false;
+    const tag = c.tagName.toLowerCase();
+    if (tag.includes('-') && tag !== 'sn-component') tags.add(tag);
+    const t = (c as P5Element & { content?: P5Parent }).content;
+    return walk(c) && (!t || walk(t));
+  });
+  const r = frag && walk(frag) ? tags : null;
+  if (QUIET_MARKUP.size >= 2000) QUIET_MARKUP.clear();
+  QUIET_MARKUP.set(text, r);
+  return r;
+}
+const QUIET_MARKUP = new Map<string, Set<string> | null>();
+
 class Compiler {
   readonly diagnostics: Diagnostic[] = [];
   readonly files = new Set<string>();
@@ -4356,26 +4405,26 @@ class Compiler {
   /**
    * Whether a recursion point adds nothing to a description (`CompileResult.prefetch`, `loadEffect`, `permanent`,
    * `keptSource`, `keptBound`, `swapOff`, `prefetchOff`, `path`): every component it can render (each candidate of a
-   * `<sn-component use>`, and all they reach) holds no resource or other `sn-` element, no script, no handler,
-   * `data-sn-import`, `data-sn-ref`, `data-sn-permanent` or `data-sn-signed-in`, no custom element that is not a
-   * component, and no component of theirs has a script; the point's tag has no handler, no fill is passed down to it
-   * (a fill compiles where the definition places it), and no helper loads a lazy package. What a description keeps of
-   * the page is then the same without the definition. Conservative: markup is matched as text.
+   * `<sn-component use>`, and all they reach) is quiet markup (`quietElement`: no resource or other `sn-` element, no
+   * script, no handler or action trigger of an event no visitor causes, no `data-sn-import`, `data-sn-ref`,
+   * `data-sn-permanent` or `data-sn-signed-in`), uses no custom element that is not a component, and has no script;
+   * the point's tag is quiet; each fill passed down to it is (`inertFill`: a fill compiles where the definition places
+   * it); and no helper loads a lazy package. What a description keeps of the page is then the same without the definition.
    */
   describesNothing(host: P5Element, name: string, ctx: Ctx): boolean {
     // a fill passed down: compiled where the definition places it, so it must add nothing either (`inertFill`); one from
     // further out (in the item, inside a definition) is not looked at. `{ link: null }` passes none
     const fills = ctx.scope.component?.fills;
     if (this.lazyMods.length || fills && (fills.expr || [...fills.own.values()].some((id) => id !== null && !this.inertFill(id)))) return false;
-    if (host.attrs.some((a) => /^data-sn-(on|import|ref|permanent|signed-in)\b/.test(a.name))) return false;
+    if (host.attrs.some((a) => describedAttr(a.name, a.value))) return false;
     const choice = this.choices.get(host);
     return (choice ? choice.names : [name]).every((n) => this.inertComponent(n));
   }
 
   /**
-   * A root's fill (`fillDefs`, its markup with the components in it expanded) that adds nothing to a description: what
-   * `inertComponent` refuses in a component's text, refused in its elements and their templates' content, and each
-   * component expanded in it inert.
+   * A root's fill (`fillDefs`, its markup with the components in it expanded) that adds nothing to a description: each
+   * element quiet (`quietElement`), in its templates' content too, no custom element left, and each component expanded
+   * in it inert.
    */
   inertFill(id: number): boolean {
     const fd = this.fillDefs[id];
@@ -4384,9 +4433,7 @@ class Compiler {
     if (known !== undefined) return known;
     const ok = (nodes: readonly P5Node[]): boolean => nodes.every((c) => {
       if (!isElement(c)) return true;
-      const tag = c.tagName.toLowerCase();
-      if (tag === 'script' || tag.includes('-')) return false;
-      if (c.attrs.some((a) => /^data-sn-(on|import|ref|permanent|signed-in)\b/.test(a.name))) return false;
+      if (!quietElement(c) || c.tagName.includes('-') && c.tagName !== 'sn-component') return false;
       const u = this.useOf.get(c) ?? this.hostUse.get(c);
       if (u && !this.inertComponent(u.name)) return false;
       const t = (c as P5Element & { content?: P5Parent }).content;
@@ -4403,12 +4450,8 @@ class Compiler {
     return (g.inert ??= [...this.reach(name)].every((n) => {
       const f = this.componentFile(n);
       if (!f || f.bad || f.head || f.script) return false;
-      if (/<script\b|<sn-(?!component\b)|\sdata-sn-(on|import|ref|permanent|signed-in)\b/i.test(f.text)) return false;
-      for (const m of f.text.matchAll(/<([a-z][a-z0-9]*-[a-z0-9._-]*)/gi)) {
-        const tag = m[1]!.toLowerCase();
-        if (tag !== 'sn-component' && !this.componentFile(tag)) return false;
-      }
-      return true;
+      const tags = quietMarkup(f.text);
+      return !!tags && [...tags].every((t) => !!this.componentFile(t));
     }));
   }
 

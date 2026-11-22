@@ -64,15 +64,20 @@ test.each([
   expect(r.described).toEqual(r.full);
 });
 
-test('a fill with a handler of a visitor\'s event: walked all the same (any handler is), and described as the page', () => {
-  const r = compiled('<x-doc data-sn-with="{ doc }"><a slot="link" data-sn-state="{ n: 0 }" data-sn-on-click="n = 1"><slot></slot></a></x-doc>');
+test.each([
+  ['a fill with a click handler', '<x-doc data-sn-with="{ doc }"><a slot="link" data-sn-state="{ n: 0 }" data-sn-on-click="n = 1"><slot></slot></a></x-doc>', {}],
+  ['a click handler and a key filter in a definition', USE, { 'x-text': '<template data-sn-props="{ node: any }"><span tabindex="0" data-sn-state="{ n: 0 }" data-sn-on-click="n = 1" data-sn-on-keydown-enter="n = 2" data-sn-text="node.value"></span></template>' }],
+  ['an action on its click in a definition', USE, { 'x-text': '<template data-sn-props="{ node: any }"><button data-sn-post="/api/seen" data-sn-text="node.value"></button></template>' }],
+] as Array<[string, string, Record<string, string>]>)('%s: a visitor\'s event adds nothing, the definition is left out', (_, body, components) => {
+  const r = compiled(body, components);
   expect(r.errors).toEqual([]);
-  expect(r.skipped).toBe(false);
+  expect(r.skipped).toBe(true);
   expect(r.full.effect).toBeNull();
   expect(r.described).toEqual(r.full);
 });
 
 test.each([
+  ['an action triggered on load', '<img slot="link" alt="" data-sn-post="/api/seen" data-sn-trigger="load">', {}, {}, 'a handler of `load`'],
   ['a custom element', '<my-chip slot="link"></my-chip>', {}, {}, 'a custom element (`<my-chip>`)'],
   ['an inline script', '<span slot="link"><slot></slot><script>track()</script></span>', {}, {}, 'an inline script'],
   ['a load handler in a branch', '<template slot="link" data-sn-if="$slot.node.url"><img alt="" data-sn-state="{ n: 0 }" data-sn-on-load="n = 1"></template>', {}, {}, 'a handler of `load`'],
@@ -87,6 +92,7 @@ test.each([
 
 test.each([
   ['a handler of an event no visitor causes', { 'x-text': '<template data-sn-props="{ node: any }"><img alt="" data-sn-state="{ n: 0 }" data-sn-on-load="n = 1"></template>' }, {}, 'a handler of `load`'],
+  ['an action triggered by an event no visitor causes', { 'x-text': '<template data-sn-props="{ node: any }"><img alt="" data-sn-post="/api/seen" data-sn-trigger="load"></template>' }, {}, 'a handler of `load`'],
   ['a custom element', { 'x-text': '<template data-sn-props="{ node: any }"><my-chart></my-chart></template>' }, {}, 'a custom element (`<my-chart>`)'],
   ['an inline script', { 'x-text': '<template data-sn-props="{ node: any }"><span>t<script>track()</script></span></template>' }, {}, 'an inline script'],
   ['a component with a script, reached from the dispatch', { 'x-text': '<template data-sn-props="{ node: any }"><x-chip data-sn-with="{ node }"></x-chip></template>', 'x-chip': '<template data-sn-props="{ node: any }"><b data-sn-text="node.value"></b></template>' }, { 'x-chip': 'export class XChip {}' }, 'a component with a script'],
