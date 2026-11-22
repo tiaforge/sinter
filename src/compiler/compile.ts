@@ -1586,6 +1586,7 @@ class Compiler {
     this.expandComponents(doc, []);
     this.emptyStates(doc);
     this.strayAndRepeated(doc);
+    this.accessible(doc);
     this.slotsPlaced();
     // the second pass: what the first decided, per instance, at any depth (decided templates and choices, unrolled loops)
     if (this.opts.decided?.size || this.opts.unrolled?.size) this.expandConstants(doc, '', false);
@@ -3797,6 +3798,75 @@ class Compiler {
         if (c.tagName === 'template') {
           if (!c.attrs.some((a) => a.name.startsWith('data-sn-'))) continue;
           walk((c as P5Template).content, rep ?? (attr(c, 'data-sn-for') !== undefined ? 'a `data-sn-for` row' : null));
+        }
+      }
+    };
+    walk(doc, null);
+  }
+
+  /**
+   * After expansion, checks a keyboard or screen reader user would notice, each written place once (a component's
+   * markup is reported where it is written, not per use): SN544, a click with no keyboard way to it (an element that
+   * takes no focus, with no role or `tabindex`, holds no control a click inside could come from, is not `hidden` and is
+   * not an element `run('id')` starts); SN545, a live
+   * region that is the top of an `if`, `else` or `for` template, which appears with its text and so is not announced
+   * (`role="alert"` is, and is left alone); SN546, an `<img>` with no `alt` (nor an `aria-label`, a role that hides it,
+   * or `aria-hidden`). Warnings: the page works for a mouse.
+   */
+  accessible(doc: P5Parent) {
+    const seen = new Set<string>();
+    const once = (el: P5Element, code: Code) => {
+      const k = `${code}:${this.siteKey(el) ?? ''}`;
+      if (!this.siteKey(el) || !seen.has(k)) { seen.add(k); return true; }
+      return false;
+    };
+    const bound = (el: P5Element, name: string) => attr(el, name) !== undefined || new RegExp(`(?:^|[{,\\s'"])${name}['"]?\\s*:`).test(attr(el, 'data-sn-attr') ?? '');
+    // takes the focus by itself, or is a control a click inside comes from
+    const control = (el: P5Element) => {
+      const t = el.tagName;
+      if (t === 'a' || t === 'area') return bound(el, 'href') || attr(el, 'data-sn-href') !== undefined;
+      return ['button', 'input', 'select', 'textarea', 'summary', 'label', 'option', 'details', 'iframe', 'audio', 'video'].includes(t)
+        || bound(el, 'tabindex') || bound(el, 'contenteditable') || t.includes('-');
+    };
+    const holdsControl = (n: P5Parent): boolean => n.childNodes.some((c) => isElement(c)
+      && (control(c) || holdsControl(c) || (c.tagName === 'template' && holdsControl((c as P5Template).content))));
+    const ACTIONS = ['data-sn-get', 'data-sn-post', 'data-sn-put', 'data-sn-patch', 'data-sn-delete', 'data-sn-call'];
+    const clicked = (el: P5Element) => attr(el, 'data-sn-on-click') !== undefined || (ACTIONS.some((a) => attr(el, a) !== undefined)
+      && (attr(el, 'data-sn-trigger')?.trim() ?? (['form', 'input', 'select', 'textarea'].includes(el.tagName) ? 'submit' : 'click')) === 'click');
+    const LIVE_ROLES = ['status', 'log', 'timer', 'marquee'];
+    // an action a handler starts with `run('id')` (a key shortcut, a step after a load) need not be clicked
+    const ran = new Set<string>();
+    const scan = (n: P5Parent) => {
+      for (const c of n.childNodes) if (isElement(c)) {
+        for (const a of c.attrs) if (a.name.startsWith('data-sn-') || a.name === 'then' || a.name === 'catch') for (const m of a.value.matchAll(/\brun\(\s*['"`]([^'"`]+)['"`]/g)) ran.add(m[1]!);
+        scan(c);
+        if (c.tagName === 'template') scan((c as P5Template).content);
+      }
+    };
+    scan(doc);
+    const walk = (n: P5Parent, top: string | null) => {
+      for (const c of n.childNodes) {
+        if (!isElement(c)) continue;
+        const t = c.tagName;
+        if (t === 'head') continue;
+        if (clicked(c) && attr(c, 'hidden') === undefined && !ran.has(attr(c, 'id') ?? '') && !control(c) && !['html', 'body', 'dialog', 'form'].includes(t) && !bound(c, 'role') && !holdsControl(c) && once(c, 'SN544')) {
+          const what = attr(c, 'data-sn-on-click') !== undefined ? 'a `data-sn-on-click` handler' : 'an action started by a click';
+          this.report(c, null, 'SN544', `\`<${t}>\` has ${what}, but takes no focus: a keyboard or screen reader user cannot reach it`, 0,
+            t === 'a' ? 'give the link an `href` (`data-sn-href`), or make it a `<button>`' : 'use a `<button>` (or a link, if it goes somewhere); else add `role="button"`, `tabindex="0"` and a key handler (`data-sn-on-keydown-enter`)');
+        }
+        const live = attr(c, 'aria-live')?.trim(), role = attr(c, 'role')?.trim();
+        if (top && ((live && live !== 'off') || (role && LIVE_ROLES.includes(role))) && once(c, 'SN545')) {
+          this.report(c, null, 'SN545', `this live region (${live && live !== 'off' ? `\`aria-live="${live}"\`` : `\`role="${role}"\``}) is the top of a \`${top}\` template: it appears with its text, and screen readers announce only what changes in a region already on the page`, 0,
+            `put the region around the template, always on the page: \`<div role="status"><template ${top}="…">…</template></div>\`; or use \`role="alert"\` for an error, which is announced as it appears`);
+        }
+        if (t === 'img' && !bound(c, 'alt') && !bound(c, 'aria-label') && !bound(c, 'aria-labelledby') && !['presentation', 'none'].includes(role ?? '') && attr(c, 'aria-hidden')?.trim() !== 'true' && once(c, 'SN546')) {
+          this.report(c, null, 'SN546', '`<img>` has no `alt`: a screen reader reads its file name instead', 0,
+            'describe what it shows, `alt="…"` or `data-sn-attr="{ alt: item.caption }"`; an image that only decorates takes `alt=""`');
+        }
+        walk(c, null);
+        if (t === 'template' && c.attrs.some((a) => a.name.startsWith('data-sn-'))) {
+          const kind = ['data-sn-if', 'data-sn-else', 'data-sn-for'].find((a) => attr(c, a) !== undefined) ?? null;
+          walk((c as P5Template).content, kind);
         }
       }
     };

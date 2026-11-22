@@ -242,7 +242,7 @@ export type Inline = Plain | Strong | Ref;
     expect(errors(`<sn-component use="{ strong: 'x-strong' }[n.type]" data-sn-with="{ node: n }"></sn-component><template data-sn-else><template data-sn-text="n.value"></template></template>`))
       .toEqual([expect.stringMatching(/Property 'value' does not exist on type 'Ref'/)]);
     // an if chain: each branch under its condition, the else under the negation of the ones before
-    const chain = `<template data-sn-if="n.type === 'plain'"><span data-sn-text="n.value"></span></template><template data-sn-else><template data-sn-if="n.type === 'ref'"><a data-sn-attr="{ href: n.url }" data-sn-text="n.children.length"></a></template><template data-sn-else><b data-sn-state="{ k: 0 }" data-sn-on-click="k = n.children.length" data-sn-text="k"></b></template></template>`;
+    const chain = `<template data-sn-if="n.type === 'plain'"><span data-sn-text="n.value"></span></template><template data-sn-else><template data-sn-if="n.type === 'ref'"><a data-sn-attr="{ href: n.url }" data-sn-text="n.children.length"></a></template><template data-sn-else><b tabindex="0" data-sn-state="{ k: 0 }" data-sn-on-click="k = n.children.length" data-sn-text="k"></b></template></template>`;
     expect(errors(chain)).toEqual([]);
     // outside the branch, nothing is narrowed
     expect(errors(`<template data-sn-if="n.type === 'plain'"><span data-sn-text="n.value"></span></template><i data-sn-text="n.value"></i>`))
@@ -338,7 +338,7 @@ export type Block = Para | Quote | Rule;
     // thing): the hint moves the handler, or narrows the target
     const on = (el: string) => checkPage(page(`<div data-sn-state="{ q: '' }">${el}<p data-sn-text="q + contacts.length"></p></div>`), { files: { 'src/sinter.types.ts': TYPES } })[0]?.hint;
     expect(on('<form data-sn-on-input="q = $event.target.value"><input name="a"></form>')).toMatch(/whatever the event started on inside this `<form>`: put the handler on that element .* \(\$event\.target\)\.value`$/);
-    expect(on('<ul data-sn-on-click="q = $event.target.dataset.id"><li data-id="1">a</li></ul>')).toMatch(/inside this `<ul>`.*read the row's item instead of `dataset`/);
+    expect(on('<ul data-sn-on-click="q = $event.target.dataset.id"><li data-id="1"><button>a</button></li></ul>')).toMatch(/inside this `<ul>`.*read the row's item instead of `dataset`/);
     expect(checkPage(page(`<div data-sn-state="{ q: '' }"><form data-sn-on-input="q = /** @type {HTMLInputElement} */ ($event.target).value"><input name="a"></form><p data-sn-text="q + contacts.length"></p></div>`), { files: { 'src/sinter.types.ts': TYPES } })).toEqual([]);
   });
 

@@ -369,7 +369,8 @@ out one by one: the browser's rules can only skip a link by something in the pag
 
 **The fade** is one CSS rule, `@view-transition { navigation: auto; }`, which the browser applies.
 temper has it on by default (turn it off with `@view-transition { navigation: none; }` in your
-CSS); without temper, add it to your stylesheet. Reduced motion turns it off.
+CSS); without temper, add it to your stylesheet, inside
+`@media (prefers-reduced-motion: no-preference)` so reduced motion turns it off, as temper's does.
 
 **The morph:** give the same `data-sn-transition` name to an element in a list row and to the
 element it becomes on the detail page:
@@ -396,6 +397,9 @@ element it becomes on the detail page:
   A link to a list (not Back) morphs into it only with `cache` on its resource, or its rows arrive too
   late and it only fades.
 - One morph per navigation. Navigations sinter starts itself (a redirect) do not morph.
+- **Reduced motion:** when the visitor's system asks for reduced motion (`prefers-reduced-motion: reduce`),
+  nothing morphs. The fade is your CSS: temper's rule turns it off then too; without temper, put your
+  `@view-transition` rule inside `@media (prefers-reduced-motion: no-preference) { … }`.
 
 **Swaps** follow the same rule as loads: a swap fades only where the stylesheet asks for page transitions
 with `@view-transition { navigation: auto }` (and its `@media` holds), so reduced motion and temper's

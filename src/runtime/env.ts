@@ -32,6 +32,8 @@ export interface Env {
   hidden?(): boolean;
   /** runs `fn` before the next frame is painted (requestAnimationFrame); absent: changes from server events flush in a microtask */
   frame?(fn: () => void): void;
+  /** whether the person asked for less motion; absent: `prefers-reduced-motion: reduce` (transition.ts) */
+  reducedMotion?(): boolean;
 }
 
 const g = globalThis as typeof globalThis & Window;

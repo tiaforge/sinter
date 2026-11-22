@@ -515,4 +515,19 @@ export const DIAGNOSTIC_DOCS: Record<Code, DiagnosticDoc> = {
     means: 'A component whose root has no content of its own is shown by its script, which runs in the page module, after the first paint. Where the early script renders the page around the use (its props are known before the page module: constants, the URL, [embedded data](first-paint.md#embedded-data)), the page is painted with the root empty, and the script\'s content then pushes down what follows it (layout shift, CLS). Reported for a use whose props the early script knows, in a page root or in a branch or row it renders, of a component with a script and no early renderer, by the build (`sinter check` does not compile the early script).',
     fix: 'Give the component an early renderer, `<name>.early.ts` beside its script, whose default export fills the root from the props (`export default (root, props) => { … }`): the early script runs it on the pages that use it this way, and the instance sees `this.early` and keeps what it rendered ([docs/components.md](components.md#early-renderers)). Or reserve the root\'s space with CSS. A component whose content may appear late can stay: this is a warning.',
   },
+  SN544: {
+    example: '`<li>` has a `data-sn-on-click` handler, but takes no focus: a keyboard or screen reader user cannot reach it',
+    means: 'A click handler, or an action a click starts (`data-sn-delete`, `data-sn-call` without another `data-sn-trigger`), is on an element that takes no focus: a `<div>`, `<li>`, `<tr>`, `<span>`, a link without an `href`. A mouse can use it; Tab never reaches it, so a keyboard or screen reader user cannot. Not reported when the element has a `role` or `tabindex`, or holds a control (a button, a link, a field) a click inside comes from: the handler then serves those, and the controls are reachable. A warning: the page works with a mouse.',
+    fix: 'Put the handler or the action on a `<button>` (or a link, `<a data-sn-href>`, if it goes to a page). A whole row that selects: a button in the row. Where the element must stay, add `role="button"`, `tabindex="0"` and `data-sn-on-keydown-enter` with the same handler.',
+  },
+  SN545: {
+    example: 'this live region (`role="status"`) is the top of a `data-sn-if` template: it appears with its text, and screen readers announce only what changes in a region already on the page',
+    means: 'A live region (`aria-live="polite"` or `"assertive"`, `role="status"`, `"log"`, `"timer"` or `"marquee"`) is announced when its content changes. One that is the top element of a `data-sn-if`, `data-sn-else` or `data-sn-for` template is added to the page together with its text, so most screen readers say nothing: "Saved" shows, and no one hears it. `role="alert"` is announced as it appears, and is not reported.',
+    fix: 'Keep the region on the page and render what changes inside it: `<div role="status"><template data-sn-if="saved">Saved</template></div>`, or `<p role="status" data-sn-text="saved ? \'Saved\' : \'\'"></p>`. For an error, `role="alert"` on the branch is fine.',
+  },
+  SN546: {
+    example: '`<img>` has no `alt`: a screen reader reads its file name instead',
+    means: 'An image without `alt` (written, or bound with `data-sn-attr`), `aria-label`, `aria-labelledby`, `role="presentation"`/`"none"` or `aria-hidden="true"`. A screen reader announces it by its file name or URL, or as an unlabeled image. A warning.',
+    fix: 'Say what the image shows: `alt="Ada Lovelace"`, or from data, `data-sn-attr="{ alt: user.name }"`. An image that only decorates (an icon next to its label, a background picture) takes `alt=""`, and screen readers skip it.',
+  },
 };

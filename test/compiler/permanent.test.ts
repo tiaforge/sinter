@@ -136,7 +136,7 @@ test('with swaps on, constant props do not shape a kept element: the same ids an
 describe('with swaps on, what each page passes does not shape a kept element (the third review)', () => {
   const files: Record<string, string> = {
     // a component used inside the kept element, its branch on a constant the layout passes on
-    '/p/src/components/my-badge.html': `<template data-sn-props="{ fancy: boolean }"><span data-sn-state="{ n: 0 }"><template data-sn-if="fancy"><em data-sn-text="'x ' + n"></em></template><u data-sn-text="n"></u><b data-sn-on-click="n = n + 1">+</b></span></template>`,
+    '/p/src/components/my-badge.html': `<template data-sn-props="{ fancy: boolean }"><span data-sn-state="{ n: 0 }"><template data-sn-if="fancy"><em data-sn-text="'x ' + n"></em></template><u data-sn-text="n"></u><b tabindex="0" data-sn-on-click="n = n + 1">+</b></span></template>`,
     // a component whose root is the kept element
     '/p/src/components/kept-bar.html': `<template data-sn-props="{ fancy: boolean }"><aside data-sn-permanent="bar" data-sn-state="{ n: 0 }"><template data-sn-if="fancy"><em data-sn-text="'x ' + n"></em></template><u data-sn-text="n"></u></aside></template>`,
     '/p/src/layouts/site-layout.html': `<!doctype html><html data-sn-props="{ fancy: boolean; title: string }"><head><title data-sn-text="title"></title></head><body>

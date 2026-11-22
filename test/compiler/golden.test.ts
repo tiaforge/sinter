@@ -8,7 +8,7 @@ const dir = resolve(__dirname, 'golden');
 const files: Record<string, string> = {
   [`${dir}/src/components/article-card.html`]: `<template data-sn-props="{ article: { slug: string; title: string }; compact?: boolean }" data-sn-emits="{ select: string }">
   <article data-sn-class="{ compact }">
-    <h2 data-sn-text="article.title" data-sn-on-click="emit('select', article.slug)"></h2>
+    <h2 tabindex="0" data-sn-text="article.title" data-sn-on-click="emit('select', article.slug)"></h2>
     <slot name="meta"></slot>
     <ul><template data-sn-for="a in [1, 2]" data-sn-key="a"><li data-sn-text="article.slug + a"></li></template></ul>
   </article>

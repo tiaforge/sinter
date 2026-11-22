@@ -183,6 +183,12 @@ succeeds, and undoes exactly that change if it fails.
 The expression may only call `merge`, `upsert` and `remove` (anything else is a build error, since
 local state and side effects cannot be rolled back).
 
+**Focus.** When a row goes while the focus is in it (its Delete button was pressed, or another user's
+change removed it), the focus moves to the same control in the row now in its place, the next one, or
+the new last row. With no row left it goes to the list's parent, which sinter makes focusable with
+`tabindex="-1"`. A keyboard or screen reader user stays in the list instead of being sent back to the
+top of the page.
+
 ### Model
 
 Each resource keeps a **base** (what the server last confirmed) and an ordered list of

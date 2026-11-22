@@ -18,13 +18,13 @@ test('opening an unread mail marks it read once its body has loaded; a read one 
   const rows = () => [...root.querySelectorAll('li')];
   expect(rows().map((li) => li.className)).toEqual(['unread', '']);
 
-  rows()[0]!.click();
+  rows()[0]!.querySelector('button')!.click();
   await settle();
   expect(root.querySelector('article')!.textContent).toBe('Hi there');
   expect(requests.calls.at(-1)).toMatchObject({ method: 'PATCH', path: '/api/messages/1', body: { is_read: true } });
   expect(rows()[0]!.className).toBe('');
 
-  rows()[1]!.click();
+  rows()[1]!.querySelector('button')!.click();
   await settle();
   expect(requests.calls.filter((c) => c.method === 'PATCH')).toHaveLength(1);
 });
@@ -37,7 +37,7 @@ test('a failed mark-read rolls back and shows the error', async () => {
   });
   const { root, settle } = await render(page, { requests });
   await settle();
-  root.querySelector('li')!.click();
+  root.querySelector('li button')!.click();
   await settle();
   expect(root.querySelector('li')!.className).toBe('unread');
   expect(root.querySelector('[role=alert]')!.textContent).toBe('Mail server unavailable');
@@ -55,13 +55,13 @@ test('E archives the open mail through the button; with no mail open the button 
   await settle();
   expect(requests.calls.map((c) => c.method)).toEqual(['GET']);
 
-  root.querySelectorAll('li')[1]!.click();
+  root.querySelectorAll('li button')[1]!.click();
   await settle();
   key(root, 'e');
   await settle();
   expect(requests.calls.at(-1)).toMatchObject({ method: 'POST', path: '/api/messages/2/archive' });
   expect([...root.querySelectorAll('li')].map((li) => li.textContent)).toEqual(['Hello']);
-  expect(root.querySelector('button')!.disabled).toBe(true);
+  expect(root.querySelector('#archive')!.disabled).toBe(true);
 });
 
 test('sinter check: run() names an element with an action', () => {

@@ -224,7 +224,7 @@ describe('run() diagnostics', () => {
 
   test('SN309: a literal id of one action element outside rows', () => {
     const page = (call: string, rest = '') => diags(`<div data-sn-state="{ x: 'a' }"><button data-sn-on-click="${call}"></button>
-      <span id="mark-read" data-sn-post="/x"></span><p id="plain"></p>${rest}</div>`);
+      <span hidden id="mark-read" data-sn-post="/x"></span><p id="plain"></p>${rest}</div>`);
     expect(page("run('mark-read')")).toEqual([]);
     expect(page('run(x)')).toEqual(["SN309 `run()` takes the action element's `id` as a string literal"]);
     expect(page("run('mark-raed')")).toEqual(['SN309 no element `id="mark-raed"` on this page. Did you mean `mark-read`?']);
