@@ -484,6 +484,11 @@ type RowNode = Node & { [ROW]?: Inst };
 /** Simple rows with handlers made so far, by every app: an element's HANDLERS when an event found it none (see `handlersOf`). */
 let made = 0;
 const rowNodes = (x: Inst) => x.nodes ?? [x.first!];
+/** what takes the focus by itself */
+const FOCUSABLE = 'a[href],button,input,select,textarea,summary,[tabindex],[contenteditable]';
+/** the elements of a row's nodes that can take the focus now (not disabled, hidden or inert), in order */
+const focusables = (ns: Node[]) => ns.flatMap((n) => (n.nodeType == 1 ? [n as Element, ...(n as Element).querySelectorAll(FOCUSABLE)] : []))
+  .filter((e) => e.matches(FOCUSABLE) && !e.matches(':disabled') && !e.closest('[hidden],[inert]')) as HTMLElement[];
 
 /**
  * Goes to `url` as `navigate(url)` in a handler does, for app code (a redirect after a form, an island): the
@@ -1357,6 +1362,13 @@ export function mount(root: Document | Element, o: MountOptions): App {
     const keep = lis(seq), moving = new Map<Inst, Node[]>(), gone: number[] = [];
     seq.forEach((o, k) => { if (o >= 0 && !keep.has(k)) moving.set(rows[a + k]!, nodesOf(o)); });
     for (let o = a; o < oe; o++) if (!used[o - a]) gone.push(o);
+    // the focus in a row that goes: where the row was among the rows that stay, and which of its focusable elements had it
+    const f = gone.length ? doc.activeElement : null;
+    let lost: number[] | undefined;
+    if (f && f != doc.body && end.parentNode?.contains(f)) gone.some((o, g) => {
+      const ns = nodesOf(o);
+      return ns.some((x) => x.contains(f)) && (lost = [o - g, focusables(ns).indexOf(f as HTMLElement)]);
+    });
     if (m && gone.length == m) {
       // every old row goes (cleared, or all keys new): when the list owns its parent, drop them in
       // one operation; removing 5,000 rows one by one costs more than building the new ones
@@ -1379,6 +1391,14 @@ export function mount(root: Document | Element, o: MountOptions): App {
         if (!keep.has(k)) (at as ChildNode).before(...(moving.get(x) ?? rowNodes(x)));
         at = x.first ?? at;
       }
+    }
+    if (lost && !f!.isConnected) {
+      // never left on <body>, where a keyboard or screen reader user starts again from the top: the same control (by its
+      // place among the row's focusable elements) of the row now where it was (the next one), else of the last row; else
+      // that row's first; else the list's parent, given `tabindex="-1"` when it takes no focus itself
+      const i = Math.min(lost[0]!, n - 1), fs = i < 0 ? [] : focusables(range(rows[i]!.first, rows[i + 1]?.first ?? end)), box = end.parentElement;
+      if (!fs.length && box && box != doc.body && !box.matches(FOCUSABLE)) box.tabIndex = -1;
+      (fs[lost[1]!] ?? fs[0] ?? (box != doc.body ? box : null))?.focus();
     }
     rb.rows = rows;
     rb.rr = round;

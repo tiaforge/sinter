@@ -43,6 +43,7 @@ const transition: Feature = {
   name: 'transition',
   install(app: App) {
     const root = app.root, env = app.env;
+    const still = () => env.reducedMotion ? env.reducedMotion() : !!globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
     let last: Element | null = null;
     const named = () => [...root.querySelectorAll(`[${ATTR}]`)] as HTMLElement[];
     // the class lets the app's CSS style every morph (`::view-transition-group(.sn-transition)`): the names are hashes
@@ -68,7 +69,7 @@ const transition: Feature = {
       } else if (activation?.navigationType == 'traverse' && els.length == 1) el = els[0];
       last = null;
       // less motion asked for: no morph (the page's own fade is its CSS's, which temper turns off too)
-      const v = env.reducedMotion?.() ? null : el?.getAttribute(ATTR);
+      const v = still() ? null : el?.getAttribute(ATTR);
       // with the time: a page without this feature never takes it, and a later page must not act on it
       try { v ? env.session()?.setItem(KEY, JSON.stringify({ v, t: env.now() })) : env.session()?.removeItem(KEY); } catch { /* ignored */ }
       if (el && v) name(el, v, vt);
@@ -82,7 +83,7 @@ const transition: Feature = {
         if (e && env.now() - e.t <= PENDING_MAX) v = e.v;
       } catch { /* ignored */ }
       // one element only: two with one name would end the transition
-      if (env.reducedMotion?.()) v = null;
+      if (still()) v = null;
       const el = v ? named().find((x) => x.getAttribute(ATTR) == v) : undefined;
       if (vt && el) name(el, v!, vt);
     };
