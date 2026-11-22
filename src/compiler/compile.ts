@@ -1053,6 +1053,12 @@ function compilePasses(html: string, options: CompileOptions): CompiledParts & {
   return out.check ? { ...second, check: out.check } : second;
 }
 
+/**
+ * `inertFill`'s answers, by fill (an entry of a compiler's `fillDefs`). Kept outside the compiler: a field of its own
+ * would have to be one of `LINK_FIELDS`, and the linker refuses to record a definition while one is not.
+ */
+const INERT_FILLS = new WeakMap<object, boolean>();
+
 class Compiler {
   readonly diagnostics: Diagnostic[] = [];
   readonly files = new Set<string>();
@@ -3982,6 +3988,9 @@ class Compiler {
    * the runtime and the early script render it from the head, so a tree renders at any depth.
    */
   recursionPoint(host: P5Element, name: string, ctx: Ctx, index: number): null {
+    // a description (`describeOnly`) keeps none of a definition's code: one that can add nothing to what a description
+    // reads is left out of it, so its walk (a component library's whole node dispatch, on every page) is not paid twice
+    if (this.opts.describeOnly && this.describesNothing(host, name, ctx)) { host.childNodes = []; this.remove.push(host); return null; }
     const def = this.definition(name);
     if (!def) { detach(host); return null; }
     const use: Use = { ...def.use, host, chain: [] };
@@ -4342,6 +4351,65 @@ class Compiler {
     const todo = [name];
     while (todo.length) for (const u of this.fileGraph(todo.pop()!).uses) if (!out.has(u)) { out.add(u); todo.push(u); }
     return (g.reach = out);
+  }
+
+  /**
+   * Whether a recursion point adds nothing to a description (`CompileResult.prefetch`, `loadEffect`, `permanent`,
+   * `keptSource`, `keptBound`, `swapOff`, `prefetchOff`, `path`): every component it can render (each candidate of a
+   * `<sn-component use>`, and all they reach) holds no resource or other `sn-` element, no script, no handler,
+   * `data-sn-import`, `data-sn-ref`, `data-sn-permanent` or `data-sn-signed-in`, no custom element that is not a
+   * component, and no component of theirs has a script; the point's tag has no handler, no fill is passed down to it
+   * (a fill compiles where the definition places it), and no helper loads a lazy package. What a description keeps of
+   * the page is then the same without the definition. Conservative: markup is matched as text.
+   */
+  describesNothing(host: P5Element, name: string, ctx: Ctx): boolean {
+    // a fill passed down: compiled where the definition places it, so it must add nothing either (`inertFill`); one from
+    // further out (in the item, inside a definition) is not looked at. `{ link: null }` passes none
+    const fills = ctx.scope.component?.fills;
+    if (this.lazyMods.length || fills && (fills.expr || [...fills.own.values()].some((id) => id !== null && !this.inertFill(id)))) return false;
+    if (host.attrs.some((a) => /^data-sn-(on|import|ref|permanent|signed-in)\b/.test(a.name))) return false;
+    const choice = this.choices.get(host);
+    return (choice ? choice.names : [name]).every((n) => this.inertComponent(n));
+  }
+
+  /**
+   * A root's fill (`fillDefs`, its markup with the components in it expanded) that adds nothing to a description: what
+   * `inertComponent` refuses in a component's text, refused in its elements and their templates' content, and each
+   * component expanded in it inert.
+   */
+  inertFill(id: number): boolean {
+    const fd = this.fillDefs[id];
+    if (!fd) return false;
+    const known = INERT_FILLS.get(fd);
+    if (known !== undefined) return known;
+    const ok = (nodes: readonly P5Node[]): boolean => nodes.every((c) => {
+      if (!isElement(c)) return true;
+      const tag = c.tagName.toLowerCase();
+      if (tag === 'script' || tag.includes('-')) return false;
+      if (c.attrs.some((a) => /^data-sn-(on|import|ref|permanent|signed-in)\b/.test(a.name))) return false;
+      const u = this.useOf.get(c) ?? this.hostUse.get(c);
+      if (u && !this.inertComponent(u.name)) return false;
+      const t = (c as P5Element & { content?: P5Parent }).content;
+      return ok(c.childNodes) && (!t || ok(t.childNodes));
+    });
+    const r = ok(fd.nodes);
+    INERT_FILLS.set(fd, r);
+    return r;
+  }
+
+  /** A component that, with all it reaches, adds nothing to a description (`describesNothing`); kept on its graph. */
+  inertComponent(name: string): boolean {
+    const g = this.fileGraph(name) as ReturnType<Compiler['fileGraph']> & { inert?: boolean };
+    return (g.inert ??= [...this.reach(name)].every((n) => {
+      const f = this.componentFile(n);
+      if (!f || f.bad || f.head || f.script) return false;
+      if (/<script\b|<sn-(?!component\b)|\sdata-sn-(on|import|ref|permanent|signed-in)\b/i.test(f.text)) return false;
+      for (const m of f.text.matchAll(/<([a-z][a-z0-9]*-[a-z0-9._-]*)/gi)) {
+        const tag = m[1]!.toLowerCase();
+        if (tag !== 'sn-component' && !this.componentFile(tag)) return false;
+      }
+      return true;
+    }));
   }
 
   /** Whether a component, or one it reaches, has a tree placement: a placement of a name its own component does not declare. */
