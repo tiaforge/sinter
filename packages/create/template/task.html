@@ -38,10 +38,12 @@
     </article>
   </template>
 
-  <template data-sn-if="!task && ($meta.task.error || $meta.task.loadedAt)">
-    <div data-callout data-tone="warning" role="status">
-      <strong>This task is gone</strong>
-      It was deleted, or the link is wrong. <a href="/">Back to all tasks</a>
-    </div>
-  </template>
+  <div role="status">
+    <template data-sn-if="!task && ($meta.task.error || $meta.task.loadedAt)">
+      <div data-callout data-tone="warning">
+        <strong>This task is gone</strong>
+        It was deleted, or the link is wrong. <a href="/">Back to all tasks</a>
+      </div>
+    </template>
+  </div>
 </app-layout>

@@ -8,7 +8,7 @@
 
   <ul>
     <template data-sn-for="m in messages">
-      <li data-sn-class="{unread: !m.is_read}" data-sn-on-click="open = m" data-sn-text="m.subject"></li>
+      <li data-sn-class="{unread: !m.is_read}"><button data-sn-on-click="open = m" data-sn-text="m.subject"></button></li>
     </template>
   </ul>
   <article data-sn-show="open" data-sn-text="body && body.text"></article>

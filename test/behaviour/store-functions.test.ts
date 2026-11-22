@@ -89,7 +89,7 @@ describe('merge(item) and remove(item)', () => {
   });
 
   // with a nested list on the page, `merge()` runs in the nested module, which tries its sources the same way
-  test.each([['', 'the core'], ['<template data-sn-for="f in folders"><template data-sn-for="x in f.subs" data-sn-key="x.id"><b data-sn-on-click="merge(x, { n: 1 })"></b></template></template>', 'the nested module']])(
+  test.each([['', 'the core'], ['<template data-sn-for="f in folders"><template data-sn-for="x in f.subs" data-sn-key="x.id"><b tabindex="0" data-sn-on-click="merge(x, { n: 1 })"></b></template></template>', 'the nested module']])(
     'resources keyed by other fields are passed over without a warning (strict mode, $1)', async (nested) => {
       const requests = mockRequests({ 'GET /api/m': MAIL, 'GET /api/f': [{ slug: 'inbox', subs: [] }], 'GET /api/t': [{ tag: 'x', n: 0 }] });
       const { root, settle, flush, warnings } = await render(`
@@ -97,8 +97,8 @@ describe('merge(item) and remove(item)', () => {
         <sn-resource name="messages" src="/api/m" key="id"></sn-resource>
         <sn-resource name="tags" src="/api/t" key="tag"></sn-resource>
         <div data-sn-state="{ q: '', mine: true }">
-          <ul><template data-sn-for="m in visible(messages, q)"><li data-sn-on-click="merge(m, { f: !m.f })" data-sn-text="m.s + (m.f ? '!' : '')"></li></template></ul>
-          <template data-sn-for="a in (mine ? tags : messages)"><i data-sn-on-click="merge(a, { n: 1 })"></i></template>
+          <ul><template data-sn-for="m in visible(messages, q)"><li tabindex="0" data-sn-on-click="merge(m, { f: !m.f })" data-sn-text="m.s + (m.f ? '!' : '')"></li></template></ul>
+          <template data-sn-for="a in (mine ? tags : messages)"><i tabindex="0" data-sn-on-click="merge(a, { n: 1 })"></i></template>
           <button data-sn-on-click="mine = false" data-sn-text="folders.length"></button>
           <output data-sn-text="tags[0]?.n + '/' + messages[0]?.n"></output>
           ${nested}

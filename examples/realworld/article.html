@@ -57,8 +57,8 @@
                 <span class="date-posted" data-sn-text="date(c.createdAt, 'long')"></span>
                 <template data-sn-if="user && user.username == c.author.username">
                   <span class="mod-options">
-                    <i class="ion-trash-a" data-sn-delete="/articles/{article.slug}/comments/{c.id}"
-                       data-sn-catch="commentError = $error"></i>
+                    <button type="button" aria-label="Delete comment" data-sn-delete="/articles/{article.slug}/comments/{c.id}"
+                       data-sn-catch="commentError = $error"><i class="ion-trash-a"></i></button>
                   </span>
                 </template>
               </div>

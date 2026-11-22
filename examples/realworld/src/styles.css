@@ -1545,3 +1545,21 @@ footer > .container {
 main {
   min-height: calc(100vh - 56px);
 }
+
+/* ============================================================================
+ * SINTER: ICON CONTROLS ARE BUTTONS
+ * The comment's delete icon and a tag's remove icon sit in a <button>, so a
+ * keyboard reaches them and a screen reader names them (SN544). The button
+ * shows only the icon, as Conduit's bare <i> did.
+ * ============================================================================ */
+
+.mod-options button,
+.tag-pill .tag-remove {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  line-height: inherit;
+  cursor: pointer;
+}

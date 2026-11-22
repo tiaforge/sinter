@@ -7,6 +7,7 @@ const files: Record<string, string> = {
   '/p/src/components/x-b.html': '<template data-sn-props=""><div><x-a></x-a></div></template>',
   '/p/src/components/x-bad.html': '<template data-sn-props=""><p>\n  <b data-sn-txt="x"></b></p></template>',
   '/p/src/components/x-card.html': '<template data-sn-props="{ title: string }" data-sn-emits="{ pick: number }"><div><slot name="foot"></slot></div></template>',
+  '/p/src/components/x-pic.html': '<template data-sn-props=""><img src="/a.png" width="1" height="1"></template>',
   '/p/partials/old.html': '<p></p>',
   '/p/content/posts/a.md': '---\ntitle: A\n---\n',
   '/p/src/layouts/x-shell.html': '<!doctype html><html data-sn-props=""><head></head><body><slot></slot></body></html>',
@@ -48,7 +49,7 @@ const R = `<sn-resource name="contacts" src="/api/c" key="id"></sn-resource>
 const use = '<p data-sn-text="contacts.length + messages.length"></p>';
 
 test('a helper named like a retired function is the app\'s own, in handlers as in bindings', () => {
-  expect(diags('<form data-sn-post="/api/x" data-sn-then="reset()"><b data-sn-on-click="close(1)" data-sn-text="patch(2)"></b></form>', { helpers: ['reset', 'close', 'patch'] })).toEqual([]);
+  expect(diags('<form data-sn-post="/api/x" data-sn-then="reset()"><b tabindex="0" data-sn-on-click="close(1)" data-sn-text="patch(2)"></b></form>', { helpers: ['reset', 'close', 'patch'] })).toEqual([]);
 });
 
 test('a bare name nothing defines: the hint names the row field and the string', () => {
@@ -150,6 +151,9 @@ const cases: Array<[string, string, RegExp, Opts?]> = [
   ['SN517', '<sn-resource name="c" src="/api/c" select="contacts"></sn-resource><p data-sn-text="c"></p>', /`GET \/api\/c` returns a list at `contacts`: resource `c` has no `key`, so it is one object holding the list/, { openapi: true }],
   ['SN543', '<x-fill data-sn-with="{ n: 1 }"></x-fill><p>after</p>', /`<x-fill>` is filled by its script at mount, after the first paint, where the early script renders what is around it/, { early: true }],
   ['SN542', '<sn-resource name="comments" src="/api/x" type="Comment[]"></sn-resource><div data-sn-state="{ c: null }"><button data-sn-on-click="upsert(comments, c)"></button></div>', /`upsert` on `comments` replaces the whole list with the item: resource `comments` has no `key`, and its `type` is `Comment\[\]`/],
+  ['SN544', '<ul data-sn-state="{ n: 0 }"><li data-sn-on-click="n = n + 1">one</li></ul>', /`<li>` has a `data-sn-on-click` handler, but takes no focus/],
+  ['SN545', '<div data-sn-state="{ saved: false }"><template data-sn-if="saved"><p role="status">Saved</p></template><button data-sn-on-click="saved = true">Save</button></div>', /live region \(`role="status"`\) is the top of a `data-sn-if` template/],
+  ['SN546', '<img src="/a.png" width="1" height="1">', /`<img>` has no `alt`/],
   ['SN516', '<sn-resource name="c" src="/api/c" select="contacts"></sn-resource><p data-sn-text="$meta.c.live"></p>', /`\$meta\.c\.live` is always `null`: no `<sn-event resource="c">` on this page feeds `c`/],
   ['SN519', '<sn-resource name="a" src="/api/a?tag={$url.tag}" select="a" key="id" paginate="{ numbered: true, size: 2, model: $url.page }"></sn-resource><p data-sn-text="a.length"></p><a href="?page=2">2</a>', /`\?page=2` keeps only its own query: `tag`, which this page reads, is dropped when it is followed/],
   ['SN515', '<!doctype html><html data-sn-path="/page/"><head></head><body></body></html>', /`data-sn-path="\/page\/"` is the URL this page has anyway/],
@@ -749,5 +753,45 @@ describe('SN516: $meta.<resource>.live of a resource no stream feeds', () => {
   test('a sync whose events name another resource, or only run `then`, does not feed it', () => {
     expect(codes(R + '<sn-sync src="/api/events"><sn-event name="x" resource="d" op="refresh"></sn-event></sn-sync>' + badge)).toContain('SN516');
     expect(codes(R + '<sn-sync src="/api/events"><sn-event name="x" then="1"></sn-event></sn-sync>' + badge)).toContain('SN516');
+  });
+});
+
+describe('accessibility warnings (SN544, SN545, SN546)', () => {
+  const a11y = (html: string) => diags(html).filter((d) => ['SN544', 'SN545', 'SN546'].includes(d.code)).map((d) => `${d.code} ${d.message}`);
+  const S = (body: string) => `<div data-sn-state="{ n: 0, saved: false, xs: [1] }">${body}<p data-sn-text="n + saved + xs.length"></p></div>`;
+
+  test('SN544: a click on what takes no focus; not on controls, roles, tabindex, delegation, hidden or run() targets', () => {
+    expect(a11y(S('<span data-sn-on-click="n = 1">x</span><a data-sn-on-click="n = 2">y</a>'))).toEqual([
+      'SN544 `<span>` has a `data-sn-on-click` handler, but takes no focus: a keyboard or screen reader user cannot reach it',
+      'SN544 `<a>` has a `data-sn-on-click` handler, but takes no focus: a keyboard or screen reader user cannot reach it',
+    ]);
+    expect(a11y(S('<i class="x" data-sn-post="/api/x"></i>'))).toEqual(['SN544 `<i>` has an action started by a click, but takes no focus: a keyboard or screen reader user cannot reach it']);
+    expect(a11y(S(`<button data-sn-on-click="n = 1">b</button><a href="/x" data-sn-on-click="n = 2">l</a>
+      <div role="button" tabindex="0" data-sn-on-click="n = 3">r</div><li tabindex="-1" data-sn-on-click="n = 4">t</li>
+      <ul data-sn-on-click="n = 5"><template data-sn-for="x in xs"><li><button>go</button></li></template></ul>
+      <span hidden data-sn-post="/api/h"></span><span id="k" data-sn-post="/api/k"></span><button data-sn-on-keydown-k="run('k')">k</button>
+      <div data-sn-post="/api/on-load" data-sn-trigger="load"></div><dialog data-sn-on-click="n = 6"></dialog>`))).toEqual([]);
+  });
+
+  test('SN545: a live region at the top of an if, else or for template; not one around it, nor an alert', () => {
+    expect(a11y(S(`<template data-sn-if="saved"><p role="status">Saved</p></template><template data-sn-else><p aria-live="polite">Not yet</p></template>
+      <button data-sn-on-click="saved = true">s</button>`))).toEqual([
+      'SN545 this live region (`role="status"`) is the top of a `data-sn-if` template: it appears with its text, and screen readers announce only what changes in a region already on the page',
+      'SN545 this live region (`aria-live="polite"`) is the top of a `data-sn-else` template: it appears with its text, and screen readers announce only what changes in a region already on the page',
+    ]);
+    expect(a11y(S(`<div role="status"><template data-sn-if="saved"><p>Saved</p></template></div>
+      <template data-sn-if="saved"><p role="alert">Failed</p><p aria-live="off">quiet</p></template><button data-sn-on-click="saved = true">s</button>`))).toEqual([]);
+  });
+
+  test('SN546: an <img> without alt; alt written or bound, a hiding role or aria-hidden is fine', () => {
+    expect(a11y('<img src="/a.png" width="1" height="1">')).toEqual(['SN546 `<img>` has no `alt`: a screen reader reads its file name instead']);
+    expect(a11y(`<div data-sn-state="{ u: { pic: '/p.png', name: 'Ada' } }"><img alt="" src="/a.png" width="1" height="1"><img data-sn-attr="{ src: u.pic, alt: u.name }" width="1" height="1">
+      <img role="presentation" src="/b.png" width="1" height="1"><img aria-hidden="true" src="/c.png" width="1" height="1"><img aria-label="Ada" src="/d.png" width="1" height="1"></div>`)).toEqual([]);
+  });
+
+  test('a component used twice reports its markup once, where it is written', () => {
+    const d = diags('<x-pic></x-pic><x-pic></x-pic>').filter((x) => x.code === 'SN546');
+    expect(d).toHaveLength(1);
+    expect(d[0]!.file).toBe('/p/src/components/x-pic.html');
   });
 });

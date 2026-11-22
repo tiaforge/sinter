@@ -113,6 +113,9 @@ export const CODES = {
   SN541: 'kept-playback',
   SN542: 'unkeyed-list-write',
   SN543: 'filled-at-mount',
+  SN544: 'click-without-keyboard',
+  SN545: 'late-live-region',
+  SN546: 'image-alt',
 } as const;
 
 export type Code = keyof typeof CODES;
