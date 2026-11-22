@@ -241,3 +241,72 @@ export async function familyLineHeights(sheets: Array<{ file: string; css: strin
   }
   return out;
 }
+
+/** how often each letter and the space come in English text (per 1,000 characters), for an average advance */
+const LETTER_FREQ: Record<string, number> = { ' ': 183, e: 103, t: 75, a: 65, o: 62, n: 57, i: 57, s: 53, r: 50, h: 50, l: 33, d: 33, u: 23, c: 22, m: 20, f: 20, w: 17, g: 16, p: 15, y: 14, b: 13, v: 8, k: 6, x: 1, j: 1, q: 1, z: 1 };
+
+/** What a fallback face is fitted with: a font's vertical metrics and the average advance of English text, as multiples of its size. */
+export interface FitMetrics { ascent: number; descent: number; lineGap: number; avg: number }
+
+/**
+ * A font's metrics for fitting a fallback face to it (`size-adjust`, `ascent-override`, `descent-override`,
+ * `line-gap-override`): the ascent, descent and line gap browsers lay its lines out with (the `OS/2` typo values
+ * when the font sets USE_TYPO_METRICS, else `hhea`'s) and the average advance of English text (letters and the
+ * space, by frequency). Null when the file cannot be read or lacks a letter.
+ */
+export function fitMetrics(bytes: Uint8Array): FitMetrics | null {
+  let tables: Tables | null;
+  try { tables = tablesOf(bytes); } catch { return null; }
+  const head = tables?.get('head'), hhea = tables?.get('hhea'), cmap = tables?.get('cmap'), hmtx = tables?.get('hmtx'), os2 = tables?.get('OS/2');
+  if (!head || head.length < 54 || !hhea || hhea.length < 36 || !cmap || !hmtx) return null;
+  try {
+    const upm = view(head).getUint16(18), h = view(hhea), n = h.getUint16(34), m = view(hmtx);
+    if (!upm || !n) return null;
+    let sum = 0, total = 0;
+    for (const [ch, f] of Object.entries(LETTER_FREQ)) {
+      const gid = glyphOf(cmap, ch.charCodeAt(0));
+      if (!gid) return null;
+      sum += m.getUint16(Math.min(gid, n - 1) * 4) * f;
+      total += f;
+    }
+    let ascent = h.getInt16(4), descent = -h.getInt16(6), gap = h.getInt16(8);
+    if (os2 && os2.length >= 78 && view(os2).getUint16(62) & 0x80) { const o = view(os2); ascent = o.getInt16(68); descent = -o.getInt16(70); gap = o.getInt16(72); }
+    return { ascent: ascent / upm, descent: descent / upm, lineGap: gap / upm, avg: sum / total / upm };
+  } catch { return null; }
+}
+
+/**
+ * What a font file is for, from its `cmap` and advances (builds, docs/first-paint.md#fonts-after-the-load):
+ * `letters`, how many of a–z it has a glyph for; `pua`, how many private-use code points (U+E000–F8FF), where
+ * icon fonts put their icons; `widths`, how many distinct advances its letters have. Null when it cannot be read.
+ */
+export function fontProbe(bytes: Uint8Array): { letters: number; pua: number; widths: number } | null {
+  let tables: Tables | null;
+  try { tables = tablesOf(bytes); } catch { return null; }
+  const cmap = tables?.get('cmap'), hhea = tables?.get('hhea'), hmtx = tables?.get('hmtx');
+  if (!cmap) return null;
+  try {
+    const n = hhea && hhea.length >= 36 ? view(hhea).getUint16(34) : 0, widths = new Set<number>();
+    let letters = 0, pua = 0;
+    for (let cp = 0x61; cp <= 0x7a; cp++) {
+      const gid = glyphOf(cmap, cp);
+      if (!gid) continue;
+      letters++;
+      if (hmtx && n) widths.add(view(hmtx).getUint16(Math.min(gid, n - 1) * 4));
+    }
+    for (let cp = 0xe000; cp <= 0xf8ff; cp++) if (glyphOf(cmap, cp)) pua++;
+    return { letters, pua, widths: widths.size };
+  } catch { return null; }
+}
+
+/**
+ * Whether a font file is a text font (builds, docs/first-paint.md#fonts-after-the-load): it has a glyph for each of
+ * a–z, and no more private-use code points than a text font carries for its own alternates. An icon font has no
+ * letters (its icons are private-use code points), or has them for its ligatures or as extra icons beside hundreds
+ * of private-use ones (Material Icons, Font Awesome): text set in the fallback font would show its code points or
+ * its icons' names. Null when the file cannot be read.
+ */
+export function isTextFont(bytes: Uint8Array): boolean | null {
+  const p = fontProbe(bytes);
+  return p && p.letters == 26 && p.pua < 200;
+}

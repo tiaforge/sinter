@@ -34,8 +34,8 @@ import { pageRoutes, rebaseHtml, redirectHtml, redirectsFile, relocateHtml, type
 import { chain, chooserHtml, hreflangTags, manifestLocales, prefixPaths, segmentOf, type Locales } from './locales.js';
 import { entryChooserPath, listPoints, pointFolder, pointOrigin, pointPrefix, translationKey, type AxisValue, type LanguageUrls, type Point, type Points, type Variant } from './points.js';
 import { canonicalOf, fillPattern, noindex, sitemapFiles, sitemapOf, type SitemapOptions, type SitemapUrl } from './sitemap-build.js';
-import { familyLineHeights, familyZeroWidths } from './font-metrics.js';
-import { faceName, faceOf, fontDownloader, fontFileDownloader, bundleFonts, preloadFonts, preloadLocalFonts, usesFamily, type FontFaceRef, type FontPreload } from './fonts-build.js';
+import { familyLineHeights, familyZeroWidths, fitMetrics, isTextFont } from './font-metrics.js';
+import { faceName, faceOf, fontDownloader, fontFileDownloader, bundleFonts, deferredFaces, fallbackFaces, textFamilies, withFallbackFamilies, preloadFonts, preloadLocalFonts, rebaseFace, usesFamily, type FontFaceRef, type FontPreload } from './fonts-build.js';
 import { componentBase } from './components-build.js';
 import { COMPONENT_NAME, LIBRARY_LAYER } from './compiler/components.js';
 import { librariesOf, libraryOf, ownLibrary } from './libraries.js';
@@ -168,6 +168,13 @@ export interface SinterOptions extends ProjectOptions {
    * competes with what the first paint needs, and when the font is slow it can hold the first paint).
    *
    * `false`: neither.
+   *
+   * Whatever this option says, a build loads these faces of a page's bundled CSS (Google Fonts', self-hosted, the
+   * app's own), other than the preloaded ones, after the window's `load` on a page with an early script: the
+   * `font-display: swap` faces, and the faces of text fonts without a `font-display` (told from icon fonts by their
+   * files), which become `swap`. They move to a stylesheet in `<noscript data-sn-fonts>` that the early file links
+   * then, and the text painted before them is in a fitted fallback family (`deferFonts`;
+   * docs/first-paint.md#fonts-after-the-load).
    */
   fonts?: false | { bundle?: boolean; preload?: FontPreload[] };
 }
@@ -239,7 +246,7 @@ const runtimeNames = (code: string) => /import \{([^}]*)\} from '@tiaforge-ui\/s
  * URL template of another shape, a component's early renderer): when not every page imports one, it is
  * bundled into the early files of the pages that do, and the shared head script, which every page loads, holds none of it.
  */
-const PAGE_OWN = new Set(['$so', 'away', 'awayVia', 'lists', 'withParams', 'toPage', '$hq', '$href', 'cr']);
+const PAGE_OWN = new Set(['$so', 'away', 'awayVia', 'lists', 'withParams', 'toPage', '$hq', '$href', 'cr', 'fonts']);
 /** the page's image rules (a CSS module the page module imports) */
 const IMG_CSS = `${PREFIX}img-css/`;
 /** builds: a page's reserved-space rules (docs/first-paint.md#reserved-space), imported by its module */
@@ -512,6 +519,13 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   const headFiles = new Map<string, string>();
   /** build: the pages with an early module, and each one's bundled early script */
   const earlyPages = new Map<string, string>();
+  /**
+   * build: the pages with an early file whose bundled stylesheets have faces to load after `load` (`deferredFaces`):
+   * their early files call the runtime's `fonts`, and only their stylesheets lose the faces (`deferFonts`)
+   */
+  const fontPages = new Set<string>();
+  /** build: the text families of each bundled stylesheet's faces without `font-display` (`textFamilies`), by its file */
+  const textOf = new Map<string, Promise<Set<string>>>();
   /** build: each page's embedded-data placeholders and the paths it answers at, by file */
   const embedPages = new Map<string, { file: string; paths: string[]; arrays?: string[]; data: EmbedSlot[] }>();
   /** origins of resources that could have been requested early, not listed in `origins` (reported once per build) */
@@ -1716,10 +1730,21 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       const earlyKeys = new Map<string, Set<string>>();
       const bundleEarly = (code: string, keys: Set<string>, rt: string[] | null, what: string, own: string[] = []) => earlyScript(code, keys, rt, what, runtimeId, undefined, own);
       const runtimeId = earlyPages.size ? (await this.resolve(EARLY_PKG, resolve(root, 'index.html')))?.id ?? null : null;
+      fontPages.clear();
       if (earlyPages.size) {
         // the app's early module runs once, from the shared script, before any page's bindings
         const app = appEarly ? `import ${JSON.stringify(appEarly)};\n` : '';
-        const pages = new Map([...earlyPages].map(([rel, code]) => [rel, app && code.startsWith(app) ? code.slice(app.length) : code]));
+        // a page whose bundled stylesheets have `font-display: swap` faces loads them after `load`
+        // (docs/first-paint.md#fonts-after-the-load): its early file calls the runtime's `fonts`, and `deferFonts` moves the faces
+        textOf.clear();
+        for (const rel of earlyPages.keys()) for (const f of pageCss(bundle, rel)) {
+          const a = bundle[f];
+          if (a?.type === 'asset' && deferredFaces(String(a.source), preloads, await textFamiliesOf(bundle as never, f))) { fontPages.add(rel); break; }
+        }
+        const pages = new Map([...earlyPages].map(([rel, code]) => {
+          const own = app && code.startsWith(app) ? code.slice(app.length) : code;
+          return [rel, fontPages.has(rel) ? own.replace(/import \{([^}]*)\} from '@tiaforge-ui\/sinter\/runtime\/early';/, (_, n: string) => `import {${n.replace(/\s*$/, '')}, fonts } from '${EARLY_PKG}';`) + '\nfonts();\n' : own];
+        }));
         // the shared script: every export a page imports, but an export of PAGE_OWN only when every page imports it
         const imported = [...pages.values()].map(runtimeNames);
         const names = [...new Set(imported.flat())].filter((n) => !PAGE_OWN.has(n) || imported.every((x) => x.includes(n))).sort();
@@ -2046,6 +2071,8 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     /** builds: the finished stylesheets, whose url()s name the build's copies of the images (their `originalFileNames` the sources) */
     async generateBundle(_, bundle) {
       patchChunkUrls(bundle);
+      // (before the url()s below: the copies are stylesheets of the bundle too)
+      await deferFonts(this, bundle as never);
       if (!images) return;
       const img = images, r = resolved!;
       const byName = new Map<string, string>();
@@ -2131,6 +2158,131 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       },
     },
   };
+
+  /**
+   * builds, before Vite writes the pages: the CSS files a page links, as Vite's HTML step finds them (the
+   * stylesheets its entry chunk and their static imports import; a CSS-only chunk is still in the bundle here)
+   */
+  function pageCss(bundle: Record<string, unknown>, rel: string): string[] {
+    type C = { type: string; fileName: string; isEntry?: boolean; facadeModuleId?: string | null; imports?: string[]; viteMetadata?: { importedCss: Set<string> } };
+    const entry = (Object.values(bundle) as C[]).find((c) => c.type === 'chunk' && c.isEntry && c.facadeModuleId === resolve(root, rel));
+    const out = new Set<string>(), seen = new Set<string>(), todo = entry ? [entry.fileName] : [];
+    while (todo.length) {
+      const f = todo.pop()!;
+      if (seen.has(f)) continue;
+      seen.add(f);
+      const c = bundle[f] as C | undefined;
+      if (c?.type !== 'chunk') continue;
+      for (const css of c.viteMetadata?.importedCss ?? []) out.add(css);
+      todo.push(...(c.imports ?? []));
+    }
+    return [...out];
+  }
+
+  /**
+   * builds: a font file a bundled stylesheet names, as its bytes: a file of the bundle (Vite writes the URL from the
+   * base, or relative to the stylesheet under a relative base), a `data:` URI, a remote file (Google Fonts'; cached),
+   * or a file of the project or its public folder. Null when it cannot be had.
+   */
+  async function bundleFont(bundle: Record<string, { type: string; source?: string | Uint8Array }>, sheet: string, url: string): Promise<Uint8Array | null> {
+    const r = resolved!;
+    if (!/^(data:|https?:\/\/)/i.test(url)) {
+      const path = decodeURI(url.replace(/[?#].*$/, ''));
+      const base = r.base.startsWith('/') ? r.base : '';
+      const name = base && path.startsWith(base) ? path.slice(base.length) : path.startsWith('/') ? path.slice(1) : posix.join(posix.dirname(sheet), path);
+      const a = bundle[name];
+      if (a?.type === 'asset' && a.source !== undefined) return typeof a.source == 'string' ? new Uint8Array(Buffer.from(a.source)) : a.source;
+    }
+    return readFont(url, resolve(r.build.outDir, sheet)).catch(() => null);
+  }
+  /** builds: the text families of a bundled stylesheet's faces without `font-display`, from their files (`textOf`) */
+  function textFamiliesOf(bundle: Record<string, { type: string; source?: string | Uint8Array }>, sheet: string): Promise<Set<string>> {
+    let p = textOf.get(sheet);
+    if (!p) {
+      const a = bundle[sheet], css = typeof a?.source == 'string' ? a.source : Buffer.from(a?.source ?? '').toString('utf8');
+      textOf.set(sheet, (p = textFamilies(css, async (url) => { const b = await bundleFont(bundle, sheet, url); return b && isTextFont(b); })));
+    }
+    return p;
+  }
+
+  /**
+   * Builds: web fonts after the window's `load` (docs/first-paint.md#fonts-after-the-load), once Vite has written each
+   * page's stylesheet links. On a page of `fontPages` (its early file calls the runtime's `fonts`), the faces to defer
+   * (`deferredFaces`: `swap` faces and text fonts' faces without `font-display`, not those `fonts.preload` names) leave
+   * each bundled stylesheet it links and go, from all of them in order, into a stylesheet of their own: one file per
+   * distinct set (`fonts-<hash>.css` beside the CSS assets), linked in `<noscript data-sn-fonts>` at the start of the
+   * head, which the early file reads. Each stylesheet that lost faces gets their fitted
+   * fallback faces (`fallbackFaces`), and every stylesheet of the page names the fitted families after their web
+   * fonts (`withFallbackFamilies`): a stylesheet that changed is replaced, on that page, with a copy. The original
+   * stays for any page that still links it (a page without an early file, whose fonts load as they always did) and
+   * is removed when none does, unless a manifest names it.
+   */
+  async function deferFonts(ctx: { emitFile(f: { type: 'asset'; fileName: string; source: string }): string }, bundle: Record<string, { type: string; fileName: string; source?: string | Uint8Array; code?: string }>) {
+    if (!fontPages.size) return;
+    const r = resolved!, dir = r.build.assetsDir;
+    const text = (s: string | Uint8Array | undefined) => (typeof s == 'string' ? s : Buffer.from(s ?? '').toString('utf8'));
+    const hash = (x: string) => createHash('sha256').update(x).digest('base64url').slice(0, 8);
+    /** each bundled stylesheet: without its deferred faces and with their fitted fallback faces, or null with nothing deferred */
+    const splits = new Map<string, { css: string; faces: string[]; families: string[] } | null>();
+    /** the stylesheets a copy replaced on some page */
+    const copied = new Set<string>();
+    const emitted = new Set<string>();
+    const emit = (fileName: string, source: string) => { if (!emitted.has(fileName) && !bundle[fileName]) ctx.emitFile({ type: 'asset', fileName, source }); emitted.add(fileName); };
+    // a family no font list of the build's stylesheets names needs no fitted fallback (a Google Fonts URL asks for more than the CSS uses)
+    const allCss = Object.values(bundle).filter((o) => o.type === 'asset' && o.fileName.endsWith('.css')).map((o) => text(o.source)).join('\n');
+    const listed = (family: string) => withFallbackFamilies(allCss, [family]) != allCss;
+    for (const rel of fontPages) {
+      const page = bundle[rel];
+      if (page?.type !== 'asset') continue;
+      let html = text(page.source);
+      const base = pageBase(r.base, rel), faces: string[] = [], sheets: Array<{ tag: string; href: string; name: string }> = [];
+      let last = '', cors = false;
+      for (const m of html.matchAll(/<link\b[^>]*>/gi)) {
+        const tag = m[0];
+        if (!/\brel=["']?stylesheet\b/i.test(tag)) continue;
+        const href = /\bhref=["']([^"']+)["']/i.exec(tag)?.[1] ?? '';
+        const name = href.startsWith(base) ? href.slice(base.length) : '', a = name ? bundle[name] : undefined;
+        if (a?.type !== 'asset' || !name.endsWith('.css')) continue;
+        if (!splits.has(name)) {
+          const split = deferredFaces(text(a.source), preloads, await textFamiliesOf(bundle, name));
+          // a system font fitted to each deferred face of a text font, for the text painted before it (fallbackFaces)
+          const fb = split && await fallbackFaces(split.faces, split.css, listed, async (url) => { const b = await bundleFont(bundle, name, url); return b && isTextFont(b) ? fitMetrics(b) : null; });
+          splits.set(name, split && fb ? { css: split.css + fb.css, faces: split.faces.map((f) => rebaseFace(f, posix.dirname(name), dir)), families: fb.families } : null);
+        }
+        sheets.push({ tag, href, name });
+      }
+      // the fitted families go after their web fonts in the font lists of every stylesheet of the page
+      const families = [...new Set(sheets.flatMap((x) => splits.get(x.name)?.families ?? []))];
+      for (const { tag, href, name } of sheets) {
+        const c = splits.get(name), was = text(bundle[name]!.source), css = withFallbackFamilies(c?.css ?? was, families);
+        if (c) { faces.push(...c.faces); cors ||= /\scrossorigin\b/i.test(tag); }
+        if (css == was) { if (c) last = tag; continue; }
+        // Vite's name less its hash (`index-B3xk2_9a.css`), then the copy's own
+        const fileName = `${name.slice(0, -4).replace(/-[\w-]{8}$/, '')}-${hash(css)}.css`;
+        emit(fileName, css);
+        copied.add(name);
+        const now = tag.replace(href, base + fileName);
+        html = html.replace(tag, now);
+        if (c) last = now;
+      }
+      if (!faces.length) continue;
+      const source = faces.join('\n') + '\n', fileName = `${dir}/fonts-${hash(source)}.css`;
+      emit(fileName, source);
+      // inert for a visitor with scripts, a stylesheet without (render-blocking, as the faces were); at the start of the
+      // head, where the early file, which runs before the stylesheets are parsed, finds it: its attributes repeat the link's
+      const at = /<meta\s+charset[^>]*>/i.exec(html) ?? /<head[^>]*>/i.exec(html);
+      const tag = `<noscript data-sn-fonts="${base}${fileName}"${cors ? ' crossorigin' : ''}><link rel="stylesheet"${cors ? ' crossorigin' : ''} href="${base}${fileName}"></noscript>`;
+      html = at ? html.slice(0, at.index + at[0].length) + tag + html.slice(at.index + at[0].length) : html.replace(last, last + tag);
+      page.source = html;
+    }
+    // a stylesheet no page links any more: only its copies are served (Vite's manifest, which names the CSS files
+    // each entry imports, keeps it)
+    if (r.build.manifest || r.build.ssrManifest) return;
+    for (const name of copied) {
+      const file = posix.basename(name);
+      if (!Object.values(bundle).some((o) => o.fileName !== name && (o.type === 'chunk' ? (o.code ?? '').includes(file) : /\.(html?|css|js|json|xml)$/i.test(o.fileName) && text(o.source).includes(file)))) delete bundle[name];
+    }
+  }
 
   /** builds: the real paths of the modules a page's bundle loads with it (its entry chunk and their static imports) */
   function pageModules(bundle: Record<string, unknown>, rel: string): Set<string> {

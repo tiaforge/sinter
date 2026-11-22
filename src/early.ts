@@ -590,3 +590,37 @@ export const model = (el: HTMLInputElement & HTMLSelectElement, v: any, n: strin
   else if (n == 'multi') for (const opt of el.options) opt.selected = has(opt.value);
   else if (el.value != (v ?? '')) el.value = v ?? '';
 };
+
+/**
+ * Web fonts after the window's `load` (docs/first-paint.md#fonts-after-the-load): the build moved the page's
+ * deferred faces (`font-display: swap`, and text fonts' faces without one) out of its render-blocking stylesheets
+ * into one of their own, linked in `<noscript data-sn-fonts="href">` at the start of the head, before the early
+ * file (a visitor without scripts gets it as a plain stylesheet; the attribute repeats its href, and its
+ * `crossorigin`, for this). Until it is linked the text is in the fitted fallback families the build left in the
+ * page's stylesheet. Once the page has loaded (or 2 s after its first paint, when the load takes longer), its
+ * first-paint resources (the LCP image among them) have had the connection without the font files: a
+ * `<link rel=stylesheet>` for it goes in after the `<noscript>`, and the text swaps as each face arrives. A reader
+ * who has had the fonts (the stylesheet's name, which changes with its faces, noted in `localStorage` once they
+ * loaded) most likely has the files cached and gets the link at once. An element and its properties, no inline
+ * script or style: `script-src 'self'; style-src 'self'` allows it. Called by the early file of each page the build
+ * deferred faces for (vite.ts, `fontPages`).
+ */
+export function fonts(doc: Document = document): void {
+  const n = doc.querySelector('noscript[data-sn-fonts]'), href = n?.getAttribute('data-sn-fonts');
+  if (!href) return;
+  let done = 0;
+  const add = () => {
+    if (done++) return;
+    const l = doc.createElement('link');
+    l.rel = 'stylesheet';
+    if (n!.hasAttribute('crossorigin')) l.crossOrigin = '';
+    l.href = href;
+    // (the faces start loading when the stylesheet applies)
+    l.onload = () => setTimeout(() => doc.fonts.ready.then(() => { try { localStorage['sn-fonts'] = href; } catch { /* no storage */ } }), 100);
+    n!.after(l);
+  };
+  try { if (doc.readyState == 'complete' || localStorage['sn-fonts'] == href) return add(); } catch { /* no storage: as a first visit */ }
+  addEventListener('load', add);
+  // a load that takes long after the first paint (a slow image, a third party) does not hold the fonts with it
+  try { new PerformanceObserver((_, o) => { o.disconnect(); setTimeout(add, 2000); }).observe({ type: 'paint', buffered: true }); } catch { /* no paint timing: the load */ }
+}
