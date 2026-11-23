@@ -81,13 +81,23 @@ Origin). It isn't enforced and there is no CLA.
 
 ## Development
 
+On a fresh clone, with Node 22 or later:
+
+```sh
+npm ci
+npx playwright install chromium   # the browser checks; without it they are skipped locally (CI requires it)
+npm run typecheck
+npm test                          # no build needed: the tests run the TypeScript in src/
+```
+
 ```sh
 npm test          # vitest (happy-dom); CI runs typecheck, build and tests on every push (Node 22/24/26)
                   # browser checks run in Chromium; those for every engine also in Firefox and WebKit when
                   # Playwright has them (`npx playwright install firefox webkit`, or SINTER_FIREFOX /
                   # SINTER_WEBKIT=<executable>); CI installs all three and requires them
+npx vitest run test/vite/locales.test.ts   # one file
 npm run typecheck
-npm run build     # dist/
+npm run build     # dist/: what the package publishes, and what e2e/ and the examples install; npm test does not need it
 npm run size      # size per page and module, with budgets
 npm run bench     # store and flush benchmarks (docs/benchmark.md)
 npm run docs      # regenerate llms.txt and llms-full.txt, html-custom-data.json (also the VS Code extension's), docs/diagnostics.md and docs/attributes.md
