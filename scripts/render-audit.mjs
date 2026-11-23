@@ -6,6 +6,8 @@
 //   node scripts/render-audit.mjs --only static-site      one app (repeatable, or a comma list)
 //   node scripts/render-audit.mjs --keep <dir>            keep both builds in <dir>/<app>/{off,on}/, to diff by hand
 //   node scripts/render-audit.mjs --switch SN_UNITS       another stage's switch instead of `SN_RENDER` (0 off, 1 on)
+//   node scripts/render-audit.mjs --canon                 both builds in the canonical numbering (`SN_CANON=1`): the same
+//                                                         up to numbering (a switch that changes only numbers, B1's)
 //
 // Each line gives both builds' times and, with rendering on, what was rendered and why the rest was not
 // (`SN_RENDER_LOG=1`). The benchmark apps (bench/astro, 100 posts) are written to bench/astro/out/ when missing.
@@ -44,6 +46,7 @@ if (args[0] === '--child') {
 const only = values('--only');
 const keep = values('--keep')[0];
 const SWITCH = values('--switch')[0] ?? 'SN_RENDER';
+const CANON = args.includes('--canon');
 for (const n of only) if (!APPS[n]) throw new Error(`render-audit: no app \`${n}\`; the apps are ${Object.keys(APPS).join(', ')}`);
 if (!existsSync(join(REPO, 'dist/vite.js'))) throw new Error('render-audit: no dist/; run `npm run build` first');
 
@@ -59,11 +62,11 @@ const walk = (d) => readdirSync(d, { withFileTypes: true }).flatMap((e) => (e.is
 function buildOnce(name, outDir, render) {
   const r = spawnSync(process.execPath, [import.meta.filename, '--child', name, outDir], {
     cwd: REPO, encoding: 'utf8', maxBuffer: 1 << 26,
-    env: { ...process.env, SN_RENDER_LOG: '1', SN_RENDER_AUDIT: '', [SWITCH]: render ? '1' : '0' },
+    env: { ...process.env, SN_RENDER_LOG: '1', SN_FROM_WALK_LOG: '1', SN_RENDER_AUDIT: '', [SWITCH]: render ? '1' : '0', ...(CANON ? { SN_CANON: '1' } : {}) },
   });
   if (r.status !== 0) throw new Error(`render-audit: ${name} (rendering ${render ? 'on' : 'off'}) failed:\n${r.stderr}\n${r.stdout}`);
   const ms = JSON.parse(r.stdout.trim().split('\n').at(-1)).ms;
-  const log = (r.stderr.match(/^sinter render: .*$/m) ?? [''])[0].replace(/^sinter render: /, '');
+  const log = [...(r.stderr.match(/^sinter (render|from walk): .*$/gm) ?? [])].join('\n  ');
   return { ms, log };
 }
 

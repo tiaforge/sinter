@@ -2,7 +2,7 @@ import * as acorn from 'acorn';
 import { canonical, canonicalText } from './canon.js';
 import { forceUnits2, UNIT_STATS } from './units.js';
 import { tsPlugin } from '@sveltejs/acorn-typescript';
-import { compileParts, pageHead, localSignIn, requestUrl, type CompileOptions, type CompileResult, type CompiledParts, type EarlyParts, type FnSource, type FnSources, type HelperManifest, type HelperOrigin, type PrefetchParts, type EmbedSlot, type EmbedCond, type RuntimeReason } from './compile.js';
+import { compileParts, pageHead, localSignIn, withoutFromWalk, requestUrl, type CompileOptions, type CompileResult, type CompiledParts, type EarlyParts, type FnSource, type FnSources, type HelperManifest, type HelperOrigin, type PrefetchParts, type EmbedSlot, type EmbedCond, type RuntimeReason } from './compile.js';
 import { compactIR, type EarlyIR } from '../ir.js';
 import { coreParts } from '../core-parts.js';
 import { MappedLines, type SourceMap } from './sourcemap.js';
@@ -42,9 +42,10 @@ export const isContentModule = (module: string) => module.startsWith(CONTENT_NS)
 /** Compiles annotated HTML into a rewritten page and its page module. Pure and deterministic. */
 export function compile(html: string, options: CompileOptions): CompileResult {
   // (docs/proposals/compile-once.md, (5)): every compile checked against itself linked, to find what linking misses
-  if (env('SN_LINK_AUDIT') && !options.dev) return options.definitions ? auditedLink(html, options) : audited(html, options);
-  if (env('SN_UNITS_AUDIT') && !options.dev && !options.describeOnly) return auditedUnits(html, options);
-  if (env('SN_UNITS2_AUDIT') && !options.dev && !options.describeOnly) return auditedUnits2(html, options);
+  // (with B1 off: each compares two routes of its own byte for byte, `withoutFromWalk`)
+  if (env('SN_LINK_AUDIT') && !options.dev) return withoutFromWalk(() => (options.definitions ? auditedLink(html, options) : audited(html, options)));
+  if (env('SN_UNITS_AUDIT') && !options.dev && !options.describeOnly) return withoutFromWalk(() => auditedUnits(html, options));
+  if (env('SN_UNITS2_AUDIT') && !options.dev && !options.describeOnly) return withoutFromWalk(() => auditedUnits2(html, options));
   return compileOne(html, options);
 }
 
