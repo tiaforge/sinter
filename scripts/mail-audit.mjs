@@ -132,6 +132,8 @@ for (const v of ['off', 'on']) {
   const r = spawnSync(process.execPath, [import.meta.filename, '--child', PKG, root, outs[v]], { env, encoding: 'utf8', maxBuffer: 1 << 26 });
   if (r.status !== 0) { console.error(r.stdout, r.stderr); die(`the build with ${v === 'off' ? 'SN_RENDER=0' : 'no SN_RENDER'} failed`); }
   times[v] = JSON.parse(r.stdout.trim().split('\n').at(-1)).ms;
+  // with SN_RENDER_LOG=1: what the build rendered and what it left to the second pass, by reason
+  for (const l of r.stderr.split('\n')) if (l.startsWith('sinter render:')) console.log(`${v === 'off' ? 'SN_RENDER=0' : 'default'}: ${l}`);
 }
 console.log(`builds: SN_RENDER=0 ${times.off} ms, default ${times.on} ms`);
 
