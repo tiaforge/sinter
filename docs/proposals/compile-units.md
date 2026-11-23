@@ -225,8 +225,9 @@ Found by the research, not changed:
   early sources differ only in literals of one kind and length share one build, the literals substituted
   afterwards; the first two pages of a group are also built alone and compared. A fold the minifier reaches
   indirectly and whose answer is the same for the placeholder and those two pages but not for a later one would
-  slip through (`includes("x")`: false for `post-1` and `post-2`, true for `post-x`); early code comes from the
-  compiler, which writes no such call around a folded value today. `SN_EARLY_SHAPES_AUDIT=1` builds every page's own
+  slip through (`includes("x")`: false for `post-1` and `post-2`, true for `post-x`). The compiler writes a folded
+  value inside a function of the table, which the minifier does not inline, but a user's expression over a folded
+  value (`post.slug.includes('x')`) in a request the early script makes could reach such a fold. `SN_EARLY_SHAPES_AUDIT=1` builds every page's own
   and compares; `SN_EARLY_SHAPES=0` turns sharing off. To decide: keep the two-page check, check every page of a
   group whose literals are not all drawn from a safe set, or run the audit in CI.
 - **A build with only type-check warnings passes** since the fix that counts errors and warnings apart; it failed
