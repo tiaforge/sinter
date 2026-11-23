@@ -261,9 +261,8 @@ timings were not usable). A cloud session pushes to a branch of its own:
 
 | Workstream | Where | Branch | Log |
 | --- | --- | --- | --- |
-| the Speculation Rules made linear; the fold check's cache on disk | cloud, `session_01AjKzdyy3dA5FDC6jCiY3dH` | `redesign/pipeline-2` | `pipeline-2.md` |
-| stage 5, B1 continued: template entries, pages with a unit, folds | cloud, `session_01AjKzdx4aCc4CWZp4zJDc1m` | `redesign/stage5-b1b` | `stage5-b1.md` |
-| stage 6: the evaluation, one function per template; a render plan per template | cloud, `session_01AjKzdxcYo9FzUYyj9yNBZn` | `redesign/stage6-eval` | `stage6-eval.md` |
+| stage 5, B1 continued: rendered rows and a layout, then what B2 needs (pages with a unit and folds merged) | cloud, `session_01AjKzdx4aCc4CWZp4zJDc1m` | `redesign/stage5-b1b` | `stage5-b1.md` |
+| stage 6 continued: the blog's walk and render per node (the evaluation is done and merged) | cloud, `session_01AjKzdxcYo9FzUYyj9yNBZn` | `redesign/stage6-eval` | `stage6-eval.md` |
 
 **The bar, as the owner set it on 2026-11-23:** the output need not be byte for byte today's where only numbering
 and generated names differ (`data-sn` ids, anchor numbers, template, state and function numbers, renamed loop
@@ -689,3 +688,23 @@ decision of their own (stage 7). A step that can stay byte-identical does.
   (38), entries. Next there: rendered rows and a layout. Also from a profile of the 400-post static build at
   `de23476` (6.5 s): the compiler 3.6 s, of it the first pass's deciding 2.2 s and the second pass 1.05 s; the
   garbage collector 0.76 s; Vite's own code 0.74 s; the markdown parser 0.36 s.
+- 2026-11-23, 23:15 UTC: **stage 6's evaluation is done and merged** (`redesign-notes/stage6-eval.md`, top and "The
+  end"; `246d90e`). Since its first milestone: the render plan (a template's content copied from a flat list, a
+  node's copy by its place), the unit's candidates read once for the build (`SN_UNIT_CANDS=0`), a `file:` value's
+  heights measured once (`SN_FROZEN_HEIGHTS=0`), two questions asked once per binding, and the `own` bug fixed as a
+  guard (`bugs.md` 7: provably masked, no output could change; a test pins it). The session's numbers, wall ms, 25th
+  percentile, before against after with its ten commits reverted on the same tree, output byte-identical:
+  sinter-mail's 2,012-element email's first-pass evaluation 231 to 79, its compile 302 to 135, its build 6.2 to
+  4.2 s; the 200-element one 38 to 16; the file email 15.9 to 12.6; the API page's first pass 7.0 to 4.8 (its
+  second pass 8.3 unchanged: its own codes are compiled per page). **The blog did not move** (static `decideFor`
+  5.72 to 5.50 ms a page): its cost is the library's parse, the data checks and the walk's and renderer's work per
+  node, not the evaluation of bindings (1,063 a page). Its checks: full suite 3,002 before its last merge, every
+  bench app, example and sinter-mail page byte-identical at each merge. Checked on the coordinating machine after
+  the merge: 1,564 tests of test/compiler, test/vite, test/check pass; `render-audit --switch SN_ROW_FN --canon`
+  eight apps the same; `mail-audit --switch SN_ROW_FN --gen 2000` under `SN_CANON=1` 48 files byte for byte.
+  **What that leaves for the benchmark against Astro**: a blog post costs the compiler about 8 to 9 ms (deciding
+  5.5, the second pass 2.4) and the build about 4 ms more outside it, against Astro's 3.9 ms a page for everything.
+  The session continues on the blog's per-node walk and render (a fill plan, the decisions' keys only where the
+  second pass compiles a loop), measured part by part first, target the compiler under 4 ms a page on the static
+  template variant, and was asked to commit its measuring tools. Outside the compiler the two decisions not taken
+  (the SN534 cross check, Vite's HTML step) are now a larger share of what is left.
