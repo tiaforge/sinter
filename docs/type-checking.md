@@ -142,8 +142,11 @@ With a `tsconfig.json` at the project root (`<root>/tsconfig.json`, read by your
 `extends`; a solution-style one with `references` stands for the referenced config that compiles `src/`),
 the expressions follow its `strictNullChecks` (or `strict`): `$meta.list.pages > 1` is then an error, as
 `pages` is `null` while the total is unknown. A state field that starts as `null`, `undefined` or `[]`
-(`data-sn-state="{ error: null }"`) takes whatever is assigned to it later. Give it a type where it is written
-(`/** @type {Contact | null} */ (null)`) to have it checked. The other options of your config do not apply to
+(`data-sn-state="{ error: null }"`) takes whatever is assigned to it later, at any depth of the object literals
+the state writes, and in the objects of its array literals (`{ form: { error: null, tags: [] } }`, then
+`form.error = $error`; `{ rows: [{ note: null }] }`, then `rows[0].note = 'x'`). Give it a type where it is
+written (`/** @type {Contact | null} */ (null)`) to have it checked; a JSDoc-typed object
+(`/** @type {Draft} */ ({ to: null })`) keeps its type too. The other options of your config do not apply to
 the expressions, which sinter generates code around. A component file's `<script>` block is checked under all
 of them, as a module of yours would be: [docs/islands.md](islands.md#single-file-components). Without a
 tsconfig, the check uses its own options and nulls are not checked.

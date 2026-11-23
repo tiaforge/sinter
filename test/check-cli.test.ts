@@ -158,3 +158,26 @@ ${body}
     rmSync(root, { recursive: true, force: true });
   }
 }, 60_000);
+
+test('under a strict tsconfig, a page\'s state field that starts as `null` or `[]` inside a nested object literal takes what is assigned later; one typed where it is written keeps its type (SN208)', () => {
+  const root = app({
+    'package.json': '{"type":"module"}',
+    'node_modules/.keep': '',
+    'tsconfig.json': JSON.stringify({ compilerOptions: { strict: true, target: 'ESNext', module: 'ESNext', moduleResolution: 'bundler', lib: ['ESNext', 'DOM'] }, include: ['src'] }),
+    'src/sinter.types.ts': 'export interface Contact { id: number; name: string }\n',
+    'index.html': `<!doctype html><html><head><title>t</title></head><body>
+<div data-sn-state="{ form: { error: null, tags: [], rows: [{ note: null }], who: /** @type {Contact | null} */ (null) } }">
+  <button data-sn-on-click="form.error = 'bad'; form.tags = ['a']; form.rows[0].note = 'n'"></button>
+  <p data-sn-text="form.who.name"></p>
+</div>
+</body></html>
+`,
+  });
+  try {
+    const r = check(root);
+    expect(r.stdout).toMatch(/index\.html:4:20 error SN208[^\n]*'form\.who' is possibly 'null'/);
+    expect(r.stdout.match(/ SN208 /g)).toHaveLength(1);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}, 60_000);

@@ -427,6 +427,29 @@ export type Block = Para | Quote | Rule;
     expect(solution({ compilerOptions: { strict: false }, include: ['src'] })).toEqual([]);
   });
 
+  test('under `strictNullChecks`, a field that starts as `null` or `[]` takes what is assigned later at any depth of the state\'s object literals, and in the objects of its array literals', () => {
+    const state = `{ form: { error: null, tags: [], n: 0, who: /** @type {Contact|null} */ (null), deep: { a: { b: { c: undefined } } } },
+      rows: [{ id: 1, note: null }, { id: 2, note: null, seen: [] }], cast: /** @type {{ at: Contact | null }} */ ({ at: null }), made: twice(1) }`;
+    const errors = (handler: string, expr = '0', tsconfig: object | null = { compilerOptions: { strict: true } }) => checkPage(page(`<div data-sn-state="${state}">
+<button data-sn-on-click="${handler}"></button><p data-sn-text="contacts.length + ${expr}"></p></div>`), { files: { 'src/sinter.types.ts': TYPES, 'src/sinter.helpers.js': HELPERS, 'src/messages.js': MESSAGES, ...(tsconfig ? { 'tsconfig.json': JSON.stringify(tsconfig) } : {}) } })
+      .map((d) => `${d.code} ${d.message.replace(/ \(TS\d+\)$/, '')}`);
+    expect(errors(`form.error = 'x'; form.tags = [1]; form.deep.a.b.c = 'y'`)).toEqual([]);
+expect(errors(`rows = [...rows, { id: 3, note: 'z' }]; rows[0].note = 'w'; rows[1].seen = [1]; form.who = contacts[0]`)).toEqual([]);
+    // what is not null-started keeps its type: a number, a JSDoc type at any depth (inside an object cast too), a helper's value
+    expect(errors(`form.n = 'x'`)).toEqual([expect.stringMatching(/^SN208 Type 'string' is not assignable to type 'number'/)]);
+    expect(errors('0', 'form.who.name')).toEqual(["SN208 'form.who' is possibly 'null'."]);
+    expect(errors('0', 'cast.at.name')).toEqual(["SN208 'cast.at' is possibly 'null'."]);
+    expect(errors(`made = 'x'`)).toEqual([expect.stringMatching(/^SN208 Type 'string' is not assignable to type 'number'/)]);
+    // a widened field reads as any, as without strictNullChecks
+expect(errors('0', 'form.error.length + rows[0].note.length')).toEqual([]);
+    expect(errors(`form.error = 'x'; rows[0].note = 'w'`, 'form.who.name', null)).toEqual([]);
+    // a component's state, on its root
+    const card = `<template data-sn-props="{ contact: Contact }"><div data-sn-state="{ edit: { note: null, tags: [] } }">
+  <button data-sn-on-click="edit.note = contact.name; edit.tags = contact.emails"></button><p data-sn-text="edit.note"></p></div></template>`;
+    expect(checkPage(page('<contact-card data-sn-with="{ contact: contacts[0] }"></contact-card>'), { files: { 'src/sinter.types.ts': TYPES, 'src/components/contact-card.html': card,
+      'tsconfig.json': JSON.stringify({ compilerOptions: { strict: true } }) } })).toEqual([]);
+  });
+
   test('sn-event: `data-sn-let` names around the sync are in scope like state, in `when` and `then`', () => {
     const types = `${TYPES}export interface Updated { uid: number; mailbox: string; seen: boolean }\n`;
     // the let is the innermost frame (`open`) or under a state (`box`); both once gave errors here

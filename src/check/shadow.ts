@@ -284,8 +284,9 @@ export function shadow(o: ShadowOptions): Shadow {
       if (f.kind === 'state') {
         line('let {');
         f.names.forEach((n, k) => { at(f.locs?.[k]); line(`${n},`); });
-        // a field that starts as \`null\`, \`undefined\` or \`[]\` takes what is assigned later (\`State\`)
-        line(`} = ${f.init === null ? '$any' : `/** @type {${decl('State')}<ReturnType<typeof $e${f.init}>>} */ ($e${f.init}())`};`);
+        // a field that starts as \`null\`, \`undefined\` or \`[]\` takes what is assigned later (\`State\`), at any depth of
+        // the object literals in the initial value (\`nested\`)
+        line(`} = ${f.init === null ? '$any' : `/** @type {${decl('State')}<ReturnType<typeof $e${f.init}>${f.nested ? `, ${f.nested}` : ''}>} */ ($e${f.init}())`};`);
       } else if (f.kind === 'props') {
         tagged('type', f.type, ' const $props = $any;');
         line(`const { ${f.names.join(', ')} } = $props;`);
@@ -431,9 +432,16 @@ export type CallArgs<F> = F extends (...a: infer P) => any ? (P extends [...infe
 /**
  * A state's fields as its initial value types them, but a field that starts as \`null\`, \`undefined\` or \`[]\` is
  * any (any[]): what an expression assigns it later, as without \`strictNullChecks\` (\`{ error: null }\`, then
- * \`error = $error\`). A field whose initial value has a JSDoc type (\`Contact | null\`) keeps it.
+ * \`error = $error\`). A field whose initial value has a JSDoc type (\`Contact | null\`) keeps it. M: the fields
+ * whose initial value is an object literal, as the compiler read the markup (\`{ form: { error: null } }\` gives
+ * \`{ "form": {} }\`), or an array literal of them (\`[{}]\`): their fields are widened the same way, at any depth.
+ * Only there, so a value from an expression (a helper's Date, a resource's row) or a JSDoc cast keeps its type.
  */
-export type State<T> = { [K in keyof T]: [T[K]] extends [null | undefined] ? any : [T[K]] extends [never[]] ? any[] : T[K] };
+export type State<T, M = {}> = { [K in keyof T]: StateField<T[K], K extends keyof M ? M[K] : never> };
+// (the mapped type is written in the branch, not as a State<V, M>, so a hover shows the fields, not the alias)
+type StateField<V, M> = [V] extends [null | undefined] ? any : [V] extends [never[]] ? any[] : [M] extends [never] ? V
+  : M extends readonly [infer E] ? (V extends readonly (infer U)[] ? StateField<U, E>[] : V)
+  : { [K in keyof V]: StateField<V[K], K extends keyof M ? M[K] : never> };
 export type Item<T> = NonNullable<T> extends readonly (infer U)[] ? U : NonNullable<T> extends Iterable<infer U> ? U : any;
 export type El<K extends string> = K extends keyof HTMLElementTagNameMap ? HTMLElementTagNameMap[K] : HTMLElement;
 declare global {

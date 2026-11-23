@@ -4139,7 +4139,8 @@ class Compiler {
         this.frameOf.set(entry, this.check.frames.length);
         const first = [...entry.names].map((n) => r.entries!.find((e) => e.key === n)!);
         const locs = first.map((e) => this.locOf(el, 'data-sn-state', e.offset));
-        this.check.frames.push({ kind: 'state', names: [...entry.names], init: this.lastExpr, locs });
+        const nested = first.filter((e) => e.nested).map((e) => `${JSON.stringify(e.key)}: ${e.nested}`);
+        this.check.frames.push({ kind: 'state', names: [...entry.names], init: this.lastExpr, locs, ...(nested.length ? { nested: `{ ${nested.join('; ')} }` } : {}) });
       }
       this.checkNames(el, 'data-sn-state', scope, [...entry.names]);
       scope = { ...scope, states: [...scope.states, entry] };
