@@ -1,7 +1,7 @@
 {
   "name": "sinter-vscode",
   "displayName": "sinter",
-  "description": "Diagnostics, type errors, hover, completion and go to definition for sinter pages, from the project's own sinter lsp.",
+  "description": "Diagnostics, type errors, hover, completion and go to definition for sinter pages and components (TypeScript in a component's <script lang=\"ts\"> included), from the project's own sinter lsp.",
   "version": "0.1.0",
   "publisher": "tiaforge",
   "license": "MIT",
@@ -13,6 +13,17 @@
   "activationEvents": ["onLanguage:html"],
   "contributes": {
     "html.customData": ["./html-custom-data.json"],
+    "grammars": [
+      {
+        "scopeName": "sinter.script-ts.injection",
+        "path": "./syntaxes/script-ts.injection.json",
+        "injectTo": ["text.html.basic"],
+        "embeddedLanguages": { "meta.embedded.block.ts": "typescript" }
+      }
+    ],
+    "configurationDefaults": {
+      "[html]": { "html.validate.scripts": false }
+    },
     "commands": [{ "command": "sinter.restart", "title": "sinter: Restart language server" }],
     "configuration": {
       "title": "sinter",

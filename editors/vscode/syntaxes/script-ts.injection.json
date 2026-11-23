@@ -1,0 +1,46 @@
+{
+  "$comment": "A single-file component's <script lang=\"ts\">: TypeScript highlighting inside HTML (sinter lsp answers for it). Injected into HTML; other <script> elements keep the HTML grammar's own rules.",
+  "scopeName": "sinter.script-ts.injection",
+  "injectionSelector": "L:text.html.basic -comment",
+  "patterns": [{ "include": "#script-ts" }],
+  "repository": {
+    "script-ts": {
+      "begin": "(<)(script)\\b(?=[^>]*\\slang\\s*=\\s*(['\"]?)ts\\3(?:[\\s/>]))",
+      "beginCaptures": {
+        "1": { "name": "punctuation.definition.tag.begin.html" },
+        "2": { "name": "entity.name.tag.html" }
+      },
+      "end": "(</)(script)\\s*(>)",
+      "endCaptures": {
+        "1": { "name": "punctuation.definition.tag.begin.html" },
+        "2": { "name": "entity.name.tag.html" },
+        "3": { "name": "punctuation.definition.tag.end.html" }
+      },
+      "name": "meta.element.script.ts.html",
+      "patterns": [
+        {
+          "begin": "\\G",
+          "end": "(>)",
+          "endCaptures": { "1": { "name": "punctuation.definition.tag.end.html" } },
+          "name": "meta.tag.metadata.script.start.html",
+          "patterns": [
+            {
+              "match": "([^\\s\"'<>/=]+)(?:\\s*(=)\\s*(\"[^\"]*\"|'[^']*'|[^\\s\"'=<>`]+))?",
+              "captures": {
+                "1": { "name": "entity.other.attribute-name.html" },
+                "2": { "name": "punctuation.separator.key-value.html" },
+                "3": { "name": "string.quoted.html" }
+              }
+            }
+          ]
+        },
+        {
+          "begin": "(?<=>)",
+          "end": "(?=</script\\s*>)",
+          "contentName": "meta.embedded.block.ts",
+          "patterns": [{ "include": "source.ts" }]
+        }
+      ]
+    }
+  }
+}

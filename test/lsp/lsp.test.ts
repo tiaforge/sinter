@@ -675,6 +675,55 @@ export default { plugins: [sinter({ apis: {
     expect((await e.diagnostics('src/components/x-card/x-card.html', (d) => d.length > 0)).map((x) => x.code)).toEqual(['SN201 unknown-identifier']);
   });
 
+  test('a single-file component\'s `<script lang="ts">`: completion, hover, go to definition and type errors, from TypeScript, at the file\'s positions', async () => {
+    const card = (body: string) => `<template data-sn-props="{ done: number; open: number }">
+  <p data-sn-state="{ share: '' }" data-sn-text="share"></p>
+</template>
+
+<script lang="ts">
+  import { XRingComponent } from './x-ring.html';
+  import { twice } from './math.js';
+  export class XRing extends XRingComponent {
+    connected() {
+${body}
+    }
+  }
+</script>
+`;
+    const root = project({
+      'src/components/x-ring/x-ring.html': card('      this.state.share = String(twice(this.props.done));'),
+      'src/components/x-ring/math.ts': 'export const twice = (n: number): number => n * 2;\n',
+      'index.html': '<x-ring data-sn-with="{ done: 1, open: 2 }"></x-ring>\n',
+      // sinter's base class, as the app's installed package gives it
+      'node_modules/@tiaforge-ui/sinter/package.json': JSON.stringify({ name: '@tiaforge-ui/sinter', type: 'module', exports: { './runtime/components': './components.ts' } }),
+      'node_modules/@tiaforge-ui/sinter/components.ts': `export { Component } from ${JSON.stringify(join(process.cwd(), 'src/components.ts'))};\n`,
+    });
+    const e = await editor(root);
+    const file = 'src/components/x-ring/x-ring.html';
+    const text = card('      this.props.');
+    e.open('index.html', '<x-ring data-sn-with="{ done: 1, open: 2 }"></x-ring>\n');
+    await e.diagnostics('index.html');
+    e.open(file, text);
+    // completion after `this.props.`: the props the template declares
+    const labels = (await e.completion(file, 9, 17))!.items.map((i) => i.label);
+    expect(labels).toEqual(expect.arrayContaining(['done', 'open']));
+    // hover and go to definition on `twice`, imported from a module beside the file
+    e.change(file, card('      this.state.share = String(twice(this.props.done));'));
+    const h = await e.hover(file, 9, 35);
+    expect(JSON.stringify(h?.contents)).toContain('twice');
+    const d = await e.definition(file, 9, 35);
+    expect(d!.map((x) => x.uri.split('/').pop())).toEqual(['math.ts']);
+    // a type error in the block: SN208 on the file, at its line and column
+    e.change(file, card("      const n: string = twice(this.props.done);"));
+    const errs = await e.diagnostics(file, (ds) => ds.some((x) => x.message.includes("Type 'number' is not assignable to type 'string'")));
+    const err = errs.find((x) => x.message.includes("Type 'number' is not assignable"))!;
+    expect(err.code).toMatch(/^SN208/);
+    expect(err.range.start).toEqual({ line: 9, character: 12 });
+    // fixed: the error goes
+    e.change(file, card('      const n: number = twice(this.props.done); void n;'));
+    await e.diagnostics(file, (ds) => !ds.some((x) => x.code.startsWith('SN208')));
+  }, 60_000);
+
   test('quick fixes apply the suggestion of compiler and type errors', async () => {
     const root = project({ 'src/sinter.types.ts': TYPES, 'index.html': PAGE('c.name') });
     const e = await editor(root);
