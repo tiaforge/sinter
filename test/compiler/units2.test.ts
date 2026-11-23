@@ -2,7 +2,7 @@
 // that stay recursion points) come from a unit made once per build and placed before the second pass's walk, at numbers
 // from 0. The page is what it is compiled without the unit up to numbering (its canonical form); a page that ships no
 // definition places none and is byte for byte what it was. Each fallback is counted by its reason.
-import { afterEach, expect, test as base } from 'vitest';
+import { afterAll, afterEach, beforeAll, expect, test as base } from 'vitest';
 import { compile } from '../../src/compiler/index.js';
 import { UNIT_STATS } from '../../src/compiler/units.js';
 import { build, PAGES } from './units-pages.js';
@@ -10,6 +10,11 @@ import { PASS_STATS } from '../../src/compiler/compile.js';
 import type { CompileOptions } from '../../src/compiler/index.js';
 
 const env = process.env;
+// (stage 5, B1: off here, as in units.test.ts: B1 takes the page without units and not the one through them, and its
+// numbers there are the second pass's up to numbering; test/compiler/from-walk.test.ts compares B1 with the old route)
+const walk = env.SN_FROM_WALK;
+beforeAll(() => { env.SN_FROM_WALK = '0'; });
+afterAll(() => { if (walk === undefined) delete env.SN_FROM_WALK; else env.SN_FROM_WALK = walk; });
 afterEach(() => { delete env.SN_CANON; delete env.SN_UNITS2; });
 /** a page's output in its canonical numbering (`SN_CANON=1`) */
 const canon = (f: () => ReturnType<typeof build>) => { env.SN_CANON = '1'; try { return f(); } finally { delete env.SN_CANON; } };

@@ -5,7 +5,7 @@
 // each alone: the results must be the same, every field.
 import { afterEach, describe, expect, test } from 'vitest';
 import { compile, type CompileOptions, type CompileResult } from '../../src/compiler/index.js';
-import { decidedEntries, failsFirst } from '../../src/compiler/compile.js';
+import { caseCode, decidedEntries, failsFirst, frozenPlain } from '../../src/compiler/compile.js';
 
 const C: Record<string, string> = {
   'x-doc': '<template data-sn-props="{ doc: any }"><div class="doc"><template data-sn-for="n in doc.children"><sn-component use="{ text: \'x-text\', link: \'x-link\', em: \'x-em\' }[n.type]" data-sn-with="{ node: n }"></sn-component></template></div></template>',
@@ -92,6 +92,54 @@ describe('a kept template\'s program, read once for its entries (`evalProgram`)'
     for (let round = 0; round < 2; round++) list.map((e) => compile(html, { ...o, page: e, templates })).forEach((r, i) => expect(text(r)).toBe(text(alone[i]!)));
     expect(alone.map((r) => /<h1>(.*?)<\/h1>/.exec(r.html)?.[1])).toEqual(['THE ONE', 'THE THREE', 'THE TWO']);
     expect(alone[0]!.html).toContain('<li>PLAIN</li><li>E</li>');
+  });
+});
+
+describe('a helper\'s result frozen already (`frozenPlain`): shared, not copied', () => {
+  const deep = <T>(v: T): T => { if (v && typeof v === 'object') { for (const x of Object.values(v)) deep(x); Object.freeze(v); } return v; };
+  test('what a copy would be, as it is: frozen plain data at every depth, without a getter, a symbol, a hole, a cycle', () => {
+    expect(frozenPlain(deep({ a: [1, { b: 'x' }], c: null, d: undefined }))).toBe(true);
+    const shared = deep({ x: 1 });
+    expect(frozenPlain(deep({ a: shared, b: [shared, shared] }))).toBe(true);
+    expect(frozenPlain({ a: 1 })).toBe(false);
+    expect(frozenPlain(Object.freeze({ a: Object.freeze({ b: [1] }) }))).toBe(false);
+    expect(frozenPlain(deep(Object.defineProperty({}, 'g', { get: () => 1, enumerable: true })))).toBe(false);
+    expect(frozenPlain(deep(Object.defineProperty({ a: 1 }, 'h', { value: 2, enumerable: false })))).toBe(false);
+    expect(frozenPlain(deep({ [Symbol('s')]: 1 }))).toBe(false);
+    // eslint-disable-next-line no-sparse-arrays
+    expect(frozenPlain(deep([1, , 3]))).toBe(false);
+    expect(frozenPlain(deep(Object.assign([1, 2], { extra: 1 })))).toBe(false);
+    expect(frozenPlain(deep(Object.assign(Object.create(null), { a: 1 })))).toBe(false);
+    expect(frozenPlain(deep(new Date(0)))).toBe(false);
+    const cyc: { self?: unknown } = {};
+    cyc.self = cyc;
+    expect(frozenPlain(Object.freeze(cyc))).toBe(false);
+  });
+  test('a helper that hands out one frozen tree per argument (`memo()`): each entry as with a helper that makes a new one', async () => {
+    const { memo } = await import('../../src/memo.js');
+    const make = (s: string) => ({ type: 'root', children: s.split(' ').map((w) => ({ type: 'text', value: w })) });
+    const html = template('<main><ul><template data-sn-for="n in words(d.title).children"><li data-sn-text="n.value"></li></template></ul></main>');
+    const run = (words: (s: string) => unknown) => {
+      const o = options({ helpers: { module: '/h.js', names: ['words'], namespaces: {} }, helperValues: { words }, helperFold: new Map([['words', { fold: true }]]) });
+      const list = compile(html, o).pages!.entries;
+      const templates = new Map();
+      return [0, 1].flatMap(() => list.map((e) => text(compile(html, { ...o, page: e, templates }))));
+    };
+    const fresh = run(make), shared = run(memo(make));
+    expect(shared).toEqual(fresh);
+    expect(fresh[0]).toContain('<li>The</li><li>one</li>');
+  });
+});
+
+describe('a case\'s props as code (`caseCode`)', () => {
+  test('one string per case for as long as its props are the same; another case, or changed props, its own', () => {
+    const a = { props: '{ node: $.$p1.n }' }, b = { props: '{ node: $.$p1.n }' };
+    const first = caseCode(a);
+    expect(first).toBe('($) => ({ node: $.$p1.n })');
+    expect(caseCode(a)).toBe(first);
+    expect(caseCode(b)).toBe(first);
+    a.props = '{ node: $.$p2.n }';
+    expect(caseCode(a)).toBe('($) => ({ node: $.$p2.n })');
   });
 });
 

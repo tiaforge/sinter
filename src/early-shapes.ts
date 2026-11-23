@@ -4,7 +4,8 @@
 // out. A group is built once with a placeholder in each lifted place, of the same kind and length as the pages'
 // values, and each page gets the built text with its own values written over the placeholders. The sharing checks
 // itself: the first pages of a group are also built from their own source and must come out the same, else the
-// whole group is built page by page (`src/vite.ts`, `generateBundle`).
+// whole group is built page by page (`src/vite.ts`, `generateBundle`). Replaced by `early-opaque.ts` (the default,
+// provably correct for every value); this one runs with `SN_EARLY_SHAPES=kinds` until it is deleted.
 import { tokenizer, tokTypes, type Token } from 'acorn';
 
 /** a literal that may be lifted: where it is in the source, its value, and its kind (part of the group's key) */

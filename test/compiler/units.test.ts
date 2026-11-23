@@ -2,9 +2,16 @@
 // `units`) and placed on every page that needs them. Each page must be what it is compiled without units, whichever page
 // made the unit and in whatever order the pages come: byte for byte, but where its second pass placed a unit of its own
 // (a page whose definitions ship, stage5-a1.md), whose numbers come first: there up to numbering (units2.test.ts).
-import { expect, test } from 'vitest';
+import { afterAll, beforeAll, expect, test } from 'vitest';
 import { UNIT_STATS } from '../../src/compiler/units.js';
 import { build, PAGES } from './units-pages.js';
+
+// (stage 5, B1, takes a page's second pass from its first pass's walk where no unit is placed, and numbers it as the
+// old route would not where a block's walk is dropped: the comparison of pages with and without units here is the
+// units', with B1 off; test/compiler/from-walk.test.ts compares B1 with the old route)
+const walk = process.env.SN_FROM_WALK;
+beforeAll(() => { process.env.SN_FROM_WALK = '0'; });
+afterAll(() => { if (walk === undefined) delete process.env.SN_FROM_WALK; else process.env.SN_FROM_WALK = walk; });
 
 /** the page through `units` as compiled without them: byte for byte, or in canonical numbering where its second pass placed a unit */
 function same(name: string, body: string, units: Map<string, unknown>, check: boolean, what: string) {

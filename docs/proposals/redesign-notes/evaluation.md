@@ -178,3 +178,120 @@ ms a call, p25 / median (5 rounds blog, 3 others), 2 → 3: blog static `decideF
 mean over the build's pages 7.0 → 7.2: within the noise; under the profiler `prerender`'s own time 0.6 → 0.2 ms a
 page); blog live 4.51 / 5.99 → 4.75 / 6.87 (noise); mail file pass-1 `prerender` 19.1 / 20.0 → 15.9 / 19.6; mail API
 pass-1 `settle` 11.3 / 12.0 → 8.0 / 10.6 (mean 16.2 → 12.8).
+
+### 4. A helper's result that is frozen already, shared (`frozenPlain`)
+
+A folded helper call ran the helper twice, compared the two results' `JSON.stringify`, and handed out
+`deepFreeze(structuredClone(result))`. The blog's `md.parse` is `memo()`'s (sinter-markdown memoizes its trees with
+sinter's `memo`, which deep-freezes them): its second call returns the first's object, frozen. floor.md asked for a
+mark the helper module and the compiler share for that; none is needed. When the second call returns the same object
+and the compiler's own walk finds it frozen plain data at every depth (`frozenPlain`: every object frozen, a plain
+object or a dense array of the compiler's realm, every own property a string key's enumerable data property, no
+cycle), the copy would be the same value as the object itself, the object cannot change, and the purity check's two
+`JSON.stringify` are of one immutable object: the result is shared as it is, marked frozen at every depth as
+`deepFreeze` marks a copy. The walk reads each property's descriptor, which `structuredClone` would not catch (a
+getter), and is what it costs: on the blog about 60% of the copy and freeze it replaces, plus the two `stringify`. A
+result shared by two calls (two argument lists that a library maps to one cached tree) is named in the build's
+cross-check log by the first (`refs`). A helper that returns a new object, or one not frozen, is copied as before
+(sinter-mail's `mail.parse`). Not taken: recognising `memo()`'s wrapper (`MEMO_OF`) instead of walking: sinter-markdown's
+`parse` calls a memoized function inside, it is not one itself, and `memo()` passes through uncached results that a
+function could hand out twice.
+
+Tests: `frozenPlain`'s cases (shared parts, a getter, a non-enumerable, a symbol, a hole, an array's extra key, a null
+prototype, a `Date`, a cycle); a template whose rows come from a `memo()` helper the same as from one that makes a new
+tree per call, two rounds through one kept template.
+
+ms a call, p25 / median, 3 → 4 (5 rounds blog, 3 others): blog static `decideFor` 4.74 / 6.55 → 4.02 / 5.89 (mean
+7.4 → 6.8); static-files pass-1 `settle` 7.65 / 8.03 → 5.88 / 7.96 (mean 9.6 → 8.8); mail file unchanged (its
+`mail.parse` result is not frozen; 17.1 / 22.0 → 20.5 / 25.5 and the mean 27.0 → 28.5 are the noise of three rounds:
+`frozenPlain` takes 1 of its 484 profile ticks).
+
+### 5. A page with a unit: the codes' table without copies
+
+On a page of its own with a build's unit placed (sinter-mail's pages), the evaluation's setup copied the unit's table
+of 4,000 functions into the page's own map (`fnOf.set` for each), and made each of the unit's choice cases' props code
+anew (`($) => (…)`, thousands of new strings a page, each hashed again for the `Set` of codes and compiled again in the
+page's own `new Function`, as the unit's table holds only its numbered functions). Now the page looks a code up in the
+unit's table and then in its own (`FnTable`; the two are apart), a case's props code is one string per case for as long
+as its props are the same (`caseCode`, by the case object: a unit's cases are every page's), and the codes' `Set` is
+filled without the intermediate arrays.
+
+Tests: `caseCode` (the same string per case, another for changed props).
+
+ms a call, p25 / median, 4 → 5 (4 rounds): mail API pass-1 `settle` 8.59 / 10.95 → 7.48 / 7.79; mail file 19.1 / 21.8
+→ 14.9 / 18.9 (`compile()` 40.2 / 46.8 → 34.3 / 41.8); blog static-files unchanged within the noise (6.62 / 7.99 →
+7.48 / 8.00).
+
+## Where the evaluation stands (`4e6dc10`)
+
+A/B against `3e2f2d8` (the integration branch's base of changes 2 to 5), CPU clock, the evaluation's phase (`decideFor`
+for a template's entries, pass-1 `settle` for a page of its own): ms a call p25 / median, and the mean over the build's
+pages (5 rounds of the blog template, 3 of every other app; load 4 to 8):
+
+| app | p25 / median, base | p25 / median, now | mean a page, base → now | `compile()` mean, base → now | GC in compiles, base → now |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| blog static | 7.34 / 10.02 | 4.96 / 6.52 | 10.7 → 7.7 | 16.9 → 12.8 | 4.0 → 3.1 |
+| blog live | 6.72 / 8.23 | 3.88 / 5.98 | 9.9 → 7.5 | 16.8 → 15.4 | 4.5 → 3.3 |
+| blog static-files | 7.55 / 8.43 | 6.32 / 7.96 | 10.3 → 8.0 | 18.8 → 16.2 | 4.6 → 3.4 |
+| blog live-files | 7.90 / 9.29 | 7.06 / 8.00 | 10.0 → 9.0 | 20.1 → 18.8 | 4.1 → 3.2 |
+| blog static, type check | 6.76 / 8.01 | 3.81 / 5.26 | 9.2 → 5.7 | 14.1 → 10.7 | 2.6 → 1.8 |
+| sinter-mail file email (12 pages) | 27.1 / 32.5 | 16.0 / 18.4 | 38.0 → 25.9 | 134 → 123 | 17.8 → 15.3 |
+| sinter-mail 2,012-element email | 310 / 345 | 234 / 253 | 355 → 281 | 489 → 421 | 138 → 113 |
+| sinter-mail API (12 pages) | 10.6 / 12.7 | 8.0 / 10.2 | 17.9 → 14.1 | 116 → 116 | 21.0 → 18.4 |
+
+(The means include each build's first pages, where V8 has not compiled the compiler yet, and on sinter-mail the first
+page's unit; the p25 is the steady page.) Whole builds, `run-sinter.mjs`, 3 rounds A/B, medians: static 3.97 → 3.80 s,
+live 5.74 → 5.34 s, static-files 4.87 → 4.95 s; the load (6 to 8) moved single rounds by ±0.5 s, so these say no more
+than "about 0.2 to 0.4 s off the template builds".
+
+Byte for byte at every change: the five benchmark apps and the four examples against the base dist (`ident.mjs`),
+sinter-mail's 16 pages (`mail-audit`, its 42 files the same both ways and the same as the base's build),
+`render-audit` (also `--switch SN_UNITS`), `pass-audit`.
+
+## What is left in the evaluation, and what it would take (for stage 6)
+
+A blog template page's `decideFor`, ~4 to 5 ms steady (under the profiler 6.1: the share of each):
+
+- **The page's `md.parse` call, ~1.8**: the library's own parse of the post (sinter-markdown's tokenizer and tree), once
+  per entry; plus `frozenPlain`'s walk of its result 0.5 and `foldLog`'s `resultKey` 0.1. Per page by nature. What
+  could go: the walk, if the compiler and the helper module shared a mark of `memo()`'s frozen trees (floor.md's
+  "mark shared between the two module instances": `memo` would have to register its results in a registry both
+  instances reach, `globalThis[Symbol.for(…)]`, and that is a change to the shipped `memo`, whose bytes are in pages
+  that use it in the browser).
+- **Rendering, ~1.9** (`fill` 0.65, `clone` 0.5, `render`, `replace`, `writeFirstPaint`): per row, a clone of the
+  template's content node by node and a fill that looks each binding's value up in the row's record (`RowRec`, a `Map`
+  by binding) and writes it. What it would take: a per-template render plan, made once per program: the clone as a
+  flat list of the nodes to make and the attribute lists to copy, the paints as positions in that list (the
+  template's paints are a known list), the record an array by binding position instead of a `Map`; static subtrees
+  of a template (no binding below them) cloned without a walk of their source.
+- **The worklist's walk, ~1.7** (`nodesOf`, `rowsOf`, `expandCase`, a case's props `{ node }` copied and frozen per
+  instance by `frozenData` 0.2, `plainData` of the lists 0.3): what a row asks of its template is read once now;
+  what is left is the evaluation itself, one compiled function call per binding per row through a proxy scope. What
+  it would take: a template's bindings compiled into one function per template (its paints' values as one array from
+  the row's item: one call and one scope a row, not one per binding), which is the unit's program of stage 6
+  ("rendering from units evaluates compiled closures"), and records written straight into that array.
+
+A sinter-mail page with the 2,012-element email: 234 ms steady, all of it the same three parts at 131,000 bindings (59
+an element, 55 of them a style property, most `null`): the per-binding work above is the whole cost there, and a
+template function per component (one call computing the 55 styles) is where the order of magnitude is. Besides:
+`fileConstants` copies and freezes the email's tree in each pass (~12 ms a pass): a build-wide cache of a `file:`
+value's frozen form, keyed by the file's text, would make it once a build (not done: the value's identity is the
+page's own today, and its uses elsewhere in the compile need checking first).
+
+A sinter-mail API page: ~8 ms, nearly all of it the setup over the unit's 355 templates' candidates (collecting them,
+`fixed` over each, `unitTable`'s per-page map of the codes it uses). What it would take: the unit's part of the
+candidate list kept on the unit (it depends on the page only through `written` and the page's `file:` resources, which
+would be its key), as `unitTable` keeps the unit's compiled functions; or, simpler, deciding which candidates exist from
+the unit's summary (stage 6).
+
+## A rule that looks wrong (recorded, not changed)
+
+`prerender`'s `known` excludes from the persisted state the path of the model being evaluated (`own`, set per
+candidate in `prerender`'s loop over its candidates). The worklist's `finish` walk (choices at the roots, loops in
+decided branches) runs after that loop, with `own` left at the last candidate's value: if the last candidate is a
+persisted model, a row binding over that model's own state field counts as known in `finish`'s walk and not in
+`unroll`'s. It does not show in any app or test; it is why `bindPlan` asks `known` per row for a state dependency.
+
+Checks on `4e6dc10`: test/compiler 1,117 passed plain and under `SN_RENDER_AUDIT`, `SN_ONE_PASS_AUDIT` and
+`SN_LINK_AUDIT`; under `SN_UNITS_AUDIT` the 62 tests that count compiles, links, splices or routes fail as at the
+merge, no page differs; test/vite and test/check 361 passed.

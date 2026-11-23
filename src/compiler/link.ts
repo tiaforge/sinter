@@ -106,6 +106,8 @@ export const LINK_FIELDS: Record<string, { kinds: string[]; how: 'table' | 'weak
   fnIndex: { kinds: ['Map'], how: 'replayed' },
   fns: { kinds: ['Array'], how: 'replayed' },
   fnUses: { kinds: ['Array'], how: 'replayed' },
+  // (B1: recorded at the page's level only, never inside a definition: stage5-b1.md)
+  fw: { kinds: ['empty', 'object'], how: 'fixed' },
   foldedFields: { kinds: ['Array'], how: 'table' },
   foldedUrl: { kinds: ['WeakSet'], how: 'weak' },
   folding: { kinds: ['object', 'empty'], how: 'fixed' },
