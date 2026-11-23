@@ -60,7 +60,8 @@ async function place(name, app, dir, checkout) {
     const src = app.outside ? app.root : join(REPO, app.root);
     cpSync(src, dir, { recursive: true, filter: (f) => !/[\\/](node_modules|dist|\.git)$/.test(f) });
     if (existsSync(join(src, 'node_modules'))) for (const e of readdirSync(join(src, 'node_modules'))) {
-      if (e === '@tiaforge-ui') continue;
+      if (e === '@tiaforge-ui' || e === '.cache' || e === '.vite') continue;
+      mkdirSync(join(dir, 'node_modules'), { recursive: true });
       symlinkSync(join(src, 'node_modules', e), join(dir, 'node_modules', e));
     }
   }
