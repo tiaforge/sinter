@@ -608,3 +608,17 @@ decision of their own (stage 7). A step that can stay byte-identical does.
   a layout, the blog's template entries go through the kept expansion. That session ran out of room and is
   archived; a new one continues from its log: template entries by a copy of the kept walk restricted to what an
   entry keeps (the whole copy costs 7 ms against 3 saved), pages with a unit, the folds.
+- 2026-11-24, 00:20 UTC: **the Speculation Rules are folded, merged** (`redesign-notes/pipeline-2.md`,
+  `SN_RULES_FOLD=0` gives the old output): from 16 plain paths in a rule, one URL pattern whose regular-expression
+  group matches exactly the listed paths (a trie, branches with the same rest as character classes), exact for
+  every URL and the same JSON on every page of a group, so the one CSP hash stays. Not folded, listed as before:
+  percent-encoded, non-ASCII and syntax characters, segments that start with a dot, `:param` patterns, lists under
+  16 (template apps unchanged). Rejected: a page listing only the pages it links to (a hash per page breaks CSP by
+  hash). The session's evidence: Chromium's preload candidates the same for the list and the pattern over page
+  files with prefetch-off pages, public files, near misses, script-added links, a `localePrefix` app, the real
+  outputs of five apps, and 65 fuzzed sets (2,495 candidates). At 1,000 page files a page goes from 58.2 to 11.4 kB
+  (gzip 6.6 to 1.3), the build outside the compiler from 10.3 to 6.3 s, the whole build from 19.4 to 15.1 s. Checked
+  on the coordinating machine at 100 page files: a post 15,712 to 11,277 bytes (gzip 1,754 to 1,258), its rules
+  script 4,683 to 248 bytes, the page identical apart from that script; 1,538 tests of test/compiler, test/vite,
+  test/check pass. Next from that session: the fold check's cache. Stage 6 has four changes on its branch (a row's
+  values in one call per template, its record an array; styles written at once; a `file:` value frozen once).
