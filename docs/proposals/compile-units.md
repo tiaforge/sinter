@@ -221,15 +221,6 @@ Found by the research, not changed:
   more; the render audit compares dev without them (`withoutEmptySlots`). The old route (`inlineInstance`, the row
   lets) is now needed only for per-copy diagnostics, rows that keep a handler, and the shapes the renderer leaves
   (`redesign-notes/stage2-coverage.md`, "Dev renders").
-- **Early scripts per shape: sound by check, not by proof** (`redesign-notes/early-script-shapes.md`). Pages whose
-  early sources differ only in literals of one kind and length share one build, the literals substituted
-  afterwards; the first two pages of a group are also built alone and compared. A fold the minifier reaches
-  indirectly and whose answer is the same for the placeholder and those two pages but not for a later one would
-  slip through (`includes("x")`: false for `post-1` and `post-2`, true for `post-x`). The compiler writes a folded
-  value inside a function of the table, which the minifier does not inline, but a user's expression over a folded
-  value (`post.slug.includes('x')`) in a request the early script makes could reach such a fold. `SN_EARLY_SHAPES_AUDIT=1` builds every page's own
-  and compares; `SN_EARLY_SHAPES=0` turns sharing off. To decide: keep the two-page check, check every page of a
-  group whose literals are not all drawn from a safe set, or run the audit in CI.
 - **A build with only type-check warnings passes** since the fix that counts errors and warnings apart; it failed
   before. Under `strict` it still fails.
 - **Props as a run-time frame.** Binding an inlined live use's props at run time, as shared definitions do, would
@@ -262,9 +253,9 @@ timings were not usable). A cloud session pushes to a branch of its own:
 | Workstream | Where | Branch | Log |
 | --- | --- | --- | --- |
 | stage 5, A1 then A2: definitions that ship, from units | cloud, `session_01AjKzdxPCdJ5nbeXvwkXoP2` | `redesign/stage5-a1` | `stage5-a1.md` |
-| early scripts per shape, the provable variant | cloud, `session_01AjKzdxPErYYZv1d2K1hMsD` | `redesign/early-script-shapes` | `early-script-shapes.md` |
+| the build outside the compiler, round 2 (the fixed part; a static page's cost) | cloud, `session_01AjKzdyy3dA5FDC6jCiY3dH` | `redesign/pipeline-2` | `pipeline-2.md` |
 | stage 5, B1: the second pass from the first's walk | cloud, `session_01AjKzdxkDukbMzASz1qaYeA` | `redesign/stage5-b1` | `stage5-b1.md` |
-| the evaluation's cost | local agent | merged as it lands | `evaluation.md` |
+| stage 6: the evaluation, one function per template; a render plan per template | cloud, `session_01AjKzdxcYo9FzUYyj9yNBZn` | `redesign/stage6-eval` | `stage6-eval.md` |
 
 **The bar, as the owner set it on 2026-11-23:** the output need not be byte for byte today's where only numbering
 and generated names differ (`data-sn` ids, anchor numbers, template, state and function numbers, renamed loop
@@ -511,3 +502,50 @@ decision of their own (stage 7). A step that can stay byte-identical does.
   result from the first pass's walk, today's ids kept: page-compile 451 to 359 ms; none of the nine apps routed
   yet: template entries next; a page with a unit placed needs A1's copy); it went back to its session to merge the
   integration branch. Early scripts: the session was asked for a variant that can be proven (opaque placeholders).
+- 2026-11-23, 21:45 UTC: A1 is built on its branch (`redesign-notes/stage5-a1.md`): a second pass that ships
+  definitions places a unit of its own before its walk; sinter-mail's components route, a later page 108 to 72 ms
+  (142 to 88 with TypeScript); sinter-mail's 42 files canonically identical, every other app byte for byte, gzip 17 B
+  lighter in total; it fixed three leaks of first-pass units its verifier found. It merges the integration branch
+  next. A session started on what a build costs outside the compiler (the fixed 1.1 s; a static page's 6 to 7 ms:
+  Vite's HTML step, the cross check that runs every helper call again), now as large a share as the compiler.
+- 2026-11-23, 22:00 UTC: **the full suite passes on the integration branch: 2,934 tests** (306 files), after check
+  data once, a page described without a walk and the three evaluation changes. Two more evaluation changes merged
+  after it (a frozen helper result shared; a page with a unit looks its codes up in the unit's table): 1,496 tests
+  of test/compiler, test/vite, test/check pass.
+- 2026-11-23, 22:10 UTC: **one consistent table on a quiet machine** (the page-walked-once session: 4 cores, Node
+  22.23.5, idle, medians of 5, 100 posts, at 6a3283d; `redesign-notes/page-walked-once.md`): static 2.00 s, with the
+  type check 2.14 s, live 2.39 s, a page file per post 2.40 s, live 2.96 s; Astro 7.4, three runs: 1.73 s. This
+  morning: 13.6 to 16.8 s. A caution on the comparison: `run-sinter.mjs` reports the build's time inside its
+  process, Astro's figure is a whole process; on the coordinating machine the whole process is about 0.2 s more than
+  the in-process figure. The pipeline-2 session measures both like for like. So the static blog is 0.3 to 0.5 s
+  behind Astro at 100 posts.
+- 2026-11-23, 22:20 UTC: **early scripts per shape, proven and merged** (`redesign-notes/early-script-shapes.md`,
+  "Proof"; the owner asked whether the sharing could be proven safe). The placeholder is now a free identifier the
+  minifier knows nothing about, replaced in the built output by each page's literal: a correct minifier preserves
+  the program for every value of a name it cannot know, the generated source only reads the name, and a literal put
+  for a read-only free name is the program with that binding. The session checked the argument and closed the holes
+  it found: Vite steps that read literal values (`import()`, `import.meta.glob`, `new URL(…, import.meta.url)`,
+  workers, `require`: no lifting in such a program), `delete "x"`, directives and keys (not lifted), a string
+  statement that could become a directive (parenthesized), `define` keys, `1.x`; the output is checked per shape
+  (every occurrence of a name a reference, none written or declared, no `with`). No page of any app, of the
+  suite's apps or of sinter-mail differs from its own build (1,000 benchmark pages audited); only a test's
+  deliberate folds differ, by 3 to 19 bytes, with the same behaviour. Grouping by kind and length is gone, so 100
+  or 400 live posts need 3 nested builds (7 and 10 before, 101 and 401 without sharing); `generateBundle` 70 ms at
+  100 posts. `SN_EARLY_SHAPES=kinds` keeps the earlier scheme, `0` turns sharing off. 1,500 tests of test/compiler,
+  test/vite, test/check pass after the merge.
+- 2026-11-23, 22:35 UTC: **the evaluation's first round is done and merged** (`redesign-notes/evaluation.md`; five
+  changes, byte for byte): CPU ms a page, base and now, the evaluation's mean and `compile()`'s: the blog 10.7 to 7.7
+  and 16.9 to 12.8; with the type check 9.2 to 5.7 and 14.1 to 10.7; sinter-mail's file email 38.0 to 25.9; its
+  2,012-element email 355 to 281; its API route 17.9 to 14.1. Garbage inside compiles 20 to 30% less. What is left
+  there is one compiled-function call per binding per row through a proxy scope (131,000 bindings on the big email),
+  rendering per row, and the library's own parse; a cloud session takes it as stage 6's evaluation: one function per
+  template returning a row's values and decisions, a render plan per template. A rule it recorded as wrong goes to
+  that session to fix: `known`'s exclusion of the current model's persisted path leaks into the worklist's last
+  walk, so whether a persisted model's own field counts as known depends on where it is read (in no app or test).
+  No agent is left on the coordinating machine; every workstream is a cloud session now.
+- 2026-11-23, 22:50 UTC: **like for like on the coordinating machine, now idle** (load under 2; c4fa7e4; five runs
+  each, medians; 100 posts; the whole process from start to exit, and in brackets the build's time inside it):
+  static 2.65 s (2.49), with the type check 2.71 s (2.57), live 3.19 s (2.97), a page file per post 3.25 s (3.08),
+  live 4.24 s (4.04); **Astro 7.4 cold, whole process: 2.05 s** (1.98 to 2.40). This machine is slower than the
+  cloud sessions' (Astro 1.73 s there). So the static blog is 0.6 s behind Astro here, 1.29 times its time; the
+  process outside the build is about 0.17 s of that.
