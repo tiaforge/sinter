@@ -143,6 +143,7 @@ On the files variant 1,304 `definition` calls a page and 38 compiled, as without
 |---|---:|---:|
 | blog, a page file per post, check on: CPU (wall) | 12.8 s (18.3 s) | 10.7 s (14.2 s) |
 | sinter-mail, 12 API pages with TypeScript: warm build (CPU of cold and warm) | 9.7 s (19.4 s) | 7.8 s (16.0 s) |
+
 What is left of the check in the compile: the two pages that compile and record the library (on sinter-mail the
 recording is 0.7 s more with check data), and the check data each later page replays (12 ms a page on sinter-mail).
 
@@ -203,6 +204,17 @@ Mostly, and the shared check does not depend on it: it compares the text TypeScr
   can report), so the second pass's diagnostics would change. What it costs there is small once definitions link
   (the files variant's second pass compiles a page's own few expressions).
 
+## Checks
+
+- Each commit's own state, in a copy of the worktree: the whole suite (2,840 tests at the start, 2,844 with
+  `check-shared.test.ts`), green but for tests over their deadline at loads of 13 to 25, which pass alone: two
+  `checkPage` tests with a tsconfig in `test/check/check.test.ts` (3 to 4 s each at the start too), once
+  `test/lsp/lsp.test.ts`'s 10 s wait for diagnostics, once `test/vite/compile-hints.test.ts`.
+- `SN_LINK_AUDIT=1`, the whole suite, on change 3: green once the audit compared a template's check unit fairly.
+- After merging `ccr-9ebf49d5-gpdej8` (with the stage 2 coverage and the stage 4 spike): 2,851 passed, one over 5 s
+  at load 25; the corpus the reference; `scripts/render-audit.mjs` over the four examples (which type-check) the
+  same both ways.
+
 ## The diagnostics corpus
 
 `scratchpad/typecheck-agent/corpus/` (`gen.mjs` writes the apps, `run.mjs <out>` builds each and runs `sinter
@@ -220,6 +232,16 @@ check`, and diffs the clean app's dist with the check on and off). Four apps on 
 The reference is the output of `4c3e26c`'s dist. After each change the whole output (the build's error text, the
 CLI's stdout, stderr and exit code, the clean dist) is byte for byte the reference.
 
-Found, not changed: a prop given as a number literal and read with a member (`n.toFixed()` with `n: 1`) becomes
-`1.toFixed()` in the page module, a syntax error Rolldown reports (`Invalid characters after number`) instead of
-the check's diagnostics; the corpus passes such props from state.
+Found, not changed (today's output, recorded):
+
+- A prop given as a number literal and read with a member (`n.toFixed()` with `n: 1`) becomes `1.toFixed()` in the
+  page module, a syntax error Rolldown reports (`Invalid characters after number`) instead of the check's
+  diagnostics; the corpus passes such props from state.
+- A broken expression on any page (app b) silences every type error of every page: `tsc` reports no semantic error
+  in a program with a syntax error. The build stops at the compile error first; `sinter check` prints the compile
+  error and no SN208.
+- A recursive component used on a page both inline and through its shared definition reports an error in its markup
+  twice on that page, once per copy (`(included from deep.html:6)` and `(included from deep.html:1)`, the
+  definition's chain being the page's first line).
+- The build counts warnings among its type errors: app a fails with `sinter check: 50 type error(s)` for 49 errors
+  and an SN538 warning (`sinter check` says 49 errors, 1 warning).
