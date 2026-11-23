@@ -14,6 +14,13 @@ const C: Record<string, string> = {
   'x-doc': '<template data-sn-props="{ doc: any; link: Slot<{ url: string }> }"><div><template data-sn-for="n in doc.children"><sn-component use="{ text: \'x-text\', link: \'x-link\' }[n.type]" data-sn-with="{ node: n }"></sn-component></template></div></template>',
   'x-text': '<template data-sn-props="{ node: any }"><span data-sn-text="node.value"></span></template>',
   'x-pic': '<template data-sn-props="{ src: string; w: number }"><figure><img alt="" class="p" data-sn-attr="{ src: src, title: \'w\' + w }" data-sn-class="{ wide: w > 1 }" data-sn-style="{ opacity: w / 2 }"><img alt="still" src="./img/a.jpg"></figure></template>',
+  // scoped styles: a card with slot content, a recursive tree through it, a dispatch whose cases are styled (one whose root is another component)
+  's-card': '<template data-sn-props="{ t: string }"><article class="card" data-sn-attr="{ title: t }"><h3 data-sn-text="t"></h3><slot></slot></article></template><style>.card { color: red } h3 { margin: 0 }</style>',
+  's-tree': '<template data-sn-props="{ node: any }"><li class="n"><s-card data-sn-with="{ t: node.label }"><em data-sn-text="node.label"></em></s-card><ul><template data-sn-for="k in node.kids"><s-tree data-sn-with="{ node: k }"></s-tree></template></ul></li></template><style>.n { padding: 0 }</style>',
+  's-doc': '<template data-sn-props="{ doc: any }"><div><template data-sn-for="n in doc.children"><sn-component use="{ text: \'s-text\', link: \'s-wrap\', list: \'s-list\' }[n.type]" data-sn-with="{ node: n }"></sn-component></template></div></template>',
+  's-text': '<template data-sn-props="{ node: any }"><span class="t" data-sn-text="node.value"></span></template><style>.t { color: blue }</style>',
+  's-wrap': '<template data-sn-props="{ node: any }"><s-text data-sn-with="{ node: { value: node.url } }"></s-text></template><style>.w { color: green }</style>',
+  's-list': '<template data-sn-props="{ node: any }"><ul><template data-sn-for="c in node.items"><s-card data-sn-with="{ t: c }"><i data-sn-text="c"></i></s-card></template></ul></template>',
   'x-link': '<template data-sn-props="{ node: any }"><slot name="link" data-sn-with="{ url: node.url }"><a data-sn-attr="{ href: node.url }"><template data-sn-for="n in node.children"><sn-component use="{ text: \'x-text\', link: \'x-link\' }[n.type]" data-sn-with="{ node: n }"></sn-component></template></a></slot></template>',
 };
 const DOC = { children: [{ type: 'text', value: 'see ' }, { type: 'link', url: '/a', children: [{ type: 'text', value: 'a' }] }, { type: 'text', value: '!' }] };
@@ -175,6 +182,37 @@ describe('rendered rows: the same page as compiled rows, without compiling them'
       const r = both('<div class="grid"><template data-sn-for="x in [\'img/a.jpg\', \'img/a.jpg\']"><figure><img alt="" data-sn-attr="{ src: x }" data-sn-class="{ wide: false }"></figure></template></div>', { images: { ...host, styles: [{ css: sheet, file: '/p/a.css' }] }, ...css(sheet) } as Partial<CompileOptions>);
       expect(r.spliced).toBe(1);
       expect(r.body).toContain('sizes=');
+    });
+  });
+
+  describe('scoped styles: the marks the old route writes, and the ones it does not', () => {
+    test('a styled component used in the rows: no marks on them (today\'s output: the rows copy the template\'s `Use`)', () => {
+      const r = both('<template data-sn-for="x in [\'a\', \'b\']"><s-card data-sn-with="{ t: x }"><b data-sn-text="x"></b></s-card></template><s-card data-sn-with="{ t: \'z\' }"><b>z</b></s-card>');
+      expect(r.spliced).toBe(1);
+      expect(r.body).toContain('<article class="card" title="a"><h3>a</h3><b>a</b></article>');
+      expect(r.body).toContain('<article class="card" data-sn-c="s-card" title="z">');
+    });
+
+    test('a recursive styled tree: each instance marked, its slot content and the cards in its rows as the old route has them', () => {
+      const tree = "{ label: 'a', kids: [{ label: 'b', kids: [{ label: 'c', kids: [] }] }, { label: 'd', kids: [] }] }";
+      const r = both(`<ul><template data-sn-for="t in [${tree}]"><s-tree data-sn-with="{ node: t }"></s-tree></template></ul>`);
+      expect(r.spliced).toBe(1);
+      expect(r.why).toEqual([]);
+      expect(r.body).toContain('data-sn-c="s-tree"');
+    });
+
+    test('a dispatch over styled cases, one whose root is another component (`data-sn-r`), on a page with stylesheets and a minifier', () => {
+      const r = both('<s-doc data-sn-with="{ doc }"></s-doc>', { styles: [{ css: '.t { display: block }', file: '/p/a.css' }], minify: true } as never);
+      expect(r.spliced).toBe(1);
+      expect(r.why).toEqual([]);
+      expect(r.body).toContain('data-sn-r="s-wrap"');
+    });
+
+    test('a styled component in a loop inside an instance: unmarked, as the loop copies it; the instance marked', () => {
+      const r = both('<s-doc data-sn-with="{ doc: { children: [{ type: \'list\', items: [\'p\', \'q\'] }, { type: \'text\', value: \'x\' }] } }"></s-doc>');
+      expect(r.spliced).toBe(1);
+      expect(r.why).toEqual([]);
+      expect(r.body).toContain('<ul data-sn-c="s-list"><article class="card" title="p">');
     });
   });
 
