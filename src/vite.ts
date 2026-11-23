@@ -1750,15 +1750,25 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
         const names = [...new Set(imported.flat())].filter((n) => !PAGE_OWN.has(n) || imported.every((x) => x.includes(n))).sort();
         const sharedKeys = new Set<string>();
         sharedHead = { fileName: '', ...await bundleEarly(`${app}import { ${names.join(', ')} } from '${EARLY_PKG}';\nglobalThis[Symbol.for(${JSON.stringify(RT_KEY)})] = { ${names.join(', ')} };\n`, sharedKeys, null, 'every page') };
+        // pages whose early source is the same text (on a blog, every post's) share one build: its output and the content
+        // keys its modules call depend on that source and the runtime names alone (a nested `vite build` is ~15 ms)
+        const built = new Map<string, { out: Awaited<ReturnType<typeof bundleEarly>>; keys: Set<string> }>();
         for (const [rel, code] of pages) {
-          const keys = new Set(sharedKeys);
-          earlyKeys.set(rel, keys);
           // the shared modules this early file imports and the page's bundle reaches: their namespaces on the global
           const reach = shared.size ? pageModules(bundle, rel) : new Set<string>();
           const regs = [...earlyImports(code).keys()].map((spec) => ({ spec, file: specFile(spec) })).filter((x): x is { spec: string; file: string } => !!x.file && shared.has(x.file) && reach.has(x.file));
           if (regs.length) registered.set(rel, new Set(regs.map((x) => x.file)));
-          const rt = runtimeNames(code);
-          earlyFiles.set(rel, await bundleEarly(registration(regs) + code, keys, rt.filter((n) => names.includes(n)), rel, rt.filter((n) => !names.includes(n))));
+          const rt = runtimeNames(code), src = registration(regs) + code, take = rt.filter((n) => names.includes(n)), own = rt.filter((n) => !names.includes(n));
+          const id = JSON.stringify([src, take, own]);
+          let b = built.get(id);
+          if (!b) {
+            const keys = new Set(sharedKeys);
+            b = { out: await bundleEarly(src, keys, take, rel, own), keys };
+            built.set(id, b);
+          }
+          earlyKeys.set(rel, new Set(b.keys));
+          // (each page its own record: the shared modules' keys are filled into it below)
+          earlyFiles.set(rel, { ...b.out });
         }
       }
       // each shared module's key, from its own copy's chunk: in the stubs and in the early files that register it
