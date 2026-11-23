@@ -48,6 +48,18 @@ function both(html: string, extra: Partial<CompileOptions> = {}) {
 }
 
 describe('the second pass from the first pass\'s walk', () => {
+  test('a build-time resource\'s values the second pass would fold into code, in code that does not ship', () => {
+    // (the page ships no code: every read of `post` is a constant the build writes, whatever the second pass would fold)
+    const r = both(page('<sn-resource name="post" src="file:/content/post.json"></sn-resource><h1 data-sn-text="post.title"></h1><template data-sn-if="!post.draft"><p data-sn-text="post.tags.join(\', \')"></p></template>'));
+    expect(r).toMatchObject({ taken: 1, why: [] });
+    expect(r.on.html).toBe(r.off.html);
+  });
+
+  test('a build-time resource read by live code only where it folds nothing (a list), the rest constant', () => {
+    const r = both(page('<sn-resource name="post" src="file:/content/post.json"></sn-resource><h1 data-sn-text="post.title"></h1><div data-sn-state="{ n: 0 }"><button data-sn-on-click="n++" data-sn-text="post.tags.length + n"></button></div><template data-sn-if="!post.draft"><b>live</b></template>'));
+    expect(r).toMatchObject({ taken: 1, why: [] });
+  });
+
   test('a branch over state nothing writes, kept, with bindings that are constants and live ones', () => {
     const r = both(page('<main data-sn-state="{ open: true, q: \'\' }"><input data-sn-model="q"><template data-sn-if="open"><p data-sn-text="\'x\' + q"></p><b data-sn-text="open"></b></template><p data-sn-text="q"></p></main>'));
     expect(r).toMatchObject({ taken: 1, why: [] });
@@ -100,9 +112,11 @@ describe('the second pass from the first pass\'s walk', () => {
 });
 
 describe('compiled again: each reason', () => {
-  test('a build-time resource decides the branch, and its values are folded into the code that reads them', () => {
-    const r = both(page('<sn-resource name="post" src="file:/content/post.json"></sn-resource><h1 data-sn-text="post.title"></h1><template data-sn-if="!post.draft"><p data-sn-text="post.tags.join(\', \')"></p></template>'));
-    expect(r).toMatchObject({ taken: 0, why: ['values folded into the code'] });
+  test('a build-time resource decides the branch, and its values are folded into the code that ships', () => {
+    // (finished from the walk, then compiled again: a live binding reads `post.title`, which the second pass writes into its code)
+    const r = both(page('<sn-resource name="post" src="file:/content/post.json"></sn-resource><div data-sn-state="{ n: 0 }"><button data-sn-on-click="n++" data-sn-text="post.title + n"></button></div><template data-sn-if="!post.draft"><p data-sn-text="post.tags.join(\', \')"></p></template>'));
+    expect(r).toMatchObject({ taken: 0, why: ['values folded into the code that ships'] });
+    expect(r.on.fns.join('\n')).toContain('"Hello"');
   });
 
   test('rendered rows the minifier reads with a layout (the browser\'s own styles)', () => {
@@ -184,5 +198,56 @@ describe('a template\'s entries from a copy of the kept walk', () => {
     const r = entries(template('<section data-sn-state="{ n: 0 }"><button data-sn-on-click="n++" data-sn-text="n"></button><template data-sn-if="!p.draft"><p data-sn-text="p.title + n"></p></template></section>'));
     expect(r.taken + r.why.filter((w) => w === 'values folded into the code').length).toBe(r.n);
     expect(r.on.map((x) => x.html)).toEqual(r.off.map((x) => x.html));
+  });
+});
+
+// pages through a build's units (units.ts): the first pass places the unit, whose objects other pages share. The route
+// finishes that pass: what of the unit it changes is held and given back (`SN_UNITS_VERIFY=1` checks every object of
+// the unit after every page), and what placing it added to the page's tables is taken out (the second pass places none)
+describe('pages with a unit placed', () => {
+  const U: Record<string, string> = {
+    'x-doc': '<template data-sn-props="{ doc: any }"><div class="doc"><template data-sn-for="n in doc.children"><sn-component use="{ text: \'x-text\', em: \'x-em\' }[n.type]" data-sn-with="{ node: n }"></sn-component></template></div></template>',
+    'x-text': '<template data-sn-props="{ node: any }"><span data-sn-text="node.value"></span></template>',
+    'x-em': '<template data-sn-props="{ node: any }"><em><template data-sn-for="n in node.children"><sn-component use="{ text: \'x-text\', em: \'x-em\' }[n.type]" data-sn-with="{ node: n }"></sn-component></template></em></template>',
+  };
+  const doc = { children: [{ type: 'text', value: 'see ' }, { type: 'em', children: [{ type: 'text', value: 'this' }] }] };
+  const opts = (name: string, units: Map<string, unknown>): CompileOptions => options({
+    file: `/p/${name}.html`, componentNames: [...Object.keys(C), ...Object.keys(U)], units,
+    readFile: (f) => { const k = /\/components\/([\w-]+)\.html$/.exec(f)?.[1]; if (k && U[k]) return U[k]!; if (k && C[k]) return C[k]!; if (f === '/p/doc.json') return JSON.stringify(doc); throw new Error(f); },
+  });
+  const PAGES: Record<string, string> = {
+    'a tree from a file': '<sn-resource name="doc" src="file:/doc.json"></sn-resource><x-doc data-sn-with="{ doc }"></x-doc>',
+    'a tree in a decided branch, live state beside it': '<sn-resource name="doc" src="file:/doc.json"></sn-resource><div data-sn-state="{ n: 0, a: true }"><button data-sn-on-click="n++" data-sn-text="n"></button><template data-sn-if="a"><x-doc data-sn-with="{ doc }"></x-doc></template></div>',
+    'a tree over live data (its definitions ship)': '<sn-resource name="live" src="/api/doc"></sn-resource><div data-sn-state="{ a: true }"><template data-sn-if="a"><b>x</b></template></div><x-doc data-sn-with="{ doc: live }"></x-doc>',
+  };
+  /** every page through one unit store, twice (the first page makes the unit, the rest place it), the route off and on */
+  function pages() {
+    const env = ['SN_LINK_AUDIT', 'SN_RENDER_AUDIT', 'SN_UNITS_SHIFT_AUDIT', 'SN_FROM_WALK_AUDIT', 'SN_UNITS_VERIFY'].map((k) => [k, process.env[k]] as const);
+    for (const [k] of env) delete process.env[k];
+    process.env.SN_UNITS_VERIFY = '1';
+    try {
+      const run = (on: boolean) => {
+        if (on) delete process.env.SN_FROM_WALK; else process.env.SN_FROM_WALK = '0';
+        const units = new Map<string, unknown>(), out: Record<string, ReturnType<typeof compileParts>> = {};
+        for (let round = 0; round < 2; round++) for (const [name, body] of Object.entries(PAGES)) out[`${name} ${round}`] = compileParts(page(body), opts(name.replace(/\W+/g, '-'), units));
+        return out;
+      };
+      const off = run(false);
+      const taken = FROM_WALK_STATS.taken, before = new Map(FROM_WALK_STATS.fallback);
+      const on = run(true);
+      for (const k of Object.keys(off)) expect(canonicalText(on[k]!), k).toBe(canonicalText(off[k]!));
+      const why: string[] = [];
+      for (const [k, n] of FROM_WALK_STATS.fallback) for (let i = before.get(k) ?? 0; i < n; i++) why.push(k);
+      return { on, off, taken: FROM_WALK_STATS.taken - taken, why };
+    } finally { delete process.env.SN_FROM_WALK; for (const [k, v] of env) if (v === undefined) delete process.env[k]; else process.env[k] = v; }
+  }
+
+  test('the tree rendered: the unit\'s definitions dead in the page, taken out; one that ships, compiled again', () => {
+    const r = pages();
+    // (the two pages whose tree is rendered, in both rounds; the live tree's page keeps its unit's definitions)
+    expect(r.taken).toBe(4);
+    expect(r.why.filter((w) => w === 'a unit\'s definition the page keeps').length).toBe(2);
+    expect(r.on['a tree from a file 1']!.html).toBe(r.off['a tree from a file 1']!.html);
+    expect(r.on['a tree from a file 1']!.html).toContain('<em><span>this</span></em>');
   });
 });
