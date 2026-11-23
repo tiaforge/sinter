@@ -17,7 +17,7 @@ import { install as installMessages } from '../messages.js';
 import { format as formatMessage, inline as inlineMessage } from '../messages/format.js';
 import { flatten as flattenMessages } from '../messages/parse.js';
 import { nsLocal } from '../compiler/expr.js';
-import { mount, scopeState, type App, type Feature, type Transport } from '../runtime/app.js';
+import { instance, mount, scopeState, type App, type Feature, type Transport } from '../runtime/app.js';
 import { config, type Middleware } from '../runtime/config.js';
 import type { Env } from '../runtime/env.js';
 import { tokens } from '../runtime/request.js';
@@ -776,7 +776,9 @@ export async function render(html: string, options: RenderOptions = {}): Promise
   }
 
   const requests = options.requests;
-  const app = mount(doc, {
+  let app: App;
+  // a page that fails to mount leaves nothing behind: the next render starts afresh
+  try { app = mount(doc, {
     // the IR as the page module carries it
     ir: compactIR(parts.ir), fns, env,
     // as in a build, where every page has the app's prefetch feature
@@ -791,7 +793,7 @@ export async function render(html: string, options: RenderOptions = {}): Promise
       if (configured) return configured;
       throw new Error(`no mock stream for ${url}; pass \`streams: { '${url}': mockStream() }\``);
     },
-  });
+  }); } catch (e) { try { instance(doc).destroy(); } catch { /* not registered */ } throw e; }
   current = app;
 
   const check = () => {

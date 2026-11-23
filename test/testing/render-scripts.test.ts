@@ -55,3 +55,14 @@ test('a script in a file beside the component, without `scripts`: the same error
   const other = await render(PAGE, { components: { 'task-ring': SFC }, scripts: { 'task-ring': { notAClass: 1 } } }).then(() => null, (e: Error) => e);
   expect(other?.message).toMatch(/^sinter: <task-ring> has a script .* and render\(\)'s `scripts` option gives no class in what it gives for it/);
 });
+
+test('a render after one whose page failed to mount', async () => {
+  class TaskRing extends Component { constructor() { super(); throw new Error('broken constructor'); } }
+  await expect(render(PAGE, { components: { 'task-ring': SFC }, scripts: { 'task-ring': TaskRing } })).rejects.toThrow('broken constructor');
+  // and after the clear error, which is before mounting
+  await expect(render(PAGE, { components: { 'task-ring': SFC } })).rejects.toThrow(/has a script/);
+  const { root } = await render('<p data-sn-state="{ n: 1 }"><b data-sn-text="n"></b></p>');
+  expect(root.querySelector('b')!.textContent).toBe('1');
+  const again = await render(PAGE, { components: { 'task-ring': TEMPLATE } });
+  expect(again.root.querySelector('figcaption')!.textContent).toBe('2 / 3');
+});
