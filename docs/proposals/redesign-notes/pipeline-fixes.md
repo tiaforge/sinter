@@ -45,3 +45,33 @@ own record (the shared modules' keys are filled into it afterwards).
 | sinter-live-400 (floor, one run each) | 17,616 | 9,317 (−8.3 s, −20.7 ms per live page) |
 
 Static pages have no early script: unchanged. Byte identity: all 11 apps identical.
+
+## 2. The size lines: gzip only what is printed, each text once
+
+`reportRuntime` (the "JavaScript N kB gzip + M kB gzip shared" line per page) gzipped the page's chunk and every chunk it
+imports, per page, also at `logLevel: 'warn'`, where Vite's logger prints no info line. `report` (the early script's
+line) gzipped the page's early file and the shared head script per page, and walked the page's modules for the "in the
+page bundle too" note.
+
+- `reportRuntime` returns at once when info lines are not printed: the build's own logger below `info`. A custom logger
+  (`customLogger`) gets every line, as before, whatever the level.
+- `report` still measures the early file and the shared head script at every level (the first-paint budget's SN523
+  warning needs them), but writes and walks for its info line only when it is printed (the page's modules: a thunk).
+- Every gzip size is kept by the script's text for the build (`gzipSize`, cleared at `buildStart`): the shared chunks,
+  the shared head script and, on a blog, every post's early file and identical page module are gzipped once.
+- Lines checked identical (sorted; Vite's HTML step runs pages concurrently, so their order varies from build to build)
+  at the default level, before and after, for realworld, dashboard, static-site, multilingual-site, sinter-live-100 and
+  sinter-static-100. Test: `test/vite/size-report.test.ts` (warn: only the budget's two texts gzipped; info: the lines,
+  with the written files' sizes, 4 gzips for 3 pages; a custom logger at `warn` gets the lines).
+
+| | before | after |
+|---|---:|---:|
+| `reportRuntime` + `report`, inclusive, sinter-live-100 (3 runs) | 136 / 163 / 168 ms | 1 / 1 / 1 ms |
+| the same, sinter-live-400 | 682 ms | 3 ms |
+| floor sinter-live-100 (median of 3) | 2,931 | 2,875 |
+| floor sinter-live-400 (one run) | 7,790 | 5,741 |
+
+The floors are noisy here (±300 ms between runs on the shared machine) next to a 150 ms change; the inclusive times
+are the measurement: −1.4 ms per live page at 100, −1.7 at 400. (At 400 the floor fell by 2 s, Vite's HTML step by
+1.4 s; part of that is GC the gzip buffers caused, part noise.) Static pages log "no JavaScript" and gzipped nothing:
+unchanged. Byte identity: all 11 apps identical.
