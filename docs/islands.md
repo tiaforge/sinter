@@ -129,7 +129,8 @@ A small component can keep its script in its file, in a top-level `<script>` bes
   not see the block, as it sees no HTML: a script that needs your project's stricter compiler options is a
   file beside the component.
 - **Testable parts go in modules.** A test cannot import from the block: logic worth a unit test goes in a
-  module of its own beside it, which the block imports.
+  module of its own beside it, which the block imports. In `render()` the block does not run: `scripts` gives
+  the class that stands for it ([testing](testing.md#component-scripts)), as for a script in a file.
 
 ## `src/sinter.components.d.ts`
 

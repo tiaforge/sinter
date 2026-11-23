@@ -64,7 +64,7 @@ A full document keeps its `<html>` attributes (`lang`, `data-sn-state`, `data-sn
 | `files` | other files the page reads, by path relative to the page |
 | `components` | the app's components by name: `{ 'article-preview': '<template data-sn-props="…">…</template>' }` |
 | `layouts` | the app's layouts by name: `{ 'app-layout': '<!doctype html><html data-sn-props="{ title: string }">…</html>' }`. A page that is only a layout's tag renders merged with it ([layouts](layouts.md)) |
-| `scripts` | the scripts of components by name: the module (`await import('../src/components/task-ring.ts')`) or the class |
+| `scripts` | the classes of components with a script, by name: the module (`await import('../src/components/task-ring.ts')`) or the class. A single-file component's too: its `<script>` block does not run, the class given stands for it. A component with a script and none here throws, naming it ([below](#component-scripts)) |
 | `storage`, `session` | `localStorage` and `sessionStorage`. Pass the same `memoryStorage()` to two renders to test what carries over between page loads |
 | `traverse` | the page is reached by Back or Forward (not from the back/forward cache): its resources show what `session` holds of them as the previous page left it (written at `window('pagehide')` or when the next `render()` starts), then revalidate ([resources.md](resources.md#back-and-forward)) |
 | `messages` | the messages as the inlang files hold them, base language first: `{ en: {...}, de: {...} }`; the namespace `m` that `inlang()` gives a build |
@@ -77,6 +77,23 @@ A full document keeps its `<html>` attributes (`lang`, `data-sn-state`, `data-sn
 | `minifyHtml` | minify the page as a build does (off by default here), against `css` ([minify.md](minify.md)) |
 | `strict` | `true` or `{ allow }`: the page's warnings throw and a runtime warning rejects the call that ran it; default `SINTER_STRICT`, which `false` overrides ([docs/strict.md](strict.md#in-tests)) |
 | `dev` | `false`: the page compiles as a production build does, without the dev build's source positions and checks, and with the build's own passes (templates several shared definitions write alike kept once); default `true` |
+
+### Component scripts
+
+`render()` runs no component code of its own: each component with a script, in a file beside it or in a
+`<script>` block of a [single-file component](islands.md#single-file-components), runs the class that `scripts`
+gives for it. Without one, `render()` throws `sinter: <task-ring> has a script (…) and render()'s \`scripts\`
+option gives no class for it`. For a script in a file, pass the module itself. A test cannot import a
+`<script>` block, so for a single-file component pass the class the test needs, often a small stand-in, and
+test the block's logic through the module it imports:
+
+```js
+import { Component } from '@tiaforge-ui/sinter/runtime/components';
+class TaskRing extends Component { connected() { this.root.dataset.ready = ''; } }
+const { root } = await render(page, { components: { 'task-ring': ringHtml }, scripts: { 'task-ring': TaskRing } });
+```
+
+A `render()` that throws, while compiling or while mounting, leaves no page behind: the next one starts afresh.
 
 Pass your real helpers and actions rather than copies:
 
