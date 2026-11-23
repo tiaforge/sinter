@@ -85,3 +85,81 @@ still has no `parentNode`). Nothing changes a position object (one place assigns
 CPU clock, median of 3 rounds A/B (change 1 → this), ms a page: static pass 2 `walkPage` 4.2 → 3.6, `compile()`
 16.2 → 14.8; static-files pass 2 `walkPage` 3.9 → 3.2, pass 1 `walkPage` 9.8 → 8.6, `compile()` 26.9 → 23.3. The
 nine apps byte for byte the same.
+
+## A template's entries: what differs between the kept first pass and the second pass's result
+
+`fromTemplate` keeps one walked first pass per `<html data-sn-for>` template and evaluates it per entry
+(`decideFor`); each entry's second pass is then a whole `Compiler` from the page's source. Read off the benchmark's
+post template (`md-doc` → `$build` chooses `<md-tree>`, whose loop over the document's nodes is rendered):
+
+| | kept first pass (walked, not finished) | second pass's result |
+| --- | --- | --- |
+| tree | the `$build` `if` and its `else` as templates; the loop as a row template; each `<sn-component use>` candidate (26 of the library's components) a shared definition | the kept branch's markup in place (as page markup, not template content), the block in place of the loop, no definitions |
+| `data-sn` ids | handed out in the walk to the page's bound elements and anchors | handed out in the second walk, with the block's count added at its first element; not compacted, so every id after a decided branch or a block differs |
+| functions | the definitions', the row templates', the branches', the page's | the page's own, the loop's list (compiled once at the block for its diagnostics, then dropped); `compactTables` renumbers by first use in the IR |
+| constants the layout reads (`constants`) | evaluated, not written | written before the layout (`prefold`), which changes the markup the minifier, the layout and the ids see |
+| SN501, `foldedText` | none of the decisions' | the decided conditions' and the block's reads |
+| per entry | the entry's value swapped in (`fileData`), nothing written | its `data-sn-path` on `<html>` (`pagesOf`), the canonical link, the title and other first paints, the entry's JSON (live) |
+
+So the second pass's result is not the kept walk patched: a decided branch's content was compiled in the first pass as
+a template (paths from the template, its nodes in `templates`, a wrapper `t.a`), in the second as the page's markup
+(`data-sn` ids, `roots`), so its bindings would have to be compiled again, which is the walk; and the walk's results
+are spread over the compiler's fields with numbers inside code text (`$i<n>`, `$p<tid>`, `$s<sid>`), where
+compaction covers templates and functions only. A copy of the walked first pass per entry would also cost what it
+holds: for the benchmark, the library's definitions. Not reachable byte for byte here; what is, is the second
+option: the second pass from a copy of the expanded, unwalked tree.
+
+### 3. The second pass of a template's entries from the kept expansion (`keptExpansion`, `secondPass`)
+
+`walkPage` is now `expandPage` (parse, layout, `pagesOf`, `expandComponents`, the expanded tree's checks:
+`emptyStates`, `strayAndRepeated`, `accessible`, `slotsPlaced`) and `walkExpanded` (from `expandConstants` on). Nothing
+in `expandPage` reads the decisions (`decided`, `unrolled`, `constants`, `rendered`) or whether the pass collects them
+(`keepsAttrs` moved to `walkExpanded`, its first reader), and the first pass expands as the second does
+(decisions.md §0). So `keepTemplate` copies its compiler after `expandPage` (`copyState`) before its walk goes on, and
+each entry's second pass copies that copy again with its own options, writes its own path on `<html>` (`forEntry`:
+the one thing `expandPage` writes from the entry) and goes on with `walkExpanded` and `finishPage`.
+
+`copyState` is a deep copy of the compiler's fields: each object once (what shares what stays shared), arrays, maps,
+sets and plain objects (parse5's nodes are plain objects), every `WeakMap`/`WeakSet` field and the module's node
+marks (`WRITTEN`, `SHOWN`, `SCOPED`, `MARKED`, `REWROTE`, `RENDERED_FILE`, `OWN_SCRIPTS`, `INERT_FILLS`) for the
+objects copied. Shared, never changed by a compile: the options, the component files' parsed markup (`SHARED`, marked
+when `parsedText` parses it), functions, frozen values. A value of any other class refuses the copy (a counted
+reason). The first copy looks every copied object up in every weak table (about 30,000 lookups for the benchmark's
+600 objects); it lists what it found (`WeakEntries`), and the entries' copies copy those lists instead.
+
+- Switch: `SN_ONE_PASS=0` (nothing kept, every second pass from the source). Log: `SN_PASS_LOG=1` prints at exit
+  how many second passes started from a kept expansion and why the others parsed the page again;
+  `SN_PASS_STATS=<file>` appends a line per second pass (with the test's name under vitest).
+- Audit: `SN_ONE_PASS_AUDIT=1` compiles each entry the old way beside it and compares the whole `CompiledParts`. The
+  old way evaluates the entry again first (`decideFor`): a second pass splices the rendered blocks it is handed and
+  changes them (the image pipeline rewrites a block's `<img>`), so the two cannot share them. The first version of
+  the audit did, and reported a difference that was the audit's own (template-pass.test.ts, images in a tree).
+- Reasons a second pass parses and expands again: `off`, `a page of its own` (not a template's entry: every page
+  file, the examples' pages), `an entry compiled alone` (its template's kept walk declines it: nothing decided, a
+  constant the layout reads written into the first pass's markup, errors, a program that differs per entry), `an
+  entry, no kept templates` (no `templates` cache: the probe, tests), and a refused copy (`a <class> in the state`,
+  never seen).
+- Tests: test/compiler/one-pass.test.ts (both ways equal and the route taken: a rendered tree, live parts beside it,
+  a layout and a decided branch at the top; each reason; under the audit).
+
+CPU clock, median of 3 rounds A/B (change 2 → this), ms a page; the second pass as `run` before and `secondPass`
+(the copy included) after:
+
+| | static | live | static, type check |
+| --- | ---: | ---: | ---: |
+| second pass | 4.07 → 3.39 | 6.41 → 6.13 | 4.97 → 3.56 |
+| of it the copy (`copyState`) | – → 0.46 | – → 0.55 | – → 0.77 |
+| `compile()`, build | 14.1 → 13.8 | 18.2 → 18.7 | 16.6 → 13.9 |
+
+The copy takes about half of what the expansion cost (`expandComponents` 0.6 to 0.9, `slotsPlaced` 0.25, the rest
+0.2). `scripts/pass-audit.mjs` (the five benchmark apps and the four examples, the route off and on): every file the
+same; the template apps take the route for all 100 entries.
+
+Checks: the whole suite passes (2,857); test/compiler and test/vite pass under `SN_ONE_PASS_AUDIT=1` (1,342, with
+one-pass.test.ts) and test/compiler under `SN_RENDER_AUDIT=1` (1,061); under `SN_LINK_AUDIT=1` the link-review cases
+that failed at a load of 22 time out the same with the route off and pass alone. sinter-mail
+(`node scripts/mail-audit.mjs <copy> --switch SN_ONE_PASS`, a switch the script now takes): 42 files identical; its 16
+pages are pages of their own (no template), so none takes the route.
+
+Second passes over the whole suite by route (`SN_PASS_STATS`): `a page of its own` 1,893, `an entry, no kept
+templates` 48, `kept` 46, `an entry compiled alone` 21, `off` 15 (one-pass.test.ts's own).
