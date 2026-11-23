@@ -9626,8 +9626,8 @@ class Compiler {
     };
     // (a row's item is shared with the data it is a part of, frozen once; a helper's result is copied, as a call takes it by value)
     const isResult = (x: object) => this.folding?.isResult(x) ?? false;
-    // (the heights of the frozen data `plainData` measured, for this evaluation; a file's frozen value's, for the build:
-    // `FROZEN_HEIGHTS`)
+    // (the heights of the frozen data `plainData` measured, for this evaluation, of what was frozen without them; the
+    // rest's are where it was frozen, `DEEP_FROZEN`)
     const heights = new Map<object, number>();
     const listOf = (v: unknown): unknown[] | null => (Array.isArray(v) && v.every((x) => plainData(x, heights)) ? v : null);
     // (a placement's element is its `<slot>`; an anchor's, its template)
@@ -13772,18 +13772,9 @@ export function plainData(v: unknown, heights?: Heights): boolean {
 
 /** the heights of frozen data (`plainHeight`'s `frozen`): only of data frozen at every depth, whose height cannot change */
 type Heights = Map<object, number>;
-/**
- * The heights of a `file:` value's frozen copy (`frozenCopy`), measured once for the build: frozen data cannot change,
- * and every page reads the same copy, every row of it a part (sinter-mail's 2,012-element email: each level of the tree a
- * list `plainData` measures on every page). `SN_FROZEN_HEIGHTS=0`: measured by each evaluation, as before
- */
-const FROZEN_HEIGHTS = new WeakMap<object, number>();
-function measureFrozen(v: object): number {
-  let h = 0;
-  for (const c of Array.isArray(v) ? v : Object.values(v)) if (c && typeof c === 'object') h = Math.max(h, measureFrozen(c) + 1);
-  FROZEN_HEIGHTS.set(v, h);
-  return h;
-}
+/** frozen data's heights read where it was frozen (`DEEP_FROZEN`) unless `SN_FROZEN_HEIGHTS=0` (measured by each evaluation, as before) */
+let heightsFlag: boolean | undefined;
+const heightsOn = () => (heightsFlag ??= proc?.env.SN_FROZEN_HEIGHTS !== '0');
 /**
  * How deep plain data nests below `x` (0: no object in it) when every path through it stays within `PLAIN_DEPTH` of
  * the root `plainData` was asked about (`depth`: how deep `x` is), else -1 (not plain data, too deep, or a cycle).
@@ -13791,7 +13782,8 @@ function measureFrozen(v: object): number {
  * `seen`: this walk's other objects (-2 while on the path).
  */
 function plainHeight(x: object, depth: number, frozen: Heights, seen: Map<object, number>): number {
-  const known = frozen.get(x) ?? seen.get(x) ?? FROZEN_HEIGHTS.get(x);
+  const fh = heightsOn() ? DEEP_FROZEN.get(x) : undefined;
+  const known = fh !== undefined && fh !== UNMEASURED ? fh : frozen.get(x) ?? seen.get(x);
   if (known !== undefined) return known >= 0 && depth + known <= PLAIN_DEPTH ? known : -1;
   if (depth > PLAIN_DEPTH || typeof x !== 'object') return -1;
   seen.set(x, -2);
@@ -13838,7 +13830,15 @@ function pickFields(v: unknown, fields: string[]): unknown {
 }
 
 /** values `deepFreeze` froze at every depth: build-time constants may share them without a copy */
-const DEEP_FROZEN = new WeakSet<object>();
+/**
+ * Data frozen at every depth, with its height as `plainHeight` measures it (how deep objects nest below it; `UNMEASURED`
+ * when not known): frozen data cannot change, so its height is known where it is frozen, and `plainData` reads it there
+ * instead of walking it again (a helper's tree is a list at every level, measured by every list the walk checks)
+ */
+const DEEP_FROZEN = new WeakMap<object, number>();
+const UNMEASURED = -2;
+/** the height of children: one more than the highest object among them, `UNMEASURED` if one is */
+const above = (h: number, ch: number) => (h === UNMEASURED || ch === UNMEASURED ? UNMEASURED : Math.max(h, ch + 1));
 
 /**
  * Whether `v` is what `deepFreeze(structuredClone(v))` would make of it, as it is: frozen at every depth, every object a
@@ -13848,32 +13848,35 @@ const DEEP_FROZEN = new WeakSet<object>();
  * (`DEEP_FROZEN`), as `deepFreeze` marks its copy, once the whole of it is known to be.
  */
 export function frozenPlain(v: object): boolean {
-  const done = new Set<object>(), path = new Set<object>(), all: object[] = [];
-  const walk = (x: object): boolean => {
-    if (done.has(x) || DEEP_FROZEN.has(x)) return true;
-    if (path.has(x) || !Object.isFrozen(x)) return false;
+  // (with each object's height, `DEEP_FROZEN`: -1 is not plain)
+  const done = new Map<object, number>(), path = new Set<object>(), all: object[] = [];
+  const walk = (x: object): number => {
+    const known = done.get(x) ?? DEEP_FROZEN.get(x);
+    if (known !== undefined) return known;
+    if (path.has(x) || !Object.isFrozen(x)) return -1;
     const proto = Object.getPrototypeOf(x), array = Array.isArray(x);
-    if (proto !== (array ? Array.prototype : Object.prototype)) return false;
+    if (proto !== (array ? Array.prototype : Object.prototype)) return -1;
     path.add(x);
     const keys = Reflect.ownKeys(x);
-    if (array && keys.length !== (x as unknown[]).length + 1) return false;
+    if (array && keys.length !== (x as unknown[]).length + 1) return -1;
+    let h = 0;
     for (const k of keys) {
-      if (typeof k !== 'string') return false;
+      if (typeof k !== 'string') return -1;
       if (array && k === 'length') continue;
-      if (array && (String(+k >>> 0) !== k || +k >= (x as unknown[]).length)) return false;
+      if (array && (String(+k >>> 0) !== k || +k >= (x as unknown[]).length)) return -1;
       const d = Object.getOwnPropertyDescriptor(x, k)!;
-      if (!('value' in d) || !d.enumerable) return false;
+      if (!('value' in d) || !d.enumerable) return -1;
       const c = d.value;
-      if (c !== null && typeof c === 'object' && !walk(c)) return false;
-      if (typeof c === 'function' || typeof c === 'symbol' || typeof c === 'bigint') return false;
+      if (c !== null && typeof c === 'object') { const ch = walk(c); if (ch === -1) return -1; h = above(h, ch); }
+      if (typeof c === 'function' || typeof c === 'symbol' || typeof c === 'bigint') return -1;
     }
     path.delete(x);
-    done.add(x);
+    done.set(x, h);
     all.push(x);
-    return true;
+    return h;
   };
-  if (!walk(v)) return false;
-  for (const x of all) DEEP_FROZEN.add(x);
+  if (walk(v) === -1) return false;
+  for (const x of all) DEEP_FROZEN.set(x, done.get(x)!);
   return true;
 }
 
@@ -13890,15 +13893,22 @@ function frozenCopy(v: object): object {
   let c = FROZEN_COPY.get(v);
   if (!c) {
     FROZEN_COPY.set(v, c = deepFreeze(structuredClone(v) as object));
-    if (proc?.env.SN_FROZEN_HEIGHTS !== '0') measureFrozen(c);
   }
   return c;
 }
 
 function deepFreeze<T extends object>(v: T): T {
-  DEEP_FROZEN.add(v);
-  for (const x of Object.values(v)) if (x && typeof x === 'object') deepFreeze(x);
-  return Object.freeze(v);
+  freezeDeep(v);
+  return v;
+}
+/** `deepFreeze`, its height the result (`DEEP_FROZEN`) */
+function freezeDeep(v: object): number {
+  DEEP_FROZEN.set(v, UNMEASURED);
+  let h = 0;
+  for (const x of Object.values(v)) if (x && typeof x === 'object') h = above(h, freezeDeep(x));
+  DEEP_FROZEN.set(v, h);
+  Object.freeze(v);
+  return h;
 }
 
 /**
@@ -13927,7 +13937,9 @@ export function frozenData(v: unknown, fresh?: (x: object) => boolean): unknown 
   const copy = (x: unknown): unknown => {
     if (!x || typeof x !== 'object' || DEEP_FROZEN.has(x)) return x;
     const out = Array.isArray(x) ? x.map(copy) : Object.fromEntries(Object.entries(x).map(([k, c]) => [k, copy(c)]));
-    DEEP_FROZEN.add(out);
+    let h = 0;
+    for (const c of Object.values(out)) if (c && typeof c === 'object') h = above(h, DEEP_FROZEN.get(c as object) ?? UNMEASURED);
+    DEEP_FROZEN.set(out, h);
     return Object.freeze(out);
   };
   return copy(v);

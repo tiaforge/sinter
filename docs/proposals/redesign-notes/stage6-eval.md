@@ -422,3 +422,42 @@ within the rounds (static `decideFor` 5.77 / 7.37 → 5.98 / 7.63 in a 5-round r
   programs) would take it to what the unit's codes cost.
 - **`rowRenderer`'s per-evaluation setup** (`tplOf`, `anchors`, `hostOf`, the plans): per entry of a kept template;
   could be kept with the evaluation's program (`evalProgram`) as the walk's memo is.
+
+## Round 2: the blog (the coordinator's next item, 2026-11-23 evening)
+
+The target (compile-units.md): the compiler under about 4 ms a page on the static one-template blog. Where a post's
+compile goes now (`--cpu-prof` at 50 µs over the 100 posts, ms a page under the profiler, which inflates by about 1.5;
+`compile()` 15.9 in all there, 8.6 / 10.1 ms p25 / median wall):
+
+| part | ms (profiler) | what |
+| --- | ---: | --- |
+| the first pass's deciding (`decideFor`) | 8.8 | of it: |
+| — the post's `md.parse` | 2.8 | the library's tokenizer and tree (`emphasis`, `Core.process`), its `memo`'s freeze 0.24 |
+| — the data checks | 1.6 | `frozenPlain`'s walk of the tree 0.70, the lists' `plainHeight` 0.49 and `plainData` 0.19, the case props' `frozenData` copies 0.26 |
+| — the walk (`unroll` → `rowsOf` → `nodesOf`, `expandCase`) | 2.6 | `nodesOf`'s own 0.59, `rowsOf` 0.19, the decisions' key strings, the records |
+| — rendering (`instance` → `render` → `clone`, `fill`) | 2.5 | `fill`'s own 0.84 (per node: `pointOf`, `placementOf`, `textMarks`, `tplEls` lookups, the clone by `list.at`, the loop head's regex, `snSource`), `clone` 0.61 (the element and its attribute copies, `shownOf`, a template's content), `render` 0.25, `replace` 0.11 |
+| — the rest | 0.6 | `constantSources` 0.12, `writtenState` 0.08, the fold log's `resultKey` 0.12 |
+| the second pass from the kept walk (`walkExpanded` → `secondPass`) | 4.0 | B1b's (its `unitPass` 3.0: `walkChildren` 2.3, a definition compiled 0.86, the minifier 0.78) |
+| `keepTemplate`, `copyState`, the rest | 3.1 | |
+
+Garbage collection: 212 ms over the build's 3.4 s (the profile's `(garbage collector)`), not attributable by
+function with the sampling heap profiler (it reports what is alive at its end).
+
+So the deciding's part that is not the library's parse is ~6 ms under the profiler (~4 wall), spread over the data
+checks, the walk and the renderer per node; no single piece is above 0.9. Getting the whole compile under 4 ms needs
+the second pass (4.0 under the profiler) gone for template entries as much as the deciding halved.
+
+### 11. Frozen data's height kept where it is frozen
+
+`plainData` measured each list's items (`plainHeight`) though most rows' items are parts of a tree frozen already: the
+helper's result `frozenPlain` walked, a `file:` value's copy (change 9), a copy `frozenData` made. `DEEP_FROZEN` is now a
+`WeakMap` from each frozen object to its height (`UNMEASURED` where it was frozen without one), set where it is frozen
+(`frozenPlain`'s walk, `deepFreeze`, `frozenData`'s copy) at no cost but the height's arithmetic, and `plainHeight`
+reads it before walking. It replaces change 9's `FROZEN_HEIGHTS` (a second `WeakMap` beside the `WeakSet`). Tried
+first: the heights in a second `WeakMap` filled by `frozenPlain`: `plainHeight` went from 0.49 to 0.19 ms a page and
+`frozenPlain` from 0.70 to 1.04 (an insert per object more), nothing gained. `SN_FROZEN_HEIGHTS=0`: measured by each
+evaluation. (row-items.test.ts: the evaluation's map no longer needs to hold a height known where its data was frozen.)
+
+A/B against change 10 (9 rounds; the machine noisier now: the same build's p25 moved from 5.6 to 6.1 between runs):
+blog static `decideFor` 6.10 / 7.74 / 9.00 → 5.84 / 7.71 / 8.62; mail gen pass-1 `prerender` 77.0 / 82.2 → 73.8 / 83.6
+(5 rounds; the same).

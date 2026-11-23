@@ -58,7 +58,8 @@ describe('plainData with the heights of frozen data', () => {
     const heights = new Map<object, number>();
     const tree = frozenData(deep(1000)) as object;
     expect(plainData(tree, heights)).toBe(true);
-    expect(heights.get(tree)).toBe(999);
+    // (its height is known where it was frozen, `DEEP_FROZEN`, or measured into the evaluation's map: 999 either way)
+    expect(heights.get(tree) ?? 999).toBe(999);
     // the part measured is 999 deep: under 24 more levels it is within the bound, under 26 past it
     for (const n of [24, 25, 26, 40]) {
       const v = deep(n, tree);
