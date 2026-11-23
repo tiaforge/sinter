@@ -75,3 +75,23 @@ The floors are noisy here (±300 ms between runs on the shared machine) next to 
 are the measurement: −1.4 ms per live page at 100, −1.7 at 400. (At 400 the floor fell by 2 s, Vite's HTML step by
 1.4 s; part of that is GC the gzip buffers caused, part noise.) Static pages log "no JavaScript" and gzipped nothing:
 unchanged. Byte identity: all 11 apps identical.
+
+## 3. The template probe: a description, not a compile
+
+`configResolved` lists a `<html data-sn-for>` page's entries (`templateOf`, from `pagesInputs`) by compiling it as its
+template with `prerender: true`: both passes, the first entry evaluated, only to read `pages`, `axes` and the
+SN340/SN341 errors. Those are the walk's (`entryResource`, `axisResource`, `pagesOf`), so the probe is now a
+description (`describeOnly: true`: one pass, nothing evaluated, the definitions that describe nothing left out). It runs
+in dev too (`devEntry`), with the same answer.
+
+- Checked: the description's and the compile's `[pages, axes, SN340/SN341]` compared on every probe (a temporary audit
+  that threw on a difference) across test/vite, test/behaviour, test/cli, test/docs (1,303 tests), the bench apps and
+  `scripts/baseline.mjs`'s apps (axes, locales): no difference. Test: `test/compiler/template-probe.test.ts` (axes at no
+  value and at an outer value, a page's own entries with an SN340 entry, in a language).
+
+| sinter-static-100 | before | after |
+|---|---:|---:|
+| compile under `templateOf` (2 probes: the build's and the source list's), 4 runs | 270 / 237 / 344 / 257 ms | 102 / 94 / 168 / 117 ms |
+
+−150 ms of the fixed part of a build with a page per entry (the template apps, static or live). The floor as defined
+above counts the probe as compiler time, so it does not move; the wall time does. Byte identity: all 11 apps identical.
