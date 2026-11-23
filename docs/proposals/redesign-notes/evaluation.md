@@ -178,3 +178,46 @@ ms a call, p25 / median (5 rounds blog, 3 others), 2 → 3: blog static `decideF
 mean over the build's pages 7.0 → 7.2: within the noise; under the profiler `prerender`'s own time 0.6 → 0.2 ms a
 page); blog live 4.51 / 5.99 → 4.75 / 6.87 (noise); mail file pass-1 `prerender` 19.1 / 20.0 → 15.9 / 19.6; mail API
 pass-1 `settle` 11.3 / 12.0 → 8.0 / 10.6 (mean 16.2 → 12.8).
+
+### 4. A helper's result that is frozen already, shared (`frozenPlain`)
+
+A folded helper call ran the helper twice, compared the two results' `JSON.stringify`, and handed out
+`deepFreeze(structuredClone(result))`. The blog's `md.parse` is `memo()`'s (sinter-markdown memoizes its trees with
+sinter's `memo`, which deep-freezes them): its second call returns the first's object, frozen. floor.md asked for a
+mark the helper module and the compiler share for that; none is needed. When the second call returns the same object
+and the compiler's own walk finds it frozen plain data at every depth (`frozenPlain`: every object frozen, a plain
+object or a dense array of the compiler's realm, every own property a string key's enumerable data property, no
+cycle), the copy would be the same value as the object itself, the object cannot change, and the purity check's two
+`JSON.stringify` are of one immutable object: the result is shared as it is, marked frozen at every depth as
+`deepFreeze` marks a copy. The walk reads each property's descriptor, which `structuredClone` would not catch (a
+getter), and is what it costs: on the blog about 60% of the copy and freeze it replaces, plus the two `stringify`. A
+result shared by two calls (two argument lists that a library maps to one cached tree) is named in the build's
+cross-check log by the first (`refs`). A helper that returns a new object, or one not frozen, is copied as before
+(sinter-mail's `mail.parse`). Not taken: recognising `memo()`'s wrapper (`MEMO_OF`) instead of walking: sinter-markdown's
+`parse` calls a memoized function inside, it is not one itself, and `memo()` passes through uncached results that a
+function could hand out twice.
+
+Tests: `frozenPlain`'s cases (shared parts, a getter, a non-enumerable, a symbol, a hole, an array's extra key, a null
+prototype, a `Date`, a cycle); a template whose rows come from a `memo()` helper the same as from one that makes a new
+tree per call, two rounds through one kept template.
+
+ms a call, p25 / median, 3 → 4 (5 rounds blog, 3 others): blog static `decideFor` 4.74 / 6.55 → 4.02 / 5.89 (mean
+7.4 → 6.8); static-files pass-1 `settle` 7.65 / 8.03 → 5.88 / 7.96 (mean 9.6 → 8.8); mail file unchanged (its
+`mail.parse` result is not frozen; 17.1 / 22.0 → 20.5 / 25.5 and the mean 27.0 → 28.5 are the noise of three rounds:
+`frozenPlain` takes 1 of its 484 profile ticks).
+
+### 5. A page with a unit: the codes' table without copies
+
+On a page of its own with a build's unit placed (sinter-mail's pages), the evaluation's setup copied the unit's table
+of 4,000 functions into the page's own map (`fnOf.set` for each), and made each of the unit's choice cases' props code
+anew (`($) => (…)`, thousands of new strings a page, each hashed again for the `Set` of codes and compiled again in the
+page's own `new Function`, as the unit's table holds only its numbered functions). Now the page looks a code up in the
+unit's table and then in its own (`FnTable`; the two are apart), a case's props code is one string per case for as long
+as its props are the same (`caseCode`, by the case object: a unit's cases are every page's), and the codes' `Set` is
+filled without the intermediate arrays.
+
+Tests: `caseCode` (the same string per case, another for changed props).
+
+ms a call, p25 / median, 4 → 5 (4 rounds): mail API pass-1 `settle` 8.59 / 10.95 → 7.48 / 7.79; mail file 19.1 / 21.8
+→ 14.9 / 18.9 (`compile()` 40.2 / 46.8 → 34.3 / 41.8); blog static-files unchanged within the noise (6.62 / 7.99 →
+7.48 / 8.00).
