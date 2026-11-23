@@ -648,3 +648,21 @@ decision of their own (stage 7). A step that can stay byte-identical does.
   removes about 330 of `link.ts`' 881 lines (the plan and its replay; the recorder stays, it makes the units), 40
   lines of `definition()`, the `definitions` options in `src/vite.ts`, 60 lines of the audit in `index.ts`, six test
   files (703 lines) and the CI job. It waits for the owner.
+- 2026-11-23, 22:30 UTC by the machine's clock (the times of the entries above ran about three hours ahead of it;
+  their order is right): **the full suite passes at `22152eb`: 2,992 tests, 312 files**; `pass-audit` nine apps the
+  same. **The fold check's on-disk cache is merged** (`redesign-notes/pipeline-2.md`; `SN_FOLD_CACHE=0` off): the
+  check's analyses are kept under `node_modules/.cache` by the modules' text, the session's `foldVerdicts` 106 to
+  132 ms cold, 4 to 9 ms warm, output identical with and without; 1,552 tests of test/compiler, test/vite,
+  test/check and the cache's 7 pass after the merge (`de23476`). With it both pipeline decisions the owner took
+  (3 and 4) are in. **A timing scare, not a regression.** Five whole-process runs at `de23476` gave medians of
+  static 3.03 s, typecheck 3.32, live 3.36, page per file 3.60 and 4.20, Astro 1.95, against 2.65 s for static in
+  the 22:50 entry with Astro the same, which read as 0.4 s lost. Switching each recent stage off in turn
+  (`SN_FROM_WALK`, `SN_RULES_FOLD`, `SN_UNITS2`, `SN_ROW_FN`) showed nothing, so five revisions were built side by
+  side and timed interleaved against the same app, six rounds, in-process ms, median: static `c4fa7e4` 2,529,
+  `e23cae1` 2,483, `7e210e5` 2,520, `c32efa4` 2,486, `de23476` 2,368; page per file 3,091, 3,029, 3,246, 3,261,
+  3,024. Then whole process, seven interleaved rounds: `c4fa7e4` 3.00 s, `de23476` 2.85 s static and 3.11 s live,
+  Astro 1.92 s. So nothing merged since `c4fa7e4` cost time and the head is the fastest of the five; this machine's
+  speed moves by 10 to 20 percent between runs minutes apart, and a figure from one run cannot be set against a
+  figure from another. **From here a timing in this log is only a comparison when both sides were run interleaved
+  in the same rounds.** On this machine today that is static 2.85 s and live 3.11 s against Astro's 1.92 s; the
+  quiet machine's figures (2.22 s against 1.65 to 1.86 s, the 23:30 entry) stand as the better measure of the gap.
