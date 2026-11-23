@@ -37,6 +37,16 @@ in pass 1: where the loop is (slot content, a fill, where a component's markup s
 decided branch whose top node it is, because pass 2's `place` hands those down — or in `<head>`) is checked there
 (`where`). Pass 2 checks again (`renderedHere`) and counts a disagreement as `second pass: …` (never seen).
 
+**Under a build's minifier** (`minify` with a layout: in builds, the page's stylesheets, or the browser's own styles
+when it has none, which is the benchmark's case): pass 2 minifies the markup its walk compiles, so a text node a
+binding writes is a `<template data-sn-text>` there (an element, its text written later as it is) and an element whose
+content a binding writes is left alone. `minifyMarkup` takes a `written` hook for rendered rows (`WRITTEN`, a module
+WeakMap on the rendered nodes): such a text is the element it was, such an element owns its content, and a component
+root whose tag binds class/style/attributes/visibility stays `opaque`. Empty texts stay in the block until the
+minifier has run. Rows whose visibility, style, `hidden` or `contenteditable` a binding writes fall back (`minify`): the
+layout reads those as changing. The first version minified rendered text (a trailing space at a block's edge, runs of
+white space); the benchmark's content has none, so the build audit did not see it, the minifier test does.
+
 **Pass 2, `expandConstants`**: a top-level unrolled loop (`pre === ''`, not in a row or an inlined instance) with a
 rendered block is replaced by the block's nodes; its top elements are marked (`renderedAt`); `declare` and
 `walkChildren` skip them (the first does the list compile and the ids).
@@ -71,6 +81,8 @@ no `compactTables`). `SN_RENDER_LOG=1` prints, at exit, loops rendered and the f
 | `fill` | a tree placement that renders a fill (caller markup compiled in the caller's scope) |
 | `tag attributes` | a choice's or recursion point's tag passes attributes to the root (`$a`) |
 | `top-level choice` | a choice/recursion point expanded outside any loop (pass 2's `inlineInstance` compiles its props per use) |
+| `minify` | under a build's minifier, a binding writes `hidden`, `style`, `contenteditable` or visibility (the layout reads those as changing) |
+| `a sinter attribute` | an attribute the walk keeps for the runtime (`data-sn-options`, `-navigate`, …) in the rows' markup |
 | `where it is`, `in the head` | the loop is slot content, a fill, where a component's markup starts, or in `<head>` |
 | `no element`, `text at the top of a row` | nothing to hang the ids or the list compile on; a row whose top is text the walk would not see |
 | `not inlined`, `else`, `for`, `choice`, `markup`, `no template` | structural cases pass 2 handles otherwise; defensive |
@@ -107,7 +119,36 @@ After `RowRec` and skipping the nested commit (render-audit builds, same load):
 | static-files | 17.4 s | 7.1 s |
 | live-files | 18.9 s | 9.9 s |
 
-(Final timings and the per-phase profile: below.)
+Final (`7f98326`), two rounds back to back, load average 6 → 3:
+
+| variant | off | on | |
+| --- | ---: | ---: | ---: |
+| static | 14.2 / 13.0 s | 4.6 / 4.2 s | ×3.1 |
+| live | 16.4 / 16.2 s | 6.9 / 7.2 s | ×2.3 |
+| static-files | 15.6 / 15.9 s | 6.4 / 6.8 s | ×2.4 |
+| live-files | 19.0 / 20.2 s | 8.9 / 10.1 s | ×2.1 |
+
+Peak memory drops too (static 539 → 422 MB).
+
+### What is left per page (static, `node --cpu-prof`, 5.2 s wall, 101 pages)
+
+`fromTemplate` 2.41 s in all, ~24 ms a page:
+
+| phase | per page | notes |
+| --- | ---: | --- |
+| `decideFor` (pass 1's evaluation, per entry) | 15.1 ms | the worklist 8.9 ms, of which **7.5 ms is copying and freezing row items** (`deepFreeze` 3.8, `structuredClone` 2.8, `plainData` 0.9: each level clones and freezes its item, a part of the level above's frozen item, so O(depth × size)); `md.parse` (the folded helper) 1.7 ms; rendering 1.5 ms |
+| pass 2 `walkPage` | 8.0 ms | `expandComponents` 3.9 ms (`componentFile` 2.8 ms: every component file read and kinded again per `Compiler`, `kindOfComponent` 1.9 ms; `choice`/`choicePool` 2.2 ms), `minify` 2.4 ms (the layout's `everyView`), the walk of what is left ~1 ms |
+| pass 2 `finishPage` | 0.7 ms | |
+| `keepTemplate` | 128 ms once | the kept walk and the check walk |
+
+Outside the page compiles: vite's `templateOf` (one full compile of the template for its entries, 0.37 s), vite and
+rollup, module loading, GC 0.6 s.
+
+Next targets, in order: (1) the items' clone-and-freeze in `rowsOf` (a frozen item's parts are frozen already: clone
+once at the top, freeze once); (2) per-`Compiler` component file reading/kinding and choice pools (cacheable per build
+by file text, as `PARSED` is); (3) pass 2's `expandComponents` of a page whose body is one rendered loop: it expands
+the loop's template content (choices, candidates) only for `expandConstants` to throw it away; (4) the minifier's
+layout queries.
 
 ## Open problems
 
