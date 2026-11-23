@@ -252,7 +252,7 @@ timings were not usable). A cloud session pushes to a branch of its own:
 | --- | --- | --- | --- |
 | a unit's check data once (stage 4, step 3) | cloud, `session_01AjKzdxUhXTUw7iSJ32w1x1` | `redesign/check-data-once` | `stage4-check-once.md` |
 | a page file walked once (stage 3's leftover) | cloud, `session_01AjKze2EoiDyjazXQrsWJQk` | `redesign/page-walked-once` | `page-walked-once.md` |
-| stage 5, A1: second-pass units | local agent | merged as it lands | `stage5-assembly.md` |
+| stage 5, A1 then A2: definitions that ship, from units | cloud, `session_01AjKzdxPCdJ5nbeXvwkXoP2` | `redesign/stage5-a1` | `stage5-a1.md` |
 | stage 5, B1: the second pass from the first's walk | cloud, `session_01AjKzdxkDukbMzASz1qaYeA` | `redesign/stage5-b1` | `stage5-b1.md` |
 | the evaluation's cost | local agent | merged as it lands | `evaluation.md` |
 | the six bugs (three merged) | local agent | merged as they land | `bugs.md` |
@@ -436,3 +436,9 @@ decision of their own (stage 7). A step that can stay byte-identical does.
   page's; live uses from units would buy 3.5% of that live page and 7 to 11% of realworld, so they wait for a
   profile after the other two. Reserved number ranges are still out (the runtime reads a row's template from the
   loop index's name, and longer names ship); what the relaxed bar buys is the order numbers are handed out in.
+- 2026-11-23, 19:45 UTC: on the integration branch after the merges above: 1,464 tests of test/compiler, test/vite,
+  test/check pass. Four cloud sessions run (table under "How the work is run"): check data once, a page file
+  walked once, B1, and A1, which first finishes step 0's oracle (the behaviour tests and sinter-mail's suite and
+  bench under `SN_CANON=1`, not run yet). A caution from stage 5's measurements for every renumbering step:
+  canonical function order makes each module of sinter-mail's components route 322 B gzip heavier (4.8%), so the
+  canonical form is the oracle, not the order to ship. Still local: the evaluation's cost, bugs 4 to 6.
