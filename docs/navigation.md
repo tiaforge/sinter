@@ -77,6 +77,11 @@ The browser does the fetching; sinter writes the rules into every page. They cov
 app's pages, with eagerness `moderate` (the pointer rests on a link, or a press starts). Links
 that download, open elsewhere (`target`) or are `rel="nofollow"` are left out.
 
+The rules name each page by its paths (`/about/`, `/about`) and a page per entry by its pattern
+(`/blog/:slug`). From 16 plain paths in a rule (a site with a file per post), they are one pattern,
+`/((?:blog/post-…|index\.html)?)\?*#*`, whose regular expression matches exactly those paths, so a page's
+rules stay a few hundred bytes however many pages the site has, and match the same links as the list.
+
 ```js
 sinter({ prefetch: { html: true } })          // default: the next page's HTML
 sinter({ prefetch: { html: { prerender: 'auto' } } })   // the build decides per page (below)

@@ -19,7 +19,14 @@ export function speculationRules(lists: { prefetch?: string[]; prerender?: strin
   // a pattern matches with or without a trailing slash, as the runtime and the server match it
   const patternsOf = (paths: string[]) => {
     const both = paths.flatMap((p) => (p.includes(':') ? [p.replace(/\/+$/, ''), p.replace(/\/*$/, '/')] : [p]));
-    return [...new Set(both)].map((p) => p.split('/').map((s) => (s[0] === ':' && /^:\w+$/.test(s) ? s : s.replace(/[*?+(){}:\\]/g, '\\$&'))).join('/') + '\\?*#*');
+    const one = (p: string) => p.split('/').map((s) => (s[0] === ':' && /^:\w+$/.test(s) ? s : s.replace(/[*?+(){}:\\]/g, '\\$&'))).join('/') + '\\?*#*';
+    const unique = [...new Set(both)], plain = unique.filter(plainPath);
+    // many plain paths (a page file per post): one pattern whose group matches exactly those paths, where the list,
+    // in every page's head, grew with the pages (so with the square of them over a site)
+    // (`SN_RULES_FOLD=0`: the list as it was, to compare the two)
+    if (plain.length < FOLD_FROM || process.env.SN_RULES_FOLD === '0') return unique.map(one);
+    const at = unique.findIndex(plainPath);
+    return [...unique.slice(0, at).map(one), pathsPattern(plain), ...unique.slice(at).filter((p) => !plainPath(p)).map(one)];
   };
   const prefetch = patternsOf(lists.prefetch ?? []), prerender = patternsOf(lists.prerender ?? []);
   const rule = (patterns: string[], not: string[]) => [{
@@ -38,6 +45,64 @@ export function speculationRules(lists: { prefetch?: string[]; prerender?: strin
     ...(prerender.length ? { prerender: rule(prerender, prefetch) } : {}),
     ...(prefetch.length ? { prefetch: rule(prefetch, []) } : {}),
   });
+}
+
+/** from this many plain paths in a rule, one pattern matches them all (a few pages keep their readable list) */
+const FOLD_FROM = 16;
+
+/**
+ * A path a URL pattern's literal and a regular expression read the same way: from `/`, of the characters a URL's
+ * path keeps as they are (no percent-encoding, no `.` or `..` segment, no empty segment), none a pattern's syntax.
+ */
+const plainPath = (p: string) => /^\/(?:[A-Za-z0-9_~-][A-Za-z0-9._~-]*\/?)*$/.test(p) && !/(^|\/)\.\.?(\/|$)/.test(p) && !p.includes(':');
+
+/**
+ * One URL pattern for these plain paths, each with any query and fragment: `/(…)` with a regular expression that
+ * matches exactly them (a trie of the paths, the branches that end alike written once, as a character class). A URL
+ * pattern matches a regular-expression group against the URL's path as parsed, which for a plain path is the path
+ * itself, as the literal pattern it stands for matched; and the whole path is in the group (a `?` after it would
+ * start the pattern's query).
+ */
+export function pathsPattern(paths: readonly string[]): string {
+  interface Node { end: boolean; kids: Map<string, Node> }
+  const root: Node = { end: false, kids: new Map() };
+  for (const p of paths) {
+    let n = root;
+    for (const c of p.slice(1)) { let k = n.kids.get(c); if (!k) n.kids.set(c, (k = { end: false, kids: new Map() })); n = k; }
+    n.end = true;
+  }
+  const esc = (c: string) => (c === '.' ? '\\.' : c);
+  const cls = (cs: string[]) => {
+    if (cs.length === 1) return esc(cs[0]!);
+    const codes = cs.map((c) => c.charCodeAt(0)).sort((a, b) => a - b), parts: string[] = [];
+    for (let i = 0; i < codes.length;) {
+      let j = i;
+      // (ranges within digits or letters only)
+      while (j + 1 < codes.length && codes[j + 1] === codes[j]! + 1 && /[0-9A-Za-z]{2}/.test(String.fromCharCode(codes[j]!, codes[j + 1]!))) j++;
+      // (`-` and `/` escaped: a class's syntax under the `v` flag)
+      const ch = (n: number) => { const c = String.fromCharCode(n); return c === '-' || c === '/' ? `\\${c}` : c; };
+      parts.push(j - i >= 2 ? `${ch(codes[i]!)}-${ch(codes[j]!)}` : codes.slice(i, j + 1).map(ch).join(''));
+      i = j + 1;
+    }
+    return `[${parts.join('')}]`;
+  };
+  const memo = new Map<Node, string>();
+  const re = (n: Node): string => {
+    let out = memo.get(n);
+    if (out !== undefined) return out;
+    // the branches by what follows their character: those alike become one class
+    const by = new Map<string, string[]>();
+    for (const [c, k] of [...n.kids].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) {
+      const rest = re(k);
+      const cs = by.get(rest);
+      if (cs) cs.push(c); else by.set(rest, [c]);
+    }
+    const alts = [...by].map(([rest, cs]) => cls(cs) + rest);
+    out = !alts.length ? '' : n.end ? `(?:${alts.join('|')})?` : alts.length > 1 ? `(?:${alts.join('|')})` : alts[0]!;
+    memo.set(n, out);
+    return out;
+  };
+  return `/(${re(root)})\\?*#*`;
 }
 
 const CSP_META = /\bhttp-equiv\s*=\s*["']?content-security-policy["'\s>]/i;

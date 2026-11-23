@@ -18,6 +18,8 @@ on a quiet machine, then cut where the output stays byte for byte the same.
 - Fixes: (1) SN521's scan, quadratic with a page file per post: −1.2 s at 1,000 page files; (2) `pageStyles`' import
   scan once per module, not per page: −0.33 ms a page; (3) the project read twice per build, not four times, and the
   rules hashed once: ≈10 ms. At 100 posts (2) and (3) are inside the run-to-run noise of the wall time (±0.1 s).
+- **Decision 1 in** (the owner's go-ahead): the rules' paths folded into one exact pattern; at 1,000 page files a
+  page is 11.4 kB instead of 58 kB and the floor 6.3 s instead of 10.3. Next: decision 2, the fold check's cache.
 - **For the owner** (below, "Decisions"): the cross check off the critical path (0.23 s at 100 posts, ≈0.5 s at 400;
   a failing SN534 build would then empty `dist/` and report from `generateBundle`); Vite's HTML step skipped for pages
   it does not change (≈1 ms a page; it changes none of the static blog's 101); an on-disk cache of the fold check
@@ -253,6 +255,85 @@ parses it, sinter hashes it (fix 3 hashes it once) and GC carries it: static-fil
 template app's 6 s, most of the difference in Vite's HTML step (3.2 s) and GC (2.7 s). A pattern (`/blog/post-*`), or
 the rules file (`RULES_FILE`, already used with `delivery: 'header'`) above some number of pages, would make it
 linear; it changes the pages' bytes and is the page description's (`rulesJson`, `appPages`).
+
+## Decision 1 (taken): the Speculation Rules' paths folded into one pattern
+
+The owner decided to go ahead (2026-11-23, evening): linear rules with the same behaviour in the browser.
+
+**How the rules were built.** `rulesOf` (`src/vite.ts`) gives `speculationRules` (`src/prefetch-build.ts`) the paths of
+every page that is not `data-sn-prefetch="off"` (and, with swaps, does not swap): `pagePaths`, two per page that moves
+to a directory (`/blog/post-1/`, `/blog/post-1`), a page per entry's pattern once (`/blog/:slug`); with
+`prerender: 'auto'` two lists, the prerender rule leaving out what the prefetch list matches. Each path became a URL
+pattern `<path>\?*#*`. The same JSON is inline in every page of a group (one CSP hash, two with same-page links) or the
+rules file under `delivery: 'header'`. With a page file per post the list is two patterns a post in every page.
+
+**The candidates weighed.**
+
+- (b) each page listing only the pages it links to: exact only for a page whose links are all in its HTML (no
+  script that adds or changes one), and it gives every page rules of its own, so a hash per page: a CSP sent as a
+  header that allows the rules by their hash (what the build's log line offers) would stop allowing them, and the
+  browser would prefetch nothing. Not taken.
+- (c) the rules file: only where the app's server sends the header (`delivery: 'header'`), a deployment change; it
+  already applies there.
+- (a) a pattern instead of the list: a wildcard (`/blog/post-*`) is exact only over the URLs the build knows, so a link
+  to a URL the site does not serve would be prefetched where it was not. **Taken in its exact form**: a URL pattern's
+  regular-expression group that matches exactly the listed paths, no more, for every URL, known or not.
+
+**The form.** The plain paths of a list (`/`, then segments of `[A-Za-z0-9._~-]`, none `.` or `..`, none empty, no
+`:`), when there are 16 or more, become one pattern `/(<re>)\?*#*`, where `<re>` is a trie of the paths without their
+`/`, the branches whose rests are the same written once as a character class (`pathsPattern`). 0 to 999 with both
+slash forms is `/((?:blog/post-(?:0(?:/)?|[1-9](?:/|[0-9](?:/|[0-9](?:/)?)?)?)|index\.html)?)\?*#*`. The other paths
+(patterns with `:`, paths with other characters, a list under 16) are written as before, in their place.
+
+**Why it is the same.** A URL pattern matches the pathname of the link's URL as parsed (percent-encoded, dot segments
+resolved): a literal pattern part is canonicalized the same way, and a plain path is its own canonical form, so the
+literal `/blog/post-1` and the group's `blog/post-1` match the same URLs; the group is anchored like the pattern, and
+holds the whole path (an unescaped `?` after it would start the pattern's query). The search and hash parts and the
+other conditions (`not` of downloads and other targets, a same-page `not`, the prerender rule's `not` of the prefetch
+patterns, folded the same way) are as before. Off pages and swapping pages are not in the list, so not in the group.
+The trie's language is exactly the set of paths (a class merges only branches whose rests are the same expression).
+The rules are still the same JSON on every page of a group: one hash, as before (its value changes once).
+
+**Evidence.**
+
+- `test/vite/rules-folded.test.ts`: four apps built with the list (`SN_RULES_FOLD=0`) and folded; every page's
+  preload candidates in Chromium 157 (CDP `Preload.preloadingAttemptSourcesUpdated`: the links the rules match) the
+  same; files that differ, differ in the rules script alone. The apps: 24 page files with two `data-sn-prefetch="off"`,
+  links to `public/` files (`/files/a.pdf`, `/blog/post-2.txt`), near misses (`/blog/post-99/`, `/blog/post-1x/`,
+  `/blog/post-1/extra`, `/BLOG/post-1/`), relative, cross-origin, `?`/`#` links, and links a module script adds after
+  load (not rewritten by the build: the other URL form of a page, an off page, no page); a page per entry (unchanged
+  bytes); 12 pages in two languages under `localePrefix` (links to `/en/…`, `/de/…`, unprefixed, `/fr/…`). And the
+  expression itself: 1,000 posts, their near misses.
+- A fuzz run in Chromium (session scratchpad, `sr/fuzz.mjs`): 65 random sets of 30–90 paths over `ab-._~0/`, the
+  links their paths, prefix, suffix, slash, case and query variants and random ones: 2,495 candidates, the same.
+- The bar's apps before (the merged tree) and after, in Chromium: multilingual-site 15 pages (75 candidates), axes 21
+  (111), static-files-100 and live-files-100 (60 pages each), sinter-mail's 19: every page the same.
+- Byte identity (`cmp-rules.mjs`): every file of the bar is the same or differs in its `<script
+  type="speculationrules">` alone. Changed: static-files-100 and -400, live-files-100, axes (12 pages), multilingual-site
+  (8), sinter-mail's 16 pages and 3 more of its files; the template apps, the examples' other pages, realworld,
+  dashboard, swap-csp, vite-i18n unchanged. Log lines: the same but Vite's size lines and the hash's value. With
+  `SN_RULES_FOLD=0` the build is byte for byte the tree before. `SN_DESCRIBE_AUDIT=1` reports the same as before.
+
+**What it does not cover** (the list as before): paths with characters a URL percent-encodes or a pattern's syntax
+(`%`, spaces, non-ASCII, `:` `*` `(`…), `.`-led segments (`/.well-known/…`), `data-sn-path` patterns, and lists of fewer
+than 16 paths (the template apps, most small sites: unchanged and readable).
+
+| page files | HTML a page, before | after | gzip, before | after | rules a page, before | after |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| static, 100 | 15,709 B | 11,274 B | 1,746 B | 1,252 B | 4,724 B | 289 B |
+| static, 1,000 | 58,164 B | 11,441 B | 6,572 B | 1,263 B | 47,024 B | 301 B |
+| live, 100 | 16,249 B | 11,814 B | 1,996 B | 1,492 B | 4,724 B | 289 B |
+| live, 1,000 | 58,711 B | 11,988 B | 6,898 B | 1,506 B | 47,024 B | 301 B |
+| template app (static-100) | 11,262 B | 11,262 B | 1,224 B | 1,224 B | 285 B | 285 B |
+
+| static-files | floor before (2 profiles) | floor after | wall before | wall after |
+| --- | ---: | ---: | ---: | ---: |
+| 100 | 1.57 / 1.51 s | 1.42 / 1.50 s | 2.66 s | 2.81 s (noise) |
+| 400 | 3.42 / 3.10 s | 2.64 / 2.77 s | 7.5–8.3 s | 7.1–7.3 s (profiled) |
+| 1,000 | 10.3 s | 6.3 s | 19.4 s | 15.1 s |
+| live-files-1,000 | | | 24.8 s | 22.0 s |
+
+At 1,000 page files the floor is now the template app's (6.1 s): what grew with n² was the rules' bytes.
 
 ## Looked at, not changed
 
