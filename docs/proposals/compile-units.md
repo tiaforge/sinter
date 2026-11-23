@@ -763,3 +763,22 @@ decision of their own (stage 7). A step that can stay byte-identical does.
   not recorded (33), and small groups (code or a definition first compiled in a dropped branch 18 + 9 + 4, folds
   that ship 9 + 7, choices 9, a unit's definition kept 6). The session goes on with those toward B2; the template's
   entries wait for stage 6's assessment of rows as text, which would make the kept walk small enough to copy.
+- 2026-11-24, 00:10 UTC: **stage 6's round 2 is merged** (`redesign-notes/stage6-eval.md`, "Round 2"; `037aa23`):
+  besides the two steps above, the decisions' keys joined only where a loop the second pass compiles is committed,
+  and a case's props copied key by key. Its numbers against the integration branch without the round (`0efedb8`),
+  seven interleaved rounds, 25th percentile and median: the blog's static `decideFor` 4.43 / 5.35 to 4.09 / 4.72 ms,
+  `compile()` 7.10 / 8.13 to 6.66 / 7.57; live `decideFor` 4.68 / 5.58 to 4.33 / 5.37; sinter-mail's compiles hold
+  or gain (the 2,012-element email 103 to 102, the file email 32.5 to 30.4, the API page 87.6 to 84.1); its full
+  suite 3,008; builds byte-identical. Checked on the coordinating machine after the merge: 1,569 tests of
+  test/compiler, test/vite, test/check pass; `render-audit --switch SN_ROW_FN --canon` eight apps the same;
+  `mail-audit --switch SN_ROW_FN` under `SN_CANON=1` 48 files byte for byte. Whole process, seven interleaved
+  rounds here (a slower quarter of an hour: Astro 1.96 s where it was 1.72 s), median: static 2.66 s, with the type
+  check 2.94 s, live 3.20 s, a page file per post 3.27 s and 3.84 s; so static stays at about 1.36 times Astro, as
+  in the 23:25 entry (1.38). **Where a blog post's compile stands**: about 6.7 ms = the deciding 4.1 (of it
+  markdown-it 1.8; the compiler's own 2.3: data checks 0.6, walk 0.8, rendering 0.9, nothing above 0.4) and the
+  second pass 2.4. The session's conclusion, which the coordinator shares: the first pass cannot reach 4 ms alone;
+  a template's entry has to be finished from the first pass's records and rendered rows, not by a second pass. The
+  B1b session named what its route reads of rendered rows as nodes (the id gap keyed by a block's first row
+  element, the rows' edge elements for `respaceRows` and `layoutAround`, the second pass's minifier and image
+  pipeline) and that a summary per block of rows would serve all three. The assessment of rows as text is with
+  the stage 6 session.
