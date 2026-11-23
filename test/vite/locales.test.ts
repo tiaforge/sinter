@@ -1,7 +1,7 @@
 // @vitest-environment node
 // Languages in the URL (`sinter({ localePrefix: true })`, docs/static-pages.md#languages): each page once per
 // language under its prefix, its text in the HTML; a chooser at each unprefixed URL; hreflang; the rules.
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { build, createServer } from 'vite';
@@ -138,12 +138,12 @@ test('sinter check: the pages from the Vite config are the sources, once each, n
   const dir = mkdtempSync(join(tmpdir(), 'sinter-locales-check-'));
   try {
     for (const f of ['project.inlang/settings.json', 'messages/en.json', 'messages/de.json', 'index.html', 'about.html']) { mkdirSync(dirname(join(dir, f)), { recursive: true }); writeFileSync(join(dir, f), files[f]!); }
-    // the content module's languages: the package, linked as an install would
+    // the content module's languages, from the package's source through the config's alias, as the builds above
+    // have it: the package's exports name dist/, which a fresh clone has not built
     mkdirSync(join(dir, 'src'), { recursive: true });
     writeFileSync(join(dir, 'src/sinter.content.ts'), "import { languages } from '@tiaforge-ui/sinter/content';\nexport const locales = languages({ base: 'en', list: ['en', 'de'] });\n");
-    mkdirSync(join(dir, 'node_modules/@tiaforge-ui'), { recursive: true });
-    symlinkSync(resolve(__dirname, '../..'), join(dir, 'node_modules/@tiaforge-ui/sinter'), 'dir');
-    writeFileSync(join(dir, 'vite.config.js'), `import sinter from ${JSON.stringify(join(src, 'vite.ts'))};\nexport default { plugins: [sinter({ localePrefix: true })], build: { rollupOptions: { input: ['index.html', 'about.html'] } } };\n`);
+    const aliasText = `[${alias.map((a) => `{ find: ${String(a.find)}, replacement: ${JSON.stringify(a.replacement)} }`).join(', ')}]`;
+    writeFileSync(join(dir, 'vite.config.js'), `import sinter from ${JSON.stringify(join(src, 'vite.ts'))};\nexport default { resolve: { alias: ${aliasText} }, plugins: [sinter({ localePrefix: true })], build: { rollupOptions: { input: ['index.html', 'about.html'] } } };\n`);
     const { pages } = await viteProject(dir);
     expect(pages.sort()).toEqual([join(dir, 'about.html'), join(dir, 'index.html')]);
   } finally {

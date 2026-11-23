@@ -14,9 +14,12 @@ export default defineConfig({
       { find: /^@tiaforge-ui\/sinter\/messages$/, replacement: `${src}/messages.ts` },
       { find: '@tiaforge-ui/sinter/retry', replacement: `${src}/retry.ts` },
       { find: '@tiaforge-ui/sinter/server', replacement: `${src}/server.ts` },
+      { find: /^@tiaforge-ui\/sinter\/(content|memo|ws|vite)$/, replacement: `${src}/$1.ts` },
+      { find: /^@tiaforge-ui\/sinter\/compiler$/, replacement: `${src}/compiler/index.ts` },
       { find: /^@tiaforge-ui\/sinter\/runtime$/, replacement: `${src}/runtime-entry.ts` },
       { find: /^@tiaforge-ui\/sinter\/runtime\/(.+)$/, replacement: `${src}/$1.ts` },
-      { find: '@tiaforge-ui/sinter', replacement: `${src}/index.ts` },
+      // the package's root only: a subpath not listed above is not `index.ts/<subpath>`
+      { find: /^@tiaforge-ui\/sinter$/, replacement: `${src}/index.ts` },
     ],
   },
   test: {
