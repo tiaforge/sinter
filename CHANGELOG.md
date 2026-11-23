@@ -41,6 +41,7 @@ How to write an entry (from 0.21.0 on; older sections keep their own form):
 
 ### Fixed
 
+- A component with scoped styles used in a list the build unrolls (a `data-sn-for` over constants, such as a `file:` resource or a literal) now has its styles on every row. Only its use outside the loop had `data-sn-c` on its root, so its `<style>` and `<name>.css` rules did not apply to the rows ([docs/components.md](docs/components.md#styles)).
 - `sinter check` and the editor compile each page with the options `vite build` uses: its URLs with `site`, its language's URLs with `localePrefix`, and the content namespaces with their formatters. A valid app no longer fails the check with SN323 for `$canonical` when `site` is set, or with SN322 on `static` pages for `m.key()`, `localeUrl()` and `$locale`, which the build writes into the HTML. The editor no longer reports `Cannot find name 'm'` (TS2304) for messages.
 - `render()` from `@tiaforge-ui/sinter/testing` renders pages with a single-file component: `scripts: { 'task-ring': TaskRing }` gives the class that stands for its `<script>` block. A component with a script but no class in `scripts` fails with an error naming it, instead of a `TypeError` in the runtime, and a `render()` that throws while mounting no longer makes later ones fail with `sinter: already mounted` ([docs/testing.md](docs/testing.md#component-scripts)).
 - Component HTML nested deeper in a components folder (`src/components/forms/text-input/text-input.html`, `task-ring/parts/ring-label.html`) is SN349 with a hint where to move it, instead of being silently ignored. This applies to libraries' `components/` and `components/internal/` too.
@@ -55,7 +56,7 @@ How to write an entry (from 0.21.0 on; older sections keep their own form):
 
 ### Performance
 
-- Pages whose early script has the same source (on a blog, every post's) share one nested build of it instead of one each: a build of 100 posts with a live section is 1.6 s faster (8.3 s at 400 posts), with the same output.
+- Pages whose early script has the same source (on a blog, every post's) share one nested build of it instead of one each: a build of 100 posts with a live section is 1.6 s faster (8.3 s at 400 posts), with the same output. The early scripts that differ go through one Vite builder instead of one `vite build` each: 0.45 s less per 100 such pages.
 - A build no longer gzips every page's scripts for size lines that `logLevel: 'warn'` does not print, and gzips a script that several pages share once: 1.4 ms less per page with a page module (0.7 s at 400 such pages).
 - A build with a page per entry (`data-sn-for` on `<html>`) lists the entries from a description of the template instead of compiling it: about 150 ms off every such build.
 - A build no longer remakes its list of pages for every page it compiles, which grew with the square of the pages: a build of 400 pages, each its own file, is 4 s faster outside the compiler (0.5 s at 100).

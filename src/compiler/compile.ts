@@ -1263,6 +1263,13 @@ class Compiler {
   private readonly scopeStart = new WeakMap<P5Node, Use[]>();
   /** an element that renders as a component's root besides its own `useOf` (a branch of a chain, a fill, the root of a component tag that is a root): the uses whose tag's attributes it takes */
   private readonly landing = new WeakMap<P5Element, Use[]>();
+  /** the elements that render as a use's root (`rootMarked`), and the copies `cloneTree` made of them */
+  private readonly rootEls = new WeakSet<P5Node>();
+  /**
+   * each copy of such an element, with the element it copies, in the order they were made: a row of a loop the build
+   * unrolls is a copy of the loop's markup, so its roots are marked as the originals are (`data-sn-c`, `data-sn-r`)
+   */
+  private readonly rootCopies: Array<[P5Element, P5Element]> = [];
   /** the children a fill's `<slot>` places (the component's markup): the fill they are placed in */
   private readonly childrenOf = new WeakMap<object, FillChain>();
   /** per fill: the scope at its placement (what its children see) and what the fill sees, computed at its first node */
@@ -1715,6 +1722,11 @@ class Compiler {
     if (styled.length) for (const list of this.uses.values()) for (const u of list) for (const el of this.rootMarked(u)) {
       const outer = [...new Set((this.landing.get(el) ?? []).filter((x) => x.name !== u.name && this.componentFiles.get(x.name)?.css).map((x) => x.name))];
       if (outer.length) { setAttr(el, 'data-sn-r', outer.join(' ')); for (const n of outer) this.rootStyled.add(n); }
+    }
+    // a copy of a root (a row of an unrolled loop): its marks are its original's, so its scoped styles apply to it too
+    if (this.opts.dev || styled.length) for (const [from, copy] of this.rootCopies) for (const n of ['data-sn-c', 'data-sn-r']) {
+      const v = attr(from, n);
+      if (v !== undefined && attr(copy, n) === undefined) setAttr(copy, n, v);
     }
     if (styled.length) for (const x of this.slotEls) if (attr(x.el, 'data-sn-c') === undefined) setAttr(x.el, 'data-sn-s', x.caller);
 
@@ -3257,6 +3269,7 @@ class Compiler {
       for (const t of tops) this.scopeStart.set(t, [...[...outer].reverse(), use]);
     }
     this.hostUse.set(host, use);
+    for (const el of use.shape ? landingOf(use.shape) : root ? [root] : []) this.rootEls.add(el);
     if (!this.uses.has(name)) this.uses.set(name, []);
     this.uses.get(name)!.push(use);
     return root ?? (tops[0] as P5Element | undefined) ?? null;
@@ -9259,6 +9272,7 @@ class Compiler {
     for (const map of [this.origins, this.slotOf, this.useOf, this.forwarded, this.points, this.choices, this.scopeStart, this.landing, this.passOn, this.pointCtx] as Array<WeakMap<object, unknown>>) if (map.has(node)) map.set(copy, map.get(node));
     if (this.defRoots.has(node as P5Element)) this.defRoots.set(copy as P5Element, { rt: this.defRoots.get(node as P5Element)!.rt });
     if (this.repeatedFills.has(node)) this.repeatedFills.add(copy);
+    if (this.rootEls.has(node)) { this.rootEls.add(copy); this.rootCopies.push([node as P5Element, copy as P5Element]); }
     const empty = this.emptyDefaults.get(node);
     if (empty) this.emptyDefaults.set(copy, empty.map((c) => { if (!chains.has(c)) chains.set(c, [...c]); return chains.get(c)!; }));
     // a fill copied with it renders in its own place: its own chain, so its `$slot` is compiled there

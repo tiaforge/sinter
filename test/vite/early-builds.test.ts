@@ -1,21 +1,29 @@
 // @vitest-environment node
 // The early scripts of a build (src/vite.ts `generateBundle`): pages whose early source is the same text share one
 // nested build, and each page's head script has the bytes it has when its page is built alone; a page whose early
-// source differs gets its own build.
+// source differs gets its own build. Every one goes through one Vite builder (one resolved config) per build.
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterAll, expect, test, vi } from 'vitest';
 
-/** the nested early-script builds: `vite.build` calls whose input is the early entry */
-const early = vi.hoisted(() => ({ n: 0 }));
+/** the nested early-script builds (`vite.build`, or a builder's `build`, whose input is the early entry), and the builders */
+const early = vi.hoisted(() => ({ n: 0, builders: 0 }));
 vi.mock('vite', async (orig) => {
   const vite = await orig<typeof import('vite')>();
+  const isEarly = (c: import('vite').InlineConfig) => JSON.stringify(c.build?.rolldownOptions?.input ?? c.build?.rollupOptions?.input ?? '').includes('early-entry');
   return {
     ...vite,
     build: (c: import('vite').InlineConfig) => {
-      if (JSON.stringify(c.build?.rolldownOptions?.input ?? c.build?.rollupOptions?.input ?? '').includes('early-entry')) early.n++;
+      if (isEarly(c)) early.n++;
       return vite.build(c);
+    },
+    createBuilder: async (c: import('vite').InlineConfig, legacy?: boolean | null) => {
+      const b = await vite.createBuilder(c, legacy);
+      if (!isEarly(c)) return b;
+      early.builders++;
+      const build = b.build.bind(b);
+      return Object.assign(b, { build: (e: Parameters<typeof build>[0]) => { early.n++; return build(e); } });
     },
   };
 });
@@ -39,7 +47,7 @@ async function site(names: string[]) {
   const root = join(tmp, names.join(''));
   mkdirSync(root, { recursive: true });
   for (const n of names) writeFileSync(join(root, `${n}.html`), PAGES[n]!);
-  const before = early.n;
+  const before = early.n, builders = early.builders;
   await build({ root, logLevel: 'silent', resolve: { alias }, plugins: [sinter()], build: { outDir: join(root, 'dist'), emptyOutDir: true, rollupOptions: { input: Object.fromEntries(names.map((n) => [n, join(root, `${n}.html`)])) } } });
   const assets = readdirSync(join(root, 'dist/assets'));
   const heads = Object.fromEntries(names.map((n) => {
@@ -47,13 +55,14 @@ async function site(names: string[]) {
     const own = [...html.matchAll(/<script src="\/assets\/([\w-]+-head-[\w-]+\.js)">/g)].map((m) => m[1]!).find((f) => !f.startsWith('sinter-head-'))!;
     return [n, { file: own, code: readFileSync(join(root, 'dist/assets', own), 'utf8') }];
   }));
-  return { heads, builds: early.n - before, shared: assets.find((f) => f.startsWith('sinter-head-')) };
+  return { heads, builds: early.n - before, builders: early.builders - builders, shared: assets.find((f) => f.startsWith('sinter-head-')) };
 }
 
 test('pages with the same early source share one build, with the bytes each has built alone; another source builds apart', async () => {
   const all = await site(['a', 'b', 'c']);
   // the shared head script, a's and b's (one build), c's
   expect(all.builds).toBe(3);
+  expect(all.builders).toBe(1);
   expect(all.heads.a!.code).toBe(all.heads.b!.code);
   expect(all.heads.a!.code).not.toBe(all.heads.c!.code);
   expect(all.heads.c!.code).toContain('/api/other');
