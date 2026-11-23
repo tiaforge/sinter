@@ -1444,7 +1444,7 @@ function compileTwice(html: string, options: CompileOptions, pass: { first: Comp
   // unit placed, only where the walk took the unit's check data in its order: `units.ts`)
   if (twice && first.quietFinish() && (!first.placedUnit || first.checkOrder)) {
     const out = second(isClean());
-    if (out) return first.check ? { ...out, check: first.check } : out;
+    if (out) return withFirstErrors(first, first.check ? { ...out, check: first.check } : out);
   }
   // a first pass that is finished (its output, or its diagnostics read): compiled again without the build's units, whose
   // objects it shares and whose numbers would then reach the output (`units.ts`)
@@ -1463,7 +1463,21 @@ function compileTwice(html: string, options: CompileOptions, pass: { first: Comp
   if (!next) { SHIFT_STATS.first ||= first.hasDefinitions() || proc?.env.SN_UNITS_SHIFT_AT === 'walk'; return withLate(out); }
   // the type check reads the page as written: in the second pass an unrolled loop's rows have no loop variable, so a
   // component prop in one (`{ post: p }`) was SN208 "Cannot find name 'p'" in `sinter check` of a `static` page
-  return out.check ? { ...next, check: out.check } : next;
+  return withFirstErrors(first, out.check ? { ...next, check: out.check } : next);
+}
+
+/**
+ * The second pass's output with the errors the first pass found and it did not: those in markup it does not compile
+ * (a branch decided away, `data-sn-if="false"`). They kept the page from unrolling (`isClean`), so they are reported,
+ * each at its place, as the page's own (redesign-notes/bugs.md, bug 6).
+ */
+function withFirstErrors<T extends { diagnostics: Diagnostic[] }>(first: Compiler, out: T): T {
+  const key = (d: Diagnostic) => `${d.code} ${d.file}:${d.line}:${d.col} ${d.message}`;
+  const lost = first.diagnostics.filter((d) => d.severity === 'error' && d.code !== 'SN322');
+  if (!lost.length) return out;
+  const has = new Set(out.diagnostics.map(key));
+  const add = lost.filter((d) => !has.has(key(d)));
+  return add.length ? { ...out, diagnostics: [...out.diagnostics, ...add] } : out;
 }
 
 /**
@@ -1609,6 +1623,8 @@ class Compiler {
   private readonly enclosing = new WeakMap<P5Element, Use | null>();
   /** above 0 while a shared definition expands: a tree placement there with no root in it is filled at run time */
   private inDef = 0;
+  /** walking a shared definition's markup (`compileDefinitionIn`) or a fill's case of a placement in one (`finishTreeFills`): its check expressions are that copy (`CheckExpr.def`) */
+  private defWalk = 0;
   /** tree placements inside shared definitions: `<slot>`s left for the walk, which makes each a choice anchor */
   private readonly runtimeSlots = new WeakSet<P5Element>();
   /** every root's fill for a slot it declares, by id: a case template of each tree placement in a definition it reaches */
@@ -5054,7 +5070,9 @@ class Compiler {
           // (a fill forwarded from further out compiles its placements' data from here, as the walk does for any fill)
           for (const c of nodes) if (isElement(c) && !this.fillOf.has(c)) this.caseScopes.set(c, scope);
           this.headTemplates.set(tid, tpl);
-          this.walkChildren(tpl.content, { scope, list: t.nodes, tid, path: [], stateIdx: -1 });
+          // (the fill's copy a placement in a definition renders, beside the one at the root's use: `CheckExpr.def`)
+          this.defWalk++;
+          try { this.walkChildren(tpl.content, { scope, list: t.nodes, tid, path: [], stateIdx: -1 }); } finally { this.defWalk--; }
           // `data-sn-early="off"` on the root's tag covers its fills
           if (F.use.late) for (const n of t.nodes) this.lateNodes.add(n);
           touch(this, P.cases); touch(this, P.map);
@@ -5466,7 +5484,8 @@ class Compiler {
     this.headTemplates.set(tid, tpl);
     if (this.opts.dev) setAttr(tpl, 'data-sn-name', name);
     this.templateAt.set(tid, { el: root, attr: null, shift: 0 });
-    this.walkChildren(tpl.content, { scope: { loops: [], states: [] }, list: t.nodes, tid, path: [], stateIdx: -1 });
+    this.defWalk++;
+    try { this.walkChildren(tpl.content, { scope: { loops: [], states: [] }, list: t.nodes, tid, path: [], stateIdx: -1 }); } finally { this.defWalk--; }
     if (this.diagnostics.length > d0) this.tplDiags.set(tid, this.diagnostics.length - d0);
     return entry;
   }
@@ -6784,6 +6803,7 @@ class Compiler {
     const e: CheckExpr = {
       src, mode: o.mode === 'value' ? 'value' : 'handler', loc: this.locOf(el, attrName, shift), frames, tag: use?.root.tagName ?? el.tagName, event,
       result: attrName === 'data-sn-then' || !!o.magic?.includes('$result'), error: attrName === 'data-sn-catch',
+      ...(this.defWalk ? { def: true as const } : {}),
     };
     if (use && event && use.emitsText && use.emits?.some((m) => m.name === event)) {
       e.detail = { kind: 'ts', text: `(${use.emitsText})[${JSON.stringify(event)}]`, loc: this.locOf(use.template, 'data-sn-emits') };
@@ -8850,7 +8870,9 @@ class Compiler {
    */
   worklist(fnOf: Map<string, ($: unknown) => unknown>, known: (deps: string[]) => boolean, fixed: (ds: PathRef[] | undefined) => boolean, schemes: Set<string>, ROW: Set<string>) {
     // (`recs`: the top rows of a loop as `rowRenderer` reads them, `RowRec`; recorded only when rows are rendered)
-    type Found = { unrolls: Array<[string, unknown[], PathRef[] | undefined]>; decided: Array<[string, boolean, PathRef[] | undefined]>; paints: Array<[Binding, string, ConstantWrite | null]>; recs?: RowRec[]; rows: number; over?: true };
+    // (`decided`: a key and what it is decided, or the candidates a choice in a row does not render, as one entry: each of
+    // `keys` but `picked` decided false at `prefix` + its key, in the order of `keys`; `decidedEntries` spells it out)
+    type Found = { unrolls: Array<[string, unknown[], PathRef[] | undefined]>; decided: Array<[string, boolean, PathRef[] | undefined] | NotRendered>; paints: Array<[Binding, string, ConstantWrite | null]>; recs?: RowRec[]; rows: number; over?: true };
     const rendering = renderOn();
     /** `pick`: a choice's case expanded (decided true), else a loop unrolled (`tid`, its rows' template) */
     const pending = new Map<string, { items: unknown[]; d: PathRef[] | undefined; found: Found; pick?: true; el: P5Element; tid?: number; picked?: PickedCase } | null>();
@@ -8860,11 +8882,17 @@ class Compiler {
      * Item 6: a handler a static tree keeps, which the page module adopts: it writes nothing and reads only
      * constants and its own `$el` (no data, URL, clock or state something writes)
      */
+    // (by binding, for this evaluation: what it asks is the program's, the same in every row)
+    const handlers = new Map<Binding, boolean>();
     const handlerOnly = (b: Binding) => {
       if (b.k !== 'on' || b.w?.length || b.f === undefined) return false;
+      let h = handlers.get(b);
+      if (h !== undefined) return h;
       const code = this.fns[b.f]!;
-      if (/\$\.\$(r|meta|url|now|locale|slot|error)\b|\$\.\$p\d/.test(code)) return false;
-      return [...code.matchAll(/\$\.\$s(\d+)(?:\.([A-Za-z_$][\w$]*))?/g)].every((m) => m[2] !== undefined && !written.has(`$s${m[1]}`) && !written.has(`$s${m[1]}.${m[2]}`));
+      h = !/\$\.\$(r|meta|url|now|locale|slot|error)\b|\$\.\$p\d/.test(code)
+        && [...code.matchAll(/\$\.\$s(\d+)(?:\.([A-Za-z_$][\w$]*))?/g)].every((m) => m[2] !== undefined && !written.has(`$s${m[1]}`) && !written.has(`$s${m[1]}.${m[2]}`));
+      handlers.set(b, h);
+      return h;
     };
     const chosen = new Set<string>();
     const limit = this.opts.expansionLimit ?? EXPANSION_LIMIT;
@@ -8881,28 +8909,94 @@ class Compiler {
     const heights = new Map<object, number>();
     const listOf = (v: unknown): unknown[] | null => (Array.isArray(v) && v.every((x) => plainData(x, heights)) ? v : null);
     // (a placement's element is its `<slot>`; an anchor's, its template)
-    const elOf = (n: NodeDef) => this.tplEls.get(n) ?? this.pointOf.get(n)?.el ?? this.paints.find((x) => x.node === n)?.el ?? this.textMarks.get(n) ?? placementOf.get(n)?.el ?? this.anchorEls.get(n);
-    const rowScope = (sc: object, t: TemplateDef, item: unknown, k: number) => new Proxy({}, {
-      get: (_, p) => (p === t.item ? item : p === t.index || p === t.ii ? k : (sc as Record<string | symbol, unknown>)[p]),
-    });
+    let paintEls: Map<NodeDef, P5Element> | null = null;
+    const elOf = (n: NodeDef) => this.tplEls.get(n) ?? this.pointOf.get(n)?.el ?? (paintEls ??= new Map([...this.paints].reverse().map((x) => [x.node, x.el] as const))).get(n) ?? this.textMarks.get(n) ?? placementOf.get(n)?.el ?? this.anchorEls.get(n);
+    /**
+     * A row's scope: its item and index in front of the scope it is in, which answers every other name, as a proxy over
+     * it answered. A plain object whose prototype is the evaluation's own scope (which answers or throws), holding as its
+     * own the names of every row it is in, the innermost's last (a chain of prototypes, one per row, is slower than the
+     * proxies at depth: V8 makes each a prototype); a name an object cannot hold by assignment (`__proto__`) is defined
+     */
+    const rowScope = (sc: object, t: TemplateDef, item: unknown, k: number): object => {
+      const up = Object.getPrototypeOf(sc) as object | null, inRow = up !== Object.prototype && up !== null;
+      const o = Object.create(inRow ? up : sc) as Record<string, unknown>;
+      if (inRow) {
+        if (!Object.hasOwn(sc, '__proto__')) Object.assign(o, sc);
+        else for (const name of Object.keys(sc)) own(o, name, (sc as Record<string, unknown>)[name]);
+      }
+      for (const name of [t.ii, t.index]) if (name !== undefined && name !== null) own(o, name, k);
+      if (t.item !== undefined) own(o, t.item, item);
+      return o;
+    };
+    const own = (o: Record<string, unknown>, name: string, v: unknown) => {
+      if (name === '__proto__') Object.defineProperty(o, name, { value: v, enumerable: true, writable: true, configurable: true });
+      else o[name] = v;
+    };
+    // (a choice's candidates' keys, by its node: the program's)
+    const caseKeys = new Map<NodeDef, Map<string, string> | null>();
     /** which case a choice renders here: the candidates' keys, and the one it renders (null: none), or null when that is not known */
     const caseOf = (n: NodeDef, el: P5Element, sc: object): { keys: Map<string, string>; picked: string | null } | null => {
       const point = this.pointOf.get(n)!;
       if (!point.group || !point.pick || !fixed(point.pick.deps) || !known(strs(point.pick.deps))) return null;
-      const keys = new Map<string, string>();
-      for (const c of point.group.cases) {
-        const ck = this.choiceKey(el, c.name);
-        if (!ck) return null;
-        keys.set(c.name, ck);
+      let keys = caseKeys.get(n);
+      if (keys === undefined) {
+        keys = new Map<string, string>();
+        for (const c of point.group.cases) {
+          const ck = this.choiceKey(el, c.name);
+          if (!ck) { keys = null; break; }
+          keys.set(c.name, ck);
+        }
+        caseKeys.set(n, keys);
       }
+      if (!keys) return null;
       const u = run(sc, point.pick.code);
       return u === FAIL ? null : { keys, picked: typeof u === 'string' && keys.has(u) ? u : null };
     };
+    // what a row's node and its bindings are, which every row of its template asks again: by node, for this evaluation
+    const els = new Map<NodeDef, P5Element | undefined>();
+    const nodeEl = (n: NodeDef) => { let el = els.get(n); if (el === undefined && !els.has(n)) els.set(n, el = elOf(n)); return el; };
+    const plans = new Map<NodeDef, BindPlan[]>();
+    /**
+     * A node's bindings as `nodesOf` reads them in a row, in their order: skipped (a handler that stays, `else`, a value
+     * neither painted nor a text), a stop (the row is not static markup), painted or a text node's value, or an `if`/`for`
+     * with its key. What depends on the evaluation's state (`known` of a state field's dependency) is asked per row (`kn`
+     * left out)
+     */
+    const bindPlan = (n: NodeDef, el: P5Element): BindPlan[] => {
+      let plan = plans.get(n);
+      if (plan) return plan;
+      plan = [];
+      for (const b of n.b) {
+        const ds = strs(b.d) as string[];
+        // (`known` reads the evaluation's states only for a state field)
+        const kn = ds.some((d) => /^\$s\d/.test(d)) ? undefined : known(ds);
+        const p: BindPlan = { b, k: SKIP, ds, ...(kn === undefined ? {} : { kn }), ...(b.f !== undefined ? { code: this.fns[b.f]! } : {}) };
+        plan.push(p);
+        if (handlerOnly(b)) continue;
+        if (ROW.has(b.k)) {
+          if (b.e || b.w?.length || !fixed(b.d)) { p.k = STOP; break; }
+          p.k = PAINTED;
+          p.paint = paintable(el, b);
+          p.text = b.k === 'text' && b.n === '+' && b.f !== undefined;
+          continue;
+        }
+        if (b.k === 'else') continue;
+        if ((b.k !== 'if' && b.k !== 'for') || b.e || b.f === undefined || !fixed(b.d)) { p.k = STOP; break; }
+        p.k = CONTROL;
+        p.key = this.instKey(el);
+      }
+      plans.set(n, plan);
+      return plan;
+    };
+    // (a case's props as the code the table compiled)
+    const propsCode = new Map<object, string>();
     /** a choice's case, at `key`: its definition over its props (one row), when that is static markup */
     const expandCase = (point: NonNullable<ReturnType<typeof this.pointOf.get>>, name: string, key: string, sc: object, prefix: string, out: Found, rec?: RowRec, n?: NodeDef): boolean => {
       const c = point.group!.cases.find((x) => x.name === name), t = c && this.templates[c.tid];
       // its props are decided expressions like any other: fixed (nothing writes what they read) and known
-      const props = c && fixed(c.deps) && known(c.deps) ? run(sc, `($) => (${c.props})`) : FAIL;
+      let code = c && propsCode.get(c);
+      if (c && code === undefined) propsCode.set(c, code = `($) => (${c.props})`);
+      const props = c && fixed(c.deps) && known(c.deps) ? run(sc, code!) : FAIL;
       if (!t?.item || props === FAIL || !plainData(props, heights)) return false;
       out.decided.push([prefix + key, true, point.pick!.deps]);
       const recs: RowRec[] | undefined = rec ? [] : undefined;
@@ -8923,7 +9017,7 @@ class Compiler {
     const nodesOf = (nodes: NodeDef[], sc: object, prefix: string, out: Found, rec?: RowRec): boolean => {
       for (const n of nodes) {
         if (n.state !== undefined || n.sid !== undefined) return false;
-        const el = elOf(n);
+        const el = nodeEl(n);
         if (!el) return false;
         const point = this.pointOf.get(n);
         if (point?.group) {
@@ -8931,7 +9025,7 @@ class Compiler {
           // like a row of one item, its props (item 5)
           const ch = caseOf(n, el, sc);
           if (!ch) return false;
-          for (const [name, ck] of ch.keys) if (name !== ch.picked) out.decided.push([prefix + ck, false, point.pick!.deps]);
+          if (ch.keys.size > (ch.picked === null ? 0 : 1)) out.decided.push({ prefix, keys: ch.keys, picked: ch.picked, d: point.pick!.deps });
           if (ch.picked === null) { rec?.set(n, null); continue; }
           if (!expandCase(point, ch.picked, ch.keys.get(ch.picked)!, sc, prefix, out, rec, n)) return false;
           continue;
@@ -8955,23 +9049,23 @@ class Compiler {
           if (!nodesOf(tc.nodes, rowScope(sc, tc, frozenData(pick[1], isResult), 0), prefix, out, inner)) return false;
           continue;
         }
-        for (const b of n.b) {
-          if (handlerOnly(b)) continue;
-          if (ROW.has(b.k)) {
-            if (b.e || b.w?.length || !fixed(b.d)) return false;
-            if (paintable(el, b) && known(strs(b.d))) {
-              const v = run(sc, this.fns[b.f!]!);
+        for (const p of bindPlan(n, el)) {
+          if (p.k === SKIP) continue;
+          if (p.k === STOP) return false;
+          const b = p.b, kn = p.kn ?? known(p.ds);
+          if (p.k === PAINTED) {
+            if (p.paint && kn) {
+              const v = run(sc, p.code!);
               const w = v === FAIL ? FAIL : firstPaintValue(el, b, v, schemes);
               const cw = w === FAIL ? null : { k: w[0], n: b.n ?? null, v: w[1] };
               out.paints.push([b, prefix, cw]);
               rec?.set(b, cw);
-            } else if (rec && b.k === 'text' && b.n === '+' && b.f !== undefined && known(strs(b.d))) rec.set(b, { text: run(sc, this.fns[b.f]!) });
+            } else if (rec && p.text && kn) rec.set(b, { text: run(sc, p.code!) });
             continue;
           }
-          if (b.k === 'else') continue;
-          if ((b.k !== 'if' && b.k !== 'for') || b.e || b.f === undefined || !fixed(b.d) || !known(strs(b.d))) return false;
-          const key = this.instKey(el);
-          const v = key ? run(sc, this.fns[b.f]!) : FAIL;
+          if (!kn) return false;
+          const key = p.key;
+          const v = key ? run(sc, p.code!) : FAIL;
           if (v === FAIL) return false;
           if (b.k === 'if') {
             out.decided.push([prefix + key, !!v, b.d]);
@@ -9014,7 +9108,9 @@ class Compiler {
             // (rendered like a row's case: its record, for `rowRenderer`)
             const top: RowRec | undefined = rendering ? new Map() : undefined;
             const ok = expandCase(point, ch.picked!, ck, sc, '', found, top, n);
-            found.decided = found.decided.filter(([k]) => k !== ck);
+            // (a choice in its rows whose candidates' keys could be this one: spelled out, to leave that one out)
+            found.decided = found.decided.flatMap((e): Found['decided'] => (Array.isArray(e) ? (e[0] !== ck ? [e] : [])
+              : [...e.keys.values()].some((k) => e.prefix + k === ck) ? [...decidedEntries([e])].filter(([k]) => k !== ck) : [e]));
             const picked = top?.get(n) as PickedCase | undefined;
             pending.set(ck, pending.has(ck) || (!ok && !found.over) ? null : { items: [], d: point.pick!.deps, found, pick: true, el, ...(picked ? { picked } : {}) });
           }
@@ -9059,6 +9155,7 @@ class Compiler {
           }
         }
         let render: ReturnType<Compiler['rowRenderer']> | null = null, constB: Set<Binding> | null = null;
+        const sitesOf = new Map<PathRef[] | undefined, Set<string>>();
         for (const [key, p] of pending) {
           if (!p) continue;
           // over the page's limit (this tree alone, or with those before it): left to the browser, with a warning
@@ -9072,7 +9169,17 @@ class Compiler {
           if (done) {
             this.rendered.set(key, done);
             const reads = this.foldReads.get(key)!;
-            for (const [, , d] of [...p.found.unrolls, ...p.found.decided]) for (const x of this.stateSites(d)) reads.add(x);
+            // (the same dependencies again, a binding's in every row, add nothing: each list once, in order)
+            const seen = new Set<PathRef[] | undefined>();
+            const add = (d: PathRef[] | undefined) => {
+              if (seen.has(d)) return;
+              seen.add(d);
+              let s = sitesOf.get(d);
+              if (!s) sitesOf.set(d, s = this.stateSites(d));
+              for (const x of s) reads.add(x);
+            };
+            for (const [, , d] of p.found.unrolls) add(d);
+            for (const e of p.found.decided) add(Array.isArray(e) ? e[2] : e.d);
             for (const x of done.state) reads.add(x);
             // what the layout and the images read of the rows (an image's attributes, a class or a style): collected as
             // the old route collects it (`collectConstants`), which decides what the second pass is handed
@@ -9086,7 +9193,7 @@ class Compiler {
             continue;
           }
           for (const [k, items, d] of p.found.unrolls) { this.unrolls.set(k, items); this.foldReads.set(k, this.stateSites(d)); }
-          for (const [k, v, d] of p.found.decided) { this.decided.set(k, v); this.foldReads.set(k, this.stateSites(d)); }
+          for (const [k, v, d] of decidedEntries(p.found.decided)) { this.decided.set(k, v); this.foldReads.set(k, this.stateSites(d)); }
           for (const [b, prefix, w] of p.found.paints) {
             let m = this.rowPaint.get(b);
             if (!m) this.rowPaint.set(b, m = new Map());
@@ -12442,6 +12549,18 @@ const RENDERED_FILE = new WeakMap<P5Element, string>();
 type RowRec = Map<object, unknown>;
 /** a choice's case in a `RowRec`: the candidate it renders, its definition's template, its props, the instance's record */
 type PickedCase = { name: string; tid: number; props: unknown; rec?: RowRec[] };
+/** the worklist's reading of a binding in a row (`bindPlan`) */
+const SKIP = 0, STOP = 1, PAINTED = 2, CONTROL = 3;
+type BindPlan = { b: Binding; k: typeof SKIP | typeof STOP | typeof PAINTED | typeof CONTROL; ds: string[]; kn?: boolean; code?: string; paint?: boolean; text?: boolean; key?: string | null };
+/** the candidates of a choice in a row that it does not render: each of `keys` but `picked`, decided false at `prefix` + its key */
+type NotRendered = { prefix: string; keys: Map<string, string>; picked: string | null; d: PathRef[] | undefined };
+/** a worklist's decisions, a choice's candidates spelled out one by one, in order */
+export function* decidedEntries(list: Array<[string, boolean, PathRef[] | undefined] | NotRendered>): Generator<[string, boolean, PathRef[] | undefined]> {
+  for (const e of list) {
+    if (Array.isArray(e)) { yield e; continue; }
+    for (const [name, ck] of e.keys) if (name !== e.picked) yield [e.prefix + ck, false, e.d];
+  }
+}
 const ROW_ITEM = {};
 
 /** why `rowRenderer` leaves rows to the second pass (thrown inside it) */

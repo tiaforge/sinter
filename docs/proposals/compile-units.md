@@ -255,7 +255,7 @@ timings were not usable). A cloud session pushes to a branch of its own:
 | stage 5, A1 then A2: definitions that ship, from units | cloud, `session_01AjKzdxPCdJ5nbeXvwkXoP2` | `redesign/stage5-a1` | `stage5-a1.md` |
 | stage 5, B1: the second pass from the first's walk | cloud, `session_01AjKzdxkDukbMzASz1qaYeA` | `redesign/stage5-b1` | `stage5-b1.md` |
 | the evaluation's cost | local agent | merged as it lands | `evaluation.md` |
-| the six bugs (three merged) | local agent | merged as they land | `bugs.md` |
+| early scripts built once per shape | cloud, `session_01AjKzdxPErYYZv1d2K1hMsD` | `redesign/early-script-shapes` | `early-script-shapes.md` |
 
 **The bar, as the owner set it on 2026-11-23:** the output need not be byte for byte today's where only numbering
 and generated names differ (`data-sn` ids, anchor numbers, template, state and function numbers, renamed loop
@@ -442,3 +442,36 @@ decision of their own (stage 7). A step that can stay byte-identical does.
   bench under `SN_CANON=1`, not run yet). A caution from stage 5's measurements for every renumbering step:
   canonical function order makes each module of sinter-mail's components route 322 B gzip heavier (4.8%), so the
   canonical form is the oracle, not the order to ship. Still local: the evaluation's cost, bugs 4 to 6.
+- 2026-11-23, 20:00 UTC: a cost of the embedding change, found by timing: each live post's early script now has
+  the post's slug folded into it (and requests the comments early, which it never did: the value was `null`), so
+  the benchmark's 100 early scripts are 100 distinct sources and 100 nested builds at about 13 ms each: the live
+  template build went from about 4.2 to 5.1 s. A cloud session builds early scripts once per shape, the literals
+  substituted afterwards (`redesign-notes/early-script-shapes.md`). The evaluation's first change (a row's template
+  asked once, a row's scope a plain object: a 2,012-element email's evaluation 324 to 266 ms) conflicts with the
+  merged bug fix in the worklist and went back to its agent. Check data once, part 1 (a page holds a unit's check
+  part by reference) is pushed on its branch; no gain until part 2. Timings on the coordinating machine, load 8,
+  three runs each, 100 posts: static 3.6 to 4.5 s, with the type check 3.8 s, live 5.1 s, a page file per post 4.4
+  to 5.7 s, live 7.0 to 8.0 s.
+- 2026-11-23, 20:30 UTC: **the six bugs are fixed and merged** (`redesign-notes/bugs.md`; a test, a fix and a
+  changelog bullet each): a choice's props must be constants (it was worse than recorded: without images too, a
+  rendered row wrote the state's first value as static text); `(1).toFixed()`; a broken expression no longer
+  silences every type error (`tsc` skips semantic errors when any file has a syntax error: the build's shadows now
+  leave broken expressions out); a component used inside itself reports each error once per use; the build counts
+  errors and warnings apart; an error in markup decided away is reported. One behaviour to confirm with the owner:
+  a build whose type check finds only warnings now prints them and passes (it failed before, counting them as
+  errors); under `strict` it still fails. **The full suite passes on the integration branch** (2,905 tests, before
+  bugs 4 to 6; 1,479 of test/compiler, test/vite, test/check after). **Quiet-machine times** (a cloud session, 4
+  cores, nothing else running, 100 posts, medians of 3, at 5f203af, before embedding): static 3.04 s, with the type
+  check 3.02 s, live 3.42 s, a page file per post 3.59 s, live 5.54 s; page-compile 361 to 419 ms. Astro: 2.2 s.
+  **The canonical form holds as an oracle** (the A1 session): under `SN_CANON=1` every behaviour and browser test
+  passes and 5 of 2,904 tests fail, each pinning a node id after a gap; sinter-mail's suite passes against canonical
+  builds. The evaluation's first change is merged (a row's template asked once, a row's scope a plain object). Check
+  data once has both parts on its branch (sinter-mail's 12 API pages with TypeScript 4.4 to 3.6 s on a quiet
+  machine) and is re-verifying over the bug fixes.
+- 2026-11-23, 20:45 UTC: **early scripts per shape, first milestone merged** (`redesign-notes/early-script-shapes.md`,
+  `src/early-shapes.ts`, `SN_EARLY_SHAPES=0` off, `SN_EARLY_SHAPES_AUDIT=1`): pages whose early sources differ only
+  in literals of one kind share one placeholder build, the first two of each group also built alone as a check.
+  Nested builds for 100 live posts: 101 to 7 (400 posts: 401 to 10). The session's quiet-machine medians: live 4.01
+  to 3.16 s, live with a page file per post 5.04 to 4.16 s; every app's files identical, the suite green under its
+  audit (2,908). On the coordinating machine after the merge (load 6, three runs): static 2.9 to 3.4 s, live 3.1 to
+  3.5 s, live with a page file per post 4.2 to 4.6 s; 1,482 tests of test/compiler, test/vite, test/check pass.

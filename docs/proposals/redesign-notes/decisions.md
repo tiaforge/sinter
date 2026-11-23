@@ -370,7 +370,7 @@ online part is sound for evaluation and scoping; the hard rules are the ones who
    an unrelated constant loop from unrolling (the page ships JS). An online pass cannot know that a later or dead
    part of the page has an error. Workable only as: decide optimistically, compile dead branches for diagnostics
    anyway (or keep a cheap error-only check of them), and on any error recompile the old way. (Today's behaviour of
-   dropping the dead-branch error looks like a bug in its own right.)
+   dropping the dead-branch error looks like a bug in its own right.) Fixed ([bugs.md](bugs.md) §6): the error is reported.
 5. **Agreement across instances with one key** (1.6). Several instances of one source element (repeated fills,
    case-template copies) must all evaluate the same before any is decided. An online pass meets the first instance
    before the others. Needs a structural pre-scan for "elements with more than one instance in pass 1's program",
