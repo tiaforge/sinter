@@ -8,8 +8,11 @@ Running log (2026-11-23), branch `redesign/stage5-b1`, started at `5f203af` (the
   would apply only page-level decided branches and rendered rows takes the second pass's result from its own walk
   (`Compiler#fromWalk`, 3, 4), behind `SN_FROM_WALK=0`, audited (`SN_FROM_WALK_AUDIT=1`), with counted fallbacks
   (5) and tests (test/compiler/from-walk.test.ts). page-compile: 451 → 359 ms.
-- **Next**: a template's entries (`fromTemplate`: the blog's three template variants) from a copy of the kept walk;
-  pages with a unit placed need the unit's objects copied for the page (A1's structural copy), see 7.
+- **Built, off by default**: a template's entries from a copy of the kept walk (`entryFromWalk`,
+  `SN_FROM_WALK_ENTRIES=1`): audited over the blog's 100 entries, but the copy costs more than it saves (8).
+- **Next**: the numbers (9), sinter-mail, page weight; then what B2 needs (7): pages with a unit placed (every page of
+  a vite build that shares definitions) need the page's own copy of the unit's objects (A1's structural copy); a
+  template's entries need a copy of the kept walk without the definitions the decided branches drop.
 
 ## How it is measured
 
@@ -122,6 +125,24 @@ which the rows' splice does as the second pass's does (the audit holds over the 
 ## 5. Fallbacks by reason
 
 To be filled from the milestone run (the suite under the audit, the apps).
+
+## 8. A template's entries from a copy of the kept walk (built, off by default)
+
+`entryFromWalk` (`SN_FROM_WALK_ENTRIES=1`): the kept template's walk records its page-level branches; each entry's
+evaluation (`decideFor`) decides; when the route may be taken (`fromWalk(next, true)`, nothing changed), the kept
+walk is copied (`copyState`, the evaluation's tables left empty: `FW_FRESH`; the side tables of the original listed
+once per template, by the original's objects, so that each later copy looks up nothing: `sources`), the copy's paths
+and canonical link written for the entry (`entryUrls`: the walk wrote the first entry's; `<html>`'s path is off it
+already), and `fromWalk` makes it the entry's second pass. Over the blog's three template variants all 100 entries
+take it, canonically the same as the old route (the audit; `pass-audit --switch SN_FROM_WALK`: bench-static and
+bench-static-typecheck byte for byte, bench-live different only in `$s` numbering inside its early chunks).
+
+It does not pay: the kept walk holds what the walk of the `$build` branch compiled, the markdown library's definitions
+(26 choice candidates), and a copy of it costs about 7 ms an entry (CPU profile of one bench-static build:
+`copyState` 706 ms over 100 entries) against 3.2 ms for the second pass from the kept expansion (`secondPass` 321 ms);
+the build went from 3.4 s to 4.0 s. What would make it pay: a copy without what the decided branches drop (the
+definitions they compiled are nothing's in the entry's page), or a kept walk transformed once per way the page-level
+branches are decided (the same for every entry of the blog) and copied per entry with only its rows to splice.
 
 ## 6. Tests whose expectations changed
 
