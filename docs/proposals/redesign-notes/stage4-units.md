@@ -237,3 +237,7 @@ the two-base check turns from a wrong page into a fallback); 5 a day (less after
   (a fresh unit compiler and a typed, renumbering copy of what it made) is a refactor of `definition()`'s products of
   its own. What this branch has is the evidence that makes it smaller than option (a): no number inside code needs to
   be a hole for the per-page library compile.
+- Checks of this branch (the shift audit is the only code, and only under its variable): `npx vitest run
+  test/compiler` 1,045 passed; `SN_RENDER_AUDIT=1` the same; `SN_LINK_AUDIT=1` 1,043 passed and two that timed out at
+  5 s under a load of 16 (`link.test.ts`, `link-review-3.test.ts`), both passing when run alone; `scripts/mail-audit.mjs`
+  42 files identical.
