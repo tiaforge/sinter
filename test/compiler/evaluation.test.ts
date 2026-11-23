@@ -5,7 +5,7 @@
 // each alone: the results must be the same, every field.
 import { afterEach, describe, expect, test } from 'vitest';
 import { compile, type CompileOptions, type CompileResult } from '../../src/compiler/index.js';
-import { decidedEntries, failsFirst, frozenPlain } from '../../src/compiler/compile.js';
+import { caseCode, decidedEntries, failsFirst, frozenPlain } from '../../src/compiler/compile.js';
 
 const C: Record<string, string> = {
   'x-doc': '<template data-sn-props="{ doc: any }"><div class="doc"><template data-sn-for="n in doc.children"><sn-component use="{ text: \'x-text\', link: \'x-link\', em: \'x-em\' }[n.type]" data-sn-with="{ node: n }"></sn-component></template></div></template>',
@@ -128,6 +128,18 @@ describe('a helper\'s result frozen already (`frozenPlain`): shared, not copied'
     const fresh = run(make), shared = run(memo(make));
     expect(shared).toEqual(fresh);
     expect(fresh[0]).toContain('<li>The</li><li>one</li>');
+  });
+});
+
+describe('a case\'s props as code (`caseCode`)', () => {
+  test('one string per case for as long as its props are the same; another case, or changed props, its own', () => {
+    const a = { props: '{ node: $.$p1.n }' }, b = { props: '{ node: $.$p1.n }' };
+    const first = caseCode(a);
+    expect(first).toBe('($) => ({ node: $.$p1.n })');
+    expect(caseCode(a)).toBe(first);
+    expect(caseCode(b)).toBe(first);
+    a.props = '{ node: $.$p2.n }';
+    expect(caseCode(a)).toBe('($) => ({ node: $.$p2.n })');
   });
 });
 

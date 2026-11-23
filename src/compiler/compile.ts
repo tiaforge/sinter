@@ -8468,14 +8468,23 @@ class Compiler {
     const rowCodes = reuse ? [] : this.collecting() ? [
       ...this.templates.flatMap((tp) => tp.nodes.flatMap((n) => n.b.filter((b) => b.f !== undefined && (ROW.has(b.k) || b.k === 'if' || b.k === 'for')).map((b) => this.fns[b.f!]!))),
       ...[...this.pointOf.values()].flatMap((p) => (p.pick ? [p.pick.code] : [])),
-      ...[...this.pointOf.values()].flatMap((p) => p.group?.cases.map((c) => `($) => (${c.props})`) ?? []),
+      ...[...this.pointOf.values()].flatMap((p) => p.group?.cases.map(caseCode) ?? []),
       ...this.runtimePlacements.flatMap((P) => (P.node.b[0]?.f !== undefined ? [this.fns[P.node.b[0].f]!] : [])),
     ] : [];
     const texts = reuse ? kept!.texts : this.textRoots.filter((t) => !t.b.e && t.b.f !== undefined && fixed(t.b.d) && !this.inKept(t.parent as P5Node));
-    const used = reuse ? kept!.used : [...new Set([...this.stateInits.flatMap((st) => st.fields.map((x) => x.code)), ...cands.map((c) => this.fns[c.f]!), ...rowCodes, ...texts.map((t) => this.fns[t.b.f!]!)])];
+    const usedCodes = (): string[] => {
+      // (each code once, where it is first named: the states' fields, the candidates, the rows', the texts')
+      const set = new Set<string>();
+      for (const st of this.stateInits) for (const x of st.fields) set.add(x.code);
+      for (const c of cands) set.add(this.fns[c.f]!);
+      for (const c of rowCodes) set.add(c);
+      for (const t of texts) set.add(this.fns[t.b.f!]!);
+      return [...set];
+    };
+    const used = reuse ? kept!.used : usedCodes();
     // (kept: the program read once, its functions compiled once with the names they see as variables each entry sets)
     if (keep && !reuse) this.evalProgram = { shape: this.programShape(), walk: newWalkMemo(), cands, written, choosing, texts, used, tables: new Map() };
-    let fnOf: Map<string, ($: unknown) => unknown>;
+    let fnOf: FnTable;
     if (keep) {
       const prog = this.evalProgram!, names = [...params.keys()], key = names.join(',');
       let t = prog.tables.get(key);
@@ -8500,8 +8509,9 @@ class Compiler {
         // eslint-disable-next-line no-new-func -- build time only: the page's own compiled expressions, with nothing in scope
         table = new Function(...params.keys(), `"use strict"; return [\n${mine.join(',\n')}\n];`)(...params.values());
       } catch { return; }
-      fnOf = new Map(mine.map((code, i) => [code, table[i]!]));
-      if (shared) for (const [code, f] of shared) fnOf.set(code, f);
+      // (the unit's, then the page's own: the two are apart, `mine` is what the unit's table has not)
+      const own = new Map(mine.map((code, i) => [code, table[i]!]));
+      fnOf = shared ? { get: (code: string) => shared.get(code) ?? own.get(code) } : own;
     }
     // a persisted model's own state path: its initial value is the fallback when storage has none
     let own: string | null = null;
@@ -8887,7 +8897,7 @@ class Compiler {
    * instances per page, any list's rows counted (`SN536` past it, at the loop or the tree that crosses it).
    */
   /** `memo`: what the walk reads of the program, kept with a kept template's program (`evalProgram`) for its next entry */
-  worklist(fnOf: Map<string, ($: unknown) => unknown>, known: (deps: string[]) => boolean, fixed: (ds: PathRef[] | undefined) => boolean, schemes: Set<string>, ROW: Set<string>, memo: WalkMemo = newWalkMemo()) {
+  worklist(fnOf: FnTable, known: (deps: string[]) => boolean, fixed: (ds: PathRef[] | undefined) => boolean, schemes: Set<string>, ROW: Set<string>, memo: WalkMemo = newWalkMemo()) {
     // (`recs`: the top rows of a loop as `rowRenderer` reads them, `RowRec`; recorded only when rows are rendered)
     // (`decided`: a key and what it is decided, or the candidates a choice in a row does not render, as one entry: each of
     // `keys` but `picked` decided false at `prefix` + its key, in the order of `keys`; `decidedEntries` spells it out)
@@ -8990,15 +9000,11 @@ class Compiler {
       plans.set(n, plan);
       return plan;
     };
-    // (a case's props as the code the table compiled)
-    const propsCode = memo.propsCode;
     /** a choice's case, at `key`: its definition over its props (one row), when that is static markup */
     const expandCase = (point: NonNullable<ReturnType<typeof this.pointOf.get>>, name: string, key: string, sc: object, prefix: string, out: Found, rec?: RowRec, n?: NodeDef): boolean => {
       const c = point.group!.cases.find((x) => x.name === name), t = c && this.templates[c.tid];
       // its props are decided expressions like any other: fixed (nothing writes what they read) and known
-      let code = c && propsCode.get(c);
-      if (c && code === undefined) propsCode.set(c, code = `($) => (${c.props})`);
-      const props = c && fixed(c.deps) && known(c.deps) ? run(sc, code!) : FAIL;
+      const props = c && fixed(c.deps) && known(c.deps) ? run(sc, caseCode(c)) : FAIL;
       if (!t?.item || props === FAIL || !plainData(props, heights)) return false;
       out.decided.push([prefix + key, true, point.pick!.deps]);
       const recs: RowRec[] | undefined = rec ? [] : undefined;
@@ -12631,8 +12637,20 @@ export function failsFirst(code: string): boolean {
 type EvalCand = { el: P5Element; b: Binding; f: number; tpl?: true; if?: true; for?: true };
 
 /** what the worklist reads of the program, by node, binding and case (`worklist`): asked once per evaluation, or per kept template */
-type WalkMemo = { handlers: Map<Binding, boolean>; paintEls?: Map<NodeDef, P5Element>; caseKeys: Map<NodeDef, Map<string, string> | null>; els: Map<NodeDef, P5Element | undefined>; plans: Map<NodeDef, BindPlan[]>; propsCode: Map<object, string> };
-const newWalkMemo = (): WalkMemo => ({ handlers: new Map(), caseKeys: new Map(), els: new Map(), plans: new Map(), propsCode: new Map() });
+type WalkMemo = { handlers: Map<Binding, boolean>; paintEls?: Map<NodeDef, P5Element>; caseKeys: Map<NodeDef, Map<string, string> | null>; els: Map<NodeDef, P5Element | undefined>; plans: Map<NodeDef, BindPlan[]> };
+const newWalkMemo = (): WalkMemo => ({ handlers: new Map(), caseKeys: new Map(), els: new Map(), plans: new Map() });
+
+/** the evaluation's compiled functions, by their code */
+type FnTable = { get(code: string): (($: unknown) => unknown) | undefined };
+/** a case's props as the code the evaluation's table compiles, one string per case for as long as its props are the same (a unit's cases are every page's) */
+const CASE_CODE = new WeakMap<object, { props: string; code: string }>();
+export function caseCode(c: { props: string }): string {
+  const k = CASE_CODE.get(c);
+  if (k && k.props === c.props) return k.code;
+  const code = `($) => (${c.props})`;
+  CASE_CODE.set(c, { props: c.props, code });
+  return code;
+}
 
 /** the worklist's reading of a binding in a row (`bindPlan`) */
 const SKIP = 0, STOP = 1, PAINTED = 2, CONTROL = 3;

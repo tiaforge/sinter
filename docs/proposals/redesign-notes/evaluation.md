@@ -205,3 +205,19 @@ ms a call, p25 / median, 3 → 4 (5 rounds blog, 3 others): blog static `decideF
 7.4 → 6.8); static-files pass-1 `settle` 7.65 / 8.03 → 5.88 / 7.96 (mean 9.6 → 8.8); mail file unchanged (its
 `mail.parse` result is not frozen; 17.1 / 22.0 → 20.5 / 25.5 and the mean 27.0 → 28.5 are the noise of three rounds:
 `frozenPlain` takes 1 of its 484 profile ticks).
+
+### 5. A page with a unit: the codes' table without copies
+
+On a page of its own with a build's unit placed (sinter-mail's pages), the evaluation's setup copied the unit's table
+of 4,000 functions into the page's own map (`fnOf.set` for each), and made each of the unit's choice cases' props code
+anew (`($) => (…)`, thousands of new strings a page, each hashed again for the `Set` of codes and compiled again in the
+page's own `new Function`, as the unit's table holds only its numbered functions). Now the page looks a code up in the
+unit's table and then in its own (`FnTable`; the two are apart), a case's props code is one string per case for as long
+as its props are the same (`caseCode`, by the case object: a unit's cases are every page's), and the codes' `Set` is
+filled without the intermediate arrays.
+
+Tests: `caseCode` (the same string per case, another for changed props).
+
+ms a call, p25 / median, 4 → 5 (4 rounds): mail API pass-1 `settle` 8.59 / 10.95 → 7.48 / 7.79; mail file 19.1 / 21.8
+→ 14.9 / 18.9 (`compile()` 40.2 / 46.8 → 34.3 / 41.8); blog static-files unchanged within the noise (6.62 / 7.99 →
+7.48 / 8.00).
