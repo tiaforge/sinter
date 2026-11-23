@@ -257,8 +257,8 @@ A component is an HTML file in `src/components/`. Its file name is its tag:
   Neovim, Helix and Emacs. [Editors](docs/editors.md)
 - **Testing.** Render a page, mock requests and streams, assert on the DOM, in plain Vitest.
   [Testing](docs/testing.md)
-- **Translations.** Typed `m.key({ param })` messages with inlang, one small file per page and
-  language. [Recipe](docs/recipes/messages.html)
+- **Translations.** Typed `m.key({ param })` messages from an inlang project, read by the
+  content module's `inlang()`; each page is built in its language. [Recipe](docs/recipes/messages.html)
 - **Components.** HTML files with props, slots, events and scoped styles, expanded at build time and
   typed. [Components](docs/components.md)
 - **Scripts for the rest.** Canvases, editors and charts are a component's script, or plain custom
@@ -336,7 +336,7 @@ Every attribute is in the [reference](docs/attributes.md). Optional files in `sr
 - [`sinter.helpers.js`](docs/expressions.md#helpers): functions your expressions can call.
 - `sinter.types.ts`, or `sinter({ apis: { main: { openapi: 'openapi.yml' } } })`: types for [`sinter check`](docs/type-checking.md).
 
-`npx sinter check` type-checks every expression, and `npx sinter lsp --stdio` gives editors errors as you type ([editors](docs/editors.md)). [Strict mode](docs/strict.md) makes warnings fail like errors; [expressions](docs/expressions.md) says what belongs in markup and what in a helper; built-in [messages](docs/messages.md) translate the pages; builds [minify](docs/minify.md) each page's HTML. Loading, first paint and navigation need no configuration; their options are in the [first paint](docs/first-paint.md) and [navigation](docs/navigation.md) docs.
+`npx sinter check` type-checks every expression, and `npx sinter lsp --stdio` gives editors errors as you type ([editors](docs/editors.md)). [Strict mode](docs/strict.md) makes warnings fail like errors; [expressions](docs/expressions.md) says what belongs in markup and what in a helper; [messages](docs/messages.md) from an inlang project are a content namespace (`inlang()`); builds [minify](docs/minify.md) each page's HTML. Loading, first paint and navigation need no configuration; their options are in the [first paint](docs/first-paint.md) and [navigation](docs/navigation.md) docs.
 
 ## Contributing and license
 
