@@ -468,3 +468,10 @@ decision of their own (stage 7). A step that can stay byte-identical does.
   builds. The evaluation's first change is merged (a row's template asked once, a row's scope a plain object). Check
   data once has both parts on its branch (sinter-mail's 12 API pages with TypeScript 4.4 to 3.6 s on a quiet
   machine) and is re-verifying over the bug fixes.
+- 2026-11-23, 20:45 UTC: **early scripts per shape, first milestone merged** (`redesign-notes/early-script-shapes.md`,
+  `src/early-shapes.ts`, `SN_EARLY_SHAPES=0` off, `SN_EARLY_SHAPES_AUDIT=1`): pages whose early sources differ only
+  in literals of one kind share one placeholder build, the first two of each group also built alone as a check.
+  Nested builds for 100 live posts: 101 to 7 (400 posts: 401 to 10). The session's quiet-machine medians: live 4.01
+  to 3.16 s, live with a page file per post 5.04 to 4.16 s; every app's files identical, the suite green under its
+  audit (2,908). On the coordinating machine after the merge (load 6, three runs): static 2.9 to 3.4 s, live 3.1 to
+  3.5 s, live with a page file per post 4.2 to 4.6 s; 1,482 tests of test/compiler, test/vite, test/check pass.
