@@ -425,3 +425,36 @@ second pass). The blog: section 14's numbers (the page-file variants routed, the
 
 Commits of this session: 7af202e (units, folds), 0b4ee7f (the minifier's layout, embedded ids), and the one after
 section 16 (the page's layout); each merged with the integration branch before it was pushed.
+
+## 17. What B2 still needs, by reason: the suite, the apps, sinter-mail (merged at 2c9a08d)
+
+Second passes by route, under `SN_FROM_WALK_AUDIT=1` (the suite, `SN_FROM_WALK_STATS`; 3,010 tests) and in one build of
+each audit app (`pass-audit --switch SN_FROM_WALK`) and of sinter-mail's 16 pages (`mail-audit`). The blog's three
+template variants (`<html data-sn-for>`, 100 entries each) are not counted by the route: every entry takes the second
+pass from the kept expansion (section 13). Dashboard has no second pass.
+
+| route | suite | blog (5 × 100) | static-site | multilingual | realworld | sinter-mail |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| **taken** | **325** | **200** (page-file variants) | **4** | **8** | | **3** |
+| a template's entry (`secondPass`, not routed) | — | 300 | | | | |
+| a loop unrolled, not rendered (stage 2's row route) | 67 | | | | | |
+| nothing decided (a branch the build might decide, not decided: no second pass needed) | 51 | | | | | |
+| constants the layout or the images read (prefold) | 38 | | 2 | | | 6 |
+| a loop unrolled on a page that is not quiet | 35 | | | | | |
+| no branch the build may decide (not recorded) | 33 | | | | 1 | |
+| code a decided branch compiled first is compiled elsewhere too | 18 | | | | | |
+| values folded into code that ships | 9 | | | | | |
+| a definition compiled first in a decided branch, used by the page | 9 | | | | | |
+| a choice decided | 9 | | | | | |
+| values folded, nothing else decided | 7 | | | | | |
+| a unit's definition the page keeps | 6 | | | | | |
+| diagnostics in a decided branch | 4 | | | | | |
+| code the unit compiled is compiled by the page too | 4 | | | | | 1 |
+| a resource read only in a decided branch (SN501) | 2 | | | | | 6 |
+| ids in rendered rows | 2 | | | | | |
+| rendered rows and a layout: an image beside them, a bound element around them, a `:has()` rule | 1 + 1 + 1 | | | | | |
+| over the expansion limit, an else-if decided, a decided if in a template that stays | 1 each | | | | | |
+
+So for the apps the second pass is left for: the template entries (300 blog pages), prefold constants (8 pages:
+static-site 2, sinter-mail 6), the SN501 case (sinter-mail 6: a resource read only in a dropped branch, whose warning
+the second pass reports), one unit case (sinter-mail 1), and realworld's one page whose branch is not recorded.
