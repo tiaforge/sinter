@@ -40,3 +40,31 @@ one is a guard with no output change today.
 **What changes.** Pages with a `<sn-component use>` whose props read state that a handler (or a model) writes: the
 case is no longer expanded at build time; the page ships the choice and renders it in the browser, as the tag would.
 No benchmark app, example or sinter-mail page has one: all byte-identical.
+
+## 2. A number-literal prop read with a member was pasted as `1.toFixed()`
+
+**Reproduction** (`test/compiler/pasted-props.test.ts`). `<x-n data-sn-with="{ n: 1 }">` with `x-n` reading
+`n.toFixed(1)`, on a page whose bindings stay in the browser: the page module had `($) => (1.toFixed(1))`, which
+does not parse (Rolldown: `Invalid characters after number`), so the build failed with a bundler error instead of
+anything about the page. The same through a component that passes the prop on (`{ n: m }` with `m: 3`), and through
+a slot's data (`$slot.n.toFixed()` with `<slot data-sn-with="{ n: 2 }">`). `sinter check` was not affected: its
+shadows declare a prop as a `const` of its own, they do not paste it.
+
+**Cause.** A prop is a let, whose code is put where the markup reads it (`emitName`, expr.ts). It goes in bare when
+it is "a plain path" (`/^[\w$]+(\.[\w$]+)*$/`, so that the same expression is the same function at every use), and
+in parentheses otherwise: a string is `('A')`, an object `({ … })`, `-1` is `(-1)`. `\w` takes digits, so a number
+literal counts as a path and goes in bare. For precedence that is right (a literal is a primary expression, like a
+path: `1 + 1`, `` `${1}` ``, `-1` from `-n`, `new`, `typeof` are all as written). What goes wrong is tokenization: an
+integer followed by `.` reads the `.` as its decimal point. That is the only place where the text after a pasted
+primary joins it: a path followed by `.` is a member (`$.n.x`), a decimal (`1.5.toFixed()`), an exponent
+(`1e3.x`), a hex, binary, octal or BigInt literal take a `.` as a member too; `1 .x`, `1?.x` and `1[x]` parse.
+
+**Fix.** The rule as it now reads: a let's code goes in bare when it is a path or a literal, else in parentheses
+(precedence), and an integer goes in parentheses where a `.` follows it right away (tokenization): `pasted()`, at
+the two places a let's code replaces a name in the source (a name, `ident`; a slot's member, `$slot.n`). The test is
+on the source after the name, `src[end] === '.'`, so `n.toFixed()` is `(1).toFixed()` and every other read of `1`
+is as before. A uniform rule (every literal in parentheses) was not needed, and would have changed every page with
+a number prop.
+
+**What changes.** Only page modules that did not parse before (a build failure): such a page now builds. All other
+code is byte-identical (benchmark apps, examples, sinter-mail).

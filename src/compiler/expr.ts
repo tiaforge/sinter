@@ -714,6 +714,7 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
       case 'local': case 'global': case 'helper': return name;
       case 'loop': return `$.${res.entry.rt ?? name}`;
       // a plain path needs no parentheses: the same expression is then the same function, wherever a prop inlines it
+      // (`pasted` adds them where the text after it would join it: a number before a `.`)
       case 'let': return /^[\w$]+(\.[\w$]+)*$/.test(res.entry.code) ? res.entry.code : `(${res.entry.code})`;
       case 'state': return `$.$s${sid}.${name}`;
       case 'resource': return `$.$r.${name}`;
@@ -723,6 +724,15 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
       case 'payload': return '$.$p';
       case 'ns': return name;
     }
+  }
+
+  /**
+   * A let's code put where the source has a name (`end`: the name's end). A plain path or a literal goes in bare, so
+   * that precedence never matters; the one place where the text after it changes how it reads is a `.` right after
+   * an integer (`n.toFixed()` with `n: 1` is not `1.toFixed()`, which does not parse): there it is in parentheses.
+   */
+  function pasted(text: string, end: number): string {
+    return src[end] === '.' && /^\d[\d_]*$/.test(text) ? `(${text})` : text;
   }
 
   function basePath(name: string, res: Resolved): { segs: string[] | null; resource: string | null } {
@@ -1071,7 +1081,7 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
       if (res.entry.usesEl) usesEl = true;
       if (res.entry.usesIndex) usesIndex = true;
     }
-    const text = emitName(n.name, res, sid);
+    const text = res.kind === 'let' ? pasted(emitName(n.name, res, sid), n.end) : emitName(n.name, res, sid);
     if (text !== n.name || shorthand) edits.push({ start: n.start, end: n.end, text: shorthand ? `${n.name}: ${text}` : text });
   }
 
@@ -1146,7 +1156,7 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
       for (const d of member.deps) deps.add(d);
       if (member.usesEl) usesEl = true;
       if (member.usesIndex) usesIndex = true;
-      edits.push({ start: n.start, end: n.end, text: emitName('$slot', { kind: 'let', entry: member }) });
+      edits.push({ start: n.start, end: n.end, text: pasted(emitName('$slot', { kind: 'let', entry: member }), n.end) });
       return;
     }
     if (n.type === 'MemberExpression' && scope.slot && !locals.has('$slot')) {
