@@ -124,3 +124,22 @@ reached only through its definition, such as a run-time choice's case) is still 
 `tree2.html` and the fill's on `tree.html`; app b likewise (49 instead of 53); the build's line says `46 type
 error(s)` instead of 50 (see §5 for the warning in it). No build output changes. `sinter lsp` is unchanged (its
 diagnostics of one position are shown once).
+
+## 5. The build counted warnings in "type error(s)"
+
+**Reproduction** (`test/vite/typecheck-summary.test.ts`). A page with one type error and an SN538 candidate the
+branch around it rules out: the build failed with `sinter check: 2 type error(s)`. With the SN538 alone, it failed
+with `sinter check: 1 type error(s)` and a warning under it. Corpus app a: `50 type error(s)` where `sinter check`
+says `49 error(s), 1 warning(s)`.
+
+**Cause.** `buildEnd` (src/vite.ts) failed the build on any diagnostic of the check and counted them all.
+
+**Fix.** It counts the errors, and words the line as `sinter check`'s does: `sinter check: 45 type error(s), 1
+warning(s)`. Choosing what fails the build follows the documentation (docs/configuration.md: `typecheck` fails "the
+build on type errors"; docs/type-checking.md: "fails on type errors") and the pages' own diagnostics: errors fail
+it, warnings are printed (`console.warn`, as a page's are) and do not, and strict mode (`strictly()`) makes them
+errors, as it does a page's warnings and `sinter check --strict`'s.
+
+**What changes.** A failing build's line (`45 type error(s), 1 warning(s)` instead of `46 type error(s)` in the
+corpus, after §4). A build whose check finds warnings only now passes, printing them; under `strict` it fails as
+before. docs/type-checking.md says so.

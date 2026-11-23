@@ -244,4 +244,4 @@ Found, not changed (today's output, recorded):
   twice on that page, once per copy (`(included from deep.html:6)` and `(included from deep.html:1)`, the
   definition's chain being the page's first line). Fixed: [bugs.md](bugs.md) §4.
 - The build counts warnings among its type errors: app a fails with `sinter check: 50 type error(s)` for 49 errors
-  and an SN538 warning (`sinter check` says 49 errors, 1 warning).
+  and an SN538 warning (`sinter check` says 49 errors, 1 warning). Fixed: [bugs.md](bugs.md) §5.

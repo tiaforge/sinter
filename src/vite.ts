@@ -2087,7 +2087,11 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       const p = proj();
       const r = check({ ...checkOptionsOf(p), helpers: helpersOf(p.helpers), units: [...units.values()], share: true });
       units.clear();
-      if (r.diagnostics.length) this.error(`sinter check: ${r.diagnostics.length} type error(s)\n${r.diagnostics.map(formatDiagnostic).join('\n')}`);
+      // type errors fail the build, its line counting them and the warnings apart (as `sinter check`'s); warnings alone
+      // (SN538) are printed as the pages' are, and strict mode makes them errors
+      const ds = strictly(r.diagnostics), errors = ds.filter((d) => d.severity === 'error').length;
+      if (errors) this.error(`sinter check: ${errors} type error(s), ${ds.length - errors} warning(s)\n${ds.map(formatDiagnostic).join('\n')}`);
+      for (const d of ds) console.warn(formatDiagnostic(d));
     },
 
     transformIndexHtml: {
