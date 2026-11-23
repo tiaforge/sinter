@@ -194,6 +194,8 @@ export const LINK_FIELDS: Record<string, { kinds: string[]; how: 'table' | 'weak
   scopeStart: { kinds: ['WeakMap'], how: 'weak' },
   scripts: { kinds: ['Map'], how: 'table' },
   slotEls: { kinds: ['Array'], how: 'table' },
+  staticRendered: { kinds: ['number'], how: 'fixed' },
+  staticRoots: { kinds: ['Map'], how: 'table' },
   slotOf: { kinds: ['WeakMap'], how: 'weak' },
   spaceN: { kinds: ['number'], how: 'fixed' },
   spacePlan: { kinds: ['Map'], how: 'table' },
