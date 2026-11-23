@@ -317,3 +317,12 @@ Found by the research, not changed:
   4.8, the worklist 4, rendering 3.8), the second pass 14 (`walkChildren` 3.1, `minify` 2.9, `expandComponents`
   1.8), garbage 8.3; outside the compiler, Vite's HTML parse 3.5 and the end-of-build cross check running the
   helpers again 2.9. Started: stage 3, one walk per page (`redesign-notes/stage3-one-pass.md`).
+- 2026-11-23, 17:00 UTC: dev may render (decided): dev's function numbering may change, an agent is on it. The
+  type check (merged, `redesign-notes/typecheck.md`, "Where it stands"): the first pass stops at its decisions under
+  the check too; shared definitions link under the check, their check data with them; `sinter check` links its
+  pages' definitions as the build does; shadows written faster. From 4c3e26c to now, with the check on (the agent's
+  medians, load 9 to 16): 100 posts with a page file each 30.0 s to 13.9 s, one template 5.3 s to 4.6 s,
+  sinter-mail's 12 API pages with TypeScript 38.8 s to 9.2 s; `sinter check` on the blog 12.8 s to 8.7 s. The
+  diagnostics corpus is byte for byte the reference. Stage 3, first change (merged,
+  `redesign-notes/stage3-one-pass.md`): the minifier's layout questions over rendered rows are linear, the second
+  pass's `minify` 2.7 to 0.7 ms a page.
