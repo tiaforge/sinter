@@ -6,8 +6,36 @@ import type { App, Intent } from './runtime/app.js';
 import { instance } from './runtime/app.js';
 import { vtTypes } from './vt-types.js';
 import { KEPT, type Prepared, type SwapState, back, entry, track } from './swap.js';
-import { ident } from './transition.js';
+import { ATTR, KEY, PENDING_MAX, ident } from './transition.js';
 import { SHARED } from './runtime/flags.js';
+
+/** how long a swap's reveal waits for the page's first responses, for a morph whose element renders from them */
+export const REVEAL_MAX = 500;
+
+/**
+ * Before a swap's reveal: a morph pending for the page just mounted (transition.ts) whose element is not there yet,
+ * while the page has requests out (an article's title inside its `if`, the response neither cached nor prefetched
+ * in time; signed in to RealWorld, each article's request waits for its CORS preflight). Unlike a load, a swap can
+ * keep the old page on screen meanwhile: until the element renders, the responses are in, or REVEAL_MAX passed.
+ * Nothing (undefined) to wait for otherwise. Here, not in transition.ts, so that the pages carry none of it.
+ */
+export function morphHeld(app: App | undefined): Promise<void> | undefined {
+  if (!app) return;
+  const env = app.env;
+  let v: string | undefined;
+  try {
+    const e = JSON.parse(env.session()?.getItem(KEY) ?? 'null') as { v: string; t: number } | null;
+    if (e && env.now() - e.t <= PENDING_MAX) v = e.v;
+  } catch { /* none */ }
+  const ready = () => [...app.root.querySelectorAll(`[${ATTR}]`)].some((x) => x.getAttribute(ATTR) == v) || !app.ir.resources.some((r) => app.resource(r.name).meta.loading);
+  if (!v || ready()) return;
+  return new Promise((res) => {
+    const end = () => { const i = app.afterFlush.indexOf(check); if (i >= 0) app.afterFlush.splice(i, 1); env.clearTimeout(timer); res(); };
+    const check = () => { if (ready()) end(); };
+    const timer = env.setTimeout(end, REVEAL_MAX);
+    app.afterFlush.push(check);
+  });
+}
 
 /** a page module with swaps on, as it registers itself (compiler/index.ts): its mount, and the names it keeps; a page with nothing to run has neither */
 interface PageModule { boot?(): App | Promise<App>; kept: string[] }
@@ -401,15 +429,11 @@ export async function prepare(s: SwapState, i: Intent, signal?: AbortSignal): Pr
       // the moments of a load's transition, for morphs (transition.ts): the page left before its snapshot,
       // the next once it is mounted; each kept element named, so it stays still while the page changes
       const activation = { navigationType: i.kind, entry: { url: final.href, index: i.index } }, none = () => {};
-      // `waitUntil` (the reveal only): unlike a load, a swap can hold the old page on screen a little longer, for
-      // a morph whose element the new page renders from its first response (transition.ts)
-      const moment = (n: string, w?: unknown[]) => dispatchEvent(Object.assign(new Event(n), { viewTransition: t, activation }, w && { waitUntil: (p: unknown) => w.push(p) }));
+      const moment = (n: string) => dispatchEvent(Object.assign(new Event(n), { viewTransition: t, activation }));
       // a transition another navigation skips rejects all three: nothing to report
       const t: VT = vt.call(document, {
-        update: async () => {
-          commit();
-          if (committed) { const w: unknown[] = []; await Promise.resolve(booted).catch(none); moment('sn-pagereveal', w); await Promise.all(w).catch(none); }
-        },
+        // (a morph's element may render from the page's first response: morphHeld)
+        update: async () => { commit(); if (committed) { await morphHeld(await Promise.resolve(booted).catch(none) || undefined); moment('sn-pagereveal'); } },
         types: vtTypes(i.kind, s.at, i.index),
       });
       t.ready.catch(none);

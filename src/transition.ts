@@ -10,10 +10,11 @@ import { chain, links } from './links.js';
 import { loadTypes } from './vt-types.js';
 import type { App, Feature } from './runtime/app.js';
 
-const KEY = 'sn:vt';
+/** sessionStorage: the name of the morph pending for the next page, with the time */
+export const KEY = 'sn:vt';
 /** a pending name older than this is from a navigation that never reached a page with the feature: ignored */
 export const PENDING_MAX = 10_000;
-const ATTR = 'data-sn-vt';
+export const ATTR = 'data-sn-vt';
 
 /** a `<custom-ident>` for any name, the same on both pages */
 export const ident = (v: string) => {
@@ -36,15 +37,7 @@ const ofRow = (a: Element, els: HTMLElement[]) => {
   return undefined;
 };
 
-/** how long a swap's reveal waits for the page's first responses, for a morph whose element renders from them */
-export const REVEAL_MAX = 500;
-
-interface SwapEvent extends Event {
-  viewTransition: ViewTransitionLike | null;
-  activation?: { entry?: { url?: string }; navigationType?: string } | null;
-  /** a swap's reveal only (swap-run.ts): the transition's update waits for the promise */
-  waitUntil?: (p: Promise<unknown>) => void;
-}
+interface SwapEvent extends Event { viewTransition: ViewTransitionLike | null; activation?: { entry?: { url?: string }; navigationType?: string } | null }
 interface ViewTransitionLike { finished: Promise<unknown> }
 
 const transition: Feature = {
@@ -83,7 +76,7 @@ const transition: Feature = {
       if (el && v) name(el, v, vt);
     };
     const reveal = (e: Event) => {
-      const { viewTransition: vt, waitUntil } = e as SwapEvent;
+      const vt = (e as SwapEvent).viewTransition;
       let v: string | null = null;
       try {
         const s = env.session(), e = JSON.parse(s?.getItem(KEY) ?? 'null') as { v: string; t: number } | null;
@@ -92,28 +85,8 @@ const transition: Feature = {
       } catch { /* ignored */ }
       // one element only: two with one name would end the transition
       if (still()) v = null;
-      const find = () => named().find((x) => x.getAttribute(ATTR) == v);
-      if (!vt || !v) return;
-      const el = find();
-      if (el) return name(el, v, vt);
-      // a swap (`waitUntil`): the element may render from the page's first response (an article's title inside
-      // its `if`), which the cache or a prefetch did not have; the old page stays shown until it is there, the
-      // responses are in, or REVEAL_MAX passed
-      const loading = () => app.ir.resources.some((r) => app.resource(r.name).meta.loading);
-      if (!waitUntil || !loading()) return;
-      waitUntil(new Promise<void>((res) => {
-        // (the hook stays, done: the app goes with the next swap)
-        let done = 0;
-        const check = (end?: 1) => {
-          const el = find();
-          if (done || (!end && !el && loading())) return;
-          done = 1;
-          if (el) name(el, v, vt);
-          res();
-        };
-        app.afterFlush.push(() => check());
-        env.setTimeout(() => check(1), REVEAL_MAX);
-      }));
+      const el = v ? named().find((x) => x.getAttribute(ATTR) == v) : undefined;
+      if (vt && el) name(el, v!, vt);
     };
     for (const p of ['', 'sn-']) {
       app.addCleanup(env.listen(p + 'pageswap', swap));

@@ -160,11 +160,9 @@ const entries = {
 // returning-reader note and the 2 s cap: about 230 B gzip), which takes the profile page's Lighthouse score from 99 to 100
 // Raised on 2026-11-22 to 57.125 KB (58,467 B): a list whose focused row goes moves the focus to the row now in its place
 // instead of leaving it on <body> (accessibility; 229 B gzip in the page runtime)
-// Raised on 2026-11-22 to 57.25 KB (58,581 B): a swap's reveal waits up to 500 ms for the response a morph's element
-// renders from (the article's title, signed in: its prefetch needs a CORS preflight and lands after the mount), 114 B gzip
 const BUDGET = {
   'multilingual de/status': 12.625 * 1024, 'multilingual de/status, html': 0.875 * 1024,
-  minimal: 11 * 1024, 'minimal, swaps': 12.875 * 1024, 'realworld article': 57.25 * 1024,
+  minimal: 11 * 1024, 'minimal, swaps': 12.875 * 1024, 'realworld article': 57.125 * 1024,
   'minimal, link': 11.125 * 1024, 'minimal, token': 12 * 1024, 'minimal, token, early': 1.875 * 1024, 'realworld early, shared': 3.375 * 1024,
 };
 let failed = false;
