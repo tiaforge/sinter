@@ -4,21 +4,17 @@ Running log (2026-11-23), branch `redesign/stage5-b1`, started at `5f203af` (the
 
 ## Where the work stands (read this first)
 
-- **Done**: the measurements (1, 2); the route for pages of their own (`compileTwice`): a first pass whose second pass
-  would apply only page-level decided branches and rendered rows takes the second pass's result from its own walk
-  (`Compiler#fromWalk`, 3, 4), behind `SN_FROM_WALK=0`, audited (`SN_FROM_WALK_AUDIT=1`), with counted fallbacks
-  (5) and tests (test/compiler/from-walk.test.ts). page-compile: 451 → 359 ms.
-- **Built, off by default**: a template's entries from a copy of the kept walk (`entryFromWalk`,
-  `SN_FROM_WALK_ENTRIES=1`): audited over the blog's 100 entries, but the copy costs more than it saves (8).
-- **Verified** (after merging the integration branch at 73035ca): the suite (2,959) plain and under
-  `SN_FROM_WALK_AUDIT=1` (166 second passes taken, the rest by reason, 5); `SN_RENDER_AUDIT`, `SN_ONE_PASS_AUDIT`,
-  `SN_LINK_AUDIT` on test/compiler pass, `SN_UNITS_AUDIT` fails the same 62 as the integration branch; the nine apps and
-  sinter-mail byte for byte the same with the switch off and on, raw and canonical; sinter-mail's suite; size budgets.
-  page-compile 364 → 289 ms (−21%) after the merge.
-- **Next (B2, 7)**: what keeps the route from real builds: a unit placed (every vite page with shared definitions; the
-  page needs its own copy of the unit's objects, A1's structural copy), values folded into code (the walk would compile
-  the folded reads, or fold after the walk), rendered rows with a layout or images (the pre-walk passes over rows),
-  and a template's entries (a copy of the kept walk without what the decided branches drop).
+Continued on branch `redesign/stage5-b1b` (2026-11-23, second session; sections 11 to 14).
+
+- **Done**: the route for pages of their own (`compileTwice` → `Compiler#fromWalk`, sections 3 to 5); since section 11
+  also for **pages with a unit placed** (the blog's page-file variants: 100 of 100 entries, sinter-mail 3 pages) and for
+  **pages whose second pass would fold values into code that does not ship** (`shipsFold`, section 12). The suite: 227
+  second passes routed (193 before), "values folded" 124 → 16.
+- **Written up, not built**: a template's entries (section 13): every design that copies walked state per entry costs
+  more than the second pass it saves (measured), and the fold of entry values needs a walk that folds.
+- **What B2 still needs**: section 14 (the remaining reasons, by count).
+- **Next**: the "rendered rows and a layout" fallbacks (84 in the suite, the examples' 12 pages): the route has to run
+  the minifier's layout and the image pipeline over the rows it splices, or the first pass has to give them the rows.
 
 ## How it is measured
 
@@ -260,3 +256,110 @@ working on copies of only the live objects. The latter is the reachable step: a 
 what the entry's page keeps (after the dry run the dead templates and the tables' entries the dropped walks added are
 known, and they are the library's bulk), whose cost is that of the page's own walk state, about the 0.5 ms the stage 3
 expansion copy costs. Not built.
+
+## 11. Pages with a unit placed (second session)
+
+A first pass with a unit placed (stage 4: the page's shared definitions from the build's units, their objects shared by
+every page) now takes the route like any other page. What it needed:
+
+- **The unit's objects the route and `finishPage` change, held and given back.** `fromWalk` touches (`touch`) what it
+  writes that a unit may own (resources', syncs', actions' records and the page's resource infos, the roots and their
+  bindings, an element of `remove` and its parent's children, an emptied template); `settle`, `dropConstants` and
+  `markScoped` touched already (A1). The output is copied off the unit (`detachOutput`) and the unit given back
+  (`restoreUnit`) before anything else places it (the audit's compile, the next page). `SN_UNITS_VERIFY=1` (every
+  object of the unit compared after every page) holds over the blog's page-file variants, sinter-mail and the tests.
+- **A unit's definition the page keeps: refused** (`fromWalk`, counted). `finishPage` would anchor, share and number the
+  unit's templates and markup, which other pages place. A unit's template nothing reaches is emptied (held) like any
+  dropped one, and its head template goes with it (a definition's walk made it; `anchors` would normalize its markup).
+- **What placing the unit added to the page's tables, taken out**: the second pass places none (its points are
+  rendered). The placement is recorded like a dropped walk (`fwSizes`/`fwSince` around `placeUnits`: a list's range and
+  its items, a map's or a set's keys; the plain fields it changed; the functions it made and their calls): its keys out
+  of the maps and sets before the route's walks add theirs (the blog: `files`, `uses`, `defs`, `srcOf`, `tplEls`,
+  `anchorEls`, `headTemplates`, `pointOf`, … 20 tables), its items out of the lists after them (positions checked by
+  identity), its functions' calls subtracted (a function it made that the page calls too: refused, as a dropped walk's).
+  Refused when it adds to a table numbered by position or changes a plain field (but `earlyDefs`).
+- **Two bugs of the route found by the verifier**: the unit's own journal (`touched`) is a field of the compiler, which
+  the route took for a table and cut by the dropped walks' positions (so a touched object was never given back); now
+  in `FW_IGNORED` with the type check's bookkeeping (`checkParts`, `checkDone`, `frameOf`, `checkLast`, `checkOrder`:
+  the check is the first pass's as its walk made it, as before).
+- With a unit, the route requires the type check's unit order (`checkOrder`), as the old route does.
+
+**Numbering**: the unit's dead definitions took state 0 (and their templates and functions the first numbers), so a page
+with live state numbers it 1 where the old route numbers it 0 (bench-live-files: `r(t,e[1],1)` for `r(t,e[1],0)` in the
+early file, one digit; canonically the same). This is the one use of the numbering freedom; everything else is byte for
+byte (bench-static-files: all 203 files).
+
+## 12. Values folded into code (second session)
+
+The second pass compiles a read of a build-time constant down to a short primitive as its literal (`foldOf`); the walk
+compiled every read as a read. The route now finishes the page from the walk and then checks (`shipsFold`) whether any
+function the page ships (its table and the early file's) reads one of the folds down to such a value, as `foldGain`
+reads them (a `$r` it cannot follow counts as one). Where none does, the second pass's folds change nothing that ships:
+a fold acts on one expression at its fold sites (its code and its dependencies; a constant either way, so the same
+bindings are dropped and the same functions left), and a function that ships has none. Where one does, the page is
+compiled the old way, with the folds (and without them where a component script may change one, `foldsEscape`):
+counted `values folded into the code that ships`; the finish was spent (one `finishPage`). Over the suite: 9 such
+pages, 7 more never reach the route (`values folded into the code`: nothing else decided). Tests: from-walk.test.ts,
+a static page whose reads fold (taken, byte for byte) and a live binding that reads one (compiled again).
+
+## 13. A template's entries: what was measured, and why it is not built
+
+Measured on this machine (4 cores, Xeon 2.3 GHz, Node 22; CPU profiles of bench-static, 100 entries, ms per entry):
+
+| | ms |
+| --- | ---: |
+| the entry's evaluation (`decideFor`) | 5.8 |
+| its second pass from the kept expansion (`secondPass`): copy of the expansion 0.4, walk 1.6 (of it the minifier 0.36), `finishPage` 0.5 | 2.4 |
+| the route as built in section 8: copy of the kept walk (`copyState`, listed tables) | 5.5 |
+| … then `fromWalk` (the rows' walk included) and `finishPage` | 0.8 + 0.7 |
+| a copy of the second pass's *walked* state (no library, the rows in), listed: the floor of any copy of walked state | 2.8 |
+
+The copy of the kept walk (5.5 ms, about 7,400 objects: `useById` 1,800, `fnAt`, `runtimePlacements`, `choiceGroups`,
+`remove`, `tplEls`, …, most of them the library's 26 candidates) could be restricted to what the entry keeps, but even a
+copy of a second pass's walked state, which has none of the library, costs more than the whole second pass (2.8 against
+2.4): the generic copy of a walked compiler is the cost, not the dead part. A walk once per template and the rows per
+entry ("transformed once per way the branches are decided") is a copy of walked state per entry too. What would pay:
+an entry run on the kept walk in place and undone, with a journal over every object the route and `finishPage` change
+(the page's markup, nodes, bindings, templates and tables, not only a unit's: `anchors`, `shareTemplates`,
+`groupStyles`, `compactTables`, `settle` write nearly all of it). Its gain is bounded by the second pass's 2.4 ms less
+`fromWalk` and `finishPage` (1.5 ms) and the journal: under 0.9 ms an entry (90 ms at 100 posts, 4%), against a journal
+whose every missed write corrupts the next entry. And the live variant folds its entry's values into code that ships
+(`post.slug` in the comments' URL): the walk would have to compile those reads as holes filled per entry (a change to
+`foldOf`, and a per-entry check that every fold decision is the same). Not built; `entryFromWalk` stays behind
+`SN_FROM_WALK_ENTRIES=1`. Where the folds ship nothing (bench-static, bench-static-typecheck: their 100 entries are byte
+for byte the same with and without folds), section 12's check would apply to entries too.
+
+## 14. What still needs the second pass (B2)
+
+The suite under `SN_FROM_WALK_AUDIT=1` (`SN_FROM_WALK_STATS`, after merging the integration branch at 22152eb; 2,995
+tests pass): taken 227; rendered rows and a layout 84; a loop unrolled, not rendered 65; nothing decided 51 (a
+branch the build might decide, not decided: no second pass is needed there at all, the first pass is the output);
+constants the layout or the images read (prefold) 38; a loop unrolled on a page that is not quiet 35; no branch the
+build may decide 33 (not recorded); code a decided branch compiled first is compiled elsewhere too 12; values folded
+into the code that ships 9; a definition compiled first in a decided branch, used by the page 9; a choice decided 9;
+values folded into the code (nothing else decided) 7; diagnostics in a decided branch 4; ids in rendered rows 2; a
+unit's definition the page keeps 2; a resource read only in a decided branch (SN501) 2; over the expansion limit, an
+else-if decided, a decided if in a template that stays 1 each. Template entries (every `<html data-sn-for>` page) are
+not routed (section 13).
+
+The apps: the blog's page-file variants 100 of 100 routed (static and live); its three template variants not routed;
+static-site rendered rows and a layout 4, prefold 2; multilingual-site rendered rows and a layout 8; realworld no
+branch the build may decide 1; dashboard none; sinter-mail 3 routed, a resource read only in a decided branch 6,
+prefold 6, code the unit compiled is compiled by the page too 1.
+
+So B2 needs, by weight: the layout and the image pipeline over spliced rows (84 + the examples), loops unrolled the old
+way (65 + 35: stage 2's row route), the prefold constants (38), the template entries (an in-place run, section 13), and
+then the small reasons, each a case of a function or definition whose site or number belongs to a dropped walk.
+
+### Numbers (this session, quiet but noisy machine: whole processes vary ±10%, so compiler time from CPU profiles)
+
+Base: the integration head 22152eb; new: this branch merged with it. `compilePasses` per page, ms, 100 posts:
+static-files 15.3 → 12.3, live-files 14.9 → 13.3; static 9.0 → 9.0, live 10.0 → 10.6, static-typecheck 10.1 → 9.5
+(the template variants are not routed: noise). Whole process, medians of 7 interleaved: static-files 2,132 → 2,097 ms,
+live-files 3,010 → 3,114 (noise); an earlier quiet run of 3: static-files 2,182 → 2,084, live-files 2,519 → 2,421.
+400 posts (3 runs): static-files 7,251 → 6,418, live-files 8,355 → 8,332. page-compile medians 176 → 176, 191 → 161.
+sinter-mail: 48 files byte for byte, raw and canonical; its suite (234 tests, `sinter check`, `tsc`) passes; run time
+(first render ms, medians of 9, runs new / base / new back to back): api newsletter-2000 20.7 / 20.9 / 23.8, corpus-static
+13.9 / 13.8 / 16.5, api-templates 55.7 / 64.4 / 62.4 and 24.3 / 27.1 / 28.4, api-fills 50.3 / 65.4 / 72.9 and 23.1 / 28.7 /
+23.4 (the same bytes: noise). `npm run size -- --check`
+passes; the apps' outputs are the same bytes but bench-live-files' state digit, so no page is heavier.
