@@ -5,8 +5,12 @@
 // build), and a module's top-level code counts for every function in it. The answer is a verdict per
 // helper (may fold, or why not, with where); nothing here runs the code. Per-module analyses are
 // cached by file and content, so the language server does not redo them on every keystroke.
-import { existsSync, readFileSync, statSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { existsSync, mkdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { dirname, join, relative, resolve, sep } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { version as acornVersion } from 'acorn';
 import { parseModule } from './compiler/index.js';
 import { lineCol } from './line-col.js';
 import type { HelperManifest } from './compiler/compile.js';
@@ -52,10 +56,18 @@ interface ModuleInfo {
   any?: string;
 }
 
-/** Per-module analyses, by file, valid while the file's mtime and size are unchanged; and package resolutions. */
+/**
+ * Per-module analyses, by file, valid while the file's mtime and size are unchanged; and package resolutions. With
+ * `dir`, the analyses are also kept on disk (`node_modules/.cache/sinter/fold`), by the module's text and the version of
+ * the analysis, for the next process: a build's start reads them instead of parsing the helpers' modules again.
+ */
 export class FoldCache {
   readonly modules = new Map<string, { stamp: string; info: ModuleInfo }>();
   readonly resolved = new Map<string, string | null>();
+  /** the folder of the analyses kept on disk, or null for none */
+  dir: string | null = null;
+  /** `vite build --force`: the analyses on disk are not read (they are written) */
+  fresh = false;
   /** the app's `resolve.alias` (from its Vite config), applied before a specifier is resolved */
   aliases: Array<{ find: string | RegExp; replacement: string }> = [];
   clear() { this.modules.clear(); this.resolved.clear(); }
@@ -501,9 +513,54 @@ function moduleOf(file: string, cache: FoldCache): ModuleInfo {
   try { stamp = stampOf(file); } catch { /* reported by the read */ }
   if (hit && hit.stamp === stamp) return hit.info;
   let info: ModuleInfo;
-  try { info = analyze(file, readFileSync(file, 'utf8')); } catch (e) { info = { file, code: '', units: new Map(), exports: new Map(), stars: [], broken: `cannot be read: ${(e as Error).message}` }; }
+  try {
+    const code = readFileSync(file, 'utf8');
+    const kept = cache.dir ? keptAnalysis(cache, file, code) : null;
+    info = kept ?? analyze(file, code);
+    if (cache.dir && !kept) keepAnalysis(cache.dir, file, code, info);
+  } catch (e) { info = { file, code: '', units: new Map(), exports: new Map(), stars: [], broken: `cannot be read: ${(e as Error).message}` }; }
   cache.modules.set(file, { stamp, info });
   return info;
+}
+
+/**
+ * What an analysis depends on besides the module's path and text: this module's code (the analysis), the parser's
+ * options (`parseModule`), acorn's and its TypeScript plugin's versions, sinter's version. An analysis kept under
+ * another is not read. (A module's imports are resolved afresh by every build: an analysis holds their specifiers.)
+ */
+let analysisVersion: string | null = null;
+const versionOfAnalysis = (): string => (analysisVersion ??= (() => {
+  const read = (f: () => string) => { try { return f(); } catch { return '?'; } };
+  const self = fileURLToPath(import.meta.url), req = createRequire(import.meta.url);
+  const pkg = (name: string) => read(() => { let d = dirname(req.resolve(name)); for (;;) { const f = join(d, 'package.json'); if (existsSync(f)) { const j = JSON.parse(readFileSync(f, 'utf8')); if (j.name === name) return String(j.version); } const up = dirname(d); if (up === d) return '?'; d = up; } });
+  return createHash('sha256').update([read(() => readFileSync(self, 'utf8')), parseModule.toString(), acornVersion, pkg('@sveltejs/acorn-typescript'), read(() => String(JSON.parse(readFileSync(join(dirname(self), '..', 'package.json'), 'utf8')).version))].join('\0')).digest('hex');
+})());
+
+const keptFile = (dir: string, file: string) => join(dir, `${createHash('sha256').update(file).digest('hex').slice(0, 40)}.json`);
+const textHash = (code: string) => createHash('sha256').update(code).digest('hex');
+
+/** an analysis kept on disk for this file, text and version; null when there is none, or one that does not read */
+function keptAnalysis(cache: FoldCache, file: string, code: string): ModuleInfo | null {
+  if (cache.fresh) return null;
+  try {
+    const k = JSON.parse(readFileSync(keptFile(cache.dir!, file), 'utf8'));
+    if (k?.v !== versionOfAnalysis() || k.file !== file || k.hash !== textHash(code)) return null;
+    const i = k.info;
+    if (!Array.isArray(i?.units) || !Array.isArray(i.exports) || !Array.isArray(i.stars)) return null;
+    for (const [name, u] of i.units) if (typeof name !== 'string' || typeof u?.name !== 'string' || !Array.isArray(u.edges) || (u.bad !== null && (typeof u.bad?.reason !== 'string' || typeof u.bad.at !== 'number'))) return null;
+    return { file, code, units: new Map(i.units), exports: new Map(i.exports), stars: i.stars, ...(i.broken !== undefined ? { broken: String(i.broken) } : {}), ...(i.any !== undefined ? { any: String(i.any) } : {}) };
+  } catch { return null; }
+}
+
+/** keeps an analysis on disk, written whole or not at all (another build may write it at the same time); never fails */
+function keepAnalysis(dir: string, file: string, code: string, info: ModuleInfo): void {
+  const to = keptFile(dir, file), tmp = `${to}.${process.pid}.${Math.random().toString(36).slice(2)}.tmp`;
+  try {
+    mkdirSync(dir, { recursive: true });
+    const info2 = { units: [...info.units], exports: [...info.exports], stars: info.stars, ...(info.broken !== undefined ? { broken: info.broken } : {}), ...(info.any !== undefined ? { any: info.any } : {}) };
+    writeFileSync(tmp, JSON.stringify({ v: versionOfAnalysis(), file, hash: textHash(code), info: info2 }));
+    renameSync(tmp, to);
+  } catch { try { unlinkSync(tmp); } catch { /* not written */ } }
 }
 
 /**
