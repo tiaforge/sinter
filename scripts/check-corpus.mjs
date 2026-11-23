@@ -15,6 +15,7 @@
 //   b  a plus a page with a broken expression
 //   c  clean: the build passes, and its dist with the check off is compared with it on
 //   d  a with an app tsconfig.json
+//   e  a without a types module (the type names its components write are declared `any`)
 // Each build runs in a child process with the environment it was given (SN_UNITS=0, SN_CHECK_SHARE=0, … pass through).
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
@@ -169,7 +170,7 @@ export default defineConfig({
   build: { minify: false, rollupOptions: { input: Object.fromEntries(${JSON.stringify(Object.keys(pages))}.map((f) => [f.replace(/\\.html$/, ''), resolve(import.meta.dirname, f)])) } },
 });
 `,
-    'src/sinter.types.ts': TYPES,
+    ...(kind === 'e' ? {} : { 'src/sinter.types.ts': TYPES }),
     'src/sinter.helpers.ts': HELPERS,
     ...Object.fromEntries(Object.entries(COMPONENTS(clean)).map(([f, s]) => [`src/components/${f}`, s])),
     ...pages,
@@ -206,7 +207,7 @@ const runBuild = (root, env = {}) => {
   if (units) console.log(`check-corpus: ${root}: units ${units[1]}${env.CORPUS_CHECK === '0' ? ' (check off)' : ''}`);
   return norm(r.stdout + (r.status ? `\n[exit ${r.status}] ${r.stderr}` : ''), root);
 };
-for (const kind of only ?? ['a', 'b', 'c', 'd']) {
+for (const kind of only ?? ['a', 'b', 'c', 'd', 'e']) {
   const root = join(base, kind);
   writeApp(root, kind);
   lines.push(`==== app ${kind}: vite build`);

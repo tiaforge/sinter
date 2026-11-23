@@ -117,7 +117,9 @@ function profile(dir) {
     for (const [id, ms] of self) {
       const seen = new Set();
       for (let n = id; n !== undefined; n = parent.get(n)) {
-        const fn = byId.get(n).callFrame.functionName;
+        const { functionName, url } = byId.get(n).callFrame;
+        // (`check` is also a name of the compiler's: the check's own only)
+        const fn = functionName === 'check' && !url.includes('/check/index.') ? '' : functionName;
         if (NAMES.includes(fn) && !seen.has(fn)) { seen.add(fn); out[fn] = (out[fn] ?? 0) + ms; }
       }
     }

@@ -8,8 +8,9 @@ Running log, branch `redesign/check-data-once` (from 09d202f). The design is
 
 - Done: the diagnostics corpus as a committed script (`scripts/check-corpus.mjs`), its reference from 09d202f
   (`scripts/check-corpus.ref.txt`); the bench (`bench/check-bench.mjs`); part 1 (a page holds a unit's check part by
-  reference).
-- Next: part 2 (a part's shadow written once per build, taken by `checkShared` as shared functions).
+  reference); part 2 (a part's shadow written once per build, its functions taken as shared by id).
+- Next: merge the integration branch (the bug fixes change check diagnostics: the reference is regenerated from it),
+  measure before/after on both, report.
 
 ## The oracle
 
@@ -71,3 +72,43 @@ the named functions (`spawnSync` is the wall time `tsc` was waited for).
 - Measured (3 runs): `unitCheck` 144 to 7 ms (sinter-mail API), 79 to 4 (blog files); `check()` gains what the compile
   lost (the flat lists are made when `shadowOf` reads them: `shadowOf` 396 to 633 ms): no gain by itself, as the
   design said. It is the form part 2 reads.
+
+## Part 2: a part's shadow written once per build
+
+`checkShared` (src/check/index.ts) is now two steps: `planShared` makes every file TypeScript is given (the folders'
+shared modules, the pages) and where each page's functions are in its whole shadow; `checkShared` writes them, runs
+`tsc` and lays the errors out as before.
+
+- **A page that holds parts** (`checkRaw`, every part `ok`: no mark of ours in its text, nothing broken) is not
+  written whole. Its shadow is its declarations and its own expressions only (`shadow`'s new options: `only`, the
+  expressions to write; `frameAt`, frames read through the page's lists, a part's made when an own expression opens
+  it; `info`, what the declarations read of the expressions and frames, `HeadInfo`: the specs, `$A`, and the `any`
+  type names in frame-then-expression order, merged from the page's own and each part's, computed once per part).
+  Its parts' functions come from the part's **template**: the part's functions written once per folder (and library
+  of the page, and set of `any` names), the part's expressions named `\u0003<j>\u0003`, each with its lines, the
+  functions it calls, and the names it reads. The page's functions are laid out as its whole shadow has them (the
+  broken ones last), a part's at its place, by arithmetic.
+- **Ids**: a part's function gets its id in the folder's module the first time a page takes it with nothing of the
+  page in it, by the same text as before (the template's text, the functions it calls named `$s<id>`); later pages
+  read the id (`Tpl.ids`) and count it. A part's function that reads a resource of the page (by the template's
+  names, `byName`) or a name typed per page (`fixed`) stays on that page, and so does what calls it; its text is the
+  template's with the page's names. So the shared modules, the page files and the counts are the ones the whole
+  shadows gave: `SN_CHECK_PARTS_AUDIT=1` plans both ways and throws on the first difference in any file, in where a
+  page's lines map, or in which functions are shared.
+- **Where errors are**: a page with an error anywhere (on its file or in a shared function it takes) has its whole
+  shadow written in memory then (`shadowOf` over the flat lists) for its regions; its layout must be the one planned
+  (else every page is checked whole: "laid out otherwise (please report)"). A clean page never is.
+- `SN_CHECK_PARTS=0`: every page written whole, as before.
+
+Found with the corpus's app e (no types module): a part's template was first cached by folder, but a folder has one
+module per set of `any` names, and the ids are a module's; the template is now keyed by both.
+
+Checked (on efb3c08 + part 2): the corpus (5 apps, its reference regenerated at 09d202f with app e) the same plain,
+with `SN_CHECK_PARTS_AUDIT=1`, `SN_CHECK_SHARE=0`, `SN_UNITS=0` and `SN_CHECK_PARTS=0`; the whole suite 2,861 passed;
+`render-audit` and `render-audit --switch SN_UNITS`, `pass-audit`, `mail-audit --switch SN_UNITS` (42 files): every
+file the same; the blog's dist (a page file per post) the same with the check on and off.
+
+First numbers (3 runs, the profile's `checkShared` including `tsc`'s wait): sinter-mail API 4,381 / 7,310 ms (wall /
+CPU) to 3,587 / 6,410, `checkShared` 1,182 to 652; blog files 5,018 / 8,950 to 4,273 / 7,920, `checkShared` 956 to
+307. (The profile's `check` row at 09d202f also counted a compiler function named `check`, `foldVerdicts`'s; the
+bench counts only `check/index.js`'s now.)
