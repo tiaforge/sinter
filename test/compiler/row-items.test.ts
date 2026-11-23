@@ -4,7 +4,7 @@
 // an object reached twice).
 import { describe, expect, test } from 'vitest';
 import { compile, type CompileOptions } from '../../src/compiler/index.js';
-import { frozenData } from '../../src/compiler/compile.js';
+import { frozenData, plainData } from '../../src/compiler/compile.js';
 
 const frozenEverywhere = (v: unknown): boolean => !v || typeof v !== 'object' || (Object.isFrozen(v) && Object.values(v).every(frozenEverywhere));
 
@@ -49,6 +49,30 @@ describe('frozenData', () => {
     const twice = frozenData({ a: shared, b: shared }) as { a: object; b: object };
     expect(twice.a).toBe(twice.b);
     expect(frozenEverywhere(twice)).toBe(true);
+  });
+});
+
+describe('plainData with the heights of frozen data', () => {
+  const deep = (n: number, leaf: unknown = 'x'): unknown => { let t = leaf; for (let i = 0; i < n; i++) t = { a: t }; return t; };
+  test('the same answers as without, a part measured before included, at the bound too', () => {
+    const heights = new Map<object, number>();
+    const tree = frozenData(deep(1000)) as object;
+    expect(plainData(tree, heights)).toBe(true);
+    expect(heights.get(tree)).toBe(999);
+    // the part measured is 999 deep: under 24 more levels it is within the bound, under 26 past it
+    for (const n of [24, 25, 26, 40]) {
+      const v = deep(n, tree);
+      expect(plainData(v, heights)).toBe(plainData(v));
+    }
+    expect(plainData(deep(24, tree), heights)).toBe(true);
+    expect(plainData(deep(26, tree), heights)).toBe(false);
+  });
+
+  test('what is not plain data, and a cycle, are as without', () => {
+    const heights = new Map<object, number>();
+    const cyc: Record<string, unknown> = { n: 1 };
+    cyc.self = cyc;
+    for (const v of [{ d: new Date(0) }, [() => 1], cyc, { m: new Map() }, [Symbol('s')]]) expect(plainData(v, heights)).toBe(plainData(v));
   });
 });
 

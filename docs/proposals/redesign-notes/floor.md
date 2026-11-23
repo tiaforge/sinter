@@ -70,9 +70,8 @@ What a copy guaranteed and still holds:
   such a comparison is false again: a page whose row compares objects by identity would differ between rendering on
   and off. No app or test does; the render audit would show it.
 
-Tried and dropped: a memo of `plainData` for frozen data (heights in a `WeakMap`, so that each level's `listOf` does
-not walk its subtree again). 550 calls a page, mostly over small values; the `WeakMap` cost what the walks did
-(0.8 ms before, 1.1 ms after in the profile).
+Tried here and dropped: a memo of `plainData` for frozen data in a module `WeakMap`. Under the load of the time the
+profile could not tell it from noise (0.8 ms before, 1.1 ms after); taken later in another form (change 4).
 
 Static, `time` mode, median of 3 rounds A/B (ms a page): `decideFor` 19.0 → 12.5, GC in compiles 5.5 → 4.2,
 `compile()` 32.4 → 23.9; the build (instrumented) 6.0 → 5.0 s.
@@ -123,3 +122,17 @@ Pages that are walked twice gain: a page file per post. Template entries (`fromT
 never ran a first `finishPage`. Static files, `time` mode with the thread's CPU time as the clock (from here on: the
 machine's load moves wall time too much), median of 2 rounds, base / change 2 / this, ms a page: pass 1's finish
 21.5 / 13.1 / 9.7 (`settle` alone), `compile()` 37.9 / 25.4 / 22.9.
+
+### 4. `plainData` measures frozen data once per evaluation
+
+What `plainData` walked after change 1: the worklist asks it of each level's list items (`listOf`), of each case's
+props (`{ node }`, the node's whole subtree) and of a placement's data, and each of those is a part of the level
+above, so the walks were still O(depth × size) (1.3 ms a page in the CPU profile, the largest item of `decideFor`
+left). With a `Map` the worklist keeps for one evaluation, `plainData` records the height of each object frozen at
+every depth that it measured (`plainHeight`), and a later question about it, or about something new around it, stops
+there. The bound is kept exactly: a part's height counts from where it is reached, and anything the recursive walk
+cannot answer (past the bound, a cycle, a getter that throws) goes to the original walk. Elsewhere (state fields,
+helper arguments and results) `plainData` is called as before. Tests in test/compiler/row-items.test.ts (the bound
+through a measured part, the non-plain cases against the original).
+
+Static, CPU clock, median of 3 rounds A/B: `decideFor` 7.7 → 7.2 ms a page.
