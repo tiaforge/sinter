@@ -122,3 +122,11 @@ linking threshold), `appPages()` (what other pages request ahead, the Speculatio
 
 Template apps (`pageInputs`) never reset the cache and list few source pages: unchanged. Byte identity: all 11 apps
 identical. Full suite green (2,743 tests).
+
+## 5. SN325's check: each module's info read once
+
+`guardLazy` (in `generateBundle`, every build) walks each page module's import graph with `getModuleInfo`, a call into
+the bundler, for every module of every page: the pages reach mostly the same modules (the runtime's). The infos are
+now read once per build. sinter-live-100: 34 ms → under 1 ms (−0.3 ms per live page). Byte identity: all 11 apps
+identical. Test: `test/vite/lazy.test.ts`'s SN325 case built with two pages, each reported. Too small for a CHANGELOG
+line of its own.

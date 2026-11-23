@@ -2362,12 +2362,15 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       return x.startsWith(PREFIX) && x.endsWith('.html.js') ? x.slice(PREFIX.length, -3) : relOf(x);
     };
     const pages = [...ctx.getModuleIds()].filter((id) => { const x = id.replace(/^\0/, ''); return x.startsWith(PREFIX) && x.endsWith('.html.js') && !x.startsWith(EARLY); });
+    // each module's info read once: the pages reach mostly the same modules (the runtime's), and a read crosses into the bundler
+    const infos = new Map<string, ReturnType<typeof ctx.getModuleInfo>>();
+    const infoOf = (id: string) => { let m = infos.get(id); if (m === undefined && !infos.has(id)) infos.set(id, (m = ctx.getModuleInfo(id))); return m ?? null; };
     const errors: string[] = [];
     for (const page of pages) {
       const prev = new Map<string, string | null>([[page, null]]), todo = [page];
       while (todo.length) {
         const id = todo.shift()!;
-        for (const next of ctx.getModuleInfo(id)?.importedIds ?? []) if (!prev.has(next)) { prev.set(next, id); todo.push(next); }
+        for (const next of infoOf(id)?.importedIds ?? []) if (!prev.has(next)) { prev.set(next, id); todo.push(next); }
       }
       const chain = (id: string) => { const c: string[] = []; for (let x: string | null = id; x; x = prev.get(x) ?? null) c.unshift(x); return c; };
       const shown = (ids: string[]) => ids.map((x) => (isLazyModule(x) ? lazyName(x) : name(x))).filter((x, i, a) => a.indexOf(x) === i).join(' → ');
@@ -2381,7 +2384,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
           continue;
         }
         if (id.startsWith('\0') || id.includes('/node_modules/')) continue;
-        const by = ctx.getModuleInfo(id)?.dynamicImporters.find((d) => prev.has(d));
+        const by = infoOf(id)?.dynamicImporters.find((d) => prev.has(d));
         if (by) errors.push(`SN325 ${name(page)}: ${name(id)} is loaded with \`import()\` by ${name(by)}, and imported statically by the page too (${shown(chain(id))}), so the split does nothing for it. Import it only with \`import()\`, or not lazily at all`);
       }
     }
