@@ -16,7 +16,7 @@ import { segments, segsMatch } from './runtime/url.js';
 import { withInertPlugin } from './helpers-node.js';
 import { args } from './args.js';
 import { componentScript } from './components-build.js';
-import { componentHtml } from './component-files.js';
+import { componentHtml, inlineScriptSource } from './component-files.js';
 import type { Library } from './libraries.js';
 import type { HistoryWrite, MockStream, RecordedCall, Rendered, RouteResponse } from './testing/index.js';
 
@@ -239,6 +239,8 @@ export async function appLoader(root: string, libs: readonly Library[] = []): Pr
     resolveId(id, importer) {
       const m = /^@tiaforge-ui\/sinter(?:\/(.+))?$/.exec(id);
       if (m) return `\0sinter-shared:${m[1] ?? ''}`;
+      // a component's top-level `<script>`: its module beside its file (`task-ring.html.script.ts`)
+      if (inlineScriptSource(id)) return id;
       // a component's script imports its base class from its HTML file, as the Vite plugin gives it
       if (importer && id.endsWith('.html') && !importer.endsWith('.html')) {
         const file = resolve(dirname(importer.replace(/[?#].*$/, '')), id);
@@ -248,6 +250,8 @@ export async function appLoader(root: string, libs: readonly Library[] = []): Pr
       return null;
     },
     async load(id) {
+      const inline = inlineScriptSource(id);
+      if (inline) return { code: inline.code, map: inline.map };
       if (id.startsWith('\0sinter-base:')) return componentBase(id.slice('\0sinter-base:'.length));
       if (!id.startsWith('\0sinter-shared:')) return null;
       const sub = id.slice('\0sinter-shared:'.length);

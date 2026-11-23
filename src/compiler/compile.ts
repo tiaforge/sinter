@@ -14,7 +14,7 @@ import { freeRefs, parseExpression, parseProgram } from './parse.js';
 import type { DefaultTreeAdapterMap } from 'parse5';
 import { type Code, type Diagnostic, didYouMean, severityOf, suggest } from './diagnostics.js';
 import { analyze, applyEdits, nsLocal, refNames, STORE_FNS, throughField, wild, type SlotScope, type ComponentScope, type ExprOptions, type ExprResult, type LetEntry, type LoopEntry, type PageInfo, type Read, type ResourceInfo, type Scope } from './expr.js';
-import { callerAttribute, COMPONENT_NAME, componentPaths, DOM_EVENTS, isArrayType, LIBRARY_LAYER, rootCss, scopeCss, SLOT_TYPE, typeMembers, withoutSlots, type Member } from './components.js';
+import { callerAttribute, COMPONENT_NAME, componentPaths, DOM_EVENTS, inlineScriptLang, inlineScriptPath, inlineScripts, type InlineScript, isArrayType, LIBRARY_LAYER, rootCss, scopeCss, SLOT_TYPE, typeMembers, withoutSlots, type Member } from './components.js';
 import type { Node } from 'acorn';
 import type * as acorn from 'acorn';
 import { COMPLEXITY_DEFAULTS, COMPLEXITY_LIMITS, measure, type ComplexityOptions } from './complexity.js';
@@ -729,8 +729,13 @@ interface ComponentFile {
   text: string;
   bad?: true;
   css?: string | null;
-  /** the script beside it (`/src/components/task-ring.ts`), imported by the page modules that use it */
+  /** its script (`/src/components/task-ring.ts`, or `/src/components/task-ring.html.script.ts` for a top-level `<script>` in
+   *  the file), imported by the page modules that use it */
   script?: string | null;
+  /** its top-level `<script>` elements, when it has any (one is its script) */
+  inline?: InlineScript[];
+  /** a script file beside a file that has a top-level `<script>` too: reported (SN312) */
+  scriptBeside?: string;
   /** the class it exports: `TaskRing` for `task-ring`, else `default`; null when it exports neither */
   exported?: string | null;
   /**
@@ -2360,18 +2365,32 @@ class Compiler {
       else if (kind === 'either') c.either = true;
     }
     if (c) {
-      // a script beside it: the component runs it per instance
+      // its script: a top-level `<script>` in the file (served as `<tag>.html.script.ts`), or a file beside it; the component
+      // runs it per instance
       const root = normalize(this.opts.root).replace(/\/$/, '');
+      const rel = (f: string) => (f.startsWith(root + '/') ? f.slice(root.length) : f);
+      let scriptText: string | null = null;
+      const inline = inlineScripts(c.text);
+      if (inline.length) {
+        c.inline = inline;
+        c.script = rel(inlineScriptPath(file, inlineScriptLang(inline[0]!.lang) ?? 'js'));
+        scriptText = inline[0]!.code;
+      }
       for (const ext of ['.ts', '.js', '.mts', '.mjs']) {
         const f = file.replace(/\.html$/, ext);
         let text: string;
         try { text = this.opts.readFile(f); } catch { continue; }
-        c.script = f.startsWith(root + '/') ? f.slice(root.length) : f;
+        // both: reported where the component expands (its script is in one place)
+        if (inline.length) { c.scriptBeside = rel(f); break; }
+        c.script = rel(f);
+        scriptText = text;
+        break;
+      }
+      if (scriptText !== null) {
         // the class: imported by its name, so the runtime looks nothing up
         const pascal = pascalName(tag);
-        c.exported = new RegExp(`export\\s+(?:abstract\\s+)?class\\s+${pascal}\\b|export\\s*\\{[^}]*\\b${pascal}\\b[^}]*\\}`).test(text) ? pascal
-          : /export\s+default\b|export\s*\{[^}]*\bas\s+default\b/.test(text) ? 'default' : null;
-        break;
+        c.exported = new RegExp(`export\\s+(?:abstract\\s+)?class\\s+${pascal}\\b|export\\s*\\{[^}]*\\b${pascal}\\b[^}]*\\}`).test(scriptText) ? pascal
+          : /export\s+default\b|export\s*\{[^}]*\bas\s+default\b/.test(scriptText) ? 'default' : null;
       }
       // its styles in a file of their own: `<tag>.css` beside it, scoped as its `<style>` would be
       {
@@ -2993,8 +3012,13 @@ class Compiler {
     if (attr(template, 'data-sn-component') !== undefined && attr(template, 'data-sn-head') !== undefined) {
       return fail(template, 'data-sn-head', `\`<${name}>\` declares both \`data-sn-component\` and \`data-sn-head\`, which are one \`data-sn-props\` now`, 'its markup says the kind: one root element for a body, head elements only for a head');
     }
+    // its script: one top-level `<script>` (no `type`, or `type="module"`; `lang="ts"` for TypeScript), in one place
+    const scripts = top.filter((t) => t.tagName === 'script' && ['', 'module'].includes((attr(t, 'type') ?? '').trim().toLowerCase()));
+    if (scripts.length > 1) return fail(scripts[1]!, null, `\`<${name}>\` has ${scripts.length} top-level \`<script>\` elements: a component has one script`, 'put the code in one `<script lang="ts">`');
+    if (scripts.length && def.scriptBeside) return fail(scripts[0]!, null, `\`<${name}>\` has a \`<script>\` and \`${basename(def.scriptBeside)}\` beside it: a component's script is in one place`, `move the \`<script>\`'s code into \`${basename(def.scriptBeside)}\`, or the file's into the \`<script>\``);
+    if (scripts.length && inlineScriptLang(def.inline?.[0]?.lang ?? null) === null) return fail(scripts[0]!, 'lang', `\`lang="${def.inline![0]!.lang}"\` is not a script language sinter takes: \`lang="ts"\` for TypeScript, or no \`lang\` for JavaScript`);
     for (const t of top) {
-      if (t !== template && t.tagName !== 'style') return fail(t, null, `a component file holds its \`<template>\` and \`<style>\`; \`<${t.tagName}>\` belongs inside the template`);
+      if (t !== template && t.tagName !== 'style' && !scripts.includes(t)) return fail(t, null, `a component file holds its \`<template>\`, \`<style>\` and \`<script>\`; \`<${t.tagName}${t.tagName === 'script' ? ` type="${attr(t, 'type')}"` : ''}>\` belongs inside the template`);
     }
     const style = top.find((t) => t.tagName === 'style');
     // its styles are in one place: its `<style>` or its `.css` file
@@ -9508,7 +9532,7 @@ class Compiler {
       if (!early) return;
       // reported at the use's tag (the binding's site is the component's root)
       const root = this.fnAt[b.f!]?.el, host = (root && this.useOf.get(root)?.host) ?? root;
-      if (host) this.report(host, null, 'SN543', `\`<${c.name}>\` is filled by its script at mount, after the first paint, where the early script renders what is around it: its content moves what follows it`, 0, `give it an early renderer, \`${(c.file.script ?? '').replace(/\.[cm]?[jt]s$/, '.early.ts')}\` (\`export default (root, props) => { … }\`), which the early script runs with the same props, or reserve its space with CSS`);
+      if (host) this.report(host, null, 'SN543', `\`<${c.name}>\` is filled by its script at mount, after the first paint, where the early script renders what is around it: its content moves what follows it`, 0, `give it an early renderer, \`${this.rootRel(c.file.file).replace(/^\/?/, '/').replace(/\.html$/, '.early.ts')}\` (\`export default (root, props) => { … }\`), which the early script runs with the same props, or reserve its space with CSS`);
     };
     /**
      * A `data-sn-if` (without a `data-sn-else`) that the resources' state at mount closes, whether or not they load

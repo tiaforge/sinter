@@ -6,7 +6,7 @@ import { dirname, join, relative, sep } from 'node:path';
 import * as parse5 from 'parse5';
 import { parseExpressionAt } from 'acorn';
 import type { DefaultTreeAdapterMap } from 'parse5';
-import { COMPONENT_NAME, withoutSlots } from './compiler/components.js';
+import { COMPONENT_NAME, inlineScriptHtml, inlineScriptLang, inlineScriptPath, inlineScripts, withoutSlots } from './compiler/components.js';
 import { componentKinds, declaringTemplate } from './compiler/head.js';
 import { typeExports } from './check/index.js';
 import { modulesDir, type Library } from './libraries.js';
@@ -34,8 +34,15 @@ export function componentNames(root: string): string[] {
   return findComponents(join(root, 'src', 'components')).names;
 }
 
-/** The script beside a component's HTML file, or null. */
+/**
+ * A component's script, or null: the module of a top-level `<script>` in its HTML file (`task-ring.html.script.ts`, which
+ * sinter serves: read it with `readModuleSource`), else the script beside the file.
+ */
 export function componentScript(htmlFile: string): string | null {
+  let text = '';
+  try { text = readFileSync(htmlFile, 'utf8'); } catch { /* missing */ }
+  const inline = inlineScripts(text)[0];
+  if (inline) return inlineScriptPath(htmlFile, inlineScriptLang(inline.lang) ?? 'js');
   const base = htmlFile.replace(/\.html$/, '');
   for (const ext of SCRIPT_EXTS) if (existsSync(base + ext)) return base + ext;
   return null;
@@ -113,7 +120,8 @@ export function componentTypes(root: string, read: (file: string) => string = (f
     const typesSpec = types ? specOf(types) : null;
     for (const [name, html] of list) {
       const f = relative(cdir, html).split(sep).join('/');
-      if (!componentScript(html)) continue;
+      const script = componentScript(html);
+      if (!script) continue;
       let c: Contract | null = null;
       try { c = contractOf(read(html)); } catch { /* reported by the compiler */ }
       if (!c) continue;
@@ -122,7 +130,7 @@ export function componentTypes(root: string, read: (file: string) => string = (f
       out.push(`declare module '*/${name}.html' {`);
       for (const n of used) out.push(`  type ${n} = import('${typesSpec}').${n};`);
       out.push(`  const Base: typeof import('${COMPONENTS_MODULE}').Component;`);
-      out.push(`  /** the base of \`${shown}${f.slice(0, -5)}.ts\`: props, events, refs and state as \`${f}\` declares them */`);
+      out.push(`  /** the base of ${inlineScriptHtml(script) ? `the \`<script>\` in \`${shown}${f}\`` : `\`${shown}${f.slice(0, -5)}.ts\``}: props, events, refs and state as \`${f}\` declares them */`);
       out.push(`  export class ${pascal(name)}Component extends Base<${c.props}, ${c.emits}, ${c.refs}, ${c.state}> {}`);
       out.push('}');
     }

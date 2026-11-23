@@ -11,7 +11,7 @@ export interface SourceMap {
 
 const B64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
 
-function vlq(n: number): string {
+export function vlq(n: number): string {
   let v = n < 0 ? (-n << 1) | 1 : n << 1, out = '';
   do {
     let digit = v & 31;

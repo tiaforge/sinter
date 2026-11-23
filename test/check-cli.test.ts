@@ -35,6 +35,25 @@ test('a component\'s `.mts` script is one of the modules the lazy packages\' che
   }
 }, 60_000);
 
+test('a single-file component\'s `<script>` is one of the modules the lazy packages\' check walks (SN324)', () => {
+  const root = app({
+    'package.json': '{"type":"module"}',
+    'vite.config.js': `import sinter from ${JSON.stringify(resolve(__dirname, '../src/vite.ts'))};\nexport default { plugins: [sinter({ lazy: ['fakelib'] })] };\n`,
+    'node_modules/fakelib/package.json': '{"name":"fakelib","type":"module","main":"index.js"}',
+    'node_modules/fakelib/index.js': 'export const twice = (s) => s + s;\n',
+    'src/components/x-a/x-a.html': '<template data-sn-props="{}"><p>a</p></template>\n<script lang="ts">\nimport { XAComponent } from \'./x-a.html\';\nimport \'./setup.js\';\nexport class XA extends XAComponent {}\n</script>\n',
+    'src/components/x-a/setup.js': "import 'fakelib';\n",
+    'index.html': '<!doctype html><html><head><title>t</title></head><body><x-a></x-a></body></html>\n',
+  });
+  try {
+    const r = check(root);
+    expect(r.stdout + r.stderr).toContain('SN324');
+    expect(r.stdout).toContain('src/components/x-a/setup.js');
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}, 60_000);
+
 test('the lazy packages\' check follows the app\'s Vite aliases in a project without a helpers module (SN324)', () => {
   const root = app({
     'package.json': '{"type":"module"}',
@@ -51,6 +70,40 @@ test('the lazy packages\' check follows the app\'s Vite aliases in a project wit
     const r = check(root, true);
     expect(r.stdout).toContain('SN324');
     expect(r.stdout).toContain('src/lib/setup.js');
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}, 60_000);
+
+test('a single-file component: its `<script lang="ts">` is type-checked, imports beside the file resolve, errors at the file\'s line and column (SN208)', () => {
+  const html = (body: string) => `<template data-sn-props="{ n: number }">
+  <p data-sn-text="n"></p>
+</template>
+
+<script lang="ts">
+  import { XAComponent } from './x-a.html';
+  import { twice } from './math.js';
+  export class XA extends XAComponent {
+${body}
+  }
+</script>
+`;
+  const root = app({
+    'package.json': '{"type":"module"}',
+    'node_modules/.keep': '',
+    'src/components/x-a/math.ts': 'export const twice = (n: number): number => n * 2;\n',
+    'src/components/x-a/x-a.html': html("    connected() { const d: number = twice(2); void d; }"),
+    'index.html': '<!doctype html><html><head><title>t</title></head><body><x-a data-sn-with="{ n: 1 }"></x-a></body></html>\n',
+  });
+  try {
+    const ok = check(root);
+    expect(ok.stdout + ok.stderr).not.toContain('SN208');
+    writeFileSync(join(root, 'src/components/x-a/x-a.html'), html("    connected() { const d: string = twice('2'); void d; }"));
+    const r = check(root);
+    // `twice('2')`: line 9, at the argument; its result is not a string, at `d`
+    expect(r.stdout).toMatch(/src\/components\/x-a\/x-a\.html:9:43 error SN208[^\n]*Argument of type 'string' is not assignable to parameter of type 'number'/);
+    expect(r.stdout).toMatch(/src\/components\/x-a\/x-a\.html:9:25 error SN208[^\n]*Type 'number' is not assignable to type 'string'/);
+    expect(r.status).toBe(1);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

@@ -2,10 +2,11 @@
 // `components/internal/`): its HTML is `<tag>.html` in the folder, or `<tag>/<tag>.html` in a folder of its own
 // with the files that go with it (its script, its early renderer, modules and tests of its own). Every part of
 // sinter that looks for a component's files asks this module, so the two places are one rule.
-import { existsSync, readdirSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join, relative, sep } from 'node:path';
 import type { Diagnostic } from './compiler/diagnostics.js';
-import { COMPONENT_NAME, componentOfPath, componentPaths } from './compiler/components.js';
+import { COMPONENT_NAME, componentOfPath, componentPaths, inlineScriptHtml, inlineScriptModule } from './compiler/components.js';
+import type { SourceMap } from './compiler/sourcemap.js';
 
 export { componentOfPath, componentPaths };
 
@@ -67,4 +68,23 @@ export function findComponents(dir: string, skip: readonly string[] = []): Compo
     }
   }
   return { names: [...files.keys()].sort(), files, problems };
+}
+
+/**
+ * The module of a component's top-level `<script>` (`…/task-ring.html.script.ts`), from its HTML file: its code (at the
+ * same lines and columns as in the file) and a map to the file. Null when the path names none, or a file of that
+ * name exists (it is the app's own module then).
+ */
+export function inlineScriptSource(path: string, read: (f: string) => string = (f) => readFileSync(f, 'utf8')): { code: string; map: SourceMap; html: string } | null {
+  const html = inlineScriptHtml(path);
+  if (!html || existsSync(path)) return null;
+  let text: string;
+  try { text = read(html); } catch { return null; }
+  const m = inlineScriptModule(text, html);
+  return m ? { ...m, html } : null;
+}
+
+/** A module's source: a file's text, or a component's top-level `<script>` for its module path. */
+export function readModuleSource(path: string): string {
+  return inlineScriptSource(path)?.code ?? readFileSync(path, 'utf8');
 }

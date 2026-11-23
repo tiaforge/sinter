@@ -47,8 +47,9 @@ runtime.
 
 ## Where its files go
 
-A component is `src/components/<name>.html`, with its [styles](#styles), [script](#a-script) and
-[early renderer](#early-renderers), if it has them, beside it under the same name. When a component grows,
+A component is `src/components/<name>.html`. A small one is that one file: its template, a `<style>` and a
+[`<script>`](#a-script). As it grows, its parts can move out, beside it under the same name: its
+[styles](#styles) to `<name>.css`, its script to `<name>.ts`, and an [early renderer](#early-renderers). Then
 give it a folder of its own, named after it, and move its files in unchanged:
 
 ```
@@ -427,11 +428,12 @@ inside it is not. It binds state, never a resource, as on `<input>`.
 
 ## A script
 
-A component that needs the browser (a canvas, a map, a third-party library) gets a script beside its
-HTML: `src/components/task-ring.ts`. sinter runs it once per instance, on the instance's root, with
-`connected()`, `propsChanged()` and `disconnected()`; the script reads `this.props`, writes
-`this.state`, reaches elements through `data-sn-ref` and emits declared events. See
-[components with a script](islands.md).
+A component that needs the browser (a canvas, a map, a third-party library) gets a script: a top-level
+`<script lang="ts">` in its file, or a file beside its HTML, `src/components/task-ring.ts`. sinter runs it once
+per instance, on the instance's root, with `connected()`, `propsChanged()` and `disconnected()`; the script reads
+`this.props`, writes `this.state`, reaches elements through `data-sn-ref` and emits declared events. See
+[components with a script](islands.md), and [single-file components](islands.md#single-file-components) for the
+`<script>` block.
 
 ## Early renderers
 

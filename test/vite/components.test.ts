@@ -240,3 +240,78 @@ test('SN349: a component in both places, and HTML in a folder where no component
     rmSync(app, { recursive: true, force: true });
   }
 }, 60_000);
+
+test('a single-file component: its top-level `<script lang="ts">` is its script, bundled with its imports and run per instance; the dev server serves it with a map to the file', async () => {
+  const app = mkdtempSync(join(tmpdir(), 'sinter-component-sfc-'));
+  try {
+    mkdirSync(join(app, 'src/components/task-ring'), { recursive: true });
+    writeFileSync(join(app, 'src/components/task-ring/ring-math.ts'), 'export const share = (done: number, open: number): string => `${Math.round((100 * done) / (done + open))}%`;\n');
+    writeFileSync(join(app, 'src/components/task-ring/task-ring.html'), `<template data-sn-props="{ done: number; open: number }" data-sn-emits="{ pick: 'done' | 'open' }">
+  <figure class="ring" data-sn-state="{ share: '' }">
+    <canvas data-sn-ref="canvas"></canvas>
+    <figcaption data-sn-text="done + ' of ' + (done + open) + ', ' + share"></figcaption>
+  </figure>
+</template>
+
+<script lang="ts">
+  import { TaskRingComponent } from './task-ring.html';
+  import { share } from './ring-math.js';
+
+  export class TaskRing extends TaskRingComponent {
+    connected() { this.draw(); this.refs.canvas.addEventListener('click', () => this.emit('pick', 'done')); }
+    propsChanged() { this.draw(); }
+    draw(): void { this.state.share = share(this.props.done, this.props.open); }
+  }
+</script>
+
+<style>.ring { margin: 3px; }</style>
+`);
+    writeFileSync(join(app, 'index.html'), `<!doctype html><html><head><title>t</title></head><body>
+<div data-sn-state="{ done: 1, open: 3, picked: '' }">
+  <task-ring data-sn-with="{ done, open }" data-sn-on-pick="picked = $event.detail"></task-ring>
+  <button data-sn-on-click="done = done + 1">add</button>
+  <output data-sn-text="picked"></output>
+</div>
+</body></html>`);
+    const out = join(app, 'dist');
+    await build({ root: app, logLevel: 'silent', plugins: [sinter()], resolve: { alias }, build: { outDir: out, emptyOutDir: true, minify: false } });
+    const html = readFileSync(join(out, 'index.html'), 'utf8');
+    expect(html).toMatch(/<figure class="ring"[^>]*>/);
+    expect(html).not.toContain('<script lang');
+    const js = readdirSync(join(out, 'assets')).filter((f) => f.endsWith('.js')).map((f) => readFileSync(join(out, 'assets', f), 'utf8')).join('\n');
+    expect(js).toContain('Math.round(100 * done / (done + open))');
+    // the generated types: its base, for the script in the file
+    const dts = readFileSync(join(app, 'src/sinter.components.d.ts'), 'utf8');
+    expect(dts).toContain('export class TaskRingComponent extends Base<{ done: number; open: number }');
+    const { preview } = await import('vite');
+    const server = await preview({ root: app, logLevel: 'silent', preview: { port: 0 }, build: { outDir: out } });
+    const [engine] = await engines();
+    const browser = await engine!.type.launch(engine!.executablePath ? { executablePath: engine!.executablePath } : {});
+    try {
+      const tab = await browser.newPage();
+      await tab.goto(server.resolvedUrls!.local[0]!);
+      await tab.waitForFunction(() => document.querySelector('figcaption')?.textContent === '1 of 4, 25%');
+      await tab.click('button');
+      await tab.waitForFunction(() => document.querySelector('figcaption')?.textContent === '2 of 5, 40%');
+      await tab.click('canvas');
+      await tab.waitForFunction(() => document.querySelector('output')?.textContent === 'done');
+    } finally {
+      await browser.close();
+      await new Promise((r) => server.httpServer.close(r));
+    }
+    // dev: the module is served at its path beside the file, with its code at the file's lines and a map to the file
+    const { createServer } = await import('vite');
+    const dev = await createServer({ root: app, logLevel: 'silent', plugins: [sinter()], resolve: { alias }, server: { middlewareMode: true, hmr: false, ws: false } });
+    try {
+      const r = await dev.transformRequest('/src/components/task-ring/task-ring.html.script.ts');
+      expect(r).toBeTruthy();
+      expect(r!.code).toContain('ring-math');
+      const map = r!.map as { sources: string[] } | null;
+      expect(map?.sources.some((s) => s.endsWith('task-ring.html'))).toBe(true);
+    } finally {
+      await dev.close();
+    }
+  } finally {
+    rmSync(app, { recursive: true, force: true });
+  }
+}, 120_000);

@@ -89,6 +89,48 @@ export class TaskRing extends TaskRingComponent {
   props are in the page before the page module loads (embedded data), give it an
   [early renderer](components.md#early-renderers), or what it builds appears after the first paint (`SN543`).
 
+## Single-file components
+
+A small component can keep its script in its file, in a top-level `<script>` beside the `<template>` and the
+`<style>`:
+
+```html
+<!-- src/components/task-ring.html -->
+<template data-sn-props="{ done: number; open: number }" data-sn-emits="{ pick: 'done' | 'open' }">
+  <figure><canvas data-sn-ref="canvas"></canvas></figure>
+</template>
+
+<script lang="ts">
+  import Chart from 'chart.js/auto';
+  import { TaskRingComponent } from './task-ring.html';
+
+  export class TaskRing extends TaskRingComponent {
+    connected() { /* … */ }
+  }
+</script>
+
+<style>
+  figure { margin: 0; }
+</style>
+```
+
+- **The same script as a file.** It imports its base from `./task-ring.html` and exports the class, as
+  `task-ring.ts` would. When it grows, cut the block's code into `task-ring.ts` beside the file, unchanged
+  (and later into the component's [own folder](components.md#where-its-files-go)).
+- **Which `<script>`:** a top-level one with no `type`, or `type="module"`. `lang="ts"` is TypeScript; without
+  `lang` it is JavaScript. A `<script>` that is markup (JSON-LD) goes inside the `<template>`, as before.
+- **One place.** Two top-level scripts, a block and a `task-ring.ts` beside the file, or a `lang` other than
+  `ts` are `SN312`. A head component has no script, in either form.
+- **Its module** is `task-ring.html.script.ts`, a path beside the file that sinter serves: relative imports in
+  the block resolve from the component's folder, the dev server reloads it with the file, and errors and
+  breakpoints point at the file's own lines, through a source map.
+- **Checked.** `sinter check` (and the build, and your editor through `sinter lsp`) type-checks the block with
+  the HTML's types, and reports errors at their line and column in the HTML (`SN208`). Your own `tsc` does
+  not see the block, as it sees no HTML: a script that needs your project's stricter compiler options is a
+  file beside the component.
+- **Testable parts go in modules.** A test cannot import from the block: logic worth a unit test goes in a
+  module of its own beside it, which the block imports.
+
 ## `src/sinter.components.d.ts`
 
 The types of every component with a script go in one generated file, beside

@@ -1,4 +1,6 @@
 import * as csstree from 'css-tree';
+import * as parse5 from 'parse5';
+import { vlq, type SourceMap } from './sourcemap.js';
 
 // Components (docs/proposals/components.md): a file in `src/components/` whose name is
 // its tag. The compiler expands each use at build time, so a component's markup is page
@@ -146,6 +148,73 @@ export const COMPONENT_NAME = /^[a-z][a-z0-9]*(-[a-z0-9]+)+$/;
  * or `<tag>/<tag>.html` in a folder of its own with the files that go with it (component-files.ts).
  */
 export const componentPaths = (tag: string): [string, string] => [`${tag}.html`, `${tag}/${tag}.html`];
+
+/** A top-level `<script>` of a component file that is its script: no `type`, or `type="module"`. */
+export interface InlineScript {
+  /** its text, as written */
+  code: string;
+  /** its `lang` attribute (`ts`), or null */
+  lang: string | null;
+  /** where its text starts in the file: offset, and 1-based line and column */
+  offset: number;
+  line: number;
+  col: number;
+  /** where the `<script>` tag starts (for diagnostics) */
+  tagOffset: number;
+}
+
+/** Whether a top-level `<script>` is the component's script (rather than markup such as JSON-LD, which goes in the template). */
+const isScriptOfComponent = (el: { attrs: Array<{ name: string; value: string }> }) => {
+  const t = el.attrs.find((a) => a.name === 'type')?.value.trim().toLowerCase();
+  return t === undefined || t === '' || t === 'module';
+};
+
+/** A component file's top-level `<script>` elements that are its script, in order (one is allowed: the compiler reports more). */
+export function inlineScripts(text: string): InlineScript[] {
+  if (!/<script\b/i.test(text)) return [];
+  const frag = parse5.parseFragment(text, { sourceCodeLocationInfo: true });
+  const out: InlineScript[] = [];
+  for (const n of frag.childNodes) {
+    if (!('tagName' in n) || n.tagName !== 'script' || !isScriptOfComponent(n)) continue;
+    const loc = n.sourceCodeLocation;
+    const start = loc?.startTag?.endOffset;
+    if (!loc || start === undefined) continue;
+    const end = loc.endTag?.startOffset ?? loc.endOffset;
+    const before = text.slice(0, start);
+    const line = before.split('\n').length;
+    out.push({ code: text.slice(start, end), lang: n.attrs.find((a) => a.name === 'lang')?.value.trim() ?? null, offset: start, line, col: start - before.lastIndexOf('\n'), tagOffset: loc.startOffset });
+  }
+  return out;
+}
+
+/** The language of an inline script's module from its `lang`: `ts`, else `js`; null for a `lang` sinter does not take. */
+export const inlineScriptLang = (lang: string | null): 'ts' | 'js' | null => (lang === null || lang === '' || lang === 'js' ? 'js' : lang === 'ts' ? 'ts' : null);
+
+/**
+ * The module of a component's inline script: `task-ring.html` → `task-ring.html.script.ts` (or `.js`), a path beside
+ * the file that only sinter serves. A path, not a query, so the dev server and the bundler treat it as a module, and a
+ * relative import in the script resolves from the component's folder. Not `task-ring.html.ts`: TypeScript looks for
+ * that file when the script imports `./task-ring.html` (its base class), and would find the script itself.
+ */
+export const inlineScriptPath = (html: string, lang: 'ts' | 'js') => `${html}.script.${lang}`;
+
+/** The component file an inline script's module path names (`…/task-ring.html.script.ts` → `…/task-ring.html`), or null. */
+export const inlineScriptHtml = (path: string): string | null => (/\.html\.script\.[jt]s$/.test(path) ? path.slice(0, -'.script.ts'.length) : null);
+
+/**
+ * The text of an inline script's module: the script, after as many line breaks and spaces as come before it in the
+ * file, so a line and column in the module are the same in the file; with a map to the file.
+ */
+export function inlineScriptModule(text: string, file: string): { code: string; map: SourceMap } | null {
+  const s = inlineScripts(text)[0];
+  if (!s) return null;
+  const code = '\n'.repeat(s.line - 1) + ' '.repeat(s.col - 1) + s.code;
+  // one segment per line, at its start, to the same line of the file
+  const lines = code.split('\n').length;
+  const rows: string[] = [];
+  for (let i = 0; i < lines; i++) rows.push(i < s.line - 1 ? '' : i === s.line - 1 ? `${vlq(0)}${vlq(0)}${vlq(i)}${vlq(0)}` : `${vlq(0)}${vlq(0)}${vlq(1)}${vlq(0)}`);
+  return { code, map: { version: 3, sources: [file], sourcesContent: [text], names: [], mappings: rows.join(';') } };
+}
 
 /** The component an HTML file is, from its `/`-separated path relative to a components folder, or null. */
 export function componentOfPath(rel: string): string | null {

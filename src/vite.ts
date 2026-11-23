@@ -37,6 +37,8 @@ import { canonicalOf, fillPattern, noindex, sitemapFiles, sitemapOf, type Sitema
 import { familyLineHeights, familyZeroWidths, fitMetrics, isTextFont } from './font-metrics.js';
 import { faceName, faceOf, fontDownloader, fontFileDownloader, bundleFonts, deferredFaces, fallbackFaces, textFamilies, withFallbackFamilies, preloadFonts, preloadLocalFonts, rebaseFace, usesFamily, type FontFaceRef, type FontPreload } from './fonts-build.js';
 import { componentBase } from './components-build.js';
+import { inlineScriptSource } from './component-files.js';
+import { inlineScriptHtml } from './compiler/components.js';
 import { COMPONENT_NAME, LIBRARY_LAYER } from './compiler/components.js';
 import { librariesOf, libraryOf, ownLibrary } from './libraries.js';
 import { LAYERS_SHEET, type FoldArg } from './compiler/compile.js';
@@ -796,6 +798,15 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     if (real !== file) { watched.add(real); server?.watcher.add(real); }
   };
   const relOf = (file: string) => relative(root, file).split(sep).join('/');
+  /** a component's top-level `<script>` module (`/src/components/x.html.script.ts`, an absolute path, `/@fs/…`), resolved, or null */
+  const inlineScriptId = (id: string, importer?: string): string | null => {
+    const clean = id.replace(/[?#].*$/, '');
+    if (!inlineScriptHtml(clean)) return null;
+    const abs = clean.startsWith('/@fs/') ? clean.slice(4)
+      : clean.startsWith('.') && importer ? resolve(dirname(importer.replace(/[?#].*$/, '')), clean)
+      : isAbsolute(clean) && existsSync(inlineScriptHtml(clean)!) ? clean : resolve(root, '.' + (clean.startsWith('/') ? clean : '/' + clean));
+    return inlineScriptSource(abs) ? abs : null;
+  };
 
   /** the app's HTML entries: the build input, else `index.html`, and every page compiled so far */
   /** the app's source pages: the build input, else `index.html`, and every page compiled so far */
@@ -1835,6 +1846,9 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     },
 
     resolveId(id, importer) {
+      // a component's top-level `<script>`: its module, `task-ring.html.script.ts`, beside its file (load gives its code)
+      const inline = inlineScriptId(id, importer);
+      if (inline) return inline;
       // a page in a language: no file of its own (load gives its source's HTML)
       if ((locales || pageInputs || virtual.size) && id.endsWith('.html')) { const abs = resolve(root, id.replace(/^\//, '')); if (virtual.has(id) || virtual.has(abs)) return virtual.has(id) ? id : abs; }
       // a component's script imports its generated base from its own HTML file
@@ -1852,6 +1866,10 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
 
     async load(id) {
       if (virtual.has(id)) return readPage(id);
+      {
+        const s = inlineScriptSource(id);
+        if (s) { this.addWatchFile(s.html); return { code: s.code, map: s.map }; }
+      }
       // the site's core (docs/proposals/site-core.md), once every page has said what it uses
       if (!dev && id === FLAGS) {
         coreCheck();
