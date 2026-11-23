@@ -58,6 +58,8 @@ export type BuildUnit = {
    * definition, numbered from there (`unitCheck`)
    */
   check?: { frames: any[]; exprs: any[]; segs: Map<string, Seg>; frameOf: Array<{ key: object; at: number }> };
+  /** its functions as the first pass's evaluation runs them, compiled once (`unitTable`): by the names they see */
+  tables?: Map<string, { bind: (values: unknown[]) => void; fns: Map<string, ($: unknown) => unknown> | null }>;
   /** (`SN_UNITS_VERIFY=1`) each object's own values as it was made, which every page must leave as they were */
   prints?: Map<object, string>;
 };
@@ -116,7 +118,7 @@ export function placeUnits(c: any, store: UnitStore, key: string): BuildUnit | n
 
 /** the unit compiled on this page (its writes applied to it, as the linker's recorder does) and kept */
 function make(c: any, names: string[]): BuildUnit | { refused: string } {
-  const d0 = c.diagnostics.length;
+  const d0 = c.diagnostics.length, g0 = c.choiceGroups.length;
   // under the type check: its frames and expressions its own, numbered from 0, by the name whose definition recorded them
   const check = c.check ? { file: c.check.file, resources: c.check.resources, frames: [] as any[], exprs: [] as any[] } : null;
   const segs = new Map<string, Seg>();
@@ -128,6 +130,11 @@ function make(c: any, names: string[]): BuildUnit | { refused: string } {
     }
   }, new Map(), check ? { check } : {});
   if ('refused' in run) return { refused: run.refused };
+  if (c.diagnostics.length !== d0) return { refused: 'reports a diagnostic' };
+  // its choices: finished here, once (their candidates are all its own), not by each page after its walk
+  const groups = c.choiceGroups.slice(g0);
+  c.finishChoices(groups);
+  c.choiceGroups.length = g0;
   if (c.diagnostics.length !== d0) return { refused: 'reports a diagnostic' };
   const u = run.unit;
   const numbering: Record<string, unknown> = {};
@@ -191,6 +198,18 @@ function make(c: any, names: string[]): BuildUnit | { refused: string } {
   const fz = proc?.env.SN_UNITS_FREEZE;
   if (fz) for (const v of seen) if (!(v instanceof Map) && !(v instanceof Set) && (fz === '1' || Object.hasOwn(v, fz))) Object.freeze(v);
   const prints = proc?.env.SN_UNITS_VERIFY === '1' ? new Map([...seen].map((v) => [v, print(v)])) : undefined;
+  // (what placing writes, shortened: a field of the compiler written many times, its last value; a candidate the page
+  // would take out after its walk, out already)
+  const lastProp = new Map<string, number>();
+  ops.forEach((o, i) => { if (o.op === 'old' && o.path.length === 0 && o.kind === 'prop') lastProp.set(String((o.key as { v: unknown }).v), i); });
+  const kept = ops.filter((o, i) => {
+    if (o.op !== 'old') return true;
+    if (o.path.length === 0 && o.kind === 'prop') return lastProp.get(String((o.key as { v: unknown }).v)) === i;
+    if (o.path.length === 1 && (o.path[0] as { p?: string }).p === 'choiceGroups') return false;
+    if (o.path.length === 1 && (o.path[0] as { p?: string }).p === 'remove' && o.kind === 'push' && o.value && 'v' in o.value) { const el = o.value.v as { parentNode?: unknown }; return !(own.has(el as object) && !el.parentNode); }
+    return true;
+  });
+  ops.splice(0, ops.length, ...kept);
   const perPage = new Set(origins.map((x) => x.value));
   for (const x of perPage) { own.delete(x); if (Array.isArray(x.chain)) own.delete(x.chain); }
   for (const v of seen) {
@@ -312,4 +331,32 @@ export function unitCheck(c: any, name: string) {
   for (let i = seg.f0; i < seg.f1; i++) { const f = swap(k.frames[i]); if ('init' in f) f.init = expr(f.init); c.check.frames.push(f); }
   for (let i = seg.e0; i < seg.e1; i++) { const e = swap(k.exprs[i]); e.frames = e.frames.map(frame); c.check.exprs.push(e); }
   for (const x of k.frameOf) if (x.at >= seg.f0 && x.at < seg.f1) c.frameOf.set(x.key, F + x.at - seg.f0);
+}
+
+/**
+ * The evaluation's functions that are the unit's (`prerender`), compiled once per build: one table of all of the unit's
+ * function code, over the names the page's evaluation gives them (its helpers, as stubs or folding calls, the
+ * formatters), which each page binds to its own before it evaluates (`bind`: they are variables of the table's scope,
+ * not constants of it). The map holds the unit's functions the page uses; null when the table does not compile (the
+ * page then compiles all it uses, as without units).
+ */
+export function unitTable(u: BuildUnit, params: Map<string, unknown>, used: string[]): Map<string, ($: unknown) => unknown> | null {
+  const names = [...params.keys()], key = names.join(',');
+  const tables = (u.tables ??= new Map());
+  let t = tables.get(key);
+  if (!t) {
+    const codes = [...new Set((u.numbering.fns as string[]).filter((c) => c !== '0' && /^\(/.test(c)))];
+    let made: [(v: unknown[]) => void, Array<($: unknown) => unknown>] | null = null;
+    try {
+      // eslint-disable-next-line no-new-func -- build time only: the unit's compiled expressions, the evaluation's names bound per page
+      made = new Function(`"use strict"; let ${names.join(', ')}; return [(v) => { [${names.join(', ')}] = v; }, [\n${codes.join(',\n')}\n]];`)() as [(v: unknown[]) => void, Array<($: unknown) => unknown>];
+    } catch { made = null; }
+    t = { bind: made ? made[0] : () => {}, fns: made ? new Map(codes.map((c, i) => [c, made![1][i]!])) : null };
+    tables.set(key, t);
+  }
+  if (!t.fns) { fallback('a unit whose functions do not compile together'); return null; }
+  const out = new Map<string, ($: unknown) => unknown>();
+  t.bind([...params.values()]);
+  for (const c of used) { const f = t.fns.get(c); if (f) out.set(c, f); }
+  return out;
 }

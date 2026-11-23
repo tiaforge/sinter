@@ -300,3 +300,45 @@ and on): every file the same; `scripts/mail-audit.mjs` with `SN_UNITS=0` and on,
 42 files the same (and the same with `SN_UNITS_VERIFY=1`); the varied blog with and without TypeScript the same.
 `test/compiler` passes plain (1,046), and under `SN_UNITS_AUDIT=1` no page differs (the 60 failures are the tests
 that count compiles, links or rendered rows, which the audit's extra compiles change, and timeouts).
+
+### Under the type check
+
+A unit made under `check` records its frames and expressions in a check unit of its own (`runUnit`'s `own` fields,
+neither logged nor applied to the page), by the top-level name whose definition recorded them. A page takes a name's
+part at its first `definition()` of it, which is where compiling in place records it: its frames and expressions
+numbered from the page's counts there (`init` and `frames` are the only numbers in them), its scopes' frames
+(`frameOf`) too, the page that made it named as this one in the locations. A walk that takes the names in another
+order than the unit compiled them is compiled again without units (`checkOrder`). With a unit placed, a first pass
+under check is no longer finished: its check unit is complete after the walk (nothing after it writes one), and the
+second pass's output takes it, as `compilePasses` does when it is finished. The part is copied per page (its numbers
+are the page's); it is recorded once. With 519bbe5 the shadows' functions that repeat are given to `tsc` once, so
+the copies cost the compile only.
+
+| build | later page, off / on | whole build's compile, off / on | wall, off / on |
+| --- | ---: | ---: | ---: |
+| sinter-mail API, TypeScript, 12 pages | 343 / 63 | 4,183 / 1,839 | 7.8 / 5.0 s |
+| sinter-mail file email, TypeScript | 353 / 68 | 4,380 / 1,866 | 8.0 / 5.6 s |
+| sinter-mail components, TypeScript | 551 / 333 (the second pass still compiles the library: 225) | 7,042 / 5,254 | 11.4 / 9.3 s |
+| blog static-files, TypeScript, 101 | 44.7 / 20.9 | 4,728 / 2,553 | 14.4 / 9.1 s |
+
+(CPU ms, one build each, load 13 to 16; every output file the same both ways.)
+
+### Evaluation: the unit's functions compiled once per build
+
+`prerender` compiles every function the evaluation may run in one `new Function` per page. The unit's (on
+sinter-mail 4,223 codes) are now compiled once per build (`unitTable`): one table over all of the unit's code, whose
+free names (the helpers as stubs or folding calls, the formatters, `$k`, `$href`…) are `let` variables of the
+table's scope that each page binds to its own values before it evaluates; the page compiles only what is left. A
+unit table that does not compile falls back to the page compiling everything (counted). It bought less than
+expected: on sinter-mail a later page's walk went from 20 to 18.5 ms (API), 18.5 to 17.9 (file email): the
+`new Function` over the unit's code was not the evaluation's cost. What `prerender` spends now (17 ms a page on
+sinter-mail under the profiler, 7.6 of it its own) is collecting the candidates and the rows' code over every
+template, the unit's 355 included, and the worklist's evaluation (`run`, the scope proxy): stage 6's work.
+
+### Placement, shortened
+
+- The unit's choices (65 `<sn-component use>` groups on sinter-mail, all candidates its own) are finished once when
+  it is made, not by every page after its walk (`finishChoices` was 5.6 ms a page).
+- What placing writes is shortened when the unit is made: a compiler field the unit wrote many times (`lastExpr`
+  4,665 times, `inDef`) is written once, its last value; the 4,030 candidates its choices take out after the walk
+  are out already, so the page's list does not take them.

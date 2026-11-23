@@ -5,7 +5,7 @@ import { rewriteImages, sourceFile, type ImageHost, type ImageResult } from './i
 import { boxSizesCss, type ReserveTrace, Layout, PLACEHOLDER_BASE, type Affine, type Reserved, type StyleSheet } from './layout.js';
 import { shows } from './status-eval.js';
 import { recordChild, replay as replayUnit, LINK_FIELDS, UNIT_NUMBERING, type Plan, type Refused } from './link.js';
-import { placeUnits, restoreUnit, touch, unitCheck, unitFallback, unitsOn, type BuildUnit, type UnitStore } from './units.js';
+import { placeUnits, restoreUnit, touch, unitCheck, unitFallback, unitsOn, unitTable, type BuildUnit, type UnitStore } from './units.js';
 import { declaringTemplate, HEAD_ELEMENTS, kindOfComponent, parseDocument, STRUCTURAL } from './head.js';
 import { minifyMarkup } from './minify.js';
 import type { RemoteConfig } from '../remote.js';
@@ -4971,8 +4971,8 @@ class Compiler {
    * evaluates `use` once and returns the case it names with that candidate's props (`[i, props]`), or
    * null for a value outside the candidates; the anchor instantiates case `i`'s definition.
    */
-  finishChoices() {
-    for (const g of this.choiceGroups) {
+  finishChoices(groups: ChoiceGroup[] = this.choiceGroups) {
+    for (const g of groups) {
       const b = g.node!.b[0]!;
       touch(this, b);
       // Many candidates that take a few distinct props (a library's dispatch: one prop, `{ node }`, the
@@ -8110,12 +8110,17 @@ class Compiler {
     ] : [];
     const texts = this.textRoots.filter((t) => !t.b.e && t.b.f !== undefined && fixed(t.b.d) && !this.inKept(t.parent as P5Node));
     const used = [...new Set([...this.stateInits.flatMap((st) => st.fields.map((x) => x.code)), ...cands.map((c) => this.fns[c.f]!), ...rowCodes, ...texts.map((t) => this.fns[t.b.f!]!)])];
+    // the unit's functions: compiled once per build (`unitTable`), the page's what is left
+    const shared = this.placedUnit ? unitTable(this.placedUnit, params, used) : null;
+    // (a unit's table that does not compile: the page compiles all it uses, as without units)
+    const mine = shared ? used.filter((c) => !shared.has(c)) : used;
     let table: Array<($: unknown) => unknown>;
     try {
       // eslint-disable-next-line no-new-func -- build time only: the page's own compiled expressions, with nothing in scope
-      table = new Function(...params.keys(), `"use strict"; return [\n${used.join(',\n')}\n];`)(...params.values());
+      table = new Function(...params.keys(), `"use strict"; return [\n${mine.join(',\n')}\n];`)(...params.values());
     } catch { return; }
-    const fnOf = new Map(used.map((code, i) => [code, table[i]!]));
+    const fnOf = new Map(mine.map((code, i) => [code, table[i]!]));
+    if (shared) for (const [code, f] of shared) fnOf.set(code, f);
     // a persisted model's own state path: its initial value is the fallback when storage has none
     let own: string | null = null;
     const isPersisted = (p: string) => p !== own && this.persisted.has(p);
