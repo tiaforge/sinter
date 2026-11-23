@@ -312,6 +312,17 @@ function sheetsOf(sheets: StyleSheet[]): Sheets {
   return got;
 }
 
+/** `Layout.breakpoints`, by the rules and the media base */
+const BREAKPOINTS = new WeakMap<Rule[], Map<number, number[]>>();
+const WHITE_SPACE = ['white-space', 'white-space-collapse'] as const;
+/** whether a rule declares `white-space` or `white-space-collapse` (`collapsesSpace`), by the rules */
+const WS_DECLARED = new WeakMap<Rule[], boolean>();
+function wsDeclared(rules: Rule[]): boolean {
+  let v = WS_DECLARED.get(rules);
+  if (v === undefined) WS_DECLARED.set(rules, (v = rules.some((r) => r.decls.some((d) => d.prop === 'white-space' || d.prop === 'white-space-collapse'))));
+  return v;
+}
+
 /** what a traced `reserve()` read and gave (`Layout.reserveTraced`) */
 export interface ReserveTrace { result: Reserved | null; why: string | null; read: Array<{ el: P5Element; attrs: string; decls: string }> }
 
@@ -411,6 +422,15 @@ export class Layout {
 
   /** every viewport width at which a width media query of the page's stylesheets starts or stops applying */
   breakpoints(): number[] {
+    // (by the rules and the media base: the minifier asks for every element it visits)
+    let byMq = BREAKPOINTS.get(this.rules);
+    if (!byMq) BREAKPOINTS.set(this.rules, (byMq = new Map()));
+    let got = byMq.get(this.mq);
+    if (!got) byMq.set(this.mq, (got = this.readBreakpoints()));
+    return got;
+  }
+
+  private readBreakpoints(): number[] {
     const out = new Set<number>();
     for (const r of this.rules) for (const d of r.decls) {
       const ranges = d.media ? mediaRanges(d.media, this.mq) : null;
@@ -1682,16 +1702,30 @@ export class Layout {
    * binding that sets a class or the style).
    */
   collapsesSpace(el: P5Element): boolean {
-    return this.everyView((l) => {
-      for (let e: P5Element | null = el; e; e = l.parentOf(e)) {
-        if (PRESERVING.has(e.tagName) || e.attrs.some((a) => a.name === 'contenteditable')) return false;
-        const c = l.cascaded(e, ['white-space', 'white-space-collapse']);
-        if (c.ambiguous) return false;
-        if (c.value === null) continue;
-        return /^\s*(normal|nowrap|wrap|collapse|collapse\s+(wrap|nowrap)|(wrap|nowrap)\s+collapse)\s*$/i.test(c.value);
-      }
-      return true;
-    });
+    return this.everyView((l) => l.collapses(el));
+  }
+
+  /** what `collapsesSpace` answers in this view, by element: an element that says nothing answers as its parent */
+  private wsMemo?: Map<P5Element, boolean>;
+
+  /** `collapsesSpace` in one view: the first of `el` and its ancestors that decides (linear in the page with `wsMemo`) */
+  private collapses(el: P5Element | null): boolean {
+    if (!el) return true;
+    // (not while a traced read logs what it reads: every element it reads must be read)
+    const memo = reading ? null : (this.wsMemo ??= new Map());
+    const got = memo?.get(el);
+    if (got !== undefined) return got;
+    let v: boolean;
+    if (PRESERVING.has(el.tagName) || el.attrs.some((a) => a.name === 'contenteditable')) v = false;
+    else {
+      // no rule declares it, no style on the element: nothing decides here (`cascaded` would say null, not ambiguous)
+      const c = !wsDeclared(this.rules) && attrOf(el, 'style') === undefined && !dynamic(el, 'style') ? null : this.cascaded(el, WHITE_SPACE);
+      if (c?.ambiguous) v = false;
+      else if (!c || c.value === null) v = this.collapses(this.parentOf(el));
+      else v = /^\s*(normal|nowrap|wrap|collapse|collapse\s+(wrap|nowrap)|(wrap|nowrap)\s+collapse)\s*$/i.test(c.value);
+    }
+    memo?.set(el, v);
+    return v;
   }
 
   /** The display of `el` in a view: its cascaded value, else the UA's; null when the stylesheets cannot say. */
