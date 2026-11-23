@@ -261,3 +261,6 @@ Independent of step 0 and of each other once step 0 is merged:
 - 19:00 UTC: step 0 committed (2f9946f), then made complete by the shift audit: the embedded data's ids (a
   resource's `data`, `json`, `embed`, the `\u0001sn-json:<id>\u0001` place in the markup), states named only by
   `fixedState`, an action's `ap` paths. `SN_CANON=1` over test/compiler: 5 tests pin a node id after a gap.
+- 19:40 UTC: merged `ccr-9ebf49d5-gpdej8` (5f203af); test/compiler 1,084 passed. Stopped here (out of room): A1 and B1
+  are not started; their briefs (5) are what the next session takes, after running the behaviour tests and
+  sinter-mail's `--suite` under `SN_CANON=1` (the one part of step 0's oracle not run).
