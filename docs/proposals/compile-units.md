@@ -252,3 +252,11 @@ Found by the research, not changed:
   needs the compiler to give a page's paths without a walk and the cross-page parts as placeholders (stage 3). A live
   post's page embeds the whole post as JSON (8.5 kB of its 20.3 kB) where its module reads only the slug: the
   compiler's choice, not changed.
+- 2026-11-23, 14:30 UTC: `main` merged in (#109, the scoped-styles fix for unrolled rows; #110). Stage 2: pages with
+  stylesheets and with scoped styles render (`layout` and `styled` are gone as reasons). What still falls back in
+  any real app is `fill` only: static-site 2 of 9 loops, sinter-mail 1 of 10, multilingual-site and the benchmark
+  none; every tree the same both ways (`render-audit`, `mail-audit`). The floor: row items frozen once (`frozenData`)
+  and component files read once per build (`componentCache`): the first pass's evaluation 19 to 12.5 ms a page, the
+  second pass's walk 7.5 to 4.9 ms. On the merged branch, loaded machine, off and on: static 11.3 and 3.2 s, live
+  11.9 and 4.1 s, a page file per post 14.4 and 6.6 s. Open: `render-rows.test.ts` fails under `SN_LINK_AUDIT`
+  (it counts splices, which the audit's extra compiles add to); the coverage agent has it.

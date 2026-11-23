@@ -122,6 +122,7 @@ export const LINK_FIELDS: Record<string, { kinds: string[]; how: 'table' | 'weak
   keptBound: { kinds: ['Set'], how: 'table' },
   keptDepth: { kinds: ['number'], how: 'fixed' },
   keptNext: { kinds: ['Map'], how: 'table' },
+  kindCycle: { kinds: ['Set'], how: 'cache' },
   kinding: { kinds: ['Set'], how: 'cache' },
   kinds: { kinds: ['WeakMap'], how: 'weak' },
   pageSpecs: { kinds: ['WeakMap'], how: 'weak' },
@@ -139,6 +140,7 @@ export const LINK_FIELDS: Record<string, { kinds: string[]; how: 'table' | 'weak
   lazyLoads: { kinds: ['Map'], how: 'table' },
   lazyMods: { kinds: ['Array'], how: 'table' },
   listTyped: { kinds: ['Map'], how: 'table' },
+  librariesKeyText: { kinds: ['empty', 'string'], how: 'cache' },
   lineStarts: { kinds: ['Map'], how: 'cache' },
   listCompiled: { kinds: ['WeakSet'], how: 'weak' },
   markups: { kinds: ['WeakMap'], how: 'weak' },
@@ -495,7 +497,7 @@ class LoggedWeak {
  * host (`images`) is not data: its answers change as the build analyses images, so a definition with an image is compiled
  * on each page.
  */
-const BUILD_OPTIONS = new Set(['root', 'dev', 'sourcemap', 'helpers', 'actions', 'config', 'readFile', 'listFiles', 'globCache', 'templates', 'definitions', 'collections',
+const BUILD_OPTIONS = new Set(['root', 'dev', 'sourcemap', 'helpers', 'actions', 'config', 'readFile', 'listFiles', 'globCache', 'templates', 'definitions', 'componentCache', 'collections',
   'collectionsError', 'prefetch', 'openapi', 'apis', 'complexity', 'expansionLimit', 'componentNames', 'libraries', 'lazy', 'lazyScript', 'lazyModule',
   'helperValues', 'helperFold', 'foldLog', 'prerender', 'changesRequests', 'observe', 'embed', 'componentCss', 'base', 'file', 'decided', 'unrolled', 'constants', 'frozen', 'overLimit', 'rendered']);
 
