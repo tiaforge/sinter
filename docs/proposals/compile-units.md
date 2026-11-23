@@ -352,3 +352,20 @@ Found by the research, not changed:
   placement: sinter-mail API 25.7 and 5.6, file email 34.7 and 7.4, blog with a page file per post 3.7 and under
   0.1; a sinter-mail API page's compile 67 to 38 ms. Compiling the unit's functions once per build bought little
   (20 to 18.5 ms): the evaluation's cost is collecting candidates and the worklist's run, which is stage 6.
+- 2026-11-23, 18:30 UTC: **units are in** (stage 4, first part; `src/compiler/units.ts`, `SN_UNITS=0` off,
+  `SN_UNITS_AUDIT=1`): a first pass's definitions are compiled once per build and placed on each page, the unit's
+  objects shared and put back after each page. On the merged branch: 1,422 tests of test/compiler, test/vite and
+  test/check pass, and `render-audit --switch SN_UNITS`, `pass-audit` and `mail-audit --switch SN_UNITS` report
+  every file the same. The agent's CPU ms per later page, off and on: sinter-mail API 67 and 38 (with TypeScript 343
+  and 63), file email 102 and 57, the components route 164 and 120 (its second pass still replays the library), the
+  blog with a page file per post 19.8 and 15.7 (with TypeScript 44.7 and 20.9). Next there, in this order: a unit
+  carries its check data once; second-pass units only if they pay; then a review before the linker is deleted
+  (what it still covers is in `redesign-notes/stage4-units.md`). **Stage 3 stops short of its goal**
+  (`redesign-notes/stage3-one-pass.md`): the second pass is not deleted, it is about 30% cheaper (6.2 to 4.3 ms a
+  page): the minifier linear, documents parsed once, and a template's entries start their second pass from a copy of
+  the kept expansion (`SN_ONE_PASS=0` off, `SN_ONE_PASS_AUDIT=1`, `scripts/pass-audit.mjs`). Deriving the second
+  pass's result from the first's walk is not reachable byte for byte: a decided branch is compiled as a template in
+  the first pass and as page markup in the second, `data-sn` ids after a block differ and are not compacted, and
+  numbers sit inside code; it needs assembly with numbers handed out at the end (stage 5). A page file is still
+  walked three times: its description needs every page's description first, a pipeline change. Started: the
+  evaluation's cost (`redesign-notes/evaluation.md`), the largest item left per page (8 to 12 ms).
