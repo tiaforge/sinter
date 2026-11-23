@@ -221,6 +221,13 @@ Found by the research, not changed:
   more; the render audit compares dev without them (`withoutEmptySlots`). The old route (`inlineInstance`, the row
   lets) is now needed only for per-copy diagnostics, rows that keep a handler, and the shapes the renderer leaves
   (`redesign-notes/stage2-coverage.md`, "Dev renders").
+- **Four things outside the compiler** (`redesign-notes/pipeline-2.md`, "Decisions for the owner", with numbers):
+  the SN534 cross check off the critical path (0.23 s at 100 posts, 0.5 s at 400; a failing build would then have
+  emptied `dist/`); Vite's HTML step skipped for pages it does not change (1 ms a page; an app's own HTML plugins
+  would no longer see those pages, unless it is done only where there are none); an on-disk cache of the fold
+  check (110 ms a build); the Speculation Rules inline in every page listing every page when each post is a page
+  file (4.7 kB of a 15.7 kB page at 100 posts, 47 kB of 58 kB at 1,000: a pattern or the rules file would make it
+  linear, and changes the pages' bytes).
 - **A build with only type-check warnings passes** since the fix that counts errors and warnings apart; it failed
   before. Under `strict` it still fails.
 - **Props as a run-time frame.** Binding an inlined live use's props at run time, as shared definitions do, would
@@ -253,7 +260,6 @@ timings were not usable). A cloud session pushes to a branch of its own:
 | Workstream | Where | Branch | Log |
 | --- | --- | --- | --- |
 | stage 5, A1 then A2: definitions that ship, from units | cloud, `session_01AjKzdxPCdJ5nbeXvwkXoP2` | `redesign/stage5-a1` | `stage5-a1.md` |
-| the build outside the compiler, round 2 (the fixed part; a static page's cost) | cloud, `session_01AjKzdyy3dA5FDC6jCiY3dH` | `redesign/pipeline-2` | `pipeline-2.md` |
 | stage 5, B1: the second pass from the first's walk | cloud, `session_01AjKzdxkDukbMzASz1qaYeA` | `redesign/stage5-b1` | `stage5-b1.md` |
 | stage 6: the evaluation, one function per template; a render plan per template | cloud, `session_01AjKzdxcYo9FzUYyj9yNBZn` | `redesign/stage6-eval` | `stage6-eval.md` |
 
@@ -571,3 +577,15 @@ decision of their own (stage 7). A step that can stay byte-identical does.
   unit in its second pass without giving it back: every such pass now goes through `unitPass`) and a substring test
   in stage 4's check of a page's file name. 1,515 tests of test/compiler, test/vite, test/check pass after the merge.
   The B1 session was told A1's copy has landed and asked to merge the integration branch before anything else.
+- 2026-11-23, 23:30 UTC: **the build outside the compiler, done for what needs no decision** (merged;
+  `redesign-notes/pipeline-2.md`). Like for like on a quiet machine, whole processes, 10 / 100 / 400 static posts:
+  sinter 1.20 / 2.22 / 5.21 s, Astro 1.39 / 1.65 to 1.86 / 3.04 s. Fixed part about 1.2 s against 1.35 s; per page
+  10.0 ms against 3.9, of sinter's about 6 the compiler's and 3.9 outside it (the new floor: 1.0 s and 3.9 ms a
+  page). To be level at 100 posts the compiler has about 2.7 ms a page as things are, about 6 with the four
+  decisions above taken; the library's own markdown parse is 1.8 of it. **B1, done for now on its branch**
+  (`redesign-notes/stage5-b1.md`): a page of its own whose second pass would apply only page-level decided branches
+  and rendered rows, with nothing folded into code that ships, takes its result from the first pass's walk, today's
+  ids kept: page-compile 364 to 289 ms, byte for byte; 166 second passes routed over the suite. It does not move
+  the benchmark yet: pages with a unit placed fall back (A1's copy has landed since), and template entries are off
+  because copying the kept walk costs 7 ms against 3 saved. It conflicts with A1 and went back to its session to
+  merge, then to take pages with units, and to see whether an entry can run on the kept walk in place.
