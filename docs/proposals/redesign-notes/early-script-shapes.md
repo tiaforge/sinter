@@ -160,9 +160,12 @@ live-files-400), the four examples and the seven baseline apps built with both `
 - **(c) Cheaper nested builds.** The profile above: 9 of 11 ms are Rolldown's native work and the wait for it. Running
   several at once gave nothing (pipeline-fixes.md §6: bound by the main thread); Rolldown alone changed the bytes. No
   cheaper way to the same bytes was found.
-- **Placeholders without kinds** (one placeholder for any string): the check failed on every group at once in the
-  first try for a reason the kinds now rule out (`renderedLength` and the module's rendered code differ when the
-  length differs), and the minifier treats an identifier, a canonical integer and other strings differently as keys.
+- **Placeholders of any length** (one per string, whatever its value's length): not tried, ruled out by what the
+  check compares. Each module's `renderedLength` and rendered code are part of a build's result (the size report
+  and SN325 read them), and they differ by the length difference; the length is also what a minifier's choices can
+  depend on (inlining a short constant). The exact length makes the placeholder's text the only difference. (The
+  first run of the check failed on every page for another reason, fixed since: the modules' rendered code carries
+  the placeholder too, and is now written over like the script.)
 - **Fewer checked pages** (one instead of two): one build less per group (5 instead of 7 at 100). Kept at two: the
   check is what catches a value-dependent fold, and a second page with another value makes a coincidence (the fold's
   answer the same for the placeholder and the first page) less likely for the cost of ≈13 ms a group.
