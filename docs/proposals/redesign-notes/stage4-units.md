@@ -241,3 +241,62 @@ the two-base check turns from a wrong page into a fallback); 5 a day (less after
   test/compiler` 1,045 passed; `SN_RENDER_AUDIT=1` the same; `SN_LINK_AUDIT=1` 1,043 passed and two that timed out at
   5 s under a load of 16 (`link.test.ts`, `link-review-3.test.ts`), both passing when run alone; `scripts/mail-audit.mjs`
   42 files identical.
+
+## The implementation (after the coordinator's go-ahead)
+
+### Placement: the unit put first, shared, and given back (`src/compiler/units.ts`)
+
+Measured before building it: before a first pass's walk nothing is numbered on any page (templates, functions,
+states, use ids, node ids, actions all 0: `prewalk.mjs` over sinter-mail's 16 pages and the blog), and the shift audit
+extended to the whole first pass (`SN_UNITS_SHIFT_AT=walk`: everything shifted from before the walk) leaves every
+page with a second pass the same (sinter-mail's 42 files; the varied blog with and without TypeScript, 72 pages).
+So a page's definitions can be compiled **before** its walk, at numbers that are the same on every page, and the
+unit's objects need no renumbering at all: placing it is sharing it. Plan step 1 (names through one function) is not
+needed.
+
+- **Which definitions**: the names of the page's own recursion points and candidates, in the order expansion found
+  them (`pointNames`), all compiled into one unit before the walk. The key: those names, `keepsAttrs`, the locale, the
+  axis URL.
+- **Made** on the first page that needs it with the linker's recorder (`runUnit`, its writes applied to the page):
+  what it read of its page is the unit's precondition (`readsHold` on each page that places it), what it wrote the
+  unit's content. Refused, counted: what the recorder refuses (actions, fill ids, lazy imports, node ids), a
+  diagnostic, an object of its page held inside one of its own, text that names its page's file elsewhere than in an
+  origin. The candidates its choices would take out after the walk are taken out before it is shared.
+- **Placed**: the numbering (function table, template list, counters) copied, the weak tables overlaid
+  (`OverlayMap`/`OverlaySet`: the page's entries, then the unit's), the writes into the page's own tables made again
+  (by value: the unit's own objects as they are), and the origins that name the page that made it (a definition's
+  host, the include chains) made anew with this page's file (as the linker's `FILE`/`Line` did).
+- **What a page changes of a unit's objects**, found by `SN_UNITS_VERIFY=1` (each unit object's own values printed
+  when made and checked after every page) and `SN_UNITS_FREEZE=<property>` (those objects frozen, so the write
+  throws where it is): `finishTreeFills` (a tree placement's cases and choice), `finishChoices`, `defRootBindings`,
+  `addSources`, `componentScope` and the root's state id (a fill case walking a definition's default children), the
+  evaluation's paints into template markup, its folded texts, `dropConstants`. Each such write `touch`es the object
+  first (a shallow copy, once per page); `restoreUnit` puts them back when the first pass is done
+  (`compilePasses`). Two other leaks found on the way: the unit's numbering was the making page's own list, which the
+  page went on to extend (copied now), and the origins naming the making page's file (`defFiles` counted it as a
+  component file on the next page, which made a rendered row fall back).
+- **A first pass that is finished** (its output, its diagnostics read, or under `check` for now) is compiled again
+  without units (`a first pass that is finished`), and so is one whose unit was refused after compiling before the
+  walk.
+
+Placement and the walk it leaves, CPU ms per later page (pages 3 to 12, 3 to 101), units off and on, one
+instrumented build each (load 14 to 16):
+
+| build | replay (off) | placement (on) | first pass's walk, off / on | page compile, off / on | whole build's compile, off / on |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| sinter-mail API, 12 pages | 25.7 | 5.6 | 53 / 20 | 67 / 38 | 1,760 / 1,380 |
+| sinter-mail file email | 34.7 | 7.4 | 70 / 19 | 102 / 57 | 2,127 / 1,598 |
+| sinter-mail components route | 62.2 (both passes) | 5.5 (+ the second pass's replay 30) | 61 / 19 | 164 / 120 | 3,601 / 3,468 |
+| blog static-files, 101 | 3.7 | under 0.1 | 7.0 / 2.4 | 19.8 / 15.7 | 2,401 / 1,898 |
+| blog live-files | 4.0 | under 0.1 | 9.2 / 4.0 | 27.5 / 22.7 | 3,040 / 2,516 |
+
+Making the unit costs what the linker's recording did, once per build instead of the linker's compile and record
+(sinter-mail: 860 ms CPU on the first page, against 276 + 603). The components route still compiles and links the
+library in its second pass (plan step 6). The blog with the type check is unchanged: under `check` nothing is placed
+yet.
+
+Byte for byte: `scripts/render-audit.mjs --switch SN_UNITS` (the four benchmark apps and the four examples, units off
+and on): every file the same; `scripts/mail-audit.mjs` with `SN_UNITS=0` and on, both of its builds kept and diffed:
+42 files the same (and the same with `SN_UNITS_VERIFY=1`); the varied blog with and without TypeScript the same.
+`test/compiler` passes plain (1,046), and under `SN_UNITS_AUDIT=1` no page differs (the 60 failures are the tests
+that count compiles, links or rendered rows, which the audit's extra compiles change, and timeouts).
