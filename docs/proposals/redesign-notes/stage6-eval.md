@@ -316,3 +316,13 @@ nothing there and paid a `WeakMap` insert per object (0.1 to 0.15 ms a page in t
 
 A/B against change 8 (3 rounds; blog 9): mail gen pass-1 `prerender` p25 / median 80.4 / 95.3 → 76.0 / 84.6; blog
 static `decideFor` 5.47 / 6.87 → 5.53 / 6.79 (the same).
+
+### 10. Per binding, two questions asked once: whether its paint is the layout's, whether its dependencies read anything
+
+- The walk asked `constB.has(b)` for every paint of every row (131,520 a page on the email): asked once per plan entry
+  and evaluation (`constOf`, on the `BindPlan`, by an evaluation token).
+- The renderer read every painted binding's dependencies in every row (`read`: a set lookup at least); a binding whose
+  dependencies name no resource and no state's site (a definition's bindings read only their props) adds nothing to
+  the rows' reads, so `fillPlan` says so once (`rd`) and the row does not ask.
+
+A/B against change 9 (3 rounds): mail gen pass-1 `prerender` p25 / median 75.5 / 88.4 → 74.9 / 81.2.

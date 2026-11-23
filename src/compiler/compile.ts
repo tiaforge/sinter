@@ -9153,6 +9153,12 @@ class Compiler {
     const chosen = new Set<string>();
     /** the bindings whose paints in rows the layout and the images read (`constantSources`), for this evaluation: the program's, which the walk does not change */
     let constB: Set<Binding> | null = null;
+    // (a plan's binding in `constB`, asked once per evaluation: `cstOf` is the evaluation it was asked for)
+    const asked = {};
+    const constOf = (p: BindPlan): boolean => {
+      if (p.cstOf !== asked) { p.cst = (constB ??= new Set(this.constantSources().flatMap((x) => x.s.bindings))).has(p.b); p.cstOf = asked; }
+      return p.cst!;
+    };
     const limit = this.opts.expansionLimit ?? EXPANSION_LIMIT;
     let left = limit;
     const run = (sc: object, code: string): unknown => {
@@ -9353,7 +9359,7 @@ class Compiler {
               const pw = w === FAIL ? null : w;
               // (rendering, the record holds it: collected only when the layout or the images read it, `constB`, and read
               // back from the records for a loop the second pass compiles, `replayPaints`; the audit collects all, to compare)
-              if (!rec || audit || (constB ??= new Set(this.constantSources().flatMap((x) => x.s.bindings))).has(b)) out.paints.push(b, prefix, pw);
+              if (!rec || audit || constOf(p)) out.paints.push(b, prefix, pw);
               if (rec) rec[slot] = pw;
             } else if (rec && p.text && kn) { const v = valueAt(vals, slot, sc, p.code!); rec[slot] = v === undefined ? UNDEFINED : v; }
             continue;
@@ -9754,11 +9760,13 @@ class Compiler {
      * not rendered if it is one they cannot be (a handler that stays, a kind no row paints), and whether the element's
      * style is written by its style bindings alone (no `data-sn-attr` of `style`), so that they can be written at once
      */
-    const fillPlans = new Map<NodeDef, { acts: Array<{ b: Binding; j: number; why: string | null }>; styles: boolean }>();
+    const fillPlans = new Map<NodeDef, { acts: Array<{ b: Binding; j: number; rd: boolean; why: string | null }>; styles: boolean }>();
     const fillPlan = (n: NodeDef, folded: Set<Binding>) => {
       let f = fillPlans.get(n);
       if (f) return f;
-      const acts = n.b.flatMap((b, j) => (defAttr.has(b) || b.k === 'else' || folded.has(b) ? [] : [{ b, j, why: b.k === 'if' || b.k === 'for' ? null : handlerOnly(b) ? 'handler' : !ROW.has(b.k) ? `a binding of kind ${b.k}` : null }]));
+      // (`rd`: whether its dependencies add anything to the rows' reads, a resource or a state's site; most of a
+      // definition's read only its props, which have none)
+      const acts = n.b.flatMap((b, j) => (defAttr.has(b) || b.k === 'else' || folded.has(b) ? [] : [{ b, j, rd: strs(b.d).some((d) => /^\$(?:r|meta)\.[A-Za-z_$]/.test(d)) || this.stateSites(b.d).size > 0, why: b.k === 'if' || b.k === 'for' ? null : handlerOnly(b) ? 'handler' : !ROW.has(b.k) ? `a binding of kind ${b.k}` : null }]));
       fillPlans.set(n, f = { acts, styles: styleBatchOn() && acts.some(({ b }) => b.k === 'style') && !acts.some(({ b }) => b.k === 'attr' && b.n?.toLowerCase() === 'style') });
       return f;
     };
@@ -10011,7 +10019,7 @@ class Compiler {
           let bound = false;
           // (the element's style, when its style bindings alone write it: their declarations at once, `StyleWrites`)
           let styles: StyleWrites | null = null;
-          const paint = (b: Binding, why?: string | null, j = n.b.indexOf(b)) => {
+          const paint = (b: Binding, why?: string | null, j = n.b.indexOf(b), rd = true) => {
             if (why === undefined) {
               if (handlerOnly(b)) no('handler');
               if (!ROW.has(b.k)) no(`a binding of kind ${b.k}`);
@@ -10023,7 +10031,7 @@ class Compiler {
             if (w![0] === 'text') WRITTEN.set(cl!, 'content');
             if (styles && w![0] === 'style') styles.write(b.n!, w![1] as string | null);
             else writeFirstPaint(cl!, w![0], b.n ?? null, w![1], true);
-            read(b.d);
+            if (rd) read(b.d);
           };
           // what the second pass writes before the layout and the images (`prefold`: an image's attributes, a class or
           // style the layout reads): first, in its order; the element then has only the others' bindings (and an id only
@@ -10051,7 +10059,7 @@ class Compiler {
           else if (marks) for (const m of marks) setAttr(cl!, m.name, m.value);
           const plan = fillPlan(n, folded);
           if (plan.styles) styles = new StyleWrites(cl!);
-          for (const { b, why, j } of plan.acts) {
+          for (const { b, why, j, rd } of plan.acts) {
             if (b.k === 'if') {
               const v = rec[pos + 1 + j] as boolean | undefined;
               if (v === undefined || b.x === undefined) no('if');
@@ -10079,7 +10087,7 @@ class Compiler {
               replace(cl, cl, out);
               continue;
             }
-            paint(b, why, j);
+            paint(b, why, j, rd);
             bound = true;
           }
           styles?.done();
@@ -13294,7 +13302,7 @@ export function caseCode(c: { props: string }): string {
 
 /** the worklist's reading of a binding in a row (`bindPlan`) */
 const SKIP = 0, STOP = 1, PAINTED = 2, CONTROL = 3;
-type BindPlan = { b: Binding; j: number; k: typeof SKIP | typeof STOP | typeof PAINTED | typeof CONTROL; ds: string[]; kn?: boolean; code?: string; paint?: boolean; text?: boolean; key?: string | null };
+type BindPlan = { b: Binding; j: number; k: typeof SKIP | typeof STOP | typeof PAINTED | typeof CONTROL; ds: string[]; kn?: boolean; code?: string; paint?: boolean; text?: boolean; key?: string | null; cst?: boolean; cstOf?: object };
 /** the candidates of a choice in a row that it does not render: each of `keys` but `picked`, decided false at `prefix` + its key */
 type NotRendered = { prefix: string; keys: Map<string, string>; picked: string | null; d: PathRef[] | undefined };
 /** a worklist's decisions, a choice's candidates spelled out one by one, in order */
