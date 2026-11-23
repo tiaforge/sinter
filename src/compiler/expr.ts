@@ -145,6 +145,12 @@ export interface PageInfo {
    * `src` and the value's key; the call's list argument compiles to its `src`
    */
   axisUrl?: string;
+  /**
+   * A second pass's build-time constants (`Compiler.foldValues`): the `file:`, `content:` and entry resources nothing
+   * can write, by name, with their values as the browser would read them. A read of one down to a small primitive
+   * (`post.slug`) is that value's literal in the code, pasted as a let's is (`foldOf`), and reads nothing at run time.
+   */
+  folds?: { values: Map<string, unknown>; literal: (v: unknown) => string };
   helpers: Set<string>;
   /** action functions and namespaces: only `data-sn-call` and `<sn-resource call>` may name them */
   actions?: Set<string>;
@@ -375,6 +381,14 @@ const BROWSER = new Set([
   'customElements', 'Worker', 'Notification', 'caches',
 ]);
 const FORBIDDEN_KEYS = new Set(['constructor', '__proto__', 'prototype']);
+/**
+ * The longest string a read of a build-time constant pastes into the code (`foldOf`): a slug, a title, a date. A
+ * longer one (a post's body) is read from the embedded value instead, so that a long text read in several places is
+ * not written into the module once per read.
+ */
+export const FOLD_STRING = 120;
+/** whether a build-time constant's value at a read is one `foldOf` pastes into the code: a primitive, a short string */
+export const foldsInto = (v: unknown): boolean => (typeof v === 'string' ? v.length <= FOLD_STRING : typeof v === 'number' ? Number.isFinite(v) : typeof v === 'boolean' || v === null);
 
 export const READ_ONLY = new Set([
   'includes', 'indexOf', 'lastIndexOf', 'map', 'filter', 'slice', 'find', 'findIndex', 'findLast',
@@ -1107,7 +1121,48 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
     visit(fn.body as Node, inner);
   }
 
+  /**
+   * A read of a build-time constant (`page.folds`) down to a primitive: the member that ends there (`post.slug` of
+   * `post.slug.length`), its value's literal pasted in its place as a let's code is (`emitName`). Not the method of a
+   * call (its receiver is the value), a computed key that is not a literal, a field the value does not have, a list's
+   * element, or a string longer than `FOLD_STRING` (read at run time, from the embedded value, `fileJson`).
+   */
+  function foldOf(n: Node, locals: Locals, isCallee: boolean): { node: Node; entry: LetEntry } | null {
+    const folds = page.folds;
+    if (!folds?.values.size) return null;
+    const chain: Array<acorn.MemberExpression & Node> = [];
+    let cur: Node = n;
+    for (;;) {
+      if (cur.type === 'ChainExpression') cur = (cur as acorn.ChainExpression).expression as Node;
+      else if (cur.type === 'MemberExpression') { chain.unshift(cur as acorn.MemberExpression & Node); cur = (cur as acorn.MemberExpression).object as Node; }
+      else break;
+    }
+    if (cur.type !== 'Identifier' || !chain.length || !folds.values.has(cur.name)) return null;
+    if (resolveQuiet(cur.name, locals)?.kind !== 'resource') return null;
+    let v = folds.values.get(cur.name);
+    for (const m of chain) {
+      if (isCallee && m === chain[chain.length - 1]) return null;
+      const key = !m.computed && m.property.type === 'Identifier' ? m.property.name
+        : m.computed && m.property.type === 'Literal' && (typeof m.property.value === 'string' || typeof m.property.value === 'number') ? String(m.property.value) : null;
+      if (key === null || FORBIDDEN_KEYS.has(key) || !v || typeof v !== 'object' || Array.isArray(v) || !Object.prototype.hasOwnProperty.call(v, key)) return null;
+      v = (v as Record<string, unknown>)[key];
+      if (v !== null && typeof v === 'object') continue;
+      if (!foldsInto(v)) return null;
+      return { node: m, entry: { name: cur.name, code: `(${folds.literal(v)})`, deps: [], usesEl: false, usesIndex: false, resource: null } };
+    }
+    return null;
+  }
+  /** the members `foldOf` chose in this expression: `visitMemberParts` pastes the value there */
+  const folded = new Map<Node, LetEntry>();
+
   function visitChain(n: Node, locals: Locals, isCallee: boolean) {
+    const fold = foldOf(n, locals, isCallee);
+    if (fold) {
+      // the value is in the code: nothing to read, or to depend on; what the chain reads after it reads the literal
+      folded.set(fold.node, fold.entry);
+      visitMemberParts(n, locals);
+      return;
+    }
     // dependency of the whole chain (minus the method name when it is called)
     if (mode !== 'optimistic' || true) {
       const cp = chainPath(n, locals);
@@ -1139,6 +1194,8 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
   }
 
   function visitMemberParts(n: Node, locals: Locals) {
+    const fold = folded.get(n);
+    if (fold) { edits.push({ start: n.start, end: n.end, text: emitName(fold.name, { kind: 'let', entry: fold }) }); return; }
     if (n.type === 'Identifier') return ident(n as acorn.Identifier & Node, locals);
     const member = slotMember(n, locals);
     if (member) {

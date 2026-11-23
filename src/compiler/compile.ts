@@ -7,13 +7,14 @@ import { shows } from './status-eval.js';
 import { recordChild, replay as replayUnit, LINK_FIELDS, UNIT_NUMBERING, type Plan, type Refused } from './link.js';
 import { declaringTemplate, HEAD_ELEMENTS, kindOfComponent, parseDocument, STRUCTURAL } from './head.js';
 import { minifyMarkup } from './minify.js';
+import { prune, resourceReads } from './embed-reads.js';
 import type { RemoteConfig } from '../remote.js';
 import { AUTO_FIT_HINT, AUTO_FIT_ROWS, FLUID_WIDTHS } from './images.js';
 import * as parse5 from 'parse5';
 import { freeRefs, parseExpression, parseProgram } from './parse.js';
 import type { DefaultTreeAdapterMap } from 'parse5';
 import { type Code, type Diagnostic, didYouMean, distance, severityOf, suggest } from './diagnostics.js';
-import { analyze, applyEdits, nsLocal, refNames, STORE_FNS, throughField, wild, type SlotScope, type ComponentScope, type ExprOptions, type ExprResult, type LetEntry, type LoopEntry, type PageInfo, type Read, type ResourceInfo, type Scope } from './expr.js';
+import { analyze, applyEdits, foldsInto, nsLocal, refNames, STORE_FNS, throughField, wild, type SlotScope, type ComponentScope, type ExprOptions, type ExprResult, type LetEntry, type LoopEntry, type PageInfo, type Read, type ResourceInfo, type Scope } from './expr.js';
 import { callerAttribute, COMPONENT_NAME, componentPaths, DOM_EVENTS, inlineScriptLang, inlineScriptPath, inlineScripts, type InlineScript, isArrayType, LIBRARY_LAYER, rootCss, scopeCss, SLOT_TYPE, typeMembers, withoutSlots, type Member } from './components.js';
 import type { Node } from 'acorn';
 import type * as acorn from 'acorn';
@@ -265,6 +266,12 @@ export interface CompileOptions {
    * pass's decided `data-sn-if`s and unrolled loops read, for `fixedState`
    */
   frozen?: Set<string>;
+  /**
+   * internal, set by `compileParts` for its second pass: the build-time constant resources nothing can write and their
+   * values as the browser reads them (`foldValues`), whose small primitive reads the second pass writes into the code
+   * (`PageInfo.folds`), so the page embeds less of them, or none
+   */
+  folds?: Map<string, unknown>;
   /**
    * internal, set by `compileParts` for its second pass: the bindings the first pass found constant for good, by
    * the attribute that wrote them (`file:offset|uses|attribute`, and `#k` for row k of an unrolled loop), with what
@@ -1108,11 +1115,15 @@ function fromTemplate(html: string, options: CompileOptions): CompiledParts | nu
   // (as `compilePasses` hands the first pass's decisions to the second)
   const frozen = c.foldedState();
   if (c.constants.size) for (const x of c.constantSites) frozen.add(x);
-  const out = new Compiler({
-    ...options, decided: new Map(c.decided), ...(c.unrolls.size ? { unrolled: new Map(c.unrolls) } : {}),
+  const folds = c.foldValues();
+  const pass = (f: Map<string, unknown> | undefined) => new Compiler({
+    ...options, decided: new Map(c.decided), ...(f ? { folds: f } : {}), ...(c.unrolls.size ? { unrolled: new Map(c.unrolls) } : {}),
     ...(c.constants.size ? { constants: new Map(c.constants) as Map<string, ConstantWrite[]> } : {}),
     ...(c.overLimit.size ? { overLimit: new Map(c.overLimit) } : {}), ...(c.rendered.size ? { rendered: new Map(c.rendered) } : {}), ...(c.unrendered.size ? { unrendered: new Map(c.unrendered) } : {}), frozen,
-  }).run(html);
+  });
+  let second = pass(folds), out = second.run(html);
+  // a component script that may change what was written into the code: the reads stay reads (`foldsEscape`)
+  if (second.foldsEscape()) { second = pass(undefined); out = second.run(html); }
   // a page with errors: the usual way, which reports them as it always does
   if (out.diagnostics.some((d) => d.severity === 'error')) return null;
   // (not the render audit's compile again, which counts what the first counted)
@@ -1140,10 +1151,21 @@ function compilePasses(html: string, options: CompileOptions): CompiledParts & {
   const second = (clean: boolean) => {
     const unrolled = first.unrolls.size && clean ? first.unrolls : null;
     const constants = first.constants.size && clean ? first.constants as Map<string, ConstantWrite[]> : null;
-    if (!first.decided.size && !unrolled && !constants) return null;
+    // (not in a description: the build gives one entry's to every entry of a template, `entryDescription`, so what it
+    // requests ahead must not hold the entry's values)
+    const folds = options.describeOnly ? undefined : first.foldValues();
+    // reads of build-time constants that the code can hold as literals are reason enough for a second pass (`foldGain`)
+    if (!first.decided.size && !unrolled && !constants && !(clean && folds && first.foldGain(folds))) return null;
     const frozen = first.foldedState();
     if (constants) for (const s of first.constantSites) frozen.add(s);
-    return new Compiler({ ...options, decided: first.decided, ...(unrolled ? { unrolled } : {}), ...(first.rendered.size ? { rendered: first.rendered } : {}), ...(first.unrendered.size ? { unrendered: first.unrendered } : {}), ...(constants ? { constants } : {}), ...(first.overLimit.size ? { overLimit: first.overLimit } : {}), frozen }).run(html);
+    const pass = (f: Map<string, unknown> | undefined) => {
+      const c = new Compiler({ ...options, decided: first.decided, ...(f ? { folds: f } : {}), ...(unrolled ? { unrolled } : {}), ...(first.rendered.size ? { rendered: first.rendered } : {}), ...(first.unrendered.size ? { unrendered: first.unrendered } : {}), ...(constants ? { constants } : {}), ...(first.overLimit.size ? { overLimit: first.overLimit } : {}), frozen });
+      return { c, out: c.run(html) };
+    };
+    const p = pass(folds);
+    // a component script that may change what was written into the code: the reads stay reads
+    if (!p.c.foldsEscape()) return p.out;
+    return first.decided.size || unrolled || constants ? pass(undefined).out : null;
   };
   const twice = !!options.prerender && !options.decided && !options.unrolled;
   // a second pass whatever the rest of the first one does: nothing of that rest is read (its markup, its tables, its
@@ -1683,6 +1705,7 @@ class Compiler {
         : `((l, s = ${seg}) => ${JSON.stringify(b)} + (s ? s + '/' : '') + location.pathname.slice(${b.length + (own ? own.length + 1 : 0)}))`;
       this.page.locale = { name: l.name, messages: null, localeUrl, ...(l.urls ? { ownUrls: true } : {}), ...(l.prefix === false ? { prefix: false as const } : {}) };
     }
+    if (opts.folds?.size) this.page.folds = { values: opts.folds, literal: jsLiteral };
     const cns = Object.keys(opts.contentNs ?? {});
     if (cns.length) this.page.contentNs = new Set(cns);
     if (opts.axisUrls && Object.keys(opts.axisUrls).length) this.page.axisUrl = `((s, k) => (${JSON.stringify(opts.axisUrls)})[s]?.[k])`;
@@ -1979,7 +2002,8 @@ class Compiler {
     // each URL template as code (`urlCode`): the page module makes its URLs with none of `expand`
     for (const d of [...this.resources, ...this.syncs, ...this.actions]) {
       const t = 'url' in d ? d.url : d.src;
-      if (t.length) d.u = this.fn(`($) => ${this.urlFn(t)}`, null);
+      // a constant (`fx`, no `src`): its URL is empty, which the runtime needs to store its embedded value at all
+      if (t.length || ('fx' in d && d.fx)) d.u = this.fn(`($) => ${t.length ? this.urlFn(t) : '""'}`, null);
     }
     this.checkListWrites();
     const builtin: string[] = [];
@@ -2017,7 +2041,7 @@ class Compiler {
     // `navigate()` may go to this page with another query too: the build cannot see where, so it loads the module
     const navigates = this.fns.some((c) => c.includes('$f.navigate('));
     if (reads && !hasBase(doc) && (navigates || this.seesSameLink(own))) { ir.urlReads = reads; this.features.add('query-links'); this.features.add('location'); }
-    this.fileJson();
+    this.fileJson(early);
     // builds: the last pass over the tables, after every pass that leaves a template or a function unused
     if (!this.opts.dev) this.compactTables(ir, early);
     return {
@@ -8368,6 +8392,76 @@ class Compiler {
     return !!m && this.fileData.has(m[2]!);
   }
 
+  /**
+   * The `file:`, `content:` and entry resources whose value the browser can only read, never change, with that value as
+   * it reads it (`fields`, then `select`): for the second pass, which writes its small primitive reads into the code
+   * (`PageInfo.folds`). None when anything could change one: a write the page's code makes (aliases included,
+   * `applyAliases`), a store function (`merge`, `upsert`, `remove`: they name their resource), or a stream that feeds
+   * it. A component script, which may change an object a prop gave it, is checked once the page is compiled, where
+   * it is known which of them run in the browser (`foldsEscape`). Not in dev (its pages are not built per entry).
+   */
+  foldValues(): Map<string, unknown> | undefined {
+    if (!this.opts.prerender || this.opts.dev || !this.fileData.size) return undefined;
+    if (this.fns.some((c) => c !== '0' && /\$f\.(merge|upsert|remove)\(/.test(c))) return undefined;
+    const written = new Set<string>();
+    const add = (ws: PathRef[] | undefined) => {
+      for (const w of strs(ws)) {
+        const s = w.split('.');
+        if (s[0] === '$r') written.add(s[1] === undefined || s[1] === '*' || s[1] === '**' ? '*' : s[1]!);
+      }
+    };
+    for (const n of [...this.roots, ...this.templates.flatMap((t) => t.nodes)]) for (const b of n.b) add(b.w);
+    for (const a of this.actions) add(a.w);
+    for (const r of this.resources) add(r.w);
+    for (const x of this.syncs) for (const e of x.events) add(e.w);
+    if (written.has('*')) return undefined;
+    const out = new Map<string, unknown>();
+    for (const [name, d] of this.fileData) {
+      if (written.has(name) || this.page.fed.has(name)) continue;
+      const def = this.resources.find((x) => x.name === name);
+      let v = d.fields ? pickFields(d.value, d.fields) : d.value;
+      for (const k of def?.select ? def.select.split('.') : []) v = (v as Record<string, unknown> | null)?.[k];
+      out.set(name, v);
+    }
+    return out.size ? out : undefined;
+  }
+
+  /**
+   * A second pass given `folds`: whether a component script left in the page may be given one of the page's objects
+   * (a resource's, or anything a prop can hold: state, a row, a shared definition's prop), which the script could
+   * change, so that a value written into the code would no longer be the one the page holds. The page is then compiled
+   * again without them (`compilePasses`).
+   */
+  foldsEscape(): boolean {
+    const folds = this.opts.folds;
+    if (!folds?.size) return false;
+    const cmp = [...this.roots, ...this.templates.flatMap((t) => t.nodes)].flatMap((n) => n.b.filter((b) => b.k === 'cmp' && b.f !== undefined).map((b) => this.fns[b.f!]!));
+    if (!cmp.length) return false;
+    const r = resourceReads(cmp);
+    if (r.all || [...r.reads.keys()].some((n) => folds.has(n))) return true;
+    return cmp.some((c) => /\$\.(?!\$(?:r|meta|url|now|locale)\b)[\w$]/.test(c));
+  }
+
+  /** whether a function left for the browser reads one of `folds` down to a value the second pass writes into the code (`foldOf`) */
+  foldGain(folds: Map<string, unknown>): boolean {
+    const r = resourceReads(this.fns);
+    if (r.all) return false;
+    for (const [name, paths] of r.reads) {
+      if (!folds.has(name)) continue;
+      for (const p of paths) {
+        let v = folds.get(name);
+        for (const k of p) {
+          if (!v || typeof v !== 'object' || Array.isArray(v) || !Object.prototype.hasOwnProperty.call(v, k)) break;
+          v = (v as Record<string, unknown>)[k];
+          if (v !== null && typeof v === 'object') continue;
+          if (foldsInto(v)) return true;
+          break;
+        }
+      }
+    }
+    return false;
+  }
+
   /** `$r` and `$meta` for the build-time evaluator: the `file:` resources' values (frozen) and constant status; any other resource throws */
   fileConstants(NOT: Error): { r: object; meta: object } {
     const values = new Map<string, unknown>(), status = new Map<string, unknown>();
@@ -10926,13 +11020,36 @@ class Compiler {
     this.report(el, a, code, message, at, hint);
     if (this.collecting()) this.lateDiags.push(...this.diagnostics.splice(n));
   }
-  fileJson() {
+  /**
+   * What the browser's code reads of each `file:` value (`resourceReads` over the page module's functions and the early
+   * file's), so that only that is embedded (`prune`): a build's, where nothing can change the value or read it by a
+   * route that code does not show. Whole in dev (its modules are replaced while the page stays), with `select` (read
+   * below its path), and when the page writes one (aliases included), a store function names one by its name (`merge`,
+   * `upsert`, `remove`), or a stream feeds it.
+   */
+  embedReads(early: EarlyParts | null | undefined): Map<string, string[][]> | null {
+    if (this.opts.dev) return null;
+    const code = [...this.fns, ...(early?.fns ?? [])].filter((c) => c !== '0');
+    if (code.some((c) => /\$f\.(merge|upsert|remove)\(/.test(c))) return null;
+    for (const n of [...this.roots, ...this.templates.flatMap((t) => t.nodes)]) for (const b of n.b) if (strs(b.w).some((w) => w === '$r' || w.startsWith('$r.'))) return null;
+    for (const w of [...this.actions.map((a) => a.w), ...this.resources.map((r) => r.w), ...this.syncs.flatMap((x) => x.events.map((e) => e.w))]) if (strs(w).some((x) => x === '$r' || x.startsWith('$r.'))) return null;
+    const r = resourceReads(code);
+    return r.all ? null : r.reads;
+  }
+
+  fileJson(early?: EarlyParts | null) {
+    let reads: Map<string, string[][]> | null | undefined;
     for (const [name, d] of this.fileData) if (d.el && !d.el.childNodes.length && d.el.parentNode) {
       // what the browser still reads: only the fields `fields` names, of each entry; a collection's is named, always,
       // so that what a CMS returns and no page shows does not ship (SN344)
       if (d.content && !d.fields && d.at) this.reportLate(d.at, d.at.tagName === 'html' ? 'data-sn-for' : 'src', 'SN344', `browser code reads \`${name}\`, a collection, so it would ship to the page: name the fields it gets with \`fields="…"\`${d.at.tagName === 'html' ? ' on its list' : ''}`, 0, 'a collection holds what a loader returned, which can be more than a page shows (a CMS\'s internal fields); `fields="sku,name,price"` ships those of each entry, and nothing else');
       parse5.defaultTreeAdapter.insertText(d.el, `\u0001sn-json:${d.id}\u0001`);
-      this.jsonOut.set(d.id, d.fields ? pickFields(d.value, d.fields) : d.value);
+      const value = d.fields ? pickFields(d.value, d.fields) : d.value;
+      // only what the code reads of it: an object's fields, at each depth the reads name them (a list is kept whole)
+      if (reads === undefined) reads = this.embedReads(early);
+      const def = this.resources.find((x) => x.name === name);
+      const paths = reads && !def?.select && !this.page.fed.has(name) ? reads.get(name) ?? [] : null;
+      this.jsonOut.set(d.id, paths ? prune(value, paths) : value);
     }
   }
 
