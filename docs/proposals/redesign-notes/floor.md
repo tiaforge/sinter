@@ -76,3 +76,29 @@ not walk its subtree again). 550 calls a page, mostly over small values; the `We
 
 Static, `time` mode, median of 3 rounds A/B (ms a page): `decideFor` 19.0 → 12.5, GC in compiles 5.5 → 4.2,
 `compile()` 32.4 → 23.9; the build (instrumented) 6.0 → 5.0 s.
+
+### 2. Component files read and kinded once per build (`componentCache`)
+
+Every `Compiler` looked each component up afresh (`componentFile`): the file and the five files that may sit beside it
+(four script extensions, `.css`, `.early.*`; read through the build's `buildReads`, but a missing file is an error
+thrown again each time), its kind (`kindOfComponent`, a parse5 parse of the whole file), its inline scripts (another
+parse). A library's `<sn-component use>` pool (`choicePool`) looks up every component of the library, so each page's
+pass 2 did this for all 26 of sinter-markdown's components.
+
+A build now keeps what `componentFile` found, by tag, folder, root and the libraries (`componentCache`, a `Map`
+`src/vite.ts` passes to the build's compiles beside `globCache` and clears with the build's reads at `buildStart`:
+dev and the editor pass none, so they read afresh as before; under `--watch` each build starts empty,
+test/vite/build-caches.test.ts). Each compile takes a shallow copy of its own, without the library object (its own
+compile's): what a compile marks on a component as it expands it (`bad`, `css`, `rawCss`, `dataSlots`, and its
+diagnostics, SN312 and SN320 among them) is still marked and reported per compile. Kinding a component looks up the
+components its markup names, which fills `componentFiles` (the order `choicePool` and SN547's suggestions see): a hit
+looks those up first, in the order kinding did. A component on a cycle of tags is not kept (its kind depends on where
+the walk entered the cycle; `kindCycle`). New `Compiler` fields `kindCycle` and `librariesKeyText` are `cache` in
+`LINK_FIELDS`, and the option is a `BUILD_OPTIONS` entry. test/compiler/component-cache.test.ts: compiles sharing a
+cache in several orders give what each gives alone; a later compile reads no component file but those on a cycle; a
+compile's marks are its own.
+
+Pass 2's `componentFile` calls are 503 a page; with a warm cache none reads a file. Static, `time` mode, median of 3
+rounds A/B (base, change 1, change 2), ms a page: pass 2 `expandComponents` 2.6 / 2.3 / 0.7, pass 2 `walkPage`
+7.5 / 6.4 / 4.9, `compile()` 26.6 / 18.0 / 16.2, GC in compiles 3.7 / 2.2 / 2.0. A page file per post (3 rounds, a
+loaded machine): pass 1 `expandComponents` 4.0 → 2.1, pass 2 3.8 → 1.4, `compile()` describe 10.5 → 8.8.

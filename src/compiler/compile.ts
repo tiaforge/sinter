@@ -106,6 +106,12 @@ export interface CompileOptions {
   /** (docs/proposals/compile-once.md, (5)): a build's shared definitions, recorded on one page and linked into the next */
   definitions?: Map<string, unknown>;
   /**
+   * Builds: each component file as it was read and kinded (`componentFile`), for every compile of the build: its text, its
+   * kind, its script and styles beside it (files do not change during a build). Each compile takes a copy of its own,
+   * which it marks as it expands the component. Cleared with the build's reads.
+   */
+  componentCache?: Map<string, unknown>;
+  /**
    * The content module's collections (docs/resources.md#collections), loaded before the compile: each list and its key,
    * by name. Absent: none loaded (`sinter check` and the editor read them from the build's snapshot). `collectionsError`:
    * why loading failed (dev), reported where a page reads a collection.
@@ -729,6 +735,9 @@ interface Use {
 }
 
 /** A component file, read once: its text, scoped styles and script. */
+/** a component file as a build keeps it for its compiles (`componentFile`): what was found (null: no file), and the tags its markup names, in order */
+interface CachedComponent { base: ComponentFile | null; names: string[] }
+
 interface ComponentFile {
   file: string;
   text: string;
@@ -2394,9 +2403,24 @@ class Compiler {
     const lib = this.libOfTag(tag);
     const internal = !!lib?.internal.includes(tag);
     const dir = lib ? `${normalize(lib.folder).replace(/\/$/, '')}/components${internal ? '/internal' : ''}` : this.opts.components ?? `${normalize(this.opts.root).replace(/\/$/, '')}/src/components`;
+    const allowed = !lib || internal || lib.public.includes(tag);
+    // read and kinded by an earlier compile of the build: a copy of what it found, the components its markup names
+    // looked up first, as kinding it looked them up (`componentFiles` is filled in the same order)
+    const cache = this.opts.componentCache as Map<string, CachedComponent> | undefined;
+    const key = cache ? [tag, dir, this.opts.root, allowed, this.librariesKey()].join('\0') : '';
+    const hit = cache?.get(key);
+    if (hit) {
+      this.kinding.add(tag);
+      for (const t of hit.names) if (!this.kinding.has(t)) this.componentFile(t);
+      this.kinding.delete(tag);
+      c = hit.base && { ...hit.base, ...(lib ? { lib } : {}) };
+      this.componentFiles.set(tag, c);
+      return c;
+    }
+    const names: string[] = [];
     // `<tag>.html`, or `<tag>/<tag>.html` in a folder of its own (component-files.ts; both at once is SN349)
     c = null;
-    if (!lib || internal || lib.public.includes(tag)) for (const p of componentPaths(tag)) {
+    if (allowed) for (const p of componentPaths(tag)) {
       const file = normalize(`${dir}/${p}`);
       try { c = { file, text: this.opts.readFile(file) }; break; } catch { /* not here */ }
     }
@@ -2405,7 +2429,13 @@ class Compiler {
     // its kind from its markup; a component's tag in it counts by its own kind (a cycle is a body component)
     if (c) {
       this.kinding.add(tag);
-      const kind = kindOfComponent(c.text, (t) => { if (this.kinding.has(t)) return null; const f = this.componentFile(t); return !f || f.either ? null : !!f.head; });
+      const kind = kindOfComponent(c.text, (t) => {
+        names.push(t);
+        // a cycle: what each component on it is depends on where the walk entered it, so none of them is kept for the build
+        if (this.kinding.has(t)) { for (const k of this.kinding) this.kindCycle.add(k); return null; }
+        const f = this.componentFile(t);
+        return !f || f.either ? null : !!f.head;
+      });
       this.kinding.delete(tag);
       if (kind === 'head') c.head = true;
       else if (kind === 'either') c.either = true;
@@ -2463,8 +2493,22 @@ class Compiler {
       }
     }
     this.componentFiles.set(tag, c);
+    if (cache && !this.kindCycle.has(tag)) {
+      // (as found, before this compile marks it: `bad`, `css`, `dataSlots`; the library is each compile's own)
+      let base: ComponentFile | null = null;
+      if (c) { const { lib: _, ...rest } = c; base = rest; }
+      cache.set(key, { base, names });
+    }
     return c;
   }
+
+  /** what `componentFile`'s keys for the build's cache say of the libraries: the same tag is another file under others */
+  private librariesKey(): string {
+    return (this.librariesKeyText ??= JSON.stringify([this.opts.components ?? null, (this.opts.libraries ?? []).map((l) => [l.prefix, l.folder, l.public, l.internal])]));
+  }
+  private librariesKeyText: string | undefined;
+  /** components on a cycle of tags (`componentFile`'s kinding): not kept in the build's cache */
+  private readonly kindCycle = new Set<string>();
 
   /** the library whose prefix a tag has, or null */
   libOfTag(tag: string): CompileLibrary | null {
