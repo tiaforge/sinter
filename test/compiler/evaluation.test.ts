@@ -5,7 +5,7 @@
 // each alone: the results must be the same, every field.
 import { afterEach, describe, expect, test } from 'vitest';
 import { compile, type CompileOptions, type CompileResult } from '../../src/compiler/index.js';
-import { caseCode, decidedEntries, failsFirst, frozenPlain, StyleWrites, writeFirstPaint } from '../../src/compiler/compile.js';
+import { caseCode, decidedEntries, failsFirst, frozenPlain, rowProgram, StyleWrites, writeFirstPaint } from '../../src/compiler/compile.js';
 
 const C: Record<string, string> = {
   'x-doc': '<template data-sn-props="{ doc: any }"><div class="doc"><template data-sn-for="n in doc.children"><sn-component use="{ text: \'x-text\', link: \'x-link\', em: \'x-em\' }[n.type]" data-sn-with="{ node: n }"></sn-component></template></div></template>',
@@ -37,8 +37,20 @@ const text = (r: CompileResult) => JSON.stringify({ ...r, check: undefined }, (_
 const page = (body: string) => `<!doctype html><html lang="en"><head></head><body><sn-resource name="grid" src="file:/grid.json"></sn-resource><sn-resource name="doc" src="file:/doc.json"></sn-resource>${body}</body></html>`;
 const template = (body: string) => `<!doctype html><html lang="en" data-sn-path="/blog/:slug" data-sn-for="d in docs"><head><title data-sn-text="d.title"></title></head><body><sn-resource name="docs" src="file:/content/docs/*.json"></sn-resource>${body}</body></html>`;
 
-const was = process.env.SN_RENDER;
-afterEach(() => { if (was === undefined) delete process.env.SN_RENDER; else process.env.SN_RENDER = was; });
+const was = process.env.SN_RENDER, wasFn = process.env.SN_ROW_FN;
+afterEach(() => {
+  if (was === undefined) delete process.env.SN_RENDER; else process.env.SN_RENDER = was;
+  if (wasFn === undefined) delete process.env.SN_ROW_FN; else process.env.SN_ROW_FN = wasFn;
+});
+
+/** a page compiled with a row's values one call per template (`rowProgram`) and one call per value (`SN_ROW_FN=0`), rows rendered and not: the same */
+function routes(html: string, extra: Partial<CompileOptions> = {}) {
+  process.env.SN_ROW_FN = '0';
+  const one = both(html, extra);
+  delete process.env.SN_ROW_FN;
+  expect(both(html, extra)).toBe(one);
+  return one;
+}
 
 /** a page compiled with rows rendered and not: the same */
 function both(html: string, extra: Partial<CompileOptions> = {}) {
@@ -190,6 +202,29 @@ describe('rendering a row', () => {
   test('a template\'s elements copied in every row, each its own (ids, uses)', () => {
     const body = both(page('<x-doc data-sn-with="{ doc }"></x-doc><x-doc data-sn-with="{ doc }"></x-doc>'));
     expect(body.split('<a href="/b"><span>b</span></a>').length).toBe(3);
+  });
+});
+
+describe('a row\'s values in one call per template (`rowProgram`)', () => {
+  const fold = { helpers: { module: '/h.js', names: ['shout'], namespaces: {} }, helperValues: { shout: (s: string) => s.toUpperCase() }, helperFold: new Map([['shout', { fold: true }]]) } as Partial<CompileOptions>;
+  test('each value at its place, FAIL for one that throws, a block body called, an expression in place', () => {
+    const f = rowProgram(['k'], [7], { size: 5 }, [[1, '($) => ($.a.b + k)'], [2, '($) => { return $.a.c; }'], [3, '($) => ($.missing.x)'], [4, '($) => ($.a)']])!;
+    const o = f({ a: { b: 1, c: 2 } });
+    expect([o[0], o[1], o[2], typeof o[3], o[4]]).toEqual([undefined, 8, 2, 'symbol', { b: 1, c: 2 }]);
+    expect(1 in o).toBe(true);
+    expect(0 in o).toBe(false);
+  });
+  test('a value that throws is FAIL for that binding alone: the row\'s others are written', () => {
+    const body = routes(page(`<ul><template data-sn-for="r in grid.rows"><li data-sn-attr="{ title: r.cells[1].name, lang: r.name }" data-sn-text="r.cells[0].name"></li></template></ul>`));
+    expect(body).toContain('title="a2"');
+  });
+  test('a helper\'s call among the row\'s values: a call of its own, in its place; an undefined text; branches in the row', () => {
+    const body = routes(page(`<ul><template data-sn-for="(r, i) in grid.rows"><li data-sn-attr="{ title: shout(r.name), lang: r.name }" data-sn-text="r.none"></li><template data-sn-if="i"><b data-sn-text="shout(r.name) + r.cells.length"></b></template><template data-sn-else><i data-sn-text="r.name"></i><template data-sn-text="r.nothing"></template></template></template></ul>`), fold);
+    expect(body).toContain('<li title="A" lang="a"></li><i>a</i>');
+    expect(body).toContain('<li title="B" lang="b"></li><b>B1</b>');
+  });
+  test('choices in rows and a tree, every value as before', () => {
+    for (const d of ['one', 'two']) routes(page(`<sn-resource name="d" src="file:/content/docs/${d}.json"></sn-resource><x-doc data-sn-with="{ doc: d.doc }"></x-doc>`));
   });
 });
 

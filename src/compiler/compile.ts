@@ -987,6 +987,25 @@ export function compileParts(html: string, options: CompileOptions): CompiledPar
     shifting = true;
     try { return shiftAudit(html, options); } finally { shifting = false; }
   }
+  // `SN_ROW_FN_AUDIT=1` (redesign-notes/stage6-eval.md): every compile again with each row value its own call through the
+  // table (`SN_ROW_FN=0`), and the two the same, field by field (each value is compared with its own call as well, in the walk)
+  if (proc?.env.SN_ROW_FN_AUDIT === '1' && rowFnForced === null && rowFnOn()) {
+    const on = compilePartsOnce(html, options);
+    rowFnForced = false;
+    let off: CompiledParts;
+    try { off = compilePartsOnce(html, options); } finally { rowFnForced = null; }
+    const text = (r: CompiledParts) => JSON.stringify(options.templates ? { ...r, check: undefined } : r, (_, v) => (typeof v === 'function' ? '[fn]' : v instanceof Map ? [...v] : v instanceof Set ? [...v] : v));
+    const a = text(on), b = text(off);
+    if (a !== b) {
+      let i = 0;
+      while (a[i] === b[i]) i++;
+      const field = Object.keys(on).find((k) => text({ [k]: (on as unknown as Record<string, unknown>)[k] } as unknown as CompiledParts) !== text({ [k]: (off as unknown as Record<string, unknown>)[k] } as unknown as CompiledParts));
+      throw new Error(`sinter row program audit: ${options.file}: the rows' values in one call per template differ from one call per value in \`${field}\`, at ${i}:\n  one per template ${a.slice(Math.max(0, i - 160), i + 160)}\n  one per value    ${b.slice(Math.max(0, i - 160), i + 160)}`);
+    }
+    const log = proc?.env.SN_ROW_FN_AUDIT_LOG;
+    if (log) (proc?.getBuiltinModule?.('node:fs') as { appendFileSync(f: string, s: string): void } | undefined)?.appendFileSync(log, `${options.file}\n`);
+    return on;
+  }
   // `SN_RENDER_AUDIT=1`: a compile that spliced rendered rows in is compiled again without rendering, and must be the same
   if (proc?.env.SN_RENDER_AUDIT === '1' && renderForced === null && renderOn()) {
     const n = RENDER_STATS.spliced, on = compilePartsOnce(html, options);
@@ -8678,7 +8697,18 @@ class Compiler {
       }));
     }
     const schemes = schemesOf([]);
-    const work = this.worklist(fnOf, known, fixed, schemes, ROW, keep ? this.evalProgram!.walk : undefined);
+    // the rows' values, a template's in one call (`rowProgram`): with the names the table's codes see, bound to this
+    // evaluation's values; a code that names an app helper, a namespace's member or a lazy module (`$z`) is a call of its own
+    let rowFns: RowFns | null = null;
+    if (this.collecting() && rowFnOn()) {
+      const names = [...params.keys()], values = [...params.values()];
+      const impure = names.filter((n) => !PURE_NAMES.has(n) && /^[\w$]+$/.test(n));
+      const re = new RegExp(`${impure.length ? `(?<![\\w$.])(?:${impure.map((n) => n.replace(/\$/g, '\\$')).join('|')})(?![\\w$])|` : ''}\\$\\.\\$z(?![\\w$])`);
+      // (a name that is not an identifier: every code a call of its own)
+      const odd = names.some((n) => !/^[\w$]+$/.test(n));
+      rowFns = { names: names.join(','), pure: (code) => !odd && !re.test(code), make: (L, parts) => rowProgram(names, values, L, parts), audit: proc?.env.SN_ROW_FN_AUDIT === '1' };
+    }
+    const work = this.worklist(fnOf, known, fixed, schemes, ROW, keep ? this.evalProgram!.walk : undefined, rowFns);
     for (const c of cands) {
       own = c.b.k === 'model' && c.b.p !== undefined ? (c.b.w![0] as string).split('.').slice(0, 2).join('.') : null;
       let v = known(strs(c.b.d)) ? run(this.fns[c.f]!) : FAIL;
@@ -9010,11 +9040,13 @@ class Compiler {
    * instances per page, any list's rows counted (`SN536` past it, at the loop or the tree that crosses it).
    */
   /** `memo`: what the walk reads of the program, kept with a kept template's program (`evalProgram`) for its next entry */
-  worklist(fnOf: FnTable, known: (deps: string[]) => boolean, fixed: (ds: PathRef[] | undefined) => boolean, schemes: Set<string>, ROW: Set<string>, memo: WalkMemo = newWalkMemo()) {
+  worklist(fnOf: FnTable, known: (deps: string[]) => boolean, fixed: (ds: PathRef[] | undefined) => boolean, schemes: Set<string>, ROW: Set<string>, memo: WalkMemo = newWalkMemo(), rowFns: RowFns | null = null) {
     // (`recs`: the top rows of a loop as `rowRenderer` reads them, `RowRec`; recorded only when rows are rendered)
     // (`decided`: a key and what it is decided, or the candidates a choice in a row does not render, as one entry: each of
     // `keys` but `picked` decided false at `prefix` + its key, in the order of `keys`; `decidedEntries` spells it out)
-    type Found = { unrolls: Array<[string, unknown[], PathRef[] | undefined]>; decided: Array<[string, boolean, PathRef[] | undefined] | NotRendered>; paints: Array<[Binding, string, ConstantWrite | null]>; recs?: RowRec[]; rows: number; over?: true };
+    // (`paints`: what each row binding paints, flat, three entries each: the binding, its row's prefix, what it writes
+    // (`firstPaintValue`'s pair) or null; `paintsOf` spells them out)
+    type Found = { unrolls: Array<[string, unknown[], PathRef[] | undefined]>; decided: Array<[string, boolean, PathRef[] | undefined] | NotRendered>; paints: unknown[]; recs?: RowRec[]; rows: number; over?: true };
     const rendering = renderOn();
     /** `pick`: a choice's case expanded (decided true), else a loop unrolled (`tid`, its rows' template) */
     const pending = new Map<string, { items: unknown[]; d: PathRef[] | undefined; found: Found; pick?: true; el: P5Element; tid?: number; picked?: PickedCase } | null>();
@@ -9044,6 +9076,54 @@ class Compiler {
       if (!f) return FAIL;
       this.folding?.start(code);
       try { return f(sc); } catch { return FAIL; } finally { this.folding?.end(); }
+    };
+    /** the record's places of a template's nodes (`RowRec`), the program's: by node, and its bindings after it */
+    const layoutOf = (nodes: NodeDef[]) => rowLayout(memo, nodes);
+    /**
+     * A template's values for a row in one call (`rowProgram`): each binding the walk paints or decides there whose code
+     * calls no helper (`rowFns.pure`), at its place in the record, FAIL for one that throws. Made once per evaluation
+     * (its names bound to this evaluation's values), from the same code text the table compiled; null: none
+     */
+    const progs = new Map<NodeDef[], ((sc: object) => unknown[]) | null>();
+    const progOf = (nodes: NodeDef[], L: RowLayout): ((sc: object) => unknown[]) | null => {
+      let f = progs.get(nodes);
+      if (f !== undefined) return f;
+      f = null;
+      // its codes: every binding's the walk may paint or decide there (a kind a row paints, an `if`, a `for`), whether it
+      // does in this row or not (one it does not is evaluated for nothing: a code has no effect but its value), whose
+      // code names nothing but the evaluation's pure names. Every one is in the table: the rows' codes are (`rowCodes`)
+      const codes: Array<string | undefined> = [];
+      for (const n of nodes) for (const b of n.b) codes.push(b.f !== undefined && (ROW.has(b.k) || b.k === 'if' || b.k === 'for') && !this.pointOf.has(n) && !placementOf.has(n) ? this.fns[b.f] : undefined);
+      // (the program's, whichever page or entry asks: by the template's nodes, while their codes and the names are the same)
+      let kept = ROW_PARTS.get(nodes);
+      if (!kept || kept.names !== rowFns!.names || kept.codes.length !== codes.length || kept.codes.some((c, i) => c !== codes[i])) {
+        const list: Array<[number, string]> = [];
+        let k = 0;
+        for (let i = 0; i < nodes.length; i++) for (let j = 0; j < nodes[i]!.b.length; j++, k++) {
+          const code = codes[k];
+          if (code === undefined) continue;
+          if (!rowFns!.pure(code)) { rowFnStat('a code that calls a helper (its own call)'); continue; }
+          list.push([L.base[i]! + 1 + j, code]);
+        }
+        ROW_PARTS.set(nodes, kept = { names: rowFns!.names, codes, list, size: L.size });
+      }
+      if (kept.list.length) {
+        f = rowFns!.make(kept, kept.list);
+        if (!f) rowFnStat('a template whose values do not compile together');
+      }
+      progs.set(nodes, f);
+      return f;
+    };
+    // (`SN_ROW_FN_AUDIT=1`: every value of a row program run again on its own, through the table, and compared)
+    const audit = rowFns?.audit ?? false;
+    const valueAt = (vals: unknown[] | undefined, at: number, sc: object, code: string): unknown => {
+      if (!vals || !(at in vals)) return run(sc, code);
+      const v = vals[at];
+      if (audit) {
+        const w = run(sc, code);
+        if (!sameValue(v, w)) throw new Error(`sinter row program audit: ${this.opts.file}: \`${code}\` is ${describeValue(v)} from the template's function and ${describeValue(w)} on its own`);
+      }
+      return v;
     };
     // (a row's item is shared with the data it is a part of, frozen once; a helper's result is copied, as a call takes it by value)
     const isResult = (x: object) => this.folding?.isResult(x) ?? false;
@@ -9091,11 +9171,11 @@ class Compiler {
       let plan = plans.get(n);
       if (plan) return plan;
       plan = [];
-      for (const b of n.b) {
-        const ds = strs(b.d) as string[];
+      for (let j = 0; j < n.b.length; j++) {
+        const b = n.b[j]!, ds = strs(b.d) as string[];
         // (`known` reads the evaluation's states only for a state field)
         const kn = ds.some((d) => /^\$s\d/.test(d)) ? undefined : known(ds);
-        const p: BindPlan = { b, k: SKIP, ds, ...(kn === undefined ? {} : { kn }), ...(b.f !== undefined ? { code: this.fns[b.f]! } : {}) };
+        const p: BindPlan = { b, j, k: SKIP, ds, ...(kn === undefined ? {} : { kn }), ...(b.f !== undefined ? { code: this.fns[b.f]! } : {}) };
         plan.push(p);
         if (handlerOnly(b)) continue;
         if (ROW.has(b.k)) {
@@ -9113,30 +9193,35 @@ class Compiler {
       plans.set(n, plan);
       return plan;
     };
-    /** a choice's case, at `key`: its definition over its props (one row), when that is static markup */
-    const expandCase = (point: NonNullable<ReturnType<typeof this.pointOf.get>>, name: string, key: string, sc: object, prefix: string, out: Found, rec?: RowRec, n?: NodeDef): boolean => {
+    /** a choice's case, at `key`: its definition over its props (one row), when that is static markup (and its record in `rec` at `at`) */
+    const expandCase = (point: NonNullable<ReturnType<typeof this.pointOf.get>>, name: string, key: string, sc: object, prefix: string, out: Found, rec?: RowRec, at = 0): boolean => {
       const c = point.group!.cases.find((x) => x.name === name), t = c && this.templates[c.tid];
       // its props are decided expressions like any other: fixed (nothing writes what they read) and known
       const props = c && fixed(c.deps) && known(c.deps) ? run(sc, caseCode(c)) : FAIL;
       if (!t?.item || props === FAIL || !plainData(props, heights)) return false;
       out.decided.push([prefix + key, true, point.pick!.deps]);
       const recs: RowRec[] | undefined = rec ? [] : undefined;
-      if (rec) rec.set(n!, { name, tid: c!.tid, props, rec: recs });
+      if (rec) rec[at] = { name, tid: c!.tid, props, rec: recs } satisfies PickedCase;
       return rowsOf(t, [props], prefix + key, sc, out, recs);
     };
     const rowsOf = (t: TemplateDef, items: unknown[], key: string, sc: object, out: Found, recs?: RowRec[]): boolean => {
       if ((out.rows += items.length) > left) { out.over = true; return false; }
+      const size = recs ? layoutOf(t.nodes).size : 0;
       for (let k = 0; k < items.length; k++) {
         const item = frozenData(items[k], isResult);
-        const rec: RowRec | undefined = recs ? new Map([[ROW_ITEM, item]]) : undefined;
-        if (rec) recs!.push(rec);
+        let rec: RowRec | undefined;
+        if (recs) { rec = new Array(size); rec[0] = item; recs.push(rec); }
         if (!nodesOf(t.nodes, rowScope(sc, t, item, k), `${key}#${k}/`, out, rec)) return false;
       }
       return true;
     };
     /** the nodes of a row, or of a branch decided in it: static markup in every copy, what each decides in `out` (and in `rec`, for `rowRenderer`) */
     const nodesOf = (nodes: NodeDef[], sc: object, prefix: string, out: Found, rec?: RowRec): boolean => {
-      for (const n of nodes) {
+      const L = layoutOf(nodes);
+      // (the template's values for this row, in one call: `rowProgram`)
+      const vals = rowFns ? progOf(nodes, L)?.(sc) : undefined;
+      for (let i = 0; i < nodes.length; i++) {
+        const n = nodes[i]!, at = L.base[i]!;
         if (n.state !== undefined || n.sid !== undefined) return false;
         const el = nodeEl(n);
         if (!el) return false;
@@ -9147,8 +9232,8 @@ class Compiler {
           const ch = caseOf(n, el, sc);
           if (!ch) return false;
           if (ch.keys.size > (ch.picked === null ? 0 : 1)) out.decided.push({ prefix, keys: ch.keys, picked: ch.picked, d: point.pick!.deps });
-          if (ch.picked === null) { rec?.set(n, null); continue; }
-          if (!expandCase(point, ch.picked, ch.keys.get(ch.picked)!, sc, prefix, out, rec, n)) return false;
+          if (ch.picked === null) { if (rec) rec[at] = null; continue; }
+          if (!expandCase(point, ch.picked, ch.keys.get(ch.picked)!, sc, prefix, out, rec, at)) return false;
           continue;
         }
         // a tree placement in a definition: the case its fill map chooses (a fill, or its default), as the instance's markup
@@ -9165,42 +9250,45 @@ class Compiler {
           // slot, and one that holds a tree root of its own
           const stays = pick[0] > 0 ? this.caseFill.get(P.cases[pick[0]]!) : undefined;
           if (stays && this.fillStays(stays)) return false;
-          const inner: RowRec | undefined = rec ? new Map() : undefined;
-          if (rec) rec.set(n, { k: pick[0], rec: inner });
+          let inner: RowRec | undefined;
+          if (rec) { inner = new Array(layoutOf(tc.nodes).size); rec[at] = { k: pick[0], rec: inner }; }
           if (!nodesOf(tc.nodes, rowScope(sc, tc, frozenData(pick[1], isResult), 0), prefix, out, inner)) return false;
           continue;
         }
         for (const p of bindPlan(n, el)) {
           if (p.k === SKIP) continue;
           if (p.k === STOP) return false;
-          const b = p.b, kn = p.kn ?? known(p.ds);
+          const b = p.b, kn = p.kn ?? known(p.ds), slot = at + 1 + p.j;
           if (p.k === PAINTED) {
             if (p.paint && kn) {
-              const v = run(sc, p.code!);
-              const w = v === FAIL ? FAIL : firstPaintValue(el, b, v, schemes);
-              const cw = w === FAIL ? null : { k: w[0], n: b.n ?? null, v: w[1] };
-              out.paints.push([b, prefix, cw]);
-              rec?.set(b, cw);
-            } else if (rec && p.text && kn) rec.set(b, { text: run(sc, p.code!) });
+              const v = valueAt(vals, slot, sc, p.code!);
+              const w = v === FAIL ? null : firstPaintValue(el, b, v, schemes);
+              const pw = w === FAIL ? null : w;
+              out.paints.push(b, prefix, pw);
+              if (rec) rec[slot] = pw;
+            } else if (rec && p.text && kn) { const v = valueAt(vals, slot, sc, p.code!); rec[slot] = v === undefined ? UNDEFINED : v; }
             continue;
           }
           if (!kn) return false;
           const key = p.key;
-          const v = key ? run(sc, p.code!) : FAIL;
+          const v = key ? valueAt(vals, slot, sc, p.code!) : FAIL;
           if (v === FAIL) return false;
           if (b.k === 'if') {
             out.decided.push([prefix + key, !!v, b.d]);
-            rec?.set(b, !!v);
+            if (rec) rec[slot] = !!v;
             const other = b.y !== undefined ? nodes[b.y]?.b.find((x) => x.k === 'else')?.x : undefined;
             const kept = v ? this.templates[b.x!] : other !== undefined ? this.templates[other] : undefined;
-            if (kept && !nodesOf(kept.nodes, sc, prefix, out, rec)) return false;
+            // (the branch's record, at the node's own place)
+            let inner: RowRec | undefined;
+            if (rec && kept) rec[at] = inner = new Array(layoutOf(kept.nodes).size);
+            if (kept && !nodesOf(kept.nodes, sc, prefix, out, inner)) return false;
             continue;
           }
           const items = listOf(v), t = this.templates[b.x!];
           if (!items || !t?.item) return false;
           out.unrolls.push([prefix + key, items, b.d]);
           const recs: RowRec[] | undefined = rec ? [] : undefined;
-          rec?.set(b, recs);
+          if (rec) rec[slot] = recs;
           if (!rowsOf(t, items, prefix + key, sc, out, recs)) return false;
         }
       }
@@ -9227,12 +9315,12 @@ class Compiler {
           if (ch?.picked === point.group!.cases[i]!.name) {
             const found: Found = { unrolls: [], decided: [], paints: [], rows: 0 };
             // (rendered like a row's case: its record, for `rowRenderer`)
-            const top: RowRec | undefined = rendering ? new Map() : undefined;
-            const ok = expandCase(point, ch.picked!, ck, sc, '', found, top, n);
+            const top: RowRec | undefined = rendering ? [] : undefined;
+            const ok = expandCase(point, ch.picked!, ck, sc, '', found, top, 0);
             // (a choice in its rows whose candidates' keys could be this one: spelled out, to leave that one out)
             found.decided = found.decided.flatMap((e): Found['decided'] => (Array.isArray(e) ? (e[0] !== ck ? [e] : [])
               : [...e.keys.values()].some((k) => e.prefix + k === ck) ? [...decidedEntries([e])].filter(([k]) => k !== ck) : [e]));
-            const picked = top?.get(n) as PickedCase | undefined;
+            const picked = top?.[0] as PickedCase | undefined;
             pending.set(ck, pending.has(ck) || (!ok && !found.over) ? null : { items: [], d: point.pick!.deps, found, pick: true, el, ...(picked ? { picked } : {}) });
           }
           continue;
@@ -9286,7 +9374,7 @@ class Compiler {
           this.foldReads.set(key, this.stateSites(p.d));
           // rows rendered here (`rowRenderer`): the second pass splices them in, and reads nothing decided in them by
           // key; the state they read is the loop's, for `foldedState`
-          const done = rendering && (render ??= this.rowRenderer(handlerOnly, ROW, placementOf))(key, p);
+          const done = rendering && (render ??= this.rowRenderer(handlerOnly, ROW, placementOf, memo))(key, p);
           if (done) {
             this.rendered.set(key, done);
             const reads = this.foldReads.get(key)!;
@@ -9305,7 +9393,7 @@ class Compiler {
             // what the layout and the images read of the rows (an image's attributes, a class or a style): collected as
             // the old route collects it (`collectConstants`), which decides what the second pass is handed
             constB ??= new Set(this.constantSources().flatMap((x) => x.s.bindings));
-            if (constB.size) for (const [b, prefix, w] of p.found.paints) {
+            if (constB.size) for (const [b, prefix, w] of paintsOf(p.found.paints)) {
               if (!constB.has(b)) continue;
               let m = this.rowPaint.get(b);
               if (!m) this.rowPaint.set(b, m = new Map());
@@ -9315,7 +9403,7 @@ class Compiler {
           }
           for (const [k, items, d] of p.found.unrolls) { this.unrolls.set(k, items); this.foldReads.set(k, this.stateSites(d)); }
           for (const [k, v, d] of decidedEntries(p.found.decided)) { this.decided.set(k, v); this.foldReads.set(k, this.stateSites(d)); }
-          for (const [b, prefix, w] of p.found.paints) {
+          for (const [b, prefix, w] of paintsOf(p.found.paints)) {
             let m = this.rowPaint.get(b);
             if (!m) this.rowPaint.set(b, m = new Map());
             m.set(prefix, w);
@@ -9336,7 +9424,7 @@ class Compiler {
    * component's tag attributes, diagnostics in its templates), and a page whose layout, images or scoped styles read
    * the rows, is left to the second pass as before: the reason is counted (`SN_RENDER_LOG=1`).
    */
-  rowRenderer(handlerOnly: (b: Binding) => boolean, ROW: Set<string>, placementOf: Map<NodeDef, Compiler['runtimePlacements'][number]>):
+  rowRenderer(handlerOnly: (b: Binding) => boolean, ROW: Set<string>, placementOf: Map<NodeDef, Compiler['runtimePlacements'][number]>, memo: WalkMemo = newWalkMemo()):
     (key: string, p: { items: unknown[]; found: { recs?: RowRec[]; rows: number }; pick?: true; tid?: number; el: P5Element; picked?: PickedCase }) => RenderedRows | null {
     // scoped styles: the minifier leaves their components' markup as written (`SCOPED`), and the walk marks the roots of
     // the uses it sees (`data-sn-c`/`-r`/`-s`, after the walk); in dev builds every root's `data-sn-c`, for devtools
@@ -9459,11 +9547,11 @@ class Compiler {
      * not rendered if it is one they cannot be (a handler that stays, a kind no row paints), and whether the element's
      * style is written by its style bindings alone (no `data-sn-attr` of `style`), so that they can be written at once
      */
-    const fillPlans = new Map<NodeDef, { acts: Array<{ b: Binding; why: string | null }>; styles: boolean }>();
+    const fillPlans = new Map<NodeDef, { acts: Array<{ b: Binding; j: number; why: string | null }>; styles: boolean }>();
     const fillPlan = (n: NodeDef, folded: Set<Binding>) => {
       let f = fillPlans.get(n);
       if (f) return f;
-      const acts = n.b.filter((b) => !defAttr.has(b) && b.k !== 'else' && !folded.has(b)).map((b) => ({ b, why: b.k === 'if' || b.k === 'for' ? null : handlerOnly(b) ? 'handler' : !ROW.has(b.k) ? `a binding of kind ${b.k}` : null }));
+      const acts = n.b.flatMap((b, j) => (defAttr.has(b) || b.k === 'else' || folded.has(b) ? [] : [{ b, j, why: b.k === 'if' || b.k === 'for' ? null : handlerOnly(b) ? 'handler' : !ROW.has(b.k) ? `a binding of kind ${b.k}` : null }]));
       fillPlans.set(n, f = { acts, styles: styleBatchOn() && !acts.some(({ b }) => b.k === 'attr' && b.n?.toLowerCase() === 'style') });
       return f;
     };
@@ -9640,27 +9728,30 @@ class Compiler {
         return f!;
       };
       const fill = (nodes: NodeDef[], map: Map<P5Node, P5Node>, rec: RowRec) => {
-        for (const n of nodes) {
+        // (the record's places: by node, its bindings after it, `rowLayout`)
+        const L = rowLayout(memo, nodes);
+        for (let i = 0; i < nodes.length; i++) {
+          const n = nodes[i]!, pos = L.base[i]!;
           const point = this.pointOf.get(n);
           if (point) {
             const cl = map.get(this.anchorEls.get(n)!);
             if (!cl) no('markup');
             if (point.group) {
-              if (!rec.has(n)) no('choice');
-              const c = rec.get(n) as PickedCase | null;
+              if (rec[pos] === undefined) no('choice');
+              const c = rec[pos] as PickedCase | null;
               read(point.pick?.deps);
               replace(cl, cl, c ? instance(point.el, c.name, c.tid, c.rec?.[0], c.props) : []);
               continue;
             }
-            const b = n.b[0], rows = b && rec.get(b) as RowRec[] | undefined;
+            const b = n.b[0], rows = b && rec[pos + 1] as RowRec[] | undefined;
             if (!b || b.k !== 'for' || b.x === undefined || rows?.length !== 1) no('recursion point');
             read(b!.d);
-            replace(cl, cl, instance(point.el, this.points.get(point.el), b!.x!, rows![0], rows![0]!.get(ROW_ITEM)));
+            replace(cl, cl, instance(point.el, this.points.get(point.el), b!.x!, rows![0], rows![0]![0]));
             continue;
           }
           const P = placementOf.get(n);
           if (P) {
-            const c = rec.get(n) as { k: number; rec?: RowRec } | undefined;
+            const c = rec[pos] as { k: number; rec?: RowRec } | undefined;
             if (!c) no('placement');
             read(P.node.b[0]?.d);
             const cl = map.get(P.el);
@@ -9702,9 +9793,10 @@ class Compiler {
             continue;
           }
           if (this.textMarks.has(n)) {
-            const b = n.b[0], m = b && n.b.length === 1 ? rec.get(b) as { text: unknown } | undefined : undefined;
-            if (!m || !('text' in m)) no('text');
-            const v = m!.text;
+            // (a text's value as it was, `UNDEFINED` for undefined; none: not recorded)
+            const b = n.b[0], m = b && n.b.length === 1 ? rec[pos + 1] : undefined;
+            if (m === undefined) no('text');
+            const v = m === UNDEFINED ? undefined : m;
             if (v === FAIL || (v !== null && v !== undefined && typeof v === 'object')) no('text');
             const at = this.textAt.get(n), mark = at && map.get(at);
             const kids = (mark as { parentNode?: P5Parent } | undefined)?.parentNode?.childNodes as P5Node[] | undefined;
@@ -9724,17 +9816,18 @@ class Compiler {
           let bound = false;
           // (the element's style, when its style bindings alone write it: their declarations at once, `StyleWrites`)
           let styles: StyleWrites | null = null;
-          const paint = (b: Binding, why?: string | null) => {
+          const paint = (b: Binding, why?: string | null, j = n.b.indexOf(b)) => {
             if (why === undefined) {
               if (handlerOnly(b)) no('handler');
               if (!ROW.has(b.k)) no(`a binding of kind ${b.k}`);
             } else if (why) no(why);
-            const w = rec.get(b) as ConstantWrite | null | undefined;
+            // (what it writes, `firstPaintValue`'s pair; null: not written ahead)
+            const w = j < 0 ? undefined : rec[pos + 1 + j] as [Kind, unknown] | null | undefined;
             if (w === undefined) no('not painted');
             if (w === null) no('not written ahead');
-            if (w!.k === 'text') WRITTEN.set(cl!, 'content');
-            if (styles && w!.k === 'style') styles.write(w!.n!, w!.v as string | null);
-            else writeFirstPaint(cl!, w!.k, w!.n, w!.v, true);
+            if (w![0] === 'text') WRITTEN.set(cl!, 'content');
+            if (styles && w![0] === 'style') styles.write(b.n!, w![1] as string | null);
+            else writeFirstPaint(cl!, w![0], b.n ?? null, w![1], true);
             read(b.d);
           };
           // what the second pass writes before the layout and the images (`prefold`: an image's attributes, a class or
@@ -9763,9 +9856,9 @@ class Compiler {
           else if (marks) for (const m of marks) setAttr(cl!, m.name, m.value);
           const plan = fillPlan(n, folded);
           if (plan.styles) styles = new StyleWrites(cl!);
-          for (const { b, why } of plan.acts) {
+          for (const { b, why, j } of plan.acts) {
             if (b.k === 'if') {
-              const v = rec.get(b) as boolean | undefined;
+              const v = rec[pos + 1 + j] as boolean | undefined;
               if (v === undefined || b.x === undefined) no('if');
               const other = b.y !== undefined ? nodes[b.y] : undefined, otherTid = other?.b.find((x) => x.k === 'else')?.x;
               const otherEl = other && (this.tplEls.get(other) ?? this.anchorEls.get(other));
@@ -9773,11 +9866,11 @@ class Compiler {
               st.folded.push(this.snSource.get(el!) ?? '', this.emptyOf.get(el!)?.list ?? '');
               const kept = v ? b.x : otherTid;
               read(b.d);
-              replace(cl, otherEl ? map.get(otherEl) : cl, kept !== undefined ? render(kept, rec) : []);
+              replace(cl, otherEl ? map.get(otherEl) : cl, kept !== undefined ? render(kept, rec[pos] as RowRec | undefined) : []);
               continue;
             }
             if (b.k === 'for') {
-              const rows = rec.get(b) as RowRec[] | undefined, src = this.snSource.get(el!) ?? '';
+              const rows = rec[pos + 1 + j] as RowRec[] | undefined, src = this.snSource.get(el!) ?? '';
               const head = LOOP_HEAD.exec(src);
               if (!rows || b.x === undefined || !head) no('for');
               if (!rows!.length) st.folded.push(src.slice(head![0].length));
@@ -9786,12 +9879,12 @@ class Compiler {
               live = false;
               const list = src.slice(head![0].length);
               try {
-                for (const r of rows!) { loops.push({ list, value: r.get(ROW_ITEM) }); try { out.push(...render(b.x!, r)); } finally { loops.pop(); } }
+                for (const r of rows!) { loops.push({ list, value: r[0] }); try { out.push(...render(b.x!, r)); } finally { loops.pop(); } }
               } finally { live = was; }
               replace(cl, cl, out);
               continue;
             }
-            paint(b, why);
+            paint(b, why, j);
             bound = true;
           }
           styles?.done();
@@ -9814,7 +9907,7 @@ class Compiler {
         // (the loop as written: its list, which an axis list's link reads with each row's item)
         const src = this.snSource.get(p.el) ?? '', list0 = src.slice(LOOP_HEAD.exec(src)?.[0].length ?? 0);
         if (!p.pick) for (const r of recs) {
-          loops.push({ list: list0, value: r.get(ROW_ITEM) });
+          loops.push({ list: list0, value: r[0] });
           let row: P5Node[];
           try { row = render(p.tid!, r); } finally { loops.pop(); }
           // the list is compiled once, at the first row element the walk would meet (`rowLets`); a text node is one there
@@ -12770,7 +12863,93 @@ const RENDERED_FILE = new WeakMap<P5Element, string>();
  * point's rows (records), a choice's case (`{ name, tid, props, rec }`, null for none), a tree placement's case
  * (`{ k, rec }`), and the row's item (`ROW_ITEM`)
  */
-type RowRec = Map<object, unknown>;
+type RowRec = unknown[];
+/**
+ * Where a template's nodes and bindings are in a `RowRec`, the same in every row: node `i` at `base[i]` (a choice's
+ * case, a tree placement's, an `if`'s kept branch's record), its binding `j` at `base[i] + 1 + j` (what it paints, a
+ * text's value, an `if`'s value, a loop's rows); the row's item at 0. `size`: the record's length
+ */
+type RowLayout = { base: number[]; size: number };
+/** a template's row program's codes at their places (`progOf`), the names they see, and its key in `ROW_FACTORIES` */
+type RowParts = { names: string; codes: Array<string | undefined>; list: Array<[number, string]>; size: number; key?: { names: string; key: string } };
+const ROW_PARTS = new WeakMap<NodeDef[], RowParts>();
+function rowLayout(memo: WalkMemo, nodes: NodeDef[]): RowLayout {
+  let L = memo.layouts.get(nodes);
+  if (L) return L;
+  const base: number[] = [];
+  let at = 1;
+  for (const n of nodes) { base.push(at); at += 1 + n.b.length; }
+  memo.layouts.set(nodes, L = { base, size: at });
+  return L;
+}
+/** a text's value `undefined` in a `RowRec` (an empty place is one the walk did not record) */
+const UNDEFINED: unique symbol = Symbol('undefined');
+/** a worklist's paints, flat (`Found['paints']`), spelled out: the binding, its row's prefix, what it writes */
+function* paintsOf(flat: unknown[]): Generator<[Binding, string, ConstantWrite | null]> {
+  for (let i = 0; i < flat.length; i += 3) {
+    const b = flat[i] as Binding, w = flat[i + 2] as [Kind, unknown] | null;
+    yield [b, flat[i + 1] as string, w === null ? null : { k: w[0], n: b.n ?? null, v: w[1] }];
+  }
+}
+/**
+ * The row programs' maker for one evaluation (`rowProgram`): whether a code calls nothing but the evaluation's pure
+ * names (`pure`: no app helper, no namespace member, no lazy module's `$z`), and a template's values in one function
+ * (`make`), compiled from the codes' text with this evaluation's names bound. `audit`: every value checked against the
+ * code's own call (`SN_ROW_FN_AUDIT=1`)
+ */
+type RowFns = { names: string; pure: (code: string) => boolean; make: (L: RowParts, parts: Array<[number, string]>) => ((sc: object) => unknown[]) | null; audit: boolean };
+/** the names of the evaluation's scope that are pure (string builders, stubs that throw, the formatters in the page's language) */
+const PURE_NAMES = new Set(['$k', '$href', '$hq', '$hv', 'Date', 'Intl', 'Math', 'location', 'date', 'relative', 'number', 'bytes']);
+/** the factories of row programs, by the names they see and their source: the same text compiles to the same function, whichever page asks */
+const ROW_FACTORIES = new Map<string, ((...v: unknown[]) => (sc: object) => unknown[]) | null>();
+/** a code that is an arrow over the scope with an expression for its body (`($) => (…)`), which a row program evaluates in place */
+const EXPR_BODY = /^\(\$\) => (?![\s{])/;
+/** the row program's name for FAIL */
+const FAIL_NAME = '$fail$$';
+/** a row program's source: each code's value at its place, FAIL for one that throws (the code's own `try`) */
+function rowProgramSource(size: number, parts: Array<[number, string]>): string {
+  // (an expression body is evaluated in place, the code's own arrow otherwise; the parameter is the row's scope as there)
+  const body = (code: string): string => (EXPR_BODY.test(code) ? '(' + code.slice(7) + ')' : '(' + code + ')($)');
+  const lines = parts.map(([at, code]) => 'try { o[' + at + '] = ' + body(code) + '; } catch { o[' + at + '] = ' + FAIL_NAME + '; }');
+  return '($) => {\nconst o = new Array(' + size + ');\n' + lines.join('\n') + '\nreturn o;\n}';
+}
+export function rowProgram(names: string[], values: unknown[], L: Pick<RowParts, 'size' | 'key'>, parts: Array<[number, string]>): ((sc: object) => unknown[]) | null {
+  // (the key, by the names it is for: one string while the layout lasts, so the table hashes it once)
+  const joined = names.join(',');
+  let key = L.key?.names === joined ? L.key.key : undefined;
+  if (key === undefined) L.key = { names: joined, key: key = `${joined}\0${rowProgramSource(L.size, parts)}` };
+  let f = ROW_FACTORIES.get(key);
+  if (f === undefined) {
+    try {
+      // eslint-disable-next-line no-new-func -- build time only: the page's own compiled expressions, the evaluation's names as parameters
+      f = new Function(...names, FAIL_NAME, `"use strict"; return ${key.slice(joined.length + 1)};`) as (...v: unknown[]) => (sc: object) => unknown[];
+    } catch { f = null; }
+    // (bounded: a dev server compiles edited pages for as long as it runs)
+    if (ROW_FACTORIES.size >= 4096) ROW_FACTORIES.clear();
+    ROW_FACTORIES.set(key, f);
+  }
+  return f ? f(...values, FAIL) : null;
+}
+/** row programs are on unless `SN_ROW_FN=0` (every value its own call through the table, as before) */
+export function rowFnOn(): boolean { return rowFnForced ?? proc?.env.SN_ROW_FN !== '0'; }
+let rowFnForced: boolean | null = null;
+/** the row programs' fallbacks in this process, by reason, printed at exit with `SN_ROW_FN_LOG=1` */
+export const ROW_FN_STATS = new Map<string, number>();
+let rowFnLogged = false;
+function rowFnStat(why: string) {
+  ROW_FN_STATS.set(why, (ROW_FN_STATS.get(why) ?? 0) + 1);
+  if (!rowFnLogged && proc?.env.SN_ROW_FN_LOG === '1') {
+    rowFnLogged = true;
+    proc.on?.('exit', () => console.error(`sinter row programs: fallbacks ${JSON.stringify(Object.fromEntries(ROW_FN_STATS))}`));
+  }
+}
+/** two of the evaluation's values the same: the same value, both FAIL, or plain data of one shape and contents */
+function sameValue(a: unknown, b: unknown): boolean {
+  if (Object.is(a, b)) return true;
+  if (!a || !b || typeof a !== 'object' || typeof b !== 'object') return false;
+  try { return JSON.stringify(a) === JSON.stringify(b) && Array.isArray(a) === Array.isArray(b); } catch { return false; }
+}
+const describeValue = (v: unknown) => (v === FAIL ? 'FAIL' : (() => { try { return JSON.stringify(v) ?? String(v); } catch { return String(v); } })());
 /** a choice's case in a `RowRec`: the candidate it renders, its definition's template, its props, the instance's record */
 type PickedCase = { name: string; tid: number; props: unknown; rec?: RowRec[] };
 /** the names the build-time evaluator's scope answers (`prerender`'s `scope`), besides a state `$s<n>` */
@@ -12792,8 +12971,8 @@ export function failsFirst(code: string): boolean {
 type EvalCand = { el: P5Element; b: Binding; f: number; tpl?: true; if?: true; for?: true };
 
 /** what the worklist reads of the program, by node, binding and case (`worklist`): asked once per evaluation, or per kept template */
-type WalkMemo = { handlers: Map<Binding, boolean>; paintEls?: Map<NodeDef, P5Element>; caseKeys: Map<NodeDef, Map<string, string> | null>; els: Map<NodeDef, P5Element | undefined>; plans: Map<NodeDef, BindPlan[]> };
-const newWalkMemo = (): WalkMemo => ({ handlers: new Map(), caseKeys: new Map(), els: new Map(), plans: new Map() });
+type WalkMemo = { handlers: Map<Binding, boolean>; paintEls?: Map<NodeDef, P5Element>; caseKeys: Map<NodeDef, Map<string, string> | null>; els: Map<NodeDef, P5Element | undefined>; plans: Map<NodeDef, BindPlan[]>; layouts: Map<NodeDef[], RowLayout> };
+const newWalkMemo = (): WalkMemo => ({ handlers: new Map(), caseKeys: new Map(), els: new Map(), plans: new Map(), layouts: new Map() });
 
 /** the evaluation's compiled functions, by their code */
 type FnTable = { get(code: string): (($: unknown) => unknown) | undefined };
@@ -12809,7 +12988,7 @@ export function caseCode(c: { props: string }): string {
 
 /** the worklist's reading of a binding in a row (`bindPlan`) */
 const SKIP = 0, STOP = 1, PAINTED = 2, CONTROL = 3;
-type BindPlan = { b: Binding; k: typeof SKIP | typeof STOP | typeof PAINTED | typeof CONTROL; ds: string[]; kn?: boolean; code?: string; paint?: boolean; text?: boolean; key?: string | null };
+type BindPlan = { b: Binding; j: number; k: typeof SKIP | typeof STOP | typeof PAINTED | typeof CONTROL; ds: string[]; kn?: boolean; code?: string; paint?: boolean; text?: boolean; key?: string | null };
 /** the candidates of a choice in a row that it does not render: each of `keys` but `picked`, decided false at `prefix` + its key */
 type NotRendered = { prefix: string; keys: Map<string, string>; picked: string | null; d: PathRef[] | undefined };
 /** a worklist's decisions, a choice's candidates spelled out one by one, in order */
@@ -12819,7 +12998,6 @@ export function* decidedEntries(list: Array<[string, boolean, PathRef[] | undefi
     for (const [name, ck] of e.keys) if (name !== e.picked) yield [e.prefix + ck, false, e.d];
   }
 }
-const ROW_ITEM = {};
 
 /** why `rowRenderer` leaves rows to the second pass (thrown inside it) */
 class NoRender { constructor(readonly why: string) {} }

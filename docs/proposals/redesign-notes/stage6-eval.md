@@ -130,3 +130,50 @@ A/B, wall ms a call, p25 / median / mean (3 rounds; API 2): mail gen pass-1 `pre
 177 (`compile()` 300 / 344 / 431 → 214 / 242 / 341); mail file 13.0 / 16.4 / 20.4 → 13.3 / 14.8 / 20.9; blog static
 `decideFor` 5.45 / 6.82 / 7.74 → 5.68 / 7.43 / 8.08 (no style bindings there; within the rounds' spread). Every app
 and sinter-mail page byte for byte the base's; test/compiler 1,122 passed, also under `SN_RENDER_AUDIT=1`.
+
+### 2. A row's values in one call per template; the row's record an array by position
+
+- **The row program** (`rowProgram`, `progOf` in the worklist): per template (its node list), one function that
+  returns the row's values at their places in the record, each code's value in a `try` of its own (FAIL for one that
+  throws, as `run` makes it, for that binding alone). Its codes: every binding of the template that the walk may paint
+  or decide (a kind a row paints, an `if`, a `for`; not a choice's or a placement's, which are fewer and stay `run`s),
+  from the same code text the table compiled (`($) => (…)` is evaluated in place, any other shape as its own arrow
+  called with the row's scope). Its names (the helpers' folding wrappers, the formatters, the stubs, `$k`, `$href`…)
+  are the table's, bound to this evaluation's values: the function is made from a factory compiled once per source
+  and names (`ROW_FACTORIES`, the same text whichever page asks; bounded for a dev server), and the codes at their
+  places are kept by the template's nodes (`ROW_PARTS`, checked against the codes and the names at each use), so a
+  unit's templates are read once for the build, a kept template's once for its entries.
+- **What it does not change.** The walk asks exactly what it asked: each binding's plan, `known` per row for a state
+  field, `fixed`, `handlerOnly`, the budget, `firstPaintValue`, the order of the decisions and paints. Only where a
+  value comes from: the row program's place, or `run` when it has none. A code that names an app helper, a
+  namespace's member or a lazy module (`$.$z`) is not in the program (`pure`): it runs on its own, in its place,
+  inside `folding`'s bracket, so a helper's calls, its memo, `foldWhy` (SN322) and SN534 are what they were. Why the
+  order of the rest cannot matter: an expression cannot assign (SN203), the scope's data is frozen, its proxies only
+  answer or throw, and the names left (`$k`, `$href`, `$hq`, `$hv`, the stubs that throw, the formatters in the page's
+  language, whose locale is put back in a `finally`) have no effect but their result. A code the program evaluates and
+  the walk never asks for (a binding after a stop, one whose dependencies are not known) is a value nobody reads.
+  Every code in a program is in the table (`rowCodes` lists every template's row codes), so `run` would have run it.
+- **The record** (`RowRec`) is an array laid out by the template (`rowLayout`): the row's item at 0, node `i` at
+  `base[i]` (a choice's case, a placement's, an `if`'s kept branch's own record), its binding `j` at
+  `base[i] + 1 + j` (`firstPaintValue`'s pair or null, a text's value or `UNDEFINED`, an `if`'s value, a loop's rows).
+  An `if`'s branch now records into a record of its own at its node's place (it shared the row's `Map`). The paints the
+  walk collects for `rowPaint` are flat, three entries a binding (`paintsOf` spells them out where they are committed,
+  in their order). `RowRec`'s readers are `rowRenderer`'s alone (stage 5 B1 reads rows through it too).
+- **Switch and audit.** `SN_ROW_FN=0`: every value its own call (`run`), as before. `SN_ROW_FN_AUDIT=1`: every value
+  of a row program run again on its own and compared (`sameValue`), and every compile done again with `SN_ROW_FN=0`
+  and its result compared field by field (as `SN_RENDER_AUDIT` does). `SN_ROW_FN_LOG=1` prints the fallbacks.
+
+Fallbacks seen (`SN_ROW_FN_LOG=1`): none on the benchmark apps, the examples and sinter-mail's pages but codes that
+call a helper (the blog's `md.*` calls in its page template, none in rows).
+
+Tests: a row program's values at their places (a block body called, FAIL for a throw, an empty place); a value that
+throws, FAIL for its binding alone; a helper's call among a row's pure values, an undefined text, branches in a row;
+choices in rows and a tree; each both ways and rendered and not. test/compiler under `SN_ROW_FN_AUDIT=1`: no value and
+no compile differs; the 64 tests that count compiles, links or rendered rows fail by construction (every compile is
+done twice), as under `SN_UNITS_AUDIT`.
+
+A/B against change 1, wall ms a call, p25 / median / mean: mail gen pass-1 `prerender` 131 / 166 / 166 → 118 / 130 /
+141 (`compile()` 189 / 233 / 315 → 179 / 194 / 288); mail file 14.0 / 15.5 / 20.7 → 13.1 / 16.0 / 20.6; blog static
+`decideFor` 5.31 / 6.56 / 7.31 → 5.42 / 6.61 / 7.48 (5 rounds: the same). A first version made each page's programs
+anew (their source and key strings, a `bindPlan` of every node): 1.8 ms a page on the mail file's 65 components with
+few rows each; hence `ROW_PARTS` by the template's nodes.
