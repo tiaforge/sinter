@@ -117,14 +117,56 @@ fill, each alone, compile the same both ways at the base commit); the gate is `m
 
 ## Measurements
 
-The machine: 4 cores, Node 22.23.5, no other agent on it (load average under 0.2 when idle); the tables below are
-taken with nothing else running unless said.
+The machine: 4 cores, Node 22.23.5, no other agent on it (load average under 0.2 idle; a build itself raises it to
+about 4). Base: the integration branch at `2a88005`; new: this branch merged with it (`81c9b3a`). Both `dist/`s
+saved and copied in turn round after round (`bench/astro/out/ab.sh`, git-ignored with the other scripts there:
+`phase-time.sh` wraps `Compiler.prototype`'s phases with a timer in a copy of `dist/`, `incl.mjs`/`leaves.mjs` read CPU
+profiles).
 
-(to be filled)
+Per benchmark post (`static-files-100`), wall clock, ms, 3 rounds:
+
+| phase | base | new |
+| --- | ---: | ---: |
+| description: expansion, walk, finish | 1.10-1.16, 1.32-1.51, 0.34-0.42 | - |
+| description: the head read (`readHead`) | - | 0.22-0.26 |
+| first pass's expansion | 0.64-0.67 | 0.88-0.93 (it warms the caches the description warmed) |
+| second pass's expansion | 0.63-0.75 | 0.68-0.73 |
+
+So about 2.5 ms a page.
+
+Whole builds, wall clock, ms, median of 5 rounds (3 at 400):
+
+| app | base | new |
+| --- | ---: | ---: |
+| static-files, 100 | 2847 | 2736 |
+| live-files, 100 | 3389 | 3206 |
+| static-files, 400 | 9154 | 8721 |
+| live-files, 400 | 12473 | 11134 |
+| static, 100 (a template: unchanged) | 2095 | 2211 |
+| live, 100 | 2676 | 2599 |
+| static with the type check, 100 | 2325 | 2295 |
+| examples/static-site | 577 | 560 |
+| examples/multilingual-site | 596 | 580 |
+| examples/dashboard (swaps: old route) | 1225 | 1130 |
+| examples/realworld (swaps: old route) | 1578 | 1555 |
+| sinter-mail, 16 pages and 3 entries (`mail-audit`'s build, 3 runs) | 5836-5984 | 4790-5080 |
+| Astro 7, 100 posts (`measure.mjs --only astro`) | 1726 | |
+
+Rows on the old route (templates, swaps) move by their noise (about ±8 %). sinter-mail gains most: its descriptions
+walked the library's 65 components on every page.
 
 ## Checks
 
-(to be filled)
+- `scripts/pass-audit.mjs --switch SN_LATE_DESCRIBE` (a switch it now takes): the nine apps the same, before and after
+  the merge; `scripts/baseline.mjs --keep` with all routes off and on: the seven apps the same; `scripts/mail-audit.mjs
+  --switch` `SN_LATE_DESCRIBE`, `SN_ONE_PASS`, `SN_UNITS`, `SN_RENDER`: 48 files identical (42 before the page per entry
+  was added). The same builds under `SN_DESCRIBE_AUDIT=1` (and `SN_ONE_PASS_AUDIT=1`) pass.
+- `npx vitest run`: 2,869 before the merge, all pass; after it 2,930, all pass but the test removed in `81c9b3a`.
+- test/compiler and test/vite under `SN_DESCRIBE_AUDIT`, `SN_ONE_PASS_AUDIT`, `SN_RENDER_AUDIT`, `SN_LINK_AUDIT`: pass;
+  under `SN_UNITS_AUDIT` the base commit's 62 failures (tests that count compiles, links and rendered rows, and
+  content.test.ts's kept template check) and, after the merge, two new count-based render-rows tests.
+- Tests: `test/vite/late-describe.test.ts` (both ways equal, the route and each fallback counted, under the audit,
+  `pageHead` against a `describeOnly` compile).
 
 ## Tried and dropped
 
@@ -133,4 +175,11 @@ taken with nothing else running unless said.
 
 ## Left
 
-(to be filled)
+- Swaps (`swap: true`) still describe each page by a compile: SN346 reads every page's kept elements as each page
+  compiles, and the swap module. Both could wait for every page (an error after the last compile instead of at the
+  page's), with `keep`, `keptSource`, `keptBound`, `swapOff` read off the first pass as `parts` are (to audit).
+- `prerender: 'auto'` reads each page's load effect in its HTML (the rules): the description's differs from the build
+  compile's on every benchmark post (a component script decided away), so it would need its own first-pass reading and
+  the rules as a placeholder filled in `generateBundle` (the CSP hash too).
+- `embed: true`: the build compile embeds what only the URL decides; the first pass may too (`def.data`): to audit.
+- Goal 2 is moot once stage 5 derives the second pass from the first's walk; until then not worth its cost.
