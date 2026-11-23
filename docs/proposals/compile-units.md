@@ -560,3 +560,14 @@ decision of their own (stage 7). A step that can stay byte-identical does.
   `dist/`), Vite's HTML step for a static page (its parse of the body is 0.7 ms a page and it changes nothing in a
   static post: bypassing it is a decision), an on-disk cache for the fold check (110 ms). The check-data-once
   session is archived (done and merged).
+- 2026-11-23, 23:15 UTC: **A1 is merged: definitions that ship come from a unit** (`redesign-notes/stage5-a1.md`,
+  `SN_UNITS2=0` off, `SN_UNITS2_AUDIT=1`): a second pass with recursion points left in its tree places a unit of its
+  own before its walk. The first step to use the relaxed bar: with it on and off, sinter-mail's components-route
+  files differ in numbering only (7 of 48 raw; all 48 identical under `SN_CANON=1`, checked on the coordinating
+  machine), every other app byte for byte (`render-audit --switch SN_UNITS2`: eight apps the same). The session's
+  numbers on a quiet machine, sinter-mail's components route: a later page 108 to 72 ms (142 to 88 with TypeScript),
+  the page that used to record 661 to 88; gzip 24 B lighter over the 48 files, three files 1 B heavier; sinter-mail's
+  suite and run-time bench hold; the suite 2,945. It fixed a crash the merge exposed (a template's entry placed a
+  unit in its second pass without giving it back: every such pass now goes through `unitPass`) and a substring test
+  in stage 4's check of a page's file name. 1,515 tests of test/compiler, test/vite, test/check pass after the merge.
+  The B1 session was told A1's copy has landed and asked to merge the integration branch before anything else.
