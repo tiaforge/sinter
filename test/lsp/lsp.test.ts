@@ -1172,3 +1172,34 @@ describe('file: sources in the editor', () => {
     expect((await e.diagnostics('index.html', (d) => d.length > 0)).map((d) => [d.code, d.message.replace(/:.*/s, '')])).toEqual([['SN332 build-time-source', '`hello.md`']]);
   }, 30_000);
 });
+
+test('pages compile with the options the build has (`static`, `site`, `localePrefix`, messages): what it writes into the HTML is no SN322 or SN323', async () => {
+  const src = resolve(__dirname, '../../src');
+  const layout = `<!doctype html>
+<html lang="en" data-sn-props="{ title: string }">
+<head><meta charset="utf-8"><title data-sn-text="title + ' · ' + m.site()"></title><meta property="og:url" data-sn-attr="{ content: $canonical }"></head>
+<body><a hreflang="de" data-sn-attr="{ href: localeUrl('de'), 'aria-current': $locale === 'de' ? 'true' : null }">Deutsch</a><main><slot></slot></main></body>
+</html>
+`;
+  const root = project({
+    'vite.config.js': `import sinter from ${JSON.stringify(join(src, 'vite.ts'))};\nexport default { resolve: { alias: [{ find: /^@tiaforge-ui\\/sinter\\/(.+)$/, replacement: ${JSON.stringify(src)} + '/$1.ts' }] }, plugins: [sinter({ localePrefix: true, site: 'https://example.com', static: ['index.html'] })] };\n`,
+    'project.inlang/settings.json': JSON.stringify({ baseLocale: 'en', locales: ['en', 'de'] }),
+    'messages/en.json': JSON.stringify({ site: 'Fieldnotes', home: 'Home' }),
+    'messages/de.json': JSON.stringify({ site: 'Feldnotizen', home: 'Start' }),
+    'src/sinter.content.ts': "import { languages } from '@tiaforge-ui/sinter/content';\nimport { inlang, inlangLocales } from '@tiaforge-ui/sinter/messages/content';\nexport const locales = languages(({ root }) => inlangLocales('project.inlang', root));\nexport const messages = inlang();\n",
+    'src/layouts/site-layout.html': layout,
+    'index.html': '<site-layout data-sn-with="{ title: m.home() }"><h1 data-sn-text="m.home()"></h1></site-layout>\n',
+  });
+  const e = await editor(root);
+  // a static page that runs: SN322, so the page was compiled (and nothing else is reported)
+  e.open('index.html', '<site-layout data-sn-with="{ title: m.home() }"><h1 data-sn-text="m.home()"></h1><p data-sn-state="{ n: 0 }"><button data-sn-on-click="n = n + 1" data-sn-text="n"></button></p></site-layout>\n');
+  const d = await e.diagnostics('index.html', (d) => d.length > 0);
+  expect([...new Set(d.map((x) => x.code))]).toEqual(['SN322 ships-javascript']);
+  expect(e.current('src/layouts/site-layout.html')).toEqual([]);
+  e.change('index.html', '<site-layout data-sn-with="{ title: m.home() }"><h1 data-sn-text="m.home()"></h1></site-layout>\n');
+  expect(await e.diagnostics('index.html', (d) => d.length === 0)).toEqual([]);
+  // the layout on its own, as no page: its `$canonical`, messages and `localeUrl()` compile
+  e.open('src/layouts/site-layout.html', layout);
+  await new Promise((r) => setTimeout(r, 500));
+  expect(e.current('src/layouts/site-layout.html')).toEqual([]);
+}, 60_000);
