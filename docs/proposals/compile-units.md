@@ -242,6 +242,28 @@ Found by the research, not changed:
    rows that keep a handler are covered.
 3. **Stage 4's last step waits for a review**: the linker's deletion (`redesign-notes/stage4-units.md`).
 
+## How the work is run
+
+One session coordinates (it merges into `ccr-9ebf49d5-gpdej8`, one branch at a time, and runs the full suite and the
+audits there); each workstream has a log in `redesign-notes/` with, at its top, where it stands and what is next.
+Workstreams run as agents in worktrees of the coordinating session's machine or, since 2026-11-23 evening, as
+cloud sessions with a machine each (the one machine was at a load of 18 to 25 on 4 cores with six agents, and its
+timings were not usable). A cloud session pushes to a branch of its own:
+
+| Workstream | Where | Branch | Log |
+| --- | --- | --- | --- |
+| a unit's check data once (stage 4, step 3) | cloud, `session_01AjKzdxUhXTUw7iSJ32w1x1` | `redesign/check-data-once` | `stage4-check-once.md` |
+| a page file walked once (stage 3's leftover) | cloud, `session_01AjKze2EoiDyjazXQrsWJQk` | `redesign/page-walked-once` | `page-walked-once.md` |
+| stage 5: assembly and live uses | local agent | merged as it lands | `stage5-assembly.md` |
+| the evaluation's cost | local agent | merged as it lands | `evaluation.md` |
+| dev renders; the six bugs; embedding | local agents | merged as they land | `stage2-coverage.md`, `bugs.md`, `embed-fields.md` |
+
+**The bar, as the owner set it on 2026-11-23:** the output need not be byte for byte today's where only numbering
+and generated names differ (`data-sn` ids, anchor numbers, template, state and function numbers, renamed loop
+names), provided a canonicalizing comparison shows the two equal (stage 5 builds it), the suite passes, sinter-mail's
+suite and run-time benchmark hold, and no page gets heavier. The IR's shape and the runtime do not change without a
+decision of their own (stage 7). A step that can stay byte-identical does.
+
 ## Status log
 
 - 2026-11-23: benchmark (`bench/astro`), research notes, this design. Stage 1 started as a spike in a worktree.
@@ -392,3 +414,7 @@ Found by the research, not changed:
   components route replays the library in its second pass (25 to 30 ms a page, 71 with TypeScript), and sharing
   there has to survive `finishPage`; `anchors()` and `shareTemplates()` could run once per unit, but
   `compactTables()`, `groupStyles()`, `checkUrlArrays()` and `placeTemplates()` are the page's own assembly.
+- 2026-11-23, 19:00 UTC: byte identity relaxed to "identical up to numbering" (see "How the work is run"); stage 5
+  started, measuring and planning first (`redesign-notes/stage5-assembly.md`); new workstreams go to cloud sessions
+  with a machine each, the first two started (table above); agents no longer run the full suite, the coordinating
+  session does at each merge.
