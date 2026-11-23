@@ -1444,7 +1444,7 @@ function compileTwice(html: string, options: CompileOptions, pass: { first: Comp
   // unit placed, only where the walk took the unit's check data in its order: `units.ts`)
   if (twice && first.quietFinish() && (!first.placedUnit || first.checkOrder)) {
     const out = second(isClean());
-    if (out) return first.check ? { ...out, check: first.check } : out;
+    if (out) return withFirstErrors(first, first.check ? { ...out, check: first.check } : out);
   }
   // a first pass that is finished (its output, or its diagnostics read): compiled again without the build's units, whose
   // objects it shares and whose numbers would then reach the output (`units.ts`)
@@ -1463,7 +1463,21 @@ function compileTwice(html: string, options: CompileOptions, pass: { first: Comp
   if (!next) { SHIFT_STATS.first ||= first.hasDefinitions() || proc?.env.SN_UNITS_SHIFT_AT === 'walk'; return withLate(out); }
   // the type check reads the page as written: in the second pass an unrolled loop's rows have no loop variable, so a
   // component prop in one (`{ post: p }`) was SN208 "Cannot find name 'p'" in `sinter check` of a `static` page
-  return out.check ? { ...next, check: out.check } : next;
+  return withFirstErrors(first, out.check ? { ...next, check: out.check } : next);
+}
+
+/**
+ * The second pass's output with the errors the first pass found and it did not: those in markup it does not compile
+ * (a branch decided away, `data-sn-if="false"`). They kept the page from unrolling (`isClean`), so they are reported,
+ * each at its place, as the page's own (redesign-notes/bugs.md, bug 6).
+ */
+function withFirstErrors<T extends { diagnostics: Diagnostic[] }>(first: Compiler, out: T): T {
+  const key = (d: Diagnostic) => `${d.code} ${d.file}:${d.line}:${d.col} ${d.message}`;
+  const lost = first.diagnostics.filter((d) => d.severity === 'error' && d.code !== 'SN322');
+  if (!lost.length) return out;
+  const has = new Set(out.diagnostics.map(key));
+  const add = lost.filter((d) => !has.has(key(d)));
+  return add.length ? { ...out, diagnostics: [...out.diagnostics, ...add] } : out;
 }
 
 /**

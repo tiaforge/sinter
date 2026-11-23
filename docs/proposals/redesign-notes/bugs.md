@@ -143,3 +143,32 @@ errors, as it does a page's warnings and `sinter check --strict`'s.
 **What changes.** A failing build's line (`45 type error(s), 1 warning(s)` instead of `46 type error(s)` in the
 corpus, after §4). A build whose check finds warnings only now passes, printing them; under `strict` it fails as
 before. docs/type-checking.md says so.
+
+## 6. An error in markup that is never rendered stopped unrolling, and was never reported
+
+**Reproduction** (`test/compiler/first-pass-errors.test.ts`). `<template data-sn-if="false"><p
+data-sn-text="nope"></p></template><ul><template data-sn-for="x in [1, 2]">…`: no diagnostic at all, and the loop
+stayed a template the page module renders. Also the `data-sn-else` of an `if` decided true, with or without a loop.
+
+**What happens.** The first pass (`compileTwice`'s `first`) walks the whole page, the decided-away branch included
+(its decisions are made after the walk, by `prerender()`), and reports the SN201 there. `isClean()` counts it, so the
+second pass gets no unrolls and no constants. But the first pass decided the `if`, which is reason enough for a
+second pass (`first.decided.size`); the second pass replaces the template by nothing (`expandConstants`), so it never
+compiles that markup, and `compileTwice` returns the second pass's output, whose diagnostics are its own. The error
+counted against `clean` and was dropped from the result.
+
+**Which consistent behaviour.** Either report it, or not count it. The docs never say that a decided-away branch is
+not compiled or not checked: docs/spec.md says a loop unrolls when "the first pass has no errors but `SN322`",
+docs/static-pages.md lists decided `if`s with the other constants, docs/diagnostics.md has no exception for dead
+markup, and the type check already reads the first pass's unit, so a type error in the same branch is reported
+(SN208) while a compile error was not. So it is reported.
+
+**Fix.** `withFirstErrors(first, out)` at `compileTwice`'s two returns of the second pass's output: the first pass's
+errors that `isClean()` counts (not SN322, not warnings) and that the output does not have (same code, file, line,
+column, message) are appended. Small and local, for stage 3's restructuring: the two call sites are where the second
+pass's output is returned. A kept template's entries (`fromTemplate`) are not changed: that path is stage 3's.
+
+**What changes.** A page with an error only in markup the build decides away now reports it, and so fails the
+build (and `sinter check`, the editor); before, it built, with its loops over constants left to the browser. In the
+test suites, nothing else adds an error (probed: only the new tests' pages); every app and sinter-mail are
+byte-identical.
