@@ -222,6 +222,11 @@ export interface CompileOptions {
   canonicalLink?: false;
   /** the module whose default export is the app's `prefetch` feature (every page's description), added to the page's features */
   prefetch?: string | null;
+  /**
+   * internal (a build that decides `prefetch` once every page has compiled): the result can be given its page module
+   * again with another `prefetch` (`moduleWith`)
+   */
+  prefetchLater?: true;
   /** also return where each function in `fns` was written (`CompiledParts.sources`), for the page module's source map */
   sourcemap?: boolean;
   /** where the app's components are (default `<root>/src/components`): `<name>.html` is the component `<name>` */
@@ -494,6 +499,13 @@ export interface RuntimeReason { what: string; file: string; line: number; col: 
 
 export interface CompiledParts {
   html: string;
+  /**
+   * internal (`prefetchLater`): what another page can request ahead for this one as its description gives it
+   * (`describeOnly`: `prefetch`), read off the first pass's walk, which compiles a branch as a template as a
+   * description does (the result's `prefetch` comes from the pass whose decided branches are page markup); or why it
+   * is not read there
+   */
+  firstPrefetch?: { parts: PrefetchParts | null } | { why: string };
   /**
    * why the page needs the runtime, in document order; empty when nothing on it runs in the browser (with
    * `prerender`: then the page gets no script, and its stylesheets are linked: see `static`)
@@ -1118,7 +1130,8 @@ const UNIT_SHARED = new Set(['page', 'componentFiles']);
 function copyState(from: Compiler, opts: CompileOptions, roots: object[] = [], listed?: WeakEntries): { c: Compiler; roots: object[]; entries: WeakEntries } | { refused: string } {
   const memo = new Map<object, object>(), order: object[] = [];
   let refused: string | null = null;
-  const keep = (v: object) => v === from.opts || SHARED.has(v) || DEEP_FROZEN.has(v) || (Object.isFrozen(v) && !Array.isArray(v) && !(v instanceof Map) && !(v instanceof Set));
+  optionsReach(from.opts);
+  const keep = (v: object) => v === from.opts || SHARED.has(v) || OPTS_REACH.has(v) || DEEP_FROZEN.has(v) || (Object.isFrozen(v) && !Array.isArray(v) && !(v instanceof Map) && !(v instanceof Set));
   const copy = <T>(v: T): T => {
     if (v === null || typeof v !== 'object') return v;
     const o = v as unknown as object;
@@ -1170,7 +1183,8 @@ function copyState(from: Compiler, opts: CompileOptions, roots: object[] = [], l
   }
   const outRoots = roots.map((r) => copy(r));
   // the module's marks of nodes (rendered rows', scripts the compiler wrote): the copy's nodes carry them too
-  for (const m of [WRITTEN, SHOWN, SCOPED, MARKED, REWROTE, RENDERED_FILE, OWN_SCRIPTS, INERT_FILLS] as Weak[]) weak.push({ field: null, a: m, b: m });
+  const marks = nodeMarks();
+  for (const m of [...marks, INERT_FILLS] as Weak[]) weak.push({ field: null, a: m, b: m });
   const put = (b: Weak, k: object, v: unknown) => { if (b instanceof WeakMap) b.set(k, v); else b.add(k); };
   const entries: WeakEntries = [];
   if (listed) {
@@ -1182,20 +1196,51 @@ function copyState(from: Compiler, opts: CompileOptions, roots: object[] = [], l
     }
   } else {
     const lists = weak.map((w) => ({ field: w.field, ...(w.field === null ? { mod: w.b } : {}), pairs: [] as Array<[object, unknown]> }));
-    // the side tables, for every object copied so far and every one their values reach
+    const entry = (j: number, o: object) => {
+      const w = weak[j]!, x = memo.get(o)!;
+      const y = w.a instanceof WeakMap ? copy(w.a.get(o)) : true;
+      put(w.b, x, y);
+      lists[j]!.pairs.push([x, y]);
+    };
+    // the side tables, for every object copied so far and every one their values reach (the module's marks of nodes,
+    // for nodes only)
+    const looked = weak.flatMap((w, j) => (!(w.field === null && marks.includes(w.a)) ? [j] : []));
+    const ofNodes = weak.flatMap((w, j) => (w.field === null && marks.includes(w.a) ? [j] : []));
     for (let i = 0; i < order.length; i++) {
-      const o = order[i]!, x = memo.get(o)!;
-      weak.forEach((w, j) => {
-        if (!w.a.has(o)) return;
-        const y = w.a instanceof WeakMap ? copy(w.a.get(o)) : true;
-        put(w.b, x, y);
-        lists[j]!.pairs.push([x, y]);
-      });
+      const o = order[i]!;
+      for (const j of looked) if (weak[j]!.a.has(o)) entry(j, o);
+      if ('nodeName' in o) for (const j of ofNodes) if (weak[j]!.a.has(o)) entry(j, o);
     }
     entries.push(...lists.filter((l) => l.pairs.length));
   }
   if (refused) return { refused };
   return { c: to as unknown as Compiler, roots: outRoots, entries };
+}
+
+/** the module's marks of nodes a copy of a compiler's state carries over (`copyState`), each keyed by parse5 nodes (and `INERT_FILLS`) */
+const nodeMarks = () => [WRITTEN, SHOWN, SCOPED, MARKED, REWROTE, RENDERED_FILE, OWN_SCRIPTS] as Array<WeakMap<object, unknown> | WeakSet<object>>;
+
+/**
+ * What a compile's options reach (`optionsReach`), which a copy of its state shares (`copyState`): both passes of a
+ * page are handed the same objects (a library, a stylesheet, an API), and the compiler compares them by identity (a
+ * component's `lib` with `libOfFile`'s). Down to three levels below the options, not into the build's caches, whose
+ * entries a compile takes copies of.
+ */
+const OPTS_REACH = new WeakSet<object>();
+const OPTS_SEEN = new WeakSet<object>();
+const OPTS_CACHES = new Set(['componentCache', 'globCache', 'templates', 'definitions', 'units', 'decided', 'unrolled', 'rendered', 'unrendered', 'constants', 'overLimit', 'frozen']);
+function optionsReach(opts: CompileOptions) {
+  if (OPTS_SEEN.has(opts)) return;
+  OPTS_SEEN.add(opts);
+  const mark = (v: unknown, depth: number) => {
+    if (v === null || typeof v !== 'object' || OPTS_REACH.has(v)) return;
+    OPTS_REACH.add(v);
+    if (depth >= 3) return;
+    if (Array.isArray(v) || v instanceof Set) for (const x of v) mark(x, depth + 1);
+    else if (v instanceof Map) for (const x of v.values()) mark(x, depth + 1);
+    else if (!(v instanceof WeakMap) && !(v instanceof WeakSet)) for (const k of Object.keys(v)) mark((v as Record<string, unknown>)[k], depth + 1);
+  };
+  for (const [k, v] of Object.entries(opts)) if (!OPTS_CACHES.has(k)) mark(v, 1);
 }
 
 /** a copy's side tables, entry by entry (`copyState`): each a field of the compiler, or one of the module's (`mod`) */
@@ -1210,6 +1255,19 @@ type KeptTemplate = { c: Compiler; path: string; checked: boolean; hits: number;
  * Or why it is not kept: the reason each entry's second pass is counted under (`SN_PASS_LOG`).
  */
 type KeptExpansion = { c: Compiler; doc: DefaultTreeAdapterMap['document']; entries: WeakEntries } | { refused: string };
+
+/** what other pages read of a page before it compiles (`pageHead`) */
+export type PageHead = { path: string[]; prefetchOff: boolean; swapOff: boolean };
+
+/**
+ * A page's paths and its `off` attributes without a walk (redesign-notes/page-walked-once.md): what a build's other
+ * pages read of it before it compiles (its links, the Speculation Rules), with the options of its description
+ * (`describeOnly`), whose `path`, `prefetchOff` and `swapOff` these are. Throws where reading the page or its layout
+ * does.
+ */
+export function pageHead(html: string, options: CompileOptions): PageHead {
+  return new Compiler(options).readHead(html);
+}
 
 /** the second pass of a template's entries starts from the kept expansion unless `SN_ONE_PASS=0` */
 export function onePassOn(): boolean { return proc?.env.SN_ONE_PASS !== '0'; }
@@ -1345,14 +1403,18 @@ function fromTemplate(html: string, options: CompileOptions): CompiledParts | nu
 function compilePasses(html: string, options: CompileOptions): CompiledParts & { canonicalOnly?: boolean } {
   const kept = fromTemplate(html, options);
   if (kept) return kept;
-  const pass = { first: null as Compiler | null };
+  const pass = { first: null as Compiler | null, described: undefined as CompiledParts['firstPrefetch'] };
   // (what the first pass changed of the build's unit, put back once its decisions are taken: `units.ts`)
-  try { return compileTwice(html, options, pass); } finally { if (pass.first) restoreUnit(pass.first); }
+  try {
+    const out = compileTwice(html, options, pass);
+    return pass.described ? { ...out, firstPrefetch: pass.described } : out;
+  } finally { if (pass.first) restoreUnit(pass.first); }
 }
 
-function compileTwice(html: string, options: CompileOptions, pass: { first: Compiler | null }): CompiledParts & { canonicalOnly?: boolean } {
+function compileTwice(html: string, options: CompileOptions, pass: { first: Compiler | null; described?: CompiledParts['firstPrefetch'] }): CompiledParts & { canonicalOnly?: boolean } {
   let first = pass.first = new Compiler(options);
   let walk = first.walkPage(html);
+  if (options.prefetchLater) pass.described = first.firstPrefetch();
   first.settle();
   // loops over constants: unrolled only when the first pass is clean (the second one compiles the rows with their item)
   // (SN322 does not count: what the first pass found running may be a loop the second one unrolls)
@@ -1387,6 +1449,7 @@ function compileTwice(html: string, options: CompileOptions, pass: { first: Comp
     restoreUnit(first);
     first = pass.first = new Compiler({ ...options, units: undefined });
     walk = first.walkPage(html);
+    if (options.prefetchLater) pass.described = first.firstPrefetch();
     first.settle();
   }
   const out = first.finishPage(walk, true);
@@ -1992,6 +2055,21 @@ class Compiler {
     this.accessible(doc);
     this.slotsPlaced();
     return doc;
+  }
+
+  /**
+   * What other pages read of this one before it compiles, without its walk (`pageHead`): its `data-sn-path` patterns
+   * (`pathPatterns`), `<html data-sn-prefetch="off">` and `<html data-sn-swap="off">`, read off the page with its layout
+   * merged and its entry's path written (`expandPage`'s first steps), as the walk reads them there.
+   */
+  readHead(html: string): PageHead {
+    const doc0 = parsedDocument(html);
+    this.tag(doc0, { file: this.opts.file, src: html, chain: [] });
+    const doc = this.isLayoutFile(this.opts.file) ? doc0 : this.mergeLayout(doc0) ?? doc0;
+    this.pagesOf(doc);
+    const el = doc.childNodes.find((n): n is P5Element => isElement(n) && n.tagName === 'html');
+    const off = (n: string) => !!el && attr(el, `data-sn-${n}`)?.trim() === 'off';
+    return { path: this.pathPatterns(doc), prefetchOff: off('prefetch'), swapOff: off('swap') };
   }
 
   /** `walkPage` after `expandPage`: what the first pass decided applied, the layout, the walk */
@@ -10848,6 +10926,15 @@ class Compiler {
       out.set(def.name, def);
     }
     return out;
+  }
+
+  /**
+   * After the walk (`prefetchLater`): this page's description's `prefetch` (`finishPage`'s, `prefetchOff` or
+   * `prefetchParts()`), or why it is not known yet: a page that needs a session has its guard from `finishPage`
+   */
+  firstPrefetch(): NonNullable<CompiledParts['firstPrefetch']> {
+    if (this.signedIn) return { why: 'a page that needs a session' };
+    return { parts: this.prefetchOff ? null : this.prefetchParts() };
   }
 
   /**
