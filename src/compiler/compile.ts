@@ -1089,26 +1089,39 @@ function compilePasses(html: string, options: CompileOptions): CompiledParts & {
   const kept = fromTemplate(html, options);
   if (kept) return kept;
   const first = new Compiler(options);
-  const out = first.run(html);
-  // `data-sn-if` templates over state nothing writes: decided now, the page compiled again with their branches in place
-  const withLate = (o: typeof out) => (o.lateDiagnostics ? { ...o, diagnostics: [...o.diagnostics, ...o.lateDiagnostics] } : o);
-  if (!options.prerender || options.decided || options.unrolled) return withLate(out);
+  const walk = first.walkPage(html);
+  first.settle();
   // loops over constants: unrolled only when the first pass is clean (the second one compiles the rows with their item)
   // (SN322 does not count: what the first pass found running may be a loop the second one unrolls)
-  const clean = !out.diagnostics.some((d) => d.severity === 'error' && d.code !== 'SN322');
-  const unrolled = first.unrolls.size && clean ? first.unrolls : null;
+  const isClean = () => !first.diagnostics.some((d) => d.severity === 'error' && d.code !== 'SN322');
   // constant bindings the layout or the images read (an image's attributes, a class or a style): written before
   // them, in a second pass; it needs a clean first pass too. What the second pass applies at every depth comes
   // from the first pass's worklist (`worklist()`), so a page is compiled at most twice: what writes state, which
   // decides what is constant, is known only after a walk
-  const constants = first.constants.size && clean ? first.constants as Map<string, ConstantWrite[]> : null;
-  if (!first.decided.size && !unrolled && !constants) return withLate(out);
-  const frozen = first.foldedState();
-  if (constants) for (const s of first.constantSites) frozen.add(s);
-  const second = new Compiler({ ...options, decided: first.decided, ...(unrolled ? { unrolled } : {}), ...(unrolled && first.rendered.size ? { rendered: first.rendered } : {}), ...(constants ? { constants } : {}), ...(first.overLimit.size ? { overLimit: first.overLimit } : {}), frozen }).run(html);
+  const second = (clean: boolean) => {
+    const unrolled = first.unrolls.size && clean ? first.unrolls : null;
+    const constants = first.constants.size && clean ? first.constants as Map<string, ConstantWrite[]> : null;
+    if (!first.decided.size && !unrolled && !constants) return null;
+    const frozen = first.foldedState();
+    if (constants) for (const s of first.constantSites) frozen.add(s);
+    return new Compiler({ ...options, decided: first.decided, ...(unrolled ? { unrolled } : {}), ...(unrolled && first.rendered.size ? { rendered: first.rendered } : {}), ...(constants ? { constants } : {}), ...(first.overLimit.size ? { overLimit: first.overLimit } : {}), frozen }).run(html);
+  };
+  const twice = !!options.prerender && !options.decided && !options.unrolled;
+  // a second pass whatever the rest of the first one does: nothing of that rest is read (its markup, its tables, its
+  // diagnostics), so the first stops at its decisions. Known only when the rest cannot report an error (`quietFinish`)
+  if (twice && !first.check && first.quietFinish()) {
+    const out = second(isClean());
+    if (out) return out;
+  }
+  const out = first.finishPage(walk, true);
+  // `data-sn-if` templates over state nothing writes: decided now, the page compiled again with their branches in place
+  const withLate = (o: typeof out) => (o.lateDiagnostics ? { ...o, diagnostics: [...o.diagnostics, ...o.lateDiagnostics] } : o);
+  if (!twice) return withLate(out);
+  const next = second(isClean());
+  if (!next) return withLate(out);
   // the type check reads the page as written: in the second pass an unrolled loop's rows have no loop variable, so a
   // component prop in one (`{ post: p }`) was SN208 "Cannot find name 'p'" in `sinter check` of a `static` page
-  return out.check ? { ...second, check: out.check } : second;
+  return out.check ? { ...next, check: out.check } : next;
 }
 
 /**
@@ -1833,9 +1846,25 @@ class Compiler {
   }
 
   /** The walked page evaluated, its constants written and dropped, and its HTML, IR and module parts. */
-  finishPage({ doc, images, paths }: NonNullable<Compiler['walk']>): CompiledParts & { canonicalOnly?: boolean } {
+  /** `finishPage`'s first steps: what the page writes and decides at build time (`prerender`) */
+  settle() {
     this.buildOnlyInIfs();
     if (this.opts.prerender) { this.prerender(); this.embedFolded(); this.dropConstants(); this.dropFiles(); this.foldScriptsOut(); if (this.collecting()) this.collectConstants(); }
+  }
+
+  /**
+   * After `settle`: whether the rest of `finishPage` can report an error, which would keep a second pass from
+   * unrolling (`compilePasses`' `clean`). Its errors are a page's signed-in guard (SN347), `$url` lists (SN210,
+   * SN211, a model's or a binding's), and a page per entry reading its pattern's parameters (SN345); the rest
+   * reports warnings, late ones, or SN322, which `clean` does not count.
+   */
+  quietFinish(): boolean {
+    return !this.signedIn && !this.pagesDecl && !this.urlBinds.length && !this.pageModels.length && !this.page.urlWrites?.length;
+  }
+
+  /** `settled`: `settle` ran already */
+  finishPage({ doc, images, paths }: NonNullable<Compiler['walk']>, settled = false): CompiledParts & { canonicalOnly?: boolean } {
+    if (!settled) this.settle();
     this.anchors();
     // (before the early file and the head templates: both number the templates that are left)
     if (this.opts.prerender && !this.opts.dev) this.shareTemplates();
@@ -8314,7 +8343,9 @@ class Compiler {
     };
     // (a row's item is shared with the data it is a part of, frozen once; a helper's result is copied, as a call takes it by value)
     const isResult = (x: object) => this.folding?.isResult(x) ?? false;
-    const listOf = (v: unknown): unknown[] | null => (Array.isArray(v) && v.every((x) => plainData(x)) ? v : null);
+    // (the heights of the frozen data `plainData` measured, for this evaluation)
+    const heights = new Map<object, number>();
+    const listOf = (v: unknown): unknown[] | null => (Array.isArray(v) && v.every((x) => plainData(x, heights)) ? v : null);
     // (a placement's element is its `<slot>`; an anchor's, its template)
     const elOf = (n: NodeDef) => this.tplEls.get(n) ?? this.pointOf.get(n)?.el ?? this.paints.find((x) => x.node === n)?.el ?? this.textMarks.get(n) ?? placementOf.get(n)?.el ?? this.anchorEls.get(n);
     const rowScope = (sc: object, t: TemplateDef, item: unknown, k: number) => new Proxy({}, {
@@ -8337,7 +8368,7 @@ class Compiler {
     const expandCase = (point: NonNullable<ReturnType<typeof this.pointOf.get>>, name: string, key: string, sc: object, prefix: string, out: Found, rec?: RowRec, n?: NodeDef): boolean => {
       const c = point.group!.cases.find((x) => x.name === name), t = c && this.templates[c.tid];
       const props = c ? run(sc, `($) => (${c.props})`) : FAIL;
-      if (!t?.item || props === FAIL || !plainData(props)) return false;
+      if (!t?.item || props === FAIL || !plainData(props, heights)) return false;
       out.decided.push([prefix + key, true, point.pick!.deps]);
       const recs: RowRec[] | undefined = rec ? [] : undefined;
       if (rec) rec.set(n!, { name, tid: c!.tid, props, rec: recs });
@@ -8376,7 +8407,7 @@ class Compiler {
           const v = run(sc, this.fns[P.node.b[0]!.f!]!);
           const pick = Array.isArray(v) && typeof v[0] === 'number' ? v as [number, unknown] : null;
           const tc = pick ? this.templates[P.cases[pick[0]]!] : undefined;
-          if (!pick || !tc?.item || !plainData(pick[1])) return false;
+          if (!pick || !tc?.item || !plainData(pick[1], heights)) return false;
           // (a fill, or the default: any markup, with the rest of the row's conditions; the second pass expands it inline)
           // two shapes of fill stay the browser's (`fillStays`, for SN322): one that forwards to an inner component's
           // slot, and one that holds a tree root of its own
@@ -11566,9 +11597,12 @@ const PLAIN_DEPTH = 1024;
  * tree does not exhaust the call stack; an object reached twice (a shared subtree) is walked once
  * unless it is reached again less deep.
  */
-function plainData(v: unknown): boolean {
+export function plainData(v: unknown, heights?: Map<object, number>): boolean {
   const scalar = (x: unknown) => x === null || ['string', 'number', 'boolean', 'undefined'].includes(typeof x);
   if (scalar(v)) return true;
+  // (the worklist asks this of every level of a tree, each level a part of the one above: what is frozen is measured
+  // once, and a walk that cannot tell, past the bound or through a cycle, is this one)
+  if (heights) { let h = -1; try { h = plainHeight(v as object, 0, heights, new Map()); } catch { /* the walk below */ } if (h >= 0) return true; }
   const seen = new Map<object, number>();
   const stack: [unknown, number][] = [[v, 0]];
   while (stack.length) {
@@ -11585,6 +11619,34 @@ function plainData(v: unknown): boolean {
     for (const c of Array.isArray(x) ? x : Object.values(x as object)) stack.push([c, depth + 1]);
   }
   return true;
+}
+
+/**
+ * How deep plain data nests below `x` (0: no object in it) when every path through it stays within `PLAIN_DEPTH` of
+ * the root `plainData` was asked about (`depth`: how deep `x` is), else -1 (not plain data, too deep, or a cycle).
+ * `frozen`: the heights of data frozen at every depth (`DEEP_FROZEN`), which cannot change, kept by the caller;
+ * `seen`: this walk's other objects (-2 while on the path).
+ */
+function plainHeight(x: object, depth: number, frozen: Map<object, number>, seen: Map<object, number>): number {
+  const known = frozen.get(x) ?? seen.get(x);
+  if (known !== undefined) return known >= 0 && depth + known <= PLAIN_DEPTH ? known : -1;
+  if (depth > PLAIN_DEPTH || typeof x !== 'object') return -1;
+  seen.set(x, -2);
+  const array = Array.isArray(x);
+  if (!array) {
+    const proto = Object.getPrototypeOf(x);
+    if (proto !== Object.prototype && proto !== null) return -1;
+  }
+  let h = 0;
+  for (const c of array ? x : Object.values(x)) {
+    if (c === null || c === undefined || typeof c === 'string' || typeof c === 'number' || typeof c === 'boolean') continue;
+    if (typeof c !== 'object') return -1;
+    const ch = plainHeight(c, depth + 1, frozen, seen);
+    if (ch < 0) return -1;
+    if (ch + 1 > h) h = ch + 1;
+  }
+  if (DEEP_FROZEN.has(x)) { frozen.set(x, h); seen.delete(x); } else seen.set(x, h);
+  return h;
 }
 
 /** A copy of parsed markup as the parser made it (source locations shared), with nothing the compiler attached. */

@@ -70,9 +70,8 @@ What a copy guaranteed and still holds:
   such a comparison is false again: a page whose row compares objects by identity would differ between rendering on
   and off. No app or test does; the render audit would show it.
 
-Tried and dropped: a memo of `plainData` for frozen data (heights in a `WeakMap`, so that each level's `listOf` does
-not walk its subtree again). 550 calls a page, mostly over small values; the `WeakMap` cost what the walks did
-(0.8 ms before, 1.1 ms after in the profile).
+Tried here and dropped: a memo of `plainData` for frozen data in a module `WeakMap`. Under the load of the time the
+profile could not tell it from noise (0.8 ms before, 1.1 ms after); taken later in another form (change 4).
 
 Static, `time` mode, median of 3 rounds A/B (ms a page): `decideFor` 19.0 → 12.5, GC in compiles 5.5 → 4.2,
 `compile()` 32.4 → 23.9; the build (instrumented) 6.0 → 5.0 s.
@@ -102,3 +101,38 @@ Pass 2's `componentFile` calls are 503 a page; with a warm cache none reads a fi
 rounds A/B (base, change 1, change 2), ms a page: pass 2 `expandComponents` 2.6 / 2.3 / 0.7, pass 2 `walkPage`
 7.5 / 6.4 / 4.9, `compile()` 26.6 / 18.0 / 16.2, GC in compiles 3.7 / 2.2 / 2.0. A page file per post (3 rounds, a
 loaded machine): pass 1 `expandComponents` 4.0 → 2.1, pass 2 3.8 → 1.4, `compile()` describe 10.5 → 8.8.
+
+### 3. The first of two passes stops at its decisions (`settle`, `quietFinish`)
+
+`compilePasses` ran the first pass's whole `finishPage` (anchors, `shareTemplates`, the early parts, the tables and
+their compaction, the serialized markup, the descriptions) and then, when it had decided anything, threw all of it
+away: the second pass reads the first's maps (`decided`, `unrolls`, `constants`, `overLimit`, `rendered`, the folded
+state), and of its result only the diagnostics, to know whether it is `clean`. `finishPage`'s first line is now
+`settle()` (`buildOnlyInIfs`, `prerender`, the drops, `collectConstants`), and `compilePasses` runs it on its own; when
+a second pass follows and nothing in the rest of `finishPage` can report an error, the first pass stops there.
+
+Which errors the rest can report, from its call graph (a script over `compile.ts`): SN347 (`signedInGuard`), SN210 and
+SN211 and the `$url` list messages of models and bindings (`checkUrlArrays`), SN345 (a page per entry reading its
+pattern's parameters). The rest is warnings (SN519, SN542, SN543), late diagnostics (SN344) and SN322, which `clean`
+does not count. `quietFinish()` is true when none of their sources is on the page (`signedIn`, `pagesDecl`, `urlBinds`,
+`pageModels`, `page.urlWrites`); otherwise, and with the type check (whose unit the first pass hands on), the first pass
+finishes as before. test/compiler/first-pass-stop.test.ts: a page with SN347 still keeps its loop as a template.
+
+Pages that are walked twice gain: a page file per post. Template entries (`fromTemplate`) evaluate with `decideFor` and
+never ran a first `finishPage`. Static files, `time` mode with the thread's CPU time as the clock (from here on: the
+machine's load moves wall time too much), median of 2 rounds, base / change 2 / this, ms a page: pass 1's finish
+21.5 / 13.1 / 9.7 (`settle` alone), `compile()` 37.9 / 25.4 / 22.9.
+
+### 4. `plainData` measures frozen data once per evaluation
+
+What `plainData` walked after change 1: the worklist asks it of each level's list items (`listOf`), of each case's
+props (`{ node }`, the node's whole subtree) and of a placement's data, and each of those is a part of the level
+above, so the walks were still O(depth × size) (1.3 ms a page in the CPU profile, the largest item of `decideFor`
+left). With a `Map` the worklist keeps for one evaluation, `plainData` records the height of each object frozen at
+every depth that it measured (`plainHeight`), and a later question about it, or about something new around it, stops
+there. The bound is kept exactly: a part's height counts from where it is reached, and anything the recursive walk
+cannot answer (past the bound, a cycle, a getter that throws) goes to the original walk. Elsewhere (state fields,
+helper arguments and results) `plainData` is called as before. Tests in test/compiler/row-items.test.ts (the bound
+through a measured part, the non-plain cases against the original).
+
+Static, CPU clock, median of 3 rounds A/B: `decideFor` 7.7 → 7.2 ms a page.
