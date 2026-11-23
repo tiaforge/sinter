@@ -255,3 +255,41 @@ residue), deleting it removes, by my count: the rows branch of `expandConstants`
 `prefold`'s prefixes, `markAxisLink`), the nested commit of `unrolls`/`decided`/`rowPaint` in `finish` (~10) and the
 row prefixes of `collectConstants`: about 150 lines, plus the fallback bookkeeping. `cloneTree` itself stays (slots,
 fills, the dry run's snapshot use it).
+
+## The rest, and the deletion
+
+Running log (2026-11-23, continued). Merged at 4c3e26c. Counting changed first: `rowRenderer` no longer counts a
+fallback where it gives up (a page whose first pass has errors never reaches the second pass's rows, so it was
+counted for nothing); it records the reason by key (`unrendered`, handed to the second pass), and the second pass
+counts it where the old route actually compiles the loop or the choice (`oldRoute`), with `dev` for a dev build. So
+`SN_RENDER_STATS` now says what takes the old route. Under vitest a third column names the test.
+
+### `links`
+
+**What the old route does.** The walk of each row copy's `<a>`/`<area>` pushes `hrefs` entries: a static `href` as
+`literal`, and a bound one with `hrefPrefixes(entryValue(r, e))` (`data-sn-attr`) or the template's literal start
+(`data-sn-href`), plus `boundHrefs`; with axis lists `markAxisLink` appends `data-sinter-pt` from the row chain
+(`rowOf`, innermost first). The note above assumed the prefixes come from code with the item inlined: they do not,
+`entryValue` reads the AST of the attribute as written (`r.ast`), so a copy's entries are its template's.
+
+**Now.** The renderer takes each link's entries from the first pass's walk of its template element (`hrefs`, in its
+order; a guard falls back if a static or bound `href` has no entry there), and the second pass pushes them at the
+block's first element in the walk (with each element's origin and source location, so SN519 reports where the old
+route does). The axis mark is computed from the rows being rendered (each level's list as written, `snSource`, and its
+item) and written after `prefold`'s writes, before the marks. Left: a pager link (SN519 may fire) inside an instance,
+whose report the old route words with the instance's chain (`links`, a test).
+
+### `top-level choice`
+
+The first pass records the case as it records a row's (`expandCase` with a record), and the renderer renders it as an
+instance (`instance()`); the second pass splices it where the candidate is (`splice`, shared with the loops), before
+`inlineInstance`. Also needed: the second pass is now handed `rendered` when the page has decided choices but no
+unrolled loop. Left: a choice whose rendered candidate was reported on in the first pass (SN313 on its tag:
+`choiceDiags`), which the old route's expansion reports again (`diagnostics`), and one whose tag passes attributes on
+(`passOn`, `choice`; not seen).
+
+### `an id`
+
+The ids the rows' markup writes are carried with the block (`idAttrs`) and declared by `declare` at the block (`page.ids`
+counts, `dialogs`). Left: an id in a choice's or recursion point's definition (`componentIds`' SN209 counts the uses
+the old route's expansion makes per instance).
