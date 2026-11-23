@@ -1,46 +1,25 @@
 // Units (docs/proposals/redesign-notes/stage4-units.md): a first pass's definitions compiled once per build (compile's
 // `units`) and placed on every page that needs them. Each page must be what it is compiled without units, whichever page
-// made the unit and in whatever order the pages come.
+// made the unit and in whatever order the pages come: byte for byte, but where its second pass placed a unit of its own
+// (a page whose definitions ship, stage5-a1.md), whose numbers come first: there up to numbering (units2.test.ts).
 import { expect, test } from 'vitest';
-import { compile } from '../../src/compiler/index.js';
 import { UNIT_STATS } from '../../src/compiler/units.js';
+import { build, PAGES } from './units-pages.js';
 
-const INL = "{ text: 'x-text', link: 'x-link' }";
-const C: Record<string, string> = {
-  'x-doc': `<template data-sn-props="{ doc: any; link: Slot<{ url: string }> }"><div><template data-sn-for="n in doc.children"><sn-component use="${INL}[n.type]" data-sn-with="{ node: n }"></sn-component></template></div></template>`,
-  'x-text': '<template data-sn-props="{ node: any }"><span data-sn-text="node.value"></span></template>',
-  'x-link': `<template data-sn-props="{ node: any }"><slot name="link" data-sn-with="{ url: node.url }"><a data-sn-attr="{ href: node.url }"><template data-sn-for="n in node.children"><sn-component use="${INL}[n.type]" data-sn-with="{ node: n }"></sn-component></template></a></slot></template>`,
-  'x-pill': '<template data-sn-props="{ to: string }"><a class="pill" data-sn-attr="{ href: to }"><slot></slot></a></template>',
-};
-const DOC = { children: [{ type: 'text', value: 'see ' }, { type: 'link', url: '/a', children: [{ type: 'text', value: 'a' }, { type: 'link', url: '/b', children: [{ type: 'text', value: 'b' }] }] }] };
-
-export const PAGES: Record<string, string> = {
-  alone: '<x-doc data-sn-with="{ doc }"></x-doc>',
-  'a fill of its slot': '<x-doc data-sn-with="{ doc }"><a slot="link" class="L" data-sn-attr="{ href: $slot.url }"><slot></slot></a></x-doc>',
-  'live': '<x-doc data-sn-with="{ doc: live }"></x-doc>',
-  'live, a fill': '<x-doc data-sn-with="{ doc: live }"><a slot="link" class="L" data-sn-attr="{ href: $slot.url }"><slot></slot></a></x-doc>',
-  'loop and if before': '<ul><template data-sn-for="x in live.children"><li data-sn-text="x.type"></li></template></ul><template data-sn-if="live.children.length > 1"><p>long</p></template><x-doc data-sn-with="{ doc: live }"></x-doc>',
-  'component before': '<x-pill data-sn-with="{ to: \'/home\' }">home</x-pill><x-doc data-sn-with="{ doc }"></x-doc>',
-  'state and a handler': '<section data-sn-state="{ n: 0 }"><button data-sn-on-click="n++" data-sn-text="n"></button></section><x-doc data-sn-with="{ doc: live }"></x-doc>',
-  'two trees': '<x-doc data-sn-with="{ doc }"></x-doc><x-doc data-sn-with="{ doc: live }"></x-doc>',
-};
-
-export function build(name: string, body: string, units?: Map<string, unknown>, check = false) {
-  const files: Record<string, string> = { '/p/doc.json': JSON.stringify(DOC) };
-  for (const [k, s] of Object.entries(C)) files[`/p/src/components/${k}.html`] = s;
-  const out = compile(`<!doctype html><html><head></head><body><sn-resource name="doc" src="file:./doc.json"></sn-resource><sn-resource name="live" src="/api/doc"></sn-resource>${body}</body></html>`, {
-    file: `/p/${name.replace(/\W+/g, '-')}.html`, root: '/p', dev: false, prerender: true, componentNames: Object.keys(C),
-    helpers: { module: null, names: [], namespaces: {} }, readFile: (p) => { if (p in files) return files[p]!; throw new Error(p); },
-    ...(units ? { units } : {}), ...(check ? { check: true } : {}),
-  });
-  return { html: out.html, module: out.module, early: out.early, runtime: out.runtime, diagnostics: out.diagnostics, check: out.check };
+/** the page through `units` as compiled without them: byte for byte, or in canonical numbering where its second pass placed a unit */
+function same(name: string, body: string, units: Map<string, unknown>, check: boolean, what: string) {
+  const n = UNIT_STATS.made2 + UNIT_STATS.placed2;
+  const through = build(name, body, units, check);
+  if (UNIT_STATS.made2 + UNIT_STATS.placed2 === n) { expect(through, what).toEqual(build(name, body, undefined, check)); return; }
+  process.env.SN_CANON = '1';
+  try { expect(build(name, body, units, check), `${what} (up to numbering)`).toEqual(build(name, body, undefined, check)); } finally { delete process.env.SN_CANON; }
 }
 
 test('pages of every shape, through one build\'s units, in both orders: each as compiled without them', () => {
   const placed = UNIT_STATS.placed;
   for (const order of [Object.keys(PAGES), Object.keys(PAGES).reverse()]) {
     const units = new Map<string, unknown>();
-    for (let round = 0; round < 2; round++) for (const name of order) expect(build(name, PAGES[name]!, units), `${name}, round ${round}`).toEqual(build(name, PAGES[name]!));
+    for (let round = 0; round < 2; round++) for (const name of order) same(name, PAGES[name]!, units, false, `${name}, round ${round}`);
   }
   expect(UNIT_STATS.placed).toBeGreaterThan(placed);
 });
@@ -49,7 +28,7 @@ test('under the type check: each page, and its check unit, as compiled without u
   const placed = UNIT_STATS.placed;
   for (const order of [Object.keys(PAGES), Object.keys(PAGES).reverse()]) {
     const units = new Map<string, unknown>();
-    for (let round = 0; round < 2; round++) for (const name of order) expect(build(name, PAGES[name]!, units, true), `${name}, round ${round}`).toEqual(build(name, PAGES[name]!, undefined, true));
+    for (let round = 0; round < 2; round++) for (const name of order) same(name, PAGES[name]!, units, true, `${name}, round ${round}`);
   }
   expect(UNIT_STATS.placed).toBeGreaterThan(placed);
 });
