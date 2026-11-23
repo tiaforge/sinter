@@ -5,7 +5,7 @@ import { rewriteImages, sourceFile, type ImageHost, type ImageResult } from './i
 import { boxSizesCss, type ReserveTrace, Layout, PLACEHOLDER_BASE, type Affine, type Reserved, type StyleSheet } from './layout.js';
 import { shows } from './status-eval.js';
 import { recordChild, replay as replayUnit, LINK_FIELDS, UNIT_NUMBERING, type Plan, type Refused } from './link.js';
-import { placeUnits, restoreUnit, touch, unitFallback, unitsOn, type BuildUnit, type UnitStore } from './units.js';
+import { placeUnits, restoreUnit, touch, unitCheck, unitFallback, unitsOn, type BuildUnit, type UnitStore } from './units.js';
 import { declaringTemplate, HEAD_ELEMENTS, kindOfComponent, parseDocument, STRUCTURAL } from './head.js';
 import { minifyMarkup } from './minify.js';
 import type { RemoteConfig } from '../remote.js';
@@ -1155,9 +1155,10 @@ function compileTwice(html: string, options: CompileOptions, pass: { first: Comp
   const twice = !!options.prerender && !options.decided && !options.unrolled;
   // a second pass whatever the rest of the first one does: nothing of that rest is read (its markup, its tables, its
   // diagnostics), so the first stops at its decisions. Known only when the rest cannot report an error (`quietFinish`)
-  if (twice && !first.check && first.quietFinish()) {
+  // (and under the type check, a first pass that placed a unit, whose check unit is complete after its walk: `units.ts`)
+  if (twice && (!first.check || first.placedUnit && first.checkOrder) && first.quietFinish()) {
     const out = second(isClean());
-    if (out) return out;
+    if (out) return first.check ? { ...out, check: first.check } : out;
   }
   // a first pass that is finished (its output, or its diagnostics read): compiled again without the build's units, whose
   // objects it shares and whose numbers would then reach the output (`units.ts`)
@@ -1385,6 +1386,10 @@ class Compiler {
   placedUnit: BuildUnit | null = null;
   /** its definitions were compiled before its walk (a unit made here, kept or refused): its first pass must not be its output */
   earlyDefs = false;
+  /** under the type check: the unit's names whose check data the walk took (`unitCheck`), the last one's place, whether in order */
+  readonly checkDone = new Set<string>();
+  checkLast = -1;
+  checkOrder = true;
   /** what this page changed of its unit's objects, as they were (`touch`, `restoreUnit`) */
   readonly touched = new Map<object, unknown>();
   /** `<sn-component use>`: one point per candidate, rendered when `use` is its name; `key`: the value of the data that names it, for narrowing */
@@ -1800,7 +1805,7 @@ class Compiler {
       this.nextId += unitShift;
     }
     // builds: the page's definitions from the build's units, before anything is numbered (`units.ts`)
-    if (this.opts.units && unitsOn() && !this.opts.decided && !this.opts.unrolled && !this.opts.constants && !this.opts.describeOnly && !this.opts.dev && !this.check) {
+    if (this.opts.units && unitsOn() && !this.opts.decided && !this.opts.unrolled && !this.opts.constants && !this.opts.describeOnly && !this.opts.dev) {
       this.placedUnit = placeUnits(this, this.opts.units as UnitStore, [this.keepsAttrs, this.opts.locale?.name ?? '', this.page.axisUrl ?? ''].join('\u0001'));
     }
     this.walkChildren(doc, { scope: { loops: [], states: [] }, list: this.roots, tid: -1, path: [], stateIdx: -1 });
@@ -5007,6 +5012,7 @@ class Compiler {
 
   /** The shared definition of a component used inside itself: linked from the build's definitions, else compiled. */
   definition(name: string): { tid: number; id: string; use: Use } | null {
+    if (this.placedUnit?.check) unitCheck(this, name);
     const known = this.defs.get(name);
     if (known !== undefined) return known;
     const L = this.defLink;

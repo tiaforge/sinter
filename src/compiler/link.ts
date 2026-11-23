@@ -176,6 +176,9 @@ export const LINK_FIELDS: Record<string, { kinds: string[]; how: 'table' | 'weak
   pointOf: { kinds: ['Map'], how: 'table' },
   placedUnit: { kinds: ['empty', 'object'], how: 'linker' },
   earlyDefs: { kinds: ['boolean'], how: 'linker' },
+  checkDone: { kinds: ['Set'], how: 'linker' },
+  checkLast: { kinds: ['number'], how: 'linker' },
+  checkOrder: { kinds: ['boolean'], how: 'linker' },
   touched: { kinds: ['Map'], how: 'linker' },
   pointNames: { kinds: ['Array'], how: 'table' },
   points: { kinds: ['WeakMap'], how: 'weak' },
@@ -528,7 +531,8 @@ export function recordChild<T>(c: any, name: string, compile: (child: any) => T,
 export type Run = { result: unknown; unit: Unit; copied: number } | { result: unknown; refused: string };
 
 /** the unit compiled, its view of its page logging what it reads and writes; its writes applied to the page */
-export function runUnit(c: any, name: string, compile: (child: any) => unknown, prior: Map<object, { u: number; i: number }>): Run {
+/** (`own`: fields the unit gets as they are, neither logged nor applied to the page: a unit's check data, `units.ts`) */
+export function runUnit(c: any, name: string, compile: (child: any) => unknown, prior: Map<object, { u: number; i: number }>, own: Record<string, unknown> = {}): Run {
   const rec = new Rec();
   const u = c.unitChild(), child = u.child;
   const T0 = c.templates.length, f0 = c.fns.length, u0 = c.useIds, s0 = c.nextSid, n0 = c.nextId, a0 = c.actions.length, atBefore = c.at;
@@ -570,8 +574,9 @@ export function runUnit(c: any, name: string, compile: (child: any) => unknown, 
   // up is a precondition), its own logged; without, its own (a page that had the code keeps its own, `ifAbsent`)
   const sites = !!c.opts.sourcemap;
   child.codeAt = sites ? wrap(c.codeAt, [{ p: 'codeAt' }], rec) : new Map();
+  for (const [k, v] of Object.entries(own)) child[k] = v;
   for (const [k, f] of Object.entries(LINK_FIELDS)) {
-    if (!(k in child) || (f.how !== 'fixed' && f.how !== 'restored') || k === 'page' || k === 'opts' || k === 'componentFiles') continue;
+    if (!(k in child) || (f.how !== 'fixed' && f.how !== 'restored') || k === 'page' || k === 'opts' || k === 'componentFiles' || k in own) continue;
     let v = child[k], mine = false;
     Object.defineProperty(child, k, {
       configurable: true, enumerable: true,

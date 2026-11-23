@@ -52,9 +52,16 @@ export type BuildUnit = {
   file: string;
   base: string;
   rel: string | null;
+  /**
+   * under the type check: the frames and expressions its definitions recorded, numbered from 0, by the top-level name
+   * that recorded them (`segs`), and its scopes' frames; a page takes a name's part where its walk first needs that
+   * definition, numbered from there (`unitCheck`)
+   */
+  check?: { frames: any[]; exprs: any[]; segs: Map<string, Seg>; frameOf: Array<{ key: object; at: number }> };
   /** (`SN_UNITS_VERIFY=1`) each object's own values as it was made, which every page must leave as they were */
   prints?: Map<object, string>;
 };
+type Seg = { f0: number; f1: number; e0: number; e1: number };
 export type UnitStore = Map<string, BuildUnit | { refused: string }>;
 
 /** counts, for the log and the tests: units made, placed, and the pages that compiled their definitions in place, by reason */
@@ -110,7 +117,16 @@ export function placeUnits(c: any, store: UnitStore, key: string): BuildUnit | n
 /** the unit compiled on this page (its writes applied to it, as the linker's recorder does) and kept */
 function make(c: any, names: string[]): BuildUnit | { refused: string } {
   const d0 = c.diagnostics.length;
-  const run = runUnit(c, names[0]!, (child: any) => { for (const n of names) child.definition(n); }, new Map());
+  // under the type check: its frames and expressions its own, numbered from 0, by the name whose definition recorded them
+  const check = c.check ? { file: c.check.file, resources: c.check.resources, frames: [] as any[], exprs: [] as any[] } : null;
+  const segs = new Map<string, Seg>();
+  const run = runUnit(c, names[0]!, (child: any) => {
+    for (const n of names) {
+      const f0 = check?.frames.length ?? 0, e0 = check?.exprs.length ?? 0;
+      child.definition(n);
+      if (check) segs.set(n, { f0, f1: check.frames.length, e0, e1: check.exprs.length });
+    }
+  }, new Map(), check ? { check } : {});
   if ('refused' in run) return { refused: run.refused };
   if (c.diagnostics.length !== d0) return { refused: 'reports a diagnostic' };
   const u = run.unit;
@@ -151,7 +167,9 @@ function make(c: any, names: string[]): BuildUnit | { refused: string } {
   const named = (x: unknown) => typeof x === 'string' && x.includes(base);
   const namesPage = (o: any) => !!o && typeof o === 'object' && (named(o.file) || named(o.usedAt) || (Array.isArray(o.chain) && o.chain.some(named)));
   const origins: Array<{ key: object; value: any }> = [];
+  const frameOf: Array<{ key: object; at: number }> = [];
   for (const o of u.ops as Op[]) {
+    if (check && o.op === 'old' && 'path' in o.target && o.target.path.length === 1 && (o.target.path[0] as { p?: string }).p === 'frameOf' && (o.change as any).kind === 'set') frameOf.push({ key: (o.change as any).key, at: (o.change as any).value });
     if (o.op === 'weak' && o.field === 'origins' && namesPage(o.value)) { origins.push({ key: o.key as object, value: o.value }); continue; }
     if (o.op !== 'old') {
       // (a unit's own key: its entry beneath the page's; the page's own object: the write made on each page)
@@ -181,7 +199,7 @@ function make(c: any, names: string[]): BuildUnit | { refused: string } {
     const hit = vals.find(named);
     if (hit) return { refused: `names its page's file (${JSON.stringify(String(hit).slice(0, 60))})` };
   }
-  return { names, reads: u.reads, numbering, weak, ops, at: enc(u.atAfter), own, placed: 0, origins, file, base, rel, ...(prints ? { prints } : {}) };
+  return { names, reads: u.reads, numbering, weak, ops, at: enc(u.atAfter), own, placed: 0, origins, file, base, rel, ...(check ? { check: { frames: check.frames, exprs: check.exprs, segs, frameOf } } : {}), ...(prints ? { prints } : {}) };
 }
 
 /** the unit put on a page that is numbered as it was made (nothing yet), reading its page alike */
@@ -262,4 +280,36 @@ export function restoreUnit(c: any) {
     const now = print(o);
     if (now !== p) throw new Error(`sinter units: ${c.opts.file} changed an object of a unit (${(o as any).constructor?.name ?? 'object'}): ${p.slice(0, 300)}\n  now ${now.slice(0, 300)}`);
   }
+}
+
+/**
+ * Under the type check: the part of the unit's check data that its definition `name` recorded, put into the page's
+ * check where the walk first needs that definition, which is where the page compiled in place records it: its frames
+ * and expressions numbered from the page's counts there, its scopes' frames too, and the page that made it named as
+ * this one. A page whose walk takes the names in another order than the unit compiled them (the definitions nested in
+ * each would be others) is compiled again without units (`unitCheckOrder`).
+ */
+export function unitCheck(c: any, name: string) {
+  const u: BuildUnit | null = c.placedUnit, k = u?.check;
+  if (!k || !c.check || c.checkDone.has(name)) return;
+  const seg = k.segs.get(name);
+  if (!seg) return;
+  c.checkDone.add(name);
+  // (a name later in the unit's order than one taken already, whose part comes after it: the order holds)
+  const at = u!.names.indexOf(name);
+  if (at < c.checkLast) c.checkOrder = false;
+  c.checkLast = Math.max(c.checkLast, at);
+  const F = c.check.frames.length, E = c.check.exprs.length;
+  const frame = (i: number) => (i >= seg.f0 && i < seg.f1 ? F + i - seg.f0 : (c.checkOrder = false, i));
+  const expr = (i: number | null | undefined) => (i == null ? i : i >= seg.e0 && i < seg.e1 ? E + i - seg.e0 : (c.checkOrder = false, i));
+  const file: string = c.opts.file, base = file.slice(file.lastIndexOf('/') + 1);
+  const swap = (x: any): any => {
+    if (typeof x === 'string') return x === u!.file ? file : x.startsWith(u!.base + ':') ? `${base}${x.slice(u!.base.length)}` : x;
+    if (Array.isArray(x)) return x.map(swap);
+    if (x && typeof x === 'object') { const o: any = {}; for (const key of Object.keys(x)) o[key] = swap(x[key]); return o; }
+    return x;
+  };
+  for (let i = seg.f0; i < seg.f1; i++) { const f = swap(k.frames[i]); if ('init' in f) f.init = expr(f.init); c.check.frames.push(f); }
+  for (let i = seg.e0; i < seg.e1; i++) { const e = swap(k.exprs[i]); e.frames = e.frames.map(frame); c.check.exprs.push(e); }
+  for (const x of k.frameOf) if (x.at >= seg.f0 && x.at < seg.f1) c.frameOf.set(x.key, F + x.at - seg.f0);
 }

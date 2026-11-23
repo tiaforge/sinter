@@ -25,15 +25,15 @@ export const PAGES: Record<string, string> = {
   'two trees': '<x-doc data-sn-with="{ doc }"></x-doc><x-doc data-sn-with="{ doc: live }"></x-doc>',
 };
 
-export function build(name: string, body: string, units?: Map<string, unknown>) {
+export function build(name: string, body: string, units?: Map<string, unknown>, check = false) {
   const files: Record<string, string> = { '/p/doc.json': JSON.stringify(DOC) };
   for (const [k, s] of Object.entries(C)) files[`/p/src/components/${k}.html`] = s;
   const out = compile(`<!doctype html><html><head></head><body><sn-resource name="doc" src="file:./doc.json"></sn-resource><sn-resource name="live" src="/api/doc"></sn-resource>${body}</body></html>`, {
     file: `/p/${name.replace(/\W+/g, '-')}.html`, root: '/p', dev: false, prerender: true, componentNames: Object.keys(C),
     helpers: { module: null, names: [], namespaces: {} }, readFile: (p) => { if (p in files) return files[p]!; throw new Error(p); },
-    ...(units ? { units } : {}),
+    ...(units ? { units } : {}), ...(check ? { check: true } : {}),
   });
-  return { html: out.html, module: out.module, early: out.early, runtime: out.runtime, diagnostics: out.diagnostics };
+  return { html: out.html, module: out.module, early: out.early, runtime: out.runtime, diagnostics: out.diagnostics, check: out.check };
 }
 
 test('pages of every shape, through one build\'s units, in both orders: each as compiled without them', () => {
@@ -41,6 +41,15 @@ test('pages of every shape, through one build\'s units, in both orders: each as 
   for (const order of [Object.keys(PAGES), Object.keys(PAGES).reverse()]) {
     const units = new Map<string, unknown>();
     for (let round = 0; round < 2; round++) for (const name of order) expect(build(name, PAGES[name]!, units), `${name}, round ${round}`).toEqual(build(name, PAGES[name]!));
+  }
+  expect(UNIT_STATS.placed).toBeGreaterThan(placed);
+});
+
+test('under the type check: each page, and its check unit, as compiled without units', () => {
+  const placed = UNIT_STATS.placed;
+  for (const order of [Object.keys(PAGES), Object.keys(PAGES).reverse()]) {
+    const units = new Map<string, unknown>();
+    for (let round = 0; round < 2; round++) for (const name of order) expect(build(name, PAGES[name]!, units, true), `${name}, round ${round}`).toEqual(build(name, PAGES[name]!, undefined, true));
   }
   expect(UNIT_STATS.placed).toBeGreaterThan(placed);
 });
