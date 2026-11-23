@@ -10,14 +10,14 @@ Continued on branch `redesign/stage5-b1b` (2026-11-23, second session; sections 
   also for **pages with a unit placed** (the blog's page-file variants: 100 of 100 entries, sinter-mail 3 pages), for
   **pages whose second pass would fold values into code that does not ship** (`shipsFold`, section 12) and for
   **rendered rows under the minifier with a layout** (`respaceRows`, section 15; an embedded resource's id renumbered in
-  place, a route bug). The suite: 306 second passes routed (193 before), "values folded" 124 → 16, "rendered rows and a
-  layout" 48 → 8.
+  place, a route bug) and **under the page's own layout** where nothing it sizes is beside the rows (section 16). The
+  suite: 325 second passes routed (193 before), "values folded" 124 → 16, "rendered rows and a layout" 48 → 3; the
+  examples: static-site 4 of 6 (2 prefold), multilingual-site 8 of 8.
 - **Written up, not built**: a template's entries (section 13): every design that copies walked state per entry costs
   more than the second pass it saves (measured), and the fold of entry values needs a walk that folds.
 - **What B2 still needs**: section 14 (the remaining reasons, by count).
-- **Next**: the page's own layout with rendered rows (the examples' 12 pages: static-site, multilingual-site; 7 in the
-  suite): what reads `this.layout` before the walk (the late rows' space, `planSpace`; the images; the dry run of
-  constants) read the page without the rows; section 15 says what each needs. Then loops unrolled the old way (100).
+- **Next**: loops unrolled the old way (67 + 35 in the suite: stage 2's row route), then the prefold constants (38, and
+  static-site's 2 pages).
 
 ## How it is measured
 
@@ -402,3 +402,59 @@ template-pass entries compiled alone (no kept template) now route. Apps: unchang
 the page's layout). Verified: suite plain and audited; RENDER/LINK/ONE_PASS audits pass, UNITS/UNITS2 the same 62/52;
 render-audit --canon the eight apps the same; pass-audit byte for byte but bench-live-files' state digit; sinter-mail
 48 files byte for byte raw and canonical; size check passes.
+
+## 16. Rendered rows under the page's own layout (second session)
+
+The page's layout (`this.layout`: `styles`, or the images' stylesheets) is read before the walk by the image pipeline,
+the bound images' sizes in the walk, the late lists' space (`planSpace`) and the dry run of constants (whose constants
+are prefold, refused anyway). It sizes nothing by its content (an `auto` width that would follow it, a content-sized
+grid track: not known), and it answers a structural or sibling selector for an element beside a template as not known
+(`siblingsUnknown`), which the second pass, with the rows in place, answers as it is. So what rendered rows can change
+is what it was asked about the rows' parent's other children and what is in them, and what a `:has()` rule matches from
+above. `layoutAround` refuses where the rows' parent holds, beside them, an image, a video, a frame or an object, or a
+list whose space or content-sized box was planned, or where a stylesheet has a `:has()` rule (counted: `rendered rows and
+a layout: an image beside them`, `…: a \`:has()\` rule`); else the layout's answers are the second pass's. The
+examples route now, byte for byte (static-site 4 pages, its other 2 prefold; multilingual-site 8); the suite 325 (2 of
+the 3 refusals are the tests of the reasons). Verified as section 15, on 3,010 tests.
+
+### Numbers after section 16 (CPU profiles, `compilePasses` per build, ms, three builds each, base 22152eb → this)
+
+static-site 197 / 195 / 210 → 187 / 178 / 169; multilingual-site 128 / 126 / 129 → 115 / 116 / 114; realworld 593 / 486 /
+581 → 587 / 606 / 579 and dashboard 519 / 485 / 493 → 522 / 494 / 490 (not routed: no branch the build may decide; no
+second pass). The blog: section 14's numbers (the page-file variants routed, the template variants not).
+
+Commits of this session: 7af202e (units, folds), 0b4ee7f (the minifier's layout, embedded ids), and the one after
+section 16 (the page's layout); each merged with the integration branch before it was pushed.
+
+## 17. What B2 still needs, by reason: the suite, the apps, sinter-mail (merged at 2c9a08d)
+
+Second passes by route, under `SN_FROM_WALK_AUDIT=1` (the suite, `SN_FROM_WALK_STATS`; 3,010 tests) and in one build of
+each audit app (`pass-audit --switch SN_FROM_WALK`) and of sinter-mail's 16 pages (`mail-audit`). The blog's three
+template variants (`<html data-sn-for>`, 100 entries each) are not counted by the route: every entry takes the second
+pass from the kept expansion (section 13). Dashboard has no second pass.
+
+| route | suite | blog (5 × 100) | static-site | multilingual | realworld | sinter-mail |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| **taken** | **325** | **200** (page-file variants) | **4** | **8** | | **3** |
+| a template's entry (`secondPass`, not routed) | — | 300 | | | | |
+| a loop unrolled, not rendered (stage 2's row route) | 67 | | | | | |
+| nothing decided (a branch the build might decide, not decided: no second pass needed) | 51 | | | | | |
+| constants the layout or the images read (prefold) | 38 | | 2 | | | 6 |
+| a loop unrolled on a page that is not quiet | 35 | | | | | |
+| no branch the build may decide (not recorded) | 33 | | | | 1 | |
+| code a decided branch compiled first is compiled elsewhere too | 18 | | | | | |
+| values folded into code that ships | 9 | | | | | |
+| a definition compiled first in a decided branch, used by the page | 9 | | | | | |
+| a choice decided | 9 | | | | | |
+| values folded, nothing else decided | 7 | | | | | |
+| a unit's definition the page keeps | 6 | | | | | |
+| diagnostics in a decided branch | 4 | | | | | |
+| code the unit compiled is compiled by the page too | 4 | | | | | 1 |
+| a resource read only in a decided branch (SN501) | 2 | | | | | 6 |
+| ids in rendered rows | 2 | | | | | |
+| rendered rows and a layout: an image beside them, a bound element around them, a `:has()` rule | 1 + 1 + 1 | | | | | |
+| over the expansion limit, an else-if decided, a decided if in a template that stays | 1 each | | | | | |
+
+So for the apps the second pass is left for: the template entries (300 blog pages), prefold constants (8 pages:
+static-site 2, sinter-mail 6), the SN501 case (sinter-mail 6: a resource read only in a dropped branch, whose warning
+the second pass reports), one unit case (sinter-mail 1), and realworld's one page whose branch is not recorded.
