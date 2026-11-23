@@ -283,3 +283,9 @@ Found by the research, not changed:
   time now, as in the browser, and false with rendering off. Started: a spike of stage 4, definitions compiled once
   per build (`redesign-notes/stage4-units.md`). Stage 3 (one walk per page) waits for the rest of stage 2, which
   works in the same code.
+- 2026-11-23, 15:50 UTC: the type check, first change merged (`redesign-notes/typecheck.md`): a shadow function
+  that repeats (a component's markup gives the same ones on every page and at every use) is given to `tsc` once, and
+  its errors are laid out at every place they were reported before; the diagnostics corpus is byte for byte the
+  reference. With the check on (the agent's medians, load 4 to 8): 100 posts, a page file each, 12.6 s to 8.4 s
+  (`tsc` 9.8 s to 0.86 s); one template 5.1 s to 4.4 s; sinter-mail's 12 API pages with TypeScript 21.3 s to 8.0 s.
+  `SN_CHECK_SHARE=0` turns it off. Still running: the rest of stage 2, the stage 4 spike.
