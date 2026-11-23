@@ -241,3 +241,250 @@ the two-base check turns from a wrong page into a fallback); 5 a day (less after
   test/compiler` 1,045 passed; `SN_RENDER_AUDIT=1` the same; `SN_LINK_AUDIT=1` 1,043 passed and two that timed out at
   5 s under a load of 16 (`link.test.ts`, `link-review-3.test.ts`), both passing when run alone; `scripts/mail-audit.mjs`
   42 files identical.
+
+## The implementation (after the coordinator's go-ahead)
+
+### Placement: the unit put first, shared, and given back (`src/compiler/units.ts`)
+
+Measured before building it: before a first pass's walk nothing is numbered on any page (templates, functions,
+states, use ids, node ids, actions all 0: `prewalk.mjs` over sinter-mail's 16 pages and the blog), and the shift audit
+extended to the whole first pass (`SN_UNITS_SHIFT_AT=walk`: everything shifted from before the walk) leaves every
+page with a second pass the same (sinter-mail's 42 files; the varied blog with and without TypeScript, 72 pages).
+So a page's definitions can be compiled **before** its walk, at numbers that are the same on every page, and the
+unit's objects need no renumbering at all: placing it is sharing it. Plan step 1 (names through one function) is not
+needed.
+
+- **Which definitions**: the names of the page's own recursion points and candidates, in the order expansion found
+  them (`pointNames`), all compiled into one unit before the walk. The key: those names, `keepsAttrs`, the locale, the
+  axis URL.
+- **Made** on the first page that needs it with the linker's recorder (`runUnit`, its writes applied to the page):
+  what it read of its page is the unit's precondition (`readsHold` on each page that places it), what it wrote the
+  unit's content. Refused, counted: what the recorder refuses (actions, fill ids, lazy imports, node ids), a
+  diagnostic, an object of its page held inside one of its own, text that names its page's file elsewhere than in an
+  origin. The candidates its choices would take out after the walk are taken out before it is shared.
+- **Placed**: the numbering (function table, template list, counters) copied, the weak tables overlaid
+  (`OverlayMap`/`OverlaySet`: the page's entries, then the unit's), the writes into the page's own tables made again
+  (by value: the unit's own objects as they are), and the origins that name the page that made it (a definition's
+  host, the include chains) made anew with this page's file (as the linker's `FILE`/`Line` did).
+- **What a page changes of a unit's objects**, found by `SN_UNITS_VERIFY=1` (each unit object's own values printed
+  when made and checked after every page) and `SN_UNITS_FREEZE=<property>` (those objects frozen, so the write
+  throws where it is): `finishTreeFills` (a tree placement's cases and choice), `finishChoices`, `defRootBindings`,
+  `addSources`, `componentScope` and the root's state id (a fill case walking a definition's default children), the
+  evaluation's paints into template markup, its folded texts, `dropConstants`. Each such write `touch`es the object
+  first (a shallow copy, once per page); `restoreUnit` puts them back when the first pass is done
+  (`compilePasses`). Two other leaks found on the way: the unit's numbering was the making page's own list, which the
+  page went on to extend (copied now), and the origins naming the making page's file (`defFiles` counted it as a
+  component file on the next page, which made a rendered row fall back).
+- **A first pass that is finished** (its output, its diagnostics read, or under `check` for now) is compiled again
+  without units (`a first pass that is finished`), and so is one whose unit was refused after compiling before the
+  walk.
+
+Placement and the walk it leaves, CPU ms per later page (pages 3 to 12, 3 to 101), units off and on, one
+instrumented build each (load 14 to 16):
+
+| build | replay (off) | placement (on) | first pass's walk, off / on | page compile, off / on | whole build's compile, off / on |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| sinter-mail API, 12 pages | 25.7 | 5.6 | 53 / 20 | 67 / 38 | 1,760 / 1,380 |
+| sinter-mail file email | 34.7 | 7.4 | 70 / 19 | 102 / 57 | 2,127 / 1,598 |
+| sinter-mail components route | 62.2 (both passes) | 5.5 (+ the second pass's replay 30) | 61 / 19 | 164 / 120 | 3,601 / 3,468 |
+| blog static-files, 101 | 3.7 | under 0.1 | 7.0 / 2.4 | 19.8 / 15.7 | 2,401 / 1,898 |
+| blog live-files | 4.0 | under 0.1 | 9.2 / 4.0 | 27.5 / 22.7 | 3,040 / 2,516 |
+
+Making the unit costs what the linker's recording did, once per build instead of the linker's compile and record
+(sinter-mail: 860 ms CPU on the first page, against 276 + 603). The components route still compiles and links the
+library in its second pass (plan step 6). The blog with the type check is unchanged: under `check` nothing is placed
+yet.
+
+Byte for byte: `scripts/render-audit.mjs --switch SN_UNITS` (the four benchmark apps and the four examples, units off
+and on): every file the same; `scripts/mail-audit.mjs` with `SN_UNITS=0` and on, both of its builds kept and diffed:
+42 files the same (and the same with `SN_UNITS_VERIFY=1`); the varied blog with and without TypeScript the same.
+`test/compiler` passes plain (1,046), and under `SN_UNITS_AUDIT=1` no page differs (the 60 failures are the tests
+that count compiles, links or rendered rows, which the audit's extra compiles change, and timeouts).
+
+### Under the type check
+
+A unit made under `check` records its frames and expressions in a check unit of its own (`runUnit`'s `own` fields,
+neither logged nor applied to the page), by the top-level name whose definition recorded them. A page takes a name's
+part at its first `definition()` of it, which is where compiling in place records it: its frames and expressions
+numbered from the page's counts there (`init` and `frames` are the only numbers in them), its scopes' frames
+(`frameOf`) too, the page that made it named as this one in the locations. A walk that takes the names in another
+order than the unit compiled them is compiled again without units (`checkOrder`). With a unit placed, a first pass
+under check is no longer finished: its check unit is complete after the walk (nothing after it writes one), and the
+second pass's output takes it, as `compilePasses` does when it is finished. The part is copied per page (its numbers
+are the page's); it is recorded once. With 519bbe5 the shadows' functions that repeat are given to `tsc` once, so
+the copies cost the compile only.
+
+| build | later page, off / on | whole build's compile, off / on | wall, off / on |
+| --- | ---: | ---: | ---: |
+| sinter-mail API, TypeScript, 12 pages | 343 / 63 | 4,183 / 1,839 | 7.8 / 5.0 s |
+| sinter-mail file email, TypeScript | 353 / 68 | 4,380 / 1,866 | 8.0 / 5.6 s |
+| sinter-mail components, TypeScript | 551 / 333 (the second pass still compiles the library: 225) | 7,042 / 5,254 | 11.4 / 9.3 s |
+| blog static-files, TypeScript, 101 | 44.7 / 20.9 | 4,728 / 2,553 | 14.4 / 9.1 s |
+
+(CPU ms, one build each, load 13 to 16; every output file the same both ways.)
+
+### Evaluation: the unit's functions compiled once per build
+
+`prerender` compiles every function the evaluation may run in one `new Function` per page. The unit's (on
+sinter-mail 4,223 codes) are now compiled once per build (`unitTable`): one table over all of the unit's code, whose
+free names (the helpers as stubs or folding calls, the formatters, `$k`, `$href`…) are `let` variables of the
+table's scope that each page binds to its own values before it evaluates; the page compiles only what is left. A
+unit table that does not compile falls back to the page compiling everything (counted). It bought less than
+expected: on sinter-mail a later page's walk went from 20 to 18.5 ms (API), 18.5 to 17.9 (file email): the
+`new Function` over the unit's code was not the evaluation's cost. What `prerender` spends now (17 ms a page on
+sinter-mail under the profiler, 7.6 of it its own) is collecting the candidates and the rows' code over every
+template, the unit's 355 included, and the worklist's evaluation (`run`, the scope proxy): stage 6's work.
+
+### Placement, shortened
+
+- The unit's choices (65 `<sn-component use>` groups on sinter-mail, all candidates its own) are finished once when
+  it is made, not by every page after its walk (`finishChoices` was 5.6 ms a page).
+- What placing writes is shortened when the unit is made: a compiler field the unit wrote many times (`lastExpr`
+  4,665 times, `inDef`) is written once, its last value; the 4,030 candidates its choices take out after the walk
+  are out already, so the page's list does not take them.
+
+### Reconciled with the type check's changes (b41fab5)
+
+The check unit's lists are now the compiler's own fields (`checkFrames`, `checkExprs`, f910e52): a unit is made with
+fresh ones of its own (`runUnit`'s `own`), and `unitCheck` pushes a name's part into the page's. Under check the first
+pass already stops at its decisions (2bc2a73); with a unit placed it does so only where the walk took the unit's check
+data in the unit's order (`checkOrder`), else it is compiled again without units. Checks on the merged tree: build;
+`test/compiler test/vite test/check` 1,414 (eight timed out at 5 s under a load of 19 to 25 and pass alone); under
+`SN_UNITS_AUDIT` no page differs (71 failures: tests that count compiles, links or rendered rows, and timeouts);
+`SN_RENDER_AUDIT` 1,055 passed; `SN_LINK_AUDIT` 1,042 and 13 timeouts that pass alone; `render-audit --switch
+SN_UNITS` every file the same; `mail-audit` 42 files the same, and the same with units off and on.
+
+## Where stage 4 stands, and what is left (for the review before the linker goes)
+
+### What the linker still covers that units do not
+
+Units place a first pass's definitions in builds. Everything else that compiles a shared definition still goes through
+`definition()`'s linker path (`opts.definitions`) or compiles in place:
+
+| case | units | linker today | measured where |
+| --- | --- | --- | --- |
+| the second pass's definitions (live instances that stay recursion points; sinter-mail's components route compiles the library again there and ships it) | no: the numbers ship there | records on the 2nd page, replays (25 to 30 ms a page on sinter-mail) | the components route; nothing else measured has live definitions in its second pass |
+| a first pass that is finished: no second pass (`prerender` off, nothing decided), `quietFinish` false (a signed-in guard, `data-sn-pages`, URL bindings, page models), a walk that takes the unit's names in another order under check | compiled again without units (counted, `a first pass that is finished`) | links | 0 pages of sinter-mail, the blog and the examples; most of the suite's pages (no `prerender`) |
+| a unit that is refused (an action, a fill id, a lazy import, a node id, a diagnostic, its page's file in its text, an object of its page in one of its own) | compiled in place, then compiled again | links what it can (refuses the same kinds) | none in the apps |
+| definitions not among the page's own recursion points and candidates (reached first from a fill's case after the walk, `finishTreeFills`) | compiled in place on each page | links | not counted yet |
+| `describeOnly` (the per-page description compiles, `describedDefinitions` past `LINK_DESCRIPTIONS`) | no (`describesNothing` leaves most out) | links | |
+| `<html data-sn-for>` templates (`keepTemplate`) | no | no (walked once per template already) | |
+| dev, `sinter check`, the editor | no | no | |
+
+So deleting the linker today would cost the components route its second-pass replay (it would compile the library
+there on every page again, about 225 ms CPU a page here) and every finished first pass its links. Plan step 6
+(second-pass units) is the precondition; the finished first passes cost only what they cost before the linker.
+
+### What deleting it removes, and what it must keep
+
+Units are made with the linker's recorder: `runUnit`, `Rec`, the logged wrappers, `readsHold`, `applyOps`,
+`LINK_FIELDS`/`UNIT_NUMBERING` and `unitChild` stay (or are replaced by a unit compiler with fresh tables, plan step
+2, whose equivalence the recorder's reads measure today). What goes:
+
+- `src/compiler/link.ts`: the plan (`keep`, `Plan`, `R`/`X`/`Line`/`FILE`, `replay`, `PageMaps`, `recordChild`), about
+  330 of its 881 lines; the rest moves to `units.ts` as the recorder.
+- `src/compiler/compile.ts`: `definition()`'s cache path and `defLink` (about 40 lines, 5063 to 5104), the
+  `definitions` option.
+- `src/vite.ts`: `definitions`, `describedDefinitions`, `LINK_DESCRIPTIONS`, `SN_NO_LINK` (13 lines that name them).
+- `src/compiler/index.ts`: `auditedLink`, `audited` (about 60 lines).
+- Tests: `link.test.ts`, `link-review.test.ts`, `-2` to `-5` (703 lines); `link-fields.test.ts` (45) stays while the
+  recorder classifies fields.
+- CI: the `link-audit` job (`.github/workflows/ci.yml`, lines 55 to 90).
+
+### The audit once `SN_LINK_AUDIT` is gone
+
+`SN_UNITS_AUDIT=1` (`src/compiler/index.ts`, `auditedUnits`): every compile again without units, where it makes a
+unit, where it places one, and placed under another name and in another folder, every field compared; it runs under
+check too (the type check's unit is a field). `SN_UNITS_VERIFY=1` beside it: every unit object's own values after every
+page (what a page changes and does not give back). It replaces the link audit's job in CI one for one; the link audit's
+rounds through one cache are what it does with units. What it does not do yet that the link audit did: compile pages
+of other shapes into one cache (the link-review scenarios); `test/compiler/units.test.ts` does that for eight shapes in
+both orders, plain and under check, and the link-review scenarios should be ported to it before they are deleted.
+
+### Plan steps left, as the coordinator ordered them
+
+2. **Second-pass units.** Where the names ship, a unit placed by sharing would have to survive `finishPage`, which
+   rewrites what a definition made (`anchors`, `shareTemplates`, `compactTables`, `groupStyles`, `checkUrlArrays`):
+   sharing there means copying, i.e. the linker's replay. What a second-pass unit can drop is the linker's key by the
+   page's whole numbering: on sinter-mail's 16 pages its pass-2 units have the same template count before them (4)
+   and differ in the function count, state and use ids only, which reach the output through the function table alone
+   (measurement 3). So: a pass-2 unit keyed by the template count, its function indices renumbered at placement by
+   replaying its hand-outs through the page's `fn()` (a typed renumbering of `Binding`/`TemplateDef`/`NodeDef` fields,
+   checked at creation with two bases). Gain: the 2nd page's recording and the extra recordings of differently
+   numbered pages, not the replay itself. Not started.
+3. **Check data once.** A unit's check part is copied into each page now (`unitCheck`: numbers offset, locations
+   renamed). To reference it instead, the check unit needs a form that holds a unit's part by reference with its
+   offsets (`{ unit, frameBase, exprBase, file }`) and `check()` (src/check/index.ts) has to lay a page's shadow out of
+   the parts it links: its `checkShared` already writes each repeated function once, so a unit's part can be one
+   shared block whose functions are numbered by the unit, not by the page. That changes `CheckUnit` and the shadow
+   writer: the type-check agent's code. Not started.
+
+## After stage 3 (merged at 0203435)
+
+- **`copyState` and units compose**: a kept template's walk passes `units: undefined`, so no unit object reaches a
+  copied compiler. Checked: `test/compiler/template-pass.test.ts`, `one-pass.test.ts` and `units.test.ts` pass plain,
+  and under `SN_UNITS_AUDIT` no page differs (the 15 failures there are the tests' compile counts, which the audit
+  triples).
+
+### Where a check build's time goes now (sinter-mail, 12 pages, `--cpu-prof`, load 15 to 20)
+
+| | API route | components route |
+| --- | ---: | ---: |
+| `check()` | 1,579 ms | 2,216 ms |
+| of it `checkShared` (all pages' shadows in memory, functions keyed by text, the pages and shared modules written) | 1,575 | 2,214 |
+| of that `shadowOf` (each page's whole shadow) | 466 (39 a page) | 836 (70 a page) |
+| of that one `tsc` | 677 | 632 |
+| so the rest of `checkShared` (the text keys and the layout) | about 430 (36 a page) | about 750 (62 a page) |
+| `unitCheck` (each page's copy of the unit's check part, renumbered; 177 ms of it the copy with the file renamed) | 186 (15 a page) | 214 (18 a page) |
+| the second pass's `replay` (the linker; it links under check now too) | | 783 (71 a page) |
+
+So the check of a page with a unit costs about 90 ms a page on top of `tsc` (15 for the copy, 39 for its shadow, 36
+for keying the shadow's functions by text), nearly all of it the unit's part, which is the same text on every page
+but for its numbers.
+
+### Step 3 (a unit's check data once): the design, not built yet
+
+What makes every page's part different is only its numbers: the frames' and expressions' indices (`$e<i>`, the
+frames a function opens) and the page's file in the locations. So:
+
+1. **The check unit holds a unit's part by reference.** `CheckUnit` gets `parts: Array<{ part: CheckPart; at: number;
+   frameBase: number; exprBase: number }>` (`at`: where the walk took it, between the page's own expressions), and
+   the part's frames and expressions stay in the unit, numbered from 0. `unitCheck` records the reference instead of
+   copying. Every reader of `frames`/`exprs` by index (`typeDiagnostic`, the regions, the LSP's `checkPage`, the
+   compiler's own `checkExprs[i]` writes after a part, `frameOf` of a unit's scope) reads through one accessor that
+   resolves a page index to (part, local index). Byte-identity oracle: `flatten(unit)` (the copy `unitCheck` makes
+   today) equals what the compiler gives without units, under `SN_UNITS_AUDIT`.
+2. **The part's shadow once per build.** A part's functions are written by `shadow()` once, with its own names
+   (`$u<k>_<i>`) and its frames' functions calling one another by those names; `checkShared` takes them as one
+   shared block per folder (they repeat by construction) instead of finding them by text on every page. A page's
+   shadow is then its declarations, its own functions, and calls into the part where its expressions open a part's
+   frame. The page's errors in a part's function are laid out where its whole shadow would have had them, exactly as
+   `checkShared` does for a shared function now (its `byId` → each page's position): the layout code is reused.
+3. **Where it can differ**: a part function that names something the page's declarations type for that page
+   (`pageNamed`: its resources, `$meta`, …) cannot be shared; such a part is written on each page as now (the
+   fallback). A definition reading a page's resource by name is already a unit read of the page (a precondition).
+
+Order: the accessor and the reference first (byte-identical, `SN_UNITS_AUDIT` and the diagnostics corpus: removes
+the 15 ms copy), then the part's shadow once (removes most of the 75 ms), each with `SN_CHECK_SHARE=0` still
+checking every page whole for comparison. The corpus reference is to be regenerated from the integration branch when
+this starts (a bug-fix agent is changing some check diagnostics on purpose).
+
+### Step 2 (second-pass units): the answer is stage 5
+
+Measured on the components route (CPU, under check and without): the second pass replays the library's plan at 25
+to 30 ms a page without TypeScript and 71 ms a page with it (the plan carries the check unit's lists since f910e52),
+against about 225 ms to compile it. What a placement by sharing would have to survive is `finishPage` on the
+definitions it ships:
+
+- `anchors()` turns the head templates' `<template>`s into comments and recomputes every row node's `path`;
+- `shareTemplates()` merges subtrees across definitions and renames their props to `$pp` in code;
+- `compactTables()` drops the templates nothing on the page reaches, renumbers the rest and their `$i<n>`, and
+  renumbers and dedupes the functions in the page's order;
+- `groupStyles()`, `checkUrlArrays()` and `placeTemplates()` rewrite code and move the head templates into the page.
+
+The first two are the same on every page for one unit (they read only the definitions), so they could run once when
+the unit is made: a copy-on-write boundary exists there. The last two are the page's assembly: which of the unit's
+templates are live, and every function's final index, depend on the page. Placing a shared unit there means doing
+that assembly over the unit's objects without changing them, i.e. stage 5's assembly (numbers handed out at the end,
+over what the page ships). Keying a second-pass unit by the template count would remove the recordings (one per
+differently numbered page), not the per-page replay, so it is not built.
