@@ -726,3 +726,21 @@ decision of their own (stage 7). A step that can stay byte-identical does.
   files byte for byte. Still refused: a page whose own layout reads it without the rows (styles and images:
   `planSpace`, the image pipeline, the dry run), which is the examples' 12 pages. Next there: that written up
   precisely, then loops unrolled the old way (100 in the suite).
+- 2026-11-23, 23:45 UTC: **stage 6 continued, the blog measured part by part and two steps merged**
+  (`redesign-notes/stage6-eval.md`, "Round 2"; `2c9a08d`). Where a blog post's compile goes (a profile at 50 µs,
+  ms a page under the profiler, which inflates by about 1.5; 15.9 in all, 8.6 ms wall at the 25th percentile): the
+  first pass's deciding 8.8, of it the post's `md.parse` 2.8 (markdown-it and the tree; not the compiler's), the
+  data checks 1.6, the walk 2.6, rendering 2.5 (`fill`'s own 0.84, `clone` 0.61), the rest 0.6; the second pass
+  from the kept walk 4.0 (`walkChildren` 2.3, a definition compiled 0.86, the minifier 0.78); `keepTemplate`,
+  `copyState` and the rest 3.1. Nothing in the deciding is above 0.9: it is work per node everywhere. The steps: a
+  frozen object's height kept where it is frozen (`plainData` no longer walks a helper's tree), and what `fill`
+  asks of each node asked once per template (`nodeInfo`, `ifInfo`, `forInfo`), `constantSources` and the written
+  state once per evaluation. Its numbers, seven interleaved rounds against `0efedb8`: the blog's `decideFor` 5.06 to
+  4.72 ms at the 25th percentile (median 6.00 to 5.50), `compile()` 7.82 to 7.41; the 2,012-element email's first
+  pass 70 to 66; output byte-identical. Checked on the coordinating machine after the merge: 1,567 tests of
+  test/compiler, test/vite, test/check pass; `render-audit --switch SN_ROW_FN --canon` eight apps the same;
+  `mail-audit --switch SN_ROW_FN` under `SN_CANON=1` 48 files byte for byte. **How close**: about 7.4 ms a page
+  against the 4 ms target, of which the library's parse is nearly 2. Shaving per-node work gives a few percent a
+  step; the coordinator asked the session to assess a larger step before going on: a rendered row that keeps
+  nothing live written as markup text from a plan per template, not as nodes that are cloned, walked again by the
+  second pass, minified and serialized.
