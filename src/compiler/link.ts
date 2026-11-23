@@ -189,6 +189,11 @@ export const LINK_FIELDS: Record<string, { kinds: string[]; how: 'table' | 'weak
   rootStyled: { kinds: ['Set'], how: 'table' },
   rowOf: { kinds: ['WeakMap'], how: 'weak' },
   rowPaint: { kinds: ['Map'], how: 'table' },
+  rendered: { kinds: ['Map'], how: 'table' },
+  renderedAt: { kinds: ['WeakMap'], how: 'weak' },
+  renderedReads: { kinds: ['Set'], how: 'table' },
+  snSource: { kinds: ['WeakMap'], how: 'weak' },
+  tplDiags: { kinds: ['Map'], how: 'table' },
   runtimePlacements: { kinds: ['Array'], how: 'table' },
   runtimeSlots: { kinds: ['WeakSet'], how: 'weak' },
   scopeStart: { kinds: ['WeakMap'], how: 'weak' },
@@ -485,7 +490,7 @@ class LoggedWeak {
  */
 const BUILD_OPTIONS = new Set(['root', 'dev', 'sourcemap', 'helpers', 'actions', 'config', 'readFile', 'listFiles', 'globCache', 'templates', 'definitions', 'collections',
   'collectionsError', 'prefetch', 'openapi', 'apis', 'complexity', 'expansionLimit', 'componentNames', 'libraries', 'lazy', 'lazyScript', 'lazyModule',
-  'helperValues', 'helperFold', 'foldLog', 'prerender', 'changesRequests', 'observe', 'embed', 'componentCss', 'base', 'file', 'decided', 'unrolled', 'constants', 'frozen', 'overLimit']);
+  'helperValues', 'helperFold', 'foldLog', 'prerender', 'changesRequests', 'observe', 'embed', 'componentCss', 'base', 'file', 'decided', 'unrolled', 'constants', 'frozen', 'overLimit', 'rendered']);
 
 /**
  * A top-level definition compiled as a unit (`unitChild`) and recorded as it compiles. Its writes are applied to the page,
