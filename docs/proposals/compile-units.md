@@ -228,6 +228,20 @@ Found by the research, not changed:
   for inlined uses: the holes keep the output, and the runtime, as they are. Stage 7 is about the uses whose props
   are a frame already (definitions), and is a decision of its own.
 
+## What is next (the owner's instructions, 2026-11-23)
+
+1. **Stage 5 starts once the agents now running have finished and are merged** (dev rendering, the six bug fixes,
+   embedding, the evaluation's cost, stage 4's check data). Besides what its entry above says, stage 3 found that it
+   has to bring assembly: the first pass's walk compiles a decided branch's content as page markup, and ids and
+   numbers are handed out at the end, so that the second pass's result comes from the first's walk.
+2. **Stage 3's leftovers, as soon as stage 5 makes them possible** (`redesign-notes/stage3-one-pass.md`): the
+   second pass deleted; a page file walked once, not three times (its description needs every page's description
+   first: late-bound placeholders in `src/vite.ts`, and an audit that a real compile's description fields are a
+   `describeOnly` compile's); a cheaper copy so that a page of its own starts its second pass from its first's
+   expansion. And stage 2's: the old second-pass row route deleted once dev renders and per-copy diagnostics and
+   rows that keep a handler are covered.
+3. **Stage 4's last step waits for a review**: the linker's deletion (`redesign-notes/stage4-units.md`).
+
 ## Status log
 
 - 2026-11-23: benchmark (`bench/astro`), research notes, this design. Stage 1 started as a spike in a worktree.
