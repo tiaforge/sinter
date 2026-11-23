@@ -1,7 +1,7 @@
 import * as acorn from 'acorn';
 import { canonical } from './canon.js';
 import { tsPlugin } from '@sveltejs/acorn-typescript';
-import { compileParts, localSignIn, withoutFromWalk, requestUrl, type CompileOptions, type CompileResult, type CompiledParts, type EarlyParts, type FnSource, type FnSources, type HelperManifest, type HelperOrigin, type PrefetchParts, type EmbedSlot, type EmbedCond, type RuntimeReason } from './compile.js';
+import { compileParts, pageHead, localSignIn, withoutFromWalk, requestUrl, type CompileOptions, type CompileResult, type CompiledParts, type EarlyParts, type FnSource, type FnSources, type HelperManifest, type HelperOrigin, type PrefetchParts, type EmbedSlot, type EmbedCond, type RuntimeReason } from './compile.js';
 import { compactIR, type EarlyIR } from '../ir.js';
 import { coreParts } from '../core-parts.js';
 import { MappedLines, type SourceMap } from './sourcemap.js';
@@ -17,7 +17,8 @@ export { FLUID_WIDTHS, TINY_BYTES } from './images.js';
 export { Layout, evaluate, type FixedBox, type FluidPiece, type FluidSizes, type StyleSheet } from './layout.js';
 export { formatDiagnostic, formatWarning, applyStrict, strictPromotes, docsUrl, suggest, CODES, ENVIRONMENT_CODES, HEURISTIC_CODES } from './diagnostics.js';
 export { DIAGNOSTIC_DOCS, type DiagnosticDoc } from './diagnostic-docs.js';
-export { compileParts };
+export { compileParts, pageHead };
+export type { PageHead } from './compile.js';
 export { COMPLEXITY_DEFAULTS, type ComplexityLimits, type ComplexityOptions } from './complexity.js';
 
 export const PACKAGE = '@tiaforge-ui/sinter';
@@ -72,7 +73,10 @@ function auditedLink(html: string, options: CompileOptions): CompileResult {
   // the kept template's, which the build is handed as without the audit)
   if (options.templates && options.check) {
     differs('linked in its build', options.file, { ...alone, check: undefined }, { ...linked, check: undefined });
-    return alone.check && !linked.check ? { ...linked, check: alone.check } : linked;
+    if (!(alone.check && !linked.check)) return linked;
+    const out = { ...linked, check: alone.check }, later = LATER.get(linked);
+    if (later) LATER.set(out, later);
+    return out;
   }
   differs('linked in its build', options.file, alone, linked);
   return linked;
@@ -134,6 +138,27 @@ function audited(html: string, options: CompileOptions): CompileResult {
   return plain;
 }
 
+/** (`prefetchLater`) each result's page module written with another `prefetch`, and its description's `prefetch` */
+const LATER = new WeakMap<CompileResult, { module: (prefetch: string | null) => { module: string; map?: SourceMap }; described: NonNullable<CompiledParts['firstPrefetch']> }>();
+
+/**
+ * A build's page compiled with `prefetchLater`: its page module (and source map) as `compile` writes it with this
+ * `prefetch` instead of the one it was given (everything else of the page is the same), or null for a result that
+ * was not (`moduleWith(out, options.prefetch)` is `out`'s own module).
+ */
+export function moduleWith(out: CompileResult, prefetch: string | null): { module: string; map?: SourceMap } | null {
+  return LATER.get(out)?.module(prefetch) ?? null;
+}
+
+/**
+ * A build's page compiled with `prefetchLater`: what another page can request ahead for it as its description
+ * (`describeOnly`) gives it, read off its first pass; `{ why }` where that is not known there; null for a result that
+ * was not compiled with `prefetchLater`.
+ */
+export function describedPrefetch(out: CompileResult): NonNullable<CompiledParts['firstPrefetch']> | null {
+  return LATER.get(out)?.described ?? null;
+}
+
 function compileOne(html: string, options0: CompileOptions): CompileResult {
   const raw = compileParts(html, options0);
   // `SN_CANON=1` (redesign-notes/stage5-assembly.md, step 0): the output in its canonical numbering, to count what a
@@ -162,6 +187,14 @@ function compileOne(html: string, options0: CompileOptions): CompileResult {
   if (lazy.length) out.lazyScripts = lazy.map((x) => ({ module: x.module, lazy: x.lazy! }));
   const map = options.sourcemap ? page.map(parts.sources, css.split('\n').length - 1) : null;
   if (map) out.map = map;
+  if (options.prefetchLater) LATER.set(out, {
+    module: (prefetch) => {
+      const again = pageLines(parts, { ...options, prefetch });
+      const m = options.sourcemap ? again.map(parts.sources, css.split('\n').length - 1) : null;
+      return { module: css + again.text(), ...(m ? { map: m } : {}) };
+    },
+    described: parts.firstPrefetch ?? { why: 'no first pass' },
+  });
   if (parts.images) out.images = parts.images;
   if (parts.paint !== undefined) out.paint = parts.paint;
   if (parts.unheld) out.unheld = parts.unheld;

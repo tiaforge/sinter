@@ -1,7 +1,9 @@
 // The canonical form of a compile's result (docs/proposals/redesign-notes/stage5-assembly.md, step 0): the same result
 // with every number the compiler hands out, and every name made from one, renumbered in a fixed order, so that two
 // results that differ only by numbering are equal. It is the oracle for a route that is identical to another up to
-// numbering; it never changes what a compile outputs unless asked (`SN_CANON=1` in `compile()`).
+// numbering; it never changes what a compile outputs unless asked (`SN_CANON=1` in `compile()`). It is for builds: a dev
+// compile keeps every function it made (no `compactTables`), so two dev compiles numbered otherwise can differ in the
+// functions nothing names.
 //
 // What it renumbers, and in which order:
 // - templates: in the order a walk of the IR reaches them from the roots (the page's, then the early file's), each
@@ -124,12 +126,18 @@ type P5Template = DefaultTreeAdapterMap['template'];
 function markupIds(html: string): { ids: number[]; edits: (map: ReadonlyMap<number, number>, tmap: ReadonlyMap<number, number>) => Edit[] } {
   const doc = parse5.parse(html, { sourceCodeLocationInfo: true });
   const ids: number[] = [];
-  const sites: Array<{ kind: 'attr' | 'comment' | 'head'; id: number; start: number; end: number; prefix: string }> = [];
+  const sites: Array<{ kind: 'attr' | 'comment' | 'head' | 'json'; id: number; start: number; end: number; prefix: string }> = [];
   const heads: Array<{ parent: unknown; id: number; start: number; end: number }> = [];
   const walk = (n: P5Node) => {
     if (n.nodeName === '#comment') {
       const c = n as DefaultTreeAdapterMap['commentNode'], m = /^sn (\d+)$/.exec(c.data), loc = c.sourceCodeLocation;
       if (m && loc && +m[1]! < KEPT) { ids.push(+m[1]!); sites.push({ kind: 'comment', id: +m[1]!, start: loc.startOffset, end: loc.endOffset, prefix: '' }); }
+      return;
+    }
+    // (the embedded data's place, filled after the compile: `\u0001sn-json:<id>\u0001`)
+    if (n.nodeName === '#text') {
+      const t = n as DefaultTreeAdapterMap['textNode'], m = /^\u0001sn-json:(\d+)\u0001$/.exec(t.value), loc = t.sourceCodeLocation;
+      if (m && loc) { ids.push(+m[1]!); sites.push({ kind: 'json', id: +m[1]!, start: loc.startOffset, end: loc.endOffset, prefix: '' }); }
       return;
     }
     if ('attrs' in n) {
@@ -181,11 +189,11 @@ function markupIds(html: string): { ids: number[]; edits: (map: ReadonlyMap<numb
   };
 }
 
-function siteEdit(s: { kind: 'attr' | 'comment' | 'head'; id: number; start: number; end: number }, map: ReadonlyMap<number, number>, tmap: ReadonlyMap<number, number>): Edit[] {
+function siteEdit(s: { kind: 'attr' | 'comment' | 'head' | 'json'; id: number; start: number; end: number }, map: ReadonlyMap<number, number>, tmap: ReadonlyMap<number, number>): Edit[] {
   if (s.kind === 'head') { const j = tmap.get(s.id); return j === undefined || j === s.id ? [] : [{ ...s, text: `id="sn-t-${j}"` }]; }
   const j = map.get(s.id);
   if (j === undefined || j === s.id) return [];
-  return [{ ...s, text: s.kind === 'attr' ? `data-sn="${j}"` : `<!--sn ${j}-->` }];
+  return [{ ...s, text: s.kind === 'attr' ? `data-sn="${j}"` : s.kind === 'json' ? `\u0001sn-json:${j}\u0001` : `<!--sn ${j}-->` }];
 }
 
 /**
@@ -266,6 +274,8 @@ export function canonical(parts: CompiledParts): CompiledParts {
   const smap = new Map<number, number>();
   for (const n of [...ir.roots, ...ir.templates.flatMap((t) => t.nodes)]) if (n.sid != null && !smap.has(n.sid)) smap.set(n.sid, smap.size);
   for (const n of allNodes()) if (n.sid != null && !smap.has(n.sid)) smap.set(n.sid, smap.size);
+  // (a state the build kept no node for, named by what it froze: after the IR's, in the order they are named)
+  for (const p of parts.fixedState ?? []) { const m = /^\$s(\d+)(?:\.|$)/.exec(p); if (m && !smap.has(+m[1]!)) smap.set(+m[1]!, smap.size); }
   for (const [a, b] of smap) names.set(`$s${a}`, `$s${b}`);
   for (const n of allNodes()) if (n.sid != null) n.sid = smap.get(n.sid)!;
   const rn = (v: string | null | undefined) => (v ? names.get(v) ?? v : v);
@@ -290,10 +300,17 @@ export function canonical(parts: CompiledParts): CompiledParts {
   parts.fns.forEach((_, i) => { if (!fseen.has(i)) forder.push(i); });
   const fmap = new Map(forder.map((i, j) => [i, j]));
   mapFns(ir, (i) => fmap.get(i) ?? i);
+  // (dev: where each function was written, by its index)
+  const at = (o: { at?: Record<number, string> }) => { if (o.at) o.at = Object.fromEntries(Object.entries(o.at).map(([k, v]) => [String(fmap.get(+k) ?? k), v])); };
+  for (const n of [...ir.roots, ...ir.templates.flatMap((t) => t.nodes)]) n.b.forEach(at);
+  ir.actions.forEach(at);
   const memo = new Map<string, string>();
   const code = (c: string) => { let r = memo.get(c); if (r === undefined) memo.set(c, (r = renameCode(c, names, nmap))); return r; };
   const fns = forder.map((i) => code(parts.fns[i]!));
   eachPath(ir, (p, set) => { if (typeof p === 'string') set(renamePath(p, names) as never); }, (p, set) => { if (typeof p === 'string') set(renamePath(p, names) as never); });
+  // an action's updates name the paths they write (`ap`: `v`, `s`, `p`)
+  const apPath = (x: { v?: string; s?: string; p?: string[] }) => { if (x.v) x.v = renamePath(x.v, names); if (x.s) x.s = renamePath(x.s, names); if (x.p) x.p = x.p.map((y) => renamePath(y, names)); };
+  for (const a of ir.actions) if (a.ap) { for (const x of [...a.ap.tg, ...(a.ap.nt ?? [])]) apPath(x); for (const x of a.ap.rs ?? []) { x.p = renamePath(x.p, names); x.s = renamePath(x.s, names); } }
   if (early) {
     early.fns = early.fns.map(code);
     const paths = (ns: NodeDef[]) => { for (const n of ns) for (const b of n.b) { if (b.d) b.d = b.d.map((p) => (typeof p === 'string' ? renamePath(p, names) : p)); if (b.w) b.w = b.w.map((p) => (typeof p === 'string' ? renamePath(p, names) : p)); } };

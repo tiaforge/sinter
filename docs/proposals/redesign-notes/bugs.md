@@ -94,3 +94,81 @@ every type error of every page, that page's other expressions included. Corpus a
 app a's 49 errors and SN538 warning, plus the 3 errors of `<x-bad>` on the broken page, after its SN401: `53
 error(s), 1 warning(s)` instead of `1 error(s), 0 warning(s)`. Its build, and apps a, c, d, are unchanged; the
 build output of every app is unchanged (the check writes no output).
+
+## 4. A component used inside itself reported its type errors twice on a page
+
+**Reproduction** (`test/check/check-shared.test.ts`, "a component used inside itself…" and "a fill of a tree slot…").
+`<x-tree data-sn-with="{ node: root }">` with `node.lable` in `x-tree`: two SN208 on the page, `(included from
+b.html:7)` and `(included from b.html:1)`; two uses on one page, three. A page's fill of a tree slot placed by a
+component used inside itself (`<ui-tree>`'s `<ui-node>` in the corpus): the fill's error twice, with the same text.
+
+**What "once" means.** A component used without recursion reports an error once per use, with that use's include
+chain (two uses on one line: twice, both `a.html:6`); a loop around the use does not multiply it. A component used
+inside itself is inlined at its outermost use and compiled once more as the shared definition its deeper uses render
+(contract.md, worked example 3), and a tree slot's fill once more as the case of the placement in that definition
+(`finishTreeFills`). Those second copies are not uses: they are what the uses already reported render further down.
+
+**Cause.** The check unit records every copy the compiler walks; the definition's copy has the page's first line as
+its chain (its host has no place in the page), and the fill's case the fill's own place. Nothing told the check
+which copy was which.
+
+**Fix.** The compiler marks the expressions it records while walking a shared definition (`compileDefinitionIn`)
+or a fill's case of a placement in one (`finishTreeFills`): `CheckExpr.def` (a counter, `defWalk`, classified
+`restored` in `LINK_FIELDS` like `inDef`; a linked definition replays its expressions with the mark). `parseTsc`
+drops an error of a marked expression when an unmarked copy on the same page reports the same error (severity,
+code, file, line, column, message without its chain). A definition's error that no inlined copy has (a component
+reached only through its definition, such as a run-time choice's case) is still reported, with its chain as before.
+
+**What changes.** `sinter check` and the build's check print each such error once per use. Corpus apps a and d:
+46 errors (and the SN538 warning) instead of 49, i.e. `x-tree`'s second report on `deep.html`, `tree.html`,
+`tree2.html` and the fill's on `tree.html`; app b likewise (49 instead of 53); the build's line says `46 type
+error(s)` instead of 50 (see §5 for the warning in it). No build output changes. `sinter lsp` is unchanged (its
+diagnostics of one position are shown once).
+
+## 5. The build counted warnings in "type error(s)"
+
+**Reproduction** (`test/vite/typecheck-summary.test.ts`). A page with one type error and an SN538 candidate the
+branch around it rules out: the build failed with `sinter check: 2 type error(s)`. With the SN538 alone, it failed
+with `sinter check: 1 type error(s)` and a warning under it. Corpus app a: `50 type error(s)` where `sinter check`
+says `49 error(s), 1 warning(s)`.
+
+**Cause.** `buildEnd` (src/vite.ts) failed the build on any diagnostic of the check and counted them all.
+
+**Fix.** It counts the errors, and words the line as `sinter check`'s does: `sinter check: 45 type error(s), 1
+warning(s)`. Choosing what fails the build follows the documentation (docs/configuration.md: `typecheck` fails "the
+build on type errors"; docs/type-checking.md: "fails on type errors") and the pages' own diagnostics: errors fail
+it, warnings are printed (`console.warn`, as a page's are) and do not, and strict mode (`strictly()`) makes them
+errors, as it does a page's warnings and `sinter check --strict`'s.
+
+**What changes.** A failing build's line (`45 type error(s), 1 warning(s)` instead of `46 type error(s)` in the
+corpus, after §4). A build whose check finds warnings only now passes, printing them; under `strict` it fails as
+before. docs/type-checking.md says so.
+
+## 6. An error in markup that is never rendered stopped unrolling, and was never reported
+
+**Reproduction** (`test/compiler/first-pass-errors.test.ts`). `<template data-sn-if="false"><p
+data-sn-text="nope"></p></template><ul><template data-sn-for="x in [1, 2]">…`: no diagnostic at all, and the loop
+stayed a template the page module renders. Also the `data-sn-else` of an `if` decided true, with or without a loop.
+
+**What happens.** The first pass (`compileTwice`'s `first`) walks the whole page, the decided-away branch included
+(its decisions are made after the walk, by `prerender()`), and reports the SN201 there. `isClean()` counts it, so the
+second pass gets no unrolls and no constants. But the first pass decided the `if`, which is reason enough for a
+second pass (`first.decided.size`); the second pass replaces the template by nothing (`expandConstants`), so it never
+compiles that markup, and `compileTwice` returns the second pass's output, whose diagnostics are its own. The error
+counted against `clean` and was dropped from the result.
+
+**Which consistent behaviour.** Either report it, or not count it. The docs never say that a decided-away branch is
+not compiled or not checked: docs/spec.md says a loop unrolls when "the first pass has no errors but `SN322`",
+docs/static-pages.md lists decided `if`s with the other constants, docs/diagnostics.md has no exception for dead
+markup, and the type check already reads the first pass's unit, so a type error in the same branch is reported
+(SN208) while a compile error was not. So it is reported.
+
+**Fix.** `withFirstErrors(first, out)` at `compileTwice`'s two returns of the second pass's output: the first pass's
+errors that `isClean()` counts (not SN322, not warnings) and that the output does not have (same code, file, line,
+column, message) are appended. Small and local, for stage 3's restructuring: the two call sites are where the second
+pass's output is returned. A kept template's entries (`fromTemplate`) are not changed: that path is stage 3's.
+
+**What changes.** A page with an error only in markup the build decides away now reports it, and so fails the
+build (and `sinter check`, the editor); before, it built, with its loops over constants left to the browser. In the
+test suites, nothing else adds an error (probed: only the new tests' pages); every app and sinter-mail are
+byte-identical.

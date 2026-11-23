@@ -221,6 +221,8 @@ Found by the research, not changed:
   more; the render audit compares dev without them (`withoutEmptySlots`). The old route (`inlineInstance`, the row
   lets) is now needed only for per-copy diagnostics, rows that keep a handler, and the shapes the renderer leaves
   (`redesign-notes/stage2-coverage.md`, "Dev renders").
+- **A build with only type-check warnings passes** since the fix that counts errors and warnings apart; it failed
+  before. Under `strict` it still fails.
 - **Props as a run-time frame.** Binding an inlined live use's props at run time, as shared definitions do, would
   make a unit's code independent of its use with no holes, at the price of a changed IR and other bytes. Not planned
   for inlined uses: the holes keep the output, and the runtime, as they are. Stage 7 is about the uses whose props
@@ -250,11 +252,10 @@ timings were not usable). A cloud session pushes to a branch of its own:
 
 | Workstream | Where | Branch | Log |
 | --- | --- | --- | --- |
-| a unit's check data once (stage 4, step 3) | cloud, `session_01AjKzdxUhXTUw7iSJ32w1x1` | `redesign/check-data-once` | `stage4-check-once.md` |
-| a page file walked once (stage 3's leftover) | cloud, `session_01AjKze2EoiDyjazXQrsWJQk` | `redesign/page-walked-once` | `page-walked-once.md` |
-| stage 5: assembly and live uses | local agent | merged as it lands | `stage5-assembly.md` |
-| the evaluation's cost | local agent | merged as it lands | `evaluation.md` |
-| dev renders; the six bugs; embedding | local agents | merged as they land | `stage2-coverage.md`, `bugs.md`, `embed-fields.md` |
+| stage 5, A1 then A2: definitions that ship, from units | cloud, `session_01AjKzdxPCdJ5nbeXvwkXoP2` | `redesign/stage5-a1` | `stage5-a1.md` |
+| the build outside the compiler, round 2 (the fixed part; a static page's cost) | cloud, `session_01AjKzdyy3dA5FDC6jCiY3dH` | `redesign/pipeline-2` | `pipeline-2.md` |
+| stage 5, B1: the second pass from the first's walk | cloud, `session_01AjKzdxkDukbMzASz1qaYeA` | `redesign/stage5-b1` | `stage5-b1.md` |
+| stage 6: the evaluation, one function per template; a render plan per template | cloud, `session_01AjKzdxcYo9FzUYyj9yNBZn` | `redesign/stage6-eval` | `stage6-eval.md` |
 
 **The bar, as the owner set it on 2026-11-23:** the output need not be byte for byte today's where only numbering
 and generated names differ (`data-sn` ids, anchor numbers, template, state and function numbers, renamed loop
@@ -416,3 +417,135 @@ decision of their own (stage 7). A step that can stay byte-identical does.
   started, measuring and planning first (`redesign-notes/stage5-assembly.md`); new workstreams go to cloud sessions
   with a machine each, the first two started (table above); agents no longer run the full suite, the coordinating
   session does at each merge.
+- 2026-11-23, 19:30 UTC: **dev renders** (merged; `redesign-notes/stage2-coverage.md`, "Dev renders"): dev compiles
+  take the rendered route, the `dev` fallback (1,493 loops over the suite) is gone, the render audit compares dev
+  results without the empty slots. It fixed three differences between the routes that builds had too: a chain root
+  reached through a tag root in slot content was not marked for scoped styles; white space after a written text
+  survived the minifier; a folded state's source-map site. No dev-server speed-up could be shown at this machine's
+  load. **Embedding** (merged; `redesign-notes/embed-fields.md`): a read of a build-time value down to a primitive
+  is written into the code in the second pass, what is left is embedded with only the keys read, what can escape
+  stays whole; the benchmark's live post goes from 20,345 to 11,811 bytes with no JSON script, the live build's
+  `dist/` from 2.33 to 1.44 MB; nothing else in any app changes. It also found and fixed a run-time bug: since URL
+  templates compile to code, a `file:`, `content:` or entry value read in the browser was `null` in every build
+  (the benchmark's comments request was never sent). Left whole: lists, `select`, dev, pages with `merge`/`upsert`/
+  `remove`. **Bugs**, three of six merged: a choice's props must be constants; `(1).toFixed()`; a broken expression
+  no longer silences every type error. **Stage 5** is measured and planned (`redesign-notes/stage5-assembly.md`) and
+  its step 0, the canonicalizer (`src/compiler/canon.ts`, `SN_CANON=1`), is merged. What its numbers say: second-pass
+  units are half the compile of a page that ships definitions (sinter-mail's components route: 110 to 139 of 276 to
+  364 ms) and nothing elsewhere; the second pass is 42% of a large live page's compile and 20 to 30% of a blog
+  page's; live uses from units would buy 3.5% of that live page and 7 to 11% of realworld, so they wait for a
+  profile after the other two. Reserved number ranges are still out (the runtime reads a row's template from the
+  loop index's name, and longer names ship); what the relaxed bar buys is the order numbers are handed out in.
+- 2026-11-23, 19:45 UTC: on the integration branch after the merges above: 1,464 tests of test/compiler, test/vite,
+  test/check pass. Four cloud sessions run (table under "How the work is run"): check data once, a page file
+  walked once, B1, and A1, which first finishes step 0's oracle (the behaviour tests and sinter-mail's suite and
+  bench under `SN_CANON=1`, not run yet). A caution from stage 5's measurements for every renumbering step:
+  canonical function order makes each module of sinter-mail's components route 322 B gzip heavier (4.8%), so the
+  canonical form is the oracle, not the order to ship. Still local: the evaluation's cost, bugs 4 to 6.
+- 2026-11-23, 20:00 UTC: a cost of the embedding change, found by timing: each live post's early script now has
+  the post's slug folded into it (and requests the comments early, which it never did: the value was `null`), so
+  the benchmark's 100 early scripts are 100 distinct sources and 100 nested builds at about 13 ms each: the live
+  template build went from about 4.2 to 5.1 s. A cloud session builds early scripts once per shape, the literals
+  substituted afterwards (`redesign-notes/early-script-shapes.md`). The evaluation's first change (a row's template
+  asked once, a row's scope a plain object: a 2,012-element email's evaluation 324 to 266 ms) conflicts with the
+  merged bug fix in the worklist and went back to its agent. Check data once, part 1 (a page holds a unit's check
+  part by reference) is pushed on its branch; no gain until part 2. Timings on the coordinating machine, load 8,
+  three runs each, 100 posts: static 3.6 to 4.5 s, with the type check 3.8 s, live 5.1 s, a page file per post 4.4
+  to 5.7 s, live 7.0 to 8.0 s.
+- 2026-11-23, 20:30 UTC: **the six bugs are fixed and merged** (`redesign-notes/bugs.md`; a test, a fix and a
+  changelog bullet each): a choice's props must be constants (it was worse than recorded: without images too, a
+  rendered row wrote the state's first value as static text); `(1).toFixed()`; a broken expression no longer
+  silences every type error (`tsc` skips semantic errors when any file has a syntax error: the build's shadows now
+  leave broken expressions out); a component used inside itself reports each error once per use; the build counts
+  errors and warnings apart; an error in markup decided away is reported. One behaviour to confirm with the owner:
+  a build whose type check finds only warnings now prints them and passes (it failed before, counting them as
+  errors); under `strict` it still fails. **The full suite passes on the integration branch** (2,905 tests, before
+  bugs 4 to 6; 1,479 of test/compiler, test/vite, test/check after). **Quiet-machine times** (a cloud session, 4
+  cores, nothing else running, 100 posts, medians of 3, at 5f203af, before embedding): static 3.04 s, with the type
+  check 3.02 s, live 3.42 s, a page file per post 3.59 s, live 5.54 s; page-compile 361 to 419 ms. Astro: 2.2 s.
+  **The canonical form holds as an oracle** (the A1 session): under `SN_CANON=1` every behaviour and browser test
+  passes and 5 of 2,904 tests fail, each pinning a node id after a gap; sinter-mail's suite passes against canonical
+  builds. The evaluation's first change is merged (a row's template asked once, a row's scope a plain object). Check
+  data once has both parts on its branch (sinter-mail's 12 API pages with TypeScript 4.4 to 3.6 s on a quiet
+  machine) and is re-verifying over the bug fixes.
+- 2026-11-23, 20:45 UTC: **early scripts per shape, first milestone merged** (`redesign-notes/early-script-shapes.md`,
+  `src/early-shapes.ts`, `SN_EARLY_SHAPES=0` off, `SN_EARLY_SHAPES_AUDIT=1`): pages whose early sources differ only
+  in literals of one kind share one placeholder build, the first two of each group also built alone as a check.
+  Nested builds for 100 live posts: 101 to 7 (400 posts: 401 to 10). The session's quiet-machine medians: live 4.01
+  to 3.16 s, live with a page file per post 5.04 to 4.16 s; every app's files identical, the suite green under its
+  audit (2,908). On the coordinating machine after the merge (load 6, three runs): static 2.9 to 3.4 s, live 3.1 to
+  3.5 s, live with a page file per post 4.2 to 4.6 s; 1,482 tests of test/compiler, test/vite, test/check pass.
+- 2026-11-23, 21:00 UTC: **early scripts per shape, done and merged** (the session's quiet-machine medians: 100
+  live posts 4.27 to 3.24 s, with a page file each 5.31 to 4.32 s; 400: 13.4 to 9.7 s and 17.9 to 13.8 s;
+  `generateBundle` 1,135 to 128 ms at 100 posts, and 439 to 186 ms at 400 with the entry chunk found through one
+  index per bundle; one nested build is about 9 ms of Rolldown's own work, so their number is the lever). Its limit
+  is under "For a decision". 1,482 tests of test/compiler, test/vite, test/check pass after the merge. A page file
+  walked once: its first goal is pushed on its branch (a page of its own described off its head without a walk, 2.5
+  to 3 ms to 0.2 ms a page; a page file per post 2.89 to 2.74 s on a quiet machine), and it found a bug in stage 3's
+  kept-expansion route, fixed on that branch: `copyState` copied the options' objects, which the compiler compares
+  by identity, so a template that uses a component library compiled its entries after the first differently. Check
+  data once went back to its session for the conflict with bug fixes 4 to 6.
+- 2026-11-23, 21:30 UTC: merged and done: **check data once** (`redesign-notes/stage4-check-once.md`; on a quiet
+  machine the check step of sinter-mail's 12 API pages with TypeScript 1,087 to 525 ms, the build 4.08 to 3.44 s;
+  the components route 6.30 to 5.38 s; the blog with a page file per post 4.79 to 4.23 s; reconciled by its session
+  with the "once per use" fix) and **a page file described without a walk** (`redesign-notes/page-walked-once.md`,
+  `SN_LATE_DESCRIBE=0` off, `SN_DESCRIBE_AUDIT=1`: 2.8 to 3.0 ms to 0.25 ms a page; a page file per post 2.85 to
+  2.74 s, live 3.39 to 3.21 s; sinter-mail's audit pages 5.9 to 4.9 s; swap, embed, prerender 'auto', entries and
+  signed-in pages keep the old description). With it, the fix of stage 3's kept-expansion route (`optionsReach`: a
+  template using a component library compiled its entries after the first differently, silently) and a per-entry
+  page in `mail-audit`. Three more evaluation changes merged (a kept template's program read once for its entries;
+  `failsFirst`; a frozen helper result shared): a blog page's evaluation about 9.0 to 5.9 ms by the agent's medians.
+  After these merges: 1,493 tests of test/compiler, test/vite, test/check pass; `pass-audit` nine apps the same,
+  `mail-audit --switch SN_ONE_PASS` 48 files identical. **Astro on a quiet machine: 1.73 s** for the 100 posts (the
+  2.2 s above was taken on the loaded machine), against about 3.0 s for the static blog. B1's first route is on its
+  branch (a page of its own whose second pass applies only page-level decided branches and rendered rows takes its
+  result from the first pass's walk, today's ids kept: page-compile 451 to 359 ms; none of the nine apps routed
+  yet: template entries next; a page with a unit placed needs A1's copy); it went back to its session to merge the
+  integration branch. Early scripts: the session was asked for a variant that can be proven (opaque placeholders).
+- 2026-11-23, 21:45 UTC: A1 is built on its branch (`redesign-notes/stage5-a1.md`): a second pass that ships
+  definitions places a unit of its own before its walk; sinter-mail's components route, a later page 108 to 72 ms
+  (142 to 88 with TypeScript); sinter-mail's 42 files canonically identical, every other app byte for byte, gzip 17 B
+  lighter in total; it fixed three leaks of first-pass units its verifier found. It merges the integration branch
+  next. A session started on what a build costs outside the compiler (the fixed 1.1 s; a static page's 6 to 7 ms:
+  Vite's HTML step, the cross check that runs every helper call again), now as large a share as the compiler.
+- 2026-11-23, 22:00 UTC: **the full suite passes on the integration branch: 2,934 tests** (306 files), after check
+  data once, a page described without a walk and the three evaluation changes. Two more evaluation changes merged
+  after it (a frozen helper result shared; a page with a unit looks its codes up in the unit's table): 1,496 tests
+  of test/compiler, test/vite, test/check pass.
+- 2026-11-23, 22:10 UTC: **one consistent table on a quiet machine** (the page-walked-once session: 4 cores, Node
+  22.23.5, idle, medians of 5, 100 posts, at 6a3283d; `redesign-notes/page-walked-once.md`): static 2.00 s, with the
+  type check 2.14 s, live 2.39 s, a page file per post 2.40 s, live 2.96 s; Astro 7.4, three runs: 1.73 s. This
+  morning: 13.6 to 16.8 s. A caution on the comparison: `run-sinter.mjs` reports the build's time inside its
+  process, Astro's figure is a whole process; on the coordinating machine the whole process is about 0.2 s more than
+  the in-process figure. The pipeline-2 session measures both like for like. So the static blog is 0.3 to 0.5 s
+  behind Astro at 100 posts.
+- 2026-11-23, 22:20 UTC: **early scripts per shape, proven and merged** (`redesign-notes/early-script-shapes.md`,
+  "Proof"; the owner asked whether the sharing could be proven safe). The placeholder is now a free identifier the
+  minifier knows nothing about, replaced in the built output by each page's literal: a correct minifier preserves
+  the program for every value of a name it cannot know, the generated source only reads the name, and a literal put
+  for a read-only free name is the program with that binding. The session checked the argument and closed the holes
+  it found: Vite steps that read literal values (`import()`, `import.meta.glob`, `new URL(…, import.meta.url)`,
+  workers, `require`: no lifting in such a program), `delete "x"`, directives and keys (not lifted), a string
+  statement that could become a directive (parenthesized), `define` keys, `1.x`; the output is checked per shape
+  (every occurrence of a name a reference, none written or declared, no `with`). No page of any app, of the
+  suite's apps or of sinter-mail differs from its own build (1,000 benchmark pages audited); only a test's
+  deliberate folds differ, by 3 to 19 bytes, with the same behaviour. Grouping by kind and length is gone, so 100
+  or 400 live posts need 3 nested builds (7 and 10 before, 101 and 401 without sharing); `generateBundle` 70 ms at
+  100 posts. `SN_EARLY_SHAPES=kinds` keeps the earlier scheme, `0` turns sharing off. 1,500 tests of test/compiler,
+  test/vite, test/check pass after the merge.
+- 2026-11-23, 22:35 UTC: **the evaluation's first round is done and merged** (`redesign-notes/evaluation.md`; five
+  changes, byte for byte): CPU ms a page, base and now, the evaluation's mean and `compile()`'s: the blog 10.7 to 7.7
+  and 16.9 to 12.8; with the type check 9.2 to 5.7 and 14.1 to 10.7; sinter-mail's file email 38.0 to 25.9; its
+  2,012-element email 355 to 281; its API route 17.9 to 14.1. Garbage inside compiles 20 to 30% less. What is left
+  there is one compiled-function call per binding per row through a proxy scope (131,000 bindings on the big email),
+  rendering per row, and the library's own parse; a cloud session takes it as stage 6's evaluation: one function per
+  template returning a row's values and decisions, a render plan per template. A rule it recorded as wrong goes to
+  that session to fix: `known`'s exclusion of the current model's persisted path leaks into the worklist's last
+  walk, so whether a persisted model's own field counts as known depends on where it is read (in no app or test).
+  No agent is left on the coordinating machine; every workstream is a cloud session now.
+- 2026-11-23, 22:50 UTC: **like for like on the coordinating machine, now idle** (load under 2; c4fa7e4; five runs
+  each, medians; 100 posts; the whole process from start to exit, and in brackets the build's time inside it):
+  static 2.65 s (2.49), with the type check 2.71 s (2.57), live 3.19 s (2.97), a page file per post 3.25 s (3.08),
+  live 4.24 s (4.04); **Astro 7.4 cold, whole process: 2.05 s** (1.98 to 2.40). This machine is slower than the
+  cloud sessions' (Astro 1.73 s there). So the static blog is 0.6 s behind Astro here, 1.29 times its time; the
+  process outside the build is about 0.17 s of that.

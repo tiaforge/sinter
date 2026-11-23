@@ -93,8 +93,9 @@ describe('what stays the runtime\'s', () => {
     const out = build(PAGE(), { more: { 'x-code': code } });
     expect(errors(out)).toEqual([]);
     expect(out.module).toContain('$.$r.doc');
-    // the value, written once into the head for what reads it in the browser
-    expect(out.html).toMatch(/<script type="application\/json"[^>]*>\{"type":"doc"/);
+    // the value, written once into the head for what reads it in the browser: what it reads (the tree's `children`,
+    // whole: a loop takes them), not the root's `type`, which nothing reads there
+    expect(out.html).toMatch(/<script type="application\/json"[^>]*>\{"children":\[\{"type":"heading"/);
     expect(out.html).toContain('<template');
   });
 

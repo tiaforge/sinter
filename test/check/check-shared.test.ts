@@ -109,3 +109,35 @@ test('a broken expression on one page: the compiler reports it, and every page i
   expect(text(whole.diagnostics)).toEqual(text(fixed.diagnostics));
   expect(shared.diagnostics).toEqual(whole.diagnostics);
 }, 60_000);
+
+test('a component used inside itself, inlined at its use and shared below it: its errors once per use, shared or not', () => {
+  const root = app({ ...FILES, 'f.html': page(`<sn-resource name="root" src="/api/tree" type="Node"></sn-resource>
+<ul><x-tree data-sn-with="{ node: root }"></x-tree></ul>
+<ul><x-tree data-sn-with="{ node: root }"></x-tree></ul>`) });
+  const pages = [...PAGES, 'f.html'];
+  const lable = (at: string) => `src/components/x-tree.html:2:32 error SN208 Property 'lable' does not exist on type 'Node'. Did you mean 'label'? (TS2551) (included from ${at})`;
+  for (const share of [false, true]) {
+    const msgs = text(run(root, pages, { share }).diagnostics).filter((m) => m.startsWith('src/components/x-tree.html'));
+    expect(msgs).toEqual([lable('b.html:7'), lable('c.html:7'), lable('f.html:6'), lable('f.html:7')]);
+  }
+}, 60_000);
+
+test('a fill of a tree slot, at the root\'s use and in the definition below it: its errors once', () => {
+  const root = app({ ...FILES,
+    // (a library's shape: the root takes the fill, a component inside it used inside itself places it)
+    'src/components/x-fw.html': `<template data-sn-props="{ nodes: Node[]; label: Slot<{ node: Node }> }">
+  <ul><template data-sn-for="n in nodes"><x-ft data-sn-with="{ node: n }"></x-ft></template></ul>
+</template>
+`,
+    'src/components/x-ft.html': `<template data-sn-props="{ node: Node }">
+  <li><slot name="label" data-sn-with="{ node }"><span></span></slot><ul><template data-sn-for="c in node.children ?? []"><x-ft data-sn-with="{ node: c }"></x-ft></template></ul></li>
+</template>
+`,
+    'g.html': page(`<sn-resource name="root" src="/api/tree" type="Node"></sn-resource>
+<x-fw data-sn-with="{ nodes: [root] }"><b slot="label" data-sn-text="$slot.node.lable"></b></x-fw>`) });
+  for (const share of [false, true]) {
+    const r = run(root, ['g.html'], { share });
+    expect(r.compile).toEqual([]);
+    expect(text(r.diagnostics)).toEqual(["g.html:6:81 error SN208 Property 'lable' does not exist on type 'Node'. Did you mean 'label'? (TS2551)"]);
+  }
+}, 60_000);

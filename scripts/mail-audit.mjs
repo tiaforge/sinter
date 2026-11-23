@@ -12,7 +12,8 @@
 //   --keep dir   keep both output trees in <dir>/off and <dir>/on
 //   --only a,b   build only these pages (e.g. `--only file-gen` to time one file email)
 //   --gen N      the generated newsletter (`file-gen`) of about N elements (default 200)
-//   --switch X   the switch the two builds differ in (default SN_RENDER; SN_ONE_PASS for stage 3), `X=0` in the first
+//   --switch X   the switch the two builds differ in (default SN_RENDER; SN_ONE_PASS for stage 3), `X=0` in the first;
+//                `X=1`: and X=1 in the second (SN_CANON=1: the second build in its canonical numbering)
 //   --canon      both builds in the canonical numbering (`SN_CANON=1`): the same up to numbering (B1's `SN_FROM_WALK`)
 //
 // The checkout must be installed (`npm install`) with its `@tiaforge-ui/sinter` resolving to this repository (its
@@ -67,6 +68,13 @@ const PAGES = {
   'api-both': ['ii+iii', `${RES}<main><mail-body id="a" data-sn-with="{ body: message, templates: true }"></mail-body><mail-body id="b" data-sn-with="{ body: message }"></mail-body>${AGAIN}</main>`],
 };
 const page = (body) => `<!doctype html>\n<html lang="en">\n<head><meta charset="utf-8"><title>t</title></head>\n<body>\n${body}\n</body>\n</html>\n`;
+/**
+ * A page per entry (`<html data-sn-for>`, three entries in `emails/docs/`), the fills page's body beside the entry's
+ * title: a template's entries start their second pass from its kept expansion (stage 3), which copies the compiler's
+ * state; a copy of the options' library made a library's tree placements resolve otherwise in every entry but the
+ * first (redesign-notes/page-walked-once.md). Not in the table below: its pages are `m/<slug>.html`.
+ */
+const TEMPLATE_PAGE = `<!doctype html>\n<html lang="en" data-sn-for="d in docs" data-sn-path="/m/:slug">\n<head><meta charset="utf-8"><title>t</title></head>\n<body>\n<sn-resource name="docs" src="file:./emails/docs/*.json" type="any"></sn-resource><h1 data-sn-text="d.title"></h1>\n${BENCHED('body: n >= 0 ? message : null', FILLS)}\n</body>\n</html>\n`;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────────────────────────────────────────
 const die = (msg, code = 2) => { console.error(`mail-audit: ${msg}`); process.exit(code); };
@@ -124,20 +132,24 @@ const root = join(work, 'app');
   writeFileSync(join(root, 'src/sinter.helpers.ts'), "export * as mail from '@tiavision/sinter-mail';\n");
   writeFileSync(join(root, 'src/sinter.types.ts'), "export type { Body, Element } from '@tiavision/sinter-mail';\n");
   for (const [name, [, body]] of Object.entries(PAGES)) writeFileSync(join(root, `${name}.html`), page(body));
+  mkdirSync(join(emails, 'docs'), { recursive: true });
+  for (const k of ['a', 'b', 'c']) writeFileSync(join(emails, 'docs', `${k}.json`), JSON.stringify({ slug: k, title: `The ${k}` }));
+  writeFileSync(join(root, 'tpl-fills.html'), TEMPLATE_PAGE);
   mkdirSync(join(root, 'node_modules/@tiaforge-ui'), { recursive: true });
   mkdirSync(join(root, 'node_modules/@tiavision'), { recursive: true });
   symlinkSync(PKG, join(root, 'node_modules/@tiavision/sinter-mail'), 'dir');
   symlinkSync(realpathSync(REPO), join(root, 'node_modules/@tiaforge-ui/sinter'), 'dir');
 }
 const outs = { off: join(work, 'off'), on: join(work, 'on') };
-console.log(`mail-audit: sinter ${git(REPO, 'rev-parse', '--short', 'HEAD')}${git(REPO, 'status', '--porcelain', '--untracked-files=no') ? ' (modified)' : ''}, sinter-mail ${git(PKG, 'rev-parse', '--short', 'HEAD')}; ${Object.keys(PAGES).length} pages; app in ${root}`);
+console.log(`mail-audit: sinter ${git(REPO, 'rev-parse', '--short', 'HEAD')}${git(REPO, 'status', '--porcelain', '--untracked-files=no') ? ' (modified)' : ''}, sinter-mail ${git(PKG, 'rev-parse', '--short', 'HEAD')}; ${Object.keys(PAGES).length} pages and a page per entry (3); app in ${root}`);
 
 const times = {};
-const SWITCH = SWITCH_ARG ?? 'SN_RENDER';
+// (`--switch X=1`: the second build with X=1 instead of without X, for a switch that is off by default, as SN_CANON)
+const [SWITCH, SWITCH_ON] = (SWITCH_ARG ?? 'SN_RENDER').split('=');
 // off first: SN_RENDER=0; then the default. Each a fresh process, the same root (so paths in the output agree)
 for (const v of ['off', 'on']) {
   const env = { ...process.env, SN_FROM_WALK_LOG: '1', ...(CANON ? { SN_CANON: '1' } : {}) };
-  if (v === 'off') env[SWITCH] = '0'; else delete env[SWITCH];
+  if (v === 'off') env[SWITCH] = '0'; else if (SWITCH_ON !== undefined) env[SWITCH] = SWITCH_ON; else delete env[SWITCH];
   const r = spawnSync(process.execPath, [import.meta.filename, '--child', PKG, root, outs[v]], { env, encoding: 'utf8', maxBuffer: 1 << 26 });
   if (r.status !== 0) { console.error(r.stdout, r.stderr); die(`the build with ${v === 'off' ? `${SWITCH}=0` : `no ${SWITCH}`} failed`); }
   times[v] = JSON.parse(r.stdout.trim().split('\n').at(-1)).ms;
@@ -153,7 +165,7 @@ let differs = 0;
   const onlyA = a.filter((f) => !b.includes(f)), onlyB = b.filter((f) => !a.includes(f));
   if (onlyA.length || onlyB.length) {
     differs++;
-    console.log(`DIFFERENT file sets: only with SN_RENDER=0: ${onlyA.join(', ') || '-'}; only without: ${onlyB.join(', ') || '-'}`);
+    console.log(`DIFFERENT file sets: only with ${SWITCH}=0: ${onlyA.join(', ') || '-'}; only without: ${onlyB.join(', ') || '-'}`);
   }
   for (const f of a.filter((x) => b.includes(x))) {
     const x = readFileSync(join(outs.off, f)), y = readFileSync(join(outs.on, f));

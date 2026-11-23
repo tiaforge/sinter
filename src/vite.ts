@@ -12,11 +12,13 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { flagsModule } from './core-parts.js';
 import { loadEnv, type InlineConfig, type Plugin, type ResolvedConfig, type ViteDevServer } from 'vite';
 import { collectionsIn, loadContent, writeNamespaceTypes, writeSnapshot, type LoadedContent } from './content-node.js';
-import { applyStrict, CODES, compile, CONTENT_NS, formatDiagnostic, formatWarning, strictPromotes, suggest, type Code, type CheckUnit, type Diagnostic, type CompileResult, type SourceMap } from './compiler/index.js';
+import { applyStrict, CODES, compile, describedPrefetch, moduleWith, pageHead, CONTENT_NS, formatDiagnostic, formatWarning, strictPromotes, suggest, type Code, type CheckUnit, type Diagnostic, type CompileResult, type SourceMap } from './compiler/index.js';
 import { buildInput, checkOptionsOf, compileOptionsOf, htmlInputs, lazyOf, lazyReachOf, project, retiredExport, retiredOptions, staticPages, strictOf, type PluginApi, type ProjectOptions } from './project.js';
 import { CHUNK_MARK, chainText, componentOfHtml, isComponentScript, LAZY, lazyPackage, type LazyScan, lineCol, loaderModule, mentions, parseLazyId, reachLazy, rewriteLazy, scanLazy, stubModule } from './lazy-build.js';
 import { moduleKeys } from './i18n-build.js';
 import { HOLD_SCRIPT } from './paint-build.js';
+import { shareBuilds, shapesOn } from './early-shapes.js';
+import { shareOpaque } from './early-opaque.js';
 import { earlyImports, OWN, registration, SHARED_MARKS, sharedKey, sharedMark, stubModule as sharedStub, topLevelAwait } from './shared-build.js';
 import { loadImages, MIME, type Images } from './images.js';
 import { pageStyles } from './styles.js';
@@ -225,6 +227,15 @@ const pageBase = (base: string, rel: string) => (relativeBase(base) ? '../'.repe
 const PREFIX = '/@sinter/';
 /** the pages a build describes from which their descriptions link their shared definitions (`describedDefinitions`) */
 const LINK_DESCRIPTIONS = 8;
+/** `SN_DESCRIBE_AUDIT=1`: pages whose build compile gave their description, and those where it differed (`own`: a page of its own) */
+const DESCRIBE_AUDIT = { same: { own: 0, entry: 0 }, differ: { own: 0, entry: 0 }, effect: { own: 0, entry: 0 } };
+if (process.env.SN_DESCRIBE_AUDIT === '1') process.on('exit', () => console.error(`sinter describe audit: ${JSON.stringify(DESCRIBE_AUDIT)}`));
+/**
+ * The descriptions of this process's builds (`SN_PASS_LOG=1`, with the second passes' routes): read off a page's head
+ * (`head`), or compiled and why; and the page modules written again once every page had compiled (`rewritten`)
+ */
+export const LATE_STATS = { head: 0, compiled: {} as Record<string, number>, late: {} as Record<string, number>, rewritten: 0, sources: 0 };
+if (process.env.SN_PASS_LOG === '1') process.on('exit', () => console.error(`sinter descriptions: ${LATE_STATS.head} read off the page's head (their parts compiled after all: ${JSON.stringify(LATE_STATS.late)}); compiled: ${JSON.stringify(LATE_STATS.compiled)}; page modules written again: ${LATE_STATS.rewritten}; source pages' paths read off their heads: ${LATE_STATS.sources}`));
 
 /**
  * Dev, strict: sends the page's runtime warnings to the dev server, which prints them in the terminal
@@ -370,6 +381,8 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   let server: ViteDevServer | null = null;
   let resolved: ResolvedConfig | null = null;
   const modules = new Map<string, string>();
+  /** builds: each bundle's entry chunks by facade (`entryChunk`) */
+  const entryIndex = new WeakMap<object, Map<string, unknown>>();
   /** each page and early module's source map: from the compiled expressions back to the markup */
   const maps = new Map<string, SourceMap>();
   const setModule = (id: string, code: string, map: SourceMap | undefined) => {
@@ -723,7 +736,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   };
   /** next-page data: each page's description, by file (null: nothing to prefetch), and the pages compiled so far */
   /** `effect`: what the page does as it loads besides reading (`CompileResult.loadEffect`), null for nothing */
-  type Described = { parts: PrefetchParts | null; path: string[]; off: boolean; keep: string[]; swapOff: boolean; keptSource: Record<string, string>; keptBound: string[]; effect: string | null };
+  type Described = { parts: PrefetchParts | null; path: string[]; off: boolean; keep: string[]; swapOff: boolean; keptSource: Record<string, string>; keptBound: string[]; effect: string | null; late?: true };
   const described = new Map<string, Described>();
   /**
    * builds of many pages: the shared definitions of their descriptions, linked from one page's description into the next
@@ -1119,26 +1132,139 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   };
   /** every page with the paths it answers at, and what another page can request ahead for it */
   /** a page's description (its patterns, what can be requested ahead), compiled once; a page in a language, under its prefix */
+  /** a page's description's options: no prerender (nothing evaluated); a page in a language, under its prefix */
+  const describeOptions = (file: string): Parameters<typeof compile>[1] => {
+    const p = proj(), v = virtual.get(file);
+    // with the APIs and specs: what is requested ahead is the page's own request (its base, its configured shape)
+    return { ...compileOptionsOf(p), file: v?.source ?? file, dev, helpers: helpersOf(p.helpers), readFile: readVia(p), ...(dev ? {} : { globCache, componentCache, ...(entries().length >= LINK_DESCRIPTIONS ? { definitions: describedDefinitions } : {}) }), ...contentOpts(v?.locale), ...(v?.page ? { page: v.page } : {}), ...(v?.axes ? { axes: v.axes } : {}), describeOnly: true, ...(v?.locale ? { locale: { name: v.locale, urls: null, base: resolved?.base ?? '/', ...(cpaths() ? { paths: cpaths()! } : {}) } } : {}) };
+  };
+  /** a page's description compiled (`describeOnly`: a walk), or the one of a page that does not compile */
+  const describeCompiled = (file: string): Described => {
+    try {
+      const r = compile(readPage(file), describeOptions(file));
+      return { parts: r.prefetch, path: r.path, off: !!r.prefetchOff, keep: r.permanent ?? [], swapOff: !!r.swapOff, keptSource: r.keptSource ?? {}, keptBound: r.keptBound ?? [], effect: r.loadEffect ?? null };
+    } catch { return { parts: null, path: [], off: false, keep: [], swapOff: true, keptSource: {}, keptBound: [], effect: 'it did not compile' }; }
+  };
+  /**
+   * A build's page of its own is described without a walk (redesign-notes/page-walked-once.md) unless `SN_LATE_DESCRIBE=0`:
+   * what the other pages read of it before it compiles is its head (`pageHead`: its paths, `data-sn-prefetch="off"`,
+   * `data-sn-swap="off"`), and what it can have requested ahead (`parts`) is read off its own compile's first pass
+   * (`describedPrefetch`), which only what waits for every page reads: the page modules' prefetch import
+   * (`prefetchLater`, `latePages`) and the prefetch module. Null when it is, or why its description is compiled: its
+   * loads' effects (`prerender: 'auto'`) and what a swap keeps (`swap`) are read as pages compile, an embedded
+   * resource is not requested ahead (`embed`); a template's entries share their template's (`entryDescription`).
+   */
+  const lateWhy = (file: string): string | null => {
+    if (dev) return 'dev';
+    if (process.env.SN_LATE_DESCRIBE === '0') return 'off';
+    if (virtual.get(file)?.page) return 'an entry';
+    if (spec()?.mode === 'auto') return "prerender: 'auto'";
+    if (options.swap) return 'swaps';
+    // (an embedded resource is not requested ahead: the build compile embeds where the description does not)
+    if (options.embed) return 'embed';
+    return null;
+  };
+  /** the build's descriptions by route (`SN_PASS_LOG=1`): read off the page's head, or compiled and why */
+  const lateStat = (why: string | null) => {
+    if (why === 'dev') return;
+    if (why === null) LATE_STATS.head++;
+    else LATE_STATS.compiled[why] = (LATE_STATS.compiled[why] ?? 0) + 1;
+  };
+  /** a page's description, once per build (`described`) */
   const describe = (file: string) => {
     if (!described.has(file)) {
-      const p = proj(), v = virtual.get(file);
+      const v = virtual.get(file);
       const kept = entryDescription(v);
       if (kept) { described.set(file, kept); return kept; }
-      try {
-        // with the APIs and specs: what is requested ahead is the page's own request (its base, its configured shape)
-        const r = compile(readPage(file), { ...compileOptionsOf(p), file: v?.source ?? file, dev, helpers: helpersOf(p.helpers), readFile: readVia(p), ...(dev ? {} : { globCache, componentCache, ...(entries().length >= LINK_DESCRIPTIONS ? { definitions: describedDefinitions } : {}) }), ...contentOpts(v?.locale), ...(v?.page ? { page: v.page } : {}), ...(v?.axes ? { axes: v.axes } : {}), describeOnly: true, ...(v?.locale ? { locale: { name: v.locale, urls: null, base: resolved?.base ?? '/', ...(cpaths() ? { paths: cpaths()! } : {}) } } : {}) });
-        described.set(file, { parts: r.prefetch, path: r.path, off: !!r.prefetchOff, keep: r.permanent ?? [], swapOff: !!r.swapOff, keptSource: r.keptSource ?? {}, keptBound: r.keptBound ?? [], effect: r.loadEffect ?? null });
-        if (v?.page) entriesDescribed.set(`${v.source}\0${v.locale ?? ''}`, { page: v.page.path, d: described.get(file)! });
-      } catch { described.set(file, { parts: null, path: [], off: false, keep: [], swapOff: true, keptSource: {}, keptBound: [], effect: 'it did not compile' }); }
+      let why = lateWhy(file);
+      if (why === null) {
+        try {
+          const h = pageHead(readPage(file), describeOptions(file));
+          described.set(file, { parts: null, path: h.path, off: h.prefetchOff, keep: [], swapOff: h.swapOff, keptSource: {}, keptBound: [], effect: null, late: true });
+          lateStat(null);
+          if (describeAudit) {
+            const d = described.get(file)!;
+            if (!auditedDescriptions.has(file)) auditedDescriptions.set(file, describeCompiled(file));
+            const was = auditedDescriptions.get(file)!;
+            for (const k of ['path', 'off', 'swapOff'] as const) if (JSON.stringify(was[k]) !== JSON.stringify(d[k])) throw new Error(`sinter describe audit: ${relOf(file)}: \`${k}\` read off the page's head is ${JSON.stringify(d[k])}, its description's ${JSON.stringify(was[k])}`);
+          }
+          return described.get(file)!;
+        } catch (e) {
+          if (String((e as Error)?.message).startsWith('sinter describe audit')) throw e;
+          why = 'its head did not read';
+        }
+      }
+      lateStat(why);
+      described.set(file, describeCompiled(file));
+      if (v?.page) entriesDescribed.set(`${v.source}\0${v.locale ?? ''}`, { page: v.page.path, d: described.get(file)! });
     }
     return described.get(file)!;
+  };
+  /** a page's description read off its own build compile (the fields `describe` reads of a `describeOnly` compile) */
+  const describedBy = (out: CompileResult): Described => ({ parts: out.prefetch, path: out.path, off: !!out.prefetchOff, keep: out.permanent ?? [], swapOff: !!out.swapOff, keptSource: out.keptSource ?? {}, keptBound: out.keptBound ?? [], effect: out.loadEffect ?? null });
+  /**
+   * (`lateWhy`) what each page described off its head can have requested ahead, from its build compile's first pass
+   * (`describedPrefetch`), or from its description compiled after all where that does not say (`LATE_STATS.late`)
+   */
+  const lateParts = new Map<string, PrefetchParts | null>();
+  const takeParts = (file: string, out: CompileResult) => {
+    const r = describedPrefetch(out);
+    if (r && 'parts' in r) { lateParts.set(file, r.parts); return; }
+    const why = r?.why ?? 'not compiled for it';
+    LATE_STATS.late[why] = (LATE_STATS.late[why] ?? 0) + 1;
+    lateParts.set(file, (auditedDescriptions.get(file) ?? describeCompiled(file)).parts);
+  };
+  /** a page's description as what waits for every page reads it: its parts its compile's where its head stood for it */
+  const finalDescription = (file: string): Described => {
+    const d = describe(file);
+    return d.late ? { ...d, parts: lateParts.get(file) ?? null } : d;
+  };
+  /**
+   * build: the pages compiled or failed, and once every page is (`lateWait`): what waits for every page's parts (a
+   * page that failed fails the build; it does not hold the others)
+   */
+  const lateSettled = new Set<string>();
+  let lateReady: { promise: Promise<void>; resolve(): void } | null = null;
+  const lateWait = () => (lateReady ??= (() => { let resolve!: () => void; const promise = new Promise<void>((r) => (resolve = r)); return { promise, resolve }; })());
+  const lateSettle = (file: string) => { lateSettled.add(file); if (entries().every((f) => lateSettled.has(f))) lateWait().resolve(); };
+  /**
+   * build: the page modules compiled before every page had (`lateWhy`), each with the prefetch import it was given and
+   * its result, written again (`moduleWith`) if the import every page decides differs
+   */
+  const latePages = new Map<string, { out: CompileResult; group: string | undefined; prefetch: string | null }>();
+  /**
+   * `SN_DESCRIBE_AUDIT=1` (redesign-notes/page-walked-once.md): a page described off its head is described the old way
+   * beside it (`describeOnly`), and its build compile's description must be that one, every field but the loads'
+   * effect, which only \`prerender: 'auto'\` reads and which is never described this way; the first difference throws.
+   * Every page's build compile is also compared with its description, every field, and a difference printed with the
+   * counts at exit (\`sinter describe audit: …\`): what a description taken from the build compile would change.
+   */
+  const describeAudit = process.env.SN_DESCRIBE_AUDIT === '1';
+  const auditedDescriptions = new Map<string, Described>();
+  const auditDescription = (file: string, out: CompileResult) => {
+    const d0 = describe(file), d = auditedDescriptions.get(file) ?? d0, kind = virtual.get(file)?.page ? 'entry' : 'own';
+    const text = (x: unknown) => JSON.stringify(x);
+    // the build compile's own fields (its `prefetch` the pass with decided branches in place), and those the route reads
+    const own = describedBy(out), b = d0.late ? { ...own, parts: lateParts.get(file) ?? null } : own;
+    const fields = (Object.keys(own) as Array<keyof Described>).filter((k) => text(d[k]) !== text(own[k]));
+    DESCRIBE_AUDIT[fields.length ? 'differ' : 'same'][kind]++;
+    if (fields.includes('effect')) DESCRIBE_AUDIT.effect[kind]++;
+    if (fields.some((k) => k !== 'effect')) console.error(`sinter describe audit: ${relOf(file)} (${kind}), the build compile's own: ${fields.map((k) => `${k}: described ${text(d[k])?.slice(0, 300)}, compiled ${text(own[k])?.slice(0, 300)}`).join('; ')}`);
+    // (`parts` where the route reads them: with next-page data on, `prefetchData`; without it nothing reads them)
+    const wrong = auditedDescriptions.has(file) ? (Object.keys(b) as Array<keyof Described>).filter((k) => k !== 'effect' && (k !== 'parts' || lateParts.has(file)) && text(d[k]) !== text(b[k])) : [];
+    if (wrong.length) throw new Error(`sinter describe audit: ${relOf(file)}: its build compile's description differs from its description in ${wrong.map((k) => `\`${k}\`: described ${text(d[k])?.slice(0, 300)}, compiled ${text(b[k])?.slice(0, 300)}`).join('; ')}`);
   };
   /** a source page's description, as written (no language's prefix) */
   const describeSource = (source: string) => {
     if (!sourceDescribed.has(source)) {
-      const p = proj();
-      try { sourceDescribed.set(source, compile(readFileSync(source, 'utf8'), { ...compileOptionsOf(p), file: source, dev, helpers: helpersOf(p.helpers), readFile: readVia(p), ...(dev ? {} : { globCache, componentCache }), ...contentOpts() }).path); }
-      catch { sourceDescribed.set(source, []); }
+      const p = proj(), html = readFileSync(source, 'utf8');
+      const opts = { ...compileOptionsOf(p), file: source, dev, helpers: helpersOf(p.helpers), readFile: readVia(p), ...(dev ? {} : { globCache, componentCache }), ...contentOpts() };
+      const compiled = () => { try { return compile(html, opts).path; } catch { return []; } };
+      // (a build: its paths read off its head, as a page's description's are, unless `SN_LATE_DESCRIBE=0`)
+      let path: string[] | null = null;
+      if (!dev && process.env.SN_LATE_DESCRIBE !== '0') try { path = pageHead(html, opts).path; LATE_STATS.sources++; } catch { /* compiled */ }
+      if (path && describeAudit) { const was = compiled(); if (JSON.stringify(was) !== JSON.stringify(path)) throw new Error(`sinter describe audit: ${relOf(source)}: its paths read off its head are ${JSON.stringify(path)}, compiled ${JSON.stringify(was)}`); }
+      sourceDescribed.set(source, path ?? compiled());
     }
     return { path: sourceDescribed.get(source)! };
   };
@@ -1165,7 +1291,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     const d = describe(file);
     return d.swapOff ? [] : [{ m: pagePaths(urlRel(relOf(file)), resolved?.base ?? '/', d.path), k: d.keep }];
   });
-  const prefetchPages = (group?: string) => appPages().filter((x): x is { paths: string[]; parts: PrefetchParts; swaps: boolean; file: string; effect: string | null } => !!x.parts && inGroup(x.file, group));
+  const prefetchPages = (group?: string) => appPages().map((x) => (described.get(x.file)?.late ? { ...x, parts: finalDescription(x.file).parts } : x)).filter((x): x is { paths: string[]; parts: PrefetchParts; swaps: boolean; file: string; effect: string | null } => !!x.parts && inGroup(x.file, group));
   /** how the Speculation Rules are delivered, or null for none */
   const spec = () => {
     // inline by default: it works with no server setup (a CSP in the page gets the rules' hash, see withRulesHash)
@@ -1468,7 +1594,12 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       if (dev || (!pageInputs && !known)) pagesCache = null;
     }
     const group = groupOf(rel)?.folder;
-    const prefetch = prefetchData && prefetchPages(group).length ? prefetchId(group) : null;
+    // (described off their heads: the import every page decides, guessed from the pages compiled so far, and the
+    // module written again where the guess was wrong, once every page has compiled: `latePages`)
+    const late = prefetchData && lateWhy(file) === null;
+    // (the audit: every page described the old way where the old route describes them, before the first compile)
+    if (describeAudit && !dev && !auditedDescriptions.size) for (const f of entries()) if (lateWhy(f) === null) auditedDescriptions.set(f, describeCompiled(f));
+    const prefetch = !prefetchData ? null : late ? ([...lateParts].some(([f, x]) => !!x && !describe(f).off && inGroup(f, group)) ? prefetchId(group) : null) : prefetchPages(group).length ? prefetchId(group) : null;
     const out = compile(html, {
       ...pageOptions(p, file, url),
       sourcemap: dev || !!resolved?.build.sourcemap, moduleSrc: `${PREFIX}${rel}.js`, ...(dev ? {} : { globCache, componentCache, templates, ...(process.env.SN_NO_LINK ? {} : { definitions }), units: buildUnits }), prefetch,
@@ -1487,7 +1618,11 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       ...(options.embed && !dev ? { embed: true } : {}),
       componentCss: (name) => `${COMPONENT_CSS}${name}.css`,
       ...(p.swap ? { swapList: swapId(group) } : {}),
+      ...(late ? { prefetchLater: true as const } : {}),
     });
+    if (late) takeParts(file, out);
+    if (late) latePages.set(`${PREFIX}${rel}.js`, { out, group, prefetch }); else latePages.delete(`${PREFIX}${rel}.js`);
+    if (describeAudit && !dev) auditDescription(file, out);
     // with swaps on, a kept element that binds is one markup on every page that keeps it: the next page's code
     // takes over the element the swap keeps (docs/proposals/swap-navigation.md §3)
     if (p.swap) for (const [name, at] of Object.entries(out.keptSource ?? {})) {
@@ -1740,6 +1875,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       earlyFiles.clear();
       pageMessages.clear();
       described.clear(); entriesDescribed.clear(); axisListsKept = null; axisIndexKept = null;
+      lateParts.clear(); latePages.clear(); lateSettled.clear(); lateReady = null; auditedDescriptions.clear();
       pagesCache = null;
       buildReads.clear();
       globCache.clear();
@@ -1872,6 +2008,8 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
         // pages whose early source is the same text (on a blog, every post's) share one build: its output and the content
         // keys its modules call depend on that source and the runtime names alone (a nested `vite build` is ~15 ms)
         const built = new Map<string, { out: Awaited<ReturnType<typeof bundleEarly>>; keys: Set<string> }>();
+        const jobs = new Map<string, { src: string; take: string[]; own: string[]; rel: string }>();
+        const ids = new Map<string, string>();
         for (const [rel, code] of pages) {
           // the shared modules this early file imports and the page's bundle reaches: their namespaces on the global
           const reach = shared.size ? pageModules(bundle, rel) : new Set<string>();
@@ -1879,12 +2017,26 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
           if (regs.length) registered.set(rel, new Set(regs.map((x) => x.file)));
           const rt = runtimeNames(code), src = registration(regs) + code, take = rt.filter((n) => names.includes(n)), own = rt.filter((n) => !names.includes(n));
           const id = JSON.stringify([src, take, own]);
-          let b = built.get(id);
-          if (!b) {
-            const keys = new Set(sharedKeys);
-            b = { out: await bundleEarly(src, keys, take, rel, own), keys };
-            built.set(id, b);
-          }
+          ids.set(rel, id);
+          if (!jobs.has(id)) jobs.set(id, { src, take, own, rel });
+        }
+        const one = async (j: { src: string; take: string[]; own: string[] }, what: string) => {
+          const keys = new Set(sharedKeys);
+          return { ...await bundleEarly(j.src, keys, j.take, what, j.own), keys };
+        };
+        if (shapesOn() && process.env.SN_EARLY_SHAPES !== 'kinds') {
+          // sources that differ only in literals share one build, a free identifier in each literal's place (early-opaque.ts)
+          const js = [...jobs];
+          const outs = await shareOpaque(js.map(([, j]) => ({ src: j.src, extra: JSON.stringify([j.take, j.own]), what: j.rel })), (src, i, what) => one({ ...js[i]![1], src }, what), (x) => gzipSync(x).length, Object.keys(r.define ?? {}));
+          js.forEach(([id], i) => { const { keys, ...o } = outs[i]!; built.set(id, { out: { ...o, map: null }, keys }); });
+        } else if (shapesOn()) {
+          // `SN_EARLY_SHAPES=kinds`: the earlier scheme, placeholder literals of the values' kind and length, checked (early-shapes.ts)
+          const js = [...jobs];
+          const outs = await shareBuilds(js.map(([, j]) => ({ src: j.src, extra: JSON.stringify([j.take, j.own]), what: j.rel })), (src, i, what) => one({ ...js[i]![1], src }, what));
+          js.forEach(([id], i) => { const { keys, ...o } = outs[i]!; built.set(id, { out: { ...o, map: null }, keys }); });
+        } else for (const [id, j] of jobs) { const { keys, ...o } = await one(j, j.rel); built.set(id, { out: o, keys }); }
+        for (const rel of pages.keys()) {
+          const b = built.get(ids.get(rel)!)!;
           earlyKeys.set(rel, new Set(b.keys));
           // (each page its own record: the shared modules' keys are filled into it below)
           earlyFiles.set(rel, { ...b.out });
@@ -1935,7 +2087,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       // its language, written into the page
       if (moduleNs.size || earlyKeys.size) for (const rel of new Set([...earlyFiles.keys(), ...runtimeOf.keys()])) {
         if (runtimeOf.get(rel)?.length === 0) continue;
-        const entry = Object.values(bundle).find((c) => c.type === 'chunk' && c.isEntry && c.facadeModuleId === resolve(root, rel));
+        const entry = entryChunk(bundle, rel) as Extract<(typeof bundle)[string], { type: 'chunk' }> | undefined;
         const want = new Map<string, Set<string>>(), seen = new Set<string>(), todo = entry ? [entry.fileName] : [];
         const add = (ns: string, k: string) => { if (!want.has(ns)) want.set(ns, new Set()); want.get(ns)!.add(k); };
         for (const x of earlyKeys.get(rel) ?? []) { const [ns, k] = x.split('\0') as [string, string]; add(ns, k); }
@@ -2029,6 +2181,8 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       }
       if (id === `\0${PREFIX}img-check.js`) return IMAGE_CHECK;
       if (id === `\0${PREFIX}warn-relay.js`) return WARN_RELAY;
+      // (pages described off their heads: their compiles' parts, once every page has compiled)
+      if (!dev && (id === `\0${PREFETCH}` || /^\0\/@sinter\/prefetch-[\w-]+\.js$/.test(id)) && lateParts.size) await everyPage(lateWait().promise, lateSettled, 'the next-page data');
       if (id === `\0${PREFETCH}`) return prefetchModule(prefetchPages(), proj().helpers);
       if (id === `\0${SWAP}`) return swapModule(swapPages());
       // an origin's own (`prefetch-acme.js`, `swap-acme.js`)
@@ -2036,6 +2190,21 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       if (og && groups().has(og[2]!)) return og[1] === 'prefetch' ? prefetchModule(prefetchPages(og[2]), proj().helpers) : swapModule(swapPages(og[2]));
       const key = id.startsWith('\0' + PREFIX) ? id.slice(1) : !dev && maps.has(id) ? id : null;
       if (key === null) return null;
+      // a page module compiled before every page had: its prefetch import as every page decides it (`latePages`)
+      const lp = latePages.get(key);
+      if (lp) {
+        await everyPage(lateWait().promise, lateSettled, 'the next-page data');
+        const want = prefetchPages(lp.group).length ? prefetchId(lp.group) : null;
+        if (latePages.get(key) === lp) {
+          latePages.delete(key);
+          if (want !== lp.prefetch) {
+            const again = moduleWith(lp.out, want);
+            if (!again) throw new Error(`sinter: page module ${key} cannot be written again`);
+            setModule(key, again.module, again.map);
+            LATE_STATS.rewritten++;
+          }
+        }
+      }
       const code = modules.get(key);
       if (code === undefined) throw new Error(`sinter: page module ${key} requested before its HTML was compiled`);
       // dev: the page's whole early script (also served by the middleware above, outside the module pipeline)
@@ -2090,14 +2259,18 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       const p = proj();
       const r = check({ ...checkOptionsOf(p), helpers: helpersOf(p.helpers), units: [...units.values()], share: true });
       buildUnits.clear();
-      if (r.diagnostics.length) this.error(`sinter check: ${r.diagnostics.length} type error(s)\n${r.diagnostics.map(formatDiagnostic).join('\n')}`);
+      // type errors fail the build, its line counting them and the warnings apart (as `sinter check`'s); warnings alone
+      // (SN538) are printed as the pages' are, and strict mode makes them errors
+      const ds = strictly(r.diagnostics), errors = ds.filter((d) => d.severity === 'error').length;
+      if (errors) this.error(`sinter check: ${errors} type error(s), ${ds.length - errors} warning(s)\n${ds.map(formatDiagnostic).join('\n')}`);
+      for (const d of ds) console.warn(formatDiagnostic(d));
     },
 
     transformIndexHtml: {
       order: 'pre',
       // builds: every page compiled (or failed) counts toward deciding the shared modules
       async handler(html, ctx) {
-        try { return await compileHtml(); } finally { if (!dev) pageDone(ctx.filename); }
+        try { return await compileHtml(); } finally { if (!dev) { pageDone(ctx.filename); lateSettle(ctx.filename); } }
         async function compileHtml() {
         const file = ctx.filename;
         const rel = relOf(file);
@@ -2302,7 +2475,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
    */
   function pageCss(bundle: Record<string, unknown>, rel: string): string[] {
     type C = { type: string; fileName: string; isEntry?: boolean; facadeModuleId?: string | null; imports?: string[]; viteMetadata?: { importedCss: Set<string> } };
-    const entry = (Object.values(bundle) as C[]).find((c) => c.type === 'chunk' && c.isEntry && c.facadeModuleId === resolve(root, rel));
+    const entry = entryChunk(bundle, rel) as C | undefined;
     const out = new Set<string>(), seen = new Set<string>(), todo = entry ? [entry.fileName] : [];
     while (todo.length) {
       const f = todo.pop()!;
@@ -2421,10 +2594,28 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     }
   }
 
+  /**
+   * builds: a page's entry chunk (the first entry whose facade is the page), through an index of the bundle's entries
+   * made once per bundle: each page looked for it in every chunk, resolving its path once per chunk (at 400 pages,
+   * ~140 ms of generateBundle). A hit is checked to still be in the bundle; a miss looks the slow way.
+   */
+  function entryChunk(bundle: Record<string, unknown>, rel: string): unknown {
+    type C = { type: string; fileName: string; isEntry?: boolean; facadeModuleId?: string | null };
+    let idx = entryIndex.get(bundle);
+    if (!idx) {
+      idx = new Map();
+      for (const c of Object.values(bundle) as C[]) if (c.type === 'chunk' && c.isEntry && c.facadeModuleId && !idx.has(c.facadeModuleId)) idx.set(c.facadeModuleId, c);
+      entryIndex.set(bundle, idx);
+    }
+    const id = resolve(root, rel), hit = idx.get(id) as C | undefined;
+    if (hit && bundle[hit.fileName] === hit) return hit;
+    return (Object.values(bundle) as C[]).find((c) => c.type === 'chunk' && c.isEntry && c.facadeModuleId === id);
+  }
+
   /** builds: the real paths of the modules a page's bundle loads with it (its entry chunk and their static imports) */
   function pageModules(bundle: Record<string, unknown>, rel: string): Set<string> {
     const chunks = Object.values(bundle) as Array<{ type: string; fileName: string; isEntry?: boolean; facadeModuleId?: string | null; imports?: string[]; moduleIds?: string[] }>;
-    const entry = chunks.find((c) => c.type === 'chunk' && c.isEntry && c.facadeModuleId === resolve(root, rel));
+    const entry = entryChunk(bundle, rel) as (typeof chunks)[number] | undefined;
     const out = new Set<string>(), seen = new Set<string>(), todo = entry ? [entry.fileName] : [];
     while (todo.length) {
       const f = todo.pop()!;
