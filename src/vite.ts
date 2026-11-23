@@ -18,6 +18,7 @@ import { CHUNK_MARK, chainText, componentOfHtml, isComponentScript, LAZY, lazyPa
 import { moduleKeys } from './i18n-build.js';
 import { HOLD_SCRIPT } from './paint-build.js';
 import { shareBuilds, shapesOn } from './early-shapes.js';
+import { shareOpaque } from './early-opaque.js';
 import { earlyImports, OWN, registration, SHARED_MARKS, sharedKey, sharedMark, stubModule as sharedStub, topLevelAwait } from './shared-build.js';
 import { loadImages, MIME, type Images } from './images.js';
 import { pageStyles } from './styles.js';
@@ -2023,8 +2024,13 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
           const keys = new Set(sharedKeys);
           return { ...await bundleEarly(j.src, keys, j.take, what, j.own), keys };
         };
-        if (shapesOn()) {
-          // sources that differ only in literals (a post's slug) share one build of their shape (early-shapes.ts)
+        if (shapesOn() && process.env.SN_EARLY_SHAPES !== 'kinds') {
+          // sources that differ only in literals share one build, a free identifier in each literal's place (early-opaque.ts)
+          const js = [...jobs];
+          const outs = await shareOpaque(js.map(([, j]) => ({ src: j.src, extra: JSON.stringify([j.take, j.own]), what: j.rel })), (src, i, what) => one({ ...js[i]![1], src }, what), (x) => gzipSync(x).length, Object.keys(r.define ?? {}));
+          js.forEach(([id], i) => { const { keys, ...o } = outs[i]!; built.set(id, { out: { ...o, map: null }, keys }); });
+        } else if (shapesOn()) {
+          // `SN_EARLY_SHAPES=kinds`: the earlier scheme, placeholder literals of the values' kind and length, checked (early-shapes.ts)
           const js = [...jobs];
           const outs = await shareBuilds(js.map(([, j]) => ({ src: j.src, extra: JSON.stringify([j.take, j.own]), what: j.rel })), (src, i, what) => one({ ...js[i]![1], src }, what));
           js.forEach(([id], i) => { const { keys, ...o } = outs[i]!; built.set(id, { out: { ...o, map: null }, keys }); });
