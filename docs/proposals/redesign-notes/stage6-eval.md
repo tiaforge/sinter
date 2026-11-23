@@ -3,13 +3,29 @@
 Running log (2026-11-23). Branch `redesign/stage6-eval`, merged into `ccr-9ebf49d5-gpdej8` by the coordinating
 session. Starting point: `evaluation.md`, "What is left (for stage 6)". Base: `c6557d4`.
 
-## Where it stands
+## Where it stands (done; `df98a8c` merged with the integration branch at `de23476`)
 
-- Measured (below): the evaluation proper (the compiled functions and the scope's proxy) is a small part of what a row
-  costs. The order of magnitude is in the bookkeeping around each binding: writing a style property by splitting and
-  joining the element's whole style (sinter-mail: 109,000 style writes a page), the worklist's per-binding records, the
-  renderer's per-binding lookups, and the copies of a `file:` value.
-- Next: see "Plan" below; each change is listed under "Changes" as it lands.
+- Built, default on, each behind its switch: the style written once per element (`StyleWrites`, `SN_STYLE_BATCH=0`),
+  row programs (one function per template returning a row's values; `SN_ROW_FN=0`, `SN_ROW_FN_AUDIT=1` comparing every
+  value, every paint list and every compile), the row's record an array by template layout, paints read back from the
+  records, the render plan (a template's content copied from a flat list; a node's copy by its place), `file:` values
+  copied and measured once (`SN_FILE_COPY=0`, `SN_FROZEN_HEIGHTS=0`), the unit's candidates read once
+  (`SN_UNIT_CANDS=0`), and the `own` bug fixed as a guard (bugs.md, 7: provably masked, no output change).
+- Every output byte the same: the five benchmark apps, the four examples, sinter-mail's 48 audit files and its
+  2,000-element page against the integration branch's builds at each merge (`35bed5c`, `de23476`), and at the end
+  against the same tree with this branch's ten commits reverted; `render-audit` (also `--switch SN_UNITS`), `pass-audit`
+  same. `npx vitest run`: 3,002 passed. test/compiler under `SN_RENDER_AUDIT`, `SN_ONE_PASS_AUDIT`,
+  `SN_FROM_WALK_AUDIT`, `SN_ROW_FN_AUDIT`: no difference (the last fails the 64 to 67 tests that count compiles, by
+  construction); `SN_UNITS_AUDIT` the same 62 failures as the base; `SN_LINK_AUDIT` two timeouts at 5 s that pass with
+  a longer timeout (the base times out too). sinter-mail's suite (`mail-audit --suite`): test, check and typecheck ok.
+- Numbers (below, "The end"): sinter-mail's 2,000-element email's evaluation 231 → 79 ms a page (p25), its compile
+  302 → 135 ms, its build 6.2 → 4.2 s; the 200-element one 38 → 16 ms; the file email 15.9 → 12.6 ms; the API page's
+  pass-1 evaluation 5.7 → 3.7 ms. The blog's evaluation is where it was (5.7 → 5.5 ms): its cost is the library's parse,
+  the data checks and the walk's and renderer's per-node work, not the evaluation of bindings (1,063 a page).
+- Next (not started; "What is left" at the end): the blog's rendering and walk per node (a fill plan with every node's
+  kind and copy's place, the decisions' keys built only for a loop the second pass compiles), the per-binding work
+  left on the email (59 bindings an element: a paint program per element), the second pass's own codes compiled per
+  page (API: 8 ms).
 
 ## How it is measured
 
@@ -326,3 +342,83 @@ static `decideFor` 5.47 / 6.87 → 5.53 / 6.79 (the same).
   the rows' reads, so `fillPlan` says so once (`rd`) and the row does not ask.
 
 A/B against change 9 (3 rounds): mail gen pass-1 `prerender` p25 / median 75.5 / 88.4 → 74.9 / 81.2.
+
+
+## The end: before and after
+
+Wall ms a call, p25 / median / mean over the build's pages, A/B interleaved on the idle machine: **before** is this
+branch's tree with its ten commits reverted (the integration branch `de23476` with everything else merged: its output
+is byte for byte this branch's), **after** is this branch (7 rounds for the blog, 3 for sinter-mail). Whole builds: the
+median of the rounds' `run-sinter.mjs` times.
+
+| app | phase | before | after |
+| --- | --- | ---: | ---: |
+| blog static | `decideFor` | 5.72 / 7.08 / 8.06 | 5.50 / 6.86 / 7.74 |
+| | `compile()` | 9.06 / 10.6 / 13.5 | 8.57 / 10.1 / 13.4 |
+| | build | 2.93 s | 2.78 s |
+| blog live | `decideFor` | 5.71 / 7.48 / 8.39 | 5.81 / 7.67 / 8.47 |
+| | `compile()`, build | 10.6 / 12.4 / 16.1, 3.63 s | 10.5 / 12.5 / 16.0, 3.57 s |
+| blog static-files | pass-1 `settle` | 6.38 / 7.87 / 8.75 | 6.36 / 7.71 / 8.41 |
+| | `compile()`, build | 14.1 / 16.1 / 19.7, 3.67 s | 14.1 / 15.3 / 18.9, 3.56 s |
+| blog live-files | pass-1 `settle` | 6.30 / 7.64 / 8.74 | 6.39 / 7.85 / 8.86 |
+| | `compile()`, build | 16.1 / 18.0 / 21.6, 4.39 s | 16.4 / 17.9 / 22.0, 4.24 s |
+| blog static, type check | `decideFor` | 5.83 / 7.10 / 7.84 | 5.68 / 7.05 / 7.96 |
+| | `compile()`, build | 9.30 / 10.7 / 13.8, 3.10 s | 9.12 / 10.4 / 14.1, 3.10 s |
+| mail file email (`mail.parse`) | pass-1 `settle` | 15.9 / 19.7 / 23.2 | 12.6 / 15.1 / 20.5 |
+| | `compile()`, build | 40.3 / 44.1 / 131, 2.86 s | 37.9 / 41.7 / 129, 2.81 s |
+| mail 200-element email | pass-1 `settle` | 38.1 / 41.4 / 48.9 | 16.3 / 19.9 / 25.5 |
+| | pass-2 `prerender` | 1.23 / 1.62 / 1.53 | 0.22 / 0.25 / 0.29 |
+| | `compile()`, build | 64.3 / 77.1 / 167, 3.00 s | 40.5 / 48.8 / 140, 2.61 s |
+| mail 2,012-element email | pass-1 `settle` | 231 / 273 / 264 | 78.8 / 90.7 / 104 |
+| | pass-2 `prerender` | 8.83 / 9.61 / 11.6 | 0.27 / 0.31 / 0.34 |
+| | `compile()`, build | 302 / 347 / 417, 6.17 s | 135 / 149 / 244, 4.19 s |
+| mail API (components) | pass-1 `settle` | 6.95 / 8.80 / 11.4 | 4.79 / 6.25 / 9.31 |
+| | pass-2 `prerender` | 8.39 / 10.8 / 11.3 | 8.26 / 8.76 / 9.80 |
+| | `compile()`, build | 64.8 / 75.5 / 230, 3.82 s | 63.5 / 67.8 / 226, 3.87 s |
+
+Against this work's start (`c6557d4`, before the integration branch's other merges), the blog's phases are the same
+within the rounds (static `decideFor` 5.77 / 7.37 → 5.98 / 7.63 in a 5-round run on a warmer machine, live 6.08 / 8.00
+→ 5.79 / 7.55): the blog does not gain from this work, and nothing of it costs the blog more than the rounds' spread.
+
+## Fallbacks, by reason
+
+- Row programs (`SN_ROW_FN_LOG=1`): a code that names an app helper, a namespace's member or a lazy module is its own
+  call in its place (the blog's `md.*` calls are in its page template, not in rows: none in rows of any app); a
+  template with one value has no program (by design, change 5); a template whose values do not compile together: none
+  seen.
+- The unit's candidates (`unitFallback`): a page whose unit's elements or codes are not the unit's: none seen; the page
+  that makes the unit asks every binding (it has no list yet).
+- Rendering's own fallbacks (`SN_RENDER_LOG=1`) are unchanged: the examples' `layout`.
+
+## Tried and dropped
+
+- **A combined function as the whole of step 1.** The measurement first: the evaluation proper was 22 of 355 ms on the
+  email and 0.34 of 8 ms on the blog, so the row program is one piece of the plan, not its order of magnitude. Its first
+  version made every page's programs anew (source, key, a `bindPlan` of every node: 1.8 ms a page on the mail file's 65
+  components with few rows); hence `ROW_PARTS` by the template's nodes. Programs of one value cost about what they
+  save (the blog: 1.25 values a call): none for one value.
+- **The row's names as parameters (no proxy).** The proxy is 3 ms of the email's 355 and nothing on the blog; rewriting
+  `$.name` in code text to locals needs a tokenizer to be safe (a string literal can hold `$.x`). Not done.
+- **Every frozen object's height for the build** (a `WeakMap` for all, or `DEEP_FROZEN` and the heights in one): the
+  blog's trees are new on every page, so it paid a `WeakMap` insert per object and gained nothing; kept for a `file:`
+  value's copy only.
+- **The read-back of every rendered loop's paints** (change 3): on the blog it ran for every loop (its images'
+  attributes are the layout's); the walk collects those as it goes now (change 5).
+
+## What is left
+
+- **The blog** (`decideFor` ~5.5 ms steady): the post's `md.parse` (~1.8, the library's), `frozenPlain`'s walk of its
+  tree (~0.5; a mark shared with `memo()` would need a change to the shipped `memo`), the lists' `plainData` and the
+  case props' `frozenData` copies (~0.6), the walk per node (`nodesOf`: the decisions' key strings, `prefix + key`, made
+  for every `if` in every row though only a loop the second pass compiles reads them; `bindPlan`'s loop), rendering per
+  node (`fill`'s lookups by node: a fill plan with each node's kind and its copy's place would replace them; `clone`'s
+  attribute copies, which are the output's).
+- **The email** (79 ms for 2,012 elements, 131,520 bindings): ~0.6 µs a binding left, spread over the walk (the plan
+  loop, `firstPaintValue`, the record), the renderer (the acts loop, `StyleWrites.write`) and the clone. The next step
+  there is a paint program per element: one function from the row's values to the element's attributes (its style's
+  declarations joined in one pass), generated from the same plan, with `writeFirstPaint` as its reference.
+- **The API page's second pass** (8 ms): its own codes, compiled by the page's `new Function` and each run once, so each
+  is compiled at its first call. A cache of compiled codes by text across pages (as `ROW_FACTORIES` does for row
+  programs) would take it to what the unit's codes cost.
+- **`rowRenderer`'s per-evaluation setup** (`tplOf`, `anchors`, `hostOf`, the plans): per entry of a kept template;
+  could be kept with the evaluation's program (`evalProgram`) as the walk's memo is.
