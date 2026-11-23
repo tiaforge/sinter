@@ -136,3 +136,87 @@ helper arguments and results) `plainData` is called as before. Tests in test/com
 through a measured part, the non-plain cases against the original).
 
 Static, CPU clock, median of 3 rounds A/B: `decideFor` 7.7 → 7.2 ms a page.
+
+## Where a page's compile is now (`4175871`)
+
+`time` mode on the thread's CPU clock (what the main thread spent; the GC pauses on it included, the other
+processes' load not), median of 3 rounds A/B against `130705b`, ms a page, base → now:
+
+| phase | static | live | static-files | live-files | static, type check |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `compile()`, build | 24.1 → 15.6 | 28.2 → 17.3 | 39.3 → 25.1 | 40.6 → 28.0 | 22.6 → 13.6 |
+| pass 1 `decideFor` | 14.7 → 8.2 | 15.3 → 7.8 | – | – | 13.5 → 6.8 |
+| pass 1 `walkPage` | – | – | 9.9 → 8.7 | 11.2 → 10.8 | – |
+| of it `definition` | – | – | 4.9 → 4.9 | 4.5 → 6.1 | – |
+| pass 1 finish (`finishPage`, now `settle` alone) | – | – | 21.2 → 10.1 | 20.9 → 9.5 | – |
+| of it `prerender` | – | – | 15.6 → 9.8 | 15.2 → 9.3 | – |
+| pass 2 `walkPage` | 7.0 → 5.5 | 8.7 → 6.2 | 6.9 → 4.7 | 7.4 → 5.4 | 7.0 → 5.0 |
+| of it `expandComponents` | 2.6 → 0.7 | 2.7 → 0.8 | 2.3 → 0.5 | 2.3 → 0.7 | 2.8 → 0.6 |
+| of it `minify` | 2.5 → 2.4 | 2.5 → 2.3 | 2.5 → 2.0 | 2.7 → 2.1 | 2.2 → 2.2 |
+| pass 2 `finishPage` | 0.7 → 0.6 | 2.1 → 1.4 | 0.8 → 0.9 | 1.3 → 1.7 | 0.9 → 0.8 |
+| `compile()`, describe | (4 a build) | (4 a build) | 6.5 → 4.2 | 7.1 → 6.4 | (4 a build) |
+
+(Rows that moved the wrong way by less than 1.5 ms, `definition` in live-files among them, are within what one round
+differs from the next on this machine.)
+
+### What is left, per page, and what it would take
+
+A template page (static), ~15 ms of the compiler's CPU:
+
+- `decideFor`, ~7–8 ms: the page's `md.parse` call ~3 ms of it (the parse 1.5, its result copied and frozen
+  `deepFreeze(structuredClone(...))` ~0.9, `memo`'s own freeze 0.4, the second call and its `JSON.stringify`
+  comparison, `resultKey` for the cross-check); rendering the rows (`rowRenderer`: cloning the template's content
+  and filling it, ~2 ms; the coverage agent's); the worklist's walk over 420 instances (`nodesOf`, `rowsOf`,
+  `caseOf`, the scope proxies, `plainData` ~0.7) ~2.5 ms. Per page by nature: the evaluation of a page's own data.
+  Under 4 ms needs evaluation from compiled closures over units (stages 4 and 6) rather than `new Function` over
+  the page's code with a proxy scope per row, and a helper result that is frozen already (the library's `memo`
+  freezes its trees) not copied again: that is a contract between the helper module and the compiler (a mark the
+  two module instances share), not done here.
+- Pass 2 `walkPage`, ~5 ms: the minifier's layout queries over the rendered rows ~2.3 ms (the coverage agent's: a
+  rendered block's text is known, its layout questions are not cached); parsing the page again 0.4; the walk of what
+  the rows left (the page's own markup) ~1; `slotsPlaced`/`fileGraph` ~0.5 (per compile, order-dependent on
+  `componentFiles`, so not cached per build).
+- Pass 2 `finishPage` ~0.7, GC ~2–3.
+
+A page file per post (static), ~25 ms plus ~4 ms of description:
+
+- Pass 1 `walkPage` ~8.7: the library's 65 definitions compiled per page, partly linked (`definition` ~5, `replay`
+  ~3.5 of it). Stage 4 (units per build) removes it.
+- `settle` ~10: the same evaluation as `decideFor`, plus the drops.
+- Pass 2 ~5.5, as a template page's.
+- The description, ~4 ms (a third walk, `describeOnly`), which vite needs before the page compiles.
+
+## The smallest route to one walk per page
+
+- **Template pages are walked once already** (the kept template's walk, once for all entries, then one evaluation
+  and one pass-2 walk per entry). What pass 2 still does for a fully rendered entry is the page's own markup:
+  parse, layout merge, its few components, the splice, the minifier, the walk of what is left, the finish. The
+  smallest step is to start each entry's pass 2 from a copy of the kept walk's tree instead of from the source: the
+  decided branches outside rows (md-doc's `$build` chooses `<md-tree>` over `<md-view>`) are what makes the walk
+  differ from the kept one, and what renumbers what follows them. That is stage 3's "decisions applied to the first
+  pass's result, numbers handed out at assembly" for the page's top level only; rows are already rendered.
+- **A page file per post is walked three times.** Pass 1 now stops at its decisions (change 3), so its two walks
+  are the real cost: (1) the description's walk could be pass 1's own if vite kept the described `Compiler` and the
+  page compile went on from it (today `describeOnly` skips what describes nothing, so the walks differ; the
+  description would have to be read off a full pass 1 walk, at ~8.7 ms instead of ~4, which pays off as soon as the
+  page compile reuses it); (2) the kept-template route cannot serve files that differ in a resource's `src` and a
+  literal (`post-3.md`, `'post-3'`) without treating such pages as entries of one template, which is a new rule,
+  not a cache: not done. Stage 4 (definitions per build) takes ~5 ms of the pass-1 walk whatever the route.
+
+### Whole builds
+
+`node bench/astro/run-sinter.mjs`, wall time, 4 rounds back to back (base `130705b`, now with rendering on, now with
+`SN_RENDER=0`, which compiles every row in the second pass as before stage 1), median, seconds; the load average was
+3 to 13 during the rounds:
+
+| app | base | now | now, `SN_RENDER=0` |
+| --- | ---: | ---: | ---: |
+| static, 100 | 4.08 | 2.99 | 11.60 |
+| static with the type check, 100 | 4.70 | 3.42 | 12.65 |
+| live, 100 | 4.32 | 3.85 | 12.25 |
+| static-files, 100 | 6.28 | 4.39 | 14.44 |
+| live-files, 100 | 8.70 | 7.53 | 16.85 |
+| static, 400 | 13.90 | 9.06 | 45.32 |
+
+Astro: 2.2 s for 100 posts. The static build is ~1.1 s fixed plus ~6 ms a page outside the compiler plus ~15 ms of
+compile (CPU) a page; the gap to Astro at 100 posts is now ~0.8 s, about 8 ms a page.

@@ -271,3 +271,21 @@ Found by the research, not changed:
   6): static 12.0 and 3.6 s, with the type check 13.0 and 3.8 s, live 13.4 and 4.5 s, a page file per post 13.2 and
   5.0 s, live 16.1 and 6.7 s. Started: the rest of stage 2 (the reasons above, then deleting the old route), and the
   type check once per component (part of stage 4).
+- 2026-11-23, 15:25 UTC: **the floor's first round is in** (`redesign-notes/floor.md`). The compiler's own time
+  per page, base and now: a template page 24.1 and 15.6 ms, a page file per post 39.3 and 25.1 ms. Whole builds, 100
+  posts, medians under load: static 3.0 s, with the type check 3.4 s, live 3.9 s, a page file per post 4.4 s, live
+  7.5 s; 400 static posts 9.1 s (45 s with rendering off). Astro: 2.2 s, so static is about 8 ms a page behind; the
+  4 ms target is not reached. What a template page's 15 ms are: the first pass's evaluation 7 to 8 (the page's own
+  `md.parse` 3, rendering 2, the worklist's walk of 420 instances 2.5), the second pass 5 (the minifier's layout
+  queries over rendered rows 2.3, the page's own markup 1). A page file per post: the library's definitions compiled
+  on every page 8.7, the evaluation 10, the second pass 5.5, the description 4. One difference recorded, not seen in
+  any app or test: a row's item compared to its parent's data by identity (`y === x.children[0]`) is true at build
+  time now, as in the browser, and false with rendering off. Started: a spike of stage 4, definitions compiled once
+  per build (`redesign-notes/stage4-units.md`). Stage 3 (one walk per page) waits for the rest of stage 2, which
+  works in the same code.
+- 2026-11-23, 15:50 UTC: the type check, first change merged (`redesign-notes/typecheck.md`): a shadow function
+  that repeats (a component's markup gives the same ones on every page and at every use) is given to `tsc` once, and
+  its errors are laid out at every place they were reported before; the diagnostics corpus is byte for byte the
+  reference. With the check on (the agent's medians, load 4 to 8): 100 posts, a page file each, 12.6 s to 8.4 s
+  (`tsc` 9.8 s to 0.86 s); one template 5.1 s to 4.4 s; sinter-mail's 12 API pages with TypeScript 21.3 s to 8.0 s.
+  `SN_CHECK_SHARE=0` turns it off. Still running: the rest of stage 2, the stage 4 spike.

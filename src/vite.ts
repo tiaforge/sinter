@@ -2085,7 +2085,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       if (error || !typecheckOn() || dev || !units.size) return;
       const { check } = await import('./check/index.js');
       const p = proj();
-      const r = check({ ...checkOptionsOf(p), helpers: helpersOf(p.helpers), units: [...units.values()] });
+      const r = check({ ...checkOptionsOf(p), helpers: helpersOf(p.helpers), units: [...units.values()], share: true });
       units.clear();
       if (r.diagnostics.length) this.error(`sinter check: ${r.diagnostics.length} type error(s)\n${r.diagnostics.map(formatDiagnostic).join('\n')}`);
     },

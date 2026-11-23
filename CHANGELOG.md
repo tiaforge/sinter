@@ -53,13 +53,12 @@ How to write an entry (from 0.21.0 on; older sections keep their own form):
 ### Performance
 
 - Builds with a component library that dispatches on node type in each component (`<sn-component use="{ … }[node.type]">`) are back to 0.20's speed or faster, with the same output: sinter-mail (65 components) on 12 pages in ~2.6 s, against ~3.3 s on 0.20.0 and ~3.7 s on 0.21.0.
-
-### Performance
-
+- Builds of pages over data the build knows (a markdown post through sinter-markdown's components, a list over a `file:` source) render that content at build time from the compiled templates instead of compiling every component instance a second time, and do less per page besides (each component file read once per build, a page's first pass stopping at its decisions): the benchmark blog's 100 posts build in about 3 s instead of 11.6 s (400 posts: 9 s instead of 45 s; a page file per post: 4.4 s instead of 14.4 s), with the same output.
 - Pages whose early script has the same source (on a blog, every post's) share one nested build of it instead of one each: a build of 100 posts with a live section is 1.6 s faster (8.3 s at 400 posts), with the same output. The early scripts that differ go through one Vite builder instead of one `vite build` each: 0.45 s less per 100 such pages.
 - A build no longer gzips every page's scripts for size lines that `logLevel: 'warn'` does not print, and gzips a script that several pages share once: 1.4 ms less per page with a page module (0.7 s at 400 such pages).
 - A build with a page per entry (`data-sn-for` on `<html>`) lists the entries from a description of the template instead of compiling it: about 150 ms off every such build.
 - A build no longer remakes its list of pages for every page it compiles, which grew with the square of the pages: a build of 400 pages, each its own file, is 4 s faster outside the compiler (0.5 s at 100).
+- The type check of a build (`typecheck`, on with TypeScript installed) and `sinter check` give TypeScript what pages repeat once, such as a component's markup, instead of once per page and per use, and report the same diagnostics: 100 posts, each its own page file, build in 8.4 s instead of 12.6 s, `tsc` taking 0.9 s instead of 9.8 s ([docs/type-checking.md](docs/type-checking.md)).
 
 ## 0.21.0 (2026-11-21)
 
