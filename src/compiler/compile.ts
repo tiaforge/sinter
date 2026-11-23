@@ -22,7 +22,7 @@ import type { Node } from 'acorn';
 import type * as acorn from 'acorn';
 import { COMPLEXITY_DEFAULTS, COMPLEXITY_LIMITS, measure, type ComplexityOptions } from './complexity.js';
 import { ATTRIBUTES, CHAR_KEYS, ELEMENTS, KEY_ALIASES, LOOSE_SHIFT, MODIFIERS, NAMED_KEYS } from './vocabulary.js';
-import type { CheckExpr, CheckFrame, CheckLoc, CheckResource, CheckUnit, TypeRef } from './check-unit.js';
+import { checkExprAt, checkRaw, checkUnitWithParts, type CheckExpr, type CheckFrame, type CheckLoc, type CheckPartRef, type CheckResource, type CheckUnit, type TypeRef } from './check-unit.js';
 import { apiOf, RESPONSE_PATH, shapeTemplate, signInWire, type ApiDef, type ApisDef, type OperationShape } from './apis.js';
 import { foldReason, type FoldVerdict } from '../fold-check.js';
 import { BUILD_TIME_ATTRS, buildTimeAttrProblem, FILE_ATTRS, FILE_ENTRY, fileAttrProblem, fileEntry, filePath, fileValue, isContentSource, isFileSource, isGlob, PAGE_ENTRY, scriptJson, setPath, sortList } from './files.js';
@@ -1783,6 +1783,11 @@ class Compiler {
   readonly checkFrames: CheckUnit['frames'] = [];
   readonly checkExprs: CheckUnit['exprs'] = [];
   readonly checkResources: CheckUnit['resources'] = [];
+  /**
+   * a build's first pass with units: the parts of its units' check data the walk took, held by reference (their places
+   * in `checkFrames` and `checkExprs` are empty until read: `checkExpr`); null where units are not placed
+   */
+  readonly checkParts: CheckPartRef[] | null;
   /** StateEntry / LoopEntry → frame index in `check.frames` */
   readonly frameOf = new Map<object, number>();
   /** `sinter check`: the condition a branch is checked under, when it is not its own `data-sn-if` (the `data-sn-else` of a choice); and each `if` binding's, for its `data-sn-else` */
@@ -1991,7 +1996,10 @@ class Compiler {
   readonly remoteWidths = new Set<number>();
 
   constructor(readonly opts: CompileOptions) {
-    this.check = opts.check ? { file: opts.file, resources: this.checkResources, frames: this.checkFrames, exprs: this.checkExprs } : null;
+    this.checkParts = opts.check && opts.units && unitsOn() ? [] : null;
+    this.check = !opts.check ? null : this.checkParts
+      ? checkUnitWithParts(opts.file, this.checkResources, this.checkFrames, this.checkExprs, this.checkParts)
+      : { file: opts.file, resources: this.checkResources, frames: this.checkFrames, exprs: this.checkExprs };
     this.checking = !!opts.check;
     const ns = new Map<string, Set<string>>();
     for (const [k, v] of Object.entries(opts.helpers.namespaces)) ns.set(k, new Set(v.members));
@@ -4837,7 +4845,7 @@ class Compiler {
     const { lets } = this.propLets(use, ctx.scope);
     // each candidate's props, checked with the data narrowed to its value (convention, map; a helper hides the link)
     if (choice?.key != null && this.checking && this.lastExpr !== null && attr(host, 'data-sn-with') !== undefined) {
-      const e = this.checkExprs[this.lastExpr]!;
+      const e = this.checkExpr(this.lastExpr);
       // (in parentheses when there are several keys: the guard is joined with others)
       e.guard = choice.also?.length ? `(${[choice.key, ...choice.also].map((k) => `(${choice.keySrc}) === ${JSON.stringify(k)}`).join(' || ')})` : `(${choice.keySrc}) === ${JSON.stringify(choice.key)}`;
       e.guardAt = { name: choice.name, key: choice.key, loc: this.locOf(host, 'use', choice.keyAt ?? 0) };
@@ -5560,7 +5568,7 @@ class Compiler {
       const el = this.idEls.get(id);
       if (!el || el.tagName === 'form') continue;
       for (const { attr: a, i } of this.exprsOf.get(el) ?? []) {
-        if (TRIGGER_TIME.has(a) && this.checkExprs[i]!.event !== null) this.checkExprs[i]!.run = true;
+        if (TRIGGER_TIME.has(a) && this.checkExpr(i).event !== null) this.checkExpr(i).run = true;
       }
     }
   }
@@ -6501,7 +6509,7 @@ class Compiler {
       const i = this.recordExpr(el, attrName, scope, o, r.nameEdits ? applyEdits(src, r.nameEdits) : src, shift, r);
       // a broken expression is there for editor completion only; nothing refers to it
       if (r.ok) this.lastExpr = i;
-      else this.checkExprs[i]!.broken = true;
+      else this.checkExpr(i).broken = true;
     }
     return r;
   }
@@ -6752,10 +6760,17 @@ class Compiler {
 
   // ---- check unit
 
+  /** expression `i` of the check unit, a part's made the page's first (`checkParts`) */
+  checkExpr(i: number): CheckExpr {
+    // (made in the page's list, then read from it: in a definition the linker records, through its log)
+    if (this.checkParts?.length && this.checkExprs[i] === undefined) checkExprAt(checkRaw(this.check!)!, i);
+    return this.checkExprs[i]!;
+  }
+
   /** Adds type information to the expression `expr()` recorded last. */
   typeLast(info: Partial<Pick<CheckExpr, 'resultType' | 'returns'>> & { payload?: TypeRef | null }) {
     if (!this.checking || this.lastExpr === null) return;
-    const e = this.checkExprs[this.lastExpr]!;
+    const e = this.checkExpr(this.lastExpr);
     if (info.resultType) e.resultType = info.resultType;
     if (info.returns) e.returns = info.returns;
     if (info.payload && e.payload) e.payload.type = info.payload;
