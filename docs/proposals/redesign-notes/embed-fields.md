@@ -74,8 +74,13 @@ fail without it.
   `cmp` binding is left in the page and its code reads a folded resource, `$r` whole, or anything else a prop can
   hold an object from (state, a row, a shared definition's prop: any `$.<name>` but `$r`, `$meta`, `$url`, `$now`,
   `$locale`), the second pass is compiled again without folds (and when the folds were the only reason for it, the
-  first pass's result stands). Checked on what is left: on the benchmark `<md-view>`'s script is in the first pass
-  but not in the page.
+  first pass's result stands). Checked on what is left, from the compiled parts (`out.ir`, `out.fns`), so it holds
+  whichever route the second pass took: on the benchmark `<md-view>`'s script is in the first pass but not in the
+  page.
+- **Stage 3's kept expansion** (merged from `ccr-9ebf49d5-gpdej8` at d1e3a5c): an entry's second pass may go on from
+  a copy of the template's expanded tree (`secondPass`, `copyState`), which runs no constructor; the copy's page gets
+  the folds there. `SN_ONE_PASS_AUDIT=1` compiles the old route beside it and finds them equal on the benchmark (100
+  second passes from the kept expansion) and on the tests above.
 
 ### Prune (`fileJson`, embed-reads.ts)
 
@@ -100,8 +105,8 @@ fail without it.
   through templates, nested loops, components and `$slot`; not done. A list of a page per entry's own pages is not
   read at run time at all in the benchmark (only the entry is). `fields="…"` still prunes a list by hand.
 
-No new `Compiler` field (so nothing for `LINK_FIELDS`): `foldValues`, `foldGain`, `foldsEscape` and `embedReads`
-are methods over what the compiler holds; the folds travel as a compile option (`CompileOptions.folds`) and in
+No new `Compiler` field (so nothing for `LINK_FIELDS`): `foldValues`, `foldGain` and `embedReads` are methods over
+what the compiler holds, `foldsEscape` a function of the compiled parts; the folds travel as a compile option (`CompileOptions.folds`) and in
 `PageInfo.folds`, which every unit shares as it shares `page`.
 
 ## Why this analysis
