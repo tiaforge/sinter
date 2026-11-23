@@ -1039,8 +1039,24 @@ function parsedText(text: string): DefaultTreeAdapterMap['documentFragment'] {
   if (!f) {
     if (PARSED.size >= 2000) PARSED.clear();
     PARSED.set(text, (f = parse5.parseFragment(text, { sourceCodeLocationInfo: true })));
+    shareTree(f);
   }
   return f;
+}
+
+/**
+ * What a compile reads and never changes, which a copy of its state shares (`copyState`): component files' parsed
+ * markup (`parsedText`; each use takes a `freshCopy`), every node of it and its attributes and positions.
+ */
+const SHARED = new WeakSet<object>();
+function shareTree(n: object) {
+  SHARED.add(n);
+  const x = n as { attrs?: object[]; childNodes?: object[]; content?: object; sourceCodeLocation?: object | null };
+  if (x.sourceCodeLocation) SHARED.add(x.sourceCodeLocation);
+  for (const a of x.attrs ?? []) SHARED.add(a);
+  if (x.attrs) SHARED.add(x.attrs);
+  if (x.childNodes) { SHARED.add(x.childNodes); for (const c of x.childNodes) shareTree(c); }
+  if (x.content) shareTree(x.content);
 }
 
 /**
@@ -1089,17 +1105,183 @@ export function compilerFields(html: string, options: CompileOptions): Array<[st
 /** what a unit shares of its page as it is (`unitChild`); its numbering (`UNIT_NUMBERING`) it copies */
 const UNIT_SHARED = new Set(['page', 'componentFiles']);
 
+/**
+ * A deep copy of a compiler's state, given other options (`keptExpansion`): every object its fields reach is copied
+ * once, keeping what shares what (a node in the tree and in a side table is one node in the copy), and every side
+ * table keyed by objects (its `WeakMap`s and `WeakSet`s, and the module's own that mark nodes) is copied for the
+ * objects the copy has. Shared: the options, the parsed component files (`SHARED`), functions, and objects frozen at
+ * every depth (build-time data). A value of a class the copy does not know refuses it: the reason, for the log.
+ */
+function copyState(from: Compiler, opts: CompileOptions, roots: object[] = [], listed?: WeakEntries): { c: Compiler; roots: object[]; entries: WeakEntries } | { refused: string } {
+  const memo = new Map<object, object>(), order: object[] = [];
+  let refused: string | null = null;
+  const keep = (v: object) => v === from.opts || SHARED.has(v) || DEEP_FROZEN.has(v) || (Object.isFrozen(v) && !Array.isArray(v) && !(v instanceof Map) && !(v instanceof Set));
+  const copy = <T>(v: T): T => {
+    if (v === null || typeof v !== 'object') return v;
+    const o = v as unknown as object;
+    const got = memo.get(o);
+    if (got) return got as T;
+    // (shared, and in the side tables as it is: a component's parsed markup kinded, a frozen value marked)
+    if (keep(o)) { memo.set(o, o); order.push(o); return v; }
+    const proto = Object.getPrototypeOf(o);
+    let out: object;
+    if (Array.isArray(o)) {
+      const a: unknown[] = new Array(o.length);
+      memo.set(o, a); order.push(o);
+      for (let i = 0; i < o.length; i++) a[i] = copy(o[i]);
+      out = a;
+    } else if (o instanceof Map) {
+      const m = new Map();
+      memo.set(o, m); order.push(o);
+      for (const [k, x] of o) m.set(copy(k), copy(x));
+      out = m;
+    } else if (o instanceof Set) {
+      const m = new Set();
+      memo.set(o, m); order.push(o);
+      for (const x of o) m.add(copy(x));
+      out = m;
+    } else if (o instanceof RegExp) {
+      out = new RegExp(o.source, o.flags);
+      memo.set(o, out);
+    } else if (proto === Object.prototype || proto === null) {
+      const x: Record<string, unknown> = Object.create(proto);
+      memo.set(o, x); order.push(o);
+      for (const k of Object.keys(o)) x[k] = copy((o as Record<string, unknown>)[k]);
+      out = x;
+    } else {
+      refused ??= `a ${(o as { constructor?: { name?: string } }).constructor?.name ?? 'value'} in the state`;
+      return v;
+    }
+    return out as T;
+  };
+  const to = Object.create(Compiler.prototype) as Record<string, unknown>;
+  const src = from as unknown as Record<string, unknown>;
+  type Weak = WeakMap<object, unknown> | WeakSet<object>;
+  const weak: Array<{ field: string | null; a: Weak; b: Weak }> = [];
+  for (const k of Object.keys(src)) {
+    const v = src[k];
+    if (k === 'opts') { to[k] = opts; continue; }
+    if (v instanceof WeakMap) { const w = new WeakMap(); weak.push({ field: k, a: v, b: w }); to[k] = w; continue; }
+    if (v instanceof WeakSet) { const w = new WeakSet(); weak.push({ field: k, a: v, b: w }); to[k] = w; continue; }
+    to[k] = copy(v);
+  }
+  const outRoots = roots.map((r) => copy(r));
+  // the module's marks of nodes (rendered rows', scripts the compiler wrote): the copy's nodes carry them too
+  for (const m of [WRITTEN, SHOWN, SCOPED, MARKED, REWROTE, RENDERED_FILE, OWN_SCRIPTS, INERT_FILLS] as Weak[]) weak.push({ field: null, a: m, b: m });
+  const put = (b: Weak, k: object, v: unknown) => { if (b instanceof WeakMap) b.set(k, v); else b.add(k); };
+  const entries: WeakEntries = [];
+  if (listed) {
+    // a copy of a copy that listed its side tables' entries: those, copied (no lookups of every object in every table)
+    for (const e of listed) {
+      const b = e.field === null ? e.mod! : to[e.field] as Weak, mine: Array<[object, unknown]> = [];
+      for (const [k, v] of e.pairs) { const x = copy(k), y = copy(v); put(b, x, y); mine.push([x, y]); }
+      entries.push({ field: e.field, ...(e.mod ? { mod: e.mod } : {}), pairs: mine });
+    }
+  } else {
+    const lists = weak.map((w) => ({ field: w.field, ...(w.field === null ? { mod: w.b } : {}), pairs: [] as Array<[object, unknown]> }));
+    // the side tables, for every object copied so far and every one their values reach
+    for (let i = 0; i < order.length; i++) {
+      const o = order[i]!, x = memo.get(o)!;
+      weak.forEach((w, j) => {
+        if (!w.a.has(o)) return;
+        const y = w.a instanceof WeakMap ? copy(w.a.get(o)) : true;
+        put(w.b, x, y);
+        lists[j]!.pairs.push([x, y]);
+      });
+    }
+    entries.push(...lists.filter((l) => l.pairs.length));
+  }
+  if (refused) return { refused };
+  return { c: to as unknown as Compiler, roots: outRoots, entries };
+}
+
+/** a copy's side tables, entry by entry (`copyState`): each a field of the compiler, or one of the module's (`mod`) */
+type WeakEntries = Array<{ field: string | null; mod?: WeakMap<object, unknown> | WeakSet<object>; pairs: Array<[object, unknown]> }>;
+
 /** a `<html data-sn-for>` template walked once (`fromTemplate`): its first pass, kept for each entry's evaluation */
-type KeptTemplate = { c: Compiler; path: string; checked: boolean; hits: number; misses: number; typed?: boolean };
+type KeptTemplate = { c: Compiler; path: string; checked: boolean; hits: number; misses: number; typed?: boolean; expanded?: KeptExpansion };
+
+/**
+ * A kept template's tree as expanded (`expandPage`), before its walk: a copy of the compiler's state there, which each
+ * entry's second pass copies again and goes on from (`walkExpanded`), instead of parsing and expanding the page again.
+ * Or why it is not kept: the reason each entry's second pass is counted under (`SN_PASS_LOG`).
+ */
+type KeptExpansion = { c: Compiler; doc: DefaultTreeAdapterMap['document']; entries: WeakEntries } | { refused: string };
+
+/** the second pass of a template's entries starts from the kept expansion unless `SN_ONE_PASS=0` */
+export function onePassOn(): boolean { return proc?.env.SN_ONE_PASS !== '0'; }
+
+/**
+ * The routes the second passes took in this process: `kept` (from a kept expansion) or the reason it parsed and
+ * expanded the page again, with counts; printed at exit with `SN_PASS_LOG=1`.
+ */
+export const PASS_STATS = { kept: 0, again: new Map<string, number>() };
+let passLogged = false;
+/** (the audit's old-route compile: not counted) */
+let passAuditing = false;
+function passStat(why: string | null) {
+  if (passAuditing) return;
+  // (`SN_PASS_STATS=<file>`: one line per second pass, its route; under vitest the test, as `SN_RENDER_STATS` writes)
+  const file = proc?.env.SN_PASS_STATS;
+  const w = (globalThis as { __vitest_worker__?: { filepath?: string; current?: { name?: string } } }).__vitest_worker__;
+  if (file) (proc?.getBuiltinModule?.('node:fs') as { appendFileSync(f: string, s: string): void } | undefined)?.appendFileSync(file, `${why ?? 'kept'}${w?.filepath ? `\t${w.filepath.replace(/^.*\/test\//, 'test/')} > ${w.current?.name ?? ''}` : ''}\n`);
+  if (why === null) PASS_STATS.kept++;
+  else PASS_STATS.again.set(why, (PASS_STATS.again.get(why) ?? 0) + 1);
+  if (!passLogged && proc?.env.SN_PASS_LOG === '1') {
+    passLogged = true;
+    proc.on?.('exit', () => console.error(`sinter passes: ${PASS_STATS.kept} second passes from a kept expansion; parsed and expanded again: ${JSON.stringify(Object.fromEntries(PASS_STATS.again))}`));
+  }
+}
+
+/** `keepTemplate`: the expansion copied before the kept walk goes on */
+function keptExpansion(c: Compiler, doc: DefaultTreeAdapterMap['document']): KeptExpansion {
+  const r = copyState(c, c.opts, [doc]);
+  return 'refused' in r ? r : { c: r.c, doc: r.roots[0] as DefaultTreeAdapterMap['document'], entries: r.entries };
+}
+
+/**
+ * An entry's second pass (`fromTemplate`): from a copy of the kept expansion when there is one, else compiled from the
+ * page as before. `SN_ONE_PASS_AUDIT=1`: one from the kept expansion is compiled the old way beside it and must be the
+ * same, every field.
+ */
+function secondPass(html: string, opts: CompileOptions, kept: KeptExpansion | undefined, again: () => CompiledParts): CompiledParts & { canonicalOnly?: boolean } {
+  const old = () => new Compiler(opts).run(html);
+  if (!kept) { passStat(onePassOn() ? 'no kept expansion' : 'off'); return old(); }
+  if ('refused' in kept) { passStat(kept.refused); return old(); }
+  const r = copyState(kept.c, opts, [kept.doc], kept.entries);
+  if ('refused' in r) { passStat(r.refused); return old(); }
+  const c = r.c;
+  c.forEntry();
+  const out = c.finishPage(c.walkExpanded(r.roots[0] as DefaultTreeAdapterMap['document']));
+  passStat(null);
+  if (proc?.env.SN_ONE_PASS_AUDIT === '1') {
+    const spliced = RENDER_STATS.spliced;
+    passAuditing = true;
+    let was: CompiledParts;
+    try { was = again(); } finally { passAuditing = false; RENDER_STATS.spliced = spliced; }
+    const text = (x: CompiledParts) => JSON.stringify(x, (_, v) => (typeof v === 'function' ? '[fn]' : v instanceof Map ? [...v] : v instanceof Set ? [...v] : v));
+    const a = text(out), b = text(was);
+    if (a !== b) {
+      let i = 0;
+      while (a[i] === b[i]) i++;
+      const field = Object.keys(out).find((k) => text({ [k]: (out as unknown as Record<string, unknown>)[k] } as unknown as CompiledParts) !== text({ [k]: (was as unknown as Record<string, unknown>)[k] } as unknown as CompiledParts));
+      throw new Error(`sinter one-pass audit: ${opts.file} (${opts.page?.path}): the second pass from the kept expansion differs in \`${field}\`, at ${i}:\n  kept ${a.slice(Math.max(0, i - 160), i + 160)}\n  again ${b.slice(Math.max(0, i - 160), i + 160)}`);
+    }
+  }
+  return out;
+}
 
 /** the template walked as one entry's first pass, up to its evaluation; null when its entries cannot share it */
 function keepTemplate(html: string, options: CompileOptions): KeptTemplate | null {
   // (not linked: the walk is kept for every entry already, and the one that checks it would only record what none replays)
   const c = new Compiler({ ...options, definitions: undefined });
-  c.walkPage(html);
+  const doc = c.expandPage(html);
+  // (the expansion is the same in both passes: each entry's second pass goes on from a copy of it)
+  const expanded = onePassOn() ? keptExpansion(c, doc) : undefined;
+  c.walkExpanded(doc);
   // an entry's own URL compiled into the program (`$canonical`, `localeUrl()`): each entry has a program of its own
   if (!c.entryProgram()) return null;
-  return { c, path: options.page!.path, checked: false, hits: 0, misses: 0 };
+  return { c, path: options.page!.path, checked: false, hits: 0, misses: 0, ...(expanded ? { expanded } : {}) };
 }
 
 /**
@@ -1134,13 +1316,18 @@ function fromTemplate(html: string, options: CompileOptions): CompiledParts | nu
     return null;
   }
   // (as `compilePasses` hands the first pass's decisions to the second)
-  const frozen = c.foldedState();
-  if (c.constants.size) for (const x of c.constantSites) frozen.add(x);
-  const out = new Compiler({
-    ...options, decided: new Map(c.decided), ...(c.unrolls.size ? { unrolled: new Map(c.unrolls) } : {}),
-    ...(c.constants.size ? { constants: new Map(c.constants) as Map<string, ConstantWrite[]> } : {}),
-    ...(c.overLimit.size ? { overLimit: new Map(c.overLimit) } : {}), ...(c.rendered.size ? { rendered: new Map(c.rendered) } : {}), ...(c.unrendered.size ? { unrendered: new Map(c.unrendered) } : {}), frozen,
-  }).run(html);
+  const passOptions = (): CompileOptions => {
+    const frozen = c.foldedState();
+    if (c.constants.size) for (const x of c.constantSites) frozen.add(x);
+    return {
+      ...options, decided: new Map(c.decided), ...(c.unrolls.size ? { unrolled: new Map(c.unrolls) } : {}),
+      ...(c.constants.size ? { constants: new Map(c.constants) as Map<string, ConstantWrite[]> } : {}),
+      ...(c.overLimit.size ? { overLimit: new Map(c.overLimit) } : {}), ...(c.rendered.size ? { rendered: new Map(c.rendered) } : {}), ...(c.unrendered.size ? { unrendered: new Map(c.unrendered) } : {}), frozen,
+    };
+  };
+  // (the audit's old route: evaluated again, since a second pass splices the rendered blocks it is handed and changes them)
+  const again = () => { c.decideFor({ ...options, foldLog: undefined }); return new Compiler(passOptions()).run(html); };
+  const out = secondPass(html, passOptions(), t.expanded, again);
   // a page with errors: the usual way, which reports them as it always does
   if (out.diagnostics.some((d) => d.severity === 'error')) return null;
   // (not the render audit's compile again, which counts what the first counted)
@@ -1171,6 +1358,8 @@ function compilePasses(html: string, options: CompileOptions): CompiledParts & {
     if (!first.decided.size && !unrolled && !constants) return null;
     const frozen = first.foldedState();
     if (constants) for (const s of first.constantSites) frozen.add(s);
+    // (counted: a page of its own, or a template's entry its kept walk does not serve, parses and expands again)
+    passStat(!options.page ? 'a page of its own' : options.templates ? 'an entry compiled alone' : 'an entry, no kept templates');
     return new Compiler({ ...options, decided: first.decided, ...(unrolled ? { unrolled } : {}), ...(first.rendered.size ? { rendered: first.rendered } : {}), ...(first.unrendered.size ? { unrendered: first.unrendered } : {}), ...(constants ? { constants } : {}), ...(first.overLimit.size ? { overLimit: first.overLimit } : {}), frozen }).run(html);
   };
   const twice = !!options.prerender && !options.decided && !options.unrolled;
@@ -1751,7 +1940,15 @@ class Compiler {
 
   /** The page parsed, expanded and walked: its program, up to evaluating it (`prerender`). */
   walkPage(html: string): NonNullable<Compiler['walk']> {
-    this.keepsAttrs = this.collecting() && renderOn() && !this.opts.dev;
+    return this.walkExpanded(this.expandPage(html));
+  }
+
+  /**
+   * The page parsed, its layout merged and its components expanded, with what checks the expanded tree (`walkPage`'s
+   * first steps): nothing here reads what a first pass decided, so a template's entries can start from one copy of it
+   * (`keptExpansion`).
+   */
+  expandPage(html: string): DefaultTreeAdapterMap['document'] {
     let doc = parsedDocument(html);
     this.tag(doc, { file: this.opts.file, src: html, chain: [] });
     if (this.isLayoutFile(this.opts.file)) this.diagnostics.push({ severity: 'error', code: 'SN318', message: 'a layout is not a page: a page uses it by its tag. Leave `src/layouts/` out of the build\'s inputs', file: this.opts.file, line: 1, col: 1 });
@@ -1763,6 +1960,12 @@ class Compiler {
     this.strayAndRepeated(doc);
     this.accessible(doc);
     this.slotsPlaced();
+    return doc;
+  }
+
+  /** `walkPage` after `expandPage`: what the first pass decided applied, the layout, the walk */
+  walkExpanded(doc: DefaultTreeAdapterMap['document']): NonNullable<Compiler['walk']> {
+    this.keepsAttrs = this.collecting() && renderOn() && !this.opts.dev;
     // the second pass: what the first decided, per instance, at any depth (decided templates and choices, unrolled loops)
     if (this.opts.decided?.size || this.opts.unrolled?.size) this.expandConstants(doc, '', false);
     if (this.opts.urls) this.canonical(doc);
@@ -2168,6 +2371,14 @@ class Compiler {
     this.fnUses.splice(0, this.fnUses.length, ...uses);
     this.fnIndex.clear();
     for (const [code, j] of byCode) this.fnIndex.set(code, j);
+  }
+
+  /**
+   * A copy of a kept expansion, for an entry (`secondPass`): what `expandPage` wrote from the entry the template was
+   * kept for, written for this one (its own path on `<html>`, `pagesOf`).
+   */
+  forEntry() {
+    if (this.pagesDecl && this.opts.page) setAttr(this.pagesDecl.html, 'data-sn-path', this.opts.page.path);
   }
 
   /** A kept template (`fromTemplate`): whether its program is the same for every entry (no entry's URL in it). */
@@ -11989,6 +12200,8 @@ let renderForced: boolean | null = null;
 export const RENDER_STATS = { rendered: 0, rows: 0, spliced: 0, fallback: new Map<string, { loops: number; rows: number }>() };
 let renderLogged = false;
 function renderStat(why: string | null, rows: number) {
+  // (the one-pass audit's compile of the old route counts nothing: `secondPass`)
+  if (passAuditing) return;
   // (`SN_RENDER_STATS=<file>`: one line per loop, `<reason or rendered>\t<rows>`, so a run of many processes, the suite's, can be summed)
   const file = proc?.env.SN_RENDER_STATS;
   // (under vitest, a third column: the test file and test, so a reason can be traced to its cases)
