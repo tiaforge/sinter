@@ -420,6 +420,11 @@ export type Block = Para | Quote | Rule;
     expect(errors('sel.name')).toEqual([]);
     expect(errors('sel.name', { compilerOptions: { strict: true, strictNullChecks: false } })).toEqual([]);
     expect(errors('sel.name', { compilerOptions: { strictNullChecks: true } })).toEqual(["SN208 'sel' is possibly 'null'."]);
+    // a solution-style tsconfig (Vite's templates): the referenced config that compiles src/
+    const solution = (app: object) => checkPage(html('sel.name'), { files: { 'src/sinter.types.ts': TYPES, 'tsconfig.json': JSON.stringify({ files: [], references: [{ path: './tsconfig.node.json' }, { path: './tsconfig.app.json' }] }),
+      'tsconfig.node.json': JSON.stringify({ compilerOptions: { strict: false }, include: ['vite.config.ts'] }), 'vite.config.ts': 'export default {};\n', 'tsconfig.app.json': JSON.stringify(app) } }).map((d) => d.code);
+    expect(solution({ compilerOptions: { strict: true }, include: ['src'] })).toEqual(['SN208']);
+    expect(solution({ compilerOptions: { strict: false }, include: ['src'] })).toEqual([]);
   });
 
   test('sn-event: `data-sn-let` names around the sync are in scope like state, in `when` and `then`', () => {
