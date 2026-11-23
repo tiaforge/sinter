@@ -15,17 +15,19 @@ function options(extra: Partial<CompileOptions> = {}): CompileOptions {
   const files: Record<string, string> = {};
   for (const [k, s] of Object.entries(C)) files[`/p/src/components/${k}.html`] = s;
   files['/p/content/post.json'] = JSON.stringify({ title: 'Hello', tags: ['a', 'b'], draft: false });
+  for (const [k, v] of Object.entries({ a: { title: 'Alpha', tags: ['x', 'y'], draft: true }, b: { title: 'Beta', tags: [], draft: false }, c: { title: 'Gamma', tags: ['z'], draft: false } })) files[`/p/content/posts/${k}.json`] = JSON.stringify({ slug: k, ...v });
   return {
     file: '/p/index.html', root: '/p', dev: false, prerender: true, componentNames: Object.keys(C),
     helpers: { module: null, names: [], namespaces: {} }, readFile: (f) => { if (f in files) return files[f]!; throw new Error(f); },
+    listFiles: (d) => Object.keys(files).filter((f) => f.startsWith(d.replace(/\/$/, '') + '/')),
     ...extra,
   };
 }
 const page = (body: string) => `<!doctype html><html lang="en"><head><title>t</title></head><body>${body}</body></html>`;
 
-const saved = { on: process.env.SN_FROM_WALK, audit: process.env.SN_FROM_WALK_AUDIT };
+const saved = { on: process.env.SN_FROM_WALK, audit: process.env.SN_FROM_WALK_AUDIT, entries: process.env.SN_FROM_WALK_ENTRIES };
 afterEach(() => {
-  for (const [k, v] of [['SN_FROM_WALK', saved.on], ['SN_FROM_WALK_AUDIT', saved.audit]] as const) if (v === undefined) delete process.env[k]; else process.env[k] = v;
+  for (const [k, v] of [['SN_FROM_WALK', saved.on], ['SN_FROM_WALK_AUDIT', saved.audit], ['SN_FROM_WALK_ENTRIES', saved.entries]] as const) if (v === undefined) delete process.env[k]; else process.env[k] = v;
 });
 
 /** `html` compiled with the route off and on: the same up to numbering; the route the second pass took, or why not */
@@ -74,6 +76,11 @@ describe('the second pass from the first pass\'s walk', () => {
     expect(r.on.html).toMatch(/<u[^>]*>in<\/u>/);
   });
 
+  test('a definition the branch\'s walk compiled, which the page no longer needs (its tree is constant)', () => {
+    const r = both(page('<div data-sn-state="{ a: true }"><template data-sn-if="a"><ul><x-tree data-sn-with="{ n: { name: \'r\', kids: [] } }"></x-tree></ul></template></div>'));
+    expect(r).toMatchObject({ taken: 1, why: [] });
+  });
+
   test('a build-time resource decides the branch', () => {
     const r = both(page('<sn-resource name="post" src="file:/content/post.json"></sn-resource><h1 data-sn-text="post.title"></h1><template data-sn-if="!post.draft"><p data-sn-text="post.tags.join(\', \')"></p></template>'));
     expect(r).toMatchObject({ taken: 1, why: [] });
@@ -109,10 +116,9 @@ describe('compiled again: each reason', () => {
     expect(r).toMatchObject({ taken: 0, why: ['diagnostics in a decided branch'] });
   });
 
-  test('a definition compiled first in a decided branch', () => {
-    const r = both(page('<div data-sn-state="{ a: true }"><template data-sn-if="a"><ul><x-tree data-sn-with="{ n: { name: \'r\', kids: [] } }"></x-tree></ul></template></div>'));
-    expect(r.taken).toBe(0);
-    expect(r.why.length).toBe(1);
+  test('a definition compiled first in a decided branch, used by the page (live data)', () => {
+    const r = both(page('<div data-sn-state="{ a: true, t: { name: \'r\', kids: [] } }"><button data-sn-on-click="t = { name: \'s\', kids: [] }">x</button><template data-sn-if="a"><ul><x-tree data-sn-with="{ n: t }"></x-tree></ul></template></div>'));
+    expect(r).toMatchObject({ taken: 0, why: ['a definition compiled first in a decided branch, used by the page'] });
   });
 
   test('an else-if decided', () => {
@@ -139,5 +145,44 @@ describe('compiled again: each reason', () => {
   test('nothing evaluates: no record kept, the first pass as before', () => {
     const r = both(page('<div data-sn-state="{ a: true }"><button data-sn-on-click="a = !a">t</button><template data-sn-if="a"><b>a</b></template></div>'));
     expect(r).toMatchObject({ taken: 0, why: [] });
+  });
+});
+
+// (behind `SN_FROM_WALK_ENTRIES=1`: a copy of the kept walk costs more than the second pass it saves, stage5-b1.md)
+describe('a template\'s entries from a copy of the kept walk', () => {
+  const template = (body: string) => `<!doctype html><html lang="en" data-sn-path="/blog/:slug" data-sn-for="p in posts"><head><title data-sn-text="p.title"></title></head><body><sn-resource name="posts" src="file:/content/posts/*.json"></sn-resource>${body}</body></html>`;
+  /** every entry compiled with the route off and on (each way with its own kept templates): the same up to numbering */
+  function entries(html: string) {
+    process.env.SN_FROM_WALK_ENTRIES = '1';
+    const env = ['SN_LINK_AUDIT', 'SN_RENDER_AUDIT', 'SN_UNITS_SHIFT_AUDIT', 'SN_FROM_WALK_AUDIT'].map((k) => [k, process.env[k]] as const);
+    for (const [k] of env) delete process.env[k];
+    try {
+      const o = options({ file: '/p/blog/post.html' });
+      const list = compileParts(html, o).pages!.entries;
+      process.env.SN_FROM_WALK = '0';
+      const t0 = new Map();
+      const off = list.map((e) => compileParts(html, { ...o, page: e, templates: t0 }));
+      delete process.env.SN_FROM_WALK;
+      const taken = FROM_WALK_STATS.taken, before = new Map(FROM_WALK_STATS.fallback);
+      const t1 = new Map();
+      const on = list.map((e) => compileParts(html, { ...o, page: e, templates: t1 }));
+      on.forEach((r, i) => expect(canonicalText(r)).toBe(canonicalText(off[i]!)));
+      const why: string[] = [];
+      for (const [k, n] of FROM_WALK_STATS.fallback) for (let i = before.get(k) ?? 0; i < n; i++) why.push(k);
+      return { on, off, n: list.length, taken: FROM_WALK_STATS.taken - taken, why };
+    } finally { for (const [k, v] of env) if (v !== undefined) process.env[k] = v; }
+  }
+
+  test('a branch over the entry decided another way per entry, and a loop over it rendered', () => {
+    const r = entries(template('<h1 data-sn-text="p.title"></h1><template data-sn-if="p.draft"><p class="draft">Draft</p></template><template data-sn-else><ul><template data-sn-for="t in p.tags"><li data-sn-text="t"></li></template></ul></template>'));
+    expect(r.taken).toBe(r.n);
+    expect(r.why).toEqual([]);
+    expect(r.on.map((x) => x.html).join('')).toContain('<li>z</li>');
+  });
+
+  test('state beside the entry: the page\'s ids and its module', () => {
+    const r = entries(template('<section data-sn-state="{ n: 0 }"><button data-sn-on-click="n++" data-sn-text="n"></button><template data-sn-if="!p.draft"><p data-sn-text="p.title + n"></p></template></section>'));
+    expect(r.taken).toBe(r.n);
+    expect(r.on.map((x) => x.html)).toEqual(r.off.map((x) => x.html));
   });
 });

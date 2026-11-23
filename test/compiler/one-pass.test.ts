@@ -2,7 +2,7 @@
 // of the template's expanded tree, kept with its first pass (`keptExpansion`), instead of parsing and expanding the page
 // again. Each case is compiled with the route on and off (`SN_ONE_PASS=0`): the results must be the same, every field,
 // and the test says which route each second pass took (`PASS_STATS`), or why it parsed the page again.
-import { afterEach, describe, expect, test } from 'vitest';
+import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 import { compile, type CompileOptions, type CompileResult } from '../../src/compiler/index.js';
 import { PASS_STATS } from '../../src/compiler/compile.js';
 
@@ -33,8 +33,12 @@ function options(extra: Partial<CompileOptions> = {}): CompileOptions {
 const text = (r: CompileResult) => JSON.stringify({ ...r, check: undefined }, (_, v) => (typeof v === 'function' ? '[fn]' : v instanceof Map ? [...v] : v instanceof Set ? [...v] : v));
 const template = (body: string, head = '<title data-sn-text="d.title"></title>') => `<!doctype html><html lang="en" data-sn-path="/blog/:slug" data-sn-for="d in docs"><head>${head}</head><body><sn-resource name="docs" src="file:/content/docs/*.json"></sn-resource>${body}</body></html>`;
 
-const saved = { one: process.env.SN_ONE_PASS, audit: process.env.SN_ONE_PASS_AUDIT };
+const saved = { one: process.env.SN_ONE_PASS, audit: process.env.SN_ONE_PASS_AUDIT, walk: process.env.SN_FROM_WALK };
+// (stage 5, B1, takes a template's entries and a page of its own from their first pass's walk where it can: this file is
+// about the routes before it, so it is off here; test/compiler/from-walk.test.ts has it on)
+beforeEach(() => { process.env.SN_FROM_WALK = '0'; });
 afterEach(() => {
+  if (saved.walk === undefined) delete process.env.SN_FROM_WALK; else process.env.SN_FROM_WALK = saved.walk;
   for (const [k, v] of [['SN_ONE_PASS', saved.one], ['SN_ONE_PASS_AUDIT', saved.audit]] as const) if (v === undefined) delete process.env[k]; else process.env[k] = v;
 });
 
@@ -111,11 +115,7 @@ describe('second passes that parse and expand the page again, counted by reason'
     const r = routes(() => compile(html, options({ file: '/p/index.html' })));
     expect(text(r.result)).toBe(text(off));
     expect(r.kept).toBe(0);
-    // (stage 5, B1: its second pass comes from its first pass's walk, so nothing parses it again; with that off, it is
-    // parsed and expanded again as a page of its own)
-    expect(r.again).toEqual({});
-    process.env.SN_FROM_WALK = '0';
-    try { expect(routes(() => compile(html, options({ file: '/p/index.html' }))).again).toEqual({ 'a page of its own': 1 }); } finally { delete process.env.SN_FROM_WALK; }
+    expect(r.again).toEqual({ 'a page of its own': 1 });
   });
 
   test('an entry its template\'s kept walk does not serve (a constant class the layout reads): compiled alone', () => {

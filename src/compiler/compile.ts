@@ -969,6 +969,7 @@ export function compileParts(html: string, options: CompileOptions): CompiledPar
     try { return shiftAudit(html, options); } finally { shifting = false; }
   }
   // `SN_RENDER_AUDIT=1`: a compile that spliced rendered rows in is compiled again without rendering, and must be the same
+  if (proc?.env.SN_RENDER_AUDIT === '1' && renderForced === null && renderOn() && fromWalkForced === null) return withoutFromWalk(() => compileParts(html, options));
   if (proc?.env.SN_RENDER_AUDIT === '1' && renderForced === null && renderOn()) {
     const n = RENDER_STATS.spliced, on = compilePartsOnce(html, options);
     if (RENDER_STATS.spliced === n) return on;
@@ -1144,9 +1145,9 @@ const UNIT_SHARED = new Set(['page', 'componentFiles']);
  * objects the copy has. Shared: the options, the parsed component files (`SHARED`), functions, and objects frozen at
  * every depth (build-time data). A value of a class the copy does not know refuses it: the reason, for the log.
  */
-function copyState(from: Compiler, opts: CompileOptions, roots: object[] = [], listed?: WeakEntries): { c: Compiler; roots: object[]; entries: WeakEntries } | { refused: string } {
+function copyState(from: Compiler, opts: CompileOptions, roots: object[] = [], listed?: WeakEntries, fresh?: ReadonlySet<string>): { c: Compiler; roots: object[]; entries: WeakEntries; sources: WeakEntries } | { refused: string } {
   const memo = new Map<object, object>(), order: object[] = [];
-  let refused: string | null = null;
+  let refused: string | null = null, field = '';
   const keep = (v: object) => v === from.opts || SHARED.has(v) || DEEP_FROZEN.has(v) || (Object.isFrozen(v) && !Array.isArray(v) && !(v instanceof Map) && !(v instanceof Set));
   const copy = <T>(v: T): T => {
     if (v === null || typeof v !== 'object') return v;
@@ -1181,7 +1182,7 @@ function copyState(from: Compiler, opts: CompileOptions, roots: object[] = [], l
       for (const k of Object.keys(o)) x[k] = copy((o as Record<string, unknown>)[k]);
       out = x;
     } else {
-      refused ??= `a ${(o as { constructor?: { name?: string } }).constructor?.name ?? 'value'} in the state`;
+      refused ??= `a ${(o as { constructor?: { name?: string } }).constructor?.name ?? 'value'} in the state${proc?.env.SN_COPY_FIELD ? ` (\`${field}\`)` : ''}`;
       return v;
     }
     return out as T;
@@ -1193,6 +1194,9 @@ function copyState(from: Compiler, opts: CompileOptions, roots: object[] = [], l
   for (const k of Object.keys(src)) {
     const v = src[k];
     if (k === 'opts') { to[k] = opts; continue; }
+    // (`fresh`: tables the copy starts empty, whatever the original holds: `entryFromWalk`'s evaluation's)
+    if (fresh?.has(k)) { to[k] = v instanceof Map ? new Map() : v instanceof Set ? new Set() : Array.isArray(v) ? [] : v; continue; }
+    field = k;
     if (v instanceof WeakMap) { const w = new WeakMap(); weak.push({ field: k, a: v, b: w }); to[k] = w; continue; }
     if (v instanceof WeakSet) { const w = new WeakSet(); weak.push({ field: k, a: v, b: w }); to[k] = w; continue; }
     to[k] = copy(v);
@@ -1201,7 +1205,7 @@ function copyState(from: Compiler, opts: CompileOptions, roots: object[] = [], l
   // the module's marks of nodes (rendered rows', scripts the compiler wrote): the copy's nodes carry them too
   for (const m of [WRITTEN, SHOWN, SCOPED, MARKED, REWROTE, RENDERED_FILE, OWN_SCRIPTS, INERT_FILLS] as Weak[]) weak.push({ field: null, a: m, b: m });
   const put = (b: Weak, k: object, v: unknown) => { if (b instanceof WeakMap) b.set(k, v); else b.add(k); };
-  const entries: WeakEntries = [];
+  const entries: WeakEntries = [], sources: WeakEntries = [];
   if (listed) {
     // a copy of a copy that listed its side tables' entries: those, copied (no lookups of every object in every table)
     for (const e of listed) {
@@ -1211,6 +1215,8 @@ function copyState(from: Compiler, opts: CompileOptions, roots: object[] = [], l
     }
   } else {
     const lists = weak.map((w) => ({ field: w.field, ...(w.field === null ? { mod: w.b } : {}), pairs: [] as Array<[object, unknown]> }));
+    // (and the original's, for copies of the same original: `entryFromWalk`)
+    const froms = weak.map((w) => ({ field: w.field, ...(w.field === null ? { mod: w.a } : {}), pairs: [] as Array<[object, unknown]> }));
     // the side tables, for every object copied so far and every one their values reach
     for (let i = 0; i < order.length; i++) {
       const o = order[i]!, x = memo.get(o)!;
@@ -1219,19 +1225,21 @@ function copyState(from: Compiler, opts: CompileOptions, roots: object[] = [], l
         const y = w.a instanceof WeakMap ? copy(w.a.get(o)) : true;
         put(w.b, x, y);
         lists[j]!.pairs.push([x, y]);
+        froms[j]!.pairs.push([o, w.a instanceof WeakMap ? w.a.get(o) : true]);
       });
     }
     entries.push(...lists.filter((l) => l.pairs.length));
+    sources.push(...froms.filter((l) => l.pairs.length));
   }
   if (refused) return { refused };
-  return { c: to as unknown as Compiler, roots: outRoots, entries };
+  return { c: to as unknown as Compiler, roots: outRoots, entries, sources };
 }
 
 /** a copy's side tables, entry by entry (`copyState`): each a field of the compiler, or one of the module's (`mod`) */
 type WeakEntries = Array<{ field: string | null; mod?: WeakMap<object, unknown> | WeakSet<object>; pairs: Array<[object, unknown]> }>;
 
 /** a `<html data-sn-for>` template walked once (`fromTemplate`): its first pass, kept for each entry's evaluation */
-type KeptTemplate = { c: Compiler; path: string; checked: boolean; hits: number; misses: number; typed?: boolean; expanded?: KeptExpansion };
+type KeptTemplate = { c: Compiler; path: string; checked: boolean; hits: number; misses: number; typed?: boolean; expanded?: KeptExpansion; walked?: WeakEntries };
 
 /**
  * A kept template's tree as expanded (`expandPage`), before its walk: a copy of the compiler's state there, which each
@@ -1302,7 +1310,7 @@ type FromWalk = { anchors: FwAnchor[]; byEl: Map<P5Element, FwAnchor>; fields?: 
 /** `fn()`'s calls while a recorded template is walked (`fwStart`), by function */
 let FW_COUNTING: Map<number, number> | null = null;
 /** a field `fwMarks` reads: its name (`page.` for the page info's), where it is, and whether it is a list (0), a map or a set (1), or plain (2) */
-type FwField = { k: string; o: Record<string, unknown>; f: string; t: 0 | 1 | 2 };
+type FwField = { k: string; page: boolean; f: string; t: 0 | 1 | 2 };
 /** a subtree's nodes as they are (`snapTree`): what a walk changes of them, put back by `restoreTree` */
 type FwSnap = Array<{ n: P5Node; parent?: P5Parent | null; attrs?: P5Element['attrs']; kids?: P5Node[]; content?: P5Node[]; value?: string; data?: string }>;
 function snapTree(root: P5Parent): FwSnap {
@@ -1338,8 +1346,12 @@ function restoreTree(s: FwSnap) {
 const FW_IGNORED = new Set(['graphs', 'fns', 'fnAt', 'fnUses', 'fnIndex', 'callAt', 'templates', 'diagnostics', 'nextId', 'nextSid', 'useIds', 'at', 'lastExpr', 'fw', 'walk', 'walked', 'checkFrames', 'checkExprs', 'checkResources', 'keptDepth']);
 /** tables `fromWalk` follows itself (`roots`, by index) */
 const FW_OWN = new Set(['roots']);
-/** tables a decided branch's walk may not add to: numbered by position, or read by the walk's last steps */
-const FW_REFUSED = new Set(['defs', 'actions', 'resources', 'syncs', 'lazyMods', 'choiceGroups', 'runtimePlacements', 'srcOf', 'pendingTargets']);
+/**
+ * tables a decided branch's walk may not add to: numbered by position (an action's, a resource's, a sync's, a lazy
+ * module's index is in the IR or in code). What it adds to the others is taken out: the definitions it compiled and
+ * what the walk's last steps did with them (fills, choices, sources) are in templates nothing reaches any more
+ */
+const FW_REFUSED = new Set(['actions', 'resources', 'syncs', 'lazyMods']);
 /** plain fields a decided branch's walk may change */
 const FW_CHANGES = new Set<string>([]);
 /** at and above: a kept element's ids (`keptBase`) */
@@ -1349,8 +1361,24 @@ const FW_BASE = 10_000_000, FW_SPAN = 100_000;
 
 /** B1: the second pass taken from the first pass's walk where it can be (`fromWalk`) unless `SN_FROM_WALK=0` */
 export function fromWalkOn(): boolean { return fromWalkForced ?? proc?.env.SN_FROM_WALK !== '0'; }
-/** (the audit's old-route compile) */
+/** (the audit's old-route compile; the other stages' audits: `withoutFromWalk`) */
 let fromWalkForced: boolean | null = null;
+/**
+ * `f` with B1 off: the audits of the other stages (`SN_RENDER_AUDIT`, `SN_UNITS_AUDIT`, `SN_LINK_AUDIT`) compare two
+ * routes of theirs byte for byte, and B1 would take one of them and not the other (its numbers are another's there);
+ * B1 has its own audit (`SN_FROM_WALK_AUDIT`), against the old route, up to numbering
+ */
+export function withoutFromWalk<T>(f: () => T): T {
+  const was = fromWalkForced;
+  fromWalkForced = false;
+  try { return f(); } finally { fromWalkForced = was; }
+}
+/**
+ * B1 for a template's entries (`entryFromWalk`) only with `SN_FROM_WALK_ENTRIES=1`: a copy of the kept walk costs more
+ * than the second pass it saves where the walk compiled a library's definitions (the blog: 7 ms a copy against 3 ms of
+ * second pass, stage5-b1.md, section 8)
+ */
+export function entriesFromWalk(): boolean { return proc?.env.SN_FROM_WALK_ENTRIES === '1'; }
 /** the second passes `fromWalk` took, and why the others did not; printed at exit with `SN_FROM_WALK_LOG=1` */
 export const FROM_WALK_STATS = { taken: 0, fallback: new Map<string, number>() };
 let fromWalkLogged = false;
@@ -1425,10 +1453,51 @@ function secondPass(html: string, opts: CompileOptions, kept: KeptExpansion | un
   return out;
 }
 
+/** an entry's evaluation, which a copy of the kept walk for the route from the walk starts with empty (`fromWalk` clears it) */
+const FW_FRESH = new Set(['decided', 'undecided', 'unrolls', 'foldReads', 'overLimit', 'constants', 'constantSites', 'rowPaint', 'foldWhy', 'painted', 'tplPainted', 'paintValue', 'textFolded', 'rendered', 'unrendered', 'foldedFields']);
+
+/**
+ * B1: an entry of a kept template whose evaluation decided only page-level branches and rendered rows: its page from
+ * a copy of the kept walk (`copyState`, the walk's side tables listed once per template), made into the second pass's
+ * there (`fromWalk`), instead of walking the kept expansion again. Null: the usual second pass (`secondPass`), counted
+ * with why. `SN_FROM_WALK_AUDIT=1`: the old route beside it, the same up to numbering.
+ */
+function entryFromWalk(t: KeptTemplate, next: CompileOptions, again: () => CompiledParts): CompiledParts | null {
+  const c = t.c;
+  if (!c.fw || !fromWalkOn() || !entriesFromWalk()) return null;
+  const dry = c.fromWalk(next, true);
+  if (dry) { fromWalkStat(dry.why); return null; }
+  const r = copyState(c, next, [], t.walked, FW_FRESH);
+  if ('refused' in r) { fromWalkStat(r.refused); return null; }
+  t.walked ??= r.sources;
+  // (not `forEntry`: the walk took the page's path off `<html>` as it walked it)
+  const d = r.c;
+  if (!d.entryUrls()) { fromWalkStat('an entry\'s canonical link of another kind'); return null; }
+  const res = d.fromWalk(next);
+  fromWalkStat(res?.why ?? null);
+  if (res) return null;
+  const out = d.finishWalked();
+  if (proc?.env.SN_FROM_WALK_AUDIT === '1') {
+    const spliced = RENDER_STATS.spliced;
+    passAuditing = true;
+    let was: CompiledParts;
+    try { was = again(); } finally { passAuditing = false; RENDER_STATS.spliced = spliced; }
+    const a = canonicalText(out), b = canonicalText(was);
+    if (a !== b) {
+      let i = 0;
+      while (a[i] === b[i]) i++;
+      throw new Error(`sinter from-walk audit: ${next.file} (${next.page?.path}): an entry from a copy of the kept walk differs from its second pass, up to numbering, at ${i}:\n  from the walk ${a.slice(Math.max(0, i - 200), i + 200)}\n  second pass   ${b.slice(Math.max(0, i - 200), i + 200)}`);
+    }
+  }
+  return out;
+}
+
 /** the template walked as one entry's first pass, up to its evaluation; null when its entries cannot share it */
 function keepTemplate(html: string, options: CompileOptions): KeptTemplate | null {
   // (not linked: the walk is kept for every entry already, and the one that checks it would only record what none replays)
   const c = new Compiler({ ...options, definitions: undefined, units: undefined });
+  // (B1: its page-level branches recorded, for each entry's second pass from a copy of this walk: `entryFromWalk`)
+  if (fromWalkOn() && entriesFromWalk() && !options.dev) c.fw = { anchors: [], byEl: new Map() };
   const doc = c.expandPage(html);
   // (the expansion is the same in both passes: each entry's second pass goes on from a copy of it)
   const expanded = onePassOn() ? keptExpansion(c, doc) : undefined;
@@ -1481,7 +1550,8 @@ function fromTemplate(html: string, options: CompileOptions): CompiledParts | nu
   };
   // (the audit's old route: evaluated again, since a second pass splices the rendered blocks it is handed and changes them)
   const again = () => { c.decideFor({ ...options, foldLog: undefined }); return new Compiler(passOptions()).run(html); };
-  const out = secondPass(html, passOptions(), t.expanded, again);
+  // (B1: from a copy of the kept walk, when what it decided for this entry is only page-level branches and rendered rows)
+  const out = entryFromWalk(t, passOptions(), again) ?? secondPass(html, passOptions(), t.expanded, again);
   // a page with errors: the usual way, which reports them as it always does
   if (out.diagnostics.some((d) => d.severity === 'error')) return null;
   // (not the render audit's compile again, which counts what the first counted)
@@ -2662,6 +2732,39 @@ class Compiler {
    */
   forEntry() {
     if (this.pagesDecl && this.opts.page) setAttr(this.pagesDecl.html, 'data-sn-path', this.opts.page.path);
+  }
+
+  /** `entryFromWalk`: the page finished from its walk (`fromWalk` made it the second pass's) */
+  finishWalked(): CompiledParts & { canonicalOnly?: boolean } { return this.finishPage(this.walk!); }
+
+  /**
+   * A copy of a kept walk, for an entry (`entryFromWalk`): what the walk wrote for the entry the template was kept for,
+   * written for this one: its paths (`pathPatterns`), its canonical link (`canonical`). False when this entry's are of
+   * another kind (a diagnostic about its path; one canonical link the early script writes, the other the build).
+   */
+  entryUrls(): boolean {
+    // the page's path, this entry's (`pathPatterns`, which reads it off `<html>` before the walk takes it off)
+    if (this.pagesDecl && this.opts.page && this.walk) {
+      const html = this.pagesDecl.html, d0 = this.diagnostics.length;
+      setAttr(html, 'data-sn-path', this.opts.page.path);
+      const paths = this.pathPatterns(this.walk.doc as DefaultTreeAdapterMap['document']);
+      html.attrs = html.attrs.filter((a) => a.name !== 'data-sn-path');
+      if (this.diagnostics.length > d0) return false;
+      this.walk.paths = paths;
+      this.pathList = paths;
+    }
+    const u = this.opts.urls;
+    if (!u) return true;
+    const was = this.page.urls;
+    this.page.urls = { ...u };
+    const head = this.head;
+    const link = head?.childNodes.find((n): n is P5Element => isElement(n) && n.tagName === 'link' && (attr(n, 'rel') ?? '').toLowerCase().split(/\s+/).includes('canonical'));
+    if (!link) return true;
+    // the author's: the same for every entry
+    if (link.sourceCodeLocation) { const href = attr(link, 'href') ?? ''; if (/^https?:\/\//i.test(href)) this.page.urls.canonical = href; return true; }
+    if ((u.canonical === null) !== (was?.canonical === null)) return false;
+    if (u.canonical !== null) setAttr(link, 'href', u.canonical);
+    return true;
   }
 
   /** A kept template (`fromTemplate`): whether its program is the same for every entry (no entry's URL in it). */
@@ -10633,14 +10736,16 @@ class Compiler {
     const fw = this.fw!;
     if (fw.fields) return fw.fields;
     const out: FwField[] = [];
+    // (the objects are not kept in it: a copy of the compiler, `copyState`, copies this list too)
     const take = (pre: string, o: Record<string, unknown>) => {
+      const page = !!pre;
       for (const f of Object.keys(o)) {
         if (!pre && FW_IGNORED.has(f)) continue;
         const v = o[f];
         // (a field that is a table is one for good; a plain one, read as it is)
-        if (Array.isArray(v)) out.push({ k: pre + f, o, f, t: 0 });
-        else if (v instanceof Map || v instanceof Set) out.push({ k: pre + f, o, f, t: 1 });
-        else if (v === null || (typeof v !== 'object' && typeof v !== 'function')) out.push({ k: pre + f, o, f, t: 2 });
+        if (Array.isArray(v)) out.push({ k: pre + f, page, f, t: 0 });
+        else if (v instanceof Map || v instanceof Set) out.push({ k: pre + f, page, f, t: 1 });
+        else if (v === null || (typeof v !== 'object' && typeof v !== 'function')) out.push({ k: pre + f, page, f, t: 2 });
       }
     };
     take('', this as unknown as Record<string, unknown>);
@@ -10651,8 +10756,9 @@ class Compiler {
   /** each of `fwFields`: a table's size, a plain field's value */
   fwMarks(): unknown[] {
     const fs = this.fwFields(), out = new Array<unknown>(fs.length);
+    const me = this as unknown as Record<string, unknown>, page = this.page as unknown as Record<string, unknown>;
     for (let i = 0; i < fs.length; i++) {
-      const x = fs[i]!, v = x.o[x.f];
+      const x = fs[i]!, v = (x.page ? page : me)[x.f];
       out[i] = x.t === 0 ? (v as unknown[]).length : x.t === 1 ? (v as Set<unknown>).size : v;
     }
     return out;
@@ -10679,8 +10785,9 @@ class Compiler {
     a.d1 = this.diagnostics.length;
     for (let i = a.p0; i < this.paints.length; i++) if (this.paints[i]!.el === a.el) { a.node = this.paints[i]!.node; break; }
     const fs = this.fwFields(), m = a.marks;
+    const me = this as unknown as Record<string, unknown>, page = this.page as unknown as Record<string, unknown>;
     for (let i = 0; i < fs.length; i++) {
-      const x = fs[i]!, v = x.o[x.f], v0 = m[i];
+      const x = fs[i]!, v = (x.page ? page : me)[x.f], v0 = m[i];
       const v1 = x.t === 0 ? (v as unknown[]).length : x.t === 1 ? (v as Set<unknown>).size : v;
       if (v1 === v0) continue;
       if (x.t < 2 && (v1 as number) > (v0 as number)) a.added.set(x.k, [v0 as number, v1 as number]);
@@ -10704,7 +10811,7 @@ class Compiler {
    * page's ids numbered again in document order. Then `finishPage` goes on as the second pass's would. Null when it is
    * done; else why not, and whether the compiler is spent (it changed already: the second pass is compiled after all).
    */
-  fromWalk(next: CompileOptions): { why: string; spent: boolean } | null {
+  fromWalk(next: CompileOptions, dry = false): { why: string; spent: boolean } | null {
     const fw = this.fw;
     const no = (why: string, spent = false) => ({ why, spent });
     if (!fw) return no('not recorded');
@@ -10716,7 +10823,8 @@ class Compiler {
     // the minifier and the image pipeline go over rendered rows in the second pass, before its walk; the layout reads them
     const sheets = (typeof this.opts.minify === 'object' ? this.opts.minify.styles : undefined) ?? this.opts.styles;
     const minLayout = !!this.opts.minify && !!sheets;
-    for (const k of this.decided.keys()) if (k.includes('|use:')) return no('a choice decided');
+    const decided = next.decided ?? new Map<string, boolean>();
+    for (const k of decided.keys()) if (k.includes('|use:')) return no('a choice decided');
     // the branches decided at the page's level, and the `data-sn-else` after each
     type D = { a: FwAnchor; v: boolean; other: FwAnchor | null; at: number; rows?: RenderedRows };
     const ds: D[] = [];
@@ -10739,7 +10847,7 @@ class Compiler {
         continue;
       }
       if (a.kind !== 'if' || !a.node) continue;
-      const key = this.instKey(a.el), v = key ? this.decided.get(key) : undefined;
+      const key = this.instKey(a.el), v = key ? decided.get(key) : undefined;
       if (v === undefined) continue;
       if (a.elseIf) return no('an else-if decided');
       const kids = (a.el.parentNode as P5Parent | null)?.childNodes ?? [];
@@ -10771,6 +10879,8 @@ class Compiler {
     const uses = this.fnUses.slice();
     for (const x of all) for (const [i, n] of x.uses) uses[i]! -= n;
     for (const x of all) for (const i of x.uses.keys()) if (i >= x.f0 && uses[i]! > 0) return no('code a decided branch compiled first is compiled elsewhere too');
+    // (`dry`: whether it may be taken, nothing changed: a kept template's entry asks before it copies the kept walk)
+    if (dry) return null;
 
     // ---- from here on the compiler is the second pass's
     (this as { opts: CompileOptions }).opts = next;
@@ -10805,6 +10915,8 @@ class Compiler {
       keysOf.set(k, got);
     }
     const resources = new Set<string>();
+    // (the definitions the dropped walks compiled: their templates are nothing's once the walks below do not use them)
+    const dropped = new Set<string>();
     // each block: the roots it replaces (at `at`, `n` of them), and the nodes its walk made, numbered in a range of their
     // own (from `base`): all are put in place at the end, and every index of a root renumbered once
     const blocks: Array<{ at: number; n: number; nodes: NodeDef[]; base: number }> = [];
@@ -10817,7 +10929,7 @@ class Compiler {
         if (FW_OWN.has(k)) continue;
         const o = this.fwField(k);
         if (Array.isArray(o)) { const [s0, s1] = add as [number, number]; o.splice(s0, s1 - s0); }
-        else if (o instanceof Map || o instanceof Set) for (const key of keysOf.get(k)?.get(x) ?? []) o.delete(key);
+        else if (o instanceof Map || o instanceof Set) for (const key of keysOf.get(k)?.get(x) ?? []) { o.delete(key); if (k === 'defs') dropped.add(key as string); }
       }
       for (const x of xs) for (const n of x.used) { const r = this.page.resources.get(n); if (r) { r.used = false; resources.add(n); } }
       let placed: P5Node[];
@@ -10885,7 +10997,7 @@ class Compiler {
       // what this walk added to the other lists: where the branch's walk had added it (document order)
       for (let f = 0; f < fs.length; f++) {
         if (fs[f]!.t !== 0) continue;
-        const k = fs[f]!.k, o = fs[f]!.o[fs[f]!.f] as unknown[], n1 = lens[f] as number;
+        const k = fs[f]!.k, o = this.fwField(k) as unknown[], n1 = lens[f] as number;
         if (o.length <= n1 || FW_OWN.has(k)) continue;
         const at = d.a.marks[f] as number;
         if (at >= n1) continue;
@@ -10894,6 +11006,8 @@ class Compiler {
       }
       if (this.diagnostics.length > this.walked) return no('diagnostics in a branch walked as the page', true);
     }
+    // a definition the dropped walk compiled first and the new one uses: compiled again here, numbered and shared otherwise
+    for (const n of dropped) if (this.defs.has(n)) return no('a definition compiled first in a decided branch, used by the page', true);
     // rendered rows' empty texts (elements to the minifier, nothing in the page), and their marks after the image pipeline
     for (const t of this.renderedEmpty) { const k = (t as { parentNode?: P5Parent }).parentNode?.childNodes as P5Node[] | undefined; const i = k?.indexOf(t) ?? -1; if (i >= 0) k!.splice(i, 1); }
     for (const [e, marks] of this.renderedLate) for (const m of marks) setAttr(e, m.name, m.value);
@@ -10934,7 +11048,6 @@ class Compiler {
       live.add(x);
       for (const n of this.templates[x]!.nodes) for (const y of n.b) todo.push(...templatesOf(y));
     }
-    const decided = next.decided!;
     for (const t of this.templates) {
       if (live.has(t.id)) {
         for (const n of t.nodes) if (n.b.some((y) => y.k === 'if')) { const el = this.tplEls.get(n), key = el && this.instKey(el); if (key && decided.has(key)) return no('a decided if in a template that stays', true); }

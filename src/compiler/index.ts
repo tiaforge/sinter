@@ -1,7 +1,7 @@
 import * as acorn from 'acorn';
 import { canonical } from './canon.js';
 import { tsPlugin } from '@sveltejs/acorn-typescript';
-import { compileParts, localSignIn, requestUrl, type CompileOptions, type CompileResult, type CompiledParts, type EarlyParts, type FnSource, type FnSources, type HelperManifest, type HelperOrigin, type PrefetchParts, type EmbedSlot, type EmbedCond, type RuntimeReason } from './compile.js';
+import { compileParts, localSignIn, withoutFromWalk, requestUrl, type CompileOptions, type CompileResult, type CompiledParts, type EarlyParts, type FnSource, type FnSources, type HelperManifest, type HelperOrigin, type PrefetchParts, type EmbedSlot, type EmbedCond, type RuntimeReason } from './compile.js';
 import { compactIR, type EarlyIR } from '../ir.js';
 import { coreParts } from '../core-parts.js';
 import { MappedLines, type SourceMap } from './sourcemap.js';
@@ -40,8 +40,9 @@ export const isContentModule = (module: string) => module.startsWith(CONTENT_NS)
 /** Compiles annotated HTML into a rewritten page and its page module. Pure and deterministic. */
 export function compile(html: string, options: CompileOptions): CompileResult {
   // (docs/proposals/compile-once.md, (5)): every compile checked against itself linked, to find what linking misses
-  if (env('SN_LINK_AUDIT') && !options.dev) return options.definitions ? auditedLink(html, options) : audited(html, options);
-  if (env('SN_UNITS_AUDIT') && !options.dev && !options.describeOnly) return auditedUnits(html, options);
+  // (with B1 off: each compares two routes of its own byte for byte, `withoutFromWalk`)
+  if (env('SN_LINK_AUDIT') && !options.dev) return withoutFromWalk(() => (options.definitions ? auditedLink(html, options) : audited(html, options)));
+  if (env('SN_UNITS_AUDIT') && !options.dev && !options.describeOnly) return withoutFromWalk(() => auditedUnits(html, options));
   return compileOne(html, options);
 }
 
