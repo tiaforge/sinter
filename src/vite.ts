@@ -13,7 +13,7 @@ import { flagsModule } from './core-parts.js';
 import { loadEnv, type Plugin, type ResolvedConfig, type ViteDevServer } from 'vite';
 import { collectionsIn, loadContent, writeNamespaceTypes, writeSnapshot, type LoadedContent } from './content-node.js';
 import { applyStrict, CODES, compile, CONTENT_NS, formatDiagnostic, formatWarning, strictPromotes, suggest, type Code, type CheckUnit, type Diagnostic, type CompileResult, type SourceMap } from './compiler/index.js';
-import { buildInput, checkOptionsOf, compileOptionsOf, htmlInputs, lazyOf, lazyReachOf, project, retiredExport, retiredOptions, staticPages, strictOf, type ProjectOptions } from './project.js';
+import { buildInput, checkOptionsOf, compileOptionsOf, htmlInputs, lazyOf, lazyReachOf, project, retiredExport, retiredOptions, staticPages, strictOf, type PluginApi, type ProjectOptions } from './project.js';
 import { CHUNK_MARK, chainText, componentOfHtml, isComponentScript, LAZY, lazyPackage, type LazyScan, lineCol, loaderModule, mentions, parseLazyId, reachLazy, rewriteLazy, scanLazy, stubModule } from './lazy-build.js';
 import { moduleKeys } from './i18n-build.js';
 import { HOLD_SCRIPT } from './paint-build.js';
@@ -181,7 +181,12 @@ export interface SinterOptions extends ProjectOptions {
   fonts?: false | { bundle?: boolean; preload?: FontPreload[] };
 }
 
-type SinterPlugins = [Plugin & { api: { options: SinterOptions; source(file: string): string } }, Plugin, Plugin, Plugin, Plugin, Plugin, Plugin];
+/**
+ * The main plugin's `api`, read by `sinter check`, the editor and `sinter render` (`viteProject`): the options, a page's
+ * source, and with `pageOptions` the options the build compiles a source page with (once the config is resolved).
+ */
+type SinterApi = { options: SinterOptions; source(file: string): string; pageOptions?: PluginApi['pageOptions'] };
+type SinterPlugins = [Plugin & { api: SinterApi }, Plugin, Plugin, Plugin, Plugin, Plugin, Plugin];
 
 /** dev: the pages under the root (not in node_modules, the output, `public/`, hidden folders, or the components' and layouts' folders) */
 function htmlPages(root: string, config: ResolvedConfig | null): string[] {
@@ -510,6 +515,8 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   };
   /** a page's `data-sn-path` patterns, from its description */
   const out0Path = (file: string) => describe(file).path;
+  /** the same of a file that is no page of the build (one the editor has open): none when it does not compile */
+  const describedPaths = (file: string) => { try { return describe(file).path; } catch { return []; } };
   /** pages that use `data-sn-transition`: they get the hold script (paint-build.ts) */
   const holdPages = new Set<string>();
   /**
@@ -1339,15 +1346,57 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     calls.push({ key, args, hash: hashOf(result), id });
   };
 
-  /** compiles one page; `earlySrc`: where the page loads its early chunk (dev), else the build injects the tag */
-  const build = (html: string, file: string, earlySrc: string | null, styles?: StyleSheet[], lineHeights?: Map<string, number>, zeros?: Map<string, number | null>, minifyStyles?: StyleSheet[], url?: string): { out: CompileResult; p: ReturnType<typeof project> } => {
+  /**
+   * What a page compiles with that decides what it means and what is reported about it: the project's options, its
+   * language, its URLs (`$site`, `$canonical`), its entry and axes, the content and the helpers as the build loaded them.
+   * The build's compile adds what it writes (modules, styles, images, the early script); `sinter check` and the editor
+   * take it as it is (`api.pageOptions`), so they report what the build does. `outside`: a file that is no page of the
+   * build, in its base language: a page the editor has open, or a component it compiles through a use of its own (no
+   * page's options, `static` and the paths, and its URLs as if it were a page at its path).
+   */
+  const pageOptions = (p: ReturnType<typeof project>, file: string, url?: string, outside?: 'page' | 'component') => {
     const rel = relOf(file);
-    const p = proj();
     // a page in a language: compiled from its source (diagnostics, components, layouts as written), in that language
     const v = virtual.get(file), src = v?.source ?? file;
     const one = pageLang(file);
     // `<html data-sn-for>`: an entry's page (a build's input), or in dev the entry the URL names
     const page = v?.page ?? (dev && url ? devEntry(src, url, v?.locale, v?.axes) : undefined);
+    const group = groupOf(rel)?.folder;
+    return {
+      ...(outside === 'component' ? { ...compileOptionsOf(p), ...(p.swap ? { swap: true } : {}) } : compileOptionsOf(p, src)),
+      file: src, dev, helpers: helpersOf(p.helpers), readFile: readVia(p), ...contentOpts(v?.locale ?? (outside ? locales?.base : undefined)),
+      ...(page ? { page } : {}), ...(v?.axes ? { axes: v.axes } : {}), ...(axisLists().length ? { axisLists: axisLists() } : {}), ...(axisUrlsOf(file) ? { axisUrls: axisUrlsOf(file)! } : {}), ...(pointLevels(file) ? { points: pointLevels(file)! } : {}),
+      ...(lazyPkgs.length ? { lazyScript } : {}),
+      ...(helpersNow ? { helperValues: helpersNow.module, helperFold: helpersNow.fold } : {}),
+      // build-time constants and pages with nothing to run do not depend on the early script: `firstPaint: false` turns off only that
+      prerender: true as const,
+      ...(p.changesRequests ? { changesRequests: true } : {}),
+      ...(v?.locale ? { locale: { name: v.locale, urls: v.page ? entryUrls(v, group ?? null) : localeUrls(src, v.axes, group ?? null), base: resolved?.base ?? '/', list: locales!.list, pages: sitePaths(), ...(cpaths() ? { paths: cpaths()! } : {}) } }
+        : outside && locales ? { locale: { name: locales.base, urls: null, base: resolved?.base ?? '/', list: locales.list, pages: sitePaths(), ...(cpaths() ? { paths: cpaths()! } : {}) } }
+        : one ? { locale: { name: one, urls: null, base: resolved?.base ?? '/', prefix: false as const } } : {}),
+      ...(options.origins?.length || apiOrigins(p.apis).length ? { origins: [...(options.origins ?? []), ...apiOrigins(p.apis)] } : {}),
+      ...(resolved?.base?.startsWith('/') ? { base: resolved.base } : {}),
+      ...(siteOrigin || groupOf(rel) ? { urls: urlsOf(rel, outside === 'component' ? [] : outside ? describedPaths(file) : out0Path(file)) } : {}),
+    } satisfies Partial<Parameters<typeof compile>[1]>;
+  };
+  /**
+   * `sinter check` and the editor: a source page's options as the build compiles it, in the base language when it is
+   * built per language (`localePrefix`), as the template it is when it is built per entry or axis value; a file that is
+   * no page of the build (`component`: a component compiled through a use of its own) in the base language
+   */
+  const checkPageOptions = (p: ReturnType<typeof project>, source: string, component = false) => {
+    if (component || !sourceEntries().includes(source)) return pageOptions(p, source, undefined, component ? 'component' : 'page');
+    const file = locales || templateOf(source)?.axes?.length
+      ? points(false).points.map(fileOf).find((f) => (virtual.get(f)?.source ?? f) === source && (!locales || virtual.get(f)?.locale === locales.base)) ?? source
+      : source;
+    return pageOptions(p, file);
+  };
+
+  /** compiles one page; `earlySrc`: where the page loads its early chunk (dev), else the build injects the tag */
+  const build = (html: string, file: string, earlySrc: string | null, styles?: StyleSheet[], lineHeights?: Map<string, number>, zeros?: Map<string, number | null>, minifyStyles?: StyleSheet[], url?: string): { out: CompileResult; p: ReturnType<typeof project> } => {
+    const rel = relOf(file);
+    const p = proj();
+    const v = virtual.get(file), src = v?.source ?? file;
     const fatal = strictly(p.diagnostics).filter((d) => d.severity === 'error');
     if (fatal.length) throw new Error(`sinter: ${fatal.map(formatDiagnostic).join('\n')}`);
     // a warning about the options (a deprecated one): once per build
@@ -1357,12 +1406,9 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     const group = groupOf(rel)?.folder;
     const prefetch = prefetchData && prefetchPages(group).length ? prefetchId(group) : null;
     const out = compile(html, {
-      ...compileOptionsOf(p, src),
-      file: src, dev, sourcemap: dev || !!resolved?.build.sourcemap, helpers: helpersOf(p.helpers), moduleSrc: `${PREFIX}${rel}.js`, readFile: readVia(p), ...(dev ? {} : { globCache, templates, ...(process.env.SN_NO_LINK ? {} : { definitions }) }), ...contentOpts(v?.locale), prefetch,
-      ...(page ? { page } : {}), ...(v?.axes ? { axes: v.axes } : {}), ...(axisLists().length ? { axisLists: axisLists() } : {}), ...(axisUrlsOf(file) ? { axisUrls: axisUrlsOf(file)! } : {}), ...(pointLevels(file) ? { points: pointLevels(file)! } : {}),
+      ...pageOptions(p, file, url),
+      sourcemap: dev || !!resolved?.build.sourcemap, moduleSrc: `${PREFIX}${rel}.js`, ...(dev ? {} : { globCache, templates, ...(process.env.SN_NO_LINK ? {} : { definitions }) }), prefetch,
       check: typecheckOn() && !dev,
-      ...(lazyPkgs.length ? { lazyScript } : {}),
-      ...(helpersNow ? { helperValues: helpersNow.module, helperFold: helpersNow.fold } : {}),
       // a build: each distinct call that folds is run again at its end in a fresh copy of the module (fold-cross.ts)
       ...(helpersNow?.module && !dev ? { foldLog: (key: string, args: FoldArg[], result: string, id: number) => logFold(v?.page ? rel : relOf(src), key, args, result, id) } : {}),
       ...(images ? { images: imageHost(rel, styles)! } : {}),
@@ -1372,19 +1418,11 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       ...(zeros?.size ? { zeroWidth: (f: string) => zeros.get(f) ?? null } : {}),
       ...(firstPaint && !dev ? { paintCss: `${PAINT_CSS}${rel}.css` } : {}),
       ...(remoteConfig ? { remoteImages: dev ? devRemote(remoteConfig, resolved?.base ?? '/') : remoteConfig } : {}),
-      // build-time constants and pages with nothing to run do not depend on the early script: `firstPaint: false` turns off only that
-      prerender: true,
-      ...(p.changesRequests ? { changesRequests: true } : {}),
       ...(firstPaint ? { early: { module: p.early, src: earlySrc } } : {}),
-      ...(v?.locale ? { locale: { name: v.locale, urls: v.page ? entryUrls(v, group ?? null) : localeUrls(src, v.axes, group ?? null), base: resolved?.base ?? '/', list: locales!.list, pages: sitePaths(), ...(cpaths() ? { paths: cpaths()! } : {}) } }
-        : one ? { locale: { name: one, urls: null, base: resolved?.base ?? '/', prefix: false as const } } : {}),
-      ...(options.origins?.length || apiOrigins(p.apis).length ? { origins: [...(options.origins ?? []), ...apiOrigins(p.apis)] } : {}),
       ...(firstPaint ? { observe: true } : {}),
       ...(options.embed && !dev ? { embed: true } : {}),
       componentCss: (name) => `${COMPONENT_CSS}${name}.css`,
       ...(p.swap ? { swapList: swapId(group) } : {}),
-      ...(resolved?.base?.startsWith('/') ? { base: resolved.base } : {}),
-      ...(siteOrigin || groupOf(rel) ? { urls: urlsOf(rel, out0Path(file)) } : {}),
     });
     // with swaps on, a kept element that binds is one markup on every page that keeps it: the next page's code
     // takes over the element the swap keeps (docs/proposals/swap-navigation.md §3)
@@ -1447,7 +1485,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     name: 'sinter',
     enforce: 'pre',
     // `localePrefix`: a page in a language is its source (`sinter check` checks the pages as written)
-    api: { options, source: (file: string) => virtual.get(file)?.source ?? file },
+    api: { options, source: (file: string) => virtual.get(file)?.source ?? file, pageOptions: checkPageOptions },
 
     /**
      * No modulepreload polyfill unless the app asks for one: every browser sinter's pages rely on

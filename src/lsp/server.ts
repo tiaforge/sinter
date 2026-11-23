@@ -12,7 +12,7 @@ import { componentHtml, componentPaths, findComponents } from '../component-file
 import { inlineScripts } from '../compiler/components.js';
 import { componentKinds } from '../compiler/head.js';
 import { offsetOf, slotCompletions, slotDefinition, tagCompletions, tagHover, type TagFile } from './markup.js';
-import { didYouMeanEdit } from './quickfix.js';
+import { didYouMeanEdit, endTagEdit } from './quickfix.js';
 import { pathCompletions, pathDefinition, pathFix, pathHover } from './paths.js';
 import { editFor, fixPlans, plans, type ExtractContext, type Plan } from './extract.js';
 import { TypeScriptBridge, typescriptMajor, type Target } from './typescript.js';
@@ -105,11 +105,11 @@ export function startServer(input: Readable, output: Writable, o: ServerOptions 
     if (mode === 'none') return;
     if (mode === 'cli') {
       const p = state.project;
-      const r = check({ ...checkOptionsOf(p), units: [...state.units.values()], tsc: o.tsc ?? findTsc(state.root) });
+      const r = check({ ...checkOptionsOf(p), helpers: workspace.typeHelpers(state), units: [...state.units.values()], tsc: o.tsc ?? findTsc(state.root) });
       await workspace.setTypes(state, '*', r.diagnostics);
       return;
     }
-    await mode.update(state.project, state.units, read);
+    await mode.update(state.project, state.units, read, workspace.typeHelpers(state));
     for (const page of state.units.keys()) await workspace.setTypes(state, page, await mode.diagnostics(page));
     // components' top-level `<script>` blocks, by file (a block that went: its errors go with it)
     const scripts = mode.scriptFiles();
@@ -266,7 +266,7 @@ export function startServer(input: Readable, output: Writable, o: ServerOptions 
     const mode = modeOf(state.root);
     if (!(mode instanceof TypeScriptBridge)) return null;
     // the shadows must reflect the latest edit
-    await mode.update(state.project, state.units, read);
+    await mode.update(state.project, state.units, read, workspace.typeHelpers(state));
     return mode.hover(file, p.position.line + 1, p.position.character + 1);
   });
 
@@ -275,7 +275,7 @@ export function startServer(input: Readable, output: Writable, o: ServerOptions 
     const state = await workspace.projectFor(file);
     const mode = modeOf(state.root);
     if (!(mode instanceof TypeScriptBridge)) return null;
-    await mode.update(state.project, state.units, read);
+    await mode.update(state.project, state.units, read, workspace.typeHelpers(state));
     return { bridge: mode, state };
   };
 
@@ -349,7 +349,7 @@ export function startServer(input: Readable, output: Writable, o: ServerOptions 
       canCreate,
       ...(mode instanceof TypeScriptBridge ? {
         typeAt: async (line: number, col: number) => {
-          ready ??= mode.update(state.project, state.units, (f) => workspace.read(f));
+          ready ??= mode.update(state.project, state.units, (f) => workspace.read(f), workspace.typeHelpers(state));
           await ready;
           return mode.typeAt(file, line, col);
         },
@@ -395,7 +395,8 @@ export function startServer(input: Readable, output: Writable, o: ServerOptions 
       if (!edit || !wants('quickfix')) continue;
       actions.push({
         title: `Change to '${edit.newText}'`, kind: 'quickfix', isPreferred: true, diagnostics: [d],
-        edit: { changes: { [p.textDocument.uri]: [edit] } },
+        // a renamed start tag renames its end tag too
+        edit: { changes: { [p.textDocument.uri]: [edit, ...[endTagEdit(text, edit)].filter((e) => e !== null)] } },
       });
     }
     if (wants('refactor.extract') && p.range) actions.push(...await extractActions(p.textDocument.uri, p.range, null));

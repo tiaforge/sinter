@@ -76,8 +76,10 @@ src/components/                 src/components/
   tags are one namespace, named after the file.
 - **One place each.** The build fails (`SN349`) for a component in both places
   (`task-ring.html` and `task-ring/task-ring.html`), another HTML file in a component's folder, and HTML in a
-  folder that is not named after a component inside it, so a file never silently stops being a component. A
-  folder of modules only (`src/components/shared/`) is fine.
+  folder that is not named after a component inside it, or at any depth below that, so a file never silently
+  stops being a component. Component tags are one namespace: `forms/text-input/text-input.html` is no
+  component, and moves to `text-input/text-input.html`. A folder of modules only (`src/components/shared/`) is
+  fine.
 - A [library's](libraries.md) components take the same two places, in its `components/` and
   `components/internal/`.
 
@@ -663,7 +665,7 @@ optimizers off sinter's pages: one that strips comments breaks lists and branche
 
 | Where | What is checked |
 | --- | --- |
-| The tag | `data-sn-with` keys and types; `data-sn-on-<event>` names and the type of `$event.detail`; slot names; `$slot` in a fill, by the slot's `Slot<T>` |
+| The tag | `data-sn-with` keys and types: each value given must fit its prop's declared type, so under the app's `strictNullChecks` a value that may be `undefined` (`at: last?.tick`) fits only an optional prop (`at?: number`) or one typed with it; a required prop left out is `SN313`; `data-sn-on-<event>` names and the type of `$event.detail`; slot names; `$slot` in a fill, by the slot's `Slot<T>` |
 | A placement | `data-sn-with` on a `<slot>`, against its `Slot<T>` |
 | The component's markup | bindings read only declared props, its state and globals; `emit()` names match `data-sn-emits` |
 | The script | TypeScript, through the generated base class: a misspelled prop, event or ref, or a wrong detail type, is a type error |

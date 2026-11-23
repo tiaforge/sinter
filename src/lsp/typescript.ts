@@ -5,11 +5,12 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, isAbsolute, join, relative } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { clean, COMPILER_OPTIONS, scriptOptions, shadowOf, shadowPath, typeDiagnostic, writeSupport, type Support } from '../check/index.js';
+import { clean, COMPILER_OPTIONS, markupOptions, scriptOptions, scriptShadowText, scriptTsconfig, SCRIPTS_DIR, shadowOf, shadowPath, typeDiagnostic, writeSupport, type Support } from '../check/index.js';
+import { appTsconfig } from '../check/tsconfig.js';
 import { inlineScriptLang, inlineScriptModule, inlineScriptPath, inlineScripts } from '../compiler/components.js';
 import { mapPosition, quietLine, shadowPosition, type Region } from '../check/shadow.js';
 import type { CheckUnit } from '../compiler/check-unit.js';
-import type { Diagnostic } from '../compiler/index.js';
+import type { Diagnostic, HelperManifest } from '../compiler/index.js';
 import { checkOptionsOf, inlineScriptFiles, type Project } from '../project.js';
 import { Connection } from './rpc.js';
 import { specLocation } from './spec-location.js';
@@ -36,9 +37,10 @@ interface OpenShadow {
 }
 
 /**
- * The shadow of a component's top-level `<script>` (`.sinter/lsp/src/components/x.html.script.ts`): the script at
- * the file's lines and columns, so a position in it is the same position in the HTML; `rootDirs` resolves its
- * imports as from beside the file.
+ * The shadow of a component's top-level `<script>` (`.sinter/lsp/scripts/src/components/x.html.script.ts`): the
+ * script at the file's lines and columns, so a position in it is the same position in the HTML; `rootDirs` resolves
+ * its imports as from beside the file. The scripts are a project of their own (`scripts/tsconfig.json`), under the
+ * app's tsconfig when it has one.
  */
 interface OpenScript {
   html: string;
@@ -76,16 +78,13 @@ export class TypeScriptBridge {
   private scripts = new Map<string, OpenScript>();
   private support: Support | null = null;
   readonly outDir: string;
+  /** the two projects' tsconfigs, as last written */
+  private configs = '';
 
-  constructor(readonly root: string, tsc: string) {
+  constructor(readonly root: string, private tsc: string) {
     this.outDir = join(root, '.sinter', 'lsp');
-    mkdirSync(this.outDir, { recursive: true });
-    // the component scripts' shadows (`.ts`) resolve their imports beside their files (`rootDirs`), and import their
-    // base from their HTML, typed by the generated `src/sinter.components.d.ts`
-    writeFileSync(join(this.outDir, 'tsconfig.json'), JSON.stringify({
-      compilerOptions: { ...COMPILER_OPTIONS, ...scriptOptions(root, this.outDir, true) },
-      include: ['**/*.js', '**/*.ts', relative(this.outDir, join(root, 'src', 'sinter.components.d.ts')).split('\\').join('/')],
-    }, null, 2) + '\n');
+    mkdirSync(join(this.outDir, SCRIPTS_DIR), { recursive: true });
+    this.writeConfigs();
     this.child = spawn(process.execPath, [tsc, '--lsp', '--stdio'], { cwd: this.outDir, stdio: ['pipe', 'pipe', 'ignore'] });
     this.conn = new Connection(this.child.stdout!, this.child.stdin!);
     // workspace/configuration, client/registerCapability, progress: nothing to say
@@ -104,10 +103,34 @@ export class TypeScriptBridge {
   }
 
   /**
-   * Brings the shadows in line with the pages' latest check units, and the component scripts' shadows with their
-   * files as `read` gives them (the editor's buffers first).
+   * The pages' project (`.sinter/lsp/tsconfig.json`, sinter's options with the app's `strictNullChecks`) and the
+   * components' scripts' (`scripts/tsconfig.json`, extending the app's tsconfig): the scripts' shadows resolve their
+   * imports beside their files (`rootDirs`) and import their base from their HTML, typed by the generated
+   * `src/sinter.components.d.ts`. True when they changed.
    */
-  async update(project: Project, units: Map<string, CheckUnit>, read: (f: string) => string = project.readFile): Promise<void> {
+  private writeConfigs(): boolean {
+    const app = appTsconfig(this.root, this.tsc);
+    const dir = join(this.outDir, SCRIPTS_DIR);
+    const components = join(this.root, 'src', 'sinter.components.d.ts');
+    const pages = JSON.stringify({ compilerOptions: markupOptions(app), include: ['**/*.js', '**/*.ts'], exclude: [SCRIPTS_DIR] }, null, 2) + '\n';
+    const scripts = app
+      ? scriptTsconfig(app, this.root, dir, { include: ['**/*.js', '**/*.ts'] }, components)
+      : JSON.stringify({
+        compilerOptions: { ...COMPILER_OPTIONS, ...scriptOptions(this.root, dir, true) },
+        include: ['**/*.js', '**/*.ts', relative(dir, components).split('\\').join('/')],
+      }, null, 2) + '\n';
+    if (pages + scripts === this.configs) return false;
+    this.configs = pages + scripts;
+    writeFileSync(join(this.outDir, 'tsconfig.json'), pages);
+    writeFileSync(join(dir, 'tsconfig.json'), scripts);
+    return true;
+  }
+
+  /**
+   * Brings the shadows in line with the pages' latest check units, and the component scripts' shadows with their
+   * files as `read` gives them (the editor's buffers first). `helpers`: the project's with the content namespaces.
+   */
+  async update(project: Project, units: Map<string, CheckUnit>, read: (f: string) => string = project.readFile, helpers: HelperManifest = project.helpers): Promise<void> {
     await this.ready;
     this.updateScripts(project, read);
     const support = writeSupport({ ...checkOptionsOf(project), root: this.root, outDir: this.outDir });
@@ -115,7 +138,7 @@ export class TypeScriptBridge {
     if (this.support && JSON.stringify(support) !== JSON.stringify(this.support)) this.filesChanged([support.declarations, ...support.openapi]);
     this.support = support;
     for (const [page, unit] of units) {
-      const s = shadowOf(unit, support, this.root, project.helpers, project.actions);
+      const s = shadowOf(unit, support, this.root, helpers, project.actions);
       const prev = this.shadows.get(page);
       if (prev?.text === s.text) { prev.unit = unit; prev.regions = s.regions; prev.brokenFrom = s.brokenFrom; continue; }
       const path = shadowPath(support, this.root, page);
@@ -142,30 +165,31 @@ export class TypeScriptBridge {
   private updateScripts(project: Project, read: (f: string) => string): void {
     const files = new Set(inlineScriptFiles({ ...project, readFile: read }));
     for (const html of files) {
-      let text: string;
-      try { text = read(html); } catch { continue; }
-      const m = inlineScriptModule(text, html);
-      const block = inlineScripts(text)[0];
+      let source: string;
+      try { source = read(html); } catch { continue; }
+      const m = inlineScriptModule(source, html);
+      const block = inlineScripts(source)[0];
       const rel = relative(this.root, html);
       if (!m || !block || rel.startsWith('..') || isAbsolute(rel)) { files.delete(html); continue; }
-      const path = join(this.outDir, inlineScriptPath(rel, inlineScriptLang(block.lang) ?? 'js'));
+      const path = join(this.outDir, SCRIPTS_DIR, inlineScriptPath(rel, inlineScriptLang(block.lang) ?? 'js'));
       const uri = pathToFileURL(path).href;
       const prev = this.scripts.get(html);
       const lines = { first: block.line, last: block.line + block.code.split('\n').length - 1 };
+      const text = scriptShadowText(m.code, path);
       if (prev && prev.path === path) {
-        if (prev.text === m.code) continue;
-        const next = { ...prev, ...lines, text: m.code, version: prev.version + 1 };
+        if (prev.text === text) continue;
+        const next = { ...prev, ...lines, text, version: prev.version + 1 };
         this.scripts.set(html, next);
-        this.conn.notify('textDocument/didChange', { textDocument: { uri, version: next.version }, contentChanges: [{ text: m.code }] });
+        this.conn.notify('textDocument/didChange', { textDocument: { uri, version: next.version }, contentChanges: [{ text }] });
         continue;
       }
       // a new script, or its language changed (`.ts` ↔ `.js`)
       if (prev) this.closeScript(prev);
       mkdirSync(dirname(path), { recursive: true });
-      writeFileSync(path, m.code);
-      const next: OpenScript = { html, path, uri, text: m.code, version: 1, ...lines };
+      writeFileSync(path, text);
+      const next: OpenScript = { html, path, uri, text, version: 1, ...lines };
       this.scripts.set(html, next);
-      this.conn.notify('textDocument/didOpen', { textDocument: { uri, languageId: path.endsWith('.ts') ? 'typescript' : 'javascript', version: 1, text: m.code } });
+      this.conn.notify('textDocument/didOpen', { textDocument: { uri, languageId: path.endsWith('.ts') ? 'typescript' : 'javascript', version: 1, text } });
     }
     for (const [html, s] of this.scripts) if (!files.has(html)) { this.closeScript(s); this.scripts.delete(html); }
   }
@@ -354,10 +378,11 @@ export class TypeScriptBridge {
     return out;
   }
 
-  /** Tells TypeScript that files it may have read changed on disk. */
+  /** Tells TypeScript that files it may have read changed on disk; a changed tsconfig may change the projects' own. */
   filesChanged(files: string[]): void {
     if (!files.length) return;
-    this.conn.notify('workspace/didChangeWatchedFiles', { changes: files.map((f) => ({ uri: pathToFileURL(f).href, type: 2 })) });
+    const configs = files.some((f) => /\.json$/.test(f)) && this.writeConfigs() ? [join(this.outDir, 'tsconfig.json'), join(this.outDir, SCRIPTS_DIR, 'tsconfig.json')] : [];
+    this.conn.notify('workspace/didChangeWatchedFiles', { changes: [...files, ...configs].map((f) => ({ uri: pathToFileURL(f).href, type: 2 })) });
   }
 
   dispose(): void {

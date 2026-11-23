@@ -12,7 +12,7 @@ import { AUTO_FIT_HINT, AUTO_FIT_ROWS, FLUID_WIDTHS } from './images.js';
 import * as parse5 from 'parse5';
 import { freeRefs, parseExpression, parseProgram } from './parse.js';
 import type { DefaultTreeAdapterMap } from 'parse5';
-import { type Code, type Diagnostic, didYouMean, severityOf, suggest } from './diagnostics.js';
+import { type Code, type Diagnostic, didYouMean, distance, severityOf, suggest } from './diagnostics.js';
 import { analyze, applyEdits, nsLocal, refNames, STORE_FNS, throughField, wild, type SlotScope, type ComponentScope, type ExprOptions, type ExprResult, type LetEntry, type LoopEntry, type PageInfo, type Read, type ResourceInfo, type Scope } from './expr.js';
 import { callerAttribute, COMPONENT_NAME, componentPaths, DOM_EVENTS, inlineScriptLang, inlineScriptPath, inlineScripts, type InlineScript, isArrayType, LIBRARY_LAYER, rootCss, scopeCss, SLOT_TYPE, typeMembers, withoutSlots, type Member } from './components.js';
 import type { Node } from 'acorn';
@@ -2476,6 +2476,30 @@ class Compiler {
     return [...new Set([...(this.opts.componentNames ?? []), ...this.componentFiles.keys()])].filter((n) => this.componentFile(n) && !this.componentFile(n)!.head && !this.componentFile(n)!.internal).sort();
   }
 
+  /**
+   * SN547: a dashed tag that is no component, so the browser keeps it as a custom element, with a name close to a
+   * component's: likely a misspelled use. A tag close to none is a web component of its own and stays silent, as does
+   * one whose first part differs from the component's by more than a letter (`<sl-button>` beside `<ui-button>`, a
+   * prefix of a library of web components). With `data-sn-with` on it and the first part the component's, it is an
+   * error: the props meant for `<text-input>` would be set as properties of a plain custom element instead.
+   */
+  closeComponentName(el: P5Element) {
+    const tag = el.tagName;
+    if (!COMPONENT_NAME.test(tag) || tag.startsWith('sn-') || this.componentFile(tag) || this.libOfTag(tag)) return;
+    const lib = this.libOfFile(this.origins.get(el)?.file);
+    const pool = new Set([...(this.opts.componentNames ?? []), ...this.componentFiles.keys(), ...(this.opts.libraries ?? []).flatMap((l) => l === lib ? [...l.public, ...l.internal] : l.public)]);
+    const near = suggest(tag, [...pool].filter((n) => n !== tag && this.componentFile(n) && (!this.componentFile(n)!.internal || this.componentFile(n)!.lib === lib)));
+    if (!near) return;
+    const first = (t: string) => t.slice(0, t.indexOf('-'));
+    const samePrefix = first(tag) === first(near);
+    if (!samePrefix && distance(tag, near) > 1) return;
+    const n = this.diagnostics.length;
+    const props = attr(el, 'data-sn-with') !== undefined && samePrefix;
+    this.once(el, null, 'SN547', `\`<${tag}>\` is not a component, so it stays a plain custom element; \`<${near}>\` is a component. Did you mean \`${near}\`?`, 0,
+      props ? `\`data-sn-with\` on it sets properties of that element, not the props of \`<${near}>\`` : `a custom element of this name, defined by a script (\`customElements.define\`), is fine: keep the name; in strict mode, keep it a warning with \`strict: { allow: { SN547: '…' } }\``);
+    if (props) for (const d of this.diagnostics.slice(n)) d.severity = 'error';
+  }
+
   /** A library's internal component used outside its library (SN339): the error, naming the public ones. */
   internalUse(el: P5Element, def: ComponentFile, offset = 0, attrName: string | null = null): boolean {
     // a shared definition's host is sinter's: its uses were checked where they are written
@@ -2738,6 +2762,7 @@ class Compiler {
         } else if (root) this.expandComponents(root, [...ch, name], false, use ?? null);
         continue;
       }
+      if (!this.layoutFile(child.tagName)) this.closeComponentName(child);
       const head = inHead || child.tagName === 'head';
       this.expandComponents(child, ch, head, en);
       if (child.tagName === 'template') {
@@ -4114,7 +4139,8 @@ class Compiler {
         this.frameOf.set(entry, this.check.frames.length);
         const first = [...entry.names].map((n) => r.entries!.find((e) => e.key === n)!);
         const locs = first.map((e) => this.locOf(el, 'data-sn-state', e.offset));
-        this.check.frames.push({ kind: 'state', names: [...entry.names], init: this.lastExpr, locs });
+        const nested = first.filter((e) => e.nested).map((e) => `${JSON.stringify(e.key)}: ${e.nested}`);
+        this.check.frames.push({ kind: 'state', names: [...entry.names], init: this.lastExpr, locs, ...(nested.length ? { nested: `{ ${nested.join('; ')} }` } : {}) });
       }
       this.checkNames(el, 'data-sn-state', scope, [...entry.names]);
       scope = { ...scope, states: [...scope.states, entry] };
@@ -4143,8 +4169,15 @@ class Compiler {
     const src = attr(host, 'data-sn-with');
     if (src !== undefined) {
       const r = this.expr(host, 'data-sn-with', caller, { mode: 'value', object: 'literal-keys', waits: true });
-      // a missing prop the compiler reports itself; TypeScript checks the types of those given
-      if (this.check) this.typeLast({ returns: { kind: 'ts', text: use.props ? `Partial<${use.propsText.trim() || '{}'}>` : use.propsText, loc: this.locOf(use.template, use.layout ? 'data-sn-layout' : use.head ? 'data-sn-head' : 'data-sn-component') } });
+      // a missing prop the compiler reports itself (SN313); TypeScript checks each given one against its declared type,
+      // so `undefined` fits only an optional one (`at: last?.tick` for `at: number` is an error under strictNullChecks;
+      // a given undefined is passed, over a default of the root's state). (`& Partial<…>`: a key it does not declare
+      // is an error there too, as when it is given alone)
+      if (this.check) {
+        const given = [...new Set((r.entries ?? []).map((e) => e.key).filter((k) => declared?.includes(k)))];
+        const props = use.propsText.trim() || '{}';
+        this.typeLast({ returns: { kind: 'ts', text: use.props ? `Pick<${props}, ${given.map((k) => JSON.stringify(k)).join(' | ') || 'never'}> & Partial<${props}>` : use.propsText, loc: this.locOf(use.template, use.layout ? 'data-sn-layout' : use.head ? 'data-sn-head' : 'data-sn-component') } });
+      }
       for (const e of r.entries ?? []) {
         const slot = use.slots?.get(e.key);
         if (slot) {
@@ -6308,8 +6341,12 @@ class Compiler {
   objectBinding(el: P5Element, node: NodeDef, scope: Scope, k: 'class' | 'style' | 'prop') {
     const name = k === 'prop' ? 'data-sn-with' : `data-sn-${k}`;
     const r = this.expr(el, name, scope, { mode: 'value', object: k === 'class' ? 'any-keys' : 'literal-keys' });
-    // a custom element's properties, from the app's HTMLElementTagNameMap
-    if (this.check && k === 'prop') this.typeLast({ returns: { kind: 'decl', name: `Props<${JSON.stringify(el.tagName)}>` } });
+    // a custom element's properties, from the app's HTMLElementTagNameMap: each one given, with its type (so `undefined`
+    // fits only one typed with it, under strictNullChecks)
+    if (this.check && k === 'prop') {
+      const given = [...new Set((r.entries ?? []).map((e) => JSON.stringify(e.key)))];
+      this.typeLast({ returns: { kind: 'decl', name: `Props<${JSON.stringify(el.tagName)}, ${given.join(' | ') || 'never'}>` } });
+    }
     if (!r.entries) return;
     for (const e of r.entries) {
       let key = e.key;

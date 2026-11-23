@@ -9,7 +9,7 @@ import { Connection } from '../../src/lsp/rpc.js';
 import { findTsc } from '../../src/check/index.js';
 import { EXTRACT_FIX_CODES, componentAt, rangeOf, startServer, type LspDiagnostic } from '../../src/lsp/server.js';
 import { typeFromHover } from '../../src/lsp/extract.js';
-import { didYouMeanEdit, suggestionOf } from '../../src/lsp/quickfix.js';
+import { didYouMeanEdit, endTagEdit, suggestionOf } from '../../src/lsp/quickfix.js';
 
 const tsc = findTsc(process.cwd());
 
@@ -419,6 +419,17 @@ describe('did-you-mean', () => {
     expect(didYouMeanEdit(t2, { start: { line: 0, character: 9 }, end: { line: 0, character: 12 } }, '`cnt` is not defined here. Did you mean `count`?')!.range)
       .toEqual({ start: { line: 0, character: 9 }, end: { line: 0, character: 12 } });
   });
+
+  test('a misspelled component tag (SN547): the start tag, and its end tag past nested ones of the same name', () => {
+    const text = '<div>\n  <text-inptu data-sn-with="{ n: 1 }"><text-inptu></text-inptu>\n  </text-inptu><text-inptu></text-inptu></div>';
+    const message = '`<text-inptu>` is not a component, so it stays a plain custom element; `<text-input>` is a component. Did you mean `text-input`?';
+    const edit = didYouMeanEdit(text, { start: { line: 1, character: 3 }, end: { line: 1, character: 13 } }, message)!;
+    expect(edit).toEqual({ range: { start: { line: 1, character: 3 }, end: { line: 1, character: 13 } }, newText: 'text-input' });
+    expect(endTagEdit(text, edit)).toEqual({ range: { start: { line: 2, character: 4 }, end: { line: 2, character: 14 } }, newText: 'text-input' });
+    // an attribute's fix renames no end tag
+    const attr = didYouMeanEdit('<p data-sn-txt="x"></p>', { start: { line: 0, character: 3 }, end: { line: 0, character: 14 } }, '`data-sn-txt` is not a sinter attribute. Did you mean `data-sn-text`?')!;
+    expect(endTagEdit('<p data-sn-txt="x"></p>', attr)).toBeNull();
+  });
 });
 
 test('componentAt finds the tag name under the cursor', () => {
@@ -722,6 +733,43 @@ ${body}
     // fixed: the error goes
     e.change(file, card('      const n: number = twice(this.props.done); void n;'));
     await e.diagnostics(file, (ds) => !ds.some((x) => x.code.startsWith('SN208')));
+  }, 60_000);
+
+  test('a single-file component\'s `<script lang="ts">` is checked under the app\'s tsconfig (its strictness and `paths`), the pages under its `strictNullChecks`', async () => {
+    const card = (body: string) => `<template data-sn-props="{ n: number }">
+  <p data-sn-text="n"></p>
+</template>
+
+<script lang="ts">
+  import { XRingComponent } from './x-ring.html';
+  import { twice } from '@lib/math';
+  export class XRing extends XRingComponent {
+    connected() {
+${body}
+    }
+  }
+</script>
+`;
+    const root = project({
+      'tsconfig.json': JSON.stringify({ compilerOptions: { strict: true, module: 'ESNext', moduleResolution: 'bundler', lib: ['ESNext', 'DOM'], paths: { '@lib/*': ['./src/lib/*'] } }, include: ['src'] }),
+      'src/lib/math.ts': 'export const twice = (n: number): number => n * 2;\n',
+      'src/components/x-ring/x-ring.html': card('      void twice(this.props.n);'),
+      'index.html': '<x-ring data-sn-with="{ n: 1 }"></x-ring>\n',
+      'node_modules/@tiaforge-ui/sinter/package.json': JSON.stringify({ name: '@tiaforge-ui/sinter', type: 'module', exports: { './runtime/components': './components.ts' } }),
+      'node_modules/@tiaforge-ui/sinter/components.ts': `export { Component } from ${JSON.stringify(join(process.cwd(), 'src/components.ts'))};\n`,
+    });
+    const e = await editor(root);
+    const file = 'src/components/x-ring/x-ring.html';
+    e.open('index.html', '<x-ring data-sn-with="{ n: 1 }"></x-ring>\n');
+    await e.diagnostics('index.html');
+    e.open(file, card("      const f = (x) => twice(x); void f;"));
+    const errs = await e.diagnostics(file, (ds) => ds.some((x) => x.message.includes('TS7006')));
+    expect(errs.find((x) => x.message.includes('TS7006'))!.range.start).toEqual({ line: 9, character: 17 });
+    // the page: a value that may be undefined is the app's `strictNullChecks`' business; a state field that starts as
+    // `null` takes what is assigned later
+    e.change('index.html', '<div data-sn-state="{ err: null }" data-sn-on-click="err = 1"><p data-sn-text="[1, 2].find((x) => x === 2).toFixed(1)"></p><x-ring data-sn-with="{ n: 1 }"></x-ring></div>\n');
+    const page = await e.diagnostics('index.html', (ds) => ds.some((x) => x.code.startsWith('SN208')));
+    expect(page.filter((x) => x.code.startsWith('SN208')).map((x) => x.message)).toEqual([expect.stringContaining('is possibly \'undefined\'')]);
   }, 60_000);
 
   test('quick fixes apply the suggestion of compiler and type errors', async () => {
@@ -1124,3 +1172,34 @@ describe('file: sources in the editor', () => {
     expect((await e.diagnostics('index.html', (d) => d.length > 0)).map((d) => [d.code, d.message.replace(/:.*/s, '')])).toEqual([['SN332 build-time-source', '`hello.md`']]);
   }, 30_000);
 });
+
+test('pages compile with the options the build has (`static`, `site`, `localePrefix`, messages): what it writes into the HTML is no SN322 or SN323', async () => {
+  const src = resolve(__dirname, '../../src');
+  const layout = `<!doctype html>
+<html lang="en" data-sn-props="{ title: string }">
+<head><meta charset="utf-8"><title data-sn-text="title + ' · ' + m.site()"></title><meta property="og:url" data-sn-attr="{ content: $canonical }"></head>
+<body><a hreflang="de" data-sn-attr="{ href: localeUrl('de'), 'aria-current': $locale === 'de' ? 'true' : null }">Deutsch</a><main><slot></slot></main></body>
+</html>
+`;
+  const root = project({
+    'vite.config.js': `import sinter from ${JSON.stringify(join(src, 'vite.ts'))};\nexport default { resolve: { alias: [{ find: /^@tiaforge-ui\\/sinter\\/(.+)$/, replacement: ${JSON.stringify(src)} + '/$1.ts' }] }, plugins: [sinter({ localePrefix: true, site: 'https://example.com', static: ['index.html'] })] };\n`,
+    'project.inlang/settings.json': JSON.stringify({ baseLocale: 'en', locales: ['en', 'de'] }),
+    'messages/en.json': JSON.stringify({ site: 'Fieldnotes', home: 'Home' }),
+    'messages/de.json': JSON.stringify({ site: 'Feldnotizen', home: 'Start' }),
+    'src/sinter.content.ts': "import { languages } from '@tiaforge-ui/sinter/content';\nimport { inlang, inlangLocales } from '@tiaforge-ui/sinter/messages/content';\nexport const locales = languages(({ root }) => inlangLocales('project.inlang', root));\nexport const messages = inlang();\n",
+    'src/layouts/site-layout.html': layout,
+    'index.html': '<site-layout data-sn-with="{ title: m.home() }"><h1 data-sn-text="m.home()"></h1></site-layout>\n',
+  });
+  const e = await editor(root);
+  // a static page that runs: SN322, so the page was compiled (and nothing else is reported)
+  e.open('index.html', '<site-layout data-sn-with="{ title: m.home() }"><h1 data-sn-text="m.home()"></h1><p data-sn-state="{ n: 0 }"><button data-sn-on-click="n = n + 1" data-sn-text="n"></button></p></site-layout>\n');
+  const d = await e.diagnostics('index.html', (d) => d.length > 0);
+  expect([...new Set(d.map((x) => x.code))]).toEqual(['SN322 ships-javascript']);
+  expect(e.current('src/layouts/site-layout.html')).toEqual([]);
+  e.change('index.html', '<site-layout data-sn-with="{ title: m.home() }"><h1 data-sn-text="m.home()"></h1></site-layout>\n');
+  expect(await e.diagnostics('index.html', (d) => d.length === 0)).toEqual([]);
+  // the layout on its own, as no page: its `$canonical`, messages and `localeUrl()` compile
+  e.open('src/layouts/site-layout.html', layout);
+  await new Promise((r) => setTimeout(r, 500));
+  expect(e.current('src/layouts/site-layout.html')).toEqual([]);
+}, 60_000);

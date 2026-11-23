@@ -130,6 +130,11 @@ declare global {
     one(page(`<mail-reader data-sn-with="{ mesage: contacts[0] }"></mail-reader>`), /'mesage' does not exist/, 'mesage', island);
     one(page(`<mail-reader data-sn-with="{ readonly: 'yes' }"></mail-reader>`), /Type 'string' is not assignable to type 'boolean'/, "readonly: 'yes'", island);
     one(page(`<div data-sn-state="{ n: 0 }"><mail-reader data-sn-on-reader-flag="n = $event.detail"></mail-reader></div>`), /Type 'boolean' is not assignable to type 'number'/, 'n = $event', island);
+    // under strictNullChecks, a property takes `undefined` only when its type has it
+    const strict = (message: string) => checkPage(page(`<mail-reader data-sn-with="{ message: ${message} }"></mail-reader>`), { files: { 'src/sinter.types.ts': TYPES, ...island, 'tsconfig.json': JSON.stringify({ compilerOptions: { strict: true } }) } })
+      .map((d) => `${d.code} ${d.message.split('\n')[0]}`);
+    expect(strict('contacts.find((c) => c.id > 1)')).toEqual([expect.stringMatching(/^SN208 Type 'Contact \| undefined' is not assignable to type 'Contact \| null'/)]);
+    expect(strict('contacts.find((c) => c.id > 1) ?? null')).toEqual([]);
   });
 
   test('components: props typed by data-sn-props at the call site and inside, $event.detail by data-sn-emits', () => {
@@ -147,6 +152,23 @@ declare global {
     const r = run(page(`<contact-card data-sn-with="{ contact: contacts[0] }"></contact-card>`), typo);
     expect(r.diagnostics.map((d) => d.message)).toEqual([expect.stringMatching(/Property 'nmae' does not exist on type 'Contact'/)]);
     expect(r.diagnostics[0]!.file).toMatch(/src\/components\/contact-card.html$/);
+  });
+
+  test('components: a given prop must fit its declared type, so under `strictNullChecks` `undefined` fits only an optional one; a missing one is the compiler\'s SN313 alone', () => {
+    const line = { 'src/components/spark-line.html': `<template data-sn-props="{ at: number; label?: string }"><p data-sn-text="at + (label ?? '')"></p></template>` };
+    const errors = (use: string, tsconfig: object | null = { compilerOptions: { strict: true } }) => checkPage(page(use), { files: { 'src/sinter.types.ts': TYPES, ...line, ...(tsconfig ? { 'tsconfig.json': JSON.stringify(tsconfig) } : {}) } })
+      .filter((d) => d.code !== 'SN501').map((d) => `${d.code} ${d.message.replace(/ \(TS\d+\)/, '').split('\n')[0]}`);
+    const maybe = '<div data-sn-let="{ last: contacts.find((c) => c.id > 1) }"><spark-line data-sn-with="{ at: last?.id, label: last?.name }"></spark-line></div>';
+    expect(errors(maybe)).toEqual(["SN208 Type 'number | undefined' is not assignable to type 'number'."]);
+    expect(errors(maybe.replace('last?.id', 'last?.id ?? 0'))).toEqual([]);
+    // without strictNullChecks: as before
+    expect(errors(maybe, null)).toEqual([]);
+    expect(errors(maybe, { compilerOptions: { strict: true, strictNullChecks: false } })).toEqual([]);
+    // a missing prop, a wrong or unknown one: as before
+    expect(errors('<spark-line data-sn-with="{ label: \'x\' }"></spark-line>')).toEqual(['SN313 `<spark-line>` needs the prop `at`']);
+    expect(errors('<spark-line></spark-line>')).toEqual(['SN313 `<spark-line>` needs the prop `at`']);
+    expect(errors('<spark-line data-sn-with="{ at: \'1\' }"></spark-line>')).toEqual(["SN208 Type 'string' is not assignable to type 'number'."]);
+    expect(errors('<spark-line data-sn-with="{ at: 1, lable: \'x\' }"></spark-line>', null).map((e) => e.slice(0, 5))).toEqual(errors('<spark-line data-sn-with="{ at: 1, lable: \'x\' }"></spark-line>').map((e) => e.slice(0, 5)));
   });
 
   test('data-sn-model on a component: $event.detail is its `change` detail, whatever its root element', () => {
@@ -406,6 +428,48 @@ export type Block = Para | Quote | Rule;
     expect(run(sync('$event.account_id === account_id'), { 'src/sinter.types.ts': types }).diagnostics).toEqual([]);
     expect(run(sync('$event.acount_id === account_id'), { 'src/sinter.types.ts': types }).diagnostics.map((d) => d.message))
       .toEqual([expect.stringMatching(/Property 'acount_id' does not exist on type 'Refetch'/)]);
+  });
+
+  test('the expressions follow the app tsconfig\'s `strictNullChecks` (or `strict`); a state field that starts as `null` or `[]` takes what is assigned later', () => {
+    const html = (expr: string) => page(`<div data-sn-state="{ err: null, list: [], sel: /** @type {Contact|null} */ (null) }">
+<button data-sn-on-click="err = 'x'; list = [1]; sel = contacts[0]"></button><p data-sn-text="contacts.length + ${expr}"></p></div>`);
+    const errors = (expr: string, tsconfig?: object) => checkPage(html(expr), { files: { 'src/sinter.types.ts': TYPES, ...(tsconfig ? { 'tsconfig.json': JSON.stringify(tsconfig) } : {}) } })
+      .map((d) => `${d.code} ${d.message.replace(/ \(TS\d+\)$/, '')}`);
+    const strict = { compilerOptions: { strict: true } };
+    expect(errors('sel.name', strict)).toEqual(["SN208 'sel' is possibly 'null'."]);
+    expect(errors('(sel?.name ?? err) + list.length', strict)).toEqual([]);
+    // without a tsconfig, or with nulls unchecked: as before
+    expect(errors('sel.name')).toEqual([]);
+    expect(errors('sel.name', { compilerOptions: { strict: true, strictNullChecks: false } })).toEqual([]);
+    expect(errors('sel.name', { compilerOptions: { strictNullChecks: true } })).toEqual(["SN208 'sel' is possibly 'null'."]);
+    // a solution-style tsconfig (Vite's templates): the referenced config that compiles src/
+    const solution = (app: object) => checkPage(html('sel.name'), { files: { 'src/sinter.types.ts': TYPES, 'tsconfig.json': JSON.stringify({ files: [], references: [{ path: './tsconfig.node.json' }, { path: './tsconfig.app.json' }] }),
+      'tsconfig.node.json': JSON.stringify({ compilerOptions: { strict: false }, include: ['vite.config.ts'] }), 'vite.config.ts': 'export default {};\n', 'tsconfig.app.json': JSON.stringify(app) } }).map((d) => d.code);
+    expect(solution({ compilerOptions: { strict: true }, include: ['src'] })).toEqual(['SN208']);
+    expect(solution({ compilerOptions: { strict: false }, include: ['src'] })).toEqual([]);
+  });
+
+  test('under `strictNullChecks`, a field that starts as `null` or `[]` takes what is assigned later at any depth of the state\'s object literals, and in the objects of its array literals', () => {
+    const state = `{ form: { error: null, tags: [], n: 0, who: /** @type {Contact|null} */ (null), deep: { a: { b: { c: undefined } } } },
+      rows: [{ id: 1, note: null }, { id: 2, note: null, seen: [] }], cast: /** @type {{ at: Contact | null }} */ ({ at: null }), made: twice(1) }`;
+    const errors = (handler: string, expr = '0', tsconfig: object | null = { compilerOptions: { strict: true } }) => checkPage(page(`<div data-sn-state="${state}">
+<button data-sn-on-click="${handler}"></button><p data-sn-text="contacts.length + ${expr}"></p></div>`), { files: { 'src/sinter.types.ts': TYPES, 'src/sinter.helpers.js': HELPERS, 'src/messages.js': MESSAGES, ...(tsconfig ? { 'tsconfig.json': JSON.stringify(tsconfig) } : {}) } })
+      .map((d) => `${d.code} ${d.message.replace(/ \(TS\d+\)$/, '')}`);
+    expect(errors(`form.error = 'x'; form.tags = [1]; form.deep.a.b.c = 'y'`)).toEqual([]);
+expect(errors(`rows = [...rows, { id: 3, note: 'z' }]; rows[0].note = 'w'; rows[1].seen = [1]; form.who = contacts[0]`)).toEqual([]);
+    // what is not null-started keeps its type: a number, a JSDoc type at any depth (inside an object cast too), a helper's value
+    expect(errors(`form.n = 'x'`)).toEqual([expect.stringMatching(/^SN208 Type 'string' is not assignable to type 'number'/)]);
+    expect(errors('0', 'form.who.name')).toEqual(["SN208 'form.who' is possibly 'null'."]);
+    expect(errors('0', 'cast.at.name')).toEqual(["SN208 'cast.at' is possibly 'null'."]);
+    expect(errors(`made = 'x'`)).toEqual([expect.stringMatching(/^SN208 Type 'string' is not assignable to type 'number'/)]);
+    // a widened field reads as any, as without strictNullChecks
+expect(errors('0', 'form.error.length + rows[0].note.length')).toEqual([]);
+    expect(errors(`form.error = 'x'; rows[0].note = 'w'`, 'form.who.name', null)).toEqual([]);
+    // a component's state, on its root
+    const card = `<template data-sn-props="{ contact: Contact }"><div data-sn-state="{ edit: { note: null, tags: [] } }">
+  <button data-sn-on-click="edit.note = contact.name; edit.tags = contact.emails"></button><p data-sn-text="edit.note"></p></div></template>`;
+    expect(checkPage(page('<contact-card data-sn-with="{ contact: contacts[0] }"></contact-card>'), { files: { 'src/sinter.types.ts': TYPES, 'src/components/contact-card.html': card,
+      'tsconfig.json': JSON.stringify({ compilerOptions: { strict: true } }) } })).toEqual([]);
   });
 
   test('sn-event: `data-sn-let` names around the sync are in scope like state, in `when` and `then`', () => {

@@ -6,7 +6,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 
 import { dirname, join, relative, resolve } from 'node:path';
 import { check } from './check/index.js';
 import { applyStrict, compile, formatDiagnostic, type CheckUnit, type Diagnostic } from './compiler/index.js';
-import { checkOptionsOf, compileOptionsOf, lazyReachOf, project, staticPages, strictEnv, viteProject, type ProjectOptions } from './project.js';
+import { checkOptionsOf, checkPageOptionsOf, compileOptionsOf, lazyReachOf, project, staticPages, strictEnv, viteProject, type PageOptions, type ProjectOptions } from './project.js';
 import { lazyDiagnostics, resolveFile } from './lazy-build.js';
 import { loadHelpers, unloadedDiagnostic } from './helpers-node.js';
 import { checkLocale } from './locales-build.js';
@@ -46,8 +46,10 @@ async function main(argv: string[]): Promise<number> {
     else pages.push(a);
   }
   let options: ProjectOptions = {};
+  // each page's options as the build compiles it (its language, URLs, content), from the plugin in the Vite config
+  let pageOptions: PageOptions | null = null;
   let files = pages.map((p) => resolve(root, p));
-  if (!files.length) ({ pages: files, options } = await viteProject(root));
+  if (!files.length) ({ pages: files, options, pageOptions } = await viteProject(root));
   if (!files.length) {
     console.error(`sinter check: no pages found; pass them as arguments\n${USAGE}`);
     return 2;
@@ -59,10 +61,10 @@ async function main(argv: string[]): Promise<number> {
   for (const c of p.strict.allow.keys()) allow.add(c);
   let diagnostics: Diagnostic[] = [...p.diagnostics];
   const units: CheckUnit[] = [];
-  // `localePrefix`: the build compiles each page in a language (`$locale` fixed, `localeUrl()`); checked in the base one
+  // without the plugin's options: `localePrefix` is checked in the base language, the collections are the build's
+  // snapshot's; typed from the content module (and the content namespaces' ids, so a page's calls are checked as the
+  // build checks them)
   const locale = checkLocale(root, options as ProjectOptions & { localePrefix?: boolean });
-  // collections: from the build's snapshot (the check runs no loaders); typed from the content module
-  // (and the content namespaces' ids, so a page's calls are checked as the build checks them)
   const { snap, helpers, content: contentOpts } = snapshotOptions(root, p.contentFile, p.helpers);
   if (p.contentFile && !snap) console.error('sinter check: the content module\'s collections have no snapshot yet (vite build or vite dev writes one): what pages read of them is typed, not checked against their values');
   else if (snap?.stale) console.error('sinter check: the content module changed since the collections\' snapshot (vite build or vite dev writes a new one): their values may be out of date');
@@ -71,7 +73,7 @@ async function main(argv: string[]): Promise<number> {
   const unloaded = unloadedDiagnostic(root, p.helpersFile, nh);
   if (unloaded) diagnostics.push(unloaded);
   for (const file of files) {
-    const out = compile(readFileSync(file, 'utf8'), { ...compileOptionsOf(p, file), helpers, helperValues: nh.module, helperFold: nh.fold, ...contentOpts, file, dev: false, check: true, ...(locale ? { locale } : {}) });
+    const out = compile(readFileSync(file, 'utf8'), { ...checkPageOptionsOf(p, file, pageOptions, { helpers, content: contentOpts, locale }), helperValues: nh.module, helperFold: nh.fold, dev: false, check: true });
     diagnostics.push(...out.diagnostics);
     if (out.check) units.push(out.check);
   }

@@ -330,6 +330,20 @@ export function compileOptionsOf(p: Project, file?: string) {
   } satisfies Partial<CompileOptions>;
 }
 
+/**
+ * A page's options in `sinter check` and the editor: as the build compiles it (`pageOptions`, from the plugin in the Vite
+ * config), with the content module for the collections' types; without the plugin, the project's options with what the
+ * build's snapshot gives (`fallback`: the helpers with the content namespaces, the collections, the base language).
+ * `component`: the file is a component's use (the editor's), compiled as no page. The caller adds its reads, the helpers
+ * loaded in Node and `check: true`.
+ */
+export function checkPageOptionsOf(p: Project, file: string, pageOptions: PageOptions | null, fallback: { helpers: HelperManifest; content: Partial<CompileOptions>; locale: CompileOptions['locale'] | null }, component = false): CompileOptions {
+  if (pageOptions) return { ...fallback.content, ...pageOptions(p, file, component) };
+  // a component compiled through a use of its own is no page: none of a page's options (`static`), and a page's `swap`
+  const own = component ? { ...compileOptionsOf(p), ...(p.swap ? { swap: true } : {}) } : compileOptionsOf(p, file);
+  return { ...own, helpers: fallback.helpers, ...fallback.content, file, dev: false, ...(fallback.locale ? { locale: fallback.locale } : {}) };
+}
+
 /** What `check()` and `writeSupport()` take from the project, the same for `sinter check`, the editor and the build. */
 export function checkOptionsOf(p: Project) {
   return { root: p.root, helpers: p.helpers, actions: p.actions, types: p.types, openapi: p.openapi, libraries: p.libraries, scripts: inlineScriptFiles(p), componentTypes: p.componentsTypes };
@@ -344,25 +358,41 @@ export function inlineScriptFiles(p: Pick<Project, 'root' | 'componentNames' | '
 }
 
 /**
- * The pages (HTML entries) and sinter plugin options from the root's Vite config. Without
- * Vite or entries, `index.html` if it exists.
+ * What the sinter plugin in a resolved Vite config offers the tools that read the project without building it: its
+ * options, a page's source (a page in a language is its source), and `pageOptions`, the options the build compiles a
+ * source page with: its language, URLs (`$site`, `$canonical`), content and namespaces' formatters as the build loaded
+ * them. `sinter check` and the editor compile with it, so they report what the build does.
  */
-export async function viteProject(root: string): Promise<{ pages: string[]; options: ProjectOptions }> {
+export interface PluginApi {
+  options?: ProjectOptions;
+  source?(file: string): string;
+  pageOptions?(p: Project, source: string, component?: boolean): CompileOptions;
+}
+
+/** A source page's compile options as the build has them (`PluginApi.pageOptions`). */
+export type PageOptions = (p: Project, source: string, component?: boolean) => CompileOptions;
+
+/**
+ * The pages (HTML entries) and sinter plugin options from the root's Vite config, and the plugin's `pageOptions` (null
+ * without the plugin). Without Vite or entries, `index.html` if it exists.
+ */
+export async function viteProject(root: string): Promise<{ pages: string[]; options: ProjectOptions; pageOptions: PageOptions | null }> {
   const fallback = () => (existsSync(resolve(root, 'index.html')) ? [resolve(root, 'index.html')] : []);
   let vite: typeof import('vite');
   try {
     vite = await import('vite');
   } catch {
-    return withOwnLibrary(root, { pages: fallback(), options: {} });
+    return { ...withOwnLibrary(root, { pages: fallback(), options: {} }), pageOptions: null };
   }
   const config = await vite.resolveConfig({ root, logLevel: 'silent' }, 'build', 'production');
   // its aliases, for the walks of the app's modules (the lazy packages' reach, prerendering) wherever the project is read
   setAppAliases(root, config.resolve.alias);
-  const plugin = config.plugins.find((x) => x.name === 'sinter') as { api?: { options?: ProjectOptions; source?(file: string): string } } | undefined;
+  const plugin = config.plugins.find((x) => x.name === 'sinter') as { api?: PluginApi } | undefined;
   // with `localePrefix`, the input is each page once per language: its source, once
   let pages = [...new Set(htmlInputs(buildInput(config.build)).map((f) => plugin?.api?.source?.(resolve(config.root, f)) ?? resolve(config.root, f)))];
   if (!pages.length) pages = fallback();
-  return withOwnLibrary(root, { pages, options: plugin?.api?.options ?? {} });
+  const api = plugin?.api;
+  return { ...withOwnLibrary(root, { pages, options: api?.options ?? {} }), pageOptions: api?.pageOptions ? (p, file, component) => api.pageOptions!(p, file, component) : null };
 }
 
 /**

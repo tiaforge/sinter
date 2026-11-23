@@ -98,7 +98,7 @@ is prerendered when:
 
 - every resource loads with a GET (`src`, also `for`): none has `call`, `method="POST"` or `then`;
 - no handler is for an event the page can fire without a visitor: only clicks, keys, pointer, input,
-  form, drag, clipboard and dialog-closing events, and `data-sn-on-navigate`; not `load`, `error`,
+  form, drag, clipboard and dialog-closing events, and `data-sn-on-sn-navigate`; not `load`, `error`,
   `toggle`, `focus`, `scroll`, `sn-error` or a component's own events;
 - it has no component with a script, no other custom element, no lazy package that loads as it renders
   (`data-sn-import`, a helper of `sinter({ lazy })`; `data-sn-preload` only fetches), and no

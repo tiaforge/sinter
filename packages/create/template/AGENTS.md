@@ -21,7 +21,8 @@
   component's script (`src/components/<name>.ts` beside `<name>.html`, extending the class imported
   from `./<name>.html`; it writes state, never nodes sinter renders).
 - Types for `type="…"` go in `src/sinter.types.ts`.
-- Run `npm run check` after editing; `npm run build` runs the same checks. Strict mode is on: a warning
+- Run `npm run check` after editing: `tsc --noEmit` on the app's TypeScript, then sinter's and temper's
+  checks (`npm run build` runs those two, not `tsc`). Strict mode is on: a warning
   fails like an error, and the dev server prints the browser's runtime warnings in the terminal. Fix
   what they report. Do not turn `strict` off, and add a code to `strict.allow` (with its reason) only
   when the user agrees that it should stay a warning.

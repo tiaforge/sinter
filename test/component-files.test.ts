@@ -46,3 +46,26 @@ test('found in both forms, with the folder\'s modules and the skipped folders le
   expect(componentOfFile([dir], join(dir, 'x-own/x-extra.html'))).toBeNull();
   expect(componentOfFile([join(dir, 'elsewhere')], join(dir, 'x-flat.html'))).toBeNull();
 });
+
+test('HTML deeper in a components folder is SN349: tags are one namespace; node_modules and dot-folders are not looked in', () => {
+  const deep = mkdtempSync(join(tmpdir(), 'sinter-component-files-deep-'));
+  const put = (rel: string) => { mkdirSync(join(deep, rel, '..'), { recursive: true }); writeFileSync(join(deep, rel), '<template><p></p></template>'); };
+  put('forms/text-input/text-input.html');
+  put('task-ring/task-ring.html');
+  put('task-ring/parts/ring-label.html');
+  put('task-ring/parts/deeper/notes.html');
+  put('lib/deep/util.ts');
+  put('x-mod/node_modules/pkg/y-z.html');
+  put('x-mod/.cache/y-z.html');
+  put('x-mod/sub/node_modules/y-z.html');
+  put('internal/a/b/x-inner.html');
+  try {
+    const f = findComponents(deep, ['internal']);
+    expect(f.names).toEqual(['task-ring']);
+    expect(f.problems.map((p) => [p.code, p.file.slice(deep.length + 1), p.message, p.hint]).sort()).toEqual([
+      ['SN349', 'forms/text-input/text-input.html', '`forms/text-input/text-input.html` is not a component: a component\'s folder is directly in the components folder, as component tags are one namespace and folders do not group them', 'move it to `text-input/text-input.html`'],
+      ['SN349', 'task-ring/parts/deeper/notes.html', '`task-ring/parts/deeper/notes.html` is not a component: a component\'s HTML is `<name>.html` or `<name>/<name>.html` in the components folder', 'a component\'s name has a `-` (`task-ring`); move other HTML out of the components folder'],
+      ['SN349', 'task-ring/parts/ring-label.html', '`task-ring/parts/ring-label.html` is not a component: a component\'s HTML is `<name>.html` or `<name>/<name>.html` in the components folder', 'move it to `ring-label.html` or `ring-label/ring-label.html` in the components folder'],
+    ]);
+  } finally { rmSync(deep, { recursive: true, force: true }); }
+});

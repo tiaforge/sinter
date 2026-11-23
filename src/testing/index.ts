@@ -2,6 +2,7 @@
 // into the test DOM, and drive requests, streams and time deterministically.
 // No test-runner imports: works with Vitest or anything else, on jsdom or happy-dom.
 import { compileParts } from '../compiler/compile.js';
+import { inlineScripts } from '../compiler/components.js';
 import { earlyPage } from '../compiler/index.js';
 import { applyStrict, formatDiagnostic, strictOf, type Strict } from '../compiler/diagnostics.js';
 import { apiOrigins, defaultApiRenamed, resolveApis, runtimeApi, type ApiOptions, type ApisDef } from '../compiler/apis.js';
@@ -16,7 +17,7 @@ import { install as installMessages } from '../messages.js';
 import { format as formatMessage, inline as inlineMessage } from '../messages/format.js';
 import { flatten as flattenMessages } from '../messages/parse.js';
 import { nsLocal } from '../compiler/expr.js';
-import { mount, scopeState, type App, type Feature, type Transport } from '../runtime/app.js';
+import { instance, mount, scopeState, type App, type Feature, type Transport } from '../runtime/app.js';
 import { config, type Middleware } from '../runtime/config.js';
 import type { Env } from '../runtime/env.js';
 import { tokens } from '../runtime/request.js';
@@ -539,7 +540,11 @@ function compilePage(html: string, options: RenderOptions, strict: Strict = { on
   for (const [name, text] of Object.entries(options.layouts ?? {})) files[`src/layouts/${name}.html`] = text;
   // a script's and an early renderer's stand-ins go beside the component's HTML: in a folder of its own when it is in one
   const base = (name: string) => (files[`src/components/${name}/${name}.html`] !== undefined ? `src/components/${name}/${name}` : `src/components/${name}`);
-  for (const name of Object.keys(options.scripts ?? {})) files[`${base(name)}.ts`] ??= 'export default class {}';
+  // (not for a single-file component: its `<script>` is its script, and `scripts` gives the class that stands for it)
+  for (const name of Object.keys(options.scripts ?? {})) {
+    if (inlineScripts(files[`${base(name)}.html`] ?? '').length) continue;
+    files[`${base(name)}.ts`] ??= 'export default class {}';
+  }
   for (const name of Object.keys(options.earlyRenderers ?? {})) files[`${base(name)}.early.ts`] ??= 'export default () => {};';
   const proj = options.project;
   const apis = proj ? { specs: proj.openapi, apis: proj.apis } : options.apis ? testApis(options) : null;
@@ -630,6 +635,15 @@ function writePage(html: string, messages?: unknown) {
   void messages;
 }
 
+/** The error for a component with a script whose class `render({ scripts })` does not give. */
+function noScriptClass(name: string, module: string, given: unknown): string {
+  const pascal = name.replace(/(^|-)([a-z0-9])/g, (_, _d, c: string) => c.toUpperCase());
+  const inline = /\.html\.script\.[jt]s$/.test(module);
+  return `sinter: <${name}> has a script (${inline ? `the \`<script>\` in its HTML, \`${module}\`` : `\`${module}\``}) and render()'s \`scripts\` option gives `
+    + (given === undefined ? 'no class for it' : 'no class in what it gives for it')
+    + `: pass \`scripts: { '${name}': ${pascal} }\`, the class or ${inline ? 'a stand-in for it (a test cannot import the `<script>` block; its testable parts go in a module beside it)' : `the module (\`await import('..${module}')\`)`}`;
+}
+
 export async function render(html: string, options: RenderOptions = {}): Promise<Rendered> {
   if (current) { current.destroy(); current = null; }
 
@@ -680,7 +694,10 @@ export async function render(html: string, options: RenderOptions = {}): Promise
     names.push(x.local);
     // the class: given itself, or the module's export the compiler found (testing's files are empty, so: the module's one class)
     const mod = m as Record<string, unknown> | undefined;
-    values.push(typeof m === 'function' ? m : mod?.[x.export] ?? mod?.default ?? Object.values(mod ?? {}).find((v) => typeof v === 'function'));
+    const cls = typeof m === 'function' ? m : mod?.[x.export] ?? mod?.default ?? Object.values(mod ?? {}).find((v) => typeof v === 'function');
+    // the test runs no component's code of its own: a script's class comes from `scripts`, or mounting would fail inside the runtime
+    if (typeof cls !== 'function') throw new Error(noScriptClass(x.name, x.module, m));
+    values.push(cls);
   }
   // eslint-disable-next-line no-new-func -- tests only; pages load a compiled module
   const fns = new Function(...names, `"use strict"; return [\n${parts.fns.join(',\n')}\n];`)(...values);
@@ -759,7 +776,9 @@ export async function render(html: string, options: RenderOptions = {}): Promise
   }
 
   const requests = options.requests;
-  const app = mount(doc, {
+  let app: App;
+  // a page that fails to mount leaves nothing behind: the next render starts afresh
+  try { app = mount(doc, {
     // the IR as the page module carries it
     ir: compactIR(parts.ir), fns, env,
     // as in a build, where every page has the app's prefetch feature
@@ -774,7 +793,7 @@ export async function render(html: string, options: RenderOptions = {}): Promise
       if (configured) return configured;
       throw new Error(`no mock stream for ${url}; pass \`streams: { '${url}': mockStream() }\``);
     },
-  });
+  }); } catch (e) { try { instance(doc).destroy(); } catch { /* not registered */ } throw e; }
   current = app;
 
   const check = () => {

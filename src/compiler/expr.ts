@@ -219,7 +219,11 @@ export interface ExprOptions {
   report: (code: Code, message: string, offset: number, hint?: string) => void;
 }
 
-export interface ObjectEntry { key: string; code: string; deps: string[]; offset: number; literal: boolean; pieces?: Piece[]; prim?: boolean }
+export interface ObjectEntry {
+  key: string; code: string; deps: string[]; offset: number; literal: boolean; pieces?: Piece[]; prim?: boolean;
+  /** a state field's initial value: the object literals in it (`literalShape`), as a type literal; none when it has none */
+  nested?: string;
+}
 
 /**
  * Where the objects in a value may come from: the object under `sub` of the value (`[]` the value itself,
@@ -457,6 +461,22 @@ interface ChainPath {
   resource: string | null;
   /** the member names after the root identifier (`*` for a computed one) */
   props: string[];
+}
+
+/** The object literals in a value (`keys`, those of its fields that hold one) or the merged ones of an array literal's elements (`of`). */
+type Shape = { keys: Map<string, Shape> } | { of: Shape };
+function mergeShape(a: Shape, b: Shape): Shape {
+  if ('keys' in a && 'keys' in b) {
+    const keys = new Map(a.keys);
+    for (const [k, s] of b.keys) keys.set(k, keys.has(k) ? mergeShape(keys.get(k)!, s) : s);
+    return { keys };
+  }
+  if ('of' in a && 'of' in b) return { of: mergeShape(a.of, b.of) };
+  return a;
+}
+/** a shape as the mask of the check's `State<T, M>`: `{ "form": { "rows": [{}] } }` */
+function shapeText(s: Shape): string {
+  return 'of' in s ? `[${shapeText(s.of)}]` : `{ ${[...s.keys].map(([k, v]) => `${JSON.stringify(k)}: ${shapeText(v)}`).join('; ')} }`;
 }
 
 export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOptions): ExprResult {
@@ -871,6 +891,38 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
       }
       default: return ANY;
     }
+  }
+
+  /**
+   * The object literals in a state field's initial value, at any depth, and those in its array literals (merged, for
+   * the array's element type): the check's `State<T, M>` widens a field of them that starts as `null`, `undefined`
+   * or `[]`, as at the top. A value cast with a JSDoc type (`/** @type {T} *\/ ({ … })`) is not one: it keeps its type.
+   */
+  function literalShape(e: Node): Shape | null {
+    if (/\*\/\s*\(\s*$/.test(src.slice(0, e.start))) return null;
+    if (e.type === 'ObjectExpression') {
+      const keys = new Map<string, Shape>();
+      for (const p of e.properties) {
+        if (p.type !== 'Property' || p.computed) continue;
+        const key = p.key.type === 'Identifier' ? p.key.name : p.key.type === 'Literal' ? String(p.key.value) : null;
+        const s = key === null ? null : literalShape(p.value as Node);
+        if (s && !keys.has(key!)) keys.set(key!, s);
+      }
+      return { keys };
+    }
+    if (e.type === 'ArrayExpression') {
+      let of: Shape | null = null;
+      for (const x of e.elements) {
+        const s = x && x.type !== 'SpreadElement' ? literalShape(x as Node) : null;
+        if (s) of = of ? mergeShape(of, s) : s;
+      }
+      return of && { of };
+    }
+    return null;
+  }
+  function nestedOf(e: Node): { nested?: string } {
+    const s = literalShape(e);
+    return s ? { nested: shapeText(s) } : {};
   }
 
   /** whether a value is surely a primitive (a number, a string, a boolean, null): a field only ever given those holds no object */
@@ -1823,7 +1875,7 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
       } else visit(p.value as Node, root);
       const own = [...deps];
       for (const d of depsBefore) deps.add(d);
-      entries.push({ key, code: '', deps: own, offset: p.start, literal: p.value.type === 'Literal', ...(opts.object === 'state' ? { pieces: classify(p.value as Node, root), prim: isPrim(p.value as Node) } : {}) });
+      entries.push({ key, code: '', deps: own, offset: p.start, literal: p.value.type === 'Literal', ...(opts.object === 'state' ? { pieces: classify(p.value as Node, root), prim: isPrim(p.value as Node), ...nestedOf(p.value as Node) } : {}) });
     }
   } else {
     if (opts.cond && body.length === 1) urlTest(body[0]!, root);

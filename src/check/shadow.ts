@@ -284,7 +284,9 @@ export function shadow(o: ShadowOptions): Shadow {
       if (f.kind === 'state') {
         line('let {');
         f.names.forEach((n, k) => { at(f.locs?.[k]); line(`${n},`); });
-        line(`} = ${f.init === null ? '$any' : `$e${f.init}()`};`);
+        // a field that starts as \`null\`, \`undefined\` or \`[]\` takes what is assigned later (\`State\`), at any depth of
+        // the object literals in the initial value (\`nested\`)
+        line(`} = ${f.init === null ? '$any' : `/** @type {${decl('State')}<ReturnType<typeof $e${f.init}>${f.nested ? `, ${f.nested}` : ''}>} */ ($e${f.init}())`};`);
       } else if (f.kind === 'props') {
         tagged('type', f.type, ' const $props = $any;');
         line(`const { ${f.names.join(', ')} } = $props;`);
@@ -427,6 +429,19 @@ export type PathValue = string | number | boolean | bigint | null | undefined | 
 export interface CallContext { signal: AbortSignal; request(url: string, init?: { method?: string; body?: unknown; headers?: Record<string, string>; signal?: AbortSignal }): Promise<any>; el: Element | null }
 /** an action's parameters without its trailing context */
 export type CallArgs<F> = F extends (...a: infer P) => any ? (P extends [...infer A, infer L] ? ([L] extends [CallContext] ? A : P) : P) : never;
+/**
+ * A state's fields as its initial value types them, but a field that starts as \`null\`, \`undefined\` or \`[]\` is
+ * any (any[]): what an expression assigns it later, as without \`strictNullChecks\` (\`{ error: null }\`, then
+ * \`error = $error\`). A field whose initial value has a JSDoc type (\`Contact | null\`) keeps it. M: the fields
+ * whose initial value is an object literal, as the compiler read the markup (\`{ form: { error: null } }\` gives
+ * \`{ "form": {} }\`), or an array literal of them (\`[{}]\`): their fields are widened the same way, at any depth.
+ * Only there, so a value from an expression (a helper's Date, a resource's row) or a JSDoc cast keeps its type.
+ */
+export type State<T, M = {}> = { [K in keyof T]: StateField<T[K], K extends keyof M ? M[K] : never> };
+// (the mapped type is written in the branch, not as a State<V, M>, so a hover shows the fields, not the alias)
+type StateField<V, M> = [V] extends [null | undefined] ? any : [V] extends [never[]] ? any[] : [M] extends [never] ? V
+  : M extends readonly [infer E] ? (V extends readonly (infer U)[] ? StateField<U, E>[] : V)
+  : { [K in keyof V]: StateField<V[K], K extends keyof M ? M[K] : never> };
 export type Item<T> = NonNullable<T> extends readonly (infer U)[] ? U : NonNullable<T> extends Iterable<infer U> ? U : any;
 export type El<K extends string> = K extends keyof HTMLElementTagNameMap ? HTMLElementTagNameMap[K] : HTMLElement;
 declare global {
@@ -450,8 +465,14 @@ export interface SinterNavigate extends Event {
 /** $event of a handler for event K on an element with tag T */
 export type Ev<K extends string, T extends string = string> = K extends 'sn-navigate' ? SinterNavigate : K extends keyof HTMLElementEventMap ? HTMLElementEventMap[K]
   : T extends keyof SinterElementEvents ? (K extends keyof SinterElementEvents[T] ? CustomEvent<SinterElementEvents[T][K]> : CustomEvent) : CustomEvent;
-/** what data-sn-with accepts on a custom element: its own properties when HTMLElementTagNameMap has it, anything otherwise */
-export type Props<K extends string> = K extends keyof HTMLElementTagNameMap ? { [P in keyof HTMLElementTagNameMap[K]]?: HTMLElementTagNameMap[K][P] } : Record<string, unknown>;
+/**
+ * what data-sn-with accepts on a custom element: its own properties when HTMLElementTagNameMap has it, those it gives
+ * (G) each of its own type (\`undefined\` only where that has it); anything otherwise
+ */
+export type Props<K extends string, G extends string = never> = K extends keyof HTMLElementTagNameMap
+  ? Given<HTMLElementTagNameMap[K], G> : Record<string, unknown>;
+/** the props or properties T, those given (G) required with their own type: the others optional, so a key T has not is an error */
+export type Given<T, G> = { [P in keyof T as P extends G ? P : never]: T[P] } & { [P in keyof T]?: T[P] };
 /**
  * $event where run('id') can start the action: null then. Checking runs without strictNullChecks, where
  * \`E | null\` is just E, so the missing event is \`void\`: \`$event.shiftKey\` is an error, \`$event && $event.shiftKey\` is not.

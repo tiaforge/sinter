@@ -65,3 +65,26 @@ export function didYouMeanEdit(text: string, range: Range, message: string): Tex
   if (!best) return null;
   return { range: { start: { line: best.line, character: best.at }, end: { line: best.line, character: best.at + s.wrong.length } }, newText: s.right };
 }
+
+/**
+ * With an edit that renames a start tag (`<text-inptu` → `<text-input`), the edit of its end tag: the matching
+ * `</text-inptu>` after it (tags of the same name nested inside counted), so the fix keeps the markup whole.
+ */
+export function endTagEdit(text: string, edit: TextEdit): TextEdit | null {
+  const lines = text.split('\n');
+  const { line, character } = edit.range.start;
+  const name = lines[line]?.slice(character, edit.range.end.character) ?? '';
+  if (!/^[a-z][\w.-]*-[\w.-]*$/.test(name) || lines[line]![character - 1] !== '<') return null;
+  const re = new RegExp(`<(/?)${name.replace(/[.-]/g, '\\$&')}(?=[\\s/>])`, 'g');
+  re.lastIndex = lines.slice(0, line).reduce((n, s) => n + s.length + 1, 0) + edit.range.end.character;
+  let depth = 1;
+  for (let m = re.exec(text); m; m = re.exec(text)) {
+    depth += m[1] ? -1 : 1;
+    if (depth > 0) continue;
+    const at = m.index + 2;
+    const l = text.slice(0, at).split('\n').length - 1;
+    const c = at - (text.lastIndexOf('\n', at - 1) + 1);
+    return { range: { start: { line: l, character: c }, end: { line: l, character: c + name.length } }, newText: edit.newText };
+  }
+  return null;
+}

@@ -1,8 +1,8 @@
 // @vitest-environment node
 // packages/create: `npm create sinter` copies the template; its demo API answers as the
 // pages expect; the template builds with both checkers on and fails on the typos its README names.
-import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { build, createServer, type ViteDevServer } from 'vite';
@@ -145,6 +145,17 @@ describe('the template builds', () => {
       writeFileSync(page, original);
     }
   };
+
+  test('`npm run check` runs TypeScript on the app\'s own modules first, and the template passes it', () => {
+    expect(JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')).scripts.check).toBe('tsc --noEmit && sinter check && temper check .');
+    expect(JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')).devDependencies.typescript).toBeTruthy();
+    // `sinter check` leaves the app's src/*.ts to it (sinter's types are its built dist/, as installed):
+    // a fresh clone has no dist/, so the declarations are built first (a couple of seconds)
+    if (!existsSync(join(repo, 'dist/index.d.ts'))) execFileSync(process.execPath, [join(repo, 'node_modules/typescript/bin/tsc'), '-p', join(repo, 'tsconfig.build.json')], { cwd: repo });
+    const tsc = spawnSync(process.execPath, [join(repo, 'node_modules/typescript/bin/tsc'), '--noEmit', '-p', dir], { cwd: dir, encoding: 'utf8' });
+    expect(tsc.stdout + tsc.stderr).toBe('');
+    expect(tsc.status).toBe(0);
+  }, 60_000);
 
   test('with both checkers on', async () => {
     await run();
