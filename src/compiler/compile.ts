@@ -8049,6 +8049,8 @@ class Compiler {
         throw NOT;
       },
       end: () => { code = null; },
+      /** a result a helper call handed out, which a call taking it as an argument names by reference (`refOf`) */
+      isResult: (x: object): boolean => refOf(x) !== undefined,
       fn: (key: string) => {
         const f = valueOf(key);
         // a helper of a module that reaches a lazy package never runs here: dev stubs the package, the build does not
@@ -8230,6 +8232,8 @@ class Compiler {
       this.folding?.start(code);
       try { return f(sc); } catch { return FAIL; } finally { this.folding?.end(); }
     };
+    // (a row's item is shared with the data it is a part of, frozen once; a helper's result is copied, as a call takes it by value)
+    const isResult = (x: object) => this.folding?.isResult(x) ?? false;
     const listOf = (v: unknown): unknown[] | null => (Array.isArray(v) && v.every((x) => plainData(x)) ? v : null);
     // (a placement's element is its `<slot>`; an anchor's, its template)
     const elOf = (n: NodeDef) => this.tplEls.get(n) ?? this.pointOf.get(n)?.el ?? this.paints.find((x) => x.node === n)?.el ?? this.textMarks.get(n) ?? placementOf.get(n)?.el ?? this.anchorEls.get(n);
@@ -8262,7 +8266,7 @@ class Compiler {
     const rowsOf = (t: TemplateDef, items: unknown[], key: string, sc: object, out: Found, recs?: RowRec[]): boolean => {
       if ((out.rows += items.length) > left) { out.over = true; return false; }
       for (let k = 0; k < items.length; k++) {
-        const item = deepFreeze({ v: structuredClone(items[k]) }).v;
+        const item = frozenData(items[k], isResult);
         const rec: RowRec | undefined = recs ? new Map([[ROW_ITEM, item]]) : undefined;
         if (rec) recs!.push(rec);
         if (!nodesOf(t.nodes, rowScope(sc, t, item, k), `${key}#${k}/`, out, rec)) return false;
@@ -8300,7 +8304,7 @@ class Compiler {
           if (stays && this.fillStays(stays)) return false;
           const inner: RowRec | undefined = rec ? new Map() : undefined;
           if (rec) rec.set(n, { k: pick[0], rec: inner });
-          if (!nodesOf(tc.nodes, rowScope(sc, tc, deepFreeze({ v: structuredClone(pick[1]) }).v, 0), prefix, out, inner)) return false;
+          if (!nodesOf(tc.nodes, rowScope(sc, tc, frozenData(pick[1], isResult), 0), prefix, out, inner)) return false;
           continue;
         }
         for (const b of n.b) {
@@ -11402,6 +11406,44 @@ function deepFreeze<T extends object>(v: T): T {
   DEEP_FROZEN.add(v);
   for (const x of Object.values(v)) if (x && typeof x === 'object') deepFreeze(x);
   return Object.freeze(v);
+}
+
+/**
+ * Plain data (`plainData`) as the worklist hands it to a row: a copy frozen at every depth, as
+ * `deepFreeze(structuredClone(v))` makes, except that what is frozen at every depth already (a part of a `file:`
+ * value, of a state's initial value, of a helper's result, of the row above's item) is shared, not copied again.
+ * A row's item is a part of the item above it, so copying it at every level cost O(depth × size). `fresh`: an
+ * object that must be copied all the same (a helper's result, which a helper call takes by reference otherwise:
+ * `helperCalls`' `refOf`). An array with holes or other keys, and anything shared within the copied part, is copied
+ * as `structuredClone` copies it.
+ */
+export function frozenData(v: unknown, fresh?: (x: object) => boolean): unknown {
+  if (!v || typeof v !== 'object') return v;
+  if (DEEP_FROZEN.has(v) && !fresh?.(v)) return v;
+  let simple = true;
+  const seen = new Set<object>();
+  const scan = (x: unknown): void => {
+    if (!simple || !x || typeof x !== 'object') return;
+    if (DEEP_FROZEN.has(x) && !fresh?.(x)) return;
+    if (seen.has(x) || (fresh?.(x) ?? false) || (Array.isArray(x) && !denseArray(x))) { simple = false; return; }
+    seen.add(x);
+    for (const c of Object.values(x)) scan(c);
+  };
+  scan(v);
+  if (!simple) return deepFreeze({ v: structuredClone(v) }).v;
+  const copy = (x: unknown): unknown => {
+    if (!x || typeof x !== 'object' || DEEP_FROZEN.has(x)) return x;
+    const out = Array.isArray(x) ? x.map(copy) : Object.fromEntries(Object.entries(x).map(([k, c]) => [k, copy(c)]));
+    DEEP_FROZEN.add(out);
+    return Object.freeze(out);
+  };
+  return copy(v);
+}
+
+/** an array with an element at every index and no other own keys (`map` copies it as `structuredClone` does) */
+function denseArray(x: unknown[]): boolean {
+  for (let i = 0; i < x.length; i++) if (!(i in x)) return false;
+  return Object.keys(x).length === x.length;
 }
 
 /** a binding that cannot be written ahead */
