@@ -255,7 +255,6 @@ timings were not usable). A cloud session pushes to a branch of its own:
 | stage 5, A1 then A2: definitions that ship, from units | cloud, `session_01AjKzdxPCdJ5nbeXvwkXoP2` | `redesign/stage5-a1` | `stage5-a1.md` |
 | stage 5, B1: the second pass from the first's walk | cloud, `session_01AjKzdxkDukbMzASz1qaYeA` | `redesign/stage5-b1` | `stage5-b1.md` |
 | the evaluation's cost | local agent | merged as it lands | `evaluation.md` |
-| the six bugs (three merged) | local agent | merged as they land | `bugs.md` |
 | early scripts built once per shape | cloud, `session_01AjKzdxPErYYZv1d2K1hMsD` | `redesign/early-script-shapes` | `early-script-shapes.md` |
 
 **The bar, as the owner set it on 2026-11-23:** the output need not be byte for byte today's where only numbering
@@ -453,3 +452,19 @@ decision of their own (stage 7). A step that can stay byte-identical does.
   part by reference) is pushed on its branch; no gain until part 2. Timings on the coordinating machine, load 8,
   three runs each, 100 posts: static 3.6 to 4.5 s, with the type check 3.8 s, live 5.1 s, a page file per post 4.4
   to 5.7 s, live 7.0 to 8.0 s.
+- 2026-11-23, 20:30 UTC: **the six bugs are fixed and merged** (`redesign-notes/bugs.md`; a test, a fix and a
+  changelog bullet each): a choice's props must be constants (it was worse than recorded: without images too, a
+  rendered row wrote the state's first value as static text); `(1).toFixed()`; a broken expression no longer
+  silences every type error (`tsc` skips semantic errors when any file has a syntax error: the build's shadows now
+  leave broken expressions out); a component used inside itself reports each error once per use; the build counts
+  errors and warnings apart; an error in markup decided away is reported. One behaviour to confirm with the owner:
+  a build whose type check finds only warnings now prints them and passes (it failed before, counting them as
+  errors); under `strict` it still fails. **The full suite passes on the integration branch** (2,905 tests, before
+  bugs 4 to 6; 1,479 of test/compiler, test/vite, test/check after). **Quiet-machine times** (a cloud session, 4
+  cores, nothing else running, 100 posts, medians of 3, at 5f203af, before embedding): static 3.04 s, with the type
+  check 3.02 s, live 3.42 s, a page file per post 3.59 s, live 5.54 s; page-compile 361 to 419 ms. Astro: 2.2 s.
+  **The canonical form holds as an oracle** (the A1 session): under `SN_CANON=1` every behaviour and browser test
+  passes and 5 of 2,904 tests fail, each pinning a node id after a gap; sinter-mail's suite passes against canonical
+  builds. The evaluation's first change is merged (a row's template asked once, a row's scope a plain object). Check
+  data once has both parts on its branch (sinter-mail's 12 API pages with TypeScript 4.4 to 3.6 s on a quiet
+  machine) and is re-verifying over the bug fixes.
