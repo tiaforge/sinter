@@ -4,7 +4,8 @@
 // the two results must be the same, every field, and the test says whether the rows took the fast route.
 import { afterEach, describe, expect, test } from 'vitest';
 import { compile, type CompileOptions, type CompileResult, type ImageHost, type ImageInfo, type ImageVariant } from '../../src/compiler/index.js';
-import { RENDER_STATS } from '../../src/compiler/compile.js';
+import { RENDER_STATS, compileParts, withoutEmptySlots, type CompiledParts } from '../../src/compiler/compile.js';
+import { mapFns, type Binding, type IR } from '../../src/ir.js';
 
 const C: Record<string, string> = {
   'tag-list': '<template data-sn-props="{ tags: string[] }"><ul><template data-sn-for="t in tags" data-sn-key="t"><li data-sn-text="t"></li></template></ul></template>',
@@ -22,6 +23,9 @@ const C: Record<string, string> = {
   's-wrap': '<template data-sn-props="{ node: any }"><s-text data-sn-with="{ node: { value: node.url } }"></s-text></template><style>.w { color: green }</style>',
   's-img': '<template data-sn-props="{ node: any }"><img data-sn-attr="{ src: node.url, alt: \'i\' }"></template><style>img { border: 0 }</style>',
   's-list': '<template data-sn-props="{ node: any }"><ul><template data-sn-for="c in node.items"><s-card data-sn-with="{ t: c }"><i data-sn-text="c"></i></s-card></template></ul></template>',
+  // a styled chain root, as the root of another component's tag (its branches its own markup, in slot content or not)
+  's-chain': '<template data-sn-props="{ x: any }"><template data-sn-if="x.on"><i data-sn-text="x.t"></i></template><template data-sn-else><u data-sn-text="x.t + \'!\'"></u></template></template><style>u { color: red }</style>',
+  's-tagged': '<template data-sn-props="{ x: any }"><s-chain class="t" data-sn-with="{ x }"></s-chain></template>',
   'x-a': '<template data-sn-props="{ u: string }"><a data-sn-attr="{ href: u }">l</a></template>',
   'x-pick': '<template data-sn-props="{ k: string }"><div><sn-component use="{ text: \'x-text\', em: \'x-em\' }[k]" data-sn-with="{ node: { value: k } }"></sn-component></div></template>',
   'x-em': '<template data-sn-props="{ node: any }"><em class="e" data-sn-class="{ on: node.value > \'a\' }" data-sn-text="node.value"></em></template>',
@@ -168,6 +172,13 @@ describe('rendered rows: the same page as compiled rows, without compiling them'
     expect(r.body).toContain('<div style="display: block; color: red"> <b>a</b> </div>');
   });
 
+  test('a build\'s minifier: a written text at the block\'s end is the element it was, the white space after it the markup\'s', () => {
+    // (the second pass merges the block's texts with the page's beside it: not the one a binding wrote, `WRITTEN`)
+    const r = both('<div id="o">\n    <template data-sn-for="x in [{ t: \'T\' }]"><p>a</p>\n  <template data-sn-text="x.t"></template> \n</template>\n  </div>', { minify: { styles: [] } } as Partial<CompileOptions>);
+    expect(r.spliced).toBe(1);
+    expect(r.body).toContain('<div id="o"><p>a</p>T</div>');
+  });
+
   test('images: a bound `src` and a written one, in rows and in a component, rewritten as the compiled rows are', () => {
     const r = both(`<template data-sn-for="x in ['img/a.jpg', 'img/t.png']"><p><img alt="" data-sn-attr="{ src: x, title: x }" data-sn-class="{ on: true }"><img alt="w" src="img/a.jpg"></p></template>
 <template data-sn-for="(x, i) in ['img/a.jpg', 'img/t.png']"><x-pic data-sn-with="{ src: x, w: i + 1 }"></x-pic></template><b data-sn-state="{ n: 1 }" data-sn-text="n"></b>`, { images: host });
@@ -214,6 +225,12 @@ describe('rendered rows: the same page as compiled rows, without compiling them'
       expect(r.spliced).toBe(1);
       expect(r.body).toContain('<article class="card" data-sn-c="s-card" title="a"><h3>a</h3><b>a</b></article>');
       expect(r.body).toContain('<article class="card" data-sn-c="s-card" title="z">');
+    });
+
+    test('a choice\'s case in slot content whose root is a styled chain through a tag: the branch is the chain\'s own markup, marked', () => {
+      const r = both('<template data-sn-for="x in [{ k: \'t\', t: \'T\', on: false }]"><s-card data-sn-with="{ t: \'c\' }"><sn-component use="{ t: \'s-tagged\' }[x.k]" data-sn-with="{ x }"></sn-component></s-card></template>');
+      expect(r.spliced).toBe(1);
+      expect(r.body).toContain('<u class="t" data-sn-c="s-chain">T!</u>');
     });
 
     test('a recursive styled tree: each instance marked, its slot content and the cards in its rows as the old route has them', () => {
@@ -409,8 +426,82 @@ describe('rows left to the second pass, as before', () => {
     expect(r.out.diagnostics.map((d) => d.code)).toContain('SN313');
   });
 
-  test('dev builds: never rendered (their function table keeps what the rows compiled)', () => {
-    const r = both('<ul><template data-sn-for="x in [1, 2]"><li data-sn-text="x"></li></template></ul>', { dev: true });
-    expect(r.spliced).toBe(0);
+});
+
+/**
+ * Dev builds render rows too. Dev does not compact its tables (`compactTables` is builds only), so the old route leaves
+ * a `'0'` in the function table for each function it compiled in the rows and dropped, and every later function's
+ * index (and its key in the dev `at` maps) counts them; rendered rows leave no such slot. So the two results are
+ * compared here without the slots, the functions numbered again in their order (and what holds their numbers: the IR's
+ * fields, the `at` maps' keys, the source map's sites), written out apart from the audit's `withoutEmptySlots`.
+ */
+describe('dev builds: rendered, the same as the old route but for its empty slots', () => {
+  const dev = { dev: true, sourcemap: true };
+  const slotsOut = (r: CompiledParts): CompiledParts => {
+    const map = new Map<number, number>();
+    r.fns.forEach((c, i) => { if (c !== '0') map.set(i, map.size); });
+    const ir = JSON.parse(JSON.stringify(r.ir)) as IR;
+    mapFns(ir, (i) => map.get(i) ?? -1);
+    const keys = (o: { at?: Record<number, string> }) => { if (o.at) o.at = Object.fromEntries(Object.entries(o.at).map(([k, v]) => [map.get(+k) ?? -1, v])); };
+    ir.resources.forEach(keys); ir.actions.forEach(keys);
+    for (const s of ir.syncs ?? []) s.events.forEach(keys);
+    for (const nd of [...ir.roots, ...ir.templates.flatMap((t) => t?.nodes ?? [])]) nd.b.forEach(keys);
+    const kept = <T>(xs: T[]) => xs.filter((_, i) => map.has(i));
+    return { ...r, ir, fns: kept(r.fns), ...(r.sources ? { sources: { ...r.sources, fns: kept(r.sources.fns) } } : {}) };
+  };
+  const parts = (body: string) => {
+    process.env.SN_RENDER = '0';
+    const off = compileParts(page(body), options(dev));
+    delete process.env.SN_RENDER;
+    const { result: on, spliced, why } = counted(() => compileParts(page(body), options(dev)));
+    expect(text(slotsOut(on) as unknown as CompileResult)).toBe(text(slotsOut(off) as unknown as CompileResult));
+    // (the audit's own comparison says the same)
+    expect(text(withoutEmptySlots(on) as unknown as CompileResult)).toBe(text(withoutEmptySlots(off) as unknown as CompileResult));
+    return { on, off, spliced, why };
+  };
+  /** the binding whose function's code has `code`, and its function's index */
+  const bindingOf = (r: CompiledParts, code: string) => [...r.ir.roots, ...r.ir.templates.flatMap((t) => t?.nodes ?? [])].flatMap((n) => n.b).find((b) => b.f !== undefined && r.fns[b.f]!.includes(code))! as Binding & { at?: Record<number, string> };
+
+  test('a loop before a live binding: no slots for the rows, and the binding at its own place under its new number', () => {
+    const body = '<ul><template data-sn-for="x in [1, 2, 3]"><li data-sn-text="x * 2" data-sn-class="{ a: x > 1 }"></li></template></ul><p data-sn-text="$url.q"></p>';
+    const { on, off, spliced } = parts(body);
+    expect(spliced).toBe(1);
+    expect(off.fns.filter((c) => c === '0').length).toBeGreaterThan(on.fns.filter((c) => c === '0').length);
+    const a = bindingOf(on, '$url.q'), b = bindingOf(off, '$url.q');
+    expect(a.f).toBeLessThan(b.f!);
+    // where it was written: the `data-sn-text` of the `<p>`, in the `at` map (by its own index) and the source map
+    const col = page(body).indexOf('$url.q') + 1;
+    expect(a.at).toEqual({ [a.f!]: `/p/index.html:1:${col}` });
+    expect(b.at).toEqual({ [b.f!]: `/p/index.html:1:${col}` });
+    expect(on.sources!.fns[a.f!]).toMatchObject({ file: '/p/index.html', line: 1, col });
+    // and the page module: the same markup, its table without the rows' slots
+    process.env.SN_RENDER = '0';
+    const m0 = compile(page(body), options(dev));
+    delete process.env.SN_RENDER;
+    const m1 = compile(page(body), options(dev));
+    expect(m1.html).toBe(m0.html);
+    expect(m1.module!.split('\n').filter((l) => l.trim() === '0,').length).toBeLessThan(m0.module!.split('\n').filter((l) => l.trim() === '0,').length);
+  });
+
+  test('rows of components, nested loops and a choice, with live markup on both sides', () => {
+    const r = parts(`<p data-sn-text="$url.a"></p><template data-sn-for="g in [{ tags: ['x', 'y'] }, { tags: [] }]"><tag-list data-sn-with="{ tags: g.tags }"></tag-list><x-pick data-sn-with="{ k: 'em' }"></x-pick></template><x-doc data-sn-with="{ doc }"></x-doc><b data-sn-text="$url.b"></b>`);
+    expect(r.spliced).toBeGreaterThan(0);
+    // (the binding after the blocks: its own site, under its own number in each)
+    const a = bindingOf(r.on, '$url.b'), b = bindingOf(r.off, '$url.b');
+    expect(a.f).toBeLessThan(b.f!);
+    expect(Object.keys(a.at!)).toEqual([String(a.f)]);
+    expect(Object.keys(b.at!)).toEqual([String(b.f)]);
+    expect(Object.values(a.at!)).toEqual(Object.values(b.at!));
+  });
+
+  test('a rendered block as its parent\'s and the page\'s last markup: every function at the site the old route gives it', () => {
+    // (the walk leaves its site at the block's template, where the rows were written: what is compiled after it with
+    // no site of its own is there, not at whatever element came before; `parts` compares the source maps and `at` maps)
+    const body = '<div data-sn-state="{ n: 0 }"><button data-sn-on-click="n++" data-sn-text="n">+</button><template data-sn-for="x in [1, 2]"><i data-sn-text="x"></i></template></div><template data-sn-for="y in [3]"><u data-sn-text="y"></u></template>';
+    const { on, spliced } = parts(body);
+    expect(spliced).toBe(2);
+    const sites = on.sources!.fns.filter((s, i) => on.fns[i] !== '0' && s !== null);
+    expect(sites.length).toBeGreaterThan(0);
+    for (const s of sites) expect(s).toMatchObject({ file: '/p/index.html', line: 1 });
   });
 });

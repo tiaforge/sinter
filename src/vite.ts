@@ -17,6 +17,7 @@ import { buildInput, checkOptionsOf, compileOptionsOf, htmlInputs, lazyOf, lazyR
 import { CHUNK_MARK, chainText, componentOfHtml, isComponentScript, LAZY, lazyPackage, type LazyScan, lineCol, loaderModule, mentions, parseLazyId, reachLazy, rewriteLazy, scanLazy, stubModule } from './lazy-build.js';
 import { moduleKeys } from './i18n-build.js';
 import { HOLD_SCRIPT } from './paint-build.js';
+import { shareBuilds, shapesOn } from './early-shapes.js';
 import { earlyImports, OWN, registration, SHARED_MARKS, sharedKey, sharedMark, stubModule as sharedStub, topLevelAwait } from './shared-build.js';
 import { loadImages, MIME, type Images } from './images.js';
 import { pageStyles } from './styles.js';
@@ -2004,6 +2005,8 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
         // pages whose early source is the same text (on a blog, every post's) share one build: its output and the content
         // keys its modules call depend on that source and the runtime names alone (a nested `vite build` is ~15 ms)
         const built = new Map<string, { out: Awaited<ReturnType<typeof bundleEarly>>; keys: Set<string> }>();
+        const jobs = new Map<string, { src: string; take: string[]; own: string[]; rel: string }>();
+        const ids = new Map<string, string>();
         for (const [rel, code] of pages) {
           // the shared modules this early file imports and the page's bundle reaches: their namespaces on the global
           const reach = shared.size ? pageModules(bundle, rel) : new Set<string>();
@@ -2011,12 +2014,21 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
           if (regs.length) registered.set(rel, new Set(regs.map((x) => x.file)));
           const rt = runtimeNames(code), src = registration(regs) + code, take = rt.filter((n) => names.includes(n)), own = rt.filter((n) => !names.includes(n));
           const id = JSON.stringify([src, take, own]);
-          let b = built.get(id);
-          if (!b) {
-            const keys = new Set(sharedKeys);
-            b = { out: await bundleEarly(src, keys, take, rel, own), keys };
-            built.set(id, b);
-          }
+          ids.set(rel, id);
+          if (!jobs.has(id)) jobs.set(id, { src, take, own, rel });
+        }
+        const one = async (j: { src: string; take: string[]; own: string[] }, what: string) => {
+          const keys = new Set(sharedKeys);
+          return { ...await bundleEarly(j.src, keys, j.take, what, j.own), keys };
+        };
+        if (shapesOn()) {
+          // sources that differ only in literals (a post's slug) share one build of their shape (early-shapes.ts)
+          const js = [...jobs];
+          const outs = await shareBuilds(js.map(([, j]) => ({ src: j.src, extra: JSON.stringify([j.take, j.own]), what: j.rel })), (src, i, what) => one({ ...js[i]![1], src }, what));
+          js.forEach(([id], i) => { const { keys, ...o } = outs[i]!; built.set(id, { out: { ...o, map: null }, keys }); });
+        } else for (const [id, j] of jobs) { const { keys, ...o } = await one(j, j.rel); built.set(id, { out: o, keys }); }
+        for (const rel of pages.keys()) {
+          const b = built.get(ids.get(rel)!)!;
           earlyKeys.set(rel, new Set(b.keys));
           // (each page its own record: the shared modules' keys are filled into it below)
           earlyFiles.set(rel, { ...b.out });
@@ -2239,7 +2251,11 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       const p = proj();
       const r = check({ ...checkOptionsOf(p), helpers: helpersOf(p.helpers), units: [...units.values()], share: true });
       buildUnits.clear();
-      if (r.diagnostics.length) this.error(`sinter check: ${r.diagnostics.length} type error(s)\n${r.diagnostics.map(formatDiagnostic).join('\n')}`);
+      // type errors fail the build, its line counting them and the warnings apart (as `sinter check`'s); warnings alone
+      // (SN538) are printed as the pages' are, and strict mode makes them errors
+      const ds = strictly(r.diagnostics), errors = ds.filter((d) => d.severity === 'error').length;
+      if (errors) this.error(`sinter check: ${errors} type error(s), ${ds.length - errors} warning(s)\n${ds.map(formatDiagnostic).join('\n')}`);
+      for (const d of ds) console.warn(formatDiagnostic(d));
     },
 
     transformIndexHtml: {

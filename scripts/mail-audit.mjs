@@ -12,7 +12,8 @@
 //   --keep dir   keep both output trees in <dir>/off and <dir>/on
 //   --only a,b   build only these pages (e.g. `--only file-gen` to time one file email)
 //   --gen N      the generated newsletter (`file-gen`) of about N elements (default 200)
-//   --switch X   the switch the two builds differ in (default SN_RENDER; SN_ONE_PASS for stage 3), `X=0` in the first
+//   --switch X   the switch the two builds differ in (default SN_RENDER; SN_ONE_PASS for stage 3), `X=0` in the first;
+//                `X=1`: and X=1 in the second (SN_CANON=1: the second build in its canonical numbering)
 //
 // The checkout must be installed (`npm install`) with its `@tiaforge-ui/sinter` resolving to this repository (its
 // devDependency is `file:../sinter`: a link `../sinter` -> this repo does it), and this repository built (`npm run
@@ -141,11 +142,12 @@ const outs = { off: join(work, 'off'), on: join(work, 'on') };
 console.log(`mail-audit: sinter ${git(REPO, 'rev-parse', '--short', 'HEAD')}${git(REPO, 'status', '--porcelain', '--untracked-files=no') ? ' (modified)' : ''}, sinter-mail ${git(PKG, 'rev-parse', '--short', 'HEAD')}; ${Object.keys(PAGES).length} pages and a page per entry (3); app in ${root}`);
 
 const times = {};
-const SWITCH = SWITCH_ARG ?? 'SN_RENDER';
+// (`--switch X=1`: the second build with X=1 instead of without X, for a switch that is off by default, as SN_CANON)
+const [SWITCH, SWITCH_ON] = (SWITCH_ARG ?? 'SN_RENDER').split('=');
 // off first: SN_RENDER=0; then the default. Each a fresh process, the same root (so paths in the output agree)
 for (const v of ['off', 'on']) {
   const env = { ...process.env };
-  if (v === 'off') env[SWITCH] = '0'; else delete env[SWITCH];
+  if (v === 'off') env[SWITCH] = '0'; else if (SWITCH_ON !== undefined) env[SWITCH] = SWITCH_ON; else delete env[SWITCH];
   const r = spawnSync(process.execPath, [import.meta.filename, '--child', PKG, root, outs[v]], { env, encoding: 'utf8', maxBuffer: 1 << 26 });
   if (r.status !== 0) { console.error(r.stdout, r.stderr); die(`the build with ${v === 'off' ? `${SWITCH}=0` : `no ${SWITCH}`} failed`); }
   times[v] = JSON.parse(r.stdout.trim().split('\n').at(-1)).ms;

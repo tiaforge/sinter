@@ -19,7 +19,7 @@ the native compiler), Node 22.23.
   60,000 lines) are parsed on every run.
 - `tsc` prints its errors sorted by file, then position (checked: `a.js` before `b.js` whatever the order of
   `files`), and prints no semantic error at all when any file of the program has a syntax error (a broken
-  expression, which the compiler has reported already).
+  expression, which the compiler has reported already). (Since [bugs.md](bugs.md) §3 the program's shadows leave the broken expressions out.)
 
 ## Where the time went (before)
 
@@ -236,12 +236,12 @@ Found, not changed (today's output, recorded):
 
 - A prop given as a number literal and read with a member (`n.toFixed()` with `n: 1`) becomes `1.toFixed()` in the
   page module, a syntax error Rolldown reports (`Invalid characters after number`) instead of the check's
-  diagnostics; the corpus passes such props from state.
+  diagnostics; the corpus passes such props from state. Fixed: [bugs.md](bugs.md) §2.
 - A broken expression on any page (app b) silences every type error of every page: `tsc` reports no semantic error
   in a program with a syntax error. The build stops at the compile error first; `sinter check` prints the compile
-  error and no SN208.
+  error and no SN208. Fixed: [bugs.md](bugs.md) §3.
 - A recursive component used on a page both inline and through its shared definition reports an error in its markup
   twice on that page, once per copy (`(included from deep.html:6)` and `(included from deep.html:1)`, the
-  definition's chain being the page's first line).
+  definition's chain being the page's first line). Fixed: [bugs.md](bugs.md) §4.
 - The build counts warnings among its type errors: app a fails with `sinter check: 50 type error(s)` for 49 errors
-  and an SN538 warning (`sinter check` says 49 errors, 1 warning).
+  and an SN538 warning (`sinter check` says 49 errors, 1 warning). Fixed: [bugs.md](bugs.md) §5.

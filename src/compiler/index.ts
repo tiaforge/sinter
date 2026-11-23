@@ -1,4 +1,5 @@
 import * as acorn from 'acorn';
+import { canonical } from './canon.js';
 import { tsPlugin } from '@sveltejs/acorn-typescript';
 import { compileParts, pageHead, localSignIn, requestUrl, type CompileOptions, type CompileResult, type CompiledParts, type EarlyParts, type FnSource, type FnSources, type HelperManifest, type HelperOrigin, type PrefetchParts, type EmbedSlot, type EmbedCond, type RuntimeReason } from './compile.js';
 import { compactIR, type EarlyIR } from '../ir.js';
@@ -158,7 +159,10 @@ export function describedPrefetch(out: CompileResult): NonNullable<CompiledParts
 }
 
 function compileOne(html: string, options0: CompileOptions): CompileResult {
-  const parts = compileParts(html, options0);
+  const raw = compileParts(html, options0);
+  // `SN_CANON=1` (redesign-notes/stage5-assembly.md, step 0): the output in its canonical numbering, to count what a
+  // step that renumbers would change, and to compare two builds up to numbering (the app audits' `--canon`)
+  const parts = env('SN_CANON') === '1' && !options0.dev ? { ...canonical(raw), ...(raw.check ? { check: raw.check } : {}) } : raw;
   // a content namespace loaded per axis: its entries at the page's point, as the compile resolved them
   const options = parts.contentNs ? { ...options0, contentNs: parts.contentNs } : options0;
   // the images' rules: imported, so the bundler puts them in the page's stylesheet (no request, no inline style)
