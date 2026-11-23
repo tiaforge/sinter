@@ -8629,7 +8629,12 @@ class Compiler {
     // keeps it, whatever each page passes it, and the next page's code takes them over (swaps, §3)
     if (!reuse) {
       for (const { el, node } of this.paints) for (const b of node.b) { value(el, b, false); if (!this.inKept(el)) { decide(el, b); unroll(el, b); } }
-      for (const [node, el] of this.tplEls) for (const b of node.b) { value(el, b, true); decide(el, b); }
+      // a unit's elements come first (placed before the page's walk): its part of the candidates, read once for the build
+      // (`unitCands`), each asked here only what depends on the page
+      const mine = this.placedUnit ? unitCands(this.placedUnit, this.tplEls, this.fns) : null;
+      if (mine) for (const x of mine.list) { if (x.k === 0) { if (fixed(x.b.d)) cands.push({ el: x.el, b: x.b, f: x.b.f!, tpl: true }); } else decide(x.el, x.b); }
+      let skip = mine?.size ?? 0;
+      for (const [node, el] of this.tplEls) { if (skip) { skip--; continue; } for (const b of node.b) { value(el, b, true); decide(el, b); } }
     }
     const choosing = reuse ? kept!.choosing : this.collecting() && [...this.pointOf.values()].some((p) => p.pick);
     if (!cands.length && !choosing && !this.textRoots.length) return;
@@ -13197,6 +13202,57 @@ const FIRST_READ = /^\(\$\) => \(\$\.([A-Za-z_$][\w$]*)/;
 export function failsFirst(code: string): boolean {
   const m = FIRST_READ.exec(code);
   return !!m && !SCOPE_NAMES.has(m[1]!) && !/^\$s\d+$/.test(m[1]!);
+}
+
+/**
+ * A unit's part of `prerender`'s candidates, the same on every page that places it (`BuildUnit.evalCands`): the unit's
+ * elements are the first of a page's `tplEls` (placed before its walk, in the unit's order), and of their bindings, in
+ * their order, each a value candidate could be but for `fixed` (`k` 0: what `value` asks of a binding in a template,
+ * but `fixed`, which reads the page's writes and resources) and each `if` (`k` 1: `decide`'s questions read the page).
+ * Left out: a value candidate whose code fails at its first step (`failsFirst`: a definition's props, `$.$p<n>`, read
+ * first: 2,229 of a sinter-mail page's 2,250), whose evaluation is FAIL without running it, and a value in a template
+ * that is FAIL does nothing. Checked on each page against its `tplEls` (the same elements, the same order) and its codes;
+ * null when it does not hold, and the page asks every binding as before (counted)
+ */
+type UnitCands = { size: number; nodes: NodeDef[]; els: P5Element[]; codes: Array<string | undefined>; list: Array<{ el: P5Element; b: Binding; k: 0 | 1 }> };
+function unitCands(u: BuildUnit, tplEls: Map<NodeDef, P5Element>, fns: string[]): UnitCands | null {
+  if (proc?.env.SN_UNIT_CANDS === '0') return null;
+  const size = u.placedEls ?? 0;
+  if (!size || tplEls.size < size) return null;
+  let c = u.evalCands as UnitCands | undefined;
+  if (c) {
+    // (the page's first elements the unit's, its codes the unit's)
+    let i = 0, k = 0, ok = c.size === size;
+    for (const [node, el] of tplEls) {
+      if (!ok || i === size) break;
+      if (node !== c.nodes[i] || el !== c.els[i]) ok = false;
+      else for (const b of node.b) if ((b.f === undefined ? undefined : fns[b.f]) !== c.codes[k++]) { ok = false; break; }
+      i++;
+    }
+    if (ok) return c;
+    unitFallback('a page whose unit\'s elements or codes are not the unit\'s (the evaluation\'s candidates asked again)');
+    return null;
+  }
+  c = { size, nodes: [], els: [], codes: [], list: [] };
+  let i = 0;
+  for (const [node, el] of tplEls) {
+    if (i++ === size) break;
+    c.nodes.push(node);
+    c.els.push(el);
+    for (const b of node.b) {
+      const code = b.f === undefined ? undefined : fns[b.f];
+      c.codes.push(code);
+      if (code === undefined) continue;
+      if (b.k === 'if') { c.list.push({ el, b, k: 1 }); continue; }
+      if (b.e) continue;
+      // (`value`'s questions of a binding in a template, but `fixed`)
+      if (!['text', 'attr', 'class', 'style', 'show'].includes(b.k) || (b.k === 'class' && !b.n) || (b.k === 'text' && el.childNodes.some(isElement)) || b.w?.length) continue;
+      if (failsFirst(code)) continue;
+      c.list.push({ el, b, k: 0 });
+    }
+  }
+  u.evalCands = c;
+  return c;
 }
 
 /** a binding `prerender` evaluates: `tpl`, in a template's content, written there only when it can never change; `if`, a condition decided for a second pass; `for`, a loop unrolled in it */

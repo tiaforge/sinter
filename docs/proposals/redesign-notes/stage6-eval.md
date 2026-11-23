@@ -274,3 +274,31 @@ proxies are reached only through reads the dependencies name. So no test can fai
 the behaviour (the model last against the model first: the same page, both routes, rendered and not) and passes on
 both sides. The fix matters for what comes next: once deciding reads the units' summaries instead of `fixed` over the
 page's writes, `known` alone would have let the last model's field through.
+
+### 8. A unit's part of the evaluation's candidates read once for the build; its table served as it is
+
+On a page with a unit placed (sinter-mail's pages), `prerender` asked every binding of the unit's 4,000 bound template
+elements whether it is a candidate (`value`, `decide`, `fixed` of each) in each pass, ran each candidate (4,396 a call:
+nearly all a definition's bindings, which read a prop first and fail without running, `failsFirst`), and built a map
+of the unit table's functions it uses (`unitTable`'s `out`, 4,000 entries a page).
+
+- **`unitCands`** (`BuildUnit.evalCands`, the unit's own): the unit's elements are the first of a page's `tplEls`
+  (placed before the page's walk: `place` records how many, `BuildUnit.placedEls`); of their bindings, in order, the
+  unit keeps each that `value` would take but for `fixed` (which reads the page's writes and resources, asked on each
+  page) and each `if` (`decide` asks the page), and leaves out a value candidate whose code fails at its first step: its
+  evaluation is FAIL without running it, and a template's value that is FAIL does nothing (no paint, no record; `run`'s
+  bracket resets `folding` and records nothing). An `if` that fails is kept: it marks its key undecided. Checked on each
+  page (the same elements in the same order, the same codes), else every binding is asked as before (counted:
+  `unitFallback`). Left out of the candidates, their codes are left out of `used` too: they are the unit's, served by
+  the unit's table, never compiled by the page (`mine` is what the unit's table does not have).
+- **`unitTable`** returns the unit's table as it is (a map of all its functions): the evaluation asks for nothing but
+  the codes it uses (its candidates', its states', its texts', the rows' `rowCodes`), and those it finds there as in the
+  per-page map it was built from. `SN_UNIT_CANDS=0`: every binding asked on every page.
+
+Test: the units tests' pages through one build's units, twice over (the first page makes the unit), the same with
+`SN_UNIT_CANDS=0`; test/compiler also under `SN_UNITS_VERIFY=1` (no unit object left changed).
+
+A/B against change 6 (3 rounds), mail API: candidates a call 4,396 → 612; pass-1 `prerender` p25 / median / mean 5.92 /
+7.19 / 9.40 → 3.69 / 4.35 / 7.73 (`settle` 7.19 / 8.61 → 4.72 / 5.74). The second pass places a unit of its own (A1)
+and reads its candidates the same way; its `prerender` (8.3 ms) is now the page's own codes, compiled by the page's own
+`new Function` and each run once, its first call compiling it (V8 compiles a function's body at its first call).

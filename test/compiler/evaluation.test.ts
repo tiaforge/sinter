@@ -5,6 +5,7 @@
 // each alone: the results must be the same, every field.
 import { afterEach, describe, expect, test } from 'vitest';
 import { compile, type CompileOptions, type CompileResult } from '../../src/compiler/index.js';
+import { build as unitPage, PAGES as UNIT_PAGES } from './units-pages.js';
 import { caseCode, decidedEntries, failsFirst, frozenPlain, rowProgram, StyleWrites, writeFirstPaint } from '../../src/compiler/compile.js';
 
 const C: Record<string, string> = {
@@ -261,6 +262,23 @@ describe('a persisted model\'s own path (`own`), past its candidate', () => {
     expect(strip(last)).toBe(strip(first));
     // (the field is read in the browser: nothing of it written at build time)
     expect(last).not.toContain('xa');
+  });
+});
+
+describe('a unit\'s part of the evaluation\'s candidates, read once (`unitCands`)', () => {
+  test('pages through one build\'s units, each as with every binding asked on every page (`SN_UNIT_CANDS=0`)', () => {
+    // (units.test.ts holds a page through units to the page compiled without them; this, the candidates read once to the
+    // candidates asked on each page, the same units, the same order, twice over: the first page makes the unit)
+    const plain = (r: ReturnType<typeof unitPage>) => JSON.stringify({ ...r, check: undefined });
+    const pages = (off: boolean) => {
+      if (off) process.env.SN_UNIT_CANDS = '0';
+      try {
+        const units = new Map<string, unknown>(), out: string[] = [];
+        for (let round = 0; round < 2; round++) for (const [n, body] of Object.entries(UNIT_PAGES)) out.push(plain(unitPage(n, body, units)));
+        return out;
+      } finally { delete process.env.SN_UNIT_CANDS; }
+    };
+    expect(pages(false)).toEqual(pages(true));
   });
 });
 

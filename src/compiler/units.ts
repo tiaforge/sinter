@@ -66,6 +66,10 @@ export type BuildUnit = {
    * definition, numbered from there (`unitCheck`)
    */
   check?: { frames: any[]; exprs: any[]; segs: Map<string, Seg>; frameOf: Array<{ key: object; at: number }> };
+  /** its part of the first pass's evaluation's candidates, read once (`unitCands`, compile.ts) */
+  evalCands?: unknown;
+  /** where it was placed last (the page being compiled): how many of the page's first `tplEls` are its elements (0: not known) */
+  placedEls?: number;
   /** its functions as the first pass's evaluation runs them, compiled once (`unitTable`): by the names they see */
   tables?: Map<string, { bind: (values: unknown[]) => void; fns: Map<string, ($: unknown) => unknown> | null }>;
   /** (`SN_UNITS_VERIFY=1`) each object's own values as it was made, which every page must leave as they were */
@@ -340,6 +344,8 @@ function partOf(seg: Seg, check: { frames: any[]; exprs: any[] }, file: string, 
 
 /** the unit put on a page that is numbered as it was made (nothing yet), reading its page alike */
 function place(c: any, u: BuildUnit) {
+  // (how many of the page's bound template elements are the unit's: all of them, as the page has none before its walk)
+  const els0 = c.tplEls instanceof Map ? c.tplEls.size : -1;
   for (const [f, v] of Object.entries(u.numbering)) c[f] = v instanceof Map ? new Map(v) : Array.isArray(v) ? v.slice() : v;
   for (const [f, t] of u.weak) c[f] = t instanceof WeakSet ? new OverlaySet(c[f], t) : new OverlayMap(c[f], t as WeakMap<object, unknown>);
   for (const o of u.ops) {
@@ -355,6 +361,7 @@ function place(c: any, u: BuildUnit) {
     else t[key as string] = v;
   }
   c.at = val(c, u.at);
+  u.placedEls = els0 === 0 ? c.tplEls.size : 0;
   ownContainers(c, u);
   if (u.heads) for (const [tid, tpl] of u.heads) c.headTemplates.set(tid, tpl);
   // its origins that name its page: this page's
@@ -481,7 +488,7 @@ export function unitCheck(c: any, name: string) {
  * not constants of it). The map holds the unit's functions the page uses; null when the table does not compile (the
  * page then compiles all it uses, as without units).
  */
-export function unitTable(u: BuildUnit, params: Map<string, unknown>, used: string[]): Map<string, ($: unknown) => unknown> | null {
+export function unitTable(u: BuildUnit, params: Map<string, unknown>, _used: string[]): Map<string, ($: unknown) => unknown> | null {
   const names = [...params.keys()], key = names.join(',');
   const tables = (u.tables ??= new Map());
   let t = tables.get(key);
@@ -496,8 +503,8 @@ export function unitTable(u: BuildUnit, params: Map<string, unknown>, used: stri
     tables.set(key, t);
   }
   if (!t.fns) { fallback('a unit whose functions do not compile together'); return null; }
-  const out = new Map<string, ($: unknown) => unknown>();
   t.bind([...params.values()]);
-  for (const c of used) { const f = t.fns.get(c); if (f) out.set(c, f); }
-  return out;
+  // (all of them: the evaluation asks only for the codes it uses, `used`, so the unit's table serves it as it is, without
+  // a map per page of the ones it uses)
+  return t.fns;
 }
