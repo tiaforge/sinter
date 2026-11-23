@@ -92,6 +92,8 @@ export interface RewriteContext {
   scaled?: (el: P5Element, what: 'box' | 'bound') => Affine | null;
   /** after `fluidSizes()` gave up: the `auto-fit` grid with template rows that was why, if it was */
   autoFitRows?: () => P5Element | null;
+  /** an image in a template that was rewritten, with its attributes before (compile.ts: rows rendered from templates) */
+  rewrote?: (el: P5Element, before: P5Element['attrs']) => void;
 }
 
 /** Rewrites every static `<img>` under `doc` in place; returns what the adapter encodes and the page's rules. */
@@ -108,7 +110,9 @@ export function rewriteImages(doc: P5Parent, ctx: RewriteContext): ImageResult {
       if (el.tagName === 'img') {
         const eager = first && !inTemplate;
         if (!inTemplate) first = false;
+        const before = inTemplate && ctx.rewrote ? el.attrs.map((a) => ({ ...a })) : null;
         const out = rewriteOne(el, eager, ctx);
+        if (before && out && out !== 'pending') ctx.rewrote!(el, before);
         if (out === 'pending') {
           const f = sourceFile(el, ctx)!;
           if (!result.pending.includes(f)) result.pending.push(f);

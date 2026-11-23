@@ -1683,8 +1683,10 @@ class Compiler {
       host: this.opts.images, root: this.opts.root,
       ...(layout ? { layout: (el: P5Element) => layout.box(el), maxWidth: (el: P5Element) => layout.maxWidth(el), fluidSizes: (el: P5Element, w?: number) => layout.fluidSizes(el, w), autoFitRows: () => layout.autoFitRows, scaled: (el: P5Element, what: 'box' | 'bound') => this.scaledWidth(layout, el, what) } : {}),
       // a folded `src` is the URL the browser would have loaded, relative to the page
-      fileOf: (el) => (this.foldedUrl.has(el) ? this.opts.file : this.origins.get(el)?.file ?? this.opts.file),
+      fileOf: (el) => RENDERED_FILE.get(el) ?? (this.foldedUrl.has(el) ? this.opts.file : this.origins.get(el)?.file ?? this.opts.file),
       warn: (el, a, code, message, hint) => this.report(el, a, code, message, 0, hint),
+      // the first pass, rows rendered: a template's image as it was, which the rows it renders stand for (`rowRenderer`)
+      ...(this.keepsAttrs ? { rewrote: (el: P5Element, before: P5Element['attrs']) => REWROTE.set(el, before) } : {}),
     }) : undefined;
     this.declare(doc);
     const paths = this.pathPatterns(doc);
@@ -8415,7 +8417,7 @@ class Compiler {
             if (kept) pageOf(kept.nodes, sc);
           }
         }
-        let render: ReturnType<Compiler['rowRenderer']> | null = null;
+        let render: ReturnType<Compiler['rowRenderer']> | null = null, constB: Set<Binding> | null = null;
         for (const [key, p] of pending) {
           if (!p) continue;
           // over the page's limit (this tree alone, or with those before it): left to the browser, with a warning
@@ -8430,6 +8432,15 @@ class Compiler {
             this.rendered.set(key, done);
             const reads = this.foldReads.get(key)!;
             for (const [, , d] of [...p.found.unrolls, ...p.found.decided]) for (const x of this.stateSites(d)) reads.add(x);
+            // what the layout and the images read of the rows (an image's attributes, a class or a style): collected as
+            // the old route collects it (`collectConstants`), which decides what the second pass is handed
+            constB ??= new Set(this.constantSources().flatMap((x) => x.s.bindings));
+            if (constB.size) for (const [b, prefix, w] of p.found.paints) {
+              if (!constB.has(b)) continue;
+              let m = this.rowPaint.get(b);
+              if (!m) this.rowPaint.set(b, m = new Map());
+              m.set(prefix, w);
+            }
             continue;
           }
           for (const [k, items, d] of p.found.unrolls) { this.unrolls.set(k, items); this.foldReads.set(k, this.stateSites(d)); }
@@ -8469,6 +8480,14 @@ class Compiler {
     const contentOf = (tid: number) => (this.headTemplates.get(tid) ?? tplOf.get(tid))?.content;
     const anchors = new Set<P5Node>(this.anchorEls.values());
     const defAttr = new Set<Binding>([...this.defAttrs.values()].flatMap((m) => [...m.values()]));
+    let sources: Map<NodeDef, Compiler['attrSources']> | null = null;
+    /** the value attributes of each node, the bindings each made (`attrSources`) */
+    const sourcesOf = () => {
+      if (sources) return sources;
+      sources = new Map();
+      for (const s of this.attrSources) { let l = sources.get(s.node); if (!l) sources.set(s.node, l = []); l.push(s); }
+      return sources;
+    };
     // links: what the build sees of them (same-page links, a pager's query) is read where the page reads its URL
     const links = !!this.opts.axisLists?.length || this.fns.some((c) => c.includes('$url'));
     const cssOf = new Map<string, string>();
@@ -8528,15 +8547,24 @@ class Compiler {
         let c: P5Node;
         if (n.nodeName === '#text') c = { nodeName: '#text', value: (n as DefaultTreeAdapterMap['textNode']).value, parentNode: parent } as unknown as P5Node;
         else if (n.nodeName === '#comment') c = { nodeName: '#comment', data: (n as DefaultTreeAdapterMap['commentNode']).data, parentNode: parent } as unknown as P5Node;
-        else if (isElement(n)) {
+        else if (isElement(n) && n.tagName === 'picture' && !this.origins.has(n) && REWROTE.has(n.childNodes.at(-1) as P5Element)) {
+          // an image the first pass rewrote in the template: the image it was, which the second pass rewrites in the
+          // row as it would rewrite the row's image (eager or not, in its box)
+          c = clone(n.childNodes.at(-1)!, parent, map);
+        } else if (isElement(n)) {
           // (an id the markup writes: the page's ids are read before the second pass compiles the rows; one a binding
           // writes is not there yet)
           if (n.attrs.some((a) => a.name === 'id')) no('an id');
           // (one the walk keeps for the runtime, `data-sn-options`, `-navigate`, …: the walk adds what it needs)
           if (n.attrs.some((a) => a.name.startsWith('data-sn-'))) no('a sinter attribute');
-          const e = { nodeName: n.nodeName, tagName: n.tagName, attrs: n.attrs.map((a) => ({ ...a })), namespaceURI: n.namespaceURI, childNodes: [], parentNode: parent } as unknown as P5Element;
-          // what the second pass's minifier reads on it in an unrolled row: its bindings' attributes, not their paint
+          // its attributes before anything was painted: the first pass writes a binding constant in every row into the
+          // template, where the old route paints it with the row's others, in their order (`fill` paints it again)
           const pre = this.snAttrs.get(n);
+          const base = REWROTE.get(n) ?? (pre ? pre.filter((a) => !a.name.startsWith('data-sn-') || KEPT_ATTRS.has(a.name)) : n.attrs);
+          const e = { nodeName: n.nodeName, tagName: n.tagName, attrs: base.map((a) => ({ ...a })), namespaceURI: n.namespaceURI, childNodes: [], parentNode: parent } as unknown as P5Element;
+          // (an image: the file its `src` is relative to, which the second pass's image pipeline reads)
+          if (n.tagName === 'img') RENDERED_FILE.set(e, this.origins.get(n)?.file ?? this.opts.file);
+          // what the second pass's minifier reads on it in an unrolled row: its bindings' attributes, not their paint
           if (pre) { SHOWN.set(e, pre); shown.push(e); }
           // a component's root whose tag binds what it shows: the minifier leaves it as written (`minify`'s `opaque`)
           if (this.useOf.get(n)?.host.attrs.some((a) => /^data-sn-(class|style|show|attr)$/.test(a.name))) WRITTEN.set(e, 'opaque');
@@ -8580,6 +8608,17 @@ class Compiler {
         frag.childNodes = src!.childNodes.map((c) => clone(c, frag, map)) as never[];
         fill(t!.nodes, map, rec!);
         return frag.childNodes as P5Node[];
+      };
+      /** an image's bindings in the order `prefold` writes them (its own attributes', then its tag's, each in `FOLDED` order), or null: not an image the pipeline reads */
+      const imgSources = (el: P5Element, n: NodeDef): Binding[] | null => {
+        if (!this.opts.images || el.tagName !== 'img') return null;
+        const list = sourcesOf().get(n) ?? [];
+        const own = (s: (typeof list)[number]) => (s.src === el ? 0 : 1);
+        const sorted = [...list].sort((a, b) => own(a) - own(b) || FOLDED.indexOf(a.attr) - FOLDED.indexOf(b.attr));
+        const out = sorted.flatMap((s) => s.bindings);
+        // (each binding folded: from a value attribute, not reported on, with a key; nothing else on it)
+        if (sorted.some((s) => !FOLDED.includes(s.attr) || s.noted || !this.constKey(s.src, s.attr)) || n.b.some((b) => !defAttr.has(b) && !out.includes(b))) no('images');
+        return out;
       };
       const fill = (nodes: NodeDef[], map: Map<P5Node, P5Node>, rec: RowRec) => {
         for (const n of nodes) {
@@ -8631,7 +8670,10 @@ class Compiler {
           const el = this.tplEls.get(n), cl = el && map.get(el) as P5Element | undefined;
           if (!el || !cl) no('markup');
           let bound = false;
-          for (const b of n.b) {
+          // an image the image pipeline reads (`images`): the second pass folds its bindings before (`prefold`), in
+          // that order, and it keeps none; one it would not fold stays the old route's
+          const img = imgSources(el!, n);
+          for (const b of img ?? n.b) {
             if (defAttr.has(b) || b.k === 'else') continue;
             if (b.k === 'if') {
               const v = rec.get(b) as boolean | undefined;
@@ -8665,10 +8707,11 @@ class Compiler {
             // reads as changing; the rendered value would be read as it is)
             if (w!.k === 'text') WRITTEN.set(cl!, 'content');
             writeFirstPaint(cl!, w!.k, w!.n, w!.v);
+            if (img && w!.k === 'attr' && (w!.n === 'src' || w!.n === 'srcset')) RENDERED_FILE.set(cl!, this.opts.file);
             read(b.d);
             bound = true;
           }
-          if (bound) st.ids++;
+          if (bound && !img) st.ids++;
         }
       };
       try {
@@ -8683,7 +8726,7 @@ class Compiler {
           else if (row.some((x) => x.nodeName === '#text' && (x as DefaultTreeAdapterMap['textNode']).value.trim())) no('text at the top of a row');
           nodes.push(...row);
         }
-        const why = rowsRead(nodes, !!this.opts.images, links);
+        const why = rowsRead(nodes, links);
         if (why) no(why);
         if ((st.ids || list) && !nodes.some(isElement)) no('no element');
         renderStat(null, p.found.rows);
@@ -11451,6 +11494,10 @@ const WRITTEN = new WeakMap<P5Node, 'text' | 'content' | 'opaque'>();
  * walk's `data-sn-*` and the attributes they will set not yet there): what the second pass's minifier reads on it
  */
 const SHOWN = new WeakMap<P5Element, P5Element['attrs']>();
+/** the first pass: an image in a template that the image pipeline rewrote, with its attributes before (`rowRenderer` renders the image it was) */
+const REWROTE = new WeakMap<P5Element, P5Element['attrs']>();
+/** a rendered row's image: the file its `src` is relative to (its component's, or the page's for a `src` a binding wrote), for the second pass's image pipeline */
+const RENDERED_FILE = new WeakMap<P5Element, string>();
 
 /**
  * What the worklist found in one row (or one instance of a definition), for `rowRenderer`, by the compiled objects it
@@ -11490,12 +11537,11 @@ function renderStat(why: string | null, rows: number) {
 }
 
 /** what in rendered rows other parts of the build read before the second pass would compile them (null: nothing) */
-function rowsRead(nodes: P5Node[], images: boolean, links: boolean): string | null {
+function rowsRead(nodes: P5Node[], links: boolean): string | null {
   for (const n of nodes) {
     if (!isElement(n)) continue;
-    if (images && ['img', 'picture', 'source', 'video', 'audio', 'image'].includes(n.tagName)) return 'images';
     if (links && (n.tagName === 'a' || n.tagName === 'area')) return 'links';
-    const r = rowsRead(n.childNodes as P5Node[], images, links) ?? (n.tagName === 'template' ? rowsRead((n as P5Template).content.childNodes as P5Node[], images, links) : null);
+    const r = rowsRead(n.childNodes as P5Node[], links) ?? (n.tagName === 'template' ? rowsRead((n as P5Template).content.childNodes as P5Node[], links) : null);
     if (r) return r;
   }
   return null;

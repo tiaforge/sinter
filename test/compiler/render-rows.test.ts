@@ -3,7 +3,7 @@
 // second pass, which compiles nothing there. Each page here is compiled with rendering on and off (`SN_RENDER=0`):
 // the two results must be the same, every field, and the test says whether the rows took the fast route.
 import { afterEach, describe, expect, test } from 'vitest';
-import { compile, type CompileOptions, type CompileResult } from '../../src/compiler/index.js';
+import { compile, type CompileOptions, type CompileResult, type ImageHost, type ImageInfo, type ImageVariant } from '../../src/compiler/index.js';
 import { RENDER_STATS } from '../../src/compiler/compile.js';
 
 const C: Record<string, string> = {
@@ -13,9 +13,15 @@ const C: Record<string, string> = {
   // a library's dispatch: a choice per node, a tree slot with a default in one candidate (tree-fills-static.test.ts)
   'x-doc': '<template data-sn-props="{ doc: any; link: Slot<{ url: string }> }"><div><template data-sn-for="n in doc.children"><sn-component use="{ text: \'x-text\', link: \'x-link\' }[n.type]" data-sn-with="{ node: n }"></sn-component></template></div></template>',
   'x-text': '<template data-sn-props="{ node: any }"><span data-sn-text="node.value"></span></template>',
+  'x-pic': '<template data-sn-props="{ src: string; w: number }"><figure><img alt="" class="p" data-sn-attr="{ src: src, title: \'w\' + w }" data-sn-class="{ wide: w > 1 }" data-sn-style="{ opacity: w / 2 }"><img alt="still" src="./img/a.jpg"></figure></template>',
   'x-link': '<template data-sn-props="{ node: any }"><slot name="link" data-sn-with="{ url: node.url }"><a data-sn-attr="{ href: node.url }"><template data-sn-for="n in node.children"><sn-component use="{ text: \'x-text\', link: \'x-link\' }[n.type]" data-sn-with="{ node: n }"></sn-component></template></a></slot></template>',
 };
 const DOC = { children: [{ type: 'text', value: 'see ' }, { type: 'link', url: '/a', children: [{ type: 'text', value: 'a' }] }, { type: 'text', value: '!' }] };
+
+const photo: ImageInfo = { width: 1600, height: 1067, alpha: false, kind: 'photo', color: '#8a7f6e', bytes: 200_000, hash: 'abc' };
+const tiny: ImageInfo = { ...photo, width: 40, height: 40, bytes: 900, hash: 't' };
+const imgs: Record<string, ImageInfo> = { '/p/img/a.jpg': photo, '/p/src/components/img/a.jpg': { ...photo, hash: 'c' }, '/p/img/t.png': tiny };
+const host: ImageHost = { info: (f) => imgs[f] ?? null, url: (v: ImageVariant) => `/i/${v.hash}-${v.width}.${v.format}` };
 
 const options = (extra: Partial<CompileOptions> = {}): CompileOptions => {
   const files: Record<string, string> = { '/p/doc.json': JSON.stringify(DOC) };
@@ -110,6 +116,12 @@ describe('rendered rows: the same page as compiled rows, without compiling them'
     expect(r.body).toContain('<p> a  b </p>');
   });
 
+  test('a binding constant in every row (painted into the template by the first pass) in its place among the row\'s', () => {
+    const r = both('<template data-sn-for="x in [1, 2]"><p data-sn-attr="{ title: x }" data-sn-class="{ on: true }" data-sn-style="{ color: \'red\', width: x + \'px\' }"></p></template>');
+    expect(r.spliced).toBe(1);
+    expect(r.body).toBe('<p title="1" class="on" style="color: red; width: 1px"></p><p title="2" class="on" style="color: red; width: 2px"></p>');
+  });
+
   test('a build\'s minifier: style, show, hidden and contenteditable paints read as the bindings they were', () => {
     const minify = { minify: { styles: [] } } as Partial<CompileOptions>;
     const r = both(`<div>
@@ -124,6 +136,20 @@ describe('rendered rows: the same page as compiled rows, without compiling them'
     expect(r.spliced).toBe(1);
     expect(r.why).toEqual([]);
     expect(r.body).toContain('<div style="display: block; color: red"> <b>a</b> </div>');
+  });
+
+  test('images: a bound `src` and a written one, in rows and in a component, rewritten as the compiled rows are', () => {
+    const r = both(`<template data-sn-for="x in ['img/a.jpg', 'img/t.png']"><p><img alt="" data-sn-attr="{ src: x, title: x }" data-sn-class="{ on: true }"><img alt="w" src="img/a.jpg"></p></template>
+<template data-sn-for="(x, i) in ['img/a.jpg', 'img/t.png']"><x-pic data-sn-with="{ src: x, w: i + 1 }"></x-pic></template><b data-sn-state="{ n: 1 }" data-sn-text="n"></b>`, { images: host });
+    expect(r.spliced).toBe(2);
+    expect(r.why).toEqual([]);
+    expect(r.body).toContain('<picture><source type="image/avif"');
+    expect(r.out.images!.variants.length).toBeGreaterThan(0);
+  });
+
+  test('images with a build\'s minifier', () => {
+    const r = both('<div>\n<template data-sn-for="x in [\'img/a.jpg\']">\n <img alt="" data-sn-attr="{ src: x }"> <span> a </span>\n</template>\n</div>', { images: host, minify: { styles: [] } } as Partial<CompileOptions>);
+    expect(r.spliced).toBe(1);
   });
 
   test('the ids of what follows the rows are those the compiled rows leave', () => {
