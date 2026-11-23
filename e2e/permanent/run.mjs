@@ -241,7 +241,7 @@ for (const name of browsers) {
     await p2.goBack();
     await ready('/', 'A: Alpha');
     await p2.waitForTimeout(150);
-    await p2.evaluate(() => scrollTo(0, 7000));
+    await p2.evaluate(() => scrollTo(0, 8000));
     await p2.waitForTimeout(150);
     const deep = await y();
     await p2.evaluate(() => document.getElementById('to-b').click());
@@ -250,7 +250,7 @@ for (const name of browsers) {
     await p2.goBack();
     await ready('/', 'A: Alpha');
     await p2.waitForTimeout(600);
-    check('Back restores a position the page has only once its data is in', { y: near(await y(), deep) ? deep : await y() }, { y: deep });
+    check('Back restores a position the page has only once its data is in', { y: near(await y(), deep) ? deep : await y() }, { y: 8000 });
     await p2.goForward();
     await ready('/b/', 'B: Beta');
     await p2.waitForTimeout(150);
