@@ -461,3 +461,17 @@ evaluation. (row-items.test.ts: the evaluation's map no longer needs to hold a h
 A/B against change 10 (9 rounds; the machine noisier now: the same build's p25 moved from 5.6 to 6.1 between runs):
 blog static `decideFor` 6.10 / 7.74 / 9.00 → 5.84 / 7.71 / 8.62; mail gen pass-1 `prerender` 77.0 / 82.2 → 73.8 / 83.6
 (5 rounds; the same).
+
+### 12. Filling a row: what each node is, asked once per template; `constantSources` and the written state once per evaluation
+
+- **`nodeInfo`**: what each node of a template is for `fill` (a choice or recursion point, a tree placement, a text,
+  an element and which), by the template's nodes, once per renderer: four map lookups per node per row before. An
+  `if`'s `else` (its node, template, element) and what it folds (`snSource`, `emptyOf`), and a loop's list as written
+  (the loop head's regex over its source), by binding (`ifInfo`, `forInfo`): per row before. An axis list's mark and the
+  marks of scoped styles are looked up only on pages that have them.
+- **`constantSources`** once for the walk and its renderer (it was computed for `constB` and again for `foldsOf`):
+  neither the walk nor the renderer changes what it reads. **`writtenState`** once for `prerender` and its worklist.
+
+A/B against change 11 (9 rounds blog, 3 the emails), p25 / median / mean: blog static `decideFor` 5.05 / 6.25 / 6.82 →
+4.87 / 5.66 / 6.78 (`compile()` 7.81 / 9.35 → 7.66 / 9.23); mail gen pass-1 `prerender` 70.0 / 82.7 → 65.5 / 69.7;
+mail file 8.03 / 9.95 → 8.27 / 10.1 (the same).
