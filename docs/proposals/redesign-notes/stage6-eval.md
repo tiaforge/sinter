@@ -3,7 +3,7 @@
 Running log (2026-11-23). Branch `redesign/stage6-eval`, merged into `ccr-9ebf49d5-gpdej8` by the coordinating
 session. Starting point: `evaluation.md`, "What is left (for stage 6)". Base: `c6557d4`.
 
-## Where it stands (done; `df98a8c` merged with the integration branch at `de23476`)
+## Where it stands (done; merged with the integration branch at `19ee211`)
 
 - Built, default on, each behind its switch: the style written once per element (`StyleWrites`, `SN_STYLE_BATCH=0`),
   row programs (one function per template returning a row's values; `SN_ROW_FN=0`, `SN_ROW_FN_AUDIT=1` comparing every
@@ -12,7 +12,7 @@ session. Starting point: `evaluation.md`, "What is left (for stage 6)". Base: `c
   copied and measured once (`SN_FILE_COPY=0`, `SN_FROZEN_HEIGHTS=0`), the unit's candidates read once
   (`SN_UNIT_CANDS=0`), and the `own` bug fixed as a guard (bugs.md, 7: provably masked, no output change).
 - Every output byte the same: the five benchmark apps, the four examples, sinter-mail's 48 audit files and its
-  2,000-element page against the integration branch's builds at each merge (`35bed5c`, `de23476`), and at the end
+  2,000-element page against the integration branch's builds at each merge (`35bed5c`, `de23476`, `19ee211`), and
   against the same tree with this branch's ten commits reverted; `render-audit` (also `--switch SN_UNITS`), `pass-audit`
   same. `npx vitest run`: 3,002 passed. test/compiler under `SN_RENDER_AUDIT`, `SN_ONE_PASS_AUDIT`,
   `SN_FROM_WALK_AUDIT`, `SN_ROW_FN_AUDIT`: no difference (the last fails the 64 to 67 tests that count compiles, by
