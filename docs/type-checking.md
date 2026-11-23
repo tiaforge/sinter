@@ -132,7 +132,7 @@ SN505 undeclared-query-in-spec: `GET /articles` declares no query parameter `tag
 
 ## What the check does
 
-`sinter check` compiles each page, writes one JavaScript file per page under `.sinter/check/` with every expression verbatim inside blocks that declare its scope, and runs `tsc` on them with `checkJs`. Errors map back to the HTML line and column. Add `.sinter/` to `.gitignore`. It prints a summary:
+`sinter check` compiles each page, writes one JavaScript file per page under `.sinter/check/` with every expression verbatim inside blocks that declare its scope, and runs `tsc` on them with `checkJs`; what several pages repeat (a component's markup) is written once, in a file of its own beside them, and its errors are reported at every place it repeats. Errors map back to the HTML line and column. Add `.sinter/` to `.gitignore`. It prints a summary:
 
 ```text
 sinter check: 4 page(s), 0 error(s), 1 warning(s); 7 of 8 resources typed (3 via OpenAPI)
