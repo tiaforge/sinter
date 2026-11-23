@@ -112,3 +112,13 @@ First numbers (3 runs, the profile's `checkShared` including `tsc`'s wait): sint
 CPU) to 3,587 / 6,410, `checkShared` 1,182 to 652; blog files 5,018 / 8,950 to 4,273 / 7,920, `checkShared` 956 to
 307. (The profile's `check` row at 09d202f also counted a compiler function named `check`, `foldVerdicts`'s; the
 bench counts only `check/index.js`'s now.)
+
+## Merged with the integration branch (8c88f5c)
+
+The bug fixes change check diagnostics on purpose (a broken expression no longer silences other errors: shadows leave
+the broken expressions out, `shadow`'s `broken: false`), so the corpus reference is **regenerated from the integration
+branch** (8c88f5c, in a worktree, this branch's `scripts/check-corpus.mjs` copied in): app b now reports its type
+errors. The one conflict was `shadow.ts`'s options (both kept) and `checkShared`'s body (this branch's, with
+`broken: false` on every shadow `planShared` writes; a part is never broken, and a page's own broken expressions are
+left out of its layout as of its whole shadow). On the merged tree the corpus is the new reference plain and with
+`SN_CHECK_PARTS_AUDIT=1`, `SN_CHECK_SHARE=0`, `SN_UNITS=0`, `SN_CHECK_PARTS=0`.

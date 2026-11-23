@@ -296,7 +296,9 @@ list and sort or filter copies (each resource has its own `order`, `items` and `
   value nothing in the browser reads is not embedded at all, and needs no `fields`, as today; a string (a
   text file) embeds whole. So a CMS's internal fields and posts' bodies never reach a page by accident.
   The build line names each embedded resource and its size. Inferring `fields` from member accesses is
-  [future work](#future-work).
+  [future work](#future-work). (Done for objects since 2026-11-23, [embed-fields.md](redesign-notes/embed-fields.md):
+  what the code reads of a build-time object is all it embeds, and a small primitive it reads is written into the
+  code; lists still need `fields`.)
 - **One limit: the page's budget.** Today a page has two: `MAX_UNROLL`, at most 1,000 items per list
   (`listOf`, `compile.ts:6278`), and `EXPANSION_LIMIT`, at most 10,000 rows and component instances per
   page, at any depth (`compile.ts:8474`). The second already counts every row of every list, and it is the

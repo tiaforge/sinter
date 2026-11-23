@@ -37,6 +37,11 @@ export interface ShadowOptions {
   frameAt?: (i: number) => CheckFrame;
   /** the expressions to write, in order, instead of every one of the unit's (the broken ones last) */
   only?: Array<readonly [CheckExpr, number]>;
+  /**
+   * `false`: the broken expressions (the compiler reported them) are left out. An editor keeps them for completion;
+   * `tsc` prints no type error at all, in any file, when one file of its program has a syntax error
+   */
+  broken?: boolean;
 }
 
 /**
@@ -388,6 +393,7 @@ export function shadow(o: ShadowOptions): Shadow {
   const prelude = out.length;
   const blocks: Shadow['blocks'] = [];
   order.forEach(([e, i]) => {
+    if (e.broken && o.broken === false) return;
     if (e.broken && brokenFrom === null) brokenFrom = out.length + 1;
     const start = out.length + 1;
     line('');

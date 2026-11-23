@@ -125,7 +125,7 @@ export function shadowPath(support: Support, root: string, page: string): string
   return join(support.outDir, relative(root, page) + '.js');
 }
 
-export function shadowOf(unit: CheckUnit, support: Support, root: string, helpers: HelperManifest, actions?: HelperManifest, more: Partial<Pick<ShadowOptions, 'name' | 'unknown' | 'file' | 'info' | 'frameAt' | 'only'>> = {}): Shadow {
+export function shadowOf(unit: CheckUnit, support: Support, root: string, helpers: HelperManifest, actions?: HelperManifest, more: Partial<Pick<ShadowOptions, 'name' | 'unknown' | 'file' | 'info' | 'frameAt' | 'only' | 'broken'>> = {}): Shadow {
   return shadow({ unit, file: shadowPath(support, root, unit.file), root, declarations: support.declarations, types: support.types, helpers, actions, openapi: support.openapi, ...(support.schemas ? { schemas: support.schemas } : {}), ...(support.libraries ? { libraries: support.libraries } : {}), ...more });
 }
 
@@ -232,7 +232,7 @@ export function check(o: CheckOptions): CheckResult {
     const shadows = new Map<string, ShadowInfo>();
     for (const unit of o.units) {
       const file = shadowPath(support, o.root, unit.file);
-      const s = shadowOf(unit, support, o.root, o.helpers, o.actions);
+      const s = shadowOf(unit, support, o.root, o.helpers, o.actions, { broken: false });
       mkdirSync(dirname(file), { recursive: true });
       writeFileSync(file, s.text);
       shadows.set(resolve(file), { unit, regions: s.regions, brokenFrom: s.brokenFrom });
@@ -341,7 +341,7 @@ function checkShared(o: CheckOptions, support: Support, scripts: Map<string, str
     if (!out.length) continue;
     files.set(p.file, out);
     // (a page that holds parts: its whole shadow, for where its errors are in the HTML, laid out as it was taken to be)
-    const sh = p.whole ?? shadowOf(p.unit, support, o.root, o.helpers, o.actions, { name: marked });
+    const sh = p.whole ?? shadowOf(p.unit, support, o.root, o.helpers, o.actions, { name: marked, broken: false });
     if (!p.whole && (sh.prelude !== p.prelude || sh.blocks.length !== p.block.length || sh.blocks.some((b, k) => b.i !== p.block[k]!.i || b.start !== p.block[k]!.start || b.lines !== p.block[k]!.lines))) return gaveUp('a page whose parts are laid out otherwise than its whole shadow (please report)');
     shadows.set(p.file, { unit: p.unit, regions: sh.regions, brokenFrom: sh.brokenFrom });
   }
@@ -407,7 +407,7 @@ function planShared(o: CheckOptions, support: Support, parts: boolean): Plan | s
     const viaParts = !!raw && raw.parts.every((r) => partInfo(r.part).ok);
     let sh: Shadow, block: Blk[];
     if (!viaParts) {
-      sh = shadowOf(unit, support, o.root, o.helpers, o.actions, { name: marked });
+      sh = shadowOf(unit, support, o.root, o.helpers, o.actions, { name: marked, broken: false });
       const byExpr = new Map(sh.blocks.map((b, k) => [b.i, k]));
       block = sh.blocks.map((b) => {
         const text = sh.lines.slice(b.start - 1, b.start - 1 + b.lines).join('\n');
@@ -435,7 +435,7 @@ function planShared(o: CheckOptions, support: Support, parts: boolean): Plan | s
         specs: [...own, ...broken].flatMap(([e]) => exprSpecs(e)).concat(raw.parts.flatMap((r) => partInfo(r.part).specs)),
         call: [...own, ...broken].some(([e]) => exprCalls(e)) || raw.parts.some((r) => partInfo(r.part).call), names,
       };
-      sh = shadowOf(unit, support, o.root, o.helpers, o.actions, { name: marked, info, frameAt: (i) => checkFrameAt(raw, i)!, only: [...own, ...broken] });
+      sh = shadowOf(unit, support, o.root, o.helpers, o.actions, { name: marked, broken: false, info, frameAt: (i) => checkFrameAt(raw, i)!, only: [...own, ...broken] });
       block = [];
       const ownBlocks = sh.blocks.map((b) => ({ i: b.i, lines: b.lines, text: sh.lines.slice(b.start - 1, b.start - 1 + b.lines).join('\n') }));
       let at = sh.prelude + 1, next = 0;

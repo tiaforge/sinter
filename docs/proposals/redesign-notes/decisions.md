@@ -412,6 +412,8 @@ through `<sn-component use="{ a: 'x-img' }['a']" data-sn-with="{ src: s }">` wit
 checks `fixed` on the props' caller deps would fix this and differ from today on such pages. The oracle should
 exclude it, or the bug should be fixed first.
 
+**Fixed** ([bugs.md](bugs.md) §1): the case's props pass `fixed` and `known` on their caller deps.
+
 ### 7.4 The minimal pre-scan before the single pass
 
 Per page, from component units plus the page's own markup, without compiling value bindings:

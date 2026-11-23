@@ -51,8 +51,9 @@ white space); the benchmark's content has none, so the build audit did not see i
 rendered block is replaced by the block's nodes; its top elements are marked (`renderedAt`); `declare` and
 `walkChildren` skip them (the first does the list compile and the ids).
 
-**Switch**: on by default; `SN_RENDER=0` off. Never in dev builds (`fns` keeps `'0'` slots for what the rows compiled:
-no `compactTables`). `SN_RENDER_LOG=1` prints, at exit, loops rendered and the fallback reasons with counts.
+**Switch**: on by default; `SN_RENDER=0` off. Dev builds render too (since "Dev renders" in stage2-coverage.md): their
+`fns` has no `'0'` slots for what the old route would have compiled in the rows (dev runs no `compactTables`), so dev's
+function numbering differs from the old route's; the audit compares dev without the slots (`withoutEmptySlots`). `SN_RENDER_LOG=1` prints, at exit, loops rendered and the fallback reasons with counts.
 
 **Oracles**:
 - `SN_RENDER_AUDIT=1` (`compileParts`): a compile whose pass 2 spliced a block is compiled again with rendering off;
@@ -156,8 +157,9 @@ layout queries.
   takes its index at the row's place in pass 2's table today; compaction keeps that order. With rendering the live one
   is numbered where it first appears. Not seen in any test or app (row code has the item inlined as a literal, so it
   rarely equals live code), but possible; the audit would show it.
-- `this.at` after the walk: the inline path leaves it at the last row element; with rendering it stays at the element
-  before the block. Only a function compiled with no site after the walk, while a block is the page's last markup,
-  would see it (its source map site).
-- Dev builds never render (their function table is not compacted). Byte identity there would need the dropped slots.
+- `this.at` after the walk: the inline path leaves it at the last row element; with rendering it was left at the
+  element before the block. Now the walk sets it at the block to the loop's template (where the rows were written), so
+  a function compiled with no site of its own after a rendered block maps there (dev `at`, the source map).
+- Dev builds: rendered since "Dev renders" (stage2-coverage.md); their function table has no slots for the rows, so
+  byte identity with the old route holds only without the old route's `'0'` slots (`withoutEmptySlots`).
 - Everything in the fallback table: the layout reading rows is the one that matters for the examples.

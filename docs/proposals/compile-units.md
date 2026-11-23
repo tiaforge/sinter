@@ -216,13 +216,11 @@ Found by the research, not changed:
   definition on one page reports its errors twice; the build counts warnings in "type error(s)". And a correction to
   `contract.md` §5: components see the page's resources, so some of a component's functions are typed per page
   (`$meta`, `refresh`, `upsert`); those stay on their pages when the check shares functions.
-- **Dev builds and the old route.** Dev compiles (the dev server, `render()` from the testing module) run both
-  passes and never render rows: dev does not compact its function table, so every function the old route compiles
-  for a row and drops stays as a `0` slot, and rendering would number the functions after it otherwise (nothing at
-  run time reads the slots; with rendering forced on in dev the whole suite passes but the test that says dev never
-  renders). If dev's function numbering may change, dev renders too, and the old route (`inlineInstance`, the row
-  lets) is needed only for per-copy diagnostics and rows that keep a handler; until then it stays
-  (`redesign-notes/stage2-coverage.md`, "The rest, and the deletion").
+- **Dev builds and the old route.** Decided: dev's function numbering may change, and dev compiles (the dev server,
+  `render()` from the testing module) render rows as builds do. A dev page's table has no `0` slots for the rows any
+  more; the render audit compares dev without them (`withoutEmptySlots`). The old route (`inlineInstance`, the row
+  lets) is now needed only for per-copy diagnostics, rows that keep a handler, and the shapes the renderer leaves
+  (`redesign-notes/stage2-coverage.md`, "Dev renders").
 - **Props as a run-time frame.** Binding an inlined live use's props at run time, as shared definitions do, would
   make a unit's code independent of its use with no holes, at the price of a changed IR and other bytes. Not planned
   for inlined uses: the holes keep the output, and the runtime, as they are. Stage 7 is about the uses whose props
@@ -241,6 +239,30 @@ Found by the research, not changed:
    expansion. And stage 2's: the old second-pass row route deleted once dev renders and per-copy diagnostics and
    rows that keep a handler are covered.
 3. **Stage 4's last step waits for a review**: the linker's deletion (`redesign-notes/stage4-units.md`).
+
+## How the work is run
+
+One session coordinates (it merges into `ccr-9ebf49d5-gpdej8`, one branch at a time, and runs the full suite and the
+audits there); each workstream has a log in `redesign-notes/` with, at its top, where it stands and what is next.
+Workstreams run as agents in worktrees of the coordinating session's machine or, since 2026-11-23 evening, as
+cloud sessions with a machine each (the one machine was at a load of 18 to 25 on 4 cores with six agents, and its
+timings were not usable). A cloud session pushes to a branch of its own:
+
+| Workstream | Where | Branch | Log |
+| --- | --- | --- | --- |
+| a unit's check data once (stage 4, step 3) | cloud, `session_01AjKzdxUhXTUw7iSJ32w1x1` | `redesign/check-data-once` | `stage4-check-once.md` |
+| a page file walked once (stage 3's leftover) | cloud, `session_01AjKze2EoiDyjazXQrsWJQk` | `redesign/page-walked-once` | `page-walked-once.md` |
+| stage 5, A1 then A2: definitions that ship, from units | cloud, `session_01AjKzdxPCdJ5nbeXvwkXoP2` | `redesign/stage5-a1` | `stage5-a1.md` |
+| stage 5, B1: the second pass from the first's walk | cloud, `session_01AjKzdxkDukbMzASz1qaYeA` | `redesign/stage5-b1` | `stage5-b1.md` |
+| the evaluation's cost | local agent | merged as it lands | `evaluation.md` |
+| the six bugs (three merged) | local agent | merged as they land | `bugs.md` |
+| early scripts built once per shape | cloud, `session_01AjKzdxPErYYZv1d2K1hMsD` | `redesign/early-script-shapes` | `early-script-shapes.md` |
+
+**The bar, as the owner set it on 2026-11-23:** the output need not be byte for byte today's where only numbering
+and generated names differ (`data-sn` ids, anchor numbers, template, state and function numbers, renamed loop
+names), provided a canonicalizing comparison shows the two equal (stage 5 builds it), the suite passes, sinter-mail's
+suite and run-time benchmark hold, and no page gets heavier. The IR's shape and the runtime do not change without a
+decision of their own (stage 7). A step that can stay byte-identical does.
 
 ## Status log
 
@@ -392,3 +414,42 @@ Found by the research, not changed:
   components route replays the library in its second pass (25 to 30 ms a page, 71 with TypeScript), and sharing
   there has to survive `finishPage`; `anchors()` and `shareTemplates()` could run once per unit, but
   `compactTables()`, `groupStyles()`, `checkUrlArrays()` and `placeTemplates()` are the page's own assembly.
+- 2026-11-23, 19:00 UTC: byte identity relaxed to "identical up to numbering" (see "How the work is run"); stage 5
+  started, measuring and planning first (`redesign-notes/stage5-assembly.md`); new workstreams go to cloud sessions
+  with a machine each, the first two started (table above); agents no longer run the full suite, the coordinating
+  session does at each merge.
+- 2026-11-23, 19:30 UTC: **dev renders** (merged; `redesign-notes/stage2-coverage.md`, "Dev renders"): dev compiles
+  take the rendered route, the `dev` fallback (1,493 loops over the suite) is gone, the render audit compares dev
+  results without the empty slots. It fixed three differences between the routes that builds had too: a chain root
+  reached through a tag root in slot content was not marked for scoped styles; white space after a written text
+  survived the minifier; a folded state's source-map site. No dev-server speed-up could be shown at this machine's
+  load. **Embedding** (merged; `redesign-notes/embed-fields.md`): a read of a build-time value down to a primitive
+  is written into the code in the second pass, what is left is embedded with only the keys read, what can escape
+  stays whole; the benchmark's live post goes from 20,345 to 11,811 bytes with no JSON script, the live build's
+  `dist/` from 2.33 to 1.44 MB; nothing else in any app changes. It also found and fixed a run-time bug: since URL
+  templates compile to code, a `file:`, `content:` or entry value read in the browser was `null` in every build
+  (the benchmark's comments request was never sent). Left whole: lists, `select`, dev, pages with `merge`/`upsert`/
+  `remove`. **Bugs**, three of six merged: a choice's props must be constants; `(1).toFixed()`; a broken expression
+  no longer silences every type error. **Stage 5** is measured and planned (`redesign-notes/stage5-assembly.md`) and
+  its step 0, the canonicalizer (`src/compiler/canon.ts`, `SN_CANON=1`), is merged. What its numbers say: second-pass
+  units are half the compile of a page that ships definitions (sinter-mail's components route: 110 to 139 of 276 to
+  364 ms) and nothing elsewhere; the second pass is 42% of a large live page's compile and 20 to 30% of a blog
+  page's; live uses from units would buy 3.5% of that live page and 7 to 11% of realworld, so they wait for a
+  profile after the other two. Reserved number ranges are still out (the runtime reads a row's template from the
+  loop index's name, and longer names ship); what the relaxed bar buys is the order numbers are handed out in.
+- 2026-11-23, 19:45 UTC: on the integration branch after the merges above: 1,464 tests of test/compiler, test/vite,
+  test/check pass. Four cloud sessions run (table under "How the work is run"): check data once, a page file
+  walked once, B1, and A1, which first finishes step 0's oracle (the behaviour tests and sinter-mail's suite and
+  bench under `SN_CANON=1`, not run yet). A caution from stage 5's measurements for every renumbering step:
+  canonical function order makes each module of sinter-mail's components route 322 B gzip heavier (4.8%), so the
+  canonical form is the oracle, not the order to ship. Still local: the evaluation's cost, bugs 4 to 6.
+- 2026-11-23, 20:00 UTC: a cost of the embedding change, found by timing: each live post's early script now has
+  the post's slug folded into it (and requests the comments early, which it never did: the value was `null`), so
+  the benchmark's 100 early scripts are 100 distinct sources and 100 nested builds at about 13 ms each: the live
+  template build went from about 4.2 to 5.1 s. A cloud session builds early scripts once per shape, the literals
+  substituted afterwards (`redesign-notes/early-script-shapes.md`). The evaluation's first change (a row's template
+  asked once, a row's scope a plain object: a 2,012-element email's evaluation 324 to 266 ms) conflicts with the
+  merged bug fix in the worklist and went back to its agent. Check data once, part 1 (a page holds a unit's check
+  part by reference) is pushed on its branch; no gain until part 2. Timings on the coordinating machine, load 8,
+  three runs each, 100 posts: static 3.6 to 4.5 s, with the type check 3.8 s, live 5.1 s, a page file per post 4.4
+  to 5.7 s, live 7.0 to 8.0 s.
