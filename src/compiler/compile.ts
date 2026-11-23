@@ -8,7 +8,7 @@ import { recordChild, replay as replayUnit, LINK_FIELDS, UNIT_NUMBERING, type Pl
 import { canonicalText } from './canon.js';
 import { forceUnits2, holdUnit, placeUnits, restoreUnit, touch, unitCheck, unitFallback, units2On, unitsOn, unitTable, type BuildUnit, type UnitStore } from './units.js';
 import { declaringTemplate, HEAD_ELEMENTS, kindOfComponent, parseDocument, STRUCTURAL } from './head.js';
-import { minifyMarkup } from './minify.js';
+import { minifyMarkup, type MinifyHooks } from './minify.js';
 import { prune, resourceReads } from './embed-reads.js';
 import type { RemoteConfig } from '../remote.js';
 import { AUTO_FIT_HINT, AUTO_FIT_ROWS, FLUID_WIDTHS } from './images.js';
@@ -1397,6 +1397,10 @@ type FromWalk = {
    * a set's keys) and changed, and the functions it made with their calls: the second pass places none (`fromWalk`)
    */
   unit?: { added: Map<string, [number, number]>; items: Map<string, unknown[]>; changed: string[]; f1: number; fnUses: number[] };
+  /** the embedded resources' elements the walk took out (`remove`): their ids, and where they stood (before `next`) */
+  gone?: Array<{ id: number; parent: P5Parent; next: P5Node | null }>;
+  /** the minifier ran with a layout (`minify`: it reads the page's stylesheets, none loaded from elsewhere) */
+  minified?: boolean;
 };
 /** `fwMarks`' readers, by the list of fields they read: one property read per field, not a lookup by name each */
 const FW_READERS = new Map<string, (c: unknown, page: unknown) => unknown[]>();
@@ -2644,6 +2648,21 @@ class Compiler {
     this.runTargets();
     if (this.opts.swap && !this.swapOff) this.swapScripts(doc);
     this.runCycles();
+    // (B1: where an embedded resource's element stood, whose id is in document order: `renumberIds`)
+    if (this.fw && this.embedded.size) {
+      const ids = new Map([...this.embedded].flatMap(([n, id]) => { const el = this.resourceEls.get(n); return el ? [[el, id] as const] : []; }));
+      const out = new Set<P5Node>(this.remove);
+      for (const el of this.remove) {
+        const id = ids.get(el), p = el.parentNode as P5Parent | null;
+        if (id === undefined || !p) continue;
+        // (the next node that stays and may hold an id: an element, an anchor; the elements after it may go too, the
+        // texts merge)
+        const kids = p.childNodes as P5Node[];
+        let k = kids.indexOf(el as never) + 1;
+        while (k < kids.length && (out.has(kids[k]!) || !(isElement(kids[k]!) || kids[k]!.nodeName === '#comment'))) k++;
+        (this.fw.gone ??= []).push({ id, parent: p, next: kids[k] ?? null });
+      }
+    }
     for (const el of this.remove) detach(el);
     this.markLowPriority();
     this.walked = this.diagnostics.length;
@@ -10624,10 +10643,15 @@ class Compiler {
       }
     };
     scan(doc);
-    const scoped = new Set([...this.componentFiles.values()].filter((f) => f?.css).map((f) => f!.file));
     const layout = styles && !remote ? new Layout(styles, doc, this.layoutOptions()) : null;
-    minifyMarkup(doc, {
-      layout,
+    if (this.fw) this.fw.minified = !!layout;
+    minifyMarkup(doc, { layout, ...this.minifyHooks() });
+  }
+
+  /** the minifier's questions about the page's elements (`minify`; `fromWalk` again for rows it splices) */
+  minifyHooks(): Omit<MinifyHooks, 'layout'> {
+    const scoped = new Set([...this.componentFiles.values()].filter((f) => f?.css).map((f) => f!.file));
+    return {
       opaque: (el) => {
         const o = this.origins.get(el);
         if ((o && scoped.has(o.file)) || SCOPED.has(el)) return true;
@@ -10637,7 +10661,85 @@ class Compiler {
       },
       removed: (el) => el.tagName === 'sn-resource' || el.tagName === 'sn-sync',
       written: (n) => { const w = WRITTEN.get(n); return w === 'opaque' ? undefined : w; },
-    });
+    };
+  }
+
+  /**
+   * B1 (`fromWalk`): rendered rows spliced into `P` where their template was, after the minifier ran with a layout,
+   * which the second pass runs with the rows in place. The minifier judged the white space beside the template by what
+   * is past it; beside rows that start (end) with a block-level box (an item, in a flex, grid or table container) it is
+   * removed whatever is past it, and a text there loses its white space on the rows' side: that, for the text right
+   * before and right after the rows. Rows that start or end otherwise are judged as the template was (what it renders is
+   * no block). False where that cannot be told from the walked page: `P` or an element above it bound (its class,
+   * style or display the walk took off), no element in the rows.
+   */
+  respaceRows(P: P5Parent, rows: P5Node[], shown: RenderedRows['shown'] = []): boolean {
+    // (the rows as the markup they stand for, to the minifier and its layout: the bindings, not their paint, as the
+    // second pass shows them, `walkExpanded`)
+    const painted = shown.map(([e]) => e.attrs);
+    for (const [e, a] of shown) e.attrs = a;
+    try { return this.respaceRowsAs(P, rows); } finally { shown.forEach(([e], i) => { e.attrs = painted[i]!; }); }
+  }
+
+  respaceRowsAs(P: P5Parent, rows: P5Node[]): boolean {
+    const sheets = (typeof this.opts.minify === 'object' ? this.opts.minify.styles : undefined) ?? this.opts.styles;
+    if (!sheets) return true;
+    if (!isElement(P as P5Node) || !rows.some(isElement)) return false;
+    const ids = new Map(this.roots.flatMap((n) => (n.id !== undefined ? [[n.id, n] as const] : [])));
+    // (an element the walk took a class, a style or a display off: the layout would judge it otherwise now)
+    const bound = (e: P5Element) => { const a = attr(e, 'data-sn'); return a !== undefined && (!/^\d+$/.test(a) || !!ids.get(+a)?.b.some((b) => b.k !== 'on' && b.k !== 'model' && b.k !== 'text')); };
+    for (let e: P5Node | null = P as P5Node; e && isElement(e); e = (e as P5Element).parentNode as P5Node | null) if (bound(e as P5Element)) return false;
+    const el = P as unknown as P5Element, hooks = this.minifyHooks();
+    if (el.namespaceURI !== parse5.html.NS.HTML || /^(script|style|textarea|title|noscript|xmp|iframe|noembed|noframes|plaintext|pre|listing)$/.test(el.tagName)) return true;
+    const layout = new Layout(sheets, this.walk!.doc, this.layoutOptions());
+    if (hooks.opaque(el) || !layout.collapsesSpace(el)) return true;
+    const kind = layout.childLayout(el);
+    if (kind === null) return true;
+    const isText = (n: P5Node): n is DefaultTreeAdapterMap['textNode'] => n.nodeName === '#text' && hooks.written?.(n) !== 'text';
+    const SPACE_ONLY = /^[\t\n\f\r ]*$/;
+    const kids = P.childNodes as P5Node[], mine = new Set(rows);
+    let i0 = kids.indexOf(rows[0] as never), i1 = kids.indexOf(rows[rows.length - 1] as never);
+    if (i0 < 0 || i1 < 0) return false;
+    // texts that meet, merged (the minifier's first step: a row's last text and the next row's first are one run)
+    for (let k = Math.max(1, i0); k <= Math.min(kids.length - 1, i1 + 1); k++) {
+      const a = kids[k - 1]!, b = kids[k]!;
+      if (!isText(a) || !isText(b)) continue;
+      a.value = (a.value + b.value).replace(/[\t\n\f\r ]+/g, (run) => (/[\n\r]/.test(run) ? '\n' : ' '));
+      if (mine.has(b)) mine.add(a);
+      kids.splice(k, 1);
+      i1--;
+      k--;
+    }
+    i0 = Math.max(0, i0);
+    let ok = true;
+    // what is past the text at `i` in direction `d`, as the minifier's `side` and `item` ask it (an element past
+    // the rows that the walk changed: not known)
+    const side = (i: number, d: -1 | 1): 'block' | 'other' => {
+      for (let k = i + d; k >= 0 && k < kids.length; k += d) {
+        const n = kids[k]!;
+        if (n.nodeName === '#comment' || (isText(n) && SPACE_ONLY.test(n.value))) continue;
+        if (!isElement(n) || n.namespaceURI !== parse5.html.NS.HTML || hooks.opaque(n)) return 'other';
+        if (hooks.removed(n)) continue;
+        if (n.tagName === 'template' || (!mine.has(n) && bound(n))) { ok = false; return 'other'; }
+        return (kind === 'items' ? layout.isItem(n) : layout.blockLevel(n)) ? 'block' : 'other';
+      }
+      return kind === 'items' ? 'block' : layout.edgesStartLines(el) ? 'block' : 'other';
+    };
+    // the texts whose neighbours the rows changed: the rows' own (a row's edge was its template content's), and the one
+    // right before and right after them; the rest of the rows' white space is as the minifier left it there
+    const drop = new Set<P5Node>();
+    for (let k = Math.max(0, i0 - 1); k <= Math.min(kids.length - 1, i1 + 1); k++) {
+      const n = kids[k]!;
+      if (!isText(n)) continue;
+      const left = side(k, -1), right = side(k, 1);
+      if (SPACE_ONLY.test(n.value)) { if (left !== 'other' || right !== 'other') drop.add(n); continue; }
+      if (left !== 'other') n.value = n.value.replace(/^[\t\n\f\r ]+/, '');
+      if (right !== 'other') n.value = n.value.replace(/[\t\n\f\r ]+$/, '');
+    }
+    if (!ok) return false;
+    // (in place: the caller holds the list)
+    for (let k = kids.length - 1; k >= 0; k--) if (drop.has(kids[k]!)) kids.splice(k, 1);
+    return true;
   }
 
   layoutOptions() {
@@ -11673,7 +11775,9 @@ class Compiler {
         if (at === undefined || !r || r[0] !== at) return no('a loop not among the roots');
         if (this.renderedHere(a.el, rows)) return no(`rendered rows ${this.renderedHere(a.el, rows)}`);
         if (rows.idAttrs.length) return no('ids in rendered rows');
-        if (this.layout || minLayout) return no('rendered rows and a layout');
+        // (the minifier's layout: the white space beside them as the minifier leaves it beside rows, `respaceRows`; the
+        // page's own layout, which the images, the space of late rows and the dry run of constants read: not yet)
+        if (this.layout) return no('rendered rows and a layout');
         if (this.opts.images && imgs(rows.nodes)) return no('an image in rendered rows');
         ds.push({ a, v: true, other: null, at, rows });
         continue;
@@ -11839,11 +11943,15 @@ class Compiler {
       this.inheritSlot(c, placed);
       const start = this.scopeStart.get(c);
       if (start) for (const n of placed) if (isElement(n)) this.scopeStart.set(n, outerFirst(start, this.scopeStart.get(n)));
+      const after = kids[j + 1] ?? null;
       kids.splice(i, j - i + 1, ...(placed as never[]));
       if (!d.rows) this.foldedText.push(this.snSource.get(c) ?? '', this.emptyOf.get(c)?.list ?? '');
+      if (d.rows && minLayout && fw.minified && !this.respaceRows(P, placed, d.rows.shown)) return no('rendered rows and a layout: a bound element around them', true);
       mergeText(P);
       // the range the branch's markup is in now (a text that met another is in that one; the parent's other texts may
       // meet too, where what the first walk took out stood)
+      // (an embedded resource's element that stood right before the template: before what took its place)
+      for (const g of fw.gone ?? []) if (g.parent === P && (g.next === c || g.next === d.other?.el)) g.next = placed.find((n) => kids.includes(n as never)) ?? (after && kids.includes(after) ? after : null);
       const here = new Set(placed);
       let from = -1, to = -1;
       for (let k = 0; k < kids.length; k++) if (here.has(kids[k]!)) { if (from < 0) from = k; to = k + 1; }
@@ -11930,7 +12038,7 @@ class Compiler {
     for (const r of this.resources) delete r.lo;
     this.markLowPriority();
     // the page's ids, in document order (a kept element's keep theirs)
-    this.renumberIds(this.walk!.doc);
+    if (!this.renumberIds(this.walk!.doc)) return no('an embedded resource\'s place', true);
     return null;
   }
 
@@ -11938,12 +12046,24 @@ class Compiler {
    * `fromWalk`: the ids of the page's bound nodes and anchors, handed out again in the order the markup has them, with
    * the gap a rendered block leaves (the ids its rows' bindings would have taken: today's numbering, where it is free)
    */
-  renumberIds(doc: P5Parent) {
+  renumberIds(doc: P5Parent): boolean {
     const map = new Map<number, number>();
     let next = 0;
     const id = (old: number) => { if (old >= KEPT_FROM) return old; let n = map.get(old); if (n === undefined) map.set(old, (n = next++)); return n; };
+    // (an embedded resource's id, where its element stood: the walk numbered it there)
+    const gone = this.fw?.gone ?? [], before = new Map<P5Node, number[]>(), last = new Map<P5Parent, number[]>();
+    for (const g of gone) {
+      if (g.next && !g.parent.childNodes.includes(g.next as never)) return false;
+      const m = g.next ? before : last, k = (g.next ?? g.parent) as never;
+      let l = m.get(k);
+      if (!l) m.set(k, (l = []));
+      l.push(g.id);
+    }
+    let seen = 0;
     const visit = (p: P5Parent) => {
       for (const c of p.childNodes as P5Node[]) {
+        const b = before.get(c);
+        if (b) for (const x of b) { id(x); seen++; }
         if (isElement(c)) {
           // (rendered rows: the ids their bindings would have taken, as the walk leaves them, `walkChildren`)
           const r = this.renderedAt.get(c);
@@ -11956,10 +12076,17 @@ class Compiler {
           if (m) (c as DefaultTreeAdapterMap['commentNode']).data = `sn ${id(+m[1]!)}`;
         }
       }
+      const e = last.get(p);
+      if (e) for (const x of e) { id(x); seen++; }
     };
     visit(doc);
+    if (seen < gone.length) return false;
     for (const n of this.roots) if (n.id !== undefined) n.id = id(n.id);
+    // (the embedded data's ids, where the resources hold them)
+    for (const [k, v] of this.embedded) if (v < KEPT_FROM) this.embedded.set(k, id(v));
+    for (const r of this.resources) if (typeof r.data === 'number' && r.data < KEPT_FROM) { touch(this, r); r.data = id(r.data); }
     this.nextId = next;
+    return true;
   }
 
   /** For the second pass: the state fields the decided `data-sn-if`s and unrolled loops read. */
