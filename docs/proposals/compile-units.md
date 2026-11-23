@@ -216,13 +216,11 @@ Found by the research, not changed:
   definition on one page reports its errors twice; the build counts warnings in "type error(s)". And a correction to
   `contract.md` §5: components see the page's resources, so some of a component's functions are typed per page
   (`$meta`, `refresh`, `upsert`); those stay on their pages when the check shares functions.
-- **Dev builds and the old route.** Dev compiles (the dev server, `render()` from the testing module) run both
-  passes and never render rows: dev does not compact its function table, so every function the old route compiles
-  for a row and drops stays as a `0` slot, and rendering would number the functions after it otherwise (nothing at
-  run time reads the slots; with rendering forced on in dev the whole suite passes but the test that says dev never
-  renders). If dev's function numbering may change, dev renders too, and the old route (`inlineInstance`, the row
-  lets) is needed only for per-copy diagnostics and rows that keep a handler; until then it stays
-  (`redesign-notes/stage2-coverage.md`, "The rest, and the deletion").
+- **Dev builds and the old route.** Decided: dev's function numbering may change, and dev compiles (the dev server,
+  `render()` from the testing module) render rows as builds do. A dev page's table has no `0` slots for the rows any
+  more; the render audit compares dev without them (`withoutEmptySlots`). The old route (`inlineInstance`, the row
+  lets) is now needed only for per-copy diagnostics, rows that keep a handler, and the shapes the renderer leaves
+  (`redesign-notes/stage2-coverage.md`, "Dev renders").
 - **Props as a run-time frame.** Binding an inlined live use's props at run time, as shared definitions do, would
   make a unit's code independent of its use with no holes, at the price of a changed IR and other bytes. Not planned
   for inlined uses: the holes keep the output, and the runtime, as they are. Stage 7 is about the uses whose props
