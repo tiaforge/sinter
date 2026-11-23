@@ -228,3 +228,35 @@ what is compared.
 - **Page weight**: `npm run size -- --check` passes; every page and early chunk the same as at 5f203af (the feature
   modules differ by 60 B min between the two checkouts by their paths' length, not by this change); the apps'
   pages and modules byte for byte the same, so their gzip sizes are too.
+
+## 10. After merging A1 (324b7a3, then 35bed5c): checks, and the next two steps
+
+Merged; conflicts resolved as A1's (`unitPass` for every second pass, B1's fallback compiles included; `markScoped`
+holds A1's `touchMark`; `SN_UNITS2_AUDIT` runs with B1 off like the other audits); units.test.ts and units2.test.ts run
+with B1 off. Suite 2,975 green but units2's five before that change; under `SN_FROM_WALK_AUDIT=1` the same. On
+test/compiler: `SN_RENDER_AUDIT` and `SN_LINK_AUDIT` pass, `SN_ONE_PASS_AUDIT` passes but for units2 (fixed since, and
+units.test/units2.test pass under every audit), `SN_UNITS_AUDIT` fails the same 62 and `SN_UNITS2_AUDIT` the same 52 as
+the integration head (by construction: they count units). `pass-audit --switch SN_FROM_WALK` and `render-audit --switch
+SN_FROM_WALK --canon`: the nine apps the same. page-compile: 406 → 326, 389 → 306 ms.
+
+**Next: pages with a unit placed** (every vite page with definitions). A1's `unitPass` + `holdUnit`/`restoreUnit` give
+a second pass its own copy of what it changes of a unit; B1's route finishes the *first* pass, which shares the
+first-pass unit's objects (stage 4), so it needs the same for the first pass's unit: every unit object the route and
+`finishPage` change touched (`touch`) before, and the output copied off the unit before `restoreUnit`. Not started.
+
+**Next: a template's entries, in place instead of a copy.** What the 7 ms copy is: `copyState` of the kept walk copies
+every field; the kept walk holds what its walk compiled, the page (a dozen elements, two components) and, inside the
+`$build` branch, the markdown library's 26 choice candidates compiled as definitions (their templates, `NodeDef`s,
+bindings, scopes, the parsed markup of their content, check data, the side tables keyed by those nodes) and the
+lookups of every copied object in every weak table on the first copy. All of the library's part is dead in the entry's
+page (its templates are emptied by the route). In place: the route's own changes are few and known (the branch's
+markup restored, rows spliced, table entries taken out and the new walk's added, `roots`, `fns`, `templates`' nodes,
+ids), and each can be logged and undone; but `finishPage` changes nearly every live object after it (`prerender`
+writes first paint into the markup and `dropConstants` drops bindings and nodes, `anchors` turns templates into
+comments and moves their content to the head, `shareTemplates`, `groupStyles` replaces `node.b`, `compactTables`
+renumbers templates and functions in place, the early file and the serializer read it all). Undoing those needs a
+touch-before-write journal over the live page's objects (as `touch`/`restoreUnit` do for a unit), or `finishPage`
+working on copies of only the live objects. The latter is the reachable step: a copy of the kept walk restricted to
+what the entry's page keeps (after the dry run the dead templates and the tables' entries the dropped walks added are
+known, and they are the library's bulk), whose cost is that of the page's own walk state, about the 0.5 ms the stage 3
+expansion copy costs. Not built.
