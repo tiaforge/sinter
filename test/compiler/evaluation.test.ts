@@ -5,7 +5,7 @@
 // each alone: the results must be the same, every field.
 import { afterEach, describe, expect, test } from 'vitest';
 import { compile, type CompileOptions, type CompileResult } from '../../src/compiler/index.js';
-import { caseCode, decidedEntries, failsFirst, frozenPlain } from '../../src/compiler/compile.js';
+import { caseCode, decidedEntries, failsFirst, frozenPlain, StyleWrites, writeFirstPaint } from '../../src/compiler/compile.js';
 
 const C: Record<string, string> = {
   'x-doc': '<template data-sn-props="{ doc: any }"><div class="doc"><template data-sn-for="n in doc.children"><sn-component use="{ text: \'x-text\', link: \'x-link\', em: \'x-em\' }[n.type]" data-sn-with="{ node: n }"></sn-component></template></div></template>',
@@ -159,6 +159,33 @@ describe('rendering a row', () => {
     const body = both(page(`<ul><template data-sn-for="(r, i) in grid.rows"><li><i data-sn-style="{ color: i ? 'red' : null, margin: null }">a</i><i style="" data-sn-style="{ color: null }">b</i><i style="padding: 0" data-sn-style="{ color: i ? null : 'blue', 'font-weight': 700 }">c</i><b title="x" lang="en" data-sn-attr="{ title: i ? r.name : null, lang: null, dir: null }">d</b></li></template></ul>`));
     expect(body).toContain('<li><i>a</i><i>b</i><i style="padding: 0; color: blue; font-weight: 700">c</i><b>d</b></li>');
     expect(body).toContain('<li><i style="color: red">a</i><i>b</i><i style="padding: 0; font-weight: 700">c</i><b title="b">d</b></li>');
+  });
+  test('an element\'s style bindings written at once (`StyleWrites`): what writing them one at a time writes, attribute by attribute', () => {
+    // (random sequences: properties in another case, the same property again, values with a `;` or a space at an end,
+    // `null`; the element with no style, an empty one, one with declarations; other attributes written in between)
+    let seed = 7;
+    const rnd = (n: number) => { seed = (Math.imul(seed, 1103515245) + 12345) >>> 0; return (seed >>> 8) % n; };
+    const names = ['color', 'Color', 'margin', 'font-weight', 'width', 'x'];
+    const values = [null, null, 'red', '0', '1px ', ' 2px', 'a; b', 'a:b', ''];
+    const starts = [null, '', ' ', 'color: blue', 'padding:0;', 'a: b; ;margin : 1', ';'];
+    type El = Parameters<typeof writeFirstPaint>[0];
+    const el = (style: string | null) => ({ nodeName: 'i', tagName: 'i', attrs: [{ name: 'id', value: 'x' }, ...(style === null ? [] : [{ name: 'style', value: style }]), { name: 'lang', value: 'en' }], childNodes: [] }) as unknown as El;
+    for (let round = 0; round < 3000; round++) {
+      const start = starts[rnd(starts.length)]!, a = el(start), b = el(start), s = new StyleWrites(b);
+      for (let k = rnd(12); k >= 0; k--) {
+        if (rnd(4) === 0) {
+          const v = rnd(2) ? null : 't' + k;
+          writeFirstPaint(a, 'attr', 'title', v, true);
+          writeFirstPaint(b, 'attr', 'title', v, true);
+          continue;
+        }
+        const n = names[rnd(names.length)]!, v = values[rnd(values.length)]!;
+        writeFirstPaint(a, 'style', n, v, true);
+        s.write(n, v);
+      }
+      s.done();
+      expect(b.attrs).toEqual(a.attrs);
+    }
   });
   test('a template\'s elements copied in every row, each its own (ids, uses)', () => {
     const body = both(page('<x-doc data-sn-with="{ doc }"></x-doc><x-doc data-sn-with="{ doc }"></x-doc>'));

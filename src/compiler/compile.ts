@@ -9451,15 +9451,41 @@ class Compiler {
       clonePlans.set(n, cp);
       return cp;
     };
+    // what a binding's dependencies add to the rows' reads (`read`): the resources it reads and the state's sites, by list
+    const readsOf = new Map<PathRef[] | undefined, { res: string[]; sites: string[] }>();
+    /**
+     * what filling a row's element reads of its node, the same in every row (`fill`): the bindings it writes, in their
+     * order (not a definition root's `$a`, not an `else`, not what `prefold` writes first), each with why the rows are
+     * not rendered if it is one they cannot be (a handler that stays, a kind no row paints), and whether the element's
+     * style is written by its style bindings alone (no `data-sn-attr` of `style`), so that they can be written at once
+     */
+    const fillPlans = new Map<NodeDef, { acts: Array<{ b: Binding; why: string | null }>; styles: boolean }>();
+    const fillPlan = (n: NodeDef, folded: Set<Binding>) => {
+      let f = fillPlans.get(n);
+      if (f) return f;
+      const acts = n.b.filter((b) => !defAttr.has(b) && b.k !== 'else' && !folded.has(b)).map((b) => ({ b, why: b.k === 'if' || b.k === 'for' ? null : handlerOnly(b) ? 'handler' : !ROW.has(b.k) ? `a binding of kind ${b.k}` : null }));
+      fillPlans.set(n, f = { acts, styles: styleBatchOn() && !acts.some(({ b }) => b.k === 'attr' && b.n?.toLowerCase() === 'style') });
+      return f;
+    };
     return (key, p) => {
       const at = where(p.el);
       if (at) { this.unrendered.set(key, { why: at, rows: p.found.rows }); return null; }
       const st = { ids: 0, folded: [] as string[], files: new Set<string>(), reads: new Set<string>(), rootStyled: new Set<string>(), uses: new Set<string>(), state: new Set<string>() };
       const no = (why: string): never => { throw new NoRender(why); };
       // (and the state fields they read: the old route's second pass freezes those of the bindings it drops, `fixedState`)
+      // (a dependency list read once in these rows adds nothing the second time: each list's names once, in order)
+      const seenReads = new Set<PathRef[] | undefined>();
       const read = (ds: PathRef[] | undefined) => {
-        for (const d of strs(ds)) { const m = /^\$(?:r|meta)\.([A-Za-z_$][\w$]*)/.exec(d); if (m) st.reads.add(m[1]!); }
-        for (const x of this.stateSites(ds)) st.state.add(x);
+        if (seenReads.has(ds)) return;
+        seenReads.add(ds);
+        let r = readsOf.get(ds);
+        if (!r) {
+          const res: string[] = [];
+          for (const d of strs(ds)) { const m = /^\$(?:r|meta)\.([A-Za-z_$][\w$]*)/.exec(d); if (m) res.push(m[1]!); }
+          readsOf.set(ds, r = { res, sites: [...this.stateSites(ds)] });
+        }
+        for (const x of r.res) st.reads.add(x);
+        for (const x of r.sites) st.state.add(x);
       };
       const texted = new Set<P5Node>(), empty: P5Node[] = [];
       /** what the second pass's minifier reads on each element that had bindings: its attributes before paint */
@@ -9696,14 +9722,19 @@ class Compiler {
           const el = this.tplEls.get(n), cl = el && map.get(el) as P5Element | undefined;
           if (!el || !cl) no('markup');
           let bound = false;
-          const paint = (b: Binding) => {
-            if (handlerOnly(b)) no('handler');
-            if (!ROW.has(b.k)) no(`a binding of kind ${b.k}`);
+          // (the element's style, when its style bindings alone write it: their declarations at once, `StyleWrites`)
+          let styles: StyleWrites | null = null;
+          const paint = (b: Binding, why?: string | null) => {
+            if (why === undefined) {
+              if (handlerOnly(b)) no('handler');
+              if (!ROW.has(b.k)) no(`a binding of kind ${b.k}`);
+            } else if (why) no(why);
             const w = rec.get(b) as ConstantWrite | null | undefined;
             if (w === undefined) no('not painted');
             if (w === null) no('not written ahead');
             if (w!.k === 'text') WRITTEN.set(cl!, 'content');
-            writeFirstPaint(cl!, w!.k, w!.n, w!.v, true);
+            if (styles && w!.k === 'style') styles.write(w!.n!, w!.v as string | null);
+            else writeFirstPaint(cl!, w!.k, w!.n, w!.v, true);
             read(b.d);
           };
           // what the second pass writes before the layout and the images (`prefold`: an image's attributes, a class or
@@ -9730,8 +9761,9 @@ class Compiler {
           const marks = MARKED.get(cl!);
           if (marks && cl!.tagName === 'img' && !n.b.some((b) => !defAttr.has(b) && b.k !== 'else' && !folded.has(b))) late.push([cl!, marks]);
           else if (marks) for (const m of marks) setAttr(cl!, m.name, m.value);
-          for (const b of n.b) {
-            if (defAttr.has(b) || b.k === 'else' || folded.has(b)) continue;
+          const plan = fillPlan(n, folded);
+          if (plan.styles) styles = new StyleWrites(cl!);
+          for (const { b, why } of plan.acts) {
             if (b.k === 'if') {
               const v = rec.get(b) as boolean | undefined;
               if (v === undefined || b.x === undefined) no('if');
@@ -9759,9 +9791,10 @@ class Compiler {
               replace(cl, cl, out);
               continue;
             }
-            paint(b);
+            paint(b, why);
             bound = true;
           }
+          styles?.done();
           if (bound) st.ids++;
         }
       };
@@ -12886,7 +12919,7 @@ function firstPaintValue(el: P5Element, b: Binding, v: unknown, schemes: Set<str
  * a rendered row made, whose attribute list nothing else holds: an attribute that is not there is not filtered out
  * of a copy of it, and a style written where there is none is written without reading one
  */
-function writeFirstPaint(el: P5Element, kind: Kind, name: string | null, v: unknown, fresh = false) {
+export function writeFirstPaint(el: P5Element, kind: Kind, name: string | null, v: unknown, fresh = false) {
   const text = (s: string) => {
     for (const c of el.childNodes) (c as { parentNode: unknown }).parentNode = null;
     el.childNodes = s ? [{ nodeName: '#text', value: s, parentNode: el } as unknown as P5Node] as never : [];
@@ -12918,6 +12951,75 @@ function writeFirstPaint(el: P5Element, kind: Kind, name: string | null, v: unkn
     case 'value': if (el.tagName === 'textarea') text(v as string); else set('value', v as string); break;
   }
 }
+
+/**
+ * The style bindings of one element a rendered row made (`fresh`, its attribute list its own), written one after another
+ * as `writeFirstPaint(el, 'style', name, v, true)` writes each, without the element's whole style split and joined again
+ * at every one: sinter-mail's components write 55 an element, most of them `null`. The declarations are kept as a list
+ * with each one's property, which the next write filters as `writeFirstPaint` filters the split value: the split of a
+ * join of declarations that have no `;` and no space at either end is the list itself, so only a declaration that has is
+ * split again. The attribute is added and removed where `writeFirstPaint` adds and removes it (its place among the
+ * element's attributes), and its value written at the end (`done`): nothing reads it in between, as nothing else writes
+ * it (an element with a `data-sn-attr` of `style` is written one write at a time). `SN_STYLE_BATCH=0`: one at a time.
+ */
+export class StyleWrites {
+  private a: P5Element['attrs'][number] | null;
+  /** the value as written (an attribute's at the start), or null: as `list` */
+  private text: string | null;
+  private list: string[] | null = null;
+  private keys: string[] = [];
+  /** a declaration in `list` that the next write must split as `writeFirstPaint` would (a `;` in it, a space at an end) */
+  private dirty = false;
+  constructor(private readonly el: P5Element) {
+    this.a = el.attrs.find((x) => x.name === 'style') ?? null;
+    this.text = this.a ? this.a.value : null;
+  }
+  private static key(d: string): string { return d.slice(0, d.indexOf(':')).trim().toLowerCase(); }
+  /** `cur.split(';').map(trim).filter(Boolean)` of the current value, with each declaration's property */
+  private split(cur: string) {
+    this.list = cur.split(';').map((d) => d.trim()).filter((d) => d);
+    this.keys = this.list.map(StyleWrites.key);
+    this.text = null;
+    this.dirty = false;
+  }
+  write(name: string, v: string | null) {
+    const has = this.list ? this.list.length > 0 : !!this.text;
+    if (!has) {
+      // (none yet, or an empty one: the one declaration, or none)
+      if (v === null) {
+        if (this.a) { const a = this.a; this.el.attrs = this.el.attrs.filter((x) => x !== a && x.name !== 'style'); this.a = null; }
+        this.list = null;
+        this.text = null;
+        return;
+      }
+      if (!this.a) this.el.attrs.push(this.a = { name: 'style', value: '' });
+      const d = `${name}: ${v}`;
+      this.list = [d];
+      this.keys = [StyleWrites.key(d)];
+      this.text = null;
+      this.dirty = d.includes(';') || d !== d.trim();
+      return;
+    }
+    if (this.list === null) this.split(this.text!);
+    else if (this.dirty) this.split(this.list.join('; '));
+    const list = this.list!, keys = this.keys;
+    for (let i = keys.length - 1; i >= 0; i--) if (keys[i] === name) { list.splice(i, 1); keys.splice(i, 1); }
+    if (v !== null) {
+      const d = `${name}: ${v}`;
+      list.push(d);
+      keys.push(StyleWrites.key(d));
+      if (d.includes(';') || d !== d.trim()) this.dirty = true;
+    }
+    // (a value that had declarations and has none left is the empty style, `style=""`)
+    if (!list.length) { this.list = null; this.text = ''; }
+  }
+  /** the value written into the attribute */
+  done() {
+    if (this.a) this.a.value = this.list ? this.list.join('; ') : this.text ?? '';
+  }
+}
+/** a rendered element's style bindings written at once (`StyleWrites`) unless `SN_STYLE_BATCH=0` */
+function styleBatchOn(): boolean { return proc?.env.SN_STYLE_BATCH !== '0'; }
 
 /** an API's `signIn` in the page's language, when it is one of the site's pages (`inLanguage`) */
 export function localSignIn<T extends { to: string }>(s: T, l: CompileOptions['locale']): T {

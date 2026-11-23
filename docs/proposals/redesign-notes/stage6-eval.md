@@ -103,3 +103,30 @@ unit's candidates).
 ## Changes
 
 (each with its A/B numbers; byte for byte against the base unless said)
+
+### 1. Rendering a row: an element's styles written at once, its node read once, a dependency list once
+
+- **`StyleWrites`**: the style bindings of an element a rendered row made, written one after another as
+  `writeFirstPaint(el, 'style', name, v, true)` writes each, without splitting and joining the whole `style` at every
+  one. The declarations are a list with each one's property; a write filters the list by property as
+  `writeFirstPaint` filters the split value (the split of a join of declarations with no `;` and no space at either
+  end is the list itself; a declaration that has one is split again at the next write, as `writeFirstPaint` would
+  split it). The attribute is added and removed where `writeFirstPaint` adds and removes it (its place among the
+  element's attributes), and its value written once at the end of the element's bindings: nothing reads or writes it
+  in between, as an element with a `data-sn-attr` of `style` writes one at a time. `SN_STYLE_BATCH=0` turns it off.
+- **`fillPlan`**: what filling a row's element asks of its node, the same in every row: the bindings it writes in
+  their order (not a definition root's `$a`, not `else`, not what `prefold` writes first) and why the rows cannot be
+  rendered if one cannot be (a handler that stays, a kind no row paints), asked at the same place in the order as
+  before, so a fallback's reason is the same.
+- **`read`**: a dependency list once per render (its resources and its state's sites, the same items in the same
+  order: a list read again adds nothing to the two sets).
+
+Test: random sequences of style writes (another case of a property, one written twice, `;` and spaces in values,
+`null`; no style, an empty one, one with declarations; another attribute written in between) through `StyleWrites` and
+through `writeFirstPaint` one at a time give the same attributes (checked to fail when a declaration with a `;` or a
+space is not split again).
+
+A/B, wall ms a call, p25 / median / mean (3 rounds; API 2): mail gen pass-1 `prerender` 233 / 256 / 268 → 148 / 168 /
+177 (`compile()` 300 / 344 / 431 → 214 / 242 / 341); mail file 13.0 / 16.4 / 20.4 → 13.3 / 14.8 / 20.9; blog static
+`decideFor` 5.45 / 6.82 / 7.74 → 5.68 / 7.43 / 8.08 (no style bindings there; within the rounds' spread). Every app
+and sinter-mail page byte for byte the base's; test/compiler 1,122 passed, also under `SN_RENDER_AUDIT=1`.
