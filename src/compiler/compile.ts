@@ -5,6 +5,7 @@ import { rewriteImages, sourceFile, type ImageHost, type ImageResult } from './i
 import { boxSizesCss, type ReserveTrace, Layout, PLACEHOLDER_BASE, type Affine, type Reserved, type StyleSheet } from './layout.js';
 import { shows } from './status-eval.js';
 import { recordChild, replay as replayUnit, LINK_FIELDS, UNIT_NUMBERING, type Plan, type Refused } from './link.js';
+import { canonicalText } from './canon.js';
 import { placeUnits, restoreUnit, touch, unitCheck, unitFallback, unitsOn, unitTable, type BuildUnit, type UnitStore } from './units.js';
 import { declaringTemplate, HEAD_ELEMENTS, kindOfComponent, parseDocument, STRUCTURAL } from './head.js';
 import { minifyMarkup } from './minify.js';
@@ -1000,7 +1001,8 @@ export function compileParts(html: string, options: CompileOptions): CompiledPar
  */
 function shiftAudit(html: string, options: CompileOptions): CompiledParts {
   const before = SHIFT_STATS.defs, a = compileParts(html, options);
-  if (SHIFT_STATS.defs === before && !SHIFT_STATS.first && proc?.env.SN_UNITS_SHIFT_AT !== 'walk') return a;
+  const at = proc?.env.SN_UNITS_SHIFT_AT;
+  if (SHIFT_STATS.defs === before && !SHIFT_STATS.first && at !== 'walk' && at !== 'p2') return a;
   const plain = SHIFT_STATS.first;
   SHIFT_STATS.first = false;
   unitShift = 3;
@@ -1010,13 +1012,16 @@ function shiftAudit(html: string, options: CompileOptions): CompiledParts {
   SHIFT_STATS.first = false;
   const text = (r: CompiledParts) => JSON.stringify(r, (_, v) => (typeof v === 'function' ? '[fn]' : v instanceof Map ? [...v] : v instanceof Set ? [...v] : v));
   const same = text(a) === text(b);
+  // (and up to numbering: the canonical forms, which must be the same whatever was shifted)
+  const canon = same || canonicalText(a) === canonicalText(b);
   const log = proc?.env.SN_UNITS_SHIFT_LOG;
-  if (log) (proc?.getBuiltinModule?.('node:fs') as { appendFileSync(f: string, s: string): void } | undefined)?.appendFileSync(log, `${same ? 'same' : 'differs'}\t${plain || shifted ? 'first-pass-output' : 'second-pass-output'}\t${options.check ? 'check' : '-'}\t${options.file}\n`);
+  if (log) (proc?.getBuiltinModule?.('node:fs') as { appendFileSync(f: string, s: string): void } | undefined)?.appendFileSync(log, `${same ? 'same' : 'differs'}\t${canon ? 'canonical-same' : 'canonical-differs'}\t${plain || shifted ? 'first-pass-output' : 'second-pass-output'}\t${options.check ? 'check' : '-'}\t${options.file}\n`);
+  if (!canon && proc?.env.SN_UNITS_SHIFT_DUMP) (proc?.getBuiltinModule?.('node:fs') as { writeFileSync(f: string, s: string): void } | undefined)?.writeFileSync(`${proc.env.SN_UNITS_SHIFT_DUMP}.${SHIFT_STATS.dumps++}.json`, JSON.stringify({ file: options.file, a: JSON.parse(canonicalText(a)), b: JSON.parse(canonicalText(b)) }));
   return a;
 }
 
 /** the shift audit's state: definitions compiled in a first pass so far, and whether a compile's output was its first pass */
-const SHIFT_STATS = { defs: 0, first: false };
+const SHIFT_STATS = { defs: 0, first: false, dumps: 0 };
 /** (`shiftAudit`) how many of each number a first pass hands out before each top-level definition: 0, as compiled */
 let unitShift = 0;
 let shiftDepth = 0;
@@ -2046,7 +2051,10 @@ class Compiler {
     const paths = this.pathPatterns(doc);
     this.pathList = paths;
     // (the shift audit, `SN_UNITS_SHIFT_AT=walk`: the whole first pass numbered otherwise, from before its walk)
-    if (unitShift && proc?.env.SN_UNITS_SHIFT_AT === 'walk' && !this.opts.decided && !this.opts.unrolled && !this.opts.constants) {
+    // (`SN_UNITS_SHIFT_AT=p2`: the second pass numbered otherwise, from before its walk, which ships: the canonical
+    // forms must be the same, stage5-assembly.md step 0)
+    const second = !!(this.opts.decided || this.opts.unrolled || this.opts.constants);
+    if (unitShift && (proc?.env.SN_UNITS_SHIFT_AT === 'walk' ? !second : proc?.env.SN_UNITS_SHIFT_AT === 'p2' && second)) {
       for (let i = 0; i < unitShift; i++) { this.newTemplate(); this.fn(`() => "sn-shift ${i}"`); }
       this.nextSid += unitShift;
       this.useIds += unitShift;
