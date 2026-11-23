@@ -108,3 +108,53 @@ ${body}
     rmSync(root, { recursive: true, force: true });
   }
 }, 60_000);
+
+test('a single-file component\'s `<script>` is checked under the app\'s tsconfig, as the same code in a module beside its file: its strictness, `paths` and declaration files (SN208)', () => {
+  const html = (lang: string, body: string) => `<template data-sn-props="{ n: number }">
+  <p data-sn-text="n"></p>
+</template>
+
+<script${lang}>
+  import { XAComponent } from './x-a.html';
+  import { twice } from '@lib/math';
+  export class XA extends XAComponent {
+    connected() {
+${body}
+    }
+  }
+</script>
+`;
+  const body = "      const el: HTMLElement = document.querySelector('h1'); const f = (x) => x * twice(2); void el; void f;\n      const mode: string = import.meta.env.VITE_MODE; void mode;";
+  const root = app({
+    'package.json': '{"type":"module"}',
+    'node_modules/.keep': '',
+    'tsconfig.base.json': JSON.stringify({ compilerOptions: { strict: true, outDir: 'dist', rootDir: 'src', composite: true, declaration: true } }),
+    'tsconfig.json': '// the app\'s, with comments\n' + JSON.stringify({ extends: './tsconfig.base.json', compilerOptions: { target: 'ESNext', module: 'ESNext', moduleResolution: 'bundler', lib: ['ESNext', 'DOM'], verbatimModuleSyntax: true, isolatedModules: true, paths: { '@lib/*': ['./src/lib/*'] } }, include: ['src'] }),
+    'src/env.d.ts': 'interface ImportMetaEnv { readonly VITE_MODE: string }\ninterface ImportMeta { readonly env: ImportMetaEnv }\n',
+    'src/lib/math.ts': 'export const twice = (n: number): number => n * 2;\n',
+    // an error in a module of the app's own is its tsc's to report
+    'src/lib/other.js': 'export const bad = 1;\nbad.nope();\n',
+    'src/components/x-a/x-a.html': html(' lang="ts"', body),
+    'index.html': '<!doctype html><html><head><title>t</title></head><body><x-a data-sn-with="{ n: 1 }"></x-a></body></html>\n',
+  });
+  try {
+    const r = check(root);
+    // `document.querySelector('h1')` may be null, `x` is implicitly any: as the app's tsc says of the same code
+    expect(r.stdout).toMatch(/src\/components\/x-a\/x-a\.html:10:13 error SN208[^\n]*Type 'HTMLHeadingElement \| null' is not assignable to type 'HTMLElement'[^\n]*\(TS2322\)/);
+    expect(r.stdout).toMatch(/src\/components\/x-a\/x-a\.html:10:72 error SN208[^\n]*Parameter 'x' implicitly has an 'any' type[^\n]*\(TS7006\)/);
+    expect(r.stdout.match(/ SN208 /g)).toHaveLength(2);
+    expect(r.stdout).not.toContain('other.js');
+    // a JS `<script>` is checked whatever the app's `checkJs`, its imports of the app's JS are not
+    writeFileSync(join(root, 'src/components/x-a/x-a.html'), html('', "      import('../../lib/other.js'); const n = 1; n.nope();"));
+    const js = check(root);
+    expect(js.stdout).toMatch(/x-a\.html:10:\d+ error SN208[^\n]*Property 'nope' does not exist on type '1'/);
+    expect(js.stdout.match(/ SN208 /g)).toHaveLength(1);
+    // without a tsconfig: sinter's own options, as before (nulls and implicit anys pass)
+    rmSync(join(root, 'tsconfig.json'));
+    writeFileSync(join(root, 'src/components/x-a/x-a.html'), html(' lang="ts"', "      const el: HTMLElement = document.querySelector('h1'); const f = (x) => x * 2; void el; void f;").replace("import { twice } from '@lib/math';", ''));
+    const lax = check(root);
+    expect(lax.stdout + lax.stderr).not.toContain('SN208');
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}, 60_000);
