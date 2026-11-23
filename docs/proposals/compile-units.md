@@ -210,6 +210,12 @@ Found by the research, not changed:
   state through a `<sn-component use>` prop is folded to a static `<picture>`; the same component used by its tag keeps
   its binding (`decisions.md` §7.3).
 - **Linking is off whenever the build type-checks** (`contract.md` §4), which is every build with TypeScript installed.
+- **Found by the type-check work, recorded and not changed** (`redesign-notes/typecheck.md`): a number-literal prop
+  read with a member (`n.toFixed()` with `n: 1`) is pasted as `1.toFixed()`, a syntax error in the bundler; a broken
+  expression on any page silences every type error on every page; a recursive component used both inline and as a
+  definition on one page reports its errors twice; the build counts warnings in "type error(s)". And a correction to
+  `contract.md` §5: components see the page's resources, so some of a component's functions are typed per page
+  (`$meta`, `refresh`, `upsert`); those stay on their pages when the check shares functions.
 - **Dev builds and the old route.** Dev compiles (the dev server, `render()` from the testing module) run both
   passes and never render rows: dev does not compact its function table, so every function the old route compiles
   for a row and drops stays as a `0` slot, and rendering would number the functions after it otherwise (nothing at
@@ -326,3 +332,7 @@ Found by the research, not changed:
   diagnostics corpus is byte for byte the reference. Stage 3, first change (merged,
   `redesign-notes/stage3-one-pass.md`): the minifier's layout questions over rendered rows are linear, the second
   pass's `minify` 2.7 to 0.7 ms a page.
+- 2026-11-23, 17:10 UTC: **the type-check work is in** (five changes; `redesign-notes/typecheck.md`). What is left
+  there is stage 4's: check data is still copied into each page by the linker's replay (12 ms a page on sinter-mail)
+  and each page's whole shadow is still written in memory (50 ms a page); a unit kept per build would carry its
+  check data once. Four things it found are under "For a decision".
