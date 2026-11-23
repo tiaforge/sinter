@@ -6,6 +6,13 @@
 // reference, its weak tables overlaid on the page's, its writes to the page's own tables applied again. What a page then
 // changes of a unit's objects is put back after its first pass (`restore`). A page whose first pass is its output (no
 // second pass follows) is compiled again without units (`compilePasses`).
+//
+// A second pass's definitions ship (docs/proposals/redesign-notes/stage5-a1.md): they come from a unit of the second pass
+// too, placed before its walk in the same way, so that its templates and functions come before the page's own and are
+// numbered alike on every page (the output is the old route's up to numbering: `canon.ts`). What reads only the unit's
+// definitions is done once when it is made (the candidates its choices take out, `anchors`, `shareTemplates` within
+// it); a page holds the rest of what its passes write into the unit (its templates, nodes and bindings, its head
+// templates' elements: `holdUnit`), copies its output off them and gives them back (`restoreUnit`).
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { readsHold, runUnit, UNIT_NUMBERING, type Op, type Read } from './link.js';
 import type { CheckPart } from './check-unit.js';
@@ -63,6 +70,19 @@ export type BuildUnit = {
   tables?: Map<string, { bind: (values: unknown[]) => void; fns: Map<string, ($: unknown) => unknown> | null }>;
   /** (`SN_UNITS_VERIFY=1`) each object's own values as it was made, which every page must leave as they were */
   prints?: Map<object, string>;
+  /**
+   * a second pass's unit (stage5-a1.md): what of it a page's passes write into (`irObjects`), each of which a page that
+   * places it holds as it was (`holdUnit`) and gives back after its output is copied (`restoreUnit`): the second pass's
+   * `finishPage` writes into what it assembles (function and template numbers, a binding of grouped styles, a row's
+   * lookup), and the page's output is what it wrote
+   */
+  all?: object[];
+  /** a second pass's: its head templates, by template id, finished (`anchors`, `shareTemplates`) */
+  heads?: Array<[number, unknown]>;
+  /** a second pass's: what reads only its definitions is done (`anchors`, `shareTemplates`): a page's passes skip its part */
+  finished?: true;
+  /** a second pass's: the forms its sharing kept (`shareRun`), against which a page shares what it adds, and its template count */
+  share?: { kept: ReadonlyMap<string, number>; owner: ReadonlyMap<number, number>; count: number };
 };
 /**
  * A name's part of the unit's check data: where it is in the unit's lists, and (when it refers to nothing outside
@@ -72,13 +92,18 @@ type Seg = { f0: number; f1: number; e0: number; e1: number; part?: CheckPart };
 export type UnitStore = Map<string, BuildUnit | { refused: string }>;
 
 /** counts, for the log and the tests: units made, placed, and the pages that compiled their definitions in place, by reason */
-export const UNIT_STATS = { made: 0, placed: 0, fallback: new Map<string, number>() };
+export const UNIT_STATS = { made: 0, placed: 0, made2: 0, placed2: 0, fallback: new Map<string, number>() };
 export const unitFallback = (why: string) => fallback(why);
 const fallback = (why: string) => { UNIT_STATS.fallback.set(why, (UNIT_STATS.fallback.get(why) ?? 0) + 1); };
 
 const proc = (globalThis as { process?: { env: Record<string, string | undefined> } }).process;
 /** `SN_UNITS=0` turns units off */
 export const unitsOn = () => proc?.env.SN_UNITS !== '0';
+/** (the second pass's units' audit compiles a page without them: `SN_UNITS2_AUDIT`, index.ts) */
+let units2Forced: boolean | null = null;
+export const forceUnits2 = (on: boolean | null): boolean | null => { const was = units2Forced; units2Forced = on; return was; };
+/** `SN_UNITS2=0` turns the second pass's units off (stage5-a1.md); `SN_UNITS=0` turns both off */
+export const units2On = () => units2Forced ?? (proc?.env.SN_UNITS2 !== '0' && unitsOn());
 
 const follow = (c: any, path: Array<{ p: string } | { k: unknown } | { i: number }>) => path.reduce((o: any, s) => (o == null ? undefined : 'p' in s ? o[s.p] : 'k' in s ? o.get(s.k) : o[s.i]), c);
 function resolve(c: any, r: Ref): unknown {
@@ -99,33 +124,84 @@ function unnumbered(c: any): boolean {
  * (a fallback, counted) left to the walk to compile in place. Returns the unit placed or made, whose objects the page
  * must give back as they were (`restore`).
  */
-export function placeUnits(c: any, store: UnitStore, key: string): BuildUnit | null {
-  const names: string[] = [...new Set<string>(c.pointNames)];
+export function placeUnits(c: any, store: UnitStore, key: string, second = false, live?: Set<string>): BuildUnit | null {
+  const names: string[] = [...new Set<string>(c.pointNames)].filter((n) => !live || live.has(n));
   if (!names.length) return null;
-  if (!unnumbered(c)) { fallback('numbered before its walk'); return null; }
+  const why = (w: string) => fallback(second ? `pass 2: ${w}` : w);
+  if (!unnumbered(c)) { why('numbered before its walk'); return null; }
   const k = `${names.join(',')}\u0002${key}`;
-  const known = store.get(k);
-  if (known && 'refused' in known) { fallback(known.refused); return null; }
-  if (known) {
-    if (!readsHold(c, known.reads)) { fallback('reads its page otherwise'); return null; }
-    place(c, known);
-    known.placed++;
-    UNIT_STATS.placed++;
-    return known;
+  // (a second pass's unit reads more of its page that differs between pages, as whether the page's own markup used a
+  // component before, or a value the build writes into the code: up to `VARIANTS` units by one key, the first whose
+  // reads hold placed)
+  for (let v = 0; v < (second ? VARIANTS : 1); v++) {
+    const kv = second ? `${k}\u0002p2\u0002${v}` : k;
+    const known = store.get(kv);
+    if (known && 'refused' in known) { why(known.refused); return null; }
+    if (known) {
+      if (!readsHold(c, known.reads)) {
+        // (`SN_UNITS_WHY=1`: the read that differs, for the log)
+        if (proc?.env.SN_UNITS_WHY) console.error(`sinter units: ${c.opts.file}${second ? ` (pass 2, ${v})` : ''} reads otherwise: ${JSON.stringify(known.reads.find((r) => !readsHold(c, [r])))?.slice(0, 400)}`);
+        continue;
+      }
+      place(c, known);
+      known.placed++;
+      if (second) UNIT_STATS.placed2++; else UNIT_STATS.placed++;
+      return known;
+    }
+    c.earlyDefs = true;
+    const made = make(c, names, second);
+    store.set(kv, made);
+    if ('refused' in made) { why(made.refused); return null; }
+    ownContainers(c, made);
+    if (second) UNIT_STATS.made2++; else UNIT_STATS.made++;
+    return made;
   }
-  c.earlyDefs = true;
-  const made = make(c, names);
-  store.set(k, made);
-  if ('refused' in made) { fallback(made.refused); return null; }
-  UNIT_STATS.made++;
-  return made;
+  why(second ? `reads its page otherwise (${VARIANTS} units by its key)` : 'reads its page otherwise');
+  return null;
+}
+
+/** how many second-pass units one key may have (`placeUnits`) */
+const VARIANTS = 3;
+
+/**
+ * What of a second pass's unit a page's passes may write into: its templates (`TemplateDef`), their nodes and
+ * bindings and what those hold (lists, paths, a style's parts), and its head templates' elements (their `id`, where they
+ * are placed). Not their markup: a page writes into that only where it paints, which it holds itself (`touchEl`).
+ */
+function irObjects(templates: unknown[], heads: Array<[number, unknown]>, own: WeakSet<object>): object[] {
+  const out = new Set<object>();
+  const add = (v: unknown, depth: number) => {
+    if (!v || typeof v !== 'object' || out.has(v) || !own.has(v) || 'nodeName' in v) return;
+    out.add(v);
+    if (depth > 6) return;
+    for (const x of Array.isArray(v) ? v : Object.values(v)) add(x, depth + 1);
+  };
+  for (const t of templates) add(t, 0);
+  for (const [, el] of heads) { if (own.has(el as object)) out.add(el as object); const a = (el as { attrs?: unknown }).attrs; if (a && typeof a === 'object' && own.has(a)) out.add(a); }
+  return [...out];
+}
+
+/**
+ * A second pass's unit, placed or made on this page: what of it the page's passes may write into (`irObjects`) held as
+ * it is now (`touch`), so that it is given back after the page's output is copied off it (`restoreUnit`, compile.ts
+ * `detachOutput`). Its numbers ship (the second pass is the output), the page's own after them: the unit's templates
+ * and functions come first, at the same numbers on every page.
+ */
+export function holdUnit(c: any) {
+  const u: BuildUnit | null = c.placedUnit;
+  if (!u?.all) return;
+  for (const o of u.all) touch(c, o);
 }
 
 /** the unit compiled on this page (its writes applied to it, as the linker's recorder does) and kept */
-function make(c: any, names: string[]): BuildUnit | { refused: string } {
-  const d0 = c.diagnostics.length, g0 = c.choiceGroups.length;
+function make(c: any, names: string[], second = false): BuildUnit | { refused: string } {
+  const d0 = c.diagnostics.length, g0 = c.choiceGroups.length, r0 = c.remove.length;
+  // (a second pass's unit is finished as far as its own markup goes, below: the page must have no head template yet)
+  if (second && c.headTemplates.size) return { refused: 'head templates before its walk' };
   // under the type check: its frames and expressions its own, numbered from 0, by the name whose definition recorded them
-  // (the compiler's lists `checkFrames` and `checkExprs`, which its check unit holds)
+  // (the compiler's lists `checkFrames` and `checkExprs`, which its check unit holds). A second pass's unit records them
+  // in lists of its own too, and keeps none: a second pass's check unit is never read (`compileTwice` returns the first
+  // pass's), so its part copied into each page there (`unitCheck`) would be thrown away (stage5-a1.md)
   const check = c.check ? { file: c.check.file, resources: c.check.resources, frames: [] as any[], exprs: [] as any[] } : null;
   const segs = new Map<string, Seg>();
   const run = runUnit(c, names[0]!, (child: any) => {
@@ -143,13 +219,26 @@ function make(c: any, names: string[]): BuildUnit | { refused: string } {
   c.choiceGroups.length = g0;
   if (c.diagnostics.length !== d0) return { refused: 'reports a diagnostic' };
   const u = run.unit;
+  let share: BuildUnit['share'];
+  // a second pass's unit, finished where that reads only its definitions (the plan, stage5-assembly.md, A1): the
+  // candidates its choices take out, out; its anchors made and its rows' paths counted (`anchors`); its subtrees written
+  // alike kept once (`shareTemplates`). Every page that places it has these as they are; its own `finishPage` passes
+  // leave the unit's part alone (`finished`)
+  if (second) {
+    for (const el of c.remove.slice(r0)) if (el.parentNode) { const kids = el.parentNode.childNodes, i = kids.indexOf(el); if (i >= 0) kids.splice(i, 1); el.parentNode = null; }
+    c.anchors();
+    const r = c.opts.prerender && !c.opts.dev ? c.shareRun() : { kept: new Map(), owner: new Map() };
+    share = { kept: r.kept, owner: r.owner, count: c.templates.length };
+    if (c.diagnostics.length !== d0) return { refused: 'reports a diagnostic' };
+  }
+  const heads: Array<[number, unknown]> | undefined = second ? [...c.headTemplates] : undefined;
   const numbering: Record<string, unknown> = {};
   for (const f of UNIT_NUMBERING) if (f !== 'codeAt') { const v = c[f]; numbering[f] = v instanceof Map ? new Map(v) : Array.isArray(v) ? v.slice() : v; }
   // what the unit made: what its writes and its templates reach that is not the page's
   const refs = u.refs as Map<object, Ref>;
   const own = new WeakSet<object>();
   let why: string | null = null;
-  const todo: unknown[] = [u.templates, ...u.ops.flatMap((o: any) => (o.op === 'old' ? [o.change.key, o.change.value] : [o.key, o.value])), u.calls.map((x: any) => x.site), u.atAfter];
+  const todo: unknown[] = [u.templates, ...(second ? [numbering.templates, heads] : []), ...u.ops.flatMap((o: any) => (o.op === 'old' ? [o.change.key, o.change.value] : [o.key, o.value])), u.calls.map((x: any) => x.site), u.atAfter];
   const direct = new Set<unknown>(u.ops.flatMap((o: any) => (o.op === 'old' ? [o.change.key, o.change.value] : [o.key, o.value])));
   direct.add(u.atAfter);
   const seen = new Set<object>();
@@ -177,7 +266,9 @@ function make(c: any, names: string[]): BuildUnit | { refused: string } {
   // the page's file, which a unit's origins name (a definition's host: where it is used, the include chains of its
   // markup): those origins are the page's own on each page, with its file; any other text naming it refuses the unit
   const file: string = c.opts.file, base = file.slice(file.lastIndexOf('/') + 1), rel = relOf(c.opts.root, file);
-  const named = (x: unknown) => typeof x === 'string' && x.includes(base);
+  // (the name where it starts: `m.html` is not named by `mail-em.html`, a component's file in the same build)
+  const nameRe = new RegExp(`(?<![\\w.-])${base.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`);
+  const named = (x: unknown) => typeof x === 'string' && x.includes(base) && nameRe.test(x);
   const namesPage = (o: any) => !!o && typeof o === 'object' && (named(o.file) || named(o.usedAt) || (Array.isArray(o.chain) && o.chain.some(named)));
   const origins: Array<{ key: object; value: any }> = [];
   const frameOf: Array<{ key: object; at: number }> = [];
@@ -196,6 +287,8 @@ function make(c: any, names: string[]): BuildUnit | { refused: string } {
       continue;
     }
     if (!('path' in o.target)) return { refused: 'writes into an earlier unit' };
+    // (a second pass's: its head templates as finished, `heads`)
+    if (second && o.target.path.length === 1 && (o.target.path[0] as { p?: string }).p === 'headTemplates') continue;
     const ch: any = o.change;
     ops.push({ op: 'old', path: o.target.path, kind: ch.kind, ...('key' in ch ? { key: enc(ch.key) } : {}), ...('value' in ch ? { value: enc(ch.value) } : {}), ...(ch.ifAbsent ? { ifAbsent: true } : {}) });
   }
@@ -224,8 +317,9 @@ function make(c: any, names: string[]): BuildUnit | { refused: string } {
     const hit = vals.find(named);
     if (hit) return { refused: `names its page's file (${JSON.stringify(String(hit).slice(0, 60))})` };
   }
-  if (check) for (const seg of segs.values()) partOf(seg, check, file, base);
-  return { names, reads: u.reads, numbering, weak, ops, at: enc(u.atAfter), own, placed: 0, origins, file, base, rel, ...(check ? { check: { frames: check.frames, exprs: check.exprs, segs, frameOf } } : {}), ...(prints ? { prints } : {}) };
+  const all = second ? irObjects(numbering.templates as unknown[], heads!, own) : undefined;
+  if (check && !second) for (const seg of segs.values()) partOf(seg, check, file, base);
+  return { names, reads: u.reads, numbering, weak, ops, at: enc(u.atAfter), own, placed: 0, origins, file, base, rel, ...(check && !second ? { check: { frames: check.frames, exprs: check.exprs, segs, frameOf } } : {}), ...(prints ? { prints } : {}), ...(all ? { all, heads, share, finished: true } : {}) };
 }
 
 let nextPart = 0;
@@ -261,6 +355,8 @@ function place(c: any, u: BuildUnit) {
     else t[key as string] = v;
   }
   c.at = val(c, u.at);
+  ownContainers(c, u);
+  if (u.heads) for (const [tid, tpl] of u.heads) c.headTemplates.set(tid, tpl);
   // its origins that name its page: this page's
   const file: string = c.opts.file, base = file.slice(file.lastIndexOf('/') + 1), rel = relOf(c.opts.root, file);
   const swap = (x: unknown, key?: string): unknown => {
@@ -278,6 +374,20 @@ function place(c: any, u: BuildUnit) {
       made.set(value, o);
     }
     c.origins.set(key, o);
+  }
+}
+
+/**
+ * A list, set or map of the page info that the unit made (a field it created: `page.aliases ??= []`, `objectFields`,
+ * `mutated`, `listWrites`, `urlWrites`): the page's own copy of it, which the page goes on to add to; the unit's stays as
+ * it was made. (Before this, every page that placed the unit added to the unit's, and the next page saw them.)
+ */
+function ownContainers(c: any, u: BuildUnit) {
+  for (const o of u.ops) {
+    if (o.op !== 'old' || o.kind !== 'prop' || o.path.length !== 1 || (o.path[0] as { p?: string }).p !== 'page') continue;
+    const k = String(val(c, o.key)), v = c.page[k];
+    if (!v || typeof v !== 'object' || !u.own.has(v)) continue;
+    c.page[k] = v instanceof Map ? new Map(v) : v instanceof Set ? new Set(v) : Array.isArray(v) ? v.slice() : v;
   }
 }
 
@@ -320,7 +430,7 @@ export function restoreUnit(c: any) {
   c.touched.clear();
   if (u.prints) for (const [o, p] of u.prints) {
     const now = print(o);
-    if (now !== p) throw new Error(`sinter units: ${c.opts.file} changed an object of a unit (${(o as any).constructor?.name ?? 'object'}): ${p.slice(0, 300)}\n  now ${now.slice(0, 300)}`);
+    if (now !== p) throw new Error(`sinter units: ${c.opts.file} changed an object of ${u.finished ? 'a second pass\'s unit' : 'a unit'} (${(o as any).constructor?.name ?? 'object'}): ${p.slice(0, 300)}\n  now ${now.slice(0, 300)}`);
   }
 }
 

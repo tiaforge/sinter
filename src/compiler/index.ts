@@ -1,5 +1,6 @@
 import * as acorn from 'acorn';
-import { canonical } from './canon.js';
+import { canonical, canonicalText } from './canon.js';
+import { forceUnits2, UNIT_STATS } from './units.js';
 import { tsPlugin } from '@sveltejs/acorn-typescript';
 import { compileParts, pageHead, localSignIn, withoutFromWalk, requestUrl, type CompileOptions, type CompileResult, type CompiledParts, type EarlyParts, type FnSource, type FnSources, type HelperManifest, type HelperOrigin, type PrefetchParts, type EmbedSlot, type EmbedCond, type RuntimeReason } from './compile.js';
 import { compactIR, type EarlyIR } from '../ir.js';
@@ -44,8 +45,39 @@ export function compile(html: string, options: CompileOptions): CompileResult {
   // (with B1 off: each compares two routes of its own byte for byte, `withoutFromWalk`)
   if (env('SN_LINK_AUDIT') && !options.dev) return withoutFromWalk(() => (options.definitions ? auditedLink(html, options) : audited(html, options)));
   if (env('SN_UNITS_AUDIT') && !options.dev && !options.describeOnly) return withoutFromWalk(() => auditedUnits(html, options));
+  if (env('SN_UNITS2_AUDIT') && !options.dev && !options.describeOnly) return withoutFromWalk(() => auditedUnits2(html, options));
   return compileOne(html, options);
 }
+
+/**
+ * `SN_UNITS2_AUDIT=1` (docs/proposals/redesign-notes/stage5-a1.md): the page compiled without the second pass's units,
+ * and through a build's units (the build's own, or a fresh store: where a unit is made, then where it is placed). Where
+ * a second-pass unit was made or placed, the two must be the same up to numbering (`canonicalText`); where none was,
+ * byte for byte (every field). The first difference throws. With `SN_UNITS_VERIFY=1` beside it, every unit object is
+ * checked after every page (`restoreUnit`).
+ */
+function auditedUnits2(html: string, options: CompileOptions): CompileResult {
+  const units = options.units ?? new Map<string, unknown>();
+  // (not the caller's kept templates: a kept walk's type check goes with its first entry's compile, which would be the
+  // audit's first; the kept route has an audit of its own, `SN_ONE_PASS_AUDIT`)
+  const o = { ...options, units, templates: undefined };
+  const was = forceUnits2(false);
+  let plain: CompiledParts;
+  try { plain = compileParts(html, o); } finally { forceUnits2(was); }
+  for (const round of options.units ? ['in its build'] : ['where made', 'where placed']) {
+    const n = UNIT_STATS.made2 + UNIT_STATS.placed2;
+    const through = compileParts(html, o);
+    const took = UNIT_STATS.made2 + UNIT_STATS.placed2 > n;
+    const a = took ? canonicalText(plain) : partsText(plain), b = took ? canonicalText(through) : partsText(through);
+    if (a !== b) {
+      let i = 0;
+      while (a[i] === b[i]) i++;
+      throw new Error(`sinter units audit: ${options.file}: the second pass through its unit${took ? '' : ' (none placed)'}, ${round}, differs${took ? ' up to numbering' : ''} at ${i}:\n  without ${a.slice(Math.max(0, i - 160), i + 160)}\n  through ${b.slice(Math.max(0, i - 160), i + 160)}`);
+    }
+  }
+  return compileOne(html, options);
+}
+const partsText = (p: CompiledParts) => JSON.stringify(p, (_, v) => (typeof v === 'function' ? '[fn]' : v instanceof Map ? [...v] : v instanceof Set ? [...v] : v));
 
 /**
  * `SN_UNITS_AUDIT=1` (docs/proposals/redesign-notes/stage4-units.md): the page compiled without units, and through a
@@ -53,6 +85,11 @@ export function compile(html: string, options: CompileOptions): CompileResult {
  * another folder; each must be the page compiled without them, every field. The first difference throws.
  */
 function auditedUnits(html: string, options: CompileOptions): CompileResult {
+  // (the first pass's units, byte for byte: the second pass's, whose numbers come first, off; `SN_UNITS2_AUDIT` is theirs)
+  const was = forceUnits2(false);
+  try { return auditedUnits1(html, options); } finally { forceUnits2(was); }
+}
+function auditedUnits1(html: string, options: CompileOptions): CompileResult {
   const plain = compileOne(html, { ...options, units: undefined });
   const units = options.units ?? new Map<string, unknown>();
   const made = compileOne(html, { ...options, units });

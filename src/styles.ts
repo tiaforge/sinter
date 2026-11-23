@@ -53,6 +53,16 @@ function read(file: string): string | null {
   }
 }
 
+/** a module's import specifiers by its file, while its text is the same (every page scans the app's modules) */
+const importLists = new Map<string, { text: string; ids: string[] }>();
+function importsOf(code: string, file: string | null): string[] {
+  const kept = file === null ? undefined : importLists.get(file);
+  if (kept && kept.text === code) return kept.ids;
+  const ids = [...code.replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, '').matchAll(IMPORTS)].map((m) => m[1]!);
+  if (file !== null) importLists.set(file, { text: code, ids });
+  return ids;
+}
+
 const plainCss = (file: string) => /\.css$/i.test(file) && !/\.module\.css$/i.test(file);
 const STYLE = /\.(css|scss|sass|less|styl|stylus|pcss|postcss|sss)$/i;
 
@@ -87,6 +97,7 @@ export async function pageStyles(html: string, file: string, ctx: StyleContext):
     if (css !== null) sheets.push({ file: path, css: wrap(css, media) });
   };
   const scan = async (id: string, importer: string, code?: string) => {
+    const ownCode = code !== undefined;
     let target: string | null | undefined = code === undefined ? null : importer;
     if (code === undefined) {
       if (REMOTE.test(id) || id.includes('?')) return;
@@ -101,8 +112,7 @@ export async function pageStyles(html: string, file: string, ctx: StyleContext):
       seenModules.add(target);
       code = read(target) ?? '';
     }
-    const body = code.replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, '');
-    for (const m of body.matchAll(IMPORTS)) await scan(m[1]!, target!);
+    for (const imported of importsOf(code, ownCode ? null : target!)) await scan(imported, target!);
   };
 
   const elements: Array<{ el: P5Element; from: string }> = [];

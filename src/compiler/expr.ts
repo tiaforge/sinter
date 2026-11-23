@@ -1139,7 +1139,8 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
    */
   function foldOf(n: Node, locals: Locals, isCallee: boolean): { node: Node; entry: LetEntry } | null {
     const folds = page.folds;
-    if (!folds?.values.size) return null;
+    // (no `size` check first: a unit's recorder reads a size as every key of the map, `has` as one, stage5-a1.md)
+    if (!folds) return null;
     const chain: Array<acorn.MemberExpression & Node> = [];
     let cur: Node = n;
     for (;;) {

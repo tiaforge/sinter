@@ -363,7 +363,7 @@ Units place a first pass's definitions in builds. Everything else that compiles 
 
 | case | units | linker today | measured where |
 | --- | --- | --- | --- |
-| the second pass's definitions (live instances that stay recursion points; sinter-mail's components route compiles the library again there and ships it) | no: the numbers ship there | records on the 2nd page, replays (25 to 30 ms a page on sinter-mail) | the components route; nothing else measured has live definitions in its second pass |
+| the second pass's definitions (live instances that stay recursion points; sinter-mail's components route compiles the library again there and ships it) | **yes since stage 5's A1** (`stage5-a1.md`): a unit of the second pass, placed before its walk, its numbers first (identical up to numbering); the linker only for A1's fallbacks: a unit refused, definitions of the page's own beside the unit's, a fill's cases inside a unit's rows, more than 3 units by one key, and `SN_UNITS2=0` | records on the 2nd page, replays (27 ms a later page on sinter-mail, 36 with TypeScript) where A1 falls back | the components route; nothing else measured has live definitions in its second pass |
 | a first pass that is finished: no second pass (`prerender` off, nothing decided), `quietFinish` false (a signed-in guard, `data-sn-pages`, URL bindings, page models), a walk that takes the unit's names in another order under check | compiled again without units (counted, `a first pass that is finished`) | links | 0 pages of sinter-mail, the blog and the examples; most of the suite's pages (no `prerender`) |
 | a unit that is refused (an action, a fill id, a lazy import, a node id, a diagnostic, its page's file in its text, an object of its page in one of its own) | compiled in place, then compiled again | links what it can (refuses the same kinds) | none in the apps |
 | definitions not among the page's own recursion points and candidates (reached first from a fill's case after the walk, `finishTreeFills`) | compiled in place on each page | links | not counted yet |
@@ -374,6 +374,14 @@ Units place a first pass's definitions in builds. Everything else that compiles 
 So deleting the linker today would cost the components route its second-pass replay (it would compile the library
 there on every page again, about 225 ms CPU a page here) and every finished first pass its links. Plan step 6
 (second-pass units) is the precondition; the finished first passes cost only what they cost before the linker.
+
+**After stage 5's A1** (`stage5-a1.md`): the second pass's definitions come from units, so what deleting the linker
+would cost there is only A1's fallbacks, compiled in place instead of linked (none occurs in sinter-mail's 16 pages,
+the benchmark apps or the examples). What still goes through it: a first pass that is finished (A2's case; see
+`stage5-a1.md` for how often it occurs now), a refused unit's page, definitions reached first from a fill's case after
+the walk, `describeOnly` compiles past `LINK_DESCRIPTIONS`. The recorder (`runUnit`, `Rec`, `readsHold`) makes both
+kinds of units and stays; the plan and its replay (`keep`, `Plan`, `replay`, `recordChild`) are what the deletion
+removes.
 
 ### What deleting it removes, and what it must keep
 

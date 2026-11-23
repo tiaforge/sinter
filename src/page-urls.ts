@@ -184,6 +184,37 @@ export function redirectHtml(to: string): string {
 }
 
 /**
+ * The page files each page module's code names at their old URL (SN521): `<quote><prefix>/<file>`, the file not
+ * followed by a word character, `/` or `-`, which is `` new RegExp(`['"\`]${prefix}/${file}(?![\w/-])`) `` (escaped)
+ * tested on each code for each file. By file, the codes that name it, in the order given; one pass over each code
+ * instead of a pattern built and run per file and code (a page file per post moves every page: n² before).
+ */
+export function filesNamed(files: readonly string[], codes: ReadonlyArray<readonly [string, string]>, prefix: string): Map<string, string[]> {
+  const want = new Set(files);
+  let longest = 0;
+  for (const f of files) longest = Math.max(longest, f.length);
+  const lead = `${prefix}/`, out = new Map<string, string[]>();
+  for (const [from, code] of codes) {
+    const found = new Set<string>();
+    for (let i = 0; i < code.length; i++) {
+      const c = code.charCodeAt(i);
+      if ((c !== 39 && c !== 34 && c !== 96) || !code.startsWith(lead, i + 1)) continue;
+      const s = i + 1 + lead.length, end = Math.min(code.length, s + longest);
+      for (let k = s + 1; k <= end; k++) {
+        if (k < code.length && /[\w/-]/.test(code[k]!)) continue;
+        const f = code.slice(s, k);
+        if (!want.has(f) || found.has(f)) continue;
+        found.add(f);
+        let list = out.get(f);
+        if (!list) out.set(f, (list = []));
+        list.push(from);
+      }
+    }
+  }
+  return out;
+}
+
+/**
  * One rule of the site's URLs: `301` sends an old file URL to the page's URL; `200` serves a page's file
  * at a path it declares (`data-sn-path`). `file` is the page's file in the output, for a server that
  * rewrites to it (sinter-axum, `vite preview`); `to` is the path a host serves that file at.
