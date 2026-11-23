@@ -16,8 +16,8 @@ The brief is "A1 brief" in [stage5-assembly.md](stage5-assembly.md) (section 5);
 - **A2 built** (section 5): a first pass that is its output is compiled again with a unit of its own, not without
   units (but under the type check); its audit found an A1 bug (bindings of a definition's tag attributes made by the
   unit, not held), fixed, and a source-map difference (a page with a source map places no second-pass unit now).
-- **Next**: nothing planned in this workstream; the final measurements on the merged tree and the report. What is
-  left is in section 6.
+- **Done**: the final measurements on the merged tree (section 4: a later components-route page 97 → 66 ms, 112 → 70
+  with TypeScript; the build's compile −10.5 %, −19 %). What is left is in section 6.
 
 ## How it is measured
 
@@ -231,6 +231,18 @@ compiled in place (234) and page 2 recorded (493). The build's compile −414 ms
 Making a unit with a recorder costs two to three compiles; a unit compiler with fresh tables (stage 4's plan step 2)
 would cost one, and is the next thing that would pay on this route (about 400 ms a build).
 
+**On the merged tree** (d64bc0b and A2, 1c1ce95; the same harness, medians of three builds, the route off and on):
+
+| | off: page 1 | page 2 | later | mean | build's compile | wall | on: page 1 | page 2 | later | mean | build's compile | wall |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| no TypeScript | 1,220 | 538 | **97** | 229 | 2,751 | 3,585 to 4,357 | 1,713 | 87 | **66** | 205 | **2,462** | 3,315 to 3,526 |
+| with TypeScript | 1,536 | 750 | **112** | 287 | 3,448 | 4,966 to 5,240 | 1,995 | 102 | **70** | 234 | **2,807** | 4,175 to 4,711 |
+
+(The other workstreams' changes made every page cheaper: a later page 108 → 97 off, the type check's 142 → 112.) A
+later page −32 % (−37 % with TypeScript), the build's compile −10.5 % (−19 %). sinter-mail's suite against the
+merged tree: 234 passed, check and typecheck ok; its bench (9 runs) within the noise of both earlier runs (e.g.
+api-templates newsletter-2000 first render 69.8 [62.8–99.7], api-fills 66.2 [63.3–84.9]).
+
 **sinter-mail** (`scripts/mail-audit.mjs <checkout> --switch SN_UNITS2`): raw, the three route iii pages differ (their
 HTML and modules: numbering), the other 39 files are the same bytes; with `SN_CANON=1` and `SN_UNITS_VERIFY=1`, all
 42 files the same. Units: one second-pass unit made, placed on the other two pages; no fallback. Its suite against the
@@ -348,6 +360,32 @@ tree is live, three rounds): a later entry 6.3 to 7.0 ms off, 4.5 to 5.8 on; the
 109 on. Tests: `units2.test.ts` "a page whose first pass is its output…" (the units tests' live pages, both orders,
 two rounds, canonically equal), "under the type check a first pass that is its output…" (byte for byte, no unit),
 "a template's entries with only a live tree…".
+
+## 6. What is left
+
+- **Making a unit costs two to three compiles** (the recorder: page 1 of the components route 1,666 ms against 1,270
+  without A1, the unit's making 625 ms where compiling in place was 234). A unit compiler with fresh tables of its
+  own (stage 4's plan step 2) would make it one: about 400 ms more a build on this route. The same holds for the first
+  pass's units, and a build whose only page with definitions is one page (realworld's `article.html`) pays the
+  recording for nothing (144 to 169 ms against 71 to 81 compiled in place): stage 4 makes a unit on the first page
+  that needs it.
+- **Per page, what a unit's part of `finishPage` still costs** (a later components-route page): `groupStyles` 5.4 ms,
+  the rows' `find`/`make`, `compactTables` over the unit's templates. Each depends on the unit alone but for the
+  numbers, and could be done once per unit (`groupStyles`' list order is a table order the canonicalizer would have
+  to number: not done).
+- **With a source map** a page places no second-pass unit (section 5): a function both write would have the unit's
+  site. To route those pages, the page's first write of a code the unit has would have to win where the old walk would
+  have reached the code before the definition.
+- **A2 under the type check**: a first pass that is its output keeps today's recompile without units there (its
+  check unit ships; a finished unit keeps no check part). The check-data workstream's parts by reference would let a
+  finished unit keep one.
+- `VARIANTS` (3 units by one key) is exercised by no app now (it was by the file pages before units were limited to
+  the points left in the tree) and by no test: I found no small page whose reads differ that way.
+- Found and recorded, not mine: `test/vite/trusted-types.test.ts` failed once under the suite's load (passed in every
+  other run); a one-page build's unit recording (above).
+- The linker: what it still covers is in stage4-units.md ("Where stage 4 stands"), updated: A1's and A2's fallbacks,
+  the type check's finished first passes, `describeOnly` past `LINK_DESCRIPTIONS`, definitions first reached from a
+  fill's case after the walk, and `SN_UNITS2=0`. Not deleted (the owner's review).
 
 ## Log
 
