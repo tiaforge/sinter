@@ -11,7 +11,8 @@ on a quiet machine, then cut where the output stays byte for byte the same.
   12.2 ms a page (wall, 100→400), Astro ≈4 ms. Of sinter's 12.2 ms, ≈7 are the compiler's, ≈5 outside it.
 - Fix 1 in: SN521's scan of the page modules (quadratic with a page file per post): −1.2 s at 1,000 page files.
 - Fix 2 in: `pageStyles` scans each module's text for its imports once, not once per page: −0.33 ms a page.
-- Next: the cross check (SN534), then the write-ups (Vite's HTML step, the fold check's cache).
+- Fix 3 in: the project read twice per build instead of four times, the rules' hash once per distinct rules: ≈10 ms.
+- Next: the write-ups (the cross check, Vite's HTML step, the fold check's cache), the merge, the suite.
 
 ## How it is measured
 
@@ -134,6 +135,25 @@ module script scanned as it is).
 | --- | ---: | ---: |
 | static-100 | 60 ms | 26 ms |
 | static-400 | 213 ms | 82 ms (−0.33 ms a page) |
+
+Byte identity: every file of the bar, and the log lines, the same as `base`.
+
+## Fix 3: the project read twice per build; the rules hashed once
+
+- `project()` (the components, the libraries, the helpers' manifest, ≈3–7 ms warm, 25–30 cold) ran four times per build:
+  `configResolved`'s content load and the template probe (each afresh, as no build had started), the helpers' load at
+  `buildStart`, then `buildStart` itself. The config phase now keeps its first read until `buildStart`
+  (`configPhase`), and `buildStart` reads it before loading the helpers, which use that read. Dev is unchanged (read
+  afresh as files change); `vite build --watch` reads it again at each rebuild's start. Test:
+  `test/vite/project-reads.test.ts` (a build with a page per entry: 2 reads, 4 before; a rebuild: 1 more, and the edited
+  component shows).
+- The Speculation Rules' CSP hash (`speculationTag`) was a SHA-256 of the rules per page; the pages of a group have the
+  same rules, so it is kept for the last rules seen. With a page file per post the rules list every page (58 kB a page
+  at 1,000): 43 ms at 1,000 such pages, nothing at 100.
+
+| `project()` inclusive, static-10 (CPU profile) | before | after |
+| --- | ---: | ---: |
+| one build | 35 ms | 27–32 ms |
 
 Byte identity: every file of the bar, and the log lines, the same as `base`.
 

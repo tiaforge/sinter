@@ -369,13 +369,16 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   })());
   /**
    * The project (its helpers, components, libraries, specs) as a build sees it: read once per build, from its start, where
-   * every page asked again (`project()` scans the components and libraries and reads the helpers' manifest). Before a build
-   * starts and in dev, read afresh, as files change.
+   * every page asked again (`project()` scans the components and libraries and reads the helpers' manifest). A build's
+   * config phase (`configResolved`: the content module, the template probe) reads it once too, and its start afresh
+   * (`vite build --watch`); in dev, afresh as files change.
    */
   let buildProject: ReturnType<typeof project> | null = null;
   /** dev: the project as last read, until the watcher reports a file changed, added or removed (configureServer) */
   let devProject: ReturnType<typeof project> | null = null;
-  const proj = () => buildProject ?? (server ? (devProject ??= project(root, options)) : project(root, options));
+  /** a build's `configResolved` until its `buildStart`: the project read there is kept for that phase */
+  let configPhase = false;
+  const proj = () => buildProject ?? (server ? (devProject ??= project(root, options)) : configPhase ? (buildProject = project(root, options)) : project(root, options));
   let dev = false;
   let server: ViteDevServer | null = null;
   let resolved: ResolvedConfig | null = null;
@@ -763,6 +766,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   let speculationHash: string | null = null, rulesWritten = false;
   /** every inline rule set's hash (pages with same-page links have their own) */
   const speculationHashes = new Set<string>();
+  let hashedRules: { json: string; hash: string } | null = null;
   /** build: the pages with inline rules and no CSP <meta>, whose CSP (if any) comes from a response header */
   let unhashedPages = 0;
   const seen = new Set<string>();
@@ -1386,7 +1390,9 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     if (spec()?.delivery !== 'inline') return '';
     const json = rulesJson(samePage);
     if (!json) return '';
-    speculationHash = `sha256-${createHash('sha256').update(json).digest('base64')}`;
+    // (the pages of a group mostly have the same rules: hashed once while they do)
+    if (json !== hashedRules?.json) hashedRules = { json, hash: `sha256-${createHash('sha256').update(json).digest('base64')}` };
+    speculationHash = hashedRules.hash;
     // pages with and without same-page links have different rules: a CSP header must allow each
     speculationHashes.add(speculationHash);
     return `<script type="speculationrules">${json}</script>`;
@@ -1716,6 +1722,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     async configResolved(config) {
       root = config.root;
       dev = config.command === 'serve';
+      configPhase = !dev;
       resolved = config;
       // the build's walks of the app's modules (the lazy packages' reach, `prerender: 'auto'`) follow its aliases, as Vite does
       setAppAliases(root, config.resolve.alias);
@@ -1886,12 +1893,13 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       templatesKept.clear();
       sourceKept = null;
       buildProject = null;
+      configPhase = false;
       if (dev) return;
       // a fresh instance each build: under `--watch`, edits to the helpers count, and nothing a helper kept from the
-      // last build (or the memo, by the instance) carries over into this one
+      // last build (or the memo, by the instance) carries over into this one (the project read first, for both)
       nodeHelpers = null;
-      await helpersReady();
       const p = buildProject = project(root, options);
+      await helpersReady();
       // the modules that declare helpers: one an early binding calls may be shared with the page bundle (shared-build.ts)
       compiled.clear(); decisions.clear(); shared.clear(); unshared.clear(); registered.clear(); specFiles.clear();
       helperFiles = new Set();
