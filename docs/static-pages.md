@@ -84,7 +84,9 @@ and `structuredClone`, not `Date`, `Intl`, `Math.random`, `fetch`, `window` or `
   any build plugin or dependency does. Keep untrusted code out of your helpers' imports.
 - `src="file:./intro.txt"` resources ([resources.md](resources.md#files)) are constants too: bindings
   over them, and helpers called over them, are written into the page, and a file nothing in the
-  browser reads leaves the page. A page whose files and helpers all fold ships no JavaScript.
+  browser reads leaves the page. A page whose files and helpers all fold ships no JavaScript. Code that
+  still runs gets the small values it reads as literals, and the rest embedded with only the fields it reads
+  ([resources.md](resources.md#files)).
 
 ## What needs JavaScript
 
