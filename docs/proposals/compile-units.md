@@ -256,6 +256,7 @@ timings were not usable). A cloud session pushes to a branch of its own:
 | stage 5, B1: the second pass from the first's walk | cloud, `session_01AjKzdxkDukbMzASz1qaYeA` | `redesign/stage5-b1` | `stage5-b1.md` |
 | the evaluation's cost | local agent | merged as it lands | `evaluation.md` |
 | the six bugs (three merged) | local agent | merged as they land | `bugs.md` |
+| early scripts built once per shape | cloud, `session_01AjKzdxPErYYZv1d2K1hMsD` | `redesign/early-script-shapes` | `early-script-shapes.md` |
 
 **The bar, as the owner set it on 2026-11-23:** the output need not be byte for byte today's where only numbering
 and generated names differ (`data-sn` ids, anchor numbers, template, state and function numbers, renamed loop
@@ -442,3 +443,13 @@ decision of their own (stage 7). A step that can stay byte-identical does.
   bench under `SN_CANON=1`, not run yet). A caution from stage 5's measurements for every renumbering step:
   canonical function order makes each module of sinter-mail's components route 322 B gzip heavier (4.8%), so the
   canonical form is the oracle, not the order to ship. Still local: the evaluation's cost, bugs 4 to 6.
+- 2026-11-23, 20:00 UTC: a cost of the embedding change, found by timing: each live post's early script now has
+  the post's slug folded into it (and requests the comments early, which it never did: the value was `null`), so
+  the benchmark's 100 early scripts are 100 distinct sources and 100 nested builds at about 13 ms each: the live
+  template build went from about 4.2 to 5.1 s. A cloud session builds early scripts once per shape, the literals
+  substituted afterwards (`redesign-notes/early-script-shapes.md`). The evaluation's first change (a row's template
+  asked once, a row's scope a plain object: a 2,012-element email's evaluation 324 to 266 ms) conflicts with the
+  merged bug fix in the worklist and went back to its agent. Check data once, part 1 (a page holds a unit's check
+  part by reference) is pushed on its branch; no gain until part 2. Timings on the coordinating machine, load 8,
+  three runs each, 100 posts: static 3.6 to 4.5 s, with the type check 3.8 s, live 5.1 s, a page file per post 4.4
+  to 5.7 s, live 7.0 to 8.0 s.
