@@ -55,7 +55,7 @@ How to write an entry (from 0.21.0 on; older sections keep their own form):
 
 ### Performance
 
-- Pages whose early script has the same source (on a blog, every post's) share one nested build of it instead of one each: a build of 100 posts with a live section is 1.6 s faster (8.3 s at 400 posts), with the same output.
+- Pages whose early script has the same source (on a blog, every post's) share one nested build of it instead of one each: a build of 100 posts with a live section is 1.6 s faster (8.3 s at 400 posts), with the same output. The early scripts that differ go through one Vite builder instead of one `vite build` each: 0.45 s less per 100 such pages.
 - A build no longer gzips every page's scripts for size lines that `logLevel: 'warn'` does not print, and gzips a script that several pages share once: 1.4 ms less per page with a page module (0.7 s at 400 such pages).
 - A build with a page per entry (`data-sn-for` on `<html>`) lists the entries from a description of the template instead of compiling it: about 150 ms off every such build.
 - A build no longer remakes its list of pages for every page it compiles, which grew with the square of the pages: a build of 400 pages, each its own file, is 4 s faster outside the compiler (0.5 s at 100).

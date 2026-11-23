@@ -10,7 +10,7 @@ import { gzipSync } from 'node:zlib';
 import { createRequire } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { flagsModule } from './core-parts.js';
-import { loadEnv, type Plugin, type ResolvedConfig, type ViteDevServer } from 'vite';
+import { loadEnv, type InlineConfig, type Plugin, type ResolvedConfig, type ViteDevServer } from 'vite';
 import { collectionsIn, loadContent, writeNamespaceTypes, writeSnapshot, type LoadedContent } from './content-node.js';
 import { applyStrict, CODES, compile, CONTENT_NS, formatDiagnostic, formatWarning, strictPromotes, suggest, type Code, type CheckUnit, type Diagnostic, type CompileResult, type SourceMap } from './compiler/index.js';
 import { buildInput, checkOptionsOf, compileOptionsOf, htmlInputs, lazyOf, lazyReachOf, project, retiredExport, retiredOptions, staticPages, strictOf, type PluginApi, type ProjectOptions } from './project.js';
@@ -382,18 +382,13 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     if (resolve(a) === resolve(b)) return true;
     try { return realpathSync(a) === realpathSync(b); } catch { return false; }
   };
-  /**
-   * One classic script (IIFE) from an early module's `code`, with nothing imported: builds (the shared head script
-   * and each page's) and the dev server (a page's whole early script). `rt`: the runtime's exports it takes from the
-   * shared head script's global (`runtimeId`: the runtime's resolved id); null: the runtime is bundled in. `map`: the
-   * module's own (dev), carried into the script's (the entry then has a plain id: Rolldown drops a `\0` module's map).
-   */
-  const earlyScript = async (code: string, keys: Set<string>, rt: string[] | null, what: string, runtimeId: string | null = null, map?: SourceMap, own: string[] = []) => {
+  type EarlyJob = { code: string; keys: Set<string>; rt: string[] | null; runtimeId: string | null; map?: SourceMap; own: string[] };
+  /** the nested build's config for an early script; its entry plugin reads what it builds from `job` (a session swaps it) */
+  const earlyConfig = (job: EarlyJob, rolldown: boolean): InlineConfig => {
         /** the runtime as a page's early file sees it: the shared head script's exports from its global, `own` bundled in (PAGE_OWN) */
-        const runtimeStub = (names: string[], mine: string[]) => `const R = globalThis[Symbol.for(${JSON.stringify(RT_KEY)})];\nexport const { ${names.join(', ')} } = R;\n${mine.length ? `export { ${mine.join(', ')} } from ${JSON.stringify(runtimeId)};\n` : ''}`;
-        const r = resolved!, ENTRY = `${PREFIX}early-entry.js`, entryId = map ? ENTRY : '\0' + ENTRY;
-        const vite = await appVite(), rolldown = 'rolldownVersion' in vite;
-        const out = await vite.build({
+        const runtimeStub = (names: string[], mine: string[]) => `const R = globalThis[Symbol.for(${JSON.stringify(RT_KEY)})];\nexport const { ${names.join(', ')} } = R;\n${mine.length ? `export { ${mine.join(', ')} } from ${JSON.stringify(job.runtimeId)};\n` : ''}`;
+        const r = resolved!, ENTRY = `${PREFIX}early-entry.js`, entryId = job.map ? ENTRY : '\0' + ENTRY;
+        return {
           configFile: false, root, base: r.base, mode: dev ? 'development' : r.mode, logLevel: 'silent', publicDir: false, define: r.define,
           // the app's resolution: a library linked from outside the root (`file:`, `npm link`) finds the app's sinter through `dedupe`
           resolve: { alias: r.resolve.alias, conditions: r.resolve.conditions, dedupe: r.resolve.dedupe, preserveSymlinks: r.resolve.preserveSymlinks },
@@ -402,13 +397,13 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
             async resolveId(id, importer, o) {
               if (id === ENTRY) return entryId;
               // the page's own exports, from the runtime itself (PAGE_OWN)
-              if (!rt || id === RT_ID || importer === RT_ID) return null;
+              if (!job.rt || id === RT_ID || importer === RT_ID) return null;
               // the runtime, however it is named (an alias may resolve the package to its source)
               if (id === EARLY_PKG) return RT_ID;
               const res = await this.resolve(id, importer, { ...o, skipSelf: true });
-              return res && runtimeId && res.id === runtimeId ? RT_ID : null;
+              return res && job.runtimeId && res.id === job.runtimeId ? RT_ID : null;
             },
-            load: (id) => (id === entryId ? (map ? { code, map } : code) : id === RT_ID ? runtimeStub(rt!, own) : null),
+            load: (id) => (id === entryId ? (job.map ? { code: job.code, map: job.map } : job.code) : id === RT_ID ? runtimeStub(job.rt!, job.own) : null),
             transform(src, id) {
               // a content namespace the early modules call through its module: its ids (`ns \0 id`), written into the page,
               // and the formatter for one that is not plain text (`withFormatter`)
@@ -417,7 +412,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
                 const by = new Map<string, string[]>();
                 for (const d of content.namespaces.values()) if (d.module) {
                   const ks = moduleKeys(src, id, d.module, d.name, true).keys;
-                  for (const k of ks) keys.add(`${d.name}\0${k}`);
+                  for (const k of ks) job.keys.add(`${d.name}\0${k}`);
                   if (ks.length) by.set(d.name, ks);
                 }
                 fmt = withFormatter(src, by);
@@ -432,7 +427,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
             },
           }],
           build: {
-            write: false, minify: dev ? false : r.build.minify, target: r.build.target, sourcemap: !!map, modulePreload: false, copyPublicDir: false, reportCompressedSize: false,
+            write: false, minify: dev ? false : r.build.minify, target: r.build.target, sourcemap: !!job.map, modulePreload: false, copyPublicDir: false, reportCompressedSize: false,
             // one file: dynamic imports inlined. Vite 8 bundles with Rolldown (`codeSplitting: false`; it
             // deprecates `inlineDynamicImports`), Vite 6 and 7 with Rollup, which knows only the latter.
             [rolldown ? 'rolldownOptions' : 'rollupOptions']: {
@@ -440,7 +435,38 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
               output: { format: 'iife', ...(rolldown ? { codeSplitting: false } : { inlineDynamicImports: true }) },
             },
           },
-        });
+        };
+  };
+  /**
+   * A build's early scripts through one Vite builder: the config resolved and the environment set up once, then one
+   * bundle per script, one after another, the entry plugin reading each one's job. That is what `vite build` does for
+   * one (`createBuilder(config, true)`, then `build(environment)`), so the plugins and the bytes are the same; a
+   * `vite build` per script resolved the config again each time. Null where this Vite has no `createBuilder`.
+   */
+  const earlySession = async (runtimeId: string | null): Promise<((j: EarlyJob) => Promise<unknown>) | null> => {
+    const vite = await appVite();
+    if (typeof vite.createBuilder !== 'function') return null;
+    const job: EarlyJob = { code: '', keys: new Set(), rt: null, runtimeId, own: [] };
+    const builder = await vite.createBuilder(earlyConfig(job, 'rolldownVersion' in vite), true);
+    const env = Object.values(builder.environments)[0]!;
+    let last: Promise<unknown> = Promise.resolve();
+    return (j) => {
+      const run = last.then(() => { Object.assign(job, j); return builder.build(env); });
+      last = run.catch(() => {});
+      return run;
+    };
+  };
+  /**
+   * One classic script (IIFE) from an early module's `code`, with nothing imported: builds (the shared head script
+   * and each page's) and the dev server (a page's whole early script). `rt`: the runtime's exports it takes from the
+   * shared head script's global (`runtimeId`: the runtime's resolved id); null: the runtime is bundled in. `map`: the
+   * module's own (dev), carried into the script's (the entry then has a plain id: Rolldown drops a `\0` module's map).
+   * `session`: a build's builder (`earlySession`), else a `vite build` of its own.
+   */
+  const earlyScript = async (code: string, keys: Set<string>, rt: string[] | null, what: string, runtimeId: string | null = null, map?: SourceMap, own: string[] = [], session?: ((j: EarlyJob) => Promise<unknown>) | null) => {
+        const r = resolved!, job: EarlyJob = { code, keys, rt, runtimeId, ...(map ? { map } : {}), own };
+        const vite = await appVite();
+        const out = session ? await session(job) : await vite.build(earlyConfig(job, 'rolldownVersion' in vite));
         const output = (Array.isArray(out) ? out[0] : out) as { output: Array<{ type: string; fileName: string; code?: string; map?: SourceMap | null; modules?: Record<string, { renderedLength: number }> }> };
         const chunks = output.output.filter((c) => c.type === 'chunk');
         if (chunks.length !== 1) throw new Error(`sinter: the early script of ${what} came out as ${chunks.length} chunks; it must be one file with nothing imported`);
@@ -1813,8 +1839,10 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
         }));
       }
       const earlyKeys = new Map<string, Set<string>>();
-      const bundleEarly = (code: string, keys: Set<string>, rt: string[] | null, what: string, own: string[] = []) => earlyScript(code, keys, rt, what, runtimeId, undefined, own);
       const runtimeId = earlyPages.size ? (await this.resolve(EARLY_PKG, resolve(root, 'index.html')))?.id ?? null : null;
+      // every early script of this build through one builder (`earlySession`)
+      const session = earlyPages.size ? await earlySession(runtimeId) : null;
+      const bundleEarly = (code: string, keys: Set<string>, rt: string[] | null, what: string, own: string[] = []) => earlyScript(code, keys, rt, what, runtimeId, undefined, own, session);
       fontPages.clear();
       if (earlyPages.size) {
         // the app's early module runs once, from the shared script, before any page's bindings

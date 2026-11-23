@@ -130,3 +130,27 @@ the bundler, for every module of every page: the pages reach mostly the same mod
 now read once per build. sinter-live-100: 34 ms → under 1 ms (−0.3 ms per live page). Byte identity: all 11 apps
 identical. Test: `test/vite/lazy.test.ts`'s SN325 case built with two pages, each reported. Too small for a CHANGELOG
 line of its own.
+
+## 6. The early scripts that differ: one builder for the build
+
+Section 1 left one nested build per distinct early source, and with a page file per post every post's source differs
+(it names its own slug): `sinter-live-files-100` still ran 101 nested `vite build`s, 1.8 s of `generateBundle`.
+`vite build` is `createBuilder(config, true)` and then `builder.build(environment)`; the build now makes that builder
+once (`earlySession`) and runs every early script through it, one after another, the entry plugin reading the current
+script's job. Same plugins, same pipeline, same bytes; the config is resolved and the environment set up once. Dev
+keeps a `vite build` per page script (its own cache, with source maps). Where Vite has no `createBuilder`, as before.
+
+Measured first, and dropped:
+
+- **Several builds at once** (4 in flight): `generateBundle` 1.4–1.5 s against 1.4–1.5 s; the nested builds are bound
+  by their JavaScript (Vite's plugin pipeline), not by Rolldown's native work, so they do not overlap.
+- **Rolldown directly** (the entry plugin only): 1.75 ms a script against 13–17 ms for `vite build` and 9–11 ms for a
+  reused builder (micro-benchmark of 40 small scripts), but not Vite's pipeline (its define, transforms, minifier
+  settings) and not the same bytes.
+
+| sinter-live-files-100 | before | after |
+|---|---:|---:|
+| sinter's `generateBundle` (Rolldown's plugin timings), 3 runs | 1.8 / 1.8 / 1.8 s | 1.4 / 1.3 / 1.3 s |
+
+−0.45 s per 100 distinct early scripts (−4.5 ms a live page that has its own). The test of section 1 now also checks
+that a build makes one builder. Byte identity: all 11 apps identical.
