@@ -122,6 +122,7 @@ export const LINK_FIELDS: Record<string, { kinds: string[]; how: 'table' | 'weak
   hrefs: { kinds: ['Array'], how: 'table' },
   idEls: { kinds: ['Map'], how: 'table' },
   inDef: { kinds: ['number'], how: 'restored' },
+  defWalk: { kinds: ['number'], how: 'restored' },
   instAt: { kinds: ['WeakMap'], how: 'weak' },
   itemSchema: { kinds: ['Map'], how: 'table' },
   jsonOut: { kinds: ['Map'], how: 'table' },

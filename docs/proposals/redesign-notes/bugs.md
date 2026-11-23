@@ -94,3 +94,33 @@ every type error of every page, that page's other expressions included. Corpus a
 app a's 49 errors and SN538 warning, plus the 3 errors of `<x-bad>` on the broken page, after its SN401: `53
 error(s), 1 warning(s)` instead of `1 error(s), 0 warning(s)`. Its build, and apps a, c, d, are unchanged; the
 build output of every app is unchanged (the check writes no output).
+
+## 4. A component used inside itself reported its type errors twice on a page
+
+**Reproduction** (`test/check/check-shared.test.ts`, "a component used inside itself…" and "a fill of a tree slot…").
+`<x-tree data-sn-with="{ node: root }">` with `node.lable` in `x-tree`: two SN208 on the page, `(included from
+b.html:7)` and `(included from b.html:1)`; two uses on one page, three. A page's fill of a tree slot placed by a
+component used inside itself (`<ui-tree>`'s `<ui-node>` in the corpus): the fill's error twice, with the same text.
+
+**What "once" means.** A component used without recursion reports an error once per use, with that use's include
+chain (two uses on one line: twice, both `a.html:6`); a loop around the use does not multiply it. A component used
+inside itself is inlined at its outermost use and compiled once more as the shared definition its deeper uses render
+(contract.md, worked example 3), and a tree slot's fill once more as the case of the placement in that definition
+(`finishTreeFills`). Those second copies are not uses: they are what the uses already reported render further down.
+
+**Cause.** The check unit records every copy the compiler walks; the definition's copy has the page's first line as
+its chain (its host has no place in the page), and the fill's case the fill's own place. Nothing told the check
+which copy was which.
+
+**Fix.** The compiler marks the expressions it records while walking a shared definition (`compileDefinitionIn`)
+or a fill's case of a placement in one (`finishTreeFills`): `CheckExpr.def` (a counter, `defWalk`, classified
+`restored` in `LINK_FIELDS` like `inDef`; a linked definition replays its expressions with the mark). `parseTsc`
+drops an error of a marked expression when an unmarked copy on the same page reports the same error (severity,
+code, file, line, column, message without its chain). A definition's error that no inlined copy has (a component
+reached only through its definition, such as a run-time choice's case) is still reported, with its chain as before.
+
+**What changes.** `sinter check` and the build's check print each such error once per use. Corpus apps a and d:
+46 errors (and the SN538 warning) instead of 49, i.e. `x-tree`'s second report on `deep.html`, `tree.html`,
+`tree2.html` and the fill's on `tree.html`; app b likewise (49 instead of 53); the build's line says `46 type
+error(s)` instead of 50 (see §5 for the warning in it). No build output changes. `sinter lsp` is unchanged (its
+diagnostics of one position are shown once).

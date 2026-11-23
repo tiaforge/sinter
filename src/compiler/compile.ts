@@ -1307,6 +1307,8 @@ class Compiler {
   private readonly enclosing = new WeakMap<P5Element, Use | null>();
   /** above 0 while a shared definition expands: a tree placement there with no root in it is filled at run time */
   private inDef = 0;
+  /** walking a shared definition's markup (`compileDefinitionIn`) or a fill's case of a placement in one (`finishTreeFills`): its check expressions are that copy (`CheckExpr.def`) */
+  private defWalk = 0;
   /** tree placements inside shared definitions: `<slot>`s left for the walk, which makes each a choice anchor */
   private readonly runtimeSlots = new WeakSet<P5Element>();
   /** every root's fill for a slot it declares, by id: a case template of each tree placement in a definition it reaches */
@@ -4698,7 +4700,9 @@ class Compiler {
           // (a fill forwarded from further out compiles its placements' data from here, as the walk does for any fill)
           for (const c of nodes) if (isElement(c) && !this.fillOf.has(c)) this.caseScopes.set(c, scope);
           this.headTemplates.set(tid, tpl);
-          this.walkChildren(tpl.content, { scope, list: t.nodes, tid, path: [], stateIdx: -1 });
+          // (the fill's copy a placement in a definition renders, beside the one at the root's use: `CheckExpr.def`)
+          this.defWalk++;
+          try { this.walkChildren(tpl.content, { scope, list: t.nodes, tid, path: [], stateIdx: -1 }); } finally { this.defWalk--; }
           // `data-sn-early="off"` on the root's tag covers its fills
           if (F.use.late) for (const n of t.nodes) this.lateNodes.add(n);
           P.cases.push(tid);
@@ -5095,7 +5099,8 @@ class Compiler {
     this.headTemplates.set(tid, tpl);
     if (this.opts.dev) setAttr(tpl, 'data-sn-name', name);
     this.templateAt.set(tid, { el: root, attr: null, shift: 0 });
-    this.walkChildren(tpl.content, { scope: { loops: [], states: [] }, list: t.nodes, tid, path: [], stateIdx: -1 });
+    this.defWalk++;
+    try { this.walkChildren(tpl.content, { scope: { loops: [], states: [] }, list: t.nodes, tid, path: [], stateIdx: -1 }); } finally { this.defWalk--; }
     if (this.diagnostics.length > d0) this.tplDiags.set(tid, this.diagnostics.length - d0);
     return entry;
   }
@@ -6409,6 +6414,7 @@ class Compiler {
     const e: CheckExpr = {
       src, mode: o.mode === 'value' ? 'value' : 'handler', loc: this.locOf(el, attrName, shift), frames, tag: use?.root.tagName ?? el.tagName, event,
       result: attrName === 'data-sn-then' || !!o.magic?.includes('$result'), error: attrName === 'data-sn-catch',
+      ...(this.defWalk ? { def: true as const } : {}),
     };
     if (use && event && use.emitsText && use.emits?.some((m) => m.name === event)) {
       e.detail = { kind: 'ts', text: `(${use.emitsText})[${JSON.stringify(event)}]`, loc: this.locOf(use.template, 'data-sn-emits') };
