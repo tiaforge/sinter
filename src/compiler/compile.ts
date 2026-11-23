@@ -9213,7 +9213,8 @@ class Compiler {
     };
     // (a row's item is shared with the data it is a part of, frozen once; a helper's result is copied, as a call takes it by value)
     const isResult = (x: object) => this.folding?.isResult(x) ?? false;
-    // (the heights of the frozen data `plainData` measured, for this evaluation)
+    // (the heights of the frozen data `plainData` measured, for this evaluation; a file's frozen value's, for the build:
+    // `FROZEN_HEIGHTS`)
     const heights = new Map<object, number>();
     const listOf = (v: unknown): unknown[] | null => (Array.isArray(v) && v.every((x) => plainData(x, heights)) ? v : null);
     // (a placement's element is its `<slot>`; an anchor's, its template)
@@ -12885,7 +12886,7 @@ const PLAIN_DEPTH = 1024;
  * tree does not exhaust the call stack; an object reached twice (a shared subtree) is walked once
  * unless it is reached again less deep.
  */
-export function plainData(v: unknown, heights?: Map<object, number>): boolean {
+export function plainData(v: unknown, heights?: Heights): boolean {
   const scalar = (x: unknown) => x === null || ['string', 'number', 'boolean', 'undefined'].includes(typeof x);
   if (scalar(v)) return true;
   // (the worklist asks this of every level of a tree, each level a part of the one above: what is frozen is measured
@@ -12909,14 +12910,28 @@ export function plainData(v: unknown, heights?: Map<object, number>): boolean {
   return true;
 }
 
+/** the heights of frozen data (`plainHeight`'s `frozen`): only of data frozen at every depth, whose height cannot change */
+type Heights = Map<object, number>;
+/**
+ * The heights of a `file:` value's frozen copy (`frozenCopy`), measured once for the build: frozen data cannot change,
+ * and every page reads the same copy, every row of it a part (sinter-mail's 2,012-element email: each level of the tree a
+ * list `plainData` measures on every page). `SN_FROZEN_HEIGHTS=0`: measured by each evaluation, as before
+ */
+const FROZEN_HEIGHTS = new WeakMap<object, number>();
+function measureFrozen(v: object): number {
+  let h = 0;
+  for (const c of Array.isArray(v) ? v : Object.values(v)) if (c && typeof c === 'object') h = Math.max(h, measureFrozen(c) + 1);
+  FROZEN_HEIGHTS.set(v, h);
+  return h;
+}
 /**
  * How deep plain data nests below `x` (0: no object in it) when every path through it stays within `PLAIN_DEPTH` of
  * the root `plainData` was asked about (`depth`: how deep `x` is), else -1 (not plain data, too deep, or a cycle).
  * `frozen`: the heights of data frozen at every depth (`DEEP_FROZEN`), which cannot change, kept by the caller;
  * `seen`: this walk's other objects (-2 while on the path).
  */
-function plainHeight(x: object, depth: number, frozen: Map<object, number>, seen: Map<object, number>): number {
-  const known = frozen.get(x) ?? seen.get(x);
+function plainHeight(x: object, depth: number, frozen: Heights, seen: Map<object, number>): number {
+  const known = frozen.get(x) ?? seen.get(x) ?? FROZEN_HEIGHTS.get(x);
   if (known !== undefined) return known >= 0 && depth + known <= PLAIN_DEPTH ? known : -1;
   if (depth > PLAIN_DEPTH || typeof x !== 'object') return -1;
   seen.set(x, -2);
@@ -13013,7 +13028,10 @@ const FROZEN_COPY = new WeakMap<object, object>();
 function frozenCopy(v: object): object {
   if (proc?.env.SN_FILE_COPY === '0') return deepFreeze(structuredClone(v) as object);
   let c = FROZEN_COPY.get(v);
-  if (!c) FROZEN_COPY.set(v, c = deepFreeze(structuredClone(v) as object));
+  if (!c) {
+    FROZEN_COPY.set(v, c = deepFreeze(structuredClone(v) as object));
+    if (proc?.env.SN_FROZEN_HEIGHTS !== '0') measureFrozen(c);
+  }
   return c;
 }
 

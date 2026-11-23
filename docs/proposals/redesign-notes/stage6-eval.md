@@ -302,3 +302,17 @@ A/B against change 6 (3 rounds), mail API: candidates a call 4,396 → 612; pass
 7.19 / 9.40 → 3.69 / 4.35 / 7.73 (`settle` 7.19 / 8.61 → 4.72 / 5.74). The second pass places a unit of its own (A1)
 and reads its candidates the same way; its `prerender` (8.3 ms) is now the page's own codes, compiled by the page's own
 `new Function` and each run once, its first call compiling it (V8 compiles a function's body at its first call).
+
+### 9. A `file:` value's heights measured once for the build
+
+`plainData` measures how deep each list's items nest (`plainHeight`, bounded by `PLAIN_DEPTH`), keeping the heights of
+frozen data for one evaluation. On the 2,012-element email every level of the tree is a list the walk measures, on
+every page, of the one frozen copy every page reads (change 4). That copy's heights are now measured once, where it is
+made (`measureFrozen`, `FROZEN_HEIGHTS`, a `WeakMap` by object: frozen data cannot change), and `plainHeight` reads them
+after its own maps. Only for the copy: making every frozen object's height global (a `WeakMap` for all of them, or
+one for `DEEP_FROZEN` and the heights together) was tried first: the blog's trees are new on every page, so it gained
+nothing there and paid a `WeakMap` insert per object (0.1 to 0.15 ms a page in two runs of 7 and 9 rounds).
+`SN_FROZEN_HEIGHTS=0`: measured by each evaluation.
+
+A/B against change 8 (3 rounds; blog 9): mail gen pass-1 `prerender` p25 / median 80.4 / 95.3 → 76.0 / 84.6; blog
+static `decideFor` 5.47 / 6.87 → 5.53 / 6.79 (the same).

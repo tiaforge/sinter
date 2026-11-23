@@ -248,6 +248,9 @@ describe('a `file:` value copied once (`frozenCopy`)', () => {
     const a = routes(html), b = routes(html);
     process.env.SN_FILE_COPY = '0';
     try { expect(routes(html)).toBe(a); } finally { delete process.env.SN_FILE_COPY; }
+    // (and its heights measured once, `FROZEN_HEIGHTS`, or by each evaluation)
+    process.env.SN_FROZEN_HEIGHTS = '0';
+    try { expect(routes(html)).toBe(a); } finally { delete process.env.SN_FROZEN_HEIGHTS; }
     expect(b).toBe(a);
     expect(a).toContain('<li>a</li><li>b</li>');
   });
