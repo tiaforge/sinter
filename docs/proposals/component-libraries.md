@@ -75,8 +75,8 @@ The notes below describe the cache as it was built.
   next read, and the argument check keeps that from parsing again.
 - A lazy helper module loads when a waiting let is first read, not when its scope is created. A
   call inside an arrow function in a let waits too.
-- `sinter check` types a waiting let `T | undefined`, but runs without `strictNullChecks`, so an
-  unguarded read is not an error; the docs recommend guarding every read. The editor, the build,
+- `sinter check` types a waiting let `T | undefined`, but runs without `strictNullChecks` unless the app's
+  tsconfig turns it on, so an unguarded read is not an error there; the docs recommend guarding every read. The editor, the build,
   `sinter check` and `sinter render` all report the per-module `SN324`.
 
 Step 6, as built:

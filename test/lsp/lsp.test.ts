@@ -735,6 +735,43 @@ ${body}
     await e.diagnostics(file, (ds) => !ds.some((x) => x.code.startsWith('SN208')));
   }, 60_000);
 
+  test('a single-file component\'s `<script lang="ts">` is checked under the app\'s tsconfig (its strictness and `paths`), the pages under its `strictNullChecks`', async () => {
+    const card = (body: string) => `<template data-sn-props="{ n: number }">
+  <p data-sn-text="n"></p>
+</template>
+
+<script lang="ts">
+  import { XRingComponent } from './x-ring.html';
+  import { twice } from '@lib/math';
+  export class XRing extends XRingComponent {
+    connected() {
+${body}
+    }
+  }
+</script>
+`;
+    const root = project({
+      'tsconfig.json': JSON.stringify({ compilerOptions: { strict: true, module: 'ESNext', moduleResolution: 'bundler', lib: ['ESNext', 'DOM'], paths: { '@lib/*': ['./src/lib/*'] } }, include: ['src'] }),
+      'src/lib/math.ts': 'export const twice = (n: number): number => n * 2;\n',
+      'src/components/x-ring/x-ring.html': card('      void twice(this.props.n);'),
+      'index.html': '<x-ring data-sn-with="{ n: 1 }"></x-ring>\n',
+      'node_modules/@tiaforge-ui/sinter/package.json': JSON.stringify({ name: '@tiaforge-ui/sinter', type: 'module', exports: { './runtime/components': './components.ts' } }),
+      'node_modules/@tiaforge-ui/sinter/components.ts': `export { Component } from ${JSON.stringify(join(process.cwd(), 'src/components.ts'))};\n`,
+    });
+    const e = await editor(root);
+    const file = 'src/components/x-ring/x-ring.html';
+    e.open('index.html', '<x-ring data-sn-with="{ n: 1 }"></x-ring>\n');
+    await e.diagnostics('index.html');
+    e.open(file, card("      const f = (x) => twice(x); void f;"));
+    const errs = await e.diagnostics(file, (ds) => ds.some((x) => x.message.includes('TS7006')));
+    expect(errs.find((x) => x.message.includes('TS7006'))!.range.start).toEqual({ line: 9, character: 17 });
+    // the page: a value that may be undefined is the app's `strictNullChecks`' business; a state field that starts as
+    // `null` takes what is assigned later
+    e.change('index.html', '<div data-sn-state="{ err: null }" data-sn-on-click="err = 1"><p data-sn-text="[1, 2].find((x) => x === 2).toFixed(1)"></p><x-ring data-sn-with="{ n: 1 }"></x-ring></div>\n');
+    const page = await e.diagnostics('index.html', (ds) => ds.some((x) => x.code.startsWith('SN208')));
+    expect(page.filter((x) => x.code.startsWith('SN208')).map((x) => x.message)).toEqual([expect.stringContaining('is possibly \'undefined\'')]);
+  }, 60_000);
+
   test('quick fixes apply the suggestion of compiler and type errors', async () => {
     const root = project({ 'src/sinter.types.ts': TYPES, 'index.html': PAGE('c.name') });
     const e = await editor(root);

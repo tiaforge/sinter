@@ -6,7 +6,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "check": "sinter check && temper check .",
+    "check": "tsc --noEmit && sinter check && temper check .",
     "render": "sinter render index.html --api mocks.json"
   },
   "dependencies": {

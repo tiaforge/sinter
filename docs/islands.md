@@ -124,10 +124,14 @@ A small component can keep its script in its file, in a top-level `<script>` bes
 - **Its module** is `task-ring.html.script.ts`, a path beside the file that sinter serves: relative imports in
   the block resolve from the component's folder, the dev server reloads it with the file, and errors and
   breakpoints point at the file's own lines, through a source map.
-- **Checked.** `sinter check` (and the build, and your editor through `sinter lsp`) type-checks the block with
-  the HTML's types, and reports errors at their line and column in the HTML (`SN208`). Your own `tsc` does
-  not see the block, as it sees no HTML: a script that needs your project's stricter compiler options is a
-  file beside the component.
+- **Checked as your own TypeScript.** `sinter check` (and the build, and your editor through `sinter lsp`)
+  type-checks the block with the HTML's types and reports errors at their line and column in the HTML
+  (`SN208`). With a `tsconfig.json` at the project root, it checks the block under that config's options (its
+  `strict` family, `noImplicitAny`, `lib`, `types`, `paths`, through its `extends`), so code moves between the
+  block and `task-ring.ts` unchanged and passes or fails the same. Without one, sinter's own lax options apply.
+  A block without `lang` is checked as JavaScript whatever your `checkJs` says. Your own `tsc` does not see the
+  block, as it sees no HTML; it checks the modules the block imports (see
+  [type checking](type-checking.md#what-sinter-check-covers-and-what-tsc-does)).
 - **Testable parts go in modules.** A test cannot import from the block: logic worth a unit test goes in a
   module of its own beside it, which the block imports. In `render()` the block does not run: `scripts` gives
   the class that stands for it ([testing](testing.md#component-scripts)), as for a script in a file.

@@ -46,7 +46,9 @@ sinter runs in strict mode (`strict: true` in `vite.config.js`): its warnings fa
 `npm run check` too, and the dev server prints the browser's runtime warnings in the terminal.
 `strict: { allow: { SN504: 'why' } }` keeps a code a warning (sinter's `docs/strict.md`).
 
-`npm run check` runs both checkers without building. Your editor can show the same errors as you
+`npm run check` runs TypeScript on the app's own modules (`tsc --noEmit`, with `tsconfig.json`), then both
+checkers, without building: `sinter check` types the pages' expressions and the components' `<script>` blocks,
+and leaves `src/*.ts` to `tsc`. Your editor can show the same errors as you
 type: see sinter's `docs/editors.md`.
 
 ## Files

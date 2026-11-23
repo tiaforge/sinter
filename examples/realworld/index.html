@@ -42,7 +42,7 @@
           </template>
           <template data-sn-else><div class="article-preview empty-feed-message">No articles are here... yet.</div></template>
         </template>
-        <template data-sn-if="meta.pages > 1"><conduit-pager data-sn-with="{ meta, feed: $url.feed }"></conduit-pager></template>
+        <template data-sn-if="(meta.pages ?? 0) > 1"><conduit-pager data-sn-with="{ meta, feed: $url.feed }"></conduit-pager></template>
       </div>
       <div class="col-md-3">
         <div class="sidebar">

@@ -408,6 +408,25 @@ export type Block = Para | Quote | Rule;
       .toEqual([expect.stringMatching(/Property 'acount_id' does not exist on type 'Refetch'/)]);
   });
 
+  test('the expressions follow the app tsconfig\'s `strictNullChecks` (or `strict`); a state field that starts as `null` or `[]` takes what is assigned later', () => {
+    const html = (expr: string) => page(`<div data-sn-state="{ err: null, list: [], sel: /** @type {Contact|null} */ (null) }">
+<button data-sn-on-click="err = 'x'; list = [1]; sel = contacts[0]"></button><p data-sn-text="contacts.length + ${expr}"></p></div>`);
+    const errors = (expr: string, tsconfig?: object) => checkPage(html(expr), { files: { 'src/sinter.types.ts': TYPES, ...(tsconfig ? { 'tsconfig.json': JSON.stringify(tsconfig) } : {}) } })
+      .map((d) => `${d.code} ${d.message.replace(/ \(TS\d+\)$/, '')}`);
+    const strict = { compilerOptions: { strict: true } };
+    expect(errors('sel.name', strict)).toEqual(["SN208 'sel' is possibly 'null'."]);
+    expect(errors('(sel?.name ?? err) + list.length', strict)).toEqual([]);
+    // without a tsconfig, or with nulls unchecked: as before
+    expect(errors('sel.name')).toEqual([]);
+    expect(errors('sel.name', { compilerOptions: { strict: true, strictNullChecks: false } })).toEqual([]);
+    expect(errors('sel.name', { compilerOptions: { strictNullChecks: true } })).toEqual(["SN208 'sel' is possibly 'null'."]);
+    // a solution-style tsconfig (Vite's templates): the referenced config that compiles src/
+    const solution = (app: object) => checkPage(html('sel.name'), { files: { 'src/sinter.types.ts': TYPES, 'tsconfig.json': JSON.stringify({ files: [], references: [{ path: './tsconfig.node.json' }, { path: './tsconfig.app.json' }] }),
+      'tsconfig.node.json': JSON.stringify({ compilerOptions: { strict: false }, include: ['vite.config.ts'] }), 'vite.config.ts': 'export default {};\n', 'tsconfig.app.json': JSON.stringify(app) } }).map((d) => d.code);
+    expect(solution({ compilerOptions: { strict: true }, include: ['src'] })).toEqual(['SN208']);
+    expect(solution({ compilerOptions: { strict: false }, include: ['src'] })).toEqual([]);
+  });
+
   test('sn-event: `data-sn-let` names around the sync are in scope like state, in `when` and `then`', () => {
     const types = `${TYPES}export interface Updated { uid: number; mailbox: string; seen: boolean }\n`;
     // the let is the innermost frame (`open`) or under a state (`box`); both once gave errors here

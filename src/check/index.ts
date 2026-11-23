@@ -16,6 +16,7 @@ import type { OpenApiSpec } from '../compiler/openapi.js';
 import { specDeclarations, typeName } from './openapi-types.js';
 import type { LibraryTypes } from './shadow.js';
 import { DECLARATIONS, mapPosition, quietLine, shadow, type Region, type Shadow } from './shadow.js';
+import { appTsconfig, SCRIPT_OVERRIDES, type AppTsconfig } from './tsconfig.js';
 
 export interface CheckOptions {
   root: string;
@@ -84,11 +85,35 @@ export function writeSupport(o: { root: string; outDir: string; types: string | 
   return { outDir: o.outDir, declarations, types, openapi, augments, schemas, ...(libraries.length ? { libraries } : {}) };
 }
 
-/** The compiler options shadow files are checked with. */
+/** The compiler options shadow files are checked with (`markupOptions` adds the app's `strictNullChecks`). */
 export const COMPILER_OPTIONS = {
   allowJs: true, checkJs: true, strict: true, strictNullChecks: false, noImplicitAny: false, noEmit: true, skipLibCheck: true,
   target: 'es2022', module: 'esnext', moduleResolution: 'bundler', allowImportingTsExtensions: true, lib: ['es2023', 'dom', 'dom.iterable'], types: [] as string[],
 };
+
+/** The compiler options of the pages' shadows: sinter's, with the app's `strictNullChecks` when it has a tsconfig. */
+export function markupOptions(app: AppTsconfig | null): typeof COMPILER_OPTIONS {
+  return app ? { ...COMPILER_OPTIONS, strictNullChecks: app.strictNullChecks } : COMPILER_OPTIONS;
+}
+
+/** The folder of `outDir` the components' scripts' shadows go in, with their own tsconfig when the app has one. */
+export const SCRIPTS_DIR = 'scripts';
+
+/**
+ * The tsconfig of the components' scripts' shadows (in `<outDir>/scripts`), for an app with a tsconfig: it extends
+ * the app's, so a script is checked as the same code in a module beside its file would be, with sinter's
+ * `SCRIPT_OVERRIDES`, `rootDirs` (`scriptOptions`) and its own files: the shadows, the components' generated types and
+ * the app's declaration files (its globals).
+ */
+export function scriptTsconfig(app: AppTsconfig, root: string, dir: string, files: readonly string[] | { include: string[] }, componentTypes: string | null | undefined): string {
+  const rel = (f: string) => { const r = relative(dir, f).split('\\').join('/'); return r.startsWith('.') ? r : './' + r; };
+  const own = [...new Set([...(componentTypes ? [componentTypes] : []), ...app.declarations])].map(rel);
+  return JSON.stringify({
+    extends: rel(app.file),
+    compilerOptions: { ...SCRIPT_OVERRIDES, ...scriptOptions(root, dir, true) },
+    ...('include' in files ? { include: [...files.include, ...own] } : { include: [], files: [...new Set([...own, ...files.map(rel)])] }),
+  }, null, 2) + '\n';
+}
 
 /** Where a page's shadow file goes. */
 export function shadowPath(support: Support, root: string, page: string): string {
@@ -176,20 +201,31 @@ export function check(o: CheckOptions): CheckResult {
     writeFileSync(file, s.text);
     shadows.set(resolve(file), { unit, regions: s.regions, brokenFrom: s.brokenFrom });
   }
-  const scripts = writeScriptShadows(o.root, outDir, o.scripts ?? []);
+  const tsc = o.tsc ?? findTsc(o.root);
+  const app = appTsconfig(o.root, tsc);
+  const scriptsDir = join(outDir, SCRIPTS_DIR);
+  const scripts = writeScriptShadows(o.root, scriptsDir, o.scripts ?? []);
+  // with the app's tsconfig, the scripts are a program of their own under its options (a second tsc, when there are any)
+  const own = !!app && scripts.size > 0;
   const tsconfig = join(outDir, 'tsconfig.json');
   const rel = (f: string) => relative(outDir, f).split('\\').join('/');
   writeFileSync(tsconfig, JSON.stringify({
-    compilerOptions: { ...COMPILER_OPTIONS, ...scriptOptions(o.root, outDir, scripts.size > 0) },
+    compilerOptions: { ...markupOptions(app), ...(own ? {} : scriptOptions(o.root, scriptsDir, scripts.size > 0, outDir)) },
     // the types module always, so augmentations in it (declare global, a library's import type {}) apply
     files: ['sinter.d.ts', ...(support.types ? [rel(support.types.file)] : []), ...support.openapi.map((f) => relative(outDir, f)), ...[...shadows.keys()].map(rel),
-      ...(scripts.size && o.componentTypes ? [rel(o.componentTypes)] : []), ...[...scripts.keys()].map(rel)],
+      ...(!own && scripts.size && o.componentTypes ? [rel(o.componentTypes)] : []), ...(own ? [] : [...scripts.keys()].map(rel))],
   }, null, 2) + '\n');
-
-  const tsc = o.tsc ?? findTsc(o.root);
-  const run = spawnSync(process.execPath, [tsc, '-p', tsconfig, '--pretty', 'false'], { encoding: 'utf8', cwd: outDir });
-  if (run.error) throw run.error;
-  const diagnostics = parseTsc(run.stdout, outDir, o.root, shadows, scripts);
+  const runs = [tsconfig];
+  if (own) {
+    const t = join(scriptsDir, 'tsconfig.json');
+    writeFileSync(t, scriptTsconfig(app, o.root, scriptsDir, [...scripts.keys()], o.componentTypes));
+    runs.push(t);
+  }
+  const diagnostics = runs.flatMap((t) => {
+    const run = spawnSync(process.execPath, [tsc, '-p', t, '--pretty', 'false'], { encoding: 'utf8', cwd: outDir });
+    if (run.error) throw run.error;
+    return parseTsc(run.stdout, outDir, o.root, shadows, scripts);
+  });
 
   const resources = o.units.reduce((n, u) => n + u.resources.length, 0);
   const typed = o.units.reduce((n, u) => n + u.resources.filter((r) => r.type || r.openapi || r.call || r.file?.adds || r.item || r.content).length, 0);
@@ -289,8 +325,8 @@ export function clean(message: string, root: string): string {
 }
 
 /**
- * The shadow of a component's top-level `<script>`, in `outDir` at the component file's path inside the root
- * (`src/components/task-ring.html.script.ts`): its code at the file's lines and columns, so TypeScript's positions are the
+ * The shadow of a component's top-level `<script>`, in `<outDir>/scripts` at the component file's path inside the root
+ * (`scripts/src/components/task-ring.html.script.ts`): its code at the file's lines and columns, so TypeScript's positions are the
  * file's. With `rootDirs` (`scriptOptions`), its relative imports resolve as from beside the component file.
  */
 export function scriptShadowPath(root: string, outDir: string, html: string): string | null {
@@ -299,7 +335,7 @@ export function scriptShadowPath(root: string, outDir: string, html: string): st
   let text = '';
   try { text = readFileSync(html, 'utf8'); } catch { return null; }
   const s = inlineScripts(text)[0];
-  return s ? join(outDir, inlineScriptPath(rel, inlineScriptLang(s.lang) ?? 'js')) : null;
+  return s ? join(outDir, SCRIPTS_DIR, inlineScriptPath(rel, inlineScriptLang(s.lang) ?? 'js')) : null;
 }
 
 /** Writes the shadows of the component files' scripts; shadow path → component file. */
@@ -314,13 +350,25 @@ export function writeScriptShadows(root: string, outDir: string, files: readonly
     if (!m || !s || rel.startsWith('..') || isAbsolute(rel)) continue;
     const path = join(outDir, inlineScriptPath(rel, inlineScriptLang(s.lang) ?? 'js'));
     mkdirSync(dirname(path), { recursive: true });
-    writeIfChanged(path, m.code);
+    writeIfChanged(path, scriptShadowText(m.code, path));
     out.set(resolve(path), html);
   }
   return out;
 }
 
-/** The compiler options a component script's shadow needs: `rootDirs`, so `./x.js` beside it resolves in the root. */
-export function scriptOptions(root: string, outDir: string, any: boolean): { rootDirs?: string[] } {
-  return any ? { rootDirs: [relative(outDir, root).split('\\').join('/') || '.', '.'] } : {};
+/**
+ * A script shadow's text: the module's code, and a JS one checked by its own `// @ts-check` (on the first line, which
+ * is padding when the script starts below it), whatever the app's `checkJs` says of its own modules.
+ */
+export function scriptShadowText(code: string, path: string): string {
+  return /\.[cm]?js$/.test(path) && code.startsWith('\n') ? '// @ts-check' + code : code;
+}
+
+/**
+ * The compiler options a component script's shadow needs: `rootDirs`, so `./x.js` beside it resolves in the root.
+ * `dir` holds the shadows (`<outDir>/scripts`); `config` is the folder of the tsconfig the options go in (default `dir`).
+ */
+export function scriptOptions(root: string, dir: string, any: boolean, config: string = dir): { rootDirs?: string[] } {
+  const rel = (f: string) => relative(config, f).split('\\').join('/') || '.';
+  return any ? { rootDirs: [rel(root), rel(dir)] } : {};
 }

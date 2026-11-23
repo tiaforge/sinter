@@ -1,8 +1,8 @@
 <!-- A line graph of `values`, drawn as SVG by the helpers line() and area(). `at` is the number of the newest
-     sample: when it changes, the script (spark-line.ts) slides the line a step left. The samples run one past
+     sample (null before the first): when it changes, the script (spark-line.ts) slides the line a step left. The samples run one past
      the left edge (`wide`: the line's width, and the viewBox starts where the visible part does), so the
      sliding line never shows a gap there. -->
-<template data-sn-props="{ values: number[]; at: number; width: number; height: number; label: string; tone?: 'warning' | 'danger' }">
+<template data-sn-props="{ values: number[]; at: number | null; width: number; height: number; label: string; tone?: 'warning' | 'danger' }">
   <svg class="graph" role="img"
        data-sn-let="{ wide: width * (values.length - 1) / Math.max(values.length - 2, 1) }"
        data-sn-attr="{ viewBox: (wide - width) + ' 0 ' + width + ' ' + height, 'aria-label': label, 'data-tone': tone }">
