@@ -34,7 +34,7 @@ test('a page that ships definitions: its second pass makes a unit on the first p
     for (let round = 0; round < 2; round++) for (const name of order) {
       const n = UNIT_STATS.made2 + UNIT_STATS.placed2;
       const through = canon(() => build(name, SECOND[name]!, units));
-      expect(UNIT_STATS.made2 + UNIT_STATS.placed2 > n, `${name}: the route`).toBe(LIVE.includes(name));
+      if (!AUDITED) expect(UNIT_STATS.made2 + UNIT_STATS.placed2 > n, `${name}: the route`).toBe(LIVE.includes(name));
       expect(through, `${name}, round ${round}`).toEqual(canon(() => build(name, SECOND[name]!)));
     }
     // one unit for the pages of one shape, a few by one key (the pages differ in what their own markup used before)
@@ -56,7 +56,7 @@ test('the unit comes first: its templates and functions before the page\'s own, 
 test('a page that ships no definition places no unit, and is byte for byte what it was', () => {
   const units = new Map<string, unknown>(), s = stats();
   for (let round = 0; round < 2; round++) for (const name of CONST) expect(build(name, SECOND[name]!, units), name).toEqual(build(name, SECOND[name]!));
-  expect(UNIT_STATS.made2 + UNIT_STATS.placed2).toBe(s.made2 + s.placed2);
+  if (!AUDITED) expect(UNIT_STATS.made2 + UNIT_STATS.placed2).toBe(s.made2 + s.placed2);
 });
 
 test('SN_UNITS2=0: the second pass compiles its definitions as before', () => {
@@ -88,6 +88,11 @@ const C2: Record<string, string> = {
   // a form reading \`$error\` in a definition, its state the same as one of the page's: the page made that state's function first
   'y-ftext': '<template data-sn-props="{ node: any }"><span><span data-sn-text="node.value"></span><form data-sn-state="{ t: live.t }"><b data-sn-text="$error"></b><i data-sn-text="t"></i></form></span></template>',
   'y-fchosen': `<template data-sn-props="{ node: any }"><p><sn-component use="{ text: 'y-ftext' }[node.type]" data-sn-with="{ node }"></sn-component><template data-sn-for="k in node.kids"><y-fchosen data-sn-with="{ node: k }"></y-fchosen></template></p></template>`,
+  // a definition passing a class to another's tag (its root's bindings, made by the unit, \`defAttrs\`), over pages numbered otherwise
+  'y-tb': '<template data-sn-props="{ node: any }"><div><span data-sn-text="node.v"></span><template data-sn-for="k in node.kids"><y-tb data-sn-with="{ node: k }"></y-tb></template></div></template>',
+  'y-wrapb': `<template data-sn-props="{ node: any }"><sn-component use="{ b: 'y-tb' }[node.type]" data-sn-with="{ node: node }"></sn-component></template>`,
+  'y-tc': '<template data-sn-props="{ node: any }"><p><y-wrapb class="hot" data-sn-class="{ on: node.on }" data-sn-with="{ node: node }"></y-wrapb></p></template>',
+  'y-docc': `<template data-sn-props="{ doc: any }"><div><template data-sn-for="n in doc.children"><sn-component use="{ c: 'y-tc' }[n.type]" data-sn-with="{ node: n }"></sn-component></template></div></template>`,
   // scoped styles: their marks (`data-sn-c`) are written on each instance's root after the walk, the unit's too
   'y-card': '<template data-sn-props="{ t: string }"><b class="c"><slot></slot></b></template><style>.c { color: red }</style>',
   'y-styled': '<template data-sn-props="{ node: any }"><li class="n"><y-card data-sn-with="{ t: node.value }"><em data-sn-text="node.value"></em></y-card><ul><template data-sn-for="k in node.kids"><y-styled data-sn-with="{ node: k }"></y-styled></template></ul></li></template><style>.n { padding: 0 }</style>',
@@ -97,16 +102,16 @@ const C2: Record<string, string> = {
   'y-text': '<template data-sn-props="{ node: any }"><span data-sn-text="node.value"></span></template>',
   'y-tree': `<template data-sn-props="{ node: any }"><div><y-text data-sn-with="{ node }"></y-text><template data-sn-for="n in node.children"><y-tree data-sn-with="{ node: n }"></y-tree></template></div></template>`,
 };
-export function page(name: string, body: string, units?: Map<string, unknown>) {
+export function page(name: string, body: string, units?: Map<string, unknown>, extra: Partial<CompileOptions> = {}) {
   const files: Record<string, string> = { '/p/items.json': '[1, 2]' };
   for (const [k, s] of Object.entries(C2)) files[`/p/src/components/${k}.html`] = s;
   // (a constant loop, unrolled by a second pass)
   const out = compile(`<!doctype html><html><head></head><body><sn-resource name="live" src="/api/doc"></sn-resource><sn-resource name="items" src="file:./items.json"></sn-resource><ul><template data-sn-for="x in items"><li data-sn-text="x"></li></template></ul>${body}</body></html>`, {
     file: `/p/${name}.html`, root: '/p', dev: false, prerender: true, componentNames: Object.keys(C2),
     helpers: { module: null, names: [], namespaces: {} }, readFile: (p) => { if (p in files) return files[p]!; throw new Error(p); },
-    ...(units ? { units } : {}),
+    ...(units ? { units } : {}), ...extra,
   });
-  return { html: out.html, module: out.module, runtime: out.runtime, diagnostics: out.diagnostics };
+  return { html: out.html, module: out.module, runtime: out.runtime, diagnostics: out.diagnostics, map: out.map };
 }
 
 test('a fill whose cases hang under a unit\'s row, not its definition: compiled again without the unit (counted)', () => {
@@ -156,6 +161,25 @@ test('a state the page made first, wrapped for `$error` in a definition: each pa
   } finally { delete env.SN_UNITS_VERIFY; }
 });
 
+test('a definition\'s tag attributes passed by another definition (bindings the unit made): each page its own, none left changed', () => {
+  env.SN_UNITS_VERIFY = '1';
+  try {
+    const units = new Map<string, unknown>(), s = stats();
+    const loops = (n: number) => Array.from({ length: n }, (_, i) => `<ul><template data-sn-for="x in live.l${i}"><li data-sn-text="x"></li></template></ul>`).join('');
+    const body = (n: number) => `${loops(n)}<y-tb data-sn-with="{ node: live }"></y-tb><y-docc data-sn-with="{ doc: live }"></y-docc>`;
+    for (let round = 0; round < 2; round++) for (const [i, n] of [1, 4, 1].entries()) expect(canon(() => page(`t${i}`, body(n), units)), `page ${i}, round ${round}`).toEqual(canon(() => page(`t${i}`, body(n))));
+    expect(UNIT_STATS.placed2 - s.placed2).toBeGreaterThan(0);
+  } finally { delete env.SN_UNITS_VERIFY; }
+});
+
+test('with a source map: no second-pass unit (a function both write would be at the unit\'s place), byte for byte (counted)', () => {
+  const units = new Map<string, unknown>(), s = stats();
+  const body = '<y-tree data-sn-with="{ node: live }"></y-tree>';
+  for (let round = 0; round < 2; round++) expect(page('sm', body, units, { sourcemap: true })).toEqual(page('sm', body, undefined, { sourcemap: true }));
+  expect(UNIT_STATS.made2 + UNIT_STATS.placed2).toBe(s.made2 + s.placed2);
+  counted(fellBack(s, 'a source map'), 2);
+});
+
 test('a unit that is refused (a definition that reports a diagnostic): the page compiled again without one (counted)', () => {
   const units = new Map<string, unknown>(), s = stats();
   const body = '<y-bad data-sn-with="{ node: live }"></y-bad>';
@@ -190,4 +214,53 @@ test('a template\'s entries (`<html data-sn-for>`), each second pass from its ke
   counted(UNIT_STATS.made2 + UNIT_STATS.placed2 - s.made2 - s.placed2, list.length);
   expect(PASS_STATS.kept - kept).toBeGreaterThan(0);
   expect([...UNIT_STATS.fallback].filter(([k, n]) => k.startsWith('pass 2') && n !== (s.fallback.get(k) ?? 0))).toEqual([]);
+});
+
+// A2: a first pass that is its output (nothing for a second pass to apply), compiled again with a unit as a second pass
+// places one (stage5-a1.md, section 5)
+test('a page whose first pass is its output: compiled again with a unit of its own, the same up to numbering', () => {
+  for (const order of [LIVE, [...LIVE].reverse()]) {
+    const units = new Map<string, unknown>(), s = stats();
+    for (let round = 0; round < 2; round++) for (const name of order) {
+      const n = UNIT_STATS.made2 + UNIT_STATS.placed2;
+      const through = canon(() => build(name, PAGES[name]!, units));
+      // (`two trees` has a second pass: A1's)
+      expect(UNIT_STATS.made2 + UNIT_STATS.placed2 > n, `${name}: the route`).toBe(true);
+      expect(through, `${name}, round ${round}`).toEqual(canon(() => build(name, PAGES[name]!)));
+    }
+    expect([...UNIT_STATS.fallback].filter(([k, v]) => k.startsWith('pass 2') && v !== (s.fallback.get(k) ?? 0))).toEqual([]);
+  }
+});
+
+test('under the type check a first pass that is its output is compiled again without units, as before', () => {
+  const units = new Map<string, unknown>();
+  for (const name of LIVE.filter((x) => x !== 'two trees')) {
+    const n = UNIT_STATS.made2 + UNIT_STATS.placed2;
+    expect(build(name, PAGES[name]!, units, true), name).toEqual(build(name, PAGES[name]!, undefined, true));
+    expect(UNIT_STATS.made2 + UNIT_STATS.placed2, name).toBe(n);
+  }
+});
+
+test('a template\'s entries with only a live tree (no second pass): each through a unit, the same up to numbering', () => {
+  const C3: Record<string, string> = {
+    'x-doc': '<template data-sn-props="{ doc: any }"><div class="doc"><template data-sn-for="n in doc.children"><sn-component use="{ text: \'x-text\', link: \'x-link\' }[n.type]" data-sn-with="{ node: n }"></sn-component></template></div></template>',
+    'x-text': '<template data-sn-props="{ node: any }"><span data-sn-text="node.value"></span></template>',
+    'x-link': '<template data-sn-props="{ node: any }"><a data-sn-attr="{ href: node.url }"><template data-sn-for="n in node.children"><sn-component use="{ text: \'x-text\', link: \'x-link\' }[n.type]" data-sn-with="{ node: n }"></sn-component></template></a></template>',
+  };
+  const files: Record<string, string> = {};
+  for (const [k, c] of Object.entries(C3)) files[`/p/src/components/${k}.html`] = c;
+  for (const k of ['one', 'two', 'three']) files[`/p/content/docs/${k}.json`] = JSON.stringify({ slug: k, title: `The ${k}` });
+  const o: CompileOptions = {
+    file: '/p/blog/post.html', root: '/p', dev: false, prerender: true, componentNames: Object.keys(C3), helpers: { module: null, names: [], namespaces: {} },
+    readFile: (f) => { if (f in files) return files[f]!; throw new Error(f); }, listFiles: (d) => Object.keys(files).filter((f) => f.startsWith(d.replace(/\/$/, '') + '/')),
+  };
+  const html = '<!doctype html><html lang="en" data-sn-path="/blog/:slug" data-sn-for="d in docs"><head><title data-sn-text="d.title"></title></head><body><sn-resource name="docs" src="file:/content/docs/*.json"></sn-resource><sn-resource name="live" src="/api/doc"></sn-resource><h1 data-sn-text="d.title"></h1><x-doc data-sn-with="{ doc: live }"></x-doc></body></html>';
+  const list = compile(html, o).pages!.entries;
+  const s = stats(), units = new Map<string, unknown>(), templates = new Map(), alone = new Map();
+  env.SN_CANON = '1';
+  try {
+    for (const e of list) expect(compile(html, { ...o, page: e, templates, units }), e.path).toEqual(compile(html, { ...o, page: e, templates: alone }));
+  } finally { delete env.SN_CANON; }
+  counted(UNIT_STATS.made2 + UNIT_STATS.placed2 - s.made2 - s.placed2, list.length);
+  counted(UNIT_STATS.fallback.get('a first pass that is finished')! - (s.fallback.get('a first pass that is finished') ?? 0), list.length);
 });

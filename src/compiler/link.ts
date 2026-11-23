@@ -193,6 +193,7 @@ export const LINK_FIELDS: Record<string, { kinds: string[]; how: 'table' | 'weak
   unitStale: { kinds: ['empty', 'string'], how: 'linker' },
   defsAsked: { kinds: ['Set'], how: 'linker' },
   unitHeld: { kinds: ['boolean'], how: 'linker' },
+  finishedFirst: { kinds: ['boolean'], how: 'linker' },
   pointNames: { kinds: ['Array'], how: 'table' },
   points: { kinds: ['WeakMap'], how: 'weak' },
   prefetchOff: { kinds: ['boolean'], how: 'fixed' },

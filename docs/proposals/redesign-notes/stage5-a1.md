@@ -13,8 +13,11 @@ The brief is "A1 brief" in [stage5-assembly.md](stage5-assembly.md) (section 5);
   → 88 with TypeScript), the build's compile −14% (−19%).
 - **Merged** `ccr-9ebf49d5-gpdej8` at d64bc0b and verified again (section 4b): a template's entries crashed the
   build there (their second pass did not give the unit back), fixed with every second pass through `unitPass`.
-- **Next**: A2 (section 5): its case occurs in no app measured; one shape found (a template's entries with only a
-  live tree); built behind the same switch if its audit holds.
+- **A2 built** (section 5): a first pass that is its output is compiled again with a unit of its own, not without
+  units (but under the type check); its audit found an A1 bug (bindings of a definition's tag attributes made by the
+  unit, not held), fixed, and a source-map difference (a page with a source map places no second-pass unit now).
+- **Next**: nothing planned in this workstream; the final measurements on the merged tree and the report. What is
+  left is in section 6.
 
 ## How it is measured
 
@@ -308,11 +311,54 @@ pass was their output. Measured again on the merged tree (one build, wall, the p
   (`quietFinish`: a signed-in guard, `data-sn-pages`, URL bindings, page models, `$url` writes). One shape found: a
   template's entries whose only tree is live and whose entry data is read only where it is written into the markup
   (an entry's title): no second pass, "a first pass that is finished" once per entry (a probe of three entries).
+  (sinter-mail's components over an API in a template's entries is not this shape: its entries have a second pass,
+  from the kept expansion, which A1 serves. Measured, 12 entries of a template whose only tree is `<mail-body
+  data-sn-with="{ body: message, templates: true }">`, wall, two builds each: off, a later entry 280 ms and the build
+  5.6 s; on, 52 ms and 3.1 to 3.4 s, one unit made and 11 placed. Its old route compiled the library on every entry:
+  the second pass from a kept expansion does not link.)
+
+**Built** (the same switch, `SN_UNITS2`; the same audit): where a first pass is finished and its units were placed or
+made, it is compiled again, as before, but with the build's units and marked `finishedFirst`, through `unitPass`:
+its walk places a finished unit as a second pass's does (the names of the points in its tree, the key with `first`
+added), holds it, copies its output off it and gives it back. A unit that does not hold for it falls back to the old
+recompile without units, counted as for a second pass. Not under the type check: there this pass's output carries its
+check unit, and a finished unit keeps no check part (so the type check keeps today's route). The fallback reason "a
+first pass that is finished" is still counted (it is why the page is compiled again); what changed is that the
+recompile takes its definitions from a unit.
+
+What A2's audit found (the suite's link-review pages are live trees whose first pass is their output, so A2 placed
+units there, where A1 had placed none):
+
+- **A1's too**: a unit's definition that passes attributes to another definition's tag (`x-tc` passing `class="hot"`
+  and `data-sn-class` to `x-tb`'s through a choice) makes the bindings of that definition's root in the unit
+  (`defAttrs`); each page puts them on the root (`defRootBindings`) and `compactTables` numbers their functions in
+  place. They sat in no template when the unit was made, so they were not held: the next page got the last page's
+  function numbers (VERIFY: "changed an object of a second pass's unit … k: class"). Now held (`irObjects` takes the
+  bindings of the unit's `defAttrs` maps). Test: `units2.test.ts` "a definition's tag attributes passed by another
+  definition…" (fails without the hold, on a second pass).
+- **Source maps**: where the page and the unit write a function of the same code, its site in the source map is the
+  first writer's; the unit's code now comes first, so the site is the unit's place where the old route has the page's
+  when the page wrote it before the walk reached the definition. Another site, not another number: with a source map
+  (`sourcemap`), a page places no second-pass unit (counted, `pass 2: a source map`) and compiles as before. Matching
+  the old route's site would need, per definition, the moment the old walk would have compiled it. Recorded as left.
+  Test: "with a source map: no second-pass unit…".
+
+Measured on its shape (in-process, through `dist/`, a template of 12 entries over a five-component library whose only
+tree is live, three rounds): a later entry 6.3 to 7.0 ms off, 4.5 to 5.8 on; the 12 entries 102 to 140 ms off, 82 to
+109 on. Tests: `units2.test.ts` "a page whose first pass is its output…" (the units tests' live pages, both orders,
+two rounds, canonically equal), "under the type check a first pass that is its output…" (byte for byte, no unit),
+"a template's entries with only a live tree…".
 
 ## Log
 
 - 19:10 UTC: suite plain and canonical, sinter-mail baseline and canonical (`--suite --bench`), per-phase timings.
 - 20:20 UTC: A1 built and verified (sections 3, 4), committed (89f70f1).
+- 23:10 UTC: A2 built; its audit's two findings fixed (section 5). The suite 2,950 passed; `SN_UNITS2_AUDIT=1
+  SN_UNITS_VERIFY=1` (the whole suite): no difference, no unit object changed (52 failures, the tests that count
+  compiles); CI's link-audit job (the whole suite, `SN_LINK_AUDIT=1 --testTimeout=60000`): 2,950 passed; the four
+  audits on test/compiler at the integration head's failures (and `units.test.ts` timing out at 5 s under
+  `SN_LINK_AUDIT`, passing at CI's 60 s); every app the same raw and canonical, `pass-audit` the same; sinter-mail's 48
+  files canonically identical under VERIFY, gzip −24 B (worst file +1 B); size check passes.
 - 21:40 UTC: merged d64bc0b; the template entries' crash and the name check fixed (section 4b). On the merged tree:
   the suite 2,945 passed; under `SN_UNITS2_AUDIT=1 SN_UNITS_VERIFY=1` no difference and no unit object changed (53
   failures, all tests that count compiles: link-review-3/4/5, one-pass, render-rows, as the other audits have them);

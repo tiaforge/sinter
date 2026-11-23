@@ -1515,15 +1515,26 @@ function compileTwice(html: string, options: CompileOptions, pass: { first: Comp
   }
   // a first pass that is finished (its output, or its diagnostics read): compiled again without the build's units, whose
   // objects it shares and whose numbers would then reach the output (`units.ts`)
+  // (A2, stage5-a1.md: compiled again with a finished unit of its own, as a second pass places one, its output copied
+  // off it; not under the type check, whose unit this pass's output carries and a finished unit has no part of)
+  let finished: CompiledParts & { canonicalOnly?: boolean } | null = null;
   if (first.placedUnit || first.earlyDefs) {
     unitFallback('a first pass that is finished');
     restoreUnit(first);
-    first = pass.first = new Compiler({ ...options, units: undefined });
-    walk = first.walkPage(html);
-    if (options.prefetchLater) pass.described = first.firstPrefetch();
-    first.settle();
+    const again = (units: boolean) => {
+      first = pass.first = new Compiler(units ? options : { ...options, units: undefined });
+      if (units) first.finishedFirst = true;
+      walk = first.walkPage(html);
+      if (options.prefetchLater) pass.described = first.firstPrefetch();
+      first.settle();
+    };
+    if (options.units && units2On() && !options.check && !options.dev) {
+      const c = new Compiler(options);
+      finished = unitPass(c, () => { first = pass.first = c; c.finishedFirst = true; walk = c.walkPage(html); if (options.prefetchLater) pass.described = c.firstPrefetch(); c.settle(); return c.finishPage(walk, true); },
+        () => { again(false); return first.finishPage(walk, true); });
+    } else again(false);
   }
-  const out = first.finishPage(walk, true);
+  const out = finished ?? first.finishPage(walk, true);
   // `data-sn-if` templates over state nothing writes: decided now, the page compiled again with their branches in place
   const withLate = (o: typeof out) => (o.lateDiagnostics ? { ...o, diagnostics: [...o.diagnostics, ...o.lateDiagnostics] } : o);
   if (!twice) { SHIFT_STATS.first ||= first.hasDefinitions() || proc?.env.SN_UNITS_SHIFT_AT === 'walk'; return withLate(out); }
@@ -1787,6 +1798,8 @@ class Compiler {
   unitStale: string | null = null;
   /** a second pass run by `unitPass`, which copies its output off a unit of its own and gives the unit back: only such a pass places one */
   unitHeld = false;
+  /** a first pass compiled again to be the page's output (A2, `compileTwice`): it places a unit as a second pass does */
+  finishedFirst = false;
   /** a second pass with a unit: the definitions its walk asked for, each of which the unit must hold and no other (`finishPage`) */
   readonly defsAsked = new Set<string>();
   /** what this page changed of its unit's objects, as they were (`touch`, `restoreUnit`) */
@@ -2261,13 +2274,18 @@ class Compiler {
     // builds: the page's definitions from the build's units, before anything is numbered (`units.ts`); in a second pass
     // (whose numbers ship) a unit of its own, held whole and given back after the page's output is copied (stage5-a1.md)
     // (a second pass's: the definitions of the points left in its tree, which its walk compiles, `livePoints`)
-    // (only a second pass that gives its unit back after its output, `unitPass`: any other compiles as before)
-    const live = second && this.unitHeld && this.opts.units && unitsOn() && units2On() && !this.opts.describeOnly && !this.opts.dev ? this.livePoints(doc) : null;
-    if (this.opts.units && unitsOn() && (!second || live?.size) && !this.opts.describeOnly && !this.opts.dev) {
-      this.placedUnit = placeUnits(this, this.opts.units as UnitStore, [this.keepsAttrs, this.opts.locale?.name ?? '', this.page.axisUrl ?? ''].join('\u0001'), second, live ?? undefined);
-      if (second) holdUnit(this);
+    // (only a second pass that gives its unit back after its output, `unitPass`: any other compiles as before; a first
+    // pass that is finished, compiled again to be the output, places one as a second pass does: A2)
+    const ships = second || this.finishedFirst;
+    // (not with a source map: a function the page and the unit both write is at the unit's place, which comes first,
+    // where the old route has the page's when the page wrote it first: another site, not another number. Counted)
+    if (ships && this.unitHeld && this.opts.units && this.opts.sourcemap && unitsOn() && units2On() && !this.opts.describeOnly && !this.opts.dev && this.livePoints(doc).size) unitFallback('pass 2: a source map');
+    const live = ships && this.unitHeld && !this.opts.sourcemap && this.opts.units && unitsOn() && units2On() && !this.opts.describeOnly && !this.opts.dev ? this.livePoints(doc) : null;
+    if (this.opts.units && unitsOn() && (!ships || live?.size) && !this.opts.describeOnly && !this.opts.dev) {
+      this.placedUnit = placeUnits(this, this.opts.units as UnitStore, [this.keepsAttrs, this.opts.locale?.name ?? '', this.page.axisUrl ?? '', this.finishedFirst ? 'first' : ''].join('\u0001'), ships, live ?? undefined);
+      if (ships) holdUnit(this);
       // (a unit refused after its definitions were compiled here: the page compiled again without one, `compileTwice`)
-      if (second && !this.placedUnit && this.earlyDefs) this.unitStale = 'its unit refused';
+      if (ships && !this.placedUnit && this.earlyDefs) this.unitStale = 'its unit refused';
     }
     this.walkChildren(doc, { scope: { loops: [], states: [] }, list: this.roots, tid: -1, path: [], stateIdx: -1 });
     this.finishTreeFills();
