@@ -221,15 +221,6 @@ Found by the research, not changed:
   more; the render audit compares dev without them (`withoutEmptySlots`). The old route (`inlineInstance`, the row
   lets) is now needed only for per-copy diagnostics, rows that keep a handler, and the shapes the renderer leaves
   (`redesign-notes/stage2-coverage.md`, "Dev renders").
-- **Early scripts per shape: sound by check, not by proof** (`redesign-notes/early-script-shapes.md`). Pages whose
-  early sources differ only in literals of one kind and length share one build, the literals substituted
-  afterwards; the first two pages of a group are also built alone and compared. A fold the minifier reaches
-  indirectly and whose answer is the same for the placeholder and those two pages but not for a later one would
-  slip through (`includes("x")`: false for `post-1` and `post-2`, true for `post-x`). The compiler writes a folded
-  value inside a function of the table, which the minifier does not inline, but a user's expression over a folded
-  value (`post.slug.includes('x')`) in a request the early script makes could reach such a fold. `SN_EARLY_SHAPES_AUDIT=1` builds every page's own
-  and compares; `SN_EARLY_SHAPES=0` turns sharing off. To decide: keep the two-page check, check every page of a
-  group whose literals are not all drawn from a safe set, or run the audit in CI.
 - **A build with only type-check warnings passes** since the fix that counts errors and warnings apart; it failed
   before. Under `strict` it still fails.
 - **Props as a run-time frame.** Binding an inlined live use's props at run time, as shared definitions do, would
@@ -262,7 +253,6 @@ timings were not usable). A cloud session pushes to a branch of its own:
 | Workstream | Where | Branch | Log |
 | --- | --- | --- | --- |
 | stage 5, A1 then A2: definitions that ship, from units | cloud, `session_01AjKzdxPCdJ5nbeXvwkXoP2` | `redesign/stage5-a1` | `stage5-a1.md` |
-| early scripts per shape, the provable variant | cloud, `session_01AjKzdxPErYYZv1d2K1hMsD` | `redesign/early-script-shapes` | `early-script-shapes.md` |
 | the build outside the compiler, round 2 (the fixed part; a static page's cost) | cloud, `session_01AjKzdyy3dA5FDC6jCiY3dH` | `redesign/pipeline-2` | `pipeline-2.md` |
 | stage 5, B1: the second pass from the first's walk | cloud, `session_01AjKzdxkDukbMzASz1qaYeA` | `redesign/stage5-b1` | `stage5-b1.md` |
 | the evaluation's cost | local agent | merged as it lands | `evaluation.md` |
@@ -529,3 +519,17 @@ decision of their own (stage 7). A step that can stay byte-identical does.
   process, Astro's figure is a whole process; on the coordinating machine the whole process is about 0.2 s more than
   the in-process figure. The pipeline-2 session measures both like for like. So the static blog is 0.3 to 0.5 s
   behind Astro at 100 posts.
+- 2026-11-23, 22:20 UTC: **early scripts per shape, proven and merged** (`redesign-notes/early-script-shapes.md`,
+  "Proof"; the owner asked whether the sharing could be proven safe). The placeholder is now a free identifier the
+  minifier knows nothing about, replaced in the built output by each page's literal: a correct minifier preserves
+  the program for every value of a name it cannot know, the generated source only reads the name, and a literal put
+  for a read-only free name is the program with that binding. The session checked the argument and closed the holes
+  it found: Vite steps that read literal values (`import()`, `import.meta.glob`, `new URL(…, import.meta.url)`,
+  workers, `require`: no lifting in such a program), `delete "x"`, directives and keys (not lifted), a string
+  statement that could become a directive (parenthesized), `define` keys, `1.x`; the output is checked per shape
+  (every occurrence of a name a reference, none written or declared, no `with`). No page of any app, of the
+  suite's apps or of sinter-mail differs from its own build (1,000 benchmark pages audited); only a test's
+  deliberate folds differ, by 3 to 19 bytes, with the same behaviour. Grouping by kind and length is gone, so 100
+  or 400 live posts need 3 nested builds (7 and 10 before, 101 and 401 without sharing); `generateBundle` 70 ms at
+  100 posts. `SN_EARLY_SHAPES=kinds` keeps the earlier scheme, `0` turns sharing off. 1,500 tests of test/compiler,
+  test/vite, test/check pass after the merge.
