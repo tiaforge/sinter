@@ -519,3 +519,67 @@ rows' rendered markup, made in ~0.9 ms; finishing the entry from it (B1b's route
 next 2 ms are, and nothing in this work stands in its way (`RowRec` is read by `rowRenderer` alone).
 
 Tried and dropped in round 2: the heights in a second `WeakMap` (change 11), a faster `frozenPlain` walk (above).
+
+## Assessment: rendered rows written as markup text (the coordinator's question; measured, not built)
+
+The idea: a row the worklist says keeps nothing is written by a per-template plan of string pieces (the template's
+static markup, minified once, with holes for escaped values and nested rows), and the page carries one opaque
+raw-markup node where the rows stood, which the second pass, the minifier and the serializer pass through.
+
+**1. The ceiling** (`--cpu-prof`, ms a page under the profiler; the blog at 50 µs, sinter-mail at 100 µs, the mean of
+the build's pages, its first included):
+
+| app | `compile()` | rendering the rows (pass 1: `render` ← `instance`, `clone`, `fill`, `replace`) | the second pass's minifier | serializing | the rows' share at most |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| blog static | 11.0 | 1.6 | 0.62 | 0.28 | 2.5 (23%) |
+| mail 2,012-element email | 216 | 42 | 22 | 2.2 | 66 (31%) |
+| mail file email | 96 | 2.8 | 2.4 | 0.2 | 5 (5%) |
+| mail API, blog live's live parts | – | none rendered there | | | 0 |
+
+The second pass's walk does not walk rendered rows already (`walkChildren` skips `renderedAt`: what it costs, 1.65 a
+blog page, is the page's own markup and the definitions it compiles: `recursionPoint` → `compileDefinition` 0.53, B1b's
+ground). Text still has to be made: the values escaped and the pieces joined, the rows' ids, uses, links and marks
+listed as now, so the gain is a part of the ceiling: on the blog perhaps 1 ms wall of 8.6 (the rows' nodes made and
+then minified and serialized, against strings joined), on the large email perhaps 40 ms of ~110.
+
+**2. What reads the rows' nodes after they are rendered**, and whether the template answers it once:
+
+- *The minifier* (`minify` over the second pass's page, `WRITTEN`/`SCOPED` hooks, B1b's `respaceRows` at the rows'
+  edges): its white-space rule reads each text's neighbours and its ancestors' CSS (the layout's cascade:
+  `collapsesSpace`, `everyView`). Inside a template the ancestors are the template's own up to the loop's parent, the
+  same for every row of one loop, so a template's markup minified once per (template, the loop's parent context) is
+  answerable, except at the rows' edges and where a value's text meets static white space (a text binding's value
+  decides whether its neighbour's space collapses): those are per row. This is the largest obstacle: the minifier would
+  have to work on pieces with holes and give exactly what it gives on the expanded page.
+- *The image pipeline* (with `images`): it rewrites each `<img>` of the rows into a `<picture>` in the second pass
+  (`RENDERED_FILE`, `late` marks, `shown`), reading the row's attributes: per row by nature. Rows with images would keep
+  the node route, or the image step would move into the first pass per row.
+- *The layout and the space plan* (pages with stylesheets): read the rows' elements with their attributes before paint
+  (`shown`): per row where a class or style is bound; B1b's route reads them.
+- *Links*: `hrefs` entries point at each rendered `<a>` (same-page links, SN519, `boundHrefs`): would need stand-ins
+  (positions), answerable.
+- *Ids and numbering*: listed and counted already (`idAttrs`, `ids`): answerable. *Uses, files, reads, state*: listed
+  already. *Scoped styles' marks* (`data-sn-c`/`-r`/`-s`, `MARKED`, `late`): per template position and the `live` flag,
+  answerable. *Dev builds*: render rows too; their marks per element are per template, answerable.
+- *Per-copy diagnostics*: rows with diagnostics are not rendered already (`tplDiags`): no obstacle.
+- *The description* (headings and links read off the page): reads the compiled page; it would need to read the text
+  (or a parse of it): an obstacle to check, not measured.
+- *Units' journal*: the rendered nodes are new objects, not the unit's: no obstacle.
+
+**3. Switch and audit**: yes: the text route's page against the node route's, byte for byte (`SN_RENDER_AUDIT`'s
+pattern), as the serializer's rules (parse5's escaping of text and attribute values, raw-text elements, template
+content, void elements) are a closed set. sinter-mail: the file email gains little (5% ceiling), the 2,012-element one
+most (31% ceiling), the API route nothing (no rendered rows); the live blog's post body is rendered rows like the
+static one's, so it is not a static-page route.
+
+**Verdict.** General in principle (any rendered row without a residue, live pages included), but the ceiling on the
+blog is ~2.5 of 11 ms under the profiler (perhaps 1 ms wall), and the minifier's rule over pieces with holes, the image
+pipeline and the description are real obstacles; byte identity hangs on the minifier. Not built: it does not reach
+4 ms either, and it costs more than its blog gain. On the large email it is the next large step after this work.
+
+**4. "keepTemplate, copyState, the rest"** (round 2's table, 3.1 under the profiler, re-measured by call): `keepTemplate`
+is once per build (the kept template's walk: 77 ms, its definitions compiled), `compileTwice` the build's other pages
+(the index: 117 ms once); per entry, steady: `decideFor` 4.9 ms p25 wall, the second pass from the kept walk
+(`walkExpanded`) 1.6, of it `finishPage` 0.5 (the serializer 0.28 under the profiler, the minifier 0.38 wall),
+`copyState` ~0.3 (copying the kept walk's compiler state per entry: its `copy` 0.31, `keep` 0.1 under the profiler),
+`settle` 0.19, `compileOne`'s wrapping 0.14. So the quarter was mostly one-time work spread over the pages' mean.
