@@ -10,9 +10,15 @@ Running log (2026-11-23), branch `redesign/stage5-b1`, started at `5f203af` (the
   (5) and tests (test/compiler/from-walk.test.ts). page-compile: 451 → 359 ms.
 - **Built, off by default**: a template's entries from a copy of the kept walk (`entryFromWalk`,
   `SN_FROM_WALK_ENTRIES=1`): audited over the blog's 100 entries, but the copy costs more than it saves (8).
-- **Next**: the numbers (9), sinter-mail, page weight; then what B2 needs (7): pages with a unit placed (every page of
-  a vite build that shares definitions) need the page's own copy of the unit's objects (A1's structural copy); a
-  template's entries need a copy of the kept walk without the definitions the decided branches drop.
+- **Verified** (after merging the integration branch at 73035ca): the suite (2,959) plain and under
+  `SN_FROM_WALK_AUDIT=1` (166 second passes taken, the rest by reason, 5); `SN_RENDER_AUDIT`, `SN_ONE_PASS_AUDIT`,
+  `SN_LINK_AUDIT` on test/compiler pass, `SN_UNITS_AUDIT` fails the same 62 as the integration branch; the nine apps and
+  sinter-mail byte for byte the same with the switch off and on, raw and canonical; sinter-mail's suite; size budgets.
+  page-compile 364 → 289 ms (−21%) after the merge.
+- **Next (B2, 7)**: what keeps the route from real builds: a unit placed (every vite page with shared definitions; the
+  page needs its own copy of the unit's objects, A1's structural copy), values folded into code (the walk would compile
+  the folded reads, or fold after the walk), rendered rows with a layout or images (the pre-walk passes over rows),
+  and a template's entries (a copy of the kept walk without what the decided branches drop).
 
 ## How it is measured
 
@@ -124,7 +130,31 @@ which the rows' splice does as the second pass's does (the audit holds over the 
 
 ## 5. Fallbacks by reason
 
-To be filled from the milestone run (the suite under the audit, the apps).
+The suite under `SN_FROM_WALK_AUDIT=1` after the merge of the integration branch (`SN_FROM_WALK_STATS`, one line per
+page that recorded and had a second pass; dev renders, which most behaviour tests are, do not record):
+
+| route | second passes |
+| --- | ---: |
+| **taken** (audited: canonically the old route's) | **166** |
+| values folded into the code (`foldValues`/`foldGain`: the second pass writes known resource values into code the walk compiled as reads) | 123 |
+| nothing decided (a branch the build might decide, evaluated, not decided; evaluated again, writing) | 50 |
+| a loop unrolled, not rendered (the old row route) | 49 |
+| rendered rows and a layout (the minifier's included) | 48 |
+| no branch the build may decide (not recorded for the route: loops and branches over written state) | 33 |
+| constants the layout or the images read (prefold) | 26 |
+| code a decided branch compiled first is compiled elsewhere too (its site would be the branch's) | 12 |
+| a definition compiled first in a decided branch, used by the page | 9 |
+| a choice decided | 9 |
+| a loop unrolled on a page that is not quiet (whether it unrolls waits for the finished first pass) | 7 |
+| diagnostics in a decided branch | 4 |
+| ids in rendered rows | 2 |
+| a resource read only in a decided branch (SN501) | 2 |
+| over the expansion limit, an else-if decided, a decided if in a template that stays | 1 each |
+| (pages with a unit placed: the build's; in the suite only the unit tests, 8 before the merge) | |
+
+Apps (`pass-audit --switch SN_FROM_WALK`, after the merge): every file the same; static-site: rendered rows and a
+layout 4, a unit placed 2; multilingual-site: rendered rows and a layout 8; realworld and the blog's page files: a unit
+placed; the blog's template entries: the kept expansion's second pass (section 8); sinter-mail: a unit placed 16.
 
 ## 8. A template's entries from a copy of the kept walk (built, off by default)
 
@@ -146,14 +176,25 @@ branches are decided (the same for every entry of the blog) and copied per entry
 
 ## 6. Tests whose expectations changed
 
-- test/compiler/one-pass.test.ts, "a page of its own (not a template's entry)": the page (a loop rendered) now takes
-  its second pass from its walk, so nothing parses it again (`{}` where it counted one `a page of its own`); the old
-  count is kept as an assertion with `SN_FROM_WALK=0`.
+None. Two files run with B1 off, since they compare routes other than B1's and B1 takes one side only:
 
-No expectation of a number changed: the route's ids are today's (document order plus each block's gap).
+- test/compiler/one-pass.test.ts (stage 3's routes: it counts second passes by how they parse; a page of its own whose
+  rows were rendered no longer parses at all with B1);
+- test/compiler/units.test.ts (a page with and without the build's units, byte for byte: B1 takes the page without
+  units, and its numbers there are the second pass's up to numbering).
+
+The audits likewise: `SN_RENDER_AUDIT`, `SN_UNITS_AUDIT` and `SN_LINK_AUDIT` compare their own two routes with B1 off
+(`withoutFromWalk`); they hold as on the integration branch (the units audit fails the same 62 tests there, by
+construction: they count units placed). No expectation of a number changed: the route's ids are today's (document
+order and each block's gap), and where a dropped walk leaves a gap in state or template numbers the canonical form is
+what is compared.
 
 ## 7. What is left before the second pass can be deleted (B2)
 
+- Values folded into code (`folds`, merged from the embedding workstream during B1): the second pass compiles reads of
+  known resource values as literals; the walk compiled them as reads. The route takes a page only where folding gains
+  nothing (`foldGain`); the rest (123 in the suite) needs the walk to fold, or the folding to be a step after the walk
+  over the compiled code.
 - A template's entries (`fromTemplate`/`secondPass`) still walk their page again from the kept expansion.
 - Pages with a unit placed (every page of a build with shared definitions): finishing a first pass that shares the
   unit's objects would change them for the next page. The route needs the page's own copy of the unit's objects it
