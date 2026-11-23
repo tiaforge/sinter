@@ -1544,6 +1544,8 @@ class Compiler {
   private readonly renderedAt = new WeakMap<P5Element, { tpl: P5Element; list: string; offset: number; rows: RenderedRows } | null>();
   /** the second pass: the resources the rendered rows read (`RenderedRows.reads`), read for SN501 */
   private readonly renderedReads = new Set<string>();
+  /** the second pass: the rendered rows' empty texts, taken out once the markup is minified (`RenderedRows.empty`) */
+  private readonly renderedEmpty: P5Node[] = [];
   /** the value attributes of each element, the bindings each made, and whether it was reported on (`collectConstants`) */
   private readonly attrSources: Array<{ src: P5Element; node: NodeDef; attr: string; bindings: Binding[]; noted: boolean }> = [];
   /** the first pass: what the second one writes before the layout (`CompileOptions.constants`), and the state fields they read */
@@ -1658,6 +1660,8 @@ class Compiler {
     const sheets = this.opts.styles ?? this.opts.images?.styles;
     // builds: comments and white space that show nothing out, before anything counts nodes (docs/minify.md)
     if (this.opts.minify) this.minify(doc);
+    // rendered rows' empty texts: elements to the minifier (`WRITTEN`), nothing in the page
+    for (const t of this.renderedEmpty) { const kids = (t as { parentNode?: P5Parent }).parentNode?.childNodes as P5Node[] | undefined; const i = kids?.indexOf(t) ?? -1; if (i >= 0) kids!.splice(i, 1); }
     // the first pass: a copy of the markup the layout reads, for the dry run of constant classes and styles (`dryRun`)
     if (sheets?.length && this.collecting()) this.snapshot(doc);
     const layout = this.layout = sheets?.length ? new Layout(sheets, doc, this.layoutOptions()) : null;
@@ -8445,6 +8449,8 @@ class Compiler {
     // images, scoped styles (their marks)
     const sheets = [...(this.opts.styles ?? this.opts.images?.styles ?? []), ...((typeof this.opts.minify === 'object' ? this.opts.minify.styles : undefined) ?? [])];
     const page = sheets.length ? 'layout' : [...this.componentFiles.values()].some((f) => f?.css) ? 'styled' : null;
+    // a build's minifier, with a layout of the browser's own styles (`minify`)
+    const minifying = !!this.opts.minify && ((typeof this.opts.minify === 'object' ? this.opts.minify.styles : undefined) ?? this.opts.styles) !== undefined;
     const tplOf = new Map<number, P5Template>();
     for (const [node, el] of this.anchorEls) {
       if (this.pointOf.has(node) || placementOf.has(node)) continue;
@@ -8519,6 +8525,8 @@ class Compiler {
           // (one the walk keeps for the runtime, `data-sn-options`, `-navigate`, …: the walk adds what it needs)
           if (n.attrs.some((a) => a.name.startsWith('data-sn-'))) no('a sinter attribute');
           const e = { nodeName: n.nodeName, tagName: n.tagName, attrs: n.attrs.map((a) => ({ ...a })), namespaceURI: n.namespaceURI, childNodes: [], parentNode: parent } as unknown as P5Element;
+          // a component's root whose tag binds what it shows: the minifier leaves it as written (`minify`'s `opaque`)
+          if (this.useOf.get(n)?.host.attrs.some((a) => /^data-sn-(class|style|show|attr)$/.test(a.name))) WRITTEN.set(e, 'opaque');
           e.childNodes = n.childNodes.map((x) => clone(x, e, map)) as never[];
           if (n.tagName === 'template') {
             const content = { nodeName: '#document-fragment', childNodes: [] } as unknown as P5Template['content'];
@@ -8601,6 +8609,7 @@ class Compiler {
             const t = { nodeName: '#text', value: '' + (v ?? ''), parentNode: null } as unknown as P5Node;
             replace(isElement(at!) ? slot : mark, slot, [t]);
             texted.add(t);
+            WRITTEN.set(t, 'text');
             if (!(t as DefaultTreeAdapterMap['textNode']).value) empty.push(t);
             read(b!.d);
             st.ids++;
@@ -8639,6 +8648,10 @@ class Compiler {
             const w = rec.get(b) as ConstantWrite | null | undefined;
             if (w === undefined) no('not painted');
             if (w === null) no('not written ahead');
+            // (a build minifies the markup the walk compiles: what its layout reads of an element a binding may change, it
+            // reads as changing; the rendered value would be read as it is)
+            if (minifying && (b.k === 'show' || b.k === 'style' || (b.k === 'attr' && /^(hidden|contenteditable|style)$/i.test(b.n ?? '')))) no('minify');
+            if (w!.k === 'text') WRITTEN.set(cl!, 'content');
             writeFirstPaint(cl!, w!.k, w!.n, w!.v);
             read(b.d);
             bound = true;
@@ -8658,13 +8671,12 @@ class Compiler {
           else if (row.some((x) => x.nodeName === '#text' && (x as DefaultTreeAdapterMap['textNode']).value.trim())) no('text at the top of a row');
           nodes.push(...row);
         }
-        for (const t of empty) { const kids = (t as { parentNode: P5Parent }).parentNode.childNodes as P5Node[]; kids.splice(kids.indexOf(t), 1); }
-        const top = nodes.filter((x) => !empty.includes(x));
-        const why = rowsRead(top, !!this.opts.images, links);
+        const why = rowsRead(nodes, !!this.opts.images, links);
         if (why) no(why);
-        if ((st.ids || list) && !top.some(isElement)) no('no element');
+        if ((st.ids || list) && !nodes.some(isElement)) no('no element');
         renderStat(null, p.found.rows);
-        return { nodes: top, ids: st.ids, list, folded: st.folded, files: [...st.files], reads: [...st.reads], rows: p.found.rows };
+        // (an empty text stays until the second pass has minified the rows: it was an element there, `WRITTEN`)
+        return { nodes, empty, ids: st.ids, list, folded: st.folded, files: [...st.files], reads: [...st.reads], rows: p.found.rows };
       } catch (e) {
         if (!(e instanceof NoRender)) throw e;
         renderStat(e.why, p.found.rows);
@@ -8769,9 +8781,10 @@ class Compiler {
         if (o && scoped.has(o.file)) return true;
         // a component's root takes its tag's bindings in the walk: a class or style set there is not on it yet
         const host = this.useOf.get(el)?.host;
-        return !!host && host.attrs.some((a) => a.name === 'data-sn-class' || a.name === 'data-sn-style' || a.name === 'data-sn-show' || a.name === 'data-sn-attr');
+        return WRITTEN.get(el) === 'opaque' || (!!host && host.attrs.some((a) => a.name === 'data-sn-class' || a.name === 'data-sn-style' || a.name === 'data-sn-show' || a.name === 'data-sn-attr'));
       },
       removed: (el) => el.tagName === 'sn-resource' || el.tagName === 'sn-sync',
+      written: (n) => { const w = WRITTEN.get(n); return w === 'opaque' ? undefined : w; },
     });
   }
 
@@ -9021,6 +9034,7 @@ class Compiler {
           this.foldedText.push(...done.folded);
           for (const f of done.files) this.files.add(f);
           for (const n of done.reads) this.renderedReads.add(n);
+          this.renderedEmpty.push(...done.empty);
           const first = done.nodes.find(isElement);
           for (const n of done.nodes) if (isElement(n)) this.renderedAt.set(n, n === first ? { tpl: c, list: value!.slice(m[0].length), offset: m[0].length, rows: done } : null);
           RENDER_STATS.spliced++;
@@ -11403,7 +11417,14 @@ const LOOP_HEAD = /^\s*(?:\(\s*([A-Za-z_][\w]*)\s*,\s*([A-Za-z_][\w]*)\s*\)|([A-
  * (once, at the first row element, for its diagnostics), the conditions and empty lists it folds (SN501 reads them),
  * the component files their instances are expanded from, the resources their bindings read.
  */
-export type RenderedRows = { nodes: P5Node[]; ids: number; list: boolean; folded: string[]; files: string[]; reads: string[]; rows: number };
+export type RenderedRows = { nodes: P5Node[]; empty: P5Node[]; ids: number; list: boolean; folded: string[]; files: string[]; reads: string[]; rows: number };
+
+/**
+ * What rendered rows' markup stands for, for the second pass's minifier, which minifies the markup its walk compiles
+ * (`minify`): a text node a binding wrote (a `<template data-sn-text>` there), an element whose content a binding
+ * wrote, a component's root whose tag binds its class, style, attributes or visibility
+ */
+const WRITTEN = new WeakMap<P5Node, 'text' | 'content' | 'opaque'>();
 
 /**
  * What the worklist found in one row (or one instance of a definition), for `rowRenderer`, by the compiled objects it
