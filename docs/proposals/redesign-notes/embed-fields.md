@@ -214,6 +214,10 @@ No page of these apps exercises pruning (rule 2) without folding: the compiler t
 - `node scripts/render-audit.mjs`: "same" for all eight apps.
 - `mail-audit.mjs --suite`: identical, 42 files; its typecheck, check (5 pages, 0 errors) and 234 tests pass.
 - e2e: navigation, permanent, links, swap-csp pass in Chromium (none reads build-time data at run time).
+- After merging d1e3a5c: `npx vitest run` 2,882 passed, one time-limited check test failed (its file green alone);
+  `SN_RENDER_AUDIT=1` and `SN_LINK_AUDIT=1 npx vitest run test/compiler --testTimeout=60000`: 1,082 passed each;
+  `render-audit.mjs` "same" for all eight apps; `embed-audit.mjs --before <d1e3a5c built>`: the same table as above,
+  every other app byte-identical.
 
 ## Left whole, and why
 
