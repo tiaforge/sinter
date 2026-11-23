@@ -1540,12 +1540,22 @@ class Compiler {
   private readonly tplDiags = new Map<number, number>();
   /** a `data-sn-if` or `data-sn-for` template's attribute as written, before the walk strips it (`rowRenderer`: what the second pass folds) */
   private readonly snSource = new WeakMap<P5Element, string>();
+  /**
+   * The first pass, rows rendered (`rowRenderer`): a template element's attributes as the walk met them, before it
+   * stripped what it compiled: what the second pass's minifier and layout read on that element in an unrolled row
+   * before its bindings are painted (`SHOWN`)
+   */
+  private readonly snAttrs = new WeakMap<P5Element, P5Element['attrs']>();
+  /** whether the walk records `snAttrs` (the first pass, rows rendered) */
+  private keepsAttrs = false;
   /** the second pass: the top elements of rendered rows (`RenderedRows`), the first of each block with what the walk does for it */
   private readonly renderedAt = new WeakMap<P5Element, { tpl: P5Element; list: string; offset: number; rows: RenderedRows } | null>();
   /** the second pass: the resources the rendered rows read (`RenderedRows.reads`), read for SN501 */
   private readonly renderedReads = new Set<string>();
   /** the second pass: the rendered rows' empty texts, taken out once the markup is minified (`RenderedRows.empty`) */
   private readonly renderedEmpty: P5Node[] = [];
+  /** the second pass: the rendered rows' elements with the attributes their markup had before paint (`SHOWN`, `RenderedRows.shown`) */
+  private readonly renderedShown: P5Element[] = [];
   /** the value attributes of each element, the bindings each made, and whether it was reported on (`collectConstants`) */
   private readonly attrSources: Array<{ src: P5Element; node: NodeDef; attr: string; bindings: Binding[]; noted: boolean }> = [];
   /** the first pass: what the second one writes before the layout (`CompileOptions.constants`), and the state fields they read */
@@ -1628,6 +1638,7 @@ class Compiler {
 
   /** The page parsed, expanded and walked: its program, up to evaluating it (`prerender`). */
   walkPage(html: string): NonNullable<Compiler['walk']> {
+    this.keepsAttrs = this.collecting() && renderOn() && !this.opts.dev;
     let doc = parseDocument(html);
     this.tag(doc, { file: this.opts.file, src: html, chain: [] });
     if (this.isLayoutFile(this.opts.file)) this.diagnostics.push({ severity: 'error', code: 'SN318', message: 'a layout is not a page: a page uses it by its tag. Leave `src/layouts/` out of the build\'s inputs', file: this.opts.file, line: 1, col: 1 });
@@ -5132,6 +5143,7 @@ class Compiler {
 
   element(el: P5Element, ctx: Ctx, index: number, prevIf: { node: NodeDef; binding: Binding } | null): { node: NodeDef; binding: Binding } | null {
     this.at = { el, attr: null, shift: 0 };
+    if (this.keepsAttrs && ctx.tid >= 0 && el.attrs.some((a) => a.name.startsWith('data-sn-'))) this.snAttrs.set(el, el.attrs.map((a) => ({ ...a })));
     // a link the build can see: same-page links (query-links.ts) are decided once the page is read
     if ((el.tagName === 'a' || el.tagName === 'area') && attr(el, 'href') != null) this.hrefs.push({ el, prefixes: [{ s: attr(el, 'href')!.trim(), whole: true }], literal: true });
     if ((el.tagName === 'a' || el.tagName === 'area') && this.opts.axisLists?.length) this.markAxisLink(el);
@@ -8449,8 +8461,6 @@ class Compiler {
     // images, scoped styles (their marks)
     const sheets = [...(this.opts.styles ?? this.opts.images?.styles ?? []), ...((typeof this.opts.minify === 'object' ? this.opts.minify.styles : undefined) ?? [])];
     const page = sheets.length ? 'layout' : [...this.componentFiles.values()].some((f) => f?.css) ? 'styled' : null;
-    // a build's minifier, with a layout of the browser's own styles (`minify`)
-    const minifying = !!this.opts.minify && ((typeof this.opts.minify === 'object' ? this.opts.minify.styles : undefined) ?? this.opts.styles) !== undefined;
     const tplOf = new Map<number, P5Template>();
     for (const [node, el] of this.anchorEls) {
       if (this.pointOf.has(node) || placementOf.has(node)) continue;
@@ -8513,7 +8523,7 @@ class Compiler {
       const st = { ids: 0, folded: [] as string[], files: new Set<string>(), reads: new Set<string>() };
       const no = (why: string): never => { throw new NoRender(why); };
       const read = (ds: PathRef[] | undefined) => { for (const d of strs(ds)) { const m = /^\$(?:r|meta)\.([A-Za-z_$][\w$]*)/.exec(d); if (m) st.reads.add(m[1]!); } };
-      const texted = new Set<P5Node>(), empty: P5Node[] = [];
+      const texted = new Set<P5Node>(), empty: P5Node[] = [], shown: P5Element[] = [];
       const clone = (n: P5Node, parent: P5Parent, map: Map<P5Node, P5Node>): P5Node => {
         let c: P5Node;
         if (n.nodeName === '#text') c = { nodeName: '#text', value: (n as DefaultTreeAdapterMap['textNode']).value, parentNode: parent } as unknown as P5Node;
@@ -8525,6 +8535,9 @@ class Compiler {
           // (one the walk keeps for the runtime, `data-sn-options`, `-navigate`, …: the walk adds what it needs)
           if (n.attrs.some((a) => a.name.startsWith('data-sn-'))) no('a sinter attribute');
           const e = { nodeName: n.nodeName, tagName: n.tagName, attrs: n.attrs.map((a) => ({ ...a })), namespaceURI: n.namespaceURI, childNodes: [], parentNode: parent } as unknown as P5Element;
+          // what the second pass's minifier reads on it in an unrolled row: its bindings' attributes, not their paint
+          const pre = this.snAttrs.get(n);
+          if (pre) { SHOWN.set(e, pre); shown.push(e); }
           // a component's root whose tag binds what it shows: the minifier leaves it as written (`minify`'s `opaque`)
           if (this.useOf.get(n)?.host.attrs.some((a) => /^data-sn-(class|style|show|attr)$/.test(a.name))) WRITTEN.set(e, 'opaque');
           e.childNodes = n.childNodes.map((x) => clone(x, e, map)) as never[];
@@ -8650,7 +8663,6 @@ class Compiler {
             if (w === null) no('not written ahead');
             // (a build minifies the markup the walk compiles: what its layout reads of an element a binding may change, it
             // reads as changing; the rendered value would be read as it is)
-            if (minifying && (b.k === 'show' || b.k === 'style' || (b.k === 'attr' && /^(hidden|contenteditable|style)$/i.test(b.n ?? '')))) no('minify');
             if (w!.k === 'text') WRITTEN.set(cl!, 'content');
             writeFirstPaint(cl!, w!.k, w!.n, w!.v);
             read(b.d);
@@ -8676,7 +8688,7 @@ class Compiler {
         if ((st.ids || list) && !nodes.some(isElement)) no('no element');
         renderStat(null, p.found.rows);
         // (an empty text stays until the second pass has minified the rows: it was an element there, `WRITTEN`)
-        return { nodes, empty, ids: st.ids, list, folded: st.folded, files: [...st.files], reads: [...st.reads], rows: p.found.rows };
+        return { nodes, empty, shown, ids: st.ids, list, folded: st.folded, files: [...st.files], reads: [...st.reads], rows: p.found.rows };
       } catch (e) {
         if (!(e instanceof NoRender)) throw e;
         renderStat(e.why, p.found.rows);
@@ -8773,7 +8785,15 @@ class Compiler {
     };
     scan(doc);
     const scoped = new Set([...this.componentFiles.values()].filter((f) => f?.css).map((f) => f!.file));
-    const layout = styles && !remote ? new Layout(styles, doc, this.layoutOptions()) : null;
+    // rendered rows, as the markup they stand for: their elements' bindings, not their paint (`SHOWN`)
+    const painted = this.renderedShown.map((e) => e.attrs);
+    for (const e of this.renderedShown) e.attrs = SHOWN.get(e)!;
+    try {
+      this.minifyWith(doc, styles && !remote ? new Layout(styles, doc, this.layoutOptions()) : null, scoped);
+    } finally { this.renderedShown.forEach((e, i) => { e.attrs = painted[i]!; }); }
+  }
+
+  private minifyWith(doc: P5Parent, layout: Layout | null, scoped: Set<string>) {
     minifyMarkup(doc, {
       layout,
       opaque: (el) => {
@@ -9035,6 +9055,7 @@ class Compiler {
           for (const f of done.files) this.files.add(f);
           for (const n of done.reads) this.renderedReads.add(n);
           this.renderedEmpty.push(...done.empty);
+          this.renderedShown.push(...done.shown);
           const first = done.nodes.find(isElement);
           for (const n of done.nodes) if (isElement(n)) this.renderedAt.set(n, n === first ? { tpl: c, list: value!.slice(m[0].length), offset: m[0].length, rows: done } : null);
           RENDER_STATS.spliced++;
@@ -11417,7 +11438,7 @@ const LOOP_HEAD = /^\s*(?:\(\s*([A-Za-z_][\w]*)\s*,\s*([A-Za-z_][\w]*)\s*\)|([A-
  * (once, at the first row element, for its diagnostics), the conditions and empty lists it folds (SN501 reads them),
  * the component files their instances are expanded from, the resources their bindings read.
  */
-export type RenderedRows = { nodes: P5Node[]; empty: P5Node[]; ids: number; list: boolean; folded: string[]; files: string[]; reads: string[]; rows: number };
+export type RenderedRows = { nodes: P5Node[]; empty: P5Node[]; shown: P5Element[]; ids: number; list: boolean; folded: string[]; files: string[]; reads: string[]; rows: number };
 
 /**
  * What rendered rows' markup stands for, for the second pass's minifier, which minifies the markup its walk compiles
@@ -11425,6 +11446,11 @@ export type RenderedRows = { nodes: P5Node[]; empty: P5Node[]; ids: number; list
  * wrote, a component's root whose tag binds its class, style, attributes or visibility
  */
 const WRITTEN = new WeakMap<P5Node, 'text' | 'content' | 'opaque'>();
+/**
+ * What a rendered row's element had as attributes in the markup it stands for, before its bindings were painted (the
+ * walk's `data-sn-*` and the attributes they will set not yet there): what the second pass's minifier reads on it
+ */
+const SHOWN = new WeakMap<P5Element, P5Element['attrs']>();
 
 /**
  * What the worklist found in one row (or one instance of a definition), for `rowRenderer`, by the compiled objects it

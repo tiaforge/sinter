@@ -10,6 +10,8 @@
 //   --runs N     page loads per bench case (default 9)
 //   --suite      also run the checkout's own `npm test`, `npm run check` and `npm run typecheck`
 //   --keep dir   keep both output trees in <dir>/off and <dir>/on
+//   --only a,b   build only these pages (e.g. `--only file-gen` to time one file email)
+//   --gen N      the generated newsletter (`file-gen`) of about N elements (default 200)
 //
 // The checkout must be installed (`npm install`) with its `@tiaforge-ui/sinter` resolving to this repository (its
 // devDependency is `file:../sinter`: a link `../sinter` -> this repo does it), and this repository built (`npm run
@@ -95,6 +97,8 @@ if (argv[0] === '--child') {
 const flag = (f) => { const i = argv.indexOf(f); if (i < 0) return undefined; const v = argv[i + 1]; argv.splice(i, 2); return v; };
 const bool = (f) => { const i = argv.indexOf(f); if (i < 0) return false; argv.splice(i, 1); return true; };
 const BENCH = bool('--bench'), SUITE = bool('--suite'), RUNS = +(flag('--runs') ?? 9), KEEP = flag('--keep');
+const ONLY = flag('--only')?.split(','), GEN = +(flag('--gen') ?? 200);
+if (ONLY) for (const k of Object.keys(PAGES)) if (!ONLY.includes(k)) delete PAGES[k];
 if (!argv[0]) die('usage: node scripts/mail-audit.mjs <sinter-mail checkout> [--bench] [--runs N] [--suite] [--keep <dir>]');
 const PKG = realpathSync(resolve(argv[0]));
 if (!existsSync(join(PKG, 'sinter/components/mail-body.html'))) die(`${PKG} is not a sinter-mail checkout`);
@@ -111,7 +115,7 @@ const root = join(work, 'app');
   mkdirSync(emails, { recursive: true });
   for (const f of readdirSync(join(PKG, 'test/corpus'))) writeFileSync(join(emails, f.replace(/\.html$/, '.txt')), readFileSync(join(PKG, 'test/corpus', f)));
   for (const f of ['static.json', 'all.json']) cpSync(join(PKG, 'fixtures/trees', f), join(emails, f));
-  writeFileSync(join(emails, 'gen.json'), JSON.stringify(await newsletter(PKG, 200)));
+  writeFileSync(join(emails, 'gen.json'), JSON.stringify(await newsletter(PKG, GEN)));
   mkdirSync(join(root, 'src'), { recursive: true });
   writeFileSync(join(root, 'src/sinter.helpers.ts'), "export * as mail from '@tiavision/sinter-mail';\n");
   writeFileSync(join(root, 'src/sinter.types.ts'), "export type { Body, Element } from '@tiavision/sinter-mail';\n");

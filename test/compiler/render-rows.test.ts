@@ -110,6 +110,22 @@ describe('rendered rows: the same page as compiled rows, without compiling them'
     expect(r.body).toContain('<p> a  b </p>');
   });
 
+  test('a build\'s minifier: style, show, hidden and contenteditable paints read as the bindings they were', () => {
+    const minify = { minify: { styles: [] } } as Partial<CompileOptions>;
+    const r = both(`<div>
+  <template data-sn-for="x in [{ d: 'block', on: true }, { d: 'inline', on: false }]">
+    <div data-sn-style="{ display: x.d, color: 'red' }"> <b>a</b> </div>
+    <p data-sn-show="x.on"> <i data-sn-text="x.d"></i> </p>
+    <section data-sn-attr="{ hidden: !x.on, title: x.d }"> <span> s </span> </section>
+    <p data-sn-attr="{ contenteditable: x.on ? 'true' : null }">  two  spaces  </p>
+    <x-badge data-sn-with="{ on: x.on, label: ' L ' }"></x-badge>
+  </template>
+</div>`, minify);
+    expect(r.spliced).toBe(1);
+    expect(r.why).toEqual([]);
+    expect(r.body).toContain('<div style="display: block; color: red"> <b>a</b> </div>');
+  });
+
   test('the ids of what follows the rows are those the compiled rows leave', () => {
     const r = both('<template data-sn-for="x in [1, 2]"><i data-sn-text="x"></i><template data-sn-text="x"></template></template><div data-sn-state="{ n: 0 }"><button data-sn-on-click="n++" data-sn-text="n"></button></div>');
     expect(r.spliced).toBe(1);
