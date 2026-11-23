@@ -6,13 +6,23 @@ on a quiet machine, then cut where the output stays byte for byte the same.
 
 ## Where it stands
 
-- Measured (below): on this machine sinter's static blog at 100 posts takes 2.33 s (wall, process start to exit), Astro
-  1.65 s. sinter's **fixed part is not the gap**: ≈1.1 s, against Astro's ≈1.35 s. The gap is per page: sinter
-  12.2 ms a page (wall, 100→400), Astro ≈4 ms. Of sinter's 12.2 ms, ≈7 are the compiler's, ≈5 outside it.
-- Fix 1 in: SN521's scan of the page modules (quadratic with a page file per post): −1.2 s at 1,000 page files.
-- Fix 2 in: `pageStyles` scans each module's text for its imports once, not once per page: −0.33 ms a page.
-- Fix 3 in: the project read twice per build instead of four times, the rules' hash once per distinct rules: ≈10 ms.
-- Next: the write-ups (the cross check, Vite's HTML step, the fold check's cache), the merge, the suite.
+- **Done** for what can be fixed without a decision; three fixes in, each byte for byte the same over the bar; the rest
+  written up below with what it would buy and what blocks it. Merged with `ccr-9ebf49d5-gpdej8` (0e55121): suite green
+  (2,945), the integration branch alone against it identical over the bar, `render-audit` and `pass-audit` same.
+- Measured: sinter's **fixed part is not the gap**. It is ≈1.1 s, against Astro's ≈1.35 s. The gap is per page: on the
+  merged branch, 100 posts in 2.22 s and 400 in 5.21 s (wall), against Astro's 1.65 s and 3.04 s, so 10 ms a page
+  against Astro's 4. Of sinter's 10 ms, ≈6 are the compiler's and ≈4 outside it.
+- **The new floor** (the build with the compiler free, merged branch, median of 3 profiles): 0.98 s at 10 posts, 1.43 s
+  at 100, 2.59 s at 400; 3.9 ms a page outside the compiler (it was 4.8, and 6.8 from 10 to 100, before these fixes and
+  the integration branch's).
+- Fixes: (1) SN521's scan, quadratic with a page file per post: −1.2 s at 1,000 page files; (2) `pageStyles`' import
+  scan once per module, not per page: −0.33 ms a page; (3) the project read twice per build, not four times, and the
+  rules hashed once: ≈10 ms. At 100 posts (2) and (3) are inside the run-to-run noise of the wall time (±0.1 s).
+- **For the owner** (below, "Decisions"): the cross check off the critical path (0.23 s at 100 posts, ≈0.5 s at 400;
+  a failing SN534 build would then empty `dist/` and report from `generateBundle`); Vite's HTML step skipped for pages
+  it does not change (≈1 ms a page; it changes none of the static blog's 101); an on-disk cache of the fold check
+  (≈110 ms a build); the Speculation Rules inline in every page listing every page (with a page file per post the HTML
+  grows with n: 58 kB a page at 1,000).
 
 ## How it is measured
 
@@ -157,9 +167,117 @@ Byte identity: every file of the bar, and the log lines, the same as `base`.
 
 Byte identity: every file of the bar, and the log lines, the same as `base`.
 
-## Looked at, not changed (so far)
+## Sinter against Astro, like for like (after: the merged branch)
 
+Wall time, process start to exit, median of 3; sinter through `run-sinter.mjs`, Astro through its CLI with its caches
+removed before each run.
+
+| posts | sinter static, before (d64bc0b) | sinter static, after (0e55121) | Astro 7.4 | sinter's floor (compiler free), after |
+| ---: | ---: | ---: | ---: | ---: |
+| 10 | 1.23 s | 1.20 s | 1.39 s | 0.98 s |
+| 100 | 2.33 s | 2.22 s | 1.65–1.86 s | 1.43 s |
+| 400 | 5.98 s | 5.21 s | 3.04 s | 2.59 s |
+| per page (100→400) | 12.2 ms | 10.0 ms | 3.9 ms | 3.9 ms |
+| fixed | ≈1.1 s | ≈1.2 s | ≈1.35 s | ≈1.0 s |
+
+Most of the change from before to after is the integration branch's (the compiler); this branch's three fixes are
+worth ≈50 ms at 100 static posts and 0.2 s at 400 page files (alternating `dist/` builds of the integration branch
+and the merge: static-files-400 7.82 → 7.62 s, static-100 2.23 → 2.22 s, inside the noise). To be level with Astro at
+100 posts the build has ≈1.7 s: the floor is 1.43 s of it, which leaves 2.7 ms a page for the compiler (it is ≈6 now);
+the decisions below would take the floor to ≈1.1 s at 100 (0.23 s the cross check, ≈0.1 s Vite's HTML step), which
+leaves ≈6 ms.
+
+## Decisions for the owner
+
+### The cross check (SN534) off the critical path
+
+What it protects against (`src/fold-cross.ts`, docs/diagnostics.md SN534, `test/vite/fold-cross.test.ts`): a helper
+whose result depends on the calls before it (state in a `Map`, an object, an imported module's table, a namespace
+member: eight forms in the test), which the static fold check cannot see and which would give each page what the
+build's page order made of it. At `buildEnd` it loads a fresh copy of the helpers module (`ssr.noExternal`: the
+packages too), runs every page's calls again with the pages in reverse order, and fails the build with the first six
+differences. On the blog it is every post's `md.parse` again: 60 % the parse, 20 % the memo's `freeze` of the result,
+15 % `resultKey` and its hash.
+
+Measured: the fresh copy's load ≈0.1 s in a build (60 ms standalone, warm); the calls 0.8 ms a page (157 ms at 100
+posts, 423 ms at 400). Without the check at all (a patched `dist/`, to measure the bound): 2.29 → 2.06 s at 100 posts.
+
+| option | buys at 100 / 400 | what it changes |
+| --- | --- | --- |
+| a worker that loads the fresh copy while the pages compile, the calls run in it at `buildEnd`, awaited there | ≈0.1 s / ≈0.1 s | nothing visible; but the tests run the plugin from `src/` (TypeScript), which a worker cannot load without a loader of its own, and the replay needs `resultKey` (in `compiler/compile.ts`, the whole compiler) in the worker. Machinery for 4 % |
+| the same, awaited in `generateBundle` (`order: 'post'`, so after Vite's HTML step) | ≈0.2 s / ≈0.5 s | the error text is the same (`[plugin sinter]`, the same message), but it is raised after Vite has emptied `dist/` (a failing build leaves it empty instead of untouched), and another `generateBundle` error now comes first |
+| each distinct (helper, arguments) once | nothing on the blog (no call repeats) | weaker: a stateful helper called twice with the same arguments is what it catches |
+| sample the pages, or split the reversed list across workers | ≈0.15 s / ≈0.4 s | weaker, and the message's differences change |
+| check at the first call | – | the build's own order, so it catches nothing the twice-in-a-row check does not |
+
+None is taken: the first is not worth its machinery, the others change what the check reports or when. Recommended if
+anything: the second, with the build failing before `dist/` is emptied kept as a requirement (it would need Vite to
+empty `dist/` later, or the check to finish before `renderStart`, which brings back the first option's buy only).
+
+### Vite's HTML step for pages it does not change
+
+Every page goes through `vite:build-html`: its transform parses the page (parse5 with source locations,
+`traverseHtml`) to find module scripts, stylesheet links, `<style>`, inline styles with `url()` and asset attributes,
+and its `generateBundle` looks up the page's chunk (`Object.values(bundle).find`, over every chunk for every page:
+quadratic, 56 ms at 400 pages, 373 at 1,000), injects the tags and runs the `post` HTML hooks. What we hand it is the
+compiled page (the hook is `order: 'pre'`), 11 kB a post; the body is ≈95 % of the parse (0.7–0.8 ms of a page's
+0.8 ms, parse5 alone, measured on the 400 posts' output). The step costs 1.0–1.1 ms a page (106 ms at 100, 426 at 400).
+
+On the static blog it changes nothing: every one of the 101 pages comes out of Vite's step byte for byte as sinter
+handed it over (captured at a `pre` and a `post` hook). On live pages it does (the head scripts are written in, the
+module script replaced by the bundle's), and on realworld (stylesheets, module scripts).
+
+There is no way to hand it less while it processes the page: what it parses is what it writes. Skipping it for a page
+would mean the page is not an `.html` module (Vite's transform filters on `\.html$`) and sinter emits its HTML itself.
+What sinter would have to reproduce, and check per page that it does not need: the `%ENV%` replacement
+(`htmlEnvHook`), every other plugin's `transformIndexHtml` hooks (an app's own plugins would no longer see those
+pages: the blocking part), asset URLs in `src`/`srcset`/`href` of the asset elements and in `url()` of inline styles,
+`<link rel="stylesheet">` and `<style>` moved into the bundle's CSS and linked back with its hash, module scripts and
+their `modulepreload`s, the CSP nonce and import-map hooks, and the public directory's URLs. A page with none of these
+and an app with no other HTML hook would come out the same: ≈1 ms a page (0.1 s at 100, 0.4 s at 400, more at 1,000
+with the lookup). Not taken: it changes what an app's plugins see.
+
+### The fold check's analyses cached on disk
+
+`foldVerdicts` (≈110–130 ms of every build's start: 60 % acorn parsing the helpers' modules, sinter-markdown's four
+whole, the rest the walk) analyses the same unchanged files on every build. `FoldCache` already keys its per-module
+analyses by mtime and size; written to `node_modules/.cache/sinter/` (where the image and font caches are), a warm
+build would skip ≈110 ms. Not done: a new persistent cache (what invalidates it, a version key, what a corrupt file
+does) is a design decision.
+
+### The Speculation Rules inline with a page file per post
+
+With a page file per post, each page's rules list every page (`href_matches`, two patterns per post): 4.7 kB of a
+15.7 kB page at 100 posts, 47 kB of 58 kB at 1,000 (the template app's rules are four patterns). Vite's HTML step
+parses it, sinter hashes it (fix 3 hashes it once) and GC carries it: static-files-1000's floor is 11 s against the
+template app's 6 s, most of the difference in Vite's HTML step (3.2 s) and GC (2.7 s). A pattern (`/blog/post-*`), or
+the rules file (`RULES_FILE`, already used with `delivery: 'header'`) above some number of pages, would make it
+linear; it changes the pages' bytes and is the page description's (`rulesJson`, `appPages`).
+
+## Looked at, not changed
+
+- **The SN534 worker**: weighed and dropped, see above (the tests run `src/`; the replay needs the compiler; 4 %).
+- **Loading the build's fresh copy of the helpers earlier, on the main thread**: its CPU work (`resolveConfig`, the
+  runner's transforms) would land in the page loop instead; nothing to gain without another thread.
+- **One `resolveConfig` for both copies of the helpers** (two environments of one config): ≈25 ms, but the copies would
+  share the config file's plugin instances, which a fresh copy is not supposed to.
+- **GC outside the compiler** (≈0.9 ms a page): the heap at `buildEnd` (after a full GC) grows 0.15 MB a page: 51 MB at
+  10 posts, 72 at 100, 118 at 400; by a heap snapshot's strings, the posts' markdown trees (`text`, `tableCell`,
+  `paragraph` nodes) and each page's HTML, which Vite keeps until it writes (retainers not traced); the rest is allocation
+  (parse5's trees in Vite's HTML step, the cross check's parses). No one structure to free.
+- **Rolldown's JS side** (0.4 ms a page): its hook dispatch, `resolveId` for each page's imports, the output bundle's
+  proxies; nothing of ours in it.
 - **Node's compile cache**: nothing measurable for sinter (above).
+- **Vite's chunk lookup per page** in `vite:build-html`'s `generateBundle` (quadratic, ≈6 ms at 100 pages, 373 ms at
+  1,000): Vite's code; an upstream fix (a map from facade module to chunk) would make it linear.
+- **Emptying `dist/`** (10 ms at 100 pages, 39 at 400, 140 at 1,000 page files): Vite's `emptyOutDir`, as in Astro.
 - **Lazy imports of what a static build does not use**: every module the plugin loads is used by the static blog's
   build (css-tree by the components' styles, yaml by the posts' front matter, acorn-typescript by the helpers' fold
   check); `check/` is imported by `project.js` and `components-build.js` for `typeExports`, a few ms.
+
+## Commits
+
+- `a97bb69` perf(build): SN521's scan reads each page module once, not once per moved page
+- `2963542` perf(build): pageStyles scans each module's imports once, not once per page
+- `01ec27a` perf(build): the project read twice per build, the rules' hash once per distinct rules
+- `0e55121` merge of `ccr-9ebf49d5-gpdej8`

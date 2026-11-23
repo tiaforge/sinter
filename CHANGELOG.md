@@ -61,6 +61,7 @@ How to write an entry (from 0.21.0 on; older sections keep their own form):
 
 ### Performance
 
+- A build of a site with a page file per post no longer tests every page's module against every moved page for SN521, which grew with the square of the pages (1.2 s at 1,000 pages), and every build scans the app's modules for the stylesheets they import once instead of once per page (0.3 ms a page), with the same output.
 - A build no longer compiles a description of every page that is a file of its own before compiling it: what other pages read early (paths, `data-sn-prefetch="off"`) is read without a walk, and what a page can have requested ahead comes from its own compile, about 2.5 ms a page with the same output (100 posts, a page file each: 0.1 to 0.2 s; sinter-mail's 16 pages about 1 s). Builds with `swap`, `embed` or `prerender: 'auto'` describe pages as before.
 - Pages whose early scripts differ only in a value (each post requesting its own comments) share one nested build of the script instead of one each, with the same output: the benchmark blog's live posts run 3 nested builds instead of 101 (or 401), about 1 s off the build per 100 live pages.
 - Builds with a component library that dispatches on node type in each component (`<sn-component use="{ … }[node.type]">`) are back to 0.20's speed or faster, with the same output: sinter-mail (65 components) on 12 pages in ~2.6 s, against ~3.3 s on 0.20.0 and ~3.7 s on 0.21.0.
