@@ -8699,18 +8699,20 @@ class Compiler {
           // run twice here: a second result that differs (a counter, the clock through a path the static check missed)
           // keeps the call in the browser. A build also runs each call again at its end, in a fresh copy of the module
           // and another page order (`foldLog`), for what depends on the calls before, another page's included
-          {
-            let again: unknown;
-            try { again = (f as (...x: unknown[]) => unknown)(...a); } catch { again = FAIL; }
-            if (again === FAIL || JSON.stringify(again) !== JSON.stringify(v)) refuse('returned another result when called again with the same arguments: a helper must be pure');
-          }
+          let again: unknown;
+          try { again = (f as (...x: unknown[]) => unknown)(...a); } catch { again = FAIL; }
+          // the same object both times, frozen plain data at every depth (a `memo()` helper's, whose cache hands out its
+          // one tree): what a copy would be, unchanged, and the second result the first. Shared, not copied (`frozenPlain`)
+          const shared = again === v && !!v && typeof v === 'object' && frozenPlain(v);
+          if (!shared && (again === FAIL || JSON.stringify(again) !== JSON.stringify(v))) refuse('returned another result when called again with the same arguments: a helper must be pure');
           api.called = true;
-          const out = v && typeof v === 'object' ? deepFreeze(structuredClone(v) as object) : v;
+          const out = shared ? v : v && typeof v === 'object' ? deepFreeze(structuredClone(v) as object) : v;
           memo?.set(mk, { v: out });
           if (rec && this.opts.foldLog) {
             const id = rec.n++;
             this.opts.foldLog(key, a.map((x): FoldArg => { const r = refOf(x); return r === undefined ? { v: structuredClone(x) } : { r }; }), resultKey(v), id);
-            if (out && typeof out === 'object') rec.refs.set(out, id);
+            // (a result shared by two calls, `frozenPlain`: named by the first)
+            if (out && typeof out === 'object' && !rec.refs.has(out)) rec.refs.set(out, id);
           }
           return out;
         };
@@ -12486,6 +12488,43 @@ function pickFields(v: unknown, fields: string[]): unknown {
 
 /** values `deepFreeze` froze at every depth: build-time constants may share them without a copy */
 const DEEP_FROZEN = new WeakSet<object>();
+
+/**
+ * Whether `v` is what `deepFreeze(structuredClone(v))` would make of it, as it is: frozen at every depth, every object a
+ * plain object or a dense array of its realm's (`Object.prototype`, `Array.prototype`), every own property a string
+ * key's enumerable data property (no getter, no symbol, no hole, an array nothing but its elements), and no cycle (a copy
+ * keeps one, but the purity check's `JSON.stringify` throws on it). What it walks is marked frozen at every depth
+ * (`DEEP_FROZEN`), as `deepFreeze` marks its copy, once the whole of it is known to be.
+ */
+export function frozenPlain(v: object): boolean {
+  const done = new Set<object>(), path = new Set<object>(), all: object[] = [];
+  const walk = (x: object): boolean => {
+    if (done.has(x) || DEEP_FROZEN.has(x)) return true;
+    if (path.has(x) || !Object.isFrozen(x)) return false;
+    const proto = Object.getPrototypeOf(x), array = Array.isArray(x);
+    if (proto !== (array ? Array.prototype : Object.prototype)) return false;
+    path.add(x);
+    const keys = Reflect.ownKeys(x);
+    if (array && keys.length !== (x as unknown[]).length + 1) return false;
+    for (const k of keys) {
+      if (typeof k !== 'string') return false;
+      if (array && k === 'length') continue;
+      if (array && (String(+k >>> 0) !== k || +k >= (x as unknown[]).length)) return false;
+      const d = Object.getOwnPropertyDescriptor(x, k)!;
+      if (!('value' in d) || !d.enumerable) return false;
+      const c = d.value;
+      if (c !== null && typeof c === 'object' && !walk(c)) return false;
+      if (typeof c === 'function' || typeof c === 'symbol' || typeof c === 'bigint') return false;
+    }
+    path.delete(x);
+    done.add(x);
+    all.push(x);
+    return true;
+  };
+  if (!walk(v)) return false;
+  for (const x of all) DEEP_FROZEN.add(x);
+  return true;
+}
 
 function deepFreeze<T extends object>(v: T): T {
   DEEP_FROZEN.add(v);
