@@ -31,7 +31,7 @@ import type { EmbedSlot, ImageHost, ImageVariant, PrefetchParts, RuntimeReason, 
 import { moduleEffect } from './prerender-build.js';
 import { hasCspMeta, movesToDirectory, pageFile, pagePaths, pageUrl, prefetchModule, speculationRules, withRulesHash } from './prefetch-build.js';
 import { type SwapPage, swapModule } from './swap-build.js';
-import { pageRoutes, rebaseHtml, redirectHtml, redirectsFile, relocateHtml, type OtherPoint, type PageEntry, type Route } from './page-urls.js';
+import { filesNamed, pageRoutes, rebaseHtml, redirectHtml, redirectsFile, relocateHtml, type OtherPoint, type PageEntry, type Route } from './page-urls.js';
 import { chain, chooserHtml, hreflangTags, manifestLocales, prefixPaths, segmentOf, type Locales } from './locales.js';
 import { entryChooserPath, listPoints, pointFolder, pointOrigin, pointPrefix, translationKey, type AxisValue, type LanguageUrls, type Point, type Points, type Variant } from './points.js';
 import { canonicalOf, fillPattern, noindex, sitemapFiles, sitemapOf, type SitemapOptions, type SitemapUrl } from './sitemap-build.js';
@@ -3205,6 +3205,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     async generateBundle(_, bundle) {
       if (dev) return;
       const all = pageEntries(), by = new Map<string, string>(), built = new Map<string, string>();
+      let named: Map<string, string[]> | undefined;
       // a page on its own domain is written under its origin's folder, at its URL there; the pages it links to are its origin's
       const asServed = (x: PageEntry): PageEntry => ({ rel: urlRel(x.rel), patterns: x.patterns });
       const linked = new Map<string, PageEntry[]>();
@@ -3233,12 +3234,10 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
         delete bundle[page.rel];
         this.emitFile({ type: 'asset', fileName: to, source });
         // a link the page module builds at run time still names the old file: it arrives through the redirect
-        for (const other of all) {
-          const code = modules.get(`${PREFIX}${other.rel}.js`) ?? '';
-          const old = `/${page.rel}`.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-          if (new RegExp(`['"\`]${(base().startsWith('/') ? base().replace(/\/$/, '') : '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}${old}(?![\\w/-])`).test(code)) {
-            resolved?.logger.warn(coded('SN521', `${other.rel} builds a link to ${page.rel} at run time, which is served at ${pageUrl(page.rel, base(), page.patterns)} now: it arrives through a redirect. Write the URL in the expression (\`'${pageUrl(page.rel, base(), page.patterns)}?…'\`)`));
-          }
+        // (every page module read once for every page's file, the first time a page moves)
+        named ??= filesNamed(all.map((x) => x.rel), all.flatMap((x) => { const code = modules.get(`${PREFIX}${x.rel}.js`); return code ? [[x.rel, code] as const] : []; }), base().startsWith('/') ? base().replace(/\/$/, '') : '');
+        for (const other of named.get(page.rel) ?? []) {
+          resolved?.logger.warn(coded('SN521', `${other} builds a link to ${page.rel} at run time, which is served at ${pageUrl(page.rel, base(), page.patterns)} now: it arrives through a redirect. Write the URL in the expression (\`'${pageUrl(page.rel, base(), page.patterns)}?…'\`)`));
         }
         // the old URL still arrives: a redirect to the page's URL (relative under a relative base)
         const url = relativeBase(base()) ? `./${posix.basename(to, '/index.html')}/` : pageUrl(served.rel, base(), page.patterns)!;
