@@ -549,3 +549,14 @@ decision of their own (stage 7). A step that can stay byte-identical does.
   live 4.24 s (4.04); **Astro 7.4 cold, whole process: 2.05 s** (1.98 to 2.40). This machine is slower than the
   cloud sessions' (Astro 1.73 s there). So the static blog is 0.6 s behind Astro here, 1.29 times its time; the
   process outside the build is about 0.17 s of that.
+- 2026-11-23, 23:00 UTC: **the build outside the compiler, first milestone merged** (`redesign-notes/pipeline-2.md`;
+  1,504 tests of test/compiler, test/vite, test/check pass after it). Its measurement, like for like on a quiet
+  machine (whole processes): the static blog 2.33 s, Astro 1.65 s (1.85 s without the compile cache its CLI turns
+  on). **sinter's fixed part, about 1.1 s, is below Astro's, about 1.35 s; the gap is per page: 12.2 ms against about
+  4** (the compiler's about 7, outside it about 5). Three fixes, byte for byte: SN521's scan of the page modules was
+  quadratic with a page file per post (1.2 s at 1,000 page files); `pageStyles` scanned the helpers' import tree per
+  page (0.33 ms a page); the project read twice, not four times. Coming as write-ups for a decision: the SN534
+  cross check in a worker (0.2 s at 100 posts, 0.5 s at 400, but a build that fails SN534 would then have emptied
+  `dist/`), Vite's HTML step for a static page (its parse of the body is 0.7 ms a page and it changes nothing in a
+  static post: bypassing it is a decision), an on-disk cache for the fold check (110 ms). The check-data-once
+  session is archived (done and merged).
