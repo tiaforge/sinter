@@ -215,6 +215,11 @@ export class Workspace {
     return this.docs.get(file) ?? readFileSync(file, 'utf8');
   }
 
+  /** the helpers the pages' types are checked against, as `sinter check` checks them: with the content namespaces (`m`) */
+  typeHelpers(state: ProjectState): HelperManifest {
+    return this.snapshotOf(state).helpers;
+  }
+
   /** what the build's snapshot gives a compile (the editor runs no loaders): the collections, the content namespaces with the helpers, the content module */
   private snapshotOf(state: ProjectState) {
     return snapshotOptions(state.root, state.project.contentFile, state.project.helpers);

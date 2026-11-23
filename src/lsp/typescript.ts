@@ -10,7 +10,7 @@ import { appTsconfig } from '../check/tsconfig.js';
 import { inlineScriptLang, inlineScriptModule, inlineScriptPath, inlineScripts } from '../compiler/components.js';
 import { mapPosition, quietLine, shadowPosition, type Region } from '../check/shadow.js';
 import type { CheckUnit } from '../compiler/check-unit.js';
-import type { Diagnostic } from '../compiler/index.js';
+import type { Diagnostic, HelperManifest } from '../compiler/index.js';
 import { checkOptionsOf, inlineScriptFiles, type Project } from '../project.js';
 import { Connection } from './rpc.js';
 import { specLocation } from './spec-location.js';
@@ -128,9 +128,9 @@ export class TypeScriptBridge {
 
   /**
    * Brings the shadows in line with the pages' latest check units, and the component scripts' shadows with their
-   * files as `read` gives them (the editor's buffers first).
+   * files as `read` gives them (the editor's buffers first). `helpers`: the project's with the content namespaces.
    */
-  async update(project: Project, units: Map<string, CheckUnit>, read: (f: string) => string = project.readFile): Promise<void> {
+  async update(project: Project, units: Map<string, CheckUnit>, read: (f: string) => string = project.readFile, helpers: HelperManifest = project.helpers): Promise<void> {
     await this.ready;
     this.updateScripts(project, read);
     const support = writeSupport({ ...checkOptionsOf(project), root: this.root, outDir: this.outDir });
@@ -138,7 +138,7 @@ export class TypeScriptBridge {
     if (this.support && JSON.stringify(support) !== JSON.stringify(this.support)) this.filesChanged([support.declarations, ...support.openapi]);
     this.support = support;
     for (const [page, unit] of units) {
-      const s = shadowOf(unit, support, this.root, project.helpers, project.actions);
+      const s = shadowOf(unit, support, this.root, helpers, project.actions);
       const prev = this.shadows.get(page);
       if (prev?.text === s.text) { prev.unit = unit; prev.regions = s.regions; prev.brokenFrom = s.brokenFrom; continue; }
       const path = shadowPath(support, this.root, page);
