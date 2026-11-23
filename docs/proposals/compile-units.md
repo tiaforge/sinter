@@ -261,9 +261,8 @@ timings were not usable). A cloud session pushes to a branch of its own:
 
 | Workstream | Where | Branch | Log |
 | --- | --- | --- | --- |
-| a unit's check data once (stage 4, step 3) | cloud, `session_01AjKzdxUhXTUw7iSJ32w1x1` | `redesign/check-data-once` | `stage4-check-once.md` |
-| a page file walked once (stage 3's leftover) | cloud, `session_01AjKze2EoiDyjazXQrsWJQk` | `redesign/page-walked-once` | `page-walked-once.md` |
 | stage 5, A1 then A2: definitions that ship, from units | cloud, `session_01AjKzdxPCdJ5nbeXvwkXoP2` | `redesign/stage5-a1` | `stage5-a1.md` |
+| early scripts per shape, the provable variant | cloud, `session_01AjKzdxPErYYZv1d2K1hMsD` | `redesign/early-script-shapes` | `early-script-shapes.md` |
 | stage 5, B1: the second pass from the first's walk | cloud, `session_01AjKzdxkDukbMzASz1qaYeA` | `redesign/stage5-b1` | `stage5-b1.md` |
 | the evaluation's cost | local agent | merged as it lands | `evaluation.md` |
 
@@ -495,3 +494,20 @@ decision of their own (stage 7). A step that can stay byte-identical does.
   kept-expansion route, fixed on that branch: `copyState` copied the options' objects, which the compiler compares
   by identity, so a template that uses a component library compiled its entries after the first differently. Check
   data once went back to its session for the conflict with bug fixes 4 to 6.
+- 2026-11-23, 21:30 UTC: merged and done: **check data once** (`redesign-notes/stage4-check-once.md`; on a quiet
+  machine the check step of sinter-mail's 12 API pages with TypeScript 1,087 to 525 ms, the build 4.08 to 3.44 s;
+  the components route 6.30 to 5.38 s; the blog with a page file per post 4.79 to 4.23 s; reconciled by its session
+  with the "once per use" fix) and **a page file described without a walk** (`redesign-notes/page-walked-once.md`,
+  `SN_LATE_DESCRIBE=0` off, `SN_DESCRIBE_AUDIT=1`: 2.8 to 3.0 ms to 0.25 ms a page; a page file per post 2.85 to
+  2.74 s, live 3.39 to 3.21 s; sinter-mail's audit pages 5.9 to 4.9 s; swap, embed, prerender 'auto', entries and
+  signed-in pages keep the old description). With it, the fix of stage 3's kept-expansion route (`optionsReach`: a
+  template using a component library compiled its entries after the first differently, silently) and a per-entry
+  page in `mail-audit`. Three more evaluation changes merged (a kept template's program read once for its entries;
+  `failsFirst`; a frozen helper result shared): a blog page's evaluation about 9.0 to 5.9 ms by the agent's medians.
+  After these merges: 1,493 tests of test/compiler, test/vite, test/check pass; `pass-audit` nine apps the same,
+  `mail-audit --switch SN_ONE_PASS` 48 files identical. **Astro on a quiet machine: 1.73 s** for the 100 posts (the
+  2.2 s above was taken on the loaded machine), against about 3.0 s for the static blog. B1's first route is on its
+  branch (a page of its own whose second pass applies only page-level decided branches and rendered rows takes its
+  result from the first pass's walk, today's ids kept: page-compile 451 to 359 ms; none of the nine apps routed
+  yet: template entries next; a page with a unit placed needs A1's copy); it went back to its session to merge the
+  integration branch. Early scripts: the session was asked for a variant that can be proven (opaque placeholders).
