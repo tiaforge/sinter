@@ -807,12 +807,20 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
 
   /** the app's HTML entries: the build input, else `index.html`, and every page compiled so far */
   /** the app's source pages: the build input, else `index.html`, and every page compiled so far */
-  const sourceEntries = () => {
+  /**
+   * a build's, once its input is known: kept while no page is added to `seen` (every page asks for the list, often
+   * several times: computed afresh it made the build's cost grow with the square of its pages). Callers only read it.
+   */
+  let sourceKept: { input: unknown; seen: number; files: string[]; set: Set<string>; axes?: boolean } | null = null;
+  const sourceEntries = (): string[] => {
+    if (!dev && sourceInput !== undefined && sourceKept?.input === sourceInput && sourceKept.seen === seen.size) return sourceKept.files;
     const files = htmlInputs(sourceInput ?? buildInput(resolved?.build)).map((f) => resolve(root, f));
     // dev without a build input: every page under the root, as the dev server serves any of them
     if (!files.length && dev) files.push(...htmlPages(root, resolved));
     if (!files.length && existsSync(resolve(root, 'index.html'))) files.push(resolve(root, 'index.html'));
-    return [...new Set([...files, ...[...seen].map((f) => virtual.get(f)?.source ?? f)])].sort();
+    const out = [...new Set([...files, ...[...seen].map((f) => virtual.get(f)?.source ?? f)])].sort();
+    if (!dev && sourceInput !== undefined) sourceKept = { input: sourceInput, seen: seen.size, files: out, set: new Set(out) };
+    return out;
   };
   /**
    * a point's file (points.ts): the source page itself, or a virtual page (`<root>/<locale>/<page>`, an entry's
@@ -874,7 +882,15 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     inPublic: (rel) => !!resolved?.publicDir && existsSync(resolve(resolved.publicDir, rel + '.html')),
   });
   /** the app's HTML entries: its pages, or with `localePrefix` each page in each language */
-  const entries = () => pageInputs ?? (locales || sourceEntries().some((f) => templateOf(f)?.axes?.length) ? points(false).points.map(fileOf) : sourceEntries());
+  const entries = () => pageInputs ?? (locales || hasAxes() ? points(false).points.map(fileOf) : sourceEntries());
+  /** whether a source page is built over axes (kept with the build's list of them) */
+  const hasAxes = () => {
+    const files = sourceEntries(), kept = sourceKept?.files === files ? sourceKept : null;
+    if (kept?.axes !== undefined) return kept.axes;
+    const v = files.some((f) => templateOf(f)?.axes?.length);
+    if (kept) kept.axes = v;
+    return v;
+  };
   /**
    * `<html data-sn-for>` (docs/static-pages.md#a-page-per-entry): a page's entries, from a compile of it as its template, which
    * reads its `file:` list; null for a page without it. Its errors (SN340, SN340) fail the build: the template is no
@@ -1353,7 +1369,14 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     // a warning about the options (a deprecated one): once per build
     for (const d of p.diagnostics) if (d.severity === 'warning' && !warnedOptions.has(d.message)) { warnedOptions.add(d.message); resolved?.logger.warn(formatDiagnostic(d)); }
     // a page not seen before may be a new one (dev); a build's pages per entry are all known from the start
-    if (!seen.has(file)) { seen.add(file); if (dev || !pageInputs) pagesCache = null; }
+    // (in a build, a page whose source is already one of the source pages changes no list: the pages stay as they were)
+    if (!seen.has(file)) {
+      if (!dev && !pageInputs) sourceEntries();
+      const kept = !dev && !pageInputs ? sourceKept : null, known = !!kept && kept.seen === seen.size && kept.set.has(src);
+      seen.add(file);
+      if (known) kept.seen = seen.size;
+      if (dev || (!pageInputs && !known)) pagesCache = null;
+    }
     const group = groupOf(rel)?.folder;
     const prefetch = prefetchData && prefetchPages(group).length ? prefetchId(group) : null;
     const out = compile(html, {
@@ -1645,6 +1668,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       definitions.clear();
       describedDefinitions.clear();
       templatesKept.clear();
+      sourceKept = null;
       buildProject = null;
       if (dev) return;
       // a fresh instance each build: under `--watch`, edits to the helpers count, and nothing a helper kept from the

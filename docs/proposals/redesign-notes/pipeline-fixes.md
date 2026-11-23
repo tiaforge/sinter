@@ -95,3 +95,30 @@ in dev too (`devEntry`), with the same answer.
 
 −150 ms of the fixed part of a build with a page per entry (the template apps, static or live). The floor as defined
 above counts the probe as compiler time, so it does not move; the wall time does. Byte identity: all 11 apps identical.
+
+## 4. The list of source pages: kept for the build
+
+`sourceEntries()` (the build's input pages and every page compiled so far, resolved, deduplicated and sorted) was made
+afresh on every call, and every page compile calls it many times: `entries()` (also from inside `describe`, for the
+linking threshold), `appPages()` (what other pages request ahead, the Speculation Rules), and `entries()` asked
+`templateOf` of every source page whether any has axes. In a build with a page file per post, each new page also reset
+`appPages`'s cache (`seen` grew), so every page rebuilt the whole page list. Measured at 400 pages it is quadratic:
+`sourceEntries` 158 ms at 100 pages, 2,530 ms at 400 (16×).
+
+- A build keeps the list (and whether a source page has axes) while its input and `seen` are unchanged; it is
+  dropped at `buildStart` (`vite build --watch`). Dev computes it afresh, as before (files come and go).
+- A page that is compiled for the first time but is already one of the source pages (every page of a build, but a page
+  that no input names) leaves the list and `appPages`'s cache as they were.
+- Test: `test/vite/page-list.test.ts`: the pages `htmlInputs` returns, summed over a build, 20 for 10 pages and 80 for
+  40 (before: 880 and 13,120), and every page still in each page's Speculation Rules.
+
+| sinter-static-files (floor, ms) | before | after |
+|---|---:|---:|
+| n=100, 3 runs | 2,865 / 2,372 / 2,457 | 2,030 / 1,688 / 1,926 |
+| n=100, median | **2,457** | **1,926** (−5.3 ms per page) |
+| n=400, one run | **10,178** | **6,171** (−10 ms per page) |
+| `sourceEntries` + `entries` under it, n=100 / n=400 | 175–234 / 2,873 ms | 1–2 / 7 ms |
+| `appPages` outside `describe`, n=400 | 1,689 ms | 5 ms |
+
+Template apps (`pageInputs`) never reset the cache and list few source pages: unchanged. Byte identity: all 11 apps
+identical. Full suite green (2,743 tests).
