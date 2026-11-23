@@ -106,3 +106,50 @@ template, `decidedEntries`).
 | mail API, pass-1 `prerender` | 11.5 / 13.4 | 11.8 / 13.8 (nothing to walk there) |
 
 (3 rounds of the blog, 2 of each sinter-mail app.)
+
+(On the loaded machine of the time. Measured again on a quieter one after the merge of `3e2f2d8`, below, the plain
+scope turned out slower than the proxies on the blog: see 2.)
+
+### Merged `3e2f2d8`
+
+The bug fix there (a case's props are evaluated only when `fixed` and `known`; a tree placement's data likewise) is in
+the worklist: kept, with the props' code cached per case. A new base dist from `3e2f2d8` for the byte comparisons from
+here on (the embedding change there alters the live benchmark's pages on purpose).
+
+### 2. Rendering a row: a clone plan per element; the row's scope a proxy again
+
+- **What cloning a template's element reads of it** (`clonePlan`, per evaluation, by element): whether a `data-sn-*`
+  keeps it from rendering, its attributes before paint and the copy's own (`REWROTE`, `snAttrs`, filtered), its id,
+  its use, its marks of scoped styles (with and without `data-sn-s`), whether its component's styles are scoped and
+  whether its tag binds what it shows. Every row filtered and tested all of it again, element by element. Likewise
+  what `prefold` writes on a node, sorted, and the bindings it stands for (`foldOf`, a sort and a `Set` per element
+  per row before).
+- **The attributes before paint** (what the second pass's minifier, layout and images read on a rendered element)
+  were a module `WeakMap` (`SHOWN`), written for every element with bindings in every row (a third of `clone`'s own
+  time: an ephemeron table's insert), and listed beside it. They travel with the rendered rows now
+  (`RenderedRows.shown`: element and attributes, in the order the rows made them), and the second pass swaps them in
+  from there; `SHOWN` is gone.
+- **A style written where there is none** (`writeFirstPaint` on a row's fresh copy): the one declaration, or none,
+  without splitting and joining the element's style; an attribute set to `null` that is not there is not filtered out
+  of a copy of the list. sinter-mail's generated components write 55 style properties an element, most of them `null`.
+  Only on a rendered row's own copies (`fresh`), whose attribute lists nothing else holds.
+- **The row's scope is a proxy again.** Measured on the quieter machine, change 1's plain object cost the blog more
+  than the proxies did (`rowScope` and its copy of the enclosing rows' names 1.1 ms a page under the profiler): a
+  blog row reads its own item, at the first proxy, nearly always, and copying every enclosing name into each row's
+  object is paid for every row. On sinter-mail the gain of change 1 was the rest of it.
+
+Tests: rendered styles and attributes (none yet, an empty `style`, one there, removed), a template's elements copied
+into several instances.
+
+ms a call, p25 / median, base (`3e2f2d8`) → 1 and 2 (5 rounds of the blog template, 3 of the others):
+
+| | base | 1 + 2 |
+| --- | ---: | ---: |
+| blog static, `decideFor` | 6.37 / 8.20 | 4.56 / 6.62 |
+| blog static, `compile()` | 10.08 / 11.76 | 8.00 / 10.12 |
+| blog live, `decideFor` | 6.92 / 9.05 | 4.77 / 6.62 |
+| blog static-files, pass-1 `settle` | 7.96 / 10.37 | 6.89 / 8.01 |
+| mail file, pass-1 `settle` | 23.5 / 26.9 | 20.0 / 22.7 |
+| mail gen, pass-1 `settle` | 338 / 388 | 229 / 265 |
+| mail gen, `compile()` | 418 / 459 | 291 / 342 |
+| mail API, pass-1 `settle` | 11.9 / 12.0 | 11.8 / 12.0 |

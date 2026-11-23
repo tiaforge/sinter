@@ -1206,7 +1206,7 @@ function copyState(from: Compiler, opts: CompileOptions, roots: object[] = [], l
   }
   const outRoots = roots.map((r) => copy(r));
   // the module's marks of nodes (rendered rows', scripts the compiler wrote): the copy's nodes carry them too
-  for (const m of [WRITTEN, SHOWN, SCOPED, MARKED, REWROTE, RENDERED_FILE, OWN_SCRIPTS, INERT_FILLS] as Weak[]) weak.push({ field: null, a: m, b: m });
+  for (const m of [WRITTEN, SCOPED, MARKED, REWROTE, RENDERED_FILE, OWN_SCRIPTS, INERT_FILLS] as Weak[]) weak.push({ field: null, a: m, b: m });
   const put = (b: Weak, k: object, v: unknown) => { if (b instanceof WeakMap) b.set(k, v); else b.add(k); };
   const entries: WeakEntries = [];
   if (listed) {
@@ -1939,7 +1939,7 @@ class Compiler {
   /**
    * The first pass, rows rendered (`rowRenderer`): a template element's attributes as the walk met them, before it
    * stripped what it compiled: what the second pass's minifier and layout read on that element in an unrolled row
-   * before its bindings are painted (`SHOWN`)
+   * before its bindings are painted (`RenderedRows.shown`)
    */
   private readonly snAttrs = new WeakMap<P5Element, P5Element['attrs']>();
   /** whether the walk records `snAttrs` (the first pass, rows rendered) */
@@ -1950,8 +1950,8 @@ class Compiler {
   private readonly renderedReads = new Set<string>();
   /** the second pass: the rendered rows' empty texts, taken out once the markup is minified (`RenderedRows.empty`) */
   private readonly renderedEmpty: P5Node[] = [];
-  /** the second pass: the rendered rows' elements with the attributes their markup had before paint (`SHOWN`, `RenderedRows.shown`) */
-  private readonly renderedShown: P5Element[] = [];
+  /** the second pass: the rendered rows' elements with the attributes their markup had before paint (`RenderedRows.shown`: what a rendered row's element had as attributes in the markup it stands for, before its bindings were painted, which the minifier reads on it) */
+  private readonly renderedShown: Array<[P5Element, P5Element['attrs']]> = [];
   /** the second pass: rendered images' marks of scoped styles, written after the image pipeline (`RenderedRows.late`) */
   private readonly renderedLate: Array<[P5Element, P5Element['attrs']]> = [];
   /** the value attributes of each element, the bindings each made, and whether it was reported on (`collectConstants`) */
@@ -2084,9 +2084,9 @@ class Compiler {
     if (this.opts.constants?.size) this.prefold(doc);
     const sheets = this.opts.styles ?? this.opts.images?.styles;
     // rendered rows, as the markup they stand for to the minifier, the layout and the images: the bindings the old
-    // route still has there, not their paint (`SHOWN`); painted again before `declare`
-    const painted = this.renderedShown.map((e) => e.attrs);
-    for (const e of this.renderedShown) e.attrs = SHOWN.get(e)!;
+    // route still has there, not their paint (`RenderedRows.shown`); painted again before `declare`
+    const painted = this.renderedShown.map(([e]) => e.attrs);
+    for (const [e, a] of this.renderedShown) e.attrs = a;
     // builds: comments and white space that show nothing out, before anything counts nodes (docs/minify.md)
     if (this.opts.minify) this.minify(doc);
     // rendered rows' empty texts: elements to the minifier (`WRITTEN`), nothing in the page
@@ -2106,7 +2106,7 @@ class Compiler {
       // the first pass, rows rendered: a template's image as it was, which the rows it renders stand for (`rowRenderer`)
       ...(this.keepsAttrs ? { rewrote: (el: P5Element, before: P5Element['attrs']) => REWROTE.set(el, before) } : {}),
     }) : undefined;
-    this.renderedShown.forEach((e, i) => { e.attrs = painted[i]!; });
+    this.renderedShown.forEach(([e], i) => { e.attrs = painted[i]!; });
     // (the marks of rendered images, after the image pipeline, as the old route's walk writes them)
     for (const [e, marks] of this.renderedLate) for (const m of marks) setAttr(e, m.name, m.value);
     this.declare(doc);
@@ -8891,27 +8891,11 @@ class Compiler {
     // (a placement's element is its `<slot>`; an anchor's, its template)
     let paintEls: Map<NodeDef, P5Element> | null = null;
     const elOf = (n: NodeDef) => this.tplEls.get(n) ?? this.pointOf.get(n)?.el ?? (paintEls ??= new Map([...this.paints].reverse().map((x) => [x.node, x.el] as const))).get(n) ?? this.textMarks.get(n) ?? placementOf.get(n)?.el ?? this.anchorEls.get(n);
-    /**
-     * A row's scope: its item and index in front of the scope it is in, which answers every other name, as a proxy over
-     * it answered. A plain object whose prototype is the evaluation's own scope (which answers or throws), holding as its
-     * own the names of every row it is in, the innermost's last (a chain of prototypes, one per row, is slower than the
-     * proxies at depth: V8 makes each a prototype); a name an object cannot hold by assignment (`__proto__`) is defined
-     */
-    const rowScope = (sc: object, t: TemplateDef, item: unknown, k: number): object => {
-      const up = Object.getPrototypeOf(sc) as object | null, inRow = up !== Object.prototype && up !== null;
-      const o = Object.create(inRow ? up : sc) as Record<string, unknown>;
-      if (inRow) {
-        if (!Object.hasOwn(sc, '__proto__')) Object.assign(o, sc);
-        else for (const name of Object.keys(sc)) own(o, name, (sc as Record<string, unknown>)[name]);
-      }
-      for (const name of [t.ii, t.index]) if (name !== undefined && name !== null) own(o, name, k);
-      if (t.item !== undefined) own(o, t.item, item);
-      return o;
-    };
-    const own = (o: Record<string, unknown>, name: string, v: unknown) => {
-      if (name === '__proto__') Object.defineProperty(o, name, { value: v, enumerable: true, writable: true, configurable: true });
-      else o[name] = v;
-    };
+    // (a row's scope: a proxy in front of the scope it is in. Tried and dropped: a plain object holding every enclosing
+    // row's names, whose prototype is the evaluation's scope, and a chain of objects, one per row: evaluation.md, 1)
+    const rowScope = (sc: object, t: TemplateDef, item: unknown, k: number) => new Proxy({}, {
+      get: (_, p) => (p === t.item ? item : p === t.index || p === t.ii ? k : (sc as Record<string | symbol, unknown>)[p]),
+    });
     // (a choice's candidates' keys, by its node: the program's)
     const caseKeys = new Map<NodeDef, Map<string, string> | null>();
     /** which case a choice renders here: the candidates' keys, and the one it renders (null: none), or null when that is not known */
@@ -9288,6 +9272,28 @@ class Compiler {
       }
       return null;
     };
+    /**
+     * what cloning an element of a template's content reads of it, the same in every row (`clone`): a `data-sn-*` that
+     * keeps it from rendering, its attributes before paint and the copy's own, its id, its use, the marks of scoped
+     * styles it has (and those without `data-sn-s`), whether its component's styles are scoped, whether its tag binds what it shows
+     */
+    type ClonePlan = { sinter: boolean; pre: P5Element['attrs'] | undefined; base: P5Element['attrs']; id: string | undefined; use: ReturnType<Compiler['useOf']['get']>; marks: P5Element['attrs']; marksOut: P5Element['attrs']; scoped: boolean; opaque: boolean };
+    const clonePlans = new Map<P5Element, ClonePlan>();
+    const foldPlans = new Map<NodeDef, { fold: Compiler['attrSources']; folded: Set<Binding> } | null>();
+    const clonePlan = (n: P5Element): ClonePlan => {
+      let cp = clonePlans.get(n);
+      if (cp) return cp;
+      const pre = this.snAttrs.get(n);
+      const base = REWROTE.get(n) ?? (pre ? pre.filter((a) => !a.name.startsWith('data-sn-') || KEPT_ATTRS.has(a.name)) : n.attrs.filter((a) => !MARKS.test(a.name)));
+      const use = this.useOf.get(n), marks = n.attrs.filter((a) => MARKS.test(a.name));
+      cp = {
+        sinter: n.attrs.some((a) => a.name.startsWith('data-sn-') && !MARKS.test(a.name)), pre, base, id: base.find((a) => a.name === 'id')?.value, use,
+        marks, marksOut: marks.filter((a) => a.name !== 'data-sn-s'), scoped: scoped.has(this.origins.get(n)?.file ?? ''),
+        opaque: !!use?.host.attrs.some((a) => /^data-sn-(class|style|show|attr)$/.test(a.name)),
+      };
+      clonePlans.set(n, cp);
+      return cp;
+    };
     return (key, p) => {
       const at = where(p.el);
       if (at) { this.unrendered.set(key, { why: at, rows: p.found.rows }); return null; }
@@ -9298,7 +9304,9 @@ class Compiler {
         for (const d of strs(ds)) { const m = /^\$(?:r|meta)\.([A-Za-z_$][\w$]*)/.exec(d); if (m) st.reads.add(m[1]!); }
         for (const x of this.stateSites(ds)) st.state.add(x);
       };
-      const texted = new Set<P5Node>(), empty: P5Node[] = [], shown: P5Element[] = [];
+      const texted = new Set<P5Node>(), empty: P5Node[] = [];
+      /** what the second pass's minifier reads on each element that had bindings: its attributes before paint */
+      const shownOf = new Map<P5Element, P5Element['attrs']>();
       /**
        * links, with a page that reads them (`links`): the entries the second pass's walk pushes for each (`hrefs`, read by
        * same-page links and SN519), in walk order, with where each was written; and the rows being rendered, innermost
@@ -9352,20 +9360,20 @@ class Compiler {
           // row as it would rewrite the row's image (eager or not, in its box)
           c = clone(n.childNodes.at(-1)!, parent, map);
         } else if (isElement(n)) {
+          const cp = clonePlan(n);
           // (one the walk keeps for the runtime, `data-sn-options`, `-navigate`, …: the walk adds what it needs)
           // (the first pass's marks of scoped styles aside: below)
-          if (n.attrs.some((a) => a.name.startsWith('data-sn-') && !MARKS.test(a.name))) no('a sinter attribute');
+          if (cp.sinter) no('a sinter attribute');
           // its attributes before anything was painted: the first pass writes a binding constant in every row into the
           // template, where the old route paints it with the row's others, in their order (`fill` paints it again)
-          const pre = this.snAttrs.get(n);
-          const base = REWROTE.get(n) ?? (pre ? pre.filter((a) => !a.name.startsWith('data-sn-') || KEPT_ATTRS.has(a.name)) : n.attrs.filter((a) => !MARKS.test(a.name)));
-          const e = { nodeName: n.nodeName, tagName: n.tagName, attrs: base.map((a) => ({ ...a })), namespaceURI: n.namespaceURI, childNodes: [], parentNode: parent } as unknown as P5Element;
+          const pre = cp.pre;
+          const e = { nodeName: n.nodeName, tagName: n.tagName, attrs: cp.base.map((a) => ({ ...a })), namespaceURI: n.namespaceURI, childNodes: [], parentNode: parent } as unknown as P5Element;
           // (an id the markup writes: the page's ids are declared before the second pass compiles the rows, `declare`;
           // one a binding writes is not there yet)
-          const id = attr(e, 'id');
+          const id = cp.id;
           if (id) idList.push({ id, dialog: e.tagName === 'dialog' });
           // (a component's root: its use, which the old route's expansion registers, `uses`)
-          const u = this.useOf.get(n);
+          const u = cp.use;
           if (u && !u.head) st.uses.add(u.name);
           if (links && (n.tagName === 'a' || n.tagName === 'area')) link(n, e);
           if (marking) {
@@ -9373,7 +9381,7 @@ class Compiler {
             // markup as the second's writes them on the instance's (one `Use` per instance, `rootMarked`, `landing`,
             // `slotEls`), after the walk: before the paints after it (`fill`). In rows a loop copies (`cloneTree`), a
             // root's copy takes its original's `data-sn-c` and `-r` (`rootCopies`), and slot content no `-s` (`live`)
-            const marks = n.attrs.filter((a) => MARKS.test(a.name) && (live || a.name !== 'data-sn-s')).map((a) => ({ ...a }));
+            const marks = (live ? cp.marks : cp.marksOut).map((a) => ({ ...a }));
             const more = fillMarks.get(n);
             if (more && !marks.some((m) => m.name === 'data-sn-c')) marks.push(...more);
             if (marks.length) {
@@ -9383,14 +9391,14 @@ class Compiler {
               // (an image with nothing left to paint: after the image pipeline's writes, in the second pass, `late`)
               if (nodeOfEl().has(n)) MARKED.set(e, marks); else if (n.tagName === 'img') late.push([e, marks]); else e.attrs.push(...marks);
             }
-            if (scoped.has(this.origins.get(n)?.file ?? '')) SCOPED.add(e);
+            if (cp.scoped) SCOPED.add(e);
           }
           // (an image: the file its `src` is relative to, which the second pass's image pipeline reads)
           if (n.tagName === 'img') RENDERED_FILE.set(e, this.origins.get(n)?.file ?? this.opts.file);
           // what the second pass's minifier reads on it in an unrolled row: its bindings' attributes, not their paint
-          if (pre) { SHOWN.set(e, pre); shown.push(e); }
+          if (pre) shownOf.set(e, pre);
           // a component's root whose tag binds what it shows: the minifier leaves it as written (`minify`'s `opaque`)
-          if (this.useOf.get(n)?.host.attrs.some((a) => /^data-sn-(class|style|show|attr)$/.test(a.name))) WRITTEN.set(e, 'opaque');
+          if (cp.opaque) WRITTEN.set(e, 'opaque');
           e.childNodes = n.childNodes.map((x) => clone(x, e, map)) as never[];
           if (n.tagName === 'template') {
             const content = { nodeName: '#document-fragment', childNodes: [] } as unknown as P5Template['content'];
@@ -9436,12 +9444,17 @@ class Compiler {
         return frag.childNodes as P5Node[];
       };
       /** the attributes `prefold` writes on the element, in its order (its own attributes', then its tag's, each in `FOLDED` order) */
-      const foldOf = (el: P5Element, n: NodeDef): Compiler['attrSources'] => {
-        const list = foldsOf().get(n);
-        if (list === null) no('constants');
-        if (!list) return [];
-        const own = (s: (typeof list)[number]) => (s.src === el ? 0 : 1);
-        return [...list].sort((a, b) => own(a) - own(b) || FOLDED.indexOf(a.attr) - FOLDED.indexOf(b.attr));
+      // (and the bindings they are: the same for the node in every row)
+      const foldOf = (el: P5Element, n: NodeDef): { fold: Compiler['attrSources']; folded: Set<Binding> } => {
+        let f = foldPlans.get(n);
+        if (f === undefined) {
+          const list = foldsOf().get(n);
+          const own = (s: NonNullable<typeof list>[number]) => (s.src === el ? 0 : 1);
+          const fold = list ? [...list].sort((a, b) => own(a) - own(b) || FOLDED.indexOf(a.attr) - FOLDED.indexOf(b.attr)) : [];
+          foldPlans.set(n, f = list === null ? null : { fold, folded: new Set(fold.flatMap((x) => x.bindings)) });
+        }
+        if (f === null) no('constants');
+        return f!;
       };
       const fill = (nodes: NodeDef[], map: Map<P5Node, P5Node>, rec: RowRec) => {
         for (const n of nodes) {
@@ -9533,13 +9546,13 @@ class Compiler {
             if (w === undefined) no('not painted');
             if (w === null) no('not written ahead');
             if (w!.k === 'text') WRITTEN.set(cl!, 'content');
-            writeFirstPaint(cl!, w!.k, w!.n, w!.v);
+            writeFirstPaint(cl!, w!.k, w!.n, w!.v, true);
             read(b.d);
           };
           // what the second pass writes before the layout and the images (`prefold`: an image's attributes, a class or
           // style the layout reads): first, in its order; the element then has only the others' bindings (and an id only
-          // for them), and the layout, the images and the minifier read those as bindings (`SHOWN`)
-          const fold = foldOf(el!, n), folded = new Set(fold.flatMap((x) => x.bindings));
+          // for them), and the layout, the images and the minifier read those as bindings (`shownOf`)
+          const { fold, folded } = foldOf(el!, n);
           for (const x of fold) for (const b of x.bindings) {
             paint(b);
             // (a `src` written there is the page's: `foldedUrl`)
@@ -9548,7 +9561,7 @@ class Compiler {
           if (fold.length) {
             const pre = this.snAttrs.get(el!) ?? [], gone = new Set(fold.filter((x) => x.src === el).map((x) => x.attr));
             const left = pre.filter((a) => a.name.startsWith('data-sn-') && !KEPT_ATTRS.has(a.name) && !gone.has(a.name));
-            if (left.length) SHOWN.set(cl!, [...cl!.attrs.map((a) => ({ ...a })), ...left]); else SHOWN.delete(cl!);
+            if (!left.length) shownOf.delete(cl!); else if (shownOf.has(cl!)) shownOf.set(cl!, [...cl!.attrs.map((a) => ({ ...a })), ...left]);
             // a component's root whose tag's bindings are all written there: the minifier reads it as it is
             const host = this.useOf.get(el!)?.host, hostGone = new Set(fold.filter((x) => x.src !== el).map((x) => x.attr));
             if (WRITTEN.get(cl!) === 'opaque' && host && !host.attrs.some((a) => /^data-sn-(class|style|show|attr)$/.test(a.name) && !hostGone.has(a.name))) WRITTEN.delete(cl!);
@@ -9622,7 +9635,7 @@ class Compiler {
         if ((st.ids || list) && !nodes.some(isElement)) no('no element');
         renderStat(null, p.found.rows);
         // (an empty text stays until the second pass has minified the rows: it was an element there, `WRITTEN`)
-        return { nodes, empty, shown: shown.filter((e) => SHOWN.has(e)), ids: st.ids, list, folded: st.folded, files: [...st.files], reads: [...st.reads], rootStyled: [...st.rootStyled], late, state: [...st.state], hrefs, idAttrs: idList, uses: [...st.uses].map((n) => { const f = this.componentFiles.get(n); return { name: n, css: f?.css, rawCss: f?.rawCss }; }), rows: p.found.rows };
+        return { nodes, empty, shown: [...shownOf], ids: st.ids, list, folded: st.folded, files: [...st.files], reads: [...st.reads], rootStyled: [...st.rootStyled], late, state: [...st.state], hrefs, idAttrs: idList, uses: [...st.uses].map((n) => { const f = this.componentFiles.get(n); return { name: n, css: f?.css, rawCss: f?.rawCss }; }), rows: p.found.rows };
       } catch (e) {
         if (!(e instanceof NoRender)) throw e;
         this.unrendered.set(key, { why: e.why, rows: p.found.rows });
@@ -12495,7 +12508,7 @@ const LOOP_HEAD = /^\s*(?:\(\s*([A-Za-z_][\w]*)\s*,\s*([A-Za-z_][\w]*)\s*\)|([A-
  * (once, at the first row element, for its diagnostics), the conditions and empty lists it folds (SN501 reads them),
  * the component files their instances are expanded from, the resources their bindings read.
  */
-export type RenderedRows = { nodes: P5Node[]; idAttrs: Array<{ id: string; dialog: boolean }>; hrefs: Array<{ el: P5Element; prefixes: HrefPrefix[]; literal: boolean; query?: string[]; src?: string; bound: boolean; origin: Origin | undefined; loc: P5Element['sourceCodeLocation'] }>; empty: P5Node[]; shown: P5Element[]; ids: number; list: boolean; folded: string[]; files: string[]; reads: string[]; rootStyled: string[]; late: Array<[P5Element, P5Element['attrs']]>; state: string[]; uses: Array<{ name: string; css: string | null | undefined; rawCss: string | undefined }>; rows: number };
+export type RenderedRows = { nodes: P5Node[]; idAttrs: Array<{ id: string; dialog: boolean }>; hrefs: Array<{ el: P5Element; prefixes: HrefPrefix[]; literal: boolean; query?: string[]; src?: string; bound: boolean; origin: Origin | undefined; loc: P5Element['sourceCodeLocation'] }>; empty: P5Node[]; shown: Array<[P5Element, P5Element['attrs']]>; ids: number; list: boolean; folded: string[]; files: string[]; reads: string[]; rootStyled: string[]; late: Array<[P5Element, P5Element['attrs']]>; state: string[]; uses: Array<{ name: string; css: string | null | undefined; rawCss: string | undefined }>; rows: number };
 
 /**
  * What rendered rows' markup stands for, for the second pass's minifier, which minifies the markup its walk compiles
@@ -12503,11 +12516,6 @@ export type RenderedRows = { nodes: P5Node[]; idAttrs: Array<{ id: string; dialo
  * wrote, a component's root whose tag binds its class, style, attributes or visibility
  */
 const WRITTEN = new WeakMap<P5Node, 'text' | 'content' | 'opaque'>();
-/**
- * What a rendered row's element had as attributes in the markup it stands for, before its bindings were painted (the
- * walk's `data-sn-*` and the attributes they will set not yet there): what the second pass's minifier reads on it
- */
-const SHOWN = new WeakMap<P5Element, P5Element['attrs']>();
 /** a rendered row's element from a component with scoped styles, which the minifier leaves as written */
 const SCOPED = new WeakSet<P5Element>();
 /** the marks of scoped styles the walk writes after it */
@@ -12636,14 +12644,18 @@ function firstPaintValue(el: P5Element, b: Binding, v: unknown, schemes: Set<str
   return FAIL;
 }
 
-/** Writes one first-paint value into the static HTML, as the runtime's write would into the DOM. */
-function writeFirstPaint(el: P5Element, kind: Kind, name: string | null, v: unknown) {
+/**
+ * Writes one first-paint value into the static HTML, as the runtime's write would into the DOM. `fresh`: an element
+ * a rendered row made, whose attribute list nothing else holds: an attribute that is not there is not filtered out
+ * of a copy of it, and a style written where there is none is written without reading one
+ */
+function writeFirstPaint(el: P5Element, kind: Kind, name: string | null, v: unknown, fresh = false) {
   const text = (s: string) => {
     for (const c of el.childNodes) (c as { parentNode: unknown }).parentNode = null;
     el.childNodes = s ? [{ nodeName: '#text', value: s, parentNode: el } as unknown as P5Node] as never : [];
   };
   const set = (n: string, value: string | null) => {
-    if (value === null) el.attrs = el.attrs.filter((a) => a.name !== n);
+    if (value === null) { if (!fresh || el.attrs.some((a) => a.name === n)) el.attrs = el.attrs.filter((a) => a.name !== n); }
     else setAttr(el, n, value);
   };
   switch (kind) {
@@ -12658,6 +12670,8 @@ function writeFirstPaint(el: P5Element, kind: Kind, name: string | null, v: unkn
     }
     case 'style': {
       const cur = attr(el, 'style') ?? '';
+      // (none yet: the one declaration, or none)
+      if (fresh && !cur) { set('style', v !== null ? `${name}: ${v as string}` : null); break; }
       const rest = cur.split(';').map((d) => d.trim()).filter((d) => d && d.slice(0, d.indexOf(':')).trim().toLowerCase() !== name);
       if (v !== null) rest.push(`${name}: ${v as string}`);
       set('style', rest.length ? rest.join('; ') : cur ? '' : null);

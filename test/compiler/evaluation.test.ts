@@ -80,6 +80,18 @@ describe('a row\'s scope', () => {
   });
 });
 
+describe('rendering a row', () => {
+  test('styles and attributes written on a row\'s copy: none yet, an empty one, one there, removed', () => {
+    const body = both(page(`<ul><template data-sn-for="(r, i) in grid.rows"><li><i data-sn-style="{ color: i ? 'red' : null, margin: null }">a</i><i style="" data-sn-style="{ color: null }">b</i><i style="padding: 0" data-sn-style="{ color: i ? null : 'blue', 'font-weight': 700 }">c</i><b title="x" lang="en" data-sn-attr="{ title: i ? r.name : null, lang: null, dir: null }">d</b></li></template></ul>`));
+    expect(body).toContain('<li><i>a</i><i>b</i><i style="padding: 0; color: blue; font-weight: 700">c</i><b>d</b></li>');
+    expect(body).toContain('<li><i style="color: red">a</i><i>b</i><i style="padding: 0; font-weight: 700">c</i><b title="b">d</b></li>');
+  });
+  test('a template\'s elements copied in every row, each its own (ids, uses)', () => {
+    const body = both(page('<x-doc data-sn-with="{ doc }"></x-doc><x-doc data-sn-with="{ doc }"></x-doc>'));
+    expect(body.split('<a href="/b"><span>b</span></a>').length).toBe(3);
+  });
+});
+
 describe('choices in rows', () => {
   test('the candidates a choice does not render, at every depth, rendered and not', () => {
     const body = both(page('<x-doc data-sn-with="{ doc }"></x-doc>'));
