@@ -963,6 +963,9 @@ export function compileParts(html: string, options: CompileOptions): CompiledPar
       const field = Object.keys(on).find((k) => text({ [k]: (on as unknown as Record<string, unknown>)[k] } as unknown as CompiledParts) !== text({ [k]: (off as unknown as Record<string, unknown>)[k] } as unknown as CompiledParts));
       throw new Error(`sinter render audit: ${options.file}: rendered rows differ from compiled ones in \`${field}\`, at ${i}:\n  rendered ${a.slice(Math.max(0, i - 160), i + 160)}\n  compiled ${b.slice(Math.max(0, i - 160), i + 160)}`);
     }
+    // (`SN_RENDER_AUDIT_LOG=<file>`: one line per page checked, so a run can say how many it checked)
+    const log = proc?.env.SN_RENDER_AUDIT_LOG;
+    if (log) (proc?.getBuiltinModule?.('node:fs') as { appendFileSync(f: string, s: string): void } | undefined)?.appendFileSync(log, `${options.file}\n`);
     return on;
   }
   return compilePartsOnce(html, options);
@@ -1064,7 +1067,8 @@ function fromTemplate(html: string, options: CompileOptions): CompiledParts | nu
   }).run(html);
   // a page with errors: the usual way, which reports them as it always does
   if (out.diagnostics.some((d) => d.severity === 'error')) return null;
-  t.hits++;
+  // (not the render audit's compile again, which counts what the first counted)
+  if (renderForced === null) t.hits++;
   // the type check reads the page as written, as `compilePasses` hands it on: the kept first pass's, once per template
   // (every entry's is the same page; checking it again per entry only repeats it)
   if (options.check && !t.typed && c.check) { t.typed = true; return { ...out, check: c.check }; }
@@ -11370,7 +11374,7 @@ export type RenderedRows = { nodes: P5Node[]; ids: number; list: boolean; folded
 class NoRender { constructor(readonly why: string) {} }
 
 /** the process, where there is one (the compiler has no Node imports of its own) */
-const proc = (globalThis as { process?: { env: Record<string, string | undefined>; on?: (e: string, f: () => void) => void } }).process;
+const proc = (globalThis as { process?: { env: Record<string, string | undefined>; on?: (e: string, f: () => void) => void; getBuiltinModule?: (m: string) => unknown } }).process;
 
 /** rows are rendered at build time unless `SN_RENDER=0` (the second pass then compiles every row, as before) */
 export function renderOn(): boolean { return renderForced ?? proc?.env.SN_RENDER !== '0'; }
