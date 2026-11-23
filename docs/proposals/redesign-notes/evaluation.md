@@ -221,3 +221,77 @@ Tests: `caseCode` (the same string per case, another for changed props).
 ms a call, p25 / median, 4 → 5 (4 rounds): mail API pass-1 `settle` 8.59 / 10.95 → 7.48 / 7.79; mail file 19.1 / 21.8
 → 14.9 / 18.9 (`compile()` 40.2 / 46.8 → 34.3 / 41.8); blog static-files unchanged within the noise (6.62 / 7.99 →
 7.48 / 8.00).
+
+## Where the evaluation stands (`4e6dc10`)
+
+A/B against `3e2f2d8` (the integration branch's base of changes 2 to 5), CPU clock, the evaluation's phase (`decideFor`
+for a template's entries, pass-1 `settle` for a page of its own): ms a call p25 / median, and the mean over the build's
+pages (5 rounds of the blog template, 3 of every other app; load 4 to 8):
+
+| app | p25 / median, base | p25 / median, now | mean a page, base → now | `compile()` mean, base → now | GC in compiles, base → now |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| blog static | 7.34 / 10.02 | 4.96 / 6.52 | 10.7 → 7.7 | 16.9 → 12.8 | 4.0 → 3.1 |
+| blog live | 6.72 / 8.23 | 3.88 / 5.98 | 9.9 → 7.5 | 16.8 → 15.4 | 4.5 → 3.3 |
+| blog static-files | 7.55 / 8.43 | 6.32 / 7.96 | 10.3 → 8.0 | 18.8 → 16.2 | 4.6 → 3.4 |
+| blog live-files | 7.90 / 9.29 | 7.06 / 8.00 | 10.0 → 9.0 | 20.1 → 18.8 | 4.1 → 3.2 |
+| blog static, type check | 6.76 / 8.01 | 3.81 / 5.26 | 9.2 → 5.7 | 14.1 → 10.7 | 2.6 → 1.8 |
+| sinter-mail file email (12 pages) | 27.1 / 32.5 | 16.0 / 18.4 | 38.0 → 25.9 | 134 → 123 | 17.8 → 15.3 |
+| sinter-mail 2,012-element email | 310 / 345 | 234 / 253 | 355 → 281 | 489 → 421 | 138 → 113 |
+| sinter-mail API (12 pages) | 10.6 / 12.7 | 8.0 / 10.2 | 17.9 → 14.1 | 116 → 116 | 21.0 → 18.4 |
+
+(The means include each build's first pages, where V8 has not compiled the compiler yet, and on sinter-mail the first
+page's unit; the p25 is the steady page.) Whole builds, `run-sinter.mjs`, 3 rounds A/B, medians: static 3.97 → 3.80 s,
+live 5.74 → 5.34 s, static-files 4.87 → 4.95 s; the load (6 to 8) moved single rounds by ±0.5 s, so these say no more
+than "about 0.2 to 0.4 s off the template builds".
+
+Byte for byte at every change: the five benchmark apps and the four examples against the base dist (`ident.mjs`),
+sinter-mail's 16 pages (`mail-audit`, its 42 files the same both ways and the same as the base's build),
+`render-audit` (also `--switch SN_UNITS`), `pass-audit`.
+
+## What is left in the evaluation, and what it would take (for stage 6)
+
+A blog template page's `decideFor`, ~4 to 5 ms steady (under the profiler 6.1: the share of each):
+
+- **The page's `md.parse` call, ~1.8**: the library's own parse of the post (sinter-markdown's tokenizer and tree), once
+  per entry; plus `frozenPlain`'s walk of its result 0.5 and `foldLog`'s `resultKey` 0.1. Per page by nature. What
+  could go: the walk, if the compiler and the helper module shared a mark of `memo()`'s frozen trees (floor.md's
+  "mark shared between the two module instances": `memo` would have to register its results in a registry both
+  instances reach, `globalThis[Symbol.for(…)]`, and that is a change to the shipped `memo`, whose bytes are in pages
+  that use it in the browser).
+- **Rendering, ~1.9** (`fill` 0.65, `clone` 0.5, `render`, `replace`, `writeFirstPaint`): per row, a clone of the
+  template's content node by node and a fill that looks each binding's value up in the row's record (`RowRec`, a `Map`
+  by binding) and writes it. What it would take: a per-template render plan, made once per program: the clone as a
+  flat list of the nodes to make and the attribute lists to copy, the paints as positions in that list (the
+  template's paints are a known list), the record an array by binding position instead of a `Map`; static subtrees
+  of a template (no binding below them) cloned without a walk of their source.
+- **The worklist's walk, ~1.7** (`nodesOf`, `rowsOf`, `expandCase`, a case's props `{ node }` copied and frozen per
+  instance by `frozenData` 0.2, `plainData` of the lists 0.3): what a row asks of its template is read once now;
+  what is left is the evaluation itself, one compiled function call per binding per row through a proxy scope. What
+  it would take: a template's bindings compiled into one function per template (its paints' values as one array from
+  the row's item: one call and one scope a row, not one per binding), which is the unit's program of stage 6
+  ("rendering from units evaluates compiled closures"), and records written straight into that array.
+
+A sinter-mail page with the 2,012-element email: 234 ms steady, all of it the same three parts at 131,000 bindings (59
+an element, 55 of them a style property, most `null`): the per-binding work above is the whole cost there, and a
+template function per component (one call computing the 55 styles) is where the order of magnitude is. Besides:
+`fileConstants` copies and freezes the email's tree in each pass (~12 ms a pass): a build-wide cache of a `file:`
+value's frozen form, keyed by the file's text, would make it once a build (not done: the value's identity is the
+page's own today, and its uses elsewhere in the compile need checking first).
+
+A sinter-mail API page: ~8 ms, nearly all of it the setup over the unit's 355 templates' candidates (collecting them,
+`fixed` over each, `unitTable`'s per-page map of the codes it uses). What it would take: the unit's part of the
+candidate list kept on the unit (it depends on the page only through `written` and the page's `file:` resources, which
+would be its key), as `unitTable` keeps the unit's compiled functions; or, simpler, deciding which candidates exist from
+the unit's summary (stage 6).
+
+## A rule that looks wrong (recorded, not changed)
+
+`prerender`'s `known` excludes from the persisted state the path of the model being evaluated (`own`, set per
+candidate in `prerender`'s loop over its candidates). The worklist's `finish` walk (choices at the roots, loops in
+decided branches) runs after that loop, with `own` left at the last candidate's value: if the last candidate is a
+persisted model, a row binding over that model's own state field counts as known in `finish`'s walk and not in
+`unroll`'s. It does not show in any app or test; it is why `bindPlan` asks `known` per row for a state dependency.
+
+Checks on `4e6dc10`: test/compiler 1,117 passed plain and under `SN_RENDER_AUDIT`, `SN_ONE_PASS_AUDIT` and
+`SN_LINK_AUDIT`; under `SN_UNITS_AUDIT` the 62 tests that count compiles, links, splices or routes fail as at the
+merge, no page differs; test/vite and test/check 361 passed.
