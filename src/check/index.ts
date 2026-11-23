@@ -406,9 +406,12 @@ function planShared(o: CheckOptions, support: Support, parts: boolean): Plan | s
     const raw = parts ? checkRaw(unit) : undefined;
     const viaParts = !!raw && raw.parts.every((r) => partInfo(r.part).ok);
     let sh: Shadow, block: Blk[];
+    /** the function of expression `i`, by its place in `block` */
+    let byExprOf: (i: number) => number;
     if (!viaParts) {
       sh = shadowOf(unit, support, o.root, o.helpers, o.actions, { name: marked, broken: false });
       const byExpr = new Map(sh.blocks.map((b, k) => [b.i, k]));
+      byExprOf = (i) => byExpr.get(i)!;
       block = sh.blocks.map((b) => {
         const text = sh.lines.slice(b.start - 1, b.start - 1 + b.lines).join('\n');
         const deps = [...text.matchAll(MARKS)].map((m) => Number(m[1])).filter((j) => j !== b.i).map((j) => byExpr.get(j)!);
@@ -450,6 +453,7 @@ function planShared(o: CheckOptions, support: Support, parts: boolean): Plan | s
       for (; next < ownBlocks.length; next++) add({ ...ownBlocks[next]!, start: 0, deps: [], id: undefined });
       const byExpr = new Int32Array(nE);
       block.forEach((b, k) => { byExpr[b.i] = k; });
+      byExprOf = (i) => byExpr[i]!;
       for (const b of block) b.deps = b.text !== null
         ? [...b.text.matchAll(MARKS)].map((m) => Number(m[1])).filter((j) => j !== b.i).map((j) => byExpr[j]!)
         : b.tpl!.deps[b.j!]!.map((l) => byExpr[b.ref!.exprBase + l]!);
@@ -520,9 +524,6 @@ function planShared(o: CheckOptions, support: Support, parts: boolean): Plan | s
       c.count[id]!++;
       return b.id = id;
     };
-    const where = new Map<number, number>();
-    block.forEach((b, k) => where.set(b.i, k));
-    const byExprOf = (i: number) => where.get(i)!;
     block.forEach((_, k) => idOf(k));
     pages.push({ unit, file, ctx, head: sh.lines.slice(0, sh.prelude), prelude: sh.prelude, block, shared: [], whole: viaParts ? null : sh });
   }

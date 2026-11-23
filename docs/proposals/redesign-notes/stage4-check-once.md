@@ -6,11 +6,34 @@ Running log, branch `redesign/check-data-once` (from 09d202f). The design is
 
 ## Where it stands (read this first)
 
-- Done: the diagnostics corpus as a committed script (`scripts/check-corpus.mjs`), its reference from 09d202f
-  (`scripts/check-corpus.ref.txt`); the bench (`bench/check-bench.mjs`); part 1 (a page holds a unit's check part by
-  reference); part 2 (a part's shadow written once per build, its functions taken as shared by id).
-- Next: merge the integration branch (the bug fixes change check diagnostics: the reference is regenerated from it),
-  measure before/after on both, report.
+**Done.** Both parts of the design are built, merged with the integration branch at 8c88f5c, and verified (below):
+
+- part 1 (efb3c08): a page's check unit holds a unit's part by reference;
+- part 2 (f044bce): a part's shadow is written once per build per folder, its functions taken as shared by id;
+- merge (b6f9272), and a per-page map made once (this commit).
+
+Commits on `redesign/check-data-once`: efb3c08, f044bce, b6f9272, and the last one (log, numbers). Switches:
+`SN_CHECK_PARTS=0` (every page's shadow whole, as before), `SN_CHECK_PARTS_AUDIT=1` (both, compared file by file).
+
+Results, before (8c88f5c, the integration branch) and after (this branch on it); medians of 4 builds, interleaved;
+`check()` from one profiled build each (inclusive CPU ms, `tsc`'s wait included):
+
+| case | wall before / after | CPU before / after | `check()` before / after | of it tsc (wait) | `unitCheck` |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| sinter-mail API, 12 pages, TS | 4,076 / **3,443** | 6,850 / **6,130** | 1,087 / **525** | 256 / 251 | 145 / 3 |
+| sinter-mail components, 12 pages, TS | 6,296 / **5,381** | 11,140 / **9,930** | 1,145 / **504** | 306 / 277 | 128 / 6 |
+| blog, a page file per post, 100, check on | 4,793 / **4,226** | 8,430 / **7,710** | 864 / **304** | 192 / 199 | 90 / 4 |
+| blog, one template, 100, check on | 3,123 / 3,059 | 5,530 / 5,420 | 152 / 188 | 134 / 168 | (no units) |
+| `sinter check`, blog files | 5,078 / 5,292 | 8,840 / 9,260 | 820 / 885 | 179 / 180 | (no units) |
+
+So on sinter-mail the check's own work besides `tsc` went from about 70 ms a page to about 23 ms a page (API:
+831 to 274 ms for 12 pages), and on the blog from 6.7 to 1 ms a page. The one-template blog and `sinter check` place
+no units (the CLI links with the linker; a template is one unit already): unchanged within the noise (five more
+interleaved pairs of `sinter check`: 4,893 / 5,220, 5,232 / 5,259, 5,794 / 5,243, 5,335 / 5,158 ms wall).
+
+What is left in `check()` on sinter-mail (API, 525 ms): `tsc` 251; the parts' templates, once per build (48); the
+parts' info, once (20); the rest per page, a few ms each (the declarations, the page's own few functions, its ids
+read and counted, its file written).
 
 ## The oracle
 
@@ -122,3 +145,25 @@ errors. The one conflict was `shadow.ts`'s options (both kept) and `checkShared`
 `broken: false` on every shadow `planShared` writes; a part is never broken, and a page's own broken expressions are
 left out of its layout as of its whole shadow). On the merged tree the corpus is the new reference plain and with
 `SN_CHECK_PARTS_AUDIT=1`, `SN_CHECK_SHARE=0`, `SN_UNITS=0`, `SN_CHECK_PARTS=0`.
+
+## Checks on the merged tree (b6f9272)
+
+- The corpus: the integration branch's reference, plain and with `SN_CHECK_PARTS_AUDIT=1`, `SN_CHECK_SHARE=0`,
+  `SN_UNITS=0`, `SN_CHECK_PARTS=0`.
+- `npx vitest run`: 2,905 passed. `SN_LINK_AUDIT=1`, `SN_RENDER_AUDIT=1`, `SN_ONE_PASS_AUDIT=1` on `test/compiler`:
+  1,103 passed each. `SN_UNITS_AUDIT=1` on `test/compiler`, `test/units.test.ts`, `test/vite`: 64 failures, the same
+  tests as on the integration branch itself (they count compiles, links, rendered rows), no page differs.
+- `render-audit`, `render-audit --switch SN_UNITS`, `pass-audit`: all 25 builds the same; `mail-audit --switch
+  SN_UNITS`: 42 files the same; the blog's dist with the check on and off the same.
+
+## Tried, found, left
+
+- Part 1 alone gains nothing (the copy moves from the compile to `check()`, where `shadowOf` reads the flat lists);
+  it is the form part 2 reads, and the units audit's oracle (the flat lists equal the compile without units).
+- A page with an error writes its whole shadow in memory for its regions (the error's place in the HTML). A clean
+  build never does; an erroneous one pays what it paid before, for its pages with errors only.
+- Not changed, recorded: the profile's `check` row before this work also counted the compiler's `foldVerdicts`'
+  `check`; the parts path needs a part that refers only to itself (one that does not is copied, and the page compiled
+  again without units, as before); `sinter check` (the CLI) does not place units, so it does not take parts.
+- Left: `tsc` itself (one process, not incremental: about 250 ms here, most of it TypeScript's libs); the CLI could
+  place units as builds do and then take parts too.
