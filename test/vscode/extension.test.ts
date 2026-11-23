@@ -111,3 +111,23 @@ describe('extension', () => {
     expect(m.didOpen(doc(join(outer, 'pages/a.html')), next)).toBe('handled');
   });
 });
+
+describe('single-file components', () => {
+  const manifest = JSON.parse(require('node:fs').readFileSync(join(ext, 'package.json'), 'utf8')) as {
+    contributes: { grammars: Array<{ scopeName: string; path: string; injectTo: string[]; embeddedLanguages: Record<string, string> }>; configurationDefaults: Record<string, Record<string, unknown>> };
+  };
+  test('a grammar injected into HTML embeds TypeScript in `<script lang="ts">`, and only there', () => {
+    const [g] = manifest.contributes.grammars;
+    expect(g!.injectTo).toEqual(['text.html.basic']);
+    expect(g!.embeddedLanguages).toEqual({ 'meta.embedded.block.ts': 'typescript' });
+    const grammar = JSON.parse(require('node:fs').readFileSync(join(ext, g!.path), 'utf8'));
+    expect(grammar.scopeName).toBe(g!.scopeName);
+    const begin = new RegExp(grammar.repository['script-ts'].begin);
+    for (const tag of ['<script lang="ts">', "<script type=\"module\" lang='ts'>", '<script lang=ts>', '<script lang="ts" >']) expect(begin.test(tag), tag).toBe(true);
+    for (const tag of ['<script>', '<script type="module">', '<script lang="tsx">', '<script data-lang="ts">', '<scripts lang="ts">']) expect(begin.test(tag), tag).toBe(false);
+    expect(grammar.repository['script-ts'].patterns[1].patterns).toEqual([{ include: 'source.ts' }]);
+  });
+  test('VS Code\'s own script check in HTML is off: it would read `lang="ts"` as JavaScript', () => {
+    expect(manifest.contributes.configurationDefaults['[html]']).toEqual({ 'html.validate.scripts': false });
+  });
+});

@@ -145,7 +145,7 @@ export const DIAGNOSTIC_DOCS: Record<Code, DiagnosticDoc> = {
 
   SN312: {
     example: "a component's root renders at most one element; `<article-preview>` has 2 elements at the top of its template",
-    means: 'A file in `src/components/` is not a valid component: it needs one `<template data-sn-props="{ …props }">` (a plain `<template>` for a component without props; and optionally a `<style>`) whose root renders at most one element: one element, a `data-sn-if`/`data-sn-else` chain of them, a component, `<sn-component use>`, or a `<slot>` whose default and fills are roots. A component whose template holds head elements only is a head component, which holds any number of them. Also reported: two top-level templates where none has `data-sn-props`, `data-sn-if`, `data-sn-else`, `data-sn-for` or `data-sn-text` on the file\'s template without `data-sn-props` (that template is the declaration, not a branch, list or text), two slots with the same name, a head component with a script, and `<sn-component use>` naming a head component.',
+    means: 'A file in `src/components/` is not a valid component: it needs one `<template data-sn-props="{ …props }">` (a plain `<template>` for a component without props; and optionally a `<style>` and a top-level `<script>`, its script) whose root renders at most one element: one element, a `data-sn-if`/`data-sn-else` chain of them, a component, `<sn-component use>`, or a `<slot>` whose default and fills are roots. A component whose template holds head elements only is a head component, which holds any number of them. Also reported: two top-level templates where none has `data-sn-props`, `data-sn-if`, `data-sn-else`, `data-sn-for` or `data-sn-text` on the file\'s template without `data-sn-props` (that template is the declaration, not a branch, list or text), two slots with the same name, a head component with a script, a `<style>` together with a `<name>.css` file beside the component (its styles are in one place), two top-level `<script>` elements, a `<script>` together with a script file beside the component (its script is in one place), a `<script lang>` other than `ts`, a top-level `<script>` of another `type` (JSON-LD goes inside the template), and `<sn-component use>` naming a head component.',
     fix: 'Wrap the markup in one element inside `<template data-sn-props>`: the caller\'s classes, attributes and handlers land on it.',
   },
   SN313: {
@@ -300,6 +300,11 @@ export const DIAGNOSTIC_DOCS: Record<Code, DiagnosticDoc> = {
     example: 'sinter({ messages }) is removed: the messages are a content namespace. Export `inlang()` from the content module, …',
     means: 'The Vite config gives the plugin an option that sinter no longer has. Before 1.0, an option can be removed; the message names what replaces it.',
     fix: 'Follow the message, then remove the option. `npx sinter migrate --write` writes the replacement where it can (for `messages`, `inlang()` and `languages()` in the content module).',
+  },
+  SN349: {
+    example: '`<task-ring>` is both `task-ring.html` and `task-ring/task-ring.html`: a component\'s HTML is in one place',
+    means: 'A component\'s HTML is `<name>.html` in the components folder (`src/components/`, a library\'s `components/` or `components/internal/`), or `<name>/<name>.html` in a folder of its own, beside the files that go with it: its script, its early renderer, and modules and tests of its own. Only those two places name a component, so an HTML file anywhere else in the folder would silently not be one: a component in both places, another HTML file in a component\'s folder, and HTML in a folder that is not named after a component inside it (folders do not group components: the tag is the file\'s name). A folder with no HTML, of modules only, is fine.',
+    fix: 'Keep one of the two places for the component. Move another HTML file out of the component\'s folder: a component of its own goes to `<name>.html` or `<name>/<name>.html` beside it.',
   },
   SN401: {
     example: '`data-sn-for` takes `item in list` or `(item, i) in list`',

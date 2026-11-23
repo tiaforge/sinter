@@ -8,6 +8,7 @@
 // them style the markup as written).
 import { readFileSync, statSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
+import { componentHtml } from './component-files.js';
 import * as parse5 from 'parse5';
 import type { DefaultTreeAdapterMap } from 'parse5';
 import type { StyleSheet } from './compiler/layout.js';
@@ -178,7 +179,7 @@ function markupOf(html: string, file: string, root: string, seen = new Set<strin
   const layout = seen.size ? null : layoutOf(html, root);
   if (layout) { seen.add(layout.file); out += '\n' + markupOf(layout.text, layout.file, root, seen); }
   for (const m of html.matchAll(/<([a-z][a-z0-9]*(?:-[a-z0-9]+)+)[\s/>]/g)) {
-    const path = resolve(root, 'src/components', `${m[1]!}.html`);
+    const path = componentHtml(resolve(root, 'src/components'), m[1]!) ?? resolve(root, 'src/components', `${m[1]!}.html`);
     if (seen.has(path)) continue;
     seen.add(path);
     const text = read(path);

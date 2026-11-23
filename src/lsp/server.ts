@@ -8,6 +8,8 @@ import { check, findTsc, typeExports } from '../check/index.js';
 import { Connection } from './rpc.js';
 import { existsSync, readdirSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
+import { componentHtml, componentPaths, findComponents } from '../component-files.js';
+import { inlineScripts } from '../compiler/components.js';
 import { componentKinds } from '../compiler/head.js';
 import { offsetOf, slotCompletions, slotDefinition, tagCompletions, tagHover, type TagFile } from './markup.js';
 import { didYouMeanEdit } from './quickfix.js';
@@ -96,6 +98,8 @@ export function startServer(input: Readable, output: Writable, o: ServerOptions 
     return m;
   };
 
+  /** a file as the editor has it: its open buffer, else on disk */
+  const read = (f: string) => workspace.read(f);
   const typecheck = async (state: ProjectState) => {
     const mode = modeOf(state.root);
     if (mode === 'none') return;
@@ -105,8 +109,12 @@ export function startServer(input: Readable, output: Writable, o: ServerOptions 
       await workspace.setTypes(state, '*', r.diagnostics);
       return;
     }
-    await mode.update(state.project, state.units);
+    await mode.update(state.project, state.units, read);
     for (const page of state.units.keys()) await workspace.setTypes(state, page, await mode.diagnostics(page));
+    // components' top-level `<script>` blocks, by file (a block that went: its errors go with it)
+    const scripts = mode.scriptFiles();
+    for (const html of scripts) await workspace.setTypes(state, `script:${html}`, await mode.scriptDiagnostics(html));
+    for (const key of [...state.types.keys()]) if (key.startsWith('script:') && !scripts.includes(key.slice('script:'.length))) await workspace.setTypes(state, key, []);
   };
 
   const schedule = (state: ProjectState, wait: number) => {
@@ -212,20 +220,23 @@ export function startServer(input: Readable, output: Writable, o: ServerOptions 
 
   /** The component or layout a tag names in a project, with its file's text (open buffers first). */
   const tagFile = (root: string, tag: string): TagFile | null => {
-    for (const [dir, layout] of [['src/components', false], ['src/layouts', true]] as const) {
-      const file = join(root, dir, `${tag}.html`);
-      let text: string;
-      try { text = workspace.read(file); } catch { continue; }
-      return { kind: layout ? 'layout' : componentKinds((t) => { try { return workspace.read(join(root, 'src/components', `${t}.html`)); } catch { return null; } })(tag) === 'head' ? 'head' : 'component', file, text };
-    }
-    return null;
+    /** a component's file and text (`<tag>.html` or `<tag>/<tag>.html`), open buffers first */
+    const component = (t: string): { file: string; text: string } | null => {
+      for (const p of componentPaths(t)) { const file = join(root, 'src/components', ...p.split('/')); try { return { file, text: workspace.read(file) }; } catch { /* not here */ } }
+      return null;
+    };
+    const c = component(tag);
+    if (c) return { kind: componentKinds((t) => component(t)?.text ?? null)(tag) === 'head' ? 'head' : 'component', ...c };
+    const file = join(root, 'src/layouts', `${tag}.html`);
+    try { return { kind: 'layout', file, text: workspace.read(file) }; } catch { return null; }
   };
   /** every component and layout of a project */
   const tagFiles = (root: string) => {
     const out: Array<{ name: string } & Omit<TagFile, 'text'>> = [];
     for (const dir of ['src/components', 'src/layouts']) {
       let names: string[] = [];
-      try { names = readdirSync(join(root, dir)).filter((f) => /^[a-z][a-z0-9]*(-[a-z0-9]+)+\.html$/.test(f)).map((f) => f.slice(0, -5)); } catch { /* none */ }
+      if (dir === 'src/components') names = findComponents(join(root, dir)).names;
+      else try { names = readdirSync(join(root, dir)).filter((f) => /^[a-z][a-z0-9]*(-[a-z0-9]+)+\.html$/.test(f)).map((f) => f.slice(0, -5)); } catch { /* none */ }
       for (const n of names) { const t = tagFile(root, n); if (t) out.push({ name: n, kind: dir === 'src/layouts' ? 'layout' : t.kind, file: t.file }); }
     }
     return out;
@@ -238,6 +249,8 @@ export function startServer(input: Readable, output: Writable, o: ServerOptions 
   conn.onRequest('textDocument/hover', async (p: any) => {
     if (!local(p.textDocument.uri)) return null;
     const file = uriToPath(p.textDocument.uri);
+    // in a component's top-level `<script>`: TypeScript's
+    if (inScript(workspace.read(file), p.position.line)) { const b = await bridgeFor(file); return b ? b.bridge.hover(file, p.position.line + 1, p.position.character + 1) : null; }
     // a component's or layout's tag: its props and slots
     const tag = componentAt(workspace.read(file), p.position.line, p.position.character);
     if (tag !== null) {
@@ -253,7 +266,7 @@ export function startServer(input: Readable, output: Writable, o: ServerOptions 
     const mode = modeOf(state.root);
     if (!(mode instanceof TypeScriptBridge)) return null;
     // the shadows must reflect the latest edit
-    await mode.update(state.project, state.units);
+    await mode.update(state.project, state.units, read);
     return mode.hover(file, p.position.line + 1, p.position.character + 1);
   });
 
@@ -262,7 +275,7 @@ export function startServer(input: Readable, output: Writable, o: ServerOptions 
     const state = await workspace.projectFor(file);
     const mode = modeOf(state.root);
     if (!(mode instanceof TypeScriptBridge)) return null;
-    await mode.update(state.project, state.units);
+    await mode.update(state.project, state.units, read);
     return { bridge: mode, state };
   };
 
@@ -271,6 +284,8 @@ export function startServer(input: Readable, output: Writable, o: ServerOptions 
     const file = uriToPath(p.textDocument.uri);
     // `slot="…"` and tags: sinter's own, from the components' and layouts' files
     const text = workspace.read(file);
+    // in a component's top-level `<script>`: TypeScript's
+    if (inScript(text, p.position.line)) { const b = await bridgeFor(file); return b ? b.bridge.completion(file, p.position.line + 1, p.position.character + 1, p.context) : null; }
     const offset = offsetOf(text, p.position.line, p.position.character);
     const { root, project: proj } = await workspace.projectFor(file);
     // a path to an API: its operations, ranked here (`isIncomplete`: asked again as you type), or its query parameters
@@ -304,11 +319,10 @@ export function startServer(input: Readable, output: Writable, o: ServerOptions 
     // a component's or layout's tag opens its file; a `slot="…"` value, the `<slot>` it names
     const text = workspace.read(file);
     const root = (await workspace.projectFor(file)).root;
-    const tag = componentAt(text, p.position.line, p.position.character);
+    const tag = inScript(text, p.position.line) ? null : componentAt(text, p.position.line, p.position.character);
     if (tag !== null) {
-      for (const dir of ['src/components', 'src/layouts']) {
-        const target = join(root, dir, `${tag}.html`);
-        if (existsSync(target)) return [{ uri: pathToUri(target), range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } } }];
+      for (const target of [componentHtml(join(root, 'src/components'), tag), join(root, 'src/layouts', `${tag}.html`)]) {
+        if (target && existsSync(target)) return [{ uri: pathToUri(target), range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } } }];
       }
     }
     const at = pathDefinition(text, offsetOf(text, p.position.line, p.position.character), (await workspace.projectFor(file)).project, (f) => workspace.read(f));
@@ -335,7 +349,7 @@ export function startServer(input: Readable, output: Writable, o: ServerOptions 
       canCreate,
       ...(mode instanceof TypeScriptBridge ? {
         typeAt: async (line: number, col: number) => {
-          ready ??= mode.update(state.project, state.units);
+          ready ??= mode.update(state.project, state.units, (f) => workspace.read(f));
           await ready;
           return mode.typeAt(file, line, col);
         },
@@ -412,6 +426,12 @@ export function startServer(input: Readable, output: Writable, o: ServerOptions 
   conn.onNotification('exit', () => { conn.close(); o.exit?.(shutdown ? 0 : 1); });
   conn.onUnhandled = () => {};
   return conn;
+}
+
+/** Whether a 0-based line is inside the text of a component file's top-level `<script>` (TypeScript's, not sinter's markup). */
+export function inScript(text: string, line: number): boolean {
+  if (!/<script\b/i.test(text)) return false;
+  return inlineScripts(text).some((s) => line + 1 >= s.line && line + 1 <= s.line + s.code.split('\n').length - 1);
 }
 
 /** The tag name (with a `-`, as a component's) when the 0-based position is on it in a start or end tag, else null. */

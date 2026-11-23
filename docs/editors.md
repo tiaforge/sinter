@@ -9,6 +9,7 @@ always matches the compiler the build uses.
 | sinter's diagnostics as you type, in pages, components and [layouts](layouts.md) | any TypeScript, or none |
 | Type errors (`SN208`) as you type, hover types, completion in expressions, go to definition | TypeScript 7 in the project |
 | Type errors on save | TypeScript 5 or 6 |
+| In a [single-file component's](islands.md#single-file-components) `<script lang="ts">`: completion, hover, go to definition and type errors (`SN208`), typed by its props, events, refs and state | TypeScript 7 in the project (type errors on save with 5 or 6) |
 | Did-you-mean quick fix | any |
 | `slot="…"` completion (the slots of the tag the element is in; a layout's head slots on head elements), tag completion after `<`, go from a `slot` value to its `<slot>` and from a tag to its component or layout, hover with a tag's props and slots | any TypeScript, or none |
 | Paths to an API ([`sinter({ apis })`](apis.md)): completion of the operations in `src` and action values, matched anywhere in the path, and of query parameters; hover with the absolute URL; go to the operation in the spec or the config; quick fixes for `SN326`, `SN328`, `SN330`, `SN518` | any TypeScript, or none |
@@ -27,7 +28,9 @@ code --install-extension sinter-vscode-0.1.0.vsix
 ```
 
 It starts `sinter lsp` for every HTML file under a folder with `node_modules/@tiaforge-ui/sinter`,
-one server per installation, and adds sinter's attributes and elements to HTML completion.
+one server per installation, and adds sinter's attributes and elements to HTML completion. It
+highlights a component's `<script lang="ts">` as TypeScript, and turns off VS Code's own check of
+`<script>` elements in HTML (`html.validate.scripts`), which reads them as JavaScript.
 Settings: `sinter.server.path` (a CLI other than the project's), `sinter.trace.server`. Command:
 `sinter: Restart language server`.
 

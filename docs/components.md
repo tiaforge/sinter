@@ -45,6 +45,42 @@ runtime.
 - `data-sn-emits` (optional) declares the events the component emits, with their detail types.
 - Together, these two attributes are the component's whole contract.
 
+## Where its files go
+
+A component is `src/components/<name>.html`. A small one is that one file: its template, a `<style>` and a
+[`<script>`](#a-script). As it grows, its parts can move out, beside it under the same name: its
+[styles](#styles) to `<name>.css`, its script to `<name>.ts`, and an [early renderer](#early-renderers). Then
+give it a folder of its own, named after it, and move its files in unchanged:
+
+```
+src/components/                 src/components/
+  app-header.html                 app-header.html
+  task-ring.html                  task-ring/
+  task-ring.ts                      task-ring.html
+                                    task-ring.css
+                                    task-ring.ts
+                                    task-ring.early.ts
+                                    ring-math.ts        ← a module of its own: import './ring-math.js'
+                                    ring-math.test.ts
+```
+
+- **The tag is still the file's name.** `task-ring/task-ring.html` is `<task-ring>`, used as before.
+  Nothing in the files changes when they move: the script's `import … from './task-ring.html'` is
+  beside it in either place.
+- **Only the files named after the component are its parts** (`<name>.html`, `<name>.css`, `<name>.ts`,
+  `<name>.early.ts`). Any other module in the folder is an ordinary module: the script imports it, and it is
+  bundled with the pages that use the component, like any import. That makes it the place for the logic
+  you want to unit-test without a page: functions that turn props into what the script draws, kept apart
+  from the class that hands their result to a canvas or a library.
+- **Folders do not group components.** `src/components/forms/text-input.html` is not `<text-input>`:
+  tags are one namespace, named after the file.
+- **One place each.** The build fails (`SN349`) for a component in both places
+  (`task-ring.html` and `task-ring/task-ring.html`), another HTML file in a component's folder, and HTML in a
+  folder that is not named after a component inside it, so a file never silently stops being a component. A
+  folder of modules only (`src/components/shared/`) is fine.
+- A [library's](libraries.md) components take the same two places, in its `components/` and
+  `components/internal/`.
+
 ## The tag is replaced by the root
 
 Each use is replaced by the component's root element, so a parent's layout reaches it as a direct
@@ -337,6 +373,9 @@ A `<style>` in the component file is scoped to the component:
 </style>
 ```
 
+- **Or in a file of its own:** `article-preview.css` beside the HTML (or in the component's
+  [folder](#where-its-files-go)) holds the same rules and is scoped the same way. A component has one of the
+  two: a `<style>` and a `.css` file both is `SN312`.
 - It goes into the page's stylesheet (the bundler puts it there, with the page's other CSS): no inline
   style, no CSP change, and it is there for the first paint.
 - The compiler wraps it in native `@scope`. The rules apply to the component's root and what is inside
@@ -389,11 +428,12 @@ inside it is not. It binds state, never a resource, as on `<input>`.
 
 ## A script
 
-A component that needs the browser (a canvas, a map, a third-party library) gets a script beside its
-HTML: `src/components/task-ring.ts`. sinter runs it once per instance, on the instance's root, with
-`connected()`, `propsChanged()` and `disconnected()`; the script reads `this.props`, writes
-`this.state`, reaches elements through `data-sn-ref` and emits declared events. See
-[components with a script](islands.md).
+A component that needs the browser (a canvas, a map, a third-party library) gets a script: a top-level
+`<script lang="ts">` in its file, or a file beside its HTML, `src/components/task-ring.ts`. sinter runs it once
+per instance, on the instance's root, with `connected()`, `propsChanged()` and `disconnected()`; the script reads
+`this.props`, writes `this.state`, reaches elements through `data-sn-ref` and emits declared events. See
+[components with a script](islands.md), and [single-file components](islands.md#single-file-components) for the
+`<script>` block.
 
 ## Early renderers
 

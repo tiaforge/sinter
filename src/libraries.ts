@@ -7,7 +7,7 @@ import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from 'n
 import { dirname, join, normalize, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Diagnostic } from './compiler/diagnostics.js';
-import { COMPONENT_NAME } from './compiler/components.js';
+import { componentHtml, findComponents } from './component-files.js';
 
 export interface Library {
   /** the package name, `@acme/ui` */
@@ -84,8 +84,11 @@ export function packageDir(root: string, name: string): string | null {
   }
 }
 
-const names = (dir: string): string[] => {
-  try { return readdirSync(dir).filter((f) => f.endsWith('.html') && COMPONENT_NAME.test(f.slice(0, -5))).map((f) => f.slice(0, -5)).sort(); } catch { return []; }
+/** a library folder's components (component-files.ts), its misplaced HTML reported */
+const names = (dir: string, diagnostics: Diagnostic[], skip: string[] = []): string[] => {
+  const found = findComponents(dir, skip);
+  diagnostics.push(...found.problems);
+  return found.names;
 };
 const firstOf = (dir: string, base: string, exts: string[]) => exts.map((e) => join(dir, base + e)).find((f) => existsSync(f)) ?? null;
 
@@ -113,7 +116,7 @@ export function readLibrary(name: string, dir: string, diagnostics: Diagnostic[]
   if (!isDir) return fail(`\`${name}\`: its \`"sinter"\` folder (\`${pkg.sinter}\`) has no \`components/\` folder`, 'components in `components/` are public, those in `components/internal/` internal');
   let real = dir;
   try { real = realpathSync(dir); } catch { /* as found */ }
-  const pub = names(join(folder, 'components')), internal = names(join(folder, 'components', 'internal'));
+  const pub = names(join(folder, 'components'), diagnostics, ['internal']), internal = names(join(folder, 'components', 'internal'), diagnostics);
   const both = pub.filter((n) => internal.includes(n));
   if (both.length) return fail(`\`${name}\`: ${both.map((n) => `\`${n}\``).join(', ')} is both in \`components/\` and \`components/internal/\``, undefined, join(folder, 'components', 'internal', `${both[0]}.html`));
   const all = [...pub, ...internal];
@@ -164,7 +167,7 @@ export function libraries(root: string, list: string[], appComponents: string[],
   }
   for (const lib of out) {
     const taken = appComponents.filter((n) => lib.prefix && n.split('-')[0] === lib.prefix);
-    for (const n of taken) diagnostics.push({ severity: 'error', code: 'SN337', message: `\`<${n}>\` starts with \`${lib.prefix}-\`, the prefix of \`${lib.name}\` (\`sinter({ libraries })\`): a library owns its prefix, and an app component cannot shadow or add to it`, file: join(root, 'src', 'components', `${n}.html`), line: 1, col: 1, hint: `rename it (\`app-${n.slice(lib.prefix!.length + 1)}\`); to change how a library component looks everywhere, wrap it in a component of your own` });
+    for (const n of taken) diagnostics.push({ severity: 'error', code: 'SN337', message: `\`<${n}>\` starts with \`${lib.prefix}-\`, the prefix of \`${lib.name}\` (\`sinter({ libraries })\`): a library owns its prefix, and an app component cannot shadow or add to it`, file: componentHtml(join(root, 'src', 'components'), n) ?? join(root, 'src', 'components', `${n}.html`), line: 1, col: 1, hint: `rename it (\`app-${n.slice(lib.prefix!.length + 1)}\`); to change how a library component looks everywhere, wrap it in a component of your own` });
   }
   return { libraries: out, diagnostics };
 }

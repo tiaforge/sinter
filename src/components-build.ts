@@ -6,10 +6,11 @@ import { dirname, join, relative, sep } from 'node:path';
 import * as parse5 from 'parse5';
 import { parseExpressionAt } from 'acorn';
 import type { DefaultTreeAdapterMap } from 'parse5';
-import { COMPONENT_NAME, withoutSlots } from './compiler/components.js';
+import { COMPONENT_NAME, inlineScriptHtml, inlineScriptLang, inlineScriptPath, inlineScripts, withoutSlots } from './compiler/components.js';
 import { componentKinds, declaringTemplate } from './compiler/head.js';
 import { typeExports } from './check/index.js';
 import { modulesDir, type Library } from './libraries.js';
+import { componentHtml, findComponents } from './component-files.js';
 
 type El = DefaultTreeAdapterMap['element'];
 type Parent = DefaultTreeAdapterMap['parentNode'];
@@ -28,13 +29,20 @@ export function componentBase(name: string): string {
 }
 
 
-/** The app's components: the names of the files in `src/components/`. */
+/** The app's components: `src/components/<name>.html` and `src/components/<name>/<name>.html` (component-files.ts). */
 export function componentNames(root: string): string[] {
-  try { return readdirSync(join(root, 'src', 'components')).filter((f) => f.endsWith('.html') && COMPONENT_NAME.test(f.slice(0, -5))).map((f) => f.slice(0, -5)).sort(); } catch { return []; }
+  return findComponents(join(root, 'src', 'components')).names;
 }
 
-/** The script beside a component's HTML file, or null. */
+/**
+ * A component's script, or null: the module of a top-level `<script>` in its HTML file (`task-ring.html.script.ts`, which
+ * sinter serves: read it with `readModuleSource`), else the script beside the file.
+ */
 export function componentScript(htmlFile: string): string | null {
+  let text = '';
+  try { text = readFileSync(htmlFile, 'utf8'); } catch { /* missing */ }
+  const inline = inlineScripts(text)[0];
+  if (inline) return inlineScriptPath(htmlFile, inlineScriptLang(inline.lang) ?? 'js');
   const base = htmlFile.replace(/\.html$/, '');
   for (const ext of SCRIPT_EXTS) if (existsSync(base + ext)) return base + ext;
   return null;
@@ -96,8 +104,10 @@ function stateType(src: string | undefined): string {
  */
 export function componentTypes(root: string, read: (file: string) => string = (f) => readFileSync(f, 'utf8'), libs: readonly Library[] = []): string | null {
   const dir = join(root, 'src', 'components');
-  let files: string[] = [];
-  try { files = readdirSync(dir).filter((f) => f.endsWith('.html') && COMPONENT_NAME.test(f.slice(0, -5))).sort(); } catch { if (!libs.length) return null; }
+  // each component by name, with its HTML file (beside the others, or in a folder of its own)
+  const found = findComponents(dir);
+  const files = [...found.files].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+  if (!files.length && !existsSync(dir) && !libs.length) return null;
   // a library that is the project itself (its own repository, `sinter check` over its fixtures): its d.ts is in its folder
   const self = libs.find((l) => l.dir === root);
   const out: string[] = [];
@@ -105,28 +115,32 @@ export function componentTypes(root: string, read: (file: string) => string = (f
   const typesFile = ['sinter.types.ts', 'sinter.types.d.ts'].map((f) => join(root, modulesDir(root), f)).find((f) => existsSync(f));
   const specOf = (f: string) => { const s = relative(src, f).split(sep).join('/').replace(/\.(d\.)?ts$/, ''); return s.startsWith('.') ? s : './' + s; };
   /** the declarations of one folder's components with a script, type names resolved against `types` */
-  const declare = (cdir: string, list: string[], types: string | null, shown: string) => {
+  const declare = (cdir: string, list: Array<[string, string]>, types: string | null, shown: string) => {
     const typeNames = types ? typeExports(readFileSync(types, 'utf8')) : [];
     const typesSpec = types ? specOf(types) : null;
-    for (const f of list) {
-      const name = f.slice(0, -5);
-      if (!componentScript(join(cdir, f))) continue;
+    for (const [name, html] of list) {
+      const f = relative(cdir, html).split(sep).join('/');
+      const script = componentScript(html);
+      if (!script) continue;
       let c: Contract | null = null;
-      try { c = contractOf(read(join(cdir, f))); } catch { /* reported by the compiler */ }
+      try { c = contractOf(read(html)); } catch { /* reported by the compiler */ }
       if (!c) continue;
       const text = [c.props, c.emits].join(' ');
       const used = typeNames.filter((n) => new RegExp(`(?<![\\w$.])${n.replace(/\$/g, '\\$')}(?![\\w$])`).test(text));
       out.push(`declare module '*/${name}.html' {`);
       for (const n of used) out.push(`  type ${n} = import('${typesSpec}').${n};`);
       out.push(`  const Base: typeof import('${COMPONENTS_MODULE}').Component;`);
-      out.push(`  /** the base of \`${shown}${name}.ts\`: props, events, refs and state as \`${f}\` declares them */`);
+      out.push(`  /** the base of ${inlineScriptHtml(script) ? `the \`<script>\` in \`${shown}${f}\`` : `\`${shown}${f.slice(0, -5)}.ts\``}: props, events, refs and state as \`${f}\` declares them */`);
       out.push(`  export class ${pascal(name)}Component extends Base<${c.props}, ${c.emits}, ${c.refs}, ${c.state}> {}`);
       out.push('}');
     }
   };
   if (!self) declare(dir, files, typesFile ?? null, 'src/components/');
   // the libraries' components, public and internal, typed by each library's types module
-  const libFiles = (l: Library, internal: boolean) => (internal ? l.internal : l.public).map((n) => `${n}.html`);
+  const libFiles = (l: Library, internal: boolean): Array<[string, string]> => {
+    const d = join(l.folder, 'components', ...(internal ? ['internal'] : []));
+    return (internal ? l.internal : l.public).map((n) => [n, componentHtml(d, n) ?? join(d, `${n}.html`)]);
+  };
   for (const l of libs) {
     declare(join(l.folder, 'components'), libFiles(l, false), l.types, `${l.name}/${relative(l.dir, l.folder).split(sep).join('/')}/components/`);
     declare(join(l.folder, 'components', 'internal'), libFiles(l, true), l.types, `${l.name}/${relative(l.dir, l.folder).split(sep).join('/')}/components/internal/`);
@@ -140,8 +154,8 @@ export function componentTypes(root: string, read: (file: string) => string = (f
   if (!files.length && !layouts.length && !libNames.length) return null;
   // every component's name: what `<sn-component use>` takes, and a helper that picks one returns (head components are not chosen)
   // a component's kind as the compiler decides it, the components it uses counted by theirs
-  const kinds = componentKinds((t) => { for (const d of [dir, ...libs.map((l) => join(l.folder, 'components'))]) { try { return read(join(d, `${t}.html`)); } catch { /* not here */ } } return null; });
-  const body = (self ? [] : files).filter((f) => kinds(f.slice(0, -5)) !== 'head').map((f) => f.slice(0, -5));
+  const kinds = componentKinds((t) => { for (const d of [dir, ...libs.map((l) => join(l.folder, 'components'))]) { const f = componentHtml(d, t); if (f) try { return read(f); } catch { /* unreadable */ } } return null; });
+  const body = (self ? [] : files).map(([n]) => n).filter((n) => kinds(n) !== 'head');
   const libBody = libs.flatMap((l) => l.public.filter((n) => kinds(n) !== 'head'));
   const names = [...body, ...libBody].sort().map((n) => JSON.stringify(n)).join(' | ') || 'never';
   const from = [...(self ? [] : ['src/components/*.html']), ...(layouts.length ? ['src/layouts/*.html'] : []), ...libs.map((l) => `${l.name}'s components`)];

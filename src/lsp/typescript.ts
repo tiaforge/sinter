@@ -3,13 +3,14 @@
 // mapping positions between the HTML and the shadows.
 import { spawn, type ChildProcess } from 'node:child_process';
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { dirname, isAbsolute, join, relative } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { COMPILER_OPTIONS, shadowOf, shadowPath, typeDiagnostic, writeSupport, type Support } from '../check/index.js';
+import { clean, COMPILER_OPTIONS, scriptOptions, shadowOf, shadowPath, typeDiagnostic, writeSupport, type Support } from '../check/index.js';
+import { inlineScriptLang, inlineScriptModule, inlineScriptPath, inlineScripts } from '../compiler/components.js';
 import { mapPosition, quietLine, shadowPosition, type Region } from '../check/shadow.js';
 import type { CheckUnit } from '../compiler/check-unit.js';
 import type { Diagnostic } from '../compiler/index.js';
-import { checkOptionsOf, type Project } from '../project.js';
+import { checkOptionsOf, inlineScriptFiles, type Project } from '../project.js';
 import { Connection } from './rpc.js';
 import { specLocation } from './spec-location.js';
 
@@ -34,6 +35,30 @@ interface OpenShadow {
   version: number;
 }
 
+/**
+ * The shadow of a component's top-level `<script>` (`.sinter/lsp/src/components/x.html.script.ts`): the script at
+ * the file's lines and columns, so a position in it is the same position in the HTML; `rootDirs` resolves its
+ * imports as from beside the file.
+ */
+interface OpenScript {
+  html: string;
+  path: string;
+  uri: string;
+  text: string;
+  version: number;
+  /** the 1-based lines of the HTML the script's text spans */
+  first: number;
+  last: number;
+}
+
+/** Where a position in the HTML is in TypeScript's files, and how its answers map back. */
+interface Located {
+  uri: string;
+  line: number;
+  col: number;
+  toHtml(r: LspRange): LspRange | null;
+}
+
 /** A place in a file, 1-based; `end` when known. */
 export interface Target { file: string; line: number; col: number; endLine?: number; endCol?: number }
 
@@ -47,13 +72,20 @@ export class TypeScriptBridge {
   private child: ChildProcess;
   private ready: Promise<unknown>;
   private shadows = new Map<string, OpenShadow>();
+  /** by component file: the shadows of top-level `<script>` blocks */
+  private scripts = new Map<string, OpenScript>();
   private support: Support | null = null;
   readonly outDir: string;
 
   constructor(readonly root: string, tsc: string) {
     this.outDir = join(root, '.sinter', 'lsp');
     mkdirSync(this.outDir, { recursive: true });
-    writeFileSync(join(this.outDir, 'tsconfig.json'), JSON.stringify({ compilerOptions: COMPILER_OPTIONS, include: ['**/*.js', '*.d.ts'] }, null, 2) + '\n');
+    // the component scripts' shadows (`.ts`) resolve their imports beside their files (`rootDirs`), and import their
+    // base from their HTML, typed by the generated `src/sinter.components.d.ts`
+    writeFileSync(join(this.outDir, 'tsconfig.json'), JSON.stringify({
+      compilerOptions: { ...COMPILER_OPTIONS, ...scriptOptions(root, this.outDir, true) },
+      include: ['**/*.js', '**/*.ts', relative(this.outDir, join(root, 'src', 'sinter.components.d.ts')).split('\\').join('/')],
+    }, null, 2) + '\n');
     this.child = spawn(process.execPath, [tsc, '--lsp', '--stdio'], { cwd: this.outDir, stdio: ['pipe', 'pipe', 'ignore'] });
     this.conn = new Connection(this.child.stdout!, this.child.stdin!);
     // workspace/configuration, client/registerCapability, progress: nothing to say
@@ -71,9 +103,13 @@ export class TypeScriptBridge {
     }).then(() => this.conn.notify('initialized', {}), () => { /* closed before it started; requests fail on their own */ });
   }
 
-  /** Brings the shadows in line with the pages' latest check units. */
-  async update(project: Project, units: Map<string, CheckUnit>): Promise<void> {
+  /**
+   * Brings the shadows in line with the pages' latest check units, and the component scripts' shadows with their
+   * files as `read` gives them (the editor's buffers first).
+   */
+  async update(project: Project, units: Map<string, CheckUnit>, read: (f: string) => string = project.readFile): Promise<void> {
     await this.ready;
+    this.updateScripts(project, read);
     const support = writeSupport({ ...checkOptionsOf(project), root: this.root, outDir: this.outDir });
     // a reloaded project may have new type names or spec declarations
     if (this.support && JSON.stringify(support) !== JSON.stringify(this.support)) this.filesChanged([support.declarations, ...support.openapi]);
@@ -103,6 +139,63 @@ export class TypeScriptBridge {
     }
   }
 
+  private updateScripts(project: Project, read: (f: string) => string): void {
+    const files = new Set(inlineScriptFiles({ ...project, readFile: read }));
+    for (const html of files) {
+      let text: string;
+      try { text = read(html); } catch { continue; }
+      const m = inlineScriptModule(text, html);
+      const block = inlineScripts(text)[0];
+      const rel = relative(this.root, html);
+      if (!m || !block || rel.startsWith('..') || isAbsolute(rel)) { files.delete(html); continue; }
+      const path = join(this.outDir, inlineScriptPath(rel, inlineScriptLang(block.lang) ?? 'js'));
+      const uri = pathToFileURL(path).href;
+      const prev = this.scripts.get(html);
+      const lines = { first: block.line, last: block.line + block.code.split('\n').length - 1 };
+      if (prev && prev.path === path) {
+        if (prev.text === m.code) continue;
+        const next = { ...prev, ...lines, text: m.code, version: prev.version + 1 };
+        this.scripts.set(html, next);
+        this.conn.notify('textDocument/didChange', { textDocument: { uri, version: next.version }, contentChanges: [{ text: m.code }] });
+        continue;
+      }
+      // a new script, or its language changed (`.ts` ↔ `.js`)
+      if (prev) this.closeScript(prev);
+      mkdirSync(dirname(path), { recursive: true });
+      writeFileSync(path, m.code);
+      const next: OpenScript = { html, path, uri, text: m.code, version: 1, ...lines };
+      this.scripts.set(html, next);
+      this.conn.notify('textDocument/didOpen', { textDocument: { uri, languageId: path.endsWith('.ts') ? 'typescript' : 'javascript', version: 1, text: m.code } });
+    }
+    for (const [html, s] of this.scripts) if (!files.has(html)) { this.closeScript(s); this.scripts.delete(html); }
+  }
+
+  private closeScript(s: OpenScript): void {
+    this.conn.notify('textDocument/didClose', { textDocument: { uri: s.uri } });
+    rmSync(s.path, { force: true });
+  }
+
+  /** The component files whose top-level `<script>` has a shadow open. */
+  scriptFiles(): string[] {
+    return [...this.scripts.keys()];
+  }
+
+  /** TypeScript's errors in a component's top-level `<script>`, at their positions in its file (SN208). */
+  async scriptDiagnostics(html: string): Promise<Diagnostic[]> {
+    const s = this.scripts.get(html);
+    if (!s) return [];
+    const report = await this.conn.request<{ items?: Array<{ range: LspRange; severity?: number; code?: number | string; message: string }> }>(
+      'textDocument/diagnostic', { textDocument: { uri: s.uri } });
+    const out: Diagnostic[] = [];
+    for (const item of report?.items ?? []) {
+      if (item.severity !== 1) continue;
+      const { start, end } = item.range;
+      out.push({ severity: 'error', code: 'SN208', message: `${clean(item.message, this.root)} (TS${item.code})`, file: html, line: start.line + 1, col: start.character + 1,
+        span: { line: start.line + 1, col: start.character + 1, endLine: end.line + 1, endCol: end.character + 1 } });
+    }
+    return out;
+  }
+
   /** TypeScript's errors in a page's expressions, at their HTML positions. */
   async diagnostics(page: string): Promise<Diagnostic[]> {
     const s = this.shadows.get(page);
@@ -128,13 +221,20 @@ export class TypeScriptBridge {
     return out;
   }
 
-  /** The page shadow and shadow position for a 1-based HTML position, if it is in an expression. */
-  locate(file: string, line: number, col: number): { shadow: OpenShadow; line: number; col: number } | null {
+  /**
+   * Where a 1-based HTML position is in TypeScript's files: in a component's top-level `<script>` (the same position
+   * in its shadow), or in an expression (its page's shadow); null elsewhere.
+   */
+  locate(file: string, line: number, col: number): Located | null {
+    const script = this.scripts.get(file);
+    if (script && line >= script.first && line <= script.last) {
+      return { uri: script.uri, line, col, toHtml: (r) => (r.start.line + 1 >= script.first && r.end.line + 1 <= script.last ? r : null) };
+    }
     // the page itself first, then pages that include `file`
     const order = [...this.shadows].sort(([a], [b]) => Number(b === file) - Number(a === file));
     for (const [, s] of order) {
       const p = shadowPosition(s.regions, s.lines, file, line, col);
-      if (p) return { shadow: s, ...p };
+      if (p) return { uri: s.uri, ...p, toHtml: (r) => this.toHtml(s, r, file) };
     }
     return null;
   }
@@ -152,10 +252,10 @@ export class TypeScriptBridge {
     const at = this.locate(file, line, col);
     if (!at) return null;
     const h = await this.conn.request<{ contents: unknown; range?: LspRange } | null>('textDocument/hover', {
-      textDocument: { uri: at.shadow.uri }, position: { line: at.line - 1, character: at.col - 1 },
+      textDocument: { uri: at.uri }, position: { line: at.line - 1, character: at.col - 1 },
     });
     if (!h) return null;
-    const range = h.range ? this.toHtml(at.shadow, h.range, file) : null;
+    const range = h.range ? at.toHtml(h.range) : null;
     return range ? { contents: h.contents, range } : { contents: h.contents };
   }
 
@@ -175,22 +275,28 @@ export class TypeScriptBridge {
     const at = this.locate(file, line, col);
     if (!at) return null;
     const r = await this.conn.request<any>('textDocument/completion', {
-      textDocument: { uri: at.shadow.uri }, position: { line: at.line - 1, character: at.col - 1 }, context,
+      textDocument: { uri: at.uri }, position: { line: at.line - 1, character: at.col - 1 }, context,
     });
     if (!r) return null;
     const list: any[] = Array.isArray(r) ? r : r.items ?? [];
     const items: any[] = [];
     for (const item of list) {
-      // the shadow's own names, and auto-imports that would edit the shadow's header
-      if (INTERNAL.test(item.label) || item.additionalTextEdits?.length) continue;
+      // the shadow's own names, and auto-imports that would edit a page shadow's header (in a component's `<script>`
+      // they edit the script, at the same place in its file)
+      if (INTERNAL.test(item.label)) continue;
+      if (item.additionalTextEdits?.length) {
+        const edits = item.additionalTextEdits.map((e: { range: LspRange; newText: string }) => ({ ...e, range: at.toHtml(e.range) }));
+        if (edits.some((e: { range: LspRange | null }) => !e.range)) continue;
+        item.additionalTextEdits = edits;
+      }
       const edit = item.textEdit;
       if (edit) {
         const range = edit.range ?? edit.replace;
-        const mapped = range && this.toHtml(at.shadow, range, file);
+        const mapped = range && at.toHtml(range);
         if (mapped) item.textEdit = { range: mapped, newText: edit.newText };
         else delete item.textEdit;
       }
-      item.data = { sinter: this.root, ts: item.data ?? null, uri: at.shadow.uri };
+      item.data = { sinter: this.root, ts: item.data ?? null, uri: at.uri };
       items.push(item);
     }
     return { isIncomplete: Array.isArray(r) ? false : !!r.isIncomplete, items };
@@ -213,7 +319,7 @@ export class TypeScriptBridge {
     const at = this.locate(file, line, col);
     if (!at) return [];
     const r = await this.conn.request<any>('textDocument/definition', {
-      textDocument: { uri: at.shadow.uri }, position: { line: at.line - 1, character: at.col - 1 },
+      textDocument: { uri: at.uri }, position: { line: at.line - 1, character: at.col - 1 },
     });
     const list: any[] = !r ? [] : Array.isArray(r) ? r : [r];
     const out: Target[] = [];
@@ -222,6 +328,9 @@ export class TypeScriptBridge {
       const range: LspRange = d.targetSelectionRange ?? d.range;
       if (!uri?.startsWith('file:') || !range) continue;
       const path = fileURLToPath(uri);
+      // in a component's `<script>`: the same place in its file
+      const script = [...this.scripts.values()].find((s) => s.path === path);
+      if (script) { out.push({ file: script.html, line: range.start.line + 1, col: range.start.character + 1, endLine: range.end.line + 1, endCol: range.end.character + 1 }); continue; }
       const shadow = [...this.shadows.values()].find((s) => s.path === path);
       if (shadow) {
         const loc = mapPosition(shadow.regions, range.start.line + 1, range.start.character + 1);

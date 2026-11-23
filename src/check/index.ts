@@ -4,7 +4,8 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
-import { dirname, join, relative, resolve } from 'node:path';
+import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
+import { inlineScriptLang, inlineScriptModule, inlineScriptPath, inlineScripts } from '../compiler/components.js';
 import { fileURLToPath } from 'node:url';
 import type { CheckUnit } from '../compiler/check-unit.js';
 import type { HelperManifest } from '../compiler/compile.js';
@@ -33,6 +34,10 @@ export interface CheckOptions {
   tsc?: string;
   /** the component libraries: type names in their components' props and slots resolve against each one's types module */
   libraries?: ReadonlyArray<{ folder: string; types: string | null }>;
+  /** component files with a top-level `<script>`: their scripts are type-checked as if beside them (`scriptShadows`) */
+  scripts?: string[];
+  /** the generated `src/sinter.components.d.ts`, which types the base class a component's script imports from its HTML */
+  componentTypes?: string | null;
 }
 
 export interface CheckResult {
@@ -171,17 +176,20 @@ export function check(o: CheckOptions): CheckResult {
     writeFileSync(file, s.text);
     shadows.set(resolve(file), { unit, regions: s.regions, brokenFrom: s.brokenFrom });
   }
+  const scripts = writeScriptShadows(o.root, outDir, o.scripts ?? []);
   const tsconfig = join(outDir, 'tsconfig.json');
+  const rel = (f: string) => relative(outDir, f).split('\\').join('/');
   writeFileSync(tsconfig, JSON.stringify({
-    compilerOptions: { ...COMPILER_OPTIONS },
+    compilerOptions: { ...COMPILER_OPTIONS, ...scriptOptions(o.root, outDir, scripts.size > 0) },
     // the types module always, so augmentations in it (declare global, a library's import type {}) apply
-    files: ['sinter.d.ts', ...(support.types ? [relative(outDir, support.types.file).split('\\').join('/')] : []), ...support.openapi.map((f) => relative(outDir, f)), ...[...shadows.keys()].map((f) => relative(outDir, f).split('\\').join('/'))],
+    files: ['sinter.d.ts', ...(support.types ? [rel(support.types.file)] : []), ...support.openapi.map((f) => relative(outDir, f)), ...[...shadows.keys()].map(rel),
+      ...(scripts.size && o.componentTypes ? [rel(o.componentTypes)] : []), ...[...scripts.keys()].map(rel)],
   }, null, 2) + '\n');
 
   const tsc = o.tsc ?? findTsc(o.root);
   const run = spawnSync(process.execPath, [tsc, '-p', tsconfig, '--pretty', 'false'], { encoding: 'utf8', cwd: outDir });
   if (run.error) throw run.error;
-  const diagnostics = parseTsc(run.stdout, outDir, o.root, shadows);
+  const diagnostics = parseTsc(run.stdout, outDir, o.root, shadows, scripts);
 
   const resources = o.units.reduce((n, u) => n + u.resources.length, 0);
   const typed = o.units.reduce((n, u) => n + u.resources.filter((r) => r.type || r.openapi || r.call || r.file?.adds || r.item || r.content).length, 0);
@@ -247,7 +255,7 @@ export function typeExports(source: string): string[] {
 }
 
 /** `file(line,col): error TS1234: message`, with indented continuation lines. */
-function parseTsc(stdout: string, outDir: string, root: string, shadows: Map<string, { unit: CheckUnit; regions: Region[]; brokenFrom: number | null }>): Diagnostic[] {
+function parseTsc(stdout: string, outDir: string, root: string, shadows: Map<string, { unit: CheckUnit; regions: Region[]; brokenFrom: number | null }>, scripts: Map<string, string> = new Map()): Diagnostic[] {
   const out: Diagnostic[] = [];
   let last: Diagnostic | null = null;
   for (const raw of stdout.split(/\r?\n/)) {
@@ -257,6 +265,13 @@ function parseTsc(stdout: string, outDir: string, root: string, shadows: Map<str
       continue;
     }
     last = null;
+    // a component's top-level `<script>`: its shadow has the file's lines and columns
+    const html = scripts.get(resolve(outDir, m[1]!));
+    if (html) {
+      last = { severity: 'error', code: 'SN208', message: `${clean(m[5]!, root)} (${m[4]})`, file: html, line: Number(m[2]), col: Number(m[3]) };
+      out.push(last);
+      continue;
+    }
     const s = shadows.get(resolve(outDir, m[1]!));
     // errors in the app's own modules are its own tsc's business; broken expressions are the compiler's
     if (!s || (s.brokenFrom !== null && Number(m[2]) >= s.brokenFrom) || quietLine(s.regions, Number(m[2]))) continue;
@@ -271,4 +286,41 @@ function parseTsc(stdout: string, outDir: string, root: string, shadows: Map<str
 /** Shortens absolute module paths in TypeScript's messages to project-relative ones. */
 export function clean(message: string, root: string): string {
   return message.replace(/import\("([^"]+)"\)/g, (_, p: string) => `import("${p.startsWith(root) ? relative(root, p).split('\\').join('/') : p}")`);
+}
+
+/**
+ * The shadow of a component's top-level `<script>`, in `outDir` at the component file's path inside the root
+ * (`src/components/task-ring.html.script.ts`): its code at the file's lines and columns, so TypeScript's positions are the
+ * file's. With `rootDirs` (`scriptOptions`), its relative imports resolve as from beside the component file.
+ */
+export function scriptShadowPath(root: string, outDir: string, html: string): string | null {
+  const rel = relative(root, html);
+  if (!rel || rel.startsWith('..') || isAbsolute(rel)) return null;
+  let text = '';
+  try { text = readFileSync(html, 'utf8'); } catch { return null; }
+  const s = inlineScripts(text)[0];
+  return s ? join(outDir, inlineScriptPath(rel, inlineScriptLang(s.lang) ?? 'js')) : null;
+}
+
+/** Writes the shadows of the component files' scripts; shadow path → component file. */
+export function writeScriptShadows(root: string, outDir: string, files: readonly string[], read: (f: string) => string = (f) => readFileSync(f, 'utf8')): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const html of files) {
+    let text: string;
+    try { text = read(html); } catch { continue; }
+    const m = inlineScriptModule(text, html);
+    const s = inlineScripts(text)[0];
+    const rel = relative(root, html);
+    if (!m || !s || rel.startsWith('..') || isAbsolute(rel)) continue;
+    const path = join(outDir, inlineScriptPath(rel, inlineScriptLang(s.lang) ?? 'js'));
+    mkdirSync(dirname(path), { recursive: true });
+    writeIfChanged(path, m.code);
+    out.set(resolve(path), html);
+  }
+  return out;
+}
+
+/** The compiler options a component script's shadow needs: `rootDirs`, so `./x.js` beside it resolves in the root. */
+export function scriptOptions(root: string, outDir: string, any: boolean): { rootDirs?: string[] } {
+  return any ? { rootDirs: [relative(outDir, root).split('\\').join('/') || '.', '.'] } : {};
 }

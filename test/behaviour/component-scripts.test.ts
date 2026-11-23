@@ -91,3 +91,15 @@ test('a script that throws in production: the error reaches the console, the res
     expect(root.querySelector('p')!.textContent).toBe('after');
   } finally { error.mockRestore(); }
 });
+
+test('a component in a folder of its own (`files`): its script runs as one beside a flat file does', async () => {
+  const log: string[] = [];
+  class TaskRing extends Component<{ done: number; open: number }> {
+    connected() { log.push(`connected ${this.props.done}/${this.props.open}`); }
+  }
+  const { root } = await render('<task-ring data-sn-with="{ done: 2, open: 1 }"></task-ring>', {
+    files: { 'src/components/task-ring/task-ring.html': RING }, scripts: { 'task-ring': { TaskRing } },
+  });
+  expect(root.querySelector('figcaption')!.textContent).toBe('2 / 3 (0)');
+  expect(log).toEqual(['connected 2/1']);
+});

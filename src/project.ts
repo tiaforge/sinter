@@ -9,7 +9,9 @@ import { strictOf, type Strict } from './compiler/diagnostics.js';
 import type { OpenApiSpec } from './compiler/openapi.js';
 import { defaultApiRenamed, resolveApis, type ApiOptions, type ApisDef } from './compiler/apis.js';
 import { COMPLEXITY_LIMITS, type ComplexityOptions } from './compiler/complexity.js';
-import { componentNames, writeComponentTypes } from './components-build.js';
+import { writeComponentTypes } from './components-build.js';
+import { componentHtml, findComponents } from './component-files.js';
+import { inlineScripts } from './compiler/components.js';
 import { typeExports } from './check/index.js';
 import { librariesOf, libraries as findLibraries, libraryOf, modulesDir, ownLibrary, type Library } from './libraries.js';
 import { isSelfReference, resolveImport, setAppAliases } from './fold-check.js';
@@ -181,7 +183,8 @@ export function project(root: string, options: ProjectOptions = {}): Project {
   };
   // the component libraries: their files are read wherever they really are (a workspace link)
   const configFile = configFileOf(root);
-  const appComponents = componentNames(root);
+  const appFound = findComponents(join(root, 'src', 'components'));
+  const appComponents = appFound.names;
   retiredOptions(options);
   const libs = findLibraries(root, librariesOf(options.libraries), appComponents, configFile);
   let realRoot: string | undefined;
@@ -246,7 +249,7 @@ export function project(root: string, options: ProjectOptions = {}): Project {
   const earlyRel = find(undefined, `${at}/sinter.early`);
   const typesRel = find(undefined, `${at}/sinter.types`, ['.ts', '.d.ts', '.js']);
   const openapi: OpenApiSpec[] = [];
-  const diagnostics: Diagnostic[] = [...libs.diagnostics];
+  const diagnostics: Diagnostic[] = [...appFound.problems, ...libs.diagnostics];
   const loadSpec = (rel: string): number | null => {
     const file = resolve(root, rel);
     const fail = (why: string) => { diagnostics.push({ severity: 'error', code: 'SN307', message: `OpenAPI spec \`${rel}\` ${why}`, file, line: 1, col: 1 }); return null; };
@@ -329,7 +332,15 @@ export function compileOptionsOf(p: Project, file?: string) {
 
 /** What `check()` and `writeSupport()` take from the project, the same for `sinter check`, the editor and the build. */
 export function checkOptionsOf(p: Project) {
-  return { root: p.root, helpers: p.helpers, actions: p.actions, types: p.types, openapi: p.openapi, libraries: p.libraries };
+  return { root: p.root, helpers: p.helpers, actions: p.actions, types: p.types, openapi: p.openapi, libraries: p.libraries, scripts: inlineScriptFiles(p), componentTypes: p.componentsTypes };
+}
+
+/** The component files with a top-level `<script>` (the app's and its libraries'): `sinter check` type-checks their scripts. */
+export function inlineScriptFiles(p: Pick<Project, 'root' | 'componentNames' | 'libraries' | 'readFile'>): string[] {
+  const at = (dir: string) => (n: string) => componentHtml(dir, n);
+  const files = [...p.componentNames.filter((n) => !p.libraries.some((l) => l.public.includes(n))).map(at(join(p.root, 'src', 'components'))),
+    ...p.libraries.flatMap((l) => [...l.public.map(at(join(l.folder, 'components'))), ...l.internal.map(at(join(l.folder, 'components', 'internal')))])];
+  return files.filter((f): f is string => { if (!f) return false; try { return inlineScripts(p.readFile(f)).length > 0; } catch { return false; } });
 }
 
 /**

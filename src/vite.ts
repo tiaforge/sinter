@@ -14,7 +14,7 @@ import { loadEnv, type Plugin, type ResolvedConfig, type ViteDevServer } from 'v
 import { collectionsIn, loadContent, writeNamespaceTypes, writeSnapshot, type LoadedContent } from './content-node.js';
 import { applyStrict, CODES, compile, CONTENT_NS, formatDiagnostic, formatWarning, strictPromotes, suggest, type Code, type CheckUnit, type Diagnostic, type CompileResult, type SourceMap } from './compiler/index.js';
 import { buildInput, checkOptionsOf, compileOptionsOf, htmlInputs, lazyOf, lazyReachOf, project, retiredExport, retiredOptions, staticPages, strictOf, type ProjectOptions } from './project.js';
-import { CHUNK_MARK, chainText, isComponentScript, LAZY, lazyPackage, type LazyScan, lineCol, loaderModule, mentions, parseLazyId, reachLazy, rewriteLazy, scanLazy, stubModule } from './lazy-build.js';
+import { CHUNK_MARK, chainText, componentOfHtml, isComponentScript, LAZY, lazyPackage, type LazyScan, lineCol, loaderModule, mentions, parseLazyId, reachLazy, rewriteLazy, scanLazy, stubModule } from './lazy-build.js';
 import { moduleKeys } from './i18n-build.js';
 import { HOLD_SCRIPT } from './paint-build.js';
 import { earlyImports, OWN, registration, SHARED_MARKS, sharedKey, sharedMark, stubModule as sharedStub, topLevelAwait } from './shared-build.js';
@@ -37,6 +37,8 @@ import { canonicalOf, fillPattern, noindex, sitemapFiles, sitemapOf, type Sitema
 import { familyLineHeights, familyZeroWidths, fitMetrics, isTextFont } from './font-metrics.js';
 import { faceName, faceOf, fontDownloader, fontFileDownloader, bundleFonts, deferredFaces, fallbackFaces, textFamilies, withFallbackFamilies, preloadFonts, preloadLocalFonts, rebaseFace, usesFamily, type FontFaceRef, type FontPreload } from './fonts-build.js';
 import { componentBase } from './components-build.js';
+import { inlineScriptSource } from './component-files.js';
+import { inlineScriptHtml } from './compiler/components.js';
 import { COMPONENT_NAME, LIBRARY_LAYER } from './compiler/components.js';
 import { librariesOf, libraryOf, ownLibrary } from './libraries.js';
 import { LAYERS_SHEET, type FoldArg } from './compiler/compile.js';
@@ -796,6 +798,15 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     if (real !== file) { watched.add(real); server?.watcher.add(real); }
   };
   const relOf = (file: string) => relative(root, file).split(sep).join('/');
+  /** a component's top-level `<script>` module (`/src/components/x.html.script.ts`, an absolute path, `/@fs/…`), resolved, or null */
+  const inlineScriptId = (id: string, importer?: string): string | null => {
+    const clean = id.replace(/[?#].*$/, '');
+    if (!inlineScriptHtml(clean)) return null;
+    const abs = clean.startsWith('/@fs/') ? clean.slice(4)
+      : clean.startsWith('.') && importer ? resolve(dirname(importer.replace(/[?#].*$/, '')), clean)
+      : isAbsolute(clean) && existsSync(inlineScriptHtml(clean)!) ? clean : resolve(root, '.' + (clean.startsWith('/') ? clean : '/' + clean));
+    return inlineScriptSource(abs) ? abs : null;
+  };
 
   /** the app's HTML entries: the build input, else `index.html`, and every page compiled so far */
   /** the app's source pages: the build input, else `index.html`, and every page compiled so far */
@@ -1835,13 +1846,17 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     },
 
     resolveId(id, importer) {
+      // a component's top-level `<script>`: its module, `task-ring.html.script.ts`, beside its file (load gives its code)
+      const inline = inlineScriptId(id, importer);
+      if (inline) return inline;
       // a page in a language: no file of its own (load gives its source's HTML)
       if ((locales || pageInputs || virtual.size) && id.endsWith('.html')) { const abs = resolve(root, id.replace(/^\//, '')); if (virtual.has(id) || virtual.has(abs)) return virtual.has(id) ? id : abs; }
       // a component's script imports its generated base from its own HTML file
       if (importer && id.endsWith('.html') && !importer.endsWith('.html')) {
         const file = resolve(dirname(importer.replace(/[?#].*$/, '')), id);
-        const name = file.slice(0, -5).split(sep).pop()!;
-        if (COMPONENT_NAME.test(name) && (dirname(file) === resolve(root, 'src/components') || (options.libraries?.length && isComponentScript(root, file.slice(0, -5) + '.ts', proj().libraries)))) return `\0${COMPONENT_BASE}${name}.js`;
+        // (`src/components/<name>.html` or `src/components/<name>/<name>.html`, the app's or a library's)
+        const name = componentOfHtml(root, file, options.libraries?.length ? proj().libraries : []);
+        if (name) return `\0${COMPONENT_BASE}${name}.js`;
       }
       // a build with source maps: page modules keep a plain id, as Rolldown drops the map of a `\0` module
       if (id.startsWith(PREFIX) && !dev && maps.has(id)) return id;
@@ -1851,6 +1866,10 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
 
     async load(id) {
       if (virtual.has(id)) return readPage(id);
+      {
+        const s = inlineScriptSource(id);
+        if (s) { this.addWatchFile(s.html); return { code: s.code, map: s.map }; }
+      }
       // the site's core (docs/proposals/site-core.md), once every page has said what it uses
       if (!dev && id === FLAGS) {
         coreCheck();
