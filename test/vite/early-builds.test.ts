@@ -89,8 +89,8 @@ test('pages with the same early source share one build, with the bytes each has 
 test('pages whose early sources differ in one literal share one build of their shape, each with the bytes of its own', async () => {
   const names = ['s1', 's2', 's3', 's4', 's5', 's6', 't'];
   const all = await site(names);
-  // the shared head script; the shape once and its first two pages from their own source (the check); t apart
-  expect(all.builds).toBe(5);
+  // the shared head script; the shape once (a free identifier for the literal) and its literals printed once; t apart
+  expect(all.builds).toBe(4);
   expect(all.builders).toBe(1);
   expect(all.heads.s1!.code).toContain('/api/item-aa');
   expect(all.heads.s6!.code).toContain('/api/item-ff');
@@ -110,6 +110,7 @@ test('pages whose early sources differ in one literal share one build of their s
   }
 }, 120_000);
 
+// The earlier scheme (`SN_EARLY_SHAPES=kinds`): placeholder literals of the values' kind and length, checked.
 // The shapes' rules on the bundler itself (Rolldown, minified, one IIFE, as an early script is): every page's script
 // must be what its own source builds to, and the counts say which pages shared a build.
 const { rolldown } = await import('rolldown');
@@ -168,3 +169,87 @@ test('a page falls back to its own build where a literal is not lifted, has anot
   // a page whose program differs is a shape of its own
   expect(await shapes([...of((i) => `globalThis.x = f("ab-${i}");`, 4), 'globalThis.x = g("ab-9");'])).toEqual({ builds: 4, fell: {} });
 }, 60_000);
+
+// The default scheme (src/early-opaque.ts): a free identifier in each varying literal's place, the page's literal put
+// back into the built output as syntax. Correct for every value; the bytes of the page's own build unless the
+// minifier computed something from the value.
+const { shareOpaque, opaqueStats, substitute, sites, liftable } = await import('../../src/early-opaque.js');
+/** each literal of `src` and whether a placeholder may stand for it */
+const lifts = (src: string) => { const c = sites(src)!; liftable(src, c); return c.sites.map((x) => [x.value, x.lift]); };
+const { runInNewContext } = await import('node:vm');
+const { gzipSync } = await import('node:zlib');
+/** each source through `shareOpaque`: its script, its own build's, the nested builds run and the fallbacks */
+async function opaque(srcs: string[], audit = false) {
+  const before = { ...opaqueStats, fallbacks: new Map(opaqueStats.fallbacks) };
+  if (audit) process.env.SN_EARLY_SHAPES_AUDIT = '1';
+  try {
+    const got = await shareOpaque(srcs.map((src, i) => ({ src, extra: '', what: `p${i}` })), (src) => mini(src), (x) => gzipSync(x).length);
+    const own = await Promise.all(srcs.map(async (src) => (await mini(src)).code));
+    const d = (k: 'builds' | 'shapes' | 'usedValue' | 'same' | 'rawBytes') => opaqueStats[k] - before[k];
+    return { got: got.map((g) => g.code), own, builds: d('builds'), shapes: d('shapes'), usedValue: d('usedValue'), same: d('same'), rawBytes: d('rawBytes'), fell: Object.fromEntries([...opaqueStats.fallbacks].map(([k, n]) => [k, n - (before.fallbacks.get(k) ?? 0)]).filter(([, n]) => n)) };
+  } finally {
+    delete process.env.SN_EARLY_SHAPES_AUDIT;
+  }
+}
+/** what a script leaves in `x` when run, its helpers recording their arguments */
+const run = (code: string) => { const g: Record<string, unknown> = { calls: [] as unknown[] }; g.globalThis = g; g.f = (...a: unknown[]) => ((g.calls as unknown[]).push(a), a); g.g = {}; g.h = (a: unknown) => a; runInNewContext(code, g); return JSON.stringify([g.x, g.calls, typeof g.req === 'function' ? (g.req as (q: (u: () => string) => string, n: unknown[]) => unknown)((u) => u(), ['n']) : null]); };
+
+test('opaque: every literal kind shares one build, with the bytes of each page\'s own', async () => {
+  for (const src of [
+    of((i) => `globalThis.x = [f("alpha${i}"), ({ k: "key${i}" }), g["name${i}"], g?.["if"], g["a-${i}"]];`),
+    of((i) => `globalThis.x = [f("100${i}"), f("2024-01-0${i}"), f(${i}), f(${i}000), f(0.${i})];`),
+    // a string that needs escaping, one character, a template's characters, a line separator
+    of((i) => `globalThis.x = f("it's \\"${i}\\" \`$\{x}\` </script>\\u2028");`),
+    of((i) => `globalThis.x = f("${'abc'[i % 3]}");`),
+    // the early script's form, and a value twice
+    of((i) => `const f = [($) => ((("post-${i}"))), ($) => ({})]; globalThis.req = (q, n) => q(() => "/api/comments" + h([["post", f[0](n[0])]]));`),
+    of((i) => `globalThis.x = [f("ab-${i}", "ab-${i}"), (${i}).toFixed(1)];`),
+  ]) {
+    const r = await opaque(src, true);
+    expect(r.got).toEqual(r.own);
+    expect(r).toMatchObject({ shapes: 1, usedValue: 0, same: 6, fell: {} });
+  }
+  // without the audit: the shape and the printed literals, nothing else
+  expect((await opaque(of((i) => `globalThis.x = f("post-${i}");`))).builds).toBe(2);
+}, 60_000);
+
+test('opaque: where the minifier would compute from the value, the shared script keeps the expression, and behaves the same', async () => {
+  for (const src of [
+    of((i) => `globalThis.x = "/api/" + "ab-${i}";`),
+    of((i) => `globalThis.x = "ab-0${i}".indexOf("-");`),
+    of((i) => `globalThis.x = ["ab-${i}" === "ab-3", ${i}00 + 1];`),
+    of((i) => `const a = "ab-${i}"; globalThis.x = 1;`),
+  ]) {
+    const r = await opaque(src, true);
+    expect(r.shapes).toBe(1);
+    expect(r.usedValue).toBeGreaterThan(0);
+    expect(r.rawBytes).toBeGreaterThan(0);
+    for (const [i, code] of r.got.entries()) expect(run(code)).toBe(run(r.own[i]!));
+  }
+}, 60_000);
+
+test('opaque: what is not lifted, and the refusals of the substitution', async () => {
+  // a key, a module specifier and a directive are not lifted: pages differing there build apart (a pair shares)
+  expect(await opaque(of((i) => `globalThis.x = { "k${i % 3}": f("v-${i}") };`))).toMatchObject({ shapes: 3, builds: 6, fell: {} });
+  expect((await opaque(of((i) => `globalThis.x = { "k${i}": 1 };`))).fell).toEqual({ 'a literal that differs where a placeholder cannot stand': 6 });
+  expect(lifts(`"use strict"; import a from "m-1"; export * from "m-2"; delete "x"; f("y"); ({ "k": "v" })`)).toEqual([['use strict', false], ['m-1', false], ['m-2', false], ['x', false], ['y', true], ['k', false], ['v', true]]);
+  // a source a build step reads literals of lifts nothing
+  expect(lifts(`f("y", import.meta.url)`)[0]![1]).toBe(false);
+  // a page whose program differs is a shape of its own
+  expect(await opaque([...of((i) => `globalThis.x = f("ab-${i}");`, 3), 'globalThis.x = g("ab-9");'])).toMatchObject({ shapes: 1, builds: 3 });
+  // a number before a member, a would-be directive; a name in a string, a declaration, a member's name: refused
+  expect(substitute('A.toFixed();A;f(A)', ['A'], ['1'], [true])).toBe('1 .toFixed();(1);f(1)');
+  expect(substitute('A.toFixed()', ['A'], ['1e3'], [true])).toBe('1e3.toFixed()');
+  expect(substitute('f("A")', ['A'], ['1'], [true])).toBe(null);
+  expect(substitute('let A=1;f(A)', ['A'], ['1'], [true])).toBe(null);
+  expect(substitute('x.A;f(A)', ['A'], ['1'], [true])).toBe(null);
+  expect(substitute('A=2', ['A'], ['1'], [true])).toBe(null);
+}, 60_000);
+
+test('opaque: a free identifier costs the bundler nothing: no log, no import, one token', async () => {
+  const logs: string[] = [];
+  const b = await rolldown({ input: 'e', onLog: (_l, m) => { logs.push(m.message); }, plugins: [{ name: 'e', resolveId: (id) => (id === 'e' ? id : null), load: (id) => (id === 'e' ? 'globalThis.x = [f(__sn_lit0_0__), `a${__sn_lit0_0__}`];' : null) }] });
+  const code = (await b.generate({ format: 'iife', minify: true })).output[0].code;
+  expect(logs).toEqual([]);
+  expect(code.trim()).toBe('(function(){globalThis.x=[f(__sn_lit0_0__),`a${__sn_lit0_0__}`]})();');
+});
