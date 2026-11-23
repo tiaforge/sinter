@@ -186,6 +186,8 @@ export const LINK_FIELDS: Record<string, { kinds: string[]; how: 'table' | 'weak
   checkLast: { kinds: ['number'], how: 'linker' },
   checkOrder: { kinds: ['boolean'], how: 'linker' },
   touched: { kinds: ['Map'], how: 'linker' },
+  unitStale: { kinds: ['empty', 'string'], how: 'linker' },
+  defsAsked: { kinds: ['Set'], how: 'linker' },
   pointNames: { kinds: ['Array'], how: 'table' },
   points: { kinds: ['WeakMap'], how: 'weak' },
   prefetchOff: { kinds: ['boolean'], how: 'fixed' },
@@ -559,6 +561,9 @@ export function runUnit(c: any, name: string, compile: (child: any) => unknown, 
   // (an object of the page info, as the locale: read property by property, so what the unit does not use does not count)
   const views = new WeakMap<object, unknown>();
   const viewOf = (o: any, path: Step[]): unknown => {
+    // (a map in an object of the page info, as the second pass's build-time constants, `page.folds.values`: read by key,
+    // as the page info's own tables are, not as one value: a unit asks it whether a name is one, stage5-a1.md)
+    if (o instanceof Map) { let w = views.get(o); if (!w) { views.set(o, (w = wrap(o, path, rec))); rec.page.set(w as object, o); } return w; }
     if (!o || typeof o !== 'object' || container(o) || 'nodeName' in o || Object.getPrototypeOf(o) !== Object.prototype) { readValue(rec, path, o); return o; }
     let w = views.get(o);
     if (!w) {
