@@ -260,3 +260,14 @@ Found by the research, not changed:
   second pass's walk 7.5 to 4.9 ms. On the merged branch, loaded machine, off and on: static 11.3 and 3.2 s, live
   11.9 and 4.1 s, a page file per post 14.4 and 6.6 s. Open: `render-rows.test.ts` fails under `SN_LINK_AUDIT`
   (it counts splices, which the audit's extra compiles add to); the coverage agent has it.
+- 2026-11-23, 15:05 UTC: **stage 2 covers every app** (`redesign-notes/stage2-coverage.md`): fills and images
+  render too, and nothing falls back in the benchmark apps, the four examples or sinter-mail's 16 pages (10 of 10
+  loops, 1,610 rows), all byte for byte the same both ways. sinter-mail's 1,000-element file email builds in 2.0 to
+  2.6 s instead of 13.4 to 14.6 s. It found and fixed two stage 1 bugs (a paint out of order; `fixedState` of rows
+  reading state) and made the render tests pass under `SN_LINK_AUDIT`. The old route is not deleted yet: over the
+  whole suite, `links` (36 loops), `top-level choice` (7), `diagnostics`, `handler`, `text`, `not written ahead` and
+  `an id` still take it, and dev builds never render. The floor so far: the first pass stops at its decisions when a
+  second follows (`settle`), `plainData` once per evaluation. On the merged branch, 100 posts, off and on (load 4 to
+  6): static 12.0 and 3.6 s, with the type check 13.0 and 3.8 s, live 13.4 and 4.5 s, a page file per post 13.2 and
+  5.0 s, live 16.1 and 6.7 s. Started: the rest of stage 2 (the reasons above, then deleting the old route), and the
+  type check once per component (part of stage 4).
