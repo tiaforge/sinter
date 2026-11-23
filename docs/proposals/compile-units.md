@@ -263,6 +263,7 @@ timings were not usable). A cloud session pushes to a branch of its own:
 | --- | --- | --- | --- |
 | stage 5, A1 then A2: definitions that ship, from units | cloud, `session_01AjKzdxPCdJ5nbeXvwkXoP2` | `redesign/stage5-a1` | `stage5-a1.md` |
 | early scripts per shape, the provable variant | cloud, `session_01AjKzdxPErYYZv1d2K1hMsD` | `redesign/early-script-shapes` | `early-script-shapes.md` |
+| the build outside the compiler, round 2 (the fixed part; a static page's cost) | cloud, `session_01AjKzdyy3dA5FDC6jCiY3dH` | `redesign/pipeline-2` | `pipeline-2.md` |
 | stage 5, B1: the second pass from the first's walk | cloud, `session_01AjKzdxkDukbMzASz1qaYeA` | `redesign/stage5-b1` | `stage5-b1.md` |
 | the evaluation's cost | local agent | merged as it lands | `evaluation.md` |
 
@@ -511,3 +512,9 @@ decision of their own (stage 7). A step that can stay byte-identical does.
   result from the first pass's walk, today's ids kept: page-compile 451 to 359 ms; none of the nine apps routed
   yet: template entries next; a page with a unit placed needs A1's copy); it went back to its session to merge the
   integration branch. Early scripts: the session was asked for a variant that can be proven (opaque placeholders).
+- 2026-11-23, 21:45 UTC: A1 is built on its branch (`redesign-notes/stage5-a1.md`): a second pass that ships
+  definitions places a unit of its own before its walk; sinter-mail's components route, a later page 108 to 72 ms
+  (142 to 88 with TypeScript); sinter-mail's 42 files canonically identical, every other app byte for byte, gzip 17 B
+  lighter in total; it fixed three leaks of first-pass units its verifier found. It merges the integration branch
+  next. A session started on what a build costs outside the compiler (the fixed 1.1 s; a static page's 6 to 7 ms:
+  Vite's HTML step, the cross check that runs every helper call again), now as large a share as the compiler.
