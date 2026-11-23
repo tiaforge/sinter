@@ -974,13 +974,14 @@ export function compileParts(html: string, options: CompileOptions): CompiledPar
     renderForced = false;
     let off: CompiledParts;
     try { off = compilePartsOnce(html, options); } finally { renderForced = null; }
-    // (a kept template's type check goes with its first entry's compile only: the one before)
+    // (a kept template's type check goes with its first entry's compile only: the one before; a dev build's tables
+    // without their empty slots, which the old route leaves for what it compiled in the rows: `withoutEmptySlots`)
     const text = (r: CompiledParts) => JSON.stringify(options.templates ? { ...r, check: undefined } : r, (_, v) => (typeof v === 'function' ? '[fn]' : v instanceof Map ? [...v] : v instanceof Set ? [...v] : v));
-    const a = text(on), b = text(off);
+    const [A, B] = options.dev ? [withoutEmptySlots(on), withoutEmptySlots(off)] : [on, off], a = text(A), b = text(B);
     if (a !== b) {
       let i = 0;
       while (a[i] === b[i]) i++;
-      const field = Object.keys(on).find((k) => text({ [k]: (on as unknown as Record<string, unknown>)[k] } as unknown as CompiledParts) !== text({ [k]: (off as unknown as Record<string, unknown>)[k] } as unknown as CompiledParts));
+      const field = Object.keys(A).find((k) => text({ [k]: (A as unknown as Record<string, unknown>)[k] } as unknown as CompiledParts) !== text({ [k]: (B as unknown as Record<string, unknown>)[k] } as unknown as CompiledParts));
       throw new Error(`sinter render audit: ${options.file}: rendered rows differ from compiled ones in \`${field}\`, at ${i}:\n  rendered ${a.slice(Math.max(0, i - 160), i + 160)}\n  compiled ${b.slice(Math.max(0, i - 160), i + 160)}`);
     }
     // (`SN_RENDER_AUDIT_LOG=<file>`: one line per page checked, so a run can say how many it checked)
@@ -989,6 +990,29 @@ export function compileParts(html: string, options: CompileOptions): CompiledPar
     return on;
   }
   return compilePartsOnce(html, options);
+}
+
+/**
+ * A dev build's result as the render audit compares it: its function table without the empty slots (`'0'`), the rest
+ * numbered again in their order, with what holds their numbers (the IR's fields, `mapFns`; the dev `at` maps' keys, on
+ * resources, stream events, bindings and actions; the source map's sites). Dev does not compact its tables
+ * (`compactTables`), so the old route leaves a `'0'` for each function it compiled in the rows and dropped, and rendered
+ * rows leave none: the two are the same once both are without them. A copy: `r` is not changed.
+ */
+export function withoutEmptySlots(r: CompiledParts): CompiledParts {
+  const map: number[] = [];
+  let n = 0;
+  r.fns.forEach((c, i) => { map[i] = c === '0' ? -1 : n++; });
+  if (n === r.fns.length) return r;
+  const ir = JSON.parse(JSON.stringify(r.ir)) as IR;
+  mapFns(ir, (i) => map[i] ?? i);
+  const keys = (o: { at?: Record<number, string> } | null | undefined) => { if (o?.at) o.at = Object.fromEntries(Object.entries(o.at).map(([k, v]) => [map[+k] ?? +k, v])); };
+  for (const x of ir.resources) keys(x);
+  for (const s of ir.syncs ?? []) for (const e of s.events) keys(e);
+  for (const t of [{ nodes: ir.roots }, ...ir.templates]) for (const nd of t?.nodes ?? []) for (const b of nd.b) keys(b);
+  for (const x of ir.actions) keys(x);
+  const keep = <T>(xs: T[]) => xs.filter((_, i) => map[i] !== -1);
+  return { ...r, ir, fns: keep(r.fns), ...(r.sources ? { sources: { ...r.sources, fns: keep(r.sources.fns) } } : {}) };
 }
 
 /**
@@ -1996,7 +2020,7 @@ class Compiler {
 
   /** `walkPage` after `expandPage`: what the first pass decided applied, the layout, the walk */
   walkExpanded(doc: DefaultTreeAdapterMap['document']): NonNullable<Compiler['walk']> {
-    this.keepsAttrs = this.collecting() && renderOn() && !this.opts.dev;
+    this.keepsAttrs = this.collecting() && renderOn();
     // the second pass: what the first decided, per instance, at any depth (decided templates and choices, unrolled loops)
     if (this.opts.decided?.size || this.opts.unrolled?.size) this.expandConstants(doc, '', false);
     if (this.opts.urls) this.canonical(doc);
@@ -2068,8 +2092,9 @@ class Compiler {
     const styled = [...this.uses.keys()].filter((n) => this.componentFiles.get(n)?.css);
     if (this.opts.dev || styled.length) for (const list of this.uses.values()) for (const u of list) {
       if (u.head) continue;
-      // a chain root: each branch carries it; a fill that is the root is the caller's markup, and a component tag's root the inner component's
-      for (const el of u.shape ? landingOf(u.shape).filter((e) => !this.slotOf.has(e)) : [u.root]) setAttr(el, 'data-sn-c', u.name);
+      // a chain root: each branch carries it; a fill that is the root is the caller's markup, and a component tag's root the inner
+      // component's (a branch of its own markup is its own, slot content of an outer use or not: a choice's case in a fill)
+      for (const el of u.shape ? landingOf(u.shape).filter((e) => !this.slotOf.has(e) || this.origins.get(e)?.file === this.componentFiles.get(u.name)?.file) : [u.root]) setAttr(el, 'data-sn-c', u.name);
     }
     // an element that is also the root of outer components (through their tag as root): their names, for their root rules
     if (styled.length) for (const list of this.uses.values()) for (const u of list) for (const el of this.rootMarked(u)) {
@@ -5598,6 +5623,9 @@ class Compiler {
         const r = this.renderedAt.get(child);
         if (r) {
           if (r.rows.list && !this.listCompiled.has(r.tpl)) { this.listCompiled.add(r.tpl); this.expr(r.tpl, 'data-sn-for', ctx.scope, { mode: 'value' }, r.list, r.offset); }
+          // (what is compiled next with no site of its own is at the loop's template, where the rows were written: the
+          // old route leaves it at the last row element it compiled; without this it would stay at the element before the block)
+          this.at = { el: r.tpl, attr: null, shift: 0 };
           this.nextId += r.rows.ids;
           // (its links, as the walk of the rows meets them: what the build sees of where they go, where each was written)
           for (const h of r.rows.hrefs) {
@@ -8632,7 +8660,8 @@ class Compiler {
       x.code = `($) => ($.$d(${id}))`;
       this.fnUses[node.state!]!--;
       if (this.fnUses[node.state!] === 0) this.fns[node.state!] = '0';
-      node.state = this.fn(init.replace(body, `$.$d(${id})`));
+      // (at the state's own site: compiled after the walk, where the walk's last site is whatever it compiled last)
+      node.state = this.fn(init.replace(body, `$.$d(${id})`), this.fnAt[node.state!] ?? null);
     }
   }
 
@@ -8721,7 +8750,7 @@ class Compiler {
   worklist(fnOf: Map<string, ($: unknown) => unknown>, known: (deps: string[]) => boolean, fixed: (ds: PathRef[] | undefined) => boolean, schemes: Set<string>, ROW: Set<string>) {
     // (`recs`: the top rows of a loop as `rowRenderer` reads them, `RowRec`; recorded only when rows are rendered)
     type Found = { unrolls: Array<[string, unknown[], PathRef[] | undefined]>; decided: Array<[string, boolean, PathRef[] | undefined]>; paints: Array<[Binding, string, ConstantWrite | null]>; recs?: RowRec[]; rows: number; over?: true };
-    const rendering = renderOn() && !this.opts.dev;
+    const rendering = renderOn();
     /** `pick`: a choice's case expanded (decided true), else a loop unrolled (`tid`, its rows' template) */
     const pending = new Map<string, { items: unknown[]; d: PathRef[] | undefined; found: Found; pick?: true; el: P5Element; tid?: number; picked?: PickedCase } | null>();
     const placementOf = new Map(this.runtimePlacements.map((P) => [P.node, P] as const));
@@ -8981,9 +9010,9 @@ class Compiler {
   rowRenderer(handlerOnly: (b: Binding) => boolean, ROW: Set<string>, placementOf: Map<NodeDef, Compiler['runtimePlacements'][number]>):
     (key: string, p: { items: unknown[]; found: { recs?: RowRec[]; rows: number }; pick?: true; tid?: number; el: P5Element; picked?: PickedCase }) => RenderedRows | null {
     // scoped styles: the minifier leaves their components' markup as written (`SCOPED`), and the walk marks the roots of
-    // the uses it sees (`data-sn-c`/`-r`/`-s`, after the walk)
+    // the uses it sees (`data-sn-c`/`-r`/`-s`, after the walk); in dev builds every root's `data-sn-c`, for devtools
     const scoped = new Set([...this.componentFiles.values()].filter((f) => f?.css).map((f) => f!.file));
-    const marking = scoped.size > 0;
+    const marking = scoped.size > 0 || !!this.opts.dev;
     let elNodes: Map<P5Element, NodeDef> | null = null;
     const nodeOfEl = () => (elNodes ??= new Map([...this.tplEls].map(([n, e]) => [e, n] as const)));
     const tplOf = new Map<number, P5Template>();
@@ -9117,6 +9146,8 @@ class Compiler {
       const late: Array<[P5Element, P5Element['attrs']]> = [];
       /** marks a fill's top elements take where it is placed (`data-sn-s`) */
       const fillMarks = new Map<P5Node, P5Element['attrs']>();
+      /** the placements that are components' roots, by element: the component's name */
+      let rootSlots: Map<P5Element, string> | undefined;
       /**
        * whether the old route's pass 2 marks what is rendered now as its own: what an instance's expansion
        * (`inlineInstance` → `expandUse`) makes is in the page, its uses' roots and slot content marked after the walk;
@@ -9159,6 +9190,8 @@ class Compiler {
             if (more && !marks.some((m) => m.name === 'data-sn-c')) marks.push(...more);
             if (marks.length) {
               for (const m of marks) if (m.name === 'data-sn-r') for (const x of m.value.split(' ')) st.rootStyled.add(x);
+              // (a root marked is its component's use, one whose root is a chain too: its styles go with the page)
+              for (const m of marks) if (m.name === 'data-sn-c' && m.value) st.uses.add(m.value);
               // (an image with nothing left to paint: after the image pipeline's writes, in the second pass, `late`)
               if (nodeOfEl().has(n)) MARKED.set(e, marks); else if (n.tagName === 'img') late.push([e, marks]); else e.attrs.push(...marks);
             }
@@ -9250,8 +9283,8 @@ class Compiler {
             // its default, or a fill (the caller's markup, in the caller's scope with the slot's data as `$slot`: the
             // first pass compiled it as the placement's case, `caseFill`)
             // (a fill placed in an instance: its top elements slot content of its caller, `data-sn-s`, as the old route's
-            // placement copies the fill's entries of `slotEls`; a chain's branch is not followed here)
-            const F = c!.k > 0 && marking && live ? this.caseFill.get(P.cases[c!.k]!) : undefined;
+            // placement copies the fill's entries of `slotEls`; a chain's branch is not followed here; on pages with scoped styles only, as there)
+            const F = c!.k > 0 && scoped.size > 0 && live ? this.caseFill.get(P.cases[c!.k]!) : undefined;
             const tops = F ? (contentOf(P.cases[c!.k]!)?.childNodes ?? []) : [];
             if (F) F.nodes.forEach((f, i) => {
               const x = isElement(f) ? this.slotEls.find((y) => y.el === f) : undefined;
@@ -9259,7 +9292,29 @@ class Compiler {
               if ((f as P5Element).tagName === 'template') no('styled');
               if (tops[i] && isElement(tops[i]!)) fillMarks.set(tops[i]!, [{ name: 'data-sn-s', value: x.caller }]);
             });
-            try { replace(cl, cl, render(P.cases[c!.k]!, c!.rec)); } finally { for (const t of tops) fillMarks.delete(t); }
+            // a placement that is a component's root (its root `<slot>`, `rootShape`'s `choice`): the old route's
+            // expansion decides it, and the default it renders is the root, marked with the component's name (`data-sn-c`,
+            // dev builds and scoped styles; a fill is the caller's markup, not marked). A default that is not plain
+            // elements is left to it
+            const root = marking && c!.k === 0 ? (rootSlots ??= new Map([...this.uses.values()].flat().flatMap((u) => (u.shape?.kind === 'choice' ? [[u.shape.el, u.name] as const] : [])))).get(P.el) : undefined;
+            if (root !== undefined) {
+              const top = (contentOf(P.cases[0]!)?.childNodes ?? []).filter(realNode);
+              if (top.some((t) => !isElement(t) || t.tagName === 'template')) no('a root slot');
+              for (const t of top) fillMarks.set(t, [{ name: 'data-sn-c', value: root }]);
+            }
+            // (the files of the markup it renders: a default's components are a template of their own, and so are the
+            // default's children a fill's `<slot>` places, which the old route's expansion reads where they render)
+            const caseFiles = (p: P5Parent | undefined) => {
+              for (const x of p?.childNodes ?? []) {
+                if (!isElement(x)) continue;
+                const f = this.origins.get(x)?.file;
+                if (f && f !== this.opts.file) { st.files.add(f); const css = cssOf.get(f); if (css) st.files.add(css); }
+                caseFiles(x);
+                if (x.tagName === 'template') caseFiles((x as P5Template).content);
+              }
+            };
+            caseFiles(contentOf(P.cases[c!.k]!));
+            try { replace(cl, cl, render(P.cases[c!.k]!, c!.rec)); } finally { for (const t of tops) fillMarks.delete(t); if (root !== undefined) for (const t of contentOf(P.cases[0]!)?.childNodes ?? []) fillMarks.delete(t); }
             continue;
           }
           if (this.textMarks.has(n)) {
@@ -9765,7 +9820,7 @@ class Compiler {
         if (!items!.length) this.foldedText.push(value!.slice(m[0].length));
         // rows the first pass rendered: their markup, and what compiling them would have done that the page keeps
         if (splice(tkey!, value!.slice(m[0].length), m[0].length)) continue;
-        // (the old route, outside rows: counted, with the first pass's reason; a dev build never renders)
+        // (the old route, outside rows: counted, with the first pass's reason)
         if (!pre && !row && at === undefined) this.oldRoute(tkey!, items!.length);
         const rows: P5Node[] = [];
         for (let k = 0; k < items!.length; k++) {
@@ -9794,7 +9849,7 @@ class Compiler {
   oldRoute(key: string, rows: number) {
     const u = this.opts.unrendered?.get(key);
     // (with rendering off, `SN_RENDER=0` or the audit's compile, every loop takes it: not counted)
-    if (renderOn()) renderStat(this.opts.dev ? 'dev' : u?.why ?? 'not rendered', u?.rows ?? rows);
+    if (renderOn()) renderStat(u?.why ?? 'not rendered', u?.rows ?? rows);
   }
 
   renderedHere(c: P5Element, r: RenderedRows): string | null {
@@ -11870,11 +11925,15 @@ function hasSnDeep(parent: P5Parent): boolean {
   return false;
 }
 
-/** Merges adjacent text nodes, as parsing the serialized HTML would. */
+/**
+ * Merges adjacent text nodes, as parsing the serialized HTML would. A rendered row's text that a binding wrote stays
+ * apart until the minifier has run: to it, it is the `<template data-sn-text>` it was, and the white space beside it
+ * the markup's (`WRITTEN`).
+ */
 function mergeText(parent: P5Parent) {
   const kids = parent.childNodes as Array<P5Node & { value?: string }>;
   for (let i = kids.length - 1; i > 0; i--) {
-    if (kids[i]!.nodeName === '#text' && kids[i - 1]!.nodeName === '#text') {
+    if (kids[i]!.nodeName === '#text' && kids[i - 1]!.nodeName === '#text' && WRITTEN.get(kids[i]!) !== 'text' && WRITTEN.get(kids[i - 1]!) !== 'text') {
       kids[i - 1]!.value += kids[i]!.value!;
       kids.splice(i, 1);
     }
