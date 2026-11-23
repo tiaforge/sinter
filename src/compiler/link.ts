@@ -10,13 +10,13 @@
 
 type Ref = { path: Step[] } | { at: 'el' | 'site' } | { self: 'opts' | 'page' | 'compiler' } | { prior: { u: number; i: number } };
 type Change = { kind: 'set'; key: unknown; value: unknown; ifAbsent?: true } | { kind: 'add'; value: unknown } | { kind: 'prop'; key: string | number; value: unknown } | { kind: 'push'; value: unknown } | { kind: 'delete'; key: unknown };
-type Op =
+export type Op =
   | { op: 'weak'; field: string; key: unknown; value: unknown }
   | { op: 'weakAdd'; field: string; key: unknown }
   | { op: 'weakDel'; field: string; key: unknown }
   | { op: 'old'; target: { path: Step[] } | { prior: { u: number; i: number } }; change: Change };
 /** a unit as it was recorded: its writes, its reads, its hand-outs of functions (and where each was written), its templates */
-type Unit = {
+export type Unit = {
   name: string;
   file: string;
   root: string;
@@ -180,6 +180,13 @@ export const LINK_FIELDS: Record<string, { kinds: string[]; how: 'table' | 'weak
   persisted: { kinds: ['Set'], how: 'table' },
   pointCtx: { kinds: ['WeakMap'], how: 'weak' },
   pointOf: { kinds: ['Map'], how: 'table' },
+  placedUnit: { kinds: ['empty', 'object'], how: 'linker' },
+  earlyDefs: { kinds: ['boolean'], how: 'linker' },
+  checkDone: { kinds: ['Set'], how: 'linker' },
+  checkLast: { kinds: ['number'], how: 'linker' },
+  checkOrder: { kinds: ['boolean'], how: 'linker' },
+  touched: { kinds: ['Map'], how: 'linker' },
+  pointNames: { kinds: ['Array'], how: 'table' },
   points: { kinds: ['WeakMap'], how: 'weak' },
   prefetchOff: { kinds: ['boolean'], how: 'fixed' },
   guard: { kinds: ['empty', 'object'], how: 'fixed' },
@@ -528,10 +535,11 @@ export function recordChild<T>(c: any, name: string, compile: (child: any) => T,
   return { result: run.result as T, unit: plan.plan };
 }
 
-type Run = { result: unknown; unit: Unit; copied: number } | { result: unknown; refused: string };
+export type Run = { result: unknown; unit: Unit; copied: number } | { result: unknown; refused: string };
 
 /** the unit compiled, its view of its page logging what it reads and writes; its writes applied to the page */
-function runUnit(c: any, name: string, compile: (child: any) => unknown, prior: Map<object, { u: number; i: number }>): Run {
+/** (`own`: fields the unit gets as they are, neither logged nor applied to the page: a unit's check data, `units.ts`) */
+export function runUnit(c: any, name: string, compile: (child: any) => unknown, prior: Map<object, { u: number; i: number }>, own: Record<string, unknown> = {}): Run {
   const rec = new Rec();
   const u = c.unitChild(), child = u.child;
   const T0 = c.templates.length, f0 = c.fns.length, u0 = c.useIds, s0 = c.nextSid, n0 = c.nextId, a0 = c.actions.length, atBefore = c.at;
@@ -573,8 +581,9 @@ function runUnit(c: any, name: string, compile: (child: any) => unknown, prior: 
   // up is a precondition), its own logged; without, its own (a page that had the code keeps its own, `ifAbsent`)
   const sites = !!c.opts.sourcemap;
   child.codeAt = sites ? wrap(c.codeAt, [{ p: 'codeAt' }], rec) : new Map();
+  for (const [k, v] of Object.entries(own)) child[k] = v;
   for (const [k, f] of Object.entries(LINK_FIELDS)) {
-    if (!(k in child) || (f.how !== 'fixed' && f.how !== 'restored') || k === 'page' || k === 'opts' || k === 'componentFiles') continue;
+    if (!(k in child) || (f.how !== 'fixed' && f.how !== 'restored') || k === 'page' || k === 'opts' || k === 'componentFiles' || k in own) continue;
     let v = child[k], mine = false;
     Object.defineProperty(child, k, {
       configurable: true, enumerable: true,
@@ -785,7 +794,7 @@ function keep(u: Unit): { plan: Plan | Refused; index: Map<object, number> } {
 type PageMaps = { outs: Map<number, unknown[]> };
 
 /** whether the page `c` reads as the recording page did, everywhere the unit looked */
-function readsHold(c: any, reads: Read[]): boolean {
+export function readsHold(c: any, reads: Read[]): boolean {
   for (const r of reads) {
     if ('value' in r) { if (shape(follow(c, r.at)) !== r.value) return false; continue; }
     if ('flat' in r) { const o = follow(c, r.at); if (!o || typeof o !== 'object' || flat(o) !== r.flat) return false; continue; }

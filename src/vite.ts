@@ -1362,6 +1362,8 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   const templates = new Map<string, unknown>();
   /** (docs/proposals/compile-once.md, (5)): builds: shared definitions, recorded on one page and linked into the next */
   const definitions = new Map<string, unknown>();
+  /** (docs/proposals/redesign-notes/stage4-units.md): builds: the first passes' definitions, compiled once and placed on each page */
+  const buildUnits = new Map<string, unknown>();
   const readVia = (p: ReturnType<typeof project>) => (dev ? p.readFile : (path: string) => {
     let r = buildReads.get(path);
     if (!r) { try { r = { text: p.readFile(path) }; } catch (error) { r = { error }; } buildReads.set(path, r); }
@@ -1469,7 +1471,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     const prefetch = prefetchData && prefetchPages(group).length ? prefetchId(group) : null;
     const out = compile(html, {
       ...pageOptions(p, file, url),
-      sourcemap: dev || !!resolved?.build.sourcemap, moduleSrc: `${PREFIX}${rel}.js`, ...(dev ? {} : { globCache, componentCache, templates, ...(process.env.SN_NO_LINK ? {} : { definitions }) }), prefetch,
+      sourcemap: dev || !!resolved?.build.sourcemap, moduleSrc: `${PREFIX}${rel}.js`, ...(dev ? {} : { globCache, componentCache, templates, ...(process.env.SN_NO_LINK ? {} : { definitions }), units: buildUnits }), prefetch,
       check: typecheckOn() && !dev,
       // a build: each distinct call that folds is run again at its end in a fresh copy of the module (fold-cross.ts)
       ...(helpersNow?.module && !dev ? { foldLog: (key: string, args: FoldArg[], result: string, id: number) => logFold(v?.page ? rel : relOf(src), key, args, result, id) } : {}),
@@ -1744,6 +1746,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       componentCache.clear();
       templates.clear();
       definitions.clear();
+      buildUnits.clear();
       describedDefinitions.clear();
       templatesKept.clear();
       sourceKept = null;
@@ -2086,7 +2089,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       const { check } = await import('./check/index.js');
       const p = proj();
       const r = check({ ...checkOptionsOf(p), helpers: helpersOf(p.helpers), units: [...units.values()], share: true });
-      units.clear();
+      buildUnits.clear();
       if (r.diagnostics.length) this.error(`sinter check: ${r.diagnostics.length} type error(s)\n${r.diagnostics.map(formatDiagnostic).join('\n')}`);
     },
 

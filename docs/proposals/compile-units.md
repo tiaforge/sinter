@@ -341,3 +341,14 @@ Found by the research, not changed:
   twice, warnings counted as type errors, and the error in unrendered markup that stops unrolling without being
   reported. An agent has them, one commit each, a failing test first (`redesign-notes/bugs.md`); these change the
   output for the affected cases on purpose and leave the rest byte for byte.
+- 2026-11-23, 17:45 UTC: embedding (decided, an agent has it; `redesign-notes/embed-fields.md`): a run-time
+  expression that reads a value the build knows gets the value written into its code, so nothing is embedded for
+  it; what cannot be written as a literal is embedded with only the paths read; what can escape stays whole. Today
+  a post with a live section embeds the whole post as JSON (8,481 bytes of 20,345) for one read of `post.slug`.
+  Stage 3, second change (merged): pages' and layouts' documents parsed once per process. Stage 4 has units on its
+  branch (`units-spike`, not merged: it conflicts with the type check's changes to the check unit, one of its
+  tests fails after a hand merge; the agent has the details): a first pass's definitions compiled once per build
+  and placed on each page, the unit's objects shared. Its measurements, CPU ms per later page, linker's replay and
+  placement: sinter-mail API 25.7 and 5.6, file email 34.7 and 7.4, blog with a page file per post 3.7 and under
+  0.1; a sinter-mail API page's compile 67 to 38 ms. Compiling the unit's functions once per build bought little
+  (20 to 18.5 ms): the evaluation's cost is collecting candidates and the worklist's run, which is stage 6.
