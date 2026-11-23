@@ -261,9 +261,8 @@ timings were not usable). A cloud session pushes to a branch of its own:
 
 | Workstream | Where | Branch | Log |
 | --- | --- | --- | --- |
-| stage 5, A1 then A2: definitions that ship, from units | cloud, `session_01AjKzdxPCdJ5nbeXvwkXoP2` | `redesign/stage5-a1` | `stage5-a1.md` |
 | the Speculation Rules made linear; the fold check's cache on disk | cloud, `session_01AjKzdyy3dA5FDC6jCiY3dH` | `redesign/pipeline-2` | `pipeline-2.md` |
-| stage 5, B1: the second pass from the first's walk | cloud, `session_01AjKzdxkDukbMzASz1qaYeA` | `redesign/stage5-b1` | `stage5-b1.md` |
+| stage 5, B1 continued: template entries, pages with a unit, folds | cloud, `session_01AjKzdx4aCc4CWZp4zJDc1m` | `redesign/stage5-b1b` | `stage5-b1.md` |
 | stage 6: the evaluation, one function per template; a render plan per template | cloud, `session_01AjKzdxcYo9FzUYyj9yNBZn` | `redesign/stage6-eval` | `stage6-eval.md` |
 
 **The bar, as the owner set it on 2026-11-23:** the output need not be byte for byte today's where only numbering
@@ -595,3 +594,57 @@ decision of their own (stage 7). A step that can stay byte-identical does.
 - 2026-11-23, 23:45 UTC: decided by the owner: the Speculation Rules for apps with a page file per post (the same
   links prefetched, the list no longer in every page) and the fold check's on-disk cache go ahead; the pipeline
   session has both. The SN534 cross check and Vite's HTML step stay as they are.
+- 2026-11-24, 00:00 UTC: **the full suite passes on the integration branch: 2,956 tests** (310 files), with A1, the
+  proven early scripts, the pipeline fixes and the evaluation's five changes together; `render-audit` eight apps
+  the same (the static blog 11.0 s with rendering off, 2.7 s on), `pass-audit` nine the same. **B1 is merged**
+  (`redesign-notes/stage5-b1.md`, `SN_FROM_WALK=0` off, `SN_FROM_WALK_AUDIT=1`): a page of its own whose second pass
+  would apply only page-level decided branches and rendered rows, with nothing folded into code that ships, takes
+  its result from its first pass's walk, today's numbering kept. On the coordinating machine: page-compile 338 to
+  278 ms (median of 9); `pass-audit --switch SN_FROM_WALK` nine apps the same; 1,534 tests of test/compiler,
+  test/vite, test/check pass. The session's suite: 2,975, plain and audited (193 second passes routed; fallbacks:
+  values folded 124, nothing decided 50, a loop unrolled the old way 49, rows and a layout 48, a unit placed 35).
+  No app's build is routed yet: the blog's page files and realworld have a unit placed, the example sites rows and
+  a layout, the blog's template entries go through the kept expansion. That session ran out of room and is
+  archived; a new one continues from its log: template entries by a copy of the kept walk restricted to what an
+  entry keeps (the whole copy costs 7 ms against 3 saved), pages with a unit, the folds.
+- 2026-11-24, 00:20 UTC: **the Speculation Rules are folded, merged** (`redesign-notes/pipeline-2.md`,
+  `SN_RULES_FOLD=0` gives the old output): from 16 plain paths in a rule, one URL pattern whose regular-expression
+  group matches exactly the listed paths (a trie, branches with the same rest as character classes), exact for
+  every URL and the same JSON on every page of a group, so the one CSP hash stays. Not folded, listed as before:
+  percent-encoded, non-ASCII and syntax characters, segments that start with a dot, `:param` patterns, lists under
+  16 (template apps unchanged). Rejected: a page listing only the pages it links to (a hash per page breaks CSP by
+  hash). The session's evidence: Chromium's preload candidates the same for the list and the pattern over page
+  files with prefetch-off pages, public files, near misses, script-added links, a `localePrefix` app, the real
+  outputs of five apps, and 65 fuzzed sets (2,495 candidates). At 1,000 page files a page goes from 58.2 to 11.4 kB
+  (gzip 6.6 to 1.3), the build outside the compiler from 10.3 to 6.3 s, the whole build from 19.4 to 15.1 s. Checked
+  on the coordinating machine at 100 page files: a post 15,712 to 11,277 bytes (gzip 1,754 to 1,258), its rules
+  script 4,683 to 248 bytes, the page identical apart from that script; 1,538 tests of test/compiler, test/vite,
+  test/check pass. Next from that session: the fold check's cache. Stage 6 has four changes on its branch (a row's
+  values in one call per template, its record an array; styles written at once; a `file:` value frozen once).
+- 2026-11-24, 00:40 UTC: **stage 6's evaluation, first milestone merged** (`redesign-notes/stage6-eval.md`;
+  `SN_ROW_FN=0` off, `SN_ROW_FN_AUDIT=1` compares every value, paint list and compile; `SN_FILE_COPY=0`). It measured
+  first and found the evaluation proper was not the cost on the 2,012-element email: 131,520 compiled calls with
+  their proxy are 22 of 355 ms; the style writes 88, the renderer's lookups 60, the walk's records 52. So: styles
+  written once per element, a row's values from one function per template (a helper-calling code stays a call of
+  its own), a row's record an array by the template's layout, paints read from the records, a `file:` value copied
+  and frozen once per file. The session's numbers on an idle machine, ms a call, median: that email's first-pass
+  evaluation 223 to 88, its compile 286 to 136, its second pass's prerender 8.2 to 0.24; the blog's evaluation
+  unchanged (6.8 and 6.7: its cost is cloning and filling rows and the walk). Checked on the coordinating machine
+  after the merge: 1,546 tests of test/compiler, test/vite, test/check pass; `render-audit` eight apps the same;
+  `mail-audit --gen 2000` 48 files identical (that build 31.2 s with rendering off, 6.2 s as it is now). Next there:
+  a render plan per template for the blog's rendering, the unit's candidates kept on the unit, the `own` bug.
+- 2026-11-24, 01:00 UTC: **A1 and A2 are done and merged** (`redesign-notes/stage5-a1.md`). A2: a first pass that
+  is its output is compiled again with a unit (not under the type check). Its audit found a bug of A1's (a
+  definition's tag-attribute bindings made by the unit were renumbered in place for the next page), fixed with a
+  test; pages with a source map place no second-pass unit (a shared function's site would move). The session's
+  numbers on the merged tree: a later components-route page 97 to 66 ms (112 to 70 with TypeScript), a template's
+  entry with a live tree 280 to 52 ms; its suite 2,980, the units audit and verifier over the whole suite with no
+  difference, CI's link-audit job passing. Checked on the coordinating machine: 1,551 tests of test/compiler,
+  test/vite, test/check pass; `mail-audit --switch SN_UNITS2` under `SN_CANON=1` 48 files identical; `render-audit
+  --switch SN_UNITS2` eight apps the same. **The linker's review is ready** (`redesign-notes/stage4-units.md`, "What
+  the linker still covers that units do not" and "What deleting it removes"): after A1 and A2 it still serves a
+  unit's fallbacks (none in any app measured), a finished first pass under the type check, definitions reached
+  first from a fill's case after the walk, description compiles past the threshold, and `SN_UNITS2=0`; deleting it
+  removes about 330 of `link.ts`' 881 lines (the plan and its replay; the recorder stays, it makes the units), 40
+  lines of `definition()`, the `definitions` options in `src/vite.ts`, 60 lines of the audit in `index.ts`, six test
+  files (703 lines) and the CI job. It waits for the owner.

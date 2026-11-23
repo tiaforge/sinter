@@ -7,6 +7,7 @@
 //   node scripts/pass-audit.mjs --only bench-static       one app (repeatable, or a comma list)
 //   node scripts/pass-audit.mjs --keep <dir>              keep both builds in <dir>/<app>/{off,on}/, to diff by hand
 //   node scripts/pass-audit.mjs --switch SN_LATE_DESCRIBE another route's switch instead of `SN_ONE_PASS` (0 off, 1 on)
+//   node scripts/pass-audit.mjs --canon                   both builds in the canonical numbering (`SN_CANON=1`)
 //
 // Each line gives both builds' times and, with the route on, which route each second pass took (`SN_PASS_LOG=1`).
 import { spawnSync } from 'node:child_process';
@@ -44,6 +45,7 @@ if (args[0] === '--child') {
 
 const only = values('--only');
 const SWITCH = values('--switch')[0] ?? 'SN_ONE_PASS';
+const CANON = args.includes('--canon');
 const keep = values('--keep')[0];
 for (const n of only) if (!APPS[n]) throw new Error(`pass-audit: no app \`${n}\`; the apps are ${Object.keys(APPS).join(', ')}`);
 if (!existsSync(join(REPO, 'dist/vite.js'))) throw new Error('pass-audit: no dist/; run `npm run build` first');
@@ -60,11 +62,11 @@ const walk = (d) => readdirSync(d, { withFileTypes: true }).flatMap((e) => (e.is
 function buildOnce(name, outDir, render) {
   const r = spawnSync(process.execPath, [import.meta.filename, '--child', name, outDir], {
     cwd: REPO, encoding: 'utf8', maxBuffer: 1 << 26,
-    env: { ...process.env, [SWITCH]: render ? '1' : '0', SN_PASS_LOG: '1', SN_ONE_PASS_AUDIT: '', SN_DESCRIBE_AUDIT: '' },
+    env: { ...process.env, [SWITCH]: render ? '1' : '0', SN_PASS_LOG: '1', SN_FROM_WALK_LOG: '1', SN_ONE_PASS_AUDIT: '', SN_DESCRIBE_AUDIT: '', SN_FROM_WALK_AUDIT: '', ...(CANON ? { SN_CANON: '1' } : {}) },
   });
   if (r.status !== 0) throw new Error(`pass-audit: ${name} (${SWITCH} ${render ? 'on' : 'off'}) failed:\n${r.stderr}\n${r.stdout}`);
   const ms = JSON.parse(r.stdout.trim().split('\n').at(-1)).ms;
-  const log = [...r.stderr.matchAll(/^sinter (?:passes|descriptions): .*$/gm)].map((m) => m[0].replace(/^sinter passes: /, '')).join('\n  ');
+  const log = [...r.stderr.matchAll(/^sinter (?:passes|descriptions|from walk): .*$/gm)].map((m) => m[0].replace(/^sinter passes: /, '')).join('\n  ');
   return { ms, log };
 }
 

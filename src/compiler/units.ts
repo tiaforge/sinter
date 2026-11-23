@@ -173,6 +173,7 @@ const VARIANTS = 3;
  * are placed). Not their markup: a page writes into that only where it paints, which it holds itself (`touchEl`).
  */
 function irObjects(templates: unknown[], heads: Array<[number, unknown]>, own: WeakSet<object>): object[] {
+  // (`templates`: its templates, and the bindings of its definitions' tag attributes)
   const out = new Set<object>();
   const add = (v: unknown, depth: number) => {
     if (!v || typeof v !== 'object' || out.has(v) || !own.has(v) || 'nodeName' in v) return;
@@ -321,7 +322,9 @@ function make(c: any, names: string[], second = false): BuildUnit | { refused: s
     const hit = vals.find(named);
     if (hit) return { refused: `names its page's file (${JSON.stringify(String(hit).slice(0, 60))})` };
   }
-  const all = second ? irObjects(numbering.templates as unknown[], heads!, own) : undefined;
+  // (and the bindings its definitions' tag attributes made, in `defAttrs`: each page puts them on a definition's root,
+  // `defRootBindings`, and numbers their functions, `compactTables`)
+  const all = second ? irObjects([...numbering.templates as unknown[], ...[...c.defAttrs.values()].filter((m: object) => own.has(m)).flatMap((m: Map<string, unknown>) => [...m.values()])], heads!, own) : undefined;
   if (check && !second) for (const seg of segs.values()) partOf(seg, check, file, base);
   return { names, reads: u.reads, numbering, weak, ops, at: enc(u.atAfter), own, placed: 0, origins, file, base, rel, ...(check && !second ? { check: { frames: check.frames, exprs: check.exprs, segs, frameOf } } : {}), ...(prints ? { prints } : {}), ...(all ? { all, heads, share, finished: true } : {}) };
 }

@@ -39,5 +39,8 @@ test('the list of source pages costs what grows with the pages, not their square
   // four times the pages: about four times the work (it was sixteen)
   expect(big.made).toBeLessThan(small.made * 6);
   // every page is in the Speculation Rules of each
-  for (let i = 0; i < 40; i++) expect(big.html).toContain(`"/p${i}/\\\\?*#*"`);
+  // (40 pages: their paths folded into one pattern, `/(…)`, whose expression matches each, test/vite/rules-folded.test.ts)
+  const patterns: string[] = JSON.parse(/<script type="speculationrules">(.*?)<\/script>/.exec(big.html)![1]!).prefetch[0].where.and[0].href_matches;
+  const folded = patterns.map((x) => /^\/\((.*)\)\\\?\*#\*$/.exec(x)?.[1]).find((x) => x !== undefined)!;
+  for (let i = 0; i < 40; i++) expect(new RegExp(`^(?:${folded})$`, 'v').test(`p${i}/`), `p${i}`).toBe(true);
 }, 120_000);

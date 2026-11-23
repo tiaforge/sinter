@@ -1007,6 +1007,7 @@ export function compileParts(html: string, options: CompileOptions): CompiledPar
     return on;
   }
   // `SN_RENDER_AUDIT=1`: a compile that spliced rendered rows in is compiled again without rendering, and must be the same
+  if (proc?.env.SN_RENDER_AUDIT === '1' && renderForced === null && renderOn() && fromWalkForced === null) return withoutFromWalk(() => compileParts(html, options));
   if (proc?.env.SN_RENDER_AUDIT === '1' && renderForced === null && renderOn()) {
     const n = RENDER_STATS.spliced, on = compilePartsOnce(html, options);
     if (RENDER_STATS.spliced === n) return on;
@@ -1182,9 +1183,9 @@ const UNIT_SHARED = new Set(['page', 'componentFiles']);
  * objects the copy has. Shared: the options, the parsed component files (`SHARED`), functions, and objects frozen at
  * every depth (build-time data). A value of a class the copy does not know refuses it: the reason, for the log.
  */
-function copyState(from: Compiler, opts: CompileOptions, roots: object[] = [], listed?: WeakEntries): { c: Compiler; roots: object[]; entries: WeakEntries } | { refused: string } {
+function copyState(from: Compiler, opts: CompileOptions, roots: object[] = [], listed?: WeakEntries, fresh?: ReadonlySet<string>): { c: Compiler; roots: object[]; entries: WeakEntries; sources: WeakEntries } | { refused: string } {
   const memo = new Map<object, object>(), order: object[] = [];
-  let refused: string | null = null;
+  let refused: string | null = null, field = '';
   optionsReach(from.opts);
   const keep = (v: object) => v === from.opts || SHARED.has(v) || OPTS_REACH.has(v) || DEEP_FROZEN.has(v) || (Object.isFrozen(v) && !Array.isArray(v) && !(v instanceof Map) && !(v instanceof Set));
   const copy = <T>(v: T): T => {
@@ -1220,7 +1221,7 @@ function copyState(from: Compiler, opts: CompileOptions, roots: object[] = [], l
       for (const k of Object.keys(o)) x[k] = copy((o as Record<string, unknown>)[k]);
       out = x;
     } else {
-      refused ??= `a ${(o as { constructor?: { name?: string } }).constructor?.name ?? 'value'} in the state`;
+      refused ??= `a ${(o as { constructor?: { name?: string } }).constructor?.name ?? 'value'} in the state${proc?.env.SN_COPY_FIELD ? ` (\`${field}\`)` : ''}`;
       return v;
     }
     return out as T;
@@ -1232,6 +1233,9 @@ function copyState(from: Compiler, opts: CompileOptions, roots: object[] = [], l
   for (const k of Object.keys(src)) {
     const v = src[k];
     if (k === 'opts') { to[k] = opts; continue; }
+    // (`fresh`: tables the copy starts empty, whatever the original holds: `entryFromWalk`'s evaluation's)
+    if (fresh?.has(k)) { to[k] = v instanceof Map ? new Map() : v instanceof Set ? new Set() : Array.isArray(v) ? [] : v; continue; }
+    field = k;
     if (v instanceof WeakMap) { const w = new WeakMap(); weak.push({ field: k, a: v, b: w }); to[k] = w; continue; }
     if (v instanceof WeakSet) { const w = new WeakSet(); weak.push({ field: k, a: v, b: w }); to[k] = w; continue; }
     to[k] = copy(v);
@@ -1241,7 +1245,7 @@ function copyState(from: Compiler, opts: CompileOptions, roots: object[] = [], l
   const marks = nodeMarks();
   for (const m of [...marks, INERT_FILLS] as Weak[]) weak.push({ field: null, a: m, b: m });
   const put = (b: Weak, k: object, v: unknown) => { if (b instanceof WeakMap) b.set(k, v); else b.add(k); };
-  const entries: WeakEntries = [];
+  const entries: WeakEntries = [], sources: WeakEntries = [];
   if (listed) {
     // a copy of a copy that listed its side tables' entries: those, copied (no lookups of every object in every table)
     for (const e of listed) {
@@ -1251,11 +1255,14 @@ function copyState(from: Compiler, opts: CompileOptions, roots: object[] = [], l
     }
   } else {
     const lists = weak.map((w) => ({ field: w.field, ...(w.field === null ? { mod: w.b } : {}), pairs: [] as Array<[object, unknown]> }));
+    // (and the original's, for copies of the same original: `entryFromWalk`)
+    const froms = weak.map((w) => ({ field: w.field, ...(w.field === null ? { mod: w.a } : {}), pairs: [] as Array<[object, unknown]> }));
     const entry = (j: number, o: object) => {
       const w = weak[j]!, x = memo.get(o)!;
       const y = w.a instanceof WeakMap ? copy(w.a.get(o)) : true;
       put(w.b, x, y);
       lists[j]!.pairs.push([x, y]);
+      froms[j]!.pairs.push([o, w.a instanceof WeakMap ? w.a.get(o) : true]);
     };
     // the side tables, for every object copied so far and every one their values reach (the module's marks of nodes,
     // for nodes only)
@@ -1267,9 +1274,10 @@ function copyState(from: Compiler, opts: CompileOptions, roots: object[] = [], l
       if ('nodeName' in o) for (const j of ofNodes) if (weak[j]!.a.has(o)) entry(j, o);
     }
     entries.push(...lists.filter((l) => l.pairs.length));
+    sources.push(...froms.filter((l) => l.pairs.length));
   }
   if (refused) return { refused };
-  return { c: to as unknown as Compiler, roots: outRoots, entries };
+  return { c: to as unknown as Compiler, roots: outRoots, entries, sources };
 }
 
 /** the module's marks of nodes a copy of a compiler's state carries over (`copyState`), each keyed by parse5 nodes (and `INERT_FILLS`) */
@@ -1302,7 +1310,7 @@ function optionsReach(opts: CompileOptions) {
 type WeakEntries = Array<{ field: string | null; mod?: WeakMap<object, unknown> | WeakSet<object>; pairs: Array<[object, unknown]> }>;
 
 /** a `<html data-sn-for>` template walked once (`fromTemplate`): its first pass, kept for each entry's evaluation */
-type KeptTemplate = { c: Compiler; path: string; checked: boolean; hits: number; misses: number; typed?: boolean; expanded?: KeptExpansion };
+type KeptTemplate = { c: Compiler; path: string; checked: boolean; hits: number; misses: number; typed?: boolean; expanded?: KeptExpansion; walked?: WeakEntries };
 
 /**
  * A kept template's tree as expanded (`expandPage`), before its walk: a copy of the compiler's state there, which each
@@ -1347,6 +1355,158 @@ function passStat(why: string | null) {
     passLogged = true;
     proc.on?.('exit', () => console.error(`sinter passes: ${PASS_STATS.kept} second passes from a kept expansion; parsed and expanded again: ${JSON.stringify(Object.fromEntries(PASS_STATS.again))}`));
   }
+}
+
+/**
+ * (measurement, stage5-b1.md: `SN_APPLIED_LOG=<file>`) a second pass run with what it applies recorded: one line per
+ * second pass, the kinds of decision it applied and where (`expandConstants`), the first pass's context, the page or test
+ */
+function appliedLog<T>(first: Compiler, options: CompileOptions, constants: boolean, run: () => T): T {
+  const log = proc?.env.SN_APPLIED_LOG;
+  if (!log || passAuditing) return run();
+  APPLIED = new Set();
+  try { return run(); } finally {
+    if (constants) APPLIED.add('constants (prefold)');
+    if (!APPLIED.size) APPLIED.add('nothing applied');
+    const w = (globalThis as { __vitest_worker__?: { filepath?: string; current?: { name?: string } } }).__vitest_worker__;
+    const ctx = [first.layout ? 'layout' : '', options.images ? 'images' : '', first.permanentNames.length ? 'permanent' : ''].filter(Boolean).join(',');
+    (proc?.getBuiltinModule?.('node:fs') as { appendFileSync(f: string, s: string): void } | undefined)?.appendFileSync(log, `${[...APPLIED].sort().join(' + ')}\t${ctx || '-'}\t${w?.filepath ? `${w.filepath.replace(/^.*\/test\//, 'test/')} > ${w.current?.name ?? ''}` : options.file}\n`);
+    APPLIED = null;
+  }
+}
+
+/** B1 (stage5-b1.md): a page-level `<template>` the first pass's walk recorded (`fwStart`, `fwEnd`) */
+type FwAnchor = {
+  el: P5Element; kind: 'if' | 'else' | 'for'; elseIf: boolean; ctx: Ctx; node: NodeDef | null;
+  /** its content as it was before the walk (a branch's) */
+  snap: FwSnap | null;
+  /** the tables' sizes and the plain fields before its walk (`fwMarks`) */
+  marks: unknown[];
+  /** the diagnostics its walk reported; the functions it made (from `f0`) and the calls of each */
+  d0: number; d1: number; f0: number; uses: Map<number, number>;
+  /** what its walk added, by table: a list's range, a map's or a set's keys; the plain fields it changed */
+  added: Map<string, [number, number]>; changed: string[];
+  /** the resources its walk read first */
+  used: string[];
+  p0: number;
+};
+type FromWalk = { anchors: FwAnchor[]; byEl: Map<P5Element, FwAnchor>; fields?: FwField[]; read?: (c: unknown, page: unknown) => unknown[] };
+/** `fwMarks`' readers, by the list of fields they read: one property read per field, not a lookup by name each */
+const FW_READERS = new Map<string, (c: unknown, page: unknown) => unknown[]>();
+function fwReader(key: string, fs: FwField[]): (c: unknown, page: unknown) => unknown[] {
+  const at = (x: FwField) => `${x.page ? 'p' : 'c'}[${JSON.stringify(x.f)}]`;
+  // eslint-disable-next-line no-new-func -- the compiler's own field names, read in one array
+  const f = new Function('c', 'p', `return [${fs.map((x) => (x.t === 0 ? `${at(x)}.length` : x.t === 1 ? `${at(x)}.size` : at(x))).join(', ')}];`) as (c: unknown, page: unknown) => unknown[];
+  if (FW_READERS.size > 50) FW_READERS.clear();
+  FW_READERS.set(key, f);
+  return f;
+}
+/** `fn()`'s calls while a recorded template is walked (`fwStart`), by function */
+let FW_COUNTING: Map<number, number> | null = null;
+/** a field `fwMarks` reads: its name (`page.` for the page info's), where it is, and whether it is a list (0), a map or a set (1), or plain (2) */
+type FwField = { k: string; page: boolean; f: string; t: 0 | 1 | 2 };
+/** a subtree's nodes as they are (`snapTree`): what a walk changes of them, put back by `restoreTree` */
+type FwSnap = Array<{ n: P5Node; parent?: P5Parent | null; attrs?: P5Element['attrs']; kids?: P5Node[]; content?: P5Node[]; value?: string; data?: string }>;
+function snapTree(root: P5Parent): FwSnap {
+  const out: FwSnap = [{ n: root as unknown as P5Node, kids: [...root.childNodes] as P5Node[] }];
+  const visit = (p: P5Parent) => {
+    for (const c of p.childNodes as P5Node[]) {
+      const e: FwSnap[number] = { n: c, parent: (c as { parentNode?: P5Parent | null }).parentNode ?? null };
+      if (isElement(c)) {
+        e.attrs = c.attrs.map((a) => ({ ...a }));
+        e.kids = [...c.childNodes] as P5Node[];
+        if (c.tagName === 'template') e.content = [...(c as P5Template).content.childNodes] as P5Node[];
+      } else if (c.nodeName === '#text') e.value = (c as DefaultTreeAdapterMap['textNode']).value;
+      else if (c.nodeName === '#comment') e.data = (c as DefaultTreeAdapterMap['commentNode']).data;
+      out.push(e);
+      if (isElement(c)) { visit(c); if (c.tagName === 'template') visit((c as P5Template).content); }
+    }
+  };
+  visit(root);
+  return out;
+}
+function restoreTree(s: FwSnap) {
+  for (const e of s) {
+    const n = e.n as unknown as { parentNode?: P5Parent | null; attrs?: unknown; childNodes?: P5Node[]; content?: { childNodes: P5Node[] }; value?: string; data?: string };
+    if ('parent' in e) n.parentNode = e.parent;
+    if (e.attrs) n.attrs = e.attrs.map((a) => ({ ...a }));
+    if (e.kids) n.childNodes = [...e.kids];
+    if (e.content) n.content!.childNodes = [...e.content];
+    if (e.value !== undefined) n.value = e.value;
+    if (e.data !== undefined) n.data = e.data;
+  }
+}
+/** `fwMarks`: fields a walk changes that `fromWalk` follows itself (functions, templates, ids), or that are no table */
+const FW_IGNORED = new Set(['graphs', 'fns', 'fnAt', 'fnUses', 'fnIndex', 'callAt', 'templates', 'diagnostics', 'nextId', 'nextSid', 'useIds', 'at', 'lastExpr', 'fw', 'walk', 'walked', 'checkFrames', 'checkExprs', 'checkResources', 'keptDepth']);
+/** tables `fromWalk` follows itself (`roots`, by index) */
+const FW_OWN = new Set(['roots']);
+/**
+ * tables a decided branch's walk may not add to: numbered by position (an action's, a resource's, a sync's, a lazy
+ * module's index is in the IR or in code). What it adds to the others is taken out: the definitions it compiled and
+ * what the walk's last steps did with them (fills, choices, sources) are in templates nothing reaches any more
+ */
+const FW_REFUSED = new Set(['actions', 'resources', 'syncs', 'lazyMods']);
+/** plain fields a decided branch's walk may change */
+const FW_CHANGES = new Set<string>([]);
+/** at and above: a kept element's ids (`keptBase`) */
+const KEPT_FROM = 1_000_000;
+/** `fromWalk`: the indexes a block's walk gives its roots, a range per block, before they are put in place */
+const FW_BASE = 10_000_000, FW_SPAN = 100_000;
+
+/** B1: the second pass taken from the first pass's walk where it can be (`fromWalk`) unless `SN_FROM_WALK=0` */
+export function fromWalkOn(): boolean { return fromWalkForced ?? proc?.env.SN_FROM_WALK !== '0'; }
+/** (the audit's old-route compile; the other stages' audits: `withoutFromWalk`) */
+let fromWalkForced: boolean | null = null;
+/**
+ * `f` with B1 off: the audits of the other stages (`SN_RENDER_AUDIT`, `SN_UNITS_AUDIT`, `SN_LINK_AUDIT`) compare two
+ * routes of theirs byte for byte, and B1 would take one of them and not the other (its numbers are another's there);
+ * B1 has its own audit (`SN_FROM_WALK_AUDIT`), against the old route, up to numbering
+ */
+export function withoutFromWalk<T>(f: () => T): T {
+  const was = fromWalkForced;
+  fromWalkForced = false;
+  try { return f(); } finally { fromWalkForced = was; }
+}
+/**
+ * B1 for a template's entries (`entryFromWalk`) only with `SN_FROM_WALK_ENTRIES=1`: a copy of the kept walk costs more
+ * than the second pass it saves where the walk compiled a library's definitions (the blog: 7 ms a copy against 3 ms of
+ * second pass, stage5-b1.md, section 8)
+ */
+export function entriesFromWalk(): boolean { return proc?.env.SN_FROM_WALK_ENTRIES === '1'; }
+/** the second passes `fromWalk` took, and why the others did not; printed at exit with `SN_FROM_WALK_LOG=1` */
+export const FROM_WALK_STATS = { taken: 0, fallback: new Map<string, number>() };
+let fromWalkLogged = false;
+function fromWalkStat(why: string | null) {
+  if (fromWalkForced !== null || passAuditing) return;
+  const file = proc?.env.SN_FROM_WALK_STATS;
+  const w = (globalThis as { __vitest_worker__?: { filepath?: string; current?: { name?: string } } }).__vitest_worker__;
+  if (file) (proc?.getBuiltinModule?.('node:fs') as { appendFileSync(f: string, s: string): void } | undefined)?.appendFileSync(file, `${why ?? 'taken'}${w?.filepath ? `\t${w.filepath.replace(/^.*\/test\//, 'test/')} > ${w.current?.name ?? ''}` : ''}\n`);
+  if (why === null) FROM_WALK_STATS.taken++;
+  else FROM_WALK_STATS.fallback.set(why, (FROM_WALK_STATS.fallback.get(why) ?? 0) + 1);
+  if (!fromWalkLogged && proc?.env.SN_FROM_WALK_LOG === '1') {
+    fromWalkLogged = true;
+    proc.on?.('exit', () => console.error(`sinter from walk: ${FROM_WALK_STATS.taken} second passes from the first pass's walk; compiled again: ${JSON.stringify(Object.fromEntries(FROM_WALK_STATS.fallback))}`));
+  }
+}
+
+/**
+ * `SN_FROM_WALK_AUDIT=1`: a page whose second pass came from its first pass's walk compiled the old way beside it; the
+ * two must be the same up to numbering (`canonicalText`), the first difference thrown
+ */
+function fromWalkAudit(html: string, options: CompileOptions, out: CompiledParts, routed: boolean) {
+  const spliced = RENDER_STATS.spliced;
+  fromWalkForced = false;
+  passAuditing = true;
+  let was: CompiledParts;
+  const pass = { first: null as Compiler | null };
+  try { was = compileTwice(html, options, pass); } finally { if (pass.first) restoreUnit(pass.first); fromWalkForced = null; passAuditing = false; RENDER_STATS.spliced = spliced; }
+  // (a page the route was not taken for: byte for byte)
+  const raw = (r: CompiledParts) => JSON.stringify(r, (_, v) => (typeof v === 'function' ? '[fn]' : v instanceof Map ? [...v] : v instanceof Set ? [...v] : v));
+  const a = routed ? canonicalText(out) : raw(out), b = routed ? canonicalText(was) : raw(was);
+  if (a === b) return;
+  let i = 0;
+  while (a[i] === b[i]) i++;
+  throw new Error(`sinter from-walk audit: ${options.file}: ${routed ? 'the second pass from the first pass\'s walk differs from the second pass, up to numbering' : 'a second pass with the walk not taken differs from the old route'}, at ${i}:\n  from the walk ${a.slice(Math.max(0, i - 200), i + 200)}\n  second pass   ${b.slice(Math.max(0, i - 200), i + 200)}`);
 }
 
 /** `keepTemplate`: the expansion copied before the kept walk goes on */
@@ -1404,10 +1564,51 @@ function secondPass(html: string, opts: CompileOptions, kept: KeptExpansion | un
   return out;
 }
 
+/** an entry's evaluation, which a copy of the kept walk for the route from the walk starts with empty (`fromWalk` clears it) */
+const FW_FRESH = new Set(['decided', 'undecided', 'unrolls', 'foldReads', 'overLimit', 'constants', 'constantSites', 'rowPaint', 'foldWhy', 'painted', 'tplPainted', 'paintValue', 'textFolded', 'rendered', 'unrendered', 'foldedFields']);
+
+/**
+ * B1: an entry of a kept template whose evaluation decided only page-level branches and rendered rows: its page from
+ * a copy of the kept walk (`copyState`, the walk's side tables listed once per template), made into the second pass's
+ * there (`fromWalk`), instead of walking the kept expansion again. Null: the usual second pass (`secondPass`), counted
+ * with why. `SN_FROM_WALK_AUDIT=1`: the old route beside it, the same up to numbering.
+ */
+function entryFromWalk(t: KeptTemplate, next: CompileOptions, again: () => CompiledParts): CompiledParts | null {
+  const c = t.c;
+  if (!c.fw || !fromWalkOn() || !entriesFromWalk()) return null;
+  const dry = c.fromWalk(next, true);
+  if (dry) { fromWalkStat(dry.why); return null; }
+  const r = copyState(c, next, [], t.walked, FW_FRESH);
+  if ('refused' in r) { fromWalkStat(r.refused); return null; }
+  t.walked ??= r.sources;
+  // (not `forEntry`: the walk took the page's path off `<html>` as it walked it)
+  const d = r.c;
+  if (!d.entryUrls()) { fromWalkStat('an entry\'s canonical link of another kind'); return null; }
+  const res = d.fromWalk(next);
+  fromWalkStat(res?.why ?? null);
+  if (res) return null;
+  const out = d.finishWalked();
+  if (proc?.env.SN_FROM_WALK_AUDIT === '1') {
+    const spliced = RENDER_STATS.spliced;
+    passAuditing = true;
+    let was: CompiledParts;
+    try { was = again(); } finally { passAuditing = false; RENDER_STATS.spliced = spliced; }
+    const a = canonicalText(out), b = canonicalText(was);
+    if (a !== b) {
+      let i = 0;
+      while (a[i] === b[i]) i++;
+      throw new Error(`sinter from-walk audit: ${next.file} (${next.page?.path}): an entry from a copy of the kept walk differs from its second pass, up to numbering, at ${i}:\n  from the walk ${a.slice(Math.max(0, i - 200), i + 200)}\n  second pass   ${b.slice(Math.max(0, i - 200), i + 200)}`);
+    }
+  }
+  return out;
+}
+
 /** the template walked as one entry's first pass, up to its evaluation; null when its entries cannot share it */
 function keepTemplate(html: string, options: CompileOptions): KeptTemplate | null {
   // (not linked: the walk is kept for every entry already, and the one that checks it would only record what none replays)
   const c = new Compiler({ ...options, definitions: undefined, units: undefined });
+  // (B1: its page-level branches recorded, for each entry's second pass from a copy of this walk: `entryFromWalk`)
+  if (fromWalkOn() && entriesFromWalk() && !options.dev) c.fw = { anchors: [], byEl: new Map() };
   const doc = c.expandPage(html);
   // (the expansion is the same in both passes: each entry's second pass goes on from a copy of it)
   const expanded = onePassOn() ? keptExpansion(c, doc) : undefined;
@@ -1461,7 +1662,10 @@ function fromTemplate(html: string, options: CompileOptions): CompiledParts | nu
   const pass = (folds?: Map<string, unknown>) => {
     // (the audit's old route: evaluated again, since a second pass splices the rendered blocks it is handed and changes them)
     const again = () => { c.decideFor({ ...options, foldLog: undefined }); const o2 = passOptions(folds), c2 = new Compiler(o2); return unitPass(c2, () => c2.run(html), () => new Compiler(o2).run(html)); };
-    return secondPass(html, passOptions(folds), t.expanded, again);
+    // (B1: from a copy of the kept walk, when what it decided for this entry is only page-level branches and rendered
+    // rows, and no value is folded into code)
+    if (folds && c.fw && fromWalkOn() && entriesFromWalk()) fromWalkStat('values folded into the code');
+    return (folds ? null : entryFromWalk(t, passOptions(), again)) ?? secondPass(html, passOptions(folds), t.expanded, again);
   };
   const folds = c.foldValues();
   let out = pass(folds);
@@ -1491,9 +1695,18 @@ function compilePasses(html: string, options: CompileOptions): CompiledParts & {
 
 function compileTwice(html: string, options: CompileOptions, pass: { first: Compiler | null; described?: CompiledParts['firstPrefetch'] }): CompiledParts & { canonicalOnly?: boolean } {
   let first = pass.first = new Compiler(options);
+  const twice = !!options.prerender && !options.decided && !options.unrolled;
+  // B1: the page-level branches recorded as the walk meets them, for a second pass from this walk (`fromWalk`)
+  const recording = twice && fromWalkOn() && !options.dev && !options.describeOnly && !options.constants;
+  if (recording) first.fw = { anchors: [], byEl: new Map() };
   let walk = first.walkPage(html);
   if (options.prefetchLater) pass.described = first.firstPrefetch();
-  first.settle();
+  // (evaluated without writing into its markup, which the second pass from this walk compiles as it was walked: when
+  // that may be its output; else as before)
+  const notFromWalk = !recording ? null : first.placedUnit || first.earlyDefs ? 'a unit placed' : !first.fwPlausible() ? 'no branch the build may decide' : null;
+  const fromWalk = recording && !notFromWalk;
+  if (fromWalk) first.decideOnly();
+  else first.settle();
   // loops over constants: unrolled only when the first pass is clean (the second one compiles the rows with their item)
   // (SN322 does not count: what the first pass found running may be a loop the second one unrolls)
   const isClean = () => !first.diagnostics.some((d) => d.severity === 'error' && d.code !== 'SN322');
@@ -1513,36 +1726,87 @@ function compileTwice(html: string, options: CompileOptions, pass: { first: Comp
     if (constants) for (const s of first.constantSites) frozen.add(s);
     // (counted: a page of its own, or a template's entry its kept walk does not serve, parses and expands again)
     passStat(!options.page ? 'a page of its own' : options.templates ? 'an entry compiled alone' : 'an entry, no kept templates');
+    // (counted too: why the walk was not kept for it)
+    if (notFromWalk) fromWalkStat(notFromWalk);
     const pass = (f: Map<string, unknown> | undefined) => {
       const o2: CompileOptions = { ...options, decided: first.decided, ...(f ? { folds: f } : {}), ...(unrolled ? { unrolled } : {}), ...(first.rendered.size ? { rendered: first.rendered } : {}), ...(first.unrendered.size ? { unrendered: first.unrendered } : {}), ...(constants ? { constants } : {}), ...(first.overLimit.size ? { overLimit: first.overLimit } : {}), frozen };
       const c2 = new Compiler(o2);
-      return unitPass(c2, () => c2.run(html), () => new Compiler(o2).run(html));
+      return unitPass(c2, () => appliedLog(first, options, !!constants, () => c2.run(html)), () => new Compiler(o2).run(html));
     };
     const out = pass(folds);
     // a component script that may change what was written into the code: the reads stay reads (`foldsEscape`)
     if (!folds || !foldsEscape(out, folds)) return out;
     return first.decided.size || unrolled || constants ? pass(undefined) : null;
   };
-  const twice = !!options.prerender && !options.decided && !options.unrolled;
+  // B1: the second pass from this walk (`fromWalk`), when the first decided only page-level branches and rendered rows,
+  // and folds no value into code; else, as before with the decisions it took (the evaluation that writes into its markup
+  // again where its output or its constants need it)
+  if (twice && fromWalk) {
+    const quiet = first.quietFinish() && (!first.placedUnit || first.checkOrder);
+    const loops = first.unrolls.size > 0, consts = first.constants.size > 0;
+    // (values folded into code: the walk compiled none, so only where no code left for the browser reads one, `foldGain`)
+    const values = first.foldValues(), folds = values && first.foldGain(values) ? values : undefined;
+    // (a loop unrolled only in a clean first pass, which a first pass that is not quiet knows once it is finished)
+    const clean = isClean(), unrolled = loops && clean;
+    const next: CompileOptions | null = !consts && !first.needsMarkup && !folds && (!loops || quiet) && (first.decided.size || unrolled) ? {
+      ...options, decided: new Map(first.decided), ...(unrolled ? { unrolled: new Map(first.unrolls) } : {}), ...(first.rendered.size ? { rendered: new Map(first.rendered) } : {}),
+      ...(first.unrendered.size ? { unrendered: new Map(first.unrendered) } : {}), ...(first.overLimit.size ? { overLimit: new Map(first.overLimit) } : {}), frozen: first.foldedState(),
+    } : null;
+    if (next) {
+      // (the type check reads the first pass's unit as its walk made it: its lists' lengths before the walk is taken on,
+      // which only adds to them; and the first pass's errors, as the second pass's output is given them)
+      const check = first.check, lens = check && [check.frames.length, check.exprs.length, check.resources.length];
+      const errors = { diagnostics: first.diagnostics.slice() } as unknown as Compiler;
+      const r = first.fromWalk(next);
+      fromWalkStat(r?.why ?? null);
+      if (check && r?.spent !== false) { check.frames.length = lens![0]!; check.exprs.length = lens![1]!; check.resources.length = lens![2]!; }
+      if (!r || r.spent || quiet) {
+        let got: CompiledParts & { canonicalOnly?: boolean };
+        if (!r) got = first.finishPage(walk);
+        else {
+          passStat(!options.page ? 'a page of its own' : options.templates ? 'an entry compiled alone' : 'an entry, no kept templates');
+          const c2 = new Compiler(next);
+          got = unitPass(c2, () => c2.run(html), () => new Compiler(next).run(html));
+        }
+        const out = withFirstErrors(errors, check ? { ...got, check } : got);
+        if (proc?.env.SN_FROM_WALK_AUDIT === '1') fromWalkAudit(html, options, out, !r);
+        return out;
+      }
+    } else fromWalkStat(first.needsMarkup || consts ? 'constants the layout or the images read (prefold)' : folds ? 'values folded into the code' : loops && !quiet ? 'a loop unrolled on a page that is not quiet' : 'nothing decided');
+    // (the old route from here, with these decisions where they are all it reads)
+    if (!quiet || first.needsMarkup || folds || !(first.decided.size || unrolled || consts)) first.settleAgain();
+  }
   // a second pass whatever the rest of the first one does: nothing of that rest is read (its markup, its tables, its
   // diagnostics), so the first stops at its decisions. Known only when the rest cannot report an error (`quietFinish`)
   // (the type check reads the first pass's unit, below: the walk made all of it, `finishPage` adds nothing to it; with a
   // unit placed, only where the walk took the unit's check data in its order: `units.ts`)
   if (twice && first.quietFinish() && (!first.placedUnit || first.checkOrder)) {
-    const out = second(isClean());
-    if (out) return withFirstErrors(first, first.check ? { ...out, check: first.check } : out);
+    const got = second(isClean()), out = got && withFirstErrors(first, first.check ? { ...got, check: first.check } : got);
+    if (out && fromWalk && proc?.env.SN_FROM_WALK_AUDIT === '1') fromWalkAudit(html, options, out, false);
+    if (out) return out;
   }
   // a first pass that is finished (its output, or its diagnostics read): compiled again without the build's units, whose
   // objects it shares and whose numbers would then reach the output (`units.ts`)
+  // (A2, stage5-a1.md: compiled again with a finished unit of its own, as a second pass places one, its output copied
+  // off it; not under the type check, whose unit this pass's output carries and a finished unit has no part of)
+  let finished: CompiledParts & { canonicalOnly?: boolean } | null = null;
   if (first.placedUnit || first.earlyDefs) {
     unitFallback('a first pass that is finished');
     restoreUnit(first);
-    first = pass.first = new Compiler({ ...options, units: undefined });
-    walk = first.walkPage(html);
-    if (options.prefetchLater) pass.described = first.firstPrefetch();
-    first.settle();
+    const again = (units: boolean) => {
+      first = pass.first = new Compiler(units ? options : { ...options, units: undefined });
+      if (units) first.finishedFirst = true;
+      walk = first.walkPage(html);
+      if (options.prefetchLater) pass.described = first.firstPrefetch();
+      first.settle();
+    };
+    if (options.units && units2On() && !options.check && !options.dev) {
+      const c = new Compiler(options);
+      finished = unitPass(c, () => { first = pass.first = c; c.finishedFirst = true; walk = c.walkPage(html); if (options.prefetchLater) pass.described = c.firstPrefetch(); c.settle(); return c.finishPage(walk, true); },
+        () => { again(false); return first.finishPage(walk, true); });
+    } else again(false);
   }
-  const out = first.finishPage(walk, true);
+  const out = finished ?? first.finishPage(walk, true);
   // `data-sn-if` templates over state nothing writes: decided now, the page compiled again with their branches in place
   const withLate = (o: typeof out) => (o.lateDiagnostics ? { ...o, diagnostics: [...o.diagnostics, ...o.lateDiagnostics] } : o);
   if (!twice) { SHIFT_STATS.first ||= first.hasDefinitions() || proc?.env.SN_UNITS_SHIFT_AT === 'walk'; return withLate(out); }
@@ -1806,6 +2070,8 @@ class Compiler {
   unitStale: string | null = null;
   /** a second pass run by `unitPass`, which copies its output off a unit of its own and gives the unit back: only such a pass places one */
   unitHeld = false;
+  /** a first pass compiled again to be the page's output (A2, `compileTwice`): it places a unit as a second pass does */
+  finishedFirst = false;
   /** a second pass with a unit: the definitions its walk asked for, each of which the unit must hold and no other (`finishPage`) */
   readonly defsAsked = new Set<string>();
   /** what this page changed of its unit's objects, as they were (`touch`, `restoreUnit`) */
@@ -2111,6 +2377,9 @@ class Compiler {
   remoteUsed = false;
   readonly remoteWidths = new Set<number>();
 
+  /** B1 (stage5-b1.md): the page-level branches and loops the first pass's walk recorded, for `fromWalk`; null when not recording */
+  fw: FromWalk | null = null;
+
   constructor(readonly opts: CompileOptions) {
     this.checkParts = opts.check && opts.units && unitsOn() ? [] : null;
     this.check = !opts.check ? null : this.checkParts
@@ -2280,13 +2549,18 @@ class Compiler {
     // builds: the page's definitions from the build's units, before anything is numbered (`units.ts`); in a second pass
     // (whose numbers ship) a unit of its own, held whole and given back after the page's output is copied (stage5-a1.md)
     // (a second pass's: the definitions of the points left in its tree, which its walk compiles, `livePoints`)
-    // (only a second pass that gives its unit back after its output, `unitPass`: any other compiles as before)
-    const live = second && this.unitHeld && this.opts.units && unitsOn() && units2On() && !this.opts.describeOnly && !this.opts.dev ? this.livePoints(doc) : null;
-    if (this.opts.units && unitsOn() && (!second || live?.size) && !this.opts.describeOnly && !this.opts.dev) {
-      this.placedUnit = placeUnits(this, this.opts.units as UnitStore, [this.keepsAttrs, this.opts.locale?.name ?? '', this.page.axisUrl ?? ''].join('\u0001'), second, live ?? undefined);
-      if (second) holdUnit(this);
+    // (only a second pass that gives its unit back after its output, `unitPass`: any other compiles as before; a first
+    // pass that is finished, compiled again to be the output, places one as a second pass does: A2)
+    const ships = second || this.finishedFirst;
+    // (not with a source map: a function the page and the unit both write is at the unit's place, which comes first,
+    // where the old route has the page's when the page wrote it first: another site, not another number. Counted)
+    if (ships && this.unitHeld && this.opts.units && this.opts.sourcemap && unitsOn() && units2On() && !this.opts.describeOnly && !this.opts.dev && this.livePoints(doc).size) unitFallback('pass 2: a source map');
+    const live = ships && this.unitHeld && !this.opts.sourcemap && this.opts.units && unitsOn() && units2On() && !this.opts.describeOnly && !this.opts.dev ? this.livePoints(doc) : null;
+    if (this.opts.units && unitsOn() && (!ships || live?.size) && !this.opts.describeOnly && !this.opts.dev) {
+      this.placedUnit = placeUnits(this, this.opts.units as UnitStore, [this.keepsAttrs, this.opts.locale?.name ?? '', this.page.axisUrl ?? '', this.finishedFirst ? 'first' : ''].join('\u0001'), ships, live ?? undefined);
+      if (ships) holdUnit(this);
       // (a unit refused after its definitions were compiled here: the page compiled again without one, `compileTwice`)
-      if (second && !this.placedUnit && this.earlyDefs) this.unitStale = 'its unit refused';
+      if (ships && !this.placedUnit && this.earlyDefs) this.unitStale = 'its unit refused';
     }
     this.walkChildren(doc, { scope: { loops: [], states: [] }, list: this.roots, tid: -1, path: [], stateIdx: -1 });
     this.finishTreeFills();
@@ -2295,26 +2569,7 @@ class Compiler {
     this.resolveSources();
     this.fileUses();
     this.applyAliases();
-    // the component's name on its root: in dev builds for devtools, and on pages with scoped styles,
-    // which start at the roots and stop at other components' roots and at slot content (`data-sn-s`)
-    const styled = [...this.uses.keys()].filter((n) => this.componentFiles.get(n)?.css);
-    if (this.opts.dev || styled.length) for (const list of this.uses.values()) for (const u of list) {
-      if (u.head) continue;
-      // a chain root: each branch carries it; a fill that is the root is the caller's markup, and a component tag's root the inner
-      // component's (a branch of its own markup is its own, slot content of an outer use or not: a choice's case in a fill)
-      for (const el of u.shape ? landingOf(u.shape).filter((e) => !this.slotOf.has(e) || this.origins.get(e)?.file === this.componentFiles.get(u.name)?.file) : [u.root]) { this.touchMark(el); setAttr(el, 'data-sn-c', u.name); }
-    }
-    // an element that is also the root of outer components (through their tag as root): their names, for their root rules
-    if (styled.length) for (const list of this.uses.values()) for (const u of list) for (const el of this.rootMarked(u)) {
-      const outer = [...new Set((this.landing.get(el) ?? []).filter((x) => x.name !== u.name && this.componentFiles.get(x.name)?.css).map((x) => x.name))];
-      if (outer.length) { this.touchMark(el); setAttr(el, 'data-sn-r', outer.join(' ')); for (const n of outer) this.rootStyled.add(n); }
-    }
-    // a copy of a root (a row of an unrolled loop): its marks are its original's, so its scoped styles apply to it too
-    if (this.opts.dev || styled.length) for (const [from, copy] of this.rootCopies) for (const n of ['data-sn-c', 'data-sn-r']) {
-      const v = attr(from, n);
-      if (v !== undefined && attr(copy, n) === undefined) { this.touchMark(copy); setAttr(copy, n, v); }
-    }
-    if (styled.length) for (const x of this.slotEls) if (attr(x.el, 'data-sn-c') === undefined) { this.touchMark(x.el); setAttr(x.el, 'data-sn-s', x.caller); }
+    this.markScoped();
 
     for (const [name, id] of this.embedded) {
       const r = this.resources.find((x) => x.name === name);
@@ -2340,6 +2595,30 @@ class Compiler {
     this.markLowPriority();
     this.walked = this.diagnostics.length;
     return (this.walk = { doc, images, paths });
+  }
+
+  /** after the walk: the marks of components' roots and slot content that scoped styles and devtools read (`walkExpanded`; `fromWalk` again for the markup it walks) */
+  markScoped() {
+      // the component's name on its root: in dev builds for devtools, and on pages with scoped styles,
+      // which start at the roots and stop at other components' roots and at slot content (`data-sn-s`)
+      const styled = [...this.uses.keys()].filter((n) => this.componentFiles.get(n)?.css);
+      if (this.opts.dev || styled.length) for (const list of this.uses.values()) for (const u of list) {
+        if (u.head) continue;
+        // a chain root: each branch carries it; a fill that is the root is the caller's markup, and a component tag's root the inner
+        // component's (a branch of its own markup is its own, slot content of an outer use or not: a choice's case in a fill)
+        for (const el of u.shape ? landingOf(u.shape).filter((e) => !this.slotOf.has(e) || this.origins.get(e)?.file === this.componentFiles.get(u.name)?.file) : [u.root]) { this.touchMark(el); setAttr(el, 'data-sn-c', u.name); }
+      }
+      // an element that is also the root of outer components (through their tag as root): their names, for their root rules
+      if (styled.length) for (const list of this.uses.values()) for (const u of list) for (const el of this.rootMarked(u)) {
+        const outer = [...new Set((this.landing.get(el) ?? []).filter((x) => x.name !== u.name && this.componentFiles.get(x.name)?.css).map((x) => x.name))];
+        if (outer.length) { this.touchMark(el); setAttr(el, 'data-sn-r', outer.join(' ')); for (const n of outer) this.rootStyled.add(n); }
+      }
+      // a copy of a root (a row of an unrolled loop): its marks are its original's, so its scoped styles apply to it too
+      if (this.opts.dev || styled.length) for (const [from, copy] of this.rootCopies) for (const n of ['data-sn-c', 'data-sn-r']) {
+        const v = attr(from, n);
+        if (v !== undefined && attr(copy, n) === undefined) { this.touchMark(copy); setAttr(copy, n, v); }
+      }
+      if (styled.length) for (const x of this.slotEls) if (attr(x.el, 'data-sn-c') === undefined) { this.touchMark(x.el); setAttr(x.el, 'data-sn-s', x.caller); }
   }
 
   /**
@@ -2429,6 +2708,41 @@ class Compiler {
   settle() {
     this.buildOnlyInIfs();
     if (this.opts.prerender) { this.prerender(); this.embedFolded(); this.dropConstants(); this.dropFiles(); this.foldScriptsOut(); if (this.collecting()) this.collectConstants(); }
+  }
+
+  /** B1: `settle`'s evaluation, deciding only (`prerender(true)`), as `decideFor` evaluates a kept template's entry */
+  decideOnly() {
+    this.buildOnlyInIfs();
+    if (!this.opts.prerender) return;
+    this.prerender(true);
+    this.needsMarkup = this.collecting() && this.constantSources().some(({ s }) => !s.bindings.every((b) => this.rowPaint.has(b)) && s.bindings.every((b) => this.paintValue.has(b)));
+    if (this.collecting() && !this.needsMarkup) this.collectConstants(true);
+  }
+
+  /** after `decideOnly`: evaluated again, writing (`settle`), when its own output or its constants are needed after all */
+  settleAgain() {
+    this.diagnostics.length = this.walked;
+    for (const m of [this.decided, this.undecided, this.unrolls, this.foldReads, this.overLimit, this.constants, this.constantSites, this.rowPaint, this.foldWhy, this.painted, this.tplPainted, this.paintValue, this.textFolded, this.rendered, this.unrendered]) m.clear();
+    this.foldedFields.length = 0;
+    this.needsMarkup = false;
+    this.settle();
+  }
+
+  /**
+   * B1: whether the evaluation may decide a page-level branch the walk recorded (`prerender`'s candidates: a condition
+   * over constants and state nothing writes, or `$build`) or render a loop, so that the second pass may come from this walk
+   */
+  fwPlausible(): boolean {
+    if (!this.fw?.anchors.length || !this.opts.prerender) return false;
+    const written = this.writtenState();
+    const fixed = (ds: PathRef[] | undefined) => strs(ds).every((d) => {
+      if (this.fileConstant(d)) return true;
+      if (d === '$locale' && this.opts.helperFold) return true;
+      const m = /^\$s(\d+)\.([^.]+)/.exec(d);
+      return !!m && m[2] !== '*' && m[2] !== '**' && !written.has(`$s${m[1]}`) && !written.has(`$s${m[1]}.${m[2]}`);
+    });
+    // (or a loop over constants, which it may render)
+    return this.fw.anchors.some((a) => a.node?.b.some((b) => b.f !== undefined && (b.k === 'if' ? fixed(b.d) || this.fns[b.f]!.includes('$.$build') : b.k === 'for' && !b.e && fixed(b.d))));
   }
 
   /**
@@ -2677,6 +2991,39 @@ class Compiler {
    */
   forEntry() {
     if (this.pagesDecl && this.opts.page) setAttr(this.pagesDecl.html, 'data-sn-path', this.opts.page.path);
+  }
+
+  /** `entryFromWalk`: the page finished from its walk (`fromWalk` made it the second pass's) */
+  finishWalked(): CompiledParts & { canonicalOnly?: boolean } { return this.finishPage(this.walk!); }
+
+  /**
+   * A copy of a kept walk, for an entry (`entryFromWalk`): what the walk wrote for the entry the template was kept for,
+   * written for this one: its paths (`pathPatterns`), its canonical link (`canonical`). False when this entry's are of
+   * another kind (a diagnostic about its path; one canonical link the early script writes, the other the build).
+   */
+  entryUrls(): boolean {
+    // the page's path, this entry's (`pathPatterns`, which reads it off `<html>` before the walk takes it off)
+    if (this.pagesDecl && this.opts.page && this.walk) {
+      const html = this.pagesDecl.html, d0 = this.diagnostics.length;
+      setAttr(html, 'data-sn-path', this.opts.page.path);
+      const paths = this.pathPatterns(this.walk.doc as DefaultTreeAdapterMap['document']);
+      html.attrs = html.attrs.filter((a) => a.name !== 'data-sn-path');
+      if (this.diagnostics.length > d0) return false;
+      this.walk.paths = paths;
+      this.pathList = paths;
+    }
+    const u = this.opts.urls;
+    if (!u) return true;
+    const was = this.page.urls;
+    this.page.urls = { ...u };
+    const head = this.head;
+    const link = head?.childNodes.find((n): n is P5Element => isElement(n) && n.tagName === 'link' && (attr(n, 'rel') ?? '').toLowerCase().split(/\s+/).includes('canonical'));
+    if (!link) return true;
+    // the author's: the same for every entry
+    if (link.sourceCodeLocation) { const href = attr(link, 'href') ?? ''; if (/^https?:\/\//i.test(href)) this.page.urls.canonical = href; return true; }
+    if ((u.canonical === null) !== (was?.canonical === null)) return false;
+    if (u.canonical !== null) setAttr(link, 'href', u.canonical);
+    return true;
   }
 
   /** A kept template (`fromTemplate`): whether its program is the same for every entry (no entry's URL in it). */
@@ -5840,12 +6187,15 @@ class Compiler {
 
   // ---- main walk
 
-  walkChildren(parent: P5Parent, ctx: Ctx) {
-    for (const chain of this.emptyDefaults.get(parent) ?? []) this.fillScope(chain, ctx.scope, null, this.instOf(parent as P5Node));
-    this.emptyStates(parent, false);
+  /** `range`: only the children from `from` up to `to` (excluded), as they were when it began (`fromWalk`'s markup) */
+  walkChildren(parent: P5Parent, ctx: Ctx, range?: { from: number; to: number }) {
+    if (!range) {
+      for (const chain of this.emptyDefaults.get(parent) ?? []) this.fillScope(chain, ctx.scope, null, this.instOf(parent as P5Node));
+      this.emptyStates(parent, false);
+    }
     let lastIf: { node: NodeDef; binding: Binding } | null = null;
-    const kids = parent.childNodes;
-    for (let i = 0; i < kids.length; i++) {
+    const kids = parent.childNodes, len0 = kids.length;
+    for (let i = range?.from ?? 0; i < (range ? range.to + kids.length - len0 : kids.length); i++) {
       const child = kids[i]!;
       if (!isElement(child)) {
         if (child.nodeName === '#text' && (child as DefaultTreeAdapterMap['textNode']).value.trim() === '') continue;
@@ -5889,7 +6239,10 @@ class Compiler {
       const saved = this.nextId;
       if (kept && /^[A-Za-z][\w-]*$/.test(kept)) this.nextId = keptBase(kept);
       if (kept) this.keptDepth++;
+      // (B1: a page-level branch or loop, recorded for the second pass from this walk: `fromWalk`)
+      const fw = ctx.tid < 0 && child.tagName === 'template' && !this.keptDepth && this.fw ? this.fwStart(child, ctx) : null;
       const res = this.element(child, ctx, i, lastIf);
+      if (fw) this.fwEnd(fw);
       if (kept) this.keptDepth--;
       if (kept && this.nextId !== saved) {
         this.keptNext.set(kept, this.nextId);
@@ -6592,6 +6945,7 @@ class Compiler {
       this.fnAt[i] = this.codeAt.get(code) ?? (site !== undefined ? site : this.at);
     }
     this.fnUses[i] = (this.fnUses[i] ?? 0) + 1;
+    if (FW_COUNTING) FW_COUNTING.set(i, (FW_COUNTING.get(i) ?? 0) + 1);
     if (this.opts.dev) this.callAt.set(i, site !== undefined ? site : this.at);
     return i;
   }
@@ -10462,7 +10816,9 @@ class Compiler {
       };
       const key = c.tagName === 'template' && attr(c, 'data-sn-if') !== undefined ? this.instKey(c) : null;
       const v = key ? decided?.get(pre + key) : undefined;
+      const where = inTemplate ? 'template' : row ? 'row' : pre ? 'instance' : at !== undefined ? 'instance' : 'page';
       if (v !== undefined) {
+        applied(`if:${where}`);
         this.foldedText.push(attr(c, 'data-sn-if')!, this.emptyOf.get(c)?.list ?? '');
         const j = parent.childNodes.findIndex((x, k) => k > i && real(x));
         const other = j >= 0 && isElement(parent.childNodes[j]!) && (parent.childNodes[j] as P5Element).tagName === 'template' && attr(parent.childNodes[j] as P5Element, 'data-sn-else') !== undefined ? parent.childNodes[j] as P5Element : null;
@@ -10474,15 +10830,17 @@ class Compiler {
       // a tree over the expansion limit, which the first pass reported: reported here too, since this pass's warnings are the build's
       const over = this.opts.overLimit?.get(pre + (ck ?? (c.tagName === 'template' && attr(c, 'data-sn-for') !== undefined ? this.instKey(c) ?? '' : '')));
       if (over !== undefined) this.expansionWarning(c, over, !ck);
-      if (ck && decided?.get(pre + ck) === false) { place([], 1); continue; }
+      if (over !== undefined) applied('over limit');
+      if (ck && decided?.get(pre + ck) === false) { applied(`choice dropped:${where}`); place([], 1); continue; }
       // a choice's case, or a recursion point, that the first pass expanded: the component's markup here, as a use,
       // whose own templates are decided and unrolled as the loop goes on over them (item 5)
       const point = this.points.get(c);
       const pk = point && !choice ? this.instKey(c) : null;
-      if (ck && decided?.get(pre + ck) === true && splice(ck, '', 0)) continue;
+      if (ck && decided?.get(pre + ck) === true && splice(ck, '', 0)) { applied('choice rendered'); continue; }
       if ((ck && decided?.get(pre + ck) === true) || (pk && unrolled?.has(pre + pk))) {
         const before = parent.childNodes.length, start = this.scopeStart.get(c);
         if (!pre && !row && at === undefined) this.oldRoute((ck ?? pk)!, 1);
+        applied(`${ck ? 'choice' : 'point'} inlined:${where}`);
         if (this.inlineInstance(c, point!)) {
           const inst = `${pre}${ck ?? pk}#0/`, nodes = parent.childNodes.slice(i, i + parent.childNodes.length - before + 1);
           this.inheritSlot(c, nodes);
@@ -10506,7 +10864,8 @@ class Compiler {
       if (m) {
         if (!items!.length) this.foldedText.push(value!.slice(m[0].length));
         // rows the first pass rendered: their markup, and what compiling them would have done that the page keeps
-        if (splice(tkey!, value!.slice(m[0].length), m[0].length)) continue;
+        if (splice(tkey!, value!.slice(m[0].length), m[0].length)) { applied('loop rendered'); continue; }
+        applied(`loop unrolled:${where}`);
         // (the old route, outside rows: counted, with the first pass's reason)
         if (!pre && !row && at === undefined) this.oldRoute(tkey!, items!.length);
         const rows: P5Node[] = [];
@@ -11108,6 +11467,373 @@ class Compiler {
       if (key) out.add(`${key}#${m![2]}`);
     }
     return out;
+  }
+
+  // ---- B1: the second pass from the first pass's walk (redesign-notes/stage5-b1.md)
+
+  /**
+   * The tables of the compiler and of its page info, and its plain fields, as `fwMarks` reads them: their names, and
+   * the objects (each walk's marks are a list of numbers and values in this order)
+   */
+  fwFields(): FwField[] {
+    const fw = this.fw!;
+    if (fw.fields) return fw.fields;
+    const out: FwField[] = [];
+    // (the objects are not kept in it: a copy of the compiler, `copyState`, copies this list too)
+    const take = (pre: string, o: Record<string, unknown>) => {
+      const page = !!pre;
+      for (const f of Object.keys(o)) {
+        if (!pre && FW_IGNORED.has(f)) continue;
+        const v = o[f];
+        // (a field that is a table is one for good; a plain one, read as it is)
+        if (Array.isArray(v)) out.push({ k: pre + f, page, f, t: 0 });
+        else if (v instanceof Map || v instanceof Set) out.push({ k: pre + f, page, f, t: 1 });
+        else if (v === null || (typeof v !== 'object' && typeof v !== 'function')) out.push({ k: pre + f, page, f, t: 2 });
+      }
+    };
+    take('', this as unknown as Record<string, unknown>);
+    take('page.', this.page as unknown as Record<string, unknown>);
+    return (fw.fields = out);
+  }
+
+  /** each of `fwFields`: a table's size, a plain field's value (read by a function made once per list of fields) */
+  fwMarks(): unknown[] {
+    const fs = this.fwFields();
+    const fw = this.fw!;
+    if (!fw.read) { const key = fs.map((x) => `${x.t}${x.k}`).join(','); fw.read = FW_READERS.get(key) ?? fwReader(key, fs); }
+    return fw.read(this, this.page);
+  }
+
+  /** the walk is at a page-level `<template>` (`walkChildren`): a branch or a loop is recorded, its markup as it is before its walk */
+  fwStart(el: P5Element, ctx: Ctx): FwAnchor | null {
+    const kind: FwAnchor['kind'] | null = attr(el, 'data-sn-for') !== undefined ? 'for' : attr(el, 'data-sn-if') !== undefined ? 'if' : attr(el, 'data-sn-else') !== undefined ? 'else' : null;
+    if (!kind) return null;
+    const unused: string[] = [];
+    for (const r of this.page.resources.values()) if (!r.used) unused.push(r.name);
+    const a: FwAnchor = {
+      el, kind, elseIf: kind === 'if' && attr(el, 'data-sn-else') !== undefined, ctx, node: null,
+      snap: kind === 'for' ? null : snapTree((el as P5Template).content), marks: this.fwMarks(),
+      d0: this.diagnostics.length, d1: 0, f0: this.fns.length, uses: new Map(), added: new Map(), changed: [], used: unused, p0: this.paints.length,
+    };
+    FW_COUNTING = a.uses;
+    return a;
+  }
+
+  /** `fwStart`'s template walked: what its walk added to each table (a list's range, a map's or a set's sizes), and what else it changed */
+  fwEnd(a: FwAnchor) {
+    FW_COUNTING = null;
+    a.d1 = this.diagnostics.length;
+    for (let i = a.p0; i < this.paints.length; i++) if (this.paints[i]!.el === a.el) { a.node = this.paints[i]!.node; break; }
+    const fs = this.fwFields(), m = a.marks;
+    const me = this as unknown as Record<string, unknown>, page = this.page as unknown as Record<string, unknown>;
+    for (let i = 0; i < fs.length; i++) {
+      const x = fs[i]!, v = (x.page ? page : me)[x.f], v0 = m[i];
+      const v1 = x.t === 0 ? (v as unknown[]).length : x.t === 1 ? (v as Set<unknown>).size : v;
+      if (v1 === v0) continue;
+      if (x.t < 2 && (v1 as number) > (v0 as number)) a.added.set(x.k, [v0 as number, v1 as number]);
+      else a.changed.push(x.k);
+    }
+    a.used = a.used.filter((n) => this.page.resources.get(n)?.used);
+    this.fw!.anchors.push(a);
+    this.fw!.byEl.set(a.el, a);
+  }
+
+  /** a table of the compiler (`k`), or of its page info (`page.k`) */
+  fwField(k: string): unknown {
+    return k.startsWith('page.') ? (this.page as unknown as Record<string, unknown>)[k.slice(5)] : (this as unknown as Record<string, unknown>)[k];
+  }
+
+  /**
+   * B1: this first pass, walked and evaluated without writing (`decideOnly`), made into what the second pass would
+   * have walked (`next`: its options): each decided page-level branch replaced by the markup of the branch it keeps,
+   * restored to what it was before this walk compiled it as a template and walked again as the page's, in the place
+   * and the scope it was in; what the walks of the templates it drops added to the compiler's tables taken out; the
+   * page's ids numbered again in document order. Then `finishPage` goes on as the second pass's would. Null when it is
+   * done; else why not, and whether the compiler is spent (it changed already: the second pass is compiled after all).
+   */
+  fromWalk(next: CompileOptions, dry = false): { why: string; spent: boolean } | null {
+    const fw = this.fw;
+    const no = (why: string, spent = false) => ({ why, spent });
+    if (!fw) return no('not recorded');
+    if (this.placedUnit || this.earlyDefs) return no('a unit placed');
+    if (next.constants?.size) return no('constants the layout or the images read (prefold)');
+    if (next.overLimit?.size) return no('over the expansion limit');
+    // a loop unrolled outside rows is one the first pass rendered (one in a row goes with its row)
+    for (const k of next.unrolled?.keys() ?? []) if (!k.includes('#') && !next.rendered?.has(k)) return no('a loop unrolled, not rendered');
+    // the minifier and the image pipeline go over rendered rows in the second pass, before its walk; the layout reads them
+    const sheets = (typeof this.opts.minify === 'object' ? this.opts.minify.styles : undefined) ?? this.opts.styles;
+    const minLayout = !!this.opts.minify && !!sheets;
+    const decided = next.decided ?? new Map<string, boolean>();
+    for (const k of decided.keys()) if (k.includes('|use:')) return no('a choice decided');
+    // the branches decided at the page's level, and the `data-sn-else` after each
+    type D = { a: FwAnchor; v: boolean; other: FwAnchor | null; at: number; rows?: RenderedRows };
+    const ds: D[] = [];
+    const index = new Map(this.roots.map((n, i) => [n, i]));
+    const real = (c: P5Node) => isElement(c) || (c.nodeName === '#text' && (c as DefaultTreeAdapterMap['textNode']).value.trim() !== '');
+    const IMG = /^(img|picture|source|video)$/;
+    const imgs = (ns: P5Node[]): boolean => ns.some((n) => isElement(n) && (IMG.test(n.tagName) || imgs(n.childNodes as P5Node[]) || (n.tagName === 'template' && imgs((n as P5Template).content.childNodes as P5Node[]))));
+    for (const a of fw.anchors) {
+      if (a.kind === 'for' && a.node) {
+        // a loop the first pass rendered: its rows in its place, as the second pass splices them
+        const key = this.instKey(a.el), rows = key && next.unrolled?.has(key) ? next.rendered?.get(key) : undefined;
+        if (!rows) continue;
+        const at = index.get(a.node), r = a.added.get('roots');
+        if (at === undefined || !r || r[0] !== at) return no('a loop not among the roots');
+        if (this.renderedHere(a.el, rows)) return no(`rendered rows ${this.renderedHere(a.el, rows)}`);
+        if (rows.idAttrs.length) return no('ids in rendered rows');
+        if (this.layout || minLayout) return no('rendered rows and a layout');
+        if (this.opts.images && imgs(rows.nodes)) return no('an image in rendered rows');
+        ds.push({ a, v: true, other: null, at, rows });
+        continue;
+      }
+      if (a.kind !== 'if' || !a.node) continue;
+      const key = this.instKey(a.el), v = key ? decided.get(key) : undefined;
+      if (v === undefined) continue;
+      if (a.elseIf) return no('an else-if decided');
+      const kids = (a.el.parentNode as P5Parent | null)?.childNodes ?? [];
+      const i = kids.indexOf(a.el as never);
+      if (i < 0) return no('a branch moved');
+      let j = i + 1;
+      while (j < kids.length && !real(kids[j]!)) j++;
+      const o = j < kids.length && isElement(kids[j]!) ? fw.byEl.get(kids[j] as P5Element) ?? null : null;
+      const other = o && o.kind === 'else' ? o : null;
+      if (other?.elseIf) return no('an else-if after a decided branch');
+      const at = index.get(a.node);
+      if (at === undefined) return no('a branch not among the roots');
+      // (the roots its walk added: its own node first, and what a fill walked as the page's there added; its else's after)
+      const r = a.added.get('roots'), ro = other?.added.get('roots');
+      if (!r || r[0] !== at) return no('a branch not among the roots');
+      if (other && (!other.node || !ro || ro[0] !== r[1] || index.get(other.node) !== r[1])) return no('an else not after its branch');
+      ds.push({ a, v, other, at });
+    }
+    if (!ds.length) return no('nothing decided at the page\'s level');
+    const all = ds.flatMap((d) => (d.other ? [d.a, d.other] : [d.a]));
+    // what the walk of a decided branch did that the second pass would not have done, and cannot be taken out
+    for (const x of all) {
+      if (x.d1 > x.d0) return no(x.kind === 'for' ? 'diagnostics in a rendered loop' : 'diagnostics in a decided branch');
+      for (const k of x.changed) if (!FW_CHANGES.has(k)) return no(`a decided branch changes \`${k}\``);
+      for (const k of x.added.keys()) if (FW_REFUSED.has(k)) return no(`a decided branch adds to \`${k}\``);
+      if (!x.snap) continue;
+      if (this.layout && x.snap.some((e) => isElement(e.n))) return no('a layout');
+      if (this.opts.images && x.snap.some((e) => isElement(e.n) && IMG.test((e.n as P5Element).tagName))) return no('an image in a decided branch');
+    }
+    // the functions the walks of the decided branches compiled: theirs no longer; one they made first and something else
+    // calls too would keep the site of the branch's call
+    const uses = this.fnUses.slice();
+    for (const x of all) for (const [i, n] of x.uses) uses[i]! -= n;
+    for (const x of all) for (const i of x.uses.keys()) if (i >= x.f0 && uses[i]! > 0) return no('code a decided branch compiled first is compiled elsewhere too');
+    // (`dry`: whether it may be taken, nothing changed: a kept template's entry asks before it copies the kept walk)
+    if (dry) return null;
+
+    // ---- from here on the compiler is the second pass's
+    (this as { opts: CompileOptions }).opts = next;
+    this.keepsAttrs = false;
+    this.dry = null;
+    for (const m of [this.decided, this.undecided, this.unrolls, this.foldReads, this.overLimit, this.constants, this.constantSites, this.rowPaint, this.foldWhy, this.painted, this.tplPainted, this.paintValue, this.textFolded, this.rendered, this.unrendered]) m.clear();
+    this.foldedFields.length = 0;
+    this.attrSources.length = 0;
+    this.diagnostics.length = this.walked;
+    for (let i = 0; i < uses.length; i++) {
+      if (uses[i] === this.fnUses[i]) continue;
+      this.fnUses[i] = uses[i]!;
+      if (uses[i] === 0) { const code = this.fns[i]!; if (this.fnIndex.get(code) === i) this.fnIndex.delete(code); this.fns[i] = '0'; }
+    }
+    const checks = [this.checkFrames.length, this.checkExprs.length, this.checkResources.length];
+    const fs = this.fwFields();
+    // the maps and sets the decided walks added to: the keys they added, by position (one pass over each)
+    const keysOf = new Map<string, Map<FwAnchor, unknown[]>>();
+    for (const x of all) for (const [k] of x.added) {
+      const o = this.fwField(k);
+      if (!(o instanceof Map || o instanceof Set) || keysOf.has(k)) continue;
+      const ranges = all.flatMap((y) => { const r = y.added.get(k); return r ? [{ y, r }] : []; }).sort((p, q) => p.r[0] - q.r[0]);
+      const got = new Map<FwAnchor, unknown[]>();
+      let n = 0, at = 0;
+      for (const key of o.keys()) {
+        while (at < ranges.length && n >= ranges[at]!.r[1]) at++;
+        if (at >= ranges.length) break;
+        const { y, r } = ranges[at]!;
+        if (n >= r[0]) { let l = got.get(y); if (!l) got.set(y, (l = [])); l.push(key); }
+        n++;
+      }
+      keysOf.set(k, got);
+    }
+    const resources = new Set<string>();
+    // (the definitions the dropped walks compiled: their templates are nothing's once the walks below do not use them)
+    const dropped = new Set<string>();
+    // each block: the roots it replaces (at `at`, `n` of them), and the nodes its walk made, numbered in a range of their
+    // own (from `base`): all are put in place at the end, and every index of a root renumbered once
+    const blocks: Array<{ at: number; n: number; nodes: NodeDef[]; base: number }> = [];
+    // the last first: the positions the earlier ones recorded in the lists stay as they were
+    ds.sort((x, y) => y.at - x.at);
+    for (const [bi, d] of ds.entries()) {
+      const xs = d.other ? [d.a, d.other] : [d.a];
+      // what the walks of the branch and its else added to the tables: taken out (the walk below adds what it compiles)
+      for (const x of [...xs].reverse()) for (const [k, add] of x.added) {
+        if (FW_OWN.has(k)) continue;
+        const o = this.fwField(k);
+        if (Array.isArray(o)) { const [s0, s1] = add as [number, number]; o.splice(s0, s1 - s0); }
+        else if (o instanceof Map || o instanceof Set) for (const key of keysOf.get(k)?.get(x) ?? []) { o.delete(key); if (k === 'defs') dropped.add(key as string); }
+      }
+      for (const x of xs) for (const n of x.used) { const r = this.page.resources.get(n); if (r) { r.used = false; resources.add(n); } }
+      let placed: P5Node[];
+      const c = d.a.el;
+      if (d.rows) {
+        // the rows, with what compiling them would have done that the page keeps (`expandConstants`' splice)
+        const done = d.rows;
+        this.foldedText.push(...done.folded);
+        for (const f of done.files) this.files.add(f);
+        for (const n of done.reads) this.renderedReads.add(n);
+        this.renderedEmpty.push(...done.empty);
+        this.renderedShown.push(...done.shown);
+        this.renderedLate.push(...done.late);
+        for (const n of done.rootStyled) this.rootStyled.add(n);
+        for (const x of done.uses) {
+          if (this.uses.has(x.name)) continue;
+          const f = this.componentFile(x.name);
+          if (f && f.css === undefined && x.css !== undefined) { f.css = x.css; f.rawCss = x.rawCss; }
+          this.uses.set(x.name, []);
+        }
+        const value = this.snSource.get(c) ?? '', m = LOOP_HEAD.exec(value), off = m ? m[0].length : 0;
+        const first = done.nodes.find(isElement);
+        for (const n of done.nodes) if (isElement(n)) this.renderedAt.set(n, n === first ? { tpl: c, list: value.slice(off), offset: off, rows: done } : null);
+        RENDER_STATS.spliced++;
+        placed = done.nodes;
+      } else {
+        for (const x of xs) restoreTree(x.snap!);
+        const kept = d.v ? d.a : d.other;
+        const nodes = kept ? [...(kept.el as P5Template).content.childNodes] as P5Node[] : [];
+        if (kept) (kept.el as P5Template).content.childNodes = [];
+        // the branches decided in it, as the second pass's expansion decides them
+        const box = { nodeName: '#document-fragment', childNodes: nodes } as unknown as P5Parent;
+        for (const n of nodes) (n as { parentNode: P5Parent }).parentNode = box;
+        const was = APPLIED;
+        APPLIED = new Set();
+        let got: Set<string>;
+        try { this.expandConstants(box, '', false); } finally { got = APPLIED; APPLIED = was; }
+        for (const k of got) { was?.add(k); if (k !== 'if:page' && k !== 'loop rendered') return no(`${k} in a decided branch`, true); }
+        placed = box.childNodes as P5Node[];
+      }
+      const P = c.parentNode as P5Parent, kids = P.childNodes as P5Node[];
+      const i = kids.indexOf(c), j = d.other ? kids.indexOf(d.other.el) : i;
+      for (const n of placed) {
+        (n as { parentNode: P5Parent }).parentNode = P;
+        for (const map of [this.fillOf, this.defaultOf, this.childrenOf]) if (isElement(n) && map.has(c) && !map.has(n)) map.set(n, map.get(c)!);
+      }
+      this.inheritSlot(c, placed);
+      const start = this.scopeStart.get(c);
+      if (start) for (const n of placed) if (isElement(n)) this.scopeStart.set(n, outerFirst(start, this.scopeStart.get(n)));
+      kids.splice(i, j - i + 1, ...(placed as never[]));
+      if (!d.rows) this.foldedText.push(this.snSource.get(c) ?? '', this.emptyOf.get(c)?.list ?? '');
+      mergeText(P);
+      // the range the branch's markup is in now (a text that met another is in that one; the parent's other texts may
+      // meet too, where what the first walk took out stood)
+      const here = new Set(placed);
+      let from = -1, to = -1;
+      for (let k = 0; k < kids.length; k++) if (here.has(kids[k]!)) { if (from < 0) from = k; to = k + 1; }
+      if (from < 0) from = to = 0;
+      const lens = this.fwMarks();
+      // (a list whose length starts at the block's base: what the walk reads of it is its length, and it pushes)
+      const base = FW_BASE + bi * FW_SPAN, made: NodeDef[] = [];
+      const list = { push: (...n: NodeDef[]) => made.push(...n), get length() { return base + made.length; } } as unknown as NodeDef[];
+      if (to > from) this.walkChildren(P, { ...d.a.ctx, list }, { from, to });
+      blocks.push({ at: d.at, n: xs.reduce((n, x) => n + (x.added.get('roots')![1] - x.added.get('roots')![0]), 0), nodes: made, base });
+      // what this walk added to the other lists: where the branch's walk had added it (document order)
+      for (let f = 0; f < fs.length; f++) {
+        if (fs[f]!.t !== 0) continue;
+        const k = fs[f]!.k, o = this.fwField(k) as unknown[], n1 = lens[f] as number;
+        if (o.length <= n1 || FW_OWN.has(k)) continue;
+        const at = d.a.marks[f] as number;
+        if (at >= n1) continue;
+        const tail = o.splice(n1);
+        o.splice(at, 0, ...tail);
+      }
+      if (this.diagnostics.length > this.walked) return no('diagnostics in a branch walked as the page', true);
+    }
+    // a definition the dropped walk compiled first and the new one uses: compiled again here, numbered and shared otherwise
+    for (const n of dropped) if (this.defs.has(n)) return no('a definition compiled first in a decided branch, used by the page', true);
+    // rendered rows' empty texts (elements to the minifier, nothing in the page), and their marks after the image pipeline
+    for (const t of this.renderedEmpty) { const k = (t as { parentNode?: P5Parent }).parentNode?.childNodes as P5Node[] | undefined; const i = k?.indexOf(t) ?? -1; if (i >= 0) k!.splice(i, 1); }
+    for (const [e, marks] of this.renderedLate) for (const m of marks) setAttr(e, m.name, m.value);
+    // the roots: each block in place of what it replaces, and every index of a root (a node's scope `p`, an `if`'s
+    // `data-sn-else` `y`, a resource's or a sync's scope) to where its root is now
+    blocks.sort((x, y) => x.at - y.at);
+    const roots: NodeDef[] = [], to = new Map<number, number>();
+    let b = 0;
+    for (let i = 0; i < this.roots.length; i++) {
+      if (b < blocks.length && blocks[b]!.at === i) {
+        const k = blocks[b]!;
+        k.nodes.forEach((n, j) => { to.set(k.base + j, roots.length); roots.push(n); });
+        i += k.n - 1;
+        b++;
+        continue;
+      }
+      to.set(i, roots.length);
+      roots.push(this.roots[i]!);
+    }
+    const re = (x: number) => to.get(x) ?? x;
+    for (const n of roots) { if (n.p !== undefined && n.p >= 0) n.p = re(n.p); for (const x of n.b) if (x.y !== undefined) x.y = re(x.y); }
+    for (const r of this.resources) if (typeof r.scope === 'number' && r.scope >= 0) r.scope = re(r.scope);
+    for (const y of this.syncs) if (y.scope !== undefined && y.scope >= 0) y.scope = re(y.scope);
+    this.roots.splice(0, this.roots.length, ...roots);
+    // the type check reads the page as written: its frames and expressions are the first pass's
+    this.checkFrames.length = checks[0]!; this.checkExprs.length = checks[1]!; this.checkResources.length = checks[2]!;
+    for (const n of resources) if (!this.page.resources.get(n)!.used && !this.foldedText.some((t) => ((t.match(/[A-Za-z_$][\w$]*/g) ?? []) as string[]).includes(n))) return no('a resource read only in a decided branch (SN501)', true);
+    for (const n of resources) this.page.resources.get(n)!.used = true;
+    // the walk's last steps, again for what it walked: scoped styles' marks, what it removes
+    this.markScoped();
+    for (const el of this.remove) if (el.parentNode?.childNodes.includes(el as never)) detach(el);
+    // the templates nothing reaches now: empty (`compactTables` drops them), and a decided `if` in one that stays is
+    // one the second pass decides in it
+    const live = new Set<number>(), todo = this.roots.flatMap((n) => n.b.flatMap(templatesOf));
+    while (todo.length) {
+      const x = todo.pop()!;
+      if (live.has(x) || !this.templates[x]) continue;
+      live.add(x);
+      for (const n of this.templates[x]!.nodes) for (const y of n.b) todo.push(...templatesOf(y));
+    }
+    for (const t of this.templates) {
+      if (live.has(t.id)) {
+        for (const n of t.nodes) if (n.b.some((y) => y.k === 'if')) { const el = this.tplEls.get(n), key = el && this.instKey(el); if (key && decided.has(key)) return no('a decided if in a template that stays', true); }
+        continue;
+      }
+      // (and out of the tables keyed by its nodes that `finishPage` goes over: an anchor's, a text's)
+      for (const n of t.nodes) { this.tplEls.delete(n); this.anchorEls.delete(n); this.textAt.delete(n); this.textMarks.delete(n); }
+      t.nodes = [];
+    }
+    // (which resources load late, by what still reads them)
+    for (const r of this.resources) delete r.lo;
+    this.markLowPriority();
+    // the page's ids, in document order (a kept element's keep theirs)
+    this.renumberIds(this.walk!.doc);
+    return null;
+  }
+
+  /**
+   * `fromWalk`: the ids of the page's bound nodes and anchors, handed out again in the order the markup has them, with
+   * the gap a rendered block leaves (the ids its rows' bindings would have taken: today's numbering, where it is free)
+   */
+  renumberIds(doc: P5Parent) {
+    const map = new Map<number, number>();
+    let next = 0;
+    const id = (old: number) => { if (old >= KEPT_FROM) return old; let n = map.get(old); if (n === undefined) map.set(old, (n = next++)); return n; };
+    const visit = (p: P5Parent) => {
+      for (const c of p.childNodes as P5Node[]) {
+        if (isElement(c)) {
+          // (rendered rows: the ids their bindings would have taken, as the walk leaves them, `walkChildren`)
+          const r = this.renderedAt.get(c);
+          if (r) next += r.rows.ids;
+          const a = c.attrs.find((x) => x.name === 'data-sn');
+          if (a && /^\d+$/.test(a.value)) a.value = String(id(+a.value));
+          if (c.tagName !== 'template') visit(c);
+        } else if (c.nodeName === '#comment') {
+          const m = /^sn (\d+)$/.exec((c as DefaultTreeAdapterMap['commentNode']).data);
+          if (m) (c as DefaultTreeAdapterMap['commentNode']).data = `sn ${id(+m[1]!)}`;
+        }
+      }
+    };
+    visit(doc);
+    for (const n of this.roots) if (n.id !== undefined) n.id = id(n.id);
+    this.nextId = next;
   }
 
   /** For the second pass: the state fields the decided `data-sn-if`s and unrolled loops read. */
@@ -13325,6 +14051,9 @@ export function renderOn(): boolean { return renderForced ?? proc?.env.SN_RENDER
 let renderForced: boolean | null = null;
 
 /** what `rowRenderer` did in this process, by reason, printed at exit with `SN_RENDER_LOG=1` */
+/** (measurement, stage5-b1.md: what a second pass applies, by kind and place; null when nothing records) */
+let APPLIED: Set<string> | null = null;
+function applied(kind: string) { APPLIED?.add(kind); }
 export const RENDER_STATS = { rendered: 0, rows: 0, spliced: 0, fallback: new Map<string, { loops: number; rows: number }>() };
 let renderLogged = false;
 function renderStat(why: string | null, rows: number) {

@@ -79,6 +79,12 @@ and `structuredClone`, not `Date`, `Intl`, `Math.random`, `fetch`, `window` or `
   `.constructor` and `__proto__`, `Math` or `Reflect` used as a value (`const M = Math`,
   `const { random } = Math`, `Reflect.get(Math, 'random')`; `Math.max(…)` and `Math.PI` are fine), an
   error's `.stack`, and a function that assigns a module-level variable (`count++`).
+- What the check reads of each module is kept in `node_modules/.cache/sinter/fold` (where the image and
+  font caches are), by the module's text, so a build reads it there instead of parsing unchanged
+  modules again. The cache is read again whatever a module's date says, holds no verdict (what a module
+  imports is resolved by every build), and a file in it that does not read is ignored and written again.
+  To clear it, delete the folder (or `node_modules/.cache/sinter`, the other caches with it); the dev
+  server's `vite --force` reads none of it.
 - **This is a guard against mistakes, not a sandbox.** It reads your code to tell whether a call
   gives the same result in the build as in the browser, and it catches the usual ways that fails.
   Code written to get around it can, and it runs in the build with the build machine's access, as
