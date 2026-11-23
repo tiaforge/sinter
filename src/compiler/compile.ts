@@ -1306,7 +1306,17 @@ type FwAnchor = {
   used: string[];
   p0: number;
 };
-type FromWalk = { anchors: FwAnchor[]; byEl: Map<P5Element, FwAnchor>; fields?: FwField[] };
+type FromWalk = { anchors: FwAnchor[]; byEl: Map<P5Element, FwAnchor>; fields?: FwField[]; read?: (c: unknown, page: unknown) => unknown[] };
+/** `fwMarks`' readers, by the list of fields they read: one property read per field, not a lookup by name each */
+const FW_READERS = new Map<string, (c: unknown, page: unknown) => unknown[]>();
+function fwReader(key: string, fs: FwField[]): (c: unknown, page: unknown) => unknown[] {
+  const at = (x: FwField) => `${x.page ? 'p' : 'c'}[${JSON.stringify(x.f)}]`;
+  // eslint-disable-next-line no-new-func -- the compiler's own field names, read in one array
+  const f = new Function('c', 'p', `return [${fs.map((x) => (x.t === 0 ? `${at(x)}.length` : x.t === 1 ? `${at(x)}.size` : at(x))).join(', ')}];`) as (c: unknown, page: unknown) => unknown[];
+  if (FW_READERS.size > 50) FW_READERS.clear();
+  FW_READERS.set(key, f);
+  return f;
+}
 /** `fn()`'s calls while a recorded template is walked (`fwStart`), by function */
 let FW_COUNTING: Map<number, number> | null = null;
 /** a field `fwMarks` reads: its name (`page.` for the page info's), where it is, and whether it is a list (0), a map or a set (1), or plain (2) */
@@ -10753,15 +10763,12 @@ class Compiler {
     return (fw.fields = out);
   }
 
-  /** each of `fwFields`: a table's size, a plain field's value */
+  /** each of `fwFields`: a table's size, a plain field's value (read by a function made once per list of fields) */
   fwMarks(): unknown[] {
-    const fs = this.fwFields(), out = new Array<unknown>(fs.length);
-    const me = this as unknown as Record<string, unknown>, page = this.page as unknown as Record<string, unknown>;
-    for (let i = 0; i < fs.length; i++) {
-      const x = fs[i]!, v = (x.page ? page : me)[x.f];
-      out[i] = x.t === 0 ? (v as unknown[]).length : x.t === 1 ? (v as Set<unknown>).size : v;
-    }
-    return out;
+    const fs = this.fwFields();
+    const fw = this.fw!;
+    if (!fw.read) { const key = fs.map((x) => `${x.t}${x.k}`).join(','); fw.read = FW_READERS.get(key) ?? fwReader(key, fs); }
+    return fw.read(this, this.page);
   }
 
   /** the walk is at a page-level `<template>` (`walkChildren`): a branch or a loop is recorded, its markup as it is before its walk */
