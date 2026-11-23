@@ -236,6 +236,25 @@ for (const name of browsers) {
     await p2.waitForTimeout(150);
     check('Forward too', { y: near(await y(), 300) ? 300 : await y() }, { y: 300 });
 
+    // a position below what A has before its data is in (its #tall block): Back restores it once the data is there,
+    // rather than the position the swap could take before (which it must not keep as the entry's)
+    await p2.goBack();
+    await ready('/', 'A: Alpha');
+    await p2.waitForTimeout(150);
+    await p2.evaluate(() => scrollTo(0, 8000));
+    await p2.waitForTimeout(150);
+    const deep = await y();
+    await p2.evaluate(() => document.getElementById('to-b').click());
+    await ready('/b/', 'B: Beta');
+    await p2.waitForTimeout(150);
+    await p2.goBack();
+    await ready('/', 'A: Alpha');
+    await p2.waitForTimeout(600);
+    check('Back restores a position the page has only once its data is in', { y: near(await y(), deep) ? deep : await y() }, { y: 8000 });
+    await p2.goForward();
+    await ready('/b/', 'B: Beta');
+    await p2.waitForTimeout(150);
+
     // a reload of an entry a swap made: the browser's again
     await p2.evaluate(() => scrollTo(0, 500));
     await p2.waitForTimeout(150);

@@ -404,7 +404,10 @@ element it becomes on the detail page:
 **Swaps** follow the same rule as loads: a swap fades only where the stylesheet asks for page transitions
 with `@view-transition { navigation: auto }` (and its `@media` holds), so reduced motion and temper's
 setting apply. Morphs work across a swap, and each kept element is named for the transition (class
-`sn-keep`), so it stays still while the page changes around it.
+`sn-keep`), so it stays still while the page changes around it. On a swap, an element the next page renders from its first
+response (a title inside `data-sn-if="article"`) still morphs: the old page stays on screen until it
+is there, for at most 500 ms. On a page load it must render from what the page has when it mounts
+(`$url`, `cache`, prefetched or embedded data).
 
 **Types** tell a stylesheet what kind of navigation runs: `sn-push`, `sn-replace` or `sn-traverse`, and on
 Back or Forward also `sn-back` or `sn-forward`. Every swap has them; a page load has them on pages with a

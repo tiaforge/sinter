@@ -10,10 +10,11 @@ import { chain, links } from './links.js';
 import { loadTypes } from './vt-types.js';
 import type { App, Feature } from './runtime/app.js';
 
-const KEY = 'sn:vt';
+/** sessionStorage: the name of the morph pending for the next page, with the time */
+export const KEY = 'sn:vt';
 /** a pending name older than this is from a navigation that never reached a page with the feature: ignored */
 export const PENDING_MAX = 10_000;
-const ATTR = 'data-sn-vt';
+export const ATTR = 'data-sn-vt';
 
 /** a `<custom-ident>` for any name, the same on both pages */
 export const ident = (v: string) => {

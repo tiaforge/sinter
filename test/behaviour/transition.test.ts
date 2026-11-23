@@ -3,6 +3,7 @@
 import { expect, test } from 'vitest';
 import { compileParts } from '../../src/compiler/compile.js';
 import { ident } from '../../src/transition.js';
+import { REVEAL_MAX, morphHeld } from '../../src/swap-run.js';
 import { memoryStorage, mockRequests, render, type Rendered } from '../../src/testing/index.js';
 
 const LIST = `
@@ -97,4 +98,52 @@ test('with reduced motion asked for, nothing is named on either page and no pend
   await fire(page, 'pagereveal', { viewTransition: transition().vt });
   expect(page.root.querySelector('h1')!.style.viewTransitionName).toBe('');
   expect(session.getItem('sn:vt')).toBeNull();
+});
+
+// the detail page's element renders only from its response (an article's title inside its `if`)
+const GATED = `<html data-sn-path="/article/:slug"><head></head><body>
+  <sn-resource name="article" src="/api/articles/{$url.slug}" select="article"></sn-resource>
+  <template data-sn-if="article"><h1 data-sn-transition="'article-' + $url.slug" data-sn-text="article.title"></h1></template>
+</body></html>`;
+
+test('a swap holds its reveal until the element of the pending morph renders from the page\'s first response', async () => {
+  const session = memoryStorage();
+  session.setItem('sn:vt', JSON.stringify({ v: 'article-two', t: Date.parse('2026-01-01T09:00:00Z') }));
+  const page = await render(GATED, { session, url: '/article/two', requests: mockRequests({ 'GET /api/articles/two': { article: { title: 'Two' } } }) });
+  expect(page.root.querySelector('h1')).toBeNull();
+  const hooks = page.app.afterFlush.length, held = morphHeld(page.app)!;
+  expect(held).toBeInstanceOf(Promise);
+  let done = false;
+  void held.then(() => { done = true; });
+  await Promise.resolve();
+  expect(done).toBe(false);
+  await page.settle();
+  await held;
+  // then the reveal names it, as at mount
+  const inn = transition();
+  await fire(page, 'pagereveal', { viewTransition: inn.vt });
+  expect(page.root.querySelector('h1')!.style.viewTransitionName).toBe(ident('article-two'));
+  expect(page.app.afterFlush.length).toBe(hooks);
+});
+
+test('a swap holds its reveal REVEAL_MAX at most, and not at all with the element there, no requests out or no morph pending', async () => {
+  const session = memoryStorage(), pending = () => session.setItem('sn:vt', JSON.stringify({ v: 'article-two', t: Date.parse('2026-01-01T09:00:00Z') }));
+  const routes = () => mockRequests({ 'GET /api/articles/two': { article: { title: 'Two' } } });
+  pending();
+  const slow = await render(GATED, { session, url: '/article/two', requests: routes() });
+  const hooks = slow.app.afterFlush.length, held = morphHeld(slow.app)!;
+  await slow.advance(REVEAL_MAX);
+  await held;
+  expect(slow.root.querySelector('h1')).toBeNull();
+  expect(slow.app.afterFlush.length).toBe(hooks);
+
+  const ready = await render(DETAIL, { session, url: '/article/two', requests: routes() });
+  expect(morphHeld(ready.app)).toBeUndefined();
+  const settled = await render(GATED, { session, url: '/article/three', requests: mockRequests({ 'GET /api/articles/three': { status: 404 } }) });
+  await settled.settle();
+  expect(morphHeld(settled.app)).toBeUndefined();
+  session.removeItem('sn:vt');
+  const none = await render(GATED, { session, url: '/article/two', requests: routes() });
+  expect(morphHeld(none.app)).toBeUndefined();
+  expect(morphHeld(undefined)).toBeUndefined();
 });

@@ -9,4 +9,8 @@
   <p><a id="same" href="?q=1">q=1</a> <span id="q" data-sn-text="$url.q ?? 'none'"></span></p>
   <form id="get" method="get" action="/b/"><button id="get-go">go</button></form>
   <a id="external" href="/b/" rel="external">B as another site</a>
+  <!-- tall once its data is in: a position below the rest is only there after the page's first response. Below
+       the positions the other steps use (the spacer), so its arrival never moves them (scroll anchoring) -->
+  <div style="block-size: 1500px"></div>
+  <template data-sn-if="info"><div id="tall" style="block-size: 6000px"></div></template>
 </two-layout>
