@@ -162,3 +162,28 @@ No expectation of a number changed: the route's ids are today's (document order 
   `if`s inside templates that stay and inside rows, constants the layout and the images read (`prefold`), else-ifs.
 - The pre-walk passes over what the decisions change: the layout and the image pipeline over a branch's content and
   over rendered rows, the minifier with a layout over rows.
+
+## 9. Numbers (same machine, quiet: load under 1 before each run)
+
+- **page-compile** (`bench/page-compile`, 200 sections; `pc-ab.mjs`: one process, 40 compiles of each route
+  interleaved, the first 5 dropped, median): 451 → 359 ms at the first commit; after `fwMarks` read by a made function,
+  three runs: 403 → 314, 396 → 302, 408 → 322 ms (−22%; min 291 → 242). CPU profile, ms a compile: old route 246
+  (first pass's walk 105 and evaluation 20, second pass 118), new 197 (walk 135, of it the recording about 12 and
+  its garbage, evaluation without writing 19, `fromWalk` 8, finish 33). The output is byte for byte the old route's
+  (`SN_FROM_WALK=0` against on: html 100,767 B, gzip 7,526; module 285,592, gzip 37,314, both).
+- **The blog** (`run-sinter.mjs`, 100 posts, 3 rounds each way, ms): static 3272/2965/3010 off, 3064/2652/3052 on;
+  live 3864/3315/3705 and 3893/3343/3418; static-files 4036/3703/3576 and 3572/3639/3771; live-files 5611/5771/5739
+  and 5449/5767/5371; type check 2927/3209/3230 and 2885/3136/3200. The same within noise: the route is not taken
+  there (template entries: off, section 8; page files: a unit placed, section 7); recording costs nothing visible.
+- **The examples**: `pass-audit --switch SN_FROM_WALK`: the nine apps byte for byte the same; static-site 4 second
+  passes with no branch the build may decide, 2 with a unit placed; multilingual-site 8 with no branch; realworld 1
+  with a unit placed; dashboard none.
+- **sinter-mail** (`mail-audit.mjs <checkout> --switch SN_FROM_WALK --suite --bench`, and `--canon`): 42 files byte for
+  byte the same, raw and canonical (its 16 pages: a unit placed); its tests (234), `sinter check` and `tsc` pass; run
+  time, the default build, before (5f203af) and after, first render ms: api newsletter-2000 29.3 / 28.8, corpus-static
+  18.6 / 19.8, api-templates 102.6 / 73.9 and 38.6 / 33.6, api-fills 78.6 / 80.3 and 34.8 / 34.2 (noise: the outputs
+  are the same bytes). (The first `--suite` run after a fresh clone fails `tsc` until `sinter check` has written
+  `sinter.components.d.ts`; base's `sinter check` failed for its worktree's `dist/cli.js` lacking the executable bit.)
+- **Page weight**: `npm run size -- --check` passes; every page and early chunk the same as at 5f203af (the feature
+  modules differ by 60 B min between the two checkouts by their paths' length, not by this change); the apps'
+  pages and modules byte for byte the same, so their gzip sizes are too.
