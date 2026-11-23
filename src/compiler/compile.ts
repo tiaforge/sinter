@@ -22,7 +22,7 @@ import type { Node } from 'acorn';
 import type * as acorn from 'acorn';
 import { COMPLEXITY_DEFAULTS, COMPLEXITY_LIMITS, measure, type ComplexityOptions } from './complexity.js';
 import { ATTRIBUTES, CHAR_KEYS, ELEMENTS, KEY_ALIASES, LOOSE_SHIFT, MODIFIERS, NAMED_KEYS } from './vocabulary.js';
-import type { CheckExpr, CheckFrame, CheckLoc, CheckResource, CheckUnit, TypeRef } from './check-unit.js';
+import { checkExprAt, checkRaw, checkUnitWithParts, type CheckExpr, type CheckFrame, type CheckLoc, type CheckPartRef, type CheckResource, type CheckUnit, type TypeRef } from './check-unit.js';
 import { apiOf, RESPONSE_PATH, shapeTemplate, signInWire, type ApiDef, type ApisDef, type OperationShape } from './apis.js';
 import { foldReason, type FoldVerdict } from '../fold-check.js';
 import { BUILD_TIME_ATTRS, buildTimeAttrProblem, FILE_ATTRS, FILE_ENTRY, fileAttrProblem, fileEntry, filePath, fileValue, isContentSource, isFileSource, isGlob, PAGE_ENTRY, scriptJson, setPath, sortList } from './files.js';
@@ -224,6 +224,11 @@ export interface CompileOptions {
   canonicalLink?: false;
   /** the module whose default export is the app's `prefetch` feature (every page's description), added to the page's features */
   prefetch?: string | null;
+  /**
+   * internal (a build that decides `prefetch` once every page has compiled): the result can be given its page module
+   * again with another `prefetch` (`moduleWith`)
+   */
+  prefetchLater?: true;
   /** also return where each function in `fns` was written (`CompiledParts.sources`), for the page module's source map */
   sourcemap?: boolean;
   /** where the app's components are (default `<root>/src/components`): `<name>.html` is the component `<name>` */
@@ -502,6 +507,13 @@ export interface RuntimeReason { what: string; file: string; line: number; col: 
 
 export interface CompiledParts {
   html: string;
+  /**
+   * internal (`prefetchLater`): what another page can request ahead for this one as its description gives it
+   * (`describeOnly`: `prefetch`), read off the first pass's walk, which compiles a branch as a template as a
+   * description does (the result's `prefetch` comes from the pass whose decided branches are page markup); or why it
+   * is not read there
+   */
+  firstPrefetch?: { parts: PrefetchParts | null } | { why: string };
   /**
    * why the page needs the runtime, in document order; empty when nothing on it runs in the browser (with
    * `prerender`: then the page gets no script, and its stylesheets are linked: see `static`)
@@ -1154,7 +1166,8 @@ const UNIT_SHARED = new Set(['page', 'componentFiles']);
 function copyState(from: Compiler, opts: CompileOptions, roots: object[] = [], listed?: WeakEntries): { c: Compiler; roots: object[]; entries: WeakEntries } | { refused: string } {
   const memo = new Map<object, object>(), order: object[] = [];
   let refused: string | null = null;
-  const keep = (v: object) => v === from.opts || SHARED.has(v) || DEEP_FROZEN.has(v) || (Object.isFrozen(v) && !Array.isArray(v) && !(v instanceof Map) && !(v instanceof Set));
+  optionsReach(from.opts);
+  const keep = (v: object) => v === from.opts || SHARED.has(v) || OPTS_REACH.has(v) || DEEP_FROZEN.has(v) || (Object.isFrozen(v) && !Array.isArray(v) && !(v instanceof Map) && !(v instanceof Set));
   const copy = <T>(v: T): T => {
     if (v === null || typeof v !== 'object') return v;
     const o = v as unknown as object;
@@ -1206,7 +1219,8 @@ function copyState(from: Compiler, opts: CompileOptions, roots: object[] = [], l
   }
   const outRoots = roots.map((r) => copy(r));
   // the module's marks of nodes (rendered rows', scripts the compiler wrote): the copy's nodes carry them too
-  for (const m of [WRITTEN, SHOWN, SCOPED, MARKED, REWROTE, RENDERED_FILE, OWN_SCRIPTS, INERT_FILLS] as Weak[]) weak.push({ field: null, a: m, b: m });
+  const marks = nodeMarks();
+  for (const m of [...marks, INERT_FILLS] as Weak[]) weak.push({ field: null, a: m, b: m });
   const put = (b: Weak, k: object, v: unknown) => { if (b instanceof WeakMap) b.set(k, v); else b.add(k); };
   const entries: WeakEntries = [];
   if (listed) {
@@ -1218,20 +1232,51 @@ function copyState(from: Compiler, opts: CompileOptions, roots: object[] = [], l
     }
   } else {
     const lists = weak.map((w) => ({ field: w.field, ...(w.field === null ? { mod: w.b } : {}), pairs: [] as Array<[object, unknown]> }));
-    // the side tables, for every object copied so far and every one their values reach
+    const entry = (j: number, o: object) => {
+      const w = weak[j]!, x = memo.get(o)!;
+      const y = w.a instanceof WeakMap ? copy(w.a.get(o)) : true;
+      put(w.b, x, y);
+      lists[j]!.pairs.push([x, y]);
+    };
+    // the side tables, for every object copied so far and every one their values reach (the module's marks of nodes,
+    // for nodes only)
+    const looked = weak.flatMap((w, j) => (!(w.field === null && marks.includes(w.a)) ? [j] : []));
+    const ofNodes = weak.flatMap((w, j) => (w.field === null && marks.includes(w.a) ? [j] : []));
     for (let i = 0; i < order.length; i++) {
-      const o = order[i]!, x = memo.get(o)!;
-      weak.forEach((w, j) => {
-        if (!w.a.has(o)) return;
-        const y = w.a instanceof WeakMap ? copy(w.a.get(o)) : true;
-        put(w.b, x, y);
-        lists[j]!.pairs.push([x, y]);
-      });
+      const o = order[i]!;
+      for (const j of looked) if (weak[j]!.a.has(o)) entry(j, o);
+      if ('nodeName' in o) for (const j of ofNodes) if (weak[j]!.a.has(o)) entry(j, o);
     }
     entries.push(...lists.filter((l) => l.pairs.length));
   }
   if (refused) return { refused };
   return { c: to as unknown as Compiler, roots: outRoots, entries };
+}
+
+/** the module's marks of nodes a copy of a compiler's state carries over (`copyState`), each keyed by parse5 nodes (and `INERT_FILLS`) */
+const nodeMarks = () => [WRITTEN, SCOPED, MARKED, REWROTE, RENDERED_FILE, OWN_SCRIPTS] as Array<WeakMap<object, unknown> | WeakSet<object>>;
+
+/**
+ * What a compile's options reach (`optionsReach`), which a copy of its state shares (`copyState`): both passes of a
+ * page are handed the same objects (a library, a stylesheet, an API), and the compiler compares them by identity (a
+ * component's `lib` with `libOfFile`'s). Down to three levels below the options, not into the build's caches, whose
+ * entries a compile takes copies of.
+ */
+const OPTS_REACH = new WeakSet<object>();
+const OPTS_SEEN = new WeakSet<object>();
+const OPTS_CACHES = new Set(['componentCache', 'globCache', 'templates', 'definitions', 'units', 'decided', 'unrolled', 'rendered', 'unrendered', 'constants', 'overLimit', 'frozen']);
+function optionsReach(opts: CompileOptions) {
+  if (OPTS_SEEN.has(opts)) return;
+  OPTS_SEEN.add(opts);
+  const mark = (v: unknown, depth: number) => {
+    if (v === null || typeof v !== 'object' || OPTS_REACH.has(v)) return;
+    OPTS_REACH.add(v);
+    if (depth >= 3) return;
+    if (Array.isArray(v) || v instanceof Set) for (const x of v) mark(x, depth + 1);
+    else if (v instanceof Map) for (const x of v.values()) mark(x, depth + 1);
+    else if (!(v instanceof WeakMap) && !(v instanceof WeakSet)) for (const k of Object.keys(v)) mark((v as Record<string, unknown>)[k], depth + 1);
+  };
+  for (const [k, v] of Object.entries(opts)) if (!OPTS_CACHES.has(k)) mark(v, 1);
 }
 
 /** a copy's side tables, entry by entry (`copyState`): each a field of the compiler, or one of the module's (`mod`) */
@@ -1246,6 +1291,19 @@ type KeptTemplate = { c: Compiler; path: string; checked: boolean; hits: number;
  * Or why it is not kept: the reason each entry's second pass is counted under (`SN_PASS_LOG`).
  */
 type KeptExpansion = { c: Compiler; doc: DefaultTreeAdapterMap['document']; entries: WeakEntries } | { refused: string };
+
+/** what other pages read of a page before it compiles (`pageHead`) */
+export type PageHead = { path: string[]; prefetchOff: boolean; swapOff: boolean };
+
+/**
+ * A page's paths and its `off` attributes without a walk (redesign-notes/page-walked-once.md): what a build's other
+ * pages read of it before it compiles (its links, the Speculation Rules), with the options of its description
+ * (`describeOnly`), whose `path`, `prefetchOff` and `swapOff` these are. Throws where reading the page or its layout
+ * does.
+ */
+export function pageHead(html: string, options: CompileOptions): PageHead {
+  return new Compiler(options).readHead(html);
+}
 
 /** the second pass of a template's entries starts from the kept expansion unless `SN_ONE_PASS=0` */
 export function onePassOn(): boolean { return proc?.env.SN_ONE_PASS !== '0'; }
@@ -1298,7 +1356,8 @@ function foldsEscape(out: CompiledParts, folds: Map<string, unknown>): boolean {
  * same, every field.
  */
 function secondPass(html: string, opts: CompileOptions, kept: KeptExpansion | undefined, again: () => CompiledParts): CompiledParts & { canonicalOnly?: boolean } {
-  const old = () => new Compiler(opts).run(html);
+  // (either way a second pass, which may place a unit of its own: `unitPass`)
+  const old = () => { const c2 = new Compiler(opts); return unitPass(c2, () => c2.run(html), () => new Compiler(opts).run(html)); };
   if (!kept) { passStat(onePassOn() ? 'no kept expansion' : 'off'); return old(); }
   if ('refused' in kept) { passStat(kept.refused); return old(); }
   const r = copyState(kept.c, opts, [kept.doc], kept.entries);
@@ -1307,7 +1366,7 @@ function secondPass(html: string, opts: CompileOptions, kept: KeptExpansion | un
   // (a copy is no new compiler: what its constructor takes from the options, the folds, is set here)
   if (opts.folds?.size) c.page.folds = { values: opts.folds, literal: jsLiteral };
   c.forEntry();
-  const out = c.finishPage(c.walkExpanded(r.roots[0] as DefaultTreeAdapterMap['document']));
+  const out = unitPass(c, () => c.finishPage(c.walkExpanded(r.roots[0] as DefaultTreeAdapterMap['document'])), () => new Compiler(opts).run(html));
   passStat(null);
   if (proc?.env.SN_ONE_PASS_AUDIT === '1') {
     const spliced = RENDER_STATS.spliced;
@@ -1382,7 +1441,7 @@ function fromTemplate(html: string, options: CompileOptions): CompiledParts | nu
   };
   const pass = (folds?: Map<string, unknown>) => {
     // (the audit's old route: evaluated again, since a second pass splices the rendered blocks it is handed and changes them)
-    const again = () => { c.decideFor({ ...options, foldLog: undefined }); return new Compiler(passOptions(folds)).run(html); };
+    const again = () => { c.decideFor({ ...options, foldLog: undefined }); const o2 = passOptions(folds), c2 = new Compiler(o2); return unitPass(c2, () => c2.run(html), () => new Compiler(o2).run(html)); };
     return secondPass(html, passOptions(folds), t.expanded, again);
   };
   const folds = c.foldValues();
@@ -1403,14 +1462,18 @@ function fromTemplate(html: string, options: CompileOptions): CompiledParts | nu
 function compilePasses(html: string, options: CompileOptions): CompiledParts & { canonicalOnly?: boolean } {
   const kept = fromTemplate(html, options);
   if (kept) return kept;
-  const pass = { first: null as Compiler | null };
+  const pass = { first: null as Compiler | null, described: undefined as CompiledParts['firstPrefetch'] };
   // (what the first pass changed of the build's unit, put back once its decisions are taken: `units.ts`)
-  try { return compileTwice(html, options, pass); } finally { if (pass.first) restoreUnit(pass.first); }
+  try {
+    const out = compileTwice(html, options, pass);
+    return pass.described ? { ...out, firstPrefetch: pass.described } : out;
+  } finally { if (pass.first) restoreUnit(pass.first); }
 }
 
-function compileTwice(html: string, options: CompileOptions, pass: { first: Compiler | null }): CompiledParts & { canonicalOnly?: boolean } {
+function compileTwice(html: string, options: CompileOptions, pass: { first: Compiler | null; described?: CompiledParts['firstPrefetch'] }): CompiledParts & { canonicalOnly?: boolean } {
   let first = pass.first = new Compiler(options);
   let walk = first.walkPage(html);
+  if (options.prefetchLater) pass.described = first.firstPrefetch();
   first.settle();
   // loops over constants: unrolled only when the first pass is clean (the second one compiles the rows with their item)
   // (SN322 does not count: what the first pass found running may be a loop the second one unrolls)
@@ -1432,14 +1495,9 @@ function compileTwice(html: string, options: CompileOptions, pass: { first: Comp
     // (counted: a page of its own, or a template's entry its kept walk does not serve, parses and expands again)
     passStat(!options.page ? 'a page of its own' : options.templates ? 'an entry compiled alone' : 'an entry, no kept templates');
     const pass = (f: Map<string, unknown> | undefined) => {
-      const c2 = new Compiler({ ...options, decided: first.decided, ...(f ? { folds: f } : {}), ...(unrolled ? { unrolled } : {}), ...(first.rendered.size ? { rendered: first.rendered } : {}), ...(first.unrendered.size ? { unrendered: first.unrendered } : {}), ...(constants ? { constants } : {}), ...(first.overLimit.size ? { overLimit: first.overLimit } : {}), frozen });
-      // (a second pass's unit, `units.ts`: the output copied off the unit's objects, which are then given back)
-      let o: CompiledParts;
-      try { o = c2.run(html); if (c2.placedUnit && !c2.unitStale) o = detachOutput(o); } finally { restoreUnit(c2); }
-      if (!c2.unitStale) return o;
-      unitFallback(`pass 2: ${c2.unitStale}`);
-      const was = forceUnits2(false);
-      try { return new Compiler({ ...c2.opts }).run(html); } finally { forceUnits2(was); }
+      const o2: CompileOptions = { ...options, decided: first.decided, ...(f ? { folds: f } : {}), ...(unrolled ? { unrolled } : {}), ...(first.rendered.size ? { rendered: first.rendered } : {}), ...(first.unrendered.size ? { unrendered: first.unrendered } : {}), ...(constants ? { constants } : {}), ...(first.overLimit.size ? { overLimit: first.overLimit } : {}), frozen };
+      const c2 = new Compiler(o2);
+      return unitPass(c2, () => c2.run(html), () => new Compiler(o2).run(html));
     };
     const out = pass(folds);
     // a component script that may change what was written into the code: the reads stay reads (`foldsEscape`)
@@ -1453,7 +1511,7 @@ function compileTwice(html: string, options: CompileOptions, pass: { first: Comp
   // unit placed, only where the walk took the unit's check data in its order: `units.ts`)
   if (twice && first.quietFinish() && (!first.placedUnit || first.checkOrder)) {
     const out = second(isClean());
-    if (out) return first.check ? { ...out, check: first.check } : out;
+    if (out) return withFirstErrors(first, first.check ? { ...out, check: first.check } : out);
   }
   // a first pass that is finished (its output, or its diagnostics read): compiled again without the build's units, whose
   // objects it shares and whose numbers would then reach the output (`units.ts`)
@@ -1462,6 +1520,7 @@ function compileTwice(html: string, options: CompileOptions, pass: { first: Comp
     restoreUnit(first);
     first = pass.first = new Compiler({ ...options, units: undefined });
     walk = first.walkPage(html);
+    if (options.prefetchLater) pass.described = first.firstPrefetch();
     first.settle();
   }
   const out = first.finishPage(walk, true);
@@ -1472,7 +1531,36 @@ function compileTwice(html: string, options: CompileOptions, pass: { first: Comp
   if (!next) { SHIFT_STATS.first ||= first.hasDefinitions() || proc?.env.SN_UNITS_SHIFT_AT === 'walk'; return withLate(out); }
   // the type check reads the page as written: in the second pass an unrolled loop's rows have no loop variable, so a
   // component prop in one (`{ post: p }`) was SN208 "Cannot find name 'p'" in `sinter check` of a `static` page
-  return out.check ? { ...next, check: out.check } : next;
+  return withFirstErrors(first, out.check ? { ...next, check: out.check } : next);
+}
+
+/**
+ * The second pass's output with the errors the first pass found and it did not: those in markup it does not compile
+ * (a branch decided away, `data-sn-if="false"`). They kept the page from unrolling (`isClean`), so they are reported,
+ * each at its place, as the page's own (redesign-notes/bugs.md, bug 6).
+ */
+function withFirstErrors<T extends { diagnostics: Diagnostic[] }>(first: Compiler, out: T): T {
+  const key = (d: Diagnostic) => `${d.code} ${d.file}:${d.line}:${d.col} ${d.message}`;
+  const lost = first.diagnostics.filter((d) => d.severity === 'error' && d.code !== 'SN322');
+  if (!lost.length) return out;
+  const has = new Set(out.diagnostics.map(key));
+  const add = lost.filter((d) => !has.has(key(d)));
+  return add.length ? { ...out, diagnostics: [...out.diagnostics, ...add] } : out;
+}
+
+/**
+ * A second pass `run` on `c`, which may place a unit of its own (`units.ts`): its output copied off the unit's objects,
+ * which are then given back; where the unit does not hold for the page (`unitStale`: refused, or what the walk added
+ * beside it), the pass is compiled again without the second pass's units (`again`), counted.
+ */
+function unitPass(c: Compiler, run: () => CompiledParts, again: () => CompiledParts): CompiledParts {
+  c.unitHeld = true;
+  let o: CompiledParts;
+  try { o = run(); if (c.placedUnit && !c.unitStale) o = detachOutput(o); } finally { restoreUnit(c); }
+  if (!c.unitStale) return o;
+  unitFallback(`pass 2: ${c.unitStale}`);
+  const was = forceUnits2(false);
+  try { return again(); } finally { forceUnits2(was); }
 }
 
 /**
@@ -1626,6 +1714,8 @@ class Compiler {
   private readonly enclosing = new WeakMap<P5Element, Use | null>();
   /** above 0 while a shared definition expands: a tree placement there with no root in it is filled at run time */
   private inDef = 0;
+  /** walking a shared definition's markup (`compileDefinitionIn`) or a fill's case of a placement in one (`finishTreeFills`): its check expressions are that copy (`CheckExpr.def`) */
+  private defWalk = 0;
   /** tree placements inside shared definitions: `<slot>`s left for the walk, which makes each a choice anchor */
   private readonly runtimeSlots = new WeakSet<P5Element>();
   /** every root's fill for a slot it declares, by id: a case template of each tree placement in a definition it reaches */
@@ -1695,6 +1785,8 @@ class Compiler {
   checkOrder = true;
   /** a second pass whose unit does not hold for it after its walk (`shareTemplates`): why, and it is compiled again without one */
   unitStale: string | null = null;
+  /** a second pass run by `unitPass`, which copies its output off a unit of its own and gives the unit back: only such a pass places one */
+  unitHeld = false;
   /** a second pass with a unit: the definitions its walk asked for, each of which the unit must hold and no other (`finishPage`) */
   readonly defsAsked = new Set<string>();
   /** what this page changed of its unit's objects, as they were (`touch`, `restoreUnit`) */
@@ -1788,6 +1880,11 @@ class Compiler {
   readonly checkFrames: CheckUnit['frames'] = [];
   readonly checkExprs: CheckUnit['exprs'] = [];
   readonly checkResources: CheckUnit['resources'] = [];
+  /**
+   * a build's first pass with units: the parts of its units' check data the walk took, held by reference (their places
+   * in `checkFrames` and `checkExprs` are empty until read: `checkExpr`); null where units are not placed
+   */
+  readonly checkParts: CheckPartRef[] | null;
   /** StateEntry / LoopEntry → frame index in `check.frames` */
   readonly frameOf = new Map<object, number>();
   /** `sinter check`: the condition a branch is checked under, when it is not its own `data-sn-if` (the `data-sn-else` of a choice); and each `if` binding's, for its `data-sn-else` */
@@ -1960,7 +2057,7 @@ class Compiler {
   /**
    * The first pass, rows rendered (`rowRenderer`): a template element's attributes as the walk met them, before it
    * stripped what it compiled: what the second pass's minifier and layout read on that element in an unrolled row
-   * before its bindings are painted (`SHOWN`)
+   * before its bindings are painted (`RenderedRows.shown`)
    */
   private readonly snAttrs = new WeakMap<P5Element, P5Element['attrs']>();
   /** whether the walk records `snAttrs` (the first pass, rows rendered) */
@@ -1971,8 +2068,8 @@ class Compiler {
   private readonly renderedReads = new Set<string>();
   /** the second pass: the rendered rows' empty texts, taken out once the markup is minified (`RenderedRows.empty`) */
   private readonly renderedEmpty: P5Node[] = [];
-  /** the second pass: the rendered rows' elements with the attributes their markup had before paint (`SHOWN`, `RenderedRows.shown`) */
-  private readonly renderedShown: P5Element[] = [];
+  /** the second pass: the rendered rows' elements with the attributes their markup had before paint (`RenderedRows.shown`: what a rendered row's element had as attributes in the markup it stands for, before its bindings were painted, which the minifier reads on it) */
+  private readonly renderedShown: Array<[P5Element, P5Element['attrs']]> = [];
   /** the second pass: rendered images' marks of scoped styles, written after the image pipeline (`RenderedRows.late`) */
   private readonly renderedLate: Array<[P5Element, P5Element['attrs']]> = [];
   /** the value attributes of each element, the bindings each made, and whether it was reported on (`collectConstants`) */
@@ -1996,7 +2093,10 @@ class Compiler {
   readonly remoteWidths = new Set<number>();
 
   constructor(readonly opts: CompileOptions) {
-    this.check = opts.check ? { file: opts.file, resources: this.checkResources, frames: this.checkFrames, exprs: this.checkExprs } : null;
+    this.checkParts = opts.check && opts.units && unitsOn() ? [] : null;
+    this.check = !opts.check ? null : this.checkParts
+      ? checkUnitWithParts(opts.file, this.checkResources, this.checkFrames, this.checkExprs, this.checkParts)
+      : { file: opts.file, resources: this.checkResources, frames: this.checkFrames, exprs: this.checkExprs };
     this.checking = !!opts.check;
     const ns = new Map<string, Set<string>>();
     for (const [k, v] of Object.entries(opts.helpers.namespaces)) ns.set(k, new Set(v.members));
@@ -2082,6 +2182,21 @@ class Compiler {
     return doc;
   }
 
+  /**
+   * What other pages read of this one before it compiles, without its walk (`pageHead`): its `data-sn-path` patterns
+   * (`pathPatterns`), `<html data-sn-prefetch="off">` and `<html data-sn-swap="off">`, read off the page with its layout
+   * merged and its entry's path written (`expandPage`'s first steps), as the walk reads them there.
+   */
+  readHead(html: string): PageHead {
+    const doc0 = parsedDocument(html);
+    this.tag(doc0, { file: this.opts.file, src: html, chain: [] });
+    const doc = this.isLayoutFile(this.opts.file) ? doc0 : this.mergeLayout(doc0) ?? doc0;
+    this.pagesOf(doc);
+    const el = doc.childNodes.find((n): n is P5Element => isElement(n) && n.tagName === 'html');
+    const off = (n: string) => !!el && attr(el, `data-sn-${n}`)?.trim() === 'off';
+    return { path: this.pathPatterns(doc), prefetchOff: off('prefetch'), swapOff: off('swap') };
+  }
+
   /** `walkPage` after `expandPage`: what the first pass decided applied, the layout, the walk */
   walkExpanded(doc: DefaultTreeAdapterMap['document']): NonNullable<Compiler['walk']> {
     this.keepsAttrs = this.collecting() && renderOn();
@@ -2105,9 +2220,9 @@ class Compiler {
     if (this.opts.constants?.size) this.prefold(doc);
     const sheets = this.opts.styles ?? this.opts.images?.styles;
     // rendered rows, as the markup they stand for to the minifier, the layout and the images: the bindings the old
-    // route still has there, not their paint (`SHOWN`); painted again before `declare`
-    const painted = this.renderedShown.map((e) => e.attrs);
-    for (const e of this.renderedShown) e.attrs = SHOWN.get(e)!;
+    // route still has there, not their paint (`RenderedRows.shown`); painted again before `declare`
+    const painted = this.renderedShown.map(([e]) => e.attrs);
+    for (const [e, a] of this.renderedShown) e.attrs = a;
     // builds: comments and white space that show nothing out, before anything counts nodes (docs/minify.md)
     if (this.opts.minify) this.minify(doc);
     // rendered rows' empty texts: elements to the minifier (`WRITTEN`), nothing in the page
@@ -2127,7 +2242,7 @@ class Compiler {
       // the first pass, rows rendered: a template's image as it was, which the rows it renders stand for (`rowRenderer`)
       ...(this.keepsAttrs ? { rewrote: (el: P5Element, before: P5Element['attrs']) => REWROTE.set(el, before) } : {}),
     }) : undefined;
-    this.renderedShown.forEach((e, i) => { e.attrs = painted[i]!; });
+    this.renderedShown.forEach(([e], i) => { e.attrs = painted[i]!; });
     // (the marks of rendered images, after the image pipeline, as the old route's walk writes them)
     for (const [e, marks] of this.renderedLate) for (const m of marks) setAttr(e, m.name, m.value);
     this.declare(doc);
@@ -2146,7 +2261,8 @@ class Compiler {
     // builds: the page's definitions from the build's units, before anything is numbered (`units.ts`); in a second pass
     // (whose numbers ship) a unit of its own, held whole and given back after the page's output is copied (stage5-a1.md)
     // (a second pass's: the definitions of the points left in its tree, which its walk compiles, `livePoints`)
-    const live = second && this.opts.units && unitsOn() && units2On() && !this.opts.describeOnly && !this.opts.dev ? this.livePoints(doc) : null;
+    // (only a second pass that gives its unit back after its output, `unitPass`: any other compiles as before)
+    const live = second && this.unitHeld && this.opts.units && unitsOn() && units2On() && !this.opts.describeOnly && !this.opts.dev ? this.livePoints(doc) : null;
     if (this.opts.units && unitsOn() && (!second || live?.size) && !this.opts.describeOnly && !this.opts.dev) {
       this.placedUnit = placeUnits(this, this.opts.units as UnitStore, [this.keepsAttrs, this.opts.locale?.name ?? '', this.page.axisUrl ?? ''].join('\u0001'), second, live ?? undefined);
       if (second) holdUnit(this);
@@ -4870,7 +4986,7 @@ class Compiler {
     const { lets } = this.propLets(use, ctx.scope);
     // each candidate's props, checked with the data narrowed to its value (convention, map; a helper hides the link)
     if (choice?.key != null && this.checking && this.lastExpr !== null && attr(host, 'data-sn-with') !== undefined) {
-      const e = this.checkExprs[this.lastExpr]!;
+      const e = this.checkExpr(this.lastExpr);
       // (in parentheses when there are several keys: the guard is joined with others)
       e.guard = choice.also?.length ? `(${[choice.key, ...choice.also].map((k) => `(${choice.keySrc}) === ${JSON.stringify(k)}`).join(' || ')})` : `(${choice.keySrc}) === ${JSON.stringify(choice.key)}`;
       e.guardAt = { name: choice.name, key: choice.key, loc: this.locOf(host, 'use', choice.keyAt ?? 0) };
@@ -5103,7 +5219,9 @@ class Compiler {
           // (a fill forwarded from further out compiles its placements' data from here, as the walk does for any fill)
           for (const c of nodes) if (isElement(c) && !this.fillOf.has(c)) this.caseScopes.set(c, scope);
           this.headTemplates.set(tid, tpl);
-          this.walkChildren(tpl.content, { scope, list: t.nodes, tid, path: [], stateIdx: -1 });
+          // (the fill's copy a placement in a definition renders, beside the one at the root's use: `CheckExpr.def`)
+          this.defWalk++;
+          try { this.walkChildren(tpl.content, { scope, list: t.nodes, tid, path: [], stateIdx: -1 }); } finally { this.defWalk--; }
           // `data-sn-early="off"` on the root's tag covers its fills
           if (F.use.late) for (const n of t.nodes) this.lateNodes.add(n);
           touch(this, P.cases); touch(this, P.map);
@@ -5525,7 +5643,8 @@ class Compiler {
     this.headTemplates.set(tid, tpl);
     if (this.opts.dev) setAttr(tpl, 'data-sn-name', name);
     this.templateAt.set(tid, { el: root, attr: null, shift: 0 });
-    this.walkChildren(tpl.content, { scope: { loops: [], states: [] }, list: t.nodes, tid, path: [], stateIdx: -1 });
+    this.defWalk++;
+    try { this.walkChildren(tpl.content, { scope: { loops: [], states: [] }, list: t.nodes, tid, path: [], stateIdx: -1 }); } finally { this.defWalk--; }
     if (this.diagnostics.length > d0) this.tplDiags.set(tid, this.diagnostics.length - d0);
     return entry;
   }
@@ -5600,7 +5719,7 @@ class Compiler {
       const el = this.idEls.get(id);
       if (!el || el.tagName === 'form') continue;
       for (const { attr: a, i } of this.exprsOf.get(el) ?? []) {
-        if (TRIGGER_TIME.has(a) && this.checkExprs[i]!.event !== null) this.checkExprs[i]!.run = true;
+        if (TRIGGER_TIME.has(a) && this.checkExpr(i).event !== null) this.checkExpr(i).run = true;
       }
     }
   }
@@ -6541,7 +6660,7 @@ class Compiler {
       const i = this.recordExpr(el, attrName, scope, o, r.nameEdits ? applyEdits(src, r.nameEdits) : src, shift, r);
       // a broken expression is there for editor completion only; nothing refers to it
       if (r.ok) this.lastExpr = i;
-      else this.checkExprs[i]!.broken = true;
+      else this.checkExpr(i).broken = true;
     }
     return r;
   }
@@ -6792,10 +6911,17 @@ class Compiler {
 
   // ---- check unit
 
+  /** expression `i` of the check unit, a part's made the page's first (`checkParts`) */
+  checkExpr(i: number): CheckExpr {
+    // (made in the page's list, then read from it: in a definition the linker records, through its log)
+    if (this.checkParts?.length && this.checkExprs[i] === undefined) checkExprAt(checkRaw(this.check!)!, i);
+    return this.checkExprs[i]!;
+  }
+
   /** Adds type information to the expression `expr()` recorded last. */
   typeLast(info: Partial<Pick<CheckExpr, 'resultType' | 'returns'>> & { payload?: TypeRef | null }) {
     if (!this.checking || this.lastExpr === null) return;
-    const e = this.checkExprs[this.lastExpr]!;
+    const e = this.checkExpr(this.lastExpr);
     if (info.resultType) e.resultType = info.resultType;
     if (info.returns) e.returns = info.returns;
     if (info.payload && e.payload) e.payload.type = info.payload;
@@ -6843,6 +6969,7 @@ class Compiler {
     const e: CheckExpr = {
       src, mode: o.mode === 'value' ? 'value' : 'handler', loc: this.locOf(el, attrName, shift), frames, tag: use?.root.tagName ?? el.tagName, event,
       result: attrName === 'data-sn-then' || !!o.magic?.includes('$result'), error: attrName === 'data-sn-catch',
+      ...(this.defWalk ? { def: true as const } : {}),
     };
     if (use && event && use.emitsText && use.emits?.some((m) => m.name === event)) {
       e.detail = { kind: 'ts', text: `(${use.emitsText})[${JSON.stringify(event)}]`, loc: this.locOf(use.template, 'data-sn-emits') };
@@ -8442,9 +8569,12 @@ class Compiler {
   /** `decideOnly`: what it decides and would write, with nothing written into the markup (a kept template's entries, `decideFor`) */
   prerender(decideOnly = false) {
     /** `tpl`: in a template's content, written there only when it can never change; `if`: a condition decided for a second pass; `for`: a loop unrolled in it */
-    type Cand = { el: P5Element; b: Binding; f: number; tpl?: true; if?: true; for?: true };
-    const cands: Cand[] = [];
-    const written = this.writtenState();
+    type Cand = EvalCand;
+    // (a kept template's entries evaluate one program: what is read of it alone is kept for the next entry, `evalProgram`)
+    const keep = decideOnly && !this.placedUnit, kept = keep ? this.evalProgram : null;
+    const reuse = !!kept && kept.shape === this.programShape();
+    const cands: Cand[] = reuse ? kept!.cands : [];
+    const written = reuse ? kept!.written : this.writtenState();
     const fixed = (ds: PathRef[] | undefined) => strs(ds).every((d) => {
       // a `file:` resource and its status: constants nothing writes
       if (this.fileConstant(d)) return true;
@@ -8478,9 +8608,11 @@ class Compiler {
     };
     // in a kept element nothing is decided or unrolled at build time: its nodes are numbered alike on every page that
     // keeps it, whatever each page passes it, and the next page's code takes them over (swaps, §3)
-    for (const { el, node } of this.paints) for (const b of node.b) { value(el, b, false); if (!this.inKept(el)) { decide(el, b); unroll(el, b); } }
-    for (const [node, el] of this.tplEls) for (const b of node.b) { value(el, b, true); decide(el, b); }
-    const choosing = this.collecting() && [...this.pointOf.values()].some((p) => p.pick);
+    if (!reuse) {
+      for (const { el, node } of this.paints) for (const b of node.b) { value(el, b, false); if (!this.inKept(el)) { decide(el, b); unroll(el, b); } }
+      for (const [node, el] of this.tplEls) for (const b of node.b) { value(el, b, true); decide(el, b); }
+    }
+    const choosing = reuse ? kept!.choosing : this.collecting() && [...this.pointOf.values()].some((p) => p.pick);
     if (!cands.length && !choosing && !this.textRoots.length) return;
     // everything the page could call is shadowed: what is not a constant throws
     const NOT = new Error('not a build-time constant');
@@ -8519,25 +8651,44 @@ class Compiler {
       });
     }
     // the worklist evaluates the rows' templates and bindings too, and which component each choice renders
-    const rowCodes = this.collecting() ? [
+    const rowCodes = reuse ? [] : this.collecting() ? [
       ...this.templates.flatMap((tp) => tp.nodes.flatMap((n) => n.b.filter((b) => b.f !== undefined && (ROW.has(b.k) || b.k === 'if' || b.k === 'for')).map((b) => this.fns[b.f!]!))),
       ...[...this.pointOf.values()].flatMap((p) => (p.pick ? [p.pick.code] : [])),
       ...[...this.pointOf.values()].flatMap((p) => p.group?.cases.map((c) => `($) => (${c.props})`) ?? []),
       ...this.runtimePlacements.flatMap((P) => (P.node.b[0]?.f !== undefined ? [this.fns[P.node.b[0].f]!] : [])),
     ] : [];
-    const texts = this.textRoots.filter((t) => !t.b.e && t.b.f !== undefined && fixed(t.b.d) && !this.inKept(t.parent as P5Node));
-    const used = [...new Set([...this.stateInits.flatMap((st) => st.fields.map((x) => x.code)), ...cands.map((c) => this.fns[c.f]!), ...rowCodes, ...texts.map((t) => this.fns[t.b.f!]!)])];
-    // the unit's functions: compiled once per build (`unitTable`), the page's what is left
-    const shared = this.placedUnit ? unitTable(this.placedUnit, params, used) : null;
-    // (a unit's table that does not compile: the page compiles all it uses, as without units)
-    const mine = shared ? used.filter((c) => !shared.has(c)) : used;
-    let table: Array<($: unknown) => unknown>;
-    try {
-      // eslint-disable-next-line no-new-func -- build time only: the page's own compiled expressions, with nothing in scope
-      table = new Function(...params.keys(), `"use strict"; return [\n${mine.join(',\n')}\n];`)(...params.values());
-    } catch { return; }
-    const fnOf = new Map(mine.map((code, i) => [code, table[i]!]));
-    if (shared) for (const [code, f] of shared) fnOf.set(code, f);
+    const texts = reuse ? kept!.texts : this.textRoots.filter((t) => !t.b.e && t.b.f !== undefined && fixed(t.b.d) && !this.inKept(t.parent as P5Node));
+    const used = reuse ? kept!.used : [...new Set([...this.stateInits.flatMap((st) => st.fields.map((x) => x.code)), ...cands.map((c) => this.fns[c.f]!), ...rowCodes, ...texts.map((t) => this.fns[t.b.f!]!)])];
+    // (kept: the program read once, its functions compiled once with the names they see as variables each entry sets)
+    if (keep && !reuse) this.evalProgram = { shape: this.programShape(), walk: newWalkMemo(), cands, written, choosing, texts, used, tables: new Map() };
+    let fnOf: Map<string, ($: unknown) => unknown>;
+    if (keep) {
+      const prog = this.evalProgram!, names = [...params.keys()], key = names.join(',');
+      let t = prog.tables.get(key);
+      if (t === undefined) {
+        try {
+          // eslint-disable-next-line no-new-func -- build time only: the page's own compiled expressions, the evaluation's names bound per entry
+          const [bind, fns] = new Function(`"use strict"; let ${names.join(', ')}; return [(v) => { [${names.join(', ')}] = v; }, [\n${used.join(',\n')}\n]];`)() as [(v: unknown[]) => void, Array<($: unknown) => unknown>];
+          t = { bind, fns: new Map(used.map((code, i) => [code, fns[i]!])) };
+        } catch { t = null; }
+        prog.tables.set(key, t);
+      }
+      if (!t) return;
+      t.bind([...params.values()]);
+      fnOf = t.fns;
+    } else {
+      // the unit's functions: compiled once per build (`unitTable`), the page's what is left
+      const shared = this.placedUnit ? unitTable(this.placedUnit, params, used) : null;
+      // (a unit's table that does not compile: the page compiles all it uses, as without units)
+      const mine = shared ? used.filter((c) => !shared.has(c)) : used;
+      let table: Array<($: unknown) => unknown>;
+      try {
+        // eslint-disable-next-line no-new-func -- build time only: the page's own compiled expressions, with nothing in scope
+        table = new Function(...params.keys(), `"use strict"; return [\n${mine.join(',\n')}\n];`)(...params.values());
+      } catch { return; }
+      fnOf = new Map(mine.map((code, i) => [code, table[i]!]));
+      if (shared) for (const [code, f] of shared) fnOf.set(code, f);
+    }
     // a persisted model's own state path: its initial value is the fallback when storage has none
     let own: string | null = null;
     const isPersisted = (p: string) => p !== own && this.persisted.has(p);
@@ -8573,7 +8724,9 @@ class Compiler {
         throw NOT;
       },
     });
-    const run = (code: string): unknown => { folding.start(code); try { return fnOf.get(code)!(scope); } catch { return FAIL; } finally { folding.end(); } };
+    // (an expression whose first step reads a name off the scope that it never answers, a definition's props
+    // `$.$p<n>` above all: FAIL without running it, as running it throws there before anything else happens)
+    const run = (code: string): unknown => { folding.start(code); try { return failsFirst(code) ? FAIL : fnOf.get(code)!(scope); } catch { return FAIL; } finally { folding.end(); } };
     for (const st of this.stateInits) {
       if (st.persist) continue;
       const sid = st.sid, obj: Record<string, unknown> = {};
@@ -8588,7 +8741,7 @@ class Compiler {
       }));
     }
     const schemes = schemesOf([]);
-    const work = this.worklist(fnOf, known, fixed, schemes, ROW);
+    const work = this.worklist(fnOf, known, fixed, schemes, ROW, keep ? this.evalProgram!.walk : undefined);
     for (const c of cands) {
       own = c.b.k === 'model' && c.b.p !== undefined ? (c.b.w![0] as string).split('.').slice(0, 2).join('.') : null;
       let v = known(strs(c.b.d)) ? run(this.fns[c.f]!) : FAIL;
@@ -8638,6 +8791,16 @@ class Compiler {
 
   /** prerender's helper calls, while it evaluates (`helperCalls`) */
   folding: ReturnType<Compiler['helperCalls']> | null = null;
+  /**
+   * What `prerender(true)` read of the program alone, for a kept template's next entry (`decideFor`): the candidates, the
+   * state written, the texts, the codes it may run and their compiled tables, by the names they see. `shape`: the
+   * program's sizes it was read at; a program that grew is read again
+   */
+  evalProgram: { shape: string; walk: WalkMemo; cands: EvalCand[]; written: Set<string>; choosing: boolean; texts: Compiler['textRoots']; used: string[]; tables: Map<string, { bind: (v: unknown[]) => void; fns: Map<string, ($: unknown) => unknown> } | null> } | null = null;
+  /** the sizes of what `prerender` reads of the program (`evalProgram`) */
+  programShape(): string {
+    return [this.fns.length, this.templates.length, this.paints.length, this.tplEls.size, this.textRoots.length, this.stateInits.length, this.pointOf.size, this.runtimePlacements.length, this.fileData.size].join(',');
+  }
   /** by compiled code: the app helper whose call kept it from being a build-time constant, and why (SN322) */
   readonly foldWhy = new Map<string, string>();
 
@@ -8907,9 +9070,12 @@ class Compiler {
    * Two instances with one key (no way to tell them apart) leave it. At most `EXPANSION_LIMIT` rows and component
    * instances per page, any list's rows counted (`SN536` past it, at the loop or the tree that crosses it).
    */
-  worklist(fnOf: Map<string, ($: unknown) => unknown>, known: (deps: string[]) => boolean, fixed: (ds: PathRef[] | undefined) => boolean, schemes: Set<string>, ROW: Set<string>) {
+  /** `memo`: what the walk reads of the program, kept with a kept template's program (`evalProgram`) for its next entry */
+  worklist(fnOf: Map<string, ($: unknown) => unknown>, known: (deps: string[]) => boolean, fixed: (ds: PathRef[] | undefined) => boolean, schemes: Set<string>, ROW: Set<string>, memo: WalkMemo = newWalkMemo()) {
     // (`recs`: the top rows of a loop as `rowRenderer` reads them, `RowRec`; recorded only when rows are rendered)
-    type Found = { unrolls: Array<[string, unknown[], PathRef[] | undefined]>; decided: Array<[string, boolean, PathRef[] | undefined]>; paints: Array<[Binding, string, ConstantWrite | null]>; recs?: RowRec[]; rows: number; over?: true };
+    // (`decided`: a key and what it is decided, or the candidates a choice in a row does not render, as one entry: each of
+    // `keys` but `picked` decided false at `prefix` + its key, in the order of `keys`; `decidedEntries` spells it out)
+    type Found = { unrolls: Array<[string, unknown[], PathRef[] | undefined]>; decided: Array<[string, boolean, PathRef[] | undefined] | NotRendered>; paints: Array<[Binding, string, ConstantWrite | null]>; recs?: RowRec[]; rows: number; over?: true };
     const rendering = renderOn();
     /** `pick`: a choice's case expanded (decided true), else a loop unrolled (`tid`, its rows' template) */
     const pending = new Map<string, { items: unknown[]; d: PathRef[] | undefined; found: Found; pick?: true; el: P5Element; tid?: number; picked?: PickedCase } | null>();
@@ -8919,11 +9085,17 @@ class Compiler {
      * Item 6: a handler a static tree keeps, which the page module adopts: it writes nothing and reads only
      * constants and its own `$el` (no data, URL, clock or state something writes)
      */
+    // (by binding, for this evaluation: what it asks is the program's, the same in every row)
+    const handlers = memo.handlers;
     const handlerOnly = (b: Binding) => {
       if (b.k !== 'on' || b.w?.length || b.f === undefined) return false;
+      let h = handlers.get(b);
+      if (h !== undefined) return h;
       const code = this.fns[b.f]!;
-      if (/\$\.\$(r|meta|url|now|locale|slot|error)\b|\$\.\$p\d/.test(code)) return false;
-      return [...code.matchAll(/\$\.\$s(\d+)(?:\.([A-Za-z_$][\w$]*))?/g)].every((m) => m[2] !== undefined && !written.has(`$s${m[1]}`) && !written.has(`$s${m[1]}.${m[2]}`));
+      h = !/\$\.\$(r|meta|url|now|locale|slot|error)\b|\$\.\$p\d/.test(code)
+        && [...code.matchAll(/\$\.\$s(\d+)(?:\.([A-Za-z_$][\w$]*))?/g)].every((m) => m[2] !== undefined && !written.has(`$s${m[1]}`) && !written.has(`$s${m[1]}.${m[2]}`));
+      handlers.set(b, h);
+      return h;
     };
     const chosen = new Set<string>();
     const limit = this.opts.expansionLimit ?? EXPANSION_LIMIT;
@@ -8940,28 +9112,77 @@ class Compiler {
     const heights = new Map<object, number>();
     const listOf = (v: unknown): unknown[] | null => (Array.isArray(v) && v.every((x) => plainData(x, heights)) ? v : null);
     // (a placement's element is its `<slot>`; an anchor's, its template)
-    const elOf = (n: NodeDef) => this.tplEls.get(n) ?? this.pointOf.get(n)?.el ?? this.paints.find((x) => x.node === n)?.el ?? this.textMarks.get(n) ?? placementOf.get(n)?.el ?? this.anchorEls.get(n);
+    const elOf = (n: NodeDef) => this.tplEls.get(n) ?? this.pointOf.get(n)?.el ?? (memo.paintEls ??= new Map([...this.paints].reverse().map((x) => [x.node, x.el] as const))).get(n) ?? this.textMarks.get(n) ?? placementOf.get(n)?.el ?? this.anchorEls.get(n);
+    // (a row's scope: a proxy in front of the scope it is in. Tried and dropped: a plain object holding every enclosing
+    // row's names, whose prototype is the evaluation's scope, and a chain of objects, one per row: evaluation.md, 1)
     const rowScope = (sc: object, t: TemplateDef, item: unknown, k: number) => new Proxy({}, {
       get: (_, p) => (p === t.item ? item : p === t.index || p === t.ii ? k : (sc as Record<string | symbol, unknown>)[p]),
     });
+    // (a choice's candidates' keys, by its node: the program's)
+    const caseKeys = memo.caseKeys;
     /** which case a choice renders here: the candidates' keys, and the one it renders (null: none), or null when that is not known */
     const caseOf = (n: NodeDef, el: P5Element, sc: object): { keys: Map<string, string>; picked: string | null } | null => {
       const point = this.pointOf.get(n)!;
       if (!point.group || !point.pick || !fixed(point.pick.deps) || !known(strs(point.pick.deps))) return null;
-      const keys = new Map<string, string>();
-      for (const c of point.group.cases) {
-        const ck = this.choiceKey(el, c.name);
-        if (!ck) return null;
-        keys.set(c.name, ck);
+      let keys = caseKeys.get(n);
+      if (keys === undefined) {
+        keys = new Map<string, string>();
+        for (const c of point.group.cases) {
+          const ck = this.choiceKey(el, c.name);
+          if (!ck) { keys = null; break; }
+          keys.set(c.name, ck);
+        }
+        caseKeys.set(n, keys);
       }
+      if (!keys) return null;
       const u = run(sc, point.pick.code);
       return u === FAIL ? null : { keys, picked: typeof u === 'string' && keys.has(u) ? u : null };
     };
+    // what a row's node and its bindings are, which every row of its template asks again: by node, for this evaluation
+    const els = memo.els;
+    const nodeEl = (n: NodeDef) => { let el = els.get(n); if (el === undefined && !els.has(n)) els.set(n, el = elOf(n)); return el; };
+    const plans = memo.plans;
+    /**
+     * A node's bindings as `nodesOf` reads them in a row, in their order: skipped (a handler that stays, `else`, a value
+     * neither painted nor a text), a stop (the row is not static markup), painted or a text node's value, or an `if`/`for`
+     * with its key. What depends on the evaluation's state (`known` of a state field's dependency) is asked per row (`kn`
+     * left out)
+     */
+    const bindPlan = (n: NodeDef, el: P5Element): BindPlan[] => {
+      let plan = plans.get(n);
+      if (plan) return plan;
+      plan = [];
+      for (const b of n.b) {
+        const ds = strs(b.d) as string[];
+        // (`known` reads the evaluation's states only for a state field)
+        const kn = ds.some((d) => /^\$s\d/.test(d)) ? undefined : known(ds);
+        const p: BindPlan = { b, k: SKIP, ds, ...(kn === undefined ? {} : { kn }), ...(b.f !== undefined ? { code: this.fns[b.f]! } : {}) };
+        plan.push(p);
+        if (handlerOnly(b)) continue;
+        if (ROW.has(b.k)) {
+          if (b.e || b.w?.length || !fixed(b.d)) { p.k = STOP; break; }
+          p.k = PAINTED;
+          p.paint = paintable(el, b);
+          p.text = b.k === 'text' && b.n === '+' && b.f !== undefined;
+          continue;
+        }
+        if (b.k === 'else') continue;
+        if ((b.k !== 'if' && b.k !== 'for') || b.e || b.f === undefined || !fixed(b.d)) { p.k = STOP; break; }
+        p.k = CONTROL;
+        p.key = this.instKey(el);
+      }
+      plans.set(n, plan);
+      return plan;
+    };
+    // (a case's props as the code the table compiled)
+    const propsCode = memo.propsCode;
     /** a choice's case, at `key`: its definition over its props (one row), when that is static markup */
     const expandCase = (point: NonNullable<ReturnType<typeof this.pointOf.get>>, name: string, key: string, sc: object, prefix: string, out: Found, rec?: RowRec, n?: NodeDef): boolean => {
       const c = point.group!.cases.find((x) => x.name === name), t = c && this.templates[c.tid];
       // its props are decided expressions like any other: fixed (nothing writes what they read) and known
-      const props = c && fixed(c.deps) && known(c.deps) ? run(sc, `($) => (${c.props})`) : FAIL;
+      let code = c && propsCode.get(c);
+      if (c && code === undefined) propsCode.set(c, code = `($) => (${c.props})`);
+      const props = c && fixed(c.deps) && known(c.deps) ? run(sc, code!) : FAIL;
       if (!t?.item || props === FAIL || !plainData(props, heights)) return false;
       out.decided.push([prefix + key, true, point.pick!.deps]);
       const recs: RowRec[] | undefined = rec ? [] : undefined;
@@ -8982,7 +9203,7 @@ class Compiler {
     const nodesOf = (nodes: NodeDef[], sc: object, prefix: string, out: Found, rec?: RowRec): boolean => {
       for (const n of nodes) {
         if (n.state !== undefined || n.sid !== undefined) return false;
-        const el = elOf(n);
+        const el = nodeEl(n);
         if (!el) return false;
         const point = this.pointOf.get(n);
         if (point?.group) {
@@ -8990,7 +9211,7 @@ class Compiler {
           // like a row of one item, its props (item 5)
           const ch = caseOf(n, el, sc);
           if (!ch) return false;
-          for (const [name, ck] of ch.keys) if (name !== ch.picked) out.decided.push([prefix + ck, false, point.pick!.deps]);
+          if (ch.keys.size > (ch.picked === null ? 0 : 1)) out.decided.push({ prefix, keys: ch.keys, picked: ch.picked, d: point.pick!.deps });
           if (ch.picked === null) { rec?.set(n, null); continue; }
           if (!expandCase(point, ch.picked, ch.keys.get(ch.picked)!, sc, prefix, out, rec, n)) return false;
           continue;
@@ -9014,23 +9235,23 @@ class Compiler {
           if (!nodesOf(tc.nodes, rowScope(sc, tc, frozenData(pick[1], isResult), 0), prefix, out, inner)) return false;
           continue;
         }
-        for (const b of n.b) {
-          if (handlerOnly(b)) continue;
-          if (ROW.has(b.k)) {
-            if (b.e || b.w?.length || !fixed(b.d)) return false;
-            if (paintable(el, b) && known(strs(b.d))) {
-              const v = run(sc, this.fns[b.f!]!);
+        for (const p of bindPlan(n, el)) {
+          if (p.k === SKIP) continue;
+          if (p.k === STOP) return false;
+          const b = p.b, kn = p.kn ?? known(p.ds);
+          if (p.k === PAINTED) {
+            if (p.paint && kn) {
+              const v = run(sc, p.code!);
               const w = v === FAIL ? FAIL : firstPaintValue(el, b, v, schemes);
               const cw = w === FAIL ? null : { k: w[0], n: b.n ?? null, v: w[1] };
               out.paints.push([b, prefix, cw]);
               rec?.set(b, cw);
-            } else if (rec && b.k === 'text' && b.n === '+' && b.f !== undefined && known(strs(b.d))) rec.set(b, { text: run(sc, this.fns[b.f]!) });
+            } else if (rec && p.text && kn) rec.set(b, { text: run(sc, p.code!) });
             continue;
           }
-          if (b.k === 'else') continue;
-          if ((b.k !== 'if' && b.k !== 'for') || b.e || b.f === undefined || !fixed(b.d) || !known(strs(b.d))) return false;
-          const key = this.instKey(el);
-          const v = key ? run(sc, this.fns[b.f]!) : FAIL;
+          if (!kn) return false;
+          const key = p.key;
+          const v = key ? run(sc, p.code!) : FAIL;
           if (v === FAIL) return false;
           if (b.k === 'if') {
             out.decided.push([prefix + key, !!v, b.d]);
@@ -9073,7 +9294,9 @@ class Compiler {
             // (rendered like a row's case: its record, for `rowRenderer`)
             const top: RowRec | undefined = rendering ? new Map() : undefined;
             const ok = expandCase(point, ch.picked!, ck, sc, '', found, top, n);
-            found.decided = found.decided.filter(([k]) => k !== ck);
+            // (a choice in its rows whose candidates' keys could be this one: spelled out, to leave that one out)
+            found.decided = found.decided.flatMap((e): Found['decided'] => (Array.isArray(e) ? (e[0] !== ck ? [e] : [])
+              : [...e.keys.values()].some((k) => e.prefix + k === ck) ? [...decidedEntries([e])].filter(([k]) => k !== ck) : [e]));
             const picked = top?.get(n) as PickedCase | undefined;
             pending.set(ck, pending.has(ck) || (!ok && !found.over) ? null : { items: [], d: point.pick!.deps, found, pick: true, el, ...(picked ? { picked } : {}) });
           }
@@ -9118,6 +9341,7 @@ class Compiler {
           }
         }
         let render: ReturnType<Compiler['rowRenderer']> | null = null, constB: Set<Binding> | null = null;
+        const sitesOf = new Map<PathRef[] | undefined, Set<string>>();
         for (const [key, p] of pending) {
           if (!p) continue;
           // over the page's limit (this tree alone, or with those before it): left to the browser, with a warning
@@ -9131,7 +9355,17 @@ class Compiler {
           if (done) {
             this.rendered.set(key, done);
             const reads = this.foldReads.get(key)!;
-            for (const [, , d] of [...p.found.unrolls, ...p.found.decided]) for (const x of this.stateSites(d)) reads.add(x);
+            // (the same dependencies again, a binding's in every row, add nothing: each list once, in order)
+            const seen = new Set<PathRef[] | undefined>();
+            const add = (d: PathRef[] | undefined) => {
+              if (seen.has(d)) return;
+              seen.add(d);
+              let s = sitesOf.get(d);
+              if (!s) sitesOf.set(d, s = this.stateSites(d));
+              for (const x of s) reads.add(x);
+            };
+            for (const [, , d] of p.found.unrolls) add(d);
+            for (const e of p.found.decided) add(Array.isArray(e) ? e[2] : e.d);
             for (const x of done.state) reads.add(x);
             // what the layout and the images read of the rows (an image's attributes, a class or a style): collected as
             // the old route collects it (`collectConstants`), which decides what the second pass is handed
@@ -9145,7 +9379,7 @@ class Compiler {
             continue;
           }
           for (const [k, items, d] of p.found.unrolls) { this.unrolls.set(k, items); this.foldReads.set(k, this.stateSites(d)); }
-          for (const [k, v, d] of p.found.decided) { this.decided.set(k, v); this.foldReads.set(k, this.stateSites(d)); }
+          for (const [k, v, d] of decidedEntries(p.found.decided)) { this.decided.set(k, v); this.foldReads.set(k, this.stateSites(d)); }
           for (const [b, prefix, w] of p.found.paints) {
             let m = this.rowPaint.get(b);
             if (!m) this.rowPaint.set(b, m = new Map());
@@ -9260,6 +9494,28 @@ class Compiler {
       }
       return null;
     };
+    /**
+     * what cloning an element of a template's content reads of it, the same in every row (`clone`): a `data-sn-*` that
+     * keeps it from rendering, its attributes before paint and the copy's own, its id, its use, the marks of scoped
+     * styles it has (and those without `data-sn-s`), whether its component's styles are scoped, whether its tag binds what it shows
+     */
+    type ClonePlan = { sinter: boolean; pre: P5Element['attrs'] | undefined; base: P5Element['attrs']; id: string | undefined; use: ReturnType<Compiler['useOf']['get']>; marks: P5Element['attrs']; marksOut: P5Element['attrs']; scoped: boolean; opaque: boolean };
+    const clonePlans = new Map<P5Element, ClonePlan>();
+    const foldPlans = new Map<NodeDef, { fold: Compiler['attrSources']; folded: Set<Binding> } | null>();
+    const clonePlan = (n: P5Element): ClonePlan => {
+      let cp = clonePlans.get(n);
+      if (cp) return cp;
+      const pre = this.snAttrs.get(n);
+      const base = REWROTE.get(n) ?? (pre ? pre.filter((a) => !a.name.startsWith('data-sn-') || KEPT_ATTRS.has(a.name)) : n.attrs.filter((a) => !MARKS.test(a.name)));
+      const use = this.useOf.get(n), marks = n.attrs.filter((a) => MARKS.test(a.name));
+      cp = {
+        sinter: n.attrs.some((a) => a.name.startsWith('data-sn-') && !MARKS.test(a.name)), pre, base, id: base.find((a) => a.name === 'id')?.value, use,
+        marks, marksOut: marks.filter((a) => a.name !== 'data-sn-s'), scoped: scoped.has(this.origins.get(n)?.file ?? ''),
+        opaque: !!use?.host.attrs.some((a) => /^data-sn-(class|style|show|attr)$/.test(a.name)),
+      };
+      clonePlans.set(n, cp);
+      return cp;
+    };
     return (key, p) => {
       const at = where(p.el);
       if (at) { this.unrendered.set(key, { why: at, rows: p.found.rows }); return null; }
@@ -9270,7 +9526,9 @@ class Compiler {
         for (const d of strs(ds)) { const m = /^\$(?:r|meta)\.([A-Za-z_$][\w$]*)/.exec(d); if (m) st.reads.add(m[1]!); }
         for (const x of this.stateSites(ds)) st.state.add(x);
       };
-      const texted = new Set<P5Node>(), empty: P5Node[] = [], shown: P5Element[] = [];
+      const texted = new Set<P5Node>(), empty: P5Node[] = [];
+      /** what the second pass's minifier reads on each element that had bindings: its attributes before paint */
+      const shownOf = new Map<P5Element, P5Element['attrs']>();
       /**
        * links, with a page that reads them (`links`): the entries the second pass's walk pushes for each (`hrefs`, read by
        * same-page links and SN519), in walk order, with where each was written; and the rows being rendered, innermost
@@ -9324,20 +9582,20 @@ class Compiler {
           // row as it would rewrite the row's image (eager or not, in its box)
           c = clone(n.childNodes.at(-1)!, parent, map);
         } else if (isElement(n)) {
+          const cp = clonePlan(n);
           // (one the walk keeps for the runtime, `data-sn-options`, `-navigate`, …: the walk adds what it needs)
           // (the first pass's marks of scoped styles aside: below)
-          if (n.attrs.some((a) => a.name.startsWith('data-sn-') && !MARKS.test(a.name))) no('a sinter attribute');
+          if (cp.sinter) no('a sinter attribute');
           // its attributes before anything was painted: the first pass writes a binding constant in every row into the
           // template, where the old route paints it with the row's others, in their order (`fill` paints it again)
-          const pre = this.snAttrs.get(n);
-          const base = REWROTE.get(n) ?? (pre ? pre.filter((a) => !a.name.startsWith('data-sn-') || KEPT_ATTRS.has(a.name)) : n.attrs.filter((a) => !MARKS.test(a.name)));
-          const e = { nodeName: n.nodeName, tagName: n.tagName, attrs: base.map((a) => ({ ...a })), namespaceURI: n.namespaceURI, childNodes: [], parentNode: parent } as unknown as P5Element;
+          const pre = cp.pre;
+          const e = { nodeName: n.nodeName, tagName: n.tagName, attrs: cp.base.map((a) => ({ ...a })), namespaceURI: n.namespaceURI, childNodes: [], parentNode: parent } as unknown as P5Element;
           // (an id the markup writes: the page's ids are declared before the second pass compiles the rows, `declare`;
           // one a binding writes is not there yet)
-          const id = attr(e, 'id');
+          const id = cp.id;
           if (id) idList.push({ id, dialog: e.tagName === 'dialog' });
           // (a component's root: its use, which the old route's expansion registers, `uses`)
-          const u = this.useOf.get(n);
+          const u = cp.use;
           if (u && !u.head) st.uses.add(u.name);
           if (links && (n.tagName === 'a' || n.tagName === 'area')) link(n, e);
           if (marking) {
@@ -9345,7 +9603,7 @@ class Compiler {
             // markup as the second's writes them on the instance's (one `Use` per instance, `rootMarked`, `landing`,
             // `slotEls`), after the walk: before the paints after it (`fill`). In rows a loop copies (`cloneTree`), a
             // root's copy takes its original's `data-sn-c` and `-r` (`rootCopies`), and slot content no `-s` (`live`)
-            const marks = n.attrs.filter((a) => MARKS.test(a.name) && (live || a.name !== 'data-sn-s')).map((a) => ({ ...a }));
+            const marks = (live ? cp.marks : cp.marksOut).map((a) => ({ ...a }));
             const more = fillMarks.get(n);
             if (more && !marks.some((m) => m.name === 'data-sn-c')) marks.push(...more);
             if (marks.length) {
@@ -9355,14 +9613,14 @@ class Compiler {
               // (an image with nothing left to paint: after the image pipeline's writes, in the second pass, `late`)
               if (nodeOfEl().has(n)) MARKED.set(e, marks); else if (n.tagName === 'img') late.push([e, marks]); else e.attrs.push(...marks);
             }
-            if (scoped.has(this.origins.get(n)?.file ?? '')) SCOPED.add(e);
+            if (cp.scoped) SCOPED.add(e);
           }
           // (an image: the file its `src` is relative to, which the second pass's image pipeline reads)
           if (n.tagName === 'img') RENDERED_FILE.set(e, this.origins.get(n)?.file ?? this.opts.file);
           // what the second pass's minifier reads on it in an unrolled row: its bindings' attributes, not their paint
-          if (pre) { SHOWN.set(e, pre); shown.push(e); }
+          if (pre) shownOf.set(e, pre);
           // a component's root whose tag binds what it shows: the minifier leaves it as written (`minify`'s `opaque`)
-          if (this.useOf.get(n)?.host.attrs.some((a) => /^data-sn-(class|style|show|attr)$/.test(a.name))) WRITTEN.set(e, 'opaque');
+          if (cp.opaque) WRITTEN.set(e, 'opaque');
           e.childNodes = n.childNodes.map((x) => clone(x, e, map)) as never[];
           if (n.tagName === 'template') {
             const content = { nodeName: '#document-fragment', childNodes: [] } as unknown as P5Template['content'];
@@ -9408,12 +9666,17 @@ class Compiler {
         return frag.childNodes as P5Node[];
       };
       /** the attributes `prefold` writes on the element, in its order (its own attributes', then its tag's, each in `FOLDED` order) */
-      const foldOf = (el: P5Element, n: NodeDef): Compiler['attrSources'] => {
-        const list = foldsOf().get(n);
-        if (list === null) no('constants');
-        if (!list) return [];
-        const own = (s: (typeof list)[number]) => (s.src === el ? 0 : 1);
-        return [...list].sort((a, b) => own(a) - own(b) || FOLDED.indexOf(a.attr) - FOLDED.indexOf(b.attr));
+      // (and the bindings they are: the same for the node in every row)
+      const foldOf = (el: P5Element, n: NodeDef): { fold: Compiler['attrSources']; folded: Set<Binding> } => {
+        let f = foldPlans.get(n);
+        if (f === undefined) {
+          const list = foldsOf().get(n);
+          const own = (s: NonNullable<typeof list>[number]) => (s.src === el ? 0 : 1);
+          const fold = list ? [...list].sort((a, b) => own(a) - own(b) || FOLDED.indexOf(a.attr) - FOLDED.indexOf(b.attr)) : [];
+          foldPlans.set(n, f = list === null ? null : { fold, folded: new Set(fold.flatMap((x) => x.bindings)) });
+        }
+        if (f === null) no('constants');
+        return f!;
       };
       const fill = (nodes: NodeDef[], map: Map<P5Node, P5Node>, rec: RowRec) => {
         for (const n of nodes) {
@@ -9505,13 +9768,13 @@ class Compiler {
             if (w === undefined) no('not painted');
             if (w === null) no('not written ahead');
             if (w!.k === 'text') WRITTEN.set(cl!, 'content');
-            writeFirstPaint(cl!, w!.k, w!.n, w!.v);
+            writeFirstPaint(cl!, w!.k, w!.n, w!.v, true);
             read(b.d);
           };
           // what the second pass writes before the layout and the images (`prefold`: an image's attributes, a class or
           // style the layout reads): first, in its order; the element then has only the others' bindings (and an id only
-          // for them), and the layout, the images and the minifier read those as bindings (`SHOWN`)
-          const fold = foldOf(el!, n), folded = new Set(fold.flatMap((x) => x.bindings));
+          // for them), and the layout, the images and the minifier read those as bindings (`shownOf`)
+          const { fold, folded } = foldOf(el!, n);
           for (const x of fold) for (const b of x.bindings) {
             paint(b);
             // (a `src` written there is the page's: `foldedUrl`)
@@ -9520,7 +9783,7 @@ class Compiler {
           if (fold.length) {
             const pre = this.snAttrs.get(el!) ?? [], gone = new Set(fold.filter((x) => x.src === el).map((x) => x.attr));
             const left = pre.filter((a) => a.name.startsWith('data-sn-') && !KEPT_ATTRS.has(a.name) && !gone.has(a.name));
-            if (left.length) SHOWN.set(cl!, [...cl!.attrs.map((a) => ({ ...a })), ...left]); else SHOWN.delete(cl!);
+            if (!left.length) shownOf.delete(cl!); else if (shownOf.has(cl!)) shownOf.set(cl!, [...cl!.attrs.map((a) => ({ ...a })), ...left]);
             // a component's root whose tag's bindings are all written there: the minifier reads it as it is
             const host = this.useOf.get(el!)?.host, hostGone = new Set(fold.filter((x) => x.src !== el).map((x) => x.attr));
             if (WRITTEN.get(cl!) === 'opaque' && host && !host.attrs.some((a) => /^data-sn-(class|style|show|attr)$/.test(a.name) && !hostGone.has(a.name))) WRITTEN.delete(cl!);
@@ -9594,7 +9857,7 @@ class Compiler {
         if ((st.ids || list) && !nodes.some(isElement)) no('no element');
         renderStat(null, p.found.rows);
         // (an empty text stays until the second pass has minified the rows: it was an element there, `WRITTEN`)
-        return { nodes, empty, shown: shown.filter((e) => SHOWN.has(e)), ids: st.ids, list, folded: st.folded, files: [...st.files], reads: [...st.reads], rootStyled: [...st.rootStyled], late, state: [...st.state], hrefs, idAttrs: idList, uses: [...st.uses].map((n) => { const f = this.componentFiles.get(n); return { name: n, css: f?.css, rawCss: f?.rawCss }; }), rows: p.found.rows };
+        return { nodes, empty, shown: [...shownOf], ids: st.ids, list, folded: st.folded, files: [...st.files], reads: [...st.reads], rootStyled: [...st.rootStyled], late, state: [...st.state], hrefs, idAttrs: idList, uses: [...st.uses].map((n) => { const f = this.componentFiles.get(n); return { name: n, css: f?.css, rawCss: f?.rawCss }; }), rows: p.found.rows };
       } catch (e) {
         if (!(e instanceof NoRender)) throw e;
         this.unrendered.set(key, { why: e.why, rows: p.found.rows });
@@ -11097,6 +11360,15 @@ class Compiler {
   }
 
   /**
+   * After the walk (`prefetchLater`): this page's description's `prefetch` (`finishPage`'s, `prefetchOff` or
+   * `prefetchParts()`), or why it is not known yet: a page that needs a session has its guard from `finishPage`
+   */
+  firstPrefetch(): NonNullable<CompiledParts['firstPrefetch']> {
+    if (this.signedIn) return { why: 'a page that needs a session' };
+    return { parts: this.prefetchOff ? null : this.prefetchParts() };
+  }
+
+  /**
    * The resources another page can request for this one before it is opened: a `src` and `when`
    * that read only `$url`, constants and the app's helpers (no state, resources, clock, formatters
    * or messages); not `for`, `call`, `method="POST"` or embedded data. A paginated one at the page its
@@ -12495,7 +12767,7 @@ const LOOP_HEAD = /^\s*(?:\(\s*([A-Za-z_][\w]*)\s*,\s*([A-Za-z_][\w]*)\s*\)|([A-
  * (once, at the first row element, for its diagnostics), the conditions and empty lists it folds (SN501 reads them),
  * the component files their instances are expanded from, the resources their bindings read.
  */
-export type RenderedRows = { nodes: P5Node[]; idAttrs: Array<{ id: string; dialog: boolean }>; hrefs: Array<{ el: P5Element; prefixes: HrefPrefix[]; literal: boolean; query?: string[]; src?: string; bound: boolean; origin: Origin | undefined; loc: P5Element['sourceCodeLocation'] }>; empty: P5Node[]; shown: P5Element[]; ids: number; list: boolean; folded: string[]; files: string[]; reads: string[]; rootStyled: string[]; late: Array<[P5Element, P5Element['attrs']]>; state: string[]; uses: Array<{ name: string; css: string | null | undefined; rawCss: string | undefined }>; rows: number };
+export type RenderedRows = { nodes: P5Node[]; idAttrs: Array<{ id: string; dialog: boolean }>; hrefs: Array<{ el: P5Element; prefixes: HrefPrefix[]; literal: boolean; query?: string[]; src?: string; bound: boolean; origin: Origin | undefined; loc: P5Element['sourceCodeLocation'] }>; empty: P5Node[]; shown: Array<[P5Element, P5Element['attrs']]>; ids: number; list: boolean; folded: string[]; files: string[]; reads: string[]; rootStyled: string[]; late: Array<[P5Element, P5Element['attrs']]>; state: string[]; uses: Array<{ name: string; css: string | null | undefined; rawCss: string | undefined }>; rows: number };
 
 /**
  * What rendered rows' markup stands for, for the second pass's minifier, which minifies the markup its walk compiles
@@ -12503,11 +12775,6 @@ export type RenderedRows = { nodes: P5Node[]; idAttrs: Array<{ id: string; dialo
  * wrote, a component's root whose tag binds its class, style, attributes or visibility
  */
 const WRITTEN = new WeakMap<P5Node, 'text' | 'content' | 'opaque'>();
-/**
- * What a rendered row's element had as attributes in the markup it stands for, before its bindings were painted (the
- * walk's `data-sn-*` and the attributes they will set not yet there): what the second pass's minifier reads on it
- */
-const SHOWN = new WeakMap<P5Element, P5Element['attrs']>();
 /** a rendered row's element from a component with scoped styles, which the minifier leaves as written */
 const SCOPED = new WeakSet<P5Element>();
 /** the marks of scoped styles the walk writes after it */
@@ -12529,6 +12796,40 @@ const RENDERED_FILE = new WeakMap<P5Element, string>();
 type RowRec = Map<object, unknown>;
 /** a choice's case in a `RowRec`: the candidate it renders, its definition's template, its props, the instance's record */
 type PickedCase = { name: string; tid: number; props: unknown; rec?: RowRec[] };
+/** the names the build-time evaluator's scope answers (`prerender`'s `scope`), besides a state `$s<n>` */
+const SCOPE_NAMES = new Set(['$r', '$meta', '$w', '$build', '$z']);
+/** a compiled expression whose first step is a read of a name off its scope (`($) => ($.name…`) */
+const FIRST_READ = /^\(\$\) => \(\$\.([A-Za-z_$][\w$]*)/;
+/**
+ * Whether evaluating `code` against `prerender`'s own scope throws `NOT` before it does anything else: its first step
+ * reads a name the scope never answers (not a state, not one of `SCOPE_NAMES`). The leftmost operand of an expression
+ * is evaluated first, whatever the expression: a member chain, a call, an operator, a condition. A state's name is
+ * left to the evaluation (whether the scope answers it depends on the page's states).
+ */
+export function failsFirst(code: string): boolean {
+  const m = FIRST_READ.exec(code);
+  return !!m && !SCOPE_NAMES.has(m[1]!) && !/^\$s\d+$/.test(m[1]!);
+}
+
+/** a binding `prerender` evaluates: `tpl`, in a template's content, written there only when it can never change; `if`, a condition decided for a second pass; `for`, a loop unrolled in it */
+type EvalCand = { el: P5Element; b: Binding; f: number; tpl?: true; if?: true; for?: true };
+
+/** what the worklist reads of the program, by node, binding and case (`worklist`): asked once per evaluation, or per kept template */
+type WalkMemo = { handlers: Map<Binding, boolean>; paintEls?: Map<NodeDef, P5Element>; caseKeys: Map<NodeDef, Map<string, string> | null>; els: Map<NodeDef, P5Element | undefined>; plans: Map<NodeDef, BindPlan[]>; propsCode: Map<object, string> };
+const newWalkMemo = (): WalkMemo => ({ handlers: new Map(), caseKeys: new Map(), els: new Map(), plans: new Map(), propsCode: new Map() });
+
+/** the worklist's reading of a binding in a row (`bindPlan`) */
+const SKIP = 0, STOP = 1, PAINTED = 2, CONTROL = 3;
+type BindPlan = { b: Binding; k: typeof SKIP | typeof STOP | typeof PAINTED | typeof CONTROL; ds: string[]; kn?: boolean; code?: string; paint?: boolean; text?: boolean; key?: string | null };
+/** the candidates of a choice in a row that it does not render: each of `keys` but `picked`, decided false at `prefix` + its key */
+type NotRendered = { prefix: string; keys: Map<string, string>; picked: string | null; d: PathRef[] | undefined };
+/** a worklist's decisions, a choice's candidates spelled out one by one, in order */
+export function* decidedEntries(list: Array<[string, boolean, PathRef[] | undefined] | NotRendered>): Generator<[string, boolean, PathRef[] | undefined]> {
+  for (const e of list) {
+    if (Array.isArray(e)) { yield e; continue; }
+    for (const [name, ck] of e.keys) if (name !== e.picked) yield [e.prefix + ck, false, e.d];
+  }
+}
 const ROW_ITEM = {};
 
 /** why `rowRenderer` leaves rows to the second pass (thrown inside it) */
@@ -12624,14 +12925,18 @@ function firstPaintValue(el: P5Element, b: Binding, v: unknown, schemes: Set<str
   return FAIL;
 }
 
-/** Writes one first-paint value into the static HTML, as the runtime's write would into the DOM. */
-function writeFirstPaint(el: P5Element, kind: Kind, name: string | null, v: unknown) {
+/**
+ * Writes one first-paint value into the static HTML, as the runtime's write would into the DOM. `fresh`: an element
+ * a rendered row made, whose attribute list nothing else holds: an attribute that is not there is not filtered out
+ * of a copy of it, and a style written where there is none is written without reading one
+ */
+function writeFirstPaint(el: P5Element, kind: Kind, name: string | null, v: unknown, fresh = false) {
   const text = (s: string) => {
     for (const c of el.childNodes) (c as { parentNode: unknown }).parentNode = null;
     el.childNodes = s ? [{ nodeName: '#text', value: s, parentNode: el } as unknown as P5Node] as never : [];
   };
   const set = (n: string, value: string | null) => {
-    if (value === null) el.attrs = el.attrs.filter((a) => a.name !== n);
+    if (value === null) { if (!fresh || el.attrs.some((a) => a.name === n)) el.attrs = el.attrs.filter((a) => a.name !== n); }
     else setAttr(el, n, value);
   };
   switch (kind) {
@@ -12646,6 +12951,8 @@ function writeFirstPaint(el: P5Element, kind: Kind, name: string | null, v: unkn
     }
     case 'style': {
       const cur = attr(el, 'style') ?? '';
+      // (none yet: the one declaration, or none)
+      if (fresh && !cur) { set('style', v !== null ? `${name}: ${v as string}` : null); break; }
       const rest = cur.split(';').map((d) => d.trim()).filter((d) => d && d.slice(0, d.indexOf(':')).trim().toLowerCase() !== name);
       if (v !== null) rest.push(`${name}: ${v as string}`);
       set('style', rest.length ? rest.join('; ') : cur ? '' : null);

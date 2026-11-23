@@ -15,6 +15,7 @@
 // templates' elements: `holdUnit`), copies its output off them and gives them back (`restoreUnit`).
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { readsHold, runUnit, UNIT_NUMBERING, type Op, type Read } from './link.js';
+import type { CheckPart } from './check-unit.js';
 
 /** a weak table of the page with a unit's beneath it: the page's entries first, the unit's where the page has none */
 export class OverlayMap<K extends object, V> extends WeakMap<K, V> {
@@ -83,7 +84,11 @@ export type BuildUnit = {
   /** a second pass's: the forms its sharing kept (`shareRun`), against which a page shares what it adds, and its template count */
   share?: { kept: ReadonlyMap<string, number>; owner: ReadonlyMap<number, number>; count: number };
 };
-type Seg = { f0: number; f1: number; e0: number; e1: number };
+/**
+ * A name's part of the unit's check data: where it is in the unit's lists, and (when it refers to nothing outside
+ * itself) the part, numbered from 0, which each page holds by reference (`unitCheck`)
+ */
+type Seg = { f0: number; f1: number; e0: number; e1: number; part?: CheckPart };
 export type UnitStore = Map<string, BuildUnit | { refused: string }>;
 
 /** counts, for the log and the tests: units made, placed, and the pages that compiled their definitions in place, by reason */
@@ -261,7 +266,9 @@ function make(c: any, names: string[], second = false): BuildUnit | { refused: s
   // the page's file, which a unit's origins name (a definition's host: where it is used, the include chains of its
   // markup): those origins are the page's own on each page, with its file; any other text naming it refuses the unit
   const file: string = c.opts.file, base = file.slice(file.lastIndexOf('/') + 1), rel = relOf(c.opts.root, file);
-  const named = (x: unknown) => typeof x === 'string' && x.includes(base);
+  // (the name where it starts: `m.html` is not named by `mail-em.html`, a component's file in the same build)
+  const nameRe = new RegExp(`(?<![\\w.-])${base.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`);
+  const named = (x: unknown) => typeof x === 'string' && x.includes(base) && nameRe.test(x);
   const namesPage = (o: any) => !!o && typeof o === 'object' && (named(o.file) || named(o.usedAt) || (Array.isArray(o.chain) && o.chain.some(named)));
   const origins: Array<{ key: object; value: any }> = [];
   const frameOf: Array<{ key: object; at: number }> = [];
@@ -311,7 +318,24 @@ function make(c: any, names: string[], second = false): BuildUnit | { refused: s
     if (hit) return { refused: `names its page's file (${JSON.stringify(String(hit).slice(0, 60))})` };
   }
   const all = second ? irObjects(numbering.templates as unknown[], heads!, own) : undefined;
+  if (check && !second) for (const seg of segs.values()) partOf(seg, check, file, base);
   return { names, reads: u.reads, numbering, weak, ops, at: enc(u.atAfter), own, placed: 0, origins, file, base, rel, ...(check && !second ? { check: { frames: check.frames, exprs: check.exprs, segs, frameOf } } : {}), ...(prints ? { prints } : {}), ...(all ? { all, heads, share, finished: true } : {}) };
+}
+
+let nextPart = 0;
+/** a plain copy of check data (its objects, arrays and values) */
+const clone = (x: any): any => (Array.isArray(x) ? x.map(clone) : x && typeof x === 'object' ? Object.fromEntries(Object.keys(x).map((k) => [k, clone(x[k])])) : x);
+/**
+ * A name's part, numbered from 0: when its frames' initial values and its expressions' frames are all its own (else
+ * the page copies it as before, `unitCheck`, and finds the order broken)
+ */
+function partOf(seg: Seg, check: { frames: any[]; exprs: any[] }, file: string, base: string) {
+  const inF = (i: number) => i >= seg.f0 && i < seg.f1, inE = (i: number | null | undefined) => i == null || (i >= seg.e0 && i < seg.e1);
+  for (let i = seg.f0; i < seg.f1; i++) if ('init' in check.frames[i] && !inE(check.frames[i].init)) return;
+  for (let i = seg.e0; i < seg.e1; i++) if (!check.exprs[i].frames.every(inF)) return;
+  const frames = check.frames.slice(seg.f0, seg.f1).map((f) => { const c = clone(f); if ('init' in c && c.init != null) c.init -= seg.e0; return c; });
+  const exprs = check.exprs.slice(seg.e0, seg.e1).map((e) => { const c = clone(e); c.frames = c.frames.map((i: number) => i - seg.f0); return c; });
+  seg.part = { id: nextPart++, frames, exprs, file, base };
 }
 
 /** the unit put on a page that is numbered as it was made (nothing yet), reading its page alike */
@@ -428,9 +452,17 @@ export function unitCheck(c: any, name: string) {
   if (at < c.checkLast) c.checkOrder = false;
   c.checkLast = Math.max(c.checkLast, at);
   const F = c.checkFrames.length, E = c.checkExprs.length;
+  const file: string = c.opts.file, base = file.slice(file.lastIndexOf('/') + 1);
+  // the part by reference (where the page's lists are the build's: not in a definition the linker records, which copies)
+  if (seg.part && c.checkParts && c.defLink.depth === 0) {
+    c.checkFrames.length = F + seg.f1 - seg.f0;
+    c.checkExprs.length = E + seg.e1 - seg.e0;
+    c.checkParts.push({ part: seg.part, frameBase: F, exprBase: E, file, base });
+    for (const x of k.frameOf) if (x.at >= seg.f0 && x.at < seg.f1) c.frameOf.set(x.key, F + x.at - seg.f0);
+    return;
+  }
   const frame = (i: number) => (i >= seg.f0 && i < seg.f1 ? F + i - seg.f0 : (c.checkOrder = false, i));
   const expr = (i: number | null | undefined) => (i == null ? i : i >= seg.e0 && i < seg.e1 ? E + i - seg.e0 : (c.checkOrder = false, i));
-  const file: string = c.opts.file, base = file.slice(file.lastIndexOf('/') + 1);
   const swap = (x: any): any => {
     if (typeof x === 'string') return x === u!.file ? file : x.startsWith(u!.base + ':') ? `${base}${x.slice(u!.base.length)}` : x;
     if (Array.isArray(x)) return x.map(swap);

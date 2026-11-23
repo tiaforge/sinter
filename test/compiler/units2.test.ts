@@ -2,10 +2,12 @@
 // that stay recursion points) come from a unit made once per build and placed before the second pass's walk, at numbers
 // from 0. The page is what it is compiled without the unit up to numbering (its canonical form); a page that ships no
 // definition places none and is byte for byte what it was. Each fallback is counted by its reason.
-import { afterEach, expect, test } from 'vitest';
+import { afterEach, expect, test as base } from 'vitest';
 import { compile } from '../../src/compiler/index.js';
 import { UNIT_STATS } from '../../src/compiler/units.js';
 import { build, PAGES } from './units-pages.js';
+import { PASS_STATS } from '../../src/compiler/compile.js';
+import type { CompileOptions } from '../../src/compiler/index.js';
 
 const env = process.env;
 afterEach(() => { delete env.SN_CANON; delete env.SN_UNITS2; });
@@ -13,6 +15,12 @@ afterEach(() => { delete env.SN_CANON; delete env.SN_UNITS2; });
 const canon = (f: () => ReturnType<typeof build>) => { env.SN_CANON = '1'; try { return f(); } finally { delete env.SN_CANON; } };
 const stats = () => ({ made2: UNIT_STATS.made2, placed2: UNIT_STATS.placed2, fallback: new Map(UNIT_STATS.fallback) });
 const fellBack = (before: ReturnType<typeof stats>, why: string) => (UNIT_STATS.fallback.get(`pass 2: ${why}`) ?? 0) - (before.fallback.get(`pass 2: ${why}`) ?? 0);
+// (under an audit, which compiles each page again: a fallback counted at least as often as the pages compiled)
+const AUDITED = ['SN_LINK_AUDIT', 'SN_UNITS_AUDIT', 'SN_UNITS2_AUDIT', 'SN_RENDER_AUDIT', 'SN_ONE_PASS_AUDIT'].some((k) => env[k]);
+// (and what one counts: units made or placed)
+const counted = (n: number, times: number) => (AUDITED ? expect(n).toBeGreaterThanOrEqual(times) : expect(n).toBe(times));
+// (`SN_UNITS_AUDIT` audits the first pass's units byte for byte, with the second pass's off: their tests are not its)
+const test = base.skipIf(!!env.SN_UNITS_AUDIT);
 
 // (a page with a second pass: a constant tree before its live one, which the first pass decides and the second unrolls;
 // a page with live parts only has no second pass, its first is its output: A2's)
@@ -105,7 +113,7 @@ test('a fill whose cases hang under a unit\'s row, not its definition: compiled 
   const units = new Map<string, unknown>(), s = stats();
   const body = '<y-doc data-sn-with="{ doc: live }"><b slot="link" data-sn-text="$slot.url"></b></y-doc>';
   for (let round = 0; round < 2; round++) expect(page('rows', body, units)).toEqual(page('rows', body));
-  expect(fellBack(s, 'templates of its own inside its unit\'s rows')).toBe(2);
+  counted(fellBack(s, 'templates of its own inside its unit\'s rows'), 2);
 });
 
 test('scoped styles in what the unit compiled: the same up to numbering on every page, and no unit object left changed', () => {
@@ -152,6 +160,34 @@ test('a unit that is refused (a definition that reports a diagnostic): the page 
   const units = new Map<string, unknown>(), s = stats();
   const body = '<y-bad data-sn-with="{ node: live }"></y-bad>';
   for (let round = 0; round < 2; round++) expect(page('bad', body, units)).toEqual(page('bad', body));
-  expect(fellBack(s, 'reports a diagnostic')).toBe(2);
-  expect(fellBack(s, 'its unit refused')).toBe(1);
+  counted(fellBack(s, 'reports a diagnostic'), 2);
+  counted(fellBack(s, 'its unit refused'), 1);
+});
+
+test('a template\'s entries (`<html data-sn-for>`), each second pass from its kept expansion: through the unit, the same up to numbering', () => {
+  const C3: Record<string, string> = {
+    'x-doc': '<template data-sn-props="{ doc: any }"><div class="doc"><template data-sn-for="n in doc.children"><sn-component use="{ text: \'x-em\', link: \'x-link\' }[n.type]" data-sn-with="{ node: n }"></sn-component></template></div></template>',
+    'x-em': '<template data-sn-props="{ node: any }"><span data-sn-text="node.value"></span></template>',
+    'x-link': '<template data-sn-props="{ node: any }"><a data-sn-attr="{ href: node.url }"><template data-sn-for="n in node.children"><sn-component use="{ text: \'x-em\', link: \'x-link\' }[n.type]" data-sn-with="{ node: n }"></sn-component></template></a></template>',
+  };
+  const files: Record<string, string> = {};
+  for (const [k, c] of Object.entries(C3)) files[`/p/src/components/${k}.html`] = c;
+  for (const k of ['one', 'two', 'three']) files[`/p/content/docs/${k}.json`] = JSON.stringify({ slug: k, title: `The ${k}`, doc: { children: [{ type: 'text', value: k }] } });
+  // (the page is named \`m.html\`, and a component's file \`x-em.html\`, which does not name it: its unit is not refused)
+  const o: CompileOptions = {
+    file: '/p/m.html', root: '/p', dev: false, prerender: true, componentNames: Object.keys(C3), helpers: { module: null, names: [], namespaces: {} },
+    readFile: (f) => { if (f in files) return files[f]!; throw new Error(f); }, listFiles: (d) => Object.keys(files).filter((f) => f.startsWith(d.replace(/\/$/, '') + '/')),
+  };
+  // an entry's constant tree (rendered: a second pass), and a live one (its definitions ship)
+  const html = '<!doctype html><html lang="en" data-sn-path="/m/:slug" data-sn-for="d in docs"><head><title data-sn-text="d.title"></title></head><body><sn-resource name="docs" src="file:/content/docs/*.json"></sn-resource><sn-resource name="live" src="/api/doc"></sn-resource><x-doc data-sn-with="{ doc: d.doc }"></x-doc><x-doc data-sn-with="{ doc: live }"></x-doc></body></html>';
+  const list = compile(html, o).pages!.entries;
+  const s = stats(), kept = PASS_STATS.kept;
+  const units = new Map<string, unknown>(), templates = new Map(), alone = new Map();
+  env.SN_CANON = '1';
+  try {
+    for (const e of list) expect(compile(html, { ...o, page: e, templates, units }), e.path).toEqual(compile(html, { ...o, page: e, templates: alone }));
+  } finally { delete env.SN_CANON; }
+  counted(UNIT_STATS.made2 + UNIT_STATS.placed2 - s.made2 - s.placed2, list.length);
+  expect(PASS_STATS.kept - kept).toBeGreaterThan(0);
+  expect([...UNIT_STATS.fallback].filter(([k, n]) => k.startsWith('pass 2') && n !== (s.fallback.get(k) ?? 0))).toEqual([]);
 });

@@ -81,6 +81,11 @@ export interface CheckExpr {
   detail?: TypeRef;
   /** the compiler reported an error in it (it may not even parse); kept for editor completion, never type-checked */
   broken?: boolean;
+  /**
+   * in the markup of a shared definition (a component used inside itself): the copy its deeper uses render, beside
+   * the copy inlined at the outermost use. Its errors are reported only where no other copy on the page reports them
+   */
+  def?: true;
 }
 
 export interface CheckResource {
@@ -113,4 +118,100 @@ export interface CheckUnit {
   resources: CheckResource[];
   frames: CheckFrame[];
   exprs: CheckExpr[];
+}
+
+/**
+ * A unit's part of the check data (units.ts, docs/proposals/redesign-notes/stage4-check-once.md): the frames and
+ * expressions one shared definition recorded, numbered from 0 (frames' `init`, expressions' `frames`), held once per
+ * build. `file` and `base` name the page the unit was made on, which each page that takes the part is named as.
+ */
+export interface CheckPart { id: number; frames: CheckFrame[]; exprs: CheckExpr[]; file: string; base: string }
+
+/** A page's reference to a part: its frames from `frameBase`, its expressions from `exprBase`, named as `file` (`base`). */
+export interface CheckPartRef { part: CheckPart; frameBase: number; exprBase: number; file: string; base: string }
+
+/**
+ * A page's check data with parts held by reference: the page's own frames and expressions where they are, nothing
+ * (`undefined`) where a part's are, until something reads them (`frames`, `exprs`, `checkFrameAt`, `checkExprAt`).
+ */
+export interface CheckRaw { frames: Array<CheckFrame | undefined>; exprs: Array<CheckExpr | undefined>; parts: CheckPartRef[]; flat: boolean }
+
+const RAW = Symbol.for('sinter.checkParts');
+
+/** A page's parts and its lists as they are (holes where parts are), or undefined for a unit without parts. */
+export function checkRaw(u: CheckUnit): CheckRaw | undefined {
+  const r = (u as { [RAW]?: CheckRaw })[RAW];
+  return r && r.parts.length ? r : undefined;
+}
+
+/**
+ * The check unit of a page that may take parts (a build's first pass with units): `frames` and `exprs` read as the
+ * page's whole lists, a part's entries made the first time they are read (each a copy, numbered and named as the page's),
+ * which is what copying the part into the page made (`flatten`). Its own enumerable fields are those of a plain unit,
+ * in their order, so that it prints and compares as one.
+ */
+export function checkUnitWithParts(file: string, resources: CheckResource[], frames: Array<CheckFrame | undefined>, exprs: Array<CheckExpr | undefined>, parts: CheckPartRef[]): CheckUnit {
+  const raw: CheckRaw = { frames, exprs, parts, flat: false };
+  const u = { file, resources } as CheckUnit;
+  const flat = () => { if (!raw.flat) { for (const p of parts) fillPart(raw, p); raw.flat = true; } };
+  Object.defineProperty(u, 'frames', { enumerable: true, configurable: true, get() { flat(); return frames; } });
+  Object.defineProperty(u, 'exprs', { enumerable: true, configurable: true, get() { flat(); return exprs; } });
+  Object.defineProperty(u, RAW, { enumerable: false, value: raw });
+  return u;
+}
+
+/** every entry of a part in the page's lists */
+function fillPart(raw: CheckRaw, p: CheckPartRef) {
+  for (let j = 0; j < p.part.frames.length; j++) if (raw.frames[p.frameBase + j] === undefined) raw.frames[p.frameBase + j] = partFrame(p, j);
+  for (let j = 0; j < p.part.exprs.length; j++) if (raw.exprs[p.exprBase + j] === undefined) raw.exprs[p.exprBase + j] = partExpr(p, j);
+}
+
+/** the part a page index falls in, or undefined (parts are in the order the page took them, at increasing bases) */
+function partAt(parts: CheckPartRef[], i: number, frames: boolean): CheckPartRef | undefined {
+  let lo = 0, hi = parts.length - 1;
+  while (lo <= hi) {
+    const m = (lo + hi) >> 1, p = parts[m]!, base = frames ? p.frameBase : p.exprBase, n = frames ? p.part.frames.length : p.part.exprs.length;
+    if (i < base) hi = m - 1;
+    else if (i >= base + n) lo = m + 1;
+    else return p;
+  }
+  return undefined;
+}
+
+/** frame `i` of a page's lists (a part's made there the first time) */
+export function checkFrameAt(raw: CheckRaw, i: number): CheckFrame | undefined {
+  const f = raw.frames[i];
+  if (f !== undefined) return f;
+  const p = partAt(raw.parts, i, true);
+  return p ? (raw.frames[i] = partFrame(p, i - p.frameBase)) : undefined;
+}
+
+/** expression `i` of a page's lists (a part's made there the first time) */
+export function checkExprAt(raw: CheckRaw, i: number): CheckExpr | undefined {
+  const e = raw.exprs[i];
+  if (e !== undefined) return e;
+  const p = partAt(raw.parts, i, false);
+  return p ? (raw.exprs[i] = partExpr(p, i - p.exprBase)) : undefined;
+}
+
+/** a value of a part as the page's: every string naming the page the unit was made on names this one */
+function swapped(p: CheckPartRef, x: unknown): any {
+  if (typeof x === 'string') return x === p.part.file ? p.file : x.startsWith(p.part.base + ':') ? `${p.base}${x.slice(p.part.base.length)}` : x;
+  if (Array.isArray(x)) return x.map((y) => swapped(p, y));
+  if (x && typeof x === 'object') { const o: Record<string, unknown> = {}; for (const k of Object.keys(x)) o[k] = swapped(p, (x as Record<string, unknown>)[k]); return o; }
+  return x;
+}
+
+/** frame `j` of a part, numbered and named as the page's */
+export function partFrame(p: CheckPartRef, j: number): CheckFrame {
+  const f = swapped(p, p.part.frames[j]);
+  if ('init' in f && f.init != null) f.init += p.exprBase;
+  return f;
+}
+
+/** expression `j` of a part, numbered and named as the page's */
+export function partExpr(p: CheckPartRef, j: number): CheckExpr {
+  const e = swapped(p, p.part.exprs[j]);
+  e.frames = e.frames.map((i: number) => i + p.frameBase);
+  return e;
 }

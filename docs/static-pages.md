@@ -22,7 +22,8 @@ browser ([build-time constants](first-paint.md#build-time-constants)):
 
 - literals, and a component's props given as literals: `<site-header data-sn-with="{ title: 'About' }">`
 - `data-sn-state` fields that nothing on the page writes: `{ nav: 'about' }` read by a nav link's class
-- `data-sn-if` over those, decided at build time
+- `data-sn-if` over those, decided at build time (the branch that never renders is still compiled for its
+  diagnostics: an error in it fails the build like any other)
 - `data-sn-for` over a constant list, unrolled into its rows, when the rows read only the item, its
   index and constants:
 

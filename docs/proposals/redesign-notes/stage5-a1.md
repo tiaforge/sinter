@@ -11,8 +11,10 @@ The brief is "A1 brief" in [stage5-assembly.md](stage5-assembly.md) (section 5);
   turns it off, `SN_UNITS2_AUDIT=1` audits it; canonically identical over the suite and sinter-mail, every other app
   byte for byte, no page heavier, sinter-mail's suite and bench holding. A later components-route page 108 → 72 ms (142
   → 88 with TypeScript), the build's compile −14% (−19%).
-- **Next**: merge `ccr-9ebf49d5-gpdej8` (20 commits since b474ecc) and verify again; then A2 (section 5: its case
-  does not occur in any app measured now).
+- **Merged** `ccr-9ebf49d5-gpdej8` at d64bc0b and verified again (section 4b): a template's entries crashed the
+  build there (their second pass did not give the unit back), fixed with every second pass through `unitPass`.
+- **Next**: A2 (section 5): its case occurs in no app measured; one shape found (a template's entries with only a
+  live tree); built behind the same switch if its audit holds.
 
 ## How it is measured
 
@@ -260,7 +262,62 @@ unit's functions stay together (before the page's, as the library's were togethe
 canonical order's +322 B does not appear. `npm run size -- --check`: passes.
 
 
+## 4b. After merging the integration branch (d64bc0b)
+
+The merge conflicted in `units.ts` only (the check-data workstream's parts by reference beside a second pass's unit,
+which keeps no check part: both kept). On the merged tree, mail-audit's new page per entry (`<html data-sn-for>`,
+three entries, `m/<slug>.html`, the fills page's body) **crashed the build** (`shareRun`: a template it did not
+have): a template's entry runs its second pass from a copy of the kept expansion (`fromTemplate`, `secondPass`), not
+through `compileTwice`'s second pass, so its unit was placed but neither copied off nor given back: the first entry
+renumbered the shared unit, the next placed it so. Fixed:
+
+- every second pass that may place a unit goes through one function, `unitPass` (`compileTwice`'s, `secondPass`'s
+  both routes, and the stage 3 audit's old-route compile in `fromTemplate`): output copied off, unit given back, a
+  stale or refused unit compiled again without second-pass units; and a second pass places a unit **only** when
+  `unitPass` runs it (`unitHeld`), so a path that does not hold its unit compiles as before.
+- once it was held, the entries' units were refused: "names its page's file". The page is `m.html`, and the check
+  (stage 4's, a substring test) found `m.html` in `.../internal/mail-em.html`, a component's file. It now matches the
+  name only where it starts (not after a letter, digit, `.` or `-`). This applies to the first pass's units too: any
+  page whose file name ends another file's name had its units refused before (counted, not wrong).
+- Test: `units2.test.ts` "a template's entries…" (a page `m.html` with a component `x-em`: fails without the name
+  fix, with no unit).
+
+After the fixes, sinter-mail's 48 files (16 pages and the 3 entries' pages and modules): raw, the 3 route iii pages
+and the 3 entries differ (numbering); `SN_CANON=1 SN_UNITS_VERIFY=1`: all 48 the same. Units: one made, five placed,
+no fallback. Weight (gzip -9): total 125,170 → 125,146 (−24 B); three files +1 B (`api-fills/index.html`,
+`assets/api-both.js`, `m/a.html`), the rest −1 to −8 B.
+
+## 5. A2: a first pass that is its output
+
+What A2 was for (stage5-assembly.md, section 1): realworld compiled 77 ms of shared definitions on pages whose first
+pass was their output. Measured again on the merged tree (one build, wall, the preload's per-page log):
+
+- realworld: one page of seven has shared definitions (`article.html`: 71 to 81 ms of them in its first pass), and it
+  has a second pass now (26 to 33 ms; its first pass stops at its decisions). Its second pass has no points left (its
+  definitions are decided), so it places no second-pass unit and compiles none; nothing of realworld goes through "a
+  first pass that is finished". (Its first pass makes the build's unit with the recorder, 144 to 169 ms, where
+  compiling in place cost 71 to 81: a build whose only page with definitions is one page pays the recording for
+  nothing. That is stage 4's choice to make a unit on the first page that needs it; recording on the second, as the
+  linker did, would avoid it. Recorded, not changed: not A1's.)
+- sinter-mail's 16 pages, the four benchmark apps, the four examples: `UNIT_STATS` counts no "a first pass that is
+  finished" in any build. Every page with shared definitions there has a second pass, even the plainest route iii page
+  (`<mail-body data-sn-with="{ body: message, templates: true }">` over an API and nothing else: a second pass, its
+  unit placed).
+- So the case is a page with shared definitions and nothing for a second pass to apply (no decided branch, rendered
+  row, folded constant), or one whose first pass must be finished to read its own diagnostics before a second pass
+  (`quietFinish`: a signed-in guard, `data-sn-pages`, URL bindings, page models, `$url` writes). One shape found: a
+  template's entries whose only tree is live and whose entry data is read only where it is written into the markup
+  (an entry's title): no second pass, "a first pass that is finished" once per entry (a probe of three entries).
+
 ## Log
 
 - 19:10 UTC: suite plain and canonical, sinter-mail baseline and canonical (`--suite --bench`), per-phase timings.
-- 20:20 UTC: A1 built and verified (sections 3, 4), committed.
+- 20:20 UTC: A1 built and verified (sections 3, 4), committed (89f70f1).
+- 21:40 UTC: merged d64bc0b; the template entries' crash and the name check fixed (section 4b). On the merged tree:
+  the suite 2,945 passed; under `SN_UNITS2_AUDIT=1 SN_UNITS_VERIFY=1` no difference and no unit object changed (53
+  failures, all tests that count compiles: link-review-3/4/5, one-pass, render-rows, as the other audits have them);
+  `SN_UNITS_AUDIT`, `SN_RENDER_AUDIT`, `SN_ONE_PASS_AUDIT`, `SN_LINK_AUDIT` on test/compiler: the integration head's
+  failures and no other (`units2.test.ts` counts fixed to hold under audits, and skipped under `SN_UNITS_AUDIT`,
+  which turns the route off); CI's link-audit job (the whole suite under `SN_LINK_AUDIT=1 --testTimeout=60000`):
+  2,944 of 2,945 before that count fix, the one failure that test's count; `render-audit` raw and canonical, and
+  `pass-audit`: every app the same; `npm run size -- --check` passes.

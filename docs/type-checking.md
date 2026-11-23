@@ -28,8 +28,9 @@ npx sinter check --root app      # another project root
 ```
 
 It needs TypeScript in the project, uses your version of it, and never runs in the dev server. With
-TypeScript installed, `vite build` runs it at the end and fails on type errors; `sinter({ typecheck: false })`
-turns that off. Without types, the compiler still checks every name, state variable and helper: [docs/diagnostics.md](diagnostics.md).
+TypeScript installed, `vite build` runs it at the end and fails on type errors (`sinter check: 2 type error(s), 1
+warning(s)`); its warnings alone, such as [SN538](diagnostics.md#sn538-unreachable-candidate), are printed and do not
+fail it, unless [strict mode](strict.md) is on. `sinter({ typecheck: false })` turns it off. Without types, the compiler still checks every name, state variable and helper: [docs/diagnostics.md](diagnostics.md).
 
 ## Types on resources
 
