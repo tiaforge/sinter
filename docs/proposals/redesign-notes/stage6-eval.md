@@ -262,3 +262,15 @@ the rounds). mail gen against change 4 (3 rounds): pass-1 `prerender` 83.2 / 94.
 A/B against change 5 (9 rounds blog; 3 the email), wall ms a call, p25 / median / mean: blog static `decideFor` 5.41 /
 6.70 / 7.40 → 5.19 / 6.31 / 7.30 (`compile()` 8.27 / 9.69 → 8.00 / 9.51); mail gen pass-1 `prerender` 78.1 / 85.4 →
 77.5 / 85.1. Byte for byte the base's; test/compiler 1,140 passed, also under `SN_RENDER_AUDIT=1`.
+
+### 7. The bug: a persisted model's own path past its candidate (redesign-notes/bugs.md, 7)
+
+Decided from the code's intent (the comment at `own`: "a persisted model's own state path: its initial value is the
+fallback when storage has none", for that model's first paint): `own` holds only while its candidate is evaluated, and
+is null again after the candidates, for the texts and the worklist's `finish` walk. What changes in the output:
+nothing, for any page, and that is proven rather than measured: every `known` after the loop is behind `fixed` of the
+same dependencies, `fixed` refuses written fields, and every persisted path is written (`writtenState`); the state
+proxies are reached only through reads the dependencies name. So no test can fail before the fix; the test added pins
+the behaviour (the model last against the model first: the same page, both routes, rendered and not) and passes on
+both sides. The fix matters for what comes next: once deciding reads the units' summaries instead of `fixed` over the
+page's writes, `known` alone would have let the last model's field through.

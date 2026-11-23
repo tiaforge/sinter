@@ -8812,6 +8812,9 @@ class Compiler {
       // a persisted model's written value is the fallback: the early chunk still applies the stored one
       if (own === null) { this.painted.add(c.b); this.paintValue.set(c.b, { k: w[0], n: c.b.n ?? null, v: w[1] }); }
     }
+    // (a model's own path is its own: past its candidate, a persisted field is persisted for every read, the texts' and
+    // the walk's below as the candidates' before it; redesign-notes/bugs.md, 7)
+    own = null;
     // a text node over constants: plain text in the HTML, its anchor pair gone, its binding and node dropped
     for (const t of texts) {
       const v = known(strs(t.b.d)) ? run(this.fns[t.b.f!]!) : FAIL;

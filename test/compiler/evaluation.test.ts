@@ -252,6 +252,18 @@ describe('a `file:` value copied once (`frozenCopy`)', () => {
   });
 });
 
+describe('a persisted model\'s own path (`own`), past its candidate', () => {
+  test('what the walk and the texts after the candidates read of a persisted field: as with the model first', () => {
+    // (the model the last candidate, then first: a row, a text, a branch decided in the walk over the persisted field)
+    const parts = (model: string) => `<main data-sn-state="{ q: 'x' }">${model === 'first' ? '<input data-sn-model="q" data-sn-persist="k">' : ''}<template data-sn-if="true"><ul><template data-sn-for="r in grid.rows"><li data-sn-text="q + r.name"></li><template data-sn-if="q"><b>b</b></template></template></ul></template><template data-sn-text="q"></template>${model === 'last' ? '<input data-sn-model="q" data-sn-persist="k">' : ''}</main>`;
+    const strip = (b: string) => b.replace(/<input[^>]*>/, '').replace(/data-sn="\d+"|(?<=<!--\/?sn )\d+/g, '');
+    const last = routes(page(parts('last'))), first = routes(page(parts('first')));
+    expect(strip(last)).toBe(strip(first));
+    // (the field is read in the browser: nothing of it written at build time)
+    expect(last).not.toContain('xa');
+  });
+});
+
 describe('choices in rows', () => {
   test('the candidates a choice does not render, at every depth, rendered and not', () => {
     const body = both(page('<x-doc data-sn-with="{ doc }"></x-doc>'));
