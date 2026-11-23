@@ -221,6 +221,16 @@ Found by the research, not changed:
   more; the render audit compares dev without them (`withoutEmptySlots`). The old route (`inlineInstance`, the row
   lets) is now needed only for per-copy diagnostics, rows that keep a handler, and the shapes the renderer leaves
   (`redesign-notes/stage2-coverage.md`, "Dev renders").
+- **Early scripts per shape: sound by check, not by proof** (`redesign-notes/early-script-shapes.md`). Pages whose
+  early sources differ only in literals of one kind and length share one build, the literals substituted
+  afterwards; the first two pages of a group are also built alone and compared. A fold the minifier reaches
+  indirectly and whose answer is the same for the placeholder and those two pages but not for a later one would
+  slip through (`includes("x")`: false for `post-1` and `post-2`, true for `post-x`); early code comes from the
+  compiler, which writes no such call around a folded value today. `SN_EARLY_SHAPES_AUDIT=1` builds every page's own
+  and compares; `SN_EARLY_SHAPES=0` turns sharing off. To decide: keep the two-page check, check every page of a
+  group whose literals are not all drawn from a safe set, or run the audit in CI.
+- **A build with only type-check warnings passes** since the fix that counts errors and warnings apart; it failed
+  before. Under `strict` it still fails.
 - **Props as a run-time frame.** Binding an inlined live use's props at run time, as shared definitions do, would
   make a unit's code independent of its use with no holes, at the price of a changed IR and other bytes. Not planned
   for inlined uses: the holes keep the output, and the runtime, as they are. Stage 7 is about the uses whose props
@@ -255,7 +265,6 @@ timings were not usable). A cloud session pushes to a branch of its own:
 | stage 5, A1 then A2: definitions that ship, from units | cloud, `session_01AjKzdxPCdJ5nbeXvwkXoP2` | `redesign/stage5-a1` | `stage5-a1.md` |
 | stage 5, B1: the second pass from the first's walk | cloud, `session_01AjKzdxkDukbMzASz1qaYeA` | `redesign/stage5-b1` | `stage5-b1.md` |
 | the evaluation's cost | local agent | merged as it lands | `evaluation.md` |
-| early scripts built once per shape | cloud, `session_01AjKzdxPErYYZv1d2K1hMsD` | `redesign/early-script-shapes` | `early-script-shapes.md` |
 
 **The bar, as the owner set it on 2026-11-23:** the output need not be byte for byte today's where only numbering
 and generated names differ (`data-sn` ids, anchor numbers, template, state and function numbers, renamed loop
@@ -475,3 +484,13 @@ decision of their own (stage 7). A step that can stay byte-identical does.
   to 3.16 s, live with a page file per post 5.04 to 4.16 s; every app's files identical, the suite green under its
   audit (2,908). On the coordinating machine after the merge (load 6, three runs): static 2.9 to 3.4 s, live 3.1 to
   3.5 s, live with a page file per post 4.2 to 4.6 s; 1,482 tests of test/compiler, test/vite, test/check pass.
+- 2026-11-23, 21:00 UTC: **early scripts per shape, done and merged** (the session's quiet-machine medians: 100
+  live posts 4.27 to 3.24 s, with a page file each 5.31 to 4.32 s; 400: 13.4 to 9.7 s and 17.9 to 13.8 s;
+  `generateBundle` 1,135 to 128 ms at 100 posts, and 439 to 186 ms at 400 with the entry chunk found through one
+  index per bundle; one nested build is about 9 ms of Rolldown's own work, so their number is the lever). Its limit
+  is under "For a decision". 1,482 tests of test/compiler, test/vite, test/check pass after the merge. A page file
+  walked once: its first goal is pushed on its branch (a page of its own described off its head without a walk, 2.5
+  to 3 ms to 0.2 ms a page; a page file per post 2.89 to 2.74 s on a quiet machine), and it found a bug in stage 3's
+  kept-expansion route, fixed on that branch: `copyState` copied the options' objects, which the compiler compares
+  by identity, so a template that uses a component library compiled its entries after the first differently. Check
+  data once went back to its session for the conflict with bug fixes 4 to 6.
