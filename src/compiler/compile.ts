@@ -10648,6 +10648,34 @@ class Compiler {
     minifyMarkup(doc, { layout, ...this.minifyHooks() });
   }
 
+  /**
+   * B1 (`fromWalk`): what the page's layout (its stylesheets, `this.layout`) answered before the walk that rendered rows
+   * spliced where their template was would change, or null. The layout answers a structural or sibling selector for an
+   * element beside a template as not known (`siblingsUnknown`), and the second pass, with the rows there, as it is; and
+   * it sizes nothing by its content (an `auto` width that would follow it is not known either). So what can change is
+   * what it was asked about the rows' parent's other children and what is in them: an image's size, a late list's space
+   * (`planSpace`); and a `:has()` rule, which the rows may match from above.
+   */
+  layoutAround(tpl: P5Element, rows: RenderedRows): string | null {
+    const sheets = this.opts.styles ?? this.opts.images?.styles ?? [];
+    if (sheets.some((x) => /:has\(/i.test(x.css))) return 'a `:has()` rule';
+    if (!rows.nodes.some(isElement)) return 'no element in the rows';
+    const P = tpl.parentNode as P5Parent | null;
+    if (!P) return 'a template out of the page';
+    const MEDIA = /^(img|picture|source|video|iframe|embed|object)$/;
+    let why: string | null = null;
+    const look = (p: P5Parent) => {
+      for (const c of p.childNodes as P5Node[]) {
+        if (why || !isElement(c) || c === tpl) continue;
+        if (MEDIA.test(c.tagName)) { why = 'an image beside them'; return; }
+        if (c.tagName === 'template') { const plan = this.spacePlan.get(c); if (plan && (plan.sized || plan.space)) { why = 'a late list\'s space beside them'; return; } look((c as P5Template).content); continue; }
+        look(c);
+      }
+    };
+    look(P);
+    return why;
+  }
+
   /** the minifier's questions about the page's elements (`minify`; `fromWalk` again for rows it splices) */
   minifyHooks(): Omit<MinifyHooks, 'layout'> {
     const scoped = new Set([...this.componentFiles.values()].filter((f) => f?.css).map((f) => f!.file));
@@ -11777,7 +11805,7 @@ class Compiler {
         if (rows.idAttrs.length) return no('ids in rendered rows');
         // (the minifier's layout: the white space beside them as the minifier leaves it beside rows, `respaceRows`; the
         // page's own layout, which the images, the space of late rows and the dry run of constants read: not yet)
-        if (this.layout) return no('rendered rows and a layout');
+        if (this.layout) { const why = this.layoutAround(a.el, rows); if (why) return no(`rendered rows and a layout: ${why}`); }
         if (this.opts.images && imgs(rows.nodes)) return no('an image in rendered rows');
         ds.push({ a, v: true, other: null, at, rows });
         continue;

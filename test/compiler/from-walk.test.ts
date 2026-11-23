@@ -111,6 +111,12 @@ describe('the second pass from the first pass\'s walk', () => {
     expect(r.on.html).toBe(r.off.html);
   });
 
+  test('rendered rows under the page\'s layout, nothing it sizes beside them; an image elsewhere', () => {
+    const r = both(page('<ul>\n<template data-sn-for="x in [1, 2]"><li data-sn-text="x"></li></template>\n</ul><p><img src="/a.png"></p>'), { minify: true, styles: [{ file: '/p/s.css', css: 'ul { width: 300px } li:first-child { display: inline } img { width: 100% }' }] } as unknown as Partial<CompileOptions>);
+    expect(r).toMatchObject({ taken: 1, why: [] });
+    expect(r.on.html).toBe(r.off.html);
+  });
+
   test('an embedded resource\'s id before rendered rows: numbered where its element stood', () => {
     const r = both('<!doctype html><html lang="en"><head><title>t</title></head><body><sn-resource name="cart" src="/api/cart"></sn-resource><script type="application/json" data-sn-resource="cart">{"n":1}</script><ul><template data-sn-for="x in [1, 2]"><li data-sn-text="x"></li></template></ul><p data-sn-text="cart.n"></p></body></html>');
     expect(r).toMatchObject({ taken: 1, why: [] });
@@ -136,9 +142,14 @@ describe('compiled again: each reason', () => {
     expect(r).toMatchObject({ taken: 0, why: ['rendered rows and a layout: a bound element around them'] });
   });
 
-  test('rendered rows and the page\'s layout (the images\' and the late rows\' space read it)', () => {
-    const r = both(page('<ul><template data-sn-for="x in [1, 2]"><li data-sn-text="x"></li></template></ul>'), { styles: [{ file: '/p/s.css', css: 'ul { width: 300px }' }] } as unknown as Partial<CompileOptions>);
-    expect(r).toMatchObject({ taken: 0, why: ['rendered rows and a layout'] });
+  test('rendered rows and the page\'s layout, an image beside them (its size may follow a structural rule the rows answer)', () => {
+    const r = both(page('<div><template data-sn-for="x in [1, 2]"><p data-sn-text="x"></p></template><img src="/a.png"></div>'), { styles: [{ file: '/p/s.css', css: 'div { width: 300px } p + img { width: 50% }' }] } as unknown as Partial<CompileOptions>);
+    expect(r).toMatchObject({ taken: 0, why: ['rendered rows and a layout: an image beside them'] });
+  });
+
+  test('rendered rows and the page\'s layout, a `:has()` rule', () => {
+    const r = both(page('<ul><template data-sn-for="x in [1, 2]"><li data-sn-text="x"></li></template></ul>'), { styles: [{ file: '/p/s.css', css: 'ul:has(li) { width: 300px }' }] } as unknown as Partial<CompileOptions>);
+    expect(r).toMatchObject({ taken: 0, why: ['rendered rows and a layout: a `:has()` rule'] });
   });
 
 
