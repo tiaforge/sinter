@@ -475,3 +475,16 @@ blog static `decideFor` 6.10 / 7.74 / 9.00 → 5.84 / 7.71 / 8.62; mail gen pass
 A/B against change 11 (9 rounds blog, 3 the emails), p25 / median / mean: blog static `decideFor` 5.05 / 6.25 / 6.82 →
 4.87 / 5.66 / 6.78 (`compile()` 7.81 / 9.35 → 7.66 / 9.23); mail gen pass-1 `prerender` 70.0 / 82.7 → 65.5 / 69.7;
 mail file 8.03 / 9.95 → 8.27 / 10.1 (the same).
+
+### 13. The walk's decision keys joined only where they are committed; a case's props copied without entries arrays
+
+- Each `if` and loop in every row pushed its key as `prefix + key` (a string per decision per row); a rendered loop
+  commits none of them (it reads their dependencies only, for `foldReads`). The walk now keeps the prefix and the
+  template's key apart (`Decided`'s four-entry form) and `decidedEntries` and the commit join them where a loop the
+  second pass compiles is committed; a top-level choice's filter joins them to compare.
+- `frozenData`'s copy of a case's props (`{ node: n }` per instance) built them with `Object.fromEntries(Object.entries…)`;
+  it copies key by key now (the same own keys in the same order, `__proto__` an own key as `fromEntries` makes it) and
+  takes the height of each child as it goes.
+
+A/B against change 12 (9 rounds; machine quiet again): blog static `decideFor` 4.41 / 4.96 / 6.03 → 4.25 / 5.02 / 5.91
+(`compile()` 7.02 / 8.04 → 6.89 / 7.92).

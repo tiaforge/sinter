@@ -9554,7 +9554,8 @@ class Compiler {
     // `keys` but `picked` decided false at `prefix` + its key, in the order of `keys`; `decidedEntries` spells it out)
     // (`paints`: what each row binding paints, flat, three entries each: the binding, its row's prefix, what it writes
     // (`firstPaintValue`'s pair) or null; `paintsOf` spells them out)
-    type Found = { unrolls: Array<[string, unknown[], PathRef[] | undefined]>; decided: Array<[string, boolean, PathRef[] | undefined] | NotRendered>; paints: unknown[]; recs?: RowRec[]; rows: number; over?: true };
+    // (a key as its prefix and the template's key, joined where it is committed: a rendered loop commits none, `Decided`)
+    type Found = { unrolls: Array<[string, string, unknown[], PathRef[] | undefined]>; decided: Decided[]; paints: unknown[]; recs?: RowRec[]; rows: number; over?: true };
     const rendering = renderOn();
     /** `pick`: a choice's case expanded (decided true), else a loop unrolled (`tid`, its rows' template) */
     const pending = new Map<string, { items: unknown[]; d: PathRef[] | undefined; found: Found; pick?: true; el: P5Element; tid?: number; picked?: PickedCase } | null>();
@@ -9722,7 +9723,7 @@ class Compiler {
       // its props are decided expressions like any other: fixed (nothing writes what they read) and known
       const props = c && fixed(c.deps) && known(c.deps) ? run(sc, caseCode(c)) : FAIL;
       if (!t?.item || props === FAIL || !plainData(props, heights)) return false;
-      out.decided.push([prefix + key, true, point.pick!.deps]);
+      out.decided.push([prefix, key, true, point.pick!.deps]);
       const recs: RowRec[] | undefined = rec ? [] : undefined;
       if (rec) rec[at] = { name, tid: c!.tid, props, rec: recs } satisfies PickedCase;
       return rowsOf(t, [props], prefix + key, sc, out, recs);
@@ -9799,7 +9800,7 @@ class Compiler {
           const v = key ? valueAt(vals, slot, sc, p.code!) : FAIL;
           if (v === FAIL) return false;
           if (b.k === 'if') {
-            out.decided.push([prefix + key, !!v, b.d]);
+            out.decided.push([prefix, key!, !!v, b.d]);
             if (rec) rec[slot] = !!v;
             const other = b.y !== undefined ? nodes[b.y]?.b.find((x) => x.k === 'else')?.x : undefined;
             const kept = v ? this.templates[b.x!] : other !== undefined ? this.templates[other] : undefined;
@@ -9811,7 +9812,7 @@ class Compiler {
           }
           const items = listOf(v), t = this.templates[b.x!];
           if (!items || !t?.item) return false;
-          out.unrolls.push([prefix + key, items, b.d]);
+          out.unrolls.push([prefix, key!, items, b.d]);
           const recs: RowRec[] | undefined = rec ? [] : undefined;
           if (rec) rec[slot] = recs;
           if (!rowsOf(t, items, prefix + key, sc, out, recs)) return false;
@@ -9843,7 +9844,7 @@ class Compiler {
             const top: RowRec | undefined = rendering ? [] : undefined;
             const ok = expandCase(point, ch.picked!, ck, sc, '', found, top, 0);
             // (a choice in its rows whose candidates' keys could be this one: spelled out, to leave that one out)
-            found.decided = found.decided.flatMap((e): Found['decided'] => (Array.isArray(e) ? (e[0] !== ck ? [e] : [])
+            found.decided = found.decided.flatMap((e): Found['decided'] => (Array.isArray(e) ? (e[0] + e[1] !== ck ? [e] : [])
               : [...e.keys.values()].some((k) => e.prefix + k === ck) ? [...decidedEntries([e])].filter(([k]) => k !== ck) : [e]));
             const picked = top?.[0] as PickedCase | undefined;
             pending.set(ck, pending.has(ck) || (!ok && !found.over) ? null : { items: [], d: point.pick!.deps, found, pick: true, el, ...(picked ? { picked } : {}) });
@@ -9980,8 +9981,8 @@ class Compiler {
               if (!s) sitesOf.set(d, s = this.stateSites(d));
               for (const x of s) reads.add(x);
             };
-            for (const [, , d] of p.found.unrolls) add(d);
-            for (const e of p.found.decided) add(Array.isArray(e) ? e[2] : e.d);
+            for (const [, , , d] of p.found.unrolls) add(d);
+            for (const e of p.found.decided) add(Array.isArray(e) ? e[e.length - 1] as PathRef[] | undefined : e.d);
             for (const x of done.state) reads.add(x);
             // what the layout and the images read of the rows (an image's attributes, a class or a style): collected as
             // the old route collects it (`collectConstants`), which decides what the second pass is handed
@@ -9994,7 +9995,7 @@ class Compiler {
             }
             continue;
           }
-          for (const [k, items, d] of p.found.unrolls) { this.unrolls.set(k, items); this.foldReads.set(k, this.stateSites(d)); }
+          for (const [pre, k, items, d] of p.found.unrolls) { this.unrolls.set(pre + k, items); this.foldReads.set(pre + k, this.stateSites(d)); }
           for (const [k, v, d] of decidedEntries(p.found.decided)) { this.decided.set(k, v); this.foldReads.set(k, this.stateSites(d)); }
           for (const [b, prefix, w] of paintsOf(paintsFor(p, key))) {
             let m = this.rowPaint.get(b);
@@ -14088,9 +14089,18 @@ export function frozenData(v: unknown, fresh?: (x: object) => boolean): unknown 
   if (!simple) return deepFreeze({ v: structuredClone(v) }).v;
   const copy = (x: unknown): unknown => {
     if (!x || typeof x !== 'object' || DEEP_FROZEN.has(x)) return x;
-    const out = Array.isArray(x) ? x.map(copy) : Object.fromEntries(Object.entries(x).map(([k, c]) => [k, copy(c)]));
-    let h = 0;
-    for (const c of Object.values(out)) if (c && typeof c === 'object') h = above(h, DEEP_FROZEN.get(c as object) ?? UNMEASURED);
+    // (as `Object.fromEntries(Object.entries(x)…)` makes it: its own keys in their order, `__proto__` an own key too)
+    let out: unknown[] | Record<string, unknown>, h = 0;
+    const take = (c: unknown) => { const v = copy(c); if (v && typeof v === 'object') h = above(h, DEEP_FROZEN.get(v) ?? UNMEASURED); return v; };
+    if (Array.isArray(x)) out = x.map(take);
+    else {
+      const o: Record<string, unknown> = {};
+      for (const k of Object.keys(x)) {
+        const v = take((x as Record<string, unknown>)[k]);
+        if (k === '__proto__') Object.defineProperty(o, k, { value: v, enumerable: true, writable: true, configurable: true }); else o[k] = v;
+      }
+      out = o;
+    }
     DEEP_FROZEN.set(out, h);
     return Object.freeze(out);
   };
@@ -14321,10 +14331,12 @@ const SKIP = 0, STOP = 1, PAINTED = 2, CONTROL = 3;
 type BindPlan = { b: Binding; j: number; k: typeof SKIP | typeof STOP | typeof PAINTED | typeof CONTROL; ds: string[]; kn?: boolean; code?: string; paint?: boolean; text?: boolean; key?: string | null; cst?: boolean; cstOf?: object };
 /** the candidates of a choice in a row that it does not render: each of `keys` but `picked`, decided false at `prefix` + its key */
 type NotRendered = { prefix: string; keys: Map<string, string>; picked: string | null; d: PathRef[] | undefined };
+/** a worklist's decision: its key (or its prefix and the template's key, joined where it is committed), its value, its dependencies; or a choice's candidates it does not render */
+type Decided = [string, boolean, PathRef[] | undefined] | [string, string, boolean, PathRef[] | undefined] | NotRendered;
 /** a worklist's decisions, a choice's candidates spelled out one by one, in order */
-export function* decidedEntries(list: Array<[string, boolean, PathRef[] | undefined] | NotRendered>): Generator<[string, boolean, PathRef[] | undefined]> {
+export function* decidedEntries(list: Decided[]): Generator<[string, boolean, PathRef[] | undefined]> {
   for (const e of list) {
-    if (Array.isArray(e)) { yield e; continue; }
+    if (Array.isArray(e)) { yield e.length === 4 ? [e[0] + e[1], e[2], e[3]] : e; continue; }
     for (const [name, ck] of e.keys) if (name !== e.picked) yield [e.prefix + ck, false, e.d];
   }
 }
