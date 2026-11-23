@@ -416,3 +416,12 @@ list whose space or content-sized box was planned, or where a stylesheet has a `
 a layout: an image beside them`, `…: a \`:has()\` rule`); else the layout's answers are the second pass's. The
 examples route now, byte for byte (static-site 4 pages, its other 2 prefold; multilingual-site 8); the suite 325 (2 of
 the 3 refusals are the tests of the reasons). Verified as section 15, on 3,010 tests.
+
+### Numbers after section 16 (CPU profiles, `compilePasses` per build, ms, three builds each, base 22152eb → this)
+
+static-site 197 / 195 / 210 → 187 / 178 / 169; multilingual-site 128 / 126 / 129 → 115 / 116 / 114; realworld 593 / 486 /
+581 → 587 / 606 / 579 and dashboard 519 / 485 / 493 → 522 / 494 / 490 (not routed: no branch the build may decide; no
+second pass). The blog: section 14's numbers (the page-file variants routed, the template variants not).
+
+Commits of this session: 7af202e (units, folds), 0b4ee7f (the minifier's layout, embedded ids), and the one after
+section 16 (the page's layout); each merged with the integration branch before it was pushed.
