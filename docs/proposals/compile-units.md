@@ -744,3 +744,22 @@ decision of their own (stage 7). A step that can stay byte-identical does.
   step; the coordinator asked the session to assess a larger step before going on: a rendered row that keeps
   nothing live written as markup text from a plan per template, not as nodes that are cloned, walked again by the
   second pass, minified and serialized.
+- 2026-11-23, 23:58 UTC: **the full suite passes at `03658b3`: 3,008 tests, 314 files. Stage 5's B1 continued,
+  third milestone merged** (`redesign-notes/stage5-b1.md` §16 and §17; `06abf41`): rendered rows under the page's
+  own layout take the route where nothing the layout sizes is beside them (`layoutAround` refuses beside an image, a
+  video, a frame, an object, a list whose space was planned, or under a `:has()` rule). The examples route now
+  (static-site 4 of 6 pages, multilingual-site 8 of 8); in the suite 325 second passes take the route (193 when the
+  session started). Its numbers, the compiler's ms from CPU profiles, base `22152eb`: a page file per post 15.3 to
+  12.3 static and 14.9 to 13.3 live; static-site 197 to 178 a build, multilingual-site 128 to 115; the template
+  variants, realworld and dashboard unchanged (not routed). Its checks: 3,010 tests plain and under
+  `SN_FROM_WALK_AUDIT=1`, sinter-mail's suite and bench. Checked on the coordinating machine after the merge: 1,569
+  tests of test/compiler, test/vite, test/check pass; `render-audit --switch SN_FROM_WALK --canon` eight apps the
+  same; `mail-audit --switch SN_FROM_WALK` under `SN_CANON=1` 48 files byte for byte. **How far the second pass is
+  from deletable** (§17, a table by reason for the suite, the apps and sinter-mail): in the apps it is left for a
+  template's entries (the blog's 300 pages), constants the layout or the images read (8 pages: static-site 2,
+  sinter-mail 6), a resource read only in a dropped branch whose warning the second pass reports (sinter-mail 6),
+  one unit case (sinter-mail 1) and one page of realworld whose branch is not recorded; in the suite besides those:
+  loops unrolled and not rendered (67 and 35: stage 2's old row route), nothing decided (51, needs no second pass),
+  not recorded (33), and small groups (code or a definition first compiled in a dropped branch 18 + 9 + 4, folds
+  that ship 9 + 7, choices 9, a unit's definition kept 6). The session goes on with those toward B2; the template's
+  entries wait for stage 6's assessment of rows as text, which would make the kept walk small enough to copy.
