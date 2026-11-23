@@ -244,3 +244,11 @@ Found by the research, not changed:
   builds in 1.7 s instead of 3.9 s, a 1,000-element one in 2.2 to 2.6 s instead of 13.4 s (the agent's runs). The
   examples still fall back on `layout`. Pipeline: one Vite builder per build for every early script (4.5 ms off each
   distinct one).
+- 2026-11-23, 14:00 UTC: **the pipeline fixes are in** (`redesign-notes/pipeline-fixes.md`; six fixes in
+  `src/vite.ts`, output identical over 11 apps, suite green). Outside the compiler a live page costs 10.6 ms instead
+  of 33 (4 ms more than a static one, not 26): 100 live pages with a free compiler are about 2.1 s instead of 3.9 s.
+  Static pages are unchanged there (6.8 ms a page). Left, and why, in the log: the fixed part (about 1.1 s on a quiet
+  machine), 13 ms for each distinct early script, and the description compile of a page file (5.7 to 7.2 ms), which
+  needs the compiler to give a page's paths without a walk and the cross-page parts as placeholders (stage 3). A live
+  post's page embeds the whole post as JSON (8.5 kB of its 20.3 kB) where its module reads only the slug: the
+  compiler's choice, not changed.
