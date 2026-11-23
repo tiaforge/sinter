@@ -238,3 +238,9 @@ Found by the research, not changed:
   stage 2, coverage (`redesign-notes/stage2-coverage.md`), and the per-page floor (`redesign-notes/floor.md`). The
   pipeline agent has also landed the page list kept per build (quadratic before), the template probe as a description
   and the lazy-import check once per build.
+- 2026-11-23, 13:55 UTC: the suite passes on the merged branch (2,809 tests). Stage 2, merged so far: style, show,
+  hidden and contenteditable paints under the minifier, and rows with images. sinter-mail's file emails now render:
+  9 of its 10 loops (1,355 of 1,610 rows; left: one loop on `fill`), byte for byte the same; its 212-element email
+  builds in 1.7 s instead of 3.9 s, a 1,000-element one in 2.2 to 2.6 s instead of 13.4 s (the agent's runs). The
+  examples still fall back on `layout`. Pipeline: one Vite builder per build for every early script (4.5 ms off each
+  distinct one).
