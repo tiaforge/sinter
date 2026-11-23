@@ -42,6 +42,22 @@ instrumented (`profile-agent`'s `instr.mjs`, ms per page, one build at load 12):
 - Template variant (one `<html data-sn-for>` template): its check is two units, `check()` 0.2 s; what it cost is
   in the compile (measured below).
 
+## Where it stands (all five changes)
+
+Medians of 3, interleaved, 4c3e26c against this branch, load 9 to 16 (wall times are 2 to 3 times a quiet machine's;
+CPU is user + sys of the build and its `tsc` children, and moves much less with the load):
+
+| case | before: wall (CPU) | after: wall (CPU) | the same app without the check |
+|---|---:|---:|---:|
+| blog, one template, 100 posts | 5.3 s (5.9 s) | 4.6 s (6.1 s) | (its check was already once per template) |
+| blog, a page file per post, 100 posts | 30.0 s (22.8 s) | 13.9 s (10.4 s) | 6.3 to 6.5 s (8.0 to 8.2 s) |
+| sinter-mail, 12 API pages (route ii), TypeScript in the app; warm build (CPU of cold and warm) | 38.8 s (46.7 s) | 9.2 s (14.0 s) | 3.7 to 4.1 s (8.4 to 9.0 s) |
+| examples/realworld, 7 pages | 4.1 s (3.3 s) | 4.1 s (3.4 s) | (858 functions, 64 distinct shared: its check was small) |
+
+`sinter check` on the blog's files variant: 12.8 s with change 1, 8.7 s with change 5 (one run each, load 13).
+The outputs: the benchmark's two blogs and sinter-mail's routes (i), (ii) and (iii) build byte for byte the same
+with the check on and off, and the blogs the same as 4c3e26c's.
+
 ## What changed
 
 ### 1. Each expression's function checked once (`checkShared`, src/check/index.ts)
@@ -143,6 +159,14 @@ machine): 3.1 s to 1.8 s (`shadow` 1.08 to 0.62 s, the key 0.81 to 0.17 s, `tsc`
 | blog, a page file per post, check on: CPU | 10.9 s | 9.6 s |
 | sinter-mail, 12 API pages with TypeScript: CPU of the cold and warm builds | 16.9 s | 15.2 s |
 
+### 5. `sinter check` links its pages' definitions (`cli.ts`)
+
+The CLI compiled every page with no cache of shared definitions, so a library was compiled on every page (on the
+blog, 1,900 `compileDefinition` calls, 3.5 s of the 6.6 s of compile). It now passes one `definitions` map to its
+pages' compiles, as the build does; since change 3 that links under check too. The corpus's `sinter check` outputs
+are the same (also under `SN_LINK_AUDIT=1`). Blog, a page file per post: `sinter check` 12.8 s to 8.7 s (one run each,
+load 13).
+
 ## Is a component's markup checked the same at every use? (contract.md §5, checked)
 
 Mostly, and the shared check does not depend on it: it compares the text TypeScript sees. What the check data shows:
@@ -174,8 +198,6 @@ Mostly, and the shared check does not depend on it: it compares the text TypeScr
 - **`tsc`.** One process, not incremental; about 0.7 s on these apps, most of it parsing TypeScript's libs. A second
   process for the components' `<script>` blocks when the app has a `tsconfig.json` (0.26 s for corpus app d);
   running the two at once would need `check()` to be asynchronous (it is public API). Not done.
-- **`sinter check`** compiles each page without a definitions cache, so it compiles a library once per page; its
-  `tsc` part is shared now. Giving it the build's cache would be the same change as the build's.
 - **Tried and dropped:** turning `check` off in the second pass, whose unit is thrown away. `check` is not only data:
   SN506 (an `<sn-event>` without `type`) is reported only under it, and a choice's key is compiled once more (and
   can report), so the second pass's diagnostics would change. What it costs there is small once definitions link
