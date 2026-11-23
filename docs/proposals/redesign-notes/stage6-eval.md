@@ -177,3 +177,26 @@ A/B against change 1, wall ms a call, p25 / median / mean: mail gen pass-1 `prer
 `decideFor` 5.31 / 6.56 / 7.31 → 5.42 / 6.61 / 7.48 (5 rounds: the same). A first version made each page's programs
 anew (their source and key strings, a `bindPlan` of every node): 1.8 ms a page on the mail file's 65 components with
 few rows each; hence `ROW_PARTS` by the template's nodes.
+
+### 3. A row's paints read back from its records where they are committed; the pairs that are the same, one each
+
+- **`replayPaints`**: rendering, the walk records every paint at its place in the row's record and collects no list of
+  them (`out.paints` was 131,520 pushes of three a page on the 2,012-element email, 5 ms; a rendered loop reads only
+  the paints of the bindings the layout and the images read, `constB`, none there). Where a loop is committed, its
+  paints are read back from the records in the walk's order (each node's bindings in order, an `if`'s kept branch at
+  its place, a loop's rows, a choice's case, a placement's, each row's prefix as the walk made it): all of them for a
+  loop the second pass compiles (`rowPaint`, by prefix), only `constB`'s for a rendered one, through the templates from
+  which one of `constB` is reachable (`reaching`: the template graph walked backwards from the templates that hold
+  one). Without rendering the walk collects them as before. `SN_ROW_FN_AUDIT=1` collects both and compares them, loop
+  by loop (checked to throw when the read-back leaves a kind out).
+- **`firstPaintValue`'s pairs that do not depend on the binding** (`['style', null]`, `['attr', null]`, `show`'s and
+  `class`'s two each): one frozen pair each, not a new one per binding (sinter-mail: 55 style writes an element, most
+  `null`); `isPrimitive` without an array per call.
+
+Tests: rows the second pass compiles on a page with stylesheets (rows, a branch, nested rows, a tree through choices),
+and rendered rows whose class or style a stylesheet reads, both routes, rendered and not.
+
+A/B against change 2, wall ms a call, p25 / median / mean (3 rounds; blog 5): mail gen pass-1 `prerender` 116 / 142 /
+141 → 105 / 123 / 132 (`compile()` 171 / 208 / 283 → 167 / 188 / 280); blog static `decideFor` 5.48 / 6.80 / 7.68 →
+5.73 / 7.19 / 7.93 (nothing of it runs there: no stylesheet, no style binding; the blog's rounds move by ±0.3 ms
+between runs).

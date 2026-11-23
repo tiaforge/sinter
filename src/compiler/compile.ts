@@ -9264,7 +9264,9 @@ class Compiler {
               const v = valueAt(vals, slot, sc, p.code!);
               const w = v === FAIL ? null : firstPaintValue(el, b, v, schemes);
               const pw = w === FAIL ? null : w;
-              out.paints.push(b, prefix, pw);
+              // (rendering, the record holds it, and the paints are read back from the records where they are committed:
+              // `replayPaints`; the audit keeps both, to compare them)
+              if (!rec || audit) out.paints.push(b, prefix, pw);
               if (rec) rec[slot] = pw;
             } else if (rec && p.text && kn) { const v = valueAt(vals, slot, sc, p.code!); rec[slot] = v === undefined ? UNDEFINED : v; }
             continue;
@@ -9346,6 +9348,95 @@ class Compiler {
         }
       }
     };
+    /**
+     * The paints of a loop's rows, or of a choice's case, read back from the records (`RowRec`) in the order the walk made
+     * them, with each row's prefix (`[binding, prefix, pair or null]`, flat as `Found['paints']`): rendering, the walk
+     * records every paint at its place and collects none, as most of them are never read (a rendered loop's are read only
+     * for the bindings the layout and the images read, `constB`). The records hold what the walk did, so the read is the
+     * walk again over them: each node's bindings in their order, an `if`'s kept branch at its place, a loop's rows, a
+     * choice's case, a placement's. `only`: the bindings wanted, and a template none of them is reachable from is not read
+     */
+    const replayPaints = (p: { tid?: number; pick?: true; picked?: PickedCase; found: Found }, key: string, only?: Set<Binding>): unknown[] => {
+      const out: unknown[] = [];
+      const holds = only ? reaching(only) : null;
+      const list = (nodes: NodeDef[], rec: RowRec, prefix: string) => {
+        if (holds && !holds.has(nodes)) return;
+        const L = layoutOf(nodes);
+        for (let i = 0; i < nodes.length; i++) {
+          const n = nodes[i]!, at = L.base[i]!;
+          const point = this.pointOf.get(n);
+          if (point?.group) {
+            const c = rec[at] as PickedCase | null | undefined;
+            if (c) rows(this.templates[c.tid]!, c.rec!, prefix + caseKeys.get(n)!.get(c.name)!);
+            continue;
+          }
+          const P = placementOf.get(n);
+          if (P) {
+            const c = rec[at] as { k: number; rec: RowRec } | undefined;
+            if (c) list(this.templates[P.cases[c.k]!]!.nodes, c.rec, prefix);
+            continue;
+          }
+          const el = nodeEl(n);
+          if (!el) continue;
+          for (const q of bindPlan(n, el)) {
+            const slot = at + 1 + q.j;
+            if (q.k === PAINTED) {
+              if (q.paint && slot in rec && (!only || only.has(q.b))) out.push(q.b, prefix, rec[slot]);
+              continue;
+            }
+            if (q.k !== CONTROL || !(slot in rec)) continue;
+            const b = q.b;
+            if (b.k === 'if') {
+              const inner = rec[at] as RowRec | undefined;
+              const other = b.y !== undefined ? nodes[b.y]?.b.find((x) => x.k === 'else')?.x : undefined;
+              const kept = rec[slot] ? this.templates[b.x!] : other !== undefined ? this.templates[other] : undefined;
+              if (kept && inner) list(kept.nodes, inner, prefix);
+              continue;
+            }
+            rows(this.templates[b.x!]!, rec[slot] as RowRec[], prefix + q.key);
+          }
+        }
+      };
+      const rows = (t: TemplateDef, recs: RowRec[], key: string) => { for (let k = 0; k < recs.length; k++) list(t.nodes, recs[k]!, `${key}#${k}/`); };
+      if (p.pick) { if (p.picked) rows(this.templates[p.picked.tid]!, p.picked.rec!, key); }
+      else rows(this.templates[p.tid!]!, p.found.recs!, key);
+      return out;
+    };
+    /** the templates (by their nodes) from which a binding of `only` is reachable through the walk: its branches, loops, cases, placements */
+    let reach: { only: Set<Binding>; set: Set<NodeDef[]> } | null = null;
+    const reaching = (only: Set<Binding>): Set<NodeDef[]> => {
+      if (reach?.only === only) return reach.set;
+      const into = new Map<number, number[]>();
+      const edge = (from: number, to: number | undefined) => { if (to === undefined) return; let l = into.get(to); if (!l) into.set(to, l = []); l.push(from); };
+      const todo: number[] = [];
+      this.templates.forEach((t, tid) => {
+        if (!t) return;
+        let direct = false;
+        for (const n of t.nodes) {
+          for (const b of n.b) { if (only.has(b)) direct = true; if (b.k === 'if' || b.k === 'for' || b.k === 'else') edge(tid, b.x); }
+          for (const c of this.pointOf.get(n)?.group?.cases ?? []) edge(tid, c.tid);
+          for (const c of placementOf.get(n)?.cases ?? []) edge(tid, c);
+        }
+        if (direct) todo.push(tid);
+      });
+      const seen = new Set<number>(todo);
+      while (todo.length) for (const f of into.get(todo.pop()!) ?? []) if (!seen.has(f)) { seen.add(f); todo.push(f); }
+      const set = new Set<NodeDef[]>([...seen].map((tid) => this.templates[tid]!.nodes));
+      reach = { only, set };
+      return set;
+    };
+    /** a pending tree's paints: as the walk collected them, or read back from its records (`replayPaints`) */
+    const paintsFor = (p: Parameters<typeof replayPaints>[0], key: string, only?: Set<Binding>): unknown[] => {
+      if (!p.found.recs && !p.pick) return p.found.paints;
+      if (p.pick && !rendering) return p.found.paints;
+      const back = replayPaints(p, key, only);
+      if (audit) {
+        const all = p.found.paints, a = only ? all.filter((_, i) => only.has(all[i - (i % 3)] as Binding)) : all;
+        const same = a.length === back.length && a.every((x, i) => x === back[i]);
+        if (!same) throw new Error(`sinter row program audit: ${this.opts.file}: the paints read back from the records of \`${key}\` are not those the walk made (${back.length / 3} and ${a.length / 3})`);
+      }
+      return back;
+    };
     return {
       unroll,
       /** after `prerender()`'s own candidates: the page's choices and decided branches, then every loop found, committed */
@@ -9393,7 +9484,7 @@ class Compiler {
             // what the layout and the images read of the rows (an image's attributes, a class or a style): collected as
             // the old route collects it (`collectConstants`), which decides what the second pass is handed
             constB ??= new Set(this.constantSources().flatMap((x) => x.s.bindings));
-            if (constB.size) for (const [b, prefix, w] of paintsOf(p.found.paints)) {
+            if (constB.size) for (const [b, prefix, w] of paintsOf(paintsFor(p, key, constB))) {
               if (!constB.has(b)) continue;
               let m = this.rowPaint.get(b);
               if (!m) this.rowPaint.set(b, m = new Map());
@@ -9403,7 +9494,7 @@ class Compiler {
           }
           for (const [k, items, d] of p.found.unrolls) { this.unrolls.set(k, items); this.foldReads.set(k, this.stateSites(d)); }
           for (const [k, v, d] of decidedEntries(p.found.decided)) { this.decided.set(k, v); this.foldReads.set(k, this.stateSites(d)); }
-          for (const [b, prefix, w] of paintsOf(p.found.paints)) {
+          for (const [b, prefix, w] of paintsOf(paintsFor(p, key))) {
             let m = this.rowPaint.get(b);
             if (!m) this.rowPaint.set(b, m = new Map());
             m.set(prefix, w);
@@ -13041,7 +13132,11 @@ function renderStat(why: string | null, rows: number) {
  */
 const EXPANSION_LIMIT = 10_000;
 
-const isPrimitive = (v: unknown) => v == null || ['string', 'number', 'boolean'].includes(typeof v);
+const isPrimitive = (v: unknown) => { const t = typeof v; return v == null || t === 'string' || t === 'number' || t === 'boolean'; };
+/** `firstPaintValue`'s pairs that are the same whatever the binding (sinter-mail's components write 55 styles an element, most of them `null`): one each, frozen */
+const STYLE_NONE = Object.freeze(['style', null]) as unknown as [Kind, unknown], ATTR_NONE = Object.freeze(['attr', null]) as unknown as [Kind, unknown];
+const SHOWN = Object.freeze(['show', true]) as unknown as [Kind, unknown], HIDDEN = Object.freeze(['show', false]) as unknown as [Kind, unknown];
+const CLASS_ON = Object.freeze(['class', true]) as unknown as [Kind, unknown], CLASS_OFF = Object.freeze(['class', false]) as unknown as [Kind, unknown];
 
 /** what a binding the build found constant writes into the markup (`writeFirstPaint`) */
 export type ConstantWrite = { k: Kind; n: string | null; v: unknown };
@@ -13066,11 +13161,11 @@ export type Kind = 'text' | 'attr' | 'class' | 'style' | 'show' | 'checked' | 'v
 function firstPaintValue(el: P5Element, b: Binding, v: unknown, schemes: Set<string>): [Kind, unknown] | typeof FAIL {
   switch (b.k) {
     case 'text': return isPrimitive(v) ? ['text', '' + (v ?? '')] : FAIL;
-    case 'show': return ['show', !!v];
-    case 'class': return ['class', !!v];
+    case 'show': return v ? SHOWN : HIDDEN;
+    case 'class': return v ? CLASS_ON : CLASS_OFF;
     case 'attr': {
       if (!isPrimitive(v)) return FAIL;
-      if (v == null || v === false) return ['attr', null];
+      if (v == null || v === false) return ATTR_NONE;
       // a property the attribute does not set: no `indeterminate` attribute, a select's and a textarea's
       // value is not one either. The binding stays: the runtime sets the property
       if (b.n === 'indeterminate' || (b.n === 'value' && (el.tagName === 'select' || el.tagName === 'textarea'))) return FAIL;
@@ -13079,7 +13174,7 @@ function firstPaintValue(el: P5Element, b: Binding, v: unknown, schemes: Set<str
     }
     case 'style': {
       if (!isPrimitive(v)) return FAIL;
-      if (v == null || v === false) return ['style', null];
+      if (v == null || v === false) return STYLE_NONE;
       return STYLE_BAD.test('' + v) ? FAIL : ['style', '' + v];
     }
     case 'model': {

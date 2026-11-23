@@ -228,6 +228,19 @@ describe('a row\'s values in one call per template (`rowProgram`)', () => {
   });
 });
 
+describe('the paints of rows, read back from their records where they are committed (`replayPaints`)', () => {
+  const css = (text: string) => ({ styles: [{ css: text, file: '/p/a.css' }] }) as never as Partial<CompileOptions>;
+  test('rows the second pass compiles (a page with stylesheets): every row\'s paint, by its prefix, as the walk made them', () => {
+    // (rows, a branch in them, a choice's case, a tree through choices: the old route paints each from `rowPaint`)
+    const body = routes(page(`<ul><template data-sn-for="(r, i) in grid.rows"><li data-sn-class="{ on: !!i }" data-sn-style="{ color: i ? 'red' : null }"><template data-sn-if="i"><b data-sn-attr="{ title: r.name }">b</b></template><template data-sn-for="c in r.cells"><i data-sn-style="{ width: c.cells.length + 'px' }" data-sn-text="c.name"></i></template></li></template></ul><x-doc data-sn-with="{ doc }"></x-doc>`), css('.on { color: blue } li { display: block }'));
+    expect(body).toContain('<i style="width: 2px">a1</i>');
+    expect(body).toContain('title="b"');
+  });
+  test('rendered rows: the paints the layout reads (a class a selector names, a style) committed, the others not read', () => {
+    for (const sheet of ['.on { color: blue }', 'i { display: block }']) routes(page(`<ul><template data-sn-for="(r, i) in grid.rows"><li data-sn-class="{ on: !!i }"><template data-sn-for="c in r.cells"><i data-sn-style="{ width: c.cells.length + 'px' }" data-sn-text="c.name"></i></template></li></template></ul>`), { ...css(sheet), minify: true } as never);
+  });
+});
+
 describe('choices in rows', () => {
   test('the candidates a choice does not render, at every depth, rendered and not', () => {
     const body = both(page('<x-doc data-sn-with="{ doc }"></x-doc>'));
