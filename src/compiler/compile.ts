@@ -1047,7 +1047,7 @@ function shiftAudit(html: string, options: CompileOptions): CompiledParts {
   const canon = same || canonicalText(a) === canonicalText(b);
   const log = proc?.env.SN_UNITS_SHIFT_LOG;
   if (log) (proc?.getBuiltinModule?.('node:fs') as { appendFileSync(f: string, s: string): void } | undefined)?.appendFileSync(log, `${same ? 'same' : 'differs'}\t${canon ? 'canonical-same' : 'canonical-differs'}\t${plain || shifted ? 'first-pass-output' : 'second-pass-output'}\t${options.check ? 'check' : '-'}\t${options.file}\n`);
-  if (!canon && proc?.env.SN_UNITS_SHIFT_DUMP) (proc?.getBuiltinModule?.('node:fs') as { writeFileSync(f: string, s: string): void } | undefined)?.writeFileSync(`${proc.env.SN_UNITS_SHIFT_DUMP}.${SHIFT_STATS.dumps++}.json`, JSON.stringify({ file: options.file, a: JSON.parse(canonicalText(a)), b: JSON.parse(canonicalText(b)) }));
+  if (!canon && proc?.env.SN_UNITS_SHIFT_DUMP) (proc?.getBuiltinModule?.('node:fs') as { writeFileSync(f: string, s: string): void } | undefined)?.writeFileSync(`${proc.env.SN_UNITS_SHIFT_DUMP}.${(proc as { pid?: number }).pid ?? 0}.${SHIFT_STATS.dumps++}.json`, JSON.stringify({ file: options.file, a: JSON.parse(canonicalText(a)), b: JSON.parse(canonicalText(b)) }));
   return a;
 }
 
@@ -2114,9 +2114,9 @@ class Compiler {
     this.pathList = paths;
     // (the shift audit, `SN_UNITS_SHIFT_AT=walk`: the whole first pass numbered otherwise, from before its walk)
     // (`SN_UNITS_SHIFT_AT=p2`: the second pass numbered otherwise, from before its walk, which ships: the canonical
-    // forms must be the same, stage5-assembly.md step 0)
+    // forms must be the same, stage5-assembly.md step 0; not in dev, which keeps every function it made, the shift's too)
     const second = !!(this.opts.decided || this.opts.unrolled || this.opts.constants);
-    if (unitShift && (proc?.env.SN_UNITS_SHIFT_AT === 'walk' ? !second : proc?.env.SN_UNITS_SHIFT_AT === 'p2' && second)) {
+    if (unitShift && (proc?.env.SN_UNITS_SHIFT_AT === 'walk' ? !second : proc?.env.SN_UNITS_SHIFT_AT === 'p2' && second && !this.opts.dev)) {
       for (let i = 0; i < unitShift; i++) { this.newTemplate(); this.fn(`() => "sn-shift ${i}"`); }
       this.nextSid += unitShift;
       this.useIds += unitShift;
