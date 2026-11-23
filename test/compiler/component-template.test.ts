@@ -83,7 +83,7 @@ describe('which template declares the component', () => {
       .toEqual(['SN312 component `<x-two>` has 2 top-level `<template>`s and none has `data-sn-props`: a component file holds one `<template>` around its markup (included from index.html:1)']);
     // one with it: the other belongs inside it, as before
     expect(codes('<x-two></x-two>', { 'x-two': '<template data-sn-props=""><p>a</p></template><template><p>b</p></template>' }))
-      .toEqual([expect.stringMatching(/^SN312 a component file holds its `<template>` and `<style>`; `<template>` belongs inside the template/)]);
+      .toEqual([expect.stringMatching(/^SN312 a component file holds its `<template>`, `<style>` and `<script>`; `<template>` belongs inside the template/)]);
   });
 
   test('a branch, a list or a text at the top: SN312 at that attribute, with the template to write', () => {
