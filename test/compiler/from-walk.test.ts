@@ -81,11 +81,6 @@ describe('the second pass from the first pass\'s walk', () => {
     expect(r).toMatchObject({ taken: 1, why: [] });
   });
 
-  test('a build-time resource decides the branch', () => {
-    const r = both(page('<sn-resource name="post" src="file:/content/post.json"></sn-resource><h1 data-sn-text="post.title"></h1><template data-sn-if="!post.draft"><p data-sn-text="post.tags.join(\', \')"></p></template>'));
-    expect(r).toMatchObject({ taken: 1, why: [] });
-  });
-
   test('a loop rendered at the page\'s level, and one in a decided branch; ids after them as the walk leaves them', () => {
     const r = both(page('<ul><template data-sn-for="x in [1, 2]"><li data-sn-text="x"></li></template></ul><div data-sn-state="{ a: true, n: 0 }"><button data-sn-on-click="n++" data-sn-text="n"></button><template data-sn-if="a"><ol><template data-sn-for="y in [3, 4]"><li data-sn-text="y"></li></template></ol></template><p data-sn-text="n"></p></div>'));
     expect(r).toMatchObject({ taken: 1, why: [] });
@@ -105,6 +100,11 @@ describe('the second pass from the first pass\'s walk', () => {
 });
 
 describe('compiled again: each reason', () => {
+  test('a build-time resource decides the branch, and its values are folded into the code that reads them', () => {
+    const r = both(page('<sn-resource name="post" src="file:/content/post.json"></sn-resource><h1 data-sn-text="post.title"></h1><template data-sn-if="!post.draft"><p data-sn-text="post.tags.join(\', \')"></p></template>'));
+    expect(r).toMatchObject({ taken: 0, why: ['values folded into the code'] });
+  });
+
   test('rendered rows the minifier reads with a layout (the browser\'s own styles)', () => {
     const r = both(page('<ul><template data-sn-for="x in [1, 2]"><li data-sn-text="x"></li></template></ul>'), { minify: { styles: [] } } as Partial<CompileOptions>);
     expect(r).toMatchObject({ taken: 0, why: ['rendered rows and a layout'] });
@@ -137,7 +137,7 @@ describe('compiled again: each reason', () => {
   });
 
   test('a resource read only in the branch dropped (SN501 in the second pass)', () => {
-    const r = both(page('<sn-resource name="post" src="file:/content/post.json"></sn-resource><div data-sn-state="{ a: false }"><template data-sn-if="a"><p data-sn-text="post.title"></p></template></div>'));
+    const r = both(page('<sn-resource name="user" src="/api/user"></sn-resource><div data-sn-state="{ a: false }"><template data-sn-if="a"><p data-sn-text="user.name"></p></template></div>'));
     expect(r.on.diagnostics.map((d) => d.code)).toContain('SN501');
     expect(r).toMatchObject({ taken: 0, why: ['a resource read only in a decided branch (SN501)'] });
   });
@@ -175,14 +175,14 @@ describe('a template\'s entries from a copy of the kept walk', () => {
 
   test('a branch over the entry decided another way per entry, and a loop over it rendered', () => {
     const r = entries(template('<h1 data-sn-text="p.title"></h1><template data-sn-if="p.draft"><p class="draft">Draft</p></template><template data-sn-else><ul><template data-sn-for="t in p.tags"><li data-sn-text="t"></li></template></ul></template>'));
-    expect(r.taken).toBe(r.n);
-    expect(r.why).toEqual([]);
+    // (an entry's values are folded into the code that reads them, which its walk did not: the second pass, counted)
+    expect(r.taken + r.why.filter((w) => w === 'values folded into the code').length).toBe(r.n);
     expect(r.on.map((x) => x.html).join('')).toContain('<li>z</li>');
   });
 
   test('state beside the entry: the page\'s ids and its module', () => {
     const r = entries(template('<section data-sn-state="{ n: 0 }"><button data-sn-on-click="n++" data-sn-text="n"></button><template data-sn-if="!p.draft"><p data-sn-text="p.title + n"></p></template></section>'));
-    expect(r.taken).toBe(r.n);
+    expect(r.taken + r.why.filter((w) => w === 'values folded into the code').length).toBe(r.n);
     expect(r.on.map((x) => x.html)).toEqual(r.off.map((x) => x.html));
   });
 });

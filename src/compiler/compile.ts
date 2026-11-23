@@ -1644,6 +1644,7 @@ function fromTemplate(html: string, options: CompileOptions): CompiledParts | nu
     const again = () => { c.decideFor({ ...options, foldLog: undefined }); return new Compiler(passOptions(folds)).run(html); };
     // (B1: from a copy of the kept walk, when what it decided for this entry is only page-level branches and rendered
     // rows, and no value is folded into code)
+    if (folds && c.fw && fromWalkOn() && entriesFromWalk()) fromWalkStat('values folded into the code');
     return (folds ? null : entryFromWalk(t, passOptions(), again)) ?? secondPass(html, passOptions(folds), t.expanded, again);
   };
   const folds = c.foldValues();
@@ -1719,7 +1720,8 @@ function compileTwice(html: string, options: CompileOptions, pass: { first: Comp
   if (twice && fromWalk) {
     const quiet = first.quietFinish() && (!first.placedUnit || first.checkOrder);
     const loops = first.unrolls.size > 0, consts = first.constants.size > 0;
-    const folds = first.foldValues();
+    // (values folded into code: the walk compiled none, so only where no code left for the browser reads one, `foldGain`)
+    const values = first.foldValues(), folds = values && first.foldGain(values) ? values : undefined;
     // (a loop unrolled only in a clean first pass, which a first pass that is not quiet knows once it is finished)
     const clean = isClean(), unrolled = loops && clean;
     const next: CompileOptions | null = !consts && !first.needsMarkup && !folds && (!loops || quiet) && (first.decided.size || unrolled) ? {
