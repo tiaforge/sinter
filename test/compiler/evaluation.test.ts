@@ -5,7 +5,7 @@
 // each alone: the results must be the same, every field.
 import { afterEach, describe, expect, test } from 'vitest';
 import { compile, type CompileOptions, type CompileResult } from '../../src/compiler/index.js';
-import { decidedEntries } from '../../src/compiler/compile.js';
+import { decidedEntries, failsFirst } from '../../src/compiler/compile.js';
 
 const C: Record<string, string> = {
   'x-doc': '<template data-sn-props="{ doc: any }"><div class="doc"><template data-sn-for="n in doc.children"><sn-component use="{ text: \'x-text\', link: \'x-link\', em: \'x-em\' }[n.type]" data-sn-with="{ node: n }"></sn-component></template></div></template>',
@@ -77,6 +77,32 @@ describe('a row\'s scope', () => {
   test('a row\'s name that is a property of every object (`constructor`) is the row\'s', () => {
     const body = both(page(`<ul><template data-sn-for="constructor in grid.rows"><li data-sn-text="constructor.name"></li></template></ul>`));
     expect(body).toContain('<li>a</li><li>b</li>');
+  });
+});
+
+describe('a kept template\'s program, read once for its entries (`evalProgram`)', () => {
+  // (a helper the static check lets fold: its calls run at build time, per entry, through the table compiled once)
+  const fold = { helpers: { module: '/h.js', names: ['shout'], namespaces: {} }, helperValues: { shout: (s: string) => s.toUpperCase() }, helperFold: new Map([['shout', { fold: true }]]) } as Partial<CompileOptions>;
+  test('each entry\'s own values through the one table: a helper\'s call, a text, rows', () => {
+    const html = template('<main><h1 data-sn-text="shout(d.title)"></h1><p data-sn-text="d.slug"></p><ul><template data-sn-for="n in d.doc.children"><li data-sn-text="shout(n.value ?? n.url)"></li></template></ul></main>');
+    const o = options(fold);
+    const list = compile(html, o).pages!.entries;
+    const alone = list.map((e) => compile(html, { ...o, page: e }));
+    const templates = new Map();
+    for (let round = 0; round < 2; round++) list.map((e) => compile(html, { ...o, page: e, templates })).forEach((r, i) => expect(text(r)).toBe(text(alone[i]!)));
+    expect(alone.map((r) => /<h1>(.*?)<\/h1>/.exec(r.html)?.[1])).toEqual(['THE ONE', 'THE THREE', 'THE TWO']);
+    expect(alone[0]!.html).toContain('<li>PLAIN</li><li>E</li>');
+  });
+});
+
+describe('an expression that fails at its first step (`failsFirst`)', () => {
+  test('a first read of a name the evaluation never answers: a prop, the URL; not a state, a file, `$build`', () => {
+    for (const c of ['($) => ($.$p12.node.style.color)', '($) => ($.$p3 ? 1 : 2)', '($) => ($.$url.q.length)', '($) => ($.$slot.node)']) expect(failsFirst(c)).toBe(true);
+    for (const c of ['($) => ($.$s3.n)', '($) => ($.$r.doc)', '($) => ($.$meta.doc.loading)', '($) => ($.$build && $.$p1)', '($) => ($.$w(() => 1))', '($) => (1 + $.$p1)', '($) => (shout($.$p1))', '($) => (($.$p1))']) expect(failsFirst(c)).toBe(false);
+  });
+  test('a definition\'s bindings on a page of its own: what the page writes is the same', () => {
+    const body = both(page('<x-doc data-sn-with="{ doc }"></x-doc><x-em data-sn-with="{ node: { value: \'v\', color: \'red\' } }"></x-em>'));
+    expect(body).toContain('<em style="color: red">v</em>');
   });
 });
 

@@ -153,3 +153,28 @@ ms a call, p25 / median, base (`3e2f2d8`) → 1 and 2 (5 rounds of the blog temp
 | mail gen, pass-1 `settle` | 338 / 388 | 229 / 265 |
 | mail gen, `compile()` | 418 / 459 | 291 / 342 |
 | mail API, pass-1 `settle` | 11.9 / 12.0 | 11.8 / 12.0 |
+
+### 3. A kept template's program read once for its entries; an expression that fails at its first step
+
+- **`evalProgram`** (a `Compiler` field, `cache` in `LINK_FIELDS`): what `prerender(true)` reads of the program alone,
+  kept by a kept template's compiler (`fromTemplate` → `decideFor`) for its next entry: the candidates, the state
+  written (`writtenState`), whether it chooses, the texts, the codes it may run, and their table compiled once, with
+  the names the codes see (the helpers' folding wrappers, the formatters, the stubs) as `let` variables each entry
+  binds to its own values before it evaluates (as `unitTable` does for a unit). And what the worklist reads of the
+  program (`WalkMemo`: `bindPlan`'s plans, a choice's keys, a node's element, `handlerOnly`, a case's props code), per
+  kept template instead of per entry. `shape`: the program's sizes when it was read; a program that differs is read
+  again. Not kept: what reads the entry (`known` of a state field, every evaluation), pages of their own (one
+  evaluation each), a compiler with a unit placed (`unitTable` is the unit's own cache).
+- **`failsFirst`**: an expression whose first step reads a name off the evaluation's scope that the scope never answers
+  (not a state, `$r`, `$meta`, `$w`, `$build`, `$z`) throws `NOT` there before anything else happens: the leftmost
+  operand of any expression is evaluated first. `prerender`'s own `run` returns FAIL for it without running it. On
+  sinter-mail, 2,229 of a page's 2,250 candidates are a definition's bindings, which read a prop (`$.$p<n>…`) first:
+  each was a call, a proxy trap, a regex and a `throw`, in both passes.
+
+Tests: every entry's values through one table (a folded helper's call, a text, rows), two rounds over the entries
+against each compiled alone; `failsFirst`'s cases; a page with definitions the same rendered and not.
+
+ms a call, p25 / median (5 rounds blog, 3 others), 2 → 3: blog static `decideFor` 4.41 / 5.70 → 4.11 / 5.82 (the
+mean over the build's pages 7.0 → 7.2: within the noise; under the profiler `prerender`'s own time 0.6 → 0.2 ms a
+page); blog live 4.51 / 5.99 → 4.75 / 6.87 (noise); mail file pass-1 `prerender` 19.1 / 20.0 → 15.9 / 19.6; mail API
+pass-1 `settle` 11.3 / 12.0 → 8.0 / 10.6 (mean 16.2 → 12.8).

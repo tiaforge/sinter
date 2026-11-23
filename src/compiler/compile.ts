@@ -8383,9 +8383,12 @@ class Compiler {
   /** `decideOnly`: what it decides and would write, with nothing written into the markup (a kept template's entries, `decideFor`) */
   prerender(decideOnly = false) {
     /** `tpl`: in a template's content, written there only when it can never change; `if`: a condition decided for a second pass; `for`: a loop unrolled in it */
-    type Cand = { el: P5Element; b: Binding; f: number; tpl?: true; if?: true; for?: true };
-    const cands: Cand[] = [];
-    const written = this.writtenState();
+    type Cand = EvalCand;
+    // (a kept template's entries evaluate one program: what is read of it alone is kept for the next entry, `evalProgram`)
+    const keep = decideOnly && !this.placedUnit, kept = keep ? this.evalProgram : null;
+    const reuse = !!kept && kept.shape === this.programShape();
+    const cands: Cand[] = reuse ? kept!.cands : [];
+    const written = reuse ? kept!.written : this.writtenState();
     const fixed = (ds: PathRef[] | undefined) => strs(ds).every((d) => {
       // a `file:` resource and its status: constants nothing writes
       if (this.fileConstant(d)) return true;
@@ -8419,9 +8422,11 @@ class Compiler {
     };
     // in a kept element nothing is decided or unrolled at build time: its nodes are numbered alike on every page that
     // keeps it, whatever each page passes it, and the next page's code takes them over (swaps, §3)
-    for (const { el, node } of this.paints) for (const b of node.b) { value(el, b, false); if (!this.inKept(el)) { decide(el, b); unroll(el, b); } }
-    for (const [node, el] of this.tplEls) for (const b of node.b) { value(el, b, true); decide(el, b); }
-    const choosing = this.collecting() && [...this.pointOf.values()].some((p) => p.pick);
+    if (!reuse) {
+      for (const { el, node } of this.paints) for (const b of node.b) { value(el, b, false); if (!this.inKept(el)) { decide(el, b); unroll(el, b); } }
+      for (const [node, el] of this.tplEls) for (const b of node.b) { value(el, b, true); decide(el, b); }
+    }
+    const choosing = reuse ? kept!.choosing : this.collecting() && [...this.pointOf.values()].some((p) => p.pick);
     if (!cands.length && !choosing && !this.textRoots.length) return;
     // everything the page could call is shadowed: what is not a constant throws
     const NOT = new Error('not a build-time constant');
@@ -8460,25 +8465,44 @@ class Compiler {
       });
     }
     // the worklist evaluates the rows' templates and bindings too, and which component each choice renders
-    const rowCodes = this.collecting() ? [
+    const rowCodes = reuse ? [] : this.collecting() ? [
       ...this.templates.flatMap((tp) => tp.nodes.flatMap((n) => n.b.filter((b) => b.f !== undefined && (ROW.has(b.k) || b.k === 'if' || b.k === 'for')).map((b) => this.fns[b.f!]!))),
       ...[...this.pointOf.values()].flatMap((p) => (p.pick ? [p.pick.code] : [])),
       ...[...this.pointOf.values()].flatMap((p) => p.group?.cases.map((c) => `($) => (${c.props})`) ?? []),
       ...this.runtimePlacements.flatMap((P) => (P.node.b[0]?.f !== undefined ? [this.fns[P.node.b[0].f]!] : [])),
     ] : [];
-    const texts = this.textRoots.filter((t) => !t.b.e && t.b.f !== undefined && fixed(t.b.d) && !this.inKept(t.parent as P5Node));
-    const used = [...new Set([...this.stateInits.flatMap((st) => st.fields.map((x) => x.code)), ...cands.map((c) => this.fns[c.f]!), ...rowCodes, ...texts.map((t) => this.fns[t.b.f!]!)])];
-    // the unit's functions: compiled once per build (`unitTable`), the page's what is left
-    const shared = this.placedUnit ? unitTable(this.placedUnit, params, used) : null;
-    // (a unit's table that does not compile: the page compiles all it uses, as without units)
-    const mine = shared ? used.filter((c) => !shared.has(c)) : used;
-    let table: Array<($: unknown) => unknown>;
-    try {
-      // eslint-disable-next-line no-new-func -- build time only: the page's own compiled expressions, with nothing in scope
-      table = new Function(...params.keys(), `"use strict"; return [\n${mine.join(',\n')}\n];`)(...params.values());
-    } catch { return; }
-    const fnOf = new Map(mine.map((code, i) => [code, table[i]!]));
-    if (shared) for (const [code, f] of shared) fnOf.set(code, f);
+    const texts = reuse ? kept!.texts : this.textRoots.filter((t) => !t.b.e && t.b.f !== undefined && fixed(t.b.d) && !this.inKept(t.parent as P5Node));
+    const used = reuse ? kept!.used : [...new Set([...this.stateInits.flatMap((st) => st.fields.map((x) => x.code)), ...cands.map((c) => this.fns[c.f]!), ...rowCodes, ...texts.map((t) => this.fns[t.b.f!]!)])];
+    // (kept: the program read once, its functions compiled once with the names they see as variables each entry sets)
+    if (keep && !reuse) this.evalProgram = { shape: this.programShape(), walk: newWalkMemo(), cands, written, choosing, texts, used, tables: new Map() };
+    let fnOf: Map<string, ($: unknown) => unknown>;
+    if (keep) {
+      const prog = this.evalProgram!, names = [...params.keys()], key = names.join(',');
+      let t = prog.tables.get(key);
+      if (t === undefined) {
+        try {
+          // eslint-disable-next-line no-new-func -- build time only: the page's own compiled expressions, the evaluation's names bound per entry
+          const [bind, fns] = new Function(`"use strict"; let ${names.join(', ')}; return [(v) => { [${names.join(', ')}] = v; }, [\n${used.join(',\n')}\n]];`)() as [(v: unknown[]) => void, Array<($: unknown) => unknown>];
+          t = { bind, fns: new Map(used.map((code, i) => [code, fns[i]!])) };
+        } catch { t = null; }
+        prog.tables.set(key, t);
+      }
+      if (!t) return;
+      t.bind([...params.values()]);
+      fnOf = t.fns;
+    } else {
+      // the unit's functions: compiled once per build (`unitTable`), the page's what is left
+      const shared = this.placedUnit ? unitTable(this.placedUnit, params, used) : null;
+      // (a unit's table that does not compile: the page compiles all it uses, as without units)
+      const mine = shared ? used.filter((c) => !shared.has(c)) : used;
+      let table: Array<($: unknown) => unknown>;
+      try {
+        // eslint-disable-next-line no-new-func -- build time only: the page's own compiled expressions, with nothing in scope
+        table = new Function(...params.keys(), `"use strict"; return [\n${mine.join(',\n')}\n];`)(...params.values());
+      } catch { return; }
+      fnOf = new Map(mine.map((code, i) => [code, table[i]!]));
+      if (shared) for (const [code, f] of shared) fnOf.set(code, f);
+    }
     // a persisted model's own state path: its initial value is the fallback when storage has none
     let own: string | null = null;
     const isPersisted = (p: string) => p !== own && this.persisted.has(p);
@@ -8514,7 +8538,9 @@ class Compiler {
         throw NOT;
       },
     });
-    const run = (code: string): unknown => { folding.start(code); try { return fnOf.get(code)!(scope); } catch { return FAIL; } finally { folding.end(); } };
+    // (an expression whose first step reads a name off the scope that it never answers, a definition's props
+    // `$.$p<n>` above all: FAIL without running it, as running it throws there before anything else happens)
+    const run = (code: string): unknown => { folding.start(code); try { return failsFirst(code) ? FAIL : fnOf.get(code)!(scope); } catch { return FAIL; } finally { folding.end(); } };
     for (const st of this.stateInits) {
       if (st.persist) continue;
       const sid = st.sid, obj: Record<string, unknown> = {};
@@ -8529,7 +8555,7 @@ class Compiler {
       }));
     }
     const schemes = schemesOf([]);
-    const work = this.worklist(fnOf, known, fixed, schemes, ROW);
+    const work = this.worklist(fnOf, known, fixed, schemes, ROW, keep ? this.evalProgram!.walk : undefined);
     for (const c of cands) {
       own = c.b.k === 'model' && c.b.p !== undefined ? (c.b.w![0] as string).split('.').slice(0, 2).join('.') : null;
       let v = known(strs(c.b.d)) ? run(this.fns[c.f]!) : FAIL;
@@ -8579,6 +8605,16 @@ class Compiler {
 
   /** prerender's helper calls, while it evaluates (`helperCalls`) */
   folding: ReturnType<Compiler['helperCalls']> | null = null;
+  /**
+   * What `prerender(true)` read of the program alone, for a kept template's next entry (`decideFor`): the candidates, the
+   * state written, the texts, the codes it may run and their compiled tables, by the names they see. `shape`: the
+   * program's sizes it was read at; a program that grew is read again
+   */
+  evalProgram: { shape: string; walk: WalkMemo; cands: EvalCand[]; written: Set<string>; choosing: boolean; texts: Compiler['textRoots']; used: string[]; tables: Map<string, { bind: (v: unknown[]) => void; fns: Map<string, ($: unknown) => unknown> } | null> } | null = null;
+  /** the sizes of what `prerender` reads of the program (`evalProgram`) */
+  programShape(): string {
+    return [this.fns.length, this.templates.length, this.paints.length, this.tplEls.size, this.textRoots.length, this.stateInits.length, this.pointOf.size, this.runtimePlacements.length, this.fileData.size].join(',');
+  }
   /** by compiled code: the app helper whose call kept it from being a build-time constant, and why (SN322) */
   readonly foldWhy = new Map<string, string>();
 
@@ -8848,7 +8884,8 @@ class Compiler {
    * Two instances with one key (no way to tell them apart) leave it. At most `EXPANSION_LIMIT` rows and component
    * instances per page, any list's rows counted (`SN536` past it, at the loop or the tree that crosses it).
    */
-  worklist(fnOf: Map<string, ($: unknown) => unknown>, known: (deps: string[]) => boolean, fixed: (ds: PathRef[] | undefined) => boolean, schemes: Set<string>, ROW: Set<string>) {
+  /** `memo`: what the walk reads of the program, kept with a kept template's program (`evalProgram`) for its next entry */
+  worklist(fnOf: Map<string, ($: unknown) => unknown>, known: (deps: string[]) => boolean, fixed: (ds: PathRef[] | undefined) => boolean, schemes: Set<string>, ROW: Set<string>, memo: WalkMemo = newWalkMemo()) {
     // (`recs`: the top rows of a loop as `rowRenderer` reads them, `RowRec`; recorded only when rows are rendered)
     // (`decided`: a key and what it is decided, or the candidates a choice in a row does not render, as one entry: each of
     // `keys` but `picked` decided false at `prefix` + its key, in the order of `keys`; `decidedEntries` spells it out)
@@ -8863,7 +8900,7 @@ class Compiler {
      * constants and its own `$el` (no data, URL, clock or state something writes)
      */
     // (by binding, for this evaluation: what it asks is the program's, the same in every row)
-    const handlers = new Map<Binding, boolean>();
+    const handlers = memo.handlers;
     const handlerOnly = (b: Binding) => {
       if (b.k !== 'on' || b.w?.length || b.f === undefined) return false;
       let h = handlers.get(b);
@@ -8889,15 +8926,14 @@ class Compiler {
     const heights = new Map<object, number>();
     const listOf = (v: unknown): unknown[] | null => (Array.isArray(v) && v.every((x) => plainData(x, heights)) ? v : null);
     // (a placement's element is its `<slot>`; an anchor's, its template)
-    let paintEls: Map<NodeDef, P5Element> | null = null;
-    const elOf = (n: NodeDef) => this.tplEls.get(n) ?? this.pointOf.get(n)?.el ?? (paintEls ??= new Map([...this.paints].reverse().map((x) => [x.node, x.el] as const))).get(n) ?? this.textMarks.get(n) ?? placementOf.get(n)?.el ?? this.anchorEls.get(n);
+    const elOf = (n: NodeDef) => this.tplEls.get(n) ?? this.pointOf.get(n)?.el ?? (memo.paintEls ??= new Map([...this.paints].reverse().map((x) => [x.node, x.el] as const))).get(n) ?? this.textMarks.get(n) ?? placementOf.get(n)?.el ?? this.anchorEls.get(n);
     // (a row's scope: a proxy in front of the scope it is in. Tried and dropped: a plain object holding every enclosing
     // row's names, whose prototype is the evaluation's scope, and a chain of objects, one per row: evaluation.md, 1)
     const rowScope = (sc: object, t: TemplateDef, item: unknown, k: number) => new Proxy({}, {
       get: (_, p) => (p === t.item ? item : p === t.index || p === t.ii ? k : (sc as Record<string | symbol, unknown>)[p]),
     });
     // (a choice's candidates' keys, by its node: the program's)
-    const caseKeys = new Map<NodeDef, Map<string, string> | null>();
+    const caseKeys = memo.caseKeys;
     /** which case a choice renders here: the candidates' keys, and the one it renders (null: none), or null when that is not known */
     const caseOf = (n: NodeDef, el: P5Element, sc: object): { keys: Map<string, string>; picked: string | null } | null => {
       const point = this.pointOf.get(n)!;
@@ -8917,9 +8953,9 @@ class Compiler {
       return u === FAIL ? null : { keys, picked: typeof u === 'string' && keys.has(u) ? u : null };
     };
     // what a row's node and its bindings are, which every row of its template asks again: by node, for this evaluation
-    const els = new Map<NodeDef, P5Element | undefined>();
+    const els = memo.els;
     const nodeEl = (n: NodeDef) => { let el = els.get(n); if (el === undefined && !els.has(n)) els.set(n, el = elOf(n)); return el; };
-    const plans = new Map<NodeDef, BindPlan[]>();
+    const plans = memo.plans;
     /**
      * A node's bindings as `nodesOf` reads them in a row, in their order: skipped (a handler that stays, `else`, a value
      * neither painted nor a text), a stop (the row is not static markup), painted or a text node's value, or an `if`/`for`
@@ -8953,7 +8989,7 @@ class Compiler {
       return plan;
     };
     // (a case's props as the code the table compiled)
-    const propsCode = new Map<object, string>();
+    const propsCode = memo.propsCode;
     /** a choice's case, at `key`: its definition over its props (one row), when that is static markup */
     const expandCase = (point: NonNullable<ReturnType<typeof this.pointOf.get>>, name: string, key: string, sc: object, prefix: string, out: Found, rec?: RowRec, n?: NodeDef): boolean => {
       const c = point.group!.cases.find((x) => x.name === name), t = c && this.templates[c.tid];
@@ -12537,6 +12573,28 @@ const RENDERED_FILE = new WeakMap<P5Element, string>();
 type RowRec = Map<object, unknown>;
 /** a choice's case in a `RowRec`: the candidate it renders, its definition's template, its props, the instance's record */
 type PickedCase = { name: string; tid: number; props: unknown; rec?: RowRec[] };
+/** the names the build-time evaluator's scope answers (`prerender`'s `scope`), besides a state `$s<n>` */
+const SCOPE_NAMES = new Set(['$r', '$meta', '$w', '$build', '$z']);
+/** a compiled expression whose first step is a read of a name off its scope (`($) => ($.name…`) */
+const FIRST_READ = /^\(\$\) => \(\$\.([A-Za-z_$][\w$]*)/;
+/**
+ * Whether evaluating `code` against `prerender`'s own scope throws `NOT` before it does anything else: its first step
+ * reads a name the scope never answers (not a state, not one of `SCOPE_NAMES`). The leftmost operand of an expression
+ * is evaluated first, whatever the expression: a member chain, a call, an operator, a condition. A state's name is
+ * left to the evaluation (whether the scope answers it depends on the page's states).
+ */
+export function failsFirst(code: string): boolean {
+  const m = FIRST_READ.exec(code);
+  return !!m && !SCOPE_NAMES.has(m[1]!) && !/^\$s\d+$/.test(m[1]!);
+}
+
+/** a binding `prerender` evaluates: `tpl`, in a template's content, written there only when it can never change; `if`, a condition decided for a second pass; `for`, a loop unrolled in it */
+type EvalCand = { el: P5Element; b: Binding; f: number; tpl?: true; if?: true; for?: true };
+
+/** what the worklist reads of the program, by node, binding and case (`worklist`): asked once per evaluation, or per kept template */
+type WalkMemo = { handlers: Map<Binding, boolean>; paintEls?: Map<NodeDef, P5Element>; caseKeys: Map<NodeDef, Map<string, string> | null>; els: Map<NodeDef, P5Element | undefined>; plans: Map<NodeDef, BindPlan[]>; propsCode: Map<object, string> };
+const newWalkMemo = (): WalkMemo => ({ handlers: new Map(), caseKeys: new Map(), els: new Map(), plans: new Map(), propsCode: new Map() });
+
 /** the worklist's reading of a binding in a row (`bindPlan`) */
 const SKIP = 0, STOP = 1, PAINTED = 2, CONTROL = 3;
 type BindPlan = { b: Binding; k: typeof SKIP | typeof STOP | typeof PAINTED | typeof CONTROL; ds: string[]; kn?: boolean; code?: string; paint?: boolean; text?: boolean; key?: string | null };
