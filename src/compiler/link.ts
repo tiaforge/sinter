@@ -175,6 +175,8 @@ export const LINK_FIELDS: Record<string, { kinds: string[]; how: 'table' | 'weak
   points: { kinds: ['WeakMap'], how: 'weak' },
   prefetchOff: { kinds: ['boolean'], how: 'fixed' },
   guard: { kinds: ['empty', 'object'], how: 'fixed' },
+  rootCopies: { kinds: ['Array'], how: 'table' },
+  rootEls: { kinds: ['WeakSet'], how: 'weak' },
   signedIn: { kinds: ['empty', 'object'], how: 'fixed' },
   preloads: { kinds: ['Set'], how: 'table' },
   remoteUsed: { kinds: ['boolean'], how: 'fixed' },
