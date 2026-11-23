@@ -7,6 +7,7 @@ import { shows } from './status-eval.js';
 import { recordChild, replay as replayUnit, LINK_FIELDS, UNIT_NUMBERING, type Plan, type Refused } from './link.js';
 import { declaringTemplate, HEAD_ELEMENTS, kindOfComponent, parseDocument, STRUCTURAL } from './head.js';
 import { minifyMarkup } from './minify.js';
+import { evalConstant, OWN_ATTRS, renderStatic, type StaticContext } from './static-tree.js';
 import type { RemoteConfig } from '../remote.js';
 import { AUTO_FIT_HINT, AUTO_FIT_ROWS, FLUID_WIDTHS } from './images.js';
 import * as parse5 from 'parse5';
@@ -1591,6 +1592,9 @@ class Compiler {
     else doc = this.mergeLayout(doc) ?? doc;
     this.pagesOf(doc);
     this.head = findHead(doc);
+    // SPIKE: component trees over constants rendered straight to markup (static-tree.ts), in a second pass
+    // (a first pass's type check reads the page's components as written: not there, unless the build checks no types)
+    if (process.env.SN_FAST === '1' && this.opts.prerender && !this.opts.dev && (this.opts.decided || this.opts.unrolled || this.opts.constants || (!this.check && process.env.SN_FAST_FIRST === '1'))) this.staticTrees(doc);
     this.expandComponents(doc, []);
     this.emptyStates(doc);
     this.strayAndRepeated(doc);
@@ -1654,6 +1658,9 @@ class Compiler {
       if (outer.length) { setAttr(el, 'data-sn-r', outer.join(' ')); for (const n of outer) this.rootStyled.add(n); }
     }
     if (styled.length) for (const x of this.slotEls) if (attr(x.el, 'data-sn-c') === undefined) setAttr(x.el, 'data-sn-s', x.caller);
+    // SPIKE: the roots of the trees rendered as markup, as a use's root is marked above
+    // (after the markup's own attributes, before those the tree wrote: as the full compile writes its folded ones later)
+    if (this.opts.dev || styled.length) for (const [el, name] of this.staticRoots) el.attrs.splice(OWN_ATTRS.get(el) ?? el.attrs.length, 0, { name: 'data-sn-c', value: name });
 
     for (const [name, id] of this.embedded) {
       const r = this.resources.find((x) => x.name === name);
@@ -1679,6 +1686,91 @@ class Compiler {
     this.walked = this.diagnostics.length;
     return (this.walk = { doc, images, paths });
   }
+
+  /**
+   * SPIKE (static-tree.ts): each component tag on the page, outside templates, whose instance renders only constants
+   * is replaced by the markup it renders, before the components expand. Its constants: the page's entry, its single
+   * `file:` resources, the lets of its ancestors and the helpers that fold. A tree the interpreter gives up on is
+   * left as it is and compiled the usual way.
+   */
+  staticTrees(doc: DefaultTreeAdapterMap['document']) {
+    const NOT = new Error('not a build-time constant');
+    const consts = new Map<string, unknown>();
+    if (this.pagesDecl && this.opts.page) consts.set(this.pagesDecl.name, this.opts.page.value);
+    // the page's single `file:` resources, read as `fileResource` reads them (it reads them again in the walk)
+    const resources = (p: P5Parent) => {
+      for (const c of p.childNodes) {
+        if (!isElement(c) || c.tagName === 'template') continue;
+        if (c.tagName === 'sn-resource') {
+          const name = attr(c, 'name'), src = attr(c, 'src');
+          if (!name || !isFileSource(src) || /\{/.test(src!) || c.attrs.some((a) => !['name', 'src', 'type'].includes(a.name))) continue;
+          const where = filePath(src!, this.origins.get(c)?.file ?? this.opts.file, this.opts.root);
+          if ('error' in where || where.glob) continue;
+          let text: string;
+          try { text = this.opts.readFile(where.path); } catch { continue; }
+          const v = fileValue(text, where.path);
+          if (!('error' in v)) consts.set(name, v.value && typeof v.value === 'object' ? deepFreeze(structuredClone(v.value) as object) : v.value);
+          continue;
+        }
+        resources(c);
+      }
+    };
+    resources(doc);
+    const folding = this.helperCalls(NOT);
+    const helpers = new Map<string, unknown>();
+    for (const h of this.opts.helpers.names) helpers.set(h, folding.fn(h));
+    for (const [ns, { members, module }] of Object.entries(this.opts.helpers.namespaces)) {
+      if (isContentNsModule(module)) continue;
+      helpers.set(ns, Object.freeze(Object.fromEntries(members.map((m) => [m, folding.fn(`${ns}$${m}`)]))));
+    }
+    const schemes = schemesOf([]);
+    const ctx: StaticContext = {
+      componentFile: (tag) => (this.layoutFile(tag) ? null : this.componentFile(tag)),
+      pool: (file) => this.choicePool(file),
+      helpers,
+      paintValue: (el, kind, name, v) => firstPaintValue(el, { k: kind, n: name } as Binding, v, schemes),
+      fail: FAIL,
+      write: (el, kind, name, v) => writeFirstPaint(el, kind as Kind, name, v),
+      urlWritten: (el) => this.foldedUrl.add(el),
+      limit: EXPANSION_LIMIT,
+      root: (el, name) => { if (!this.staticRoots.has(el)) this.staticRoots.set(el, name); },
+    };
+    const walk = (p: P5Parent, scope: Map<string, unknown>) => {
+      for (let i = 0; i < p.childNodes.length; i++) {
+        const c = p.childNodes[i]!;
+        if (!isElement(c) || c.tagName === 'template') continue;
+        // state a handler may write: what reads it is not constant
+        if (attr(c, 'data-sn-state') !== undefined) continue;
+        let inner = scope;
+        const let_ = attr(c, 'data-sn-let');
+        if (let_ !== undefined) {
+          // (a let that is not constant: its names stay unknown, and what reads them is compiled the usual way)
+          const v = evalConstant(let_, new Map([...helpers, ...scope]));
+          if (v && v.v && typeof v.v === 'object' && !Array.isArray(v.v)) { inner = new Map(scope); for (const [k, x] of Object.entries(v.v)) inner.set(k, x); }
+        }
+        if (c.tagName.includes('-') && !c.tagName.startsWith('sn-')) {
+          const out = renderStatic(c, inner, ctx);
+          if (out) {
+            for (const n of out.nodes) (n as { parentNode: P5Parent }).parentNode = p;
+            p.childNodes.splice(i, 1, ...(out.nodes as never[]));
+            i += out.nodes.length - 1;
+            // what it read: as a decided branch's, for SN501
+            this.foldedText.push(attr(c, 'data-sn-with') ?? '', let_ ?? '');
+            this.staticRendered += out.rendered;
+            continue;
+          }
+        }
+        walk(c, inner);
+      }
+    };
+    walk(doc, consts);
+    if (process.env.SN_FAST_LOG) console.error(`static-tree ${this.opts.file.split('/').slice(-2).join('/')}: ${this.staticRendered} rendered`);
+  }
+
+  /** SPIKE: the roots of the instances `staticTrees` rendered, by the innermost component's name (`data-sn-c`) */
+  private readonly staticRoots = new Map<P5Element, string>();
+  /** SPIKE: the instances and rows `staticTrees` rendered on this page */
+  staticRendered = 0;
 
   /**
    * An element's `data-sn-style` entries as one binding (`Binding.g`): its function returns the values in the
