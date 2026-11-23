@@ -191,3 +191,67 @@ The tests now count the route on a compile of their own without `SN_LINK_AUDIT` 
 process-wide counters: 11 failures under CI's link-audit job); the audited compile runs beside it.
 `SN_RENDER_STATS=<file>` appends one line per loop (`<reason or rendered>\t<rows>`), so a run of many processes (the
 suite) can be summed.
+
+## The suite, and what the old route is still needed for
+
+Merged with the integration branch at 1f956f1 (the floor agent's `frozenData` and `componentCache`): compiler tests
+1,041 pass, plain, `SN_RENDER_AUDIT=1` and `SN_LINK_AUDIT=1`; the render audit and the sinter-mail audit are identical
+with nothing left to the second pass. The whole suite: 2,837 pass plain; under `SN_RENDER_AUDIT=1` 2,836 pass and one
+times out at 5 s under load (`test/check/check.test.ts`, the strictNullChecks case; it passes alone, audited), 234
+pages checked both ways. Its loops (`SN_RENDER_STATS`), over every test:
+
+| route | loops | rows |
+| --- | ---: | ---: |
+| rendered | 257 | 49,121 |
+| `links` | 36 | 71 |
+| `top-level choice` | 7 | 7 |
+| `diagnostics` | 3 | 5 |
+| `handler` | 3 | 29 |
+| `text`, `not written ahead`, `an id` | 2 each | 2 each |
+
+`tag attributes`, `where it is`, `in the head`, `a sinter attribute`, `minify`, `layout`, `styled`, `images`, `fill`:
+none.
+
+### What each remaining reason needs (not done)
+
+- **`links`** (tests only: no app's rows hit it; a page whose code reads `$url`, or axis lists). The walk of each
+  `<a>`/`<area>` pushes a `hrefs` entry (`element()`: a static `href` as `literal`; `attrBinding`/`hrefBinding`: a
+  bound one with the prefixes of its code, `hrefPrefixes(entryValue(...))`, over the pass-2 code where the row's item
+  is a JS literal, and `boundHrefs`), read by `seesSameLink` (same-page links) and `checkDroppedQuery` (SN519), and,
+  with axis lists, `markAxisLink` writes `data-sinter-pt` from the row chain (`rowOf`: each level's list text and
+  item, `axisEntryOf`). A rendered block would carry per link: the static entry (easy), the axis mark (computable in
+  the first pass: each level's `snSource` and item are in the records), and for a bound `href` the prefixes the old
+  route computes from code text with the item inlined, which is the part that would need the second pass's code (or
+  a proof that the painted value gives the same prefixes): left.
+- **`top-level choice`** (and recursion points outside loops). Pass 2's `expandConstants` inlines the case where the
+  `<sn-component>` is (`inlineInstance`: the clone becomes the component's tag, the outer tags' plain attributes passed
+  on, `expandUse` with the real `data-sn-with`), keyed `instAt = <ck>#0/` for the decisions inside, with
+  `scopeStart`/`fillOf`/`childrenOf` handed to its nodes. The renderer can render it (`instance()`), but the splice is
+  at a choice, not a loop: the ids, the list compile and the files are a loop's; `passOn` attributes; and a choice may
+  be a component's root (`where it is`). Next in line: it is the last user of `inlineInstance`.
+- **`diagnostics`**: the old route reports a template's diagnostics once per instance with its chain and position in
+  pass 2; a rendered block would have to re-report each, per row, as pass 2 would word and place them. Left (a page
+  with warnings in its rows is compiled the old way).
+- **`an id`**: `declare` (`page.ids`) and `componentIds` (SN209, by the number of uses an expansion makes) read ids
+  before the walk; the block would carry its ids and its uses' counts. Small; left.
+- **Rows that keep something live** (`handler`, `not painted`/`not written ahead`, `text`, `a sinter attribute`):
+  the residue. The old route walks the row element with the item as a let of literal code (`rowLets`:
+  `(${jsLiteral(item)})`), so a kept binding's function is compiled from that text, numbered where the walk meets it
+  (`data-sn` id, `fns` index, dedupe by text), and the element keeps `data-sn`. To bind the residue without re-walking:
+  per kept binding, the pass-1 code with the item's name substituted by its literal through a structural hole (not
+  by text pattern: `contract.md` §2), `this.fn` at the block's position in walk order, an id from `nextId` at the
+  element's place (the count before it in the block), and the node pushed to `roots`/`paints` in order. That is the
+  stage 3 machinery (assembling numbers) more than a coverage step; the 3 `handler` loops in the suite are the only
+  cases seen.
+
+### Can the old route be deleted?
+
+Not yet: the remaining reasons above take it, so do dev builds (they never render: their function table keeps the
+rows' slots), `SN_RENDER=0`, and the in-process audit (`SN_RENDER_AUDIT`) compares against it. On the measured apps
+it is no longer taken at all. Once `top-level choice` and `links` are rendered and the others are judged acceptable to
+refuse (a page with diagnostics or live parts in its rows could be the old route's only users, or rendered with a
+residue), deleting it removes, by my count: the rows branch of `expandConstants` (~35 lines with the
+`inlineInstance` call site), `inlineInstance` (28), `rowLets` and the `RowInfo`/`rowOf` plumbing (~40: `element()`,
+`prefold`'s prefixes, `markAxisLink`), the nested commit of `unrolls`/`decided`/`rowPaint` in `finish` (~10) and the
+row prefixes of `collectConstants`: about 150 lines, plus the fallback bookkeeping. `cloneTree` itself stays (slots,
+fills, the dry run's snapshot use it).
