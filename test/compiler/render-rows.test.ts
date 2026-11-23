@@ -186,10 +186,10 @@ describe('rendered rows: the same page as compiled rows, without compiling them'
   });
 
   describe('scoped styles: the marks the old route writes, and the ones it does not', () => {
-    test('a styled component used in the rows: no marks on them (today\'s output: the rows copy the template\'s `Use`)', () => {
+    test('a styled component used in the rows: each copy of its root marked as the original (`rootCopies`), slot content not', () => {
       const r = both('<template data-sn-for="x in [\'a\', \'b\']"><s-card data-sn-with="{ t: x }"><b data-sn-text="x"></b></s-card></template><s-card data-sn-with="{ t: \'z\' }"><b>z</b></s-card>');
       expect(r.spliced).toBe(1);
-      expect(r.body).toContain('<article class="card" title="a"><h3>a</h3><b>a</b></article>');
+      expect(r.body).toContain('<article class="card" data-sn-c="s-card" title="a"><h3>a</h3><b>a</b></article>');
       expect(r.body).toContain('<article class="card" data-sn-c="s-card" title="z">');
     });
 
@@ -208,11 +208,11 @@ describe('rendered rows: the same page as compiled rows, without compiling them'
       expect(r.body).toContain('data-sn-r="s-wrap"');
     });
 
-    test('a styled component in a loop inside an instance: unmarked, as the loop copies it; the instance marked', () => {
+    test('a styled component in a loop inside an instance: its copies marked as the original, the instance too', () => {
       const r = both('<s-doc data-sn-with="{ doc: { children: [{ type: \'list\', items: [\'p\', \'q\'] }, { type: \'text\', value: \'x\' }] } }"></s-doc>');
       expect(r.spliced).toBe(1);
       expect(r.why).toEqual([]);
-      expect(r.body).toContain('<ul data-sn-c="s-list"><article class="card" title="p">');
+      expect(r.body).toContain('<ul data-sn-c="s-list"><article class="card" data-sn-c="s-card" title="p">');
     });
   });
 

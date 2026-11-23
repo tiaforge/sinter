@@ -8576,10 +8576,10 @@ class Compiler {
       const read = (ds: PathRef[] | undefined) => { for (const d of strs(ds)) { const m = /^\$(?:r|meta)\.([A-Za-z_$][\w$]*)/.exec(d); if (m) st.reads.add(m[1]!); } };
       const texted = new Set<P5Node>(), empty: P5Node[] = [], shown: P5Element[] = [];
       /**
-       * whether the old route's pass 2 marks what is rendered now: what an instance's expansion (`inlineInstance` →
-       * `expandUse`) makes is in the page, its uses' roots marked after the walk; what a loop's rows copy (`cloneTree`)
-       * keeps the `Use` of the template's markup, whose root is the template's, so its copies are not marked (a known
-       * bug of today's output, reproduced: rows of a loop over constants carry no `data-sn-c`)
+       * whether the old route's pass 2 marks what is rendered now as its own: what an instance's expansion
+       * (`inlineInstance` → `expandUse`) makes is in the page, its uses' roots and slot content marked after the walk;
+       * what a loop's rows copy (`cloneTree`) keeps the template's `Use`: a root's copy takes its original's marks
+       * (`rootCopies`), slot content's copy none
        */
       let live = false;
       const clone = (n: P5Node, parent: P5Parent, map: Map<P5Node, P5Node>): P5Node => {
@@ -8608,8 +8608,9 @@ class Compiler {
           if (marking) {
             // the marks of scoped styles (`data-sn-c`/`-r`/`-s`), which the first pass's walk wrote on the template's
             // markup as the second's writes them on the instance's (one `Use` per instance, `rootMarked`, `landing`,
-            // `slotEls`), after the walk: before the paints after it (`fill`). In rows a loop copies: none (`live`)
-            const marks = live ? n.attrs.filter((a) => MARKS.test(a.name)).map((a) => ({ ...a })) : [];
+            // `slotEls`), after the walk: before the paints after it (`fill`). In rows a loop copies (`cloneTree`), a
+            // root's copy takes its original's `data-sn-c` and `-r` (`rootCopies`), and slot content no `-s` (`live`)
+            const marks = n.attrs.filter((a) => MARKS.test(a.name) && (live || a.name !== 'data-sn-s')).map((a) => ({ ...a }));
             if (marks.length) {
               // (an image the pipeline would rewrite after the marks are on it: not yet)
               if (n.tagName === 'img') no('styled');

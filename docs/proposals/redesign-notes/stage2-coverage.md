@@ -116,3 +116,37 @@ The image fold of the previous step is this one's special case (an image folds a
 benchmark and sinter-mail unchanged (no stylesheets: 100 loops each; 9 loops, 1,355 rows). New cases: classes a
 selector names and styles beside other bindings, under the minifier, beside a live list's space plan; images sized by
 the stylesheets.
+
+## `styled`: components with scoped styles on the page
+
+**Where the marks are decided (old route).** All in pass 2's `walkPage`, after the walk (`applyAliases`, then):
+1. `data-sn-c` on `rootMarked(u)` of every `Use` in `this.uses` (when the page uses a component with CSS, or in dev
+   builds): the root, or each branch of a chain root (`landingOf(u.shape)`), not a fill that is the root;
+2. `data-sn-r` on those elements for the outer styled components whose root they are too (`landing`), and those
+   names into `rootStyled` (their root rules are shipped outside the scope, `rootCss`);
+3. (since a47fc86, merged here) `data-sn-c`/`-r` copied from each original to each copy `cloneTree` made of a root
+   (`rootEls`, `rootCopies`): before it, a row of a loop over constants was a copy whose `Use` still named the
+   template's element, so the rows carried no mark (the bug);
+4. `data-sn-s` on slot content (`slotEls`) that has no `data-sn-c`: only the elements the expansion registered, so a
+   copy in a row gets none.
+`this.uses` is filled by `expandUse` (pass 2's expansion of the page, a loop template's content included, and each
+`inlineInstance`), and decides which components' CSS is shipped (`styles`). The minifier leaves markup from a
+component file with CSS as written (`opaque`, by origin).
+
+**What stage 1 did.** Fell back on any page with a component with CSS.
+
+**Now.**
+- A clone of markup from a scoped component's file is `SCOPED` (the minifier's `opaque`).
+- The first pass ran the same marking on its own markup, definitions included, so a template element carries the
+  marks its instance's expansion gets. The clone takes them (inside an instance: `data-sn-c`, `-r`, `-s`; in rows a
+  loop copies, `live` false: `data-sn-c` and `-r` as `rootCopies` gives them, no `-s`), after `prefold`'s writes and
+  before the other paints (`MARKED`, written in `fill`), and they are stripped from the base attributes. Before
+  a47fc86 was merged, the copies took none (the bug, reproduced in the previous commit).
+- The block carries the components its instances expand (`RenderedRows.uses`, with their scoped CSS from the first
+  pass): pass 2 registers them in `this.uses` (an empty list: nothing else of a `Use` is read for them) and loads
+  their files, so their styles ship and the page's marks are written as in the old route; and the `data-sn-r` names
+  (`rootStyled`).
+- An image with marks falls back (`styled`): the image pipeline would read the marks the old route writes after it.
+
+**Coverage.** static-site: 7 loops (27 rows) rendered, `fill` 2 / 60 left (the content trees of `guide` and
+`getting-started`); multilingual-site: all 8 loops (32 rows) rendered. Benchmark and sinter-mail unchanged.
