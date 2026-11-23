@@ -94,10 +94,12 @@ describe('a real compile', () => {
   const options = { file: '/p/index.html', root: '/p', dev: false, prerender: true, componentNames: ['x-card'], helpers: { module: null, names: [], namespaces: {} }, readFile: (f: string) => { if (f in files) return files[f]!; throw new Error(f); } };
   const page = `<!doctype html><html><head><title>t</title></head><body><sn-resource name="items" src="/api/items"></sn-resource><section data-sn-state="{ q: '', open: false }"><input data-sn-model="q"><button data-sn-on-click="open = !open">t</button><x-card data-sn-with="{ title: 'C', body: q }"></x-card><ul><template data-sn-for="it in items"><li><span data-sn-text="it.name"></span><template data-sn-for="t in it.tags"><i data-sn-text="t + q"></i></template></li></template></ul><template data-sn-if="open"><p data-sn-text="q"></p></template></section></body></html>`;
   test('canonical output is a valid compile with the same module up to numbering', () => {
+    const was = process.env.SN_CANON;
+    delete process.env.SN_CANON;
     const plain = compile(page, options);
     process.env.SN_CANON = '1';
     let canon;
-    try { canon = compile(page, options); } finally { delete process.env.SN_CANON; }
+    try { canon = compile(page, options); } finally { if (was === undefined) delete process.env.SN_CANON; else process.env.SN_CANON = was; }
     // this page is numbered canonically already, but for its node ids (the card's folded `<h3>` leaves a gap)
     expect(canon.module).toBe(plain.module.replace(/"id":(\d+)/g, (m, d) => `"id":${+d > 3 ? +d - 1 : +d}`));
     expect(canon.html).toBe(plain.html.replace(/data-sn="(\d+)"|<!--sn (\d+)-->/g, (m, a, b) => (a !== undefined ? `data-sn="${+a > 3 ? +a - 1 : +a}"` : `<!--sn ${+b > 3 ? +b - 1 : +b}-->`)));

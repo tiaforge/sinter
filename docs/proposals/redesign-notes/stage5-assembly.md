@@ -6,9 +6,11 @@ Running log (2026-11-23), worktree branch `worktree-agent-a234e6423ae0817d0`, st
 
 - **Done**: the measurements (1), the inventory of numbers (2), what relaxing byte identity buys (3), the plan (4),
   with each independent step written as a brief another session can take (5).
-- **Being built**: step 0, the canonicalizer (`src/compiler/canon.ts`) and its tests, then the second-pass shift
-  audit that proves it covers every number.
-- **Next step after it**: step A1 (second-pass units placed before the walk, identical up to numbering).
+- **Built**: step 0, the canonicalizer (`src/compiler/canon.ts`, `SN_CANON=1`, the second-pass shift audit), with its
+  results below: every second pass shifted over the apps, sinter-mail and test/compiler canonicalizes to the same.
+- **Next step**: A1 (second-pass units placed before the walk, identical up to numbering; brief in 5), and B1 in
+  parallel in another session (brief in 5). Before either turns on: the behaviour tests and sinter-mail's suite under
+  `SN_CANON=1` (not run yet: the machine's load).
 
 The bar (the owner, 2026-11-23, relaxed during this stage): the output may differ from today's in numbering and
 generated names only (`data-sn` ids, anchor numbers, template ids and the names made from them, `$s<n>`, renamed loop
@@ -166,18 +168,96 @@ the app audits.
 
 Independent of step 0 and of each other once step 0 is merged:
 
-- **A1 brief**: goal: sinter-mail's components route compiles its library once per build in the second pass.
-  Files: `src/compiler/units.ts`, `compile.ts` (`definition`, `walkExpanded`'s unit placement, `finishPage`'s
-  `anchors`/`shareTemplates`/`compactTables`), `index.ts` (audit). Oracle: `canonical()` equal over test/compiler,
-  `mail-audit --switch SN_UNITS2 --canon`, its `--suite --bench`, `npm run size -- --check`. Must not touch: the IR's
-  shape, the runtime, the type check's units (`unitCheck`, being changed by another agent).
+- **A1 brief**: goal: sinter-mail's components route (pages that ship definitions) compiles its library once per
+  build in the second pass too. Design: `walkExpanded` places units only when the pass is a first one (`!decided &&
+  !unrolled && !constants`); let the second pass place a unit of its own (key: the first pass's key plus `p2`) before
+  its walk, at numbers from 0 (stage 4 found nothing numbered before a walk), so its templates and functions come
+  before the page's (today: after the page's 4 templates; `$p<tid>` and the function order change, the canonical form
+  does not). What `finishPage` changes of the unit's objects must not reach the shared unit: `anchors()` (turns
+  `<template>`s into comments, makes head templates, recomputes `path`s, sets `t.a`/`t.tx`/`t.w`), `shareTemplates()`
+  (points bindings elsewhere, empties templates, renames to `$pp`), `groupStyles()` (rewrites `node.b`), the
+  `find`/`make` hand-outs, `compactTables()` (renumbers `b.x/z/c/f`, `t.id`, `sn-t-` ids, `$i` names), and
+  `placeTemplates()` (moves the head templates' DOM into the page). The first two read only the definitions: run them
+  once when the unit is made and keep their products; the rest work on a per-page structural copy of the unit's
+  `TemplateDef`/`NodeDef`/`Binding`s and a clone of its head templates' DOM (measure the copy against today's 36 ms
+  replay; `SN_UNITS_VERIFY`/`SN_UNITS_FREEZE` find what else writes). Switch `SN_UNITS2=0`; audit `SN_UNITS2_AUDIT=1`
+  (each page compiled both ways, `canonicalText` equal, first difference thrown); fallbacks counted by reason as
+  `UNIT_STATS`. Files: `src/compiler/units.ts`, `compile.ts` (`walkExpanded`, `definition`, `finishPage`), `index.ts`.
+  Oracle: the canonical audit over test/compiler, `mail-audit --switch SN_UNITS2` (raw files will differ on route
+  iii; compare `SN_CANON=1` builds of both), sinter-mail's `--suite --bench`, `npm run size -- --check`, the gzip of
+  route iii's modules. Buys 110 to 140 ms of a 276 to 364 ms page. Must not touch: the IR's shape, the runtime, the
+  type check's units (`unitCheck`: another agent's).
 - **B1 brief**: goal: a page whose second pass applies only rendered blocks, decided branches and constants takes
   its result from the first pass's walk. Files: `compile.ts` (`compilePasses`, `walkExpanded`, `ifTemplate`,
-  `settle`, `finishPage`), `index.ts`. Oracle: canonical audit over test/compiler, `pass-audit`/`render-audit` with
-  the canonical comparison, page-compile's numbers. Must not touch: `prerender`/`worklist`/`rowRenderer` (the
-  evaluation agent's), units.ts.
+  `settle`, `finishPage`), `index.ts`. First measure: how many second passes have only those decisions (a log by
+  reason over the suite and the apps). Hand the ids out in document order with no gaps at assembly: that is the
+  canonical order (step 0), so the new route's raw output can be compared with the old route's `SN_CANON=1` output,
+  and it is lighter than today's (the block's count is not added). Oracle: canonical audit over test/compiler,
+  `pass-audit`/`render-audit` with `SN_CANON=1`, the behaviour tests, page-compile's numbers. Must not touch:
+  `prerender`/`worklist`/`rowRenderer` (the evaluation agent's), units.ts.
+
+## Step 0, built: the canonicalizer (`src/compiler/canon.ts`)
+
+- `canonical(parts)` renumbers as the plan says (templates from the roots depth first; functions in the order a
+  compile makes them, as far as the IR shows it (`fnOrder`): the resources' own, the markup depth first, then what
+  `finishPage` makes; state ids by node; node ids by markup order; the embedded data's ids (`data`, `json`, `embed`)
+  with them; the names made from template ids (`$i`, `$p`, `$sl`, renamed loop names) and `$s<sid>` renamed in code by
+  acorn and in paths (the IR's, `fixedState`, an action's `ap`) by segment). The type check's unit is left out.
+  `canonicalText(parts)` is what an audit compares. `test/compiler/canon.test.ts`: two hand-made results numbered
+  otherwise are equal; a changed value, binding kind, attribute or function body is not; `'x$1'` and `` `US$2` `` in
+  code are untouched; a real compile with `SN_CANON=1` is the plain one with its node-id gap closed.
+- `SN_CANON=1`: `compile()` outputs the canonical form (not in dev). The app audits compare canonical builds with it:
+  `render-audit --switch SN_CANON`, `pass-audit` and `mail-audit` pass the environment to their children (and
+  `mail-audit --switch SN_CANON=1` builds its second tree canonical).
+- **The oracle of the oracle**: `SN_UNITS_SHIFT_AUDIT=1 SN_UNITS_SHIFT_AT=p2` hands out 3 of every number before the
+  second pass's walk (and, as stage 4's audit does, before each first-pass definition), compiles again and logs
+  whether the raw and the canonical forms agree. Results (`stage5-agent/m/shift.sh`):
+
+  | where | second passes shifted, raw differs | of them canonical the same | first passes (definitions shifted) |
+  | --- | ---: | ---: | ---: |
+  | page-compile | 1 | 1 | |
+  | blog live (100 entries) | 100 | 100 (after the embedded data's ids were added) | |
+  | blog live-files | 100 | 100 | |
+  | blog static, static-files, typecheck | 1 (the rest have no numbers: static pages) | 1 | |
+  | the four examples | 9 | 9 (after `fixedState`'s dropped states were added) | |
+  | sinter-mail's 16 pages, both builds | 12 (the components route's shipped library among them) | 12 | |
+  | test/compiler (final run of the five files with templates' entries; earlier whole runs before the last fixes) | 139 + 6 (whole run), 60 (the five files, after the fix) | all: the 6 were the embedded data's place in the markup (`\u0001sn-json:<id>\u0001`: added); 3 earlier ones dev compiles (dev keeps the shift's own functions: dev is no longer shifted) | 1,237 the same; 1 a dev compile; 12 earlier an action's `ap` paths (added) |
+
+- **How far canonical numbering is from today's**: test/compiler with `SN_CANON=1`: 1,067 of 1,073 pass; the 5 that
+  fail (render-rows, first-paint, prefold ×3) pin a node id after a gap (`data-sn="5"` where canonical is `4`). On the
+  benchmark apps, the static ones are byte for byte the same canonical (no numbers); the live blog differs in node ids
+  only: the section after the rendered post is `data-sn="304"` today (the block's count is added) and `1` canonical.
+  Weight (`render-audit --switch SN_CANON --keep`, `gz.mjs`, gzip -9 summed over each app's .html and .js):
+
+  | app | HTML gzip, today → canonical | JS gzip |
+  | --- | ---: | ---: |
+  | blog live, 100 posts | 210,657 → 210,000 (−657) | 140,146 → 139,319 (−827) |
+  | blog live-files | 224,513 → 224,077 (−436) | 127,448 → 126,698 (−750) |
+  | blog static, static-files | the same bytes | none |
+  | realworld | 11,020 → 11,014 | 84,781 → 84,758 |
+  | dashboard | 2,096 → 2,099 (+3) | 33,807 → 33,807 |
+  | multilingual-site | 11,515 → 11,512 | 12,891 → 12,890 |
+  | static-site | 4,925 → 4,925 | 14,441 → 14,437 |
+
+  | sinter-mail, its 16 pages (`mail-audit --switch SN_CANON=1 --keep`) | 23,231 → 23,229 | the six API pages' modules: 23,370 → **24,340 (+970, +4.2%)**; raw 322,029 → 320,767 (−1,262) |
+
+  On sinter-mail's components route the canonical **function order** is worse for gzip: +322 B (+4.8%) on each
+  6.6 kB page module, though 420 B smaller raw. Today the library's functions are made together (its definitions
+  are compiled at once), so similar code is adjacent; the canonical order (templates depth first from the roots)
+  interleaves them. So the canonical order is an oracle, **not** an output order: a step that renumbers keeps today's
+  relative order where it can (A1 places the unit's functions together, before the page's: to be measured), and
+  every such step measures gzip on route iii. Elsewhere canonical numbering is lighter where it changes anything (the closed gaps are fewer digits); the noise of gzip over
+  renumbered digits is a few bytes either way per app (dashboard's +3 B HTML with 4 B fewer raw). So the order a
+  relaxed step hands node ids out in can be the canonical one (document order, no gaps) at no cost in weight; the
+  function order cannot be, as sinter-mail shows.
+- **Not yet checked**: that canonical output *runs* (the behaviour tests in a browser under `SN_CANON=1`) and
+  sinter-mail's suite against canonical builds. Both are part of the oracle of any step that turns renumbering on;
+  canonical output is only an oracle until then.
 
 ## Log
 
 - 18:20 UTC: merged to 09d202f, built, measurements 1 and 2 taken; render-audit on the four examples at the base:
   every file the same.
+- 19:00 UTC: step 0 committed (2f9946f), then made complete by the shift audit: the embedded data's ids (a
+  resource's `data`, `json`, `embed`, the `\u0001sn-json:<id>\u0001` place in the markup), states named only by
+  `fixedState`, an action's `ap` paths. `SN_CANON=1` over test/compiler: 5 tests pin a node id after a gap.
