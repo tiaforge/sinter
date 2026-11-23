@@ -15,8 +15,11 @@ Link the issue from the pull request.
   every push (Node 22, 24 and 26).
 - If you change an attribute, an element or a diagnostic, run `npm run docs` and commit the
   regenerated files.
-- Add a line to [CHANGELOG.md](CHANGELOG.md) under "Unreleased". Attribute names, function names and
-  diagnostic codes are public API.
+- Add a bullet to [CHANGELOG.md](CHANGELOG.md) under "Unreleased", in its Breaking, Added, Changed,
+  Fixed or Performance subsection: a sentence or two for someone upgrading (what changed, what to do,
+  a link to the doc), as the note at the top of the changelog describes. Implementation details and
+  benchmark figures go in the commit message or the pull request. Attribute names, function names
+  and diagnostic codes are public API.
 - A feature that renders markup (a new attribute, root shape, slot or fill form, control-flow
   template, or a build-time optimization) adds its shapes to the fuzz tests. See
   [Fuzz tests](#fuzz-tests).
