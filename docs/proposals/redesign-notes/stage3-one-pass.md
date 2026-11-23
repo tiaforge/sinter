@@ -72,3 +72,16 @@ CPU clock, median of 3 rounds A/B (`650f0e7` → this), ms a page:
 
 (Rows other than `minify` move by a millisecond from round to round at this load; `minify` moved the same way in
 every round.) The nine apps are byte for byte the same; test/compiler and test/vite pass (1,334).
+
+### 2. Pages' and layouts' documents parsed once per process (`parsedDocument`)
+
+`parseDocument` parses a page three times (the document, again with the head blanked, the head's content as a
+fragment): 0.4 ms for the benchmark's 400-byte page. A template's 100 entries parse the same text in each second
+pass; a page file is parsed by its description and by both passes. The parsed document is now kept by its text (as
+`parsedText` keeps components', cleared at 500 texts) and each compile takes a copy (`copyParsed`: every node and
+attribute a new object, the positions shared, each property where the parser put one, so a document or a fragment
+still has no `parentNode`). Nothing changes a position object (one place assigns a node a recorded one).
+
+CPU clock, median of 3 rounds A/B (change 1 → this), ms a page: static pass 2 `walkPage` 4.2 → 3.6, `compile()`
+16.2 → 14.8; static-files pass 2 `walkPage` 3.9 → 3.2, pass 1 `walkPage` 9.8 → 8.6, `compile()` 26.9 → 23.3. The
+nine apps byte for byte the same.
