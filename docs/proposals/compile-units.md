@@ -263,7 +263,7 @@ timings were not usable). A cloud session pushes to a branch of its own:
 | --- | --- | --- | --- |
 | stage 5, A1 then A2: definitions that ship, from units | cloud, `session_01AjKzdxPCdJ5nbeXvwkXoP2` | `redesign/stage5-a1` | `stage5-a1.md` |
 | the Speculation Rules made linear; the fold check's cache on disk | cloud, `session_01AjKzdyy3dA5FDC6jCiY3dH` | `redesign/pipeline-2` | `pipeline-2.md` |
-| stage 5, B1: the second pass from the first's walk | cloud, `session_01AjKzdxkDukbMzASz1qaYeA` | `redesign/stage5-b1` | `stage5-b1.md` |
+| stage 5, B1 continued: template entries, pages with a unit, folds | cloud, `session_01AjKzdx4aCc4CWZp4zJDc1m` | `redesign/stage5-b1b` | `stage5-b1.md` |
 | stage 6: the evaluation, one function per template; a render plan per template | cloud, `session_01AjKzdxcYo9FzUYyj9yNBZn` | `redesign/stage6-eval` | `stage6-eval.md` |
 
 **The bar, as the owner set it on 2026-11-23:** the output need not be byte for byte today's where only numbering
@@ -595,3 +595,16 @@ decision of their own (stage 7). A step that can stay byte-identical does.
 - 2026-11-23, 23:45 UTC: decided by the owner: the Speculation Rules for apps with a page file per post (the same
   links prefetched, the list no longer in every page) and the fold check's on-disk cache go ahead; the pipeline
   session has both. The SN534 cross check and Vite's HTML step stay as they are.
+- 2026-11-24, 00:00 UTC: **the full suite passes on the integration branch: 2,956 tests** (310 files), with A1, the
+  proven early scripts, the pipeline fixes and the evaluation's five changes together; `render-audit` eight apps
+  the same (the static blog 11.0 s with rendering off, 2.7 s on), `pass-audit` nine the same. **B1 is merged**
+  (`redesign-notes/stage5-b1.md`, `SN_FROM_WALK=0` off, `SN_FROM_WALK_AUDIT=1`): a page of its own whose second pass
+  would apply only page-level decided branches and rendered rows, with nothing folded into code that ships, takes
+  its result from its first pass's walk, today's numbering kept. On the coordinating machine: page-compile 338 to
+  278 ms (median of 9); `pass-audit --switch SN_FROM_WALK` nine apps the same; 1,534 tests of test/compiler,
+  test/vite, test/check pass. The session's suite: 2,975, plain and audited (193 second passes routed; fallbacks:
+  values folded 124, nothing decided 50, a loop unrolled the old way 49, rows and a layout 48, a unit placed 35).
+  No app's build is routed yet: the blog's page files and realworld have a unit placed, the example sites rows and
+  a layout, the blog's template entries go through the kept expansion. That session ran out of room and is
+  archived; a new one continues from its log: template entries by a copy of the kept walk restricted to what an
+  entry keeps (the whole copy costs 7 ms against 3 saved), pages with a unit, the folds.
