@@ -336,3 +336,8 @@ Found by the research, not changed:
   there is stage 4's: check data is still copied into each page by the linker's replay (12 ms a page on sinter-mail)
   and each page's whole shadow is still written in memory (50 ms a page); a unit kept per build would carry its
   check data once. Four things it found are under "For a decision".
+- 2026-11-23, 17:20 UTC: the bugs under "For a decision" are to be fixed (decided): a choice's props not checked
+  for being constant, `1.toFixed()`, a broken expression silencing every type error, a recursive component's errors
+  twice, warnings counted as type errors, and the error in unrendered markup that stops unrolling without being
+  reported. An agent has them, one commit each, a failing test first (`redesign-notes/bugs.md`); these change the
+  output for the affected cases on purpose and leave the rest byte for byte.
