@@ -150,7 +150,40 @@ with the suite green and the audit clean.
    node (a tree from an API), the unit is instantiated as such instead of as a loop over one row. Only with numbers
    from sinter-mail's and sinter-markdown's run-time benchmarks, and with the page weight no larger.
 
-Outside the compiler, measured in `redesign-notes/profile.md`: what a build costs when `compile` is free.
+### What a build costs, and what each stage leaves
+
+Measured (`redesign-notes/profile.md`; 100 posts, medians, 4 cores). A build is a fixed part and a part per page:
+
+| App | Fixed | Per page | of it: deciding (pass 1) | the second pass | garbage | outside the compiler |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| static, one template | 1.14 s | 110 ms | 19 ms | 91 ms | (in both) 20 ms | 6 ms |
+| live, one template | 1.33 s | 137 ms | 19 ms | 93 ms | 21 ms | 28 ms |
+| static, a page file per post | 1.42 s | 145 ms | 35 ms | 95 ms | 21 ms | 9 ms |
+| live, a page file per post | 1.56 s | 161 ms | 35 ms | 100 ms | 22 ms | 28 ms |
+
+Astro: 2.2 s for 100 posts, 4.7 s for 1,000, so about 1.9 s fixed and 2.8 ms a page. With sinter's fixed part and its
+6 ms a page outside the compiler, a static page has about 4 ms for the compiler to be level at 100 posts. At 1,000
+posts sinter's markdown parse alone (2.3 ms a post) is most of Astro's whole page, so level there is not expected:
+close is.
+
+- The second pass is 80% of the compiler, and per page it runs 244 `expandUse`, clones 5,964 nodes and calls `analyze`
+  1,076 times for a page whose first pass needs 1 to 5 `expandUse`. Stages 1 and 2 remove it for constant trees;
+  stage 3 for every page.
+- Deciding (the first pass's evaluation, 17 to 19 ms a page) is the floor after that: 100 pages at 25 ms are 3.6 s.
+  It is `new Function` over the page's code and a proxy scope per entry, with `deepFreeze`, `structuredClone` and
+  `jsLiteral` of the data; rendering from units (stages 4 and 6) evaluates compiled closures instead. Being level
+  with Astro needs this under 4 ms.
+- A page file per post is walked three times (two passes and the description). Stage 3 makes it one.
+- With the type check on, a template's entries collect check data that is thrown away (14 ms a page), and a page
+  file per post compiles its definitions unshared and runs `tsc` over 101 shadow files (56 ms a page). Stage 4 checks
+  a unit once.
+
+Outside the compiler, a live page costs 23 ms more than a static one, none of it the compiler's: the early script is
+one nested `vite build` per page (15 ms each), every chunk is gzipped for a report that `logLevel: 'warn'` does not
+print (1 to 1.5 ms), and Vite's HTML plugin does more (3 ms). That is 3.9 s for 100 live pages with a free compiler,
+more than Astro's whole build, so it is fixed beside the stages (the build pipeline, `src/vite.ts`): the early
+scripts in one build, no gzip without a report, and the fixed part's avoidable pieces (a probe compile of the
+template, 116 ms; every post's markdown parsed again at the end, 1.2 ms a page).
 
 ## For a decision
 
@@ -169,4 +202,6 @@ Found by the research, not changed:
 ## Status log
 
 - 2026-11-23: benchmark (`bench/astro`), research notes, this design. Stage 1 started as a spike in a worktree.
+  The cost model is measured (`redesign-notes/profile.md`): the second pass is 80% of the compiler, deciding the
+  floor after it, and live pages pay 23 ms a page outside the compiler.
   sinter-mail added as a requirement and a gate; its baselines are being taken (`redesign-notes/sinter-mail.md`).
