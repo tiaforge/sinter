@@ -22,6 +22,12 @@ const C: Record<string, string> = {
   's-wrap': '<template data-sn-props="{ node: any }"><s-text data-sn-with="{ node: { value: node.url } }"></s-text></template><style>.w { color: green }</style>',
   's-img': '<template data-sn-props="{ node: any }"><img data-sn-attr="{ src: node.url, alt: \'i\' }"></template><style>img { border: 0 }</style>',
   's-list': '<template data-sn-props="{ node: any }"><ul><template data-sn-for="c in node.items"><s-card data-sn-with="{ t: c }"><i data-sn-text="c"></i></s-card></template></ul></template>',
+  'x-a': '<template data-sn-props="{ u: string }"><a data-sn-attr="{ href: u }">l</a></template>',
+  'x-pick': '<template data-sn-props="{ k: string }"><div><sn-component use="{ text: \'x-text\', em: \'x-em\' }[k]" data-sn-with="{ node: { value: k } }"></sn-component></div></template>',
+  'x-em': '<template data-sn-props="{ node: any }"><em class="e" data-sn-class="{ on: node.value > \'a\' }" data-sn-text="node.value"></em></template>',
+  'x-bad': '<template data-sn-props="{ k: string }"><div><sn-component use="{ t: \'x-text\', b: \'x-badge\' }[k]" data-sn-with="{ node: { value: k } }"></sn-component></div></template>',
+  'x-ided': '<template><p id="i">i</p></template>',
+  'x-pager': '<template><a href="?page=2">2</a></template>',
   'x-link': '<template data-sn-props="{ node: any }"><slot name="link" data-sn-with="{ url: node.url }"><a data-sn-attr="{ href: node.url }"><template data-sn-for="n in node.children"><sn-component use="{ text: \'x-text\', link: \'x-link\' }[n.type]" data-sn-with="{ node: n }"></sn-component></template></a></slot></template>',
 };
 const DOC = { children: [{ type: 'text', value: 'see ' }, { type: 'link', url: '/a', children: [{ type: 'text', value: 'a' }] }, { type: 'text', value: '!' }] };
@@ -275,6 +281,53 @@ describe('rendered rows: the same page as compiled rows, without compiling them'
     });
   });
 
+  describe('a choice outside any loop (`<sn-component use>` decided at build time): its case rendered where it is', () => {
+    test('on the page, and in a component used twice (each use its own case)', () => {
+      const r = both('<sn-component use="{ t: \'x-text\' }[\'t\']" data-sn-with="{ node: { value: \'hi\' } }"></sn-component><x-doc data-sn-with="{ doc: { children: [{ type: \'text\', value: \'a\' }] } }"></x-doc><p data-sn-text="$url.q"></p><x-pick data-sn-with="{ k: \'text\' }"></x-pick><x-pick data-sn-with="{ k: \'em\' }"></x-pick>');
+      expect(r.spliced).toBe(4);
+      expect(r.why).toEqual([]);
+      expect(r.body).toContain('<span>hi</span><div><span>a</span></div><p data-sn="');
+      expect(r.body).toContain('<div><span>text</span></div><div><em class="e on">em</em></div>');
+    });
+
+    test('a case with a recursive tree and a tree slot\'s default, on a page with scoped styles and a minifier', () => {
+      const r = both('<sn-component use="{ d: \'s-doc\' }[\'d\']" data-sn-with="{ doc: { children: [{ type: \'text\', value: \'a\' }, { type: \'link\', url: \'/u\' }] } }"></sn-component><s-tree data-sn-with="{ node: { label: \'r\', kids: [{ label: \'k\', kids: [] }] } }"></s-tree>', { minify: true } as never);
+      expect(r.why).toEqual([]);
+      expect(r.spliced).toBeGreaterThan(0);
+    });
+  });
+
+  describe('links on a page that reads them (`$url`, axis lists): what the build sees of each, from the rows', () => {
+    test('same-page links: a static `href` and bound ones (`data-sn-attr`, `data-sn-href`), in rows and in an instance', () => {
+      const r = both('<p data-sn-text="$url.q"></p><template data-sn-for="x in [\'a\', \'b\']"><a href="/other.html">o</a><a data-sn-attr="{ href: \'?q=\' + x }" data-sn-text="x"></a><a data-sn-href="/x/{x}">x</a><x-a data-sn-with="{ u: \'?q=\' + x }"></x-a></template>');
+      expect(r.spliced).toBe(1);
+      expect(r.why).toEqual([]);
+      expect(r.out.module).toContain('query-links');
+    });
+
+    test('SN519: a pager link in the rows that drops a parameter the page reads, reported where it was written', () => {
+      const r = both('<sn-resource name="a" src="/api/a?tag={$url.tag}" select="a" key="id" paginate="{ numbered: true, size: 2, model: $url.page }"></sn-resource><p data-sn-text="a.length"></p><template data-sn-for="n in [1, 2]"><a href="?page=2" data-sn-text="n"></a></template>');
+      expect(r.spliced).toBe(1);
+      expect(r.out.diagnostics.filter((d) => d.code === 'SN519')).toHaveLength(2);
+    });
+
+    test('a link in rows over an axis list, and in rows nested in them: marked with each row\'s entry', () => {
+      const files: Record<string, string> = { '/p/doc.json': JSON.stringify(DOC), '/p/t.json': JSON.stringify([{ key: 'acme', name: 'Acme', kids: [1, 2] }, { key: 'globex', name: 'Globex', kids: [3] }]) };
+      for (const [k, s] of Object.entries(C)) files[`/p/src/components/${k}.html`] = s;
+      const r = both('<sn-resource name="tenants" src="file:./t.json"></sn-resource><template data-sn-for="t in tenants"><a href="/about.html" data-sn-text="t.name"></a><ul><template data-sn-for="k in t.kids"><li><a data-sn-attr="{ href: \'/k/\' + k }" data-sn-class="{ on: k > 1 }" data-sn-text="k"></a></li></template></ul></template>',
+        { axisLists: ['file:./t.json'], readFile: (f) => { if (f in files) return files[f]!; throw new Error(f); } });
+      expect(r.spliced).toBe(1);
+      expect(r.body).toContain('<a href="/about.html" data-sinter-pt="file%3A.%2Ft.json acme">Acme</a>');
+      expect(r.body).toContain('<a data-sinter-pt="file%3A.%2Ft.json acme" href="/k/2" class="on">2</a>');
+    });
+  });
+
+  test('ids written in the rows\' markup: declared as the old route declares its copies (`page.ids`, the dialogs)', () => {
+    const r = both('<template data-sn-for="x in [1, 2]"><p id="one" data-sn-text="x"></p><dialog id="d"><x-ided></x-ided></dialog></template>');
+    expect(r.spliced).toBe(1);
+    expect(r.body).toBe('<p id="one">1</p><dialog id="d"><p id="i">i</p></dialog><p id="one">2</p><dialog id="d"><p id="i">i</p></dialog>');
+  });
+
   test('the ids of what follows the rows are those the compiled rows leave', () => {
     const r = both('<template data-sn-for="x in [1, 2]"><i data-sn-text="x"></i><template data-sn-text="x"></template></template><div data-sn-state="{ n: 0 }"><button data-sn-on-click="n++" data-sn-text="n"></button></div>');
     expect(r.spliced).toBe(1);
@@ -335,10 +388,25 @@ describe('rows left to the second pass, as before', () => {
     expect(r.why).toContain('text');
   });
 
-  test('an id written in the rows\' markup', () => {
-    const r = both('<template data-sn-for="x in [1]"><p id="one" data-sn-text="x"></p></template>');
+  test('an id in the markup of a choice\'s case in the rows (SN209 counts the uses its expansion makes)', () => {
+    const r = both('<template data-sn-for="x in [1, 2]"><sn-component use="{ i: \'x-ided\' }[\'i\']"></sn-component></template>');
     expect(r.spliced).toBe(0);
     expect(r.why).toContain('an id');
+  });
+
+  test('a pager link (SN519) in an instance in the rows: the old route words its report with the instance\'s chain', () => {
+    const r = both('<sn-resource name="a" src="/api/a?tag={$url.tag}" select="a" key="id" paginate="{ numbered: true, size: 2, model: $url.page }"></sn-resource><p data-sn-text="a.length"></p><template data-sn-for="n in [\'?page=2\']"><sn-component use="{ p: \'x-pager\' }[\'p\']"></sn-component></template>');
+    expect(r.spliced).toBe(0);
+    expect(r.why).toContain('links');
+    expect(r.out.diagnostics.filter((d) => d.code === 'SN519')).toHaveLength(1);
+  });
+
+  test('a choice outside loops whose candidates are reported on (SN313): the old route reports it again on the case it expands', () => {
+    const r = both('<x-bad data-sn-with="{ k: \'b\' }"></x-bad><x-bad data-sn-with="{ k: \'t\' }"></x-bad>');
+    // (the one whose case is reported on is left; the other is rendered)
+    expect(r.spliced).toBe(1);
+    expect(r.why).toContain('diagnostics');
+    expect(r.out.diagnostics.map((d) => d.code)).toContain('SN313');
   });
 
   test('dev builds: never rendered (their function table keeps what the rows compiled)', () => {

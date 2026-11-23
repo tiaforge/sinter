@@ -210,6 +210,13 @@ Found by the research, not changed:
   state through a `<sn-component use>` prop is folded to a static `<picture>`; the same component used by its tag keeps
   its binding (`decisions.md` §7.3).
 - **Linking is off whenever the build type-checks** (`contract.md` §4), which is every build with TypeScript installed.
+- **Dev builds and the old route.** Dev compiles (the dev server, `render()` from the testing module) run both
+  passes and never render rows: dev does not compact its function table, so every function the old route compiles
+  for a row and drops stays as a `0` slot, and rendering would number the functions after it otherwise (nothing at
+  run time reads the slots; with rendering forced on in dev the whole suite passes but the test that says dev never
+  renders). If dev's function numbering may change, dev renders too, and the old route (`inlineInstance`, the row
+  lets) is needed only for per-copy diagnostics and rows that keep a handler; until then it stays
+  (`redesign-notes/stage2-coverage.md`, "The rest, and the deletion").
 - **Props as a run-time frame.** Binding an inlined live use's props at run time, as shared definitions do, would
   make a unit's code independent of its use with no holes, at the price of a changed IR and other bytes. Not planned
   for inlined uses: the holes keep the output, and the runtime, as they are. Stage 7 is about the uses whose props
@@ -271,3 +278,42 @@ Found by the research, not changed:
   6): static 12.0 and 3.6 s, with the type check 13.0 and 3.8 s, live 13.4 and 4.5 s, a page file per post 13.2 and
   5.0 s, live 16.1 and 6.7 s. Started: the rest of stage 2 (the reasons above, then deleting the old route), and the
   type check once per component (part of stage 4).
+- 2026-11-23, 15:25 UTC: **the floor's first round is in** (`redesign-notes/floor.md`). The compiler's own time
+  per page, base and now: a template page 24.1 and 15.6 ms, a page file per post 39.3 and 25.1 ms. Whole builds, 100
+  posts, medians under load: static 3.0 s, with the type check 3.4 s, live 3.9 s, a page file per post 4.4 s, live
+  7.5 s; 400 static posts 9.1 s (45 s with rendering off). Astro: 2.2 s, so static is about 8 ms a page behind; the
+  4 ms target is not reached. What a template page's 15 ms are: the first pass's evaluation 7 to 8 (the page's own
+  `md.parse` 3, rendering 2, the worklist's walk of 420 instances 2.5), the second pass 5 (the minifier's layout
+  queries over rendered rows 2.3, the page's own markup 1). A page file per post: the library's definitions compiled
+  on every page 8.7, the evaluation 10, the second pass 5.5, the description 4. One difference recorded, not seen in
+  any app or test: a row's item compared to its parent's data by identity (`y === x.children[0]`) is true at build
+  time now, as in the browser, and false with rendering off. Started: a spike of stage 4, definitions compiled once
+  per build (`redesign-notes/stage4-units.md`). Stage 3 (one walk per page) waits for the rest of stage 2, which
+  works in the same code.
+- 2026-11-23, 15:50 UTC: the type check, first change merged (`redesign-notes/typecheck.md`): a shadow function
+  that repeats (a component's markup gives the same ones on every page and at every use) is given to `tsc` once, and
+  its errors are laid out at every place they were reported before; the diagnostics corpus is byte for byte the
+  reference. With the check on (the agent's medians, load 4 to 8): 100 posts, a page file each, 12.6 s to 8.4 s
+  (`tsc` 9.8 s to 0.86 s); one template 5.1 s to 4.4 s; sinter-mail's 12 API pages with TypeScript 21.3 s to 8.0 s.
+  `SN_CHECK_SHARE=0` turns it off. Still running: the rest of stage 2, the stage 4 spike.
+- 2026-11-23, 16:05 UTC: **stage 4, measured and planned** (`redesign-notes/stage4-units.md`; no unit store yet).
+  What it found: a definition reads nothing of its page that differs between pages except the numbering before it
+  (and page options, which go in a unit's key); and when a second pass follows, the first pass's definition numbers
+  never reach the output (`SN_UNITS_SHIFT_AUDIT=1` hands out other numbers and compares: sinter-mail's 42 files, the
+  blog and 118 suite compiles identical). So the library a page compiles per page today is a first-pass compile
+  whose numbers are thrown away: it can be compiled once per build without holes in the code. Today, without
+  TypeScript, the linker covers these builds at a price (recording a page costs 2 to 2.5 compiles; a replay is a
+  third of a later sinter-mail page: 72,176 objects); with TypeScript nothing links (a later sinter-mail API page:
+  238 ms of definitions in a 307 ms compile). Estimated saving: 36 to 48% of a sinter-mail API build's compile, 60
+  to 64% with TypeScript. Rejected: canonical numbering (compaction does not normalize `$p`, `$sl`, loop names,
+  `$s`), typed holes everywhere (not needed for the first pass), extending the linker. The agent goes on with the
+  implementation: units placed by reference where the first pass only reads them, their functions compiled once
+  per build for the evaluation, then the type check's frames; the linker is deleted after a review.
+- 2026-11-23, 16:30 UTC: stage 2, the rest (merged): links in rows, a choice outside any loop and ids in rows
+  render. Over the suite the second pass still takes the old route for per-copy diagnostics (3 loops), a handler
+  that stays (3), an id in a case's definition, and render-rows' own fallback cases; and for every dev compile
+  (1,493 loops), which is what keeps the old route from being deleted (see "For a decision"). A profile of the
+  static build as it is (CPU, loaded machine): per page, the first pass's evaluation 14.5 ms (the page's `md.parse`
+  4.8, the worklist 4, rendering 3.8), the second pass 14 (`walkChildren` 3.1, `minify` 2.9, `expandComponents`
+  1.8), garbage 8.3; outside the compiler, Vite's HTML parse 3.5 and the end-of-build cross check running the
+  helpers again 2.9. Started: stage 3, one walk per page (`redesign-notes/stage3-one-pass.md`).

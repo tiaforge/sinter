@@ -280,6 +280,8 @@ export interface CompileOptions {
    * compiled templates (`rowRenderer`), by the loop's key (as `unrolled`): spliced in, not compiled again
    */
   rendered?: Map<string, RenderedRows>;
+  /** internal, likewise: why the first pass did not render each loop or choice it decided (counted where the second pass compiles it, `renderStat`) */
+  unrendered?: Map<string, { why: string; rows: number }>;
   /**
    * the page must ship no JavaScript (`sinter({ static })`): each thing that runs in the browser is
    * `SN322` where it was written. Needs `prerender`, which leaves out what can never change.
@@ -956,6 +958,12 @@ function constantProps(src: string | undefined, props: Member[] | null): Map<str
 const TAG_ONLY_HINT = 'a component\'s tag takes `data-sn-with`, `data-sn-model`, handlers, actions, `data-sn-class`, `-attr`, `-href`, `-style`, `-show` and `-transition`; the rest belongs inside the component';
 
 export function compileParts(html: string, options: CompileOptions): CompiledParts {
+  // `SN_UNITS_SHIFT_AUDIT=1` (redesign-notes/stage4-units.md): the page compiled again with every top-level definition of
+  // its first pass numbered otherwise (`unitShift`), unlinked; whether the output is the same is logged, not thrown
+  if (proc?.env.SN_UNITS_SHIFT_AUDIT === '1' && unitShift === 0 && !shifting) {
+    shifting = true;
+    try { return shiftAudit(html, options); } finally { shifting = false; }
+  }
   // `SN_RENDER_AUDIT=1`: a compile that spliced rendered rows in is compiled again without rendering, and must be the same
   if (proc?.env.SN_RENDER_AUDIT === '1' && renderForced === null && renderOn()) {
     const n = RENDER_STATS.spliced, on = compilePartsOnce(html, options);
@@ -979,6 +987,37 @@ export function compileParts(html: string, options: CompileOptions): CompiledPar
   }
   return compilePartsOnce(html, options);
 }
+
+/**
+ * The shift audit (`SN_UNITS_SHIFT_AUDIT=1`): does a first-pass definition's numbering reach the output? The page is
+ * compiled as usual, then with `unitShift` templates, functions, state ids and use ids handed out before each top-level
+ * definition of its first pass (none in the second), with linking off, and the two are compared. One line per page that
+ * compiled a definition in its first pass goes to `SN_UNITS_SHIFT_LOG`: `same` or `differs`, and whether the output was
+ * the first pass's own (no second pass followed).
+ */
+function shiftAudit(html: string, options: CompileOptions): CompiledParts {
+  const before = SHIFT_STATS.defs, a = compileParts(html, options);
+  if (SHIFT_STATS.defs === before && !SHIFT_STATS.first) return a;
+  const plain = SHIFT_STATS.first;
+  SHIFT_STATS.first = false;
+  unitShift = 3;
+  let b: CompiledParts;
+  try { b = compileParts(html, { ...options, definitions: undefined }); } finally { unitShift = 0; }
+  const shifted = SHIFT_STATS.first;
+  SHIFT_STATS.first = false;
+  const text = (r: CompiledParts) => JSON.stringify(r, (_, v) => (typeof v === 'function' ? '[fn]' : v instanceof Map ? [...v] : v instanceof Set ? [...v] : v));
+  const same = text(a) === text(b);
+  const log = proc?.env.SN_UNITS_SHIFT_LOG;
+  if (log) (proc?.getBuiltinModule?.('node:fs') as { appendFileSync(f: string, s: string): void } | undefined)?.appendFileSync(log, `${same ? 'same' : 'differs'}\t${plain || shifted ? 'first-pass-output' : 'second-pass-output'}\t${options.check ? 'check' : '-'}\t${options.file}\n`);
+  return a;
+}
+
+/** the shift audit's state: definitions compiled in a first pass so far, and whether a compile's output was its first pass */
+const SHIFT_STATS = { defs: 0, first: false };
+/** (`shiftAudit`) how many of each number a first pass hands out before each top-level definition: 0, as compiled */
+let unitShift = 0;
+let shiftDepth = 0;
+let shifting = false;
 
 function compilePartsOnce(html: string, options: CompileOptions): CompiledParts {
   let out = compilePasses(html, options);
@@ -1072,7 +1111,7 @@ function fromTemplate(html: string, options: CompileOptions): CompiledParts | nu
   const out = new Compiler({
     ...options, decided: new Map(c.decided), ...(c.unrolls.size ? { unrolled: new Map(c.unrolls) } : {}),
     ...(c.constants.size ? { constants: new Map(c.constants) as Map<string, ConstantWrite[]> } : {}),
-    ...(c.overLimit.size ? { overLimit: new Map(c.overLimit) } : {}), ...(c.rendered.size ? { rendered: new Map(c.rendered) } : {}), frozen,
+    ...(c.overLimit.size ? { overLimit: new Map(c.overLimit) } : {}), ...(c.rendered.size ? { rendered: new Map(c.rendered) } : {}), ...(c.unrendered.size ? { unrendered: new Map(c.unrendered) } : {}), frozen,
   }).run(html);
   // a page with errors: the usual way, which reports them as it always does
   if (out.diagnostics.some((d) => d.severity === 'error')) return null;
@@ -1104,7 +1143,7 @@ function compilePasses(html: string, options: CompileOptions): CompiledParts & {
     if (!first.decided.size && !unrolled && !constants) return null;
     const frozen = first.foldedState();
     if (constants) for (const s of first.constantSites) frozen.add(s);
-    return new Compiler({ ...options, decided: first.decided, ...(unrolled ? { unrolled } : {}), ...(unrolled && first.rendered.size ? { rendered: first.rendered } : {}), ...(constants ? { constants } : {}), ...(first.overLimit.size ? { overLimit: first.overLimit } : {}), frozen }).run(html);
+    return new Compiler({ ...options, decided: first.decided, ...(unrolled ? { unrolled } : {}), ...(first.rendered.size ? { rendered: first.rendered } : {}), ...(first.unrendered.size ? { unrendered: first.unrendered } : {}), ...(constants ? { constants } : {}), ...(first.overLimit.size ? { overLimit: first.overLimit } : {}), frozen }).run(html);
   };
   const twice = !!options.prerender && !options.decided && !options.unrolled;
   // a second pass whatever the rest of the first one does: nothing of that rest is read (its markup, its tables, its
@@ -1117,9 +1156,9 @@ function compilePasses(html: string, options: CompileOptions): CompiledParts & {
   const out = first.finishPage(walk, true);
   // `data-sn-if` templates over state nothing writes: decided now, the page compiled again with their branches in place
   const withLate = (o: typeof out) => (o.lateDiagnostics ? { ...o, diagnostics: [...o.diagnostics, ...o.lateDiagnostics] } : o);
-  if (!twice) return withLate(out);
+  if (!twice) { SHIFT_STATS.first ||= first.hasDefinitions(); return withLate(out); }
   const next = second(isClean());
-  if (!next) return withLate(out);
+  if (!next) { SHIFT_STATS.first ||= first.hasDefinitions(); return withLate(out); }
   // the type check reads the page as written: in the second pass an unrolled loop's rows have no loop variable, so a
   // component prop in one (`{ post: p }`) was SN208 "Cannot find name 'p'" in `sinter check` of a `static` page
   return out.check ? { ...next, check: out.check } : next;
@@ -1575,8 +1614,12 @@ class Compiler {
   private readonly dropped = new Set<Binding>();
   /** the first pass: the rows of each unrolled loop rendered from its compiled templates, by its key, for the second (`rowRenderer`) */
   readonly rendered = new Map<string, RenderedRows>();
+  /** the first pass: why each loop or choice it decided was not rendered, by key (the second pass counts it where it compiles it instead) */
+  readonly unrendered = new Map<string, { why: string; rows: number }>();
   /** the diagnostics the walk reported in each template's content (its nested templates' too), by template: rows it renders are not rendered (`rowRenderer`) */
   private readonly tplDiags = new Map<number, number>();
+  /** the candidates of a choice (by its first candidate's tag) whose tags were reported on: such a case it renders outside rows is not rendered (`rowRenderer`) */
+  private readonly choiceDiags = new WeakMap<P5Element, Set<string>>();
   /** a `data-sn-if` or `data-sn-for` template's attribute as written, before the walk strips it (`rowRenderer`: what the second pass folds) */
   private readonly snSource = new WeakMap<P5Element, string>();
   /**
@@ -4399,6 +4442,7 @@ class Compiler {
     if (this.opts.describeOnly && this.describesNothing(host, name, ctx)) { host.childNodes = []; this.remove.push(host); return null; }
     const def = this.definition(name);
     if (!def) { detach(host); return null; }
+    const d0 = this.diagnostics.length;
     const use: Use = { ...def.use, host, chain: [] };
     const choice = this.choices.get(host);
     // `<sn-component use>`: the name, checked once against `ComponentName` (the app's components)
@@ -4438,6 +4482,13 @@ class Compiler {
     const deps = [...new Set([...lets.flatMap((l) => l.deps), ...(pick?.deps ?? []), ...(tagAttrs?.deps ?? [])])].sort();
     if (choice) {
       if (choice.first && pick?.usesEl) this.report(host, 'use', 'SN213', '`$el` in `use`: a component chosen by data is marked by comments in the page, so there is no element to read', 0, 'choose with the data alone');
+      // (reported on a candidate here: the second pass's expansion of the case it renders reports it again, `rowRenderer`)
+      if (this.diagnostics.length > d0) {
+        const first = choice.group.site?.el ?? host;
+        let names = this.choiceDiags.get(first);
+        if (!names) this.choiceDiags.set(first, names = new Set());
+        names.add(choice.name);
+      }
       // one choice anchor for the whole `<sn-component use>`: each candidate adds its case; the first makes the node
       const g = choice.group;
       g.cases.push({ name: choice.name, tid: def.tid, props: props.slice(1, -1), deps, ...(choice.keys && choice.key !== null ? { keys: [choice.key, ...(choice.also ?? [])] } : {}) });
@@ -4995,9 +5046,26 @@ class Compiler {
   }
 
   /** The shared definition of a component used inside itself, compiled on its first such use. */
+  /** whether this page compiled a shared definition (the shift audit) */
+  hasDefinitions(): boolean { return this.defs.size > 0; }
+
   compileDefinition(name: string): { tid: number; id: string; use: Use } | null {
     const known = this.defs.get(name);
     if (known !== undefined) return known;
+    if (!this.opts.decided && !this.opts.unrolled && !this.opts.constants) {
+      SHIFT_STATS.defs++;
+      // (the shift audit: a top-level definition of a first pass, numbered otherwise)
+      if (unitShift && shiftDepth === 0) {
+        for (let i = 0; i < unitShift; i++) { this.newTemplate(); this.fn(`() => "sn-shift ${i}"`); }
+        this.nextSid += unitShift;
+        this.useIds += unitShift;
+      }
+    }
+    shiftDepth++;
+    try { return this.compileDefinitionIn(name); } finally { shiftDepth--; }
+  }
+
+  compileDefinitionIn(name: string): { tid: number; id: string; use: Use } | null {
     const file = this.componentFile(name);
     if (!file || file.bad) { this.defs.set(name, null); return null; }
     const tid = this.newTemplate(), t = this.templates[tid]!, rt = `$p${tid}`, d0 = this.diagnostics.length;
@@ -5036,7 +5104,17 @@ class Compiler {
 
   declare(parent: P5Parent, inTemplate = false, inRow = false) {
     for (const child of parent.childNodes) {
-      if (!isElement(child) || this.renderedAt.has(child)) continue;
+      if (isElement(child) && this.renderedAt.has(child)) {
+        // rows the first pass rendered: the ids their markup writes (no action: they are static), at the first
+        for (const { id, dialog } of this.renderedAt.get(child)?.rows.idAttrs ?? []) {
+          if (dialog) this.page.dialogs.add(id);
+          const t = this.page.ids!.get(id) ?? { action: false, row: false, n: 0 };
+          t.n++;
+          this.page.ids!.set(id, t);
+        }
+        continue;
+      }
+      if (!isElement(child)) continue;
       if (child.tagName === 'sn-resource') {
         if (inTemplate) { this.report(child, null, 'SN102', '`<sn-resource>` cannot be inside a `<template>`', 0); continue; }
         const name = attr(child, 'name');
@@ -5222,6 +5300,13 @@ class Compiler {
         if (r) {
           if (r.rows.list && !this.listCompiled.has(r.tpl)) { this.listCompiled.add(r.tpl); this.expr(r.tpl, 'data-sn-for', ctx.scope, { mode: 'value' }, r.list, r.offset); }
           this.nextId += r.rows.ids;
+          // (its links, as the walk of the rows meets them: what the build sees of where they go, where each was written)
+          for (const h of r.rows.hrefs) {
+            if (h.origin) this.origins.set(h.el, h.origin);
+            if (h.loc) h.el.sourceCodeLocation = h.loc;
+            this.hrefs.push({ el: h.el, prefixes: h.prefixes, literal: h.literal, ...(h.query ? { query: h.query, src: h.src } : {}) });
+            if (h.bound) this.boundHrefs.add(h.el);
+          }
         }
         lastIf = null;
         continue;
@@ -8332,7 +8417,7 @@ class Compiler {
     type Found = { unrolls: Array<[string, unknown[], PathRef[] | undefined]>; decided: Array<[string, boolean, PathRef[] | undefined]>; paints: Array<[Binding, string, ConstantWrite | null]>; recs?: RowRec[]; rows: number; over?: true };
     const rendering = renderOn() && !this.opts.dev;
     /** `pick`: a choice's case expanded (decided true), else a loop unrolled (`tid`, its rows' template) */
-    const pending = new Map<string, { items: unknown[]; d: PathRef[] | undefined; found: Found; pick?: true; el: P5Element; tid?: number } | null>();
+    const pending = new Map<string, { items: unknown[]; d: PathRef[] | undefined; found: Found; pick?: true; el: P5Element; tid?: number; picked?: PickedCase } | null>();
     const placementOf = new Map(this.runtimePlacements.map((P) => [P.node, P] as const));
     const written = this.writtenState();
     /**
@@ -8487,9 +8572,12 @@ class Compiler {
           // the case it renders: expanded when its definition over its props is static markup (one instance per key)
           if (ch?.picked === point.group!.cases[i]!.name) {
             const found: Found = { unrolls: [], decided: [], paints: [], rows: 0 };
-            const ok = expandCase(point, ch.picked!, ck, sc, '', found);
+            // (rendered like a row's case: its record, for `rowRenderer`)
+            const top: RowRec | undefined = rendering ? new Map() : undefined;
+            const ok = expandCase(point, ch.picked!, ck, sc, '', found, top, n);
             found.decided = found.decided.filter(([k]) => k !== ck);
-            pending.set(ck, pending.has(ck) || (!ok && !found.over) ? null : { items: [], d: point.pick!.deps, found, pick: true, el });
+            const picked = top?.get(n) as PickedCase | undefined;
+            pending.set(ck, pending.has(ck) || (!ok && !found.over) ? null : { items: [], d: point.pick!.deps, found, pick: true, el, ...(picked ? { picked } : {}) });
           }
           continue;
         }
@@ -8582,7 +8670,7 @@ class Compiler {
    * the rows, is left to the second pass as before: the reason is counted (`SN_RENDER_LOG=1`).
    */
   rowRenderer(handlerOnly: (b: Binding) => boolean, ROW: Set<string>, placementOf: Map<NodeDef, Compiler['runtimePlacements'][number]>):
-    (key: string, p: { items: unknown[]; found: { recs?: RowRec[]; rows: number }; pick?: true; tid?: number; el: P5Element }) => RenderedRows | null {
+    (key: string, p: { items: unknown[]; found: { recs?: RowRec[]; rows: number }; pick?: true; tid?: number; el: P5Element; picked?: PickedCase }) => RenderedRows | null {
     // scoped styles: the minifier leaves their components' markup as written (`SCOPED`), and the walk marks the roots of
     // the uses it sees (`data-sn-c`/`-r`/`-s`, after the walk)
     const scoped = new Set([...this.componentFiles.values()].filter((f) => f?.css).map((f) => f!.file));
@@ -8620,6 +8708,16 @@ class Compiler {
     };
     // links: what the build sees of them (same-page links, a pager's query) is read where the page reads its URL
     const links = !!this.opts.axisLists?.length || this.fns.some((c) => c.includes('$url'));
+    // (the entries the first pass's walk pushed for each link of the templates: a bound `href`'s prefixes are read from
+    // its expression as written, so a row's copy has the same)
+    let hrefOf: Map<P5Element, Compiler['hrefs']> | null = null;
+    const hrefsOf = (el: P5Element) => {
+      if (!hrefOf) {
+        hrefOf = new Map();
+        for (const h of this.hrefs) { let l = hrefOf.get(h.el); if (!l) hrefOf.set(h.el, l = []); l.push(h); }
+      }
+      return hrefOf.get(el) ?? [];
+    };
     const cssOf = new Map<string, string>();
     for (const f of this.componentFiles.values()) if (f?.cssFile) cssOf.set(f.file, f.cssFile);
     const filesOf = new Map<number, string[] | null>();
@@ -8665,9 +8763,8 @@ class Compiler {
       return null;
     };
     return (key, p) => {
-      if (p.pick) { renderStat('top-level choice', p.found.rows); return null; }
       const at = where(p.el);
-      if (at) { renderStat(at, p.found.rows); return null; }
+      if (at) { this.unrendered.set(key, { why: at, rows: p.found.rows }); return null; }
       const st = { ids: 0, folded: [] as string[], files: new Set<string>(), reads: new Set<string>(), rootStyled: new Set<string>(), uses: new Set<string>(), state: new Set<string>() };
       const no = (why: string): never => { throw new NoRender(why); };
       // (and the state fields they read: the old route's second pass freezes those of the bindings it drops, `fixedState`)
@@ -8676,6 +8773,37 @@ class Compiler {
         for (const x of this.stateSites(ds)) st.state.add(x);
       };
       const texted = new Set<P5Node>(), empty: P5Node[] = [], shown: P5Element[] = [];
+      /**
+       * links, with a page that reads them (`links`): the entries the second pass's walk pushes for each (`hrefs`, read by
+       * same-page links and SN519), in walk order, with where each was written; and the rows being rendered, innermost
+       * last, whose items an axis list's link names (`markAxisLink`: each row's list as written and its item)
+       */
+      const hrefs: RenderedRows['hrefs'] = [];
+      /** the ids its markup writes, in its order, which the second pass declares (`page.ids`, `dialogs`) */
+      const idList: RenderedRows['idAttrs'] = [];
+      const loops: Array<{ list: string; value: unknown }> = [];
+      /** a link's `data-sinter-pt`, written after `prefold`'s writes (in `fill`, for an element with bindings) */
+      const axisMark = new Map<P5Element, P5Element['attrs'][number]>();
+      const link = (n: P5Element, e: P5Element) => {
+        const pre = this.snAttrs.get(n) ?? n.attrs, own = hrefsOf(n);
+        // (the first pass's walk met it as the second's would: its static `href` and its bound one, as written)
+        const href = pre.find((a) => a.name === 'href');
+        if ((href !== undefined) !== own.some((h) => h.literal) || pre.some((a) => (a.name === 'data-sn-href' || a.name === 'data-sn-attr') && !this.boundHrefs.has(n) && (a.name === 'data-sn-href' || /\bhref\b/.test(a.value)))) no('links');
+        // (SN519 reports on a pager link: where it was written, which an instance's expansion words with its chain)
+        if (live && own.some((h) => h.query || (h.literal && h.prefixes[0]?.s[0] === '?'))) no('links');
+        for (const h of own) hrefs.push({ el: e, prefixes: h.prefixes, literal: h.literal, ...(h.query ? { query: h.query, src: h.src } : {}), bound: this.boundHrefs.has(n), origin: this.origins.get(n), loc: n.sourceCodeLocation });
+        if (this.opts.axisLists?.length) {
+          const at = new Map<string, string>();
+          for (let i = loops.length - 1; i >= 0; i--) {
+            const hit = this.axisEntryOf(loops[i]!.list.trim(), loops[i]!.value);
+            if (hit && !at.has(hit.src)) at.set(hit.src, hit.key);
+          }
+          if (at.size && !pre.some((a) => a.name === 'data-sinter-pt')) {
+            const a = { name: 'data-sinter-pt', value: [...at].map(([s, k]) => `${encodeURIComponent(s)} ${encodeURIComponent(k)}`).join(' ') };
+            if (nodeOfEl().has(n)) axisMark.set(e, a); else e.attrs.push(a);
+          }
+        }
+      };
       /** marks the second pass writes after its image pipeline (an image's: the old route marks it after the walk) */
       const late: Array<[P5Element, P5Element['attrs']]> = [];
       /** marks a fill's top elements take where it is placed (`data-sn-s`) */
@@ -8696,9 +8824,6 @@ class Compiler {
           // row as it would rewrite the row's image (eager or not, in its box)
           c = clone(n.childNodes.at(-1)!, parent, map);
         } else if (isElement(n)) {
-          // (an id the markup writes: the page's ids are read before the second pass compiles the rows; one a binding
-          // writes is not there yet)
-          if (n.attrs.some((a) => a.name === 'id')) no('an id');
           // (one the walk keeps for the runtime, `data-sn-options`, `-navigate`, …: the walk adds what it needs)
           // (the first pass's marks of scoped styles aside: below)
           if (n.attrs.some((a) => a.name.startsWith('data-sn-') && !MARKS.test(a.name))) no('a sinter attribute');
@@ -8707,9 +8832,14 @@ class Compiler {
           const pre = this.snAttrs.get(n);
           const base = REWROTE.get(n) ?? (pre ? pre.filter((a) => !a.name.startsWith('data-sn-') || KEPT_ATTRS.has(a.name)) : n.attrs.filter((a) => !MARKS.test(a.name)));
           const e = { nodeName: n.nodeName, tagName: n.tagName, attrs: base.map((a) => ({ ...a })), namespaceURI: n.namespaceURI, childNodes: [], parentNode: parent } as unknown as P5Element;
+          // (an id the markup writes: the page's ids are declared before the second pass compiles the rows, `declare`;
+          // one a binding writes is not there yet)
+          const id = attr(e, 'id');
+          if (id) idList.push({ id, dialog: e.tagName === 'dialog' });
           // (a component's root: its use, which the old route's expansion registers, `uses`)
           const u = this.useOf.get(n);
           if (u && !u.head) st.uses.add(u.name);
+          if (links && (n.tagName === 'a' || n.tagName === 'area')) link(n, e);
           if (marking) {
             // the marks of scoped styles (`data-sn-c`/`-r`/`-s`), which the first pass's walk wrote on the template's
             // markup as the second's writes them on the instance's (one `Use` per instance, `rootMarked`, `landing`,
@@ -8791,7 +8921,7 @@ class Compiler {
             if (!cl) no('markup');
             if (point.group) {
               if (!rec.has(n)) no('choice');
-              const c = rec.get(n) as { name: string; tid: number; props: unknown; rec?: RowRec[] } | null;
+              const c = rec.get(n) as PickedCase | null;
               read(point.pick?.deps);
               replace(cl, cl, c ? instance(point.el, c.name, c.tid, c.rec?.[0], c.props) : []);
               continue;
@@ -8871,6 +9001,9 @@ class Compiler {
             const host = this.useOf.get(el!)?.host, hostGone = new Set(fold.filter((x) => x.src !== el).map((x) => x.attr));
             if (WRITTEN.get(cl!) === 'opaque' && host && !host.attrs.some((a) => /^data-sn-(class|style|show|attr)$/.test(a.name) && !hostGone.has(a.name))) WRITTEN.delete(cl!);
           }
+          // (an axis list's link: marked as the walk meets it, after `prefold`'s writes)
+          const pt = axisMark.get(cl!);
+          if (pt) cl!.attrs.push(pt);
           // (the marks of scoped styles, after `prefold`'s writes and before the paints)
           const marks = MARKED.get(cl!);
           if (marks && cl!.tagName === 'img' && !n.b.some((b) => !defAttr.has(b) && b.k !== 'else' && !folded.has(b))) late.push([cl!, marks]);
@@ -8897,7 +9030,10 @@ class Compiler {
               read(b.d);
               const out: P5Node[] = [], was = live;
               live = false;
-              try { for (const r of rows!) out.push(...render(b.x!, r)); } finally { live = was; }
+              const list = src.slice(head![0].length);
+              try {
+                for (const r of rows!) { loops.push({ list, value: r.get(ROW_ITEM) }); try { out.push(...render(b.x!, r)); } finally { loops.pop(); } }
+              } finally { live = was; }
               replace(cl, cl, out);
               continue;
             }
@@ -8911,23 +9047,33 @@ class Compiler {
         const nodes: P5Node[] = [];
         let list = false;
         const recs = p.found.recs ?? [];
-        if (recs.length !== p.items.length) no('no record');
-        for (const r of recs) {
-          const row = render(p.tid!, r);
+        if (p.pick) {
+          // a choice outside any loop: the case it renders, an instance of its definition where the choice is (the old
+          // route's `inlineInstance`), whose tag passes nothing on to its root here
+          const c = p.picked, point = [...this.pointOf.values()].find((x) => x.el === p.el);
+          if (!c || !point || this.passOn.has(p.el)) no('choice');
+          if (this.choiceDiags.get(p.el)?.has(c!.name)) no('diagnostics');
+          read(point!.pick?.deps);
+          nodes.push(...instance(p.el, c!.name, c!.tid, c!.rec?.[0], c!.props));
+        } else if (recs.length !== p.items.length) no('no record');
+        // (the loop as written: its list, which an axis list's link reads with each row's item)
+        const src = this.snSource.get(p.el) ?? '', list0 = src.slice(LOOP_HEAD.exec(src)?.[0].length ?? 0);
+        if (!p.pick) for (const r of recs) {
+          loops.push({ list: list0, value: r.get(ROW_ITEM) });
+          let row: P5Node[];
+          try { row = render(p.tid!, r); } finally { loops.pop(); }
           // the list is compiled once, at the first row element the walk would meet (`rowLets`); a text node is one there
           if (row.some((x) => isElement(x) || texted.has(x))) list = true;
           else if (row.some((x) => x.nodeName === '#text' && (x as DefaultTreeAdapterMap['textNode']).value.trim())) no('text at the top of a row');
           nodes.push(...row);
         }
-        const why = rowsRead(nodes, links);
-        if (why) no(why);
         if ((st.ids || list) && !nodes.some(isElement)) no('no element');
         renderStat(null, p.found.rows);
         // (an empty text stays until the second pass has minified the rows: it was an element there, `WRITTEN`)
-        return { nodes, empty, shown: shown.filter((e) => SHOWN.has(e)), ids: st.ids, list, folded: st.folded, files: [...st.files], reads: [...st.reads], rootStyled: [...st.rootStyled], late, state: [...st.state], uses: [...st.uses].map((n) => { const f = this.componentFiles.get(n); return { name: n, css: f?.css, rawCss: f?.rawCss }; }), rows: p.found.rows };
+        return { nodes, empty, shown: shown.filter((e) => SHOWN.has(e)), ids: st.ids, list, folded: st.folded, files: [...st.files], reads: [...st.reads], rootStyled: [...st.rootStyled], late, state: [...st.state], hrefs, idAttrs: idList, uses: [...st.uses].map((n) => { const f = this.componentFiles.get(n); return { name: n, css: f?.css, rawCss: f?.rawCss }; }), rows: p.found.rows };
       } catch (e) {
         if (!(e instanceof NoRender)) throw e;
-        renderStat(e.why, p.found.rows);
+        this.unrendered.set(key, { why: e.why, rows: p.found.rows });
         return null;
       }
     };
@@ -9230,6 +9376,39 @@ class Compiler {
         changed = true;
         i--;
       };
+      /**
+       * what the first pass rendered at `key` (a loop's rows, a choice's case), outside rows and instances: spliced in
+       * here, with what compiling it would have done that the page keeps (the loop's list, `list`, compiled at its first
+       * element in the walk)
+       */
+      const splice = (key: string, list: string, offset: number): boolean => {
+        const done = !pre && !row && at === undefined ? this.opts.rendered?.get(key) : undefined;
+        if (!done) return false;
+        // (the first pass checked where it is: one it rendered has nothing decided in it to compile its rows with)
+        const why = this.renderedHere(c, done);
+        if (why) renderStat(`second pass: ${why}`, done.rows);
+        this.foldedText.push(...done.folded);
+        for (const f of done.files) this.files.add(f);
+        for (const n of done.reads) this.renderedReads.add(n);
+        this.renderedEmpty.push(...done.empty);
+        this.renderedShown.push(...done.shown);
+        this.renderedLate.push(...done.late);
+        // (the outer components whose root rules an instance's root takes, `data-sn-r`: shipped)
+        for (const n of done.rootStyled) this.rootStyled.add(n);
+        // (the components its instances use, which the old route expands here: their styles shipped, the page's marks)
+        // (and their scoped styles, as the first pass's expansion scoped them: the old route's `expandUse` does it here)
+        for (const x of done.uses) {
+          if (this.uses.has(x.name)) continue;
+          const f = this.componentFile(x.name);
+          if (f && f.css === undefined && x.css !== undefined) { f.css = x.css; f.rawCss = x.rawCss; }
+          this.uses.set(x.name, []);
+        }
+        const first = done.nodes.find(isElement);
+        for (const n of done.nodes) if (isElement(n)) this.renderedAt.set(n, n === first ? { tpl: c, list, offset, rows: done } : null);
+        RENDER_STATS.spliced++;
+        place(done.nodes, 1);
+        return true;
+      };
       const key = c.tagName === 'template' && attr(c, 'data-sn-if') !== undefined ? this.instKey(c) : null;
       const v = key ? decided?.get(pre + key) : undefined;
       if (v !== undefined) {
@@ -9249,8 +9428,10 @@ class Compiler {
       // whose own templates are decided and unrolled as the loop goes on over them (item 5)
       const point = this.points.get(c);
       const pk = point && !choice ? this.instKey(c) : null;
+      if (ck && decided?.get(pre + ck) === true && splice(ck, '', 0)) continue;
       if ((ck && decided?.get(pre + ck) === true) || (pk && unrolled?.has(pre + pk))) {
         const before = parent.childNodes.length, start = this.scopeStart.get(c);
+        if (!pre && !row && at === undefined) this.oldRoute((ck ?? pk)!, 1);
         if (this.inlineInstance(c, point!)) {
           const inst = `${pre}${ck ?? pk}#0/`, nodes = parent.childNodes.slice(i, i + parent.childNodes.length - before + 1);
           this.inheritSlot(c, nodes);
@@ -9274,33 +9455,9 @@ class Compiler {
       if (m) {
         if (!items!.length) this.foldedText.push(value!.slice(m[0].length));
         // rows the first pass rendered: their markup, and what compiling them would have done that the page keeps
-        const done = !pre && !row && at === undefined ? this.opts.rendered?.get(tkey!) : undefined;
-        // (the first pass checked where the loop is: one it rendered has nothing decided in it to compile its rows with)
-        const why = done && this.renderedHere(c, done);
-        if (why) renderStat(`second pass: ${why}`, done!.rows);
-        if (done) {
-          this.foldedText.push(...done.folded);
-          for (const f of done.files) this.files.add(f);
-          for (const n of done.reads) this.renderedReads.add(n);
-          this.renderedEmpty.push(...done.empty);
-          this.renderedShown.push(...done.shown);
-          this.renderedLate.push(...done.late);
-          // (the outer components whose root rules an instance's root takes, `data-sn-r`: shipped)
-          for (const n of done.rootStyled) this.rootStyled.add(n);
-          // (the components its instances use, which the old route expands here: their styles shipped, the page's marks)
-          // (and their scoped styles, as the first pass's expansion scoped them: the old route's `expandUse` does it here)
-          for (const x of done.uses) {
-            if (this.uses.has(x.name)) continue;
-            const f = this.componentFile(x.name);
-            if (f && f.css === undefined && x.css !== undefined) { f.css = x.css; f.rawCss = x.rawCss; }
-            this.uses.set(x.name, []);
-          }
-          const first = done.nodes.find(isElement);
-          for (const n of done.nodes) if (isElement(n)) this.renderedAt.set(n, n === first ? { tpl: c, list: value!.slice(m[0].length), offset: m[0].length, rows: done } : null);
-          RENDER_STATS.spliced++;
-          place(done.nodes, 1);
-          continue;
-        }
+        if (splice(tkey!, value!.slice(m[0].length), m[0].length)) continue;
+        // (the old route, outside rows: counted, with the first pass's reason; a dev build never renders)
+        if (!pre && !row && at === undefined) this.oldRoute(tkey!, items!.length);
         const rows: P5Node[] = [];
         for (let k = 0; k < items!.length; k++) {
           const info: RowInfo = { tpl: c, item: (m[1] ?? m[3])!, index: m[2] ?? null, list: value!.slice(m[0].length), offset: m[0].length, k, value: items![k], inst: `${pre}${tkey}#${k}/`, ...(row ? { up: row } : {}) };
@@ -9325,6 +9482,12 @@ class Compiler {
    * the loop is: slot content or a fill (its caller's scope, its marks), where a component's markup starts, in the
    * `<head>`; or rows with nothing to hold what their walk does (no element).
    */
+  oldRoute(key: string, rows: number) {
+    const u = this.opts.unrendered?.get(key);
+    // (with rendering off, `SN_RENDER=0` or the audit's compile, every loop takes it: not counted)
+    if (renderOn()) renderStat(this.opts.dev ? 'dev' : u?.why ?? 'not rendered', u?.rows ?? rows);
+  }
+
   renderedHere(c: P5Element, r: RenderedRows): string | null {
     for (const map of [this.slotOf, this.fillOf, this.defaultOf, this.childrenOf, this.scopeStart, this.landing, this.useOf] as Array<WeakMap<object, unknown>>) if (map.has(c)) return 'where it is';
     for (let p: P5Node | null = c; p; p = (p as P5Element).parentNode as P5Node | null) if (isElement(p) && p.tagName === 'head') return 'in the head';
@@ -11747,7 +11910,7 @@ const LOOP_HEAD = /^\s*(?:\(\s*([A-Za-z_][\w]*)\s*,\s*([A-Za-z_][\w]*)\s*\)|([A-
  * (once, at the first row element, for its diagnostics), the conditions and empty lists it folds (SN501 reads them),
  * the component files their instances are expanded from, the resources their bindings read.
  */
-export type RenderedRows = { nodes: P5Node[]; empty: P5Node[]; shown: P5Element[]; ids: number; list: boolean; folded: string[]; files: string[]; reads: string[]; rootStyled: string[]; late: Array<[P5Element, P5Element['attrs']]>; state: string[]; uses: Array<{ name: string; css: string | null | undefined; rawCss: string | undefined }>; rows: number };
+export type RenderedRows = { nodes: P5Node[]; idAttrs: Array<{ id: string; dialog: boolean }>; hrefs: Array<{ el: P5Element; prefixes: HrefPrefix[]; literal: boolean; query?: string[]; src?: string; bound: boolean; origin: Origin | undefined; loc: P5Element['sourceCodeLocation'] }>; empty: P5Node[]; shown: P5Element[]; ids: number; list: boolean; folded: string[]; files: string[]; reads: string[]; rootStyled: string[]; late: Array<[P5Element, P5Element['attrs']]>; state: string[]; uses: Array<{ name: string; css: string | null | undefined; rawCss: string | undefined }>; rows: number };
 
 /**
  * What rendered rows' markup stands for, for the second pass's minifier, which minifies the markup its walk compiles
@@ -11779,6 +11942,8 @@ const RENDERED_FILE = new WeakMap<P5Element, string>();
  * (`{ k, rec }`), and the row's item (`ROW_ITEM`)
  */
 type RowRec = Map<object, unknown>;
+/** a choice's case in a `RowRec`: the candidate it renders, its definition's template, its props, the instance's record */
+type PickedCase = { name: string; tid: number; props: unknown; rec?: RowRec[] };
 const ROW_ITEM = {};
 
 /** why `rowRenderer` leaves rows to the second pass (thrown inside it) */
@@ -11798,7 +11963,9 @@ let renderLogged = false;
 function renderStat(why: string | null, rows: number) {
   // (`SN_RENDER_STATS=<file>`: one line per loop, `<reason or rendered>\t<rows>`, so a run of many processes, the suite's, can be summed)
   const file = proc?.env.SN_RENDER_STATS;
-  if (file) (proc?.getBuiltinModule?.('node:fs') as { appendFileSync(f: string, s: string): void } | undefined)?.appendFileSync(file, `${why ?? 'rendered'}\t${rows}\n`);
+  // (under vitest, a third column: the test file and test, so a reason can be traced to its cases)
+  const w = (globalThis as { __vitest_worker__?: { filepath?: string; current?: { name?: string } } }).__vitest_worker__;
+  if (file) (proc?.getBuiltinModule?.('node:fs') as { appendFileSync(f: string, s: string): void } | undefined)?.appendFileSync(file, `${why ?? 'rendered'}\t${rows}${w?.filepath ? `\t${w.filepath.replace(/^.*\/test\//, 'test/')} > ${w.current?.name ?? ''}` : ''}\n`);
   if (why === null) { RENDER_STATS.rendered++; RENDER_STATS.rows += rows; } else {
     const f = RENDER_STATS.fallback.get(why) ?? { loops: 0, rows: 0 };
     f.loops++;
@@ -11811,16 +11978,6 @@ function renderStat(why: string | null, rows: number) {
   }
 }
 
-/** what in rendered rows other parts of the build read before the second pass would compile them (null: nothing) */
-function rowsRead(nodes: P5Node[], links: boolean): string | null {
-  for (const n of nodes) {
-    if (!isElement(n)) continue;
-    if (links && (n.tagName === 'a' || n.tagName === 'area')) return 'links';
-    const r = rowsRead(n.childNodes as P5Node[], links) ?? (n.tagName === 'template' ? rowsRead((n as P5Template).content.childNodes as P5Node[], links) : null);
-    if (r) return r;
-  }
-  return null;
-}
 /**
  * the most rows and component instances a page expands at build time, at every depth: compiling the expanded page
  * takes about 0.2 ms each (measured on a generic tree of paragraphs, links and images, in the build and the LSP alike,
