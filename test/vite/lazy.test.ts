@@ -319,6 +319,13 @@ test('SN325: a package that imports the lazy one, and an app module both importe
     const err = await build({ root: bad, logLevel: 'silent', plugins: [sinter({ lazy: ['fakepgp'] })], resolve: { alias }, build: { outDir: join(bad, 'dist'), emptyOutDir: true } }).then(() => null, (e: Error) => e.message);
     expect(err).toContain('SN325 index.html: the page bundle contains fakepgp, which `sinter({ lazy })` loads lazily: index.html → src/sinter.actions.ts → src/lib/autocrypt.ts → node_modules/autocrypt/index.js → fakepgp');
     expect(err).toContain('SN325 index.html: src/lib/big.ts is loaded with `import()` by src/sinter.actions.ts, and imported statically by the page too (index.html → src/sinter.actions.ts → src/lib/big.ts)');
+    // two pages that reach the same modules (whose infos the check reads once for both): each is reported
+    w('about.html', '<!doctype html><html><head><title>y</title></head><body><button data-sn-call="go()">y</button></body></html>');
+    const two = await build({ root: bad, logLevel: 'silent', plugins: [sinter({ lazy: ['fakepgp'] })], resolve: { alias }, build: { outDir: join(bad, 'dist'), emptyOutDir: true, rollupOptions: { input: { index: join(bad, 'index.html'), about: join(bad, 'about.html') } } } }).then(() => null, (e: Error) => e.message);
+    for (const page of ['index.html', 'about.html']) {
+      expect(two).toContain(`SN325 ${page}: the page bundle contains fakepgp, which \`sinter({ lazy })\` loads lazily: ${page} → src/sinter.actions.ts → src/lib/autocrypt.ts → node_modules/autocrypt/index.js → fakepgp`);
+      expect(two).toContain(`SN325 ${page}: src/lib/big.ts is loaded with \`import()\` by src/sinter.actions.ts, and imported statically by the page too (${page} → src/sinter.actions.ts → src/lib/big.ts)`);
+    }
   } finally {
     rmSync(bad, { recursive: true, force: true });
   }

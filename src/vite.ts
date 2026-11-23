@@ -825,12 +825,20 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
 
   /** the app's HTML entries: the build input, else `index.html`, and every page compiled so far */
   /** the app's source pages: the build input, else `index.html`, and every page compiled so far */
-  const sourceEntries = () => {
+  /**
+   * a build's, once its input is known: kept while no page is added to `seen` (every page asks for the list, often
+   * several times: computed afresh it made the build's cost grow with the square of its pages). Callers only read it.
+   */
+  let sourceKept: { input: unknown; seen: number; files: string[]; set: Set<string>; axes?: boolean } | null = null;
+  const sourceEntries = (): string[] => {
+    if (!dev && sourceInput !== undefined && sourceKept?.input === sourceInput && sourceKept.seen === seen.size) return sourceKept.files;
     const files = htmlInputs(sourceInput ?? buildInput(resolved?.build)).map((f) => resolve(root, f));
     // dev without a build input: every page under the root, as the dev server serves any of them
     if (!files.length && dev) files.push(...htmlPages(root, resolved));
     if (!files.length && existsSync(resolve(root, 'index.html'))) files.push(resolve(root, 'index.html'));
-    return [...new Set([...files, ...[...seen].map((f) => virtual.get(f)?.source ?? f)])].sort();
+    const out = [...new Set([...files, ...[...seen].map((f) => virtual.get(f)?.source ?? f)])].sort();
+    if (!dev && sourceInput !== undefined) sourceKept = { input: sourceInput, seen: seen.size, files: out, set: new Set(out) };
+    return out;
   };
   /**
    * a point's file (points.ts): the source page itself, or a virtual page (`<root>/<locale>/<page>`, an entry's
@@ -892,7 +900,15 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     inPublic: (rel) => !!resolved?.publicDir && existsSync(resolve(resolved.publicDir, rel + '.html')),
   });
   /** the app's HTML entries: its pages, or with `localePrefix` each page in each language */
-  const entries = () => pageInputs ?? (locales || sourceEntries().some((f) => templateOf(f)?.axes?.length) ? points(false).points.map(fileOf) : sourceEntries());
+  const entries = () => pageInputs ?? (locales || hasAxes() ? points(false).points.map(fileOf) : sourceEntries());
+  /** whether a source page is built over axes (kept with the build's list of them) */
+  const hasAxes = () => {
+    const files = sourceEntries(), kept = sourceKept?.files === files ? sourceKept : null;
+    if (kept?.axes !== undefined) return kept.axes;
+    const v = files.some((f) => templateOf(f)?.axes?.length);
+    if (kept) kept.axes = v;
+    return v;
+  };
   /**
    * `<html data-sn-for>` (docs/static-pages.md#a-page-per-entry): a page's entries, from a compile of it as its template, which
    * reads its `file:` list; null for a page without it. Its errors (SN340, SN340) fail the build: the template is no
@@ -917,7 +933,10 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     const html = readFileSync(file, 'utf8');
     if (!declaresFor(html)) { templatesKept.set(k, null); return null; }
     const p = proj();
-    const out = compile(html, { ...compileOptionsOf(p), file, dev, helpers: helpersOf(p.helpers), readFile: readVia(p), ...(dev ? {} : { globCache }), ...contentOpts(locale), prerender: true, ...(locale ? { locale: { name: locale, urls: null, base: resolved?.base ?? '/', ...(cpaths() ? { paths: cpaths()! } : {}) } } : {}), ...(vals.length ? { axes: vals } : {}) });
+    // the list's entries, its axes' entries and the SN340/SN341 errors are the walk's: a description's single pass
+    // (`describeOnly`, nothing evaluated), not the page's two
+    // (test/compiler/template-probe.test.ts)
+    const out = compile(html, { ...compileOptionsOf(p), file, dev, helpers: helpersOf(p.helpers), readFile: readVia(p), ...(dev ? {} : { globCache }), ...contentOpts(locale), describeOnly: true, ...(locale ? { locale: { name: locale, urls: null, base: resolved?.base ?? '/', ...(cpaths() ? { paths: cpaths()! } : {}) } } : {}), ...(vals.length ? { axes: vals } : {}) });
     const fatal = out.diagnostics.filter((d) => d.severity === 'error' && /^SN34[01]$/.test(d.code));
     if (fatal.length) throw new Error(`sinter: ${fatal.map(formatDiagnostic).join('\n')}`);
     const t = { pages: out.pages ?? null, axes: out.axes ?? null };
@@ -1410,7 +1429,14 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     // a warning about the options (a deprecated one): once per build
     for (const d of p.diagnostics) if (d.severity === 'warning' && !warnedOptions.has(d.message)) { warnedOptions.add(d.message); resolved?.logger.warn(formatDiagnostic(d)); }
     // a page not seen before may be a new one (dev); a build's pages per entry are all known from the start
-    if (!seen.has(file)) { seen.add(file); if (dev || !pageInputs) pagesCache = null; }
+    // (in a build, a page whose source is already one of the source pages changes no list: the pages stay as they were)
+    if (!seen.has(file)) {
+      if (!dev && !pageInputs) sourceEntries();
+      const kept = !dev && !pageInputs ? sourceKept : null, known = !!kept && kept.seen === seen.size && kept.set.has(src);
+      seen.add(file);
+      if (known) kept.seen = seen.size;
+      if (dev || (!pageInputs && !known)) pagesCache = null;
+    }
     const group = groupOf(rel)?.folder;
     const prefetch = prefetchData && prefetchPages(group).length ? prefetchId(group) : null;
     const out = compile(html, {
@@ -1691,6 +1717,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       definitions.clear();
       describedDefinitions.clear();
       templatesKept.clear();
+      sourceKept = null;
       buildProject = null;
       if (dev) return;
       // a fresh instance each build: under `--watch`, edits to the helpers count, and nothing a helper kept from the
@@ -2392,12 +2419,15 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       return x.startsWith(PREFIX) && x.endsWith('.html.js') ? x.slice(PREFIX.length, -3) : relOf(x);
     };
     const pages = [...ctx.getModuleIds()].filter((id) => { const x = id.replace(/^\0/, ''); return x.startsWith(PREFIX) && x.endsWith('.html.js') && !x.startsWith(EARLY); });
+    // each module's info read once: the pages reach mostly the same modules (the runtime's), and a read crosses into the bundler
+    const infos = new Map<string, ReturnType<typeof ctx.getModuleInfo>>();
+    const infoOf = (id: string) => { let m = infos.get(id); if (m === undefined && !infos.has(id)) infos.set(id, (m = ctx.getModuleInfo(id))); return m ?? null; };
     const errors: string[] = [];
     for (const page of pages) {
       const prev = new Map<string, string | null>([[page, null]]), todo = [page];
       while (todo.length) {
         const id = todo.shift()!;
-        for (const next of ctx.getModuleInfo(id)?.importedIds ?? []) if (!prev.has(next)) { prev.set(next, id); todo.push(next); }
+        for (const next of infoOf(id)?.importedIds ?? []) if (!prev.has(next)) { prev.set(next, id); todo.push(next); }
       }
       const chain = (id: string) => { const c: string[] = []; for (let x: string | null = id; x; x = prev.get(x) ?? null) c.unshift(x); return c; };
       const shown = (ids: string[]) => ids.map((x) => (isLazyModule(x) ? lazyName(x) : name(x))).filter((x, i, a) => a.indexOf(x) === i).join(' → ');
@@ -2411,7 +2441,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
           continue;
         }
         if (id.startsWith('\0') || id.includes('/node_modules/')) continue;
-        const by = ctx.getModuleInfo(id)?.dynamicImporters.find((d) => prev.has(d));
+        const by = infoOf(id)?.dynamicImporters.find((d) => prev.has(d));
         if (by) errors.push(`SN325 ${name(page)}: ${name(id)} is loaded with \`import()\` by ${name(by)}, and imported statically by the page too (${shown(chain(id))}), so the split does nothing for it. Import it only with \`import()\`, or not lazily at all`);
       }
     }
