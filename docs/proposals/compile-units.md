@@ -121,6 +121,21 @@ now, or faster.
   over one row. A unit the runtime instantiates directly could cost less. That changes the IR and the runtime, so it is
   measured on sinter-mail's benchmarks first and taken only if they show it.
 
+Baselines against `main` (`redesign-notes/sinter-mail.md`; a 2,012-element newsletter in the browser, 12 pages at
+build):
+
+| Way | Build, 12 pages | In the browser, first render | JS, gzip |
+| --- | ---: | ---: | ---: |
+| a file, folded at build | 5.5 s (11 to 13 ms an element) | nothing to run | none |
+| an API, the script builder | 2.8 s | 45 ms | 15.0 kB |
+| an API, the components | 4.4 s | 107 to 120 ms | 22.3 kB |
+
+Each page compiles the library's 65 definitions in the first pass (125 to 133 ms a page, on every way, the script
+builder's included, only to decide `$build`), and with TypeScript installed 12 pages take 13 to 23 s. In the browser,
+an element through the components is 5.4 row instances around one clone; a unit instantiated directly is estimated
+at 25 to 35 ms off the 95 ms of script (from call counts, not prototyped), and the rest of the gap to the script
+builder is the 8,448 style writes, which units do not change.
+
 ## Stages
 
 Each is general (pages with live parts gain what their constant parts cost), measured on `bench/astro` and on
@@ -195,9 +210,10 @@ Found by the research, not changed:
   state through a `<sn-component use>` prop is folded to a static `<picture>`; the same component used by its tag keeps
   its binding (`decisions.md` §7.3).
 - **Linking is off whenever the build type-checks** (`contract.md` §4), which is every build with TypeScript installed.
-- **Props as a run-time frame.** Binding a live use's props at run time, as shared definitions do, would make a
-  unit's code independent of its use with no holes, at the price of a changed IR and other bytes. Not planned: the
-  holes keep the output, and the runtime, as they are.
+- **Props as a run-time frame.** Binding an inlined live use's props at run time, as shared definitions do, would
+  make a unit's code independent of its use with no holes, at the price of a changed IR and other bytes. Not planned
+  for inlined uses: the holes keep the output, and the runtime, as they are. Stage 7 is about the uses whose props
+  are a frame already (definitions), and is a decision of its own.
 
 ## Status log
 
@@ -205,3 +221,10 @@ Found by the research, not changed:
   The cost model is measured (`redesign-notes/profile.md`): the second pass is 80% of the compiler, deciding the
   floor after it, and live pages pay 23 ms a page outside the compiler.
   sinter-mail added as a requirement and a gate; its baselines are being taken (`redesign-notes/sinter-mail.md`).
+- 2026-11-23, 12:50 UTC: merged into the branch, both still in progress in their worktrees. Stage 1 (`renderRows`,
+  `SN_RENDER=0` turns it off, `SN_RENDER_AUDIT=1` compiles both ways, `scripts/render-audit.mjs`,
+  `test/compiler/render-rows.test.ts`): 100 static posts in 5.3 s (11.9 s with it off), 100 live posts in 6.2 s
+  (12.3 s). The pipeline (`redesign-notes/pipeline-fixes.md`): one nested build per distinct early script, and no
+  gzip for a report that is not printed, 16 to 21 ms off a live page. sinter-mail: its suite passes against `main`
+  (234 tests), its baselines are in `redesign-notes/sinter-mail.md`, and `scripts/mail-audit.mjs <checkout>
+  [--bench] [--suite]` builds 16 of its pages both ways and diffs them.
