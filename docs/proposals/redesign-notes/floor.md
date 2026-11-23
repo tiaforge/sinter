@@ -102,3 +102,24 @@ Pass 2's `componentFile` calls are 503 a page; with a warm cache none reads a fi
 rounds A/B (base, change 1, change 2), ms a page: pass 2 `expandComponents` 2.6 / 2.3 / 0.7, pass 2 `walkPage`
 7.5 / 6.4 / 4.9, `compile()` 26.6 / 18.0 / 16.2, GC in compiles 3.7 / 2.2 / 2.0. A page file per post (3 rounds, a
 loaded machine): pass 1 `expandComponents` 4.0 → 2.1, pass 2 3.8 → 1.4, `compile()` describe 10.5 → 8.8.
+
+### 3. The first of two passes stops at its decisions (`settle`, `quietFinish`)
+
+`compilePasses` ran the first pass's whole `finishPage` (anchors, `shareTemplates`, the early parts, the tables and
+their compaction, the serialized markup, the descriptions) and then, when it had decided anything, threw all of it
+away: the second pass reads the first's maps (`decided`, `unrolls`, `constants`, `overLimit`, `rendered`, the folded
+state), and of its result only the diagnostics, to know whether it is `clean`. `finishPage`'s first line is now
+`settle()` (`buildOnlyInIfs`, `prerender`, the drops, `collectConstants`), and `compilePasses` runs it on its own; when
+a second pass follows and nothing in the rest of `finishPage` can report an error, the first pass stops there.
+
+Which errors the rest can report, from its call graph (a script over `compile.ts`): SN347 (`signedInGuard`), SN210 and
+SN211 and the `$url` list messages of models and bindings (`checkUrlArrays`), SN345 (a page per entry reading its
+pattern's parameters). The rest is warnings (SN519, SN542, SN543), late diagnostics (SN344) and SN322, which `clean`
+does not count. `quietFinish()` is true when none of their sources is on the page (`signedIn`, `pagesDecl`, `urlBinds`,
+`pageModels`, `page.urlWrites`); otherwise, and with the type check (whose unit the first pass hands on), the first pass
+finishes as before. test/compiler/first-pass-stop.test.ts: a page with SN347 still keeps its loop as a template.
+
+Pages that are walked twice gain: a page file per post. Template entries (`fromTemplate`) evaluate with `decideFor` and
+never ran a first `finishPage`. Static files, `time` mode with the thread's CPU time as the clock (from here on: the
+machine's load moves wall time too much), median of 2 rounds, base / change 2 / this, ms a page: pass 1's finish
+21.5 / 13.1 / 9.7 (`settle` alone), `compile()` 37.9 / 25.4 / 22.9.

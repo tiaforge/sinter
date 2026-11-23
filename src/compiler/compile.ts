@@ -1089,26 +1089,39 @@ function compilePasses(html: string, options: CompileOptions): CompiledParts & {
   const kept = fromTemplate(html, options);
   if (kept) return kept;
   const first = new Compiler(options);
-  const out = first.run(html);
-  // `data-sn-if` templates over state nothing writes: decided now, the page compiled again with their branches in place
-  const withLate = (o: typeof out) => (o.lateDiagnostics ? { ...o, diagnostics: [...o.diagnostics, ...o.lateDiagnostics] } : o);
-  if (!options.prerender || options.decided || options.unrolled) return withLate(out);
+  const walk = first.walkPage(html);
+  first.settle();
   // loops over constants: unrolled only when the first pass is clean (the second one compiles the rows with their item)
   // (SN322 does not count: what the first pass found running may be a loop the second one unrolls)
-  const clean = !out.diagnostics.some((d) => d.severity === 'error' && d.code !== 'SN322');
-  const unrolled = first.unrolls.size && clean ? first.unrolls : null;
+  const isClean = () => !first.diagnostics.some((d) => d.severity === 'error' && d.code !== 'SN322');
   // constant bindings the layout or the images read (an image's attributes, a class or a style): written before
   // them, in a second pass; it needs a clean first pass too. What the second pass applies at every depth comes
   // from the first pass's worklist (`worklist()`), so a page is compiled at most twice: what writes state, which
   // decides what is constant, is known only after a walk
-  const constants = first.constants.size && clean ? first.constants as Map<string, ConstantWrite[]> : null;
-  if (!first.decided.size && !unrolled && !constants) return withLate(out);
-  const frozen = first.foldedState();
-  if (constants) for (const s of first.constantSites) frozen.add(s);
-  const second = new Compiler({ ...options, decided: first.decided, ...(unrolled ? { unrolled } : {}), ...(unrolled && first.rendered.size ? { rendered: first.rendered } : {}), ...(constants ? { constants } : {}), ...(first.overLimit.size ? { overLimit: first.overLimit } : {}), frozen }).run(html);
+  const second = (clean: boolean) => {
+    const unrolled = first.unrolls.size && clean ? first.unrolls : null;
+    const constants = first.constants.size && clean ? first.constants as Map<string, ConstantWrite[]> : null;
+    if (!first.decided.size && !unrolled && !constants) return null;
+    const frozen = first.foldedState();
+    if (constants) for (const s of first.constantSites) frozen.add(s);
+    return new Compiler({ ...options, decided: first.decided, ...(unrolled ? { unrolled } : {}), ...(unrolled && first.rendered.size ? { rendered: first.rendered } : {}), ...(constants ? { constants } : {}), ...(first.overLimit.size ? { overLimit: first.overLimit } : {}), frozen }).run(html);
+  };
+  const twice = !!options.prerender && !options.decided && !options.unrolled;
+  // a second pass whatever the rest of the first one does: nothing of that rest is read (its markup, its tables, its
+  // diagnostics), so the first stops at its decisions. Known only when the rest cannot report an error (`quietFinish`)
+  if (twice && !first.check && first.quietFinish()) {
+    const out = second(isClean());
+    if (out) return out;
+  }
+  const out = first.finishPage(walk, true);
+  // `data-sn-if` templates over state nothing writes: decided now, the page compiled again with their branches in place
+  const withLate = (o: typeof out) => (o.lateDiagnostics ? { ...o, diagnostics: [...o.diagnostics, ...o.lateDiagnostics] } : o);
+  if (!twice) return withLate(out);
+  const next = second(isClean());
+  if (!next) return withLate(out);
   // the type check reads the page as written: in the second pass an unrolled loop's rows have no loop variable, so a
   // component prop in one (`{ post: p }`) was SN208 "Cannot find name 'p'" in `sinter check` of a `static` page
-  return out.check ? { ...second, check: out.check } : second;
+  return out.check ? { ...next, check: out.check } : next;
 }
 
 /**
@@ -1799,9 +1812,25 @@ class Compiler {
   }
 
   /** The walked page evaluated, its constants written and dropped, and its HTML, IR and module parts. */
-  finishPage({ doc, images, paths }: NonNullable<Compiler['walk']>): CompiledParts & { canonicalOnly?: boolean } {
+  /** `finishPage`'s first steps: what the page writes and decides at build time (`prerender`) */
+  settle() {
     this.buildOnlyInIfs();
     if (this.opts.prerender) { this.prerender(); this.embedFolded(); this.dropConstants(); this.dropFiles(); this.foldScriptsOut(); if (this.collecting()) this.collectConstants(); }
+  }
+
+  /**
+   * After `settle`: whether the rest of `finishPage` can report an error, which would keep a second pass from
+   * unrolling (`compilePasses`' `clean`). Its errors are a page's signed-in guard (SN347), `$url` lists (SN210,
+   * SN211, a model's or a binding's), and a page per entry reading its pattern's parameters (SN345); the rest
+   * reports warnings, late ones, or SN322, which `clean` does not count.
+   */
+  quietFinish(): boolean {
+    return !this.signedIn && !this.pagesDecl && !this.urlBinds.length && !this.pageModels.length && !this.page.urlWrites?.length;
+  }
+
+  /** `settled`: `settle` ran already */
+  finishPage({ doc, images, paths }: NonNullable<Compiler['walk']>, settled = false): CompiledParts & { canonicalOnly?: boolean } {
+    if (!settled) this.settle();
     this.anchors();
     // (before the early file and the head templates: both number the templates that are left)
     if (this.opts.prerender && !this.opts.dev) this.shareTemplates();
