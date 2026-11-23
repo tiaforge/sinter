@@ -3,6 +3,7 @@
 // lets it, and its plain-data result joins the constants; `file:` values are constants too.
 import { describe, expect, test } from 'vitest';
 import { compile, type CompileOptions } from '../../src/compiler/index.js';
+import { compileParts } from '../../src/compiler/compile.js';
 import { firstPaint, render } from '../../src/testing/index.js';
 import type { FoldVerdict } from '../../src/fold-check.js';
 
@@ -144,6 +145,24 @@ describe('a folded value the browser still reads is written once, as embedded da
     expect(r.root.querySelector('h1')!.textContent).toBe('Hello World');
     const early = await firstPaint(page.replace('open: false', 'open: true').replace('data-sn-on-click="open = !open"', 'data-sn-on-click="open = false"'), { helpers: { titled } });
     expect(early.root.querySelector('h1')!.textContent).toBe('Hello World');
+  });
+
+  test('the state\'s function that reads it is at the state in the source map, after rows the build renders too', () => {
+    // (compiled after the walk: it takes the state's site, not where the walk was last, the rows' template or their last element)
+    const html = page.replace('</h1></main>', '</h1><ul><template data-sn-for="x in [1, 2]"><li data-sn-text="x"></li></template></ul></main>');
+    const site = (render: boolean) => {
+      if (!render) process.env.SN_RENDER = '0';
+      try {
+        const parts = compileParts(html, { file: '/p/index.html', root: '/p', dev: true, prerender: true, sourcemap: true, helpers: { module: '/src/sinter.helpers.ts', names: ['titled'], namespaces: {} }, readFile: () => { throw new Error('no'); }, helperValues: { titled }, helperFold: new Map([['titled', yes]]) });
+        expect(parts.html).toContain('<li>2</li>');
+        const i = parts.fns.findIndex((c) => c.includes('$.$d('));
+        expect(i).toBeGreaterThanOrEqual(0);
+        return parts.sources!.fns[i];
+      } finally { delete process.env.SN_RENDER; }
+    };
+    const at = html.slice(0, html.indexOf('{ open')).split('\n');
+    expect(site(true)).toMatchObject({ file: '/p/index.html', line: at.length, col: at.at(-1)!.length + 1 });
+    expect(site(false)).toEqual(site(true));
   });
 
   test('a helper of a module that reaches a lazy package does not fold, with that reason', () => {
