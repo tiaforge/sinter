@@ -9143,6 +9143,8 @@ class Compiler {
       return h;
     };
     const chosen = new Set<string>();
+    /** the bindings whose paints in rows the layout and the images read (`constantSources`), for this evaluation: the program's, which the walk does not change */
+    let constB: Set<Binding> | null = null;
     const limit = this.opts.expansionLimit ?? EXPANSION_LIMIT;
     let left = limit;
     const run = (sc: object, code: string): unknown => {
@@ -9158,11 +9160,11 @@ class Compiler {
      * calls no helper (`rowFns.pure`), at its place in the record, FAIL for one that throws. Made once per evaluation
      * (its names bound to this evaluation's values), from the same code text the table compiled; null: none
      */
-    const progs = new Map<NodeDef[], ((sc: object) => unknown[]) | null>();
+    // (this evaluation's, on the layout: `L.fnOf` is the evaluation it was made for)
+    const evaluation = {};
     const progOf = (nodes: NodeDef[], L: RowLayout): ((sc: object) => unknown[]) | null => {
-      let f = progs.get(nodes);
-      if (f !== undefined) return f;
-      f = null;
+      if (L.fnOf === evaluation) return L.fn!;
+      let f: ((sc: object) => unknown[]) | null = null;
       // its codes: every binding's the walk may paint or decide there (a kind a row paints, an `if`, a `for`), whether it
       // does in this row or not (one it does not is evaluated for nothing: a code has no effect but its value), whose
       // code names nothing but the evaluation's pure names. Every one is in the table: the rows' codes are (`rowCodes`)
@@ -9181,11 +9183,13 @@ class Compiler {
         }
         ROW_PARTS.set(nodes, kept = { names: rowFns!.names, codes, list, size: L.size });
       }
-      if (kept.list.length) {
+      // (one value is its own call: a function and an array for it would cost more than they save)
+      if (kept.list.length > 1) {
         f = rowFns!.make(kept, kept.list);
         if (!f) rowFnStat('a template whose values do not compile together');
       }
-      progs.set(nodes, f);
+      L.fn = f;
+      L.fnOf = evaluation;
       return f;
     };
     // (`SN_ROW_FN_AUDIT=1`: every value of a row program run again on its own, through the table, and compared)
@@ -9338,9 +9342,9 @@ class Compiler {
               const v = valueAt(vals, slot, sc, p.code!);
               const w = v === FAIL ? null : firstPaintValue(el, b, v, schemes);
               const pw = w === FAIL ? null : w;
-              // (rendering, the record holds it, and the paints are read back from the records where they are committed:
-              // `replayPaints`; the audit keeps both, to compare them)
-              if (!rec || audit) out.paints.push(b, prefix, pw);
+              // (rendering, the record holds it: collected only when the layout or the images read it, `constB`, and read
+              // back from the records for a loop the second pass compiles, `replayPaints`; the audit collects all, to compare)
+              if (!rec || audit || (constB ??= new Set(this.constantSources().flatMap((x) => x.s.bindings))).has(b)) out.paints.push(b, prefix, pw);
               if (rec) rec[slot] = pw;
             } else if (rec && p.text && kn) { const v = valueAt(vals, slot, sc, p.code!); rec[slot] = v === undefined ? UNDEFINED : v; }
             continue;
@@ -9430,11 +9434,9 @@ class Compiler {
      * walk again over them: each node's bindings in their order, an `if`'s kept branch at its place, a loop's rows, a
      * choice's case, a placement's. `only`: the bindings wanted, and a template none of them is reachable from is not read
      */
-    const replayPaints = (p: { tid?: number; pick?: true; picked?: PickedCase; found: Found }, key: string, only?: Set<Binding>): unknown[] => {
+    const replayPaints = (p: { tid?: number; pick?: true; picked?: PickedCase; found: Found }, key: string): unknown[] => {
       const out: unknown[] = [];
-      const holds = only ? reaching(only) : null;
       const list = (nodes: NodeDef[], rec: RowRec, prefix: string) => {
-        if (holds && !holds.has(nodes)) return;
         const L = layoutOf(nodes);
         for (let i = 0; i < nodes.length; i++) {
           const n = nodes[i]!, at = L.base[i]!;
@@ -9455,7 +9457,7 @@ class Compiler {
           for (const q of bindPlan(n, el)) {
             const slot = at + 1 + q.j;
             if (q.k === PAINTED) {
-              if (q.paint && slot in rec && (!only || only.has(q.b))) out.push(q.b, prefix, rec[slot]);
+              if (q.paint && slot in rec) out.push(q.b, prefix, rec[slot]);
               continue;
             }
             if (q.k !== CONTROL || !(slot in rec)) continue;
@@ -9476,40 +9478,21 @@ class Compiler {
       else rows(this.templates[p.tid!]!, p.found.recs!, key);
       return out;
     };
-    /** the templates (by their nodes) from which a binding of `only` is reachable through the walk: its branches, loops, cases, placements */
-    let reach: { only: Set<Binding>; set: Set<NodeDef[]> } | null = null;
-    const reaching = (only: Set<Binding>): Set<NodeDef[]> => {
-      if (reach?.only === only) return reach.set;
-      const into = new Map<number, number[]>();
-      const edge = (from: number, to: number | undefined) => { if (to === undefined) return; let l = into.get(to); if (!l) into.set(to, l = []); l.push(from); };
-      const todo: number[] = [];
-      this.templates.forEach((t, tid) => {
-        if (!t) return;
-        let direct = false;
-        for (const n of t.nodes) {
-          for (const b of n.b) { if (only.has(b)) direct = true; if (b.k === 'if' || b.k === 'for' || b.k === 'else') edge(tid, b.x); }
-          for (const c of this.pointOf.get(n)?.group?.cases ?? []) edge(tid, c.tid);
-          for (const c of placementOf.get(n)?.cases ?? []) edge(tid, c);
-        }
-        if (direct) todo.push(tid);
-      });
-      const seen = new Set<number>(todo);
-      while (todo.length) for (const f of into.get(todo.pop()!) ?? []) if (!seen.has(f)) { seen.add(f); todo.push(f); }
-      const set = new Set<NodeDef[]>([...seen].map((tid) => this.templates[tid]!.nodes));
-      reach = { only, set };
-      return set;
-    };
-    /** a pending tree's paints: as the walk collected them, or read back from its records (`replayPaints`) */
+    /**
+     * a pending tree's paints: as the walk collected them (not rendering), those of `constB` it collected (a rendered
+     * loop, `only`), or read back from its records (a loop the second pass compiles, `replayPaints`)
+     */
     const paintsFor = (p: Parameters<typeof replayPaints>[0], key: string, only?: Set<Binding>): unknown[] => {
-      if (!p.found.recs && !p.pick) return p.found.paints;
-      if (p.pick && !rendering) return p.found.paints;
-      const back = replayPaints(p, key, only);
+      if (!rendering) return p.found.paints;
+      const all = p.found.paints;
+      const mine = only ? (audit ? all.filter((_, i) => only.has(all[i - (i % 3)] as Binding)) : all) : null;
+      if (mine && !audit) return mine;
+      const back = replayPaints(p, key);
       if (audit) {
-        const all = p.found.paints, a = only ? all.filter((_, i) => only.has(all[i - (i % 3)] as Binding)) : all;
-        const same = a.length === back.length && a.every((x, i) => x === back[i]);
-        if (!same) throw new Error(`sinter row program audit: ${this.opts.file}: the paints read back from the records of \`${key}\` are not those the walk made (${back.length / 3} and ${a.length / 3})`);
+        const want = mine ?? all, got = mine ? back.filter((_, i) => only!.has(back[i - (i % 3)] as Binding)) : back;
+        if (want.length !== got.length || !want.every((x, i) => x === got[i])) throw new Error(`sinter row program audit: ${this.opts.file}: the paints read back from the records of \`${key}\` are not those the walk made (${got.length / 3} and ${want.length / 3})`);
       }
-      return back;
+      return mine ?? back;
     };
     return {
       unroll,
@@ -9528,7 +9511,7 @@ class Compiler {
             if (kept) pageOf(kept.nodes, sc);
           }
         }
-        let render: ReturnType<Compiler['rowRenderer']> | null = null, constB: Set<Binding> | null = null;
+        let render: ReturnType<Compiler['rowRenderer']> | null = null;
         const sitesOf = new Map<PathRef[] | undefined, Set<string>>();
         for (const [key, p] of pending) {
           if (!p) continue;
@@ -13077,7 +13060,7 @@ type RowRec = unknown[];
  * case, a tree placement's, an `if`'s kept branch's record), its binding `j` at `base[i] + 1 + j` (what it paints, a
  * text's value, an `if`'s value, a loop's rows); the row's item at 0. `size`: the record's length
  */
-type RowLayout = { base: number[]; size: number };
+type RowLayout = { base: number[]; size: number; fn?: ((sc: object) => unknown[]) | null; fnOf?: object };
 /** a template's row program's codes at their places (`progOf`), the names they see, and its key in `ROW_FACTORIES` */
 type RowParts = { names: string; codes: Array<string | undefined>; list: Array<[number, string]>; size: number; key?: { names: string; key: string } };
 const ROW_PARTS = new WeakMap<NodeDef[], RowParts>();

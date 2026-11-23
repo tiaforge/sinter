@@ -220,3 +220,27 @@ Test: a page reading two files, compiled twice and with `SN_FILE_COPY=0`: the sa
 A/B against change 3 (3 rounds): mail gen `fileConstants` 8.19 / 8.40 → 0.03 / 0.02 ms a pass (p25, passes 1 / 2),
 pass-2 `prerender` 8.77 → 0.27, `compile()` 173 / 182 / 291 → 155 / 172 / 269. Nothing else reads a `file:` value
 that large: the blog's list is a glob (frozen once already), the mail file's email is a string.
+
+### Merged `35bed5c` (the integration branch)
+
+Base for the byte comparisons from here on: `35bed5c` (the build outside the compiler, stage 5 A1 in units.ts and
+compile.ts). After the merge: every app, example and sinter-mail page byte for byte that base's; `render-audit` (also
+`--switch SN_UNITS`) and `pass-audit` the same; test/compiler 1,140 passed plain and under `SN_RENDER_AUDIT`,
+`SN_ONE_PASS_AUDIT`, `SN_LINK_AUDIT`, `SN_FROM_WALK_AUDIT`; under `SN_UNITS_AUDIT` the same 62 tests fail as on the base
+(they count compiles). sinter-mail's own suite (`mail-audit --suite`): `npm test` 234 passed, `npm run check` clean;
+`npm run typecheck` fails on `mail-width.ts` (`root`, `props`, `emit` not on its class) on the base as well: the
+checkout's, not this work's.
+
+### 5. A rendered loop's paints collected for the layout's bindings only; a row program for two values or more
+
+Measured after the merge, base against this branch (blog static, 7 rounds): `decideFor` p25 5.17 → 5.48 ms. The
+profile said why: on the blog the read-back of change 3 ran for every rendered loop (its `constB` is not empty: the
+images' attributes), 0.3 ms a page, and its row programs hold 1.25 values a call (816 values in 654 calls a page:
+small templates), where a function and an array cost about what they save. So: rendering, the walk collects the
+paints of `constB`'s bindings as it goes (`constB` is the program's, which the walk does not change: computed at the
+first paint the walk could collect, where it was computed at the first rendered loop before), and reads back from the
+records only for a loop the second pass compiles; a template with one value in its program has none (its value is its
+own call). The program of a template is found on its layout for the evaluation (`fnOf`), not in a map per row.
+
+blog static, 9 rounds, base `35bed5c` → this: `decideFor` 5.21 / 6.76 / 7.35 → 5.36 / 6.71 / 7.55 (the same within
+the rounds). mail gen against change 4 (3 rounds): pass-1 `prerender` 83.2 / 94.2 → 79.6 / 95.0.
