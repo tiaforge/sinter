@@ -353,3 +353,68 @@ data in the unit's order (`checkOrder`), else it is compiled again without units
 `SN_UNITS_AUDIT` no page differs (71 failures: tests that count compiles, links or rendered rows, and timeouts);
 `SN_RENDER_AUDIT` 1,055 passed; `SN_LINK_AUDIT` 1,042 and 13 timeouts that pass alone; `render-audit --switch
 SN_UNITS` every file the same; `mail-audit` 42 files the same, and the same with units off and on.
+
+## Where stage 4 stands, and what is left (for the review before the linker goes)
+
+### What the linker still covers that units do not
+
+Units place a first pass's definitions in builds. Everything else that compiles a shared definition still goes through
+`definition()`'s linker path (`opts.definitions`) or compiles in place:
+
+| case | units | linker today | measured where |
+| --- | --- | --- | --- |
+| the second pass's definitions (live instances that stay recursion points; sinter-mail's components route compiles the library again there and ships it) | no: the numbers ship there | records on the 2nd page, replays (25 to 30 ms a page on sinter-mail) | the components route; nothing else measured has live definitions in its second pass |
+| a first pass that is finished: no second pass (`prerender` off, nothing decided), `quietFinish` false (a signed-in guard, `data-sn-pages`, URL bindings, page models), a walk that takes the unit's names in another order under check | compiled again without units (counted, `a first pass that is finished`) | links | 0 pages of sinter-mail, the blog and the examples; most of the suite's pages (no `prerender`) |
+| a unit that is refused (an action, a fill id, a lazy import, a node id, a diagnostic, its page's file in its text, an object of its page in one of its own) | compiled in place, then compiled again | links what it can (refuses the same kinds) | none in the apps |
+| definitions not among the page's own recursion points and candidates (reached first from a fill's case after the walk, `finishTreeFills`) | compiled in place on each page | links | not counted yet |
+| `describeOnly` (the per-page description compiles, `describedDefinitions` past `LINK_DESCRIPTIONS`) | no (`describesNothing` leaves most out) | links | |
+| `<html data-sn-for>` templates (`keepTemplate`) | no | no (walked once per template already) | |
+| dev, `sinter check`, the editor | no | no | |
+
+So deleting the linker today would cost the components route its second-pass replay (it would compile the library
+there on every page again, about 225 ms CPU a page here) and every finished first pass its links. Plan step 6
+(second-pass units) is the precondition; the finished first passes cost only what they cost before the linker.
+
+### What deleting it removes, and what it must keep
+
+Units are made with the linker's recorder: `runUnit`, `Rec`, the logged wrappers, `readsHold`, `applyOps`,
+`LINK_FIELDS`/`UNIT_NUMBERING` and `unitChild` stay (or are replaced by a unit compiler with fresh tables, plan step
+2, whose equivalence the recorder's reads measure today). What goes:
+
+- `src/compiler/link.ts`: the plan (`keep`, `Plan`, `R`/`X`/`Line`/`FILE`, `replay`, `PageMaps`, `recordChild`), about
+  330 of its 881 lines; the rest moves to `units.ts` as the recorder.
+- `src/compiler/compile.ts`: `definition()`'s cache path and `defLink` (about 40 lines, 5063 to 5104), the
+  `definitions` option.
+- `src/vite.ts`: `definitions`, `describedDefinitions`, `LINK_DESCRIPTIONS`, `SN_NO_LINK` (13 lines that name them).
+- `src/compiler/index.ts`: `auditedLink`, `audited` (about 60 lines).
+- Tests: `link.test.ts`, `link-review.test.ts`, `-2` to `-5` (703 lines); `link-fields.test.ts` (45) stays while the
+  recorder classifies fields.
+- CI: the `link-audit` job (`.github/workflows/ci.yml`, lines 55 to 90).
+
+### The audit once `SN_LINK_AUDIT` is gone
+
+`SN_UNITS_AUDIT=1` (`src/compiler/index.ts`, `auditedUnits`): every compile again without units, where it makes a
+unit, where it places one, and placed under another name and in another folder, every field compared; it runs under
+check too (the type check's unit is a field). `SN_UNITS_VERIFY=1` beside it: every unit object's own values after every
+page (what a page changes and does not give back). It replaces the link audit's job in CI one for one; the link audit's
+rounds through one cache are what it does with units. What it does not do yet that the link audit did: compile pages
+of other shapes into one cache (the link-review scenarios); `test/compiler/units.test.ts` does that for eight shapes in
+both orders, plain and under check, and the link-review scenarios should be ported to it before they are deleted.
+
+### Plan steps left, as the coordinator ordered them
+
+2. **Second-pass units.** Where the names ship, a unit placed by sharing would have to survive `finishPage`, which
+   rewrites what a definition made (`anchors`, `shareTemplates`, `compactTables`, `groupStyles`, `checkUrlArrays`):
+   sharing there means copying, i.e. the linker's replay. What a second-pass unit can drop is the linker's key by the
+   page's whole numbering: on sinter-mail's 16 pages its pass-2 units have the same template count before them (4)
+   and differ in the function count, state and use ids only, which reach the output through the function table alone
+   (measurement 3). So: a pass-2 unit keyed by the template count, its function indices renumbered at placement by
+   replaying its hand-outs through the page's `fn()` (a typed renumbering of `Binding`/`TemplateDef`/`NodeDef` fields,
+   checked at creation with two bases). Gain: the 2nd page's recording and the extra recordings of differently
+   numbered pages, not the replay itself. Not started.
+3. **Check data once.** A unit's check part is copied into each page now (`unitCheck`: numbers offset, locations
+   renamed). To reference it instead, the check unit needs a form that holds a unit's part by reference with its
+   offsets (`{ unit, frameBase, exprBase, file }`) and `check()` (src/check/index.ts) has to lay a page's shadow out of
+   the parts it links: its `checkShared` already writes each repeated function once, so a unit's part can be one
+   shared block whose functions are numbered by the unit, not by the page. That changes `CheckUnit` and the shadow
+   writer: the type-check agent's code. Not started.
