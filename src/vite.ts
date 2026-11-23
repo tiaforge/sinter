@@ -962,7 +962,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     // the list's entries, its axes' entries and the SN340/SN341 errors are the walk's: a description's single pass
     // (`describeOnly`, nothing evaluated), not the page's two
     // (test/compiler/template-probe.test.ts)
-    const out = compile(html, { ...compileOptionsOf(p), file, dev, helpers: helpersOf(p.helpers), readFile: readVia(p), ...(dev ? {} : { globCache }), ...contentOpts(locale), describeOnly: true, ...(locale ? { locale: { name: locale, urls: null, base: resolved?.base ?? '/', ...(cpaths() ? { paths: cpaths()! } : {}) } } : {}), ...(vals.length ? { axes: vals } : {}) });
+    const out = compile(html, { ...compileOptionsOf(p), file, dev, helpers: helpersOf(p.helpers), readFile: readVia(p), ...(dev ? {} : { globCache, componentCache }), ...contentOpts(locale), describeOnly: true, ...(locale ? { locale: { name: locale, urls: null, base: resolved?.base ?? '/', ...(cpaths() ? { paths: cpaths()! } : {}) } } : {}), ...(vals.length ? { axes: vals } : {}) });
     const fatal = out.diagnostics.filter((d) => d.severity === 'error' && /^SN34[01]$/.test(d.code));
     if (fatal.length) throw new Error(`sinter: ${fatal.map(formatDiagnostic).join('\n')}`);
     const t = { pages: out.pages ?? null, axes: out.axes ?? null };
@@ -1126,7 +1126,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       if (kept) { described.set(file, kept); return kept; }
       try {
         // with the APIs and specs: what is requested ahead is the page's own request (its base, its configured shape)
-        const r = compile(readPage(file), { ...compileOptionsOf(p), file: v?.source ?? file, dev, helpers: helpersOf(p.helpers), readFile: readVia(p), ...(dev ? {} : { globCache, ...(entries().length >= LINK_DESCRIPTIONS ? { definitions: describedDefinitions } : {}) }), ...contentOpts(v?.locale), ...(v?.page ? { page: v.page } : {}), ...(v?.axes ? { axes: v.axes } : {}), describeOnly: true, ...(v?.locale ? { locale: { name: v.locale, urls: null, base: resolved?.base ?? '/', ...(cpaths() ? { paths: cpaths()! } : {}) } } : {}) });
+        const r = compile(readPage(file), { ...compileOptionsOf(p), file: v?.source ?? file, dev, helpers: helpersOf(p.helpers), readFile: readVia(p), ...(dev ? {} : { globCache, componentCache, ...(entries().length >= LINK_DESCRIPTIONS ? { definitions: describedDefinitions } : {}) }), ...contentOpts(v?.locale), ...(v?.page ? { page: v.page } : {}), ...(v?.axes ? { axes: v.axes } : {}), describeOnly: true, ...(v?.locale ? { locale: { name: v.locale, urls: null, base: resolved?.base ?? '/', ...(cpaths() ? { paths: cpaths()! } : {}) } } : {}) });
         described.set(file, { parts: r.prefetch, path: r.path, off: !!r.prefetchOff, keep: r.permanent ?? [], swapOff: !!r.swapOff, keptSource: r.keptSource ?? {}, keptBound: r.keptBound ?? [], effect: r.loadEffect ?? null });
         if (v?.page) entriesDescribed.set(`${v.source}\0${v.locale ?? ''}`, { page: v.page.path, d: described.get(file)! });
       } catch { described.set(file, { parts: null, path: [], off: false, keep: [], swapOff: true, keptSource: {}, keptBound: [], effect: 'it did not compile' }); }
@@ -1137,7 +1137,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   const describeSource = (source: string) => {
     if (!sourceDescribed.has(source)) {
       const p = proj();
-      try { sourceDescribed.set(source, compile(readFileSync(source, 'utf8'), { ...compileOptionsOf(p), file: source, dev, helpers: helpersOf(p.helpers), readFile: readVia(p), ...(dev ? {} : { globCache }), ...contentOpts() }).path); }
+      try { sourceDescribed.set(source, compile(readFileSync(source, 'utf8'), { ...compileOptionsOf(p), file: source, dev, helpers: helpersOf(p.helpers), readFile: readVia(p), ...(dev ? {} : { globCache, componentCache }), ...contentOpts() }).path); }
       catch { sourceDescribed.set(source, []); }
     }
     return { path: sourceDescribed.get(source)! };
@@ -1356,6 +1356,8 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   };
   /** builds: the `file:` lists already built (compile's `globCache`), cleared with the reads */
   const globCache: NonNullable<Parameters<typeof compile>[1]['globCache']> = new Map();
+  /** builds: the component files as read and kinded (compile's `componentCache`), cleared with the reads */
+  const componentCache = new Map<string, unknown>();
   /** builds: each `<html data-sn-for>` template's first pass, walked once for all its entries (compile's `templates`), cleared with the reads */
   const templates = new Map<string, unknown>();
   /** (docs/proposals/compile-once.md, (5)): builds: shared definitions, recorded on one page and linked into the next */
@@ -1467,7 +1469,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     const prefetch = prefetchData && prefetchPages(group).length ? prefetchId(group) : null;
     const out = compile(html, {
       ...pageOptions(p, file, url),
-      sourcemap: dev || !!resolved?.build.sourcemap, moduleSrc: `${PREFIX}${rel}.js`, ...(dev ? {} : { globCache, templates, ...(process.env.SN_NO_LINK ? {} : { definitions }) }), prefetch,
+      sourcemap: dev || !!resolved?.build.sourcemap, moduleSrc: `${PREFIX}${rel}.js`, ...(dev ? {} : { globCache, componentCache, templates, ...(process.env.SN_NO_LINK ? {} : { definitions }) }), prefetch,
       check: typecheckOn() && !dev,
       // a build: each distinct call that folds is run again at its end in a fresh copy of the module (fold-cross.ts)
       ...(helpersNow?.module && !dev ? { foldLog: (key: string, args: FoldArg[], result: string, id: number) => logFold(v?.page ? rel : relOf(src), key, args, result, id) } : {}),
@@ -1739,6 +1741,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       pagesCache = null;
       buildReads.clear();
       globCache.clear();
+      componentCache.clear();
       templates.clear();
       definitions.clear();
       describedDefinitions.clear();
