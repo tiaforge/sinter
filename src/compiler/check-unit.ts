@@ -16,8 +16,11 @@ export interface CheckLoc {
  * expression did not compile.
  */
 export type CheckFrame =
-  /** `locs[i]`: where `names[i]` is written in the literal */
-  | { kind: 'state'; names: string[]; init: number | null; locs?: CheckLoc[] }
+  /**
+   * `locs[i]`: where `names[i]` is written in the literal; `nested`: the object literals in the fields' initial
+   * values, as the mask of the check's `State<T, M>` (a type literal: `{ "form": { "items": [{}] } }`)
+   */
+  | { kind: 'state'; names: string[]; init: number | null; locs?: CheckLoc[]; nested?: string }
   /** `loc`, `indexLoc`: where the item and index names are written */
   | { kind: 'loop'; item: string; index: string | null; init: number | null; loc?: CheckLoc; indexLoc?: CheckLoc }
   /** a `data-sn-let` name; `loc`: where the name is written; `waits`: it calls a helper of a lazy module, so it is `T | undefined` */

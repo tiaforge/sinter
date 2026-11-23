@@ -158,3 +158,55 @@ ${body}
     rmSync(root, { recursive: true, force: true });
   }
 }, 60_000);
+
+test('under a strict tsconfig, a page\'s state field that starts as `null` or `[]` inside a nested object literal takes what is assigned later; one typed where it is written keeps its type (SN208)', () => {
+  const root = app({
+    'package.json': '{"type":"module"}',
+    'node_modules/.keep': '',
+    'tsconfig.json': JSON.stringify({ compilerOptions: { strict: true, target: 'ESNext', module: 'ESNext', moduleResolution: 'bundler', lib: ['ESNext', 'DOM'] }, include: ['src'] }),
+    'src/sinter.types.ts': 'export interface Contact { id: number; name: string }\n',
+    'index.html': `<!doctype html><html><head><title>t</title></head><body>
+<div data-sn-state="{ form: { error: null, tags: [], rows: [{ note: null }], who: /** @type {Contact | null} */ (null) } }">
+  <button data-sn-on-click="form.error = 'bad'; form.tags = ['a']; form.rows[0].note = 'n'"></button>
+  <p data-sn-text="form.who.name"></p>
+</div>
+</body></html>
+`,
+  });
+  try {
+    const r = check(root);
+    expect(r.stdout).toMatch(/index\.html:4:20 error SN208[^\n]*'form\.who' is possibly 'null'/);
+    expect(r.stdout.match(/ SN208 /g)).toHaveLength(1);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}, 60_000);
+
+test('under a strict tsconfig, a component\'s prop given `undefined` must be optional: `at: last?.tick` for `at: number` is an error, an optional prop takes it (SN208)', () => {
+  const page = (at: string) => `<!doctype html><html><head><title>t</title></head><body>
+<sn-resource name="samples" src="/api/samples" type="Sample[]"></sn-resource>
+<div data-sn-let="{ last: samples.find((s) => s.tick > 0) }">
+  <spark-line data-sn-with="{ at: ${at}, label: last?.name }"></spark-line>
+</div>
+</body></html>
+`;
+  const root = app({
+    'package.json': '{"type":"module"}',
+    'node_modules/.keep': '',
+    'tsconfig.json': JSON.stringify({ compilerOptions: { strict: true, target: 'ESNext', module: 'ESNext', moduleResolution: 'bundler', lib: ['ESNext', 'DOM'] }, include: ['src'] }),
+    'src/sinter.types.ts': 'export interface Sample { tick: number; name: string }\n',
+    'src/components/spark-line.html': '<template data-sn-props="{ at: number; label?: string }"><p data-sn-text="at + (label ?? \'\')"></p></template>\n',
+    'index.html': page('last?.tick'),
+  });
+  try {
+    const r = check(root);
+    expect(r.stdout).toMatch(/index\.html:4:\d+ error SN208[^\n]*Type 'number \| undefined' is not assignable to type 'number'/);
+    expect(r.stdout.match(/ SN208 /g)).toHaveLength(1);
+    expect(r.status).toBe(1);
+    writeFileSync(join(root, 'index.html'), page('last?.tick ?? 0'));
+    const ok = check(root);
+    expect(ok.stdout + ok.stderr).not.toContain('SN208');
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}, 60_000);
