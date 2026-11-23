@@ -163,3 +163,65 @@ pages are pages of their own (no template), so none takes the route.
 
 Second passes over the whole suite by route (`SN_PASS_STATS`): `a page of its own` 1,893, `an entry, no kept
 templates` 48, `kept` 46, `an entry compiled alone` 21, `off` 15 (one-pass.test.ts's own).
+
+### Tried and not taken: a page of its own from its first pass's expansion
+
+The same copy serves any page compiled twice: its second pass's expansion is its first pass's. `compilePasses` copied
+the first pass after `expandPage` and the second pass went on from the copy (taken as it is, used once). Over the
+suite under `SN_ONE_PASS_AUDIT=1` every one of 472 second passes took it and was the same. But a page of its own copies
+once and without a listing, so it pays the lookup of every object in every weak table: for a page file of the
+benchmark 0.7 to 1.0 ms, against 1.1 to 1.3 ms of expansion saved (CPU clock, 3 rounds A/B: second pass 4.1 to 4.7 →
+3.2 plus the copy 0.7 to 1.0; `compile()` 23.6 to 25.5 → 24.3 to 29.1 at a load of 20 to 28). Within the noise, and a
+page with nothing decided pays the copy for nothing, so it is not committed (a copy of the code: `/tmp/claude-0/-home-user-sinter/07fc153f-c046-5b94-a69d-9a6973727684/scratchpad/stage3-agent/compile.change4.ts`, until the scratch space is cleared). A copy that knew which tables a node can be in (most are keyed by nodes, a few by `Use`,
+`NodeDef`, `Binding` or fill chains) would cost about a third; that is the step that would make it pay.
+
+## A page file per post: fewer than three walks (not done)
+
+A page file is compiled three times: its description (`describeOnly`, vite's `describe`), and the page's two passes.
+What blocks reading the description off the real compile's first pass, as `templates` keeps a template's:
+
+- **The order.** Every page's compile needs every page's description first (pipeline-fixes.md, "The description per
+  page"): whether the module imports the prefetch module, the Speculation Rules, links resolved against every page's
+  patterns. vite describes all pages at the first page's compile (`appPages()`, `pageEntries()`). Keeping each page's
+  first pass from then until its own compile holds 100 walked compilers (each with the library's 65 definitions
+  compiled into it); or the cross-page parts become placeholders filled in `generateBundle`, which is a change of the
+  build pipeline in `src/vite.ts` and of what the compiler writes, not of the passes.
+- **Not the same compile.** A description is one pass that evaluates nothing and leaves out the definitions that
+  describe nothing (`describesNothing`): its expansion is not the first pass's, so it cannot be kept for it either,
+  and its fields (`prefetch`, `path`, `permanent`, `keptSource`, `keptBound`, `swapOff`, `loadEffect`) come from its
+  own `finishPage`, where the build's come from the second pass. That they agree is not established; an audit like
+  the template probe's (pipeline-fixes.md, section 3) would have to show it over the suite and the apps first.
+- What did help page files here: change 2 (the description and both passes parse the page once), change 1 (their
+  second pass's minifier).
+
+## What is left before the second pass can be deleted
+
+- A template's entry still walks its page's own markup in a second pass (`walkExpanded`: the splice, the minifier
+  over the block, the layout, the walk of a dozen elements, `finishPage`), about 2.3 ms plus the copy; a page of its
+  own walks its page twice. Deleting the second pass needs the first pass's walk to be the page's, with the
+  decisions applied to its result: the analysis above says what that means (a decided branch's content compiled as
+  page markup, not as a template; `data-sn` ids handed out after the blocks; the dropped definitions and templates
+  compacted, which `compactTables` does for functions and templates only). That is assembly (compile-units.md, item
+  5): numbers handed out once, at the end. It needs the walk to compile a branch's content before knowing whether it
+  is a template's or the page's, which is stage 5's per-unit compile, not something stage 3 can patch in.
+- Until then the route is a cost saving, and its fallbacks are what the second pass still does on its own: `a page of
+  its own` (every page that is not a template's entry: 1,893 second passes over the suite, every page file of the
+  benchmark, every page of the examples and of sinter-mail).
+
+## Where it stands (`6c96a7a`)
+
+CPU clock, median of 3 rounds A/B against `650f0e7`, ms a page; the second pass whole (`run` before; `secondPass`,
+the copy included, for a template's entries after), load average 21 to 28 during the rounds:
+
+| | static | live | static-files | live-files | static, type check |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| second pass | 6.2 → 4.3 | 8.3 → 6.4 | 5.9 → 4.3 | 7.1 → 5.5 | 6.8 → 3.8 |
+| of it the minifier | 2.2 → 1.0 | 2.3 → 1.0 | 1.9 → 0.7 | 2.2 → 0.7 | 2.4 → 0.6 |
+| of it the copy | – → 0.6 | – → 0.9 | – | – | – → 0.5 |
+| `compile()`, build | 16.7 → 15.7 | 19.8 → 17.6 | 25.7 → 26.5 | 27.6 → 26.4 | 18.3 → 14.4 |
+| first pass's evaluation (`decideFor`, `settle`) | 9.0 → 10.4 | 10.0 → 10.0 | 10.7 → 12.3 | 10.3 → 10.9 | 9.7 → 8.9 |
+
+(The evaluation is not changed by any of this; its rows say how much a phase moves from one round to the next at this
+load.) Whole builds (`run-sinter.mjs`, 3 rounds back to back, base and now): at a load of 21 to 28 a build of the same
+`dist/` took 7.5 s in one round and 16.2 s in the next, so they say nothing here; the CPU-clock tables are the
+measurement.
