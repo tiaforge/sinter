@@ -1148,9 +1148,10 @@ function compilePasses(html: string, options: CompileOptions): CompiledParts & {
   const twice = !!options.prerender && !options.decided && !options.unrolled;
   // a second pass whatever the rest of the first one does: nothing of that rest is read (its markup, its tables, its
   // diagnostics), so the first stops at its decisions. Known only when the rest cannot report an error (`quietFinish`)
-  if (twice && !first.check && first.quietFinish()) {
+  // (the type check reads the first pass's unit, below: the walk made all of it, `finishPage` adds nothing to it)
+  if (twice && first.quietFinish()) {
     const out = second(isClean());
-    if (out) return out;
+    if (out) return first.check ? { ...out, check: first.check } : out;
   }
   const out = first.finishPage(walk, true);
   // `data-sn-if` templates over state nothing writes: decided now, the page compiled again with their branches in place

@@ -81,6 +81,20 @@ sinter-mail without TypeScript: 3.1 s warm. Its 12 pages have 56,916 functions, 
 page-level ones come from the shared module. The bench is `scratchpad/typecheck-agent/mail-bench.mjs <route>
 <pages> ts` (test/app.ts's `app()`, `sinter({ libraries })`, TypeScript linked into the app, cold then warm).
 
+### 2. The first pass stops at its decisions under check too (`compilePasses`)
+
+With a second pass to follow, the first pass stopped after its decisions (`quietFinish`) except when the page was
+type-checked: the check unit was taken from `finishPage`'s result. `finishPage` adds nothing to the unit (the walk
+records every expression; `runTargets` runs in the walk), so the unit is taken from the first pass where it stops.
+Checked by an assertion, over the whole suite, the corpus, the blog bench, sinter-mail's three routes and the four
+examples: `finishPage` never changed a check unit (`JSON` before and after). 12.8 ms a page on the files variant
+(`finishPage`, with `shareTemplates`, `earlyParts`, `anchors`).
+
+| median of 3, interleaved (load 4 to 9) | before | after |
+|---|---:|---:|
+| blog, a page file per post, check on: wall | 8.80 s | 8.17 s |
+| the same, CPU (user + sys, `tsc` included) | 14.5 s | 13.6 s |
+
 ## The diagnostics corpus
 
 `scratchpad/typecheck-agent/corpus/` (`gen.mjs` writes the apps, `run.mjs <out>` builds each and runs `sinter
