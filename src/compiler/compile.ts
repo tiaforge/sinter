@@ -1669,6 +1669,10 @@ class Compiler {
     // the second pass: bindings the first found constant for good, written before the layout and the images read the markup
     if (this.opts.constants?.size) this.prefold(doc);
     const sheets = this.opts.styles ?? this.opts.images?.styles;
+    // rendered rows, as the markup they stand for to the minifier, the layout and the images: the bindings the old
+    // route still has there, not their paint (`SHOWN`); painted again before `declare`
+    const painted = this.renderedShown.map((e) => e.attrs);
+    for (const e of this.renderedShown) e.attrs = SHOWN.get(e)!;
     // builds: comments and white space that show nothing out, before anything counts nodes (docs/minify.md)
     if (this.opts.minify) this.minify(doc);
     // rendered rows' empty texts: elements to the minifier (`WRITTEN`), nothing in the page
@@ -1688,6 +1692,7 @@ class Compiler {
       // the first pass, rows rendered: a template's image as it was, which the rows it renders stand for (`rowRenderer`)
       ...(this.keepsAttrs ? { rewrote: (el: P5Element, before: P5Element['attrs']) => REWROTE.set(el, before) } : {}),
     }) : undefined;
+    this.renderedShown.forEach((e, i) => { e.attrs = painted[i]!; });
     this.declare(doc);
     const paths = this.pathPatterns(doc);
     this.pathList = paths;
@@ -8468,10 +8473,8 @@ class Compiler {
    */
   rowRenderer(handlerOnly: (b: Binding) => boolean, ROW: Set<string>, placementOf: Map<NodeDef, Compiler['runtimePlacements'][number]>):
     (key: string, p: { items: unknown[]; found: { recs?: RowRec[]; rows: number }; pick?: true; tid?: number; el: P5Element }) => RenderedRows | null {
-    // what reads the rows' markup before the second pass compiles them: the layout and the minifier's (stylesheets), the
-    // images, scoped styles (their marks)
-    const sheets = [...(this.opts.styles ?? this.opts.images?.styles ?? []), ...((typeof this.opts.minify === 'object' ? this.opts.minify.styles : undefined) ?? [])];
-    const page = sheets.length ? 'layout' : [...this.componentFiles.values()].some((f) => f?.css) ? 'styled' : null;
+    // what marks the rows' markup after the walk: scoped styles (`data-sn-c`/`-r`/`-s`)
+    const page =[...this.componentFiles.values()].some((f) => f?.css) ? 'styled' : null;
     const tplOf = new Map<number, P5Template>();
     for (const [node, el] of this.anchorEls) {
       if (this.pointOf.has(node) || placementOf.has(node)) continue;
@@ -8480,13 +8483,26 @@ class Compiler {
     const contentOf = (tid: number) => (this.headTemplates.get(tid) ?? tplOf.get(tid))?.content;
     const anchors = new Set<P5Node>(this.anchorEls.values());
     const defAttr = new Set<Binding>([...this.defAttrs.values()].flatMap((m) => [...m.values()]));
-    let sources: Map<NodeDef, Compiler['attrSources']> | null = null;
-    /** the value attributes of each node, the bindings each made (`attrSources`) */
-    const sourcesOf = () => {
-      if (sources) return sources;
-      sources = new Map();
-      for (const s of this.attrSources) { let l = sources.get(s.node); if (!l) sources.set(s.node, l = []); l.push(s); }
-      return sources;
+    let folds: Map<NodeDef, Compiler['attrSources'] | null> | null = null;
+    /**
+     * the value attributes of each node that the second pass writes before the layout and the images (`prefold`: the
+     * constants `collectConstants` collects, an image's own and a class or style the layout reads); null: one whose key
+     * two attributes share (the first pass keeps neither)
+     */
+    const foldsOf = () => {
+      if (folds) return folds;
+      folds = new Map();
+      const keys = new Map<string, number>();
+      const list = this.constantSources().filter((x) => FOLDED.includes(x.s.attr));
+      for (const { key } of list) keys.set(key, (keys.get(key) ?? 0) + 1);
+      for (const { s, key } of list) {
+        let l = folds.get(s.node);
+        if (l === null) continue;
+        if (keys.get(key)! > 1) { folds.set(s.node, null); continue; }
+        if (!l) folds.set(s.node, l = []);
+        l.push(s);
+      }
+      return folds;
     };
     // links: what the build sees of them (same-page links, a pager's query) is read where the page reads its URL
     const links = !!this.opts.axisLists?.length || this.fns.some((c) => c.includes('$url'));
@@ -8609,16 +8625,13 @@ class Compiler {
         fill(t!.nodes, map, rec!);
         return frag.childNodes as P5Node[];
       };
-      /** an image's bindings in the order `prefold` writes them (its own attributes', then its tag's, each in `FOLDED` order), or null: not an image the pipeline reads */
-      const imgSources = (el: P5Element, n: NodeDef): Binding[] | null => {
-        if (!this.opts.images || el.tagName !== 'img') return null;
-        const list = sourcesOf().get(n) ?? [];
+      /** the attributes `prefold` writes on the element, in its order (its own attributes', then its tag's, each in `FOLDED` order) */
+      const foldOf = (el: P5Element, n: NodeDef): Compiler['attrSources'] => {
+        const list = foldsOf().get(n);
+        if (list === null) no('constants');
+        if (!list) return [];
         const own = (s: (typeof list)[number]) => (s.src === el ? 0 : 1);
-        const sorted = [...list].sort((a, b) => own(a) - own(b) || FOLDED.indexOf(a.attr) - FOLDED.indexOf(b.attr));
-        const out = sorted.flatMap((s) => s.bindings);
-        // (each binding folded: from a value attribute, not reported on, with a key; nothing else on it)
-        if (sorted.some((s) => !FOLDED.includes(s.attr) || s.noted || !this.constKey(s.src, s.attr)) || n.b.some((b) => !defAttr.has(b) && !out.includes(b))) no('images');
-        return out;
+        return [...list].sort((a, b) => own(a) - own(b) || FOLDED.indexOf(a.attr) - FOLDED.indexOf(b.attr));
       };
       const fill = (nodes: NodeDef[], map: Map<P5Node, P5Node>, rec: RowRec) => {
         for (const n of nodes) {
@@ -8670,11 +8683,35 @@ class Compiler {
           const el = this.tplEls.get(n), cl = el && map.get(el) as P5Element | undefined;
           if (!el || !cl) no('markup');
           let bound = false;
-          // an image the image pipeline reads (`images`): the second pass folds its bindings before (`prefold`), in
-          // that order, and it keeps none; one it would not fold stays the old route's
-          const img = imgSources(el!, n);
-          for (const b of img ?? n.b) {
-            if (defAttr.has(b) || b.k === 'else') continue;
+          const paint = (b: Binding) => {
+            if (handlerOnly(b)) no('handler');
+            if (!ROW.has(b.k)) no(`a binding of kind ${b.k}`);
+            const w = rec.get(b) as ConstantWrite | null | undefined;
+            if (w === undefined) no('not painted');
+            if (w === null) no('not written ahead');
+            if (w!.k === 'text') WRITTEN.set(cl!, 'content');
+            writeFirstPaint(cl!, w!.k, w!.n, w!.v);
+            read(b.d);
+          };
+          // what the second pass writes before the layout and the images (`prefold`: an image's attributes, a class or
+          // style the layout reads): first, in its order; the element then has only the others' bindings (and an id only
+          // for them), and the layout, the images and the minifier read those as bindings (`SHOWN`)
+          const fold = foldOf(el!, n), folded = new Set(fold.flatMap((x) => x.bindings));
+          for (const x of fold) for (const b of x.bindings) {
+            paint(b);
+            // (a `src` written there is the page's: `foldedUrl`)
+            if (cl!.tagName === 'img' && x.attr === 'data-sn-attr' && (b.n === 'src' || b.n === 'srcset')) RENDERED_FILE.set(cl!, this.opts.file);
+          }
+          if (fold.length) {
+            const pre = this.snAttrs.get(el!) ?? [], gone = new Set(fold.filter((x) => x.src === el).map((x) => x.attr));
+            const left = pre.filter((a) => a.name.startsWith('data-sn-') && !KEPT_ATTRS.has(a.name) && !gone.has(a.name));
+            if (left.length) SHOWN.set(cl!, [...cl!.attrs.map((a) => ({ ...a })), ...left]); else SHOWN.delete(cl!);
+            // a component's root whose tag's bindings are all written there: the minifier reads it as it is
+            const host = this.useOf.get(el!)?.host, hostGone = new Set(fold.filter((x) => x.src !== el).map((x) => x.attr));
+            if (WRITTEN.get(cl!) === 'opaque' && host && !host.attrs.some((a) => /^data-sn-(class|style|show|attr)$/.test(a.name) && !hostGone.has(a.name))) WRITTEN.delete(cl!);
+          }
+          for (const b of n.b) {
+            if (defAttr.has(b) || b.k === 'else' || folded.has(b)) continue;
             if (b.k === 'if') {
               const v = rec.get(b) as boolean | undefined;
               if (v === undefined || b.x === undefined) no('if');
@@ -8698,20 +8735,10 @@ class Compiler {
               replace(cl, cl, out);
               continue;
             }
-            if (handlerOnly(b)) no('handler');
-            if (!ROW.has(b.k)) no(`a binding of kind ${b.k}`);
-            const w = rec.get(b) as ConstantWrite | null | undefined;
-            if (w === undefined) no('not painted');
-            if (w === null) no('not written ahead');
-            // (a build minifies the markup the walk compiles: what its layout reads of an element a binding may change, it
-            // reads as changing; the rendered value would be read as it is)
-            if (w!.k === 'text') WRITTEN.set(cl!, 'content');
-            writeFirstPaint(cl!, w!.k, w!.n, w!.v);
-            if (img && w!.k === 'attr' && (w!.n === 'src' || w!.n === 'srcset')) RENDERED_FILE.set(cl!, this.opts.file);
-            read(b.d);
+            paint(b);
             bound = true;
           }
-          if (bound && !img) st.ids++;
+          if (bound) st.ids++;
         }
       };
       try {
@@ -8731,7 +8758,7 @@ class Compiler {
         if ((st.ids || list) && !nodes.some(isElement)) no('no element');
         renderStat(null, p.found.rows);
         // (an empty text stays until the second pass has minified the rows: it was an element there, `WRITTEN`)
-        return { nodes, empty, shown, ids: st.ids, list, folded: st.folded, files: [...st.files], reads: [...st.reads], rows: p.found.rows };
+        return { nodes, empty, shown: shown.filter((e) => SHOWN.has(e)), ids: st.ids, list, folded: st.folded, files: [...st.files], reads: [...st.reads], rows: p.found.rows };
       } catch (e) {
         if (!(e instanceof NoRender)) throw e;
         renderStat(e.why, p.found.rows);
@@ -8828,15 +8855,7 @@ class Compiler {
     };
     scan(doc);
     const scoped = new Set([...this.componentFiles.values()].filter((f) => f?.css).map((f) => f!.file));
-    // rendered rows, as the markup they stand for: their elements' bindings, not their paint (`SHOWN`)
-    const painted = this.renderedShown.map((e) => e.attrs);
-    for (const e of this.renderedShown) e.attrs = SHOWN.get(e)!;
-    try {
-      this.minifyWith(doc, styles && !remote ? new Layout(styles, doc, this.layoutOptions()) : null, scoped);
-    } finally { this.renderedShown.forEach((e, i) => { e.attrs = painted[i]!; }); }
-  }
-
-  private minifyWith(doc: P5Parent, layout: Layout | null, scoped: Set<string>) {
+    const layout = styles && !remote ? new Layout(styles, doc, this.layoutOptions()) : null;
     minifyMarkup(doc, {
       layout,
       opaque: (el) => {

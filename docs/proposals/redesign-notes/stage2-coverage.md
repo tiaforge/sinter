@@ -84,3 +84,35 @@ A static `<img src>` in a row is rewritten there too, from the component file it
 **Coverage.** sinter-mail: 4 → 9 loops (640 → 1,355 rows) rendered; left: `fill` (1 loop, 255 rows: `file-fills`).
 Benchmark and examples unchanged (no images in their rows; the examples fall back on `layout` first).
 `file-static`, `file-newsletter`, `file-all` together: 5.7 s off, 4.3 s on (one build each, Vite included).
+
+## `layout`: a page with stylesheets
+
+**What the old route does, phase by phase** (pass 2, `walkPage`, on the unrolled rows):
+
+| phase | what it reads of a row element |
+| --- | --- |
+| `prefold` | writes the constants the first pass collected for the rows (`collectConstants`: every `data-sn-style`, a `data-sn-class` some selector names, an image's attributes), per row (`prefix + constKey`), in its order, and removes those attributes; an element left with no binding takes no `data-sn` id in the walk |
+| `minify` | its own layout (the minifier's or the page's stylesheets) over the attributes then: the folded ones written, the other bindings' `data-sn-*` as written, nothing else painted |
+| `new Layout`, `planSpace`, (`snapshot`/dry run: pass 1 only) | the same attributes (the cascade, `data-sn-show`, `data-sn-attr` keys, inline styles; `\0dynamic` for an unfolded `data-sn-style`) |
+| `rewriteImages` | the same, and the boxes the layout gives |
+| the walk, `prerender` | compiles the rest and paints it after the walk, in binding order |
+
+**What stage 1 did.** Fell back whenever the page had stylesheets.
+
+**Now.** The block presents itself to those phases as the old route's rows:
+- the folded attributes (the `constantSources` entries of the element's node, `foldsOf`; a key two entries share is
+  `constants`, a fallback, since the first pass would drop it) are painted first, in `prefold`'s order (the element's
+  own attributes, then its tag's, each in `FOLDED` order), and count no id;
+- an element left with other bindings gets as `SHOWN` its attributes then plus its remaining `data-sn-*` (from
+  `snAttrs`), and its other paints after;
+- pass 2 swaps `SHOWN` in from before `minify` to after `rewriteImages` (the minifier, the layout, the space plan and
+  the image pipeline read it), and back before `declare`;
+- a component root whose tag's bindings are all folded is no longer `opaque` to the minifier (`prefold` took them off
+  the tag).
+
+The image fold of the previous step is this one's special case (an image folds all its value attributes).
+
+**Coverage.** The examples' loops move to the next reason, `styled` (static-site 9 / 87, multilingual-site 8 / 32);
+benchmark and sinter-mail unchanged (no stylesheets: 100 loops each; 9 loops, 1,355 rows). New cases: classes a
+selector names and styles beside other bindings, under the minifier, beside a live list's space plan; images sized by
+the stylesheets.

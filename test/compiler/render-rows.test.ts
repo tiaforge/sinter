@@ -152,6 +152,32 @@ describe('rendered rows: the same page as compiled rows, without compiling them'
     expect(r.spliced).toBe(1);
   });
 
+  describe('a page with stylesheets: the layout, the space plan and the minifier read the rows as the old route has them', () => {
+    const css = (text: string) => ({ styles: [{ css: text, file: '/p/a.css' }] }) as never as Partial<CompileOptions>;
+    const sheet = '.wide { display: grid; grid-template-columns: repeat(3, 1fr) } .grid { display: grid; grid-template-columns: repeat(auto-fill, 200px) } li { display: block } .on { white-space: pre } p { max-width: 600px }';
+
+    test('plain rows', () => {
+      const r = both('<ul><template data-sn-for="x in [1, 2]"><li data-sn-text="x"></li></template></ul>', css('li { display: block }'));
+      expect(r.spliced).toBe(1);
+    });
+
+    test('a class a selector names and a style: written before the layout (`prefold`), the element left with its other bindings', () => {
+      const r = both(`<div data-sn-state="{ n: 0 }"><template data-sn-for="x in [{ w: true, t: 'a' }, { w: false, t: 'b' }]">
+  <section data-sn-class="{ wide: x.w, plain: !x.w }" data-sn-attr="{ title: x.t }" data-sn-style="{ color: x.w ? 'red' : null }"> <i data-sn-text="x.t"></i> </section>
+  <p class="k" data-sn-class="{ on: x.w }"> <x-badge data-sn-with="{ on: x.w, label: x.t }"></x-badge>  </p>
+</template><ul class="grid"><template data-sn-for="k in [n]"><li data-sn-text="k"></li></template></ul><b data-sn-text="n"></b><button data-sn-on-click="n++">+</button></div>`, { ...css(sheet), minify: true } as Partial<CompileOptions>);
+      expect(r.spliced).toBe(1);
+      expect(r.why).toEqual([]);
+      expect(r.body).toContain('<section class="wide" style="color: red" title="a">');
+    });
+
+    test('images in rows, sized by the stylesheets', () => {
+      const r = both('<div class="grid"><template data-sn-for="x in [\'img/a.jpg\', \'img/a.jpg\']"><figure><img alt="" data-sn-attr="{ src: x }" data-sn-class="{ wide: false }"></figure></template></div>', { images: { ...host, styles: [{ css: sheet, file: '/p/a.css' }] }, ...css(sheet) } as Partial<CompileOptions>);
+      expect(r.spliced).toBe(1);
+      expect(r.body).toContain('sizes=');
+    });
+  });
+
   test('the ids of what follows the rows are those the compiled rows leave', () => {
     const r = both('<template data-sn-for="x in [1, 2]"><i data-sn-text="x"></i><template data-sn-text="x"></template></template><div data-sn-state="{ n: 0 }"><button data-sn-on-click="n++" data-sn-text="n"></button></div>');
     expect(r.spliced).toBe(1);
@@ -223,12 +249,6 @@ describe('rows left to the second pass, as before', () => {
     const r = both('<x-doc data-sn-with="{ doc }"><a slot="link" class="L" data-sn-attr="{ href: $slot.url }">link</a></x-doc>');
     expect(r.spliced).toBe(0);
     expect(r.why).toContain('fill');
-  });
-
-  test('a page with a layout (its stylesheets read the rows before they are compiled)', () => {
-    const r = both('<ul><template data-sn-for="x in [1, 2]"><li data-sn-text="x"></li></template></ul>', { styles: [{ css: 'li { display: block }', file: '/p/a.css' }] as never });
-    expect(r.spliced).toBe(0);
-    expect(r.why).toContain('layout');
   });
 
   test('dev builds: never rendered (their function table keeps what the rows compiled)', () => {
