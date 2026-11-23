@@ -1552,29 +1552,27 @@ function compileTwice(html: string, options: CompileOptions, pass: { first: Comp
   if (twice && fromWalk) {
     const quiet = first.quietFinish() && (!first.placedUnit || first.checkOrder);
     const loops = first.unrolls.size > 0, consts = first.constants.size > 0;
-    // (with no loop unrolled and no constant, a clean first pass decides as one with errors: `nextOptions`)
-    const next = !loops && !consts && !first.needsMarkup ? nextOptions(true) : null;
+    // (a loop unrolled only in a clean first pass, which a first pass that is not quiet knows once it is finished)
+    const next = !consts && !first.needsMarkup && (!loops || quiet) ? nextOptions(isClean()) : null;
     if (next) {
-      const check = first.check;
+      // (the type check reads the first pass's unit as its walk made it: its lists' lengths before the walk is taken on,
+      // which only adds to them)
+      const check = first.check, lens = check && [check.frames.length, check.exprs.length, check.resources.length];
       const r = first.fromWalk(next);
       fromWalkStat(r?.why ?? null);
-      if (!r) {
-        const out = first.finishPage(walk);
-        if (proc?.env.SN_FROM_WALK_AUDIT === '1') fromWalkAudit(html, options, out, true);
-        return check ? { ...out, check } : out;
+      if (check && r?.spent !== false) { check.frames.length = lens![0]!; check.exprs.length = lens![1]!; check.resources.length = lens![2]!; }
+      if (!r || r.spent || quiet) {
+        const got = !r ? first.finishPage(walk) : run(next), out = check ? { ...got, check } : got;
+        if (proc?.env.SN_FROM_WALK_AUDIT === '1') fromWalkAudit(html, options, out, !r);
+        return out;
       }
-      if (r.spent || quiet) {
-        const out = run(next);
-        if (proc?.env.SN_FROM_WALK_AUDIT === '1') fromWalkAudit(html, options, out, false);
-        return check ? { ...out, check } : out;
-      }
-    } else fromWalkStat(first.needsMarkup || consts ? 'constants the layout or the images read (prefold)' : loops ? 'a loop unrolled' : 'nothing decided');
+    } else fromWalkStat(first.needsMarkup || consts ? 'constants the layout or the images read (prefold)' : loops ? 'a loop unrolled on a page that is not quiet' : 'nothing decided');
     if (!quiet || first.needsMarkup || !nextOptions(isClean())) first.settleAgain();
   }
   if (twice && first.quietFinish() && (!first.placedUnit || first.checkOrder)) {
-    const out = counted(second(isClean()));
+    const got = counted(second(isClean())), out = got && first.check ? { ...got, check: first.check } : got;
     if (out && fromWalk && proc?.env.SN_FROM_WALK_AUDIT === '1') fromWalkAudit(html, options, out, false);
-    if (out) return first.check ? { ...out, check: first.check } : out;
+    if (out) return out;
   }
   // a first pass that is finished (its output, or its diagnostics read): compiled again without the build's units, whose
   // objects it shares and whose numbers would then reach the output (`units.ts`)
@@ -2407,7 +2405,7 @@ class Compiler {
 
   /**
    * B1: whether the evaluation may decide a page-level branch the walk recorded (`prerender`'s candidates: a condition
-   * over constants and state nothing writes, or `$build`), so that the second pass may come from this walk
+   * over constants and state nothing writes, or `$build`) or render a loop, so that the second pass may come from this walk
    */
   fwPlausible(): boolean {
     if (!this.fw?.anchors.length || !this.opts.prerender) return false;
@@ -2418,7 +2416,8 @@ class Compiler {
       const m = /^\$s(\d+)\.([^.]+)/.exec(d);
       return !!m && m[2] !== '*' && m[2] !== '**' && !written.has(`$s${m[1]}`) && !written.has(`$s${m[1]}.${m[2]}`);
     });
-    return this.fw.anchors.some((a) => a.kind === 'if' && a.node?.b.some((b) => b.k === 'if' && b.f !== undefined && (fixed(b.d) || this.fns[b.f]!.includes('$.$build'))));
+    // (or a loop over constants, which it may render)
+    return this.fw.anchors.some((a) => a.node?.b.some((b) => b.f !== undefined && (b.k === 'if' ? fixed(b.d) || this.fns[b.f]!.includes('$.$build') : b.k === 'for' && !b.e && fixed(b.d))));
   }
 
   /**
@@ -10661,14 +10660,13 @@ class Compiler {
 
   /** the walk is at a page-level `<template>` (`walkChildren`): a branch or a loop is recorded, its markup as it is before its walk */
   fwStart(el: P5Element, ctx: Ctx): FwAnchor | null {
-    // (a loop: not yet, `fromWalk` takes no page with a loop unrolled)
-    const kind: FwAnchor['kind'] | null = attr(el, 'data-sn-for') !== undefined ? null : attr(el, 'data-sn-if') !== undefined ? 'if' : attr(el, 'data-sn-else') !== undefined ? 'else' : null;
+    const kind: FwAnchor['kind'] | null = attr(el, 'data-sn-for') !== undefined ? 'for' : attr(el, 'data-sn-if') !== undefined ? 'if' : attr(el, 'data-sn-else') !== undefined ? 'else' : null;
     if (!kind) return null;
     const unused: string[] = [];
     for (const r of this.page.resources.values()) if (!r.used) unused.push(r.name);
     const a: FwAnchor = {
       el, kind, elseIf: kind === 'if' && attr(el, 'data-sn-else') !== undefined, ctx, node: null,
-      snap: snapTree((el as P5Template).content), marks: this.fwMarks(),
+      snap: kind === 'for' ? null : snapTree((el as P5Template).content), marks: this.fwMarks(),
       d0: this.diagnostics.length, d1: 0, f0: this.fns.length, uses: new Map(), added: new Map(), changed: [], used: unused, p0: this.paints.length,
     };
     FW_COUNTING = a.uses;
@@ -10713,14 +10711,33 @@ class Compiler {
     if (this.placedUnit || this.earlyDefs) return no('a unit placed');
     if (next.constants?.size) return no('constants the layout or the images read (prefold)');
     if (next.overLimit?.size) return no('over the expansion limit');
-    if (this.rendered.size || this.unrolls.size) return no('a loop unrolled');
+    // a loop unrolled outside rows is one the first pass rendered (one in a row goes with its row)
+    for (const k of next.unrolled?.keys() ?? []) if (!k.includes('#') && !next.rendered?.has(k)) return no('a loop unrolled, not rendered');
+    // the minifier and the image pipeline go over rendered rows in the second pass, before its walk; the layout reads them
+    const sheets = (typeof this.opts.minify === 'object' ? this.opts.minify.styles : undefined) ?? this.opts.styles;
+    const minLayout = !!this.opts.minify && !!sheets;
     for (const k of this.decided.keys()) if (k.includes('|use:')) return no('a choice decided');
     // the branches decided at the page's level, and the `data-sn-else` after each
-    type D = { a: FwAnchor; v: boolean; other: FwAnchor | null; at: number };
+    type D = { a: FwAnchor; v: boolean; other: FwAnchor | null; at: number; rows?: RenderedRows };
     const ds: D[] = [];
     const index = new Map(this.roots.map((n, i) => [n, i]));
     const real = (c: P5Node) => isElement(c) || (c.nodeName === '#text' && (c as DefaultTreeAdapterMap['textNode']).value.trim() !== '');
+    const IMG = /^(img|picture|source|video)$/;
+    const imgs = (ns: P5Node[]): boolean => ns.some((n) => isElement(n) && (IMG.test(n.tagName) || imgs(n.childNodes as P5Node[]) || (n.tagName === 'template' && imgs((n as P5Template).content.childNodes as P5Node[]))));
     for (const a of fw.anchors) {
+      if (a.kind === 'for' && a.node) {
+        // a loop the first pass rendered: its rows in its place, as the second pass splices them
+        const key = this.instKey(a.el), rows = key && next.unrolled?.has(key) ? next.rendered?.get(key) : undefined;
+        if (!rows) continue;
+        const at = index.get(a.node);
+        if (at === undefined) return no('a loop not among the roots');
+        if (this.renderedHere(a.el, rows)) return no(`rendered rows ${this.renderedHere(a.el, rows)}`);
+        if (rows.idAttrs.length) return no('ids in rendered rows');
+        if (this.layout || minLayout) return no('rendered rows and a layout');
+        if (this.opts.images && imgs(rows.nodes)) return no('an image in rendered rows');
+        ds.push({ a, v: true, other: null, at, rows });
+        continue;
+      }
       if (a.kind !== 'if' || !a.node) continue;
       const key = this.instKey(a.el), v = key ? this.decided.get(key) : undefined;
       if (v === undefined) continue;
@@ -10742,11 +10759,12 @@ class Compiler {
     const all = ds.flatMap((d) => (d.other ? [d.a, d.other] : [d.a]));
     // what the walk of a decided branch did that the second pass would not have done, and cannot be taken out
     for (const x of all) {
-      if (x.d1 > x.d0) return no('diagnostics in a decided branch');
+      if (x.d1 > x.d0) return no(x.kind === 'for' ? 'diagnostics in a rendered loop' : 'diagnostics in a decided branch');
       for (const k of x.changed) if (!FW_CHANGES.has(k)) return no(`a decided branch changes \`${k}\``);
       for (const k of x.added.keys()) if (FW_REFUSED.has(k)) return no(`a decided branch adds to \`${k}\``);
-      if (this.layout && x.snap!.some((e) => isElement(e.n))) return no('a layout');
-      if (this.opts.images && x.snap!.some((e) => isElement(e.n) && /^(img|picture|source|video)$/.test((e.n as P5Element).tagName))) return no('an image in a decided branch');
+      if (!x.snap) continue;
+      if (this.layout && x.snap.some((e) => isElement(e.n))) return no('a layout');
+      if (this.opts.images && x.snap.some((e) => isElement(e.n) && IMG.test((e.n as P5Element).tagName))) return no('an image in a decided branch');
     }
     // the functions the walks of the decided branches compiled: theirs no longer; one they made first and something else
     // calls too would keep the site of the branch's call
@@ -10802,20 +10820,45 @@ class Compiler {
         else if (o instanceof Map || o instanceof Set) for (const key of keysOf.get(k)?.get(x) ?? []) o.delete(key);
       }
       for (const x of xs) for (const n of x.used) { const r = this.page.resources.get(n); if (r) { r.used = false; resources.add(n); } }
-      for (const x of xs) restoreTree(x.snap!);
-      const kept = d.v ? d.a : d.other;
-      const nodes = kept ? [...(kept.el as P5Template).content.childNodes] as P5Node[] : [];
-      if (kept) (kept.el as P5Template).content.childNodes = [];
-      // the branches decided in it, as the second pass's expansion decides them
-      const box = { nodeName: '#document-fragment', childNodes: nodes } as unknown as P5Parent;
-      for (const n of nodes) (n as { parentNode: P5Parent }).parentNode = box;
-      const was = APPLIED;
-      APPLIED = new Set();
-      let got: Set<string>;
-      try { this.expandConstants(box, '', false); } finally { got = APPLIED; APPLIED = was; }
-      for (const k of got) { was?.add(k); if (k !== 'if:page') return no(`${k} in a decided branch`, true); }
-      const placed = box.childNodes as P5Node[];
-      const c = d.a.el, P = c.parentNode as P5Parent, kids = P.childNodes as P5Node[];
+      let placed: P5Node[];
+      const c = d.a.el;
+      if (d.rows) {
+        // the rows, with what compiling them would have done that the page keeps (`expandConstants`' splice)
+        const done = d.rows;
+        this.foldedText.push(...done.folded);
+        for (const f of done.files) this.files.add(f);
+        for (const n of done.reads) this.renderedReads.add(n);
+        this.renderedEmpty.push(...done.empty);
+        this.renderedShown.push(...done.shown);
+        this.renderedLate.push(...done.late);
+        for (const n of done.rootStyled) this.rootStyled.add(n);
+        for (const x of done.uses) {
+          if (this.uses.has(x.name)) continue;
+          const f = this.componentFile(x.name);
+          if (f && f.css === undefined && x.css !== undefined) { f.css = x.css; f.rawCss = x.rawCss; }
+          this.uses.set(x.name, []);
+        }
+        const value = this.snSource.get(c) ?? '', m = LOOP_HEAD.exec(value), off = m ? m[0].length : 0;
+        const first = done.nodes.find(isElement);
+        for (const n of done.nodes) if (isElement(n)) this.renderedAt.set(n, n === first ? { tpl: c, list: value.slice(off), offset: off, rows: done } : null);
+        RENDER_STATS.spliced++;
+        placed = done.nodes;
+      } else {
+        for (const x of xs) restoreTree(x.snap!);
+        const kept = d.v ? d.a : d.other;
+        const nodes = kept ? [...(kept.el as P5Template).content.childNodes] as P5Node[] : [];
+        if (kept) (kept.el as P5Template).content.childNodes = [];
+        // the branches decided in it, as the second pass's expansion decides them
+        const box = { nodeName: '#document-fragment', childNodes: nodes } as unknown as P5Parent;
+        for (const n of nodes) (n as { parentNode: P5Parent }).parentNode = box;
+        const was = APPLIED;
+        APPLIED = new Set();
+        let got: Set<string>;
+        try { this.expandConstants(box, '', false); } finally { got = APPLIED; APPLIED = was; }
+        for (const k of got) { was?.add(k); if (k !== 'if:page' && k !== 'loop rendered') return no(`${k} in a decided branch`, true); }
+        placed = box.childNodes as P5Node[];
+      }
+      const P = c.parentNode as P5Parent, kids = P.childNodes as P5Node[];
       const i = kids.indexOf(c), j = d.other ? kids.indexOf(d.other.el) : i;
       for (const n of placed) {
         (n as { parentNode: P5Parent }).parentNode = P;
@@ -10825,7 +10868,7 @@ class Compiler {
       const start = this.scopeStart.get(c);
       if (start) for (const n of placed) if (isElement(n)) this.scopeStart.set(n, outerFirst(start, this.scopeStart.get(n)));
       kids.splice(i, j - i + 1, ...(placed as never[]));
-      this.foldedText.push(this.snSource.get(c) ?? '', this.emptyOf.get(c)?.list ?? '');
+      if (!d.rows) this.foldedText.push(this.snSource.get(c) ?? '', this.emptyOf.get(c)?.list ?? '');
       mergeText(P);
       // the range the branch's markup is in now (a text that met another is in that one; the parent's other texts may
       // meet too, where what the first walk took out stood)
@@ -10851,6 +10894,9 @@ class Compiler {
       }
       if (this.diagnostics.length > this.walked) return no('diagnostics in a branch walked as the page', true);
     }
+    // rendered rows' empty texts (elements to the minifier, nothing in the page), and their marks after the image pipeline
+    for (const t of this.renderedEmpty) { const k = (t as { parentNode?: P5Parent }).parentNode?.childNodes as P5Node[] | undefined; const i = k?.indexOf(t) ?? -1; if (i >= 0) k!.splice(i, 1); }
+    for (const [e, marks] of this.renderedLate) for (const m of marks) setAttr(e, m.name, m.value);
     // the roots: each block in place of what it replaces, and every index of a root (a node's scope `p`, an `if`'s
     // `data-sn-else` `y`, a resource's or a sync's scope) to where its root is now
     blocks.sort((x, y) => x.at - y.at);
@@ -10905,7 +10951,10 @@ class Compiler {
     return null;
   }
 
-  /** `fromWalk`: the ids of the page's bound nodes and anchors, handed out again in the order the markup has them */
+  /**
+   * `fromWalk`: the ids of the page's bound nodes and anchors, handed out again in the order the markup has them, with
+   * the gap a rendered block leaves (the ids its rows' bindings would have taken: today's numbering, where it is free)
+   */
   renumberIds(doc: P5Parent) {
     const map = new Map<number, number>();
     let next = 0;
@@ -10913,6 +10962,9 @@ class Compiler {
     const visit = (p: P5Parent) => {
       for (const c of p.childNodes as P5Node[]) {
         if (isElement(c)) {
+          // (rendered rows: the ids their bindings would have taken, as the walk leaves them, `walkChildren`)
+          const r = this.renderedAt.get(c);
+          if (r) next += r.rows.ids;
           const a = c.attrs.find((x) => x.name === 'data-sn');
           if (a && /^\d+$/.test(a.value)) a.value = String(id(+a.value));
           if (c.tagName !== 'template') visit(c);

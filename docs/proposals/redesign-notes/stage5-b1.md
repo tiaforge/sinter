@@ -4,10 +4,12 @@ Running log (2026-11-23), branch `redesign/stage5-b1`, started at `5f203af` (the
 
 ## Where the work stands (read this first)
 
-- **Done**: the measurements (1, 2): which second passes apply only rendered blocks and page-level decided
-  branches, over the suite and the apps; the reference build times.
-- **Next**: the differences between the first pass's walk with the decisions applied and the second pass's result
-  (3), found with the canonical audit while the route is built (4).
+- **Done**: the measurements (1, 2); the route for pages of their own (`compileTwice`): a first pass whose second pass
+  would apply only page-level decided branches and rendered rows takes the second pass's result from its own walk
+  (`Compiler#fromWalk`, 3, 4), behind `SN_FROM_WALK=0`, audited (`SN_FROM_WALK_AUDIT=1`), with counted fallbacks
+  (5) and tests (test/compiler/from-walk.test.ts). page-compile: 451 → 359 ms.
+- **Next**: a template's entries (`fromTemplate`: the blog's three template variants) from a copy of the kept walk;
+  pages with a unit placed need the unit's objects copied for the page (A1's structural copy), see 7.
 
 ## How it is measured
 
@@ -69,3 +71,73 @@ render-rows 61, constant-differential 46, vite origins 34, link 30.
 So the plan's kinds cover the pages the route was for: every blog entry, page-compile, the examples' pages but
 two, and 90% of the suite's second passes. The image pipeline (and, on the examples, the layout) runs on most of
 them: the route has to give the image pipeline and the minifier the markup the second pass gives them, or fall back.
+
+## 3. What differs between the first pass's walk and the second pass's result, and how the route makes them one
+
+Stage 3's table (stage3-one-pass.md) for the kept walk, extended to a page of its own whose first pass decided only
+page-level branches and rendered loops, and read off the canonical audit while the route was built. The first pass is
+evaluated without writing into its markup when the route may be taken (`decideOnly`: `prerender(true)`, as
+`decideFor` evaluates a kept template's entry), so its walk is as walked; the second pass's evaluation (`settle`)
+then runs on the result, with the write set of what is left (decisions.md 7.1, item 2: decide with W1, paint with W2).
+
+| | first pass's walk | second pass | the route |
+| --- | --- | --- | --- |
+| a decided branch's content | compiled as a template (`tplEls`, paths, its walk's additions to the tables), its markup changed by that walk (`stripSn`, text anchors, merged texts) | spliced in by `expandConstants` before the walk, walked as page markup | its markup put back as it was before the walk (`snapTree` at `fwStart`, `restoreTree`), the decisions inside it applied by `expandConstants` on it, spliced where the template was, walked as the page's (`walkChildren` over that range) in the scope, state index, dialog and form the template was walked in |
+| the `data-sn-else` after it | the same, a template | the kept one spliced, the other gone | the same as the branch |
+| the condition | compiled: a function, its reads (`used` resources, helpers) | not compiled; its text in `foldedText` | its function's calls taken off (`fnUses`), the resources the walk read first unread again and read by the new walk, else SN501 as the second pass reports it (fallback when it would) |
+| a rendered loop | a template, its row template walked | the rows spliced (`splice`), what compiling them does that the page keeps (files, reads, uses, scoped roots, ids' gap, links) | the same splice, the walk over the rows (`renderedAt`: the list compiled for its diagnostics, the links, the ids' gap) |
+| what the dropped walks added to the tables | there | never there | taken out: a list's entries by position, a map's or a set's by key (`fwMarks` before and after each recorded template: every table of the compiler and of the page info, and every plain field); what the new walk adds to a list put where the dropped walk's entries were (document order) |
+| `roots` and their indexes | the anchors | the branch's nodes in their place | each block in place of its anchor (and its else); every index of a root renumbered once: a node's `p`, an `if`'s `y`, a resource's and a sync's `scope` |
+| functions | the dropped walks' code in the table | not there | their calls taken off; a function nothing else calls `'0'` and out of the index (so the new walk compiles it again with its own site); one the dropped walk made first and something else calls: a fallback (its site would be the branch's) |
+| templates the dropped walks made | in the table | never made | emptied (`nodes: []`) and out of `tplEls`; `compactTables` drops them |
+| first paint, constants dropped | not written (`decideOnly`) | written by its own evaluation | the second pass's evaluation runs on the result (`finishPage` → `settle`, not collecting) |
+| the walk's last steps | over the first walk | over the second | scoped styles' marks (`markScoped`), what it removes, which resources load late (`markLowPriority`, after the dead templates are emptied) run again |
+| `data-sn` ids | the walk's order, a block's gap added at its first row | the same over its own walk | handed out again in document order with each rendered block's gap (`renumberIds`): today's numbering wherever the old walk's order is the document's, which it is (pre-order); a kept element's ids keep theirs |
+| the type check's unit | the first pass's | the first pass's (`compileTwice` hands it on) | the first pass's: its lists' lengths as before the route |
+| diagnostics | the walk's | its walk's | the first walk's, with any in a recorded template a fallback (none in the suite but the reason's test) |
+
+The image pipeline, the layout and the minifier read the markup before the walk: a decided branch's content as a
+template's in the first pass and as the page's in the second (an image's eagerness, the layout's selectors, white space
+at the edges), and rendered rows not at all in the first. Where that can differ the route falls back (counted): a
+layout and a branch with elements, an image in a decided branch or in rendered rows, rendered rows and a minifier with
+a layout (the browser's own styles count). The minifier without stylesheets only merges texts and drops comments,
+which the rows' splice does as the second pass's does (the audit holds over the suite's minifier fuzzer).
+
+## 4. Changes
+
+1. `SN_APPLIED_LOG` (measurement, section 2).
+2. The route (`fromWalk`, `fwStart`/`fwEnd`, `decideOnly`, `settleAgain`, `fwPlausible`, `renumberIds`,
+   `markScoped`; `walkChildren` takes a range; `fn()` counts calls while a recorded template is walked; the new field
+   `fw` in `LINK_FIELDS` as `fixed`, never set inside a definition; `copyState` copies it as it copies any plain
+   object). `compileTwice`: when a first pass that may take the route (a recorded page-level branch over constants,
+   or a loop over constants) is not finished, it is evaluated without writing; the route is tried when its decisions
+   are only those; else the old route with these decisions, evaluated again writing only where its output or its
+   constants need it (`settleAgain`: no decision at all, a constant the layout reads, a first pass that is finished).
+3. Switch `SN_FROM_WALK=0`; audit `SN_FROM_WALK_AUDIT=1` (each routed page compiled the old way beside it and compared
+   up to numbering, `canonicalText`; each page that recorded and fell back compared byte for byte); counts
+   `SN_FROM_WALK_LOG=1` (at exit) and `SN_FROM_WALK_STATS=<file>` (a line per second pass, with the test).
+4. The app audits take `--canon` (both builds with `SN_CANON=1`) and print the route's counts; `pass-audit.mjs` takes
+   `--switch`.
+
+## 5. Fallbacks by reason
+
+To be filled from the milestone run (the suite under the audit, the apps).
+
+## 6. Tests whose expectations changed
+
+- test/compiler/one-pass.test.ts, "a page of its own (not a template's entry)": the page (a loop rendered) now takes
+  its second pass from its walk, so nothing parses it again (`{}` where it counted one `a page of its own`); the old
+  count is kept as an assertion with `SN_FROM_WALK=0`.
+
+No expectation of a number changed: the route's ids are today's (document order plus each block's gap).
+
+## 7. What is left before the second pass can be deleted (B2)
+
+- A template's entries (`fromTemplate`/`secondPass`) still walk their page again from the kept expansion.
+- Pages with a unit placed (every page of a build with shared definitions): finishing a first pass that shares the
+  unit's objects would change them for the next page. The route needs the page's own copy of the unit's objects it
+  keeps (A1's structural copy of `NodeDef`/`TemplateDef`/`Binding`s), or the unit's numbers at assembly.
+- The other decisions: choices (dropped, inlined, rendered), recursion points, loops unrolled the old way, decided
+  `if`s inside templates that stay and inside rows, constants the layout and the images read (`prefold`), else-ifs.
+- The pre-walk passes over what the decisions change: the layout and the image pipeline over a branch's content and
+  over rendered rows, the minifier with a layout over rows.

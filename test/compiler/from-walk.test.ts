@@ -79,6 +79,18 @@ describe('the second pass from the first pass\'s walk', () => {
     expect(r).toMatchObject({ taken: 1, why: [] });
   });
 
+  test('a loop rendered at the page\'s level, and one in a decided branch; ids after them as the walk leaves them', () => {
+    const r = both(page('<ul><template data-sn-for="x in [1, 2]"><li data-sn-text="x"></li></template></ul><div data-sn-state="{ a: true, n: 0 }"><button data-sn-on-click="n++" data-sn-text="n"></button><template data-sn-if="a"><ol><template data-sn-for="y in [3, 4]"><li data-sn-text="y"></li></template></ol></template><p data-sn-text="n"></p></div>'));
+    expect(r).toMatchObject({ taken: 1, why: [] });
+    expect(r.on.html).toBe(r.off.html);
+    expect(r.on.html).toContain('<ol><li>3</li><li>4</li></ol>');
+  });
+
+  test('rendered rows, minified with no stylesheet', () => {
+    const r = both(page('<ul>\n  <template data-sn-for="x in [1, 2]">\n    <li data-sn-text="x"></li>\n  </template>\n</ul>'), { minify: true });
+    expect(r).toMatchObject({ taken: 1, why: [] });
+  });
+
   test('minified, with white space around the branch', () => {
     const r = both(page('<div data-sn-state="{ a: true }">\n  <span>x</span>\n  <template data-sn-if="a">\n    <b> y </b>\n  </template>\n  <span>z</span>\n</div>'), { minify: true });
     expect(r).toMatchObject({ taken: 1, why: [] });
@@ -86,10 +98,11 @@ describe('the second pass from the first pass\'s walk', () => {
 });
 
 describe('compiled again: each reason', () => {
-  test('a loop unrolled (rendered rows)', () => {
-    const r = both(page('<ul><template data-sn-for="x in [1, 2]"><li data-sn-text="x"></li></template></ul><div data-sn-state="{ a: true }"><template data-sn-if="a"><b>a</b></template></div>'));
-    expect(r).toMatchObject({ taken: 0, why: ['a loop unrolled'] });
+  test('rendered rows the minifier reads with a layout (the browser\'s own styles)', () => {
+    const r = both(page('<ul><template data-sn-for="x in [1, 2]"><li data-sn-text="x"></li></template></ul>'), { minify: { styles: [] } } as Partial<CompileOptions>);
+    expect(r).toMatchObject({ taken: 0, why: ['rendered rows and a layout'] });
   });
+
 
   test('diagnostics in a decided branch', () => {
     const r = both(page('<div data-sn-state="{ a: true }"><template data-sn-if="a"><p data-sn-text="a" data-sn-key="x"></p></template></div>'));

@@ -111,7 +111,11 @@ describe('second passes that parse and expand the page again, counted by reason'
     const r = routes(() => compile(html, options({ file: '/p/index.html' })));
     expect(text(r.result)).toBe(text(off));
     expect(r.kept).toBe(0);
-    expect(r.again).toEqual({ 'a page of its own': 1 });
+    // (stage 5, B1: its second pass comes from its first pass's walk, so nothing parses it again; with that off, it is
+    // parsed and expanded again as a page of its own)
+    expect(r.again).toEqual({});
+    process.env.SN_FROM_WALK = '0';
+    try { expect(routes(() => compile(html, options({ file: '/p/index.html' }))).again).toEqual({ 'a page of its own': 1 }); } finally { delete process.env.SN_FROM_WALK; }
   });
 
   test('an entry its template\'s kept walk does not serve (a constant class the layout reads): compiled alone', () => {
