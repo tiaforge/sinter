@@ -228,3 +228,13 @@ Found by the research, not changed:
   gzip for a report that is not printed, 16 to 21 ms off a live page. sinter-mail: its suite passes against `main`
   (234 tests), its baselines are in `redesign-notes/sinter-mail.md`, and `scripts/mail-audit.mjs <checkout>
   [--bench] [--suite]` builds 16 of its pages both ways and diffs them.
+- 2026-11-23, 13:30 UTC: **stage 1 is in** (`redesign-notes/stage1-render.md`). On the merged branch, 100 posts,
+  rendering off and on, one run each: static 13.6 s and 4.2 s, with the type check 14.2 s and 4.4 s, live 13.6 s and
+  4.3 s, a page file per post 15.7 s and 6.8 s, live 16.8 s and 8.5 s. Astro: 2.2 s. The benchmark apps and the
+  examples are byte for byte the same both ways, and the agent's run of the suite passes plain and audited (2,800).
+  What it leaves: sinter-mail renders nothing yet (every loop falls back on `minify`: a style paint under the
+  minifier), the examples' loops fall back on `layout`, and a template page still costs about 24 ms (15 ms the first
+  pass's evaluation, half of it cloning and freezing row items; 8 ms the second pass). Two agents started on those:
+  stage 2, coverage (`redesign-notes/stage2-coverage.md`), and the per-page floor (`redesign-notes/floor.md`). The
+  pipeline agent has also landed the page list kept per build (quadratic before), the template probe as a description
+  and the lazy-import check once per build.
