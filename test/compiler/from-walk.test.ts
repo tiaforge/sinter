@@ -105,6 +105,18 @@ describe('the second pass from the first pass\'s walk', () => {
     expect(r).toMatchObject({ taken: 1, why: [] });
   });
 
+  test('rendered rows the minifier reads with a layout (the browser\'s own styles): the white space at their edges', () => {
+    const r = both(page('<div>\n  <span>x</span>\n  <template data-sn-for="x in [1, 2]">\n    <p data-sn-text="x"></p> <b>i</b>\n  </template>\n  <span>z</span> T\n</div><ul>\n<template data-sn-for="x in [3]"><li data-sn-text="x"></li></template>\n</ul>'), { minify: { styles: [] } } as Partial<CompileOptions>);
+    expect(r).toMatchObject({ taken: 1, why: [] });
+    expect(r.on.html).toBe(r.off.html);
+  });
+
+  test('an embedded resource\'s id before rendered rows: numbered where its element stood', () => {
+    const r = both('<!doctype html><html lang="en"><head><title>t</title></head><body><sn-resource name="cart" src="/api/cart"></sn-resource><script type="application/json" data-sn-resource="cart">{"n":1}</script><ul><template data-sn-for="x in [1, 2]"><li data-sn-text="x"></li></template></ul><p data-sn-text="cart.n"></p></body></html>');
+    expect(r).toMatchObject({ taken: 1, why: [] });
+    expect(r.on.html).toBe(r.off.html);
+  });
+
   test('minified, with white space around the branch', () => {
     const r = both(page('<div data-sn-state="{ a: true }">\n  <span>x</span>\n  <template data-sn-if="a">\n    <b> y </b>\n  </template>\n  <span>z</span>\n</div>'), { minify: true });
     expect(r).toMatchObject({ taken: 1, why: [] });
@@ -119,8 +131,13 @@ describe('compiled again: each reason', () => {
     expect(r.on.fns.join('\n')).toContain('"Hello"');
   });
 
-  test('rendered rows the minifier reads with a layout (the browser\'s own styles)', () => {
-    const r = both(page('<ul><template data-sn-for="x in [1, 2]"><li data-sn-text="x"></li></template></ul>'), { minify: { styles: [] } } as Partial<CompileOptions>);
+  test('rendered rows beside an element whose class the walk took off, under the minifier with a layout', () => {
+    const r = both(page('<div data-sn-state="{ n: 0 }"><button data-sn-on-click="n++">+</button><ul data-sn-class="{ on: n > 0 }">\n<template data-sn-for="x in [1, 2]"><li data-sn-text="x"></li></template>\n</ul></div>'), { minify: { styles: [] } } as Partial<CompileOptions>);
+    expect(r).toMatchObject({ taken: 0, why: ['rendered rows and a layout: a bound element around them'] });
+  });
+
+  test('rendered rows and the page\'s layout (the images\' and the late rows\' space read it)', () => {
+    const r = both(page('<ul><template data-sn-for="x in [1, 2]"><li data-sn-text="x"></li></template></ul>'), { styles: [{ file: '/p/s.css', css: 'ul { width: 300px }' }] } as unknown as Partial<CompileOptions>);
     expect(r).toMatchObject({ taken: 0, why: ['rendered rows and a layout'] });
   });
 
