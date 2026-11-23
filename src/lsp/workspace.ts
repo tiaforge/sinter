@@ -5,7 +5,7 @@ import { existsSync, readFileSync, statSync } from 'node:fs';
 import { basename, dirname, join, resolve, sep } from 'node:path';
 import type { CheckUnit } from '../compiler/check-unit.js';
 import { compile, type Diagnostic, type HelperManifest } from '../compiler/index.js';
-import { compileOptionsOf, modulesDir, project, VITE_CONFIGS, viteProject, type Project, type ProjectOptions } from '../project.js';
+import { checkPageOptionsOf, modulesDir, project, VITE_CONFIGS, viteProject, type PageOptions, type Project, type ProjectOptions } from '../project.js';
 import { loadHelpers, unloadedDiagnostic, type NodeHelpers } from '../helpers-node.js';
 import { FoldCache } from '../fold-check.js';
 import { writeComponentTypes } from '../components-build.js';
@@ -18,8 +18,10 @@ import { snapshotOptions } from '../content-node.js';
 export interface ProjectState {
   root: string;
   options: ProjectOptions;
-  /** with `localePrefix`, the base language, which pages are checked in (as `sinter check` does) */
+  /** without the plugin's `pageOptions`: with `localePrefix`, the base language, which pages are checked in */
   locale: { name: string; urls: null; base: string } | null;
+  /** each page's options as the build compiles it (its language, URLs, content), from the plugin in the Vite config, as `sinter check` has them */
+  pageOptions: PageOptions | null;
   project: Project;
   /** HTML entries from the Vite config */
   entries: Set<string>;
@@ -93,8 +95,9 @@ export class Workspace {
   private async load(root: string): Promise<ProjectState> {
     let pages: string[] = [];
     let options: ProjectOptions = {};
+    let pageOptions: PageOptions | null = null;
     try {
-      ({ pages, options } = await viteProject(root));
+      ({ pages, options, pageOptions } = await viteProject(root));
     } catch (e) {
       process.stderr.write(`sinter lsp: reading the Vite config in ${root} failed: ${(e as Error).message}\n`);
     }
@@ -122,7 +125,7 @@ export class Workspace {
       process.stderr.write(`sinter lsp: ${(e as Error).message}\n`);
     }
     const state: ProjectState = {
-      root, options, locale, project: p, entries: new Set(pages), pages: new Set(pages),
+      root, options, locale, pageOptions, project: p, entries: new Set(pages), pages: new Set(pages),
       includes: new Map(), globs: new Map(), reads: new Map(), listings: new Map(), diagnostics: new Map(), units: new Map(), types: new Map(), inputs, helpers,
     };
     for (const [file] of this.docs) if (file.endsWith('.html') && this.rootOf(file) === root) state.pages.add(file);
@@ -240,6 +243,7 @@ export class Workspace {
       return open ?? disk;
     };
     const { helpers, content } = this.snapshotOf(state);
+    const fallback = { helpers, content, locale: state.locale };
     for (const page of pages) {
       let html: string;
       try { html = this.read(page); } catch { continue; }
@@ -259,11 +263,10 @@ export class Workspace {
         html = kinds(component) === 'head' ? `<!doctype html><html><head><${component}></${component}></head><body></body></html>` : `<${component}></${component}>`;
       }
       try {
+        // as the build compiles the page (helper modules that reach a lazy package: their helpers outside a let are SN324, as in the build)
         const out = compile(html, {
-          // (helper modules that reach a lazy package: their helpers outside a let are SN324, as in the build)
-          ...compileOptionsOf(p, component ? undefined : page), ...(p.swap ? { swap: true } : {}),
-          helperValues: state.helpers.module, helperFold: state.helpers.fold,
-          file: component ? join(state.root, `.sinter-use-${component}.html`) : page, dev: false, helpers, readFile, listFiles: this.lister(state), ...(state.locale ? { locale: state.locale } : {}), ...content, check: true,
+          ...checkPageOptionsOf(p, component ? join(state.root, `.sinter-use-${component}.html`) : page, state.pageOptions, fallback, !!component),
+          helperValues: state.helpers.module, helperFold: state.helpers.fold, readFile, listFiles: this.lister(state), check: true,
         });
         state.includes.set(page, out.files.map((f) => resolve(f)).filter((f) => f !== page));
         if (out.globs?.length) state.globs.set(page, out.globs.map((g) => ({ dir: g.dir.replace(/\/$/, ''), match: new RegExp(g.match) }))); else state.globs.delete(page);
@@ -292,12 +295,13 @@ export class Workspace {
     };
     const pages = state.pages.has(file) ? [file] : [...state.includes].filter(([, files]) => files.includes(file)).map(([page]) => page);
     const out: Diagnostic[] = [], { content } = this.snapshotOf(state);
+    const fallback = { helpers, content, locale: state.locale };
     for (const page of pages) {
       let html: string;
       try { html = page === file ? text : this.read(page); } catch { continue; }
       try {
         // as the page compiles (compilePages), with the helpers and actions the fix would declare
-        const r = compile(html, { ...compileOptionsOf(p, page), helpers, actions, file: page, dev: false, readFile, listFiles: this.lister(state), ...(state.locale ? { locale: state.locale } : {}), ...content, check: true });
+        const r = compile(html, { ...checkPageOptionsOf(p, page, state.pageOptions, fallback), helpers, actions, readFile, listFiles: this.lister(state), check: true });
         out.push(...r.diagnostics.filter((d) => d.severity === 'error' && d.file === file));
       } catch (e) {
         out.push({ severity: 'error', code: 'SN401', message: (e as Error).message, file, line: 1, col: 1 });
