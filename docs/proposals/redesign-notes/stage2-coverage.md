@@ -293,3 +293,55 @@ unrolled loop. Left: a choice whose rendered candidate was reported on in the fi
 The ids the rows' markup writes are carried with the block (`idAttrs`) and declared by `declare` at the block (`page.ids`
 counts, `dialogs`). Left: an id in a choice's or recursion point's definition (`componentIds`' SN209 counts the uses
 the old route's expansion makes per instance).
+
+### What still takes the old route
+
+Merged with the integration branch at 0091df6. Checks: compiler tests 1,053 pass plain, `SN_RENDER_AUDIT=1` and
+`SN_LINK_AUDIT=1`; the render audit (benchmark and examples) and the sinter-mail audit (16 pages, 10 loops, 1,610
+rows rendered) identical both ways; the whole suite passes (2,849; three `check.test.ts` cases time out at 5 s under a
+load of 16 and pass alone). `SN_RENDER_STATS` over the whole suite, counted where the second pass takes the old route:
+
+| reason | before (pass 1's count) | now (taken) | where |
+| --- | ---: | ---: | --- |
+| `links` | 36 / 71 | 2 / 2 | render-rows' own case (SN519 in an instance) |
+| `top-level choice` | 7 / 7 | 0 | |
+| `an id` | 2 / 2 | 2 / 8 | render-rows' own case (an id in a case's definition) |
+| `diagnostics` | 3 / 5 | 3 / 4 | `row-items.test.ts` (SN507 in a row), render-rows' own case (SN313 on a choice's tag) |
+| `handler` | 3 / 29 | 3 / 29 | `constant-trees.test.ts` (a copy button in a markdown tree), render-rows' own case |
+| `text`, `not written ahead` | 2 / 2 each | same | render-rows' own cases |
+| `dev` | not counted | **1,493 / 2,936** | every dev compile with a loop or choice over constants (`render()` of src/testing defaults to `dev: true`, the dev server) |
+| rendered | 259 / 49,125 | 324 / 49,251 | |
+
+(The old count was taken in the first pass, including pages whose errors keep the second pass from unrolling at all.)
+
+**Dev builds are the old route's main user, and they cannot be made byte-identical by rendering.** A dev build runs
+both passes (`prerender: true` in the dev server and in `render()`), unrolls as a build does, and only `rowRenderer` is
+off (`!this.opts.dev`). Dev does not compact the function table (`compactTables` is builds only), so every function
+the second pass compiles for a row and then drops stays as a `0` slot, and every later function's index (and its
+`at` key) counts them: `<ul><template data-sn-for="x in [1, 2, 3]"><li data-sn-text="x * 2" data-sn-class="{ a: x > 1 }">`
+before `<p data-sn-text="$url.q">` gives `fns = [0, 0, 0, 0, 0, 0, 0, ($) => ($.$url.q)]` in dev, `[($) => ($.$url.q)]`
+in a build. Rendering in dev would give `[0, ($) => ($.$url.q)]`. To give the same slots, the renderer would need the
+text of every function the old route's walk compiles in each row (each binding with the item pasted as a literal, each
+nested loop's list per copy, each instance's props), deduplicated against the page's: that is the walk of the copies
+itself. With rendering forced on in dev (an experiment, not committed), the whole suite passes except the test that
+says dev never renders: no dev expectation reads those slots, and nothing at run time does (the dev runtime reads
+`at` by the same indexes it is given). So the choice is the owner's: accept dev's function numbering changing (a dev
+page's table without the rows' `0` slots), and dev renders like a build; or keep the old route for dev.
+
+**`diagnostics`**: the old route reports a template's warnings per copy (or per instance, with the instance's chain), from
+code where the item is a literal: the reports can differ from the first pass's (an item's literal type, a per-copy
+count), so they are not derivable from the first pass's list. Reproducing them needs the copies' walk.
+
+**The residue** (`handler`, `text`, `not written ahead`): a binding that stays needs its code with the row's lets
+pasted (the item as `(${jsLiteral(item)})`, and inside an instance its props as the caller's codes, through every level
+of `componentScope`/`propLets`), its `data-sn` id at its place in the block, its node in the walk's list, its function
+at its place in the table, and everything else the walk does for that attribute (features, handlers' modifiers, dev
+`at`). For a binding in plain row markup it could be one `element()` of a stripped clone with `rowLets`' scope; the
+one real case (the copy button) is inside instances of a tree, whose scope is the chain of inlined props. Not done.
+
+### Can the old route be deleted now?
+
+No: dev builds take it on every page with constant rows (1,493 times in the suite) and rendering there changes dev's
+function numbering; and `diagnostics` and the residue need the copies' walk. Outside dev, the old route is taken in
+the suite by 2 real cases (`row-items.test.ts`, `constant-trees.test.ts`) and by render-rows' own cases for each
+reason, and in none of the measured apps.
