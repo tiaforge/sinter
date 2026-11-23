@@ -345,3 +345,91 @@ No: dev builds take it on every page with constant rows (1,493 times in the suit
 function numbering; and `diagnostics` and the residue need the copies' walk. Outside dev, the old route is taken in
 the suite by 2 real cases (`row-items.test.ts`, `constant-trees.test.ts`) and by render-rows' own cases for each
 reason, and in none of the measured apps.
+
+## Dev renders
+
+Running log (2026-11-23, continued). The owner decided that dev's function numbering may change: dev compiles (the dev
+server, `render()` of src/testing) render rows as builds do.
+
+**What changed.** The three `dev` exclusions are gone: `walkPage`'s `keepsAttrs` (the first pass keeps the templates'
+attributes for the renderer), `worklist`'s `rendering`, and `oldRoute`'s `dev` reason. Dev runs no `compactTables`, so
+a dev page's function table now simply never gets the slots the old route's walk of the copies compiled and dropped
+(`'0'`): `fns = [0, ($) => ($.$url.q)]` where the old route gave `[0, 0, 0, 0, 0, 0, 0, ($) => ($.$url.q)]`, and every
+later function's index and `at` key is lower by the slots. Builds compact their table, so nothing changes there.
+
+Rendering in dev showed what the builds' audit could not, because the suite's pages with these shapes compile in dev:
+
+- **`data-sn-c` in dev.** Dev marks every component's root (`data-sn-c`, for devtools), not only styled ones. The
+  renderer copied the first pass's marks only on pages with scoped styles (`marking`); now in dev too. The fills'
+  `data-sn-s` stays scoped-styles only, as the old route writes it.
+- **A placement that is a component's root** (a root `<slot name>` with a default, `rootShape`'s `choice`): the old
+  route's expansion decides it, so the default it renders is the root and takes the component's `data-sn-c`; the
+  first pass had no mark there (its root was a run-time choice). The renderer marks the default's top elements
+  (`rootSlots`); a default that is not plain elements falls back (`a root slot`, not seen in the suite).
+- **The files a placement's case reads**: a default is a template of its own, and so are the default's children a
+  fill's `<slot>` places; the old route reads their components' files where they render (`files`, the dev server's
+  watch list). The renderer adds the files of the case it renders (`caseFiles`).
+- **A chain root through a tag root, in slot content** (a choice's case `c-tag`, whose root is `<c-chain>`, inside
+  another component's slot): the old route did not mark the chain's branch (`slotOf` has it, as slot content of the
+  outer use, and the mark skips slot content to leave a root fill unmarked). A builds bug as well, on pages with scoped
+  styles: the chain's rules did not apply. The mark now skips slot content only when it is not the component's own
+  markup (its origin is not the component's file), on both routes; and a root the renderer marks is its component's
+  use (`st.uses`), so its styles go with the page (they were missing on the rendered route).
+- **The minifier and a written text at a block's end**: the second pass's `mergeText` after the splice merged a text
+  a binding wrote (`WRITTEN`, an element to the minifier) with the page's white space after it, which then stayed.
+  `mergeText` leaves such a text apart. Builds had it too (`minify` with a row ending in a `data-sn-text`).
+- **`this.at` after a rendered block**: the walk sets it at the block to the loop's template (where the rows were
+  written). The one function compiled with no site of its own after a block in the suite, `embedFolded`'s state
+  (a folded field read from the head), now takes the state's own site, on both routes (it was the walk's last site:
+  the last row element compiled, or the template).
+
+The last three change builds' output for those shapes (both routes the same; `scripts/render-audit.mjs` identical).
+
+**The consumers of dev's function indices and `at` keys**, checked: the runtime reads `fns[b.f]` and the dev module's
+`b.at[f]` (dev.ts, warnings 6, 9 and 24, `onlyAt`) by the indices the same IR carries, so a module is consistent with
+itself whatever the numbering; the source map (`sourcesOf`, `page.map(parts.sources)`) is one entry per `fns` entry,
+built from the same table; `render()` of src/testing builds `fns` from `parts.fns` with `parts.ir`; the dev server
+sends warnings with their `at` text, not indices (overlay, terminal), and HMR reloads the page module whole; the
+editor and `sinter check` read `check`, not function indices; `link.ts` replays `fnAt`/`callAt` by code
+(`SN_LINK_AUDIT=1` green). Nothing outside the module reads a dev function index.
+
+**Tests.** render-rows' "dev builds: never rendered" became a `describe` of three: dev renders, and its output equals
+the old route's once both are without the `'0'` slots and renumbered (written out in the test, `slotsOut`, besides the
+audit's `withoutEmptySlots`): IR, `at` maps, source map; a live binding after a block keeps its own site under its
+new, lower index (`at`, source map); rows of components, nested loops and a choice; a block as its parent's and the
+page's last markup. New: render-rows' minifier case (a written text at a block's end) and a styled chain root through
+a tag in slot content; fold.test.ts's folded state after rows (its source map site). No other test pinned dev
+function indices: the whole suite passed with only the dev-never-renders test failing, as the previous agent found.
+
+**`SN_RENDER_AUDIT=1` in dev**: compares `withoutEmptySlots(on)` with `withoutEmptySlots(off)` (the table without
+`'0'`, the IR's indices by `mapFns`, the `at` maps' keys, the source map's entries), so dev stays audited.
+
+**What still takes the old route** (`SN_RENDER_STATS` over the whole suite, summed by reason):
+
+| reason | loops / rows | where |
+| --- | ---: | --- |
+| `no element` | 52 / 110 | fuzz tests (anchor, wrapper, minify, component), constant-differential, branch-text-loop |
+| `text at the top of a row` | 21 / 42 | minify-fuzz, anchor-fuzz |
+| `where it is` | 9 / 14 | component-scopes, constant-differential, components |
+| `handler` | 3 / 29 | `constant-trees.test.ts` (the copy button), render-rows' own case |
+| `diagnostics` | 3 / 4 | `row-items.test.ts` (SN507), render-rows' own case |
+| `links`, `an id`, `text`, `not written ahead` | 2 each | render-rows' own cases |
+| `tag attributes` | 1 / 4 | roots.test.ts |
+| `dev` | gone (1,493 / 2,936 before) | |
+| rendered | 1,792 / 53,715 (324 / 49,251 before) | |
+
+`no element`, `text at the top of a row`, `where it is` and `tag attributes` were there before, counted as `dev`: dev
+compiles of the behaviour tests' pages, which are the only pages of those shapes in the suite.
+
+**Dev-server speed.** The benchmark's `static-files` app (20 posts, a page file each) under `vite dev`, each post
+requested once (`fetch`), the CPU time of the server process per request, median of posts 3 to 20; the integration
+branch's dist (before) and this one's (after) alternated, six runs each, at a load average of 14 to 33 on 4 cores:
+before 239 to 286 ms a page, after 229 to 263 ms; wall-clock medians 200 to 700 ms either way. A difference of 5 to
+15 % at most, inside the noise of this machine: rendering in dev takes the second pass's walk of the copies away,
+but the first pass, which renders, is the larger part of a dev compile. No Performance entry for it.
+
+**Checks.** Whole suite (2,865) green after merging the integration branch at 9ffe489; `SN_RENDER_AUDIT=1` over
+test/compiler, test/behaviour and test/testing (2,092) green with the normalized dev comparison (the whole suite's audit
+run before that merge was green but for `check.test.ts`/`lsp.test.ts` cases that time out at 5 s under load and pass
+alone); `SN_LINK_AUDIT=1` over test/compiler (1,065) green; `scripts/render-audit.mjs` the same both ways for all
+eight apps, and each app's build the same file for file as the integration branch's.

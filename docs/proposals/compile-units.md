@@ -216,13 +216,11 @@ Found by the research, not changed:
   definition on one page reports its errors twice; the build counts warnings in "type error(s)". And a correction to
   `contract.md` §5: components see the page's resources, so some of a component's functions are typed per page
   (`$meta`, `refresh`, `upsert`); those stay on their pages when the check shares functions.
-- **Dev builds and the old route.** Dev compiles (the dev server, `render()` from the testing module) run both
-  passes and never render rows: dev does not compact its function table, so every function the old route compiles
-  for a row and drops stays as a `0` slot, and rendering would number the functions after it otherwise (nothing at
-  run time reads the slots; with rendering forced on in dev the whole suite passes but the test that says dev never
-  renders). If dev's function numbering may change, dev renders too, and the old route (`inlineInstance`, the row
-  lets) is needed only for per-copy diagnostics and rows that keep a handler; until then it stays
-  (`redesign-notes/stage2-coverage.md`, "The rest, and the deletion").
+- **Dev builds and the old route.** Decided: dev's function numbering may change, and dev compiles (the dev server,
+  `render()` from the testing module) render rows as builds do. A dev page's table has no `0` slots for the rows any
+  more; the render audit compares dev without them (`withoutEmptySlots`). The old route (`inlineInstance`, the row
+  lets) is now needed only for per-copy diagnostics, rows that keep a handler, and the shapes the renderer leaves
+  (`redesign-notes/stage2-coverage.md`, "Dev renders").
 - **Props as a run-time frame.** Binding an inlined live use's props at run time, as shared definitions do, would
   make a unit's code independent of its use with no holes, at the price of a changed IR and other bytes. Not planned
   for inlined uses: the holes keep the output, and the runtime, as they are. Stage 7 is about the uses whose props
@@ -241,6 +239,28 @@ Found by the research, not changed:
    expansion. And stage 2's: the old second-pass row route deleted once dev renders and per-copy diagnostics and
    rows that keep a handler are covered.
 3. **Stage 4's last step waits for a review**: the linker's deletion (`redesign-notes/stage4-units.md`).
+
+## How the work is run
+
+One session coordinates (it merges into `ccr-9ebf49d5-gpdej8`, one branch at a time, and runs the full suite and the
+audits there); each workstream has a log in `redesign-notes/` with, at its top, where it stands and what is next.
+Workstreams run as agents in worktrees of the coordinating session's machine or, since 2026-11-23 evening, as
+cloud sessions with a machine each (the one machine was at a load of 18 to 25 on 4 cores with six agents, and its
+timings were not usable). A cloud session pushes to a branch of its own:
+
+| Workstream | Where | Branch | Log |
+| --- | --- | --- | --- |
+| a unit's check data once (stage 4, step 3) | cloud, `session_01AjKzdxUhXTUw7iSJ32w1x1` | `redesign/check-data-once` | `stage4-check-once.md` |
+| a page file walked once (stage 3's leftover) | cloud, `session_01AjKze2EoiDyjazXQrsWJQk` | `redesign/page-walked-once` | `page-walked-once.md` |
+| stage 5: assembly and live uses | local agent | merged as it lands | `stage5-assembly.md` |
+| the evaluation's cost | local agent | merged as it lands | `evaluation.md` |
+| dev renders; the six bugs; embedding | local agents | merged as they land | `stage2-coverage.md`, `bugs.md`, `embed-fields.md` |
+
+**The bar, as the owner set it on 2026-11-23:** the output need not be byte for byte today's where only numbering
+and generated names differ (`data-sn` ids, anchor numbers, template, state and function numbers, renamed loop
+names), provided a canonicalizing comparison shows the two equal (stage 5 builds it), the suite passes, sinter-mail's
+suite and run-time benchmark hold, and no page gets heavier. The IR's shape and the runtime do not change without a
+decision of their own (stage 7). A step that can stay byte-identical does.
 
 ## Status log
 
@@ -392,3 +412,7 @@ Found by the research, not changed:
   components route replays the library in its second pass (25 to 30 ms a page, 71 with TypeScript), and sharing
   there has to survive `finishPage`; `anchors()` and `shareTemplates()` could run once per unit, but
   `compactTables()`, `groupStyles()`, `checkUrlArrays()` and `placeTemplates()` are the page's own assembly.
+- 2026-11-23, 19:00 UTC: byte identity relaxed to "identical up to numbering" (see "How the work is run"); stage 5
+  started, measuring and planning first (`redesign-notes/stage5-assembly.md`); new workstreams go to cloud sessions
+  with a machine each, the first two started (table above); agents no longer run the full suite, the coordinating
+  session does at each merge.

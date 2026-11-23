@@ -118,8 +118,8 @@ const fns = [
 ```
 
 **An inlined instance leaves no trace at runtime**: its elements are page roots, its expressions page functions with
-the props substituted (a prop is a `LetEntry` "inlined where it is read", expr.ts:87; a literal is parenthesized,
-`('A')`, a path is not). The caller's handler on the tag lands on the component's root (`div` id 1). Only dev builds and
+the props substituted (a prop is a `LetEntry` "inlined where it is read", expr.ts:87; a string or object literal is parenthesized,
+`('A')`, a path or a number is not, except a whole number right before a `.`, `(1).toFixed()`: [bugs.md](bugs.md) §2). The caller's handler on the tag lands on the component's root (`div` id 1). Only dev builds and
 pages with scoped styles mark roots (`data-sn-c="x-counter"`, compile.ts:1646), and dev adds `src`/`at` positions.
 The initial text (`A: 1`) is written by `prerender` (evaluated with the state's initial values).
 
