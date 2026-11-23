@@ -409,7 +409,8 @@ export async function prepare(s: SwapState, i: Intent, signal?: AbortSignal): Pr
       let target: Element | null = null;
       if (i.kind != 'traverse' && h) { try { target = document.getElementById(decodeURIComponent(h)); } catch { target = document.getElementById(h); } }
       target?.scrollIntoView();
-      track(s);
+      // (Back and Forward: the entry keeps the position it had, not the one the page, not rendered yet, could take)
+      if (i.kind != 'traverse') track(s);
       // the title, announced as a load would
       const live = (s.live ??= document.createElement('div'));
       live.setAttribute('role', 'status');
