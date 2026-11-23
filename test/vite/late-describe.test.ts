@@ -87,18 +87,6 @@ test('every page module written before the page with data to request ahead compi
   expect(on.rewritten).toBeGreaterThan(0);
 });
 
-test('a resource in a branch the build decides: requested ahead as the description says (a template\'s), not as the page compiles it', async () => {
-  // with the branch decided, the second pass compiles its resource as the page's own: its `prefetch` lists it; the
-  // description, and the first pass, compile the branch as a template, whose resources are not requested ahead
-  const files = (on: boolean) => ({ ...pages, 'cfg.json': JSON.stringify({ on }), 'article.html': page(' data-sn-path="/article/:id"', '<sn-resource name="cfg" src="file:./cfg.json" type="any"></sn-resource><template data-sn-if="cfg.on"><div><sn-resource name="d" src="/api/d/{$url.id}"></sn-resource><span data-sn-text="d?.x"></span></div></template>' + COUNTER) });
-  process.env.SN_DESCRIBE_AUDIT = '1';
-  for (const on of [true, false]) {
-    const r = await both(app(`branch-${on}`, files(on)));
-    expect(r.on).toMatchObject({ head: 4, compiled: {} });
-    expect(Object.keys(r.on.files).some((f) => f.includes('prefetch'))).toBe(false);
-  }
-});
-
 test('under the audit: each description compiled beside its head, and each page\'s compile against it', async () => {
   process.env.SN_DESCRIBE_AUDIT = '1';
   const { on } = await both(app('audited', pages));

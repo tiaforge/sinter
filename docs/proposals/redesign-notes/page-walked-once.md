@@ -61,8 +61,9 @@ and `SN_DESCRIBE_AUDIT=1` found three ways that differs from the description:
 3. **A resource in a branch the build decides** (`<template data-sn-if="cfg.on"><sn-resource src="/api/d/{$url.id}">`
    over a `file:` constant, or a component holding one): the second pass compiles the decided branch as page markup,
    so its resource is the page's and is requested ahead; the description compiles the branch as a template, whose
-   resources are not. The smallest example is in `test/vite/late-describe.test.ts` ("a resource in a branch the build
-   decides"). So the build compile's result is not the description, and the route reads `parts` off the build's
+   resources are not (since the merge of the bug fixes, a `<sn-resource>` in a `<template>`, directly or through a
+   component, is SN102, so a valid page no longer shows this; the reading below stays, being what a description reads
+   by construction). So the build compile's result is not the description, and the route reads `parts` off the build's
    **first pass** instead, right after its walk (`firstPrefetch`, `CompiledParts.firstPrefetch`, `describedPrefetch`):
    the first pass compiles a branch as a template as the description does, and `prefetchParts()` reads only what the
    walk made (resources, functions, `pathList`, `$url` lists). The one thing it reads from `finishPage` is the
