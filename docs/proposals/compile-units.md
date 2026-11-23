@@ -255,7 +255,7 @@ timings were not usable). A cloud session pushes to a branch of its own:
 | stage 5, A1 then A2: definitions that ship, from units | cloud, `session_01AjKzdxPCdJ5nbeXvwkXoP2` | `redesign/stage5-a1` | `stage5-a1.md` |
 | the build outside the compiler, round 2 (the fixed part; a static page's cost) | cloud, `session_01AjKzdyy3dA5FDC6jCiY3dH` | `redesign/pipeline-2` | `pipeline-2.md` |
 | stage 5, B1: the second pass from the first's walk | cloud, `session_01AjKzdxkDukbMzASz1qaYeA` | `redesign/stage5-b1` | `stage5-b1.md` |
-| the evaluation's cost | local agent | merged as it lands | `evaluation.md` |
+| stage 6: the evaluation, one function per template; a render plan per template | cloud, `session_01AjKzdxcYo9FzUYyj9yNBZn` | `redesign/stage6-eval` | `stage6-eval.md` |
 
 **The bar, as the owner set it on 2026-11-23:** the output need not be byte for byte today's where only numbering
 and generated names differ (`data-sn` ids, anchor numbers, template, state and function numbers, renamed loop
@@ -533,3 +533,13 @@ decision of their own (stage 7). A step that can stay byte-identical does.
   or 400 live posts need 3 nested builds (7 and 10 before, 101 and 401 without sharing); `generateBundle` 70 ms at
   100 posts. `SN_EARLY_SHAPES=kinds` keeps the earlier scheme, `0` turns sharing off. 1,500 tests of test/compiler,
   test/vite, test/check pass after the merge.
+- 2026-11-23, 22:35 UTC: **the evaluation's first round is done and merged** (`redesign-notes/evaluation.md`; five
+  changes, byte for byte): CPU ms a page, base and now, the evaluation's mean and `compile()`'s: the blog 10.7 to 7.7
+  and 16.9 to 12.8; with the type check 9.2 to 5.7 and 14.1 to 10.7; sinter-mail's file email 38.0 to 25.9; its
+  2,012-element email 355 to 281; its API route 17.9 to 14.1. Garbage inside compiles 20 to 30% less. What is left
+  there is one compiled-function call per binding per row through a proxy scope (131,000 bindings on the big email),
+  rendering per row, and the library's own parse; a cloud session takes it as stage 6's evaluation: one function per
+  template returning a row's values and decisions, a render plan per template. A rule it recorded as wrong goes to
+  that session to fix: `known`'s exclusion of the current model's persisted path leaks into the worklist's last
+  walk, so whether a persisted model's own field counts as known depends on where it is read (in no app or test).
+  No agent is left on the coordinating machine; every workstream is a cloud session now.
