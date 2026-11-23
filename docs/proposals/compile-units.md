@@ -261,7 +261,6 @@ timings were not usable). A cloud session pushes to a branch of its own:
 
 | Workstream | Where | Branch | Log |
 | --- | --- | --- | --- |
-| stage 5, A1 then A2: definitions that ship, from units | cloud, `session_01AjKzdxPCdJ5nbeXvwkXoP2` | `redesign/stage5-a1` | `stage5-a1.md` |
 | the Speculation Rules made linear; the fold check's cache on disk | cloud, `session_01AjKzdyy3dA5FDC6jCiY3dH` | `redesign/pipeline-2` | `pipeline-2.md` |
 | stage 5, B1 continued: template entries, pages with a unit, folds | cloud, `session_01AjKzdx4aCc4CWZp4zJDc1m` | `redesign/stage5-b1b` | `stage5-b1.md` |
 | stage 6: the evaluation, one function per template; a render plan per template | cloud, `session_01AjKzdxcYo9FzUYyj9yNBZn` | `redesign/stage6-eval` | `stage6-eval.md` |
@@ -634,3 +633,18 @@ decision of their own (stage 7). A step that can stay byte-identical does.
   after the merge: 1,546 tests of test/compiler, test/vite, test/check pass; `render-audit` eight apps the same;
   `mail-audit --gen 2000` 48 files identical (that build 31.2 s with rendering off, 6.2 s as it is now). Next there:
   a render plan per template for the blog's rendering, the unit's candidates kept on the unit, the `own` bug.
+- 2026-11-24, 01:00 UTC: **A1 and A2 are done and merged** (`redesign-notes/stage5-a1.md`). A2: a first pass that
+  is its output is compiled again with a unit (not under the type check). Its audit found a bug of A1's (a
+  definition's tag-attribute bindings made by the unit were renumbered in place for the next page), fixed with a
+  test; pages with a source map place no second-pass unit (a shared function's site would move). The session's
+  numbers on the merged tree: a later components-route page 97 to 66 ms (112 to 70 with TypeScript), a template's
+  entry with a live tree 280 to 52 ms; its suite 2,980, the units audit and verifier over the whole suite with no
+  difference, CI's link-audit job passing. Checked on the coordinating machine: 1,551 tests of test/compiler,
+  test/vite, test/check pass; `mail-audit --switch SN_UNITS2` under `SN_CANON=1` 48 files identical; `render-audit
+  --switch SN_UNITS2` eight apps the same. **The linker's review is ready** (`redesign-notes/stage4-units.md`, "What
+  the linker still covers that units do not" and "What deleting it removes"): after A1 and A2 it still serves a
+  unit's fallbacks (none in any app measured), a finished first pass under the type check, definitions reached
+  first from a fill's case after the walk, description compiles past the threshold, and `SN_UNITS2=0`; deleting it
+  removes about 330 of `link.ts`' 881 lines (the plan and its replay; the recorder stays, it makes the units), 40
+  lines of `definition()`, the `definitions` options in `src/vite.ts`, 60 lines of the audit in `index.ts`, six test
+  files (703 lines) and the CI job. It waits for the owner.
