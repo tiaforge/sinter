@@ -210,6 +210,13 @@ Found by the research, not changed:
   state through a `<sn-component use>` prop is folded to a static `<picture>`; the same component used by its tag keeps
   its binding (`decisions.md` §7.3).
 - **Linking is off whenever the build type-checks** (`contract.md` §4), which is every build with TypeScript installed.
+- **Dev builds and the old route.** Dev compiles (the dev server, `render()` from the testing module) run both
+  passes and never render rows: dev does not compact its function table, so every function the old route compiles
+  for a row and drops stays as a `0` slot, and rendering would number the functions after it otherwise (nothing at
+  run time reads the slots; with rendering forced on in dev the whole suite passes but the test that says dev never
+  renders). If dev's function numbering may change, dev renders too, and the old route (`inlineInstance`, the row
+  lets) is needed only for per-copy diagnostics and rows that keep a handler; until then it stays
+  (`redesign-notes/stage2-coverage.md`, "The rest, and the deletion").
 - **Props as a run-time frame.** Binding an inlined live use's props at run time, as shared definitions do, would
   make a unit's code independent of its use with no holes, at the price of a changed IR and other bytes. Not planned
   for inlined uses: the holes keep the output, and the runtime, as they are. Stage 7 is about the uses whose props
@@ -302,3 +309,11 @@ Found by the research, not changed:
   `$s`), typed holes everywhere (not needed for the first pass), extending the linker. The agent goes on with the
   implementation: units placed by reference where the first pass only reads them, their functions compiled once
   per build for the evaluation, then the type check's frames; the linker is deleted after a review.
+- 2026-11-23, 16:30 UTC: stage 2, the rest (merged): links in rows, a choice outside any loop and ids in rows
+  render. Over the suite the second pass still takes the old route for per-copy diagnostics (3 loops), a handler
+  that stays (3), an id in a case's definition, and render-rows' own fallback cases; and for every dev compile
+  (1,493 loops), which is what keeps the old route from being deleted (see "For a decision"). A profile of the
+  static build as it is (CPU, loaded machine): per page, the first pass's evaluation 14.5 ms (the page's `md.parse`
+  4.8, the worklist 4, rendering 3.8), the second pass 14 (`walkChildren` 3.1, `minify` 2.9, `expandComponents`
+  1.8), garbage 8.3; outside the compiler, Vite's HTML parse 3.5 and the end-of-build cross check running the
+  helpers again 2.9. Started: stage 3, one walk per page (`redesign-notes/stage3-one-pass.md`).
