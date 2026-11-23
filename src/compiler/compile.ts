@@ -283,6 +283,8 @@ export interface CompileOptions {
    * compiled templates (`rowRenderer`), by the loop's key (as `unrolled`): spliced in, not compiled again
    */
   rendered?: Map<string, RenderedRows>;
+  /** internal, likewise: why the first pass did not render each loop or choice it decided (counted where the second pass compiles it, `renderStat`) */
+  unrendered?: Map<string, { why: string; rows: number }>;
   /**
    * the page must ship no JavaScript (`sinter({ static })`): each thing that runs in the browser is
    * `SN322` where it was written. Needs `prerender`, which leaves out what can never change.
@@ -1044,6 +1046,34 @@ function parsedText(text: string): DefaultTreeAdapterMap['documentFragment'] {
   return f;
 }
 
+/**
+ * Pages' and layouts' documents (`parseDocument`), parsed once per process by text, as `parsedText` keeps
+ * components': each compile takes a copy (`copyParsed`), which it may change. A template's entries, and the passes
+ * and the description of one page, parse the same text.
+ */
+const PARSED_DOCS = new Map<string, DefaultTreeAdapterMap['document']>();
+function parsedDocument(html: string): DefaultTreeAdapterMap['document'] {
+  let d = PARSED_DOCS.get(html);
+  if (!d) {
+    if (PARSED_DOCS.size >= 500) PARSED_DOCS.clear();
+    PARSED_DOCS.set(html, (d = parseDocument(html)));
+  }
+  return copyParsed(d, null) as unknown as DefaultTreeAdapterMap['document'];
+}
+
+/**
+ * A parsed tree as the parser gives it, again: every node and attribute a new object (the positions shared, which
+ * nothing changes), each property where the parser put one (a fragment or a document has no `parentNode`).
+ */
+function copyParsed(n: P5Node | P5Parent, parent: P5Parent | null): P5Node {
+  const copy = { ...n } as P5Node;
+  if ('parentNode' in n) (copy as { parentNode: P5Parent | null }).parentNode = parent;
+  if ('attrs' in n) (copy as P5Element).attrs = n.attrs.map((a) => ({ ...a }));
+  if ('childNodes' in n) (copy as P5Element).childNodes = n.childNodes.map((c) => copyParsed(c, copy as P5Parent)) as never[];
+  if ('content' in n && n.content) (copy as P5Template).content = copyParsed(n.content as never, null) as never;
+  return copy;
+}
+
 /** what a field of the compiler holds: a container's type, a class's name, or a value's type (`compilerFields`) */
 export function fieldKind(v: unknown): string {
   if (v === null || v === undefined) return 'empty';
@@ -1112,7 +1142,7 @@ function fromTemplate(html: string, options: CompileOptions): CompiledParts | nu
   const out = new Compiler({
     ...options, decided: new Map(c.decided), ...(c.unrolls.size ? { unrolled: new Map(c.unrolls) } : {}),
     ...(c.constants.size ? { constants: new Map(c.constants) as Map<string, ConstantWrite[]> } : {}),
-    ...(c.overLimit.size ? { overLimit: new Map(c.overLimit) } : {}), ...(c.rendered.size ? { rendered: new Map(c.rendered) } : {}), frozen,
+    ...(c.overLimit.size ? { overLimit: new Map(c.overLimit) } : {}), ...(c.rendered.size ? { rendered: new Map(c.rendered) } : {}), ...(c.unrendered.size ? { unrendered: new Map(c.unrendered) } : {}), frozen,
   }).run(html);
   // a page with errors: the usual way, which reports them as it always does
   if (out.diagnostics.some((d) => d.severity === 'error')) return null;
@@ -1150,13 +1180,14 @@ function compileTwice(html: string, options: CompileOptions, pass: { first: Comp
     if (!first.decided.size && !unrolled && !constants) return null;
     const frozen = first.foldedState();
     if (constants) for (const s of first.constantSites) frozen.add(s);
-    return new Compiler({ ...options, decided: first.decided, ...(unrolled ? { unrolled } : {}), ...(unrolled && first.rendered.size ? { rendered: first.rendered } : {}), ...(constants ? { constants } : {}), ...(first.overLimit.size ? { overLimit: first.overLimit } : {}), frozen }).run(html);
+    return new Compiler({ ...options, decided: first.decided, ...(unrolled ? { unrolled } : {}), ...(first.rendered.size ? { rendered: first.rendered } : {}), ...(first.unrendered.size ? { unrendered: first.unrendered } : {}), ...(constants ? { constants } : {}), ...(first.overLimit.size ? { overLimit: first.overLimit } : {}), frozen }).run(html);
   };
   const twice = !!options.prerender && !options.decided && !options.unrolled;
   // a second pass whatever the rest of the first one does: nothing of that rest is read (its markup, its tables, its
   // diagnostics), so the first stops at its decisions. Known only when the rest cannot report an error (`quietFinish`)
-  // (and under the type check, a first pass that placed a unit, whose check unit is complete after its walk: `units.ts`)
-  if (twice && (!first.check || first.placedUnit && first.checkOrder) && first.quietFinish()) {
+  // (the type check reads the first pass's unit, below: the walk made all of it, `finishPage` adds nothing to it; with a
+  // unit placed, only where the walk took the unit's check data in its order: `units.ts`)
+  if (twice && first.quietFinish() && (!first.placedUnit || first.checkOrder)) {
     const out = second(isClean());
     if (out) return first.check ? { ...out, check: first.check } : out;
   }
@@ -1472,6 +1503,15 @@ class Compiler {
   nextId = 0;
   nextSid = 0;
   readonly check: CheckUnit | null;
+  /** whether `check` is recorded: what the walk tests (`check` names the page, which a shared definition must not read) */
+  readonly checking: boolean;
+  /**
+   * `check`'s lists, as fields of their own: a shared definition's are recorded and linked as any table of the
+   * compiler's (`LINK_FIELDS`), so a build that type-checks links its definitions too
+   */
+  readonly checkFrames: CheckUnit['frames'] = [];
+  readonly checkExprs: CheckUnit['exprs'] = [];
+  readonly checkResources: CheckUnit['resources'] = [];
   /** StateEntry / LoopEntry → frame index in `check.frames` */
   readonly frameOf = new Map<object, number>();
   /** `sinter check`: the condition a branch is checked under, when it is not its own `data-sn-if` (the `data-sn-else` of a choice); and each `if` binding's, for its `data-sn-else` */
@@ -1633,8 +1673,12 @@ class Compiler {
   private readonly dropped = new Set<Binding>();
   /** the first pass: the rows of each unrolled loop rendered from its compiled templates, by its key, for the second (`rowRenderer`) */
   readonly rendered = new Map<string, RenderedRows>();
+  /** the first pass: why each loop or choice it decided was not rendered, by key (the second pass counts it where it compiles it instead) */
+  readonly unrendered = new Map<string, { why: string; rows: number }>();
   /** the diagnostics the walk reported in each template's content (its nested templates' too), by template: rows it renders are not rendered (`rowRenderer`) */
   private readonly tplDiags = new Map<number, number>();
+  /** the candidates of a choice (by its first candidate's tag) whose tags were reported on: such a case it renders outside rows is not rendered (`rowRenderer`) */
+  private readonly choiceDiags = new WeakMap<P5Element, Set<string>>();
   /** a `data-sn-if` or `data-sn-for` template's attribute as written, before the walk strips it (`rowRenderer`: what the second pass folds) */
   private readonly snSource = new WeakMap<P5Element, string>();
   /**
@@ -1676,7 +1720,8 @@ class Compiler {
   readonly remoteWidths = new Set<number>();
 
   constructor(readonly opts: CompileOptions) {
-    this.check = opts.check ? { file: opts.file, resources: [], frames: [], exprs: [] } : null;
+    this.check = opts.check ? { file: opts.file, resources: this.checkResources, frames: this.checkFrames, exprs: this.checkExprs } : null;
+    this.checking = !!opts.check;
     const ns = new Map<string, Set<string>>();
     for (const [k, v] of Object.entries(opts.helpers.namespaces)) ns.set(k, new Set(v.members));
     this.page = {
@@ -1738,7 +1783,7 @@ class Compiler {
   /** The page parsed, expanded and walked: its program, up to evaluating it (`prerender`). */
   walkPage(html: string): NonNullable<Compiler['walk']> {
     this.keepsAttrs = this.collecting() && renderOn() && !this.opts.dev;
-    let doc = parseDocument(html);
+    let doc = parsedDocument(html);
     this.tag(doc, { file: this.opts.file, src: html, chain: [] });
     if (this.isLayoutFile(this.opts.file)) this.diagnostics.push({ severity: 'error', code: 'SN318', message: 'a layout is not a page: a page uses it by its tag. Leave `src/layouts/` out of the build\'s inputs', file: this.opts.file, line: 1, col: 1 });
     else doc = this.mergeLayout(doc) ?? doc;
@@ -2293,7 +2338,7 @@ class Compiler {
     }
     const open = text.indexOf('(', callee.end);
     const r = this.expr(el, attrName, scope, { mode: 'value', ...(magic ? { magic } : {}) }, `[${text.slice(open + 1, ast.end - 1)}]`, open);
-    if (this.check) this.typeLast({ returns: { kind: 'call', name, args: true } });
+    if (this.checking) this.typeLast({ returns: { kind: 'call', name, args: true } });
     if (deps) for (const d of r.deps) deps.add(d);
     if (!r.ok) return null;
     this.calls.add(name);
@@ -2797,7 +2842,7 @@ class Compiler {
       try { this.opts.readFile(f); } catch { continue; }
       this.diagnostics.push({ severity: 'error', code: 'SN318', message: `the layout \`<${name}>\` has a script (\`${f.startsWith(lroot + '/') ? f.slice(lroot.length + 1) : f}\`); layouts have none, its components may`, file: lf.file, line: 1, col: 1 });
     }
-    const ldoc = parseDocument(lf.text);
+    const ldoc = parsedDocument(lf.text);
     const at = host.sourceCodeLocation ? this.lineCol(pageOrigin.src, host.sourceCodeLocation.startOffset) : { line: 1, col: 1 };
     this.tag(ldoc, { file: lf.file, src: lf.text, chain: [`${basename(this.opts.file)}:${at.line}`] });
     this.files.add(lf.file);
@@ -4250,9 +4295,9 @@ class Compiler {
     const cs: ComponentScope = { name, outer, runtime, id: this.useIds, ...(fills ? { fills } : {}), ...(use.late || caller.component?.late ? { late: true } : {}), ...(use.emitsText === null ? { emits: null } : use.emits ? { emits: use.emits.map((m) => m.name) } : {}) };
     use.scope = cs;
     this.useById.set(this.useIds++, use);
-    if (this.check) {
-      this.frameOf.set(cs, this.check.frames.length);
-      this.check.frames.push({ kind: 'props', component: name, type: { kind: 'ts', text: use.propsText.trim() || '{}', loc: this.locOf(use.template, use.layout ? 'data-sn-layout' : use.head ? 'data-sn-head' : 'data-sn-component') }, names: declared ?? [...passed], ...(!use.props && !use.layout ? { alias: true } : {}) });
+    if (this.checking) {
+      this.frameOf.set(cs, this.checkFrames.length);
+      this.checkFrames.push({ kind: 'props', component: name, type: { kind: 'ts', text: use.propsText.trim() || '{}', loc: this.locOf(use.template, use.layout ? 'data-sn-layout' : use.head ? 'data-sn-head' : 'data-sn-component') }, names: declared ?? [...passed], ...(!use.props && !use.layout ? { alias: true } : {}) });
     }
     return { loops: [], states: [], lets, component: cs };
   }
@@ -4314,7 +4359,7 @@ class Compiler {
     const known = typeMembers(T);
     if (src !== undefined) {
       const r = this.expr(el, 'data-sn-with', scope, { mode: 'value', object: 'literal-keys' });
-      if (this.check) this.typeLast({ returns: { kind: 'ts', text: T, loc: this.locOf(p.use.template, 'data-sn-component', p.member.offset) } });
+      if (this.checking) this.typeLast({ returns: { kind: 'ts', text: T, loc: this.locOf(p.use.template, 'data-sn-component', p.member.offset) } });
       for (const e of r.entries ?? []) {
         if (known && !known.some((m) => m.name === e.key)) {
           const names = known.map((m) => m.name);
@@ -4334,9 +4379,9 @@ class Compiler {
       deps: [...new Set(all.flatMap((l) => l.deps))], usesEl: all.some((l) => l.usesEl), usesIndex: all.some((l) => l.usesIndex), resource: null,
     };
     const out: SlotScope = { name: p.name, component: p.use.name, whole, members };
-    if (this.check) {
-      this.frameOf.set(out, this.check.frames.length);
-      this.check.frames.push({ kind: 'slot', type: { kind: 'ts', text: T, loc: this.locOf(p.use.template, 'data-sn-component', p.member.offset) }, name: p.name, component: p.use.name });
+    if (this.checking) {
+      this.frameOf.set(out, this.checkFrames.length);
+      this.checkFrames.push({ kind: 'slot', type: { kind: 'ts', text: T, loc: this.locOf(p.use.template, 'data-sn-component', p.member.offset) }, name: p.name, component: p.use.name });
     }
     return out;
   }
@@ -4371,12 +4416,12 @@ class Compiler {
       node.state = this.fn(r.code);
       node.sid = sid;
       const entry = { sid, names: new Set(r.entries!.map((e) => e.key)) };
-      if (this.check) {
-        this.frameOf.set(entry, this.check.frames.length);
+      if (this.checking) {
+        this.frameOf.set(entry, this.checkFrames.length);
         const first = [...entry.names].map((n) => r.entries!.find((e) => e.key === n)!);
         const locs = first.map((e) => this.locOf(el, 'data-sn-state', e.offset));
         const nested = first.filter((e) => e.nested).map((e) => `${JSON.stringify(e.key)}: ${e.nested}`);
-        this.check.frames.push({ kind: 'state', names: [...entry.names], init: this.lastExpr, locs, ...(nested.length ? { nested: `{ ${nested.join('; ')} }` } : {}) });
+        this.checkFrames.push({ kind: 'state', names: [...entry.names], init: this.lastExpr, locs, ...(nested.length ? { nested: `{ ${nested.join('; ')} }` } : {}) });
       }
       this.checkNames(el, 'data-sn-state', scope, [...entry.names]);
       scope = { ...scope, states: [...scope.states, entry] };
@@ -4409,7 +4454,7 @@ class Compiler {
       // so `undefined` fits only an optional one (`at: last?.tick` for `at: number` is an error under strictNullChecks;
       // a given undefined is passed, over a default of the root's state). (`& Partial<…>`: a key it does not declare
       // is an error there too, as when it is given alone)
-      if (this.check) {
+      if (this.checking) {
         const given = [...new Set((r.entries ?? []).map((e) => e.key).filter((k) => declared?.includes(k)))];
         const props = use.propsText.trim() || '{}';
         this.typeLast({ returns: { kind: 'ts', text: use.props ? `Pick<${props}, ${given.map((k) => JSON.stringify(k)).join(' | ') || 'never'}> & Partial<${props}>` : use.propsText, loc: this.locOf(use.template, use.layout ? 'data-sn-layout' : use.head ? 'data-sn-head' : 'data-sn-component') } });
@@ -4470,12 +4515,13 @@ class Compiler {
     if (this.opts.describeOnly && this.describesNothing(host, name, ctx)) { host.childNodes = []; this.remove.push(host); return null; }
     const def = this.definition(name);
     if (!def) { detach(host); return null; }
+    const d0 = this.diagnostics.length;
     const use: Use = { ...def.use, host, chain: [] };
     const choice = this.choices.get(host);
     // `<sn-component use>`: the name, checked once against `ComponentName` (the app's components)
     let pick: ExprResult | null = null;
     if (choice) {
-      if (choice.first) pick = this.expr(host, 'use', ctx.scope, { mode: 'value' });
+      if (choice.first) pick = this.expr(host, 'use', ctx.scope, { mode: 'value' }, undefined, 0, !(this.checking && choice.keys));
       else {
         // the candidates are clones of one tag, walked in one scope: `use` reads the same there for each
         const src = attr(host, 'use')!, l = choice.group.later;
@@ -4483,17 +4529,16 @@ class Compiler {
       }
       // a map in the markup: TypeScript types its values as strings, so the key is what must fit (its keys); the values are checked above.
       // With a `data-sn-else` after it, any other key renders the else: the key is checked, of any value
-      if (choice.first && this.check && choice.keys) {
-        if (this.lastExpr !== null) this.check.exprs.pop();
+      if (choice.first && this.checking && choice.keys) {
         const src = attr(host, 'use')!;
         this.expr(host, 'use', ctx.scope, { mode: 'value' }, choice.keySrc!, src.lastIndexOf(choice.keySrc!));
         if (!choice.hasElse) this.typeLast({ returns: { kind: 'ts', text: choice.keys.map((k) => JSON.stringify(k)).join(' | ') || 'never', loc: this.locOf(host, 'use') } });
-      } else if (choice.first && this.check) this.typeLast({ returns: { kind: 'ts', text: [...new Set([...(choice.pool ?? this.opts.componentNames ?? []), ...choice.names])].sort().map((n) => JSON.stringify(n)).join(' | ') || 'never', loc: this.locOf(host, 'use') } });
+      } else if (choice.first && this.checking) this.typeLast({ returns: { kind: 'ts', text: [...new Set([...(choice.pool ?? this.opts.componentNames ?? []), ...choice.names])].sort().map((n) => JSON.stringify(n)).join(' | ') || 'never', loc: this.locOf(host, 'use') } });
     }
     const { lets } = this.propLets(use, ctx.scope);
     // each candidate's props, checked with the data narrowed to its value (convention, map; a helper hides the link)
-    if (choice?.key != null && this.check && this.lastExpr !== null && attr(host, 'data-sn-with') !== undefined) {
-      const e = this.check.exprs[this.lastExpr]!;
+    if (choice?.key != null && this.checking && this.lastExpr !== null && attr(host, 'data-sn-with') !== undefined) {
+      const e = this.checkExprs[this.lastExpr]!;
       // (in parentheses when there are several keys: the guard is joined with others)
       e.guard = choice.also?.length ? `(${[choice.key, ...choice.also].map((k) => `(${choice.keySrc}) === ${JSON.stringify(k)}`).join(' || ')})` : `(${choice.keySrc}) === ${JSON.stringify(choice.key)}`;
       e.guardAt = { name: choice.name, key: choice.key, loc: this.locOf(host, 'use', choice.keyAt ?? 0) };
@@ -4510,6 +4555,13 @@ class Compiler {
     const deps = [...new Set([...lets.flatMap((l) => l.deps), ...(pick?.deps ?? []), ...(tagAttrs?.deps ?? [])])].sort();
     if (choice) {
       if (choice.first && pick?.usesEl) this.report(host, 'use', 'SN213', '`$el` in `use`: a component chosen by data is marked by comments in the page, so there is no element to read', 0, 'choose with the data alone');
+      // (reported on a candidate here: the second pass's expansion of the case it renders reports it again, `rowRenderer`)
+      if (this.diagnostics.length > d0) {
+        const first = choice.group.site?.el ?? host;
+        let names = this.choiceDiags.get(first);
+        if (!names) this.choiceDiags.set(first, names = new Set());
+        names.add(choice.name);
+      }
       // one choice anchor for the whole `<sn-component use>`: each candidate adds its case; the first makes the node
       const g = choice.group;
       g.cases.push({ name: choice.name, tid: def.tid, props: props.slice(1, -1), deps, ...(choice.keys && choice.key !== null ? { keys: [choice.key, ...(choice.also ?? [])] } : {}) });
@@ -4710,10 +4762,10 @@ class Compiler {
           const mark = (ns: readonly P5Node[]) => { for (const c of ns) if (isElement(c)) { this.caseInst.set(c, `#case${tid}/`); mark(c.childNodes); if (c.tagName === 'template') mark((c as P5Template).content.childNodes); } };
           mark(tpl.content.childNodes);
           const slot: SlotScope = { name: P.k, component: F.use.name, members: new Map([...P.members].map(([key, l]) => [key, { ...l, code: `$.${rt}.${key}`, deps: [] }])), whole: { name: '$slot', code: `$.${rt}`, deps: [], usesEl: false, usesIndex: false, resource: null } };
-          if (this.check) {
+          if (this.checking) {
             const m = F.use.slots!.get(F.k)!;
-            this.frameOf.set(slot, this.check.frames.length);
-            this.check.frames.push({ kind: 'slot', type: { kind: 'ts', text: m.slot!, loc: this.locOf(F.use.template, 'data-sn-component', m.offset) }, name: P.k, component: F.use.name });
+            this.frameOf.set(slot, this.checkFrames.length);
+            this.checkFrames.push({ kind: 'slot', type: { kind: 'ts', text: m.slot!, loc: this.locOf(F.use.template, 'data-sn-component', m.offset) }, name: P.k, component: F.use.name });
           }
           const scope: Scope = { ...F.use.caller, slot };
           // (a fill forwarded from further out compiles its placements' data from here, as the walk does for any fill)
@@ -5018,11 +5070,13 @@ class Compiler {
     const L = this.defLink;
     const cache = this.opts.definitions as Map<string, (Plan | Refused) & { slot?: number } | { seen: number }> | undefined;
     // compiled in place unless the build links (a unit compiles only to be recorded); in a unit, its definitions are its own
-    if (!cache || L.depth > 0 || L.off || this.check || this.opts.dev) return this.compileDefinition(name);
+    if (!cache || L.depth > 0 || L.off || this.opts.dev) return this.compileDefinition(name);
     const stats = (globalThis as { __snLink?: { hits: number; recorded: number; refused: string[]; missed?: number } }).__snLink;
     // (the chain: the ids of the units before it on this page, short whatever their keys; and how the page is numbered
     // before it, which a plan is not renumbered for: a page numbered otherwise has a plan of its own)
-    const numbered = [this.templates.length, this.nextSid, this.useIds, this.nextId, this.fns.length, this.actions.length].join(',');
+    // (and the type check's frames and expressions, which a definition's refer to by number)
+    const numbered = [this.templates.length, this.nextSid, this.useIds, this.nextId, this.fns.length, this.actions.length,
+      ...(this.checking ? [this.checkFrames.length, this.checkExprs.length, this.checkResources.length] : [])].join(',');
     const key = [this.opts.decided || this.opts.unrolled || this.opts.constants ? 2 : 1, L.chain.join(','), name, [...this.defs.keys()].join(','), numbered].join('\u0002');
     const u = cache.get(key);
     if (u && 'ops' in u) {
@@ -5138,7 +5192,17 @@ class Compiler {
 
   declare(parent: P5Parent, inTemplate = false, inRow = false) {
     for (const child of parent.childNodes) {
-      if (!isElement(child) || this.renderedAt.has(child)) continue;
+      if (isElement(child) && this.renderedAt.has(child)) {
+        // rows the first pass rendered: the ids their markup writes (no action: they are static), at the first
+        for (const { id, dialog } of this.renderedAt.get(child)?.rows.idAttrs ?? []) {
+          if (dialog) this.page.dialogs.add(id);
+          const t = this.page.ids!.get(id) ?? { action: false, row: false, n: 0 };
+          t.n++;
+          this.page.ids!.set(id, t);
+        }
+        continue;
+      }
+      if (!isElement(child)) continue;
       if (child.tagName === 'sn-resource') {
         if (inTemplate) { this.report(child, null, 'SN102', '`<sn-resource>` cannot be inside a `<template>`', 0); continue; }
         const name = attr(child, 'name');
@@ -5188,13 +5252,13 @@ class Compiler {
    * A form is submitted (`requestSubmit()`), so its `$event` is a real `SubmitEvent`.
    */
   runTargets() {
-    if (!this.check) return;
+    if (!this.checking) return;
     const ids = new Set(this.flows.flatMap((f) => f.runs.map((r) => r.id)));
     for (const id of ids) {
       const el = this.idEls.get(id);
       if (!el || el.tagName === 'form') continue;
       for (const { attr: a, i } of this.exprsOf.get(el) ?? []) {
-        if (TRIGGER_TIME.has(a) && this.check.exprs[i]!.event !== null) this.check.exprs[i]!.run = true;
+        if (TRIGGER_TIME.has(a) && this.checkExprs[i]!.event !== null) this.checkExprs[i]!.run = true;
       }
     }
   }
@@ -5324,6 +5388,13 @@ class Compiler {
         if (r) {
           if (r.rows.list && !this.listCompiled.has(r.tpl)) { this.listCompiled.add(r.tpl); this.expr(r.tpl, 'data-sn-for', ctx.scope, { mode: 'value' }, r.list, r.offset); }
           this.nextId += r.rows.ids;
+          // (its links, as the walk of the rows meets them: what the build sees of where they go, where each was written)
+          for (const h of r.rows.hrefs) {
+            if (h.origin) this.origins.set(h.el, h.origin);
+            if (h.loc) h.el.sourceCodeLocation = h.loc;
+            this.hrefs.push({ el: h.el, prefixes: h.prefixes, literal: h.literal, ...(h.query ? { query: h.query, src: h.src } : {}) });
+            if (h.bound) this.boundHrefs.add(h.el);
+          }
         }
         lastIf = null;
         continue;
@@ -5598,11 +5669,11 @@ class Compiler {
         scope = { ...scope, states: [...scope.states, entry] };
         this.stateInits.push({ sid, fields: [{ key: '$error', code: '($) => (null)', deps: [] }], persist: null });
       }
-      if (this.check) {
+      if (this.checking) {
         // its own frame, inside the state's: typed as the error or null
         const e2 = { sid: entry.sid, names: new Set(['$error']) };
-        this.frameOf.set(e2, this.check.frames.length);
-        this.check.frames.push({ kind: 'formError' });
+        this.frameOf.set(e2, this.checkFrames.length);
+        this.checkFrames.push({ kind: 'formError' });
         scope = { ...scope, states: [...scope.states, e2] };
       }
     }
@@ -5693,7 +5764,7 @@ class Compiler {
       else {
         result = { node, binding: b };
         const cond = this.branchGuard.get(el) ?? `(${get('if')})`;
-        if (this.check) this.branchGuard.set(b, cond);
+        if (this.checking) this.branchGuard.set(b, cond);
         content = { tid, scope: this.guarded(scope, cond) };
       }
     } else if (isTemplate && has('else')) {
@@ -6102,7 +6173,8 @@ class Compiler {
     return { fns: fns.map(at), content };
   }
 
-  expr(el: P5Element, attrName: string, scope: Scope, o: Omit<ExprOptions, 'report'>, value?: string, shift = 0): ExprResult {
+  /** `kept: false`: the check keeps the expression only when it is broken (a choice's `use`, whose key it checks instead) */
+  expr(el: P5Element, attrName: string, scope: Scope, o: Omit<ExprOptions, 'report'>, value?: string, shift = 0, kept = true): ExprResult {
     const src = value ?? attr(el, attrName) ?? '';
     // a handler on a component's tag: its event's detail has the source of what the component emits
     const host = this.hostUse.get(el)?.scope;
@@ -6119,12 +6191,12 @@ class Compiler {
     if (r.ok && r.ast) this.complexity(el, attrName, o, r.ast);
     if (r.runs || r.refreshes) this.flows.push({ el, attr: attrName, shift, runs: r.runs ?? [], refreshes: r.refreshes ?? [] });
     this.lastExpr = null;
-    if (this.check) {
+    if (this.checking && (kept || !r.ok)) {
       // resources named by value (`refresh(people)`) are checked as their names, which the store's types take
       const i = this.recordExpr(el, attrName, scope, o, r.nameEdits ? applyEdits(src, r.nameEdits) : src, shift, r);
       // a broken expression is there for editor completion only; nothing refers to it
       if (r.ok) this.lastExpr = i;
-      else this.check.exprs[i]!.broken = true;
+      else this.checkExprs[i]!.broken = true;
     }
     return r;
   }
@@ -6323,9 +6395,9 @@ class Compiler {
           if (n.ok) Object.assign(entry, { names: [...new Set(leaves.map((c) => c.name))], from, nameSrc, nameCode: n.inner, nameDeps: n.deps });
         }
       }
-      if (this.check) {
-        this.frameOf.set(entry, this.check.frames.length);
-        this.check.frames.push({ kind: 'let', name, init: r.ok ? this.lastExpr : null, loc: this.locOf(el, 'data-sn-let', p.key.start), ...(waiting?.waits ? { waits: true as const } : {}) });
+      if (this.checking) {
+        this.frameOf.set(entry, this.checkFrames.length);
+        this.checkFrames.push({ kind: 'let', name, init: r.ok ? this.lastExpr : null, loc: this.locOf(el, 'data-sn-let', p.key.start), ...(waiting?.waits ? { waits: true as const } : {}) });
       }
       scope = { ...scope, lets: [...(scope.lets ?? []), entry] };
     }
@@ -6377,8 +6449,8 @@ class Compiler {
 
   /** Adds type information to the expression `expr()` recorded last. */
   typeLast(info: Partial<Pick<CheckExpr, 'resultType' | 'returns'>> & { payload?: TypeRef | null }) {
-    if (!this.check || this.lastExpr === null) return;
-    const e = this.check.exprs[this.lastExpr]!;
+    if (!this.checking || this.lastExpr === null) return;
+    const e = this.checkExprs[this.lastExpr]!;
     if (info.resultType) e.resultType = info.resultType;
     if (info.returns) e.returns = info.returns;
     if (info.payload && e.payload) e.payload.type = info.payload;
@@ -6398,10 +6470,10 @@ class Compiler {
 
   /** `sinter check`: the scope of a branch, whose expressions are checked where `cond` holds */
   guarded(scope: Scope, cond: string): Scope {
-    if (!this.check) return scope;
+    if (!this.checking) return scope;
     const g = { cond };
-    this.frameOf.set(g, this.check.frames.length);
-    this.check.frames.push({ kind: 'guard', cond });
+    this.frameOf.set(g, this.checkFrames.length);
+    this.checkFrames.push({ kind: 'guard', cond });
     return { ...scope, guards: [...(scope.guards ?? []), g] };
   }
 
@@ -6431,11 +6503,11 @@ class Compiler {
       e.detail = { kind: 'ts', text: `(${use.emitsText})[${JSON.stringify(event)}]`, loc: this.locOf(use.template, 'data-sn-emits') };
     }
     if (o.payload) e.payload = { as: o.payloadAs ?? '$event', type: null };
-    this.check!.exprs.push(e);
+    this.checkExprs.push(e);
     const list = this.exprsOf.get(el) ?? [];
-    list.push({ attr: attrName, i: this.check!.exprs.length - 1 });
+    list.push({ attr: attrName, i: this.checkExprs.length - 1 });
     this.exprsOf.set(el, list);
-    return this.check!.exprs.length - 1;
+    return this.checkExprs.length - 1;
   }
 
   // ---- bindings
@@ -6459,7 +6531,7 @@ class Compiler {
 
   attrBinding(el: P5Element, node: NodeDef, scope: Scope) {
     const r = this.expr(el, 'data-sn-attr', scope, { mode: 'value', object: 'literal-keys' });
-    if (this.check) this.typeLast({ returns: { kind: 'decl', name: 'Attrs' } });
+    if (this.checking) this.typeLast({ returns: { kind: 'decl', name: 'Attrs' } });
     if (!r.entries) return;
     for (const e of r.entries) {
       const key = e.key.toLowerCase();
@@ -6629,7 +6701,7 @@ class Compiler {
     const r = this.expr(el, name, scope, { mode: 'value', object: k === 'class' ? 'any-keys' : 'literal-keys' });
     // a custom element's properties, from the app's HTMLElementTagNameMap: each one given, with its type (so `undefined`
     // fits only one typed with it, under strictNullChecks)
-    if (this.check && k === 'prop') {
+    if (this.checking && k === 'prop') {
       const given = [...new Set((r.entries ?? []).map((e) => JSON.stringify(e.key)))];
       this.typeLast({ returns: { kind: 'decl', name: `Props<${JSON.stringify(el.tagName)}, ${given.join(' | ') || 'never'}>` } });
     }
@@ -6961,12 +7033,12 @@ class Compiler {
     if (index) loops.push({ name: index, kind: 'index', alias: null, resource: null, of: alias, ...rt(index) });
     if (scope.component && clash(item)) t.item = `${item}$${tid}`;
     if (scope.component && index && clash(index)) t.index = `${index}$${tid}`;
-    if (this.check) {
-      for (const l of loops.slice(scope.loops.length)) this.frameOf.set(l, this.check.frames.length);
+    if (this.checking) {
+      for (const l of loops.slice(scope.loops.length)) this.frameOf.set(l, this.checkFrames.length);
       const itemAt = value.indexOf(item, value.indexOf('(') >= 0 && value.indexOf('(') < m[0].length ? value.indexOf('(') : 0);
       const frame: CheckFrame = { kind: 'loop', item, index, init: listExpr, loc: this.locOf(el, 'data-sn-for', itemAt) };
       if (index) frame.indexLoc = this.locOf(el, 'data-sn-for', value.indexOf(index, itemAt + item.length));
-      this.check.frames.push(frame);
+      this.checkFrames.push(frame);
     }
     this.checkNames(el, 'data-sn-for', scope, index ? [item, index] : [item]);
     const inner: Scope = { ...scope, loops };
@@ -7240,9 +7312,9 @@ class Compiler {
         const listExpr = this.lastExpr;
         for (const d of list.deps) deps.add(d);
         const loop: LoopEntry = { name: m[1]!, kind: 'item', alias: null, resource: list.resource };
-        if (this.check) {
-          this.frameOf.set(loop, this.check.frames.length);
-          this.check.frames.push({ kind: 'loop', item: m[1]!, index: null, init: listExpr, loc: this.locOf(el, 'for', eachAttr.indexOf(m[1]!)) });
+        if (this.checking) {
+          this.frameOf.set(loop, this.checkFrames.length);
+          this.checkFrames.push({ kind: 'loop', item: m[1]!, index: null, init: listExpr, loc: this.locOf(el, 'for', eachAttr.indexOf(m[1]!)) });
         }
         srcScope = { ...ctx.scope, loops: [...ctx.scope.loops, loop] };
         if (list.ok) each = { item: m[1]!, list: this.fn(list.code), ...(list.resource ? { of: list.resource } : {}) };
@@ -7412,12 +7484,12 @@ class Compiler {
     // `type="Comment[]"`: what a change to one item of it does is SN542's (`checkListWrites`)
     const t = type?.replace(/\s*\|\s*(?:null|undefined)\b/g, '').trim();
     if (t && !info.key && !each && (/\[\]$/.test(t) || /^(?:Readonly)?Array\s*</.test(t))) this.listTyped.set(name, `its \`type\` is \`${type!.trim()}\``);
-    if (this.check) {
+    if (this.checking) {
       const r: CheckResource = { name, type, loc: this.locOf(el, type ? 'type' : null), nameLoc: this.locOf(el, 'name') };
       if (openapi && 'schema' in openapi) r.openapi = openapi;
       if (call) r.call = { name: call.name, select };
       if (paginate?.mode === 'keyset' && !paginate.skipParam) r.directions = true;
-      this.check.resources.push(r);
+      this.checkResources.push(r);
       // a resource fed by an action is typed by the action's result
       if (!type && !r.openapi && !r.call) {
         const hint = target
@@ -7635,7 +7707,7 @@ class Compiler {
     this.page.resources.get(name)!.used = true;
     const listInfo = this.page.resources.get(d.of);
     if (listInfo) listInfo.used = true;
-    if (this.check) this.check.resources.push({ name, type: null, loc: this.locOf(el, null), nameLoc: this.locOf(d.html, 'data-sn-for'), item: d.of });
+    if (this.checking) this.checkResources.push({ name, type: null, loc: this.locOf(el, null), nameLoc: this.locOf(d.html, 'data-sn-for'), item: d.of });
     this.resources.push({ name, src: [], key: null, select: null, total: null, order: null, when: null, paginate: null, deps: [], scope, data: null, fx: 1 });
     this.declAt.set(this.resources[this.resources.length - 1]!, el);
   }
@@ -7689,10 +7761,10 @@ class Compiler {
     const id = this.nextId++;
     this.fileData.set(name, { id, value, at: el, fields: this.fieldsOf(el), content: true });
     this.embedded.set(name, id);
-    if (this.check) {
+    if (this.checking) {
       const type = attr(el, 'type')?.trim() || null;
       const typed = !type && this.opts.contentModule ? { content: { module: this.opts.contentModule, name: cname } } : {};
-      this.check.resources.push({ name, type: type ? `(${type})[]` : null, loc: this.locOf(el, type ? 'type' : null), nameLoc: this.locOf(el, 'name'), ...typed });
+      this.checkResources.push({ name, type: type ? `(${type})[]` : null, loc: this.locOf(el, type ? 'type' : null), nameLoc: this.locOf(el, 'name'), ...typed });
       if (!type && !this.opts.contentModule) this.report(el, null, 'SN504', `resource \`${name}\` has no type: expressions using it are not checked`, 0, 'add `type="…"`, one entry\'s type from the types module, or `type="any"` to leave it unchecked');
     }
     this.resources.push({ name, src: [], key: info.key, select: null, total: null, order: null, when: null, paginate: null, deps: [], scope, data: null, fx: 1, ...(info.key ? {} : { ls: 1 as const }) });
@@ -7738,7 +7810,7 @@ class Compiler {
     // the list is read: by the build, for its entries, whatever the page reads of it
     const listInfo = this.page.resources.get(d.of);
     if (listInfo) listInfo.used = true;
-    if (this.check) this.check.resources.push({ name, type: null, loc: this.locOf(el, null), nameLoc: this.locOf(d.html, 'data-sn-for'), item: d.of });
+    if (this.checking) this.checkResources.push({ name, type: null, loc: this.locOf(el, null), nameLoc: this.locOf(d.html, 'data-sn-for'), item: d.of });
     this.resources.push({ name, src: [], key: null, select: null, total: null, order: null, when: null, paginate: null, deps: [], scope, data: null, fx: 1 });
     this.declAt.set(this.resources[this.resources.length - 1]!, el);
   }
@@ -7845,7 +7917,7 @@ class Compiler {
     const id = this.nextId++;
     this.fileData.set(name, { id, value, at: el, fields: this.fieldsOf(el) });
     this.embedded.set(name, id);
-    if (this.check) {
+    if (this.checking) {
       const type = attr(el, 'type')?.trim() || null;
       // a markdown file: its frontmatter's type (`type`) and the `body` sinter writes; a glob: one entry's, and the fields
       // sinter writes beside it (`slug`, `dir`, `path`, and `body` of a markdown or text file); JSON entries need `type`
@@ -7860,7 +7932,7 @@ class Compiler {
         if (picked !== undefined) values.push({ file: where.path, json: JSON.stringify(blank(picked)) });
       }
       const fileInfo = list || isMd || values.length ? { file: { list, adds, values } } : {};
-      this.check.resources.push({ name, type: type ?? (!list && !isMd && typeof value === 'string' ? 'string' : null), loc: this.locOf(el, type ? 'type' : null), nameLoc: this.locOf(el, 'name'), ...fileInfo });
+      this.checkResources.push({ name, type: type ?? (!list && !isMd && typeof value === 'string' ? 'string' : null), loc: this.locOf(el, type ? 'type' : null), nameLoc: this.locOf(el, 'name'), ...fileInfo });
       const md = bodied;
       if (!type && typeof value !== 'string' && !md) this.report(el, null, 'SN504', `resource \`${name}\` has no type: expressions using it are not checked`, 0, 'add `type="…"` with a type from the types module, or `type="any"` to leave it unchecked');
     }
@@ -7986,7 +8058,7 @@ class Compiler {
     const scope = ctx.scope;
     const typeAttr = attr(el, 'type')?.trim() || null;
     const payloadType: TypeRef | null = typeAttr && typeAttr !== 'any' ? { kind: 'ts', text: typeAttr, loc: this.locOf(el, 'type') } : null;
-    if (this.check && !typeAttr && ['value', 'when', 'then'].some((n) => attr(el, n) != null)) {
+    if (this.checking && !typeAttr && ['value', 'when', 'then'].some((n) => attr(el, n) != null)) {
       this.report(el, null, 'SN506', `event \`${name}\` has no type: expressions reading its payload are not checked`, 0,
         `add \`type="${this.payloadTypeHint(el, resource)}"\`, the payload's fields (a type from the types module may be named), or \`type="any"\` to leave it unchecked`);
     }
@@ -8440,7 +8512,7 @@ class Compiler {
     type Found = { unrolls: Array<[string, unknown[], PathRef[] | undefined]>; decided: Array<[string, boolean, PathRef[] | undefined]>; paints: Array<[Binding, string, ConstantWrite | null]>; recs?: RowRec[]; rows: number; over?: true };
     const rendering = renderOn() && !this.opts.dev;
     /** `pick`: a choice's case expanded (decided true), else a loop unrolled (`tid`, its rows' template) */
-    const pending = new Map<string, { items: unknown[]; d: PathRef[] | undefined; found: Found; pick?: true; el: P5Element; tid?: number } | null>();
+    const pending = new Map<string, { items: unknown[]; d: PathRef[] | undefined; found: Found; pick?: true; el: P5Element; tid?: number; picked?: PickedCase } | null>();
     const placementOf = new Map(this.runtimePlacements.map((P) => [P.node, P] as const));
     const written = this.writtenState();
     /**
@@ -8595,9 +8667,12 @@ class Compiler {
           // the case it renders: expanded when its definition over its props is static markup (one instance per key)
           if (ch?.picked === point.group!.cases[i]!.name) {
             const found: Found = { unrolls: [], decided: [], paints: [], rows: 0 };
-            const ok = expandCase(point, ch.picked!, ck, sc, '', found);
+            // (rendered like a row's case: its record, for `rowRenderer`)
+            const top: RowRec | undefined = rendering ? new Map() : undefined;
+            const ok = expandCase(point, ch.picked!, ck, sc, '', found, top, n);
             found.decided = found.decided.filter(([k]) => k !== ck);
-            pending.set(ck, pending.has(ck) || (!ok && !found.over) ? null : { items: [], d: point.pick!.deps, found, pick: true, el });
+            const picked = top?.get(n) as PickedCase | undefined;
+            pending.set(ck, pending.has(ck) || (!ok && !found.over) ? null : { items: [], d: point.pick!.deps, found, pick: true, el, ...(picked ? { picked } : {}) });
           }
           continue;
         }
@@ -8690,7 +8765,7 @@ class Compiler {
    * the rows, is left to the second pass as before: the reason is counted (`SN_RENDER_LOG=1`).
    */
   rowRenderer(handlerOnly: (b: Binding) => boolean, ROW: Set<string>, placementOf: Map<NodeDef, Compiler['runtimePlacements'][number]>):
-    (key: string, p: { items: unknown[]; found: { recs?: RowRec[]; rows: number }; pick?: true; tid?: number; el: P5Element }) => RenderedRows | null {
+    (key: string, p: { items: unknown[]; found: { recs?: RowRec[]; rows: number }; pick?: true; tid?: number; el: P5Element; picked?: PickedCase }) => RenderedRows | null {
     // scoped styles: the minifier leaves their components' markup as written (`SCOPED`), and the walk marks the roots of
     // the uses it sees (`data-sn-c`/`-r`/`-s`, after the walk)
     const scoped = new Set([...this.componentFiles.values()].filter((f) => f?.css).map((f) => f!.file));
@@ -8728,6 +8803,16 @@ class Compiler {
     };
     // links: what the build sees of them (same-page links, a pager's query) is read where the page reads its URL
     const links = !!this.opts.axisLists?.length || this.fns.some((c) => c.includes('$url'));
+    // (the entries the first pass's walk pushed for each link of the templates: a bound `href`'s prefixes are read from
+    // its expression as written, so a row's copy has the same)
+    let hrefOf: Map<P5Element, Compiler['hrefs']> | null = null;
+    const hrefsOf = (el: P5Element) => {
+      if (!hrefOf) {
+        hrefOf = new Map();
+        for (const h of this.hrefs) { let l = hrefOf.get(h.el); if (!l) hrefOf.set(h.el, l = []); l.push(h); }
+      }
+      return hrefOf.get(el) ?? [];
+    };
     const cssOf = new Map<string, string>();
     for (const f of this.componentFiles.values()) if (f?.cssFile) cssOf.set(f.file, f.cssFile);
     const filesOf = new Map<number, string[] | null>();
@@ -8773,9 +8858,8 @@ class Compiler {
       return null;
     };
     return (key, p) => {
-      if (p.pick) { renderStat('top-level choice', p.found.rows); return null; }
       const at = where(p.el);
-      if (at) { renderStat(at, p.found.rows); return null; }
+      if (at) { this.unrendered.set(key, { why: at, rows: p.found.rows }); return null; }
       const st = { ids: 0, folded: [] as string[], files: new Set<string>(), reads: new Set<string>(), rootStyled: new Set<string>(), uses: new Set<string>(), state: new Set<string>() };
       const no = (why: string): never => { throw new NoRender(why); };
       // (and the state fields they read: the old route's second pass freezes those of the bindings it drops, `fixedState`)
@@ -8784,6 +8868,37 @@ class Compiler {
         for (const x of this.stateSites(ds)) st.state.add(x);
       };
       const texted = new Set<P5Node>(), empty: P5Node[] = [], shown: P5Element[] = [];
+      /**
+       * links, with a page that reads them (`links`): the entries the second pass's walk pushes for each (`hrefs`, read by
+       * same-page links and SN519), in walk order, with where each was written; and the rows being rendered, innermost
+       * last, whose items an axis list's link names (`markAxisLink`: each row's list as written and its item)
+       */
+      const hrefs: RenderedRows['hrefs'] = [];
+      /** the ids its markup writes, in its order, which the second pass declares (`page.ids`, `dialogs`) */
+      const idList: RenderedRows['idAttrs'] = [];
+      const loops: Array<{ list: string; value: unknown }> = [];
+      /** a link's `data-sinter-pt`, written after `prefold`'s writes (in `fill`, for an element with bindings) */
+      const axisMark = new Map<P5Element, P5Element['attrs'][number]>();
+      const link = (n: P5Element, e: P5Element) => {
+        const pre = this.snAttrs.get(n) ?? n.attrs, own = hrefsOf(n);
+        // (the first pass's walk met it as the second's would: its static `href` and its bound one, as written)
+        const href = pre.find((a) => a.name === 'href');
+        if ((href !== undefined) !== own.some((h) => h.literal) || pre.some((a) => (a.name === 'data-sn-href' || a.name === 'data-sn-attr') && !this.boundHrefs.has(n) && (a.name === 'data-sn-href' || /\bhref\b/.test(a.value)))) no('links');
+        // (SN519 reports on a pager link: where it was written, which an instance's expansion words with its chain)
+        if (live && own.some((h) => h.query || (h.literal && h.prefixes[0]?.s[0] === '?'))) no('links');
+        for (const h of own) hrefs.push({ el: e, prefixes: h.prefixes, literal: h.literal, ...(h.query ? { query: h.query, src: h.src } : {}), bound: this.boundHrefs.has(n), origin: this.origins.get(n), loc: n.sourceCodeLocation });
+        if (this.opts.axisLists?.length) {
+          const at = new Map<string, string>();
+          for (let i = loops.length - 1; i >= 0; i--) {
+            const hit = this.axisEntryOf(loops[i]!.list.trim(), loops[i]!.value);
+            if (hit && !at.has(hit.src)) at.set(hit.src, hit.key);
+          }
+          if (at.size && !pre.some((a) => a.name === 'data-sinter-pt')) {
+            const a = { name: 'data-sinter-pt', value: [...at].map(([s, k]) => `${encodeURIComponent(s)} ${encodeURIComponent(k)}`).join(' ') };
+            if (nodeOfEl().has(n)) axisMark.set(e, a); else e.attrs.push(a);
+          }
+        }
+      };
       /** marks the second pass writes after its image pipeline (an image's: the old route marks it after the walk) */
       const late: Array<[P5Element, P5Element['attrs']]> = [];
       /** marks a fill's top elements take where it is placed (`data-sn-s`) */
@@ -8804,9 +8919,6 @@ class Compiler {
           // row as it would rewrite the row's image (eager or not, in its box)
           c = clone(n.childNodes.at(-1)!, parent, map);
         } else if (isElement(n)) {
-          // (an id the markup writes: the page's ids are read before the second pass compiles the rows; one a binding
-          // writes is not there yet)
-          if (n.attrs.some((a) => a.name === 'id')) no('an id');
           // (one the walk keeps for the runtime, `data-sn-options`, `-navigate`, …: the walk adds what it needs)
           // (the first pass's marks of scoped styles aside: below)
           if (n.attrs.some((a) => a.name.startsWith('data-sn-') && !MARKS.test(a.name))) no('a sinter attribute');
@@ -8815,9 +8927,14 @@ class Compiler {
           const pre = this.snAttrs.get(n);
           const base = REWROTE.get(n) ?? (pre ? pre.filter((a) => !a.name.startsWith('data-sn-') || KEPT_ATTRS.has(a.name)) : n.attrs.filter((a) => !MARKS.test(a.name)));
           const e = { nodeName: n.nodeName, tagName: n.tagName, attrs: base.map((a) => ({ ...a })), namespaceURI: n.namespaceURI, childNodes: [], parentNode: parent } as unknown as P5Element;
+          // (an id the markup writes: the page's ids are declared before the second pass compiles the rows, `declare`;
+          // one a binding writes is not there yet)
+          const id = attr(e, 'id');
+          if (id) idList.push({ id, dialog: e.tagName === 'dialog' });
           // (a component's root: its use, which the old route's expansion registers, `uses`)
           const u = this.useOf.get(n);
           if (u && !u.head) st.uses.add(u.name);
+          if (links && (n.tagName === 'a' || n.tagName === 'area')) link(n, e);
           if (marking) {
             // the marks of scoped styles (`data-sn-c`/`-r`/`-s`), which the first pass's walk wrote on the template's
             // markup as the second's writes them on the instance's (one `Use` per instance, `rootMarked`, `landing`,
@@ -8899,7 +9016,7 @@ class Compiler {
             if (!cl) no('markup');
             if (point.group) {
               if (!rec.has(n)) no('choice');
-              const c = rec.get(n) as { name: string; tid: number; props: unknown; rec?: RowRec[] } | null;
+              const c = rec.get(n) as PickedCase | null;
               read(point.pick?.deps);
               replace(cl, cl, c ? instance(point.el, c.name, c.tid, c.rec?.[0], c.props) : []);
               continue;
@@ -8979,6 +9096,9 @@ class Compiler {
             const host = this.useOf.get(el!)?.host, hostGone = new Set(fold.filter((x) => x.src !== el).map((x) => x.attr));
             if (WRITTEN.get(cl!) === 'opaque' && host && !host.attrs.some((a) => /^data-sn-(class|style|show|attr)$/.test(a.name) && !hostGone.has(a.name))) WRITTEN.delete(cl!);
           }
+          // (an axis list's link: marked as the walk meets it, after `prefold`'s writes)
+          const pt = axisMark.get(cl!);
+          if (pt) cl!.attrs.push(pt);
           // (the marks of scoped styles, after `prefold`'s writes and before the paints)
           const marks = MARKED.get(cl!);
           if (marks && cl!.tagName === 'img' && !n.b.some((b) => !defAttr.has(b) && b.k !== 'else' && !folded.has(b))) late.push([cl!, marks]);
@@ -9005,7 +9125,10 @@ class Compiler {
               read(b.d);
               const out: P5Node[] = [], was = live;
               live = false;
-              try { for (const r of rows!) out.push(...render(b.x!, r)); } finally { live = was; }
+              const list = src.slice(head![0].length);
+              try {
+                for (const r of rows!) { loops.push({ list, value: r.get(ROW_ITEM) }); try { out.push(...render(b.x!, r)); } finally { loops.pop(); } }
+              } finally { live = was; }
               replace(cl, cl, out);
               continue;
             }
@@ -9019,23 +9142,33 @@ class Compiler {
         const nodes: P5Node[] = [];
         let list = false;
         const recs = p.found.recs ?? [];
-        if (recs.length !== p.items.length) no('no record');
-        for (const r of recs) {
-          const row = render(p.tid!, r);
+        if (p.pick) {
+          // a choice outside any loop: the case it renders, an instance of its definition where the choice is (the old
+          // route's `inlineInstance`), whose tag passes nothing on to its root here
+          const c = p.picked, point = [...this.pointOf.values()].find((x) => x.el === p.el);
+          if (!c || !point || this.passOn.has(p.el)) no('choice');
+          if (this.choiceDiags.get(p.el)?.has(c!.name)) no('diagnostics');
+          read(point!.pick?.deps);
+          nodes.push(...instance(p.el, c!.name, c!.tid, c!.rec?.[0], c!.props));
+        } else if (recs.length !== p.items.length) no('no record');
+        // (the loop as written: its list, which an axis list's link reads with each row's item)
+        const src = this.snSource.get(p.el) ?? '', list0 = src.slice(LOOP_HEAD.exec(src)?.[0].length ?? 0);
+        if (!p.pick) for (const r of recs) {
+          loops.push({ list: list0, value: r.get(ROW_ITEM) });
+          let row: P5Node[];
+          try { row = render(p.tid!, r); } finally { loops.pop(); }
           // the list is compiled once, at the first row element the walk would meet (`rowLets`); a text node is one there
           if (row.some((x) => isElement(x) || texted.has(x))) list = true;
           else if (row.some((x) => x.nodeName === '#text' && (x as DefaultTreeAdapterMap['textNode']).value.trim())) no('text at the top of a row');
           nodes.push(...row);
         }
-        const why = rowsRead(nodes, links);
-        if (why) no(why);
         if ((st.ids || list) && !nodes.some(isElement)) no('no element');
         renderStat(null, p.found.rows);
         // (an empty text stays until the second pass has minified the rows: it was an element there, `WRITTEN`)
-        return { nodes, empty, shown: shown.filter((e) => SHOWN.has(e)), ids: st.ids, list, folded: st.folded, files: [...st.files], reads: [...st.reads], rootStyled: [...st.rootStyled], late, state: [...st.state], uses: [...st.uses].map((n) => { const f = this.componentFiles.get(n); return { name: n, css: f?.css, rawCss: f?.rawCss }; }), rows: p.found.rows };
+        return { nodes, empty, shown: shown.filter((e) => SHOWN.has(e)), ids: st.ids, list, folded: st.folded, files: [...st.files], reads: [...st.reads], rootStyled: [...st.rootStyled], late, state: [...st.state], hrefs, idAttrs: idList, uses: [...st.uses].map((n) => { const f = this.componentFiles.get(n); return { name: n, css: f?.css, rawCss: f?.rawCss }; }), rows: p.found.rows };
       } catch (e) {
         if (!(e instanceof NoRender)) throw e;
-        renderStat(e.why, p.found.rows);
+        this.unrendered.set(key, { why: e.why, rows: p.found.rows });
         return null;
       }
     };
@@ -9338,6 +9471,39 @@ class Compiler {
         changed = true;
         i--;
       };
+      /**
+       * what the first pass rendered at `key` (a loop's rows, a choice's case), outside rows and instances: spliced in
+       * here, with what compiling it would have done that the page keeps (the loop's list, `list`, compiled at its first
+       * element in the walk)
+       */
+      const splice = (key: string, list: string, offset: number): boolean => {
+        const done = !pre && !row && at === undefined ? this.opts.rendered?.get(key) : undefined;
+        if (!done) return false;
+        // (the first pass checked where it is: one it rendered has nothing decided in it to compile its rows with)
+        const why = this.renderedHere(c, done);
+        if (why) renderStat(`second pass: ${why}`, done.rows);
+        this.foldedText.push(...done.folded);
+        for (const f of done.files) this.files.add(f);
+        for (const n of done.reads) this.renderedReads.add(n);
+        this.renderedEmpty.push(...done.empty);
+        this.renderedShown.push(...done.shown);
+        this.renderedLate.push(...done.late);
+        // (the outer components whose root rules an instance's root takes, `data-sn-r`: shipped)
+        for (const n of done.rootStyled) this.rootStyled.add(n);
+        // (the components its instances use, which the old route expands here: their styles shipped, the page's marks)
+        // (and their scoped styles, as the first pass's expansion scoped them: the old route's `expandUse` does it here)
+        for (const x of done.uses) {
+          if (this.uses.has(x.name)) continue;
+          const f = this.componentFile(x.name);
+          if (f && f.css === undefined && x.css !== undefined) { f.css = x.css; f.rawCss = x.rawCss; }
+          this.uses.set(x.name, []);
+        }
+        const first = done.nodes.find(isElement);
+        for (const n of done.nodes) if (isElement(n)) this.renderedAt.set(n, n === first ? { tpl: c, list, offset, rows: done } : null);
+        RENDER_STATS.spliced++;
+        place(done.nodes, 1);
+        return true;
+      };
       const key = c.tagName === 'template' && attr(c, 'data-sn-if') !== undefined ? this.instKey(c) : null;
       const v = key ? decided?.get(pre + key) : undefined;
       if (v !== undefined) {
@@ -9357,8 +9523,10 @@ class Compiler {
       // whose own templates are decided and unrolled as the loop goes on over them (item 5)
       const point = this.points.get(c);
       const pk = point && !choice ? this.instKey(c) : null;
+      if (ck && decided?.get(pre + ck) === true && splice(ck, '', 0)) continue;
       if ((ck && decided?.get(pre + ck) === true) || (pk && unrolled?.has(pre + pk))) {
         const before = parent.childNodes.length, start = this.scopeStart.get(c);
+        if (!pre && !row && at === undefined) this.oldRoute((ck ?? pk)!, 1);
         if (this.inlineInstance(c, point!)) {
           const inst = `${pre}${ck ?? pk}#0/`, nodes = parent.childNodes.slice(i, i + parent.childNodes.length - before + 1);
           this.inheritSlot(c, nodes);
@@ -9382,33 +9550,9 @@ class Compiler {
       if (m) {
         if (!items!.length) this.foldedText.push(value!.slice(m[0].length));
         // rows the first pass rendered: their markup, and what compiling them would have done that the page keeps
-        const done = !pre && !row && at === undefined ? this.opts.rendered?.get(tkey!) : undefined;
-        // (the first pass checked where the loop is: one it rendered has nothing decided in it to compile its rows with)
-        const why = done && this.renderedHere(c, done);
-        if (why) renderStat(`second pass: ${why}`, done!.rows);
-        if (done) {
-          this.foldedText.push(...done.folded);
-          for (const f of done.files) this.files.add(f);
-          for (const n of done.reads) this.renderedReads.add(n);
-          this.renderedEmpty.push(...done.empty);
-          this.renderedShown.push(...done.shown);
-          this.renderedLate.push(...done.late);
-          // (the outer components whose root rules an instance's root takes, `data-sn-r`: shipped)
-          for (const n of done.rootStyled) this.rootStyled.add(n);
-          // (the components its instances use, which the old route expands here: their styles shipped, the page's marks)
-          // (and their scoped styles, as the first pass's expansion scoped them: the old route's `expandUse` does it here)
-          for (const x of done.uses) {
-            if (this.uses.has(x.name)) continue;
-            const f = this.componentFile(x.name);
-            if (f && f.css === undefined && x.css !== undefined) { f.css = x.css; f.rawCss = x.rawCss; }
-            this.uses.set(x.name, []);
-          }
-          const first = done.nodes.find(isElement);
-          for (const n of done.nodes) if (isElement(n)) this.renderedAt.set(n, n === first ? { tpl: c, list: value!.slice(m[0].length), offset: m[0].length, rows: done } : null);
-          RENDER_STATS.spliced++;
-          place(done.nodes, 1);
-          continue;
-        }
+        if (splice(tkey!, value!.slice(m[0].length), m[0].length)) continue;
+        // (the old route, outside rows: counted, with the first pass's reason; a dev build never renders)
+        if (!pre && !row && at === undefined) this.oldRoute(tkey!, items!.length);
         const rows: P5Node[] = [];
         for (let k = 0; k < items!.length; k++) {
           const info: RowInfo = { tpl: c, item: (m[1] ?? m[3])!, index: m[2] ?? null, list: value!.slice(m[0].length), offset: m[0].length, k, value: items![k], inst: `${pre}${tkey}#${k}/`, ...(row ? { up: row } : {}) };
@@ -9433,6 +9577,12 @@ class Compiler {
    * the loop is: slot content or a fill (its caller's scope, its marks), where a component's markup starts, in the
    * `<head>`; or rows with nothing to hold what their walk does (no element).
    */
+  oldRoute(key: string, rows: number) {
+    const u = this.opts.unrendered?.get(key);
+    // (with rendering off, `SN_RENDER=0` or the audit's compile, every loop takes it: not counted)
+    if (renderOn()) renderStat(this.opts.dev ? 'dev' : u?.why ?? 'not rendered', u?.rows ?? rows);
+  }
+
   renderedHere(c: P5Element, r: RenderedRows): string | null {
     for (const map of [this.slotOf, this.fillOf, this.defaultOf, this.childrenOf, this.scopeStart, this.landing, this.useOf] as Array<WeakMap<object, unknown>>) if (map.has(c)) return 'where it is';
     for (let p: P5Node | null = c; p; p = (p as P5Element).parentNode as P5Node | null) if (isElement(p) && p.tagName === 'head') return 'in the head';
@@ -11861,7 +12011,7 @@ const LOOP_HEAD = /^\s*(?:\(\s*([A-Za-z_][\w]*)\s*,\s*([A-Za-z_][\w]*)\s*\)|([A-
  * (once, at the first row element, for its diagnostics), the conditions and empty lists it folds (SN501 reads them),
  * the component files their instances are expanded from, the resources their bindings read.
  */
-export type RenderedRows = { nodes: P5Node[]; empty: P5Node[]; shown: P5Element[]; ids: number; list: boolean; folded: string[]; files: string[]; reads: string[]; rootStyled: string[]; late: Array<[P5Element, P5Element['attrs']]>; state: string[]; uses: Array<{ name: string; css: string | null | undefined; rawCss: string | undefined }>; rows: number };
+export type RenderedRows = { nodes: P5Node[]; idAttrs: Array<{ id: string; dialog: boolean }>; hrefs: Array<{ el: P5Element; prefixes: HrefPrefix[]; literal: boolean; query?: string[]; src?: string; bound: boolean; origin: Origin | undefined; loc: P5Element['sourceCodeLocation'] }>; empty: P5Node[]; shown: P5Element[]; ids: number; list: boolean; folded: string[]; files: string[]; reads: string[]; rootStyled: string[]; late: Array<[P5Element, P5Element['attrs']]>; state: string[]; uses: Array<{ name: string; css: string | null | undefined; rawCss: string | undefined }>; rows: number };
 
 /**
  * What rendered rows' markup stands for, for the second pass's minifier, which minifies the markup its walk compiles
@@ -11893,6 +12043,8 @@ const RENDERED_FILE = new WeakMap<P5Element, string>();
  * (`{ k, rec }`), and the row's item (`ROW_ITEM`)
  */
 type RowRec = Map<object, unknown>;
+/** a choice's case in a `RowRec`: the candidate it renders, its definition's template, its props, the instance's record */
+type PickedCase = { name: string; tid: number; props: unknown; rec?: RowRec[] };
 const ROW_ITEM = {};
 
 /** why `rowRenderer` leaves rows to the second pass (thrown inside it) */
@@ -11912,7 +12064,9 @@ let renderLogged = false;
 function renderStat(why: string | null, rows: number) {
   // (`SN_RENDER_STATS=<file>`: one line per loop, `<reason or rendered>\t<rows>`, so a run of many processes, the suite's, can be summed)
   const file = proc?.env.SN_RENDER_STATS;
-  if (file) (proc?.getBuiltinModule?.('node:fs') as { appendFileSync(f: string, s: string): void } | undefined)?.appendFileSync(file, `${why ?? 'rendered'}\t${rows}\n`);
+  // (under vitest, a third column: the test file and test, so a reason can be traced to its cases)
+  const w = (globalThis as { __vitest_worker__?: { filepath?: string; current?: { name?: string } } }).__vitest_worker__;
+  if (file) (proc?.getBuiltinModule?.('node:fs') as { appendFileSync(f: string, s: string): void } | undefined)?.appendFileSync(file, `${why ?? 'rendered'}\t${rows}${w?.filepath ? `\t${w.filepath.replace(/^.*\/test\//, 'test/')} > ${w.current?.name ?? ''}` : ''}\n`);
   if (why === null) { RENDER_STATS.rendered++; RENDER_STATS.rows += rows; } else {
     const f = RENDER_STATS.fallback.get(why) ?? { loops: 0, rows: 0 };
     f.loops++;
@@ -11925,16 +12079,6 @@ function renderStat(why: string | null, rows: number) {
   }
 }
 
-/** what in rendered rows other parts of the build read before the second pass would compile them (null: nothing) */
-function rowsRead(nodes: P5Node[], links: boolean): string | null {
-  for (const n of nodes) {
-    if (!isElement(n)) continue;
-    if (links && (n.tagName === 'a' || n.tagName === 'area')) return 'links';
-    const r = rowsRead(n.childNodes as P5Node[], links) ?? (n.tagName === 'template' ? rowsRead((n as P5Template).content.childNodes as P5Node[], links) : null);
-    if (r) return r;
-  }
-  return null;
-}
 /**
  * the most rows and component instances a page expands at build time, at every depth: compiling the expanded page
  * takes about 0.2 ms each (measured on a generic tree of paragraphs, links and images, in the build and the LSP alike,

@@ -120,6 +120,7 @@ export function placeUnits(c: any, store: UnitStore, key: string): BuildUnit | n
 function make(c: any, names: string[]): BuildUnit | { refused: string } {
   const d0 = c.diagnostics.length, g0 = c.choiceGroups.length;
   // under the type check: its frames and expressions its own, numbered from 0, by the name whose definition recorded them
+  // (the compiler's lists `checkFrames` and `checkExprs`, which its check unit holds)
   const check = c.check ? { file: c.check.file, resources: c.check.resources, frames: [] as any[], exprs: [] as any[] } : null;
   const segs = new Map<string, Seg>();
   const run = runUnit(c, names[0]!, (child: any) => {
@@ -128,7 +129,7 @@ function make(c: any, names: string[]): BuildUnit | { refused: string } {
       child.definition(n);
       if (check) segs.set(n, { f0, f1: check.frames.length, e0, e1: check.exprs.length });
     }
-  }, new Map(), check ? { check } : {});
+  }, new Map(), check ? { check, checkFrames: check.frames, checkExprs: check.exprs } : {});
   if ('refused' in run) return { refused: run.refused };
   if (c.diagnostics.length !== d0) return { refused: 'reports a diagnostic' };
   // its choices: finished here, once (their candidates are all its own), not by each page after its walk
@@ -310,7 +311,7 @@ export function restoreUnit(c: any) {
  */
 export function unitCheck(c: any, name: string) {
   const u: BuildUnit | null = c.placedUnit, k = u?.check;
-  if (!k || !c.check || c.checkDone.has(name)) return;
+  if (!k || !c.checking || c.checkDone.has(name)) return;
   const seg = k.segs.get(name);
   if (!seg) return;
   c.checkDone.add(name);
@@ -318,7 +319,7 @@ export function unitCheck(c: any, name: string) {
   const at = u!.names.indexOf(name);
   if (at < c.checkLast) c.checkOrder = false;
   c.checkLast = Math.max(c.checkLast, at);
-  const F = c.check.frames.length, E = c.check.exprs.length;
+  const F = c.checkFrames.length, E = c.checkExprs.length;
   const frame = (i: number) => (i >= seg.f0 && i < seg.f1 ? F + i - seg.f0 : (c.checkOrder = false, i));
   const expr = (i: number | null | undefined) => (i == null ? i : i >= seg.e0 && i < seg.e1 ? E + i - seg.e0 : (c.checkOrder = false, i));
   const file: string = c.opts.file, base = file.slice(file.lastIndexOf('/') + 1);
@@ -328,8 +329,8 @@ export function unitCheck(c: any, name: string) {
     if (x && typeof x === 'object') { const o: any = {}; for (const key of Object.keys(x)) o[key] = swap(x[key]); return o; }
     return x;
   };
-  for (let i = seg.f0; i < seg.f1; i++) { const f = swap(k.frames[i]); if ('init' in f) f.init = expr(f.init); c.check.frames.push(f); }
-  for (let i = seg.e0; i < seg.e1; i++) { const e = swap(k.exprs[i]); e.frames = e.frames.map(frame); c.check.exprs.push(e); }
+  for (let i = seg.f0; i < seg.f1; i++) { const f = swap(k.frames[i]); if ('init' in f) f.init = expr(f.init); c.checkFrames.push(f); }
+  for (let i = seg.e0; i < seg.e1; i++) { const e = swap(k.exprs[i]); e.frames = e.frames.map(frame); c.checkExprs.push(e); }
   for (const x of k.frameOf) if (x.at >= seg.f0 && x.at < seg.f1) c.frameOf.set(x.key, F + x.at - seg.f0);
 }
 

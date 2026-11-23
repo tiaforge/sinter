@@ -39,7 +39,7 @@ export const isContentModule = (module: string) => module.startsWith(CONTENT_NS)
 /** Compiles annotated HTML into a rewritten page and its page module. Pure and deterministic. */
 export function compile(html: string, options: CompileOptions): CompileResult {
   // (docs/proposals/compile-once.md, (5)): every compile checked against itself linked, to find what linking misses
-  if (env('SN_LINK_AUDIT') && !options.dev && !options.check) return options.definitions ? auditedLink(html, options) : audited(html, options);
+  if (env('SN_LINK_AUDIT') && !options.dev) return options.definitions ? auditedLink(html, options) : audited(html, options);
   if (env('SN_UNITS_AUDIT') && !options.dev && !options.describeOnly) return auditedUnits(html, options);
   return compileOne(html, options);
 }
@@ -66,6 +66,12 @@ function auditedUnits(html: string, options: CompileOptions): CompileResult {
 /** a compile that links (a build's, `definitions`): the same page compiled on its own beside it, which it must be */
 function auditedLink(html: string, options: CompileOptions): CompileResult {
   const alone = compileOne(html, { ...options, definitions: undefined }), linked = compileOne(html, options);
+  // (a kept template's type check goes with its first entry's compile only, here the one before: the same unit,
+  // the kept template's, which the build is handed as without the audit)
+  if (options.templates && options.check) {
+    differs('linked in its build', options.file, { ...alone, check: undefined }, { ...linked, check: undefined });
+    return alone.check && !linked.check ? { ...linked, check: alone.check } : linked;
+  }
   differs('linked in its build', options.file, alone, linked);
   return linked;
 }

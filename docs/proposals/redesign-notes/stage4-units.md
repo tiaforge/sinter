@@ -342,3 +342,14 @@ template, the unit's 355 included, and the worklist's evaluation (`run`, the sco
 - What placing writes is shortened when the unit is made: a compiler field the unit wrote many times (`lastExpr`
   4,665 times, `inDef`) is written once, its last value; the 4,030 candidates its choices take out after the walk
   are out already, so the page's list does not take them.
+
+### Reconciled with the type check's changes (b41fab5)
+
+The check unit's lists are now the compiler's own fields (`checkFrames`, `checkExprs`, f910e52): a unit is made with
+fresh ones of its own (`runUnit`'s `own`), and `unitCheck` pushes a name's part into the page's. Under check the first
+pass already stops at its decisions (2bc2a73); with a unit placed it does so only where the walk took the unit's check
+data in the unit's order (`checkOrder`), else it is compiled again without units. Checks on the merged tree: build;
+`test/compiler test/vite test/check` 1,414 (eight timed out at 5 s under a load of 19 to 25 and pass alone); under
+`SN_UNITS_AUDIT` no page differs (71 failures: tests that count compiles, links or rendered rows, and timeouts);
+`SN_RENDER_AUDIT` 1,055 passed; `SN_LINK_AUDIT` 1,042 and 13 timeouts that pass alone; `render-audit --switch
+SN_UNITS` every file the same; `mail-audit` 42 files the same, and the same with units off and on.
