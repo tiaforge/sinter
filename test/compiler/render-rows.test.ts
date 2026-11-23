@@ -93,6 +93,23 @@ describe('rendered rows: the same page as compiled rows, without compiling them'
     expect(r.body).toContain('<b class="badge on">L1</b>');
   });
 
+  test('a build\'s minifier (the browser\'s own styles): written text as written, the white space between rows as compiled rows leave it', () => {
+    const minify = { minify: { styles: [] } } as Partial<CompileOptions>;
+    const r = both(`<div>
+  <template data-sn-for="x in [' a  b ', '', 'c\\n']">
+    <p data-sn-text="x"></p>
+    <p> <template data-sn-text="x"></template> </p>
+    <span>  <template data-sn-text="x"></template>  </span>
+  </template>
+</div><ul>
+<template data-sn-for="x in [1, 2]">
+  <li> <x-badge data-sn-with="{ on: x > 1, label: ' L ' }"></x-badge> </li>
+</template>
+</ul>`, minify);
+    expect(r.spliced).toBe(2);
+    expect(r.body).toContain('<p> a  b </p>');
+  });
+
   test('the ids of what follows the rows are those the compiled rows leave', () => {
     const r = both('<template data-sn-for="x in [1, 2]"><i data-sn-text="x"></i><template data-sn-text="x"></template></template><div data-sn-state="{ n: 0 }"><button data-sn-on-click="n++" data-sn-text="n"></button></div>');
     expect(r.spliced).toBe(1);

@@ -192,6 +192,7 @@ export const LINK_FIELDS: Record<string, { kinds: string[]; how: 'table' | 'weak
   rendered: { kinds: ['Map'], how: 'table' },
   renderedAt: { kinds: ['WeakMap'], how: 'weak' },
   renderedReads: { kinds: ['Set'], how: 'table' },
+  renderedEmpty: { kinds: ['Array'], how: 'table' },
   snSource: { kinds: ['WeakMap'], how: 'weak' },
   tplDiags: { kinds: ['Map'], how: 'table' },
   runtimePlacements: { kinds: ['Array'], how: 'table' },
