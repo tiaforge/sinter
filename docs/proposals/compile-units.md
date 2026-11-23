@@ -666,3 +666,26 @@ decision of their own (stage 7). A step that can stay byte-identical does.
   figure from another. **From here a timing in this log is only a comparison when both sides were run interleaved
   in the same rounds.** On this machine today that is static 2.85 s and live 3.11 s against Astro's 1.92 s; the
   quiet machine's figures (2.22 s against 1.65 to 1.86 s, the 23:30 entry) stand as the better measure of the gap.
+- 2026-11-23, 22:55 UTC: **stage 5's B1 continued, first milestone merged** (`redesign-notes/stage5-b1.md` §11 to
+  §14; `SN_FROM_WALK=0` off). Pages with a unit placed now take the route from the first pass's walk (the unit's
+  objects are touched and given back, a unit's definition the page keeps refuses the route, what placing the unit
+  added to the page's tables is taken out like a dropped walk), and pages with folds do where no shipped function
+  reads a folded value (`shipsFold`; else compiled the old way). It fixed a bug of the route on the way (the unit's
+  journal `touched` cut as if it were a table). In the suite 227 compiles take the route (193 before), "values
+  folded" as a refusal 124 to 16; the blog's page per file 100 of 100. The session's numbers, compiler ms a page
+  from a CPU profile, 100 posts: page per file static 15.3 to 12.3, live 14.9 to 13.3; the template variants and
+  page-compile unchanged. Its checks: suite 2,995 plain and under `SN_FROM_WALK_AUDIT=1`, the render, link and
+  one-pass audits, `pass-audit` byte-identical except one state number in the live page-per-file app (a dead unit
+  took `$s0`: the one use so far of the freedom in numbering). Checked on the coordinating machine after the merge
+  (`da15772`): 1,562 tests of test/compiler, test/vite, test/check pass; `render-audit --switch SN_FROM_WALK
+  --canon` eight apps the same; `mail-audit --switch SN_FROM_WALK` under `SN_CANON=1` 48 files byte for byte.
+  Interleaved, whole process, six rounds, median: page per file static 2.89 s with the route, 3.10 s without; live
+  3.40 s and 3.72 s; the template's static 2.59 s; Astro 1.82 s. **Template entries are measured and not built**
+  (§13): a copy of a second pass's walked state costs 2.8 ms an entry against the 2.4 ms the second pass takes, so
+  no design that copies per entry pays; doing it in place with a journal over all of `finishPage` would save under
+  0.9 ms an entry, and live entries need the folds' holes. So for a template's entries the second pass stays as
+  the cheaper route until the walk itself is cheaper (stage 6's ground). §14 lists what deleting the second pass
+  (B2) still needs: rendered rows with a layout (84 compiles in the suite), unrolled loops (65 and 35), prefold
+  (38), entries. Next there: rendered rows and a layout. Also from a profile of the 400-post static build at
+  `de23476` (6.5 s): the compiler 3.6 s, of it the first pass's deciding 2.2 s and the second pass 1.05 s; the
+  garbage collector 0.76 s; Vite's own code 0.74 s; the markdown parser 0.36 s.
