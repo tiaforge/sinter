@@ -68,3 +68,29 @@ a number prop.
 
 **What changes.** Only page modules that did not parse before (a build failure): such a page now builds. All other
 code is byte-identical (benchmark apps, examples, sinter-mail).
+
+## 3. A broken expression on any page silenced every type error on every page
+
+**Reproduction** (`test/check/check-shared.test.ts`, "a broken expression on one page"; the corpus's app b). One page
+with `<p data-sn-text="1 +">` (SN401): `sinter check` printed the SN401 and nothing else, for 12 pages that have 49
+type errors between them; `checkPage` and the build's check the same (the build stops at the compile error before
+its check runs, as for any compile error, and is unchanged).
+
+**Cause.** Not the shadow file, and not a bail-out: `tsc` itself. The compiler records a broken expression in the
+check unit (`broken: true`) so that an editor can complete inside it; `shadow()` writes it last, and
+`brokenFrom` drops whatever TypeScript says from there on. But `tsc` (its `emitFilesAndReportErrors`) asks for
+semantic diagnostics only when the whole program has no syntactic one: one syntax error in one shadow, and no file
+of the program gets a type error. A broken expression that is not a syntax error (an unknown name, SN201) was
+harmless; SN401 was not.
+
+**Fix.** `check()` (the build's, `sinter check`'s and `checkPage`'s `tsc` program, shared or each page whole)
+writes the shadows without their broken expressions (`ShadowOptions.broken: false`). Nothing refers to one (a let,
+state or loop over a broken expression has no init: `lastExpr` is null), and nothing was reported from them
+(`brokenFrom`), so the rest of that page is checked as it would be without it. `sinter lsp` keeps them: the
+language service reports a file's semantic errors whatever its syntax, and completion needs them.
+
+**What changes.** `sinter check` (and `checkPage`) on an app with a broken expression: the compiler's error, plus
+every type error of every page, that page's other expressions included. Corpus app b: `sinter check` now prints
+app a's 49 errors and SN538 warning, plus the 3 errors of `<x-bad>` on the broken page, after its SN401: `53
+error(s), 1 warning(s)` instead of `1 error(s), 0 warning(s)`. Its build, and apps a, c, d, are unchanged; the
+build output of every app is unchanged (the check writes no output).

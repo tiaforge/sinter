@@ -31,6 +31,11 @@ export interface ShadowOptions {
   name?: (i: number) => string;
   /** the type names declared `any` (an app with neither a types module nor a spec), instead of those the unit's types name */
   unknown?: string[];
+  /**
+   * `false`: the broken expressions (the compiler reported them) are left out. An editor keeps them for completion;
+   * `tsc` prints no type error at all, in any file, when one file of its program has a syntax error
+   */
+  broken?: boolean;
 }
 
 /** A component library's types module, the names it exports, and the folder of the files it types. */
@@ -361,6 +366,7 @@ export function shadow(o: ShadowOptions): Shadow {
   const prelude = out.length;
   const blocks: Shadow['blocks'] = [];
   order.forEach(([e, i]) => {
+    if (e.broken && o.broken === false) return;
     if (e.broken && brokenFrom === null) brokenFrom = out.length + 1;
     const start = out.length + 1;
     line('');

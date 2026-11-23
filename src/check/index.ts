@@ -125,7 +125,7 @@ export function shadowPath(support: Support, root: string, page: string): string
   return join(support.outDir, relative(root, page) + '.js');
 }
 
-export function shadowOf(unit: CheckUnit, support: Support, root: string, helpers: HelperManifest, actions?: HelperManifest, more: Partial<Pick<ShadowOptions, 'name' | 'unknown' | 'file'>> = {}): Shadow {
+export function shadowOf(unit: CheckUnit, support: Support, root: string, helpers: HelperManifest, actions?: HelperManifest, more: Partial<Pick<ShadowOptions, 'name' | 'unknown' | 'file' | 'broken'>> = {}): Shadow {
   return shadow({ unit, file: shadowPath(support, root, unit.file), root, declarations: support.declarations, types: support.types, helpers, actions, openapi: support.openapi, ...(support.schemas ? { schemas: support.schemas } : {}), ...(support.libraries ? { libraries: support.libraries } : {}), ...more });
 }
 
@@ -232,7 +232,7 @@ export function check(o: CheckOptions): CheckResult {
     const shadows = new Map<string, ShadowInfo>();
     for (const unit of o.units) {
       const file = shadowPath(support, o.root, unit.file);
-      const s = shadowOf(unit, support, o.root, o.helpers, o.actions);
+      const s = shadowOf(unit, support, o.root, o.helpers, o.actions, { broken: false });
       mkdirSync(dirname(file), { recursive: true });
       writeFileSync(file, s.text);
       shadows.set(resolve(file), { unit, regions: s.regions, brokenFrom: s.brokenFrom });
@@ -295,7 +295,7 @@ function checkShared(o: CheckOptions, support: Support, scripts: Map<string, str
   for (const unit of o.units) {
     const file = resolve(shadowPath(support, o.root, unit.file));
     if (/[^\x20-\x7e]/.test(file)) return gaveUp("a path TypeScript may order otherwise");
-    const sh = shadowOf(unit, support, o.root, o.helpers, o.actions, { name: marked });
+    const sh = shadowOf(unit, support, o.root, o.helpers, o.actions, { name: marked, broken: false });
     const key = `${dirname(file)}\0${sh.unknown.join('\0')}`;
     let ctx = ctxs.get(key);
     if (!ctx) ctxs.set(key, ctx = { dir: dirname(file), unknown: sh.unknown, ids: new Map(), texts: [], deps: [], count: [] });
