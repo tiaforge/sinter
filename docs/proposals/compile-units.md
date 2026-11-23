@@ -289,3 +289,16 @@ Found by the research, not changed:
   reference. With the check on (the agent's medians, load 4 to 8): 100 posts, a page file each, 12.6 s to 8.4 s
   (`tsc` 9.8 s to 0.86 s); one template 5.1 s to 4.4 s; sinter-mail's 12 API pages with TypeScript 21.3 s to 8.0 s.
   `SN_CHECK_SHARE=0` turns it off. Still running: the rest of stage 2, the stage 4 spike.
+- 2026-11-23, 16:05 UTC: **stage 4, measured and planned** (`redesign-notes/stage4-units.md`; no unit store yet).
+  What it found: a definition reads nothing of its page that differs between pages except the numbering before it
+  (and page options, which go in a unit's key); and when a second pass follows, the first pass's definition numbers
+  never reach the output (`SN_UNITS_SHIFT_AUDIT=1` hands out other numbers and compares: sinter-mail's 42 files, the
+  blog and 118 suite compiles identical). So the library a page compiles per page today is a first-pass compile
+  whose numbers are thrown away: it can be compiled once per build without holes in the code. Today, without
+  TypeScript, the linker covers these builds at a price (recording a page costs 2 to 2.5 compiles; a replay is a
+  third of a later sinter-mail page: 72,176 objects); with TypeScript nothing links (a later sinter-mail API page:
+  238 ms of definitions in a 307 ms compile). Estimated saving: 36 to 48% of a sinter-mail API build's compile, 60
+  to 64% with TypeScript. Rejected: canonical numbering (compaction does not normalize `$p`, `$sl`, loop names,
+  `$s`), typed holes everywhere (not needed for the first pass), extending the linker. The agent goes on with the
+  implementation: units placed by reference where the first pass only reads them, their functions compiled once
+  per build for the evaluation, then the type check's frames; the linker is deleted after a review.
