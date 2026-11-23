@@ -19,7 +19,8 @@ on a quiet machine, then cut where the output stays byte for byte the same.
   scan once per module, not per page: −0.33 ms a page; (3) the project read twice per build, not four times, and the
   rules hashed once: ≈10 ms. At 100 posts (2) and (3) are inside the run-to-run noise of the wall time (±0.1 s).
 - **Decision 1 in** (the owner's go-ahead): the rules' paths folded into one exact pattern; at 1,000 page files a
-  page is 11.4 kB instead of 58 kB and the floor 6.3 s instead of 10.3. Next: decision 2, the fold check's cache.
+  page is 11.4 kB instead of 58 kB and the floor 6.3 s instead of 10.3. Decision 2 in: the fold check's analyses on disk, ≈0.1 s off a warm build's start
+  (0.2 s with sinter-mail's helpers).
 - **For the owner** (below, "Decisions"): the cross check off the critical path (0.23 s at 100 posts, ≈0.5 s at 400;
   a failing SN534 build would then empty `dist/` and report from `generateBundle`); Vite's HTML step skipped for pages
   it does not change (≈1 ms a page; it changes none of the static blog's 101); an on-disk cache of the fold check
@@ -334,6 +335,61 @@ than 16 paths (the template apps, most small sites: unchanged and readable).
 | live-files-1,000 | | | 24.8 s | 22.0 s |
 
 At 1,000 page files the floor is now the template app's (6.1 s): what grew with n² was the rules' bytes.
+
+## Decision 2 (taken): the fold check's analyses on disk
+
+The owner decided to go ahead (2026-11-23, evening).
+
+**What is kept.** `foldVerdicts` (`src/fold-check.ts`) asks each export's reach, module by module; each module's
+`analyze(file, code)` (acorn's parse, then its units: what each function and the top level reference, the exports,
+the `export *`s, a parse error) is what costs. That analysis is a function of the module's path (its extension: JSON,
+TypeScript or JavaScript) and its text alone: it holds the import specifiers as written, and every build resolves them
+afresh (`resolveImport`, with the app's aliases and root; kept in memory only, as before), so neither the aliases, the
+root, the packages' `exports` nor another module's text is in it. The verdicts are not kept: they are walked from the
+analyses every build, so an edited imported module changes its importers' verdicts without touching their analyses.
+
+**The key.** A file per module path (`node_modules/.cache/sinter/fold/<sha256(path)>.json`, so the folder holds one
+file per module ever analysed, not one per version of it) holding the path, a SHA-256 of the text and the analysis's
+version; read only when all three match. The version is a hash of `fold-check.js`'s own source (the analysis, its
+globals), `parseModule`'s source (the parser's options), acorn's and acorn-typescript's versions and sinter's: any of
+them changing reads nothing kept. The text is hashed whenever the in-memory stamp (mtime and size) misses, so an edit
+that keeps both is still seen (tested).
+
+**What it gets right, each tested** (`test/fold-cache.test.ts`, `test/vite/fold-cache-build.test.ts`):
+
+- the same verdicts, positions and chains with no cache, a cold and a warm one (folds, a global, an assigned module
+  binding, a package, JSON, a module that does not parse);
+- kept by the text: an edit of the same size with the old mtime is analysed again;
+- an imported module edited: its importers' verdicts follow, their kept analyses are unchanged;
+- a kept analysis is really read (one changed on disk shows), and not under another version, nor under `fresh`;
+- a corrupt, truncated, empty or foreign file: ignored and written again, never an error;
+- a folder that cannot be made (its parent a file): the same verdicts, silently;
+- builds writing at once: four processes rewriting the same entries forty times while the test reads them: every file
+  reads whole, no temporary file left (a write is a temporary file renamed over the entry);
+- this suite keeps no cache (`VITEST` set) unless a test asks, `SN_FOLD_CACHE=1`; `SN_FOLD_CACHE=0` turns it off; a
+  build: the same files and log lines with no cache, cold and warm, and the folder only when asked.
+
+`vite build` has no `--force` in Vite 8; the dev server's (`optimizeDeps.force`) reads no kept analysis and writes them.
+Neither the image nor the font cache has a way to be cleared but deleting its folder: documented the same way, in
+`docs/static-pages.md` ("Helpers and files at build time"), where the check is described.
+
+**Measured** (CPU profile, `foldVerdicts` inclusive, one build each, quiet machine):
+
+| | no cache | cold | warm |
+| --- | ---: | ---: | ---: |
+| sinter-static-100 (sinter-markdown's helpers, 4 modules + the app's) | 106 / 109 / 132 ms | 108 / 108 ms | 4 / 8 / 9 ms |
+| sinter-mail's 16 pages (its helpers, 19 modules) | 191 / 229 ms | | 7 / 8 ms |
+
+About 0.1 s off every warm build's start of the blog, 0.2 s of sinter-mail's. The image and font caches' folder
+(`node_modules/.cache/sinter/`) is the app's; `sinter check` and the language server keep their in-memory cache only
+(the editor's process lives long; `sinter check` could take the folder too, not done).
+
+**Byte identity, three ways**: the bar (bench 100/400, the baseline apps, sinter-mail's 48 files, the log lines) built
+with no cache (`SN_FOLD_CACHE=0`), then with every cache folder deleted (cold), then again (warm): every file and
+every log line the same three ways, and the same as the tree before the cache. sinter-mail's audit builds in a new
+folder each time (always cold), so its warm build was checked apart: 48 files the same as with no cache. Wall time of
+sinter-static-100, alternating, 4 runs each: 2.25 s with no cache, 2.07 s warm (medians; the profile's 0.1 s is the
+part that can be attributed).
 
 ## Looked at, not changed
 

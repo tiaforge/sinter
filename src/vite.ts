@@ -1727,6 +1727,11 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       resolved = config;
       // the build's walks of the app's modules (the lazy packages' reach, `prerender: 'auto'`) follow its aliases, as Vite does
       setAppAliases(root, config.resolve.alias);
+      // the fold check's analyses, kept on disk by content for the next build (not in this repository's tests, unless one
+      // asks: `SN_FOLD_CACHE=1`; `SN_FOLD_CACHE=0` turns it off); `vite --force` reads none of them
+      const keep = process.env.SN_FOLD_CACHE ?? (process.env.VITEST ? '0' : '1');
+      foldCache.dir = keep === '0' ? null : resolve(root, 'node_modules/.cache/sinter/fold');
+      foldCache.fresh = !!config.optimizeDeps?.force;
       // dev: a component library's files are served wherever they really are (a workspace link outside the root)
       if (dev && options.libraries?.length) {
         const allow = (config.server.fs as { allow?: string[] }).allow;

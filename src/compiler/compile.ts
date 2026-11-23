@@ -9055,7 +9055,12 @@ class Compiler {
     // keeps it, whatever each page passes it, and the next page's code takes them over (swaps, §3)
     if (!reuse) {
       for (const { el, node } of this.paints) for (const b of node.b) { value(el, b, false); if (!this.inKept(el)) { decide(el, b); unroll(el, b); } }
-      for (const [node, el] of this.tplEls) for (const b of node.b) { value(el, b, true); decide(el, b); }
+      // a unit's elements come first (placed before the page's walk): its part of the candidates, read once for the build
+      // (`unitCands`), each asked here only what depends on the page
+      const mine = this.placedUnit ? unitCands(this.placedUnit, this.tplEls, this.fns) : null;
+      if (mine) for (const x of mine.list) { if (x.k === 0) { if (fixed(x.b.d)) cands.push({ el: x.el, b: x.b, f: x.b.f!, tpl: true }); } else decide(x.el, x.b); }
+      let skip = mine?.size ?? 0;
+      for (const [node, el] of this.tplEls) { if (skip) { skip--; continue; } for (const b of node.b) { value(el, b, true); decide(el, b); } }
     }
     const choosing = reuse ? kept!.choosing : this.collecting() && [...this.pointOf.values()].some((p) => p.pick);
     if (!cands.length && !choosing && !this.textRoots.length) return;
@@ -9238,6 +9243,9 @@ class Compiler {
       // a persisted model's written value is the fallback: the early chunk still applies the stored one
       if (own === null) { this.painted.add(c.b); this.paintValue.set(c.b, { k: w[0], n: c.b.n ?? null, v: w[1] }); }
     }
+    // (a model's own path is its own: past its candidate, a persisted field is persisted for every read, the texts' and
+    // the walk's below as the candidates' before it; redesign-notes/bugs.md, 7)
+    own = null;
     // a text node over constants: plain text in the HTML, its anchor pair gone, its binding and node dropped
     for (const t of texts) {
       const v = known(strs(t.b.d)) ? run(this.fns[t.b.f!]!) : FAIL;
@@ -9571,6 +9579,12 @@ class Compiler {
     const chosen = new Set<string>();
     /** the bindings whose paints in rows the layout and the images read (`constantSources`), for this evaluation: the program's, which the walk does not change */
     let constB: Set<Binding> | null = null;
+    // (a plan's binding in `constB`, asked once per evaluation: `cstOf` is the evaluation it was asked for)
+    const asked = {};
+    const constOf = (p: BindPlan): boolean => {
+      if (p.cstOf !== asked) { p.cst = (constB ??= new Set(this.constantSources().flatMap((x) => x.s.bindings))).has(p.b); p.cstOf = asked; }
+      return p.cst!;
+    };
     const limit = this.opts.expansionLimit ?? EXPANSION_LIMIT;
     let left = limit;
     const run = (sc: object, code: string): unknown => {
@@ -9631,7 +9645,8 @@ class Compiler {
     };
     // (a row's item is shared with the data it is a part of, frozen once; a helper's result is copied, as a call takes it by value)
     const isResult = (x: object) => this.folding?.isResult(x) ?? false;
-    // (the heights of the frozen data `plainData` measured, for this evaluation)
+    // (the heights of the frozen data `plainData` measured, for this evaluation; a file's frozen value's, for the build:
+    // `FROZEN_HEIGHTS`)
     const heights = new Map<object, number>();
     const listOf = (v: unknown): unknown[] | null => (Array.isArray(v) && v.every((x) => plainData(x, heights)) ? v : null);
     // (a placement's element is its `<slot>`; an anchor's, its template)
@@ -9770,7 +9785,7 @@ class Compiler {
               const pw = w === FAIL ? null : w;
               // (rendering, the record holds it: collected only when the layout or the images read it, `constB`, and read
               // back from the records for a loop the second pass compiles, `replayPaints`; the audit collects all, to compare)
-              if (!rec || audit || (constB ??= new Set(this.constantSources().flatMap((x) => x.s.bindings))).has(b)) out.paints.push(b, prefix, pw);
+              if (!rec || audit || constOf(p)) out.paints.push(b, prefix, pw);
               if (rec) rec[slot] = pw;
             } else if (rec && p.text && kn) { const v = valueAt(vals, slot, sc, p.code!); rec[slot] = v === undefined ? UNDEFINED : v; }
             continue;
@@ -10098,6 +10113,56 @@ class Compiler {
      */
     type ClonePlan = { sinter: boolean; pre: P5Element['attrs'] | undefined; base: P5Element['attrs']; id: string | undefined; use: ReturnType<Compiler['useOf']['get']>; marks: P5Element['attrs']; marksOut: P5Element['attrs']; scoped: boolean; opaque: boolean };
     const clonePlans = new Map<P5Element, ClonePlan>();
+    /**
+     * A template's content as `render` copies it, the same in every row: its nodes in the order a walk of it meets them
+     * (an element, then its children, then a template's content, unless it is an anchor's, whose content is not
+     * copied), each with where its copy goes (`up`: the node whose copy holds it, -1 the row's own fragment; `content`:
+     * in that template's content), and each node's place in the list (`at`), by which `fill` finds a node's copy. An
+     * image the first pass rewrote in the template (its `<picture>`) is the image it was, at the picture's place too
+     */
+    type CloneList = { ops: Array<{ n: P5Node; up: number; content: boolean }>; at: Map<P5Node, number> };
+    const cloneLists = new Map<number, CloneList>();
+    /** the component files of a case's markup, in the order a walk of it meets them (its elements' files and their CSS): the same in every row */
+    const caseFileLists = new Map<number, string[]>();
+    const caseFilesOf = (tid: number): string[] => {
+      let l = caseFileLists.get(tid);
+      if (l) return l;
+      l = [];
+      const walk = (p: P5Parent | undefined) => {
+        for (const x of p?.childNodes ?? []) {
+          if (!isElement(x)) continue;
+          const f = this.origins.get(x)?.file;
+          if (f && f !== this.opts.file) { l!.push(f); const css = cssOf.get(f); if (css) l!.push(css); }
+          walk(x);
+          if (x.tagName === 'template') walk((x as P5Template).content);
+        }
+      };
+      walk(contentOf(tid));
+      caseFileLists.set(tid, l);
+      return l;
+    };
+    const cloneList = (tid: number, src: P5Parent): CloneList => {
+      let l = cloneLists.get(tid);
+      if (l) return l;
+      const ops: CloneList['ops'] = [], at = new Map<P5Node, number>();
+      const visit = (n: P5Node, up: number, content: boolean) => {
+        if (isElement(n) && n.tagName === 'picture' && !this.origins.has(n) && REWROTE.has(n.childNodes.at(-1) as P5Element)) {
+          const img = n.childNodes.at(-1)!;
+          visit(img, up, content);
+          at.set(n, at.get(img)!);
+          return;
+        }
+        const i = ops.length;
+        ops.push({ n, up, content });
+        at.set(n, i);
+        if (!isElement(n)) return;
+        for (const c of n.childNodes) visit(c, i, false);
+        if (n.tagName === 'template' && !anchors.has(n)) for (const c of (n as P5Template).content.childNodes) visit(c, i, true);
+      };
+      for (const c of src.childNodes) visit(c, -1, false);
+      cloneLists.set(tid, l = { ops, at });
+      return l;
+    };
     const foldPlans = new Map<NodeDef, { fold: Compiler['attrSources']; folded: Set<Binding> } | null>();
     const clonePlan = (n: P5Element): ClonePlan => {
       let cp = clonePlans.get(n);
@@ -10121,12 +10186,14 @@ class Compiler {
      * not rendered if it is one they cannot be (a handler that stays, a kind no row paints), and whether the element's
      * style is written by its style bindings alone (no `data-sn-attr` of `style`), so that they can be written at once
      */
-    const fillPlans = new Map<NodeDef, { acts: Array<{ b: Binding; j: number; why: string | null }>; styles: boolean }>();
+    const fillPlans = new Map<NodeDef, { acts: Array<{ b: Binding; j: number; rd: boolean; why: string | null }>; styles: boolean }>();
     const fillPlan = (n: NodeDef, folded: Set<Binding>) => {
       let f = fillPlans.get(n);
       if (f) return f;
-      const acts = n.b.flatMap((b, j) => (defAttr.has(b) || b.k === 'else' || folded.has(b) ? [] : [{ b, j, why: b.k === 'if' || b.k === 'for' ? null : handlerOnly(b) ? 'handler' : !ROW.has(b.k) ? `a binding of kind ${b.k}` : null }]));
-      fillPlans.set(n, f = { acts, styles: styleBatchOn() && !acts.some(({ b }) => b.k === 'attr' && b.n?.toLowerCase() === 'style') });
+      // (`rd`: whether its dependencies add anything to the rows' reads, a resource or a state's site; most of a
+      // definition's read only its props, which have none)
+      const acts = n.b.flatMap((b, j) => (defAttr.has(b) || b.k === 'else' || folded.has(b) ? [] : [{ b, j, rd: strs(b.d).some((d) => /^\$(?:r|meta)\.[A-Za-z_$]/.test(d)) || this.stateSites(b.d).size > 0, why: b.k === 'if' || b.k === 'for' ? null : handlerOnly(b) ? 'handler' : !ROW.has(b.k) ? `a binding of kind ${b.k}` : null }]));
+      fillPlans.set(n, f = { acts, styles: styleBatchOn() && acts.some(({ b }) => b.k === 'style') && !acts.some(({ b }) => b.k === 'attr' && b.n?.toLowerCase() === 'style') });
       return f;
     };
     return (key, p) => {
@@ -10196,15 +10263,12 @@ class Compiler {
        * (`rootCopies`), slot content's copy none
        */
       let live = false;
-      const clone = (n: P5Node, parent: P5Parent, map: Map<P5Node, P5Node>): P5Node => {
+      /** a copy of one node of a template's content, its children not yet (`render` copies them in `cloneList`'s order) */
+      const clone = (n: P5Node, parent: P5Parent): P5Node => {
         let c: P5Node;
         if (n.nodeName === '#text') c = { nodeName: '#text', value: (n as DefaultTreeAdapterMap['textNode']).value, parentNode: parent } as unknown as P5Node;
         else if (n.nodeName === '#comment') c = { nodeName: '#comment', data: (n as DefaultTreeAdapterMap['commentNode']).data, parentNode: parent } as unknown as P5Node;
-        else if (isElement(n) && n.tagName === 'picture' && !this.origins.has(n) && REWROTE.has(n.childNodes.at(-1) as P5Element)) {
-          // an image the first pass rewrote in the template: the image it was, which the second pass rewrites in the
-          // row as it would rewrite the row's image (eager or not, in its box)
-          c = clone(n.childNodes.at(-1)!, parent, map);
-        } else if (isElement(n)) {
+        else if (isElement(n)) {
           const cp = clonePlan(n);
           // (one the walk keeps for the runtime, `data-sn-options`, `-navigate`, …: the walk adds what it needs)
           // (the first pass's marks of scoped styles aside: below)
@@ -10244,15 +10308,9 @@ class Compiler {
           if (pre) shownOf.set(e, pre);
           // a component's root whose tag binds what it shows: the minifier leaves it as written (`minify`'s `opaque`)
           if (cp.opaque) WRITTEN.set(e, 'opaque');
-          e.childNodes = n.childNodes.map((x) => clone(x, e, map)) as never[];
-          if (n.tagName === 'template') {
-            const content = { nodeName: '#document-fragment', childNodes: [] } as unknown as P5Template['content'];
-            if (!anchors.has(n)) content.childNodes = (n as P5Template).content.childNodes.map((x) => clone(x, content, map)) as never[];
-            (e as P5Template).content = content;
-          }
+          if (n.tagName === 'template') (e as P5Template).content = { nodeName: '#document-fragment', childNodes: [] } as unknown as P5Template['content'];
           c = e;
         } else c = { ...n, parentNode: parent } as P5Node;
-        map.set(n, c);
         return c;
       };
       /** `from` through `to` (siblings) replaced by `nodes` */
@@ -10283,9 +10341,15 @@ class Compiler {
         const t = this.templates[tid], src = contentOf(tid);
         if (!t || !src || !rec) no('no template');
         const frag = { nodeName: '#document-fragment', childNodes: [] } as unknown as P5Parent;
-        const map = new Map<P5Node, P5Node>();
-        frag.childNodes = src!.childNodes.map((c) => clone(c, frag, map)) as never[];
-        fill(t!.nodes, map, rec!);
+        // (the content copied node by node in the order a walk of it meets them, each into its place: `cloneList`)
+        const list = cloneList(tid, src!), ops = list.ops, out = new Array<P5Node>(ops.length);
+        for (let i = 0; i < ops.length; i++) {
+          const op = ops[i]!, up = op.up < 0 ? frag : op.content ? (out[op.up] as P5Template).content as unknown as P5Parent : out[op.up] as P5Parent;
+          const c = clone(op.n, up);
+          out[i] = c;
+          (up.childNodes as P5Node[]).push(c);
+        }
+        fill(t!.nodes, { get: (x: P5Node) => { const i = list.at.get(x); return i === undefined ? undefined : out[i]; } }, rec!);
         return frag.childNodes as P5Node[];
       };
       /** the attributes `prefold` writes on the element, in its order (its own attributes', then its tag's, each in `FOLDED` order) */
@@ -10301,7 +10365,7 @@ class Compiler {
         if (f === null) no('constants');
         return f!;
       };
-      const fill = (nodes: NodeDef[], map: Map<P5Node, P5Node>, rec: RowRec) => {
+      const fill = (nodes: NodeDef[], map: { get(x: P5Node): P5Node | undefined }, rec: RowRec) => {
         // (the record's places: by node, its bindings after it, `rowLayout`)
         const L = rowLayout(memo, nodes);
         for (let i = 0; i < nodes.length; i++) {
@@ -10353,16 +10417,7 @@ class Compiler {
             }
             // (the files of the markup it renders: a default's components are a template of their own, and so are the
             // default's children a fill's `<slot>` places, which the old route's expansion reads where they render)
-            const caseFiles = (p: P5Parent | undefined) => {
-              for (const x of p?.childNodes ?? []) {
-                if (!isElement(x)) continue;
-                const f = this.origins.get(x)?.file;
-                if (f && f !== this.opts.file) { st.files.add(f); const css = cssOf.get(f); if (css) st.files.add(css); }
-                caseFiles(x);
-                if (x.tagName === 'template') caseFiles((x as P5Template).content);
-              }
-            };
-            caseFiles(contentOf(P.cases[c!.k]!));
+            for (const f of caseFilesOf(P.cases[c!.k]!)) st.files.add(f);
             try { replace(cl, cl, render(P.cases[c!.k]!, c!.rec)); } finally { for (const t of tops) fillMarks.delete(t); if (root !== undefined) for (const t of contentOf(P.cases[0]!)?.childNodes ?? []) fillMarks.delete(t); }
             continue;
           }
@@ -10390,7 +10445,7 @@ class Compiler {
           let bound = false;
           // (the element's style, when its style bindings alone write it: their declarations at once, `StyleWrites`)
           let styles: StyleWrites | null = null;
-          const paint = (b: Binding, why?: string | null, j = n.b.indexOf(b)) => {
+          const paint = (b: Binding, why?: string | null, j = n.b.indexOf(b), rd = true) => {
             if (why === undefined) {
               if (handlerOnly(b)) no('handler');
               if (!ROW.has(b.k)) no(`a binding of kind ${b.k}`);
@@ -10402,7 +10457,7 @@ class Compiler {
             if (w![0] === 'text') WRITTEN.set(cl!, 'content');
             if (styles && w![0] === 'style') styles.write(b.n!, w![1] as string | null);
             else writeFirstPaint(cl!, w![0], b.n ?? null, w![1], true);
-            read(b.d);
+            if (rd) read(b.d);
           };
           // what the second pass writes before the layout and the images (`prefold`: an image's attributes, a class or
           // style the layout reads): first, in its order; the element then has only the others' bindings (and an id only
@@ -10430,7 +10485,7 @@ class Compiler {
           else if (marks) for (const m of marks) setAttr(cl!, m.name, m.value);
           const plan = fillPlan(n, folded);
           if (plan.styles) styles = new StyleWrites(cl!);
-          for (const { b, why, j } of plan.acts) {
+          for (const { b, why, j, rd } of plan.acts) {
             if (b.k === 'if') {
               const v = rec[pos + 1 + j] as boolean | undefined;
               if (v === undefined || b.x === undefined) no('if');
@@ -10458,7 +10513,7 @@ class Compiler {
               replace(cl, cl, out);
               continue;
             }
-            paint(b, why, j);
+            paint(b, why, j, rd);
             bound = true;
           }
           styles?.done();
@@ -13818,7 +13873,7 @@ const PLAIN_DEPTH = 1024;
  * tree does not exhaust the call stack; an object reached twice (a shared subtree) is walked once
  * unless it is reached again less deep.
  */
-export function plainData(v: unknown, heights?: Map<object, number>): boolean {
+export function plainData(v: unknown, heights?: Heights): boolean {
   const scalar = (x: unknown) => x === null || ['string', 'number', 'boolean', 'undefined'].includes(typeof x);
   if (scalar(v)) return true;
   // (the worklist asks this of every level of a tree, each level a part of the one above: what is frozen is measured
@@ -13842,14 +13897,28 @@ export function plainData(v: unknown, heights?: Map<object, number>): boolean {
   return true;
 }
 
+/** the heights of frozen data (`plainHeight`'s `frozen`): only of data frozen at every depth, whose height cannot change */
+type Heights = Map<object, number>;
+/**
+ * The heights of a `file:` value's frozen copy (`frozenCopy`), measured once for the build: frozen data cannot change,
+ * and every page reads the same copy, every row of it a part (sinter-mail's 2,012-element email: each level of the tree a
+ * list `plainData` measures on every page). `SN_FROZEN_HEIGHTS=0`: measured by each evaluation, as before
+ */
+const FROZEN_HEIGHTS = new WeakMap<object, number>();
+function measureFrozen(v: object): number {
+  let h = 0;
+  for (const c of Array.isArray(v) ? v : Object.values(v)) if (c && typeof c === 'object') h = Math.max(h, measureFrozen(c) + 1);
+  FROZEN_HEIGHTS.set(v, h);
+  return h;
+}
 /**
  * How deep plain data nests below `x` (0: no object in it) when every path through it stays within `PLAIN_DEPTH` of
  * the root `plainData` was asked about (`depth`: how deep `x` is), else -1 (not plain data, too deep, or a cycle).
  * `frozen`: the heights of data frozen at every depth (`DEEP_FROZEN`), which cannot change, kept by the caller;
  * `seen`: this walk's other objects (-2 while on the path).
  */
-function plainHeight(x: object, depth: number, frozen: Map<object, number>, seen: Map<object, number>): number {
-  const known = frozen.get(x) ?? seen.get(x);
+function plainHeight(x: object, depth: number, frozen: Heights, seen: Map<object, number>): number {
+  const known = frozen.get(x) ?? seen.get(x) ?? FROZEN_HEIGHTS.get(x);
   if (known !== undefined) return known >= 0 && depth + known <= PLAIN_DEPTH ? known : -1;
   if (depth > PLAIN_DEPTH || typeof x !== 'object') return -1;
   seen.set(x, -2);
@@ -13946,7 +14015,10 @@ const FROZEN_COPY = new WeakMap<object, object>();
 function frozenCopy(v: object): object {
   if (proc?.env.SN_FILE_COPY === '0') return deepFreeze(structuredClone(v) as object);
   let c = FROZEN_COPY.get(v);
-  if (!c) FROZEN_COPY.set(v, c = deepFreeze(structuredClone(v) as object));
+  if (!c) {
+    FROZEN_COPY.set(v, c = deepFreeze(structuredClone(v) as object));
+    if (proc?.env.SN_FROZEN_HEIGHTS !== '0') measureFrozen(c);
+  }
   return c;
 }
 
@@ -14137,6 +14209,57 @@ export function failsFirst(code: string): boolean {
   return !!m && !SCOPE_NAMES.has(m[1]!) && !/^\$s\d+$/.test(m[1]!);
 }
 
+/**
+ * A unit's part of `prerender`'s candidates, the same on every page that places it (`BuildUnit.evalCands`): the unit's
+ * elements are the first of a page's `tplEls` (placed before its walk, in the unit's order), and of their bindings, in
+ * their order, each a value candidate could be but for `fixed` (`k` 0: what `value` asks of a binding in a template,
+ * but `fixed`, which reads the page's writes and resources) and each `if` (`k` 1: `decide`'s questions read the page).
+ * Left out: a value candidate whose code fails at its first step (`failsFirst`: a definition's props, `$.$p<n>`, read
+ * first: 2,229 of a sinter-mail page's 2,250), whose evaluation is FAIL without running it, and a value in a template
+ * that is FAIL does nothing. Checked on each page against its `tplEls` (the same elements, the same order) and its codes;
+ * null when it does not hold, and the page asks every binding as before (counted)
+ */
+type UnitCands = { size: number; nodes: NodeDef[]; els: P5Element[]; codes: Array<string | undefined>; list: Array<{ el: P5Element; b: Binding; k: 0 | 1 }> };
+function unitCands(u: BuildUnit, tplEls: Map<NodeDef, P5Element>, fns: string[]): UnitCands | null {
+  if (proc?.env.SN_UNIT_CANDS === '0') return null;
+  const size = u.placedEls ?? 0;
+  if (!size || tplEls.size < size) return null;
+  let c = u.evalCands as UnitCands | undefined;
+  if (c) {
+    // (the page's first elements the unit's, its codes the unit's)
+    let i = 0, k = 0, ok = c.size === size;
+    for (const [node, el] of tplEls) {
+      if (!ok || i === size) break;
+      if (node !== c.nodes[i] || el !== c.els[i]) ok = false;
+      else for (const b of node.b) if ((b.f === undefined ? undefined : fns[b.f]) !== c.codes[k++]) { ok = false; break; }
+      i++;
+    }
+    if (ok) return c;
+    unitFallback('a page whose unit\'s elements or codes are not the unit\'s (the evaluation\'s candidates asked again)');
+    return null;
+  }
+  c = { size, nodes: [], els: [], codes: [], list: [] };
+  let i = 0;
+  for (const [node, el] of tplEls) {
+    if (i++ === size) break;
+    c.nodes.push(node);
+    c.els.push(el);
+    for (const b of node.b) {
+      const code = b.f === undefined ? undefined : fns[b.f];
+      c.codes.push(code);
+      if (code === undefined) continue;
+      if (b.k === 'if') { c.list.push({ el, b, k: 1 }); continue; }
+      if (b.e) continue;
+      // (`value`'s questions of a binding in a template, but `fixed`)
+      if (!['text', 'attr', 'class', 'style', 'show'].includes(b.k) || (b.k === 'class' && !b.n) || (b.k === 'text' && el.childNodes.some(isElement)) || b.w?.length) continue;
+      if (failsFirst(code)) continue;
+      c.list.push({ el, b, k: 0 });
+    }
+  }
+  u.evalCands = c;
+  return c;
+}
+
 /** a binding `prerender` evaluates: `tpl`, in a template's content, written there only when it can never change; `if`, a condition decided for a second pass; `for`, a loop unrolled in it */
 type EvalCand = { el: P5Element; b: Binding; f: number; tpl?: true; if?: true; for?: true };
 
@@ -14158,7 +14281,7 @@ export function caseCode(c: { props: string }): string {
 
 /** the worklist's reading of a binding in a row (`bindPlan`) */
 const SKIP = 0, STOP = 1, PAINTED = 2, CONTROL = 3;
-type BindPlan = { b: Binding; j: number; k: typeof SKIP | typeof STOP | typeof PAINTED | typeof CONTROL; ds: string[]; kn?: boolean; code?: string; paint?: boolean; text?: boolean; key?: string | null };
+type BindPlan = { b: Binding; j: number; k: typeof SKIP | typeof STOP | typeof PAINTED | typeof CONTROL; ds: string[]; kn?: boolean; code?: string; paint?: boolean; text?: boolean; key?: string | null; cst?: boolean; cstOf?: object };
 /** the candidates of a choice in a row that it does not render: each of `keys` but `picked`, decided false at `prefix` + its key */
 type NotRendered = { prefix: string; keys: Map<string, string>; picked: string | null; d: PathRef[] | undefined };
 /** a worklist's decisions, a choice's candidates spelled out one by one, in order */
