@@ -9,7 +9,7 @@ import { Connection } from '../../src/lsp/rpc.js';
 import { findTsc } from '../../src/check/index.js';
 import { EXTRACT_FIX_CODES, componentAt, rangeOf, startServer, type LspDiagnostic } from '../../src/lsp/server.js';
 import { typeFromHover } from '../../src/lsp/extract.js';
-import { didYouMeanEdit, suggestionOf } from '../../src/lsp/quickfix.js';
+import { didYouMeanEdit, endTagEdit, suggestionOf } from '../../src/lsp/quickfix.js';
 
 const tsc = findTsc(process.cwd());
 
@@ -418,6 +418,17 @@ describe('did-you-mean', () => {
     const t2 = 'a cnt2 + cnt';
     expect(didYouMeanEdit(t2, { start: { line: 0, character: 9 }, end: { line: 0, character: 12 } }, '`cnt` is not defined here. Did you mean `count`?')!.range)
       .toEqual({ start: { line: 0, character: 9 }, end: { line: 0, character: 12 } });
+  });
+
+  test('a misspelled component tag (SN547): the start tag, and its end tag past nested ones of the same name', () => {
+    const text = '<div>\n  <text-inptu data-sn-with="{ n: 1 }"><text-inptu></text-inptu>\n  </text-inptu><text-inptu></text-inptu></div>';
+    const message = '`<text-inptu>` is not a component, so it stays a plain custom element; `<text-input>` is a component. Did you mean `text-input`?';
+    const edit = didYouMeanEdit(text, { start: { line: 1, character: 3 }, end: { line: 1, character: 13 } }, message)!;
+    expect(edit).toEqual({ range: { start: { line: 1, character: 3 }, end: { line: 1, character: 13 } }, newText: 'text-input' });
+    expect(endTagEdit(text, edit)).toEqual({ range: { start: { line: 2, character: 4 }, end: { line: 2, character: 14 } }, newText: 'text-input' });
+    // an attribute's fix renames no end tag
+    const attr = didYouMeanEdit('<p data-sn-txt="x"></p>', { start: { line: 0, character: 3 }, end: { line: 0, character: 14 } }, '`data-sn-txt` is not a sinter attribute. Did you mean `data-sn-text`?')!;
+    expect(endTagEdit('<p data-sn-txt="x"></p>', attr)).toBeNull();
   });
 });
 

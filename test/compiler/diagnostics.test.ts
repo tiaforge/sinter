@@ -30,7 +30,7 @@ const SPEC = { file: '/p/openapi.json', doc: {
   components: { schemas: { Contact: { type: 'object', properties: { id: { type: 'integer' }, name: { type: 'string' }, starred: { type: 'boolean' } } } } },
 } };
 
-interface Opts { check?: boolean; openapi?: boolean; complexity?: ComplexityOptions; collections?: boolean; helpers?: string[]; early?: boolean }
+interface Opts { check?: boolean; openapi?: boolean; complexity?: ComplexityOptions; collections?: boolean; helpers?: string[]; early?: boolean; components?: boolean }
 
 function diags(html: string, o: Opts = {}) {
   return compile(html, {
@@ -38,6 +38,8 @@ function diags(html: string, o: Opts = {}) {
     readFile: (p) => { if (!(p in files)) throw new Error('missing'); return files[p]!; },
     listFiles: (d) => Object.keys(files).filter((f) => f.startsWith(d.replace(/\/$/, '') + '/')),
     ...(o.collections ? { collections: new Map() } : {}),
+    // every component of the app, as `project()` lists them
+    ...(o.components ? { componentNames: Object.keys(files).filter((f) => f.startsWith('/p/src/components/') && f.endsWith('.html')).map((f) => f.slice(18, -5)) } : {}),
     // the early file, as a build compiles it (`sinter check` does not)
     ...(o.early ? { early: { module: null }, observe: true } : {}),
     helpers: { module: '/h.js', names: ['fmt', ...(o.helpers ?? [])], namespaces: { m: { module: '/m.js', members: ['inbox_title'] } } },
@@ -154,6 +156,7 @@ const cases: Array<[string, string, RegExp, Opts?]> = [
   ['SN544', '<ul data-sn-state="{ n: 0 }"><li data-sn-on-click="n = n + 1">one</li></ul>', /`<li>` has a `data-sn-on-click` handler, but takes no focus/],
   ['SN545', '<div data-sn-state="{ saved: false }"><template data-sn-if="saved"><p role="status">Saved</p></template><button data-sn-on-click="saved = true">Save</button></div>', /live region \(`role="status"`\) is the top of a `data-sn-if` template/],
   ['SN546', '<img src="/a.png" width="1" height="1">', /`<img>` has no `alt`/],
+  ['SN547', '<x-cards></x-cards>', /`<x-cards>` is not a component, so it stays a plain custom element; `<x-card>` is a component\. Did you mean `x-card`\?/, { components: true }],
   ['SN516', '<sn-resource name="c" src="/api/c" select="contacts"></sn-resource><p data-sn-text="$meta.c.live"></p>', /`\$meta\.c\.live` is always `null`: no `<sn-event resource="c">` on this page feeds `c`/],
   ['SN519', '<sn-resource name="a" src="/api/a?tag={$url.tag}" select="a" key="id" paginate="{ numbered: true, size: 2, model: $url.page }"></sn-resource><p data-sn-text="a.length"></p><a href="?page=2">2</a>', /`\?page=2` keeps only its own query: `tag`, which this page reads, is dropped when it is followed/],
   ['SN515', '<!doctype html><html data-sn-path="/page/"><head></head><body></body></html>', /`data-sn-path="\/page\/"` is the URL this page has anyway/],
@@ -795,5 +798,38 @@ describe('accessibility warnings (SN544, SN545, SN546)', () => {
     const d = diags('<x-pic></x-pic><x-pic></x-pic>').filter((x) => x.code === 'SN546');
     expect(d).toHaveLength(1);
     expect(d[0]!.file).toBe('/p/src/components/x-pic.html');
+  });
+});
+
+describe('SN547: a tag close to a component\'s name', () => {
+  files['/p/src/components/text-input.html'] = '<template data-sn-props="{ n: number }"><div></div></template>';
+  files['/p/src/components/ui-button.html'] = '<template data-sn-props=""><button></button></template>';
+  files['/p/src/components/x-typo.html'] = '<template data-sn-props=""><div><text-inptu></text-inptu></div></template>';
+  const close = (html: string) => diags(html, { components: true }).filter((d) => d.code === 'SN547').map((d) => [d.severity, d.message.replace(/ Did you mean.*/, ''), d.line, d.col]);
+
+  test('a misspelled tag is a warning; with `data-sn-with` an error; the quick fix reads it', () => {
+    const [w] = diags('<p></p>\n  <text-inptu></text-inptu>', { components: true }).filter((d) => d.code === 'SN547');
+    expect(w).toMatchObject({ severity: 'warning', line: 2, col: 3, message: '`<text-inptu>` is not a component, so it stays a plain custom element; `<text-input>` is a component. Did you mean `text-input`?' });
+    expect(w!.hint).toMatch(/a custom element of this name.*strict: \{ allow: \{ SN547/);
+    expect(close('<text-inptu data-sn-with="{ n: 1 }"></text-inptu>')).toEqual([['error', '`<text-inptu>` is not a component, so it stays a plain custom element; `<text-input>` is a component.', 1, 1]]);
+    expect(diags('<text-inptu data-sn-with="{ n: 1 }"></text-inptu>', { components: true }).find((d) => d.code === 'SN547')!.hint).toBe('`data-sn-with` on it sets properties of that element, not the props of `<text-input>`');
+    // a prefix one letter off is still a typo
+    expect(close('<tex-input></tex-input>')).toHaveLength(1);
+  });
+
+  test('web components stay silent: no close name, another prefix, the components and sn-* elements themselves', () => {
+    expect(close('<model-viewer data-sn-with="{ src: \'/a.glb\' }"></model-viewer><sl-button data-sn-with="{ variant: \'primary\' }"></sl-button><sl-input></sl-input>')).toEqual([]);
+    expect(close('<text-input data-sn-with="{ n: 1 }"></text-input><ui-button></ui-button><sn-component use="\'ui-button\'"></sn-component>')).toEqual([]);
+    expect(close('<div data-sn-state="{ s: \'a\' }"><my-fancy-thing data-sn-with="{ s }"></my-fancy-thing></div>')).toEqual([]);
+  });
+
+  test('in a component\'s markup, at its file, once', () => {
+    const d = diags('<x-typo></x-typo><x-typo></x-typo>', { components: true }).filter((x) => x.code === 'SN547');
+    expect(d.map((x) => [x.file, x.severity])).toEqual([['/p/src/components/x-typo.html', 'warning']]);
+  });
+
+  test('inside a template, and without the list of components: the ones the page reads', () => {
+    expect(close('<template data-sn-if="true"><text-inptu></text-inptu></template>')).toHaveLength(1);
+    expect(diags('<text-input data-sn-with="{ n: 1 }"></text-input><text-inptu></text-inptu>').filter((d) => d.code === 'SN547')).toHaveLength(1);
   });
 });
