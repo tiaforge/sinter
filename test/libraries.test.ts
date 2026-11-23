@@ -159,6 +159,16 @@ describe('the components', () => {
     expect(ds[0]!.file).toMatch(/s\/components\/s-a\/s-b\.html$/);
   });
 
+  test('SN349 in a library: HTML nested deeper in `components/` and in `components/internal/`', () => {
+    const tpl = '<template data-sn-props=""><p></p></template>';
+    const root = app({}, {
+      '@t/deep': { 'package.json': pkgJson({ name: '@t/deep', sinter: './s' }), 's/components/d-a/d-a.html': tpl, 's/components/d-a/parts/d-b.html': tpl, 's/components/internal/group/d-c/d-c.html': tpl, 's/components/internal/d-i/d-i.html': tpl },
+    });
+    const ds = project(root, { libraries: ['@t/deep'] }).diagnostics;
+    expect(codes(ds)).toEqual(['SN349', 'SN349']);
+    expect(ds.map((d) => d.file.replace(/^.*\/s\/components\//, '')).sort()).toEqual(['d-a/parts/d-b.html', 'internal/group/d-c/d-c.html']);
+  });
+
   test('a page uses public components and a tree with a fill; the scripts, styles and layer', () => {
     const { diagnostics, out } = build(app(), readFileSync(resolve(__dirname, 'fixtures/ui-app/index.html'), 'utf8'));
     expect(diagnostics).toEqual([]);
