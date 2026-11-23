@@ -518,3 +518,7 @@ decision of their own (stage 7). A step that can stay byte-identical does.
   lighter in total; it fixed three leaks of first-pass units its verifier found. It merges the integration branch
   next. A session started on what a build costs outside the compiler (the fixed 1.1 s; a static page's 6 to 7 ms:
   Vite's HTML step, the cross check that runs every helper call again), now as large a share as the compiler.
+- 2026-11-23, 22:00 UTC: **the full suite passes on the integration branch: 2,934 tests** (306 files), after check
+  data once, a page described without a walk and the three evaluation changes. Two more evaluation changes merged
+  after it (a frozen helper result shared; a page with a unit looks its codes up in the unit's table): 1,496 tests
+  of test/compiler, test/vite, test/check pass.
