@@ -148,6 +148,12 @@ describe('rows left to the second pass, as before', () => {
     expect(r.why).toContain('not written ahead');
   });
 
+  test('a text node that fails at build time stays a binding', () => {
+    const r = both('<template data-sn-for="x in [{ a: null }]"><p><template data-sn-text="x.a.b"></template></p></template>');
+    expect(r.spliced).toBe(0);
+    expect(r.why).toContain('text');
+  });
+
   test('an id written in the rows\' markup', () => {
     const r = both('<template data-sn-for="x in [1]"><p id="one" data-sn-text="x"></p></template>');
     expect(r.spliced).toBe(0);
