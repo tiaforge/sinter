@@ -98,9 +98,33 @@ Every stage keeps the output identical, and each has a switch that turns it off,
 Two things today's output does that the research found wrong are not copied silently; they are listed for a decision
 below.
 
+## Component libraries: sinter-mail
+
+[`@tiavision/sinter-mail`](https://github.com/tiavision/sinter-html) (the repository is `tiavision/sinter-html`)
+is the library this design is held to, beside sinter-markdown: 67 generated components, one per tag, dispatched by
+`<sn-component use>` on the node's type, with fills (`link`, `image`) and a script builder. It renders an email three
+ways: from a file, folded into the page at build time; from an API, by its script; from an API through the components,
+as shared definitions the runtime instantiates per node. It must keep working, and be as fast in the browser as it is
+now, or faster.
+
+- **It keeps working, and the browser does what it does today**, because no stage changes the output: the page, its
+  module and the runtime are byte for byte the same, so what the browser runs is the same. `scripts/mail-audit.mjs`
+  builds sinter-mail's pages over the three ways with a stage on and off and diffs them, and runs the library's own
+  suite and run-time benchmarks against the checkout. It is part of each stage's check, with the baselines in
+  `redesign-notes/sinter-mail.md`.
+- **Its builds are the redesign's second measure.** A file email is a tree over constants through 67 components (stages
+  1 to 3). A page with an email from an API compiles the library as definitions, per page and quadratic in the
+  library until #96 (stage 4: once per build).
+- **Faster in the browser** is not something the stages above give: they do not touch the runtime. It is a step of its
+  own after them (stage 7 below), and the reason the unit keeps its props as a parameter. Today a tree node from an
+  API costs the browser an anchor pair, a row scope, a template clone and a `find`, because a definition is a loop
+  over one row. A unit the runtime instantiates directly could cost less. That changes the IR and the runtime, so it is
+  measured on sinter-mail's benchmarks first and taken only if they show it.
+
 ## Stages
 
-Each is general (pages with live parts gain what their constant parts cost), measured on `bench/astro`, and lands
+Each is general (pages with live parts gain what their constant parts cost), measured on `bench/astro` and on
+sinter-mail, and lands
 with the suite green and the audit clean.
 
 1. **Rows rendered at build time.** Where the first pass's worklist accepts a loop over constants (or a choice or
@@ -122,6 +146,10 @@ with the suite green and the audit clean.
 6. **Deciding from summaries.** The write set and the instance graph from the units, so that deciding does not need
    the page compiled first; a page with errors compiles the long way, as `fromTemplate` does today.
 
+7. **Units at run time (not byte-identical; a decision of its own).** Where the browser instantiates a component per
+   node (a tree from an API), the unit is instantiated as such instead of as a loop over one row. Only with numbers
+   from sinter-mail's and sinter-markdown's run-time benchmarks, and with the page weight no larger.
+
 Outside the compiler, measured in `redesign-notes/profile.md`: what a build costs when `compile` is free.
 
 ## For a decision
@@ -141,3 +169,4 @@ Found by the research, not changed:
 ## Status log
 
 - 2026-11-23: benchmark (`bench/astro`), research notes, this design. Stage 1 started as a spike in a worktree.
+  sinter-mail added as a requirement and a gate; its baselines are being taken (`redesign-notes/sinter-mail.md`).
