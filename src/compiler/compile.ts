@@ -10837,8 +10837,8 @@ class Compiler {
         // a loop the first pass rendered: its rows in its place, as the second pass splices them
         const key = this.instKey(a.el), rows = key && next.unrolled?.has(key) ? next.rendered?.get(key) : undefined;
         if (!rows) continue;
-        const at = index.get(a.node);
-        if (at === undefined) return no('a loop not among the roots');
+        const at = index.get(a.node), r = a.added.get('roots');
+        if (at === undefined || !r || r[0] !== at) return no('a loop not among the roots');
         if (this.renderedHere(a.el, rows)) return no(`rendered rows ${this.renderedHere(a.el, rows)}`);
         if (rows.idAttrs.length) return no('ids in rendered rows');
         if (this.layout || minLayout) return no('rendered rows and a layout');
@@ -10860,7 +10860,10 @@ class Compiler {
       if (other?.elseIf) return no('an else-if after a decided branch');
       const at = index.get(a.node);
       if (at === undefined) return no('a branch not among the roots');
-      if (other && (!other.node || index.get(other.node) !== at + 1)) return no('an else not after its branch');
+      // (the roots its walk added: its own node first, and what a fill walked as the page's there added; its else's after)
+      const r = a.added.get('roots'), ro = other?.added.get('roots');
+      if (!r || r[0] !== at) return no('a branch not among the roots');
+      if (other && (!other.node || !ro || ro[0] !== r[1] || index.get(other.node) !== r[1])) return no('an else not after its branch');
       ds.push({ a, v, other, at });
     }
     if (!ds.length) return no('nothing decided at the page\'s level');
@@ -10993,7 +10996,7 @@ class Compiler {
       const base = FW_BASE + bi * FW_SPAN, made: NodeDef[] = [];
       const list = { push: (...n: NodeDef[]) => made.push(...n), get length() { return base + made.length; } } as unknown as NodeDef[];
       if (to > from) this.walkChildren(P, { ...d.a.ctx, list }, { from, to });
-      blocks.push({ at: d.at, n: xs.length, nodes: made, base });
+      blocks.push({ at: d.at, n: xs.reduce((n, x) => n + (x.added.get('roots')![1] - x.added.get('roots')![0]), 0), nodes: made, base });
       // what this walk added to the other lists: where the branch's walk had added it (document order)
       for (let f = 0; f < fs.length; f++) {
         if (fs[f]!.t !== 0) continue;
@@ -11053,7 +11056,8 @@ class Compiler {
         for (const n of t.nodes) if (n.b.some((y) => y.k === 'if')) { const el = this.tplEls.get(n), key = el && this.instKey(el); if (key && decided.has(key)) return no('a decided if in a template that stays', true); }
         continue;
       }
-      for (const n of t.nodes) this.tplEls.delete(n);
+      // (and out of the tables keyed by its nodes that `finishPage` goes over: an anchor's, a text's)
+      for (const n of t.nodes) { this.tplEls.delete(n); this.anchorEls.delete(n); this.textAt.delete(n); this.textMarks.delete(n); }
       t.nodes = [];
     }
     // (which resources load late, by what still reads them)
