@@ -221,7 +221,9 @@ Found by the research, not changed:
   more; the render audit compares dev without them (`withoutEmptySlots`). The old route (`inlineInstance`, the row
   lets) is now needed only for per-copy diagnostics, rows that keep a handler, and the shapes the renderer leaves
   (`redesign-notes/stage2-coverage.md`, "Dev renders").
-- **Four things outside the compiler** (`redesign-notes/pipeline-2.md`, "Decisions for the owner", with numbers):
+- **Four things outside the compiler** (`redesign-notes/pipeline-2.md`, "Decisions for the owner", with numbers;
+  decided 2026-11-23: the fold check's disk cache and the Speculation Rules go ahead, the other two stay as they
+  are for now):
   the SN534 cross check off the critical path (0.23 s at 100 posts, 0.5 s at 400; a failing build would then have
   emptied `dist/`); Vite's HTML step skipped for pages it does not change (1 ms a page; an app's own HTML plugins
   would no longer see those pages, unless it is done only where there are none); an on-disk cache of the fold
@@ -260,6 +262,7 @@ timings were not usable). A cloud session pushes to a branch of its own:
 | Workstream | Where | Branch | Log |
 | --- | --- | --- | --- |
 | stage 5, A1 then A2: definitions that ship, from units | cloud, `session_01AjKzdxPCdJ5nbeXvwkXoP2` | `redesign/stage5-a1` | `stage5-a1.md` |
+| the Speculation Rules made linear; the fold check's cache on disk | cloud, `session_01AjKzdyy3dA5FDC6jCiY3dH` | `redesign/pipeline-2` | `pipeline-2.md` |
 | stage 5, B1: the second pass from the first's walk | cloud, `session_01AjKzdxkDukbMzASz1qaYeA` | `redesign/stage5-b1` | `stage5-b1.md` |
 | stage 6: the evaluation, one function per template; a render plan per template | cloud, `session_01AjKzdxcYo9FzUYyj9yNBZn` | `redesign/stage6-eval` | `stage6-eval.md` |
 
@@ -589,3 +592,6 @@ decision of their own (stage 7). A step that can stay byte-identical does.
   the benchmark yet: pages with a unit placed fall back (A1's copy has landed since), and template entries are off
   because copying the kept walk costs 7 ms against 3 saved. It conflicts with A1 and went back to its session to
   merge, then to take pages with units, and to see whether an entry can run on the kept walk in place.
+- 2026-11-23, 23:45 UTC: decided by the owner: the Speculation Rules for apps with a page file per post (the same
+  links prefetched, the list no longer in every page) and the fold check's on-disk cache go ahead; the pipeline
+  session has both. The SN534 cross check and Vite's HTML step stay as they are.
