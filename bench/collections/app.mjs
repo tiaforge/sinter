@@ -83,11 +83,11 @@ export default defineConfig({
 });
 `,
     'src/sinter.helpers.ts': "export * as md from '@tiaforge-ui/sinter-markdown';\n",
-    'src/sinter.types.ts': "export type { Root } from '@tiaforge-ui/sinter-markdown';\n",
+    'src/sinter.types.ts': "export type { Root } from '@tiaforge-ui/sinter-markdown';\n/** a post's frontmatter */\nexport interface Post { title: string }\n",
     'index.html': INDEX(n),
   };
-  if (pages) files['blog/post.html'] = PAGE(live, '<sn-resource name="posts" src="file:/content/posts/*.md"></sn-resource>', ' data-sn-path="/blog/:slug" data-sn-for="post in posts"', 'post.slug');
-  else for (let i = 0; i < n; i++) files[`blog/post-${i}.html`] = PAGE(live, `<sn-resource name="post" src="file:/content/posts/post-${i}.md"></sn-resource>`, '', `'post-${i}'`);
+  if (pages) files['blog/post.html'] = PAGE(live, '<sn-resource name="posts" src="file:/content/posts/*.md" type="Post"></sn-resource>', ' data-sn-path="/blog/:slug" data-sn-for="post in posts"', 'post.slug');
+  else for (let i = 0; i < n; i++) files[`blog/post-${i}.html`] = PAGE(live, `<sn-resource name="post" src="file:/content/posts/post-${i}.md" type="Post"></sn-resource>`, '', `'post-${i}'`);
   for (const [f, s] of Object.entries(files)) { mkdirSync(dirname(join(root, f)), { recursive: true }); writeFileSync(join(root, f), s); }
   mkdirSync(join(root, 'content/posts'), { recursive: true });
   for (let i = 0; i < n; i++) writeFileSync(join(root, `content/posts/post-${i}.md`), `---\ntitle: Post ${i}\n---\n` + post(i, n));
