@@ -522,3 +522,10 @@ decision of their own (stage 7). A step that can stay byte-identical does.
   data once, a page described without a walk and the three evaluation changes. Two more evaluation changes merged
   after it (a frozen helper result shared; a page with a unit looks its codes up in the unit's table): 1,496 tests
   of test/compiler, test/vite, test/check pass.
+- 2026-11-23, 22:10 UTC: **one consistent table on a quiet machine** (the page-walked-once session: 4 cores, Node
+  22.23.5, idle, medians of 5, 100 posts, at 6a3283d; `redesign-notes/page-walked-once.md`): static 2.00 s, with the
+  type check 2.14 s, live 2.39 s, a page file per post 2.40 s, live 2.96 s; Astro 7.4, three runs: 1.73 s. This
+  morning: 13.6 to 16.8 s. A caution on the comparison: `run-sinter.mjs` reports the build's time inside its
+  process, Astro's figure is a whole process; on the coordinating machine the whole process is about 0.2 s more than
+  the in-process figure. The pipeline-2 session measures both like for like. So the static blog is 0.3 to 0.5 s
+  behind Astro at 100 posts.
