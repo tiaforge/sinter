@@ -53,6 +53,11 @@ How to write an entry (from 0.21.0 on; older sections keep their own form):
 
 - Builds with a component library that dispatches on node type in each component (`<sn-component use="{ … }[node.type]">`) are back to 0.20's speed or faster, with the same output: sinter-mail (65 components) on 12 pages in ~2.6 s, against ~3.3 s on 0.20.0 and ~3.7 s on 0.21.0.
 
+### Performance
+
+- Pages whose early script has the same source (on a blog, every post's) share one nested build of it instead of one each: a build of 100 posts with a live section is 1.6 s faster (8.3 s at 400 posts), with the same output.
+- A build no longer gzips every page's scripts for size lines that `logLevel: 'warn'` does not print, and gzips a script that several pages share once: 1.4 ms less per page with a page module (0.7 s at 400 such pages).
+
 ## 0.21.0 (2026-11-21)
 
 Upgrading from 0.20: run `npx sinter migrate` to see what changes, then `npx sinter migrate --write`. It applies every rename below (each old name is a build error that names its replacement) and moves the built-in messages (`sinter({ messages })`, removed in this release without a deprecation release) into the content module as `inlang()`.

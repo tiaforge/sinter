@@ -590,6 +590,14 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   /** the app's early module (`src/sinter.early.ts`), which the shared head script runs */
   let appEarly: string | null = null;
   const budget = earlyBudget;
+  /**
+   * build: each script's gzip size, by its text, for the per-page log lines: the chunks pages share (and on a blog every
+   * post's early file) are gzipped once, not once per page
+   */
+  const gzipped = new Map<string, number>();
+  const gzipSize = (code: string) => { let n = gzipped.get(code); if (n === undefined) gzipped.set(code, (n = gzipSync(code).length)); return n; };
+  /** whether the build's info lines are printed: its own logger below `info` (`logLevel: 'warn'`) prints none; a custom one gets them all */
+  const infoShown = () => !!resolved && (!!resolved.customLogger || (resolved.logLevel ?? 'info') === 'info');
   /** the entries of the content namespaces a page's app modules call (its own are compiled in), written into its head */
   const pageMessages = new Map<string, string>();
   let images: Images | null = null;
@@ -1665,6 +1673,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     /** build: the pages that have something to run early (bundled into one file each in generateBundle) */
     async buildStart() {
       unhashedPages = 0;
+      gzipped.clear();
       // the pages are the client environment's (an SSR environment building beside it compiles none): its calls only
       if (isClient(this)) foldCalls.clear();
       strictFailures.clear();
@@ -1799,15 +1808,25 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
         const names = [...new Set(imported.flat())].filter((n) => !PAGE_OWN.has(n) || imported.every((x) => x.includes(n))).sort();
         const sharedKeys = new Set<string>();
         sharedHead = { fileName: '', ...await bundleEarly(`${app}import { ${names.join(', ')} } from '${EARLY_PKG}';\nglobalThis[Symbol.for(${JSON.stringify(RT_KEY)})] = { ${names.join(', ')} };\n`, sharedKeys, null, 'every page') };
+        // pages whose early source is the same text (on a blog, every post's) share one build: its output and the content
+        // keys its modules call depend on that source and the runtime names alone (a nested `vite build` is ~15 ms)
+        const built = new Map<string, { out: Awaited<ReturnType<typeof bundleEarly>>; keys: Set<string> }>();
         for (const [rel, code] of pages) {
-          const keys = new Set(sharedKeys);
-          earlyKeys.set(rel, keys);
           // the shared modules this early file imports and the page's bundle reaches: their namespaces on the global
           const reach = shared.size ? pageModules(bundle, rel) : new Set<string>();
           const regs = [...earlyImports(code).keys()].map((spec) => ({ spec, file: specFile(spec) })).filter((x): x is { spec: string; file: string } => !!x.file && shared.has(x.file) && reach.has(x.file));
           if (regs.length) registered.set(rel, new Set(regs.map((x) => x.file)));
-          const rt = runtimeNames(code);
-          earlyFiles.set(rel, await bundleEarly(registration(regs) + code, keys, rt.filter((n) => names.includes(n)), rel, rt.filter((n) => !names.includes(n))));
+          const rt = runtimeNames(code), src = registration(regs) + code, take = rt.filter((n) => names.includes(n)), own = rt.filter((n) => !names.includes(n));
+          const id = JSON.stringify([src, take, own]);
+          let b = built.get(id);
+          if (!b) {
+            const keys = new Set(sharedKeys);
+            b = { out: await bundleEarly(src, keys, take, rel, own), keys };
+            built.set(id, b);
+          }
+          earlyKeys.set(rel, new Set(b.keys));
+          // (each page its own record: the shared modules' keys are filled into it below)
+          earlyFiles.set(rel, { ...b.out });
         }
       }
       // each shared module's key, from its own copy's chunk: in the stubs and in the early files that register it
@@ -2206,7 +2225,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
         // the shared head script, then the page's: classic scripts, run in order
         if (early && sharedHead) tags.push(`<script src="${attr(base + sharedHead.fileName)}"></script>`);
         if (own) tags.push(`<script src="${attr(base + own)}"></script>`);
-        if (early) report(rel, { fileName: own!, ...early }, null, ctx.bundle ? pageModules(ctx.bundle, rel) : null);
+        if (early) report(rel, { fileName: own!, ...early }, null, ctx.bundle ? () => pageModules(ctx.bundle!, rel) : null);
         // first in the head, before the stylesheets (a classic script waits for the stylesheets before it) and the page
         // module (which the hold script changes as the parser inserts it): the early requests leave at once
         const at = html.search(/<link\b[^>]*\brel=["']?(stylesheet|modulepreload)|<script\b/i);
@@ -2484,7 +2503,8 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
    */
   function reportRuntime(rel: string, chunk: { fileName: string; code: string; imports: string[] } | undefined, bundle: Record<string, unknown> | undefined) {
     const reasons = runtimeOf.get(rel);
-    if (!reasons) return;
+    // (nothing to measure for a line nobody sees)
+    if (!reasons || !infoShown()) return;
     const logger = resolved?.logger;
     if (!reasons.length) { logger?.info(`sinter: ${rel}: no JavaScript`); return; }
     const kb = (n: number) => `${(n / 1000).toFixed(1)} kB`;
@@ -2496,10 +2516,10 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       done.add(f);
       const c = bundle?.[f] as { type?: string; code?: string; imports?: string[] } | undefined;
       if (c?.type !== 'chunk' || c.code === undefined) continue;
-      shared += gzipSync(c.code).length;
+      shared += gzipSize(c.code);
       todo.push(...(c.imports ?? []));
     }
-    const size = chunk ? `${kb(gzipSync(chunk.code).length)} gzip${shared ? ` + ${kb(shared)} gzip shared` : ''}` : 'runtime';
+    const size = chunk ? `${kb(gzipSize(chunk.code))} gzip${shared ? ` + ${kb(shared)} gzip shared` : ''}` : 'runtime';
     const where = (r: RuntimeReason) => `${r.what} (${relative(root, r.file).split(sep).join('/') || r.file}:${r.line})`;
     const list = reasons.slice(0, 3).map(where).join(', ') + (reasons.length > 3 ? `, and ${reasons.length - 3} more` : '');
     logger?.info(`sinter: ${rel}: JavaScript ${size}: ${list}${lazySizes(rel, chunk, done, bundle)}`);
@@ -2533,7 +2553,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
         counted.add(x);
         const c = bundle[x] as C | undefined;
         if (c?.type !== 'chunk' || c.code === undefined) continue;
-        gz += gzipSync(c.code).length;
+        gz += gzipSize(c.code);
         todo.push(...(c.imports ?? []));
       }
       out.push(`${label} ${(gz / 1000).toFixed(1)} kB gzip`);
@@ -2557,13 +2577,15 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   }
 
   /** One line per page: the early file's size (gzip) and its language files'; over the budget a warning naming the largest modules. */
-  function report(rel: string, early: { fileName: string; code: string; modules: Record<string, { renderedLength: number }> } | null, langs: Record<string, { code: string }> | null, reach: Set<string> | null = null) {
+  function report(rel: string, early: { fileName: string; code: string; modules: Record<string, { renderedLength: number }> } | null, langs: Record<string, { code: string }> | null, reach: (() => Set<string>) | null = null) {
     const kb = (n: number) => `${(n / 1000).toFixed(1)} kB`;
     // the shared head script is on the first paint's path too: it counts toward the budget
-    const own = early ? gzipSync(early.code).length : 0, common = early && sharedHead ? gzipSync(sharedHead.code).length : 0, gz = own + common;
-    const files = langs ? `, messages ${Object.entries(langs).map(([l, f]) => `${l} ${kb(gzipSync(f.code).length)}`).join(', ')} gzip` : '';
-    const line = `sinter: early script of ${rel}: ${early ? `${early.fileName} ${kb(own)} gzip${common ? ` + ${sharedHead!.fileName} ${kb(common)} gzip (shared)` : ''}` : 'none'}${files}${early && reach ? twice(rel, early.modules, reach) : ''}`;
+    const own = early ? gzipSize(early.code) : 0, common = early && sharedHead ? gzipSize(sharedHead.code) : 0, gz = own + common;
     const logger = resolved?.logger;
+    // under the budget: an info line, written only when it is printed
+    if ((!early || gz <= budget) && !infoShown()) return;
+    const files = langs ? `, messages ${Object.entries(langs).map(([l, f]) => `${l} ${kb(gzipSize(f.code))}`).join(', ')} gzip` : '';
+    const line = `sinter: early script of ${rel}: ${early ? `${early.fileName} ${kb(own)} gzip${common ? ` + ${sharedHead!.fileName} ${kb(common)} gzip (shared)` : ''}` : 'none'}${files}${early && reach ? twice(rel, early.modules, reach()) : ''}`;
     if (!early || gz <= budget) { logger?.info(line); return; }
     const top = Object.entries({ ...sharedHead?.modules, ...early.modules }).sort((a, b) => b[1].renderedLength - a[1].renderedLength).slice(0, 5)
       .map(([id, m]) => `${id.includes(PREFIX) ? `the early bindings of ${rel}` : relative(root, id.replace(/^\0/, '')).split(sep).join('/')} ${kb(m.renderedLength)}`);
