@@ -418,3 +418,73 @@ both orders, plain and under check, and the link-review scenarios should be port
    the parts it links: its `checkShared` already writes each repeated function once, so a unit's part can be one
    shared block whose functions are numbered by the unit, not by the page. That changes `CheckUnit` and the shadow
    writer: the type-check agent's code. Not started.
+
+## After stage 3 (merged at 0203435)
+
+- **`copyState` and units compose**: a kept template's walk passes `units: undefined`, so no unit object reaches a
+  copied compiler. Checked: `test/compiler/template-pass.test.ts`, `one-pass.test.ts` and `units.test.ts` pass plain,
+  and under `SN_UNITS_AUDIT` no page differs (the 15 failures there are the tests' compile counts, which the audit
+  triples).
+
+### Where a check build's time goes now (sinter-mail, 12 pages, `--cpu-prof`, load 15 to 20)
+
+| | API route | components route |
+| --- | ---: | ---: |
+| `check()` | 1,579 ms | 2,216 ms |
+| of it `checkShared` (all pages' shadows in memory, functions keyed by text, the pages and shared modules written) | 1,575 | 2,214 |
+| of that `shadowOf` (each page's whole shadow) | 466 (39 a page) | 836 (70 a page) |
+| of that one `tsc` | 677 | 632 |
+| so the rest of `checkShared` (the text keys and the layout) | about 430 (36 a page) | about 750 (62 a page) |
+| `unitCheck` (each page's copy of the unit's check part, renumbered; 177 ms of it the copy with the file renamed) | 186 (15 a page) | 214 (18 a page) |
+| the second pass's `replay` (the linker; it links under check now too) | | 783 (71 a page) |
+
+So the check of a page with a unit costs about 90 ms a page on top of `tsc` (15 for the copy, 39 for its shadow, 36
+for keying the shadow's functions by text), nearly all of it the unit's part, which is the same text on every page
+but for its numbers.
+
+### Step 3 (a unit's check data once): the design, not built yet
+
+What makes every page's part different is only its numbers: the frames' and expressions' indices (`$e<i>`, the
+frames a function opens) and the page's file in the locations. So:
+
+1. **The check unit holds a unit's part by reference.** `CheckUnit` gets `parts: Array<{ part: CheckPart; at: number;
+   frameBase: number; exprBase: number }>` (`at`: where the walk took it, between the page's own expressions), and
+   the part's frames and expressions stay in the unit, numbered from 0. `unitCheck` records the reference instead of
+   copying. Every reader of `frames`/`exprs` by index (`typeDiagnostic`, the regions, the LSP's `checkPage`, the
+   compiler's own `checkExprs[i]` writes after a part, `frameOf` of a unit's scope) reads through one accessor that
+   resolves a page index to (part, local index). Byte-identity oracle: `flatten(unit)` (the copy `unitCheck` makes
+   today) equals what the compiler gives without units, under `SN_UNITS_AUDIT`.
+2. **The part's shadow once per build.** A part's functions are written by `shadow()` once, with its own names
+   (`$u<k>_<i>`) and its frames' functions calling one another by those names; `checkShared` takes them as one
+   shared block per folder (they repeat by construction) instead of finding them by text on every page. A page's
+   shadow is then its declarations, its own functions, and calls into the part where its expressions open a part's
+   frame. The page's errors in a part's function are laid out where its whole shadow would have had them, exactly as
+   `checkShared` does for a shared function now (its `byId` → each page's position): the layout code is reused.
+3. **Where it can differ**: a part function that names something the page's declarations type for that page
+   (`pageNamed`: its resources, `$meta`, …) cannot be shared; such a part is written on each page as now (the
+   fallback). A definition reading a page's resource by name is already a unit read of the page (a precondition).
+
+Order: the accessor and the reference first (byte-identical, `SN_UNITS_AUDIT` and the diagnostics corpus: removes
+the 15 ms copy), then the part's shadow once (removes most of the 75 ms), each with `SN_CHECK_SHARE=0` still
+checking every page whole for comparison. The corpus reference is to be regenerated from the integration branch when
+this starts (a bug-fix agent is changing some check diagnostics on purpose).
+
+### Step 2 (second-pass units): the answer is stage 5
+
+Measured on the components route (CPU, under check and without): the second pass replays the library's plan at 25
+to 30 ms a page without TypeScript and 71 ms a page with it (the plan carries the check unit's lists since f910e52),
+against about 225 ms to compile it. What a placement by sharing would have to survive is `finishPage` on the
+definitions it ships:
+
+- `anchors()` turns the head templates' `<template>`s into comments and recomputes every row node's `path`;
+- `shareTemplates()` merges subtrees across definitions and renames their props to `$pp` in code;
+- `compactTables()` drops the templates nothing on the page reaches, renumbers the rest and their `$i<n>`, and
+  renumbers and dedupes the functions in the page's order;
+- `groupStyles()`, `checkUrlArrays()` and `placeTemplates()` rewrite code and move the head templates into the page.
+
+The first two are the same on every page for one unit (they read only the definitions), so they could run once when
+the unit is made: a copy-on-write boundary exists there. The last two are the page's assembly: which of the unit's
+templates are live, and every function's final index, depend on the page. Placing a shared unit there means doing
+that assembly over the unit's objects without changing them, i.e. stage 5's assembly (numbers handed out at the end,
+over what the page ships). Keying a second-pass unit by the template count would remove the recordings (one per
+differently numbered page), not the per-page replay, so it is not built.
