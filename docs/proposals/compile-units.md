@@ -708,3 +708,8 @@ decision of their own (stage 7). A step that can stay byte-identical does.
   second pass compiles a loop), measured part by part first, target the compiler under 4 ms a page on the static
   template variant, and was asked to commit its measuring tools. Outside the compiler the two decisions not taken
   (the SN534 cross check, Vite's HTML step) are now a larger share of what is left.
+- 2026-11-23, 23:25 UTC: **the full suite passes at `246d90e`: 3,005 tests, 314 files**; `pass-audit` nine apps
+  the same. The stage 6 session's measuring tools are committed (`bench/tools/`, with a README: the method wrapper,
+  the interleaved A/B, the profile readers, the byte comparison, sinter-mail's apps) and merged (`0ca7df5`). Whole
+  process, 100 posts, seven interleaved rounds on the coordinating machine, median: static 2.38 s, with the type
+  check 2.46 s, live 2.67 s, a page file per post 2.80 s static and 3.30 s live; Astro 1.72 s.
