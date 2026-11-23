@@ -11,7 +11,7 @@ The brief is "A1 brief" in [stage5-assembly.md](stage5-assembly.md) (section 5);
   turns it off, `SN_UNITS2_AUDIT=1` audits it; canonically identical over the suite and sinter-mail, every other app
   byte for byte, no page heavier, sinter-mail's suite and bench holding. A later components-route page 108 → 72 ms (142
   → 88 with TypeScript), the build's compile −14% (−19%).
-- **Merged** `ccr-9ebf49d5-gpdej8` at d64bc0b and verified again (section 4b): a template's entries crashed the
+- **Merged** `ccr-9ebf49d5-gpdej8` at d64bc0b, and again at 50eb4c7, and verified each time (section 4b, the log): a template's entries crashed the
   build there (their second pass did not give the unit back), fixed with every second pass through `unitPass`.
 - **A2 built** (section 5): a first pass that is its output is compiled again with a unit of its own, not without
   units (but under the type check); its audit found an A1 bug (bindings of a definition's tag attributes made by the
@@ -391,6 +391,11 @@ two rounds, canonically equal), "under the type check a first pass that is its o
 
 - 19:10 UTC: suite plain and canonical, sinter-mail baseline and canonical (`--suite --bench`), per-phase timings.
 - 20:20 UTC: A1 built and verified (sections 3, 4), committed (89f70f1).
+- 23:50 UTC: merged the integration branch again (50eb4c7: A1 merged there, B1, which runs its second passes through
+  `unitPass` and the units tests with B1 off). On the merged tree: the suite 2,980 passed; `SN_UNITS2_AUDIT=1
+  SN_UNITS_VERIFY=1` no difference (52 failures, the counting tests); CI's link-audit job 2,980 passed; every app the
+  same raw and canonical, `pass-audit` the same; sinter-mail's 48 files canonically identical, gzip −24 B (worst file
+  +1 B); size check passes.
 - 23:10 UTC: A2 built; its audit's two findings fixed (section 5). The suite 2,950 passed; `SN_UNITS2_AUDIT=1
   SN_UNITS_VERIFY=1` (the whole suite): no difference, no unit object changed (52 failures, the tests that count
   compiles); CI's link-audit job (the whole suite, `SN_LINK_AUDIT=1 --testTimeout=60000`): 2,950 passed; the four
