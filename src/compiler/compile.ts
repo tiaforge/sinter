@@ -1265,6 +1265,24 @@ function passStat(why: string | null) {
   }
 }
 
+/**
+ * (measurement, stage5-b1.md: `SN_FROM_WALK_LOG=<file>`) a second pass run with what it applies recorded: one line per
+ * second pass, the kinds of decision it applied and where (`expandConstants`), the first pass's context, the page or test
+ */
+function appliedLog<T>(first: Compiler, options: CompileOptions, constants: boolean, run: () => T): T {
+  const log = proc?.env.SN_FROM_WALK_LOG;
+  if (!log || passAuditing) return run();
+  APPLIED = new Set();
+  try { return run(); } finally {
+    if (constants) APPLIED.add('constants (prefold)');
+    if (!APPLIED.size) APPLIED.add('nothing applied');
+    const w = (globalThis as { __vitest_worker__?: { filepath?: string; current?: { name?: string } } }).__vitest_worker__;
+    const ctx = [first.layout ? 'layout' : '', options.images ? 'images' : '', first.permanentNames.length ? 'permanent' : ''].filter(Boolean).join(',');
+    (proc?.getBuiltinModule?.('node:fs') as { appendFileSync(f: string, s: string): void } | undefined)?.appendFileSync(log, `${[...APPLIED].sort().join(' + ')}\t${ctx || '-'}\t${w?.filepath ? `${w.filepath.replace(/^.*\/test\//, 'test/')} > ${w.current?.name ?? ''}` : options.file}\n`);
+    APPLIED = null;
+  }
+}
+
 /** `keepTemplate`: the expansion copied before the kept walk goes on */
 function keptExpansion(c: Compiler, doc: DefaultTreeAdapterMap['document']): KeptExpansion {
   const r = copyState(c, c.opts, [doc]);
@@ -1284,7 +1302,7 @@ function secondPass(html: string, opts: CompileOptions, kept: KeptExpansion | un
   if ('refused' in r) { passStat(r.refused); return old(); }
   const c = r.c;
   c.forEntry();
-  const out = c.finishPage(c.walkExpanded(r.roots[0] as DefaultTreeAdapterMap['document']));
+  const out = appliedLog(c, opts, !!opts.constants?.size, () => c.finishPage(c.walkExpanded(r.roots[0] as DefaultTreeAdapterMap['document'])));
   passStat(null);
   if (proc?.env.SN_ONE_PASS_AUDIT === '1') {
     const spliced = RENDER_STATS.spliced;
@@ -1398,7 +1416,7 @@ function compileTwice(html: string, options: CompileOptions, pass: { first: Comp
     if (constants) for (const s of first.constantSites) frozen.add(s);
     // (counted: a page of its own, or a template's entry its kept walk does not serve, parses and expands again)
     passStat(!options.page ? 'a page of its own' : options.templates ? 'an entry compiled alone' : 'an entry, no kept templates');
-    return new Compiler({ ...options, decided: first.decided, ...(unrolled ? { unrolled } : {}), ...(first.rendered.size ? { rendered: first.rendered } : {}), ...(first.unrendered.size ? { unrendered: first.unrendered } : {}), ...(constants ? { constants } : {}), ...(first.overLimit.size ? { overLimit: first.overLimit } : {}), frozen }).run(html);
+    return appliedLog(first, options, !!constants, () => new Compiler({ ...options, decided: first.decided, ...(unrolled ? { unrolled } : {}), ...(first.rendered.size ? { rendered: first.rendered } : {}), ...(first.unrendered.size ? { unrendered: first.unrendered } : {}), ...(constants ? { constants } : {}), ...(first.overLimit.size ? { overLimit: first.overLimit } : {}), frozen }).run(html));
   };
   const twice = !!options.prerender && !options.decided && !options.unrolled;
   // a second pass whatever the rest of the first one does: nothing of that rest is read (its markup, its tables, its
@@ -9783,7 +9801,9 @@ class Compiler {
       };
       const key = c.tagName === 'template' && attr(c, 'data-sn-if') !== undefined ? this.instKey(c) : null;
       const v = key ? decided?.get(pre + key) : undefined;
+      const where = inTemplate ? 'template' : row ? 'row' : pre ? 'instance' : at !== undefined ? 'instance' : 'page';
       if (v !== undefined) {
+        applied(`if:${where}`);
         this.foldedText.push(attr(c, 'data-sn-if')!, this.emptyOf.get(c)?.list ?? '');
         const j = parent.childNodes.findIndex((x, k) => k > i && real(x));
         const other = j >= 0 && isElement(parent.childNodes[j]!) && (parent.childNodes[j] as P5Element).tagName === 'template' && attr(parent.childNodes[j] as P5Element, 'data-sn-else') !== undefined ? parent.childNodes[j] as P5Element : null;
@@ -9795,15 +9815,17 @@ class Compiler {
       // a tree over the expansion limit, which the first pass reported: reported here too, since this pass's warnings are the build's
       const over = this.opts.overLimit?.get(pre + (ck ?? (c.tagName === 'template' && attr(c, 'data-sn-for') !== undefined ? this.instKey(c) ?? '' : '')));
       if (over !== undefined) this.expansionWarning(c, over, !ck);
-      if (ck && decided?.get(pre + ck) === false) { place([], 1); continue; }
+      if (over !== undefined) applied('over limit');
+      if (ck && decided?.get(pre + ck) === false) { applied(`choice dropped:${where}`); place([], 1); continue; }
       // a choice's case, or a recursion point, that the first pass expanded: the component's markup here, as a use,
       // whose own templates are decided and unrolled as the loop goes on over them (item 5)
       const point = this.points.get(c);
       const pk = point && !choice ? this.instKey(c) : null;
-      if (ck && decided?.get(pre + ck) === true && splice(ck, '', 0)) continue;
+      if (ck && decided?.get(pre + ck) === true && splice(ck, '', 0)) { applied('choice rendered'); continue; }
       if ((ck && decided?.get(pre + ck) === true) || (pk && unrolled?.has(pre + pk))) {
         const before = parent.childNodes.length, start = this.scopeStart.get(c);
         if (!pre && !row && at === undefined) this.oldRoute((ck ?? pk)!, 1);
+        applied(`${ck ? 'choice' : 'point'} inlined:${where}`);
         if (this.inlineInstance(c, point!)) {
           const inst = `${pre}${ck ?? pk}#0/`, nodes = parent.childNodes.slice(i, i + parent.childNodes.length - before + 1);
           this.inheritSlot(c, nodes);
@@ -9827,7 +9849,8 @@ class Compiler {
       if (m) {
         if (!items!.length) this.foldedText.push(value!.slice(m[0].length));
         // rows the first pass rendered: their markup, and what compiling them would have done that the page keeps
-        if (splice(tkey!, value!.slice(m[0].length), m[0].length)) continue;
+        if (splice(tkey!, value!.slice(m[0].length), m[0].length)) { applied('loop rendered'); continue; }
+        applied(`loop unrolled:${where}`);
         // (the old route, outside rows: counted, with the first pass's reason)
         if (!pre && !row && at === undefined) this.oldRoute(tkey!, items!.length);
         const rows: P5Node[] = [];
@@ -12340,6 +12363,9 @@ export function renderOn(): boolean { return renderForced ?? proc?.env.SN_RENDER
 let renderForced: boolean | null = null;
 
 /** what `rowRenderer` did in this process, by reason, printed at exit with `SN_RENDER_LOG=1` */
+/** (measurement, stage5-b1.md: what a second pass applies, by kind and place; null when nothing records) */
+let APPLIED: Set<string> | null = null;
+function applied(kind: string) { APPLIED?.add(kind); }
 export const RENDER_STATS = { rendered: 0, rows: 0, spliced: 0, fallback: new Map<string, { loops: number; rows: number }>() };
 let renderLogged = false;
 function renderStat(why: string | null, rows: number) {
