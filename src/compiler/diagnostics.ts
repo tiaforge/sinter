@@ -117,6 +117,7 @@ export const CODES = {
   SN544: 'click-without-keyboard',
   SN545: 'late-live-region',
   SN546: 'image-alt',
+  SN547: 'close-component-name',
 } as const;
 
 export type Code = keyof typeof CODES;
@@ -214,7 +215,7 @@ export function formatDiagnostic(d: Diagnostic): string {
   return s + `\n  docs: ${/^SN\d{3}$/.test(d.code) ? `\`npx sinter docs ${d.code}\`, ` : ''}${docsUrl(d.code)}`;
 }
 
-function distance(a: string, b: string): number {
+export function distance(a: string, b: string): number {
   const prev = Array.from({ length: b.length + 1 }, (_, i) => i);
   for (let i = 1; i <= a.length; i++) {
     let diag = prev[0]!;

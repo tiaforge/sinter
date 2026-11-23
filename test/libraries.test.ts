@@ -187,6 +187,9 @@ describe('the components', () => {
     const unknown = build(root, page('<ui-crd></ui-crd>')).diagnostics;
     expect(unknown.map((d) => [d.code, d.message, d.hint])).toEqual([['SN339', '`<ui-crd>` is not a component of `@fixture/ui`, which owns the prefix `ui-`', ' Did you mean `ui-card`? its public components: `<ui-card>`, `<ui-tree>`'.trim()]]);
     // internal through a map in `<sn-component use>`, and a fill (the app's markup) inside a library's root
+    // a tag one letter off a public component, outside the library's prefix: SN547; an internal one is no suggestion
+    const close = build(root, page('<ux-card data-sn-with="{ title: \'x\' }"></ux-card><ux-node></ux-node>')).diagnostics;
+    expect(close.map((d) => [d.code, d.severity, d.message])).toEqual([['SN547', 'warning', '`<ux-card>` is not a component, so it stays a plain custom element; `<ui-card>` is a component. Did you mean `ui-card`?']]);
     const map = build(root, page(`<div data-sn-state="{ t: 'a' }"><sn-component use="{ a: 'ui-node', b: 'ui-card' }[t]" data-sn-with="{ title: 'x' }"></sn-component>
       <ui-tree data-sn-with="{ items: [] }"><span slot="node"><ui-node data-sn-with="{ item: $slot.item }"></ui-node></span></ui-tree></div>`)).diagnostics;
     expect(codes(map)).toEqual(['SN339', 'SN339']);
