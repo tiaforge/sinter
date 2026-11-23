@@ -543,3 +543,9 @@ decision of their own (stage 7). A step that can stay byte-identical does.
   that session to fix: `known`'s exclusion of the current model's persisted path leaks into the worklist's last
   walk, so whether a persisted model's own field counts as known depends on where it is read (in no app or test).
   No agent is left on the coordinating machine; every workstream is a cloud session now.
+- 2026-11-23, 22:50 UTC: **like for like on the coordinating machine, now idle** (load under 2; c4fa7e4; five runs
+  each, medians; 100 posts; the whole process from start to exit, and in brackets the build's time inside it):
+  static 2.65 s (2.49), with the type check 2.71 s (2.57), live 3.19 s (2.97), a page file per post 3.25 s (3.08),
+  live 4.24 s (4.04); **Astro 7.4 cold, whole process: 2.05 s** (1.98 to 2.40). This machine is slower than the
+  cloud sessions' (Astro 1.73 s there). So the static blog is 0.6 s behind Astro here, 1.29 times its time; the
+  process outside the build is about 0.17 s of that.
