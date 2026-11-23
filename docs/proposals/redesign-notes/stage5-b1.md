@@ -13,7 +13,7 @@ Running log (2026-11-23), branch `redesign/stage5-b1`, started at `5f203af` (the
 
 - The machine: a cloud container, 4 cores (Intel Xeon @ 2.10GHz), 15 GB, Node 22.23.5, nothing else running
   (load under 1 before each run).
-- `SN_FROM_WALK_LOG=<file>` (src/compiler/compile.ts, `appliedLog`): one line per second pass, the kinds of decision
+- `SN_APPLIED_LOG=<file>` (src/compiler/compile.ts, `appliedLog`): one line per second pass, the kinds of decision
   it applied and where (recorded by `expandConstants` as it applies them), the first pass's context (a layout, the
   image pipeline, a kept element), the test or page. Kinds: `if:<where>` a decided `data-sn-if`, `loop rendered` a
   block spliced, `loop unrolled:<where>` an unrolled loop compiled the old way, `choice dropped/inlined/rendered`,
@@ -36,7 +36,7 @@ page-compile (`node bench/page-compile/run.mjs 200 7`, 3 runs): median 419 / 375
 
 ## 2. What the second passes apply
 
-### The suite (`SN_FROM_WALK_LOG` over `npx vitest run`: 300 files, 2,883 tests pass)
+### The suite (`SN_APPLIED_LOG` over `npx vitest run`: 300 files, 2,883 tests pass)
 
 2,040 second passes. By what they apply:
 
