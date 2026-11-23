@@ -380,6 +380,8 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   let server: ViteDevServer | null = null;
   let resolved: ResolvedConfig | null = null;
   const modules = new Map<string, string>();
+  /** builds: each bundle's entry chunks by facade (`entryChunk`) */
+  const entryIndex = new WeakMap<object, Map<string, unknown>>();
   /** each page and early module's source map: from the compiled expressions back to the markup */
   const maps = new Map<string, SourceMap>();
   const setModule = (id: string, code: string, map: SourceMap | undefined) => {
@@ -2079,7 +2081,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       // its language, written into the page
       if (moduleNs.size || earlyKeys.size) for (const rel of new Set([...earlyFiles.keys(), ...runtimeOf.keys()])) {
         if (runtimeOf.get(rel)?.length === 0) continue;
-        const entry = Object.values(bundle).find((c) => c.type === 'chunk' && c.isEntry && c.facadeModuleId === resolve(root, rel));
+        const entry = entryChunk(bundle, rel) as Extract<(typeof bundle)[string], { type: 'chunk' }> | undefined;
         const want = new Map<string, Set<string>>(), seen = new Set<string>(), todo = entry ? [entry.fileName] : [];
         const add = (ns: string, k: string) => { if (!want.has(ns)) want.set(ns, new Set()); want.get(ns)!.add(k); };
         for (const x of earlyKeys.get(rel) ?? []) { const [ns, k] = x.split('\0') as [string, string]; add(ns, k); }
@@ -2467,7 +2469,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
    */
   function pageCss(bundle: Record<string, unknown>, rel: string): string[] {
     type C = { type: string; fileName: string; isEntry?: boolean; facadeModuleId?: string | null; imports?: string[]; viteMetadata?: { importedCss: Set<string> } };
-    const entry = (Object.values(bundle) as C[]).find((c) => c.type === 'chunk' && c.isEntry && c.facadeModuleId === resolve(root, rel));
+    const entry = entryChunk(bundle, rel) as C | undefined;
     const out = new Set<string>(), seen = new Set<string>(), todo = entry ? [entry.fileName] : [];
     while (todo.length) {
       const f = todo.pop()!;
@@ -2586,10 +2588,28 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     }
   }
 
+  /**
+   * builds: a page's entry chunk (the first entry whose facade is the page), through an index of the bundle's entries
+   * made once per bundle: each page looked for it in every chunk, resolving its path once per chunk (at 400 pages,
+   * ~140 ms of generateBundle). A hit is checked to still be in the bundle; a miss looks the slow way.
+   */
+  function entryChunk(bundle: Record<string, unknown>, rel: string): unknown {
+    type C = { type: string; fileName: string; isEntry?: boolean; facadeModuleId?: string | null };
+    let idx = entryIndex.get(bundle);
+    if (!idx) {
+      idx = new Map();
+      for (const c of Object.values(bundle) as C[]) if (c.type === 'chunk' && c.isEntry && c.facadeModuleId && !idx.has(c.facadeModuleId)) idx.set(c.facadeModuleId, c);
+      entryIndex.set(bundle, idx);
+    }
+    const id = resolve(root, rel), hit = idx.get(id) as C | undefined;
+    if (hit && bundle[hit.fileName] === hit) return hit;
+    return (Object.values(bundle) as C[]).find((c) => c.type === 'chunk' && c.isEntry && c.facadeModuleId === id);
+  }
+
   /** builds: the real paths of the modules a page's bundle loads with it (its entry chunk and their static imports) */
   function pageModules(bundle: Record<string, unknown>, rel: string): Set<string> {
     const chunks = Object.values(bundle) as Array<{ type: string; fileName: string; isEntry?: boolean; facadeModuleId?: string | null; imports?: string[]; moduleIds?: string[] }>;
-    const entry = chunks.find((c) => c.type === 'chunk' && c.isEntry && c.facadeModuleId === resolve(root, rel));
+    const entry = entryChunk(bundle, rel) as (typeof chunks)[number] | undefined;
     const out = new Set<string>(), seen = new Set<string>(), todo = entry ? [entry.fileName] : [];
     while (todo.length) {
       const f = todo.pop()!;

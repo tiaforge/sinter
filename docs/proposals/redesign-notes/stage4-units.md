@@ -442,7 +442,10 @@ So the check of a page with a unit costs about 90 ms a page on top of `tsc` (15 
 for keying the shadow's functions by text), nearly all of it the unit's part, which is the same text on every page
 but for its numbers.
 
-### Step 3 (a unit's check data once): the design, not built yet
+### Step 3 (a unit's check data once): the design
+
+Built on `redesign/check-data-once`: see [stage4-check-once.md](stage4-check-once.md) (sinter-mail's `check()`
+1,087 to 525 ms for 12 pages, the diagnostics byte for byte the same).
 
 What makes every page's part different is only its numbers: the frames' and expressions' indices (`$e<i>`, the
 frames a function opens) and the page's file in the locations. So:

@@ -91,6 +91,8 @@ export const LINK_FIELDS: Record<string, { kinds: string[]; how: 'table' | 'weak
   emptyDefaults: { kinds: ['WeakMap'], how: 'weak' },
   emptyOf: { kinds: ['WeakMap'], how: 'weak' },
   enclosing: { kinds: ['WeakMap'], how: 'weak' },
+  // (what a kept template's evaluation read of its program, `decideFor`: set by no definition's compile)
+  evalProgram: { kinds: ['empty', 'object'], how: 'cache' },
   exprsOf: { kinds: ['Map'], how: 'table' },
   features: { kinds: ['Set'], how: 'table' },
   fileData: { kinds: ['Map'], how: 'table' },
@@ -186,6 +188,7 @@ export const LINK_FIELDS: Record<string, { kinds: string[]; how: 'table' | 'weak
   checkDone: { kinds: ['Set'], how: 'linker' },
   checkLast: { kinds: ['number'], how: 'linker' },
   checkOrder: { kinds: ['boolean'], how: 'linker' },
+  checkParts: { kinds: ['empty', 'Array'], how: 'linker' },
   touched: { kinds: ['Map'], how: 'linker' },
   pointNames: { kinds: ['Array'], how: 'table' },
   points: { kinds: ['WeakMap'], how: 'weak' },
